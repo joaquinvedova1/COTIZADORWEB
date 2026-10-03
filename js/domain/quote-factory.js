@@ -81,7 +81,9 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     },
     indirect: { method: 'percent_direct', pct: 0, amount: 0 },
     finance: {
-      paymentTermDays: null,
+      // Se usa el plazo por defecto de la configuración; si no hay, queda sin
+      // definir y el Cost Completeness Score lo marca en rojo.
+      paymentTermDays: Number.isFinite(settings.defaultPaymentTermDays) ? settings.defaultPaymentTermDays : null,
       invoiceLagDays: 15,
       monthlyRatePct: settings.financeMonthlyRatePct ?? 0,
       payDays: { salaries: 20, fuel: 0, suppliers: 30, materials: 30, structure: 20 },

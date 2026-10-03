@@ -16,13 +16,26 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     return repository.getSettings();
   }
 
+  /**
+   * Próximo código COT-NNNN. Usa un contador monotónico guardado en la
+   * configuración (lastQuoteNumber) para no reutilizar nunca el código de
+   * una cotización eliminada (puede haber sido enviada a un cliente).
+   */
   async function nextCode() {
-    const quotes = await repository.getQuotes();
-    const max = quotes.reduce((m, q) => {
+    const [quotes, s] = await Promise.all([repository.getQuotes(), settings()]);
+    const maxExisting = quotes.reduce((m, q) => {
       const match = /^COT-(\d+)$/.exec(q.code || '');
       return match ? Math.max(m, Number(match[1])) : m;
     }, 0);
-    return `COT-${String(max + 1).padStart(4, '0')}`;
+    const last = Number.isInteger(s.lastQuoteNumber) && s.lastQuoteNumber > 0 ? s.lastQuoteNumber : 0;
+    const number = Math.max(maxExisting, last) + 1;
+    return { code: `COT-${String(number).padStart(4, '0')}`, number };
+  }
+
+  async function reserveCode() {
+    const next = await nextCode();
+    await repository.saveSettings({ lastQuoteNumber: next.number });
+    return next.code;
   }
 
   return {
@@ -42,7 +55,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     async createQuote({ templateId = null } = {}) {
       const [org, s, services] = await Promise.all([repository.getOrganization(), settings(), repository.getServices()]);
       const template = templateId ? services.find((t) => t.id === templateId) || null : null;
-      const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await nextCode() };
+      const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode() };
       const quote = template ? createQuoteFromTemplate(template, options) : createEmptyQuote(options);
       const saved = await repository.saveQuote(quote);
       track('quote_created', { serviceType: saved.serviceType, source: template ? 'template' : 'blank' });
@@ -59,7 +72,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       if (!original) return null;
       const copy = deepClone(original);
       copy.id = idFactory();
-      copy.code = await nextCode();
+      copy.code = await reserveCode();
       copy.name = `${original.name} (copia)`;
       copy.status = 'draft';
       copy.createdAt = clock();

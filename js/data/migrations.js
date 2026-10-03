@@ -45,18 +45,31 @@ export function migrateV0ToV1(state, { now = new Date().toISOString(), idFactory
     if (!known.has(k)) legacy[k] = src[k];
   });
 
-  const withOrg = (list) =>
-    (Array.isArray(list) ? list : [])
+  const withOrg = (list) => {
+    const seen = new Set();
+    return (Array.isArray(list) ? list : [])
       .filter(isPlainObject)
-      .map((item) => ({
-        ...item,
-        id: typeof item.id === 'string' && item.id ? item.id : idFactory(),
-        organizationId: item.organizationId ?? orgId,
-        createdAt: item.createdAt ?? now,
-        updatedAt: item.updatedAt ?? now,
-      }));
+      .map((item) => {
+        let id = typeof item.id === 'string' && item.id ? item.id : idFactory();
+        // Ids duplicados en datos legados: se conservan ambos registros, el repetido con id nuevo.
+        while (seen.has(id)) id = idFactory();
+        seen.add(id);
+        return {
+          ...item,
+          id,
+          organizationId: item.organizationId ?? orgId,
+          createdAt: item.createdAt ?? now,
+          updatedAt: item.updatedAt ?? now,
+        };
+      });
+  };
 
   const resources = isPlainObject(src.resources) ? src.resources : {};
+  // Colecciones de recursos desconocidas: se guardan en legacy para no perderlas.
+  const unknownResourceTypes = Object.keys(resources).filter((t) => !Object.hasOwn(base.resources, t));
+  if (unknownResourceTypes.length > 0) {
+    legacy.resources = Object.fromEntries(unknownResourceTypes.map((t) => [t, resources[t]]));
+  }
   const out = {
     ...base,
     schemaVersion: 1,

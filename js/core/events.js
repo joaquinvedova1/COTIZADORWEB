@@ -45,8 +45,9 @@ const ENUM_RE = /^[a-z0-9_]{1,40}$/;
 /** Filtra propiedades: descarta todo lo que no esté permitido. */
 export function sanitizeEventProps(props = {}) {
   const clean = {};
+  if (props === null || typeof props !== 'object') return clean;
   for (const [key, kind] of Object.entries(ALLOWED_PROPS)) {
-    if (!(key in props)) continue;
+    if (!Object.hasOwn(props, key)) continue;
     const v = props[key];
     if (kind === 'boolean' && typeof v === 'boolean') clean[key] = v;
     if (kind === 'enum' && typeof v === 'string' && ENUM_RE.test(v)) clean[key] = v;

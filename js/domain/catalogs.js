@@ -74,6 +74,21 @@ export const ILLUSTRATIVE_AGREEMENT_PARAMS = deepFreeze({
   artPct: 6,
 });
 
+/** Tipos de equipo de la biblioteca. */
+export const EQUIPMENT_TYPES = deepFreeze([
+  { id: 'vehicle', label: 'Vehículo liviano / pickup' },
+  { id: 'truck', label: 'Camión' },
+  { id: 'crane_truck', label: 'Camión con hidrogrúa' },
+  { id: 'crane', label: 'Grúa' },
+  { id: 'backhoe', label: 'Retroexcavadora' },
+  { id: 'generator', label: 'Generador' },
+  { id: 'compressor', label: 'Compresor' },
+  { id: 'pump', label: 'Bomba' },
+  { id: 'trailer', label: 'Tráiler / semirremolque' },
+  { id: 'tools', label: 'Herramientas especiales' },
+  { id: 'other', label: 'Otro' },
+]);
+
 export const MATERIAL_PROVIDERS = deepFreeze([
   { id: 'contractor', label: 'Nosotros (contratista)', costForUs: true },
   { id: 'third_party', label: 'Tercero contratado por nosotros', costForUs: true },

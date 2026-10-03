@@ -204,11 +204,11 @@ export function numberField({ label, value, rule = 'money', onChange, hint = nul
 }
 
 /** Campo de texto. onChange(texto) en cada cambio. */
-export function textField({ label, value = '', onChange, placeholder = '', maxLength = 200, hint = null, required = false, multiline = false, name = null }) {
+export function textField({ label, value = '', onChange, placeholder = '', maxLength = 200, hint = null, required = false, multiline = false, name = null, disabled = false }) {
   const id = uniqueId('txt');
   const control = multiline
-    ? h('textarea', { id, name, rows: '3', maxlength: String(maxLength), placeholder })
-    : h('input', { id, name, type: 'text', maxlength: String(maxLength), placeholder, value: value ?? '' });
+    ? h('textarea', { id, name, rows: '3', maxlength: String(maxLength), placeholder, disabled })
+    : h('input', { id, name, type: 'text', maxlength: String(maxLength), placeholder, value: value ?? '', disabled });
   if (multiline) control.value = value ?? '';
   control.addEventListener('input', () => {
     if (typeof onChange === 'function') onChange(control.value.slice(0, maxLength));
@@ -220,9 +220,9 @@ export function textField({ label, value = '', onChange, placeholder = '', maxLe
  * Selector.
  * options: [{ value, label, disabled? }]
  */
-export function selectField({ label, value, options, onChange, hint = null, name = null, includeEmpty = false, emptyLabel = 'Seleccionar…' }) {
+export function selectField({ label, value, options, onChange, hint = null, name = null, includeEmpty = false, emptyLabel = 'Seleccionar…', disabled = false }) {
   const id = uniqueId('sel');
-  const select = h('select', { id, name },
+  const select = h('select', { id, name, disabled },
     includeEmpty ? h('option', { value: '' }, emptyLabel) : null,
     ...options.map((o) => h('option', { value: String(o.value), disabled: Boolean(o.disabled), selected: String(o.value) === String(value ?? '') }, o.label)));
   select.addEventListener('change', () => {
@@ -232,9 +232,9 @@ export function selectField({ label, value, options, onChange, hint = null, name
 }
 
 /** Casilla de verificación. */
-export function checkboxField({ label, checked = false, onChange, hint = null, name = null }) {
+export function checkboxField({ label, checked = false, onChange, hint = null, name = null, disabled = false }) {
   const id = uniqueId('chk');
-  const input = h('input', { id, name, type: 'checkbox', checked });
+  const input = h('input', { id, name, type: 'checkbox', checked, disabled });
   input.addEventListener('change', () => {
     if (typeof onChange === 'function') onChange(input.checked);
   });
@@ -244,12 +244,12 @@ export function checkboxField({ label, checked = false, onChange, hint = null, n
 }
 
 /** Grupo de opciones tipo "tarjeta" (radio). options: [{ value, label, hint }] */
-export function choiceGroup({ label, value, options, onChange, name = uniqueId('choice') }) {
+export function choiceGroup({ label, value, options, onChange, name = uniqueId('choice'), disabled = false }) {
   return h('fieldset', { class: 'choice-group' },
     h('legend', { class: 'field-label' }, label),
     h('div', { class: 'choice-grid' }, ...options.map((o) => {
       const id = uniqueId('opt');
-      const input = h('input', { type: 'radio', id, name, value: String(o.value), checked: String(o.value) === String(value) });
+      const input = h('input', { type: 'radio', id, name, value: String(o.value), checked: String(o.value) === String(value), disabled: disabled || Boolean(o.disabled) });
       input.addEventListener('change', () => {
         if (input.checked && typeof onChange === 'function') onChange(o.value);
       });

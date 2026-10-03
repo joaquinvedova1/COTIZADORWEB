@@ -55,7 +55,7 @@ function checkJsonSafe(value, path, errors, depth = 0) {
     errors.push(`${path}: estructura demasiado profunda.`);
     return;
   }
-  if (value === null) return;
+  if (value === null || value === undefined) return; // JSON.stringify omite undefined
   const t = typeof value;
   if (t === 'string') {
     if (value.length > LIMITS.maxStringLength) errors.push(`${path}: texto demasiado largo.`);

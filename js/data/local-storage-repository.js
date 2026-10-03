@@ -74,9 +74,16 @@ export class LocalStorageRepository extends StorageRepository {
       if (parsed === undefined || version === null) {
         const recoveryKey = this.saveRecoverySnapshot(raw, 'corrupt');
         this.state = this.seedFactory();
-        this.persist(this.state);
-        status = 'recovered';
-        messages.push(`Los datos guardados estaban dañados. Se conservó una copia (${recoveryKey}) y se cargó la demo.`);
+        if (recoveryKey) {
+          this.persist(this.state);
+          status = 'recovered';
+          messages.push(`Los datos guardados estaban dañados. Se conservó una copia (${recoveryKey}) y se cargó la demo.`);
+        } else {
+          // Sin espacio para la copia: NO se pisa el original. Demo sólo en memoria.
+          this.readOnly = true;
+          status = 'read_only';
+          messages.push('Los datos guardados están dañados y no hay espacio para guardar una copia. No se modificaron: descargalos desde la pantalla de recuperación y liberá espacio. Mientras tanto se muestra la demo en modo sólo lectura.');
+        }
       } else if (version > CURRENT_SCHEMA_VERSION) {
         this.state = parsed;
         this.readOnly = true;
@@ -86,9 +93,17 @@ export class LocalStorageRepository extends StorageRepository {
         const recoveryKey = this.saveRecoverySnapshot(raw, `pre-migration-v${version}`);
         const migrated = migrateState(parsed, { now: this.now(), idFactory: this.idFactory });
         this.state = migrated.state;
-        this.persist(this.state);
-        status = 'migrated';
-        messages.push(`Datos actualizados del esquema ${version} al ${CURRENT_SCHEMA_VERSION}. Copia previa: ${recoveryKey}.`);
+        if (validateState(this.state).ok) {
+          this.persist(this.state);
+          status = 'migrated';
+          messages.push(`Datos actualizados del esquema ${version} al ${CURRENT_SCHEMA_VERSION}. Copia previa: ${recoveryKey}.`);
+        } else {
+          // La migración no produjo un estado válido: no se persiste nada
+          // (el original sigue intacto) y se abre en sólo lectura.
+          this.readOnly = true;
+          status = 'read_only';
+          messages.push(`No se pudieron actualizar los datos guardados al esquema ${CURRENT_SCHEMA_VERSION}. No se modificaron (copia previa: ${recoveryKey}). Se abren en modo sólo lectura: exportá un backup y contactá soporte.`);
+        }
       } else {
         const check = validateState(parsed);
         if (!check.ok) {
@@ -149,8 +164,11 @@ export class LocalStorageRepository extends StorageRepository {
     const result = mutator(draft);
     const check = validateState(draft);
     if (!check.ok) throw new RepositoryError(`Datos inválidos: ${check.errors.join(' ')}`, 'validation_failed');
-    this.persist(draft);
-    this.state = draft;
+    // Copia final: corta toda referencia a objetos del llamador (entidades o
+    // patches anidados) para que la memoria nunca difiera de lo persistido.
+    const next = deepClone(draft);
+    this.persist(next);
+    this.state = next;
     return deepClone(result);
   }
 
@@ -401,7 +419,10 @@ export class LocalStorageRepository extends StorageRepository {
 
   /** Guarda una copia literal en una clave de recuperación. Devuelve la clave. */
   saveRecoverySnapshot(raw, reason) {
-    const key = `${STORAGE_KEYS.recoveryPrefix}${this.now().replace(/[:.]/g, '-')}.${reason}`;
+    const base = `${STORAGE_KEYS.recoveryPrefix}${this.now().replace(/[:.]/g, '-')}.${reason}`;
+    let key = base;
+    // Dos copias en el mismo milisegundo no deben pisarse.
+    for (let n = 2; this.storage.getItem(key) !== null; n += 1) key = `${base}.${n}`;
     try {
       this.storage.setItem(key, String(raw));
       this.pruneRecoverySnapshots();
@@ -410,6 +431,7 @@ export class LocalStorageRepository extends StorageRepository {
       if (reason !== 'corrupt') {
         throw new RepositoryError('No hay espacio para guardar una copia de seguridad previa. Exportá un backup y liberá espacio antes de continuar.', 'recovery_failed', error);
       }
+      return null;
     }
     return key;
   }
@@ -430,9 +452,16 @@ export class LocalStorageRepository extends StorageRepository {
     return this.storage.getItem(key);
   }
 
-  /** Conserva sólo las MAX_RECOVERY_SNAPSHOTS copias más recientes. */
+  /**
+   * Conserva sólo las MAX_RECOVERY_SNAPSHOTS copias más recientes de cada
+   * tipo. Las copias de datos dañados ("corrupt") se podan aparte para que
+   * importaciones o restauraciones posteriores nunca borren la única copia
+   * del texto original dañado.
+   */
   pruneRecoverySnapshots() {
     const keys = this.listRecoverySnapshots();
-    keys.slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.storage.removeItem(k));
+    const isCorrupt = (k) => /\.corrupt(\.\d+)?$/.test(k);
+    keys.filter((k) => !isCorrupt(k)).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.storage.removeItem(k));
+    keys.filter(isCorrupt).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.storage.removeItem(k));
   }
 }

@@ -23,14 +23,21 @@ export function createBackupService({ repository, clock = () => new Date().toISO
     /** Valida un texto JSON de backup sin aplicarlo. */
     parseBackupText(text) {
       if (typeof text !== 'string' || text.trim() === '') return { ok: false, errors: ['El archivo está vacío.'] };
-      if (text.length > MAX_BACKUP_BYTES) return { ok: false, errors: ['El archivo supera el tamaño máximo permitido (5 MB).'] };
+      // Primero el largo (barato) y luego los bytes reales en UTF-8.
+      if (text.length > MAX_BACKUP_BYTES || new TextEncoder().encode(text).length > MAX_BACKUP_BYTES) {
+        return { ok: false, errors: ['El archivo supera el tamaño máximo permitido (5 MB).'] };
+      }
       let data;
       try {
         data = JSON.parse(text);
       } catch {
         return { ok: false, errors: ['El archivo no es un JSON válido.'] };
       }
-      const prepared = typeof repository.prepareImport === 'function' ? repository.prepareImport(data) : { ok: true, errors: [], summary: null };
+      // Nunca se importa sin validar antes (Prompt 2): si el almacenamiento no
+      // sabe validar, la importación se rechaza.
+      const prepared = typeof repository.prepareImport === 'function'
+        ? repository.prepareImport(data)
+        : { ok: false, errors: ['Este almacenamiento no permite validar backups antes de importarlos.'] };
       return { ...prepared, data };
     },
 

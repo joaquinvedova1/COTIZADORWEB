@@ -46,3 +46,19 @@ export function getBrowserStorage(globalObject = globalThis) {
     return null;
   }
 }
+
+/**
+ * Devuelve localStorage si se puede LEER (sin escribir). Se usa para
+ * recuperar datos cuando el almacenamiento está lleno o bloqueado para
+ * escritura. Nunca lanza.
+ */
+export function getReadableBrowserStorage(globalObject = globalThis) {
+  try {
+    const storage = globalObject.localStorage;
+    if (!storage) return null;
+    storage.getItem('__rateos_probe__');
+    return storage;
+  } catch {
+    return null;
+  }
+}
