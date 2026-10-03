@@ -1,0 +1,9 @@
+{
+  "id": "modo-b-margen-objetivo",
+  "title": "Modo B (conozco la actividad): tarifa sugerida logra exactamente el margen objetivo",
+  "rule": "Sin tarifa conocida, la tarifa sugerida es costo / (1 − margen) / días = 38.000.000 / 0,9 / 8 = 5.277.777,78; con ella el margen sobre precio es 10 % y el markup sobre costo 11,11 %.",
+  "engine": "quote.onCall",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "activeDays": 8, "targetMarginPct": 10 },
+  "expected": { "kpis.commercialListRate": 5277777.777777778, "kpis.marginPct": 10, "kpis.markupPct": 11.111111111111111, "kpis.commercialSource": "suggested" },
+  "tolerance": 1e-6
+}

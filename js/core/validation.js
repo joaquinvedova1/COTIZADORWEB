@@ -8,9 +8,9 @@
 import { toNumber } from './money.js';
 
 export const RULES = Object.freeze({
-  money: { min: 0, message: 'Ingresá un monto mayor o igual a 0.' },
-  quantity: { min: 0, message: 'La cantidad debe ser mayor o igual a 0.' },
-  distance: { min: 0, message: 'La distancia debe ser mayor o igual a 0.' },
+  money: { min: 0, max: 1e15, message: 'Ingresá un monto mayor o igual a 0 (hasta 1.000 billones).' },
+  quantity: { min: 0, max: 1e9, message: 'La cantidad debe ser mayor o igual a 0.' },
+  distance: { min: 0, max: 100000, message: 'La distancia debe estar entre 0 y 100.000 km.' },
   hours: { min: 0, max: 744, message: 'Las horas deben estar entre 0 y 744.' },
   hoursPerDay: { min: 0, max: 24, message: 'Las horas por día deben estar entre 0 y 24.' },
   days: { min: 0, max: 366, message: 'Los días deben estar entre 0 y 366.' },

@@ -1,0 +1,9 @@
+{
+  "id": "on-call-fee-disponibilidad",
+  "title": "Break-even con fee de disponibilidad: 8 días",
+  "rule": "Con un fee de disponibilidad mensual, break-even = (costos fijos − fee) / (tarifa − variable): (30.000.000 − 6.000.000) / (4.000.000 − 1.000.000) = 8 días.",
+  "engine": "quote.onCall",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "activeDays": 8, "ratePerDay": 4000000, "targetMarginPct": 10, "availabilityFeeMonthly": 6000000 },
+  "expected": { "kpis.breakEvenDays": 8, "kpis.revenue": 38000000, "kpis.profit": 0 },
+  "tolerance": 1e-6
+}

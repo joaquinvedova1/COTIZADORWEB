@@ -1,0 +1,9 @@
+{
+  "id": "tarifa-piso-8-dias",
+  "title": "Tarifa piso con 8 días activos: 4.750.000",
+  "rule": "Tarifa piso = costo total del mes / días facturables = (30.000.000 + 8 × 1.000.000) / 8 = 4.750.000 por día.",
+  "engine": "quote.onCall",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "activeDays": 8, "targetMarginPct": 10 },
+  "expected": { "kpis.floorNetRate": 4750000, "kpis.totalCost": 38000000 },
+  "tolerance": 1e-6
+}

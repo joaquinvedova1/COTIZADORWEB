@@ -1,0 +1,9 @@
+{
+  "id": "on-call-tarifa-minima-6-dias",
+  "title": "Problema inverso: tarifa mínima trabajando 6 días/mes",
+  "rule": "Si estimo trabajar D días/mes, la tarifa mínima (break-even) es fijos / D + variable por día: 30.000.000 / 6 + 1.000.000 = 6.000.000 por día.",
+  "engine": "break-even.minimumRateForDays",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "activeDays": 6 },
+  "expected": { "value": 6000000 },
+  "tolerance": 1e-6
+}

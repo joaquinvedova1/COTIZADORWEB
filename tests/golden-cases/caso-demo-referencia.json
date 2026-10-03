@@ -1,0 +1,18 @@
+{
+  "id": "caso-demo-referencia",
+  "title": "Caso demo de referencia completo (computeQuote)",
+  "rule": "La cotización demo de referencia (fijos 30M, variable 1M/día, tarifa 4M/día, 8 días estimados) da break-even 10 días, tarifa piso 4.750.000, facturación 32.000.000, costo 38.000.000 y resultado −6.000.000.",
+  "engine": "quote.demoReference",
+  "inputs": {},
+  "expected": {
+    "kpis.breakEvenDays": 10,
+    "kpis.breakEvenWholeDays": 10,
+    "kpis.floorNetRate": 4750000,
+    "kpis.revenue": 32000000,
+    "kpis.totalCost": 38000000,
+    "kpis.profit": -6000000,
+    "kpis.belowFloor": true,
+    "kpis.atRisk": true
+  },
+  "tolerance": 1e-6
+}

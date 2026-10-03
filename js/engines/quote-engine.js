@@ -179,7 +179,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     suggestedListRate,
     commercialListRate: hasRate ? commercialListRate : null,
     commercialNetRate: hasRate ? commercialNetRate : null,
-    commercialSource,
+    commercialSource: hasRate ? commercialSource : 'none',
     revenue: estimate.revenue.total,
     profit: estimate.profit,
     marginPct: estimate.marginPct,

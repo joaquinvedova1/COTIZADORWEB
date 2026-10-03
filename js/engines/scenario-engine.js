@@ -11,7 +11,7 @@ import { DEFAULT_SCENARIOS } from '../config.js';
 import { deepClone } from '../core/object.js';
 import { nonNegative, toNumber, pct, isFiniteNumber } from '../core/money.js';
 import { computeQuote } from './quote-engine.js';
-import { buildCostModel, costAtActivity } from './cost-engine.js';
+import { buildCostModel, costAtActivity, normalizeActivity } from './cost-engine.js';
 import { findBreakEvenDays } from './break-even-engine.js';
 import { marginFromPrice } from './pricing-engine.js';
 
@@ -51,9 +51,10 @@ export function applySensitivity(quote, deltas = {}) {
   });
 
   q.activity = q.activity || {};
-  const available = nonNegative(q.activity.availableDaysPerMonth, 30);
+  // Mismos días disponibles que usa el motor (0 o inválido → 30).
+  const available = normalizeActivity(q).availableDaysPerMonth;
   const active = nonNegative(q.activity.activeDaysPerMonth) * factor(deltas.activityPct);
-  q.activity.activeDaysPerMonth = available > 0 ? Math.min(active, available) : active;
+  q.activity.activeDaysPerMonth = Math.min(active, available);
 
   q.finance = q.finance || {};
   if (toNumber(deltas.paymentTermDays, 0) !== 0) {

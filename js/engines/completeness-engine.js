@@ -14,6 +14,7 @@
 import { nonNegative, toNumber } from '../core/money.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES } from '../domain/catalogs.js';
 import { contingencyPctOf } from './cost-engine.js';
+import { isValidMarginPct } from './pricing-engine.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
@@ -64,7 +65,7 @@ export function evaluateCompleteness(quote = {}) {
   // 3. Utilización on-call
   if (isOnCall || quote.pricingMode === 'known_activity') {
     const ok = nonNegative(activity.activeDaysPerMonth) > 0;
-    items.push(rule('utilization', isOnCall ? 'Utilización on-call (días activos)' : 'Actividad estimada', 'service', 2,
+    items.push(rule('utilization', isOnCall ? 'Utilización on-call (días activos)' : 'Actividad estimada', 'modality', 2,
       ok ? 'ok' : 'missing',
       ok ? 'Días activos estimados por mes definidos.' : '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando? Falta ese dato.'));
   }
@@ -143,11 +144,19 @@ export function evaluateCompleteness(quote = {}) {
   items.push(rule('contingency', 'Contingencia', 'risk', 1, contOk ? 'ok' : 'warning',
     contOk ? 'Contingencia configurada.' : 'Sin contingencia: cualquier imprevisto sale del margen.'));
 
-  // 13. Margen
+  // 13. Margen (un margen inválido — ≥ 100 %, negativo o texto — no cuenta como definido)
   const marginBlank = isBlank(pricing.targetMarginPct);
-  const marginPositive = nonNegative(pricing.targetMarginPct) > 0;
-  items.push(rule('margin', 'Margen objetivo', 'margin', 2, marginBlank ? 'missing' : marginPositive ? 'ok' : 'warning',
-    marginBlank ? 'Falta definir el margen objetivo.' : marginPositive ? 'Margen objetivo definido.' : 'Margen objetivo en 0 %: cotizás sin ganancia.'));
+  const marginValue = toNumber(pricing.targetMarginPct, NaN);
+  const marginInvalid = !marginBlank && !isValidMarginPct(marginValue);
+  const marginPositive = !marginBlank && !marginInvalid && marginValue > 0;
+  items.push(rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid ? 'missing' : marginPositive ? 'ok' : 'warning',
+    marginBlank
+      ? 'Falta definir el margen objetivo.'
+      : marginInvalid
+        ? 'El margen objetivo debe ser mayor o igual a 0 y menor a 100 %.'
+        : marginPositive
+          ? 'Margen objetivo definido.'
+          : 'Margen objetivo en 0 %: cotizás sin ganancia.'));
 
   // 14. Standby (on-call)
   if (isOnCall) {
