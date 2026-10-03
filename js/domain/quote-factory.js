@@ -5,8 +5,7 @@
 
 import { createId } from '../core/ids.js';
 import { deepClone } from '../core/object.js';
-import { DEFAULT_VOLUME_TIERS } from '../engines/commercial-rules-engine.js';
-import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS } from './catalogs.js';
+import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS } from './catalogs.js';
 
 /** Configuración por defecto de la organización (valores ILUSTRATIVOS). */
 export function defaultSettings(organizationId = null) {

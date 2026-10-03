@@ -191,3 +191,12 @@ export function labelOf(catalog, id, fallback = '—') {
   const item = catalog.find((c) => c.id === id || c.code === id);
   return item ? item.label : fallback;
 }
+
+/** Tramos de descuento por cantidad de días (por defecto sin descuento). */
+export const DEFAULT_VOLUME_TIERS = deepFreeze([
+  { id: 'tier-1', fromDays: 1, toDays: 1, discountPct: 0 },
+  { id: 'tier-2', fromDays: 2, toDays: 7, discountPct: 0 },
+  { id: 'tier-3', fromDays: 8, toDays: 15, discountPct: 0 },
+  { id: 'tier-4', fromDays: 16, toDays: 30, discountPct: 0 },
+  { id: 'tier-5', fromDays: 31, toDays: null, discountPct: 0 },
+]);

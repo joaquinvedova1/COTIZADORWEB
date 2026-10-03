@@ -25,14 +25,11 @@
 import { nonNegative, pct, safeDivide, isFiniteNumber } from '../core/money.js';
 import { NUMERIC_EPSILON } from '../config.js';
 import { isValidMarginPct } from './pricing-engine.js';
+import { DEFAULT_VOLUME_TIERS } from '../domain/catalogs.js';
 
-export const DEFAULT_VOLUME_TIERS = Object.freeze([
-  Object.freeze({ id: 'tier-1', fromDays: 1, toDays: 1, discountPct: 0 }),
-  Object.freeze({ id: 'tier-2', fromDays: 2, toDays: 7, discountPct: 0 }),
-  Object.freeze({ id: 'tier-3', fromDays: 8, toDays: 15, discountPct: 0 }),
-  Object.freeze({ id: 'tier-4', fromDays: 16, toDays: 30, discountPct: 0 }),
-  Object.freeze({ id: 'tier-5', fromDays: 31, toDays: null, discountPct: 0 }),
-]);
+// Tramos por defecto (dato de dominio): se definen en catalogs.js y se
+// re-exportan para mantener la API pública del motor.
+export { DEFAULT_VOLUME_TIERS };
 
 /** Etiqueta legible de un tramo. */
 export function tierLabel(tier) {

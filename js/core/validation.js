@@ -88,7 +88,7 @@ export function validateQuote(quote) {
 
   (quote.labor || []).forEach((l, i) => {
     check(`labor.${i}.positions`, l.positions, 'quantity');
-    check(`labor.${i}.peoplePerPosition`, l.peoplePerPosition, 'quantity');
+    check(`labor.${i}.peoplePerPosition`, l.peoplePerPosition, 'positive');
     check(`labor.${i}.basicMonthly`, l.basicMonthly, 'money');
     check(`labor.${i}.normalHoursPerMonth`, l.normalHoursPerMonth, 'hours');
     check(`labor.${i}.overtimeHoursPerActiveDay`, l.overtimeHoursPerActiveDay, 'hoursPerDay');
