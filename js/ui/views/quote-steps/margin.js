@@ -13,6 +13,7 @@ import { tierLabel } from '../../../engines/commercial-rules-engine.js';
 import { formatMoney, formatPercent, formatNumber, formatValue, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
+import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove } from './shared.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -34,9 +35,8 @@ function ruleRow(title, explanation, fields, output = null) {
 export function render(container, ctx) {
   const { quote, kit } = ctx;
   const unit = RATE_UNITS.find((u) => u.id === quote.unit) || RATE_UNITS[0];
-  const unitShort = unit.long.replace('por ', '');
   const isModeB = quote.pricingMode !== 'known_rate';
-  const perUnit = (v) => (isFiniteNumber(v) ? `${formatMoney(v)} / ${unitShort}` : EMPTY);
+  const standbyOff = Boolean(quote.rules && quote.rules.standbyNotApplicable);
 
   // ------------------------------------------------------------ margen
   const marginCard = card(
@@ -70,22 +70,28 @@ export function render(container, ctx) {
       }),
       isModeB
         ? kit.num('pricing.offeredRateOverride', {
-          label: `Tarifa ofrecida manual (opcional, ${unit.label})`,
+          label: `Tarifa ofrecida manual (opcional, de lista, ${unit.label})`,
           rule: 'money',
           unit: unit.label,
-          hint: 'Si la dejás vacía, se usa la tarifa sugerida (precio objetivo redondeado).',
+          hint: 'Tarifa de lista, antes de descuentos (igual que la tarifa conocida). Si la dejás vacía, se usa la tarifa sugerida (precio objetivo redondeado hacia arriba).',
         })
         : kit.staticField(`Tarifa conocida (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', 'Elegiste "Conozco la tarifa": se edita en el paso Modalidad.'),
     ),
     kit.stats(
-      kit.stat((r) => `Precio objetivo (margen ${formatPercent(r.targetMarginPct)})`, (r) => perUnit(r.kpis.targetListRate), { trace: (r) => r.traces.targetRate, hint: 'Tarifa de lista, antes de descuentos.' }),
-      kit.stat('Tarifa sugerida (redondeada)', (r) => perUnit(r.kpis.suggestedListRate)),
-      kit.stat('Tarifa comercial', (r) => perUnit(r.kpis.commercialListRate), {
+      kit.stat((r) => `Precio objetivo de lista (margen ${formatPercent(r.targetMarginPct)})`, (r) => perUnitCeil(r.kpis.targetListRate, r.unit), {
+        trace: targetRateTrace,
+        hint: (r) => {
+          const net = netRateHint(r.kpis.targetNetRate, r);
+          return `Tarifa de lista, antes de descuentos.${net ? ` ${net}` : ''}`;
+        },
+      }),
+      kit.stat('Tarifa sugerida (de lista, redondeada)', (r) => perUnitCeil(r.kpis.suggestedListRate, r.unit), { hint: 'Precio objetivo redondeado hacia arriba.' }),
+      kit.stat('Tarifa comercial (de lista)', (r) => (r.kpis.commercialSource === 'suggested' ? perUnitCeil(r.kpis.commercialListRate, r.unit) : perUnitMoney(r.kpis.commercialListRate, r.unit)), {
         emphasis: true,
         hint: (r) => (isFiniteNumber(r.kpis.commercialNetRate) ? `Neta después de descuentos: ${formatMoney(r.kpis.commercialNetRate)}` : 'Sin tarifa'),
         trace: (r) => r.traces.expectedResult,
       }),
-      kit.stat('Margen esperado', (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatPercent(r.kpis.marginPct) : EMPTY), {
+      kit.stat('Margen esperado', (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY), {
         hint: (r) => (isFiniteNumber(r.kpis.markupPct) ? `Markup sobre costo: ${formatPercent(r.kpis.markupPct)}` : ''),
         tone: (r) => (!isFiniteNumber(r.kpis.commercialListRate) ? 'gray' : r.kpis.profit < 0 ? 'red' : r.kpis.belowTarget ? 'orange' : 'green'),
       }),
@@ -173,11 +179,29 @@ export function render(container, ctx) {
       'Standby',
       'Días por mes que el equipo queda en locación sin operar y se cobran a tarifa standby. El personal en standby también es costo.',
       [
-        kit.num('rules.standbyDaysPerMonth', { label: 'Días de standby por mes', rule: 'daysInMonth', unit: 'días' }),
-        kit.num('rules.standbyRatePerDay', { label: 'Tarifa standby', rule: 'money', unit: '$/día' }),
-        kit.check('rules.standbyNotApplicable', { label: 'No aplica standby' }),
+        kit.num('rules.standbyDaysPerMonth', {
+          label: 'Días de standby por mes',
+          rule: 'daysInMonth',
+          unit: 'días',
+          disabled: standbyOff,
+          hint: standbyOff ? 'No se usa: marcaste "No aplica standby".' : null,
+        }),
+        kit.num('rules.standbyRatePerDay', {
+          label: 'Tarifa standby',
+          rule: 'money',
+          unit: '$/día',
+          disabled: standbyOff,
+          hint: standbyOff ? 'No se usa: marcaste "No aplica standby".' : null,
+        }),
+        kit.check('rules.standbyNotApplicable', {
+          label: 'No aplica standby',
+          structural: true,
+          hint: 'Marcalo si el servicio no tiene standby: los días y la tarifa de standby no se usan (ingreso y costo de standby en $ 0).',
+        }),
       ],
-      kit.out((r) => `Ingreso por standby: ${formatMoney(r.estimate.revenue.components.standby)} · costo de personal en standby: ${formatMoney(r.model.standby.monthly)} por mes.`),
+      kit.out((r) => (standbyOff
+        ? 'No aplica standby: los días y la tarifa de standby cargados no se usan. Ingreso y costo de standby: $ 0.'
+        : `Ingreso por standby: ${formatMoney(r.estimate.revenue.components.standby)} · costo de personal en standby: ${formatMoney(r.model.standby.monthly)} por mes.`)),
     ),
     ruleRow(
       'Mínimo mensual garantizado',
@@ -212,7 +236,12 @@ export function render(container, ctx) {
     const index = tiers.length;
     ctx.mutate((q) => q.rules.volumeTiers.push({ id: `tier-${createId().slice(0, 8)}`, fromDays: from, toDays: null, discountPct: 0 }), { focus: `rules.volumeTiers.${index}.discountPct` });
   };
-  const removeTier = (index) => ctx.mutate((q) => q.rules.volumeTiers.splice(index, 1));
+  const removeTier = async (index) => {
+    const tier = tiers[index];
+    if (!tier) return;
+    const ok = await confirmRemove({ title: 'Quitar tramo', name: `Tramo ${tierLabel(tier)}`, extra: '' });
+    if (ok) ctx.mutate((q) => q.rules.volumeTiers.splice(index, 1));
+  };
 
   const tierStatus = (r, id) => {
     const d = (r.discounts || []).find((x) => x.id === id);

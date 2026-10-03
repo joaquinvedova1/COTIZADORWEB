@@ -272,8 +272,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         { label: `Unidades facturables (${unitLabel}s)`, value: ratesAtEstimate.billableUnits, format: 'number' },
         { label: 'Factor de descuentos (tramo × continuidad × comercial)', value: ratesAtEstimate.discountFactor, format: 'number' },
       ],
-      steps: [{ label: 'Tarifa piso neta (lo que efectivamente cobrás por unidad)', value: ratesAtEstimate.floorNetRate, format: 'money' }],
-      result: { label: 'Tarifa piso de lista (la que escribís en la cotización)', value: ratesAtEstimate.floorListRate, format: 'money' },
+      steps: [{ label: 'Tarifa piso neta (lo que efectivamente cobrás por unidad)', value: ratesAtEstimate.floorNetRate, format: 'moneyCeil' }],
+      result: { label: 'Tarifa piso de lista (la que escribís en la cotización)', value: ratesAtEstimate.floorListRate, format: 'moneyCeil' },
       notes: [
         D <= 0 ? 'Sin días activos no hay tarifa por día posible: cargá la actividad estimada.' : null,
         ratesAtEstimate.floorCoveredByOtherRevenue ? 'Los otros ingresos ya cubren el costo.' : null,
@@ -292,10 +292,10 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       steps: [
         { label: 'Facturación necesaria', value: isValidMarginPct(targetMarginPct) ? ratesAtEstimate.totalCost / (1 - targetMarginPct / 100) : null, format: 'money' },
-        { label: 'Tarifa objetivo neta', value: targetRates.netRate, format: 'money' },
+        { label: 'Tarifa objetivo neta', value: targetRates.netRate, format: 'moneyCeil' },
         { label: 'Markup equivalente', value: marginToMarkup(targetMarginPct), format: 'percent' },
       ],
-      result: { label: 'Tarifa objetivo de lista', value: targetRates.listRate, format: 'money' },
+      result: { label: 'Precio objetivo de lista', value: targetRates.listRate, format: 'moneyCeil' },
       notes: [roundingStep > 0 ? `Tarifa comercial sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null],
     }),
     expectedResult: createTrace({

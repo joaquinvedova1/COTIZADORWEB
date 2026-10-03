@@ -26,6 +26,7 @@ import {
   priceLadder,
   commercialRound,
   traceMarginVsMarkup,
+  convertRateUnit,
 } from '../../js/engines/pricing-engine.js';
 import { roundMoney } from '../../js/core/money.js';
 
@@ -239,5 +240,20 @@ describe('PricingEngine — trazabilidad', () => {
     approx(trace.steps[1].value, 110);
     approx(trace.result.value, 100 / 0.9 - 110);
     assert.ok(trace.notes.some((n) => /no son equivalentes/i.test(n)));
+  });
+});
+
+describe('convertRateUnit — cambio de unidad de la tarifa (regresión QA-E2E-08)', () => {
+  test('día → hora divide por las horas por día activo y redondea hacia arriba al centavo', () => {
+    assert.equal(convertRateUnit(2_000_000, 'day', 'hour', 10), 200_000);
+    assert.equal(convertRateUnit(1_000_000, 'day', 'hour', 3), 333_333.34);
+  });
+  test('hora → día multiplica por las horas por día activo', () => {
+    assert.equal(convertRateUnit(200_000, 'hour', 'day', 10), 2_000_000);
+  });
+  test('abono mensual o horas inválidas → null (no se convierte sin ambigüedad)', () => {
+    assert.equal(convertRateUnit(1_000_000, 'day', 'month', 10), null);
+    assert.equal(convertRateUnit(1_000_000, 'day', 'hour', 0), null);
+    assert.equal(convertRateUnit(NaN, 'day', 'hour', 10), null);
   });
 });

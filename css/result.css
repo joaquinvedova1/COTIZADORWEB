@@ -44,7 +44,8 @@
 .qr-tone-orange .qr-hero-value, .qr-score-value.qr-tone-orange { color: #9A5F12; }
 .qr-tone-red .qr-hero-value, .qr-score-value.qr-tone-red { color: #B23A3A; }
 
-.qr-kpis { margin-top: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* La cantidad de KPIs depende de la modalidad (no repiten lo que ya está arriba): --qr-kpi-cols. */
+.qr-kpis { --qr-kpi-cols: 4; margin-top: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .qr-kpis .kpi-value { font-size: 1.25rem; overflow-wrap: anywhere; }
 .qr-rate { display: inline; }
 .qr-unit { font-size: 0.68em; font-weight: 600; opacity: 0.8; white-space: nowrap; }
@@ -63,23 +64,37 @@
 /* ---------------------------------------------------------------- EECC */
 
 .qr-eecc { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.qr-eecc-table td.ta-right { white-space: nowrap; }
 .qr-eecc-bars { padding-top: 0; }
 .qr-eecc-bars .bar-row { grid-template-columns: 120px 1fr 64px; }
 
 /* -------------------------------------------------------------- matriz */
+/* Tablas anchas compactas: todas sus columnas entran sin scroll a 1280–1440 px.
+   Encabezados abreviados (nombre completo en title y para lectores de pantalla). */
 
-.qr-matrix .table, .qr-discounts .table, .qr-models .table, .qr-impact .table, .qr-sens-table, .qr-scenarios { font-size: 0.86rem; }
-.qr-matrix .table th, .qr-matrix .table td { padding: 0.45rem 0.45rem; }
-.qr-matrix .table thead th, .qr-discounts .table thead th, .qr-models .table thead th, .qr-ladder .table thead th { white-space: normal; vertical-align: bottom; }
+.qr-matrix .table, .qr-discounts .table, .qr-models .table, .qr-impact .table, .qr-sens-table, .qr-scenarios { font-size: 0.84rem; }
+.qr-matrix .table th, .qr-matrix .table td,
+.qr-discounts .table th, .qr-discounts .table td,
+.qr-models .table th, .qr-models .table td,
+.qr-impact .table th, .qr-impact .table td { padding: 0.42rem 0.4rem; }
+.qr-matrix .table thead th, .qr-discounts .table thead th, .qr-models .table thead th, .qr-impact .table thead th,
+.qr-ladder .table thead th, .qr-eecc-table .table thead th { white-space: normal; vertical-align: bottom; letter-spacing: 0.03em; }
 .qr-ladder td.ta-right, .qr-rates-table td.ta-right { white-space: nowrap; }
 .qr-rates-table .table thead th { white-space: normal; vertical-align: bottom; }
-.qr-th { display: inline-flex; flex-direction: column; align-items: flex-end; }
-.qr-th-sub { font-size: 0.66rem; font-weight: 600; letter-spacing: 0.02em; text-transform: none; color: var(--blue-600); }
+.qr-th { display: inline-flex; flex-direction: column; align-items: flex-start; cursor: help; }
+th.ta-right .qr-th { align-items: flex-end; }
+.qr-th-sub { font-size: 0.66rem; font-weight: 600; letter-spacing: 0.02em; text-transform: none; color: var(--blue-text); }
+.qr-subhead { font-size: 0.92rem; color: var(--navy-900); }
+.qr-card-wide .card-body > h4.qr-subhead:first-child { margin-top: 0.25rem; }
+.qr-cell-stack { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.qr-cell-sub { font-size: 0.7rem; color: var(--ink-3); white-space: nowrap; }
 .qr-matrix td.ta-right, .qr-discounts td.ta-right, .qr-models td.ta-right, .qr-scenarios td.ta-right { white-space: nowrap; }
 .qr-days-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; white-space: nowrap; }
 .qr-days-line { display: inline-flex; align-items: center; gap: 0.2rem; }
 .qr-days-tags { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 .qr-discounts .status { white-space: nowrap; }
+.qr-discounts .qr-days-cell { white-space: normal; }
+.qr-discounts .qr-days-tags .badge { white-space: normal; line-height: 1.2; }
 
 /* Sombras de desplazamiento (sólo CSS): avisan que la tabla sigue a los costados.
    position: relative contiene los textos .sr-only dentro del área desplazable. */
@@ -93,17 +108,24 @@
 }
 .qr-days-num { font-weight: 600; }
 .qr-trace-icon { padding: 0.1rem 0.15rem; }
-.qr-matrix .table { font-size: 0.8rem; }
-.qr-matrix .table th.qr-sticky-col, .qr-matrix .table td.qr-sticky-col { position: sticky; left: 0; z-index: 1; background: var(--white); }
-.qr-matrix .table thead th.qr-sticky-col { background: #F8FBFD; }
+.qr-matrix .table { font-size: 0.82rem; }
+/* Primera columna fija: si el ancho no alcanza (móvil), los días quedan siempre a la vista. */
+.qr-matrix .table th.qr-sticky-col, .qr-matrix .table td.qr-sticky-col,
+.qr-discounts .table th:first-child, .qr-discounts .table td:first-child,
+.qr-models .table th:first-child, .qr-models .table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--white); }
+.qr-matrix .table thead th.qr-sticky-col, .qr-discounts .table thead th:first-child, .qr-models .table thead th:first-child { background: #F8FBFD; }
 .qr-matrix .table tr.row-highlight td.qr-sticky-col { background: var(--blue-50); }
+.qr-discounts .qr-status-col { white-space: normal; min-width: 5.5rem; }
+.qr-discounts .qr-status-col .status { white-space: normal; align-items: flex-start; line-height: 1.25; }
 .table tr.qr-row-exceeds td { background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(232, 155, 50, 0.07) 6px 12px); }
 .table tr.qr-row-exceeds td:first-child { box-shadow: inset 3px 0 0 var(--orange); }
 .table tr.row-highlight.qr-row-exceeds td:first-child { box-shadow: inset 3px 0 0 var(--blue-600); }
 
 /* -------------------------------------------------------------- gráfico */
+/* El SVG se dibuja al ancho real del contenedor (1 unidad = 1 px): el texto se lee a su tamaño. */
 
 .qr-chart { margin: 1rem 0 0; padding: 0.75rem 0.5rem 0.25rem; border: 1px solid var(--line-2); border-radius: var(--radius); }
+.qr-chart-canvas { width: 100%; min-width: 0; min-height: 260px; }
 .qr-chart-legend { padding: 0 0.5rem 0.25rem; }
 .qr-key { display: inline-flex; align-items: center; gap: 0.4rem; }
 .qr-key-swatch { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--blue-600); border-radius: 2px; }
@@ -164,7 +186,7 @@
 .qr-delta-good { color: #157A50; font-weight: 650; }
 .qr-delta-bad { color: #B23A3A; font-weight: 650; }
 
-.qr-tornado { position: relative; min-width: 140px; height: 22px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.qr-tornado { position: relative; min-width: 110px; height: 22px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
 .qr-tornado-axis { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line); }
 .qr-tornado-row { position: relative; height: 7px; }
 .qr-tornado-bar { position: absolute; top: 0; height: 7px; border-radius: 3px; }
@@ -179,8 +201,8 @@
 
 /* ---------------------------------------------- comparador de modelos */
 
-.qr-model { display: flex; flex-direction: column; gap: 0.2rem; min-width: 200px; }
-.qr-model-params { margin: 0; padding: 0; list-style: none; font-size: 0.78rem; color: var(--ink-3); }
+.qr-model { display: flex; flex-direction: column; gap: 0.2rem; min-width: 150px; max-width: 220px; }
+.qr-model-params { margin: 0; padding: 0; list-style: none; font-size: 0.74rem; line-height: 1.3; color: var(--ink-3); }
 
 /* ---------------------------------------------------------- completitud */
 
@@ -213,18 +235,22 @@
   .qr-sliders { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+@container qr (min-width: 620px) {
+  .qr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 @container qr (min-width: 760px) {
   .qr-hero { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
-  .qr-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .qr-split { grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); }
 }
 
 @container qr (min-width: 900px) {
-  .qr-eecc { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  .qr-eecc { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
   .qr-eecc-bars { padding-top: 2.1rem; }
 }
 
 @container qr (min-width: 1040px) {
+  .qr-kpis { grid-template-columns: repeat(var(--qr-kpi-cols), minmax(0, 1fr)); }
   .qr-sens { grid-template-columns: minmax(240px, 330px) minmax(0, 1fr); }
   .qr-sliders { grid-template-columns: minmax(0, 1fr); }
 }
@@ -236,6 +262,7 @@
 
 @container qr (max-width: 520px) {
   .qr-hero, .qr-kpis { grid-template-columns: minmax(0, 1fr); }
+  .qr-chart { padding-inline: 0.25rem; }
   .qr-check { flex-direction: column; align-items: flex-start; }
   .qr-eecc-bars .bar-row { grid-template-columns: 96px 1fr 58px; }
 }
@@ -247,15 +274,20 @@
   .qr-print-title { font-size: 1.2rem; font-weight: 700; color: var(--navy-900); }
   .qr-print-meta { font-size: 0.8rem; color: var(--ink-2); }
   .qr-step-link, .qr-chart-hit { display: none !important; }
+  .qr-th { cursor: auto; }
+  .qr-matrix .table th.qr-sticky-col, .qr-matrix .table td.qr-sticky-col,
+  .qr-discounts .table th:first-child, .qr-discounts .table td:first-child,
+  .qr-models .table th:first-child, .qr-models .table td:first-child { position: static; }
   .qr .table-wrap { overflow: visible; background: none; }
   .qr .table { font-size: 0.72rem; }
   .qr .table th, .qr .table td { padding: 0.25rem 0.35rem; }
   .qr-card-wide, .qr-card-decision { break-inside: auto; }
   .qr-hero-item, .qr-chart, .qr-equiv, .qr-example { break-inside: avoid; background: var(--white); }
   .qr-sens { grid-template-columns: 1fr; }
-  .qr-chart-svg { max-height: 260px; }
+  .qr-chart-svg { max-height: 300px; }
+  .qr-chart-canvas { min-height: 0; }
   .qr-hero { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-  .qr-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .qr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .qr-kpis .kpi { padding: 0.5rem 0.6rem; }
   .qr-kpis .kpi-value { font-size: 1rem; }
   .qr-hero-value { font-size: 1.15rem; }

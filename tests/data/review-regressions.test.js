@@ -228,3 +228,29 @@ describe('Eventos internos sin datos sensibles (SEC-05)', () => {
     assert.deepEqual(sanitizeEventProps({ serviceType: 'on_call', step: 'labor' }), { serviceType: 'on_call', step: 'labor' });
   });
 });
+
+describe('Marcas ILUSTRATIVO de defaults de demostración (SPEC-02, UX-02)', () => {
+  test('con configuración de demo, una cotización nueva no da por definidos plazo, contingencia ni actividad', async () => {
+    const { createEmptyQuote, defaultSettings, illustrativeInfo } = await import('../../js/domain/quote-factory.js');
+    const { evaluateCompleteness } = await import('../../js/engines/completeness-engine.js');
+    const q = createEmptyQuote({ organizationId: 'o', settings: defaultSettings('o') });
+    assert.equal(q.activity.activeDaysPerMonth, null);
+    assert.equal(q.finance.paymentTermDays, null);
+    assert.equal(q.risk.generalPct, 0);
+    assert.equal(q.fuel.illustrative, true);
+    assert.equal(q.finance.illustrative, true);
+    assert.equal(illustrativeInfo(q).any, true);
+    const items = Object.fromEntries(evaluateCompleteness(q).items.map((i) => [i.id, i.status]));
+    assert.equal(items.payment_term, 'missing');
+    assert.equal(items.utilization, 'missing');
+  });
+
+  test('con configuración propia se usan los defaults de la empresa y no hay marcas', async () => {
+    const { createEmptyQuote, defaultSettings, illustrativeInfo } = await import('../../js/domain/quote-factory.js');
+    const settings = { ...defaultSettings('o'), illustrative: false, defaultPaymentTermDays: 45, defaultContingencyPct: 3 };
+    const q = createEmptyQuote({ organizationId: 'o', settings });
+    assert.equal(q.finance.paymentTermDays, 45);
+    assert.equal(q.risk.generalPct, 3);
+    assert.equal(illustrativeInfo(q).any, false);
+  });
+});

@@ -137,7 +137,8 @@ export function table({ columns, rows, footer = null, className = '', emptyText 
     ? rows.map((row, i) => h('tr', { class: rowClass ? rowClass(row, i) : null },
       ...columns.map((c) => {
         const content = c.render ? c.render(row, i) : formatValue(row[c.key], c.format || 'text');
-        return h('td', { class: [c.align ? `ta-${c.align}` : null, c.className], 'data-label': c.label }, content);
+        const dataLabel = typeof c.label === 'string' ? c.label : c.label && c.label.textContent ? c.label.textContent : null;
+        return h('td', { class: [c.align ? `ta-${c.align}` : null, c.className], 'data-label': dataLabel }, content);
       })))
     : [h('tr', {}, h('td', { colspan: String(columns.length), class: 'ta-center muted' }, emptyText))];
   const tfoot = footer
@@ -210,6 +211,7 @@ export function numberField({ label, value, rule = 'money', onChange, hint = nul
     focusText = input.value;
   });
   input.addEventListener('input', () => {
+    delete input.dataset.restored;
     const r = validateNumber(input.value, rule, { required });
     if (!r.ok) {
       showError(r.error);
@@ -225,11 +227,15 @@ export function numberField({ label, value, rule = 'money', onChange, hint = nul
       if (r.value !== committedValue) emit(r.value);
       return;
     }
-    // Valor inválido al confirmar: se vuelve al valor previo al foco.
+    // Valor inválido al confirmar: se vuelve al valor previo al foco. El
+    // campo vuelve a ser válido (sin aria-invalid) y se avisa qué pasó.
     const message = r.error;
     input.value = focusText;
     if (committedValue !== focusValue) emit(focusValue);
-    showError(`${message} Se restauró el valor anterior.`);
+    clearError();
+    errorEl.textContent = `${message} Se restauró el valor anterior.`;
+    errorEl.hidden = false;
+    input.dataset.restored = 'true';
   });
   return el;
 }
@@ -366,8 +372,14 @@ export function openTraceDialog(trace) {
 }
 
 /** Botón "Ver cálculo". */
-export function traceButton(trace, { compact = false, label = 'Ver cálculo' } = {}) {
-  return button(compact ? label : label, { variant: 'link', size: 'sm', icon: 'calc', onClick: () => openTraceDialog(trace), attrs: { class: 'btn btn-link btn-sm trace-btn' } });
+export function traceButton(trace, { label = 'Ver cálculo' } = {}) {
+  return button(label, {
+    variant: 'link',
+    size: 'sm',
+    icon: 'calc',
+    onClick: () => openTraceDialog(trace),
+    attrs: { class: 'btn btn-link btn-sm trace-btn', 'aria-label': `${label}: ${trace && trace.title ? trace.title : 'cálculo'}` },
+  });
 }
 
 // ------------------------------------------------------------------ toasts

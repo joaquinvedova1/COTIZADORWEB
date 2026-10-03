@@ -5,10 +5,13 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, icon } from '../../components.js';
+import { card, formGrid, icon, choiceGroup, openDialog, button } from '../../components.js';
 import { PRICING_MODES, RATE_UNITS, AVAILABILITY_OPTIONS } from '../../../domain/catalogs.js';
+import { convertRateUnit } from '../../../engines/pricing-engine.js';
+import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
+import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace } from './shared.js';
 
 const MODE_DETAILS = Object.freeze({
   known_rate: 'Ingresás la tarifa que te pidieron o que querés ofrecer. RATEOS calcula los días mínimos para no perder plata (break-even), el resultado y el margen esperados con tu actividad estimada.',
@@ -38,9 +41,43 @@ function unitsLabel(unit, value) {
   return `${formatNumber(value, { decimals: 2 })} días`;
 }
 
-function rateFor(result, marginPct) {
-  const row = (result.ratesAtEstimate.byMargin || []).find((m) => m.marginPct === marginPct);
-  return row ? row.listRate : null;
+function rateRowFor(result, marginPct) {
+  return (result.ratesAtEstimate.byMargin || []).find((m) => m.marginPct === marginPct) || null;
+}
+
+const unitById = (id) => RATE_UNITS.find((u) => u.id === id) || RATE_UNITS[0];
+
+/** Diálogo al cambiar la unidad con tarifas cargadas: 'convert' | 'clear' | null. */
+function askUnitChange({ fromUnit, toUnit, rates, convertible, hours }) {
+  return new Promise((resolve) => {
+    let choice = null;
+    const from = unitById(fromUnit);
+    const to = unitById(toUnit);
+    const list = h(
+      'ul',
+      {},
+      ...rates.map((r) => h('li', {}, `${r.label}: ${formatMoney(r.value)} ${from.long}${convertible ? ` → ${formatMoney(r.converted)} ${to.long}` : ''}`)),
+    );
+    const explanation = convertible
+      ? `Podés convertirla con las ${formatNumber(hours, { decimals: 2 })} horas trabajadas por día activo (${fromUnit === 'day' ? '÷' : '×'} ${formatNumber(hours, { decimals: 2 })}, redondeado hacia arriba) o borrarla y cargarla de nuevo.`
+      : 'Entre estas unidades no hay una conversión segura: borrala y cargala de nuevo en la unidad nueva.';
+    const { close } = openDialog({
+      title: `Cambiar la unidad a ${to.label}`,
+      content: h(
+        'div',
+        {},
+        h('p', {}, `Hay tarifas cargadas en ${from.label}. Si cambiás la unidad sin convertirlas, el mismo número se leería ${to.long} y el resultado sería engañoso.`),
+        list,
+        h('p', {}, explanation),
+      ),
+      actions: [
+        button('Cancelar', { variant: 'secondary', onClick: () => close() }),
+        button('Borrar la tarifa y cambiar', { variant: convertible ? 'secondary' : 'primary', onClick: () => { choice = 'clear'; close(); } }),
+        convertible ? button(`Convertir a ${to.label}`, { variant: 'primary', onClick: () => { choice = 'convert'; close(); } }) : null,
+      ].filter(Boolean),
+      onClose: () => resolve(choice),
+    });
+  });
 }
 
 export function render(container, ctx) {
@@ -48,7 +85,54 @@ export function render(container, ctx) {
   const unit = RATE_UNITS.find((u) => u.id === quote.unit) || RATE_UNITS[0];
   const isOnCall = quote.serviceType === 'on_call';
   const knownRate = quote.pricingMode === 'known_rate';
-  const perUnit = (v) => (isFiniteNumber(v) ? `${formatMoney(v)} / ${unit.long.replace('por ', '')}` : EMPTY);
+
+  /**
+   * Cambio de unidad (QA-E2E-08): si hay una tarifa conocida u ofrecida
+   * cargada, se ofrece convertirla (día ↔ hora) o borrarla. Nunca se
+   * reinterpreta el mismo número en otra unidad sin avisar.
+   */
+  async function changeUnit(nextUnit) {
+    const fromUnit = quote.unit || 'day';
+    if (nextUnit === fromUnit) return;
+    const pricing = quote.pricing || {};
+    const rates = [
+      { path: 'knownRate', label: 'Tarifa conocida', value: Number(pricing.knownRate) },
+      { path: 'offeredRateOverride', label: 'Tarifa ofrecida manual (paso Margen)', value: Number(pricing.offeredRateOverride) },
+    ].filter((r) => pricing[r.path] !== null && pricing[r.path] !== '' && Number.isFinite(r.value) && r.value > 0);
+    const to = unitById(nextUnit);
+    if (rates.length === 0) {
+      ctx.mutate((q) => {
+        q.unit = nextUnit;
+      });
+      return;
+    }
+    const hours = quote.activity ? quote.activity.hoursPerActiveDay : null;
+    rates.forEach((r) => {
+      r.converted = convertRateUnit(r.value, fromUnit, nextUnit, hours);
+    });
+    const convertible = rates.every((r) => isFiniteNumber(r.converted));
+    const choice = await askUnitChange({ fromUnit, toUnit: nextUnit, rates, convertible, hours: Number(hours) });
+    if (choice === 'convert' && convertible) {
+      ctx.mutate((q) => {
+        q.unit = nextUnit;
+        rates.forEach((r) => {
+          q.pricing[r.path] = r.converted;
+        });
+      });
+      ctx.toast(`Unidad cambiada a ${to.label}. ${rates.map((r) => `${r.label}: ${formatMoney(r.converted)} ${to.long}`).join(' · ')}.`, 'success');
+    } else if (choice === 'clear') {
+      ctx.mutate((q) => {
+        q.unit = nextUnit;
+        rates.forEach((r) => {
+          q.pricing[r.path] = r.path === 'knownRate' ? 0 : null;
+        });
+      });
+      ctx.toast(`Unidad cambiada a ${to.label}. Se borró la tarifa: cargala de nuevo en ${to.label}.`, 'warning');
+    } else {
+      // Cancelado: vuelve a mostrar la unidad anterior.
+      ctx.rerender();
+    }
+  }
 
   const modeCard = card(
     { title: '¿Cómo vas a cotizar?', subtitle: 'Elegí según lo que ya sabés del pedido del cliente.' },
@@ -58,10 +142,13 @@ export function render(container, ctx) {
       structural: true,
     }),
     MODE_DETAILS[quote.pricingMode] ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, MODE_DETAILS[quote.pricingMode])) : null,
-    kit.choice('unit', {
+    choiceGroup({
       label: 'Unidad de cotización',
+      name: 'unit',
+      value: quote.unit,
+      disabled: kit.readOnly,
       options: RATE_UNITS.map((u) => ({ value: u.id, label: u.label, hint: UNIT_HINTS[u.id] })),
-      structural: true,
+      onChange: (value) => changeUnit(value),
     }),
     knownRate
       ? formGrid(
@@ -85,7 +172,9 @@ export function render(container, ctx) {
         label: '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando?',
         rule: 'days',
         unit: 'días/mes',
-        hint: 'Días activos (facturables) estimados. Si no estás seguro, mirá la matriz tarifa × utilización en Resultado.',
+        requiredMark: true,
+        placeholder: 'Ej.: 8',
+        hint: 'Días activos (facturables) estimados: es el dato con el que se reparten los costos fijos. Si no estás seguro, cargá una estimación y mirá la matriz tarifa × utilización en Resultado.',
       }),
       kit.num('activity.availableDaysPerMonth', {
         label: 'Días disponibles en el mes',
@@ -140,7 +229,7 @@ export function render(container, ctx) {
     )
     : null;
 
-  const ladder = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [5, 10, 15];
+  const ladder = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [...DEFAULT_MARGIN_LADDER];
   const calcCard = knownRate
     ? card(
       { title: 'Con tu tarifa', subtitle: 'Lo que calcula RATEOS en el modo "Conozco la tarifa".' },
@@ -170,10 +259,32 @@ export function render(container, ctx) {
       ),
     )
     : card(
-      { title: 'Tarifas necesarias con tu actividad', subtitle: 'Lo que calcula RATEOS en el modo "Conozco la actividad" (tarifas de lista).' },
+      {
+        title: 'Tarifas necesarias con tu actividad',
+        subtitle: 'Lo que calcula RATEOS en el modo "Conozco la actividad". Son tarifas DE LISTA (antes de descuentos), redondeadas hacia arriba: las que escribís en la cotización.',
+      },
       kit.stats(
-        kit.stat('Tarifa piso (margen 0 %)', (r) => perUnit(r.kpis.floorListRate), { trace: (r) => r.traces.floorRate, hint: 'Sólo cubre los costos.' }),
-        ...ladder.map((m) => kit.stat(`Tarifa margen ${formatPercent(m)}`, (r) => perUnit(rateFor(r, m)), { hint: 'Margen sobre el precio de venta.' })),
+        kit.stat(
+          (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso neta (margen 0 %)' : 'Tarifa piso de lista (margen 0 %)'),
+          (r) => perUnitCeil(floorDisplay(r).value, r.unit),
+          {
+            trace: floorRateTrace,
+            hint: (r) => {
+              const net = floorDisplay(r).base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
+              return `Sólo cubre los costos.${net ? ` ${net}` : ''}`;
+            },
+          },
+        ),
+        ...ladder.map((m) => kit.stat(`Tarifa de lista con margen ${formatPercent(m)}`, (r) => {
+          const row = rateRowFor(r, m);
+          return perUnitCeil(row ? row.listRate : null, r.unit);
+        }, {
+          hint: (r) => {
+            const row = rateRowFor(r, m);
+            const net = row ? netRateHint(row.netRate, r) : '';
+            return `Margen sobre el precio de venta.${net ? ` ${net}` : ''}`;
+          },
+        })),
       ),
     );
 

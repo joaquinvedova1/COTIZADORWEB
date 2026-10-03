@@ -181,6 +181,7 @@ function buildBanners(ctx, org, dismissed, dismiss) {
     const el = illustrativeBanner(
       'Estás usando datos de demostración de una empresa ficticia. Todos los valores son ILUSTRATIVOS: no son escalas salariales, cargas, alícuotas, precios ni costos reales. Reemplazalos por valores propios vigentes antes de cotizar.',
     );
+    el.classList.add('banner-demo-global');
     el.appendChild(h('a', { class: 'banner-link', href: '#/configuracion' }, 'Configurar mi empresa'));
     out.push(withDismiss(el, () => dismiss('illustrative')));
   }

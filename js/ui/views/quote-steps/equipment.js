@@ -76,7 +76,6 @@ export function render(container, ctx) {
   const library = Array.isArray(resources.equipment) ? resources.equipment : [];
   const lines = quote.equipment;
   const activityHours = quote.activity ? quote.activity.hoursPerActiveDay : null;
-  const illustrative = Boolean(quote.illustrative);
 
   let selectedId = null;
   const addFromLibrary = () => {
@@ -132,14 +131,19 @@ export function render(container, ctx) {
     'div',
     { class: 'qe-tip' },
     icon('info'),
-    kit.out((r) => (r.model.fuel.paidByUs
-      ? `Precio de combustible vigente en esta cotización: ${formatValue(r.model.fuel.pricePerLiter, 'rate')} por litro (se edita en Logística).`
-      : 'El combustible lo provee el cliente: no se suma al costo de operación (se define en Logística).'), { tag: 'p' }),
+    kit.out((r) => {
+      if (!r.model.fuel.paidByUs) return 'El combustible lo provee el cliente: no se suma al costo de operación (se define en Logística).';
+      const fuelIllustrative = Boolean(quote.illustrative || (quote.fuel && quote.fuel.illustrative === true));
+      return `Precio de combustible vigente en esta cotización: ${formatValue(r.model.fuel.pricePerLiter, 'rate')} por litro (se edita en Logística).${fuelIllustrative ? ' Es un valor ILUSTRATIVO: confirmalo con tu precio actual.' : ''}`;
+    }, { tag: 'p' }),
   );
 
   const lineCards = lines.map((line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
+    // Valores copiados de una plantilla o equipo de demostración (UX-02).
+    const ill = kit.lineIllustrative(p, { what: 'este equipo' });
+    const illustrative = ill.marked;
     return kit.lineCard(
       {
         title: kit.out(() => (quote.equipment[i] && quote.equipment[i].name) || 'Equipo sin nombre'),
@@ -147,8 +151,10 @@ export function render(container, ctx) {
           const l = at(r);
           return l ? `${formatNumber(l.quantity, { decimals: 2 })} unidad(es) · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día activo` : '';
         }),
+        badges: ill.tag ? [ill.tag] : [],
         actions: [kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })],
       },
+      ill.control,
       kit.group(
         'Equipo',
         formGrid(

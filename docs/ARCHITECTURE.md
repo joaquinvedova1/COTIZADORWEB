@@ -167,7 +167,7 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 | `views/dashboard.js` | Indicadores de cotizaciones activas, recientes y conceptos (margen vs markup). |
 | `views/quotes-list.js` | Listado (`render`) y "Nueva cotización" en blanco o desde plantilla (`renderNewQuote`). |
 | `views/quote-editor.js` | Editor de 11 pasos (`QUOTE_STEPS`), resumen en vivo, recálculo y guardado automático; conserva los borradores que no se pudieron guardar (ver §5). |
-| `views/quote-steps/*.js` | Un módulo por paso: `service`, `modality`, `labor`, `equipment`, `materials`, `logistics`, `indirect`, `finance`, `risk`, `margin`. |
+| `views/quote-steps/*.js` | Un módulo por paso: `service`, `modality`, `labor`, `equipment`, `materials`, `logistics`, `indirect`, `finance`, `risk`, `margin`. `shared.js` reúne helpers de presentación (tarifas en base de lista con la neta como dato, redondeo hacia arriba al mostrar, confirmación al quitar líneas). Las fórmulas siguen en los motores (p. ej. `convertRateUnit` en `pricing-engine.js`). |
 | `views/quote-result.js` | Paso "Resultado": `renderQuoteResult(container, app, { quote, result, settings, onQuoteChange })`. Bloques: decisión según modalidad + KPIs + equivalencias + alertas, EECC, matriz tarifa × utilización, margen vs markup, descuentos por días/volumen y continuidad, sensibilidad (tarifa fija), escenarios (`FEATURES.scenarios`), comparador de modelos (`FEATURES.commercialModelComparator`), Cost Completeness Score y acciones (imprimir, marcar como enviada). |
 | `views/library.js` | Bibliotecas: personal, convenios, equipos, materiales, ubicaciones. |
 | `views/services.js` | Plantillas de servicio. |

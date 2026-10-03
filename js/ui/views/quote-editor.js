@@ -31,19 +31,25 @@ import {
   selectField,
   checkboxField,
   choiceGroup,
+  openDialog,
   openTraceDialog,
   toast as componentToast,
   table,
 } from '../components.js';
+import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, RATE_UNITS, SERVICE_TYPES } from '../../domain/catalogs.js';
-import { defaultVolumeTiers } from '../../domain/quote-factory.js';
+import { defaultVolumeTiers, illustrativeInfo } from '../../domain/quote-factory.js';
 import { computeQuote } from '../../engines/quote-engine.js';
 import { marginToMarkup } from '../../engines/pricing-engine.js';
+import { completenessTone } from '../../engines/completeness-engine.js';
 import { getPath, setPath, deepClone, isPlainObject } from '../../core/object.js';
 import { formatMoney, formatPercent, formatDays, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
+import { parseDecimalInput } from '../../core/validation.js';
+import { createId } from '../../core/ids.js';
 import { createTrace } from '../../core/trace.js';
 import { logger } from '../../core/logger.js';
+import { perUnitCeil, perUnitMoney, netRateHint, floorDisplay, floorRateTrace, targetRateTrace, unitShortOf } from './quote-steps/shared.js';
 
 import * as serviceStep from './quote-steps/service.js';
 import * as modalityStep from './quote-steps/modality.js';
@@ -96,6 +102,11 @@ let activeEditor = null;
 let renderSequence = 0;
 /** "Imprimir" desde otro paso: navega a Resultado e imprime al terminar. */
 let printRequested = false;
+/**
+ * Cotización cuyo editor se cerró para ir a OTRO PASO de la misma cotización:
+ * el editor nuevo lleva la vista al encabezado del paso (UX-03).
+ */
+let stepChangeQuoteId = null;
 
 // ------------------------------------------------------------ utilidades puras
 
@@ -173,12 +184,7 @@ export function resultTone(result) {
 }
 
 function unitShort(result) {
-  const id = result && result.unit;
-  return id === 'hour' ? 'hora' : id === 'month' ? 'mes' : 'día';
-}
-
-function perUnit(value, result) {
-  return isFiniteNumber(value) ? `${formatMoney(value)} / ${unitShort(result)}` : EMPTY;
+  return unitShortOf(result && result.unit);
 }
 
 function inputNumber(value) {
@@ -241,12 +247,15 @@ function attachMoneyEcho(fieldEl) {
   const echoEl = h('div', { class: 'qe-num-echo', 'aria-hidden': 'true' });
   const sync = () => {
     const raw = String(input.value || '').trim();
-    const n = Number(raw.replace(',', '.'));
+    // Mismo intérprete que el campo (formato argentino: "1.800.000,50").
+    const n = parseDecimalInput(raw);
     const show = raw !== '' && Number.isFinite(n) && Math.abs(n) >= MONEY_ECHO_FROM;
     echoEl.textContent = show ? formatMoney(n) : '';
     echoEl.hidden = !show;
   };
   input.addEventListener('input', sync);
+  // Si el campo restaura el valor anterior (valor inválido confirmado).
+  input.addEventListener('change', sync);
   sync();
   control.after(echoEl);
 }
@@ -302,7 +311,7 @@ function setHeaderSafe(app, options) {
  * crea campos conectados a una ruta y "salidas" que se refrescan con cada
  * recálculo sin volver a dibujar los inputs.
  */
-function createStepKit({ getQuote, getResult, update, rerender, readOnly }) {
+function createStepKit({ getQuote, getResult, update, rerender, readOnly, confirmedLines = new Set() }) {
   const watchers = [];
 
   function watch(run) {
@@ -334,15 +343,29 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly }) {
       return getPath(getQuote(), path);
     },
 
-    num(path, { structural = false, requiredMark = false, echo = true, ...opts } = {}) {
-      const el = numberField({
+    /**
+     * Campo numérico conectado a una ruta.
+     * - disabled: además de sólo lectura (p. ej. "No aplica standby").
+     * - onValue(value, el): efecto adicional después de guardar el valor en la
+     *   cotización (p. ej. quitar la marca ILUSTRATIVO al editar un precio).
+     */
+    num(path, { structural = false, requiredMark = false, echo = true, disabled = false, onValue = null, ...opts } = {}) {
+      let el = null;
+      el = numberField({
         rule: 'money',
         ...opts,
         name: path,
         value: inputNumber(kit.get(path)),
-        disabled: readOnly,
+        disabled: readOnly || Boolean(disabled),
         onChange: (value) => {
           update(path, value);
+          if (typeof onValue === 'function') {
+            try {
+              onValue(value, el);
+            } catch (error) {
+              logger.warn('No se pudo aplicar un efecto del campo', { message: error && error.message });
+            }
+          }
           if (structural) rerender();
         },
       });
@@ -400,6 +423,44 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly }) {
           if (structural) rerender();
         },
       });
+    },
+
+    /**
+     * Marca ILUSTRATIVO de una línea copiada de una plantilla o biblioteca de
+     * demostración: { marked, tag, control }.
+     *   marked  → quote.illustrative || line.illustrative (para los campos)
+     *   tag     → etiqueta para el encabezado de la línea (o null)
+     *   control → casilla "Son valores propios y vigentes" que pone
+     *             line.illustrative = false (o null si no corresponde).
+     * En una cotización de demostración (quote.illustrative) la marca es de
+     * toda la cotización: no se ofrece la casilla por línea.
+     */
+    lineIllustrative(path, { what = 'esta línea' } = {}) {
+      const quote = getQuote();
+      const line = kit.get(path);
+      const whole = Boolean(quote && quote.illustrative === true);
+      const own = Boolean(line && line.illustrative === true);
+      const key = (line && typeof line.id === 'string' && line.id) || path;
+      const marked = whole || own;
+      const showCheck = !whole && isPlainObject(line) && (own || confirmedLines.has(key));
+      const control = showCheck
+        ? checkboxField({
+          label: 'Son valores propios y vigentes',
+          name: `${path}.illustrative`,
+          checked: !own,
+          disabled: readOnly,
+          hint: own
+            ? `Tildala cuando reemplaces los valores ILUSTRATIVOS de ${what} por los tuyos: se quita la marca.`
+            : 'Se quitó la marca ILUSTRATIVO. Destildala si todavía no son tus valores.',
+          onChange: (checked) => {
+            if (checked) confirmedLines.add(key);
+            update(`${path}.illustrative`, !checked);
+            rerender();
+          },
+        })
+        : null;
+      if (control) control.classList.add('qe-own-values');
+      return { marked, tag: marked ? illustrativeTag('Valores ILUSTRATIVOS: reemplazalos por valores propios vigentes') : null, control };
     },
 
     /** Campo de sólo lectura. */
@@ -555,9 +616,18 @@ function commercialRateTrace(r) {
     result: { label: `Tarifa comercial de lista (por ${unitShort(r)})`, value: k.commercialListRate, format: 'money' },
     notes: [
       k.belowFloor ? 'La tarifa neta queda DEBAJO de la tarifa piso: con la actividad estimada se pierde dinero.' : null,
+      !k.belowFloor && k.belowFloorRate
+        ? 'La tarifa neta queda debajo de la tarifa piso, pero con la actividad estimada el mínimo mensual garantizado cubre los costos. Si la actividad cambia, podés perder dinero.'
+        : null,
       'Margen y markup no son lo mismo: el margen se calcula sobre el precio; el markup, sobre el costo.',
     ],
   });
+}
+
+/** Tarifa comercial: la sugerida es una tarifa mínima (se muestra hacia arriba). */
+function commercialRateText(r) {
+  const k = r.kpis;
+  return k.commercialSource === 'suggested' ? perUnitCeil(k.commercialListRate, r.unit) : perUnitMoney(k.commercialListRate, r.unit);
 }
 
 function sourceHint(r) {
@@ -583,11 +653,9 @@ function breakEvenTone(r) {
   return be.days > r.kpis.activeDays + 1e-9 ? 'red' : 'green';
 }
 
-function completenessTone(pct) {
-  if (!isFiniteNumber(pct)) return 'gray';
-  if (pct >= 90) return 'green';
-  if (pct >= 70) return 'orange';
-  return 'red';
+/** Semáforo del Cost Completeness Score: mismos umbrales que el motor y el Resultado. */
+function completenessColor(pct) {
+  return isFiniteNumber(pct) ? completenessTone(pct) : 'gray';
 }
 
 function buildSummary({ getResult, stepHref }) {
@@ -602,7 +670,9 @@ function buildSummary({ getResult, stepHref }) {
         variant: 'link',
         size: 'sm',
         icon: 'calc',
-        attrs: { class: 'btn btn-link btn-sm trace-btn', 'aria-label': `Ver cálculo: ${typeof label === 'string' ? label : key}` },
+        // El nombre accesible se completa con la etiqueta visible en cada
+        // recálculo (nunca la clave interna).
+        attrs: { class: 'btn btn-link btn-sm trace-btn', 'aria-label': typeof label === 'string' ? `Ver cálculo: ${label}` : 'Ver cálculo' },
         onClick: () => {
           const r = getResult();
           const t = r ? trace(r) : null;
@@ -611,7 +681,7 @@ function buildSummary({ getResult, stepHref }) {
       })
       : null;
     const el = h('div', { class: ['qe-sum-item', emphasis ? 'is-emphasis' : null], dataset: { kpi: key } }, h('div', { class: 'qe-sum-top' }, labelEl, traceBtn), valueEl, hintEl);
-    rows.push({ el, labelEl, valueEl, hintEl, label, value, hint, tone });
+    rows.push({ el, labelEl, valueEl, hintEl, traceBtn, label, value, hint, tone });
     return el;
   };
 
@@ -627,29 +697,37 @@ function buildSummary({ getResult, stepHref }) {
     }),
     item({
       key: 'floorRate',
-      label: 'Tarifa piso (neta)',
-      value: (r) => perUnit(r.kpis.floorNetRate, r),
-      hint: (r) => (isFiniteNumber(r.kpis.floorNetRate) ? 'Margen 0 %: sólo cubre los costos.' : 'Cargá la actividad estimada para calcularla.'),
-      trace: (r) => r.traces.floorRate,
+      // Base de LISTA: es la que se escribe en la cotización (UX-01).
+      label: (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso (neta)' : 'Tarifa piso (de lista)'),
+      value: (r) => perUnitCeil(floorDisplay(r).value, r.unit),
+      hint: (r) => {
+        const floor = floorDisplay(r);
+        if (!isFiniteNumber(floor.value)) return 'Cargá la actividad estimada para calcularla.';
+        const net = floor.base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
+        return `Margen 0 %: sólo cubre los costos.${net ? ` ${net}` : ''}`;
+      },
+      trace: floorRateTrace,
     }),
     item({
       key: 'targetRate',
-      label: (r) => `Precio objetivo (margen ${formatPercent(r.targetMarginPct)})`,
-      value: (r) => perUnit(r.kpis.targetListRate, r),
+      label: (r) => `Precio objetivo (de lista, margen ${formatPercent(r.targetMarginPct)})`,
+      value: (r) => perUnitCeil(r.kpis.targetListRate, r.unit),
       hint: (r) => {
         const mk = marginToMarkup(r.targetMarginPct);
-        return isFiniteNumber(mk) ? `Equivale a un markup de ${formatPercent(mk)} sobre el costo.` : '';
+        const net = netRateHint(r.kpis.targetNetRate, r);
+        const markup = isFiniteNumber(mk) ? `Equivale a un markup de ${formatPercent(mk)} sobre el costo.` : '';
+        return [net, markup].filter(Boolean).join(' ');
       },
-      trace: (r) => r.traces.targetRate,
+      trace: targetRateTrace,
     }),
     item({
       key: 'commercialRate',
-      label: 'Tarifa comercial',
-      value: (r) => perUnit(r.kpis.commercialListRate, r),
+      label: 'Tarifa comercial (de lista)',
+      value: commercialRateText,
       hint: (r) => {
         const k = r.kpis;
         const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
-          ? ` Neta: ${formatMoney(k.commercialNetRate)}.`
+          ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
           : '';
         return `${sourceHint(r)}${net}`;
       },
@@ -667,13 +745,15 @@ function buildSummary({ getResult, stepHref }) {
     item({
       key: 'expectedMargin',
       label: 'Margen esperado',
-      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatPercent(r.kpis.marginPct) : EMPTY),
+      // Sin tarifa comercial el motor no informa margen (null) → "—".
+      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY),
       hint: (r) => {
         const k = r.kpis;
         const base = `Objetivo ${formatPercent(k.targetMarginPct)}`;
-        if (!isFiniteNumber(k.commercialListRate)) return base;
+        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa comercial.`;
         const state = k.profit < 0 ? 'pierde dinero' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
-        return `${base} · ${state} · markup ${formatPercent(k.markupPct)}.`;
+        const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
+        return `${base} · ${state}${markup}.`;
       },
       tone: resultTone,
       trace: (r) => r.traces.expectedResult,
@@ -734,6 +814,7 @@ function buildSummary({ getResult, stepHref }) {
       if (!r) return;
       rows.forEach((row) => {
         row.labelEl.textContent = resolve(row.label, r) || '';
+        if (row.traceBtn) row.traceBtn.setAttribute('aria-label', `Ver cálculo: ${row.labelEl.textContent}`);
         row.valueEl.textContent = resolve(row.value, r) || EMPTY;
         const hint = resolve(row.hint, r);
         row.hintEl.textContent = hint && hint !== EMPTY ? hint : '';
@@ -746,7 +827,7 @@ function buildSummary({ getResult, stepHref }) {
       const v = isFiniteNumber(pct) ? Math.max(0, Math.min(100, pct)) : 0;
       pctEl.textContent = isFiniteNumber(pct) ? `${formatNumber(pct, { decimals: 0 })} %` : EMPTY;
       barFill.style.setProperty('width', `${v}%`);
-      bar.className = `progress progress-${completenessTone(pct)}`;
+      bar.className = `progress progress-${completenessColor(pct)}`;
       bar.setAttribute('aria-valuenow', String(Math.round(v)));
       const pending = (r.completeness && r.completeness.pending) || [];
       if (pending.length === 0) {
@@ -861,7 +942,7 @@ function resultFallback(result, error) {
 
 // ------------------------------------------------------------------ editor
 
-function createEditor(root, app, { quote, settings, resources, stepId, restoredDraft = false }) {
+function createEditor(root, app, { quote, settings, resources, stepId, restoredDraft = false, revealStep = false }) {
   const quoteId = quote.id;
   const readOnly = Boolean(app.ctx && app.ctx.init && app.ctx.init.readOnly);
   // Sin almacenamiento persistente (modo memoria) no hay que decir "Guardado".
@@ -876,6 +957,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     headerName: null,
     calcError: null,
     lastScorePct: null,
+    // Líneas a las que el usuario les quitó la marca ILUSTRATIVO en esta
+    // sesión (la casilla sigue visible para poder deshacerlo).
+    confirmedLines: new Set(),
   };
 
   const notify = (message, tone = 'info') => {
@@ -936,6 +1020,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       saving: 'Guardando…',
       saved: ephemeral ? 'Sólo en esta sesión (no se guarda)' : 'Guardado',
       readonly: 'Sólo lectura',
+      invalid: 'Revisá los campos marcados',
     };
     if (status === 'error') {
       const quota = error && error.code === 'quota_exceeded';
@@ -950,13 +1035,76 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       if (previous !== 'error') notify(`Error al guardar. ${message}`, 'danger');
     } else {
       saveTextEl.textContent = texts[status] || '';
-      saveEl.title = '';
+      saveEl.title = status === 'invalid' ? 'Hay valores fuera de rango: no se guardan cambios hasta corregirlos.' : '';
     }
+  }
+
+  // ------------------------------------------- campos inválidos (QA-E2E-03)
+  // Mientras haya un campo marcado como inválido NO se guarda: así nunca
+  // queda guardado un valor intermedio (p. ej. "15" al tipear "150" en un
+  // margen). Un campo que restauró su valor anterior al confirmarse con un
+  // valor inválido ya volvió a un valor válido: no bloquea el guardado.
+  function invalidControls() {
+    return [...layout.querySelectorAll('[aria-invalid="true"]')].filter((el) => el.dataset.qeRestored !== 'true' && !el.closest('[data-what-if]'));
+  }
+
+  function hasInvalidFields() {
+    return invalidControls().length > 0;
+  }
+
+  /** Actualiza el indicador y retoma el guardado cuando se corrigen los campos. */
+  function syncInvalidState() {
+    if (readOnly || state.disposed) return;
+    if (hasInvalidFields()) {
+      if (state.saveStatus !== 'invalid' && state.saveStatus !== 'error') setSaveStatus('invalid');
+      return;
+    }
+    if (state.saveStatus === 'invalid') {
+      if (state.dirty) {
+        setSaveStatus('pending');
+        scheduleSave();
+      } else {
+        setSaveStatus('saved');
+      }
+    }
+  }
+
+  /**
+   * Antes de salir o cerrar: los campos con un valor inválido vuelven a su
+   * valor anterior (el campo lo restaura al confirmarse) y recién ahí se guarda.
+   */
+  function revertInvalidFields() {
+    invalidControls().forEach((el) => {
+      try {
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (error) {
+        logger.warn('No se pudo restaurar un campo inválido', { message: error && error.message });
+      }
+    });
+  }
+
+  function onFieldInput(event) {
+    const target = event.target;
+    if (target && target.dataset && target.dataset.qeRestored) delete target.dataset.qeRestored;
+    syncInvalidState();
+  }
+
+  function onFieldChange(event) {
+    const target = event.target;
+    // numberField: si al confirmar sigue inválido, ya restauró el valor anterior.
+    if (target && target.getAttribute && target.getAttribute('aria-invalid') === 'true' && target.getAttribute('inputmode') === 'decimal') {
+      target.dataset.qeRestored = 'true';
+    }
+    syncInvalidState();
   }
 
   async function save() {
     scheduleSave.cancel();
     if (readOnly || !state.dirty) return pendingSaves.get(quoteId);
+    if (hasInvalidFields()) {
+      if (state.saveStatus !== 'error') setSaveStatus('invalid');
+      return pendingSaves.get(quoteId);
+    }
     state.dirty = false;
     setSaveStatus('saving');
     const snapshot = deepClone(state.quote);
@@ -997,7 +1145,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
 
   function markDirty() {
     state.dirty = true;
-    setSaveStatus('pending');
+    setSaveStatus(hasInvalidFields() ? 'invalid' : 'pending');
     scheduleSave();
   }
 
@@ -1060,7 +1208,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       'div',
       { class: 'qe-step-heading' },
       h('span', { class: 'qe-step-kicker' }, `Paso ${currentIndex + 1} de ${QUOTE_STEPS.length}`),
-      h('h2', { class: 'qe-step-title' }, currentStep.label),
+      h('h2', { class: 'qe-step-title', tabindex: '-1' }, currentStep.label),
     ),
     h('div', { class: 'qe-step-meta' }, h('span', { class: 'badge badge-navy', title: 'Unidad de cotización' }, unitLabel), saveEl),
   );
@@ -1076,13 +1224,65 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       : h('a', { class: 'btn btn-secondary qe-nav-btn is-next', href: '#/cotizaciones' }, h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, 'Listo'), h('span', {}, 'Volver a Cotizaciones'))),
   );
 
+  // Aviso de valores ILUSTRATIVOS de la cotización (se actualiza al confirmar líneas).
+  const illustrativeHolder = h('div', { class: 'qe-illustrative', hidden: true });
+  let illustrativeKey = null;
+
+  /** ¿Está visible el aviso global de datos de demostración? (para no repetirlo). */
+  function globalDemoBannerVisible() {
+    const region = document.querySelector('.global-banners');
+    if (!region || region.hidden) return false;
+    return [...region.querySelectorAll('.banner')].some((b) => /ILUSTRATIVO/.test(b.textContent || ''));
+  }
+
+  function syncIllustrativeBanner() {
+    const info = illustrativeInfo(state.quote);
+    const q = state.quote;
+    const count = (list) => (Array.isArray(list) ? list.filter((l) => isPlainObject(l) && l.illustrative === true).length : 0);
+    const groups = [
+      { step: 'labor', label: 'Personal', n: count(q.labor) },
+      { step: 'equipment', label: 'Equipos', n: count(q.equipment) },
+      { step: 'materials', label: 'Materiales', n: count(q.materials) },
+      { step: 'materials', label: 'Otros costos', n: count(q.otherCosts) },
+      { step: 'logistics', label: 'Vehículos', n: count(q.logistics && q.logistics.vehicles) },
+    ].filter((g) => g.n > 0);
+    // La cotización de demostración ya está explicada por el aviso global.
+    const demoCovered = info.quote && globalDemoBannerVisible();
+    const key = JSON.stringify([info.any, info.quote, info.fuel, demoCovered, groups.map((g) => [g.label, g.n])]);
+    if (key === illustrativeKey) return;
+    illustrativeKey = key;
+    if (!info.any || demoCovered) {
+      clear(illustrativeHolder);
+      illustrativeHolder.hidden = true;
+      return;
+    }
+    illustrativeHolder.hidden = false;
+    if (info.quote) {
+      mount(illustrativeHolder, illustrativeBanner('Esta es una cotización de DEMOSTRACIÓN: todos sus costos, salarios, cargas y precios son ILUSTRATIVOS. Reemplazalos por valores propios vigentes antes de cotizar.'));
+      return;
+    }
+    const lines = groups.reduce((acc, g) => acc + g.n, 0);
+    const parts = [];
+    if (lines > 0) parts.push(`${lines} ${lines === 1 ? 'línea copiada' : 'líneas copiadas'} de plantillas o bibliotecas de demostración`);
+    if (info.fuel) parts.push('el precio del combustible (valor por defecto de la demo)');
+    const el = illustrativeBanner(
+      `Esta cotización tiene valores ILUSTRATIVOS: ${parts.join(' y ')}. Están marcados con la etiqueta ILUSTRATIVO. Reemplazalos por valores propios vigentes y tildá "Son valores propios y vigentes" en cada línea${info.fuel ? ' (el combustible se desmarca al editar su precio)' : ''}.`,
+    );
+    const links = [...groups.map((g) => ({ href: stepHref(g.step), text: `${g.label}: ${g.n}` })), ...(info.fuel ? [{ href: stepHref('logistics'), text: 'Combustible' }] : [])];
+    if (links.length) {
+      const body = el.lastElementChild || el;
+      body.appendChild(h('span', { class: 'qe-illustrative-links' }, ...links.map((l) => h('a', { href: l.href }, l.text))));
+    }
+    mount(illustrativeHolder, el);
+  }
+
   const mainEl = h(
     'div',
     { class: 'qe-main' },
     readOnly
       ? banner('Los datos fueron guardados por una versión más nueva de RATEOS. Podés consultar la cotización, pero no se guardan cambios.', 'danger', { title: 'Modo sólo lectura.' })
       : null,
-    state.quote.illustrative ? illustrativeBanner('Esta es una cotización de DEMOSTRACIÓN: todos sus costos, salarios, cargas y precios son ILUSTRATIVOS. Reemplazalos por valores propios vigentes antes de cotizar.') : null,
+    illustrativeHolder,
     calcErrorBanner,
     stepHead,
     notices.el,
@@ -1099,8 +1299,19 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   );
 
   // ------------------------------------------------------------ encabezado
-  const duplicateBtn = button('Duplicar', { variant: 'secondary', icon: 'copy', disabled: readOnly, onClick: () => duplicate() });
-  const printBtn = button('Imprimir', { variant: 'secondary', icon: 'print', onClick: () => print() });
+  // En pantallas chicas los botones del encabezado quedan sólo con ícono
+  // (el texto sigue disponible para lectores de pantalla y como tooltip).
+  const headBtnClass = 'btn btn-secondary qe-head-btn';
+  const duplicateBtn = button('Duplicar', { variant: 'secondary', icon: 'copy', title: 'Duplicar', disabled: readOnly, onClick: () => duplicate(), attrs: { class: headBtnClass } });
+  const templateBtn = button('Guardar como plantilla', {
+    variant: 'secondary',
+    icon: 'services',
+    disabled: readOnly,
+    title: 'Guardar como plantilla: reutilizá esta cotización como plantilla de servicio',
+    onClick: () => saveAsTemplate(),
+    attrs: { class: headBtnClass },
+  });
+  const printBtn = button('Imprimir', { variant: 'secondary', icon: 'print', title: 'Imprimir', onClick: () => print(), attrs: { class: headBtnClass } });
 
   function syncHeader(force = false) {
     const name = String(state.quote.name || '').trim() || 'Cotización sin nombre';
@@ -1112,7 +1323,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         { label: 'Cotizaciones', href: '#/cotizaciones' },
         { label: state.quote.code || 'Cotización', href: stepHref('service') },
       ],
-      actions: [duplicateBtn, printBtn],
+      actions: [duplicateBtn, templateBtn, printBtn],
     });
   }
 
@@ -1134,6 +1345,104 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     } finally {
       duplicateBtn.disabled = readOnly;
     }
+  }
+
+  /**
+   * Plantilla de servicio a partir de la cotización (UX-13): copia tipo de
+   * servicio, actividad, líneas (con su marca ILUSTRATIVO) y reglas, sin
+   * identidad, cliente, código ni estado.
+   */
+  function templateDefaults(name) {
+    const copy = deepClone(state.quote);
+    ['id', 'organizationId', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy', 'code', 'status', 'client', 'illustrative', 'templateId'].forEach((key) => {
+      delete copy[key];
+    });
+    copy.name = name;
+    return copy;
+  }
+
+  function saveAsTemplate() {
+    if (readOnly) return;
+    if (hasInvalidFields()) {
+      notify('Revisá los campos marcados antes de guardar la plantilla.', 'warning');
+      return;
+    }
+    const info = illustrativeInfo(state.quote);
+    let name = String(state.quote.name || '').trim().slice(0, 120) || 'Plantilla sin nombre';
+    let description = state.quote.code ? `Creada desde ${state.quote.code}.` : '';
+    const nameField = textField({
+      label: 'Nombre de la plantilla',
+      value: name,
+      maxLength: 120,
+      required: true,
+      onChange: (v) => {
+        name = cleanText(v, 120, false);
+      },
+    });
+    const descField = textField({
+      label: 'Descripción',
+      value: description,
+      maxLength: 300,
+      multiline: true,
+      hint: 'Para qué sirve, alcance o supuestos.',
+      onChange: (v) => {
+        description = cleanText(v, 300, true);
+      },
+    });
+    let saving = false;
+    const confirmBtn = button('Guardar plantilla', {
+      variant: 'primary',
+      icon: 'check',
+      onClick: async () => {
+        if (saving) return;
+        const finalName = String(name || '').trim();
+        if (!finalName) {
+          notify('Poné un nombre para la plantilla.', 'warning');
+          return;
+        }
+        saving = true;
+        confirmBtn.disabled = true;
+        try {
+          const saved = await app.ctx.resources.saveService({
+            id: createId(),
+            organizationId: state.quote.organizationId ?? null,
+            name: finalName,
+            description: String(description || '').trim(),
+            serviceType: state.quote.serviceType,
+            illustrative: info.any,
+            defaults: templateDefaults(finalName),
+          });
+          dialog.close();
+          notify(
+            h(
+              'span',
+              {},
+              `Se guardó la plantilla "${(saved && saved.name) || finalName}". `,
+              h('a', { href: '#/servicios' }, 'Ver plantillas de servicio'),
+            ),
+            'success',
+          );
+        } catch (error) {
+          logger.warn('No se pudo guardar la plantilla', { code: error && error.code });
+          notify(error && error.code === 'quota_exceeded' && error.message ? error.message : 'No se pudo guardar la plantilla.', 'danger');
+        } finally {
+          saving = false;
+          confirmBtn.disabled = false;
+        }
+      },
+    });
+    const dialog = openDialog({
+      title: 'Guardar como plantilla',
+      content: h(
+        'div',
+        { class: 'stack' },
+        h('p', {}, 'La plantilla copia el tipo de servicio, la actividad, el personal, los equipos, los materiales, la logística y las reglas comerciales de esta cotización. No copia el cliente, el código ni el estado. Después la usás desde "Nueva cotización".'),
+        info.any ? banner('Esta cotización tiene valores ILUSTRATIVOS: la plantilla también va a quedar marcada como ILUSTRATIVA.', 'warning') : null,
+        nameField,
+        descField,
+      ),
+      actions: [button('Cancelar', { variant: 'secondary', onClick: () => dialog.close() }), confirmBtn],
+    });
   }
 
   function print() {
@@ -1284,6 +1593,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       update,
       rerender: () => rerenderStep(),
       readOnly,
+      confirmedLines: state.confirmedLines,
     });
     if (stepId === 'result') {
       renderResultStep();
@@ -1301,6 +1611,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   }
 
   function refreshAll() {
+    syncIllustrativeBanner();
+    syncInvalidState();
     const r = state.result;
     if (!r) return;
     stepper.update(r);
@@ -1349,12 +1661,43 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     refreshAll();
   }
 
+  /**
+   * Al cambiar de paso (UX-03): el título del paso y sus primeros campos
+   * tienen que quedar a la vista sin scrollear (en pantallas chicas el
+   * formulario va arriba del resumen, pero los avisos pueden empujarlo).
+   * Se ejecuta después de que el router enfoca el título de la pantalla.
+   */
+  function revealStepHead() {
+    setTimeout(() => {
+      if (state.disposed || !stepHead.isConnected) return;
+      const title = stepHead.querySelector('.qe-step-title');
+      if (title) {
+        try {
+          title.focus({ preventScroll: true });
+        } catch {
+          /* foco opcional */
+        }
+      }
+      const topbar = document.querySelector('.topbar');
+      const topbarRect = topbar ? topbar.getBoundingClientRect() : null;
+      const offset = topbarRect && getComputedStyle(topbar).position === 'sticky' ? Math.max(0, topbarRect.bottom) : 0;
+      const rect = stepHead.getBoundingClientRect();
+      // En desktop se tolera que los avisos queden arriba; en pantallas chicas
+      // el paso tiene que arrancar cerca del borde superior.
+      const share = window.innerWidth <= 980 ? 0.25 : 0.45;
+      const comfortable = rect.top >= offset && rect.top <= offset + Math.max(120, (window.innerHeight - offset) * share);
+      if (comfortable) return;
+      window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - offset - 12), behavior: 'auto' });
+    }, 0);
+  }
+
   // ------------------------------------------------------- ciclo de vida
   const onPageHide = () => {
+    revertInvalidFields();
     if (state.dirty) save();
   };
   const onVisibility = () => {
-    if (document.visibilityState === 'hidden' && state.dirty) save();
+    if (document.visibilityState === 'hidden' && state.dirty && !hasInvalidFields()) save();
   };
   // Si hay cambios que no se pudieron guardar, el navegador pide confirmación
   // antes de cerrar o recargar la pestaña.
@@ -1375,6 +1718,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       renderStep();
       refreshAll();
       revealCurrentStep();
+      if (revealStep) revealStepHead();
+      layout.addEventListener('input', onFieldInput);
+      layout.addEventListener('change', onFieldChange);
       window.addEventListener('pagehide', onPageHide);
       window.addEventListener('beforeunload', onBeforeUnload);
       document.addEventListener('visibilitychange', onVisibility);
@@ -1387,10 +1733,17 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     dispose() {
       if (state.disposed) return pendingSaves.get(quoteId) || Promise.resolve(true);
       scheduleRecalc.cancel();
+      // Un valor inválido sin confirmar vuelve al anterior antes de guardar.
+      revertInvalidFields();
+      // ¿Se sale hacia otro paso de esta misma cotización?
+      const prefix = `#/cotizaciones/${encodeURIComponent(quoteId)}/`;
+      stepChangeQuoteId = String(window.location.hash || '').startsWith(prefix) ? quoteId : null;
       const flushing = state.dirty ? save() : pendingSaves.get(quoteId) || Promise.resolve(true);
       state.disposed = true;
       resultToken += 1;
       runResultCleanup();
+      layout.removeEventListener('input', onFieldInput);
+      layout.removeEventListener('change', onFieldChange);
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('visibilitychange', onVisibility);
@@ -1427,10 +1780,23 @@ function renderNotFound(root, app) {
 export async function render(root, app, params = {}) {
   const token = ++renderSequence;
   const id = params && typeof params.id === 'string' ? params.id : '';
-  const stepId = QUOTE_STEPS.some((s) => s.id === (params && params.step)) ? params.step : 'service';
+  const requested = params && typeof params.step === 'string' && params.step !== '' ? params.step : null;
+  const validStep = requested !== null && QUOTE_STEPS.some((s) => s.id === requested);
+
+  // Paso inexistente en la URL (p. ej. …/foo): se corrige la URL al primer
+  // paso para que coincida con lo que se ve (QA-E2E-13).
+  if (requested !== null && !validStep && id && app && typeof app.navigate === 'function') {
+    app.navigate(`#/cotizaciones/${encodeURIComponent(id)}/service`, { replace: true });
+    return undefined;
+  }
+  const stepId = validStep ? requested : 'service';
 
   // Un editor anterior (otro paso u otra cotización) guarda antes de seguir.
   if (activeEditor) await activeEditor.dispose();
+  // Cambio de paso dentro de la misma cotización: se lleva la vista al
+  // encabezado del paso nuevo (UX-03).
+  const revealStep = Boolean(id) && stepChangeQuoteId === id;
+  stepChangeQuoteId = null;
   if (token !== renderSequence) return undefined;
 
   mount(root, h('div', { class: 'loading', role: 'status' }, 'Cargando cotización…'));
@@ -1463,7 +1829,7 @@ export async function render(root, app, params = {}) {
 
   // Cambios que no se pudieron guardar antes (p. ej. almacenamiento lleno).
   const draft = unsavedDrafts.get(id);
-  const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft) });
+  const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft), revealStep });
   activeEditor = editor;
   editor.mount();
   return () => {

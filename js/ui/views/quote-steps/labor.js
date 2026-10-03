@@ -67,7 +67,7 @@ export function render(container, ctx) {
   /** ¿Mostrar la etiqueta ILUSTRATIVO en un parámetro de convenio? */
   const illustrativeParam = (line, key) => {
     const agreement = agreementOf(line);
-    return Boolean(quote.illustrative) || Boolean(agreement && agreement.illustrative) || line[key] === ILLUSTRATIVE_AGREEMENT_PARAMS[key];
+    return Boolean(quote.illustrative) || line.illustrative === true || Boolean(agreement && agreement.illustrative) || line[key] === ILLUSTRATIVE_AGREEMENT_PARAMS[key];
   };
 
   // ------------------------------------------------------------ acciones
@@ -141,6 +141,9 @@ export function render(container, ctx) {
   const lineCards = lines.map((line, i) => {
     const p = `labor.${i}`;
     const agreement = agreementOf(line);
+    // Valores copiados de una plantilla o perfil de demostración (UX-02).
+    const ill = kit.lineIllustrative(p, { what: 'este puesto' });
+    const illustrative = ill.marked;
     return kit.lineCard(
       {
         title: kit.out(() => (quote.labor[i] && quote.labor[i].role) || 'Puesto sin nombre'),
@@ -148,12 +151,13 @@ export function render(container, ctx) {
           const l = r.model.labor.lines[i];
           return l ? `${formatNumber(l.positions, { decimals: 2 })} posición(es) × ${formatNumber(l.peoplePerPosition, { decimals: 2 })} persona(s) = dotación ${formatNumber(l.headcount, { decimals: 2 })}` : '';
         }),
-        badges: agreement && agreement.illustrative ? [badge('Convenio ilustrativo', 'orange')] : [],
+        badges: [ill.tag, agreement && agreement.illustrative ? badge('Convenio ilustrativo', 'orange') : null].filter(Boolean),
         actions: [
           kit.action('Aplicar parámetros del convenio', () => applyAgreement(i), { icon: 'check', title: 'Copia horas normales, recargo de horas extra, SAC, vacaciones, cargas y ART del convenio elegido' }),
           kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' }),
         ],
       },
+      ill.control,
       kit.group(
         'Puesto',
         formGrid(
@@ -162,18 +166,19 @@ export function render(container, ctx) {
           kit.select(`${p}.agreementId`, { label: 'Convenio', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio' }),
           kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120 }),
           kit.num(`${p}.positions`, { label: 'Posiciones a cubrir', rule: 'quantity', hint: 'Puestos que tienen que estar cubiertos a la vez.' }),
-          kit.num(`${p}.peoplePerPosition`, { label: 'Personas por posición (relevos)', rule: 'quantity', hint: reliefHint }),
+          // Mayor a 0: con 0 personas el puesto no tendría costo (QA-E2E-12).
+          kit.num(`${p}.peoplePerPosition`, { label: 'Personas por posición (relevos)', rule: 'positive', hint: reliefHint }),
         ),
       ),
       kit.group(
         'Remuneración',
         formGrid(
           3,
-          kit.num(`${p}.basicMonthly`, { label: 'Básico mensual', rule: 'money', unit: '$/mes', illustrative: Boolean(quote.illustrative) }),
-          kit.num(`${p}.additionalsMonthly`, { label: 'Adicionales mensuales', rule: 'money', unit: '$/mes', illustrative: Boolean(quote.illustrative), hint: 'Zona, diagrama, nocturnidad, etc.' }),
-          kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda por día activo', rule: 'money', unit: '$/día', illustrative: Boolean(quote.illustrative) }),
+          kit.num(`${p}.basicMonthly`, { label: 'Básico mensual', rule: 'money', unit: '$/mes', illustrative }),
+          kit.num(`${p}.additionalsMonthly`, { label: 'Adicionales mensuales', rule: 'money', unit: '$/mes', illustrative, hint: 'Zona, diagrama, nocturnidad, etc.' }),
+          kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda por día activo', rule: 'money', unit: '$/día', illustrative }),
           kit.num(`${p}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h/mes', illustrative: illustrativeParam(line, 'normalHoursPerMonth') }),
-          kit.num(`${p}.overtimeHoursPerActiveDay`, { label: 'Horas extra por día activo', rule: 'hoursPerDay', unit: 'h/día' }),
+          kit.num(`${p}.overtimeHoursPerActiveDay`, { label: 'Horas extra por día activo', rule: 'hoursPerDay', unit: 'h/día', illustrative }),
           kit.num(`${p}.overtimePremiumPct`, { label: 'Recargo horas extra', rule: 'percentOpen', unit: '%', illustrative: illustrativeParam(line, 'overtimePremiumPct') }),
         ),
       ),
@@ -191,10 +196,10 @@ export function render(container, ctx) {
         'Otros costos mensuales por persona',
         formGrid(
           4,
-          kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative: Boolean(quote.illustrative) }),
-          kit.num(`${p}.ppeMonthly`, { label: 'EPP', rule: 'money', unit: '$/mes', illustrative: Boolean(quote.illustrative) }),
-          kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative: Boolean(quote.illustrative) }),
-          kit.num(`${p}.transferMonthly`, { label: 'Traslado', rule: 'money', unit: '$/mes', illustrative: Boolean(quote.illustrative) }),
+          kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative }),
+          kit.num(`${p}.ppeMonthly`, { label: 'EPP', rule: 'money', unit: '$/mes', illustrative }),
+          kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
+          kit.num(`${p}.transferMonthly`, { label: 'Traslado', rule: 'money', unit: '$/mes', illustrative }),
         ),
       ),
       h(

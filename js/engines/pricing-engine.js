@@ -102,6 +102,22 @@ export function commercialRound(price, step) {
   return roundUpToStep(price, nonNegative(step));
 }
 
+/**
+ * Convierte una tarifa entre $/día y $/hora (horas por día activo).
+ * Redondea HACIA ARRIBA al centavo (nunca baja el margen). El abono mensual
+ * no es convertible sin ambigüedad: devuelve null.
+ */
+export function convertRateUnit(rate, fromUnit, toUnit, hoursPerActiveDay) {
+  const hours = Number(hoursPerActiveDay);
+  if (!isFiniteNumber(rate) || !(Number.isFinite(hours) && hours > 0)) return null;
+  let converted = null;
+  if (fromUnit === toUnit) converted = rate;
+  else if (fromUnit === 'day' && toUnit === 'hour') converted = safeDivide(rate, hours, null);
+  else if (fromUnit === 'hour' && toUnit === 'day') converted = rate * hours;
+  if (!isFiniteNumber(converted)) return null;
+  return Math.round(commercialRound(converted, 0.01) * 100) / 100;
+}
+
 /** Traza: margen vs markup para un costo. */
 export function traceMarginVsMarkup(cost, pctValue) {
   return createTrace({

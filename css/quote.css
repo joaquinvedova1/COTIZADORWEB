@@ -62,8 +62,10 @@
   padding: 0.15rem 0 0.35rem; border-bottom: 1px solid var(--line);
 }
 .qe-step-heading { display: flex; flex-direction: column; gap: 0.15rem; }
-.qe-step-kicker { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 700; color: var(--blue-600); }
+.qe-step-kicker { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 700; color: var(--blue-text); }
 .qe-step-title { font-size: 1.3rem; color: var(--navy-900); }
+/* Foco programático al cambiar de paso (para lectores de pantalla): sin anillo, no es un control. */
+.qe-step-title:focus { outline: none; }
 .qe-step-meta { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 
 .qe-save {
@@ -78,9 +80,25 @@
 .qe-save[data-status="error"] { color: #B23A3A; border-color: #F0C9C9; background: var(--red-50); max-width: 100%; white-space: normal; }
 .qe-save[data-status="error"] .qe-save-dot { background: var(--red); }
 .qe-save[data-status="readonly"] .qe-save-dot { background: var(--ink-3); }
+.qe-save[data-status="invalid"] { color: #9A5F12; border-color: #F4D6AB; background: var(--orange-50); }
+.qe-save[data-status="invalid"] .qe-save-dot { background: var(--orange); }
 .qe-save .btn-link { padding: 0; font-size: 0.82rem; }
 @keyframes qe-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .qe-save-dot { animation: none !important; } }
+
+/* ------------------------------------------------- valores ilustrativos */
+
+.qe-illustrative[hidden] { display: none; }
+.qe-illustrative-links { display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; margin-top: 0.35rem; font-weight: 600; }
+.qe-illustrative-links a { color: inherit; }
+.qe-own-values { background: var(--orange-50); border: 1px dashed #F4D6AB; border-radius: var(--radius-sm); padding: 0.45rem 0.7rem; }
+.qe-own-values .field-hint { margin-left: 1.65rem; }
+.qe-own-values input[type="checkbox"] { width: 18px; height: 18px; min-width: 0; padding: 0; flex-shrink: 0; }
+.qe-own-values .check { justify-content: flex-start; text-align: left; }
+.qe-cell-stack { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.qe-cell-stack .qe-own-values { padding: 0.3rem 0.5rem; font-size: 0.82rem; }
+.qe-cell-tag .tag-illustrative { margin-left: 0; }
+.field-illustrative .field-control input { border-left: 3px solid #F4C27E; }
 
 /* --------------------------------------------------------- avisos del paso */
 
@@ -92,7 +110,7 @@
 .qe-notices.has-red { border-left-color: var(--red); }
 
 .qe-issue-note { font-size: 0.78rem; font-weight: 600; }
-.qe-issue-error { color: var(--red); }
+.qe-issue-error { color: var(--red-text); }
 .qe-issue-warning { color: #9A5F12; }
 .qe-has-issue .field-control input, .qe-has-issue .field-control select { border-color: var(--orange); }
 
@@ -102,7 +120,7 @@
 .qe-step-body > .card .card-body > * + * { margin-top: 0.9rem; }
 .qe-step-body .choice-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 
-.qe-num-echo { font-size: 0.76rem; color: var(--blue-600); font-family: var(--mono); font-weight: 600; margin-top: -0.1rem; }
+.qe-num-echo { font-size: 0.76rem; color: var(--blue-text); font-family: var(--mono); font-weight: 600; margin-top: -0.1rem; }
 
 .qe-static {
   min-height: 38px; display: flex; align-items: center; padding: 0.5rem 0.65rem; border-radius: 8px;
@@ -178,6 +196,9 @@
 
 /* ---------------------------------------------------- tablas editables */
 
+/* Los rótulos ocultos (sr-only, absolutos) quedan dentro del contenedor con
+   scroll de la tabla: nunca generan scroll horizontal de la página. */
+.table-wrap.qe-edit-table { position: relative; }
 .qe-edit-table .table td { vertical-align: top; }
 .qe-edit-table .field { gap: 0.15rem; }
 .qe-edit-table .field-label {
@@ -233,7 +254,7 @@
 .qe-rule:first-child { border-top: 0; padding-top: 0.25rem; }
 .qe-rule-title { margin: 0; font-size: 0.95rem; color: var(--navy-900); }
 .qe-rule-explain { margin: 0.2rem 0 0; font-size: 0.85rem; color: var(--ink-2); }
-.qe-rule-output { margin-top: 0.4rem; font-size: 0.8rem; color: var(--blue-600); font-weight: 600; }
+.qe-rule-output { margin-top: 0.4rem; font-size: 0.8rem; color: var(--blue-text); font-weight: 600; }
 .qe-rule-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem 0.8rem; align-items: end; }
 .qe-step-body .card-body > .qe-rule + .qe-rule { margin-top: 0; }
 
@@ -314,22 +335,62 @@
   .qe-rule { grid-template-columns: 1fr; gap: 0.5rem; }
   .qe-split, .qe-risk-list { grid-template-columns: 1fr; }
 }
+@container qestep (max-width: 940px) {
+  /* Tablas editables anchas (vehículos, otros costos) → una tarjeta por fila:
+     sin scroll horizontal, con todos los rótulos (y la marca ILUSTRATIVO) a la vista. */
+  .qe-stack-table.table-wrap { overflow: visible; }
+  .qe-stack-table .table, .qe-stack-table .table tbody { display: block; width: 100%; }
+  .qe-stack-table .table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .qe-stack-table .table tbody tr {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 0.8rem; align-items: end;
+    padding: 0.75rem 0.85rem; margin-bottom: 0.65rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white);
+  }
+  .qe-stack-table .table tbody tr:hover { background: var(--white); }
+  .qe-stack-table .table td { display: block; padding: 0; border: 0; min-width: 0; text-align: left; }
+  .qe-stack-table .table td:first-child { grid-column: 1 / -1; }
+  .qe-stack-table .field-label {
+    position: static !important; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal;
+  }
+  .qe-stack-table .field-control input, .qe-stack-table .field-control select,
+  .qe-stack-table td:first-child .field-control input { min-width: 0; }
+  .qe-stack-table .qe-cell-tag { display: none; }
+  .qe-stack-table td.qe-col-calc::before {
+    content: attr(data-label); display: block; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); margin-bottom: 0.2rem;
+  }
+  .qe-stack-table td.qe-col-calc .qe-cell-calc, .qe-stack-table td.qe-col-calc .qe-out.mono { align-items: flex-start; padding-top: 0; }
+  .qe-stack-table td.qe-col-remove { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+}
 @container qestep (max-width: 460px) {
   .form-grid.cols-4, .form-grid.cols-3, .form-grid.cols-2 { grid-template-columns: 1fr; }
   .qe-compare { grid-template-columns: 1fr; }
   .qe-risk-row { grid-template-columns: 1fr; }
+  .qe-stack-table .table tbody tr { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* -------------------------------------------------------------- responsive */
 
-/* < 1200 px: el resumen pasa arriba del formulario */
+/* < 1200 px: el resumen pasa DEBAJO del formulario (al tocar "Siguiente" se
+   ve el paso nuevo, no el mismo resumen). */
 @media (min-width: 1680px) {
   .qe { --qe-stepper-w: 220px; --qe-summary-w: 300px; }
 }
 
+/* Paso Resultado (sin resumen): hasta ~1600 px el stepper pasa a una barra
+   horizontal arriba para darle todo el ancho a tablas y gráficos. */
+@media (max-width: 1600px) {
+  .qe.qe-no-summary { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stepper" "main"; gap: 1rem; }
+  .qe.qe-no-summary .qe-stepper { position: static; padding: 0.35rem; }
+  .qe.qe-no-summary .qe-steps { flex-direction: row; flex-wrap: wrap; gap: 0.25rem; }
+  .qe.qe-no-summary .qe-step + .qe-step::before { display: none; }
+  .qe.qe-no-summary .qe-step-link { grid-template-columns: 1.6rem auto 8px; white-space: nowrap; padding: 0.4rem 0.6rem; }
+  .qe.qe-no-summary .qe-step-link.is-current { box-shadow: inset 0 -3px 0 var(--navy-900); }
+  .qe.qe-no-summary .qe-step-label { overflow-wrap: normal; }
+  .qe.qe-no-summary .qe-step-dot { width: 8px; height: 8px; }
+}
+
 @media (max-width: 1200px) {
-  .qe { --qe-stepper-w: 204px; grid-template-columns: var(--qe-stepper-w) minmax(0, 1fr); grid-template-areas: "stepper summary" "stepper main"; }
-  .qe.qe-no-summary { grid-template-areas: "stepper main"; }
+  .qe { --qe-stepper-w: 204px; grid-template-columns: var(--qe-stepper-w) minmax(0, 1fr); grid-template-areas: "stepper main" "stepper summary"; }
+  .qe.qe-no-summary { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stepper" "main"; }
   .qe-summary { position: static; max-height: none; overflow: visible; }
   .qe-summary-head { flex-direction: row; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
   .qe-sum-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
@@ -343,10 +404,10 @@
 
 /* < 980 px: stepper horizontal con scroll */
 @media (max-width: 980px) {
-  .qe, .qe.qe-no-summary { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stepper" "summary" "main"; }
+  .qe, .qe.qe-no-summary { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stepper" "main" "summary"; }
   .qe.qe-no-summary { grid-template-areas: "stepper" "main"; }
-  .qe-stepper { position: static; padding: 0.35rem; overflow-x: auto; scrollbar-width: thin; }
-  .qe-steps { flex-direction: row; gap: 0.25rem; width: max-content; }
+  .qe-stepper, .qe.qe-no-summary .qe-stepper { position: static; padding: 0.35rem; overflow-x: auto; scrollbar-width: thin; }
+  .qe-steps, .qe.qe-no-summary .qe-steps { flex-direction: row; flex-wrap: nowrap; gap: 0.25rem; width: max-content; }
   .qe-step + .qe-step::before { display: none; }
   .qe-step-link { grid-template-columns: 1.6rem auto 8px; white-space: nowrap; padding: 0.4rem 0.6rem; }
   .qe-step-link.is-current { box-shadow: inset 0 -3px 0 var(--navy-900); }
@@ -356,6 +417,9 @@
 
 @media (max-width: 640px) {
   .qe-step-nav .btn { flex: 1 1 100%; max-width: none; }
+  /* Encabezado del editor: acciones sólo con ícono (el texto queda para lectores de pantalla). */
+  .qe-head-btn { position: relative; padding-left: 0.6rem; padding-right: 0.6rem; }
+  .qe-head-btn > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap; }
   .qe-sum-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

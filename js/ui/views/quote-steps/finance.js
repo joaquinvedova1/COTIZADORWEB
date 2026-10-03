@@ -9,6 +9,7 @@ import { card, formGrid, banner, table } from '../../components.js';
 import { PAY_GROUPS } from '../../../domain/catalogs.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { formatMoney, formatPercent, formatNumber, formatDays } from '../../../core/format.js';
+import { illustrativeTag } from '../../layout.js';
 
 function groupsAtEstimate(result) {
   const D = result.activity.activeDaysPerMonth;
@@ -32,7 +33,24 @@ function groupLabel(label) {
 }
 
 export function render(container, ctx) {
-  const { kit } = ctx;
+  const { kit, quote, settings } = ctx;
+  const term = quote.finance ? quote.finance.paymentTermDays : null;
+  const termEmpty = term === null || term === undefined || term === '';
+  const suggested = settings && Number.isFinite(Number(settings.defaultPaymentTermDays)) && settings.defaultPaymentTermDays !== null ? Number(settings.defaultPaymentTermDays) : null;
+  const settingsIllustrative = Boolean(settings && settings.illustrative === true);
+  // La tasa es ILUSTRATIVA si la cotización es demo o vino de un default/plantilla de demo.
+  const rateIllustrative = quote.illustrative === true || Boolean(quote.finance && quote.finance.illustrative === true);
+  // Plazo sin cargar (SPEC-02): se sugiere el de Configuración, marcado
+  // ILUSTRATIVO si la configuración es la de demostración.
+  const termHint = termEmpty && suggested !== null
+    ? h(
+      'span',
+      {},
+      `Días desde que presentás la factura hasta que cobrás. Sugerido en Configuración: ${formatNumber(suggested)} días`,
+      settingsIllustrative ? illustrativeTag('Valor de la configuración de demostración: confirmalo con tu cliente') : null,
+      settingsIllustrative ? ' (confirmalo con tu cliente).' : '.',
+    )
+    : 'Días desde que presentás la factura hasta que cobrás.';
 
   const missingTerm = kit.toggle(
     banner('Sin el plazo de pago del cliente no se puede calcular el costo financiero. Cargalo aunque sea estimado (por ejemplo 60 o 90 días).', 'danger', { title: 'Falta el plazo de pago.' }),
@@ -42,6 +60,15 @@ export function render(container, ctx) {
   const termsCard = card(
     { title: 'Cobro del cliente', subtitle: 'Cuánto tarda en entrar la plata desde que prestás el servicio.' },
     missingTerm,
+    termEmpty && suggested !== null && !settingsIllustrative
+      ? h(
+        'div',
+        { class: 'qe-toolbar' },
+        kit.action(`Usar el plazo de Configuración (${formatNumber(suggested)} días)`, () => ctx.mutate((q) => {
+          q.finance.paymentTermDays = suggested;
+        }, { focus: 'finance.paymentTermDays' }), { icon: 'check' }),
+      )
+      : null,
     formGrid(
       3,
       kit.num('finance.paymentTermDays', {
@@ -49,7 +76,8 @@ export function render(container, ctx) {
         rule: 'paymentDays',
         unit: 'días',
         requiredMark: true,
-        hint: 'Días desde que presentás la factura hasta que cobrás.',
+        placeholder: termEmpty && suggested !== null ? `Ej.: ${formatNumber(suggested)}` : '',
+        hint: termHint,
       }),
       kit.num('finance.invoiceLagDays', {
         label: 'Días promedio entre que prestás el servicio y facturás',
@@ -61,8 +89,18 @@ export function render(container, ctx) {
         label: 'Tasa de financiamiento mensual',
         rule: 'percent',
         unit: '% mensual',
-        illustrative: true,
-        hint: 'Lo que te cuesta financiarte (descubierto, adelantos, capital propio). Valor ILUSTRATIVO.',
+        illustrative: rateIllustrative,
+        hint: rateIllustrative
+          ? 'Lo que te cuesta financiarte (descubierto, adelantos, capital propio). Valor ILUSTRATIVO: al editarlo se quita la marca.'
+          : 'Lo que te cuesta financiarte (descubierto, adelantos, capital propio).',
+        onValue: (value, el) => {
+          if (!(quote.finance && quote.finance.illustrative === true)) return;
+          ctx.update('finance.illustrative', false);
+          if (quote.illustrative === true || !el) return;
+          el.classList.remove('field-illustrative');
+          const tag = el.querySelector('.tag-illustrative');
+          if (tag) tag.remove();
+        },
       }),
     ),
   );

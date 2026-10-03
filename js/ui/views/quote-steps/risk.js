@@ -11,6 +11,7 @@ import { contingencyPctOf, monthsFactor } from '../../../engines/cost-engine.js'
 import { formatMoney, formatPercent, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { nonNegative } from '../../../core/money.js';
+import { illustrativeTag } from '../../layout.js';
 
 const RISK_HINTS = Object.freeze({
   activity_variation: 'Que se trabaje menos días que lo estimado.',
@@ -50,11 +51,24 @@ function contingencyTrace(result, quote) {
 }
 
 export function render(container, ctx) {
-  const { quote, kit } = ctx;
+  const { quote, kit, settings } = ctx;
+  // Con la configuración de demostración la contingencia arranca en 0 (no se
+  // da por definida): se muestra el valor sugerido, marcado ILUSTRATIVO.
+  const suggested = settings && Number(settings.defaultContingencyPct) > 0 ? Number(settings.defaultContingencyPct) : null;
+  const unset = !(nonNegative(quote.risk && quote.risk.generalPct) > 0);
+  const generalHint = unset && suggested !== null
+    ? h(
+      'span',
+      {},
+      `Se aplica sobre el costo directo + estructura + financiero. Sugerida en Configuración: ${formatPercent(suggested)}`,
+      settings.illustrative === true ? illustrativeTag('Valor de la configuración de demostración') : null,
+      '.',
+    )
+    : 'Se aplica sobre el costo directo + estructura + financiero.';
 
   const generalCard = card(
     { title: 'Contingencia general', subtitle: 'Un colchón para imprevistos que no podés anticipar.' },
-    formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: 'Se aplica sobre el costo directo + estructura + financiero.' })),
+    formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
   );
 
   const rows = RISK_ITEMS.map((item) => {

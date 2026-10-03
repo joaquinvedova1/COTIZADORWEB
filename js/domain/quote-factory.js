@@ -95,6 +95,8 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
       paymentTermDays: ownSettings && Number.isFinite(settings.defaultPaymentTermDays) ? settings.defaultPaymentTermDays : null,
       invoiceLagDays: 15,
       monthlyRatePct: settings.financeMonthlyRatePct ?? 0,
+      // Tasa por defecto de una configuración de demostración: ILUSTRATIVA.
+      illustrative: !ownSettings,
       payDays: { salaries: 20, fuel: 0, suppliers: 30, materials: 30, structure: 20 },
     },
     risk: { generalPct: ownSettings ? settings.defaultContingencyPct ?? 0 : 0, items: defaultRiskItems() },
@@ -245,19 +247,23 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
   if (fromIllustrative && isPlainObject(defaults.fuel) && defaults.fuel.pricePerLiter !== undefined) {
     merged.fuel = { ...merged.fuel, illustrative: true };
   }
+  if (fromIllustrative && isPlainObject(defaults.finance) && defaults.finance.monthlyRatePct !== undefined) {
+    merged.finance = { ...merged.finance, illustrative: true };
+  }
   return merged;
 }
 
 /**
  * ¿La cotización tiene valores ILUSTRATIVOS? (demo, plantillas o recursos de
  * biblioteca de demostración). Se usa para badges y avisos en la interfaz.
- * @returns {{ any: boolean, quote: boolean, lines: number, fuel: boolean }}
+ * @returns {{ any: boolean, quote: boolean, lines: number, fuel: boolean, finance: boolean }}
  */
 export function illustrativeInfo(quote = {}) {
   const lists = ['labor', 'equipment', 'materials', 'otherCosts'].map((k) => (Array.isArray(quote[k]) ? quote[k] : []));
   const vehicles = quote.logistics && Array.isArray(quote.logistics.vehicles) ? quote.logistics.vehicles : [];
   const lines = [...lists.flat(), ...vehicles].filter((l) => isPlainObject(l) && l.illustrative === true).length;
   const fuel = Boolean(quote.fuel && quote.fuel.illustrative === true);
+  const finance = Boolean(quote.finance && quote.finance.illustrative === true);
   const whole = quote.illustrative === true;
-  return { any: whole || lines > 0 || fuel, quote: whole, lines, fuel };
+  return { any: whole || lines > 0 || fuel || finance, quote: whole, lines, fuel, finance };
 }

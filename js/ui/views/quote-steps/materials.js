@@ -10,6 +10,8 @@ import { MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DI
 import { materialLineFromLibrary, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
+import { illustrativeTag } from '../../layout.js';
+import { confirmRemove } from './shared.js';
 
 const BASIS_SHORT = Object.freeze({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: 'por activación' });
 
@@ -42,7 +44,6 @@ export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
   const library = Array.isArray(resources.materials) ? resources.materials : [];
   const notApplicable = Boolean(quote.materialsNotApplicable);
-  const illustrative = Boolean(quote.illustrative);
 
   let selectedId = null;
   const addFromLibrary = () => {
@@ -60,7 +61,12 @@ export function render(container, ctx) {
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.description` });
   };
-  const removeMaterial = (index) => ctx.mutate((q) => q.materials.splice(index, 1));
+  const removeMaterial = async (index) => {
+    const line = quote.materials[index];
+    if (!line) return;
+    const ok = await confirmRemove({ title: 'Quitar material', name: line.description || 'Material' });
+    if (ok) ctx.mutate((q) => q.materials.splice(index, 1));
+  };
 
   const toggleCard = card(
     { title: 'Materiales', subtitle: 'Insumos, consumibles y materiales menores del servicio.' },
@@ -72,12 +78,17 @@ export function render(container, ctx) {
     : quote.materials.map((line, i) => {
       const p = `materials.${i}`;
       const at = (r) => r.model.materials.lines[i];
+      // Valores copiados de una plantilla o material de demostración (UX-02).
+      const ill = kit.lineIllustrative(p, { what: 'este material' });
+      const illustrative = ill.marked;
       return kit.lineCard(
         {
           title: kit.out(() => (quote.materials[i] && quote.materials[i].description) || 'Material sin descripción'),
+          badges: ill.tag ? [ill.tag] : [],
           actions: [kit.action('Quitar', () => removeMaterial(i), { variant: 'danger', icon: 'trash' })],
           className: 'qe-line-compact',
         },
+        ill.control,
         formGrid(
           4,
           kit.text(`${p}.description`, { label: 'Descripción', maxLength: 160 }),
@@ -91,8 +102,8 @@ export function render(container, ctx) {
           }),
           kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', hint: 'Por mes, día activo o activación (según la base).' }),
           kit.num(`${p}.unitCost`, { label: 'Costo unitario', rule: 'money', unit: '$', illustrative }),
-          kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%' }),
-          kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', hint: 'Flete y manipuleo del material.' }),
+          kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', illustrative }),
+          kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
           kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: 'Sólo informativo, si facturás materiales aparte.' }),
         ),
         kit.stats(
@@ -149,24 +160,46 @@ export function render(container, ctx) {
     const index = quote.otherCosts.length;
     ctx.mutate((q) => q.otherCosts.push(createOtherCost()), { focus: `otherCosts.${index}.description` });
   };
-  const removeOther = (index) => ctx.mutate((q) => q.otherCosts.splice(index, 1));
+  const removeOther = async (index) => {
+    const line = quote.otherCosts[index];
+    if (!line) return;
+    const ok = await confirmRemove({ title: 'Quitar costo', name: line.description || 'Otro costo', extra: '' });
+    if (ok) ctx.mutate((q) => q.otherCosts.splice(index, 1));
+  };
+
+  // Marca ILUSTRATIVO por línea (copiadas de una plantilla de demostración).
+  const otherIll = quote.otherCosts.map((row, i) => kit.lineIllustrative(`otherCosts.${i}`, { what: 'este costo' }));
 
   const otherTable = quote.otherCosts.length
     ? table({
-      className: 'qe-edit-table',
+      className: 'qe-edit-table qe-stack-table',
       caption: 'Otros costos directos',
       columns: [
-        { key: 'description', label: 'Descripción', render: (row, i) => kit.text(`otherCosts.${i}.description`, { label: 'Descripción', maxLength: 160 }) },
+        {
+          key: 'description',
+          label: 'Descripción',
+          render: (row, i) => h('div', { class: 'qe-cell-stack' }, kit.text(`otherCosts.${i}.description`, { label: 'Descripción', maxLength: 160 }), otherIll[i].control),
+        },
         { key: 'category', label: 'Categoría', render: (row, i) => kit.select(`otherCosts.${i}.category`, { label: 'Categoría', options: categoryOptions }) },
         { key: 'behavior', label: 'Comportamiento', render: (row, i) => kit.select(`otherCosts.${i}.behavior`, { label: 'Comportamiento', options: behaviorOptions }) },
-        { key: 'amount', label: 'Monto', render: (row, i) => kit.num(`otherCosts.${i}.amount`, { label: 'Monto', rule: 'money', unit: '$' }) },
+        {
+          key: 'amount',
+          label: 'Monto',
+          render: (row, i) => h(
+            'div',
+            { class: 'qe-cell-stack' },
+            kit.num(`otherCosts.${i}.amount`, { label: 'Monto', rule: 'money', unit: '$', illustrative: otherIll[i].marked }),
+            otherIll[i].marked ? h('span', { class: 'qe-cell-tag' }, illustrativeTag()) : null,
+          ),
+        },
         {
           key: 'calc',
           label: 'En el costo',
           align: 'right',
+          className: 'qe-col-calc',
           render: (row, i) => kit.out((r) => splitLabel(r.model.otherCosts[i]), { className: 'mono nowrap' }),
         },
-        { key: 'remove', label: '', render: (row, i) => kit.action('', () => removeOther(i), { variant: 'ghost', icon: 'trash', title: 'Quitar este costo' }) },
+        { key: 'remove', label: '', className: 'qe-col-remove', render: (row, i) => kit.action('', () => removeOther(i), { variant: 'ghost', icon: 'trash', title: 'Quitar este costo' }) },
       ],
       rows: quote.otherCosts,
     })
