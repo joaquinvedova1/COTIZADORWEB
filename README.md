@@ -41,9 +41,9 @@ Separa siempre cuatro conceptos:
 | 10 | Margen vs markup | Escalera de precios (piso, 5 %, 10 %, 15 %, personalizado) con markup equivalente |
 | 11 | Sensibilidad | Salarios, combustible, materiales, utilización, plazo de pago y descuento comercial, con tarifa fija |
 | 12 | Descuentos por días / volumen | Tramos 1, 2–7, 8–15, 16–30, +30 días con semáforo verde / naranja / rojo; descuento por continuidad |
-| 13 | Cost Completeness Score | Porcentaje de completitud y pendientes (plazo de pago, combustible, materiales, relevos, contingencia…) |
-| 14 | Persistencia local | `localStorage` con `schemaVersion`; sobrevive recargas, cierres y nuevos deploys |
-| 15 | Backup / import | Exportar e importar JSON con validación y confirmación |
+| 13 | Cost Completeness Score | Porcentaje de completitud y pendientes (plazo de pago, combustible, materiales, relevos, contingencia…); verde ≥ 85 %, naranja ≥ 60 %, rojo < 60 %; los valores por defecto ILUSTRATIVOS no cuentan como definidos |
+| 14 | Persistencia local | `localStorage` con `schemaVersion`; sobrevive recargas, cierres y nuevos deploys; funciona con varias pestañas abiertas |
+| 15 | Backup / import | Exportar e importar JSON con validación (rechaza archivos que no son de RATEOS o con datos mal formados) y confirmación |
 | 16 | Tests | `npm test` (motores, golden cases, datos, servicios, arquitectura, build) |
 | 17 | Deploy automático | GitHub Actions: test → build → deploy a GitHub Pages |
 
@@ -65,6 +65,8 @@ Dos modos:
 
 - **Conozco la tarifa:** ingresás la tarifa y RATEOS calcula días mínimos (break-even), resultado y margen esperados.
 - **Conozco la actividad:** ingresás cuántos días del mes esperás trabajar y facturar, y RATEOS calcula la tarifa piso y las tarifas con margen 5 %, 10 % y 15 %.
+
+Los montos se escriben como en Argentina: punto para miles y coma para decimales (`1.800.000`, `1.800.000,50`, `8,5`). Si un valor no es válido, el campo lo marca y, al salir del campo, vuelve al valor anterior: nunca se guarda un número a medio escribir. Las tarifas mínimas (piso, objetivo, sugerida) se muestran redondeadas **hacia arriba**, para que cobrar la cifra que ves nunca te deje debajo del mínimo.
 
 ## Caso demo: Hidrogrúa on-call — Añelo
 
@@ -89,7 +91,7 @@ Resultado aproximado calculado por el motor v0.1.0 (cambia si cambian los datos 
 |---|---:|
 | Costo total del mes | $ 15.776.000 |
 | Costos fijos / variable por día activo | $ 9.031.000 / $ 843.000 |
-| Tarifa piso (neta) | $ 1.972.000 por día |
+| Tarifa piso | $ 2.033.000 por día de lista ($ 1.972.000 neta, después del 3 % del tramo 8–15 días) |
 | Tarifa comercial sugerida (margen 10 %) | $ 2.259.000 por día de lista |
 | Facturación / resultado del mes | $ 17.530.000 / $ 1.753.000 |
 | Margen / markup | 10,0 % / 11,1 % |
@@ -156,7 +158,7 @@ Requisito único: en GitHub → **Settings → Pages → Build and deployment �
 ## Cómo hacer rollback
 
 - **Preferido:** `git revert` del commit problemático en una rama → Pull Request → `main` → deploy automático.
-- **Rápido:** Actions → "Deploy RATEOS a GitHub Pages" → **Run workflow** (branch `main`) → `ref` = tag (por ejemplo `v0.1.0`) o SHA anterior. Se despliega esa versión sin cambiar `main`; el próximo push a `main` vuelve a desplegar `main`.
+- **Rápido:** Actions → "Deploy RATEOS a GitHub Pages" → **Run workflow** (branch `main`) → `ref` = tag (por ejemplo `v0.1.0`) o SHA de un commit **que ya está en `main`**. El workflow rechaza cualquier `ref` que apunte a un commit que no está en `main`, como una rama sin mergear (nunca publica código sin PR). Se despliega esa versión sin cambiar `main`; el próximo push a `main` vuelve a desplegar `main`, así que después hay que hacer el revert.
 
 Nunca force push a `main`. Paso a paso en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#5-rollback).
 
@@ -164,9 +166,12 @@ Nunca force push a `main`. Paso a paso en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.m
 
 - Los datos se guardan **sólo en tu navegador** (`localStorage`, clave `rateos.state`) con `schemaVersion`. Sobreviven recargas, cierres del navegador y nuevos deploys.
 - Si una versión nueva cambia el formato, RATEOS **migra** tus datos al abrir y guarda antes una **copia de recuperación**. Nunca borra datos por un cambio de estructura.
-- **Configuración → Backup:** exportá un archivo JSON versionado y volvé a importarlo en otro navegador o equipo. Antes de importar se valida el archivo, se muestra un resumen y se pide confirmación para sobrescribir; el estado anterior queda como copia de recuperación.
-- Si RATEOS no puede abrir tus datos, muestra una pantalla de recuperación para descargarlos tal cual están guardados.
-- Si el navegador no permite guardar (modo privado estricto), la app avisa que los cambios no se conservan.
+- **Varias pestañas:** podés tener RATEOS abierto en más de una pestaña. Antes de leer o guardar, cada pestaña toma los cambios que hizo otra, así ninguna borra lo que guardó la otra y los códigos `COT-NNNN` no se repiten (se numeran con un contador que nunca reutiliza el código de una cotización eliminada). La pantalla se actualiza sola con el aviso "Los datos se actualizaron desde otra pestaña." (ver la limitación sobre editar la misma cotización en dos pestañas, más abajo).
+- **Configuración → Backup:** exportá un archivo JSON versionado y volvé a importarlo en otro navegador o equipo. Antes de importar se valida el archivo (tamaño, que sea un backup de RATEOS, tipos de cada colección y forma de cada cotización), se muestra un resumen y se pide confirmación para sobrescribir; el estado anterior queda como copia de recuperación.
+- **Copias de recuperación:** se conservan las 3 más recientes y, aparte, las 3 más recientes de datos dañados (así una importación posterior nunca borra la única copia del original). Desde Configuración podés descargarlas o **eliminarlas** para liberar espacio; una importación que falla por falta de espacio no deja copias de más.
+- **Almacenamiento lleno:** si un guardado falla, el editor conserva tus cambios como borrador (aunque salgas y vuelvas a entrar), te avisa antes de cerrar la pestaña y ofrece **"Descargar backup con estos cambios"**. Si al abrir RATEOS el navegador no deja escribir pero hay datos guardados, no se muestra la demo: aparece la pantalla de recuperación.
+- Si RATEOS no puede abrir tus datos (dañados sin espacio para una copia, almacenamiento bloqueado, cambios ilegibles de otra pestaña), muestra una pantalla de recuperación para descargarlos tal cual están guardados, junto con las copias de recuperación.
+- Si el navegador no permite guardar (modo privado estricto), la app avisa que los cambios no se conservan y el editor muestra "Sólo en esta sesión (no se guarda)".
 
 Formato del backup y modelo de datos en [docs/DATA_MODEL.md](docs/DATA_MODEL.md).
 
@@ -203,6 +208,7 @@ docs/                      documentación técnica
 - Unidades de tarifa: $/día, $/hora y $/mes (abono). Otras (por viaje, km, m³, tonelada, intervención, precio global) todavía no.
 - Todos los tipos de servicio usan el mismo modelo económico (costos fijos mensuales + costos variables por día activo).
 - Los datos viven sólo en el navegador: no se sincronizan entre equipos (usar backup JSON). No hay login ni multiusuario.
+- **Dos pestañas editando la misma cotización a la vez:** gana el último guardado (los cambios de la otra pestaña sobre esa cotización se pierden). Lo mismo para una misma ficha de biblioteca o la configuración. Cambios en cotizaciones o recursos distintos no se pisan. Recomendación: editá cada cotización en una sola pestaña.
 - Costo financiero con interés simple y mes de 30 días; el comparador de modelos comerciales usa una facturación simplificada.
 - Escenarios y sensibilidad se calculan pero no se guardan. "Estimado vs real" está diseñado ([docs/DATA_MODEL.md](docs/DATA_MODEL.md#6-estimado-vs-real)) pero no implementado.
 - Mientras GitHub Pages siga en "Deploy from a branch", el sitio se publica sin pasar por los tests (ver [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
@@ -228,7 +234,9 @@ docs/                      documentación técnica
 - El repositorio y el sitio son públicos: no contienen secretos, claves, tokens ni datos reales de clientes o costos. Todo el JavaScript del frontend es público.
 - Content Security Policy estricta (sólo recursos propios, sin scripts inline ni terceros); el DOM se construye sin `innerHTML`, `eval` ni `new Function`.
 - Inputs validados; nunca se muestran `NaN` ni `Infinity`.
-- Los backups se validan antes de importarse y nunca se sobrescribe sin confirmación.
+- Los backups se validan antes de importarse (un JSON que no es de RATEOS, una colección con tipo incorrecto o una cotización mal formada se rechazan) y nunca se sobrescribe sin confirmación. Aunque llegue un dato inválido, una cotización mala no rompe el dashboard ni el listado.
+- Los eventos internos de producto (sin envío a terceros) sólo aceptan valores de una lista blanca: nunca montos ni nombres.
+- El deploy usa permisos mínimos por job y el rollback manual sólo publica commits o tags que ya están en `main`.
 - No subas a issues, PRs ni al repositorio estructuras de costos reales ni datos de clientes.
 
 ## Cómo contribuir

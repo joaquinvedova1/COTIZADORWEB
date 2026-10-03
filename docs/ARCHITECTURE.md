@@ -46,7 +46,7 @@ Las reglas de esta sección se verifican automáticamente en `tests/architecture
 | `js/services/**` | data, engines, domain, core, config | ui, app |
 | `js/engines/**` | otros engines, core, domain, config | ui, services, data; además sin DOM, storage ni red |
 | `js/data/**` | core, domain, config | ui, app, services |
-| `js/domain/**` | core, config (y la constante citada abajo) | ui, app, services, data |
+| `js/domain/**` | core, config | ui, app, services, data |
 | `js/core/**` | config | ui, app, services, data, engines, domain |
 | `js/config.js` | nada | todo |
 
@@ -79,6 +79,8 @@ Reglas transversales (también en `tests/architecture.test.js`):
 
 Configuración central sin secretos: `APP_NAME`, `APP_TAGLINE`, `SCHEMA_VERSION` (1), `STORAGE_MODE` (`'local'`), `STORAGE_KEYS` (`rateos.state`, `rateos.recovery.`, `rateos.ui`), `FEATURES`, `LOCALE` (`es-AR`), `CURRENCY` (`ARS`), `DEFAULT_MATRIX_DAYS` (5, 8, 10, 15, 20), `DEFAULT_MARGIN_LADDER` (5, 10, 15), `NUMERIC_EPSILON` (1e-9), `MAX_BACKUP_BYTES` (5 MB), `DEFAULT_SCENARIOS`, `SENSITIVITY_RANGES` y `detectEnvironment()` (localhost/127.0.0.1/vacío = `development`; cualquier otro host = `production`).
 
+Es la **fuente única** de esos valores: `defaultSettings()` (`js/domain/quote-factory.js`) copia `LOCALE`, `CURRENCY`, `DEFAULT_MATRIX_DAYS` y `DEFAULT_MARGIN_LADDER`, y los motores (`utilization-engine.js`, `pricing-engine.js`, `quote-engine.js`) los importan como valores por defecto. Un valor nuevo de configuración se agrega acá y se importa; no se copia como literal en otro archivo.
+
 Feature flags (`FEATURES`), simples y sin servicios externos:
 
 | Flag | Valor | Significado |
@@ -95,20 +97,20 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 | Archivo | Exporta / responsabilidad |
 |---|---|
 | `money.js` | `isFiniteNumber`, `toNumber`, `nonNegative`, `clamp`, `pct`, `safeDivide`, `sum`, `roundTo`, `roundMoney` (2 dec.), `roundRate` (4 dec.), `roundPercentage` (2 dec.), `roundDays`, `ceilTolerant`, `roundUpToStep`, `roundPercentagesToTotal` (mayor resto), `approxEqual`. Nunca devuelve `NaN`/`Infinity`. |
-| `format.js` | Presentación es-AR: `formatMoney`, `formatNumber`, `formatPercent`, `formatDays`, `formatDate`, `formatDateTime`, `formatValue(value, format, unit)`; valores no finitos → `EMPTY` ("—"). |
-| `validation.js` | `RULES` (money, quantity, distance, hours, hoursPerDay, days, daysInMonth, availableDays, positiveDays, paymentDays, percent, percentOpen, margin, utilization, positive, years, months, integer), `validateNumber(raw, rule, { required })`, `sanitizeText`, `validateQuote(quote)` (problemas no bloqueantes). |
+| `format.js` | Presentación es-AR: `formatMoney`, `formatMoneyCeil` (monto sin decimales redondeado **hacia arriba**, para tarifas mínimas: 4.444.444,44 → $ 4.444.445), `formatNumber`, `formatPercent`, `formatDays`, `formatDate`, `formatDateTime`, `formatValue(value, format, unit)` (formatos `money`, `money2` —2 decimales—, `moneyCeil`, `rate`, `percent`, `days`, `km`, `liters`, `hours`, `number`, `text`); valores no finitos → `EMPTY` ("—"). |
+| `validation.js` | `RULES` (money, quantity, distance, hours, hoursPerDay, days, daysInMonth, availableDays, positiveDays, paymentDays, percent, percentOpen, margin, utilization, positive, years, months, integer), `parseDecimalInput(raw)` (números escritos en formato argentino: `"1.800.000,50"` → 1800000,5; formatos ambiguos → `NaN`), `numberToInputText(value)` (número → texto editable con coma decimal), `validateNumber(raw, rule, { required })` (usa `parseDecimalInput` para los textos), `sanitizeText`, `validateQuote(quote)` (problemas no bloqueantes; ignora líneas que no son objetos). |
 | `ids.js` | `createId()` (UUID v4 con Web Crypto) e `isUuid()`. |
 | `logger.js` | `logger.debug/info/warn/error`, `configureLogger`, `addLogSink`. |
 | `events.js` | `EVENT_NAMES`, `track(name, props)`, `sanitizeEventProps`, `addEventSink`. |
 | `trace.js` | `createTrace({ id, title, formula, inputs, steps, result, notes })`. |
-| `object.js` | `deepClone`, `deepFreeze`, `getPath`, `setPath` (rechaza `__proto__`, `prototype`, `constructor`), `isPlainObject`. |
+| `object.js` | `deepClone`, `deepFreeze`, `getPath`, `setPath` (rechaza `__proto__`, `prototype`, `constructor`), `isPlainObject`, `objectList(value)` (lista defensiva: si no es un array devuelve `[]` y reemplaza los elementos que no son objetos por `{}`; la usan los motores para que una línea inválida no rompa el cálculo). |
 
 ### `js/domain/` — dominio sin cálculo
 
 | Archivo | Responsabilidad |
 |---|---|
-| `catalogs.js` | Listas cerradas: `SERVICE_TYPES`, `EQUIPMENT_SERVICE_TYPES`, `CONTINUOUS_SERVICE_TYPES`, `PRICING_MODES` (`known_rate`, `known_activity`), `RATE_UNITS` (`day`, `hour`, `month`), `COST_CATEGORIES` (8 categorías EECC), `DIRECT_CATEGORY_IDS`, `AGREEMENT_TYPES`, `ILLUSTRATIVE_AGREEMENT_PARAMS`, `MATERIAL_PROVIDERS`, `FUEL_PROVIDERS`, `COST_BEHAVIORS`, `MATERIAL_BASES`, `INDIRECT_METHODS`, `RISK_ITEMS`, `QUOTE_STATUSES`, `ACTIVE_QUOTE_STATUSES`, `AVAILABILITY_OPTIONS`, `PAY_GROUPS`, `CATEGORY_PAY_GROUP`, `QUOTE_STEPS` (orden obligatorio del flujo) y `labelOf()`. |
-| `quote-factory.js` | `defaultSettings`, `defaultRiskItems`, `defaultVolumeTiers`, `createEmptyQuote`, `laborLineFromProfile`, `equipmentLineFromLibrary`, `materialLineFromLibrary`, `createVehicle`, `createOtherCost`, `createQuoteFromTemplate`. Las líneas **copian** valores de la biblioteca (auditabilidad: editar la biblioteca no cambia cotizaciones existentes). |
+| `catalogs.js` | Listas cerradas: `SERVICE_TYPES`, `EQUIPMENT_SERVICE_TYPES`, `CONTINUOUS_SERVICE_TYPES`, `PRICING_MODES` (`known_rate`, `known_activity`), `RATE_UNITS` (`day`, `hour`, `month`), `COST_CATEGORIES` (8 categorías EECC), `COST_CATEGORY_IDS` (sus ids), `DIRECT_CATEGORY_IDS`, `AGREEMENT_TYPES`, `ILLUSTRATIVE_AGREEMENT_PARAMS`, `EQUIPMENT_TYPES`, `MATERIAL_PROVIDERS`, `FUEL_PROVIDERS`, `COST_BEHAVIORS`, `MATERIAL_BASES`, `INDIRECT_METHODS`, `RISK_ITEMS`, `QUOTE_STATUSES`, `ACTIVE_QUOTE_STATUSES`, `AVAILABILITY_OPTIONS`, `PAY_GROUPS`, `CATEGORY_PAY_GROUP`, `QUOTE_STEPS` (orden obligatorio del flujo), `DEFAULT_VOLUME_TIERS` (tramos 1, 2–7, 8–15, 16–30, +30 días con 0 %; `commercial-rules-engine.js` los re-exporta) y `labelOf()`. |
+| `quote-factory.js` | `defaultSettings`, `defaultRiskItems`, `defaultVolumeTiers`, `createEmptyQuote`, `laborLineFromProfile`, `equipmentLineFromLibrary`, `materialLineFromLibrary`, `createVehicle`, `createOtherCost`, `createQuoteFromTemplate`, `illustrativeInfo(quote)` → `{ any, quote, lines, fuel }`. Las líneas **copian** valores de la biblioteca (auditabilidad: editar la biblioteca no cambia cotizaciones existentes) y conservan la marca ILUSTRATIVO por línea (`line.illustrative`) si vienen de un perfil, convenio, equipo, material o plantilla de demostración. Con una configuración ILUSTRATIVA (`settings.illustrative === true`), `createEmptyQuote` deja sin definir el plazo de cobro (`null`), pone la contingencia en 0 y marca `fuel.illustrative`; los días activos (`activity.activeDaysPerMonth`) quedan siempre en `null` en una cotización nueva en blanco. |
 | `demo-data.js` | `createDemoState(schemaVersion)`: Patagonia Servicios SRL (ficticia), convenios con parámetros genéricos, perfiles, 10 equipos, materiales, ubicaciones, 12 plantillas de servicio y 2 cotizaciones demo. UUID fijos (`DEMO_IDS`, `DEMO_ORG_ID`) para que la demo sea determinística. Todo ILUSTRATIVO. |
 
 ### `js/engines/` — motores económicos (funciones puras)
@@ -124,12 +126,12 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 | `finance-engine.js` | FinancialEngine | Días financiados, capital de trabajo y costo financiero. |
 | `cost-engine.js` | CostEngine | `buildCostModel`, `normalizeActivity`, `contingencyPctOf`, `costAtActivity`, `costStructure` (EECC), `monthsFactor`, `traceTotalCost`. |
 | `pricing-engine.js` | PricingEngine | Margen, markup, conversiones, escalera de precios, redondeo comercial. |
-| `commercial-rules-engine.js` | CommercialRulesEngine | Unidades facturables, reglas comerciales, tramos, descuentos, facturación, tarifa necesaria, semáforo. |
+| `commercial-rules-engine.js` | CommercialRulesEngine | Unidades facturables, reglas comerciales (`normalizeRules`; "No aplica standby" anula días e ingreso de standby), tramos, descuentos, facturación, tarifa necesaria, semáforo. |
 | `economics-engine.js` | — | Une costo y facturación: `createEconomicsContext`, `revenueAt`, `evaluateAt`, `requiredRatesAt`, `linearDecomposition`. |
 | `break-even-engine.js` | BreakEvenEngine | Fórmula cerrada, problema inverso, búsqueda numérica robusta, traza. |
 | `utilization-engine.js` | UtilizationEngine | Utilización y matriz tarifa × utilización. |
-| `completeness-engine.js` | — | Cost Completeness Score (`evaluateCompleteness`, `COMPLETENESS_RISK_THRESHOLD`). |
-| `quote-engine.js` | — | Orquestador: `computeQuote(quote, { settings, listRateOverride })`, `summarizeQuote`, `evaluateDiscountTiers`. Devuelve KPIs, EECC, matriz, tramos, completitud, equivalencias y **trazas**. |
+| `completeness-engine.js` | — | Cost Completeness Score (`evaluateCompleteness`), umbrales `COMPLETENESS_GREEN_THRESHOLD` (85) y `COMPLETENESS_RISK_THRESHOLD` (60) y `completenessTone(score)` (`green` ≥ 85, `orange` ≥ 60, `red` < 60): la única fuente del color de completitud en toda la interfaz. |
+| `quote-engine.js` | — | Orquestador: `computeQuote(quote, { settings, listRateOverride })`, `summarizeQuote`, `evaluateDiscountTiers`, `minActiveDaysForBillableDays`. Devuelve KPIs, EECC, matriz, tramos, completitud, equivalencias y **trazas**. |
 | `scenario-engine.js` | ScenarioEngine | Sensibilidad (tarifa fija), escenarios y comparador de modelos comerciales. |
 
 ### `js/data/` — capa de persistencia
@@ -137,20 +139,20 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 | Archivo | Responsabilidad |
 |---|---|
 | `storage-repository.js` | `StorageRepository` (contrato asíncrono) y `RepositoryError`. |
-| `local-storage-repository.js` | `LocalStorageRepository` (implementación actual) y `MAX_RECOVERY_SNAPSHOTS` (3). |
+| `local-storage-repository.js` | `LocalStorageRepository` (implementación actual) y `MAX_RECOVERY_SNAPSHOTS` (3). Adopta los cambios de otras pestañas antes de leer o escribir (`syncFromStorage`), valida importaciones (`prepareImport`) y administra las copias de recuperación (`listRecoverySnapshots`, `getRecoverySnapshot`, `deleteRecoverySnapshot`). |
 | `memory-storage.js` | `MemoryStorage` (Web Storage en memoria, para tests y navegadores sin almacenamiento), `getBrowserStorage()` (prueba lectura y escritura de `localStorage` sin lanzar) y `getReadableBrowserStorage()` (sólo lectura, para recuperar datos con el almacenamiento lleno o bloqueado). |
-| `schema.js` | `CURRENT_SCHEMA_VERSION`, `RESOURCE_TYPES`, `createEmptyState`, `detectSchemaVersion`, `validateState` (estructura, ids únicos, límites, claves prohibidas, números finitos), `normalizeState`. |
+| `schema.js` | `CURRENT_SCHEMA_VERSION`, `RESOURCE_TYPES`, `createEmptyState`, `detectSchemaVersion`, `validateState` (estructura, ids únicos, **forma interna de cada cotización**, límites, claves prohibidas, números finitos), `normalizeState`. |
 | `migrations.js` | `migrateV0ToV1`, `MIGRATIONS`, `migrateState`, `MigrationError`. |
-| `repository-factory.js` | `createRepository({ mode, storage, appVersion })`: único punto que elige la implementación según `STORAGE_MODE`. |
+| `repository-factory.js` | `createRepository({ mode, storage, appVersion, globalObject })`: único punto que elige la implementación según `STORAGE_MODE`. Si el navegador no deja escribir pero sí leer y ya hay datos guardados, lanza `RepositoryError` `quota_exceeded` (la app muestra la pantalla de recuperación) en lugar de abrir la demo en memoria. |
 
 ### `js/services/` — casos de uso
 
 | Archivo | API |
 |---|---|
-| `app-context.js` | `createAppContext({ storage?, appVersion? })` → `{ repository, persistent, init: { status, messages, readOnly }, quotes, resources, backup, settings, logger, track }`. Composition root. |
-| `quote-service.js` | `listQuotes`, `getQuote`, `createQuote({ templateId })` (código `COT-0001`… con contador monotónico `settings.lastQuoteNumber`: nunca reutiliza el código de una cotización eliminada), `saveQuote`, `duplicateQuote`, `deleteQuote`, `compute(quote, opts)`, `dashboardStats()`. |
+| `app-context.js` | `createAppContext({ storage?, appVersion? })` → `{ repository, persistent, init: { status, messages, readOnly }, quotes, resources, backup, settings, logger, track, onExternalChange(callback) }`. Composition root. `onExternalChange` escucha el evento `storage` del navegador para la clave `rateos.state` (cambios hechos en **otra pestaña**) y devuelve una función para dejar de escuchar. |
+| `quote-service.js` | `listQuotes` (cada ítem `{ quote, summary }`; si una cotización no se puede calcular, su `summary` es `{ error: true, atRisk: true, … }` en lugar de romper el listado y el dashboard), `getQuote`, `createQuote({ templateId })` (código `COT-0001`… con contador monotónico `settings.lastQuoteNumber`: nunca reutiliza el código de una cotización eliminada), `saveQuote`, `duplicateQuote`, `deleteQuote`, `compute(quote, opts)`, `dashboardStats()`. Los eventos sólo informan `serviceType` del catálogo (si no, `unknown`). |
 | `resource-service.js` | `list/get/save/remove(type, …)`, `listServices`, `saveService`, `removeService`, `equipmentCard(eq)`, `laborProfileCost(profile)`. |
-| `backup-service.js` | `exportBackup()` → `{ filename, json, data }`, `parseBackupText(text)` → `{ ok, errors, summary, data }` (no modifica nada; máximo 5 MB medidos en bytes UTF-8; si el repositorio no sabe validar, rechaza la importación), `applyBackup(data)`, `resetToDemo()`, `listRecoverySnapshots()`, `getRecoverySnapshot(key)`. |
+| `backup-service.js` | `exportBackup()` → `{ filename, json, data }`, `parseBackupText(text)` → `{ ok, errors, summary, data }` (no modifica nada; máximo 5 MB medidos en bytes UTF-8; valida con `prepareImport` del repositorio y, si el repositorio no sabe validar, rechaza la importación), `applyBackup(data)`, `resetToDemo()`, `listRecoverySnapshots()`, `getRecoverySnapshot(key)`, `deleteRecoverySnapshot(key)`. |
 | `settings-service.js` | `get` (defaults + guardado), `save`, `getOrganization`, `saveOrganization`; `loadVersionInfo(fetch)` lee `./version.json`. |
 | `recovery-service.js` | `createRecoveryService()`: acceso de **sólo lectura** a los datos crudos cuando la app no puede iniciar (descargar el estado y las copias de recuperación). Nunca lanza. |
 
@@ -159,20 +161,20 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 | Archivo | Responsabilidad |
 |---|---|
 | `dom.js` | `h()` (crea elementos con `textContent`; prohíbe atributos `on*` como string), `s()` (SVG), `clear`, `mount`, `fragment`, `debounce`, `uniqueId`, `downloadText`, `readFileAsText`. |
-| `components.js` | `icon`, `button`, `badge`, `statusDot`, `card`, `kpi`, `banner`, `illustrativeBanner`, `emptyState`, `progressBar`, `table`, `numberField`, `textField`, `selectField`, `checkboxField`, `choiceGroup`, `formGrid`, `openDialog`, `confirmDialog`, `traceContent`, `openTraceDialog`, `traceButton` ("Ver cálculo"), `toast`, `barList`. |
+| `components.js` | `icon`, `button`, `badge`, `statusDot`, `card`, `kpi`, `banner`, `illustrativeBanner`, `emptyState`, `progressBar`, `table`, `numberField`, `textField`, `selectField`, `checkboxField`, `choiceGroup`, `formGrid`, `openDialog`, `confirmDialog`, `traceContent`, `openTraceDialog`, `traceButton` ("Ver cálculo"), `toast`, `barList`. `numberField` es un `input type="text"` (`inputmode="decimal"`) que acepta números en formato argentino (`1.800.000,50`); la prop `step` ya no existe (se ignora). |
 | `router.js` | Router por hash: `ROUTES`, `LIBRARY_TABS`, `hashToPath`, `matchRoute`, `createRouter`. |
 | `layout.js` | Sidebar, topbar, banners globales, contenedor `.content`; `NAV_SECTIONS`, `illustrativeTag`, `userErrorMessage`. |
 | `views/dashboard.js` | Indicadores de cotizaciones activas, recientes y conceptos (margen vs markup). |
 | `views/quotes-list.js` | Listado (`render`) y "Nueva cotización" en blanco o desde plantilla (`renderNewQuote`). |
-| `views/quote-editor.js` | Editor de 11 pasos (`QUOTE_STEPS`), resumen en vivo, recálculo y guardado automático. |
+| `views/quote-editor.js` | Editor de 11 pasos (`QUOTE_STEPS`), resumen en vivo, recálculo y guardado automático; conserva los borradores que no se pudieron guardar (ver §5). |
 | `views/quote-steps/*.js` | Un módulo por paso: `service`, `modality`, `labor`, `equipment`, `materials`, `logistics`, `indirect`, `finance`, `risk`, `margin`. |
 | `views/quote-result.js` | Paso "Resultado": `renderQuoteResult(container, app, { quote, result, settings, onQuoteChange })`. Bloques: decisión según modalidad + KPIs + equivalencias + alertas, EECC, matriz tarifa × utilización, margen vs markup, descuentos por días/volumen y continuidad, sensibilidad (tarifa fija), escenarios (`FEATURES.scenarios`), comparador de modelos (`FEATURES.commercialModelComparator`), Cost Completeness Score y acciones (imprimir, marcar como enviada). |
 | `views/library.js` | Bibliotecas: personal, convenios, equipos, materiales, ubicaciones. |
 | `views/services.js` | Plantillas de servicio. |
-| `views/settings.js` | Empresa, parámetros, backup/importación, demo, copias de recuperación y "Acerca de". |
+| `views/settings.js` | Empresa, parámetros, backup/importación, demo, copias de recuperación (descargar y **eliminar**, con confirmación) y "Acerca de". |
 | `views/not-found.js` | Ruta inexistente. |
 
-`js/app.js` (bootstrap): instala el manejo global de errores, lee `version.json`, crea el contexto (`createAppContext`), construye el layout, el objeto `app` que reciben las vistas y el router. Si el contexto no se puede crear muestra una pantalla de error que permite **descargar los datos guardados tal cual** (nada se borra).
+`js/app.js` (bootstrap): instala el manejo global de errores, lee `version.json`, crea el contexto (`createAppContext`), construye el layout, el objeto `app` que reciben las vistas y el router. Registra `ctx.onExternalChange`: cuando otra pestaña modifica los datos muestra el aviso "Los datos se actualizaron desde otra pestaña.", refresca el sidebar y vuelve a renderizar la ruta actual (salvo el editor, que trabaja sobre su propia copia de la cotización abierta). Si el contexto no se puede crear muestra una **pantalla de recuperación** que permite **descargar los datos guardados tal cual** y las copias de recuperación, y reintentar (nada se borra). El motivo depende del código de error: `read_failed`, `quota_exceeded` (almacenamiento lleno o bloqueado para escritura con datos guardados), `corrupt_no_space` (datos dañados sin espacio para la copia), `stale_state`, `write_failed`, `unsupported_mode`.
 
 ## 4. Contrato UI ↔ vistas
 
@@ -194,7 +196,9 @@ Cada vista exporta `async function render(root, app, params)` y puede devolver u
 
 ```
 input del usuario (numberField / textField / selectField …)
-   │  validateNumber(raw, rule)  → error visible junto al campo
+   │  validateNumber(raw, rule)  → parseDecimalInput ("1.800.000,50") + regla; error visible junto al campo
+   │  numberField sólo emite valores válidos; si al confirmar (salir del campo / Enter)
+   │  el valor es inválido, restaura el valor que tenía al entrar al campo
    ▼
 update(path, value)                       js/ui/views/quote-editor.js
    │  setPath(state.quote, path, value)   (copia de trabajo; rechaza __proto__)
@@ -205,11 +209,14 @@ update(path, value)                       js/ui/views/quote-editor.js
             app.ctx.quotes.saveQuote(snapshot)           QuoteService
               → repository.saveQuote(quote)              StorageRepository
                   → LocalStorageRepository.mutate()
-                      deepClone → aplicar → validateState → persist (JSON en rateos.state)
+                      syncFromStorage (adopta cambios de otra pestaña) → deepClone → aplicar
+                      → validateState → persist (JSON en rateos.state)
                       (si algo falla, el estado anterior queda intacto)
 ```
 
-- Indicador de guardado: "Guardando…", "Guardado", "Error al guardar" (con reintento) o "Sólo lectura".
+- Al tipear, un valor intermedio inválido (por ejemplo "150" en un margen) nunca queda guardado como prefijo ("15"): el campo muestra el error y, al confirmarlo, vuelve al valor previo ("Se restauró el valor anterior.").
+- Indicador de guardado: "Guardando…", "Guardado", "Error al guardar" (con "Reintentar" y "Descargar backup con estos cambios") o "Sólo lectura". Si el almacenamiento no persiste (`ctx.persistent === false`) dice "Sólo en esta sesión (no se guarda)".
+- **Borrador sin guardar:** si un guardado falla (por ejemplo, almacenamiento lleno), la cotización editada se conserva en memoria (`unsavedDrafts`): al salir del editor y volver a entrar se recupera ese borrador, no la versión guardada; mientras haya cambios sin guardar con error, el navegador pide confirmación al cerrar o recargar la pestaña (`beforeunload`); y "Descargar backup con estos cambios" exporta el backup completo reemplazando esa cotización por el borrador (se vuelve a validar al importarlo).
 - Cambios estructurales (agregar/quitar filas, tipo de servicio, modalidad, unidad) re-renderizan el paso.
 - Al salir de la vista se fuerza el guardado pendiente.
 - `stamp()` completa metadatos: `id` (UUID), `organizationId`, `createdAt` (se conserva), `updatedAt` (ahora), `createdBy`, `updatedBy`.
@@ -230,17 +237,29 @@ getSettings()                saveSettings(s)
 exportBackup()               importBackup(data)
 ```
 
-`LocalStorageRepository` agrega `prepareImport`, `resetToDemo`, `listRecoverySnapshots`, `getRecoverySnapshot` y las garantías:
+`LocalStorageRepository` agrega `prepareImport`, `resetToDemo`, `listRecoverySnapshots`, `getRecoverySnapshot`, `deleteRecoverySnapshot` y las garantías:
 
 - Todo el estado vive en **una sola clave**: `rateos.state` (no depende de la versión de la app → sobrevive a nuevos deploys).
 - Mutaciones **transaccionales**: se valida el estado completo antes de escribir.
-- Antes de migrar, importar un backup o restaurar la demo guarda una **copia de recuperación** (`rateos.recovery.<fecha>.<motivo>`); conserva las 3 más recientes (las de datos dañados se cuentan aparte). Si no hay espacio para esa copia, la operación se cancela (`recovery_failed`) en lugar de arriesgar los datos.
+- Antes de migrar, importar un backup o restaurar la demo guarda una **copia de recuperación** (`rateos.recovery.<fecha>.<motivo>`); conserva las 3 más recientes. Las copias del texto original dañado (`corrupt`) o con estructura inválida (`invalid`) se cuentan **aparte**, con su propio cupo de 3, para que importaciones o restauraciones posteriores nunca borren la única copia de esos datos. Si no hay espacio para la copia previa, la operación se cancela (`recovery_failed`) en lugar de arriesgar los datos.
+- Si una importación o la restauración de la demo fallan al escribir (por ejemplo, por cuota), se elimina la copia de recuperación recién creada (`persistReplacing`): el estado principal quedó intacto y la copia sólo ocuparía espacio (no quedan copias huérfanas).
+- Las copias se pueden eliminar desde Configuración → Copias de recuperación (`deleteRecoverySnapshot`: sólo acepta claves con el prefijo `rateos.recovery.`) para liberar espacio.
 - Una migración que no produce un estado válido no se persiste: los datos originales quedan intactos y la app abre en sólo lectura.
-- Datos dañados → se copian a recuperación y se carga la demo (nunca se borran). Si no hay espacio para guardar esa copia, el original **no se toca** y la demo se abre en modo sólo lectura. Datos de una versión **más nueva** → modo **sólo lectura**.
+- Datos dañados → se copian a recuperación y se carga la demo (nunca se borran). Si no hay espacio para guardar esa copia, el original **no se toca** e `init()` lanza `RepositoryError` `corrupt_no_space`: la app muestra la pantalla de recuperación para descargar los datos guardados (no abre la demo). Datos de una versión **más nueva** → modo **sólo lectura**.
 - Nunca usa `localStorage.clear()`.
-- Si el navegador no permite almacenamiento, usa `MemoryStorage` y la UI avisa que los cambios no se guardan (`ctx.persistent === false`).
+- Si el navegador no permite almacenamiento, usa `MemoryStorage` y la UI avisa que los cambios no se guardan (`ctx.persistent === false`). Si no deja escribir pero sí leer y hay datos guardados (almacenamiento lleno o bloqueado), `createRepository` lanza `quota_exceeded` y la app muestra la pantalla de recuperación en lugar de la demo.
+- Si al guardar el navegador informa cuota llena, el error `quota_exceeded` explica qué hacer: exportar un backup y liberar espacio (copias de recuperación viejas o cotizaciones que no se usan).
 
-Estados de `init()`: `seeded`, `loaded`, `migrated`, `repaired`, `recovered`, `read_only`. Detalle del formato en [DATA_MODEL.md](DATA_MODEL.md).
+### Varias pestañas
+
+Todas las pestañas de RATEOS del mismo navegador comparten `rateos.state`, y cada escritura reemplaza el estado completo. Para que una pestaña con una copia vieja en memoria no borre lo que guardó otra:
+
+- El repositorio recuerda el último texto que leyó o escribió (`lastRaw`). Antes de **cada lectura o escritura** (`ensureReady` → `syncFromStorage`) relee `rateos.state`; si cambió y es un estado válido de la versión actual, **lo adopta** y recién después aplica la mutación. Así una pestaña nunca borra cotizaciones creadas en otra y los códigos `COT-NNNN` no se repiten (`settings.lastQuoteNumber` se lee actualizado).
+- Si otra pestaña con una versión más nueva de la app migró los datos, se adoptan en modo **sólo lectura**. Si el texto cambiado no se puede interpretar, se lanza `stale_state` ("Los datos cambiaron en otra pestaña y no se pudieron leer. Recargá la página.") sin escribir nada.
+- La UI se entera por el evento `storage` (`ctx.onExternalChange`) y refresca la pantalla.
+- **Limitación conocida:** no hay fusión por campo. Si dos pestañas editan **la misma cotización** a la vez, gana el último guardado (los cambios de la otra pestaña sobre esa cotización se pierden); lo mismo vale para una misma ficha de biblioteca o para la configuración. Los cambios sobre entidades distintas (otra cotización, otro recurso) no se pisan entre sí.
+
+Estados de `init()`: `seeded`, `loaded`, `migrated`, `repaired`, `recovered`, `read_only`. Códigos de `RepositoryError` relevantes para la UI: `read_failed`, `quota_exceeded`, `write_failed`, `recovery_failed`, `corrupt_no_space`, `stale_state`, `read_only`, `validation_failed`, `invalid_backup`, `not_found`. Detalle del formato en [DATA_MODEL.md](DATA_MODEL.md).
 
 ### Cómo agregar `SupabaseRepository` sin tocar los motores
 
@@ -265,14 +284,15 @@ Plan completo en [SUPABASE_PLAN.md](SUPABASE_PLAN.md).
 `js/core/events.js` define eventos de producto desacoplados de cualquier herramienta de analytics. **Hoy no se envía nada a terceros** (`FEATURES.analytics = false`): los sinks sólo reciben eventos si el flag está activo o si se registran con `force` (tests).
 
 - Nombres permitidos (`EVENT_NAMES`): `app_started`, `quote_created`, `quote_completed`, `quote_duplicated`, `quote_deleted`, `scenario_changed`, `break_even_viewed`, `calculation_trace_opened`, `backup_exported`, `backup_imported`, `resource_saved`.
-- Propiedades permitidas: `serviceType`, `pricingMode`, `unit`, `step`, `traceId`, `variable`, `resourceType`, `source` (enums cortos `[a-z0-9_]`), `completed`, `isDemo` (booleanos) y `count` (entero 0–10000).
+- Propiedades permitidas: `serviceType`, `pricingMode`, `unit`, `step`, `traceId`, `variable`, `resourceType`, `source` (enums cortos: sólo letras minúsculas y guion bajo, `^[a-z][a-z_]{0,39}$`, **sin dígitos**, para que un monto o un identificador no pase disfrazado de enum), `completed`, `isDemo` (booleanos) y `count` (entero 0–10000).
+- Los valores que vienen de los datos se normalizan al catálogo antes de emitirse: `QuoteService` envía `serviceType` sólo si es un id de `SERVICE_TYPES` (si no, `unknown`).
 - Todo lo demás se descarta: **nunca** montos, salarios, costos, tarifas, nombres de clientes ni texto libre. Permitido: `user_finished_quote = true`. No permitido: `monthly_labor_cost = 85000000`.
 
 ## 9. Trazas "Ver cálculo"
 
-Los motores devuelven trazas **de datos** (`createTrace`): `{ id, title, formula, inputs[], steps[], result, notes[] }`, cada ítem con `label`, `value`, `format` (`money`, `rate`, `percent`, `days`, `km`, `liters`, `hours`, `number`, `text`) y `unit`. La UI las muestra con `traceButton(trace)` / `openTraceDialog(trace)` usando `formatValue`, nunca con HTML.
+Los motores devuelven trazas **de datos** (`createTrace`): `{ id, title, formula, inputs[], steps[], result, notes[] }`, cada ítem con `label`, `value`, `format` (`money`, `money2`, `moneyCeil`, `rate`, `percent`, `days`, `km`, `liters`, `hours`, `number`, `text`) y `unit`. La UI las muestra con `traceButton(trace)` / `openTraceDialog(trace)` usando `formatValue`, nunca con HTML.
 
-`computeQuote` devuelve `traces.totalCost`, `traces.breakEven`, `traces.floorRate`, `traces.targetRate`, `traces.expectedResult`, `traces.financialCost` y `traces.logistics`; `traceMarginVsMarkup` explica margen vs markup. Si una pantalla muestra un resultado sin traza del motor, la construye con `createTrace` (fórmula + entradas + resultado). Regla: **ningún número mágico**.
+`computeQuote` devuelve `traces.totalCost`, `traces.breakEven`, `traces.floorRate`, `traces.targetRate`, `traces.expectedResult`, `traces.financialCost` y `traces.logistics`; `traceMarginVsMarkup` explica margen vs markup (con 2 decimales: 111,11 vs 110,00). Cada traza explica **el mismo número que acompaña**: `traces.floorRate` pasa por la tarifa piso neta y termina en la tarifa piso **de lista**; `traces.breakEven` se arma en el punto de equilibrio, donde rige el tramo de descuento que realmente aplica (ver [CALCULATION_RULES.md §15](CALCULATION_RULES.md#15-break-even-y-días-para-margen-objetivo)). Si una pantalla muestra un resultado sin traza del motor, la construye con `createTrace` (fórmula + entradas + resultado). Regla: **ningún número mágico**.
 
 ## 10. Routing y sub-ruta `/COTIZADORWEB/`
 
@@ -287,8 +307,9 @@ Los motores devuelven trazas **de datos** (`createTrace`): `{ id, title, formula
 - **CSP** en `index.html`: `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'`, más `referrer: no-referrer`. Sin scripts inline, sin CDNs, sin conexiones a terceros.
 - DOM seguro: `h()` inserta texto con nodos de texto; los estilos dinámicos se aplican por CSSOM (`el.style.setProperty`), compatible con la CSP.
 - `setPath` y `validateState` rechazan claves `__proto__`, `prototype`, `constructor` (prototype pollution).
-- Backups: límite de 5 MB, JSON validado y migrado **antes** de aplicarse, resumen + confirmación del usuario, copia de recuperación previa.
-- Todo JavaScript es público: no hay secretos, tokens ni claves en el repositorio.
+- Backups: límite de 5 MB, JSON validado y migrado **antes** de aplicarse, resumen + confirmación del usuario, copia de recuperación previa. `prepareImport` rechaza un JSON sin versión que no tenga ninguna colección de RATEOS (por ejemplo, un `package.json`), valida la forma **original** de un backup v1 antes de normalizarlo (una colección con tipo incorrecto se rechaza en lugar de vaciarse en silencio) y `validateState` revisa la forma interna de cada cotización (líneas que deben ser listas de objetos y sub-objetos que deben ser objetos).
+- Resiliencia: aunque llegue un registro inválido, los motores ignoran las líneas que no son objetos (`objectList`) y `QuoteService` marca la cotización con `{ error: true }`: una cotización mala no rompe el dashboard ni el listado.
+- Todo JavaScript es público: no hay secretos, tokens ni claves en el repositorio. `.gitignore` excluye `.env*` (salvo `.env.example`), `*.pem`, `*.key`, `secrets` (archivo o carpeta) y `secrets.*`, `*credentials*`, `*credenciales*`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `*service-account*.json` y `.npmrc`.
 
 ## 12. Decisiones y trade-offs
 
@@ -299,6 +320,7 @@ Los motores devuelven trazas **de datos** (`createTrace`): `{ id, title, formula
 | Motores puros con objetos planos | Reproducibles, testeables con `node --test`, reutilizables en backend futuro. | La UI recalcula todo el modelo en cada cambio (rápido para el tamaño actual). |
 | Repositorio asíncrono sobre `localStorage` síncrono | Permite cambiar a Supabase sin tocar servicios ni vistas. | `async` innecesario hoy. |
 | Un único documento en `rateos.state` | Escrituras atómicas, backup = estado, migraciones simples. | Reescribe todo el estado en cada guardado; límite ~5 MB del navegador. |
+| Varias pestañas: releer `rateos.state` antes de cada lectura o escritura | Simple y sin dependencias; ninguna pestaña borra lo que guardó otra. | Sin fusión por campo: si dos pestañas editan la misma cotización, gana el último guardado. |
 | Router por hash | Compatible con sub-rutas de Pages sin `404.html`. | URLs con `#`. |
 | Las cotizaciones copian valores de la biblioteca | Auditabilidad: una cotización no cambia si cambia la biblioteca. | Actualizar una cotización vieja requiere volver a aplicar el recurso. |
 | Interés simple, mes de 30 días | Explicable a una PyME y verificable a mano. | Aproximación del costo financiero real. |

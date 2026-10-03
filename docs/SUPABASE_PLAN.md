@@ -140,7 +140,7 @@ $$;
 | Tokens de sesión de usuario | Los maneja el cliente de Supabase dentro de `js/data/`. | Logs, analytics, backups. |
 
 - Las operaciones privilegiadas (invitaciones, importación masiva, cambio de OWNER, borrado de organización) se ejecutan en **Edge Functions** que validan JWT, membresía y rol.
-- `.gitignore` ya excluye `.env`, `.env.*`, `secrets/`, `*.pem`, `*.key` y credenciales. No se versiona `.env` con claves reales.
+- `.gitignore` ya excluye `.env`, `.env.local`, `.env.*` (salvo `.env.example`), `secrets` (archivo o carpeta), `secrets.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `*credentials*`, `*credenciales*`, `*service-account*.json` y `.npmrc`. No se versiona `.env` con claves reales.
 
 ## 6. Migración de localStorage a Supabase
 
@@ -155,7 +155,7 @@ Exportar backup local (JSON)  ──►  Iniciar sesión  ──►  Crear organ
 2. **Login** con Supabase Auth.
 3. **Crear organización** (RPC/Edge Function `create_organization`): crea `organizations`, `settings` y la membresía `OWNER`.
 4. **Importar** (Edge Function `import-backup`, en una transacción):
-   - Validar tamaño (≤ 5 MB) y JSON; aplicar **las mismas** funciones puras `migrateState` y `validateState` de `js/data/` (no dependen del navegador).
+   - Validar tamaño (≤ 5 MB) y JSON; aplicar **las mismas** validaciones que `LocalStorageRepository.prepareImport` (rechazo de JSON que no son de RATEOS, forma original de un backup v1, forma interna de cada cotización) y las funciones puras `migrateState` y `validateState` de `js/data/` (no dependen del navegador).
    - Mostrar el mismo resumen que hoy y pedir confirmación.
    - Mapear el JSON a tablas según [DATA_MODEL.md](DATA_MODEL.md#mapeo-modelo-actual--tablas).
 5. **Guardar** y verificar conteos (cotizaciones, recursos, plantillas) contra el resumen.

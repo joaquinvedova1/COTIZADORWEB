@@ -141,6 +141,7 @@ Hay tests que lo protegen. No los borres.
 - **Nunca** usar `localStorage.clear()`. **Nunca** borrar datos porque cambió la estructura: se migran, y antes se guarda una copia de recuperación.
 - Datos de una versión más nueva de RATEOS → modo sólo lectura.
 - Entidades principales con `id` (UUID), `organizationId`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`. Nunca usar el nombre visible como clave.
+- Varias pestañas comparten el mismo almacenamiento: `LocalStorageRepository` relee `rateos.state` antes de cada lectura/escritura y adopta los cambios de otra pestaña. Nunca persistir una copia vieja en memoria del estado completo. Limitación conocida: si dos pestañas editan LA MISMA cotización a la vez, gana el último guardado.
 
 ## 12. Backup
 
@@ -152,7 +153,7 @@ Hay tests que lo protegen. No los borres.
 ## 13. Seguridad
 
 - El repo y GitHub Pages pueden ser públicos. **Todo JavaScript frontend es público.**
-- Nunca guardar en el repo: API keys, passwords, tokens, service role keys, secretos, archivos `.env`, documentos reales de clientes, estructuras de costos reales ni datos confidenciales. `.gitignore` ya excluye `.env*`, `secrets/`, `*.pem`, `*.key` y credenciales.
+- Nunca guardar en el repo: API keys, passwords, tokens, service role keys, secretos, archivos `.env`, documentos reales de clientes, estructuras de costos reales ni datos confidenciales. `.gitignore` ya excluye `.env*` (salvo `.env.example`), `secrets` (archivo o carpeta), `secrets.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `*credentials*`, `*credenciales*`, `*service-account*.json` y `.npmrc`.
 - DOM: **no usar `innerHTML`** (ni `outerHTML`, `insertAdjacentHTML`, `document.write`) con datos de usuario; preferir `textContent` / `h()` de `js/ui/dom.js`.
 - **No usar `eval()`, `new Function()`** ni `setTimeout`/`setInterval` con strings.
 - Validar inputs: cantidad ≥ 0, distancia ≥ 0, horas ≥ 0, margen válido (0 ≤ margen < 100), utilización > 0 y ≤ 100 (`RULES` en `js/core/validation.js`).
@@ -180,7 +181,7 @@ Hay tests que lo protegen. No los borres.
 
 - GitHub Pages bajo **`/COTIZADORWEB/`**: nunca asumir la raíz `/`. Todas las rutas relativas; routing por hash.
 - Workflow "Deploy RATEOS a GitHub Pages" (`.github/workflows/deploy-pages.yml`): push a `main` o manual → test → build → deploy. **Si fallan los tests, no se despliega.**
-- Rollback: revert vía PR (preferido) o redeploy manual de un tag/SHA anterior. Detalle en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+- Rollback: revert vía PR (preferido) o redeploy manual de un tag/SHA anterior que ya esté en `main` (el workflow rechaza commits que no están en main). Detalle en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 - Cada build expone versión, commit corto y fecha en Configuración → Acerca de.
 
 ## 17. UX

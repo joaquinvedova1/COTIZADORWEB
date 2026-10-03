@@ -20,8 +20,18 @@ Código de referencia: `js/data/schema.js`, `js/data/migrations.js`, `js/data/lo
 | Clave de `localStorage` | Contenido |
 |---|---|
 | `rateos.state` | Estado completo (JSON). Una sola clave; no depende de la versión de la app. |
-| `rateos.recovery.<fecha>.<motivo>` | Copia literal del estado anterior (si dos copias caen en el mismo milisegundo se agrega `.2`, `.3`…). Motivos: `corrupt`, `invalid`, `pre-migration-v<N>`, `before-import`, `before-demo-reset`. Se conservan las 3 más recientes (`MAX_RECOVERY_SNAPSHOTS`); las copias `corrupt` se cuentan aparte para que una importación posterior nunca borre la única copia del original dañado. |
+| `rateos.recovery.<fecha>.<motivo>` | Copia literal del estado anterior (si dos copias caen en el mismo milisegundo se agrega `.2`, `.3`…). Motivos: `corrupt`, `invalid`, `pre-migration-v<N>`, `before-import`, `before-demo-reset`. Se conservan las 3 más recientes (`MAX_RECOVERY_SNAPSHOTS`); las copias `corrupt` e `invalid` (texto original dañado o con estructura inesperada) se cuentan **aparte**, con su propio cupo de 3, para que una importación o restauración posterior nunca borre la única copia de esos datos. Se pueden descargar y **eliminar** desde Configuración → Copias de recuperación (para liberar espacio). Si una importación o la restauración de la demo fallan al escribir, la copia recién creada se elimina: no quedan copias huérfanas. |
 | `rateos.ui` | Reservada para preferencias de interfaz (`STORAGE_KEYS.uiPrefs`); hoy sin uso. |
+
+### Varias pestañas abiertas
+
+Todas las pestañas de RATEOS de un mismo navegador comparten `rateos.state`. Antes de cada lectura o escritura, `LocalStorageRepository` relee la clave y, si otra pestaña la cambió, adopta esa versión (si es válida) antes de aplicar su propio cambio; la interfaz se refresca con el evento `storage`. Así ninguna pestaña borra cotizaciones creadas en otra y los códigos `COT-NNNN` no se repiten. **Limitación:** si dos pestañas editan la misma cotización a la vez, gana el último guardado. Detalle en [ARCHITECTURE.md §6](ARCHITECTURE.md#varias-pestañas).
+
+### Almacenamiento lleno o datos que no se pueden abrir
+
+- **Guardado que falla por cuota** (`quota_exceeded`): el estado guardado no cambia; el editor conserva la cotización como borrador sin guardar (también si se sale y se vuelve al editor), pide confirmación antes de cerrar la pestaña y ofrece "Descargar backup con estos cambios".
+- **Almacenamiento que se puede leer pero no escribir, con datos guardados:** la app no abre la demo en memoria; muestra la pantalla de recuperación para descargar los datos tal cual.
+- **Datos dañados sin espacio para la copia** (`corrupt_no_space`): no se toca el original y se muestra la pantalla de recuperación (descargar los datos guardados y las copias, reintentar).
 
 ### Estructura (schemaVersion 1)
 
@@ -62,15 +72,21 @@ Puede existir además `legacy` (claves raíz y colecciones de recursos desconoci
 
 - `schemaVersion` igual a la versión actual; `organization` con `id`; `resources` objeto con las 5 listas; `services`, `quotes` listas; `settings` objeto.
 - Cada lista: objetos con `id` string no vacío y **único**; `services` y `quotes` con `name` string.
+- **Forma interna de cada cotización:** `labor`, `equipment`, `materials`, `otherCosts`, `logistics.vehicles`, `risk.items` y `rules.volumeTiers` deben estar ausentes, ser `null` o ser **listas de objetos**; `activity`, `pricing`, `finance`, `logistics`, `rules`, `fuel`, `indirect` y `risk` deben estar ausentes, ser `null` o ser **objetos**. Una cotización con, por ejemplo, `labor: "x"` o `equipment: [null]` se rechaza.
 - Sólo tipos JSON; números finitos; claves `__proto__`, `constructor`, `prototype` prohibidas.
 - Límites: 5.000 elementos por colección, 20.000 caracteres por texto, profundidad 12. Backup importado: máximo 5 MB (`MAX_BACKUP_BYTES`).
 
+Aunque llegue un registro inválido por otra vía, los motores ignoran las líneas que no son objetos y `QuoteService` marca esa cotización con `{ error: true }` en su resumen: no se rompen el dashboard ni el listado.
+
 ### Importación (`parseBackupText` → confirmación → `applyBackup`)
 
-1. Se parsea el JSON y se separan `app` y `exportedAt`.
-2. Se migra a la versión actual (`migrateState`) y se valida (`validateState`). Nada se modifica todavía.
-3. La UI muestra un resumen (organización, cantidad de cotizaciones, plantillas y recursos, fecha de exportación, versión de la app) y pide confirmación para **sobrescribir**.
-4. `importBackup` guarda una copia de recuperación `before-import` y recién entonces reemplaza el estado.
+1. Se controla el tamaño (máximo 5 MB en bytes UTF-8), se parsea el JSON y se separan `app` y `exportedAt`.
+2. `prepareImport` valida **antes** de migrar:
+   - Un JSON **sin `schemaVersion`** (formato legado v0) debe tener al menos una colección de RATEOS (`organization` objeto, `quotes` o `services` listas, o `resources` objeto). Si no, se rechaza: "El archivo no es un backup de RATEOS…" (por ejemplo, un `package.json` o `{}`).
+   - Un backup de la **versión actual** se valida tal como viene (completando sólo las claves ausentes): una colección con tipo incorrecto (por ejemplo, `quotes` que no es una lista) se rechaza en lugar de vaciarse en silencio.
+3. Se migra a la versión actual (`migrateState`) y se valida (`validateState`). Nada se modifica todavía.
+4. La UI muestra un resumen (organización, cantidad de cotizaciones, plantillas y recursos, fecha de exportación, versión de la app) y pide confirmación para **sobrescribir**.
+5. `importBackup` guarda una copia de recuperación `before-import` y recién entonces reemplaza el estado. Si la escritura falla (por ejemplo, por cuota), los datos actuales quedan intactos y se elimina esa copia.
 
 ## 3. Entidades actuales y campos
 
@@ -92,9 +108,9 @@ Puede existir además `legacy` (claves raíz y colecciones de recursos desconoci
 | `roundingStep` | redondeo comercial | 1000 |
 | `matrixDays` | días de la matriz tarifa × utilización | [5, 8, 10, 15, 20] |
 | `marginLadder` | escalera de márgenes | [5, 10, 15] |
-| `illustrative` | marca de datos de ejemplo | true |
+| `illustrative` | marca de datos de ejemplo. Con `true`, una cotización nueva en blanco **no** toma como definidos el plazo de cobro (queda `null`) ni la contingencia (queda en 0), y marca el combustible como ILUSTRATIVO (ver [CALCULATION_RULES.md §19](CALCULATION_RULES.md#19-cost-completeness-score)) | true |
 | `scenarios` (opcional) | variaciones pesimista/optimista | `DEFAULT_SCENARIOS` |
-| `lastQuoteNumber` | último número de cotización asignado (contador monotónico de códigos `COT-NNNN`) | se crea al generar la primera cotización |
+| `lastQuoteNumber` | último número de cotización asignado (contador monotónico de códigos `COT-NNNN`: el próximo código es `max(mayor código existente, lastQuoteNumber) + 1`, así nunca se reutiliza el de una cotización eliminada) | se crea al generar la primera cotización |
 
 ### Recursos de biblioteca (`resources`)
 
@@ -110,7 +126,7 @@ Todos con `id`, `organizationId`, `createdAt`, `updatedAt`, `createdBy`, `update
 
 ### Plantillas de servicio (`services`)
 
-`id`, metadatos, `name`, `serviceType`, `description`, `illustrative`, `defaults` (cotización **parcial**: cualquier subconjunto de los campos de §3 "Cotización"). `createQuoteFromTemplate` combina `defaults` sobre una cotización vacía y asigna ids nuevos a todas las líneas. La demo incluye 12 plantillas (Cuadrilla 24/7, Hidrogrúa on-call, Transporte, Water Transfer, Servicio ambiental, Movimiento de suelo, Taller móvil, Inspección, Soldadura, Mantenimiento, Generador, Camión con chofer).
+`id`, metadatos, `name`, `serviceType`, `description`, `illustrative`, `defaults` (cotización **parcial**: cualquier subconjunto de los campos de §3 "Cotización"). `createQuoteFromTemplate` combina `defaults` sobre una cotización vacía y asigna ids nuevos a todas las líneas. Si la plantilla es ILUSTRATIVA, cada línea copiada (`labor`, `equipment`, `materials`, `otherCosts`, `logistics.vehicles`) queda con `illustrative: true`, y también `fuel.illustrative` si la plantilla trae precio de combustible; la cotización en sí queda con `illustrative: false`. La demo incluye 12 plantillas (Cuadrilla 24/7, Hidrogrúa on-call, Transporte, Water Transfer, Servicio ambiental, Movimiento de suelo, Taller móvil, Inspección, Soldadura, Mantenimiento, Generador, Camión con chofer).
 
 ### Cotización (`quotes[]`)
 
@@ -122,7 +138,7 @@ Creada por `createEmptyQuote` / `createQuoteFromTemplate`. Campos raíz:
 | `code` | `COT-0001`… (secuencial por organización; `QuoteService` usa el contador monotónico `settings.lastQuoteNumber` para no reutilizar nunca el código de una cotización eliminada) |
 | `name`, `client`, `notes` | texto |
 | `status` | `draft`, `sent`, `won`, `lost`, `archived` |
-| `illustrative` | true en las cotizaciones demo |
+| `illustrative` | true en las cotizaciones demo (toda la cotización es de demostración). Las líneas y el combustible tienen además su propia marca (ver abajo); `illustrativeInfo(quote)` (`js/domain/quote-factory.js`) resume ambas: `{ any, quote, lines, fuel }` |
 | `serviceType` | `SERVICE_TYPES` (`on_call`, `permanent`, `crew`, `equipment_with_operator`, `equipment_only`, `per_unit`, `transport`, `turnkey`, `time_materials`, `lump_sum`, `configurable`) |
 | `templateId` | plantilla de origen o `null` |
 | `pricingMode` | `known_rate` (conozco la tarifa) / `known_activity` (conozco la actividad) |
@@ -134,13 +150,13 @@ Objetos embebidos:
 
 | Objeto | Campos |
 |---|---|
-| `activity` | `availability` (`24/7`, `window`), `availabilityWindow`, `responseTimeHours`, `activeDaysPerMonth`, `daysPerActivation`, `availableDaysPerMonth`, `hoursPerActiveDay` |
-| `labor[]` | `id`, `sourceId`, `role`, `agreementId`, `category`, `positions`, `peoplePerPosition`, `basicMonthly`, `additionalsMonthly`, `normalHoursPerMonth`, `overtimeHoursPerActiveDay`, `overtimePremiumPct`, `mealPerActiveDay`, `sacPct`, `vacationPct`, `employerContributionsPct`, `artPct`, `insuranceMonthly`, `ppeMonthly`, `trainingMonthly`, `transferMonthly` |
-| `equipment[]` | `id`, `sourceId`, `name`, `quantity`, `hoursPerActiveDay` (`null` = usar el de la actividad), `replacementValue`, `usefulLifeYears`, `residualValue`, `insuranceAnnual`, `licenseAnnual`, `certificationsAnnual`, `capitalRatePctAnnual`, `maintenancePerHour`, `tiresPerHour`, `fuelLitersPerHour` |
-| `materials[]` | `id`, `sourceId`, `description`, `unit`, `basis`, `quantity`, `unitCost`, `wastePct`, `logisticsPct`, `resaleMarkupPct`, `providedBy` |
-| `otherCosts[]` | `id`, `description`, `category` (`labor`, `equipment`, `fuel`, `materials`, `logistics`, `structure`), `behavior` (`fixed_monthly`, `per_active_day`, `per_activation`), `amount` |
-| `fuel` | `pricePerLiter`, `providedBy` (`contractor`, `client`) |
-| `logistics` | `notApplicable`, `baseName`, `destinationName`, `distanceKm`, `roundTrip`, `tripsPerActivation`, `vehicles[]` { `id`, `name`, `count`, `consumptionLPer100Km`, `costPerKm` }, `tollsPerActivation`, `lodgingPerActivation` |
+| `activity` | `availability` (`24/7`, `window`), `availabilityWindow`, `responseTimeHours`, `activeDaysPerMonth` (`null` = sin cargar; así empieza una cotización nueva en blanco), `daysPerActivation`, `availableDaysPerMonth`, `hoursPerActiveDay` |
+| `labor[]` | `id`, `sourceId`, `role`, `agreementId`, `category`, `positions`, `peoplePerPosition`, `basicMonthly`, `additionalsMonthly`, `normalHoursPerMonth`, `overtimeHoursPerActiveDay`, `overtimePremiumPct`, `mealPerActiveDay`, `sacPct`, `vacationPct`, `employerContributionsPct`, `artPct`, `insuranceMonthly`, `ppeMonthly`, `trainingMonthly`, `transferMonthly`, `illustrative` (opcional) |
+| `equipment[]` | `id`, `sourceId`, `name`, `quantity`, `hoursPerActiveDay` (`null` = usar el de la actividad), `replacementValue`, `usefulLifeYears`, `residualValue`, `insuranceAnnual`, `licenseAnnual`, `certificationsAnnual`, `capitalRatePctAnnual`, `maintenancePerHour`, `tiresPerHour`, `fuelLitersPerHour`, `illustrative` (opcional) |
+| `materials[]` | `id`, `sourceId`, `description`, `unit`, `basis`, `quantity`, `unitCost`, `wastePct`, `logisticsPct`, `resaleMarkupPct`, `providedBy`, `illustrative` (opcional) |
+| `otherCosts[]` | `id`, `description`, `category` (`labor`, `equipment`, `fuel`, `materials`, `logistics`, `structure`), `behavior` (`fixed_monthly`, `per_active_day`, `per_activation`), `amount`, `illustrative` (opcional) |
+| `fuel` | `pricePerLiter`, `providedBy` (`contractor`, `client`), `illustrative` (opcional: el precio es el valor ILUSTRATIVO por defecto o de una plantilla demo) |
+| `logistics` | `notApplicable`, `baseName`, `destinationName`, `distanceKm`, `roundTrip`, `tripsPerActivation`, `vehicles[]` { `id`, `name`, `count`, `consumptionLPer100Km`, `costPerKm`, `illustrative` (opcional) }, `tollsPerActivation`, `lodgingPerActivation` |
 | `indirect` | `method` (`percent_direct`, `percent_labor`, `per_employee`, `per_contract`, `per_hour`, `manual`), `pct`, `amount` |
 | `finance` | `paymentTermDays` (`null` = sin definir), `invoiceLagDays`, `monthlyRatePct`, `payDays` { `salaries`, `fuel`, `suppliers`, `materials`, `structure` } |
 | `risk` | `generalPct`, `items[]` { `id` (`RISK_ITEMS`), `label`, `pct`, `enabled` } |
@@ -148,6 +164,8 @@ Objetos embebidos:
 | `rules` | `availabilityFeeMonthly`, `calloutFeePerActivation`, `mobilizationFeePerActivation`, `includedKmPerActivation`, `extraKmRate`, `minimumCallUnits`, `standbyDaysPerMonth`, `standbyRatePerDay`, `standbyNotApplicable`, `volumeTiers[]` { `id`, `fromDays`, `toDays` (`null` = sin tope), `discountPct` }, `continuityMinMonths`, `continuityDiscountPct`, `minimumMonthlyGuarantee` |
 
 Las líneas embebidas (`labor[]`, `equipment[]`, …) tienen `id` UUID propio pero no metadatos: pertenecen a la cotización. **Los resultados calculados no se guardan**: se recalculan con `computeQuote` (mismos inputs = mismos outputs).
+
+**Marca ILUSTRATIVO por línea.** `line.illustrative = true` indica que los valores de esa línea vienen de datos de demostración: la copian `laborLineFromProfile` (si el perfil o el convenio son ilustrativos), `equipmentLineFromLibrary` y `materialLineFromLibrary` (si el recurso es ilustrativo) y `createQuoteFromTemplate` (si la plantilla es ilustrativa). El campo es opcional (las cotizaciones guardadas antes no lo tienen) y no requiere migración: `validateState` acepta campos adicionales en las líneas.
 
 ## 4. Modelo futuro relacional (Supabase / PostgreSQL)
 

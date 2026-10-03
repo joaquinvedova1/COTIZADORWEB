@@ -51,7 +51,7 @@ factorMeses(D) = 1                        si D ≤ díasDisponibles
                = D / díasDisponibles      si D > díasDisponibles
 ```
 
-`factorMeses` sólo es mayor a 1 cuando los días activos superan los días disponibles del mes: se interpreta como trabajo de más de un mes y se prorratean los fijos (la traza "Costo total mensual" lo aclara con una nota).
+`factorMeses` sólo es mayor a 1 cuando los días activos superan los días disponibles del mes: se interpreta como trabajo de más de un mes y se prorratean los fijos (la traza "Costo total mensual" lo muestra como "Meses de costo fijo" y lo aclara con una nota).
 
 Orden de cálculo dentro de `buildCostModel(quote)`:
 
@@ -71,7 +71,7 @@ Archivo: `js/engines/cost-engine.js` (`normalizeActivity`).
 | Dato | Regla |
 |---|---|
 | Días disponibles del mes | `min(availableDaysPerMonth, 31)`; si es 0, negativo o vacío se usa **30** (y `validateQuote` informa el error con la regla `availableDays`). |
-| Días activos `D` | `activeDaysPerMonth`; negativo o vacío → 0. |
+| Días activos `D` | `activeDaysPerMonth`; negativo o vacío → 0. Una cotización nueva en blanco empieza con `null` (es un dato de cada cotización, no un default): hasta que se carga, se calcula con 0 días y el Cost Completeness Score marca la actividad en rojo (§19). |
 | Días por activación | `daysPerActivation`; si es ≤ 0 o vacío → 1. |
 | Horas por día activo | `min(hoursPerActiveDay, 24)`. |
 | Activaciones por mes | `D / díasPorActivación` |
@@ -129,7 +129,7 @@ variable por día activo  = variable/día/posición × posiciones    (en un día
 
 `personas por posición` vacío o negativo se toma como 1. Informativo: costo hora cargado = fijo mensual/persona / horas normales.
 
-**Standby (costo).** Los días de standby de las reglas comerciales (`rules.standbyDaysPerMonth`) se costean como días en locación sin operar: `standby mensual = días de standby × variable por día activo del personal` (vianda + horas extra). Es un costo **fijo mensual** en la categoría Mano de obra.
+**Standby (costo).** Los días de standby de las reglas comerciales (`rules.standbyDaysPerMonth`) se costean como días en locación sin operar: `standby mensual = días de standby × variable por día activo del personal` (vianda + horas extra). Es un costo **fijo mensual** en la categoría Mano de obra. Si se marcó "No aplica standby" (`rules.standbyNotApplicable = true`), los días de standby se toman como 0: no hay costo ni ingreso de standby (§12).
 
 **Ejemplo (operador demo, parámetros genéricos ILUSTRATIVOS):** básico 1.800.000, adicionales 400.000, SAC 8,33 %, vacaciones 4 %, cargas 24 %, ART 6 %, 176 h normales, 4 h extra/día activo con recargo 50 %, vianda 25.000, seguros 30.000, EPP 40.000, capacitación 25.000, traslado 60.000.
 
@@ -321,6 +321,7 @@ impacto en margen    = costo financiero / facturación total × 100        (punt
 - **No se financian**: la amortización ni el costo de capital de equipos (no son salidas de caja) ni la **contingencia** (es una reserva, no un pago).
 - Se calcula por separado para la parte fija y la parte variable por día, así que el costo financiero también escala con `D`.
 - Plazo de cobro vacío: se calcula con 0 días, y el Cost Completeness Score lo marca en rojo ("Plazo de pago sin definir").
+- Una cotización nueva en blanco toma el plazo por defecto de la configuración (`settings.defaultPaymentTermDays`) **sólo si la configuración es propia** (`settings.illustrative !== true`). Con la configuración ILUSTRATIVA de la demo el plazo queda en `null` (sin definir) para que el usuario lo cargue.
 
 **Ejemplo demo (ILUSTRATIVO):** facturación a 15 días, cobro a 90 días, tasa 3 % mensual.
 
@@ -344,6 +345,8 @@ contingencia    = contingencia % × (directos + estructura + financiero)      (f
 ```
 
 Ítems de riesgo (`RISK_ITEMS`): variación de actividad, improductivos, clima, retrabajos, rotura de equipos, variación de precios, inflación, logística, penalidades, garantía, accidentes, incertidumbre del alcance. Ejemplo demo: 2 + 1 + 1 + 1 = **5 %**.
+
+En una cotización nueva en blanco, la contingencia general toma `settings.defaultContingencyPct` sólo si la configuración es propia; con la configuración ILUSTRATIVA de la demo empieza en **0 %** y el Cost Completeness Score la marca en naranja hasta que se defina.
 
 ## 10. Costo total y estructura de costos (EECC)
 
@@ -408,7 +411,7 @@ Validaciones (`isValidMarginPct`): el margen debe cumplir `0 ≤ margen < 100`; 
 
 Escalera de precios (`priceLadder`): tarifa piso (margen 0), margen 5 %, 10 %, 15 % (`DEFAULT_MARGIN_LADDER` o `settings.marginLadder`) y margen personalizado (si es válido, mayor a 0 y no está en la escalera). Para costo 100: 100,00 / 105,26 / 111,11 / 117,65 / personalizado 20 % → 125,00 (markups equivalentes 0 / 5,26 / 11,11 / 17,65 / 25 %).
 
-`traceMarginVsMarkup(costo, %)` arma la traza "Margen vs markup" con ambos precios y la diferencia.
+`traceMarginVsMarkup(costo, %)` arma la traza "Margen vs markup" con ambos precios y la diferencia, con **2 decimales** (formato `money2`) para que se vea la regla protegida: costo $ 100,00 → margen 10 % $ 111,11, markup 10 % $ 110,00, diferencia $ 1,11.
 
 ## 12. Unidades, reglas comerciales y facturación
 
@@ -459,7 +462,7 @@ facturación total  = subtotal + ajuste por mínimo
 | Regla | Campo | Efecto |
 |---|---|---|
 | Minimum call | `minimumCallUnits` | mínimo de unidades facturables por activación |
-| Standby | `standbyDaysPerMonth`, `standbyRatePerDay` | ingreso = días × tarifa × meses; costo = días × variable de personal (§3) |
+| Standby | `standbyDaysPerMonth`, `standbyRatePerDay`, `standbyNotApplicable` | ingreso = días × tarifa × meses; costo = días × variable de personal (§3). Con "No aplica standby" (`standbyNotApplicable = true`) días y tarifa se toman como 0: ni costo ni ingreso, aunque los campos tengan valores |
 | Call-out fee | `calloutFeePerActivation` | monto × activaciones |
 | Movilización | `mobilizationFeePerActivation` | monto × activaciones |
 | Km adicional | `includedKmPerActivation`, `extraKmRate` | (km de ruta − km incluidos) × $/km × activaciones |
@@ -492,7 +495,7 @@ tarifa piso           = tarifa neta(0)
 - Si las unidades facturables son 0 (por ejemplo, 0 días), la tarifa es `null` ("—").
 - Si los otros ingresos ya cubren la facturación necesaria, la tarifa es 0 y se marca `coveredByOtherRevenue`.
 - Si el factor de descuentos es 0 (descuento 100 %), la tarifa de lista es `null`.
-- El **mínimo garantizado NO se usa** para calcular tarifas necesarias (criterio conservador: no se cuenta con un ingreso que sólo aparece si la actividad es baja). Sí se usa al evaluar el resultado y el break-even con una tarifa dada.
+- El **mínimo garantizado NO se usa** para calcular tarifas necesarias (criterio conservador: no se cuenta con un ingreso que sólo aparece si la actividad es baja). Sí se usa al evaluar el resultado y el break-even con una tarifa dada; por eso la alerta `belowFloor` exige además que el mes dé pérdida (§20).
 - Margen objetivo inválido (vacío, < 0 o ≥ 100) → se usa 0. Margen personalizado inválido o 0 → no se muestra.
 
 **Tarifa comercial sugerida** = tarifa objetivo de lista redondeada **hacia arriba** al múltiplo de `pricing.roundingStep` (`commercialRound`; paso 0 = sin redondeo). Nunca baja el margen. Ejemplo demo: 2.258.948,79 → **2.259.000** con paso 1.000.
@@ -519,21 +522,41 @@ Equivalencias informativas (`result.equivalents`):
 
 Ejemplo demo (modo B, 8 días, ILUSTRATIVO): tarifa piso neta ≈ 1.972.062/día; con el tramo 8–15 días (3 % de descuento) la piso de lista ≈ 2.033.054; objetivo 10 % neta ≈ 2.191.180, de lista ≈ 2.258.949; sugerida 2.259.000; facturación ≈ 17.529.840; resultado ≈ 1.753.342; margen ≈ 10,00 %; markup ≈ 11,11 %.
 
+**Neta y de lista.** La tarifa que se escribe en la cotización es la **de lista**; la neta es lo que efectivamente se cobra después de descuentos (`neta = lista × factor de descuentos`). Para comparar con la tarifa conocida o la ofrecida hay que usar la tarifa de lista: cobrar como lista la tarifa piso **neta** (1.972.062 en la demo) deja un resultado negativo porque después se le aplica el descuento del tramo (resultado ≈ −473.297, margen ≈ −3,09 %).
+
+**Traza "Tarifa piso"** (`traces.floorRate`): entradas costo total, otros ingresos, unidades facturables y factor de descuentos (tramo × continuidad × comercial); paso intermedio "Tarifa piso neta"; resultado "Tarifa piso de lista". Fórmula: `Tarifa piso neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos`. Así el "Ver cálculo" termina en el mismo número que se muestra como tarifa piso de lista (2.033.054 en la demo).
+
+**Presentación hacia arriba.** Las tarifas mínimas (piso, objetivo y sugerida) que se muestran sin decimales se redondean **hacia arriba** con `formatMoneyCeil` (`js/core/format.js`): cobrar la cifra que se ve nunca deja debajo del piso o del objetivo. Ejemplo con redondeo comercial 0 (caso de referencia con 10 días): tarifa objetivo 4.444.444,44 → se muestra **$ 4.444.445** (con `formatMoney` se vería $ 4.444.444, que cobrado da un margen de 9,99999 %, "debajo del objetivo", y 11 días enteros para el margen objetivo en lugar de 10). El valor interno del motor no cambia.
+
 ## 14. Descuentos por volumen y continuidad
 
-Archivos: `js/engines/commercial-rules-engine.js` (`DEFAULT_VOLUME_TIERS`, `normalizeTiers`, `findVolumeTier`, `tierLabel`, `classifyDiscount`, `continuityApplies`), `js/engines/quote-engine.js` (`evaluateDiscountTiers`).
+Archivos: `js/engines/commercial-rules-engine.js` (`DEFAULT_VOLUME_TIERS` —definidos en `js/domain/catalogs.js` y re-exportados—, `normalizeTiers`, `findVolumeTier`, `tierLabel`, `classifyDiscount`, `continuityApplies`), `js/engines/quote-engine.js` (`evaluateDiscountTiers`, `minActiveDaysForBillableDays`).
 
 **Tramos por defecto** (0 % de descuento): 1 día · 2–7 días · 8–15 días · 16–30 días · +30 días (`fromDays` 31, `toDays` vacío).
 
-**Búsqueda del tramo** (`findVolumeTier`): los tramos se ordenan por "desde"; aplica **el último tramo cuyo "desde" sea ≤ días facturables** (tolerancia 1e-9). Con 0 días no hay tramo. El "hasta" sólo se usa para la etiqueta: 7,5 días cae en el tramo 2–7. Con unidad `month` no se aplican tramos.
+**Búsqueda del tramo** (`findVolumeTier`): los tramos se ordenan por "desde"; aplica **el último tramo cuyo "desde" sea ≤ días facturables** (tolerancia 1e-9). Con 0 días no hay tramo. El "hasta" sólo se usa para la etiqueta: 7,5 días cae en el tramo 2–7. Con unidad `month` no se aplican tramos. Los tramos que no son objetos se ignoran; si no queda ninguno se usan los tramos por defecto.
 
-**Evaluación de cada tramo** (`evaluateDiscountTiers`): cada tramo se evalúa en su **peor caso**, el mínimo de días del tramo (`max(desde, 1)`), porque con menos días los fijos se reparten entre menos unidades. Con el tramo forzado se calculan:
+**Evaluación de cada tramo** (`evaluateDiscountTiers`): cada tramo se evalúa en su **peor caso**: la **menor cantidad de días activos** con la que ya se alcanza el "desde" del tramo en días **facturables**. Con menos días activos los fijos se reparten entre menos unidades. Como el tramo se elige por días facturables y, con minimum call, cada activación factura más días de los que se trabajan, el peor caso puede tener menos días activos que el "desde" del tramo (`minActiveDaysForBillableDays`):
+
+```
+b   = max(desde del tramo, 1)                 días facturables que activan el tramo
+dpa = días por activación · h = horas por día activo · mc = minimum call (unidades por activación)
+
+unidad day:   días evaluados = b × dpa / max(dpa, mc)
+unidad hour:  días evaluados = b × dpa × h / max(dpa × h, mc)      (si h = 0: b)
+```
+
+Sin minimum call efectivo (`mc ≤ unidades por activación`) los días evaluados son `b`. Con el tramo forzado se calculan:
 
 ```
 tarifa neta del tramo  = tarifa de lista × factor (tramo × continuidad × comercial)
 tarifa piso neta       = tarifa neta(0) con esos días
 tarifa objetivo neta   = tarifa neta(margen objetivo) con esos días
 ```
+
+Cada tramo informa `evaluatedDays`, la tarifa neta, la piso y la objetivo netas, el resultado y el margen con esos días, y el semáforo.
+
+**Ejemplo con minimum call** (caso de referencia: fijos 30.000.000, variable 1.000.000/día, lista 4.000.000/día, 1 día por activación, minimum call 2 días, tramos 8–15 y 16–30 con 20 %): el tramo 8–15 se aplica desde 8 días **facturables**, que se alcanzan con sólo **4 días activos** (4 activaciones × 2 días facturables). Evaluado con 4 días: resultado −8.400.000, margen −32,81 % → **rojo**. (Antes se evaluaba con 8 días activos —16 facturables, que en realidad caen en el tramo 16–30— y salía verde.) El tramo 16–30 se evalúa con 8 días activos: resultado 13.200.000 → verde.
 
 **Semáforo** (`classifyDiscount`), con tolerancia `max(1e-6, |piso| × 1e-9)`:
 
@@ -544,15 +567,15 @@ tarifa objetivo neta   = tarifa neta(margen objetivo) con esos días
 | Rojo | tarifa neta < tarifa piso neta → debajo de break-even (pierde dinero) |
 | `unknown` | no hay tarifa o piso calculable |
 
-Ejemplo demo (lista 2.259.000; tramos 3 % / 5 % / 8 % ILUSTRATIVOS):
+Ejemplo demo (lista 2.259.000; tramos 3 % / 5 % / 8 % ILUSTRATIVOS; minimum call 1 día con 2 días por activación, así que no cambia los días evaluados):
 
-| Tramo | Desc. | Neta | Piso neta | Objetivo neta | Estado |
-|---|---:|---:|---:|---:|---|
-| 1 día | 0 % | 2.259.000 | 9.874.544 | 10.971.715 | Rojo |
-| 2–7 días | 0 % | 2.259.000 | 5.358.840 | 5.954.267 | Rojo |
-| 8–15 días | 3 % | 2.191.230 | 1.972.062 | 2.191.180 | Verde |
-| 16–30 días | 5 % | 2.146.050 | 1.407.599 | 1.563.999 | Verde |
-| +30 días | 8 % | 2.078.280 | 1.144.183 | 1.271.315 | Verde |
+| Tramo | Días evaluados | Desc. | Neta | Piso neta | Objetivo neta | Estado |
+|---|---:|---:|---:|---:|---:|---|
+| 1 día | 1 | 0 % | 2.259.000 | 9.874.544 | 10.971.715 | Rojo |
+| 2–7 días | 2 | 0 % | 2.259.000 | 5.358.840 | 5.954.267 | Rojo |
+| 8–15 días | 8 | 3 % | 2.191.230 | 1.972.062 | 2.191.180 | Verde |
+| 16–30 días | 16 | 5 % | 2.146.050 | 1.407.599 | 1.563.999 | Verde |
+| +30 días | 31 | 8 % | 2.078.280 | 1.144.183 | 1.271.315 | Verde |
 
 **Descuento por continuidad** (`continuityApplies`): aplica si `continuityDiscountPct > 0`, `continuityMinMonths > 0` y `contractMonths ≥ continuityMinMonths`. Se multiplica en el factor de descuentos. Si aplica y hay tarifa, `result.continuity.status` usa el mismo semáforo comparando la tarifa neta con la piso y la objetivo de la actividad estimada.
 
@@ -596,15 +619,15 @@ Con reglas comerciales (mínimo garantizado, tramos, minimum call, fees) el resu
 
 **Días para margen objetivo** (`kpis.targetMarginDays`): misma búsqueda sobre `resultado(D) − margen objetivo × facturación(D) ≥ 0`. Caso básico con margen 10 %: 2,6 × D − 30 ≥ 0 (en millones) → ≈ 11,54 días (12 enteros).
 
-**Traza "Ver cálculo"** (`traceBreakEven` + `linearDecomposition`): muestra costos fijos, ingresos fijos (fee de disponibilidad + standby), tarifa neta por día activo, otros ingresos por día activo, costo variable por día y contribución:
+**Traza "Ver cálculo"** (`traceBreakEven` + `linearDecomposition`): muestra costos fijos, ingresos fijos (fee de disponibilidad + standby), ingreso por tarifa por día activo (tarifa neta por unidad × unidades del día; con unidad hora es un valor **por día**, no por hora), otros ingresos por día activo, costo variable por día y contribución:
 
 ```
 break-even = (costos fijos − ingresos fijos) / (ingreso por día − costo variable por día)
 ```
 
-Si hay reglas no lineales (mínimo garantizado, minimum call aplicado o algún tramo con descuento), la traza lo aclara: el resultado se calculó día a día, no sólo con la fórmula.
+La descomposición (`result.linear`) se evalúa **en el punto de equilibrio** (`max(break-even, 1)` días) cuando el break-even se alcanza y es mayor a 0, porque ahí rige el tramo de descuento que realmente aplica; si no, se evalúa con la actividad estimada. Así las entradas de la traza dan el resultado informado. Si hay reglas no lineales (mínimo garantizado, minimum call aplicado o algún tramo con descuento), la traza lo aclara: el resultado se calculó día a día, no sólo con la fórmula.
 
-**Ejemplo demo (ILUSTRATIVO):** fijos ≈ 9.031.407, tarifa neta 2.191.230/día, variable ≈ 843.136/día → contribución ≈ 1.348.094/día; break-even ≈ **6,38 días** (7 días enteros); días para margen 10 % ≈ 7,59 (8 enteros).
+**Ejemplo demo (ILUSTRATIVO):** el equilibrio cae en ≈ 6,38 días, dentro del tramo **2–7 días (0 % de descuento)**: tarifa neta = lista = 2.259.000/día. Fijos ≈ 9.031.407, variable ≈ 843.136/día → contribución ≈ 1.415.864/día → break-even = 9.031.407 / 1.415.864 ≈ **6,38 días** (7 días enteros). Con los 8 días estimados (tramo 8–15, neta 2.191.230) la contribución sería 1.348.094 y la fórmula daría 6,70: por eso la traza no usa la actividad estimada. Días para margen 10 % ≈ 7,59 (8 enteros).
 
 ## 16. Utilización y matriz tarifa × utilización
 
@@ -616,7 +639,7 @@ días activos (utilización u) = min(max(u, 0), 100) / 100 × días disponibles
 tarifa necesaria(D, m)       = (Costo(D) / (1 − m) − otros ingresos(D)) / unidades(D)
 ```
 
-A mayor utilización, menor tarifa unitaria necesaria (los fijos se reparten entre más días); a menor utilización, mayor tarifa.
+Con tarifa por día o por hora, a mayor utilización, menor tarifa unitaria necesaria (los fijos se reparten entre más días); a menor utilización, mayor tarifa. **Con abono mensual (`month`) es al revés:** se factura 1 abono por mes sea cual sea D (hasta los días disponibles), así que el abono necesario `Costo(D) / (1 − m)` **crece** con los días porque crece el costo variable. Ejemplo (caso de referencia en $/mes): piso 35.000.000 / 38.000.000 / 40.000.000 / 45.000.000 / 50.000.000 para 5 / 8 / 10 / 15 / 20 días.
 
 **Días de la matriz** (`matrixDays`): los configurados (`settings.matrixDays`, por defecto `DEFAULT_MATRIX_DAYS` = 5, 8, 10, 15, 20) + la actividad estimada si es > 0; sin duplicados, ordenados. Márgenes: `settings.marginLadder` (por defecto 5, 10, 15) + el personalizado.
 
@@ -645,11 +668,13 @@ Regla clave: **la tarifa comercial se mantiene fija** (la del caso base, vía `l
 | `salariesPct` | básico y adicionales × (1 + Δ%) (no los conceptos no remunerativos) |
 | `fuelPct` | precio del combustible × (1 + Δ%) |
 | `materialsPct` | costo unitario de materiales y otros costos de categoría materiales × (1 + Δ%) |
-| `activityPct` | días activos × (1 + Δ%), con tope en los días disponibles |
+| `activityPct` | sólo si Δ ≠ 0: días activos × (1 + Δ%), con tope en `max(días disponibles, días activos base)` (nunca recorta una base que ya supera los disponibles). Con Δ = 0 los días activos no se tocan |
 | `paymentTermDays` | plazo de cobro + Δ días (mínimo 0) |
 | `commercialDiscountPct` | descuento comercial + Δ puntos (entre 0 y 100) |
 
-El factor nunca es negativo: `max(0, 1 + Δ%)`. Rangos de los sliders: `SENSITIVITY_RANGES` en `js/config.js`.
+El factor nunca es negativo: `max(0, 1 + Δ%)`. Rangos de los sliders: `SENSITIVITY_RANGES` en `js/config.js`. Los días disponibles son los mismos que usa el motor (0 o inválido → 30).
+
+**Sin variaciones, el escenario es idéntico a la base**, aun si los días activos superan los disponibles. Ejemplo (caso de referencia con 35 días activos y 30 disponibles): `runSensitivity(q, {})` da Δ resultado = 0 (antes recortaba a 30 días y daba −10.000.000); con +20 % de actividad los días siguen en 35 (tope = max(30, 35)); con −20 % bajan a 28; el escenario optimista (+25 %) da el mismo resultado que la base (70.000.000), nunca menos.
 
 - `runSensitivity(quote, deltas)` devuelve el caso base, el caso sensibilizado (costo total, tarifa piso, tarifa objetivo, facturación, resultado, margen, break-even, días para margen objetivo, utilización, tarifa efectiva) y la diferencia de cada indicador.
 - `sensitivityTable(quote)` (tipo tornado) mueve cada variable por separado, hacia abajo y hacia arriba (por defecto ±10 % salarios, combustible y materiales; ±20 % actividad; ±30 días de plazo; ±5 puntos de descuento, omitiendo el descuento negativo si el del caso base es 0) y reporta los indicadores de cada variante y la variación del resultado.
@@ -673,9 +698,11 @@ Compara cuatro formas de cobrar el mismo servicio (tarifa por día). Requiere ac
 | Modelo | Facturación R(D) | Calibración |
 |---|---|---|
 | Sólo tarifa por día | `p × D` | `p = C(De) / (k × De)` |
-| Fee de disponibilidad + tarifa por día | `Fee + q × D` | `Fee = Fijos / k`, `q = v / k` |
-| Mínimo garantizado + tarifa por día | `max(G, p × D)` | `G = Fijos` |
+| Fee de disponibilidad + tarifa por día | `Fee × factorMeses(D) + q × D` | `Fee = Fijos / k`, `q = v / k` |
+| Mínimo garantizado + tarifa por día | `max(G × factorMeses(D), p × D)` | `G = Fijos` |
 | Paquete mensual + excedentes | `Paquete + p × max(0, D − De)` | `Paquete = C(De) / k` |
+
+El fee y el mínimo garantizado son montos mensuales: igual que los costos fijos (§1) y que `computeRevenue` (§12), se multiplican por `factorMeses(D)` cuando los días superan los disponibles. Así `R(D) = C(D) / k` también con `De` mayor a los días disponibles y los cuatro modelos logran el margen objetivo con la actividad estimada (ejemplo: caso de referencia con De = 35 y 30 disponibles → los 4 modelos dan margen 10 % y facturan ≈ 77.777.778; antes "Fee + tarifa" daba 3,08 %).
 
 Para cada modelo: ingreso, resultado y margen esperados (con `De`), ingreso, resultado y margen pesimistas (con `Dp`), **ingreso mínimo asegurado** = R(0), break-even con el algoritmo numérico (§15) y **riesgo**: alto si el resultado pesimista es negativo; medio si el margen pesimista es menor a la mitad del objetivo; bajo en otro caso. El comparador usa una facturación simplificada (sin tramos, fees ni descuentos de la cotización) para comparar los modelos entre sí.
 
@@ -697,7 +724,9 @@ Archivo: `js/core/money.js` (cálculo) y `js/core/format.js` (presentación).
 | `roundPercentagesToTotal` | incidencias de la EECC | mayor resto, suma exacta 100 |
 | `safeDivide` | divisiones | divisor 0 o no finito → `null` (o el fallback indicado) |
 
-- **Valor interno vs valor mostrado:** los motores nunca redondean resultados intermedios. `formatMoney` muestra montos sin decimales (redondeando `roundMoney`), `formatValue(v, 'rate')` muestra 2 decimales si el valor es menor a 100, `formatPercent` 2 decimales y `formatDays` hasta 2 decimales.
+- **Valor interno vs valor mostrado:** los motores nunca redondean resultados intermedios. `formatMoney` muestra montos sin decimales (redondeando `roundMoney`), `formatValue(v, 'money2')` con 2 decimales, `formatValue(v, 'rate')` 2 decimales si el valor es menor a 100, `formatPercent` 2 decimales y `formatDays` hasta 2 decimales.
+- **Tarifas mínimas hacia arriba:** `formatMoneyCeil(v)` (o `formatValue(v, 'moneyCeil')`) muestra sin decimales redondeando **hacia arriba** (`ceil(v − 1e-9)`): 4.444.444,44 → $ 4.444.445; 2.258.948,79 → $ 2.258.949; 2.259.000 → $ 2.259.000. Se usa para piso, objetivo y sugerida, para que la cifra que se ve nunca quede debajo del mínimo (misma regla que el redondeo comercial: nunca baja el margen).
+- **Números ingresados por el usuario:** `parseDecimalInput` (`js/core/validation.js`) interpreta el formato argentino: punto = miles, coma = decimal. `"1.800.000"` → 1.800.000; `"1.800.000,50"` y `"1800000,50"` → 1.800.000,5; `"8,5"` y `"8.5"` → 8,5; `"1.800"` → 1.800 (un punto seguido de grupos de 3 dígitos es separador de miles); `"$ 250.000"` → 250.000 (se ignoran `$`, `%` y espacios). Formatos ambiguos o inválidos (`"1,234.56"`, `"1.2.3"`, `"1e5"`) → error "Ingresá un número válido (usá coma para decimales y punto para miles, p. ej. 1.800.000,50)". Los campos muestran el valor guardado con coma decimal y sin separador de miles (`numberToInputText`), para que se vuelva a leer igual.
 - Tolerancia numérica de los motores: `NUMERIC_EPSILON = 1e-9` (`js/config.js`).
 - Cualquier valor no finito se muestra como "—" (`EMPTY`).
 
@@ -724,43 +753,67 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 4 | `labor` | tipo distinto de "Equipo sin operador" | 2 | ok si alguna línea tiene básico > 0 y posiciones > 0; si no, rojo |
 | 5 | `relief` | servicio permanente, u on-call 24/7, con personal cargado | 1 | ok si todas las líneas tienen más de 1 persona por posición; si no, naranja |
 | 6 | `equipment_cost` | tipo con equipos (on-call, equipo con/sin operador, transporte) o hay equipos | 2 | ok si hay equipos y todos tienen reposición > 0 y vida útil > 0; si no, rojo |
-| 7 | `fuel` | hay equipos o vehículos de traslado | 2 | rojo sin responsable; rojo si lo pagamos y falta precio o consumo; si no, ok |
+| 7 | `fuel` | hay equipos o vehículos de traslado | 2 | rojo sin responsable; rojo si lo pagamos y falta precio o consumo; naranja si lo pagamos y el precio es el valor ILUSTRATIVO por defecto (`fuel.illustrative = true`: "confirmalo con tu precio actual"); si no, ok |
 | 8 | `materials` | siempre | 1 / 2 | "no usa materiales" → ok (1); sin líneas → naranja (1); con líneas → ok si todas tienen responsable, si no rojo (2) |
 | 9 | `logistics` | siempre | 1 / 2 | "sin traslados" → ok (1); si no, ok si distancia > 0 y algún vehículo con cantidad > 0, si no rojo (2) |
 | 10 | `structure` | siempre | 1 | ok si el % (métodos porcentuales) o el monto es > 0; si no, naranja |
-| 11 | `payment_term` | siempre | 2 | ok si el plazo de cobro está definido; si no, rojo |
+| 11 | `payment_term` | siempre | 2 | ok si el plazo de cobro está definido (número, incluido 0); si está vacío o `null`, rojo |
 | 12 | `contingency` | siempre | 1 | ok si la contingencia total > 0; si no, naranja |
 | 13 | `margin` | siempre | 2 | rojo si está vacío o es inválido (≥ 100 %, negativo o no numérico); naranja si es 0; ok si es > 0 |
 | 14 | `standby` | on-call | 1 | ok si hay tarifa de standby o se marcó "no aplica"; si no, naranja |
 
 Los pendientes (`pending`) se ordenan rojos primero. Ejemplos: demo Hidrogrúa **95,45 %** (pendientes en naranja: relevos y standby); caso de referencia **78,57 %** (personal en rojo; estructura y contingencia en naranja).
 
+**Colores del puntaje** (`completenessTone`, `js/engines/completeness-engine.js`), iguales en el editor, el resultado y el listado: **verde ≥ 85 %** (`COMPLETENESS_GREEN_THRESHOLD`), **naranja ≥ 60 %**, **rojo < 60 %** (`COMPLETENESS_RISK_THRESHOLD`, el mismo límite que marca `incomplete` y `atRisk`, §20).
+
+**Defaults ILUSTRATIVOS no cuentan como definidos.** Un valor que nadie cargó no puede dar un ítem en verde. Al crear una cotización en blanco con la configuración ILUSTRATIVA de la demo (`settings.illustrative = true`, ver `createEmptyQuote` en `js/domain/quote-factory.js`):
+
+| Dato | Cotización nueva | Regla |
+|---|---|---|
+| Días activos (`activity.activeDaysPerMonth`) | `null` (siempre, también con configuración propia) | `utilization` en rojo |
+| Plazo de cobro (`finance.paymentTermDays`) | `null` | `payment_term` en rojo |
+| Contingencia general (`risk.generalPct`) | 0 | `contingency` en naranja |
+| Precio del combustible (`fuel.pricePerLiter`) | el de la configuración, con `fuel.illustrative = true` | `fuel` en naranja (si hay equipos o vehículos) |
+| Margen objetivo (`pricing.targetMarginPct`) | el de la configuración (10 % en la demo) | `margin` en verde |
+
+Con una configuración propia (`settings.illustrative !== true`), el plazo y la contingencia toman los valores de la configuración y el combustible no queda marcado. Las plantillas pueden traer sus propios valores (por ejemplo, la plantilla Hidrogrúa on-call carga 8 días activos y 90 días de plazo). Ejemplo: una cotización en blanco con la configuración demo da **33,33 %** (rojos: actividad, personal, equipos, logística y plazo de pago; naranjas: materiales, estructura, contingencia y standby).
+
 ## 20. Indicadores y alertas
 
 `computeQuote(quote, { settings })` devuelve `kpis` con, entre otros: días activos, utilización, costo total, fijos, variables, costo por día activo, tarifas piso/objetivo/sugerida/comercial (neta y de lista), facturación, resultado, margen, markup, break-even y días para margen objetivo (exactos y enteros), completitud, costo financiero, impacto financiero en margen, capital de trabajo, costo logístico mensual e incidencia.
 
+**Margen y markup de la cotización sólo con tarifa comercial.** `kpis.marginPct` y `kpis.markupPct` son `null` si no hay tarifa comercial (`commercialSource = 'none'`), aunque haya otros ingresos (fee, standby, call-out). Ejemplo: caso de referencia en "Conozco la tarifa" sin tarifa y con fee de disponibilidad 6.000.000/mes → facturación 6.000.000, margen y markup `null` (antes figuraba un margen de −533,33 % que entraba al promedio del dashboard). La facturación y el resultado se siguen informando.
+
 | Alerta | Regla |
 |---|---|
-| `belowFloor` | hay tarifa y la tarifa neta comercial < tarifa piso neta (tolerancia 1e-6) |
+| `belowFloorRate` | hay tarifa y la tarifa neta comercial < tarifa piso neta (tolerancia 1e-6). Informativo: la tarifa sola no cubre el costo |
+| `belowFloor` ("bajo piso: perdés dinero") | `belowFloorRate` **y** resultado del mes < 0 |
 | `belowTarget` | hay tarifa y el margen < margen objetivo |
 | `incomplete` | completitud < `COMPLETENESS_RISK_THRESHOLD` (60 %) |
 | `atRisk` | sin tarifa, **o** resultado < 0, **o** margen < objetivo, **o** completitud < 60 % |
 
-El Dashboard (`QuoteService.dashboardStats`) suma sólo cotizaciones activas (`ACTIVE_QUOTE_STATUSES`: borrador, enviada, ganada): valor total cotizado (Σ facturación mensual), margen promedio (promedio simple de los márgenes finitos), cotizaciones con riesgo (`atRisk`) y servicios bajo piso (`belowFloor`).
+**`belowFloor` vs `belowFloorRate`.** La tarifa piso no cuenta el mínimo garantizado (§13), así que una tarifa neta debajo del piso no siempre implica pérdida: si un mínimo garantizado cubre la diferencia, el mes da ganancia. Ejemplo: caso de referencia + mínimo garantizado 40.000.000/mes, tarifa 4.000.000/día, 8 días → facturación 40.000.000, costo 38.000.000, resultado **+2.000.000** (margen 5 %), break-even 0 días: `belowFloorRate = true` (la tarifa está debajo del piso de 4.750.000) pero `belowFloor = false` (no se pierde dinero con esa actividad; sí hay riesgo si la actividad cambia, y `atRisk` es `true` porque el margen queda debajo del objetivo). En el caso de referencia sin mínimo (resultado −6.000.000) ambas son `true`.
+
+El Dashboard (`QuoteService.dashboardStats`) suma sólo cotizaciones activas (`ACTIVE_QUOTE_STATUSES`: borrador, enviada, ganada): valor total cotizado (Σ facturación mensual finita), margen promedio (promedio simple de los márgenes finitos: las cotizaciones sin tarifa comercial, con margen `null`, no entran), cotizaciones con riesgo (`atRisk`) y servicios bajo piso (`belowFloor`). Si una cotización guardada no se puede calcular, su resumen es `{ error: true, atRisk: true, belowFloor: false, marginPct: null, … }`: cuenta como "con riesgo" y no rompe el dashboard ni el listado.
 
 ## 21. Casos extremos
 
 | Caso | Tratamiento |
 |---|---|
 | 0 días activos | `Costo(0) = F`; costo por día y tarifas necesarias `null` ("—") porque no hay unidades; la traza de tarifa piso lo explica; activaciones 0. |
-| Días activos > días disponibles | `factorMeses > 1` (prorrateo de fijos); filas marcadas `exceedsAvailability`; `validateQuote` advierte utilización > 100 %. |
+| Días activos > días disponibles | `factorMeses > 1` (prorrateo de fijos, y también del fee de disponibilidad, el standby y el mínimo garantizado); filas marcadas `exceedsAvailability`; `validateQuote` advierte utilización > 100 %. La sensibilidad sin variaciones no cambia la base y el comparador de modelos prorratea fee y mínimo igual que los fijos (§17). |
+| Actividad sin cargar (`activeDaysPerMonth = null`) | Se calcula con 0 días (ver fila siguiente) y el Cost Completeness Score marca la actividad en rojo. |
 | Utilización 100 % | `D = días disponibles`, factor 1. |
 | Utilización cercana a 0 | Tarifas muy altas pero finitas; en 0 son `null`. |
 | Días disponibles 0, vacío o negativo | Se usan 30; `validateQuote` informa el error. |
 | Días por activación ≤ 0 o vacío | Se usa 1. |
 | Margen ≥ 100, < 0 o no numérico | `priceFromMargin` → `null`; margen objetivo inválido → se calcula con 0; personalizado inválido → se omite; `validateQuote` informa y el Cost Completeness Score lo marca en rojo. |
 | Margen 0 | Tarifa objetivo = tarifa piso; completitud en naranja. |
-| Precio inferior al costo | Margen y markup negativos, `belowFloor`, semáforo rojo, `atRisk`. |
+| Precio inferior al costo | Margen y markup negativos, `belowFloorRate` y `belowFloor` (si el mes da pérdida), semáforo rojo, `atRisk`. |
+| Tarifa neta bajo piso con mínimo garantizado que cubre el costo | `belowFloorRate = true`, `belowFloor = false`; el resultado se informa positivo (§20). |
+| Sin tarifa comercial pero con otros ingresos | Margen y markup de la cotización `null`; facturación y resultado se informan; `atRisk`. |
+| "No aplica standby" con días o tarifa de standby cargados | Días y tarifa de standby se toman como 0: sin costo ni ingreso de standby. |
+| Línea de costo que no es un objeto (`null`, número, texto) o colección que no es una lista | Los motores la ignoran (`objectList`: aporta 0); la importación la rechaza (`validateState`). |
 | Descuento con margen negativo | Semáforo rojo en el tramo; el resultado se informa negativo (nunca se oculta). |
 | Descuento 100 % | Factor 0 → tarifa de lista `null`. |
 | Valores vacíos | `toNumber('')` → valor por defecto (0, o 1/30 en los campos indicados). |

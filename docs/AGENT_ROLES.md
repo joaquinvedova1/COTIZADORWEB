@@ -61,7 +61,8 @@ Checklist:
 - [ ] Persistencia: recargar conserva los cambios; export → import con resumen y confirmación; copias de recuperación.
 - [ ] Ningún `NaN`, `Infinity`, `undefined` ni "[object Object]" en pantalla; consola sin errores.
 - [ ] Responsive (desktop, tablet, móvil) e impresión del resultado.
-- [ ] Casos de borde de inputs: vacío, 0, negativos, textos largos, decimales con coma.
+- [ ] Casos de borde de inputs: vacío, 0, negativos, textos largos, montos en formato argentino (`1.800.000`, `1.800.000,50`, `8,5`) y valores inválidos tipeados de a una tecla (al confirmar, el campo vuelve al valor anterior; nunca queda guardado un prefijo).
+- [ ] Dos pestañas abiertas: lo que se guarda en una no borra lo de la otra y los códigos `COT-NNNN` no se repiten.
 
 ## 5. Security Agent
 
@@ -72,11 +73,11 @@ Checklist:
 - [ ] Sin secretos, tokens, passwords, `.env` ni datos reales de clientes o costos en el repo (todo JS frontend es público).
 - [ ] Sin `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function` ni `setTimeout`/`setInterval` con string; texto con `textContent` / `h()`.
 - [ ] Inputs validados (`validateNumber`, `sanitizeText`); `setPath` sin claves `__proto__`/`constructor`/`prototype`.
-- [ ] Backups: límite de tamaño, validación y migración antes de aplicar, confirmación, copia de recuperación.
+- [ ] Backups: límite de tamaño, validación (JSON que no es de RATEOS, tipos de colecciones, forma interna de cada cotización) y migración antes de aplicar, confirmación, copia de recuperación.
 - [ ] CSP de `index.html` sin relajar (`script-src 'self'`, sin inline, sin CDNs ni terceros).
 - [ ] Sin dependencias nuevas; si fueran inevitables, justificadas y cubiertas por Dependabot.
-- [ ] Logger de producción sin contexto sensible; eventos sólo de la lista blanca y sin montos.
-- [ ] Workflows con permisos mínimos; nada de force push a `main`.
+- [ ] Logger de producción sin contexto sensible; eventos sólo de la lista blanca y sin montos (enums sin dígitos; valores de datos normalizados al catálogo).
+- [ ] Workflows con permisos mínimos **por job**; el deploy manual sólo acepta commits o tags que ya están en `main`; nada de force push a `main`.
 - [ ] Futuro: RLS en todas las tablas, `SUPABASE_SERVICE_ROLE_KEY` nunca en el frontend (ver [SUPABASE_PLAN.md](SUPABASE_PLAN.md)).
 
 ## 6. Data Agent
@@ -92,6 +93,8 @@ Checklist:
 - [ ] Entidades nuevas con `id` UUID, `organizationId`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`.
 - [ ] El backup sigue siendo importable por la versión nueva y el formato sigue mapeando a las tablas de [DATA_MODEL.md](DATA_MODEL.md).
 - [ ] Los datos del usuario sobreviven a un nuevo deploy (la clave `rateos.state` no cambia).
+- [ ] Varias pestañas: el repositorio relee `rateos.state` antes de leer o escribir; ningún cambio guarda una copia vieja del estado completo.
+- [ ] Almacenamiento lleno o datos dañados: nunca se muestra la demo como si fueran los datos de la persona; la pantalla de recuperación permite descargarlos.
 
 ## 7. UX Agent
 
@@ -102,7 +105,7 @@ Checklist:
 - [ ] Preguntas en lenguaje de la persona usuaria: "¿Cuántos días del mes esperás que el equipo esté trabajando y facturando?" en lugar de "factor de utilización".
 - [ ] Español rioplatense, consistente (vos), sin anglicismos innecesarios (o explicados: standby, minimum call, call-out).
 - [ ] Todo resultado importante tiene "Ver cálculo" con fórmula, entradas y resultado.
-- [ ] Valores demo marcados como ILUSTRATIVOS en pantalla.
+- [ ] Valores demo marcados como ILUSTRATIVOS en pantalla, también por línea cuando vienen de una plantilla o biblioteca de demostración (`illustrativeInfo`).
 - [ ] Margen y markup explicados y nunca intercambiados en textos.
 - [ ] Errores y avisos que dicen qué pasó y qué hacer; los datos del usuario "no se perdieron" cuando es verdad.
 - [ ] Estados vacíos con una acción clara; confirmación antes de acciones destructivas.

@@ -16,9 +16,12 @@
   --orange: #E89B32;
   --red: #D95757;
 
-  /* Derivados */
+  /* Derivados (texto con contraste WCAG AA ≥ 4,5:1 sobre blanco y fondos claros) */
   --ink-2: #3D4F5C;
-  --ink-3: #6B7C88;
+  --ink-3: #566773;
+  /* Rojo / azul para TEXTO (los tonos de la paleta quedan para puntos, barras y bordes). */
+  --red-text: #B23B3B;
+  --blue-text: #0A6E90;
   --line: #DCE5EC;
   --line-2: #EAF0F5;
   --blue-50: #EAF5FB;
@@ -55,7 +58,7 @@ h2 { font-size: 1.25rem; font-weight: 650; }
 h3 { font-size: 1.05rem; font-weight: 650; }
 h4 { font-size: 0.9rem; font-weight: 650; color: var(--ink-2); margin: 0.75rem 0 0.4rem; }
 p { margin: 0.25rem 0 0.5rem; }
-a { color: var(--blue-600); }
+a { color: var(--blue-text); }
 code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .muted { color: var(--ink-3); }
 .small { font-size: 0.85rem; }
@@ -92,14 +95,14 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .brand-tag { font-size: 0.72rem; color: #A9C4D8; line-height: 1.2; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
-.nav-section { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8FB0C8; margin: 1rem 0.6rem 0.35rem; }
+.nav-section { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #A3C0D5; margin: 1rem 0.6rem 0.35rem; }
 .nav a {
   display: flex; align-items: center; gap: 0.65rem; padding: 0.55rem 0.7rem; border-radius: 8px;
   color: #DCEAF5; text-decoration: none; font-weight: 500;
 }
 .nav a:hover { background: rgba(255, 255, 255, 0.07); color: var(--white); }
 .nav a[aria-current="page"] { background: rgba(59, 167, 216, 0.22); color: var(--white); box-shadow: inset 3px 0 0 var(--blue-400); }
-.sidebar-footer { margin-top: auto; font-size: 0.75rem; color: #8FB0C8; padding: 0.75rem 0.6rem 0; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.sidebar-footer { margin-top: auto; font-size: 0.75rem; color: #A3C0D5; padding: 0.75rem 0.6rem 0; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .sidebar-footer .org { color: var(--white); font-weight: 600; font-size: 0.82rem; }
 
 .main { min-width: 0; display: flex; flex-direction: column; }
@@ -147,16 +150,16 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .kpi-value { font-size: 1.45rem; font-weight: 700; letter-spacing: -0.01em; color: var(--navy-900); }
 .kpi-hint { font-size: 0.8rem; color: var(--ink-3); }
 .kpi-green::before { background: var(--green); }
-.kpi-green .kpi-value { color: var(--green); }
+.kpi-green .kpi-value { color: #157A50; }
 .kpi-orange::before { background: var(--orange); }
-.kpi-orange .kpi-value { color: #B8741A; }
+.kpi-orange .kpi-value { color: #9A5F12; }
 .kpi-red::before { background: var(--red); }
-.kpi-red .kpi-value { color: var(--red); }
-.kpi-emphasis { background: linear-gradient(135deg, var(--navy-900), var(--blue-600)); border-color: transparent; }
+.kpi-red .kpi-value { color: var(--red-text); }
+.kpi-emphasis { background: linear-gradient(135deg, var(--navy-900), var(--blue-text)); border-color: transparent; }
 .kpi-emphasis::before { display: none; }
-.kpi-emphasis .kpi-label, .kpi-emphasis .kpi-hint { color: #CFE3F1; }
+.kpi-emphasis .kpi-label, .kpi-emphasis .kpi-hint { color: #E3EFF7; }
 .kpi-emphasis .kpi-value { color: var(--white); }
-.kpi-emphasis .trace-btn { color: #CFE3F1; }
+.kpi-emphasis .trace-btn { color: #E3EFF7; }
 
 /* ----------------------------------------------------------------- buttons */
 
@@ -173,19 +176,22 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .btn-secondary:hover:not(:disabled) { border-color: var(--blue-400); color: var(--blue-600); }
 .btn-ghost { background: transparent; color: var(--ink-2); }
 .btn-ghost:hover:not(:disabled) { background: var(--line-2); }
-.btn-danger { background: var(--white); color: var(--red); border-color: #F0C9C9; }
-.btn-danger:hover:not(:disabled) { background: var(--red); color: var(--white); }
-.btn-link { background: transparent; color: var(--blue-600); padding-left: 0; padding-right: 0; border: 0; font-weight: 600; }
+.btn-danger { background: var(--white); color: var(--red-text); border-color: #F0C9C9; }
+.btn-danger:hover:not(:disabled) { background: var(--red-text); color: var(--white); }
+.btn-link { background: transparent; color: var(--blue-text); padding-left: 0; padding-right: 0; border: 0; font-weight: 600; }
 .btn-link:hover { text-decoration: underline; }
 .trace-btn { align-self: flex-start; }
+/* "Ver cálculo" sobre fondos teñidos (azul o navy claro): navy para llegar a AA. */
+.is-emphasis .trace-btn, .qr-hero-main .trace-btn, .table tr.row-highlight .trace-btn, .table tr.row-link:hover .trace-btn,
+.banner .btn-link, .choice .btn-link { color: var(--navy-800); }
 
 /* ------------------------------------------------------------------ badges */
 
 .badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 650; white-space: nowrap; }
 .badge-green { background: var(--green-50); color: #157A50; }
 .badge-orange { background: var(--orange-50); color: #9A5F12; }
-.badge-red { background: var(--red-50); color: #B23A3A; }
-.badge-blue { background: var(--blue-50); color: var(--blue-600); }
+.badge-red { background: var(--red-50); color: var(--red-text); }
+.badge-blue { background: var(--blue-50); color: var(--blue-text); }
 .badge-navy { background: var(--navy-50); color: var(--navy-900); }
 .badge-gray { background: var(--line-2); color: var(--ink-2); }
 .status { display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -217,7 +223,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .form-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
 .field-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-2); }
-.field-label .req { color: var(--red); }
+.field-label .req { color: var(--red-text); }
 .field-control { position: relative; display: flex; align-items: stretch; }
 .field-control input, .field-control select, .field-control textarea {
   width: 100%; font: inherit; color: var(--ink); background: var(--white); border: 1px solid var(--line);
@@ -229,7 +235,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .field-control input:focus, .field-control select:focus, .field-control textarea:focus { border-color: var(--blue-400); outline: none; box-shadow: 0 0 0 3px rgba(59, 167, 216, 0.2); }
 .field-control input[aria-invalid="true"] { border-color: var(--red); box-shadow: 0 0 0 3px rgba(217, 87, 87, 0.15); }
 .field-hint { font-size: 0.78rem; color: var(--ink-3); }
-.field-error { font-size: 0.78rem; color: var(--red); font-weight: 600; }
+.field-error { font-size: 0.78rem; color: var(--red-text); font-weight: 600; }
 .field-check { justify-content: flex-end; }
 .check { display: inline-flex; gap: 0.5rem; align-items: center; font-size: 0.9rem; cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--blue-600); }
@@ -305,7 +311,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .toast { background: var(--ink); color: var(--white); padding: 0.65rem 1rem; border-radius: 8px; box-shadow: var(--shadow); font-size: 0.9rem; max-width: 380px; }
 .toast-success { background: #157A50; }
 .toast-warning { background: #9A5F12; }
-.toast-danger { background: #B23A3A; }
+.toast-danger { background: var(--red-text); }
 
 /* ------------------------------------------------------------------- misc */
 
@@ -316,7 +322,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   padding: 0.6rem 0.9rem; border: 0; background: none; font: inherit; font-weight: 600; color: var(--ink-3);
   text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer;
 }
-.tabs a[aria-current="page"], .tabs button[aria-selected="true"] { color: var(--blue-600); border-bottom-color: var(--blue-600); }
+.tabs a[aria-current="page"], .tabs button[aria-selected="true"] { color: var(--blue-text); border-bottom-color: var(--blue-600); }
 .loading { padding: 3rem; text-align: center; color: var(--ink-3); }
 .footnote { font-size: 0.78rem; color: var(--ink-3); }
 .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--ink-2); }

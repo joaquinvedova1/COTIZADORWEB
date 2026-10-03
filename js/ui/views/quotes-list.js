@@ -7,12 +7,16 @@
  */
 
 import { h, mount, debounce } from '../dom.js';
-import { badge, button, card, confirmDialog, emptyState, progressBar, table } from '../components.js';
+import { badge, banner, button, card, confirmDialog, emptyState, progressBar, table } from '../components.js';
 import { formatDays, formatMoney, formatPercent, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { illustrativeInfo } from '../../domain/quote-factory.js';
+import { completenessTone } from '../../engines/completeness-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { serviceTemplateCard } from './services.js';
+
+export { completenessTone };
 
 // ------------------------------------------------------- helpers compartidos
 
@@ -30,7 +34,11 @@ export function statusBadge(status) {
   return badge(labelOf(QUOTE_STATUSES, status, 'Sin estado'), STATUS_TONES[status] || 'gray');
 }
 
-/** Color del margen: rojo si pierde plata o está bajo piso, naranja si no llega al objetivo. */
+/**
+ * Color del margen: rojo si pierde plata (resultado negativo o bajo piso con
+ * pérdida), naranja si no llega al objetivo. Sin tarifa comercial no hay
+ * margen: gris.
+ */
 export function marginTone(summary) {
   if (!summary || !isFiniteNumber(summary.marginPct)) return 'gray';
   if (summary.marginPct < 0 || summary.belowFloor) return 'red';
@@ -38,11 +46,33 @@ export function marginTone(summary) {
   return 'green';
 }
 
-export function completenessTone(pct) {
-  if (!isFiniteNumber(pct)) return 'red';
-  if (pct >= 80) return 'green';
-  if (pct >= 50) return 'orange';
-  return 'red';
+/** true si la cotización no se pudo calcular (datos inválidos). */
+export function summaryFailed(summary) {
+  return !summary || summary.error === true;
+}
+
+/** Marca ILUSTRATIVO de una cotización (nunca lanza, aun con datos raros). */
+export function quoteIllustrative(quote) {
+  try {
+    return illustrativeInfo(quote && typeof quote === 'object' ? quote : {});
+  } catch {
+    return { any: false, quote: false, lines: 0, fuel: false };
+  }
+}
+
+function illustrativeQuoteTag(quote) {
+  const info = quoteIllustrative(quote);
+  if (!info.any) return null;
+  return illustrativeTag(
+    info.quote
+      ? 'Cotización de demostración con valores ilustrativos'
+      : 'Tiene valores ILUSTRATIVOS copiados de plantillas, bibliotecas o Configuración: reemplazalos por valores propios vigentes',
+  );
+}
+
+/** Texto seguro para mostrar (los datos importados pueden traer cualquier tipo). */
+function textOf(value, fallback) {
+  return typeof value === 'string' && value.trim() !== '' ? value : fallback;
 }
 
 function completenessCell(pct) {
@@ -54,6 +84,8 @@ function completenessCell(pct) {
   );
 }
 
+const muted = (text = EMPTY) => h('span', { class: 'muted' }, text);
+
 /**
  * Columnas estándar de una tabla de cotizaciones. Cada fila es
  * `{ quote, summary }` (resultado de quotes.listQuotes()).
@@ -63,45 +95,73 @@ export function quoteColumns({ statusCell = null } = {}) {
     {
       key: 'quote',
       label: 'Cotización',
-      render: ({ quote }) =>
-        h(
+      render: ({ quote, summary }) => {
+        const failed = summaryFailed(summary);
+        return h(
           'div',
           { class: 'cell-main' },
-          h('a', { href: quoteHref(quote), class: 'cell-title' }, quote.name || 'Sin nombre'),
-          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, quote.code || EMPTY), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
+          h('a', { href: quoteHref(quote), class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
+          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
           h('span', { class: 'cell-sub' }, `Modalidad: ${labelOf(PRICING_MODES, quote.pricingMode)}`),
-          quote.illustrative ? illustrativeTag('Cotización de demostración con valores ilustrativos') : null,
-        ),
+          failed
+            ? h(
+                'span',
+                { class: 'cell-error' },
+                badge('No se pudo calcular', 'red', { title: 'Esta cotización tiene datos que no se pueden calcular. Abrila para revisarlos.' }),
+                h('a', { href: quoteHref(quote), class: 'cell-error-link' }, 'Abrir y revisar'),
+              )
+            : null,
+          illustrativeQuoteTag(quote),
+        );
+      },
     },
-    { key: 'client', label: 'Cliente', render: ({ quote }) => (quote.client ? quote.client : h('span', { class: 'muted' }, EMPTY)) },
-    { key: 'totalCost', label: 'Costo mensual', align: 'right', render: ({ summary }) => h('span', { class: 'nowrap' }, formatMoney(summary.totalCost)) },
+    { key: 'client', label: 'Cliente', render: ({ quote }) => (typeof quote.client === 'string' && quote.client.trim() ? quote.client : muted()) },
+    {
+      key: 'totalCost',
+      label: 'Costo mensual',
+      align: 'right',
+      render: ({ summary }) => (summaryFailed(summary) ? muted() : h('span', { class: 'nowrap' }, formatMoney(summary.totalCost))),
+    },
     {
       key: 'rate',
       label: 'Tarifa comercial',
       align: 'right',
-      render: ({ quote, summary }) =>
-        isFiniteNumber(summary.commercialListRate)
+      render: ({ quote, summary }) => {
+        if (summaryFailed(summary)) return muted();
+        return isFiniteNumber(summary.commercialListRate)
           ? h('span', { class: 'nowrap' }, formatMoney(summary.commercialListRate), h('span', { class: 'unit-suffix' }, ` /${UNIT_SHORT[quote.unit] || 'unidad'}`))
-          : h('span', { class: 'muted' }, 'Sin tarifa'),
+          : muted('Sin tarifa');
+      },
     },
     {
       key: 'margin',
       label: 'Margen esperado',
       align: 'right',
-      render: ({ summary }) => (isFiniteNumber(summary.marginPct) ? badge(formatPercent(summary.marginPct), marginTone(summary), { title: 'Margen sobre precio de venta (no es markup)' }) : h('span', { class: 'muted' }, EMPTY)),
+      // Sin tarifa comercial el margen es null: se muestra "—" sin badge.
+      render: ({ summary }) =>
+        !summaryFailed(summary) && isFiniteNumber(summary.marginPct)
+          ? badge(formatPercent(summary.marginPct), marginTone(summary), { title: 'Margen sobre precio de venta (no es markup)' })
+          : h('span', { class: 'muted', title: summaryFailed(summary) ? 'No se pudo calcular' : 'Sin tarifa comercial no hay margen' }, EMPTY),
     },
     {
       key: 'breakEven',
       label: 'Break-even',
       align: 'right',
-      render: ({ quote, summary }) =>
-        quote.unit === 'month'
+      render: ({ quote, summary }) => {
+        if (summaryFailed(summary)) return muted();
+        return quote.unit === 'month'
           ? h('span', { class: 'muted', title: 'Con abono mensual la facturación no depende de los días: no hay break-even en días.' }, 'No aplica')
-          : h('span', { class: 'nowrap', title: 'Días activos por mes necesarios para no perder plata' }, formatDays(summary.breakEvenDays)),
+          : h('span', { class: 'nowrap', title: 'Días activos por mes necesarios para no perder plata' }, formatDays(summary.breakEvenDays));
+      },
     },
-    { key: 'completeness', label: 'Completitud', render: ({ summary }) => completenessCell(summary.completenessPct) },
+    { key: 'completeness', label: 'Completitud', render: ({ summary }) => (summaryFailed(summary) ? muted() : completenessCell(summary.completenessPct)) },
     { key: 'status', label: 'Estado', render: statusCell || (({ quote }) => statusBadge(quote.status)) },
   ];
+}
+
+/** Código o nombre de la cotización para textos y etiquetas accesibles. */
+export function quoteRef(quote) {
+  return textOf(quote && quote.code, textOf(quote && quote.name, 'cotización sin nombre'));
 }
 
 /** Hace clickeables las filas de una tabla (los links y botones siguen funcionando). */
@@ -181,7 +241,7 @@ export async function render(root, app) {
       const fresh = await ctx.quotes.getQuote(quote.id);
       if (!fresh) throw new Error('not_found');
       await ctx.quotes.saveQuote({ ...fresh, status });
-      app.toast(`${quote.code || 'Cotización'}: estado "${labelOf(QUOTE_STATUSES, status)}".`, 'success');
+      app.toast(`${textOf(quote.code, 'Cotización')}: estado "${labelOf(QUOTE_STATUSES, status)}".`, 'success');
       await load();
     } catch (error) {
       app.toast(userErrorMessage(error, 'No se pudo cambiar el estado.'), 'danger');
@@ -194,7 +254,7 @@ export async function render(root, app) {
     try {
       const copy = await ctx.quotes.duplicateQuote(quote.id);
       if (!copy) throw new Error('not_found');
-      app.toast(`Se creó ${copy.code}: copia de ${quote.code || quote.name}.`, 'success');
+      app.toast(`Se creó ${copy.code}: copia de ${quoteRef(quote)}.`, 'success');
       await load();
     } catch (error) {
       app.toast(userErrorMessage(error, 'No se pudo duplicar la cotización.'), 'danger');
@@ -204,7 +264,7 @@ export async function render(root, app) {
   async function remove(quote) {
     const ok = await confirmDialog({
       title: 'Eliminar cotización',
-      message: `¿Eliminar "${quote.name}" (${quote.code || 'sin código'})? No se puede deshacer. Si querés conservarla, exportá un backup antes desde Configuración.`,
+      message: `¿Eliminar "${textOf(quote.name, 'Sin nombre')}" (${textOf(quote.code, 'sin código')})? No se puede deshacer. Si querés conservarla, exportá un backup antes desde Configuración.`,
       confirmLabel: 'Eliminar',
       danger: true,
     });
@@ -221,7 +281,7 @@ export async function render(root, app) {
   const statusCell = ({ quote }) => {
     const select = h(
       'select',
-      { class: 'status-select', 'aria-label': `Estado de ${quote.code || quote.name}`, dataset: { tone: STATUS_TONES[quote.status] || 'gray' } },
+      { class: 'status-select', 'aria-label': `Estado de ${quoteRef(quote)}`, dataset: { tone: STATUS_TONES[quote.status] || 'gray' } },
       ...QUOTE_STATUSES.map((s) => h('option', { value: s.id, selected: s.id === quote.status }, s.label)),
     );
     select.value = quote.status;
@@ -233,9 +293,9 @@ export async function render(root, app) {
     h(
       'div',
       { class: 'table-actions' },
-      button('', { variant: 'secondary', size: 'sm', icon: 'chevronRight', title: 'Abrir', onClick: () => app.navigate(quoteHref(quote)), attrs: { 'aria-label': `Abrir ${quote.code || quote.name}` } }),
-      button('', { variant: 'ghost', size: 'sm', icon: 'copy', title: 'Duplicar', onClick: () => duplicate(quote), attrs: { 'aria-label': `Duplicar ${quote.code || quote.name}` } }),
-      button('', { variant: 'danger', size: 'sm', icon: 'trash', title: 'Eliminar', onClick: () => remove(quote), attrs: { 'aria-label': `Eliminar ${quote.code || quote.name}` } }),
+      button('', { variant: 'secondary', size: 'sm', icon: 'chevronRight', title: 'Abrir', onClick: () => app.navigate(quoteHref(quote)), attrs: { 'aria-label': `Abrir ${quoteRef(quote)}` } }),
+      button('', { variant: 'ghost', size: 'sm', icon: 'copy', title: 'Duplicar', onClick: () => duplicate(quote), attrs: { 'aria-label': `Duplicar ${quoteRef(quote)}` } }),
+      button('', { variant: 'danger', size: 'sm', icon: 'trash', title: 'Eliminar', onClick: () => remove(quote), attrs: { 'aria-label': `Eliminar ${quoteRef(quote)}` } }),
     );
 
   function renderList() {
@@ -268,7 +328,17 @@ export async function render(root, app) {
     const columns = [...quoteColumns({ statusCell }), { key: 'actions', label: 'Acciones', align: 'right', render: actionsCell }];
     const tableEl = table({ columns, rows: filtered, caption: 'Listado de cotizaciones', className: 'quotes-table' });
     attachRowNavigation(tableEl, filtered, ({ quote }) => app.navigate(quoteHref(quote)));
-    mount(listHost, tableEl);
+    const failed = filtered.filter(({ summary }) => summaryFailed(summary)).length;
+    mount(
+      listHost,
+      failed
+        ? banner(
+            `${failed === 1 ? 'Una cotización no se pudo calcular' : `${failed} cotizaciones no se pudieron calcular`} porque tiene${failed === 1 ? '' : 'n'} datos inválidos (por ejemplo, de un backup importado). Abrila${failed === 1 ? '' : 's'} para revisar los valores.`,
+            'warning',
+          )
+        : null,
+      tableEl,
+    );
   }
 
   mount(
@@ -343,7 +413,7 @@ export async function renderNewQuote(root, app) {
       card(
         { title: 'Empezar en blanco', subtitle: 'Armás la estructura de costos desde cero.', className: 'new-quote-blank' },
         h('p', {}, 'En el primer paso elegís el tipo de servicio (on-call, permanente, cuadrilla, equipo con operador, etc.) y cómo te pidieron cotizar.'),
-        h('p', { class: 'muted small' }, 'Se usan los valores por defecto de Configuración (combustible, tasa financiera, margen objetivo, contingencia).'),
+        h('p', { class: 'muted small' }, 'Se usan los valores por defecto de Configuración (combustible, tasa financiera, margen objetivo, contingencia y plazo de cobro). Si esos valores son ILUSTRATIVOS, la contingencia y el plazo de cobro quedan para que los cargues vos.'),
         blankBtn,
       ),
       card(

@@ -1,7 +1,12 @@
 /**
  * Configuración: organización, parámetros por defecto, backup
  * (exportar / importar JSON), restaurar demo, copias de recuperación y
- * "Acerca de" (versión, build, esquema, almacenamiento, privacidad, flags).
+ * "Acerca de" (versión, build, esquema, almacenamiento, privacidad y
+ * funciones disponibles).
+ *
+ * Organización y parámetros se guardan solos (debounce ~600 ms) cuando
+ * todos los campos son válidos, con el indicador "Guardando… / Guardado",
+ * igual que el editor de cotizaciones.
  */
 
 import { h, mount, uniqueId, downloadText, readFileAsText } from '../dom.js';
@@ -9,19 +14,42 @@ import { badge, banner, button, card, checkboxField, confirmDialog, formGrid, nu
 import { APP_NAME, FEATURES, MAX_BACKUP_BYTES, SCHEMA_VERSION, STORAGE_MODE, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { formatDateTime, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { sanitizeText } from '../../core/validation.js';
+import { sanitizeText, validateNumber } from '../../core/validation.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 
 const MAX_MATRIX_DAYS = 12;
 const MAX_LADDER_STEPS = 6;
 
-const FEATURE_LABELS = Object.freeze({
-  historicalComparison: 'Estimado vs real',
-  supabase: 'Supabase (futuro)',
-  multiOrganization: 'Multiempresa',
-  analytics: 'Analytics',
+/** Espera desde el último cambio válido hasta guardar. */
+export const SETTINGS_AUTOSAVE_DELAY_MS = 600;
+
+/**
+ * Funciones que ve el usuario en "Acerca de", con nombre de negocio. Sólo se
+ * listan las activas; los flags técnicos (persistencia remota, envío de
+ * eventos) no se muestran.
+ */
+const BUSINESS_FEATURE_LABELS = Object.freeze({
+  scenarios: 'Escenarios pesimista, base y optimista',
   commercialModelComparator: 'Comparador de modelos comerciales',
-  scenarios: 'Escenarios',
+  historicalComparison: 'Comparación entre lo estimado y lo real',
+  multiOrganization: 'Varias empresas en la misma cuenta',
+});
+
+/** Funciones activas para mostrar al usuario: [{ key, label }]. */
+export function activeBusinessFeatures(features = FEATURES) {
+  return Object.entries(BUSINESS_FEATURE_LABELS)
+    .filter(([key]) => features && features[key] === true)
+    .map(([key, label]) => ({ key, label }));
+}
+
+const SAVE_TEXTS = Object.freeze({
+  idle: 'Se guarda automáticamente',
+  pending: 'Guardando…',
+  saving: 'Guardando…',
+  saved: 'Guardado',
+  invalid: 'Revisá los campos marcados',
+  error: 'Error al guardar',
+  readonly: 'Sólo lectura',
 });
 
 const RECOVERY_REASONS = Object.freeze({
@@ -70,25 +98,42 @@ export function parseMarginLadder(text) {
   return { ok: true, value: [...new Set(values)].sort((a, b) => a - b) };
 }
 
-/** Campo de texto para listas con validación propia. */
+/**
+ * Campo de texto para listas con validación propia. Como numberField: si al
+ * salir del campo el texto es inválido, se restaura el último valor válido.
+ * Devuelve `{ el, input, isValid }`.
+ */
 function listField({ label, value, hint, parse, onValid, illustrative = false }) {
   const id = uniqueId('lst');
   const input = h('input', { id, type: 'text', value, maxlength: '80', autocomplete: 'off', 'aria-describedby': `${id}-hint ${id}-error` });
   const error = h('div', { class: 'field-error', id: `${id}-error`, role: 'alert', hidden: true });
+  let lastValidText = input.value;
+  const showError = (message) => {
+    input.setAttribute('aria-invalid', 'true');
+    error.textContent = message;
+    error.hidden = false;
+  };
   input.addEventListener('input', () => {
     const r = parse(input.value);
     if (!r.ok) {
-      input.setAttribute('aria-invalid', 'true');
-      error.textContent = r.error;
-      error.hidden = false;
+      showError(r.error);
       return;
     }
     input.removeAttribute('aria-invalid');
     error.textContent = '';
     error.hidden = true;
+    lastValidText = input.value;
     onValid(r.value);
   });
-  return h(
+  input.addEventListener('change', () => {
+    const r = parse(input.value);
+    if (r.ok) return;
+    input.value = lastValidText;
+    const restored = parse(lastValidText);
+    if (restored.ok) onValid(restored.value);
+    showError(`${r.error} Se restauró el valor anterior.`);
+  });
+  const el = h(
     'div',
     { class: ['field', illustrative ? 'field-illustrative' : null] },
     h('label', { class: 'field-label', for: id }, label, illustrative ? illustrativeTag() : null),
@@ -96,6 +141,96 @@ function listField({ label, value, hint, parse, onValid, illustrative = false })
     h('div', { class: 'field-hint', id: `${id}-hint` }, hint),
     error,
   );
+  return { el, input, isValid: () => parse(input.value).ok };
+}
+
+// ------------------------------------------------------ guardado automático
+
+/** Indicador de guardado ("Guardando… / Guardado / Revisá los campos marcados"). */
+function saveChip({ ephemeral = false } = {}) {
+  const text = h('span', { class: 'save-chip-text' });
+  const el = h('span', { class: 'save-chip', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'save-chip-dot', 'aria-hidden': 'true' }), text);
+  const set = (status) => {
+    el.dataset.status = status;
+    text.textContent = status === 'saved' && ephemeral ? 'Sólo en esta sesión (no se guarda)' : SAVE_TEXTS[status] || '';
+  };
+  set('idle');
+  return { el, set };
+}
+
+/**
+ * Guardado automático con debounce. Sólo guarda si `isValid()`; si no,
+ * muestra "Revisá los campos marcados". Nunca navega.
+ */
+function createAutosave({ chip, isValid, save, onError, readOnly = false, delay = SETTINGS_AUTOSAVE_DELAY_MS }) {
+  let timer = null;
+  let inFlight = null;
+  let again = false;
+  let disposed = false;
+
+  async function run() {
+    timer = null;
+    if (disposed || readOnly) return;
+    if (inFlight) {
+      again = true;
+      await inFlight;
+      return;
+    }
+    if (!isValid()) {
+      chip.set('invalid');
+      return;
+    }
+    chip.set('saving');
+    inFlight = (async () => {
+      try {
+        await save();
+        if (timer === null && !again) chip.set('saved');
+      } catch (error) {
+        chip.set('error');
+        onError(error);
+      }
+    })();
+    try {
+      await inFlight;
+    } finally {
+      inFlight = null;
+    }
+    if (again && !disposed) {
+      again = false;
+      await run();
+    }
+  }
+
+  if (readOnly) chip.set('readonly');
+
+  return {
+    /** Programa un guardado (o marca el formulario como inválido). */
+    schedule() {
+      if (disposed || readOnly) return;
+      clearTimeout(timer);
+      timer = null;
+      if (!isValid()) {
+        chip.set('invalid');
+        return;
+      }
+      chip.set('pending');
+      timer = setTimeout(run, delay);
+    },
+    /** Guarda ya lo pendiente (al salir de la pantalla o antes de importar). */
+    flush() {
+      if (timer !== null) {
+        clearTimeout(timer);
+        return run();
+      }
+      return inFlight ? inFlight.then(() => undefined) : Promise.resolve();
+    },
+    /** Deja de guardar (después de reemplazar los datos: importar o restaurar la demo). */
+    dispose() {
+      disposed = true;
+      clearTimeout(timer);
+      timer = null;
+    },
+  };
 }
 
 function kvList(entries) {
@@ -124,51 +259,93 @@ export async function render(root, app) {
 
   const [org, settings] = await Promise.all([ctx.settings.getOrganization(), app.getSettings()]);
   const recoveryKeys = await Promise.resolve(ctx.backup.listRecoverySnapshots());
+  const readOnly = Boolean(ctx.init && ctx.init.readOnly);
+  const ephemeral = ctx.persistent === false;
+  const lockInputs = (container) => {
+    if (!readOnly) return;
+    container.querySelectorAll('input, select, textarea').forEach((el) => {
+      el.disabled = true;
+    });
+  };
 
   // ------------------------------------------------------- organización
 
   const orgDraft = { name: org.name || '', baseLocation: org.baseLocation || '', illustrative: org.illustrative === true };
-  const orgSave = button('Guardar organización', { variant: 'primary', icon: 'check' });
-  orgSave.addEventListener('click', async () => {
-    const name = sanitizeText(orgDraft.name, 120);
-    if (!name) {
-      app.toast('Ingresá el nombre de la empresa.', 'warning');
-      return;
-    }
-    orgSave.disabled = true;
-    try {
-      await ctx.settings.saveOrganization({ name, baseLocation: sanitizeText(orgDraft.baseLocation, 120), illustrative: Boolean(orgDraft.illustrative) });
-      app.toast('Organización guardada.', 'success');
+  let lastValidOrgName = sanitizeText(orgDraft.name, 120);
+  const orgChip = saveChip({ ephemeral });
+  const orgSaver = createAutosave({
+    chip: orgChip,
+    readOnly,
+    isValid: () => sanitizeText(orgDraft.name, 120) !== '',
+    save: async () => {
+      await ctx.settings.saveOrganization({
+        name: sanitizeText(orgDraft.name, 120),
+        baseLocation: sanitizeText(orgDraft.baseLocation, 120),
+        illustrative: Boolean(orgDraft.illustrative),
+      });
+      // Nombre de la empresa en el menú y banner de datos ilustrativos.
       await app.refreshChrome();
-    } catch (error) {
-      app.toast(userErrorMessage(error, 'No se pudo guardar la organización.'), 'danger');
-    } finally {
-      orgSave.disabled = false;
-    }
+    },
+    onError: (error) => app.toast(userErrorMessage(error, 'No se pudo guardar la organización.'), 'danger'),
   });
-  const orgCard = card(
-    { title: 'Organización', subtitle: 'Se muestra en el menú y se guarda en los backups.' },
-    h(
-      'div',
-      { class: 'stack' },
-      formGrid(
-        2,
-        textField({ label: 'Nombre de la empresa', value: orgDraft.name, required: true, maxLength: 120, onChange: (v) => { orgDraft.name = v; } }),
-        textField({ label: 'Base operativa', value: orgDraft.baseLocation, maxLength: 120, placeholder: 'Ej.: Neuquén Capital', onChange: (v) => { orgDraft.baseLocation = v; } }),
-      ),
-      checkboxField({
-        label: 'Son datos de demostración (mostrar aviso de valores ILUSTRATIVOS)',
-        checked: orgDraft.illustrative,
-        hint: 'Desmarcalo cuando cargues los datos reales de tu empresa.',
-        onChange: (v) => { orgDraft.illustrative = v; },
-      }),
-      h('div', { class: 'row' }, orgSave),
+
+  const nameField = textField({ label: 'Nombre de la empresa', value: orgDraft.name, required: true, maxLength: 120, onChange: (v) => { orgDraft.name = v; } });
+  const nameInput = nameField.querySelector('input');
+  const nameError = nameField.querySelector('.field-error');
+  const setNameError = (message) => {
+    if (!nameInput || !nameError) return;
+    if (message) {
+      nameInput.setAttribute('aria-invalid', 'true');
+      nameError.textContent = message;
+      nameError.hidden = false;
+    } else {
+      nameInput.removeAttribute('aria-invalid');
+      nameError.textContent = '';
+      nameError.hidden = true;
+    }
+  };
+  if (nameInput) {
+    nameInput.addEventListener('input', () => {
+      const name = sanitizeText(orgDraft.name, 120);
+      setNameError(name ? null : 'Ingresá el nombre de la empresa.');
+      if (name) lastValidOrgName = name;
+    });
+    // Al salir del campo vacío se restaura el último nombre válido.
+    nameInput.addEventListener('change', () => {
+      if (sanitizeText(orgDraft.name, 120) !== '' || !lastValidOrgName) return;
+      nameInput.value = lastValidOrgName;
+      orgDraft.name = lastValidOrgName;
+      setNameError('El nombre es obligatorio. Se restauró el nombre anterior.');
+    });
+  }
+
+  const orgForm = h(
+    'div',
+    { class: 'stack' },
+    formGrid(
+      2,
+      nameField,
+      textField({ label: 'Base operativa', value: orgDraft.baseLocation, maxLength: 120, placeholder: 'Ej.: Neuquén Capital', onChange: (v) => { orgDraft.baseLocation = v; } }),
     ),
+    checkboxField({
+      label: 'Son datos de demostración (mostrar aviso de valores ILUSTRATIVOS)',
+      checked: orgDraft.illustrative,
+      hint: 'Desmarcalo cuando cargues los datos reales de tu empresa.',
+      onChange: (v) => { orgDraft.illustrative = v; },
+    }),
+  );
+  // Cualquier cambio (texto o casilla) programa el guardado automático.
+  orgForm.addEventListener('input', () => orgSaver.schedule());
+  orgForm.addEventListener('change', () => orgSaver.schedule());
+  lockInputs(orgForm);
+
+  const orgCard = card(
+    { title: 'Organización', subtitle: 'Se muestra en el menú y se guarda en los backups. Los cambios se guardan solos.', actions: [orgChip.el], className: 'autosave-card' },
+    orgForm,
   );
 
   // ------------------------------------------------- parámetros por defecto
 
-  const illustrative = settings.illustrative === true;
   const params = {
     fuelPricePerLiter: settings.fuelPricePerLiter,
     financeMonthlyRatePct: settings.financeMonthlyRatePct,
@@ -178,10 +355,35 @@ export async function render(root, app) {
     roundingStep: settings.roundingStep,
     matrixDays: Array.isArray(settings.matrixDays) && settings.matrixDays.length ? [...settings.matrixDays] : [...DEFAULT_MATRIX_DAYS],
     marginLadder: Array.isArray(settings.marginLadder) && settings.marginLadder.length ? [...settings.marginLadder] : [...DEFAULT_MARGIN_LADDER],
-    ownValues: !illustrative,
+    ownValues: settings.illustrative !== true,
   };
-  const num = (key, label, rule, unit, hint) =>
-    numberField({ label, value: isFiniteNumber(params[key]) ? params[key] : null, rule, unit, hint, required: true, illustrative, onChange: (v) => { params[key] = v; } });
+  const REQUIRED_PARAMS = ['fuelPricePerLiter', 'financeMonthlyRatePct', 'defaultTargetMarginPct', 'defaultContingencyPct', 'defaultPaymentTermDays', 'roundingStep'];
+
+  // Los campos se crean con la etiqueta ILUSTRATIVO y se muestra u oculta
+  // según lo guardado (sin volver a dibujar la pantalla).
+  const numericInputs = [];
+  const num = (key, label, rule, unit, hint) => {
+    const field = numberField({ label, value: isFiniteNumber(params[key]) ? params[key] : null, rule, unit, hint, required: true, illustrative: true, onChange: (v) => { params[key] = v; } });
+    const input = field.querySelector('input');
+    if (input) numericInputs.push({ input, rule });
+    return field;
+  };
+  const matrixField = listField({
+    label: 'Días de la matriz tarifa × utilización',
+    value: params.matrixDays.join(', '),
+    hint: 'Días activos por mes, separados por comas (enteros de 1 a 31).',
+    parse: parseMatrixDays,
+    onValid: (v) => { params.matrixDays = v; },
+    illustrative: true,
+  });
+  const ladderField = listField({
+    label: 'Escalera de márgenes',
+    value: params.marginLadder.join(', '),
+    hint: 'Márgenes sobre precio, separados por comas (decimales con punto, ej.: 7.5).',
+    parse: parseMarginLadder,
+    onValid: (v) => { params.marginLadder = v; },
+    illustrative: true,
+  });
 
   const paramsGrid = formGrid(
     3,
@@ -191,62 +393,71 @@ export async function render(root, app) {
     num('defaultContingencyPct', 'Contingencia', 'percent', '%', 'Colchón para imprevistos sobre el costo.'),
     num('defaultPaymentTermDays', 'Plazo de pago del cliente', 'paymentDays', 'días', '¿A cuántos días te pagan normalmente?'),
     num('roundingStep', 'Redondeo de tarifas', 'money', '$', 'Las tarifas sugeridas se redondean hacia arriba a este múltiplo. 0 = sin redondeo.'),
-    listField({
-      label: 'Días de la matriz tarifa × utilización',
-      value: params.matrixDays.join(', '),
-      hint: 'Días activos por mes, separados por comas (enteros de 1 a 31).',
-      parse: parseMatrixDays,
-      onValid: (v) => { params.matrixDays = v; },
-      illustrative,
-    }),
-    listField({
-      label: 'Escalera de márgenes',
-      value: params.marginLadder.join(', '),
-      hint: 'Márgenes sobre precio, separados por comas (decimales con punto, ej.: 7.5).',
-      parse: parseMarginLadder,
-      onValid: (v) => { params.marginLadder = v; },
-      illustrative,
-    }),
+    matrixField.el,
+    ladderField.el,
   );
 
-  const paramsSave = button('Guardar parámetros', { variant: 'primary', icon: 'check' });
-  paramsSave.addEventListener('click', async () => {
-    if (paramsGrid.querySelector('[aria-invalid="true"]')) {
-      app.toast('Revisá los campos marcados en rojo.', 'warning');
-      return;
-    }
-    const required = ['fuelPricePerLiter', 'financeMonthlyRatePct', 'defaultTargetMarginPct', 'defaultContingencyPct', 'defaultPaymentTermDays', 'roundingStep'];
-    if (required.some((k) => !isFiniteNumber(params[k]))) {
-      app.toast('Completá todos los parámetros.', 'warning');
-      return;
-    }
-    paramsSave.disabled = true;
-    try {
+  /** Válido = todos los parámetros cargados y el texto de cada campo pasa su regla. */
+  const paramsValid = () =>
+    REQUIRED_PARAMS.every((k) => isFiniteNumber(params[k])) &&
+    numericInputs.every(({ input, rule }) => validateNumber(input.value, rule, { required: true }).ok) &&
+    matrixField.isValid() &&
+    ladderField.isValid();
+
+  const paramsBanner = banner('Estos parámetros son ILUSTRATIVOS. Cargá los valores vigentes de tu empresa y marcá la casilla de abajo.', 'warning');
+  const applyIllustrative = (on) => {
+    paramsBanner.hidden = !on;
+    paramsGrid.querySelectorAll('.tag-illustrative').forEach((tag) => {
+      tag.hidden = !on;
+    });
+    paramsGrid.querySelectorAll('.field').forEach((field) => field.classList.toggle('field-illustrative', on));
+  };
+  applyIllustrative(!params.ownValues);
+
+  const paramsChip = saveChip({ ephemeral });
+  const paramsSaver = createAutosave({
+    chip: paramsChip,
+    readOnly,
+    isValid: paramsValid,
+    save: async () => {
       const { ownValues, ...rest } = params;
-      await ctx.settings.save({ ...rest, illustrative: !ownValues });
-      app.toast('Parámetros guardados.', 'success');
-      app.navigate('#/configuracion');
-    } catch (error) {
-      app.toast(userErrorMessage(error, 'No se pudieron guardar los parámetros.'), 'danger');
-      paramsSave.disabled = false;
-    }
+      const snapshot = { ...rest, matrixDays: [...rest.matrixDays], marginLadder: [...rest.marginLadder], illustrative: !ownValues };
+      await ctx.settings.save(snapshot);
+      applyIllustrative(snapshot.illustrative);
+    },
+    onError: (error) => app.toast(userErrorMessage(error, 'No se pudieron guardar los parámetros.'), 'danger'),
   });
 
-  const paramsCard = card(
-    { title: 'Parámetros por defecto', subtitle: 'Punto de partida de cada cotización nueva (las existentes conservan sus valores). Los días de la matriz y la escalera de márgenes se aplican a todos los resultados.' },
-    h(
-      'div',
-      { class: 'stack' },
-      illustrative ? banner('Estos parámetros son ILUSTRATIVOS. Cargá los valores vigentes de tu empresa y marcá la casilla de abajo.', 'warning') : null,
-      paramsGrid,
-      checkboxField({
-        label: 'Son valores propios y vigentes (quitar la marca ILUSTRATIVO)',
-        checked: params.ownValues,
-        onChange: (v) => { params.ownValues = v; },
-      }),
-      h('div', { class: 'row' }, paramsSave),
-    ),
+  const paramsForm = h(
+    'div',
+    { class: 'stack' },
+    paramsBanner,
+    paramsGrid,
+    checkboxField({
+      label: 'Son valores propios y vigentes (quitar la marca ILUSTRATIVO)',
+      checked: params.ownValues,
+      onChange: (v) => { params.ownValues = v; },
+    }),
   );
+  paramsForm.addEventListener('input', () => paramsSaver.schedule());
+  paramsForm.addEventListener('change', () => paramsSaver.schedule());
+  lockInputs(paramsForm);
+
+  const paramsCard = card(
+    {
+      title: 'Parámetros por defecto',
+      subtitle: 'Punto de partida de cada cotización nueva (las existentes conservan sus valores). Los días de la matriz y la escalera de márgenes se aplican a todos los resultados. Los cambios se guardan solos cuando todos los campos son válidos.',
+      actions: [paramsChip.el],
+      className: 'autosave-card',
+    },
+    paramsForm,
+  );
+
+  const savers = [orgSaver, paramsSaver];
+  /** Guarda lo pendiente de organización y parámetros. */
+  const flushAll = () => Promise.all(savers.map((saver) => saver.flush()));
+  /** Después de reemplazar los datos, lo que quedó en pantalla no se guarda. */
+  const disposeAll = () => savers.forEach((saver) => saver.dispose());
 
   // ----------------------------------------------------------------- backup
 
@@ -257,6 +468,8 @@ export async function render(root, app) {
   exportBtn.addEventListener('click', async () => {
     exportBtn.disabled = true;
     try {
+      // El backup incluye lo último que se cargó en esta pantalla.
+      await flushAll();
       const { filename, json } = await ctx.backup.exportBackup();
       downloadText(filename, json);
       app.toast(`Backup descargado: ${filename}`, 'success');
@@ -284,18 +497,28 @@ export async function render(root, app) {
     const s = parsed.summary || {};
     const r = s.resources || {};
     const n = (v) => formatNumber(isFiniteNumber(v) ? v : 0);
+    const count = (v) => (isFiniteNumber(v) && v > 0 ? v : 0);
+    const resourcesTotal = ['laborProfiles', 'agreements', 'equipment', 'materials', 'locations'].reduce((acc, k) => acc + count(r[k]), 0);
+    // Un backup sin cotizaciones ni recursos deja la empresa vacía: puede ser otro archivo .json.
+    const looksEmpty = count(s.quotes) === 0 && resourcesTotal === 0;
+    const emptyWarning = 'Este backup no tiene cotizaciones ni recursos de biblioteca. Si lo importás, tus datos actuales se reemplazan por una empresa vacía. Revisá que sea el archivo correcto.';
     const applyBtn = button('Reemplazar mis datos con este backup', { variant: 'danger', icon: 'upload' });
     applyBtn.addEventListener('click', async () => {
       const ok = await confirmDialog({
         title: 'Importar backup',
-        message: 'Esto REEMPLAZA todos tus datos actuales. Antes se guarda una copia de recuperación.',
+        message: looksEmpty
+          ? `Atención: ${emptyWarning} Esto REEMPLAZA todos tus datos actuales. Antes se guarda una copia de recuperación.`
+          : 'Esto REEMPLAZA todos tus datos actuales. Antes se guarda una copia de recuperación.',
         confirmLabel: 'Reemplazar mis datos',
         danger: true,
       });
       if (!ok) return;
       applyBtn.disabled = true;
       try {
+        // Lo pendiente se guarda antes: así queda en la copia de recuperación.
+        await flushAll();
         const result = await ctx.backup.applyBackup(parsed.data);
+        disposeAll();
         app.toast(`Backup importado (${n(result.quotes)} cotizaciones). Se guardó una copia de recuperación de los datos anteriores.`, 'success');
         await app.refreshChrome();
         app.navigate('#/');
@@ -311,6 +534,7 @@ export async function render(root, app) {
         'div',
         { class: 'import-summary' },
         h('h4', {}, 'Resumen del backup'),
+        looksEmpty ? banner(emptyWarning, 'danger', { title: 'Backup sin datos.' }) : null,
         kvList([
           ['Archivo', fileName],
           ['Organización', s.organization || EMPTY],
@@ -372,7 +596,9 @@ export async function render(root, app) {
     if (!ok) return;
     resetBtn.disabled = true;
     try {
+      await flushAll();
       await ctx.backup.resetToDemo();
+      disposeAll();
       app.toast('Se restauraron los datos demo. Tus datos anteriores quedaron en una copia de recuperación.', 'success');
       await app.refreshChrome();
       app.navigate('#/');
@@ -402,6 +628,7 @@ export async function render(root, app) {
       app.toast(userErrorMessage(error, 'No se pudo descargar la copia.'), 'danger');
     }
   };
+  const recoveryHost = h('div', { class: 'recovery-host' });
   const deleteRecovery = async (key, info) => {
     const ok = await confirmDialog({
       title: 'Eliminar copia de recuperación',
@@ -413,41 +640,48 @@ export async function render(root, app) {
     try {
       const removed = await Promise.resolve(ctx.backup.deleteRecoverySnapshot(key));
       app.toast(removed ? 'Copia eliminada. Se liberó espacio en el navegador.' : 'La copia ya no existía.', removed ? 'success' : 'info');
-      await render(root, app);
+      renderRecoveryList(await Promise.resolve(ctx.backup.listRecoverySnapshots()));
     } catch (error) {
       app.toast(userErrorMessage(error, 'No se pudo eliminar la copia.'), 'danger');
     }
   };
+  function renderRecoveryList(keys) {
+    const list = Array.isArray(keys) ? keys : [];
+    mount(
+      recoveryHost,
+      list.length
+        ? h(
+            'ul',
+            { class: 'recovery-list' },
+            ...list.map((key) => {
+              const info = recoveryLabel(key);
+              return h(
+                'li',
+                {},
+                h('div', { class: 'cell-main' }, h('span', { class: 'cell-title' }, info.reason), h('span', { class: 'cell-sub mono' }, `${info.date} · ${key}`)),
+                h(
+                  'div',
+                  { class: 'row' },
+                  button('Descargar', { variant: 'secondary', size: 'sm', icon: 'download', onClick: () => downloadRecovery(key), attrs: { 'aria-label': `Descargar copia ${info.reason} ${info.date}` } }),
+                  button('Eliminar', { variant: 'danger', size: 'sm', icon: 'trash', disabled: readOnly, onClick: () => deleteRecovery(key, info), attrs: { 'aria-label': `Eliminar copia ${info.reason} ${info.date}`, 'data-edit': 'true' } }),
+                ),
+              );
+            }),
+          )
+        : h('p', { class: 'muted small' }, 'Todavía no hay copias de recuperación.'),
+    );
+  }
+  renderRecoveryList(recoveryKeys);
   const recoveryCard = card(
     { title: 'Copias de recuperación', subtitle: 'RATEOS guarda una copia automática antes de importar, restaurar la demo o actualizar el formato de datos. Se conservan las más recientes.' },
-    recoveryKeys.length
-      ? h(
-          'ul',
-          { class: 'recovery-list' },
-          ...recoveryKeys.map((key) => {
-            const info = recoveryLabel(key);
-            return h(
-              'li',
-              {},
-              h('div', { class: 'cell-main' }, h('span', { class: 'cell-title' }, info.reason), h('span', { class: 'cell-sub mono' }, `${info.date} · ${key}`)),
-              h(
-                'div',
-                { class: 'row' },
-                button('Descargar', { variant: 'secondary', size: 'sm', icon: 'download', onClick: () => downloadRecovery(key), attrs: { 'aria-label': `Descargar copia ${info.reason} ${info.date}` } }),
-                button('Eliminar', { variant: 'danger', size: 'sm', icon: 'trash', onClick: () => deleteRecovery(key, info), attrs: { 'aria-label': `Eliminar copia ${info.reason} ${info.date}`, 'data-edit': 'true' } }),
-              ),
-            );
-          }),
-        )
-      : h('p', { class: 'muted small' }, 'Todavía no hay copias de recuperación.'),
+    recoveryHost,
     h('p', { class: 'footnote' }, 'Una copia descargada se puede importar desde "Importar backup JSON". Las copias ocupan espacio del navegador: si se llena, eliminá las que ya no necesites.'),
   );
 
   // ----------------------------------------------------------- acerca de
 
   const v = app.version || {};
-  const activeFlags = Object.entries(FEATURES).filter(([, on]) => on);
-  const inactiveFlags = Object.entries(FEATURES).filter(([, on]) => !on);
+  const features = activeBusinessFeatures();
   const storageText = STORAGE_MODE === 'local'
     ? ctx.persistent === false
       ? 'memoria — este navegador no permite guardar: los datos se pierden al cerrar'
@@ -463,9 +697,8 @@ export async function render(root, app) {
       ['Almacenamiento', storageText],
       [
         'Funciones activas',
-        h('div', { class: 'flag-list' }, ...(activeFlags.length ? activeFlags.map(([k]) => badge(FEATURE_LABELS[k] || k, 'green', { title: k })) : [h('span', { class: 'muted' }, 'Ninguna')])),
+        h('div', { class: 'flag-list' }, ...(features.length ? features.map((f) => badge(f.label, 'green')) : [h('span', { class: 'muted' }, 'Las funciones básicas de cotización')])),
       ],
-      inactiveFlags.length ? ['Desactivadas', h('div', { class: 'flag-list' }, ...inactiveFlags.map(([k]) => badge(FEATURE_LABELS[k] || k, 'gray', { title: k })))] : null,
     ]),
     banner('RATEOS no tiene backend, no usa analytics ni IA. Todo se calcula en tu navegador y tus datos no salen de este dispositivo, salvo que exportes un backup.', 'info', { title: 'Privacidad.' }),
   );
@@ -476,4 +709,21 @@ export async function render(root, app) {
     paramsCard,
     h('div', { class: 'settings-grid' }, backupCard, h('div', { class: 'stack' }, demoCard, recoveryCard)),
   );
+
+  // Si se cierra o se oculta la pestaña, se guarda lo pendiente.
+  const onPageHide = () => {
+    flushAll();
+  };
+  const onVisibility = () => {
+    if (document.visibilityState === 'hidden') flushAll();
+  };
+  window.addEventListener('pagehide', onPageHide);
+  document.addEventListener('visibilitychange', onVisibility);
+
+  // Al salir de la pantalla se fuerza el guardado pendiente (sin navegar).
+  return () => {
+    window.removeEventListener('pagehide', onPageHide);
+    document.removeEventListener('visibilitychange', onVisibility);
+    flushAll();
+  };
 }

@@ -100,14 +100,14 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 
 | ID | Título | Tipo | Estado |
 |---|---|---|---|
-| PLAN-2026-001 | MVP funcional RATEOS v0.1.0 | motor de costos, migración, otro | Completado |
+| PLAN-2026-001 | MVP funcional RATEOS v0.1.0 | motor de costos, migración, otro | En curso — pendiente de merge |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
-- Estado: Completado
+- Estado: En curso — pendiente de merge (pasa a **Completado** recién al mergear el PR a `main`, con fecha de cierre y nota en la bitácora)
 - Tipo: motor de costos · margen · utilización · migración (esquema inicial v1) · deploy
 - Responsable: equipo de agentes de programación + revisión del dueño del repositorio
-- Fecha de inicio: 2026-10-03 · Fecha de cierre: 2026-10-03
+- Fecha de inicio: 2026-10-03 · Fecha de cierre: pendiente (al mergear)
 - Rama / PR: `claude/wonderful-brown-g2ehd6` → `main` (Pull Request pendiente de revisión; sin merge automático)
 
 #### 1. Contexto y problema
@@ -136,6 +136,9 @@ Capas UI → servicios → motores → datos, con `StorageRepository` y `LocalSt
 - [x] Tests (`npm test`): core, datos, servicios, motores, golden cases, arquitectura, build.
 - [x] Build (`scripts/build.mjs`), servidor local (`scripts/serve.mjs`), workflows de CI y deploy, Dependabot para actions.
 - [x] Documentación (README, AGENTS, CHANGELOG, docs/*, plantilla de PR).
+- [x] Review multidisciplinario (Economía, QA, Seguridad, Datos, UX, cumplimiento) y correcciones de los hallazgos confirmados (ver CHANGELOG, "Correcciones de la revisión multidisciplinaria").
+- [ ] Merge del Pull Request a `main` (revisión del dueño del repositorio).
+- [ ] Configurar Pages en "GitHub Actions", verificar el deploy y crear el tag `v0.1.0`.
 
 #### 7. Tests
 `npm test` (Node ≥ 20, `node --test`) cubre motores (margen, markup, tarifa piso, break-even, utilización, on-call, fijos/variables, descuentos, standby, minimum call, fee de disponibilidad, costo financiero, volumen, permanencia, casos extremos), datos (migraciones, validación, backup), servicios, golden cases, reglas de arquitectura y build bajo `/COTIZADORWEB/`.
@@ -152,7 +155,7 @@ Capas UI → servicios → motores → datos, con `StorageRepository` y `LocalSt
 Revert vía PR o redeploy manual de un tag/SHA anterior con `workflow_dispatch` ([docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md#5-rollback)).
 
 #### 10. Review multidisciplinario
-Economía (fórmulas y golden cases), QA (casos extremos y flujos), Seguridad (CSP, DOM seguro, backups, sin secretos), UX (lenguaje simple, "Ver cálculo", ILUSTRATIVO) — registrado en el Pull Request.
+Economía (fórmulas y golden cases), QA (casos extremos y flujos), Seguridad (CSP, DOM seguro, backups, sin secretos), UX (lenguaje simple, "Ver cálculo", ILUSTRATIVO) — registrado en el Pull Request. La revisión multidisciplinaria encontró, entre otros: pérdida de datos con dos pestañas abiertas, importación de JSON ajenos o mal formados, deploy manual de ramas sin PR, semáforo de tramos optimista con minimum call, alerta "bajo piso" con resultado positivo, trazas que no explicaban el número mostrado, defaults ILUSTRATIVOS contados como definidos y montos en formato argentino mal interpretados. Los hallazgos confirmados se corrigieron con tests de regresión; los golden cases no cambiaron.
 
 #### 11. Documentación
 - [x] docs/CALCULATION_RULES.md  - [x] docs/DATA_MODEL.md  - [x] docs/ARCHITECTURE.md
@@ -167,6 +170,8 @@ Web navegable bajo `/COTIZADORWEB/`, cotización creada de punta a punta, on-cal
 - Datos sólo en el navegador de cada usuario (sin sincronización entre dispositivos: usar backup JSON); sin login ni multiusuario.
 - Costo financiero con interés simple y mes de 30 días; el comparador de modelos usa una facturación simplificada.
 - Escenarios y sensibilidad se calculan pero no se guardan; estimado vs real diseñado pero no implementado (`FEATURES.historicalComparison = false`).
+- Varias pestañas: el repositorio adopta los cambios de otras pestañas antes de leer o escribir, pero no fusiona por campo: si dos pestañas editan la misma cotización a la vez, gana el último guardado.
 
 #### Bitácora
 - 2026-10-03 — Arquitectura en capas y contratos definidos; implementación del núcleo, UI, tests, CI/CD y documentación; PR abierto hacia `main` para revisión del dueño antes del merge.
+- 2026-10-03 — Review multidisciplinario y correcciones: persistencia con varias pestañas, pantallas de recuperación (almacenamiento lleno, datos dañados sin espacio), borradores sin guardar, validaciones de importación, copias de recuperación eliminables, deploy restringido a commits de `main` con permisos por job, motor (peor caso de tramos con minimum call, `belowFloor` vs `belowFloorRate`, sensibilidad sin variaciones, "No aplica standby", margen sin tarifa comercial, trazas de break-even y tarifa piso, comparador con días > disponibles, umbrales de completitud 85/60), defaults ILUSTRATIVOS no definidos, marca ILUSTRATIVO por línea, números en formato argentino y tarifas mínimas mostradas hacia arriba. Documentación actualizada. Estado: en curso hasta el merge.

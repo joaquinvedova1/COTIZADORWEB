@@ -3,19 +3,22 @@
  * accesos rápidos y una explicación breve de los conceptos de RATEOS.
  */
 
-import { h, mount } from '../dom.js';
-import { button, card, emptyState, kpi, table, traceButton } from '../components.js';
+import { h, mount, downloadText } from '../dom.js';
+import { banner, button, card, emptyState, kpi, table, traceButton } from '../components.js';
 import { createTrace } from '../../core/trace.js';
 import { formatMoney, formatNumber, formatPercent } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { ACTIVE_QUOTE_STATUSES, QUOTE_STATUSES, labelOf } from '../../domain/catalogs.js';
 import { DEMO_IDS } from '../../domain/demo-data.js';
+import { COMPLETENESS_RISK_THRESHOLD } from '../../engines/completeness-engine.js';
 import { priceFromMargin, priceFromMarkup, markupToMargin, marginToMarkup, traceMarginVsMarkup } from '../../engines/pricing-engine.js';
-import { attachRowNavigation, quoteColumns, quoteHref } from './quotes-list.js';
+import { userErrorMessage } from '../layout.js';
+import { attachRowNavigation, quoteColumns, quoteHref, quoteIllustrative, summaryFailed } from './quotes-list.js';
 
 const RECENT_LIMIT = 8;
 
-const quoteLabel = (quote) => `${quote.code || 'Sin código'} · ${quote.name || 'Sin nombre'}`;
+const text = (value, fallback) => (typeof value === 'string' && value.trim() !== '' ? value : fallback);
+const quoteLabel = (quote) => `${text(quote.code, 'Sin código')} · ${text(quote.name, 'Sin nombre')}`;
 
 function activeStatusesText() {
   return ACTIVE_QUOTE_STATUSES.map((s) => labelOf(QUOTE_STATUSES, s).toLowerCase()).join(', ');
@@ -33,7 +36,7 @@ function totalQuotedTrace(active, total) {
     notes: [
       `Cotizaciones activas: estados ${activeStatusesText()}.`,
       'Facturación esperada = tarifa comercial × unidades facturables con la actividad estimada + otros ingresos (fees, standby, km).',
-      'Una cotización sin tarifa suma 0.',
+      'Una cotización sin tarifa suma sólo sus otros ingresos; una que no se pudo calcular suma 0.',
     ],
   });
 }
@@ -56,10 +59,17 @@ function atRiskTrace(active) {
   return createTrace({
     id: 'dashboard_at_risk',
     title: 'Cotizaciones con riesgo',
-    formula: 'Con riesgo = sin tarifa definida, resultado negativo o margen esperado menor al margen objetivo',
-    inputs: risky.map(({ quote, summary }) => ({ label: `${quoteLabel(quote)} (margen esperado)`, value: summary.marginPct, format: 'percent' })),
+    formula: `Con riesgo = sin tarifa definida, resultado negativo, margen esperado menor al margen objetivo o completitud de costos menor a ${COMPLETENESS_RISK_THRESHOLD} %`,
+    inputs: risky.map(({ quote, summary }) =>
+      summaryFailed(summary)
+        ? { label: `${quoteLabel(quote)} (no se pudo calcular)`, value: null, format: 'percent' }
+        : { label: `${quoteLabel(quote)} (margen esperado)`, value: summary.marginPct, format: 'percent' },
+    ),
     result: { label: 'Cotizaciones activas con riesgo', value: risky.length, format: 'number' },
-    notes: ['Un "—" en el margen indica que la cotización todavía no tiene tarifa.'],
+    notes: [
+      'Un "—" en el margen indica que la cotización todavía no tiene tarifa comercial (o que no se pudo calcular).',
+      'Las cotizaciones que no se pudieron calcular cuentan como con riesgo: abrilas para revisar sus datos.',
+    ],
   });
 }
 
@@ -68,13 +78,18 @@ function belowFloorTrace(active) {
   return createTrace({
     id: 'dashboard_below_floor',
     title: 'Servicios bajo piso',
-    formula: 'Bajo piso = tarifa neta ofrecida < tarifa piso (la tarifa que iguala el costo, margen 0 %)',
+    formula: 'Bajo piso = tarifa neta ofrecida < tarifa piso neta (la que iguala el costo, margen 0 %) y resultado esperado negativo',
     inputs: below.flatMap(({ quote, summary }) => [
       { label: `${quoteLabel(quote)}: tarifa neta`, value: summary.commercialNetRate, format: 'money' },
-      { label: `${quoteLabel(quote)}: tarifa piso`, value: summary.floorNetRate, format: 'money' },
+      { label: `${quoteLabel(quote)}: tarifa piso neta`, value: summary.floorNetRate, format: 'moneyCeil' },
+      { label: `${quoteLabel(quote)}: resultado esperado`, value: summary.profit, format: 'money' },
     ]),
     result: { label: 'Cotizaciones activas bajo piso', value: below.length, format: 'number' },
-    notes: ['Cotizar bajo piso significa perder plata con la actividad estimada.'],
+    notes: [
+      'Cotizar bajo piso significa perder plata con la actividad estimada.',
+      'Si un mínimo garantizado cubre la diferencia y el mes no da pérdida, la cotización no se cuenta acá.',
+      'La tarifa piso se muestra redondeada hacia arriba: cobrar esa cifra nunca deja debajo del piso.',
+    ],
   });
 }
 
@@ -108,14 +123,14 @@ function kpiSection(stats, settings) {
     kpi({
       label: 'Cotizaciones con riesgo',
       value: formatNumber(stats.atRiskCount),
-      hint: 'Sin tarifa, con pérdida o debajo del margen objetivo',
+      hint: 'Sin tarifa, con pérdida, debajo del margen objetivo o con costos incompletos',
       tone: stats.atRiskCount > 0 ? 'orange' : 'green',
       trace: atRiskTrace(active),
     }),
     kpi({
       label: 'Servicios bajo piso',
       value: formatNumber(stats.belowFloorCount),
-      hint: 'La tarifa ofrecida no cubre el costo',
+      hint: 'La tarifa no cubre el costo y el mes da pérdida',
       tone: stats.belowFloorCount > 0 ? 'red' : 'green',
       trace: belowFloorTrace(active),
     }),
@@ -136,14 +151,51 @@ function recentSection(app, stats) {
   const rows = stats.items.slice(0, RECENT_LIMIT);
   const tableEl = table({ columns: quoteColumns(), rows, caption: 'Cotizaciones recientes', className: 'quotes-table' });
   attachRowNavigation(tableEl, rows, ({ quote }) => app.navigate(quoteHref(quote)));
+  const failed = stats.items.filter(({ summary }) => summaryFailed(summary)).length;
+  const illustrative = stats.items.filter(({ quote }) => quoteIllustrative(quote).any).length;
   return card(
     {
       title: 'Cotizaciones recientes',
       subtitle: 'Montos mensuales con la actividad estimada de cada cotización. Hacé clic en una fila para abrirla.',
       actions,
     },
-    tableEl,
+    h(
+      'div',
+      { class: 'stack stack-tight' },
+      failed
+        ? banner(
+            `${failed === 1 ? 'Una cotización no se pudo calcular' : `${failed} cotizaciones no se pudieron calcular`}: abrila${failed === 1 ? '' : 's'} desde Cotizaciones para revisar sus datos. El resto de los indicadores se calcula igual.`,
+            'warning',
+          )
+        : null,
+      illustrative
+        ? h(
+            'p',
+            { class: 'muted small' },
+            `${illustrative === 1 ? 'Una cotización tiene' : `${illustrative} cotizaciones tienen`} valores ILUSTRATIVOS (de la demo, de plantillas o de bibliotecas de ejemplo): reemplazalos por valores propios antes de enviarlas.`,
+          )
+        : null,
+      tableEl,
+    ),
   );
+}
+
+/** Descarga el backup JSON directamente (igual que Configuración → Backup). */
+function exportBackupButton(app) {
+  const btn = button('Exportar backup', { variant: 'ghost', icon: 'download' });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const { filename, json } = await app.ctx.backup.exportBackup();
+      downloadText(filename, json);
+      app.toast(`Backup descargado: ${filename}`, 'success');
+    } catch (error) {
+      app.toast(userErrorMessage(error, 'No se pudo exportar el backup.'), 'danger');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  return btn;
 }
 
 function quickActionsSection(app, stats) {
@@ -161,7 +213,7 @@ function quickActionsSection(app, stats) {
         ? button('Caso de referencia break-even', { variant: 'secondary', icon: 'calc', onClick: () => app.navigate(`#/cotizaciones/${DEMO_IDS.quoteReference}`) })
         : null,
       button('Bibliotecas de recursos', { variant: 'secondary', icon: 'library', onClick: () => app.navigate('#/biblioteca') }),
-      button('Exportar backup', { variant: 'ghost', icon: 'download', onClick: () => app.navigate('#/configuracion') }),
+      exportBackupButton(app),
     ),
     h('p', { class: 'muted small' }, 'Tus datos se guardan sólo en este navegador. Exportá un backup de vez en cuando.'),
   );
