@@ -6,6 +6,7 @@
  */
 
 import { toNumber } from './money.js';
+import { isPlainObject } from './object.js';
 
 export const RULES = Object.freeze({
   money: { min: 0, max: 1e15, message: 'Ingresá un monto mayor o igual a 0 (hasta 1.000 billones).' },
@@ -73,7 +74,7 @@ export function validateQuote(quote) {
     if (!r.ok) issues.push({ path, message: r.error, severity: 'error' });
   };
 
-  const a = quote.activity || {};
+  const a = isPlainObject(quote.activity) ? quote.activity : {};
   check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'days');
   check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');
   check('activity.daysPerActivation', a.daysPerActivation, 'positiveDays');
@@ -86,7 +87,8 @@ export function validateQuote(quote) {
     });
   }
 
-  (quote.labor || []).forEach((l, i) => {
+  (Array.isArray(quote.labor) ? quote.labor : []).forEach((l, i) => {
+    if (!isPlainObject(l)) return;
     check(`labor.${i}.positions`, l.positions, 'quantity');
     check(`labor.${i}.peoplePerPosition`, l.peoplePerPosition, 'positive');
     check(`labor.${i}.basicMonthly`, l.basicMonthly, 'money');
@@ -96,7 +98,8 @@ export function validateQuote(quote) {
     check(`labor.${i}.overtimePremiumPct`, l.overtimePremiumPct, 'percentOpen');
   });
 
-  (quote.equipment || []).forEach((e, i) => {
+  (Array.isArray(quote.equipment) ? quote.equipment : []).forEach((e, i) => {
+    if (!isPlainObject(e)) return;
     check(`equipment.${i}.quantity`, e.quantity, 'quantity');
     check(`equipment.${i}.replacementValue`, e.replacementValue, 'money');
     check(`equipment.${i}.residualValue`, e.residualValue, 'money');
@@ -106,22 +109,24 @@ export function validateQuote(quote) {
     check(`equipment.${i}.hoursPerActiveDay`, e.hoursPerActiveDay, 'hoursPerDay');
   });
 
-  const lg = quote.logistics || {};
+  const lg = isPlainObject(quote.logistics) ? quote.logistics : {};
   check('logistics.distanceKm', lg.distanceKm, 'distance');
   check('logistics.tripsPerActivation', lg.tripsPerActivation, 'quantity');
 
-  const f = quote.finance || {};
+  const f = isPlainObject(quote.finance) ? quote.finance : {};
   check('finance.paymentTermDays', f.paymentTermDays, 'paymentDays');
   check('finance.monthlyRatePct', f.monthlyRatePct, 'percent');
 
-  const p = quote.pricing || {};
+  const p = isPlainObject(quote.pricing) ? quote.pricing : {};
   check('pricing.targetMarginPct', p.targetMarginPct, 'margin');
   check('pricing.customMarginPct', p.customMarginPct, 'margin');
   check('pricing.knownRate', p.knownRate, 'money');
   check('pricing.commercialDiscountPct', p.commercialDiscountPct, 'percent');
 
-  const rules = quote.rules || {};
-  (rules.volumeTiers || []).forEach((t, i) => check(`rules.volumeTiers.${i}.discountPct`, t.discountPct, 'percent'));
+  const rules = isPlainObject(quote.rules) ? quote.rules : {};
+  (Array.isArray(rules.volumeTiers) ? rules.volumeTiers : []).forEach((t, i) => {
+    if (isPlainObject(t)) check(`rules.volumeTiers.${i}.discountPct`, t.discountPct, 'percent');
+  });
   check('rules.continuityDiscountPct', rules.continuityDiscountPct, 'percent');
   return issues;
 }

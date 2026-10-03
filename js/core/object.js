@@ -60,3 +60,12 @@ export function setPath(obj, path, value) {
 export function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+/**
+ * Lista de objetos defensiva: si no es un array devuelve [], y reemplaza los
+ * elementos que no son objetos planos (null, números, textos) por {} para
+ * conservar la alineación de índices entre la entrada y los resultados.
+ */
+export function objectList(value) {
+  return Array.isArray(value) ? value.map((item) => (isPlainObject(item) ? item : {})) : [];
+}

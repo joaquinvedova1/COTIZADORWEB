@@ -58,6 +58,10 @@ export function createBackupService({ repository, clock = () => new Date().toISO
       return typeof repository.listRecoverySnapshots === 'function' ? repository.listRecoverySnapshots() : [];
     },
 
+    deleteRecoverySnapshot(key) {
+      return typeof repository.deleteRecoverySnapshot === 'function' ? repository.deleteRecoverySnapshot(key) : false;
+    },
+
     getRecoverySnapshot(key) {
       return typeof repository.getRecoverySnapshot === 'function' ? repository.getRecoverySnapshot(key) : null;
     },

@@ -52,6 +52,8 @@ function startupReason(error) {
   const code = error && error.code;
   if (code === 'read_failed') return 'El navegador no permite leer los datos guardados (puede estar en modo privado estricto o con el almacenamiento bloqueado).';
   if (code === 'quota_exceeded' && error.message) return error.message;
+  if (code === 'corrupt_no_space' && error.message) return error.message;
+  if (code === 'stale_state') return 'Los datos se modificaron en otra pestaña y no se pudieron leer. Recargá la página.';
   if (code === 'write_failed') return 'El navegador no permitió guardar datos en este dispositivo.';
   if (code === 'unsupported_mode') return 'La configuración de almacenamiento de esta versión no es válida.';
   return 'Ocurrió un error inesperado al abrir tus datos.';
@@ -241,6 +243,17 @@ async function boot(root) {
     await app.refreshChrome();
     router.start();
     track('app_started', { isDemo: Boolean(organization && organization.illustrative) });
+
+    // Otra pestaña modificó los datos: el repositorio ya los adopta antes de
+    // leer o escribir; acá se refresca la pantalla (salvo el editor, que
+    // trabaja sobre su propia copia de la cotización abierta).
+    ctx.onExternalChange(() => {
+      toast('Los datos se actualizaron desde otra pestaña.', 'info');
+      app.refreshChrome();
+      const current = router.current();
+      const inEditor = current && current.route && String(current.route.name).startsWith('quote-editor');
+      if (!inEditor) router.render();
+    });
   } catch (error) {
     logger.error('Error al construir la interfaz', { name: error && error.name, message: error && error.message });
     renderStartupError(root, error, version);

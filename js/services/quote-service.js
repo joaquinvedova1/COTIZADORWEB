@@ -8,8 +8,27 @@ import { deepClone } from '../core/object.js';
 import { track } from '../core/events.js';
 import { computeQuote, summarizeQuote } from '../engines/quote-engine.js';
 import { createEmptyQuote, createQuoteFromTemplate } from '../domain/quote-factory.js';
-import { ACTIVE_QUOTE_STATUSES } from '../domain/catalogs.js';
+import { ACTIVE_QUOTE_STATUSES, SERVICE_TYPES } from '../domain/catalogs.js';
+import { logger } from '../core/logger.js';
 import { isFiniteNumber } from '../core/money.js';
+
+/**
+ * Resumen de una cotización que nunca lanza: si una cotización tiene datos
+ * inválidos, se marca con error en lugar de romper el dashboard o el listado.
+ */
+function safeSummary(quote, settings) {
+  try {
+    return summarizeQuote(quote, { settings });
+  } catch (error) {
+    logger.warn('No se pudo calcular una cotización', { name: error && error.name });
+    return { error: true, atRisk: true, belowFloor: false, incomplete: true, revenue: null, totalCost: null, marginPct: null, completenessPct: 0, issuesCount: 1 };
+  }
+}
+
+/** serviceType seguro para eventos internos (sólo valores del catálogo). */
+function eventServiceType(serviceType) {
+  return SERVICE_TYPES.some((t) => t.id === serviceType) ? serviceType : 'unknown';
+}
 
 export function createQuoteService({ repository, clock = () => new Date().toISOString(), idFactory = createId }) {
   async function settings() {
@@ -43,7 +62,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     async listQuotes() {
       const [quotes, s] = await Promise.all([repository.getQuotes(), settings()]);
       return quotes
-        .map((q) => ({ quote: q, summary: summarizeQuote(q, { settings: s }) }))
+        .map((q) => ({ quote: q, summary: safeSummary(q, s) }))
         .sort((a, b) => String(b.quote.updatedAt).localeCompare(String(a.quote.updatedAt)));
     },
 
@@ -58,7 +77,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode() };
       const quote = template ? createQuoteFromTemplate(template, options) : createEmptyQuote(options);
       const saved = await repository.saveQuote(quote);
-      track('quote_created', { serviceType: saved.serviceType, source: template ? 'template' : 'blank' });
+      track('quote_created', { serviceType: eventServiceType(saved.serviceType), source: template ? 'template' : 'blank' });
       return saved;
     },
 
@@ -77,7 +96,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       copy.status = 'draft';
       copy.createdAt = clock();
       const saved = await repository.saveQuote(copy);
-      track('quote_duplicated', { serviceType: saved.serviceType });
+      track('quote_duplicated', { serviceType: eventServiceType(saved.serviceType) });
       return saved;
     },
 

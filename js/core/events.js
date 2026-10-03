@@ -40,7 +40,9 @@ const ALLOWED_PROPS = Object.freeze({
   count: 'smallInt',
 });
 
-const ENUM_RE = /^[a-z0-9_]{1,40}$/;
+// Sólo letras minúsculas y guion bajo: ningún enum legítimo tiene dígitos,
+// así se bloquean montos o identificadores disfrazados de enum.
+const ENUM_RE = /^[a-z][a-z_]{0,39}$/;
 
 /** Filtra propiedades: descarta todo lo que no esté permitido. */
 export function sanitizeEventProps(props = {}) {

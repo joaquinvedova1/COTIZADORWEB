@@ -19,7 +19,7 @@ import { createId } from '../core/ids.js';
 import { deepClone, isPlainObject } from '../core/object.js';
 import { logger } from '../core/logger.js';
 import { StorageRepository, RepositoryError } from './storage-repository.js';
-import { CURRENT_SCHEMA_VERSION, RESOURCE_TYPES, validateState, detectSchemaVersion } from './schema.js';
+import { CURRENT_SCHEMA_VERSION, RESOURCE_TYPES, validateState, detectSchemaVersion, createEmptyState } from './schema.js';
 import { migrateState, MigrationError } from './migrations.js';
 import { createDemoState } from '../domain/demo-data.js';
 
@@ -43,6 +43,10 @@ export class LocalStorageRepository extends StorageRepository {
     this.state = null;
     this.readOnly = false;
     this.initResult = null;
+    /** Último texto leído o escrito en storage: detecta cambios de otras pestañas. */
+    this.lastRaw = null;
+    /** Cantidad de veces que se adoptaron cambios hechos en otra pestaña. */
+    this.externalChanges = 0;
   }
 
   // ---------------------------------------------------------------- init
@@ -73,19 +77,21 @@ export class LocalStorageRepository extends StorageRepository {
       const version = parsed === undefined ? null : detectSchemaVersion(parsed);
       if (parsed === undefined || version === null) {
         const recoveryKey = this.saveRecoverySnapshot(raw, 'corrupt');
-        this.state = this.seedFactory();
-        if (recoveryKey) {
-          this.persist(this.state);
-          status = 'recovered';
-          messages.push(`Los datos guardados estaban dañados. Se conservó una copia (${recoveryKey}) y se cargó la demo.`);
-        } else {
-          // Sin espacio para la copia: NO se pisa el original. Demo sólo en memoria.
-          this.readOnly = true;
-          status = 'read_only';
-          messages.push('Los datos guardados están dañados y no hay espacio para guardar una copia. No se modificaron: descargalos desde la pantalla de recuperación y liberá espacio. Mientras tanto se muestra la demo en modo sólo lectura.');
+        if (!recoveryKey) {
+          // Sin espacio para la copia: NO se pisa el original. La app muestra la
+          // pantalla de recuperación, que permite descargar el texto guardado.
+          throw new RepositoryError(
+            'Los datos guardados están dañados y no hay espacio para guardar una copia. No se modificaron: descargalos con el botón de abajo y liberá espacio en el navegador.',
+            'corrupt_no_space',
+          );
         }
+        this.state = this.seedFactory();
+        this.persist(this.state);
+        status = 'recovered';
+        messages.push(`Los datos guardados estaban dañados. Se conservó una copia (${recoveryKey}) y se cargó la demo.`);
       } else if (version > CURRENT_SCHEMA_VERSION) {
         this.state = parsed;
+        this.lastRaw = raw;
         this.readOnly = true;
         status = 'read_only';
         messages.push('Los datos fueron guardados por una versión más nueva de RATEOS. Se abren en modo sólo lectura para no dañarlos. Recargá la página para obtener la última versión.');
@@ -93,6 +99,7 @@ export class LocalStorageRepository extends StorageRepository {
         const recoveryKey = this.saveRecoverySnapshot(raw, `pre-migration-v${version}`);
         const migrated = migrateState(parsed, { now: this.now(), idFactory: this.idFactory });
         this.state = migrated.state;
+        this.lastRaw = raw;
         if (validateState(this.state).ok) {
           this.persist(this.state);
           status = 'migrated';
@@ -125,6 +132,7 @@ export class LocalStorageRepository extends StorageRepository {
           }
         } else {
           this.state = parsed;
+          this.lastRaw = raw;
         }
       }
     }
@@ -137,20 +145,62 @@ export class LocalStorageRepository extends StorageRepository {
 
   ensureReady() {
     if (!this.state) throw new RepositoryError('Repositorio no inicializado: llamá a init().', 'not_initialized');
+    this.syncFromStorage();
+  }
+
+  /**
+   * Varias pestañas comparten el mismo localStorage. Antes de leer o escribir
+   * se compara el texto guardado con el último conocido: si otra pestaña lo
+   * cambió, se adopta su versión para no pisar sus cambios con una copia
+   * vieja en memoria (cada escritura reemplaza el estado completo).
+   */
+  syncFromStorage() {
+    let raw;
+    try {
+      raw = this.storage.getItem(this.key);
+    } catch {
+      return; // no se puede leer: se sigue con la memoria
+    }
+    if (raw === null || raw === this.lastRaw) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = undefined;
+    }
+    const version = parsed === undefined ? null : detectSchemaVersion(parsed);
+    if (version === CURRENT_SCHEMA_VERSION && validateState(parsed).ok) {
+      this.state = parsed;
+      this.lastRaw = raw;
+      this.externalChanges += 1;
+      return;
+    }
+    if (version !== null && version > CURRENT_SCHEMA_VERSION) {
+      // Otra pestaña con una versión más nueva de la app migró los datos.
+      this.state = parsed;
+      this.lastRaw = raw;
+      this.readOnly = true;
+      return;
+    }
+    throw new RepositoryError('Los datos cambiaron en otra pestaña y no se pudieron leer. Recargá la página.', 'stale_state');
   }
 
   ensureWritable() {
     this.ensureReady();
-    if (this.readOnly) throw new RepositoryError('Modo sólo lectura: los datos pertenecen a una versión más nueva de RATEOS.', 'read_only');
+    if (this.readOnly) throw new RepositoryError('Modo sólo lectura: los datos no se pueden modificar en esta versión de RATEOS (recargá la página).', 'read_only');
   }
 
   persist(state) {
+    const text = JSON.stringify(state);
     try {
-      this.storage.setItem(this.key, JSON.stringify(state));
+      this.storage.setItem(this.key, text);
+      this.lastRaw = text;
     } catch (error) {
       const quota = error && (error.name === 'QuotaExceededError' || error.code === 22);
       throw new RepositoryError(
-        quota ? 'El almacenamiento del navegador está lleno. Exportá un backup y eliminá cotizaciones que no uses.' : 'No se pudieron guardar los datos en el navegador.',
+        quota
+          ? 'El almacenamiento del navegador está lleno. Exportá un backup y liberá espacio: eliminá copias de recuperación viejas (Configuración) o cotizaciones que no uses.'
+          : 'No se pudieron guardar los datos en el navegador.',
         quota ? 'quota_exceeded' : 'write_failed',
         error,
       );
@@ -365,6 +415,21 @@ export class LocalStorageRepository extends StorageRepository {
   prepareImport(data) {
     if (!isPlainObject(data)) return { ok: false, errors: ['El archivo no contiene un objeto JSON.'] };
     const { app, exportedAt, ...rest } = data;
+    const version = detectSchemaVersion(rest);
+    if (version === 0) {
+      // Un backup legado (sin schemaVersion) debe tener al menos alguna colección
+      // de RATEOS: evita importar cualquier JSON (p. ej. package.json) y vaciar todo.
+      const looksLikeRateos = isPlainObject(rest.organization) || Array.isArray(rest.quotes) || Array.isArray(rest.services) || isPlainObject(rest.resources);
+      if (!looksLikeRateos) {
+        return { ok: false, errors: ['El archivo no es un backup de RATEOS (no tiene organización, cotizaciones, plantillas ni recursos).'] };
+      }
+    }
+    if (version === CURRENT_SCHEMA_VERSION) {
+      // Validar la forma ORIGINAL antes de normalizar: una colección con tipo
+      // incorrecto se rechaza en lugar de vaciarse en silencio.
+      const raw = validateState({ ...createEmptyState(), ...rest });
+      if (!raw.ok) return { ok: false, errors: raw.errors };
+    }
     let migrated;
     try {
       migrated = migrateState(rest, { now: this.now(), idFactory: this.idFactory });
@@ -400,7 +465,7 @@ export class LocalStorageRepository extends StorageRepository {
     const prepared = this.prepareImport(data);
     if (!prepared.ok) throw new RepositoryError(`Backup inválido: ${prepared.errors.join(' ')}`, 'invalid_backup');
     const recoveryKey = this.saveRecoverySnapshot(JSON.stringify(this.state), 'before-import');
-    this.persist(prepared.state);
+    this.persistReplacing(prepared.state, recoveryKey);
     this.state = prepared.state;
     return { ...prepared.summary, recoveryKey };
   }
@@ -410,9 +475,29 @@ export class LocalStorageRepository extends StorageRepository {
     this.ensureWritable();
     const recoveryKey = this.saveRecoverySnapshot(JSON.stringify(this.state), 'before-demo-reset');
     const demo = this.seedFactory();
-    this.persist(demo);
+    this.persistReplacing(demo, recoveryKey);
     this.state = demo;
     return { recoveryKey };
+  }
+
+  /**
+   * Persiste un estado que reemplaza al actual. Si falla (p. ej. cuota), se
+   * elimina la copia de recuperación recién creada: el estado principal quedó
+   * intacto y esa copia sólo ocuparía espacio.
+   */
+  persistReplacing(state, recoveryKey) {
+    try {
+      this.persist(state);
+    } catch (error) {
+      if (recoveryKey) {
+        try {
+          this.storage.removeItem(recoveryKey);
+        } catch {
+          /* sin efecto */
+        }
+      }
+      throw error;
+    }
   }
 
   // ----------------------------------------------------------- recovery
@@ -444,6 +529,14 @@ export class LocalStorageRepository extends StorageRepository {
       if (k && k.startsWith(STORAGE_KEYS.recoveryPrefix)) keys.push(k);
     }
     return keys.sort().reverse();
+  }
+
+  /** Elimina una copia de recuperación (sólo claves de recuperación). */
+  deleteRecoverySnapshot(key) {
+    if (typeof key !== 'string' || !key.startsWith(STORAGE_KEYS.recoveryPrefix)) return false;
+    if (this.storage.getItem(key) === null) return false;
+    this.storage.removeItem(key);
+    return true;
   }
 
   /** Contenido literal de una copia de recuperación. */

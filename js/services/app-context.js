@@ -10,6 +10,7 @@ import { createResourceService } from './resource-service.js';
 import { createBackupService } from './backup-service.js';
 import { createSettingsService } from './settings-service.js';
 import { logger } from '../core/logger.js';
+import { STORAGE_KEYS } from '../config.js';
 import { track } from '../core/events.js';
 
 /**
@@ -28,6 +29,21 @@ export async function createAppContext(options = {}) {
     settings: createSettingsService({ repository }),
     logger,
     track,
+    /**
+     * Avisa cuando OTRA pestaña modifica los datos guardados (evento storage
+     * del navegador). El repositorio ya adopta esos cambios antes de cada
+     * lectura o escritura; esto sirve para refrescar la pantalla.
+     * @param {() => void} callback
+     * @returns {() => void} función para dejar de escuchar
+     */
+    onExternalChange(callback, target = globalThis) {
+      if (!target || typeof target.addEventListener !== 'function') return () => {};
+      const handler = (event) => {
+        if (event && (event.key === STORAGE_KEYS.state || event.key === null)) callback();
+      };
+      target.addEventListener('storage', handler);
+      return () => target.removeEventListener('storage', handler);
+    },
   };
   return ctx;
 }

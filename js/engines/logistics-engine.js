@@ -14,6 +14,7 @@
  *   por día activo   = costo/activación / díasPorActivación
  */
 
+import { objectList } from '../core/object.js';
 import { nonNegative, safeDivide } from '../core/money.js';
 
 export function computeLogistics(logistics = {}, { activationsPerMonth = 0, daysPerActivation = 1, fuelPricePerLiter = 0, fuelPaidByUs = true } = {}) {
@@ -25,7 +26,7 @@ export function computeLogistics(logistics = {}, { activationsPerMonth = 0, days
   const routeKmPerActivation = kmPerTrip * tripsPerActivation;
   const fuelPrice = fuelPaidByUs ? nonNegative(fuelPricePerLiter) : 0;
 
-  const vehicles = (notApplicable ? [] : Array.isArray(logistics.vehicles) ? logistics.vehicles : []).map((v) => {
+  const vehicles = (notApplicable ? [] : objectList(logistics.vehicles)).map((v) => {
     const count = nonNegative(v.count);
     const km = routeKmPerActivation * count;
     const liters = (km * nonNegative(v.consumptionLPer100Km)) / 100;

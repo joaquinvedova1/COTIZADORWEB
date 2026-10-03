@@ -11,6 +11,7 @@
  *   score % = Σ peso obtenido / Σ peso aplicable × 100
  */
 
+import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES } from '../domain/catalogs.js';
 import { contingencyPctOf } from './cost-engine.js';
@@ -39,11 +40,11 @@ export function evaluateCompleteness(quote = {}) {
   const serviceType = quote.serviceType;
   const isOnCall = serviceType === 'on_call';
   const activity = quote.activity || {};
-  const labor = Array.isArray(quote.labor) ? quote.labor : [];
-  const equipment = Array.isArray(quote.equipment) ? quote.equipment : [];
-  const materials = Array.isArray(quote.materials) ? quote.materials : [];
+  const labor = objectList(quote.labor);
+  const equipment = objectList(quote.equipment);
+  const materials = objectList(quote.materials);
   const logistics = quote.logistics || {};
-  const vehicles = Array.isArray(logistics.vehicles) ? logistics.vehicles : [];
+  const vehicles = objectList(logistics.vehicles);
   const pricing = quote.pricing || {};
   const rules = quote.rules || {};
   const finance = quote.finance || {};

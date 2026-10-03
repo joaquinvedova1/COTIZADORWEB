@@ -22,6 +22,7 @@
  *   total            = max(subtotal, mínimoGarantizado)
  */
 
+import { isPlainObject } from '../core/object.js';
 import { nonNegative, pct, safeDivide, isFiniteNumber } from '../core/money.js';
 import { NUMERIC_EPSILON } from '../config.js';
 import { isValidMarginPct } from './pricing-engine.js';
@@ -42,7 +43,8 @@ export function tierLabel(tier) {
 
 /** Tramos ordenados y saneados. */
 export function normalizeTiers(tiers) {
-  const list = Array.isArray(tiers) && tiers.length > 0 ? tiers : DEFAULT_VOLUME_TIERS;
+  const valid = Array.isArray(tiers) ? tiers.filter(isPlainObject) : [];
+  const list = valid.length > 0 ? valid : DEFAULT_VOLUME_TIERS;
   return list
     .map((t, i) => ({
       id: t.id ?? `tier-${i + 1}`,

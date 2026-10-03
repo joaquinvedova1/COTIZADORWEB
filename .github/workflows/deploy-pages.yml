@@ -3,9 +3,10 @@
 # Flujo: push a main → tests → build (dist/ + version.json) → deploy.
 # Si los tests fallan, el build y el deploy NO se ejecutan (needs).
 #
-# Rollback: Actions → "Deploy RATEOS a GitHub Pages" → Run workflow →
-# completar "ref" con el commit SHA (corto o completo), tag (p. ej. v0.1.0) o
-# branch a desplegar. Ver docs/DEPLOYMENT.md.
+# Rollback: Actions → "Deploy RATEOS a GitHub Pages" → Run workflow (branch
+# main) → completar "ref" con el commit SHA (corto o completo) o tag (p. ej.
+# v0.1.0) a desplegar. Sólo se aceptan commits que ya están en main (código
+# revisado por PR): nunca ramas sin mergear. Ver docs/DEPLOYMENT.md.
 #
 # Requisito único en el repo: Settings → Pages → Source: "GitHub Actions".
 # No usa secretos: sólo el GITHUB_TOKEN/OIDC que provee GitHub.
@@ -18,15 +19,15 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Commit SHA, tag o branch a desplegar (vacío = commit actual). Usar para rollback."
+        description: "Commit SHA o tag YA MERGEADO en main a desplegar (vacío = commit actual). Usar para rollback."
         required: false
         default: ""
         type: string
 
+# Permisos mínimos: por defecto sólo lectura. Cada job pide lo que necesita
+# (sólo el job deploy puede escribir en Pages y pedir el token OIDC).
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Un solo despliegue a la vez; nunca se cancela uno en curso.
 concurrency:
@@ -44,8 +45,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Historial completo + tags: permite resolver SHAs cortos, tags y
-          # branches pedidos para un rollback.
+          # Historial completo + tags: permite resolver SHAs cortos y tags
+          # pedidos para un rollback.
           fetch-depth: 0
           persist-credentials: false
 
@@ -58,14 +59,18 @@ jobs:
         run: |
           set -euo pipefail
           if ! printf '%s' "$REQUESTED_REF" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$'; then
-            echo "::error::Ref inválida: '$REQUESTED_REF'. Usá un SHA, tag o branch (letras, números, . _ / -)."
+            echo "::error::Ref inválida: '$REQUESTED_REF'. Usá un SHA o un tag (letras, números, . _ / -)."
             exit 1
           fi
-          SHA="$(git rev-parse --verify --quiet "${REQUESTED_REF}^{commit}" \
-            || git rev-parse --verify --quiet "origin/${REQUESTED_REF}^{commit}" \
-            || true)"
+          SHA="$(git rev-parse --verify --quiet "${REQUESTED_REF}^{commit}" || true)"
           if [ -z "$SHA" ]; then
-            echo "::error::No se encontró el commit/tag/branch '$REQUESTED_REF' en el repositorio."
+            echo "::error::No se encontró el commit o tag '$REQUESTED_REF' en el repositorio."
+            exit 1
+          fi
+          # Sólo se despliega código que ya está en main (revisado y mergeado):
+          # un rollback nunca puede publicar una rama sin PR.
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::'$REQUESTED_REF' no está en main: sólo se despliegan commits o tags ya mergeados."
             exit 1
           fi
           git checkout --quiet --detach "$SHA"
@@ -103,6 +108,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: read # actions/configure-pages sólo lee la configuración de Pages
     outputs:
       version: ${{ steps.info.outputs.version }}
       commit: ${{ steps.info.outputs.commit }}
@@ -156,6 +164,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

@@ -12,6 +12,7 @@
  *   por activación → variable por día = costo / díasPorActivación
  */
 
+import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide } from '../core/money.js';
 import { MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 
@@ -47,7 +48,7 @@ export function computeMaterialLine(line = {}, { daysPerActivation = 1 } = {}) {
 }
 
 export function computeMaterials(lines = [], ctx = {}) {
-  const results = (Array.isArray(lines) ? lines : []).map((l) => computeMaterialLine(l, ctx));
+  const results = objectList(lines).map((l) => computeMaterialLine(l, ctx));
   return {
     lines: results,
     fixedMonthly: results.reduce((s, r) => s + r.fixedMonthly, 0),

@@ -102,6 +102,41 @@ function checkEntityList(list, path, errors, { requireName = null } = {}) {
   });
 }
 
+const QUOTE_OBJECT_FIELDS = Object.freeze(['activity', 'pricing', 'finance', 'logistics', 'rules', 'fuel', 'indirect', 'risk']);
+const QUOTE_LIST_FIELDS = Object.freeze(['labor', 'equipment', 'materials', 'otherCosts']);
+const NESTED_LIST_FIELDS = Object.freeze([
+  ['logistics', 'vehicles'],
+  ['risk', 'items'],
+  ['rules', 'volumeTiers'],
+]);
+
+function checkObjectList(value, path, errors) {
+  if (value === undefined || value === null) return;
+  if (!Array.isArray(value)) {
+    errors.push(`${path}: debe ser una lista.`);
+    return;
+  }
+  value.forEach((item, i) => {
+    if (!isPlainObject(item)) errors.push(`${path}[${i}]: debe ser un objeto.`);
+  });
+}
+
+/** Forma interna de cada cotización (listas de objetos y sub-objetos). */
+function checkQuoteShapes(quotes, errors) {
+  if (!Array.isArray(quotes)) return;
+  quotes.forEach((q, i) => {
+    if (!isPlainObject(q)) return;
+    const base = `quotes[${i}]`;
+    QUOTE_OBJECT_FIELDS.forEach((f) => {
+      if (q[f] !== undefined && q[f] !== null && !isPlainObject(q[f])) errors.push(`${base}.${f}: debe ser un objeto.`);
+    });
+    QUOTE_LIST_FIELDS.forEach((f) => checkObjectList(q[f], `${base}.${f}`, errors));
+    NESTED_LIST_FIELDS.forEach(([parent, child]) => {
+      if (isPlainObject(q[parent])) checkObjectList(q[parent][child], `${base}.${parent}.${child}`, errors);
+    });
+  });
+}
+
 /**
  * Valida la estructura de un estado en la versión ACTUAL del esquema.
  * @returns {{ ok: boolean, errors: string[] }}
@@ -118,6 +153,7 @@ export function validateState(state) {
   else RESOURCE_TYPES.forEach((t) => checkEntityList(state.resources[t] ?? [], `resources.${t}`, errors));
   checkEntityList(state.services, 'services', errors, { requireName: 'name' });
   checkEntityList(state.quotes, 'quotes', errors, { requireName: 'name' });
+  checkQuoteShapes(state.quotes, errors);
   if (!isPlainObject(state.settings)) errors.push('settings: debe ser un objeto.');
   if (errors.length === 0) checkJsonSafe(state, '', errors);
   return { ok: errors.length === 0, errors: errors.slice(0, 20) };

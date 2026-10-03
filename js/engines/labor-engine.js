@@ -23,6 +23,7 @@
  * Todos los porcentajes son parámetros. Los valores demo son ILUSTRATIVOS.
  */
 
+import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide } from '../core/money.js';
 
 /** Factor de cargas aplicado a conceptos remunerativos. */
@@ -115,7 +116,7 @@ export function computeLaborLine(line = {}) {
 
 /** Suma un conjunto de líneas de personal. */
 export function computeLabor(lines = []) {
-  const results = (Array.isArray(lines) ? lines : []).map(computeLaborLine);
+  const results = objectList(lines).map((l) => computeLaborLine(l));
   return {
     lines: results,
     headcount: results.reduce((s, r) => s + r.headcount, 0),

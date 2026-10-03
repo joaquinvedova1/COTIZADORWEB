@@ -20,6 +20,7 @@
  *   4. Contingencia = % × (directos + estructura + financiero)
  */
 
+import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide, roundPercentagesToTotal, roundPercentage, toNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
 import { COST_CATEGORIES, CATEGORY_PAY_GROUP, DIRECT_CATEGORY_IDS, PAY_GROUPS } from '../domain/catalogs.js';
@@ -55,7 +56,7 @@ export function normalizeActivity(quote = {}) {
 /** Porcentaje total de contingencia (general + ítems de riesgo habilitados). */
 export function contingencyPctOf(risk = {}) {
   const general = nonNegative(risk.generalPct);
-  const items = (Array.isArray(risk.items) ? risk.items : [])
+  const items = objectList(risk.items)
     .filter((i) => i && i.enabled)
     .reduce((s, i) => s + nonNegative(i.pct), 0);
   return general + items;
@@ -118,7 +119,7 @@ export function buildCostModel(quote = {}) {
   }
 
   // 2. Equipos (posesión → fijo, operación → variable, combustible aparte)
-  const equipment = (Array.isArray(quote.equipment) ? quote.equipment : []).map((e) =>
+  const equipment = objectList(quote.equipment).map((e) =>
     computeEquipmentLine(e, { fuelPricePerLiter, fuelPaidByUs, defaultHoursPerActiveDay: activity.hoursPerActiveDay }),
   );
   equipment.forEach((e, i) => {
@@ -207,7 +208,7 @@ export function buildCostModel(quote = {}) {
   });
 
   // 5. Otros costos (terceros, subcontratos, manuales)
-  const otherCosts = (Array.isArray(quote.otherCosts) ? quote.otherCosts : []).map((o) =>
+  const otherCosts = objectList(quote.otherCosts).map((o) =>
     computeOtherCostLine(o, { daysPerActivation: activity.daysPerActivation }),
   );
   otherCosts.forEach((o, i) => {

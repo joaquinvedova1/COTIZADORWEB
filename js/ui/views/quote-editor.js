@@ -19,7 +19,7 @@
  * La UI no accede al almacenamiento: usa app.ctx.quotes / app.ctx.resources.
  */
 
-import { h, mount, clear, debounce } from '../dom.js';
+import { h, mount, clear, debounce, downloadText } from '../dom.js';
 import {
   icon,
   button,
@@ -35,7 +35,7 @@ import {
   toast as componentToast,
   table,
 } from '../components.js';
-import { QUOTE_STEPS, RISK_ITEMS, RATE_UNITS } from '../../domain/catalogs.js';
+import { QUOTE_STEPS, RISK_ITEMS, RATE_UNITS, SERVICE_TYPES } from '../../domain/catalogs.js';
 import { defaultVolumeTiers } from '../../domain/quote-factory.js';
 import { computeQuote } from '../../engines/quote-engine.js';
 import { marginToMarkup } from '../../engines/pricing-engine.js';
@@ -83,6 +83,13 @@ const STATUS_TEXT = Object.freeze({
 
 /** Guardados en curso por cotización (para no leer datos viejos al cambiar de paso). */
 const pendingSaves = new Map();
+
+/**
+ * Borradores que NO se pudieron guardar (p. ej. almacenamiento lleno), por id
+ * de cotización. Si el usuario sale del editor y vuelve, se recupera el
+ * borrador en lugar de la versión guardada, para no perder cambios.
+ */
+const unsavedDrafts = new Map();
 /** Editor activo (sólo uno a la vez). */
 let activeEditor = null;
 /** Secuencia de renders (descarta cargas viejas si el usuario navega rápido). */
@@ -854,9 +861,11 @@ function resultFallback(result, error) {
 
 // ------------------------------------------------------------------ editor
 
-function createEditor(root, app, { quote, settings, resources, stepId }) {
+function createEditor(root, app, { quote, settings, resources, stepId, restoredDraft = false }) {
   const quoteId = quote.id;
   const readOnly = Boolean(app.ctx && app.ctx.init && app.ctx.init.readOnly);
+  // Sin almacenamiento persistente (modo memoria) no hay que decir "Guardado".
+  const ephemeral = Boolean(app.ctx && app.ctx.persistent === false);
   const state = {
     quote: normalizeQuoteShape(quote),
     settings: settings || {},
@@ -895,23 +904,47 @@ function createEditor(root, app, { quote, settings, resources, stepId }) {
   const saveTextEl = h('span', { class: 'qe-save-text' });
   const retryBtn = button('Reintentar', { variant: 'link', size: 'sm', onClick: () => save() });
   retryBtn.hidden = true;
-  const saveEl = h('div', { class: 'qe-save', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'qe-save-dot', 'aria-hidden': 'true' }), saveTextEl, retryBtn);
+  // Si no se puede guardar, el backup exportado debe incluir los cambios de
+  // esta cotización (si no, exportar no sirve para salvarlos).
+  const downloadDraftBtn = button('Descargar backup con estos cambios', { variant: 'link', size: 'sm', icon: 'download', onClick: () => downloadBackupWithDraft() });
+  downloadDraftBtn.hidden = true;
+  const saveEl = h('div', { class: 'qe-save', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'qe-save-dot', 'aria-hidden': 'true' }), saveTextEl, retryBtn, downloadDraftBtn);
+
+  async function downloadBackupWithDraft() {
+    try {
+      const { filename, data } = await app.ctx.backup.exportBackup();
+      const draft = deepClone(state.quote);
+      const exists = data.quotes.some((q) => q.id === quoteId);
+      data.quotes = exists ? data.quotes.map((q) => (q.id === quoteId ? draft : q)) : [...data.quotes, draft];
+      downloadText(filename, JSON.stringify(data, null, 2));
+      notify('Backup descargado con los cambios sin guardar de esta cotización.', 'success');
+    } catch (error) {
+      logger.error('No se pudo exportar el backup con el borrador', { name: error && error.name });
+      notify('No se pudo descargar el backup.', 'danger');
+    }
+  }
 
   function setSaveStatus(status, error = null) {
     const previous = state.saveStatus;
     state.saveStatus = status;
     saveEl.dataset.status = status;
     retryBtn.hidden = status !== 'error';
+    downloadDraftBtn.hidden = status !== 'error';
     const texts = {
-      idle: 'Sin cambios',
+      idle: ephemeral ? 'Sin cambios (no se guarda)' : 'Sin cambios',
       pending: 'Guardando…',
       saving: 'Guardando…',
-      saved: 'Guardado',
+      saved: ephemeral ? 'Sólo en esta sesión (no se guarda)' : 'Guardado',
       readonly: 'Sólo lectura',
     };
     if (status === 'error') {
       const quota = error && error.code === 'quota_exceeded';
-      const message = quota && error.message ? error.message : 'No se pudieron guardar los cambios en este navegador.';
+      const restored = error && error.code === 'restored_draft';
+      const message = quota && error.message
+        ? error.message
+        : restored
+          ? 'Hay cambios sin guardar recuperados: reintentá o descargá un backup con estos cambios.'
+          : 'No se pudieron guardar los cambios en este navegador.';
       saveTextEl.textContent = quota ? `Error al guardar: ${message}` : 'Error al guardar';
       saveEl.title = message;
       if (previous !== 'error') notify(`Error al guardar. ${message}`, 'danger');
@@ -941,9 +974,11 @@ function createEditor(root, app, { quote, settings, resources, stepId }) {
     });
     try {
       await promise;
+      unsavedDrafts.delete(quoteId);
       if (!state.dirty) setSaveStatus('saved');
     } catch (error) {
       state.dirty = true;
+      unsavedDrafts.set(quoteId, deepClone(state.quote));
       logger.warn('No se pudo guardar la cotización', { code: error && error.code });
       setSaveStatus('error', error);
     }
@@ -1293,7 +1328,8 @@ function createEditor(root, app, { quote, settings, resources, stepId }) {
     state.lastScorePct = score;
     if (previous === null || !isFiniteNumber(score) || previous >= 100 - 1e-9 || score < 100 - 1e-9) return;
     const trackFn = app.ctx && typeof app.ctx.track === 'function' ? app.ctx.track : null;
-    if (trackFn) trackFn('quote_completed', { serviceType: String(state.quote.serviceType || ''), completed: true });
+    const serviceType = SERVICE_TYPES.some((t) => t.id === state.quote.serviceType) ? state.quote.serviceType : 'unknown';
+    if (trackFn) trackFn('quote_completed', { serviceType, completed: true });
   }
 
   /** Con el stepper horizontal (pantallas chicas), centra el paso actual. */
@@ -1320,6 +1356,14 @@ function createEditor(root, app, { quote, settings, resources, stepId }) {
   const onVisibility = () => {
     if (document.visibilityState === 'hidden' && state.dirty) save();
   };
+  // Si hay cambios que no se pudieron guardar, el navegador pide confirmación
+  // antes de cerrar o recargar la pestaña.
+  const onBeforeUnload = (event) => {
+    if (state.dirty && state.saveStatus === 'error') {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  };
 
   const api = {
     quoteId,
@@ -1332,7 +1376,12 @@ function createEditor(root, app, { quote, settings, resources, stepId }) {
       refreshAll();
       revealCurrentStep();
       window.addEventListener('pagehide', onPageHide);
+      window.addEventListener('beforeunload', onBeforeUnload);
       document.addEventListener('visibilitychange', onVisibility);
+      if (restoredDraft) {
+        state.dirty = true;
+        setSaveStatus('error', { code: 'restored_draft' });
+      }
     },
     /** Fuerza el guardado pendiente y libera recursos. Idempotente. */
     dispose() {
@@ -1343,6 +1392,7 @@ function createEditor(root, app, { quote, settings, resources, stepId }) {
       resultToken += 1;
       runResultCleanup();
       window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('visibilitychange', onVisibility);
       if (activeEditor === api) activeEditor = null;
       return flushing;
@@ -1411,7 +1461,9 @@ export async function render(root, app, params = {}) {
     return undefined;
   }
 
-  const editor = createEditor(root, app, { quote, settings, resources, stepId });
+  // Cambios que no se pudieron guardar antes (p. ej. almacenamiento lleno).
+  const draft = unsavedDrafts.get(id);
+  const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft) });
   activeEditor = editor;
   editor.mount();
   return () => {

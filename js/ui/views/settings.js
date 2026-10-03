@@ -402,6 +402,22 @@ export async function render(root, app) {
       app.toast(userErrorMessage(error, 'No se pudo descargar la copia.'), 'danger');
     }
   };
+  const deleteRecovery = async (key, info) => {
+    const ok = await confirmDialog({
+      title: 'Eliminar copia de recuperación',
+      message: `Se eliminará la copia "${info.reason}" del ${info.date}. Tus datos actuales no se modifican. Si querés conservarla, descargala antes.`,
+      confirmLabel: 'Eliminar copia',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const removed = await Promise.resolve(ctx.backup.deleteRecoverySnapshot(key));
+      app.toast(removed ? 'Copia eliminada. Se liberó espacio en el navegador.' : 'La copia ya no existía.', removed ? 'success' : 'info');
+      await render(root, app);
+    } catch (error) {
+      app.toast(userErrorMessage(error, 'No se pudo eliminar la copia.'), 'danger');
+    }
+  };
   const recoveryCard = card(
     { title: 'Copias de recuperación', subtitle: 'RATEOS guarda una copia automática antes de importar, restaurar la demo o actualizar el formato de datos. Se conservan las más recientes.' },
     recoveryKeys.length
@@ -414,12 +430,17 @@ export async function render(root, app) {
               'li',
               {},
               h('div', { class: 'cell-main' }, h('span', { class: 'cell-title' }, info.reason), h('span', { class: 'cell-sub mono' }, `${info.date} · ${key}`)),
-              button('Descargar', { variant: 'secondary', size: 'sm', icon: 'download', onClick: () => downloadRecovery(key), attrs: { 'aria-label': `Descargar copia ${info.reason} ${info.date}` } }),
+              h(
+                'div',
+                { class: 'row' },
+                button('Descargar', { variant: 'secondary', size: 'sm', icon: 'download', onClick: () => downloadRecovery(key), attrs: { 'aria-label': `Descargar copia ${info.reason} ${info.date}` } }),
+                button('Eliminar', { variant: 'danger', size: 'sm', icon: 'trash', onClick: () => deleteRecovery(key, info), attrs: { 'aria-label': `Eliminar copia ${info.reason} ${info.date}`, 'data-edit': 'true' } }),
+              ),
             );
           }),
         )
       : h('p', { class: 'muted small' }, 'Todavía no hay copias de recuperación.'),
-    h('p', { class: 'footnote' }, 'Una copia descargada se puede importar desde "Importar backup JSON".'),
+    h('p', { class: 'footnote' }, 'Una copia descargada se puede importar desde "Importar backup JSON". Las copias ocupan espacio del navegador: si se llena, eliminá las que ya no necesites.'),
   );
 
   // ----------------------------------------------------------- acerca de

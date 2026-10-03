@@ -10,10 +10,16 @@ coverage/
 !.env.example
 *.pem
 *.key
-secrets/
+secrets
 secrets.*
-credentials*.json
+*credentials*
 *credenciales*
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*service-account*.json
+.npmrc
 
 # Sistema / editores
 .DS_Store
