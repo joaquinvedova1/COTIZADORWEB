@@ -1,0 +1,22 @@
+# Dependabot para RATEOS.
+#
+# RATEOS NO tiene dependencias npm (ni runtime ni dev): package.json no declara
+# "dependencies" ni "devDependencies" y no hay package-lock.json. Por eso sólo
+# se revisan las GitHub Actions usadas en .github/workflows/.
+#
+# Si en el futuro se agregan dependencias npm, sumar este bloque en "updates":
+#
+#   - package-ecosystem: "npm"
+#     directory: "/"
+#     schedule:
+#       interval: "monthly"
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    open-pull-requests-limit: 5

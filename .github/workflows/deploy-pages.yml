@@ -1,0 +1,189 @@
+# RATEOS — despliegue a GitHub Pages.
+#
+# Flujo: push a main → tests → build (dist/ + version.json) → deploy.
+# Si los tests fallan, el build y el deploy NO se ejecutan (needs).
+#
+# Rollback: Actions → "Deploy RATEOS a GitHub Pages" → Run workflow →
+# completar "ref" con el commit SHA (corto o completo), tag (p. ej. v0.1.0) o
+# branch a desplegar. Ver docs/DEPLOYMENT.md.
+#
+# Requisito único en el repo: Settings → Pages → Source: "GitHub Actions".
+# No usa secretos: sólo el GITHUB_TOKEN/OIDC que provee GitHub.
+
+name: Deploy RATEOS a GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit SHA, tag o branch a desplegar (vacío = commit actual). Usar para rollback."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un solo despliegue a la vez; nunca se cancela uno en curso.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Historial completo + tags: permite resolver SHAs cortos, tags y
+          # branches pedidos para un rollback.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolver el commit a desplegar
+        id: resolve
+        env:
+          # Se pasa por variable de entorno (nunca interpolado en el script)
+          # para evitar inyección de comandos.
+          REQUESTED_REF: ${{ inputs.ref || github.sha }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$REQUESTED_REF" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$'; then
+            echo "::error::Ref inválida: '$REQUESTED_REF'. Usá un SHA, tag o branch (letras, números, . _ / -)."
+            exit 1
+          fi
+          SHA="$(git rev-parse --verify --quiet "${REQUESTED_REF}^{commit}" \
+            || git rev-parse --verify --quiet "origin/${REQUESTED_REF}^{commit}" \
+            || true)"
+          if [ -z "$SHA" ]; then
+            echo "::error::No se encontró el commit/tag/branch '$REQUESTED_REF' en el repositorio."
+            exit 1
+          fi
+          git checkout --quiet --detach "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Commit a probar y desplegar: $SHA (pedido: $REQUESTED_REF)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verificar que no hay dependencias npm
+        # RATEOS no usa dependencias (ni runtime ni dev), por eso no hay npm ci.
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const fields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "bundleDependencies", "bundledDependencies"];
+            const bad = fields.filter((f) => pkg[f] && Object.keys(pkg[f]).length > 0);
+            if (bad.length) { console.error("package.json declara dependencias: " + bad.join(", ")); process.exit(1); }
+            if (fs.existsSync("package-lock.json")) {
+              const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+              const pkgs = Object.keys(lock.packages || {}).filter((k) => k !== "");
+              const deps = Object.keys(lock.dependencies || {});
+              if (pkgs.length || deps.length) { console.error("package-lock.json contiene dependencias."); process.exit(1); }
+            }
+            console.log("Sin dependencias npm: OK");
+          '
+
+      - name: Tests (npm test)
+        run: npm test
+
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.info.outputs.version }}
+      commit: ${{ steps.info.outputs.commit }}
+      ref: ${{ steps.info.outputs.ref }}
+      build_date: ${{ steps.info.outputs.build_date }}
+    steps:
+      - name: Checkout (mismo commit que pasó los tests)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.test.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build (dist/ + version.json)
+        run: npm run build
+        env:
+          BUILD_REF: ${{ inputs.ref || github.ref_name }}
+          BUILD_SHA: ${{ needs.test.outputs.sha }}
+
+      - name: Leer version.json
+        id: info
+        run: |
+          node -e '
+            const fs = require("fs");
+            const v = JSON.parse(fs.readFileSync("dist/version.json", "utf8"));
+            const out = [
+              "version=" + v.version,
+              "commit=" + v.commit,
+              "ref=" + v.ref,
+              "build_date=" + v.buildDate,
+            ].join("\n") + "\n";
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, out);
+            console.log(JSON.stringify(v));
+          '
+
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Subir artefacto de Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Desplegar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Resumen del despliegue
+        env:
+          APP_VERSION: ${{ needs.build.outputs.version }}
+          APP_COMMIT: ${{ needs.build.outputs.commit }}
+          APP_REF: ${{ needs.build.outputs.ref }}
+          APP_BUILD_DATE: ${{ needs.build.outputs.build_date }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          {
+            echo "## RATEOS desplegado en GitHub Pages"
+            echo ""
+            echo "| Campo | Valor |"
+            echo "|---|---|"
+            echo "| Versión | \`${APP_VERSION}\` |"
+            echo "| Commit (SHA corto) | \`${APP_COMMIT}\` |"
+            echo "| Ref | \`${APP_REF}\` |"
+            echo "| Fecha de build (UTC) | ${APP_BUILD_DATE} |"
+            echo "| Disparado por | ${EVENT_NAME} |"
+            echo "| URL | ${PAGE_URL} |"
+            echo ""
+            echo "En la app: Configuración → Acerca de muestra \`RATEOS · v${APP_VERSION} · build ${APP_COMMIT}\`."
+          } >> "$GITHUB_STEP_SUMMARY"

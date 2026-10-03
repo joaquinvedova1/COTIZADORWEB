@@ -221,10 +221,18 @@ describe('QuoteEngine — matriz tarifa × utilización', () => {
     approx(ten.profit, 0);
   });
 
-  test('la configuración puede cambiar los días de la matriz y la escalera de márgenes', () => {
+  test('la configuración puede cambiar los días de la matriz y la escalera de márgenes (el margen objetivo siempre se incluye)', () => {
     const custom = computeQuote(onCall(), { settings: { matrixDays: [6, 12], marginLadder: [20] } });
     assert.deepEqual(custom.matrix.map((m) => m.activeDays), [6, 8, 12]);
-    assert.deepEqual(custom.matrix[0].byMargin.map((b) => b.marginPct), [20]);
+    // Escalera configurada (20 %) + margen objetivo de la cotización.
+    assert.deepEqual(custom.matrix[0].byMargin.map((b) => b.marginPct), [20, custom.targetMarginPct]);
+  });
+
+  test('la matriz incluye el margen objetivo aunque no esté en la escalera (12 % con escalera 5/10/15)', () => {
+    const q = onCall();
+    q.pricing = { ...q.pricing, targetMarginPct: 12 };
+    const r = computeQuote(q);
+    assert.ok(r.matrix.every((m) => m.byMargin.some((b) => b.marginPct === 12)));
   });
 
   test('el margen personalizado se agrega a la escalera y a la matriz (demo hidrogrúa: 20 %)', () => {

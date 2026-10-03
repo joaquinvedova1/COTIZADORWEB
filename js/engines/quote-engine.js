@@ -130,7 +130,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   // Estructura de costos, matriz, descuentos, completitud
   const eecc = costStructure(model, D);
-  const matrixMargins = unique([...ladder, ...(customMarginPct !== null ? [customMarginPct] : [])]);
+  // La matriz siempre incluye el margen objetivo (aunque no esté en la escalera).
+  const matrixMargins = unique([...ladder, targetMarginPct, ...(customMarginPct !== null ? [customMarginPct] : [])].filter((m) => isValidMarginPct(m) && m > 0));
   const matrix = buildRateUtilizationMatrix(ctx, {
     days: matrixDays(Array.isArray(settings.matrixDays) && settings.matrixDays.length ? settings.matrixDays : [...DEFAULT_MATRIX_DAYS], D),
     marginsPct: matrixMargins,
