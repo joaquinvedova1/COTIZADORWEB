@@ -4,23 +4,24 @@
  */
 
 import { createId } from '../core/ids.js';
-import { deepClone } from '../core/object.js';
+import { deepClone, isPlainObject } from '../core/object.js';
+import { LOCALE, CURRENCY, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
 import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS } from './catalogs.js';
 
 /** Configuración por defecto de la organización (valores ILUSTRATIVOS). */
 export function defaultSettings(organizationId = null) {
   return {
     organizationId,
-    locale: 'es-AR',
-    currency: 'ARS',
+    locale: LOCALE,
+    currency: CURRENCY,
     fuelPricePerLiter: 1500,
     financeMonthlyRatePct: 3,
     defaultTargetMarginPct: 10,
     defaultContingencyPct: 5,
     defaultPaymentTermDays: 60,
     roundingStep: 1000,
-    matrixDays: [5, 8, 10, 15, 20],
-    marginLadder: [5, 10, 15],
+    matrixDays: [...DEFAULT_MATRIX_DAYS],
+    marginLadder: [...DEFAULT_MARGIN_LADDER],
     illustrative: true,
   };
 }
@@ -33,8 +34,17 @@ export function defaultVolumeTiers() {
   return DEFAULT_VOLUME_TIERS.map((t) => ({ ...t }));
 }
 
-/** Nueva cotización vacía con valores por defecto razonables. */
+/**
+ * Nueva cotización vacía.
+ *
+ * Los valores por defecto de una configuración ILUSTRATIVA (la demo) no se
+ * dan por "definidos": el plazo de pago y la contingencia quedan sin cargar y
+ * el precio de combustible se marca ilustrativo, para que el Cost
+ * Completeness Score pida confirmarlos. La actividad estimada siempre queda
+ * vacía: es un dato de cada cotización.
+ */
 export function createEmptyQuote({ organizationId, settings = defaultSettings(), now = new Date().toISOString(), id = createId(), code = '' } = {}) {
+  const ownSettings = settings.illustrative !== true;
   return {
     id,
     organizationId: organizationId ?? null,
@@ -56,7 +66,7 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
       availability: '24/7',
       availabilityWindow: '',
       responseTimeHours: 4,
-      activeDaysPerMonth: 8,
+      activeDaysPerMonth: null,
       daysPerActivation: 1,
       availableDaysPerMonth: 30,
       hoursPerActiveDay: 10,
@@ -66,7 +76,7 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     materials: [],
     materialsNotApplicable: false,
     otherCosts: [],
-    fuel: { pricePerLiter: settings.fuelPricePerLiter ?? 0, providedBy: 'contractor' },
+    fuel: { pricePerLiter: settings.fuelPricePerLiter ?? 0, providedBy: 'contractor', illustrative: !ownSettings },
     logistics: {
       notApplicable: false,
       baseName: '',
@@ -80,14 +90,14 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     },
     indirect: { method: 'percent_direct', pct: 0, amount: 0 },
     finance: {
-      // Se usa el plazo por defecto de la configuración; si no hay, queda sin
-      // definir y el Cost Completeness Score lo marca en rojo.
-      paymentTermDays: Number.isFinite(settings.defaultPaymentTermDays) ? settings.defaultPaymentTermDays : null,
+      // Plazo por defecto sólo si la configuración es propia (no la demo); si
+      // no, queda sin definir y el Cost Completeness Score lo marca en rojo.
+      paymentTermDays: ownSettings && Number.isFinite(settings.defaultPaymentTermDays) ? settings.defaultPaymentTermDays : null,
       invoiceLagDays: 15,
       monthlyRatePct: settings.financeMonthlyRatePct ?? 0,
       payDays: { salaries: 20, fuel: 0, suppliers: 30, materials: 30, structure: 20 },
     },
-    risk: { generalPct: settings.defaultContingencyPct ?? 0, items: defaultRiskItems() },
+    risk: { generalPct: ownSettings ? settings.defaultContingencyPct ?? 0 : 0, items: defaultRiskItems() },
     pricing: {
       targetMarginPct: settings.defaultTargetMarginPct ?? 10,
       customMarginPct: null,
@@ -140,6 +150,8 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
     ppeMonthly: profile.ppeMonthly ?? 0,
     trainingMonthly: profile.trainingMonthly ?? 0,
     transferMonthly: profile.transferMonthly ?? 0,
+    // Valores copiados de un perfil o convenio ILUSTRATIVO siguen marcados.
+    illustrative: Boolean(profile.illustrative || (agreement && agreement.illustrative)),
   };
 }
 
@@ -161,6 +173,7 @@ export function equipmentLineFromLibrary(eq = {}, { id = createId(), hoursPerAct
     maintenancePerHour: eq.maintenancePerHour ?? 0,
     tiresPerHour: eq.tiresPerHour ?? 0,
     fuelLitersPerHour: eq.fuelLitersPerHour ?? 0,
+    illustrative: Boolean(eq.illustrative),
   };
 }
 
@@ -178,6 +191,7 @@ export function materialLineFromLibrary(mat = {}, { id = createId() } = {}) {
     logisticsPct: mat.logisticsPct ?? 0,
     resaleMarkupPct: mat.resaleMarkupPct ?? 0,
     providedBy: mat.providedBy ?? null,
+    illustrative: Boolean(mat.illustrative),
   };
 }
 
@@ -219,10 +233,31 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
     serviceType: template.serviceType || defaults.serviceType || base.serviceType,
     name: defaults.name || template.name || base.name,
   };
-  // Las líneas de la plantilla reciben ids nuevos para no compartir identidad.
+  // Las líneas de la plantilla reciben ids nuevos para no compartir identidad
+  // y, si la plantilla es ILUSTRATIVA, siguen marcadas como ilustrativas hasta
+  // que el usuario confirme valores propios.
+  const fromIllustrative = template.illustrative === true;
+  const mark = (line) => ({ ...line, id: createId(), illustrative: Boolean(line.illustrative || fromIllustrative) });
   ['labor', 'equipment', 'materials', 'otherCosts'].forEach((k) => {
-    merged[k] = (merged[k] || []).map((line) => ({ ...line, id: createId() }));
+    merged[k] = (Array.isArray(merged[k]) ? merged[k] : []).filter(isPlainObject).map(mark);
   });
-  merged.logistics.vehicles = (merged.logistics.vehicles || []).map((v) => ({ ...v, id: createId() }));
+  merged.logistics.vehicles = (Array.isArray(merged.logistics.vehicles) ? merged.logistics.vehicles : []).filter(isPlainObject).map(mark);
+  if (fromIllustrative && isPlainObject(defaults.fuel) && defaults.fuel.pricePerLiter !== undefined) {
+    merged.fuel = { ...merged.fuel, illustrative: true };
+  }
   return merged;
+}
+
+/**
+ * ¿La cotización tiene valores ILUSTRATIVOS? (demo, plantillas o recursos de
+ * biblioteca de demostración). Se usa para badges y avisos en la interfaz.
+ * @returns {{ any: boolean, quote: boolean, lines: number, fuel: boolean }}
+ */
+export function illustrativeInfo(quote = {}) {
+  const lists = ['labor', 'equipment', 'materials', 'otherCosts'].map((k) => (Array.isArray(quote[k]) ? quote[k] : []));
+  const vehicles = quote.logistics && Array.isArray(quote.logistics.vehicles) ? quote.logistics.vehicles : [];
+  const lines = [...lists.flat(), ...vehicles].filter((l) => isPlainObject(l) && l.illustrative === true).length;
+  const fuel = Boolean(quote.fuel && quote.fuel.illustrative === true);
+  const whole = quote.illustrative === true;
+  return { any: whole || lines > 0 || fuel, quote: whole, lines, fuel };
 }

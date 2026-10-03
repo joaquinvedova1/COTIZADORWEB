@@ -13,6 +13,7 @@
 import { DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
 import { nonNegative, toNumber, safeDivide, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
+import { formatPercent } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
 import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor } from './cost-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition } from './economics-engine.js';
@@ -32,12 +33,35 @@ function unique(values) {
   return [...new Set(values)];
 }
 
+/**
+ * Menor cantidad de DÍAS ACTIVOS con la que se alcanzan `billableDays` días
+ * facturables (con minimum call, cada activación factura más días de los
+ * trabajados). Es el peor caso del tramo: la menor actividad que ya recibe
+ * ese descuento.
+ */
+export function minActiveDaysForBillableDays(ctx, billableDays) {
+  const a = ctx.activity;
+  const dpa = a.daysPerActivation > 0 ? a.daysPerActivation : 1;
+  const minCall = normalizeRules(ctx.rules).minimumCallUnits;
+  const bd = nonNegative(billableDays);
+  if (ctx.unit === 'hour') {
+    const h = a.hoursPerActiveDay;
+    if (!(h > 0)) return bd;
+    const perActivation = Math.max(dpa * h, minCall);
+    return perActivation > 0 ? (bd * dpa * h) / perActivation : bd;
+  }
+  const perActivation = Math.max(dpa, minCall);
+  return perActivation > 0 ? (bd * dpa) / perActivation : bd;
+}
+
 /** Evalúa cada tramo de descuento por cantidad de días (peor caso del tramo). */
 export function evaluateDiscountTiers(ctx, listRate, targetMarginPct) {
   if (ctx.unit === 'month' || !isFiniteNumber(listRate)) return [];
   const rules = normalizeRules(ctx.rules);
   return rules.volumeTiers.map((tier) => {
-    const days = Math.max(tier.fromDays, 1);
+    // Peor caso: la menor actividad que ya cae en el tramo (con minimum call,
+    // menos días activos que los días facturables del tramo).
+    const days = Math.max(minActiveDaysForBillableDays(ctx, Math.max(tier.fromDays, 1)), 1e-6);
     const rates = requiredRatesAt(ctx, days, [targetMarginPct], { tierOverride: tier });
     const evaluation = evaluateAt(ctx, days, listRate, { tierOverride: tier });
     const netRate = listRate * rates.discountFactor;
@@ -126,7 +150,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       return e.profit - (targetMarginPct / 100) * e.revenue.total;
     }, { maxDays });
   }
-  const linear = linearDecomposition(ctx, hasRate ? commercialListRate : 0, D > 0 ? D : 1);
+  // La traza del break-even se arma en el punto de equilibrio (allí rige el
+  // tramo de descuento que realmente aplica); si no se alcanza, con la
+  // actividad estimada.
+  const linearReferenceDays = breakEven.reachable && breakEven.days > 0 ? Math.max(breakEven.days, 1) : D > 0 ? D : 1;
+  const linear = linearDecomposition(ctx, hasRate ? commercialListRate : 0, linearReferenceDays);
 
   // Estructura de costos, matriz, descuentos, completitud
   const eecc = costStructure(model, D);
@@ -183,8 +211,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     commercialSource: hasRate ? commercialSource : 'none',
     revenue: estimate.revenue.total,
     profit: estimate.profit,
-    marginPct: estimate.marginPct,
-    markupPct: estimate.markupPct,
+    // Sin tarifa comercial no hay margen de la cotización (sólo otros ingresos).
+    marginPct: hasRate ? estimate.marginPct : null,
+    markupPct: hasRate ? estimate.markupPct : null,
     breakEvenDays: breakEven.days,
     breakEvenWholeDays: breakEven.wholeDays,
     targetMarginDays: targetMarginDays.days,
@@ -195,7 +224,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     workingCapital,
     logisticsMonthly,
     logisticsIncidencePct: costAt.total > 0 ? (logisticsMonthly / costAt.total) * 100 : null,
-    belowFloor: hasRate && isFiniteNumber(ratesAtEstimate.floorNetRate) ? commercialNetRate < ratesAtEstimate.floorNetRate - 1e-6 : false,
+    // Tarifa neta debajo de la tarifa piso (que no cuenta el mínimo garantizado).
+    belowFloorRate: hasRate && isFiniteNumber(ratesAtEstimate.floorNetRate) ? commercialNetRate < ratesAtEstimate.floorNetRate - 1e-6 : false,
+    // "Bajo piso" = la tarifa no cubre el costo Y el mes da pérdida (si un
+    // mínimo garantizado cubre la diferencia, no se pierde dinero).
+    belowFloor: hasRate && isFiniteNumber(ratesAtEstimate.floorNetRate) ? commercialNetRate < ratesAtEstimate.floorNetRate - 1e-6 && estimate.profit < 0 : false,
     belowTarget: hasRate && isFiniteNumber(estimate.marginPct) ? estimate.marginPct < targetMarginPct - 1e-9 : false,
     incomplete: completeness.scorePct < COMPLETENESS_RISK_THRESHOLD,
     // Riesgo: sin tarifa, pierde dinero, no llega al margen objetivo o le faltan costos relevantes.
@@ -232,13 +265,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     floorRate: createTrace({
       id: 'floor_rate',
       title: `Tarifa piso (por ${unitLabel})`,
-      formula: 'Tarifa piso = (Costo total − Otros ingresos) / Unidades facturables',
+      formula: 'Tarifa piso neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos',
       inputs: [
         { label: 'Costo total del mes', value: ratesAtEstimate.totalCost, format: 'money' },
         { label: 'Otros ingresos (fees, standby, km)', value: ratesAtEstimate.otherRevenue, format: 'money' },
         { label: `Unidades facturables (${unitLabel}s)`, value: ratesAtEstimate.billableUnits, format: 'number' },
+        { label: 'Factor de descuentos (tramo × continuidad × comercial)', value: ratesAtEstimate.discountFactor, format: 'number' },
       ],
-      result: { label: 'Tarifa piso neta', value: ratesAtEstimate.floorNetRate, format: 'money' },
+      steps: [{ label: 'Tarifa piso neta (lo que efectivamente cobrás por unidad)', value: ratesAtEstimate.floorNetRate, format: 'money' }],
+      result: { label: 'Tarifa piso de lista (la que escribís en la cotización)', value: ratesAtEstimate.floorListRate, format: 'money' },
       notes: [
         D <= 0 ? 'Sin días activos no hay tarifa por día posible: cargá la actividad estimada.' : null,
         ratesAtEstimate.floorCoveredByOtherRevenue ? 'Los otros ingresos ya cubren el costo.' : null,
@@ -278,7 +313,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       steps: [{ label: 'Facturación total', value: estimate.revenue.total, format: 'money' }],
       result: { label: 'Resultado', value: estimate.profit, format: 'money' },
-      notes: [isFiniteNumber(estimate.marginPct) ? `Margen sobre precio: ${estimate.marginPct.toFixed(2)} %. Markup sobre costo: ${isFiniteNumber(estimate.markupPct) ? estimate.markupPct.toFixed(2) : '—'} %.` : null],
+      notes: [hasRate && isFiniteNumber(estimate.marginPct) ? `Margen sobre precio: ${formatPercent(estimate.marginPct)}. Markup sobre costo: ${formatPercent(estimate.markupPct)}.` : null],
     }),
     financialCost: createTrace({
       id: 'financial_cost',

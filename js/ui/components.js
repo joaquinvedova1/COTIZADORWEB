@@ -5,7 +5,7 @@
 
 import { h, s, uniqueId, mount } from './dom.js';
 import { formatValue, EMPTY } from '../core/format.js';
-import { validateNumber } from '../core/validation.js';
+import { validateNumber, numberToInputText } from '../core/validation.js';
 import { track } from '../core/events.js';
 
 // ------------------------------------------------------------------ íconos
@@ -167,39 +167,70 @@ function fieldShell({ id, label, hint, unit, error, required, illustrative }, co
 }
 
 /**
- * Campo numérico con validación.
- * onChange(value:number|null) sólo se llama con valores válidos.
+ * Campo numérico con validación (formato argentino: "1.800.000,50").
+ * - onChange(value:number|null) se llama en vivo SÓLO con valores válidos.
+ * - Si al confirmar (salir del campo / Enter) el valor es inválido, se
+ *   restaura el valor que tenía al entrar al campo: nunca queda guardado un
+ *   prefijo intermedio (p. ej. "15" al tipear "150" en un margen).
  * @param {{ label: string, value: number|null, rule?: string, onChange: Function, hint?: string, unit?: string, required?: boolean, step?: string|number, placeholder?: string, disabled?: boolean, illustrative?: boolean, name?: string }} opts
  */
-export function numberField({ label, value, rule = 'money', onChange, hint = null, unit = null, required = false, step = 'any', placeholder = '', disabled = false, illustrative = false, name = null }) {
+export function numberField({ label, value, rule = 'money', onChange, hint = null, unit = null, required = false, placeholder = '', disabled = false, illustrative = false, name = null }) {
   const id = uniqueId('num');
   const input = h('input', {
     id,
     name,
-    type: 'number',
+    type: 'text',
     inputmode: 'decimal',
-    step: String(step),
-    value: value === null || value === undefined ? '' : String(value),
+    autocomplete: 'off',
+    value: numberToInputText(value),
     placeholder,
     disabled,
     'aria-describedby': hint ? `${id}-hint ${id}-error` : `${id}-error`,
   });
   const { el, errorEl } = fieldShell({ id, label, hint, unit, required, illustrative }, input);
-  const handle = () => {
-    const r = validateNumber(input.value, rule, { required });
-    if (!r.ok) {
-      input.setAttribute('aria-invalid', 'true');
-      errorEl.textContent = r.error;
-      errorEl.hidden = false;
-      return;
-    }
+  let committedValue = value === undefined ? null : value;
+  let focusValue = committedValue;
+  let focusText = input.value;
+  const showError = (message) => {
+    input.setAttribute('aria-invalid', 'true');
+    errorEl.textContent = message;
+    errorEl.hidden = false;
+  };
+  const clearError = () => {
     input.removeAttribute('aria-invalid');
     errorEl.textContent = '';
     errorEl.hidden = true;
-    if (typeof onChange === 'function') onChange(r.value);
   };
-  input.addEventListener('input', handle);
-  input.addEventListener('change', handle);
+  const emit = (v) => {
+    committedValue = v;
+    if (typeof onChange === 'function') onChange(v);
+  };
+  input.addEventListener('focus', () => {
+    focusValue = committedValue;
+    focusText = input.value;
+  });
+  input.addEventListener('input', () => {
+    const r = validateNumber(input.value, rule, { required });
+    if (!r.ok) {
+      showError(r.error);
+      return;
+    }
+    clearError();
+    emit(r.value);
+  });
+  input.addEventListener('change', () => {
+    const r = validateNumber(input.value, rule, { required });
+    if (r.ok) {
+      clearError();
+      if (r.value !== committedValue) emit(r.value);
+      return;
+    }
+    // Valor inválido al confirmar: se vuelve al valor previo al foco.
+    const message = r.error;
+    input.value = focusText;
+    if (committedValue !== focusValue) emit(focusValue);
+    showError(`${message} Se restauró el valor anterior.`);
+  });
   return el;
 }
 

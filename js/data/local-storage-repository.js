@@ -547,13 +547,15 @@ export class LocalStorageRepository extends StorageRepository {
 
   /**
    * Conserva sólo las MAX_RECOVERY_SNAPSHOTS copias más recientes de cada
-   * tipo. Las copias de datos dañados ("corrupt") se podan aparte para que
+   * tipo. Las copias de datos dañados ("corrupt" e "invalid") se podan aparte para que
    * importaciones o restauraciones posteriores nunca borren la única copia
    * del texto original dañado.
    */
   pruneRecoverySnapshots() {
     const keys = this.listRecoverySnapshots();
-    const isCorrupt = (k) => /\.corrupt(\.\d+)?$/.test(k);
+    // Copias del texto original dañado o con estructura inválida: pueden ser
+    // la única copia de esos datos, se cuentan aparte.
+    const isCorrupt = (k) => /\.(corrupt|invalid)(\.\d+)?$/.test(k);
     keys.filter((k) => !isCorrupt(k)).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.storage.removeItem(k));
     keys.filter(isCorrupt).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.storage.removeItem(k));
   }

@@ -30,6 +30,47 @@ export const RULES = Object.freeze({
 });
 
 /**
+ * Interpreta un número escrito como lo escribe una persona en Argentina.
+ *   "1.800.000"     → 1800000   (punto = separador de miles)
+ *   "1.800.000,50"  → 1800000.5 (coma = decimal)
+ *   "8,5" / "8.5"   → 8.5       (un único separador no agrupado de a 3 = decimal)
+ *   "$ 250.000"     → 250000    (se ignoran $, % y espacios)
+ * Formatos ambiguos o mixtos inválidos ("1,234.56", "1.2.3", "1e5") → NaN.
+ * @param {string|number|null|undefined} raw
+ * @returns {number} número, o NaN si no se puede interpretar sin ambigüedad
+ */
+export function parseDecimalInput(raw) {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : NaN;
+  if (raw === null || raw === undefined) return NaN;
+  const t = String(raw)
+    .replace(/[\s\u00A0\u202F]/g, '')
+    .replace(/^\$|^ARS/i, '')
+    .replace(/%$/, '');
+  if (t === '' || t === '-') return NaN;
+  if (/^-?\d+$/.test(t)) return Number(t);
+  const hasDot = t.includes('.');
+  const hasComma = t.includes(',');
+  if (hasDot && hasComma) {
+    // es-AR: punto de miles y coma decimal.
+    return /^-?\d{1,3}(\.\d{3})+,\d+$/.test(t) ? Number(t.replace(/\./g, '').replace(',', '.')) : NaN;
+  }
+  if (hasComma) return /^-?\d*,\d+$/.test(t) ? Number(t.replace(',', '.')) : NaN;
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ''));
+  return /^-?\d*\.\d+$/.test(t) ? Number(t) : NaN;
+}
+
+/**
+ * Texto para mostrar un número dentro de un input editable (coma decimal,
+ * sin separador de miles): ida y vuelta segura con parseDecimalInput.
+ */
+export function numberToInputText(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const n = typeof value === 'number' ? value : parseDecimalInput(value);
+  if (!Number.isFinite(n)) return '';
+  return String(n).replace('.', ',');
+}
+
+/**
  * Valida un valor crudo según una regla.
  * @param {string|number|null|undefined} raw
  * @param {keyof RULES} ruleName
@@ -43,8 +84,10 @@ export function validateNumber(raw, ruleName, { required = false } = {}) {
       ? { ok: false, value: null, error: 'Campo obligatorio.' }
       : { ok: true, value: null, error: null };
   }
-  const value = toNumber(typeof raw === 'string' ? raw.replace(',', '.') : raw, NaN);
-  if (!Number.isFinite(value)) return { ok: false, value: null, error: 'Ingresá un número válido.' };
+  const value = typeof raw === 'string' ? parseDecimalInput(raw) : toNumber(raw, NaN);
+  if (!Number.isFinite(value)) {
+    return { ok: false, value: null, error: 'Ingresá un número válido (usá coma para decimales y punto para miles, p. ej. 1.800.000,50).' };
+  }
   if (rule.integer && !Number.isInteger(value)) return { ok: false, value: null, error: rule.message };
   if (rule.exclusiveMin ? value <= rule.min : value < rule.min) return { ok: false, value: null, error: rule.message };
   if (rule.max !== undefined && (rule.exclusiveMax ? value >= rule.max : value > rule.max)) {

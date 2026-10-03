@@ -18,6 +18,7 @@
  * Todos los porcentajes se expresan en puntos (10 = 10 %).
  */
 
+import { DEFAULT_MARGIN_LADDER } from '../config.js';
 import { isFiniteNumber, nonNegative, safeDivide, roundUpToStep } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
 
@@ -78,7 +79,7 @@ export function floorRate(totalCost, units) {
  * Escalera de precios para un costo dado.
  * @returns {{ label: string, marginPct: number, price: number|null, markupPct: number|null }[]}
  */
-export function priceLadder(cost, marginsPct = [5, 10, 15], customMarginPct = null) {
+export function priceLadder(cost, marginsPct = DEFAULT_MARGIN_LADDER, customMarginPct = null) {
   const rows = [{ key: 'floor', label: 'Tarifa piso', marginPct: 0, price: floorPrice(cost), markupPct: 0 }];
   marginsPct.forEach((m) => {
     rows.push({ key: `m${m}`, label: `Margen ${m} %`, marginPct: m, price: priceFromMargin(cost, m), markupPct: marginToMarkup(m) });
@@ -108,15 +109,15 @@ export function traceMarginVsMarkup(cost, pctValue) {
     title: 'Margen vs markup',
     formula: 'Precio por margen = Costo / (1 − margen) · Precio por markup = Costo × (1 + markup)',
     inputs: [
-      { label: 'Costo', value: cost, format: 'money' },
+      { label: 'Costo', value: cost, format: 'money2' },
       { label: 'Porcentaje', value: pctValue, format: 'percent' },
     ],
     steps: [
-      { label: `Precio con margen ${pctValue} % sobre precio`, value: priceFromMargin(cost, pctValue), format: 'money' },
-      { label: `Precio con markup ${pctValue} % sobre costo`, value: priceFromMarkup(cost, pctValue), format: 'money' },
+      { label: `Precio con margen ${pctValue} % sobre precio`, value: priceFromMargin(cost, pctValue), format: 'money2' },
+      { label: `Precio con markup ${pctValue} % sobre costo`, value: priceFromMarkup(cost, pctValue), format: 'money2' },
       { label: `Markup equivalente a margen ${pctValue} %`, value: marginToMarkup(pctValue), format: 'percent' },
     ],
-    result: { label: 'Diferencia de precio', value: (priceFromMargin(cost, pctValue) ?? 0) - (priceFromMarkup(cost, pctValue) ?? 0), format: 'money' },
+    result: { label: 'Diferencia de precio', value: (priceFromMargin(cost, pctValue) ?? 0) - (priceFromMarkup(cost, pctValue) ?? 0), format: 'money2' },
     notes: ['El margen se calcula sobre el precio de venta; el markup, sobre el costo. No son equivalentes.'],
   });
 }

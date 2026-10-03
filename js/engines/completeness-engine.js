@@ -22,6 +22,17 @@ const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
 
+/** Colores del puntaje en toda la interfaz: verde ≥ 85, naranja ≥ 60, rojo < 60. */
+export const COMPLETENESS_GREEN_THRESHOLD = 85;
+
+/** Tono (green | orange | red) de un puntaje de completitud. */
+export function completenessTone(scorePct) {
+  if (!Number.isFinite(scorePct)) return 'red';
+  if (scorePct >= COMPLETENESS_GREEN_THRESHOLD) return 'green';
+  if (scorePct >= COMPLETENESS_RISK_THRESHOLD) return 'orange';
+  return 'red';
+}
+
 function rule(id, label, step, weight, status, message) {
   return { id, label, step, weight, status, color: status === 'ok' ? 'green' : status === 'warning' ? 'orange' : status === 'missing' ? 'red' : 'gray', message };
 }
@@ -105,6 +116,9 @@ export function evaluateCompleteness(quote = {}) {
     } else if (fuel.providedBy !== 'client' && (nonNegative(fuel.pricePerLiter) <= 0 || !consumesFuel)) {
       status = 'missing';
       message = nonNegative(fuel.pricePerLiter) <= 0 ? 'Falta el precio del combustible.' : 'Falta el consumo de combustible de equipos o vehículos.';
+    } else if (fuel.providedBy !== 'client' && fuel.illustrative === true) {
+      status = 'warning';
+      message = 'El precio del combustible es un valor ILUSTRATIVO por defecto: confirmalo con tu precio actual.';
     }
     items.push(rule('fuel', 'Combustible', 'logistics', 2, status, message));
   }

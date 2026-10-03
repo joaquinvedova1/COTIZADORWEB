@@ -78,8 +78,9 @@ export function normalizeRules(rules = {}) {
     includedKmPerActivation: nonNegative(rules.includedKmPerActivation),
     extraKmRate: nonNegative(rules.extraKmRate),
     minimumCallUnits: nonNegative(rules.minimumCallUnits),
-    standbyDaysPerMonth: nonNegative(rules.standbyDaysPerMonth),
-    standbyRatePerDay: nonNegative(rules.standbyRatePerDay),
+    // "No aplica standby" anula días e ingresos de standby.
+    standbyDaysPerMonth: rules.standbyNotApplicable === true ? 0 : nonNegative(rules.standbyDaysPerMonth),
+    standbyRatePerDay: rules.standbyNotApplicable === true ? 0 : nonNegative(rules.standbyRatePerDay),
     volumeTiers: normalizeTiers(rules.volumeTiers),
     continuityMinMonths: nonNegative(rules.continuityMinMonths),
     continuityDiscountPct: Math.min(nonNegative(rules.continuityDiscountPct), 100),

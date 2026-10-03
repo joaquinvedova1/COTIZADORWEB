@@ -11,7 +11,7 @@ import { DEFAULT_SCENARIOS } from '../config.js';
 import { deepClone } from '../core/object.js';
 import { nonNegative, toNumber, pct, isFiniteNumber } from '../core/money.js';
 import { computeQuote } from './quote-engine.js';
-import { buildCostModel, costAtActivity, normalizeActivity } from './cost-engine.js';
+import { buildCostModel, costAtActivity, normalizeActivity, monthsFactor } from './cost-engine.js';
 import { findBreakEvenDays } from './break-even-engine.js';
 import { marginFromPrice } from './pricing-engine.js';
 
@@ -51,10 +51,16 @@ export function applySensitivity(quote, deltas = {}) {
   });
 
   q.activity = q.activity || {};
-  // Mismos días disponibles que usa el motor (0 o inválido → 30).
-  const available = normalizeActivity(q).availableDaysPerMonth;
-  const active = nonNegative(q.activity.activeDaysPerMonth) * factor(deltas.activityPct);
-  q.activity.activeDaysPerMonth = Math.min(active, available);
+  // Sólo se tocan los días activos si hay variación de actividad (con 0 el
+  // escenario es idéntico a la base, aun si la base supera los disponibles).
+  if (toNumber(deltas.activityPct, 0) !== 0) {
+    // Mismos días disponibles que usa el motor (0 o inválido → 30); nunca se
+    // recorta por debajo de la actividad base.
+    const available = normalizeActivity(q).availableDaysPerMonth;
+    const baseActive = nonNegative(q.activity.activeDaysPerMonth);
+    const active = baseActive * factor(deltas.activityPct);
+    q.activity.activeDaysPerMonth = Math.min(active, Math.max(available, baseActive));
+  }
 
   q.finance = q.finance || {};
   if (toNumber(deltas.paymentTermDays, 0) !== 0) {
@@ -182,10 +188,13 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
   const variablePerDay = model.variablePerActiveDay;
   const p = C(De) / (k * De);
 
+  // Montos mensuales (fee, mínimo) se prorratean igual que los costos fijos
+  // cuando los días superan los disponibles (trabajo de más de un mes).
+  const mf = (D) => monthsFactor(D, available);
   const definitions = [
     { id: 'day_rate', label: 'Sólo tarifa por día', params: { ratePerDay: p }, revenue: (D) => p * D },
-    { id: 'availability_plus_day', label: 'Fee de disponibilidad + tarifa por día', params: { availabilityFee: fixed / k, ratePerDay: variablePerDay / k }, revenue: (D) => fixed / k + (variablePerDay / k) * D },
-    { id: 'guarantee_plus_day', label: 'Mínimo garantizado + tarifa por día', params: { minimumGuarantee: fixed, ratePerDay: p }, revenue: (D) => Math.max(fixed, p * D) },
+    { id: 'availability_plus_day', label: 'Fee de disponibilidad + tarifa por día', params: { availabilityFee: fixed / k, ratePerDay: variablePerDay / k }, revenue: (D) => (fixed / k) * mf(D) + (variablePerDay / k) * D },
+    { id: 'guarantee_plus_day', label: 'Mínimo garantizado + tarifa por día', params: { minimumGuarantee: fixed, ratePerDay: p }, revenue: (D) => Math.max(fixed * mf(D), p * D) },
     { id: 'package_plus_excess', label: 'Paquete mensual + excedentes', params: { packagePrice: C(De) / k, includedDays: De, excessRatePerDay: p }, revenue: (D) => C(De) / k + p * Math.max(0, D - De) },
   ];
 

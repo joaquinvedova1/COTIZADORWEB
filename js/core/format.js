@@ -31,6 +31,15 @@ export function formatMoney(value, { decimals = 0 } = {}) {
   return text;
 }
 
+/**
+ * Tarifa mínima mostrada sin decimales SIEMPRE hacia arriba: cobrar la cifra
+ * que se ve nunca deja debajo del piso u objetivo (4.444.444,44 → $ 4.444.445).
+ */
+export function formatMoneyCeil(value) {
+  if (!isFiniteNumber(value)) return EMPTY;
+  return formatMoney(Math.ceil(value - 1e-9));
+}
+
 /** 1.234,5 */
 export function formatNumber(value, { decimals = 0, minDecimals = 0 } = {}) {
   if (!isFiniteNumber(value)) return EMPTY;
@@ -78,6 +87,10 @@ export function formatValue(value, format = 'number', unit = '') {
   switch (format) {
     case 'money':
       return formatMoney(value);
+    case 'money2':
+      return formatMoney(value, { decimals: 2 });
+    case 'moneyCeil':
+      return formatMoneyCeil(value);
     case 'rate':
       return formatMoney(value, { decimals: Math.abs(value) < 100 && isFiniteNumber(value) ? 2 : 0 });
     case 'percent':

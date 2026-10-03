@@ -124,7 +124,11 @@ describe('QuoteService.createQuote', () => {
     assert.equal(quote.equipment.length, template.defaults.equipment.length);
     assert.equal(quote.materials.length, template.defaults.materials.length);
     assert.equal(quote.logistics.vehicles.length, template.defaults.logistics.vehicles.length);
-    const strip = ({ id, ...rest }) => rest;
+    // Las líneas copiadas de una plantilla ILUSTRATIVA siguen marcadas como ilustrativas.
+    for (const line of [...quote.labor, ...quote.equipment, ...quote.materials, ...quote.logistics.vehicles]) {
+      assert.equal(line.illustrative, true, 'línea copiada de plantilla demo marcada ILUSTRATIVA');
+    }
+    const strip = ({ id, illustrative, ...rest }) => rest;
     assert.deepEqual(quote.labor.map(strip), template.defaults.labor.map(strip));
     assert.deepEqual(quote.equipment.map(strip), template.defaults.equipment.map(strip));
     assert.deepEqual(quote.pricing, template.defaults.pricing);

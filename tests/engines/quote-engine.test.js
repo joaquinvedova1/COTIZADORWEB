@@ -274,9 +274,16 @@ describe('QuoteEngine — reglas comerciales en la cotización', () => {
   });
 
   test('standby: 2 días × 500.000 = 1M de ingreso fijo → break-even (30M − 1M) / 3M = 9,67 días', () => {
-    const r = computeQuote(onCall({ rules: { standbyDaysPerMonth: 2, standbyRatePerDay: 500_000 } }));
+    const r = computeQuote(onCall({ rules: { standbyNotApplicable: false, standbyDaysPerMonth: 2, standbyRatePerDay: 500_000 } }));
     approx(r.kpis.revenue, 33_000_000);
     approx(r.kpis.breakEvenDays, 29 / 3);
+  });
+
+  test('"No aplica standby" anula días e ingresos de standby aunque haya valores cargados', () => {
+    const r = computeQuote(onCall({ rules: { standbyNotApplicable: true, standbyDaysPerMonth: 2, standbyRatePerDay: 500_000 } }));
+    approx(r.kpis.revenue, 32_000_000);
+    approx(r.kpis.breakEvenDays, 10);
+    assert.equal(r.model.standby.monthly, 0);
   });
 
   test('minimum call de 2 días por llamado de 1 día: factura 16 días (64M) → break-even 30M / 7M = 4,29 días', () => {

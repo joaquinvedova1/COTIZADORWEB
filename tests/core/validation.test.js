@@ -7,7 +7,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RULES, validateNumber, validateQuote, sanitizeText } from '../../js/core/validation.js';
+import { RULES, validateNumber, validateQuote, sanitizeText, parseDecimalInput, numberToInputText } from '../../js/core/validation.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { createEmptyQuote } from '../../js/domain/quote-factory.js';
 import { deepClone, setPath } from '../../js/core/object.js';
@@ -121,7 +121,7 @@ describe('validateNumber — vacíos, texto y coma decimal', () => {
       const r = validateNumber(bad, 'money');
       assert.equal(r.ok, false, String(bad));
       assert.equal(r.value, null);
-      assert.equal(r.error, 'Ingresá un número válido.');
+      assert.match(r.error, /^Ingresá un número válido/);
     }
   });
 
@@ -242,5 +242,32 @@ describe('sanitizeText', () => {
 
   test('no interpreta HTML (sólo texto)', () => {
     assert.equal(sanitizeText('<img src=x onerror=alert(1)>'), '<img src=x onerror=alert(1)>');
+  });
+});
+
+describe('parseDecimalInput — números como se escriben en Argentina (regresión QA-E2E-02)', () => {
+  test('punto de miles y coma decimal', () => {
+    assert.equal(parseDecimalInput('1.800.000'), 1800000);
+    assert.equal(parseDecimalInput('1.800.000,50'), 1800000.5);
+    assert.equal(parseDecimalInput('$ 1.800.000'), 1800000);
+    assert.equal(parseDecimalInput('250.000'), 250000);
+  });
+  test('un único separador no agrupado de a 3 es decimal', () => {
+    assert.equal(parseDecimalInput('8,5'), 8.5);
+    assert.equal(parseDecimalInput('8.5'), 8.5);
+    assert.equal(parseDecimalInput('8,33'), 8.33);
+    assert.equal(parseDecimalInput('0.5'), 0.5);
+    assert.equal(parseDecimalInput('12 %'), 12);
+  });
+  test('formatos ambiguos o mixtos inválidos → NaN (nunca un número distinto en silencio)', () => {
+    for (const bad of ['1,234.56', '1.2.3', '1e5', '1,2,3', 'abc', '', '-']) assert.ok(Number.isNaN(parseDecimalInput(bad)), bad);
+  });
+  test('validateNumber usa el mismo criterio: "1.800.000" no se guarda como 1,8', () => {
+    assert.equal(validateNumber('1.800.000', 'money').value, 1800000);
+    assert.equal(validateNumber('1800000,50', 'money').value, 1800000.5);
+  });
+  test('numberToInputText hace ida y vuelta segura (coma decimal, sin miles)', () => {
+    for (const v of [0, 8.333, 1800000, 1800000.5, 0.25]) assert.equal(parseDecimalInput(numberToInputText(v)), v);
+    assert.equal(numberToInputText(null), '');
   });
 });

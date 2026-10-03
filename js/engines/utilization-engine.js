@@ -9,6 +9,7 @@
  *   tarifa necesaria(D, margen) = (Costo(D) / (1 − margen) − otrosIngresos(D)) / unidades(D)
  */
 
+import { DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
 import { nonNegative, safeDivide, clamp } from '../core/money.js';
 import { evaluateAt, requiredRatesAt } from './economics-engine.js';
 
@@ -24,7 +25,7 @@ export function activeDaysFromUtilization(utilization, availableDays) {
 }
 
 /** Lista de días de la matriz: los configurados + la actividad estimada. */
-export function matrixDays(configured = [5, 8, 10, 15, 20], estimatedDays = null) {
+export function matrixDays(configured = DEFAULT_MATRIX_DAYS, estimatedDays = null) {
   const set = new Set(configured.map((d) => nonNegative(d)).filter((d) => d > 0));
   const est = nonNegative(estimatedDays);
   if (est > 0) set.add(est);
@@ -36,7 +37,7 @@ export function matrixDays(configured = [5, 8, 10, 15, 20], estimatedDays = null
  * @param {object} ctx contexto económico (economics-engine)
  * @param {{ days: number[], marginsPct: number[], commercialListRate: number|null, estimatedDays: number }} options
  */
-export function buildRateUtilizationMatrix(ctx, { days, marginsPct = [5, 10, 15], commercialListRate = null, estimatedDays = null }) {
+export function buildRateUtilizationMatrix(ctx, { days, marginsPct = DEFAULT_MARGIN_LADDER, commercialListRate = null, estimatedDays = null }) {
   return days.map((D) => {
     const rates = requiredRatesAt(ctx, D, marginsPct);
     const evaluation = commercialListRate !== null ? evaluateAt(ctx, D, commercialListRate) : null;

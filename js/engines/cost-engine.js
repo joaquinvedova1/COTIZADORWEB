@@ -101,7 +101,7 @@ export function buildCostModel(quote = {}) {
   // Standby: días en locación sin operar. Se costea el variable de personal
   // (vianda + horas extra) de cada día de standby. Es un monto mensual estimado.
   const rules = quote.rules || {};
-  const standbyDays = nonNegative(rules.standbyDaysPerMonth);
+  const standbyDays = rules.standbyNotApplicable === true ? 0 : nonNegative(rules.standbyDaysPerMonth);
   const standbyCostPerDay = labor.variablePerActiveDay;
   const standbyMonthly = standbyDays * standbyCostPerDay;
   if (standbyMonthly > 0) {
@@ -389,12 +389,12 @@ export function traceTotalCost(model, activeDays) {
   return createTrace({
     id: 'total_cost',
     title: 'Costo total mensual',
-    formula: 'Costo = Fijos mensuales × factor meses + Variable por día activo × Días activos',
+    formula: 'Costo = Fijos mensuales × meses de costo fijo + Variable por día activo × Días activos',
     inputs: [
       { label: 'Costos fijos mensuales (incluye estructura, financiero y contingencia)', value: model.fixedMonthly, format: 'money' },
       { label: 'Costo variable por día activo', value: model.variablePerActiveDay, format: 'money' },
       { label: 'Días activos', value: at.activeDays, format: 'days' },
-      { label: 'Factor meses', value: at.monthsFactor, format: 'number' },
+      { label: 'Meses de costo fijo (1 = un mes; más si los días superan los disponibles)', value: at.monthsFactor, format: 'number' },
     ],
     steps: [
       { label: 'Fijos', value: at.fixed, format: 'money' },

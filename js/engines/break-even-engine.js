@@ -116,7 +116,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
     inputs: [
       { label: 'Costos fijos mensuales', value: fixedCosts, format: 'money' },
       ...(fixedRevenue > 0 ? [{ label: 'Ingresos fijos (fee de disponibilidad, standby)', value: fixedRevenue, format: 'money' }] : []),
-      { label: `Tarifa neta por día activo (${unitLabel})`, value: ratePerDay, format: 'money' },
+      { label: `Ingreso por tarifa por día activo (tarifa neta por ${unitLabel} × unidades del día)`, value: ratePerDay, format: 'money' },
       ...(otherRevenuePerDay > 0 ? [{ label: 'Otros ingresos por día activo (call-out, movilización, km)', value: otherRevenuePerDay, format: 'money' }] : []),
       { label: 'Costo variable por día activo', value: variableCostPerDay, format: 'money' },
     ],
