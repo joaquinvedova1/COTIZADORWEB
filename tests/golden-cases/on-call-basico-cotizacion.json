@@ -1,0 +1,9 @@
+{
+  "id": "on-call-basico-cotizacion",
+  "title": "On-call básico calculado como cotización completa",
+  "rule": "El mismo caso on-call (fijos 30M, variable 1M/día, tarifa 4M/día) calculado de punta a punta por computeQuote da break-even 10 días y contribución 3M/día, sin depender de la interfaz.",
+  "engine": "quote.onCall",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "activeDays": 8, "ratePerDay": 4000000, "targetMarginPct": 10 },
+  "expected": { "kpis.breakEvenDays": 10, "kpis.breakEvenWholeDays": 10, "linear.contributionPerDay": 3000000, "breakEven.reachable": true },
+  "tolerance": 1e-6
+}

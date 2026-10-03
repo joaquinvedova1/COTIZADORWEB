@@ -1,0 +1,9 @@
+{
+  "id": "minimo-garantizado-break-even-robusto",
+  "title": "Mínimo garantizado: break-even robusto 10 días",
+  "rule": "Con mínimo mensual garantizado de 35.000.000 la facturación es max(35M, 4M × días). Se gana con pocos días, se pierde entre 5 y 10 días y no se pierde desde 10: el break-even robusto es el día a partir del cual ya no se pierde (10). Con 8 días se facturan 35M y se pierden 3M.",
+  "engine": "quote.onCall",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "activeDays": 8, "ratePerDay": 4000000, "targetMarginPct": 10, "minimumMonthlyGuarantee": 35000000 },
+  "expected": { "kpis.breakEvenDays": 10, "kpis.revenue": 35000000, "kpis.profit": -3000000 },
+  "tolerance": 1e-6
+}

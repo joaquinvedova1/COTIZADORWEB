@@ -1,0 +1,9 @@
+{
+  "id": "on-call-basico",
+  "title": "On-call básico: break-even 10 días",
+  "rule": "Contribución por día = tarifa por día − costo variable por día; break-even = costos fijos / contribución. Fijos 30.000.000, variable 1.000.000/día, tarifa 4.000.000/día → contribución 3.000.000/día y break-even 10 días.",
+  "engine": "break-even.simple",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "ratePerDay": 4000000 },
+  "expected": { "reachable": true, "contributionPerDay": 3000000, "days": 10, "wholeDays": 10 },
+  "tolerance": 1e-6
+}

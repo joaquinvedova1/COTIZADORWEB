@@ -1,0 +1,9 @@
+{
+  "id": "margen-10-sobre-precio",
+  "title": "Margen 10 % sobre precio: 111,11 (NO 110)",
+  "rule": "El margen se calcula sobre el precio de venta: precio = costo / (1 − margen). Costo 100 con margen 10 % → 111,111…; NO 110 (eso sería markup).",
+  "engine": "pricing.priceFromMargin",
+  "inputs": { "cost": 100, "marginPct": 10 },
+  "expected": { "value": 111.11111111111111 },
+  "tolerance": 1e-9
+}

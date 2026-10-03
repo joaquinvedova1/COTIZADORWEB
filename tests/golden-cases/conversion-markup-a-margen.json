@@ -1,0 +1,9 @@
+{
+  "id": "conversion-markup-a-margen",
+  "title": "Conversión: markup 11,11 % equivale a margen 10 %",
+  "rule": "margen = markup / (1 + markup): 0,1111… / 1,1111… = 0,10 → 10 %.",
+  "engine": "pricing.markupToMargin",
+  "inputs": { "markupPct": 11.111111111111111 },
+  "expected": { "value": 10 },
+  "tolerance": 1e-9
+}

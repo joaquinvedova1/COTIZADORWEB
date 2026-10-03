@@ -1,0 +1,30 @@
+# Dependencias y builds
+node_modules/
+dist/
+coverage/
+
+# Secretos: NUNCA versionar
+.env
+.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+secrets
+secrets.*
+*credentials*
+*credenciales*
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*service-account*.json
+.npmrc
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+npm-debug.log*

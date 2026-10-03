@@ -1,0 +1,9 @@
+{
+  "id": "tarifa-margen-10-con-10-dias",
+  "title": "Tarifa para margen 10 % con 10 días: 4.444.444,44",
+  "rule": "Tarifa objetivo = costo total / (1 − margen) / días = (30.000.000 + 10 × 1.000.000) / 0,9 / 10 = 4.444.444,44 por día (redondeado al centavo).",
+  "engine": "quote.onCall",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "activeDays": 10, "targetMarginPct": 10 },
+  "expected": { "kpis.targetNetRate": 4444444.44, "kpis.floorNetRate": 4000000 },
+  "tolerance": 0.005
+}

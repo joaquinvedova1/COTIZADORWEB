@@ -1,0 +1,57 @@
+# RATEOS — integración continua para ramas y Pull Requests.
+# No despliega: el despliegue sólo ocurre desde main (deploy-pages.yml).
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests y build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tests (npm test)
+        run: npm test
+
+      - name: Build (npm run build)
+        run: npm run build
+        env:
+          BUILD_REF: ${{ github.head_ref || github.ref_name }}
+
+      - name: Verificar artefactos del build
+        run: |
+          set -euo pipefail
+          test -f dist/index.html || { echo "::error::Falta dist/index.html"; exit 1; }
+          test -f dist/version.json || { echo "::error::Falta dist/version.json"; exit 1; }
+          test -f dist/.nojekyll || { echo "::error::Falta dist/.nojekyll"; exit 1; }
+          for forbidden in tests docs scripts .github node_modules package.json; do
+            if [ -e "dist/$forbidden" ]; then echo "::error::dist/ no debe contener $forbidden"; exit 1; fi
+          done
+          node -e '
+            const v = JSON.parse(require("fs").readFileSync("dist/version.json", "utf8"));
+            for (const k of ["version", "commit", "buildDate", "ref"]) {
+              if (typeof v[k] !== "string" || v[k] === "") { console.error("version.json: falta " + k); process.exit(1); }
+            }
+            console.log("version.json OK: " + JSON.stringify(v));
+          '

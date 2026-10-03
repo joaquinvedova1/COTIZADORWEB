@@ -1,0 +1,9 @@
+{
+  "id": "break-even-inalcanzable",
+  "title": "Break-even inalcanzable cuando la tarifa no supera el costo variable",
+  "rule": "Si la tarifa por día es menor o igual al costo variable por día, la contribución es ≤ 0 y nunca se alcanza el equilibrio (sin Infinity).",
+  "engine": "break-even.simple",
+  "inputs": { "fixedCosts": 30000000, "variableCostPerDay": 1000000, "ratePerDay": 1000000 },
+  "expected": { "reachable": false, "days": null, "wholeDays": null, "contributionPerDay": 0 },
+  "tolerance": 1e-6
+}

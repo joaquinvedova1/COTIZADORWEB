@@ -1,0 +1,9 @@
+{
+  "id": "costo-financiero-simple",
+  "title": "Costo financiero simple: 900.000",
+  "rule": "Costo financiero = monto × tasa mensual × días financiados / 30 (interés simple): 10.000.000 × 3 % × 90 / 30 = 900.000.",
+  "engine": "finance.simpleFinancialCost",
+  "inputs": { "amount": 10000000, "monthlyRatePct": 3, "days": 90 },
+  "expected": { "value": 900000 },
+  "tolerance": 1e-6
+}

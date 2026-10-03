@@ -1,0 +1,9 @@
+{
+  "id": "markup-10-sobre-costo",
+  "title": "Markup 10 % sobre costo: 110",
+  "rule": "El markup se calcula sobre el costo: precio = costo × (1 + markup). Costo 100 con markup 10 % → 110.",
+  "engine": "pricing.priceFromMarkup",
+  "inputs": { "cost": 100, "markupPct": 10 },
+  "expected": { "value": 110 },
+  "tolerance": 1e-9
+}
