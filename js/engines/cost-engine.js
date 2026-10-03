@@ -32,7 +32,9 @@ import { computeFinance } from './finance-engine.js';
 /** Normaliza los parámetros de actividad de una cotización. */
 export function normalizeActivity(quote = {}) {
   const a = quote.activity || {};
-  const availableDaysPerMonth = Math.min(nonNegative(a.availableDaysPerMonth, 30), 31);
+  const availableRaw = Math.min(nonNegative(a.availableDaysPerMonth, 30), 31);
+  // 0 o inválido no tiene sentido económico: se usa 30 (y validateQuote lo informa).
+  const availableDaysPerMonth = availableRaw > 0 ? availableRaw : 30;
   const activeDaysPerMonth = nonNegative(a.activeDaysPerMonth);
   const dpaRaw = nonNegative(a.daysPerActivation, 1);
   const daysPerActivation = dpaRaw > 0 ? dpaRaw : 1;

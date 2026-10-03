@@ -17,6 +17,9 @@ import { contingencyPctOf } from './cost-engine.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
+/** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
+export const COMPLETENESS_RISK_THRESHOLD = 60;
+
 function rule(id, label, step, weight, status, message) {
   return { id, label, step, weight, status, color: status === 'ok' ? 'green' : status === 'warning' ? 'orange' : status === 'missing' ? 'red' : 'gray', message };
 }

@@ -15,6 +15,7 @@ export const RULES = Object.freeze({
   hoursPerDay: { min: 0, max: 24, message: 'Las horas por día deben estar entre 0 y 24.' },
   days: { min: 0, max: 366, message: 'Los días deben estar entre 0 y 366.' },
   daysInMonth: { min: 0, max: 31, message: 'Los días del mes deben estar entre 0 y 31.' },
+  availableDays: { min: 0, max: 31, exclusiveMin: true, message: 'Los días disponibles deben ser mayores a 0 y hasta 31.' },
   positiveDays: { min: 0, max: 366, exclusiveMin: true, message: 'Debe ser mayor a 0 días.' },
   paymentDays: { min: 0, max: 720, message: 'Los días deben estar entre 0 y 720.' },
   percent: { min: 0, max: 100, message: 'El porcentaje debe estar entre 0 y 100.' },
@@ -74,7 +75,7 @@ export function validateQuote(quote) {
 
   const a = quote.activity || {};
   check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'days');
-  check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'daysInMonth');
+  check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');
   check('activity.daysPerActivation', a.daysPerActivation, 'positiveDays');
   check('activity.hoursPerActiveDay', a.hoursPerActiveDay, 'hoursPerDay');
   if (toNumber(a.activeDaysPerMonth) > toNumber(a.availableDaysPerMonth) && toNumber(a.availableDaysPerMonth) > 0) {

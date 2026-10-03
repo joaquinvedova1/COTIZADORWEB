@@ -20,7 +20,7 @@ import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies } from './commercial-rules-engine.js';
 import { isValidMarginPct, commercialRound, marginToMarkup } from './pricing-engine.js';
-import { evaluateCompleteness } from './completeness-engine.js';
+import { evaluateCompleteness, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 
 function readMargin(value, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -196,7 +196,13 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     logisticsIncidencePct: costAt.total > 0 ? (logisticsMonthly / costAt.total) * 100 : null,
     belowFloor: hasRate && isFiniteNumber(ratesAtEstimate.floorNetRate) ? commercialNetRate < ratesAtEstimate.floorNetRate - 1e-6 : false,
     belowTarget: hasRate && isFiniteNumber(estimate.marginPct) ? estimate.marginPct < targetMarginPct - 1e-9 : false,
-    atRisk: hasRate ? estimate.profit < 0 || (isFiniteNumber(estimate.marginPct) && estimate.marginPct < targetMarginPct - 1e-9) : true,
+    incomplete: completeness.scorePct < COMPLETENESS_RISK_THRESHOLD,
+    // Riesgo: sin tarifa, pierde dinero, no llega al margen objetivo o le faltan costos relevantes.
+    atRisk:
+      !hasRate ||
+      estimate.profit < 0 ||
+      (isFiniteNumber(estimate.marginPct) && estimate.marginPct < targetMarginPct - 1e-9) ||
+      completeness.scorePct < COMPLETENESS_RISK_THRESHOLD,
   };
 
   const equivalents = hasRate
