@@ -1,0 +1,24 @@
+# Dependencias y builds
+node_modules/
+dist/
+coverage/
+
+# Secretos: NUNCA versionar
+.env
+.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+secrets.*
+credentials*.json
+*credenciales*
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+npm-debug.log*
