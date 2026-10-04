@@ -41,8 +41,8 @@ export function formatMoneyCeil(value) {
 }
 
 /**
- * Monto abreviado para resúmenes y vistas previas: "$ 15,8 M", "$ 850 mil",
- * "$ 950". Con `ceil: true` redondea HACIA ARRIBA al dígito mostrado (para
+ * Monto abreviado para resúmenes y vistas previas: "$ 15,8 M", "$ 2,04 M",
+ * "$ 850 mil", "$ 950" (2 decimales debajo de $ 10 M, 1 hasta $ 100 M). Con `ceil: true` redondea HACIA ARRIBA al dígito mostrado (para
  * tarifas: la cifra visible nunca queda debajo del valor calculado).
  * No reemplaza al monto completo en el detalle: es sólo presentación.
  */
@@ -58,7 +58,9 @@ export function formatMoneyCompact(value, { ceil = false } = {}) {
   let suffix;
   if (abs >= 1e6) {
     scaled = value / 1e6;
-    decimals = Math.abs(scaled) >= 100 ? 0 : 1;
+    // Hasta $ 10 M se muestran 2 decimales ("$ 2,04 M"): con 1 decimal el
+    // redondeo hacia arriba de una tarifa podía mostrar hasta un 5 % más.
+    decimals = Math.abs(scaled) >= 100 ? 0 : Math.abs(scaled) >= 10 ? 1 : 2;
     suffix = 'M';
   } else if (abs >= 1e3) {
     scaled = value / 1e3;
@@ -77,10 +79,10 @@ export function formatMoneyCompact(value, { ceil = false } = {}) {
   }
   if (suffix === 'mil' && Math.abs(rounded) >= 1000) {
     suffix = 'M';
-    rounded = roundTo(value / 1e6, 1);
+    rounded = roundTo(value / 1e6, 2);
   }
   if (Object.is(rounded, -0)) rounded = 0;
-  const number = numberFormat({ minimumFractionDigits: 0, maximumFractionDigits: suffix === 'M' ? 1 : 0 }).format(Math.abs(rounded));
+  const number = numberFormat({ minimumFractionDigits: 0, maximumFractionDigits: suffix === 'M' ? 2 : 0 }).format(Math.abs(rounded));
   const sign = rounded < 0 ? '-' : '';
   return `${sign}$\u00A0${number}${suffix ? `\u00A0${suffix}` : ''}`;
 }

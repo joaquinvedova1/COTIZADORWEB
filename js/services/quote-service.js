@@ -130,6 +130,20 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       return repository.saveQuote(quote);
     },
 
+    /**
+     * Cotización de ejemplo para MOSTRAR (demo guiada) sin escribir nada: la
+     * guardada si existe; si no, la demo en memoria (stored: false). Navegar
+     * por la demo nunca agrega datos: para guardarla, usar ensureDemoQuote()
+     * sólo ante una acción explícita del usuario ("Ver el análisis completo").
+     * @returns {Promise<{ quote: object, stored: boolean }>}
+     */
+    async getDemoQuote() {
+      const existing = await repository.getQuote(DEMO_IDS.quoteHydroCrane);
+      if (existing) return { quote: existing, stored: true };
+      const org = await repository.getOrganization();
+      return { quote: { ...demoHydroCraneQuote(), organizationId: org.id }, stored: false };
+    },
+
     /** Borrador modificado más recientemente (para "Continuar cotización"), o null. */
     async latestDraft() {
       const items = await this.listQuotes();

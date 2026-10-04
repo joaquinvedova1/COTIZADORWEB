@@ -106,12 +106,14 @@ export function statusDot(tone, text) {
 
 /**
  * Tarjeta.
- * @param {{ title?: string, subtitle?: string, actions?: Node[], className?: string, id?: string }} opts
+ * @param {{ title?: string, subtitle?: string, actions?: Node[], className?: string, id?: string, level?: 2|3|4 }} opts
  */
-export function card({ title = null, subtitle = null, actions = [], className = '', id = null } = {}, ...children) {
+export function card({ title = null, subtitle = null, actions = [], className = '', id = null, level = 3 } = {}, ...children) {
+  // level: nivel del encabezado (2–4) para no saltear niveles según dónde se use la tarjeta.
+  const tag = `h${Math.min(4, Math.max(2, Number(level) || 3))}`;
   const header = title || subtitle || (actions && actions.length)
     ? h('div', { class: 'card-header' },
-      h('div', { class: 'card-titles' }, title ? h('h3', { class: 'card-title' }, title) : null, subtitle ? h('p', { class: 'card-subtitle' }, subtitle) : null),
+      h('div', { class: 'card-titles' }, title ? h(tag, { class: 'card-title' }, title) : null, subtitle ? h('p', { class: 'card-subtitle' }, subtitle) : null),
       actions && actions.length ? h('div', { class: 'card-actions' }, ...actions) : null)
     : null;
   return h('section', { class: ['card', className], id }, header, h('div', { class: 'card-body' }, ...children));
@@ -483,15 +485,27 @@ export function traceButton(trace, { label = 'Ver cálculo' } = {}) {
 
 // ------------------------------------------------------------------ toasts
 
-/** Notificación breve. tone: info | success | warning | danger */
-export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
+/**
+ * Región de avisos (aria-live). Se crea vacía y antes del primer aviso: si se
+ * creara junto con el mensaje, los lectores de pantalla podrían no anunciarlo.
+ */
+export function ensureToastRegion() {
   let region = document.getElementById('toast-region');
   if (!region) {
     region = h('div', { id: 'toast-region', class: 'toast-region', role: 'status', 'aria-live': 'polite' });
     document.body.appendChild(region);
   }
+  return region;
+}
+
+/** Notificación breve. tone: info | success | warning | danger */
+export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
+  const existed = Boolean(document.getElementById('toast-region'));
+  const region = ensureToastRegion();
   const el = h('div', { class: ['toast', `toast-${tone}`] }, message);
-  region.appendChild(el);
+  // Región recién creada: el mensaje entra un instante después para que se anuncie.
+  if (existed) region.appendChild(el);
+  else setTimeout(() => region.appendChild(el), 60);
   setTimeout(() => el.remove(), timeout);
   return el;
 }

@@ -13,8 +13,8 @@ export const SERVICE_TYPES = deepFreeze([
   { id: 'per_unit', label: 'Servicio por unidad producida', hint: 'Se factura por m³, tonelada, metro, etc.' },
   { id: 'transport', label: 'Transporte', hint: 'Traslado de cargas o personas.' },
   { id: 'turnkey', label: 'Servicio llave en mano', hint: 'Alcance cerrado con entregables definidos.' },
-  { id: 'time_materials', label: 'Time & Materials', hint: 'Horas y materiales a costo + fee.' },
-  { id: 'lump_sum', label: 'Precio global / Lump Sum', hint: 'Un único precio por todo el alcance.' },
+  { id: 'time_materials', label: 'Horas y materiales (time & materials)', hint: 'Cobrás horas y materiales al costo más un recargo.' },
+  { id: 'lump_sum', label: 'Precio cerrado (lump sum)', hint: 'Un único precio por todo el alcance.' },
   { id: 'configurable', label: 'Servicio configurable', hint: 'Armá la estructura a medida.' },
 ]);
 
@@ -25,8 +25,8 @@ export const EQUIPMENT_SERVICE_TYPES = deepFreeze(['on_call', 'equipment_with_op
 export const CONTINUOUS_SERVICE_TYPES = deepFreeze(['on_call', 'permanent']);
 
 export const PRICING_MODES = deepFreeze([
-  { id: 'known_rate', label: 'Conozco la tarifa', hint: 'Ingresás la tarifa y RATEOS calcula días mínimos, break-even y resultado.' },
-  { id: 'known_activity', label: 'Conozco la actividad', hint: 'Ingresás la actividad estimada y RATEOS calcula la tarifa piso y las tarifas con margen.' },
+  { id: 'known_rate', label: 'Ya tengo la tarifa', hint: 'Ingresás la tarifa y RATEOS calcula días mínimos, break-even y resultado.' },
+  { id: 'known_activity', label: 'Calcular la tarifa', hint: 'Ingresás la actividad estimada y RATEOS calcula la tarifa piso y las tarifas con margen.' },
 ]);
 
 export const RATE_UNITS = deepFreeze([
@@ -103,13 +103,13 @@ export const FUEL_PROVIDERS = deepFreeze([
 export const COST_BEHAVIORS = deepFreeze([
   { id: 'fixed_monthly', label: 'Fijo mensual' },
   { id: 'per_active_day', label: 'Por día activo' },
-  { id: 'per_activation', label: 'Por activación / viaje' },
+  { id: 'per_activation', label: 'Por llamado / viaje' },
 ]);
 
 export const MATERIAL_BASES = deepFreeze([
   { id: 'per_month', label: 'Por mes' },
   { id: 'per_active_day', label: 'Por día activo' },
-  { id: 'per_activation', label: 'Por activación' },
+  { id: 'per_activation', label: 'Por llamado' },
 ]);
 
 export const INDIRECT_METHODS = deepFreeze([
@@ -171,18 +171,22 @@ export const CATEGORY_PAY_GROUP = deepFreeze({
   structure: 'structure',
 });
 
-/** Pasos del flujo de cotización (orden obligatorio). */
+/**
+ * Pasos del flujo de cotización (orden obligatorio). Estos nombres son la
+ * ÚNICA fuente de los nombres de paso en la interfaz (editor, resultado,
+ * avisos "Ir a…"): no repetirlos a mano en las vistas.
+ */
 export const QUOTE_STEPS = deepFreeze([
   { id: 'service', label: 'Tipo de servicio' },
-  { id: 'modality', label: 'Modalidad de cotización' },
+  { id: 'modality', label: 'Cómo se cobra' },
   { id: 'labor', label: 'Personal' },
   { id: 'equipment', label: 'Equipos' },
   { id: 'materials', label: 'Materiales' },
-  { id: 'logistics', label: 'Logística' },
-  { id: 'indirect', label: 'Costos indirectos' },
-  { id: 'finance', label: 'Financiamiento' },
-  { id: 'risk', label: 'Riesgo / contingencia' },
-  { id: 'margin', label: 'Margen y reglas comerciales' },
+  { id: 'logistics', label: 'Viajes' },
+  { id: 'indirect', label: 'Gastos de estructura' },
+  { id: 'finance', label: 'Financiación' },
+  { id: 'risk', label: 'Imprevistos' },
+  { id: 'margin', label: 'Margen y precio' },
   { id: 'result', label: 'Resultado' },
 ]);
 

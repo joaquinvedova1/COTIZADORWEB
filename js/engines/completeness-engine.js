@@ -64,20 +64,20 @@ export function evaluateCompleteness(quote = {}) {
   // 1. Modalidad / tipo de servicio
   const validType = SERVICE_TYPES.some((t) => t.id === serviceType);
   const validMode = PRICING_MODES.some((m) => m.id === quote.pricingMode);
-  items.push(rule('modality', 'Modalidad de cotización', 'modality', 2,
+  items.push(rule('modality', 'Cómo se cobra', 'modality', 2,
     validType && validMode ? 'ok' : 'missing',
-    validType && validMode ? 'Tipo de servicio y modalidad definidos.' : 'Falta definir el tipo de servicio o la modalidad (conozco la tarifa / conozco la actividad).'));
+    validType && validMode ? 'Tipo de servicio y modalidad definidos.' : 'Falta definir el tipo de servicio o cómo se cobra (ya tengo la tarifa / calcular la tarifa).'));
 
   // 2. Tarifa o actividad según modalidad
   if (quote.pricingMode === 'known_rate') {
     const ok = nonNegative(pricing.knownRate) > 0;
-    items.push(rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Conozco la tarifa" pero falta ingresarla.'));
+    items.push(rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Ya tengo la tarifa" pero falta ingresarla.'));
   }
 
   // 3. Utilización on-call
   if (isOnCall || quote.pricingMode === 'known_activity') {
     const ok = nonNegative(activity.activeDaysPerMonth) > 0;
-    items.push(rule('utilization', isOnCall ? 'Utilización on-call (días activos)' : 'Actividad estimada', 'modality', 2,
+    items.push(rule('utilization', isOnCall ? 'Días de trabajo por mes' : 'Actividad estimada', 'modality', 2,
       ok ? 'ok' : 'missing',
       ok ? 'Días activos estimados por mes definidos.' : '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando? Falta ese dato.'));
   }
@@ -136,17 +136,17 @@ export function evaluateCompleteness(quote = {}) {
 
   // 9. Logística
   if (logistics.notApplicable) {
-    items.push(rule('logistics', 'Logística', 'logistics', 1, 'ok', 'Marcado como "sin traslados".'));
+    items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'Marcado como "sin traslados".'));
   } else {
     const ok = nonNegative(logistics.distanceKm) > 0 && vehicles.some((v) => nonNegative(v.count) > 0);
-    items.push(rule('logistics', 'Logística', 'logistics', 2, ok ? 'ok' : 'missing',
+    items.push(rule('logistics', 'Viajes', 'logistics', 2, ok ? 'ok' : 'missing',
       ok ? 'Distancia y vehículos definidos.' : 'Falta la distancia a locación o los vehículos de traslado.'));
   }
 
   // 10. Estructura
   const indirect = quote.indirect || {};
   const indirectOk = ['percent_direct', 'percent_labor'].includes(indirect.method) ? nonNegative(indirect.pct) > 0 : nonNegative(indirect.amount) > 0;
-  items.push(rule('structure', 'Costos de estructura', 'indirect', 1, indirectOk ? 'ok' : 'warning',
+  items.push(rule('structure', 'Gastos de estructura', 'indirect', 1, indirectOk ? 'ok' : 'warning',
     indirectOk ? 'Absorción de estructura definida.' : 'No se absorbe estructura de empresa (administración, base, seguros generales).'));
 
   // 11. Plazo de pago
@@ -156,7 +156,7 @@ export function evaluateCompleteness(quote = {}) {
 
   // 12. Contingencia
   const contOk = contingencyPctOf(quote.risk || {}) > 0;
-  items.push(rule('contingency', 'Contingencia', 'risk', 1, contOk ? 'ok' : 'warning',
+  items.push(rule('contingency', 'Imprevistos (contingencia)', 'risk', 1, contOk ? 'ok' : 'warning',
     contOk ? 'Contingencia configurada.' : 'Sin contingencia: cualquier imprevisto sale del margen.'));
 
   // 13. Margen (un margen inválido — ≥ 100 %, negativo o texto — no cuenta como definido)
@@ -176,8 +176,8 @@ export function evaluateCompleteness(quote = {}) {
   // 14. Standby (on-call)
   if (isOnCall) {
     const ok = nonNegative(rules.standbyRatePerDay) > 0 || rules.standbyNotApplicable === true;
-    items.push(rule('standby', 'Standby', 'margin', 1, ok ? 'ok' : 'warning',
-      ok ? 'Standby definido.' : 'Standby no definido: ¿qué se cobra si el equipo queda en locación sin operar?'));
+    items.push(rule('standby', 'Equipo en espera (standby)', 'margin', 1, ok ? 'ok' : 'warning',
+      ok ? 'Standby definido.' : '¿Qué cobrás si el equipo queda en locación sin operar? Definilo o marcá que no aplica.'));
   }
 
   let earned = 0;

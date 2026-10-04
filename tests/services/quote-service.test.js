@@ -394,6 +394,20 @@ describe('ensureDemoQuote / latestDraft', () => {
     assert.ok(result.kpis.floorListRate > 0);
   });
 
+  test('getDemoQuote nunca escribe: devuelve la guardada o una demo en memoria', async () => {
+    const { service, repository, storage } = await setup({ empty: true });
+    const raw = storage.getItem('rateos.state');
+    const shown = await service.getDemoQuote();
+    assert.equal(shown.stored, false);
+    assert.equal(shown.quote.id, DEMO_IDS.quoteHydroCrane);
+    assert.equal(shown.quote.organizationId, EMPTY_ORG.id);
+    assert.equal(storage.getItem('rateos.state'), raw, 'mostrar la demo no modifica los datos');
+    assert.equal((await repository.getQuotes()).length, 0);
+    await service.ensureDemoQuote();
+    const stored = await service.getDemoQuote();
+    assert.equal(stored.stored, true);
+  });
+
   test('latestDraft devuelve el borrador modificado más recientemente o null', async () => {
     const { service, clock } = await setup({ empty: true });
     assert.equal(await service.latestDraft(), null);

@@ -126,7 +126,8 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
   padding: 0.5rem 0.7rem; min-height: 38px;
 }
 .search-input { flex: 1 1 280px; max-width: 420px; }
-.search-input:focus, .filter-select:focus { border-color: var(--blue-400); outline: none; box-shadow: 0 0 0 3px rgba(59, 167, 216, 0.2); }
+.search-input:focus, .filter-select:focus { border-color: var(--focus); outline: 2px solid transparent; box-shadow: 0 0 0 3px rgba(8, 126, 164, 0.25); }
+.search-input:focus-visible, .filter-select:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
 /* --------------------------------------------------------------- inicio */
 

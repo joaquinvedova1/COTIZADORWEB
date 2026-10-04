@@ -446,3 +446,59 @@ describe('Backup — restaurar demo', () => {
     assert.equal(backup.getRecoverySnapshot(STORAGE_KEYS.state), null);
   });
 });
+
+// ================================================ empezar en limpio
+
+describe('startFresh: empezar con mi empresa en limpio', () => {
+  test('quita la empresa ficticia, cotizaciones y recursos; conserva convenios, plantillas y configuración; guarda copia de recuperación', async () => {
+    const storage = new MemoryStorage();
+    const repo = new LocalStorageRepository(storage, { now: createClock() });
+    await repo.init();
+    const service = createBackupService({ repository: repo });
+    const before = await repo.exportBackup();
+    assert.ok(before.quotes.length > 0 && before.organization.illustrative === true);
+    const result = await service.startFresh({ name: '  Grúas del Sur SA ', baseLocation: 'Añelo', industry: 'oil_gas_services' });
+    assert.ok(result.recoveryKey && storage.getItem(result.recoveryKey), 'guarda una copia de recuperación antes');
+    const after = await repo.exportBackup();
+    assert.equal(after.organization.id, before.organization.id);
+    assert.equal(after.organization.name, 'Grúas del Sur SA');
+    assert.equal(after.organization.baseLocation, 'Añelo');
+    assert.equal(after.organization.industry, 'oil_gas_services');
+    assert.equal(after.organization.illustrative, false);
+    assert.equal(after.quotes.length, 0);
+    for (const type of RESOURCE_TYPES) {
+      if (type === 'agreements') assert.deepEqual(after.resources[type], before.resources[type]);
+      else assert.deepEqual(after.resources[type], [], type);
+    }
+    assert.deepEqual(after.services, before.services);
+    assert.equal(after.settings.lastQuoteNumber, before.settings.lastQuoteNumber, 'el contador de códigos nunca se reinicia');
+    // La copia de recuperación tiene los datos anteriores completos.
+    const snapshot = JSON.parse(storage.getItem(result.recoveryKey));
+    assert.equal(snapshot.quotes.length, before.quotes.length);
+  });
+
+  test('sin nombre, la empresa ficticia pasa a llamarse "Mi empresa" y sin base', async () => {
+    const repo = new LocalStorageRepository(new MemoryStorage(), { now: createClock() });
+    await repo.init();
+    await createBackupService({ repository: repo }).startFresh();
+    const org = await repo.getOrganization();
+    assert.equal(org.name, 'Mi empresa');
+    assert.equal(org.baseLocation, '');
+    assert.equal(org.illustrative, false);
+  });
+
+  test('en modo sólo lectura no modifica nada', async () => {
+    const storage = new MemoryStorage();
+    const repo = new LocalStorageRepository(storage, { now: createClock() });
+    await repo.init();
+    const raw = JSON.parse(storage.getItem(STORAGE_KEYS.state));
+    raw.schemaVersion = CURRENT_SCHEMA_VERSION + 1;
+    storage.setItem(STORAGE_KEYS.state, JSON.stringify(raw));
+    const ro = new LocalStorageRepository(storage, { now: createClock() });
+    const init = await ro.init();
+    assert.equal(init.status, 'read_only');
+    const before = storage.getItem(STORAGE_KEYS.state);
+    await assert.rejects(() => createBackupService({ repository: ro }).startFresh({ name: 'X' }));
+    assert.equal(storage.getItem(STORAGE_KEYS.state), before);
+  });
+});

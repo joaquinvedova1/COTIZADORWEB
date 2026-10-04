@@ -151,17 +151,20 @@ describe('formatMoneyCompact', () => {
     assert.equal(nb(formatMoneyCompact(950)), '$ 950');
     assert.equal(nb(formatMoneyCompact(0)), '$ 0');
     assert.equal(nb(formatMoneyCompact(-1500000)), '-$ 1,5 M');
+    assert.equal(nb(formatMoneyCompact(2259000)), '$ 2,26 M', 'debajo de $ 10 M, 2 decimales');
   });
 
   test('ceil: la cifra mostrada nunca queda debajo del valor (tarifas)', () => {
-    assert.equal(nb(formatMoneyCompact(2033053.9, { ceil: true })), '$ 2,1 M');
-    assert.equal(nb(formatMoneyCompact(2033053.9)), '$ 2 M');
+    assert.equal(nb(formatMoneyCompact(2033053.9, { ceil: true })), '$ 2,04 M');
+    assert.equal(nb(formatMoneyCompact(2033053.9)), '$ 2,03 M');
     assert.equal(nb(formatMoneyCompact(2100000, { ceil: true })), '$ 2,1 M', 'un valor exacto no sube por error de punto flotante');
+    assert.equal(nb(formatMoneyCompact(15776498, { ceil: true })), '$ 15,8 M');
     assert.equal(nb(formatMoneyCompact(850400, { ceil: true })), '$ 851 mil');
   });
 
   test('pasa a la unidad siguiente al redondear (999.600 → $ 1 M)', () => {
     assert.equal(nb(formatMoneyCompact(999600)), '$ 1 M');
+    assert.equal(nb(formatMoneyCompact(999996)), '$ 1 M');
     assert.equal(nb(formatMoneyCompact(999.6)), '$ 1 mil');
   });
 
