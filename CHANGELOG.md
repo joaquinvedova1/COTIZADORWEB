@@ -12,7 +12,26 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
-_Sin cambios todavía._
+Rediseño de experiencia de usuario: **simple en la superficie, potente por debajo.** No cambia ninguna fórmula económica, ni el formato de los datos (`schemaVersion` sigue en 1), ni los golden cases. Ninguna capacidad se eliminó: lo avanzado quedó colapsado o en pantallas secundarias. Guía en [docs/UX.md](docs/UX.md).
+
+### Agregado
+
+- **Sitio público separado de la aplicación.** Landing en `#/` ("Cotizá servicios sabiendo cuánto te cuestan."), con mockup del producto calculado en vivo sobre la demo ILUSTRATIVA, tres resultados (cuánto te cuesta, cuánto cobrar, cuánto necesitás trabajar), "¿Te pasa esto?", cómo funciona en 3 pasos y para quién.
+- **Demo guiada** `#/demo` de "Hidrogrúa on-call — Añelo" en 4 pasos antes del análisis completo, con un selector de días activos que recalcula la tarifa piso sin guardar cambios. `QuoteService.ensureDemoQuote()` vuelve a crear la demo si se había borrado (con un código nuevo; nunca reutiliza códigos).
+- **Ingresar / Crear cuenta / Bienvenida** (`#/login`, `#/registro`, `#/bienvenida`) como flujo preparado para la futura autenticación: avisan que las cuentas no están habilitadas, **nunca guardan email ni contraseña** y permiten entrar sin cuenta. `js/services/auth-service.js` (`ctx.auth`) es el punto único de autenticación (hoy modo local, sin cuentas). El onboarding guarda el tipo de empresa (`organization.industry`, campo opcional) y la base operativa.
+- Pantalla **Escenarios** (`#/escenarios`, `#/escenarios/:id`) para analizar sensibilidad, escenarios y modelos comerciales de una cotización sin modificarla.
+- Componentes de interfaz: `disclosure`, `bigStat`, `pageIntro`, `linkButton`, `stepIndicator` y `emptyState` con título, texto y acción. `formatMoneyCompact` ("$ 15,8 M", hacia arriba para tarifas). `QuoteService.latestDraft()`.
+- [docs/UX.md](docs/UX.md): principios, arquitectura de información, copy y checklist de carga cognitiva.
+
+### Cambiado
+
+- La aplicación arranca en `#/inicio`: "Hola. ¿Qué querés cotizar hoy?", continuar el último borrador, **3 indicadores** (cotizaciones activas, margen promedio, en riesgo) y "Tus cotizaciones"; el resto de los indicadores y atajos, colapsado.
+- Menú lateral simplificado: Inicio, Cotizaciones, Recursos (personal, equipos, materiales, ubicaciones), Servicios, Escenarios y, separado, Configuración (empresa, parámetros económicos, convenios, datos y backup, acerca de). Navegación mobile con menú desplegable.
+- Editor de cotización agrupado en **5 etapas** (El servicio, Los recursos, Las condiciones, El precio, Resultado) sobre los mismos 11 pasos internos y las mismas URLs; cada paso abre con una pregunta y por qué importa; datos principales separados de "Opciones avanzadas"; resumen en vivo reducido a 4 números.
+- Resultado con nueva jerarquía: costo esperado, tarifa piso, tarifa sugerida y margen arriba; frase con los días necesarios para cubrir los costos; "¿En qué se va el costo?" simplificado; estructura completa, matriz tarifa × días, escenarios, sensibilidad, reglas comerciales, margen vs markup, completitud y cálculo completo en secciones colapsables (se abren todas al imprimir).
+- Copy revisado en castellano claro (p. ej. "¿Cuántos días por mes esperás trabajar?" en lugar de "factor de utilización").
+- Sistema de diseño: escala tipográfica, espaciado, radios y sombras nuevos; acción principal en azul Neuquén profundo.
+- Enlaces viejos (`#/biblioteca/...`, `#/dashboard`) redirigen a las rutas nuevas.
 
 ## [0.1.0] - 2026-10-03
 

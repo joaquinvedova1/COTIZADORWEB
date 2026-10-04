@@ -92,7 +92,7 @@ Aunque llegue un registro inválido por otra vía, los motores ignoran las líne
 
 ### Organización (`organization`)
 
-`id`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`, `name`, `baseLocation`, `illustrative`, `notes`.
+`id`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`, `name`, `baseLocation`, `illustrative`, `notes` y, opcional, `industry` (tipo de empresa elegido en el onboarding `#/bienvenida`: `oil_gas_services`, `industrial_maintenance`, `transport`, `construction`, `other`). Es un campo aditivo: no cambia `schemaVersion` (los datos anteriores simplemente no lo tienen).
 
 ### Configuración (`settings`)
 
