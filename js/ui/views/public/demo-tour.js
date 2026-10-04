@@ -347,13 +347,17 @@ export async function render(root, app) {
         bigStat({ label: 'Margen', value: formatPercent(k.marginPct), hint: 'Sobre el precio de venta (no es markup).', tone: marginTone(k), trace: traces.expectedResult, className: 'pub-stat' }),
       ),
       h('div', { class: 'pub-sentence-wrap' }, sentence, traces.breakEven && be.reachable ? traceButton(traces.breakEven) : null),
+      // PLAN-2026-002: RATEOS no trae alícuotas; en la demo quedan sin definir.
+      k.billingTaxesDefined
+        ? null
+        : h('p', { class: 'pub-footnote' }, 'Montos sin IVA. En el ejemplo no cargamos los impuestos que se pagan sobre lo que facturás (Ingresos Brutos, débitos y créditos, sellos): con los tuyos, la tarifa piso sube. RATEOS no trae alícuotas: las cargás vos.'),
       disclosure(
         { summary: '¿Qué significa cada número?', className: 'pub-glossary' },
         h(
           'dl',
           { class: 'pub-glossary-list' },
           h('div', {}, h('dt', {}, 'Costo del mes'), h('dd', {}, 'Todo lo que cuesta prestar el servicio en el mes: personal, equipos, combustible, viajes, gastos de estructura e imprevistos.')),
-          h('div', {}, h('dt', {}, 'Tarifa piso'), h('dd', {}, 'El precio mínimo por día para no perder plata. Debajo de este número, perdés. La “de lista” es la que escribís en la cotización; la “neta”, lo que te queda después de los descuentos (por ejemplo, por cantidad de días).')),
+          h('div', {}, h('dt', {}, 'Tarifa piso'), h('dd', {}, 'El precio mínimo por día para no perder plata, sin IVA. Debajo de este número, perdés. Con tus impuestos sobre lo que facturás cargados, también los cubre. La “de lista” es la que escribís en la cotización; la “neta”, lo que te queda después de los descuentos (por ejemplo, por cantidad de días).')),
           h('div', {}, h('dt', {}, 'Tarifa sugerida'), h('dd', {}, 'El precio para lograr el margen que buscás, redondeado hacia arriba.')),
           h('div', {}, h('dt', {}, 'Margen'), h('dd', {}, 'Lo que ganás sobre el precio de venta. No es lo mismo que el markup, que se calcula sobre el costo: con un costo de $ 100, un margen del 10 % da un precio de $ 111,11 y un markup del 10 %, de $ 110.')),
         ),

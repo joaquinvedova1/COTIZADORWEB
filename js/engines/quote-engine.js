@@ -290,6 +290,33 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       nonLinear: linear.hasNonLinearRules,
       billingTaxPct: t,
     }),
+    // Días para el margen objetivo (antes se armaba en la interfaz): con la
+    // descomposición lineal, R(D)·(1 − t − m) − C(D) ≥ 0.
+    targetMarginDays: createTrace({
+      id: 'target_margin_days',
+      title: targetMarginInvalid ? 'Días para lograr el margen objetivo (margen inválido)' : `Días para lograr el margen objetivo (${formatPercent(targetMarginPct)})`,
+      formula: t > 0
+        ? 'Días = (Costos fijos − Ingresos fijos × (1 − impuestos − margen)) / (Ingreso por día × (1 − impuestos − margen) − Costo variable por día)'
+        : 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
+      inputs: [
+        { label: 'Costos fijos mensuales', value: linear.fixedCosts, format: 'money' },
+        { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera)', value: linear.fixedRevenue, format: 'money' },
+        { label: 'Ingreso por día activo', value: linear.revenuePerActiveDay, format: 'money' },
+        { label: 'Costo variable por día activo', value: linear.variableCostPerDay, format: 'money' },
+        ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
+        { label: 'Margen objetivo', value: targetMarginInvalid ? null : targetMarginPct, format: 'percent' },
+      ],
+      steps: [{
+        label: t > 0 ? 'Ingreso por día después de impuestos y de reservar el margen − costo variable' : 'Ingreso por día después de reservar el margen − costo variable',
+        value: !targetMarginInvalid && hasRate && isFiniteNumber(linear.revenuePerActiveDay) ? linear.revenuePerActiveDay * (1 - (t + targetMarginPct) / 100) - linear.variableCostPerDay : null,
+        format: 'money',
+      }],
+      result: { label: 'Días activos para lograr el margen', value: targetMarginDays.reachable ? targetMarginDays.days : null, format: 'days' },
+      notes: [
+        !targetMarginDays.reachable ? targetMarginDays.reason : null,
+        linear.hasNonLinearRules ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o tramos de descuento): el resultado se calcula día a día.' : null,
+      ],
+    }),
     floorRate: createTrace({
       id: 'floor_rate',
       title: `Tarifa piso (por ${unitLabel})`,

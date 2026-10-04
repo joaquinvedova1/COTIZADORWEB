@@ -51,8 +51,8 @@ import {
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, RATE_UNITS, SERVICE_TYPES } from '../../domain/catalogs.js';
 import { defaultVolumeTiers, illustrativeInfo } from '../../domain/quote-factory.js';
+import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { computeQuote } from '../../engines/quote-engine.js';
-import { marginToMarkup } from '../../engines/pricing-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { getPath, setPath, deepClone, isPlainObject } from '../../core/object.js';
 import { formatMoney, formatMoneyCeil, formatMoneyCompact, formatPercent, formatDays, formatNumber, EMPTY } from '../../core/format.js';
@@ -358,6 +358,9 @@ export function normalizeQuoteShape(quote) {
     if (!q.risk.items.some((r) => r && r.id === item.id)) q.risk.items.push({ id: item.id, label: item.label, pct: 0, enabled: false });
   });
   if (!Array.isArray(q.rules.volumeTiers) || q.rules.volumeTiers.length === 0) q.rules.volumeTiers = defaultVolumeTiers();
+  // Impuestos sobre la facturación: sin definir si faltan (t = 0: el cálculo no cambia).
+  if (!isPlainObject(q.billingTaxes)) q.billingTaxes = emptyBillingTaxes();
+  if (!Array.isArray(q.billingTaxes.items)) q.billingTaxes.items = [];
   return q;
 }
 
@@ -882,7 +885,7 @@ function commercialRateTrace(r) {
       : 'Tarifa comercial = tarifa ingresada · Tarifa neta = lista × factor de descuentos (tramo × continuidad × comercial)',
     inputs: [
       { label: 'Origen', value: sourceLabel, format: 'text' },
-      { label: `Precio objetivo de lista (margen ${formatPercent(r.targetMarginPct)})`, value: k.targetListRate, format: 'money' },
+      { label: k.targetMarginInvalid ? 'Precio objetivo de lista (margen inválido)' : `Precio objetivo de lista (margen ${formatPercent(k.targetMarginPct)})`, value: k.targetListRate, format: 'money' },
       { label: 'Tarifa sugerida (redondeada)', value: k.suggestedListRate, format: 'money' },
       { label: 'Factor de descuentos con la actividad estimada', value: r.estimate && r.estimate.revenue ? r.estimate.revenue.discountFactor : null, format: 'number' },
     ],
@@ -908,6 +911,18 @@ function breakEvenTone(r) {
 /** Semáforo del Cost Completeness Score: mismos umbrales que el motor y el Resultado. */
 function completenessColor(pct) {
   return isFiniteNumber(pct) ? completenessTone(pct) : 'gray';
+}
+
+/**
+ * Qué incluye la tarifa piso respecto de los impuestos sobre lo que se
+ * factura (PLAN-2026-002): el usuario tiene que saber si ya los cubre.
+ */
+export function floorTaxesText(r) {
+  const k = r && r.kpis ? r.kpis : {};
+  if (k.billingTaxesInvalid) return 'Revisá los impuestos sobre lo que facturás: hay un porcentaje inválido.';
+  if (!k.billingTaxesDefined) return 'No incluye los impuestos sobre lo que facturás (sin definir).';
+  if (r.billingTaxInfo && r.billingTaxInfo.notApplicable) return 'Sin impuestos sobre lo que facturás.';
+  return `Incluye ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás.`;
 }
 
 /** Nombre de la tarifa que se cobra, según su origen. */
@@ -950,7 +965,7 @@ function rateHint(r) {
       text = 'Tarifa forzada.';
       break;
     case 'suggested':
-      text = `Para ganar ${formatPercent(r.targetMarginPct)} de margen, redondeada hacia arriba.`;
+      text = `Para ganar ${formatPercent(r.kpis.targetMarginPct)} de margen, redondeada hacia arriba.`;
       break;
     default:
       text = r.pricingMode === 'known_rate' ? `Falta ingresar tu tarifa en "${stepName('modality')}".` : 'Cargá los días por mes para calcularla.';
@@ -1026,8 +1041,9 @@ function buildSummary({ getResult, stepHref }) {
         const floor = floorDisplay(r);
         if (!isFiniteNumber(floor.value)) return 'Cargá los días por mes para calcularla.';
         const net = floor.base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
-        return `Precio mínimo para no perder (margen 0 %).${net ? ` ${net}` : ''}`;
+        return `Precio mínimo para no perder (margen 0 %), sin IVA. ${floorTaxesText(r)}${net ? ` ${net}` : ''}`;
       },
+      tone: (r) => (r.kpis.billingTaxesDefined || !isFiniteNumber(floorDisplay(r).value) ? null : 'orange'),
       trace: floorRateTrace,
     }),
     item({
@@ -1062,14 +1078,16 @@ function buildSummary({ getResult, stepHref }) {
     { class: 'qe-sum-list qe-sum-more-list' },
     item({
       key: 'targetRate',
-      label: (r) => `Precio para tu margen de ${formatPercent(r.targetMarginPct)}`,
+      label: (r) => (r.kpis.targetMarginInvalid ? 'Precio objetivo' : `Precio para tu margen de ${formatPercent(r.kpis.targetMarginPct)}`),
       value: (r) => formatMoneyCeil(r.kpis.targetListRate),
       unit: (r) => `/ ${unitShort(r)}`,
       hint: (r) => {
-        const mk = marginToMarkup(r.targetMarginPct);
+        if (r.kpis.targetMarginInvalid) return 'Sin precio objetivo: revisá el margen en "El precio".';
+        // Recargo efectivo calculado por el motor (con impuestos sobre la facturación).
+        const mk = r.kpis.targetMarkupPct;
         const net = netRateHint(r.kpis.targetNetRate, r);
         const markup = isFiniteNumber(mk) ? `Equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}.` : '';
-        return [`Tarifa de lista sin redondear.`, net, markup].filter(Boolean).join(' ');
+        return [`Tarifa de lista sin redondear, sin IVA.`, net, markup].filter(Boolean).join(' ');
       },
       trace: targetRateTrace,
     }),
@@ -1088,7 +1106,7 @@ function buildSummary({ getResult, stepHref }) {
       value: (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY),
       hint: (r) => {
         const k = r.kpis;
-        const base = `Objetivo ${formatPercent(k.targetMarginPct)}`;
+        const base = k.targetMarginInvalid ? 'Objetivo inválido' : `Objetivo ${formatPercent(k.targetMarginPct)}`;
         if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
         const state = k.profit < 0 ? 'perdés plata' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
         const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
@@ -1952,7 +1970,14 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   const unitLabel = (RATE_UNITS.find((u) => u.id === state.quote.unit) || RATE_UNITS[0]).label;
   // El sub-paso ya se ve en los segmentos de arriba: el antetítulo sólo dice la etapa.
   const kicker = `Etapa ${stageIndex + 1} de ${STAGES.length} · ${currentStage.label}`;
-  const meta = h('div', { class: 'qe-step-meta' }, stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel), saveEl);
+  // Convención de montos (PLAN-2026-002, PN1): todo se carga y se muestra sin IVA.
+  const meta = h(
+    'div',
+    { class: 'qe-step-meta' },
+    stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel),
+    stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-gray', title: 'Cargá todos los montos sin IVA: costos, precios y tarifas.' }, 'Montos sin IVA'),
+    saveEl,
+  );
   // En Resultado el título y la intro los pone la vista de resultados (su h2
   // "Resultado"): acá sólo queda el estado de guardado, sin duplicar títulos.
   const stepHead = stepId === 'result'

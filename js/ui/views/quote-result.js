@@ -81,7 +81,7 @@ import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { findBreakEvenDays } from '../../engines/break-even-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { normalizeRules } from '../../engines/commercial-rules-engine.js';
-import { priceLadder, marginToMarkup, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
+import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import {
@@ -538,12 +538,16 @@ function nonNegativeOrNull(value) {
 
 function traceMargin(v) {
   const { k } = v;
+  const taxed = hasValue(k.billingTaxPct) && k.billingTaxPct > 0;
   return createTrace({
     id: 'margin',
     title: 'Margen y markup del mes',
-    formula: 'Margen = Resultado / Facturación · Markup = Resultado / Costo',
+    formula: taxed
+      ? 'Resultado = Facturación − Impuestos sobre la facturación − Costo · Margen = Resultado / Facturación · Markup = Resultado / Costo'
+      : 'Margen = Resultado / Facturación · Markup = Resultado / Costo',
     inputs: [
-      { label: 'Facturación del mes', value: hasRate(k) ? k.revenue : null, format: 'money' },
+      { label: 'Facturación del mes (sin IVA)', value: hasRate(k) ? k.revenue : null, format: 'money' },
+      ...(taxed ? [{ label: 'Impuestos sobre la facturación del mes', value: hasRate(k) ? k.billingTaxes : null, format: 'money' }] : []),
       { label: 'Costo total del mes', value: k.totalCost, format: 'money' },
     ],
     steps: [
@@ -551,7 +555,7 @@ function traceMargin(v) {
       { label: 'Markup (sobre costo)', value: k.markupPct, format: 'percent' },
       { label: 'Margen objetivo', value: k.targetMarginPct, format: 'percent' },
     ],
-    result: { label: 'Margen (sobre precio de venta)', value: k.marginPct, format: 'percent' },
+    result: { label: 'Margen (sobre precio de venta, antes de Ganancias)', value: k.marginPct, format: 'percent' },
     notes: [
       'El margen se calcula sobre el precio de venta; el markup, sobre el costo. No son lo mismo.',
       hasValue(k.marginPct) ? null : 'Sin tarifa (o sin facturación) no hay margen ni markup de la cotización.',
@@ -559,29 +563,9 @@ function traceMargin(v) {
   });
 }
 
+/** Días para el margen objetivo: la traza la arma el motor (con impuestos sobre la facturación). */
 function traceTargetMarginDays(v) {
-  const { r, k } = v;
-  const l = r.linear || {};
-  const m = (k.targetMarginPct || 0) / 100;
-  const adjusted = hasValue(l.revenuePerActiveDay) ? l.revenuePerActiveDay * (1 - m) - l.variableCostPerDay : null;
-  return createTrace({
-    id: 'target_margin_days',
-    title: `Días para lograr el margen objetivo (${pct(k.targetMarginPct)})`,
-    formula: 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
-    inputs: [
-      { label: 'Costos fijos mensuales', value: l.fixedCosts, format: 'money' },
-      { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera)', value: l.fixedRevenue, format: 'money' },
-      { label: 'Ingreso por día activo', value: l.revenuePerActiveDay, format: 'money' },
-      { label: 'Costo variable por día activo', value: l.variableCostPerDay, format: 'money' },
-      { label: 'Margen objetivo', value: k.targetMarginPct, format: 'percent' },
-    ],
-    steps: [{ label: 'Ingreso por día después de reservar el margen − costo variable', value: adjusted, format: 'money' }],
-    result: { label: 'Días activos para lograr el margen', value: r.targetMarginDays && r.targetMarginDays.reachable ? r.targetMarginDays.days : null, format: 'days' },
-    notes: [
-      r.targetMarginDays && !r.targetMarginDays.reachable ? r.targetMarginDays.reason : null,
-      l.hasNonLinearRules ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o tramos de descuento): el resultado se calcula día a día.' : null,
-    ],
-  });
+  return v.r.traces ? v.r.traces.targetMarginDays : null;
 }
 
 function traceContribution(v) {
@@ -589,10 +573,13 @@ function traceContribution(v) {
   return createTrace({
     id: 'contribution_per_day',
     title: 'Contribución por día activo',
-    formula: 'Contribución por día = Ingreso por día activo − Costo variable por día activo',
+    formula: hasValue(l.billingTaxPct) && l.billingTaxPct > 0
+      ? 'Contribución por día = Ingreso por día activo × (1 − impuestos sobre la facturación) − Costo variable por día activo'
+      : 'Contribución por día = Ingreso por día activo − Costo variable por día activo',
     inputs: [
       { label: 'Tarifa neta por día activo', value: l.netRatePerActiveDay, format: 'money' },
       { label: 'Otros ingresos por día activo (cargos por llamado, movilización, km)', value: l.otherRevenuePerActiveDay, format: 'money' },
+      ...(hasValue(l.billingTaxPct) && l.billingTaxPct > 0 ? [{ label: 'Impuestos sobre la facturación', value: l.billingTaxPct, format: 'percent' }] : []),
       { label: 'Costo variable por día activo', value: l.variableCostPerDay, format: 'money' },
     ],
     steps: [{ label: 'Ingreso por día activo', value: l.revenuePerActiveDay, format: 'money' }],
@@ -627,7 +614,9 @@ function traceSuggestedResult(v, suggested, ev) {
   return createTrace({
     id: 'suggested_result',
     title: 'Resultado con la tarifa sugerida',
-    formula: 'Resultado = Facturación − Costo total · Margen = Resultado / Facturación',
+    formula: hasValue(ev.billingTaxPct) && ev.billingTaxPct > 0
+      ? 'Resultado = Facturación − Impuestos sobre la facturación − Costo total · Margen = Resultado / Facturación'
+      : 'Resultado = Facturación − Costo total · Margen = Resultado / Facturación',
     inputs: [
       { label: 'Tarifa sugerida (de lista)', value: suggested, format: 'moneyCeil' },
       { label: 'Tarifa neta (después de descuentos)', value: revenue.netRate, format: 'money' },
@@ -635,7 +624,10 @@ function traceSuggestedResult(v, suggested, ev) {
       { label: 'Otros ingresos', value: revenue.otherRevenue, format: 'money' },
       { label: 'Costo total', value: cost.total, format: 'money' },
     ],
-    steps: [{ label: 'Facturación total', value: revenue.total, format: 'money' }],
+    steps: [
+      { label: 'Facturación total (sin IVA)', value: revenue.total, format: 'money' },
+      ...(hasValue(ev.billingTaxPct) && ev.billingTaxPct > 0 ? [{ label: 'Impuestos sobre la facturación', value: ev.billingTaxes, format: 'money' }] : []),
+    ],
     result: { label: 'Resultado', value: ev.profit, format: 'money' },
     notes: ['La cotización usa otra tarifa; este cálculo muestra qué pasaría con la tarifa sugerida.'],
   });
@@ -648,18 +640,22 @@ function traceRateForMargin(v, row) {
   return createTrace({
     id: isFloor ? 'floor_rate_detail' : 'rate_for_margin',
     title: isFloor ? `Tarifa piso (por ${v.unitLabel})` : `${sameNumber(m, v.r.targetMarginPct) ? 'Precio objetivo' : 'Tarifa'} con margen ${pct(m)} (por ${v.unitLabel})`,
-    formula: 'Tarifa neta = (Costo total / (1 − margen) − Otros ingresos) / Unidades facturables · Lista = neta / factor de descuentos',
+    formula: hasValue(ra.billingTaxPct) && ra.billingTaxPct > 0
+      ? 'Tarifa neta = (Costo total / (1 − margen − impuestos sobre la facturación) − Otros ingresos) / Unidades facturables · Lista = neta / factor de descuentos'
+      : 'Tarifa neta = (Costo total / (1 − margen) − Otros ingresos) / Unidades facturables · Lista = neta / factor de descuentos',
     inputs: [
       { label: 'Costo total del mes', value: ra.totalCost, format: 'money' },
       { label: 'Margen sobre precio', value: m, format: 'percent' },
+      ...(hasValue(ra.billingTaxPct) && ra.billingTaxPct > 0 ? [{ label: 'Impuestos sobre la facturación', value: ra.billingTaxPct, format: 'percent' }] : []),
       { label: 'Otros ingresos (abono de disponibilidad, equipo en espera, km)', value: ra.otherRevenue, format: 'money' },
       { label: `Unidades facturables (${v.unitLabel})`, value: ra.billableUnits, format: 'number' },
       { label: 'Factor de descuentos', value: ra.discountFactor, format: 'number' },
     ],
     steps: [
-      { label: 'Facturación necesaria', value: isValidMarginPct(m) && hasValue(ra.totalCost) ? ra.totalCost / (1 - m / 100) : null, format: 'moneyCeil' },
+      // Valores del motor (requiredRatesAt): nunca se recalculan en la interfaz.
+      { label: 'Facturación necesaria', value: row.requiredRevenue, format: 'moneyCeil' },
       { label: 'Tarifa neta', value: row.netRate, format: 'moneyCeil' },
-      { label: 'Markup equivalente', value: marginToMarkup(m), format: 'percent' },
+      { label: 'Markup equivalente (recargo sobre el costo)', value: row.markupPct, format: 'percent' },
     ],
     result: { label: 'Tarifa de lista', value: row.listRate, format: 'moneyCeil' },
     notes: ['Las tarifas mínimas se muestran redondeadas hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo.'],
@@ -752,7 +748,15 @@ function floorLabel(m) {
 }
 
 function targetLabel(v, m) {
+  if (v.k.targetMarginInvalid) return `Precio objetivo${m.showList ? ' de lista' : ''} (margen inválido)`;
   return `Precio objetivo${m.showList ? ' de lista' : ''} (margen ${pct(v.k.targetMarginPct)})`;
+}
+
+/** Qué incluye la tarifa piso respecto de los impuestos sobre lo que se factura. */
+function floorTaxesNote(k) {
+  if (k.billingTaxesInvalid) return 'Hay un impuesto sobre la facturación inválido: no se aplica.';
+  if (!k.billingTaxesDefined) return 'No incluye impuestos sobre lo que facturás (sin definir).';
+  return hasValue(k.billingTaxPct) && k.billingTaxPct > 0 ? `Incluye ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás.` : 'Sin impuestos sobre lo que facturás.';
 }
 
 function netHint(netValue, unitLabel) {
@@ -834,9 +838,13 @@ function traceMonthlyCap(v, cap) {
   return createTrace({
     id: withMargin ? 'max_days_target_margin' : 'max_days_without_loss',
     title: capTitle(cap),
-    formula: withMargin
-      ? 'Días máximos = último D con Resultado(D) ≥ margen × Facturación(D) · Resultado(D) = Facturación(D) − (Costos fijos + Costo variable por día × D)'
-      : 'Días máximos = último D con Resultado(D) = Facturación(D) − Costo(D) ≥ 0 · con abono fijo ≈ (Facturación del mes − Costos fijos) / Costo variable por día',
+    formula: hasValue(ctx.billingTaxPct) && ctx.billingTaxPct > 0
+      ? (withMargin
+        ? 'Días máximos = último D con Resultado(D) ≥ margen × Facturación(D) · Resultado(D) = Facturación(D) × (1 − impuestos sobre la facturación) − (Costos fijos + Costo variable por día × D)'
+        : 'Días máximos = último D con Resultado(D) = Facturación(D) × (1 − impuestos sobre la facturación) − Costo(D) ≥ 0')
+      : (withMargin
+        ? 'Días máximos = último D con Resultado(D) ≥ margen × Facturación(D) · Resultado(D) = Facturación(D) − (Costos fijos + Costo variable por día × D)'
+        : 'Días máximos = último D con Resultado(D) = Facturación(D) − Costo(D) ≥ 0 · con abono fijo ≈ (Facturación del mes − Costos fijos) / Costo variable por día'),
     inputs: [
       { label: 'Abono de lista', value: cap.listRate, format: 'money' },
       { label: 'Facturación del mes sin días activos (abono neto e ingresos fijos)', value: at0.revenue.total, format: 'money' },
@@ -934,6 +942,21 @@ function criticalAlerts(v) {
     out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
   } else if (k.belowTarget) {
     out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
+  }
+  // Margen objetivo inválido (incluido margen + impuestos ≥ 100): no hay precio objetivo.
+  if (k.targetMarginInvalid) {
+    out.push(alertLine('danger', 'El margen objetivo no es válido.', hasValue(k.billingTaxPct) && k.billingTaxPct > 0
+      ? `Con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${pct(100 - k.billingTaxPct)}: no hay un precio que deje ese margen.`
+      : 'Tiene que ser mayor o igual a 0 y menor a 100 %. Sin un margen válido no hay precio objetivo ni tarifa sugerida.',
+    stepLink(v.q, 'margin', `Corregilo en ${stepLabel('margin')}`)));
+  }
+  // Impuestos sobre lo que se factura (PLAN-2026-002): sin definir, la tarifa piso no los cubre.
+  if (k.billingTaxesInvalid) {
+    out.push(alertLine('danger', 'Revisá los impuestos sobre lo que facturás.', 'Hay un porcentaje inválido (negativo, no numérico o un total de 100 % o más): por ahora no se aplica y la tarifa piso no los incluye.',
+      stepLink(v.q, 'margin', `Corregilos en ${stepLabel('margin')}`)));
+  } else if (!k.billingTaxesDefined) {
+    out.push(alertLine('warning', 'Faltan los impuestos sobre lo que facturás.', 'La tarifa piso y la sugerida no incluyen Ingresos Brutos, débitos y créditos ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o marcá que no pagás.',
+      stepLink(v.q, 'margin', `Cargalos en ${stepLabel('margin')}`)));
   }
   if (k.incomplete) {
     const score = r.completeness ? r.completeness.scorePct : null;
@@ -1060,17 +1083,17 @@ function ratesByMarginBlock(v) {
   const D = k.activeDays;
   const showList = minimumRates(v).showList;
   const rows = [
-    { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, label: 'Tarifa piso (no perder plata)' },
+    { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, requiredRevenue: ra.floorRequiredRevenue, markupPct: 0, label: 'Tarifa piso (no perder plata)' },
     ...(Array.isArray(ra.byMargin) ? ra.byMargin : [])
       .filter((m) => hasValue(m.marginPct) && m.marginPct > 0)
       .sort((a, b) => a.marginPct - b.marginPct)
-      .map((m) => ({ key: `m${m.marginPct}`, marginPct: m.marginPct, netRate: m.netRate, listRate: m.listRate, label: marginLabel(v, m.marginPct) })),
+      .map((m) => ({ key: `m${m.marginPct}`, marginPct: m.marginPct, netRate: m.netRate, listRate: m.listRate, requiredRevenue: m.requiredRevenue, markupPct: m.markupPct, label: marginLabel(v, m.marginPct) })),
   ];
 
   const columns = [
     { key: 'label', label: 'Nivel' },
     { key: 'marginPct', label: 'Margen sobre precio', align: 'right', render: (row) => pct(row.marginPct) },
-    { key: 'markup', label: 'Markup equivalente', align: 'right', render: (row) => pct(marginToMarkup(row.marginPct)) },
+    { key: 'markup', label: 'Markup equivalente', align: 'right', render: (row) => pct(row.markupPct) },
     ...(showList ? [{ key: 'listRate', label: `Tarifa de lista por ${v.unitLabel}`, align: 'right', render: (row) => ceilMoney(row.listRate) }] : []),
     { key: 'netRate', label: showList ? `Tarifa neta por ${v.unitLabel}` : `Tarifa por ${v.unitLabel}`, align: 'right', render: (row) => ceilMoney(row.netRate) },
     { key: 'trace', label: 'Cálculo', align: 'right', render: (row) => traceBtn(traceRateForMargin(v, row)) },
@@ -1124,13 +1147,13 @@ function heroKnownActivity(v) {
       heroItem({
         label: floorLabel(mr),
         value: minRateNode(mr.floorMain, v.unitLabel),
-        hint: mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Iguala el costo del mes (margen 0).',
+        hint: `${mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Iguala el costo del mes (margen 0).'} ${floorTaxesNote(k)}`,
         trace: ceilTrace(r.traces && r.traces.floorRate),
       }),
       heroItem({
         label: targetLabel(v, mr),
         value: minRateNode(mr.targetMain, v.unitLabel),
-        hint: mr.targetNetDiffers ? netHint(k.targetNetRate, v.unitLabel) : `Markup equivalente: ${pct(marginToMarkup(k.targetMarginPct))}.`,
+        hint: k.targetMarginInvalid ? 'Sin precio objetivo: el margen no es válido.' : mr.targetNetDiffers ? netHint(k.targetNetRate, v.unitLabel) : `Markup equivalente: ${pct(k.targetMarkupPct)}.`,
         trace: ceilTrace(r.traces && r.traces.targetRate),
       }),
       heroItem({
@@ -1181,13 +1204,13 @@ function kpiGrid(v) {
     items.push(kpiItem({
       label: floorLabel(mr),
       value: minRateNode(mr.floorMain, v.unitLabel),
-      hint: mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Para no perder plata (margen 0).',
+      hint: `${mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Para no perder plata (margen 0).'} ${floorTaxesNote(k)}`,
       trace: ceilTrace(traces.floorRate),
     }));
     items.push(kpiItem({
       label: targetLabel(v, mr),
       value: minRateNode(mr.targetMain, v.unitLabel),
-      hint: mr.targetNetDiffers ? netHint(k.targetNetRate, v.unitLabel) : `Markup equivalente: ${pct(marginToMarkup(k.targetMarginPct))}.`,
+      hint: k.targetMarginInvalid ? 'Sin precio objetivo: el margen no es válido.' : mr.targetNetDiffers ? netHint(k.targetNetRate, v.unitLabel) : `Markup equivalente: ${pct(k.targetMarkupPct)}.`,
       trace: ceilTrace(traces.targetRate),
     }));
   }
@@ -1350,12 +1373,14 @@ function floorStat(v) {
   let hint;
   if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
   else if (!hasValue(value)) hint = statHint('Falta estimar los días activos del mes.');
-  else hint = statHint(mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.');
+  else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`);
   return statItem({
     label: 'Tarifa piso',
     value: ceilMoney(value),
     unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
     hint,
+    // Sin impuestos sobre la facturación definidos, la "piso" no es piso: se marca.
+    tone: hasValue(value) && (!k.billingTaxesDefined || k.billingTaxesInvalid) ? 'orange' : null,
     trace: costOk ? floorSummaryTrace(v) : null,
     className: 'qr-stat qr-stat-floor',
   });
@@ -1527,6 +1552,7 @@ function renderSummary(v) {
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
+    h('p', { class: 'qr-note qr-tax-note' }, 'Todos los montos son sin IVA. El margen es lo que te queda después de costos e impuestos sobre lo que facturás, antes de Ganancias.'),
     workBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
 }
@@ -1706,7 +1732,8 @@ function chartData(v) {
   const ctx = r.ctx;
   const days = (r.matrix || []).map((row) => row.activeDays).filter((d) => hasValue(d) && d > 0);
   if (!ctx || days.length === 0) return null;
-  const target = isValidMarginPct(r.targetMarginPct) ? r.targetMarginPct : 0;
+  // Margen objetivo inválido (o margen + impuestos ≥ 100): sin línea objetivo.
+  const target = !k.targetMarginInvalid && isValidMarginPct(k.targetMarginPct) ? k.targetMarginPct : null;
   let x0 = Math.min(...days);
   let x1 = Math.max(...days);
   if (x1 - x0 < 1e-9) {
@@ -1714,8 +1741,8 @@ function chartData(v) {
     x1 += 1;
   }
   const ratesAt = (d) => {
-    const rr = requiredRatesAt(ctx, d, [target]);
-    return { floor: rr.floorNetRate, target: rr.byMargin[0] ? rr.byMargin[0].netRate : null };
+    const rr = requiredRatesAt(ctx, d, target === null ? [] : [target]);
+    return { floor: rr.floorNetRate, target: target !== null && rr.byMargin[0] ? rr.byMargin[0].netRate : null };
   };
   const N = 60;
   const samples = [];
@@ -1899,7 +1926,7 @@ function rateChart(v) {
   return h('figure', { class: 'qr-chart' },
     h('div', { class: 'legend qr-chart-legend' },
       key('qr-key-floor', 'Tarifa piso neta (no perder plata)'),
-      key('qr-key-target', `${sameNumber(data.target, v.k.targetMarginPct) ? 'Precio objetivo neto' : 'Tarifa neta'} (margen ${pct(data.target)})`),
+      data.target !== null ? key('qr-key-target', `${sameNumber(data.target, v.k.targetMarginPct) ? 'Precio objetivo neto' : 'Tarifa neta'} (margen ${pct(data.target)})`) : null,
       data.commercial !== null ? key('qr-key-commercial', `${commercialName(v.k)} neta (con los días estimados)`) : null),
     canvas,
     h('figcaption', { class: 'qr-note' }, `${unitNoun}. ${trendText(v, data.trend)}`));
@@ -1917,7 +1944,9 @@ function traceMatrixRow(v, row, rr) {
   return createTrace({
     id: 'matrix_row',
     title: `Tarifas necesarias con ${activeDaysText(row.activeDays, 2)}`,
-    formula: 'Tarifa necesaria(D, margen) = (Costo(D) / (1 − margen) − Otros ingresos(D)) / Unidades facturables(D)',
+    formula: hasValue(v.k.billingTaxPct) && v.k.billingTaxPct > 0
+      ? 'Tarifa necesaria(D, margen) = (Costo(D) / (1 − margen − impuestos sobre la facturación) − Otros ingresos(D)) / Unidades facturables(D)'
+      : 'Tarifa necesaria(D, margen) = (Costo(D) / (1 − margen) − Otros ingresos(D)) / Unidades facturables(D)',
     inputs: [
       { label: 'Días activos', value: row.activeDays, format: 'days' },
       { label: 'Utilización', value: row.utilizationPct, format: 'percent' },
@@ -2060,20 +2089,41 @@ function renderMatrix(v) {
 
 // -------------------------------------------------- D. margen vs markup
 
+/** Nota de la escalera de precios (valores del motor: markup efectivo con impuestos). */
+function ladderNote(k, cost) {
+  const base = `Calculado sobre el costo del mes (${money(cost)}).`;
+  if (k.targetMarginInvalid) return `${base} El margen objetivo no es válido: no hay precio objetivo.`;
+  const taxes = hasValue(k.billingTaxPct) && k.billingTaxPct > 0
+    ? ` Con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, cada precio cubre costo + impuestos + ganancia.`
+    : '';
+  return `${base}${taxes} Tu margen objetivo de ${pct(k.targetMarginPct)} equivale a un markup de ${pct(k.targetMarkupPct)}.`;
+}
+
 function renderMarginMarkup(v) {
   const { r, k, settings } = v;
   const ladderBase = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [...DEFAULT_MARGIN_LADDER];
-  const margins = [...new Set([...ladderBase, r.targetMarginPct].filter((m) => isValidMarginPct(m) && m > 0))].sort((a, b) => a - b);
-  const ladder = priceLadder(k.totalCost, margins, r.customMarginPct);
+  const margins = [...new Set([...ladderBase, k.targetMarginPct].filter((m) => isValidMarginPct(m) && m > 0))].sort((a, b) => a - b);
+  // Escalera del motor: precio = costo / (1 − m − t), con impuestos y ganancia por fila.
+  const ladder = priceLadder(k.totalCost, margins, r.customMarginPct, k.billingTaxPct);
   const cost = k.totalCost;
+  const taxed = hasValue(k.billingTaxPct) && k.billingTaxPct > 0;
   const columns = [
     { key: 'label', label: 'Nivel', render: (row) => (row.key === 'floor' ? 'Tarifa piso (margen 0)' : marginLabel(v, row.marginPct)) },
     { key: 'marginPct', label: 'Margen (sobre precio)', align: 'right', render: (row) => pct(row.marginPct) },
     { key: 'markupPct', label: 'Markup equivalente (sobre costo)', align: 'right', render: (row) => pct(row.markupPct) },
     { key: 'price', label: 'Facturación mensual necesaria', align: 'right', render: (row) => money(row.price) },
-    { key: 'gain', label: 'Ganancia del mes', align: 'right', render: (row) => money(hasValue(row.price) && hasValue(cost) ? row.price - cost : null) },
+    ...(taxed ? [{ key: 'billingTaxes', label: 'Impuestos sobre lo que facturás', align: 'right', render: (row) => money(row.billingTaxes) }] : []),
+    { key: 'gain', label: 'Ganancia del mes', align: 'right', render: (row) => money(row.gain) },
   ];
-  const example = traceMarginVsMarkup(100, 10);
+  const exampleTrace = traceMarginVsMarkup(100, 10);
+  // Ejemplo educativo (costo 100, 10 %): los números salen del motor.
+  const example = {
+    marginPrice: priceFromMargin(100, 10),
+    marginGain: priceFromMargin(100, 10) - 100,
+    markupPrice: priceFromMarkup(100, 10),
+    markupGain: priceFromMarkup(100, 10) - 100,
+    markupAsMargin: markupToMargin(10),
+  };
   return card(
     {
       title: 'Margen vs markup',
@@ -2088,14 +2138,14 @@ function renderMarginMarkup(v) {
         cost > 0
           ? regionTable(v, { columns, rows: ladder, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Escalera de precios por margen', className: 'qr-ladder' })
           : emptyState('Cargá costos para ver la escalera de precios.'),
-        cost > 0 ? note(`Calculado sobre el costo del mes (${money(cost)}). Tu margen objetivo de ${pct(r.targetMarginPct)} equivale a un markup de ${pct(marginToMarkup(r.targetMarginPct))}.`) : null),
+        cost > 0 ? note(ladderNote(k, cost)) : null),
       h('aside', { class: 'qr-example' },
         h('div', { class: 'qr-example-title' }, 'Ejemplo con costo $ 100'),
         h('ul', { class: 'qr-example-list' },
-          h('li', {}, h('strong', {}, 'Margen 10 %'), ` → precio ${formatMoney(100 / 0.9, { decimals: 2 })}. Ganás ${formatMoney(100 / 0.9 - 100, { decimals: 2 })}, que es el 10 % del precio.`),
-          h('li', {}, h('strong', {}, 'Markup 10 %'), ` → precio ${formatMoney(110, { decimals: 2 })}. Ganás ${formatMoney(10, { decimals: 2 })}: el 10 % del costo, pero sólo ${pct((10 / 110) * 100)} del precio.`)),
+          h('li', {}, h('strong', {}, 'Margen 10 %'), ` → precio ${formatMoney(example.marginPrice, { decimals: 2 })}. Ganás ${formatMoney(example.marginGain, { decimals: 2 })}, que es el 10 % del precio.`),
+          h('li', {}, h('strong', {}, 'Markup 10 %'), ` → precio ${formatMoney(example.markupPrice, { decimals: 2 })}. Ganás ${formatMoney(example.markupGain, { decimals: 2 })}: el 10 % del costo, pero sólo ${pct(example.markupAsMargin)} del precio.`)),
         note('Si confundís uno con otro, cotizás por debajo del margen que buscabas.'),
-        traceBtn(example))),
+        traceBtn(exampleTrace))),
   );
 }
 
@@ -2600,6 +2650,7 @@ function renderComparator(v) {
       { label: 'Días activos estimados', value: cmp.estimatedDays, format: 'days' },
       { label: 'Días activos pesimistas', value: cmp.pessimisticDays, format: 'days' },
       { label: 'Margen objetivo', value: cmp.targetMarginPct, format: 'percent' },
+      ...(hasValue(cmp.billingTaxPct) && cmp.billingTaxPct > 0 ? [{ label: 'Impuestos sobre la facturación', value: cmp.billingTaxPct, format: 'percent' }] : []),
       { label: 'Costos fijos del mes', value: k.fixedCosts, format: 'money' },
     ],
     steps: [
@@ -2612,6 +2663,7 @@ function renderComparator(v) {
     notes: [
       'Riesgo alto: con actividad pesimista perdés plata. Medio: el margen pesimista cae a menos de la mitad del objetivo. Bajo: conserva al menos la mitad del margen objetivo.',
       'Ingreso mínimo asegurado: lo que facturás aunque el equipo no trabaje ningún día.',
+      hasValue(cmp.billingTaxPct) && cmp.billingTaxPct > 0 ? 'Resultado de cada modelo = ingreso × (1 − impuestos sobre la facturación) − costo. El mínimo garantizado cubre los costos fijos después de impuestos.' : null,
     ],
   });
   const tbl = regionTable(v, {

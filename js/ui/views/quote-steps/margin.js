@@ -1,7 +1,9 @@
 /**
- * Etapa 4 · El precio — Margen y reglas comerciales.
+ * Etapa 4 · El precio — Margen, impuestos sobre lo que facturás y reglas
+ * comerciales.
  * Básico: margen objetivo (sobre el precio), con margen vs markup explicado
- * una sola vez (recuadro + "Ver ejemplo"). Opciones avanzadas: margen
+ * una sola vez (recuadro + "Ver ejemplo"), e impuestos sobre lo que facturás
+ * (un % total o detalle; RATEOS no trae alícuotas). Opciones avanzadas: margen
  * personalizado, descuento comercial, redondeo, tarifa ofrecida, reglas
  * comerciales y tramos de descuento (cada una con un resumen visible).
  *
@@ -10,15 +12,19 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, emptyState, table, badge, icon } from '../../components.js';
+import { card, formGrid, emptyState, table, badge, icon, button, confirmDialog } from '../../components.js';
 import { RATE_UNITS } from '../../../domain/catalogs.js';
-import { priceFromMargin, priceFromMarkup, marginToMarkup, traceMarginVsMarkup } from '../../../engines/pricing-engine.js';
+import { normalizeBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../../domain/billing-taxes.js';
+import { priceFromMargin, priceFromMarkup, traceMarginVsMarkup } from '../../../engines/pricing-engine.js';
 import { tierLabel } from '../../../engines/commercial-rules-engine.js';
 import { formatMoney, formatPercent, formatNumber, formatValue, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
+import { deepClone, isPlainObject } from '../../../core/object.js';
 import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove, hasNumber, stepName, plural } from './shared.js';
 import { minActivityNotice } from '../../result-text.js';
+import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, sameBillingTaxes } from '../../billing-taxes-form.js';
+import { userErrorMessage } from '../../layout.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -64,6 +70,68 @@ function ruleRow(title, explanation, fields, output = null) {
   );
 }
 
+/**
+ * "Usar los de mi empresa" / "Guardar como valor de mi empresa": el valor de la
+ * empresa (Configuración → Parámetros económicos) es el punto de partida de
+ * las cotizaciones nuevas. Reemplaza, nunca suma (modos excluyentes).
+ */
+function companyTaxesActions(ctx) {
+  if (ctx.kit.readOnly) return null;
+  const settings = ctx.settings || {};
+  const company = settings.defaultBillingTaxes;
+  const own = ctx.quote.billingTaxes;
+  const companyDecided = billingTaxesDecided(company);
+  const ownDecided = billingTaxesDecided(own);
+  const same = companyDecided && ownDecided && sameBillingTaxes(company, own);
+  const actions = [];
+  if (companyDecided && !same) {
+    actions.push(button(`Usar los de mi empresa (${describeBillingTaxes(company)})`, {
+      size: 'sm',
+      onClick: async () => {
+        if (ownDecided) {
+          const ok = await confirmDialog({
+            title: 'Usar los impuestos de tu empresa',
+            message: `Se reemplazan los de esta cotización (${describeBillingTaxes(own)}) por los de tu empresa (${describeBillingTaxes(company)}).`,
+            confirmLabel: 'Reemplazar',
+          });
+          if (!ok) return;
+        }
+        ctx.mutate((q) => { q.billingTaxes = normalizeBillingTaxes(deepClone(company)); });
+        ctx.toast('Se cargaron los impuestos de tu empresa.', 'success');
+      },
+    }));
+  }
+  if (ownDecided && !same) {
+    actions.push(button('Guardar como valor de mi empresa', {
+      size: 'sm',
+      variant: 'ghost',
+      onClick: async () => {
+        const value = normalizeBillingTaxes(deepClone(ctx.quote.billingTaxes));
+        if (companyDecided) {
+          const ok = await confirmDialog({
+            title: 'Guardar como valor de tu empresa',
+            message: `Las cotizaciones nuevas van a arrancar con ${describeBillingTaxes(value)} (hoy: ${describeBillingTaxes(company)}). Las cotizaciones que ya tenés no cambian.`,
+            confirmLabel: 'Guardar',
+          });
+          if (!ok) return;
+        }
+        try {
+          await ctx.app.ctx.settings.save({ defaultBillingTaxes: value });
+          settings.defaultBillingTaxes = value;
+          ctx.toast('Guardado: las cotizaciones nuevas van a arrancar con estos impuestos.', 'success');
+          ctx.rerender();
+        } catch (error) {
+          ctx.toast(userErrorMessage(error, 'No se pudo guardar el valor de tu empresa.'), 'danger');
+        }
+      },
+    }));
+  }
+  if (actions.length === 0) {
+    return same ? h('p', { class: 'footnote' }, 'Son los impuestos de tu empresa (Configuración → Parámetros económicos).') : null;
+  }
+  return h('div', { class: 'qe-toolbar bt-company' }, ...actions);
+}
+
 export function render(container, ctx) {
   const { quote, kit } = ctx;
   const unit = RATE_UNITS.find((u) => u.id === quote.unit) || RATE_UNITS[0];
@@ -80,7 +148,7 @@ export function render(container, ctx) {
         rule: 'margin',
         unit: '%',
         requiredMark: true,
-        hint: 'Lo que querés que te quede de cada $ 100 facturados.',
+        hint: 'Lo que querés que te quede de cada $ 100 facturados, después de pagar los costos y los impuestos sobre lo que facturás (antes de Ganancias).',
       }),
     ),
     // Margen vs markup se explica UNA vez: este recuadro + "Ver ejemplo" (COPY-8).
@@ -92,21 +160,69 @@ export function render(container, ctx) {
         'p',
         {},
         kit.out((r) => {
-          const mk = marginToMarkup(r.targetMarginPct);
-          return isFiniteNumber(mk)
-            ? `Un margen de ${formatPercent(r.targetMarginPct)} sobre el precio equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}: no son lo mismo.`
-            : 'Definí un margen objetivo válido (de 0 a menos de 100 %).';
+          const k = r.kpis;
+          const t = k.billingTaxPct;
+          if (k.targetMarginInvalid && t > 0) return `Con ${formatPercent(t)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - t)}.`;
+          // Recargo efectivo calculado por el motor: m / (1 − m − t).
+          const mk = k.targetMarkupPct;
+          if (!isFiniteNumber(mk)) return 'Definí un margen objetivo válido (de 0 a menos de 100 %).';
+          return t > 0
+            ? `Con ${formatPercent(t)} de impuestos sobre lo que facturás, un margen de ${formatPercent(k.targetMarginPct)} sobre el precio equivale a un recargo sobre el costo (markup) de ${formatPercent(mk)}: no son lo mismo.`
+            : `Un margen de ${formatPercent(k.targetMarginPct)} sobre el precio equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}: no son lo mismo.`;
         }),
         ' ',
         h('button', { type: 'button', class: 'btn btn-link btn-sm qe-inline-link', 'aria-controls': 'qe-margin-example', on: { click: () => showExample() } }, 'Ver ejemplo'),
       ),
     ),
+  );
+
+  // ------------------------------------ impuestos sobre lo que facturás
+  const taxesCard = card(
+    { title: '¿Qué parte de lo que facturás se va en impuestos?', subtitle: 'No son un costo más: se pagan sobre lo que cobrás. RATEOS los incluye en la tarifa junto con tu margen.', level: 3, className: 'qe-taxes' },
+    billingTaxesHelp(),
+    billingTaxesFields({
+      get: () => quote.billingTaxes,
+      update: (rel, value) => ctx.update(`billingTaxes.${rel}`, value),
+      mutate: (fn, options) => ctx.mutate((q) => {
+        if (!isPlainObject(q.billingTaxes)) q.billingTaxes = emptyBillingTaxes();
+        if (!Array.isArray(q.billingTaxes.items)) q.billingTaxes.items = [];
+        fn(q.billingTaxes);
+      }, options),
+      readOnly: kit.readOnly,
+      namePrefix: 'billingTaxes',
+    }),
+    // Se reevalúa en cada recálculo: aparece apenas la cotización tiene impuestos decididos.
+    kit.out(() => companyTaxesActions(ctx), { tag: 'div', allowEmpty: true, className: 'bt-company-holder' }),
+    kit.toggle(
+      h('div', { class: 'qe-tip qe-tip-warning' }, icon('alert'), h('p', {}, 'Sin definir: la tarifa piso y la sugerida NO incluyen estos impuestos. Si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o marcá que no pagás.')),
+      (r) => !r.kpis.billingTaxesDefined && !r.kpis.billingTaxesInvalid,
+    ),
+    kit.toggle(
+      h('div', { class: 'qe-tip qe-tip-danger' }, icon('alert'), kit.out((r) => `Con ${formatPercent(r.kpis.billingTaxPct)} de impuestos sobre lo que facturás, el margen objetivo tiene que ser menor a ${formatPercent(100 - r.kpis.billingTaxPct)}: no hay un precio que deje ese margen.`, { tag: 'p' })),
+      (r) => r.kpis.targetMarginInvalid && r.kpis.billingTaxPct > 0,
+    ),
     kit.stats(
-      kit.stat((r) => `Precio para ganar ${formatPercent(r.targetMarginPct)}`, (r) => perUnitCeil(r.kpis.targetListRate, r.unit), {
+      kit.stat('Impuestos sobre lo que facturás', (r) => (r.kpis.billingTaxesInvalid ? 'Revisar' : r.kpis.billingTaxesDefined ? formatPercent(r.kpis.billingTaxPct) : 'Sin definir'), {
+        hint: (r) => (r.kpis.billingTaxesInvalid ? 'Hay un porcentaje inválido: no se aplica hasta que lo corrijas.' : r.billingTaxInfo && r.billingTaxInfo.notApplicable ? 'Marcaste que no pagás impuestos sobre lo que facturás.' : 'Sobre la facturación sin IVA.'),
+        tone: (r) => (r.kpis.billingTaxesInvalid ? 'red' : r.kpis.billingTaxesDefined ? null : 'orange'),
+      }),
+      kit.stat('Impuestos del mes', (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.billingTaxes) : EMPTY), {
+        hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? `Con ${{ known_rate: 'tu tarifa', offered: 'la tarifa ofrecida', override: 'la tarifa forzada' }[r.kpis.commercialSource] || 'la tarifa sugerida'} y la actividad estimada.` : 'Sin tarifa.'),
+        trace: (r) => r.traces.billingTaxes,
+      }),
+    ),
+  );
+
+  const priceCard = card(
+    {},
+    kit.stats(
+      kit.stat((r) => (r.kpis.targetMarginInvalid ? 'Precio objetivo' : `Precio para ganar ${formatPercent(r.kpis.targetMarginPct)}`), (r) => perUnitCeil(r.kpis.targetListRate, r.unit), {
         trace: targetRateTrace,
         hint: (r) => {
+          if (r.kpis.targetMarginInvalid) return 'Sin precio objetivo: revisá el margen.';
           const net = netRateHint(r.kpis.targetNetRate, r);
-          return `Tarifa de lista, antes de descuentos.${net ? ` ${net}` : ''}`;
+          const taxes = r.kpis.billingTaxPct > 0 ? ' Incluye los impuestos sobre lo que facturás.' : '';
+          return `Tarifa de lista, antes de descuentos, sin IVA.${taxes}${net ? ` ${net}` : ''}`;
         },
       }),
       kit.stat('Tarifa sugerida', (r) => perUnitCeil(r.kpis.suggestedListRate, r.unit), { hint: 'El precio anterior redondeado hacia arriba (nunca baja el margen).', emphasis: true }),
@@ -209,10 +325,10 @@ export function render(container, ctx) {
       }),
       isModeB
         ? kit.num('pricing.offeredRateOverride', {
-          label: `Tarifa ofrecida a mano (opcional, de lista, ${unit.label})`,
+          label: `Tarifa ofrecida a mano (opcional, de lista, ${unit.label}, sin IVA)`,
           rule: 'money',
           unit: unit.label,
-          hint: 'Tarifa de lista, antes de descuentos. Si la dejás vacía, se ofrece la tarifa sugerida.',
+          hint: 'Tarifa de lista, sin IVA, antes de descuentos. Si la dejás vacía, se ofrece la tarifa sugerida.',
         })
         : kit.staticField(`Tu tarifa (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', `Elegiste "Sí, ya tengo la tarifa": se edita en "${stepName('modality')}".`),
     ),
@@ -436,6 +552,6 @@ export function render(container, ctx) {
     h('div', { class: 'qe-toolbar' }, kit.action('Agregar tramo', addTier, { icon: 'plus' })),
   );
 
-  mount(container, marginCard, educational, kit.question('¿Querés ajustar cómo se cobra?', 'Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian la tarifa sugerida.', { level: 3 }), pricingOptions, rulesCard, tiersCard);
+  mount(container, marginCard, taxesCard, priceCard, educational, kit.question('¿Querés ajustar cómo se cobra?', 'Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian la tarifa sugerida.', { level: 3 }), pricingOptions, rulesCard, tiersCard);
   return { update() {} };
 }

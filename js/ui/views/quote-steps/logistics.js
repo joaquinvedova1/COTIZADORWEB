@@ -208,7 +208,7 @@ export function render(container, ctx) {
     if (fuelConfirm) fuelConfirm.hidden = true;
   };
   const fuelPriceField = kit.num('fuel.pricePerLiter', {
-    label: 'Precio del combustible',
+    label: 'Precio del combustible (sin IVA)',
     rule: 'money',
     unit: '$/L',
     illustrative: fuelMarked,

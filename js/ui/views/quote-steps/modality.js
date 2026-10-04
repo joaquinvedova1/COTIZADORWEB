@@ -156,11 +156,11 @@ export function render(container, ctx) {
       ? formGrid(
         2,
         kit.num('pricing.knownRate', {
-          label: `Tu tarifa (${unit.label})`,
+          label: `Tu tarifa (${unit.label}, sin IVA)`,
           rule: 'money',
           unit: unit.label,
           requiredMark: true,
-          hint: 'Tarifa de lista, antes de descuentos por días, continuidad o comerciales.',
+          hint: 'Tarifa de lista, sin IVA, antes de descuentos por días, continuidad o comerciales.',
         }),
       )
       : null,

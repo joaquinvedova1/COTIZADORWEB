@@ -106,12 +106,14 @@ function isZeroMargin(marginPct) {
  * precio." o, con margen objetivo 0, "Cubre tus costos (margen objetivo 0 %)."
  */
 export function targetGoalHint(marginPct) {
+  if (!isFiniteNumber(marginPct)) return 'Definí un margen objetivo válido para calcularla.';
   if (isZeroMargin(marginPct)) return `Cubre tus costos (margen objetivo ${formatPercent(0)}).`;
   return `Para ganar el ${formatPercent(marginPct)} sobre el precio.`;
 }
 
 /** Comienzo de frase: "Para ganar el 10 %" / "Para cubrir tus costos" (margen 0). */
 export function targetGoalPrefix(marginPct) {
+  if (!isFiniteNumber(marginPct)) return 'Con un margen objetivo válido';
   return isZeroMargin(marginPct) ? 'Para cubrir tus costos' : `Para ganar el ${formatPercent(marginPct)}`;
 }
 

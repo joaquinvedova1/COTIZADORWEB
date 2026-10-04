@@ -104,7 +104,7 @@ export function render(container, ctx) {
         materialGrid(
           kit.text(`${p}.description`, { label: 'Descripción', maxLength: 160 }),
           kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', hint: kit.out(() => `${basisLabel(quote.materials[i] && quote.materials[i].basis)} (se cambia en opciones avanzadas)`) }),
-          kit.num(`${p}.unitCost`, { label: 'Costo unitario', rule: 'money', unit: '$', illustrative }),
+          kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: '$', illustrative }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
             options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),

@@ -24,6 +24,10 @@ import { isFiniteNumber } from '../../core/money.js';
 import { sanitizeText, validateNumber } from '../../core/validation.js';
 import { demoOrganization } from '../../domain/demo-data.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes } from '../billing-taxes-form.js';
+import { normalizeBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../domain/billing-taxes.js';
+import { billingTaxConfigInfo } from '../../engines/billing-taxes-engine.js';
+import { setPath, deepClone, isPlainObject } from '../../core/object.js';
 import { renderAgreements } from './library.js';
 import { isExampleQuote } from './quotes-list.js';
 
@@ -682,17 +686,86 @@ export async function render(root, app, params = {}) {
     paramsForm.addEventListener('change', () => paramsSaver.schedule());
     lockInputs(paramsForm);
 
+    // --------------- impuestos sobre lo que facturás (valor de la empresa)
+    // No es ILUSTRATIVO: RATEOS no trae alícuotas (AGENTS.md §7). Sin definir
+    // (null) hasta que la empresa decida; lo usan las cotizaciones nuevas.
+    const taxes = isPlainObject(settings.defaultBillingTaxes) ? normalizeBillingTaxes(deepClone(settings.defaultBillingTaxes)) : emptyBillingTaxes();
+    const taxesHolder = h('div', { class: 'stack' });
+    const taxesSummary = h('p', { class: 'small', role: 'status' });
+    const taxesChip = saveChip({ ephemeral });
+    const taxesValid = () => !billingTaxConfigInfo(taxes).invalid && taxesHolder.querySelectorAll('[aria-invalid="true"]').length === 0;
+    const taxesSaver = createAutosave({
+      chip: taxesChip,
+      readOnly,
+      isValid: taxesValid,
+      save: async () => {
+        await ctx.settings.save({ defaultBillingTaxes: billingTaxesDecided(taxes) ? normalizeBillingTaxes(deepClone(taxes)) : null });
+      },
+      onError: (error) => app.toast(userErrorMessage(error, 'No se pudieron guardar los impuestos de tu empresa.'), 'danger'),
+    });
+    savers.push(taxesSaver);
+    const refreshTaxesSummary = () => {
+      const info = billingTaxConfigInfo(taxes);
+      taxesSummary.textContent = info.invalid
+        ? 'Hay un porcentaje inválido o los impuestos suman 100 % o más: no se guarda hasta que lo corrijas.'
+        : info.defined
+          ? `Cotizaciones nuevas: ${describeBillingTaxes(taxes)}.`
+          : 'Sin definir: las cotizaciones nuevas arrancan sin impuestos sobre lo que facturás y RATEOS avisa que la tarifa piso no los incluye.';
+    };
+    const drawTaxes = (focus = null) => {
+      mount(taxesHolder, billingTaxesFields({
+        get: () => taxes,
+        update: (rel, value) => {
+          setPath(taxes, rel, value === undefined ? null : value);
+          refreshTaxesSummary();
+          taxesSaver.schedule();
+        },
+        mutate: (fn, options = {}) => {
+          if (!Array.isArray(taxes.items)) taxes.items = [];
+          fn(taxes);
+          drawTaxes(options.focus || null);
+          refreshTaxesSummary();
+          taxesSaver.schedule();
+        },
+        readOnly,
+        namePrefix: 'defaultBillingTaxes',
+      }));
+      lockInputs(taxesHolder);
+      if (focus) {
+        const control = taxesHolder.querySelector(`[name="${focus}"]`);
+        if (control && typeof control.focus === 'function') control.focus();
+      }
+    };
+    drawTaxes();
+    refreshTaxesSummary();
+    // Un texto inválido en un campo (que todavía no llegó al objeto) también bloquea el guardado.
+    taxesHolder.addEventListener('input', () => taxesSaver.schedule());
+
     mount(
       panel,
-      card(
-        {
-          title: 'Parámetros económicos',
-          subtitle: 'Punto de partida de cada cotización nueva (las existentes conservan sus valores). Los días y márgenes a comparar se aplican a todos los resultados. Se guardan solos cuando todos los campos son válidos.',
-          actions: [paramsChip.el],
-          className: 'autosave-card',
-          level: 2,
-        },
-        paramsForm,
+      h(
+        'div',
+        { class: 'stack' },
+        card(
+          {
+            title: 'Parámetros económicos',
+            subtitle: 'Punto de partida de cada cotización nueva (las existentes conservan sus valores). Los días y márgenes a comparar se aplican a todos los resultados. Se guardan solos cuando todos los campos son válidos.',
+            actions: [paramsChip.el],
+            className: 'autosave-card',
+            level: 2,
+          },
+          paramsForm,
+        ),
+        card(
+          {
+            title: 'Impuestos sobre lo que facturás',
+            subtitle: 'Valor de tu empresa: cada cotización nueva arranca con estos impuestos (las que ya tenés conservan los suyos). RATEOS no trae alícuotas: cargá las tuyas, te las pasa tu contador.',
+            actions: [taxesChip.el],
+            className: 'autosave-card',
+            level: 2,
+          },
+          h('div', { class: 'stack' }, billingTaxesHelp(), taxesHolder, taxesSummary),
+        ),
       ),
     );
   }

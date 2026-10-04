@@ -14,7 +14,7 @@
 import { nonNegative } from '../core/money.js';
 import { costAtActivity } from './cost-engine.js';
 import { computeRevenue, requiredNetRate, listRateFromNet, discountFactor, findVolumeTier, continuityApplies, normalizeRules } from './commercial-rules-engine.js';
-import { marginFromPrice, markupFromPrice } from './pricing-engine.js';
+import { marginFromPrice, markupFromPrice, effectiveMarkupPct } from './pricing-engine.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
 
 /**
@@ -100,7 +100,8 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
   const floor = requiredNetRate({ totalCost: cost.total, marginPct: 0, billingTaxPct: t, billableUnits: units, otherRevenue: other });
   const byMargin = marginsPct.map((m) => {
     const r = requiredNetRate({ totalCost: cost.total, marginPct: m, billingTaxPct: t, billableUnits: units, otherRevenue: other });
-    return { marginPct: m, netRate: r.rate, listRate: listRateFromNet(r.rate, factor), coveredByOtherRevenue: r.coveredByOtherRevenue, requiredRevenue: r.requiredRevenue };
+    // markupPct: recargo efectivo sobre el costo que implica ese margen con t (m / (1 − m − t)).
+    return { marginPct: m, netRate: r.rate, listRate: listRateFromNet(r.rate, factor), coveredByOtherRevenue: r.coveredByOtherRevenue, requiredRevenue: r.requiredRevenue, markupPct: effectiveMarkupPct(m, t) };
   });
   return {
     activeDays: D,
