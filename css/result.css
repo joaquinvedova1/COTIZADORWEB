@@ -92,7 +92,41 @@
 .qr-costbar.is-other .qr-costbar-fill { background: #9FB1BF; }
 .qr-costbar-pct { grid-area: pct; font-weight: 700; color: var(--navy-900); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .qr-costbar-amount { grid-area: amount; font-size: 0.82rem; color: var(--ink-3); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; min-width: 6.5rem; }
-.qr-costs-foot { margin-top: 1rem; display: flex; }
+.qr-costs-foot { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+
+/* ------------------------------- 2b. ¿Cómo se forma tu precio? (100 % del precio) */
+
+.qr-compose { padding: 1.35rem 1.25rem 1.25rem; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); min-width: 0; }
+.qr-compose .qr-section-head { margin-bottom: 0.85rem; }
+.qr-compose-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--line-2); margin-bottom: 0.85rem; }
+.qr-compose-seg { display: block; height: 100%; }
+.qr-compose-seg + .qr-compose-seg { border-left: 2px solid var(--white); }
+.qr-compose-seg.is-cost, .qr-compose-item.is-cost .qr-compose-swatch { background: var(--navy-900); }
+.qr-compose-seg.is-taxes, .qr-compose-item.is-taxes .qr-compose-swatch { background: #9FB1BF; }
+.qr-compose-seg.is-result, .qr-compose-item.is-result .qr-compose-swatch { background: var(--green); }
+.qr-compose-legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem 1.25rem; }
+.qr-compose-item { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "swatch name" ". value" ". month"; gap: 0.1rem 0.5rem; align-items: center; }
+.qr-compose-swatch { grid-area: swatch; width: 12px; height: 12px; border-radius: 3px; }
+.qr-compose-name { grid-area: name; font-size: 0.85rem; color: var(--ink-2); font-weight: 600; }
+.qr-compose-value { grid-area: value; font-size: 1.35rem; font-weight: 750; color: var(--navy-900); font-variant-numeric: tabular-nums; }
+.qr-compose-month { grid-area: month; font-size: 0.8rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.qr-compose-item.is-result .qr-compose-value { color: var(--green-text); }
+.qr-compose-item.is-undefined .qr-compose-swatch { background: var(--white); border: 2px dashed var(--orange); }
+.qr-compose-item.is-undefined .qr-compose-value { color: var(--orange-text); font-size: 1rem; }
+.qr-compose-loss { margin: 0.85rem 0 0; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); background: var(--red-50); color: #8E2F2F; font-weight: 600; }
+.qr-compose:has(.qr-compose-loss) .qr-compose-item.is-result .qr-compose-value { color: var(--red-text); }
+@container qr (max-width: 560px) {
+  .qr-compose-legend { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* "Los números cierran" */
+.qr-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
+.qr-check { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0.4rem; align-items: baseline; }
+.qr-check-mark { font-weight: 800; text-align: center; }
+.qr-check.is-ok .qr-check-mark { color: var(--green-text); }
+.qr-check.is-fail .qr-check-mark { color: var(--red-text); }
+.qr-check.is-na .qr-check-mark { color: var(--ink-3); }
+.qr-contract { margin-top: 1rem; }
 
 /* -------------------------------------------------------- 3. Profundizá */
 

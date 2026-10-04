@@ -223,8 +223,8 @@ Una estructura de costos profesional (planilla de «discriminación de precios»
 - [x] Completitud, validación, valor de la empresa, esquema v2 + migración + reparación.
 - [x] Golden cases, tests unitarios e invariantes.
 - [x] Documentación (CALCULATION_RULES §13.1, DATA_MODEL, CHANGELOG).
-- [ ] UI de la entrega A (editor, configuración, resultado, "sin IVA").
-- [ ] Entrega B: composición del precio, apropiación, total del contrato, "los números cierran".
+- [x] UI de la entrega A (editor, configuración, resultado, "sin IVA"); test estático: la interfaz no recalcula precios.
+- [x] Entrega B: composición del precio, apropiación, total del contrato, "los números cierran" (`price-composition-engine.js`).
 - [ ] Revisión adversarial económica y de UX; correcciones.
 - [ ] PR (sin merge automático).
 
@@ -260,3 +260,4 @@ Preferir corregir hacia adelante. Si se revierte el código, los datos ya migrad
 #### Bitácora
 - 2026-10-04 — Análisis de la planilla de referencia (privada, fuera del repo) y propuesta con prioridades P0–P3; decisiones por defecto: demo "sin definir", Sellos proporcional.
 - 2026-10-04 — PN0 (baseline), motor de la entrega A, esquema v2 con migración y reparación, completitud y validación, golden cases e invariantes, documentación de fórmulas y datos.
+- 2026-10-04 — UI de la entrega A (etapa "El precio", Configuración, alertas, "Montos sin IVA") y entrega B (composición del precio, apropiación, total del contrato y controles de cuadre).

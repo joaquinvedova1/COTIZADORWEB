@@ -83,6 +83,7 @@ import { completenessTone } from '../../engines/completeness-engine.js';
 import { normalizeRules } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
+import { priceComposition } from '../../engines/price-composition-engine.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import {
   dayDecimals,
@@ -1621,6 +1622,125 @@ function renderCostBreakdown(v) {
       })));
 }
 
+// --------------------------------------- 2b. ¿Cómo se forma tu precio?
+
+const COMPOSE_GROUP_CLASS = Object.freeze({ cost: 'is-cost', taxes: 'is-taxes', result: 'is-result' });
+
+/**
+ * "¿Cómo se forma tu precio?": de cada $ 100 que se facturan, cuánto es costo,
+ * cuánto impuestos sobre lo que se factura y cuánto ganancia (motor de
+ * composición: suma 100 % del PRECIO; la EECC suma 100 % del costo).
+ */
+function renderPriceComposition(v) {
+  const { k } = v;
+  const c = v.composition;
+  const titleId = uniqueId('qr-compose-title');
+  const subject = theRate(k);
+  const head = h('div', { class: 'qr-section-head' },
+    h('h3', { class: 'qr-section-title', id: titleId }, '¿Cómo se forma tu precio?'),
+    h('p', { class: 'qr-section-sub' }, c.available
+      ? `De cada $ 100 que facturás (sin IVA) con ${subject}:`
+      : 'Costo, impuestos sobre lo que facturás y ganancia, en % del precio.'));
+  if (!c.available) {
+    return h('section', { class: 'qr-compose', id: v.ids.compose, 'aria-labelledby': titleId }, head, h('p', { class: 'qr-note' }, c.reason));
+  }
+  const taxesUndefined = !k.billingTaxesDefined;
+  const legend = h('ul', { class: 'qr-compose-legend' }, ...c.groups.map((g) => {
+    const undefinedTaxes = g.key === 'taxes' && taxesUndefined;
+    const money0 = g.key === 'result' && c.loss ? `−$ ${formatNumber(Math.abs(g.displayPct1), { decimals: 1 })}` : `$ ${formatNumber(g.displayPct1, { decimals: 1 })}`;
+    return h('li', { class: ['qr-compose-item', COMPOSE_GROUP_CLASS[g.key], undefinedTaxes ? 'is-undefined' : null] },
+      h('span', { class: 'qr-compose-swatch', 'aria-hidden': 'true' }),
+      h('span', { class: 'qr-compose-name' }, g.key === 'taxes' ? 'Impuestos sobre lo que facturás' : g.label),
+      h('span', { class: 'qr-compose-value' }, undefinedTaxes ? 'sin definir' : money0),
+      h('span', { class: 'qr-compose-month' }, undefinedTaxes ? 'no están en la tarifa' : `${money(g.amount)} por mes`));
+  }));
+  let bar = null;
+  if (!c.loss) {
+    const label = c.groups.map((g) => `${g.key === 'taxes' ? 'impuestos' : g.label.toLowerCase()} ${pct(g.displayPct, 0)}`).join(', ');
+    bar = h('div', { class: 'qr-compose-bar', role: 'img', 'aria-label': `Composición del precio: ${label}` },
+      ...c.groups.filter((g) => g.pctOfPrice > 0).map((g) => h('span', { class: ['qr-compose-seg', COMPOSE_GROUP_CLASS[g.key]], style: { width: `${Math.max(0.5, Math.min(100, g.pctOfPrice)).toFixed(2)}%` } })));
+  }
+  const withTaxes = c.billingTaxes > 0;
+  const lossNote = c.loss
+    ? h('p', { class: 'qr-compose-loss' }, `Con ${subject} ${withTaxes ? 'el costo y los impuestos se llevan' : 'el costo se lleva'} ${pct(c.groups[0].pctOfPrice + c.groups[1].pctOfPrice, 0)} de lo que facturás: perdés ${money(-c.profit)} por mes.`)
+    : null;
+  const undefinedNote = taxesUndefined
+    ? h('p', { class: 'qr-note' }, c.loss
+      ? 'Los impuestos sobre lo que facturás están sin definir: si los pagás, perdés más.'
+      : 'Los impuestos sobre lo que facturás están sin definir: si los pagás, salen de tu ganancia.')
+    : null;
+  return h('section', { class: 'qr-compose', id: v.ids.compose, 'aria-labelledby': titleId },
+    head,
+    bar,
+    legend,
+    lossNote,
+    undefinedNote,
+    h('div', { class: 'qr-costs-foot no-print' },
+      button(`Ver apropiación por ${v.unitLabel} y total del contrato`, {
+        variant: 'secondary',
+        size: 'sm',
+        icon: 'chevronRight',
+        onClick: () => v.openDeep('appropriation'),
+        attrs: { 'aria-controls': v.ids.deep_appropriation },
+      }),
+      c.trace ? traceBtn(c.trace) : null));
+}
+
+/** Apropiación por unidad (suma la tarifa neta) y total del contrato. */
+function renderAppropriation(v) {
+  const c = v.composition;
+  const header = { title: 'Apropiación del precio', subtitle: `Cuánto de cada ${v.unitLabel} cobrado va a cada rubro, a impuestos y a ganancia.`, className: 'qr-card', id: v.ids.appropriation, actions: c.trace ? [traceBtn(c.trace)] : [] };
+  if (!c.available) return card(header, emptyState(c.reason));
+  const pu = c.perUnit;
+  const showList = hasValue(pu.discountFactor) && Math.abs(pu.discountFactor - 1) > 1e-9 && hasValue(pu.listRate);
+  const rows = c.rows.map((row) => ({ ...row, label: row.group === 'cost' ? rubroLabel(row.key, row.label) : row.label }));
+  const tbl = regionTable(v, {
+    columns: [
+      { key: 'label', label: 'Componente', render: (row) => (row.group === 'cost' ? row.label : h('strong', {}, row.label)) },
+      { key: 'displayPct', label: '% del precio', align: 'right', render: (row) => pct(row.displayPct) },
+      { key: 'perUnit', label: `$ por ${v.unitLabel} (tarifa neta)`, align: 'right', render: (row) => h('span', { class: row.amount < 0 ? 'qr-neg' : null }, formatMoney(row.perUnit, { decimals: 2 })) },
+      { key: 'amount', label: '$ por mes', align: 'right', render: (row) => h('span', { class: row.amount < 0 ? 'qr-neg' : null }, money(row.amount)) },
+    ],
+    rows,
+    footer: {
+      label: h('strong', {}, 'Total'),
+      displayPct: c.loss ? EMPTY : pct(100),
+      perUnit: h('strong', {}, formatMoney(pu.netRate, { decimals: 2 })),
+      amount: h('strong', {}, money(c.revenue)),
+    },
+    caption: 'Apropiación del precio por componente',
+    className: 'qr-appropriation',
+  });
+  const months = c.contract.months;
+  const contract = months
+    ? h('div', { class: 'qr-contract' },
+      h('h4', { class: 'qr-subhead' }, `Total del contrato (${formatNumber(months)} ${months === 1 ? 'mes' : 'meses'})`),
+      h('dl', { class: 'qr-base-list' },
+        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Facturación (sin IVA)'), h('dd', {}, money(c.contract.revenue))),
+        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Costo'), h('dd', {}, money(c.contract.cost))),
+        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Impuestos sobre lo que facturás'), h('dd', {}, money(c.contract.billingTaxes))),
+        h('div', { class: ['qr-base-item', c.loss ? 'qr-tone-red' : 'qr-tone-green'] }, h('dt', {}, c.loss ? 'Pérdida' : 'Ganancia (antes de Ganancias)'), h('dd', {}, money(c.contract.profit)))),
+      note('Estimación con la misma actividad todos los meses y sin ajustes por índices.'))
+    : null;
+  return card(header,
+    tbl,
+    note(`La tarifa neta se reparte en la misma proporción que la facturación del mes${pu.otherRevenue > 0 ? ' (que incluye otros ingresos: cargos, abonos o mínimo garantizado)' : ''}.${showList ? ` Tarifa de lista = ${formatMoney(pu.netRate, { decimals: 2 })} ÷ ${formatNumber(pu.discountFactor, { decimals: 4 })} (factor de descuentos) = ${formatMoney(pu.listRate, { decimals: 2 })}.` : ''}`),
+    contract);
+}
+
+/** "Los números cierran": controles de cuadre del motor de composición. */
+function renderChecks(v) {
+  const c = v.composition;
+  const header = { title: 'Los números cierran', subtitle: 'Controles automáticos: si alguno falla, es un error de cálculo y no un dato tuyo.', className: 'qr-card', id: v.ids.traces ? `${v.ids.traces}-checks` : null };
+  if (!c.available || !c.checks.length) return card(header, emptyState(c.reason || 'Sin datos para controlar.'));
+  return card(header,
+    h('ul', { class: 'qr-checks' }, ...c.checks.map((x) => h('li', { class: ['qr-check', x.ok === true ? 'is-ok' : x.ok === false ? 'is-fail' : 'is-na'] },
+      h('span', { class: 'qr-check-mark', 'aria-hidden': 'true' }, x.ok === true ? '✓' : x.ok === false ? '✗' : '—'),
+      h('span', {}, x.label, x.ok === null && x.detail ? h('span', { class: 'qr-cell-sub' }, ` ${x.detail}`) : null),
+      h('span', { class: 'sr-only' }, x.ok === true ? ' (cierra)' : x.ok === false ? ' (no cierra)' : ' (no aplica)')))),
+    c.allChecksOk ? null : banner('Algún control no cierra: revisá los datos y avisá a soporte con un backup.', 'danger'));
+}
+
 // ------------------------------------------------------------- B. EECC
 
 function renderCostStructure(v) {
@@ -2960,6 +3080,14 @@ function deepDefinitions(v) {
       build: () => [safeSection('Estructura de costos (EECC)', () => renderCostStructure(v))],
     },
     {
+      key: 'appropriation',
+      summary: 'Ver apropiación y total del contrato',
+      hint: v.r.ctx && v.r.ctx.contractMonths > 0
+        ? `Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total de los ${formatNumber(v.r.ctx.contractMonths)} meses de contrato.`
+        : 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del contrato.',
+      build: () => [safeSection('Apropiación', () => renderAppropriation(v))],
+    },
+    {
       key: 'matrix',
       summary: 'Tarifa según días trabajados',
       hint: '¿Qué tarifa necesitás si trabajás más o menos días? Matriz tarifa × utilización y gráfico.',
@@ -2995,7 +3123,7 @@ function deepDefinitions(v) {
       key: 'traces',
       summary: 'Ver cálculo completo',
       hint: 'Todos los indicadores (días para el margen objetivo, contribución por día, break-even…) y cada fórmula.',
-      build: () => [safeSection('Todos los indicadores', () => renderResultDetail(v)), safeSection('Cada fórmula, paso a paso', () => renderTraceIndex(v))],
+      build: () => [safeSection('Todos los indicadores', () => renderResultDetail(v)), safeSection('Cada fórmula, paso a paso', () => renderTraceIndex(v)), safeSection('Los números cierran', () => renderChecks(v))],
     },
   ];
 }
@@ -3161,8 +3289,8 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
 }
 
 const SECTION_KEYS = Object.freeze([
-  'summary', 'costs', 'decision', 'eecc', 'matrix', 'markup', 'discounts', 'rules', 'sensitivity', 'scenarios', 'models', 'completeness', 'traces', 'actions',
-  'deep_eecc', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces',
+  'summary', 'compose', 'costs', 'decision', 'eecc', 'appropriation', 'matrix', 'markup', 'discounts', 'rules', 'sensitivity', 'scenarios', 'models', 'completeness', 'traces', 'actions',
+  'deep_eecc', 'deep_appropriation', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces',
 ]);
 
 /**
@@ -3237,6 +3365,18 @@ function createView(container, app, { quote, result, settings, onQuoteChange } =
     ids,
     observeRegion,
     openDeep: () => {},
+    // "¿Cómo se forma tu precio?" (motor de composición; se calcula una sola vez).
+    get composition() {
+      if (!this._composition) {
+        try {
+          this._composition = priceComposition(r);
+        } catch (error) {
+          logger.warn('No se pudo calcular la composición del precio', { message: error && error.message });
+          this._composition = { available: false, reason: 'No se pudo calcular la composición del precio.', rows: [], groups: [], checks: [], allChecksOk: true, trace: null, perUnit: {}, contract: {} };
+        }
+      }
+      return this._composition;
+    },
   };
 }
 
@@ -3285,6 +3425,7 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
   };
 
   const summary = safeSection('Resultado', () => renderSummary(v));
+  const compose = safeSection('¿Cómo se forma tu precio?', () => renderPriceComposition(v));
   const costs = safeSection('¿En qué se va el costo?', () => renderCostBreakdown(v));
   const deep = safeSection('Profundizá', () => {
     const res = renderDeep(v, remembered);
@@ -3294,7 +3435,7 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
   const actions = safeSection('Acciones', () => renderActions(v));
   printAllSections(v, () => deepItems);
 
-  mount(container, h('div', { class: 'qr' }, printHeader(v), summary, costs, deep, actions));
+  mount(container, h('div', { class: 'qr' }, printHeader(v), summary, compose, costs, deep, actions));
   return cleanupOf(v);
 }
 

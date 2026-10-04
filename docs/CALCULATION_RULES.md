@@ -28,6 +28,7 @@ Convenciones:
 12. [Unidades, reglas comerciales y facturación](#12-unidades-reglas-comerciales-y-facturación)
 13. [Tarifa piso, precio objetivo y precio comercial](#13-tarifa-piso-precio-objetivo-y-precio-comercial)
     - [13.1 Impuestos sobre la facturación (gross-up)](#131-impuestos-sobre-la-facturación-gross-up)
+    - [13.2 Composición del precio, apropiación y total del contrato](#132-composición-del-precio-apropiación-y-total-del-contrato)
 14. [Descuentos por volumen y continuidad](#14-descuentos-por-volumen-y-continuidad)
 15. [Break-even y días para margen objetivo](#15-break-even-y-días-para-margen-objetivo)
 16. [Utilización y matriz tarifa × utilización](#16-utilización-y-matriz-tarifa--utilización)
@@ -580,6 +581,36 @@ Estados (`billingTaxInfo`): **sin definir** (ni %, ni detalle, ni "no aplica") �
 **Valor de la empresa** (`settings.defaultBillingTaxes`, `null` = sin definir): una cotización nueva arranca con ese valor si la empresa ya decidió (`billingTaxesForNewQuote`), **aunque la configuración sea la de demostración** (es un dato propio que cargó el usuario); si no, sin definir. Una plantilla sólo lo pisa si trae una decisión propia. La demo queda **sin definir** a propósito.
 
 **Traza** (`traces.billingTaxes`): alícuotas cargadas, facturación del mes, t total e impuestos del mes, con las notas de sin definir / inválido / Sellos / exclusiones.
+
+### 13.2 Composición del precio, apropiación y total del contrato
+
+Archivo: `js/engines/price-composition-engine.js` (`priceComposition(result)`), función pura sobre el resultado de `computeQuote` (no recalcula el motor). Plan: PLAN-2026-002 (PN4/PN5).
+
+"¿Cómo se forma tu precio?" descompone la **facturación del mes** (sin IVA) con la tarifa que se cotiza:
+
+```
+Facturación = Σ costo por rubro (8 categorías de la EECC) + impuestos sobre la facturación + resultado
+% del precio de cada fila = fila / Facturación
+```
+
+- Suma **100 % del precio**; la EECC (§10) suma 100 % del **costo**: nunca van en la misma tabla.
+- Con ganancia, los % mostrados suman exactamente 100 (método del mayor resto: 2 decimales en la tabla, 1 decimal en "De cada $ 100…"). Con **pérdida** no se fuerza el 100 %: el costo (y los impuestos) superan lo facturado y el resultado es negativo; se redondea en forma simétrica (118,75 → 118,8; −18,75 → −18,8).
+- Sin tarifa o sin facturación (0 días) → no disponible, con motivo.
+
+**Apropiación por unidad facturable** (proporcional al precio):
+
+```
+parte de la fila en la tarifa = tarifa neta × fila / Facturación
+Σ partes = tarifa neta · tarifa de lista = tarifa neta / factor de descuentos
+```
+
+Si hay otros ingresos (cargos por llamado, abono, mínimo garantizado), la tarifa neta se reparte en la misma proporción que la facturación del mes.
+
+**Total del contrato** = valores del mes × `contractMonths` (misma actividad todos los meses, sin ajustes por índices).
+
+**Ejemplo sintético** (fijos 30.000.000, variable 1.000.000/día, 10 días, margen 10 %, impuestos 10 %): facturación 50.000.000 = costo 40.000.000 (80 %) + impuestos 5.000.000 (10 %) + ganancia 5.000.000 (10 %); por día: 4.000.000 + 500.000 + 500.000 = 5.000.000 (tarifa neta); contrato de 12 meses: 600.000.000 facturados, 60.000.000 de ganancia.
+
+**Los números cierran** (`checks`, en "Ver cálculo completo"): facturación = costo + impuestos + resultado; los rubros suman el costo del mes; impuestos = t × facturación; los % del precio suman 100 (no aplica con pérdida); la apropiación por unidad suma la tarifa neta; lista × factor = neta; margen = resultado / facturación. Si alguno falla es un error de cálculo, no un dato del usuario (la interfaz lo avisa). Tests: `tests/engines/price-composition-engine.test.js` (caso exacto, pérdida, sin tarifa y todas las plantillas).
 
 **Presentación hacia arriba.** Las tarifas mínimas (piso, objetivo y sugerida) que se muestran sin decimales se redondean **hacia arriba** con `formatMoneyCeil` (`js/core/format.js`): cobrar la cifra que se ve nunca deja debajo del piso o del objetivo. Ejemplo con redondeo comercial 0 (caso de referencia con 10 días): tarifa objetivo 4.444.444,44 → se muestra **$ 4.444.445** (con `formatMoney` se vería $ 4.444.444, que cobrado da un margen de 9,99999 %, "debajo del objetivo", y 11 días enteros para el margen objetivo en lugar de 10). El valor interno del motor no cambia.
 
