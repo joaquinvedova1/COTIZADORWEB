@@ -6,7 +6,7 @@
  */
 
 import { LOCALE, CURRENCY } from '../config.js';
-import { isFiniteNumber, roundMoney, roundPercentage, roundDays } from './money.js';
+import { isFiniteNumber, roundMoney, roundPercentage, roundDays, ceilTolerant } from './money.js';
 
 export const EMPTY = '—';
 
@@ -38,6 +38,51 @@ export function formatMoney(value, { decimals = 0 } = {}) {
 export function formatMoneyCeil(value) {
   if (!isFiniteNumber(value)) return EMPTY;
   return formatMoney(Math.ceil(value - 1e-9));
+}
+
+/**
+ * Monto abreviado para resúmenes y vistas previas: "$ 15,8 M", "$ 850 mil",
+ * "$ 950". Con `ceil: true` redondea HACIA ARRIBA al dígito mostrado (para
+ * tarifas: la cifra visible nunca queda debajo del valor calculado).
+ * No reemplaza al monto completo en el detalle: es sólo presentación.
+ */
+export function formatMoneyCompact(value, { ceil = false } = {}) {
+  if (!isFiniteNumber(value)) return EMPTY;
+  const roundTo = (x, decimals) => {
+    const f = 10 ** decimals;
+    return (ceil ? ceilTolerant(x * f) : Math.round(x * f)) / f;
+  };
+  const abs = Math.abs(value);
+  let scaled;
+  let decimals;
+  let suffix;
+  if (abs >= 1e6) {
+    scaled = value / 1e6;
+    decimals = Math.abs(scaled) >= 100 ? 0 : 1;
+    suffix = 'M';
+  } else if (abs >= 1e3) {
+    scaled = value / 1e3;
+    decimals = 0;
+    suffix = 'mil';
+  } else {
+    scaled = value;
+    decimals = 0;
+    suffix = '';
+  }
+  let rounded = roundTo(scaled, decimals);
+  // 999.999 → "1.000 mil" no: se pasa a la unidad siguiente.
+  if (suffix === '' && Math.abs(rounded) >= 1000) {
+    suffix = 'mil';
+    rounded = roundTo(value / 1e3, 0);
+  }
+  if (suffix === 'mil' && Math.abs(rounded) >= 1000) {
+    suffix = 'M';
+    rounded = roundTo(value / 1e6, 1);
+  }
+  if (Object.is(rounded, -0)) rounded = 0;
+  const number = numberFormat({ minimumFractionDigits: 0, maximumFractionDigits: suffix === 'M' ? 1 : 0 }).format(Math.abs(rounded));
+  const sign = rounded < 0 ? '-' : '';
+  return `${sign}$\u00A0${number}${suffix ? `\u00A0${suffix}` : ''}`;
 }
 
 /** 1.234,5 */

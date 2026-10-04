@@ -331,6 +331,61 @@ describe('QuoteService.compute', () => {
   });
 });
 
+// ============================================================ demo guiada
+
+describe('ensureDemoQuote / latestDraft', () => {
+  test('devuelve la cotización demo existente sin modificarla', async () => {
+    const { service, repository } = await setup();
+    const before = await repository.getQuote(DEMO_IDS.quoteHydroCrane);
+    const demo = await service.ensureDemoQuote();
+    assert.equal(demo.id, DEMO_IDS.quoteHydroCrane);
+    assert.deepEqual(demo, before);
+    assert.equal((await repository.getQuotes()).length, 2);
+  });
+
+  test('si se borró, la recrea con el mismo id, la organización actual y un código nuevo', async () => {
+    const { service, repository } = await setup({ empty: true });
+    const own = await service.createQuote();
+    const demo = await service.ensureDemoQuote();
+    assert.equal(demo.id, DEMO_IDS.quoteHydroCrane);
+    assert.equal(demo.organizationId, EMPTY_ORG.id);
+    assert.equal(demo.illustrative, true);
+    assert.equal(demo.name, 'Hidrogrúa on-call — Añelo');
+    assert.notEqual(demo.code, own.code, 'nunca reutiliza el código de otra cotización');
+    assert.match(demo.code, /^COT-\d{4}$/);
+    const quotes = await repository.getQuotes();
+    assert.equal(quotes.length, 2);
+    assert.ok(quotes.some((q) => q.id === own.id), 'no toca las otras cotizaciones');
+    // Idempotente: una segunda llamada no duplica.
+    await service.ensureDemoQuote();
+    assert.equal((await repository.getQuotes()).length, 2);
+  });
+
+  test('la demo recreada calcula igual que la demo original (sin NaN/Infinity)', async () => {
+    const { service } = await setup({ empty: true });
+    const demo = await service.ensureDemoQuote();
+    const result = await service.compute(demo);
+    assert.deepEqual(nonFinitePaths(result.kpis), []);
+    assert.ok(result.kpis.totalCost > 0);
+    assert.ok(result.kpis.floorListRate > 0);
+  });
+
+  test('latestDraft devuelve el borrador modificado más recientemente o null', async () => {
+    const { service, clock } = await setup({ empty: true });
+    assert.equal(await service.latestDraft(), null);
+    const a = await service.createQuote();
+    clock.advance(5000);
+    const b = await service.createQuote();
+    clock.advance(5000);
+    await service.saveQuote({ ...a, name: 'Editada después' });
+    const latest = await service.latestDraft();
+    assert.equal(latest.quote.id, a.id);
+    clock.advance(5000);
+    await service.saveQuote({ ...(await service.getQuote(a.id)), status: 'won' });
+    assert.equal((await service.latestDraft()).quote.id, b.id);
+  });
+});
+
 // ======================================================== composition root
 
 describe('createAppContext', () => {
@@ -339,7 +394,7 @@ describe('createAppContext', () => {
     const ctx = await createAppContext({ storage, appVersion: 'test' });
     assert.equal(ctx.persistent, true);
     assert.equal(ctx.init.status, 'seeded');
-    for (const key of ['quotes', 'resources', 'backup', 'settings', 'logger', 'track', 'repository']) {
+    for (const key of ['quotes', 'resources', 'backup', 'settings', 'auth', 'logger', 'track', 'repository']) {
       assert.ok(ctx[key], `falta ctx.${key}`);
     }
     const stats = await ctx.quotes.dashboardStats();

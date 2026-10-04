@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   EMPTY,
   formatMoney,
+  formatMoneyCompact,
   formatNumber,
   formatPercent,
   formatDays,
@@ -138,5 +139,38 @@ describe('Formato es-AR', () => {
     assert.notEqual(d, EMPTY);
     assert.match(d, /2026/);
     assert.notEqual(formatDateTime('2026-10-01T12:00:00.000Z'), EMPTY);
+  });
+});
+
+describe('formatMoneyCompact', () => {
+  const nb = (text) => text.replace(/\u00A0/g, ' ');
+  test('millones con un decimal, miles sin decimales, menores completos', () => {
+    assert.equal(nb(formatMoneyCompact(15776498.33)), '$ 15,8 M');
+    assert.equal(nb(formatMoneyCompact(158400000)), '$ 158 M');
+    assert.equal(nb(formatMoneyCompact(850400)), '$ 850 mil');
+    assert.equal(nb(formatMoneyCompact(950)), '$ 950');
+    assert.equal(nb(formatMoneyCompact(0)), '$ 0');
+    assert.equal(nb(formatMoneyCompact(-1500000)), '-$ 1,5 M');
+  });
+
+  test('ceil: la cifra mostrada nunca queda debajo del valor (tarifas)', () => {
+    assert.equal(nb(formatMoneyCompact(2033053.9, { ceil: true })), '$ 2,1 M');
+    assert.equal(nb(formatMoneyCompact(2033053.9)), '$ 2 M');
+    assert.equal(nb(formatMoneyCompact(2100000, { ceil: true })), '$ 2,1 M', 'un valor exacto no sube por error de punto flotante');
+    assert.equal(nb(formatMoneyCompact(850400, { ceil: true })), '$ 851 mil');
+  });
+
+  test('pasa a la unidad siguiente al redondear (999.600 → $ 1 M)', () => {
+    assert.equal(nb(formatMoneyCompact(999600)), '$ 1 M');
+    assert.equal(nb(formatMoneyCompact(999.6)), '$ 1 mil');
+  });
+
+  test('usa espacios no separables (no se corta en dos líneas)', () => {
+    assert.ok(formatMoneyCompact(15776498).includes('\u00A0'));
+  });
+
+  test('nunca muestra NaN ni Infinity', () => {
+    for (const v of BAD) assert.equal(formatMoneyCompact(v), EMPTY);
+    assert.equal(nb(formatMoneyCompact(-0.2)), '$ 0');
   });
 });

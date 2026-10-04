@@ -8,6 +8,7 @@ import { deepClone } from '../core/object.js';
 import { track } from '../core/events.js';
 import { computeQuote, summarizeQuote } from '../engines/quote-engine.js';
 import { createEmptyQuote, createQuoteFromTemplate } from '../domain/quote-factory.js';
+import { DEMO_IDS, demoHydroCraneQuote } from '../domain/demo-data.js';
 import { ACTIVE_QUOTE_STATUSES, SERVICE_TYPES } from '../domain/catalogs.js';
 import { logger } from '../core/logger.js';
 import { isFiniteNumber } from '../core/money.js';
@@ -109,6 +110,30 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     /** Calcula una cotización con la configuración vigente. */
     async compute(quote, options = {}) {
       return computeQuote(quote, { settings: await settings(), ...options });
+    },
+
+    /**
+     * Cotización de ejemplo "Hidrogrúa on-call — Añelo" (ILUSTRATIVA) para la
+     * demo guiada. Si existe, la devuelve tal cual (con los cambios que el
+     * usuario le haya hecho). Si se borró, la vuelve a crear con el mismo id y
+     * un código NUEVO (los códigos nunca se reutilizan). No toca otras
+     * cotizaciones. En modo sólo lectura el repositorio rechaza la escritura:
+     * la pantalla debe usar entonces la demo en memoria.
+     */
+    async ensureDemoQuote() {
+      const existing = await repository.getQuote(DEMO_IDS.quoteHydroCrane);
+      if (existing) return existing;
+      const org = await repository.getOrganization();
+      const now = clock();
+      const demo = demoHydroCraneQuote();
+      const quote = { ...demo, organizationId: org.id, createdAt: now, updatedAt: now, code: await reserveCode() };
+      return repository.saveQuote(quote);
+    },
+
+    /** Borrador modificado más recientemente (para "Continuar cotización"), o null. */
+    async latestDraft() {
+      const items = await this.listQuotes();
+      return items.find((i) => i.quote.status === 'draft') || null;
     },
 
     /** Indicadores del dashboard. */
