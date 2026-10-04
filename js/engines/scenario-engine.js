@@ -193,7 +193,7 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
   const mf = (D) => monthsFactor(D, available);
   const definitions = [
     { id: 'day_rate', label: 'Sólo tarifa por día', params: { ratePerDay: p }, revenue: (D) => p * D },
-    { id: 'availability_plus_day', label: 'Fee de disponibilidad + tarifa por día', params: { availabilityFee: fixed / k, ratePerDay: variablePerDay / k }, revenue: (D) => (fixed / k) * mf(D) + (variablePerDay / k) * D },
+    { id: 'availability_plus_day', label: 'Abono de disponibilidad + tarifa por día', params: { availabilityFee: fixed / k, ratePerDay: variablePerDay / k }, revenue: (D) => (fixed / k) * mf(D) + (variablePerDay / k) * D },
     { id: 'guarantee_plus_day', label: 'Mínimo garantizado + tarifa por día', params: { minimumGuarantee: fixed, ratePerDay: p }, revenue: (D) => Math.max(fixed * mf(D), p * D) },
     { id: 'package_plus_excess', label: 'Paquete mensual + excedentes', params: { packagePrice: C(De) / k, includedDays: De, excessRatePerDay: p }, revenue: (D) => C(De) / k + p * Math.max(0, D - De) },
   ];

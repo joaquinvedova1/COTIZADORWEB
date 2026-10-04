@@ -6,7 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createQuoteService } from '../../js/services/quote-service.js';
+import { createQuoteService, indicatorsFor, isExampleQuote } from '../../js/services/quote-service.js';
 import { createAppContext } from '../../js/services/app-context.js';
 import { LocalStorageRepository } from '../../js/data/local-storage-repository.js';
 import { MemoryStorage } from '../../js/data/memory-storage.js';
@@ -444,5 +444,54 @@ describe('createAppContext', () => {
     const ctx = await createAppContext({ storage: null });
     assert.equal(ctx.persistent, false);
     assert.equal((await ctx.quotes.listQuotes()).length, 2);
+  });
+});
+
+// ============================================================ indicadores
+
+describe('indicatorsFor: una sola regla para los indicadores de Inicio', () => {
+  const item = (status, summary = {}, extra = {}) => ({ quote: { status, ...extra }, summary });
+
+  test('activas = borrador, enviada o ganada; margen promedio sólo de márgenes finitos', () => {
+    const r = indicatorsFor([
+      item('draft', { marginPct: 10, revenue: 100 }),
+      item('sent', { marginPct: 20, revenue: 200, atRisk: true }),
+      item('won', { marginPct: NaN, revenue: Infinity, belowFloor: true }),
+      item('lost', { marginPct: 50, revenue: 1000, atRisk: true }),
+      item('archived', { marginPct: 90 }),
+    ]);
+    assert.equal(r.totalCount, 5);
+    assert.equal(r.activeCount, 3);
+    assert.equal(r.averageMarginPct, 15);
+    assert.equal(r.totalQuotedMonthly, 300);
+    assert.equal(r.atRiskCount, 1);
+    assert.equal(r.belowFloorCount, 1);
+  });
+
+  test('sin cotizaciones activas o sin márgenes: promedio null (nunca NaN); tolera entradas inválidas', () => {
+    assert.equal(indicatorsFor([]).averageMarginPct, null);
+    assert.equal(indicatorsFor(null).totalCount, 0);
+    const r = indicatorsFor([item('draft', { marginPct: null }), null, item('draft', null)]);
+    assert.equal(r.averageMarginPct, null);
+    assert.equal(r.activeCount, 2);
+    assert.ok(Number.isFinite(r.totalQuotedMonthly));
+  });
+
+  test('dashboardStats usa la misma regla que indicatorsFor', async () => {
+    const { service } = await setup();
+    const stats = await service.dashboardStats();
+    const again = indicatorsFor(await service.listQuotes());
+    for (const key of ['totalCount', 'activeCount', 'totalQuotedMonthly', 'averageMarginPct', 'atRiskCount', 'belowFloorCount']) {
+      assert.deepEqual(stats[key], again[key], key);
+    }
+  });
+
+  test('isExampleQuote: sólo la cotización marcada como ejemplo (no una propia con valores ilustrativos copiados)', async () => {
+    const { service } = await setup();
+    const demo = await service.getQuote(DEMO_IDS.quoteHydroCrane);
+    assert.equal(isExampleQuote(demo), true);
+    const fromTemplate = await service.createQuote({ templateId: DEMO_IDS.templateHydroCrane });
+    assert.equal(isExampleQuote(fromTemplate), false);
+    assert.equal(isExampleQuote(null), false);
   });
 });

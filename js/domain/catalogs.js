@@ -41,7 +41,7 @@ export const COST_CATEGORIES = deepFreeze([
   { id: 'fuel', label: 'Combustible' },
   { id: 'materials', label: 'Materiales' },
   { id: 'logistics', label: 'Logística' },
-  { id: 'structure', label: 'Estructura' },
+  { id: 'structure', label: 'Gastos de estructura' },
   { id: 'financial', label: 'Financiero' },
   { id: 'contingency', label: 'Contingencia' },
 ]);

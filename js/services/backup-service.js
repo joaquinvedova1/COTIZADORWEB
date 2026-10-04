@@ -59,7 +59,7 @@ export function createBackupService({ repository, clock = () => new Date().toISO
     async startFresh(org = {}) {
       const current = await repository.exportBackup();
       const fresh = createFreshWorkspace(current, org);
-      return repository.importBackup(fresh);
+      return repository.importBackup(fresh, { recoveryReason: 'before-start-fresh' });
     },
 
     /** Restaura los datos demo (con copia de recuperación previa). */

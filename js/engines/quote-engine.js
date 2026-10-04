@@ -296,7 +296,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         { label: 'Markup equivalente', value: marginToMarkup(targetMarginPct), format: 'percent' },
       ],
       result: { label: 'Precio objetivo de lista', value: targetRates.listRate, format: 'moneyCeil' },
-      notes: [roundingStep > 0 ? `Tarifa comercial sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null],
+      notes: [roundingStep > 0 ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null],
     }),
     expectedResult: createTrace({
       id: 'expected_result',

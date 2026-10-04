@@ -460,11 +460,13 @@ export class LocalStorageRepository extends StorageRepository {
    * usuario se pide en la interfaz ANTES de llamar a este método.
    * El estado previo se guarda en una clave de recuperación.
    */
-  async importBackup(data) {
+  async importBackup(data, { recoveryReason = 'before-import' } = {}) {
     this.ensureWritable();
     const prepared = this.prepareImport(data);
     if (!prepared.ok) throw new RepositoryError(`Backup inválido: ${prepared.errors.join(' ')}`, 'invalid_backup');
-    const recoveryKey = this.saveRecoverySnapshot(JSON.stringify(this.state), 'before-import');
+    // El motivo sólo puede ser una etiqueta segura (se usa en la clave de la copia).
+    const reason = /^[a-z][a-z0-9-]{0,40}$/.test(String(recoveryReason)) ? recoveryReason : 'before-import';
+    const recoveryKey = this.saveRecoverySnapshot(JSON.stringify(this.state), reason);
     this.persistReplacing(prepared.state, recoveryKey);
     this.state = prepared.state;
     return { ...prepared.summary, recoveryKey };

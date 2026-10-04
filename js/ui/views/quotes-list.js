@@ -16,10 +16,11 @@ import { h, s, mount, debounce, uniqueId } from '../dom.js';
 import { badge, banner, button, card, confirmDialog, disclosure, emptyState, icon, linkButton, openDialog, pageIntro, progressBar, table } from '../components.js';
 import { formatDateTime, formatDays, formatMoney, formatPercent, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { PRICING_MODES, QUOTE_STATUSES, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { templateContents } from './services.js';
 
 export { completenessTone };
 
@@ -33,7 +34,7 @@ const STATUS_TONES = Object.freeze({ draft: 'gray', sent: 'blue', won: 'green', 
 const QUOTE_STAGES = Object.freeze([
   { title: 'El servicio', text: 'Qué servicio vas a prestar y cómo lo vas a cobrar.' },
   { title: 'Los recursos', text: 'Personal, equipos, materiales y viajes.' },
-  { title: 'Las condiciones', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
+  { title: 'Costos y condiciones', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
   { title: 'El precio', text: 'Cuánto querés ganar y tus reglas comerciales.' },
   { title: 'Resultado', text: 'Costo, tarifa piso, tarifa sugerida y días para no perder plata.' },
 ]);
@@ -58,8 +59,8 @@ export function statusBadge(status) {
 
 /**
  * Color del margen: rojo si pierde plata (resultado negativo o bajo piso con
- * pérdida), naranja si no llega al objetivo. Sin tarifa comercial no hay
- * margen: gris.
+ * pérdida), naranja si no llega al objetivo. Sin tarifa no hay margen:
+ * gris.
  */
 export function marginTone(summary) {
   if (!summary || !isFiniteNumber(summary.marginPct)) return 'gray';
@@ -73,6 +74,9 @@ export function summaryFailed(summary) {
   return !summary || summary.error === true;
 }
 
+/** Nombre del paso "Cómo se cobra" (única fuente: QUOTE_STEPS). */
+const PRICING_STEP_LABEL = labelOf(QUOTE_STEPS, 'modality');
+
 /** Marca ILUSTRATIVO de una cotización (nunca lanza, aun con datos raros). */
 export function quoteIllustrative(quote) {
   try {
@@ -80,6 +84,15 @@ export function quoteIllustrative(quote) {
   } catch {
     return { any: false, quote: false, lines: 0, fuel: false };
   }
+}
+
+/**
+ * true si es una cotización DE EJEMPLO (la de la empresa ficticia, marcada
+ * ILUSTRATIVA entera). Una cotización propia que sólo usa algún valor
+ * ilustrativo (p. ej. el precio del combustible) no es "de ejemplo".
+ */
+export function isExampleQuote(quote) {
+  return quoteIllustrative(quote).quote === true;
 }
 
 function illustrativeQuoteTag(quote) {
@@ -100,8 +113,8 @@ function textOf(value, fallback) {
 function completenessCell(pct) {
   return h(
     'div',
-    { class: 'completeness-cell', title: 'Qué tan completa está la estructura de costos (Cost Completeness Score)' },
-    progressBar(pct, completenessTone(pct), { label: 'Completitud de costos' }),
+    { class: 'completeness-cell', title: 'Qué parte de la estructura de costos ya cargaste' },
+    progressBar(pct, completenessTone(pct), { label: 'Costos cargados' }),
     h('span', { class: 'mono small' }, formatPercent(pct, { decimals: 0 })),
   );
 }
@@ -119,7 +132,7 @@ function moreIcon() {
   );
 }
 
-/** Tarifa comercial de lista con su unidad ("$ 2.259.000 /día") o "Sin tarifa". */
+/** Tarifa de lista (la sugerida o la que ofrecés) con su unidad ("$ 2.259.000 /día") o "Sin tarifa". */
 export function quoteRateNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
   return isFiniteNumber(summary.commercialListRate)
@@ -131,7 +144,7 @@ export function quoteRateNode(quote, summary) {
 export function quoteMarginNode(summary) {
   return !summaryFailed(summary) && isFiniteNumber(summary.marginPct)
     ? badge(formatPercent(summary.marginPct), marginTone(summary), { title: 'Margen sobre precio de venta (no es markup)' })
-    : h('span', { class: 'muted', title: summaryFailed(summary) ? 'No se pudo calcular' : 'Sin tarifa comercial no hay margen' }, EMPTY);
+    : h('span', { class: 'muted', title: summaryFailed(summary) ? 'No se pudo calcular' : 'Sin tarifa no hay margen' }, EMPTY);
 }
 
 function failedBadge(quote) {
@@ -197,7 +210,7 @@ export function quoteColumns({ statusCell = null } = {}) {
           { class: 'cell-main' },
           h('a', { href: quoteHref(quote), class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
           h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
-          h('span', { class: 'cell-sub' }, `Modalidad: ${labelOf(PRICING_MODES, quote.pricingMode)}`),
+          h('span', { class: 'cell-sub' }, `${PRICING_STEP_LABEL}: ${labelOf(PRICING_MODES, quote.pricingMode)}`),
           failed ? failedBadge(quote) : null,
           illustrativeQuoteTag(quote),
         );
@@ -206,16 +219,16 @@ export function quoteColumns({ statusCell = null } = {}) {
     { key: 'client', label: 'Cliente', render: ({ quote }) => (typeof quote.client === 'string' && quote.client.trim() ? quote.client : muted()) },
     {
       key: 'totalCost',
-      label: 'Costo mensual',
+      label: 'Costo del mes',
       align: 'right',
       render: ({ summary }) => (summaryFailed(summary) ? muted() : h('span', { class: 'nowrap' }, formatMoney(summary.totalCost))),
     },
-    { key: 'rate', label: 'Tarifa comercial', align: 'right', render: ({ quote, summary }) => quoteRateNode(quote, summary) },
+    { key: 'rate', label: 'Tarifa', align: 'right', render: ({ quote, summary }) => quoteRateNode(quote, summary) },
     {
       key: 'margin',
       label: 'Margen esperado',
       align: 'right',
-      // Sin tarifa comercial el margen es null: se muestra "—" sin badge.
+      // Sin tarifa el margen es null: se muestra "—" sin badge.
       render: ({ summary }) => quoteMarginNode(summary),
     },
     {
@@ -224,7 +237,7 @@ export function quoteColumns({ statusCell = null } = {}) {
       align: 'right',
       render: ({ quote, summary }) => breakEvenNode(quote, summary),
     },
-    { key: 'completeness', label: 'Completitud', render: ({ summary }) => (summaryFailed(summary) ? muted() : completenessCell(summary.completenessPct)) },
+    { key: 'completeness', label: 'Costos cargados', render: ({ summary }) => (summaryFailed(summary) ? muted() : completenessCell(summary.completenessPct)) },
     { key: 'status', label: 'Estado', render: statusCell || (({ quote }) => statusBadge(quote.status)) },
   ];
 }
@@ -233,7 +246,16 @@ function breakEvenNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
   return quote.unit === 'month'
     ? h('span', { class: 'muted', title: 'Con abono mensual la facturación no depende de los días: no hay break-even en días.' }, 'No aplica')
-    : h('span', { class: 'nowrap', title: 'Días activos por mes necesarios para no perder plata (break-even)' }, formatDays(summary.breakEvenDays));
+    : h('span', { class: 'nowrap', title: 'Días activos por mes necesarios para no perder plata (break-even)' }, surfaceDays(summary.breakEvenDays));
+}
+
+/**
+ * Días en superficie: 1 decimal ("6,4 días"), 2 debajo de 1 día ("0,45 días")
+ * para no mostrar "0,5" cuando es 0,45 — mismo criterio que el resultado. El
+ * valor exacto queda en "Ver cálculo".
+ */
+export function surfaceDays(value) {
+  return formatDays(value, { decimals: isFiniteNumber(value) && Math.abs(value) < 1 ? 2 : 1 });
 }
 
 /** Código o nombre de la cotización para textos y etiquetas accesibles. */
@@ -289,6 +311,9 @@ export function failedQuotesBanner(items) {
   );
 }
 
+/** Demo guiada abierta desde la app: su encabezado ofrece "Volver a RATEOS" (→ #/inicio). */
+export const DEMO_FROM_APP_HREF = '#/demo?desde=app';
+
 /** Estado vacío "todavía no creaste ninguna cotización". */
 export function noQuotesState() {
   return emptyState({
@@ -296,7 +321,7 @@ export function noQuotesState() {
     title: 'Todavía no creaste ninguna cotización.',
     text: 'Empezá calculando cuánto cuesta uno de tus servicios.',
     action: linkButton('Crear primera cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus' }),
-    secondary: linkButton('Probar con un ejemplo', '#/demo', { variant: 'secondary', icon: 'play' }),
+    secondary: linkButton('Probar con un ejemplo', DEMO_FROM_APP_HREF, { variant: 'secondary', icon: 'play' }),
   });
 }
 
@@ -311,7 +336,9 @@ export async function render(root, app) {
   const listHost = h('div', { class: 'quotes-list-host' });
   const countEl = h('span', { class: 'muted small toolbar-count', role: 'status' });
 
-  const searchInput = h('input', { type: 'search', class: 'search-input', placeholder: 'Buscar por nombre, cliente o código', 'aria-label': 'Buscar cotizaciones', maxlength: '100' });
+  const searchId = uniqueId('buscar');
+  const statusId = uniqueId('filtro-estado');
+  const searchInput = h('input', { id: searchId, type: 'search', class: 'search-input', placeholder: 'Nombre, cliente o código', maxlength: '100', autocomplete: 'off' });
   const applySearch = debounce(() => {
     state.query = searchInput.value;
     renderList();
@@ -320,7 +347,7 @@ export async function render(root, app) {
 
   const statusSelect = h(
     'select',
-    { class: 'filter-select', 'aria-label': 'Filtrar por estado' },
+    { id: statusId, class: 'filter-select' },
     h('option', { value: '' }, 'Todos los estados'),
     ...QUOTE_STATUSES.map((s) => h('option', { value: s.id }, s.label)),
   );
@@ -332,7 +359,7 @@ export async function render(root, app) {
   // Vista simple / detallada (sólo en memoria mientras se usa la pantalla).
   const viewButtons = [
     { id: 'simple', label: 'Simple', title: 'Servicio, cliente, estado, tarifa y margen' },
-    { id: 'detailed', label: 'Detallada', title: 'Suma costo mensual, días para no perder, completitud y acciones' },
+    { id: 'detailed', label: 'Detallada', title: 'Suma costo del mes, días para no perder, costos cargados y acciones' },
   ].map((v) => {
     const btn = h('button', { type: 'button', class: 'segmented-btn', title: v.title, 'aria-pressed': v.id === state.view ? 'true' : 'false' }, v.label);
     btn.addEventListener('click', () => {
@@ -344,7 +371,15 @@ export async function render(root, app) {
   });
   const viewToggle = h('div', { class: 'segmented', role: 'group', 'aria-label': 'Vista del listado' }, ...viewButtons.map((b) => b.el));
 
-  const toolbar = h('div', { class: 'toolbar' }, searchInput, statusSelect, h('span', { class: 'spacer' }), countEl, viewToggle);
+  const toolbar = h(
+    'div',
+    { class: 'toolbar' },
+    h('div', { class: 'toolbar-field toolbar-search' }, h('label', { class: 'toolbar-label', for: searchId }, 'Buscar'), searchInput),
+    h('div', { class: 'toolbar-field' }, h('label', { class: 'toolbar-label', for: statusId }, 'Estado'), statusSelect),
+    h('span', { class: 'spacer' }),
+    countEl,
+    viewToggle,
+  );
 
   async function load() {
     state.items = await ctx.quotes.listQuotes();
@@ -435,12 +470,12 @@ export async function render(root, app) {
       kvList([
         ['Código', h('span', { class: 'mono' }, textOf(quote.code, EMPTY))],
         ['Servicio', labelOf(SERVICE_TYPES, quote.serviceType)],
-        ['Modalidad', labelOf(PRICING_MODES, quote.pricingMode)],
-        ['Costo mensual', failed ? EMPTY : formatMoney(summary.totalCost)],
+        [PRICING_STEP_LABEL, labelOf(PRICING_MODES, quote.pricingMode)],
+        ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
         ['Tarifa', quoteRateNode(quote, summary)],
         ['Margen esperado', quoteMarginNode(summary)],
         ['Días para no perder', breakEvenNode(quote, summary)],
-        ['Completitud de costos', failed ? EMPTY : completenessCell(summary.completenessPct)],
+        ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct)],
         ['Última modificación', formatDateTime(quote.updatedAt)],
       ]),
       h('div', { class: 'field' }, h('label', { class: 'field-label', for: statusId }, 'Estado'), h('div', {}, select)),
@@ -532,25 +567,45 @@ export async function render(root, app) {
     );
   }
 
-  mount(root, card({ className: 'list-card' }, toolbar, listHost));
+  mount(root, card({ className: 'list-card' }, h('h2', { class: 'sr-only' }, 'Listado de cotizaciones'), toolbar, listHost));
   await load();
   return () => applySearch.cancel();
 }
 
 // ---------------------------------------------------------- nueva cotización
 
-function choiceCard({ title, text = null, tags = [], iconName = null, className = '', onChoose }) {
+/** Plantillas visibles de entrada en "Nueva cotización" (el resto, en "Ver todas"). */
+const VISIBLE_TEMPLATES = 6;
+
+function choiceCard({ title, text = null, meta = null, metaStrong = false, tags = [], iconName = null, className = '', onChoose }) {
   const btn = h(
     'button',
     { type: 'button', class: ['quote-choice', className] },
     iconName ? h('span', { class: 'quote-choice-icon', 'aria-hidden': 'true' }, icon(iconName, { size: 22 })) : null,
     h('span', { class: 'quote-choice-title' }, title),
     text ? h('span', { class: 'quote-choice-text' }, text) : null,
+    // meta: una línea o varias (la primera, destacada si metaStrong).
+    ...(Array.isArray(meta) ? meta : [meta]).filter(Boolean).map((line, i) => h('span', { class: ['quote-choice-meta', metaStrong && i === 0 ? 'is-strong' : null] }, line)),
     tags.length ? h('span', { class: 'quote-choice-tags' }, ...tags) : null,
     h('span', { class: 'quote-choice-go', 'aria-hidden': 'true' }, icon('arrowRight', { size: 18 })),
   );
   btn.addEventListener('click', onChoose);
   return btn;
+}
+
+/** true si la plantilla trae algo más que tipo de servicio y actividad (recursos, costos o condiciones). */
+function templateHasContent(service) {
+  return templateContents(service).hasContent;
+}
+
+/**
+ * Orden de las plantillas: primero las que traen recursos, costos o
+ * condiciones (arrancás con más cargado), después el resto; dentro de cada
+ * grupo, el orden original.
+ */
+export function orderTemplates(services) {
+  const list = Array.isArray(services) ? services : [];
+  return [...list.filter(templateHasContent), ...list.filter((s) => !templateHasContent(s))];
 }
 
 export async function renderNewQuote(root, app) {
@@ -563,7 +618,7 @@ export async function renderNewQuote(root, app) {
     ],
   });
 
-  const services = await ctx.resources.listServices();
+  const services = orderTemplates(await ctx.resources.listServices());
   const choices = [];
   let busy = false;
 
@@ -586,28 +641,32 @@ export async function renderNewQuote(root, app) {
     }
   }
 
-  choices.push(
-    choiceCard({
-      title: 'Empezar en blanco',
-      text: 'Armás la estructura de costos desde cero, paso a paso.',
-      iconName: 'plus',
-      className: 'quote-choice-blank',
-      onChoose: () => create(null),
-    }),
-  );
-  services.forEach((service) => {
-    choices.push(
-      choiceCard({
-        title: textOf(service.name, 'Plantilla sin nombre'),
-        text: textOf(service.description, null),
-        tags: [
-          badge(labelOf(SERVICE_TYPES, service.serviceType, 'Servicio configurable'), 'navy'),
-          service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null,
-        ].filter(Boolean),
-        onChoose: () => create(service.id),
-      }),
-    );
+  const blank = choiceCard({
+    title: 'Empezar en blanco',
+    text: 'Armás la estructura de costos desde cero, paso a paso.',
+    iconName: 'plus',
+    className: 'quote-choice-blank',
+    onChoose: () => create(null),
   });
+  choices.push(blank);
+  const templateCards = services.map((service) => {
+    const contents = templateContents(service);
+    const choice = choiceCard({
+      title: textOf(service.name, 'Plantilla sin nombre'),
+      text: textOf(service.description, null),
+      meta: [contents.resources, contents.conditions].filter(Boolean),
+      metaStrong: contents.hasContent,
+      tags: [
+        badge(labelOf(SERVICE_TYPES, service.serviceType, 'Servicio configurable'), 'navy'),
+        service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null,
+      ].filter(Boolean),
+      onChoose: () => create(service.id),
+    });
+    choices.push(choice);
+    return choice;
+  });
+  const first = templateCards.slice(0, VISIBLE_TEMPLATES);
+  const rest = templateCards.slice(VISIBLE_TEMPLATES);
 
   mount(
     root,
@@ -616,9 +675,15 @@ export async function renderNewQuote(root, app) {
       { class: 'view-narrow stack-lg' },
       pageIntro({
         title: '¿Qué servicio vas a cotizar?',
-        text: 'Elegí un servicio parecido al tuyo para empezar con los recursos típicos cargados, o empezá en blanco. Después podés cambiar todo.',
+        text: 'Elegí un servicio parecido al tuyo: arrancás con su tipo de servicio y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.',
       }),
-      h('div', { class: 'quote-choice-grid' }, ...choices),
+      h('div', { class: 'quote-choice-grid' }, blank, ...first),
+      rest.length
+        ? disclosure(
+            { summary: `Ver todas las plantillas (${services.length})`, hint: `${rest.length === 1 ? 'Una plantilla más' : `${rest.length} plantillas más`}, con su tipo de servicio y actividad.`, className: 'disclosure-plain quote-choice-more' },
+            h('div', { class: 'quote-choice-grid' }, ...rest),
+          )
+        : null,
       services.length
         ? h('p', { class: 'muted small' }, 'Las plantillas marcadas ILUSTRATIVO traen valores de ejemplo: reemplazalos por los tuyos. Gestioná tus plantillas en ', h('a', { href: '#/servicios' }, 'Servicios'), '.')
         : h('p', { class: 'muted small' }, 'Todavía no tenés plantillas de servicio. Podés guardar cualquier cotización como plantilla desde su resultado.'),
@@ -638,4 +703,3 @@ export async function renderNewQuote(root, app) {
     ),
   );
 }
-

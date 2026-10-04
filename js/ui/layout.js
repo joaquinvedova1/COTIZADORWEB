@@ -7,9 +7,15 @@
  *   con breadcrumbs + título + acciones, zona de banners globales y el
  *   contenedor `.content`.
  *
+ * Entre 761 y 1100 px el sidebar pasa a riel con ícono y texto corto debajo.
  * En pantallas chicas (≤ 760 px) el sidebar se oculta y aparece una barra
  * compacta con la marca y un botón "Menú" que despliega la navegación como
- * panel (se cierra al navegar, con Escape o tocando afuera).
+ * panel modal: mientras está abierto, el resto de la pantalla queda inerte
+ * (no se puede tabular detrás). Se cierra al navegar, con Escape, tocando
+ * afuera, al sacar el foco del panel o al agrandar la ventana.
+ *
+ * La altura real de la topbar fija se publica en la variable CSS
+ * --topbar-h para que el elemento enfocado nunca quede tapado (WCAG 2.4.11).
  *
  * No accede a datos: recibe lo que muestra (organización, versión, banners).
  */
@@ -83,7 +89,7 @@ export function createLayout(container, { version = {} } = {}) {
   const navLink = (item) => {
     const link = h(
       'a',
-      { href: item.href, class: 'nav-link', title: item.label, dataset: { nav: item.key } },
+      { href: item.href, class: 'nav-link', dataset: { nav: item.key } },
       icon(item.icon),
       h('span', { class: 'nav-label' }, item.label),
     );
@@ -100,7 +106,7 @@ export function createLayout(container, { version = {} } = {}) {
 
   const newQuoteLink = h(
     'a',
-    { class: ['btn', 'btn-secondary', 'sidebar-cta'], href: NEW_QUOTE_HREF, title: 'Nueva cotización' },
+    { class: ['btn', 'btn-secondary', 'sidebar-cta'], href: NEW_QUOTE_HREF },
     icon('plus', { size: 18 }),
     h('span', { class: 'nav-label' }, 'Nueva cotización'),
   );
@@ -138,6 +144,9 @@ export function createLayout(container, { version = {} } = {}) {
     document.body.classList.toggle('nav-open', navOpen);
     menuToggle.setAttribute('aria-expanded', navOpen ? 'true' : 'false');
     mount(menuIconHost, icon(navOpen ? 'close' : 'menu'));
+    // Menú modal: lo que queda detrás (topbar, avisos y contenido) no recibe
+    // foco ni clics mientras el panel está abierto.
+    main.toggleAttribute('inert', navOpen);
     if (navOpen) {
       const current = nav.querySelector('[aria-current="page"]') || newQuoteLink;
       try {
@@ -157,13 +166,39 @@ export function createLayout(container, { version = {} } = {}) {
     const target = event.target;
     if (navOpen && target && typeof target.closest === 'function' && target.closest('a')) setNavOpen(false);
   });
+  // Con el menú abierto, Tab recorre sólo la barra (marca y "Menú") y el
+  // panel: del último enlace vuelve a la marca y al revés (trampa de foco).
+  const focusablesIn = (el) => [...el.querySelectorAll('a[href], button:not([disabled])')];
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && navOpen) {
+    if (!navOpen) return;
+    if (event.key === 'Escape') {
       event.preventDefault();
       setNavOpen(false, { returnFocus: true });
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const ring = [...focusablesIn(mobileBar), ...focusablesIn(sidebar)];
+    if (!ring.length) return;
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
     }
   });
   window.addEventListener('hashchange', () => setNavOpen(false));
+  // Al pasar a pantalla ancha el panel no existe: se cierra (y se quita el inert).
+  if (typeof window.matchMedia === 'function') {
+    const mobileQuery = window.matchMedia('(max-width: 760px)');
+    const onViewportChange = (event) => {
+      if (!event.matches) setNavOpen(false);
+    };
+    if (typeof mobileQuery.addEventListener === 'function') mobileQuery.addEventListener('change', onViewportChange);
+    else if (typeof mobileQuery.addListener === 'function') mobileQuery.addListener(onViewportChange);
+  }
 
   // -------------------------------------------------------------- topbar
 
@@ -176,6 +211,17 @@ export function createLayout(container, { version = {} } = {}) {
   // Borde de la topbar sólo cuando la página está desplazada (menos ruido).
   const onScroll = () => topbar.classList.toggle('is-scrolled', window.scrollY > 4);
   window.addEventListener('scroll', onScroll, { passive: true });
+
+  // Altura real de la topbar fija → --topbar-h (la usa scroll-padding-top para
+  // que el elemento enfocado no quede debajo de la barra; cambia con el ancho,
+  // las migas y las acciones de cada pantalla). En el shell público no aplica.
+  const rootStyle = document.documentElement.style;
+  const publishTopbarHeight = () => {
+    const height = shellKind === 'app' ? topbar.getBoundingClientRect().height : 0;
+    if (height > 0) rootStyle.setProperty('--topbar-h', `${Math.ceil(height)}px`);
+    else rootStyle.removeProperty('--topbar-h');
+  };
+  if (typeof ResizeObserver === 'function') new ResizeObserver(publishTopbarHeight).observe(topbar);
 
   const createContent = () => h('main', { class: 'content', id: 'contenido', tabindex: '-1' });
   const createPublicContent = () => h('main', { class: 'public-content', id: 'contenido', tabindex: '-1' });
@@ -191,6 +237,7 @@ export function createLayout(container, { version = {} } = {}) {
         click: (event) => {
           // Con ruteo por hash, el ancla cambiaría la ruta: se enfoca a mano.
           event.preventDefault();
+          setNavOpen(false);
           content.focus();
         },
       },
@@ -199,6 +246,13 @@ export function createLayout(container, { version = {} } = {}) {
   );
 
   const shell = h('div', { class: 'app-shell' }, mobileBar, sidebar, backdrop, main);
+  // Si igual el foco sale del panel y de la barra del menú (p. ej. con un
+  // atajo del lector de pantalla), el menú se cierra: nunca queda abierto
+  // detrás del foco.
+  const insideMenu = (node) => node instanceof Node && (sidebar.contains(node) || mobileBar.contains(node));
+  document.addEventListener('focusin', (event) => {
+    if (navOpen && !insideMenu(event.target)) setNavOpen(false);
+  });
   const publicShell = h('div', { class: 'public-shell', hidden: true });
   mount(container, skipLink, shell, publicShell);
   container.removeAttribute('aria-busy');
@@ -223,6 +277,7 @@ export function createLayout(container, { version = {} } = {}) {
       shell.hidden = shellKind === 'public';
       publicShell.hidden = shellKind !== 'public';
       document.body.classList.toggle('is-public', shellKind === 'public');
+      publishTopbarHeight();
     },
 
     /** Contenedor de contenido actual. */

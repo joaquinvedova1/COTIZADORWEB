@@ -147,14 +147,15 @@ export function illustrativeBanner(text = 'Los valores de demostración son ILUS
 /**
  * Estado vacío.
  *   emptyState('Sin datos.', accion)                         (forma simple)
- *   emptyState({ title, text, action, secondary, icon })     (forma completa)
+ *   emptyState({ title, text, action, secondary, icon, level })  (forma completa; level 2–4 = nivel del título)
  */
 export function emptyState(textOrOptions, action = null) {
   if (textOrOptions && typeof textOrOptions === 'object' && !(textOrOptions instanceof Node)) {
-    const { title = null, text = null, action: main = null, secondary = null, icon: iconName = null } = textOrOptions;
+    const { title = null, text = null, action: main = null, secondary = null, icon: iconName = null, level = 3 } = textOrOptions;
+    const tag = `h${Math.min(4, Math.max(2, Number(level) || 3))}`;
     return h('div', { class: ['empty-state', 'empty-state-rich'] },
       iconName ? h('span', { class: 'empty-state-icon', 'aria-hidden': 'true' }, icon(iconName, { size: 26 })) : null,
-      title ? h('h3', { class: 'empty-state-title' }, title) : null,
+      title ? h(tag, { class: 'empty-state-title' }, title) : null,
       text ? h('p', { class: 'empty-state-text' }, text) : null,
       main || secondary ? h('div', { class: 'empty-state-actions' }, main, secondary) : null);
   }

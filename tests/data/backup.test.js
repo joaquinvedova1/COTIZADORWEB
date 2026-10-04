@@ -459,12 +459,14 @@ describe('startFresh: empezar con mi empresa en limpio', () => {
     assert.ok(before.quotes.length > 0 && before.organization.illustrative === true);
     const result = await service.startFresh({ name: '  Grúas del Sur SA ', baseLocation: 'Añelo', industry: 'oil_gas_services' });
     assert.ok(result.recoveryKey && storage.getItem(result.recoveryKey), 'guarda una copia de recuperación antes');
+    assert.match(result.recoveryKey, /before-start-fresh/, 'la copia dice por qué se guardó');
     const after = await repo.exportBackup();
     assert.equal(after.organization.id, before.organization.id);
     assert.equal(after.organization.name, 'Grúas del Sur SA');
     assert.equal(after.organization.baseLocation, 'Añelo');
     assert.equal(after.organization.industry, 'oil_gas_services');
     assert.equal(after.organization.illustrative, false);
+    assert.equal(after.organization.notes, '', 'las notas de la empresa ficticia no pasan a la propia');
     assert.equal(after.quotes.length, 0);
     for (const type of RESOURCE_TYPES) {
       if (type === 'agreements') assert.deepEqual(after.resources[type], before.resources[type]);
@@ -500,5 +502,20 @@ describe('startFresh: empezar con mi empresa en limpio', () => {
     const before = storage.getItem(STORAGE_KEYS.state);
     await assert.rejects(() => createBackupService({ repository: ro }).startFresh({ name: 'X' }));
     assert.equal(storage.getItem(STORAGE_KEYS.state), before);
+  });
+});
+
+describe('importBackup: motivo de la copia de recuperación', () => {
+  test('por defecto "before-import"; un motivo inválido no se usa en la clave', async () => {
+    const storage = new MemoryStorage();
+    const repo = new LocalStorageRepository(storage, { now: createClock() });
+    await repo.init();
+    const data = await repo.exportBackup();
+    const a = await repo.importBackup(data);
+    assert.match(a.recoveryKey, /before-import/);
+    const b = await repo.importBackup(data, { recoveryReason: '../x"; drop' });
+    assert.match(b.recoveryKey, /before-import/);
+    const c = await repo.importBackup(data, { recoveryReason: 'before-start-fresh' });
+    assert.match(c.recoveryKey, /before-start-fresh/);
   });
 });

@@ -31,6 +31,33 @@ function eventServiceType(serviceType) {
   return SERVICE_TYPES.some((t) => t.id === serviceType) ? serviceType : 'unknown';
 }
 
+/**
+ * Indicadores de un conjunto de cotizaciones ({ quote, summary } de
+ * listQuotes()). Única regla para Inicio: activas = borrador, enviada o
+ * ganada; margen promedio sólo sobre márgenes finitos (sin márgenes → null,
+ * nunca NaN); riesgo y bajo piso según el resumen del motor.
+ * @param {{ quote: object, summary: object }[]} items
+ */
+export function indicatorsFor(items) {
+  const list = Array.isArray(items) ? items : [];
+  const active = list.filter((i) => i && i.quote && ACTIVE_QUOTE_STATUSES.includes(i.quote.status));
+  const margins = active.map((i) => i.summary && i.summary.marginPct).filter(isFiniteNumber);
+  return {
+    totalCount: list.length,
+    activeCount: active.length,
+    totalQuotedMonthly: active.reduce((s, i) => s + (i.summary && isFiniteNumber(i.summary.revenue) ? i.summary.revenue : 0), 0),
+    averageMarginPct: margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : null,
+    atRiskCount: active.filter((i) => i.summary && i.summary.atRisk).length,
+    belowFloorCount: active.filter((i) => i.summary && i.summary.belowFloor).length,
+    items: list,
+  };
+}
+
+/** ¿Es una cotización de ejemplo (demo ILUSTRATIVA)? */
+export function isExampleQuote(quote) {
+  return Boolean(quote) && quote.illustrative === true;
+}
+
 export function createQuoteService({ repository, clock = () => new Date().toISOString(), idFactory = createId }) {
   async function settings() {
     return repository.getSettings();
@@ -150,20 +177,9 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       return items.find((i) => i.quote.status === 'draft') || null;
     },
 
-    /** Indicadores del dashboard. */
+    /** Indicadores del dashboard (todas las cotizaciones). */
     async dashboardStats() {
-      const items = await this.listQuotes();
-      const active = items.filter((i) => ACTIVE_QUOTE_STATUSES.includes(i.quote.status));
-      const margins = active.map((i) => i.summary.marginPct).filter(isFiniteNumber);
-      return {
-        totalCount: items.length,
-        activeCount: active.length,
-        totalQuotedMonthly: active.reduce((s, i) => s + (isFiniteNumber(i.summary.revenue) ? i.summary.revenue : 0), 0),
-        averageMarginPct: margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : null,
-        atRiskCount: active.filter((i) => i.summary.atRisk).length,
-        belowFloorCount: active.filter((i) => i.summary.belowFloor).length,
-        items,
-      };
+      return indicatorsFor(await this.listQuotes());
     },
   };
 }

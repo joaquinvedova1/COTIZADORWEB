@@ -115,16 +115,16 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
       : 'Break-even = Costos fijos / (Tarifa por día − Costo variable por día)',
     inputs: [
       { label: 'Costos fijos mensuales', value: fixedCosts, format: 'money' },
-      ...(fixedRevenue > 0 ? [{ label: 'Ingresos fijos (fee de disponibilidad, standby)', value: fixedRevenue, format: 'money' }] : []),
+      ...(fixedRevenue > 0 ? [{ label: 'Ingresos fijos (abono de disponibilidad, equipo en espera)', value: fixedRevenue, format: 'money' }] : []),
       { label: `Ingreso por tarifa por día activo (tarifa neta por ${unitLabel} × unidades del día)`, value: ratePerDay, format: 'money' },
       ...(otherRevenuePerDay > 0 ? [{ label: 'Otros ingresos por día activo (call-out, movilización, km)', value: otherRevenuePerDay, format: 'money' }] : []),
       { label: 'Costo variable por día activo', value: variableCostPerDay, format: 'money' },
     ],
     steps: [{ label: 'Contribución por día activo', value: contributionPerDay, format: 'money' }],
-    result: { label: 'Días activos para no perder dinero', value: result && result.reachable ? result.days : null, format: 'days' },
+    result: { label: 'Días activos para no perder plata', value: result && result.reachable ? result.days : null, format: 'days' },
     notes: [
       result && !result.reachable ? result.reason : null,
-      nonLinear ? 'Hay reglas no lineales (mínimo garantizado, minimum call o tramos de descuento): el resultado se calcula día a día, no sólo con la fórmula.' : null,
+      nonLinear ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o tramos de descuento): el resultado se calcula día a día, no sólo con la fórmula.' : null,
     ],
   });
 }

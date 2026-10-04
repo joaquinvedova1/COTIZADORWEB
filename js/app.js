@@ -18,7 +18,7 @@ import { createAppContext } from './services/app-context.js';
 import { loadVersionInfo } from './services/settings-service.js';
 import { createRecoveryService } from './services/recovery-service.js';
 import { h, mount, downloadText } from './ui/dom.js';
-import { banner, button, card, toast } from './ui/components.js';
+import { banner, button, card, ensureToastRegion, toast } from './ui/components.js';
 import { createLayout } from './ui/layout.js';
 import { createRouter } from './ui/router.js';
 
@@ -159,14 +159,15 @@ function withDismiss(el, onDismiss) {
 }
 
 /**
- * Aviso corto y discreto de datos de ejemplo. El detalle (qué significa
- * ILUSTRATIVO y cómo pasar a datos propios) vive en Configuración → Empresa.
+ * Aviso corto y discreto de datos de ejemplo. "Cargar mis datos" lleva a
+ * Configuración → Datos y backup, donde está "Empezar con mi empresa en
+ * limpio" (y el detalle de qué significa ILUSTRATIVO vive en Empresa).
  */
 function demoBanner() {
-  const el = banner('Estás viendo datos de ejemplo (ILUSTRATIVOS).', 'warning');
+  const el = banner('Tu empresa y tus recursos todavía son de ejemplo (ILUSTRATIVOS).', 'warning');
   el.classList.add('banner-compact', 'banner-demo-global');
   el.setAttribute('title', 'Los valores de la empresa de ejemplo no son escalas salariales, cargas, alícuotas, precios ni costos reales.');
-  el.appendChild(h('a', { class: 'banner-link', href: '#/configuracion/empresa' }, 'Usar mis datos'));
+  el.appendChild(h('a', { class: 'banner-link', href: '#/configuracion/datos' }, 'Cargar mis datos'));
   return el;
 }
 
@@ -270,4 +271,7 @@ async function boot(root) {
 
 const appRoot = document.getElementById('app');
 installGlobalErrorHandlers();
+// La región de avisos (aria-live) existe vacía desde el inicio: así los
+// lectores de pantalla anuncian también el primer aviso.
+ensureToastRegion();
 if (appRoot) boot(appRoot);

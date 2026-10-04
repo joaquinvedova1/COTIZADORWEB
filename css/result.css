@@ -28,8 +28,11 @@
 .qr-summary-sub { margin: 0; color: var(--ink-3); font-size: var(--fs-base); overflow-wrap: anywhere; }
 .qr-summary-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 
-/* Los 4 números: 1 columna en pantallas muy angostas, 2×2 en móvil/tablet, 4 en escritorio. */
-.qr-stats { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+/* Los 4 números (una lista <dl>: término = etiqueta, descripción = valor, ayuda y "Ver cálculo"):
+   1 columna en pantallas muy angostas, 2×2 en móvil/tablet, 4 en escritorio. */
+.qr-stats { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin: 0; }
+.qr-stats dd { margin: 0; }
+.qr-stat-trace { align-self: flex-start; }
 .qr-stat { padding: 1rem 0; border-top: 1px solid var(--line-2); gap: 0.35rem; }
 .qr-stat:first-child { border-top: 0; padding-top: 0; }
 .qr-stat .big-stat-label { font-size: 0.82rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
@@ -54,6 +57,9 @@
 .qr-work-green .qr-work-days { color: var(--green-text); }
 .qr-work-red { background: var(--red-50); border-left-color: var(--red); }
 .qr-work-red .qr-work-days { color: var(--red-text); }
+
+/* Nota clave de una tabla de detalle (p. ej. tarifa de lista vs neta en la matriz). */
+.qr-note-key { padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: var(--navy-50); color: var(--ink-2); border-left: 3px solid var(--blue-600); }
 
 /* Alertas críticas: visibles y compactas. */
 .qr-alerts { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -130,7 +136,10 @@
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.25rem;
   padding: 1rem 0 0; border-top: 1px solid var(--line);
 }
+.qr-actions-notes { display: flex; flex-direction: column; gap: 0.3rem; max-width: 56ch; min-width: 0; }
 .qr-actions-note { margin: 0; font-size: 0.8rem; color: var(--ink-3); max-width: 56ch; }
+/* En los ejemplos (ILUSTRATIVOS) la nota del ejemplo va primero; la de impresión queda como texto secundario. */
+.qr-actions-note-main { font-size: 0.875rem; color: var(--ink-2); }
 
 /* ------------------------------- #/escenarios/:id — punto de partida */
 
@@ -219,6 +228,13 @@ th.ta-right .qr-th { align-items: flex-end; }
 .qr-discounts .qr-days-cell { white-space: normal; }
 .qr-discounts .qr-days-tags .badge { white-space: normal; line-height: 1.2; }
 
+/* Tabla que desborda: es una región enfocable (tabindex 0) para desplazarla con las flechas.
+   El anillo va POR FUERA del contenedor: por dentro lo tapaba la primera columna fija
+   (position: sticky, fondo blanco) en la matriz, los descuentos y el comparador. Los
+   desplegables y las tarjetas no recortan (sin overflow) y el contenedor queda a ≥ 1 rem
+   del borde del desplegable, así que el anillo se ve completo. */
+.qr .table-wrap:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+
 /* Sombras de desplazamiento (sólo CSS): avisan que la tabla sigue a los costados.
    position: relative contiene los textos .sr-only dentro del área desplazable. */
 .qr .table-wrap {
@@ -301,7 +317,7 @@ th.ta-right .qr-th { align-items: flex-end; }
 .qr-range { width: 100%; margin: 0.15rem 0; accent-color: var(--blue-600); cursor: pointer; }
 .qr-range:disabled { cursor: not-allowed; opacity: 0.6; }
 .qr-range:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-.qr-slider-scale { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--ink-3); }
+.qr-slider-scale { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--ink-3); }
 .qr-slider-extra { font-weight: 650; color: var(--navy-800); }
 .qr-sens-result { min-width: 0; }
 .qr-sens-summary { margin: 0 0 0.5rem; font-weight: 600; color: var(--navy-900); }
@@ -345,7 +361,7 @@ th.ta-right .qr-th { align-items: flex-end; }
 
 /* --------------------------------------------------------------- acciones */
 
-.qr-actions { gap: 0.6rem; }
+.qr-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
 
 /* ------------------------------------------------------------ impresión */
 
@@ -409,6 +425,13 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-kpis .kpi-value { font-size: 1.35rem; }
 }
 
+/* Celular: el nombre del rubro ocupa su columna (nunca se pisa con el %); % y monto a la derecha, uno arriba del otro. */
+@container qr (max-width: 460px) {
+  .qr-costbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label pct" "label amount" "track track"; row-gap: 0.1rem; }
+  .qr-costbar-amount { min-width: 0; }
+  .qr-costbar-track { margin-top: 0.2rem; }
+}
+
 @container qr (max-width: 520px) {
   .qr-hero, .qr-kpis { grid-template-columns: minmax(0, 1fr); }
   .qr-chart { padding-inline: 0.25rem; }
@@ -416,12 +439,27 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-eecc-bars .bar-row { grid-template-columns: 96px 1fr 58px; }
   .qr-summary-title { font-size: var(--fs-xl); }
   .qr-work-text { font-size: var(--fs-base); }
-  .qr-stat .big-stat-hint { font-size: 0.78rem; }
   /* En pantallas angostas sólo la primera línea de cada pista (el resto está en "Ver cálculo" y en el detalle). */
   .qr-stat .qr-stat-line + .qr-stat-line { display: none; }
   .qr-alert { flex-wrap: wrap; }
   .qr-actions { width: 100%; }
   .qr-actions .btn { flex: 1 1 auto; }
+}
+
+/* Celular: el texto del resumen (y la ayuda de una línea de cada número, que es LA explicación)
+   no baja de 14 px; mismo piso que la base (hints y labels ≥ 0.875rem en ≤ 760 px). */
+@media (max-width: 760px) {
+  .qr-stat .big-stat-label, .qr-stat .big-stat-hint, .qr-work-question,
+  .qr-actions-note, .qr-costbar-amount { font-size: 0.875rem; }
+  .qr-costbar-parts { font-size: 0.8125rem; }
+}
+
+/* Objetivos táctiles ≥ 44 × 44 px en pantallas chicas o con dedo (WCAG 2.5.5): los íconos
+   "Ver cálculo" de la matriz y los descuentos, y los enlaces a un paso sueltos en una fila. */
+@media (max-width: 760px), (pointer: coarse) {
+  .qr-trace-icon { min-width: 44px; min-height: 44px; justify-content: center; padding: 0.5rem; }
+  .qr-check .qr-step-link, .qr-rules-edit .qr-step-link { display: inline-flex; align-items: center; min-height: 44px; }
+  .qr-days-line { gap: 0; }
 }
 
 @media print {

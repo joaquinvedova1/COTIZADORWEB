@@ -189,3 +189,38 @@ describe('configuración: listas de parámetros', () => {
     assert.equal(parseMarginLadder('abc').ok, false);
   });
 });
+
+// ------------------------------------------------- plantillas y ejemplos
+
+import { orderTemplates } from '../../js/ui/views/quotes-list.js';
+import { templateContents } from '../../js/ui/views/services.js';
+import { demoServiceTemplates } from '../../js/domain/demo-data.js';
+
+describe('Nueva cotización: plantillas', () => {
+  test('templateContents dice lo que trae la plantilla (o sólo tipo y actividad)', () => {
+    const templates = demoServiceTemplates();
+    const withResources = templates.find((t) => t.defaults && Array.isArray(t.defaults.labor) && t.defaults.labor.length > 0);
+    assert.ok(withResources);
+    const c = templateContents(withResources);
+    assert.match(c.resources, /puesto/);
+    assert.equal(c.hasContent, true);
+    const empty = templateContents({ id: 'x', name: 'Vacía', defaults: {} });
+    assert.equal(empty.resources, 'Sólo tipo de servicio y actividad');
+    assert.equal(empty.hasContent, false);
+    // Una plantilla guardada desde una cotización también cuenta otros costos y vehículos.
+    const saved = templateContents({ defaults: { otherCosts: [{}], logistics: { vehicles: [{}, {}] } } });
+    assert.match(saved.resources, /1 otro costo · 2 vehículos/);
+  });
+
+  test('orderTemplates: primero las que traen recursos, orden estable, sin perder ninguna', () => {
+    const templates = demoServiceTemplates();
+    const ordered = orderTemplates(templates);
+    assert.equal(ordered.length, templates.length);
+    assert.deepEqual(new Set(ordered.map((t) => t.id)), new Set(templates.map((t) => t.id)));
+    const firstEmptyIndex = ordered.findIndex((t) => !templateContents(t).hasContent);
+    if (firstEmptyIndex >= 0) {
+      ordered.slice(firstEmptyIndex).forEach((t) => assert.equal(templateContents(t).hasContent, false, t.name));
+    }
+    assert.deepEqual(orderTemplates(null), []);
+  });
+});

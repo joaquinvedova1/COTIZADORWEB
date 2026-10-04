@@ -44,6 +44,9 @@ export function createFreshWorkspace(backup, { name, baseLocation, industry } = 
   if (b) organization.baseLocation = b;
   else if (backup.organization.illustrative === true) organization.baseLocation = '';
   if (i) organization.industry = i;
+  // Las notas de la empresa ficticia ("Empresa ficticia de demostración") no
+  // pasan a la empresa propia.
+  if (backup.organization.illustrative === true) organization.notes = '';
   const resources = {};
   Object.keys(isPlainObject(data.resources) ? data.resources : {}).forEach((type) => {
     resources[type] = KEEP_RESOURCES.includes(type) && Array.isArray(data.resources[type]) ? data.resources[type] : [];

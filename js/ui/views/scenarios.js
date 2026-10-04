@@ -14,7 +14,7 @@ import { computeQuote } from '../../engines/quote-engine.js';
 import { logger } from '../../core/logger.js';
 import { illustrativeTag } from '../layout.js';
 import * as resultView from './quote-result.js';
-import { attachRowNavigation, failedQuotesBanner, quoteHref, quoteIllustrative, quoteRef, quoteSummaryColumns, summaryFailed } from './quotes-list.js';
+import { DEMO_FROM_APP_HREF, attachRowNavigation, failedQuotesBanner, quoteHref, quoteIllustrative, quoteRef, quoteSummaryColumns, summaryFailed } from './quotes-list.js';
 
 const text = (value, fallback) => (typeof value === 'string' && value.trim() !== '' ? value : fallback);
 
@@ -46,7 +46,7 @@ async function renderPicker(root, app) {
           title: 'Todavía no tenés cotizaciones para analizar.',
           text: 'Creá una cotización y después volvé acá para ver qué pasa si cambian los costos o los días de trabajo.',
           action: linkButton('Crear una cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus' }),
-          secondary: linkButton('Probar con un ejemplo', '#/demo', { variant: 'secondary', icon: 'play' }),
+          secondary: linkButton('Probar con un ejemplo', DEMO_FROM_APP_HREF, { variant: 'secondary', icon: 'play' }),
         }),
       ),
     );
@@ -96,6 +96,8 @@ async function renderAnalysis(root, app, id) {
     app.setHeader({ title: 'Escenarios', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }, { label: 'Escenarios', href: '#/escenarios' }] });
     mount(
       root,
+      // Encabezado de la sección para lectores de pantalla (el estado vacío usa h3).
+      h('h2', { class: 'sr-only' }, 'Análisis de escenarios'),
       emptyState({
         icon: 'info',
         title: 'No encontramos esa cotización.',

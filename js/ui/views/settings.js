@@ -5,8 +5,9 @@
  * - Empresa: nombre, base, tipo de empresa y marca de datos de ejemplo.
  * - Parámetros económicos: valores por defecto de cada cotización nueva.
  * - Convenios: la gestión de convenios de library.js (renderAgreements).
- * - Datos y backup: exportar / importar JSON, restaurar los datos de ejemplo
- *   y copias de recuperación.
+ * - Datos y backup: "Empezar con mi empresa en limpio" (deja la empresa de
+ *   ejemplo con copia de recuperación previa), exportar / importar JSON,
+ *   restaurar los datos de ejemplo y copias de recuperación.
  * - Acerca de: versión, build, esquema, almacenamiento, privacidad y
  *   funciones disponibles.
  *
@@ -21,10 +22,37 @@ import { APP_NAME, FEATURES, MAX_BACKUP_BYTES, SCHEMA_VERSION, STORAGE_MODE, DEF
 import { formatDateTime, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { sanitizeText, validateNumber } from '../../core/validation.js';
+import { demoOrganization } from '../../domain/demo-data.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { renderAgreements } from './library.js';
+import { isExampleQuote } from './quotes-list.js';
 
 const MAX_MATRIX_DAYS = 12;
+
+/** Empresa ficticia de los datos de ejemplo: sus valores no se copian al empezar en limpio. */
+const DEMO_ORG = demoOrganization();
+/** Nombre con el que queda la empresa si no tiene uno propio (el mismo que usa el menú). */
+const DEFAULT_COMPANY_NAME = 'Mi empresa';
+
+/**
+ * Datos de la empresa para "Empezar con mi empresa en limpio": se conserva
+ * lo que el usuario cargó; sólo se vacían el nombre y la base que siguen
+ * siendo los de la empresa ficticia. Nunca lanza.
+ * @param {{ name?: string, baseLocation?: string, industry?: string|null, illustrative?: boolean }} org
+ * @returns {{ name: string, baseLocation: string, industry: string }}
+ */
+export function freshOrgFrom(org) {
+  const o = org && typeof org === 'object' ? org : {};
+  const demo = o.illustrative === true;
+  const clean = (v) => sanitizeText(typeof v === 'string' ? v : '', 120);
+  const name = clean(o.name);
+  const baseLocation = clean(o.baseLocation);
+  return {
+    name: demo && name === DEMO_ORG.name ? '' : name,
+    baseLocation: demo && baseLocation === DEMO_ORG.baseLocation ? '' : baseLocation,
+    industry: clean(o.industry),
+  };
+}
 const MAX_LADDER_STEPS = 6;
 
 /** Espera desde el último cambio válido hasta guardar. */
@@ -64,6 +92,7 @@ const RECOVERY_REASONS = Object.freeze({
   invalid: 'Datos con estructura inesperada',
   'before-import': 'Antes de importar un backup',
   'before-demo-reset': 'Antes de restaurar los datos de ejemplo',
+  'before-start-fresh': 'Antes de empezar con tu empresa en limpio',
 });
 
 // --------------------------------------------------------- parseo de listas
@@ -309,6 +338,84 @@ export async function render(root, app, params = {}) {
   const panel = h('div', { class: 'settings-panel' });
   mount(root, sectionTabs(section), panel);
 
+  // ------------------------------------- empezar con mi empresa en limpio
+
+  /**
+   * "Empezar con mi empresa en limpio": confirma qué se quita y qué se
+   * conserva, guarda lo pendiente, y aplica backup.startFresh (que guarda
+   * ANTES una copia de recuperación). Nunca borra sin esa copia.
+   * @param {{ name?: string, baseLocation?: string, industry?: string|null }} org  datos para la empresa nueva
+   * @param {HTMLButtonElement} trigger  botón que inició la acción (se deshabilita mientras tanto)
+   */
+  async function startFreshFlow(org, trigger) {
+    if (readOnly) return;
+    let ownQuotes = 0;
+    let current = null;
+    try {
+      [ownQuotes, current] = await Promise.all([
+        ctx.quotes.listQuotes().then((items) => items.filter(({ quote }) => !isExampleQuote(quote)).length),
+        ctx.settings.getOrganization(),
+      ]);
+    } catch {
+      ownQuotes = 0;
+    }
+    // Cómo queda la empresa (lo mismo que hace startFresh): el nombre indicado;
+    // si no hay, el actual de una empresa propia o "Mi empresa".
+    const currentName = current && current.illustrative !== true ? sanitizeText(current.name || '', 120) : '';
+    const finalName = org.name || currentName || DEFAULT_COMPANY_NAME;
+    const finalBase = org.baseLocation || (current && current.illustrative !== true ? sanitizeText(current.baseLocation || '', 120) : '');
+    const ok = await confirmDialog({
+      title: 'Empezar con mi empresa en limpio',
+      message: `Tu empresa queda como “${finalName}”${finalBase ? `, con base en ${finalBase}` : ''}. Podés cambiarlo después en Configuración → Empresa.`,
+      details: h(
+        'ul',
+        { class: 'confirm-list' },
+        h(
+          'li',
+          {},
+          h('strong', {}, 'Se quitan: '),
+          'todas las cotizaciones (también las de ejemplo) y los recursos: personal, equipos, materiales y ubicaciones.',
+          ownQuotes
+            ? h(
+                'span',
+                { class: 'confirm-warning' },
+                ` Ojo: también ${ownQuotes === 1 ? 'la cotización que creaste' : `las ${ownQuotes} cotizaciones que creaste`}. Si querés conservarla${ownQuotes === 1 ? '' : 's'} aparte, cancelá y exportá un backup antes.`,
+              )
+            : null,
+        ),
+        h('li', {}, h('strong', {}, 'Se conservan: '), 'los convenios, las plantillas de servicio y la configuración (parámetros económicos). Si eran ILUSTRATIVOS, siguen marcados así hasta que cargues los tuyos.'),
+        h(
+          'li',
+          {},
+          h('strong', {}, 'Antes guardamos una copia de recuperación. '),
+          'Si te arrepentís, la encontrás en Configuración → Datos y backup → Copias de recuperación: descargala e importala con "Importar backup".',
+        ),
+      ),
+      confirmLabel: 'Empezar en limpio',
+      danger: true,
+    });
+    if (!ok) return;
+    if (trigger) trigger.disabled = true;
+    try {
+      // Lo pendiente se guarda antes: así queda en la copia de recuperación.
+      await flushAll();
+      await ctx.backup.startFresh(org);
+      disposeAll();
+      await app.refreshChrome();
+      app.toast('Listo: empezaste con tu empresa en limpio. Los datos anteriores quedaron en una copia de recuperación.', 'success');
+      app.navigate('#/configuracion/empresa');
+    } catch (error) {
+      app.toast(userErrorMessage(error, 'No se pudo empezar en limpio. Tus datos no se modificaron.'), 'danger');
+      if (trigger) trigger.disabled = false;
+    }
+  }
+
+  function startFreshButton(getOrg, { variant = 'primary' } = {}) {
+    const btn = button('Empezar con mi empresa en limpio', { variant, disabled: readOnly });
+    btn.addEventListener('click', () => startFreshFlow(getOrg(), btn));
+    return btn;
+  }
+
   // ------------------------------------------------------- empresa
 
   async function buildCompany() {
@@ -380,8 +487,10 @@ export async function render(root, app, params = {}) {
           value: orgDraft.baseLocation,
           maxLength: 120,
           placeholder: 'Ej.: Neuquén Capital',
-          hint: 'Origen por defecto para calcular viajes y logística.',
-          onChange: (v) => { orgDraft.baseLocation = v; },
+          hint: 'La usamos como origen de tus viajes en cada cotización nueva.',
+          onChange: (v) => {
+            orgDraft.baseLocation = v;
+          },
         }),
         selectField({
           label: 'Tipo de empresa',
@@ -408,13 +517,37 @@ export async function render(root, app, params = {}) {
     lockInputs(orgForm);
 
     const orgCard = card(
-      { title: 'Tu empresa', subtitle: 'Se muestra en el menú y se guarda en los backups. Los cambios se guardan solos.', actions: [orgChip.el], className: 'autosave-card' },
+      { title: 'Tu empresa', subtitle: 'Se muestra en el menú y se guarda en los backups. Los cambios se guardan solos.', actions: [orgChip.el], className: 'autosave-card', level: 2 },
       orgForm,
     );
 
+    // Empezar en limpio desde acá: usa lo que hay en pantalla (guardado o no);
+    // sólo el nombre y la base de la empresa ficticia no se copian.
+    const freshFromCompany = () =>
+      freshOrgFrom({
+        name: sanitizeText(orgDraft.name, 120) || lastValidOrgName,
+        baseLocation: orgDraft.baseLocation,
+        industry: orgDraft.industry || org.industry,
+        illustrative: org.illustrative === true || orgDraft.illustrative === true,
+      });
+
     const guide = card(
-      { title: 'Cómo pasar a tus datos', subtitle: 'Estás usando una empresa de ejemplo.', className: 'guide-card' },
+      { title: 'Cómo pasar a tus datos', subtitle: 'Estás usando una empresa de ejemplo.', className: 'guide-card', level: 2 },
       banner('Los datos de ejemplo son de una empresa ficticia. Todos los valores son ILUSTRATIVOS: no son escalas salariales, cargas, alícuotas, precios ni costos reales. Reemplazalos por valores propios vigentes antes de cotizar.', 'warning', { title: 'Datos ilustrativos.' }),
+      h(
+        'div',
+        { class: 'guide-fresh' },
+        h('h3', { class: 'guide-subtitle' }, 'La forma más rápida: empezar en limpio'),
+        h(
+          'p',
+          { class: 'small' },
+          'Quitamos la empresa ficticia con sus cotizaciones y recursos, y conservamos convenios, plantillas y parámetros. Antes guardamos una copia de recuperación. También está en ',
+          h('a', { href: '#/configuracion/datos' }, 'Datos y backup'),
+          '.',
+        ),
+        startFreshButton(freshFromCompany),
+      ),
+      h('h3', { class: 'guide-subtitle' }, 'O cargá tus datos de a poco, sin borrar los ejemplos'),
       h(
         'ol',
         { class: 'guide-steps' },
@@ -557,6 +690,7 @@ export async function render(root, app, params = {}) {
           subtitle: 'Punto de partida de cada cotización nueva (las existentes conservan sus valores). Los días y márgenes a comparar se aplican a todos los resultados. Se guardan solos cuando todos los campos son válidos.',
           actions: [paramsChip.el],
           className: 'autosave-card',
+          level: 2,
         },
         paramsForm,
       ),
@@ -574,7 +708,7 @@ export async function render(root, app, params = {}) {
   // --------------------------------------------------- datos y backup
 
   async function buildData() {
-    const recoveryKeys = await Promise.resolve(ctx.backup.listRecoverySnapshots());
+    const [recoveryKeys, org] = await Promise.all([Promise.resolve(ctx.backup.listRecoverySnapshots()), ctx.settings.getOrganization()]);
     const importHost = h('div', { class: 'import-result', 'aria-live': 'polite' });
     const fileInput = h('input', { type: 'file', accept: '.json,application/json', class: 'sr-only', tabindex: '-1', 'aria-label': 'Elegir archivo de backup JSON' });
 
@@ -647,7 +781,7 @@ export async function render(root, app, params = {}) {
         h(
           'div',
           { class: 'import-summary' },
-          h('h4', {}, 'Resumen del backup'),
+          h('h3', { class: 'import-summary-title' }, 'Resumen del backup'),
           looksEmpty ? banner(emptyWarning, 'danger', { title: 'Backup sin datos.' }) : null,
           kvList([
             ['Archivo', fileName],
@@ -686,7 +820,7 @@ export async function render(root, app, params = {}) {
     });
 
     const backupCard = card(
-      { title: 'Backup', subtitle: 'Tus datos viven sólo en este navegador. Exportá un backup seguido y guardalo en un lugar seguro.' },
+      { title: 'Backup', subtitle: 'Tus datos viven sólo en este navegador. Exportá un backup seguido y guardalo en un lugar seguro.', level: 2 },
       h(
         'div',
         { class: 'stack' },
@@ -722,11 +856,50 @@ export async function render(root, app, params = {}) {
         resetBtn.disabled = false;
       }
     });
+    const ownCompany = org.illustrative !== true;
     const demoCard = card(
-      { title: 'Datos de ejemplo', subtitle: 'Empresa ficticia con la cotización "Hidrogrúa on-call — Añelo" y el caso de referencia del break-even.' },
-      h('p', { class: 'small' }, 'Útil para explorar RATEOS o volver a empezar. Todos los valores de ejemplo son ILUSTRATIVOS.'),
-      resetBtn,
+      {
+        title: ownCompany ? 'Volver a empezar' : 'Datos de ejemplo',
+        subtitle: ownCompany
+          ? 'Volvé a la empresa de ejemplo para explorar RATEOS, o empezá de cero con tu empresa.'
+          : 'Empresa ficticia con la cotización "Hidrogrúa on-call — Añelo" y un ejemplo de tarifa que no cubre los costos.',
+        level: 2,
+      },
+      h(
+        'p',
+        { class: 'small' },
+        ownCompany
+          ? 'Las dos acciones REEMPLAZAN tus datos actuales y antes guardan una copia de recuperación. Los valores de ejemplo son ILUSTRATIVOS.'
+          : 'Útil para volver a explorar desde cero. Restaurarlos REEMPLAZA tus datos actuales (antes se guarda una copia de recuperación). Todos los valores de ejemplo son ILUSTRATIVOS.',
+      ),
+      h(
+        'div',
+        { class: 'row' },
+        resetBtn,
+        // Con una empresa propia, empezar de cero también está acá (con la misma confirmación).
+        ownCompany ? startFreshButton(() => freshOrgFrom(org), { variant: 'danger' }) : null,
+      ),
     );
+
+    // Con la empresa de ejemplo, la acción principal de esta pantalla es pasar a la propia.
+    const freshCard = ownCompany
+      ? null
+      : card(
+          {
+            title: 'Empezar con mi empresa en limpio',
+            subtitle: 'Estás usando la empresa de ejemplo. Dejala y empezá a cotizar con tus propios datos.',
+            className: 'fresh-card',
+            level: 2,
+          },
+          h(
+            'ul',
+            { class: 'fresh-list' },
+            h('li', {}, h('strong', {}, 'Se quitan '), 'todas las cotizaciones y los recursos (personal, equipos, materiales y ubicaciones).'),
+            h('li', {}, h('strong', {}, 'Se conservan '), 'los convenios, las plantillas de servicio y los parámetros económicos, para que arranques más rápido.'),
+            h('li', {}, h('strong', {}, 'Antes guardamos una copia de recuperación '), 'por si querés volver atrás.'),
+          ),
+          startFreshButton(() => freshOrgFrom(org)),
+        );
 
     // --------------------------------------------- copias de recuperación
 
@@ -788,12 +961,16 @@ export async function render(root, app, params = {}) {
     }
     renderRecoveryList(recoveryKeys);
     const recoveryCard = card(
-      { title: 'Copias de recuperación', subtitle: 'RATEOS guarda una copia automática antes de importar, restaurar los datos de ejemplo o actualizar el formato de datos. Se conservan las más recientes.' },
+      {
+        title: 'Copias de recuperación',
+        subtitle: 'RATEOS guarda una copia automática antes de importar, restaurar los datos de ejemplo, empezar en limpio o actualizar el formato de datos. Se conservan las más recientes.',
+        level: 2,
+      },
       recoveryHost,
       h('p', { class: 'footnote' }, 'Una copia descargada se puede importar desde "Importar backup". Las copias ocupan espacio del navegador: si se llena, eliminá las que ya no necesites.'),
     );
 
-    mount(panel, h('div', { class: 'settings-grid' }, backupCard, h('div', { class: 'stack' }, demoCard, recoveryCard)));
+    mount(panel, freshCard, h('div', { class: 'settings-grid' }, backupCard, h('div', { class: 'stack' }, demoCard, recoveryCard)));
   }
 
   // ----------------------------------------------------------- acerca de
@@ -807,7 +984,7 @@ export async function render(root, app, params = {}) {
         : 'local — datos sólo en este navegador'
       : STORAGE_MODE;
     const aboutCard = card(
-      { title: 'Acerca de', className: 'about-card' },
+      { title: 'Acerca de', className: 'about-card', level: 2 },
       h('p', { class: 'about-version mono' }, `${APP_NAME} · v${v.version || 'dev'} · build ${v.commit || 'local'}`),
       kvList([
         ['Fecha de build', v.buildDate ? formatDateTime(v.buildDate) : 'Sin fecha (versión local)'],
@@ -837,10 +1014,13 @@ export async function render(root, app, params = {}) {
   window.addEventListener('pagehide', onPageHide);
   document.addEventListener('visibilitychange', onVisibility);
 
-  // Al salir de la pantalla se fuerza el guardado pendiente (sin navegar).
+  // Al salir de la pantalla se fuerza el guardado pendiente (sin navegar) y
+  // después la pantalla deja de guardar: un evento tardío (p. ej. el "change"
+  // de un campo enfocado que se quita al cambiar de pantalla con Atrás) no
+  // puede pisar datos más nuevos, como los de "Empezar en limpio".
   return () => {
     window.removeEventListener('pagehide', onPageHide);
     document.removeEventListener('visibilitychange', onVisibility);
-    flushAll();
+    flushAll().then(disposeAll, disposeAll);
   };
 }

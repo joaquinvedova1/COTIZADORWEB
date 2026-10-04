@@ -7,9 +7,13 @@
  *
  * Los valores de las cotizaciones se COPIAN desde los recursos: editar o
  * borrar un recurso no cambia cotizaciones existentes.
+ *
+ * Personal, Equipos y Materiales tienen vista Simple (nombre, costo por día /
+ * hora y por mes, Editar) y Detallada (la tabla completa). La elección se
+ * recuerda sólo en memoria mientras se usa la aplicación.
  */
 
-import { h, mount } from '../dom.js';
+import { h, mount, uniqueId } from '../dom.js';
 import {
   badge,
   banner,
@@ -101,7 +105,13 @@ const LOCATION_TYPES = Object.freeze([
   { id: 'destination', label: 'Destino / locación' },
 ]);
 
-const BASIS_SUFFIX = Object.freeze({ per_month: '/mes', per_active_day: '/día activo', per_activation: '/activación' });
+const BASIS_SUFFIX = Object.freeze({ per_month: '/mes', per_active_day: '/día activo', per_activation: '/llamado' });
+
+/** Pestañas con vista Simple / Detallada (Ubicaciones ya es una tabla corta). */
+const VIEW_TABS = Object.freeze(['laborProfiles', 'equipment', 'materials']);
+
+/** Vista elegida (simple | detailed), sólo en memoria: se mantiene al cambiar de pestaña. */
+let resourceView = 'simple';
 
 const AGREEMENT_PARAM_KEYS = Object.freeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
 
@@ -242,7 +252,7 @@ function equipmentTrace(eq, c) {
     ],
     result: { label: 'Costo mensual a la utilización configurada', value: r.costPerMonth, format: 'money' },
     notes: [
-      'La amortización y el costo de capital no son salidas de caja mensuales, pero sí son costo: el equipo se desgasta y el dinero invertido tiene un costo.',
+      'La amortización y el costo de capital no son salidas de caja mensuales, pero sí son costo: el equipo se desgasta y la plata invertida tiene un costo.',
       'Con menos utilización, el costo de posesión se reparte en menos horas y sube el $/hora.',
     ],
   });
@@ -802,13 +812,32 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   // ------------------------------------------------------------ tablas
 
-  function laborTable() {
+  function laborTable(detailed) {
     const agreements = list('agreements');
     const agreementName = (id) => {
       const a = agreements.find((x) => x.id === id);
       return a ? a.name : 'Sin convenio';
     };
     const rows = list('laborProfiles').map((p) => ({ item: p, cost: ctx.resources.laborProfileCost(p) }));
+    const actions = {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      render: ({ item }) => rowActions({ name: item.role || 'perfil', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.role || 'perfil') }),
+    };
+    if (!detailed) {
+      return table({
+        caption: 'Perfiles de personal',
+        className: 'lib-table lib-table-simple table-cards',
+        columns: [
+          { key: 'role', label: 'Puesto', render: ({ item }) => nameCell(item.role, item.category, item.illustrative) },
+          { key: 'hourly', label: 'Costo por hora', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
+          { key: 'monthly', label: 'Costo por mes (por persona)', align: 'right', render: ({ item, cost }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(cost.perPerson.fixedMonthly)), laborTrace(item, cost)) },
+          actions,
+        ],
+        rows,
+      });
+    }
     return table({
       caption: 'Perfiles de personal',
       className: 'lib-table table-cards',
@@ -824,12 +853,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         { key: 'monthly', label: 'Costo mensual por persona', align: 'right', render: ({ item, cost }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(cost.perPerson.fixedMonthly)), laborTrace(item, cost)) },
         { key: 'hourly', label: 'Costo hora cargado', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
         { key: 'factor', label: 'Factor de cargas', align: 'right', render: ({ cost }) => h('span', { class: 'mono nowrap' }, factorText(cost.perPerson.loadFactor)) },
-        {
-          key: 'actions',
-          label: 'Acciones',
-          align: 'right',
-          render: ({ item }) => rowActions({ name: item.role || 'perfil', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.role || 'perfil') }),
-        },
+        actions,
       ],
       rows,
     });
@@ -867,8 +891,22 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     });
   }
 
-  function equipmentTable() {
+  function equipmentTable(detailed) {
     const rows = list('equipment').map((eq) => ({ item: eq, c: data.equipmentCards.get(eq.id) })).filter((r) => r.c);
+    const actions = { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.name || 'equipo', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.name || 'equipo') }) };
+    if (!detailed) {
+      return table({
+        caption: 'Equipos',
+        className: 'lib-table lib-table-simple table-cards',
+        columns: [
+          { key: 'name', label: 'Equipo', render: ({ item }) => nameCell(item.name, labelOf(EQUIPMENT_TYPES, item.type, 'Otro'), item.illustrative) },
+          { key: 'perDay', label: 'Costo por día usado', align: 'right', render: ({ c }) => money(c.rates.costPerUsedDay) },
+          { key: 'perMonth', label: 'Costo por mes', align: 'right', render: ({ item, c }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(c.rates.costPerMonth)), equipmentTrace(item, c)) },
+          actions,
+        ],
+        rows,
+      });
+    }
     return table({
       caption: 'Equipos',
       className: 'lib-table table-cards',
@@ -880,14 +918,29 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         { key: 'perHour', label: '$/hora', align: 'right', render: ({ c }) => rate(c.rates.costPerUsedHour) },
         { key: 'perDay', label: '$/día', align: 'right', render: ({ c }) => money(c.rates.costPerUsedDay) },
         { key: 'perMonth', label: '$/mes', align: 'right', render: ({ item, c }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(c.rates.costPerMonth)), equipmentTrace(item, c)) },
-        { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.name || 'equipo', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.name || 'equipo') }) },
+        actions,
       ],
       rows,
     });
   }
 
-  function materialsTable() {
+  function materialsTable(detailed) {
     const rows = list('materials').map((m) => ({ item: m, c: computeMaterialLine(m) }));
+    const costCell = ({ item, c }) => withTrace(h('span', { class: 'nowrap' }, h('strong', {}, formatMoney(c.costForUs)), h('span', { class: 'unit-suffix' }, ` ${BASIS_SUFFIX[c.basis] || ''}`)), materialTrace(item, c));
+    const actions = { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.description || 'material', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.description || 'material') }) };
+    if (!detailed) {
+      return table({
+        caption: 'Materiales',
+        className: 'lib-table lib-table-simple table-cards',
+        columns: [
+          { key: 'description', label: 'Material', render: ({ item }) => nameCell(item.description, null, item.illustrative) },
+          { key: 'provider', label: 'Quién lo provee', render: ({ item }) => (item.providedBy ? labelOf(MATERIAL_PROVIDERS, item.providedBy) : badge('Sin definir', 'orange')) },
+          { key: 'cost', label: 'Costo para nosotros', align: 'right', render: costCell },
+          actions,
+        ],
+        rows,
+      });
+    }
     return table({
       caption: 'Materiales',
       className: 'lib-table table-cards',
@@ -905,8 +958,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         { key: 'logistics', label: 'Logística', align: 'right', render: ({ item }) => percent(toNumber(item.logisticsPct, 0)) },
         { key: 'markup', label: 'Markup reventa', align: 'right', render: ({ item }) => percent(toNumber(item.resaleMarkupPct, 0)) },
         { key: 'provider', label: 'Quién provee', render: ({ item }) => (item.providedBy ? labelOf(MATERIAL_PROVIDERS, item.providedBy) : badge('Sin definir', 'orange')) },
-        { key: 'cost', label: 'Costo para nosotros', align: 'right', render: ({ item, c }) => withTrace(h('span', { class: 'nowrap' }, h('strong', {}, formatMoney(c.costForUs)), h('span', { class: 'unit-suffix' }, ` ${BASIS_SUFFIX[c.basis] || ''}`)), materialTrace(item, c)) },
-        { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.description || 'material', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.description || 'material') }) },
+        { key: 'cost', label: 'Costo para nosotros', align: 'right', render: costCell },
+        actions,
       ],
       rows,
     });
@@ -934,7 +987,14 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       'nav',
       { class: 'tabs library-tabs', 'aria-label': 'Tipos de recurso' },
       ...TABS.filter((t) => RESOURCE_TAB_IDS.includes(t.id)).map((t) =>
-        h('a', { href: `#/recursos/${t.id}`, 'aria-current': t.id === tab.id ? 'page' : null }, t.label, h('span', { class: 'tab-count' }, String(list(t.type).length))),
+        h(
+          'a',
+          { href: `#/recursos/${t.id}`, 'aria-current': t.id === tab.id ? 'page' : null },
+          t.label,
+          // Nombre accesible "Personal (5)": el número visible es decorativo.
+          h('span', { class: 'tab-count', 'aria-hidden': 'true' }, String(list(t.type).length)),
+          h('span', { class: 'sr-only' }, ` (${list(t.type).length})`),
+        ),
       ),
     );
   }
@@ -970,18 +1030,55 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   }
 
   function tableFor() {
+    const detailed = !VIEW_TABS.includes(tab.type) || resourceView === 'detailed';
     switch (tab.type) {
       case 'laborProfiles':
-        return laborTable();
+        return laborTable(detailed);
       case 'agreements':
         return agreementsTable();
       case 'equipment':
-        return equipmentTable();
+        return equipmentTable(detailed);
       case 'materials':
-        return materialsTable();
+        return materialsTable(detailed);
       default:
         return locationsTable();
     }
+  }
+
+  const VIEW_HINTS = Object.freeze({
+    laborProfiles: 'Suma convenio, básico y adicionales y factor de cargas',
+    equipment: 'Suma posesión, operación, utilización y costo por hora',
+    materials: 'Suma costo unitario, base, merma, logística y markup de reventa',
+  });
+
+  /** Barra de la lista: cantidad y vista Simple / Detallada. */
+  function listToolbar(count) {
+    const countEl = h('span', { class: 'muted small toolbar-count' }, `${count} ${count === 1 ? 'ítem' : 'ítems'}`);
+    if (!VIEW_TABS.includes(tab.type)) return null;
+    const buttons = [
+      { id: 'simple', label: 'Simple', title: 'Nombre, costo por día u hora, costo por mes y Editar' },
+      { id: 'detailed', label: 'Detallada', title: VIEW_HINTS[tab.type] },
+    ].map((v) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'segmented-btn',
+          title: v.title,
+          'aria-pressed': v.id === resourceView ? 'true' : 'false',
+          on: {
+            click: () => {
+              if (resourceView === v.id) return;
+              resourceView = v.id;
+              paint({ keepFocus: v.id });
+            },
+          },
+          dataset: { view: v.id },
+        },
+        v.label,
+      ),
+    );
+    return h('div', { class: 'toolbar resource-toolbar' }, countEl, h('span', { class: 'spacer' }), h('div', { class: 'segmented', role: 'group', 'aria-label': 'Vista de la lista' }, ...buttons));
   }
 
   function introFor() {
@@ -992,22 +1089,31 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     return h('p', { class: 'resource-intro-text' }, tab.intro, ...extra);
   }
 
-  function paint() {
-    const hasItems = list(tab.type).length > 0;
+  function paint({ keepFocus = null } = {}) {
+    const count = list(tab.type).length;
+    const hasItems = count > 0;
     setHeader(hasItems);
+    const headingId = uniqueId('recurso');
     mount(
       root,
       embedded ? null : tabsNav(),
+      // Encabezado de la sección (para lectores de pantalla): la pestaña ya lo muestra.
+      h('h2', { class: 'sr-only', id: headingId }, tab.label),
       h('div', { class: 'resource-intro' }, introFor(), embedded && hasItems ? addButton() : null),
       hasItems ? notices() : null,
       hasItems
         ? card(
             { className: 'list-card' },
+            listToolbar(count),
             tableFor(),
             h('p', { class: 'footnote' }, 'Los valores se copian a cada cotización: cambiar un recurso no modifica las cotizaciones existentes.'),
           )
         : emptyFor(),
     );
+    if (keepFocus) {
+      const again = root.querySelector(`.resource-toolbar [data-view="${keepFocus}"]`);
+      if (again) again.focus();
+    }
   }
 
   async function refresh() {

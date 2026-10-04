@@ -2,32 +2,70 @@
  * Servicios: plantillas de servicio reutilizables.
  *
  * Cada plantilla precarga tipo de servicio, actividad y (en algunos casos)
- * personal, equipos y materiales. Desde acá se crea una cotización a partir
+ * personal, equipos, materiales, otros costos y vehículos; las guardadas
+ * desde una cotización copian también sus condiciones (gastos de estructura,
+ * financiación, imprevistos, margen y precio). Desde acá se crea una cotización a partir
  * de una plantilla, se renombra o se elimina.
  */
 
 import { h, mount } from '../dom.js';
 import { badge, button, confirmDialog, emptyState, linkButton, openDialog, pageIntro, textField } from '../components.js';
 import { sanitizeText } from '../../core/validation.js';
-import { SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { isPlainObject } from '../../core/object.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 
 function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** Resumen legible del contenido precargado de una plantilla. */
+/**
+ * Condiciones que una plantilla puede traer (las guardadas desde una
+ * cotización traen todo), con el nombre del paso donde se editan.
+ */
+const TEMPLATE_CONDITIONS = Object.freeze([
+  { key: 'indirect', step: 'indirect' },
+  { key: 'finance', step: 'finance' },
+  { key: 'risk', step: 'risk' },
+  { key: 'pricing', step: 'margin' },
+  { key: 'rules', step: 'margin' },
+]);
+
+/**
+ * Resumen legible del contenido precargado de una plantilla: qué líneas trae
+ * ("Incluye 1 puesto · 2 equipos · 3 materiales · 2 vehículos"), qué
+ * condiciones copia (gastos de estructura, financiación, imprevistos, margen
+ * y precio) y la actividad sugerida. "Sólo tipo de servicio y actividad"
+ * únicamente si no trae nada de eso.
+ * @returns {{ resources: string, conditions: string|null, activity: string|null, hasContent: boolean }}
+ */
 export function templateContents(service) {
-  const d = (service && service.defaults) || {};
-  const parts = [];
-  const count = (k) => (Array.isArray(d[k]) ? d[k].length : 0);
-  if (count('labor')) parts.push(plural(count('labor'), 'puesto', 'puestos'));
-  if (count('equipment')) parts.push(plural(count('equipment'), 'equipo', 'equipos'));
-  if (count('materials')) parts.push(plural(count('materials'), 'material', 'materiales'));
-  const days = d.activity && Number.isFinite(d.activity.activeDaysPerMonth) ? d.activity.activeDaysPerMonth : null;
+  const d = service && isPlainObject(service.defaults) ? service.defaults : {};
+  const len = (v) => (Array.isArray(v) ? v.filter(isPlainObject).length : 0);
+  const lines = [
+    [len(d.labor), 'puesto', 'puestos'],
+    [len(d.equipment), 'equipo', 'equipos'],
+    [len(d.materials), 'material', 'materiales'],
+    [len(d.otherCosts), 'otro costo', 'otros costos'],
+    [len(isPlainObject(d.logistics) ? d.logistics.vehicles : null), 'vehículo', 'vehículos'],
+  ]
+    .filter(([n]) => n > 0)
+    .map(([n, one, many]) => plural(n, one, many));
+  const steps = [...new Set(TEMPLATE_CONDITIONS.filter((c) => isPlainObject(d[c.key])).map((c) => labelOf(QUOTE_STEPS, c.step).toLowerCase()))];
+  const days = isPlainObject(d.activity) && Number.isFinite(d.activity.activeDaysPerMonth) ? d.activity.activeDaysPerMonth : null;
+  let resources = 'Sólo tipo de servicio y actividad';
+  let conditions = null;
+  if (lines.length) {
+    resources = `Incluye ${lines.join(' · ')}`;
+    if (steps.length) conditions = `También trae: ${steps.join(' · ')}`;
+  } else if (steps.length) {
+    resources = `Incluye ${steps.join(' · ')}`;
+  }
   return {
-    resources: parts.length ? `Incluye ${parts.join(' · ')}` : 'Sin recursos precargados.',
+    resources,
+    conditions,
     activity: days !== null ? `Actividad sugerida: ${plural(days, 'día activo', 'días activos')} por mes` : null,
+    hasContent: lines.length > 0 || steps.length > 0,
   };
 }
 
@@ -44,7 +82,7 @@ export function serviceTemplateCard(service, actions = []) {
       h('div', { class: 'row template-card-tags' }, badge(labelOf(SERVICE_TYPES, service.serviceType, 'Servicio configurable'), 'navy'), service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null),
     ),
     service.description ? h('p', { class: 'template-card-desc' }, service.description) : null,
-    h('ul', { class: 'template-card-meta' }, h('li', {}, contents.resources), contents.activity ? h('li', {}, contents.activity) : null),
+    h('ul', { class: 'template-card-meta' }, h('li', {}, contents.resources), contents.conditions ? h('li', {}, contents.conditions) : null, contents.activity ? h('li', {}, contents.activity) : null),
     actions.length ? h('div', { class: 'template-card-actions' }, ...actions) : null,
   );
 }
@@ -146,7 +184,8 @@ export async function render(root, app) {
         'div',
         { class: 'template-grid' },
         ...services.map((service) => {
-          const createBtn = button('Crear cotización', { variant: 'secondary', icon: 'plus', size: 'sm', attrs: { 'aria-label': `Crear una cotización desde ${service.name || 'esta plantilla'}` } });
+          // El nombre accesible empieza con el texto visible (WCAG 2.5.3).
+          const createBtn = button('Crear cotización', { variant: 'secondary', icon: 'plus', size: 'sm', attrs: { 'aria-label': `Crear cotización: ${service.name || 'plantilla sin nombre'}` } });
           createBtn.addEventListener('click', () => createFrom(service, createBtn));
           return serviceTemplateCard(service, [
             createBtn,

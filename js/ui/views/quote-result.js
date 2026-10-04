@@ -16,20 +16,27 @@
  *
  * Jerarquía de renderQuoteResult:
  *   1. Resultado: ¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto gano?
- *      (4 números grandes con "Ver cálculo") + ¿Cuánto tengo que trabajar?
- *      (frase con los días mínimos) + alertas críticas siempre visibles.
- *   2. ¿En qué se va el costo? (principales rubros + "Otros").
+ *      (4 números grandes —una lista <dl>— con "Ver cálculo" y UNA línea de
+ *      ayuda cada uno) + ¿Cuánto tengo que trabajar? (frase con los días
+ *      mínimos, 1 decimal) + alertas críticas siempre visibles.
+ *   2. ¿En qué se va el costo? (costBreakdown(): 4 rubros + "Otros", % enteros;
+ *      la misma agrupación que la landing y la demo).
  *   3. Profundizá (cerrados por defecto; se dibujan al abrirlos):
- *      B. Estructura de costos (EECC)
- *      C. Tarifa según días trabajados (matriz tarifa × utilización + gráfico)
+ *      B. Estructura de costos (EECC, 2 decimales)
+ *      C. Tarifa según días trabajados (matriz tarifa × utilización + gráfico; tarifas NETAS)
  *      F–H. Analizar escenarios (sensibilidad, escenarios, comparador de modelos)
  *      E. Reglas comerciales (reglas cargadas, equivalencias, descuentos, continuidad)
  *      D. Margen vs markup (tarifas por nivel de margen + escalera de precios)
- *      I. ¿Te falta cargar algo? (Cost Completeness Score)
+ *      I. ¿Te falta cargar algo? (costos cargados / completitud)
  *      A. Ver cálculo completo (todos los indicadores de la decisión + cada traza)
- *   4. J. Acciones (imprimir, marcar como enviada, abrir escenarios).
+ *   4. J. Acciones (imprimir, marcar como enviada al cliente; en las
+ *      cotizaciones ILUSTRATIVAS la principal es "Crear mi propia cotización").
  *   Al imprimir se abren (y dibujan) todos los desplegables; después se
  *   restaura cómo estaban.
+ *
+ * Glosario de superficie: "Costo del mes", "Tarifa piso", "Tarifa sugerida"
+ * ("Tu tarifa" si es ofrecida o conocida), "Gastos de estructura" (rubro),
+ * "plata". Los nombres de paso salen de QUOTE_STEPS (única fuente).
  *
  * Reglas: sin HTML crudo (sólo h()/s()), sin storage, todo número pasa por
  * js/core/format.js (nunca NaN / Infinity) y todo resultado importante tiene
@@ -37,8 +44,9 @@
  * calcula: presenta lo que devuelven los motores.
  *
  * Tarifas: piso y precio objetivo se muestran en la base que se escribe en la
- * cotización (DE LISTA), con la neta como dato secundario; las tarifas mínimas
- * (piso, objetivo, sugerido, necesarias) se redondean hacia arriba al mostrar.
+ * cotización (DE LISTA); la neta (después de descuentos) va en "Ver cálculo"
+ * y en las tablas de detalle (rotuladas "neta"). Las tarifas mínimas (piso,
+ * objetivo, sugerida, necesarias) se redondean hacia arriba al mostrar.
  */
 
 import { h, s, mount, debounce, uniqueId } from '../dom.js';
@@ -75,6 +83,22 @@ import { completenessTone } from '../../engines/completeness-engine.js';
 import { normalizeRules } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, marginToMarkup, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
+import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
+import {
+  dayDecimals,
+  resultDays,
+  activeDaysText,
+  signedDays,
+  resultDaysDelta,
+  cushionText,
+  targetGoalHint,
+  targetGoalPrefix,
+  minActivityNotice,
+  discountAlert,
+  discountWords,
+  comparatorNote,
+  completenessExampleNote,
+} from '../result-text.js';
 
 // ------------------------------------------------------------------ constantes
 
@@ -119,9 +143,17 @@ const TRACK_VARIABLE = Object.freeze({
 const DISCOUNT_STATUS = Object.freeze({
   green: { tone: 'green', text: 'Mantiene el margen objetivo', short: 'Mantiene el margen' },
   orange: { tone: 'orange', text: 'Debajo del margen objetivo', short: 'Bajo el objetivo' },
-  red: { tone: 'red', text: 'Debajo de break-even: perdés dinero', short: 'Pierde dinero' },
+  red: { tone: 'red', text: 'Debajo de break-even: perdés plata', short: 'Pierde plata' },
+  // Tramo SIN descuento que pierde: no es por el descuento, es la actividad mínima.
+  redActivity: { tone: 'red', text: 'Debajo de break-even por la actividad mínima (no por el descuento): perdés plata', short: 'Pocos días: pierde plata' },
   unknown: { tone: 'gray', text: 'Sin datos suficientes', short: 'Sin datos' },
 });
+
+/** Estado de un tramo: el rojo de un tramo sin descuento se explica por la actividad mínima. */
+function discountStatus(row) {
+  if (row && row.status === 'red' && !(hasValue(row.discountPct) && row.discountPct > 0)) return DISCOUNT_STATUS.redActivity;
+  return DISCOUNT_STATUS[row && row.status] || DISCOUNT_STATUS.unknown;
+}
 
 const RISK_BADGE = Object.freeze({
   low: { tone: 'green', text: 'Riesgo bajo', short: 'Bajo' },
@@ -130,11 +162,24 @@ const RISK_BADGE = Object.freeze({
 });
 
 const COMMERCIAL_SOURCE_TEXT = Object.freeze({
-  known_rate: 'Tarifa que te pidieron cotizar',
-  suggested: 'Precio comercial sugerido (precio objetivo redondeado)',
+  known_rate: 'La tarifa que vas a ofrecer',
+  suggested: 'Tarifa sugerida (precio objetivo redondeado hacia arriba)',
   offered: 'Tarifa ofrecida (cargada a mano)',
   override: 'Tarifa fija del escenario',
   none: 'Sin tarifa definida',
+});
+
+/** Nombres en castellano de los modelos del comparador (el motor usa su propio rótulo). */
+const MODEL_LABELS = Object.freeze({
+  day_rate: 'Sólo tarifa por día',
+  availability_plus_day: 'Abono de disponibilidad + tarifa por día',
+  guarantee_plus_day: 'Mínimo garantizado + tarifa por día',
+  package_plus_excess: 'Paquete mensual + excedentes',
+});
+
+/** Rubros de la estructura de costos con nombre de superficie distinto al del catálogo. */
+const RUBRO_LABELS = Object.freeze({
+  structure: 'Gastos de estructura',
 });
 
 /**
@@ -153,6 +198,11 @@ const OPEN_MEMORY_LIMIT = 30;
 
 /** Cantidad de rubros que se muestran por nombre en "¿En qué se va el costo?" (el resto va a "Otros"). */
 const COST_TOP = 4;
+
+/** Nombre de un rubro de la EECC para mostrar ("Estructura" → "Gastos de estructura"). */
+function rubroLabel(category, label) {
+  return RUBRO_LABELS[category] || label || 'Otros';
+}
 
 // ------------------------------------------------------------- formateo seguro
 
@@ -218,11 +268,18 @@ function wholeDays(value) {
   return formatDays(value, { decimals: 0 });
 }
 
-/** "6,4 días activos" / "1 día activo". */
-function activeDaysText(value, decimals = 1) {
-  const text = formatDays(value, { decimals });
-  if (text === EMPTY) return EMPTY;
-  return `${text} ${/\bdía$/.test(text) ? 'activo' : 'activos'}`;
+// Días en superficie (dayDecimals, resultDays, activeDaysText, signedDays,
+// cushionText…): ver ../result-text.js. 1 decimal ("6,4 días"), 2 debajo de
+// 1 día; el valor exacto (2 decimales) queda en "Ver cálculo".
+
+/** Nombre de la tarifa de la cotización: la sugerida por RATEOS o la tuya (conocida u ofrecida). */
+function commercialName(k) {
+  return k && k.commercialSource === 'suggested' ? 'Tarifa sugerida' : 'Tu tarifa';
+}
+
+/** "la tarifa sugerida" / "tu tarifa" (para usar dentro de una frase). */
+function theRate(k) {
+  return k && k.commercialSource === 'suggested' ? 'la tarifa sugerida' : 'tu tarifa';
 }
 
 /** Monto de una tarifa sin la unidad (con centavos si es chica, p. ej. $/hora). */
@@ -251,7 +308,6 @@ function signed(value, formatter) {
 
 const signedMoney = (v) => signed(v, (x) => formatMoney(x));
 const signedPoints = (v) => signed(v, (x) => `${formatNumber(x, { decimals: 2 })} puntos`);
-const signedDays = (v) => signed(v, (x) => formatDays(x));
 
 /** "$ 2,5 M" — sólo para ejes de gráficos. */
 function compactMoney(value) {
@@ -297,7 +353,7 @@ function sameNumber(a, b) {
 
 /**
  * Paso del editor donde se corrige un ítem de completitud. La actividad
- * estimada se carga en "Modalidad" (igual criterio que el editor).
+ * estimada se carga en "Cómo se cobra" (igual criterio que el editor).
  */
 function stepForItem(item) {
   if (!item) return 'service';
@@ -310,9 +366,9 @@ function stepHref(quote, step) {
   return `#/cotizaciones/${id}/${step}`;
 }
 
+/** Nombre del paso del editor: QUOTE_STEPS es la única fuente ("Cómo se cobra", "Margen y precio"…). */
 function stepLabel(step) {
-  const found = QUOTE_STEPS.find((st) => st.id === step);
-  return found ? found.label : 'Paso';
+  return labelOf(QUOTE_STEPS, step, 'Paso');
 }
 
 function stepLink(quote, step, text = null) {
@@ -367,6 +423,12 @@ function iconTraceButton(trace) {
   });
 }
 
+/** Traza del costo total con el nombre de superficie ("Costo del mes"); mismos números del motor. */
+function costTrace(v) {
+  const t = v.r.traces && v.r.traces.totalCost;
+  return t ? { ...t, title: 'Costo del mes' } : null;
+}
+
 /**
  * Copia de una traza de tarifa mínima con los montos de pasos y resultado
  * redondeados hacia arriba (igual que el valor que acompaña en pantalla).
@@ -412,6 +474,37 @@ function note(text) {
   return h('p', { class: 'qr-note' }, text);
 }
 
+/**
+ * Tabla ancha accesible: si su contenido no entra y se desplaza a los
+ * costados, el contenedor pasa a ser una región con nombre y enfocable
+ * (tabindex 0) para poder desplazarla con el teclado; si entra, no agrega
+ * una parada de tabulación de más. Se reevalúa al cambiar el ancho.
+ */
+function scrollRegion(v, wrap, label) {
+  if (!wrap || typeof wrap.setAttribute !== 'function') return wrap;
+  const name = label ? `${label} (se desplaza a los costados)` : 'Tabla (se desplaza a los costados)';
+  const update = (force = false) => {
+    const overflow = force || wrap.scrollWidth > wrap.clientWidth + 1;
+    if (overflow) {
+      wrap.setAttribute('tabindex', '0');
+      wrap.setAttribute('role', 'region');
+      wrap.setAttribute('aria-label', name);
+    } else if (wrap.hasAttribute('tabindex')) {
+      wrap.removeAttribute('tabindex');
+      wrap.removeAttribute('role');
+      wrap.removeAttribute('aria-label');
+    }
+  };
+  const observed = Boolean(v && typeof v.observeRegion === 'function' && v.observeRegion(wrap, () => update()));
+  if (!observed) update(true);
+  return wrap;
+}
+
+/** table() de components.js con el contenedor desplazable accesible. */
+function regionTable(v, opts) {
+  return scrollRegion(v, table(opts), opts && opts.caption);
+}
+
 // ------------------------------------------------------------------- trazas
 
 function traceCommercial(v) {
@@ -419,7 +512,7 @@ function traceCommercial(v) {
   const rules = r.ratesAtEstimate || {};
   return createTrace({
     id: 'commercial_rate',
-    title: `Precio comercial (por ${v.unitLabel})`,
+    title: `${commercialName(k)}: de lista a neta (por ${v.unitLabel})`,
     formula: 'Tarifa neta = Tarifa de lista × (1 − descuento por tramo) × (1 − continuidad) × (1 − descuento comercial)',
     inputs: [
       { label: 'Origen de la tarifa', value: COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none, format: 'text' },
@@ -428,11 +521,12 @@ function traceCommercial(v) {
       { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
       { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(v.q.pricing && v.q.pricing.roundingStep), format: 'money' },
     ],
-    steps: [{ label: 'Precio comercial sugerido (objetivo redondeado hacia arriba)', value: k.suggestedListRate, format: 'moneyCeil' }],
+    steps: [{ label: 'Tarifa sugerida (precio objetivo redondeado hacia arriba)', value: k.suggestedListRate, format: 'moneyCeil' }],
     result: { label: 'Tarifa neta cobrada', value: k.commercialNetRate, format: 'money' },
     notes: [
       'La tarifa de lista es la que figura en la cotización; la neta es la que realmente cobrás después de descuentos.',
       'El redondeo comercial siempre es hacia arriba: nunca baja el margen.',
+      'En el detalle técnico a esta tarifa también se la llama "tarifa comercial": es el precio finalmente ofrecido.',
     ],
   });
 }
@@ -460,7 +554,7 @@ function traceMargin(v) {
     result: { label: 'Margen (sobre precio de venta)', value: k.marginPct, format: 'percent' },
     notes: [
       'El margen se calcula sobre el precio de venta; el markup, sobre el costo. No son lo mismo.',
-      hasValue(k.marginPct) ? null : 'Sin tarifa comercial (o sin facturación) no hay margen ni markup de la cotización.',
+      hasValue(k.marginPct) ? null : 'Sin tarifa (o sin facturación) no hay margen ni markup de la cotización.',
     ],
   });
 }
@@ -476,7 +570,7 @@ function traceTargetMarginDays(v) {
     formula: 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
     inputs: [
       { label: 'Costos fijos mensuales', value: l.fixedCosts, format: 'money' },
-      { label: 'Ingresos fijos (fee de disponibilidad, standby)', value: l.fixedRevenue, format: 'money' },
+      { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera)', value: l.fixedRevenue, format: 'money' },
       { label: 'Ingreso por día activo', value: l.revenuePerActiveDay, format: 'money' },
       { label: 'Costo variable por día activo', value: l.variableCostPerDay, format: 'money' },
       { label: 'Margen objetivo', value: k.targetMarginPct, format: 'percent' },
@@ -485,7 +579,7 @@ function traceTargetMarginDays(v) {
     result: { label: 'Días activos para lograr el margen', value: r.targetMarginDays && r.targetMarginDays.reachable ? r.targetMarginDays.days : null, format: 'days' },
     notes: [
       r.targetMarginDays && !r.targetMarginDays.reachable ? r.targetMarginDays.reason : null,
-      l.hasNonLinearRules ? 'Hay reglas no lineales (mínimo garantizado, minimum call o tramos de descuento): el resultado se calcula día a día.' : null,
+      l.hasNonLinearRules ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o tramos de descuento): el resultado se calcula día a día.' : null,
     ],
   });
 }
@@ -498,7 +592,7 @@ function traceContribution(v) {
     formula: 'Contribución por día = Ingreso por día activo − Costo variable por día activo',
     inputs: [
       { label: 'Tarifa neta por día activo', value: l.netRatePerActiveDay, format: 'money' },
-      { label: 'Otros ingresos por día activo (call-out, movilización, km)', value: l.otherRevenuePerActiveDay, format: 'money' },
+      { label: 'Otros ingresos por día activo (cargos por llamado, movilización, km)', value: l.otherRevenuePerActiveDay, format: 'money' },
       { label: 'Costo variable por día activo', value: l.variableCostPerDay, format: 'money' },
     ],
     steps: [{ label: 'Ingreso por día activo', value: l.revenuePerActiveDay, format: 'money' }],
@@ -507,14 +601,14 @@ function traceContribution(v) {
   });
 }
 
-const SUGGESTED_TITLE = 'Precio comercial sugerido';
+const SUGGESTED_TITLE = 'Tarifa sugerida';
 
 function traceSuggested(v) {
   const { k, q } = v;
   return createTrace({
     id: 'suggested_rate',
     title: SUGGESTED_TITLE,
-    formula: 'Precio comercial sugerido = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
+    formula: 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
     inputs: [
       { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
       { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(q.pricing && q.pricing.roundingStep), format: 'money' },
@@ -532,10 +626,10 @@ function traceSuggestedResult(v, suggested, ev) {
   const cost = ev.cost || {};
   return createTrace({
     id: 'suggested_result',
-    title: 'Resultado con el precio comercial sugerido',
+    title: 'Resultado con la tarifa sugerida',
     formula: 'Resultado = Facturación − Costo total · Margen = Resultado / Facturación',
     inputs: [
-      { label: 'Precio comercial sugerido (lista)', value: suggested, format: 'moneyCeil' },
+      { label: 'Tarifa sugerida (de lista)', value: suggested, format: 'moneyCeil' },
       { label: 'Tarifa neta (después de descuentos)', value: revenue.netRate, format: 'money' },
       { label: 'Unidades facturables', value: revenue.billableUnits, format: 'number' },
       { label: 'Otros ingresos', value: revenue.otherRevenue, format: 'money' },
@@ -543,7 +637,7 @@ function traceSuggestedResult(v, suggested, ev) {
     ],
     steps: [{ label: 'Facturación total', value: revenue.total, format: 'money' }],
     result: { label: 'Resultado', value: ev.profit, format: 'money' },
-    notes: ['La cotización usa otra tarifa comercial; este cálculo muestra qué pasaría con el precio sugerido.'],
+    notes: ['La cotización usa otra tarifa; este cálculo muestra qué pasaría con la tarifa sugerida.'],
   });
 }
 
@@ -558,7 +652,7 @@ function traceRateForMargin(v, row) {
     inputs: [
       { label: 'Costo total del mes', value: ra.totalCost, format: 'money' },
       { label: 'Margen sobre precio', value: m, format: 'percent' },
-      { label: 'Otros ingresos (fees, standby, km)', value: ra.otherRevenue, format: 'money' },
+      { label: 'Otros ingresos (abono de disponibilidad, equipo en espera, km)', value: ra.otherRevenue, format: 'money' },
       { label: `Unidades facturables (${v.unitLabel})`, value: ra.billableUnits, format: 'number' },
       { label: 'Factor de descuentos', value: ra.discountFactor, format: 'number' },
     ],
@@ -577,10 +671,10 @@ function traceEquivalents(v) {
   const activity = r.activity || {};
   return createTrace({
     id: 'rate_equivalents',
-    title: 'Equivalencias de la tarifa comercial',
+    title: `Equivalencias de ${theRate(k)}`,
     formula: '$/hora = tarifa por día / horas por día activo · $/día = tarifa por hora × horas por día (abono: abono / días activos) · $/mes = facturación del mes con la actividad estimada',
     inputs: [
-      { label: `Tarifa comercial de lista (por ${v.unitLabel})`, value: k.commercialListRate, format: 'money' },
+      { label: `${commercialName(k)} de lista (por ${v.unitLabel})`, value: k.commercialListRate, format: 'money' },
       { label: 'Horas por día activo', value: activity.hoursPerActiveDay, format: 'hours' },
       { label: 'Días activos por mes', value: k.activeDays, format: 'days' },
     ],
@@ -606,7 +700,7 @@ function traceCompleteness(v) {
   });
   return createTrace({
     id: 'completeness',
-    title: 'Cost Completeness Score',
+    title: 'Costos cargados (completitud)',
     formula: 'Completitud = Σ peso obtenido / Σ peso aplicable × 100 (verde suma 100 % de su peso, naranja 50 %, rojo 0 %)',
     inputs: [
       { label: 'Controles en verde', value: counts.ok || 0, format: 'number' },
@@ -682,6 +776,21 @@ function targetPhrase(v) {
     : minRate(m.targetMain, v.unitLabel);
 }
 
+/** "Ver cálculo" de la tarifa piso del resumen (de lista), con la neta explicada. */
+function floorSummaryTrace(v) {
+  const base = ceilTrace(v.r.traces && v.r.traces.floorRate);
+  if (!base) return null;
+  const mr = minimumRates(v);
+  if (!mr.floorNetDiffers) return base;
+  return {
+    ...base,
+    notes: [
+      ...base.notes,
+      `La tarifa piso del resumen (${minRate(mr.floorMain, v.unitLabel)}) es de lista, antes ${discountWords(v.r)}: es la que escribís en la cotización. Neta, lo que realmente cobrás: ${minRate(v.k.floorNetRate, v.unitLabel)}.`,
+    ],
+  };
+}
+
 /**
  * Abono mensual: la facturación es fija y cada día activo suma costo
  * variable, así que en vez de días MÍNIMOS hay días MÁXIMOS sin pérdida.
@@ -738,7 +847,7 @@ function traceMonthlyCap(v, cap) {
     ],
     steps: [
       { label: 'Resultado con 0 días activos', value: at0.profit, format: 'money' },
-      { label: `Resultado con ${formatDays(cap.available)} activos`, value: atMax.profit, format: 'money' },
+      { label: `Resultado con ${activeDaysText(cap.available, 2)}`, value: atMax.profit, format: 'money' },
     ],
     result: { label: cap.status === 'all' ? 'Días máximos (todos los disponibles)' : 'Días máximos', value: resultValue, format: 'days' },
     notes: [
@@ -754,7 +863,7 @@ function traceMonthlyCap(v, cap) {
 function capView(v, cap) {
   const D = v.k.activeDays;
   const withMargin = cap && cap.marginPct > 0;
-  if (!cap) return { value: EMPTY, hint: 'Sin tarifa comercial.', tone: null };
+  if (!cap) return { value: EMPTY, hint: 'Sin tarifa.', tone: null };
   if (cap.status === 'all') {
     return {
       value: `Todos (${formatDays(cap.available)})`,
@@ -765,7 +874,7 @@ function capView(v, cap) {
   if (cap.status === 'none') {
     return {
       value: formatDays(0),
-      hint: withMargin ? 'Con este abono no se llega al margen objetivo ni sin trabajar.' : 'El abono no cubre ni los costos fijos: perdés dinero aunque no se trabaje.',
+      hint: withMargin ? 'Con este abono no se llega al margen objetivo ni sin trabajar.' : 'El abono no cubre ni los costos fijos: perdés plata aunque no se trabaje.',
       tone: 'red',
     };
   }
@@ -779,14 +888,14 @@ function capView(v, cap) {
 
 function capSentence(cap, D, subject) {
   if (!cap) return '';
-  if (cap.status === 'all') return `${subject} no perdés dinero aun trabajando los ${formatDays(cap.available)} disponibles del mes.`;
-  if (cap.status === 'none') return `${subject} perdés dinero aunque no se trabaje: no cubre ni los costos fijos del mes.`;
+  if (cap.status === 'all') return `${subject} no perdés plata aun trabajando los ${formatDays(cap.available)} disponibles del mes.`;
+  if (cap.status === 'none') return `${subject} perdés plata aunque no se trabaje: no cubre ni los costos fijos del mes.`;
   const tail = hasValue(D)
     ? D <= cap.days + 1e-9
       ? ` Estimás ${formatDays(D)}: estás dentro del máximo.`
-      : ` Estimás ${formatDays(D)}: con esa actividad perdés dinero.`
+      : ` Estimás ${formatDays(D)}: con esa actividad perdés plata.`
     : '';
-  return `${subject} no perdés dinero hasta ${wholeDays(cap.wholeDays)} activos por mes (${formatDays(cap.days)} exactos): con más días, el costo variable supera al abono.${tail}`;
+  return `${subject} no perdés plata hasta ${activeDaysText(cap.wholeDays, 0)} por mes (${formatDays(cap.days)} exactos): con más días, el costo variable supera al abono.${tail}`;
 }
 
 function belowFloorCoveredText(v) {
@@ -799,7 +908,7 @@ function belowFloorCoveredText(v) {
   }
   const who = hasValue(topUp) && topUp > 0 ? 'el mínimo garantizado cubre la diferencia' : 'los otros ingresos cubren la diferencia';
   const marginPart = k.belowTarget && hasValue(k.marginPct) ? ` (margen ${pct(k.marginPct)}, debajo del objetivo de ${pct(k.targetMarginPct)})` : '';
-  return `La tarifa está debajo de la tarifa piso (${floorPhrase(v)}), pero ${who}: con ${formatDays(k.activeDays)} activos el resultado del mes es ${money(k.profit)}${marginPart}. Si la actividad baja o cambian las condiciones, podés perder dinero.`;
+  return `La tarifa está debajo de la tarifa piso (${floorPhrase(v)}), pero ${who}: con ${activeDaysText(k.activeDays, 2)} el resultado del mes es ${money(k.profit)}${marginPart}. Si la actividad baja o cambian las condiciones, podés perder plata.`;
 }
 
 /** Aviso compacto (banner) con una acción opcional a la derecha. */
@@ -817,17 +926,19 @@ function alertLine(tone, title, text, action = null) {
 function criticalAlerts(v) {
   const { k, r } = v;
   const out = [];
+  const subject = theRate(k);
+  const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
   if (k.belowFloor) {
-    out.push(alertLine('danger', 'Con esta tarifa perdés plata.', `Está debajo de la tarifa piso: con ${formatDays(k.activeDays)} activos necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
+    out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${activeDaysText(k.activeDays, 2)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
   } else if (k.belowFloorRate) {
     out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
   } else if (k.belowTarget) {
-    out.push(alertLine('warning', 'Debajo del margen objetivo.', `Tu tarifa cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
+    out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
   }
   if (k.incomplete) {
     const score = r.completeness ? r.completeness.scorePct : null;
-    out.push(alertLine('warning', 'Puede faltar algún costo.', `La completitud de costos es de ${pct(score, 0)}: revisá lo que suele quedar afuera antes de cotizar.`,
-      button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness') })));
+    out.push(alertLine('warning', 'Puede faltar algún costo.', `Costos cargados: ${pct(score, 0)}. Revisá lo que suele quedar afuera antes de cotizar.`,
+      button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } })));
   }
   const issues = Array.isArray(r.issues) ? r.issues : [];
   if (issues.length) {
@@ -849,9 +960,9 @@ function decisionNotes(v) {
   const be = r.breakEven || {};
   if (hasRate(k) && be.reachable === false && be.reason) {
     if (!be.notApplicable) {
-      out.push(banner(be.reason, 'warning', { title: 'Días mínimos para no perder dinero.' }));
+      out.push(banner(be.reason, 'warning', { title: 'Días mínimos para no perder plata.' }));
     } else if (r.pricingMode !== 'known_rate') {
-      // En "Conozco la tarifa" la frase del bloque ya lo explica.
+      // En "Ya tengo la tarifa" la frase del bloque ya lo explica.
       out.push(banner('Con abono mensual no hay días mínimos: la facturación es fija y cada día activo suma costo variable. Por eso importa el máximo de días que cubre el abono.', 'info', { title: 'Abono mensual.' }));
     }
   }
@@ -872,27 +983,23 @@ function heroKnownRate(v) {
 
   let sentence;
   if (!rateOk) {
-    sentence = h('p', { class: 'qr-lead' }, 'Todavía no ingresaste la tarifa que te pidieron cotizar. ', stepLink(q, 'modality', 'Cargala en Modalidad'), ' para ver los días mínimos y el resultado.');
+    sentence = h('p', { class: 'qr-lead' }, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ' para ver los días mínimos y el resultado.');
   } else if (isMonth) {
     sentence = h('p', { class: 'qr-lead' },
       `Cotizás un abono mensual de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día activo suma costo variable. `,
       capSentence(cap, D, 'Con este abono'));
   } else if (be.reachable) {
-    const gap = hasValue(D) && hasValue(be.days) ? D - be.days : null;
-    const tail = !hasValue(gap)
-      ? ''
-      : gap >= -1e-9
-        ? ` Estimás ${formatDays(D)}: tenés un colchón de ${formatDays(Math.max(0, gap))} sobre el mínimo.`
-        : ` Estimás ${formatDays(D)}: te faltan ${formatDays(-gap)} para cubrir los costos.`;
-    sentence = h('p', { class: 'qr-lead' }, `Con una tarifa de ${rate(k.commercialListRate, v.unitLabel)} necesitás al menos ${wholeDays(be.wholeDays)} activos por mes para no perder dinero.${tail}`);
+    // Colchón con los valores mostrados: el break-even exacto va con 2 decimales ("Break-even exacto: 6,35 días").
+    const tail = cushionText(D, be.days, { beDecimals: 2 });
+    sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) necesitás al menos ${activeDaysText(be.wholeDays, 0)} por mes para no perder plata.${tail}`);
   } else {
-    sentence = h('p', { class: 'qr-lead' }, `Con una tarifa de ${rate(k.commercialListRate, v.unitLabel)} no se cubren los costos dentro del mes. Revisá la tarifa o los costos.`);
+    sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) no se cubren los costos dentro del mes. Revisá la tarifa o los costos.`);
   }
 
   const resultItem = heroItem({
     label: `Resultado esperado con ${formatDays(D)}`,
     value: rateOk ? money(k.profit) : EMPTY,
-    hint: rateOk ? marginHint(k.marginPct, k.markupPct) : 'Sin tarifa comercial.',
+    hint: rateOk ? marginHint(k.marginPct, k.markupPct) : 'Sin tarifa.',
     trace: r.traces && r.traces.expectedResult,
     tone: profitTone(k),
   });
@@ -917,7 +1024,7 @@ function heroKnownRate(v) {
     sentence,
     h('div', { class: 'qr-hero' },
       heroItem({
-        label: 'Días mínimos para no perder dinero',
+        label: 'Días mínimos para no perder plata',
         value: be.reachable ? wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? `Break-even exacto: ${formatDays(be.days)} por mes.` : be.reason || null,
         trace: r.traces && r.traces.breakEven,
@@ -953,7 +1060,7 @@ function ratesByMarginBlock(v) {
   const D = k.activeDays;
   const showList = minimumRates(v).showList;
   const rows = [
-    { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, label: 'Tarifa piso (no perder dinero)' },
+    { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, label: 'Tarifa piso (no perder plata)' },
     ...(Array.isArray(ra.byMargin) ? ra.byMargin : [])
       .filter((m) => hasValue(m.marginPct) && m.marginPct > 0)
       .sort((a, b) => a.marginPct - b.marginPct)
@@ -969,8 +1076,8 @@ function ratesByMarginBlock(v) {
     { key: 'trace', label: 'Cálculo', align: 'right', render: (row) => traceBtn(traceRateForMargin(v, row)) },
   ];
   return h('div', { class: 'qr-rates-block' },
-    h('h4', { class: 'qr-subhead' }, `Tarifas por nivel de margen (con ${formatDays(D)} activos por mes)`),
-    table({ columns, rows, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Tarifas por nivel de margen', className: 'qr-rates-table' }),
+    h('h4', { class: 'qr-subhead' }, `Tarifas por nivel de margen (con ${activeDaysText(D, 2)} por mes)`),
+    regionTable(v, { columns, rows, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Tarifas por nivel de margen', className: 'qr-rates-table' }),
     showList ? note(`La tarifa de lista ya contempla los descuentos que aplicarían con ${formatDays(D)} (factor ${formatNumber(ra.discountFactor, { decimals: 4 })}): es la que escribís en la cotización. Las tarifas mínimas se muestran redondeadas hacia arriba.`) : note('Las tarifas mínimas se muestran redondeadas hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo.'));
 }
 
@@ -998,16 +1105,16 @@ function heroKnownActivity(v) {
 
   let sentence;
   if (!(D > 0)) {
-    sentence = h('p', { class: 'qr-lead' }, 'Falta saber cuántos días del mes esperás que el equipo esté trabajando y facturando. ', stepLink(q, 'modality', 'Cargalo en Modalidad'), '.');
+    sentence = h('p', { class: 'qr-lead' }, 'Falta saber cuántos días del mes esperás que el equipo esté trabajando y facturando. ', stepLink(q, 'modality', `Cargalo en ${stepLabel('modality')}`), '.');
   } else if (!(k.totalCost > 0)) {
     sentence = h('p', { class: 'qr-lead' }, 'Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.');
   } else {
     const roundingStep = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
     const subject = k.commercialSource === 'suggested' ? 'Con el abono sugerido' : 'Con el abono cotizado';
     sentence = h('p', { class: 'qr-lead' },
-      `Con ${formatDays(D)} activos por mes, cobrá al menos ${floorPhrase(v)} para no perder dinero. `,
-      `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. `,
-      hasValue(suggested) ? `Precio comercial sugerido${roundingStep ? ` (redondeado a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
+      `Con ${activeDaysText(D, 2)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
+      hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
+      hasValue(suggested) ? `Tarifa sugerida${roundingStep ? ` (redondeada a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
       isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject)}` : '');
   }
 
@@ -1035,12 +1142,12 @@ function heroKnownActivity(v) {
         big: true,
       }),
       heroItem({
-        label: 'Resultado con el precio sugerido',
+        label: 'Resultado con la tarifa sugerida',
         value: suggestedEval ? money(suggestedEval.profit) : EMPTY,
-        hint: suggestedEval ? marginHint(suggestedEval.marginPct, suggestedEval.markupPct) : 'Sin precio sugerido.',
+        hint: suggestedEval ? marginHint(suggestedEval.marginPct, suggestedEval.markupPct) : 'Sin tarifa sugerida.',
         trace: k.commercialSource === 'suggested' && r.traces ? r.traces.expectedResult : null,
         lazyTrace: k.commercialSource !== 'suggested' && suggestedEval ? () => traceSuggestedResult(v, suggested, suggestedEval) : null,
-        lazyTitle: 'Resultado con el precio comercial sugerido',
+        lazyTitle: 'Resultado con la tarifa sugerida',
         tone: sTone,
       }),
       k.commercialSource === 'offered'
@@ -1066,15 +1173,15 @@ function kpiGrid(v) {
   const score = r.completeness ? r.completeness.scorePct : null;
   const items = [];
 
-  items.push(kpiItem({ label: 'Costo total mensual', value: money(k.totalCost), hint: `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: traces.totalCost }));
+  items.push(kpiItem({ label: 'Costo del mes', value: money(k.totalCost), hint: `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: costTrace(v) }));
 
-  // "Conozco la actividad" ya muestra piso y objetivo en el bloque principal;
-  // "Conozco la tarifa" no, así que van acá (en base de lista).
+  // "Calcular la tarifa" ya muestra piso y objetivo en el bloque principal;
+  // "Ya tengo la tarifa" no, así que van acá (en base de lista).
   if (knownRate) {
     items.push(kpiItem({
       label: floorLabel(mr),
       value: minRateNode(mr.floorMain, v.unitLabel),
-      hint: mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Para no perder dinero (margen 0).',
+      hint: mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Para no perder plata (margen 0).',
       trace: ceilTrace(traces.floorRate),
     }));
     items.push(kpiItem({
@@ -1085,11 +1192,11 @@ function kpiGrid(v) {
     }));
   }
 
-  // Precio comercial: la tarifa conocida u ofrecida (la sugerida ya está arriba).
+  // Tu tarifa: la conocida u ofrecida (la sugerida ya está arriba).
   if (knownRate || k.commercialSource === 'offered' || k.commercialSource === 'override') {
     const differs = rateOk && listDiffers(k.commercialListRate, k.commercialNetRate);
     items.push(kpiItem({
-      label: 'Precio comercial',
+      label: commercialName(k),
       value: commercialRateNode(k, v.unitLabel),
       hint: `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}${differs ? `. Neta: ${rate(k.commercialNetRate, v.unitLabel)}` : ''}`,
       trace: traceCommercial(v),
@@ -1097,16 +1204,16 @@ function kpiGrid(v) {
     }));
   }
 
-  // En "Conozco la tarifa" el resultado y los días ya están en el bloque principal.
+  // En "Ya tengo la tarifa" el resultado y los días ya están en el bloque principal.
   if (!knownRate) {
-    items.push(kpiItem({ label: 'Resultado esperado', value: rateOk ? money(k.profit) : EMPTY, hint: rateOk ? `Facturación ${money(k.revenue)}` : 'Sin tarifa comercial', tone: profitTone(k), trace: traces.expectedResult }));
+    items.push(kpiItem({ label: 'Resultado esperado', value: rateOk ? money(k.profit) : EMPTY, hint: rateOk ? `Facturación ${money(k.revenue)}` : 'Sin tarifa', tone: profitTone(k), trace: traces.expectedResult }));
   }
 
   const marginOk = rateOk && hasValue(k.marginPct);
   items.push(kpiItem({
     label: 'Margen',
     value: marginOk ? pct(k.marginPct) : EMPTY,
-    hint: marginOk ? `Markup equivalente: ${pct(k.markupPct)} (sobre costo)` : rateOk ? 'Sin facturación: no hay margen' : 'Sin tarifa comercial',
+    hint: marginOk ? `Markup equivalente: ${pct(k.markupPct)} (sobre costo)` : rateOk ? 'Sin facturación: no hay margen' : 'Sin tarifa',
     tone: marginTone(k),
     trace: traceMargin(v),
   }));
@@ -1130,14 +1237,14 @@ function kpiGrid(v) {
       items.push(kpiItem({
         label: 'Break-even',
         value: beValue,
-        hint: be.reachable ? `Días mínimos para no perder dinero (${wholeDays(be.wholeDays)} enteros)` : 'Días mínimos para no perder dinero',
+        hint: be.reachable ? `Días mínimos para no perder plata (${wholeDays(be.wholeDays)} enteros)` : 'Días mínimos para no perder plata',
         tone: be.reachable && hasValue(k.activeDays) ? (k.activeDays + 1e-9 >= be.days ? 'green' : 'red') : null,
         trace: traces.breakEven,
       }));
     }
   }
 
-  items.push(kpiItem({ label: 'Completitud', value: pct(score, 0), hint: 'Cost Completeness Score', tone: completenessTone(score), trace: traceCompleteness(v) }));
+  items.push(kpiItem({ label: 'Costos cargados', value: pct(score, 0), hint: 'Completitud: lo que suele olvidarse', tone: completenessTone(score), trace: traceCompleteness(v) }));
 
   return h('div', { class: 'kpi-grid qr-kpis', style: { '--qr-kpi-cols': String(items.length) } }, ...items);
 }
@@ -1147,12 +1254,12 @@ function equivalentsBlock(v) {
   if (!hasRate(v.k)) return null;
   const item = (label, value) => h('div', { class: 'qr-equiv-item' }, h('span', { class: 'qr-equiv-label' }, label), h('strong', { class: 'qr-equiv-value' }, money(value)));
   return h('div', { class: 'qr-equiv' },
-    h('div', { class: 'qr-equiv-title' }, 'Equivalencias de la tarifa comercial'),
+    h('div', { class: 'qr-equiv-title' }, `Equivalencias de ${theRate(v.k)}`),
     h('div', { class: 'qr-equiv-items' },
       item('$ por hora', e.perHour),
       item('$ por día', e.perDay),
       item('Facturación del mes', e.perMonth)),
-    lazyTraceButton(() => traceEquivalents(v), 'Equivalencias de la tarifa comercial'));
+    lazyTraceButton(() => traceEquivalents(v), `Equivalencias de ${theRate(v.k)}`));
 }
 
 /** Insignia ILUSTRATIVO: la cotización entera o algunos de sus valores son de demostración. */
@@ -1182,9 +1289,9 @@ function renderResultDetail(v) {
       title: mode === 'known_rate' ? '¿Me conviene esta tarifa? Todos los indicadores' : '¿Cuánto tengo que cobrar? Todos los indicadores',
       subtitle: mode === 'known_rate'
         ? (r.unit === 'month'
-          ? 'Modalidad "Conozco la tarifa": cuántos días podés trabajar con este abono sin perder.'
-          : 'Modalidad "Conozco la tarifa": cuántos días tenés que trabajar para no perder y para ganar.')
-        : 'Modalidad "Conozco la actividad": qué tarifa necesitás con los días que estimás trabajar.',
+          ? `"${labelOf(PRICING_MODES, 'known_rate', 'Ya tengo la tarifa')}": cuántos días podés trabajar con este abono sin perder.`
+          : `"${labelOf(PRICING_MODES, 'known_rate', 'Ya tengo la tarifa')}": cuántos días tenés que trabajar para no perder y para ganar.`)
+        : `"${labelOf(PRICING_MODES, 'known_activity', 'Calcular la tarifa')}": qué tarifa necesitás con los días que estimás trabajar.`,
       className: 'qr-card qr-card-decision',
       id: v.ids.decision,
     },
@@ -1196,7 +1303,7 @@ function renderResultDetail(v) {
 
 // ------------------------------------------------ 1. resumen: las 4 preguntas
 
-/** Pista de varias líneas cortas debajo de un número grande. */
+/** Pista de una línea (texto o nodo) debajo de un número grande. */
 function statHint(...lines) {
   const items = lines.filter((x) => x instanceof Node || (typeof x === 'string' && x));
   if (!items.length) return null;
@@ -1205,42 +1312,51 @@ function statHint(...lines) {
   return h('span', { class: 'qr-stat-lines' }, ...items.map((t) => h('span', { class: 'qr-stat-line' }, keep(t))));
 }
 
+/**
+ * Uno de los cuatro números del resumen como par término / descripción de
+ * una lista <dl> (los lectores de pantalla anuncian "Tarifa piso: $ …").
+ * Mismas clases que bigStat() de components.js, para el mismo aspecto.
+ */
+function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '' }) {
+  return h('div', { class: ['big-stat', 'big-stat-md', tone ? `big-stat-${tone}` : null, className] },
+    h('dt', { class: 'big-stat-label' }, label),
+    h('dd', { class: 'big-stat-value' }, h('span', { class: 'big-stat-number' }, value ?? EMPTY), unit ? h('span', { class: 'big-stat-unit' }, unit) : null),
+    hint ? h('dd', { class: 'big-stat-hint' }, hint) : null,
+    trace ? h('dd', { class: 'qr-stat-trace' }, traceBtn(trace)) : null);
+}
+
 /** ¿Cuánto me cuesta? */
 function costStat(v) {
-  const { k, r } = v;
+  const { k } = v;
   const D = k.activeDays;
-  return bigStat({
-    label: 'Costo esperado',
+  return statItem({
+    label: 'Costo del mes',
     value: money(k.totalCost),
     unit: hasValue(k.totalCost) ? '/ mes' : null,
     hint: statHint(hasValue(D) && D > 0
-      ? `Lo que te cuesta prestar el servicio, con ${activeDaysText(D, 2)}.`
+      ? `Lo que te cuesta prestar el servicio con ${activeDaysText(D, 2)}.`
       : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días activos.'),
-    trace: r.traces && r.traces.totalCost,
+    trace: costTrace(v),
     className: 'qr-stat qr-stat-cost',
   });
 }
 
-/** ¿Cuánto tengo que cobrar? (mínimo) */
+/** ¿Cuánto tengo que cobrar? (mínimo). La neta y el redondeo van en "Ver cálculo". */
 function floorStat(v) {
-  const { k, r } = v;
+  const { k } = v;
   const mr = minimumRates(v);
   const costOk = hasValue(k.totalCost) && k.totalCost > 0;
   const value = costOk ? mr.floorMain : null;
   let hint;
-  if (!costOk) hint = statHint('Precio mínimo para no perder plata.', 'Aparece cuando haya costos cargados.');
-  else if (!hasValue(value)) hint = statHint('Precio mínimo para no perder plata.', 'Falta estimar los días activos del mes.');
-  else {
-    hint = statHint(
-      'Precio mínimo para no perder plata.',
-      mr.floorNetDiffers ? `De lista. Neta, con descuentos: ${minRate(k.floorNetRate, v.unitLabel)}.` : null);
-  }
-  return bigStat({
+  if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
+  else if (!hasValue(value)) hint = statHint('Falta estimar los días activos del mes.');
+  else hint = statHint(mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.');
+  return statItem({
     label: 'Tarifa piso',
     value: ceilMoney(value),
     unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
     hint,
-    trace: costOk ? ceilTrace(r.traces && r.traces.floorRate) : null,
+    trace: costOk ? floorSummaryTrace(v) : null,
     className: 'qr-stat qr-stat-floor',
   });
 }
@@ -1249,71 +1365,60 @@ function floorStat(v) {
 function priceStat(v) {
   const { k, r, q } = v;
   const unit = `/ ${v.unitLabel}`;
-  const target = pct(k.targetMarginPct);
   const suggested = hasValue(k.suggestedListRate) && k.suggestedListRate > 0 ? k.suggestedListRate : null;
   if (k.commercialSource === 'suggested' && hasRate(k)) {
-    const step = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
-    return bigStat({
+    return statItem({
       label: 'Tarifa sugerida',
       value: ceilMoney(k.commercialListRate),
       unit,
-      hint: statHint(
-        `Para ganar el ${target} sobre el precio.`,
-        step ? `Redondeada hacia arriba (múltiplos de ${money(step)}).` : 'Redondeada hacia arriba: nunca baja el margen.'),
+      hint: statHint(targetGoalHint(k.targetMarginPct)),
       trace: traceSuggested(v),
       className: 'qr-stat qr-stat-price',
     });
   }
   if (hasRate(k)) {
-    const differs = listDiffers(k.commercialListRate, k.commercialNetRate);
-    const source = k.commercialSource === 'known_rate'
-      ? 'La tarifa que te pidieron cotizar.'
-      : k.commercialSource === 'offered'
-        ? 'La tarifa que ofrecés (cargada a mano).'
-        : `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
-    return bigStat({
+    let hint;
+    if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(suggested, v.unitLabel)}.`;
+    else if (k.commercialSource === 'known_rate') hint = 'La tarifa que vas a ofrecer.';
+    else if (k.commercialSource === 'offered') hint = 'La tarifa que ofrecés (cargada a mano).';
+    else hint = `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
+    return statItem({
       label: 'Tu tarifa',
       value: rateValue(k.commercialListRate),
       unit,
-      hint: statHint(
-        differs ? `${source} Neta: ${rate(k.commercialNetRate, v.unitLabel)}.` : source,
-        suggested ? `Para ganar el ${target}: ${minRate(suggested, v.unitLabel)}.` : null),
+      hint: statHint(hint),
       trace: traceCommercial(v),
       className: 'qr-stat qr-stat-price',
     });
   }
   if (r.pricingMode === 'known_rate') {
-    return bigStat({
+    return statItem({
       label: 'Tu tarifa',
       value: EMPTY,
-      hint: statHint(h('span', {}, 'Todavía no cargaste la tarifa que te pidieron cotizar. ', stepLink(q, 'modality', 'Cargala en Modalidad'), '.')),
+      hint: statHint(h('span', {}, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), '.')),
       className: 'qr-stat qr-stat-price',
     });
   }
-  return bigStat({
+  return statItem({
     label: 'Tarifa sugerida',
     value: EMPTY,
-    hint: statHint(`Para ganar el ${target} sobre el precio.`, 'Aparece cuando haya costos y días activos cargados.'),
+    hint: statHint(`${targetGoalPrefix(k.targetMarginPct)}: aparece cuando haya costos y días activos cargados.`),
     className: 'qr-stat qr-stat-price',
   });
 }
 
-/** ¿Cuánto gano? */
+/** ¿Cuánto gano? (margen sobre el precio; el markup va en "Ver cálculo" y en "Margen vs markup"). */
 function marginStat(v) {
   const { k } = v;
   const rateOk = hasRate(k);
   const ok = rateOk && hasValue(k.marginPct);
   let hint;
-  if (!rateOk) hint = statHint('Sobre el precio de venta.', 'Sin tarifa no hay margen.');
-  else if (!ok) hint = statHint('Sobre el precio de venta.', 'Sin facturación no hay margen.');
-  else {
-    const loss = hasValue(k.profit) && k.profit < -1e-6;
-    hint = statHint(
-      loss ? `Perdés ${money(-k.profit)} por mes.` : `Ganás ${money(k.profit)} por mes.`,
-      k.belowTarget ? `Sobre el precio de venta. Tu objetivo: ${pct(k.targetMarginPct)}.` : 'Sobre el precio de venta.',
-      hasValue(k.markupPct) ? `Markup (recargo sobre el costo): ${pct(k.markupPct)}.` : null);
-  }
-  return bigStat({
+  if (!rateOk) hint = statHint('Sin tarifa no hay margen.');
+  else if (!ok) hint = statHint('Sin facturación no hay margen.');
+  else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
+  else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
+  else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
+  return statItem({
     label: 'Margen',
     value: ok ? pct(k.marginPct) : EMPTY,
     hint,
@@ -1327,10 +1432,10 @@ function marginStat(v) {
 function noRateContent(v) {
   const { r, k, q } = v;
   if (r.pricingMode === 'known_rate') {
-    return ['Todavía no cargaste la tarifa que te pidieron cotizar. ', stepLink(q, 'modality', 'Cargala en Modalidad'), ' para saber cuántos días necesitás trabajar.'];
+    return ['Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ' para saber cuántos días necesitás trabajar.'];
   }
   if (!(k.activeDays > 0)) {
-    return ['Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'modality', 'Cargalo en Modalidad'), '.'];
+    return ['Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'modality', `Cargalo en ${stepLabel('modality')}`), '.'];
   }
   if (!(k.totalCost > 0)) {
     return ['Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.'];
@@ -1340,8 +1445,8 @@ function noRateContent(v) {
 
 /**
  * ¿Cuánto tengo que trabajar? Frase con los días mínimos para cubrir los
- * costos (break-even), adaptada a la unidad: por hora suma las horas; con
- * abono mensual habla de días MÁXIMOS; si no se alcanza, lo dice.
+ * costos (break-even, 1 decimal), adaptada a la unidad: por hora suma las
+ * horas; con abono mensual habla de días MÁXIMOS; si no se alcanza, lo dice.
  */
 function workBlock(v) {
   const { r, k } = v;
@@ -1370,34 +1475,31 @@ function workBlock(v) {
     }
   } else if (!rateOk) {
     content = noRateContent(v);
-  } else if (be.reachable && hasValue(be.days) && be.days <= 1e-9) {
-    content = ['Con esta tarifa cubrís todos tus costos aunque no trabajes ningún día: los ingresos fijos ya alcanzan.'];
-    tone = 'green';
-    trace = traces.breakEven;
-  } else if (be.reachable && hasValue(be.days)) {
-    const hoursPerDay = r.activity ? r.activity.hoursPerActiveDay : null;
-    const hours = r.unit === 'hour' && hasValue(hoursPerDay) && hoursPerDay > 0
-      ? ` (unas ${formatNumber(be.days * hoursPerDay, { decimals: 0 })} horas)`
-      : '';
-    const gap = hasValue(D) ? D - be.days : null;
-    let tail = '';
-    if (gap !== null) {
-      const gapText = formatDays(Math.abs(gap), { decimals: 1 });
-      if (gapText === formatDays(0)) {
-        tail = gap >= -1e-9 ? ` Estimás ${formatDays(D)}: estás justo en el mínimo.` : ` Estimás ${formatDays(D)}: estás apenas debajo del mínimo.`;
-      } else {
-        tail = gap >= -1e-9
-          ? ` Estimás ${formatDays(D)}: tenés un colchón de ${gapText} sobre el mínimo.`
-          : ` Estimás ${formatDays(D)}: te faltan ${gapText} para no perder plata.`;
-      }
-      tone = gap >= -1e-9 ? 'green' : 'red';
-    }
-    content = ['Con esta tarifa necesitás aproximadamente ', h('strong', { class: 'qr-work-days' }, `${activeDaysText(be.days)} por mes`), `${hours} para cubrir todos tus costos.`, tail];
-    trace = traces.breakEven;
   } else {
-    content = ['Con esta tarifa no llegás a cubrir todos tus costos dentro del mes. ', be.reason ? `${be.reason} ` : '', 'Revisá la tarifa o los costos.'];
-    tone = 'red';
-    trace = traces.breakEven;
+    // "Con la tarifa sugerida ($ 2.259.000 / día)" / "Con tu tarifa ($ 4.000.000 / día)".
+    const subject = `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)})`;
+    if (be.reachable && hasValue(be.days) && be.days <= 1e-9) {
+      content = [`${subject} cubrís todos tus costos aunque no trabajes ningún día: los ingresos fijos ya alcanzan.`];
+      tone = 'green';
+      trace = traces.breakEven;
+    } else if (be.reachable && hasValue(be.days)) {
+      const hoursPerDay = r.activity ? r.activity.hoursPerActiveDay : null;
+      const hours = r.unit === 'hour' && hasValue(hoursPerDay) && hoursPerDay > 0
+        ? ` (unas ${formatNumber(be.days * hoursPerDay, { decimals: 0 })} horas)`
+        : '';
+      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      content = [
+        `${subject} necesitás aproximadamente `,
+        h('strong', { class: 'qr-work-days' }, `${activeDaysText(be.days, dayDecimals(be.days))} por mes`),
+        `${hours} para cubrir todos tus costos.`,
+        cushionText(D, be.days),
+      ];
+      trace = traces.breakEven;
+    } else {
+      content = [`${subject} no llegás a cubrir todos tus costos dentro del mes. `, be.reason ? `${be.reason} ` : '', 'Revisá la tarifa o los costos.'];
+      tone = 'red';
+      trace = traces.breakEven;
+    }
   }
   return h('div', { class: ['qr-work', tone ? `qr-work-${tone}` : null] },
     h('p', { class: 'qr-work-question' }, question),
@@ -1422,34 +1524,32 @@ function renderSummary(v) {
         h('h2', { class: 'qr-summary-title', id: titleId }, 'Resultado'),
         sub ? h('p', { class: 'qr-summary-sub' }, sub) : null),
       h('div', { class: 'qr-summary-badges' },
-        badge(labelOf(PRICING_MODES, mode, 'Conozco la actividad'), 'navy', { title: 'Modalidad de cotización' }),
+        badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
-    h('div', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
+    h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     workBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
 }
 
 // ------------------------------------------- 2. ¿En qué se va el costo?
 
-/** Rubros con costo, de mayor a menor: los primeros por nombre y el resto en "Otros". */
+/**
+ * Rubros del costo para la vista simple: la MISMA agrupación que la landing
+ * y la demo (costBreakdown: 4 rubros más grandes + "Otros", % enteros que
+ * suman 100). La EECC completa (2 decimales) queda en "Ver estructura de costos".
+ */
 function costGroups(e) {
-  const rows = (e.rows || [])
-    .filter((row) => hasValue(row.amount) && row.amount > 1e-9)
-    .slice()
-    .sort((a, b) => b.amount - a.amount);
-  const item = (row) => ({ label: row.label, amount: row.amount, pct: row.displayPct, parts: null, other: false });
-  if (rows.length <= COST_TOP + 1) return rows.map(item);
-  const rest = rows.slice(COST_TOP);
-  return [
-    ...rows.slice(0, COST_TOP).map(item),
-    {
-      label: 'Otros',
-      amount: rest.reduce((sum, row) => sum + row.amount, 0),
-      pct: rest.reduce((sum, row) => sum + (hasValue(row.displayPct) ? row.displayPct : 0), 0),
-      parts: rest.map((row) => row.label),
-      other: true,
-    },
-  ];
+  const labels = new Map((e.rows || []).map((row) => [row.category, rubroLabel(row.category, row.label)]));
+  return costBreakdown(e, { top: COST_TOP, decimals: 0 }).map((g) => {
+    const other = g.key === OTHERS_KEY;
+    return {
+      label: other ? g.label : labels.get(g.key) || g.label,
+      amount: g.amount,
+      pct: g.pct,
+      parts: other ? g.categories.map((c) => labels.get(c) || c) : null,
+      other,
+    };
+  });
 }
 
 function renderCostBreakdown(v) {
@@ -1459,27 +1559,27 @@ function renderCostBreakdown(v) {
   const head = h('div', { class: 'qr-section-head' },
     h('h3', { class: 'qr-section-title', id: titleId }, '¿En qué se va el costo?'),
     h('p', { class: 'qr-section-sub' }, hasValue(e.total) && e.total > 0
-      ? `Qué parte del costo esperado del mes (${money(e.total)}) corresponde a cada rubro.`
+      ? `Qué parte del costo del mes (${money(e.total)}) corresponde a cada rubro.`
       : 'Qué parte del costo corresponde a cada rubro.'));
   if (!(hasValue(e.total) && e.total > 0)) {
     return h('section', { class: 'qr-costs', id: v.ids.costs, 'aria-labelledby': titleId },
       head,
       emptyState({
         title: 'Todavía no hay costos cargados.',
-        text: 'Cargá personal, equipos, materiales o logística para ver en qué se va el costo.',
-        action: linkButton('Ir a Personal', stepHref(q, 'labor'), { variant: 'primary', size: 'sm' }),
+        text: 'Cargá personal, equipos, materiales o viajes para ver en qué se va el costo.',
+        action: linkButton(`Ir a ${stepLabel('labor')}`, stepHref(q, 'labor'), { variant: 'primary', size: 'sm' }),
       }));
   }
   const groups = costGroups(e);
   const max = Math.max(0, ...groups.map((g) => g.pct).filter(hasValue));
   const list = h('ul', { class: 'qr-costbars' }, ...groups.map((g) => {
     const width = max > 0 && hasValue(g.pct) ? Math.max(1.5, Math.min(100, (g.pct / max) * 100)) : 0;
-    return h('li', { class: ['qr-costbar', g.other ? 'is-other' : null], title: `${g.label}: ${money(g.amount)} por mes (${pct(g.pct)} del costo)` },
+    return h('li', { class: ['qr-costbar', g.other ? 'is-other' : null], title: `${g.label}: ${money(g.amount)} por mes (${pct(g.pct, 0)} del costo)` },
       h('span', { class: 'qr-costbar-label' },
         h('span', { class: 'qr-costbar-name' }, g.label),
         g.parts ? h('span', { class: 'qr-costbar-parts' }, g.parts.join(', ')) : null),
       h('span', { class: 'qr-costbar-track', 'aria-hidden': 'true' }, h('span', { class: 'qr-costbar-fill', style: { width: `${width.toFixed(2)}%` } })),
-      h('span', { class: 'qr-costbar-pct' }, pct(g.pct)),
+      h('span', { class: 'qr-costbar-pct' }, pct(g.pct, 0)),
       h('span', { class: 'qr-costbar-amount' }, money(g.amount)));
   }));
   return h('section', { class: 'qr-costs', id: v.ids.costs, 'aria-labelledby': titleId },
@@ -1502,29 +1602,31 @@ function renderCostStructure(v) {
   const e = r.eecc || { rows: [], total: 0 };
   const header = {
     title: 'Estructura de costos (EECC)',
-    subtitle: `Monto e incidencia de cada categoría con ${formatDays(k.activeDays)} activos por mes.`,
-    actions: r.traces && r.traces.totalCost ? [traceBtn(r.traces.totalCost, { label: 'Ver cálculo del total' })] : [],
+    subtitle: `Monto e incidencia de cada categoría con ${activeDaysText(k.activeDays, 2)} por mes.`,
+    actions: r.traces && r.traces.totalCost ? [traceBtn(costTrace(v), { label: 'Ver cálculo del total' })] : [],
     className: 'qr-card',
     id: v.ids.eecc,
   };
   if (!(hasValue(e.total) && e.total > 0)) {
-    return card(header, emptyState('Todavía no hay costos cargados: el costo total del mes es $ 0. Cargá personal, equipos, materiales o logística para ver la estructura de costos.', stepLink(q, 'labor', 'Ir a Personal')));
+    return card(header, emptyState('Todavía no hay costos cargados: el costo del mes es $ 0. Cargá personal, equipos, materiales o viajes para ver la estructura de costos.', stepLink(q, 'labor')));
   }
+  // Mismos montos y % del motor; sólo cambia el nombre visible de algunos rubros.
+  const rows = (e.rows || []).map((row) => ({ ...row, label: rubroLabel(row.category, row.label) }));
   const columns = [
     { key: 'label', label: 'Categoría' },
     { key: 'amount', label: abbrHeader('Monto mes', 'Monto mensual'), align: 'right', render: (row) => money(row.amount) },
     { key: 'perActiveDay', label: abbrHeader('$/día activo', 'Pesos por día activo'), align: 'right', render: (row) => money(row.perActiveDay) },
     { key: 'displayPct', label: abbrHeader('Incid. %', 'Incidencia sobre el costo total'), align: 'right', render: (row) => pct(row.displayPct) },
   ];
-  const tbl = table({
+  const tbl = regionTable(v, {
     columns,
-    rows: e.rows,
+    rows,
     rowClass: (row) => (row.amount > 0 ? null : 'row-muted'),
     footer: { label: 'TOTAL', amount: money(e.total), perActiveDay: money(k.costPerActiveDay), displayPct: pct(e.displayTotalPct) },
     caption: 'Estructura de costos por categoría',
     className: 'qr-eecc-table',
   });
-  const bars = barList(e.rows.map((row) => ({ label: row.label, value: row.displayPct })));
+  const bars = barList(rows.map((row) => ({ label: row.label, value: row.displayPct })));
   return card(header,
     h('div', { class: 'qr-eecc' }, tbl, h('div', { class: 'qr-eecc-bars', 'aria-hidden': 'true' }, bars)),
     note(`Fijos del mes: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`));
@@ -1691,7 +1793,7 @@ function chartSvg(v, data, width) {
   const endLabels = narrow ? [] : [
     hasValue(last.floor) ? { y: py(last.floor), text: 'Tarifa piso' } : null,
     hasValue(last.target) ? { y: py(last.target), text: `Margen ${pct(target)}` } : null,
-    commercial !== null ? { y: py(commercial), text: 'Tarifa comercial' } : null,
+    commercial !== null ? { y: py(commercial), text: commercialName(k) } : null,
   ].filter(Boolean).sort((a, b) => a.y - b.y);
   const labelNodes = endLabels.filter((lbl, i) => {
     const prev = endLabels[i - 1];
@@ -1703,17 +1805,17 @@ function chartSvg(v, data, width) {
   const hits = markers.map((m, i) => {
     const left = i > 0 ? (px(markers[i - 1].d) + px(m.d)) / 2 : L;
     const right = i < markers.length - 1 ? (px(markers[i + 1].d) + px(m.d)) / 2 : L + PW;
-    const tip = `${formatDays(m.d)}: tarifa piso ${minRate(m.floor, v.unitLabel)} · margen ${pct(target)} ${minRate(m.target, v.unitLabel)}${commercial !== null ? ` · tarifa comercial neta ${rate(commercial, v.unitLabel)}` : ''}`;
+    const tip = `${formatDays(m.d)}: tarifa piso neta ${minRate(m.floor, v.unitLabel)} · margen ${pct(target)} ${minRate(m.target, v.unitLabel)}${commercial !== null ? ` · ${theRate(k)} neta ${rate(commercial, v.unitLabel)}` : ''}`;
     return s('rect', { x: left.toFixed(1), y: T, width: Math.max(1, right - left).toFixed(1), height: PH, class: 'qr-chart-hit' }, s('title', {}, tip));
   });
 
   const first = markers[0];
   const lastMarker = markers[markers.length - 1];
-  const aria = `Gráfico de tarifa necesaria por ${v.unitLabel} según los días activos del mes. `
+  const aria = `Gráfico de tarifa neta necesaria por ${v.unitLabel} según los días activos del mes. `
     + (markers.length > 1
-      ? `Con ${formatDays(first.d)} la tarifa piso es ${minRate(first.floor, v.unitLabel)}; con ${formatDays(lastMarker.d)} ${trendVerb(data.trend)} ${minRate(lastMarker.floor, v.unitLabel)}.`
-      : `Con ${formatDays(first.d)} la tarifa piso es ${minRate(first.floor, v.unitLabel)}.`)
-    + (commercial !== null ? ` Tarifa comercial neta: ${rate(commercial, v.unitLabel)}.` : '');
+      ? `Con ${formatDays(first.d)} la tarifa piso neta es ${minRate(first.floor, v.unitLabel)}; con ${formatDays(lastMarker.d)} ${trendVerb(data.trend)} ${minRate(lastMarker.floor, v.unitLabel)}.`
+      : `Con ${formatDays(first.d)} la tarifa piso neta es ${minRate(first.floor, v.unitLabel)}.`)
+    + (commercial !== null ? ` ${commercialName(k)} neta: ${rate(commercial, v.unitLabel)}.` : '');
 
   return s('svg', { viewBox: `0 0 ${W} ${H}`, class: ['qr-chart-svg', narrow ? 'is-narrow' : null].filter(Boolean).join(' '), role: 'img', 'aria-label': aria, preserveAspectRatio: 'xMidYMid meet' },
     s('title', {}, 'Tarifa necesaria vs días activos'),
@@ -1796,9 +1898,9 @@ function rateChart(v) {
   const key = (cls, text) => h('span', { class: 'qr-key' }, h('span', { class: ['qr-key-swatch', cls], 'aria-hidden': 'true' }), text);
   return h('figure', { class: 'qr-chart' },
     h('div', { class: 'legend qr-chart-legend' },
-      key('qr-key-floor', 'Tarifa piso (no perder dinero)'),
-      key('qr-key-target', `${sameNumber(data.target, v.k.targetMarginPct) ? 'Precio objetivo' : 'Tarifa'} (margen ${pct(data.target)})`),
-      data.commercial !== null ? key('qr-key-commercial', 'Tarifa comercial neta (actividad estimada)') : null),
+      key('qr-key-floor', 'Tarifa piso neta (no perder plata)'),
+      key('qr-key-target', `${sameNumber(data.target, v.k.targetMarginPct) ? 'Precio objetivo neto' : 'Tarifa neta'} (margen ${pct(data.target)})`),
+      data.commercial !== null ? key('qr-key-commercial', `${commercialName(v.k)} neta (con los días estimados)`) : null),
     canvas,
     h('figcaption', { class: 'qr-note' }, `${unitNoun}. ${trendText(v, data.trend)}`));
 }
@@ -1814,7 +1916,7 @@ function matrixRates(v, row) {
 function traceMatrixRow(v, row, rr) {
   return createTrace({
     id: 'matrix_row',
-    title: `Tarifas necesarias con ${formatDays(row.activeDays)} activos`,
+    title: `Tarifas necesarias con ${activeDaysText(row.activeDays, 2)}`,
     formula: 'Tarifa necesaria(D, margen) = (Costo(D) / (1 − margen) − Otros ingresos(D)) / Unidades facturables(D)',
     inputs: [
       { label: 'Días activos', value: row.activeDays, format: 'days' },
@@ -1836,10 +1938,10 @@ function traceMatrixResult(v, row, ev) {
   const revenue = (ev && ev.revenue) || {};
   return createTrace({
     id: 'matrix_result',
-    title: `Resultado con ${formatDays(row.activeDays)} activos`,
+    title: `Resultado con ${activeDaysText(row.activeDays, 2)}`,
     formula: 'Resultado = Facturación − Costo total · Facturación = Tarifa neta × Unidades facturables + Otros ingresos · Margen = Resultado / Facturación',
     inputs: [
-      { label: 'Tarifa comercial de lista', value: v.k.commercialListRate, format: 'money' },
+      { label: `${commercialName(v.k)} de lista`, value: v.k.commercialListRate, format: 'money' },
       { label: 'Descuento por tramo con estos días', value: row.tierDiscountPct, format: 'percent' },
       { label: 'Tarifa neta (después de descuentos)', value: revenue.netRate, format: 'money' },
       { label: `Unidades facturables (${v.unitLabel})`, value: revenue.billableUnits, format: 'number' },
@@ -1881,7 +1983,7 @@ function renderMatrix(v) {
   const ratesColumns = [
     { key: 'activeDays', label: daysHeader(), className: 'qr-sticky-col', render: (row) => daysCell(v, row, traceMatrixRow(v, row, matrixRates(v, row))) },
     { key: 'utilizationPct', label: abbrHeader('Utiliz.', 'Utilización: días activos sobre días disponibles del mes'), align: 'right', render: (row) => pct(row.utilizationPct, 1) },
-    { key: 'floor', label: abbrHeader('Piso', 'Tarifa piso neta (break-even): no perder dinero', 'break-even'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
+    { key: 'floor', label: abbrHeader('Piso neto', 'Tarifa piso neta (break-even, después de descuentos): no perder plata', 'break-even'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
     ...margins.map((m, idx) => ({
       key: `m${idx}`,
       label: marginHeader(v, m),
@@ -1908,9 +2010,9 @@ function renderMatrix(v) {
     };
     const resultColumns = [
       { key: 'activeDays', label: daysHeader(), className: 'qr-sticky-col', render: (row) => daysCell(v, row, traceMatrixResult(v, row, evalOf(row))) },
-      { key: 'netRate', label: abbrHeader('Tarifa neta', 'Tu tarifa comercial neta con esos días (después de descuentos)'), align: 'right', render: (row) => { const ev = evalOf(row); return money(ev && ev.revenue ? ev.revenue.netRate : null); } },
+      { key: 'netRate', label: abbrHeader('Tarifa neta', `${commercialName(k)} neta con esos días (después de descuentos)`), align: 'right', render: (row) => { const ev = evalOf(row); return money(ev && ev.revenue ? ev.revenue.netRate : null); } },
       { key: 'revenue', label: abbrHeader('Facturación', 'Facturación del mes'), align: 'right', render: (row) => money(row.revenue) },
-      { key: 'cost', label: abbrHeader('Costo', 'Costo total del mes'), align: 'right', render: (row) => money(row.cost) },
+      { key: 'cost', label: abbrHeader('Costo', 'Costo del mes'), align: 'right', render: (row) => money(row.cost) },
       {
         key: 'profit',
         label: abbrHeader('Resultado', 'Resultado del mes (facturación − costo)'),
@@ -1919,7 +2021,7 @@ function renderMatrix(v) {
       },
       { key: 'marginPct', label: abbrHeader('Margen', 'Margen sobre el precio de venta'), align: 'right', render: (row) => pct(row.marginPct) },
     ];
-    resultTable = table({ columns: resultColumns, rows, rowClass, caption: 'Resultado con la tarifa comercial según los días activos', className: 'qr-matrix qr-matrix-result', emptyText: 'Sin días para evaluar.' });
+    resultTable = regionTable(v, { columns: resultColumns, rows, rowClass, caption: `Resultado con ${theRate(k)} según los días activos`, className: 'qr-matrix qr-matrix-result', emptyText: 'Sin días para evaluar.' });
   }
 
   let chart = null;
@@ -1930,6 +2032,12 @@ function renderMatrix(v) {
   }
   const trend = rateTrend(rows.map((row) => ({ d: row.activeDays, rate: row.floorNetRate })));
   const unitNoun = isMonth ? 'Abonos netos por mes' : `Tarifas netas por ${v.unitLabel}`;
+  // La tarifa piso del resumen es DE LISTA; la matriz muestra NETAS: se aclara para que no parezcan dos pisos distintos.
+  const mr = minimumRates(v);
+  const listVsNet = mr.floorNetDiffers
+    ? h('p', { class: 'qr-note qr-note-key' },
+      `La tarifa piso del resumen (${minRate(mr.floorMain, v.unitLabel)}) es de lista, antes ${discountWords(v)}; acá ves la neta, lo que realmente cobrás (con los días estimados: ${minRate(k.floorNetRate, v.unitLabel)}).`)
+    : null;
   return card(
     {
       title: 'Matriz tarifa × utilización',
@@ -1937,13 +2045,14 @@ function renderMatrix(v) {
       className: 'qr-card qr-card-wide',
       id: v.ids.matrix,
     },
-    h('h4', { class: 'qr-subhead' }, 'Tarifas necesarias'),
-    table({ columns: ratesColumns, rows, rowClass, caption: 'Matriz tarifa por utilización: tarifas necesarias', className: 'qr-matrix qr-matrix-rates', emptyText: 'Sin días para evaluar.' }),
+    h('h4', { class: 'qr-subhead' }, isMonth ? 'Abonos necesarios (netos)' : 'Tarifas necesarias (netas)'),
+    listVsNet,
+    regionTable(v, { columns: ratesColumns, rows, rowClass, caption: 'Matriz tarifa por utilización: tarifas netas necesarias', className: 'qr-matrix qr-matrix-rates', emptyText: 'Sin días para evaluar.' }),
     note(`${unitNoun}, después de descuentos y redondeadas hacia arriba. ${trendText(v, trend)} El ícono junto a cada fila muestra el cálculo.`),
-    h('h4', { class: 'qr-subhead' }, rateOk ? `Resultado con tu tarifa comercial (${commercialRate(k, v.unitLabel)} de lista)` : 'Resultado con tu tarifa comercial'),
+    h('h4', { class: 'qr-subhead' }, rateOk ? `Resultado con ${theRate(k)} (${commercialRate(k, v.unitLabel)} de lista)` : 'Resultado con tu tarifa'),
     rateOk
       ? resultTable
-      : banner('Definí una tarifa comercial para ver facturación, resultado y margen de cada fila.', 'info'),
+      : banner('Definí una tarifa para ver facturación, resultado y margen de cada fila.', 'info'),
     rows.some((row) => row.exceedsAvailability) ? note('Las filas marcadas "supera disponibles" tienen más días activos que los disponibles del mes.') : null,
     chart,
   );
@@ -1977,9 +2086,9 @@ function renderMarginMarkup(v) {
     h('div', { class: 'qr-split' },
       h('div', { class: 'qr-split-main' },
         cost > 0
-          ? table({ columns, rows: ladder, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Escalera de precios por margen', className: 'qr-ladder' })
+          ? regionTable(v, { columns, rows: ladder, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Escalera de precios por margen', className: 'qr-ladder' })
           : emptyState('Cargá costos para ver la escalera de precios.'),
-        cost > 0 ? note(`Calculado sobre el costo total del mes (${money(cost)}). Tu margen objetivo de ${pct(r.targetMarginPct)} equivale a un markup de ${pct(marginToMarkup(r.targetMarginPct))}.`) : null),
+        cost > 0 ? note(`Calculado sobre el costo del mes (${money(cost)}). Tu margen objetivo de ${pct(r.targetMarginPct)} equivale a un markup de ${pct(marginToMarkup(r.targetMarginPct))}.`) : null),
       h('aside', { class: 'qr-example' },
         h('div', { class: 'qr-example-title' }, 'Ejemplo con costo $ 100'),
         h('ul', { class: 'qr-example-list' },
@@ -2010,7 +2119,7 @@ function traceDiscountRow(v, row) {
     ],
     result: { label: 'Tarifa neta', value: row.netRate, format: 'money' },
     notes: [
-      `Estado: ${(DISCOUNT_STATUS[row.status] || DISCOUNT_STATUS.unknown).text}.`,
+      `Estado: ${discountStatus(row).text}.`,
       'Verde: la tarifa neta alcanza el precio objetivo. Naranja: cubre la tarifa piso pero no el objetivo. Rojo: no cubre la tarifa piso.',
     ],
   });
@@ -2038,14 +2147,16 @@ function renderDiscounts(v) {
   const legend = h('div', { class: 'legend qr-legend' },
     statusDot('green', 'Verde: mantiene el margen objetivo'),
     statusDot('orange', 'Naranja: debajo del margen objetivo'),
-    statusDot('red', 'Rojo: debajo de break-even (perdés dinero)'));
+    statusDot('red', 'Rojo: debajo de break-even (perdés plata)'));
+  // Mismo texto y criterio que el editor (result-text.js): sólo se da un número si es de verdad por la actividad.
+  const minActivity = minActivityNotice(r);
   let body;
   if (r.unit === 'month') {
     body = note('Con abono mensual no se aplican descuentos por cantidad de días.');
   } else if (!rows.length) {
-    body = emptyState(hasRate(k) ? 'No hay tramos de descuento configurados.' : 'Definí una tarifa comercial para evaluar los descuentos por días.');
+    body = emptyState(hasRate(k) ? 'No hay tramos de descuento configurados.' : 'Definí una tarifa para evaluar los descuentos por días.');
   } else {
-    body = table({
+    body = regionTable(v, {
       columns: [
         {
           key: 'label',
@@ -2057,15 +2168,15 @@ function renderDiscounts(v) {
         { key: 'evaluatedDays', label: abbrHeader('Días eval.', 'Días evaluados: el peor caso del tramo (su primer día)', 'peor caso'), align: 'right', render: (row) => formatDays(row.evaluatedDays) },
         { key: 'discountPct', label: abbrHeader('Desc.', 'Descuento del tramo'), align: 'right', render: (row) => pct(row.discountPct) },
         { key: 'netRate', label: abbrHeader('Neta', 'Tarifa neta: tarifa de lista menos descuentos'), align: 'right', render: (row) => money(row.netRate) },
-        { key: 'floorNetRate', label: abbrHeader('Piso', 'Tarifa piso neta con esos días'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
-        { key: 'targetNetRate', label: abbrHeader('Objetivo', 'Precio objetivo neto con esos días'), align: 'right', render: (row) => ceilMoney(row.targetNetRate) },
+        { key: 'floorNetRate', label: abbrHeader('Piso neto', 'Tarifa piso neta con esos días'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
+        { key: 'targetNetRate', label: abbrHeader('Objetivo neto', 'Precio objetivo neto con esos días'), align: 'right', render: (row) => ceilMoney(row.targetNetRate) },
         { key: 'marginPct', label: abbrHeader('Margen', 'Margen sobre el precio de venta'), align: 'right', render: (row) => pct(row.marginPct) },
         {
           key: 'status',
           label: 'Estado',
           className: 'qr-status-col',
           render: (row) => {
-            const st = DISCOUNT_STATUS[row.status] || DISCOUNT_STATUS.unknown;
+            const st = discountStatus(row);
             return h('span', { class: 'qr-status', title: st.text }, statusDot(st.tone, st.short), h('span', { class: 'sr-only' }, `: ${st.text}`));
           },
         },
@@ -2083,6 +2194,7 @@ function renderDiscounts(v) {
       id: v.ids.discounts,
     },
     rows.length ? legend : null,
+    r.unit !== 'month' && minActivity ? banner(minActivity, 'info', { title: 'Actividad mínima.' }) : null,
     body,
     rows.length ? note(`Tarifas netas por ${v.unitLabel}. El tramo "1 día" muestra qué pasa si en el mes sólo se trabaja un día: los costos fijos recaen en ese único día. El ícono junto a cada tramo muestra el cálculo.`) : null,
     continuityBlock(v),
@@ -2107,12 +2219,12 @@ function sliderStateFor(quoteId) {
 }
 
 const SENS_METRICS = Object.freeze([
-  { key: 'totalCost', label: 'Costo total del mes', kind: 'money', better: 'down' },
-  { key: 'floorNetRate', label: 'Tarifa piso (neta)', kind: 'rate', better: 'down' },
-  { key: 'targetNetRate', label: 'Precio objetivo (neto)', kind: 'rate', better: 'down' },
+  { key: 'totalCost', label: 'Costo del mes', kind: 'money', better: 'down' },
+  { key: 'floorNetRate', label: 'Tarifa piso neta', kind: 'rate', better: 'down' },
+  { key: 'targetNetRate', label: 'Precio objetivo neto', kind: 'rate', better: 'down' },
   { key: 'marginPct', label: 'Margen', kind: 'percent', better: 'up' },
   { key: 'profit', label: 'Resultado del mes', kind: 'money', better: 'up' },
-  { key: 'breakEvenDays', label: 'Break-even (días mínimos para no perder)', kind: 'days', better: 'down' },
+  { key: 'breakEvenDays', label: 'Días para no perder plata (break-even)', kind: 'resultDays', better: 'down' },
   { key: 'activeDays', label: 'Días activos', kind: 'days', better: null },
   { key: 'revenue', label: 'Facturación del mes', kind: 'money', better: 'up' },
 ]);
@@ -2122,13 +2234,19 @@ function sensValue(kind, value, unitLabel) {
   if (kind === 'rate') return minRate(value, unitLabel);
   if (kind === 'percent') return pct(value);
   if (kind === 'days') return formatDays(value);
+  if (kind === 'resultDays') return resultDays(value);
   return formatNumber(value, { decimals: 2 });
 }
 
-function sensDelta(kind, value) {
+/** Diferencia mostrada: en días de resultado (1 decimal) se resta lo que se ve, para que la cuenta cierre. */
+function sensDelta(kind, value, base = null, scenario = null) {
   if (kind === 'money' || kind === 'rate') return signedMoney(value);
   if (kind === 'percent') return signedPoints(value);
   if (kind === 'days') return signedDays(value);
+  if (kind === 'resultDays') {
+    const shown = resultDaysDelta(base, scenario);
+    return signedDays(shown === null ? value : shown);
+  }
   return signed(value, (x) => formatNumber(x, { decimals: 2 }));
 }
 
@@ -2148,18 +2266,22 @@ function sensitivityRows(v, res) {
       h('th', { scope: 'row', class: 'qr-sens-metric' }, m.label),
       h('td', { class: 'ta-right', 'data-label': 'Base' }, sensValue(m.kind, base, v.unitLabel)),
       h('td', { class: 'ta-right', 'data-label': 'Escenario' }, sensValue(m.kind, scen, v.unitLabel)),
-      h('td', { class: ['ta-right', tone ? `qr-delta-${tone}` : null], 'data-label': 'Diferencia' }, sensDelta(m.kind, delta)));
+      h('td', { class: ['ta-right', tone ? `qr-delta-${tone}` : null], 'data-label': 'Diferencia' }, sensDelta(m.kind, delta, base, scen)));
   });
+}
+
+function sensitivityTitle(v) {
+  return `Sensibilidad (con ${theRate(v.k)} fija)`;
 }
 
 function traceSensitivity(v, state, res) {
   return createTrace({
     id: 'sensitivity',
-    title: 'Sensibilidad (tarifa comercial fija)',
-    formula: 'Escenario = misma cotización con las variaciones aplicadas · la tarifa comercial de lista se mantiene fija',
+    title: sensitivityTitle(v),
+    formula: 'Escenario = misma cotización con las variaciones aplicadas · la tarifa de lista se mantiene fija',
     inputs: [
       ...SENSITIVITY_VARIABLES.map((meta) => ({ label: meta.label, value: sliderText(meta, state[meta.id]), format: 'text' })),
-      { label: 'Tarifa comercial fija (lista)', value: res ? res.listRate : null, format: 'money' },
+      { label: `${commercialName(v.k)} fija (de lista)`, value: res ? res.listRate : null, format: 'money' },
     ],
     steps: res
       ? [
@@ -2201,7 +2323,7 @@ function impactTable(v, rows) {
     const meta = SENSITIVITY_VARIABLES.find((m) => m.id === row.variable) || { unit: '' };
     return `± ${sliderText(meta, row.step).replace(/^\+/, '')}`;
   };
-  return table({
+  return regionTable(v, {
     columns: [
       { key: 'label', label: 'Variable' },
       { key: 'step', label: abbrHeader('Variación', 'Variación evaluada'), align: 'right', render: (row) => stepText(row) },
@@ -2335,21 +2457,27 @@ function renderSensitivity(v) {
     impact = banner('No se pudo calcular la tabla de impacto.', 'warning');
   }
 
+  const fixedRate = theRate(k);
+  const FixedRate = `${fixedRate.charAt(0).toUpperCase()}${fixedRate.slice(1)}`;
+  const mr = minimumRates(v);
+  const netNote = mr.floorNetDiffers
+    ? ` La tarifa piso y el precio objetivo de la tabla son netos (después de descuentos); la tarifa piso del resultado de la cotización (${minRate(mr.floorMain, v.unitLabel)}) es de lista.`
+    : '';
   return card(
     {
       title: '¿Qué pasa si…? (sensibilidad)',
-      subtitle: '¿Qué pasa si cambian los costos, la actividad o las condiciones? La tarifa comercial se mantiene fija para ver el impacto real. Nada de esto modifica tu cotización.',
-      actions: [lazyTraceButton(() => traceSensitivity(v, state, lastResult), 'Sensibilidad (tarifa comercial fija)'), reset],
+      subtitle: `¿Qué pasa si cambian los costos, la actividad o las condiciones? ${FixedRate} se mantiene fija para ver el impacto real. Nada de esto modifica tu cotización.`,
+      actions: [lazyTraceButton(() => traceSensitivity(v, state, lastResult), sensitivityTitle(v)), reset],
       className: 'qr-card qr-card-wide',
       id: v.ids.sensitivity,
     },
-    !hasRate(k) ? banner('Sin tarifa comercial el resultado y el margen no se pueden sensibilizar: se muestran costos y tarifas necesarias.', 'info') : null,
+    !hasRate(k) ? banner('Sin tarifa el resultado y el margen no se pueden sensibilizar: se muestran costos y tarifas necesarias.', 'info') : null,
     errorBox,
     h('div', { class: 'qr-sens' },
       h('div', { class: 'qr-sliders no-print', role: 'group', 'aria-label': 'Variables de sensibilidad' }, ...sliders),
       h('div', { class: 'qr-sens-result' },
         summary,
-        h('div', { class: 'table-wrap' },
+        scrollRegion(v, h('div', { class: 'table-wrap' },
           h('table', { class: 'table qr-sens-table' },
             h('caption', { class: 'sr-only' }, 'Comparación base contra escenario'),
             h('thead', {}, h('tr', {},
@@ -2357,8 +2485,8 @@ function renderSensitivity(v) {
               h('th', { scope: 'col', class: 'ta-right' }, 'Base'),
               h('th', { scope: 'col', class: 'ta-right' }, 'Escenario'),
               h('th', { scope: 'col', class: 'ta-right' }, 'Diferencia'))),
-            tbody)),
-        note('La tarifa comercial se mantiene fija para ver el impacto real de cada cambio.'))),
+            tbody)), 'Comparación base contra escenario'),
+        note(`${FixedRate} (de lista) se mantiene fija para ver el impacto real de cada cambio.${netNote}`))),
     h('h4', {}, 'Impacto de cada variable por separado'),
     note('Efecto en el resultado del mes de mover una sola variable hacia abajo o hacia arriba (ordenado de mayor a menor impacto). En las barras, la clara es "si baja" y la fuerte "si sube"; verde mejora el resultado y rojo lo empeora.'),
     impact,
@@ -2397,21 +2525,21 @@ function renderScenarios(v) {
   const byId = Object.fromEntries(list.map((sc) => [sc.id, sc]));
   const order = ['pessimistic', 'base', 'optimistic'].filter((id) => byId[id]);
   const metrics = [
-    { label: 'Ventas (facturación del mes)', get: (sc) => money(sc.revenue) },
-    { label: 'Costos del mes', get: (sc) => money(sc.totalCost) },
+    { label: 'Facturación del mes', get: (sc) => money(sc.revenue) },
+    { label: 'Costo del mes', get: (sc) => money(sc.totalCost) },
     { label: 'Margen', get: (sc) => pct(sc.marginPct) },
     { label: 'Resultado', get: (sc) => h('span', { class: hasValue(sc.profit) && hasValue(sc.commercialListRate) ? (sc.profit < -1e-6 ? 'qr-neg' : 'qr-pos') : null }, money(sc.profit)) },
     { label: 'Utilización', get: (sc) => `${pct(sc.utilizationPct, 1)} (${formatDays(sc.activeDays)})` },
     { label: 'Tarifa efectiva por día activo', get: (sc) => money(sc.effectiveRatePerActiveDay) },
-    { label: 'Break-even', get: (sc) => formatDays(sc.breakEvenDays) },
+    { label: 'Días para no perder plata (break-even)', get: (sc) => resultDays(sc.breakEvenDays) },
   ];
-  const tbl = h('div', { class: 'table-wrap' },
+  const tbl = scrollRegion(v, h('div', { class: 'table-wrap' },
     h('table', { class: 'table qr-scenarios' },
       h('caption', { class: 'sr-only' }, 'Escenarios pesimista, base y optimista'),
       h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Indicador'), ...order.map((id) => h('th', { scope: 'col', class: ['ta-right', id === 'base' ? 'qr-col-base' : null] }, byId[id].label)))),
       h('tbody', {}, ...metrics.map((m) => h('tr', {},
         h('th', { scope: 'row', class: 'qr-sens-metric' }, m.label),
-        ...order.map((id) => h('td', { class: ['ta-right', id === 'base' ? 'qr-col-base' : null], 'data-label': byId[id].label }, m.get(byId[id]))))))));
+        ...order.map((id) => h('td', { class: ['ta-right', id === 'base' ? 'qr-col-base' : null], 'data-label': byId[id].label }, m.get(byId[id])))))))), 'Escenarios pesimista, base y optimista');
   const assumptions = h('ul', { class: 'qr-assumptions' },
     h('li', {}, h('strong', {}, 'Pesimista: '), describeScenario(config.pessimistic)),
     h('li', {}, h('strong', {}, 'Base: '), describeScenario(null)),
@@ -2419,7 +2547,7 @@ function renderScenarios(v) {
   const trace = createTrace({
     id: 'scenarios',
     title: 'Escenarios pesimista / base / optimista',
-    formula: 'Cada escenario recalcula la cotización con sus variaciones · la tarifa comercial de lista se mantiene fija · Tarifa efectiva = Facturación / Días activos',
+    formula: 'Cada escenario recalcula la cotización con sus variaciones · la tarifa de lista se mantiene fija · Tarifa efectiva = Facturación / Días activos',
     inputs: order.map((id) => ({ label: byId[id].label, value: describeScenario(byId[id].deltas), format: 'text' })),
     steps: order.map((id) => ({ label: `Resultado ${byId[id].label.toLowerCase()}`, value: byId[id].profit, format: 'money' })),
     result: { label: 'Rango de resultado (optimista − pesimista)', value: byId.optimistic && byId.pessimistic ? byId.optimistic.profit - byId.pessimistic.profit : null, format: 'money' },
@@ -2427,7 +2555,7 @@ function renderScenarios(v) {
   return card(
     {
       title: 'Escenarios pesimista, base y optimista',
-      subtitle: 'Qué pasa con la misma tarifa comercial si las cosas salen peor o mejor de lo previsto.',
+      subtitle: `Qué pasa con ${theRate(v.k)}, sin cambiarla, si las cosas salen peor o mejor de lo previsto.`,
       actions: [traceBtn(trace)],
       className: 'qr-card',
       id: v.ids.scenarios,
@@ -2444,7 +2572,7 @@ function renderScenarios(v) {
 /** Parámetros de cada modelo: montos calibrados para el margen objetivo (mínimos → hacia arriba). */
 function modelParams(params = {}) {
   const items = [];
-  if ('availabilityFee' in params) items.push(`Fee de disponibilidad: ${ceilMoney(params.availabilityFee)} / mes`);
+  if ('availabilityFee' in params) items.push(`Abono de disponibilidad: ${ceilMoney(params.availabilityFee)} / mes`);
   if ('minimumGuarantee' in params) items.push(`Mínimo garantizado: ${ceilMoney(params.minimumGuarantee)} / mes`);
   if ('packagePrice' in params) items.push(`Paquete mensual: ${ceilMoney(params.packagePrice)}`);
   if ('includedDays' in params) items.push(`Días incluidos: ${formatDays(params.includedDays)}`);
@@ -2476,22 +2604,22 @@ function renderComparator(v) {
     ],
     steps: [
       { label: 'Sólo tarifa por día', value: 'Ingreso = tarifa × días', format: 'text' },
-      { label: 'Disponibilidad + día', value: 'Ingreso = fee + tarifa × días', format: 'text' },
+      { label: 'Abono de disponibilidad + día', value: 'Ingreso = abono + tarifa × días', format: 'text' },
       { label: 'Mínimo garantizado + día', value: 'Ingreso = máx(mínimo, tarifa × días)', format: 'text' },
       { label: 'Paquete + excedentes', value: 'Ingreso = paquete + tarifa × días extra', format: 'text' },
     ],
     result: { label: 'Modelos comparados', value: cmp.models.length, format: 'number' },
     notes: [
-      'Riesgo alto: con actividad pesimista perdés dinero. Medio: el margen pesimista cae a menos de la mitad del objetivo. Bajo: conserva al menos la mitad del margen objetivo.',
+      'Riesgo alto: con actividad pesimista perdés plata. Medio: el margen pesimista cae a menos de la mitad del objetivo. Bajo: conserva al menos la mitad del margen objetivo.',
       'Ingreso mínimo asegurado: lo que facturás aunque el equipo no trabaje ningún día.',
     ],
   });
-  const tbl = table({
+  const tbl = regionTable(v, {
     columns: [
       {
         key: 'label',
         label: 'Modelo',
-        render: (row) => h('div', { class: 'qr-model' }, h('strong', {}, row.label), h('ul', { class: 'qr-model-params' }, ...modelParams(row.params).map((p) => h('li', {}, p)))),
+        render: (row) => h('div', { class: 'qr-model' }, h('strong', {}, MODEL_LABELS[row.id] || row.label), h('ul', { class: 'qr-model-params' }, ...modelParams(row.params).map((p) => h('li', {}, p)))),
       },
       { key: 'expectedRevenue', label: abbrHeader('Ingreso esperado', 'Ingreso esperado del mes con la actividad estimada'), align: 'right', render: (row) => money(row.expectedRevenue) },
       { key: 'expectedMarginPct', label: abbrHeader('Margen', 'Margen esperado sobre el precio'), align: 'right', render: (row) => pct(row.expectedMarginPct) },
@@ -2504,14 +2632,14 @@ function renderComparator(v) {
       { key: 'minimumAssuredRevenue', label: abbrHeader('Mínimo asegurado', 'Ingreso mínimo asegurado: lo que facturás aunque no se trabaje ningún día'), align: 'right', render: (row) => money(row.minimumAssuredRevenue) },
       {
         key: 'breakEvenDays',
-        label: 'Break-even',
+        label: abbrHeader('Break-even', 'Días para no perder plata (break-even) con cada modelo'),
         align: 'right',
         render: (row) => {
           if (!row.breakEvenReachable) return 'No se alcanza';
           if (hasValue(row.breakEvenDays) && row.breakEvenDays <= 0) {
             return h('span', { class: 'qr-cell-stack', title: 'El ingreso fijo cubre los costos fijos aunque no se trabaje ningún día.' }, formatDays(0), h('span', { class: 'qr-cell-sub' }, 'fijos cubiertos'));
           }
-          return formatDays(row.breakEvenDays);
+          return resultDays(row.breakEvenDays);
         },
       },
       {
@@ -2527,9 +2655,12 @@ function renderComparator(v) {
     caption: 'Comparación de modelos comerciales',
     className: 'qr-models',
   });
+  // Por qué el break-even de los modelos difiere del de la cotización (la causa según el caso; sin nota si coincide).
+  const beText = comparatorNote(v.r, cmp.models, { roundingStep: nonNegativeOrNull(q.pricing && q.pricing.roundingStep) });
+  const beNote = beText ? ` ${beText}` : '';
   return card({ ...header, actions: [traceBtn(trace)] },
     tbl,
-    note(`Todos los modelos están calibrados por día activo para lograr ${pct(cmp.targetMarginPct)} de margen con ${formatDays(cmp.estimatedDays)}${v.r.unit !== 'day' ? ' (aunque cotices por ' + v.unitLabel + ')' : ''}. El escenario pesimista usa ${formatDays(cmp.pessimisticDays)}.`));
+    note(`Todos los modelos están calibrados por día activo para lograr ${pct(cmp.targetMarginPct)} de margen con ${formatDays(cmp.estimatedDays)}${v.r.unit !== 'day' ? ' (aunque cotices por ' + v.unitLabel + ')' : ''}. El escenario pesimista usa ${formatDays(cmp.pessimisticDays)}.${beNote}`));
 }
 
 // ------------------------------------------------------- I. completitud
@@ -2551,8 +2682,8 @@ function renderCompleteness(v) {
   }));
   return card(
     {
-      title: 'Completitud de costos (Cost Completeness Score)',
-      subtitle: '¿Te olvidaste de algún costo? Controles automáticos sobre lo que suele quedar afuera.',
+      title: 'Costos cargados',
+      subtitle: '¿Te olvidaste de algún costo? Controles automáticos sobre lo que suele quedar afuera (completitud).',
       actions: [traceBtn(traceCompleteness(v))],
       className: 'qr-card',
       id: v.ids.completeness,
@@ -2560,8 +2691,13 @@ function renderCompleteness(v) {
     h('div', { class: 'qr-score' },
       h('div', { class: ['qr-score-value', `qr-tone-${tone}`] }, pct(c.scorePct, 0)),
       h('div', { class: 'qr-score-bar' },
-        progressBar(c.scorePct, tone, { label: 'Completitud de costos' }),
+        progressBar(c.scorePct, tone, { label: 'Costos cargados' }),
         h('div', { class: 'qr-score-text' }, pendingCount ? `${formatNumber(pendingCount)} ${pendingCount === 1 ? 'punto pendiente' : 'puntos pendientes'} de revisar.` : 'No hay pendientes: la cotización está completa.'))),
+    // Decisión UX-3: la demo deja a propósito puntos para revisar (didácticos); otros ejemplos, una nota neutra.
+    (() => {
+      const text = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount });
+      return text ? note(text) : null;
+    })(),
     list,
   );
 }
@@ -2588,7 +2724,7 @@ function rulesSummary(v) {
   const isMonth = r.unit === 'month';
   const items = [];
   if (rules.availabilityFeeMonthly > 0) {
-    items.push(['Fee de disponibilidad', `${money(rules.availabilityFeeMonthly)} por mes, se trabaje o no.`]);
+    items.push(['Abono de disponibilidad', `${money(rules.availabilityFeeMonthly)} por mes, se trabaje o no.`]);
   }
   if (rules.minimumMonthlyGuarantee > 0) {
     const topUp = revenue.guaranteeTopUp;
@@ -2610,14 +2746,16 @@ function rulesSummary(v) {
     items.push(['Km adicionales', `${rate(rules.extraKmRate, 'km')} desde los ${formatNumber(rules.includedKmPerActivation, { decimals: 1 })} km incluidos por llamado.${adds(comps.extraKm)}`]);
   }
   if (rules.standbyDaysPerMonth > 0 && rules.standbyRatePerDay > 0) {
-    items.push(['Standby', `${formatDays(rules.standbyDaysPerMonth)} por mes a ${rate(rules.standbyRatePerDay, 'día')}.${adds(comps.standby)}`]);
+    items.push(['Equipo en espera (standby)', `${formatDays(rules.standbyDaysPerMonth)} por mes a ${rate(rules.standbyRatePerDay, 'día')}.${adds(comps.standby)}`]);
   }
   const commercialDiscount = r.ctx && hasValue(r.ctx.commercialDiscountPct) ? Math.min(r.ctx.commercialDiscountPct, 100) : 0;
   if (commercialDiscount > 0) {
     items.push(['Descuento comercial', `${pct(commercialDiscount)} sobre la tarifa de lista.`]);
   }
-  if (!isMonth && rules.volumeTiers.some((t) => t.discountPct > 0)) {
-    items.push(['Descuentos por días', `${formatNumber(rules.volumeTiers.length)} tramos según los días trabajados (detalle abajo).`]);
+  // Sólo cuentan los tramos que de verdad descuentan (los de 0 % no son un descuento).
+  const tiersWithDiscount = isMonth ? 0 : rules.volumeTiers.filter((t) => t.discountPct > 0).length;
+  if (tiersWithDiscount > 0) {
+    items.push(['Descuentos por días', `${formatNumber(tiersWithDiscount)} ${tiersWithDiscount === 1 ? 'tramo con descuento' : 'tramos con descuento'} según los días trabajados (detalle abajo).`]);
   }
   if (rules.continuityDiscountPct > 0) {
     items.push(['Descuento por continuidad', `${pct(rules.continuityDiscountPct)} con contratos de ${formatNumber(rules.continuityMinMonths)} meses o más.`]);
@@ -2634,7 +2772,7 @@ function renderCommercialRules(v) {
   const equivalents = equivalentsBlock(v);
   return [
     safeSection('Reglas comerciales', () => rulesSummary(v)),
-    equivalents || note('Las equivalencias ($ por hora, por día y por mes) aparecen cuando haya una tarifa comercial.'),
+    equivalents || note('Las equivalencias ($ por hora, por día y por mes) aparecen cuando haya una tarifa.'),
     safeSection('Descuentos por días / volumen', () => renderDiscounts(v)),
   ].filter(Boolean);
 }
@@ -2658,7 +2796,7 @@ function traceIndexItems(v) {
   const add = (trace) => {
     if (trace && trace.title && !list.includes(trace)) list.push(trace);
   };
-  add(t.totalCost);
+  add(costTrace(v));
   add(ceilTrace(t.floorRate));
   add(ceilTrace(t.targetRate));
   if (hasValue(k.suggestedListRate) && k.suggestedListRate > 0) add(safe(() => traceSuggested(v)));
@@ -2747,16 +2885,9 @@ function scenarioIntro(v) {
 
 /** Aviso en el título de "Ver reglas comerciales": descuentos que hacen perder plata o bajan del objetivo. */
 function rulesBadge(v) {
-  const rows = Array.isArray(v.r.discounts) ? v.r.discounts : [];
-  const granted = rows.filter((row) => hasValue(row.discountPct) && row.discountPct > 0);
-  let red = granted.filter((row) => row.status === 'red').length;
-  let orange = granted.filter((row) => row.status === 'orange').length;
-  const c = v.r.continuity || {};
-  if (c.applies && c.status === 'red') red += 1;
-  else if (c.applies && c.status === 'orange') orange += 1;
-  if (red) return badge(noticeCount(red), 'red', { title: `${noticeCount(red)}: descuentos con los que perdés plata` });
-  if (orange) return badge(noticeCount(orange), 'orange', { title: `${noticeCount(orange)}: descuentos que dejan el margen debajo del objetivo` });
-  return null;
+  // Sólo tramos con descuento > 0 % y continuidad (criterio único en result-text.js, igual que el editor).
+  const alert = discountAlert(v.r);
+  return alert ? badge(alert.text, alert.tone, { title: alert.title }) : null;
 }
 
 /** Aviso en el título de "¿Te falta cargar algo?": controles pendientes. */
@@ -2765,7 +2896,7 @@ function completenessBadge(v) {
   const missing = items.filter((i) => i.status === 'missing').length;
   const pending = missing + items.filter((i) => i.status === 'warning').length;
   if (!pending) return null;
-  return badge(noticeCount(pending), missing ? 'red' : 'orange', { title: `${noticeCount(pending)}: puntos de la completitud de costos para revisar` });
+  return badge(noticeCount(pending), missing ? 'red' : 'orange', { title: `${noticeCount(pending)}: costos que suelen olvidarse y conviene revisar` });
 }
 
 function deepDefinitions(v) {
@@ -2804,9 +2935,9 @@ function deepDefinitions(v) {
     {
       key: 'completeness',
       summary: '¿Te falta cargar algo?',
-      hint: 'Controles automáticos de los costos que suelen olvidarse (completitud).',
+      hint: 'Controles automáticos de los costos que suelen olvidarse.',
       badge: completenessBadge(v),
-      build: () => [safeSection('Completitud de costos', () => renderCompleteness(v))],
+      build: () => [safeSection('Costos cargados', () => renderCompleteness(v))],
     },
     {
       key: 'traces',
@@ -2902,13 +3033,19 @@ function printAllSections(v, getItems) {
 
 // ----------------------------------------------------------- J. acciones
 
+/**
+ * Pie del resultado. "Marcar como enviada al cliente" es secundaria; en una
+ * cotización ILUSTRATIVA (la demo, el caso de referencia) la acción
+ * principal es "Crear mi propia cotización".
+ */
 function renderActions(v) {
   const { q, onQuoteChange } = v;
   const status = q.status || 'draft';
   const isDraft = status === 'draft';
   const canChange = typeof onQuoteChange === 'function';
-  const sent = button(isDraft ? 'Marcar como enviada' : `Estado: ${labelOf(QUOTE_STATUSES, status, 'Borrador')}`, {
-    variant: 'primary',
+  const example = Boolean(v.ill && v.ill.quote);
+  const sent = button(isDraft ? 'Marcar como enviada al cliente' : `Estado: ${labelOf(QUOTE_STATUSES, status, 'Borrador')}`, {
+    variant: 'secondary',
     icon: 'check',
     disabled: !isDraft || !canChange,
     attrs: { 'data-edit': 'status' },
@@ -2933,9 +3070,15 @@ function renderActions(v) {
       if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
     },
   });
+  const own = example
+    ? linkButton('Crear mi propia cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus', attrs: { 'data-action': 'new-quote' } })
+    : null;
+  const printNote = 'Al imprimir se abren todas las secciones y se ocultan los controles. Para obtener el archivo, elegí "Guardar como PDF".';
   return h('section', { class: 'qr-actions-bar no-print', id: v.ids.actions, 'aria-label': 'Acciones' },
-    h('p', { class: 'qr-actions-note' }, 'Al imprimir se abren todas las secciones y se ocultan los controles. Para obtener el archivo, elegí "Guardar como PDF".'),
-    h('div', { class: 'qr-actions' }, print, sent));
+    h('div', { class: 'qr-actions-notes' },
+      example ? h('p', { class: 'qr-actions-note qr-actions-note-main' }, 'Este es un ejemplo con valores ILUSTRATIVOS. Para cotizar tu servicio, creá tu propia cotización con tus costos.') : null,
+      h('p', { class: 'qr-actions-note' }, printNote)),
+    h('div', { class: 'qr-actions' }, print, sent, own));
 }
 
 // ------------------------------------------------------------- composición
@@ -3000,6 +3143,35 @@ function createView(container, app, { quote, result, settings, onQuoteChange } =
     logger.warn('No se pudo detectar si la cotización tiene valores ilustrativos', { message: error && error.message });
     ill = { any: q.illustrative === true, quote: q.illustrative === true, lines: 0, fuel: false };
   }
+  const cleanups = [];
+  // Un solo ResizeObserver para todas las tablas desplazables de la vista (A11Y: región enfocable sólo si desborda).
+  let regionObserver = null;
+  const regionUpdates = new Map();
+  const observeRegion = (wrap, update) => {
+    // Sin ResizeObserver no se puede saber si desborda: quien llama la deja siempre accesible.
+    if (typeof ResizeObserver !== 'function') return false;
+    if (!regionObserver) {
+      regionObserver = new ResizeObserver((entries) => {
+        entries.forEach((entry) => {
+          const fn = regionUpdates.get(entry.target);
+          if (fn) fn();
+        });
+      });
+      cleanups.push(() => {
+        regionObserver.disconnect();
+        regionUpdates.clear();
+      });
+    }
+    regionUpdates.set(wrap, update);
+    regionObserver.observe(wrap);
+    // El ancho de la tabla interna también cambia (p. ej. al recalcular la sensibilidad).
+    const inner = wrap.querySelector('table');
+    if (inner) {
+      regionUpdates.set(inner, update);
+      regionObserver.observe(inner);
+    }
+    return true;
+  };
   return {
     q,
     r,
@@ -3009,10 +3181,20 @@ function createView(container, app, { quote, result, settings, onQuoteChange } =
     unitLabel: r.unitLabel || 'día',
     onQuoteChange,
     notify,
-    cleanups: [],
+    cleanups,
     ids,
+    observeRegion,
     openDeep: () => {},
   };
+}
+
+/** ¿El usuario pidió menos movimiento? (sin animar el desplazamiento). */
+function prefersReducedMotion() {
+  try {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
 }
 
 function cleanupOf(v) {
@@ -3045,7 +3227,7 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
     item.render();
     item.el.open = true;
     remembered.add(key);
-    if (typeof item.el.scrollIntoView === 'function') item.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (typeof item.el.scrollIntoView === 'function') item.el.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
     const summary = item.el.querySelector('summary');
     if (summary && typeof summary.focus === 'function') summary.focus({ preventScroll: true });
   };
@@ -3076,8 +3258,8 @@ function analysisBase(v) {
       h('p', { class: 'qr-base-title' }, 'Punto de partida: tu cotización tal como está'),
       illustrativeBadge(v)),
     h('dl', { class: 'qr-base-list' },
-      item('Costo esperado del mes', money(k.totalCost)),
-      item('Tarifa comercial', rateOk ? commercialRate(k, v.unitLabel) : 'Sin tarifa'),
+      item('Costo del mes', money(k.totalCost)),
+      item(rateOk ? commercialName(k) : 'Tu tarifa', rateOk ? commercialRate(k, v.unitLabel) : 'Sin tarifa'),
       item('Días activos por mes', formatDays(k.activeDays)),
       item('Margen', rateOk && hasValue(k.marginPct) ? pct(k.marginPct) : EMPTY, marginTone(k)),
       item('Resultado del mes', rateOk ? money(k.profit) : EMPTY, profitTone(k))));
