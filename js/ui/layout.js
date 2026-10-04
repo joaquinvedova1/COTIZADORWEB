@@ -1,7 +1,10 @@
 /**
- * Layout de la aplicación (chrome): sidebar con marca y navegación, topbar
- * con breadcrumbs + título + acciones, zona de banners globales y el
- * contenedor `.content` donde se montan las vistas.
+ * Layout (chrome) con dos "shells":
+ *
+ * - público: landing, ingreso, registro, bienvenida y demo guiada. Sin menú
+ *   lateral ni topbar: cada vista arma su propio encabezado.
+ * - app: sidebar con marca y navegación, topbar con breadcrumbs + título +
+ *   acciones, zona de banners globales y el contenedor `.content`.
  *
  * No accede a datos: recibe lo que muestra (organización, versión, banners).
  */
@@ -10,30 +13,20 @@ import { APP_NAME, APP_TAGLINE } from '../config.js';
 import { h, mount } from './dom.js';
 import { icon } from './components.js';
 
-/** Navegación principal (agrupada). `key` lo usa el router para marcar aria-current. */
-export const NAV_SECTIONS = Object.freeze([
-  {
-    label: 'Cotizar',
-    items: [
-      { key: 'dashboard', href: '#/', label: 'Dashboard', icon: 'dashboard' },
-      { key: 'quotes', href: '#/cotizaciones', label: 'Cotizaciones', icon: 'quote' },
-      { key: 'new-quote', href: '#/cotizaciones/nueva', label: 'Nueva cotización', icon: 'plus' },
-    ],
-  },
-  {
-    label: 'Datos',
-    items: [
-      { key: 'library', href: '#/biblioteca', label: 'Bibliotecas', icon: 'library' },
-      { key: 'services', href: '#/servicios', label: 'Plantillas de servicio', icon: 'services' },
-    ],
-  },
-  {
-    label: 'Sistema',
-    items: [{ key: 'settings', href: '#/configuracion', label: 'Configuración', icon: 'settings' }],
-  },
+/**
+ * Navegación principal de la aplicación. `key` lo usa el router para marcar
+ * aria-current. `separated: true` = va después del separador (secundario).
+ */
+export const NAV_ITEMS = Object.freeze([
+  { key: 'home', href: '#/inicio', label: 'Inicio', icon: 'home' },
+  { key: 'quotes', href: '#/cotizaciones', label: 'Cotizaciones', icon: 'quote' },
+  { key: 'resources', href: '#/recursos', label: 'Recursos', icon: 'resources' },
+  { key: 'services', href: '#/servicios', label: 'Servicios', icon: 'services' },
+  { key: 'scenarios', href: '#/escenarios', label: 'Escenarios', icon: 'chart' },
+  { key: 'settings', href: '#/configuracion', label: 'Configuración', icon: 'settings', separated: true },
 ]);
 
-const DEFAULT_DOCUMENT_TITLE = `${APP_NAME} — Motor de costos y tarifas`;
+const DEFAULT_DOCUMENT_TITLE = `${APP_NAME} — Cotizá servicios sabiendo cuánto te cuestan`;
 
 /** Etiqueta estándar para valores de demostración. */
 export function illustrativeTag(title = 'Valor ilustrativo: reemplazalo por uno propio vigente') {
@@ -58,25 +51,26 @@ export function userErrorMessage(error, fallback = 'Ocurrió un error inesperado
  */
 export function createLayout(container, { version = {} } = {}) {
   const navLinks = new Map();
+  let shellKind = 'app';
 
   const brand = h(
     'a',
-    { class: 'brand', href: '#/', 'aria-label': `${APP_NAME}: ir al Dashboard` },
+    { class: 'brand', href: '#/inicio', 'aria-label': `${APP_NAME}: ir al inicio` },
     h('span', { class: 'brand-mark', 'aria-hidden': 'true' }, 'R'),
     h('span', { class: 'brand-text' }, h('span', { class: 'brand-name' }, APP_NAME), h('span', { class: 'brand-tag' }, APP_TAGLINE)),
   );
 
+  const navLink = (item) => {
+    const link = h('a', { href: item.href, title: item.label, dataset: { nav: item.key } }, icon(item.icon), h('span', { class: 'nav-label' }, item.label));
+    navLinks.set(item.key, link);
+    return link;
+  };
   const nav = h(
     'nav',
-    { class: 'nav', 'aria-label': 'Navegación principal' },
-    ...NAV_SECTIONS.map((section) => [
-      h('div', { class: 'nav-section', 'aria-hidden': 'true' }, section.label),
-      ...section.items.map((item) => {
-        const link = h('a', { href: item.href, title: item.label, 'aria-label': item.label, dataset: { nav: item.key } }, icon(item.icon), h('span', {}, item.label));
-        navLinks.set(item.key, link);
-        return link;
-      }),
-    ]),
+    { class: 'nav', id: 'app-nav', 'aria-label': 'Navegación principal' },
+    ...NAV_ITEMS.filter((item) => !item.separated).map(navLink),
+    h('div', { class: 'nav-separator', role: 'separator' }),
+    ...NAV_ITEMS.filter((item) => item.separated).map(navLink),
   );
 
   const orgNameEl = h('div', { class: 'org' }, '—');
@@ -91,6 +85,7 @@ export function createLayout(container, { version = {} } = {}) {
   const bannersEl = h('div', { class: 'global-banners', hidden: true });
 
   const createContent = () => h('main', { class: 'content', id: 'contenido', tabindex: '-1' });
+  const createPublicContent = () => h('main', { class: 'public-content', id: 'contenido', tabindex: '-1' });
   let content = createContent();
   const main = h('div', { class: 'main' }, topbar, bannersEl, content);
 
@@ -111,32 +106,54 @@ export function createLayout(container, { version = {} } = {}) {
   );
 
   const shell = h('div', { class: 'app-shell' }, sidebar, main);
-  mount(container, skipLink, shell);
+  const publicShell = h('div', { class: 'public-shell', hidden: true });
+  mount(container, skipLink, shell, publicShell);
   container.removeAttribute('aria-busy');
   container.classList.remove('boot');
 
   return {
     shell,
+    publicShell,
 
-    /** Contenedor `.content` actual. */
+    /** Shell activo: 'public' | 'app'. */
+    getShell() {
+      return shellKind;
+    },
+
+    /**
+     * Cambia de shell. El contenido se crea con resetContent() después.
+     * @param {'public'|'app'} kind
+     */
+    setShell(kind) {
+      shellKind = kind === 'public' ? 'public' : 'app';
+      shell.hidden = shellKind === 'public';
+      publicShell.hidden = shellKind !== 'public';
+      document.body.classList.toggle('is-public', shellKind === 'public');
+    },
+
+    /** Contenedor de contenido actual. */
     getContent() {
       return content;
     },
 
     /**
-     * Reemplaza `.content` por un nodo nuevo y lo devuelve. Así una vista
-     * anterior que termine de renderizar tarde escribe en un nodo
-     * desconectado y no pisa a la vista nueva.
+     * Reemplaza el contenido por un nodo nuevo (en el shell activo) y lo
+     * devuelve. Así una vista anterior que termine de renderizar tarde
+     * escribe en un nodo desconectado y no pisa a la vista nueva.
      */
     resetContent() {
-      const fresh = createContent();
-      main.replaceChild(fresh, content);
+      const fresh = shellKind === 'public' ? createPublicContent() : createContent();
+      if (content.parentNode) content.parentNode.removeChild(content);
+      if (shellKind === 'public') mount(publicShell, fresh);
+      else main.appendChild(fresh);
       content = fresh;
       return fresh;
     },
 
-    /** Topbar: breadcrumbs, título y acciones. */
+    /** Topbar: breadcrumbs, título y acciones. En el shell público sólo cambia el título del documento. */
     setHeader({ title = '', breadcrumbs = [], actions = [] } = {}) {
+      document.title = title ? `${title} · ${APP_NAME}` : DEFAULT_DOCUMENT_TITLE;
+      if (shellKind === 'public') return;
       const crumbs = Array.isArray(breadcrumbs) ? breadcrumbs.filter((c) => c && c.label) : [];
       mount(
         crumbsEl,
@@ -148,7 +165,6 @@ export function createLayout(container, { version = {} } = {}) {
       crumbsEl.hidden = crumbs.length === 0;
       titleEl.textContent = String(title || '');
       mount(actionsEl, ...(Array.isArray(actions) ? actions.filter((n) => n instanceof Node) : []));
-      document.title = title ? `${title} · ${APP_NAME}` : DEFAULT_DOCUMENT_TITLE;
     },
 
     /** Marca el ítem de navegación activo (aria-current="page"). */
@@ -165,19 +181,28 @@ export function createLayout(container, { version = {} } = {}) {
       orgBaseEl.textContent = org && typeof org.baseLocation === 'string' && org.baseLocation.trim() ? `Base: ${org.baseLocation}` : '';
     },
 
-    /** Banners globales (debajo de la topbar). */
+    /** Banners globales (debajo de la topbar; sólo en el shell de la app). */
     setBanners(nodes = []) {
       const list = nodes.filter((n) => n instanceof Node);
       mount(bannersEl, ...list);
       bannersEl.hidden = list.length === 0;
     },
 
-    /** Foco en el título (accesibilidad al cambiar de pantalla). */
+    /**
+     * Foco en el título (accesibilidad al cambiar de pantalla). En el shell
+     * público se enfoca el primer h1 de la vista.
+     */
     focusTitle() {
+      let target = titleEl;
+      if (shellKind === 'public') {
+        target = content.querySelector('h1');
+        if (!target) return;
+        if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+      }
       try {
-        titleEl.focus({ preventScroll: true });
+        target.focus({ preventScroll: true });
       } catch {
-        titleEl.focus();
+        target.focus();
       }
     },
   };
