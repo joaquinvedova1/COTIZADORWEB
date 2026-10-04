@@ -23,6 +23,8 @@ Separa siempre cuatro conceptos:
 
 **Margen y markup no son lo mismo:** con costo 100, un margen del 10 % da un precio de **111,11**; un markup del 10 % da **110**.
 
+**Impuestos sobre lo que facturás** (Ingresos Brutos, débitos y créditos, sellos): no son costo, se pagan sobre el precio. RATEOS los cubre junto con el margen con un gross-up exacto: costo 100, margen 10 % e impuestos 10 % → **125** (no 121). RATEOS **no trae alícuotas**: cada empresa carga las suyas; sin definir, la tarifa piso no los incluye y la app lo avisa. Todo se carga y se muestra **sin IVA**; el margen es antes de Ganancias.
+
 **Qué NO es:** no es un ERP, ni un sistema de liquidación de sueldos (payroll), ni un CRM, ni un marketplace, ni un sistema de facturación, ni un gestor documental. **No usa IA**: no tiene chatbot ni copilot. El valor está en reglas, cálculos auditables, datos persistentes y escenarios. Todo resultado importante tiene un botón **"Ver cálculo"** con la fórmula, las entradas y el resultado.
 
 ## Funcionalidades del MVP (v0.1.0)
@@ -48,6 +50,8 @@ Separa siempre cuatro conceptos:
 | 17 | Deploy automático | GitHub Actions: test → build → deploy a GitHub Pages |
 
 Además: dashboard, escenarios pesimista / base / optimista, comparador de modelos comerciales (sólo tarifa por día, disponibilidad + día, mínimo garantizado + día, paquete mensual + excedentes) y 12 plantillas de servicio.
+
+Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de la experiencia (landing, demo guiada, editor en 5 etapas, resultado progresivo), **impuestos sobre lo que facturás** (esquema de datos 2, con migración) y **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; apropiación por día y total del contrato, con controles "Los números cierran").
 
 ## Flujo de cotización
 

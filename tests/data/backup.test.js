@@ -316,6 +316,47 @@ describe('Backup — validación antes de importar', () => {
     assert.equal((await repo.getQuotes()).length, 2);
   });
 
+  test('un backup v1 (versión anterior de RATEOS) se valida, migra a v2 y se importa sin perder datos (PLAN-2026-002)', async () => {
+    const { repo, storage, backup } = await setup();
+    const v1 = JSON.parse(await demoBackupText());
+    v1.schemaVersion = 1;
+    v1.quotes.forEach((q) => delete q.billingTaxes);
+    delete v1.settings.defaultBillingTaxes;
+    v1.quotes[0].name = 'Cotización guardada con la versión anterior';
+    const before = dump(storage);
+    const result = backup.parseBackupText(JSON.stringify(v1));
+    assert.equal(result.ok, true);
+    assert.equal(result.fromVersion, 1);
+    assert.equal(result.state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.deepEqual(dump(storage), before, 'validar no cambia nada');
+    await backup.applyBackup(result.data);
+    const quotes = await repo.getQuotes();
+    assert.equal(quotes.length, v1.quotes.length);
+    const q = quotes.find((x) => x.id === v1.quotes[0].id);
+    assert.equal(q.name, 'Cotización guardada con la versión anterior');
+    assert.deepEqual(q.billingTaxes, { mode: 'combined', notApplicable: false, combinedPct: null, items: [] }, 'impuestos sin definir: nunca inventados');
+    const strip = ({ billingTaxes, ...rest }) => rest;
+    assert.deepEqual(strip(q), v1.quotes[0], 'el resto de la cotización queda igual');
+    assert.equal((await repo.getSettings()).defaultBillingTaxes, null);
+    assert.equal(JSON.parse(storage.getItem(STORAGE_KEYS.state)).schemaVersion, CURRENT_SCHEMA_VERSION);
+  });
+
+  test('un backup v2 con impuestos sobre la facturación hace ida y vuelta exacta', async () => {
+    const { repo, backup } = await setup();
+    const [first] = await repo.getQuotes();
+    await repo.saveQuote({ ...first, billingTaxes: { mode: 'detailed', notApplicable: false, combinedPct: null, items: [{ id: 'a', kind: 'gross_income', label: 'Ingresos Brutos', pct: 3 }] } });
+    await repo.saveSettings({ defaultBillingTaxes: { mode: 'combined', notApplicable: false, combinedPct: 4.5, items: [] } });
+    const text = JSON.stringify(await repo.exportBackup());
+    const { repo: repoB, backup: backupB } = await setup();
+    const parsed = backupB.parseBackupText(text);
+    assert.equal(parsed.ok, true);
+    await backupB.applyBackup(parsed.data);
+    const q = (await repoB.getQuotes()).find((x) => x.id === first.id);
+    assert.equal(q.billingTaxes.items[0].pct, 3);
+    assert.equal((await repoB.getSettings()).defaultBillingTaxes.combinedPct, 4.5);
+    assert.ok(backup);
+  });
+
   test('un backup legado con "__proto__" en la raíz no contamina prototipos ni conserva la clave', async () => {
     const { backup } = await setup();
     const text = '{"__proto__":{"polluted":true},"organization":{"id":"o","name":"x"},"quotes":[]}';

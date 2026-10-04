@@ -77,15 +77,17 @@ Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **5 etapas**:
 |---|---|
 | 1. El servicio | Tipo de servicio, modalidad |
 | 2. Los recursos | Personal, equipos, materiales, logística |
-| 3. Las condiciones | Gastos de estructura, financiamiento, imprevistos |
-| 4. El precio | Margen y reglas comerciales |
+| 3. Costos y condiciones | Gastos de estructura, financiamiento, imprevistos |
+| 4. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
 | 5. Resultado | Resultado |
 
-Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, días para no perder) y "Ver más".
+Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, días para no perder) y "Ver más". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir). Cada paso muestra la marca **"Montos sin IVA"**.
+
+**Impuestos sobre lo que facturás** (etapa "El precio", PLAN-2026-002): pregunta "¿Qué parte de lo que facturás se va en impuestos?", con **Un % total** (lo más simple) o **Detalle por impuesto** (Ingresos Brutos, débitos y créditos, sellos, otros cargos), excluyentes, y "No pago impuestos sobre lo que facturo". La ayuda dice qué incluir y qué no (IVA, Ganancias, retenciones, costo financiero) y cómo evitar el doble conteo. "Usar los de mi empresa" / "Guardar como valor de mi empresa" conectan con Configuración → Parámetros económicos. RATEOS no trae alícuotas.
 
 ### Resultado
 
-Responde en el primer pantallazo, en este orden: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto gano?** Después: "¿En qué se va el costo?" (4 rubros + otros) y, colapsado, "Profundizá": estructura de costos completa, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, completitud y "Ver cálculo completo". Al imprimir se abren todas las secciones.
+Responde en el primer pantallazo, en este orden: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto gano?** (con la nota "Todos los montos son sin IVA…" y, si faltan, la alerta de impuestos sobre lo que facturás). Después: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), "¿En qué se va el costo?" (4 rubros + otros; 100 % del costo) y, colapsado, "Profundizá": estructura de costos completa, **apropiación por día y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
 
 ## 5. Copy
 
