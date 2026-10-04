@@ -326,6 +326,11 @@ describe('seguridad del repositorio', () => {
     report(hits, 'Archivos sensibles versionados:');
   });
 
+  test('(8b) no hay planillas versionadas (.xls, .xlsx, .ods…): pueden contener datos confidenciales de clientes', () => {
+    const hits = FILES.map((abs) => rel(abs)).filter((p) => /\.(?:xls|xlsx|xlsm|xlsb|ods)$/i.test(p));
+    report(hits, 'Planillas versionadas (el repo es público; usar sólo ejemplos ILUSTRATIVOS en JSON):');
+  });
+
   test('(9) package.json no declara dependencias y no hay lockfile con paquetes', () => {
     const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'bundleDependencies', 'bundledDependencies']) {
