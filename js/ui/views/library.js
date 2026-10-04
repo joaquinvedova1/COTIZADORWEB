@@ -1,9 +1,11 @@
 /**
- * Bibliotecas reutilizables: Personal, Convenios, Equipos, Materiales y
- * Ubicaciones. CRUD con diálogos; los cálculos (costo por persona, ficha de
- * equipo, costo de material) vienen de los servicios / motores.
+ * Recursos reutilizables: Personal, Equipos, Materiales y Ubicaciones
+ * (#/recursos/:tab) y Convenios (se muestran dentro de Configuración →
+ * Convenios con `renderAgreements`). CRUD con diálogos; los cálculos (costo
+ * por persona, ficha de equipo, costo de material) vienen de los servicios /
+ * motores.
  *
- * Los valores de las cotizaciones se COPIAN desde la biblioteca: editar o
+ * Los valores de las cotizaciones se COPIAN desde los recursos: editar o
  * borrar un recurso no cambia cotizaciones existentes.
  */
 
@@ -39,12 +41,60 @@ import { render as renderNotFound } from './not-found.js';
 // ----------------------------------------------------------------- catálogo
 
 const TABS = Object.freeze([
-  { id: 'personal', label: 'Personal', type: 'laborProfiles', addLabel: 'Agregar perfil', intro: 'Perfiles de personal reutilizables: rol, convenio, remuneración, cargas y costos por persona. Al sumar personal a una cotización se copian estos valores.' },
-  { id: 'convenios', label: 'Convenios', type: 'agreements', addLabel: 'Nuevo convenio personalizado', intro: 'Parámetros por convenio (horas normales, recargo de horas extra, SAC, vacaciones, cargas patronales y ART). Se aplican a los perfiles de personal.' },
-  { id: 'equipos', label: 'Equipos', type: 'equipment', addLabel: 'Agregar equipo', intro: 'Fichas de equipos y vehículos. RATEOS separa el COSTO DE POSESIÓN (existe aunque el equipo no trabaje) del COSTO DE OPERACIÓN (sólo cuando trabaja).' },
-  { id: 'materiales', label: 'Materiales', type: 'materials', addLabel: 'Agregar material', intro: 'Materiales y consumibles con merma, logística y responsable de provisión.' },
-  { id: 'ubicaciones', label: 'Ubicaciones', type: 'locations', addLabel: 'Agregar ubicación', intro: 'Bases operativas y destinos frecuentes con su distancia desde la base.' },
+  {
+    id: 'personal',
+    label: 'Personal',
+    type: 'laborProfiles',
+    addLabel: 'Agregar perfil',
+    icon: 'resources',
+    intro: 'Cada puesto con su sueldo, convenio y cargas, calculado por persona. Al sumar personal a una cotización se copian estos valores.',
+    emptyTitle: 'Todavía no agregaste personal.',
+    emptyText: 'Cargá cada puesto una vez (sueldo, convenio y cargas) y reutilizalo en tus cotizaciones.',
+  },
+  {
+    id: 'convenios',
+    label: 'Convenios',
+    type: 'agreements',
+    addLabel: 'Nuevo convenio',
+    icon: 'library',
+    intro: 'Parámetros de cada convenio: horas normales, recargo de horas extra, SAC, vacaciones, cargas patronales y ART. Se aplican a los perfiles de personal.',
+    emptyTitle: 'Todavía no cargaste convenios.',
+    emptyText: 'Cargá los parámetros de tu convenio vigente una vez y aplicalos a cada perfil de personal.',
+  },
+  {
+    id: 'equipos',
+    label: 'Equipos',
+    type: 'equipment',
+    addLabel: 'Agregar equipo',
+    icon: 'services',
+    intro: 'Tus equipos y vehículos. RATEOS separa lo que cuesta tenerlos (COSTO DE POSESIÓN, aunque no trabajen) de lo que cuesta usarlos (COSTO DE OPERACIÓN).',
+    emptyTitle: 'Todavía no agregaste equipos.',
+    emptyText: 'Guardá tus equipos una vez y reutilizalos en futuras cotizaciones.',
+  },
+  {
+    id: 'materiales',
+    label: 'Materiales',
+    type: 'materials',
+    addLabel: 'Agregar material',
+    icon: 'quote',
+    intro: 'Materiales e insumos con merma, logística y quién los provee.',
+    emptyTitle: 'Todavía no agregaste materiales.',
+    emptyText: 'Guardá los materiales e insumos que usás seguido y reutilizalos en tus cotizaciones.',
+  },
+  {
+    id: 'ubicaciones',
+    label: 'Ubicaciones',
+    type: 'locations',
+    addLabel: 'Agregar ubicación',
+    icon: 'home',
+    intro: 'Tu base operativa y los destinos frecuentes, con la distancia desde la base.',
+    emptyTitle: 'Todavía no agregaste ubicaciones.',
+    emptyText: 'Guardá tu base y los destinos frecuentes con su distancia para calcular los viajes más rápido.',
+  },
 ]);
+
+/** Pestañas visibles en Recursos (#/recursos/:tab). Convenios vive en Configuración. */
+export const RESOURCE_TAB_IDS = Object.freeze(['personal', 'equipos', 'materiales', 'ubicaciones']);
 
 const LOCATION_TYPES = Object.freeze([
   { id: 'base', label: 'Base operativa' },
@@ -588,22 +638,39 @@ function newLocation() {
 
 // -------------------------------------------------------------------- vista
 
+/**
+ * Recursos: #/recursos/:tab (personal, equipos, materiales, ubicaciones).
+ */
 export async function render(root, app, params = {}) {
-  const { ctx } = app;
-  const tab = TABS.find((t) => t.id === (params.tab || 'personal'));
-  if (!tab) return renderNotFound(root, app, { path: `/biblioteca/${params.tab}` });
+  const tabId = params.tab || 'personal';
+  const tab = RESOURCE_TAB_IDS.includes(tabId) ? TABS.find((t) => t.id === tabId) : null;
+  if (!tab) return renderNotFound(root, app, { path: `/recursos/${params.tab}` });
+  return renderLibraryTab(root, app, tab, { embedded: false });
+}
 
+/**
+ * Gestión de convenios (se muestra dentro de Configuración → Convenios).
+ * No cambia la topbar: el botón "Nuevo convenio" va dentro del contenido.
+ */
+export async function renderAgreements(root, app) {
+  return renderLibraryTab(root, app, TABS.find((t) => t.id === 'convenios'), { embedded: true });
+}
+
+async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
+  const { ctx } = app;
   const data = { resources: {}, equipmentCards: new Map(), settings: {} };
 
-  const addBtn = button(tab.addLabel, { variant: 'primary', icon: 'plus', onClick: () => openEditor(null) });
-  app.setHeader({
-    title: `Bibliotecas · ${tab.label}`,
-    breadcrumbs: [
-      { label: 'Inicio', href: '#/' },
-      { label: 'Bibliotecas', href: '#/biblioteca' },
-    ],
-    actions: [addBtn],
-  });
+  const addButton = () => button(tab.addLabel, { variant: 'primary', icon: 'plus', onClick: () => openEditor(null) });
+  const setHeader = (hasItems) => {
+    if (embedded) return;
+    app.setHeader({
+      title: 'Recursos',
+      breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }],
+      // Sin recursos, la acción principal es la del estado vacío (no se duplica).
+      actions: hasItems ? [addButton()] : [],
+    });
+  };
+  setHeader(true);
 
   const list = (type) => (Array.isArray(data.resources[type]) ? data.resources[type] : []);
 
@@ -627,7 +694,7 @@ export async function render(root, app, params = {}) {
 
   async function removeResource(item, displayName, extraMessage = '') {
     const ok = await confirmDialog({
-      title: 'Eliminar de la biblioteca',
+      title: 'Eliminar recurso',
       message: `¿Eliminar "${displayName}"? Las cotizaciones que ya lo usan no cambian (guardan una copia de los valores).${extraMessage ? ` ${extraMessage}` : ''}`,
       confirmLabel: 'Eliminar',
       danger: true,
@@ -635,7 +702,7 @@ export async function render(root, app, params = {}) {
     if (!ok) return;
     try {
       await ctx.resources.remove(tab.type, item.id);
-      app.toast('Eliminado de la biblioteca.', 'success');
+      app.toast(`Eliminado: ${displayName}.`, 'success');
       await refresh();
     } catch (error) {
       app.toast(userErrorMessage(error, 'No se pudo eliminar.'), 'danger');
@@ -744,7 +811,7 @@ export async function render(root, app, params = {}) {
     const rows = list('laborProfiles').map((p) => ({ item: p, cost: ctx.resources.laborProfileCost(p) }));
     return table({
       caption: 'Perfiles de personal',
-      className: 'lib-table',
+      className: 'lib-table table-cards',
       columns: [
         { key: 'role', label: 'Rol', render: ({ item }) => nameCell(item.role, item.category, item.illustrative) },
         { key: 'agreement', label: 'Convenio', render: ({ item }) => agreementName(item.agreementId) },
@@ -773,7 +840,7 @@ export async function render(root, app, params = {}) {
     const rows = list('agreements').map((a) => ({ item: a, p: { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(a.params || {}) }, used: profiles.filter((p) => p.agreementId === a.id).length }));
     return table({
       caption: 'Convenios',
-      className: 'lib-table',
+      className: 'lib-table table-cards',
       columns: [
         { key: 'name', label: 'Convenio', render: ({ item }) => nameCell(item.name, labelOf(AGREEMENT_TYPES, item.code, 'Personalizado'), item.illustrative) },
         { key: 'hours', label: 'Horas normales/mes', align: 'right', render: ({ p }) => formatNumber(toNumber(p.normalHoursPerMonth, NaN), { decimals: 2 }) },
@@ -804,7 +871,7 @@ export async function render(root, app, params = {}) {
     const rows = list('equipment').map((eq) => ({ item: eq, c: data.equipmentCards.get(eq.id) })).filter((r) => r.c);
     return table({
       caption: 'Equipos',
-      className: 'lib-table',
+      className: 'lib-table table-cards',
       columns: [
         { key: 'name', label: 'Equipo', render: ({ item }) => nameCell(item.name, labelOf(EQUIPMENT_TYPES, item.type, 'Otro'), item.illustrative) },
         { key: 'ownership', label: 'Posesión $/mes', align: 'right', className: 'col-ownership', render: ({ c }) => money(c.ownership.totalMonthly) },
@@ -823,7 +890,7 @@ export async function render(root, app, params = {}) {
     const rows = list('materials').map((m) => ({ item: m, c: computeMaterialLine(m) }));
     return table({
       caption: 'Materiales',
-      className: 'lib-table',
+      className: 'lib-table table-cards',
       columns: [
         { key: 'description', label: 'Descripción', render: ({ item }) => nameCell(item.description, null, item.illustrative) },
         {
@@ -849,7 +916,7 @@ export async function render(root, app, params = {}) {
     const rows = list('locations').map((l) => ({ item: l }));
     return table({
       caption: 'Ubicaciones',
-      className: 'lib-table',
+      className: 'lib-table table-cards',
       columns: [
         { key: 'name', label: 'Nombre', render: ({ item }) => nameCell(item.name, null, item.illustrative) },
         { key: 'type', label: 'Tipo', render: ({ item }) => badge(labelOf(LOCATION_TYPES, item.type, 'Destino / locación'), item.type === 'base' ? 'navy' : 'blue') },
@@ -865,8 +932,10 @@ export async function render(root, app, params = {}) {
   function tabsNav() {
     return h(
       'nav',
-      { class: 'tabs library-tabs', 'aria-label': 'Secciones de la biblioteca' },
-      ...TABS.map((t) => h('a', { href: `#/biblioteca/${t.id}`, 'aria-current': t.id === tab.id ? 'page' : null }, t.label, h('span', { class: 'tab-count' }, String(list(t.type).length)))),
+      { class: 'tabs library-tabs', 'aria-label': 'Tipos de recurso' },
+      ...TABS.filter((t) => RESOURCE_TAB_IDS.includes(t.id)).map((t) =>
+        h('a', { href: `#/recursos/${t.id}`, 'aria-current': t.id === tab.id ? 'page' : null }, t.label, h('span', { class: 'tab-count' }, String(list(t.type).length))),
+      ),
     );
   }
 
@@ -891,10 +960,16 @@ export async function render(root, app, params = {}) {
     return null;
   }
 
+  function emptyFor() {
+    return emptyState({
+      icon: tab.icon,
+      title: tab.emptyTitle,
+      text: tab.emptyText,
+      action: button(tab.addLabel, { variant: 'primary', icon: 'plus', onClick: () => openEditor(null) }),
+    });
+  }
+
   function tableFor() {
-    if (list(tab.type).length === 0) {
-      return emptyState(`Todavía no hay ítems en ${tab.label.toLowerCase()}.`, button(tab.addLabel, { variant: 'primary', icon: 'plus', onClick: () => openEditor(null) }));
-    }
     switch (tab.type) {
       case 'laborProfiles':
         return laborTable();
@@ -909,13 +984,29 @@ export async function render(root, app, params = {}) {
     }
   }
 
+  function introFor() {
+    const extra =
+      tab.id === 'personal'
+        ? [' Los convenios se configuran en ', h('a', { href: '#/configuracion/convenios' }, 'Configuración → Convenios'), '.']
+        : [];
+    return h('p', { class: 'resource-intro-text' }, tab.intro, ...extra);
+  }
+
   function paint() {
+    const hasItems = list(tab.type).length > 0;
+    setHeader(hasItems);
     mount(
       root,
-      tabsNav(),
-      h('p', { class: 'page-intro' }, tab.intro),
-      notices(),
-      card({ title: tab.label, subtitle: 'Los valores se copian a cada cotización: cambiar la biblioteca no modifica cotizaciones existentes.' }, tableFor()),
+      embedded ? null : tabsNav(),
+      h('div', { class: 'resource-intro' }, introFor(), embedded && hasItems ? addButton() : null),
+      hasItems ? notices() : null,
+      hasItems
+        ? card(
+            { className: 'list-card' },
+            tableFor(),
+            h('p', { class: 'footnote' }, 'Los valores se copian a cada cotización: cambiar un recurso no modifica las cotizaciones existentes.'),
+          )
+        : emptyFor(),
     );
   }
 

@@ -5,7 +5,8 @@
  * - Rutas exactas con parámetros `:id`, `:step`, `:tab`.
  * - Dos "shells": público (landing, ingreso, registro, bienvenida, demo) y
  *   aplicación (con menú lateral). Cada ruta declara el suyo.
- * - Redirige enlaces viejos (#/biblioteca, #/dashboard) a las rutas nuevas.
+ * - Redirige enlaces viejos (#/biblioteca, #/dashboard, #/recursos/convenios)
+ *   a las rutas nuevas.
  * - Carga las vistas con import() dinámico (rutas relativas).
  * - Llama a la función de limpieza de la vista anterior.
  * - Marca aria-current="page" en la navegación, vuelve al inicio de la
@@ -52,6 +53,8 @@ export const ROUTES = Object.freeze([
   { name: 'quote-editor', segments: ['cotizaciones', ':id'], shell: 'app', nav: 'quotes', title: 'Cotización', defaults: { step: 'service' }, load: () => import('./views/quote-editor.js'), view: 'render' },
   { name: 'quote-editor-step', segments: ['cotizaciones', ':id', ':step'], shell: 'app', nav: 'quotes', title: 'Cotización', load: () => import('./views/quote-editor.js'), view: 'render' },
   { name: 'resources', segments: ['recursos'], shell: 'app', nav: 'resources', title: 'Recursos', defaults: { tab: 'personal' }, load: () => import('./views/library.js'), view: 'render' },
+  // Los convenios se gestionan en Configuración (antes vivían junto a los recursos).
+  { name: 'resources-agreements', segments: ['recursos', 'convenios'], shell: 'app', nav: 'settings', title: 'Configuración', redirect: () => '#/configuracion/convenios' },
   { name: 'resources-tab', segments: ['recursos', ':tab'], shell: 'app', nav: 'resources', title: 'Recursos', validate: (p) => RESOURCE_TABS.includes(p.tab), load: () => import('./views/library.js'), view: 'render' },
   { name: 'services', segments: ['servicios'], shell: 'app', nav: 'services', title: 'Servicios', load: () => import('./views/services.js'), view: 'render' },
   { name: 'scenarios', segments: ['escenarios'], shell: 'app', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },

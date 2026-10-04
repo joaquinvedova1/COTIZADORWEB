@@ -1,5 +1,5 @@
 /**
- * Plantillas de servicio (biblioteca de servicios reutilizables).
+ * Servicios: plantillas de servicio reutilizables.
  *
  * Cada plantilla precarga tipo de servicio, actividad y (en algunos casos)
  * personal, equipos y materiales. Desde acá se crea una cotización a partir
@@ -7,7 +7,7 @@
  */
 
 import { h, mount } from '../dom.js';
-import { badge, button, card, confirmDialog, emptyState, openDialog, textField } from '../components.js';
+import { badge, button, confirmDialog, emptyState, linkButton, openDialog, pageIntro, textField } from '../components.js';
 import { sanitizeText } from '../../core/validation.js';
 import { SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
@@ -51,11 +51,7 @@ export function serviceTemplateCard(service, actions = []) {
 
 export async function render(root, app) {
   const { ctx } = app;
-  app.setHeader({
-    title: 'Plantillas de servicio',
-    breadcrumbs: [{ label: 'Inicio', href: '#/' }],
-    actions: [button('Nueva cotización', { variant: 'primary', icon: 'plus', onClick: () => app.navigate('#/cotizaciones/nueva') })],
-  });
+  app.setHeader({ title: 'Servicios', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }] });
 
   const host = h('div', { class: 'stack' });
   let busy = false;
@@ -134,13 +130,13 @@ export async function render(root, app) {
     if (!services.length) {
       mount(
         host,
-        card(
-          {},
-          emptyState(
-            'No hay plantillas de servicio. Podés empezar una cotización en blanco o restaurar los datos demo desde Configuración.',
-            h('div', { class: 'row' }, button('Nueva cotización', { variant: 'primary', icon: 'plus', onClick: () => app.navigate('#/cotizaciones/nueva') }), button('Ir a Configuración', { variant: 'secondary', onClick: () => app.navigate('#/configuracion') })),
-          ),
-        ),
+        emptyState({
+          icon: 'services',
+          title: 'Todavía no tenés plantillas de servicio.',
+          text: 'Una plantilla guarda un servicio que cotizás seguido (tipo de servicio, actividad típica, personal y equipos) para empezar más rápido. Se crea desde el resultado de una cotización con "Guardar como plantilla".',
+          action: linkButton('Crear una cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus' }),
+          secondary: linkButton('Restaurar los datos de ejemplo', '#/configuracion/datos', { variant: 'secondary' }),
+        }),
       );
       return;
     }
@@ -150,12 +146,16 @@ export async function render(root, app) {
         'div',
         { class: 'template-grid' },
         ...services.map((service) => {
-          const createBtn = button('Crear cotización', { variant: 'primary', icon: 'plus', size: 'sm' });
+          const createBtn = button('Crear cotización', { variant: 'secondary', icon: 'plus', size: 'sm', attrs: { 'aria-label': `Crear una cotización desde ${service.name || 'esta plantilla'}` } });
           createBtn.addEventListener('click', () => createFrom(service, createBtn));
           return serviceTemplateCard(service, [
             createBtn,
-            button('Renombrar', { variant: 'ghost', icon: 'edit', size: 'sm', onClick: () => rename(service), attrs: { 'aria-label': `Renombrar ${service.name}` } }),
-            button('', { variant: 'danger', icon: 'trash', size: 'sm', title: 'Eliminar plantilla', onClick: () => remove(service), attrs: { 'aria-label': `Eliminar ${service.name}` } }),
+            h(
+              'span',
+              { class: 'template-card-tools' },
+              button('', { variant: 'ghost', icon: 'edit', size: 'sm', title: 'Renombrar plantilla', onClick: () => rename(service), attrs: { 'aria-label': `Renombrar ${service.name}`, class: 'btn btn-ghost btn-sm btn-icon' } }),
+              button('', { variant: 'ghost', icon: 'trash', size: 'sm', title: 'Eliminar plantilla', onClick: () => remove(service), attrs: { 'aria-label': `Eliminar ${service.name}`, class: 'btn btn-ghost btn-sm btn-icon btn-ghost-danger' } }),
+            ),
           ]);
         }),
       ),
@@ -164,11 +164,10 @@ export async function render(root, app) {
 
   mount(
     root,
-    h(
-      'p',
-      { class: 'page-intro' },
-      'Servicios que cotizás seguido. Cada plantilla precarga el tipo de servicio, la actividad típica y, en algunos casos, el personal, los equipos y los materiales. Al crear una cotización se copian los valores: después podés cambiar todo.',
-    ),
+    pageIntro({
+      title: 'Tus servicios',
+      text: 'Los servicios que cotizás seguido, listos para reutilizar. Al crear una cotización desde una plantilla se copian sus valores: después podés cambiar todo.',
+    }),
     host,
   );
   await load();
