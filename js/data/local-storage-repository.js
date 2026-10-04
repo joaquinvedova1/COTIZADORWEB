@@ -97,13 +97,22 @@ export class LocalStorageRepository extends StorageRepository {
         messages.push('Los datos fueron guardados por una versión más nueva de RATEOS. Se abren en modo sólo lectura para no dañarlos. Recargá la página para obtener la última versión.');
       } else if (version < CURRENT_SCHEMA_VERSION) {
         const recoveryKey = this.saveRecoverySnapshot(raw, `pre-migration-v${version}`);
-        const migrated = migrateState(parsed, { now: this.now(), idFactory: this.idFactory });
-        this.state = migrated.state;
+        let migrated = migrateState(parsed, { now: this.now(), idFactory: this.idFactory }).state;
+        let repairedDuringMigration = false;
+        if (!validateState(migrated).ok) {
+          // Datos viejos Y con estructura inesperada: se normalizan como datos
+          // legados (sin borrar nada; el original queda en la copia previa).
+          migrated = migrateState({ ...parsed, schemaVersion: undefined }, { now: this.now(), idFactory: this.idFactory }).state;
+          repairedDuringMigration = true;
+        }
+        this.state = migrated;
         this.lastRaw = raw;
         if (validateState(this.state).ok) {
           this.persist(this.state);
-          status = 'migrated';
-          messages.push(`Datos actualizados del esquema ${version} al ${CURRENT_SCHEMA_VERSION}. Copia previa: ${recoveryKey}.`);
+          status = repairedDuringMigration ? 'repaired' : 'migrated';
+          messages.push(repairedDuringMigration
+            ? `Se actualizaron y repararon datos del esquema ${version} con estructura inesperada. Copia previa: ${recoveryKey}.`
+            : `Datos actualizados del esquema ${version} al ${CURRENT_SCHEMA_VERSION}. Copia previa: ${recoveryKey}.`);
         } else {
           // La migración no produjo un estado válido: no se persiste nada
           // (el original sigue intacto) y se abre en sólo lectura.

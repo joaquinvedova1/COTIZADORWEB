@@ -24,18 +24,20 @@ function approx(actual, expected, message = '', tolerance = EPS) {
 }
 
 /**
- * Cotización on-call completa: demo hidrogrúa + relevo configurado + standby definido.
+ * Cotización on-call completa: demo hidrogrúa + relevo configurado + standby definido
+ * + impuestos sobre la facturación definidos (% sintético).
  * Reglas aplicables (peso): modalidad 2, utilización 2, personal 2, relevos 1, equipos 2,
  * combustible 2, materiales 2, logística 2, estructura 1, plazo de pago 2, contingencia 1,
- * margen 2, standby 1 → total 22.
+ * margen 2, impuestos sobre la facturación 1, standby 1 → total 23.
  */
 function completeQuote() {
   const q = demoHydroCraneQuote();
   q.labor[0].peoplePerPosition = 2;
   q.rules.standbyNotApplicable = true;
+  q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: 5, items: [] };
   return q;
 }
-const TOTAL_WEIGHT = 22;
+const TOTAL_WEIGHT = 23;
 
 const item = (result, id) => result.items.find((i) => i.id === id);
 
@@ -49,23 +51,24 @@ describe('CompletenessEngine — puntaje', () => {
     assert.ok(r.items.every((i) => i.color === 'green'));
   });
 
-  test('un faltante rojo de peso 2 resta su peso completo: 20 / 22 = 90,91 %', () => {
+  test('un faltante rojo de peso 2 resta su peso completo: 21 / 23 = 91,30 %', () => {
     const q = completeQuote();
     q.finance.paymentTermDays = null;
     approx(evaluateCompleteness(q).scorePct, ((TOTAL_WEIGHT - 2) / TOTAL_WEIGHT) * 100);
   });
 
-  test('un aviso naranja de peso 1 resta la mitad de su peso: 21,5 / 22 = 97,73 %', () => {
+  test('un aviso naranja de peso 1 resta la mitad de su peso: 22,5 / 23 = 97,83 %', () => {
     const q = completeQuote();
     q.risk = { generalPct: 0, items: [] };
     approx(evaluateCompleteness(q).scorePct, ((TOTAL_WEIGHT - 0.5) / TOTAL_WEIGHT) * 100);
   });
 
-  test('la demo hidrogrúa (sin relevo y sin standby definido) tiene 2 avisos naranja: 21 / 22', () => {
+  test('la demo hidrogrúa (sin relevo, sin standby e impuestos sin definir) tiene 3 avisos naranja: 21,5 / 23', () => {
     const r = evaluateCompleteness(demoHydroCraneQuote());
-    approx(r.scorePct, (21 / 22) * 100);
+    approx(r.scorePct, (21.5 / 23) * 100);
     assert.equal(item(r, 'relief').status, 'warning');
     assert.equal(item(r, 'standby').status, 'warning');
+    assert.equal(item(r, 'billing_taxes').status, 'warning');
   });
 
   test('pendientes ordenados: primero rojos (missing), después naranjas (warning)', () => {
@@ -243,5 +246,54 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
     const q = completeQuote();
     q.indirect = { method: 'percent_direct', pct: 0, amount: 0 };
     assert.equal(item(evaluateCompleteness(q), 'structure').status, 'warning');
+  });
+});
+
+describe('CompletenessEngine — impuestos sobre lo que facturás (PLAN-2026-002)', () => {
+  test('sin definir → aviso naranja de peso 1 (la tarifa piso no los incluye)', () => {
+    const q = completeQuote();
+    q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: null, items: [] };
+    const r = evaluateCompleteness(q);
+    const i = item(r, 'billing_taxes');
+    assert.equal(i.status, 'warning');
+    assert.equal(i.weight, 1);
+    assert.equal(i.step, 'margin');
+    assert.match(i.message, /tarifa piso no incluye/);
+    approx(r.scorePct, ((TOTAL_WEIGHT - 0.5) / TOTAL_WEIGHT) * 100);
+  });
+
+  test('datos viejos sin el campo → sin definir (aviso), nunca un error', () => {
+    const q = completeQuote();
+    delete q.billingTaxes;
+    assert.equal(item(evaluateCompleteness(q), 'billing_taxes').status, 'warning');
+  });
+
+  test('"no pago impuestos sobre lo que facturo" → ok', () => {
+    const q = completeQuote();
+    q.billingTaxes = { mode: 'combined', notApplicable: true, combinedPct: null, items: [] };
+    assert.equal(item(evaluateCompleteness(q), 'billing_taxes').status, 'ok');
+  });
+
+  test('detalle por impuesto con al menos un % cargado → ok; 0 % explícito también es una decisión', () => {
+    const q = completeQuote();
+    q.billingTaxes = { mode: 'detailed', notApplicable: false, combinedPct: null, items: [{ id: 'a', kind: 'gross_income', label: 'Ingresos Brutos', pct: 0 }] };
+    assert.equal(item(evaluateCompleteness(q), 'billing_taxes').status, 'ok');
+  });
+
+  test('un % inválido (negativo o total ≥ 100) → rojo', () => {
+    const q = completeQuote();
+    q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: -1, items: [] };
+    assert.equal(item(evaluateCompleteness(q), 'billing_taxes').status, 'missing');
+    q.billingTaxes = { mode: 'detailed', notApplicable: false, combinedPct: null, items: [{ id: 'a', kind: 'other', label: 'x', pct: 60 }, { id: 'b', kind: 'other', label: 'y', pct: 40 }] };
+    assert.equal(item(evaluateCompleteness(q), 'billing_taxes').status, 'missing');
+  });
+
+  test('margen + impuestos ≥ 100 % → el margen no se da por definido (rojo)', () => {
+    const q = completeQuote();
+    q.pricing.targetMarginPct = 60;
+    q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: 40, items: [] };
+    const i = item(evaluateCompleteness(q), 'margin');
+    assert.equal(i.status, 'missing');
+    assert.match(i.message, /menor a 60 %/);
   });
 });

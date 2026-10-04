@@ -1,14 +1,14 @@
 /**
  * Esquema de datos persistidos (localStorage y backups JSON).
  *
- * Formato (schemaVersion 1):
+ * Formato (schemaVersion 2):
  * {
- *   schemaVersion: 1,
+ *   schemaVersion: 2,
  *   organization: { id, name, ... },
  *   resources: { agreements: [], laborProfiles: [], equipment: [], materials: [], locations: [] },
  *   services: [],   // plantillas de servicio
- *   quotes: [],     // cotizaciones
- *   settings: {}
+ *   quotes: [],     // cotizaciones (v2: cada una con billingTaxes)
+ *   settings: {}    // v2: defaultBillingTaxes (null = sin definir)
  * }
  *
  * Este mismo formato es el que se exporta como backup y el que en el futuro
@@ -102,12 +102,13 @@ function checkEntityList(list, path, errors, { requireName = null } = {}) {
   });
 }
 
-const QUOTE_OBJECT_FIELDS = Object.freeze(['activity', 'pricing', 'finance', 'logistics', 'rules', 'fuel', 'indirect', 'risk']);
+const QUOTE_OBJECT_FIELDS = Object.freeze(['activity', 'pricing', 'finance', 'logistics', 'rules', 'fuel', 'indirect', 'risk', 'billingTaxes']);
 const QUOTE_LIST_FIELDS = Object.freeze(['labor', 'equipment', 'materials', 'otherCosts']);
 const NESTED_LIST_FIELDS = Object.freeze([
   ['logistics', 'vehicles'],
   ['risk', 'items'],
   ['rules', 'volumeTiers'],
+  ['billingTaxes', 'items'],
 ]);
 
 function checkObjectList(value, path, errors) {
@@ -155,6 +156,11 @@ export function validateState(state) {
   checkEntityList(state.quotes, 'quotes', errors, { requireName: 'name' });
   checkQuoteShapes(state.quotes, errors);
   if (!isPlainObject(state.settings)) errors.push('settings: debe ser un objeto.');
+  else {
+    const dbt = state.settings.defaultBillingTaxes;
+    if (dbt !== undefined && dbt !== null && !isPlainObject(dbt)) errors.push('settings.defaultBillingTaxes: debe ser un objeto.');
+    else if (isPlainObject(dbt)) checkObjectList(dbt.items, 'settings.defaultBillingTaxes.items', errors);
+  }
   if (errors.length === 0) checkJsonSafe(state, '', errors);
   return { ok: errors.length === 0, errors: errors.slice(0, 20) };
 }

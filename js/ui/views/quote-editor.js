@@ -265,6 +265,7 @@ export function stepOfPath(path) {
       return 'risk';
     case 'pricing':
     case 'rules':
+    case 'billingTaxes':
       return 'margin';
     default:
       return 'service';

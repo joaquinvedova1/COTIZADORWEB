@@ -15,7 +15,8 @@ import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES } from '../domain/catalogs.js';
 import { contingencyPctOf } from './cost-engine.js';
-import { isValidMarginPct } from './pricing-engine.js';
+import { isValidMarginPct, isValidMarginAndTaxes } from './pricing-engine.js';
+import { billingTaxInfo } from './billing-taxes-engine.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
@@ -159,19 +160,35 @@ export function evaluateCompleteness(quote = {}) {
   items.push(rule('contingency', 'Imprevistos (contingencia)', 'risk', 1, contOk ? 'ok' : 'warning',
     contOk ? 'Contingencia configurada.' : 'Sin contingencia: cualquier imprevisto sale del margen.'));
 
-  // 13. Margen (un margen inválido — ≥ 100 %, negativo o texto — no cuenta como definido)
+  // 13. Margen (un margen inválido — ≥ 100 %, negativo o texto — no cuenta como
+  // definido; tampoco uno que, sumado a los impuestos sobre la facturación, llega a 100 %)
+  const taxes = billingTaxInfo(quote);
   const marginBlank = isBlank(pricing.targetMarginPct);
   const marginValue = toNumber(pricing.targetMarginPct, NaN);
   const marginInvalid = !marginBlank && !isValidMarginPct(marginValue);
+  const marginTooHighWithTaxes = !marginBlank && !marginInvalid && !isValidMarginAndTaxes(marginValue, taxes.pct);
   const marginPositive = !marginBlank && !marginInvalid && marginValue > 0;
-  items.push(rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid ? 'missing' : marginPositive ? 'ok' : 'warning',
+  items.push(rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid || marginTooHighWithTaxes ? 'missing' : marginPositive ? 'ok' : 'warning',
     marginBlank
       ? 'Falta definir el margen objetivo.'
       : marginInvalid
         ? 'El margen objetivo debe ser mayor o igual a 0 y menor a 100 %.'
-        : marginPositive
-          ? 'Margen objetivo definido.'
-          : 'Margen objetivo en 0 %: cotizás sin ganancia.'));
+        : marginTooHighWithTaxes
+          ? `Con ${taxes.pct} % de impuestos sobre lo que facturás, el margen tiene que ser menor a ${100 - taxes.pct} %.`
+          : marginPositive
+            ? 'Margen objetivo definido.'
+            : 'Margen objetivo en 0 %: cotizás sin ganancia.'));
+
+  // 13b. Impuestos sobre lo que facturás (Ingresos Brutos, débitos y créditos, sellos…)
+  items.push(rule('billing_taxes', 'Impuestos sobre lo que facturás', 'margin', 1,
+    taxes.invalid ? 'missing' : taxes.defined ? 'ok' : 'warning',
+    taxes.invalid
+      ? 'Hay un porcentaje de impuestos inválido (negativo, no numérico o un total de 100 % o más): corregilo.'
+      : taxes.notApplicable
+        ? 'Marcado como "no pago impuestos sobre lo que facturo".'
+        : taxes.defined
+          ? 'Impuestos sobre la facturación definidos.'
+          : 'Sin definir: la tarifa piso no incluye los impuestos que pagás sobre lo que facturás (Ingresos Brutos, débitos y créditos, sellos). Cargalos o marcá que no aplican.'));
 
   // 14. Standby (on-call)
   if (isOnCall) {

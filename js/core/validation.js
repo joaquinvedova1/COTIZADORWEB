@@ -22,6 +22,7 @@ export const RULES = Object.freeze({
   percent: { min: 0, max: 100, message: 'El porcentaje debe estar entre 0 y 100.' },
   percentOpen: { min: 0, max: 1000, message: 'El porcentaje debe estar entre 0 y 1000.' },
   margin: { min: 0, max: 100, exclusiveMax: true, message: 'El margen debe ser mayor o igual a 0 y menor a 100 %.' },
+  billingTax: { min: 0, max: 100, exclusiveMax: true, message: 'El impuesto sobre la facturación debe ser mayor o igual a 0 y menor a 100 %.' },
   utilization: { min: 0, max: 100, exclusiveMin: true, message: 'La utilización debe ser mayor a 0 y hasta 100 %.' },
   positive: { min: 0, exclusiveMin: true, message: 'Debe ser mayor a 0.' },
   years: { min: 0, max: 100, exclusiveMin: true, message: 'La vida útil debe ser mayor a 0 años.' },
@@ -165,6 +166,43 @@ export function validateQuote(quote) {
   check('pricing.customMarginPct', p.customMarginPct, 'margin');
   check('pricing.knownRate', p.knownRate, 'money');
   check('pricing.commercialDiscountPct', p.commercialDiscountPct, 'percent');
+
+  // Impuestos sobre la facturación: cada % entre 0 y < 100, el total < 100 y
+  // margen + impuestos < 100 (si no, no existe un precio que deje ese margen).
+  const bt = isPlainObject(quote.billingTaxes) ? quote.billingTaxes : {};
+  if (bt.notApplicable !== true) {
+    let taxTotal = 0;
+    let taxesOk = true;
+    const checkTax = (path, value) => {
+      const r = validateNumber(value, 'billingTax');
+      if (!r.ok) {
+        taxesOk = false;
+        issues.push({ path, message: r.error, severity: 'error' });
+      } else if (r.value !== null) {
+        taxTotal += r.value;
+      }
+    };
+    if (bt.mode === 'detailed') {
+      (Array.isArray(bt.items) ? bt.items : []).forEach((it, i) => {
+        if (isPlainObject(it)) checkTax(`billingTaxes.items.${i}.pct`, it.pct);
+      });
+    } else {
+      checkTax('billingTaxes.combinedPct', bt.combinedPct);
+    }
+    if (taxesOk && taxTotal >= 100) {
+      taxesOk = false;
+      issues.push({ path: 'billingTaxes', message: 'Los impuestos sobre la facturación suman 100 % o más: revisá los porcentajes.', severity: 'error' });
+    }
+    const margin = validateNumber(p.targetMarginPct, 'margin');
+    if (taxesOk && taxTotal > 0 && margin.ok && margin.value !== null && margin.value + taxTotal >= 100) {
+      const limit = Math.round((100 - taxTotal) * 100) / 100;
+      issues.push({
+        path: 'pricing.targetMarginPct',
+        message: `Con ${String(Math.round(taxTotal * 100) / 100).replace('.', ',')} % de impuestos sobre la facturación, el margen tiene que ser menor a ${String(limit).replace('.', ',')} %.`,
+        severity: 'error',
+      });
+    }
+  }
 
   const rules = isPlainObject(quote.rules) ? quote.rules : {};
   (Array.isArray(rules.volumeTiers) ? rules.volumeTiers : []).forEach((t, i) => {

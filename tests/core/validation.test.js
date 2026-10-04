@@ -30,6 +30,7 @@ const BOUNDARIES = {
   percent: [[0, 50, 100], [-0.01, 100.01]],
   percentOpen: [[0, 100, 1000], [-1, 1000.5]],
   margin: [[0, 10, 99.99], [100, 100.5, -1, -0.01]],
+  billingTax: [[0, 3.5, 99.99], [100, 120, -0.01]],
   utilization: [[0.01, 50, 100], [0, -1, 100.01]],
   positive: [[0.0001, 1, 1e9], [0, -1]],
   years: [[0.5, 10, 100], [0, -1, 101]],
@@ -226,6 +227,62 @@ describe('validateQuote', () => {
 
   test('cotización sin secciones no rompe', () => {
     assert.deepEqual(validateQuote({}), []);
+  });
+});
+
+describe('validateQuote — impuestos sobre la facturación (PLAN-2026-002)', () => {
+  const base = () => {
+    const q = createEmptyQuote({ organizationId: 'o' });
+    q.pricing.targetMarginPct = 10;
+    return q;
+  };
+  const errorsOf = (q) => validateQuote(q).filter((i) => i.severity === 'error');
+
+  test('sin definir, "no aplica" o un % válido → sin errores', () => {
+    assert.deepEqual(errorsOf(base()), []);
+    const na = base();
+    na.billingTaxes = { mode: 'combined', notApplicable: true, combinedPct: 250, items: [] };
+    assert.deepEqual(errorsOf(na), [], '"no aplica" ignora un % viejo cargado');
+    const ok = base();
+    ok.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: '4,5', items: [] };
+    assert.deepEqual(errorsOf(ok), []);
+  });
+
+  test('% total negativo, ≥ 100 o texto → error en billingTaxes.combinedPct', () => {
+    for (const bad of [-1, 100, 'abc']) {
+      const q = base();
+      q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: bad, items: [] };
+      const errors = errorsOf(q);
+      assert.equal(errors.length, 1, String(bad));
+      assert.equal(errors[0].path, 'billingTaxes.combinedPct');
+    }
+  });
+
+  test('detalle: valida cada renglón y que el total sea < 100; el % total no se mira en modo detalle', () => {
+    const q = base();
+    q.billingTaxes = { mode: 'detailed', notApplicable: false, combinedPct: -5, items: [{ id: 'a', kind: 'gross_income', label: 'IB', pct: -1 }, { id: 'b', kind: 'stamp', label: 'Sellos', pct: 1 }] };
+    assert.deepEqual(errorsOf(q).map((e) => e.path), ['billingTaxes.items.0.pct']);
+    q.billingTaxes.items = [{ id: 'a', kind: 'other', label: 'x', pct: 60 }, { id: 'b', kind: 'other', label: 'y', pct: 40 }];
+    assert.deepEqual(errorsOf(q).map((e) => e.path), ['billingTaxes']);
+  });
+
+  test('margen + impuestos ≥ 100 % → error en el margen con el límite explicado', () => {
+    const q = base();
+    q.pricing.targetMarginPct = 92;
+    q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: 8, items: [] };
+    const errors = errorsOf(q);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].path, 'pricing.targetMarginPct');
+    assert.equal(errors[0].message, 'Con 8 % de impuestos sobre la facturación, el margen tiene que ser menor a 92 %.');
+    q.pricing.targetMarginPct = 91.99;
+    assert.deepEqual(errorsOf(q), []);
+  });
+
+  test('el mensaje usa coma decimal', () => {
+    const q = base();
+    q.pricing.targetMarginPct = 97;
+    q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: 3.5, items: [] };
+    assert.equal(errorsOf(q)[0].message, 'Con 3,5 % de impuestos sobre la facturación, el margen tiene que ser menor a 96,5 %.');
   });
 });
 

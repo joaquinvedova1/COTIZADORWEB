@@ -10,6 +10,7 @@
 
 import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS } from './catalogs.js';
 import { defaultSettings, defaultRiskItems, defaultVolumeTiers } from './quote-factory.js';
+import { emptyBillingTaxes } from './billing-taxes.js';
 
 export const DEMO_TIMESTAMP = '2026-10-01T12:00:00.000Z';
 export const DEMO_ORG_ID = '00000000-0000-4000-8000-000000000001';
@@ -277,6 +278,9 @@ export function demoHydroCraneQuote() {
       commercialDiscountPct: 0,
       roundingStep: 1000,
     },
+    // Sin definir a propósito: RATEOS no trae alícuotas (cada empresa carga
+    // las suyas). La interfaz avisa que la tarifa piso no los incluye.
+    billingTaxes: emptyBillingTaxes(),
     rules: {
       availabilityFeeMonthly: 0,
       calloutFeePerActivation: 0,
@@ -332,7 +336,8 @@ export function demoReferenceQuote() {
 export function demoServiceTemplates() {
   const hydro = demoHydroCraneQuote();
   const strip = (q) => {
-    const { id, organizationId, createdAt, updatedAt, createdBy, updatedBy, code, status, client, illustrative, templateId, ...rest } = q;
+    // Los impuestos sobre la facturación son de la empresa, no de la plantilla.
+    const { id, organizationId, createdAt, updatedAt, createdBy, updatedBy, code, status, client, illustrative, templateId, billingTaxes, ...rest } = q;
     return rest;
   };
   const t = (n, name, serviceType, description, defaults = {}) => ({

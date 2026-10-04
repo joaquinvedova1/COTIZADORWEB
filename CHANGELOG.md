@@ -12,9 +12,20 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
-Rediseño de experiencia de usuario: **simple en la superficie, potente por debajo.** No cambia ninguna fórmula económica, ni el formato de los datos (`schemaVersion` sigue en 1), ni los golden cases. Ninguna capacidad se eliminó: lo avanzado quedó colapsado o en pantallas secundarias. Guía en [docs/UX.md](docs/UX.md).
+Dos cambios en esta versión:
+
+1. **Rediseño de experiencia de usuario**: simple en la superficie, potente por debajo. No cambia ninguna fórmula económica. Ninguna capacidad se eliminó: lo avanzado quedó colapsado o en pantallas secundarias. Guía en [docs/UX.md](docs/UX.md).
+2. **Impuestos sobre la facturación con gross-up exacto** (PLAN-2026-002, a partir del análisis conceptual de una estructura de costos profesional: [docs/REFERENCE_COST_STRUCTURE.md](docs/REFERENCE_COST_STRUCTURE.md)). **Es un cambio de regla de negocio** y **sube el esquema de datos a 2** (con migración). Con los impuestos sin definir —el estado de todas las cotizaciones existentes y de la demo— **ningún número cambia** (baseline de regresión). Detalle abajo.
 
 ### Agregado
+
+- **Impuestos sobre lo que facturás** (Ingresos Brutos, débitos y créditos, sellos, otros cargos sobre lo facturado). No son costo: se pagan sobre el precio, así que se cubren con un gross-up exacto junto con el margen: `facturación necesaria = costo / (1 − margen − impuestos)`. Costo 100, margen 10 %, impuestos 10 % → **125** (no 121 ni 123,46); tarifa piso 111,11. Se cargan como "Un % total" o "Detalle por impuesto" (excluyentes) o se marca "no pago impuestos sobre lo que facturo". **RATEOS no trae alícuotas**: sin definir, la tarifa piso no los incluye y se avisa. Valor de la empresa (`settings.defaultBillingTaxes`) para cotizaciones nuevas. Fórmulas en [docs/CALCULATION_RULES.md §13.1](docs/CALCULATION_RULES.md#131-impuestos-sobre-la-facturación-gross-up).
+- `js/engines/billing-taxes-engine.js` (`billingTaxInfo`, `billingTaxConfigInfo`, `traceBillingTaxes`), `js/domain/billing-taxes.js` (forma de los datos) y en `pricing-engine` `priceFromMarginAndTaxes`, `effectiveMarkupPct`, `isValidMarginAndTaxes`. Nuevos KPIs: `billingTaxes`, `billingTaxPct`, `billingTaxesDefined`, `billingTaxesInvalid`, `targetMarginInvalid`, `targetMarkupPct`, `priceToCostMultiplier`; traza "Impuestos sobre lo que facturás".
+- Regla de completitud `billing_taxes` (peso 1): naranja si están sin definir, rojo si hay un % inválido.
+- Validación: cada impuesto entre 0 y < 100 %, total < 100 % y margen + impuestos < 100 % ("Con X % de impuestos sobre la facturación, el margen tiene que ser menor a (100 − X) %").
+- Golden cases: `gross-up-impuestos-facturacion` (125), `tarifa-piso-con-impuestos` (111,11), `markup-efectivo-con-impuestos` (12,5 %), `on-call-break-even-con-impuestos` (11,54 días), `on-call-tarifa-minima-6-dias-con-impuestos` (6.666.666,67) y `on-call-cotizacion-con-impuestos` (piso 4.444.444,44, objetivo 5.000.000, resultado 10 %). Tests de invariantes: facturación = costo + impuestos + resultado.
+- **Red de seguridad** `tests/engines/regression-baseline.test.js` + `tests/fixtures/baseline-v1.json`: con impuestos sin definir, KPIs, EECC, matriz y tramos de 21 casos (demo, referencia, plantillas y variantes sintéticas) son idénticos a los del motor anterior.
+- [docs/REFERENCE_COST_STRUCTURE.md](docs/REFERENCE_COST_STRUCTURE.md): lógica conceptual de una estructura de costos profesional y decisiones de diseño, sin datos de la planilla de referencia (privada, fuera del repo). Las planillas (`.xls`, `.xlsx`, `.ods`…) quedan excluidas por `.gitignore` y un test de arquitectura.
 
 - **Sitio público separado de la aplicación.** Landing en `#/` ("Cotizá servicios sabiendo cuánto te cuestan."), con mockup del producto calculado en vivo sobre la demo ILUSTRATIVA, tres resultados (cuánto te cuesta, cuánto cobrar, cuánto necesitás trabajar), "¿Te pasa esto?", cómo funciona en 3 pasos y para quién.
 - **Demo guiada** `#/demo` de "Hidrogrúa on-call — Añelo" en 4 pasos antes del análisis completo, con un selector de días activos que recalcula la tarifa piso sin guardar cambios. `QuoteService.ensureDemoQuote()` vuelve a crear la demo si se había borrado (con un código nuevo; nunca reutiliza códigos).
@@ -25,6 +36,14 @@ Rediseño de experiencia de usuario: **simple en la superficie, potente por deba
 
 ### Cambiado
 
+- **Regla de negocio — tarifas con impuestos sobre la facturación** (sólo cuando la cotización los define; con `t = 0` todo queda igual):
+  - Tarifa piso = costo / (1 − t); precio objetivo = costo / (1 − margen − t); resultado = facturación × (1 − t) − costo; margen = resultado / facturación (antes de Ganancias); markup efectivo = m / (1 − m − t).
+  - Break-even: contribución por día = tarifa × (1 − t) − variable (caso básico con t 10 %: 11,54 días; sin impuestos sigue en **10 días**). Tarifa mínima para D días = (F / D + v) / (1 − t).
+  - Matriz tarifa × días, tramos de descuento, escalera de precios, escenarios, sensibilidad y comparador de modelos usan el mismo t (el mínimo garantizado del comparador pasa a `Fijos / (1 − t)`).
+  - Una tarifa que cubre el costo pero no los impuestos ahora es "bajo piso" (pierde plata).
+- **Regla de negocio — margen objetivo inválido.** Un margen ≥ 100 %, negativo o no numérico, o margen + impuestos ≥ 100 %, ya **no** se reemplaza por 0 % en silencio: no hay precio objetivo ni tarifa sugerida, la cotización queda "con riesgo" y las trazas lo explican (antes la "sugerida" quedaba igual a la piso). Un margen vacío sigue calculándose con 0 % (y la completitud lo marca en rojo).
+- **Completitud**: la regla nueva suma peso 1 a todas las cotizaciones. Con impuestos sin definir, la demo pasa de 95,45 % a 93,48 % y el caso de referencia de 78,57 % a 76,67 %; una cotización en blanco sube de 33,33 % a 34,21 %. Una cotización apenas por encima de 85 % o de 60 % puede cambiar de color o quedar "con riesgo" hasta que se definan los impuestos o se marque que no aplican.
+- **Esquema de datos 1 → 2** (`migrateV1ToV2`): cada cotización recibe `billingTaxes` sin definir y la configuración `defaultBillingTaxes: null`; nada se borra (valores ajenos van a `legacy`) y antes se guarda la copia `pre-migration-v1`. Datos v1 con estructura inesperada se migran y reparan sin perder nada. Una pestaña con la versión anterior abierta pasa a sólo lectura al ver datos v2. Los backups v1 se importan migrándolos.
 - La aplicación arranca en `#/inicio`: "Hola. ¿Qué querés cotizar hoy?", continuar el último borrador, **3 indicadores** (cotizaciones activas, margen promedio, en riesgo) y "Tus cotizaciones"; el resto de los indicadores y atajos, colapsado.
 - Menú lateral simplificado: Inicio, Cotizaciones, Recursos (personal, equipos, materiales, ubicaciones), Servicios, Escenarios y, separado, Configuración (empresa, parámetros económicos, convenios, datos y backup, acerca de). Navegación mobile con menú desplegable.
 - Editor de cotización agrupado en **5 etapas** (El servicio, Los recursos, Las condiciones, El precio, Resultado) sobre los mismos 11 pasos internos y las mismas URLs; cada paso abre con una pregunta y por qué importa; datos principales separados de "Opciones avanzadas"; resumen en vivo reducido a 4 números.

@@ -25,7 +25,7 @@
 import { isPlainObject } from '../core/object.js';
 import { nonNegative, pct, safeDivide, isFiniteNumber } from '../core/money.js';
 import { NUMERIC_EPSILON } from '../config.js';
-import { isValidMarginPct } from './pricing-engine.js';
+import { priceFromMarginAndTaxes } from './pricing-engine.js';
 import { DEFAULT_VOLUME_TIERS } from '../domain/catalogs.js';
 
 // Tramos por defecto (dato de dominio): se definen en catalogs.js y se
@@ -200,21 +200,23 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
 
 /**
  * Tarifa NETA por unidad necesaria para lograr un margen sobre la
- * facturación total, dado el costo total y los otros ingresos.
- * No considera el mínimo garantizado (criterio conservador).
+ * facturación total, dado el costo total, los otros ingresos y los impuestos
+ * sobre la facturación (t). No considera el mínimo garantizado (criterio
+ * conservador). Los otros ingresos también tributan: se restan de la
+ * facturación necesaria ya calculada con el gross-up.
  *
- *   tarifaNeta = (Costo / (1 − margen) − otrosIngresos) / unidades
+ *   tarifaNeta = (Costo / (1 − margen − t) − otrosIngresos) / unidades
  *
- * @returns {{ rate: number|null, coveredByOtherRevenue: boolean }}
+ * @returns {{ rate: number|null, coveredByOtherRevenue: boolean, requiredRevenue: number|null, invalid?: boolean }}
  */
-export function requiredNetRate({ totalCost, marginPct = 0, billableUnits: units, otherRevenue = 0 }) {
-  if (!isValidMarginPct(marginPct) || !isFiniteNumber(totalCost)) return { rate: null, coveredByOtherRevenue: false };
-  const requiredRevenue = totalCost / (1 - pct(marginPct));
+export function requiredNetRate({ totalCost, marginPct = 0, billingTaxPct = 0, billableUnits: units, otherRevenue = 0 }) {
+  const requiredRevenue = priceFromMarginAndTaxes(totalCost, marginPct, billingTaxPct);
+  if (requiredRevenue === null) return { rate: null, coveredByOtherRevenue: false, requiredRevenue: null, invalid: isFiniteNumber(totalCost) };
   const remaining = requiredRevenue - nonNegative(otherRevenue);
   const rate = safeDivide(remaining, units, null);
-  if (rate === null) return { rate: null, coveredByOtherRevenue: remaining <= 0 };
-  if (rate < 0) return { rate: 0, coveredByOtherRevenue: true };
-  return { rate, coveredByOtherRevenue: false };
+  if (rate === null) return { rate: null, coveredByOtherRevenue: remaining <= 0, requiredRevenue };
+  if (rate < 0) return { rate: 0, coveredByOtherRevenue: true, requiredRevenue };
+  return { rate, coveredByOtherRevenue: false, requiredRevenue };
 }
 
 /** Tarifa de lista necesaria para cobrar una tarifa neta, dado el factor de descuento. */

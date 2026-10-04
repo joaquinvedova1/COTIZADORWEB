@@ -1,0 +1,16 @@
+{
+  "id": "on-call-tarifa-minima-6-dias-con-impuestos",
+  "title": "Tarifa mínima para no perder con 6 días e impuestos 10 %: 6.666.666,67",
+  "rule": "Tarifa mínima = (fijos / días + variable) / (1 − impuestos) = (30M / 6 + 1M) / 0,9 = 6.666.666,67. Sin impuestos es 6M (golden on-call-tarifa-minima-6-dias).",
+  "engine": "break-even.minimumRateForDays",
+  "inputs": {
+    "fixedCosts": 30000000,
+    "variableCostPerDay": 1000000,
+    "activeDays": 6,
+    "billingTaxPct": 10
+  },
+  "expected": {
+    "value": 6666666.666666667
+  },
+  "tolerance": 1e-06
+}

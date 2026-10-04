@@ -6,7 +6,9 @@
  * A mayor utilización, menor tarifa unitaria necesaria (los costos fijos se
  * reparten entre más días). A menor utilización, mayor tarifa necesaria.
  *
- *   tarifa necesaria(D, margen) = (Costo(D) / (1 − margen) − otrosIngresos(D)) / unidades(D)
+ *   tarifa necesaria(D, margen) = (Costo(D) / (1 − margen − t) − otrosIngresos(D)) / unidades(D)
+ *
+ * (t = impuestos sobre la facturación del contexto económico; 0 si no hay.)
  */
 
 import { DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';

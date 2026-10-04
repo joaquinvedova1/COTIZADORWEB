@@ -13,7 +13,8 @@ import { nonNegative, toNumber, pct, isFiniteNumber } from '../core/money.js';
 import { computeQuote } from './quote-engine.js';
 import { buildCostModel, costAtActivity, normalizeActivity, monthsFactor } from './cost-engine.js';
 import { findBreakEvenDays } from './break-even-engine.js';
-import { marginFromPrice } from './pricing-engine.js';
+import { marginFromPrice, isValidMarginAndTaxes } from './pricing-engine.js';
+import { billingTaxInfo } from './billing-taxes-engine.js';
 
 export const SENSITIVITY_VARIABLES = Object.freeze([
   { id: 'salariesPct', label: 'Salarios', unit: '%' },
@@ -82,6 +83,7 @@ function pickKpis(result) {
     targetNetRate: k.targetNetRate,
     commercialListRate: k.commercialListRate,
     revenue: k.revenue,
+    billingTaxes: k.billingTaxes,
     profit: k.profit,
     marginPct: k.marginPct,
     breakEvenDays: k.breakEvenDays,
@@ -168,25 +170,37 @@ export function runScenarios(quote, { settings = {}, scenarios = null } = {}) {
  * Comparador de modelos comerciales (tarifa por día).
  * Cada modelo se calibra para lograr el margen objetivo con la actividad
  * estimada y luego se evalúa con actividad pesimista y con 0 días.
+ * Con impuestos sobre la facturación (t), k = 1 − m − t y cada peso facturado
+ * deja (1 − t): Resultado(D) = R(D)·(1 − t) − C(D).
  *
- *   1. Sólo tarifa por día:          R(D) = p·D,  p = C(De) / ((1−m)·De)
- *   2. Disponibilidad + día:         R(D) = Fee + q·D,  Fee = Fijos/(1−m), q = Variable/día/(1−m)
- *   3. Mínimo garantizado + día:     R(D) = max(G, p·D),  G = costos fijos del mes
- *   4. Paquete mensual + excedentes: R(D) = Paquete + p·max(0, D − De),  Paquete = C(De)/(1−m)
+ *   1. Sólo tarifa por día:          R(D) = p·D,  p = C(De) / (k·De)
+ *   2. Disponibilidad + día:         R(D) = Fee + q·D,  Fee = Fijos/k, q = Variable/día/k
+ *   3. Mínimo garantizado + día:     R(D) = max(G, p·D),  G = costos fijos del mes / (1 − t)
+ *   4. Paquete mensual + excedentes: R(D) = Paquete + p·max(0, D − De),  Paquete = C(De)/k
  */
 export function compareCommercialModels(quote, { settings = {}, pessimisticActivityPct = null } = {}) {
   const model = buildCostModel(quote);
   const De = model.activity.activeDaysPerMonth;
   const available = model.activity.availableDaysPerMonth;
   const m = toNumber((quote.pricing || {}).targetMarginPct, 0);
+  const t = billingTaxInfo(quote).pct;
   if (!(De > 0) || !(m >= 0 && m < 100)) return { models: [], estimatedDays: De, pessimisticDays: null, reason: 'Cargá la actividad estimada y un margen válido para comparar modelos.' };
+  if (!isValidMarginAndTaxes(m, t)) {
+    return { models: [], estimatedDays: De, pessimisticDays: null, billingTaxPct: t, reason: `Con ${t} % de impuestos sobre la facturación, el margen objetivo tiene que ser menor a ${100 - t} % para comparar modelos.` };
+  }
   const pessPct = pessimisticActivityPct ?? (settings.scenarios || DEFAULT_SCENARIOS).pessimistic.activityPct;
   const Dp = Math.max(0, De * (1 + pessPct / 100));
-  const k = 1 - m / 100;
+  const k = 1 - (m + t) / 100;
+  const keep = 1 - t / 100;
   const C = (D) => costAtActivity(model, D).total;
   const fixed = costAtActivity(model, 0).total;
   const variablePerDay = model.variablePerActiveDay;
   const p = C(De) / (k * De);
+  // Resultado y margen después de los impuestos sobre lo facturado.
+  const profitOf = (revenue, D) => revenue * keep - C(D);
+  const marginOf = (revenue, D) => marginFromPrice(C(D) + (revenue * t) / 100, revenue);
+  // Mínimo garantizado: cubre los costos fijos DESPUÉS de impuestos.
+  const guarantee = fixed / keep;
 
   // Montos mensuales (fee, mínimo) se prorratean igual que los costos fijos
   // cuando los días superan los disponibles (trabajo de más de un mes).
@@ -194,17 +208,17 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
   const definitions = [
     { id: 'day_rate', label: 'Sólo tarifa por día', params: { ratePerDay: p }, revenue: (D) => p * D },
     { id: 'availability_plus_day', label: 'Abono de disponibilidad + tarifa por día', params: { availabilityFee: fixed / k, ratePerDay: variablePerDay / k }, revenue: (D) => (fixed / k) * mf(D) + (variablePerDay / k) * D },
-    { id: 'guarantee_plus_day', label: 'Mínimo garantizado + tarifa por día', params: { minimumGuarantee: fixed, ratePerDay: p }, revenue: (D) => Math.max(fixed * mf(D), p * D) },
+    { id: 'guarantee_plus_day', label: 'Mínimo garantizado + tarifa por día', params: { minimumGuarantee: guarantee, ratePerDay: p }, revenue: (D) => Math.max(guarantee * mf(D), p * D) },
     { id: 'package_plus_excess', label: 'Paquete mensual + excedentes', params: { packagePrice: C(De) / k, includedDays: De, excessRatePerDay: p }, revenue: (D) => C(De) / k + p * Math.max(0, D - De) },
   ];
 
   const models = definitions.map((d) => {
     const expectedRevenue = d.revenue(De);
-    const expectedProfit = expectedRevenue - C(De);
+    const expectedProfit = profitOf(expectedRevenue, De);
     const pessRevenue = d.revenue(Dp);
-    const pessProfit = pessRevenue - C(Dp);
-    const pessMargin = marginFromPrice(C(Dp), pessRevenue);
-    const be = findBreakEvenDays((D) => d.revenue(D) - C(D), { maxDays: available });
+    const pessProfit = profitOf(pessRevenue, Dp);
+    const pessMargin = marginOf(pessRevenue, Dp);
+    const be = findBreakEvenDays((D) => profitOf(d.revenue(D), D), { maxDays: available });
     let risk = 'low';
     if (pessProfit < 0) risk = 'high';
     else if (isFiniteNumber(pessMargin) && pessMargin < m / 2) risk = 'medium';
@@ -214,7 +228,7 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
       params: d.params,
       expectedRevenue,
       expectedProfit,
-      expectedMarginPct: marginFromPrice(C(De), expectedRevenue),
+      expectedMarginPct: marginOf(expectedRevenue, De),
       pessimisticRevenue: pessRevenue,
       pessimisticProfit: pessProfit,
       pessimisticMarginPct: pessMargin,
@@ -224,5 +238,5 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
       risk,
     };
   });
-  return { models, estimatedDays: De, pessimisticDays: Dp, targetMarginPct: m };
+  return { models, estimatedDays: De, pessimisticDays: Dp, targetMarginPct: m, billingTaxPct: t };
 }

@@ -1,0 +1,19 @@
+{
+  "id": "on-call-break-even-con-impuestos",
+  "title": "Break-even on-call con 10 % de impuestos sobre la facturación: 11,54 días (12 enteros)",
+  "rule": "Cada peso facturado deja (1 − impuestos): contribución/día = tarifa × (1 − t) − variable = 4M × 0,9 − 1M = 2,6M; break-even = 30M / 2,6M = 11,538 días. Con t = 0 sigue siendo 10 días (golden on-call-basico).",
+  "engine": "break-even.simple",
+  "inputs": {
+    "fixedCosts": 30000000,
+    "variableCostPerDay": 1000000,
+    "ratePerDay": 4000000,
+    "billingTaxPct": 10
+  },
+  "expected": {
+    "reachable": true,
+    "contributionPerDay": 2600000,
+    "days": 11.538461538461538,
+    "wholeDays": 12
+  },
+  "tolerance": 1e-06
+}

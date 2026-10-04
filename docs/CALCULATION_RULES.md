@@ -1,6 +1,6 @@
 # Reglas de cálculo de RATEOS
 
-Este documento describe **todas** las fórmulas del motor económico tal como están implementadas en `js/engines/` (v0.1.0). Es parte de la especificación funcional: si una fórmula cambia, este documento, los tests y el [CHANGELOG](../CHANGELOG.md) cambian en el mismo Pull Request (ver [AGENTS.md](../AGENTS.md), "Protección del motor").
+Este documento describe **todas** las fórmulas del motor económico tal como están implementadas en `js/engines/` (v0.1.0 + cambios en curso del [CHANGELOG](../CHANGELOG.md), "Sin publicar"). Es parte de la especificación funcional: si una fórmula cambia, este documento, los tests y el [CHANGELOG](../CHANGELOG.md) cambian en el mismo Pull Request (ver [AGENTS.md](../AGENTS.md), "Protección del motor").
 
 > **Valores ILUSTRATIVOS.** Los ejemplos numéricos usan los datos demo de *Patagonia Servicios SRL* (empresa ficticia) o casos de referencia sintéticos. No son escalas salariales, cargas patronales, alícuotas, precios ni costos reales.
 
@@ -10,6 +10,7 @@ Convenciones:
 - `D` = días activos (facturables) del mes. `F` = costos fijos mensuales. `v` = costo variable por día activo.
 - Los motores calculan con valores internos **sin redondear**. El redondeo sólo se aplica al mostrar (ver [Redondeos y precisión](#18-redondeos-y-precisión)).
 - Todas las funciones son puras: mismos inputs → mismos outputs. Ninguna devuelve `NaN`, `Infinity` ni `-Infinity`; cuando un resultado no existe devuelven `null` y la UI muestra "—".
+- **Todo es sin IVA**: costos, tarifas, facturación y resultado. `t` = impuestos que se pagan sobre lo que se factura (Ingresos Brutos, débitos y créditos, sellos…), en puntos; 0 si no aplican o están sin definir (§13.1). El margen es **antes de Ganancias**.
 
 ## Índice
 
@@ -26,6 +27,7 @@ Convenciones:
 11. [Margen vs markup](#11-margen-vs-markup)
 12. [Unidades, reglas comerciales y facturación](#12-unidades-reglas-comerciales-y-facturación)
 13. [Tarifa piso, precio objetivo y precio comercial](#13-tarifa-piso-precio-objetivo-y-precio-comercial)
+    - [13.1 Impuestos sobre la facturación (gross-up)](#131-impuestos-sobre-la-facturación-gross-up)
 14. [Descuentos por volumen y continuidad](#14-descuentos-por-volumen-y-continuidad)
 15. [Break-even y días para margen objetivo](#15-break-even-y-días-para-margen-objetivo)
 16. [Utilización y matriz tarifa × utilización](#16-utilización-y-matriz-tarifa--utilización)
@@ -409,7 +411,16 @@ Margen 10 % ≡ markup 11,11 %. Markup 10 % ≡ margen 9,09 %.
 
 Validaciones (`isValidMarginPct`): el margen debe cumplir `0 ≤ margen < 100`; fuera de ese rango `priceFromMargin` y `marginToMarkup` devuelven `null`. `priceFromMarkup` acepta markup ≥ −100. `marginFromPrice` devuelve `null` si el precio es 0; `markupFromPrice`, si el costo es 0.
 
-Escalera de precios (`priceLadder`): tarifa piso (margen 0), margen 5 %, 10 %, 15 % (`DEFAULT_MARGIN_LADDER` o `settings.marginLadder`) y margen personalizado (si es válido, mayor a 0 y no está en la escalera). Para costo 100: 100,00 / 105,26 / 111,11 / 117,65 / personalizado 20 % → 125,00 (markups equivalentes 0 / 5,26 / 11,11 / 17,65 / 25 %).
+**Con impuestos sobre la facturación** (`t`, §13.1) el margen sigue siendo sobre el precio, pero el precio tiene que cubrir también los impuestos:
+
+```
+precio            = costo / (1 − margen − t)          priceFromMarginAndTaxes   (válido si margen + t < 100)
+markup efectivo   = resultado / costo = margen / (1 − margen − t)              effectiveMarkupPct
+```
+
+Costo 100, margen 10 %, t 10 % → precio **125**, impuestos 12,5, resultado 12,5 (10 % del precio), markup efectivo **12,5 %** (sin impuestos sería 11,11 %). Con `t = 0` ambas funciones dan exactamente `priceFromMargin` y `marginToMarkup`.
+
+Escalera de precios (`priceLadder(costo, márgenes, personalizado, t)`): tarifa piso (margen 0), margen 5 %, 10 %, 15 % (`DEFAULT_MARGIN_LADDER` o `settings.marginLadder`) y margen personalizado (si es válido, mayor a 0 y no está en la escalera). Para costo 100 sin impuestos: 100,00 / 105,26 / 111,11 / 117,65 / personalizado 20 % → 125,00 (markups equivalentes 0 / 5,26 / 11,11 / 17,65 / 25 %). Cada fila trae además `billingTaxes` (= t × precio) y `gain` (= margen × precio), de modo que **precio = costo + impuestos + ganancia**; con t 10 %: 111,11 / 117,65 / 125,00 / 133,33. Se omiten los márgenes con margen + t ≥ 100.
 
 `traceMarginVsMarkup(costo, %)` arma la traza "Margen vs markup" con ambos precios y la diferencia, con **2 decimales** (formato `money2`) para que se vea la regla protegida: costo $ 100,00 → margen 10 % $ 111,11, markup 10 % $ 110,00, diferencia $ 1,11.
 
@@ -483,20 +494,22 @@ Archivos: `js/engines/commercial-rules-engine.js` (`requiredNetRate`, `listRateF
 | **PRECIO OBJETIVO** | Tarifa por unidad que logra el margen objetivo (`pricing.targetMarginPct`). |
 | **PRECIO COMERCIAL** | Tarifa **de lista** finalmente ofrecida al cliente. |
 
-Tarifa neta necesaria para un margen `m` sobre la facturación total:
+Tarifa neta necesaria para un margen `m` sobre la facturación total, con impuestos sobre la facturación `t` (§13.1; `t = 0` si no aplican o están sin definir):
 
 ```
-facturación necesaria = Costo(D) / (1 − m)
+facturación necesaria = Costo(D) / (1 − m − t)
 tarifa neta(m)        = (facturación necesaria − otros ingresos(D)) / unidades facturables(D)
 tarifa de lista(m)    = tarifa neta(m) / factor de descuentos
-tarifa piso           = tarifa neta(0)
+tarifa piso           = tarifa neta(0)          (cubre el costo y los impuestos: Costo / (1 − t))
 ```
+
+Los otros ingresos también tributan: se restan de la facturación necesaria ya calculada con el gross-up.
 
 - Si las unidades facturables son 0 (por ejemplo, 0 días), la tarifa es `null` ("—").
 - Si los otros ingresos ya cubren la facturación necesaria, la tarifa es 0 y se marca `coveredByOtherRevenue`.
 - Si el factor de descuentos es 0 (descuento 100 %), la tarifa de lista es `null`.
 - El **mínimo garantizado NO se usa** para calcular tarifas necesarias (criterio conservador: no se cuenta con un ingreso que sólo aparece si la actividad es baja). Sí se usa al evaluar el resultado y el break-even con una tarifa dada; por eso la alerta `belowFloor` exige además que el mes dé pérdida (§20).
-- Margen objetivo inválido (vacío, < 0 o ≥ 100) → se usa 0. Margen personalizado inválido o 0 → no se muestra.
+- Margen objetivo **vacío** → se calcula con 0 y el Cost Completeness Score lo marca en rojo. Margen objetivo **inválido** (≥ 100, < 0 o no numérico) **o margen + t ≥ 100** → no hay precio objetivo ni tarifa sugerida (`null`), `kpis.targetMarginInvalid = true`, la cotización queda `atRisk` y las trazas lo explican. Antes se usaba 0 % en silencio y la "sugerida" quedaba igual a la piso (PLAN-2026-002, PN3). Margen personalizado inválido, 0 o con margen + t ≥ 100 → no se muestra.
 
 **Tarifa comercial sugerida** = tarifa objetivo de lista redondeada **hacia arriba** al múltiplo de `pricing.roundingStep` (`commercialRound`; paso 0 = sin redondeo). Nunca baja el margen. Ejemplo demo: 2.258.948,79 → **2.259.000** con paso 1.000.
 
@@ -508,7 +521,7 @@ tarifa piso           = tarifa neta(0)
 4. `suggested`: tarifa comercial sugerida.
 5. `none`: no hay tarifa (también cuando la fuente elegida no da una tarifa mayor a 0, por ejemplo "Conozco la tarifa" sin tarifa cargada).
 
-Con esa tarifa: tarifa neta comercial = lista × factor de descuentos (con el tramo que corresponda a la actividad estimada), facturación, `resultado = facturación − costo`, margen = resultado / facturación y markup = resultado / costo.
+Con esa tarifa: tarifa neta comercial = lista × factor de descuentos (con el tramo que corresponda a la actividad estimada), facturación, `impuestos = t × facturación`, `resultado = facturación − impuestos − costo`, margen = resultado / facturación (antes de Ganancias) y markup = resultado / costo (recargo efectivo sobre el costo).
 
 Equivalencias informativas (`result.equivalents`):
 
@@ -524,7 +537,49 @@ Ejemplo demo (modo B, 8 días, ILUSTRATIVO): tarifa piso neta ≈ 1.972.062/día
 
 **Neta y de lista.** La tarifa que se escribe en la cotización es la **de lista**; la neta es lo que efectivamente se cobra después de descuentos (`neta = lista × factor de descuentos`). Para comparar con la tarifa conocida o la ofrecida hay que usar la tarifa de lista: cobrar como lista la tarifa piso **neta** (1.972.062 en la demo) deja un resultado negativo porque después se le aplica el descuento del tramo (resultado ≈ −473.297, margen ≈ −3,09 %).
 
-**Traza "Tarifa piso"** (`traces.floorRate`): entradas costo total, otros ingresos, unidades facturables y factor de descuentos (tramo × continuidad × comercial); paso intermedio "Tarifa piso neta"; resultado "Tarifa piso de lista". Fórmula: `Tarifa piso neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos`. Así el "Ver cálculo" termina en el mismo número que se muestra como tarifa piso de lista (2.033.054 en la demo).
+**Traza "Tarifa piso"** (`traces.floorRate`): entradas costo total, impuestos sobre la facturación (si t > 0), otros ingresos, unidades facturables y factor de descuentos (tramo × continuidad × comercial); pasos intermedios "Facturación necesaria" (si t > 0) y "Tarifa piso neta"; resultado "Tarifa piso de lista". Fórmula: `Tarifa piso neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos` (con t > 0, antes `Facturación necesaria = Costo total / (1 − impuestos sobre la facturación)`). Así el "Ver cálculo" termina en el mismo número que se muestra como tarifa piso de lista (2.033.054 en la demo). Con impuestos sin definir, una nota avisa que la tarifa piso **no** los incluye.
+
+### 13.1 Impuestos sobre la facturación (gross-up)
+
+Archivos: `js/engines/billing-taxes-engine.js` (`billingTaxInfo`, `billingTaxConfigInfo`, `traceBillingTaxes`), `js/domain/billing-taxes.js` (forma de los datos), `js/engines/pricing-engine.js` (`priceFromMarginAndTaxes`, `effectiveMarkupPct`). Plan: PLAN-2026-002 en [.agent/PLANS.md](../.agent/PLANS.md).
+
+Son los impuestos que se pagan **sobre lo que se factura** (sin IVA): Ingresos Brutos, impuesto a los débitos y créditos (como % equivalente sobre la facturación sin IVA), sellos del contrato y otros cargos proporcionales a lo facturado. **No son costo**: dependen del precio. Por eso no entran en la estructura de costos (EECC), ni en la base de la contingencia o del financiero, y se cubren con un **gross-up exacto** junto con el margen:
+
+```
+t                     = Σ alícuotas sobre lo facturado (puntos)
+facturación necesaria = Costo / (1 − m − t)                (sólo si m + t < 100)
+impuestos             = t × facturación
+resultado             = facturación − impuestos − costo = facturación × (1 − t) − costo
+margen                = resultado / facturación         (sobre el precio, antes de Ganancias)
+markup efectivo       = resultado / costo               (en el objetivo: m / (1 − m − t))
+```
+
+| Ejemplo sintético (costo 100) | Sin impuestos | t = 10 % |
+|---|---:|---:|
+| Tarifa piso (m = 0) | 100,00 | **111,11** |
+| Precio con margen 10 % | 111,11 | **125,00** |
+| Impuestos con margen 10 % | 0 | 12,50 |
+| Resultado con margen 10 % | 11,11 | 12,50 |
+| Markup efectivo con margen 10 % | 11,11 % | 12,50 % |
+
+Prohibido: `(1 − m)(1 − t)` (daría 123,46), aplicar t sobre el costo (121) o sobre la tarifa de lista. La base es la **facturación neta total** del mes: tarifa neta × unidades + otros ingresos + ajuste por mínimo garantizado (el ajuste también tributa).
+
+**Datos** (`quote.billingTaxes`, esquema v2), con dos modos **excluyentes** para no contar dos veces lo mismo:
+
+| Campo | Significado |
+|---|---|
+| `mode` | `combined` ("Un % total") o `detailed` ("Detalle por impuesto"). Sólo se usa el del modo elegido |
+| `combinedPct` | % total (modo `combined`) |
+| `items[]` | `{ id, kind, label, pct }` con `kind` en `BILLING_TAX_KINDS` (Ingresos Brutos, débitos y créditos, sellos, otro) — sólo nombres: **RATEOS no trae alícuotas** (AGENTS.md §7) |
+| `notApplicable` | "No pago impuestos sobre lo que facturo" → t = 0 y definido |
+
+Estados (`billingTaxInfo`): **sin definir** (ni %, ni detalle, ni "no aplica") → `t = 0`, `defined = false` y la tarifa piso NO incluye estos impuestos (la traza y la interfaz lo avisan); **definido** (incluso 0 % explícito); **inválido** (algún % negativo o no numérico, o un total ≥ 100) → se calcula con `t = 0`, `invalid = true`, `validateQuote` informa el error y la completitud lo marca en rojo. Los porcentajes en texto se leen como en la validación (`"4,5"` → 4,5).
+
+**Sellos** se modela proporcional a la facturación: es exacto con la actividad estimada y una aproximación con otra actividad (la traza lo aclara). **No incluye** IVA, Ganancias, retenciones/percepciones (pagos a cuenta) ni costo financiero (RATEOS lo calcula por plazos, §8).
+
+**Valor de la empresa** (`settings.defaultBillingTaxes`, `null` = sin definir): una cotización nueva arranca con ese valor si la empresa ya decidió (`billingTaxesForNewQuote`), **aunque la configuración sea la de demostración** (es un dato propio que cargó el usuario); si no, sin definir. Una plantilla sólo lo pisa si trae una decisión propia. La demo queda **sin definir** a propósito.
+
+**Traza** (`traces.billingTaxes`): alícuotas cargadas, facturación del mes, t total e impuestos del mes, con las notas de sin definir / inválido / Sellos / exclusiones.
 
 **Presentación hacia arriba.** Las tarifas mínimas (piso, objetivo y sugerida) que se muestran sin decimales se redondean **hacia arriba** con `formatMoneyCeil` (`js/core/format.js`): cobrar la cifra que se ve nunca deja debajo del piso o del objetivo. Ejemplo con redondeo comercial 0 (caso de referencia con 10 días): tarifa objetivo 4.444.444,44 → se muestra **$ 4.444.445** (con `formatMoney` se vería $ 4.444.444, que cobrado da un margen de 9,99999 %, "debajo del objetivo", y 11 días enteros para el margen objetivo en lugar de 10). El valor interno del motor no cambia.
 
@@ -586,15 +641,16 @@ Archivo: `js/engines/break-even-engine.js` (`breakEvenSimple`, `minimumRateForDa
 ### Fórmula cerrada
 
 ```
-contribución por día = tarifa por día − costo variable por día
+contribución por día = tarifa por día × (1 − t) − costo variable por día
 break-even (días)    = costos fijos / contribución por día
 días enteros         = ceilTolerant(break-even)       (10,0000000001 → 10, no 11)
 ```
 
 - Fijos = 0 → break-even 0 días.
-- Contribución ≤ 0 → **inalcanzable**: "La tarifa no cubre el costo variable por día: nunca se alcanza el equilibrio."
+- Contribución ≤ 0 → **inalcanzable**: "La tarifa no cubre el costo variable por día: nunca se alcanza el equilibrio." (con t > 0: "Lo que te queda de la tarifa después de los impuestos sobre la facturación no cubre el costo variable por día…"). t ≥ 100 → inalcanzable.
+- Caso básico con t = 10 %: contribución 4.000.000 × 0,9 − 1.000.000 = 2.600.000 → **11,54 días** (12 enteros). Con t = 0 sigue siendo **10 días**.
 
-**Problema inverso** (`minimumRateForDays`): `tarifa mínima = costos fijos / días + costo variable por día`. Ejemplo: fijos 30.000.000, variable 1.000.000, 6 días → **6.000.000/día** (D ≤ 0 → `null`).
+**Problema inverso** (`minimumRateForDays`): `tarifa mínima = (costos fijos / días + costo variable por día) / (1 − t)`. Ejemplo: fijos 30.000.000, variable 1.000.000, 6 días → **6.000.000/día** (con t = 10 %: 6.666.666,67; D ≤ 0 o t ≥ 100 → `null`).
 
 ### Algoritmo numérico robusto (el que usa `computeQuote`)
 
@@ -617,13 +673,15 @@ Con reglas comerciales (mínimo garantizado, tramos, minimum call, fees) el resu
 - Fee de disponibilidad 6.000.000/mes sobre el caso básico: break-even = (30.000.000 − 6.000.000) / (4.000.000 − 1.000.000) = **8 días**.
 - Mínimo garantizado 35.000.000/mes sobre el caso básico: facturación = max(35.000.000, 4.000.000 × D). Con menos de 5 días se gana (el mínimo cubre los costos), entre 5 y 10 días se pierde y desde 10 días ya no se pierde → break-even robusto **10 días** (no 0). Con 8 días se facturan 35.000.000 y se pierden 3.000.000.
 
-**Días para margen objetivo** (`kpis.targetMarginDays`): misma búsqueda sobre `resultado(D) − margen objetivo × facturación(D) ≥ 0`. Caso básico con margen 10 %: 2,6 × D − 30 ≥ 0 (en millones) → ≈ 11,54 días (12 enteros).
+**Días para margen objetivo** (`kpis.targetMarginDays`): misma búsqueda sobre `resultado(D) − margen objetivo × facturación(D) ≥ 0` (el resultado ya descuenta los impuestos sobre la facturación). Caso básico con margen 10 %: 2,6 × D − 30 ≥ 0 (en millones) → ≈ 11,54 días (12 enteros). Con margen objetivo inválido o margen + t ≥ 100 no se calcula (motivo explícito).
 
 **Traza "Ver cálculo"** (`traceBreakEven` + `linearDecomposition`): muestra costos fijos, ingresos fijos (fee de disponibilidad + standby), ingreso por tarifa por día activo (tarifa neta por unidad × unidades del día; con unidad hora es un valor **por día**, no por hora), otros ingresos por día activo, costo variable por día y contribución:
 
 ```
-break-even = (costos fijos − ingresos fijos) / (ingreso por día − costo variable por día)
+break-even = (costos fijos − ingresos fijos × (1 − t)) / (ingreso por día × (1 − t) − costo variable por día)
 ```
+
+(con t = 0 es la fórmula de siempre; la traza muestra el factor `(1 − impuestos sobre la facturación)` sólo si t > 0).
 
 La descomposición (`result.linear`) se evalúa **en el punto de equilibrio** (`max(break-even, 1)` días) cuando el break-even se alcanza y es mayor a 0, porque ahí rige el tramo de descuento que realmente aplica; si no, se evalúa con la actividad estimada. Así las entradas de la traza dan el resultado informado. Si hay reglas no lineales (mínimo garantizado, minimum call aplicado o algún tramo con descuento), la traza lo aclara: el resultado se calculó día a día, no sólo con la fórmula.
 
@@ -636,14 +694,14 @@ Archivo: `js/engines/utilization-engine.js` (`utilizationPct`, `activeDaysFromUt
 ```
 utilización %                = días activos / días disponibles × 100      (null si no hay disponibilidad)
 días activos (utilización u) = min(max(u, 0), 100) / 100 × días disponibles
-tarifa necesaria(D, m)       = (Costo(D) / (1 − m) − otros ingresos(D)) / unidades(D)
+tarifa necesaria(D, m)       = (Costo(D) / (1 − m − t) − otros ingresos(D)) / unidades(D)
 ```
 
-Con tarifa por día o por hora, a mayor utilización, menor tarifa unitaria necesaria (los fijos se reparten entre más días); a menor utilización, mayor tarifa. **Con abono mensual (`month`) es al revés:** se factura 1 abono por mes sea cual sea D (hasta los días disponibles), así que el abono necesario `Costo(D) / (1 − m)` **crece** con los días porque crece el costo variable. Ejemplo (caso de referencia en $/mes): piso 35.000.000 / 38.000.000 / 40.000.000 / 45.000.000 / 50.000.000 para 5 / 8 / 10 / 15 / 20 días.
+Con tarifa por día o por hora, a mayor utilización, menor tarifa unitaria necesaria (los fijos se reparten entre más días); a menor utilización, mayor tarifa. **Con abono mensual (`month`) es al revés:** se factura 1 abono por mes sea cual sea D (hasta los días disponibles), así que el abono necesario `Costo(D) / (1 − m − t)` **crece** con los días porque crece el costo variable. Ejemplo (caso de referencia en $/mes): piso 35.000.000 / 38.000.000 / 40.000.000 / 45.000.000 / 50.000.000 para 5 / 8 / 10 / 15 / 20 días.
 
 **Días de la matriz** (`matrixDays`): los configurados (`settings.matrixDays`, por defecto `DEFAULT_MATRIX_DAYS` = 5, 8, 10, 15, 20) + la actividad estimada si es > 0; sin duplicados, ordenados. Márgenes: `settings.marginLadder` (por defecto 5, 10, 15) + el personalizado.
 
-Cada fila tiene: días, utilización %, tarifa piso neta, tarifas neta y de lista por margen (con el tramo de esos días), costo y, si hay tarifa comercial, facturación, resultado, margen y descuento del tramo. Marca la fila de la actividad estimada (`isEstimate`) y las que superan los días disponibles (`exceedsAvailability`).
+Cada fila tiene: días, utilización %, tarifa piso neta, tarifas neta y de lista y facturación necesaria por margen (con el tramo de esos días; se omiten los márgenes con margen + t ≥ 100), costo y, si hay tarifa comercial, facturación, resultado (después de impuestos sobre la facturación), margen y descuento del tramo. Marca la fila de la actividad estimada (`isEstimate`) y las que superan los días disponibles (`exceedsAvailability`).
 
 Ejemplo (caso de referencia: fijos 30.000.000, variable 1.000.000/día, tarifa 4.000.000/día, sin reglas):
 
@@ -693,20 +751,22 @@ Cada escenario informa costo total, facturación, resultado, margen, utilizació
 
 ### Comparador de modelos comerciales (`compareCommercialModels`)
 
-Compara cuatro formas de cobrar el mismo servicio (tarifa por día). Requiere actividad estimada `De > 0` y margen objetivo válido. Con `k = 1 − margen`, `C(D)` = costo total con D días, `Fijos = C(0)`, `v` = costo variable por día y `Dp = max(0, De × (1 + actividad pesimista%))` (por defecto −25 %), cada modelo se **calibra** para lograr el margen objetivo con la actividad estimada:
+Compara cuatro formas de cobrar el mismo servicio (tarifa por día). Requiere actividad estimada `De > 0`, margen objetivo válido y margen + t < 100 (si no, devuelve `models: []` con el motivo). Con `k = 1 − margen − t`, `C(D)` = costo total con D días, `Fijos = C(0)`, `v` = costo variable por día y `Dp = max(0, De × (1 + actividad pesimista%))` (por defecto −25 %), cada modelo se **calibra** para lograr el margen objetivo con la actividad estimada **después de impuestos sobre la facturación** (`resultado(D) = R(D) × (1 − t) − C(D)`):
 
 | Modelo | Facturación R(D) | Calibración |
 |---|---|---|
 | Sólo tarifa por día | `p × D` | `p = C(De) / (k × De)` |
 | Fee de disponibilidad + tarifa por día | `Fee × factorMeses(D) + q × D` | `Fee = Fijos / k`, `q = v / k` |
-| Mínimo garantizado + tarifa por día | `max(G × factorMeses(D), p × D)` | `G = Fijos` |
+| Mínimo garantizado + tarifa por día | `max(G × factorMeses(D), p × D)` | `G = Fijos / (1 − t)` (cubre los fijos después de impuestos) |
 | Paquete mensual + excedentes | `Paquete + p × max(0, D − De)` | `Paquete = C(De) / k` |
 
 El fee y el mínimo garantizado son montos mensuales: igual que los costos fijos (§1) y que `computeRevenue` (§12), se multiplican por `factorMeses(D)` cuando los días superan los disponibles. Así `R(D) = C(D) / k` también con `De` mayor a los días disponibles y los cuatro modelos logran el margen objetivo con la actividad estimada (ejemplo: caso de referencia con De = 35 y 30 disponibles → los 4 modelos dan margen 10 % y facturan ≈ 77.777.778; antes "Fee + tarifa" daba 3,08 %).
 
-Para cada modelo: ingreso, resultado y margen esperados (con `De`), ingreso, resultado y margen pesimistas (con `Dp`), **ingreso mínimo asegurado** = R(0), break-even con el algoritmo numérico (§15) y **riesgo**: alto si el resultado pesimista es negativo; medio si el margen pesimista es menor a la mitad del objetivo; bajo en otro caso. El comparador usa una facturación simplificada (sin tramos, fees ni descuentos de la cotización) para comparar los modelos entre sí.
+Para cada modelo: ingreso, resultado y margen esperados (con `De`), ingreso, resultado y margen pesimistas (con `Dp`), **ingreso mínimo asegurado** = R(0), break-even con el algoritmo numérico (§15, con el resultado después de impuestos) y **riesgo**: alto si el resultado pesimista es negativo; medio si el margen pesimista es menor a la mitad del objetivo; bajo en otro caso. El comparador usa una facturación simplificada (sin tramos, fees ni descuentos de la cotización) para comparar los modelos entre sí.
 
-Ejemplo (caso de referencia, margen 10 %, De = 8, Dp = 6): `p ≈ 5.277.778`, `Fee ≈ 33.333.333` + `q ≈ 1.111.111`, `G = 30.000.000`, `Paquete ≈ 42.222.222`. Todos facturan ≈ 42.222.222 con 8 días; break-even ≈ 7,01 días para "sólo tarifa" y "mínimo garantizado" (riesgo alto) y 0 días para "fee + tarifa" y "paquete" (riesgo bajo).
+Ejemplo (caso de referencia, margen 10 %, sin impuestos, De = 8, Dp = 6): `p ≈ 5.277.778`, `Fee ≈ 33.333.333` + `q ≈ 1.111.111`, `G = 30.000.000`, `Paquete ≈ 42.222.222`. Todos facturan ≈ 42.222.222 con 8 días; break-even ≈ 7,01 días para "sólo tarifa" y "mínimo garantizado" (riesgo alto) y 0 días para "fee + tarifa" y "paquete" (riesgo bajo). Con t = 10 % y De = 10: `p = 5.000.000`, `G ≈ 33.333.333`; los cuatro modelos facturan 50.000.000 y dejan 5.000.000 (10 %).
+
+La sensibilidad y los escenarios conservan los impuestos de la cotización: con la tarifa fija, los impuestos se recalculan sobre la facturación de cada escenario (`billingTaxes` en cada fila).
 
 ## 18. Redondeos y precisión
 
@@ -759,10 +819,13 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 10 | `structure` | siempre | 1 | ok si el % (métodos porcentuales) o el monto es > 0; si no, naranja |
 | 11 | `payment_term` | siempre | 2 | ok si el plazo de cobro está definido (número, incluido 0); si está vacío o `null`, rojo |
 | 12 | `contingency` | siempre | 1 | ok si la contingencia total > 0; si no, naranja |
-| 13 | `margin` | siempre | 2 | rojo si está vacío o es inválido (≥ 100 %, negativo o no numérico); naranja si es 0; ok si es > 0 |
+| 13 | `margin` | siempre | 2 | rojo si está vacío, es inválido (≥ 100 %, negativo o no numérico) o margen + impuestos sobre la facturación ≥ 100 %; naranja si es 0; ok si es > 0 |
+| 13b | `billing_taxes` | siempre | 1 | ok si están definidos (un % total, algún renglón del detalle —incluso 0 %— o "no pago impuestos sobre lo que facturo"); naranja si están sin definir ("la tarifa piso no los incluye"); rojo si hay un % inválido |
 | 14 | `standby` | on-call | 1 | ok si hay tarifa de standby o se marcó "no aplica"; si no, naranja |
 
-Los pendientes (`pending`) se ordenan rojos primero. Ejemplos: demo Hidrogrúa **95,45 %** (pendientes en naranja: relevos y standby); caso de referencia **78,57 %** (personal en rojo; estructura y contingencia en naranja).
+Los pendientes (`pending`) se ordenan rojos primero. Ejemplos: demo Hidrogrúa **93,48 %** (pendientes en naranja: relevos, impuestos sobre la facturación y standby); caso de referencia **76,67 %** (personal en rojo; estructura, contingencia e impuestos sobre la facturación en naranja).
+
+**Efecto de borde de la regla `billing_taxes` (PLAN-2026-002).** Agrega peso 1 a todas las cotizaciones. Una cotización con impuestos sin definir suma 0,5 de 1: si su puntaje era mayor a 50 % **baja un poco** (demo 95,45 % → 93,48 %; caso de referencia 78,57 % → 76,67 %) y si era menor **sube un poco** (cotización en blanco 33,33 % → 34,21 %). Una cotización que estaba apenas arriba de 85 % puede pasar de verde a naranja, o apenas arriba de 60 % pasar a "con riesgo" (`incomplete`/`atRisk`), hasta que se definan los impuestos o se marque que no aplican. Los números económicos no cambian.
 
 **Colores del puntaje** (`completenessTone`, `js/engines/completeness-engine.js`), iguales en el editor, el resultado y el listado: **verde ≥ 85 %** (`COMPLETENESS_GREEN_THRESHOLD`), **naranja ≥ 60 %**, **rojo < 60 %** (`COMPLETENESS_RISK_THRESHOLD`, el mismo límite que marca `incomplete` y `atRisk`, §20).
 
@@ -775,12 +838,15 @@ Los pendientes (`pending`) se ordenan rojos primero. Ejemplos: demo Hidrogrúa *
 | Contingencia general (`risk.generalPct`) | 0 | `contingency` en naranja |
 | Precio del combustible (`fuel.pricePerLiter`) | el de la configuración, con `fuel.illustrative = true` | `fuel` en naranja (si hay equipos o vehículos) |
 | Margen objetivo (`pricing.targetMarginPct`) | el de la configuración (10 % en la demo) | `margin` en verde |
+| Impuestos sobre la facturación (`billingTaxes`) | los de la empresa (`settings.defaultBillingTaxes`) si ya los decidió, aun con configuración de demostración; si no, sin definir | `billing_taxes` en naranja si quedan sin definir |
 
-Con una configuración propia (`settings.illustrative !== true`), el plazo y la contingencia toman los valores de la configuración y el combustible no queda marcado. Las plantillas pueden traer sus propios valores (por ejemplo, la plantilla Hidrogrúa on-call carga 8 días activos y 90 días de plazo). Ejemplo: una cotización en blanco con la configuración demo da **33,33 %** (rojos: actividad, personal, equipos, logística y plazo de pago; naranjas: materiales, estructura, contingencia y standby).
+Con una configuración propia (`settings.illustrative !== true`), el plazo y la contingencia toman los valores de la configuración y el combustible no queda marcado. Las plantillas pueden traer sus propios valores (por ejemplo, la plantilla Hidrogrúa on-call carga 8 días activos y 90 días de plazo). Ejemplo: una cotización en blanco con la configuración demo da **34,21 %** (rojos: actividad, personal, equipos, logística y plazo de pago; naranjas: materiales, estructura, contingencia, impuestos sobre la facturación y standby).
 
 ## 20. Indicadores y alertas
 
 `computeQuote(quote, { settings })` devuelve `kpis` con, entre otros: días activos, utilización, costo total, fijos, variables, costo por día activo, tarifas piso/objetivo/sugerida/comercial (neta y de lista), facturación, resultado, margen, markup, break-even y días para margen objetivo (exactos y enteros), completitud, costo financiero, impacto financiero en margen, capital de trabajo, costo logístico mensual e incidencia.
+
+Desde PLAN-2026-002 también: `billingTaxPct` (t usado), `billingTaxesDefined`, `billingTaxesInvalid`, `billingTaxes` (impuestos sobre la facturación del mes, en $), `targetMarginInvalid`, `targetMarkupPct` (recargo efectivo del objetivo, m / (1 − m − t)) y `priceToCostMultiplier` (facturación / costo del mes). `result.billingTaxInfo` trae la configuración normalizada y su estado; `traces.billingTaxes`, la traza. Invariante (tests): **facturación = costo + impuestos sobre la facturación + resultado** en la estimación y en cada fila de la matriz.
 
 **Margen y markup de la cotización sólo con tarifa comercial.** `kpis.marginPct` y `kpis.markupPct` son `null` si no hay tarifa comercial (`commercialSource = 'none'`), aunque haya otros ingresos (fee, standby, call-out). Ejemplo: caso de referencia en "Conozco la tarifa" sin tarifa y con fee de disponibilidad 6.000.000/mes → facturación 6.000.000, margen y markup `null` (antes figuraba un margen de −533,33 % que entraba al promedio del dashboard). La facturación y el resultado se siguen informando.
 
@@ -788,9 +854,11 @@ Con una configuración propia (`settings.illustrative !== true`), el plazo y la 
 |---|---|
 | `belowFloorRate` | hay tarifa y la tarifa neta comercial < tarifa piso neta (tolerancia 1e-6). Informativo: la tarifa sola no cubre el costo |
 | `belowFloor` ("bajo piso: perdés dinero") | `belowFloorRate` **y** resultado del mes < 0 |
-| `belowTarget` | hay tarifa y el margen < margen objetivo |
+| `belowTarget` | hay tarifa, el margen objetivo es válido y el margen < margen objetivo |
 | `incomplete` | completitud < `COMPLETENESS_RISK_THRESHOLD` (60 %) |
-| `atRisk` | sin tarifa, **o** resultado < 0, **o** margen < objetivo, **o** completitud < 60 % |
+| `atRisk` | sin tarifa, **o** margen objetivo inválido (incluido margen + t ≥ 100), **o** resultado < 0, **o** margen < objetivo, **o** completitud < 60 % |
+
+Con impuestos sobre la facturación, una tarifa que cubre el costo pero no los impuestos **pierde plata**: es `belowFloor`. Ejemplo sintético: fijos 30.000.000, variable 1.000.000/día, 10 días, tarifa 4.200.000/día → sin impuestos gana 2.000.000; con t = 10 % paga 4.200.000 de impuestos y pierde 2.200.000 (la piso es 4.444.444,44).
 
 **`belowFloor` vs `belowFloorRate`.** La tarifa piso no cuenta el mínimo garantizado (§13), así que una tarifa neta debajo del piso no siempre implica pérdida: si un mínimo garantizado cubre la diferencia, el mes da ganancia. Ejemplo: caso de referencia + mínimo garantizado 40.000.000/mes, tarifa 4.000.000/día, 8 días → facturación 40.000.000, costo 38.000.000, resultado **+2.000.000** (margen 5 %), break-even 0 días: `belowFloorRate = true` (la tarifa está debajo del piso de 4.750.000) pero `belowFloor = false` (no se pierde dinero con esa actividad; sí hay riesgo si la actividad cambia, y `atRisk` es `true` porque el margen queda debajo del objetivo). En el caso de referencia sin mínimo (resultado −6.000.000) ambas son `true`.
 
@@ -807,7 +875,11 @@ El Dashboard (`QuoteService.dashboardStats`) suma sólo cotizaciones activas (`A
 | Utilización cercana a 0 | Tarifas muy altas pero finitas; en 0 son `null`. |
 | Días disponibles 0, vacío o negativo | Se usan 30; `validateQuote` informa el error. |
 | Días por activación ≤ 0 o vacío | Se usa 1. |
-| Margen ≥ 100, < 0 o no numérico | `priceFromMargin` → `null`; margen objetivo inválido → se calcula con 0; personalizado inválido → se omite; `validateQuote` informa y el Cost Completeness Score lo marca en rojo. |
+| Margen ≥ 100, < 0 o no numérico | `priceFromMargin` → `null`; margen objetivo inválido → sin precio objetivo ni tarifa sugerida (`targetMarginInvalid`, `atRisk`), nunca otro margen en silencio; personalizado inválido → se omite; `validateQuote` informa y el Cost Completeness Score lo marca en rojo. |
+| Margen + impuestos sobre la facturación ≥ 100 | No existe un precio que deje ese margen: igual que un margen inválido; `validateQuote` informa "Con X % de impuestos sobre la facturación, el margen tiene que ser menor a (100 − X) %"; el comparador de modelos devuelve `models: []` con el motivo. |
+| Impuestos sobre la facturación sin definir | t = 0 (los números no cambian), `billingTaxesDefined = false`, la traza de la tarifa piso avisa que no los incluye y la completitud lo marca en naranja. |
+| Impuestos sobre la facturación inválidos (negativos, texto, total ≥ 100) | Se calcula con t = 0, `billingTaxesInvalid = true`; `validateQuote` y la completitud (rojo) lo informan. |
+| Impuestos 0 % explícito o "no pago impuestos sobre lo que facturo" | t = 0 y definido: sin aviso. |
 | Margen 0 | Tarifa objetivo = tarifa piso; completitud en naranja. |
 | Precio inferior al costo | Margen y markup negativos, `belowFloorRate` y `belowFloor` (si el mes da pérdida), semáforo rojo, `atRisk`. |
 | Tarifa neta bajo piso con mínimo garantizado que cubre el costo | `belowFloorRate = true`, `belowFloor = false`; el resultado se informa positivo (§20). |
@@ -848,5 +920,13 @@ Casos de referencia que deben seguir valiendo aunque cambie la interfaz. Son **r
 | `modo-b-margen-objetivo.json` | mismo caso, 8 días, "Conozco la actividad", margen 10 % | tarifa sugerida 5.277.777,78; margen 10 %; markup 11,11 % |
 | `costo-financiero-simple.json` | 10.000.000 × 3 % mensual × 90 días | 900.000 |
 | `caso-demo-referencia.json` | cotización demo "Caso de referencia on-call" | break-even 10 días; piso 4.750.000; facturación 32.000.000; costo 38.000.000; resultado −6.000.000; bajo piso y con riesgo |
+| `gross-up-impuestos-facturacion.json` | costo 100; margen 10 %; impuestos sobre la facturación 10 % | precio **125** (NO 121 ni 123,46) |
+| `tarifa-piso-con-impuestos.json` | costo 100; margen 0; impuestos 10 % | tarifa piso **111,11…** |
+| `markup-efectivo-con-impuestos.json` | margen 10 %; impuestos 10 % | markup efectivo **12,5 %** |
+| `on-call-break-even-con-impuestos.json` | caso básico con impuestos 10 % | contribución 2.600.000/día; break-even **11,54 días** (12 enteros) |
+| `on-call-tarifa-minima-6-dias-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 6 días; impuestos 10 % | tarifa mínima 6.666.666,67/día |
+| `on-call-cotizacion-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 10 días; margen 10 %; impuestos 10 % | costo 40.000.000; piso 4.444.444,44; objetivo 5.000.000; facturación 50.000.000; impuestos 5.000.000; resultado 5.000.000 (10 %); markup efectivo 12,5 % |
+
+**Red de seguridad** (`tests/engines/regression-baseline.test.js`, PLAN-2026-002 PN0): con impuestos sin definir, los KPIs, la EECC, la matriz y los tramos de la demo, el caso de referencia, cada plantilla y variantes sintéticas son **idénticos** a los del motor anterior (`tests/fixtures/baseline-v1.json`).
 
 El caso on-call básico también existe como cotización demo "Ejemplo: tarifa que no cubre los costos (caso de referencia)" (antes "Caso de referencia on-call (prueba del motor)") (`demoReferenceQuote` en `js/domain/demo-data.js`): fijos cargados como otro costo fijo mensual, variable como otro costo por día activo, modalidad "Conozco la tarifa" con 4.000.000/día, sin financiero, contingencia ni reglas → break-even exactamente 10 días. Además, toda EECC con costo > 0 debe mostrar incidencias que suman exactamente 100,00 % (tests de `costStructure`).

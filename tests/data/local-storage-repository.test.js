@@ -729,9 +729,9 @@ describe('LocalStorageRepository — datos dañados', () => {
     assert.ok(values.includes(raw), 'el texto original debe seguir en algún lado del storage');
   });
 
-  test('estructura v1 inesperada pero reparable: status repaired, conserva datos y guarda copia literal', async () => {
+  test('estructura actual inesperada pero reparable: status repaired, conserva datos y guarda copia literal', async () => {
     const original = {
-      schemaVersion: 1,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       organization: { id: 'org-x', name: 'X SRL' },
       resources: { equipment: [{ id: 'e1', name: 'Grúa' }] },
       services: [],
@@ -750,6 +750,51 @@ describe('LocalStorageRepository — datos dañados', () => {
     assert.equal((await repo.getResource('equipment', 'e1')).name, 'Grúa');
     assert.equal((await repo.getOrganization()).id, 'org-x');
     assert.equal(validateState(persistedState(storage)).ok, true);
+  });
+  test('datos v1 (versión anterior) con estructura inesperada: se migran y reparan sin perder nada (status repaired)', async () => {
+    const original = {
+      schemaVersion: 1,
+      organization: { id: 'org-x', name: 'X SRL' },
+      resources: { equipment: [{ id: 'e1', name: 'Grúa' }] },
+      services: [],
+      quotes: [{ id: 'q1', name: 'Q importante', pricing: { knownRate: 5 } }, { code: 'sin id ni nombre' }],
+      settings: 'roto',
+    };
+    const raw = JSON.stringify(original);
+    const storage = new SpyStorage({ [STORAGE_KEYS.state]: raw });
+    const { repo, init } = await setup({ storage });
+    assert.equal(init.status, 'repaired');
+    assert.equal(init.readOnly, false);
+    const keys = recoveryKeys(storage);
+    assert.equal(keys.length, 1);
+    assert.match(keys[0], /\.pre-migration-v1$/);
+    assert.equal(storage.getItem(keys[0]), raw, 'la copia previa es el texto original');
+    const q1 = await repo.getQuote('q1');
+    assert.equal(q1.pricing.knownRate, 5);
+    assert.deepEqual(q1.billingTaxes, { mode: 'combined', notApplicable: false, combinedPct: null, items: [] });
+    assert.equal((await repo.getQuotes()).length, 2, 'la cotización sin id se conserva con un id nuevo');
+    assert.equal((await repo.getResource('equipment', 'e1')).name, 'Grúa');
+    const persisted = persistedState(storage);
+    assert.equal(persisted.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.equal(validateState(persisted).ok, true);
+  });
+
+  test('datos v1 válidos: se migran a v2 (status migrated) con copia previa y los mismos números', async () => {
+    const v1 = createDemoState(CURRENT_SCHEMA_VERSION);
+    v1.schemaVersion = 1;
+    v1.quotes.forEach((q) => delete q.billingTaxes);
+    delete v1.settings.defaultBillingTaxes;
+    const raw = JSON.stringify(v1);
+    const storage = new SpyStorage({ [STORAGE_KEYS.state]: raw });
+    const { repo, init } = await setup({ storage });
+    assert.equal(init.status, 'migrated');
+    const keys = recoveryKeys(storage);
+    assert.equal(keys.length, 1);
+    assert.match(keys[0], /\.pre-migration-v1$/);
+    assert.equal(storage.getItem(keys[0]), raw);
+    assert.deepEqual(persistedState(storage), createDemoState(CURRENT_SCHEMA_VERSION));
+    const quotes = await repo.getQuotes();
+    quotes.forEach((q) => assert.equal(q.billingTaxes.combinedPct, null));
   });
 });
 

@@ -121,6 +121,25 @@ export const INDIRECT_METHODS = deepFreeze([
   { id: 'manual', label: 'Monto mensual manual', uses: 'amount' },
 ]);
 
+/**
+ * Impuestos que se pagan sobre lo que se FACTURA (no sobre el costo). Sólo
+ * nombres: RATEOS no trae alícuotas (las carga cada empresa con su contador).
+ * No incluye IVA, Ganancias, retenciones/percepciones (pagos a cuenta) ni
+ * costo financiero (RATEOS lo calcula por plazos de cobro y pago).
+ */
+export const BILLING_TAX_KINDS = deepFreeze([
+  { id: 'gross_income', label: 'Ingresos Brutos', hint: 'Alícuota sobre lo que facturás, según tu actividad y jurisdicción.' },
+  { id: 'debits_credits', label: 'Impuesto a los débitos y créditos', hint: '% equivalente sobre tu facturación sin IVA (el cobro entra con IVA). Lo calcula tu contador.' },
+  { id: 'stamp', label: 'Sellos', hint: 'Si el contrato paga sellos. RATEOS lo reparte proporcional a la facturación.' },
+  { id: 'other', label: 'Otro cargo sobre lo facturado', hint: 'Por ejemplo, un seguro de caución sobre el valor del contrato.' },
+]);
+
+/** Modos de carga de los impuestos sobre la facturación (excluyentes). */
+export const BILLING_TAX_MODES = deepFreeze([
+  { id: 'combined', label: 'Un % total' },
+  { id: 'detailed', label: 'Detalle por impuesto' },
+]);
+
 export const RISK_ITEMS = deepFreeze([
   { id: 'activity_variation', label: 'Variación de actividad' },
   { id: 'unproductive', label: 'Improductivos' },
