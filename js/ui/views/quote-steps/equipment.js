@@ -15,7 +15,7 @@ import { monthsFactor } from '../../../engines/cost-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
-import { hasNumber, moneyText } from './shared.js';
+import { hasNumber, moneyText, plural, stepName } from './shared.js';
 
 /** Ficha del equipo a la utilización de la cotización (por unidad). */
 export function equipmentCardAtQuote(result, index, source) {
@@ -137,9 +137,9 @@ export function render(container, ctx) {
     { class: 'qe-tip' },
     icon('info'),
     kit.out((r) => {
-      if (!r.model.fuel.paidByUs) return 'El combustible lo provee el cliente: no se suma al costo de uso (se define en "Viajes").';
+      if (!r.model.fuel.paidByUs) return `El combustible lo provee el cliente: no se suma al costo de uso (se define en "${stepName('logistics')}").`;
       const fuelIllustrative = Boolean(quote.illustrative || (quote.fuel && quote.fuel.illustrative === true));
-      return `Combustible: ${formatValue(r.model.fuel.pricePerLiter, 'rate')} por litro (se edita en "Viajes").${fuelIllustrative ? ' Es un valor ILUSTRATIVO: confirmalo con tu precio actual.' : ''}`;
+      return `Combustible: ${formatValue(r.model.fuel.pricePerLiter, 'rate')} por litro (se edita en "${stepName('logistics')}").${fuelIllustrative ? ' Es un valor ILUSTRATIVO: confirmalo con tu precio actual.' : ''}`;
     }, { tag: 'p' }),
   );
 
@@ -154,7 +154,7 @@ export function render(container, ctx) {
         title: kit.out(() => (quote.equipment[i] && quote.equipment[i].name) || 'Equipo sin nombre'),
         subtitle: kit.out((r) => {
           const l = at(r);
-          return l ? `${formatNumber(l.quantity, { decimals: 2 })} unidad(es) · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día activo` : '';
+          return l ? `${formatNumber(l.quantity, { decimals: 2 })} ${plural(l.quantity, 'unidad', 'unidades')} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día activo` : '';
         }),
         badges: ill.tag ? [ill.tag] : [],
         actions: [kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })],
@@ -318,7 +318,7 @@ export function render(container, ctx) {
 
   mount(
     container,
-    card({ title: 'Equipos propios', subtitle: 'Cargá cada equipo afectado al servicio. Los vehículos que sólo te llevan a la locación se cargan en "Viajes".' }, toolbar, fuelNote),
+    card({ title: 'Equipos propios', subtitle: `Cargá cada equipo afectado al servicio. Los vehículos que sólo te llevan a la locación se cargan en "${stepName('logistics')}".` }, toolbar, fuelNote),
     lineCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({

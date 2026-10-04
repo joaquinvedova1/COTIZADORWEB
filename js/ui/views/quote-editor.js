@@ -2,11 +2,14 @@
  * Editor de cotización — flujo guiado (orden obligatorio de QUOTE_STEPS).
  *
  * Los 11 pasos internos (y sus URLs #/cotizaciones/:id/:step) se mantienen,
- * pero el usuario ve 5 ETAPAS (STAGES): El servicio · Los recursos · Las
- * condiciones · El precio · Resultado.
+ * pero el usuario ve 5 ETAPAS (STAGES): El servicio · Los recursos · Costos y
+ * condiciones · El precio · Resultado. Los nombres de los pasos salen SIEMPRE
+ * de QUOTE_STEPS (labelOf): una sola fuente para editor, resultado y listados.
  *
  * Layout:
- *   1. Barra de etapas (navegable, con estado completo / revisar / faltan datos).
+ *   1. Barra de etapas (navegable, con estado completo / revisar / faltan
+ *      datos; las etapas siguientes que todavía no visitaste en esta sesión se
+ *      ven en gris como "Pendiente", sin alarmas antes de tiempo).
  *   2. Panel central: sub-pasos de la etapa como segmentos, una pregunta con
  *      su "por qué importa", el formulario (básico + "Opciones avanzadas"
  *      colapsadas) y Atrás / Continuar.
@@ -27,13 +30,12 @@
  * La UI no accede al almacenamiento: usa app.ctx.quotes / app.ctx.resources.
  */
 
-import { h, mount, clear, debounce, downloadText } from '../dom.js';
+import { h, s as svg, mount, clear, debounce, downloadText, uniqueId } from '../dom.js';
 import {
   icon,
   button,
   card,
   banner,
-  illustrativeBanner,
   numberField,
   textField,
   selectField,
@@ -59,7 +61,7 @@ import { parseDecimalInput } from '../../core/validation.js';
 import { createId } from '../../core/ids.js';
 import { createTrace } from '../../core/trace.js';
 import { logger } from '../../core/logger.js';
-import { perUnitCeil, perUnitMoney, netRateHint, floorDisplay, floorRateTrace, targetRateTrace, unitShortOf } from './quote-steps/shared.js';
+import { netRateHint, floorDisplay, floorRateTrace, targetRateTrace, unitShortOf, stepName } from './quote-steps/shared.js';
 
 import * as serviceStep from './quote-steps/service.js';
 import * as modalityStep from './quote-steps/modality.js';
@@ -95,36 +97,42 @@ const STATUS_TEXT = Object.freeze({
   orange: 'revisar',
   green: 'completo',
   gray: 'sin controles',
+  pending: 'pendiente',
 });
+
+/** Etapa con sus pasos: los nombres de los pasos vienen de QUOTE_STEPS. */
+function defineStage(id, label, short, stepIds) {
+  return Object.freeze({ id, label, short, steps: Object.freeze(stepIds.map((stepId) => Object.freeze({ id: stepId, label: stepName(stepId) }))) });
+}
 
 /**
  * Etapas visibles del flujo. Agrupan los pasos internos (QUOTE_STEPS), que
  * siguen siendo las URLs. El orden de los pasos es el mismo de QUOTE_STEPS.
+ * `short` es el rótulo para celulares, cuando el nombre completo no entra.
  */
 export const STAGES = Object.freeze([
-  { id: 'service', label: 'El servicio', steps: Object.freeze([{ id: 'service', label: 'Tipo de servicio' }, { id: 'modality', label: 'Cómo se cobra' }]) },
-  {
-    id: 'resources',
-    label: 'Los recursos',
-    steps: Object.freeze([
-      { id: 'labor', label: 'Personal' },
-      { id: 'equipment', label: 'Equipos' },
-      { id: 'materials', label: 'Materiales' },
-      { id: 'logistics', label: 'Viajes' },
-    ]),
-  },
-  {
-    id: 'conditions',
-    label: 'Las condiciones',
-    steps: Object.freeze([
-      { id: 'indirect', label: 'Estructura' },
-      { id: 'finance', label: 'Financiación' },
-      { id: 'risk', label: 'Imprevistos' },
-    ]),
-  },
-  { id: 'price', label: 'El precio', steps: Object.freeze([{ id: 'margin', label: 'Margen y precio' }]) },
-  { id: 'result', label: 'Resultado', steps: Object.freeze([{ id: 'result', label: 'Resultado' }]) },
+  defineStage('service', 'El servicio', 'Servicio', ['service', 'modality']),
+  defineStage('resources', 'Los recursos', 'Recursos', ['labor', 'equipment', 'materials', 'logistics']),
+  defineStage('conditions', 'Costos y condiciones', 'Costos', ['indirect', 'finance', 'risk']),
+  defineStage('price', 'El precio', 'Precio', ['margin']),
+  defineStage('result', 'Resultado', 'Resultado', ['result']),
 ]);
+
+/**
+ * Pasos que el usuario abrió en esta sesión, por cotización (SÓLO en
+ * memoria: no se persiste). Una etapa posterior a la actual que todavía no
+ * se visitó se muestra "Pendiente" en lugar de "Faltan datos".
+ */
+const visitedSteps = new Map();
+
+function markVisited(quoteId, stepId) {
+  if (!visitedSteps.has(quoteId)) visitedSteps.set(quoteId, new Set());
+  visitedSteps.get(quoteId).add(stepId);
+}
+
+function wasVisited(quoteId, stepId) {
+  return Boolean(visitedSteps.get(quoteId) && visitedSteps.get(quoteId).has(stepId));
+}
 
 /** Etapa (y posición) de un paso interno. */
 export function stageOfStep(stepId) {
@@ -133,10 +141,9 @@ export function stageOfStep(stepId) {
   return { stage, index: index >= 0 ? index : 0, subIndex: Math.max(0, stage.steps.findIndex((s) => s.id === stepId)) };
 }
 
-/** Nombre corto de un paso dentro de su etapa (p. ej. "Viajes"). */
+/** Nombre de un paso (p. ej. "Viajes"): el de QUOTE_STEPS. */
 export function stepShortLabel(stepId) {
-  const { stage, subIndex } = stageOfStep(stepId);
-  return (stage.steps[subIndex] && stage.steps[subIndex].label) || stepId;
+  return stepName(stepId);
 }
 
 /**
@@ -351,6 +358,55 @@ export function normalizeQuoteShape(quote) {
   });
   if (!Array.isArray(q.rules.volumeTiers) || q.rules.volumeTiers.length === 0) q.rules.volumeTiers = defaultVolumeTiers();
   return q;
+}
+
+/**
+ * Encabezados sin saltos de nivel (WCAG 1.3.1 / A11Y-7): los pasos arman sus
+ * títulos con niveles relativos (tarjeta, línea, grupo) y, según lo que haya
+ * arriba, un h4 o h5 podía quedar después de un h2. Recorre los encabezados
+ * en orden y baja cada uno, como mucho, a un nivel más que el anterior. Los
+ * hijos (y sus salidas calculadas) se mueven al encabezado nuevo.
+ */
+export function normalizeHeadings(container, parentLevel = 2) {
+  let previous = parentLevel;
+  container.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((heading) => {
+    const level = Number(heading.tagName.slice(1));
+    const allowed = Math.min(6, previous + 1);
+    if (level <= allowed) {
+      previous = level;
+      return;
+    }
+    const replacement = document.createElement(`h${allowed}`);
+    [...heading.attributes].forEach((attr) => replacement.setAttribute(attr.name, attr.value));
+    while (heading.firstChild) replacement.appendChild(heading.firstChild);
+    heading.replaceWith(replacement);
+    previous = allowed;
+  });
+}
+
+/**
+ * Tablas que HOY hacen scroll horizontal (pantallas chicas): región con
+ * nombre y, si no tienen controles adentro, enfocables para desplazarlas con
+ * el teclado (A11Y-10). Las que entran completas no suman regiones de más:
+ * se vuelve a evaluar en cada recálculo y al cambiar el ancho de la ventana.
+ */
+function labelScrollRegions(container) {
+  container.querySelectorAll('.table-wrap').forEach((wrap) => {
+    const scrolls = wrap.getClientRects().length > 0 && wrap.scrollWidth > wrap.clientWidth + 1;
+    const labeled = wrap.dataset.qeRegion === 'true';
+    if (scrolls && !labeled) {
+      wrap.dataset.qeRegion = 'true';
+      const caption = wrap.querySelector('caption');
+      wrap.setAttribute('role', 'region');
+      wrap.setAttribute('aria-label', (caption && caption.textContent.trim()) || 'Tabla');
+      if (!wrap.querySelector('input, select, textarea, button, a[href]')) wrap.setAttribute('tabindex', '0');
+    } else if (!scrolls && labeled) {
+      delete wrap.dataset.qeRegion;
+      wrap.removeAttribute('role');
+      wrap.removeAttribute('aria-label');
+      wrap.removeAttribute('tabindex');
+    }
+  });
 }
 
 function lockInputs(container) {
@@ -647,7 +703,8 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
         { class: ['qe-stat', emphasis ? 'is-emphasis' : null, className] },
         h('div', { class: 'qe-stat-label' }, typeof label === 'function' ? kit.out(label) : label),
         kit.out(fn, { className: 'qe-stat-value mono' }),
-        hint ? h('div', { class: 'qe-stat-hint' }, typeof hint === 'function' ? kit.out(hint) : hint) : null,
+        // Una ayuda calculada vacía no muestra "—": el renglón se oculta (CSS).
+        hint ? h('div', { class: 'qe-stat-hint' }, typeof hint === 'function' ? kit.out(hint, { allowEmpty: true }) : hint) : null,
         trace ? kit.trace(trace) : null,
       );
       if (tone) kit.tone(el, tone);
@@ -809,15 +866,16 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
 function commercialRateTrace(r) {
   const k = r.kpis;
   const sourceLabel = {
-    known_rate: 'Tarifa conocida (modo "Conozco la tarifa")',
-    offered: 'Tarifa ofrecida manual (paso Margen)',
+    known_rate: `Tu tarifa (la cargaste en "${stepName('modality')}")`,
+    offered: `Tarifa ofrecida a mano (en "${stepName('margin')}")`,
     suggested: 'Sugerida: precio objetivo redondeado hacia arriba',
     override: 'Tarifa forzada',
     none: 'Sin tarifa',
   }[k.commercialSource] || 'Sin tarifa';
   return createTrace({
     id: 'commercial_rate',
-    title: 'Tarifa comercial',
+    // En la superficie se llama como la ve el usuario (Tarifa sugerida / Tu tarifa…).
+    title: chargedRateLabel(r),
     formula: k.commercialSource === 'suggested'
       ? 'Tarifa comercial = Precio objetivo de lista redondeado hacia arriba al múltiplo de redondeo · Tarifa neta = lista × factor de descuentos'
       : 'Tarifa comercial = tarifa ingresada · Tarifa neta = lista × factor de descuentos (tramo × continuidad × comercial)',
@@ -830,35 +888,13 @@ function commercialRateTrace(r) {
     steps: [{ label: 'Tarifa neta (después de descuentos)', value: k.commercialNetRate, format: 'money' }],
     result: { label: `Tarifa comercial de lista (por ${unitShort(r)})`, value: k.commercialListRate, format: 'money' },
     notes: [
-      k.belowFloor ? 'La tarifa neta queda DEBAJO de la tarifa piso: con la actividad estimada se pierde dinero.' : null,
+      k.belowFloor ? 'La tarifa neta queda DEBAJO de la tarifa piso: con la actividad estimada perdés plata.' : null,
       !k.belowFloor && k.belowFloorRate
-        ? 'La tarifa neta queda debajo de la tarifa piso, pero con la actividad estimada el mínimo mensual garantizado cubre los costos. Si la actividad cambia, podés perder dinero.'
+        ? 'La tarifa neta queda debajo de la tarifa piso, pero con la actividad estimada el mínimo mensual garantizado cubre los costos. Si la actividad cambia, podés perder plata.'
         : null,
       'Margen y markup no son lo mismo: el margen se calcula sobre el precio; el markup, sobre el costo.',
     ],
   });
-}
-
-/** Tarifa comercial: la sugerida es una tarifa mínima (se muestra hacia arriba). */
-function commercialRateText(r) {
-  const k = r.kpis;
-  return k.commercialSource === 'suggested' ? perUnitCeil(k.commercialListRate, r.unit) : perUnitMoney(k.commercialListRate, r.unit);
-}
-
-function sourceHint(r) {
-  const k = r.kpis;
-  switch (k.commercialSource) {
-    case 'known_rate':
-      return 'Tarifa conocida (la ingresaste en Modalidad).';
-    case 'offered':
-      return 'Tarifa ofrecida manual (paso Margen).';
-    case 'suggested':
-      return 'Sugerida: precio objetivo redondeado hacia arriba.';
-    case 'override':
-      return 'Tarifa forzada.';
-    default:
-      return r.pricingMode === 'known_rate' ? 'Falta ingresar la tarifa en Modalidad.' : 'Sin tarifa calculada todavía.';
-  }
 }
 
 function breakEvenTone(r) {
@@ -887,8 +923,12 @@ function chargedRateLabel(r) {
   }
 }
 
-/** Días mínimos para no perder (break-even) como texto. */
-function breakEvenText(r, { decimals = 2 } = {}) {
+/**
+ * Días mínimos para no perder (break-even) como texto. En la superficie, con
+ * 1 decimal ("6,4 días", igual que el Resultado); los 2 decimales quedan
+ * para "Ver cálculo".
+ */
+function breakEvenText(r, { decimals = 1 } = {}) {
   const be = r.breakEven || {};
   if (be.notApplicable) return 'No aplica';
   if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
@@ -900,10 +940,10 @@ function rateHint(r) {
   let text;
   switch (k.commercialSource) {
     case 'known_rate':
-      text = 'La ingresaste en "Cómo se cobra".';
+      text = `La ingresaste en "${stepName('modality')}".`;
       break;
     case 'offered':
-      text = 'La cargaste a mano en "Margen y precio".';
+      text = `La cargaste a mano en "${stepName('margin')}".`;
       break;
     case 'override':
       text = 'Tarifa forzada.';
@@ -912,7 +952,7 @@ function rateHint(r) {
       text = `Para ganar ${formatPercent(r.targetMarginPct)} de margen, redondeada hacia arriba.`;
       break;
     default:
-      text = r.pricingMode === 'known_rate' ? 'Falta ingresar tu tarifa en "Cómo se cobra".' : 'Cargá los días por mes para calcularla.';
+      text = r.pricingMode === 'known_rate' ? `Falta ingresar tu tarifa en "${stepName('modality')}".` : 'Cargá los días por mes para calcularla.';
   }
   const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
     ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
@@ -1005,7 +1045,7 @@ function buildSummary({ getResult, stepHref }) {
       label: 'Días para no perder',
       short: 'Para no perder',
       value: (r) => breakEvenText(r),
-      compact: (r) => breakEvenText(r, { decimals: 1 }),
+      compact: (r) => breakEvenText(r),
       hint: (r) => {
         const be = r.breakEven || {};
         if (be.notApplicable || !be.reachable) return be.reason || '';
@@ -1074,22 +1114,25 @@ function buildSummary({ getResult, stepHref }) {
   const moreHint = h('span', { class: 'qe-sum-more-hint' });
   const moreEl = disclosure({ summary: 'Ver más', hint: moreHint, className: 'disclosure-plain qe-sum-more' }, more, completeness);
 
-  const inner = h('div', { class: 'qe-summary-inner' });
+  // En pantallas chicas el resumen es una barra fija que se expande con
+  // "Ver detalle" (aria-controls → el contenido que se expande). Escape lo
+  // cierra y se cierra solo al enfocar un campo del formulario (no tapa lo que
+  // se está editando).
+  const inner = h('div', { class: 'qe-summary-inner', id: uniqueId('qe-resumen') });
   const toggleText = h('span', {}, 'Ver detalle');
+  const setExpanded = (expanded) => {
+    inner.classList.toggle('is-expanded', expanded);
+    toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    toggleText.textContent = expanded ? 'Ocultar detalle' : 'Ver detalle';
+  };
   const toggleBtn = h(
     'button',
     {
       type: 'button',
       class: 'btn btn-link btn-sm qe-sum-toggle',
       'aria-expanded': 'false',
-      on: {
-        click: () => {
-          const expanded = !inner.classList.contains('is-expanded');
-          inner.classList.toggle('is-expanded', expanded);
-          toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-          toggleText.textContent = expanded ? 'Ocultar detalle' : 'Ver detalle';
-        },
-      },
+      'aria-controls': inner.id,
+      on: { click: () => setExpanded(!inner.classList.contains('is-expanded')) },
     },
     toggleText,
     icon('chevronRight', { size: 16 }),
@@ -1106,6 +1149,14 @@ function buildSummary({ getResult, stepHref }) {
     moreEl,
   );
   const el = h('aside', { class: 'qe-summary', 'aria-label': 'Resumen en vivo de la cotización' }, inner);
+  el.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !inner.classList.contains('is-expanded')) return;
+    // Un diálogo abierto encima (Ver cálculo) maneja su propio Escape.
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    setExpanded(false);
+    toggleBtn.focus();
+  });
 
   function resolve(v, r) {
     if (typeof v !== 'function') return v;
@@ -1117,8 +1168,30 @@ function buildSummary({ getResult, stepHref }) {
     }
   }
 
+  // Altura REAL de la barra plegada → --qe-sum-h en <html> (CSSOM, como la
+  // topbar): css/quote.css la usa como scroll-padding-bottom para que el
+  // campo enfocado nunca quede debajo de la barra fija (A11Y-1). Expandida no
+  // se publica: ahí el foco está dentro del resumen.
+  const rootStyle = document.documentElement.style;
+  const publishHeight = () => {
+    if (!el.isConnected || inner.classList.contains('is-expanded')) return;
+    const height = el.getBoundingClientRect().height;
+    if (height > 0) rootStyle.setProperty('--qe-sum-h', `${Math.ceil(height)}px`);
+  };
+  const heightObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => publishHeight()) : null;
+  if (heightObserver) heightObserver.observe(el);
+
   return {
     el,
+    /** Deja de seguir la altura de la barra (al salir del editor). */
+    dispose() {
+      if (heightObserver) heightObserver.disconnect();
+      rootStyle.removeProperty('--qe-sum-h');
+    },
+    /** Cierra la barra expandida (pantallas chicas). */
+    collapse() {
+      if (inner.classList.contains('is-expanded')) setExpanded(false);
+    },
     update(r) {
       if (!r) return;
       rows.forEach((row) => {
@@ -1172,35 +1245,72 @@ function buildSummary({ getResult, stepHref }) {
 // ------------------------------------------------------------------ etapas
 
 /**
+ * Estado que se MUESTRA de un paso o etapa: un paso posterior al actual que
+ * todavía no se visitó en esta sesión no alarma ("Pendiente", en gris) salvo
+ * que ya esté completo.
+ */
+function shownStatus(status, { after, visited }) {
+  return after && !visited && status !== 'green' ? 'pending' : status;
+}
+
+/**
  * Barra de las 5 etapas (navegable). Cada etapa muestra si está completa,
  * si hay algo para revisar o si faltan datos (según completitud y validaciones).
  */
-function buildStageBar({ currentStep, stepHref }) {
+function buildStageBar({ currentStep, stepHref, quoteId }) {
   const { index: currentIndex } = stageOfStep(currentStep);
   const entries = STAGES.map((stage, index) => {
     const isCurrent = index === currentIndex;
     const numEl = h('span', { class: 'qe-stage-num', 'aria-hidden': 'true' }, String(index + 1));
+    // Marca "!" sobre el número (cuando el texto del estado no entra): el estado no depende sólo del color.
+    const flagEl = h('span', { class: 'qe-stage-flag', 'aria-hidden': 'true', hidden: true });
     const stateEl = h('span', { class: 'qe-stage-state' });
+    const labelEl = h('span', { class: 'qe-stage-label' }, stage.label);
+    // Rótulo corto (celulares): el nombre accesible sigue siendo el aria-label del enlace.
+    const shortEl = h('span', { class: 'qe-stage-short' }, stage.short || stage.label);
     const link = h(
       'a',
       { href: stepHref(stage.steps[0].id), class: ['qe-stage-link', isCurrent ? 'is-current' : null], 'aria-current': isCurrent ? 'step' : null },
-      numEl,
-      h('span', { class: 'qe-stage-text' }, h('span', { class: 'qe-stage-label' }, stage.label), stateEl),
+      h('span', { class: 'qe-stage-mark' }, numEl, flagEl),
+      h('span', { class: 'qe-stage-text' }, labelEl, shortEl, stateEl),
     );
     const li = h('li', { class: ['qe-stage', isCurrent ? 'is-current' : null, index < currentIndex ? 'is-before' : null], dataset: { stage: stage.id } }, link);
-    return { stage, index, li, link, numEl, stateEl, isCurrent };
+    return { stage, index, li, link, numEl, flagEl, stateEl, labelEl, shortEl, isCurrent, flag: null };
   });
   const el = h(
     'nav',
     { class: 'qe-stages', 'aria-label': 'Etapas de la cotización' },
     h('ol', { class: 'qe-stage-list' }, ...entries.map((e) => e.li)),
   );
-  const STATE_LABEL = { green: 'Completo', orange: 'Revisar', red: 'Faltan datos', gray: '' };
+  const STATE_LABEL = { green: 'Completo', orange: 'Revisar', red: 'Faltan datos', gray: '', pending: 'Pendiente' };
+
+  // En celulares sólo la etapa actual muestra su nombre. Si el nombre
+  // completo no entra, se usa el corto ("Costos"); si tampoco entra, queda
+  // sólo el número resaltado (el antetítulo "Etapa 3 de 5 · …" y el
+  // aria-label la nombran). Nunca un nombre recortado con "…".
+  const current = entries.find((e) => e.isCurrent);
+  const overflows = (node) => node.getClientRects().length > 0 && node.scrollWidth > node.clientWidth + 1;
+  const fitCurrentLabel = () => {
+    if (!current || !el.isConnected) return;
+    el.classList.remove('is-short', 'is-numbers');
+    if (!overflows(current.labelEl)) return;
+    el.classList.add('is-short');
+    if (!overflows(current.shortEl)) return;
+    el.classList.add('is-numbers');
+  };
+  const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => fitCurrentLabel()) : null;
+  if (resizeObserver) resizeObserver.observe(el);
+
   return {
     el,
+    fit: fitCurrentLabel,
+    dispose() {
+      if (resizeObserver) resizeObserver.disconnect();
+    },
     update(result) {
       entries.forEach((e) => {
-        const status = e.stage.id === 'result' ? 'gray' : stageStatus(e.stage, result);
+        const visited = e.stage.steps.some((st) => wasVisited(quoteId, st.id));
+        const status = e.stage.id === 'result' ? 'gray' : shownStatus(stageStatus(e.stage, result), { after: e.index > currentIndex, visited });
         e.li.dataset.status = status;
         const stateText = e.isCurrent ? 'Estás acá' : STATE_LABEL[status];
         e.stateEl.textContent = stateText;
@@ -1211,36 +1321,75 @@ function buildStageBar({ currentStep, stepHref }) {
         else e.link.setAttribute('aria-label', `Etapa ${e.index + 1}: Resultado${e.isCurrent ? ' (estás acá)' : ''}`);
         if (status === 'green' && !e.isCurrent) mount(e.numEl, icon('check', { size: 15 }));
         else e.numEl.textContent = String(e.index + 1);
+        const flag = !e.isCurrent && (status === 'orange' || status === 'red') ? status : null;
+        if (flag !== e.flag) {
+          e.flag = flag;
+          if (flag) mount(e.flagEl, substepIcon(flag));
+          else clear(e.flagEl);
+          e.flagEl.hidden = !flag;
+        }
       });
     },
   };
 }
 
-/** Sub-pasos de la etapa actual como segmentos simples ("Personal · Equipos · …"). */
-function buildSubsteps({ currentStep, stepHref }) {
-  const { stage } = stageOfStep(currentStep);
-  if (stage.steps.length < 2) return null;
-  const entries = stage.steps.map((step) => {
+/**
+ * Ícono de estado de un sub-paso: tilde (completo) o "!" (revisar / faltan
+ * datos). El "!" es un recorte del círculo (fill-rule evenodd), no un trazo
+ * blanco encima: en alto contraste se ve el fondo a través del recorte y la
+ * marca no se pierde (A11Y-8).
+ */
+const ALERT_MARK_PATH = 'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM7 4.5v4a1 1 0 0 0 2 0v-4a1 1 0 0 0-2 0ZM7 11.8a1 1 0 1 0 2 0a1 1 0 1 0-2 0Z';
+function substepIcon(status) {
+  if (status === 'green') return icon('check', { size: 14 });
+  if (status === 'orange' || status === 'red') {
+    return svg(
+      'svg',
+      { viewBox: '0 0 16 16', width: 14, height: 14, class: 'icon', 'aria-hidden': 'true', focusable: 'false' },
+      svg('path', { d: ALERT_MARK_PATH, fill: 'currentColor', 'fill-rule': 'evenodd' }),
+    );
+  }
+  return null;
+}
+
+/**
+ * Sub-pasos de la etapa actual como segmentos simples ("Personal · Equipos · …").
+ * El estado se ve con un ícono (tilde o "!"), no sólo con color, y se lee
+ * como texto para lectores de pantalla.
+ */
+function buildSubsteps({ currentStep, stepHref, quoteId }) {
+  const { stage: currentStage } = stageOfStep(currentStep);
+  if (currentStage.steps.length < 2) return null;
+  const currentSub = currentStage.steps.findIndex((st) => st.id === currentStep);
+  const entries = currentStage.steps.map((step, index) => {
     const isCurrent = step.id === currentStep;
     const statusText = h('span', { class: 'sr-only' });
+    const iconEl = h('span', { class: 'qe-substep-icon', 'aria-hidden': 'true' });
     const link = h(
       'a',
       { href: stepHref(step.id), class: ['qe-substep', isCurrent ? 'is-current' : null], 'aria-current': isCurrent ? 'step' : null },
       h('span', { class: 'qe-substep-label' }, step.label),
-      h('span', { class: 'qe-substep-dot', 'aria-hidden': 'true' }),
+      iconEl,
       statusText,
     );
-    return { step, link, statusText };
+    return { step, index, link, statusText, iconEl, shown: null };
   });
-  const el = h('nav', { class: 'qe-substeps', 'aria-label': `Pasos de ${stage.label}` }, h('ol', { class: 'qe-substep-list' }, ...entries.map((e) => h('li', {}, e.link))));
+  const el = h('nav', { class: 'qe-substeps', 'aria-label': `Pasos de ${currentStage.label}` }, h('ol', { class: 'qe-substep-list' }, ...entries.map((e) => h('li', {}, e.link))));
   return {
     el,
     update(result) {
       entries.forEach((e) => {
-        const status = stepStatus(e.step.id, result);
+        const status = shownStatus(stepStatus(e.step.id, result), { after: e.index > currentSub, visited: wasVisited(quoteId, e.step.id) });
         e.link.dataset.status = status;
         e.statusText.textContent = ` (${STATUS_TEXT[status]})`;
         e.link.title = `${e.step.label}: ${STATUS_TEXT[status]}`;
+        if (e.shown !== status) {
+          e.shown = status;
+          const iconNode = substepIcon(status);
+          if (iconNode) mount(e.iconEl, iconNode);
+          else clear(e.iconEl);
+          e.iconEl.hidden = !iconNode;
+        }
       });
     },
   };
@@ -1248,12 +1397,111 @@ function buildSubsteps({ currentStep, stepHref }) {
 
 // ---------------------------------------------------- avisos del paso actual
 
-function buildStepNotices(stepId, { onReveal = null } = {}) {
+/**
+ * Pendientes de completitud cuya pregunta YA está a la vista en su propio
+ * paso no se repiten como "Para revisar" arriba del formulario (UX-1): el
+ * campo es la pregunta, o el paso muestra su estado vacío ("Todavía no
+ * agregaste…"). Siguen contando en el estado de la etapa, en "¿Te falta
+ * cargar algo?" y en el Resultado.
+ *
+ * Si el pendiente es de una LÍNEA (un equipo sin vida útil, un puesto sin
+ * sueldo, un material sin responsable) o de un dato de otro paso (consumo de
+ * combustible de los equipos), la pregunta no se ve a simple vista: el aviso
+ * se muestra, con "Ir al campo" cuando el campo está en este paso.
+ */
+const ALWAYS_ASKED = new Set(['modality', 'rate', 'utilization', 'payment_term', 'margin', 'structure', 'contingency']);
+const listOf = (value) => (Array.isArray(value) ? value.filter((v) => isPlainObject(v)) : []);
+const positive = (value) => value !== null && value !== '' && Number.isFinite(Number(value)) && Number(value) > 0;
+
+export function askedOnScreen(item, quote) {
+  if (!item) return false;
+  if (ALWAYS_ASKED.has(item.id)) return true;
+  const q = quote || {};
+  const logistics = isPlainObject(q.logistics) ? q.logistics : {};
+  switch (item.id) {
+    case 'labor':
+      return listOf(q.labor).length === 0;
+    case 'equipment_cost':
+      return listOf(q.equipment).length === 0;
+    case 'materials':
+      return listOf(q.materials).length === 0;
+    case 'logistics':
+      return !positive(logistics.distanceKm) && listOf(logistics.vehicles).length === 0;
+    case 'fuel':
+      // Precio ILUSTRATIVO por defecto: ya lo dice la línea de combustible de Viajes.
+      return item.status === 'warning';
+    default:
+      return false;
+  }
+}
+
+/**
+ * Campo de ESTE paso donde se corrige un pendiente de línea (para "Ir al
+ * campo"), o null. Sólo rutas que el paso dibuja (atributo name = ruta).
+ */
+export function pendingFieldPath(item, quote) {
+  if (!item) return null;
+  const q = quote || {};
+  const firstIndex = (list, test) => list.findIndex(test);
+  switch (item.id) {
+    case 'labor': {
+      const rows = listOf(q.labor);
+      const i = firstIndex(rows, (l) => !positive(l.basicMonthly) || !positive(l.positions));
+      if (i < 0) return null;
+      return positive(rows[i].basicMonthly) ? `labor.${i}.positions` : `labor.${i}.basicMonthly`;
+    }
+    case 'equipment_cost': {
+      const rows = listOf(q.equipment);
+      const i = firstIndex(rows, (e) => !positive(e.replacementValue) || !positive(e.usefulLifeYears));
+      if (i < 0) return null;
+      return positive(rows[i].replacementValue) ? `equipment.${i}.usefulLifeYears` : `equipment.${i}.replacementValue`;
+    }
+    case 'materials': {
+      const i = firstIndex(listOf(q.materials), (m) => !m.providedBy);
+      return i < 0 ? null : `materials.${i}.providedBy`;
+    }
+    case 'logistics': {
+      const logistics = isPlainObject(q.logistics) ? q.logistics : {};
+      if (!positive(logistics.distanceKm)) return 'logistics.distanceKm';
+      const i = firstIndex(listOf(logistics.vehicles), (v) => !positive(v.count));
+      return i < 0 ? null : `logistics.vehicles.${i}.count`;
+    }
+    case 'fuel': {
+      const fuel = isPlainObject(q.fuel) ? q.fuel : {};
+      if (!fuel.providedBy) return 'fuel.providedBy';
+      if (fuel.providedBy !== 'client' && !positive(fuel.pricePerLiter)) return 'fuel.pricePerLiter';
+      // Consumo de los vehículos (en este paso); el de los equipos está en Equipos.
+      const vehicles = listOf(q.logistics && q.logistics.vehicles);
+      const i = firstIndex(vehicles, (v) => !positive(v.consumptionLPer100Km));
+      return i < 0 ? null : `logistics.vehicles.${i}.consumptionLPer100Km`;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * @param {string} stepId
+ * @param {{ getQuote?: Function, onReveal?: Function, onFocusField?: Function, hasField?: Function, stepHref?: Function, didactic?: boolean }} options
+ */
+function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
-  const el = h('section', { class: 'qe-notices', 'aria-label': 'Pendientes y avisos de este paso', hidden: true }, h('h3', { class: 'qe-notices-title' }, 'Para revisar en este paso'), list);
-  const revealButton = (key) => (key && typeof onReveal === 'function'
-    ? button('Ir al campo', { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-notice-go' }, onClick: () => onReveal(key) })
-    : null);
+  // En la cotización de ejemplo, los puntos para revisar están a propósito (UX-3).
+  const title = didactic ? 'Para revisar: el ejemplo lo deja a propósito' : 'Para revisar en este paso';
+  const el = h('section', { class: 'qe-notices', 'aria-label': 'Pendientes y avisos de este paso', hidden: true }, h('h3', { class: 'qe-notices-title' }, title), list);
+  const goButton = (label, onClick) => button(label, { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-notice-go' }, onClick });
+  /** "Ir al campo" (opciones avanzadas o campo de una línea) o, si el dato es de otro paso, un enlace a ese paso. */
+  const actionFor = (item, quote) => {
+    const key = ITEM_ADVANCED_KEY[item.id];
+    if (key && typeof onReveal === 'function') return goButton('Ir al campo', () => onReveal(key));
+    const path = pendingFieldPath(item, quote);
+    if (path && typeof onFocusField === 'function' && hasField(path)) return goButton('Ir al campo', () => onFocusField(path));
+    // Consumo de combustible de los equipos: se carga en Equipos.
+    if (item.id === 'fuel' && stepId !== 'equipment' && typeof stepHref === 'function' && listOf(quote && quote.equipment).length > 0) {
+      return h('a', { class: 'qe-notice-go', href: stepHref('equipment') }, `Ir a ${stepName('equipment')}`);
+    }
+    return null;
+  };
   return {
     el,
     update(result) {
@@ -1261,7 +1509,8 @@ function buildStepNotices(stepId, { onReveal = null } = {}) {
         el.hidden = true;
         return;
       }
-      const items = ((result.completeness && result.completeness.items) || []).filter((i) => stepOfItem(i) === stepId && i.status !== 'ok' && i.status !== 'n/a');
+      const quote = getQuote();
+      const items = ((result.completeness && result.completeness.items) || []).filter((i) => stepOfItem(i) === stepId && i.status !== 'ok' && i.status !== 'n/a' && !askedOnScreen(i, quote));
       const issues = (result.issues || []).filter((i) => stepOfPath(i.path) === stepId);
       if (items.length === 0 && issues.length === 0) {
         el.hidden = true;
@@ -1276,7 +1525,7 @@ function buildStepNotices(stepId, { onReveal = null } = {}) {
           'li',
           { class: ['qe-notice', `is-${i.status === 'missing' ? 'red' : 'orange'}`] },
           h('span', { class: ['dot', `dot-${i.status === 'missing' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }),
-          h('span', {}, h('strong', {}, `${i.label}: `), i.message, ' ', revealButton(ITEM_ADVANCED_KEY[i.id])),
+          h('span', {}, h('strong', {}, `${i.label}: `), i.message, ' ', actionFor(i, quote)),
         )),
         ...issues.map((i) => h('li', { class: ['qe-notice', `is-${i.severity === 'error' ? 'red' : 'orange'}`] }, h('span', { class: ['dot', `dot-${i.severity === 'error' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }), h('span', {}, i.message))),
       );
@@ -1330,6 +1579,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     disposed: false,
     saveStatus: readOnly ? 'readonly' : 'idle',
     headerName: null,
+    headerCompact: null,
     calcError: null,
     lastScorePct: null,
     // Líneas a las que el usuario les quitó la marca ILUSTRATIVO en esta
@@ -1386,16 +1636,20 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   function setSaveStatus(status, error = null) {
     const previous = state.saveStatus;
     state.saveStatus = status;
-    saveEl.dataset.status = status;
+    // Sin cambios desde que se abrió = guardado (se ve igual que "Guardado").
+    saveEl.dataset.status = status === 'idle' && !ephemeral ? 'saved' : status;
     retryBtn.hidden = status !== 'error';
     downloadDraftBtn.hidden = status !== 'error';
+    // Lo que importa es si tus datos están a salvo: "Guardado" también al
+    // abrir (la cotización ya está guardada), "Guardando…" mientras se
+    // escribe y "Sin guardar" mientras haya un campo inválido (UX-12).
     const texts = {
-      idle: ephemeral ? 'Sin cambios (no se guarda)' : 'Sin cambios',
+      idle: ephemeral ? 'Sólo en esta sesión (no se guarda)' : 'Guardado',
       pending: 'Guardando…',
       saving: 'Guardando…',
       saved: ephemeral ? 'Sólo en esta sesión (no se guarda)' : 'Guardado',
       readonly: 'Sólo lectura',
-      invalid: 'Revisá los campos marcados',
+      invalid: 'Sin guardar: revisá los campos marcados',
     };
     if (status === 'error') {
       const quota = error && error.code === 'quota_exceeded';
@@ -1465,6 +1719,43 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     const target = event.target;
     if (target && target.dataset && target.dataset.qeRestored) delete target.dataset.qeRestored;
     syncInvalidState();
+  }
+
+  /** Al enfocar un campo del formulario, el resumen expandido se cierra (no tapa lo que editás). */
+  function onFormFocus(event) {
+    const target = event.target;
+    if (!summary || !target || typeof target.matches !== 'function') return;
+    if (target.matches('input, select, textarea')) summary.collapse();
+    keepAboveSummary(target);
+  }
+
+  /**
+   * Red de seguridad de A11Y-1: el navegador respeta scroll-padding-bottom al
+   * enfocar, salvo en un <textarea> (lleva a la vista sólo el cursor) o si el
+   * foco llega por código. Si el elemento enfocado quedó en parte debajo de
+   * la barra de resumen fija, se desplaza lo justo (sin tapar su borde de arriba).
+   */
+  function keepAboveSummary(target) {
+    const adjust = () => {
+      if (state.disposed || !summary || document.activeElement !== target || !target.isConnected) return;
+      const bar = summary.el;
+      // Sólo con la barra fija ABAJO (≤ 1180 px, como en css/quote.css); en
+      // escritorio el resumen es una columna lateral.
+      if (typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 1180px)').matches) return;
+      if (getComputedStyle(bar).position !== 'sticky') return;
+      const barTop = bar.getBoundingClientRect().top;
+      if (barTop >= window.innerHeight) return;
+      const rect = target.getBoundingClientRect();
+      const overlap = rect.bottom - barTop + 8;
+      if (overlap <= 0) return;
+      const topRoom = rect.top - (parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0);
+      const delta = Math.min(overlap, topRoom);
+      if (delta > 1) window.scrollBy({ top: delta, behavior: 'auto' });
+    };
+    // Ya (antes de que el navegador lleve el cursor a la vista) y, por las
+    // dudas, en el cuadro siguiente.
+    adjust();
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(adjust);
   }
 
   function onFieldChange(event) {
@@ -1641,10 +1932,18 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   const { stage: currentStage, index: stageIndex } = stageOfStep(stepId);
   const copy = STEP_COPY[stepId] || { question: stepShortLabel(stepId), why: '' };
 
-  const stageBar = buildStageBar({ currentStep: stepId, stepHref });
-  const substeps = buildSubsteps({ currentStep: stepId, stepHref });
+  markVisited(quoteId, stepId);
+  const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId });
+  const substeps = buildSubsteps({ currentStep: stepId, stepHref, quoteId });
   const summary = stepId === 'result' ? null : buildSummary({ getResult: () => state.result, stepHref });
-  const notices = buildStepNotices(stepId, { onReveal: (key) => revealAdvanced(key) });
+  const notices = buildStepNotices(stepId, {
+    getQuote: () => state.quote,
+    onReveal: (key) => revealAdvanced(key),
+    onFocusField: (path) => focusField(path),
+    hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
+    stepHref,
+    didactic: state.quote.illustrative === true,
+  });
   const calcErrorBanner = banner('No se pudieron recalcular los resultados con los datos actuales. Revisá los valores ingresados.', 'danger', { title: 'Error de cálculo.' });
   calcErrorBanner.hidden = true;
   const stepBody = h('div', { class: ['qe-step-body', `qe-step-${stepId}`] });
@@ -1677,7 +1976,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     const target = stageOfStep(step.id);
     if (step.id === 'result') return { kicker: 'Continuar', text: 'Ver el resultado' };
     if (target.index !== stageIndex) {
-      return { kicker: direction === 'next' ? 'Continuar' : 'Atrás', text: `Etapa ${target.index + 1}: ${target.stage.label}${direction === 'prev' && target.stage.steps.length > 1 ? ` · ${stepShortLabel(step.id)}` : ''}` };
+      // Hacia adelante se anuncia la etapa nueva; hacia atrás, el paso al que volvés.
+      if (direction === 'next') return { kicker: 'Continuar', text: `Etapa ${target.index + 1}: ${target.stage.label}` };
+      return { kicker: 'Atrás', text: target.stage.steps.length > 1 ? stepShortLabel(step.id) : `Etapa ${target.index + 1}: ${target.stage.label}` };
     }
     return { kicker: direction === 'next' ? 'Continuar' : 'Atrás', text: stepShortLabel(step.id) };
   }
@@ -1699,52 +2000,82 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   const illustrativeHolder = h('div', { class: 'qe-illustrative', hidden: true });
   let illustrativeKey = null;
 
-  /** ¿Está visible el aviso global de datos de demostración? (para no repetirlo). */
-  function globalDemoBannerVisible() {
-    const region = document.querySelector('.global-banners');
-    if (!region || region.hidden) return false;
-    return [...region.querySelectorAll('.banner')].some((b) => /ILUSTRATIVO/.test(b.textContent || ''));
-  }
-
+  /**
+   * Valores ILUSTRATIVOS de la cotización, sin repetir avisos (UX-1):
+   *   - cotización de ejemplo: SIEMPRE una línea en cada paso (el aviso global
+   *     del shell habla de la empresa y los recursos, no de esta cotización);
+   *   - líneas copiadas de plantillas o bibliotecas de ejemplo: en el paso
+   *     donde están y, todas juntas con enlaces, en el Resultado;
+   *   - precio del combustible por defecto: una línea, sólo en Viajes y en el
+   *     Resultado. Cada campo conserva su etiqueta ILUSTRATIVO.
+   */
   function syncIllustrativeBanner() {
     const info = illustrativeInfo(state.quote);
     const q = state.quote;
     const count = (list) => (Array.isArray(list) ? list.filter((l) => isPlainObject(l) && l.illustrative === true).length : 0);
     const groups = [
-      { step: 'labor', label: 'Personal', n: count(q.labor) },
-      { step: 'equipment', label: 'Equipos', n: count(q.equipment) },
-      { step: 'materials', label: 'Materiales', n: count(q.materials) },
+      { step: 'labor', label: stepName('labor'), n: count(q.labor) },
+      { step: 'equipment', label: stepName('equipment'), n: count(q.equipment) },
+      { step: 'materials', label: stepName('materials'), n: count(q.materials) },
       { step: 'materials', label: 'Otros costos', n: count(q.otherCosts) },
       { step: 'logistics', label: 'Vehículos', n: count(q.logistics && q.logistics.vehicles) },
     ].filter((g) => g.n > 0);
-    // La cotización de demostración ya está explicada por el aviso global.
-    const demoCovered = info.quote && globalDemoBannerVisible();
-    const key = JSON.stringify([info.any, info.quote, info.fuel, demoCovered, groups.map((g) => [g.label, g.n])]);
+    const isResult = stepId === 'result';
+    const shownGroups = isResult ? groups : groups.filter((g) => g.step === stepId);
+    const fuelHere = info.fuel && (stepId === 'logistics' || isResult);
+    const key = JSON.stringify([info.quote, fuelHere, shownGroups.map((g) => [g.label, g.n])]);
     if (key === illustrativeKey) return;
     illustrativeKey = key;
-    if (!info.any || demoCovered) {
+    const hide = () => {
       clear(illustrativeHolder);
       illustrativeHolder.hidden = true;
+    };
+    if (info.quote) {
+      // Una línea (como la del combustible): cubre también el combustible y las líneas de ejemplo.
+      const el = banner(
+        h(
+          'span',
+          {},
+          'Cotización de ejemplo: sus costos, salarios y precios son de demostración.',
+          illustrativeTag('Cotización de demostración: reemplazá sus valores por los tuyos vigentes antes de cotizar'),
+        ),
+        'warning',
+      );
+      el.classList.add('qe-illustrative-line');
+      illustrativeHolder.hidden = false;
+      mount(illustrativeHolder, el);
       return;
+    }
+    if (shownGroups.length === 0 && !fuelHere) {
+      hide();
+      return;
+    }
+    const notices = [];
+    const lines = shownGroups.reduce((acc, g) => acc + g.n, 0);
+    if (lines > 0) {
+      const text = isResult
+        ? `Esta cotización tiene ${lines} ${lines === 1 ? 'línea' : 'líneas'} con valores de ejemplo (ILUSTRATIVOS): reemplazalos por los tuyos y tildá "Son valores propios y vigentes" en cada una.`
+        : `${lines === 1 ? 'Una línea de este paso tiene' : `${lines} líneas de este paso tienen`} valores de ejemplo (ILUSTRATIVOS): reemplazalos por los tuyos y tildá "Son valores propios y vigentes".`;
+      const el = banner(text, 'warning');
+      if (isResult) {
+        const body = el.lastElementChild || el;
+        body.appendChild(h('span', { class: 'qe-illustrative-links' }, ...shownGroups.map((g) => h('a', { href: stepHref(g.step) }, `${g.label}: ${g.n}`))));
+      }
+      notices.push(el);
+    }
+    if (fuelHere) {
+      const el = banner(h('span', {}, 'El precio del combustible es de ejemplo: cargá el tuyo.', illustrativeTag('Precio del combustible por defecto: reemplazalo por tu precio actual')), 'warning');
+      el.classList.add('qe-illustrative-line');
+      const body = el.lastElementChild || el;
+      body.appendChild(
+        isResult
+          ? h('a', { class: 'qe-illustrative-go', href: stepHref('logistics') }, `Ir a ${stepName('logistics')}`)
+          : button('Ir al precio', { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-illustrative-go' }, onClick: () => focusField('fuel.pricePerLiter') }),
+      );
+      notices.push(el);
     }
     illustrativeHolder.hidden = false;
-    if (info.quote) {
-      mount(illustrativeHolder, illustrativeBanner('Esta es una cotización de DEMOSTRACIÓN: todos sus costos, salarios, cargas y precios son ILUSTRATIVOS. Reemplazalos por valores propios vigentes antes de cotizar.'));
-      return;
-    }
-    const lines = groups.reduce((acc, g) => acc + g.n, 0);
-    const parts = [];
-    if (lines > 0) parts.push(`${lines} ${lines === 1 ? 'línea copiada' : 'líneas copiadas'} de plantillas o bibliotecas de demostración`);
-    if (info.fuel) parts.push('el precio del combustible (valor por defecto de la demo)');
-    const el = illustrativeBanner(
-      `Esta cotización tiene valores ILUSTRATIVOS: ${parts.join(' y ')}. Están marcados con la etiqueta ILUSTRATIVO. Reemplazalos por valores propios vigentes y tildá "Son valores propios y vigentes" en cada línea${info.fuel ? ' (el combustible se desmarca al editar su precio)' : ''}.`,
-    );
-    const links = [...groups.map((g) => ({ href: stepHref(g.step), text: `${g.label}: ${g.n}` })), ...(info.fuel ? [{ href: stepHref('logistics'), text: 'Combustible' }] : [])];
-    if (links.length) {
-      const body = el.lastElementChild || el;
-      body.appendChild(h('span', { class: 'qe-illustrative-links' }, ...links.map((l) => h('a', { href: l.href }, l.text))));
-    }
-    mount(illustrativeHolder, el);
+    mount(illustrativeHolder, ...notices);
   }
 
   const mainEl = h(
@@ -1785,17 +2116,62 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   });
   const printBtn = button('Imprimir', { variant: 'secondary', icon: 'print', title: 'Imprimir', onClick: () => print(), attrs: { class: headBtnClass } });
 
+  /**
+   * Cotización todavía vacía (costo 0): las tres acciones van agrupadas en
+   * "Más acciones" para no competir con la primera pregunta (UX-14).
+   */
+  const moreActionsBtn = h(
+    'button',
+    { type: 'button', class: headBtnClass, title: 'Más acciones: duplicar, guardar como plantilla o imprimir', 'aria-haspopup': 'dialog', on: { click: () => openMoreActions() } },
+    svg(
+      'svg',
+      { viewBox: '0 0 24 24', width: 18, height: 18, class: 'icon', 'aria-hidden': 'true', focusable: 'false' },
+      svg('circle', { cx: 5, cy: 12, r: 2, fill: 'currentColor' }),
+      svg('circle', { cx: 12, cy: 12, r: 2, fill: 'currentColor' }),
+      svg('circle', { cx: 19, cy: 12, r: 2, fill: 'currentColor' }),
+    ),
+    h('span', {}, 'Más acciones'),
+  );
+
+  function openMoreActions() {
+    let ref = null;
+    const run = (fn) => () => {
+      if (ref) ref.close();
+      fn();
+    };
+    const row = (label, iconName, text, fn, disabled = false) => h(
+      'div',
+      { class: 'qe-more-action' },
+      button(label, { variant: 'secondary', icon: iconName, disabled, onClick: run(fn) }),
+      h('p', { class: 'qe-more-action-text' }, text),
+    );
+    ref = openDialog({
+      title: 'Más acciones',
+      content: h(
+        'div',
+        { class: 'stack' },
+        row('Duplicar', 'copy', 'Crea una copia de esta cotización para cotizar una variante.', () => duplicate(), readOnly),
+        row('Guardar como plantilla', 'services', 'Reutilizá el tipo de servicio, la actividad y los recursos en cotizaciones nuevas.', () => saveAsTemplate(), readOnly),
+        row('Imprimir', 'print', 'Abre el Resultado listo para imprimir o guardar como PDF.', () => print()),
+      ),
+      actions: [button('Cerrar', { variant: 'secondary', onClick: () => ref.close() })],
+    });
+  }
+
   function syncHeader(force = false) {
     const name = String(state.quote.name || '').trim() || 'Cotización sin nombre';
-    if (!force && name === state.headerName) return;
+    const r = state.result;
+    const compact = !(r && r.kpis && isFiniteNumber(r.kpis.totalCost) && r.kpis.totalCost > 0);
+    if (!force && name === state.headerName && compact === state.headerCompact) return;
     state.headerName = name;
+    state.headerCompact = compact;
     setHeaderSafe(app, {
       title: name,
       breadcrumbs: [
         { label: 'Cotizaciones', href: '#/cotizaciones' },
         { label: state.quote.code || 'Cotización', href: stepHref('service') },
       ],
-      actions: [duplicateBtn, templateBtn, printBtn],
+      actions: compact ? [moreActionsBtn] : [duplicateBtn, templateBtn, printBtn],
     });
   }
 
@@ -2083,6 +2459,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       logger.error('No se pudo mostrar el paso', { step: stepId, message: error && error.message });
       mount(stepBody, banner('No se pudo mostrar este paso. Tus datos no se modificaron: probá recargar la página.', 'danger', { title: 'Error en el formulario.' }));
     }
+    // El título del paso es h2: los títulos de adentro no saltean niveles (A11Y-7).
+    normalizeHeadings(stepBody, 2);
     if (readOnly) lockInputs(stepBody);
   }
 
@@ -2106,6 +2484,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       }
       decorateFieldIssues(stepBody, (r.issues || []).filter((i) => stepOfPath(i.path) === stepId));
       syncAdvanced(r);
+      labelScrollRegions(stepBody);
     }
     syncHeader();
     trackCompletion(r);
@@ -2191,6 +2570,15 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       event.returnValue = '';
     }
   };
+  // Al cambiar el ancho, o al abrir unas "Opciones avanzadas" con una tabla
+  // adentro, una tabla puede empezar (o dejar) de hacer scroll.
+  const onResize = debounce(() => {
+    if (!state.disposed && stepId !== 'result') labelScrollRegions(stepBody);
+  }, 200);
+  // "toggle" de <details> no burbujea: se escucha en captura.
+  const onDetailsToggle = (event) => {
+    if (!state.disposed && stepId !== 'result' && event.target && event.target.tagName === 'DETAILS') labelScrollRegions(stepBody);
+  };
 
   const api = {
     quoteId,
@@ -2205,8 +2593,11 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       if (revealStep) revealStepHead();
       layout.addEventListener('input', onFieldInput);
       layout.addEventListener('change', onFieldChange);
+      mainEl.addEventListener('focusin', onFormFocus);
       window.addEventListener('pagehide', onPageHide);
       window.addEventListener('beforeunload', onBeforeUnload);
+      window.addEventListener('resize', onResize);
+      stepBody.addEventListener('toggle', onDetailsToggle, true);
       document.addEventListener('visibilitychange', onVisibility);
       if (restoredDraft) {
         state.dirty = true;
@@ -2228,9 +2619,15 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       runResultCleanup();
       layout.removeEventListener('input', onFieldInput);
       layout.removeEventListener('change', onFieldChange);
+      mainEl.removeEventListener('focusin', onFormFocus);
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('resize', onResize);
+      onResize.cancel();
+      stepBody.removeEventListener('toggle', onDetailsToggle, true);
       document.removeEventListener('visibilitychange', onVisibility);
+      stageBar.dispose();
+      if (summary) summary.dispose();
       if (activeEditor === api) activeEditor = null;
       return flushing;
     },

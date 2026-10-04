@@ -1,5 +1,5 @@
 /**
- * Etapa 3 · Las condiciones — Estructura (costos indirectos / overhead).
+ * Etapa 3 · Costos y condiciones — Gastos de estructura (costos indirectos / overhead).
  * Cómo absorbe este servicio una parte de la estructura de la empresa.
  * Básico: el % (o monto) de estructura. Opciones avanzadas (con el método
  * visible en el resumen): método de absorción, qué incluye y detalle.
@@ -88,7 +88,7 @@ function structureTrace(result) {
   }[method];
   return createTrace({
     id: 'structure',
-    title: 'Costos indirectos (estructura)',
+    title: 'Gastos de estructura (costos indirectos)',
     formula,
     inputs: [
       { label: 'Método', value: labelOf(INDIRECT_METHODS, method), format: 'text' },
@@ -97,7 +97,7 @@ function structureTrace(result) {
     ],
     result: { label: 'Estructura absorbida en el mes', value: absorptionAtEstimate(result), format: 'money' },
     notes: [
-      'Los costos que cargaste como "Otros costos" con categoría Estructura también suman a la fila Estructura de la EECC, pero no forman parte de la base de costos directos.',
+      'Los costos que cargaste como "Otros costos" con categoría Estructura también suman al rubro Gastos de estructura, pero no forman parte de la base de costos directos.',
     ],
   });
 }
@@ -129,11 +129,11 @@ export function render(container, ctx) {
     formGrid(2, valueField),
     kit.explain('Una forma simple de estimar el %: sumá los gastos mensuales de estructura de tu empresa y dividilos por el costo directo mensual de todos tus servicios.'),
     kit.keyline({
-      label: 'Estructura que absorbe este servicio',
+      label: 'Gastos de estructura que absorbe este servicio',
       value: (r) => `${formatMoney(absorptionAtEstimate(r))} por mes`,
       hint: (r) => {
         const row = rowOf(r, 'structure');
-        return row ? `${formatPercent(row.displayPct)} del costo total (fila Estructura: ${formatMoney(row.amount)}).` : '';
+        return row ? `${formatPercent(row.displayPct)} del costo total (rubro Gastos de estructura: ${formatMoney(row.amount)}).` : '';
       },
       trace: structureTrace,
     }),
@@ -164,7 +164,7 @@ export function render(container, ctx) {
       ),
       kit.stats(
         kit.stat('Estructura mensual absorbida', (r) => formatMoney(absorptionAtEstimate(r)), { emphasis: true, trace: structureTrace }),
-        kit.stat('Fila Estructura de la EECC', (r) => {
+        kit.stat('Rubro Gastos de estructura', (r) => {
           const row = rowOf(r, 'structure');
           return row ? `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}` : EMPTY;
         }, { hint: 'Monto e incidencia sobre el costo total (incluye otros costos de categoría Estructura).' }),

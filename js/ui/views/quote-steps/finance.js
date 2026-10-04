@@ -1,5 +1,5 @@
 /**
- * Etapa 3 · Las condiciones — Financiación (capital de trabajo y costo financiero).
+ * Etapa 3 · Costos y condiciones — Financiación (capital de trabajo y costo financiero).
  * Básico: plazo de pago del cliente. Opciones avanzadas (con resumen visible,
  * incluida la tasa): días hasta facturar, tasa mensual y días de pago propios.
  *   días financiados = días hasta facturar + plazo de cobro − días de pago
@@ -55,8 +55,11 @@ export function render(container, ctx) {
     )
     : 'Días desde que presentás la factura hasta que cobrás.';
 
+  // Un solo aviso para el plazo de pago (UX-1): éste, junto al campo. No se
+  // repite como "Para revisar" arriba del formulario y no alarma en rojo
+  // antes de que hayas escrito algo.
   const missingTerm = kit.toggle(
-    banner('Sin el plazo de pago del cliente no se puede calcular el costo financiero. Cargalo aunque sea estimado (por ejemplo 60 o 90 días).', 'danger', { title: 'Falta el plazo de pago.' }),
+    banner('Sin el plazo de pago del cliente no se puede calcular el costo financiero. Cargalo aunque sea estimado (por ejemplo 60 o 90 días).', 'warning', { title: 'Falta el plazo de pago.' }),
     (r) => !r.model.finance.paymentTermDefined,
   );
 

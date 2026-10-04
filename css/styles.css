@@ -585,10 +585,21 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   .btn { white-space: normal; text-align: center; }
 }
 
+/* Mobile: textos secundarios legibles (unidades, ayudas de opciones, Ver cálculo). */
+@media (max-width: 760px) {
+  .field-unit { font-size: 0.8rem; }
+  .choice-hint { font-size: 0.875rem; }
+  .trace-btn { font-size: 0.875rem; }
+}
+
 /* Celular apaisado: las barras fijas no pueden ocupar media pantalla. */
 @media (max-height: 520px) {
   html { scroll-padding-top: 1rem; scroll-padding-bottom: 1rem; }
   .topbar { position: static; }
+}
+/* …salvo la barra mobile fija (56 px) en celulares apaisados angostos. */
+@media (max-height: 520px) and (max-width: 760px) {
+  html { scroll-padding-top: 4.5rem; }
 }
 
 /* -------------------------------------------------------------------- print */

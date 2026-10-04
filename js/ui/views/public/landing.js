@@ -4,7 +4,8 @@
  * Vende resultados, no funcionalidades. El "mockup" del hero NO es una
  * imagen: es el resultado real del motor (computeQuote) sobre la cotización
  * de ejemplo "Hidrogrúa on-call — Añelo", con valores ILUSTRATIVOS.
- * No lee ni escribe datos guardados.
+ * No escribe datos. Sólo LEE si el navegador ya tiene datos propios, para
+ * ofrecer "Ir a mis cotizaciones" a quien vuelve.
  */
 
 import { h, mount } from '../../dom.js';
@@ -12,9 +13,10 @@ import { computeQuote } from '../../../engines/quote-engine.js';
 import { demoHydroCraneQuote } from '../../../domain/demo-data.js';
 import { defaultSettings } from '../../../domain/quote-factory.js';
 import { formatMoneyCompact, formatPercent, formatDays, EMPTY } from '../../../core/format.js';
-import { isFiniteNumber, roundPercentagesToTotal } from '../../../core/money.js';
+import { isFiniteNumber } from '../../../core/money.js';
 import { logger } from '../../../core/logger.js';
-import { siteHeader, siteFooter, publicIcon, pubLink, illustrativeLabel } from './public-chrome.js';
+import { costBreakdown } from '../../cost-breakdown.js';
+import { siteHeader, siteFooter, publicIcon, pubLink, illustrativeLabel, costGroupLabel } from './public-chrome.js';
 
 /** Resultado del ejemplo ilustrativo (o null si no se pudo calcular). */
 function computePreview() {
@@ -26,24 +28,21 @@ function computePreview() {
   }
 }
 
-/** Cuatro rubros principales + "Otros" (resto), con % enteros que suman 100. */
+/**
+ * "¿En qué se va el costo?": la misma agrupación que la demo y el resultado
+ * (costBreakdown: 4 rubros más grandes + "Otros", % enteros que suman 100).
+ */
 function structureSegments(result) {
-  const rows = result && result.eecc && Array.isArray(result.eecc.rows) ? result.eecc.rows.filter((r) => isFiniteNumber(r.amount) && r.amount > 0) : [];
-  if (!rows.length) return [];
-  const sorted = [...rows].sort((a, b) => b.amount - a.amount);
-  const top = sorted.slice(0, 4).map((r) => ({ label: r.label, amount: r.amount }));
-  const rest = sorted.slice(4).reduce((sum, r) => sum + r.amount, 0);
-  if (rest > 0) top.push({ label: 'Otros', amount: rest });
-  const total = top.reduce((sum, r) => sum + r.amount, 0);
-  const pcts = roundPercentagesToTotal(top.map((r) => r.amount), 0, 100);
-  return top.map((r, i) => ({ ...r, share: total > 0 ? (r.amount / total) * 100 : 0, pct: pcts[i] }));
+  const groups = costBreakdown(result && result.eecc, { top: 4, decimals: 0 });
+  const total = groups.reduce((sum, g) => sum + g.amount, 0);
+  return groups.map((g) => ({ ...g, label: costGroupLabel(g), share: total > 0 ? (g.amount / total) * 100 : 0 }));
 }
 
-function mockRow(label, value, unit = null) {
+function mockRow(label, value, unit = null, note = null) {
   return h(
     'div',
     { class: 'pub-mock-row' },
-    h('dt', {}, label),
+    h('dt', {}, label, note ? h('span', { class: 'pub-mock-dt-note' }, ` ${note}`) : null),
     h('dd', {}, h('span', { class: 'pub-mock-value' }, value), unit ? h('span', { class: 'pub-mock-unit' }, unit) : null),
   );
 }
@@ -55,6 +54,7 @@ function productMockup(result) {
   const segments = structureSegments(result);
   const breakEvenText = isFiniteNumber(k.breakEvenDays) ? formatDays(k.breakEvenDays, { decimals: 1 }) : EMPTY;
   const rateText = formatMoneyCompact(k.commercialListRate, { ceil: true });
+  const daysText = isFiniteNumber(k.activeDays) && k.activeDays > 0 ? formatDays(k.activeDays, { decimals: 1 }) : null;
 
   return h(
     'figure',
@@ -63,12 +63,12 @@ function productMockup(result) {
       'div',
       { class: 'pub-mock-head' },
       h('div', { class: 'pub-mock-titles' }, h('p', { class: 'pub-mock-kicker' }, 'Servicio on-call'), h('p', { class: 'pub-mock-title' }, 'Hidrogrúa — Añelo')),
-      illustrativeLabel(),
+      illustrativeLabel('Valores ILUSTRATIVOS'),
     ),
     h(
       'dl',
       { class: 'pub-mock-list' },
-      mockRow('Costo estimado del mes', formatMoneyCompact(k.totalCost)),
+      mockRow('Costo del mes', formatMoneyCompact(k.totalCost), null, daysText ? `(con ${daysText} de trabajo)` : null),
       mockRow('Tarifa piso', formatMoneyCompact(k.floorListRate, { ceil: true }), `/${unit}`),
       mockRow('Margen objetivo', formatPercent(k.targetMarginPct)),
     ),
@@ -77,7 +77,7 @@ function productMockup(result) {
       { class: 'pub-mock-need' },
       h('p', { class: 'pub-mock-need-label' }, 'Necesitás'),
       h('p', { class: 'pub-mock-need-value' }, breakEvenText, h('span', { class: 'pub-mock-need-unit' }, '/mes')),
-      h('p', { class: 'pub-mock-need-hint' }, `de trabajo para no perder plata, cobrando ${rateText}/${unit} (tarifa sugerida).`),
+      h('p', { class: 'pub-mock-need-hint' }, `de trabajo para no perder plata, cobrando ${rateText}/${unit} (tarifa sugerida). Con menos días también baja el costo variable.`),
     ),
     segments.length
       ? h(
@@ -98,12 +98,7 @@ function productMockup(result) {
           ),
         )
       : null,
-    h(
-      'div',
-      { class: 'pub-mock-foot' },
-      h('span', { class: 'pub-mock-foot-note' }, 'Valores ILUSTRATIVOS'),
-      pubLink('Ver estructura', '#/demo?paso=2', { tone: 'link', size: 'md', iconAfter: 'arrowRight', className: 'pub-mock-link' }),
-    ),
+    h('div', { class: 'pub-mock-foot' }, pubLink('Ver estructura', '#/demo?paso=2', { tone: 'link', size: 'md', iconAfter: 'arrowRight', className: 'pub-mock-link' })),
   );
 }
 
@@ -118,9 +113,9 @@ function sectionHead({ eyebrow, title, id, text = null, className = '' }) {
 }
 
 const RESULTS = Object.freeze([
-  { icon: 'layers', title: 'Sabé cuánto te cuesta.', text: 'Personal, equipos, materiales, viajes y estructura en un único cálculo.' },
+  { icon: 'layers', title: 'Sabé cuánto te cuesta.', text: 'Personal, equipos, materiales, viajes y gastos de estructura en un único cálculo.' },
   { icon: 'tag', title: 'Sabé cuánto cobrar.', text: 'Conocé tu tarifa piso y el precio necesario para el margen que buscás.' },
-  { icon: 'calendar', title: 'Sabé cuánto necesitás trabajar.', text: 'En servicios on-call, descubrí cuántos días u horas necesitás facturar para no perder dinero.' },
+  { icon: 'calendar', title: 'Sabé cuánto necesitás trabajar.', text: 'En servicios on-call, descubrí cuántos días u horas necesitás facturar para no perder plata.' },
 ]);
 
 const PAINS = Object.freeze([
@@ -134,10 +129,76 @@ const PAINS = Object.freeze([
 const STEPS = Object.freeze([
   { n: '01', title: 'Contanos qué servicio vas a prestar.', text: 'Cuadrilla, equipo, on-call, permanente, llave en mano, etc.' },
   { n: '02', title: 'Cargá los recursos y condiciones.', text: 'Personal, equipos, materiales, viajes y condiciones comerciales.' },
-  { n: '03', title: 'Conocé tu tarifa.', text: 'Costo total, tarifa piso, margen y escenarios.' },
+  { n: '03', title: 'Conocé tu tarifa.', text: 'Costo del mes, tarifa piso, margen y escenarios.' },
 ]);
 
 const AUDIENCES = Object.freeze(['PyMEs de servicios', 'Oil & Gas', 'Mantenimiento industrial', 'Transporte', 'Construcción', 'Minería']);
+
+/** "De los recursos a la tarifa": lo que hay por debajo, sin fórmulas. */
+const CHAIN_INPUTS = Object.freeze(['Personal', 'Equipos', 'Materiales', 'Logística']);
+const CHAIN_STAGES = Object.freeze([
+  { icon: 'calc', title: 'Costo real', text: 'Lo que te cuesta prestar el servicio cada mes, con todo incluido.' },
+  { icon: 'tag', title: 'Tarifa piso', text: 'Lo mínimo que tenés que cobrar para no perder plata.' },
+  { icon: 'chart', title: 'Margen', text: 'Lo que querés ganar sobre el precio de venta. Con él llegás a tu tarifa.' },
+]);
+
+function resourcesToRateChain() {
+  return h(
+    'ol',
+    { class: 'pub-chain' },
+    h(
+      'li',
+      { class: 'pub-chain-step pub-chain-step-inputs' },
+      h('span', { class: 'pub-chain-icon', 'aria-hidden': 'true' }, publicIcon('resources', { size: 22 })),
+      h('h3', { class: 'pub-chain-title' }, 'Tus recursos'),
+      h('ul', { class: 'pub-chain-inputs', 'aria-label': 'Recursos que cargás' }, ...CHAIN_INPUTS.map((label) => h('li', { class: 'pub-chain-input' }, label))),
+    ),
+    ...CHAIN_STAGES.map((stage, i) =>
+      h(
+        'li',
+        { class: ['pub-chain-step', i === CHAIN_STAGES.length - 1 ? 'is-final' : null] },
+        h('span', { class: 'pub-chain-icon', 'aria-hidden': 'true' }, publicIcon(stage.icon, { size: 22 })),
+        h('h3', { class: 'pub-chain-title' }, stage.title),
+        h('p', { class: 'pub-chain-text' }, stage.text),
+      ),
+    ),
+  );
+}
+
+/**
+ * true si este navegador ya tiene datos propios (no de ejemplo): la empresa
+ * no es la ficticia o hay alguna cotización no ILUSTRATIVA. Sólo lectura.
+ * @returns {Promise<{ ownOrganization: boolean, ownQuotes: number }>}
+ */
+async function ownDataSummary(app) {
+  const ctx = (app && app.ctx) || {};
+  let ownOrganization = false;
+  let ownQuotes = 0;
+  try {
+    const org = ctx.settings ? await ctx.settings.getOrganization() : null;
+    ownOrganization = Boolean(org && org.illustrative !== true);
+  } catch (error) {
+    logger.warn('Portada: no se pudo leer la organización', { name: error && error.name });
+  }
+  try {
+    const items = ctx.quotes ? await ctx.quotes.listQuotes() : [];
+    ownQuotes = items.filter((i) => i && i.quote && i.quote.illustrative !== true).length;
+  } catch (error) {
+    logger.warn('Portada: no se pudieron leer las cotizaciones', { name: error && error.name });
+  }
+  return { ownOrganization, ownQuotes };
+}
+
+/** Línea discreta bajo los botones del hero para quien vuelve con datos propios. */
+function returningLine({ ownOrganization, ownQuotes }) {
+  if (ownQuotes > 0) {
+    return h('p', { class: 'pub-hero-return' }, publicIcon('check', { size: 18 }), h('span', {}, 'Tenés cotizaciones guardadas en este navegador. ', h('a', { href: '#/inicio' }, 'Ir a mis cotizaciones')));
+  }
+  if (ownOrganization) {
+    return h('p', { class: 'pub-hero-return' }, publicIcon('check', { size: 18 }), h('span', {}, 'Tu empresa ya está cargada en este navegador. ', h('a', { href: '#/inicio' }, 'Ir a RATEOS')));
+  }
+  return null;
+}
 
 /**
  * @param {HTMLElement} root
@@ -191,9 +252,25 @@ export function render(root, app) {
     ),
   );
 
+  const chainSection = h(
+    'section',
+    { class: 'pub-section pub-section-tint', 'aria-labelledby': 'pub-recursos-title' },
+    h(
+      'div',
+      { class: 'pub-container' },
+      sectionHead({
+        eyebrow: 'Por dentro',
+        title: 'De los recursos a la tarifa.',
+        id: 'pub-recursos-title',
+        text: 'La potencia de una estructura de costos profesional, sin la complejidad de una planilla corporativa.',
+      }),
+      resourcesToRateChain(),
+    ),
+  );
+
   const audienceSection = h(
     'section',
-    { class: 'pub-section pub-section-tint', 'aria-labelledby': 'pub-quien-title' },
+    { class: 'pub-section', 'aria-labelledby': 'pub-quien-title' },
     h(
       'div',
       { class: 'pub-container pub-audience' },
@@ -232,6 +309,13 @@ export function render(root, app) {
     ],
   });
 
+  const heroActions = h(
+    'div',
+    { class: 'pub-hero-actions' },
+    pubLink('Crear una cotización', '#/cotizaciones/nueva', { tone: 'primary', iconAfter: 'arrowRight' }),
+    pubLink('Ver demo', '#/demo', { tone: 'secondary', iconBefore: 'play' }),
+  );
+
   const hero = h(
     'section',
     { class: 'pub-hero', 'aria-labelledby': 'pub-hero-title' },
@@ -248,19 +332,24 @@ export function render(root, app) {
           { class: 'pub-hero-sub' },
           'RATEOS transforma personal, equipos, materiales, logística y condiciones comerciales en una estructura de costos clara para saber cuánto cobrar sin perder rentabilidad.',
         ),
-        h(
-          'div',
-          { class: 'pub-hero-actions' },
-          pubLink('Crear una cotización', '#/cotizaciones/nueva', { tone: 'primary', iconAfter: 'arrowRight' }),
-          pubLink('Ver demo', '#/demo', { tone: 'secondary', iconBefore: 'play' }),
-        ),
+        heroActions,
         h('p', { class: 'pub-hero-note' }, publicIcon('pin', { size: 18 }), h('span', {}, 'Pensado para empresas de servicios industriales. ', h('strong', {}, 'Nacido en Neuquén.'))),
       ),
       h('div', { class: 'pub-hero-visual' }, productMockup(preview)),
     ),
   );
 
-  mount(root, h('div', { class: 'pub-page pub-landing' }, header.el, hero, productSection, painSection, howSection, audienceSection, closingSection, siteFooter(app)));
+  mount(root, h('div', { class: 'pub-page pub-landing' }, header.el, hero, productSection, painSection, howSection, chainSection, audienceSection, closingSection, siteFooter(app)));
 
-  return () => header.destroy();
+  // Quien vuelve con datos propios ve un acceso directo (sin un 3er botón grande).
+  let disposed = false;
+  ownDataSummary(app).then((summary) => {
+    const line = disposed ? null : returningLine(summary);
+    if (line && heroActions.isConnected) heroActions.after(line);
+  });
+
+  return () => {
+    disposed = true;
+    header.destroy();
+  };
 }

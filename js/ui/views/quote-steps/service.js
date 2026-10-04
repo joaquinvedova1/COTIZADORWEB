@@ -9,20 +9,24 @@ import { card, formGrid, icon } from '../../components.js';
 import { SERVICE_TYPES, QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { formatNumber, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
+import { stepName } from './shared.js';
+
+/** Nombre de un paso entre comillas ("Viajes"): siempre el de QUOTE_STEPS. */
+const step = (id) => `"${stepName(id)}"`;
 
 /** Qué conviene revisar según el tipo de servicio (orientativo, sin normativa). */
 const TYPE_TIPS = Object.freeze({
-  on_call: 'En "Cómo se cobra" contá cuántos días por mes esperás trabajar (y la disponibilidad 24/7 o por franja). En "El precio" podés definir standby, call-out y minimum call.',
-  permanent: 'Pensá en POSICIONES CUBIERTAS, no en personas: en "Personal" cargá cuántas personas necesitás por posición para cubrir francos, vacaciones y relevos.',
-  crew: 'Cargá cada puesto en "Personal" y los traslados de la cuadrilla en "Viajes".',
-  equipment_with_operator: 'Cargá el equipo en "Equipos" (lo que cuesta tenerlo y usarlo) y el operador en "Personal".',
-  equipment_only: 'Alquiler sin operador: el costo principal está en "Equipos". No hace falta cargar personal.',
+  on_call: `En ${step('modality')} contá cuántos días por mes esperás trabajar (y la disponibilidad 24/7 o por franja). En ${step('margin')} podés definir cuánto cobrar en espera (standby), por salida (call-out) y el mínimo por llamado.`,
+  permanent: `Pensá en POSICIONES CUBIERTAS, no en personas: en ${step('labor')} cargá cuántas personas necesitás por posición para cubrir francos, vacaciones y relevos.`,
+  crew: `Cargá cada puesto en ${step('labor')} y los traslados de la cuadrilla en ${step('logistics')}.`,
+  equipment_with_operator: `Cargá el equipo en ${step('equipment')} (lo que cuesta tenerlo y usarlo) y el operador en ${step('labor')}.`,
+  equipment_only: `Alquiler sin operador: el costo principal está en ${step('equipment')}. No hace falta cargar personal.`,
   per_unit: 'Los cálculos se expresan por día, hora o mes de actividad: estimá cuántos días activos necesitás para la producción pedida.',
-  transport: 'Cargá los vehículos en "Equipos" (tenerlos y usarlos) y los recorridos en "Viajes".',
+  transport: `Cargá los vehículos en ${step('equipment')} (tenerlos y usarlos) y los recorridos en ${step('logistics')}.`,
   turnkey: 'Revisá todo el alcance: personal, supervisión, materiales menores, HSE, QA/QC, dossier, seguros, garantías e imprevistos.',
-  time_materials: 'Cargá las horas en "Personal" y los materiales con su markup de reventa (recargo sobre el costo, informativo) en "Materiales".',
-  lump_sum: 'Precio global: usá "Imprevistos" (contingencia) para cubrir la incertidumbre del alcance.',
-  configurable: 'Armá la estructura a medida con "Otros costos directos" en el paso Materiales.',
+  time_materials: `Cargá las horas en ${step('labor')} y los materiales con su markup de reventa (recargo sobre el costo, informativo) en ${step('materials')}.`,
+  lump_sum: `Precio cerrado por todo el alcance: usá ${step('risk')} (contingencia) para cubrir la incertidumbre.`,
+  configurable: `Armá la estructura a medida con "Otros costos directos" en el paso ${step('materials')}.`,
 });
 
 export function render(container, ctx) {
@@ -73,7 +77,7 @@ export function render(container, ctx) {
         label: 'Duración del contrato',
         rule: 'months',
         unit: 'meses',
-        hint: 'Se usa para el descuento por continuidad (en "El precio").',
+        hint: `Se usa para el descuento por continuidad (en ${step('margin')}).`,
       }),
     ),
     kit.text('notes', {

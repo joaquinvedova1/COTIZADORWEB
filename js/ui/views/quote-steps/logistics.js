@@ -1,6 +1,6 @@
 /**
  * Etapa 2 · Los recursos — Viajes (logística).
- * Traslados entre base y locación (por activación) y combustible.
+ * Traslados entre base y locación (por llamado o viaje) y combustible.
  * Básico: base, destino, distancia, vehículos, precio del combustible y quién
  * lo paga. Opciones avanzadas (con resumen visible): ida y vuelta, viajes por
  * llamado, desgaste por vehículo, peajes y viáticos.
@@ -11,9 +11,9 @@ import { card, formGrid, selectField, emptyState, table, icon, checkboxField } f
 import { FUEL_PROVIDERS } from '../../../domain/catalogs.js';
 import { createVehicle } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
-import { nonNegative } from '../../../core/money.js';
+import { nonNegative, isFiniteNumber } from '../../../core/money.js';
 import { illustrativeTag } from '../../layout.js';
-import { confirmRemove, moneyText, numberText } from './shared.js';
+import { confirmRemove, moneyText, numberText, stepName } from './shared.js';
 
 export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
@@ -95,7 +95,7 @@ export function render(container, ctx) {
     : card(
       {
         title: '¿Con qué vehículos?',
-        subtitle: 'Se costean por km recorrido. Si el vehículo también trabaja en locación, sus horas de uso van en "Equipos".',
+        subtitle: `Se costean por km recorrido. Si el vehículo también trabaja en locación, sus horas de uso van en "${stepName('equipment')}".`,
         actions: [kit.action('Agregar vehículo', addVehicle, { icon: 'plus' })],
       },
       lg.vehicles.length
@@ -161,9 +161,9 @@ export function render(container, ctx) {
         2,
         kit.check('logistics.roundTrip', { label: 'Ida y vuelta', hint: 'Duplica los km de cada viaje.' }),
         kit.num('logistics.tripsPerActivation', {
-          label: 'Viajes por llamado o activación',
+          label: 'Viajes por llamado',
           rule: 'quantity',
-          hint: quote.serviceType === 'permanent' ? 'Para servicios permanentes: viajes por cada cambio de turno.' : 'Viajes completos en cada llamado o activación.',
+          hint: quote.serviceType === 'permanent' ? 'Para servicios permanentes: viajes por cada cambio de turno.' : 'Cuántos viajes hacés en cada llamado.',
         }),
       ),
       lg.vehicles.length
@@ -250,7 +250,10 @@ export function render(container, ctx) {
     : kit.keyline({
       label: 'Viajes en el costo del mes',
       value: (r) => formatMoney(r.kpis.logisticsMonthly),
-      hint: (r) => `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ${formatMoney(r.model.logistics.costPerActivation)} por llamado × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} llamados por mes.`,
+      hint: (r) => {
+        const share = isFiniteNumber(r.kpis.logisticsIncidencePct) ? `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ` : '';
+        return `${share}${formatMoney(r.model.logistics.costPerActivation)} por llamado × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} llamados por mes.`;
+      },
       trace: (r) => r.traces.logistics,
       className: 'qe-keyline-total',
     });
@@ -269,7 +272,7 @@ export function render(container, ctx) {
         kit.stat('Km de ruta por llamado', (r) => formatValue(r.model.logistics.routeKmPerActivation, 'km'), { hint: 'Distancia × (ida y vuelta) × viajes.' }),
         kit.stat('Km de vehículos', (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `Por llamado · ${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
         kit.stat('Litros', (r) => formatValue(r.model.logistics.litersPerActivation, 'liters'), { hint: (r) => `Por llamado · ${formatValue(r.model.logistics.litersPerMonth, 'liters')} por mes` }),
-        kit.stat('Costo por llamado', (r) => formatMoney(r.model.logistics.costPerActivation), { hint: (r) => `${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} llamados o activaciones por mes` }),
+        kit.stat('Costo por llamado', (r) => formatMoney(r.model.logistics.costPerActivation), { hint: (r) => `${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} viajes o llamados por mes` }),
         kit.stat('Costo logístico mensual', (r) => formatMoney(r.kpis.logisticsMonthly), { emphasis: true, trace: (r) => r.traces.logistics }),
         kit.stat('Incidencia sobre el costo total', (r) => formatPercent(r.kpis.logisticsIncidencePct), { hint: 'Combustible de traslados + desgaste + peajes + viáticos.' }),
       ),

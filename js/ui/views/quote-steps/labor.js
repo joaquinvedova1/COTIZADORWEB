@@ -11,7 +11,7 @@
 import { h, mount } from '../../dom.js';
 import { card, formGrid, selectField, confirmDialog, emptyState, badge } from '../../components.js';
 import { illustrativeTag } from '../../layout.js';
-import { hasNumber } from './shared.js';
+import { hasNumber, plural, stepName } from './shared.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS, CONTINUOUS_SERVICE_TYPES } from '../../../domain/catalogs.js';
 import { laborLineFromProfile } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
@@ -165,7 +165,9 @@ export function render(container, ctx) {
         title: kit.out(() => (quote.labor[i] && quote.labor[i].role) || 'Puesto sin nombre'),
         subtitle: kit.out((r) => {
           const l = at(r);
-          return l ? `${formatNumber(l.positions, { decimals: 2 })} posición(es) × ${formatNumber(l.peoplePerPosition, { decimals: 2 })} persona(s) = ${formatNumber(l.headcount, { decimals: 2 })} ${Math.abs(l.headcount - 1) < 1e-9 ? 'persona' : 'personas'}` : '';
+          return l
+            ? `${formatNumber(l.positions, { decimals: 2 })} ${plural(l.positions, 'posición', 'posiciones')} × ${formatNumber(l.peoplePerPosition, { decimals: 2 })} ${plural(l.peoplePerPosition, 'persona', 'personas')} = ${formatNumber(l.headcount, { decimals: 2 })} ${plural(l.headcount, 'persona', 'personas')}`
+            : '';
         }),
         badges: [ill.tag, agreement && agreement.illustrative ? badge('Convenio ilustrativo', 'orange') : null].filter(Boolean),
         actions: [
@@ -268,22 +270,36 @@ export function render(container, ctx) {
   });
 
   // -------------------------------------------------------------- totales
-  const totals = lines.length
-    ? kit.keyline({
-      label: 'Personal en el costo del mes',
+  // Se muestra siempre que la mano de obra pese en la estructura de costos,
+  // aunque no haya puestos: puede venir de "Otros costos" con categoría Mano
+  // de obra (REG-3).
+  const laborRow = (r) => r.eecc.rows.find((x) => x.category === 'labor') || null;
+  const totals = kit.toggle(
+    kit.keyline({
+      label: lines.length ? 'Personal en el costo del mes' : 'Mano de obra en la estructura de costos',
       value: (r) => {
-        const row = r.eecc.rows.find((x) => x.category === 'labor');
-        return row ? formatMoney(row.amount) : EMPTY;
+        const row = laborRow(r);
+        if (!row) return EMPTY;
+        // Sin puestos: "$ X · Y %" (monto e incidencia en la estructura de costos).
+        return lines.length ? formatMoney(row.amount) : `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}`;
       },
       hint: (r) => {
-        const row = r.eecc.rows.find((x) => x.category === 'labor');
-        const share = row ? `${formatPercent(row.displayPct)} del costo total · ` : '';
-        const standby = r.model.standby.monthly > 0 ? ` Incluye standby: ${formatMoney(r.model.standby.monthly)} por mes.` : '';
-        return `${share}${formatNumber(r.model.labor.headcount, { decimals: 2 })} ${Math.abs(r.model.labor.headcount - 1) < 1e-9 ? 'persona' : 'personas'} en ${formatNumber(r.model.labor.positions, { decimals: 2 })} ${Math.abs(r.model.labor.positions - 1) < 1e-9 ? 'posición' : 'posiciones'} · fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día activo.${standby}`;
+        const row = laborRow(r);
+        if (!lines.length) return `Viene de otros costos con categoría Mano de obra (se cargan en "${stepName('materials')}").`;
+        const standby = r.model.standby.monthly > 0 ? ` Incluye el personal en espera (standby): ${formatMoney(r.model.standby.monthly)} por mes.` : '';
+        const headcount = r.model.labor.headcount;
+        const positions = r.model.labor.positions;
+        const parts = [
+          row ? `${formatPercent(row.displayPct)} del costo total` : null,
+          `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')} en ${formatNumber(positions, { decimals: 2 })} ${plural(positions, 'posición', 'posiciones')}`,
+          `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día activo`,
+        ].filter(Boolean);
+        return `${parts.join(' · ')}.${standby}`;
       },
       className: 'qe-keyline-total',
-    })
-    : null;
+    }),
+    (r) => lines.length > 0 || Boolean(laborRow(r) && laborRow(r).amount > 0),
+  );
 
   mount(
     container,

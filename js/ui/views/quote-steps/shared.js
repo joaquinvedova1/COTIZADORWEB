@@ -11,8 +11,22 @@
  */
 
 import { confirmDialog } from '../../components.js';
+import { QUOTE_STEPS, labelOf } from '../../../domain/catalogs.js';
 import { formatMoney, formatMoneyCeil, formatNumber, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
+
+/**
+ * Nombre visible de un paso del editor ("Cómo se cobra", "Viajes"…).
+ * ÚNICA fuente: QUOTE_STEPS. Nunca escribir los nombres a mano.
+ */
+export function stepName(stepId) {
+  return labelOf(QUOTE_STEPS, stepId, String(stepId || ''));
+}
+
+/** Plural simple: plural(1, 'posición', 'posiciones') → "posición". */
+export function plural(n, one, many) {
+  return Math.abs(Number(n) - 1) < 1e-9 ? one : many;
+}
 
 /** "día" | "hora" | "mes" según la unidad de cotización. */
 export function unitShortOf(unit) {

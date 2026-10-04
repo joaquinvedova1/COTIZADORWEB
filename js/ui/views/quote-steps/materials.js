@@ -23,7 +23,7 @@ function materialGrid(...fields) {
   return grid;
 }
 
-const BASIS_SHORT = Object.freeze({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: 'por activación' });
+const BASIS_SHORT = Object.freeze({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: 'por llamado' });
 
 function splitLabel(line) {
   if (!line) return EMPTY;
@@ -38,7 +38,7 @@ function materialsTrace(result) {
   return createTrace({
     id: 'materials',
     title: 'Materiales',
-    formula: 'Costo para nosotros = cantidad × costo unitario × (1 + merma%) × (1 + logística%) · Por mes → fijo; por día activo → variable; por activación → variable ÷ días por activación · Si lo provee el cliente, no es costo nuestro',
+    formula: 'Costo para nosotros = cantidad × costo unitario × (1 + merma%) × (1 + logística%) · Por mes → fijo; por día activo → variable; por llamado → variable ÷ días por llamado · Si lo provee el cliente, no es costo nuestro',
     inputs: lines.map((l) => ({ label: `${l.description || 'Material'} (${BASIS_SHORT[l.basis] || l.basis})`, value: l.costForUs, format: 'money' })),
     steps: [
       { label: 'Fijo mensual de materiales', value: result.model.materials.fixedMonthly, format: 'money' },

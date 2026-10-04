@@ -25,7 +25,8 @@
   background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
   padding: 0.5rem;
 }
-.qe-stage-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.25rem; }
+/* "Resultado" no lleva estado: su columna es más angosta y las demás entran en un renglón. */
+.qe-stage-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1.2fr)) minmax(0, 0.8fr); gap: 0.25rem; }
 .qe-stage { position: relative; min-width: 0; }
 /* Conector entre etapas. */
 .qe-stage + .qe-stage::before {
@@ -41,8 +42,15 @@
   font-size: 0.85rem; font-weight: 700; font-variant-numeric: tabular-nums;
   border: 2px solid var(--line); color: var(--ink-3); background: var(--white);
 }
+/* Número + marca "!" (sólo cuando el texto del estado está oculto, ≤ 980 px). */
+.qe-stage-mark { position: relative; display: inline-flex; flex-shrink: 0; }
+.qe-stage-flag { display: none; position: absolute; top: -4px; right: -6px; border-radius: 50%; background: var(--white); line-height: 0; }
+.qe-stage[data-status="orange"] .qe-stage-flag { color: var(--orange-text); }
+.qe-stage[data-status="red"] .qe-stage-flag { color: var(--red-text); }
 .qe-stage-text { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
 .qe-stage-label { font-size: 0.92rem; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
+/* Rótulo corto de la etapa actual (sólo celulares, cuando el completo no entra). */
+.qe-stage-short { display: none; }
 .qe-stage-state { font-size: 0.74rem; font-weight: 600; color: var(--ink-3); }
 .qe-stage-state[hidden] { display: none; }
 .qe-stage[data-status="green"] .qe-stage-num { background: var(--green-50); border-color: #A9DCC5; color: var(--green-text); }
@@ -56,23 +64,28 @@
 .qe-stage-link.is-current .qe-stage-label { font-weight: 750; }
 .qe-stage-link.is-current .qe-stage-state { color: var(--blue-text); }
 
+/* Etapa siguiente sin visitar: "Pendiente", en gris (sin alarmas antes de tiempo). */
+.qe-stage[data-status="pending"] .qe-stage-state { color: var(--ink-3); font-weight: 600; }
+
 /* ------------------------------------------------- sub-pasos (segmentos) */
 
 .qe-substeps { min-width: 0; margin-bottom: -0.35rem; }
 .qe-substep-list {
   list-style: none; margin: 0; padding: 0.25rem; display: inline-flex; flex-wrap: wrap; gap: 0.25rem;
-  background: var(--line-2); border-radius: 999px; max-width: 100%;
+  background: var(--line-2); border-radius: 1.4rem; max-width: 100%;
 }
 .qe-substep {
-  display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.4rem 0.95rem; border-radius: 999px; min-height: 34px;
+  display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.95rem; border-radius: 999px; min-height: 36px;
   font-size: 0.88rem; font-weight: 600; color: var(--ink-2); text-decoration: none; white-space: nowrap;
 }
 .qe-substep:hover { color: var(--navy-900); background: rgba(255, 255, 255, 0.6); }
 .qe-substep.is-current { background: var(--white); color: var(--navy-900); box-shadow: 0 1px 3px rgba(21, 35, 45, 0.12); }
-.qe-substep-dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; flex-shrink: 0; }
-.qe-substep[data-status="green"] .qe-substep-dot { background: var(--green); }
-.qe-substep[data-status="orange"] .qe-substep-dot { background: var(--orange); }
-.qe-substep[data-status="red"] .qe-substep-dot { background: var(--red); }
+/* Estado con ícono (tilde o "!"), no sólo color (A11Y-8). */
+.qe-substep-icon { display: inline-flex; align-items: center; flex-shrink: 0; }
+.qe-substep-icon[hidden] { display: none; }
+.qe-substep[data-status="green"] .qe-substep-icon { color: var(--green-text); }
+.qe-substep[data-status="orange"] .qe-substep-icon { color: var(--orange-text); }
+.qe-substep[data-status="red"] .qe-substep-icon { color: var(--red-text); }
 
 /* ------------------------------------------------------------ encabezado */
 
@@ -116,7 +129,14 @@
 
 /* ------------------------------------------------- valores ilustrativos */
 
+.qe-illustrative { display: flex; flex-direction: column; gap: 0.5rem; }
 .qe-illustrative[hidden] { display: none; }
+/* Aviso de una línea (p. ej. el precio del combustible de ejemplo). */
+.qe-illustrative-line { align-items: center; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.qe-illustrative-line > div { display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 0.75rem; }
+.qe-illustrative-line .tag-illustrative { margin-left: 0.35rem; }
+.qe-illustrative-go { font-weight: 650; }
+.qe-illustrative-line .btn-link.qe-illustrative-go { padding: 0; color: inherit; text-decoration: underline; }
 .qe-illustrative-links { display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; margin-top: 0.35rem; font-weight: 600; }
 .qe-illustrative-links a { color: inherit; }
 .qe-own-values { background: var(--orange-50); border: 1px dashed #F4D6AB; border-radius: var(--radius-sm); padding: 0.45rem 0.7rem; }
@@ -161,6 +181,15 @@
 }
 .qe-tip p { margin: 0; }
 .qe-tip .icon { margin-top: 1px; color: var(--blue-600); }
+.qe-tip-warning { background: var(--orange-50); border-color: #F4D6AB; color: var(--ink); }
+.qe-tip-warning .icon { color: var(--orange-text); }
+/* Enlace dentro de un texto ("Ver ejemplo"). */
+.btn-link.qe-inline-link { display: inline; padding: 0; min-height: 0; font-size: inherit; vertical-align: baseline; text-decoration: underline; }
+
+/* "Más acciones" (cotización todavía vacía). */
+.qe-more-action { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); gap: 0.4rem 1rem; align-items: center; }
+.qe-more-action .btn { justify-content: flex-start; }
+.qe-more-action-text { margin: 0; color: var(--ink-3); font-size: 0.88rem; }
 .qe-explain { color: var(--ink-2); font-size: 0.88rem; margin: 0; }
 
 .qe-toolbar { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; }
@@ -203,6 +232,7 @@
 .qe-stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); font-weight: 650; }
 .qe-stat-value { font-size: 1.05rem; font-weight: 700; color: var(--navy-900); overflow-wrap: anywhere; }
 .qe-stat-hint { font-size: 0.76rem; color: var(--ink-3); }
+.qe-stat-hint:has(> .qe-out:empty) { display: none; }
 .qe-stat .trace-btn { margin-top: 0.1rem; }
 .qe-stat.is-emphasis { background: var(--navy-50); border-color: #C8D9EA; }
 .qe-stat.is-emphasis .qe-stat-value { font-size: 1.15rem; }
@@ -375,8 +405,8 @@
 .qe-sum-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
 .qe-sum-labels { display: flex; min-width: 0; }
 .qe-sum-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-3); }
-.qe-sum-short { display: none; font-size: 0.68rem; font-weight: 600; color: var(--ink-3); line-height: 1.2; }
-.qe-sum-compact-unit { font-size: 0.7rem; font-weight: 600; color: var(--ink-3); margin-left: 0.1rem; }
+.qe-sum-short { display: none; font-size: 0.75rem; font-weight: 600; color: var(--ink-3); line-height: 1.2; }
+.qe-sum-compact-unit { font-size: 0.75rem; font-weight: 600; color: var(--ink-3); margin-left: 0.1rem; }
 .qe-sum-value { color: var(--navy-900); font-weight: 720; font-size: 1.42rem; letter-spacing: -0.02em; line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .qe-sum-unit { font-size: 0.86rem; font-weight: 600; color: var(--ink-3); letter-spacing: 0; }
 .qe-sum-compact { display: none; }
@@ -498,6 +528,7 @@
 
 @media (max-width: 980px) {
   .qe-stage-state { display: none; }
+  .qe-stage-flag:not([hidden]) { display: inline-flex; }
   .qe-stage-link { flex-direction: column; text-align: center; gap: 0.3rem; padding: 0.5rem 0.25rem; }
   .qe-stage-text { align-items: center; }
   .qe-stage-label { font-size: 0.8rem; }
@@ -520,9 +551,10 @@
   .qe-stage-num { width: 2rem; height: 2rem; }
   .qe-stage + .qe-stage::before { display: none; }
   .qe-substeps { margin-bottom: 0; }
-  .qe-substep-list { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; border-radius: 999px; }
-  .qe-substep-list::-webkit-scrollbar { display: none; }
-  .qe-substep { padding: 0.4rem 0.6rem; gap: 0.3rem; font-size: 0.8rem; }
+  /* Sub-pasos: hacen wrap (nada queda cortado ni escondido en un scroll sin indicio, MOB-7). */
+  .qe-substep-list { display: flex; flex-wrap: wrap; border-radius: 1.4rem; }
+  .qe-substep-list > li { flex: 1 1 auto; display: flex; }
+  .qe-substep { flex: 1 1 auto; justify-content: center; padding: 0.4rem 0.5rem; gap: 0.25rem; font-size: 0.875rem; }
   .qe-step-head { gap: 0.6rem; }
   .qe-step-meta { order: 2; width: 100%; padding-top: 0; }
   .qe-step-nav { flex-direction: column-reverse; align-items: stretch; }
@@ -531,9 +563,13 @@
   /* Encabezado del editor: acciones sólo con ícono (el texto queda para lectores de pantalla). */
   .qe-head-btn { position: relative; padding-left: 0.6rem; padding-right: 0.6rem; }
   .qe-head-btn > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap; }
-  /* Barra de resumen compacta: valores abreviados ($ 15,8 M). */
+}
+
+/* ≤ 760 px (mismo corte que el texto mobile de 16 px): barra de resumen
+   compacta con valores abreviados ($ 15,8 M). Con los rótulos y unidades
+   completos a 16 px la barra llegaba a 133 px entre 641 y 760 px (A11Y-1). */
+@media (max-width: 760px) {
   .qe-summary { margin: 0 -1rem; border-left: 0; border-right: 0; }
-  .qe-summary-head { padding: 0.4rem 0.75rem 0; }
   .qe-sum-main .qe-sum-item { padding: 0.2rem 0.35rem 0.55rem 0.6rem; justify-content: space-between; }
   .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-label {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap;
@@ -542,9 +578,90 @@
   .qe-summary-inner:not(.is-expanded) .qe-sum-full {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap;
   }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-compact { display: inline; font-size: 0.95rem; white-space: nowrap; }
+  /* Valor abreviado y, debajo, la unidad (/día): entra sin pisarse aun a 320 px (MOB-6). */
+  .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-item { justify-content: flex-start; }
+  .qe-summary-inner:not(.is-expanded) .qe-sum-labels { min-height: 1.8rem; align-items: flex-end; }
+  .qe-summary-inner:not(.is-expanded) .qe-sum-compact { display: inline-flex; flex-direction: column; font-size: 0.95rem; line-height: 1.15; white-space: nowrap; }
+  .qe-summary-inner:not(.is-expanded) .qe-sum-compact-unit { margin-left: 0; line-height: 1.2; }
+  /* La barra fija ocupa lo menos posible (A11Y-1): el botón mantiene 44 px de
+     objetivo táctil pero se superpone al relleno del encabezado. */
+  .qe-summary-head { padding: 0.3rem 0.75rem 0; }
+  .qe-sum-toggle { margin: -0.45rem 0 -0.6rem; }
   .qe-summary-inner.is-expanded .qe-sum-main .qe-sum-item { padding: 0.55rem 0.75rem 0.7rem; }
   .qe-summary-inner.is-expanded .qe-sum-main .qe-sum-value { font-size: 1.05rem; }
+}
+
+@media (max-width: 360px) {
+  .qe-summary-inner:not(.is-expanded) .qe-sum-compact { font-size: 0.875rem; }
+  .qe-sum-main .qe-sum-item { padding-left: 0.5rem; padding-right: 0.3rem; }
+}
+
+/* Mobile: objetivos táctiles ≥ 44 px y texto legible (MOB-1 / MOB-2). */
+@media (max-width: 760px) {
+  .qe-stage-link { min-height: 44px; min-width: 44px; justify-content: center; }
+  .qe-substep { min-height: 44px; }
+  .qe-save { min-height: 32px; font-size: 0.875rem; }
+  .qe-stat-label, .qe-group-title, .qe-nav-kicker, .qe-compare-kicker, .qe-summary-title, .qe-tier-eval .small, .qe-group-name .small { font-size: 0.75rem; }
+  .qe-sum-hint, .qe-stat-hint, .qe-pending-msg, .qe-pending, .qe-issue-note, .qe-note, .qe-keyline-hint, .qe-rule-output,
+  .qe-adv .disclosure-hint, .qe-num-echo, .qe-line-subtitle, .qe-term, .qe-explain, .qe-tip, .qe-notice-list, .qe-rule-explain,
+  .qe-breakdown, .qe-finance-table .table, .qe-cell-stack .qe-own-values, .qe-keyline-label, .qe-sum-label, .qe-more-action-text,
+  .qe-sum-more-hint, .qe-chip, .qe-pending li.qe-pending-more { font-size: 0.875rem; }
+  .qe-more-action { grid-template-columns: 1fr; }
+  .qe .btn-sm, .qe .trace-btn, .qe-sum-item .trace-btn, .qe-sum-main .qe-sum-unit, .qe-sum-unit, .qe-step-body .small, .qe-stat-value.mono { font-size: 0.875rem; }
+  .qe-edit-table .table th, .qe-finance-table .table th { font-size: 0.75rem; }
+  /* "Agregar", "Agregar … en blanco", "Agregar costo/tramo": la regla de
+     escritorio (38 px) le ganaba por especificidad a la base mobile (MOB-2). */
+  .qe-toolbar .btn { min-height: 44px; }
+  /* Enlaces de los avisos ("Ir a Viajes", "Ir a Equipos"): objetivo de 44 px. */
+  a.qe-illustrative-go, a.qe-notice-go { display: inline-flex; align-items: center; min-height: 44px; }
+  /* "Ver ejemplo" sigue siendo un enlace dentro de la oración; el relleno
+     agranda el área táctil (≥ 24 px) sin mover el renglón. */
+  .btn-link.qe-inline-link { padding-block: 0.25rem; }
+}
+@media (max-width: 640px) {
+  /* Con los sub-pasos de 44 px la etapa actual sigue siendo un solo renglón. */
+  .qe-stage-link { padding: 0.3rem; }
+  .qe-stage-link.is-current { justify-content: flex-start; }
+  /* El nombre de la etapa actual se recorta con "…" en vez de pisar a las demás. */
+  .qe-stage.is-current .qe-stage-text { overflow: hidden; }
+  .qe-stage-link.is-current .qe-stage-label { max-width: 100%; }
+}
+@media (max-width: 400px) {
+  .qe-stage-list { gap: 0.3rem; }
+}
+/* Etapa actual en celulares: nombre completo si entra; si no, el corto
+   ("Costos"); si tampoco, sólo el número resaltado (el antetítulo "Etapa 3
+   de 5 · …" y el aria-label la nombran). El editor mide y pone is-short /
+   is-numbers: nunca queda un nombre recortado ("C…"). */
+@media (max-width: 640px) {
+  .qe-stages.is-short .qe-stage.is-current .qe-stage-label { display: none; }
+  .qe-stages.is-short .qe-stage.is-current .qe-stage-short {
+    display: block; max-width: 100%; font-size: 0.88rem; font-weight: 750; line-height: 1.2; white-space: nowrap; overflow: hidden;
+  }
+  .qe-stages.is-numbers .qe-stage-list { justify-content: space-between; }
+  .qe-stages.is-numbers .qe-stage.is-current { flex: 0 0 auto; }
+  .qe-stages.is-numbers .qe-stage.is-current .qe-stage-text { display: none; }
+  .qe-stages.is-numbers .qe-stage-link.is-current { padding: 0.3rem; justify-content: center; }
+}
+
+/* Barra de resumen fija abajo (≤ 1180 px): el elemento enfocado nunca queda
+   debajo de ella (WCAG 2.4.11, A11Y-1). El margen sigue la altura REAL de la
+   barra plegada (--qe-sum-h la publica el editor con un ResizeObserver; cambia
+   con el ancho, el tamaño de letra y los rótulos), también en apaisado, donde
+   la base deja 1rem. Sin JS queda 7.5rem. */
+@media (max-width: 1180px) {
+  html:has(.qe-summary) { scroll-padding-bottom: calc(var(--qe-sum-h, 7.5rem) + 0.75rem); }
+}
+
+/* Celular apaisado: el resumen expandido no tapa toda la pantalla (MOB-4). */
+@media (max-height: 520px) and (max-width: 1180px) {
+  .qe-summary-inner.is-expanded { max-height: 55vh; }
+}
+/* Celular apaisado angosto: la barra mobile (56 px) sigue fija arriba y la
+   base deja sólo 1rem de margen; al volver con Shift+Tab el campo quedaba
+   debajo de ella (A11Y-1). */
+@media (max-height: 520px) and (max-width: 760px) {
+  html:has(.qe) { scroll-padding-top: 4.5rem; }
 }
 
 /* ------------------------------------------------------------------- print */

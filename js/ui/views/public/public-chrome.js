@@ -57,13 +57,22 @@ export function pubLink(label, href, { tone = 'primary', size = 'lg', iconBefore
 // ------------------------------------------------------------------- marca
 
 /** Marca RATEOS (logo "R" + nombre) como enlace. */
-export function brand({ href = '#/', className = '' } = {}) {
+export function brand({ href = '#/', className = '', label = `${APP_NAME}: página principal` } = {}) {
   return h(
     'a',
-    { class: ['pub-brand', className], href, 'aria-label': `${APP_NAME}: página principal` },
+    { class: ['pub-brand', className], href, 'aria-label': label },
     h('span', { class: 'pub-brand-mark', 'aria-hidden': 'true' }, 'R'),
     h('span', { class: 'pub-brand-name', 'aria-hidden': 'true' }, APP_NAME),
   );
+}
+
+/**
+ * Nombre de un rubro de costBreakdown() en las vistas simples. Glosario de
+ * superficie: el rubro "Estructura" se lee "Gastos de estructura".
+ */
+export function costGroupLabel(group) {
+  if (!group) return '';
+  return group.key === 'structure' ? 'Gastos de estructura' : group.label;
 }
 
 /** Etiqueta de valores de demostración. */
@@ -107,6 +116,57 @@ export function scrollToSection(section) {
 /** true si los datos están en modo sólo lectura (no se puede escribir). */
 export function isReadOnly(app) {
   return Boolean(app && app.ctx && app.ctx.init && app.ctx.init.status === 'read_only');
+}
+
+/**
+ * Parámetros de la "query" del hash (#/demo?paso=2&desde=app). El router
+ * ignora la query para elegir la pantalla; cada pantalla lee lo que necesita.
+ */
+export function hashParams() {
+  try {
+    const hash = String(window.location.hash || '');
+    const index = hash.indexOf('?');
+    return new URLSearchParams(index >= 0 ? hash.slice(index + 1) : '');
+  } catch {
+    return new URLSearchParams('');
+  }
+}
+
+// ------------------------------------------- del registro a la bienvenida
+
+/**
+ * Nombre de la empresa escrito en #/registro, para usarlo en #/bienvenida.
+ * Vive SÓLO en memoria (se pierde al recargar la página): el registro no
+ * escribe nada; la empresa recién se crea si en la bienvenida la persona
+ * elige empezar con sus datos (y confirma).
+ */
+let pendingCompanyName = '';
+
+export function setPendingCompanyName(name) {
+  pendingCompanyName = typeof name === 'string' ? name : '';
+}
+
+export function getPendingCompanyName() {
+  return pendingCompanyName;
+}
+
+/**
+ * Respuestas de #/bienvenida mientras la persona mira el ejemplo
+ * (#/demo?desde=bienvenida) y vuelve: así no tiene que contestar de nuevo.
+ * Igual que el nombre de la empresa, vive SÓLO en memoria (se pierde al
+ * recargar) y nunca se escribe en el almacenamiento. La bienvenida la toma
+ * (y la borra) al mostrarse.
+ */
+let onboardingDraft = null;
+
+export function setOnboardingDraft(draft) {
+  onboardingDraft = draft && typeof draft === 'object' ? { ...draft } : null;
+}
+
+export function takeOnboardingDraft() {
+  const draft = onboardingDraft;
+  onboardingDraft = null;
+  return draft;
 }
 
 // ------------------------------------------------------------ encabezados
@@ -203,6 +263,15 @@ export function siteHeader({ sections = [] } = {}) {
   const onPointerDown = (event) => {
     if (open && !header.contains(event.target)) setOpen(false, { restoreFocus: false });
   };
+  // Si el foco sale del panel (Tab / Shift+Tab) el menú se cierra: no queda
+  // abierto tapando el contenido. El botón Menú/Cerrar cuenta como parte del
+  // panel (si no, al tocarlo se cerraría y se volvería a abrir).
+  nav.addEventListener('focusout', (event) => {
+    const next = event.relatedTarget;
+    if (open && next instanceof Node && !nav.contains(next) && next !== toggle && !toggle.contains(next)) {
+      setOpen(false, { restoreFocus: false });
+    }
+  });
   let mql = null;
   const onViewportChange = () => {
     if (open && mql && !mql.matches) setOpen(false, { restoreFocus: false });
@@ -230,14 +299,14 @@ export function siteHeader({ sections = [] } = {}) {
  * Encabezado simple de las pantallas de un solo objetivo (ingreso,
  * bienvenida, demo): marca a la izquierda y acciones a la derecha.
  */
-export function flowHeader({ brandHref = '#/', middle = null, actions = [] } = {}) {
+export function flowHeader({ brandHref = '#/', brandLabel = undefined, middle = null, actions = [] } = {}) {
   return h(
     'header',
     { class: 'pub-flow-header' },
     h(
       'div',
       { class: 'pub-container pub-flow-header-inner' },
-      h('div', { class: 'pub-flow-header-start' }, brand({ href: brandHref }), middle),
+      h('div', { class: 'pub-flow-header-start' }, brand({ href: brandHref, label: brandLabel }), middle),
       h('div', { class: 'pub-flow-header-actions' }, ...actions.filter(Boolean)),
     ),
   );

@@ -14,7 +14,7 @@ import { convertRateUnit } from '../../../engines/pricing-engine.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
-import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber } from './shared.js';
+import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -35,7 +35,7 @@ const AVAILABILITY_HINTS = Object.freeze({
 function daysPerActivationLabel(serviceType) {
   if (serviceType === 'on_call') return '¿Cuántos días dura cada llamado?';
   if (serviceType === 'permanent') return 'Días entre traslados / cambio de turno';
-  return 'Días por viaje o activación';
+  return 'Días por viaje o llamado';
 }
 
 function unitsLabel(unit, value) {
@@ -100,7 +100,7 @@ export function render(container, ctx) {
     const pricing = quote.pricing || {};
     const rates = [
       { path: 'knownRate', label: 'Tarifa conocida', value: Number(pricing.knownRate) },
-      { path: 'offeredRateOverride', label: 'Tarifa ofrecida manual (paso Margen)', value: Number(pricing.offeredRateOverride) },
+      { path: 'offeredRateOverride', label: `Tarifa ofrecida a mano (en "${stepName('margin')}")`, value: Number(pricing.offeredRateOverride) },
     ].filter((r) => pricing[r.path] !== null && pricing[r.path] !== '' && Number.isFinite(r.value) && r.value > 0);
     const to = unitById(nextUnit);
     if (rates.length === 0) {
@@ -197,11 +197,11 @@ export function render(container, ctx) {
     ),
     kit.keyline({
       label: 'Con estos datos',
-      value: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) ? `${formatNumber(r.activity.activationsPerMonth, { decimals: 2 })} ${isOnCall ? 'llamados' : 'activaciones'} por mes` : EMPTY),
+      value: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) ? `${formatNumber(r.activity.activationsPerMonth, { decimals: 2 })} ${isOnCall ? 'llamados' : 'viajes o llamados'} por mes` : EMPTY),
       hint: (r) => {
         if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return 'Cargá los días por mes para ver cuántos llamados y días facturás.';
         const billable = unitsLabel(r.unit, r.estimate.revenue.billableUnits);
-        const extra = r.estimate.revenue.minimumCallApplied ? ' (incluye el minimum call por llamado)' : '';
+        const extra = r.estimate.revenue.minimumCallApplied ? ' (incluye el mínimo por llamado)' : '';
         return `Facturás ${billable} por mes${extra}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).`;
       },
     }),
@@ -254,9 +254,9 @@ export function render(container, ctx) {
         : null,
       kit.stats(
         kit.stat('Utilización', (r) => formatPercent(r.activity.utilizationPct), { hint: 'Días activos ÷ días disponibles.' }),
-        kit.stat(isOnCall ? 'Llamados por mes' : 'Activaciones por mes', (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: 'Días activos ÷ días por llamado.' }),
+        kit.stat(isOnCall ? 'Llamados por mes' : 'Viajes o llamados por mes', (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: 'Días activos ÷ días por llamado.' }),
         kit.stat('Unidades facturables por mes', (r) => unitsLabel(r.unit, r.estimate.revenue.billableUnits), {
-          hint: (r) => (r.estimate.revenue.minimumCallApplied ? 'Incluye el minimum call por activación.' : `En la unidad elegida (${unit.label}).`),
+          hint: (r) => (r.estimate.revenue.minimumCallApplied ? 'Incluye el mínimo por llamado.' : `En la unidad elegida (${unit.label}).`),
         }),
       ),
     ),
@@ -271,7 +271,8 @@ export function render(container, ctx) {
           const be = r.breakEven || {};
           if (be.notApplicable) return 'No aplica';
           if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
-          return formatDays(be.days);
+          // 1 decimal en la superficie (6,4 días); los 2 decimales, en "Ver cálculo".
+          return formatDays(be.days, { decimals: 1 });
         }, {
           hint: (r) => (r.breakEven && (r.breakEven.reason || (r.breakEven.reachable ? `${formatNumber(r.breakEven.wholeDays)} días enteros` : ''))) || '',
           trace: (r) => r.traces.breakEven,

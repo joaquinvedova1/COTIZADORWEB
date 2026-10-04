@@ -4,34 +4,34 @@
  * RATEOS TODAVÍA NO TIENE CUENTAS (ver docs/AUTH_ARCHITECTURE.md). Estas
  * pantallas son el flujo visual preparado para conectar Supabase Auth a
  * través de `app.ctx.auth` (js/services/auth-service.js), SIN autenticación
- * ficticia:
+ * ficticia y sin prometer lo que todavía no existe:
  *
- * - Los formularios interceptan el envío (preventDefault; además la CSP
- *   tiene form-action 'none'). Nunca se leen, guardan ni envían el email
- *   ni la contraseña; el campo contraseña se vacía al enviar.
- * - El registro sólo usa el nombre de la EMPRESA, que se guarda en la
- *   organización local (saveOrganization({ name })).
- * - Un aviso honesto, visible antes de enviar, explica que todo funciona en
- *   este navegador, sin usuario ni contraseña.
+ * - Los campos de cuenta (nombre, email y contraseña) se ven, pero están
+ *   DESHABILITADOS ("Próximamente"): no se pueden completar, no se envían,
+ *   no se leen ni se guardan, y el gestor de contraseñas no ofrece guardar
+ *   nada. Además la CSP tiene form-action 'none'.
+ * - La acción real es "Entrar sin cuenta" (modo local, todo en este navegador).
+ * - El registro sólo toma el nombre de la EMPRESA (opcional) y lo pasa EN
+ *   MEMORIA a la bienvenida (#/bienvenida). No escribe nada: la empresa se
+ *   crea recién si la persona elige empezar con sus datos y lo confirma.
  *
- * Cuando exista un proveedor real (`app.ctx.auth.available === true`), el
- * envío llamará a `app.ctx.auth.signIn()` / `signUp()`; las credenciales
- * irán directo al servicio y nunca se guardarán en el navegador.
+ * Cuando exista un proveedor real (`app.ctx.auth.available === true`), los
+ * campos se habilitarán y el envío llamará a `app.ctx.auth.signIn()` /
+ * `signUp()`; las credenciales irán directo al servicio y nunca se guardarán
+ * en el navegador.
  */
 
 import { h, mount, uniqueId } from '../../dom.js';
-import { icon } from '../../components.js';
 import { sanitizeText } from '../../../core/validation.js';
-import { logger } from '../../../core/logger.js';
-import { userErrorMessage } from '../../layout.js';
-import { brand, headerLink, isReadOnly, pubLink, publicIcon } from './public-chrome.js';
+import { brand, headerLink, pubLink, publicIcon, setOnboardingDraft, setPendingCompanyName } from './public-chrome.js';
 
 const MAX_COMPANY_LENGTH = 120;
-const LOCAL_MODE_NOTICE = 'Las cuentas de RATEOS todavía no están habilitadas. Por ahora todo funciona en este navegador, sin usuario ni contraseña: tus datos no salen de tu computadora.';
+const ACCOUNTS_SOON = 'Disponible cuando habilitemos las cuentas.';
 
 /** Campo de formulario con label real (sin valores precargados). */
-function field({ label, type = 'text', name, autocomplete, hint = null, maxLength = 200, inputmode = null, placeholder = '' }) {
+function field({ label, type = 'text', name, autocomplete, hint = null, maxLength = 200, inputmode = null, describedBy = null }) {
   const id = uniqueId('pub-f');
+  const hintId = hint ? `${id}-hint` : null;
   const input = h('input', {
     id,
     name,
@@ -39,23 +39,34 @@ function field({ label, type = 'text', name, autocomplete, hint = null, maxLengt
     autocomplete,
     maxlength: String(maxLength),
     inputmode,
-    placeholder: placeholder || null,
     autocapitalize: type === 'email' || type === 'password' ? 'none' : null,
     spellcheck: type === 'email' || type === 'password' ? 'false' : null,
-    'aria-describedby': hint ? `${id}-hint` : null,
+    'aria-describedby': [hintId, describedBy].filter(Boolean).join(' ') || null,
   });
   return {
     input,
-    el: h('div', { class: 'pub-field' }, h('label', { class: 'pub-label', for: id }, label), input, hint ? h('p', { class: 'pub-field-hint', id: `${id}-hint` }, hint) : null),
+    el: h('div', { class: 'pub-field' }, h('label', { class: 'pub-label', for: id }, label), input, hint ? h('p', { class: 'pub-field-hint', id: hintId }, hint) : null),
   };
 }
 
-function localNotice() {
-  return h('div', { class: 'pub-notice', role: 'note' }, publicIcon('info', { size: 18 }), h('p', {}, LOCAL_MODE_NOTICE));
+/**
+ * Grupo de campos de cuenta, visibles pero deshabilitados hasta que existan
+ * las cuentas (fieldset disabled: no se completan ni se envían).
+ */
+function accountFields(title, specs) {
+  const noteId = uniqueId('pub-soon');
+  const fields = specs.map((spec) => field({ ...spec, describedBy: noteId }));
+  return h(
+    'fieldset',
+    { class: 'pub-account-fields', disabled: true },
+    h('legend', { class: 'pub-account-legend' }, h('span', {}, title), h('span', { class: 'pub-soon-tag' }, 'Próximamente')),
+    ...fields.map((f) => f.el),
+    h('p', { class: 'pub-field-hint pub-account-note', id: noteId }, publicIcon('lock', { size: 16 }), h('span', {}, ACCOUNTS_SOON)),
+  );
 }
 
-/** Estructura común: Volver, marca arriba, tarjeta angosta y salida sin cuenta. */
-function authLayout({ title, subtitle, form, switchText, switchLabel, switchHref }) {
+/** Estructura común: Volver, marca arriba y tarjeta angosta. */
+function authLayout({ title, subtitle, content, switchText, switchLabel, switchHref }) {
   return h(
     'div',
     { class: 'pub-page pub-auth' },
@@ -69,63 +80,33 @@ function authLayout({ title, subtitle, form, switchText, switchLabel, switchHref
         { class: 'pub-auth-card' },
         h('h1', { class: 'pub-auth-title', tabindex: '-1' }, title),
         h('p', { class: 'pub-auth-sub' }, subtitle),
-        localNotice(),
-        form,
+        content,
         h('p', { class: 'pub-auth-switch' }, `${switchText} `, h('a', { href: switchHref }, switchLabel)),
-      ),
-      h(
-        'a',
-        { class: 'pub-auth-local', href: '#/inicio' },
-        h('span', { class: 'pub-auth-local-text' }, h('strong', {}, 'Entrar sin cuenta'), h('span', {}, ' (modo local)')),
-        icon('arrowRight', { size: 18 }),
       ),
       h('p', { class: 'pub-auth-foot' }, publicIcon('lock', { size: 16 }), h('span', {}, 'Tus datos se guardan en este navegador. No se envían a ningún servidor.')),
     ),
   );
 }
 
-/** Vacía el campo contraseña (nunca se lee su valor). */
-function clearPassword(input) {
-  input.value = '';
-}
-
 export function renderLogin(root, app) {
   app.setHeader({ title: 'Ingresar' });
 
-  const email = field({ label: 'Email', type: 'email', name: 'email', autocomplete: 'email', inputmode: 'email', maxLength: 254 });
-  const password = field({ label: 'Contraseña', type: 'password', name: 'password', autocomplete: 'current-password', maxLength: 200 });
-  const feedback = h('div', { class: 'pub-form-feedback', role: 'status', 'aria-live': 'polite' });
-
-  const form = h(
-    'form',
-    { class: 'pub-form', novalidate: true, 'aria-label': 'Ingresar a RATEOS' },
-    email.el,
-    password.el,
-    h('button', { type: 'submit', class: 'btn btn-primary btn-lg pub-btn pub-btn-block' }, 'Ingresar'),
-    feedback,
+  const content = h(
+    'div',
+    { class: 'pub-form' },
+    accountFields('Tu cuenta', [
+      { label: 'Email', type: 'email', name: 'email', autocomplete: 'email', inputmode: 'email', maxLength: 254 },
+      { label: 'Contraseña', type: 'password', name: 'password', autocomplete: 'current-password', maxLength: 200 },
+    ]),
+    pubLink('Entrar sin cuenta', '#/inicio', { tone: 'primary', iconAfter: 'arrowRight', className: 'pub-btn-block' }),
   );
-
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    // No se leen el email ni la contraseña: no hay cuentas todavía.
-    clearPassword(password.input);
-    mount(
-      feedback,
-      h(
-        'div',
-        { class: 'pub-feedback-card' },
-        h('p', {}, h('strong', {}, 'Todavía no hay cuentas para ingresar. '), 'Podés seguir en este navegador.'),
-        pubLink('Entrar sin cuenta', '#/inicio', { tone: 'secondary', size: 'md', iconAfter: 'arrowRight' }),
-      ),
-    );
-  });
 
   mount(
     root,
     authLayout({
       title: 'Bienvenido de nuevo.',
-      subtitle: 'Ingresá para seguir con tus cotizaciones.',
-      form,
+      subtitle: 'Por ahora RATEOS funciona en este navegador. Entrá sin cuenta y seguí con tus cotizaciones.',
+      content,
       switchText: '¿Todavía no tenés cuenta?',
       switchLabel: 'Crear cuenta',
       switchHref: '#/registro',
@@ -136,51 +117,33 @@ export function renderLogin(root, app) {
 export function renderRegister(root, app) {
   app.setHeader({ title: 'Crear cuenta' });
 
-  const name = field({ label: 'Nombre', name: 'name', autocomplete: 'name', maxLength: 120 });
   const company = field({
-    label: 'Empresa',
+    label: 'Empresa (opcional)',
     name: 'organization',
     autocomplete: 'organization',
     maxLength: MAX_COMPANY_LENGTH,
-    hint: 'Es lo único que guardamos, en este navegador, para tus cotizaciones.',
+    hint: 'La usamos en el paso siguiente. No se guarda hasta que elijas empezar con tus datos.',
   });
-  const email = field({ label: 'Email', type: 'email', name: 'email', autocomplete: 'email', inputmode: 'email', maxLength: 254 });
-  const password = field({ label: 'Contraseña', type: 'password', name: 'new-password', autocomplete: 'new-password', maxLength: 200 });
-  const submit = h('button', { type: 'submit', class: 'btn btn-primary btn-lg pub-btn pub-btn-block' }, 'Comenzar');
+  const submit = h('button', { type: 'submit', class: 'btn btn-primary btn-lg pub-btn pub-btn-block' }, h('span', {}, 'Comenzar sin cuenta'), publicIcon('arrowRight', { size: 18 }));
 
   const form = h(
     'form',
-    { class: 'pub-form', novalidate: true, 'aria-label': 'Crear una cuenta de RATEOS' },
-    name.el,
+    { class: 'pub-form', novalidate: true, 'aria-label': 'Empezar a usar RATEOS' },
     company.el,
-    email.el,
-    password.el,
+    accountFields('Tu cuenta', [
+      { label: 'Nombre', name: 'name', autocomplete: 'name', maxLength: 120 },
+      { label: 'Email', type: 'email', name: 'email', autocomplete: 'email', inputmode: 'email', maxLength: 254 },
+      { label: 'Contraseña', type: 'password', name: 'new-password', autocomplete: 'new-password', maxLength: 200 },
+    ]),
     submit,
-    h('p', { class: 'pub-form-note' }, 'Nombre, email y contraseña no se guardan mientras las cuentas no estén habilitadas.'),
   );
 
-  let busy = false;
-  form.addEventListener('submit', async (event) => {
+  form.addEventListener('submit', (event) => {
     event.preventDefault();
-    // Sólo se usa el nombre de la empresa. El email y la contraseña no se leen.
-    clearPassword(password.input);
-    if (busy) return;
-    busy = true;
-    submit.disabled = true;
-    const companyName = sanitizeText(company.input.value, MAX_COMPANY_LENGTH);
-    try {
-      if (companyName && isReadOnly(app)) {
-        app.toast('Tus datos están en modo sólo lectura: el nombre de la empresa no se guardó.', 'warning');
-      } else if (companyName) {
-        await app.ctx.settings.saveOrganization({ name: companyName });
-        await app.refreshChrome();
-      }
-    } catch (error) {
-      logger.warn('No se pudo guardar el nombre de la empresa', { name: error && error.name });
-      app.toast(userErrorMessage(error, 'No se pudo guardar el nombre de la empresa. Podés cargarlo después en Configuración.'), 'warning');
-    }
-    busy = false;
-    submit.disabled = false;
+    // Sólo se toma la empresa, y sólo en memoria: no se escribe nada acá.
+    setPendingCompanyName(sanitizeText(company.input.value, MAX_COMPANY_LENGTH));
+    // Un registro nuevo empieza la bienvenida desde el principio.
+    setOnboardingDraft(null);
     app.navigate('#/bienvenida');
   });
 
@@ -188,8 +151,8 @@ export function renderRegister(root, app) {
     root,
     authLayout({
       title: 'Creá tu cuenta',
-      subtitle: 'Empezá a cotizar sabiendo cuánto te cuesta cada servicio.',
-      form,
+      subtitle: 'Por ahora no hace falta una cuenta: RATEOS funciona en este navegador. Empezá con el nombre de tu empresa.',
+      content: form,
       switchText: '¿Ya tenés cuenta?',
       switchLabel: 'Ingresar',
       switchHref: '#/login',

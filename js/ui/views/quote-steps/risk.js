@@ -1,5 +1,5 @@
 /**
- * Etapa 3 · Las condiciones — Imprevistos (riesgo / contingencia).
+ * Etapa 3 · Costos y condiciones — Imprevistos (riesgo / contingencia).
  * Básico: contingencia general %. Opciones avanzadas (con resumen visible de
  * los riesgos marcados): checklist de riesgos con su %.
  *   contingencia % = general % + Σ % de riesgos marcados
