@@ -43,7 +43,7 @@ export function defaultVolumeTiers() {
  * Completeness Score pida confirmarlos. La actividad estimada siempre queda
  * vacía: es un dato de cada cotización.
  */
-export function createEmptyQuote({ organizationId, settings = defaultSettings(), now = new Date().toISOString(), id = createId(), code = '' } = {}) {
+export function createEmptyQuote({ organizationId, settings = defaultSettings(), now = new Date().toISOString(), id = createId(), code = '', baseName = '' } = {}) {
   const ownSettings = settings.illustrative !== true;
   return {
     id,
@@ -79,7 +79,9 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     fuel: { pricePerLiter: settings.fuelPricePerLiter ?? 0, providedBy: 'contractor', illustrative: !ownSettings },
     logistics: {
       notApplicable: false,
-      baseName: '',
+      // Origen de los viajes: la base operativa de la empresa (sólo texto;
+      // la distancia la carga el usuario).
+      baseName: typeof baseName === 'string' ? baseName.trim().slice(0, 120) : '',
       destinationName: '',
       distanceKm: 0,
       roundTrip: true,
@@ -209,8 +211,8 @@ export function createOtherCost({ id = createId(), description = 'Otro costo', c
  * Crea una cotización desde una plantilla de servicio (biblioteca).
  * La plantilla aporta valores parciales que pisan los de una cotización vacía.
  */
-export function createQuoteFromTemplate(template, { organizationId, settings, now, id = createId(), code = '' } = {}) {
-  const base = createEmptyQuote({ organizationId, settings, now, id, code });
+export function createQuoteFromTemplate(template, { organizationId, settings, now, id = createId(), code = '', baseName = '' } = {}) {
+  const base = createEmptyQuote({ organizationId, settings, now, id, code, baseName });
   if (!template) return base;
   const defaults = deepClone(template.defaults || {});
   const merged = {

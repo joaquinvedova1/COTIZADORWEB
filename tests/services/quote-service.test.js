@@ -331,6 +331,30 @@ describe('QuoteService.compute', () => {
   });
 });
 
+// ================================================= origen de los viajes
+
+describe('createQuote: base operativa como origen de los viajes', () => {
+  test('una cotización nueva toma la base operativa de la empresa como origen', async () => {
+    const { service, repository } = await setup();
+    await repository.saveOrganization({ baseLocation: '  Añelo  ' });
+    const blank = await service.createQuote();
+    assert.equal(blank.logistics.baseName, 'Añelo');
+    // Una plantilla que define su propio origen lo conserva (es más específica).
+    const template = (await repository.getServices()).find((t) => t.id === DEMO_IDS.templateHydroCrane);
+    const fromTemplate = await service.createQuote({ templateId: template.id });
+    assert.equal(fromTemplate.logistics.baseName, template.defaults.logistics.baseName);
+    // Una plantilla sin origen toma la base operativa.
+    const noBase = (await repository.getServices()).find((t) => !(t.defaults && t.defaults.logistics && t.defaults.logistics.baseName));
+    if (noBase) assert.equal((await service.createQuote({ templateId: noBase.id })).logistics.baseName, 'Añelo');
+  });
+
+  test('sin base operativa el origen queda vacío (no cambia ningún cálculo)', async () => {
+    const { service } = await setup({ empty: true });
+    const q = await service.createQuote();
+    assert.equal(q.logistics.baseName, '');
+  });
+});
+
 // ============================================================ demo guiada
 
 describe('ensureDemoQuote / latestDraft', () => {

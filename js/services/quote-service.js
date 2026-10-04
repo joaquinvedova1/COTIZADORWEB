@@ -75,7 +75,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     async createQuote({ templateId = null } = {}) {
       const [org, s, services] = await Promise.all([repository.getOrganization(), settings(), repository.getServices()]);
       const template = templateId ? services.find((t) => t.id === templateId) || null : null;
-      const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode() };
+      const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode(), baseName: org.baseLocation };
       const quote = template ? createQuoteFromTemplate(template, options) : createEmptyQuote(options);
       const saved = await repository.saveQuote(quote);
       track('quote_created', { serviceType: eventServiceType(saved.serviceType), source: template ? 'template' : 'blank' });
