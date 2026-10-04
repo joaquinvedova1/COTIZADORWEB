@@ -1,5 +1,8 @@
 /**
- * Paso 5 — Materiales y otros costos directos.
+ * Etapa 2 · Los recursos — Materiales y otros costos directos.
+ * Básico: descripción, cantidad, costo unitario y quién lo provee.
+ * Opciones avanzadas (con resumen visible): base, unidad, merma, logística y
+ * markup de reventa (recargo sobre el costo del material: no es margen).
  *   costo para nosotros = cantidad × costo unitario × (1 + merma%) × (1 + logística%)
  *   (si lo provee el cliente, no es costo nuestro; el markup de reventa es informativo)
  */
@@ -11,7 +14,14 @@ import { materialLineFromLibrary, createOtherCost } from '../../../domain/quote-
 import { formatMoney, formatPercent, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
-import { confirmRemove } from './shared.js';
+import { confirmRemove, hasNumber } from './shared.js';
+
+/** Grilla de la línea de material: la descripción más ancha que los números. */
+function materialGrid(...fields) {
+  const grid = formGrid(4, ...fields);
+  grid.classList.add('qe-material-grid');
+  return grid;
+}
 
 const BASIS_SHORT = Object.freeze({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: 'por activación' });
 
@@ -69,9 +79,11 @@ export function render(container, ctx) {
   };
 
   const toggleCard = card(
-    { title: 'Materiales', subtitle: 'Insumos, consumibles y materiales menores del servicio.' },
+    {},
     kit.check('materialsNotApplicable', { label: 'El servicio no usa materiales', structural: true, hint: 'Marcalo para confirmar que no te olvidaste de cargarlos.' }),
   );
+
+  const basisLabel = (id) => (MATERIAL_BASES.find((b) => b.id === id) || { label: 'sin base' }).label.toLowerCase();
 
   const materialCards = notApplicable
     ? []
@@ -89,35 +101,56 @@ export function render(container, ctx) {
           className: 'qe-line-compact',
         },
         ill.control,
-        formGrid(
-          4,
+        materialGrid(
           kit.text(`${p}.description`, { label: 'Descripción', maxLength: 160 }),
-          kit.text(`${p}.unit`, { label: 'Unidad', maxLength: 30, placeholder: 'kit, kg, m, unidad' }),
-          kit.select(`${p}.basis`, { label: 'Base', options: MATERIAL_BASES.map((b) => ({ value: b.id, label: b.label })) }),
+          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', hint: kit.out(() => `${basisLabel(quote.materials[i] && quote.materials[i].basis)} (se cambia en opciones avanzadas)`) }),
+          kit.num(`${p}.unitCost`, { label: 'Costo unitario', rule: 'money', unit: '$', illustrative }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
             options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),
             includeEmpty: true,
             emptyLabel: 'Elegí quién lo provee…',
           }),
-          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', hint: 'Por mes, día activo o activación (según la base).' }),
-          kit.num(`${p}.unitCost`, { label: 'Costo unitario', rule: 'money', unit: '$', illustrative }),
-          kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', illustrative }),
-          kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
-          kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: 'Sólo informativo, si facturás materiales aparte.' }),
         ),
-        kit.stats(
-          kit.stat('Costo para nosotros', (r) => formatMoney(at(r) && at(r).costForUs), {
-            hint: (r) => {
-              const l = at(r);
-              if (!l) return '';
-              if (!l.providedBy) return 'Falta definir quién lo provee.';
-              return l.costForUs === 0 && l.grossCost > 0 ? 'Lo provee el cliente: no es costo nuestro.' : BASIS_SHORT[l.basis] || '';
+        kit.keyline({
+          label: 'Costo para vos',
+          value: (r) => formatMoney(at(r) && at(r).costForUs),
+          hint: (r) => {
+            const l = at(r);
+            if (!l) return '';
+            if (!l.providedBy) return 'Falta definir quién lo provee.';
+            if (l.costForUs === 0 && l.grossCost > 0) return 'Lo provee el cliente: no es costo tuyo.';
+            return `${BASIS_SHORT[l.basis] || ''} · en el mes: ${splitLabel(l)}`;
+          },
+          tone: (r) => (at(r) && !at(r).providedBy ? 'red' : null),
+        }),
+        kit.advanced(
+          {
+            key: `materials:${line.id || i}`,
+            summary: () => {
+              const m = quote.materials[i] || {};
+              const parts = [
+                `se cuenta ${basisLabel(m.basis)}`,
+                `unidad: ${String(m.unit || '').trim() || 'sin unidad'}`,
+                `merma ${hasNumber(m.wastePct) ? formatPercent(Number(m.wastePct)) : '0 %'}`,
+                `logística ${hasNumber(m.logisticsPct) ? formatPercent(Number(m.logisticsPct)) : '0 %'}`,
+                hasNumber(m.resaleMarkupPct) && Number(m.resaleMarkupPct) > 0 ? `markup de reventa ${formatPercent(Number(m.resaleMarkupPct))}` : null,
+              ].filter(Boolean).join(' · ');
+              return `${parts.charAt(0).toUpperCase()}${parts.slice(1)}.`;
             },
-            tone: (r) => (at(r) && !at(r).providedBy ? 'red' : null),
-          }),
-          kit.stat('Fijo mensual / variable por día', (r) => splitLabel(at(r))),
-          kit.stat('Precio de reventa (informativo)', (r) => formatMoney(at(r) && at(r).resalePrice), { hint: 'Costo × (1 + markup). No es margen.' }),
+          },
+          formGrid(
+            3,
+            kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: MATERIAL_BASES.map((b) => ({ value: b.id, label: b.label })) }),
+            kit.text(`${p}.unit`, { label: 'Unidad', maxLength: 30, placeholder: 'kit, kg, m, unidad' }),
+            kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', illustrative, hint: 'Lo que se pierde o desperdicia.' }),
+            kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
+            kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: 'Recargo sobre el costo del material (no es margen). Sólo informativo, si facturás materiales aparte.' }),
+          ),
+          kit.stats(
+            kit.stat('Fijo mensual / variable por día', (r) => splitLabel(at(r))),
+            kit.stat('Precio de reventa (informativo)', (r) => formatMoney(at(r) && at(r).resalePrice), { hint: 'Costo × (1 + markup). No es margen.' }),
+          ),
         ),
       );
     });
@@ -128,7 +161,7 @@ export function render(container, ctx) {
       'div',
       { class: 'stack' },
       card(
-        { title: 'Agregar materiales' },
+        {},
         h(
           'div',
           { class: 'qe-toolbar' },
@@ -136,10 +169,10 @@ export function render(container, ctx) {
             'div',
             { class: 'qe-toolbar-pick' },
             selectField({
-              label: 'Desde la biblioteca de materiales',
+              label: 'Agregar desde tus recursos de materiales',
               value: null,
               includeEmpty: true,
-              emptyLabel: library.length ? 'Elegí un material…' : 'La biblioteca está vacía',
+              emptyLabel: library.length ? 'Elegí un material…' : 'Todavía no cargaste materiales',
               options: library.map((m) => ({ value: m.id, label: m.description })),
               onChange: (v) => {
                 selectedId = v;
@@ -150,7 +183,13 @@ export function render(container, ctx) {
           kit.action('Agregar material en blanco', addBlank, { icon: 'plus', size: 'md' }),
         ),
       ),
-      materialCards.length ? h('div', { class: 'qe-lines' }, ...materialCards) : card({}, emptyState('No hay materiales cargados. Si el servicio no usa materiales, marcá la casilla de arriba.')),
+      materialCards.length
+        ? h('div', { class: 'qe-lines' }, ...materialCards)
+        : emptyState({
+          title: 'Todavía no cargaste materiales.',
+          text: 'Agregá los insumos que se consumen al prestar el servicio. Si no usa materiales, marcá la casilla de arriba.',
+          icon: 'resources',
+        }),
     );
 
   // ------------------------------------------------- otros costos directos
@@ -203,29 +242,43 @@ export function render(container, ctx) {
       ],
       rows: quote.otherCosts,
     })
-    : emptyState('No hay otros costos directos.');
+    : h('p', { class: 'qe-note' }, 'No hay otros costos directos.');
 
-  const otherCard = card(
+  const otherCount = quote.otherCosts.length;
+  const otherSection = kit.advanced(
     {
+      key: 'other-costs',
       title: 'Otros costos directos (terceros, subcontratos, manuales)',
-      subtitle: 'Costos que no encajan en las líneas anteriores. Elegí la categoría para que aparezcan bien en la estructura de costos.',
-      actions: [kit.action('Agregar costo', addOther, { icon: 'plus' })],
+      boxed: true,
+      // Si hay otros costos cargados, la sección arranca abierta (no se esconden).
+      defaultOpen: otherCount > 0,
+      summary: (r) => {
+        if (otherCount === 0) return 'Para costos que no encajan en personal, equipos, materiales o viajes. No cargaste ninguno.';
+        const fixed = r.model.otherCosts.reduce((acc, l) => acc + (l.fixedMonthly || 0), 0);
+        const variable = r.model.otherCosts.reduce((acc, l) => acc + (l.variablePerActiveDay || 0), 0);
+        return `${otherCount} ${otherCount === 1 ? 'costo cargado' : 'costos cargados'}: ${formatMoney(fixed)} fijo por mes + ${formatMoney(variable)} por día activo.`;
+      },
     },
+    h('p', { class: 'qe-note' }, 'Elegí la categoría para que aparezcan bien en la estructura de costos.'),
     otherTable,
+    h('div', { class: 'qe-toolbar' }, kit.action('Agregar costo', addOther, { icon: 'plus' })),
   );
 
-  const totals = card(
-    { title: 'Totales' },
-    kit.stats(
-      kit.stat('Materiales: fijo mensual', (r) => formatMoney(r.model.materials.fixedMonthly)),
-      kit.stat('Materiales: variable por día activo', (r) => formatMoney(r.model.materials.variablePerActiveDay)),
-      kit.stat('Materiales en la estructura de costos', (r) => {
-        const row = r.eecc.rows.find((x) => x.category === 'materials');
-        return row ? `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}` : EMPTY;
-      }, { emphasis: true, trace: materialsTrace }),
-    ),
-  );
+  const totals = kit.keyline({
+    label: 'Materiales en el costo del mes',
+    value: (r) => {
+      const row = r.eecc.rows.find((x) => x.category === 'materials');
+      return row ? formatMoney(row.amount) : EMPTY;
+    },
+    hint: (r) => {
+      const row = r.eecc.rows.find((x) => x.category === 'materials');
+      const share = row ? `${formatPercent(row.displayPct)} del costo total · ` : '';
+      return `${share}fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día activo (incluye otros costos de categoría Materiales).`;
+    },
+    trace: materialsTrace,
+    className: 'qe-keyline-total',
+  });
 
-  mount(container, toggleCard, materialsSection, otherCard, totals);
+  mount(container, toggleCard, materialsSection, otherSection, totals);
   return { update() {} };
 }

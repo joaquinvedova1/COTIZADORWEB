@@ -1,5 +1,8 @@
 /**
- * Paso 10 — Margen y reglas comerciales.
+ * Etapa 4 · El precio — Margen y reglas comerciales.
+ * Básico: margen objetivo (sobre el precio). Opciones avanzadas: margen
+ * personalizado, descuento comercial, redondeo, tarifa ofrecida, reglas
+ * comerciales y tramos de descuento (cada una con un resumen visible).
  *
  * MARGEN (sobre precio) y MARKUP (sobre costo) NO son sinónimos:
  *   costo 100, margen 10 % → precio 111,11 · costo 100, markup 10 % → precio 110
@@ -13,7 +16,7 @@ import { tierLabel } from '../../../engines/commercial-rules-engine.js';
 import { formatMoney, formatPercent, formatNumber, formatValue, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
-import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove } from './shared.js';
+import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove, hasNumber } from './shared.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -40,67 +43,62 @@ export function render(container, ctx) {
 
   // ------------------------------------------------------------ margen
   const marginCard = card(
-    { title: 'Margen y precio', subtitle: 'El margen se calcula SOBRE EL PRECIO de venta (no sobre el costo).' },
+    {},
     formGrid(
       2,
       kit.num('pricing.targetMarginPct', {
-        label: 'Margen objetivo (sobre precio)',
+        label: 'Margen que querés ganar (sobre el precio)',
         rule: 'margin',
         unit: '%',
         requiredMark: true,
         hint: 'Lo que querés que te quede de cada $ 100 facturados.',
       }),
-      kit.num('pricing.customMarginPct', {
-        label: 'Margen personalizado (opcional)',
-        rule: 'margin',
-        unit: '%',
-        hint: 'Se agrega a la escalera de márgenes y a la matriz del Resultado.',
-      }),
-      kit.num('pricing.commercialDiscountPct', {
-        label: 'Descuento comercial',
-        rule: 'percent',
-        unit: '%',
-        hint: 'Descuento sobre la tarifa de lista para este cliente.',
-      }),
-      kit.num('pricing.roundingStep', {
-        label: 'Redondeo comercial',
-        rule: 'money',
-        unit: '$',
-        hint: 'La tarifa sugerida se redondea HACIA ARRIBA a múltiplos de este valor (nunca baja el margen). 0 = sin redondeo.',
-      }),
-      isModeB
-        ? kit.num('pricing.offeredRateOverride', {
-          label: `Tarifa ofrecida manual (opcional, de lista, ${unit.label})`,
-          rule: 'money',
-          unit: unit.label,
-          hint: 'Tarifa de lista, antes de descuentos (igual que la tarifa conocida). Si la dejás vacía, se usa la tarifa sugerida (precio objetivo redondeado hacia arriba).',
-        })
-        : kit.staticField(`Tarifa conocida (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', 'Elegiste "Conozco la tarifa": se edita en el paso Modalidad.'),
+    ),
+    h(
+      'div',
+      { class: 'qe-tip' },
+      icon('info'),
+      kit.out((r) => {
+        const mk = marginToMarkup(r.targetMarginPct);
+        return isFiniteNumber(mk)
+          ? `Un margen de ${formatPercent(r.targetMarginPct)} sobre el precio equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}. No son lo mismo.`
+          : 'Definí un margen objetivo válido (de 0 a menos de 100 %).';
+      }, { tag: 'p' }),
     ),
     kit.stats(
-      kit.stat((r) => `Precio objetivo de lista (margen ${formatPercent(r.targetMarginPct)})`, (r) => perUnitCeil(r.kpis.targetListRate, r.unit), {
+      kit.stat((r) => `Precio para ganar ${formatPercent(r.targetMarginPct)}`, (r) => perUnitCeil(r.kpis.targetListRate, r.unit), {
         trace: targetRateTrace,
         hint: (r) => {
           const net = netRateHint(r.kpis.targetNetRate, r);
           return `Tarifa de lista, antes de descuentos.${net ? ` ${net}` : ''}`;
         },
       }),
-      kit.stat('Tarifa sugerida (de lista, redondeada)', (r) => perUnitCeil(r.kpis.suggestedListRate, r.unit), { hint: 'Precio objetivo redondeado hacia arriba.' }),
-      kit.stat('Tarifa comercial (de lista)', (r) => (r.kpis.commercialSource === 'suggested' ? perUnitCeil(r.kpis.commercialListRate, r.unit) : perUnitMoney(r.kpis.commercialListRate, r.unit)), {
-        emphasis: true,
-        hint: (r) => (isFiniteNumber(r.kpis.commercialNetRate) ? `Neta después de descuentos: ${formatMoney(r.kpis.commercialNetRate)}` : 'Sin tarifa'),
-        trace: (r) => r.traces.expectedResult,
-      }),
+      kit.stat('Tarifa sugerida', (r) => perUnitCeil(r.kpis.suggestedListRate, r.unit), { hint: 'El precio anterior redondeado hacia arriba (nunca baja el margen).', emphasis: true }),
+      kit.toggle(
+        kit.stat((r) => (r.kpis.commercialSource === 'known_rate' ? 'Tu tarifa (de lista)' : 'Tarifa ofrecida (de lista)'), (r) => perUnitMoney(r.kpis.commercialListRate, r.unit), {
+          emphasis: true,
+          hint: (r) => (isFiniteNumber(r.kpis.commercialNetRate) ? `Neta después de descuentos: ${formatMoney(r.kpis.commercialNetRate)}` : 'Sin tarifa'),
+          trace: (r) => r.traces.expectedResult,
+        }),
+        (r) => r.kpis.commercialSource !== 'suggested' && r.kpis.commercialSource !== 'none',
+      ),
       kit.stat('Margen esperado', (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY), {
-        hint: (r) => (isFiniteNumber(r.kpis.markupPct) ? `Markup sobre costo: ${formatPercent(r.kpis.markupPct)}` : ''),
+        hint: (r) => (isFiniteNumber(r.kpis.markupPct) ? `Markup sobre el costo: ${formatPercent(r.kpis.markupPct)}` : ''),
         tone: (r) => (!isFiniteNumber(r.kpis.commercialListRate) ? 'gray' : r.kpis.profit < 0 ? 'red' : r.kpis.belowTarget ? 'orange' : 'green'),
+        trace: (r) => r.traces.expectedResult,
       }),
     ),
   );
 
   // ---------------------------------------------------- margen vs markup
-  const educational = card(
-    { title: 'Margen vs markup: no son lo mismo', subtitle: 'Confundirlos hace cotizar más barato de lo que creés.' },
+  const educational = kit.advanced(
+    {
+      key: 'margin-vs-markup',
+      title: 'Margen y markup no son lo mismo',
+      variant: 'detail',
+      boxed: true,
+      summary: 'Con un costo de 100: margen 10 % → precio 111,11 · markup 10 % → precio 110. Confundirlos hace cotizar más barato de lo que creés.',
+    },
     h(
       'div',
       { class: 'qe-compare' },
@@ -120,24 +118,87 @@ export function render(container, ctx) {
       ),
     ),
     h('p', { class: 'qe-explain' }, 'Con un costo de 100: un margen de 10 % lleva el precio a 111,11; un markup de 10 % lo deja en 110. Con markup de 10 % tu margen real es 9,09 %.'),
-    h(
-      'div',
-      { class: 'qe-tip' },
-      icon('info'),
-      kit.out((r) => {
-        const mk = marginToMarkup(r.targetMarginPct);
-        return isFiniteNumber(mk)
-          ? `Tu margen objetivo de ${formatPercent(r.targetMarginPct)} equivale a un markup de ${formatPercent(mk)} sobre el costo.`
-          : 'Definí un margen objetivo válido (de 0 a menos de 100 %).';
-      }, { tag: 'p' }),
-    ),
     kit.trace(() => traceMarginVsMarkup(100, 10), { label: 'Ver cálculo del ejemplo' }),
+  );
+
+  // --------------------------------- descuento, redondeo y tarifa ofrecida
+  const pricingOptions = kit.advanced(
+    {
+      key: 'margin-pricing',
+      title: 'Opciones avanzadas: descuento, redondeo y tarifa ofrecida',
+      boxed: true,
+      summary: () => {
+        const pr = quote.pricing || {};
+        const parts = [
+          hasNumber(pr.customMarginPct) ? `margen personalizado ${formatPercent(Number(pr.customMarginPct))}` : 'sin margen personalizado',
+          `descuento comercial ${hasNumber(pr.commercialDiscountPct) ? formatPercent(Number(pr.commercialDiscountPct)) : '0 %'}`,
+          hasNumber(pr.roundingStep) && Number(pr.roundingStep) > 0 ? `redondeo hacia arriba a ${formatMoney(Number(pr.roundingStep))}` : 'sin redondeo',
+          isModeB
+            ? (hasNumber(pr.offeredRateOverride) && Number(pr.offeredRateOverride) > 0 ? `tarifa ofrecida a mano ${formatMoney(Number(pr.offeredRateOverride))}` : 'se ofrece la tarifa sugerida')
+            : 'tarifa conocida (en "Cómo se cobra")',
+        ];
+        const text = parts.join(' · ');
+        return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+      },
+    },
+    formGrid(
+      2,
+      kit.num('pricing.customMarginPct', {
+        label: 'Margen personalizado (opcional)',
+        rule: 'margin',
+        unit: '%',
+        hint: 'Se agrega a la escalera de márgenes y a la tabla de tarifas del Resultado.',
+      }),
+      kit.num('pricing.commercialDiscountPct', {
+        label: 'Descuento comercial',
+        rule: 'percent',
+        unit: '%',
+        hint: 'Descuento sobre la tarifa de lista para este cliente.',
+      }),
+      kit.num('pricing.roundingStep', {
+        label: 'Redondeo comercial',
+        rule: 'money',
+        unit: '$',
+        hint: 'La tarifa sugerida se redondea HACIA ARRIBA a múltiplos de este valor (nunca baja el margen). 0 = sin redondeo.',
+      }),
+      isModeB
+        ? kit.num('pricing.offeredRateOverride', {
+          label: `Tarifa ofrecida a mano (opcional, de lista, ${unit.label})`,
+          rule: 'money',
+          unit: unit.label,
+          hint: 'Tarifa de lista, antes de descuentos. Si la dejás vacía, se ofrece la tarifa sugerida.',
+        })
+        : kit.staticField(`Tu tarifa (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', 'Elegiste "Sí, ya tengo la tarifa": se edita en "Cómo se cobra".'),
+    ),
+    kit.stat('Tarifa comercial (de lista)', (r) => (r.kpis.commercialSource === 'suggested' ? perUnitCeil(r.kpis.commercialListRate, r.unit) : perUnitMoney(r.kpis.commercialListRate, r.unit)), {
+      emphasis: true,
+      hint: (r) => (isFiniteNumber(r.kpis.commercialNetRate) ? `Neta después de descuentos: ${formatMoney(r.kpis.commercialNetRate)}` : 'Sin tarifa'),
+      trace: (r) => r.traces.expectedResult,
+    }),
   );
 
   // ----------------------------------------------------- reglas comerciales
   const minimumCallUnit = quote.unit === 'hour' ? 'horas' : 'días';
-  const rulesCard = card(
-    { title: 'Reglas comerciales', subtitle: 'Cómo se factura el servicio además de la tarifa. Dejá en 0 lo que no aplica.' },
+  const RULE_NAMES = [
+    ['availabilityFeeMonthly', 'fee de disponibilidad'],
+    ['calloutFeePerActivation', 'call-out'],
+    ['mobilizationFeePerActivation', 'movilización'],
+    ['extraKmRate', 'km adicional'],
+    ['minimumCallUnits', 'minimum call'],
+    ['minimumMonthlyGuarantee', 'mínimo mensual'],
+    ['continuityDiscountPct', 'descuento por continuidad'],
+  ];
+  const rulesSummary = () => {
+    const rules = quote.rules || {};
+    const active = RULE_NAMES.filter(([key]) => hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
+    if (rules.standbyNotApplicable === true) active.push('standby: no aplica');
+    else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('standby');
+    else active.push('standby sin definir');
+    return `Fees, mínimos, standby y continuidad. Aplicadas: ${active.join(', ')}.`;
+  };
+  const rulesCard = kit.advanced(
+    { key: 'margin-rules', title: 'Reglas comerciales', boxed: true, summary: rulesSummary },
+    h('p', { class: 'qe-note' }, 'Cómo se factura el servicio además de la tarifa. Dejá en 0 lo que no aplica.'),
     ruleRow(
       'Fee de disponibilidad',
       'Monto fijo por mes por tener el recurso reservado, se trabaje o no.',
@@ -255,12 +316,28 @@ export function render(container, ctx) {
     );
   };
 
-  const tiersCard = card(
+  const tiersSummary = (r) => {
+    const withDiscount = tiers.filter((t) => hasNumber(t.discountPct) && Number(t.discountPct) > 0);
+    if (withDiscount.length === 0) return `${tiers.length} ${tiers.length === 1 ? 'tramo' : 'tramos'}, ninguno con descuento.`;
+    const list = withDiscount.map((t) => `${tierLabel(t)}: ${formatPercent(Number(t.discountPct))}`).join(' · ');
+    const statuses = (r.discounts || []).map((d) => d.status);
+    const warn = statuses.includes('red') ? ' Alguno pierde plata.' : statuses.includes('orange') ? ' Alguno queda debajo del margen objetivo.' : '';
+    return `${withDiscount.length} ${withDiscount.length === 1 ? 'tramo' : 'tramos'} con descuento (${list}).${warn}`;
+  };
+  const tiersCard = kit.advanced(
     {
+      key: 'margin-tiers',
       title: 'Descuentos por cantidad de días',
-      subtitle: 'Tramos según los días facturables del mes. Semáforo: verde mantiene el margen, naranja queda debajo del objetivo, rojo pierde dinero.',
-      actions: [kit.action('Agregar tramo', addTier, { icon: 'plus' })],
+      boxed: true,
+      summary: tiersSummary,
+      flag: (r) => {
+        const statuses = (r.discounts || []).map((d) => d.status);
+        if (statuses.includes('red')) return { tone: 'red', text: 'Un tramo pierde plata' };
+        if (statuses.includes('orange')) return { tone: 'orange', text: 'Debajo del objetivo' };
+        return null;
+      },
     },
+    h('p', { class: 'qe-note' }, 'Tramos según los días facturables del mes. Semáforo: verde mantiene el margen, naranja queda debajo del objetivo, rojo pierde dinero.'),
     quote.unit === 'month' ? h('p', { class: 'qe-explain' }, 'Con abono mensual los tramos por cantidad de días no se aplican.') : null,
     tiers.length
       ? table({
@@ -286,8 +363,9 @@ export function render(container, ctx) {
       })
       : emptyState('No hay tramos de descuento.'),
     h('p', { class: 'footnote' }, '"Hasta" vacío = sin tope. Cada tramo se evalúa en su peor caso (el primer día del tramo).'),
+    h('div', { class: 'qe-toolbar' }, kit.action('Agregar tramo', addTier, { icon: 'plus' })),
   );
 
-  mount(container, marginCard, educational, rulesCard, tiersCard);
+  mount(container, marginCard, educational, kit.question('¿Querés ajustar cómo se cobra?', 'Descuentos, redondeo, fees y mínimos. Si no los usás, dejalos como están: no cambian la tarifa sugerida.', { level: 3 }), pricingOptions, rulesCard, tiersCard);
   return { update() {} };
 }

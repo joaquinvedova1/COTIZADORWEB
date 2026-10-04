@@ -1,21 +1,24 @@
 /**
- * Paso 2 — Modalidad de cotización.
- * Modo (conozco la tarifa / conozco la actividad), unidad, actividad
- * estimada y disponibilidad on-call.
+ * Etapa 1 · El servicio — Cómo se cobra (modalidad).
+ * Básico: modo (conozco la tarifa / conozco la actividad), unidad, tarifa
+ * conocida, días activos por mes y días por llamado (y horas por día si se
+ * cobra por hora).
+ * Opciones avanzadas: días disponibles, horas por día, disponibilidad on-call
+ * y tiempo de respuesta (con un resumen visible de lo aplicado).
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, icon, choiceGroup, openDialog, button } from '../../components.js';
+import { card, formGrid, choiceGroup, openDialog, button } from '../../components.js';
 import { PRICING_MODES, RATE_UNITS, AVAILABILITY_OPTIONS } from '../../../domain/catalogs.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
-import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace } from './shared.js';
+import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber } from './shared.js';
 
-const MODE_DETAILS = Object.freeze({
-  known_rate: 'Ingresás la tarifa que te pidieron o que querés ofrecer. RATEOS calcula los días mínimos para no perder plata (break-even), el resultado y el margen esperados con tu actividad estimada.',
-  known_activity: 'Ingresás cuántos días esperás trabajar. RATEOS calcula la tarifa piso (margen 0 %) y las tarifas necesarias para ganar 5 %, 10 % o 15 % sobre el precio.',
+const MODE_LABELS = Object.freeze({
+  known_rate: 'Sí, ya tengo la tarifa',
+  known_activity: 'No: calculá cuánto cobrar',
 });
 
 const UNIT_HINTS = Object.freeze({
@@ -30,9 +33,9 @@ const AVAILABILITY_HINTS = Object.freeze({
 });
 
 function daysPerActivationLabel(serviceType) {
-  if (serviceType === 'on_call') return 'Duración promedio de cada llamado (días)';
+  if (serviceType === 'on_call') return '¿Cuántos días dura cada llamado?';
   if (serviceType === 'permanent') return 'Días entre traslados / cambio de turno';
-  return 'Días por activación o viaje';
+  return 'Días por viaje o activación';
 }
 
 function unitsLabel(unit, value) {
@@ -135,15 +138,14 @@ export function render(container, ctx) {
   }
 
   const modeCard = card(
-    { title: '¿Cómo vas a cotizar?', subtitle: 'Elegí según lo que ya sabés del pedido del cliente.' },
+    {},
     kit.choice('pricingMode', {
-      label: 'Modo de cotización',
-      options: PRICING_MODES.map((m) => ({ value: m.id, label: m.label, hint: m.hint })),
+      label: '¿Ya tenés una tarifa?',
+      options: PRICING_MODES.map((m) => ({ value: m.id, label: MODE_LABELS[m.id] || m.label, hint: m.hint })),
       structural: true,
     }),
-    MODE_DETAILS[quote.pricingMode] ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, MODE_DETAILS[quote.pricingMode])) : null,
     choiceGroup({
-      label: 'Unidad de cotización',
+      label: '¿En qué unidad cobrás?',
       name: 'unit',
       value: quote.unit,
       disabled: kit.readOnly,
@@ -154,7 +156,7 @@ export function render(container, ctx) {
       ? formGrid(
         2,
         kit.num('pricing.knownRate', {
-          label: `Tarifa conocida (${unit.label})`,
+          label: `Tu tarifa (${unit.label})`,
           rule: 'money',
           unit: unit.label,
           requiredMark: true,
@@ -164,75 +166,106 @@ export function render(container, ctx) {
       : null,
   );
 
+  // Horas por día activo: dato básico si cobrás por hora (define las horas facturables).
+  const hoursField = () => kit.num('activity.hoursPerActiveDay', {
+    label: 'Horas trabajadas por día activo',
+    rule: 'hoursPerDay',
+    unit: 'h/día',
+    hint: quote.unit === 'hour' ? 'Cobrás por hora: se facturan días activos × horas por día.' : 'Se usa para el uso de equipos, la tarifa por hora y la estructura por hora.',
+  });
+  const hourly = quote.unit === 'hour';
+
   const activityCard = card(
-    { title: 'Actividad estimada', subtitle: 'Con estos datos RATEOS reparte los costos fijos entre los días que facturás.' },
+    {},
     formGrid(
-      2,
+      hourly ? 3 : 2,
       kit.num('activity.activeDaysPerMonth', {
-        label: '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando?',
+        label: 'Días trabajados y facturados por mes',
         rule: 'days',
         unit: 'días/mes',
         requiredMark: true,
         placeholder: 'Ej.: 8',
-        hint: 'Días activos (facturables) estimados: es el dato con el que se reparten los costos fijos. Si no estás seguro, cargá una estimación y mirá la matriz tarifa × utilización en Resultado.',
-      }),
-      kit.num('activity.availableDaysPerMonth', {
-        label: 'Días disponibles en el mes',
-        rule: 'daysInMonth',
-        unit: 'días',
-        placeholder: '30',
-        hint: 'Normalmente 30 para servicios 24/7; 22 si sólo trabajás días hábiles.',
+        hint: 'Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.',
       }),
       kit.num('activity.daysPerActivation', {
         label: daysPerActivationLabel(quote.serviceType),
         rule: 'positiveDays',
         unit: 'días',
-        hint: 'Sirve para calcular cuántas activaciones (llamados, viajes) hay por mes.',
+        hint: 'Sirve para saber cuántos llamados o viajes hay por mes.',
       }),
-      kit.num('activity.hoursPerActiveDay', {
-        label: 'Horas trabajadas por día activo',
-        rule: 'hoursPerDay',
-        unit: 'h/día',
-        hint: 'Se usa para el uso de equipos, la tarifa por hora y la estructura por hora.',
-      }),
+      hourly ? hoursField() : null,
     ),
-    kit.stats(
-      kit.stat('Utilización', (r) => formatPercent(r.activity.utilizationPct), { hint: 'Días activos ÷ días disponibles.' }),
-      kit.stat('Activaciones por mes', (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: 'Días activos ÷ días por activación.' }),
-      kit.stat('Unidades facturables por mes', (r) => unitsLabel(r.unit, r.estimate.revenue.billableUnits), {
-        hint: (r) => (r.estimate.revenue.minimumCallApplied ? 'Incluye el minimum call por activación.' : `En la unidad elegida (${unit.label}).`),
-      }),
-    ),
-  );
-
-  const availabilityHint = quote.activity && quote.activity.availability === 'window';
-  const onCallCard = isOnCall
-    ? card(
-      { title: 'Disponibilidad on-call', subtitle: 'Recursos reservados que se activan cuando el cliente llama.' },
-      kit.choice('activity.availability', {
-        label: 'Disponibilidad requerida',
-        options: AVAILABILITY_OPTIONS.map((o) => ({ value: o.id, label: o.label, hint: AVAILABILITY_HINTS[o.id] })),
-        structural: true,
-      }),
+    kit.keyline({
+      label: 'Con estos datos',
+      value: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) ? `${formatNumber(r.activity.activationsPerMonth, { decimals: 2 })} ${isOnCall ? 'llamados' : 'activaciones'} por mes` : EMPTY),
+      hint: (r) => {
+        if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return 'Cargá los días por mes para ver cuántos llamados y días facturás.';
+        const billable = unitsLabel(r.unit, r.estimate.revenue.billableUnits);
+        const extra = r.estimate.revenue.minimumCallApplied ? ' (incluye el minimum call por llamado)' : '';
+        return `Facturás ${billable} por mes${extra}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).`;
+      },
+    }),
+    kit.advanced(
+      {
+        key: 'modality',
+        summary: () => {
+          const a = quote.activity || {};
+          const parts = [
+            isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días disponibles por mes` : 'días disponibles sin cargar',
+            hourly ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
+            isOnCall ? `disponibilidad ${a.availability === 'window' ? 'por franja horaria' : '24/7'}` : null,
+            isOnCall && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
+          ].filter(Boolean);
+          return parts.join(' · ');
+        },
+      },
       formGrid(
         2,
-        availabilityHint
-          ? kit.text('activity.availabilityWindow', { label: 'Franja horaria', maxLength: 120, placeholder: 'Ej.: lunes a sábado de 7 a 19 h' })
-          : null,
-        kit.num('activity.responseTimeHours', {
-          label: 'Tiempo máximo de respuesta',
-          rule: 'hours',
-          unit: 'h',
-          hint: 'Desde el llamado hasta estar operativo en locación.',
+        kit.num('activity.availableDaysPerMonth', {
+          label: 'Días disponibles en el mes',
+          rule: 'daysInMonth',
+          unit: 'días',
+          placeholder: '30',
+          hint: 'Normalmente 30 para servicios 24/7; 22 si sólo trabajás días hábiles.',
+        }),
+        hourly ? null : hoursField(),
+      ),
+      isOnCall
+        ? kit.group(
+          'Disponibilidad on-call',
+          kit.choice('activity.availability', {
+            label: 'Disponibilidad requerida',
+            options: AVAILABILITY_OPTIONS.map((o) => ({ value: o.id, label: o.label, hint: AVAILABILITY_HINTS[o.id] })),
+            structural: true,
+          }),
+          formGrid(
+            2,
+            quote.activity && quote.activity.availability === 'window'
+              ? kit.text('activity.availabilityWindow', { label: 'Franja horaria', maxLength: 120, placeholder: 'Ej.: lunes a sábado de 7 a 19 h' })
+              : null,
+            kit.num('activity.responseTimeHours', {
+              label: 'Tiempo máximo de respuesta',
+              rule: 'hours',
+              unit: 'h',
+              hint: 'Desde el llamado hasta estar operativo en locación.',
+            }),
+          ),
+        )
+        : null,
+      kit.stats(
+        kit.stat('Utilización', (r) => formatPercent(r.activity.utilizationPct), { hint: 'Días activos ÷ días disponibles.' }),
+        kit.stat(isOnCall ? 'Llamados por mes' : 'Activaciones por mes', (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: 'Días activos ÷ días por llamado.' }),
+        kit.stat('Unidades facturables por mes', (r) => unitsLabel(r.unit, r.estimate.revenue.billableUnits), {
+          hint: (r) => (r.estimate.revenue.minimumCallApplied ? 'Incluye el minimum call por activación.' : `En la unidad elegida (${unit.label}).`),
         }),
       ),
-    )
-    : null;
+    ),
+  );
 
   const ladder = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [...DEFAULT_MARGIN_LADDER];
   const calcCard = knownRate
     ? card(
-      { title: 'Con tu tarifa', subtitle: 'Lo que calcula RATEOS en el modo "Conozco la tarifa".' },
+      { title: 'Con tu tarifa', subtitle: 'Lo que calcula RATEOS cuando ya tenés la tarifa.' },
       kit.stats(
         kit.stat('Días mínimos para no perder (break-even)', (r) => {
           const be = r.breakEven || {};
@@ -258,11 +291,20 @@ export function render(container, ctx) {
         }),
       ),
     )
-    : card(
+    : kit.advanced(
       {
-        title: 'Tarifas necesarias con tu actividad',
-        subtitle: 'Lo que calcula RATEOS en el modo "Conozco la actividad". Son tarifas DE LISTA (antes de descuentos), redondeadas hacia arriba: las que escribís en la cotización.',
+        key: 'modality-ladder',
+        title: 'Ver tarifas según el margen',
+        variant: 'detail',
+        boxed: true,
+        summary: (r) => {
+          const floor = floorDisplay(r);
+          return isFiniteNumber(floor.value)
+            ? `Tarifa piso ${perUnitCeil(floor.value, r.unit)} y las tarifas para ganar ${ladder.map((m) => formatPercent(m)).join(', ')} sobre el precio.`
+            : 'Cargá los días por mes para ver las tarifas.';
+        },
       },
+      h('p', { class: 'qe-note' }, 'Son tarifas DE LISTA (antes de descuentos), redondeadas hacia arriba: las que escribís en la cotización.'),
       kit.stats(
         kit.stat(
           (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso neta (margen 0 %)' : 'Tarifa piso de lista (margen 0 %)'),
@@ -288,6 +330,12 @@ export function render(container, ctx) {
       ),
     );
 
-  mount(container, modeCard, activityCard, onCallCard, calcCard);
+  mount(
+    container,
+    modeCard,
+    kit.question('¿Cuántos días por mes esperás trabajar?', 'En servicios on-call, cuantos menos días trabajes, mayor deberá ser la tarifa para cubrir los costos fijos.', { term: 'utilización (días trabajados ÷ días disponibles)' }),
+    activityCard,
+    calcCard,
+  );
   return { update() {} };
 }

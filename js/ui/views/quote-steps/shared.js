@@ -11,7 +11,7 @@
  */
 
 import { confirmDialog } from '../../components.js';
-import { formatMoney, formatMoneyCeil, EMPTY } from '../../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatNumber, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 
 /** "día" | "hora" | "mes" según la unidad de cotización. */
@@ -80,4 +80,19 @@ export function confirmRemove({ title, name, extra = 'Esto no modifica la biblio
     confirmLabel: 'Quitar',
     danger: true,
   });
+}
+
+/** ¿El valor cargado es un número? (vacío, null o texto → no). */
+export function hasNumber(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+}
+
+/** Número cargado como texto ("8,33") o null si está vacío. */
+export function numberText(value, { decimals = 2 } = {}) {
+  return hasNumber(value) ? formatNumber(Number(value), { decimals }) : null;
+}
+
+/** Monto cargado como texto ("$ 25.000") o null si está vacío. */
+export function moneyText(value) {
+  return hasNumber(value) ? formatMoney(Number(value)) : null;
 }

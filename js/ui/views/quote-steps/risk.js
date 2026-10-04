@@ -1,5 +1,7 @@
 /**
- * Paso 9 — Riesgo / contingencia.
+ * Etapa 3 · Las condiciones — Imprevistos (riesgo / contingencia).
+ * Básico: contingencia general %. Opciones avanzadas (con resumen visible de
+ * los riesgos marcados): checklist de riesgos con su %.
  *   contingencia % = general % + Σ % de riesgos marcados
  *   contingencia $ = % × (directos + estructura + financiero)
  */
@@ -66,11 +68,6 @@ export function render(container, ctx) {
     )
     : 'Se aplica sobre el costo directo + estructura + financiero.';
 
-  const generalCard = card(
-    { title: 'Contingencia general', subtitle: 'Un colchón para imprevistos que no podés anticipar.' },
-    formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
-  );
-
   const rows = RISK_ITEMS.map((item) => {
     const index = quote.risk.items.findIndex((r) => r && r.id === item.id);
     if (index < 0) return null;
@@ -94,26 +91,47 @@ export function render(container, ctx) {
     return row;
   });
 
-  const checklist = card(
-    { title: 'Checklist de riesgos', subtitle: 'Marcá los riesgos que aplican y asignales un %. Sólo suman los marcados.' },
-    h('div', { class: 'qe-risk-list' }, ...rows),
-  );
+  const riskSummary = () => {
+    const on = (quote.risk.items || []).filter((i) => i && i.enabled);
+    if (on.length === 0) return 'No marcaste riesgos puntuales: sólo cuenta la contingencia general.';
+    const list = on.map((i) => `${String(i.label || i.id).toLowerCase()} ${formatPercent(nonNegative(i.pct))}`).join(', ');
+    return `${on.length} ${on.length === 1 ? 'riesgo marcado' : 'riesgos marcados'}: ${list}.`;
+  };
 
-  const totals = card(
-    { title: 'Total de contingencia' },
-    kit.stats(
-      kit.stat('Contingencia total', () => formatPercent(contingencyPctOf(quote.risk)), { hint: 'General + riesgos marcados.' }),
-      kit.stat('Monto mensual', (r) => {
+  const card1 = card(
+    {},
+    formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
+    kit.keyline({
+      label: 'Imprevistos en el costo del mes',
+      value: (r) => {
         const row = r.eecc.rows.find((x) => x.category === 'contingency');
         return row ? formatMoney(row.amount) : EMPTY;
-      }, { emphasis: true, trace: (r) => contingencyTrace(r, quote) }),
-      kit.stat('Incidencia en el costo total', (r) => {
+      },
+      hint: (r) => {
         const row = r.eecc.rows.find((x) => x.category === 'contingency');
-        return row ? formatPercent(row.displayPct) : EMPTY;
-      }),
+        const share = row ? ` · ${formatPercent(row.displayPct)} del costo total` : '';
+        return `Contingencia total ${formatPercent(contingencyPctOf(quote.risk))} (general + riesgos marcados)${share}.`;
+      },
+      trace: (r) => contingencyTrace(r, quote),
+    }),
+    kit.advanced(
+      { key: 'risk', title: 'Opciones avanzadas: riesgos puntuales', summary: riskSummary },
+      h('p', { class: 'qe-note' }, 'Marcá los riesgos que aplican y asignales un %. Sólo suman los marcados.'),
+      h('div', { class: 'qe-risk-list' }, ...rows),
+      kit.stats(
+        kit.stat('Contingencia total', () => formatPercent(contingencyPctOf(quote.risk)), { hint: 'General + riesgos marcados.' }),
+        kit.stat('Monto mensual', (r) => {
+          const row = r.eecc.rows.find((x) => x.category === 'contingency');
+          return row ? formatMoney(row.amount) : EMPTY;
+        }, { emphasis: true, trace: (r) => contingencyTrace(r, quote) }),
+        kit.stat('Incidencia en el costo total', (r) => {
+          const row = r.eecc.rows.find((x) => x.category === 'contingency');
+          return row ? formatPercent(row.displayPct) : EMPTY;
+        }),
+      ),
     ),
   );
 
-  mount(container, generalCard, checklist, totals);
+  mount(container, card1);
   return { update() {} };
 }

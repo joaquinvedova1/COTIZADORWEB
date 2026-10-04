@@ -1,10 +1,18 @@
 /**
- * Editor de cotización — flujo paso a paso (orden obligatorio de QUOTE_STEPS).
+ * Editor de cotización — flujo guiado (orden obligatorio de QUOTE_STEPS).
  *
- * Layout de 3 zonas:
- *   1. Stepper con los 11 pasos y su estado (Cost Completeness Score).
- *   2. Panel central con el formulario del paso + Anterior / Siguiente.
- *   3. Resumen en vivo (sticky) con los KPIs de computeQuote().
+ * Los 11 pasos internos (y sus URLs #/cotizaciones/:id/:step) se mantienen,
+ * pero el usuario ve 5 ETAPAS (STAGES): El servicio · Los recursos · Las
+ * condiciones · El precio · Resultado.
+ *
+ * Layout:
+ *   1. Barra de etapas (navegable, con estado completo / revisar / faltan datos).
+ *   2. Panel central: sub-pasos de la etapa como segmentos, una pregunta con
+ *      su "por qué importa", el formulario (básico + "Opciones avanzadas"
+ *      colapsadas) y Atrás / Continuar.
+ *   3. Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa
+ *      sugerida, días para no perder) + "Ver más". En pantallas chicas es una
+ *      barra compacta fija abajo.
  *
  * Estado y guardado:
  *   - Se edita una COPIA de trabajo de la cotización.
@@ -35,6 +43,8 @@ import {
   openTraceDialog,
   toast as componentToast,
   table,
+  disclosure,
+  badge,
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, RATE_UNITS, SERVICE_TYPES } from '../../domain/catalogs.js';
@@ -43,7 +53,7 @@ import { computeQuote } from '../../engines/quote-engine.js';
 import { marginToMarkup } from '../../engines/pricing-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { getPath, setPath, deepClone, isPlainObject } from '../../core/object.js';
-import { formatMoney, formatPercent, formatDays, formatNumber, EMPTY } from '../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatMoneyCompact, formatPercent, formatDays, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { parseDecimalInput } from '../../core/validation.js';
 import { createId } from '../../core/ids.js';
@@ -86,6 +96,115 @@ const STATUS_TEXT = Object.freeze({
   green: 'completo',
   gray: 'sin controles',
 });
+
+/**
+ * Etapas visibles del flujo. Agrupan los pasos internos (QUOTE_STEPS), que
+ * siguen siendo las URLs. El orden de los pasos es el mismo de QUOTE_STEPS.
+ */
+export const STAGES = Object.freeze([
+  { id: 'service', label: 'El servicio', steps: Object.freeze([{ id: 'service', label: 'Tipo de servicio' }, { id: 'modality', label: 'Cómo se cobra' }]) },
+  {
+    id: 'resources',
+    label: 'Los recursos',
+    steps: Object.freeze([
+      { id: 'labor', label: 'Personal' },
+      { id: 'equipment', label: 'Equipos' },
+      { id: 'materials', label: 'Materiales' },
+      { id: 'logistics', label: 'Viajes' },
+    ]),
+  },
+  {
+    id: 'conditions',
+    label: 'Las condiciones',
+    steps: Object.freeze([
+      { id: 'indirect', label: 'Estructura' },
+      { id: 'finance', label: 'Financiación' },
+      { id: 'risk', label: 'Imprevistos' },
+    ]),
+  },
+  { id: 'price', label: 'El precio', steps: Object.freeze([{ id: 'margin', label: 'Margen y precio' }]) },
+  { id: 'result', label: 'Resultado', steps: Object.freeze([{ id: 'result', label: 'Resultado' }]) },
+]);
+
+/** Etapa (y posición) de un paso interno. */
+export function stageOfStep(stepId) {
+  const index = STAGES.findIndex((stage) => stage.steps.some((s) => s.id === stepId));
+  const stage = STAGES[index >= 0 ? index : 0];
+  return { stage, index: index >= 0 ? index : 0, subIndex: Math.max(0, stage.steps.findIndex((s) => s.id === stepId)) };
+}
+
+/** Nombre corto de un paso dentro de su etapa (p. ej. "Viajes"). */
+export function stepShortLabel(stepId) {
+  const { stage, subIndex } = stageOfStep(stepId);
+  return (stage.steps[subIndex] && stage.steps[subIndex].label) || stepId;
+}
+
+/**
+ * Cada paso empieza con una pregunta y una o dos líneas de POR QUÉ importa.
+ * El término técnico queda como ayuda secundaria.
+ */
+export const STEP_COPY = Object.freeze({
+  service: {
+    question: '¿Qué servicio vas a prestar?',
+    why: 'El tipo de servicio define cómo se cobra y qué costos aparecen.',
+  },
+  modality: {
+    question: '¿Cómo lo vas a cobrar?',
+    why: 'Contanos si ya tenés una tarifa o si querés que RATEOS calcule cuánto cobrar, y cuántos días por mes esperás trabajar.',
+  },
+  labor: {
+    question: '¿Quiénes trabajan en el servicio?',
+    why: 'El personal suele ser el costo más grande. Incluí relevos si el servicio es 24/7.',
+  },
+  equipment: {
+    question: '¿Qué equipos usás?',
+    why: 'Un equipo cuesta aunque esté parado: amortización, seguro, patente. Por eso separamos lo que cuesta tenerlo de lo que cuesta usarlo.',
+  },
+  materials: {
+    question: '¿Qué materiales o insumos consumís?',
+    why: 'Consumibles, repuestos menores y elementos que se gastan al prestar el servicio. Si los provee el cliente, no son costo tuyo.',
+  },
+  logistics: {
+    question: '¿Cuánto cuesta llegar?',
+    why: 'Combustible, kilómetros y viáticos se pagan aunque nadie los vea en la factura.',
+  },
+  indirect: {
+    question: '¿Cuánto de la estructura de tu empresa carga este servicio?',
+    why: 'Administración, base, seguridad e higiene, sistemas: cada servicio tiene que ayudar a pagar los gastos de estructura.',
+    term: 'Costos indirectos (overhead)',
+  },
+  finance: {
+    question: '¿Cuánto tiempo tenés que financiar el servicio?',
+    why: 'Si cobrás a 60 días, tenés que adelantar sueldos y combustible. Esa plata tiene un costo.',
+    term: 'Capital de trabajo',
+  },
+  risk: {
+    question: '¿Qué imprevistos pueden aparecer?',
+    why: 'Clima, roturas, días improductivos: reservá un porcentaje para lo que no podés anticipar, así no sale de tu ganancia.',
+    term: 'Contingencia',
+  },
+  margin: {
+    question: '¿Cuánto querés ganar?',
+    why: 'El margen es lo que te queda de cada $ 100 que facturás. Con ese dato calculamos la tarifa sugerida.',
+    term: 'Margen sobre el precio (no es markup)',
+  },
+  result: {
+    question: 'Resultado',
+    why: '',
+  },
+});
+
+/**
+ * Ítems de completitud que se corrigen dentro de unas "Opciones avanzadas":
+ * el aviso del paso ofrece abrirlas y el disclosure muestra "Revisar".
+ */
+const ITEM_ADVANCED_KEY = Object.freeze({ standby: 'margin-rules' });
+
+/**
+ * Estado abierto/cerrado de las "Opciones avanzadas", SÓLO en memoria
+ * (por cotización y sección) mientras dura la sesión: no se persiste.
+ */
+const advancedOpenState = new Map();
 
 /** Guardados en curso por cotización (para no leer datos viejos al cambiar de paso). */
 const pendingSaves = new Map();
@@ -171,6 +290,16 @@ export function stepStatus(stepId, result) {
   if (own.some((i) => i.status === 'missing') || issues.some((i) => i.severity === 'error')) return 'red';
   if (own.some((i) => i.status === 'warning') || issues.length > 0) return 'orange';
   if (own.length > 0) return 'green';
+  return 'gray';
+}
+
+/** Estado de una etapa: el peor de sus pasos (rojo > naranja > verde > gris). */
+export function stageStatus(stage, result) {
+  if (!stage || !result) return 'gray';
+  const statuses = stage.steps.map((s) => stepStatus(s.id, result));
+  if (statuses.includes('red')) return 'red';
+  if (statuses.includes('orange')) return 'orange';
+  if (statuses.includes('green')) return 'green';
   return 'gray';
 }
 
@@ -311,7 +440,7 @@ function setHeaderSafe(app, options) {
  * crea campos conectados a una ruta y "salidas" que se refrescan con cada
  * recálculo sin volver a dibujar los inputs.
  */
-function createStepKit({ getQuote, getResult, update, rerender, readOnly, confirmedLines = new Set() }) {
+function createStepKit({ getQuote, getResult, update, rerender, readOnly, confirmedLines = new Set(), openState = null }) {
   const watchers = [];
 
   function watch(run) {
@@ -469,9 +598,16 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
     },
 
     /** Salida calculada: fn(result) → texto o nodo. Se refresca en cada recálculo. */
-    out(fn, { tag = 'span', className = null } = {}) {
+    out(fn, { tag = 'span', className = null, allowEmpty = false } = {}) {
       const el = h(tag, { class: ['qe-out', className] });
-      watch((result) => setContent(el, evaluate(fn, result)));
+      watch((result) => {
+        const content = evaluate(fn, result);
+        if (allowEmpty && (content === null || content === undefined || content === '')) {
+          el.textContent = '';
+          return;
+        }
+        setContent(el, content);
+      });
       return el;
     },
 
@@ -582,6 +718,85 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       );
     },
 
+    /** Efecto libre que se ejecuta en cada recálculo: fn(result). */
+    effect(fn) {
+      watch(fn);
+    },
+
+    /**
+     * "Opciones avanzadas" (o "Ver detalle"): sección colapsable con un
+     * resumen VISIBLE de lo que hay adentro (no se esconden datos críticos).
+     *   key      → id estable de la sección (para recordar si estaba abierta)
+     *   title    → texto del summary
+     *   summary  → texto/nodo o fn(result) con lo aplicado (se refresca)
+     *   variant  → 'options' (campos avanzados) | 'detail' (cálculos)
+     *   boxed    → con caja propia (fuera de una tarjeta)
+     *   defaultOpen → abierta si el usuario todavía no la abrió ni cerró
+     *   flag     → fn(result) que devuelve { tone, text } para marcar el summary
+     * Si adentro hay un campo inválido o con un aviso del motor, el editor la
+     * abre sola (ver syncAdvanced en createEditor).
+     */
+    advanced({ key, title = 'Opciones avanzadas', summary = null, variant = 'options', boxed = false, defaultOpen = false, flag = null, className = null } = {}, ...children) {
+      const hint = summary === null || summary === undefined
+        ? null
+        : typeof summary === 'function'
+          ? kit.out(summary, { className: 'qe-adv-hint', allowEmpty: true })
+          : h('span', { class: 'qe-adv-hint' }, summary);
+      const badgeSlot = h('span', { class: 'qe-adv-badge', hidden: true });
+      // Lo que el usuario abrió o cerró en esta sesión manda; si no, defaultOpen.
+      const remembered = openState && key ? openState.get(key) : undefined;
+      const open = typeof remembered === 'boolean' ? remembered : Boolean(defaultOpen);
+      const el = disclosure(
+        {
+          summary: h('span', { class: 'qe-adv-title' }, variant === 'options' ? icon('settings', { size: 16 }) : icon('calc', { size: 16 }), h('span', {}, title)),
+          hint,
+          badge: badgeSlot,
+          open,
+          className: ['qe-adv', `qe-adv-${variant}`, boxed ? null : 'disclosure-plain', className].filter(Boolean).join(' '),
+          onToggle: (isOpen) => {
+            if (openState && key) openState.set(key, isOpen);
+          },
+        },
+        ...children,
+      );
+      if (key) el.dataset.advKey = key;
+      // flag(result) → null | { tone: 'orange'|'red', text }: aviso propio de la sección.
+      if (typeof flag === 'function') el.qeFlag = flag;
+      return el;
+    },
+
+    /** Sub-pregunta dentro de un paso: título + por qué importa (+ término técnico). */
+    question(title, why = null, { term = null, level = 3 } = {}) {
+      return h(
+        'div',
+        { class: 'qe-question' },
+        h(`h${level}`, { class: 'qe-question-title' }, title),
+        why ? h('p', { class: 'qe-question-why' }, why) : null,
+        term ? h('p', { class: 'qe-term' }, h('span', { class: 'qe-term-label' }, 'Término técnico:'), ` ${term}`) : null,
+      );
+    },
+
+    /**
+     * Línea de resultado clave (lo que este paso suma al costo):
+     *   label · valor grande · detalle · "Ver cálculo".
+     */
+    keyline({ label, value, hint = null, trace = null, tone = null, className = null }) {
+      const el = h(
+        'div',
+        { class: ['qe-keyline', className] },
+        h(
+          'div',
+          { class: 'qe-keyline-main' },
+          h('span', { class: 'qe-keyline-label' }, typeof label === 'function' ? kit.out(label) : label),
+          kit.out(value, { className: 'qe-keyline-value' }),
+          hint ? h('span', { class: 'qe-keyline-hint' }, typeof hint === 'function' ? kit.out(hint, { allowEmpty: true }) : hint) : null,
+        ),
+        trace ? kit.trace(trace) : null,
+      );
+      if (tone) kit.tone(el, tone);
+      return el;
+    },
+
     refresh(result) {
       watchers.forEach((run) => run(result));
     },
@@ -658,12 +873,72 @@ function completenessColor(pct) {
   return isFiniteNumber(pct) ? completenessTone(pct) : 'gray';
 }
 
+/** Nombre de la tarifa que se cobra, según su origen. */
+function chargedRateLabel(r) {
+  switch (r && r.kpis && r.kpis.commercialSource) {
+    case 'known_rate':
+      return 'Tu tarifa';
+    case 'offered':
+      return 'Tarifa ofrecida';
+    case 'override':
+      return 'Tarifa forzada';
+    default:
+      return 'Tarifa sugerida';
+  }
+}
+
+/** Días mínimos para no perder (break-even) como texto. */
+function breakEvenText(r, { decimals = 2 } = {}) {
+  const be = r.breakEven || {};
+  if (be.notApplicable) return 'No aplica';
+  if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
+  return formatDays(be.days, { decimals });
+}
+
+function rateHint(r) {
+  const k = r.kpis;
+  let text;
+  switch (k.commercialSource) {
+    case 'known_rate':
+      text = 'La ingresaste en "Cómo se cobra".';
+      break;
+    case 'offered':
+      text = 'La cargaste a mano en "Margen y precio".';
+      break;
+    case 'override':
+      text = 'Tarifa forzada.';
+      break;
+    case 'suggested':
+      text = `Para ganar ${formatPercent(r.targetMarginPct)} de margen, redondeada hacia arriba.`;
+      break;
+    default:
+      text = r.pricingMode === 'known_rate' ? 'Falta ingresar tu tarifa en "Cómo se cobra".' : 'Cargá los días por mes para calcularla.';
+  }
+  const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
+    ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
+    : '';
+  return `${text}${net}`;
+}
+
+/**
+ * Resumen en vivo: 4 números (costo del mes, tarifa piso, tarifa que se
+ * cobra y días para no perder), cada uno con "Ver cálculo", y "Ver más" con
+ * el resto (precio para el margen, resultado, margen esperado, completitud).
+ * En pantallas chicas es una barra compacta fija abajo que se expande.
+ */
 function buildSummary({ getResult, stepHref }) {
   const rows = [];
 
-  const item = ({ key, label, value, hint, tone = null, trace = null, emphasis = false }) => {
+  const item = ({ key, label, short = null, value, unit = null, compact = null, hint, tone = null, trace = null }) => {
     const labelEl = h('span', { class: 'qe-sum-label' });
-    const valueEl = h('div', { class: 'qe-sum-value mono' });
+    // Rótulo corto para la barra compacta (pantallas chicas); el completo queda para lectores de pantalla.
+    const shortEl = short ? h('span', { class: 'qe-sum-short', 'aria-hidden': 'true' }) : null;
+    const numberEl = h('span', { class: 'qe-sum-number' });
+    const unitEl = h('span', { class: 'qe-sum-unit' });
+    const compactNum = h('span', {});
+    const compactUnit = h('span', { class: 'qe-sum-compact-unit' });
+    const compactEl = compact ? h('span', { class: 'qe-sum-compact', 'aria-hidden': 'true' }, compactNum, compactUnit) : null;
+    const valueEl = h('div', { class: 'qe-sum-value' }, h('span', { class: 'qe-sum-full' }, numberEl, unitEl), compactEl);
     const hintEl = h('div', { class: 'qe-sum-hint' });
     const traceBtn = trace
       ? button('Ver cálculo', {
@@ -677,68 +952,91 @@ function buildSummary({ getResult, stepHref }) {
           const r = getResult();
           const t = r ? trace(r) : null;
           if (t) openTraceDialog(t);
+          else componentToast('Todavía no hay datos suficientes para mostrar este cálculo.', 'info');
         },
       })
       : null;
-    const el = h('div', { class: ['qe-sum-item', emphasis ? 'is-emphasis' : null], dataset: { kpi: key } }, h('div', { class: 'qe-sum-top' }, labelEl, traceBtn), valueEl, hintEl);
-    rows.push({ el, labelEl, valueEl, hintEl, traceBtn, label, value, hint, tone });
+    const el = h('div', { class: 'qe-sum-item', dataset: { kpi: key } }, h('div', { class: 'qe-sum-labels' }, labelEl, shortEl), valueEl, hintEl, traceBtn);
+    rows.push({ el, labelEl, shortEl, numberEl, unitEl, compactEl, compactNum, compactUnit, hintEl, traceBtn, label, short, value, unit, compact, hint, tone });
     return el;
   };
 
-  const list = h(
+  const main = h(
     'div',
-    { class: 'qe-sum-list' },
+    { class: 'qe-sum-list qe-sum-main' },
     item({
       key: 'totalCost',
-      label: 'Costo mensual total',
+      label: 'Costo del mes',
+      short: 'Costo del mes',
       value: (r) => formatMoney(r.kpis.totalCost),
-      hint: (r) => `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días activos (${formatPercent(r.kpis.utilizationPct)} de utilización).`,
+      compact: (r) => formatMoneyCompact(r.kpis.totalCost),
+      hint: (r) => `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`,
       trace: (r) => r.traces.totalCost,
     }),
     item({
       key: 'floorRate',
       // Base de LISTA: es la que se escribe en la cotización (UX-01).
-      label: (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso (neta)' : 'Tarifa piso (de lista)'),
-      value: (r) => perUnitCeil(floorDisplay(r).value, r.unit),
+      label: (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso (neta)' : 'Tarifa piso'),
+      short: 'Tarifa piso',
+      value: (r) => formatMoneyCeil(floorDisplay(r).value),
+      unit: (r) => `/ ${unitShort(r)}`,
+      compact: (r) => formatMoneyCompact(floorDisplay(r).value, { ceil: true }),
       hint: (r) => {
         const floor = floorDisplay(r);
-        if (!isFiniteNumber(floor.value)) return 'Cargá la actividad estimada para calcularla.';
+        if (!isFiniteNumber(floor.value)) return 'Cargá los días por mes para calcularla.';
         const net = floor.base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
-        return `Margen 0 %: sólo cubre los costos.${net ? ` ${net}` : ''}`;
+        return `Precio mínimo para no perder (margen 0 %).${net ? ` ${net}` : ''}`;
       },
       trace: floorRateTrace,
     }),
     item({
+      key: 'commercialRate',
+      label: chargedRateLabel,
+      short: (r) => ({ 'Tarifa sugerida': 'Sugerida', 'Tarifa ofrecida': 'Ofrecida', 'Tarifa forzada': 'Forzada' }[chargedRateLabel(r)] || chargedRateLabel(r)),
+      value: (r) => (r.kpis.commercialSource === 'suggested' ? formatMoneyCeil(r.kpis.commercialListRate) : formatMoney(r.kpis.commercialListRate)),
+      unit: (r) => `/ ${unitShort(r)}`,
+      compact: (r) => formatMoneyCompact(r.kpis.commercialListRate, { ceil: r.kpis.commercialSource === 'suggested' }),
+      hint: rateHint,
+      tone: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? resultTone(r) : null),
+      trace: commercialRateTrace,
+    }),
+    item({
+      key: 'breakEven',
+      label: 'Días para no perder',
+      short: 'Para no perder',
+      value: (r) => breakEvenText(r),
+      compact: (r) => breakEvenText(r, { decimals: 1 }),
+      hint: (r) => {
+        const be = r.breakEven || {};
+        if (be.notApplicable || !be.reachable) return be.reason || '';
+        return `Mínimo ${formatNumber(be.wholeDays)} días enteros · estimás ${formatNumber(r.kpis.activeDays, { decimals: 2 })} (break-even).`;
+      },
+      tone: breakEvenTone,
+      trace: (r) => r.traces.breakEven,
+    }),
+  );
+
+  const more = h(
+    'div',
+    { class: 'qe-sum-list qe-sum-more-list' },
+    item({
       key: 'targetRate',
-      label: (r) => `Precio objetivo (de lista, margen ${formatPercent(r.targetMarginPct)})`,
-      value: (r) => perUnitCeil(r.kpis.targetListRate, r.unit),
+      label: (r) => `Precio para tu margen de ${formatPercent(r.targetMarginPct)}`,
+      value: (r) => formatMoneyCeil(r.kpis.targetListRate),
+      unit: (r) => `/ ${unitShort(r)}`,
       hint: (r) => {
         const mk = marginToMarkup(r.targetMarginPct);
         const net = netRateHint(r.kpis.targetNetRate, r);
-        const markup = isFiniteNumber(mk) ? `Equivale a un markup de ${formatPercent(mk)} sobre el costo.` : '';
-        return [net, markup].filter(Boolean).join(' ');
+        const markup = isFiniteNumber(mk) ? `Equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}.` : '';
+        return [`Tarifa de lista sin redondear.`, net, markup].filter(Boolean).join(' ');
       },
       trace: targetRateTrace,
     }),
     item({
-      key: 'commercialRate',
-      label: 'Tarifa comercial (de lista)',
-      value: commercialRateText,
-      hint: (r) => {
-        const k = r.kpis;
-        const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
-          ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
-          : '';
-        return `${sourceHint(r)}${net}`;
-      },
-      trace: commercialRateTrace,
-      emphasis: true,
-    }),
-    item({
       key: 'expectedResult',
-      label: 'Resultado esperado',
+      label: 'Resultado esperado del mes',
       value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? `Facturación ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa comercial.'),
+      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
       tone: resultTone,
       trace: (r) => r.traces.expectedResult,
     }),
@@ -750,30 +1048,13 @@ function buildSummary({ getResult, stepHref }) {
       hint: (r) => {
         const k = r.kpis;
         const base = `Objetivo ${formatPercent(k.targetMarginPct)}`;
-        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa comercial.`;
-        const state = k.profit < 0 ? 'pierde dinero' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
+        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
+        const state = k.profit < 0 ? 'perdés plata' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
         const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
         return `${base} · ${state}${markup}.`;
       },
       tone: resultTone,
       trace: (r) => r.traces.expectedResult,
-    }),
-    item({
-      key: 'breakEven',
-      label: 'Break-even (días activos)',
-      value: (r) => {
-        const be = r.breakEven || {};
-        if (be.notApplicable) return 'No aplica';
-        if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
-        return formatDays(be.days);
-      },
-      hint: (r) => {
-        const be = r.breakEven || {};
-        if (be.notApplicable || !be.reachable) return be.reason || '';
-        return `Mínimo ${formatNumber(be.wholeDays)} días enteros · estimás ${formatNumber(r.kpis.activeDays, { decimals: 2 })}.`;
-      },
-      tone: breakEvenTone,
-      trace: (r) => r.traces.breakEven,
     }),
   );
 
@@ -785,18 +1066,46 @@ function buildSummary({ getResult, stepHref }) {
   const completeness = h(
     'div',
     { class: 'qe-sum-complete', dataset: { kpi: 'completeness' } },
-    h('div', { class: 'qe-sum-top' }, h('span', { class: 'qe-sum-label' }, 'Completitud de costos'), pctEl),
+    h('div', { class: 'qe-sum-top' }, h('span', { class: 'qe-sum-label' }, '¿Te falta cargar algo?'), pctEl),
     bar,
     pendingEl,
   );
 
-  const el = h(
-    'div',
-    { class: 'qe-summary-inner' },
-    h('div', { class: 'qe-summary-head' }, h('h2', { class: 'qe-summary-title' }, 'Resumen en vivo'), h('span', { class: 'qe-summary-sub' }, 'Se recalcula mientras editás')),
-    list,
-    completeness,
+  const moreHint = h('span', { class: 'qe-sum-more-hint' });
+  const moreEl = disclosure({ summary: 'Ver más', hint: moreHint, className: 'disclosure-plain qe-sum-more' }, more, completeness);
+
+  const inner = h('div', { class: 'qe-summary-inner' });
+  const toggleText = h('span', {}, 'Ver detalle');
+  const toggleBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'btn btn-link btn-sm qe-sum-toggle',
+      'aria-expanded': 'false',
+      on: {
+        click: () => {
+          const expanded = !inner.classList.contains('is-expanded');
+          inner.classList.toggle('is-expanded', expanded);
+          toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+          toggleText.textContent = expanded ? 'Ocultar detalle' : 'Ver detalle';
+        },
+      },
+    },
+    toggleText,
+    icon('chevronRight', { size: 16 }),
   );
+  mount(
+    inner,
+    h(
+      'div',
+      { class: 'qe-summary-head' },
+      h('div', { class: 'qe-summary-titles' }, h('h2', { class: 'qe-summary-title' }, 'Resumen en vivo'), h('span', { class: 'qe-summary-sub' }, 'Se recalcula mientras editás')),
+      toggleBtn,
+    ),
+    main,
+    moreEl,
+  );
+  const el = h('aside', { class: 'qe-summary', 'aria-label': 'Resumen en vivo de la cotización' }, inner);
 
   function resolve(v, r) {
     if (typeof v !== 'function') return v;
@@ -814,22 +1123,34 @@ function buildSummary({ getResult, stepHref }) {
       if (!r) return;
       rows.forEach((row) => {
         row.labelEl.textContent = resolve(row.label, r) || '';
+        if (row.shortEl) row.shortEl.textContent = resolve(row.short, r) || '';
         if (row.traceBtn) row.traceBtn.setAttribute('aria-label', `Ver cálculo: ${row.labelEl.textContent}`);
-        row.valueEl.textContent = resolve(row.value, r) || EMPTY;
+        const value = resolve(row.value, r) || EMPTY;
+        row.numberEl.textContent = value;
+        const unit = value === EMPTY ? '' : resolve(row.unit, r) || '';
+        row.unitEl.textContent = unit && unit !== EMPTY ? ` ${unit}` : '';
+        if (row.compactEl) {
+          const compact = resolve(row.compact, r) || EMPTY;
+          row.compactNum.textContent = compact;
+          row.compactUnit.textContent = compact !== EMPTY && unit && unit !== EMPTY ? unit.replace('/ ', '/') : '';
+        }
         const hint = resolve(row.hint, r);
         row.hintEl.textContent = hint && hint !== EMPTY ? hint : '';
         row.hintEl.hidden = !row.hintEl.textContent;
         const tone = row.tone ? resolve(row.tone, r) : null;
-        if (tone && tone !== EMPTY) row.el.dataset.tone = tone;
+        if (tone && tone !== EMPTY && tone !== 'gray') row.el.dataset.tone = tone;
         else delete row.el.dataset.tone;
       });
       const pct = r.completeness ? r.completeness.scorePct : null;
       const v = isFiniteNumber(pct) ? Math.max(0, Math.min(100, pct)) : 0;
-      pctEl.textContent = isFiniteNumber(pct) ? `${formatNumber(pct, { decimals: 0 })} %` : EMPTY;
+      pctEl.textContent = isFiniteNumber(pct) ? `${formatNumber(pct, { decimals: 0 })} % completo` : EMPTY;
       barFill.style.setProperty('width', `${v}%`);
       bar.className = `progress progress-${completenessColor(pct)}`;
       bar.setAttribute('aria-valuenow', String(Math.round(v)));
       const pending = (r.completeness && r.completeness.pending) || [];
+      moreHint.textContent = pending.length === 0
+        ? 'Precio para tu margen, resultado y margen esperados.'
+        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos · resultado y margen esperados.`;
       if (pending.length === 0) {
         mount(pendingEl, h('li', { class: 'qe-pending-ok' }, h('span', { class: 'dot dot-green', 'aria-hidden': 'true' }), 'No hay pendientes de costos.'));
       } else {
@@ -841,37 +1162,83 @@ function buildSummary({ getResult, stepHref }) {
             h('span', { class: ['dot', `dot-${p.color === 'red' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }),
             h('div', {}, h('a', { href: stepHref(stepOfItem(p)) }, p.label), h('div', { class: 'qe-pending-msg' }, p.message)),
           )),
-          pending.length > 3 ? h('li', { class: 'qe-pending-more' }, `y ${pending.length - 3} más (ver estado en cada paso)`) : null,
+          pending.length > 3 ? h('li', { class: 'qe-pending-more' }, `y ${pending.length - 3} más (ver el estado de cada etapa)`) : null,
         );
       }
     },
   };
 }
 
-// ----------------------------------------------------------------- stepper
+// ------------------------------------------------------------------ etapas
 
-function buildStepper({ currentStep, stepHref }) {
-  const entries = QUOTE_STEPS.map((step, index) => {
-    const statusText = h('span', { class: 'sr-only' });
-    const isCurrent = step.id === currentStep;
+/**
+ * Barra de las 5 etapas (navegable). Cada etapa muestra si está completa,
+ * si hay algo para revisar o si faltan datos (según completitud y validaciones).
+ */
+function buildStageBar({ currentStep, stepHref }) {
+  const { index: currentIndex } = stageOfStep(currentStep);
+  const entries = STAGES.map((stage, index) => {
+    const isCurrent = index === currentIndex;
+    const numEl = h('span', { class: 'qe-stage-num', 'aria-hidden': 'true' }, String(index + 1));
+    const stateEl = h('span', { class: 'qe-stage-state' });
     const link = h(
       'a',
-      { href: stepHref(step.id), class: ['qe-step-link', isCurrent ? 'is-current' : null], 'aria-current': isCurrent ? 'step' : null },
-      h('span', { class: 'qe-step-num', 'aria-hidden': 'true' }, String(index + 1)),
-      h('span', { class: 'qe-step-label' }, step.label),
-      h('span', { class: 'qe-step-dot', 'aria-hidden': 'true' }),
+      { href: stepHref(stage.steps[0].id), class: ['qe-stage-link', isCurrent ? 'is-current' : null], 'aria-current': isCurrent ? 'step' : null },
+      numEl,
+      h('span', { class: 'qe-stage-text' }, h('span', { class: 'qe-stage-label' }, stage.label), stateEl),
+    );
+    const li = h('li', { class: ['qe-stage', isCurrent ? 'is-current' : null, index < currentIndex ? 'is-before' : null], dataset: { stage: stage.id } }, link);
+    return { stage, index, li, link, numEl, stateEl, isCurrent };
+  });
+  const el = h(
+    'nav',
+    { class: 'qe-stages', 'aria-label': 'Etapas de la cotización' },
+    h('ol', { class: 'qe-stage-list' }, ...entries.map((e) => e.li)),
+  );
+  const STATE_LABEL = { green: 'Completo', orange: 'Revisar', red: 'Faltan datos', gray: '' };
+  return {
+    el,
+    update(result) {
+      entries.forEach((e) => {
+        const status = e.stage.id === 'result' ? 'gray' : stageStatus(e.stage, result);
+        e.li.dataset.status = status;
+        const stateText = e.isCurrent ? 'Estás acá' : STATE_LABEL[status];
+        e.stateEl.textContent = stateText;
+        e.stateEl.hidden = !stateText;
+        e.link.title = e.stage.id === 'result' ? 'Resultado' : `${e.stage.label}: ${STATUS_TEXT[status]}`;
+        if (e.stage.id !== 'result' && e.isCurrent) e.link.setAttribute('aria-label', `Etapa ${e.index + 1}: ${e.stage.label} (estás acá, ${STATUS_TEXT[status]})`);
+        else if (e.stage.id !== 'result') e.link.setAttribute('aria-label', `Etapa ${e.index + 1}: ${e.stage.label} (${STATUS_TEXT[status]})`);
+        else e.link.setAttribute('aria-label', `Etapa ${e.index + 1}: Resultado${e.isCurrent ? ' (estás acá)' : ''}`);
+        if (status === 'green' && !e.isCurrent) mount(e.numEl, icon('check', { size: 15 }));
+        else e.numEl.textContent = String(e.index + 1);
+      });
+    },
+  };
+}
+
+/** Sub-pasos de la etapa actual como segmentos simples ("Personal · Equipos · …"). */
+function buildSubsteps({ currentStep, stepHref }) {
+  const { stage } = stageOfStep(currentStep);
+  if (stage.steps.length < 2) return null;
+  const entries = stage.steps.map((step) => {
+    const isCurrent = step.id === currentStep;
+    const statusText = h('span', { class: 'sr-only' });
+    const link = h(
+      'a',
+      { href: stepHref(step.id), class: ['qe-substep', isCurrent ? 'is-current' : null], 'aria-current': isCurrent ? 'step' : null },
+      h('span', { class: 'qe-substep-label' }, step.label),
+      h('span', { class: 'qe-substep-dot', 'aria-hidden': 'true' }),
       statusText,
     );
-    const li = h('li', { class: 'qe-step', dataset: { step: step.id } }, link);
-    return { step, li, link, statusText };
+    return { step, link, statusText };
   });
-  const el = h('nav', { class: 'qe-stepper', 'aria-label': 'Pasos de la cotización' }, h('ol', { class: 'qe-steps' }, ...entries.map((e) => e.li)));
+  const el = h('nav', { class: 'qe-substeps', 'aria-label': `Pasos de ${stage.label}` }, h('ol', { class: 'qe-substep-list' }, ...entries.map((e) => h('li', {}, e.link))));
   return {
     el,
     update(result) {
       entries.forEach((e) => {
         const status = stepStatus(e.step.id, result);
-        e.li.dataset.status = status;
+        e.link.dataset.status = status;
         e.statusText.textContent = ` (${STATUS_TEXT[status]})`;
         e.link.title = `${e.step.label}: ${STATUS_TEXT[status]}`;
       });
@@ -881,9 +1248,12 @@ function buildStepper({ currentStep, stepHref }) {
 
 // ---------------------------------------------------- avisos del paso actual
 
-function buildStepNotices(stepId) {
+function buildStepNotices(stepId, { onReveal = null } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
-  const el = h('section', { class: 'qe-notices', 'aria-label': 'Pendientes y avisos de este paso', hidden: true }, h('h3', { class: 'qe-notices-title' }, 'Pendientes de este paso'), list);
+  const el = h('section', { class: 'qe-notices', 'aria-label': 'Pendientes y avisos de este paso', hidden: true }, h('h3', { class: 'qe-notices-title' }, 'Para revisar en este paso'), list);
+  const revealButton = (key) => (key && typeof onReveal === 'function'
+    ? button('Ir al campo', { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-notice-go' }, onClick: () => onReveal(key) })
+    : null);
   return {
     el,
     update(result) {
@@ -902,7 +1272,12 @@ function buildStepNotices(stepId) {
       el.classList.toggle('has-red', items.some((i) => i.status === 'missing') || issues.some((i) => i.severity === 'error'));
       mount(
         list,
-        ...items.map((i) => h('li', { class: ['qe-notice', `is-${i.status === 'missing' ? 'red' : 'orange'}`] }, h('span', { class: ['dot', `dot-${i.status === 'missing' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }), h('span', {}, h('strong', {}, `${i.label}: `), i.message))),
+        ...items.map((i) => h(
+          'li',
+          { class: ['qe-notice', `is-${i.status === 'missing' ? 'red' : 'orange'}`] },
+          h('span', { class: ['dot', `dot-${i.status === 'missing' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }),
+          h('span', {}, h('strong', {}, `${i.label}: `), i.message, ' ', revealButton(ITEM_ADVANCED_KEY[i.id])),
+        )),
         ...issues.map((i) => h('li', { class: ['qe-notice', `is-${i.severity === 'error' ? 'red' : 'orange'}`] }, h('span', { class: ['dot', `dot-${i.severity === 'error' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }), h('span', {}, i.message))),
       );
     },
@@ -1055,7 +1430,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   /** Actualiza el indicador y retoma el guardado cuando se corrigen los campos. */
   function syncInvalidState() {
     if (readOnly || state.disposed) return;
+    if (stepId !== 'result') syncAdvanced(state.result);
     if (hasInvalidFields()) {
+      // Un campo inválido dentro de "Opciones avanzadas" nunca queda escondido.
+      invalidControls().forEach((el) => openAncestors(el));
       if (state.saveStatus !== 'invalid' && state.saveStatus !== 'error') setSaveStatus('invalid');
       return;
     }
@@ -1179,6 +1557,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   function focusField(path) {
     const control = stepBody.querySelector(`[name="${cssEscape(path)}"]`);
     if (!control) return;
+    // Si el campo está dentro de unas "Opciones avanzadas" cerradas, se abren.
+    openAncestors(control);
     if (typeof control.scrollIntoView === 'function') control.scrollIntoView({ block: 'center' });
     try {
       control.focus({ preventScroll: true });
@@ -1187,41 +1567,132 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     }
   }
 
+  /** Abre los <details> que contienen un nodo (para no esconder un campo). */
+  function openAncestors(node) {
+    let d = node && node.parentElement ? node.parentElement.closest('details') : null;
+    while (d && layout.contains(d)) {
+      if (!d.open) d.open = true;
+      d = d.parentElement ? d.parentElement.closest('details') : null;
+    }
+  }
+
+  /** Abre unas "Opciones avanzadas" por clave y lleva la vista a ellas. */
+  function revealAdvanced(key) {
+    const section = stepBody.querySelector(`details[data-adv-key="${cssEscape(key)}"]`);
+    if (!section) return;
+    section.open = true;
+    openAncestors(section);
+    if (typeof section.scrollIntoView === 'function') section.scrollIntoView({ block: 'start', behavior: 'auto' });
+    const summaryEl = section.querySelector('summary');
+    if (summaryEl) {
+      try {
+        summaryEl.focus({ preventScroll: true });
+      } catch {
+        summaryEl.focus();
+      }
+    }
+  }
+
+  /**
+   * "Opciones avanzadas" con algo para corregir: se abren solas si tienen un
+   * campo inválido o con aviso del motor (no se esconden errores) y muestran
+   * "Revisar" si hay un pendiente de completitud que se corrige adentro.
+   */
+  function syncAdvanced(result) {
+    const items = result && result.completeness ? result.completeness.items || [] : [];
+    stepBody.querySelectorAll('details.qe-adv').forEach((section) => {
+      const invalid = section.querySelector('[aria-invalid="true"]');
+      const issue = section.querySelector('.qe-has-issue');
+      const key = section.dataset.advKey || '';
+      const flagged = items.some((i) => ITEM_ADVANCED_KEY[i.id] === key && i.status !== 'ok' && i.status !== 'n/a');
+      if ((invalid || issue) && !section.open) {
+        section.open = true;
+        openAncestors(section);
+      }
+      const slot = section.querySelector('.qe-adv-badge');
+      if (!slot) return;
+      let custom = null;
+      if (typeof section.qeFlag === 'function' && result) {
+        try {
+          custom = section.qeFlag(result);
+        } catch (error) {
+          logger.warn('No se pudo evaluar un aviso de sección', { message: error && error.message });
+        }
+      }
+      const tone = invalid || (issue && section.querySelector('.qe-issue-error')) ? 'red' : issue || flagged ? 'orange' : custom && custom.tone ? custom.tone : null;
+      if (tone) {
+        const text = invalid || issue ? (tone === 'red' ? 'Corregir' : 'Revisar') : flagged ? 'Revisar' : custom.text || 'Revisar';
+        const signature = `${tone}|${text}`;
+        if (slot.dataset.sig !== signature) mount(slot, badge(text, tone));
+        slot.dataset.sig = signature;
+        slot.hidden = false;
+      } else {
+        clear(slot);
+        delete slot.dataset.sig;
+        slot.hidden = true;
+      }
+    });
+  }
+
   // ------------------------------------------------------------- estructura
   const currentIndex = QUOTE_STEPS.findIndex((s) => s.id === stepId);
-  const currentStep = QUOTE_STEPS[currentIndex];
   const prevStep = currentIndex > 0 ? QUOTE_STEPS[currentIndex - 1] : null;
   const nextStep = currentIndex < QUOTE_STEPS.length - 1 ? QUOTE_STEPS[currentIndex + 1] : null;
+  const { stage: currentStage, index: stageIndex } = stageOfStep(stepId);
+  const copy = STEP_COPY[stepId] || { question: stepShortLabel(stepId), why: '' };
 
-  const stepper = buildStepper({ currentStep: stepId, stepHref });
+  const stageBar = buildStageBar({ currentStep: stepId, stepHref });
+  const substeps = buildSubsteps({ currentStep: stepId, stepHref });
   const summary = stepId === 'result' ? null : buildSummary({ getResult: () => state.result, stepHref });
-  const notices = buildStepNotices(stepId);
+  const notices = buildStepNotices(stepId, { onReveal: (key) => revealAdvanced(key) });
   const calcErrorBanner = banner('No se pudieron recalcular los resultados con los datos actuales. Revisá los valores ingresados.', 'danger', { title: 'Error de cálculo.' });
   calcErrorBanner.hidden = true;
   const stepBody = h('div', { class: ['qe-step-body', `qe-step-${stepId}`] });
 
   const unitLabel = (RATE_UNITS.find((u) => u.id === state.quote.unit) || RATE_UNITS[0]).label;
-  const stepHead = h(
-    'div',
-    { class: 'qe-step-head' },
-    h(
+  // El sub-paso ya se ve en los segmentos de arriba: el antetítulo sólo dice la etapa.
+  const kicker = `Etapa ${stageIndex + 1} de ${STAGES.length} · ${currentStage.label}`;
+  const meta = h('div', { class: 'qe-step-meta' }, stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel), saveEl);
+  // En Resultado el título y la intro los pone la vista de resultados (su h2
+  // "Resultado"): acá sólo queda el estado de guardado, sin duplicar títulos.
+  const stepHead = stepId === 'result'
+    ? h('div', { class: 'qe-step-head is-result' }, meta)
+    : h(
       'div',
-      { class: 'qe-step-heading' },
-      h('span', { class: 'qe-step-kicker' }, `Paso ${currentIndex + 1} de ${QUOTE_STEPS.length}`),
-      h('h2', { class: 'qe-step-title', tabindex: '-1' }, currentStep.label),
-    ),
-    h('div', { class: 'qe-step-meta' }, h('span', { class: 'badge badge-navy', title: 'Unidad de cotización' }, unitLabel), saveEl),
-  );
+      { class: 'qe-step-head' },
+      h(
+        'div',
+        { class: 'qe-step-heading' },
+        h('p', { class: 'qe-step-kicker' }, kicker),
+        h('h2', { class: 'qe-step-title', tabindex: '-1' }, copy.question),
+        copy.why ? h('p', { class: 'qe-step-why' }, copy.why) : null,
+        copy.term ? h('p', { class: 'qe-term' }, h('span', { class: 'qe-term-label' }, 'Término técnico:'), ` ${copy.term}`) : null,
+      ),
+      meta,
+    );
+
+  /** Texto del destino de "Continuar" / "Atrás". */
+  function navTarget(step, direction) {
+    if (!step) return null;
+    const target = stageOfStep(step.id);
+    if (step.id === 'result') return { kicker: 'Continuar', text: 'Ver el resultado' };
+    if (target.index !== stageIndex) {
+      return { kicker: direction === 'next' ? 'Continuar' : 'Atrás', text: `Etapa ${target.index + 1}: ${target.stage.label}${direction === 'prev' && target.stage.steps.length > 1 ? ` · ${stepShortLabel(step.id)}` : ''}` };
+    }
+    return { kicker: direction === 'next' ? 'Continuar' : 'Atrás', text: stepShortLabel(step.id) };
+  }
+  const prevTarget = navTarget(prevStep, 'prev');
+  const nextTarget = navTarget(nextStep, 'next');
 
   const stepNav = h(
     'nav',
     { class: 'qe-step-nav', 'aria-label': 'Navegación entre pasos' },
     prevStep
-      ? h('a', { class: 'btn btn-secondary qe-nav-btn', href: stepHref(prevStep.id), rel: 'prev', 'aria-label': `Anterior: ${prevStep.label}` }, icon('chevronLeft'), h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, 'Anterior'), h('span', {}, prevStep.label)))
+      ? h('a', { class: 'btn btn-secondary qe-nav-btn', href: stepHref(prevStep.id), rel: 'prev', 'aria-label': `Atrás: ${prevTarget.text}` }, icon('chevronLeft'), h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, 'Atrás'), h('span', { class: 'qe-nav-dest' }, prevTarget.text)))
       : h('span'),
     nextStep
-      ? h('a', { class: 'btn btn-primary qe-nav-btn is-next', href: stepHref(nextStep.id), rel: 'next', 'aria-label': `Siguiente: ${nextStep.label}` }, h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, 'Siguiente'), h('span', {}, nextStep.label)), icon('chevronRight'))
-      : h('a', { class: 'btn btn-secondary qe-nav-btn is-next', href: '#/cotizaciones' }, h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, 'Listo'), h('span', {}, 'Volver a Cotizaciones'))),
+      ? h('a', { class: 'btn btn-primary btn-lg qe-nav-btn is-next', href: stepHref(nextStep.id), rel: 'next', 'aria-label': `${nextTarget.kicker}: ${nextTarget.text}` }, h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, nextTarget.kicker), h('span', { class: 'qe-nav-dest' }, nextTarget.text)), icon('arrowRight'))
+      : h('a', { class: 'btn btn-secondary qe-nav-btn is-next', href: '#/cotizaciones' }, h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, 'Listo'), h('span', { class: 'qe-nav-dest' }, 'Volver a Cotizaciones'))),
   );
 
   // Aviso de valores ILUSTRATIVOS de la cotización (se actualiza al confirmar líneas).
@@ -1284,6 +1755,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       : null,
     illustrativeHolder,
     calcErrorBanner,
+    substeps ? substeps.el : null,
     stepHead,
     notices.el,
     stepBody,
@@ -1292,10 +1764,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
 
   const layout = h(
     'div',
-    { class: ['qe', summary ? null : 'qe-no-summary', readOnly ? 'is-readonly' : null] },
-    stepper.el,
+    { class: ['qe', summary ? null : 'qe-no-summary', readOnly ? 'is-readonly' : null], dataset: { stage: currentStage.id } },
+    stageBar.el,
     mainEl,
-    summary ? h('aside', { class: 'qe-summary', 'aria-label': 'Resumen en vivo de la cotización' }, summary.el) : null,
+    summary ? summary.el : null,
   );
 
   // ------------------------------------------------------------ encabezado
@@ -1594,6 +2066,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       rerender: () => rerenderStep(),
       readOnly,
       confirmedLines: state.confirmedLines,
+      openState: {
+        get: (key) => advancedOpenState.get(`${quoteId}:${key}`),
+        set: (key, open) => advancedOpenState.set(`${quoteId}:${key}`, Boolean(open)),
+      },
     });
     if (stepId === 'result') {
       renderResultStep();
@@ -1615,7 +2091,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     syncInvalidState();
     const r = state.result;
     if (!r) return;
-    stepper.update(r);
+    stageBar.update(r);
+    if (substeps) substeps.update(r);
     if (summary) summary.update(r);
     notices.update(r);
     if (stepId !== 'result') {
@@ -1628,6 +2105,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         }
       }
       decorateFieldIssues(stepBody, (r.issues || []).filter((i) => stepOfPath(i.path) === stepId));
+      syncAdvanced(r);
     }
     syncHeader();
     trackCompletion(r);
@@ -1644,10 +2122,11 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     if (trackFn) trackFn('quote_completed', { serviceType, completed: true });
   }
 
-  /** Con el stepper horizontal (pantallas chicas), centra el paso actual. */
+  /** Con los segmentos con scroll horizontal (pantallas chicas), centra el paso actual. */
   function revealCurrentStep() {
-    const nav = stepper.el;
-    const current = nav.querySelector('.qe-step-link.is-current');
+    if (!substeps) return;
+    const nav = substeps.el;
+    const current = nav.querySelector('.qe-substep.is-current');
     if (!current || nav.scrollWidth <= nav.clientWidth) return;
     const offset = current.getBoundingClientRect().left - nav.getBoundingClientRect().left;
     nav.scrollLeft += offset - (nav.clientWidth - current.offsetWidth) / 2;
@@ -1678,10 +2157,15 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
           /* foco opcional */
         }
       }
-      const topbar = document.querySelector('.topbar');
-      const topbarRect = topbar ? topbar.getBoundingClientRect() : null;
-      const offset = topbarRect && getComputedStyle(topbar).position === 'sticky' ? Math.max(0, topbarRect.bottom) : 0;
-      const rect = stepHead.getBoundingClientRect();
+      // Encabezados fijos arriba (topbar en desktop, barra compacta en celular).
+      const offset = [...document.querySelectorAll('.topbar, .mobile-bar')].reduce((max, el) => {
+        const pos = getComputedStyle(el).position;
+        const r = el.getBoundingClientRect();
+        return (pos === 'sticky' || pos === 'fixed') && r.height > 0 && r.top <= 1 ? Math.max(max, r.bottom) : max;
+      }, 0);
+      // Con sub-pasos, la vista arranca en los segmentos (se ve en qué paso estás).
+      const anchor = substeps && substeps.el.isConnected ? substeps.el : stepHead;
+      const rect = anchor.getBoundingClientRect();
       // En desktop se tolera que los avisos queden arriba; en pantallas chicas
       // el paso tiene que arrancar cerca del borde superior.
       const share = window.innerWidth <= 980 ? 0.25 : 0.45;
