@@ -1,30 +1,40 @@
 /**
- * Paso "Resultado" de la cotización — análisis económico.
+ * Paso "Resultado" de la cotización — análisis económico, con revelación
+ * progresiva: primero las cuatro respuestas, después el detalle.
  *
- * Contrato (lo invoca el editor, js/ui/views/quote-editor.js):
+ * Contratos:
  *   renderQuoteResult(container, app, { quote, result, settings, onQuoteChange })
+ *     (lo invoca el editor, js/ui/views/quote-editor.js)
  *     quote          cotización actual (copia)
  *     result         computeQuote(quote, { settings })
  *     settings       configuración de la organización
  *     onQuoteChange  (path, value) → el editor aplica el cambio, guarda y redibuja
- *   Devuelve una función de limpieza (timers de los sliders, observer del
- *   gráfico y listeners de impresión).
+ *   renderScenarioAnalysis(container, app, { quote, result, settings })
+ *     (pantalla #/escenarios/:id) sensibilidad + escenarios + comparador.
+ *   Ambas devuelven una función de limpieza (timers de los sliders, observer
+ *   del gráfico y listeners de impresión).
  *
- * Bloques, en orden:
- *   A. Decisión (según modalidad) + KPIs + equivalencias + alertas
- *   B. Estructura de costos (EECC)
- *   C. Matriz tarifa × utilización + gráfico
- *   D. Margen vs markup
- *   E. Descuentos por días / volumen + continuidad
- *   F. Sensibilidad (sliders, tarifa comercial fija)
- *   G. Escenarios pesimista / base / optimista
- *   H. Comparador de modelos comerciales
- *   I. Cost Completeness Score
- *   J. Acciones (imprimir, marcar como enviada)
+ * Jerarquía de renderQuoteResult:
+ *   1. Resultado: ¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto gano?
+ *      (4 números grandes con "Ver cálculo") + ¿Cuánto tengo que trabajar?
+ *      (frase con los días mínimos) + alertas críticas siempre visibles.
+ *   2. ¿En qué se va el costo? (principales rubros + "Otros").
+ *   3. Profundizá (cerrados por defecto; se dibujan al abrirlos):
+ *      B. Estructura de costos (EECC)
+ *      C. Tarifa según días trabajados (matriz tarifa × utilización + gráfico)
+ *      F–H. Analizar escenarios (sensibilidad, escenarios, comparador de modelos)
+ *      E. Reglas comerciales (reglas cargadas, equivalencias, descuentos, continuidad)
+ *      D. Margen vs markup (tarifas por nivel de margen + escalera de precios)
+ *      I. ¿Te falta cargar algo? (Cost Completeness Score)
+ *      A. Ver cálculo completo (todos los indicadores de la decisión + cada traza)
+ *   4. J. Acciones (imprimir, marcar como enviada, abrir escenarios).
+ *   Al imprimir se abren (y dibujan) todos los desplegables; después se
+ *   restaura cómo estaban.
  *
  * Reglas: sin HTML crudo (sólo h()/s()), sin storage, todo número pasa por
  * js/core/format.js (nunca NaN / Infinity) y todo resultado importante tiene
- * "Ver cálculo" (con nombre accesible "Ver cálculo: <título>").
+ * "Ver cálculo" (con nombre accesible "Ver cálculo: <título>"). Esta vista no
+ * calcula: presenta lo que devuelven los motores.
  *
  * Tarifas: piso y precio objetivo se muestran en la base que se escribe en la
  * cotización (DE LISTA), con la neta como dato secundario; las tarifas mínimas
@@ -34,11 +44,14 @@
 import { h, s, mount, debounce, uniqueId } from '../dom.js';
 import {
   button,
+  linkButton,
   badge,
   statusDot,
   card,
   kpi,
+  bigStat,
   banner,
+  disclosure,
   emptyState,
   progressBar,
   table,
@@ -47,7 +60,7 @@ import {
   toast as componentToast,
   barList,
 } from '../components.js';
-import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, EMPTY } from '../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { createTrace } from '../../core/trace.js';
 import { track } from '../../core/events.js';
@@ -59,6 +72,7 @@ import { computeQuote } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { findBreakEvenDays } from '../../engines/break-even-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
+import { normalizeRules } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, marginToMarkup, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
 
@@ -130,6 +144,16 @@ const COMMERCIAL_SOURCE_TEXT = Object.freeze({
 const sliderMemory = new Map();
 const SLIDER_MEMORY_LIMIT = 30;
 
+/**
+ * Desplegables abiertos por cotización (sólo memoria de la pestaña): al
+ * redibujar el resultado (por ejemplo al marcarlo como enviado) no se cierran.
+ */
+const openMemory = new Map();
+const OPEN_MEMORY_LIMIT = 30;
+
+/** Cantidad de rubros que se muestran por nombre en "¿En qué se va el costo?" (el resto va a "Otros"). */
+const COST_TOP = 4;
+
 // ------------------------------------------------------------- formateo seguro
 
 const hasValue = (v) => isFiniteNumber(v);
@@ -192,6 +216,25 @@ function marginHint(marginPct, markupPct) {
 
 function wholeDays(value) {
   return formatDays(value, { decimals: 0 });
+}
+
+/** "6,4 días activos" / "1 día activo". */
+function activeDaysText(value, decimals = 1) {
+  const text = formatDays(value, { decimals });
+  if (text === EMPTY) return EMPTY;
+  return `${text} ${/\bdía$/.test(text) ? 'activo' : 'activos'}`;
+}
+
+/** Monto de una tarifa sin la unidad (con centavos si es chica, p. ej. $/hora). */
+function rateValue(value) {
+  if (!hasValue(value)) return EMPTY;
+  const decimals = Math.abs(value) > 0 && Math.abs(value) < 100 ? 2 : 0;
+  return formatMoney(value, { decimals });
+}
+
+/** "1 aviso" / "3 avisos". */
+function noticeCount(n) {
+  return `${formatNumber(n)} ${n === 1 ? 'aviso' : 'avisos'}`;
 }
 
 function clean(value) {
@@ -759,35 +802,58 @@ function belowFloorCoveredText(v) {
   return `La tarifa está debajo de la tarifa piso (${floorPhrase(v)}), pero ${who}: con ${formatDays(k.activeDays)} activos el resultado del mes es ${money(k.profit)}${marginPart}. Si la actividad baja o cambian las condiciones, podés perder dinero.`;
 }
 
-function decisionAlerts(v) {
+/** Aviso compacto (banner) con una acción opcional a la derecha. */
+function alertLine(tone, title, text, action = null) {
+  const node = banner(text, tone, { title });
+  node.classList.add('qr-alert');
+  if (action) node.appendChild(h('div', { class: 'qr-alert-action no-print' }, action));
+  return node;
+}
+
+/**
+ * Alertas que hacen perder plata (o que pueden esconder costos): siempre
+ * visibles arriba, nunca dentro de un desplegable.
+ */
+function criticalAlerts(v) {
   const { k, r } = v;
   const out = [];
-  const rateOk = hasRate(k);
   if (k.belowFloor) {
-    out.push(banner(`La tarifa comercial está por debajo de la tarifa piso: perdés dinero. Con ${formatDays(k.activeDays)} activos necesitás cobrar al menos ${floorPhrase(v)} para no perder.`, 'danger', { title: 'Atención.' }));
+    out.push(alertLine('danger', 'Con esta tarifa perdés plata.', `Está debajo de la tarifa piso: con ${formatDays(k.activeDays)} activos necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
   } else if (k.belowFloorRate) {
-    out.push(banner(belowFloorCoveredText(v), 'info', { title: 'Tarifa debajo del piso.' }));
+    out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
   } else if (k.belowTarget) {
-    out.push(banner(`La tarifa comercial cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`, 'warning', { title: 'Debajo del margen objetivo.' }));
+    out.push(alertLine('warning', 'Debajo del margen objetivo.', `Tu tarifa cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
   }
-  // Sin tarifa el texto principal ya explica qué falta: el aviso sólo aparece con tarifa.
-  const be = r.breakEven || {};
-  if (rateOk && be.reachable === false && be.reason) {
-    if (!be.notApplicable) {
-      out.push(banner(be.reason, 'warning', { title: 'Días mínimos para no perder dinero.' }));
-    } else if (r.pricingMode !== 'known_rate') {
-      // En "Conozco la tarifa" la frase principal ya lo explica.
-      out.push(banner('Con abono mensual no hay días mínimos: la facturación es fija y cada día activo suma costo variable. Por eso importa el máximo de días que cubre el abono.', 'info', { title: 'Abono mensual.' }));
-    }
+  if (k.incomplete) {
+    const score = r.completeness ? r.completeness.scorePct : null;
+    out.push(alertLine('warning', 'Puede faltar algún costo.', `La completitud de costos es de ${pct(score, 0)}: revisá lo que suele quedar afuera antes de cotizar.`,
+      button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness') })));
   }
   const issues = Array.isArray(r.issues) ? r.issues : [];
   if (issues.length) {
-    out.push(h('div', { class: 'banner banner-warning qr-issues', role: 'status' },
+    out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
       h('div', {},
         h('strong', {}, 'Hay datos para revisar. '),
         'Los cálculos reemplazan los valores inválidos por 0 o por un valor por defecto:',
         h('ul', {}, ...issues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
         issues.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(issues.length - 6)} más.`) : null)));
+  }
+  return out;
+}
+
+/** Notas sobre los días mínimos (van con el detalle; la frase principal ya lo resume). */
+function decisionNotes(v) {
+  const { k, r } = v;
+  const out = [];
+  // Sin tarifa el texto principal ya explica qué falta: el aviso sólo aparece con tarifa.
+  const be = r.breakEven || {};
+  if (hasRate(k) && be.reachable === false && be.reason) {
+    if (!be.notApplicable) {
+      out.push(banner(be.reason, 'warning', { title: 'Días mínimos para no perder dinero.' }));
+    } else if (r.pricingMode !== 'known_rate') {
+      // En "Conozco la tarifa" la frase del bloque ya lo explica.
+      out.push(banner('Con abono mensual no hay días mínimos: la facturación es fija y cada día activo suma costo variable. Por eso importa el máximo de días que cubre el abono.', 'info', { title: 'Abono mensual.' }));
+    }
   }
   return out;
 }
@@ -877,15 +943,15 @@ function heroKnownRate(v) {
     ));
 }
 
-function heroKnownActivity(v) {
-  const { r, k, q } = v;
+/**
+ * Tarifas por nivel de margen con la actividad estimada (de lista y neta),
+ * cada una con su "Ver cálculo".
+ */
+function ratesByMarginBlock(v) {
+  const { r, k } = v;
   const ra = r.ratesAtEstimate || {};
   const D = k.activeDays;
-  const mr = minimumRates(v);
-  const showList = mr.showList;
-  const ctx = r.ctx;
-  const isMonth = r.unit === 'month';
-
+  const showList = minimumRates(v).showList;
   const rows = [
     { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, label: 'Tarifa piso (no perder dinero)' },
     ...(Array.isArray(ra.byMargin) ? ra.byMargin : [])
@@ -902,6 +968,18 @@ function heroKnownActivity(v) {
     { key: 'netRate', label: showList ? `Tarifa neta por ${v.unitLabel}` : `Tarifa por ${v.unitLabel}`, align: 'right', render: (row) => ceilMoney(row.netRate) },
     { key: 'trace', label: 'Cálculo', align: 'right', render: (row) => traceBtn(traceRateForMargin(v, row)) },
   ];
+  return h('div', { class: 'qr-rates-block' },
+    h('h4', { class: 'qr-subhead' }, `Tarifas por nivel de margen (con ${formatDays(D)} activos por mes)`),
+    table({ columns, rows, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Tarifas por nivel de margen', className: 'qr-rates-table' }),
+    showList ? note(`La tarifa de lista ya contempla los descuentos que aplicarían con ${formatDays(D)} (factor ${formatNumber(ra.discountFactor, { decimals: 4 })}): es la que escribís en la cotización. Las tarifas mínimas se muestran redondeadas hacia arriba.`) : note('Las tarifas mínimas se muestran redondeadas hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo.'));
+}
+
+function heroKnownActivity(v) {
+  const { r, k, q } = v;
+  const D = k.activeDays;
+  const mr = minimumRates(v);
+  const ctx = r.ctx;
+  const isMonth = r.unit === 'month';
 
   // Resultado con el precio sugerido (si la comercial es otra, se evalúa aparte).
   // Sin costos el "sugerido" sería $ 0: no se muestra como sugerencia.
@@ -974,10 +1052,7 @@ function heroKnownActivity(v) {
           tone: profitTone(k),
         })
         : null,
-    ),
-    h('h4', {}, 'Tarifas por nivel de margen'),
-    table({ columns, rows, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Tarifas por nivel de margen', className: 'qr-rates-table' }),
-    showList ? note(`La tarifa de lista ya contempla los descuentos que aplicarían con ${formatDays(D)} (factor ${formatNumber(ra.discountFactor, { decimals: 4 })}): es la que escribís en la cotización. Las tarifas mínimas se muestran redondeadas hacia arriba.`) : note('Las tarifas mínimas se muestran redondeadas hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo.'));
+    ));
 }
 
 function kpiGrid(v) {
@@ -1094,27 +1169,330 @@ function illustrativeBadge(v) {
   return badge('ILUSTRATIVO', 'orange', { title });
 }
 
-function renderDecision(v) {
+/**
+ * Todos los indicadores de la decisión (según la modalidad): días mínimos y
+ * para el margen objetivo, resultado, contribución por día activo, precio
+ * objetivo, precio comercial, break-even, completitud…
+ */
+function renderResultDetail(v) {
   const { r } = v;
   const mode = r.pricingMode === 'known_rate' ? 'known_rate' : 'known_activity';
-  const modeLabel = labelOf(PRICING_MODES, mode, 'Conozco la actividad');
   return card(
     {
-      title: mode === 'known_rate' ? '¿Me conviene esta tarifa?' : '¿Cuánto tengo que cobrar?',
+      title: mode === 'known_rate' ? '¿Me conviene esta tarifa? Todos los indicadores' : '¿Cuánto tengo que cobrar? Todos los indicadores',
       subtitle: mode === 'known_rate'
         ? (r.unit === 'month'
           ? 'Modalidad "Conozco la tarifa": cuántos días podés trabajar con este abono sin perder.'
           : 'Modalidad "Conozco la tarifa": cuántos días tenés que trabajar para no perder y para ganar.')
         : 'Modalidad "Conozco la actividad": qué tarifa necesitás con los días que estimás trabajar.',
-      actions: [badge(modeLabel, 'navy'), illustrativeBadge(v)].filter(Boolean),
       className: 'qr-card qr-card-decision',
       id: v.ids.decision,
     },
-    ...decisionAlerts(v),
+    ...decisionNotes(v),
     mode === 'known_rate' ? heroKnownRate(v) : heroKnownActivity(v),
     kpiGrid(v),
-    equivalentsBlock(v),
   );
+}
+
+// ------------------------------------------------ 1. resumen: las 4 preguntas
+
+/** Pista de varias líneas cortas debajo de un número grande. */
+function statHint(...lines) {
+  const items = lines.filter((x) => x instanceof Node || (typeof x === 'string' && x));
+  if (!items.length) return null;
+  // "15,79 %" y "$ 4.000 / día" no se cortan al final de una línea angosta.
+  const keep = (t) => (typeof t === 'string' ? t.replace(/ %/g, ' %').replace(/ \/ /g, ' / ') : t);
+  return h('span', { class: 'qr-stat-lines' }, ...items.map((t) => h('span', { class: 'qr-stat-line' }, keep(t))));
+}
+
+/** ¿Cuánto me cuesta? */
+function costStat(v) {
+  const { k, r } = v;
+  const D = k.activeDays;
+  return bigStat({
+    label: 'Costo esperado',
+    value: money(k.totalCost),
+    unit: hasValue(k.totalCost) ? '/ mes' : null,
+    hint: statHint(hasValue(D) && D > 0
+      ? `Lo que te cuesta prestar el servicio, con ${activeDaysText(D, 2)}.`
+      : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días activos.'),
+    trace: r.traces && r.traces.totalCost,
+    className: 'qr-stat qr-stat-cost',
+  });
+}
+
+/** ¿Cuánto tengo que cobrar? (mínimo) */
+function floorStat(v) {
+  const { k, r } = v;
+  const mr = minimumRates(v);
+  const costOk = hasValue(k.totalCost) && k.totalCost > 0;
+  const value = costOk ? mr.floorMain : null;
+  let hint;
+  if (!costOk) hint = statHint('Precio mínimo para no perder plata.', 'Aparece cuando haya costos cargados.');
+  else if (!hasValue(value)) hint = statHint('Precio mínimo para no perder plata.', 'Falta estimar los días activos del mes.');
+  else {
+    hint = statHint(
+      'Precio mínimo para no perder plata.',
+      mr.floorNetDiffers ? `De lista. Neta, con descuentos: ${minRate(k.floorNetRate, v.unitLabel)}.` : null);
+  }
+  return bigStat({
+    label: 'Tarifa piso',
+    value: ceilMoney(value),
+    unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
+    hint,
+    trace: costOk ? ceilTrace(r.traces && r.traces.floorRate) : null,
+    className: 'qr-stat qr-stat-floor',
+  });
+}
+
+/** ¿Cuánto tengo que cobrar? (para ganar) — o la tarifa que ya cotizás. */
+function priceStat(v) {
+  const { k, r, q } = v;
+  const unit = `/ ${v.unitLabel}`;
+  const target = pct(k.targetMarginPct);
+  const suggested = hasValue(k.suggestedListRate) && k.suggestedListRate > 0 ? k.suggestedListRate : null;
+  if (k.commercialSource === 'suggested' && hasRate(k)) {
+    const step = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
+    return bigStat({
+      label: 'Tarifa sugerida',
+      value: ceilMoney(k.commercialListRate),
+      unit,
+      hint: statHint(
+        `Para ganar el ${target} sobre el precio.`,
+        step ? `Redondeada hacia arriba (múltiplos de ${money(step)}).` : 'Redondeada hacia arriba: nunca baja el margen.'),
+      trace: traceSuggested(v),
+      className: 'qr-stat qr-stat-price',
+    });
+  }
+  if (hasRate(k)) {
+    const differs = listDiffers(k.commercialListRate, k.commercialNetRate);
+    const source = k.commercialSource === 'known_rate'
+      ? 'La tarifa que te pidieron cotizar.'
+      : k.commercialSource === 'offered'
+        ? 'La tarifa que ofrecés (cargada a mano).'
+        : `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
+    return bigStat({
+      label: 'Tu tarifa',
+      value: rateValue(k.commercialListRate),
+      unit,
+      hint: statHint(
+        differs ? `${source} Neta: ${rate(k.commercialNetRate, v.unitLabel)}.` : source,
+        suggested ? `Para ganar el ${target}: ${minRate(suggested, v.unitLabel)}.` : null),
+      trace: traceCommercial(v),
+      className: 'qr-stat qr-stat-price',
+    });
+  }
+  if (r.pricingMode === 'known_rate') {
+    return bigStat({
+      label: 'Tu tarifa',
+      value: EMPTY,
+      hint: statHint(h('span', {}, 'Todavía no cargaste la tarifa que te pidieron cotizar. ', stepLink(q, 'modality', 'Cargala en Modalidad'), '.')),
+      className: 'qr-stat qr-stat-price',
+    });
+  }
+  return bigStat({
+    label: 'Tarifa sugerida',
+    value: EMPTY,
+    hint: statHint(`Para ganar el ${target} sobre el precio.`, 'Aparece cuando haya costos y días activos cargados.'),
+    className: 'qr-stat qr-stat-price',
+  });
+}
+
+/** ¿Cuánto gano? */
+function marginStat(v) {
+  const { k } = v;
+  const rateOk = hasRate(k);
+  const ok = rateOk && hasValue(k.marginPct);
+  let hint;
+  if (!rateOk) hint = statHint('Sobre el precio de venta.', 'Sin tarifa no hay margen.');
+  else if (!ok) hint = statHint('Sobre el precio de venta.', 'Sin facturación no hay margen.');
+  else {
+    const loss = hasValue(k.profit) && k.profit < -1e-6;
+    hint = statHint(
+      loss ? `Perdés ${money(-k.profit)} por mes.` : `Ganás ${money(k.profit)} por mes.`,
+      k.belowTarget ? `Sobre el precio de venta. Tu objetivo: ${pct(k.targetMarginPct)}.` : 'Sobre el precio de venta.',
+      hasValue(k.markupPct) ? `Markup (recargo sobre el costo): ${pct(k.markupPct)}.` : null);
+  }
+  return bigStat({
+    label: 'Margen',
+    value: ok ? pct(k.marginPct) : EMPTY,
+    hint,
+    tone: marginTone(k),
+    trace: traceMargin(v),
+    className: 'qr-stat qr-stat-margin',
+  });
+}
+
+/** Qué falta para poder decir cuántos días hay que trabajar. */
+function noRateContent(v) {
+  const { r, k, q } = v;
+  if (r.pricingMode === 'known_rate') {
+    return ['Todavía no cargaste la tarifa que te pidieron cotizar. ', stepLink(q, 'modality', 'Cargala en Modalidad'), ' para saber cuántos días necesitás trabajar.'];
+  }
+  if (!(k.activeDays > 0)) {
+    return ['Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'modality', 'Cargalo en Modalidad'), '.'];
+  }
+  if (!(k.totalCost > 0)) {
+    return ['Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.'];
+  }
+  return ['Definí una tarifa para saber cuántos días necesitás trabajar. ', stepLink(q, 'margin'), '.'];
+}
+
+/**
+ * ¿Cuánto tengo que trabajar? Frase con los días mínimos para cubrir los
+ * costos (break-even), adaptada a la unidad: por hora suma las horas; con
+ * abono mensual habla de días MÁXIMOS; si no se alcanza, lo dice.
+ */
+function workBlock(v) {
+  const { r, k } = v;
+  const be = r.breakEven || {};
+  const D = k.activeDays;
+  const rateOk = hasRate(k);
+  const isMonth = r.unit === 'month';
+  const traces = r.traces || {};
+  let question = '¿Cuánto tengo que trabajar?';
+  let tone = null;
+  let trace = null;
+  let content;
+  if (isMonth) {
+    question = '¿Cuántos días cubre el abono?';
+    if (!rateOk) {
+      content = noRateContent(v);
+    } else {
+      const cap = monthlyCap(v, k.commercialListRate, 0);
+      content = ['Con abono mensual la facturación no depende de los días trabajados, pero cada día activo suma costo variable. ', capSentence(cap, D, 'Con este abono')];
+      if (cap) {
+        if (cap.status === 'none') tone = 'red';
+        else if (cap.status === 'all') tone = 'green';
+        else if (hasValue(D)) tone = D <= cap.days + 1e-9 ? 'green' : 'red';
+        trace = traceMonthlyCap(v, cap);
+      }
+    }
+  } else if (!rateOk) {
+    content = noRateContent(v);
+  } else if (be.reachable && hasValue(be.days) && be.days <= 1e-9) {
+    content = ['Con esta tarifa cubrís todos tus costos aunque no trabajes ningún día: los ingresos fijos ya alcanzan.'];
+    tone = 'green';
+    trace = traces.breakEven;
+  } else if (be.reachable && hasValue(be.days)) {
+    const hoursPerDay = r.activity ? r.activity.hoursPerActiveDay : null;
+    const hours = r.unit === 'hour' && hasValue(hoursPerDay) && hoursPerDay > 0
+      ? ` (unas ${formatNumber(be.days * hoursPerDay, { decimals: 0 })} horas)`
+      : '';
+    const gap = hasValue(D) ? D - be.days : null;
+    let tail = '';
+    if (gap !== null) {
+      const gapText = formatDays(Math.abs(gap), { decimals: 1 });
+      if (gapText === formatDays(0)) {
+        tail = gap >= -1e-9 ? ` Estimás ${formatDays(D)}: estás justo en el mínimo.` : ` Estimás ${formatDays(D)}: estás apenas debajo del mínimo.`;
+      } else {
+        tail = gap >= -1e-9
+          ? ` Estimás ${formatDays(D)}: tenés un colchón de ${gapText} sobre el mínimo.`
+          : ` Estimás ${formatDays(D)}: te faltan ${gapText} para no perder plata.`;
+      }
+      tone = gap >= -1e-9 ? 'green' : 'red';
+    }
+    content = ['Con esta tarifa necesitás aproximadamente ', h('strong', { class: 'qr-work-days' }, `${activeDaysText(be.days)} por mes`), `${hours} para cubrir todos tus costos.`, tail];
+    trace = traces.breakEven;
+  } else {
+    content = ['Con esta tarifa no llegás a cubrir todos tus costos dentro del mes. ', be.reason ? `${be.reason} ` : '', 'Revisá la tarifa o los costos.'];
+    tone = 'red';
+    trace = traces.breakEven;
+  }
+  return h('div', { class: ['qr-work', tone ? `qr-work-${tone}` : null] },
+    h('p', { class: 'qr-work-question' }, question),
+    h('p', { class: 'qr-work-text' }, ...content),
+    trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
+}
+
+function quoteSubtitle(q) {
+  return [q.name, q.client].filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()).join(' · ');
+}
+
+/** 1. Resultado: las cuatro respuestas, la frase de los días y las alertas críticas. */
+function renderSummary(v) {
+  const { q, r } = v;
+  const mode = r.pricingMode === 'known_rate' ? 'known_rate' : 'known_activity';
+  const titleId = uniqueId('qr-summary-title');
+  const sub = quoteSubtitle(q);
+  const alerts = criticalAlerts(v);
+  return h('section', { class: 'qr-summary', id: v.ids.summary, 'aria-labelledby': titleId },
+    h('div', { class: 'qr-summary-head' },
+      h('div', { class: 'qr-summary-titles' },
+        h('h2', { class: 'qr-summary-title', id: titleId }, 'Resultado'),
+        sub ? h('p', { class: 'qr-summary-sub' }, sub) : null),
+      h('div', { class: 'qr-summary-badges' },
+        badge(labelOf(PRICING_MODES, mode, 'Conozco la actividad'), 'navy', { title: 'Modalidad de cotización' }),
+        illustrativeBadge(v))),
+    h('div', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
+    workBlock(v),
+    alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
+}
+
+// ------------------------------------------- 2. ¿En qué se va el costo?
+
+/** Rubros con costo, de mayor a menor: los primeros por nombre y el resto en "Otros". */
+function costGroups(e) {
+  const rows = (e.rows || [])
+    .filter((row) => hasValue(row.amount) && row.amount > 1e-9)
+    .slice()
+    .sort((a, b) => b.amount - a.amount);
+  const item = (row) => ({ label: row.label, amount: row.amount, pct: row.displayPct, parts: null, other: false });
+  if (rows.length <= COST_TOP + 1) return rows.map(item);
+  const rest = rows.slice(COST_TOP);
+  return [
+    ...rows.slice(0, COST_TOP).map(item),
+    {
+      label: 'Otros',
+      amount: rest.reduce((sum, row) => sum + row.amount, 0),
+      pct: rest.reduce((sum, row) => sum + (hasValue(row.displayPct) ? row.displayPct : 0), 0),
+      parts: rest.map((row) => row.label),
+      other: true,
+    },
+  ];
+}
+
+function renderCostBreakdown(v) {
+  const { r, q } = v;
+  const e = r.eecc || { rows: [], total: 0 };
+  const titleId = uniqueId('qr-costs-title');
+  const head = h('div', { class: 'qr-section-head' },
+    h('h3', { class: 'qr-section-title', id: titleId }, '¿En qué se va el costo?'),
+    h('p', { class: 'qr-section-sub' }, hasValue(e.total) && e.total > 0
+      ? `Qué parte del costo esperado del mes (${money(e.total)}) corresponde a cada rubro.`
+      : 'Qué parte del costo corresponde a cada rubro.'));
+  if (!(hasValue(e.total) && e.total > 0)) {
+    return h('section', { class: 'qr-costs', id: v.ids.costs, 'aria-labelledby': titleId },
+      head,
+      emptyState({
+        title: 'Todavía no hay costos cargados.',
+        text: 'Cargá personal, equipos, materiales o logística para ver en qué se va el costo.',
+        action: linkButton('Ir a Personal', stepHref(q, 'labor'), { variant: 'primary', size: 'sm' }),
+      }));
+  }
+  const groups = costGroups(e);
+  const max = Math.max(0, ...groups.map((g) => g.pct).filter(hasValue));
+  const list = h('ul', { class: 'qr-costbars' }, ...groups.map((g) => {
+    const width = max > 0 && hasValue(g.pct) ? Math.max(1.5, Math.min(100, (g.pct / max) * 100)) : 0;
+    return h('li', { class: ['qr-costbar', g.other ? 'is-other' : null], title: `${g.label}: ${money(g.amount)} por mes (${pct(g.pct)} del costo)` },
+      h('span', { class: 'qr-costbar-label' },
+        h('span', { class: 'qr-costbar-name' }, g.label),
+        g.parts ? h('span', { class: 'qr-costbar-parts' }, g.parts.join(', ')) : null),
+      h('span', { class: 'qr-costbar-track', 'aria-hidden': 'true' }, h('span', { class: 'qr-costbar-fill', style: { width: `${width.toFixed(2)}%` } })),
+      h('span', { class: 'qr-costbar-pct' }, pct(g.pct)),
+      h('span', { class: 'qr-costbar-amount' }, money(g.amount)));
+  }));
+  return h('section', { class: 'qr-costs', id: v.ids.costs, 'aria-labelledby': titleId },
+    head,
+    list,
+    h('div', { class: 'qr-costs-foot no-print' },
+      button('Ver detalle completo', {
+        variant: 'secondary',
+        size: 'sm',
+        icon: 'chevronRight',
+        onClick: () => v.openDeep('eecc'),
+        attrs: { 'aria-controls': v.ids.deep_eecc },
+      })));
 }
 
 // ------------------------------------------------------------- B. EECC
@@ -1590,10 +1968,12 @@ function renderMarginMarkup(v) {
   return card(
     {
       title: 'Margen vs markup',
-      subtitle: 'No son lo mismo: el margen se mide sobre el precio de venta; el markup, sobre el costo.',
+      subtitle: 'No son lo mismo: el margen se mide sobre el precio de venta; el markup (recargo), sobre el costo.',
       className: 'qr-card',
       id: v.ids.markup,
     },
+    ratesByMarginBlock(v),
+    h('h4', { class: 'qr-subhead' }, 'Escalera de precios del mes por margen'),
     h('div', { class: 'qr-split' },
       h('div', { class: 'qr-split-main' },
         cost > 0
@@ -1957,8 +2337,8 @@ function renderSensitivity(v) {
 
   return card(
     {
-      title: 'Sensibilidad',
-      subtitle: '¿Qué pasa si cambian los costos, la actividad o las condiciones? La tarifa comercial se mantiene fija para ver el impacto real.',
+      title: '¿Qué pasa si…? (sensibilidad)',
+      subtitle: '¿Qué pasa si cambian los costos, la actividad o las condiciones? La tarifa comercial se mantiene fija para ver el impacto real. Nada de esto modifica tu cotización.',
       actions: [lazyTraceButton(() => traceSensitivity(v, state, lastResult), 'Sensibilidad (tarifa comercial fija)'), reset],
       className: 'qr-card qr-card-wide',
       id: v.ids.sensitivity,
@@ -2046,8 +2426,8 @@ function renderScenarios(v) {
   });
   return card(
     {
-      title: 'Escenarios',
-      subtitle: 'Pesimista, base y optimista con la misma tarifa comercial.',
+      title: 'Escenarios pesimista, base y optimista',
+      subtitle: 'Qué pasa con la misma tarifa comercial si las cosas salen peor o mejor de lo previsto.',
       actions: [traceBtn(trace)],
       className: 'qr-card',
       id: v.ids.scenarios,
@@ -2171,7 +2551,7 @@ function renderCompleteness(v) {
   }));
   return card(
     {
-      title: 'Cost Completeness Score',
+      title: 'Completitud de costos (Cost Completeness Score)',
       subtitle: '¿Te olvidaste de algún costo? Controles automáticos sobre lo que suele quedar afuera.',
       actions: [traceBtn(traceCompleteness(v))],
       className: 'qr-card',
@@ -2184,6 +2564,340 @@ function renderCompleteness(v) {
         h('div', { class: 'qr-score-text' }, pendingCount ? `${formatNumber(pendingCount)} ${pendingCount === 1 ? 'punto pendiente' : 'puntos pendientes'} de revisar.` : 'No hay pendientes: la cotización está completa.'))),
     list,
   );
+}
+
+// --------------------------------------------------- E. reglas comerciales
+
+/**
+ * Reglas comerciales cargadas (sólo las que aplican) y cuánto suman en el
+ * mes con la actividad estimada. Sólo presenta lo que ya normaliza y calcula
+ * el motor (r.ctx, r.estimate): no recalcula nada.
+ */
+function rulesSummary(v) {
+  const { q, r } = v;
+  let rules;
+  try {
+    rules = normalizeRules(q.rules || {});
+  } catch (error) {
+    logger.warn('No se pudieron leer las reglas comerciales', { message: error && error.message });
+    return null;
+  }
+  const revenue = (r.estimate && r.estimate.revenue) || {};
+  const comps = revenue.components || {};
+  const adds = (value) => (hasValue(value) && value > 0 ? ` Suma ${money(value)} por mes.` : '');
+  const isMonth = r.unit === 'month';
+  const items = [];
+  if (rules.availabilityFeeMonthly > 0) {
+    items.push(['Fee de disponibilidad', `${money(rules.availabilityFeeMonthly)} por mes, se trabaje o no.`]);
+  }
+  if (rules.minimumMonthlyGuarantee > 0) {
+    const topUp = revenue.guaranteeTopUp;
+    items.push(['Mínimo mensual garantizado', `${money(rules.minimumMonthlyGuarantee)} por mes.${hasValue(topUp) && topUp > 0 ? ` Con la actividad estimada completa ${money(topUp)}.` : ''}`]);
+  }
+  if (!isMonth && rules.minimumCallUnits > 0) {
+    const units = r.unit === 'hour'
+      ? `${formatNumber(rules.minimumCallUnits, { decimals: 2 })} ${Math.abs(rules.minimumCallUnits - 1) < 1e-9 ? 'hora' : 'horas'}`
+      : formatDays(rules.minimumCallUnits);
+    items.push(['Mínimo por llamado (minimum call)', `Se facturan al menos ${units} por llamado, aunque se trabaje menos.`]);
+  }
+  if (rules.calloutFeePerActivation > 0) {
+    items.push(['Cargo por llamado (call-out fee)', `${money(rules.calloutFeePerActivation)} por llamado.${adds(comps.callout)}`]);
+  }
+  if (rules.mobilizationFeePerActivation > 0) {
+    items.push(['Movilización', `${money(rules.mobilizationFeePerActivation)} por llamado.${adds(comps.mobilization)}`]);
+  }
+  if (rules.extraKmRate > 0) {
+    items.push(['Km adicionales', `${rate(rules.extraKmRate, 'km')} desde los ${formatNumber(rules.includedKmPerActivation, { decimals: 1 })} km incluidos por llamado.${adds(comps.extraKm)}`]);
+  }
+  if (rules.standbyDaysPerMonth > 0 && rules.standbyRatePerDay > 0) {
+    items.push(['Standby', `${formatDays(rules.standbyDaysPerMonth)} por mes a ${rate(rules.standbyRatePerDay, 'día')}.${adds(comps.standby)}`]);
+  }
+  const commercialDiscount = r.ctx && hasValue(r.ctx.commercialDiscountPct) ? Math.min(r.ctx.commercialDiscountPct, 100) : 0;
+  if (commercialDiscount > 0) {
+    items.push(['Descuento comercial', `${pct(commercialDiscount)} sobre la tarifa de lista.`]);
+  }
+  if (!isMonth && rules.volumeTiers.some((t) => t.discountPct > 0)) {
+    items.push(['Descuentos por días', `${formatNumber(rules.volumeTiers.length)} tramos según los días trabajados (detalle abajo).`]);
+  }
+  if (rules.continuityDiscountPct > 0) {
+    items.push(['Descuento por continuidad', `${pct(rules.continuityDiscountPct)} con contratos de ${formatNumber(rules.continuityMinMonths)} meses o más.`]);
+  }
+  return h('div', { class: 'qr-rules', id: v.ids.rules },
+    h('h4', { class: 'qr-subhead' }, 'Cómo se factura el servicio'),
+    items.length
+      ? h('dl', { class: 'qr-rules-list' }, ...items.map(([term, desc]) => h('div', { class: 'qr-rules-item' }, h('dt', {}, term), h('dd', {}, desc))))
+      : note('No hay reglas comerciales especiales: se factura la tarifa por las unidades trabajadas.'),
+    h('p', { class: 'qr-rules-edit no-print' }, stepLink(q, 'margin', 'Editar reglas comerciales')));
+}
+
+function renderCommercialRules(v) {
+  const equivalents = equivalentsBlock(v);
+  return [
+    safeSection('Reglas comerciales', () => rulesSummary(v)),
+    equivalents || note('Las equivalencias ($ por hora, por día y por mes) aparecen cuando haya una tarifa comercial.'),
+    safeSection('Descuentos por días / volumen', () => renderDiscounts(v)),
+  ].filter(Boolean);
+}
+
+// ----------------------------------------------- A. ver cálculo completo
+
+/** Todas las trazas de la cotización, en el orden en que se lee el resultado. */
+function traceIndexItems(v) {
+  const { r, k } = v;
+  const t = r.traces || {};
+  const rateOk = hasRate(k);
+  const list = [];
+  const safe = (fn) => {
+    try {
+      return fn();
+    } catch (error) {
+      logger.warn('No se pudo armar el detalle de un cálculo', { message: error && error.message });
+      return null;
+    }
+  };
+  const add = (trace) => {
+    if (trace && trace.title && !list.includes(trace)) list.push(trace);
+  };
+  add(t.totalCost);
+  add(ceilTrace(t.floorRate));
+  add(ceilTrace(t.targetRate));
+  if (hasValue(k.suggestedListRate) && k.suggestedListRate > 0) add(safe(() => traceSuggested(v)));
+  if (rateOk) add(safe(() => traceCommercial(v)));
+  add(t.expectedResult);
+  add(safe(() => traceMargin(v)));
+  if (r.unit === 'month') {
+    if (rateOk) {
+      const cap = monthlyCap(v, k.commercialListRate, 0);
+      const capTarget = monthlyCap(v, k.commercialListRate, k.targetMarginPct);
+      if (cap) add(safe(() => traceMonthlyCap(v, cap)));
+      if (capTarget && capTarget.marginPct > 0) add(safe(() => traceMonthlyCap(v, capTarget)));
+    }
+  } else {
+    add(t.breakEven);
+    if (rateOk) {
+      add(safe(() => traceTargetMarginDays(v)));
+      add(safe(() => traceContribution(v)));
+    }
+  }
+  if (rateOk) add(safe(() => traceEquivalents(v)));
+  add(t.financialCost);
+  add(t.logistics);
+  add(safe(() => traceCompleteness(v)));
+  // Trazas que el motor agregue en el futuro también aparecen acá.
+  const known = new Set(['totalCost', 'floorRate', 'targetRate', 'expectedResult', 'breakEven', 'financialCost', 'logistics']);
+  Object.entries(t).forEach(([key, trace]) => {
+    if (!known.has(key)) add(trace);
+  });
+  const example = safe(() => traceMarginVsMarkup(100, 10));
+  if (example) add({ ...example, title: `${example.title} (ejemplo con costo $ 100)` });
+  return list;
+}
+
+function renderTraceIndex(v) {
+  const items = traceIndexItems(v);
+  return card(
+    {
+      title: 'Cada fórmula, paso a paso',
+      subtitle: 'Todos los cálculos de esta cotización: fórmula, datos de entrada y resultado. Nada es un número mágico.',
+      className: 'qr-card',
+      id: v.ids.traces,
+    },
+    h('ul', { class: 'qr-trace-list' }, ...items.map((trace) => {
+      const res = trace.result || null;
+      const showLabel = res && res.label && res.label !== trace.title;
+      return h('li', { class: 'qr-trace-row' },
+        h('span', { class: 'qr-trace-title' },
+          trace.title,
+          showLabel ? h('span', { class: 'qr-trace-sub' }, `Resultado: ${res.label}`) : null),
+        h('span', { class: 'qr-trace-value' }, res ? formatValue(res.value, res.format, res.unit) : EMPTY),
+        traceBtn(trace));
+    })),
+  );
+}
+
+// ------------------------------------------------------- 3. Profundizá
+
+function openStateFor(quoteId) {
+  const key = String(quoteId || 'sin-id');
+  if (!openMemory.has(key)) {
+    if (openMemory.size >= OPEN_MEMORY_LIMIT) openMemory.delete(openMemory.keys().next().value);
+    openMemory.set(key, new Set());
+  }
+  return openMemory.get(key);
+}
+
+function scenarioScreenHref(q) {
+  return q && q.id ? `#/escenarios/${encodeURIComponent(String(q.id))}` : null;
+}
+
+function analysisSections(v) {
+  return [
+    safeSection('Sensibilidad', () => renderSensitivity(v)),
+    FEATURES.scenarios ? safeSection('Escenarios', () => renderScenarios(v)) : null,
+    FEATURES.commercialModelComparator ? safeSection('Comparador de modelos comerciales', () => renderComparator(v)) : null,
+  ].filter(Boolean);
+}
+
+function scenarioIntro(v) {
+  const href = scenarioScreenHref(v.q);
+  return h('div', { class: 'qr-deep-intro' },
+    h('p', {}, 'Probá qué pasa si cambian los costos, los días de trabajo o las condiciones. Nada de esto modifica tu cotización.'),
+    href ? h('span', { class: 'no-print' }, linkButton('Abrir en pantalla completa', href, { variant: 'link', size: 'sm', iconAfter: 'arrowRight' })) : null);
+}
+
+/** Aviso en el título de "Ver reglas comerciales": descuentos que hacen perder plata o bajan del objetivo. */
+function rulesBadge(v) {
+  const rows = Array.isArray(v.r.discounts) ? v.r.discounts : [];
+  const granted = rows.filter((row) => hasValue(row.discountPct) && row.discountPct > 0);
+  let red = granted.filter((row) => row.status === 'red').length;
+  let orange = granted.filter((row) => row.status === 'orange').length;
+  const c = v.r.continuity || {};
+  if (c.applies && c.status === 'red') red += 1;
+  else if (c.applies && c.status === 'orange') orange += 1;
+  if (red) return badge(noticeCount(red), 'red', { title: `${noticeCount(red)}: descuentos con los que perdés plata` });
+  if (orange) return badge(noticeCount(orange), 'orange', { title: `${noticeCount(orange)}: descuentos que dejan el margen debajo del objetivo` });
+  return null;
+}
+
+/** Aviso en el título de "¿Te falta cargar algo?": controles pendientes. */
+function completenessBadge(v) {
+  const items = (v.r.completeness && v.r.completeness.items) || [];
+  const missing = items.filter((i) => i.status === 'missing').length;
+  const pending = missing + items.filter((i) => i.status === 'warning').length;
+  if (!pending) return null;
+  return badge(noticeCount(pending), missing ? 'red' : 'orange', { title: `${noticeCount(pending)}: puntos de la completitud de costos para revisar` });
+}
+
+function deepDefinitions(v) {
+  return [
+    {
+      key: 'eecc',
+      summary: 'Ver estructura de costos',
+      hint: 'Monto, $ por día activo e incidencia de cada rubro (EECC).',
+      build: () => [safeSection('Estructura de costos (EECC)', () => renderCostStructure(v))],
+    },
+    {
+      key: 'matrix',
+      summary: 'Tarifa según días trabajados',
+      hint: '¿Qué tarifa necesitás si trabajás más o menos días? Matriz tarifa × utilización y gráfico.',
+      build: () => [safeSection('Matriz tarifa × utilización', () => renderMatrix(v))],
+    },
+    {
+      key: 'scenarios',
+      summary: 'Analizar escenarios',
+      hint: '¿Qué pasa si…? Sensibilidad, escenarios pesimista / base / optimista y modelos comerciales.',
+      build: () => [scenarioIntro(v), ...analysisSections(v)],
+    },
+    {
+      key: 'rules',
+      summary: 'Ver reglas comerciales',
+      hint: 'Cómo se factura, equivalencias de la tarifa y descuentos por días o continuidad.',
+      badge: rulesBadge(v),
+      build: () => renderCommercialRules(v),
+    },
+    {
+      key: 'markup',
+      summary: 'Margen vs markup',
+      hint: 'Tarifas por nivel de margen y por qué el margen no es lo mismo que el markup.',
+      build: () => [safeSection('Margen vs markup', () => renderMarginMarkup(v))],
+    },
+    {
+      key: 'completeness',
+      summary: '¿Te falta cargar algo?',
+      hint: 'Controles automáticos de los costos que suelen olvidarse (completitud).',
+      badge: completenessBadge(v),
+      build: () => [safeSection('Completitud de costos', () => renderCompleteness(v))],
+    },
+    {
+      key: 'traces',
+      summary: 'Ver cálculo completo',
+      hint: 'Todos los indicadores (días para el margen objetivo, contribución por día, break-even…) y cada fórmula.',
+      build: () => [safeSection('Todos los indicadores', () => renderResultDetail(v)), safeSection('Cada fórmula, paso a paso', () => renderTraceIndex(v))],
+    },
+  ];
+}
+
+/**
+ * Desplegables "Profundizá": cerrados por defecto (salvo los que el usuario
+ * dejó abiertos en esta pestaña) y dibujados recién al abrirlos.
+ * @returns {{ node: HTMLElement, items: Array<{ key: string, el: HTMLDetailsElement, render: Function }> }}
+ */
+function renderDeep(v, remembered) {
+  const items = deepDefinitions(v).map((def) => {
+    let rendered = false;
+    let body = null;
+    const render = () => {
+      if (rendered || !body) return;
+      rendered = true;
+      let nodes;
+      try {
+        nodes = def.build();
+      } catch (error) {
+        nodes = [sectionError(def.summary, error)];
+      }
+      mount(body, ...nodes);
+    };
+    const el = disclosure({
+      summary: def.summary,
+      hint: def.hint,
+      badge: def.badge || null,
+      open: remembered.has(def.key),
+      id: v.ids[`deep_${def.key}`],
+      className: 'qr-deep-item',
+      onToggle: (open) => {
+        if (open) {
+          render();
+          remembered.add(def.key);
+        } else {
+          remembered.delete(def.key);
+        }
+      },
+    });
+    el.dataset.section = def.key;
+    body = el.querySelector('.disclosure-body');
+    if (el.open) render();
+    return { key: def.key, el, render };
+  });
+  const titleId = uniqueId('qr-deep-title');
+  const node = h('section', { class: 'qr-deep', 'aria-labelledby': titleId },
+    h('div', { class: 'qr-section-head' },
+      h('h3', { class: 'qr-section-title', id: titleId }, 'Profundizá'),
+      h('p', { class: 'qr-section-sub' }, 'Todo el análisis sigue acá. Abrí sólo lo que necesites.')),
+    h('div', { class: 'disclosure-list qr-deep-list' }, ...items.map((it) => it.el)));
+  return { node, items };
+}
+
+/**
+ * Al imprimir se abren (y dibujan) todos los desplegables; después vuelven
+ * a como estaban. (CSS @media print no puede abrir un <details>.)
+ */
+function printAllSections(v, getItems) {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  let saved = null;
+  const beforePrint = () => {
+    const items = getItems();
+    // Dos "beforeprint" seguidos (sin "afterprint" en el medio) no pisan el estado guardado.
+    if (!saved) saved = items.map((it) => it.el.open);
+    items.forEach((it) => {
+      it.render();
+      it.el.open = true;
+    });
+  };
+  const afterPrint = () => {
+    const items = getItems();
+    if (saved) {
+      items.forEach((it, i) => {
+        it.el.open = Boolean(saved[i]);
+      });
+    }
+    saved = null;
+  };
+  window.addEventListener('beforeprint', beforePrint);
+  window.addEventListener('afterprint', afterPrint);
+  v.cleanups.push(() => {
+    window.removeEventListener('beforeprint', beforePrint);
+    window.removeEventListener('afterprint', afterPrint);
+  });
 }
 
 // ----------------------------------------------------------- J. acciones
@@ -2219,11 +2933,9 @@ function renderActions(v) {
       if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
     },
   });
-  return card(
-    { title: 'Acciones', className: 'qr-card no-print', id: v.ids.actions },
-    h('div', { class: 'row qr-actions' }, print, sent),
-    note('Al imprimir se ocultan los controles. En el diálogo de impresión elegí "Guardar como PDF" para obtener el archivo.'),
-  );
+  return h('section', { class: 'qr-actions-bar no-print', id: v.ids.actions, 'aria-label': 'Acciones' },
+    h('p', { class: 'qr-actions-note' }, 'Al imprimir se abren todas las secciones y se ocultan los controles. Para obtener el archivo, elegí "Guardar como PDF".'),
+    h('div', { class: 'qr-actions' }, print, sent));
 }
 
 // ------------------------------------------------------------- composición
@@ -2233,11 +2945,19 @@ function sectionError(title, error) {
   return card({ title, className: 'qr-card' }, banner('No se pudo mostrar esta sección con los datos actuales. El resto del análisis sigue disponible.', 'warning'));
 }
 
-function printHeader(v) {
+function safeSection(title, build) {
+  try {
+    return build();
+  } catch (error) {
+    return sectionError(title, error);
+  }
+}
+
+function printHeader(v, heading = 'Análisis económico de la cotización') {
   const { q } = v;
   const parts = [q.code, q.name].filter((x) => typeof x === 'string' && x.trim()).join(' — ');
   return h('div', { class: 'qr-print-head' },
-    h('div', { class: 'qr-print-brand' }, 'RATEOS · Análisis económico de la cotización'),
+    h('div', { class: 'qr-print-brand' }, `RATEOS · ${heading}`),
     h('div', { class: 'qr-print-title' }, parts || 'Cotización'),
     h('div', { class: 'qr-print-meta' },
       q.client ? `Cliente: ${String(q.client)} · ` : '',
@@ -2245,15 +2965,17 @@ function printHeader(v) {
       v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''));
 }
 
+const SECTION_KEYS = Object.freeze([
+  'summary', 'costs', 'decision', 'eecc', 'matrix', 'markup', 'discounts', 'rules', 'sensitivity', 'scenarios', 'models', 'completeness', 'traces', 'actions',
+  'deep_eecc', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces',
+]);
+
 /**
- * Renderiza el análisis económico de una cotización.
- * @param {HTMLElement} container
- * @param {object} app contrato de vistas (toast, navigate, ctx…)
- * @param {{ quote: object, result: object, settings?: object, onQuoteChange?: Function }} params
- * @returns {Function} limpieza (cancela timers)
+ * Prepara el contexto de la vista (cotización, resultado, ids, limpieza).
+ * Si no hay resultado lo calcula; si el cálculo falla, muestra el error y
+ * devuelve null.
  */
-export function renderQuoteResult(container, app, { quote, result, settings, onQuoteChange } = {}) {
-  const cleanups = [];
+function createView(container, app, { quote, result, settings, onQuoteChange } = {}) {
   const q = quote && typeof quote === 'object' ? quote : {};
   const conf = settings && typeof settings === 'object' ? settings : {};
   let r = result;
@@ -2263,14 +2985,14 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
     } catch (error) {
       logger.error('No se pudo calcular la cotización', { message: error && error.message });
       mount(container, banner('No se pudieron calcular los resultados con los datos actuales. Revisá los valores ingresados en los pasos anteriores.', 'danger', { title: 'Error de cálculo.' }));
-      return () => {};
+      return null;
     }
   }
   const notify = (message, tone = 'info') => {
     if (app && typeof app.toast === 'function') app.toast(message, tone);
     else componentToast(message, tone);
   };
-  const ids = Object.fromEntries(['decision', 'eecc', 'matrix', 'markup', 'discounts', 'sensitivity', 'scenarios', 'models', 'completeness', 'actions'].map((key) => [key, uniqueId(`qr-${key}`)]));
+  const ids = Object.fromEntries(SECTION_KEYS.map((key) => [key, uniqueId(`qr-${key.replace('_', '-')}`)]));
   let ill = { any: false, quote: false, lines: 0, fuel: false };
   try {
     ill = illustrativeInfo(q);
@@ -2278,7 +3000,7 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
     logger.warn('No se pudo detectar si la cotización tiene valores ilustrativos', { message: error && error.message });
     ill = { any: q.illustrative === true, quote: q.illustrative === true, lines: 0, fuel: false };
   }
-  const v = {
+  return {
     q,
     r,
     k: r.kpis,
@@ -2287,47 +3009,15 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
     unitLabel: r.unitLabel || 'día',
     onQuoteChange,
     notify,
-    cleanups,
+    cleanups: [],
     ids,
+    openDeep: () => {},
   };
+}
 
-  const sections = [
-    ['decision', 'Decisión', 'Decisión', renderDecision],
-    ['eecc', 'Costos', 'Estructura de costos (EECC)', renderCostStructure],
-    ['matrix', 'Matriz', 'Matriz tarifa × utilización', renderMatrix],
-    ['markup', 'Margen vs markup', 'Margen vs markup', renderMarginMarkup],
-    ['discounts', 'Descuentos', 'Descuentos por días / volumen', renderDiscounts],
-    ['sensitivity', 'Sensibilidad', 'Sensibilidad', renderSensitivity],
-    ...(FEATURES.scenarios ? [['scenarios', 'Escenarios', 'Escenarios', renderScenarios]] : []),
-    ...(FEATURES.commercialModelComparator ? [['models', 'Modelos comerciales', 'Comparador de modelos comerciales', renderComparator]] : []),
-    ['completeness', 'Completitud', 'Cost Completeness Score', renderCompleteness],
-    ['actions', 'Acciones', 'Acciones', renderActions],
-  ];
-
-  const nodes = sections.map(([, , title, fn]) => {
-    try {
-      return fn(v);
-    } catch (error) {
-      return sectionError(title, error);
-    }
-  });
-
-  const nav = h('nav', { class: 'qr-nav no-print', 'aria-label': 'Secciones del resultado' },
-    h('span', { class: 'qr-nav-label' }, 'Ir a:'),
-    ...sections.map(([key, short], i) => button(short, {
-      variant: 'ghost',
-      size: 'sm',
-      onClick: () => {
-        const target = nodes[i];
-        if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      },
-      attrs: { 'data-section': key },
-    })));
-
-  mount(container, h('div', { class: 'qr' }, printHeader(v), nav, ...nodes));
-
+function cleanupOf(v) {
   return () => {
-    cleanups.splice(0).forEach((fn) => {
+    v.cleanups.splice(0).forEach((fn) => {
       try {
         fn();
       } catch (error) {
@@ -2335,4 +3025,79 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
       }
     });
   };
+}
+
+/**
+ * Renderiza el análisis económico de una cotización (paso "Resultado").
+ * @param {HTMLElement} container
+ * @param {object} app contrato de vistas (toast, navigate, ctx…)
+ * @param {{ quote: object, result: object, settings?: object, onQuoteChange?: Function }} params
+ * @returns {Function} limpieza (cancela timers y listeners)
+ */
+export function renderQuoteResult(container, app, { quote, result, settings, onQuoteChange } = {}) {
+  const v = createView(container, app, { quote, result, settings, onQuoteChange });
+  if (!v) return () => {};
+  const remembered = openStateFor(v.q.id);
+  let deepItems = [];
+  v.openDeep = (key) => {
+    const item = deepItems.find((it) => it.key === key);
+    if (!item) return;
+    item.render();
+    item.el.open = true;
+    remembered.add(key);
+    if (typeof item.el.scrollIntoView === 'function') item.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const summary = item.el.querySelector('summary');
+    if (summary && typeof summary.focus === 'function') summary.focus({ preventScroll: true });
+  };
+
+  const summary = safeSection('Resultado', () => renderSummary(v));
+  const costs = safeSection('¿En qué se va el costo?', () => renderCostBreakdown(v));
+  const deep = safeSection('Profundizá', () => {
+    const res = renderDeep(v, remembered);
+    deepItems = res.items;
+    return res.node;
+  });
+  const actions = safeSection('Acciones', () => renderActions(v));
+  printAllSections(v, () => deepItems);
+
+  mount(container, h('div', { class: 'qr' }, printHeader(v), summary, costs, deep, actions));
+  return cleanupOf(v);
+}
+
+/** Punto de partida del análisis de escenarios: la cotización tal como está. */
+function analysisBase(v) {
+  const { k } = v;
+  const rateOk = hasRate(k);
+  const item = (label, value, tone = null) => h('div', { class: ['qr-base-item', tone ? `qr-tone-${tone}` : null] },
+    h('dt', {}, label),
+    h('dd', {}, value));
+  return h('section', { class: 'qr-base', 'aria-label': 'Punto de partida' },
+    h('div', { class: 'qr-base-head' },
+      h('p', { class: 'qr-base-title' }, 'Punto de partida: tu cotización tal como está'),
+      illustrativeBadge(v)),
+    h('dl', { class: 'qr-base-list' },
+      item('Costo esperado del mes', money(k.totalCost)),
+      item('Tarifa comercial', rateOk ? commercialRate(k, v.unitLabel) : 'Sin tarifa'),
+      item('Días activos por mes', formatDays(k.activeDays)),
+      item('Margen', rateOk && hasValue(k.marginPct) ? pct(k.marginPct) : EMPTY, marginTone(k)),
+      item('Resultado del mes', rateOk ? money(k.profit) : EMPTY, profitTone(k))));
+}
+
+/**
+ * Análisis de escenarios de una cotización (pantalla #/escenarios/:id):
+ * sensibilidad "¿qué pasa si…?", escenarios pesimista / base / optimista y
+ * comparador de modelos comerciales. No modifica la cotización.
+ * @param {HTMLElement} container
+ * @param {object} app contrato de vistas (toast, navigate, ctx…)
+ * @param {{ quote: object, result?: object, settings?: object }} params
+ * @returns {Function} limpieza (cancela timers)
+ */
+export function renderScenarioAnalysis(container, app, { quote, result, settings } = {}) {
+  const v = createView(container, app, { quote, result, settings, onQuoteChange: null });
+  if (!v) return () => {};
+  mount(container, h('div', { class: 'qr qr-analysis' },
+    printHeader(v, 'Análisis de escenarios'),
+    safeSection('Punto de partida', () => analysisBase(v)),
+    ...analysisSections(v)));
+  return cleanupOf(v);
 }
