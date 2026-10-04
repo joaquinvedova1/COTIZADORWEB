@@ -1428,7 +1428,7 @@ function buildSubsteps({ currentStep, stepHref, quoteId }) {
  * combustible de los equipos), la pregunta no se ve a simple vista: el aviso
  * se muestra, con "Ir al campo" cuando el campo está en este paso.
  */
-const ALWAYS_ASKED = new Set(['modality', 'rate', 'utilization', 'payment_term', 'margin', 'structure', 'contingency']);
+const ALWAYS_ASKED = new Set(['modality', 'rate', 'utilization', 'payment_term', 'margin', 'billing_taxes', 'structure', 'contingency']);
 const listOf = (value) => (Array.isArray(value) ? value.filter((v) => isPlainObject(v)) : []);
 const positive = (value) => value !== null && value !== '' && Number.isFinite(Number(value)) && Number(value) > 0;
 
