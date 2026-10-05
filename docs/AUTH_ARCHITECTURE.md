@@ -52,7 +52,7 @@ https://joaquinvedova1.github.io/COTIZADORWEB/?auth=confirm&next=%2Fcotizaciones
 https://joaquinvedova1.github.io/COTIZADORWEB/?auth=recovery                                 (recuperación)
 ```
 
-- `authRedirectUrl()` usa el sitio público; en desarrollo local (`http://localhost…/COTIZADORWEB/`) usa el servidor local (`siteUrlFor`). Cualquier otro origen usa el sitio público.
+- `authRedirectUrl()` usa el sitio público; en desarrollo local (`http://localhost…/COTIZADORWEB/`) usa el servidor local, y desde el **staging** (`/COTIZADORWEB/preview/`) vuelve al staging (`siteUrlFor`). Cualquier otro origen usa el sitio público. La Redirect URL `https://joaquinvedova1.github.io/COTIZADORWEB/**` ya cubre `/preview/`.
 - Al volver, `auth.init()` lee la query (`parseAuthRedirect`), canjea el código (`exchangeCodeForSession`), **limpia la URL** con `history.replaceState` (el código no queda en el historial ni en la barra) y navega a `#<next>` o `#/inicio`. Errores ("El enlace venció o ya se usó…") se muestran en `#/login` sin detalles técnicos.
 - **Sólo PKCE.** El enlace funciona en el **mismo navegador** donde se pidió (ahí está el `code_verifier`). En otro navegador se ve "Ingresá con tu email y contraseña" (el email igual queda confirmado). Es a propósito: nadie puede mandarte un enlace que abra **su** cuenta en tu navegador (y reciba lo que cargues), porque canjearlo exige el `code_verifier` que sólo existe donde se pidió. Por la misma razón los enlaces con `?token_hash=` se **rechazan** (no exigen nada del navegador).
 

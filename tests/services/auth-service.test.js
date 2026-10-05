@@ -172,6 +172,16 @@ describe('AuthService: enlaces de email con GitHub Pages + router por hash', () 
     assert.equal(siteUrlFor(undefined), SITE);
   });
 
+  test('siteUrlFor: desde el staging (/preview/) los enlaces vuelven al staging, nunca a producción', () => {
+    assert.equal(siteUrlFor({ href: `${SITE}preview/#/registro` }), `${SITE}preview/`);
+    assert.equal(siteUrlFor({ href: `${SITE}preview/?auth=confirm#/` }), `${SITE}preview/`);
+    assert.equal(siteUrlFor({ href: 'http://localhost:8080/COTIZADORWEB/preview/#/login' }), 'http://localhost:8080/COTIZADORWEB/preview/');
+    assert.equal(siteUrlFor({ href: `${SITE}#/registro` }), SITE, 'producción sigue en la raíz');
+    assert.equal(siteUrlFor({ href: `${SITE}previewx/` }), SITE);
+    assert.equal(siteUrlFor({ href: 'https://evil.example/COTIZADORWEB/preview/' }), SITE);
+    assert.equal(authRedirectUrl('confirm', '/inicio', siteUrlFor({ href: `${SITE}preview/#/registro` })), `${SITE}preview/?auth=confirm&next=%2Finicio`);
+  });
+
   test('parseAuthRedirect lee la query antes del # y descarta destinos inseguros', () => {
     const p = parseAuthRedirect(`${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva&code=abc#/`);
     assert.deepEqual(p, { code: 'abc', kind: 'confirm', next: '/cotizaciones/nueva', error: null });

@@ -73,14 +73,22 @@ export function validateSignIn({ email, password }) {
 /**
  * Base de los enlaces de los emails: el sitio público (GitHub Pages) y, en
  * desarrollo local (localhost / 127.0.0.1 bajo /COTIZADORWEB/), el servidor
- * local. Cualquier otro origen usa el sitio público. Supabase además sólo
+ * local. Desde el staging (/COTIZADORWEB/preview/) los enlaces vuelven al
+ * staging. Cualquier otro origen usa el sitio público. Supabase además sólo
  * acepta las Redirect URLs de su lista permitida.
  */
 export function siteUrlFor(location, fallback = PUBLIC_SITE_URL) {
   try {
     const url = new URL(location && location.href ? location.href : '');
+    const site = new URL(fallback);
     const local = url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
-    if (local && url.pathname.startsWith('/COTIZADORWEB/')) return `${url.origin}/COTIZADORWEB/`;
+    let base = null;
+    if (local && url.pathname.startsWith('/COTIZADORWEB/')) base = `${url.origin}/COTIZADORWEB/`;
+    else if (url.origin === site.origin && url.pathname.startsWith(site.pathname)) base = site.href;
+    if (!base) return fallback;
+    // Staging (/COTIZADORWEB/preview/): los enlaces vuelven al preview, nunca a producción.
+    const preview = `${new URL(base).pathname}preview/`;
+    return url.pathname.startsWith(preview) ? `${base}preview/` : base;
   } catch {
     /* sin location: el sitio público */
   }
