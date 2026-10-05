@@ -433,6 +433,18 @@ describe('Moneda: valor de reposición en USD con tipo de cambio de la cotizaci�
     assert.equal(r.completeness.items.find((i) => i.id === 'currency').status, 'missing');
     assert.ok(Number.isFinite(r.kpis.totalCost));
   });
+
+  test('tipo de cambio 0, negativo, vacío o texto = sin tipo de cambio (no se suma; nunca 1:1 en silencio)', () => {
+    for (const rate of [0, -5, '', 'abc', null, Infinity]) {
+      const q = baseQuote();
+      q.equipment.push(equipmentLineFromLibrary(vactor({ replacementValue: 420000, base: { period: '2026-07', currency: 'USD', source: 'company', note: '' } }), { id: 'e1', now: OCT }));
+      q.exchangeRates = [{ currency: 'USD', rate, base: { period: null, currency: 'ARS', source: null, note: '' } }];
+      const r = computeQuote(q, { settings });
+      assert.equal(r.model.equipment[0].ownership.replacement, 0, `rate=${String(rate)}`);
+      assert.ok(r.issues.some((i) => /tipo de cambio USD/.test(i.message)), `rate=${String(rate)}`);
+      assert.ok(Number.isFinite(r.kpis.totalCost));
+    }
+  });
 });
 
 describe('Externos: unidades, mínimos, combustible y movilización del proveedor', () => {
@@ -457,6 +469,20 @@ describe('Externos: unidades, mínimos, combustible y movilización del proveedo
   test('por mes: fijo mensual; global: repartido en los meses de contrato', () => {
     approx(ext({ price: 5000000, unit: 'month' }).fixedMonthly, 5000000);
     approx(ext({ price: 12000000, unit: 'global' }).fixedMonthly, 1000000, 'contrato de 12 meses');
+  });
+
+  test('global sin meses de contrato (0, vacío o negativo): se toma 1 mes, sin dividir por 0', () => {
+    for (const months of [0, null, -3, '']) {
+      const q = baseQuote();
+      q.contractMonths = months;
+      const line = blankEquipmentLine({ acquisition: 'outsourced', id: 'g' });
+      line.external = createExternalTerms({ price: 6000000, unit: 'global', fiscal: { vatRecoverable: 'yes' } });
+      line.mobilization = createMobilization({ mode: 'none' });
+      q.equipment.push(line);
+      const x = buildCostModel(q).external[0];
+      approx(x.fixedMonthly, 6000000, `contractMonths=${String(months)}`);
+      assert.equal(x.contractMonths, 1);
+    }
   });
 
   test('por km: km de ruta del llamado (160 km)', () => {
