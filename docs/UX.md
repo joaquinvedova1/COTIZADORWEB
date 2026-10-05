@@ -30,8 +30,9 @@ Inspirados en SaaS B2B modernos (Linear, Stripe, Vercel, Ramp, Buildxact, Servic
 SITIO PÚBLICO (sin menú lateral)              APLICACIÓN (menú lateral)
 #/            Landing                          #/inicio          Inicio
 #/demo        Demo guiada (ejemplo)            #/cotizaciones    Cotizaciones (+ /nueva, /:id/:paso)
-#/login       Ingresar (preparado)             #/recursos/:tab   Personal · Equipos · Materiales · Ubicaciones
-#/registro    Crear cuenta (preparado)         #/servicios       Plantillas de servicio
+#/login       Ingresar                         #/recursos/:tab   Personal · Equipos · Servicios externos ·
+                                                                 Materiales · Ubicaciones · Catálogo
+#/registro    Crear cuenta                     #/servicios       Plantillas de servicio
 #/bienvenida  Onboarding (3 pantallas)         #/escenarios(/:id) Análisis de escenarios
                                                ── separador ──
                                                #/configuracion/:tab  Empresa · Parámetros económicos ·
@@ -78,7 +79,7 @@ Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **5 etapas**:
 | Etapa | Pasos internos |
 |---|---|
 | 1. El servicio | Tipo de servicio, modalidad |
-| 2. Los recursos | Personal, equipos, materiales, logística |
+| 2. Los recursos | Personal, equipos (propios, alquilados o tercerizados), materiales, movilización y viajes |
 | 3. Costos y condiciones | Gastos de estructura, financiamiento, imprevistos |
 | 4. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
 | 5. Resultado | Resultado |
@@ -89,11 +90,20 @@ Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, dí
 
 **Impuestos sobre lo que facturás** (etapa "El precio", PLAN-2026-002): pregunta "¿Qué parte de lo que facturás se va en impuestos?", con **Un % total** (lo más simple) o **Detalle por impuesto** (Ingresos Brutos, débitos y créditos, sellos, otros cargos), excluyentes, y "No incluir impuestos sobre la facturación en esta cotización" (una elección de cálculo, no una afirmación fiscal sobre la empresa). La ayuda dice qué incluir y qué no (IVA, Ganancias, retenciones, costo financiero) y cómo evitar el doble conteo. "Usar los de mi empresa" / "Guardar como valor de mi empresa" conectan con Configuración → Parámetros económicos. RATEOS no trae alícuotas.
 
+**Recursos y snapshots** (PLAN-2026-005, [RESOURCE_MODEL.md](RESOURCE_MODEL.md)):
+
+- Cada línea dice de dónde viene ("De Recursos · copiado el 05/10/26 14:30" o "Cargado en esta cotización") y de qué mes es su valor (**"Base: sep-26"** / **"Base no definida"**, en naranja).
+- Si el recurso cambió en Recursos, la línea lo avisa con el valor utilizado y el actual (con sus bases) y dos botones: **[Actualizar en esta cotización] [Conservar valor original]**. Nunca se actualiza sola; el aviso no bloquea.
+- La fecha base y la moneda de cada línea están en "Fecha base y moneda" (cerrado): cambian sólo esa cotización.
+- **Equipos**: "¿Cómo lo obtenés?" (Propio / Alquilado / Tercerizado) cambia la ficha: un propio muestra valor de reposición, vida útil y consumo (lo demás en "Opciones avanzadas"); un externo muestra proveedor, tarifa neta, unidad, mínimo, vigencia y "¿Qué incluye la tarifa?"; el tratamiento fiscal queda en un desplegable con su resumen ("IVA 21 % · sí, lo recupero"). "Operador (de Personal)" vincula el puesto que lo opera.
+- **Movilización y viajes**: primero "¿Cómo llega cada equipo al lugar del servicio?" (una fila por equipo, con km, litros y $ por llamado y "Ver cálculo"); después "Logística auxiliar: vehículos de apoyo y de personal", con la advertencia de no cargar dos veces un equipo que ya se moviliza solo.
+- **Tipo de servicio**: "Base económica de la oferta" con la fecha de la oferta, la base por rubro, las advertencias y los tipos de cambio de la cotización.
+
 ### Resultado
 
 La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
 
-Todo lo demás está en **"Profundizá"**, cerrado por defecto y dibujado al abrirlo: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), **"¿En qué se va el costo?"** (4 rubros + otros, y la estructura de costos completa; 100 % del costo), **reparto de la tarifa (apropiación) y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
+Todo lo demás está en **"Profundizá"**, cerrado por defecto y dibujado al abrirlo: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), **"¿En qué se va el costo?"** (4 rubros + otros, y la estructura de costos completa; 100 % del costo), **reparto de la tarifa (apropiación) y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, **base económica de la oferta** (bases por rubro, tipos de cambio y externos: costo económico vs salida de caja vs crédito fiscal), completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
 
 ## 5. Copy
 

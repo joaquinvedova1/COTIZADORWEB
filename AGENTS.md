@@ -14,6 +14,7 @@ Documentos de referencia:
 - [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) y [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) — evolución futura.
 - [docs/AGENT_ROLES.md](docs/AGENT_ROLES.md) — roles de revisión (Product, Economics, QA, Security, Data, UX).
 - [.agent/PLANS.md](.agent/PLANS.md) — planes de ejecución para cambios grandes.
+- [docs/RESOURCE_MODEL.md](docs/RESOURCE_MODEL.md) — recurso maestro ≠ snapshot de cotización, base económica, externos y movilización.
 
 ## 1. Propósito del producto
 
@@ -83,6 +84,15 @@ Reglas de import (verificadas por `tests/architecture.test.js`):
 - Todo resultado importante se puede explicar con "Ver cálculo": fórmula, entradas y resultado (`createTrace` en `js/core/trace.js`). **Nunca números mágicos.**
 - Los resultados calculados no se persisten como verdad: se recalculan con `computeQuote`.
 - Nunca mostrar `NaN`, `Infinity` ni `-Infinity`: usar `safeDivide`, `nonNegative`, `toNumber` (`js/core/money.js`) y formatear con `js/core/format.js` ("—").
+
+### 5.1 Recursos, bases y cotizaciones ([docs/RESOURCE_MODEL.md](docs/RESOURCE_MODEL.md))
+
+- **RECURSO MAESTRO ≠ SNAPSHOT DE COTIZACIÓN.** Cambiar un recurso **nunca** modifica una cotización hecha (ni al abrirla, ni al migrar, ni al duplicar). La cotización avisa y la persona elige [Actualizar en esta cotización] o [Conservar valor original].
+- **Nunca inventar una fecha base** ("no asumir que porque hoy es 2026 el valor es de 2026"): sin dato → "Base no definida". Las bases se comparan contra la fecha de la OFERTA, nunca contra "hoy".
+- **Nunca inventar ni buscar un tipo de cambio**: lo carga la empresa en cada cotización; sin tipo de cambio, el valor no se suma y la cotización queda en rojo.
+- **Externos (alquilados / tercerizados):** precio NETO; sólo el IVA **no** recuperable y los cargos no recuperables son costo; IVA recuperable y percepciones son caja, no costo. No hardcodear alícuotas, no aplicar Ganancias como % sobre un alquiler, no duplicar el IIBB. Un externo no tiene amortización, seguro propio ni costo de capital.
+- **Movilización:** cada costo en un solo lugar (el equipo que se moviliza, el que lo transporta o el vehículo de apoyo). Si maneja el operador, no se suma otra persona; el desgaste por km no incluye amortización.
+- El catálogo global de familias de equipos es sólo descriptivo: **nunca** precios, especificaciones que no tengamos ni datos de clientes. Marcas, modelos y valores son privados de cada organización.
 
 ## 6. Protección del motor
 

@@ -416,10 +416,10 @@ Las líneas de una cotización copian valores de Recursos, pero esa copia no es 
 Detalle en [docs/RESOURCE_MODEL.md](../docs/RESOURCE_MODEL.md): RECURSO MAESTRO ≠ SNAPSHOT DE COTIZACIÓN.
 
 #### 6. Pasos
-- [ ] Modelo, migración v2 → v3, validación y backup.
-- [ ] Motores: externo + fiscal, movilización, conversión de moneda, base económica, completitud.
-- [ ] UX: Recursos (base, legajo, catálogo, externos), Configuración (combustible y tipo de cambio con base), cotización (snapshot, ajustes, propio/alquilado/tercerizado, movilización), Resultado (base económica de la oferta).
-- [ ] Tests (casos A–F, migración, regresión), E2E desktop y mobile, revisión adversarial, docs.
+- [x] Modelo, migración v2 → v3, validación y backup.
+- [x] Motores: externo + fiscal, movilización, conversión de moneda, base económica, completitud.
+- [x] UX: Recursos (base, legajo, catálogo, externos), Configuración (combustible y tipo de cambio con base), cotización (snapshot, ajustes, propio/alquilado/tercerizado, movilización), Resultado (base económica de la oferta).
+- [x] Tests (casos A–F, migración, regresión), E2E desktop y mobile, revisión adversarial, docs.
 - [ ] PR sin merge y staging.
 
 #### 7. Tests
@@ -443,4 +443,8 @@ CI verde, preview publicado con la rama, prueba del dueño en staging y merge de
 
 #### Bitácora
 - 2026-10-05: inspección del modelo actual y diseño (respuestas a las 7 preguntas en el PR).
+- 2026-10-05: modelo + migración v2 → v3 (sin cambios de números: baseline de 21 casos y migración con los mismos resultados); motores externo/fiscal, movilización, moneda, base económica y reglas de completitud; golden cases nuevos.
+- 2026-10-05: UX de Recursos (legajo, externos, catálogo), Configuración (base del combustible y tipos de cambio), cotización (origen + base + aviso de cambios por línea, externos, operador, "Movilización y viajes", base económica de la oferta) y Resultado. Versión visible "v0.2.0 · build …".
+- 2026-10-05: E2E con Supabase simulado (desktop y mobile): Recursos → cotización → snapshot (caso A: conservar / actualizar, persistido en la nube) → externos → movilización (casos B, C, E) → material con base vieja (F) → resultado; staging con datos v2: "sólo lectura" no escribe nada y "Actualizar mis datos" migra a v3. El E2E encontró que `loadVersionInfo` no pasaba `channel` (el resguardo de staging no se activaba): corregido con test.
+- 2026-10-05: revisión adversarial (§36) económica y de datos/UX/seguridad; correcciones en el PR.
 

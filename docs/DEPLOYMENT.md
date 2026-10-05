@@ -77,6 +77,7 @@ Si un preview no llegó a publicarse, volvé a empujar la rama o usá **Run work
 
 **Staging comparte origen con producción** (`joaquinvedova1.github.io`): mismo `localStorage` y, con cuentas, el **mismo proyecto de Supabase**.
 - Probá el preview con una cuenta de prueba.
+- **Staging comparte la base de datos con producción** (mismo proyecto de Supabase). Si la rama sube el esquema de datos (por ejemplo v2 → v3), la app de `/preview/` (que lee `"channel": "staging"` de su `version.json`) **pregunta antes** de actualizar el formato de los datos de la cuenta: "Versión de prueba: ¿actualizar el formato de tus datos?". Con "Ver sin cambiar (sólo lectura)" no escribe nada. Si se actualizan, producción (con el esquema anterior) abrirá esa cuenta en **sólo lectura** hasta que se mergee la versión nueva: usá una cuenta de prueba.
 - Nunca publiques en `/preview/` código que no confiarías en producción. Por eso sólo se aceptan ramas de este repositorio, nunca forks.
 - Un rollback manual de producción dura hasta el próximo deploy (también uno de preview, que vuelve a publicar `main`). El rollback preferido sigue siendo `git revert` por PR (§5).
 
