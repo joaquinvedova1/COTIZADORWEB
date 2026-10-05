@@ -6,7 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { migrateState, migrateV0ToV1, migrateV1ToV2, MIGRATIONS, MigrationError } from '../../js/data/migrations.js';
+import { migrateState, migrateV0ToV1, migrateV1ToV2, migrateV2ToV3, MIGRATIONS, MigrationError } from '../../js/data/migrations.js';
 import { CURRENT_SCHEMA_VERSION, RESOURCE_TYPES, validateState } from '../../js/data/schema.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { isUuid } from '../../js/core/ids.js';
@@ -52,6 +52,7 @@ describe('Registro de migraciones', () => {
     }
     assert.equal(MIGRATIONS[0], migrateV0ToV1);
     assert.equal(MIGRATIONS[1], migrateV1ToV2);
+    assert.equal(MIGRATIONS[2], migrateV2ToV3);
     assert.ok(Object.isFrozen(MIGRATIONS));
   });
 });
@@ -61,7 +62,7 @@ describe('migrateState v0 → v1', () => {
     const result = migrateState(legacyState(), { now: NOW, idFactory: sequentialIds() });
     assert.equal(result.fromVersion, 0);
     assert.equal(result.toVersion, CURRENT_SCHEMA_VERSION);
-    assert.deepEqual(result.applied, ['0→1', '1→2']);
+    assert.deepEqual(result.applied, ['0→1', '1→2', '2→3']);
     assert.equal(result.state.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
   });
@@ -81,7 +82,8 @@ describe('migrateState v0 → v1', () => {
     assert.equal(state.resources.agreements[0].name, 'Convenio viejo');
     assert.deepEqual(state.resources.materials, []);
     assert.equal(state.services.length, 2);
-    assert.deepEqual(state.settings, { fuelPricePerLiter: 900, defaultBillingTaxes: null });
+    // v2 → v3: base del combustible SIN DEFINIR (nunca inventada) y sin tipos de cambio.
+    assert.deepEqual(state.settings, { fuelPricePerLiter: 900, defaultBillingTaxes: null, fuelPriceBase: { period: null, currency: 'ARS', source: null, note: '' }, exchangeRates: [] });
     assert.equal(state.organization.name, 'Legado SRL');
     assert.equal(state.organization.cuit, 'ficticio');
   });
@@ -179,7 +181,7 @@ describe('migrateState v0 → v1', () => {
     const out = migrateV0ToV1(null, { now: NOW, idFactory: sequentialIds() });
     assert.equal(out.schemaVersion, 1);
     assert.deepEqual(out.quotes, []);
-    assert.equal(validateState(migrateV1ToV2(out)).ok, true);
+    assert.equal(validateState(migrateV2ToV3(migrateV1ToV2(out))).ok, true);
   });
 });
 
@@ -254,18 +256,19 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
 
   test('agrega billingTaxes SIN DEFINIR a cada cotización y defaultBillingTaxes null; el resultado es válido', () => {
     const before = v1State();
-    const result = migrateState(before);
+    const result = migrateState(before, { targetVersion: 2 });
     assert.equal(result.fromVersion, 1);
     assert.deepEqual(result.applied, ['1→2']);
     assert.equal(result.state.schemaVersion, 2);
-    assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
+    // Válido una vez llevado a la versión actual.
+    assert.deepEqual(validateState(migrateState(before).state), { ok: true, errors: [] });
     result.state.quotes.forEach((q) => assert.deepEqual(q.billingTaxes, { mode: 'combined', notApplicable: false, combinedPct: null, items: [] }));
     assert.equal(result.state.settings.defaultBillingTaxes, null);
   });
 
   test('no cambia ningún otro dato (cotizaciones, recursos, plantillas, organización)', () => {
     const before = v1State();
-    const { state } = migrateState(before);
+    const { state } = migrateState(before, { targetVersion: 2 });
     const strip = (q) => {
       const { billingTaxes, vatTreatment, ...rest } = q;
       return rest;
@@ -292,7 +295,7 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
     assert.equal(out.quotes[0].vatTreatment, 'excluded');
     assert.equal(out.quotes[1].vatTreatment, 'included');
     // La estructura es válida (no se descarta nada) ...
-    assert.equal(validateState(out).ok, true);
+    assert.equal(validateState(migrateV2ToV3(out)).ok, true);
     // ... pero la cotización no se calcula en silencio como si fuera sin IVA.
     const issues = computeQuote(out.quotes[1]).issues.filter((i) => i.path === 'vatTreatment');
     assert.equal(issues.length, 1);
@@ -300,8 +303,17 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
     assert.deepEqual(computeQuote(out.quotes[0]).issues.filter((i) => i.path === 'vatTreatment'), []);
   });
 
-  test('el estado migrado equivale al estado demo actual (la demo queda "sin definir")', () => {
-    assert.deepEqual(migrateState(v1State()).state, createDemoState(CURRENT_SCHEMA_VERSION));
+  test('el estado migrado da los mismos números que la demo actual (impuestos "sin definir")', () => {
+    // La demo actual (v3) tiene bases ILUSTRATIVAS y movilización por equipo;
+    // la migrada desde v1 no inventa bases, pero ningún número cambia.
+    const migrated = migrateState(v1State()).state;
+    const current = createDemoState(CURRENT_SCHEMA_VERSION);
+    assert.equal(validateState(migrated).ok, true);
+    migrated.quotes.forEach((q, i) => {
+      const a = computeQuote(q).kpis;
+      const b = computeQuote(current.quotes[i]).kpis;
+      for (const k of ['totalCost', 'floorNetRate', 'suggestedListRate', 'revenue', 'profit', 'breakEvenDays']) assert.ok(Math.abs((a[k] ?? 0) - (b[k] ?? 0)) < 1e-6, `${q.name}: ${k}`);
+    });
   });
 
   test('una cotización que ya trae billingTaxes válido lo conserva', () => {
@@ -344,6 +356,124 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
     for (const bad of [null, undefined, 'x', 42, []]) {
       const out = migrateV1ToV2(bad);
       assert.equal(out.schemaVersion, 2);
+      assert.deepEqual(out.quotes, []);
+    }
+  });
+});
+
+describe('migrateState v2 → v3 (base económica, snapshots, movilización — PLAN-2026-005)', () => {
+  /** Estado v2 real: cotización con personal, equipo y material de Recursos y un vehículo de viaje. */
+  function v2State() {
+    return {
+      schemaVersion: 2,
+      organization: { id: 'org', name: 'Mi empresa' },
+      resources: {
+        agreements: [],
+        laborProfiles: [{ id: 'lp', role: 'Operador', basicMonthly: 2000000 }],
+        equipment: [{ id: 'eq', name: 'Hidrogrúa', type: 'crane_truck', replacementValue: 250000000, usefulLifeYears: 10, residualValue: 50000000, fuelLitersPerHour: 12, maintenancePerHour: 15000 }],
+        materials: [{ id: 'mat', description: 'Eslingas', unitCost: 300000 }],
+        locations: [],
+      },
+      services: [{ id: 't', name: 'Plantilla', defaults: { equipment: [{ id: 'te', sourceId: 'eq', name: 'Hidrogrúa', replacementValue: 1 }] } }],
+      quotes: [{
+        id: 'q', name: 'Cotización v2', createdAt: '2026-08-15T10:00:00.000Z', serviceType: 'on_call', pricingMode: 'known_activity', unit: 'day',
+        activity: { activeDaysPerMonth: 8, daysPerActivation: 2, availableDaysPerMonth: 30, hoursPerActiveDay: 10 },
+        labor: [{ id: 'l', sourceId: 'lp', role: 'Operador', positions: 1, peoplePerPosition: 1, basicMonthly: 2000000, normalHoursPerMonth: 176 }],
+        equipment: [{ id: 'e', sourceId: 'eq', name: 'Hidrogrúa', quantity: 1, hoursPerActiveDay: 10, replacementValue: 250000000, usefulLifeYears: 10, residualValue: 50000000, fuelLitersPerHour: 12, maintenancePerHour: 15000 }],
+        materials: [{ id: 'm', sourceId: 'mat', description: 'Eslingas', basis: 'per_month', quantity: 1, unitCost: 300000, providedBy: 'contractor' }],
+        otherCosts: [],
+        fuel: { pricePerLiter: 1500, providedBy: 'contractor' },
+        logistics: { notApplicable: false, distanceKm: 110, roundTrip: true, tripsPerActivation: 1, vehicles: [{ id: 'v', name: 'Hidrogrúa', count: 1, consumptionLPer100Km: 35, costPerKm: 150 }], tollsPerActivation: 0, lodgingPerActivation: 0 },
+        indirect: { method: 'percent_direct', pct: 10, amount: 0 },
+        finance: { paymentTermDays: 60, invoiceLagDays: 15, monthlyRatePct: 3, payDays: { salaries: 20, fuel: 0, suppliers: 30, materials: 30, structure: 20 } },
+        risk: { generalPct: 5, items: [] },
+        pricing: { targetMarginPct: 10, roundingStep: 0 },
+        rules: {},
+        billingTaxes: { mode: 'combined', notApplicable: false, combinedPct: null, items: [] },
+        vatTreatment: 'excluded',
+      }],
+      settings: { currency: 'ARS', fuelPricePerLiter: 1500, defaultBillingTaxes: null },
+    };
+  }
+
+  test('el resultado es válido y NINGÚN número cambia', () => {
+    const before = v2State();
+    const result = migrateState(before);
+    assert.deepEqual(result.applied, ['2→3']);
+    assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
+    const a = computeQuote(before.quotes[0]);
+    const b = computeQuote(result.state.quotes[0]);
+    for (const k of ['totalCost', 'fixedCosts', 'variableCosts', 'floorNetRate', 'targetListRate', 'financialCost', 'logisticsMonthly']) {
+      assert.ok(Math.abs(a.kpis[k] - b.kpis[k]) < 1e-6, `${k}: ${a.kpis[k]} → ${b.kpis[k]}`);
+    }
+    assert.deepEqual(a.eecc.rows.map((r) => r.amount), b.eecc.rows.map((r) => r.amount));
+  });
+
+  test('ninguna fecha base se inventa: todo queda "Base no definida", en la moneda de la empresa', () => {
+    const { state } = migrateState(v2State());
+    const empty = { period: null, currency: 'ARS', source: null, note: '' };
+    assert.deepEqual(state.resources.laborProfiles[0].base, empty);
+    assert.deepEqual(state.resources.equipment[0].base, empty);
+    assert.deepEqual(state.resources.equipment[0].costsBase, empty);
+    assert.deepEqual(state.resources.materials[0].base, empty);
+    const q = state.quotes[0];
+    assert.deepEqual(q.labor[0].base, empty);
+    assert.deepEqual(q.equipment[0].base, empty);
+    assert.deepEqual(q.materials[0].base, empty);
+    assert.deepEqual(q.fuel.base, empty);
+    assert.deepEqual(state.settings.fuelPriceBase, empty);
+    assert.deepEqual(state.settings.exchangeRates, []);
+  });
+
+  test('la cotización recibe moneda, fecha de la oferta (su creación, un hecho) y tipos de cambio vacíos', () => {
+    const q = migrateState(v2State()).state.quotes[0];
+    assert.equal(q.currency, 'ARS');
+    assert.equal(q.offerDate, '2026-08-15');
+    assert.deepEqual(q.exchangeRates, []);
+  });
+
+  test('equipos: obtención "propio", familia desde el tipo, movilidad SIN DEFINIR (los traslados siguen en Viajes)', () => {
+    const { state } = migrateState(v2State());
+    const res = state.resources.equipment[0];
+    assert.equal(res.acquisition, 'owned');
+    assert.equal(res.familyId, 'crane_truck');
+    assert.equal(res.type, 'crane_truck', 'el tipo viejo no se borra');
+    assert.equal(res.mobility.selfPropelled, null);
+    const line = state.quotes[0].equipment[0];
+    assert.equal(line.acquisition, 'owned');
+    assert.equal(line.familyId, 'crane_truck');
+    assert.equal(line.mobilization.mode, null);
+    assert.equal(state.quotes[0].logistics.vehicles.length, 1, 'el vehículo de viaje se conserva');
+  });
+
+  test('snapshots "anteriores" (legacy) con los valores que ya usaba cada línea', () => {
+    const q = migrateState(v2State()).state.quotes[0];
+    assert.equal(q.labor[0].snapshot.legacy, true);
+    assert.equal(q.labor[0].snapshot.resourceId, 'lp');
+    assert.equal(q.labor[0].snapshot.takenAt, null);
+    assert.equal(q.labor[0].snapshot.values.basicMonthly, 2000000);
+    assert.equal(q.equipment[0].snapshot.values.replacementValue, 250000000);
+    assert.equal(q.materials[0].snapshot.values.unitCost, 300000);
+  });
+
+  test('colecciones nuevas vacías y plantillas migradas; idempotente y no modifica la entrada', () => {
+    const input = v2State();
+    const text = JSON.stringify(input);
+    const once = migrateState(input).state;
+    assert.equal(JSON.stringify(input), text);
+    assert.deepEqual(once.resources.equipmentModels, []);
+    assert.deepEqual(once.resources.externalServices, []);
+    assert.equal(once.services[0].defaults.equipment[0].acquisition, 'owned');
+    assert.equal(once.services[0].defaults.labor, undefined, 'una plantilla sin personal no gana listas vacías');
+    const twice = migrateState(once);
+    assert.deepEqual(twice.applied, []);
+    assert.deepEqual(twice.state, once);
+  });
+
+  test('tolera entradas que no son objetos', () => {
+    for (const bad of [null, undefined, 'x', 42]) {
+      const out = migrateV2ToV3(bad);
+      assert.equal(out.schemaVersion, 3);
       assert.deepEqual(out.quotes, []);
     }
   });

@@ -37,7 +37,7 @@ export class LocalStorageRepository extends StorageRepository {
    *   usuario y organización): otra persona en el mismo navegador nunca ve,
    *   descarga ni restaura sus copias.
    */
-  constructor(storage, { key = STORAGE_KEYS.state, now = () => new Date().toISOString(), idFactory = createId, seedFactory = null, appVersion = 'dev', recoveryStorage = null, recoveryPrefix = STORAGE_KEYS.recoveryPrefix } = {}) {
+  constructor(storage, { key = STORAGE_KEYS.state, now = () => new Date().toISOString(), idFactory = createId, seedFactory = null, appVersion = 'dev', recoveryStorage = null, recoveryPrefix = STORAGE_KEYS.recoveryPrefix, confirmSchemaUpgrade = null } = {}) {
     super();
     if (!storage || typeof storage.getItem !== 'function') throw new RepositoryError('Storage inválido.', 'invalid_storage');
     this.storage = storage;
@@ -48,6 +48,13 @@ export class LocalStorageRepository extends StorageRepository {
     this.idFactory = idFactory;
     this.seedFactory = seedFactory || (() => createDemoState(CURRENT_SCHEMA_VERSION));
     this.appVersion = appVersion;
+    /**
+     * confirmSchemaUpgrade(fromVersion, toVersion) → Promise<boolean>: si se
+     * pasa, se pregunta ANTES de actualizar datos viejos al esquema actual
+     * (lo usa el staging: sus datos de la nube son los de producción). Si
+     * responde false, se abren en sólo lectura sin modificar nada.
+     */
+    this.confirmSchemaUpgrade = typeof confirmSchemaUpgrade === 'function' ? confirmSchemaUpgrade : null;
     this.state = null;
     this.readOnly = false;
     this.initResult = null;
@@ -58,6 +65,15 @@ export class LocalStorageRepository extends StorageRepository {
   }
 
   // ---------------------------------------------------------------- init
+
+  /** Pregunta si se puede actualizar el formato (errores = no). */
+  async askSchemaUpgrade(fromVersion) {
+    try {
+      return (await this.confirmSchemaUpgrade(fromVersion, CURRENT_SCHEMA_VERSION)) === true;
+    } catch {
+      return false;
+    }
+  }
 
   async init() {
     if (this.initResult) return this.initResult;
@@ -96,13 +112,27 @@ export class LocalStorageRepository extends StorageRepository {
         this.state = this.seedFactory();
         this.persist(this.state);
         status = 'recovered';
-        messages.push(`Los datos guardados estaban dañados. Se conservó una copia (${recoveryKey}) y se cargó la demo.`);
+        messages.push('Los datos guardados estaban dañados. Se conservó una copia (Configuración → Datos y backup → Copias de recuperación) y se cargó la demo.');
       } else if (version > CURRENT_SCHEMA_VERSION) {
         this.state = parsed;
         this.lastRaw = raw;
         this.readOnly = true;
         status = 'read_only';
         messages.push('Los datos fueron guardados por una versión más nueva de RATEOS. Se abren en modo sólo lectura para no dañarlos. Recargá la página para obtener la última versión.');
+      } else if (version < CURRENT_SCHEMA_VERSION && this.confirmSchemaUpgrade && !(await this.askSchemaUpgrade(version))) {
+        // No se aceptó actualizar el formato: se muestran los datos migrados en
+        // memoria (para poder verlos) sin escribir NADA.
+        let preview = parsed;
+        try {
+          preview = migrateState(parsed, { now: this.now(), idFactory: this.idFactory }).state;
+        } catch {
+          preview = parsed;
+        }
+        this.state = validateState(preview).ok ? preview : parsed;
+        this.lastRaw = raw;
+        this.readOnly = true;
+        status = 'read_only';
+        messages.push(`Tus datos están guardados en el formato ${version} y esta versión usa el ${CURRENT_SCHEMA_VERSION}. Para no cambiarlos, se abren en sólo lectura.`);
       } else if (version < CURRENT_SCHEMA_VERSION) {
         const recoveryKey = this.saveRecoverySnapshot(raw, `pre-migration-v${version}`);
         let migrated = migrateState(parsed, { now: this.now(), idFactory: this.idFactory }).state;
@@ -118,15 +148,17 @@ export class LocalStorageRepository extends StorageRepository {
         if (validateState(this.state).ok) {
           this.persist(this.state);
           status = repairedDuringMigration ? 'repaired' : 'migrated';
+          // Nunca se muestra la clave interna de la copia (en una cuenta incluye ids de usuario y empresa).
+          const copyNote = recoveryKey ? ' Se guardó una copia previa en este navegador (Configuración → Datos y backup → Copias de recuperación).' : '';
           messages.push(repairedDuringMigration
-            ? `Se actualizaron y repararon datos del esquema ${version} con estructura inesperada. Copia previa: ${recoveryKey}.`
-            : `Datos actualizados del esquema ${version} al ${CURRENT_SCHEMA_VERSION}. Copia previa: ${recoveryKey}.`);
+            ? `Se actualizaron y repararon datos del esquema ${version} con estructura inesperada.${copyNote}`
+            : `Datos actualizados del esquema ${version} al ${CURRENT_SCHEMA_VERSION}.${copyNote}`);
         } else {
           // La migración no produjo un estado válido: no se persiste nada
           // (el original sigue intacto) y se abre en sólo lectura.
           this.readOnly = true;
           status = 'read_only';
-          messages.push(`No se pudieron actualizar los datos guardados al esquema ${CURRENT_SCHEMA_VERSION}. No se modificaron (copia previa: ${recoveryKey}). Se abren en modo sólo lectura: exportá un backup y contactá soporte.`);
+          messages.push(`No se pudieron actualizar los datos guardados al esquema ${CURRENT_SCHEMA_VERSION}. No se modificaron${recoveryKey ? ' (hay una copia previa en Configuración → Datos y backup)' : ''}. Se abren en modo sólo lectura: exportá un backup y contactá soporte.`);
         }
       } else {
         const check = validateState(parsed);
@@ -140,12 +172,12 @@ export class LocalStorageRepository extends StorageRepository {
             this.state = repaired;
             this.persist(this.state);
             status = 'repaired';
-            messages.push(`Se repararon datos con estructura inesperada. Copia original: ${recoveryKey}.`);
+            messages.push(`Se repararon datos con estructura inesperada.${recoveryKey ? ' La copia original está en Configuración → Datos y backup → Copias de recuperación.' : ''}`);
           } else {
             this.state = this.seedFactory();
             this.persist(this.state);
             status = 'recovered';
-            messages.push(`No se pudieron interpretar los datos guardados. Se conservó una copia (${recoveryKey}) y se cargó la demo.`);
+            messages.push(`No se pudieron interpretar los datos guardados.${recoveryKey ? ' Se conservó una copia (Configuración → Datos y backup → Copias de recuperación)' : ''} y se cargó la demo.`);
           }
         } else {
           this.state = parsed;

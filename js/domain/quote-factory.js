@@ -6,8 +6,11 @@
 import { createId } from '../core/ids.js';
 import { deepClone, isPlainObject } from '../core/object.js';
 import { LOCALE, CURRENCY, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
-import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT } from './catalogs.js';
+import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY } from './catalogs.js';
 import { emptyBillingTaxes, copyBillingTaxes, billingTaxesDecided } from './billing-taxes.js';
+import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate } from './economic-base.js';
+import { familyIdOf } from './equipment-catalog.js';
+import { createSnapshot } from './resource-snapshot.js';
 
 /** Configuración por defecto de la organización (valores ILUSTRATIVOS). */
 export function defaultSettings(organizationId = null) {
@@ -27,8 +30,139 @@ export function defaultSettings(organizationId = null) {
     // trae alícuotas). Cuando la empresa los guarda, cada cotización nueva
     // arranca con ellos.
     defaultBillingTaxes: null,
+    // Base del precio del combustible (PLAN-2026-005): sin definir hasta que la
+    // empresa la cargue (nunca se inventa una fecha).
+    fuelPriceBase: emptyBase({ currency: CURRENCY }),
+    // Tipos de cambio de la empresa (con su base). RATEOS nunca los busca solo.
+    exchangeRates: [],
     illustrative: true,
   };
+}
+
+// ------------------------------------------------- helpers de forma (PLAN-2026-005)
+
+const ACQUISITION_IDS = ACQUISITION_MODES.map((a) => a.id);
+const EXTERNAL_UNIT_IDS = EXTERNAL_UNITS.map((u) => u.id);
+const MOBILIZATION_IDS = MOBILIZATION_MODES.map((m) => m.id);
+const DRIVER_IDS = DRIVER_OPTIONS.map((d) => d.id);
+const VAT_RECOVERY_IDS = VAT_RECOVERY.map((v) => v.id);
+
+function finiteOr(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+const boolOrNull = (v) => (typeof v === 'boolean' ? v : null);
+const shortText = (v, max = 120) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+const idOrNull = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+/** Moneda de la empresa (la de la configuración o la por defecto). */
+export function companyCurrency(settings = {}) {
+  return isPlainObject(settings) && isKnownCurrency(settings.currency) ? settings.currency : CURRENCY;
+}
+
+/** Cómo se obtiene un recurso (propio por defecto: lo que RATEOS siempre modeló). */
+export function acquisitionOf(item = {}) {
+  return isPlainObject(item) && ACQUISITION_IDS.includes(item.acquisition) ? item.acquisition : 'owned';
+}
+
+/** ¿Es un recurso externo (alquilado o tercerizado)? */
+export function isExternal(item = {}) {
+  return acquisitionOf(item) !== 'owned';
+}
+
+/**
+ * Condiciones de un recurso EXTERNO (alquilado o tercerizado). Precio NETO
+ * (sin IVA) en la moneda de su base. Las inclusiones son true | false | null
+ * (sin definir). El tratamiento fiscal lo define la empresa: RATEOS no trae
+ * alícuotas (vatPct null = sin definir).
+ */
+export function createExternalTerms(src = {}) {
+  const s = isPlainObject(src) ? src : {};
+  const f = isPlainObject(s.fiscal) ? s.fiscal : {};
+  const opt = (v) => finiteOr(v, null);
+  return {
+    supplier: shortText(s.supplier),
+    price: finiteOr(s.price, 0),
+    unit: EXTERNAL_UNIT_IDS.includes(s.unit) ? s.unit : 'day',
+    minimumUnits: opt(s.minimumUnits),
+    validUntil: isValidDayDate(s.validUntil) ? s.validUntil : null,
+    operatorIncluded: boolOrNull(s.operatorIncluded),
+    fuelIncluded: boolOrNull(s.fuelIncluded),
+    fuelLitersPerHour: finiteOr(s.fuelLitersPerHour, 0),
+    mobilizationIncluded: boolOrNull(s.mobilizationIncluded),
+    mobilizationAmount: finiteOr(s.mobilizationAmount, 0),
+    insuranceIncluded: boolOrNull(s.insuranceIncluded),
+    fiscal: {
+      vatPct: opt(f.vatPct),
+      vatRecoverable: VAT_RECOVERY_IDS.includes(f.vatRecoverable) ? f.vatRecoverable : null,
+      vatRecoverablePct: opt(f.vatRecoverablePct),
+      perceptionsPct: opt(f.perceptionsPct),
+      nonRecoverablePct: opt(f.nonRecoverablePct),
+      paymentTermDays: opt(f.paymentTermDays),
+    },
+  };
+}
+
+/**
+ * Movilización de un equipo de la cotización: ¿cómo llega al lugar del
+ * servicio? mode null = sin definir (no suma nada: así quedan las
+ * cotizaciones anteriores, que cargaban los traslados como vehículos).
+ */
+export function createMobilization(src = {}) {
+  const s = isPlainObject(src) ? src : {};
+  return {
+    mode: MOBILIZATION_IDS.includes(s.mode) ? s.mode : null,
+    // Por sus propios medios: consumo en ruta y desgaste por km SIN combustible
+    // ni amortización (la amortización ya está en el costo de tenerlo).
+    travelLitersPer100Km: finiteOr(s.travelLitersPer100Km, 0),
+    travelCostPerKm: finiteOr(s.travelCostPerKm, 0),
+    driver: DRIVER_IDS.includes(s.driver) ? s.driver : null,
+    carrierLineId: idOrNull(s.carrierLineId),
+    supportVehicleId: idOrNull(s.supportVehicleId),
+  };
+}
+
+/** Movilidad de una unidad de "Mis equipos" (legajo). */
+export function createEquipmentMobility(src = {}) {
+  const s = isPlainObject(src) ? src : {};
+  return {
+    selfPropelled: boolOrNull(s.selfPropelled),
+    roadLegal: boolOrNull(s.roadLegal),
+    requiresTransport: boolOrNull(s.requiresTransport),
+    requiresDriver: boolOrNull(s.requiresDriver),
+    speedKmh: finiteOr(s.speedKmh, null),
+    travelLitersPer100Km: finiteOr(s.travelLitersPer100Km, 0),
+    travelCostPerKm: finiteOr(s.travelCostPerKm, 0),
+  };
+}
+
+/**
+ * Movilización sugerida para un equipo nuevo en una cotización, según su
+ * legajo: autopropulsado que circula por ruta → por sus propios medios;
+ * necesita transporte → lo transporta otro equipo (hay que elegir cuál).
+ * Sin datos → sin definir (la completitud lo pide).
+ */
+export function suggestedMobilization(mobility = {}) {
+  const m = createEquipmentMobility(mobility);
+  let mode = null;
+  if (m.selfPropelled === true && m.roadLegal === true && m.requiresTransport !== true) mode = 'self';
+  else if (m.requiresTransport === true) mode = 'transported';
+  return createMobilization({
+    mode,
+    travelLitersPer100Km: m.travelLitersPer100Km,
+    travelCostPerKm: m.travelCostPerKm,
+    driver: mode === 'self' && m.requiresDriver !== false ? 'operator' : null,
+  });
+}
+
+/** Tipos de cambio saneados: [{ currency, rate, base }] (sin duplicados ni la moneda de la empresa). */
+export function normalizeExchangeRates(list, { currency = CURRENCY } = {}) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : [])
+    .filter((r) => isPlainObject(r) && isKnownCurrency(r.currency) && r.currency !== currency)
+    .filter((r) => (seen.has(r.currency) ? false : seen.add(r.currency)))
+    .map((r) => ({ currency: r.currency, rate: finiteOr(r.rate, null), base: normalizeBase(r.base, { currency }) }));
 }
 
 /**
@@ -60,6 +194,7 @@ export function defaultVolumeTiers() {
  */
 export function createEmptyQuote({ organizationId, settings = defaultSettings(), now = new Date().toISOString(), id = createId(), code = '', baseName = '' } = {}) {
   const ownSettings = settings.illustrative !== true;
+  const currency = companyCurrency(settings);
   return {
     id,
     organizationId: organizationId ?? null,
@@ -91,7 +226,7 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     materials: [],
     materialsNotApplicable: false,
     otherCosts: [],
-    fuel: { pricePerLiter: settings.fuelPricePerLiter ?? 0, providedBy: 'contractor', illustrative: !ownSettings },
+    fuel: { pricePerLiter: settings.fuelPricePerLiter ?? 0, providedBy: 'contractor', illustrative: !ownSettings, base: { ...normalizeBase(settings.fuelPriceBase, { currency }), currency } },
     logistics: {
       notApplicable: false,
       // Origen de los viajes: la base operativa de la empresa (sólo texto;
@@ -146,13 +281,24 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
       minimumMonthlyGuarantee: 0,
     },
     notes: '',
+    // Base económica de la oferta (PLAN-2026-005): moneda en la que calcula,
+    // fecha de la oferta (base general) y tipos de cambio PROPIOS de la
+    // cotización (copiados de Configuración; cambiar Configuración no los toca).
+    currency,
+    offerDate: dayFromDate(now),
+    exchangeRates: normalizeExchangeRates(settings.exchangeRates, { currency }),
   };
 }
 
-/** Línea de personal a partir de un perfil (copia de valores = auditabilidad). */
-export function laborLineFromProfile(profile = {}, agreement = null, { id = createId() } = {}) {
+/**
+ * Línea de personal a partir de un perfil (copia de valores = auditabilidad).
+ * La línea guarda la BASE del perfil y un SNAPSHOT (qué valores tenía el
+ * perfil al copiarse): si después cambia el perfil, la cotización no cambia y
+ * puede avisarlo (ver js/domain/resource-sync.js).
+ */
+export function laborLineFromProfile(profile = {}, agreement = null, { id = createId(), now = new Date().toISOString(), currency = CURRENCY } = {}) {
   const params = { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(agreement && agreement.params ? agreement.params : {}) };
-  return {
+  const line = {
     id,
     sourceId: profile.id ?? null,
     role: profile.role ?? 'Nuevo puesto',
@@ -174,17 +320,31 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
     ppeMonthly: profile.ppeMonthly ?? 0,
     trainingMonthly: profile.trainingMonthly ?? 0,
     transferMonthly: profile.transferMonthly ?? 0,
+    // Los sueldos se cargan en la moneda de la empresa.
+    base: { ...normalizeBase(profile.base, { currency }), currency },
+    snapshot: null,
     // Valores copiados de un perfil o convenio ILUSTRATIVO siguen marcados.
     illustrative: Boolean(profile.illustrative || (agreement && agreement.illustrative)),
   };
+  line.snapshot = profile.id ? createSnapshot('laborProfiles', profile, line, { now }) : null;
+  return line;
 }
 
-/** Línea de equipo a partir de una ficha de biblioteca. */
-export function equipmentLineFromLibrary(eq = {}, { id = createId(), hoursPerActiveDay = null } = {}) {
-  return {
+/**
+ * Línea de equipo a partir de una unidad de "Mis equipos" (legajo).
+ * Propio: valores de posesión y operación. Alquilado / tercerizado: sus
+ * condiciones externas (tarifa, inclusiones, fiscal). En ambos casos la
+ * movilización se sugiere desde la movilidad del legajo (editable).
+ */
+export function equipmentLineFromLibrary(eq = {}, { id = createId(), hoursPerActiveDay = null, now = new Date().toISOString(), currency = CURRENCY } = {}) {
+  const acquisition = acquisitionOf(eq);
+  const line = {
     id,
     sourceId: eq.id ?? null,
     name: eq.name ?? 'Nuevo equipo',
+    internalCode: shortText(eq.internalCode, 40),
+    familyId: eq.id || eq.familyId || eq.type ? familyIdOf(eq) : null,
+    acquisition,
     quantity: 1,
     hoursPerActiveDay,
     replacementValue: eq.replacementValue ?? 0,
@@ -193,17 +353,55 @@ export function equipmentLineFromLibrary(eq = {}, { id = createId(), hoursPerAct
     insuranceAnnual: eq.insuranceAnnual ?? 0,
     licenseAnnual: eq.licenseAnnual ?? 0,
     certificationsAnnual: eq.certificationsAnnual ?? 0,
+    otherAnnual: eq.otherAnnual ?? 0,
     capitalRatePctAnnual: eq.capitalRatePctAnnual ?? 0,
     maintenancePerHour: eq.maintenancePerHour ?? 0,
     tiresPerHour: eq.tiresPerHour ?? 0,
     fuelLitersPerHour: eq.fuelLitersPerHour ?? 0,
+    external: acquisition === 'owned' ? null : createExternalTerms(eq.external),
+    // Base del VALOR (reposición / residual, puede estar en otra moneda) y base
+    // de los costos de tenerlo y usarlo (en la moneda de la empresa). Para un
+    // externo, base es la de su tarifa.
+    base: normalizeBase(eq.base, { currency }),
+    costsBase: { ...normalizeBase(eq.costsBase, { currency }), currency },
+    mobilization: suggestedMobilization(eq.mobility),
+    operatorLaborId: null,
+    snapshot: null,
     illustrative: Boolean(eq.illustrative),
   };
+  line.snapshot = eq.id ? createSnapshot('equipment', eq, line, { now }) : null;
+  return line;
+}
+
+/**
+ * Línea de equipo o servicio EXTERNO a partir de una oferta de "Servicios
+ * externos" (proveedor): alquilado o tercerizado, sin activo propio.
+ */
+export function externalLineFromService(service = {}, { id = createId(), hoursPerActiveDay = null, now = new Date().toISOString(), currency = CURRENCY } = {}) {
+  const acquisition = acquisitionOf(service) === 'owned' ? 'outsourced' : acquisitionOf(service);
+  const line = {
+    ...equipmentLineFromLibrary({ name: service.name ?? 'Servicio externo', familyId: service.familyId || 'other', acquisition, external: service.external, base: service.base }, { id, hoursPerActiveDay, now, currency }),
+    sourceId: service.id ?? null,
+    familyId: service.familyId || null,
+    illustrative: Boolean(service.illustrative),
+  };
+  line.mobilization = createMobilization({});
+  line.snapshot = service.id ? createSnapshot('externalServices', service, line, { now }) : null;
+  return line;
+}
+
+/** Equipo nuevo en blanco (propio, alquilado o tercerizado). */
+export function blankEquipmentLine({ acquisition = 'owned', id = createId(), hoursPerActiveDay = null, currency = CURRENCY } = {}) {
+  const mode = ACQUISITION_IDS.includes(acquisition) ? acquisition : 'owned';
+  const line = equipmentLineFromLibrary({ acquisition: mode }, { id, hoursPerActiveDay, currency });
+  line.name = mode === 'owned' ? 'Nuevo equipo' : mode === 'rented' ? 'Equipo alquilado' : 'Servicio tercerizado';
+  line.familyId = null;
+  return line;
 }
 
 /** Línea de material a partir de un ítem de biblioteca. */
-export function materialLineFromLibrary(mat = {}, { id = createId() } = {}) {
-  return {
+export function materialLineFromLibrary(mat = {}, { id = createId(), now = new Date().toISOString(), currency = CURRENCY } = {}) {
+  const line = {
     id,
     sourceId: mat.id ?? null,
     description: mat.description ?? 'Nuevo material',
@@ -215,8 +413,12 @@ export function materialLineFromLibrary(mat = {}, { id = createId() } = {}) {
     logisticsPct: mat.logisticsPct ?? 0,
     resaleMarkupPct: mat.resaleMarkupPct ?? 0,
     providedBy: mat.providedBy ?? null,
+    base: normalizeBase(mat.base, { currency }),
+    snapshot: null,
     illustrative: Boolean(mat.illustrative),
   };
+  line.snapshot = mat.id ? createSnapshot('materials', mat, line, { now }) : null;
+  return line;
 }
 
 export function createVehicle({ id = createId(), name = 'Vehículo', count = 1, consumptionLPer100Km = 0, costPerKm = 0 } = {}) {
@@ -258,16 +460,35 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
     templateId: template.id ?? null,
     serviceType: template.serviceType || defaults.serviceType || base.serviceType,
     name: defaults.name || template.name || base.name,
+    // La base económica de la oferta es de la cotización nueva, no de la plantilla.
+    currency: base.currency,
+    offerDate: base.offerDate,
+    exchangeRates: base.exchangeRates,
   };
   // Las líneas de la plantilla reciben ids nuevos para no compartir identidad
   // y, si la plantilla es ILUSTRATIVA, siguen marcadas como ilustrativas hasta
   // que el usuario confirme valores propios.
   const fromIllustrative = template.illustrative === true;
-  const mark = (line) => ({ ...line, id: createId(), illustrative: Boolean(line.illustrative || fromIllustrative) });
+  // Ids nuevos, recordando el viejo → nuevo para no romper las referencias
+  // entre líneas (quién opera un equipo, quién lo transporta, en qué vehículo va).
+  const idMap = new Map();
+  const mark = (line) => {
+    const id = createId();
+    if (typeof line.id === 'string') idMap.set(line.id, id);
+    return { ...line, id, illustrative: Boolean(line.illustrative || fromIllustrative) };
+  };
   ['labor', 'equipment', 'materials', 'otherCosts'].forEach((k) => {
     merged[k] = (Array.isArray(merged[k]) ? merged[k] : []).filter(isPlainObject).map(mark);
   });
   merged.logistics.vehicles = (Array.isArray(merged.logistics.vehicles) ? merged.logistics.vehicles : []).filter(isPlainObject).map(mark);
+  const remap = (id) => (typeof id === 'string' && idMap.has(id) ? idMap.get(id) : null);
+  merged.equipment = merged.equipment.map((e) => ({
+    ...e,
+    operatorLaborId: remap(e.operatorLaborId),
+    mobilization: isPlainObject(e.mobilization)
+      ? { ...e.mobilization, carrierLineId: remap(e.mobilization.carrierLineId), supportVehicleId: remap(e.mobilization.supportVehicleId) }
+      : e.mobilization,
+  }));
   if (fromIllustrative && isPlainObject(defaults.fuel) && defaults.fuel.pricePerLiter !== undefined) {
     merged.fuel = { ...merged.fuel, illustrative: true };
   }

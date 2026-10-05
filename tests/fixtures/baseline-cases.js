@@ -56,7 +56,10 @@ export function pickBaseline(result) {
   const keys = ['totalCost', 'fixedCosts', 'variableCosts', 'floorNetRate', 'floorListRate', 'targetNetRate', 'targetListRate', 'suggestedListRate', 'commercialListRate', 'commercialNetRate', 'revenue', 'profit', 'marginPct', 'markupPct', 'breakEvenDays', 'targetMarginDays', 'financialCost', 'workingCapital'];
   return {
     kpis: Object.fromEntries(keys.map((key) => [key, k[key] ?? null])),
-    eecc: result.eecc.rows.map((r) => [r.category, r.amount, r.displayPct]),
+    // PLAN-2026-005 agregó la fila "Equipos y servicios externos": en estos
+    // casos (sin externos) vale 0 y las demás filas no cambian.
+    eecc: result.eecc.rows.filter((r) => r.category !== 'external').map((r) => [r.category, r.amount, r.displayPct]),
+    externalRow: (result.eecc.rows.find((r) => r.category === 'external') || {}).amount ?? null,
     matrix: result.matrix.map((m) => [m.activeDays, m.floorNetRate, m.byMargin.map((b) => [b.marginPct, b.netRate, b.listRate]), m.revenue, m.profit, m.marginPct]),
     discounts: result.discounts.map((d) => [d.id, d.netRate, d.floorNetRate, d.targetNetRate, d.profit, d.status]),
   };

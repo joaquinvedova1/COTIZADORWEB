@@ -40,7 +40,10 @@ describe('baseline de regresión: impuestos sin definir = números idénticos', 
   });
   for (const c of cases) {
     test(c.id, () => {
-      close(pickBaseline(computeQuote(c.quote, { settings: c.settings })), expected[c.id], c.id);
+      const picked = pickBaseline(computeQuote(c.quote, { settings: c.settings }));
+      // Sin equipos externos la fila nueva (PLAN-2026-005) existe y vale 0.
+      assert.equal(picked.externalRow, 0, `${c.id}: fila de externos`);
+      close(picked, expected[c.id], c.id);
     });
   }
 });

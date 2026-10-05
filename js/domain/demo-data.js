@@ -9,8 +9,10 @@
  */
 
 import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS } from './catalogs.js';
-import { defaultSettings, defaultRiskItems, defaultVolumeTiers } from './quote-factory.js';
+import { defaultSettings, defaultRiskItems, defaultVolumeTiers, createEquipmentMobility, createMobilization, createExternalTerms } from './quote-factory.js';
 import { emptyBillingTaxes } from './billing-taxes.js';
+import { createSnapshot } from './resource-snapshot.js';
+import { suggestedMobility } from './equipment-catalog.js';
 
 export const DEMO_TIMESTAMP = '2026-10-01T12:00:00.000Z';
 export const DEMO_ORG_ID = '00000000-0000-4000-8000-000000000001';
@@ -28,6 +30,17 @@ export const DEMO_IDS = Object.freeze({
 });
 
 const meta = (id) => ({ id, organizationId: DEMO_ORG_ID, createdAt: DEMO_TIMESTAMP, updatedAt: DEMO_TIMESTAMP, createdBy: null, updatedBy: null });
+
+/** Bases económicas de la demo (ILUSTRATIVAS, como todos sus valores). */
+const demoBase = (period, source = 'company', currency = 'ARS') => ({ period, currency, source, note: '' });
+export const DEMO_BASES = Object.freeze({
+  labor: demoBase('2026-09'),
+  equipmentValue: demoBase('2026-07'),
+  equipmentCosts: demoBase('2026-09'),
+  materials: demoBase('2026-08'),
+  fuel: demoBase('2026-10', 'supplier'),
+  external: demoBase('2026-10', 'supplier'),
+});
 
 export function demoOrganization() {
   return {
@@ -73,6 +86,7 @@ export function demoLaborProfiles() {
     ppeMonthly: 40000,
     trainingMonthly: 25000,
     transferMonthly: 60000,
+    base: { ...DEMO_BASES.labor },
     illustrative: true,
     ...extra,
   });
@@ -85,11 +99,38 @@ export function demoLaborProfiles() {
   ];
 }
 
+/** Familia del catálogo y movilidad (consumo y desgaste en ruta) de cada equipo demo. */
+const DEMO_EQUIPMENT_EXTRA = Object.freeze({
+  3001: { familyId: 'pickup', travel: [12, 80] },
+  3002: { familyId: 'truck', travel: [30, 120] },
+  3003: { familyId: 'crane_truck', travel: [35, 150] },
+  3004: { familyId: 'backhoe', travel: [0, 0] },
+  3005: { familyId: 'generator', travel: [0, 0] },
+  3006: { familyId: 'compressor', travel: [0, 0] },
+  3007: { familyId: 'pump', travel: [0, 0] },
+  3008: { familyId: 'semitrailer', travel: [0, 0] },
+  3009: { familyId: 'crane', travel: [45, 200], mobility: { selfPropelled: true, roadLegal: true, requiresTransport: false } },
+  3010: { familyId: 'tools', travel: [0, 0] },
+});
+
 export function demoEquipment() {
   const eq = (n, name, type, v) => ({
     ...meta(uid(n)),
     name,
     type,
+    internalCode: `EQ-${String(n - 3000).padStart(3, '0')}`,
+    familyId: DEMO_EQUIPMENT_EXTRA[n].familyId,
+    acquisition: 'owned',
+    otherAnnual: 0,
+    mobility: createEquipmentMobility({
+      ...suggestedMobility(DEMO_EQUIPMENT_EXTRA[n].familyId),
+      ...(DEMO_EQUIPMENT_EXTRA[n].mobility || {}),
+      travelLitersPer100Km: DEMO_EQUIPMENT_EXTRA[n].travel[0],
+      travelCostPerKm: DEMO_EQUIPMENT_EXTRA[n].travel[1],
+    }),
+    external: null,
+    base: { ...DEMO_BASES.equipmentValue },
+    costsBase: { ...DEMO_BASES.equipmentCosts },
     currentValue: v.currentValue ?? v.replacementValue,
     replacementValue: v.replacementValue,
     usefulLifeYears: v.usefulLifeYears,
@@ -132,6 +173,7 @@ export function demoMaterials() {
     logisticsPct: 0,
     resaleMarkupPct: 0,
     providedBy: 'contractor',
+    base: { ...DEMO_BASES.materials },
     illustrative: true,
     ...extra,
   });
@@ -158,7 +200,7 @@ export function demoHydroCraneQuote() {
   });
   const tiers = defaultVolumeTiers().map((t) => ({ ...t, discountPct: { 'tier-3': 3, 'tier-4': 5, 'tier-5': 8 }[t.id] ?? 0 }));
   const p = ILLUSTRATIVE_AGREEMENT_PARAMS;
-  return {
+  const quote = {
     ...meta(DEMO_IDS.quoteHydroCrane),
     code: 'COT-0001',
     name: 'Hidrogrúa on-call — Añelo',
@@ -202,6 +244,7 @@ export function demoHydroCraneQuote() {
         ppeMonthly: 40000,
         trainingMonthly: 25000,
         transferMonthly: 60000,
+        base: { ...DEMO_BASES.labor },
       },
     ],
     equipment: [
@@ -221,6 +264,17 @@ export function demoHydroCraneQuote() {
         maintenancePerHour: 15000,
         tiresPerHour: 5000,
         fuelLitersPerHour: 12,
+        internalCode: 'EQ-003',
+        familyId: 'crane_truck',
+        acquisition: 'owned',
+        otherAnnual: 0,
+        external: null,
+        base: { ...DEMO_BASES.equipmentValue },
+        costsBase: { ...DEMO_BASES.equipmentCosts },
+        // La hidrogrúa va a la locación por sus propios medios y la maneja su
+        // operador (ya está en Personal): no hace falta un vehículo aparte.
+        mobilization: createMobilization({ mode: 'self', travelLitersPer100Km: 35, travelCostPerKm: 150, driver: 'operator' }),
+        operatorLaborId: uid(7001),
       },
       {
         id: uid(7102),
@@ -238,16 +292,26 @@ export function demoHydroCraneQuote() {
         maintenancePerHour: 3000,
         tiresPerHour: 1500,
         fuelLitersPerHour: 3,
+        internalCode: 'EQ-001',
+        familyId: 'pickup',
+        acquisition: 'owned',
+        otherAnnual: 0,
+        external: null,
+        base: { ...DEMO_BASES.equipmentValue },
+        costsBase: { ...DEMO_BASES.equipmentCosts },
+        // Vehículo de apoyo: también viaja por sus medios (lo maneja otra persona).
+        mobilization: createMobilization({ mode: 'self', travelLitersPer100Km: 12, travelCostPerKm: 80, driver: 'other' }),
+        operatorLaborId: null,
       },
     ],
     materials: [
-      { id: uid(7201), sourceId: uid(5001), description: 'Eslingas, grilletes y elementos de izaje (reposición)', unit: 'kit', basis: 'per_month', quantity: 1, unitCost: 300000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor' },
-      { id: uid(7202), sourceId: uid(5002), description: 'Consumibles menores por llamado', unit: 'kit', basis: 'per_activation', quantity: 1, unitCost: 50000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor' },
-      { id: uid(7203), sourceId: null, description: 'Carga a izar (la provee el cliente)', unit: 'unidad', basis: 'per_activation', quantity: 1, unitCost: 0, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'client' },
+      { id: uid(7201), sourceId: uid(5001), description: 'Eslingas, grilletes y elementos de izaje (reposición)', unit: 'kit', basis: 'per_month', quantity: 1, unitCost: 300000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor', base: { ...DEMO_BASES.materials } },
+      { id: uid(7202), sourceId: uid(5002), description: 'Consumibles menores por llamado', unit: 'kit', basis: 'per_activation', quantity: 1, unitCost: 50000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor', base: { ...DEMO_BASES.materials } },
+      { id: uid(7203), sourceId: null, description: 'Carga a izar (la provee el cliente)', unit: 'unidad', basis: 'per_activation', quantity: 1, unitCost: 0, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'client', base: { period: null, currency: 'ARS', source: null, note: '' } },
     ],
     materialsNotApplicable: false,
     otherCosts: [],
-    fuel: { pricePerLiter: 1500, providedBy: 'contractor' },
+    fuel: { pricePerLiter: 1500, providedBy: 'contractor', base: { ...DEMO_BASES.fuel } },
     logistics: {
       notApplicable: false,
       baseName: 'Neuquén Capital',
@@ -255,10 +319,9 @@ export function demoHydroCraneQuote() {
       distanceKm: 110,
       roundTrip: true,
       tripsPerActivation: 1,
-      vehicles: [
-        { id: uid(7301), name: 'Hidrogrúa', count: 1, consumptionLPer100Km: 35, costPerKm: 150 },
-        { id: uid(7302), name: 'Vehículo de apoyo', count: 1, consumptionLPer100Km: 12, costPerKm: 80 },
-      ],
+      // Logística auxiliar: vacía. La hidrogrúa y la pickup se movilizan por
+      // sus propios medios (ver cada equipo): no se cargan dos veces.
+      vehicles: [],
       tollsPerActivation: 0,
       lodgingPerActivation: 0,
     },
@@ -298,7 +361,19 @@ export function demoHydroCraneQuote() {
       minimumMonthlyGuarantee: 0,
     },
     notes: 'Cotización de demostración. TODOS los costos son ILUSTRATIVOS.',
+    currency: 'ARS',
+    offerDate: '2026-10-01',
+    exchangeRates: [],
   };
+  // Snapshots: qué valores tenían los recursos de la demo al copiarse.
+  const profiles = demoLaborProfiles();
+  const equipment = demoEquipment();
+  const materials = demoMaterials();
+  const byId = (list, id) => list.find((r) => r.id === id);
+  quote.labor.forEach((l) => { l.snapshot = createSnapshot('laborProfiles', byId(profiles, l.sourceId), l, { now: DEMO_TIMESTAMP }); });
+  quote.equipment.forEach((e) => { e.snapshot = createSnapshot('equipment', byId(equipment, e.sourceId), e, { now: DEMO_TIMESTAMP }); });
+  quote.materials.forEach((m) => { m.snapshot = m.sourceId ? createSnapshot('materials', byId(materials, m.sourceId), m, { now: DEMO_TIMESTAMP }) : null; });
+  return quote;
 }
 
 /** Caso de referencia del motor (golden case): fijos 30M, variable 1M/día, tarifa 4M/día → break-even 10 días. */
@@ -322,7 +397,7 @@ export function demoReferenceQuote() {
       { id: uid(7401), description: 'Costos fijos mensuales (referencia)', category: 'equipment', behavior: 'fixed_monthly', amount: 30000000 },
       { id: uid(7402), description: 'Costo variable por día activo (referencia)', category: 'labor', behavior: 'per_active_day', amount: 1000000 },
     ],
-    fuel: { pricePerLiter: 0, providedBy: 'client' },
+    fuel: { pricePerLiter: 0, providedBy: 'client', base: { period: null, currency: 'ARS', source: null, note: '' } },
     logistics: { notApplicable: true, baseName: '', destinationName: '', distanceKm: 0, roundTrip: true, tripsPerActivation: 1, vehicles: [], tollsPerActivation: 0, lodgingPerActivation: 0 },
     indirect: { method: 'manual', pct: 0, amount: 0 },
     finance: { paymentTermDays: 0, invoiceLagDays: 0, monthlyRatePct: 0, payDays: { salaries: 0, fuel: 0, suppliers: 0, materials: 0, structure: 0 } },
@@ -365,6 +440,37 @@ export function demoServiceTemplates() {
   ];
 }
 
+/**
+ * Servicios externos de ejemplo (ILUSTRATIVOS): ofertas de proveedores sin
+ * unidad propia. Sin alícuota de IVA cargada (RATEOS no trae alícuotas).
+ */
+export function demoExternalServices() {
+  const svc = (n, name, familyId, acquisition, external) => ({
+    ...meta(uid(n)),
+    name,
+    familyId,
+    acquisition,
+    external: createExternalTerms(external),
+    base: { ...DEMO_BASES.external },
+    notes: 'Oferta de ejemplo ILUSTRATIVA.',
+    illustrative: true,
+  });
+  return [
+    svc(8001, 'Carretón para equipos pesados (tercerizado)', 'lowboy', 'outsourced', {
+      supplier: 'Transportes de ejemplo', price: 1200000, unit: 'trip', operatorIncluded: true, fuelIncluded: true, mobilizationIncluded: true,
+      fiscal: { vatRecoverable: 'yes' },
+    }),
+    svc(8002, 'Grúa 90 t con operador (tercerizada)', 'crane', 'outsourced', {
+      supplier: 'Grúas de ejemplo', price: 450000, unit: 'hour', minimumUnits: 8, operatorIncluded: true, fuelIncluded: true, mobilizationIncluded: false, mobilizationAmount: 900000,
+      fiscal: { vatRecoverable: 'yes' },
+    }),
+    svc(8003, 'Camión con hidrogrúa alquilado (sin operador)', 'crane_truck', 'rented', {
+      supplier: 'Alquileres de ejemplo', price: 900000, unit: 'day', minimumUnits: 3, operatorIncluded: false, fuelIncluded: false, fuelLitersPerHour: 12, mobilizationIncluded: true,
+      fiscal: { vatRecoverable: 'yes' },
+    }),
+  ];
+}
+
 /** Estado inicial completo (formato de almacenamiento / backup). */
 export function createDemoState(schemaVersion) {
   return {
@@ -376,9 +482,11 @@ export function createDemoState(schemaVersion) {
       equipment: demoEquipment(),
       materials: demoMaterials(),
       locations: demoLocations(),
+      equipmentModels: [],
+      externalServices: demoExternalServices(),
     },
     services: demoServiceTemplates(),
     quotes: [demoHydroCraneQuote(), demoReferenceQuote()],
-    settings: { ...defaultSettings(DEMO_ORG_ID), illustrative: true },
+    settings: { ...defaultSettings(DEMO_ORG_ID), fuelPriceBase: { ...DEMO_BASES.fuel }, illustrative: true },
   };
 }

@@ -705,7 +705,9 @@ describe('LocalStorageRepository — datos dañados', () => {
       assert.match(keys[0], /\.corrupt$/);
       assert.equal(storage.getItem(keys[0]), raw, 'la copia es idéntica al texto original');
       assert.equal(repo.getRecoverySnapshot(keys[0]), raw);
-      assert.ok(init.messages.some((m) => m.includes(keys[0])), 'el mensaje indica dónde quedó la copia');
+      assert.ok(init.messages.some((m) => m.includes('Copias de recuperación')), 'el mensaje indica dónde quedó la copia');
+      // Nunca la clave interna (en una cuenta incluye ids de usuario y empresa).
+      assert.ok(init.messages.every((m) => !m.includes(keys[0])), 'el mensaje no muestra la clave interna');
 
       assert.deepEqual(persistedState(storage), createDemoState(CURRENT_SCHEMA_VERSION));
       assert.equal((await repo.getOrganization()).name, 'Patagonia Servicios SRL');
@@ -885,7 +887,8 @@ describe('LocalStorageRepository — datos legados v0 (sin schemaVersion)', () =
     assert.equal(old.createdAt, clock());
     assert.equal(old.updatedAt, clock());
     assert.equal(old.pricing.knownRate, 1500000);
-    assert.deepEqual(old.labor, [{ role: 'Chofer' }]);
+    // v3: la línea conserva sus datos y recibe base SIN DEFINIR (nunca inventada); sin recurso de origen no hay snapshot.
+    assert.deepEqual(old.labor, [{ role: 'Chofer', base: { period: null, currency: 'ARS', source: null, note: '' }, snapshot: null }]);
     const withId = quotes.find((q) => q.id === 'q-con-id');
     assert.equal(withId.createdAt, '2020-05-05T00:00:00.000Z', 'se conservan timestamps existentes');
 
@@ -1026,5 +1029,49 @@ describe('createRepository / getBrowserStorage', () => {
     const storage = new MemoryStorage();
     assert.equal(getBrowserStorage({ localStorage: storage }), storage);
     assert.equal(storage.length, 0);
+  });
+});
+
+describe('LocalStorageRepository — confirmar antes de actualizar el formato (staging, PLAN-2026-005)', () => {
+  const v2Raw = () => JSON.stringify({ ...createDemoState(2), schemaVersion: 2 });
+  const keysOf = (storage) => Array.from({ length: storage.length }, (_, i) => storage.key(i));
+
+  test('si NO se acepta, abre en sólo lectura y no escribe nada', async () => {
+    const raw = v2Raw();
+    const storage = new MemoryStorage();
+    storage.setItem(STORAGE_KEYS.state, raw);
+    const asked = [];
+    const repo = new LocalStorageRepository(storage, { confirmSchemaUpgrade: async (from, to) => { asked.push([from, to]); return false; } });
+    const init = await repo.init();
+    assert.deepEqual(asked, [[2, CURRENT_SCHEMA_VERSION]]);
+    assert.equal(init.status, 'read_only');
+    assert.equal(repo.readOnly, true);
+    assert.equal(storage.getItem(STORAGE_KEYS.state), raw, 'los datos quedan exactamente como estaban');
+    assert.equal(keysOf(storage).filter((k) => k.startsWith(STORAGE_KEYS.recoveryPrefix)).length, 0, 'tampoco crea copias');
+    assert.ok((await repo.getQuotes()).length > 0, 'se pueden ver');
+  });
+
+  test('si se acepta (o no hay que preguntar), migra como siempre; un error al preguntar = no', async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(STORAGE_KEYS.state, v2Raw());
+    const repo = new LocalStorageRepository(storage, { confirmSchemaUpgrade: async () => true });
+    assert.equal((await repo.init()).status, 'migrated');
+    assert.equal(JSON.parse(storage.getItem(STORAGE_KEYS.state)).schemaVersion, CURRENT_SCHEMA_VERSION);
+
+    const other = new MemoryStorage();
+    other.setItem(STORAGE_KEYS.state, v2Raw());
+    const failing = new LocalStorageRepository(other, { confirmSchemaUpgrade: async () => { throw new Error('x'); } });
+    assert.equal((await failing.init()).status, 'read_only');
+  });
+
+  test('el aviso de migración dice dónde está la copia previa, nunca su clave interna', async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(STORAGE_KEYS.state, v2Raw());
+    const repo = new LocalStorageRepository(storage);
+    const init = await repo.init();
+    const key = keysOf(storage).find((k) => k.startsWith(STORAGE_KEYS.recoveryPrefix));
+    assert.ok(key);
+    assert.ok(init.messages.some((m) => m.includes('Copias de recuperación')));
+    assert.ok(init.messages.every((m) => !m.includes(key)));
   });
 });

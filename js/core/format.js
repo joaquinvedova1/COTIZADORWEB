@@ -110,6 +110,52 @@ export function formatDays(value, { decimals = 2 } = {}) {
   return `${numberFormat({ maximumFractionDigits: decimals }).format(v)} ${label}`;
 }
 
+/**
+ * Monto en otra moneda (base económica de un recurso): "US$ 420.000".
+ * Sin moneda o en la moneda de la empresa, igual que formatMoney.
+ */
+export function formatMoneyIn(value, currency = CURRENCY, { decimals = 0 } = {}) {
+  if (!isFiniteNumber(value)) return EMPTY;
+  if (!currency || currency === CURRENCY) return formatMoney(value, { decimals });
+  const v = decimals === 0 ? Math.round(roundMoney(value)) : roundMoney(value);
+  try {
+    return numberFormat({
+      style: 'currency',
+      currency,
+      currencyDisplay: 'symbol',
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(Object.is(v, -0) ? 0 : v);
+  } catch {
+    return `${currency} ${formatNumber(v, { decimals })}`;
+  }
+}
+
+const PERIOD_MONTHS_SHORT = Object.freeze(['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']);
+const PERIOD_MONTHS_LONG = Object.freeze(['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']);
+const PERIOD_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
+/** Período base "2026-09" → "sep-26" (nunca una fecha ISO a la vista). */
+export function formatPeriod(period) {
+  const m = typeof period === 'string' ? PERIOD_RE.exec(period) : null;
+  if (!m) return EMPTY;
+  return `${PERIOD_MONTHS_SHORT[Number(m[2]) - 1]}-${m[1].slice(2)}`;
+}
+
+/** Período base "2026-09" → "septiembre 2026". */
+export function formatPeriodLong(period) {
+  const m = typeof period === 'string' ? PERIOD_RE.exec(period) : null;
+  if (!m) return EMPTY;
+  return `${PERIOD_MONTHS_LONG[Number(m[2]) - 1]} ${m[1]}`;
+}
+
+/** Fecha "AAAA-MM-DD" (sin hora) → "01/10/2026", sin pasar por zonas horarias. */
+export function formatDayDate(value) {
+  const m = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
+  if (!m) return EMPTY;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 /** Fecha y hora local legible. */
 export function formatDateTime(value) {
   if (!value) return EMPTY;

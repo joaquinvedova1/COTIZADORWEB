@@ -103,7 +103,8 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-001 | MVP funcional RATEOS v0.1.0 | motor de costos, migración, otro | En curso — pendiente de merge |
 | PLAN-2026-002 | Impuestos sobre la facturación (gross-up) y composición del precio | margen, motor de costos, migración | En curso |
 | PLAN-2026-003 | Usuarios reales: Supabase Auth + persistencia cloud con RLS | backend, autenticación, migración | Completado (PR #9) |
-| PLAN-2026-004 | RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes | backend, autenticación | En curso — PR sin merge, publicado en staging |
+| PLAN-2026-004 | RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes | backend, autenticación | Completado (PR #12) |
+| PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | En curso — PR sin merge, publicado en staging |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
@@ -331,7 +332,7 @@ CI verde, PR mergeado por el dueño, configuración de Auth hecha y un registro 
 
 ### PLAN-2026-004 — RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes
 
-- Estado: En curso — Pull Request hacia `main` sin merge automático; publicado en staging (`/preview/`)
+- Estado: Completado — mergeado en `main` (PR #12)
 - Tipo: backend (Supabase) · autenticación (rol de plataforma)
 - Responsable: agente de programación + revisión del dueño del repositorio
 - Fecha de inicio: 2026-10-05 · Rama: `claude/rateos-admin-v1`
@@ -386,3 +387,60 @@ CI verde, preview publicado, prueba del dueño en staging con la cuenta master y
 
 #### Bitácora
 - 2026-10-05: migración aplicada, tests de base, frontend, tests y E2E en `claude/rateos-admin-v1`.
+
+### PLAN-2026-005 — Recursos con base económica, snapshots, equipos propios/externos y movilización
+
+- Estado: En curso — Pull Request hacia `main` sin merge automático; publicado en staging (`/preview/`)
+- Tipo: motor de costos · migración de datos (esquema 2 → 3) · UX de Recursos y cotización
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-05 · Rama: `claude/resources-economic-base-v1`
+
+#### 1. Contexto y problema
+Las líneas de una cotización copian valores de Recursos, pero esa copia no es auditable: no tiene fecha base, moneda ni fuente, no recuerda qué tenía el recurso al copiarse (no se puede avisar si cambió) y se edita sin distinguir "valor de Recursos" de "ajuste de esta cotización". Sólo existen equipos propios (un alquiler o un servicio tercerizado es un "otro costo" suelto, sin tratamiento fiscal) y la movilización es una lista de vehículos de texto libre, desacoplada de los equipos (el mismo equipo se carga dos veces y se puede contar dos veces).
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: base económica (período, moneda, fuente) en todo valor económico; snapshot por línea con detección de cambios y actualización MANUAL; base económica de la oferta con advertencias; catálogo de familias + modelos propios vs Mis equipos (legajo); obtención propio / alquilado / tercerizado con costo externo y tratamiento fiscal (costo económico ≠ salida de caja ≠ impuestos recuperables); movilización del equipo principal separada de la logística auxiliar; señales de doble conteo en el Cost Completeness Score; versión visible en la web.
+- Fuera de alcance: redeterminación / "actualizar toda la oferta" (queda preparada), índices y polinómicas, condición de pago por proveedor en el costo financiero (se guarda y se muestra), IVA recuperable en el capital de trabajo (se informa aparte), catálogo global con marcas y modelos precargados, salarios en moneda extranjera, búsqueda automática de precios, tablas normalizadas en Supabase.
+
+#### 3. Impacto en fórmulas
+- Sin cambios para los datos existentes: líneas propias, materiales y viajes calculan igual (baseline de regresión de 21 casos y golden cases intactos).
+- Nuevas fórmulas (CALCULATION_RULES §4.1, §5.1, §6.1, §19): costo externo por unidad (hora, día, mes, viaje, km, llamado, global) con mínimo; costo económico vs salida de caja; movilización propia por km (combustible en ruta + mantenimiento y neumáticos por km, sin amortización); conversión de moneda con tipo de cambio explícito de la cotización.
+- Caso numérico: camión alquilado $ 1.000.000 neto/día con IVA 21 % recuperable → costo económico $ 1.000.000/día, salida de caja $ 1.210.000/día, crédito fiscal $ 210.000/día (antes no existía el concepto).
+
+#### 4. Impacto en datos
+- `SCHEMA_VERSION` 2 → 3 con `migrateV2ToV3` (copia de recuperación previa, ningún dato se borra).
+- Nada inventado: fechas base existentes → "Base no definida"; moneda existente = moneda de la empresa (convención vigente, como "sin IVA"); movilidad sin definir (no cambia ningún número).
+- Nuevas colecciones privadas del workspace: `resources.equipmentModels`, `resources.externalServices`. El catálogo global sólo tiene familias (descripción general, sin precios).
+
+#### 5. Diseño
+Detalle en [docs/RESOURCE_MODEL.md](../docs/RESOURCE_MODEL.md): RECURSO MAESTRO ≠ SNAPSHOT DE COTIZACIÓN.
+
+#### 6. Pasos
+- [ ] Modelo, migración v2 → v3, validación y backup.
+- [ ] Motores: externo + fiscal, movilización, conversión de moneda, base económica, completitud.
+- [ ] UX: Recursos (base, legajo, catálogo, externos), Configuración (combustible y tipo de cambio con base), cotización (snapshot, ajustes, propio/alquilado/tercerizado, movilización), Resultado (base económica de la oferta).
+- [ ] Tests (casos A–F, migración, regresión), E2E desktop y mobile, revisión adversarial, docs.
+- [ ] PR sin merge y staging.
+
+#### 7. Tests
+Casos de integración A–F (snapshot histórico, Vactor autopropulsado, retro + carretón tercerizado, alquiler con IVA recuperable, operador que maneja, material con base vieja), migración v2 → v3 sin cambios de números, baseline de regresión, fingerprints, conversión de moneda, NaN/Infinity/negativos.
+
+#### 8. Riesgos y mitigación
+- Staging comparte la base de producción: un preview con esquema 3 migraría el workspace real y producción lo abriría en sólo lectura. Mitigación: en builds de preview, antes de actualizar datos de la nube se pide confirmación; si no, se abren en sólo lectura sin tocar nada.
+- Doble conteo (equipo y vehículo, operador y chofer, IVA como costo): reglas de completitud y trazas que lo explicitan.
+
+#### 9. Rollback
+Revert del PR. Los workspaces ya migrados a esquema 3 quedarían en sólo lectura en la versión anterior: antes de revertir, restaurar la copia previa a la migración (Configuración → Datos y backup) o mantener esta versión.
+
+#### 10. Review multidisciplinario
+Economía (fórmulas externas, fiscal, movilización), QA (casos extremos y migración), Seguridad (catálogo sin datos privados, validación de inputs), UX (progressive disclosure, "Base: sep-26"). Se deja escrito en el PR.
+
+#### 11. Documentación
+README, AGENTS, ARCHITECTURE, DATA_MODEL, CALCULATION_RULES, UX, CHANGELOG, RESOURCE_MODEL.
+
+#### 12. Criterio de terminación
+CI verde, preview publicado con la rama, prueba del dueño en staging y merge del PR por el dueño.
+
+#### Bitácora
+- 2026-10-05: inspección del modelo actual y diseño (respuestas a las 7 preguntas en el PR).
+

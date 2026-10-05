@@ -23,6 +23,7 @@ import { classifyDiscount, normalizeRules, tierLabel, continuityApplies } from '
 import { isValidMarginPct, isValidMarginAndTaxes, commercialRound, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
 import { evaluateCompleteness, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
+import { summarizeEconomicBase } from './economic-base-engine.js';
 
 /** Margen leído como lo valida validateQuote (texto es-AR incluido); `fallback` si está vacío o es inválido. */
 function readMargin(value, fallback) {
@@ -117,6 +118,14 @@ export function evaluateDiscountTiers(ctx, listRate, targetMarginPct) {
 export function computeQuote(quote = {}, { settings = {}, listRateOverride = null } = {}) {
   const issues = validateQuote(quote);
   const model = buildCostModel(quote);
+  // Un valor en otra moneda sin tipo de cambio NO se suma al costo: error en rojo.
+  model.currency.gaps.forEach((g) => {
+    issues.push({
+      path: `${g.list}.${g.index}.${g.field}.currency`,
+      message: `Falta el tipo de cambio ${g.currency || ''} de esta cotización: "${g.label}" no se suma al costo hasta cargarlo.`,
+      severity: 'error',
+    });
+  });
   const ctx = createEconomicsContext(quote, model);
   const activity = model.activity;
   const D = activity.activeDaysPerMonth;
@@ -226,7 +235,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const factor = monthsFactor(D, activity.availableDaysPerMonth);
   const workingCapital = model.finance.workingCapitalFixed * factor + model.finance.workingCapitalPerActiveDay * D;
   const financialCost = costAt.byCategory.financial;
-  const logisticsMonthly = model.logistics.perActiveDay * D;
+  // Viajes = movilización de los equipos + logística auxiliar (vehículos, peajes, viáticos).
+  const logisticsMonthly = (model.logistics.perActiveDay + model.mobilization.perActiveDay) * D;
+  // Externos (PLAN-2026-005): costo económico vs salida de caja vs crédito fiscal del mes.
+  const externalMonthly = model.external.reduce((acc, x) => {
+    acc.economic += (x.fixedMonthly * factor) + (x.variablePerActiveDay + x.mobilizationPerActiveDay) * D;
+    acc.cash += (x.cashFixedMonthly * factor) + x.cashPerActiveDay * D;
+    acc.credit += (x.creditFixedMonthly * factor) + x.creditPerActiveDay * D;
+    return acc;
+  }, { economic: 0, cash: 0, credit: 0 });
   const commercialNetRate = estimate.revenue.netRate;
   const hoursPerDay = activity.hoursPerActiveDay;
 
@@ -271,6 +288,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     workingCapital,
     logisticsMonthly,
     logisticsIncidencePct: costAt.total > 0 ? (logisticsMonthly / costAt.total) * 100 : null,
+    externalMonthly: externalMonthly.economic,
+    externalCashMonthly: externalMonthly.cash,
+    externalTaxCreditMonthly: externalMonthly.credit,
     // Tarifa neta debajo de la tarifa piso (que no cuenta el mínimo garantizado).
     belowFloorRate: hasRate && isFiniteNumber(ratesAtEstimate.floorNetRate) ? commercialNetRate < ratesAtEstimate.floorNetRate - 1e-6 : false,
     // "Bajo piso" = la tarifa no cubre el costo Y el mes da pérdida (si un
@@ -440,23 +460,30 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     }),
     logistics: createTrace({
       id: 'logistics',
-      title: 'Logística',
-      formula: 'Costo por activación = combustible (km × consumo × precio) + desgaste por km + peajes + viáticos · Mensual = costo por activación × activaciones',
+      title: 'Movilización y viajes',
+      formula: 'Por llamado = movilización de equipos (km × consumo en ruta × precio + km × desgaste por km) + logística auxiliar (km × consumo × precio + desgaste + peajes + viáticos) · Mensual = por llamado × llamados',
       inputs: [
         { label: 'Distancia base → locación', value: model.logistics.distanceKm, format: 'km' },
         { label: 'Km de ruta por activación', value: model.logistics.routeKmPerActivation, format: 'km' },
-        { label: 'Km totales de vehículos por activación', value: model.logistics.vehicleKmPerActivation, format: 'km' },
-        { label: 'Litros por activación', value: model.logistics.litersPerActivation, format: 'liters' },
+        { label: 'Km de equipos que van por sus medios, por activación', value: model.mobilization.kmPerActivation, format: 'km' },
+        { label: 'Km de vehículos auxiliares por activación', value: model.logistics.vehicleKmPerActivation, format: 'km' },
+        { label: 'Litros por activación (equipos + auxiliares)', value: model.mobilization.litersPerActivation + model.logistics.litersPerActivation, format: 'liters' },
         { label: 'Precio combustible', value: model.fuel.paidByUs ? model.fuel.pricePerLiter : 0, format: 'rate' },
         { label: 'Activaciones por mes', value: activity.activationsPerMonth, format: 'number' },
       ],
       steps: [
-        { label: 'Combustible por activación', value: model.logistics.fuelPerActivation, format: 'money' },
-        { label: 'Desgaste, peajes y viáticos por activación', value: model.logistics.nonFuelPerActivation, format: 'money' },
-        { label: 'Costo por activación', value: model.logistics.costPerActivation, format: 'money' },
+        ...model.mobilization.lines.filter((l) => l.mode === 'self' && l.perActivation > 0).map((l) => ({ label: `Movilización de ${l.name || 'equipo'}: ${l.km.toFixed(0)} km`, value: l.perActivation, format: 'money' })),
+        { label: 'Movilización de equipos por activación', value: model.mobilization.perActivation, format: 'money' },
+        { label: 'Logística auxiliar: combustible por activación', value: model.logistics.fuelPerActivation, format: 'money' },
+        { label: 'Logística auxiliar: desgaste, peajes y viáticos por activación', value: model.logistics.nonFuelPerActivation, format: 'money' },
+        { label: 'Costo por activación', value: model.logistics.costPerActivation + model.mobilization.perActivation, format: 'money' },
       ],
-      result: { label: 'Costo logístico mensual', value: logisticsMonthly, format: 'money' },
-      notes: ['En la estructura de costos, el combustible de traslados se informa en "Combustible" y el resto en "Logística".'],
+      result: { label: 'Costo mensual de movilización y viajes', value: logisticsMonthly, format: 'money' },
+      notes: [
+        'En la estructura de costos, el combustible de los traslados se informa en "Combustible" y el resto en "Logística".',
+        model.mobilization.lines.some((l) => l.mode === 'self' && l.driver === 'operator') ? 'Los equipos que maneja su operador no suman mano de obra: el operador ya está en Personal.' : null,
+        'El desgaste por km de un equipo propio no incluye amortización (ya está en el costo de tenerlo).',
+      ],
     }),
   };
 
@@ -483,6 +510,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     discounts,
     continuity,
     completeness,
+    // Base económica de la oferta (PLAN-2026-005): "¿con qué costo, moneda y fecha base se calculó?".
+    economicBase: summarizeEconomicBase(quote),
     equivalents,
     kpis,
     traces,

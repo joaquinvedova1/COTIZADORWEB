@@ -50,7 +50,9 @@ describe('ResourceService — CRUD de bibliotecas', () => {
     test(`list/get/save/remove de "${type}"`, async () => {
       const { service, repository } = await setup();
       const initial = await service.list(type);
-      assert.ok(initial.length > 0, 'la demo trae datos ilustrativos');
+      // El catálogo de modelos es de cada empresa: la demo no inventa marcas ni modelos.
+      if (type === 'equipmentModels') assert.equal(initial.length, 0, 'la demo no trae modelos');
+      else assert.ok(initial.length > 0, 'la demo trae datos ilustrativos');
 
       const saved = await service.save(type, { name: `Nuevo ${type}` });
       assert.ok(isUuid(saved.id));

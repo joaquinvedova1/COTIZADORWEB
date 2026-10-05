@@ -37,7 +37,9 @@ export const RATE_UNITS = deepFreeze([
 
 export const COST_CATEGORIES = deepFreeze([
   { id: 'labor', label: 'Mano de obra' },
-  { id: 'equipment', label: 'Equipos' },
+  { id: 'equipment', label: 'Equipos propios' },
+  // Alquilados y tercerizados (PLAN-2026-005): costo externo, no un activo propio.
+  { id: 'external', label: 'Equipos y servicios externos' },
   { id: 'fuel', label: 'Combustible' },
   { id: 'materials', label: 'Materiales' },
   { id: 'logistics', label: 'Logística' },
@@ -49,7 +51,7 @@ export const COST_CATEGORIES = deepFreeze([
 export const COST_CATEGORY_IDS = deepFreeze(COST_CATEGORIES.map((c) => c.id));
 
 /** Categorías que un usuario puede asignar a "otros costos" (directos). */
-export const DIRECT_CATEGORY_IDS = deepFreeze(['labor', 'equipment', 'fuel', 'materials', 'logistics', 'structure']);
+export const DIRECT_CATEGORY_IDS = deepFreeze(['labor', 'equipment', 'external', 'fuel', 'materials', 'logistics', 'structure']);
 
 /**
  * Convenios parametrizables. Los parámetros por defecto son GENÉRICOS e
@@ -195,6 +197,7 @@ export const PAY_GROUPS = deepFreeze([
 export const CATEGORY_PAY_GROUP = deepFreeze({
   labor: 'salaries',
   equipment: 'suppliers',
+  external: 'suppliers',
   fuel: 'fuel',
   materials: 'materials',
   logistics: 'suppliers',
@@ -218,6 +221,67 @@ export const QUOTE_STEPS = deepFreeze([
   { id: 'risk', label: 'Imprevistos' },
   { id: 'margin', label: 'Margen y precio' },
   { id: 'result', label: 'Resultado' },
+]);
+
+// ------------------------------------------------ base económica (PLAN-2026-005)
+
+/**
+ * Monedas en las que se puede cargar un valor. La cotización calcula en la
+ * moneda de la empresa; otra moneda necesita un tipo de cambio explícito
+ * de la cotización (RATEOS nunca lo busca solo).
+ */
+export const CURRENCIES = deepFreeze([
+  { id: 'ARS', label: 'Pesos (ARS)', symbol: '$' },
+  { id: 'USD', label: 'Dólares (USD)', symbol: 'US$' },
+  { id: 'EUR', label: 'Euros (EUR)', symbol: '€' },
+]);
+
+/** De dónde sale un valor económico (base). */
+export const BASE_SOURCES = deepFreeze([
+  { id: 'company', label: 'Carga de la empresa' },
+  { id: 'supplier', label: 'Cotización de proveedor' },
+  { id: 'agreement', label: 'Convenio / escala vigente' },
+  { id: 'index', label: 'Índice o publicación' },
+  { id: 'other', label: 'Otra fuente' },
+]);
+
+/** Cómo se obtiene un recurso. */
+export const ACQUISITION_MODES = deepFreeze([
+  { id: 'owned', label: 'Propio', hint: 'Es de tu empresa: RATEOS calcula amortización, seguros, mantenimiento y consumos.' },
+  { id: 'rented', label: 'Alquilado', hint: 'Lo alquilás a un proveedor y lo operás vos: es un costo externo (tarifa).' },
+  { id: 'outsourced', label: 'Tercerizado', hint: 'Un proveedor presta el servicio (normalmente con su operador): es un costo externo.' },
+]);
+
+/** Unidad de la tarifa de un recurso externo. */
+export const EXTERNAL_UNITS = deepFreeze([
+  { id: 'hour', label: 'Por hora', short: '/h' },
+  { id: 'day', label: 'Por día', short: '/día' },
+  { id: 'month', label: 'Por mes', short: '/mes' },
+  { id: 'trip', label: 'Por viaje (cada ida o vuelta)', short: '/viaje' },
+  { id: 'km', label: 'Por km', short: '/km' },
+  { id: 'activation', label: 'Por llamado', short: '/llamado' },
+  { id: 'global', label: 'Global (todo el contrato)', short: ' global' },
+]);
+
+/** ¿El IVA que cobra el proveedor es recuperable (crédito fiscal) para tu empresa? */
+export const VAT_RECOVERY = deepFreeze([
+  { id: 'yes', label: 'Sí, lo recupero (crédito fiscal)' },
+  { id: 'no', label: 'No lo recupero (es costo)' },
+  { id: 'partial', label: 'Lo recupero en parte' },
+]);
+
+/** ¿Cómo llega el equipo al lugar del servicio? */
+export const MOBILIZATION_MODES = deepFreeze([
+  { id: 'self', label: 'Se traslada por sus propios medios', hint: 'Va por ruta desde la base: RATEOS suma km, combustible en ruta y desgaste por km.' },
+  { id: 'transported', label: 'Lo transporta otro equipo', hint: 'Carretón, batea o camión (propio, alquilado o tercerizado): el costo está en ese equipo.' },
+  { id: 'support', label: 'Va con un vehículo de apoyo', hint: 'Lo lleva un vehículo de la logística auxiliar: el costo está en ese vehículo.' },
+  { id: 'none', label: 'No requiere movilización', hint: 'Ya está en la locación o el servicio se presta en tu base.' },
+]);
+
+/** Quién maneja un equipo que se traslada por sus propios medios. */
+export const DRIVER_OPTIONS = deepFreeze([
+  { id: 'operator', label: 'Su operador (ya está en Personal)', hint: 'No se suma otra persona: el tiempo de manejo está dentro del costo del operador.' },
+  { id: 'other', label: 'Otra persona', hint: 'Cargala en Personal (chofer): RATEOS no la agrega sola.' },
 ]);
 
 /** Busca una etiqueta en un catálogo por id. */

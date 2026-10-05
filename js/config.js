@@ -9,7 +9,7 @@ export const APP_NAME = 'RATEOS';
 export const APP_TAGLINE = 'Motor de costos y tarifas para servicios industriales';
 
 /** Versión del esquema de datos persistidos (localStorage y backups JSON). */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * Modo de almacenamiento por defecto de LocalStorageRepository. Con sesión,
@@ -59,6 +59,15 @@ export const FEATURES = Object.freeze({
 
 export const LOCALE = 'es-AR';
 export const CURRENCY = 'ARS';
+
+/**
+ * Base económica (PLAN-2026-005): una base es "vieja" si tiene más de estos
+ * meses respecto de la fecha de la oferta, y las bases de una cotización son
+ * "muy distintas" si entre la más vieja y la más nueva hay más de estos meses.
+ * Sólo generan advertencias (no bloquean).
+ */
+export const BASE_STALE_MONTHS = 6;
+export const BASE_SPREAD_MONTHS = 3;
 
 /** Días que muestra la matriz tarifa × utilización. */
 export const DEFAULT_MATRIX_DAYS = Object.freeze([5, 8, 10, 15, 20]);

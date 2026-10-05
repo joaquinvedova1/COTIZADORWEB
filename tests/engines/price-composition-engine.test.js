@@ -90,7 +90,7 @@ describe('Composición del precio — invariantes en todos los casos', () => {
       if (c.perUnit.netRate !== null) approx(c.rows.reduce((s, row) => s + row.perUnit, 0), c.perUnit.netRate, 'Σ por unidad = tarifa neta', 0.01);
       assert.equal(c.allChecksOk, true, JSON.stringify(c.checks.filter((x) => x.ok === false)));
       const costRows = c.rows.filter((row) => row.group === 'cost');
-      assert.equal(costRows.length, 8, 'las 8 categorías de la EECC');
+      assert.equal(costRows.length, 9, 'las 9 categorías de la EECC (incluye equipos y servicios externos)');
     });
   }
 });

@@ -1,0 +1,18 @@
+{
+  "id": "externo-alquiler-iva-recuperable",
+  "title": "Camión alquilado $ 1.000.000 neto/día con IVA recuperable: costo 1.000.000, caja 1.210.000",
+  "rule": "Un alquiler es costo externo, no un activo propio. Con IVA recuperable (crédito fiscal), el costo económico es el precio NETO; la salida de caja incluye el IVA y el IVA es crédito fiscal (no costo). La alícuota la carga la empresa (acá 21 % es sólo el dato del caso).",
+  "engine": "external.line",
+  "inputs": {
+    "price": 1000000,
+    "unit": "day",
+    "vatPct": 21,
+    "vatRecoverable": "yes"
+  },
+  "expected": {
+    "variablePerActiveDay": 1000000,
+    "cashPerActiveDay": 1210000,
+    "creditPerActiveDay": 210000
+  },
+  "tolerance": 1e-06
+}

@@ -9,6 +9,7 @@
  *   seguro           = seguroAnual / 12
  *   patente          = patenteAnual / 12
  *   certificaciones  = certificacionesAnual / 12
+ *   otros            = otrosAnual / 12   (GPS, inspecciones, otros costos de tenencia)
  *   costoCapital     = ((valorReposición + valorResidual) / 2) × tasaAnual% / 12
  *   posesión         = suma de lo anterior
  *   (amortización y costo de capital NO son salidas de caja mensuales)
@@ -35,9 +36,10 @@ export function computeOwnership(eq = {}) {
   const insuranceMonthly = nonNegative(eq.insuranceAnnual) / 12;
   const licenseMonthly = nonNegative(eq.licenseAnnual) / 12;
   const certificationsMonthly = nonNegative(eq.certificationsAnnual) / 12;
+  const otherMonthly = nonNegative(eq.otherAnnual) / 12;
   const averageInvestment = (replacement + residual) / 2;
   const capitalCostMonthly = (averageInvestment * pct(nonNegative(eq.capitalRatePctAnnual))) / 12;
-  const cashMonthly = insuranceMonthly + licenseMonthly + certificationsMonthly;
+  const cashMonthly = insuranceMonthly + licenseMonthly + certificationsMonthly + otherMonthly;
   const nonCashMonthly = depreciationMonthly + capitalCostMonthly;
   return {
     replacement,
@@ -47,6 +49,7 @@ export function computeOwnership(eq = {}) {
     insuranceMonthly,
     licenseMonthly,
     certificationsMonthly,
+    otherMonthly,
     averageInvestment,
     capitalCostMonthly,
     cashMonthly,

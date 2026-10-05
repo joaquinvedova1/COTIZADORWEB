@@ -13,8 +13,9 @@
  *                    varios meses y se prorratean los fijos)
  *
  * Orden de cálculo:
- *   1. Costos directos (personal, standby, equipos, combustible, materiales,
- *      logística, otros)
+ *   1. Costos directos (personal, standby, equipos propios, equipos y
+ *      servicios externos, combustible, materiales, movilización, logística
+ *      auxiliar, otros)
  *   2. Estructura (costos indirectos) según método de absorción
  *   3. Financiero (sobre costos en efectivo: directos + estructura)
  *   4. Contingencia = % × (directos + estructura + financiero)
@@ -29,6 +30,9 @@ import { computeEquipmentLine } from './equipment-engine.js';
 import { computeLogistics } from './logistics-engine.js';
 import { computeMaterials, computeOtherCostLine } from './materials-engine.js';
 import { computeFinance } from './finance-engine.js';
+import { computeExternalLine } from './external-engine.js';
+import { computeMobilization } from './mobilization-engine.js';
+import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 
 /** Normaliza los parámetros de actividad de una cotización. */
 export function normalizeActivity(quote = {}) {
@@ -118,12 +122,117 @@ export function buildCostModel(quote = {}) {
     });
   }
 
-  // 2. Equipos (posesión → fijo, operación → variable, combustible aparte)
-  const equipment = objectList(quote.equipment).map((e) =>
-    computeEquipmentLine(e, { fuelPricePerLiter, fuelPaidByUs, defaultHoursPerActiveDay: activity.hoursPerActiveDay }),
-  );
+  // Moneda (PLAN-2026-005): los valores en otra moneda se convierten con el
+  // tipo de cambio de la cotización; si falta, no se suman (factor 0) y la
+  // validación lo marca en rojo.
+  const currency = quoteCurrency(quote);
+  const currencyGaps = [];
+  const factorFor = (base, where) => {
+    const cur = currencyOfBase(base);
+    const f = conversionFactor(cur, quote);
+    if (f === null) {
+      currencyGaps.push({ ...where, currency: cur });
+      return 0;
+    }
+    return f;
+  };
+
+  // Logística (ruta): la usan la movilización y las tarifas externas por km o viaje.
+  const logistics = computeLogistics(quote.logistics || {}, {
+    activationsPerMonth: activity.activationsPerMonth,
+    daysPerActivation: activity.daysPerActivation,
+    fuelPricePerLiter,
+    fuelPaidByUs,
+  });
+  const oneWayTripsPerActivation = logistics.notApplicable ? 0 : logistics.tripsPerActivation * (logistics.roundTrip ? 2 : 1);
+
+  // 2. Equipos. PROPIOS: posesión → fijo, operación → variable, combustible
+  // aparte. ALQUILADOS / TERCERIZADOS: costo externo (tarifa del proveedor,
+  // costo económico sin IVA recuperable). model.equipment queda alineado con
+  // quote.equipment (mismo índice).
+  const equipmentInput = objectList(quote.equipment);
+  const external = [];
+  const equipment = equipmentInput.map((e, index) => {
+    const acquisition = e.acquisition === 'rented' || e.acquisition === 'outsourced' ? e.acquisition : 'owned';
+    if (acquisition === 'owned') {
+      const f = factorFor(e.base, { list: 'equipment', index, field: 'base', label: e.name || 'Equipo' });
+      const converted = f === 1 ? e : { ...e, replacementValue: nonNegative(e.replacementValue) * f, residualValue: nonNegative(e.residualValue) * f };
+      return { ...computeEquipmentLine(converted, { fuelPricePerLiter, fuelPaidByUs, defaultHoursPerActiveDay: activity.hoursPerActiveDay }), acquisition, conversion: f, external: null };
+    }
+    const f = factorFor(e.base, { list: 'equipment', index, field: 'base', label: e.name || 'Equipo externo' });
+    const x = computeExternalLine({ ...e, acquisition }, {
+      daysPerActivation: activity.daysPerActivation,
+      defaultHoursPerActiveDay: activity.hoursPerActiveDay,
+      routeKmPerActivation: logistics.routeKmPerActivation,
+      tripsPerActivation: oneWayTripsPerActivation,
+      contractMonths: quote.contractMonths,
+      fuelPricePerLiter,
+      fuelPaidByUs,
+      conversion: f,
+    });
+    external.push({ ...x, index });
+    return {
+      id: x.id,
+      name: x.name,
+      acquisition,
+      quantity: x.quantity,
+      hoursPerActiveDay: x.hoursPerActiveDay,
+      conversion: f,
+      ownership: null,
+      operation: null,
+      external: x,
+      fixedMonthly: x.fixedMonthly,
+      fixedCashMonthly: x.fixedMonthly,
+      nonFuelPerActiveDay: x.variablePerActiveDay + x.mobilizationPerActiveDay,
+      fuelPerActiveDay: x.fuelPerActiveDay,
+      fuelLitersPerActiveDay: x.fuelLitersPerActiveDay,
+      variablePerActiveDay: x.variablePerActiveDay + x.mobilizationPerActiveDay + x.fuelPerActiveDay,
+    };
+  });
   equipment.forEach((e, i) => {
     const name = e.name || 'Equipo';
+    if (e.acquisition !== 'owned') {
+      const x = e.external;
+      const kind = e.acquisition === 'rented' ? 'alquilado' : 'tercerizado';
+      lines.push({
+        key: `external:${e.id ?? i}`,
+        source: 'external',
+        label: `${name} — ${kind}`,
+        category: 'external',
+        payGroup: 'suppliers',
+        fixedMonthly: x.fixedMonthly,
+        variablePerActiveDay: x.variablePerActiveDay,
+        cashFixedMonthly: x.fixedMonthly,
+        cashVariablePerActiveDay: x.variablePerActiveDay,
+      });
+      if (x.mobilizationPerActiveDay > 0) {
+        lines.push({
+          key: `external:mobilization:${e.id ?? i}`,
+          source: 'external',
+          label: `${name} — movilización del proveedor`,
+          category: 'external',
+          payGroup: 'suppliers',
+          fixedMonthly: 0,
+          variablePerActiveDay: x.mobilizationPerActiveDay,
+          cashFixedMonthly: 0,
+          cashVariablePerActiveDay: x.mobilizationPerActiveDay,
+        });
+      }
+      if (x.fuelPerActiveDay > 0) {
+        lines.push({
+          key: `external:fuel:${e.id ?? i}`,
+          source: 'external',
+          label: `${name} — combustible (no incluido en la tarifa)`,
+          category: 'fuel',
+          payGroup: 'fuel',
+          fixedMonthly: 0,
+          variablePerActiveDay: x.fuelPerActiveDay,
+          cashFixedMonthly: 0,
+          cashVariablePerActiveDay: x.fuelPerActiveDay,
+        });
+      }
+      return;
+    }
     lines.push({
       key: `equipment:ownership:${e.id ?? i}`,
       source: 'equipment',
@@ -159,13 +268,44 @@ export function buildCostModel(quote = {}) {
     });
   });
 
-  // 3. Logística (combustible de traslados → Combustible; resto → Logística)
-  const logistics = computeLogistics(quote.logistics || {}, {
-    activationsPerMonth: activity.activationsPerMonth,
+  // Movilización del recurso principal (¿cómo llega cada equipo?): combustible
+  // en ruta → Combustible; desgaste por km → Logística. Sin amortización (ya
+  // está en la posesión) y sin mano de obra (el operador ya está en Personal).
+  const mobilization = computeMobilization(equipmentInput, {
+    notApplicable: logistics.notApplicable,
+    routeKmPerActivation: logistics.routeKmPerActivation,
     daysPerActivation: activity.daysPerActivation,
+    activationsPerMonth: activity.activationsPerMonth,
     fuelPricePerLiter,
     fuelPaidByUs,
+    vehicles: (quote.logistics || {}).vehicles,
+    labor: quote.labor,
   });
+  lines.push({
+    key: 'mobilization:fuel',
+    source: 'mobilization',
+    label: 'Movilización de equipos — combustible en ruta',
+    category: 'fuel',
+    payGroup: 'fuel',
+    fixedMonthly: 0,
+    variablePerActiveDay: mobilization.fuelPerActiveDay,
+    cashFixedMonthly: 0,
+    cashVariablePerActiveDay: mobilization.fuelPerActiveDay,
+  });
+  lines.push({
+    key: 'mobilization:other',
+    source: 'mobilization',
+    label: 'Movilización de equipos — desgaste por km',
+    category: 'logistics',
+    payGroup: 'suppliers',
+    fixedMonthly: 0,
+    variablePerActiveDay: mobilization.wearPerActiveDay,
+    cashFixedMonthly: 0,
+    cashVariablePerActiveDay: mobilization.wearPerActiveDay,
+  });
+
+  // 3. Logística AUXILIAR (vehículos de apoyo y de personal): combustible →
+  // Combustible; desgaste, peajes y viáticos → Logística.
   lines.push({
     key: 'logistics:fuel',
     source: 'logistics',
@@ -190,7 +330,11 @@ export function buildCostModel(quote = {}) {
   });
 
   // 4. Materiales
-  const materials = computeMaterials(quote.materialsNotApplicable ? [] : quote.materials, {
+  const materialInput = quote.materialsNotApplicable ? [] : objectList(quote.materials).map((m, index) => {
+    const f = factorFor(m.base, { list: 'materials', index, field: 'base', label: m.description || 'Material' });
+    return f === 1 ? m : { ...m, unitCost: nonNegative(m.unitCost) * f };
+  });
+  const materials = computeMaterials(materialInput, {
     daysPerActivation: activity.daysPerActivation,
   });
   materials.lines.forEach((m, i) => {
@@ -305,9 +449,12 @@ export function buildCostModel(quote = {}) {
     labor,
     standby: { days: standbyDays, costPerDay: standbyCostPerDay, monthly: standbyMonthly },
     equipment,
+    external,
+    mobilization,
     logistics,
     materials,
     otherCosts,
+    currency: { code: currency, gaps: currencyGaps },
     lines,
     direct,
     structure: {

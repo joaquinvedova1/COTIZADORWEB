@@ -18,6 +18,11 @@ import { contingencyPctOf } from './cost-engine.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent } from '../core/format.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
+import { summarizeEconomicBase } from './economic-base-engine.js';
+import { externalFiscal } from './external-engine.js';
+import { computeMobilization } from './mobilization-engine.js';
+import { conversionFactor, currencyOfBase } from './currency-engine.js';
+import { isPlainObject } from '../core/object.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
@@ -98,16 +103,29 @@ export function evaluateCompleteness(quote = {}) {
       ok ? 'Relevos configurados.' : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.'));
   }
 
-  // 6. Costo de equipos
+  // 6. Costo de equipos (propios: reposición y vida útil; externos: tarifa)
+  const isExt = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
+  const extOf = (e) => (isPlainObject(e.external) ? e.external : {});
   const needsEquipment = EQUIPMENT_SERVICE_TYPES.includes(serviceType);
   if (needsEquipment || equipment.length > 0) {
-    const ok = equipment.length > 0 && equipment.every((e) => nonNegative(e.replacementValue) > 0 && nonNegative(e.usefulLifeYears) > 0);
+    const ownOk = equipment.filter((e) => !isExt(e)).every((e) => nonNegative(e.replacementValue) > 0 && nonNegative(e.usefulLifeYears) > 0);
+    const extOk = equipment.filter(isExt).every((e) => nonNegative(extOf(e).price) > 0);
+    const ok = equipment.length > 0 && ownOk && extOk;
     items.push(rule('equipment_cost', 'Costo de equipos', 'equipment', 2, ok ? 'ok' : 'missing',
-      ok ? 'Equipos con valor de reposición y vida útil.' : equipment.length === 0 ? 'El servicio usa equipos pero no hay equipos cargados.' : 'Hay equipos sin valor de reposición o sin vida útil (falta su amortización).'));
+      ok
+        ? 'Equipos propios con valor de reposición y vida útil; externos con tarifa.'
+        : equipment.length === 0
+          ? 'El servicio usa equipos pero no hay equipos cargados.'
+          : !ownOk
+            ? 'Hay equipos propios sin valor de reposición o sin vida útil (falta su amortización).'
+            : 'Hay equipos alquilados o tercerizados sin tarifa del proveedor.'));
   }
 
   // 7. Combustible
-  const consumesFuel = equipment.some((e) => nonNegative(e.fuelLitersPerHour) > 0) || (!logistics.notApplicable && vehicles.some((v) => nonNegative(v.consumptionLPer100Km) > 0));
+  const consumesFuel = equipment.some((e) => nonNegative(e.fuelLitersPerHour) > 0)
+    || equipment.some((e) => isExt(e) && extOf(e).fuelIncluded === false && nonNegative(extOf(e).fuelLitersPerHour) > 0)
+    || equipment.some((e) => isPlainObject(e.mobilization) && e.mobilization.mode === 'self' && nonNegative(e.mobilization.travelLitersPer100Km) > 0)
+    || (!logistics.notApplicable && vehicles.some((v) => nonNegative(v.consumptionLPer100Km) > 0));
   const hasFuelUsers = equipment.length > 0 || (!logistics.notApplicable && vehicles.length > 0);
   if (hasFuelUsers) {
     let status = 'ok';
@@ -136,13 +154,120 @@ export function evaluateCompleteness(quote = {}) {
       ok ? 'Todos los materiales tienen responsable.' : 'Hay materiales sin definir quién los provee (cliente, nosotros o tercero).'));
   }
 
-  // 9. Logística
+  // 9. Logística: ruta + cómo se llega (equipos que se movilizan o vehículos auxiliares)
   if (logistics.notApplicable) {
     items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'Marcado como "sin traslados".'));
   } else {
-    const ok = nonNegative(logistics.distanceKm) > 0 && vehicles.some((v) => nonNegative(v.count) > 0);
+    const moves = vehicles.some((v) => nonNegative(v.count) > 0)
+      || equipment.some((e) => isPlainObject(e.mobilization) && ['self', 'transported', 'support'].includes(e.mobilization.mode))
+      || equipment.some((e) => isExt(e) && extOf(e).mobilizationIncluded === true);
+    const ok = nonNegative(logistics.distanceKm) > 0 && moves;
     items.push(rule('logistics', 'Viajes', 'logistics', 2, ok ? 'ok' : 'missing',
-      ok ? 'Distancia y vehículos definidos.' : 'Falta la distancia a locación o los vehículos de traslado.'));
+      ok ? 'Distancia y movilización definidas.' : nonNegative(logistics.distanceKm) > 0 ? 'Falta definir cómo llegan los equipos o el personal a la locación.' : 'Falta la distancia a la locación.'));
+  }
+
+  // 9b. Movilización de cada equipo (¿cómo llega al lugar del servicio?)
+  if (!logistics.notApplicable && equipment.length > 0) {
+    const mob = computeMobilization(equipment, { notApplicable: false, routeKmPerActivation: nonNegative(logistics.distanceKm), vehicles, labor });
+    const pending = equipment.filter((e) => !(isExt(e) && extOf(e).mobilizationIncluded === true) && !(isPlainObject(e.mobilization) && e.mobilization.mode));
+    const broken = mob.lines.filter((l) => l.warnings.some((w) => ['carrier_missing', 'carrier_cycle', 'support_missing'].includes(w)));
+    const noDriver = mob.lines.filter((l) => l.warnings.includes('driver'));
+    const ok = pending.length === 0 && broken.length === 0 && noDriver.length === 0;
+    const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Equipo'}"`).join(', ');
+    items.push(rule('mobility', 'Movilización de equipos', 'logistics', 1, ok ? 'ok' : 'warning',
+      ok
+        ? 'Cada equipo tiene definido cómo llega al lugar del servicio.'
+        : pending.length
+          ? `Falta definir cómo llega al lugar del servicio: ${names(pending)}.`
+          : broken.length
+            ? `Revisá qué equipo o vehículo transporta a ${names(broken)}.`
+            : `Falta definir quién maneja ${names(noDriver)} en el traslado.`));
+  }
+
+  // 9c. Equipos y servicios externos: tratamiento fiscal y vigencia de la oferta
+  const externals = equipment.filter(isExt);
+  if (externals.length > 0) {
+    const offerDay = typeof quote.offerDate === 'string' ? quote.offerDate : null;
+    const fiscalMissing = externals.filter((e) => {
+      const f = externalFiscal(extOf(e).fiscal);
+      return f.missingVatRate || f.missingPartialPct;
+    });
+    const recoveryUndefined = externals.filter((e) => externalFiscal(extOf(e).fiscal).recovery === null);
+    const noValidity = externals.filter((e) => !extOf(e).validUntil);
+    const expired = externals.filter((e) => extOf(e).validUntil && offerDay && extOf(e).validUntil < offerDay);
+    const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Externo'}"`).join(', ');
+    let status = 'ok';
+    let message = 'Recursos externos con tratamiento fiscal y vigencia definidos.';
+    if (fiscalMissing.length) {
+      status = 'missing';
+      message = `Falta la alícuota de IVA (o la parte recuperable) de ${names(fiscalMissing)}: sin ese dato no se puede calcular el IVA que no recuperás.`;
+    } else if (recoveryUndefined.length) {
+      status = 'warning';
+      message = `Sin definir si el IVA de ${names(recoveryUndefined)} es recuperable: RATEOS usa el precio neto (sin IVA). Si no lo recuperás, el costo es mayor.`;
+    } else if (expired.length) {
+      status = 'warning';
+      message = `La oferta de ${names(expired)} venció antes de la fecha de esta cotización: pedí un precio vigente.`;
+    } else if (noValidity.length) {
+      status = 'warning';
+      message = `Sin vigencia de la oferta del proveedor: ${names(noValidity)}.`;
+    }
+    items.push(rule('external_terms', 'Equipos y servicios externos', 'equipment', 1, status, message));
+  }
+
+  // 9d. Posible doble conteo (operador o vehículo cargado dos veces)
+  if (equipment.length > 0) {
+    const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    const operatorTwice = equipment.filter((e) => isExt(e) && extOf(e).operatorIncluded === true && typeof e.operatorLaborId === 'string' && labor.some((l) => l.id === e.operatorLaborId));
+    const selfMoving = equipment.filter((e) => isPlainObject(e.mobilization) && e.mobilization.mode === 'self');
+    const vehicleTwice = logistics.notApplicable ? [] : selfMoving.filter((e) => {
+      const n = norm(e.name);
+      return n.length >= 4 && vehicles.some((v) => {
+        const vn = norm(v.name);
+        return vn.length >= 4 && (vn.includes(n) || n.includes(vn));
+      });
+    });
+    const ok = operatorTwice.length === 0 && vehicleTwice.length === 0;
+    items.push(rule('duplicates', 'Costos posiblemente duplicados', 'logistics', 1, ok ? 'ok' : 'warning',
+      ok
+        ? 'Sin señales de operadores o vehículos cargados dos veces.'
+        : operatorTwice.length
+          ? `Operador posiblemente duplicado: la tarifa de "${operatorTwice[0].name || 'Externo'}" ya incluye operador y además le asignaste uno de Personal.`
+          : `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está como vehículo de la logística auxiliar.`));
+  }
+
+  // 9e. Base económica (fecha base de los valores) y su antigüedad
+  const baseInfo = summarizeEconomicBase(quote);
+  if (baseInfo.entries.length > 0) {
+    items.push(rule('economic_base', 'Fecha base de los valores', 'service', 1, baseInfo.undefinedCount === 0 ? 'ok' : 'warning',
+      baseInfo.undefinedCount === 0
+        ? 'Todos los valores tienen fecha base.'
+        : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha base (${baseInfo.undefinedEntries.slice(0, 3).map((e) => e.label).join(', ')}${baseInfo.undefinedCount > 3 ? '…' : ''}): no se sabe de cuándo son.`));
+    if (baseInfo.defined > 0) {
+      const old = baseInfo.stale.length > 0;
+      items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, old || baseInfo.mixed ? 'warning' : 'ok',
+        old
+          ? (baseInfo.warnings.find((w) => w.id === 'stale') || {}).message
+          : baseInfo.mixed
+            ? (baseInfo.warnings.find((w) => w.id === 'mixed') || {}).message
+            : 'Bases actuales y parejas respecto de la fecha de la oferta.'));
+    }
+  }
+
+  // 9f. Moneda: un valor en otra moneda necesita el tipo de cambio de la cotización
+  const priced = [
+    ...equipment.map((e) => ({ name: e.name || 'Equipo', base: e.base, relevant: isExt(e) ? nonNegative(extOf(e).price) > 0 : nonNegative(e.replacementValue) > 0 })),
+    ...(quote.materialsNotApplicable ? [] : materials.map((m) => ({ name: m.description || 'Material', base: m.base, relevant: nonNegative(m.unitCost) > 0 }))),
+  ].filter((x) => x.relevant);
+  const foreign = priced.filter((x) => currencyOfBase(x.base) && conversionFactor(currencyOfBase(x.base), quote) !== 1);
+  const noRate = foreign.filter((x) => conversionFactor(currencyOfBase(x.base), quote) === null);
+  const noCurrency = priced.filter((x) => isPlainObject(x.base) && !currencyOfBase(x.base));
+  if (foreign.length > 0 || noCurrency.length > 0) {
+    items.push(rule('currency', 'Moneda y tipo de cambio', 'equipment', 2, noRate.length ? 'missing' : noCurrency.length ? 'warning' : 'ok',
+      noRate.length
+        ? `Falta el tipo de cambio ${currencyOfBase(noRate[0].base)} de esta cotización: "${noRate[0].name}" no se suma al costo hasta cargarlo.`
+        : noCurrency.length
+          ? `Sin moneda definida: ${noCurrency.slice(0, 3).map((x) => `"${x.name}"`).join(', ')}.`
+          : 'Valores en otra moneda convertidos con el tipo de cambio de la cotización.'));
   }
 
   // 10. Estructura

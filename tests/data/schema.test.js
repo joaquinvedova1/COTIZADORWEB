@@ -36,7 +36,8 @@ describe('Constantes de esquema', () => {
   });
 
   test('RESOURCE_TYPES lista las bibliotecas y está congelado', () => {
-    assert.deepEqual([...RESOURCE_TYPES], ['agreements', 'laborProfiles', 'equipment', 'materials', 'locations']);
+    // v3 (PLAN-2026-005): modelos de equipos propios y servicios externos.
+    assert.deepEqual([...RESOURCE_TYPES], ['agreements', 'laborProfiles', 'equipment', 'materials', 'locations', 'equipmentModels', 'externalServices']);
     assert.ok(Object.isFrozen(RESOURCE_TYPES));
   });
 });
