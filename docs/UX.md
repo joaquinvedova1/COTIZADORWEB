@@ -59,7 +59,7 @@ El mockup del hero muestra **producto** (la demo "Hidrogrúa on-call — Añelo"
 
 ### Ingresar / Crear cuenta / Bienvenida
 
-Flujos **preparados** para la futura autenticación (ver [AUTH_ARCHITECTURE.md §1.1](AUTH_ARCHITECTURE.md#11-pantallas-preparadas-sin-autenticación)). Hoy avisan que las cuentas no están habilitadas, nunca guardan email ni contraseña y ofrecen "Entrar sin cuenta".
+Cuentas reales con Supabase Auth (ver [AUTH_ARCHITECTURE.md](AUTH_ARCHITECTURE.md)): registro con nombre, empresa, email y contraseña; confirmación por email ("Revisá tu email"); ingreso; recuperación de contraseña. Mensajes humanos, nunca técnicos; la contraseña nunca se guarda ni queda en pantalla. "Probar la demo sin cuenta" siempre a mano.
 
 ### Demo guiada (`#/demo`)
 
@@ -67,7 +67,9 @@ Antes del resultado completo, cuatro pasos de una pregunta cada uno: el servicio
 
 ### Inicio (`#/inicio`)
 
-"Hola. ¿Qué querés cotizar hoy?" + [Crear nueva cotización]; luego "Continuar cotización" (último borrador); **máximo 3 indicadores** (cotizaciones activas, margen promedio, cotizaciones en riesgo) y "Tus cotizaciones" (servicio, cliente, estado, tarifa, margen). El resto, colapsado.
+"Hola, <nombre>. ¿Qué querés cotizar hoy?" + [Crear nueva cotización]; luego "Continuar cotización" (último borrador); **máximo 3 indicadores** (cotizaciones activas, margen promedio, cotizaciones en riesgo) y "Tus cotizaciones" (servicio, cliente, estado, tarifa, margen). El resto, colapsado.
+
+**Cuenta nueva (vacía):** "Hola, <nombre>. ¿Qué querés hacer primero?" con [Crear mi primera cotización] [Configurar mi empresa] y un enlace opcional a la demo ("está aparte y no toca tus datos"). Sin botones repetidos, sin datos de ejemplo. El menú lateral muestra la empresa real, la cuenta ("Mi cuenta", "Cerrar sesión") y el estado de sincronización ("Guardado en la nube", "Cambios sin sincronizar", "Sin conexión…", "Conflicto…").
 
 ### Editor de cotización
 

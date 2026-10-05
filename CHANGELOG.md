@@ -12,10 +12,11 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
-Dos cambios en esta versión:
+Tres cambios en esta versión:
 
 1. **Rediseño de experiencia de usuario**: simple en la superficie, potente por debajo. No cambia ninguna fórmula económica. Ninguna capacidad se eliminó: lo avanzado quedó colapsado o en pantallas secundarias. Guía en [docs/UX.md](docs/UX.md).
 2. **Impuestos sobre la facturación con gross-up exacto** (PLAN-2026-002, a partir del análisis conceptual de una estructura de costos profesional: [docs/REFERENCE_COST_STRUCTURE.md](docs/REFERENCE_COST_STRUCTURE.md)). **Es un cambio de regla de negocio** y **sube el esquema de datos a 2** (con migración). Con los impuestos sin definir —el estado de todas las cotizaciones existentes y de la demo— **ningún número cambia** (baseline de regresión). Detalle abajo.
+3. **Usuarios reales con Supabase** (PLAN-2026-003): cuentas con Supabase Auth, datos de cada empresa en la nube protegidos con Row Level Security y demo pública aislada. **No cambia ninguna fórmula** ni el esquema de datos (`schemaVersion` sigue en 2). Detalle en [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) y [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md).
 
 ### Agregado
 
@@ -31,7 +32,14 @@ Dos cambios en esta versión:
 
 - **Sitio público separado de la aplicación.** Landing en `#/` ("Cotizá servicios sabiendo cuánto te cuestan."), con mockup del producto calculado en vivo sobre la demo ILUSTRATIVA, tres resultados (cuánto te cuesta, cuánto cobrar, cuánto necesitás trabajar), "¿Te pasa esto?", cómo funciona en 3 pasos y para quién.
 - **Demo guiada** `#/demo` de "Hidrogrúa on-call — Añelo" en 4 pasos antes del análisis completo, con un selector de días activos que recalcula la tarifa piso sin guardar cambios. `QuoteService.ensureDemoQuote()` vuelve a crear la demo si se había borrado (con un código nuevo; nunca reutiliza códigos).
-- **Ingresar / Crear cuenta / Bienvenida** (`#/login`, `#/registro`, `#/bienvenida`) como flujo preparado para la futura autenticación: avisan que las cuentas no están habilitadas, **nunca guardan email ni contraseña** y permiten entrar sin cuenta. `js/services/auth-service.js` (`ctx.auth`) es el punto único de autenticación (hoy modo local, sin cuentas). El onboarding guarda el tipo de empresa (`organization.industry`, campo opcional) y la base operativa.
+- **Ingresar / Crear cuenta / Bienvenida** (`#/login`, `#/registro`, `#/bienvenida`). Primero fueron un flujo preparado sin cuentas; en esta misma versión pasaron a ser **cuentas reales** (ver abajo). El onboarding guarda el tipo de empresa (`organization.industry`, campo opcional) y la base operativa.
+- **Cuentas reales (Supabase Auth):** registro con nombre, empresa, email y contraseña (mínimo 8), **confirmación de email** ("Revisá tu email"), ingreso, cierre de sesión y recuperación de contraseña, con mensajes humanos (nunca errores técnicos). Enlaces de email PKCE bajo `/COTIZADORWEB/` compatibles con el router por hash (`?auth=confirm&next=…` antes del `#`; el código se limpia de la URL). La sesión se restaura al recargar; si vence: "Tu sesión terminó. Volvé a ingresar." sin perder los cambios. SDK oficial `@supabase/supabase-js` 2.117.2 vendorizado (`js/data/vendor/`, hash verificado; sigue sin dependencias npm).
+- **Base de datos** (migración `supabase/migrations/20261005013833_rateos_identity_workspace.sql`, aplicada con el plugin de Supabase): `profiles`, `organizations`, `organization_members` (OWNER / ADMIN / ESTIMATOR / VIEWER) y `workspace_states` (estado versionado de cada empresa con `revision`). Al registrarse se crean la empresa, la membresía OWNER y un espacio de trabajo **vacío**. **RLS en todas las tablas**, sin permisos para `anon`, `update` sólo por columna, columnas de control fijadas por trigger. Tests: `supabase/tests/rls_test.sql` (40 controles, usuarios A/B, anon, escalada de rol) y `tests/supabase/migrations.test.js`.
+- **Tres estados separados:** visitante (landing, ingreso, registro, recuperar contraseña), **demo** sin cuenta (`#/demo`, `#/demo/analisis`, en memoria: nunca escribe en el navegador ni en la nube) y usuario autenticado (`#/inicio` y toda la app). Las rutas protegidas sin sesión van a `#/login?next=…` (sólo destinos internos) y no se muestra nada protegido mientras se restaura la sesión.
+- **`SupabaseRepository`:** mismo estado y validaciones que el modo local, guardado en la nube con **control de revisión** (nunca *last-write-wins* silencioso: "Tus datos cambiaron en otro dispositivo." con [Recargar] [Conservar una copia]); sin conexión: "No pudimos sincronizar tus cambios.", copia local recuperable y reintentos; "Guardado" sólo cuando la nube lo confirmó. Estado de sincronización en el menú lateral.
+- **Datos del modo local → cuenta:** "Encontramos datos guardados en este navegador." con [Importarlos a mi cuenta] [Empezar en limpio]. Nunca importa la demo, la empresa ficticia ni datos ILUSTRATIVOS; guarda una copia antes y nunca borra `rateos.state`. Un backup importado en una cuenta queda siempre dentro de la empresa de esa cuenta.
+- **Cuenta nueva vacía:** "Hola, <nombre>. ¿Qué querés hacer primero?" con [Crear mi primera cotización] [Configurar mi empresa] y la demo opcional; la empresa real en el menú. Zona de cuenta en el menú lateral (nombre, email, rol, "Mi cuenta", "Cerrar sesión") y **Configuración → Cuenta** (nombre editable, email, empresa, rol, cambiar contraseña, cerrar sesión).
+- Landing: "Crear una cotización" lleva a crear la cuenta y después a la cotización nueva (con sesión, directo); el encabezado dice "Ingresar / Crear cuenta" o "Abrir RATEOS".
 - Pantalla **Escenarios** (`#/escenarios`, `#/escenarios/:id`) para analizar sensibilidad, escenarios y modelos comerciales de una cotización sin modificarla.
 - Componentes de interfaz: `disclosure`, `bigStat`, `pageIntro`, `linkButton`, `stepIndicator` y `emptyState` con título, texto y acción. `formatMoneyCompact` ("$ 15,8 M", hacia arriba para tarifas). `QuoteService.latestDraft()`.
 - [docs/UX.md](docs/UX.md): principios, arquitectura de información, copy y checklist de carga cognitiva.
@@ -53,6 +61,13 @@ Dos cambios en esta versión:
 - Copy revisado en castellano claro (p. ej. "¿Cuántos días por mes esperás trabajar?" en lugar de "factor de utilización").
 - Sistema de diseño: escala tipográfica, espaciado, radios y sombras nuevos; acción principal en azul Neuquén profundo.
 - Enlaces viejos (`#/biblioteca/...`, `#/dashboard`) redirigen a las rutas nuevas.
+
+### Seguridad
+
+- En el navegador sólo la URL de Supabase y la **publishable key**; un test busca en todo el repo `service_role`, secret keys (`sb_secret_…`) y connection strings con contraseña. RATEOS **no guarda contraseñas** en ningún lado.
+- CSP: `connect-src` sólo `'self'` y el proyecto de Supabase.
+- Revisión de seguridad adversarial de las cuentas, con correcciones: copias de recuperación por usuario y organización (otra persona en el mismo navegador no las ve ni las restaura; en pantalla sólo fecha y motivo), enlaces de email **sólo PKCE** (se rechazan los `?token_hash=`, que podían abrir la cuenta de otra persona en el navegador de la víctima), cerrar sesión borra siempre la sesión local aunque el SDK falle, cambio de usuario en otra pestaña reabre la cuenta correcta, `?next=` sin codificaciones ambiguas y RATEOS no funciona dentro de un iframe (anti-clickjacking).
+- Si la base rechaza el token, se intenta renovar la sesión una vez; si no se puede, se cierra con "Tu sesión terminó. Volvé a ingresar." (los cambios quedan en la copia local).
 
 ### Corregido
 

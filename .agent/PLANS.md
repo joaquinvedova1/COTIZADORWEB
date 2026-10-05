@@ -102,6 +102,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 |---|---|---|---|
 | PLAN-2026-001 | MVP funcional RATEOS v0.1.0 | motor de costos, migración, otro | En curso — pendiente de merge |
 | PLAN-2026-002 | Impuestos sobre la facturación (gross-up) y composición del precio | margen, motor de costos, migración | En curso |
+| PLAN-2026-003 | Usuarios reales: Supabase Auth + persistencia cloud con RLS | backend, autenticación, migración | En curso — PR sin merge |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
@@ -263,3 +264,64 @@ Preferir corregir hacia adelante. Si se revierte el código, los datos ya migrad
 - 2026-10-04 — PN0 (baseline), motor de la entrega A, esquema v2 con migración y reparación, completitud y validación, golden cases e invariantes, documentación de fórmulas y datos.
 - 2026-10-04 — UI de la entrega A (etapa "El precio", Configuración, alertas, "Montos sin IVA") y entrega B (composición del precio, apropiación, total del contrato y controles de cuadre).
 - 2026-10-04 — Revisiones adversariales económica y de UX y correcciones. Markup con impuestos corregido a precio / costo − 1 (25 % en el caso 100 / 10 % / 10 %) con "ganancia sobre el costo" (12,5 %) aparte; golden `markup-efectivo-con-impuestos` reemplazado por `markup-con-impuestos` y `ganancia-sobre-costo-con-impuestos`. Cierre de versión sin funcionalidades nuevas: copy no fiscal, resultado progresivo, `vatTreatment`.
+
+### PLAN-2026-003 — Usuarios reales: Supabase Auth + persistencia cloud con RLS
+
+- Estado: En curso — Pull Request hacia `main` sin merge automático
+- Tipo: backend (Supabase) · autenticación · migración de datos (modo local → cuenta)
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-05 · Rama: `claude/supabase-auth-v1`
+
+#### 1. Contexto y problema
+Hasta v0.1.0 los datos vivían sólo en el navegador y el ingreso/registro eran pantallas preparadas. Para usar RATEOS con clientes hacen falta cuentas reales, datos por empresa y aislamiento garantizado por la base.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: tres estados separados (visitante, demo sin cuenta, usuario autenticado); registro con confirmación de email, ingreso, cierre, recuperación; empresa + OWNER al registrarse; datos de la cuenta en Supabase con RLS; importación opcional de los datos del modo local; sincronización con control de revisión; sesión vencida y sin conexión sin perder cambios.
+- Fuera de alcance: invitaciones, Google OAuth, pagos, multiempresa por usuario, modelo normalizado, analytics, cambios en motores (P1/P2 del motor de costos).
+
+#### 3. Impacto en fórmulas
+Ninguno. `js/engines/**` no cambia; golden cases y baseline de regresión intactos.
+
+#### 4. Impacto en datos
+- Mismo estado versionado (`schemaVersion` 2), ahora en `workspace_states.state` (jsonb, una fila por organización). Sin cambio de `SCHEMA_VERSION`.
+- `rateos.state` (modo local) nunca se borra; sus datos reales (sin demo ni ILUSTRATIVOS) se ofrecen para importar con copia previa.
+
+#### 5. Diseño
+- Base: migración `20261005013833_rateos_identity_workspace.sql` (4 tablas, RLS, grants por columna, helpers en `private`, trigger de alta, trigger de revisión). Ver [docs/SUPABASE_PLAN.md §0](../docs/SUPABASE_PLAN.md#0-qué-está-implementado).
+- Frontend: SDK vendorizado; `auth-gateway` / `workspace-gateway` en `js/data/`; `SupabaseRepository` hereda de `LocalStorageRepository`; `AuthService`, `auth-routing`, contextos de cuenta y demo en `js/services/`; rutas con nivel de acceso. Ver [docs/AUTH_ARCHITECTURE.md](../docs/AUTH_ARCHITECTURE.md).
+- Decisión jsonb vs normalizado: jsonb por simplicidad y riesgo cero en motores (tabla comparativa en SUPABASE_PLAN §0).
+
+#### 6. Pasos
+- [x] Inspección del proyecto Supabase con el plugin (vacío, sin tablas propias).
+- [x] Migración aplicada con el plugin y versionada; tests de RLS (40/40) y advisors sin hallazgos.
+- [x] Auth real (PKCE, enlaces bajo `/COTIZADORWEB/` con router por hash) y mensajes humanos.
+- [x] `SupabaseRepository`, sincronización, conflictos, sin conexión, sesión vencida, importación local.
+- [x] UX: guards, landing, demo aislada, cuenta nueva vacía, zona de cuenta, Configuración → Cuenta.
+- [x] Tests unitarios + E2E (Playwright con Supabase simulado) desktop y mobile.
+- [x] Revisión de seguridad adversarial y correcciones.
+- [ ] Configurar en el Dashboard: Site URL y Redirect URLs; SMTP propio antes de abrir el registro.
+- [ ] Merge del PR (dueño del repositorio) y prueba manual con un email real.
+
+#### 7. Tests
+`npm test` (sesión, rutas, repositorio con Supabase falso, aislamiento A/B, importación local, migraciones SQL estáticas, secretos), `supabase/tests/rls_test.sql` contra la base real, E2E con endpoints simulados (visitante, demo, usuario nuevo, existente, seguridad A/B, conflicto, sin conexión, sesión vencida, recuperación, importación).
+
+#### 8. Riesgos y mitigación
+Origen compartido de Pages (dominio propio recomendado), SMTP por defecto limitado, enlaces PKCE en otro navegador, límite de 5 MB por organización. Detalle en [docs/AUTH_ARCHITECTURE.md §9.1](../docs/AUTH_ARCHITECTURE.md#91-riesgos-conocidos-y-mitigaciones).
+
+#### 9. Rollback
+Revert del PR: el sitio vuelve al modo local (los datos de `rateos.state` nunca se tocaron). La base de Supabase puede quedar como está (sin consumidores) o revertirse con una migración nueva; nunca editando la base a mano.
+
+#### 10. Review multidisciplinario
+- Economía: sin cambios de fórmulas.
+- QA: casos de red, conflicto, sesión vencida, cuenta vacía, importación sin demo.
+- Seguridad: RLS probada, sin secretos, sin contraseñas guardadas, revisión adversarial con correcciones (copias por cuenta, sólo PKCE, cierre de sesión robusto, anti-clickjacking).
+- UX: estados vacíos, mensajes humanos, nunca "guardado" si no se guardó.
+
+#### 11. Documentación
+README, AGENTS, ARCHITECTURE, DATA_MODEL, AUTH_ARCHITECTURE, SUPABASE_PLAN, UX, CHANGELOG, `supabase/README.md`.
+
+#### 12. Criterio de terminación
+CI verde, PR mergeado por el dueño, configuración de Auth hecha y un registro real probado de punta a punta.
+
+#### Bitácora
+- 2026-10-05: implementación, tests, E2E y revisión de seguridad en `claude/supabase-auth-v1`.
