@@ -10,6 +10,7 @@
 import { h, s } from '../../dom.js';
 import { icon } from '../../components.js';
 import { APP_NAME } from '../../../config.js';
+import { formatBuildLabel } from '../../../core/format.js';
 
 // ------------------------------------------------------------------ íconos
 
@@ -331,7 +332,7 @@ export function isSignedIn(app) {
 export function siteFooter(app) {
   const signedIn = isSignedIn(app);
   const version = (app && app.version) || {};
-  const versionText = `v${version.version || 'dev'} · build ${version.commit || 'local'}`;
+  const versionText = formatBuildLabel(version);
   return h(
     'footer',
     { class: 'pub-footer' },

@@ -156,6 +156,16 @@ export function formatDayDate(value) {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+/**
+ * Versión visible del build: "v0.2.0 · build abc1234 · 05/10/26, 14:30".
+ * La fecha del build dice si estás viendo lo último publicado.
+ */
+export function formatBuildLabel(version = {}) {
+  const v = version && typeof version === 'object' ? version : {};
+  const when = v.buildDate ? formatDateTime(v.buildDate) : EMPTY;
+  return `v${v.version || 'dev'} · build ${v.commit || 'local'}${when !== EMPTY ? ` · ${when}` : ''}`;
+}
+
 /** Fecha y hora local legible. */
 export function formatDateTime(value) {
   if (!value) return EMPTY;

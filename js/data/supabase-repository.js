@@ -95,7 +95,7 @@ export class SupabaseRepository extends LocalStorageRepository {
    *   timers?: { setTimeout: Function, clearTimeout: Function },
    * }} options
    */
-  constructor({ gateway, organization, userId, role, cacheStorage = null, now, idFactory, appVersion = 'dev', timers = globalThis }) {
+  constructor({ gateway, organization, userId, role, cacheStorage = null, now, idFactory, appVersion = 'dev', timers = globalThis, confirmSchemaUpgrade = null }) {
     const memory = new MemoryStorage();
     const nowFn = typeof now === 'function' ? now : () => new Date().toISOString();
     super(memory, {
@@ -106,6 +106,7 @@ export class SupabaseRepository extends LocalStorageRepository {
       recoveryStorage: cacheStorage || memory,
       recoveryPrefix: organization && typeof organization.id === 'string' ? cloudRecoveryPrefix(userId, organization.id) : undefined,
       seedFactory: () => emptyWorkspaceState(organization, nowFn()),
+      confirmSchemaUpgrade,
     });
     if (!gateway || !organization || typeof organization.id !== 'string') throw new RepositoryError('Falta la organización de la cuenta.', 'invalid_storage');
     this.gateway = gateway;

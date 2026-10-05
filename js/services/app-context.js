@@ -112,7 +112,7 @@ const ACCOUNT_OPEN_MESSAGES = Object.freeze({
  *   appVersion?: string,
  * }} options
  */
-export async function createAccountContext({ user, workspaceGateway, adminGateway = null, cacheStorage, appVersion = 'dev' }) {
+export async function createAccountContext({ user, workspaceGateway, adminGateway = null, cacheStorage, appVersion = 'dev', confirmSchemaUpgrade = null }) {
   if (!user || typeof user.id !== 'string') throw new RepositoryError('No hay una sesión válida.', 'session_expired');
   const membership = await workspaceGateway.loadMembership(user.id);
   if (!membership.ok) {
@@ -126,6 +126,9 @@ export async function createAccountContext({ user, workspaceGateway, adminGatewa
     role: membership.role,
     cacheStorage: storage,
     appVersion,
+    // Staging comparte la base con producción: antes de actualizar el formato
+    // de los datos de la nube se pregunta (ver docs/DEPLOYMENT.md).
+    confirmSchemaUpgrade,
   });
   const init = await repository.init();
   // Rol de PLATAFORMA (RATEOS_ADMIN), separado del rol en la empresa. Lo

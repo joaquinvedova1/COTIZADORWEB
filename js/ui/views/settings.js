@@ -19,7 +19,7 @@
 import { h, mount, uniqueId, downloadText, readFileAsText } from '../dom.js';
 import { badge, banner, button, card, checkboxField, confirmDialog, formGrid, numberField, selectField, textField } from '../components.js';
 import { APP_NAME, FEATURES, MAX_BACKUP_BYTES, SCHEMA_VERSION, STORAGE_MODE, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../../config.js';
-import { formatDateTime, formatNumber, EMPTY } from '../../core/format.js';
+import { formatBuildLabel, formatDateTime, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { sanitizeText, validateNumber } from '../../core/validation.js';
 import { demoOrganization } from '../../domain/demo-data.js';
@@ -1090,7 +1090,7 @@ export async function render(root, app, params = {}) {
     const cloud = ctx.mode === 'cloud';
     const aboutCard = card(
       { title: 'Acerca de', className: 'about-card', level: 2 },
-      h('p', { class: 'about-version mono' }, `${APP_NAME} · v${v.version || 'dev'} · build ${v.commit || 'local'}`),
+      h('p', { class: 'about-version mono' }, `${APP_NAME} · ${formatBuildLabel(v)}`),
       kvList([
         ['Fecha de build', v.buildDate ? formatDateTime(v.buildDate) : 'Sin fecha (versión local)'],
         v.ref ? ['Referencia', v.ref] : null,

@@ -23,6 +23,7 @@
  */
 
 import { APP_NAME } from '../config.js';
+import { formatBuildLabel } from '../core/format.js';
 import { h, mount } from './dom.js';
 import { icon } from './components.js';
 
@@ -124,7 +125,7 @@ export function createLayout(container, { version = {} } = {}) {
   const orgAvatarEl = h('span', { class: 'org-avatar', 'aria-hidden': 'true' }, 'R');
   const orgNameEl = h('div', { class: 'org' }, '—');
   const orgBaseEl = h('div', { class: 'org-base' });
-  const buildEl = h('div', { class: 'build mono' }, `v${version.version || 'dev'} · build ${version.commit || 'local'}`);
+  const buildEl = h('div', { class: 'build mono', title: 'Versión, commit y fecha del build que estás viendo' }, formatBuildLabel(version));
   // Cuenta: nombre / email, rol y acciones. Nunca ids internos, tokens ni claves.
   let signOutHandler = null;
   const userNameEl = h('div', { class: 'account-name' });
