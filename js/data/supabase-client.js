@@ -15,6 +15,7 @@ import { SUPABASE, STORAGE_KEYS } from '../config.js';
 import { getBrowserStorage } from './memory-storage.js';
 
 let client = null;
+let sessionStore = null;
 
 /** Adaptador de storage para el SDK: si el navegador no deja guardar, la sesión vive sólo en memoria. */
 function sessionStorageAdapter(globalObject = globalThis) {
@@ -63,13 +64,24 @@ export function getSupabaseClient({ factory = createClient, config = SUPABASE } 
       autoRefreshToken: true,
       detectSessionInUrl: false,
       storageKey: STORAGE_KEYS.authSession,
-      storage: sessionStorageAdapter(),
+      storage: sessionStore || (sessionStore = sessionStorageAdapter()),
     },
   });
   return client;
 }
 
+/**
+ * Borra la sesión guardada en ESTE navegador (tokens y code_verifier de
+ * PKCE). Se llama siempre al cerrar sesión: si el SDK no pudo cerrarla (p. ej.
+ * token vencido y sin conexión) igual no queda nada con qué volver a entrar.
+ */
+export function clearLocalAuthSession(store = sessionStore || sessionStorageAdapter()) {
+  const key = STORAGE_KEYS.authSession;
+  [key, `${key}-code-verifier`, `${key}-user`].forEach((k) => store.removeItem(k));
+}
+
 /** Sólo para tests. */
 export function resetSupabaseClientForTests() {
   client = null;
+  sessionStore = null;
 }

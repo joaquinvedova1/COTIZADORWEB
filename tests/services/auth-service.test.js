@@ -16,7 +16,8 @@ import {
   siteUrlFor,
   validateSignUp,
 } from '../../js/services/auth-service.js';
-import { authErrorCode, publicUser } from '../../js/data/auth-gateway.js';
+import { authErrorCode, createAuthGateway, publicUser } from '../../js/data/auth-gateway.js';
+import { clearLocalAuthSession } from '../../js/data/supabase-client.js';
 import { createFakeAuthGateway, SpyStorage } from '../helpers/fake-supabase.js';
 
 const SITE = 'https://joaquinvedova1.github.io/COTIZADORWEB/';
@@ -173,7 +174,7 @@ describe('AuthService: enlaces de email con GitHub Pages + router por hash', () 
 
   test('parseAuthRedirect lee la query antes del # y descarta destinos inseguros', () => {
     const p = parseAuthRedirect(`${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva&code=abc#/`);
-    assert.deepEqual(p, { code: 'abc', tokenHash: null, type: null, kind: 'confirm', next: '/cotizaciones/nueva', error: null });
+    assert.deepEqual(p, { code: 'abc', kind: 'confirm', next: '/cotizaciones/nueva', error: null });
     assert.equal(parseAuthRedirect(`${SITE}?code=x&next=//evil.example`).next, null);
     assert.equal(parseAuthRedirect(`${SITE}#/inicio`), null);
     assert.equal(cleanAuthUrl(`${SITE}?auth=confirm&code=abc&next=%2Finicio#/login`), `${SITE}#/login`);
@@ -205,6 +206,23 @@ describe('AuthService: enlaces de email con GitHub Pages + router por hash', () 
     assert.ok(!r2.redirect.message.includes('Email link is invalid'), 'no muestra mensajes internos');
   });
 
+  test('enlaces con ?token_hash= se rechazan (sin PKCE alguien podría abrir SU cuenta en tu navegador)', async () => {
+    const gw = createFakeAuthGateway({ users: [{ id: 'atacante', email: 'x@example.com', password: 'clave-segura-1', emailConfirmed: true }] });
+    let verified = false;
+    gw.verifyEmailToken = async () => {
+      verified = true;
+      return { ok: true, user: { id: 'atacante', email: 'x@example.com' } };
+    };
+    const { auth, location } = service(gw, `${SITE}?token_hash=abc123&type=magiclink#/`);
+    const { redirect } = await auth.init();
+    assert.equal(verified, false, 'nunca se verifica un token_hash');
+    assert.deepEqual(gw.exchanged, []);
+    assert.equal(auth.status, AUTH_STATUS.anonymous);
+    assert.equal(redirect.ok, false);
+    assert.ok(redirect.message, 'mensaje humano');
+    assert.equal(location.href, `${SITE}#/`, 'el token no queda en la URL');
+  });
+
   test('recuperación: pide el email (respuesta neutra) y el enlace habilita "nueva contraseña"', async () => {
     const gw = createFakeAuthGateway({ users: [{ id: 'u1', email: 'a@example.com', password: 'vieja-clave-1', emailConfirmed: true }] });
     const { auth } = service(gw);
@@ -233,6 +251,17 @@ describe('auth-gateway: errores del SDK → códigos propios', () => {
     assert.equal(authErrorCode({ name: 'AuthRetryableFetchError', status: 0 }), 'network');
     assert.equal(authErrorCode({ code: 'otp_expired' }), 'link_invalid');
     assert.equal(authErrorCode({ code: 'algo_raro', message: 'pg: relation does not exist' }), 'unknown');
+  });
+
+  test('cerrar sesión borra la sesión de este navegador aunque el SDK falle (token vencido y sin conexión)', async () => {
+    const store = new SpyStorage({ 'rateos.auth': '{"access_token":"x","refresh_token":"y"}', 'rateos.auth-code-verifier': 'v', 'rateos.state': '{}' });
+    const client = { auth: { signOut: async () => ({ error: { name: 'AuthRetryableFetchError', status: 0 } }) } };
+    const gw = createAuthGateway(client, { clearLocalSession: () => clearLocalAuthSession(store) });
+    const res = await gw.signOut();
+    assert.equal(res.ok, false);
+    assert.equal(store.getItem('rateos.auth'), null, 'sin refresh token guardado');
+    assert.equal(store.getItem('rateos.auth-code-verifier'), null);
+    assert.equal(store.getItem('rateos.state'), '{}', 'no toca otros datos');
   });
 
   test('publicUser no expone tokens ni metadatos internos', () => {

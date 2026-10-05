@@ -21,7 +21,9 @@
  *   volver (otra pestaña, recarga, sin conexión, sesión vencida) se retoma.
  *   Cuando la nube confirma, la copia se borra.
  * - Las copias de recuperación (antes de importar, conflictos) van al
- *   localStorage del navegador, igual que en el modo local.
+ *   localStorage del navegador con un prefijo propio de la cuenta
+ *   (rateos.cloud.<usuario>.<organización>.recovery.): otra persona que use
+ *   el mismo navegador no las ve ni las puede restaurar en su cuenta.
  */
 
 import { STORAGE_KEYS } from '../config.js';
@@ -76,6 +78,11 @@ export function cloudCacheKey(userId, organizationId) {
   return `${STORAGE_KEYS.cloudCachePrefix}${userId}.${organizationId}`;
 }
 
+/** Copias de recuperación de una cuenta: propias de ese usuario y esa organización. */
+export function cloudRecoveryPrefix(userId, organizationId) {
+  return `${cloudCacheKey(userId, organizationId)}.recovery.`;
+}
+
 export class SupabaseRepository extends LocalStorageRepository {
   /**
    * @param {{
@@ -97,6 +104,7 @@ export class SupabaseRepository extends LocalStorageRepository {
       idFactory,
       appVersion,
       recoveryStorage: cacheStorage || memory,
+      recoveryPrefix: organization && typeof organization.id === 'string' ? cloudRecoveryPrefix(userId, organization.id) : undefined,
       seedFactory: () => emptyWorkspaceState(organization, nowFn()),
     });
     if (!gateway || !organization || typeof organization.id !== 'string') throw new RepositoryError('Falta la organización de la cuenta.', 'invalid_storage');

@@ -32,7 +32,8 @@ export function createLocalImportService({ repository, userId, storage, now = ()
     async importToAccount() {
       const { raw, real } = readLegacyLocalData(opts);
       if (!real.hasRealData) return { ok: false, message: 'No hay datos reales para importar en este navegador.' };
-      const backupKey = backupLegacyLocalData(raw, { ...opts, now: now() });
+      // La copia queda entre las de la cuenta (Configuración → Datos y backup).
+      const backupKey = backupLegacyLocalData(raw, { ...opts, now: now(), prefix: repository.recoveryPrefix });
       if (!backupKey) {
         return { ok: false, message: 'No hay espacio en el navegador para guardar una copia de seguridad antes de importar. Exportá un backup y liberá espacio.' };
       }

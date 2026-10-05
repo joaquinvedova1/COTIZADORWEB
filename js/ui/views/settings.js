@@ -97,6 +97,10 @@ const RECOVERY_REASONS = Object.freeze({
   'before-import': 'Antes de importar un backup',
   'before-demo-reset': 'Antes de restaurar los datos de ejemplo',
   'before-start-fresh': 'Antes de empezar con tu empresa en limpio',
+  'before-cloud-import': 'Datos de este navegador, antes de importarlos a tu cuenta',
+  'before-local-import': 'Tu cuenta, antes de importar los datos de este navegador',
+  'cloud-conflict-local': 'Tu versión, antes de recargar la más nueva',
+  'cloud-unsynced': 'Cambios sin subir cuando otro dispositivo guardó antes',
 });
 
 // --------------------------------------------------------- parseo de listas
@@ -277,8 +281,19 @@ function kvList(entries) {
   return h('dl', { class: 'kv-list' }, ...entries.filter(Boolean).map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
 }
 
-function recoveryLabel(key) {
-  const rest = key.replace(/^rateos\.recovery\./, '');
+/**
+ * Parte visible de una clave de recuperación: fecha y motivo. Las de una
+ * cuenta llevan antes usuario y organización (rateos.cloud.<u>.<o>.recovery.),
+ * que nunca se muestran ni van al nombre del archivo.
+ */
+export function recoveryKeyTail(key) {
+  const text = String(key || '');
+  const i = text.indexOf('recovery.');
+  return i >= 0 ? text.slice(i + 'recovery.'.length) : text;
+}
+
+export function recoveryLabel(key) {
+  const rest = recoveryKeyTail(key);
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.(.+)$/.exec(rest);
   if (!match) return { date: EMPTY, reason: rest };
   const iso = `${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`;
@@ -287,8 +302,9 @@ function recoveryLabel(key) {
   return { date: formatDateTime(iso), reason };
 }
 
-function recoveryFilename(key) {
-  return `${key.replace(/[^a-z0-9-]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')}.json`;
+export function recoveryFilename(key) {
+  const tail = recoveryKeyTail(key).replace(/[^a-z0-9-]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return `rateos-recovery-${tail || 'copia'}.json`;
 }
 
 // -------------------------------------------------------------------- vista
@@ -1034,7 +1050,7 @@ export async function render(root, app, params = {}) {
                 return h(
                   'li',
                   {},
-                  h('div', { class: 'cell-main' }, h('span', { class: 'cell-title' }, info.reason), h('span', { class: 'cell-sub mono' }, `${info.date} · ${key}`)),
+                  h('div', { class: 'cell-main' }, h('span', { class: 'cell-title' }, info.reason), h('span', { class: 'cell-sub mono' }, info.date)),
                   h(
                     'div',
                     { class: 'row' },

@@ -446,10 +446,15 @@ async function boot(root) {
     accountState = 'loading';
     accountError = null;
     if (router) router.render();
+    const user = auth.user;
     try {
-      const ctx = await createAccountContext({ user: auth.user, workspaceGateway: cloud.workspaceGateway, appVersion: version.version });
-      if (auth.status !== 'authenticated') {
+      const ctx = await createAccountContext({ user, workspaceGateway: cloud.workspaceGateway, appVersion: version.version });
+      // Mientras se abría, la sesión se cerró o cambió de persona (otra pestaña): se descarta.
+      if (auth.status !== 'authenticated' || !auth.user || auth.user.id !== user.id) {
         ctx.dispose();
+        accountState = 'idle';
+        // Si ahora hay otra persona con sesión, se abre SU cuenta.
+        if (auth.status === 'authenticated' && auth.user) await openAccount();
         return;
       }
       account = ctx;
@@ -523,6 +528,11 @@ async function boot(root) {
         router.navigate('#/recuperar-contrasena');
         return;
       }
+      // Otra persona ingresó en otra pestaña: nunca se siguen mostrando los datos de la anterior.
+      if (account && state.user && account.account.user.id !== state.user.id) {
+        closeAccount();
+        router.navigate('#/inicio', { replace: true });
+      }
       if (!account && accountState !== 'loading') await openAccount();
       return;
     }
@@ -540,9 +550,31 @@ async function boot(root) {
   });
 }
 
+/**
+ * Anti-clickjacking: GitHub Pages no permite enviar X-Frame-Options ni
+ * frame-ancestors (una CSP en <meta> no lo soporta), así que RATEOS se niega
+ * a funcionar dentro de otra página (botones de cuenta "debajo" de otro sitio).
+ */
+function isFramed() {
+  try {
+    return window.top !== window.self;
+  } catch {
+    return true;
+  }
+}
+
+function renderFramed(root) {
+  mount(root, h('div', { class: 'auth-loading auth-error', role: 'alert' },
+    h('p', {}, 'Por seguridad, RATEOS no se puede usar dentro de otra página.'),
+    h('a', { href: window.location.href.split('#')[0], target: '_top', rel: 'noopener noreferrer' }, 'Abrir RATEOS en una pestaña propia')));
+}
+
 const appRoot = document.getElementById('app');
 installGlobalErrorHandlers();
 // La región de avisos (aria-live) existe vacía desde el inicio: así los
 // lectores de pantalla anuncian también el primer aviso.
 ensureToastRegion();
-if (appRoot) boot(appRoot);
+if (appRoot) {
+  if (isFramed()) renderFramed(appRoot);
+  else boot(appRoot);
+}

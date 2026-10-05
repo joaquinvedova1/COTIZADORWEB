@@ -70,7 +70,7 @@ async function call(fn) {
 /**
  * @param {object} client cliente de Supabase (js/data/supabase-client.js)
  */
-export function createAuthGateway(client) {
+export function createAuthGateway(client, { clearLocalSession = () => {} } = {}) {
   if (!client || !client.auth) throw new Error('Cliente de Supabase inválido.');
   const auth = client.auth;
   return {
@@ -135,6 +135,13 @@ export function createAuthGateway(client) {
     /** Cierra la sesión de este navegador (el refresh token queda revocado en el servidor). */
     async signOut() {
       const res = await call(() => auth.signOut({ scope: 'local' }));
+      // Aunque el SDK falle (token vencido y sin conexión), la sesión de este
+      // navegador se borra: nadie puede volver a entrar con ella al recargar.
+      try {
+        clearLocalSession();
+      } catch {
+        /* no había nada guardado */
+      }
       return res.ok ? { ok: true, code: null } : { ok: false, code: res.code };
     },
 
@@ -158,13 +165,6 @@ export function createAuthGateway(client) {
       const res = await call(() => auth.exchangeCodeForSession(code));
       if (!res.ok) return { ok: false, code: res.code };
       return { ok: true, code: null, user: publicUser(res.data && (res.data.user || (res.data.session && res.data.session.user))) };
-    },
-
-    /** Enlaces con token_hash (plantillas de email personalizadas): funcionan en otro dispositivo. */
-    async verifyEmailToken(tokenHash, type) {
-      const res = await call(() => auth.verifyOtp({ token_hash: tokenHash, type }));
-      if (!res.ok) return { ok: false, code: res.code };
-      return { ok: true, code: null, user: publicUser(res.data && res.data.user) };
     },
   };
 }

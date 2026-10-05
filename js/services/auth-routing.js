@@ -24,7 +24,8 @@ const GUEST_PATHS = new Set(['/login', '/registro', '/recuperar-contrasena']);
 export function isSafeNextPath(path) {
   if (typeof path !== 'string' || path.length < 2 || path.length > 200) return false;
   if (!path.startsWith('/') || path.startsWith('//')) return false;
-  if (!/^\/[A-Za-z0-9\-_/.%]*$/.test(path)) return false;
+  // Sin "%": nada de codificaciones que se decodifiquen distinto en otro lado.
+  if (!/^\/[A-Za-z0-9\-_/.]*$/.test(path)) return false;
   if (path.includes('..')) return false;
   const base = path.replace(/\/+$/, '');
   return !GUEST_PATHS.has(base) && base !== '';

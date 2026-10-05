@@ -78,9 +78,9 @@ export function setLocalImportDecision(userId, decision, { storage = getBrowserS
  * Copia de seguridad del texto local ANTES de importarlo (en una clave de
  * recuperación; el original sigue en rateos.state).
  */
-export function backupLegacyLocalData(raw, { storage = getBrowserStorage(), now = new Date().toISOString() } = {}) {
+export function backupLegacyLocalData(raw, { storage = getBrowserStorage(), now = new Date().toISOString(), prefix = STORAGE_KEYS.recoveryPrefix } = {}) {
   if (!storage || typeof raw !== 'string') return null;
-  const key = `${STORAGE_KEYS.recoveryPrefix}${now.replace(/[:.]/g, '-')}.before-cloud-import`;
+  const key = `${prefix}${now.replace(/[:.]/g, '-')}.before-cloud-import`;
   try {
     storage.setItem(key, raw);
     return key;

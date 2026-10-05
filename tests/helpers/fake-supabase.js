@@ -173,9 +173,6 @@ export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) 
       session = { id: u.id, email: u.email, fullName: u.fullName, emailConfirmed: true };
       return { ok: true, user: { ...session } };
     },
-    async verifyEmailToken() {
-      return { ok: false, code: 'link_invalid' };
-    },
     /** Simula que la sesión venció o se revocó en el servidor. */
     expire() {
       session = null;

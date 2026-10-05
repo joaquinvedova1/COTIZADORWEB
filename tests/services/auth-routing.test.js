@@ -29,7 +29,7 @@ describe('auth-routing', () => {
 
   test('destino seguro: sólo rutas internas (sin "//", protocolos, ".." ni pantallas de ingreso)', () => {
     for (const ok of ['/inicio', '/cotizaciones/nueva', '/cotizaciones/abc-123/result', '/configuracion/cuenta']) assert.equal(isSafeNextPath(ok), true, ok);
-    for (const bad of ['//evil.example', 'https://evil.example', 'javascript:alert(1)', '/login', '/registro', '/recuperar-contrasena', '/../x', '', '/', '/a b', null]) assert.equal(isSafeNextPath(bad), false, String(bad));
+    for (const bad of ['//evil.example', 'https://evil.example', 'javascript:alert(1)', '/login', '/registro', '/recuperar-contrasena', '/../x', '', '/', '/a b', '/%2F%2Fevil.example', '/%2e%2e/x', '/%6Cogin', '/%', '/a\\b', null]) assert.equal(isSafeNextPath(bad), false, String(bad));
     assert.equal(nextFromHash('#/login?next=%2F%2Fevil.example'), null);
     assert.equal(loginHash('/inicio', { expired: true }), '#/login?next=%2Finicio&sesion=vencida');
     assert.equal(registerHash('/cotizaciones/nueva'), '#/registro?next=%2Fcotizaciones%2Fnueva');

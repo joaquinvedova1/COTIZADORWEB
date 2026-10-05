@@ -201,6 +201,37 @@ describe('aislamiento entre cuentas y de la demo', () => {
     assert.ok(!JSON.stringify(server.workspaces.get(orgB).state).includes('De A'));
   });
 
+  test('las copias de recuperación son de cada cuenta: otra persona en el mismo navegador no las ve ni las restaura', async () => {
+    const server = createFakeServer();
+    const orgA = server.addUser({ id: 'a' });
+    server.addUser({ id: 'b' });
+    const cache = new SpyStorage({ 'rateos.recovery.2026-01-01T00-00-00-000Z.before-import': '{"modo":"local"}' });
+    const a = await openRepo(server, 'a', { cache });
+    await a.repo.saveQuote({ ...createEmptyQuote({ organizationId: a.orgId }), name: 'Secreta de A' });
+    // Otro dispositivo guarda → conflicto → "Recargar" deja la versión local en una copia.
+    server.externalSave(orgA, server.workspaces.get(orgA).state);
+    await assert.rejects(a.repo.saveQuote({ ...createEmptyQuote({ organizationId: a.orgId }), name: 'Otra de A' }), (e) => e.code === 'conflict');
+    await a.repo.reloadFromCloud();
+    const keysA = a.repo.listRecoverySnapshots();
+    assert.ok(keysA.length >= 1);
+    assert.ok(keysA.every((k) => k.startsWith(`rateos.cloud.a.${orgA}.recovery.`)), keysA.join(','));
+    assert.ok(!keysA.some((k) => k.startsWith('rateos.recovery.')), 'las copias del modo local no se mezclan con las de la cuenta');
+
+    const b = await openRepo(server, 'b', { cache });
+    assert.deepEqual(b.repo.listRecoverySnapshots(), [], 'B no ve las copias de A');
+    assert.equal(b.repo.getRecoverySnapshot(keysA[0]), null, 'B no puede leer una copia de A aunque conozca la clave');
+    assert.equal(b.repo.deleteRecoverySnapshot(keysA[0]), false, 'ni borrarla');
+    assert.equal(b.repo.getRecoverySnapshot('rateos.recovery.2026-01-01T00-00-00-000Z.before-import'), null);
+    assert.ok(cache.getItem(keysA[0]), 'la copia de A sigue intacta');
+    // En pantalla y en el archivo descargado: fecha y motivo, nunca usuario ni organización.
+    const { recoveryLabel, recoveryFilename } = await import('../../js/ui/views/settings.js');
+    const label = recoveryLabel(keysA[0]);
+    assert.equal(label.reason, 'Tu versión, antes de recargar la más nueva');
+    assert.ok(!JSON.stringify(label).includes(orgA) && !recoveryFilename(keysA[0]).includes(orgA));
+    assert.match(recoveryFilename(keysA[0]), /^rateos-recovery-\d{4}-\d{2}-\d{2}T[\d-]+Z-cloud-conflict-local\.json$/);
+    assert.equal(recoveryFilename('rateos.recovery.2026-01-01T00-00-00-000Z.before-import'), 'rateos-recovery-2026-01-01T00-00-00-000Z-before-import.json');
+  });
+
   test('la demo pública vive en memoria: no escribe en el navegador ni en la nube', async () => {
     const original = globalThis.localStorage;
     const spy = new SpyStorage();

@@ -93,6 +93,8 @@ describe('importar a la cuenta', () => {
     assert.equal(res.ok, true);
     assert.equal(res.quotes, 1);
     assert.ok(storage.getItem(res.backupKey) === original, 'copia del texto local antes de importar');
+    assert.ok(res.backupKey.startsWith('rateos.cloud.a.') && res.backupKey.includes('.recovery.'), 'la copia es de la cuenta que importa');
+    assert.ok(ctx.repository.listRecoverySnapshots().includes(res.backupKey), 'y aparece en sus copias (Configuración → Datos y backup)');
     const names = (await ctx.quotes.listQuotes()).map((i) => i.quote.name);
     assert.deepEqual(names, ['Mi cotización real']);
     const cloud = JSON.stringify([...server.workspaces.values()][0].state);

@@ -97,7 +97,14 @@ export function authRedirectUrl(kind, next = null, siteUrl = PUBLIC_SITE_URL) {
 
 /**
  * Lee los parámetros de Auth de la URL (query antes del #).
- * @returns {null | { code?: string, tokenHash?: string, type?: string, kind: string|null, next: string|null, error: string|null }}
+ *
+ * Sólo se aceptan enlaces PKCE (?code=…): canjearlos exige el code_verifier
+ * que quedó en ESTE navegador al registrarse o pedir la recuperación, así que
+ * nadie puede hacer entrar a otra persona en su cuenta mandándole un enlace.
+ * Los enlaces con ?token_hash= (que no exigen nada de este navegador) se
+ * rechazan: un atacante podría usarlos para abrir SU cuenta en el navegador
+ * de la víctima y recibir lo que ella cargue.
+ * @returns {null | { code: string|null, kind: string|null, next: string|null, error: string|null }}
  */
 export function parseAuthRedirect(href) {
   let url;
@@ -109,14 +116,12 @@ export function parseAuthRedirect(href) {
   const p = url.searchParams;
   const code = p.get('code');
   const tokenHash = p.get('token_hash');
-  const error = p.get('error_code') || p.get('error');
+  const error = p.get('error_code') || p.get('error') || (tokenHash && !code ? 'unsupported_link' : null);
   const kind = p.get('auth');
-  if (!code && !tokenHash && !error && !kind) return null;
+  if (!code && !error && !kind) return null;
   const next = p.get('next');
   return {
     code: code || null,
-    tokenHash: tokenHash || null,
-    type: p.get('type') || null,
     kind: kind === 'recovery' || kind === 'confirm' ? kind : null,
     next: next && isSafeNextPath(next) ? next : null,
     error: error || null,
@@ -215,7 +220,7 @@ export function createAuthService({ gateway, location = globalThis.location, his
       return { redirect };
     },
 
-    /** Canjea ?code= / ?token_hash= de los enlaces de email y limpia la URL. */
+    /** Canjea el ?code= (PKCE) de los enlaces de email y limpia la URL. */
     async handleRedirect() {
       const href = location && location.href;
       const params = href ? parseAuthRedirect(href) : null;
@@ -232,12 +237,10 @@ export function createAuthService({ gateway, location = globalThis.location, his
         result = { ok: false, code: AUTH_ERRORS.linkInvalid };
       } else if (params.code) {
         result = await gateway.exchangeCode(params.code);
-      } else if (params.tokenHash && params.type) {
-        result = await gateway.verifyEmailToken(params.tokenHash, params.type);
       } else {
         result = { ok: false, code: null };
       }
-      const kind = params.kind || (params.type === 'recovery' ? 'recovery' : params.code || params.tokenHash ? 'confirm' : null);
+      const kind = params.kind || (params.code ? 'confirm' : null);
       if (result.ok && kind === 'recovery') recoveryMode = true;
       let message = null;
       if (!result.ok && result.code) {

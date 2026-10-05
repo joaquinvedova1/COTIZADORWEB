@@ -29,16 +29,20 @@ export const MAX_RECOVERY_SNAPSHOTS = 3;
 export class LocalStorageRepository extends StorageRepository {
   /**
    * @param {Storage} storage objeto con la interfaz Web Storage
-   * @param {{ key?: string, now?: () => string, idFactory?: () => string, seedFactory?: () => object, appVersion?: string, recoveryStorage?: Storage }} [options]
+   * @param {{ key?: string, now?: () => string, idFactory?: () => string, seedFactory?: () => object, appVersion?: string, recoveryStorage?: Storage, recoveryPrefix?: string }} [options]
    *   recoveryStorage: dónde se guardan las copias de recuperación (por
    *   defecto, el mismo storage). SupabaseRepository trabaja sobre un storage
    *   en memoria y guarda las copias en el localStorage del navegador.
+   *   recoveryPrefix: prefijo de esas claves. Una cuenta usa uno propio (por
+   *   usuario y organización): otra persona en el mismo navegador nunca ve,
+   *   descarga ni restaura sus copias.
    */
-  constructor(storage, { key = STORAGE_KEYS.state, now = () => new Date().toISOString(), idFactory = createId, seedFactory = null, appVersion = 'dev', recoveryStorage = null } = {}) {
+  constructor(storage, { key = STORAGE_KEYS.state, now = () => new Date().toISOString(), idFactory = createId, seedFactory = null, appVersion = 'dev', recoveryStorage = null, recoveryPrefix = STORAGE_KEYS.recoveryPrefix } = {}) {
     super();
     if (!storage || typeof storage.getItem !== 'function') throw new RepositoryError('Storage inválido.', 'invalid_storage');
     this.storage = storage;
     this.recoveryStorage = recoveryStorage && typeof recoveryStorage.getItem === 'function' ? recoveryStorage : storage;
+    this.recoveryPrefix = typeof recoveryPrefix === 'string' && recoveryPrefix ? recoveryPrefix : STORAGE_KEYS.recoveryPrefix;
     this.key = key;
     this.now = now;
     this.idFactory = idFactory;
@@ -519,7 +523,7 @@ export class LocalStorageRepository extends StorageRepository {
 
   /** Guarda una copia literal en una clave de recuperación. Devuelve la clave. */
   saveRecoverySnapshot(raw, reason) {
-    const base = `${STORAGE_KEYS.recoveryPrefix}${this.now().replace(/[:.]/g, '-')}.${reason}`;
+    const base = `${this.recoveryPrefix}${this.now().replace(/[:.]/g, '-')}.${reason}`;
     let key = base;
     // Dos copias en el mismo milisegundo no deben pisarse.
     for (let n = 2; this.recoveryStorage.getItem(key) !== null; n += 1) key = `${base}.${n}`;
@@ -541,14 +545,14 @@ export class LocalStorageRepository extends StorageRepository {
     const keys = [];
     for (let i = 0; i < this.recoveryStorage.length; i += 1) {
       const k = this.recoveryStorage.key(i);
-      if (k && k.startsWith(STORAGE_KEYS.recoveryPrefix)) keys.push(k);
+      if (k && k.startsWith(this.recoveryPrefix)) keys.push(k);
     }
     return keys.sort().reverse();
   }
 
   /** Elimina una copia de recuperación (sólo claves de recuperación). */
   deleteRecoverySnapshot(key) {
-    if (typeof key !== 'string' || !key.startsWith(STORAGE_KEYS.recoveryPrefix)) return false;
+    if (typeof key !== 'string' || !key.startsWith(this.recoveryPrefix)) return false;
     if (this.recoveryStorage.getItem(key) === null) return false;
     this.recoveryStorage.removeItem(key);
     return true;
@@ -556,7 +560,7 @@ export class LocalStorageRepository extends StorageRepository {
 
   /** Contenido literal de una copia de recuperación. */
   getRecoverySnapshot(key) {
-    if (typeof key !== 'string' || !key.startsWith(STORAGE_KEYS.recoveryPrefix)) return null;
+    if (typeof key !== 'string' || !key.startsWith(this.recoveryPrefix)) return null;
     return this.recoveryStorage.getItem(key);
   }
 
