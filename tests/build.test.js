@@ -13,8 +13,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  LEGACY_ENTRY_SHIM,
   assertSafeOutDir,
   build,
+  buildIdFor,
+  renderPublishedIndex,
+  stylesheetsOf,
   classifyRef,
   extractCssUrls,
   extractHtmlRefs,
@@ -61,28 +65,33 @@ describe('build({ outDir }) en un directorio temporal', () => {
     assert.equal(result.outDir, outDir);
   });
 
-  test('contiene index.html, js/app.js, css/styles.css, .nojekyll y version.json', () => {
-    for (const file of ['index.html', 'js/app.js', 'css/styles.css', '.nojekyll', 'version.json']) {
+  const BUILT = 'build/abcdef1';
+
+  test('contiene index.html, boot.js, .nojekyll, version.json y el build versionado (js/app.js, css/styles.css)', () => {
+    for (const file of ['index.html', 'boot.js', '.nojekyll', 'version.json', `${BUILT}/js/app.js`, `${BUILT}/css/styles.css`, `${BUILT}/assets/favicon.svg`]) {
       assert.ok(existsSync(path.join(outDir, file)), `Falta ${file} en el build`);
     }
   });
 
-  test('copia todos los módulos de js/ y todos los CSS', () => {
+  test('copia todos los módulos de js/ y todos los CSS dentro de build/<commit>/', () => {
     const source = listRecursive(path.join(ROOT, 'js')).filter((f) => !/\.test\.[cm]?js$/.test(f) && !f.split('/').some((s) => s.startsWith('.')));
-    const built = new Set(listRecursive(path.join(outDir, 'js')));
+    const built = new Set(listRecursive(path.join(outDir, BUILT, 'js')));
     const missing = source.filter((f) => !built.has(f));
-    assert.deepEqual(missing, [], 'Módulos que faltan en dist/js');
+    assert.deepEqual(missing, [], `Módulos que faltan en dist/${BUILT}/js`);
     const css = readdirSync(path.join(ROOT, 'css')).filter((f) => f.endsWith('.css'));
-    for (const f of css) assert.ok(existsSync(path.join(outDir, 'css', f)), `Falta css/${f}`);
+    for (const f of css) assert.ok(existsSync(path.join(outDir, BUILT, 'css', f)), `Falta ${BUILT}/css/${f}`);
   });
 
-  test('version.json es válido y coincide con package.json', () => {
+  test('version.json es válido, coincide con package.json y trae el manifiesto del build', () => {
     const info = JSON.parse(readFileSync(path.join(outDir, 'version.json'), 'utf8'));
     assert.equal(info.version, PKG.version);
     assert.equal(info.commit, 'abcdef1', 'SHA corto de 7 caracteres, en minúsculas');
     assert.equal(info.ref, 'v0.1.0');
     assert.equal(info.buildDate, '2026-01-02T03:04:05.000Z');
-    assert.deepEqual(Object.keys(info).sort(), ['buildDate', 'commit', 'ref', 'version']);
+    assert.deepEqual(Object.keys(info).sort(), ['build', 'buildDate', 'commit', 'ref', 'version']);
+    const sourceStyles = stylesheetsOf(readFileSync(path.join(ROOT, 'index.html'), 'utf8'));
+    assert.deepEqual(info.build, { base: `${BUILT}/`, entry: 'js/app.js', styles: sourceStyles });
+    assert.ok(sourceStyles.length >= 1);
     assert.deepEqual(result.versionInfo, info);
   });
 
@@ -96,8 +105,52 @@ describe('build({ outDir }) en un directorio temporal', () => {
     assert.deepEqual(files.filter((f) => /\.test\.[cm]?js$/.test(f)), []);
     const topLevel = new Set(readdirSync(outDir));
     for (const entry of topLevel) {
-      assert.ok(['index.html', '.nojekyll', 'version.json', 'assets', 'css', 'js'].includes(entry), `Entrada inesperada en dist/: ${entry}`);
+      assert.ok(['index.html', '.nojekyll', 'version.json', 'boot.js', 'build', 'js'].includes(entry), `Entrada inesperada en dist/: ${entry}`);
     }
+  });
+
+  test('cache busting: fuera de build/<commit>/ no hay JS ni CSS de la aplicación (sólo boot.js y el shim js/app.js)', () => {
+    const files = listRecursive(outDir).filter((f) => /\.(?:m?js|css)$/.test(f) && !f.startsWith(`${BUILT}/`));
+    assert.deepEqual(files.sort(), ['boot.js', 'js/app.js']);
+    assert.equal(readFileSync(path.join(outDir, 'js', 'app.js'), 'utf8'), LEGACY_ENTRY_SHIM);
+    assert.deepEqual(readdirSync(path.join(outDir, 'build')), ['abcdef1'], 'un solo build por deploy');
+  });
+
+  test('cache busting: dist/index.html carga sólo boot.js; ni CSS ni ./js/app.js sin versionar', () => {
+    const html = readFileSync(path.join(outDir, 'index.html'), 'utf8');
+    const refs = extractHtmlRefs(html).map((r) => r.value);
+    assert.deepEqual(refs.sort(), ['./boot.js', `./${BUILT}/assets/favicon.svg`].sort());
+    assert.match(html, new RegExp(`<meta name="rateos-build" content="${BUILT}/" data-entry="js/app.js" data-styles="css/styles\\.css[^"]*">`));
+    assert.match(html, /<div id="app" class="boot" aria-busy="true" hidden>/);
+    // La CSP no cambia (sin scripts inline).
+    const source = readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const csp = (t) => t.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)[1];
+    assert.equal(csp(html), csp(source));
+    assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/, 'sin scripts inline');
+  });
+
+  test('cache busting: ningún import de build/<commit>/ sale de su carpeta', () => {
+    const jsFiles = listRecursive(path.join(outDir, BUILT)).filter((f) => f.endsWith('.js'));
+    const outside = [];
+    for (const rel of jsFiles) {
+      const full = path.join(outDir, BUILT, rel);
+      for (const imp of extractImports(readFileSync(full, 'utf8'))) {
+        if (imp.kind === 'dynamic-expression') continue;
+        const target = path.resolve(path.dirname(full), imp.specifier);
+        if (path.relative(path.join(outDir, BUILT), target).startsWith('..')) outside.push(`${rel} → ${imp.specifier}`);
+      }
+    }
+    assert.ok(jsFiles.length > 50);
+    assert.deepEqual(outside, []);
+  });
+
+  test('cache busting: otro commit publica en otra carpeta (URLs distintas para todos los JS y CSS)', async () => {
+    const otherOut = path.join(tmp, 'dist-otro');
+    const other = await build({ outDir: otherOut, env: { GITHUB_SHA: '0123456789abcdef0123456789abcdef01234567' }, now });
+    assert.equal(other.ok, true, other.errors.join('\n'));
+    assert.equal(other.versionInfo.build.base, 'build/0123456/');
+    assert.ok(existsSync(path.join(otherOut, 'build/0123456/js/app.js')));
+    assert.ok(!existsSync(path.join(otherOut, BUILT)));
   });
 
   test('las rutas de dist/index.html son relativas', () => {
@@ -116,6 +169,33 @@ describe('build({ outDir }) en un directorio temporal', () => {
     const again = await build({ outDir, env, now });
     assert.equal(again.ok, true);
     assert.ok(!existsSync(marker), 'El build debe limpiar el directorio de salida');
+  });
+});
+
+describe('build: index.html publicado y id del build', () => {
+  const SOURCE = readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const manifest = { base: 'build/abc1234/', entry: 'js/app.js', styles: stylesheetsOf(SOURCE) };
+
+  test('stylesheetsOf toma los CSS de index.html en orden', () => {
+    assert.deepEqual(stylesheetsOf(SOURCE), ['css/styles.css', 'css/views.css', 'css/quote.css', 'css/result.css', 'css/public.css']);
+  });
+
+  test('renderPublishedIndex reemplaza CSS y app.js por boot.js y versiona el favicon', () => {
+    const html = renderPublishedIndex(SOURCE, manifest);
+    assert.doesNotMatch(html, /href="\.\/css\//);
+    assert.doesNotMatch(html, /src="\.\/js\/app\.js"/);
+    assert.match(html, /<script type="module" src="\.\/boot\.js"><\/script>/);
+    assert.match(html, /href="\.\/build\/abc1234\/assets\/favicon\.svg"/);
+  });
+
+  test('renderPublishedIndex falla si index.html ya no tiene lo que reemplaza (no publica a medias)', () => {
+    assert.throws(() => renderPublishedIndex(SOURCE.replace('<script type="module" src="./js/app.js"></script>', ''), manifest), /js\/app\.js/);
+    assert.throws(() => renderPublishedIndex(SOURCE.replace(/<link rel="stylesheet"[^\n]*\n/g, ''), manifest), /stylesheet/);
+  });
+
+  test('buildIdFor: SHA corto del commit; sin commit, "local-" + hash del contenido', () => {
+    assert.equal(buildIdFor('afb761f'), 'afb761f');
+    assert.equal(buildIdFor('local', 'deadbeefcafe1234'), 'local-deadbeefca');
   });
 });
 

@@ -8,18 +8,38 @@
  *
  * Qué hace:
  *  1. Limpia y crea el directorio de salida (por defecto dist/).
- *  2. Copia SÓLO lo que se publica: index.html, .nojekyll, assets/ (si existe),
- *     css/ y js/ (recursivo). Nunca copia tests, docs, scripts, .github,
+ *  2. Copia SÓLO lo que se publica. js/, css/ y assets/ van a una carpeta
+ *     VERSIONADA build/<commit>/ (cache busting: ver más abajo); boot.js y
+ *     .nojekyll van a la raíz. Nunca copia tests, docs, scripts, .github,
  *     node_modules, dotfiles ni archivos *.test.js.
- *  3. Escribe dist/version.json { version, commit, buildDate, ref }.
- *  4. Valida el sitio generado:
- *     - todo src/href local de index.html es relativo y existe;
- *     - todos los imports (estáticos y dinámicos literales) de dist/js son
- *       relativos y resuelven a archivos existentes dentro de dist/;
+ *  3. Genera dist/index.html a partir de index.html: en lugar de los CSS y
+ *     de ./js/app.js carga ./boot.js (con un respaldo del manifiesto en
+ *     <meta name="rateos-build">).
+ *  4. Escribe dist/version.json { version, commit, buildDate, ref, build },
+ *     donde build = { base: "build/<id>/", entry, styles } es el manifiesto
+ *     que lee boot.js.
+ *  5. Escribe dist/js/app.js: un shim de transición para index.html viejos
+ *     cacheados (de antes de las carpetas versionadas) que recarga la página.
+ *  6. Valida el sitio generado:
+ *     - todo src/href local de index.html es relativo y existe, y no apunta
+ *       a js/ ni css/ sin versionar;
+ *     - el manifiesto de version.json apunta a archivos existentes;
+ *     - todos los imports (estáticos y dinámicos literales) de los JS son
+ *       relativos, resuelven a archivos existentes y no salen de su build;
  *     - las url() de los CSS son relativas y existen;
  *     - ningún string de JS apunta a la raíz del dominio ("/js/…", "/css/…"),
  *       porque el sitio vive bajo /COTIZADORWEB/.
- *  5. Imprime un resumen. Exit code 1 si algo falla.
+ *  7. Imprime un resumen. Exit code 1 si algo falla.
+ *
+ * Cache busting. GitHub Pages cachea cada archivo en el navegador
+ * (max-age=600) y no permite cambiar headers. Con URLs fijas (./js/app.js,
+ * ./js/ui/layout.js…) un deploy nuevo podía convivir con módulos viejos
+ * en caché, y el grafo de módulos quedaba mezclado. Ahora cada build vive
+ * en build/<id>/ (id = SHA corto del commit): las URLs de todos los JS, CSS
+ * y assets cambian en cada deploy y una URL nunca cambia de contenido. Los
+ * imports internos son relativos, así que todo el grafo sale de la misma
+ * carpeta. Lo único sin versionar es index.html, boot.js (estable) y
+ * version.json, que boot.js pide sin caché para elegir la carpeta.
  *
  * Las funciones se exportan para reutilizarlas desde los tests
  * (tests/build.test.js, tests/architecture.test.js).
@@ -34,12 +54,35 @@ export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 
 /** Lo único que se publica. `required: false` → se omite si no existe. */
 export const PUBLISHED_ENTRIES = Object.freeze([
-  Object.freeze({ name: 'index.html', type: 'file', required: true }),
   Object.freeze({ name: '.nojekyll', type: 'file', required: false }),
-  Object.freeze({ name: 'assets', type: 'dir', required: false }),
-  Object.freeze({ name: 'css', type: 'dir', required: true }),
-  Object.freeze({ name: 'js', type: 'dir', required: true }),
+  Object.freeze({ name: 'boot.js', type: 'file', required: true }),
+  Object.freeze({ name: 'assets', type: 'dir', required: false, versioned: true }),
+  Object.freeze({ name: 'css', type: 'dir', required: true, versioned: true }),
+  Object.freeze({ name: 'js', type: 'dir', required: true, versioned: true }),
 ]);
+
+/** Carpeta de los builds versionados dentro de dist/. */
+export const BUILD_DIR = 'build';
+/** Entrada de la aplicación dentro de build/<id>/. */
+export const APP_ENTRY = 'js/app.js';
+const BUILD_ID_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * Shim de transición publicado en dist/js/app.js. Sólo lo pide un
+ * index.html de un build anterior (con ./js/app.js sin versionar) que el
+ * navegador todavía tiene en caché. Navega a la misma página con un
+ * parámetro nuevo en la URL: el navegador no tiene esa URL en caché, así que
+ * baja el index.html actual (que usa boot.js). Si el parámetro ya está, no
+ * vuelve a navegar (evita un ciclo).
+ */
+export const LEGACY_ENTRY_SHIM = `// RATEOS — shim de transición (generado por scripts/build.mjs).
+// Este archivo sólo lo carga un index.html viejo en caché: pide el index.html actual.
+const url = new URL(window.location.href);
+if (!url.searchParams.has('actualizado')) {
+  url.searchParams.set('actualizado', String(Date.now()));
+  window.location.replace(url.href);
+}
+`;
 
 /** Directorios del repo que el build nunca debe borrar ni usar como salida. */
 const PROTECTED_TOP_LEVEL = new Set([
@@ -369,6 +412,26 @@ export async function validateSite(siteDir) {
   const stats = { htmlRefs: 0, jsFiles: 0, jsImports: 0, cssUrls: 0 };
   const dir = path.resolve(siteDir);
 
+  // --- version.json: manifiesto de la carpeta versionada (lo lee boot.js).
+  let manifest = null;
+  const versionPath = path.join(dir, 'version.json');
+  if (await exists(versionPath)) {
+    try {
+      manifest = JSON.parse(await readFile(versionPath, 'utf8')).build || null;
+    } catch {
+      errors.push('version.json no es JSON válido.');
+    }
+  }
+  if (!manifest) {
+    errors.push('version.json no tiene el manifiesto "build" { base, entry, styles }.');
+  } else {
+    const base = String(manifest.base || '');
+    if (!base.startsWith(`${BUILD_DIR}/`) || !base.endsWith('/') || !BUILD_ID_RE.test(base.slice(BUILD_DIR.length + 1, -1))) errors.push(`version.json: build.base inválido (${base}).`);
+    for (const rel of [manifest.entry, ...(Array.isArray(manifest.styles) ? manifest.styles : [])]) {
+      if (typeof rel !== 'string' || rel.includes('..') || !(await exists(path.join(dir, base, rel)))) errors.push(`version.json: build/${rel} no existe en ${base}.`);
+    }
+  }
+
   // --- index.html
   const indexPath = path.join(dir, 'index.html');
   if (!(await exists(indexPath))) {
@@ -383,22 +446,25 @@ export async function validateSite(siteDir) {
       if (kind === 'absolute') { errors.push(`${where}: ruta absoluta; debe ser relativa ("./…") para funcionar bajo /COTIZADORWEB/.`); continue; }
       if (kind === 'external') { errors.push(`${where}: recurso externo; el sitio sólo usa archivos propios (CSP 'self').`); continue; }
       stats.htmlRefs += 1;
+      if (/^\.?\/?(?:js|css)\//.test(ref.value)) errors.push(`${where}: JS/CSS sin versionar; debe cargarse desde ${BUILD_DIR}/<id>/ (vía boot.js).`);
       const target = path.resolve(dir, refToPath(ref.value));
       if (!isInside(dir, target)) errors.push(`${where}: apunta fuera del sitio.`);
       else if (!(await exists(target))) errors.push(`${where}: el archivo no existe.`);
     }
   }
 
-  // --- JS: imports relativos y existentes, sin rutas a la raíz del dominio.
-  const jsDir = path.join(dir, 'js');
-  const jsFiles = await listFiles(jsDir, { filter: (full) => !path.basename(full).startsWith('.') });
+  // --- JS (todos: build/<id>/js, boot.js y el shim): imports relativos y
+  // existentes, que no salgan de su build, sin rutas a la raíz del dominio.
+  const jsFiles = await listFiles(dir, { filter: (full) => !path.basename(full).startsWith('.') });
   for (const file of jsFiles.filter((f) => /\.m?js$/.test(f))) {
     stats.jsFiles += 1;
     const rel = toPosix(path.relative(dir, file));
+    const ownBuild = rel.startsWith(`${BUILD_DIR}/`) ? path.join(dir, ...rel.split('/').slice(0, 2)) : null;
     const source = await readFile(file, 'utf8');
     for (const imp of extractImports(source)) {
       if (imp.kind === 'dynamic-expression') {
-        warnings.push(`${rel}:${imp.line}: import() con expresión no literal (no se puede verificar).`);
+        // boot.js importa la entrada que indica el manifiesto (validado arriba).
+        if (rel !== 'boot.js') warnings.push(`${rel}:${imp.line}: import() con expresión no literal (no se puede verificar).`);
         continue;
       }
       stats.jsImports += 1;
@@ -408,6 +474,7 @@ export async function validateSite(siteDir) {
       }
       const target = path.resolve(path.dirname(file), imp.specifier);
       if (!isInside(dir, target)) errors.push(`${rel}:${imp.line}: import "${imp.specifier}" sale del sitio publicado.`);
+      else if (ownBuild && !isInside(ownBuild, target)) errors.push(`${rel}:${imp.line}: import "${imp.specifier}" sale de su build versionado (mezclaría versiones).`);
       else if (!(await exists(target))) errors.push(`${rel}:${imp.line}: import "${imp.specifier}" no existe.`);
     }
     const code = stripComments(source);
@@ -419,7 +486,7 @@ export async function validateSite(siteDir) {
   }
 
   // --- CSS: url() relativas y existentes.
-  const cssFiles = (await listFiles(path.join(dir, 'css'))).filter((f) => f.endsWith('.css'));
+  const cssFiles = (await listFiles(dir)).filter((f) => f.endsWith('.css'));
   for (const file of cssFiles) {
     const rel = toPosix(path.relative(dir, file));
     const css = await readFile(file, 'utf8');
@@ -443,6 +510,67 @@ export async function validateSite(siteDir) {
 // ===================================================================
 // Build
 // ===================================================================
+
+/** Id de la carpeta versionada: el SHA corto del commit (o "local" + hash del contenido). */
+export function buildIdFor(commit, contentHash = '') {
+  if (HEX_SHA_RE.test(String(commit))) return String(commit).toLowerCase();
+  return `local-${String(contentHash).slice(0, 10) || 'sin-hash'}`;
+}
+
+/** Manifiesto que lee boot.js: rutas relativas a dist/ y a build/<id>/. */
+export function createBuildManifest(buildId, styles) {
+  if (!BUILD_ID_RE.test(buildId)) throw new Error(`Id de build inválido: ${buildId}`);
+  return { base: `${BUILD_DIR}/${buildId}/`, entry: APP_ENTRY, styles: [...styles] };
+}
+
+const STYLESHEET_LINK_RE = /^[ \t]*<link rel="stylesheet" href="\.\/(css\/[A-Za-z0-9_.-]+\.css)">[ \t]*\r?\n/gm;
+const APP_SCRIPT_RE = /<script type="module" src="\.\/js\/app\.js"><\/script>/;
+const FAVICON_RE = /(<link rel="icon" href=")\.\/(assets\/[^"]+)(")/;
+const APP_ROOT_RE = /<div id="app" class="boot" aria-busy="true">/;
+
+/** Lista de CSS de index.html, en orden (rutas relativas a la raíz del sitio). */
+export function stylesheetsOf(sourceHtml) {
+  return [...String(sourceHtml).matchAll(STYLESHEET_LINK_RE)].map((m) => m[1]);
+}
+
+/**
+ * index.html publicado: sin CSS ni ./js/app.js directos; carga ./boot.js,
+ * que elige la carpeta versionada leyendo version.json sin caché. El
+ * <meta name="rateos-build"> es el respaldo si version.json no se puede leer.
+ * #app arranca oculto hasta que cargan los CSS (sin destello sin estilos).
+ * Falla si index.html cambió y ya no tiene lo que se reemplaza.
+ */
+export function renderPublishedIndex(sourceHtml, manifest) {
+  let html = String(sourceHtml);
+  const missing = [];
+  if (stylesheetsOf(html).length === 0) missing.push('<link rel="stylesheet" href="./css/…">');
+  if (!APP_SCRIPT_RE.test(html)) missing.push('<script type="module" src="./js/app.js"></script>');
+  if (!APP_ROOT_RE.test(html)) missing.push('<div id="app" class="boot" aria-busy="true">');
+  if (missing.length) throw new Error(`index.html no tiene lo esperado para el build: ${missing.join(', ')}`);
+  const meta = `  <meta name="rateos-build" content="${manifest.base}" data-entry="${manifest.entry}" data-styles="${manifest.styles.join(' ')}">\n`;
+  html = html.replace(STYLESHEET_LINK_RE, '');
+  html = html.replace(FAVICON_RE, `$1./${manifest.base}$2$3`);
+  html = html.replace('</head>', `${meta}</head>`);
+  html = html.replace(APP_ROOT_RE, '<div id="app" class="boot" aria-busy="true" hidden>');
+  html = html.replace(APP_SCRIPT_RE, '<script type="module" src="./boot.js"></script>');
+  return html;
+}
+
+/** Hash del contenido de un árbol (para el id de builds sin commit). */
+async function contentHash(rootDir, names) {
+  const { createHash } = await import('node:crypto');
+  const hash = createHash('sha256');
+  for (const name of names) {
+    const full = path.join(rootDir, name);
+    const isFile = await stat(full).then((st) => st.isFile(), () => false);
+    const files = isFile ? [full] : await listFiles(full, { filter: (_f, entry) => !isExcludedFromCopy(entry.name, entry.isDirectory()) });
+    for (const file of files) {
+      hash.update(toPosix(path.relative(rootDir, file)));
+      hash.update(await readFile(file));
+    }
+  }
+  return hash.digest('hex');
+}
 
 /** SHA corto: BUILD_SHA → GITHUB_SHA → git rev-parse → "local". */
 export function resolveCommit(env = process.env, rootDir = ROOT_DIR) {
@@ -555,6 +683,20 @@ export async function build({ outDir, rootDir = ROOT_DIR, env = process.env, now
   await rm(out, { recursive: true, force: true });
   await mkdir(out, { recursive: true });
 
+  // Versión primero: el id de la carpeta versionada sale del commit.
+  let versionInfo = null;
+  let manifest = null;
+  let sourceIndex = '';
+  try {
+    versionInfo = await createVersionInfo({ rootDir: root, env, now });
+    sourceIndex = await readFile(path.join(root, 'index.html'), 'utf8');
+    const hash = HEX_SHA_RE.test(versionInfo.commit) ? '' : await contentHash(root, ['index.html', 'boot.js', 'assets', 'css', 'js']);
+    manifest = createBuildManifest(buildIdFor(versionInfo.commit, hash), stylesheetsOf(sourceIndex));
+  } catch (error) {
+    report.errors.push(`No se pudo preparar el build: ${error.message}`);
+  }
+  const versionedRoot = manifest ? path.join(out, manifest.base) : path.join(out, BUILD_DIR, 'invalido');
+
   for (const entry of PUBLISHED_ENTRIES) {
     const from = path.join(root, entry.name);
     let info = null;
@@ -571,7 +713,7 @@ export async function build({ outDir, rootDir = ROOT_DIR, env = process.env, now
       report.errors.push(`${entry.name} es un enlace simbólico; no se publica.`);
       continue;
     }
-    const to = path.join(out, entry.name);
+    const to = path.join(entry.versioned ? versionedRoot : out, entry.name);
     if (entry.type === 'dir' && info.isDirectory()) {
       await copyTree(from, to, report);
     } else if (entry.type === 'file' && info.isFile()) {
@@ -589,15 +731,19 @@ export async function build({ outDir, rootDir = ROOT_DIR, env = process.env, now
     report.files += 1;
   }
 
-  let versionInfo = null;
-  try {
-    versionInfo = await createVersionInfo({ rootDir: root, env, now });
-    const json = `${JSON.stringify(versionInfo, null, 2)}\n`;
-    await writeFile(path.join(out, 'version.json'), json);
-    report.files += 1;
-    report.bytes += Buffer.byteLength(json);
-  } catch (error) {
-    report.errors.push(`No se pudo generar version.json: ${error.message}`);
+  if (versionInfo && manifest) {
+    try {
+      const html = renderPublishedIndex(sourceIndex, manifest);
+      await writeFile(path.join(out, 'index.html'), html);
+      const json = `${JSON.stringify({ ...versionInfo, build: manifest }, null, 2)}\n`;
+      await writeFile(path.join(out, 'version.json'), json);
+      await mkdir(path.join(out, 'js'), { recursive: true });
+      await writeFile(path.join(out, 'js', 'app.js'), LEGACY_ENTRY_SHIM);
+      report.files += 3;
+      report.bytes += Buffer.byteLength(html) + Buffer.byteLength(json) + Buffer.byteLength(LEGACY_ENTRY_SHIM);
+    } catch (error) {
+      report.errors.push(`No se pudo generar index.html / version.json: ${error.message}`);
+    }
   }
 
   const validation = await validateSite(out);
@@ -613,12 +759,13 @@ export async function build({ outDir, rootDir = ROOT_DIR, env = process.env, now
     log(`  ref      : ${versionInfo.ref}`);
     log(`  fecha    : ${versionInfo.buildDate}`);
   }
+  if (manifest) log(`  assets   : ${manifest.base} (${manifest.styles.length} CSS + ${manifest.entry})`);
   log(`  archivos : ${report.files} (${formatBytes(report.bytes)}) en ${relOut}`);
   log(`  validado : ${validation.stats.htmlRefs} refs HTML, ${validation.stats.jsFiles} módulos JS, ${validation.stats.jsImports} imports, ${validation.stats.cssUrls} url() CSS`);
   for (const w of warnings) log(`  aviso    : ${w}`);
   for (const e of errors) log(`  ERROR    : ${e}`);
 
-  return { ok, outDir: out, versionInfo, files: report.files, bytes: report.bytes, errors, warnings, stats: validation.stats };
+  return { ok, outDir: out, versionInfo: versionInfo && manifest ? { ...versionInfo, build: manifest } : versionInfo, files: report.files, bytes: report.bytes, errors, warnings, stats: validation.stats };
 }
 
 function parseArgs(argv) {
