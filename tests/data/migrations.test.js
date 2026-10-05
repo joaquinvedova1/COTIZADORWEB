@@ -10,6 +10,7 @@ import { migrateState, migrateV0ToV1, migrateV1ToV2, MIGRATIONS, MigrationError 
 import { CURRENT_SCHEMA_VERSION, RESOURCE_TYPES, validateState } from '../../js/data/schema.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { isUuid } from '../../js/core/ids.js';
+import { computeQuote } from '../../js/engines/quote-engine.js';
 
 const NOW = '2026-10-03T12:00:00.000Z';
 
@@ -243,7 +244,10 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
   /** Estado v1 real: el que guardaba la versión anterior de RATEOS. */
   function v1State() {
     const s = createDemoState(1);
-    s.quotes.forEach((q) => delete q.billingTaxes);
+    s.quotes.forEach((q) => {
+      delete q.billingTaxes;
+      delete q.vatTreatment;
+    });
     delete s.settings.defaultBillingTaxes;
     return s;
   }
@@ -263,7 +267,7 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
     const before = v1State();
     const { state } = migrateState(before);
     const strip = (q) => {
-      const { billingTaxes, ...rest } = q;
+      const { billingTaxes, vatTreatment, ...rest } = q;
       return rest;
     };
     assert.deepEqual(state.quotes.map(strip), before.quotes);
@@ -272,6 +276,28 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
     assert.deepEqual(state.organization, before.organization);
     const { defaultBillingTaxes, ...settings } = state.settings;
     assert.deepEqual(settings, before.settings);
+  });
+
+  test('la convención de montos queda explícita: vatTreatment "excluded" (sin IVA) en cada cotización', () => {
+    const { state } = migrateState(v1State());
+    assert.ok(state.quotes.length > 0);
+    state.quotes.forEach((q) => assert.equal(q.vatTreatment, 'excluded'));
+  });
+
+  test('un vatTreatment ya presente no se pisa: si esta versión no lo soporta, el cálculo lo avisa', () => {
+    const s = v1State();
+    s.quotes[0].vatTreatment = 'excluded';
+    s.quotes[1].vatTreatment = 'included';
+    const out = migrateV1ToV2(s);
+    assert.equal(out.quotes[0].vatTreatment, 'excluded');
+    assert.equal(out.quotes[1].vatTreatment, 'included');
+    // La estructura es válida (no se descarta nada) ...
+    assert.equal(validateState(out).ok, true);
+    // ... pero la cotización no se calcula en silencio como si fuera sin IVA.
+    const issues = computeQuote(out.quotes[1]).issues.filter((i) => i.path === 'vatTreatment');
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, 'error');
+    assert.deepEqual(computeQuote(out.quotes[0]).issues.filter((i) => i.path === 'vatTreatment'), []);
   });
 
   test('el estado migrado equivale al estado demo actual (la demo queda "sin definir")', () => {

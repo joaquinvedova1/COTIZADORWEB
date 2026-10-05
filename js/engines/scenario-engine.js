@@ -13,7 +13,8 @@ import { nonNegative, toNumber, pct, isFiniteNumber } from '../core/money.js';
 import { computeQuote } from './quote-engine.js';
 import { buildCostModel, costAtActivity, normalizeActivity, monthsFactor } from './cost-engine.js';
 import { findBreakEvenDays } from './break-even-engine.js';
-import { marginFromPrice, isValidMarginAndTaxes } from './pricing-engine.js';
+import { marginFromPrice, isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
+import { formatPercent } from '../core/format.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
 
 export const SENSITIVITY_VARIABLES = Object.freeze([
@@ -182,11 +183,13 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
   const model = buildCostModel(quote);
   const De = model.activity.activeDaysPerMonth;
   const available = model.activity.availableDaysPerMonth;
-  const m = toNumber((quote.pricing || {}).targetMarginPct, 0);
+  // Mismo lector que la validación y computeQuote: vacío → 0 %; inválido → sin modelos (nunca 0 % en silencio).
+  const marginRead = readMarginInput((quote.pricing || {}).targetMarginPct);
+  const m = marginRead.state === 'ok' ? marginRead.value : 0;
   const t = billingTaxInfo(quote).pct;
-  if (!(De > 0) || !(m >= 0 && m < 100)) return { models: [], estimatedDays: De, pessimisticDays: null, reason: 'Cargá la actividad estimada y un margen válido para comparar modelos.' };
+  if (!(De > 0) || marginRead.state === 'invalid') return { models: [], estimatedDays: De, pessimisticDays: null, reason: 'Cargá la actividad estimada y un margen válido para comparar modelos.' };
   if (!isValidMarginAndTaxes(m, t)) {
-    return { models: [], estimatedDays: De, pessimisticDays: null, billingTaxPct: t, reason: `Con ${t} % de impuestos sobre la facturación, el margen objetivo tiene que ser menor a ${100 - t} % para comparar modelos.` };
+    return { models: [], estimatedDays: De, pessimisticDays: null, billingTaxPct: t, reason: `Con ${formatPercent(t)} de impuestos sobre la facturación, el margen objetivo tiene que ser menor a ${formatPercent(100 - t)} para comparar modelos.` };
   }
   const pessPct = pessimisticActivityPct ?? (settings.scenarios || DEFAULT_SCENARIOS).pessimistic.activityPct;
   const Dp = Math.max(0, De * (1 + pessPct / 100));

@@ -18,18 +18,21 @@
  *   1. Resultado: ¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto gano?
  *      (4 números grandes —una lista <dl>— con "Ver cálculo" y UNA línea de
  *      ayuda cada uno) + ¿Cuánto tengo que trabajar? (frase con los días
- *      mínimos, 1 decimal) + alertas críticas siempre visibles.
- *   2. ¿En qué se va el costo? (costBreakdown(): 4 rubros + "Otros", % enteros;
- *      la misma agrupación que la landing y la demo).
- *   3. Profundizá (cerrados por defecto; se dibujan al abrirlos):
- *      B. Estructura de costos (EECC, 2 decimales)
+ *      mínimos, 1 decimal) + alertas críticas siempre visibles. Nada más:
+ *      impuestos, composición, estructura, apropiación y trazas van abajo.
+ *   2. Profundizá (cerrados por defecto; se dibujan al abrirlos):
+ *      ¿Cómo se forma tu precio? (de cada $ 100: costo, impuestos sobre la
+ *         facturación y ganancia; motor de composición)
+ *      B. ¿En qué se va el costo? (costBreakdown(): 4 rubros + "Otros", % enteros,
+ *         la misma agrupación que la landing y la demo; y la EECC completa, 2 decimales)
+ *      Reparto de la tarifa (apropiación) y total del contrato
  *      C. Tarifa según días trabajados (matriz tarifa × utilización + gráfico; tarifas NETAS)
  *      F–H. Analizar escenarios (sensibilidad, escenarios, comparador de modelos)
  *      E. Reglas comerciales (reglas cargadas, equivalencias, descuentos, continuidad)
  *      D. Margen vs markup (tarifas por nivel de margen + escalera de precios)
  *      I. ¿Te falta cargar algo? (costos cargados / completitud)
  *      A. Ver cálculo completo (todos los indicadores de la decisión + cada traza)
- *   4. J. Acciones (imprimir, marcar como enviada al cliente; en las
+ *   3. J. Acciones (imprimir, marcar como enviada al cliente; en las
  *      cotizaciones ILUSTRATIVAS la principal es "Crear mi propia cotización").
  *   Al imprimir se abren (y dibujan) todos los desplegables; después se
  *   restaura cómo estaban.
@@ -76,14 +79,14 @@ import { logger } from '../../core/logger.js';
 import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { QUOTE_STEPS, QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
-import { computeQuote } from '../../engines/quote-engine.js';
+import { computeQuote, monthlyFeeCap } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
-import { findBreakEvenDays } from '../../engines/break-even-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { normalizeRules } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
 import { priceComposition } from '../../engines/price-composition-engine.js';
+import { invalidTaxesText } from '../billing-taxes-form.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import {
   dayDecimals,
@@ -148,6 +151,8 @@ const DISCOUNT_STATUS = Object.freeze({
   // Tramo SIN descuento que pierde: no es por el descuento, es la actividad mínima.
   redActivity: { tone: 'red', text: 'Debajo de break-even por la actividad mínima (no por el descuento): perdés plata', short: 'Pocos días: pierde plata' },
   unknown: { tone: 'gray', text: 'Sin datos suficientes', short: 'Sin datos' },
+  // Cubre los costos, pero el margen objetivo no es válido: no hay contra qué comparar.
+  no_target: { tone: 'gray', text: 'Cubre los costos (sin margen objetivo válido para comparar)', short: 'Sin objetivo' },
 });
 
 /** Estado de un tramo: el rojo de un tramo sin descuento se explica por la actividad mínima. */
@@ -544,7 +549,7 @@ function traceMargin(v) {
     id: 'margin',
     title: 'Margen y markup del mes',
     formula: taxed
-      ? 'Resultado = Facturación − Impuestos sobre la facturación − Costo · Margen = Resultado / Facturación · Markup = Resultado / Costo'
+      ? 'Resultado = Facturación − Impuestos sobre la facturación − Costo · Margen = Resultado / Facturación · Markup = Facturación / Costo − 1 · Ganancia sobre el costo = Resultado / Costo'
       : 'Margen = Resultado / Facturación · Markup = Resultado / Costo',
     inputs: [
       { label: 'Facturación del mes (sin IVA)', value: hasRate(k) ? k.revenue : null, format: 'money' },
@@ -553,10 +558,11 @@ function traceMargin(v) {
     ],
     steps: [
       { label: 'Resultado', value: hasRate(k) ? k.profit : null, format: 'money' },
-      { label: 'Markup (sobre costo)', value: k.markupPct, format: 'percent' },
+      { label: 'Markup (recargo sobre el costo)', value: k.markupPct, format: 'percent' },
+      ...(taxed ? [{ label: 'Ganancia sobre el costo', value: k.profitOnCostPct, format: 'percent' }] : []),
       { label: 'Margen objetivo', value: k.targetMarginPct, format: 'percent' },
     ],
-    result: { label: 'Margen (sobre precio de venta, antes de Ganancias)', value: k.marginPct, format: 'percent' },
+    result: { label: 'Margen (sobre precio de venta, antes del impuesto a las Ganancias)', value: k.marginPct, format: 'percent' },
     notes: [
       'El margen se calcula sobre el precio de venta; el markup, sobre el costo. No son lo mismo.',
       hasValue(k.marginPct) ? null : 'Sin tarifa (o sin facturación) no hay margen ni markup de la cotización.',
@@ -656,7 +662,8 @@ function traceRateForMargin(v, row) {
       // Valores del motor (requiredRatesAt): nunca se recalculan en la interfaz.
       { label: 'Facturación necesaria', value: row.requiredRevenue, format: 'moneyCeil' },
       { label: 'Tarifa neta', value: row.netRate, format: 'moneyCeil' },
-      { label: 'Markup equivalente (recargo sobre el costo)', value: row.markupPct, format: 'percent' },
+      { label: 'Markup (recargo sobre el costo: precio = costo × (1 + markup))', value: row.markupPct, format: 'percent' },
+      ...(hasValue(ra.billingTaxPct) && ra.billingTaxPct > 0 ? [{ label: 'Ganancia sobre el costo (resultado / costo)', value: row.profitOnCostPct, format: 'percent' }] : []),
     ],
     result: { label: 'Tarifa de lista', value: row.listRate, format: 'moneyCeil' },
     notes: ['Las tarifas mínimas se muestran redondeadas hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo.'],
@@ -755,9 +762,10 @@ function targetLabel(v, m) {
 
 /** Qué incluye la tarifa piso respecto de los impuestos sobre lo que se factura. */
 function floorTaxesNote(k) {
-  if (k.billingTaxesInvalid) return 'Hay un impuesto sobre la facturación inválido: no se aplica.';
+  if (k.billingTaxesInvalid) return 'No incluye impuestos sobre lo que facturás: hay un porcentaje a revisar.';
   if (!k.billingTaxesDefined) return 'No incluye impuestos sobre lo que facturás (sin definir).';
-  return hasValue(k.billingTaxPct) && k.billingTaxPct > 0 ? `Incluye ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás.` : 'Sin impuestos sobre lo que facturás.';
+  if (hasValue(k.billingTaxPct) && k.billingTaxPct > 0) return `Incluye ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás.`;
+  return 'Sin impuestos sobre lo que facturás.';
 }
 
 function netHint(netValue, unitLabel) {
@@ -805,21 +813,9 @@ function floorSummaryTrace(v) {
  * @returns {null | { status: 'until'|'all'|'none', days: number|null, wholeDays: number|null, available: number, marginPct: number, listRate: number }}
  */
 function monthlyCap(v, listRate, marginPct = 0) {
-  const { r } = v;
-  const ctx = r.ctx;
-  if (r.unit !== 'month' || !ctx || !(hasValue(listRate) && listRate > 0)) return null;
-  const available = ctx.activity ? ctx.activity.availableDaysPerMonth : null;
-  if (!(hasValue(available) && available > 0)) return null;
-  const m = isValidMarginPct(marginPct) && marginPct > 0 ? marginPct : 0;
-  const gap = (d) => {
-    const e = evaluateAt(ctx, d, listRate);
-    return e.profit - (m / 100) * e.revenue.total;
-  };
+  // El cálculo vive en el motor (monthlyFeeCap); la vista sólo lo muestra.
   try {
-    const res = findBreakEvenDays((d) => -gap(d), { maxDays: available });
-    if (!res.reachable) return { status: 'all', days: null, wholeDays: null, available, marginPct: m, listRate };
-    if (!(res.days > 1e-9)) return { status: 'none', days: 0, wholeDays: 0, available, marginPct: m, listRate };
-    return { status: 'until', days: res.days, wholeDays: Math.floor(res.days + 1e-7), available, marginPct: m, listRate };
+    return monthlyFeeCap(v.r.ctx, listRate, marginPct);
   } catch (error) {
     logger.warn('No se pudieron calcular los días máximos del abono', { message: error && error.message });
     return null;
@@ -949,22 +945,25 @@ function criticalAlerts(v) {
     out.push(alertLine('danger', 'El margen objetivo no es válido.', hasValue(k.billingTaxPct) && k.billingTaxPct > 0
       ? `Con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${pct(100 - k.billingTaxPct)}: no hay un precio que deje ese margen.`
       : 'Tiene que ser mayor o igual a 0 y menor a 100 %. Sin un margen válido no hay precio objetivo ni tarifa sugerida.',
-    stepLink(v.q, 'margin', `Corregilo en ${stepLabel('margin')}`)));
+    stepLink(v.q, 'margin', 'Ir a "El precio"')));
   }
   // Impuestos sobre lo que se factura (PLAN-2026-002): sin definir, la tarifa piso no los cubre.
   if (k.billingTaxesInvalid) {
-    out.push(alertLine('danger', 'Revisá los impuestos sobre lo que facturás.', 'Hay un porcentaje inválido (negativo, no numérico o un total de 100 % o más): por ahora no se aplica y la tarifa piso no los incluye.',
-      stepLink(v.q, 'margin', `Corregilos en ${stepLabel('margin')}`)));
+    out.push(alertLine('danger', 'Revisá los impuestos sobre lo que facturás.', `${invalidTaxesText(r.billingTaxInfo).replace(/^./, (c) => c.toUpperCase())}: por ahora no se aplican y la tarifa piso no los incluye.`,
+      stepLink(v.q, 'margin', 'Ir a "El precio"')));
   } else if (!k.billingTaxesDefined) {
-    out.push(alertLine('warning', 'Faltan los impuestos sobre lo que facturás.', 'La tarifa piso y la sugerida no incluyen Ingresos Brutos, débitos y créditos ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o marcá que no pagás.',
-      stepLink(v.q, 'margin', `Cargalos en ${stepLabel('margin')}`)));
+    out.push(alertLine('warning', 'Faltan los impuestos sobre lo que facturás.', 'La tarifa piso y la sugerida no incluyen Ingresos Brutos, impuesto al cheque ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí no incluirlos en esta cotización.',
+      stepLink(v.q, 'margin', 'Ir a "El precio"')));
   }
   if (k.incomplete) {
     const score = r.completeness ? r.completeness.scorePct : null;
     out.push(alertLine('warning', 'Puede faltar algún costo.', `Costos cargados: ${pct(score, 0)}. Revisá lo que suele quedar afuera antes de cotizar.`,
       button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } })));
   }
-  const issues = Array.isArray(r.issues) ? r.issues : [];
+  // Lo que ya es una alerta arriba (margen inválido, impuestos) no se repite acá:
+  // esos valores NO se reemplazan por 0 (el margen inválido deja sin precio objetivo).
+  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct');
+  const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
   if (issues.length) {
     out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
       h('div', {},
@@ -1084,17 +1083,19 @@ function ratesByMarginBlock(v) {
   const D = k.activeDays;
   const showList = minimumRates(v).showList;
   const rows = [
-    { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, requiredRevenue: ra.floorRequiredRevenue, markupPct: 0, label: 'Tarifa piso (no perder plata)' },
+    // Piso: el markup es sólo el de los impuestos (t / (1 − t)); la ganancia, 0.
+    { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, requiredRevenue: ra.floorRequiredRevenue, markupPct: ra.floorMarkupPct, profitOnCostPct: 0, label: 'Tarifa piso (no perder plata)' },
     ...(Array.isArray(ra.byMargin) ? ra.byMargin : [])
       .filter((m) => hasValue(m.marginPct) && m.marginPct > 0)
       .sort((a, b) => a.marginPct - b.marginPct)
-      .map((m) => ({ key: `m${m.marginPct}`, marginPct: m.marginPct, netRate: m.netRate, listRate: m.listRate, requiredRevenue: m.requiredRevenue, markupPct: m.markupPct, label: marginLabel(v, m.marginPct) })),
+      .map((m) => ({ key: `m${m.marginPct}`, marginPct: m.marginPct, netRate: m.netRate, listRate: m.listRate, requiredRevenue: m.requiredRevenue, markupPct: m.markupPct, profitOnCostPct: m.profitOnCostPct, label: marginLabel(v, m.marginPct) })),
   ];
 
   const columns = [
     { key: 'label', label: 'Nivel' },
     { key: 'marginPct', label: 'Margen sobre precio', align: 'right', render: (row) => pct(row.marginPct) },
-    { key: 'markup', label: 'Markup equivalente', align: 'right', render: (row) => pct(row.markupPct) },
+    { key: 'markup', label: 'Markup (recargo sobre el costo)', align: 'right', render: (row) => pct(row.markupPct) },
+    ...(hasValue(k.billingTaxPct) && k.billingTaxPct > 0 ? [{ key: 'profitOnCost', label: 'Ganancia sobre el costo', align: 'right', render: (row) => pct(row.profitOnCostPct) }] : []),
     ...(showList ? [{ key: 'listRate', label: `Tarifa de lista por ${v.unitLabel}`, align: 'right', render: (row) => ceilMoney(row.listRate) }] : []),
     { key: 'netRate', label: showList ? `Tarifa neta por ${v.unitLabel}` : `Tarifa por ${v.unitLabel}`, align: 'right', render: (row) => ceilMoney(row.netRate) },
     { key: 'trace', label: 'Cálculo', align: 'right', render: (row) => traceBtn(traceRateForMargin(v, row)) },
@@ -1428,7 +1429,11 @@ function priceStat(v) {
   return statItem({
     label: 'Tarifa sugerida',
     value: EMPTY,
-    hint: statHint(`${targetGoalPrefix(k.targetMarginPct)}: aparece cuando haya costos y días activos cargados.`),
+    hint: statHint(k.targetMarginInvalid
+      ? (k.billingTaxPct > 0
+        ? `Sin tarifa sugerida: con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${pct(100 - k.billingTaxPct)}. Bajalo en "El precio".`
+        : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".')
+      : `${targetGoalPrefix(k.targetMarginPct)}: aparece cuando haya costos y días activos cargados.`),
     className: 'qr-stat qr-stat-price',
   });
 }
@@ -1444,11 +1449,13 @@ function marginStat(v) {
   else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
   else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
   else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
+  // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
+  const tone = ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
   return statItem({
     label: 'Margen',
     value: ok ? pct(k.marginPct) : EMPTY,
     hint,
-    tone: marginTone(k),
+    tone,
     trace: traceMargin(v),
     className: 'qr-stat qr-stat-margin',
   });
@@ -1465,6 +1472,11 @@ function noRateContent(v) {
   }
   if (!(k.totalCost > 0)) {
     return ['Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.'];
+  }
+  if (k.targetMarginInvalid) {
+    return [k.billingTaxPct > 0
+      ? `Sin tarifa sugerida: con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${pct(100 - k.billingTaxPct)}. `
+      : 'Sin tarifa sugerida: el margen objetivo no es válido. ', stepLink(q, 'margin', 'Corregilo en "El precio"'), ' para saber cuántos días necesitás trabajar.'];
   }
   return ['Definí una tarifa para saber cuántos días necesitás trabajar. ', stepLink(q, 'margin'), '.'];
 }
@@ -1553,12 +1565,12 @@ function renderSummary(v) {
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
-    h('p', { class: 'qr-note qr-tax-note' }, 'Todos los montos son sin IVA. El margen es lo que te queda después de costos e impuestos sobre lo que facturás, antes de Ganancias.'),
+    h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
     workBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
 }
 
-// ------------------------------------------- 2. ¿En qué se va el costo?
+// ------------------------------- Profundizá: ¿En qué se va el costo?
 
 /**
  * Rubros del costo para la vista simple: la MISMA agrupación que la landing
@@ -1579,17 +1591,15 @@ function costGroups(e) {
   });
 }
 
+/** Rubros agrupados (vista simple); el título lo pone el desplegable "¿En qué se va el costo?". */
 function renderCostBreakdown(v) {
   const { r, q } = v;
   const e = r.eecc || { rows: [], total: 0 };
-  const titleId = uniqueId('qr-costs-title');
-  const head = h('div', { class: 'qr-section-head' },
-    h('h3', { class: 'qr-section-title', id: titleId }, '¿En qué se va el costo?'),
-    h('p', { class: 'qr-section-sub' }, hasValue(e.total) && e.total > 0
-      ? `Qué parte del costo del mes (${money(e.total)}) corresponde a cada rubro.`
-      : 'Qué parte del costo corresponde a cada rubro.'));
+  const head = h('p', { class: 'qr-section-sub' }, hasValue(e.total) && e.total > 0
+    ? `Qué parte del costo del mes (${money(e.total)}) corresponde a cada rubro.`
+    : 'Qué parte del costo corresponde a cada rubro.');
   if (!(hasValue(e.total) && e.total > 0)) {
-    return h('section', { class: 'qr-costs', id: v.ids.costs, 'aria-labelledby': titleId },
+    return h('div', { class: 'qr-costs', id: v.ids.costs },
       head,
       emptyState({
         title: 'Todavía no hay costos cargados.',
@@ -1609,20 +1619,10 @@ function renderCostBreakdown(v) {
       h('span', { class: 'qr-costbar-pct' }, pct(g.pct, 0)),
       h('span', { class: 'qr-costbar-amount' }, money(g.amount)));
   }));
-  return h('section', { class: 'qr-costs', id: v.ids.costs, 'aria-labelledby': titleId },
-    head,
-    list,
-    h('div', { class: 'qr-costs-foot no-print' },
-      button('Ver detalle completo', {
-        variant: 'secondary',
-        size: 'sm',
-        icon: 'chevronRight',
-        onClick: () => v.openDeep('eecc'),
-        attrs: { 'aria-controls': v.ids.deep_eecc },
-      })));
+  return h('div', { class: 'qr-costs', id: v.ids.costs }, head, list);
 }
 
-// --------------------------------------- 2b. ¿Cómo se forma tu precio?
+// ----------------------------- Profundizá: ¿Cómo se forma tu precio?
 
 const COMPOSE_GROUP_CLASS = Object.freeze({ cost: 'is-cost', taxes: 'is-taxes', result: 'is-result' });
 
@@ -1634,49 +1634,46 @@ const COMPOSE_GROUP_CLASS = Object.freeze({ cost: 'is-cost', taxes: 'is-taxes', 
 function renderPriceComposition(v) {
   const { k } = v;
   const c = v.composition;
-  const titleId = uniqueId('qr-compose-title');
   const subject = theRate(k);
-  const head = h('div', { class: 'qr-section-head' },
-    h('h3', { class: 'qr-section-title', id: titleId }, '¿Cómo se forma tu precio?'),
-    h('p', { class: 'qr-section-sub' }, c.available
-      ? `De cada $ 100 que facturás (sin IVA) con ${subject}:`
-      : 'Costo, impuestos sobre lo que facturás y ganancia, en % del precio.'));
+  // El título lo pone el desplegable "¿Cómo se forma tu precio?".
+  const head = h('p', { class: 'qr-section-sub' }, c.available
+    ? `De cada $ 100 que facturás (sin IVA) con ${subject}:`
+    : 'Costo, impuestos sobre lo que facturás y ganancia, en % del precio.');
   if (!c.available) {
-    return h('section', { class: 'qr-compose', id: v.ids.compose, 'aria-labelledby': titleId }, head, h('p', { class: 'qr-note' }, c.reason));
+    return h('div', { class: 'qr-compose', id: v.ids.compose }, head, h('p', { class: 'qr-note' }, c.reason));
   }
-  const taxesUndefined = !k.billingTaxesDefined;
+  const taxesPending = c.taxesState === 'undefined' || c.taxesState === 'invalid';
   const legend = h('ul', { class: 'qr-compose-legend' }, ...c.groups.map((g) => {
-    const undefinedTaxes = g.key === 'taxes' && taxesUndefined;
-    const money0 = g.key === 'result' && c.loss ? `−$ ${formatNumber(Math.abs(g.displayPct1), { decimals: 1 })}` : `$ ${formatNumber(g.displayPct1, { decimals: 1 })}`;
-    return h('li', { class: ['qr-compose-item', COMPOSE_GROUP_CLASS[g.key], undefinedTaxes ? 'is-undefined' : null] },
+    const pendingTaxes = g.key === 'taxes' && taxesPending;
+    // Mismo formato de dinero en "de cada $ 100" y en el monto del mes (signo menos incluido).
+    const per100 = formatMoney(g.displayPct1, { decimals: 1 });
+    return h('li', { class: ['qr-compose-item', COMPOSE_GROUP_CLASS[g.key], pendingTaxes ? 'is-undefined' : null, g.key === 'result' && c.loss ? 'is-loss' : null] },
       h('span', { class: 'qr-compose-swatch', 'aria-hidden': 'true' }),
       h('span', { class: 'qr-compose-name' }, g.key === 'taxes' ? 'Impuestos sobre lo que facturás' : g.label),
-      h('span', { class: 'qr-compose-value' }, undefinedTaxes ? 'sin definir' : money0),
-      h('span', { class: 'qr-compose-month' }, undefinedTaxes ? 'no están en la tarifa' : `${money(g.amount)} por mes`));
+      h('span', { class: 'qr-compose-value' }, pendingTaxes ? (c.taxesState === 'invalid' ? 'a revisar' : 'sin definir') : per100),
+      h('span', { class: 'qr-compose-month' }, pendingTaxes ? 'no están en la tarifa' : `${money(g.amount)} por mes`));
   }));
   let bar = null;
   if (!c.loss) {
-    const label = c.groups.map((g) => `${g.key === 'taxes' ? 'impuestos' : g.label.toLowerCase()} ${pct(g.displayPct, 0)}`).join(', ');
+    const label = c.groups.map((g) => `${g.key === 'taxes' ? 'impuestos' : g.label.toLowerCase()} ${pct(g.displayPct1, 1)}`).join(', ');
     bar = h('div', { class: 'qr-compose-bar', role: 'img', 'aria-label': `Composición del precio: ${label}` },
       ...c.groups.filter((g) => g.pctOfPrice > 0).map((g) => h('span', { class: ['qr-compose-seg', COMPOSE_GROUP_CLASS[g.key]], style: { width: `${Math.max(0.5, Math.min(100, g.pctOfPrice)).toFixed(2)}%` } })));
   }
   const withTaxes = c.billingTaxes > 0;
   const lossNote = c.loss
-    ? h('p', { class: 'qr-compose-loss' }, `Con ${subject} ${withTaxes ? 'el costo y los impuestos se llevan' : 'el costo se lleva'} ${pct(c.groups[0].pctOfPrice + c.groups[1].pctOfPrice, 0)} de lo que facturás: perdés ${money(-c.profit)} por mes.`)
+    ? h('p', { class: 'qr-compose-loss' }, `Con ${subject} ${withTaxes ? 'el costo y los impuestos se llevan' : 'el costo se lleva'} ${pct(c.groups[0].displayPct1 + c.groups[1].displayPct1, 1)} de lo que facturás: perdés ${money(-c.profit)} por mes.`)
     : null;
-  const undefinedNote = taxesUndefined
-    ? h('p', { class: 'qr-note' }, c.loss
-      ? 'Los impuestos sobre lo que facturás están sin definir: si los pagás, perdés más.'
-      : 'Los impuestos sobre lo que facturás están sin definir: si los pagás, salen de tu ganancia.')
+  const undefinedNote = taxesPending
+    ? h('p', { class: 'qr-note' }, `Los impuestos sobre lo que facturás están ${c.taxesState === 'invalid' ? 'a revisar' : 'sin definir'}: ${c.loss ? 'si los pagás, perdés más.' : 'si los pagás, salen de tu ganancia.'}`)
     : null;
-  return h('section', { class: 'qr-compose', id: v.ids.compose, 'aria-labelledby': titleId },
+  return h('div', { class: 'qr-compose', id: v.ids.compose },
     head,
     bar,
     legend,
     lossNote,
     undefinedNote,
     h('div', { class: 'qr-costs-foot no-print' },
-      button(`Ver apropiación por ${v.unitLabel} y total del contrato`, {
+      button(`Ver cuánto va a cada rubro por ${v.unitLabel} y el total del contrato`, {
         variant: 'secondary',
         size: 'sm',
         icon: 'chevronRight',
@@ -1689,17 +1686,19 @@ function renderPriceComposition(v) {
 /** Apropiación por unidad (suma la tarifa neta) y total del contrato. */
 function renderAppropriation(v) {
   const c = v.composition;
-  const header = { title: 'Apropiación del precio', subtitle: `Cuánto de cada ${v.unitLabel} cobrado va a cada rubro, a impuestos y a ganancia.`, className: 'qr-card', id: v.ids.appropriation, actions: c.trace ? [traceBtn(c.trace)] : [] };
+  const header = { title: 'Reparto de la tarifa (apropiación)', subtitle: `Cuánto de cada ${v.unitLabel} cobrado va a cada rubro, a impuestos y a ganancia.`, className: 'qr-card', id: v.ids.appropriation, actions: c.trace ? [traceBtn(c.trace)] : [] };
   if (!c.available) return card(header, emptyState(c.reason));
   const pu = c.perUnit;
   const showList = hasValue(pu.discountFactor) && Math.abs(pu.discountFactor - 1) > 1e-9 && hasValue(pu.listRate);
-  const rows = c.rows.map((row) => ({ ...row, label: row.group === 'cost' ? rubroLabel(row.key, row.label) : row.label }));
+  const taxesLabel = { undefined: 'Impuestos sobre lo que facturás (sin definir)', invalid: 'Impuestos sobre lo que facturás (a revisar)' }[c.taxesState] || null;
+  const rows = c.rows.map((row) => ({ ...row, label: row.group === 'cost' ? rubroLabel(row.key, row.label) : row.group === 'taxes' && taxesLabel ? taxesLabel : row.label }));
+  const isMonth = v.r.unit === 'month';
   const tbl = regionTable(v, {
     columns: [
       { key: 'label', label: 'Componente', render: (row) => (row.group === 'cost' ? row.label : h('strong', {}, row.label)) },
       { key: 'displayPct', label: '% del precio', align: 'right', render: (row) => pct(row.displayPct) },
-      { key: 'perUnit', label: `$ por ${v.unitLabel} (tarifa neta)`, align: 'right', render: (row) => h('span', { class: row.amount < 0 ? 'qr-neg' : null }, formatMoney(row.perUnit, { decimals: 2 })) },
-      { key: 'amount', label: '$ por mes', align: 'right', render: (row) => h('span', { class: row.amount < 0 ? 'qr-neg' : null }, money(row.amount)) },
+      { key: 'perUnit', label: isMonth ? 'Parte del abono (neto)' : `$ por ${v.unitLabel} (tarifa neta)`, align: 'right', render: (row) => h('span', { class: row.amount < 0 ? 'qr-neg' : null }, formatMoney(row.perUnit, { decimals: 2 })) },
+      { key: 'amount', label: 'Total del mes', align: 'right', render: (row) => h('span', { class: row.amount < 0 ? 'qr-neg' : null }, money(row.amount)) },
     ],
     rows,
     footer: {
@@ -1708,7 +1707,7 @@ function renderAppropriation(v) {
       perUnit: h('strong', {}, formatMoney(pu.netRate, { decimals: 2 })),
       amount: h('strong', {}, money(c.revenue)),
     },
-    caption: 'Apropiación del precio por componente',
+    caption: 'Reparto de la tarifa por componente',
     className: 'qr-appropriation',
   });
   const months = c.contract.months;
@@ -1719,11 +1718,12 @@ function renderAppropriation(v) {
         h('div', { class: 'qr-base-item' }, h('dt', {}, 'Facturación (sin IVA)'), h('dd', {}, money(c.contract.revenue))),
         h('div', { class: 'qr-base-item' }, h('dt', {}, 'Costo'), h('dd', {}, money(c.contract.cost))),
         h('div', { class: 'qr-base-item' }, h('dt', {}, 'Impuestos sobre lo que facturás'), h('dd', {}, money(c.contract.billingTaxes))),
-        h('div', { class: ['qr-base-item', c.loss ? 'qr-tone-red' : 'qr-tone-green'] }, h('dt', {}, c.loss ? 'Pérdida' : 'Ganancia (antes de Ganancias)'), h('dd', {}, money(c.contract.profit)))),
+        h('div', { class: ['qr-base-item', c.loss ? 'qr-tone-red' : taxesLabel ? 'qr-tone-orange' : 'qr-tone-green'] }, h('dt', {}, c.loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)'), h('dd', {}, money(c.contract.profit)))),
       note('Estimación con la misma actividad todos los meses y sin ajustes por índices.'))
     : null;
   return card(header,
     tbl,
+    taxesLabel ? note('La ganancia no descuenta los impuestos sobre lo que facturás: cargalos en "El precio" para verla completa.') : null,
     note(`La tarifa neta se reparte en la misma proporción que la facturación del mes${pu.otherRevenue > 0 ? ' (que incluye otros ingresos: cargos, abonos o mínimo garantizado)' : ''}.${showList ? ` Tarifa de lista = ${formatMoney(pu.netRate, { decimals: 2 })} ÷ ${formatNumber(pu.discountFactor, { decimals: 4 })} (factor de descuentos) = ${formatMoney(pu.listRate, { decimals: 2 })}.` : ''}`),
     contract);
 }
@@ -1734,9 +1734,9 @@ function renderChecks(v) {
   const header = { title: 'Los números cierran', subtitle: 'Controles automáticos: si alguno falla, es un error de cálculo y no un dato tuyo.', className: 'qr-card', id: v.ids.traces ? `${v.ids.traces}-checks` : null };
   if (!c.available || !c.checks.length) return card(header, emptyState(c.reason || 'Sin datos para controlar.'));
   return card(header,
-    h('ul', { class: 'qr-checks' }, ...c.checks.map((x) => h('li', { class: ['qr-check', x.ok === true ? 'is-ok' : x.ok === false ? 'is-fail' : 'is-na'] },
-      h('span', { class: 'qr-check-mark', 'aria-hidden': 'true' }, x.ok === true ? '✓' : x.ok === false ? '✗' : '—'),
-      h('span', {}, x.label, x.ok === null && x.detail ? h('span', { class: 'qr-cell-sub' }, ` ${x.detail}`) : null),
+    h('ul', { class: 'qr-cuadre-list' }, ...c.checks.map((x) => h('li', { class: ['qr-cuadre', x.ok === true ? 'is-ok' : x.ok === false ? 'is-fail' : 'is-na'] },
+      h('span', { class: 'qr-cuadre-mark', 'aria-hidden': 'true' }, x.ok === true ? '✓' : x.ok === false ? '✗' : '—'),
+      h('span', { class: 'qr-cuadre-text' }, x.label, x.ok === null && x.detail ? h('span', { class: 'qr-cuadre-detail' }, ` ${x.detail}`) : null),
       h('span', { class: 'sr-only' }, x.ok === true ? ' (cierra)' : x.ok === false ? ' (no cierra)' : ' (no aplica)')))),
     c.allChecksOk ? null : banner('Algún control no cierra: revisá los datos y avisá a soporte con un backup.', 'danger'));
 }
@@ -2216,7 +2216,8 @@ function ladderNote(k, cost) {
   const taxes = hasValue(k.billingTaxPct) && k.billingTaxPct > 0
     ? ` Con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, cada precio cubre costo + impuestos + ganancia.`
     : '';
-  return `${base}${taxes} Tu margen objetivo de ${pct(k.targetMarginPct)} equivale a un markup de ${pct(k.targetMarkupPct)}.`;
+  const gain = taxes ? ` (tu ganancia es ${pct(k.targetProfitOnCostPct)} del costo; el resto del recargo son impuestos)` : '';
+  return `${base}${taxes} Tu margen objetivo de ${pct(k.targetMarginPct)} equivale a un markup (recargo sobre el costo) de ${pct(k.targetMarkupPct)}${gain}.`;
 }
 
 function renderMarginMarkup(v) {
@@ -2230,7 +2231,8 @@ function renderMarginMarkup(v) {
   const columns = [
     { key: 'label', label: 'Nivel', render: (row) => (row.key === 'floor' ? 'Tarifa piso (margen 0)' : marginLabel(v, row.marginPct)) },
     { key: 'marginPct', label: 'Margen (sobre precio)', align: 'right', render: (row) => pct(row.marginPct) },
-    { key: 'markupPct', label: 'Markup equivalente (sobre costo)', align: 'right', render: (row) => pct(row.markupPct) },
+    { key: 'markupPct', label: 'Markup (recargo sobre el costo)', align: 'right', render: (row) => pct(row.markupPct) },
+    ...(taxed ? [{ key: 'profitOnCostPct', label: 'Ganancia sobre el costo', align: 'right', render: (row) => pct(row.profitOnCostPct) }] : []),
     { key: 'price', label: 'Facturación mensual necesaria', align: 'right', render: (row) => money(row.price) },
     ...(taxed ? [{ key: 'billingTaxes', label: 'Impuestos sobre lo que facturás', align: 'right', render: (row) => money(row.billingTaxes) }] : []),
     { key: 'gain', label: 'Ganancia del mes', align: 'right', render: (row) => money(row.gain) },
@@ -3025,7 +3027,7 @@ function renderTraceIndex(v) {
   );
 }
 
-// ------------------------------------------------------- 3. Profundizá
+// ------------------------------------------------------- 2. Profundizá
 
 function openStateFor(quoteId) {
   const key = String(quoteId || 'sin-id');
@@ -3074,14 +3076,25 @@ function completenessBadge(v) {
 function deepDefinitions(v) {
   return [
     {
+      key: 'compose',
+      summary: '¿Cómo se forma tu precio?',
+      hint: 'Costo, impuestos sobre la facturación y ganancia, en % del precio.',
+      build: () => [safeSection('¿Cómo se forma tu precio?', () => renderPriceComposition(v))],
+    },
+    {
       key: 'eecc',
-      summary: 'Ver estructura de costos',
-      hint: 'Monto, $ por día activo e incidencia de cada rubro (EECC).',
-      build: () => [safeSection('Estructura de costos (EECC)', () => renderCostStructure(v))],
+      summary: '¿En qué se va el costo?',
+      hint: 'Los rubros del costo del mes y la estructura de costos completa (EECC).',
+      build: () => {
+        const e = v.r.eecc || {};
+        const breakdown = safeSection('¿En qué se va el costo?', () => renderCostBreakdown(v));
+        // Sin costos, el aviso de la vista simple alcanza (la EECC repetiría el mismo vacío).
+        return hasValue(e.total) && e.total > 0 ? [breakdown, safeSection('Estructura de costos (EECC)', () => renderCostStructure(v))] : [breakdown];
+      },
     },
     {
       key: 'appropriation',
-      summary: 'Ver apropiación y total del contrato',
+      summary: 'Ver reparto de la tarifa y total del contrato',
       hint: v.r.ctx && v.r.ctx.contractMonths > 0
         ? `Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total de los ${formatNumber(v.r.ctx.contractMonths)} meses de contrato.`
         : 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del contrato.',
@@ -3284,13 +3297,13 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
     h('div', { class: 'qr-print-title' }, parts || 'Cotización'),
     h('div', { class: 'qr-print-meta' },
       q.client ? `Cliente: ${String(q.client)} · ` : '',
-      `Fecha: ${formatDate(new Date())}`,
+      `Fecha: ${formatDate(new Date())} · Montos sin IVA`,
       v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''));
 }
 
 const SECTION_KEYS = Object.freeze([
   'summary', 'compose', 'costs', 'decision', 'eecc', 'appropriation', 'matrix', 'markup', 'discounts', 'rules', 'sensitivity', 'scenarios', 'models', 'completeness', 'traces', 'actions',
-  'deep_eecc', 'deep_appropriation', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces',
+  'deep_compose', 'deep_eecc', 'deep_appropriation', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces',
 ]);
 
 /**
@@ -3424,9 +3437,9 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
     if (summary && typeof summary.focus === 'function') summary.focus({ preventScroll: true });
   };
 
+  // Primera vista: sólo las cuatro respuestas (costo, tarifa, días, margen) y las alertas críticas.
+  // Composición del precio, estructura de costos, apropiación y trazas van en "Profundizá".
   const summary = safeSection('Resultado', () => renderSummary(v));
-  const compose = safeSection('¿Cómo se forma tu precio?', () => renderPriceComposition(v));
-  const costs = safeSection('¿En qué se va el costo?', () => renderCostBreakdown(v));
   const deep = safeSection('Profundizá', () => {
     const res = renderDeep(v, remembered);
     deepItems = res.items;
@@ -3435,7 +3448,7 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
   const actions = safeSection('Acciones', () => renderActions(v));
   printAllSections(v, () => deepItems);
 
-  mount(container, h('div', { class: 'qr' }, printHeader(v), summary, compose, costs, deep, actions));
+  mount(container, h('div', { class: 'qr' }, printHeader(v), summary, deep, actions));
   return cleanupOf(v);
 }
 

@@ -77,7 +77,8 @@
 
 /* ------------------------------------------- 2. ¿En qué se va el costo? */
 
-.qr-costs { padding: 1.35rem 1.25rem 1.25rem; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); min-width: 0; }
+.qr-costs { min-width: 0; margin-bottom: 1rem; }
+.qr-costs > .qr-section-sub, .qr-compose > .qr-section-sub { margin: 0 0 0.85rem; }
 .qr-costbars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
 .qr-costbar {
   display: grid; align-items: center; gap: 0.25rem 0.75rem;
@@ -96,8 +97,7 @@
 
 /* ------------------------------- 2b. ¿Cómo se forma tu precio? (100 % del precio) */
 
-.qr-compose { padding: 1.35rem 1.25rem 1.25rem; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); min-width: 0; }
-.qr-compose .qr-section-head { margin-bottom: 0.85rem; }
+.qr-compose { min-width: 0; }
 .qr-compose-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--line-2); margin-bottom: 0.85rem; }
 .qr-compose-seg { display: block; height: 100%; }
 .qr-compose-seg + .qr-compose-seg { border-left: 2px solid var(--white); }
@@ -119,13 +119,16 @@
   .qr-compose-legend { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* "Los números cierran" */
-.qr-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
-.qr-check { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0.4rem; align-items: baseline; }
-.qr-check-mark { font-weight: 800; text-align: center; }
-.qr-check.is-ok .qr-check-mark { color: var(--green-text); }
-.qr-check.is-fail .qr-check-mark { color: var(--red-text); }
-.qr-check.is-na .qr-check-mark { color: var(--ink-3); }
+/* "Los números cierran" (clases propias: .qr-check es de la completitud). */
+.qr-cuadre-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
+.qr-cuadre { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0.4rem; align-items: baseline; }
+.qr-cuadre-mark { font-weight: 800; text-align: center; }
+.qr-cuadre-text { min-width: 0; overflow-wrap: anywhere; }
+.qr-cuadre-detail { color: var(--ink-3); font-size: 0.85em; white-space: normal; }
+.qr-cuadre.is-ok .qr-cuadre-mark { color: var(--green-text); }
+.qr-cuadre.is-fail .qr-cuadre-mark { color: var(--red-text); }
+.qr-cuadre.is-na .qr-cuadre-mark { color: var(--ink-3); }
+.qr-compose-item.is-loss .qr-compose-swatch { background: var(--red); }
 .qr-contract { margin-top: 1rem; }
 
 /* -------------------------------------------------------- 3. Profundizá */
@@ -414,7 +417,6 @@ th.ta-right .qr-th { align-items: flex-end; }
 @container qr (min-width: 560px) {
   .qr-sliders { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .qr-summary { padding: 1.75rem 1.75rem 1.5rem; }
-  .qr-costs { padding: 1.5rem 1.75rem 1.4rem; }
   .qr-deep-item > .disclosure-summary { padding: 1rem 1.35rem; }
   .qr-deep-item > .disclosure-body { padding: 0.25rem 1.35rem 1.35rem; }
 }
@@ -476,6 +478,9 @@ th.ta-right .qr-th { align-items: flex-end; }
   /* En pantallas angostas sólo la primera línea de cada pista (el resto está en "Ver cálculo" y en el detalle). */
   .qr-stat .qr-stat-line + .qr-stat-line { display: none; }
   .qr-alert { flex-wrap: wrap; }
+  /* El texto de la alerta usa todo el ancho y el enlace va abajo (nunca una palabra por línea). */
+  .qr-alert > div:not(.qr-alert-action) { flex: 1 1 100%; }
+  .qr-alert .qr-step-link { white-space: normal; }
   .qr-actions { width: 100%; }
   .qr-actions .btn { flex: 1 1 auto; }
 }

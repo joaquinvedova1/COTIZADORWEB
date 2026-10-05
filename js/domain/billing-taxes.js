@@ -13,7 +13,7 @@
  */
 
 import { isFiniteNumber } from '../core/money.js';
-import { isPlainObject } from '../core/object.js';
+import { isPlainObject, deepClone } from '../core/object.js';
 import { parseDecimalInput } from '../core/validation.js';
 import { BILLING_TAX_KINDS, BILLING_TAX_MODES, labelOf } from './catalogs.js';
 
@@ -49,6 +49,28 @@ export function normalizeBillingTaxes(raw) {
     };
   });
   return { mode, notApplicable: src.notApplicable === true, combinedPct: readPct(src.combinedPct), items };
+}
+
+/**
+ * Copia para guardar (cotización nueva, "usar los de mi empresa", valor de la
+ * empresa): conserva los valores TAL CUAL (un texto inválido sigue siendo
+ * texto y el motor lo marca inválido). Nunca copia NaN: no es JSON válido y
+ * haría fallar el guardado.
+ */
+export function copyBillingTaxes(raw) {
+  const src = isPlainObject(raw) ? deepClone(raw) : {};
+  const keep = (v) => (typeof v === 'number' && !Number.isFinite(v) ? null : v === undefined ? null : v);
+  return {
+    mode: BILLING_TAX_MODES.some((m) => m.id === src.mode) ? src.mode : 'combined',
+    notApplicable: src.notApplicable === true,
+    combinedPct: keep(src.combinedPct),
+    items: (Array.isArray(src.items) ? src.items : []).filter(isPlainObject).map((it, i) => ({
+      ...it,
+      id: typeof it.id === 'string' && it.id ? it.id : `tax-${i + 1}`,
+      kind: BILLING_TAX_KINDS.some((k) => k.id === it.kind) ? it.kind : 'other',
+      pct: keep(it.pct),
+    })),
+  };
 }
 
 /**

@@ -197,6 +197,13 @@
 /* "Otro cargo": nombre arriba (todo el ancho), % y quitar abajo. */
 .bt-row-other > .field:first-child { grid-column: 1 / -1; }
 .bt-company { flex-wrap: wrap; gap: 0.5rem; }
+.bt-company .btn { white-space: normal; text-align: left; }
+.bt-company-wrap .footnote { margin-top: 0.35rem; }
+.bt-add { flex-wrap: wrap; gap: 0.5rem; }
+.bt-help-more summary { cursor: pointer; font-weight: 600; color: var(--blue-text); }
+.bt-help-more[open] summary { margin-bottom: 0.25rem; }
+/* Convención de montos (paso "El servicio"). */
+.qe-convention { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--ink-2); }
 /* Enlace dentro de un texto ("Ver ejemplo"). */
 .btn-link.qe-inline-link { display: inline; padding: 0; min-height: 0; font-size: inherit; vertical-align: baseline; text-decoration: underline; }
 

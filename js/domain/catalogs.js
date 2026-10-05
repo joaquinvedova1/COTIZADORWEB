@@ -129,10 +129,21 @@ export const INDIRECT_METHODS = deepFreeze([
  */
 export const BILLING_TAX_KINDS = deepFreeze([
   { id: 'gross_income', label: 'Ingresos Brutos', hint: 'Alícuota sobre lo que facturás, según tu actividad y jurisdicción.' },
-  { id: 'debits_credits', label: 'Impuesto a los débitos y créditos', hint: '% equivalente sobre tu facturación sin IVA (el cobro entra con IVA). Lo calcula tu contador.' },
+  { id: 'debits_credits', label: 'Impuesto al cheque (débitos y créditos)', hint: 'Como el cobro entra con IVA, pedile a tu contador el % sobre tu facturación sin IVA.' },
   { id: 'stamp', label: 'Sellos', hint: 'Si el contrato paga sellos. RATEOS lo reparte proporcional a la facturación.' },
   { id: 'other', label: 'Otro cargo sobre lo facturado', hint: 'Por ejemplo, un seguro de caución sobre el valor del contrato.' },
 ]);
+
+/**
+ * Convención de IVA de una cotización (quote.vatTreatment). Hoy RATEOS sólo
+ * trabaja con montos SIN IVA (los motores no calculan IVA); el campo deja la
+ * convención explícita y permite agregar otra en el futuro sin romper el
+ * modelo (con su migración).
+ */
+export const VAT_TREATMENTS = deepFreeze([
+  { id: 'excluded', label: 'Montos sin IVA', hint: 'Costos, precios y tarifas se cargan y se muestran sin IVA.' },
+]);
+export const DEFAULT_VAT_TREATMENT = 'excluded';
 
 /** Modos de carga de los impuestos sobre la facturación (excluyentes). */
 export const BILLING_TAX_MODES = deepFreeze([

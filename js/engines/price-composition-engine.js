@@ -41,6 +41,7 @@ function check(id, label, ok, detail = null) {
  * @param {object} result resultado de computeQuote
  * @returns {{
  *   available: boolean, reason: string|null,
+ *   taxesState: 'defined'|'undefined'|'invalid'|'not_applicable',
  *   revenue: number, cost: number, billingTaxes: number, profit: number, billingTaxPct: number,
  *   loss: boolean,
  *   rows: { key: string, group: 'cost'|'taxes'|'result', label: string, amount: number, pctOfPrice: number, displayPct: number, perUnit: number|null }[],
@@ -77,7 +78,15 @@ export function priceComposition(result) {
     trace: null,
   });
   if (!hasRate) return empty('Sin tarifa todavía: la composición del precio aparece cuando haya una tarifa para cotizar.');
-  if (!(R > 0)) return empty('Sin facturación con la actividad estimada: cargá los días por mes.');
+  if (!(R > 0)) {
+    const D = isFiniteNumber(k.activeDays) ? k.activeDays : 0;
+    const factor = isFiniteNumber(revenue.discountFactor) ? revenue.discountFactor : null;
+    return empty(!(D > 0)
+      ? 'Sin facturación: cargá los días por mes que esperás trabajar.'
+      : factor !== null && factor <= 0
+        ? 'Sin facturación: los descuentos suman 100 % y la tarifa neta queda en $ 0.'
+        : 'Sin facturación con la tarifa y la actividad estimada.');
+  }
 
   const C = isFiniteNumber(e.cost && e.cost.total) ? e.cost.total : 0;
   const T = isFiniteNumber(e.billingTaxes) ? e.billingTaxes : 0;
@@ -89,9 +98,10 @@ export function priceComposition(result) {
   const base = [
     ...eeccRows.map((row) => ({ key: row.category, group: 'cost', label: row.label, amount: isFiniteNumber(row.amount) ? row.amount : 0 })),
     { key: TAX_KEY, group: 'taxes', label: 'Impuestos sobre lo que facturás', amount: T },
-    { key: RESULT_KEY, group: 'result', label: loss ? 'Pérdida' : 'Ganancia (antes de Ganancias)', amount: G },
+    { key: RESULT_KEY, group: 'result', label: loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)', amount: G },
   ];
-  // Con ganancia, los % suman exactamente 100; con pérdida se muestran tal cual.
+  // Con ganancia, los % de las filas suman exactamente 100; con pérdida se
+  // muestran tal cual (cada uno redondeado: no se fuerza el 100).
   const display = loss ? base.map((row) => roundPercentage((row.amount / R) * 100)) : roundPercentagesToTotal(base.map((row) => row.amount), 2, 100);
 
   const netRate = isFiniteNumber(revenue.netRate) ? revenue.netRate : null;
@@ -112,8 +122,16 @@ export function priceComposition(result) {
   ];
   const g2 = loss ? groupDefs.map((g) => roundPercentage((g.amount / R) * 100)) : roundPercentagesToTotal(groupDefs.map((g) => g.amount), 2, 100);
   // "De cada $ 100": con 1 decimal (un 4,5 % de impuestos no se muestra como $ 5).
-  // Con pérdida, redondeo simétrico (118,75 → 118,8 y −18,75 → −18,8): siguen sumando 100.
-  const g1 = loss ? groupDefs.map((g) => roundTo((g.amount / R) * 100, 1)) : roundPercentagesToTotal(groupDefs.map((g) => g.amount), 1, 100);
+  // Con pérdida: costo e impuestos con redondeo simétrico y la pérdida es lo
+  // que falta para 100 (los tres siempre suman 100: 118,8 + 0 − 18,8).
+  let g1;
+  if (loss) {
+    const costPct = roundTo((C / R) * 100, 1);
+    const taxPct = roundTo((T / R) * 100, 1);
+    g1 = [costPct, taxPct, roundTo(100 - costPct - taxPct, 1)];
+  } else {
+    g1 = roundPercentagesToTotal(groupDefs.map((g) => g.amount), 1, 100);
+  }
   const groups = groupDefs.map((g, i) => ({ ...g, pctOfPrice: (g.amount / R) * 100, displayPct: g2[i], displayPct1: g1[i] }));
 
   const months = isFiniteNumber(r.ctx && r.ctx.contractMonths) && r.ctx.contractMonths > 0 ? r.ctx.contractMonths : null;
@@ -152,7 +170,7 @@ export function priceComposition(result) {
       { label: 'Tarifa neta', value: netRate, format: 'money' },
     ],
     steps: rows.map((row) => ({ label: `${row.label} (% del precio)`, value: row.pctOfPrice, format: 'percent' })),
-    result: { label: loss ? 'Pérdida del mes' : 'Ganancia del mes (antes de Ganancias)', value: G, format: 'money' },
+    result: { label: loss ? 'Pérdida del mes' : 'Ganancia del mes (antes del impuesto a las Ganancias)', value: G, format: 'money' },
     notes: [
       'La estructura de costos suma 100 % del costo; esta composición suma 100 % del precio. No se mezclan.',
       'La apropiación por unidad reparte la tarifa neta en la misma proporción que la facturación del mes.',
@@ -161,9 +179,11 @@ export function priceComposition(result) {
     ],
   });
 
+  const taxesState = k.billingTaxesInvalid ? 'invalid' : !k.billingTaxesDefined ? 'undefined' : r.billingTaxInfo && r.billingTaxInfo.notApplicable ? 'not_applicable' : 'defined';
   return {
     available: true,
     reason: null,
+    taxesState,
     revenue: R,
     cost: C,
     billingTaxes: T,

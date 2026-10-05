@@ -320,7 +320,10 @@ describe('Backup — validación antes de importar', () => {
     const { repo, storage, backup } = await setup();
     const v1 = JSON.parse(await demoBackupText());
     v1.schemaVersion = 1;
-    v1.quotes.forEach((q) => delete q.billingTaxes);
+    v1.quotes.forEach((q) => {
+      delete q.billingTaxes;
+      delete q.vatTreatment;
+    });
     delete v1.settings.defaultBillingTaxes;
     v1.quotes[0].name = 'Cotización guardada con la versión anterior';
     const before = dump(storage);
@@ -335,7 +338,8 @@ describe('Backup — validación antes de importar', () => {
     const q = quotes.find((x) => x.id === v1.quotes[0].id);
     assert.equal(q.name, 'Cotización guardada con la versión anterior');
     assert.deepEqual(q.billingTaxes, { mode: 'combined', notApplicable: false, combinedPct: null, items: [] }, 'impuestos sin definir: nunca inventados');
-    const strip = ({ billingTaxes, ...rest }) => rest;
+    assert.equal(q.vatTreatment, 'excluded', 'la convención sin IVA queda explícita');
+    const strip = ({ billingTaxes, vatTreatment, ...rest }) => rest;
     assert.deepEqual(strip(q), v1.quotes[0], 'el resto de la cotización queda igual');
     assert.equal((await repo.getSettings()).defaultBillingTaxes, null);
     assert.equal(JSON.parse(storage.getItem(STORAGE_KEYS.state)).schemaVersion, CURRENT_SCHEMA_VERSION);

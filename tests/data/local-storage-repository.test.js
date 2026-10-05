@@ -751,7 +751,7 @@ describe('LocalStorageRepository — datos dañados', () => {
     assert.equal((await repo.getOrganization()).id, 'org-x');
     assert.equal(validateState(persistedState(storage)).ok, true);
   });
-  test('datos v1 (versión anterior) con estructura inesperada: se migran y reparan sin perder nada (status repaired)', async () => {
+  test('datos v1 (versión anterior) con estructura inesperada: se migran y reparan, con el texto original en la copia de recuperación (status repaired)', async () => {
     const original = {
       schemaVersion: 1,
       organization: { id: 'org-x', name: 'X SRL' },
@@ -782,7 +782,10 @@ describe('LocalStorageRepository — datos dañados', () => {
   test('datos v1 válidos: se migran a v2 (status migrated) con copia previa y los mismos números', async () => {
     const v1 = createDemoState(CURRENT_SCHEMA_VERSION);
     v1.schemaVersion = 1;
-    v1.quotes.forEach((q) => delete q.billingTaxes);
+    v1.quotes.forEach((q) => {
+      delete q.billingTaxes;
+      delete q.vatTreatment;
+    });
     delete v1.settings.defaultBillingTaxes;
     const raw = JSON.stringify(v1);
     const storage = new SpyStorage({ [STORAGE_KEYS.state]: raw });
@@ -794,7 +797,10 @@ describe('LocalStorageRepository — datos dañados', () => {
     assert.equal(storage.getItem(keys[0]), raw);
     assert.deepEqual(persistedState(storage), createDemoState(CURRENT_SCHEMA_VERSION));
     const quotes = await repo.getQuotes();
-    quotes.forEach((q) => assert.equal(q.billingTaxes.combinedPct, null));
+    quotes.forEach((q) => {
+      assert.equal(q.billingTaxes.combinedPct, null);
+      assert.equal(q.vatTreatment, 'excluded', 'la convención sin IVA queda explícita');
+    });
   });
 });
 

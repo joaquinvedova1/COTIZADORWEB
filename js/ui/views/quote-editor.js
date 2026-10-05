@@ -701,7 +701,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
     },
 
     /** Indicador compacto: etiqueta + valor calculado (+ pista, + "Ver cálculo"). */
-    stat(label, fn, { hint = null, tone = null, trace = null, className = null, emphasis = false } = {}) {
+    stat(label, fn, { hint = null, tone = null, trace = null, traceLabel = null, className = null, emphasis = false } = {}) {
       const el = h(
         'div',
         { class: ['qe-stat', emphasis ? 'is-emphasis' : null, className] },
@@ -709,7 +709,8 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
         kit.out(fn, { className: 'qe-stat-value mono' }),
         // Una ayuda calculada vacía no muestra "—": el renglón se oculta (CSS).
         hint ? h('div', { class: 'qe-stat-hint' }, typeof hint === 'function' ? kit.out(hint, { allowEmpty: true }) : hint) : null,
-        trace ? kit.trace(trace) : null,
+        // "Ver cálculo" con nombre accesible que dice QUÉ cálculo abre.
+        trace ? kit.trace(trace, { ariaLabel: traceLabel || (typeof label === 'string' ? `Ver cálculo: ${label}` : null) }) : null,
       );
       if (tone) kit.tone(el, tone);
       return el;
@@ -720,12 +721,12 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
     },
 
     /** Botón "Ver cálculo": traceFn(result) → traza (se arma al hacer clic). */
-    trace(traceFn, { label = 'Ver cálculo' } = {}) {
+    trace(traceFn, { label = 'Ver cálculo', ariaLabel = null } = {}) {
       return button(label, {
         variant: 'link',
         size: 'sm',
         icon: 'calc',
-        attrs: { class: 'btn btn-link btn-sm trace-btn' },
+        attrs: { class: 'btn btn-link btn-sm trace-btn', 'aria-label': ariaLabel },
         onClick: () => {
           let trace = null;
           try {
@@ -919,9 +920,10 @@ function completenessColor(pct) {
  */
 export function floorTaxesText(r) {
   const k = r && r.kpis ? r.kpis : {};
-  if (k.billingTaxesInvalid) return 'Revisá los impuestos sobre lo que facturás: hay un porcentaje inválido.';
+  if (k.billingTaxesInvalid) return 'No incluye los impuestos sobre lo que facturás: hay un porcentaje a revisar en "El precio".';
   if (!k.billingTaxesDefined) return 'No incluye los impuestos sobre lo que facturás (sin definir).';
   if (r.billingTaxInfo && r.billingTaxInfo.notApplicable) return 'Sin impuestos sobre lo que facturás.';
+  if (!(k.billingTaxPct > 0)) return 'Sin impuestos sobre lo que facturás (cargaste 0 %).';
   return `Incluye ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás.`;
 }
 
@@ -968,7 +970,12 @@ function rateHint(r) {
       text = `Para ganar ${formatPercent(r.kpis.targetMarginPct)} de margen, redondeada hacia arriba.`;
       break;
     default:
-      text = r.pricingMode === 'known_rate' ? `Falta ingresar tu tarifa en "${stepName('modality')}".` : 'Cargá los días por mes para calcularla.';
+      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('modality')}".`;
+      else if (k.targetMarginInvalid) {
+        text = k.billingTaxPct > 0
+          ? `Sin tarifa sugerida: con ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - k.billingTaxPct)}. Bajalo en "El precio".`
+          : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".';
+      } else text = 'Cargá los días por mes para calcularla.';
   }
   const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
     ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
@@ -1086,7 +1093,10 @@ function buildSummary({ getResult, stepHref }) {
         // Recargo efectivo calculado por el motor (con impuestos sobre la facturación).
         const mk = r.kpis.targetMarkupPct;
         const net = netRateHint(r.kpis.targetNetRate, r);
-        const markup = isFiniteNumber(mk) ? `Equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}.` : '';
+        const taxed = r.kpis.billingTaxPct > 0 && isFiniteNumber(r.kpis.targetProfitOnCostPct);
+        const markup = isFiniteNumber(mk)
+          ? `Equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}${taxed ? `: tu ganancia es ${formatPercent(r.kpis.targetProfitOnCostPct)} del costo y el resto son impuestos` : ''}.`
+          : '';
         return [`Tarifa de lista sin redondear, sin IVA.`, net, markup].filter(Boolean).join(' ');
       },
       trace: targetRateTrace,
@@ -1865,7 +1875,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   }
 
   function focusField(path) {
-    const control = stepBody.querySelector(`[name="${cssEscape(path)}"]`);
+    const controls = [...stepBody.querySelectorAll(`[name="${cssEscape(path)}"]`)];
+    // En un grupo de opciones, la elegida (así el teclado sigue en el mismo lugar).
+    const control = controls.find((c) => c.type === 'radio' && c.checked) || controls[0];
     if (!control) return;
     // Si el campo está dentro de unas "Opciones avanzadas" cerradas, se abren.
     openAncestors(control);
@@ -1975,7 +1987,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     'div',
     { class: 'qe-step-meta' },
     stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel),
-    stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-gray', title: 'Cargá todos los montos sin IVA: costos, precios y tarifas.' }, 'Montos sin IVA'),
+    stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-gray', title: 'Convención de esta cotización: costos, precios y tarifas se cargan sin IVA.' }, 'Montos sin IVA'),
     saveEl,
   );
   // En Resultado el título y la intro los pone la vista de resultados (su h2
@@ -1992,6 +2004,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         h('h2', { class: 'qe-step-title', tabindex: '-1' }, copy.question),
         copy.why ? h('p', { class: 'qe-step-why' }, copy.why) : null,
         copy.term ? h('p', { class: 'qe-term' }, h('span', { class: 'qe-term-label' }, 'Término técnico:'), ` ${copy.term}`) : null,
+        // La convención de montos se dice al empezar (no se supone en silencio).
+        stepId === 'service' ? h('p', { class: 'qe-convention' }, h('strong', {}, 'Montos sin IVA. '), 'Esta cotización usa costos, precios y tarifas sin IVA: si tenés un valor con IVA, descontalo antes de cargarlo.') : null,
       ),
       meta,
     );

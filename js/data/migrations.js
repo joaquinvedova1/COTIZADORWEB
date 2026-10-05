@@ -85,7 +85,9 @@ export function migrateV0ToV1(state, { now = new Date().toISOString(), idFactory
 }
 
 /**
- * v1 → v2 (PLAN-2026-002). Impuestos sobre la facturación:
+ * v1 → v2 (PLAN-2026-002). Impuestos sobre la facturación y convención de IVA:
+ * - cada cotización recibe `vatTreatment: 'excluded'` (montos sin IVA: lo que
+ *   RATEOS siempre calculó), explícito y no supuesto;
  * - cada cotización recibe `billingTaxes` SIN DEFINIR (nunca se inventan
  *   alícuotas): sus números no cambian (t = 0) y la interfaz avisa que la
  *   tarifa piso no incluye esos impuestos;
@@ -97,8 +99,10 @@ export function migrateV1ToV2(state) {
   const src = isPlainObject(state) ? deepClone(state) : {};
   const quotes = (Array.isArray(src.quotes) ? src.quotes : []).map((q) => {
     if (!isPlainObject(q)) return q;
-    if (isPlainObject(q.billingTaxes)) return q;
-    const out = { ...q, billingTaxes: emptyBillingTaxes() };
+    // Convención de montos explícita: RATEOS siempre calculó sin IVA.
+    const out = { ...q, vatTreatment: typeof q.vatTreatment === 'string' && q.vatTreatment ? q.vatTreatment : 'excluded' };
+    if (isPlainObject(q.billingTaxes)) return out;
+    out.billingTaxes = emptyBillingTaxes();
     if (q.billingTaxes !== undefined && q.billingTaxes !== null) out.legacy = withLegacy(q.legacy, 'billingTaxes', q.billingTaxes);
     return out;
   });

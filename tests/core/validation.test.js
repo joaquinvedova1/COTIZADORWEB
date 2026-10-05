@@ -273,7 +273,7 @@ describe('validateQuote — impuestos sobre la facturación (PLAN-2026-002)', ()
     const errors = errorsOf(q);
     assert.equal(errors.length, 1);
     assert.equal(errors[0].path, 'pricing.targetMarginPct');
-    assert.equal(errors[0].message, 'Con 8 % de impuestos sobre la facturación, el margen tiene que ser menor a 92 %.');
+    assert.equal(errors[0].message, 'Con 8 % de impuestos sobre lo que facturás, el margen tiene que ser menor a 92 %.');
     q.pricing.targetMarginPct = 91.99;
     assert.deepEqual(errorsOf(q), []);
   });
@@ -282,7 +282,7 @@ describe('validateQuote — impuestos sobre la facturación (PLAN-2026-002)', ()
     const q = base();
     q.pricing.targetMarginPct = 97;
     q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: 3.5, items: [] };
-    assert.equal(errorsOf(q)[0].message, 'Con 3,5 % de impuestos sobre la facturación, el margen tiene que ser menor a 96,5 %.');
+    assert.equal(errorsOf(q)[0].message, 'Con 3,5 % de impuestos sobre lo que facturás, el margen tiene que ser menor a 96,5 %.');
   });
 });
 

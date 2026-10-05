@@ -219,6 +219,23 @@ export function requiredNetRate({ totalCost, marginPct = 0, billingTaxPct = 0, b
   return { rate, coveredByOtherRevenue: false, requiredRevenue };
 }
 
+/**
+ * Mínimo por llamado al cambiar la unidad de la tarifa (mismo significado en
+ * la otra unidad): día → hora × horas por día activo; hora → día ÷ horas.
+ * Con abono mensual no aplica (se conserva el número). null si no se puede
+ * convertir (sin horas por día).
+ */
+export function convertMinimumCallUnits(units, fromUnit, toUnit, hoursPerActiveDay) {
+  const n = Number(units);
+  if (!Number.isFinite(n) || n <= 0 || fromUnit === toUnit) return Number.isFinite(n) ? n : null;
+  if (toUnit === 'month' || fromUnit === 'month') return n;
+  const hours = Number(hoursPerActiveDay);
+  if (!(Number.isFinite(hours) && hours > 0)) return null;
+  if (fromUnit === 'day' && toUnit === 'hour') return n * hours;
+  if (fromUnit === 'hour' && toUnit === 'day') return n / hours;
+  return null;
+}
+
 /** Tarifa de lista necesaria para cobrar una tarifa neta, dado el factor de descuento. */
 export function listRateFromNet(netRate, factor) {
   if (!isFiniteNumber(netRate)) return null;
@@ -227,14 +244,16 @@ export function listRateFromNet(netRate, factor) {
 
 /**
  * Semáforo de un descuento:
- *  green  = mantiene el margen objetivo
- *  orange = debajo del margen objetivo pero sobre break-even
- *  red    = debajo de break-even (pierde dinero)
+ *  green     = mantiene el margen objetivo
+ *  orange    = debajo del margen objetivo pero sobre break-even
+ *  red       = debajo de break-even (pierde dinero)
+ *  no_target = cubre los costos, pero no hay un margen objetivo válido para comparar
  */
 export function classifyDiscount({ netRate, floorNetRate, targetNetRate }) {
   if (!isFiniteNumber(netRate) || !isFiniteNumber(floorNetRate)) return 'unknown';
   const tol = Math.max(1e-6, Math.abs(floorNetRate) * 1e-9);
-  if (isFiniteNumber(targetNetRate) && netRate >= targetNetRate - tol) return 'green';
-  if (netRate >= floorNetRate - tol) return 'orange';
-  return 'red';
+  if (netRate < floorNetRate - tol) return 'red';
+  // Sin margen objetivo válido no hay contra qué comparar: no se rotula "bajo el objetivo".
+  if (!isFiniteNumber(targetNetRate)) return 'no_target';
+  return netRate >= targetNetRate - tol ? 'green' : 'orange';
 }

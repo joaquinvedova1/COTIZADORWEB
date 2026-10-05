@@ -1,7 +1,7 @@
 {
   "id": "on-call-cotizacion-con-impuestos",
-  "title": "Cotización on-call con 10 % de impuestos: piso 4.444.444,44, objetivo 5.000.000, resultado 10 % del precio",
-  "rule": "Fijos 30M, variable 1M/día, 10 días, margen 10 %, impuestos 10 %: costo 40M; facturación piso 40M / 0,9 → 4.444.444,44 por día; facturación objetivo 40M / 0,8 = 50M → 5.000.000 por día; impuestos 5M; resultado 5M = 10 % de la facturación; recargo efectivo 12,5 %. Valores sintéticos ILUSTRATIVOS.",
+  "title": "Cotización on-call con 10 % de impuestos: piso 4.444.444,44, objetivo 5.000.000, resultado 10 % del precio, markup 25 %",
+  "rule": "Fijos 30M, variable 1M/día, 10 días, margen 10 %, impuestos 10 %: costo 40M; facturación piso 40M / 0,9 → 4.444.444,44 por día; facturación objetivo 40M / 0,8 = 50M → 5.000.000 por día; impuestos 5M; resultado 5M = 10 % de la facturación; markup (precio = costo × (1 + markup)) 25 %; ganancia sobre el costo 12,5 %. Valores sintéticos ILUSTRATIVOS.",
   "engine": "quote.onCall",
   "inputs": {
     "fixedCosts": 30000000,
@@ -14,13 +14,16 @@
     "kpis.totalCost": 40000000,
     "kpis.floorNetRate": 4444444.444444444,
     "kpis.targetNetRate": 5000000,
-    "kpis.targetMarkupPct": 12.5,
+    "kpis.targetMarkupPct": 25,
     "kpis.revenue": 50000000,
     "kpis.billingTaxes": 5000000,
     "kpis.profit": 5000000,
     "kpis.marginPct": 10,
     "kpis.billingTaxPct": 10,
-    "kpis.billingTaxesDefined": true
+    "kpis.billingTaxesDefined": true,
+    "kpis.markupPct": 25,
+    "kpis.targetProfitOnCostPct": 12.5,
+    "kpis.profitOnCostPct": 12.5
   },
   "tolerance": 0.005
 }

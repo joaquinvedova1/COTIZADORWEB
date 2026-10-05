@@ -18,7 +18,9 @@ import assert from 'node:assert/strict';
 import {
   priceFromMargin,
   priceFromMarginAndTaxes,
-  effectiveMarkupPct,
+  markupWithTaxesPct,
+  profitOnCostPct,
+  readMarginInput,
   marginToMarkup,
   isValidMarginAndTaxes,
   isValidBillingTaxPct,
@@ -100,11 +102,29 @@ describe('Gross-up exacto: precio = costo / (1 − margen − impuestos)', () =>
     assert.equal(isValidBillingTaxPct(-0.01), false);
   });
 
-  test('markup efectivo = m / (1 − m − t); con t 0 es marginToMarkup', () => {
-    approx(effectiveMarkupPct(10, 10), 12.5, 'm 10 t 10', 1e-12);
-    assert.equal(effectiveMarkupPct(10, 0), marginToMarkup(10));
-    assert.equal(effectiveMarkupPct(0, 10), 0);
-    assert.equal(effectiveMarkupPct(50, 50), null);
+  test('markup (precio = costo × (1 + markup), AGENTS §9) = (m + t) / (1 − m − t); con t 0 es marginToMarkup', () => {
+    approx(markupWithTaxesPct(10, 10), 25, 'm 10 t 10', 1e-12);
+    approx(100 * (1 + markupWithTaxesPct(10, 10) / 100), priceFromMarginAndTaxes(100, 10, 10), 'costo × (1 + markup) = precio', 1e-9);
+    approx(markupWithTaxesPct(0, 10), 11.111111111111111, 'margen 0: el recargo son sólo los impuestos', 1e-9);
+    assert.equal(markupWithTaxesPct(10, 0), marginToMarkup(10));
+    assert.equal(markupWithTaxesPct(50, 50), null);
+  });
+
+  test('ganancia sobre el costo = m / (1 − m − t): NO es el markup cuando hay impuestos', () => {
+    approx(profitOnCostPct(10, 10), 12.5, 'm 10 t 10', 1e-12);
+    assert.equal(profitOnCostPct(10, 0), marginToMarkup(10));
+    assert.equal(profitOnCostPct(0, 10), 0);
+    assert.equal(profitOnCostPct(50, 50), null);
+    // Costo × (1 + ganancia/costo) queda por debajo del precio: 112,5 < 125.
+    assert.ok(100 * (1 + profitOnCostPct(10, 10) / 100) < priceFromMarginAndTaxes(100, 10, 10) - 1);
+  });
+
+  test('un solo lector del margen (igual que la validación): texto es-AR, vacío e inválidos', () => {
+    assert.deepEqual(readMarginInput(10), { state: 'ok', value: 10 });
+    assert.deepEqual(readMarginInput('10,5'), { state: 'ok', value: 10.5 });
+    assert.deepEqual(readMarginInput('10 %'), { state: 'ok', value: 10 });
+    for (const empty of [null, undefined, '', '  ']) assert.equal(readMarginInput(empty).state, 'empty');
+    for (const bad of ['abc', '1.000', 100, -1, NaN, true, {}]) assert.equal(readMarginInput(bad).state, 'invalid', String(bad));
   });
 
   test('escalera de precios con impuestos: precio = costo + impuestos + ganancia en cada fila; omite m + t ≥ 100', () => {
@@ -115,8 +135,10 @@ describe('Gross-up exacto: precio = costo / (1 − margen − impuestos)', () =>
     approx(floor.billingTaxes, 11.111111111111111, 'impuestos del piso', 1e-9);
     assert.equal(floor.gain, 0);
     approx(rows[1].price, 125, 'm 10', 1e-9);
-    approx(rows[1].markupPct, 12.5, 'markup efectivo m 10', 1e-12);
+    approx(rows[1].markupPct, 25, 'markup m 10 (precio / costo − 1)', 1e-12);
+    approx(rows[1].profitOnCostPct, 12.5, 'ganancia sobre el costo m 10', 1e-12);
     rows.forEach((r) => approx(r.price - r.billingTaxes - r.gain, 100, `${r.key}: precio − impuestos − ganancia = costo`, 1e-9));
+    rows.forEach((r) => approx(100 * (1 + r.markupPct / 100), r.price, `${r.key}: costo × (1 + markup) = precio`, 1e-9));
     // Sin impuestos la escalera es la de siempre.
     const plain = priceLadder(100, [10], null);
     approx(plain[1].price, 111.11111111111111, 'm 10 sin impuestos', 1e-9);
@@ -274,8 +296,10 @@ describe('Cotización completa con impuestos (computeQuote)', () => {
     approx(k.billingTaxes, 5000000);
     approx(k.profit, 5000000);
     approx(k.marginPct, 10, 'margen', 1e-9);
-    approx(k.targetMarkupPct, 12.5, 'markup efectivo objetivo', 1e-9);
-    approx(k.markupPct, 12.5, 'markup efectivo real', 1e-9);
+    approx(k.targetMarkupPct, 25, 'markup objetivo (precio / costo − 1)', 1e-9);
+    approx(k.markupPct, 25, 'markup real (facturación / costo − 1)', 1e-9);
+    approx(k.targetProfitOnCostPct, 12.5, 'ganancia sobre el costo objetivo', 1e-9);
+    approx(k.profitOnCostPct, 12.5, 'ganancia sobre el costo real', 1e-9);
     approx(k.breakEvenDays, 30000000 / 3500000, 'break-even con la tarifa objetivo', 1e-6);
     approx(k.priceToCostMultiplier, 1.25, 'precio / costo', 1e-12);
     assert.equal(k.billingTaxPct, 10);
@@ -294,7 +318,7 @@ describe('Cotización completa con impuestos (computeQuote)', () => {
     assert.ok(r.traces.floorRate.notes.some((n) => /No incluye impuestos/.test(n)));
   });
 
-  test('"no pago impuestos sobre lo que facturo" → mismos números que sin definir, pero definido y sin aviso', () => {
+  test('"No incluir impuestos sobre la facturación en esta cotización" → mismos números que sin definir, pero definido y sin aviso', () => {
     const r = computeQuote(onCall({ taxes: { ...emptyBillingTaxes(), notApplicable: true } }));
     approx(r.kpis.floorNetRate, 4000000);
     assert.equal(r.kpis.billingTaxesDefined, true);

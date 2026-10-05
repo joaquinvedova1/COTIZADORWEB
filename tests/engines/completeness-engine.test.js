@@ -268,7 +268,7 @@ describe('CompletenessEngine — impuestos sobre lo que facturás (PLAN-2026-002
     assert.equal(item(evaluateCompleteness(q), 'billing_taxes').status, 'warning');
   });
 
-  test('"no pago impuestos sobre lo que facturo" → ok', () => {
+  test('"No incluir impuestos sobre la facturación en esta cotización" → ok', () => {
     const q = completeQuote();
     q.billingTaxes = { mode: 'combined', notApplicable: true, combinedPct: null, items: [] };
     assert.equal(item(evaluateCompleteness(q), 'billing_taxes').status, 'ok');

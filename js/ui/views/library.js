@@ -115,6 +115,8 @@ let resourceView = 'simple';
 
 const AGREEMENT_PARAM_KEYS = Object.freeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
 
+/** Convención de montos de RATEOS (PLAN-2026-002, PN1): todo sin IVA. */
+const VAT_HINT = 'Montos sin IVA: si tu proveedor te pasa un precio con IVA, descontalo antes de cargarlo.';
 const ILLUSTRATIVE_AGREEMENT_NOTICE = 'Parámetros GENÉRICOS e ILUSTRATIVOS, no son valores de ningún CCT; cargá los vigentes.';
 
 const options = (list) => list.map((o) => ({ value: o.id ?? o.code, label: o.label }));
@@ -539,6 +541,7 @@ function equipmentSections() {
     },
     {
       title: 'COSTO DE POSESIÓN (existe aunque el equipo no trabaje)',
+      hint: VAT_HINT,
       fields: [
         { key: 'currentValue', label: 'Valor actual', rule: 'money', unit: '$', hint: 'Informativo. La amortización usa el valor de reposición.' },
         { key: 'replacementValue', label: 'Valor de reposición', rule: 'money', unit: '$', hint: 'Lo que costaría reemplazarlo hoy.' },
@@ -611,6 +614,7 @@ function materialSections() {
     },
     {
       title: 'Costo',
+      hint: VAT_HINT,
       fields: [
         { key: 'unitCost', label: 'Costo unitario', rule: 'money', unit: '$' },
         { key: 'quantity', label: 'Cantidad', rule: 'quantity' },

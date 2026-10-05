@@ -14,16 +14,17 @@
 import { h, mount } from '../../dom.js';
 import { card, formGrid, emptyState, table, badge, icon, button, confirmDialog } from '../../components.js';
 import { RATE_UNITS } from '../../../domain/catalogs.js';
-import { normalizeBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../../domain/billing-taxes.js';
+import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../../domain/billing-taxes.js';
+import { billingTaxConfigInfo } from '../../../engines/billing-taxes-engine.js';
 import { priceFromMargin, priceFromMarkup, traceMarginVsMarkup } from '../../../engines/pricing-engine.js';
 import { tierLabel } from '../../../engines/commercial-rules-engine.js';
 import { formatMoney, formatPercent, formatNumber, formatValue, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
-import { deepClone, isPlainObject } from '../../../core/object.js';
+import { isPlainObject } from '../../../core/object.js';
 import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove, hasNumber, stepName, plural } from './shared.js';
 import { minActivityNotice } from '../../result-text.js';
-import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, sameBillingTaxes } from '../../billing-taxes-form.js';
+import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillingTaxes, sameBillingTaxes, invalidTaxesText } from '../../billing-taxes-form.js';
 import { userErrorMessage } from '../../layout.js';
 
 const DISCOUNT_STATUS = Object.freeze({
@@ -31,6 +32,7 @@ const DISCOUNT_STATUS = Object.freeze({
   orange: ['Bajo el margen objetivo', 'orange'],
   red: ['Pierde plata', 'red'],
   unknown: ['Sin tarifa', 'gray'],
+  no_target: ['Cubre costos (sin objetivo)', 'gray'],
 });
 
 /**
@@ -80,12 +82,15 @@ function companyTaxesActions(ctx) {
   const settings = ctx.settings || {};
   const company = settings.defaultBillingTaxes;
   const own = ctx.quote.billingTaxes;
-  const companyDecided = billingTaxesDecided(company);
+  const companyDecided = billingTaxesDecided(company) && !billingTaxConfigInfo(company).invalid;
   const ownDecided = billingTaxesDecided(own);
+  const ownValid = ownDecided && !billingTaxConfigInfo(own).invalid;
   const same = companyDecided && ownDecided && sameBillingTaxes(company, own);
   const actions = [];
+  // Después de reemplazar o guardar, el foco va a la elección del modo (no se pierde).
+  const focusPath = 'billingTaxes.mode';
   if (companyDecided && !same) {
-    actions.push(button(`Usar los de mi empresa (${describeBillingTaxes(company)})`, {
+    actions.push(button(`Usar los de mi empresa (${shortBillingTaxes(company)})`, {
       size: 'sm',
       onClick: async () => {
         if (ownDecided) {
@@ -96,17 +101,17 @@ function companyTaxesActions(ctx) {
           });
           if (!ok) return;
         }
-        ctx.mutate((q) => { q.billingTaxes = normalizeBillingTaxes(deepClone(company)); });
+        ctx.mutate((q) => { q.billingTaxes = copyBillingTaxes(company); }, { focus: company.notApplicable === true ? 'billingTaxes.notApplicable' : focusPath });
         ctx.toast('Se cargaron los impuestos de tu empresa.', 'success');
       },
     }));
   }
-  if (ownDecided && !same) {
+  if (ownValid && !same) {
     actions.push(button('Guardar como valor de mi empresa', {
       size: 'sm',
-      variant: 'ghost',
+      variant: 'secondary',
       onClick: async () => {
-        const value = normalizeBillingTaxes(deepClone(ctx.quote.billingTaxes));
+        const value = copyBillingTaxes(ctx.quote.billingTaxes);
         if (companyDecided) {
           const ok = await confirmDialog({
             title: 'Guardar como valor de tu empresa',
@@ -120,6 +125,7 @@ function companyTaxesActions(ctx) {
           settings.defaultBillingTaxes = value;
           ctx.toast('Guardado: las cotizaciones nuevas van a arrancar con estos impuestos.', 'success');
           ctx.rerender();
+          ctx.focusField(value.notApplicable === true ? 'billingTaxes.notApplicable' : focusPath);
         } catch (error) {
           ctx.toast(userErrorMessage(error, 'No se pudo guardar el valor de tu empresa.'), 'danger');
         }
@@ -129,7 +135,12 @@ function companyTaxesActions(ctx) {
   if (actions.length === 0) {
     return same ? h('p', { class: 'footnote' }, 'Son los impuestos de tu empresa (Configuración → Parámetros económicos).') : null;
   }
-  return h('div', { class: 'qe-toolbar bt-company' }, ...actions);
+  return h(
+    'div',
+    { class: 'bt-company-wrap' },
+    h('div', { class: 'qe-toolbar bt-company' }, ...actions),
+    companyDecided && !same ? h('p', { class: 'footnote' }, `Tu empresa: ${describeBillingTaxes(company)}.`) : null,
+  );
 }
 
 export function render(container, ctx) {
@@ -148,31 +159,34 @@ export function render(container, ctx) {
         rule: 'margin',
         unit: '%',
         requiredMark: true,
-        hint: 'Lo que querés que te quede de cada $ 100 facturados, después de pagar los costos y los impuestos sobre lo que facturás (antes de Ganancias).',
+        hint: 'Lo que querés que te quede de cada $ 100 facturados, después de pagar los costos y los impuestos sobre lo que facturás (antes del impuesto a las Ganancias).',
       }),
     ),
     // Margen vs markup se explica UNA vez: este recuadro + "Ver ejemplo" (COPY-8).
-    h(
-      'div',
-      { class: 'qe-tip' },
-      icon('info'),
+    // Con un margen inválido no se muestra: ya lo dicen el campo y el aviso rojo.
+    kit.toggle(
       h(
-        'p',
-        {},
-        kit.out((r) => {
-          const k = r.kpis;
-          const t = k.billingTaxPct;
-          if (k.targetMarginInvalid && t > 0) return `Con ${formatPercent(t)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - t)}.`;
-          // Recargo efectivo calculado por el motor: m / (1 − m − t).
-          const mk = k.targetMarkupPct;
-          if (!isFiniteNumber(mk)) return 'Definí un margen objetivo válido (de 0 a menos de 100 %).';
-          return t > 0
-            ? `Con ${formatPercent(t)} de impuestos sobre lo que facturás, un margen de ${formatPercent(k.targetMarginPct)} sobre el precio equivale a un recargo sobre el costo (markup) de ${formatPercent(mk)}: no son lo mismo.`
-            : `Un margen de ${formatPercent(k.targetMarginPct)} sobre el precio equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}: no son lo mismo.`;
-        }),
-        ' ',
-        h('button', { type: 'button', class: 'btn btn-link btn-sm qe-inline-link', 'aria-controls': 'qe-margin-example', on: { click: () => showExample() } }, 'Ver ejemplo'),
+        'div',
+        { class: 'qe-tip' },
+        icon('info'),
+        h(
+          'p',
+          {},
+          kit.out((r) => {
+            const k = r.kpis;
+            const t = k.billingTaxPct;
+            // Markup (precio = costo × (1 + markup)) y ganancia sobre el costo: los calcula el motor.
+            const mk = k.targetMarkupPct;
+            if (!isFiniteNumber(mk)) return 'Definí un margen objetivo válido (de 0 a menos de 100 %).';
+            return t > 0
+              ? `Con ${formatPercent(t)} de impuestos sobre lo que facturás, para ganar ${formatPercent(k.targetMarginPct)} sobre el precio cobrás el costo + ${formatPercent(mk)} (markup: recargo sobre el costo). De ese recargo, ${formatPercent(k.targetProfitOnCostPct)} del costo es tu ganancia y el resto son impuestos.`
+              : `Un margen de ${formatPercent(k.targetMarginPct)} sobre el precio equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}: no son lo mismo.`;
+          }),
+          ' ',
+          h('button', { type: 'button', class: 'btn btn-link btn-sm qe-inline-link', 'aria-controls': 'qe-margin-example', on: { click: () => showExample() } }, 'Ver ejemplo'),
+        ),
       ),
+      (r) => !r.kpis.targetMarginInvalid,
     ),
   );
 
@@ -194,21 +208,35 @@ export function render(container, ctx) {
     // Se reevalúa en cada recálculo: aparece apenas la cotización tiene impuestos decididos.
     kit.out(() => companyTaxesActions(ctx), { tag: 'div', allowEmpty: true, className: 'bt-company-holder' }),
     kit.toggle(
-      h('div', { class: 'qe-tip qe-tip-warning' }, icon('alert'), h('p', {}, 'Sin definir: la tarifa piso y la sugerida NO incluyen estos impuestos. Si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o marcá que no pagás.')),
+      h('div', { class: 'qe-tip qe-tip-warning', role: 'status' }, icon('alert'), h('p', {}, 'Sin definir: la tarifa piso y la sugerida NO incluyen estos impuestos. Si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".')),
       (r) => !r.kpis.billingTaxesDefined && !r.kpis.billingTaxesInvalid,
     ),
     kit.toggle(
-      h('div', { class: 'qe-tip qe-tip-danger' }, icon('alert'), kit.out((r) => `Con ${formatPercent(r.kpis.billingTaxPct)} de impuestos sobre lo que facturás, el margen objetivo tiene que ser menor a ${formatPercent(100 - r.kpis.billingTaxPct)}: no hay un precio que deje ese margen.`, { tag: 'p' })),
+      h('div', { class: 'qe-tip qe-tip-danger', role: 'status' }, icon('alert'), kit.out((r) => `Revisá los impuestos: ${invalidTaxesText(r.billingTaxInfo)}. Mientras tanto no se aplican.`, { tag: 'p' })),
+      (r) => r.kpis.billingTaxesInvalid,
+    ),
+    kit.toggle(
+      h('div', { class: 'qe-tip qe-tip-danger', role: 'status' }, icon('alert'), kit.out((r) => `Con ${formatPercent(r.kpis.billingTaxPct)} de impuestos sobre lo que facturás, el margen objetivo tiene que ser menor a ${formatPercent(100 - r.kpis.billingTaxPct)}: no hay un precio que deje ese margen.`, { tag: 'p' })),
       (r) => r.kpis.targetMarginInvalid && r.kpis.billingTaxPct > 0,
     ),
     kit.stats(
       kit.stat('Impuestos sobre lo que facturás', (r) => (r.kpis.billingTaxesInvalid ? 'Revisar' : r.kpis.billingTaxesDefined ? formatPercent(r.kpis.billingTaxPct) : 'Sin definir'), {
-        hint: (r) => (r.kpis.billingTaxesInvalid ? 'Hay un porcentaje inválido: no se aplica hasta que lo corrijas.' : r.billingTaxInfo && r.billingTaxInfo.notApplicable ? 'Marcaste que no pagás impuestos sobre lo que facturás.' : 'Sobre la facturación sin IVA.'),
+        hint: (r) => {
+          if (r.kpis.billingTaxesInvalid) return `${invalidTaxesText(r.billingTaxInfo).replace(/^./, (c) => c.toUpperCase())}.`;
+          if (r.billingTaxInfo && r.billingTaxInfo.notApplicable) return 'Elegiste no incluir impuestos sobre la facturación en esta cotización.';
+          if (r.kpis.billingTaxesDefined && !(r.kpis.billingTaxPct > 0)) return 'Cargaste 0 %: la tarifa no suma impuestos.';
+          return 'Sobre la facturación sin IVA.';
+        },
         tone: (r) => (r.kpis.billingTaxesInvalid ? 'red' : r.kpis.billingTaxesDefined ? null : 'orange'),
       }),
-      kit.stat('Impuestos del mes', (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.billingTaxes) : EMPTY), {
-        hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? `Con ${{ known_rate: 'tu tarifa', offered: 'la tarifa ofrecida', override: 'la tarifa forzada' }[r.kpis.commercialSource] || 'la tarifa sugerida'} y la actividad estimada.` : 'Sin tarifa.'),
+      kit.stat('Impuestos del mes', (r) => (isFiniteNumber(r.kpis.commercialListRate) && r.kpis.billingTaxesDefined ? formatMoney(r.kpis.billingTaxes) : EMPTY), {
+        hint: (r) => {
+          if (!r.kpis.billingTaxesDefined) return 'Cargá el % para verlos.';
+          if (!isFiniteNumber(r.kpis.commercialListRate)) return 'Sin tarifa.';
+          return `Con ${{ known_rate: 'tu tarifa', offered: 'la tarifa ofrecida', override: 'la tarifa forzada' }[r.kpis.commercialSource] || 'la tarifa sugerida'} y la actividad estimada.`;
+        },
         trace: (r) => r.traces.billingTaxes,
+        traceLabel: 'Ver cálculo de los impuestos del mes',
       }),
     ),
   );

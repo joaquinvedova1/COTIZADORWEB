@@ -373,13 +373,14 @@ export function selectField({ label, value, options, onChange, hint = null, name
 /** Casilla de verificación. */
 export function checkboxField({ label, checked = false, onChange, hint = null, name = null, disabled = false }) {
   const id = uniqueId('chk');
-  const input = h('input', { id, name, type: 'checkbox', checked, disabled });
+  // La ayuda se anuncia junto con la casilla (aria-describedby).
+  const input = h('input', { id, name, type: 'checkbox', checked, disabled, 'aria-describedby': hint ? `${id}-hint` : null });
   input.addEventListener('change', () => {
     if (typeof onChange === 'function') onChange(input.checked);
   });
   return h('div', { class: 'field field-check' },
     h('label', { class: 'check', for: id }, input, h('span', {}, label)),
-    hint ? h('div', { class: 'field-hint' }, hint) : null);
+    hint ? h('div', { class: 'field-hint', id: `${id}-hint` }, hint) : null);
 }
 
 /** Grupo de opciones tipo "tarjeta" (radio). options: [{ value, label, hint }] */

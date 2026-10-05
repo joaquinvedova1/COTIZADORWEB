@@ -5,8 +5,9 @@
  * Parámetros económicos (valor de la empresa). Sólo edita la configuración:
  * el cálculo (gross-up) lo hace el motor (js/engines/billing-taxes-engine.js).
  *
- * Modos EXCLUYENTES: "Un % total" o "Detalle por impuesto" (nunca se suman).
- * RATEOS no trae alícuotas: los campos arrancan vacíos (AGENTS.md §7).
+ * Modos EXCLUYENTES: "Un % total" o "Detalle por impuesto" (nunca se suman;
+ * lo del otro modo queda guardado si el usuario vuelve). RATEOS no trae
+ * alícuotas: los campos arrancan vacíos (AGENTS.md §7).
  */
 
 import { h } from './dom.js';
@@ -21,33 +22,54 @@ import { createId } from '../core/ids.js';
 
 const MODE_HINTS = Object.freeze({
   combined: 'Lo más simple: la suma que te pasa tu contador.',
-  detailed: 'Ingresos Brutos, débitos y créditos, sellos y otros cargos, uno por uno.',
+  detailed: 'Ingresos Brutos, impuesto al cheque, sellos y otros cargos, uno por uno.',
 });
+
+/** Tipos que se ofrecen como renglón propio (el resto, "Otro cargo"). */
+const STANDARD_KINDS = Object.freeze(['gross_income', 'debits_credits', 'stamp']);
+
+/** "4,5 %" sin que el número y el % queden en líneas distintas. */
+const pctText = (value) => formatPercent(value).replace(' %', ' %');
+
+function newItem(kind, label = null) {
+  return { id: `tax-${createId().slice(0, 8)}`, kind, label: label || labelOf(BILLING_TAX_KINDS, kind, 'Impuesto'), pct: null };
+}
 
 /** Renglones con los que arranca el detalle (sin %: los carga cada empresa). */
 export function defaultTaxItems() {
-  return ['gross_income', 'debits_credits', 'stamp'].map((kind) => ({
-    id: `tax-${createId().slice(0, 8)}`,
-    kind,
-    label: labelOf(BILLING_TAX_KINDS, kind, 'Impuesto'),
-    pct: null,
-  }));
+  return STANDARD_KINDS.map((kind) => newItem(kind));
 }
 
 /**
- * Descripción corta de una configuración, para botones y resúmenes:
- * "4,5 % en total", "Ingresos Brutos 3 % + Sellos 1 % = 4 %", "no pagás…", "sin definir".
+ * Descripción de una configuración, para resúmenes y confirmaciones:
+ * "4,5 % en total", "Ingresos Brutos 3 % + Sellos 1 % = 4 %", "sin impuestos…", "sin definir".
  */
 export function describeBillingTaxes(config) {
   const info = billingTaxConfigInfo(config);
-  if (info.notApplicable) return 'no pagás impuestos sobre lo que facturás';
-  if (info.invalid) return 'hay un porcentaje inválido';
+  if (info.notApplicable) return 'sin impuestos sobre la facturación';
+  if (info.invalid) return invalidTaxesText(info);
   if (!info.defined) return 'sin definir';
   if (info.mode === 'detailed') {
-    const parts = info.items.filter((it) => isFiniteNumber(it.pct)).map((it) => `${it.label} ${formatPercent(it.pct)}`);
-    return parts.length > 1 ? `${parts.join(' + ')} = ${formatPercent(info.pct)}` : parts[0];
+    const parts = info.items.filter((it) => isFiniteNumber(it.pct)).map((it) => `${it.label} ${pctText(it.pct)}`);
+    return parts.length > 1 ? `${parts.join(' + ')} = ${pctText(info.pct)}` : parts[0];
   }
-  return `${formatPercent(info.pct)} en total`;
+  return `${pctText(info.pct)} en total`;
+}
+
+/** Versión corta para botones: "4,7 %" o "sin impuestos". */
+export function shortBillingTaxes(config) {
+  const info = billingTaxConfigInfo(config);
+  if (info.notApplicable) return 'sin impuestos';
+  if (info.invalid || !info.defined) return describeBillingTaxes(config);
+  return pctText(info.pct);
+}
+
+/** Por qué una configuración es inválida, en palabras del usuario. */
+export function invalidTaxesText(info) {
+  if (!info || !info.invalid) return '';
+  if (info.invalidReason === 'total') return `los impuestos suman ${pctText(info.rawTotal)}: tienen que sumar menos de 100 %`;
+  if (info.invalidReason === 'negative') return 'hay un porcentaje negativo';
+  return 'hay un porcentaje que no es un número';
 }
 
 /** ¿Dos configuraciones dicen lo mismo? (para no ofrecer "usar los de mi empresa" si ya son esos). */
@@ -59,7 +81,7 @@ export function sameBillingTaxes(a, b) {
   return strip(a) === strip(b);
 }
 
-/** Ayuda: qué incluir y qué no (doble conteo e IVA). */
+/** Ayuda: qué incluir (visible) y qué no (desplegable, para no recargar). */
 export function billingTaxesHelp() {
   return h(
     'div',
@@ -68,8 +90,13 @@ export function billingTaxesHelp() {
     h(
       'div',
       {},
-      h('p', {}, 'Ingresos Brutos, el impuesto a los débitos y créditos (como % equivalente sobre tu facturación sin IVA) y sellos, si el contrato los paga. Te los pasa tu contador.'),
-      h('p', {}, h('strong', {}, 'No incluyas '), 'IVA, Ganancias, retenciones ni percepciones (son pagos a cuenta) ni costo financiero (RATEOS lo calcula por plazos). ', h('strong', {}, 'Si ya los cargaste como otro costo o en imprevistos, sacalos de ahí: '), 'si no, los contás dos veces.'),
+      h('p', {}, 'Incluí Ingresos Brutos, el impuesto al cheque (débitos y créditos) y sellos, si el contrato los paga. El % te lo pasa tu contador.'),
+      h(
+        'details',
+        { class: 'bt-help-more' },
+        h('summary', {}, '¿Qué no tengo que incluir?'),
+        h('p', {}, 'IVA, impuesto a las Ganancias, retenciones o percepciones (son pagos a cuenta) ni el costo financiero (RATEOS ya lo calcula con los plazos de cobro). Si ya los cargaste como otro costo o en imprevistos, sacalos de ahí para no contarlos dos veces.'),
+      ),
     ),
   );
 }
@@ -84,7 +111,7 @@ export function billingTaxesHelp() {
  *   namePrefix?: string,                        prefijo de los name (rutas de validateQuote)
  * }} options
  */
-export function billingTaxesFields({ get, update, mutate, readOnly = false, namePrefix = 'billingTaxes' }) {
+export function billingTaxesFields({ get, update, mutate, readOnly = false, namePrefix = 'billingTaxes', scope = 'quote' }) {
   const cfg = get() || {};
   const items = Array.isArray(cfg.items) ? cfg.items : [];
   const na = cfg.notApplicable === true;
@@ -92,12 +119,16 @@ export function billingTaxesFields({ get, update, mutate, readOnly = false, name
   const name = (rel) => `${namePrefix}.${rel}`;
 
   const notApplicable = checkboxField({
-    label: 'No pago impuestos sobre lo que facturo',
+    // Elección de cálculo, no una afirmación fiscal sobre la empresa.
+    label: scope === 'company' ? 'No incluir impuestos sobre la facturación en las cotizaciones nuevas' : 'No incluir impuestos sobre la facturación en esta cotización',
     name: name('notApplicable'),
     checked: na,
     disabled: readOnly,
-    hint: na ? 'Los porcentajes no se usan: la tarifa se calcula sin estos impuestos.' : 'Marcalo sólo si de verdad no pagás Ingresos Brutos ni otros impuestos sobre lo que facturás.',
-    onChange: (checked) => mutate((c) => { c.notApplicable = Boolean(checked); }),
+    hint: na
+      ? `Los porcentajes no se usan: ${scope === 'company' ? 'las cotizaciones nuevas se calculan' : 'la tarifa se calcula'} sin estos impuestos.`
+      : 'Elegilo sólo si estos impuestos no corresponden. Ante la duda, consultalo con tu contador.',
+    // El foco vuelve a la misma casilla después de redibujar.
+    onChange: (checked) => mutate((c) => { c.notApplicable = Boolean(checked); }, { focus: name('notApplicable') }),
   });
   if (na) return h('div', { class: 'bt-fields stack' }, notApplicable);
 
@@ -107,31 +138,42 @@ export function billingTaxesFields({ get, update, mutate, readOnly = false, name
     value: mode,
     disabled: readOnly,
     options: BILLING_TAX_MODES.map((m) => ({ value: m.id, label: m.label, hint: MODE_HINTS[m.id] })),
+    // Con teclado (flechas) el foco queda en la opción elegida.
     onChange: (value) => mutate((c) => {
       c.mode = value;
       if (value === 'detailed' && (!Array.isArray(c.items) || c.items.length === 0)) c.items = defaultTaxItems();
-    }, { focus: value === 'detailed' ? name('items.0.pct') : name('combinedPct') }),
+    }, { focus: name('mode') }),
   });
 
   let body;
   if (mode === 'combined') {
-    body = formGrid(
-      2,
-      numberField({
-        label: 'Impuestos sobre lo que facturás (total)',
-        name: name('combinedPct'),
-        rule: 'billingTax',
-        unit: '%',
-        value: isFiniteNumber(cfg.combinedPct) ? cfg.combinedPct : null,
-        disabled: readOnly,
-        hint: 'Suma de los porcentajes sobre tu facturación sin IVA.',
-        onChange: (value) => update('combinedPct', value),
-      }),
+    const otherInfo = billingTaxConfigInfo({ ...cfg, mode: 'detailed' });
+    body = h(
+      'div',
+      { class: 'stack' },
+      formGrid(
+        2,
+        numberField({
+          label: 'Impuestos sobre lo que facturás (total)',
+          name: name('combinedPct'),
+          rule: 'billingTax',
+          unit: '%',
+          value: cfg.combinedPct === undefined ? null : cfg.combinedPct,
+          disabled: readOnly,
+          hint: 'Suma de los porcentajes sobre tu facturación sin IVA.',
+          onChange: (value) => update('combinedPct', value),
+        }),
+      ),
+      otherInfo.defined
+        ? h('p', { class: 'footnote' }, `El detalle que cargaste (${describeBillingTaxes({ ...cfg, mode: 'detailed' })}) no se suma mientras uses un % total; queda guardado si volvés al detalle.`)
+        : null,
     );
   } else {
     const rows = items.map((it, i) => {
       const kind = BILLING_TAX_KINDS.find((k) => k.id === it.kind) || BILLING_TAX_KINDS[BILLING_TAX_KINDS.length - 1];
       const isOther = it.kind === 'other' || !BILLING_TAX_KINDS.some((k) => k.id === it.kind);
+      const rowLabel = typeof it.label === 'string' && it.label ? it.label : 'este renglón';
+      const title = `Quitar ${rowLabel}`;
       return h(
         'div',
         { class: ['bt-row', isOther ? 'bt-row-other' : null] },
@@ -150,41 +192,47 @@ export function billingTaxesFields({ get, update, mutate, readOnly = false, name
           name: name(`items.${i}.pct`),
           rule: 'billingTax',
           unit: '%',
-          value: isFiniteNumber(it.pct) ? it.pct : null,
+          value: it.pct === undefined ? null : it.pct,
           disabled: readOnly,
           hint: kind.hint,
           onChange: (value) => update(`items.${i}.pct`, value),
         }),
         readOnly
           ? null
-          : (() => {
-            const title = `Quitar ${typeof it.label === 'string' && it.label ? it.label : 'este renglón'}`;
-            return button('', {
-              variant: 'ghost',
-              size: 'sm',
-              icon: 'trash',
-              title,
-              attrs: { 'aria-label': title, 'data-edit': 'true' },
-              onClick: () => mutate((c) => { c.items.splice(i, 1); }),
-            });
-          })(),
+          : button('', {
+            variant: 'ghost',
+            size: 'sm',
+            icon: 'trash',
+            title,
+            attrs: { 'aria-label': title, 'data-edit': 'true' },
+            // Después de quitar, el foco va al % de al lado (o a la elección del modo).
+            onClick: () => mutate((c) => { c.items.splice(i, 1); }, {
+              focus: items.length > 1 ? name(`items.${Math.min(i, items.length - 2)}.pct`) : name('mode'),
+            }),
+          }),
       );
     });
+    const missing = STANDARD_KINDS.filter((kind) => !items.some((it) => it.kind === kind));
+    const add = (kind, label = null) => mutate((c) => {
+      if (!Array.isArray(c.items)) c.items = [];
+      c.items.push(newItem(kind, label));
+    }, { focus: name(`items.${items.length}.pct`) });
     body = h(
       'div',
       { class: 'bt-detail stack' },
       h('div', { class: 'bt-rows' }, ...rows),
       h('p', { class: 'footnote' }, 'Un renglón vacío no se cuenta. Se suman sólo los porcentajes cargados.'),
+      isFiniteNumber(normalizeBillingTaxes(cfg).combinedPct)
+        ? h('p', { class: 'footnote' }, `El % total que cargaste (${pctText(normalizeBillingTaxes(cfg).combinedPct)}) no se suma mientras uses el detalle; queda guardado si volvés a "Un % total".`)
+        : null,
       readOnly
         ? null
-        : h('div', { class: 'qe-toolbar' }, button('Agregar otro cargo', {
-          size: 'sm',
-          icon: 'plus',
-          onClick: () => mutate((c) => {
-            if (!Array.isArray(c.items)) c.items = [];
-            c.items.push({ id: `tax-${createId().slice(0, 8)}`, kind: 'other', label: 'Otro cargo', pct: null });
-          }, { focus: name(`items.${items.length}.pct`) }),
-        })),
+        : h(
+          'div',
+          { class: 'qe-toolbar bt-add' },
+          ...missing.map((kind) => button(`Agregar ${labelOf(BILLING_TAX_KINDS, kind, 'impuesto')}`, { size: 'sm', icon: 'plus', onClick: () => add(kind) })),
+          button('Agregar otro cargo', { size: 'sm', icon: 'plus', onClick: () => add('other', 'Otro cargo') }),
+        ),
     );
   }
   return h('div', { class: 'bt-fields stack' }, modeChoice, body, notApplicable);

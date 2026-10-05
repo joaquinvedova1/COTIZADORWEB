@@ -23,12 +23,20 @@
  *     costo 100, t 10 %, margen 10 % → 125 (no 121 ni 123,46)
  *     tarifa piso (margen 0)          → costo / (1 − t) = 111,11
  *
+ *   Con t, el markup sigue siendo precio = costo × (1 + markup) (AGENTS.md §9):
+ *     markup            = (m + t) / (1 − m − t)   → 25 % (125 = 100 × 1,25)
+ *   y la ganancia sobre el costo (lo que una cascada "costo + beneficio, y los
+ *   impuestos encima" llama "beneficio sobre costo") es otra cosa:
+ *     ganancia/costo    = m / (1 − m − t)         → 12,5 %
+ *   Sin impuestos las dos coinciden con marginToMarkup.
+ *
  * Todos los porcentajes se expresan en puntos (10 = 10 %).
  */
 
 import { DEFAULT_MARGIN_LADDER } from '../config.js';
 import { isFiniteNumber, nonNegative, safeDivide, roundUpToStep } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
+import { parseDecimalInput } from '../core/validation.js';
 
 /** true si el margen es válido: 0 ≤ margen < 100. */
 export function isValidMarginPct(marginPct) {
@@ -61,12 +69,39 @@ export function priceFromMarginAndTaxes(cost, marginPct, taxPct = 0) {
 }
 
 /**
- * Recargo sobre el costo (markup) que implica un margen con impuestos sobre la
- * facturación: resultado / costo = m / (1 − m − t). Con t = 0 es marginToMarkup.
+ * Markup (recargo sobre el costo, AGENTS.md §9: precio = costo × (1 + markup))
+ * que implica un margen con impuestos sobre la facturación:
+ *   markup = precio / costo − 1 = (m + t) / (1 − m − t)
+ * El recargo incluye la ganancia Y los impuestos. Con t = 0 es marginToMarkup.
  */
-export function effectiveMarkupPct(marginPct, taxPct = 0) {
+export function markupWithTaxesPct(marginPct, taxPct = 0) {
+  if (!isValidMarginAndTaxes(marginPct, taxPct)) return null;
+  return ((marginPct + taxPct) * 100) / (100 - marginPct - taxPct);
+}
+
+/**
+ * Ganancia sobre el costo (resultado / costo) que implica un margen con
+ * impuestos sobre la facturación: m / (1 − m − t). Es el "beneficio sobre
+ * costo" de una cascada que suma el beneficio al costo y después agrega los
+ * impuestos: precio = costo × (1 + ganancia/costo) / (1 − t). NO es el markup
+ * (con t > 0, costo × (1 + ganancia/costo) queda por debajo del precio).
+ * Con t = 0 es marginToMarkup.
+ */
+export function profitOnCostPct(marginPct, taxPct = 0) {
   if (!isValidMarginAndTaxes(marginPct, taxPct)) return null;
   return (marginPct * 100) / (100 - marginPct - taxPct);
+}
+
+/**
+ * Lee un margen como lo valida validateQuote (número, o texto es-AR "10,5";
+ * "10 %" también): { state: 'empty' | 'ok' | 'invalid', value }.
+ * Vacío → 'empty' (el motor usa 0 y la completitud lo marca); inválido
+ * (≥ 100, negativo, texto) → 'invalid' (nunca se reemplaza en silencio).
+ */
+export function readMarginInput(raw) {
+  if (raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '')) return { state: 'empty', value: null };
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseDecimalInput(raw) : NaN;
+  return isValidMarginPct(n) ? { state: 'ok', value: n } : { state: 'invalid', value: null };
 }
 
 /** Precio con markup sobre costo. null si el markup es inválido. */
@@ -114,9 +149,10 @@ export function floorRate(totalCost, units) {
 /**
  * Escalera de precios para un costo dado. Con impuestos sobre la facturación
  * (t > 0) cada precio es costo / (1 − m − t): `billingTaxes` = t·precio,
- * `gain` = m·precio (resultado después de impuestos) y `markupPct` es el
- * recargo efectivo sobre el costo. Se omiten los márgenes con m + t ≥ 100.
- * @returns {{ key: string, label: string, marginPct: number, price: number|null, markupPct: number|null, billingTaxes: number|null, gain: number|null }[]}
+ * `gain` = m·precio (resultado después de impuestos), `markupPct` = precio /
+ * costo − 1 (recargo sobre el costo) y `profitOnCostPct` = ganancia / costo.
+ * Se omiten los márgenes con m + t ≥ 100.
+ * @returns {{ key: string, label: string, marginPct: number, price: number|null, markupPct: number|null, profitOnCostPct: number|null, billingTaxes: number|null, gain: number|null }[]}
  */
 export function priceLadder(cost, marginsPct = DEFAULT_MARGIN_LADDER, customMarginPct = null, billingTaxPct = 0) {
   const t = isValidBillingTaxPct(billingTaxPct) ? billingTaxPct : 0;
@@ -127,7 +163,8 @@ export function priceLadder(cost, marginsPct = DEFAULT_MARGIN_LADDER, customMarg
       label,
       marginPct: m,
       price,
-      markupPct: effectiveMarkupPct(m, t),
+      markupPct: markupWithTaxesPct(m, t),
+      profitOnCostPct: profitOnCostPct(m, t),
       billingTaxes: price === null ? null : (price * t) / 100,
       gain: price === null ? null : (price * m) / 100,
     };

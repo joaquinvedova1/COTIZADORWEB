@@ -24,10 +24,10 @@ import { isFiniteNumber } from '../../core/money.js';
 import { sanitizeText, validateNumber } from '../../core/validation.js';
 import { demoOrganization } from '../../domain/demo-data.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
-import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes } from '../billing-taxes-form.js';
-import { normalizeBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../domain/billing-taxes.js';
+import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, invalidTaxesText } from '../billing-taxes-form.js';
+import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { billingTaxConfigInfo } from '../../engines/billing-taxes-engine.js';
-import { setPath, deepClone, isPlainObject } from '../../core/object.js';
+import { setPath, isPlainObject } from '../../core/object.js';
 import { renderAgreements } from './library.js';
 import { isExampleQuote } from './quotes-list.js';
 
@@ -619,7 +619,7 @@ export async function render(root, app, params = {}) {
         h('h3', { class: 'params-group-title', id: 'params-costs' }, 'Costos y cobro'),
         formGrid(
           2,
-          num('fuelPricePerLiter', 'Precio del combustible', 'money', '$/L', 'Se usa en equipos, vehículos y logística.'),
+          num('fuelPricePerLiter', 'Precio del combustible (sin IVA)', 'money', '$/L', 'Se usa en equipos, vehículos y logística. Si el surtidor te da el precio con IVA, descontalo.'),
           num('defaultPaymentTermDays', 'Plazo de pago del cliente', 'paymentDays', 'días', '¿A cuántos días te pagan normalmente?'),
           num('financeMonthlyRatePct', 'Tasa financiera mensual', 'percent', '%', 'Lo que te cuesta la plata que adelantás hasta cobrar (capital de trabajo).'),
           num('defaultContingencyPct', 'Imprevistos (contingencia)', 'percent', '%', 'Colchón sobre el costo para lo que no se puede prever.'),
@@ -689,7 +689,7 @@ export async function render(root, app, params = {}) {
     // --------------- impuestos sobre lo que facturás (valor de la empresa)
     // No es ILUSTRATIVO: RATEOS no trae alícuotas (AGENTS.md §7). Sin definir
     // (null) hasta que la empresa decida; lo usan las cotizaciones nuevas.
-    const taxes = isPlainObject(settings.defaultBillingTaxes) ? normalizeBillingTaxes(deepClone(settings.defaultBillingTaxes)) : emptyBillingTaxes();
+    const taxes = isPlainObject(settings.defaultBillingTaxes) ? copyBillingTaxes(settings.defaultBillingTaxes) : emptyBillingTaxes();
     const taxesHolder = h('div', { class: 'stack' });
     const taxesSummary = h('p', { class: 'small', role: 'status' });
     const taxesChip = saveChip({ ephemeral });
@@ -698,8 +698,11 @@ export async function render(root, app, params = {}) {
       chip: taxesChip,
       readOnly,
       isValid: taxesValid,
+      // Se guarda siempre lo cargado (aunque esté a medio definir): cambiar de
+      // modo nunca borra el % total ni el detalle. Las cotizaciones nuevas sólo
+      // lo usan si está decidido (billingTaxesForNewQuote).
       save: async () => {
-        await ctx.settings.save({ defaultBillingTaxes: billingTaxesDecided(taxes) ? normalizeBillingTaxes(deepClone(taxes)) : null });
+        await ctx.settings.save({ defaultBillingTaxes: copyBillingTaxes(taxes) });
       },
       onError: (error) => app.toast(userErrorMessage(error, 'No se pudieron guardar los impuestos de tu empresa.'), 'danger'),
     });
@@ -707,10 +710,10 @@ export async function render(root, app, params = {}) {
     const refreshTaxesSummary = () => {
       const info = billingTaxConfigInfo(taxes);
       taxesSummary.textContent = info.invalid
-        ? 'Hay un porcentaje inválido o los impuestos suman 100 % o más: no se guarda hasta que lo corrijas.'
-        : info.defined
+        ? `Revisá: ${invalidTaxesText(info)}. No se guarda hasta que lo corrijas.`
+        : billingTaxesDecided(taxes)
           ? `Cotizaciones nuevas: ${describeBillingTaxes(taxes)}.`
-          : 'Sin definir: las cotizaciones nuevas arrancan sin impuestos sobre lo que facturás y RATEOS avisa que la tarifa piso no los incluye.';
+          : 'Sin definir: las cotizaciones nuevas arrancan sin impuestos sobre la facturación y RATEOS avisa que la tarifa piso no los incluye.';
     };
     const drawTaxes = (focus = null) => {
       mount(taxesHolder, billingTaxesFields({
@@ -729,10 +732,13 @@ export async function render(root, app, params = {}) {
         },
         readOnly,
         namePrefix: 'defaultBillingTaxes',
+        scope: 'company',
       }));
       lockInputs(taxesHolder);
       if (focus) {
-        const control = taxesHolder.querySelector(`[name="${focus}"]`);
+        // En un grupo de opciones, la elegida (el teclado sigue en el mismo lugar).
+        const controls = [...taxesHolder.querySelectorAll(`[name="${focus}"]`)];
+        const control = controls.find((c) => c.type === 'radio' && c.checked) || controls[0];
         if (control && typeof control.focus === 'function') control.focus();
       }
     };

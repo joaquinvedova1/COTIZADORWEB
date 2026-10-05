@@ -167,6 +167,11 @@ export function validateQuote(quote) {
   check('pricing.knownRate', p.knownRate, 'money');
   check('pricing.commercialDiscountPct', p.commercialDiscountPct, 'percent');
 
+  // Convención de IVA: esta versión sólo trabaja con montos sin IVA.
+  if (quote.vatTreatment !== undefined && quote.vatTreatment !== null && quote.vatTreatment !== 'excluded') {
+    issues.push({ path: 'vatTreatment', message: 'Esta versión de RATEOS trabaja sólo con montos sin IVA: revisá los montos de esta cotización.', severity: 'error' });
+  }
+
   // Impuestos sobre la facturación: cada % entre 0 y < 100, el total < 100 y
   // margen + impuestos < 100 (si no, no existe un precio que deje ese margen).
   const bt = isPlainObject(quote.billingTaxes) ? quote.billingTaxes : {};
@@ -191,14 +196,14 @@ export function validateQuote(quote) {
     }
     if (taxesOk && taxTotal >= 100) {
       taxesOk = false;
-      issues.push({ path: 'billingTaxes', message: 'Los impuestos sobre la facturación suman 100 % o más: revisá los porcentajes.', severity: 'error' });
+      issues.push({ path: 'billingTaxes', message: `Los impuestos sobre lo que facturás suman ${String(Math.round(taxTotal * 100) / 100).replace('.', ',')} %: tienen que sumar menos de 100 %.`, severity: 'error' });
     }
     const margin = validateNumber(p.targetMarginPct, 'margin');
     if (taxesOk && taxTotal > 0 && margin.ok && margin.value !== null && margin.value + taxTotal >= 100) {
       const limit = Math.round((100 - taxTotal) * 100) / 100;
       issues.push({
         path: 'pricing.targetMarginPct',
-        message: `Con ${String(Math.round(taxTotal * 100) / 100).replace('.', ',')} % de impuestos sobre la facturación, el margen tiene que ser menor a ${String(limit).replace('.', ',')} %.`,
+        message: `Con ${String(Math.round(taxTotal * 100) / 100).replace('.', ',')} % de impuestos sobre lo que facturás, el margen tiene que ser menor a ${String(limit).replace('.', ',')} %.`,
         severity: 'error',
       });
     }

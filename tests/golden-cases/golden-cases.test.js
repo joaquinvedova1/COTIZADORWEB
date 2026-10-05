@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { priceFromMargin, priceFromMarkup, marginToMarkup, markupToMargin, priceFromMarginAndTaxes, effectiveMarkupPct } from '../../js/engines/pricing-engine.js';
+import { priceFromMargin, priceFromMarkup, marginToMarkup, markupToMargin, priceFromMarginAndTaxes, markupWithTaxesPct, profitOnCostPct } from '../../js/engines/pricing-engine.js';
 import { breakEvenSimple, minimumRateForDays } from '../../js/engines/break-even-engine.js';
 import { simpleFinancialCost } from '../../js/engines/finance-engine.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
@@ -63,7 +63,8 @@ const ENGINES = {
   'pricing.marginToMarkup': ({ marginPct }) => ({ value: marginToMarkup(marginPct) }),
   'pricing.markupToMargin': ({ markupPct }) => ({ value: markupToMargin(markupPct) }),
   'pricing.priceFromMarginAndTaxes': ({ cost, marginPct, billingTaxPct }) => ({ value: priceFromMarginAndTaxes(cost, marginPct, billingTaxPct) }),
-  'pricing.effectiveMarkupPct': ({ marginPct, billingTaxPct }) => ({ value: effectiveMarkupPct(marginPct, billingTaxPct) }),
+  'pricing.markupWithTaxesPct': ({ marginPct, billingTaxPct }) => ({ value: markupWithTaxesPct(marginPct, billingTaxPct) }),
+  'pricing.profitOnCostPct': ({ marginPct, billingTaxPct }) => ({ value: profitOnCostPct(marginPct, billingTaxPct) }),
   'break-even.simple': (inputs) => breakEvenSimple(inputs),
   'break-even.minimumRateForDays': (inputs) => ({ value: minimumRateForDays(inputs) }),
   'finance.simpleFinancialCost': ({ amount, monthlyRatePct, days }) => ({ value: simpleFinancialCost(amount, monthlyRatePct, days) }),
@@ -104,8 +105,10 @@ describe('Golden cases — estructura de los casos', () => {
       // PLAN-2026-002: impuestos sobre la facturación (gross-up exacto).
       'gross-up-impuestos-facturacion',
       'tarifa-piso-con-impuestos',
-      'markup-efectivo-con-impuestos',
+      'markup-con-impuestos',
+      'ganancia-sobre-costo-con-impuestos',
       'on-call-break-even-con-impuestos',
+      'on-call-tarifa-minima-6-dias-con-impuestos',
       'on-call-cotizacion-con-impuestos',
     ]) {
       assert.ok(ids.includes(required), `falta el golden case ${required}`);

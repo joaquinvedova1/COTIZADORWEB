@@ -28,27 +28,33 @@ import { normalizeBillingTaxes } from '../domain/billing-taxes.js';
  *  - pct: suma usada por el motor (0 si no aplica o sin definir).
  *  - defined: el usuario decidió (no aplica, % total cargado o algún renglón con %).
  *  - invalid: algún % negativo, no numérico o un total ≥ 100 (el motor usa 0 y la validación lo informa).
- * @returns {{ pct: number, defined: boolean, invalid: boolean, notApplicable: boolean, mode: string, items: object[], combinedPct: number|null }}
+ *  - invalidReason: 'not_number' | 'negative' | 'total' | null; rawTotal: la suma cargada.
+ * @returns {{ pct: number, rawTotal: number, defined: boolean, invalid: boolean, invalidReason: string|null, notApplicable: boolean, mode: string, items: object[], combinedPct: number|null }}
  */
 export function billingTaxConfigInfo(config) {
   const cfg = normalizeBillingTaxes(config);
-  if (cfg.notApplicable) return { ...cfg, pct: 0, defined: true, invalid: false };
-  const bad = (v) => Number.isNaN(v) || (isFiniteNumber(v) && v < 0);
+  if (cfg.notApplicable) return { ...cfg, pct: 0, rawTotal: 0, defined: true, invalid: false, invalidReason: null };
+  const notNumber = (v) => Number.isNaN(v);
+  const negative = (v) => isFiniteNumber(v) && v < 0;
   let pct = 0;
   let defined = false;
-  let invalid = false;
+  let invalidReason = null;
   if (cfg.mode === 'detailed') {
     const loaded = cfg.items.filter((it) => isFiniteNumber(it.pct));
     defined = loaded.length > 0;
-    invalid = cfg.items.some((it) => bad(it.pct));
+    if (cfg.items.some((it) => notNumber(it.pct))) invalidReason = 'not_number';
+    else if (cfg.items.some((it) => negative(it.pct))) invalidReason = 'negative';
     pct = loaded.reduce((s, it) => s + Math.max(0, it.pct), 0);
   } else {
     defined = isFiniteNumber(cfg.combinedPct);
-    invalid = bad(cfg.combinedPct);
+    if (notNumber(cfg.combinedPct)) invalidReason = 'not_number';
+    else if (negative(cfg.combinedPct)) invalidReason = 'negative';
     pct = isFiniteNumber(cfg.combinedPct) ? Math.max(0, cfg.combinedPct) : 0;
   }
-  if (pct >= 100) invalid = true;
-  return { ...cfg, pct: invalid ? 0 : pct, defined: defined && !invalid, invalid };
+  if (!invalidReason && pct >= 100) invalidReason = 'total';
+  const invalid = invalidReason !== null;
+  // rawTotal: la suma cargada (para explicar "suman 110 %"); pct: lo que usa el motor.
+  return { ...cfg, pct: invalid ? 0 : pct, rawTotal: pct, defined: defined && !invalid, invalid, invalidReason };
 }
 
 /** Impuestos sobre la facturación de una cotización (datos viejos sin el campo → sin definir). */
@@ -71,11 +77,11 @@ export function traceBillingTaxes(info, revenue) {
     title: 'Impuestos sobre lo que facturás',
     formula: 'Impuestos = t × Facturación del mes (sin IVA) · Facturación necesaria = Costo / (1 − margen − t)',
     inputs: [...lines, { label: 'Facturación del mes (sin IVA)', value: revenue, format: 'money' }],
-    steps: [{ label: 't (total)', value: t, format: 'percent' }],
+    steps: [{ label: 'Impuestos sobre la facturación (total, t)', value: t, format: 'percent' }],
     result: { label: 'Impuestos sobre la facturación del mes', value: isFiniteNumber(revenue) ? (revenue * t) / 100 : null, format: 'money' },
     notes: [
-      info.notApplicable ? 'Marcaste que no pagás impuestos sobre lo que facturás.' : null,
-      !info.defined && !info.notApplicable ? 'Sin definir: la tarifa piso NO incluye impuestos sobre lo que facturás. Cargalos en "El precio".' : null,
+      info.notApplicable ? 'Se eligió no incluir impuestos sobre la facturación en esta cotización.' : null,
+      !info.defined && !info.notApplicable && !info.invalid ? 'Sin definir: la tarifa piso NO incluye impuestos sobre lo que facturás. Cargalos en "El precio".' : null,
       info.invalid ? 'Hay un porcentaje inválido (negativo, no numérico o un total de 100 % o más): no se aplica hasta que lo corrijas.' : null,
       'Se pagan sobre lo que facturás, no sobre lo que te cuesta: por eso RATEOS divide en lugar de sumar. No incluyen IVA, Ganancias, retenciones ni costo financiero.',
       info.items.some((it) => it.kind === 'stamp' && isFiniteNumber(it.pct)) ? 'Sellos se reparte proporcional a la facturación: es exacto con la actividad estimada y una aproximación con otra actividad.' : null,

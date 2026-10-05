@@ -1,0 +1,14 @@
+{
+  "id": "ganancia-sobre-costo-con-impuestos",
+  "title": "Ganancia sobre el costo con margen 10 % e impuestos 10 %: 12,5 % (NO es el markup)",
+  "rule": "La ganancia sobre el costo (resultado / costo) que deja un margen m con impuestos t es m / (1 − m − t) = 10 / 80 = 12,5 %. Es el «beneficio sobre costo» de una cascada «costo + beneficio, y los impuestos encima»: 100 × 1,125 / 0,9 = 125. No es el markup: costo × 1,125 = 112,50 dejaría un margen de 1,11 %. Valores sintéticos ILUSTRATIVOS.",
+  "engine": "pricing.profitOnCostPct",
+  "inputs": {
+    "marginPct": 10,
+    "billingTaxPct": 10
+  },
+  "expected": {
+    "value": 12.5
+  },
+  "tolerance": 1e-09
+}

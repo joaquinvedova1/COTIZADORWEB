@@ -281,6 +281,7 @@ export function demoHydroCraneQuote() {
     // Sin definir a propósito: RATEOS no trae alícuotas (cada empresa carga
     // las suyas). La interfaz avisa que la tarifa piso no los incluye.
     billingTaxes: emptyBillingTaxes(),
+    vatTreatment: 'excluded',
     rules: {
       availabilityFeeMonthly: 0,
       calloutFeePerActivation: 0,
@@ -337,7 +338,7 @@ export function demoServiceTemplates() {
   const hydro = demoHydroCraneQuote();
   const strip = (q) => {
     // Los impuestos sobre la facturación son de la empresa, no de la plantilla.
-    const { id, organizationId, createdAt, updatedAt, createdBy, updatedBy, code, status, client, illustrative, templateId, billingTaxes, ...rest } = q;
+    const { id, organizationId, createdAt, updatedAt, createdBy, updatedBy, code, status, client, illustrative, templateId, billingTaxes, vatTreatment, ...rest } = q;
     return rest;
   };
   const t = (n, name, serviceType, description, defaults = {}) => ({
