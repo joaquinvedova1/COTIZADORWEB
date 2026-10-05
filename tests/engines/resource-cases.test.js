@@ -337,6 +337,21 @@ describe('CASO E — el mismo operador trabaja y maneja el Vactor: no se duplica
     assert.match(it.message, /Operador posiblemente duplicado/);
   });
 
+  test('externo con movilización cobrada aparte y además "por sus propios medios": posible doble conteo', () => {
+    const q = baseQuote();
+    const ext = blankEquipmentLine({ acquisition: 'rented', id: 'cam' });
+    ext.name = 'Camión alquilado';
+    ext.external = createExternalTerms({ price: 100, unit: 'day', operatorIncluded: false, mobilizationIncluded: false, mobilizationAmount: 500000, fiscal: { vatRecoverable: 'yes' }, validUntil: '2026-12-31' });
+    ext.mobilization.mode = 'self';
+    q.equipment.push(ext);
+    const it = evaluateCompleteness(q).items.find((i) => i.id === 'duplicates');
+    assert.equal(it.status, 'warning');
+    assert.match(it.message, /Movilización posiblemente duplicada/);
+    // Con "no requiere" la señal desaparece (el monto del proveedor sigue en el costo externo).
+    q.equipment[0].mobilization.mode = 'none';
+    assert.equal(evaluateCompleteness(q).items.find((i) => i.id === 'duplicates').status, 'ok');
+  });
+
   test('equipo autopropulsado cargado también como vehículo auxiliar: posible doble conteo', () => {
     const q = baseQuote();
     q.equipment.push(equipmentLineFromLibrary(vactor(), { id: 'e1', now: OCT }));

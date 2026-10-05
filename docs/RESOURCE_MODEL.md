@@ -88,7 +88,7 @@ RATEOS **no trae alícuotas** y **no suma impuestos indiscriminadamente**:
 | Chofer agregado cuando maneja el operador | "Maneja su operador" no suma mano de obra; la traza lo explica. |
 | Amortización también en $/km | El desgaste por km excluye amortización (texto y traza). |
 | Combustible trabajando (L/h) y en ruta (L/100 km) | Son consumos distintos y se muestran separados; un alquilado con combustible incluido no suma combustible. |
-| Movilización del proveedor y modo propio a la vez | Externo con movilización incluida → 0 en movilización; si no está incluida, se suma su monto y el modo propio sólo agrega ruta si se eligió. |
+| Movilización del proveedor y modo propio a la vez | Externo con movilización incluida → 0 en movilización. Si el proveedor la cobra aparte y además se eligió "por sus propios medios", la regla `duplicates` y la fila de movilización lo advierten (elegí "No requiere movilización" si la hace el proveedor). |
 | IVA como costo | Sólo el IVA no recuperable es costo; el resto se informa aparte. |
 | Alquiler como activo propio | Un externo no tiene amortización, seguro ni costo de capital. |
 

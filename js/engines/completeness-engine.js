@@ -226,13 +226,17 @@ export function evaluateCompleteness(quote = {}) {
         return vn.length >= 4 && (vn.includes(n) || n.includes(vn));
       });
     });
-    const ok = operatorTwice.length === 0 && vehicleTwice.length === 0;
+    // Un externo cuya movilización cobra el proveedor aparte y que además "va por sus propios medios".
+    const mobilizationTwice = logistics.notApplicable ? [] : selfMoving.filter((e) => isExt(e) && extOf(e).mobilizationIncluded === false && nonNegative(extOf(e).mobilizationAmount) > 0);
+    const ok = operatorTwice.length === 0 && vehicleTwice.length === 0 && mobilizationTwice.length === 0;
     items.push(rule('duplicates', 'Costos posiblemente duplicados', 'logistics', 1, ok ? 'ok' : 'warning',
       ok
-        ? 'Sin señales de operadores o vehículos cargados dos veces.'
+        ? 'Sin señales de operadores, vehículos o movilizaciones cargados dos veces.'
         : operatorTwice.length
           ? `Operador posiblemente duplicado: la tarifa de "${operatorTwice[0].name || 'Externo'}" ya incluye operador y además le asignaste uno de Personal.`
-          : `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está como vehículo de la logística auxiliar.`));
+          : vehicleTwice.length
+            ? `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está como vehículo de la logística auxiliar.`
+            : `Movilización posiblemente duplicada: el proveedor de "${mobilizationTwice[0].name || 'Externo'}" cobra la movilización aparte y además lo marcaste "por sus propios medios" (se suman km, combustible y desgaste).`));
   }
 
   // 9e. Base económica (fecha base de los valores) y su antigüedad

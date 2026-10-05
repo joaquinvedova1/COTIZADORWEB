@@ -163,6 +163,7 @@ export function render(container, ctx) {
     if (included) {
       return h('div', { class: 'mob-row' }, head, h('p', { class: 'small' }, 'La movilización está incluida en la tarifa del proveedor: no se suma nada acá (se cambia en Equipos).'));
     }
+    const providerFee = external && line.external && line.external.mobilizationIncluded === false && Number(line.external.mobilizationAmount) > 0;
     const modeField = kit.select(`${p}.mode`, {
       label: '¿Cómo llega al lugar del servicio?',
       options: MOBILIZATION_MODES.map((o) => ({ value: o.id, label: o.label })),
@@ -234,7 +235,12 @@ export function render(container, ctx) {
       const list = ml ? ml.warnings.map((w) => WARNING_TEXT[w]).filter(Boolean) : [];
       return list.length ? h('div', { class: 'qe-line-warnings' }, ...list.map((t) => h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, t)))) : '';
     }, { tag: 'div', allowEmpty: true });
-    return h('div', { class: 'mob-row' }, head, formGrid(2, modeField), detail, warnings);
+    const feeNote = providerFee
+      ? h('p', { class: m.mode === 'self' ? 'qe-warn' : 'small' }, m.mode === 'self'
+        ? 'El proveedor ya te cobra la movilización aparte (en Equipos). Si él lo lleva, elegí "No requiere movilización" para no sumar también km, combustible y desgaste.'
+        : 'El proveedor te cobra la movilización aparte: ese monto ya está en Equipos.')
+      : null;
+    return h('div', { class: 'mob-row' }, head, formGrid(2, modeField), feeNote, detail, warnings);
   };
 
   const mobilizationCard = notApplicable || equipmentLines.length === 0
