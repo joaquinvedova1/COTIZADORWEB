@@ -299,6 +299,7 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { id: 'parametros', label: 'Parámetros económicos' },
   { id: 'convenios', label: 'Convenios' },
   { id: 'datos', label: 'Datos y backup' },
+  { id: 'cuenta', label: 'Cuenta' },
   { id: 'acerca', label: 'Acerca de' },
 ]);
 
@@ -898,8 +899,15 @@ export async function render(root, app, params = {}) {
       else showImportSummary(parsed, sanitizeText(file.name, 120));
     });
 
+    const cloud = ctx.mode === 'cloud';
     const backupCard = card(
-      { title: 'Backup', subtitle: 'Tus datos viven sólo en este navegador. Exportá un backup seguido y guardalo en un lugar seguro.', level: 2 },
+      {
+        title: 'Backup',
+        subtitle: cloud
+          ? 'Tus datos se guardan en tu cuenta. El backup es una copia portable (JSON) para guardar aparte o llevar a otra cuenta.'
+          : 'Tus datos viven sólo en este navegador. Exportá un backup seguido y guardalo en un lugar seguro.',
+        level: 2,
+      },
       h(
         'div',
         { class: 'stack' },
@@ -936,7 +944,8 @@ export async function render(root, app, params = {}) {
       }
     });
     const ownCompany = org.illustrative !== true;
-    const demoCard = card(
+    // En una cuenta real no se cargan datos de ejemplo: la demo está aparte (pública, en memoria).
+    const demoCard = cloud ? null : card(
       {
         title: ownCompany ? 'Volver a empezar' : 'Datos de ejemplo',
         subtitle: ownCompany
@@ -1062,6 +1071,7 @@ export async function render(root, app, params = {}) {
         ? 'memoria — este navegador no permite guardar: los datos se pierden al cerrar'
         : 'local — datos sólo en este navegador'
       : STORAGE_MODE;
+    const cloud = ctx.mode === 'cloud';
     const aboutCard = card(
       { title: 'Acerca de', className: 'about-card', level: 2 },
       h('p', { class: 'about-version mono' }, `${APP_NAME} · v${v.version || 'dev'} · build ${v.commit || 'local'}`),
@@ -1069,18 +1079,85 @@ export async function render(root, app, params = {}) {
         ['Fecha de build', v.buildDate ? formatDateTime(v.buildDate) : 'Sin fecha (versión local)'],
         v.ref ? ['Referencia', v.ref] : null,
         ['Esquema de datos', `v${SCHEMA_VERSION}`],
-        ['Almacenamiento', storageText],
+        ['Almacenamiento', cloud ? 'nube — tu cuenta (Supabase), protegida por empresa' : storageText],
         [
           'Funciones activas',
           h('div', { class: 'flag-list' }, ...(features.length ? features.map((f) => badge(f.label, 'green')) : [h('span', { class: 'muted' }, 'Las funciones básicas de cotización')])),
         ],
       ]),
-      banner('RATEOS no tiene backend, no usa analytics ni IA. Todo se calcula en tu navegador y tus datos no salen de este dispositivo, salvo que exportes un backup.', 'info', { title: 'Privacidad.' }),
+      banner(cloud
+        ? 'Tus datos se guardan en tu cuenta (Supabase) y la base sólo se los muestra a las personas de tu empresa (Row Level Security). Los cálculos se hacen en tu navegador. RATEOS no usa analytics ni IA.'
+        : 'RATEOS no tiene backend, no usa analytics ni IA. Todo se calcula en tu navegador y tus datos no salen de este dispositivo, salvo que exportes un backup.', 'info', { title: 'Privacidad.' }),
     );
     mount(panel, h('div', { class: 'view-narrow' }, aboutCard));
   }
 
-  const builders = { empresa: buildCompany, parametros: buildParams, convenios: buildAgreements, datos: buildData, acerca: buildAbout };
+  // ------------------------------------------------------------- cuenta
+
+  /**
+   * Nombre, email, empresa y rol. Nunca ids internos, tokens ni claves.
+   */
+  function buildAccount() {
+    const account = ctx.account;
+    if (!account) {
+      mount(panel, h('div', { class: 'view-narrow' }, banner('No hay una sesión iniciada.', 'info')));
+      return;
+    }
+    let nameValue = account.user.fullName || '';
+    const nameField = textField({
+      label: 'Tu nombre',
+      value: nameValue,
+      maxLength: 120,
+      onChange: (value) => {
+        nameValue = value;
+      },
+    });
+    const saveName = button('Guardar nombre', {
+      variant: 'secondary',
+      size: 'sm',
+      onClick: async () => {
+        saveName.disabled = true;
+        try {
+          const res = await ctx.updateProfileName(nameValue);
+          if (res.ok) {
+            app.toast('Nombre guardado.', 'success');
+            await app.refreshChrome();
+          } else {
+            app.toast('No pudimos guardar el nombre. Probá de nuevo.', 'danger');
+          }
+        } finally {
+          saveName.disabled = false;
+        }
+      },
+    });
+    const resetPassword = button('Cambiar contraseña', {
+      variant: 'secondary',
+      size: 'sm',
+      onClick: async () => {
+        resetPassword.disabled = true;
+        const res = await app.auth.requestPasswordReset(account.user.email);
+        resetPassword.disabled = false;
+        app.toast(res.ok ? 'Te enviamos un enlace a tu email para elegir una contraseña nueva.' : res.message, res.ok ? 'success' : 'warning');
+      },
+    });
+    const accountCard = card(
+      { title: 'Mi cuenta', level: 2 },
+      h('div', { class: 'stack' },
+        nameField,
+        h('div', { class: 'row' }, saveName),
+        kvList([
+          ['Email', account.user.email],
+          ['Empresa', typeof ctx.organizationName === 'function' ? ctx.organizationName() : account.organization.name],
+          ['Rol', account.roleLabel],
+        ]),
+        h('div', { class: 'row' }, resetPassword, button('Cerrar sesión', { variant: 'danger', icon: 'logout', onClick: () => app.signOut() })),
+        h('p', { class: 'muted small' }, 'El nombre de la empresa se cambia en Configuración → Empresa.'),
+      ),
+    );
+    mount(panel, h('div', { class: 'view-narrow' }, accountCard));
+  }
+
+  const builders = { empresa: buildCompany, parametros: buildParams, convenios: buildAgreements, datos: buildData, cuenta: buildAccount, acerca: buildAbout };
   await builders[section]();
 
   // Si se cierra o se oculta la pestaña, se guarda lo pendiente.

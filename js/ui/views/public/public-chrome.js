@@ -172,14 +172,15 @@ export function takeOnboardingDraft() {
 // ------------------------------------------------------------ encabezados
 
 /**
- * Encabezado del sitio (landing): marca, secciones, Ingresar y Comenzar.
+ * Encabezado del sitio (landing): marca, secciones e "Ingresar" + "Crear
+ * cuenta"; con sesión, "Abrir RATEOS".
  * En pantallas angostas las secciones se pliegan detrás de un botón "Menú"
  * accesible (aria-expanded / aria-controls; Escape y clic afuera cierran).
  *
- * @param {{ sections?: { label: string, target: () => HTMLElement|null }[] }} opts
+ * @param {{ sections?: { label: string, target: () => HTMLElement|null }[], signedIn?: boolean }} opts
  * @returns {{ el: HTMLElement, destroy: () => void }}
  */
-export function siteHeader({ sections = [] } = {}) {
+export function siteHeader({ sections = [], signedIn = false } = {}) {
   const navId = 'pub-site-nav';
   let open = false;
 
@@ -218,7 +219,7 @@ export function siteHeader({ sections = [] } = {}) {
           ),
         ),
       ),
-      h('li', { class: 'pub-nav-login-item' }, h('a', { class: 'pub-nav-item pub-nav-login', href: '#/login' }, 'Ingresar')),
+      signedIn ? null : h('li', { class: 'pub-nav-login-item' }, h('a', { class: 'pub-nav-item pub-nav-login', href: '#/login' }, 'Ingresar')),
     ),
   );
 
@@ -230,7 +231,9 @@ export function siteHeader({ sections = [] } = {}) {
       { class: 'pub-container pub-header-inner' },
       brand(),
       nav,
-      h('div', { class: 'pub-header-actions' }, pubLink('Comenzar', '#/registro', { tone: 'primary', size: 'md', className: 'pub-header-cta' }), toggle),
+      h('div', { class: 'pub-header-actions' }, signedIn
+        ? pubLink('Abrir RATEOS', '#/inicio', { tone: 'primary', size: 'md', iconAfter: 'arrowRight', className: 'pub-header-cta' })
+        : pubLink('Crear cuenta', '#/registro', { tone: 'primary', size: 'md', className: 'pub-header-cta' }), toggle),
     ),
   );
 
@@ -319,8 +322,14 @@ export function headerLink(label, href, { iconBefore = null } = {}) {
 
 // --------------------------------------------------------------------- pie
 
+/** ¿Hay una sesión iniciada? (sólo para mostrar los accesos correctos). */
+export function isSignedIn(app) {
+  return Boolean(app && app.auth && app.auth.status === 'authenticated');
+}
+
 /** Pie mínimo del sitio público con la versión del build. */
 export function siteFooter(app) {
+  const signedIn = isSignedIn(app);
   const version = (app && app.version) || {};
   const versionText = `v${version.version || 'dev'} · build ${version.commit || 'local'}`;
   return h(
@@ -333,9 +342,9 @@ export function siteFooter(app) {
         'div',
         { class: 'pub-footer-main' },
         h('div', { class: 'pub-footer-brand' }, brand({ className: 'pub-brand-sm' }), h('p', {}, 'Hecho en Neuquén, Patagonia argentina.')),
-        h('p', { class: 'pub-footer-privacy' }, publicIcon('lock', { size: 16 }), h('span', {}, 'Tus datos se guardan en tu navegador: no se envían a ningún servidor.')),
+        h('p', { class: 'pub-footer-privacy' }, publicIcon('lock', { size: 16 }), h('span', {}, 'Tus datos quedan en tu cuenta, protegidos: nadie de otra empresa puede verlos. La demo no necesita cuenta y no guarda nada.')),
       ),
-      h('div', { class: 'pub-footer-meta' }, h('a', { href: '#/login', class: 'pub-footer-link' }, 'Ingresar'), h('span', { class: 'pub-footer-version mono' }, versionText)),
+      h('div', { class: 'pub-footer-meta' }, signedIn ? h('a', { href: '#/inicio', class: 'pub-footer-link' }, 'Abrir RATEOS') : h('a', { href: '#/login', class: 'pub-footer-link' }, 'Ingresar'), h('span', { class: 'pub-footer-version mono' }, versionText)),
     ),
   );
 }

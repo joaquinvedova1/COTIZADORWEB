@@ -84,7 +84,7 @@ export function render(container, ctx) {
       label: 'Notas internas',
       multiline: true,
       maxLength: 2000,
-      hint: 'Supuestos, alcance, exclusiones o aclaraciones. No se envían a ningún lado: quedan en este navegador.',
+      hint: 'Supuestos, alcance, exclusiones o aclaraciones. Quedan guardadas con la cotización, en tu cuenta: no se comparten con nadie fuera de tu empresa.',
     }),
   );
 

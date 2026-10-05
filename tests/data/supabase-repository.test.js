@@ -234,6 +234,21 @@ describe('aislamiento entre cuentas y de la demo', () => {
   });
 });
 
+describe('importar un backup en la nube', () => {
+  test('un backup de otra organización queda en la organización de la cuenta (no se puede "colar" otra)', async () => {
+    const server = createFakeServer();
+    server.addUser({ id: 'a', company: 'Mía' });
+    const { repo, orgId } = await openRepo(server, 'a');
+    const foreign = createDemoState(CURRENT_SCHEMA_VERSION); // organizationId de otra empresa en todo
+    await repo.importBackup(foreign);
+    const ws = server.workspaces.get(orgId).state;
+    assert.equal(ws.organization.id, orgId);
+    assert.equal(ws.organization.name, 'Mía');
+    const ids = new Set([...ws.quotes, ...ws.services, ...Object.values(ws.resources).flat()].map((x) => x.organizationId));
+    assert.deepEqual([...ids], [orgId]);
+  });
+});
+
 describe('importar datos del modo local', () => {
   test('suma datos reales sin pisar los de la cuenta y renumera códigos repetidos', async () => {
     const server = createFakeServer();

@@ -184,6 +184,30 @@ html { scroll-padding-top: 7rem; }
 .sidebar-footer .org, .sidebar-footer .org-base { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-footer .org { color: var(--ink); font-weight: 650; font-size: 0.84rem; }
 
+/* Cuenta (nombre / email / rol) y acciones "Mi cuenta" · "Cerrar sesión". */
+.account-card { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.account-text { min-width: 0; }
+.account-name { color: var(--ink); font-weight: 600; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-email { color: var(--ink-3); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-actions { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+.account-action {
+  display: inline-flex; align-items: center; gap: 0.3rem; min-height: 32px; padding: 0.15rem 0;
+  background: none; border: 0; color: var(--ink-2); font: inherit; font-size: 0.78rem; cursor: pointer; text-decoration: none;
+}
+.account-action:hover { color: var(--navy-900); text-decoration: underline; }
+.account-action:focus-visible { outline: 2px solid var(--blue-600); outline-offset: 2px; border-radius: 4px; }
+/* Estado de sincronización con la nube. */
+.sync-status { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--ink-3); }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex-shrink: 0; }
+.sync-status[data-status="saved"] .sync-dot { background: var(--green); }
+.sync-status[data-status="saving"] .sync-dot, .sync-status[data-status="pending"] .sync-dot, .sync-status[data-status="idle"] .sync-dot { background: var(--blue-600); }
+.sync-status[data-status="offline"] .sync-dot, .sync-status[data-status="error"] .sync-dot, .sync-status[data-status="session_expired"] .sync-dot { background: var(--orange); }
+.sync-status[data-status="conflict"] .sync-dot { background: var(--red); }
+.banner-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+/* auth-loading: nada de la app protegida hasta saber si hay sesión. */
+.auth-loading { min-height: 60vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.9rem; color: var(--ink-2); padding: 2rem 1rem; text-align: center; }
+.auth-error p { max-width: 32rem; }
+
 /* Barra compacta y fondo del menú: sólo en pantallas chicas. */
 .mobile-bar, .nav-backdrop { display: none; }
 
@@ -520,7 +544,9 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   .sidebar-cta { font-size: 0.92rem; white-space: normal; margin-bottom: 0.9rem; }
   .nav-separator { margin: 0.6rem 0.25rem; }
   .sidebar-footer { padding: 0.75rem 0 0; align-items: center; }
-  .org-text, .sidebar-footer .build { display: none; }
+  .org-text, .sidebar-footer .build, .account-text, .sync-text { display: none; }
+  .account-actions { flex-direction: column; align-items: center; }
+  .account-action span { font-size: 0.7rem; }
   .topbar { padding: 1rem 1.5rem 0.75rem; }
   .page-title { font-size: 1.5rem; }
   .content { padding: 0.5rem 1.5rem 3rem; }

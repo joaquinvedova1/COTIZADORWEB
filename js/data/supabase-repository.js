@@ -260,6 +260,21 @@ export class SupabaseRepository extends LocalStorageRepository {
     }
   }
 
+  /** Todas las entidades pasan a pertenecer a la organización de la cuenta. */
+  remapToCloudOrganization() {
+    const orgId = this.organization.id;
+    this.mutate((draft) => {
+      draft.organization = { ...draft.organization, id: orgId, organizationId: orgId, name: this.organization.name || draft.organization.name };
+      if (isPlainObject(draft.settings)) draft.settings.organizationId = orgId;
+      const own = (list) => (Array.isArray(list) ? list.forEach((item) => {
+        if (isPlainObject(item)) item.organizationId = orgId;
+      }) : undefined);
+      RESOURCE_TYPES.forEach((type) => own(draft.resources[type]));
+      own(draft.services);
+      own(draft.quotes);
+    });
+  }
+
   // ------------------------------------------------------ escrituras
 
   persist(state) {
@@ -284,6 +299,9 @@ export class SupabaseRepository extends LocalStorageRepository {
       this[name] = async (...args) => {
         const result = await original.apply(this, args);
         if (name === 'saveOrganization') await this.renameCloudOrganization();
+        // Un backup de OTRA organización (o manipulado) queda igual dentro del
+        // workspace propio (RLS) y además se realinea a la organización real.
+        if (name === 'importBackup') this.remapToCloudOrganization();
         await this.flush();
         return result;
       };

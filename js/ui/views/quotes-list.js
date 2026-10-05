@@ -318,10 +318,10 @@ export const DEMO_FROM_APP_HREF = '#/demo?desde=app';
 export function noQuotesState() {
   return emptyState({
     icon: 'quote',
-    title: 'Todavía no creaste ninguna cotización.',
-    text: 'Empezá calculando cuánto cuesta uno de tus servicios.',
+    title: 'Todavía no tenés cotizaciones.',
+    text: 'Empezá calculando cuánto cuesta uno de tus servicios. Si querés ver primero cómo funciona, probá la demo: está aparte y no toca tus datos.',
     action: linkButton('Crear primera cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus' }),
-    secondary: linkButton('Probar con un ejemplo', DEMO_FROM_APP_HREF, { variant: 'secondary', icon: 'play' }),
+    secondary: linkButton('Probar una demo', DEMO_FROM_APP_HREF, { variant: 'secondary', icon: 'play' }),
   });
 }
 

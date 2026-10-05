@@ -4,8 +4,8 @@
  * Vende resultados, no funcionalidades. El "mockup" del hero NO es una
  * imagen: es el resultado real del motor (computeQuote) sobre la cotización
  * de ejemplo "Hidrogrúa on-call — Añelo", con valores ILUSTRATIVOS.
- * No escribe datos. Sólo LEE si el navegador ya tiene datos propios, para
- * ofrecer "Ir a mis cotizaciones" a quien vuelve.
+ * No lee ni escribe datos de ninguna cuenta. "Crear una cotización" lleva a
+ * crear la cuenta (y después a la cotización); con sesión, directo.
  */
 
 import { h, mount } from '../../dom.js';
@@ -16,7 +16,8 @@ import { formatMoneyCompact, formatPercent, formatDays, EMPTY } from '../../../c
 import { isFiniteNumber } from '../../../core/money.js';
 import { logger } from '../../../core/logger.js';
 import { costBreakdown } from '../../cost-breakdown.js';
-import { siteHeader, siteFooter, publicIcon, pubLink, illustrativeLabel, costGroupLabel } from './public-chrome.js';
+import { siteHeader, siteFooter, publicIcon, pubLink, illustrativeLabel, costGroupLabel, isSignedIn } from './public-chrome.js';
+import { registerHash } from '../../../services/auth-routing.js';
 
 /** Resultado del ejemplo ilustrativo (o null si no se pudo calcular). */
 function computePreview() {
@@ -165,39 +166,9 @@ function resourcesToRateChain() {
   );
 }
 
-/**
- * true si este navegador ya tiene datos propios (no de ejemplo): la empresa
- * no es la ficticia o hay alguna cotización no ILUSTRATIVA. Sólo lectura.
- * @returns {Promise<{ ownOrganization: boolean, ownQuotes: number }>}
- */
-async function ownDataSummary(app) {
-  const ctx = (app && app.ctx) || {};
-  let ownOrganization = false;
-  let ownQuotes = 0;
-  try {
-    const org = ctx.settings ? await ctx.settings.getOrganization() : null;
-    ownOrganization = Boolean(org && org.illustrative !== true);
-  } catch (error) {
-    logger.warn('Portada: no se pudo leer la organización', { name: error && error.name });
-  }
-  try {
-    const items = ctx.quotes ? await ctx.quotes.listQuotes() : [];
-    ownQuotes = items.filter((i) => i && i.quote && i.quote.illustrative !== true).length;
-  } catch (error) {
-    logger.warn('Portada: no se pudieron leer las cotizaciones', { name: error && error.name });
-  }
-  return { ownOrganization, ownQuotes };
-}
-
-/** Línea discreta bajo los botones del hero para quien vuelve con datos propios. */
-function returningLine({ ownOrganization, ownQuotes }) {
-  if (ownQuotes > 0) {
-    return h('p', { class: 'pub-hero-return' }, publicIcon('check', { size: 18 }), h('span', {}, 'Tenés cotizaciones guardadas en este navegador. ', h('a', { href: '#/inicio' }, 'Ir a mis cotizaciones')));
-  }
-  if (ownOrganization) {
-    return h('p', { class: 'pub-hero-return' }, publicIcon('check', { size: 18 }), h('span', {}, 'Tu empresa ya está cargada en este navegador. ', h('a', { href: '#/inicio' }, 'Ir a RATEOS')));
-  }
-  return null;
+/** "Crear una cotización": con sesión va directo; sin sesión, a crear la cuenta y después a la cotización. */
+function newQuoteHref(app) {
+  return isSignedIn(app) ? '#/cotizaciones/nueva' : registerHash('/cotizaciones/nueva');
 }
 
 /**
@@ -296,12 +267,13 @@ export function render(root, app) {
         'div',
         { class: 'pub-cta-actions' },
         pubLink('Probar con un ejemplo', '#/demo', { tone: 'light', iconBefore: 'play' }),
-        pubLink('Crear una cotización', '#/cotizaciones/nueva', { tone: 'outline-light', iconAfter: 'arrowRight' }),
+        pubLink('Crear una cotización', newQuoteHref(app), { tone: 'outline-light', iconAfter: 'arrowRight' }),
       ),
     ),
   );
 
   const header = siteHeader({
+    signedIn: isSignedIn(app),
     sections: [
       { label: 'Producto', target: () => productSection },
       { label: 'Cómo funciona', target: () => howSection },
@@ -312,7 +284,7 @@ export function render(root, app) {
   const heroActions = h(
     'div',
     { class: 'pub-hero-actions' },
-    pubLink('Crear una cotización', '#/cotizaciones/nueva', { tone: 'primary', iconAfter: 'arrowRight' }),
+    pubLink('Crear una cotización', newQuoteHref(app), { tone: 'primary', iconAfter: 'arrowRight' }),
     pubLink('Ver demo', '#/demo', { tone: 'secondary', iconBefore: 'play' }),
   );
 
@@ -341,15 +313,12 @@ export function render(root, app) {
 
   mount(root, h('div', { class: 'pub-page pub-landing' }, header.el, hero, productSection, painSection, howSection, chainSection, audienceSection, closingSection, siteFooter(app)));
 
-  // Quien vuelve con datos propios ve un acceso directo (sin un 3er botón grande).
-  let disposed = false;
-  ownDataSummary(app).then((summary) => {
-    const line = disposed ? null : returningLine(summary);
-    if (line && heroActions.isConnected) heroActions.after(line);
-  });
+  // Con sesión: acceso directo discreto a la cuenta (sin un 3er botón grande).
+  if (isSignedIn(app)) {
+    heroActions.after(h('p', { class: 'pub-hero-return' }, publicIcon('check', { size: 18 }), h('span', {}, 'Tenés la sesión iniciada. ', h('a', { href: '#/inicio' }, 'Ir a mis cotizaciones'))));
+  }
 
   return () => {
-    disposed = true;
     header.destroy();
   };
 }

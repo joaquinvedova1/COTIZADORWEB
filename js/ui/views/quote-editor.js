@@ -217,6 +217,18 @@ const advancedOpenState = new Map();
 const pendingSaves = new Map();
 
 /**
+ * Errores de sincronización con la nube (SupabaseRepository): el cambio quedó
+ * en este navegador pero NO en la cuenta. Nunca se muestra "Guardado".
+ */
+const CLOUD_SAVE_LABELS = Object.freeze({
+  sync_failed: 'Sin sincronizar: guardado sólo en este navegador',
+  conflict: 'Sin guardar: tus datos cambiaron en otro dispositivo',
+  session_expired: 'Sin sincronizar: tu sesión terminó',
+  forbidden: 'Sin guardar: tu rol no permite editar',
+  too_large: 'Error al guardar',
+});
+
+/**
  * Borradores que NO se pudieron guardar (p. ej. almacenamiento lleno), por id
  * de cotización. Si el usuario sale del editor y vuelve, se recupera el
  * borrador en lugar de la versión guardada, para no perder cambios.
@@ -1607,6 +1619,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     dirty: false,
     disposed: false,
     saveStatus: readOnly ? 'readonly' : 'idle',
+    saveErrorCode: null,
     headerName: null,
     headerCompact: null,
     calcError: null,
@@ -1681,17 +1694,27 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       invalid: 'Sin guardar: revisá los campos marcados',
     };
     if (status === 'error') {
-      const quota = error && error.code === 'quota_exceeded';
-      const restored = error && error.code === 'restored_draft';
-      const message = quota && error.message
+      const code = error && error.code;
+      state.saveErrorCode = code || null;
+      const quota = code === 'quota_exceeded';
+      const restored = code === 'restored_draft';
+      const cloud = Object.prototype.hasOwnProperty.call(CLOUD_SAVE_LABELS, code);
+      const message = (quota || cloud) && error.message
         ? error.message
         : restored
           ? 'Hay cambios sin guardar recuperados: reintentá o descargá un backup con estos cambios.'
-          : 'No se pudieron guardar los cambios en este navegador.';
-      saveTextEl.textContent = quota ? `Error al guardar: ${message}` : 'Error al guardar';
+          : cloud
+            ? 'No pudimos sincronizar tus cambios.'
+            : 'No se pudieron guardar los cambios en este navegador.';
+      saveTextEl.textContent = cloud ? CLOUD_SAVE_LABELS[code] : quota ? `Error al guardar: ${message}` : 'Error al guardar';
+      // Sin conexión o con la sesión vencida el cambio está a salvo en este navegador (aviso, no error).
+      if (code === 'sync_failed' || code === 'session_expired') saveEl.dataset.sync = 'pending';
+      else delete saveEl.dataset.sync;
       saveEl.title = message;
-      if (previous !== 'error') notify(`Error al guardar. ${message}`, 'danger');
+      if (previous !== 'error') notify(cloud ? message : `Error al guardar. ${message}`, cloud && code === 'sync_failed' ? 'warning' : 'danger');
     } else {
+      state.saveErrorCode = null;
+      delete saveEl.dataset.sync;
       saveTextEl.textContent = texts[status] || '';
       saveEl.title = status === 'invalid' ? 'Hay valores fuera de rango: no se guardan cambios hasta corregirlos.' : '';
     }
@@ -2620,10 +2643,24 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     if (!state.disposed && stepId !== 'result' && event.target && event.target.tagName === 'DETAILS') labelScrollRegions(stepBody);
   };
 
+  let unsubscribeSync = () => {};
   const api = {
     quoteId,
     mount() {
       setSaveStatus(state.saveStatus);
+      // Cuenta: si el reintento automático subió los cambios, el indicador
+      // vuelve a "Guardado" (sólo si no hubo ediciones desde el fallo).
+      if (app.ctx && app.ctx.sync && typeof app.ctx.sync.onChange === 'function') {
+        unsubscribeSync = app.ctx.sync.onChange((sync) => {
+          if (state.disposed || state.saveStatus !== 'error') return;
+          if (!['sync_failed', 'session_expired'].includes(state.saveErrorCode)) return;
+          if (sync.status === 'saved' && !sync.dirty) {
+            state.dirty = false;
+            unsavedDrafts.delete(quoteId);
+            setSaveStatus('saved');
+          }
+        });
+      }
       recompute();
       mount(root, layout);
       syncHeader(true);
@@ -2655,6 +2692,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       stepChangeQuoteId = String(window.location.hash || '').startsWith(prefix) ? quoteId : null;
       const flushing = state.dirty ? save() : pendingSaves.get(quoteId) || Promise.resolve(true);
       state.disposed = true;
+      unsubscribeSync();
       resultToken += 1;
       runResultCleanup();
       layout.removeEventListener('input', onFieldInput);

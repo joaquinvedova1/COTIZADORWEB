@@ -3,8 +3,13 @@
  * (p. ej. /COTIZADORWEB/) porque nunca toca el pathname.
  *
  * - Rutas exactas con parámetros `:id`, `:step`, `:tab`.
- * - Dos "shells": público (landing, ingreso, registro, bienvenida, demo) y
- *   aplicación (con menú lateral). Cada ruta declara el suyo.
+ * - Dos "shells": público (landing, ingreso, registro, recuperación, demo)
+ *   y aplicación (con menú lateral). Cada ruta declara el suyo.
+ * - Cada ruta declara su ACCESO (js/services/auth-routing.js):
+ *     public  landing, demo y recuperación de contraseña: cualquiera;
+ *     guest   ingreso y registro: con sesión van a la app;
+ *     auth    la aplicación: sin sesión → #/login?next=<destino>.
+ *   Mientras la sesión se restaura no se muestra nada protegido.
  * - Redirige enlaces viejos (#/biblioteca, #/dashboard, #/recursos/convenios)
  *   a las rutas nuevas.
  * - Carga las vistas con import() dinámico (rutas relativas).
@@ -17,13 +22,14 @@
 import { h, mount } from './dom.js';
 import { button, card } from './components.js';
 import { logger } from '../core/logger.js';
+import { resolveAccess } from '../services/auth-routing.js';
 import { render as renderNotFound } from './views/not-found.js';
 
 /** Pestañas válidas de Recursos (#/recursos/:tab). */
 export const RESOURCE_TABS = Object.freeze(['personal', 'equipos', 'materiales', 'ubicaciones']);
 
 /** Pestañas válidas de Configuración (#/configuracion/:tab). */
-export const SETTINGS_TABS = Object.freeze(['empresa', 'parametros', 'convenios', 'datos', 'acerca']);
+export const SETTINGS_TABS = Object.freeze(['empresa', 'parametros', 'convenios', 'datos', 'cuenta', 'acerca']);
 
 /** Pestañas de la antigua "Biblioteca" (sólo para redirigir enlaces viejos). */
 export const LIBRARY_TABS = Object.freeze(['personal', 'convenios', 'equipos', 'materiales', 'ubicaciones']);
@@ -35,39 +41,44 @@ export const APP_HOME = '#/inicio';
  * Tabla de rutas. El orden importa: gana la primera que coincide
  * (por eso `cotizaciones/nueva` va antes que `cotizaciones/:id`).
  *
- * - shell: 'public' (landing, ingreso, registro, bienvenida, demo; sin
+ * - shell: 'public' (landing, ingreso, registro, recuperación, demo; sin
  *   menú lateral) | 'app' (aplicación con menú lateral).
+ * - access: 'public' | 'guest' | 'auth' (ver arriba).
  * - redirect(params): hash al que se redirige (enlaces viejos).
  */
 export const ROUTES = Object.freeze([
   // ------------------------------------------------------------ públicas
-  { name: 'landing', segments: [], shell: 'public', nav: null, title: '', load: () => import('./views/public/landing.js'), view: 'render' },
-  { name: 'login', segments: ['login'], shell: 'public', nav: null, title: 'Ingresar', load: () => import('./views/public/auth.js'), view: 'renderLogin' },
-  { name: 'register', segments: ['registro'], shell: 'public', nav: null, title: 'Crear cuenta', load: () => import('./views/public/auth.js'), view: 'renderRegister' },
-  { name: 'onboarding', segments: ['bienvenida'], shell: 'public', nav: null, title: 'Bienvenido', load: () => import('./views/public/onboarding.js'), view: 'render' },
-  { name: 'demo', segments: ['demo'], shell: 'public', nav: null, title: 'Probar con un ejemplo', load: () => import('./views/public/demo-tour.js'), view: 'render' },
+  { name: 'landing', segments: [], shell: 'public', access: 'public', nav: null, title: '', load: () => import('./views/public/landing.js'), view: 'render' },
+  { name: 'login', segments: ['login'], shell: 'public', access: 'guest', nav: null, title: 'Ingresar', load: () => import('./views/public/auth.js'), view: 'renderLogin' },
+  { name: 'register', segments: ['registro'], shell: 'public', access: 'guest', nav: null, title: 'Crear cuenta', load: () => import('./views/public/auth.js'), view: 'renderRegister' },
+  { name: 'recover', segments: ['recuperar-contrasena'], shell: 'public', access: 'public', nav: null, title: 'Recuperar contraseña', load: () => import('./views/public/auth.js'), view: 'renderRecover' },
+  { name: 'demo', segments: ['demo'], shell: 'public', access: 'public', nav: null, title: 'Probar con un ejemplo', load: () => import('./views/public/demo-tour.js'), view: 'render' },
+  { name: 'demo-analysis', segments: ['demo', 'analisis'], shell: 'public', access: 'public', nav: null, title: 'Ejemplo: análisis completo', load: () => import('./views/public/demo-analysis.js'), view: 'render' },
+  // Bienvenida (tipo de empresa y base): ahora es parte de la cuenta.
+  { name: 'onboarding', segments: ['bienvenida'], shell: 'public', access: 'auth', nav: null, title: 'Bienvenido', load: () => import('./views/public/onboarding.js'), view: 'render' },
   // ---------------------------------------------------------- aplicación
-  { name: 'home', segments: ['inicio'], shell: 'app', nav: 'home', title: 'Inicio', load: () => import('./views/dashboard.js'), view: 'render' },
-  { name: 'quotes', segments: ['cotizaciones'], shell: 'app', nav: 'quotes', title: 'Cotizaciones', load: () => import('./views/quotes-list.js'), view: 'render' },
-  { name: 'new-quote', segments: ['cotizaciones', 'nueva'], shell: 'app', nav: 'quotes', title: 'Nueva cotización', load: () => import('./views/quotes-list.js'), view: 'renderNewQuote' },
-  { name: 'quote-editor', segments: ['cotizaciones', ':id'], shell: 'app', nav: 'quotes', title: 'Cotización', defaults: { step: 'service' }, load: () => import('./views/quote-editor.js'), view: 'render' },
-  { name: 'quote-editor-step', segments: ['cotizaciones', ':id', ':step'], shell: 'app', nav: 'quotes', title: 'Cotización', load: () => import('./views/quote-editor.js'), view: 'render' },
-  { name: 'resources', segments: ['recursos'], shell: 'app', nav: 'resources', title: 'Recursos', defaults: { tab: 'personal' }, load: () => import('./views/library.js'), view: 'render' },
+  { name: 'home', segments: ['inicio'], shell: 'app', access: 'auth', nav: 'home', title: 'Inicio', load: () => import('./views/dashboard.js'), view: 'render' },
+  { name: 'quotes', segments: ['cotizaciones'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Cotizaciones', load: () => import('./views/quotes-list.js'), view: 'render' },
+  { name: 'new-quote', segments: ['cotizaciones', 'nueva'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Nueva cotización', load: () => import('./views/quotes-list.js'), view: 'renderNewQuote' },
+  { name: 'quote-editor', segments: ['cotizaciones', ':id'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Cotización', defaults: { step: 'service' }, load: () => import('./views/quote-editor.js'), view: 'render' },
+  { name: 'quote-editor-step', segments: ['cotizaciones', ':id', ':step'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Cotización', load: () => import('./views/quote-editor.js'), view: 'render' },
+  { name: 'resources', segments: ['recursos'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', defaults: { tab: 'personal' }, load: () => import('./views/library.js'), view: 'render' },
   // Los convenios se gestionan en Configuración (antes vivían junto a los recursos).
-  { name: 'resources-agreements', segments: ['recursos', 'convenios'], shell: 'app', nav: 'settings', title: 'Configuración', redirect: () => '#/configuracion/convenios' },
-  { name: 'resources-tab', segments: ['recursos', ':tab'], shell: 'app', nav: 'resources', title: 'Recursos', validate: (p) => RESOURCE_TABS.includes(p.tab), load: () => import('./views/library.js'), view: 'render' },
-  { name: 'services', segments: ['servicios'], shell: 'app', nav: 'services', title: 'Servicios', load: () => import('./views/services.js'), view: 'render' },
-  { name: 'scenarios', segments: ['escenarios'], shell: 'app', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
-  { name: 'scenarios-quote', segments: ['escenarios', ':id'], shell: 'app', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
-  { name: 'settings', segments: ['configuracion'], shell: 'app', nav: 'settings', title: 'Configuración', defaults: { tab: 'empresa' }, load: () => import('./views/settings.js'), view: 'render' },
-  { name: 'settings-tab', segments: ['configuracion', ':tab'], shell: 'app', nav: 'settings', title: 'Configuración', validate: (p) => SETTINGS_TABS.includes(p.tab), load: () => import('./views/settings.js'), view: 'render' },
+  { name: 'resources-agreements', segments: ['recursos', 'convenios'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', redirect: () => '#/configuracion/convenios' },
+  { name: 'resources-tab', segments: ['recursos', ':tab'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', validate: (p) => RESOURCE_TABS.includes(p.tab), load: () => import('./views/library.js'), view: 'render' },
+  { name: 'services', segments: ['servicios'], shell: 'app', access: 'auth', nav: 'services', title: 'Servicios', load: () => import('./views/services.js'), view: 'render' },
+  { name: 'scenarios', segments: ['escenarios'], shell: 'app', access: 'auth', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
+  { name: 'scenarios-quote', segments: ['escenarios', ':id'], shell: 'app', access: 'auth', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
+  { name: 'settings', segments: ['configuracion'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', defaults: { tab: 'empresa' }, load: () => import('./views/settings.js'), view: 'render' },
+  { name: 'settings-tab', segments: ['configuracion', ':tab'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', validate: (p) => SETTINGS_TABS.includes(p.tab), load: () => import('./views/settings.js'), view: 'render' },
   // ------------------------------------------------- enlaces viejos (redirigen)
-  { name: 'legacy-dashboard', segments: ['dashboard'], shell: 'app', nav: 'home', title: 'Inicio', redirect: () => APP_HOME },
-  { name: 'legacy-library', segments: ['biblioteca'], shell: 'app', nav: 'resources', title: 'Recursos', redirect: () => '#/recursos/personal' },
+  { name: 'legacy-dashboard', segments: ['dashboard'], shell: 'app', access: 'auth', nav: 'home', title: 'Inicio', redirect: () => APP_HOME },
+  { name: 'legacy-library', segments: ['biblioteca'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', redirect: () => '#/recursos/personal' },
   {
     name: 'legacy-library-tab',
     segments: ['biblioteca', ':tab'],
     shell: 'app',
+    access: 'auth',
     nav: 'resources',
     title: 'Recursos',
     validate: (p) => LIBRARY_TABS.includes(p.tab),
@@ -75,7 +86,7 @@ export const ROUTES = Object.freeze([
   },
 ]);
 
-const NOT_FOUND = Object.freeze({ name: 'not-found', shell: 'app', nav: null, title: 'Página no encontrada' });
+const NOT_FOUND = Object.freeze({ name: 'not-found', shell: 'app', access: 'public', nav: null, title: 'Página no encontrada' });
 
 /**
  * Normaliza un hash a una ruta: "" | "#" → "/", "#/a/b/" → "/a/b".
@@ -179,13 +190,34 @@ export function createRouter({ app, layout }) {
       window.history.replaceState(null, '', target);
       return render();
     }
+    // ------------------------------------------------ acceso (sesión)
+    const status = typeof app.accessStatus === 'function' ? app.accessStatus() : 'authenticated';
+    const access = match.route.access || 'auth';
+    const decision = resolveAccess({ access, status: status === 'error' ? 'authenticated' : status, path: match.path, hash: window.location.hash });
+    if (decision.action === 'redirect') {
+      window.history.replaceState(null, '', decision.to);
+      return render();
+    }
     current = match;
 
     const previousCleanup = cleanup;
     cleanup = null;
     safeCleanup(previousCleanup);
 
-    layout.setShell(match.route.shell === 'public' ? 'public' : 'app');
+    if (decision.action === 'wait' || (status === 'error' && access === 'auth')) {
+      // Todavía no se sabe si hay sesión (o la cuenta no se pudo abrir): nunca
+      // se muestra la aplicación protegida, ni medio segundo.
+      layout.setShell('public');
+      const waiting = layout.resetContent();
+      if (status === 'error' && typeof app.renderAccountError === 'function') app.renderAccountError(waiting);
+      else mount(waiting, h('div', { class: 'auth-loading', role: 'status' }, h('span', { class: 'brand-mark', 'aria-hidden': 'true' }, 'R'), h('span', {}, 'Abriendo tu cuenta…')));
+      layout.setHeader({ title: match.route.title });
+      return undefined;
+    }
+
+    // Un enlace inexistente sin sesión no muestra el menú de la aplicación.
+    const shellKind = match.route.shell === 'public' || (match.notFound && status !== 'authenticated') ? 'public' : 'app';
+    layout.setShell(shellKind);
     layout.setActiveNav(match.nav);
     const content = layout.resetContent();
     content.setAttribute('aria-busy', 'true');
