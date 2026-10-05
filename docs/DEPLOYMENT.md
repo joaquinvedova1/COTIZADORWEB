@@ -68,7 +68,12 @@ Permisos mínimos **por job** (no usa secretos, sólo el `GITHUB_TOKEN` y el tok
 | Job **build** | `contents: read`, `pages: read` | `actions/configure-pages` sólo lee la configuración de Pages; `upload-pages-artifact` no usa el token |
 | Job **deploy** | `pages: write`, `id-token: write` | sólo `actions/deploy-pages` publica (no hace checkout ni ejecuta código del repo) |
 
-Concurrencia `pages`: un despliegue a la vez, nunca se cancela uno en curso.
+Concurrencia `pages` **en el job deploy** (no en todo el workflow):
+- un despliegue a la vez, nunca se cancela uno en curso;
+- si se acumulan varios, se publica el más nuevo (cada corrida publica `main` actual en la raíz);
+- a nivel workflow, el CI de `pull_request` de la misma rama (que después se saltea) cancelaba el deploy pendiente del preview.
+
+Si un preview no llegó a publicarse, volvé a empujar la rama o usá **Run workflow** con `preview_ref`.
 
 **Staging comparte origen con producción** (`joaquinvedova1.github.io`): mismo `localStorage` y, con cuentas, el **mismo proyecto de Supabase**.
 - Probá el preview con una cuenta de prueba.
