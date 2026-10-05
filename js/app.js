@@ -411,7 +411,7 @@ async function boot(root) {
         logger.warn('No se pudo leer la organización', { name: error && error.name });
       }
       layout.setOrganization({ ...(organization || {}), name: account.organizationName() });
-      layout.setAccount({ name: account.account.user.fullName, email: account.account.user.email, role: account.account.roleLabel });
+      layout.setAccount({ name: account.account.user.fullName, email: account.account.user.email, role: account.account.roleLabel, platformAdmin: account.account.platformAdmin === true });
       renderBanners();
     },
     /** Cierra la sesión (avisa si hay cambios sin sincronizar). */
@@ -448,7 +448,7 @@ async function boot(root) {
     if (router) router.render();
     const user = auth.user;
     try {
-      const ctx = await createAccountContext({ user, workspaceGateway: cloud.workspaceGateway, appVersion: version.version });
+      const ctx = await createAccountContext({ user, workspaceGateway: cloud.workspaceGateway, adminGateway: cloud.adminGateway, appVersion: version.version });
       // Mientras se abría, la sesión se cerró o cambió de persona (otra pestaña): se descarta.
       if (auth.status !== 'authenticated' || !auth.user || auth.user.id !== user.id) {
         ctx.dispose();

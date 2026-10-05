@@ -347,6 +347,18 @@ describe('seguridad del repositorio', () => {
     report(hits, 'Planillas versionadas (el repo es público; usar sólo ejemplos ILUSTRATIVOS en JSON):');
   });
 
+  test('(10) RATEOS ADMIN no se decide en el frontend: sin email del master, metadata ni claims', () => {
+    // La autoridad es private.platform_admins (Postgres). El frontend sólo pregunta con am_i_platform_admin().
+    const hits = JS_FILES.flatMap((f) => [
+      ...findInCode(f, /joaquinvedova@|@hotmail\.com/i),
+      ...findInCode(f, /(?:user_metadata|app_metadata|raw_user_meta_data|raw_app_meta_data)[^\n]*admin|admin[^\n]*(?:user_metadata|app_metadata)/i),
+      ...findInCode(f, /platformAdmin\s*[:=][^=\n]*(?:email|metadata|localStorage|sessionStorage|organizationId|jwt|claims)/i),
+    ]);
+    report(hits, 'El rol RATEOS_ADMIN lo decide la base (am_i_platform_admin), nunca un email, metadata, storage o claims en JS');
+    const ctxFile = JS_FILES.find((f) => f.rel === 'js/services/app-context.js');
+    assert.match(ctxFile.code, /\(await adminGateway\.amIPlatformAdmin\(\)\)\.isAdmin === true/, 'platformAdmin sale sólo de la respuesta de la base');
+  });
+
   test('(9) package.json no declara dependencias y no hay lockfile con paquetes', () => {
     const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'bundleDependencies', 'bundledDependencies']) {

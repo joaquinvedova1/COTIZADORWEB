@@ -37,11 +37,14 @@ export function createFakeServer() {
   const members = [];
   const workspaces = new Map();
   const profiles = new Map();
+  /** RATEOS_ADMIN (como private.platform_admins): sólo lo cambia el "servidor". */
+  const admins = new Set();
   const server = {
     orgs,
     members,
     workspaces,
     profiles,
+    admins,
     failNext: null,
     /** Alta como el trigger de la base. */
     addUser({ id, fullName = '', company = 'Mi empresa', orgId = `org-${id}`, role = 'OWNER' }) {
@@ -56,6 +59,53 @@ export function createFakeServer() {
       const ws = workspaces.get(orgId);
       ws.state = state;
       ws.revision += 1;
+    },
+    /**
+     * Puerta de admin falsa, como public.am_i_platform_admin / admin_overview /
+     * admin_users: decide por el id de la sesión (auth.uid()), nunca por lo que
+     * mande el cliente, y jamás devuelve el contenido de un workspace.
+     */
+    adminGatewayFor(userId) {
+      const isAdmin = () => admins.has(userId);
+      return {
+        calls: [],
+        async amIPlatformAdmin() {
+          this.calls.push('am_i_platform_admin');
+          return { ok: true, code: null, isAdmin: isAdmin() };
+        },
+        async overview() {
+          this.calls.push('admin_overview');
+          if (!isAdmin()) return { ok: false, code: 'forbidden' };
+          const ws = [...workspaces.values()];
+          return {
+            ok: true,
+            code: null,
+            overview: {
+              users_total: profiles.size, users_confirmed: profiles.size, users_7d: profiles.size, users_30d: profiles.size,
+              organizations_total: orgs.size, workspaces_total: ws.length, workspaces_active_30d: ws.filter((w) => w.revision > 0).length,
+              generated_at: '2026-10-05T12:00:00.000Z',
+            },
+          };
+        },
+        async users() {
+          this.calls.push('admin_users');
+          if (!isAdmin()) return { ok: false, code: 'forbidden' };
+          return {
+            ok: true,
+            code: null,
+            users: members.map((m) => ({
+              full_name: (profiles.get(m.user_id) || {}).full_name || '',
+              email: `${m.user_id}@example.com`,
+              email_confirmed: true,
+              organization_name: orgs.get(m.organization_id).name,
+              organization_role: m.role,
+              organization_members: members.filter((x) => x.organization_id === m.organization_id).length,
+              workspace_revision: workspaces.get(m.organization_id).revision,
+              is_platform_admin: admins.has(m.user_id),
+            })),
+          };
+        },
+      };
     },
     gatewayFor(userId) {
       const isMember = (orgId) => members.some((m) => m.organization_id === orgId && m.user_id === userId);

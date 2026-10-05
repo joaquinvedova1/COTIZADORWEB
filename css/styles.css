@@ -189,6 +189,8 @@ html { scroll-padding-top: 7rem; }
 .account-text { min-width: 0; }
 .account-name { color: var(--ink); font-weight: 600; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-email { color: var(--ink-3); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-platform { display: inline-block; margin: 2px 0 1px; padding: 0 6px; border-radius: 4px; background: var(--navy-900); color: var(--white); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; }
+.account-platform[hidden] { display: none; }
 .account-actions { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; }
 .account-action {
   display: inline-flex; align-items: center; gap: 0.3rem; min-height: 32px; padding: 0.15rem 0;
