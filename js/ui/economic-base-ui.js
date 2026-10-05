@@ -102,3 +102,39 @@ export function lineOrigin(line, { bases = [] } = {}) {
     : 'Cargado en esta cotización';
   return h('div', { class: 'line-origin' }, h('span', { class: 'line-origin-from' }, from), ...bases.map((b) => baseTag(b.base, { prefix: b.prefix || 'Base' })));
 }
+
+/**
+ * "Base económica de la oferta": base general (mes de la oferta), base por
+ * rubro y advertencias (bases distintas, viejas o sin definir).
+ * @param {object} info  result.economicBase (summarizeEconomicBase)
+ * @param {{ compact?: boolean }} options
+ */
+export function economicBaseSummary(info, { compact = false } = {}) {
+  if (!info) return null;
+  const rangeText = (c) => {
+    if (!c.oldest) return 'Base no definida';
+    const range = c.oldest === c.newest ? formatPeriod(c.oldest) : `${formatPeriod(c.oldest)} a ${formatPeriod(c.newest)}`;
+    return c.undefinedCount ? `${range} · ${c.undefinedCount} sin base` : range;
+  };
+  const rows = info.categories.map((c) => h(
+    'div',
+    { class: ['base-row', c.oldest ? null : 'is-undefined'] },
+    h('dt', {}, c.label),
+    h('dd', {}, rangeText(c)),
+  ));
+  return h(
+    'div',
+    { class: ['economic-base', compact ? 'is-compact' : null] },
+    h(
+      'p',
+      { class: 'economic-base-head' },
+      h('strong', {}, 'Base general: '),
+      info.offerPeriod ? formatPeriod(info.offerPeriod) : 'sin fecha de oferta',
+      info.offerPeriod ? h('span', { class: 'small' }, ' (mes de la fecha de la oferta)') : null,
+    ),
+    rows.length ? h('dl', { class: 'economic-base-rows' }, ...rows) : h('p', { class: 'small' }, 'Todavía no hay valores con costo para mostrar su base.'),
+    info.warnings.length
+      ? h('ul', { class: 'economic-base-warnings' }, ...info.warnings.map((w) => h('li', { class: `is-${w.id}` }, icon('alert', { size: 14 }), h('span', {}, w.message))))
+      : rows.length ? h('p', { class: 'small economic-base-ok' }, 'Todas las bases están definidas y son parejas respecto de la fecha de la oferta.') : null,
+  );
+}

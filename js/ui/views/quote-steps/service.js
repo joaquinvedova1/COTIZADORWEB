@@ -5,11 +5,13 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, icon } from '../../components.js';
+import { card, dateField, formGrid, icon } from '../../components.js';
 import { SERVICE_TYPES, QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { formatNumber, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
+import { economicBaseSummary } from '../../economic-base-ui.js';
+import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
 
 /** Nombre de un paso entre comillas ("Viajes"): siempre el de QUOTE_STEPS. */
 const step = (id) => `"${stepName(id)}"`;
@@ -88,6 +90,29 @@ export function render(container, ctx) {
     }),
   );
 
-  mount(container, identity, type, more);
+  // Base económica de la oferta (PLAN-2026-005): con qué fecha base, moneda
+  // y tipo de cambio se calculó. Se compara contra la fecha de la OFERTA.
+  const economicBase = card(
+    {
+      title: 'Base económica de la oferta',
+      subtitle: `De qué mes son los valores con los que calculás esta oferta. La cotización guarda sus valores: si después cambian en Recursos, te avisa y vos decidís si actualizarlos. Moneda: ${quoteCurrencyOf(quote)}.`,
+    },
+    formGrid(
+      2,
+      dateField({
+        label: 'Fecha de la oferta',
+        name: 'offerDate',
+        value: kit.get('offerDate'),
+        hint: 'La base general de la oferta es el mes de esta fecha. Las bases de cada valor se comparan contra ella.',
+        disabled: ctx.readOnly,
+        onChange: (v) => ctx.update('offerDate', v),
+      }),
+    ),
+    kit.region((r) => economicBaseSummary(r.economicBase)),
+    h('h4', { class: 'qe-group-title' }, 'Tipos de cambio de esta cotización'),
+    exchangeRatesEditor(ctx),
+  );
+
+  mount(container, identity, type, economicBase, more);
   return { update() {} };
 }

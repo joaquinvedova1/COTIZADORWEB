@@ -17,6 +17,8 @@ import { laborLineFromProfile } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { nonNegative, isFiniteNumber } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
+import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
+import { baseText } from '../../economic-base-ui.js';
 
 /** Parámetros que se copian de un convenio a la línea. */
 export const AGREEMENT_PARAM_KEYS = Object.freeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
@@ -85,13 +87,13 @@ export function render(container, ctx) {
       return;
     }
     const agreement = agreements.find((a) => a.id === profile.agreementId) || null;
-    const line = laborLineFromProfile(profile, agreement);
+    const line = laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
     const index = lines.length;
     ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.positions` });
-    ctx.toast(`Se agregó "${line.role}" desde la biblioteca.`, 'success');
+    ctx.toast(`Se agregó "${line.role}" desde tus recursos con sus valores de hoy. Si después cambian en Recursos, esta cotización no cambia sola.`, 'success');
   };
   const addBlank = () => {
-    const line = laborLineFromProfile({}, null);
+    const line = laborLineFromProfile({}, null, { currency: quoteCurrencyOf(quote) });
     const index = lines.length;
     ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.role` });
   };
@@ -175,6 +177,8 @@ export function render(container, ctx) {
           kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' }),
         ],
       },
+      lineOriginBlock(ctx, 'labor', i, [{ prefix: 'Base', base: line.base }]),
+      resourceSyncNotice(ctx, 'labor', i, { name: line.role || 'Puesto' }),
       ill.control,
       formGrid(
         3,
@@ -265,6 +269,15 @@ export function render(container, ctx) {
             }, { hint: '(1 + SAC + vac.) × (1 + cargas + ART)' }),
           ),
         ),
+      ),
+      kit.advanced(
+        {
+          key: `labor-base:${line.id || i}`,
+          title: 'Fecha base',
+          summary: () => baseText(quote.labor[i] && quote.labor[i].base),
+        },
+        h('p', { class: 'small' }, 'De qué mes son el sueldo y los adicionales (por ejemplo, la escala de un convenio). Cambiarlo acá sólo afecta esta cotización.'),
+        baseFields(ctx, `${p}.base`, { periodLabel: 'Mes del sueldo (escala)' }),
       ),
     );
   });

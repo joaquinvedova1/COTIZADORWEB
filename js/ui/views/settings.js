@@ -17,12 +17,15 @@
  */
 
 import { h, mount, uniqueId, downloadText, readFileAsText } from '../dom.js';
-import { badge, banner, button, card, checkboxField, confirmDialog, formGrid, numberField, selectField, textField } from '../components.js';
-import { APP_NAME, FEATURES, MAX_BACKUP_BYTES, SCHEMA_VERSION, STORAGE_MODE, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../../config.js';
+import { badge, banner, button, card, checkboxField, confirmDialog, formGrid, numberField, periodField, selectField, textField } from '../components.js';
+import { APP_NAME, CURRENCY, FEATURES, MAX_BACKUP_BYTES, SCHEMA_VERSION, STORAGE_MODE, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { formatBuildLabel, formatDateTime, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { sanitizeText, validateNumber } from '../../core/validation.js';
 import { demoOrganization } from '../../domain/demo-data.js';
+import { BASE_SOURCES, CURRENCIES } from '../../domain/catalogs.js';
+import { emptyBase, normalizeBase } from '../../domain/economic-base.js';
+import { normalizeExchangeRates } from '../../domain/quote-factory.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, invalidTaxesText } from '../billing-taxes-form.js';
 import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -764,6 +767,67 @@ export async function render(root, app, params = {}) {
     // Un texto inválido en un campo (que todavía no llegó al objeto) también bloquea el guardado.
     taxesHolder.addEventListener('input', () => taxesSaver.schedule());
 
+    // ---- base del combustible y tipos de cambio (PLAN-2026-005)
+    // Punto de partida de las cotizaciones nuevas (cada una guarda los suyos).
+    // RATEOS no consulta cotizaciones de moneda: las carga la empresa.
+    const currency = CURRENCY;
+    const fuelBase = normalizeBase(settings.fuelPriceBase, { currency });
+    fuelBase.currency = currency;
+    const rates = normalizeExchangeRates(settings.exchangeRates, { currency });
+    const ratesChip = saveChip({ ephemeral });
+    const ratesHolder = h('div', { class: 'stack' });
+    const ratesValid = () => ratesHolder.querySelectorAll('[aria-invalid="true"]').length === 0 && rates.every((r) => r.rate === null || (isFiniteNumber(r.rate) && r.rate > 0));
+    const ratesSaver = createAutosave({
+      chip: ratesChip,
+      readOnly,
+      isValid: ratesValid,
+      save: async () => {
+        await ctx.settings.save({
+          fuelPriceBase: { ...fuelBase },
+          exchangeRates: rates.map((r) => ({ currency: r.currency, rate: r.rate, base: { ...r.base } })),
+        });
+      },
+      onError: (error) => app.toast(userErrorMessage(error, 'No se pudieron guardar la base del combustible y los tipos de cambio.'), 'danger'),
+    });
+    savers.push(ratesSaver);
+    const foreignOptions = CURRENCIES.filter((c) => c.id !== currency);
+    const drawRates = () => {
+      const rows = rates.map((r, i) => h(
+        'div',
+        { class: 'exchange-row' },
+        formGrid(
+          3,
+          selectField({
+            label: 'Moneda',
+            value: r.currency,
+            options: foreignOptions.filter((c) => c.id === r.currency || !rates.some((o) => o.currency === c.id)).map((c) => ({ value: c.id, label: c.label })),
+            onChange: (v) => { r.currency = v; drawRates(); ratesSaver.schedule(); },
+            disabled: readOnly,
+          }),
+          numberField({ label: `Tipo de cambio (${currency} por 1 ${r.currency})`, value: r.rate, rule: 'money', unit: currency, hint: 'Lo cargás vos: RATEOS no consulta cotizaciones.', onChange: (v) => { r.rate = v; ratesSaver.schedule(); }, disabled: readOnly }),
+          periodField({ label: 'Mes del tipo de cambio', value: r.base.period, onChange: (v) => { r.base.period = v; ratesSaver.schedule(); }, disabled: readOnly }),
+        ),
+        h('div', { class: 'exchange-row-actions' }, button('Quitar', { variant: 'ghost', size: 'sm', icon: 'trash', disabled: readOnly, onClick: () => { rates.splice(i, 1); drawRates(); ratesSaver.schedule(); }, attrs: { 'data-edit': 'true' } })),
+      ));
+      const free = foreignOptions.filter((c) => !rates.some((r) => r.currency === c.id));
+      mount(
+        ratesHolder,
+        rows.length ? h('div', { class: 'stack' }, ...rows) : h('p', { class: 'small' }, `Sin tipos de cambio: todo se cotiza en ${currency}. Agregá uno si tenés equipos o tarifas en otra moneda.`),
+        free.length
+          ? button('Agregar tipo de cambio', { variant: 'secondary', size: 'sm', icon: 'plus', disabled: readOnly, onClick: () => { rates.push({ currency: free[0].id, rate: null, base: emptyBase({ currency }) }); drawRates(); ratesSaver.schedule(); }, attrs: { 'data-edit': 'true' } })
+          : null,
+      );
+      lockInputs(ratesHolder);
+    };
+    drawRates();
+    const fuelBaseFields = formGrid(
+      3,
+      periodField({ label: 'Mes del precio del combustible', value: fuelBase.period, hint: 'De qué mes es el precio de arriba. Vacío = "Base no definida".', onChange: (v) => { fuelBase.period = v; ratesSaver.schedule(); }, disabled: readOnly }),
+      selectField({ label: 'Fuente', value: fuelBase.source || '', options: BASE_SOURCES.map((s) => ({ value: s.id, label: s.label })), includeEmpty: true, emptyLabel: 'Sin indicar', onChange: (v) => { fuelBase.source = v || null; ratesSaver.schedule(); }, disabled: readOnly }),
+      textField({ label: 'Referencia (opcional)', value: fuelBase.note, maxLength: 160, placeholder: 'Ej.: surtidor de Añelo, octubre', onChange: (v) => { fuelBase.note = sanitizeText(v, 160); ratesSaver.schedule(); }, disabled: readOnly }),
+    );
+    lockInputs(fuelBaseFields);
+
     mount(
       panel,
       h(
@@ -788,6 +852,23 @@ export async function render(root, app, params = {}) {
             level: 2,
           },
           h('div', { class: 'stack' }, billingTaxesHelp(), taxesHolder, taxesSummary),
+        ),
+        card(
+          {
+            title: 'Fecha base y tipos de cambio',
+            subtitle: 'De qué mes es el precio del combustible y con qué tipo de cambio se pasan a pesos los valores en otra moneda. Cada cotización nueva arranca con estos datos y los guarda: cambiarlos acá no modifica las cotizaciones que ya hiciste.',
+            actions: [ratesChip.el],
+            className: 'autosave-card',
+            level: 2,
+          },
+          h(
+            'div',
+            { class: 'stack' },
+            h('h3', { class: 'params-group-title' }, 'Precio del combustible'),
+            fuelBaseFields,
+            h('h3', { class: 'params-group-title' }, 'Tipos de cambio'),
+            ratesHolder,
+          ),
         ),
       ),
     );

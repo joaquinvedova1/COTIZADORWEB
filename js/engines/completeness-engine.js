@@ -262,7 +262,7 @@ export function evaluateCompleteness(quote = {}) {
   const noRate = foreign.filter((x) => conversionFactor(currencyOfBase(x.base), quote) === null);
   const noCurrency = priced.filter((x) => isPlainObject(x.base) && !currencyOfBase(x.base));
   if (foreign.length > 0 || noCurrency.length > 0) {
-    items.push(rule('currency', 'Moneda y tipo de cambio', 'equipment', 2, noRate.length ? 'missing' : noCurrency.length ? 'warning' : 'ok',
+    items.push(rule('currency', 'Moneda y tipo de cambio', 'service', 2, noRate.length ? 'missing' : noCurrency.length ? 'warning' : 'ok',
       noRate.length
         ? `Falta el tipo de cambio ${currencyOfBase(noRate[0].base)} de esta cotización: "${noRate[0].name}" no se suma al costo hasta cargarlo.`
         : noCurrency.length

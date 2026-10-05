@@ -87,6 +87,7 @@ import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMar
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
 import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
+import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import {
   dayDecimals,
@@ -3065,6 +3066,43 @@ function rulesBadge(v) {
 }
 
 /** Aviso en el título de "¿Te falta cargar algo?": controles pendientes. */
+function economicBaseBadge(v) {
+  const info = v.r.economicBase;
+  const n = info && Array.isArray(info.warnings) ? info.warnings.length : 0;
+  return n ? badge(noticeCount(n), 'orange', { title: `${noticeCount(n)} sobre las fechas base de los valores` }) : null;
+}
+
+/**
+ * Base económica de la oferta (PLAN-2026-005): base general, base por rubro,
+ * advertencias, tipos de cambio usados y, si hay equipos o servicios
+ * externos, costo económico vs salida de caja vs crédito fiscal.
+ */
+function renderEconomicBase(v) {
+  const q = v.q;
+  const k = v.k;
+  const rates = (Array.isArray(q.exchangeRates) ? q.exchangeRates : []).filter((r) => r && r.currency);
+  const currency = (v.r.model && v.r.model.currency && v.r.model.currency.code) || q.currency || 'ARS';
+  const external = Array.isArray(v.r.model && v.r.model.external) ? v.r.model.external : [];
+  return card(
+    { title: 'Base económica de la oferta', subtitle: `Con qué valores, de qué fecha y en qué moneda se calculó esta oferta (${currency}). La cotización guarda sus valores: si después cambian en Recursos, el editor te avisa y vos decidís si actualizarlos.` },
+    economicBaseSummary(v.r.economicBase),
+    rates.length
+      ? h('div', { class: 'stack' },
+        h('h4', { class: 'qr-sub-title' }, 'Tipos de cambio de esta cotización'),
+        h('ul', { class: 'qr-plain-list' }, ...rates.map((r) => h('li', {}, `1 ${r.currency} = ${isFiniteNumber(Number(r.rate)) && Number(r.rate) > 0 ? formatMoney(Number(r.rate)) : 'sin cargar'} · ${baseText(r.base)}`))))
+      : null,
+    external.length
+      ? h('div', { class: 'stack' },
+        h('h4', { class: 'qr-sub-title' }, 'Equipos y servicios externos en el mes'),
+        h('dl', { class: 'qr-stats qr-stats-3' },
+          statItem({ label: 'Costo económico (en el costo)', value: formatMoney(k.externalMonthly), hint: 'Neto + IVA que no recuperás + cargos no recuperables.' }),
+          statItem({ label: 'Salida de caja con impuestos', value: formatMoney(k.externalCashMonthly), hint: 'Lo que pagás al proveedor (informativo).' }),
+          statItem({ label: 'Crédito fiscal (no es costo)', value: formatMoney(k.externalTaxCreditMonthly), hint: 'IVA que recuperás + percepciones: caja que adelantás.' })),
+        note('Ganancias no se carga como % sobre los alquileres y el IIBB del proveedor ya está en su precio: el tuyo se calcula sobre tu facturación.'))
+      : null,
+  );
+}
+
 function completenessBadge(v) {
   const items = (v.r.completeness && v.r.completeness.items) || [];
   const missing = items.filter((i) => i.status === 'missing').length;
@@ -3091,6 +3129,13 @@ function deepDefinitions(v) {
         // Sin costos, el aviso de la vista simple alcanza (la EECC repetiría el mismo vacío).
         return hasValue(e.total) && e.total > 0 ? [breakdown, safeSection('Estructura de costos (EECC)', () => renderCostStructure(v))] : [breakdown];
       },
+    },
+    {
+      key: 'base',
+      summary: 'Base económica de la oferta',
+      hint: '¿De qué mes son los valores? Bases por rubro, tipos de cambio y equipos externos (costo, caja y crédito fiscal).',
+      badge: economicBaseBadge(v),
+      build: () => [safeSection('Base económica de la oferta', () => renderEconomicBase(v))],
     },
     {
       key: 'appropriation',
@@ -3303,7 +3348,7 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
 
 const SECTION_KEYS = Object.freeze([
   'summary', 'compose', 'costs', 'decision', 'eecc', 'appropriation', 'matrix', 'markup', 'discounts', 'rules', 'sensitivity', 'scenarios', 'models', 'completeness', 'traces', 'actions',
-  'deep_compose', 'deep_eecc', 'deep_appropriation', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces',
+  'deep_compose', 'deep_eecc', 'deep_base', 'deep_appropriation', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces',
 ]);
 
 /**

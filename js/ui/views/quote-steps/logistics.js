@@ -1,19 +1,73 @@
 /**
- * Etapa 2 · Los recursos — Viajes (logística).
- * Traslados entre base y locación (por llamado o viaje) y combustible.
- * Básico: base, destino, distancia, vehículos, precio del combustible y quién
- * lo paga. Opciones avanzadas (con resumen visible): ida y vuelta, viajes por
- * llamado, desgaste por vehículo, peajes y viáticos.
+ * Etapa 2 · Los recursos — Movilización y viajes (logística).
+ *
+ * Separa (PLAN-2026-005):
+ *   MOVILIZACIÓN DEL RECURSO PRINCIPAL: ¿cómo llega cada equipo al lugar del
+ *     servicio? Por sus propios medios (km, combustible en ruta y desgaste por
+ *     km, sin amortización ni otra persona si maneja su operador), lo
+ *     transporta otro equipo (el costo está en ese equipo), va con un vehículo
+ *     de apoyo (el costo está en ese vehículo) o no requiere.
+ *   LOGÍSTICA AUXILIAR: vehículos de apoyo y de personal (por km recorrido),
+ *     peajes y viáticos.
+ * Un mismo vehículo nunca se carga en los dos lados.
+ *
+ * Básico: base, destino, distancia, movilización de cada equipo, vehículos
+ * de apoyo, precio del combustible (con su fecha base) y quién lo paga.
+ * Opciones avanzadas: ida y vuelta, viajes por llamado, desgaste por
+ * vehículo, peajes y viáticos.
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
-import { FUEL_PROVIDERS } from '../../../domain/catalogs.js';
-import { createVehicle } from '../../../domain/quote-factory.js';
+import { badge, card, formGrid, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
+import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf } from '../../../domain/catalogs.js';
+import { createVehicle, acquisitionOf } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { nonNegative, isFiniteNumber } from '../../../core/money.js';
+import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, moneyText, numberText, stepName } from './shared.js';
+import { baseFields } from './resource-line.js';
+import { baseText } from '../../economic-base-ui.js';
+
+const WARNING_TEXT = Object.freeze({
+  travel_consumption: 'Falta el consumo en ruta (L/100 km): el combustible del traslado queda en 0.',
+  driver: 'Falta definir quién maneja en el traslado.',
+  carrier_missing: 'Elegí qué equipo lo transporta (de los cargados en Equipos).',
+  carrier_cycle: 'Dos equipos se transportan entre sí: revisá cuál lleva a cuál.',
+  support_missing: 'Elegí el vehículo de apoyo que lo lleva (de la logística auxiliar).',
+});
+
+/** "Ver cálculo" de la movilización de un equipo que va por sus propios medios. */
+function mobilizationTrace(result, index) {
+  const m = result && result.model.mobilization && result.model.mobilization.lines[index];
+  if (!m) return null;
+  return createTrace({
+    id: 'mobilization_line',
+    title: `Movilización — ${m.name || 'Equipo'}`,
+    formula: 'km por llamado = km de ruta por llamado × cantidad · litros = km × consumo en ruta / 100 · combustible = litros × precio · desgaste = km × $/km (sin combustible ni amortización) · por día activo = por llamado / días por llamado',
+    inputs: [
+      { label: 'Km de ruta por llamado', value: result.model.mobilization.routeKmPerActivation, format: 'km' },
+      { label: 'Cantidad', value: m.quantity, format: 'number' },
+      { label: 'Consumo en ruta', value: m.travelLitersPer100Km, format: 'number', unit: 'L/100 km' },
+      { label: 'Precio del combustible (si lo pagás)', value: result.model.fuel.paidByUs ? result.model.fuel.pricePerLiter : 0, format: 'rate' },
+      { label: 'Desgaste por km', value: m.travelCostPerKm, format: 'rate' },
+      { label: 'Días por llamado', value: result.activity.daysPerActivation, format: 'days' },
+    ],
+    steps: [
+      { label: 'Km por llamado', value: m.km, format: 'km' },
+      { label: 'Litros por llamado', value: m.liters, format: 'liters' },
+      { label: 'Combustible en ruta por llamado', value: m.fuelPerActivation, format: 'money' },
+      { label: 'Desgaste por llamado', value: m.wearPerActivation, format: 'money' },
+      { label: 'Por día activo', value: m.perActiveDay, format: 'money' },
+    ],
+    result: { label: 'Movilización por llamado', value: m.perActivation, format: 'money' },
+    notes: [
+      m.driver === 'operator' ? `Maneja su operador${m.operatorName ? ` (${m.operatorName})` : ''}: no se suma mano de obra (ya está en Personal).` : null,
+      m.driver === 'other' ? 'Maneja otra persona: tiene que estar cargada en Personal (RATEOS no la agrega sola).' : null,
+      'La amortización del equipo ya está en su costo de tenerlo: no se vuelve a sumar por km.',
+    ],
+  });
+}
 
 export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
@@ -90,12 +144,115 @@ export function render(container, ctx) {
       ),
     );
 
+  // ---- Movilización del recurso principal: ¿cómo llega cada equipo?
+  const equipmentLines = Array.isArray(quote.equipment) ? quote.equipment : [];
+  const laborById = new Map((Array.isArray(quote.labor) ? quote.labor : []).filter((l) => l && l.id).map((l) => [l.id, l]));
+  const mobilizationRow = (line, i) => {
+    const p = `equipment.${i}.mobilization`;
+    const m = line.mobilization || {};
+    const acq = acquisitionOf(line);
+    const external = acq !== 'owned';
+    const included = external && line.external && line.external.mobilizationIncluded === true;
+    const head = h(
+      'div',
+      { class: 'mob-head' },
+      h('strong', {}, line.name || 'Equipo'),
+      badge(labelOf(ACQUISITION_MODES, acq, 'Propio'), external ? 'blue' : 'gray'),
+      line.quantity !== undefined && Number(line.quantity) !== 1 ? h('span', { class: 'small' }, `${formatNumber(nonNegative(line.quantity), { decimals: 2 })} unidades`) : null,
+    );
+    if (included) {
+      return h('div', { class: 'mob-row' }, head, h('p', { class: 'small' }, 'La movilización está incluida en la tarifa del proveedor: no se suma nada acá (se cambia en Equipos).'));
+    }
+    const modeField = kit.select(`${p}.mode`, {
+      label: '¿Cómo llega al lugar del servicio?',
+      options: MOBILIZATION_MODES.map((o) => ({ value: o.id, label: o.label })),
+      includeEmpty: true,
+      emptyLabel: 'Sin definir',
+      structural: true,
+      hint: m.mode ? (MOBILIZATION_MODES.find((o) => o.id === m.mode) || {}).hint : 'Definilo para que la movilización no quede afuera ni se cuente dos veces.',
+    });
+    let detail = null;
+    if (m.mode === 'self') {
+      const operator = typeof line.operatorLaborId === 'string' ? laborById.get(line.operatorLaborId) : null;
+      const driverHint = m.driver === 'operator'
+        ? operator
+          ? `Maneja ${operator.role || 'su operador'} (ya está en Personal): no se suma otra persona.`
+          : 'Asignale el operador en Equipos (de los puestos de Personal). No se suma otra persona.'
+        : m.driver === 'other'
+          ? `Cargá al chofer en "${stepName('labor')}": RATEOS no lo agrega solo.`
+          : null;
+      detail = h(
+        'div',
+        { class: 'stack' },
+        formGrid(
+          3,
+          kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'En ruta, no el consumo trabajando (L/h).' }),
+          kit.num(`${p}.travelCostPerKm`, { label: 'Desgaste por km', rule: 'money', unit: '$/km', hint: 'Mantenimiento y neumáticos en ruta. Sin combustible ni amortización (ya está en el costo de tenerlo).' }),
+          kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint }),
+        ),
+        kit.region((r) => {
+          const ml = r.model.mobilization && r.model.mobilization.lines[i];
+          if (!ml) return EMPTY;
+          return h(
+            'div',
+            { class: 'mob-calc' },
+            h('span', { class: 'mono' }, `${formatValue(ml.km, 'km')} · ${formatValue(ml.liters, 'liters')} por llamado`),
+            h('span', {}, `Combustible ${formatMoney(ml.fuelPerActivation)} + desgaste ${formatMoney(ml.wearPerActivation)} = `, h('strong', { class: 'mono' }, formatMoney(ml.perActivation)), ' por llamado'),
+          );
+        }),
+        kit.trace((r) => mobilizationTrace(r, i)),
+      );
+    } else if (m.mode === 'transported') {
+      const carriers = equipmentLines.filter((e, j) => j !== i && e && e.id).map((e) => ({ value: e.id, label: `${e.name || 'Equipo'} (${labelOf(ACQUISITION_MODES, acquisitionOf(e), 'Propio').toLowerCase()})` }));
+      detail = formGrid(
+        2,
+        kit.select(`${p}.carrierLineId`, {
+          label: '¿Qué equipo lo transporta?',
+          options: carriers,
+          includeEmpty: true,
+          emptyLabel: carriers.length ? 'Elegí el equipo…' : 'Primero cargá en Equipos el carretón, batea o camión',
+          structural: true,
+          hint: 'El costo del traslado está en ese equipo (por ejemplo, un carretón tercerizado por viaje). Acá no se suma nada.',
+        }),
+      );
+    } else if (m.mode === 'support') {
+      const supports = lg.vehicles.filter((v) => v && v.id).map((v) => ({ value: v.id, label: v.name || 'Vehículo' }));
+      detail = formGrid(
+        2,
+        kit.select(`${p}.supportVehicleId`, {
+          label: '¿Con qué vehículo de apoyo?',
+          options: supports,
+          includeEmpty: true,
+          emptyLabel: supports.length ? 'Elegí el vehículo…' : 'Agregá el vehículo en la logística auxiliar',
+          structural: true,
+          hint: 'El costo está en ese vehículo (por km recorrido). Acá no se suma nada.',
+        }),
+      );
+    }
+    const warnings = kit.out((r) => {
+      const ml = r.model.mobilization && r.model.mobilization.lines[i];
+      const list = ml ? ml.warnings.map((w) => WARNING_TEXT[w]).filter(Boolean) : [];
+      return list.length ? h('div', { class: 'qe-line-warnings' }, ...list.map((t) => h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, t)))) : '';
+    }, { tag: 'div', allowEmpty: true });
+    return h('div', { class: 'mob-row' }, head, formGrid(2, modeField), detail, warnings);
+  };
+
+  const mobilizationCard = notApplicable || equipmentLines.length === 0
+    ? null
+    : card(
+      {
+        title: '¿Cómo llega cada equipo al lugar del servicio?',
+        subtitle: 'La movilización del equipo principal. Cada costo va en un solo lugar: si lo transporta otro equipo o un vehículo de apoyo, el costo está en ese equipo o vehículo.',
+      },
+      h('div', { class: 'stack mob-list' }, ...equipmentLines.map((line, i) => (line ? mobilizationRow(line, i) : null))),
+    );
+
   const vehiclesCard = notApplicable
     ? null
     : card(
       {
-        title: '¿Con qué vehículos?',
-        subtitle: `Se costean por km recorrido. Si el vehículo también trabaja en locación, sus horas de uso van en "${stepName('equipment')}".`,
+        title: 'Logística auxiliar: vehículos de apoyo y de personal',
+        subtitle: `Camionetas, traslado de personal o vehículos de apoyo, costeados por km recorrido. No cargues acá un equipo que ya se moviliza por sus propios medios (se contaría dos veces). Si el vehículo también trabaja en locación, sus horas de uso van en "${stepName('equipment')}".`,
         actions: [kit.action('Agregar vehículo', addVehicle, { icon: 'plus' })],
       },
       lg.vehicles.length
@@ -134,7 +291,7 @@ export function render(container, ctx) {
           ],
           rows: lg.vehicles,
         })
-        : emptyState('No hay vehículos de traslado. Agregá al menos uno o marcá "Sin traslados".'),
+        : emptyState(equipmentLines.length ? 'Sin vehículos de apoyo. Agregá uno si llevás personal o un equipo con un vehículo de apoyo.' : 'No hay vehículos de traslado. Agregá al menos uno o marcá "Sin traslados".'),
     );
 
   const advancedCard = notApplicable
@@ -231,7 +388,7 @@ export function render(container, ctx) {
   }
 
   const fuelCard = card(
-    { title: 'Combustible', subtitle: 'Se usa para los viajes y para el consumo de los equipos cuando trabajan.' },
+    { title: 'Combustible', subtitle: 'Se usa para los viajes, la movilización y el consumo de los equipos cuando trabajan.' },
     formGrid(
       2,
       fuelPriceField,
@@ -243,16 +400,27 @@ export function render(container, ctx) {
       }),
     ),
     fuelConfirm,
+    kit.advanced(
+      {
+        key: 'fuel-base',
+        title: 'Fecha base del precio',
+        summary: () => baseText(quote.fuel && quote.fuel.base, { prefix: 'Base' }),
+      },
+      baseFields(ctx, 'fuel.base', { periodLabel: 'Mes del precio del combustible' }),
+    ),
   );
 
   const keyline = notApplicable
     ? null
     : kit.keyline({
-      label: 'Viajes en el costo del mes',
+      label: 'Movilización y viajes en el costo del mes',
       value: (r) => formatMoney(r.kpis.logisticsMonthly),
       hint: (r) => {
         const share = isFiniteNumber(r.kpis.logisticsIncidencePct) ? `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ` : '';
-        return `${share}${formatMoney(r.model.logistics.costPerActivation)} por llamado × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} llamados por mes.`;
+        const mob = r.model.mobilization ? r.model.mobilization.perActivation : 0;
+        const perActivation = r.model.logistics.costPerActivation + mob;
+        const split = mob > 0 ? ` (movilización de equipos ${formatMoney(mob)} + logística auxiliar ${formatMoney(r.model.logistics.costPerActivation)})` : '';
+        return `${share}${formatMoney(perActivation)} por llamado${split} × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} llamados por mes.`;
       },
       trace: (r) => r.traces.logistics,
       className: 'qe-keyline-total',
@@ -279,6 +447,6 @@ export function render(container, ctx) {
       h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística".')),
     );
 
-  mount(container, toggleCard, routeCard, vehiclesCard, fuelCard, advancedCard, keyline, resultsDetail);
+  mount(container, toggleCard, routeCard, mobilizationCard, vehiclesCard, fuelCard, advancedCard, keyline, resultsDetail);
   return { update() {} };
 }

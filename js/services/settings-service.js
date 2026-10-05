@@ -27,7 +27,7 @@ export function createSettingsService({ repository }) {
  * Usa ruta relativa para funcionar bajo /COTIZADORWEB/.
  */
 export async function loadVersionInfo(fetchImpl = globalThis.fetch) {
-  const fallback = { version: 'dev', commit: 'local', buildDate: null, ref: null };
+  const fallback = { version: 'dev', commit: 'local', buildDate: null, ref: null, channel: null };
   if (typeof fetchImpl !== 'function') return fallback;
   try {
     const res = await fetchImpl('./version.json', { cache: 'no-store' });
@@ -38,6 +38,9 @@ export async function loadVersionInfo(fetchImpl = globalThis.fetch) {
       commit: typeof data.commit === 'string' ? data.commit.slice(0, 12) : fallback.commit,
       buildDate: typeof data.buildDate === 'string' ? data.buildDate : null,
       ref: typeof data.ref === 'string' ? data.ref : null,
+      // "staging" en /preview/ (stage-preview.mjs): la app pide confirmación
+      // antes de actualizar el formato de los datos de la cuenta.
+      channel: data.channel === 'staging' || data.channel === 'production' ? data.channel : null,
     };
   } catch {
     return fallback;

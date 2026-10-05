@@ -643,3 +643,91 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   .kpi-emphasis .kpi-value, .kpi-emphasis .kpi-label { color: var(--ink); }
   .kpi-emphasis .kpi-hint { color: var(--ink-2); }
 }
+
+/* ------------------------------------------------------------------
+ * Base económica, snapshots y movilización (PLAN-2026-005)
+ * ------------------------------------------------------------------ */
+
+/* "Base: sep-26" / "Base no definida" */
+.base-tag {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  padding: 0.05rem 0.45rem; border-radius: 999px;
+  font-size: var(--fs-xs); line-height: 1.5; white-space: nowrap;
+  background: var(--navy-50); color: var(--navy-900);
+}
+.base-tag.is-undefined { background: var(--orange-50); color: var(--orange-text); }
+.cell-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; min-width: 0; }
+
+/* Mes del valor junto al campo (eco "sep-26") */
+.period-echo { white-space: nowrap; }
+
+/* Origen de una línea de la cotización */
+.line-origin-wrap { display: flex; flex-direction: column; gap: 0.2rem; }
+.line-origin { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: var(--fs-xs); color: var(--ink-3); }
+.line-origin-from { font-weight: 600; color: var(--ink-2); }
+.line-origin-note { margin: 0; color: var(--ink-3); }
+
+/* "El costo de X fue actualizado desde que hiciste esta cotización." */
+.sync-notice {
+  border: 1px solid var(--blue-400); border-left-width: 4px; border-radius: var(--radius-sm);
+  background: var(--blue-50); padding: var(--sp-3) var(--sp-4);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.sync-notice-head { display: flex; align-items: flex-start; gap: 0.45rem; color: var(--blue-text); }
+.sync-notice-head .icon { flex: 0 0 auto; margin-top: 0.15rem; }
+.sync-notice-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); margin: 0; }
+.sync-notice-values > div { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--sp-2) var(--sp-3); }
+.sync-notice-values dt { font-size: var(--fs-xs); color: var(--ink-3); }
+.sync-notice-values dd { margin: 0; }
+.sync-notice-values dd.mono { font-size: var(--fs-lg); font-weight: 600; color: var(--ink); }
+.sync-notice-hint { margin: 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.sync-notice-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+/* Avisos dentro de una línea (operador duplicado, moneda sin tipo de cambio) */
+.qe-line-warnings { display: flex; flex-direction: column; gap: 0.3rem; }
+.qe-warn {
+  display: flex; align-items: flex-start; gap: 0.4rem; margin: 0;
+  padding: 0.45rem 0.65rem; border-radius: var(--radius-sm);
+  background: var(--orange-50); color: var(--orange-text); font-size: var(--fs-sm);
+}
+.qe-warn .icon { flex: 0 0 auto; margin-top: 0.15rem; }
+.line-mobility-note { margin: 0; color: var(--ink-3); }
+
+/* Movilización: ¿cómo llega cada equipo? */
+.mob-list { gap: var(--sp-3); }
+.mob-row {
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2);
+  padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.mob-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.mob-calc { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: var(--fs-sm); color: var(--ink-2); }
+
+/* Tipos de cambio */
+.exchange-row { display: flex; flex-direction: column; gap: var(--sp-2); padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line-2); }
+.exchange-row:last-child { border-bottom: 0; }
+.exchange-row-actions { display: flex; justify-content: flex-end; }
+
+/* Base económica de la oferta */
+.economic-base { display: flex; flex-direction: column; gap: var(--sp-3); }
+.economic-base-head { margin: 0; }
+.economic-base-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-2); margin: 0; }
+.base-row { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--sp-2) var(--sp-3); background: var(--white); }
+.base-row dt { font-size: var(--fs-xs); color: var(--ink-3); }
+.base-row dd { margin: 0; font-weight: 600; color: var(--ink); }
+.base-row.is-undefined dd { color: var(--orange-text); }
+.economic-base-warnings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.economic-base-warnings li {
+  display: flex; align-items: flex-start; gap: 0.4rem; padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm); background: var(--orange-50); color: var(--orange-text); font-size: var(--fs-sm);
+}
+.economic-base-warnings .icon { flex: 0 0 auto; margin-top: 0.15rem; }
+.economic-base-ok { margin: 0; color: var(--green-text); }
+
+/* Formularios de Recursos: secciones plegables del legajo */
+.form-section-collapsible { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 var(--sp-3); }
+
+@media (max-width: 640px) {
+  .sync-notice-values { grid-template-columns: 1fr; }
+  .sync-notice-actions .btn { flex: 1 1 100%; }
+  .economic-base-rows { grid-template-columns: 1fr; }
+}

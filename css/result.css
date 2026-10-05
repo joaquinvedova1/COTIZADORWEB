@@ -551,3 +551,10 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-deep-item > .disclosure-summary, .qr .card-header, .qr h4 { break-after: avoid; }
   .qr button[data-what-if] { display: none !important; }
 }
+
+/* Base económica de la oferta (PLAN-2026-005) */
+.qr-sub-title { font-size: var(--fs-sm); font-weight: 700; color: var(--ink-2); margin: 0.75rem 0 0.25rem; }
+.qr-plain-list { margin: 0; padding-left: 1.1rem; font-size: var(--fs-sm); color: var(--ink-2); }
+@media (min-width: 720px) {
+  .qr-stats.qr-stats-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 1.1rem; }
+}

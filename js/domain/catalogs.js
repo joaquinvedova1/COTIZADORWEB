@@ -215,7 +215,7 @@ export const QUOTE_STEPS = deepFreeze([
   { id: 'labor', label: 'Personal' },
   { id: 'equipment', label: 'Equipos' },
   { id: 'materials', label: 'Materiales' },
-  { id: 'logistics', label: 'Viajes' },
+  { id: 'logistics', label: 'Movilización y viajes' },
   { id: 'indirect', label: 'Gastos de estructura' },
   { id: 'finance', label: 'Financiación' },
   { id: 'risk', label: 'Imprevistos' },
