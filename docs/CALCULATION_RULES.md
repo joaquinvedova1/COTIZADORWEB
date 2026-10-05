@@ -415,13 +415,16 @@ Validaciones (`isValidMarginPct`): el margen debe cumplir `0 ≤ margen < 100`; 
 **Con impuestos sobre la facturación** (`t`, §13.1) el margen sigue siendo sobre el precio, pero el precio tiene que cubrir también los impuestos:
 
 ```
-precio            = costo / (1 − margen − t)          priceFromMarginAndTaxes   (válido si margen + t < 100)
-markup efectivo   = resultado / costo = margen / (1 − margen − t)              effectiveMarkupPct
+precio                   = costo / (1 − margen − t)                    priceFromMarginAndTaxes   (válido si margen + t < 100)
+markup                   = precio / costo − 1 = (margen + t) / (1 − margen − t)    markupWithTaxesPct
+ganancia sobre el costo  = resultado / costo = margen / (1 − margen − t)           profitOnCostPct
 ```
 
-Costo 100, margen 10 %, t 10 % → precio **125**, impuestos 12,5, resultado 12,5 (10 % del precio), markup efectivo **12,5 %** (sin impuestos sería 11,11 %). Con `t = 0` ambas funciones dan exactamente `priceFromMargin` y `marginToMarkup`.
+El **markup** sigue siendo lo de AGENTS.md §9 (`precio = costo × (1 + markup)`): con impuestos, el recargo sobre el costo cubre impuestos **y** ganancia. La **ganancia sobre el costo** es sólo la parte que queda (lo que en una planilla en cascada suele llamarse "beneficio sobre costo"); no es un markup y se rotula aparte.
 
-Escalera de precios (`priceLadder(costo, márgenes, personalizado, t)`): tarifa piso (margen 0), margen 5 %, 10 %, 15 % (`DEFAULT_MARGIN_LADDER` o `settings.marginLadder`) y margen personalizado (si es válido, mayor a 0 y no está en la escalera). Para costo 100 sin impuestos: 100,00 / 105,26 / 111,11 / 117,65 / personalizado 20 % → 125,00 (markups equivalentes 0 / 5,26 / 11,11 / 17,65 / 25 %). Cada fila trae además `billingTaxes` (= t × precio) y `gain` (= margen × precio), de modo que **precio = costo + impuestos + ganancia**; con t 10 %: 111,11 / 117,65 / 125,00 / 133,33. Se omiten los márgenes con margen + t ≥ 100.
+Costo 100, margen 10 %, t 10 % → precio **125**, impuestos 12,5, resultado 12,5 (10 % del precio), markup **25 %** (125 = 100 × 1,25), ganancia sobre el costo **12,5 %**. Sin impuestos ambos dan 11,11 %. Con `t = 0` las dos funciones dan exactamente `marginToMarkup` y `priceFromMarginAndTaxes` da `priceFromMargin`. En la tarifa piso (margen 0) el markup es `t / (1 − t)` (11,11 % con t 10 %: el recargo cubre sólo impuestos) y la ganancia sobre el costo, 0.
+
+Escalera de precios (`priceLadder(costo, márgenes, personalizado, t)`): tarifa piso (margen 0), margen 5 %, 10 %, 15 % (`DEFAULT_MARGIN_LADDER` o `settings.marginLadder`) y margen personalizado (si es válido, mayor a 0 y no está en la escalera). Para costo 100 sin impuestos: 100,00 / 105,26 / 111,11 / 117,65 / personalizado 20 % → 125,00 (markups equivalentes 0 / 5,26 / 11,11 / 17,65 / 25 %). Cada fila trae además `billingTaxes` (= t × precio), `gain` (= margen × precio), `markupPct` (`markupWithTaxesPct`) y `profitOnCostPct`, de modo que **precio = costo + impuestos + ganancia**; con t 10 %: 111,11 / 117,65 / 125,00 / 133,33 (markups 11,11 / 17,65 / 25 / 33,33 %). Se omiten los márgenes con margen + t ≥ 100.
 
 `traceMarginVsMarkup(costo, %)` arma la traza "Margen vs markup" con ambos precios y la diferencia, con **2 decimales** (formato `money2`) para que se vea la regla protegida: costo $ 100,00 → margen 10 % $ 111,11, markup 10 % $ 110,00, diferencia $ 1,11.
 
@@ -542,7 +545,7 @@ Ejemplo demo (modo B, 8 días, ILUSTRATIVO): tarifa piso neta ≈ 1.972.062/día
 
 ### 13.1 Impuestos sobre la facturación (gross-up)
 
-Archivos: `js/engines/billing-taxes-engine.js` (`billingTaxInfo`, `billingTaxConfigInfo`, `traceBillingTaxes`), `js/domain/billing-taxes.js` (forma de los datos), `js/engines/pricing-engine.js` (`priceFromMarginAndTaxes`, `effectiveMarkupPct`). Plan: PLAN-2026-002 en [.agent/PLANS.md](../.agent/PLANS.md).
+Archivos: `js/engines/billing-taxes-engine.js` (`billingTaxInfo`, `billingTaxConfigInfo`, `traceBillingTaxes`), `js/domain/billing-taxes.js` (forma de los datos), `js/engines/pricing-engine.js` (`priceFromMarginAndTaxes`, `markupWithTaxesPct`, `profitOnCostPct`). Plan: PLAN-2026-002 en [.agent/PLANS.md](../.agent/PLANS.md).
 
 Son los impuestos que se pagan **sobre lo que se factura** (sin IVA): Ingresos Brutos, impuesto a los débitos y créditos (como % equivalente sobre la facturación sin IVA), sellos del contrato y otros cargos proporcionales a lo facturado. **No son costo**: dependen del precio. Por eso no entran en la estructura de costos (EECC), ni en la base de la contingencia o del financiero, y se cubren con un **gross-up exacto** junto con el margen:
 
@@ -551,8 +554,9 @@ t                     = Σ alícuotas sobre lo facturado (puntos)
 facturación necesaria = Costo / (1 − m − t)                (sólo si m + t < 100)
 impuestos             = t × facturación
 resultado             = facturación − impuestos − costo = facturación × (1 − t) − costo
-margen                = resultado / facturación         (sobre el precio, antes de Ganancias)
-markup efectivo       = resultado / costo               (en el objetivo: m / (1 − m − t))
+margen                = resultado / facturación         (sobre el precio, antes del impuesto a las Ganancias)
+markup                = facturación / costo − 1         (en el objetivo: (m + t) / (1 − m − t))
+ganancia sobre costo  = resultado / costo               (en el objetivo: m / (1 − m − t))
 ```
 
 | Ejemplo sintético (costo 100) | Sin impuestos | t = 10 % |
@@ -561,7 +565,8 @@ markup efectivo       = resultado / costo               (en el objetivo: m / (1 
 | Precio con margen 10 % | 111,11 | **125,00** |
 | Impuestos con margen 10 % | 0 | 12,50 |
 | Resultado con margen 10 % | 11,11 | 12,50 |
-| Markup efectivo con margen 10 % | 11,11 % | 12,50 % |
+| Markup con margen 10 % (recargo sobre el costo) | 11,11 % | **25,00 %** |
+| Ganancia sobre el costo con margen 10 % | 11,11 % | 12,50 % |
 
 Prohibido: `(1 − m)(1 − t)` (daría 123,46), aplicar t sobre el costo (121) o sobre la tarifa de lista. La base es la **facturación neta total** del mes: tarifa neta × unidades + otros ingresos + ajuste por mínimo garantizado (el ajuste también tributa).
 
@@ -572,11 +577,15 @@ Prohibido: `(1 − m)(1 − t)` (daría 123,46), aplicar t sobre el costo (121) 
 | `mode` | `combined` ("Un % total") o `detailed` ("Detalle por impuesto"). Sólo se usa el del modo elegido |
 | `combinedPct` | % total (modo `combined`) |
 | `items[]` | `{ id, kind, label, pct }` con `kind` en `BILLING_TAX_KINDS` (Ingresos Brutos, débitos y créditos, sellos, otro) — sólo nombres: **RATEOS no trae alícuotas** (AGENTS.md §7) |
-| `notApplicable` | "No pago impuestos sobre lo que facturo" → t = 0 y definido |
+| `notApplicable` | "No incluir impuestos sobre la facturación en esta cotización" → t = 0 y definido (elección de cálculo, no una afirmación fiscal) |
 
 Estados (`billingTaxInfo`): **sin definir** (ni %, ni detalle, ni "no aplica") → `t = 0`, `defined = false` y la tarifa piso NO incluye estos impuestos (la traza y la interfaz lo avisan); **definido** (incluso 0 % explícito); **inválido** (algún % negativo o no numérico, o un total ≥ 100) → se calcula con `t = 0`, `invalid = true`, `validateQuote` informa el error y la completitud lo marca en rojo. Los porcentajes en texto se leen como en la validación (`"4,5"` → 4,5).
 
 **Sellos** se modela proporcional a la facturación: es exacto con la actividad estimada y una aproximación con otra actividad (la traza lo aclara). **No incluye** IVA, Ganancias, retenciones/percepciones (pagos a cuenta) ni costo financiero (RATEOS lo calcula por plazos, §8).
+
+**Limitación conocida:** no se modela el costo financiero de pagar estos impuestos antes de cobrar (se devengan al facturar y el cobro llega a N días). Con plazos largos, si es relevante, se carga como otro costo o se contempla en el margen.
+
+**Convención de montos: sin IVA** (`quote.vatTreatment`, esquema v2). Costos, tarifas, facturación e impuestos sobre la facturación se cargan y calculan **sin IVA**: el IVA no es costo ni ingreso de la empresa. Es la única convención que soporta esta versión (`VAT_TREATMENTS` en `js/domain/catalogs.js`, valor `excluded`) y queda **explícita en cada cotización** (la migración v1 → v2 la agrega; las cotizaciones nuevas nacen con ella). La interfaz la muestra al cargar ("Montos sin IVA" en el editor, en los formularios de equipos, materiales y combustible, y en el resultado e impresión). Una cotización con otra convención **no se calcula en silencio como si fuera sin IVA**: `validateQuote` informa un error y el resultado lo muestra. Si en el futuro se soportan montos con IVA, se agrega el valor al catálogo y la conversión en el motor, sin cambiar la forma de los datos.
 
 **Valor de la empresa** (`settings.defaultBillingTaxes`, `null` = sin definir): una cotización nueva arranca con ese valor si la empresa ya decidió (`billingTaxesForNewQuote`), **aunque la configuración sea la de demostración** (es un dato propio que cargó el usuario); si no, sin definir. Una plantilla sólo lo pisa si trae una decisión propia. La demo queda **sin definir** a propósito.
 
@@ -851,12 +860,12 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 11 | `payment_term` | siempre | 2 | ok si el plazo de cobro está definido (número, incluido 0); si está vacío o `null`, rojo |
 | 12 | `contingency` | siempre | 1 | ok si la contingencia total > 0; si no, naranja |
 | 13 | `margin` | siempre | 2 | rojo si está vacío, es inválido (≥ 100 %, negativo o no numérico) o margen + impuestos sobre la facturación ≥ 100 %; naranja si es 0; ok si es > 0 |
-| 13b | `billing_taxes` | siempre | 1 | ok si están definidos (un % total, algún renglón del detalle —incluso 0 %— o "no pago impuestos sobre lo que facturo"); naranja si están sin definir ("la tarifa piso no los incluye"); rojo si hay un % inválido |
+| 13b | `billing_taxes` | siempre | 1 | ok si están definidos (un % total, algún renglón del detalle —incluso 0 %— o "No incluir impuestos sobre la facturación en esta cotización"); naranja si están sin definir ("la tarifa piso no los incluye"); rojo si hay un % inválido |
 | 14 | `standby` | on-call | 1 | ok si hay tarifa de standby o se marcó "no aplica"; si no, naranja |
 
 Los pendientes (`pending`) se ordenan rojos primero. Ejemplos: demo Hidrogrúa **93,48 %** (pendientes en naranja: relevos, impuestos sobre la facturación y standby); caso de referencia **76,67 %** (personal en rojo; estructura, contingencia e impuestos sobre la facturación en naranja).
 
-**Efecto de borde de la regla `billing_taxes` (PLAN-2026-002).** Agrega peso 1 a todas las cotizaciones. Una cotización con impuestos sin definir suma 0,5 de 1: si su puntaje era mayor a 50 % **baja un poco** (demo 95,45 % → 93,48 %; caso de referencia 78,57 % → 76,67 %) y si era menor **sube un poco** (cotización en blanco 33,33 % → 34,21 %). Una cotización que estaba apenas arriba de 85 % puede pasar de verde a naranja, o apenas arriba de 60 % pasar a "con riesgo" (`incomplete`/`atRisk`), hasta que se definan los impuestos o se marque que no aplican. Los números económicos no cambian.
+**Efecto de borde de la regla `billing_taxes` (PLAN-2026-002).** Agrega peso 1 a todas las cotizaciones. Una cotización con impuestos sin definir suma 0,5 de 1: si su puntaje era mayor a 50 % **baja un poco** (demo 95,45 % → 93,48 %; caso de referencia 78,57 % → 76,67 %) y si era menor **sube un poco** (cotización en blanco 33,33 % → 34,21 %). Una cotización que estaba apenas arriba de 85 % puede pasar de verde a naranja, o apenas arriba de 60 % pasar a "con riesgo" (`incomplete`/`atRisk`), hasta que se definan los impuestos o se elija "No incluir impuestos sobre la facturación en esta cotización". Los números económicos no cambian.
 
 **Colores del puntaje** (`completenessTone`, `js/engines/completeness-engine.js`), iguales en el editor, el resultado y el listado: **verde ≥ 85 %** (`COMPLETENESS_GREEN_THRESHOLD`), **naranja ≥ 60 %**, **rojo < 60 %** (`COMPLETENESS_RISK_THRESHOLD`, el mismo límite que marca `incomplete` y `atRisk`, §20).
 
@@ -877,7 +886,7 @@ Con una configuración propia (`settings.illustrative !== true`), el plazo y la 
 
 `computeQuote(quote, { settings })` devuelve `kpis` con, entre otros: días activos, utilización, costo total, fijos, variables, costo por día activo, tarifas piso/objetivo/sugerida/comercial (neta y de lista), facturación, resultado, margen, markup, break-even y días para margen objetivo (exactos y enteros), completitud, costo financiero, impacto financiero en margen, capital de trabajo, costo logístico mensual e incidencia.
 
-Desde PLAN-2026-002 también: `billingTaxPct` (t usado), `billingTaxesDefined`, `billingTaxesInvalid`, `billingTaxes` (impuestos sobre la facturación del mes, en $), `targetMarginInvalid`, `targetMarkupPct` (recargo efectivo del objetivo, m / (1 − m − t)) y `priceToCostMultiplier` (facturación / costo del mes). `result.billingTaxInfo` trae la configuración normalizada y su estado; `traces.billingTaxes`, la traza. Invariante (tests): **facturación = costo + impuestos sobre la facturación + resultado** en la estimación y en cada fila de la matriz.
+Desde PLAN-2026-002 también: `billingTaxPct` (t usado), `billingTaxesDefined`, `billingTaxesInvalid`, `billingTaxes` (impuestos sobre la facturación del mes, en $), `targetMarginInvalid`, `targetMarkupPct` (markup del objetivo, (m + t) / (1 − m − t)), `targetProfitOnCostPct` (ganancia sobre el costo del objetivo, m / (1 − m − t)), `profitOnCostPct` (resultado / costo con la tarifa cotizada) y `priceToCostMultiplier` (facturación / costo del mes). `result.billingTaxInfo` trae la configuración normalizada y su estado; `traces.billingTaxes`, la traza. Invariante (tests): **facturación = costo + impuestos sobre la facturación + resultado** en la estimación y en cada fila de la matriz.
 
 **Margen y markup de la cotización sólo con tarifa comercial.** `kpis.marginPct` y `kpis.markupPct` son `null` si no hay tarifa comercial (`commercialSource = 'none'`), aunque haya otros ingresos (fee, standby, call-out). Ejemplo: caso de referencia en "Conozco la tarifa" sin tarifa y con fee de disponibilidad 6.000.000/mes → facturación 6.000.000, margen y markup `null` (antes figuraba un margen de −533,33 % que entraba al promedio del dashboard). La facturación y el resultado se siguen informando.
 
@@ -910,7 +919,7 @@ El Dashboard (`QuoteService.dashboardStats`) suma sólo cotizaciones activas (`A
 | Margen + impuestos sobre la facturación ≥ 100 | No existe un precio que deje ese margen: igual que un margen inválido; `validateQuote` informa "Con X % de impuestos sobre la facturación, el margen tiene que ser menor a (100 − X) %"; el comparador de modelos devuelve `models: []` con el motivo. |
 | Impuestos sobre la facturación sin definir | t = 0 (los números no cambian), `billingTaxesDefined = false`, la traza de la tarifa piso avisa que no los incluye y la completitud lo marca en naranja. |
 | Impuestos sobre la facturación inválidos (negativos, texto, total ≥ 100) | Se calcula con t = 0, `billingTaxesInvalid = true`; `validateQuote` y la completitud (rojo) lo informan. |
-| Impuestos 0 % explícito o "no pago impuestos sobre lo que facturo" | t = 0 y definido: sin aviso. |
+| Impuestos 0 % explícito o "no incluir impuestos sobre la facturación en esta cotización" (la columna sigue)go impuestos sobre lo que facturo" | t = 0 y definido: sin aviso. |
 | Margen 0 | Tarifa objetivo = tarifa piso; completitud en naranja. |
 | Precio inferior al costo | Margen y markup negativos, `belowFloorRate` y `belowFloor` (si el mes da pérdida), semáforo rojo, `atRisk`. |
 | Tarifa neta bajo piso con mínimo garantizado que cubre el costo | `belowFloorRate = true`, `belowFloor = false`; el resultado se informa positivo (§20). |
@@ -953,10 +962,11 @@ Casos de referencia que deben seguir valiendo aunque cambie la interfaz. Son **r
 | `caso-demo-referencia.json` | cotización demo "Caso de referencia on-call" | break-even 10 días; piso 4.750.000; facturación 32.000.000; costo 38.000.000; resultado −6.000.000; bajo piso y con riesgo |
 | `gross-up-impuestos-facturacion.json` | costo 100; margen 10 %; impuestos sobre la facturación 10 % | precio **125** (NO 121 ni 123,46) |
 | `tarifa-piso-con-impuestos.json` | costo 100; margen 0; impuestos 10 % | tarifa piso **111,11…** |
-| `markup-efectivo-con-impuestos.json` | margen 10 %; impuestos 10 % | markup efectivo **12,5 %** |
+| `markup-con-impuestos.json` | margen 10 %; impuestos 10 % | markup **25 %** (precio 125 = costo 100 × 1,25) |
+| `ganancia-sobre-costo-con-impuestos.json` | margen 10 %; impuestos 10 % | ganancia sobre el costo **12,5 %** (no es el markup) |
 | `on-call-break-even-con-impuestos.json` | caso básico con impuestos 10 % | contribución 2.600.000/día; break-even **11,54 días** (12 enteros) |
 | `on-call-tarifa-minima-6-dias-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 6 días; impuestos 10 % | tarifa mínima 6.666.666,67/día |
-| `on-call-cotizacion-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 10 días; margen 10 %; impuestos 10 % | costo 40.000.000; piso 4.444.444,44; objetivo 5.000.000; facturación 50.000.000; impuestos 5.000.000; resultado 5.000.000 (10 %); markup efectivo 12,5 % |
+| `on-call-cotizacion-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 10 días; margen 10 %; impuestos 10 % | costo 40.000.000; piso 4.444.444,44; objetivo 5.000.000; facturación 50.000.000; impuestos 5.000.000; resultado 5.000.000 (10 %); markup 25 %; ganancia sobre el costo 12,5 % |
 
 **Red de seguridad** (`tests/engines/regression-baseline.test.js`, PLAN-2026-002 PN0): con impuestos sin definir, los KPIs, la EECC, la matriz y los tramos de la demo, el caso de referencia, cada plantilla y variantes sintéticas son **idénticos** a los del motor anterior (`tests/fixtures/baseline-v1.json`).
 

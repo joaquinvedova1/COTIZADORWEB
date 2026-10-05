@@ -214,6 +214,8 @@ docs/                      documentación técnica
 - Los datos viven sólo en el navegador: no se sincronizan entre equipos (usar backup JSON). No hay login ni multiusuario.
 - **Dos pestañas editando la misma cotización a la vez:** gana el último guardado (los cambios de la otra pestaña sobre esa cotización se pierden). Lo mismo para una misma ficha de biblioteca o la configuración. Cambios en cotizaciones o recursos distintos no se pisan. Recomendación: editá cada cotización en una sola pestaña.
 - Costo financiero con interés simple y mes de 30 días; el comparador de modelos comerciales usa una facturación simplificada.
+- **Montos sin IVA**: es la única convención soportada (explícita en cada cotización). No hay carga de montos con IVA ni conversión automática.
+- **Impuestos sobre la facturación**: RATEOS no trae alícuotas (las carga cada empresa); sellos se modela proporcional a la facturación; no se modela el costo financiero de pagar esos impuestos antes de cobrar; el margen es antes del impuesto a las Ganancias.
 - Escenarios y sensibilidad se calculan pero no se guardan. "Estimado vs real" está diseñado ([docs/DATA_MODEL.md](docs/DATA_MODEL.md#6-estimado-vs-real)) pero no implementado.
 - Mientras GitHub Pages siga en "Deploy from a branch", el sitio se publica sin pasar por los tests (ver [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 

@@ -81,13 +81,17 @@ Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **5 etapas**:
 | 4. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
 | 5. Resultado | Resultado |
 
-Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, días para no perder) y "Ver más". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir). Cada paso muestra la marca **"Montos sin IVA"**.
+Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, días para no perder) y "Ver más". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
 
-**Impuestos sobre lo que facturás** (etapa "El precio", PLAN-2026-002): pregunta "¿Qué parte de lo que facturás se va en impuestos?", con **Un % total** (lo más simple) o **Detalle por impuesto** (Ingresos Brutos, débitos y créditos, sellos, otros cargos), excluyentes, y "No pago impuestos sobre lo que facturo". La ayuda dice qué incluir y qué no (IVA, Ganancias, retenciones, costo financiero) y cómo evitar el doble conteo. "Usar los de mi empresa" / "Guardar como valor de mi empresa" conectan con Configuración → Parámetros económicos. RATEOS no trae alícuotas.
+**Convención de montos: sin IVA.** Es una convención explícita de cada cotización (`vatTreatment`), no un supuesto silencioso: la primera etapa lo dice al empezar ("Esta cotización usa costos, precios y tarifas sin IVA: si tenés un valor con IVA, descontalo antes de cargarlo"), cada etapa muestra la marca **"Montos sin IVA"**, los formularios de equipos, materiales y el precio del combustible lo repiten donde suele llegar un precio con IVA, y el resultado y la impresión lo rotulan.
+
+**Impuestos sobre lo que facturás** (etapa "El precio", PLAN-2026-002): pregunta "¿Qué parte de lo que facturás se va en impuestos?", con **Un % total** (lo más simple) o **Detalle por impuesto** (Ingresos Brutos, débitos y créditos, sellos, otros cargos), excluyentes, y "No incluir impuestos sobre la facturación en esta cotización" (una elección de cálculo, no una afirmación fiscal sobre la empresa). La ayuda dice qué incluir y qué no (IVA, Ganancias, retenciones, costo financiero) y cómo evitar el doble conteo. "Usar los de mi empresa" / "Guardar como valor de mi empresa" conectan con Configuración → Parámetros económicos. RATEOS no trae alícuotas.
 
 ### Resultado
 
-Responde en el primer pantallazo, en este orden: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto gano?** (con la nota "Todos los montos son sin IVA…" y, si faltan, la alerta de impuestos sobre lo que facturás). Después: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), "¿En qué se va el costo?" (4 rubros + otros; 100 % del costo) y, colapsado, "Profundizá": estructura de costos completa, **apropiación por día y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
+La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
+
+Todo lo demás está en **"Profundizá"**, cerrado por defecto y dibujado al abrirlo: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), **"¿En qué se va el costo?"** (4 rubros + otros, y la estructura de costos completa; 100 % del costo), **reparto de la tarifa (apropiación) y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
 
 ## 5. Copy
 
@@ -103,7 +107,8 @@ Español rioplatense, claro y profesional. Preguntas en segunda persona ("¿Cuá
 | Contingencia | Imprevistos (contingencia) |
 | Activación | Llamado / viaje |
 | Sensibilidad | ¿Qué pasa si…? |
-| Markup | Markup (recargo sobre el costo) — **nunca** "margen" |
+| Markup | Markup (recargo sobre el costo) — **nunca** "margen". Con impuestos sobre la facturación el recargo cubre impuestos y ganancia; la parte que queda se llama "Ganancia sobre el costo" |
+| "No pago impuestos" (afirmación fiscal) | "No incluir impuestos sobre la facturación en esta cotización" (elección de cálculo) |
 
 Reglas que no cambian: margen ≠ markup ([AGENTS.md §9](../AGENTS.md)); valores demo marcados **ILUSTRATIVO**; nunca `NaN`/`Infinity` en pantalla; las tarifas mínimas se muestran redondeadas hacia arriba.
 

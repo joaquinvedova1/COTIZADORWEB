@@ -58,15 +58,17 @@ Tarifa neta             = (R* − otros ingresos) / unidades facturables
 Tarifa de lista         = neta / [(1 − tramo)(1 − continuidad)(1 − comercial)]
 Tarifa piso             = la misma cuenta con m = 0
 Resultado               = Facturación × (1 − t) − Costo
-Markup equivalente      = Resultado / Costo   (en el objetivo: m / (1 − m − t))
+Markup                  = Facturación / Costo − 1   (en el objetivo: (m + t) / (1 − m − t))
+Ganancia sobre el costo = Resultado / Costo         (en el objetivo: m / (1 − m − t))
 ```
 
 **Ejemplo sintético.** Costo 100, impuestos 10 %, margen 10 %:
 - facturación necesaria = **125** (no 121, ni 122,22, ni 123,46);
 - impuestos = 12,5 y resultado = 12,5 (10 % del precio);
+- markup = 25 % (el recargo sobre el costo cubre impuestos y ganancia) y ganancia sobre el costo = 12,5 %;
 - tarifa piso = 111,11.
 
-**Equivalencia con una cascada «beneficio sobre costo» (sin Ganancias ni estructura):** m = b(1 − t)/(1 + b). El costo financiero **no** va dentro de t: RATEOS ya lo calcula por capital de trabajo (plazos de cobro y de pago). Para compararse con un pliego que lo pone como % del precio, hay que comparar contra el costo de RATEOS que ya lo incluye, nunca sumar los dos.
+**Equivalencia con una cascada «beneficio sobre costo» (sin Ganancias ni estructura):** m = b(1 − t)/(1 + b); ese b es la «ganancia sobre el costo» de RATEOS, no su markup. El costo financiero **no** va dentro de t: RATEOS ya lo calcula por capital de trabajo (plazos de cobro y de pago). Para compararse con un pliego que lo pone como % del precio, hay que comparar contra el costo de RATEOS que ya lo incluye, nunca sumar los dos.
 
 **Sellos.** En el MVP se modela proporcional a la facturación, como el resto de t. Es exacto para la tarifa piso y la objetivo a la actividad estimada; en break-even, matriz y escenarios con otra actividad es una aproximación (el impuesto de sellos real se paga sobre el valor del contrato al firmarlo y no baja si la actividad cae). Está documentado en la traza.
 
@@ -76,7 +78,7 @@ Markup equivalente      = Resultado / Costo   (en el objetivo: m / (1 − m − 
 |---|---|---|
 | Impuestos sobre la facturación con gross-up | P0 | **Ahora**: alícuotas cargadas por el usuario, sin valores por defecto; modo "total" o "detalle", excluyentes |
 | Convención «todo sin IVA» y «margen antes de Ganancias» | P0 | **Ahora**: un enunciado por etapa y rótulos en tarifas y resultado |
-| Markup efectivo con impuestos y guardas (m + t < 100 %) | P1 | **Ahora**, junto con el P0 |
+| Markup y ganancia sobre el costo con impuestos, y guardas (m + t < 100 %) | P1 | **Ahora**, junto con el P0 |
 | ¿Cómo se forma tu precio? (100 % del precio), apropiación por unidad y total del contrato | P1 | **Ahora**: vista de sólo lectura |
 | Controles de cuadre e invariantes | P1 | **Ahora**: tests + «los números cierran» en Ver cálculo |
 | ¿Cuánto tiene que subir tu tarifa si suben tus costos? | P1 | Siguiente iteración |
