@@ -1083,6 +1083,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
           preview: async (draft) => {
             if (isExternalDraft(draft)) return externalPreview(draft);
             const c = await ctx.resources.equipmentCard(draft);
+            if (c.currency && !c.currency.converted) {
+              return h('p', { class: 'small' }, `El valor está en ${c.currency.code}: la ficha se calcula en cada cotización con su tipo de cambio (o cargá uno por defecto en Configuración → Parámetros económicos).`);
+            }
             return previewKpis(
               [
                 { label: 'Posesión por mes', value: formatMoney(c.ownership.totalMonthly), hint: 'COSTO DE POSESIÓN' },
@@ -1106,9 +1109,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
             const c = computeMaterialLine(draft);
             return previewKpis(
               [
-                { label: `Costo para nosotros (${BASIS_SUFFIX[c.basis] || '/mes'})`, value: formatMoney(c.costForUs), emphasis: true },
-                { label: 'Costo bruto', value: formatMoney(c.grossCost) },
-                { label: 'Precio de reventa (informativo)', value: formatMoney(c.resalePrice) },
+                { label: `Costo para nosotros (${BASIS_SUFFIX[c.basis] || '/mes'})`, value: formatMoneyIn(c.costForUs, draft.base && draft.base.currency), emphasis: true },
+                { label: 'Costo bruto', value: formatMoneyIn(c.grossCost, draft.base && draft.base.currency) },
+                { label: 'Precio de reventa (informativo)', value: formatMoneyIn(c.resalePrice, draft.base && draft.base.currency) },
               ],
               materialTrace(draft, c),
             );
@@ -1232,6 +1235,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   function equipmentTable(detailed) {
     const rows = list('equipment').map((eq) => ({ item: eq, c: data.equipmentCards.get(eq.id) || null, external: acquisitionOf(eq) !== 'owned' }));
+    // Valor en otra moneda sin tipo de cambio en Configuración: no se mezclan monedas.
+    const noRate = (c) => Boolean(c && c.currency && !c.currency.converted);
+    const noRateNote = (c) => h('span', { class: 'muted small' }, `Valor en ${c.currency.code}: se calcula en cada cotización con su tipo de cambio`);
     const actions = { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.name || 'equipo', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.name || 'equipo') }) };
     const nameCol = { key: 'name', label: 'Equipo', render: ({ item }) => h('div', { class: 'cell-stack' }, nameCell(item.name, equipmentSub(item), item.illustrative), baseTag(item.base, { prefix: acquisitionOf(item) === 'owned' ? 'Base del valor' : 'Base' })) };
     const acqCol = { key: 'acq', label: 'Obtención', render: ({ item }) => badge(labelOf(ACQUISITION_MODES, acquisitionOf(item), 'Propio'), acquisitionOf(item) === 'owned' ? 'navy' : 'blue') };
@@ -1246,8 +1252,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         columns: [
           nameCol,
           acqCol,
-          { key: 'perDay', label: 'Costo por día usado', align: 'right', render: ({ c, external, item }) => (external ? tariff(item) : money(c && c.rates.costPerUsedDay)) },
-          { key: 'perMonth', label: 'Costo por mes', align: 'right', render: ({ item, c, external }) => (external ? h('span', { class: 'muted small' }, 'Según uso en cada cotización') : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
+          { key: 'perDay', label: 'Costo por día usado', align: 'right', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.rates.costPerUsedDay)) },
+          { key: 'perMonth', label: 'Costo por mes', align: 'right', render: ({ item, c, external }) => (external ? h('span', { class: 'muted small' }, 'Según uso en cada cotización') : noRate(c) ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
           actions,
         ],
         rows,
@@ -1259,12 +1265,12 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       columns: [
         nameCol,
         acqCol,
-        { key: 'ownership', label: 'Posesión $/mes', align: 'right', className: 'col-ownership', render: ({ c, external, item }) => (external ? tariff(item) : money(c && c.ownership.totalMonthly)) },
+        { key: 'ownership', label: 'Posesión $/mes', align: 'right', className: 'col-ownership', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.ownership.totalMonthly)) },
         { key: 'operation', label: 'Operación $/h', align: 'right', className: 'col-operation', render: ({ c, external }) => (external ? EMPTY : rate(c && c.operation.totalPerHour)) },
         { key: 'util', label: 'Utilización', align: 'right', render: ({ c, external }) => (external ? EMPTY : percent(c && c.capacity.utilizationPct)) },
-        { key: 'perHour', label: '$/hora', align: 'right', render: ({ c, external }) => (external ? EMPTY : rate(c && c.rates.costPerUsedHour)) },
-        { key: 'perDay', label: '$/día', align: 'right', render: ({ c, external }) => (external ? EMPTY : money(c && c.rates.costPerUsedDay)) },
-        { key: 'perMonth', label: '$/mes', align: 'right', render: ({ item, c, external }) => (external ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
+        { key: 'perHour', label: '$/hora', align: 'right', render: ({ c, external }) => (external || noRate(c) ? EMPTY : rate(c && c.rates.costPerUsedHour)) },
+        { key: 'perDay', label: '$/día', align: 'right', render: ({ c, external }) => (external || noRate(c) ? EMPTY : money(c && c.rates.costPerUsedDay)) },
+        { key: 'perMonth', label: '$/mes', align: 'right', render: ({ item, c, external }) => (external || noRate(c) ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
         actions,
       ],
       rows,
@@ -1333,7 +1339,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   function materialsTable(detailed) {
     const rows = list('materials').map((m) => ({ item: m, c: computeMaterialLine(m) }));
-    const costCell = ({ item, c }) => withTrace(h('span', { class: 'nowrap' }, h('strong', {}, formatMoney(c.costForUs)), h('span', { class: 'unit-suffix' }, ` ${BASIS_SUFFIX[c.basis] || ''}`)), materialTrace(item, c));
+    const costCell = ({ item, c }) => withTrace(h('span', { class: 'nowrap' }, h('strong', {}, formatMoneyIn(c.costForUs, item.base && item.base.currency)), h('span', { class: 'unit-suffix' }, ` ${BASIS_SUFFIX[c.basis] || ''}`)), materialTrace(item, c));
     const actions = { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.description || 'material', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.description || 'material') }) };
     if (!detailed) {
       return table({

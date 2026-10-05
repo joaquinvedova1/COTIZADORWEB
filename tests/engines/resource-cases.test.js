@@ -601,3 +601,28 @@ describe('Revisión adversarial (§36): correcciones', () => {
     assert.ok(computeQuote(q, { settings }).issues.some((i) => /tipo de cambio USD/.test(i.message)));
   });
 });
+
+describe('Revisión adversarial (§36): avisos de Recursos y fecha de la oferta', () => {
+  test('si en Recursos sólo se re-fecha el mismo valor, la cotización no se marca desactualizada', () => {
+    const profile = operatorProfile();
+    const line = laborLineFromProfile(profile, null, { id: 'l', now: OCT });
+    const refechado = { laborProfiles: [{ ...profile, base: { period: '2027-01', currency: 'ARS', source: 'company', note: '' } }] };
+    assert.equal(lineSyncStatus('labor', line, refechado).state, 'current');
+    // Si cambia un valor, se avisa y se dice qué cambió.
+    const otroArt = { laborProfiles: [{ ...profile, artPct: 7 }] };
+    const st = lineSyncStatus('labor', line, otroArt);
+    assert.equal(st.state, 'changed');
+    assert.deepEqual(st.changes, ['artPct']);
+  });
+
+  test('sin fecha de la oferta no se usa la de creación: se avisa', () => {
+    const q = baseQuote();
+    q.materialsNotApplicable = false;
+    q.materials.push(materialLineFromLibrary({ id: 'm', description: 'Filtros', unitCost: 1000, providedBy: 'contractor', base: { period: '2025-01', currency: 'ARS', source: null, note: '' } }, { id: 'ml', now: OCT }));
+    q.offerDate = null;
+    const base = summarizeEconomicBase(q);
+    assert.equal(base.offerPeriod, null);
+    assert.ok(base.warnings.some((w) => w.id === 'no_offer_date'));
+    assert.match(evaluateCompleteness(q).items.find((i) => i.id === 'base_age').message, /Sin fecha de la oferta/);
+  });
+});

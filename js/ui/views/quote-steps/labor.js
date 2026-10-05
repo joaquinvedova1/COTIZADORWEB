@@ -90,7 +90,7 @@ export function render(container, ctx) {
     const line = laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
     const index = lines.length;
     ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.positions` });
-    ctx.toast(`Se agregó "${line.role}" desde tus recursos con sus valores de hoy. Si después cambian en Recursos, esta cotización no cambia sola.`, 'success');
+    ctx.toast(`Se agregó "${line.role}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
   };
   const addBlank = () => {
     const line = laborLineFromProfile({}, null, { currency: quoteCurrencyOf(quote) });

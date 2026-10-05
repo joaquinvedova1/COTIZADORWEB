@@ -87,10 +87,19 @@ export class LocalStorageRepository extends StorageRepository {
     }
 
     if (raw === null) {
-      this.state = this.seedFactory();
-      this.persist(this.state);
-      status = 'seeded';
-      messages.push('Se cargaron datos de demostración ILUSTRATIVOS.');
+      const seed = this.seedFactory();
+      if (this.confirmSchemaUpgrade && !(await this.askSchemaUpgrade(null))) {
+        // Espacio nuevo en una versión de prueba: no se guarda nada si no se acepta.
+        this.state = seed;
+        this.readOnly = true;
+        status = 'read_only';
+        messages.push('Versión de prueba: no se guardó nada. Se abre en sólo lectura.');
+      } else {
+        this.state = seed;
+        this.persist(this.state);
+        status = 'seeded';
+        messages.push('Se cargaron datos de demostración ILUSTRATIVOS.');
+      }
     } else {
       let parsed;
       try {

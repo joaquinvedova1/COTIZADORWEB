@@ -36,7 +36,8 @@ line.snapshot = { resourceType, resourceId, resourceName, takenAt, legacy, value
 
 - `values`: los campos económicos del recurso (ver `SNAPSHOT_FIELDS` en `js/domain/resource-snapshot.js`) + su base, obtención, condiciones externas y consumo/desgaste en ruta.
 - Estado de una línea (`lineSyncStatus`): `unlinked` (cargada a mano), `missing` (el recurso ya no existe: la cotización conserva sus valores), `current`, `changed`, `dismissed`; y `adjusted` si la línea tiene valores distintos de los que copió.
-- Si el maestro cambió: "El costo de X fue actualizado desde que hiciste esta cotización." con **valor utilizado** y **valor actual en Recursos** (con su base) y dos botones:
+- Sólo cuentan los valores económicos: si en Recursos se re-fecha el mismo valor (cambia sólo la base), la cotización no se marca desactualizada ni se re-fecha.
+- Si el maestro cambió: "El costo de X fue actualizado desde que hiciste esta cotización." con **valor utilizado** y **valor actual en Recursos** (con su base), qué cambió ("Cambió: sueldo básico, ART.") y dos botones:
   - **Actualizar en esta cotización**: la línea toma los valores actuales y un snapshot nuevo; conserva lo operativo (id, cantidad, horas, posiciones, operador asignado, cómo llega al servicio).
   - **Conservar valor original**: se recuerda la versión del recurso descartada (`dismissed` = huella); si el maestro vuelve a cambiar, se avisa de nuevo.
 - Si la línea tiene ajustes propios (por ejemplo, se cambió a alquilado en la cotización), el aviso lo dice: al actualizar se reemplazan por los de Recursos.
@@ -105,4 +106,5 @@ RATEOS **no trae alícuotas** y **no suma impuestos indiscriminadamente**:
 - Equipos de Recursos: familia desde el tipo anterior, obtención "propio", movilidad sin definir.
 - Líneas de cotizaciones: snapshot `legacy` con los valores que ya usaban, movilización sin definir, sin operador asignado. **Ningún número cambia** (los viajes existentes siguen en la logística auxiliar).
 - Cotizaciones: moneda de la empresa, fecha de la oferta = fecha de creación, sin tipos de cambio.
-- Copia de recuperación previa. En staging (`/preview/`) se pide confirmación antes de actualizar el formato de los datos de la cuenta; si no, se abren en sólo lectura sin escribir nada.
+- Una cotización v0 sin fecha de creación queda **sin fecha de oferta** (la fecha que completa la migración no se toma como dato). Sin fecha de oferta, el resumen y la completitud lo avisan (nunca se usa "hoy" ni la fecha de creación).
+- Copia de recuperación previa. En staging (`/preview/`) y en el servidor local se pide confirmación antes de actualizar el formato de los datos de la cuenta (y antes de crear el espacio de una cuenta nueva); si no, se abren en sólo lectura sin escribir nada.

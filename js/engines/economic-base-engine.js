@@ -92,7 +92,9 @@ export function economicBaseEntries(quote = {}) {
  * @returns {{ offerPeriod, categories, entries, defined, undefinedCount, oldest, newest, spreadMonths, mixed, stale, warnings }}
  */
 export function summarizeEconomicBase(quote = {}) {
-  const offerPeriod = periodFromDate(quote.offerDate) || periodFromDate(quote.createdAt) || null;
+  // Sólo la fecha de la OFERTA (nunca la de creación ni "hoy"): sin fecha, no
+  // se puede decir si una base es vieja y se avisa.
+  const offerPeriod = periodFromDate(quote.offerDate) || null;
   const entries = economicBaseEntries(quote).map((e) => ({
     ...e,
     monthsBeforeOffer: e.period && offerPeriod ? monthsBetween(e.period, offerPeriod) : null,
@@ -121,6 +123,7 @@ export function summarizeEconomicBase(quote = {}) {
   const warnings = [];
   if (mixed) warnings.push({ id: 'mixed', message: `Esta cotización usa valores con diferentes fechas base (de ${formatPeriod(oldest)} a ${formatPeriod(newest)}).` });
   if (stale.length) warnings.push({ id: 'stale', message: `${stale.length === 1 ? 'Un valor tiene' : `${stale.length} valores tienen`} una base de más de ${BASE_STALE_MONTHS} meses antes de la oferta: ${stale.slice(0, 3).map((e) => `${e.label} (${formatPeriod(e.period)})`).join(', ')}${stale.length > 3 ? '…' : ''}.` });
+  if (!offerPeriod && entries.length) warnings.push({ id: 'no_offer_date', message: 'Sin fecha de la oferta: cargala en "Tipo de servicio" para comparar las fechas base de los valores.' });
   if (undefinedEntries.length) warnings.push({ id: 'undefined', message: `${undefinedEntries.length === 1 ? 'Un valor no tiene' : `${undefinedEntries.length} valores no tienen`} fecha base: ${undefinedEntries.slice(0, 3).map((e) => e.label).join(', ')}${undefinedEntries.length > 3 ? '…' : ''}.` });
 
   return {

@@ -53,6 +53,28 @@ export function baseFormFields(key, { currency = false, periodLabel = 'Período 
   ].filter(Boolean);
 }
 
+/** Nombre visible de lo que cambió en Recursos (claves de changedKeys). */
+const CHANGE_LABELS = Object.freeze({
+  basicMonthly: 'sueldo básico', additionalsMonthly: 'adicionales', normalHoursPerMonth: 'horas normales', overtimePremiumPct: 'recargo de horas extra',
+  mealPerActiveDay: 'vianda', sacPct: 'SAC', vacationPct: 'vacaciones', employerContributionsPct: 'cargas sociales', artPct: 'ART',
+  insuranceMonthly: 'seguros', ppeMonthly: 'EPP', trainingMonthly: 'capacitación', transferMonthly: 'traslado',
+  replacementValue: 'valor de reposición', usefulLifeYears: 'vida útil', residualValue: 'valor residual', insuranceAnnual: 'seguro',
+  licenseAnnual: 'patente', certificationsAnnual: 'certificaciones', otherAnnual: 'otros costos de tenerlo', capitalRatePctAnnual: 'costo de capital',
+  maintenancePerHour: 'mantenimiento', tiresPerHour: 'neumáticos', fuelLitersPerHour: 'consumo', unitCost: 'costo unitario', wastePct: 'merma',
+  logisticsPct: 'logística', acquisition: 'cómo se obtiene', external: 'condiciones del proveedor', 'external.price': 'tarifa',
+  'external.unit': 'unidad de la tarifa', 'external.minimumUnits': 'mínimo', 'external.supplier': 'proveedor', 'external.validUntil': 'vigencia',
+  'external.fiscal': 'tratamiento fiscal', 'external.operatorIncluded': 'operador incluido', 'external.fuelIncluded': 'combustible incluido',
+  'external.fuelLitersPerHour': 'consumo', 'external.mobilizationIncluded': 'movilización incluida', 'external.mobilizationAmount': 'movilización',
+  'external.insuranceIncluded': 'seguro incluido', 'travel.litersPer100Km': 'consumo en ruta', 'travel.costPerKm': 'desgaste por km',
+});
+
+/** "Cambió: sueldo básico, ART." (o null). */
+function changesText(changes) {
+  const list = (Array.isArray(changes) ? changes : []).map((k) => CHANGE_LABELS[k] || CHANGE_LABELS[k.split('.')[0]] || null).filter(Boolean);
+  const unique = [...new Set(list)];
+  return unique.length ? `Cambió: ${unique.slice(0, 6).join(', ')}${unique.length > 6 ? '…' : ''}.` : null;
+}
+
 /** Valor principal formateado ("$ 3.200.000" o "US$ 420.000"). */
 function mainValueText(type, values) {
   const v = mainValueOf(type, values);
@@ -81,6 +103,7 @@ export function syncNotice(status, { name, onUpdate, onKeep, readOnly = false })
       h('div', {}, h('dt', {}, 'Valor utilizado'), h('dd', { class: 'mono' }, mainValueText(status.type, status.used)), h('dd', {}, baseText(status.used && status.used.base))),
       h('div', {}, h('dt', {}, 'Valor actual en Recursos'), h('dd', { class: 'mono' }, mainValueText(status.type, status.current)), h('dd', {}, baseText(status.current && status.current.base))),
     ),
+    changesText(status.changes) ? h('p', { class: 'sync-notice-hint' }, changesText(status.changes)) : null,
     h('p', { class: 'sync-notice-hint' }, 'La cotización no cambia sola. Elegí qué hacer con este recurso:'),
     status.adjusted
       ? h('p', { class: 'sync-notice-hint' }, 'Esta línea tiene ajustes propios de esta cotización (por ejemplo, cómo se obtiene o un valor cambiado a mano): al actualizar se reemplazan por los de Recursos. Se conservan la cantidad, las horas, el operador y cómo llega al servicio.')

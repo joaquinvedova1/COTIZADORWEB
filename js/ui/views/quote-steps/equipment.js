@@ -61,9 +61,14 @@ export function equipmentCardAtQuote(result, index, source) {
   if (!line) return null;
   const activity = result.activity;
   const hours = line.hoursPerActiveDay;
+  // Mismo tipo de cambio que el costo de la cotización (un valor en USD no se mezcla con pesos).
+  const f = Number.isFinite(line.conversion) ? line.conversion : 1;
+  const src = source || {};
   return computeEquipmentUnit(
     {
-      ...source,
+      ...src,
+      replacementValue: (Number(src.replacementValue) || 0) * f,
+      residualValue: (Number(src.residualValue) || 0) * f,
       availableHoursPerMonth: activity.availableDaysPerMonth * hours,
       availableDaysPerMonth: activity.availableDaysPerMonth,
       utilizationPct: activity.utilizationPct,
@@ -115,7 +120,7 @@ function equipmentTrace(result, index, source) {
   });
 }
 
-function externalTrace(result, index) {
+function externalTrace(result, index, source) {
   const line = result && result.model.equipment[index];
   const x = line && line.external;
   if (!x) return null;
@@ -125,8 +130,11 @@ function externalTrace(result, index) {
     title: `${x.acquisition === 'rented' ? 'Alquiler' : 'Servicio tercerizado'} — ${x.name || 'Externo'}`,
     formula: 'Facturado por llamado = máx(unidades por llamado, mínimo) × tarifa neta × cantidad · Costo económico = neto × (1 + cargos no recuperables % + IVA % × (1 − parte recuperable)) · Por día activo = por llamado / días por llamado',
     inputs: [
-      { label: `Tarifa neta (sin IVA) ${unitShort(x.unit)}`, value: x.priceOriginal, format: 'money' },
+      x.conversion !== 1
+        ? { label: `Tarifa neta (sin IVA) ${unitShort(x.unit)} en ${(source && source.base && source.base.currency) || 'otra moneda'}`, value: x.priceOriginal, format: 'number' }
+        : { label: `Tarifa neta (sin IVA) ${unitShort(x.unit)}`, value: x.priceOriginal, format: 'money' },
       x.conversion !== 1 ? { label: 'Tipo de cambio de la cotización', value: x.conversion, format: 'number' } : null,
+      x.conversion !== 1 ? { label: 'Tarifa neta convertida', value: x.price, format: 'money' } : null,
       { label: 'Unidades por llamado', value: x.unitsPerActivation, format: 'number' },
       { label: 'Mínimo facturable', value: x.minimum, format: 'number' },
       { label: 'Cantidad', value: x.quantity, format: 'number' },
@@ -177,7 +185,7 @@ export function render(container, ctx) {
     const line = eq ? equipmentLineFromLibrary(eq, opts) : externalLineFromService(service, opts);
     const index = lines.length;
     ctx.mutate((q) => q.equipment.push(line), { focus: `equipment.${index}.quantity` });
-    ctx.toast(`Se agregó "${line.name}" desde tus recursos con sus valores de hoy. Si después cambian en Recursos, esta cotización no cambia sola.`, 'success');
+    ctx.toast(`Se agregó "${line.name}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
   };
   const addBlank = (acquisition = 'owned') => {
     const line = blankEquipmentLine({ acquisition, hoursPerActiveDay: null, currency });
@@ -228,8 +236,8 @@ export function render(container, ctx) {
   };
 
   const pickerOptions = [
-    ...library.map((e) => ({ value: `eq:${e.id}`, label: `${e.internalCode ? `${e.internalCode} · ` : ''}${e.name} (${labelOf(ACQUISITION_MODES, acquisitionOf(e), 'Propio').toLowerCase()})` })),
-    ...services.map((e) => ({ value: `ext:${e.id}`, label: `Externo · ${e.name}${e.external && e.external.supplier ? ` — ${e.external.supplier}` : ''}` })),
+    ...library.map((e) => ({ value: `eq:${e.id}`, label: `${e.internalCode ? `${e.internalCode} · ` : ''}${e.name || 'Equipo sin nombre'} (${labelOf(ACQUISITION_MODES, acquisitionOf(e), 'Propio').toLowerCase()})` })),
+    ...services.map((e) => ({ value: `ext:${e.id}`, label: `Externo · ${e.name || 'Servicio sin nombre'}${e.external && e.external.supplier ? ` — ${e.external.supplier}` : ''}` })),
   ];
 
   const toolbar = h(
@@ -411,7 +419,7 @@ export function render(container, ctx) {
           'Costo de tenerlo (existe aunque no trabaje)',
           formGrid(
             3,
-            kit.num(`${p}.residualValue`, { label: 'Valor residual', rule: 'money', unit: '$', illustrative, hint: 'Lo que vale al final de su vida útil.' }),
+            kit.num(`${p}.residualValue`, { label: 'Valor residual', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que vale al final de su vida útil (en la misma moneda que el valor de reposición).' }),
             kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
             kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
             kit.num(`${p}.otherAnnual`, { label: 'Otros costos anuales de tenerlo', rule: 'money', unit: '$/año', hint: 'Habilitaciones, GPS, cocheras… lo que pagás aunque no trabaje.' }),
@@ -455,6 +463,7 @@ export function render(container, ctx) {
                   ['Seguro', formatMoney(o.insuranceMonthly)],
                   ['Patente', formatMoney(o.licenseMonthly)],
                   ['Certificaciones', formatMoney(o.certificationsMonthly)],
+                  ['Otros', formatMoney(o.otherMonthly)],
                   ['Costo de capital', formatMoney(o.capitalCostMonthly)],
                 ],
                 { totalLabel: 'Tenerlo por mes', total: formatMoney(o.totalMonthly) },
@@ -596,7 +605,7 @@ export function render(container, ctx) {
           const billed = x.netPerActivation > 0 ? `Facturado por llamado: ${formatNumber(x.billedUnitsPerActivation, { decimals: 2 })} × ${formatMoney(x.price)} × ${formatNumber(x.quantity, { decimals: 2 })} = ${formatMoney(x.netPerActivation)} neto. ` : '';
           return `${fixed}${billed}Salida de caja con impuestos: ${formatMoney(x.cashPerActiveDay)} por día activo; el crédito fiscal (${formatMoney(x.creditPerActiveDay)}) no es costo.`;
         },
-        trace: (r) => externalTrace(r, i),
+        trace: (r) => externalTrace(r, i, quote.equipment[i]),
       }),
       mobilityNote(i),
       kit.advanced(

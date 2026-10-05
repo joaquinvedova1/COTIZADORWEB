@@ -69,7 +69,7 @@ export function render(container, ctx) {
     const line = materialLineFromLibrary(mat, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.quantity` });
-    ctx.toast(`Se agregó "${line.description}" desde tus recursos con sus valores de hoy. Si después cambian en Recursos, esta cotización no cambia sola.`, 'success');
+    ctx.toast(`Se agregó "${line.description}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
   };
   const addBlank = () => {
     const line = materialLineFromLibrary({}, { currency: quoteCurrencyOf(quote) });

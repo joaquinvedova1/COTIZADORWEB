@@ -105,4 +105,20 @@ describe('importar a la cuenta', () => {
     assert.equal(storage.getItem('rateos.state'), original);
     assert.equal(ctx.localImport.inspect().available, false);
   });
+
+  test('importar no borra los tipos de cambio ni la fecha base del combustible que ya tiene la cuenta (PLAN-2026-005)', async () => {
+    const local = demoWithOwnData();
+    local.settings = { ...local.settings, illustrative: false, exchangeRates: [{ currency: 'EUR', rate: 1300, base: { period: '2026-08', currency: 'ARS', source: null, note: '' } }], fuelPriceBase: { period: null, currency: 'ARS', source: null, note: '' } };
+    const storage = new SpyStorage({ 'rateos.state': JSON.stringify(local) });
+    const { ctx } = await account(storage);
+    await ctx.settings.save({
+      exchangeRates: [{ currency: 'USD', rate: 1200, base: { period: '2026-09', currency: 'ARS', source: null, note: '' } }],
+      fuelPriceBase: { period: '2026-09', currency: 'ARS', source: 'supplier', note: '' },
+    });
+    const res = await ctx.localImport.importToAccount();
+    assert.equal(res.ok, true);
+    const settings = await ctx.settings.get();
+    assert.deepEqual(settings.exchangeRates.map((r) => [r.currency, r.rate]), [['USD', 1200], ['EUR', 1300]], 'se suman por moneda; la cuenta manda');
+    assert.equal(settings.fuelPriceBase.period, '2026-09', 'una base vacía no pisa la de la cuenta');
+  });
 });

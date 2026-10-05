@@ -503,7 +503,15 @@ export class SupabaseRepository extends LocalStorageRepository {
       }
       // Configuración propia (no la de demostración): se adopta.
       if (isPlainObject(data.settings) && data.settings.illustrative !== true) {
+        const before = draft.settings;
         draft.settings = { ...draft.settings, ...deepClone(data.settings), organizationId: orgId };
+        // Lo que la cuenta ya definió no se pisa con un valor vacío: tipos de
+        // cambio (se suman por moneda, gana el de la cuenta) y fecha base del combustible.
+        const accountRates = Array.isArray(before.exchangeRates) ? before.exchangeRates.filter((r) => isPlainObject(r) && r.currency) : [];
+        const importedRates = Array.isArray(data.settings.exchangeRates) ? data.settings.exchangeRates.filter((r) => isPlainObject(r) && r.currency) : [];
+        draft.settings.exchangeRates = deepClone([...accountRates, ...importedRates.filter((r) => !accountRates.some((a) => a.currency === r.currency))]);
+        const definedBase = (b) => isPlainObject(b) && typeof b.period === 'string' && b.period !== '';
+        if (definedBase(before.fuelPriceBase) && !definedBase(data.settings.fuelPriceBase)) draft.settings.fuelPriceBase = deepClone(before.fuelPriceBase);
       }
       // Códigos COT-NNNN: nunca se repiten ni retroceden. Una cotización
       // importada cuyo código ya existe en la cuenta recibe uno nuevo.

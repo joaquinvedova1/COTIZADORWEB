@@ -134,7 +134,7 @@ export function migrateV1ToV2(state) {
  *   traslados siguen en los vehículos de viaje, como antes: sin doble conteo);
  * - colecciones nuevas vacías: modelos de equipos y servicios externos.
  */
-export function migrateV2ToV3(state) {
+export function migrateV2ToV3(state, { now = null } = {}) {
   const src = isPlainObject(state) ? deepClone(state) : {};
   const settings = isPlainObject(src.settings) ? { ...src.settings } : {};
   const currency = isKnownCurrency(settings.currency) ? settings.currency : CURRENCY;
@@ -198,7 +198,10 @@ export function migrateV2ToV3(state) {
     const out = migrateLines(q);
     out.currency = isKnownCurrency(q.currency) ? q.currency : currency;
     // Fecha de la oferta = su fecha de creación (un hecho, no una suposición).
-    out.offerDate = dayFromDate(q.offerDate) || dayFromDate(q.createdAt) || null;
+    // Si la creación la completó esta misma migración (datos v0 sin fecha), no
+    // se sabe: queda sin fecha de oferta (nunca "hoy").
+    const createdInvented = typeof now === 'string' && q.createdAt === now;
+    out.offerDate = dayFromDate(q.offerDate) || (createdInvented ? null : dayFromDate(q.createdAt)) || null;
     out.exchangeRates = normalizeExchangeRates(q.exchangeRates, { currency: out.currency });
     return out;
   });
@@ -260,10 +263,13 @@ export function migrateState(state, { targetVersion = CURRENT_SCHEMA_VERSION, ..
   }
   let current = deepClone(state);
   const applied = [];
+  // Un único "ahora" para toda la cadena: así una migración posterior sabe qué
+  // fechas completó una anterior (y no las toma como datos reales).
+  const stepOptions = { ...options, now: typeof options.now === 'string' ? options.now : new Date().toISOString() };
   for (let v = fromVersion; v < targetVersion; v += 1) {
     const step = MIGRATIONS[v];
     if (typeof step !== 'function') throw new MigrationError(`Falta la migración ${v} → ${v + 1}.`, 'missing_migration');
-    current = step(current, options);
+    current = step(current, stepOptions);
     current.schemaVersion = v + 1;
     applied.push(`${v}→${v + 1}`);
   }

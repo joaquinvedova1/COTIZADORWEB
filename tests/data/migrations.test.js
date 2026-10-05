@@ -478,3 +478,18 @@ describe('migrateState v2 → v3 (base económica, snapshots, movilización — 
     }
   });
 });
+
+describe('v2 → v3: la fecha de la oferta nunca se inventa', () => {
+  test('una cotización v0 sin fecha de creación queda SIN fecha de oferta (no "hoy")', () => {
+    const v0 = { quotes: [{ id: 'q', name: 'Vieja sin fecha' }], resources: {}, settings: {} };
+    const { state } = migrateState(v0, { now: NOW, idFactory: sequentialIds() });
+    assert.equal(state.quotes[0].createdAt, NOW, 'la v0 → v1 completa createdAt (metadato)');
+    assert.equal(state.quotes[0].offerDate, null, 'pero no se toma como fecha de la oferta');
+  });
+
+  test('con fecha de creación real, la oferta toma ese día', () => {
+    const v0 = { quotes: [{ id: 'q', name: 'Con fecha', createdAt: '2025-03-10T09:00:00.000Z' }], resources: {}, settings: {} };
+    const { state } = migrateState(v0, { now: NOW, idFactory: sequentialIds() });
+    assert.equal(state.quotes[0].offerDate, '2025-03-10');
+  });
+});

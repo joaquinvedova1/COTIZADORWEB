@@ -185,3 +185,28 @@ describe('ResourceService.laborProfileCost', () => {
     }
   });
 });
+
+describe('ResourceService — ficha de un equipo con valor en otra moneda (PLAN-2026-005)', () => {
+  const usdEquipment = { id: 'x', name: 'Vactor USD', replacementValue: 100000, residualValue: 0, usefulLifeYears: 10, insuranceAnnual: 1200000, availableHoursPerMonth: 300, availableDaysPerMonth: 30, utilizationPct: 50, base: { period: '2026-07', currency: 'USD', source: null, note: '' } };
+
+  test('sin tipo de cambio por defecto: no mezcla dólares con pesos (la ficha no suma el valor y lo informa)', async () => {
+    const { service } = await setup();
+    const c = await service.equipmentCard(usdEquipment);
+    assert.deepEqual(c.currency, { code: 'USD', rate: null, converted: false });
+    assert.equal(c.ownership.depreciationMonthly, 0);
+  });
+
+  test('con tipo de cambio por defecto en Configuración: convierte antes de calcular', async () => {
+    const { service, repository } = await setup();
+    await repository.saveSettings({ exchangeRates: [{ currency: 'USD', rate: 1000, base: { period: '2026-10', currency: 'ARS', source: null, note: '' } }] });
+    const c = await service.equipmentCard(usdEquipment);
+    assert.equal(c.currency.converted, true);
+    assert.ok(Math.abs(c.ownership.depreciationMonthly - (100000 * 1000) / 120) < 1e-6);
+  });
+
+  test('en pesos: sin conversión (currency null)', async () => {
+    const { service } = await setup();
+    const c = await service.equipmentCard({ ...usdEquipment, base: { period: null, currency: 'ARS', source: null, note: '' } });
+    assert.equal(c.currency, null);
+  });
+});

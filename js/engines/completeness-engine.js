@@ -268,7 +268,9 @@ export function evaluateCompleteness(quote = {}) {
       baseInfo.undefinedCount === 0
         ? 'Todos los valores tienen fecha base.'
         : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha base (${baseInfo.undefinedEntries.slice(0, 3).map((e) => e.label).join(', ')}${baseInfo.undefinedCount > 3 ? '…' : ''}): no se sabe de cuándo son.`));
-    if (baseInfo.defined > 0) {
+    if (baseInfo.defined > 0 && !baseInfo.offerPeriod) {
+      items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', 'Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "Tipo de servicio".'));
+    } else if (baseInfo.defined > 0) {
       const old = baseInfo.stale.length > 0;
       items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, old || baseInfo.mixed ? 'warning' : 'ok',
         old

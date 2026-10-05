@@ -89,12 +89,35 @@ function recoveryKeyLabel(key) {
  * actualizar el formato se pregunta; si no se acepta, se abren en sólo lectura.
  */
 function confirmStagingUpgrade(fromVersion, toVersion) {
+  if (fromVersion === null || fromVersion === undefined) {
+    return confirmDialog({
+      title: 'Versión de prueba: ¿usar esta cuenta acá?',
+      message: `Esta es la versión de prueba (staging) y tu cuenta todavía no tiene datos. Si empezás a usarla acá, tus datos se guardan en el formato ${toVersion} y la versión publicada los va a abrir en sólo lectura hasta que esta versión se publique. Conviene probar con una cuenta de prueba.`,
+      confirmLabel: 'Usar esta cuenta acá',
+      cancelLabel: 'Sólo mirar (sin guardar)',
+    });
+  }
   return confirmDialog({
     title: 'Versión de prueba: ¿actualizar el formato de tus datos?',
     message: `Esta es la versión de prueba (staging). Tus datos en la nube están en el formato ${fromVersion}, el que usa la versión publicada. Si los actualizás al formato ${toVersion}, la versión publicada los va a abrir en sólo lectura hasta que esta versión se publique. Antes de actualizar se guarda una copia en este navegador.`,
     confirmLabel: 'Actualizar mis datos',
     cancelLabel: 'Ver sin cambiar (sólo lectura)',
   });
+}
+
+/**
+ * ¿Es una versión de prueba que comparte la base de producción? Staging
+ * (/preview/, o version.json con channel "staging") y el servidor local
+ * (npm start) preguntan antes de cambiar el formato de los datos de la nube.
+ */
+function isTrialBuild(version) {
+  if (version && version.channel === 'staging') return true;
+  try {
+    const { pathname, hostname } = window.location;
+    return /\/preview(\/|$)/.test(pathname) || hostname === 'localhost' || hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
 }
 
 function renderStartupError(root, error, version) {
@@ -469,7 +492,7 @@ async function boot(root) {
         // En staging (/preview/) los datos de la nube son los de producción:
         // actualizar su formato haría que la versión publicada los abra en
         // sólo lectura. Se pregunta antes; si no, se ven sin cambiarlos.
-        confirmSchemaUpgrade: version.channel === 'staging' ? confirmStagingUpgrade : null,
+        confirmSchemaUpgrade: isTrialBuild(version) ? confirmStagingUpgrade : null,
       });
       // Mientras se abría, la sesión se cerró o cambió de persona (otra pestaña): se descarta.
       if (auth.status !== 'authenticated' || !auth.user || auth.user.id !== user.id) {

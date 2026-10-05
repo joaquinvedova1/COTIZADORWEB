@@ -1075,3 +1075,23 @@ describe('LocalStorageRepository — confirmar antes de actualizar el formato (s
     assert.ok(init.messages.every((m) => !m.includes(key)));
   });
 });
+
+describe('LocalStorageRepository — espacio nuevo en una versión de prueba (PLAN-2026-005)', () => {
+  test('si no se acepta usar la cuenta en la versión de prueba, no se guarda nada', async () => {
+    const storage = new MemoryStorage();
+    const asked = [];
+    const repo = new LocalStorageRepository(storage, { confirmSchemaUpgrade: async (from, to) => { asked.push([from, to]); return false; } });
+    const init = await repo.init();
+    assert.deepEqual(asked, [[null, CURRENT_SCHEMA_VERSION]]);
+    assert.equal(init.status, 'read_only');
+    assert.equal(repo.readOnly, true);
+    assert.equal(storage.getItem(STORAGE_KEYS.state), null, 'nada escrito');
+  });
+
+  test('si se acepta, se crea como siempre', async () => {
+    const storage = new MemoryStorage();
+    const repo = new LocalStorageRepository(storage, { confirmSchemaUpgrade: async () => true });
+    assert.equal((await repo.init()).status, 'seeded');
+    assert.ok(storage.getItem(STORAGE_KEYS.state));
+  });
+});

@@ -118,6 +118,46 @@ export function fingerprintOf(values) {
   return JSON.stringify(canonical(values));
 }
 
+/** Claves de BASE (fecha, moneda, fuente) dentro de unos valores de snapshot. */
+const BASE_KEYS = Object.freeze(['base', 'costsBase']);
+
+/** Valores sin las bases (sólo los números y condiciones que usa el motor). */
+function withoutBases(values) {
+  if (!isPlainObject(values)) return values;
+  return Object.fromEntries(Object.entries(values).filter(([k]) => !BASE_KEYS.includes(k)));
+}
+
+/**
+ * Huella de los valores ECONÓMICOS (sin las bases). Si en Recursos sólo cambió
+ * la fecha base de un valor (el mismo número re-fechado), la cotización no se
+ * marca como desactualizada: su línea sigue mostrando la base con la que se hizo.
+ */
+export function economicFingerprint(values) {
+  return fingerprintOf(withoutBases(values));
+}
+
+/**
+ * Qué cambió entre dos valores de snapshot (sin las bases): claves de primer
+ * nivel y, para condiciones externas y movilización, sus subclaves
+ * ("external.price", "travel.costPerKm"). Ordenado y sin repetidos.
+ */
+export function changedKeys(before, after) {
+  const a = isPlainObject(before) ? withoutBases(before) : {};
+  const b = isPlainObject(after) ? withoutBases(after) : {};
+  const out = [];
+  [...new Set([...Object.keys(a), ...Object.keys(b)])].sort().forEach((k) => {
+    if (fingerprintOf(a[k]) === fingerprintOf(b[k])) return;
+    if (isPlainObject(a[k]) && isPlainObject(b[k])) {
+      [...new Set([...Object.keys(a[k]), ...Object.keys(b[k])])].sort().forEach((sub) => {
+        if (fingerprintOf(a[k][sub]) !== fingerprintOf(b[k][sub])) out.push(`${k}.${sub}`);
+      });
+    } else {
+      out.push(k);
+    }
+  });
+  return out;
+}
+
 /**
  * Snapshot de un recurso recién copiado a una línea: los valores de la línea
  * son exactamente los que tenía el recurso en ese momento.

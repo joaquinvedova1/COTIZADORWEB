@@ -19,7 +19,7 @@
 import { isPlainObject, deepClone } from '../core/object.js';
 import { createId } from '../core/ids.js';
 import { laborLineFromProfile, equipmentLineFromLibrary, externalLineFromService, materialLineFromLibrary } from './quote-factory.js';
-import { snapshotValuesFromLine, fingerprintOf, MAIN_VALUE_FIELD } from './resource-snapshot.js';
+import { snapshotValuesFromLine, economicFingerprint, changedKeys, MAIN_VALUE_FIELD } from './resource-snapshot.js';
 
 /** Lista de la cotización y tipo de recurso de cada línea. */
 const LIST_TYPES = Object.freeze({ labor: 'laborProfiles', equipment: 'equipment', materials: 'materials' });
@@ -71,18 +71,21 @@ export function lineSyncStatus(listKey, line = {}, resources = {}, { currency } 
   const resourceId = resourceIdOf(line);
   const snap = isPlainObject(line.snapshot) ? line.snapshot : null;
   const used = snapshotValuesFromLine(type, line);
-  if (!resourceId) return { state: 'unlinked', type, resourceId: null, adjusted: false, legacy: false, used, original: null, current: null, resource: null };
+  if (!resourceId) return { state: 'unlinked', type, resourceId: null, adjusted: false, legacy: false, used, original: null, current: null, resource: null, changes: [] };
   const list = Array.isArray(resources[type]) ? resources[type] : [];
   const resource = list.find((r) => r && r.id === resourceId) || null;
   const original = snap && isPlainObject(snap.values) ? snap.values : used;
   const legacy = !snap || snap.legacy === true;
-  const adjusted = fingerprintOf(used) !== fingerprintOf(original);
-  if (!resource) return { state: 'missing', type, resourceId, adjusted, legacy, used, original, current: null, resource: null };
+  const adjusted = economicFingerprint(used) !== economicFingerprint(original);
+  if (!resource) return { state: 'missing', type, resourceId, adjusted, legacy, used, original, current: null, resource: null, changes: [] };
   const current = currentResourceValues(type, resource, { resources, currency });
-  const currentPrint = fingerprintOf(current);
-  let state = currentPrint === fingerprintOf(original) ? 'current' : 'changed';
+  // Sólo cuentan los valores económicos: re-fechar el mismo valor en Recursos
+  // no desactualiza la cotización (ni la re-fecha).
+  const currentPrint = economicFingerprint(current);
+  let state = currentPrint === economicFingerprint(original) ? 'current' : 'changed';
   if (state === 'changed' && snap && snap.dismissed === currentPrint) state = 'dismissed';
-  return { state, type, resourceId, adjusted, legacy, used, original, current, resource };
+  const changes = state === 'current' ? [] : changedKeys(original, current);
+  return { state, type, resourceId, adjusted, legacy, used, original, current, resource, changes };
 }
 
 /** Valor principal (para "valor utilizado / valor actual") de unos valores de snapshot. */
@@ -139,7 +142,7 @@ export function dismissResourceUpdate(listKey, line, resources = {}, { currency 
   const snap = isPlainObject(next.snapshot) ? next.snapshot : {
     resourceType: status.type, resourceId: status.resourceId, resourceName: '', takenAt: null, legacy: true, values: status.used, dismissed: null,
   };
-  snap.dismissed = fingerprintOf(status.current);
+  snap.dismissed = economicFingerprint(status.current);
   next.snapshot = snap;
   return next;
 }

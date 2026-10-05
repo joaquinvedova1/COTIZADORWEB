@@ -126,30 +126,37 @@ function checkObjectList(value, path, errors) {
   });
 }
 
-/** Forma interna de cada cotización (listas de objetos y sub-objetos). */
-function checkQuoteShapes(quotes, errors) {
-  if (!Array.isArray(quotes)) return;
-  quotes.forEach((q, i) => {
-    if (!isPlainObject(q)) return;
-    const base = `quotes[${i}]`;
-    QUOTE_OBJECT_FIELDS.forEach((f) => {
-      if (q[f] !== undefined && q[f] !== null && !isPlainObject(q[f])) errors.push(`${base}.${f}: debe ser un objeto.`);
-    });
-    QUOTE_LIST_FIELDS.forEach((f) => checkObjectList(q[f], `${base}.${f}`, errors));
-    NESTED_LIST_FIELDS.forEach(([parent, child]) => {
-      if (isPlainObject(q[parent])) checkObjectList(q[parent][child], `${base}.${parent}.${child}`, errors);
-    });
-    ['labor', 'equipment', 'materials'].forEach((f) => {
-      if (!Array.isArray(q[f])) return;
-      q[f].forEach((line, j) => {
-        if (!isPlainObject(line)) return;
-        LINE_OBJECT_FIELDS.forEach((k) => {
-          if (line[k] !== undefined && line[k] !== null && !isPlainObject(line[k])) errors.push(`${base}.${f}[${j}].${k}: debe ser un objeto.`);
-        });
+/** Forma interna de UNA cotización (o de los valores de una plantilla). */
+function checkQuoteShape(q, base, errors) {
+  if (!isPlainObject(q)) return;
+  QUOTE_OBJECT_FIELDS.forEach((f) => {
+    if (q[f] !== undefined && q[f] !== null && !isPlainObject(q[f])) errors.push(`${base}.${f}: debe ser un objeto.`);
+  });
+  QUOTE_LIST_FIELDS.forEach((f) => checkObjectList(q[f], `${base}.${f}`, errors));
+  NESTED_LIST_FIELDS.forEach(([parent, child]) => {
+    if (isPlainObject(q[parent])) checkObjectList(q[parent][child], `${base}.${parent}.${child}`, errors);
+  });
+  ['labor', 'equipment', 'materials'].forEach((f) => {
+    if (!Array.isArray(q[f])) return;
+    q[f].forEach((line, j) => {
+      if (!isPlainObject(line)) return;
+      LINE_OBJECT_FIELDS.forEach((k) => {
+        if (line[k] !== undefined && line[k] !== null && !isPlainObject(line[k])) errors.push(`${base}.${f}[${j}].${k}: debe ser un objeto.`);
       });
     });
-    if (q.offerDate !== undefined && q.offerDate !== null && typeof q.offerDate !== 'string') errors.push(`${base}.offerDate: debe ser una fecha.`);
   });
+  if (q.offerDate !== undefined && q.offerDate !== null && typeof q.offerDate !== 'string') errors.push(`${base}.offerDate: debe ser una fecha.`);
+}
+
+/** Forma interna de cada cotización y de los valores de cada plantilla. */
+function checkQuoteShapes(quotes, errors, services = []) {
+  if (Array.isArray(quotes)) quotes.forEach((q, i) => checkQuoteShape(q, `quotes[${i}]`, errors));
+  // Una plantilla crea cotizaciones: sus valores deben tener la misma forma.
+  if (Array.isArray(services)) {
+    services.forEach((t, i) => {
+      if (isPlainObject(t) && isPlainObject(t.defaults)) checkQuoteShape(t.defaults, `services[${i}].defaults`, errors);
+    });
+  }
 }
 
 /**
@@ -168,7 +175,7 @@ export function validateState(state) {
   else RESOURCE_TYPES.forEach((t) => checkEntityList(state.resources[t] ?? [], `resources.${t}`, errors));
   checkEntityList(state.services, 'services', errors, { requireName: 'name' });
   checkEntityList(state.quotes, 'quotes', errors, { requireName: 'name' });
-  checkQuoteShapes(state.quotes, errors);
+  checkQuoteShapes(state.quotes, errors, state.services);
   if (!isPlainObject(state.settings)) errors.push('settings: debe ser un objeto.');
   else {
     const dbt = state.settings.defaultBillingTaxes;
