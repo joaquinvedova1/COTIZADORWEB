@@ -3,7 +3,9 @@
  *
  * - público: landing, ingreso, registro, bienvenida y demo guiada. Sin menú
  *   lateral ni topbar: cada vista arma su propio encabezado.
- * - app: sidebar (marca, "+ Nueva cotización", navegación y empresa), topbar
+ * - app: sidebar (marca, "+ Nueva cotización", navegación, empresa, cuenta
+ *   —nombre, email, "Mi cuenta", "Cerrar sesión"— y estado de
+ *   sincronización con la nube), topbar
  *   con breadcrumbs + título + acciones, zona de banners globales y el
  *   contenedor `.content`.
  *
@@ -115,10 +117,28 @@ export function createLayout(container, { version = {} } = {}) {
   const orgNameEl = h('div', { class: 'org' }, '—');
   const orgBaseEl = h('div', { class: 'org-base' });
   const buildEl = h('div', { class: 'build mono' }, `v${version.version || 'dev'} · build ${version.commit || 'local'}`);
+  // Cuenta: nombre / email, rol y acciones. Nunca ids internos, tokens ni claves.
+  let signOutHandler = null;
+  const userNameEl = h('div', { class: 'account-name' });
+  const userEmailEl = h('div', { class: 'account-email' });
+  const signOutBtn = h('button', { type: 'button', class: 'account-action', on: { click: () => signOutHandler && signOutHandler() } }, icon('logout', { size: 16 }), h('span', {}, 'Cerrar sesión'));
+  const accountEl = h(
+    'div',
+    { class: 'account-card', hidden: true },
+    h('div', { class: 'account-text' }, userNameEl, userEmailEl),
+    h('div', { class: 'account-actions' },
+      h('a', { class: 'account-action', href: '#/configuracion/cuenta' }, icon('user', { size: 16 }), h('span', {}, 'Mi cuenta')),
+      signOutBtn),
+  );
+  const syncDotEl = h('span', { class: 'sync-dot', 'aria-hidden': 'true' });
+  const syncTextEl = h('span', { class: 'sync-text' });
+  const syncEl = h('div', { class: 'sync-status', role: 'status', hidden: true }, syncDotEl, syncTextEl);
   const sidebarFooter = h(
     'div',
     { class: 'sidebar-footer' },
     h('div', { class: 'org-card' }, orgAvatarEl, h('div', { class: 'org-text' }, orgNameEl, orgBaseEl)),
+    accountEl,
+    syncEl,
     buildEl,
   );
 
@@ -342,6 +362,28 @@ export function createLayout(container, { version = {} } = {}) {
       orgBaseEl.hidden = orgBaseEl.textContent === '';
     },
 
+    /** Cuenta en el pie del menú (null = sin sesión). */
+    setAccount(info) {
+      if (!info) {
+        accountEl.hidden = true;
+        syncEl.hidden = true;
+        return;
+      }
+      const name = typeof info.name === 'string' && info.name.trim() ? info.name.trim() : '';
+      userNameEl.textContent = name || info.email || '';
+      userEmailEl.textContent = name ? `${info.email || ''}${info.role ? ` · ${info.role}` : ''}` : info.role || '';
+      accountEl.hidden = false;
+    },
+    /** Acción de "Cerrar sesión". */
+    onSignOut(handler) {
+      signOutHandler = typeof handler === 'function' ? handler : null;
+    },
+    /** Estado de sincronización con la nube (texto + punto de color). */
+    setSyncStatus({ status, label } = {}) {
+      syncEl.hidden = !label;
+      syncTextEl.textContent = label || '';
+      syncEl.dataset.status = status || '';
+    },
     /** Banners globales (debajo de la topbar; sólo en el shell de la app). */
     setBanners(nodes = []) {
       const list = nodes.filter((n) => n instanceof Node);

@@ -76,7 +76,7 @@ describe('router: matchRoute', () => {
     assert.deepEqual([...RESOURCE_TAB_IDS], [...RESOURCE_TABS]);
   });
 
-  test('Configuración: pestaña por defecto "empresa" y las cinco secciones', () => {
+  test('Configuración: pestaña por defecto "empresa" y sus secciones (incluida Cuenta)', () => {
     assert.deepEqual(route('#/configuracion').params, { tab: 'empresa' });
     for (const tab of SETTINGS_TABS) assert.equal(route(`#/configuracion/${tab}`).params.tab, tab);
     assert.equal(route('#/configuracion/otra').notFound, true);

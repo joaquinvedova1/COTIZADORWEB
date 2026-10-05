@@ -7,6 +7,7 @@
  * - scripts/serve.mjs simula Pages bajo /COTIZADORWEB/ y bloquea path traversal.
  */
 
+import { SUPABASE } from '../js/config.js';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -63,13 +64,17 @@ describe('index.html', () => {
     }
     assert.deepEqual(csp['object-src'], ["'none'"], "object-src debe ser 'none'");
     assert.ok(csp['base-uri'] && csp['base-uri'].every((s) => s === "'self'" || s === "'none'"), "base-uri debe ser 'self' o 'none'");
+    // Único origen externo permitido: el proyecto de Supabase (sólo para conectarse
+    // a su API: Auth y datos con RLS). Nunca scripts, estilos ni imágenes externas.
     for (const [directive, sources] of Object.entries(csp)) {
       for (const source of sources) {
+        if (directive === 'connect-src' && source === SUPABASE.url) continue;
         assert.ok(!/^(?:https?:|\*|\/\/)/i.test(source) && !/\.[a-z]{2,}(?::\d+)?(?:\/|$)/i.test(source), `${directive} no debe permitir orígenes externos (${source})`);
       }
     }
     const connect = csp['connect-src'] ?? csp['default-src'];
-    assert.ok(connect.every((s) => s === "'self'" || s === "'none'"), 'connect-src sólo puede ser self (sin APIs externas)');
+    assert.deepEqual(connect, ["'self'", SUPABASE.url], 'connect-src: sólo self y el proyecto de Supabase');
+    assert.match(SUPABASE.url, /^https:\/\/[a-z0-9]+\.supabase\.co$/);
   });
 
   test('carga la app como ES module con ruta relativa', () => {

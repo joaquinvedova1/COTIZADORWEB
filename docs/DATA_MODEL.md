@@ -1,6 +1,6 @@
 # Modelo de datos de RATEOS
 
-Este documento describe el **modelo actual** (`schemaVersion` 2 desde PLAN-2026-002; v0.1.0 usaba el 1; guardado en `localStorage` y exportado como backup JSON) y el **modelo futuro relacional** pensado para Supabase/PostgreSQL multiempresa. El futuro **no está implementado**: es la guía para evolucionar sin reescribir los motores.
+Este documento describe el **modelo actual** (`schemaVersion` 2 desde PLAN-2026-002; v0.1.0 usaba el 1): un estado JSON versionado que en una **cuenta** se guarda en Supabase (una fila de `workspace_states` por organización, protegida con RLS), en el **modo local** anterior se guardaba en `localStorage`, y en ambos casos se exporta igual como backup JSON. También describe el **modelo futuro relacional** (una tabla por entidad), que **no está implementado**: es la guía para evolucionar sin reescribir los motores.
 
 Código de referencia: `js/data/schema.js`, `js/data/migrations.js`, `js/data/local-storage-repository.js`, `js/domain/quote-factory.js`, `js/domain/demo-data.js`.
 
@@ -8,7 +8,8 @@ Código de referencia: `js/data/schema.js`, `js/data/migrations.js`, `js/data/lo
 
 - **IDs estables tipo UUID v4** (`createId()` en `js/core/ids.js`). El nombre visible nunca es clave primaria. Los datos demo usan UUID fijos (`00000000-0000-4000-8000-…`) para ser determinísticos.
 - **Multiempresa desde el diseño:** las entidades principales llevan `organizationId` aunque hoy exista una sola organización.
-- **Metadatos:** `id`, `organizationId`, `createdAt`, `updatedAt` (ISO 8601 UTC) y `createdBy`, `updatedBy` (hoy `null`: no hay login; el campo existe para no tener que migrar cuando haya autenticación).
+- **Metadatos:** `id`, `organizationId`, `createdAt`, `updatedAt` (ISO 8601 UTC) y `createdBy`, `updatedBy` (hoy `null` dentro del estado; en la nube, quién guardó el workspace lo fija la base en `workspace_states.updated_by` con `auth.uid()`, sin confiar en el cliente).
+- **La organización de una cuenta manda:** en una cuenta, `organization.id` y todos los `organizationId` del estado son el id de la organización de Supabase (se realinean al abrir, al importar un backup y al importar datos locales).
 - **Formato limpio y versionado:** el mismo JSON sirve como estado local, backup y origen de la futura importación a Supabase.
 - **Nunca se borran datos por un cambio de estructura:** migraciones explícitas, copia de recuperación previa y modo sólo lectura ante datos de una versión más nueva.
 - **Las cotizaciones copian valores de la biblioteca** (`sourceId` guarda el origen): cambiar un recurso no altera cotizaciones existentes (auditabilidad).
@@ -16,6 +17,21 @@ Código de referencia: `js/data/schema.js`, `js/data/migrations.js`, `js/data/lo
 ## 2. Modelo actual — formato del estado y del backup
 
 ### Dónde se guarda
+
+**Cuenta (usuario autenticado):**
+
+| Lugar | Contenido |
+|---|---|
+| Supabase `workspace_states.state` (jsonb, una fila por organización) | El estado completo, mismo formato que el backup. `revision` (control de concurrencia), `schema_version`, `updated_by`, `updated_at`. Detalle y RLS en [SUPABASE_PLAN.md §0](SUPABASE_PLAN.md#0-qué-está-implementado). |
+| Supabase `organizations`, `profiles`, `organization_members` | Nombre de la empresa, nombre visible de la persona y rol (OWNER / ADMIN / ESTIMATOR / VIEWER). |
+| `localStorage['rateos.auth']` | Sesión del SDK de Supabase (JWT + refresh token). Nunca contraseñas. Se borra al cerrar sesión. |
+| `localStorage['rateos.cloud.<usuario>.<organización>']` | Copia local recuperable **sólo mientras haya cambios sin subir** (sin conexión, sesión vencida); se borra cuando la nube confirma. |
+| `localStorage['rateos.cloud.<usuario>.<organización>.recovery.<fecha>.<motivo>']` | Copias de recuperación de la cuenta. Motivos: `before-import`, `before-local-import`, `before-cloud-import`, `cloud-conflict-local`, `cloud-unsynced`. Sólo esa cuenta las ve. |
+| `localStorage['rateos.cloud.<usuario>.local-import']` | Decisión sobre los datos del modo local ("imported" / "skipped"). |
+
+**Demo pública:** en memoria; no se guarda nada.
+
+**Modo local anterior (sin cuenta, hasta v0.1.0):** sus datos quedan en el navegador, nunca se borran y se ofrecen para importar a la cuenta (sin la demo ni datos ILUSTRATIVOS).
 
 | Clave de `localStorage` | Contenido |
 |---|---|
@@ -171,6 +187,8 @@ Las líneas embebidas (`labor[]`, `equipment[]`, …) tienen `id` UUID propio pe
 **Marca ILUSTRATIVO por línea.** `line.illustrative = true` indica que los valores de esa línea vienen de datos de demostración: la copian `laborLineFromProfile` (si el perfil o el convenio son ilustrativos), `equipmentLineFromLibrary` y `materialLineFromLibrary` (si el recurso es ilustrativo) y `createQuoteFromTemplate` (si la plantilla es ilustrativa). El campo es opcional (las cotizaciones guardadas antes no lo tienen) y no requiere migración: `validateState` acepta campos adicionales en las líneas.
 
 ## 4. Modelo futuro relacional (Supabase / PostgreSQL)
+
+> **No implementado.** Hoy cada organización guarda su estado completo en `workspace_states` (§2). Este modelo es para una fase posterior ([SUPABASE_PLAN.md §10](SUPABASE_PLAN.md#10-plan-por-fases)).
 
 Convenciones: PK `id uuid`; toda tabla con datos empresariales lleva `organization_id uuid not null` (FK → `organizations.id`), `created_at`, `updated_at` (`timestamptz`), `created_by`, `updated_by` (FK → `users.id`, nullable) y **Row Level Security** (ver [SUPABASE_PLAN.md](SUPABASE_PLAN.md)). Montos `numeric(18,4)`, porcentajes `numeric(9,4)` en puntos.
 

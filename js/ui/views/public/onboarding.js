@@ -5,10 +5,13 @@
  * 2. ¿Desde dónde operás?          → organization.baseLocation
  * 3. ¿Qué querés hacer primero?    → crear cotización / configurar recursos
  *
- * Las respuestas viven en memoria. Qué se guarda y cuándo (sin autenticación):
- * - Empresa PROPIA (organization.illustrative !== true): al terminar la
+ * Requiere cuenta (access: 'auth'). Las respuestas viven en memoria. Qué se
+ * guarda y cuándo:
+ * - Empresa PROPIA (organization.illustrative !== true; siempre en una cuenta,
+ *   que arranca vacía con la organización real): al terminar la
  *   pantalla 2, saveOrganization({ industry, baseLocation }).
- * - Empresa de EJEMPLO (ILUSTRATIVA): nada hasta la pantalla 3. Ahí se elige
+ * - Empresa de EJEMPLO (ILUSTRATIVA; sólo datos de versiones anteriores
+ *   importados como backup): nada hasta la pantalla 3. Ahí se elige
  *   "Con mi empresa, sin datos de ejemplo" → confirmación → backup.startFresh()
  *   (guarda antes una copia de recuperación), o "Con los datos de ejemplo,
  *   para explorar" → no se escribe nada (la empresa ficticia queda intacta).
@@ -285,7 +288,7 @@ export async function render(root, app) {
     );
     return confirmDialog({
       title: '¿Empezar con tu empresa, sin datos de ejemplo?',
-      message: companyName ? `Dejamos RATEOS listo para “${companyName}”, en este navegador.` : 'Dejamos RATEOS listo para tus datos, en este navegador.',
+      message: companyName ? `Dejamos RATEOS listo para “${companyName}”.` : 'Dejamos RATEOS listo para tus datos.',
       confirmLabel: 'Empezar con mi empresa',
       cancelLabel: 'Cancelar',
       danger: mine > 0,

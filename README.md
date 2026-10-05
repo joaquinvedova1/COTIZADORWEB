@@ -6,7 +6,7 @@
 
 **Sitio:** <https://joaquinvedova1.github.io/COTIZADORWEB/>
 
-> **Aviso — datos ILUSTRATIVOS.** RATEOS se abre con datos de demostración de una empresa ficticia (*Patagonia Servicios SRL*). Todos los valores demo (salarios, cargas, convenios, equipos, combustible, tarifas) son **ILUSTRATIVOS**: no son escalas salariales, cargas patronales, alícuotas, CCT, precios ni costos reales. Reemplazalos por valores propios vigentes antes de cotizar.
+> **Aviso — datos ILUSTRATIVOS.** La **demo** pública (sin cuenta) usa una empresa ficticia (*Patagonia Servicios SRL*). Todos sus valores (salarios, cargas, convenios, equipos, combustible, tarifas) son **ILUSTRATIVOS**: no son escalas salariales, cargas patronales, alícuotas, CCT, precios ni costos reales. Las **cuentas** empiezan vacías, sin datos de ejemplo: cada empresa carga sus valores vigentes.
 
 ## Qué es RATEOS
 
@@ -51,7 +51,20 @@ Separa siempre cuatro conceptos:
 
 Además: dashboard, escenarios pesimista / base / optimista, comparador de modelos comerciales (sólo tarifa por día, disponibilidad + día, mínimo garantizado + día, paquete mensual + excedentes) y 12 plantillas de servicio.
 
-Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de la experiencia (landing, demo guiada, editor en 5 etapas, resultado progresivo), **impuestos sobre lo que facturás** (esquema de datos 2, con migración) y **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; apropiación por día y total del contrato, con controles "Los números cierran").
+Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de la experiencia (landing, demo guiada, editor en 5 etapas, resultado progresivo), **impuestos sobre lo que facturás** (esquema de datos 2, con migración), **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; apropiación por día y total del contrato, con controles "Los números cierran") y **cuentas reales** (ver abajo).
+
+## Visitante, demo y cuenta
+
+| | Qué ve | Datos |
+|---|---|---|
+| **Visitante** | Landing `#/`, ingreso, registro, recuperar contraseña | Ninguno |
+| **Demo** (`#/demo`, sin cuenta) | La cotización de ejemplo "Hidrogrúa on-call — Añelo" y su análisis completo | ILUSTRATIVOS, en memoria: no se guarda nada y nunca pasa a una cuenta |
+| **Cuenta** (`#/inicio` y toda la app) | Tus cotizaciones, recursos, servicios, escenarios y configuración | Los de **tu empresa**, en Supabase, protegidos con Row Level Security: nadie de otra empresa puede verlos ni modificarlos |
+
+- **Crear cuenta:** nombre, empresa, email y contraseña. Supabase envía un email de confirmación ("Revisá tu email"); el enlace abre RATEOS ya ingresado (en el mismo navegador). La cuenta empieza **vacía**: "Hola, <nombre>" → [Crear mi primera cotización] [Configurar mi empresa].
+- **Guardado en la nube:** "Guardado" significa guardado en tu cuenta. Sin conexión, el cambio queda en este navegador ("No pudimos sincronizar tus cambios.") y se sube solo al volver. Si otro dispositivo guardó antes: "Tus datos cambiaron en otro dispositivo." con [Recargar] [Conservar una copia]: nunca se pisa nada en silencio.
+- **Datos de antes:** si usaste RATEOS sin cuenta en este navegador, al ingresar aparece "Encontramos datos guardados en este navegador." con [Importarlos a mi cuenta] [Empezar en limpio]. La demo y los datos ILUSTRATIVOS nunca se importan, se guarda una copia antes y los datos locales no se borran.
+- Detalle: [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) (sesión, roles, enlaces de email), [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) (tablas, RLS, sincronización).
 
 ## Flujo de cotización
 
@@ -138,6 +151,8 @@ npm start
 
 Abrí <http://localhost:8080/COTIZADORWEB/> (simula la sub-ruta de GitHub Pages). Opciones: `PORT=9000 npm start` para otro puerto; `npm run build && npm start -- --dist` para probar exactamente lo que se publica.
 
+La landing y la demo funcionan sin conexión a Supabase. Para ingresar o registrarte en local, la URL `http://localhost:8080/COTIZADORWEB/**` tiene que estar en las Redirect URLs del proyecto (ver "Supabase" más abajo).
+
 También funciona con cualquier servidor estático desde la raíz del repo (por ejemplo `python3 -m http.server 8080` → <http://localhost:8080/>). **No funciona abriendo `index.html` con `file://`**: los ES modules del navegador necesitan HTTP.
 
 ## Cómo testear
@@ -146,7 +161,9 @@ También funciona con cualquier servidor estático desde la raíz del repo (por 
 npm test
 ```
 
-Usa el test runner nativo de Node (`node --test`), sin dependencias. Cubre motores económicos (`tests/engines/`), golden cases (`tests/golden-cases/`, un `.json` por regla de negocio), core (`tests/core/`), datos, migraciones y backup (`tests/data/`), servicios (`tests/services/`), reglas de arquitectura y seguridad (`tests/architecture.test.js`), build (`tests/build.test.js`) y sitio estático bajo `/COTIZADORWEB/` (`tests/static-site.test.js`). Los tests del motor son parte de la especificación del negocio: si un cambio los rompe, el cambio está mal o la regla debe revisarse explícitamente.
+Usa el test runner nativo de Node (`node --test`), sin dependencias. Cubre motores económicos (`tests/engines/`), golden cases (`tests/golden-cases/`, un `.json` por regla de negocio), core (`tests/core/`), datos, migraciones y backup (`tests/data/`), servicios (`tests/services/`, incluidos sesión, rutas protegidas e importación local), cuentas con un Supabase falso (`tests/helpers/fake-supabase.js`: aislamiento entre cuentas, conflictos, sin conexión, sesión vencida), migraciones SQL (`tests/supabase/`), reglas de arquitectura y seguridad (`tests/architecture.test.js`), build (`tests/build.test.js`) y sitio estático bajo `/COTIZADORWEB/` (`tests/static-site.test.js`). Los tests del motor son parte de la especificación del negocio: si un cambio los rompe, el cambio está mal o la regla debe revisarse explícitamente.
+
+**Row Level Security** (contra la base real): `supabase/tests/rls_test.sql` (40 controles: usuarios A/B, anon, escalada de rol…; no deja nada en la base). Se corre con el plugin/MCP de Supabase o `psql`; ver [supabase/README.md](supabase/README.md).
 
 ## Cómo desplegar
 
@@ -166,9 +183,17 @@ Requisito único: en GitHub → **Settings → Pages → Build and deployment �
 
 Nunca force push a `main`. Paso a paso en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#5-rollback).
 
+## Supabase
+
+- Proyecto `dltlnizvnvnefgbzfftu`. En el frontend sólo hay **URL + publishable key** (`js/config.js`); nunca `service_role`, secret keys, contraseña de la base ni connection strings.
+- **Migraciones** versionadas en `supabase/migrations/` y aplicadas con el plugin/MCP de Supabase (nunca cambios manuales que no estén en una migración). Tests de RLS en `supabase/tests/`.
+- **Configuración de Auth** (Dashboard → Authentication → URL Configuration): Site URL `https://joaquinvedova1.github.io/COTIZADORWEB/`; Redirect URLs `https://joaquinvedova1.github.io/COTIZADORWEB/**` (y `http://localhost:8080/COTIZADORWEB/**` sólo mientras se prueba en local). Confirmación de email **activada**.
+- **Antes de abrir el registro a clientes:** configurar un **SMTP propio** (el de Supabase sólo entrega a miembros del equipo del proyecto y tiene un límite bajo por hora) y, idealmente, un **dominio propio** (ver [docs/AUTH_ARCHITECTURE.md §9.1](docs/AUTH_ARCHITECTURE.md#91-riesgos-conocidos-y-mitigaciones)).
+
 ## Persistencia y backup
 
-- Los datos se guardan **sólo en tu navegador** (`localStorage`, clave `rateos.state`) con `schemaVersion`. Sobreviven recargas, cierres del navegador y nuevos deploys.
+- **Con cuenta**, los datos viven en Supabase (una fila por empresa, mismo formato versionado que el backup) y en el navegador sólo queda la sesión y, mientras haya cambios sin subir, una copia recuperable. El resto de esta sección describe el formato y las garantías comunes (migraciones, backup, copias de recuperación).
+- En el **modo local** anterior (sin cuenta, hasta v0.1.0) los datos se guardaban en este navegador (`localStorage`, clave `rateos.state`) con `schemaVersion`; nunca se borran y se ofrecen para importar a la cuenta.
 - Si una versión nueva cambia el formato, RATEOS **migra** tus datos al abrir y guarda antes una **copia de recuperación**. Nunca borra datos por un cambio de estructura.
 - **Varias pestañas:** podés tener RATEOS abierto en más de una pestaña. Antes de leer o guardar, cada pestaña toma los cambios que hizo otra, así ninguna borra lo que guardó la otra y los códigos `COT-NNNN` no se repiten (se numeran con un contador que nunca reutiliza el código de una cotización eliminada). La pantalla se actualiza sola con el aviso "Los datos se actualizaron desde otra pestaña." (ver la limitación sobre editar la misma cotización en dos pestañas, más abajo).
 - **Configuración → Backup:** exportá un archivo JSON versionado y volvé a importarlo en otro navegador o equipo. Antes de importar se valida el archivo (tamaño, que sea un backup de RATEOS, tipos de cada colección y forma de cada cotización), se muestra un resumen y se pide confirmación para sobrescribir; el estado anterior queda como copia de recuperación.
@@ -211,8 +236,9 @@ docs/                      documentación técnica
 
 - Unidades de tarifa: $/día, $/hora y $/mes (abono). Otras (por viaje, km, m³, tonelada, intervención, precio global) todavía no.
 - Todos los tipos de servicio usan el mismo modelo económico (costos fijos mensuales + costos variables por día activo).
-- Los datos viven sólo en el navegador: no se sincronizan entre equipos (usar backup JSON). No hay login ni multiusuario.
-- **Dos pestañas editando la misma cotización a la vez:** gana el último guardado (los cambios de la otra pestaña sobre esa cotización se pierden). Lo mismo para una misma ficha de biblioteca o la configuración. Cambios en cotizaciones o recursos distintos no se pisan. Recomendación: editá cada cotización en una sola pestaña.
+- **Cuentas:** una empresa por cuenta y una persona por empresa (todavía no hay invitaciones ni Google). Los datos de cada empresa se guardan como un único documento (máximo 5 MB): si dos dispositivos o pestañas guardan a la vez, el segundo ve "Tus datos cambiaron en otro dispositivo." y elige [Recargar] o [Conservar una copia] (nunca se pisa nada en silencio, pero tampoco se fusionan cambios).
+- **Enlaces de email** (confirmación, recuperación): funcionan en el mismo navegador donde se pidieron (PKCE). En otro navegador, la cuenta igual queda confirmada y se ingresa con email y contraseña.
+- **Emails de Auth:** con el SMTP por defecto de Supabase sólo llegan a miembros del equipo del proyecto y con un límite bajo por hora (hace falta SMTP propio para usuarios reales).
 - Costo financiero con interés simple y mes de 30 días; el comparador de modelos comerciales usa una facturación simplificada.
 - **Montos sin IVA**: es la única convención soportada (explícita en cada cotización). No hay carga de montos con IVA ni conversión automática.
 - **Impuestos sobre la facturación**: RATEOS no trae alícuotas (las carga cada empresa); sellos se modela proporcional a la facturación; no se modela el costo financiero de pagar esos impuestos antes de cobrar; el margen es antes del impuesto a las Ganancias.
@@ -226,19 +252,21 @@ docs/                      documentación técnica
 | [AGENTS.md](AGENTS.md) | Constitución del proyecto: reglas para cualquier agente o persona que modifique RATEOS |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Capas, módulos, reglas de dependencia, flujo de datos, routing, CSP, decisiones |
 | [docs/CALCULATION_RULES.md](docs/CALCULATION_RULES.md) | Todas las fórmulas con ejemplos numéricos |
-| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Formato actual (schemaVersion 1) y modelo relacional futuro |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Formato actual (schemaVersion 2), dónde se guarda (cuenta / demo / modo local) y modelo relacional futuro |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | CI/CD, GitHub Pages, verificación, rollback, tags, troubleshooting |
-| [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) | Autenticación y roles futuros (no implementados) |
-| [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) | Plan de migración a Supabase con RLS (no implementado) |
+| [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) | Visitante / demo / cuenta, Supabase Auth, enlaces de email con GitHub Pages, sesión, roles, riesgos |
+| [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) | Tablas, RLS, sincronización por revisión, migración desde el modo local y fases siguientes |
+| [supabase/README.md](supabase/README.md) | Cómo aplicar migraciones y correr los tests de RLS |
 | [docs/AGENT_ROLES.md](docs/AGENT_ROLES.md) | Roles de revisión para el desarrollo (no son funciones del producto) |
 | [.agent/PLANS.md](.agent/PLANS.md) | Plantilla y registro de planes de ejecución |
 | [CHANGELOG.md](CHANGELOG.md) | Historial de versiones |
 
 ## Seguridad y privacidad
 
-- **Sin backend, sin analytics, sin IA:** todo se calcula en tu navegador y tus datos no salen de tu dispositivo, salvo que exportes un backup.
+- **Sin servidor propio, sin analytics, sin IA:** todo se calcula en tu navegador. Los datos de una cuenta se guardan en Supabase y la base sólo se los muestra a las personas de esa empresa (**Row Level Security**, probado con usuarios A/B); la demo no guarda nada.
+- RATEOS **no guarda contraseñas** (las administra Supabase Auth) y nunca muestra errores técnicos, tokens ni ids internos.
 - El repositorio y el sitio son públicos: no contienen secretos, claves, tokens ni datos reales de clientes o costos. Todo el JavaScript del frontend es público.
-- Content Security Policy estricta (sólo recursos propios, sin scripts inline ni terceros); el DOM se construye sin `innerHTML`, `eval` ni `new Function`.
+- Content Security Policy estricta (sólo recursos propios, sin scripts inline ni terceros; la única conexión externa es el proyecto de Supabase); el DOM se construye sin `innerHTML`, `eval` ni `new Function`. RATEOS no funciona dentro de un iframe (anti-clickjacking).
 - Inputs validados; nunca se muestran `NaN` ni `Infinity`.
 - Los backups se validan antes de importarse (un JSON que no es de RATEOS, una colección con tipo incorrecto o una cotización mal formada se rechazan) y nunca se sobrescribe sin confirmación. Aunque llegue un dato inválido, una cotización mala no rompe el dashboard ni el listado.
 - Los eventos internos de producto (sin envío a terceros) sólo aceptan valores de una lista blanca: nunca montos ni nombres.

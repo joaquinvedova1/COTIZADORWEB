@@ -1,8 +1,8 @@
 # Arquitectura de RATEOS
 
-RATEOS v0.1.0 es una aplicación **100 % frontend**: HTML + CSS + JavaScript con ES modules nativos, sin frameworks, sin dependencias npm, sin backend, sin analytics y sin IA. Todo se calcula en el navegador y los datos se guardan en `localStorage` a través de una capa de persistencia abstracta.
+RATEOS es una aplicación **frontend estática** (HTML + CSS + JavaScript con ES modules nativos, sin frameworks, sin dependencias npm, sin analytics y sin IA) publicada en GitHub Pages. Todo se calcula en el navegador. Desde la versión con cuentas, los datos reales de cada empresa viven en **Supabase** (Auth + Postgres con Row Level Security), a través de una capa de persistencia abstracta; no hay servidor propio. El SDK oficial de Supabase está **vendorizado** (`js/data/vendor/`), así que siguen sin existir dependencias npm ni CDNs.
 
-Objetivo de diseño (ver [AGENTS.md](../AGENTS.md)): hoy **RATEOS + localStorage + GitHub Pages**; mañana **RATEOS + Supabase + Auth + multiempresa**, sin reescribir motores económicos, modelos de cálculo, reglas comerciales ni lógica de escenarios.
+Tres estados que nunca se mezclan (detalle en [AUTH_ARCHITECTURE.md](AUTH_ARCHITECTURE.md)): **visitante** (sitio público), **demo** (sin cuenta, en memoria) y **usuario autenticado** (datos de su organización en Supabase). Los motores económicos, modelos de cálculo, reglas comerciales y escenarios no saben de dónde vienen los datos.
 
 ## 1. Capas
 
@@ -18,16 +18,20 @@ Objetivo de diseño (ver [AGENTS.md](../AGENTS.md)): hoy **RATEOS + localStorage
 │ SERVICIOS  (js/services/**)       │           │
 │  casos de uso: cotizaciones,      │           │
 │  recursos, backup, configuración, │           │
-│  recuperación                     │           │
+│  sesión (auth), contextos demo /  │           │
+│  cuenta, importación local        │           │
 └───────┬───────────────────┬───────┘           │
         │ StorageRepository │ motores           │
         ▼                   ▼                   ▼
-┌─────────────────────┐  ┌───────────────────────────────────────────┐
-│ DATOS (js/data/**)  │  │ MOTORES (js/engines/**)                   │
-│  StorageRepository  │  │  funciones PURAS: sin DOM, sin storage,   │
-│  LocalStorageRepo.  │  │  sin red. Mismos inputs = mismos outputs. │
-│  esquema, migración │  └───────────────────────────────────────────┘
-└─────────────────────┘
+┌─────────────────────────┐  ┌───────────────────────────────────────┐
+│ DATOS (js/data/**)      │  │ MOTORES (js/engines/**)               │
+│  StorageRepository      │  │  funciones PURAS: sin DOM, sin        │
+│  LocalStorageRepo.      │  │  storage, sin red. Mismos inputs =    │
+│  SupabaseRepository ────┼──┼─► mismos outputs.                     │
+│  auth / workspace       │  └───────────────────────────────────────┘
+│  gateways, esquema,     │
+│  migraciones, vendor/   │──► Supabase (Auth + PostgREST, RLS)
+└─────────────────────────┘
 ──────────────────────────────────────────────────────────────────────
 Transversal: js/core/** (números, formato, validación, ids, logger,
 eventos, trazas, objetos) · js/domain/** (catálogos, fábricas, demo) ·
@@ -55,7 +59,7 @@ Reglas transversales (también en `tests/architecture.test.js`):
 - Fuera de `js/data/` no se usa `localStorage`, `sessionStorage`, `indexedDB` ni cookies; nunca `localStorage.clear()`.
 - Prohibido en todo `js/`: `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`, `setTimeout`/`setInterval` con string, estilos inline como string (la CSP `style-src 'self'` los bloquea).
 - Motores **determinísticos**: sin `Math.random`, `Date.now`, `new Date()` ni `crypto`.
-- Sin red externa: ni `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon` ni `fetch` a URLs absolutas (sólo `./version.json`).
+- Sin red externa: ni `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon` ni `fetch` a URLs absolutas (sólo `./version.json`). Única excepción: el SDK vendorizado de Supabase (`js/data/vendor/supabase.js`, excluido de estas reglas de estilo y verificado por `tests/data/supabase-vendor.test.js`: hash, un solo importador, sin `eval`/`innerHTML`), que habla sólo con `SUPABASE.url` (la CSP no permite otro destino).
 - Todos los imports son **relativos** (`./`, `../`), con rutas literales verificables, y resuelven a archivos existentes; ningún string apunta a la raíz del dominio (`/js/…`).
 - Sin `console.*` fuera de `js/core/logger.js` ni `debugger`.
 - Sin secretos, `.env` ni claves privadas versionados; `package.json` sin dependencias.
@@ -78,7 +82,7 @@ Reglas transversales (también en `tests/architecture.test.js`):
 
 ### `js/config.js`
 
-Configuración central sin secretos: `APP_NAME`, `APP_TAGLINE`, `SCHEMA_VERSION` (1), `STORAGE_MODE` (`'local'`), `STORAGE_KEYS` (`rateos.state`, `rateos.recovery.`, `rateos.ui`), `FEATURES`, `LOCALE` (`es-AR`), `CURRENCY` (`ARS`), `DEFAULT_MATRIX_DAYS` (5, 8, 10, 15, 20), `DEFAULT_MARGIN_LADDER` (5, 10, 15), `NUMERIC_EPSILON` (1e-9), `MAX_BACKUP_BYTES` (5 MB), `DEFAULT_SCENARIOS`, `SENSITIVITY_RANGES` y `detectEnvironment()` (localhost/127.0.0.1/vacío = `development`; cualquier otro host = `production`).
+Configuración central sin secretos: `APP_NAME`, `APP_TAGLINE`, `SCHEMA_VERSION`, `STORAGE_MODE` (`'local'`), `SUPABASE` (URL del proyecto + **publishable key**: públicas por diseño), `PUBLIC_SITE_URL` (base de los enlaces de email), `STORAGE_KEYS` (`rateos.state`, `rateos.recovery.`, `rateos.ui`, `rateos.auth` —sesión del SDK—, `rateos.cloud.` —copias locales de cada cuenta—), `FEATURES`, `LOCALE` (`es-AR`), `CURRENCY` (`ARS`), `DEFAULT_MATRIX_DAYS` (5, 8, 10, 15, 20), `DEFAULT_MARGIN_LADDER` (5, 10, 15), `NUMERIC_EPSILON` (1e-9), `MAX_BACKUP_BYTES` (5 MB), `DEFAULT_SCENARIOS`, `SENSITIVITY_RANGES` y `detectEnvironment()` (localhost/127.0.0.1/vacío = `development`; cualquier otro host = `production`).
 
 Es la **fuente única** de esos valores: `defaultSettings()` (`js/domain/quote-factory.js`) copia `LOCALE`, `CURRENCY`, `DEFAULT_MATRIX_DAYS` y `DEFAULT_MARGIN_LADDER`, y los motores (`utilization-engine.js`, `pricing-engine.js`, `quote-engine.js`) los importan como valores por defecto. Un valor nuevo de configuración se agrega acá y se importa; no se copia como literal en otro archivo.
 
@@ -87,7 +91,7 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 | Flag | Valor | Significado |
 |---|---|---|
 | `historicalComparison` | `false` | Estimado vs real (diseñado en [DATA_MODEL.md](DATA_MODEL.md#6-estimado-vs-real)). |
-| `supabase` | `false` | Persistencia en Supabase (ver [SUPABASE_PLAN.md](SUPABASE_PLAN.md)). |
+| `supabase` | `true` | Cuentas reales y persistencia en Supabase (ver [SUPABASE_PLAN.md](SUPABASE_PLAN.md)). |
 | `multiOrganization` | `false` | Más de una organización por usuario. |
 | `analytics` | `false` | Envío de eventos internos a un destino externo. |
 | `commercialModelComparator` | `true` | Comparador de modelos comerciales en el resultado. |
@@ -144,13 +148,23 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 | `memory-storage.js` | `MemoryStorage` (Web Storage en memoria, para tests y navegadores sin almacenamiento), `getBrowserStorage()` (prueba lectura y escritura de `localStorage` sin lanzar) y `getReadableBrowserStorage()` (sólo lectura, para recuperar datos con el almacenamiento lleno o bloqueado). |
 | `schema.js` | `CURRENT_SCHEMA_VERSION`, `RESOURCE_TYPES`, `createEmptyState`, `detectSchemaVersion`, `validateState` (estructura, ids únicos, **forma interna de cada cotización**, límites, claves prohibidas, números finitos), `normalizeState`. |
 | `migrations.js` | `migrateV0ToV1`, `MIGRATIONS`, `migrateState`, `MigrationError`. |
-| `repository-factory.js` | `createRepository({ mode, storage, appVersion, globalObject })`: único punto que elige la implementación según `STORAGE_MODE`. Si el navegador no deja escribir pero sí leer y ya hay datos guardados, lanza `RepositoryError` `quota_exceeded` (la app muestra la pantalla de recuperación) en lugar de abrir la demo en memoria. |
+| `repository-factory.js` | `createRepository({ mode, storage, appVersion, globalObject })`: elige la implementación local según `STORAGE_MODE` (tests y modo local). Si el navegador no deja escribir pero sí leer y ya hay datos guardados, lanza `RepositoryError` `quota_exceeded` en lugar de abrir la demo en memoria. |
+| `supabase-repository.js` | `SupabaseRepository` (datos de una cuenta): hereda de `LocalStorageRepository` sobre un storage en memoria y sincroniza con `workspace_states` con control de revisión; copia local recuperable mientras haya cambios sin subir; conflictos visibles; copias de recuperación por cuenta. `emptyWorkspaceState`, `cloudCacheKey`, `cloudRecoveryPrefix`. Detalle en [SUPABASE_PLAN.md §7](SUPABASE_PLAN.md#7-supabaserepository). |
+| `supabase-client.js` | Único importador del SDK (`vendor/supabase.js`): cliente con PKCE, `detectSessionInUrl: false`, sesión en `rateos.auth`. `clearLocalAuthSession()` borra la sesión local al cerrar. |
+| `auth-gateway.js` | Única puerta a Supabase Auth: registro, ingreso, cierre, recuperación, canje del código PKCE, renovación. Traduce errores a códigos propios (`AUTH_ERRORS`) y expone sólo `publicUser()` (sin tokens ni metadatos). |
+| `workspace-gateway.js` | Única puerta a PostgREST: membresía y organización del usuario, cargar/guardar el workspace con revisión, renombrar organización y perfil. Errores → `WORKSPACE_ERRORS`. La seguridad la da RLS, no estos filtros. |
+| `legacy-local.js` | Lee (sin escribir) los datos del modo local anterior (`rateos.state`) para ofrecer importarlos; recuerda la decisión por usuario; copia de seguridad previa. |
+| `vendor/supabase.js` | `@supabase/supabase-js` 2.117.2 (UMD) + export ES; licencia MIT en `vendor/supabase-js.LICENSE.txt`. No se edita a mano. |
 
 ### `js/services/` — casos de uso
 
 | Archivo | API |
 |---|---|
-| `app-context.js` | `createAppContext({ storage?, appVersion? })` → `{ repository, persistent, init: { status, messages, readOnly }, quotes, resources, backup, settings, logger, track, onExternalChange(callback) }`. Composition root. `onExternalChange` escucha el evento `storage` del navegador para la clave `rateos.state` (cambios hechos en **otra pestaña**) y devuelve una función para dejar de escuchar. |
+| `app-context.js` | Composition roots. `createAccountContext({ user, workspaceGateway })` (cuenta: `SupabaseRepository`, `account` {user, organization, role, roleLabel}, `sync` {getState, onChange, retry, reloadFromCloud, localCopyText}, `localImport`, `updateProfileName`). `createDemoContext()` (demo pública: datos ILUSTRATIVOS en memoria, nunca persiste). `createAppContext({ storage?, appVersion? })` (modo local sobre `localStorage`; hoy lo usan los tests). Todos exponen `{ repository, persistent, init, quotes, resources, backup, settings, logger, track, onExternalChange }`. |
+| `auth-service.js` | `createAuthService({ gateway })`: estado de sesión (`loading` → `anonymous` / `authenticated`, motivo `signed_out` / `expired`), validación de formularios, mensajes humanos (`AUTH_MESSAGES`), enlaces de email bajo `/COTIZADORWEB/` (`authRedirectUrl`, `parseAuthRedirect`, `cleanAuthUrl`, `siteUrlFor`), recuperación, `revalidate()` cuando la base rechaza el token. |
+| `auth-routing.js` | `resolveAccess({ access, status, path, hash })` → mostrar / esperar / redirigir; `isSafeNextPath` (sin redirecciones abiertas), `loginHash`, `registerHash`, `nextFromHash`. |
+| `cloud.js` | `createCloud()` → `{ authGateway, workspaceGateway }` (la UI no importa `js/data/`). |
+| `local-import-service.js` | Datos del modo local anterior → cuenta: `inspect`, `importToAccount` (copia previa, sin demo ni ILUSTRATIVOS), `skip` ("Empezar en limpio"). |
 | `quote-service.js` | `listQuotes` (cada ítem `{ quote, summary }`; si una cotización no se puede calcular, su `summary` es `{ error: true, atRisk: true, … }` en lugar de romper el listado y el dashboard), `getQuote`, `createQuote({ templateId })` (código `COT-0001`… con contador monotónico `settings.lastQuoteNumber`: nunca reutiliza el código de una cotización eliminada), `saveQuote`, `duplicateQuote`, `deleteQuote`, `compute(quote, opts)`, `dashboardStats()`. Los eventos sólo informan `serviceType` del catálogo (si no, `unknown`). |
 | `resource-service.js` | `list/get/save/remove(type, …)`, `listServices`, `saveService`, `removeService`, `equipmentCard(eq)`, `laborProfileCost(profile)`. |
 | `backup-service.js` | `exportBackup()` → `{ filename, json, data }`, `parseBackupText(text)` → `{ ok, errors, summary, data }` (no modifica nada; máximo 5 MB medidos en bytes UTF-8; valida con `prepareImport` del repositorio y, si el repositorio no sabe validar, rechaza la importación), `applyBackup(data)`, `resetToDemo()`, `listRecoverySnapshots()`, `getRecoverySnapshot(key)`, `deleteRecoverySnapshot(key)`. |
@@ -163,8 +177,9 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 |---|---|
 | `dom.js` | `h()` (crea elementos con `textContent`; prohíbe atributos `on*` como string), `s()` (SVG), `clear`, `mount`, `fragment`, `debounce`, `uniqueId`, `downloadText`, `readFileAsText`. |
 | `components.js` | `icon`, `button`, `badge`, `statusDot`, `card`, `kpi`, `banner`, `illustrativeBanner`, `emptyState`, `progressBar`, `table`, `numberField`, `textField`, `selectField`, `checkboxField`, `choiceGroup`, `formGrid`, `openDialog`, `confirmDialog`, `traceContent`, `openTraceDialog`, `traceButton` ("Ver cálculo"), `toast`, `barList`. `numberField` es un `input type="text"` (`inputmode="decimal"`) que acepta números en formato argentino (`1.800.000,50`); la prop `step` ya no existe (se ignora). |
-| `router.js` | Router por hash: `ROUTES`, `LIBRARY_TABS`, `hashToPath`, `matchRoute`, `createRouter`. |
-| `layout.js` | Sidebar, topbar, banners globales, contenedor `.content`; `NAV_SECTIONS`, `illustrativeTag`, `userErrorMessage`. |
+| `router.js` | Router por hash: `ROUTES` (cada una con `access`: `public` / `guest` / `auth`), `SETTINGS_TABS`, `hashToPath`, `matchRoute`, `createRouter`. Aplica `resolveAccess` antes de dibujar: sin sesión, nada protegido se muestra. |
+| `layout.js` | Sidebar (con la empresa real, la cuenta —nombre, email, "Mi cuenta", "Cerrar sesión"— y el estado de sincronización), topbar, banners globales, contenedor `.content`; `NAV_SECTIONS`, `illustrativeTag`, `userErrorMessage`. |
+| `views/public/*.js` | Sitio público: `landing.js`, `demo-tour.js` (demo guiada), `demo-analysis.js` (análisis completo del ejemplo, sin cuenta), `auth.js` (ingreso, registro, recuperación), `onboarding.js`, `public-chrome.js`. |
 | `views/dashboard.js` | Indicadores de cotizaciones activas, recientes y conceptos (margen vs markup). |
 | `views/quotes-list.js` | Listado (`render`) y "Nueva cotización" en blanco o desde plantilla (`renderNewQuote`). |
 | `views/quote-editor.js` | Editor de 11 pasos (`QUOTE_STEPS`), resumen en vivo, recálculo y guardado automático; conserva los borradores que no se pudieron guardar (ver §5). |
@@ -175,7 +190,7 @@ Feature flags (`FEATURES`), simples y sin servicios externos:
 | `views/settings.js` | Empresa, parámetros, backup/importación, demo, copias de recuperación (descargar y **eliminar**, con confirmación) y "Acerca de". |
 | `views/not-found.js` | Ruta inexistente. |
 
-`js/app.js` (bootstrap): instala el manejo global de errores, lee `version.json`, crea el contexto (`createAppContext`), construye el layout, el objeto `app` que reciben las vistas y el router. Registra `ctx.onExternalChange`: cuando otra pestaña modifica los datos muestra el aviso "Los datos se actualizaron desde otra pestaña.", refresca el sidebar y vuelve a renderizar la ruta actual (salvo el editor, que trabaja sobre su propia copia de la cotización abierta). Si el contexto no se puede crear muestra una **pantalla de recuperación** que permite **descargar los datos guardados tal cual** y las copias de recuperación, y reintentar (nada se borra). El motivo depende del código de error: `read_failed`, `quota_exceeded` (almacenamiento lleno o bloqueado para escritura con datos guardados), `corrupt_no_space` (datos dañados sin espacio para la copia), `stale_state`, `write_failed`, `unsupported_mode`.
+`js/app.js` (bootstrap): se niega a funcionar dentro de un iframe (anti-clickjacking), instala el manejo global de errores, lee `version.json`, crea la conexión (`createCloud`) y el `AuthService`, y **espera a que se restaure la sesión antes de dibujar** (sin destello de contenido protegido). Con sesión abre la cuenta (`createAccountContext`); la demo (`app.demo()`) se crea aparte, en memoria. Construye el layout, el objeto `app` que reciben las vistas (`app.ctx` = cuenta abierta, `app.auth`, `app.demo()`, `app.accessStatus()`) y el router. Escucha la sesión (vencida → "Tu sesión terminó. Volvé a ingresar."; cerrada → landing; otra persona → reabre su cuenta) y la sincronización (banners de conflicto, sin conexión e importación de datos locales). Si el contexto no se puede crear muestra una **pantalla de recuperación** que permite **descargar los datos guardados tal cual** y las copias de recuperación, y reintentar (nada se borra). El motivo depende del código de error: `read_failed`, `quota_exceeded` (almacenamiento lleno o bloqueado para escritura con datos guardados), `corrupt_no_space` (datos dañados sin espacio para la copia), `stale_state`, `write_failed`, `unsupported_mode`.
 
 ## 4. Contrato UI ↔ vistas
 
@@ -262,12 +277,13 @@ Todas las pestañas de RATEOS del mismo navegador comparten `rateos.state`, y ca
 
 Estados de `init()`: `seeded`, `loaded`, `migrated`, `repaired`, `recovered`, `read_only`. Códigos de `RepositoryError` relevantes para la UI: `read_failed`, `quota_exceeded`, `write_failed`, `recovery_failed`, `corrupt_no_space`, `stale_state`, `read_only`, `validation_failed`, `invalid_backup`, `not_found`. Detalle del formato en [DATA_MODEL.md](DATA_MODEL.md).
 
-### Cómo agregar `SupabaseRepository` sin tocar los motores
+### `SupabaseRepository` (cuentas)
 
-1. Crear `js/data/supabase-repository.js` con una clase que extienda `StorageRepository` e implemente los mismos métodos (mismas formas de datos).
-2. En `repository-factory.js`, agregar el caso `mode === 'supabase'` (detrás de `FEATURES.supabase`).
-3. Cambiar `STORAGE_MODE` (o elegirlo en tiempo de ejecución después del login).
-4. Los motores (`js/engines/**`), las reglas de cálculo y los tests de motor **no cambian**: reciben objetos `quote` planos, vengan de donde vengan.
+Implementado sin tocar los motores: `SupabaseRepository` extiende `LocalStorageRepository` sobre un storage en memoria (mismas entidades, validación, migraciones y backup) y sincroniza el estado completo con la fila de `workspace_states` de la organización:
+
+- Cada escritura espera la confirmación de la nube ("Guardado" = guardado en la cuenta). Si falla, rechaza con `RepositoryError` (`sync_failed`, `conflict`, `session_expired`, `forbidden`, `too_large`), el cambio queda en una copia local recuperable y se reintenta.
+- Control de revisión: nunca *last-write-wins* silencioso; un conflicto bloquea las escrituras hasta [Recargar] o [Conservar una copia].
+- Las pestañas de una misma cuenta se coordinan por la revisión de la nube (un guardado con revisión vieja es un conflicto visible), no por el evento `storage`.
 
 Plan completo en [SUPABASE_PLAN.md](SUPABASE_PLAN.md).
 
@@ -298,14 +314,16 @@ Los motores devuelven trazas **de datos** (`createTrace`): `{ id, title, formula
 ## 10. Routing y sub-ruta `/COTIZADORWEB/`
 
 - Router por **hash** (`#/…`): nunca toca el `pathname`, así que funciona igual en `https://joaquinvedova1.github.io/COTIZADORWEB/`, en `http://localhost:8080/COTIZADORWEB/`, en la raíz de otro dominio o en cualquier hosting estático (Vercel, Netlify, S3), sin reglas de reescritura.
-- Rutas: `#/` (Dashboard), `#/cotizaciones`, `#/cotizaciones/nueva`, `#/cotizaciones/:id`, `#/cotizaciones/:id/:step`, `#/biblioteca`, `#/biblioteca/:tab` (`personal`, `convenios`, `equipos`, `materiales`, `ubicaciones`), `#/servicios`, `#/configuracion`; cualquier otra → "no encontrado".
+- Rutas públicas: `#/` (landing), `#/demo`, `#/demo/analisis`, `#/recuperar-contrasena`; sólo sin sesión: `#/login`, `#/registro`; con cuenta: `#/inicio`, `#/cotizaciones`, `#/cotizaciones/nueva`, `#/cotizaciones/:id/:step`, `#/recursos/:tab`, `#/servicios`, `#/escenarios`, `#/configuracion/:tab` (incluida `cuenta`), `#/bienvenida`; cualquier otra → "no encontrado". Sin sesión, una ruta protegida va a `#/login?next=…`.
+- Los enlaces de los emails de Auth vuelven con la query **antes** del `#` (`/COTIZADORWEB/?auth=confirm&next=…&code=…`): no chocan con el router; la app canjea el código y limpia la URL.
 - Vistas cargadas con `import()` dinámico y rutas relativas. Si una vista falla, el router muestra una tarjeta de error con "Reintentar" sin romper la app.
 - Todos los recursos usan rutas relativas (`./css/…`, `./js/app.js`, `./version.json`). **Nunca** `/js/…`: en Pages eso apuntaría a la raíz del dominio y daría 404.
 - ES modules requieren HTTP: la app **no funciona con `file://`**.
 
 ## 11. Seguridad del frontend
 
-- **CSP** en `index.html`: `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'`, más `referrer: no-referrer`. Sin scripts inline, sin CDNs, sin conexiones a terceros.
+- **CSP** en `index.html`: `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://dltlnizvnvnefgbzfftu.supabase.co; object-src 'none'; base-uri 'self'; form-action 'none'`, más `referrer: no-referrer`. Sin scripts inline, sin CDNs; la única conexión externa es el proyecto de Supabase (un test lo verifica).
+- **Cuentas:** en el navegador sólo la URL del proyecto y la publishable key; nunca `service_role`, secret keys, contraseña de la base ni connection strings (test de patrones de secretos). Las contraseñas nunca se guardan ni se loguean. La autorización real es RLS en Postgres (ver [SUPABASE_PLAN.md §0](SUPABASE_PLAN.md#0-qué-está-implementado)). Riesgos y mitigaciones en [AUTH_ARCHITECTURE.md §9.1](AUTH_ARCHITECTURE.md#91-riesgos-conocidos-y-mitigaciones).
 - DOM seguro: `h()` inserta texto con nodos de texto; los estilos dinámicos se aplican por CSSOM (`el.style.setProperty`), compatible con la CSP.
 - `setPath` y `validateState` rechazan claves `__proto__`, `prototype`, `constructor` (prototype pollution).
 - Backups: límite de 5 MB, JSON validado y migrado **antes** de aplicarse, resumen + confirmación del usuario, copia de recuperación previa. `prepareImport` rechaza un JSON sin versión que no tenga ninguna colección de RATEOS (por ejemplo, un `package.json`), valida la forma **original** de un backup v1 antes de normalizarlo (una colección con tipo incorrecto se rechaza en lugar de vaciarse en silencio) y `validateState` revisa la forma interna de cada cotización (líneas que deben ser listas de objetos y sub-objetos que deben ser objetos).
@@ -319,7 +337,9 @@ Los motores devuelven trazas **de datos** (`createTrace`): `{ id, title, formula
 | Sin frameworks ni dependencias npm | Superficie de ataque mínima, sin build obligatorio, carga rápida, nada que actualizar. | Más código propio para DOM y componentes. |
 | ES modules nativos | Funciona en cualquier hosting estático; los mismos módulos corren en Node (tests). | No funciona con `file://`; sin bundling. |
 | Motores puros con objetos planos | Reproducibles, testeables con `node --test`, reutilizables en backend futuro. | La UI recalcula todo el modelo en cada cambio (rápido para el tamaño actual). |
-| Repositorio asíncrono sobre `localStorage` síncrono | Permite cambiar a Supabase sin tocar servicios ni vistas. | `async` innecesario hoy. |
+| Repositorio asíncrono sobre `localStorage` síncrono | Permitió agregar Supabase sin tocar servicios, vistas ni motores. | — |
+| Un workspace JSON por organización en Supabase (no el modelo normalizado, todavía) | Mismo estado versionado que el backup: cero cambios en motores, validación y migraciones; RLS simple y probada. | Límite de 5 MB por organización; concurrencia por organización (no por cotización); sin consultas SQL por entidad. |
+| SDK de Supabase vendorizado | Cero dependencias npm y CSP sin CDNs; versión fija verificada por hash. | Actualizarlo es un cambio manual (nuevo hash). |
 | Un único documento en `rateos.state` | Escrituras atómicas, backup = estado, migraciones simples. | Reescribe todo el estado en cada guardado; límite ~5 MB del navegador. |
 | Varias pestañas: releer `rateos.state` antes de cada lectura o escritura | Simple y sin dependencias; ninguna pestaña borra lo que guardó otra. | Sin fusión por campo: si dos pestañas editan la misma cotización, gana el último guardado. |
 | Router por hash | Compatible con sub-rutas de Pages sin `404.html`. | URLs con `#`. |

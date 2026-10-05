@@ -167,25 +167,36 @@ function heroArt() {
   );
 }
 
-function heroSection({ hasQuotes }) {
+/** Primer nombre para el saludo ("Hola, Joaquín."), sin datos internos. */
+export function greetingName(fullName) {
+  const first = typeof fullName === 'string' ? fullName.trim().split(/\s+/)[0] : '';
+  return first ? first.slice(0, 40) : '';
+}
+
+function heroSection({ hasQuotes, name }) {
+  const hello = name ? `Hola, ${name}.` : 'Hola.';
   return h(
     'section',
     { class: 'home-hero', 'aria-labelledby': 'home-question' },
     h(
       'div',
       { class: 'home-hero-text' },
-      h('p', { class: 'home-hello' }, 'Hola.'),
-      h('h2', { class: 'home-question', id: 'home-question' }, '¿Qué querés cotizar hoy?'),
-      h('p', { class: 'home-lead' }, 'Calculá cuánto te cuesta prestar un servicio y a qué tarifa conviene cotizarlo para no perder plata.'),
-      // Sin cotizaciones, la acción principal la da el estado vacío de abajo.
-      hasQuotes
-        ? h(
-            'div',
-            { class: 'home-actions' },
-            linkButton('Crear nueva cotización', '#/cotizaciones/nueva', { variant: 'primary', size: 'lg', icon: 'plus' }),
-            linkButton('Probar con un ejemplo', DEMO_FROM_APP_HREF, { variant: 'ghost', size: 'lg', icon: 'play' }),
-          )
-        : null,
+      h('p', { class: 'home-hello' }, hello),
+      h('h2', { class: 'home-question', id: 'home-question' }, hasQuotes ? '¿Qué querés cotizar hoy?' : '¿Qué querés hacer primero?'),
+      h('p', { class: 'home-lead' }, hasQuotes
+        ? 'Calculá cuánto te cuesta prestar un servicio y a qué tarifa conviene cotizarlo para no perder plata.'
+        : 'Todavía no tenés cotizaciones. Empezá calculando cuánto cuesta uno de tus servicios.'),
+      h(
+        'div',
+        { class: 'home-actions' },
+        hasQuotes
+          ? linkButton('Crear nueva cotización', '#/cotizaciones/nueva', { variant: 'primary', size: 'lg', icon: 'plus' })
+          : linkButton('Crear mi primera cotización', '#/cotizaciones/nueva', { variant: 'primary', size: 'lg', icon: 'plus' }),
+        hasQuotes
+          ? linkButton('Probar con un ejemplo', DEMO_FROM_APP_HREF, { variant: 'ghost', size: 'lg', icon: 'play' })
+          : linkButton('Configurar mi empresa', '#/configuracion/empresa', { variant: 'secondary', size: 'lg', icon: 'settings' }),
+      ),
+      hasQuotes ? null : h('p', { class: 'home-demo-link' }, '¿Querés ver primero cómo funciona? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá la demo'), ': está aparte y no toca tus datos.'),
     ),
     heroArt(),
   );
@@ -441,7 +452,7 @@ function shortcutsSection(app, stats) {
       linkButton('Analizar escenarios', '#/escenarios', { variant: 'secondary', icon: 'chart' }),
       exportBackupButton(app),
     ),
-    h('p', { class: 'muted small' }, 'Tus datos se guardan sólo en este navegador. Exportá un backup de vez en cuando.'),
+    h('p', { class: 'muted small' }, 'Tus datos se guardan en tu cuenta. Igual podés exportar un backup cuando quieras.'),
   );
 }
 
@@ -527,10 +538,11 @@ export async function render(root, app) {
     h(
       'div',
       { class: 'home' },
-      heroSection({ hasQuotes }),
+      heroSection({ hasQuotes, name: greetingName(ctx.account && ctx.account.user ? ctx.account.user.fullName : '') }),
       hasQuotes ? continueSection(draft) : null,
       hasQuotes ? indicatorsSection(indicators, settings, scope) : null,
-      quotesSection(app, { all, own, scope }),
+      // Sin cotizaciones, el saludo ya es el estado vacío (sin botones repetidos).
+      hasQuotes ? quotesSection(app, { all, own, scope }) : null,
       h('div', { class: 'home-more disclosure-list' }, shortcutsSection(app, { items: all }), learnSection()),
     ),
   );

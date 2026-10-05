@@ -97,6 +97,10 @@ const RECOVERY_REASONS = Object.freeze({
   'before-import': 'Antes de importar un backup',
   'before-demo-reset': 'Antes de restaurar los datos de ejemplo',
   'before-start-fresh': 'Antes de empezar con tu empresa en limpio',
+  'before-cloud-import': 'Datos de este navegador, antes de importarlos a tu cuenta',
+  'before-local-import': 'Tu cuenta, antes de importar los datos de este navegador',
+  'cloud-conflict-local': 'Tu versión, antes de recargar la más nueva',
+  'cloud-unsynced': 'Cambios sin subir cuando otro dispositivo guardó antes',
 });
 
 // --------------------------------------------------------- parseo de listas
@@ -277,8 +281,19 @@ function kvList(entries) {
   return h('dl', { class: 'kv-list' }, ...entries.filter(Boolean).map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
 }
 
-function recoveryLabel(key) {
-  const rest = key.replace(/^rateos\.recovery\./, '');
+/**
+ * Parte visible de una clave de recuperación: fecha y motivo. Las de una
+ * cuenta llevan antes usuario y organización (rateos.cloud.<u>.<o>.recovery.),
+ * que nunca se muestran ni van al nombre del archivo.
+ */
+export function recoveryKeyTail(key) {
+  const text = String(key || '');
+  const i = text.indexOf('recovery.');
+  return i >= 0 ? text.slice(i + 'recovery.'.length) : text;
+}
+
+export function recoveryLabel(key) {
+  const rest = recoveryKeyTail(key);
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.(.+)$/.exec(rest);
   if (!match) return { date: EMPTY, reason: rest };
   const iso = `${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`;
@@ -287,8 +302,9 @@ function recoveryLabel(key) {
   return { date: formatDateTime(iso), reason };
 }
 
-function recoveryFilename(key) {
-  return `${key.replace(/[^a-z0-9-]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')}.json`;
+export function recoveryFilename(key) {
+  const tail = recoveryKeyTail(key).replace(/[^a-z0-9-]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return `rateos-recovery-${tail || 'copia'}.json`;
 }
 
 // -------------------------------------------------------------------- vista
@@ -299,6 +315,7 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { id: 'parametros', label: 'Parámetros económicos' },
   { id: 'convenios', label: 'Convenios' },
   { id: 'datos', label: 'Datos y backup' },
+  { id: 'cuenta', label: 'Cuenta' },
   { id: 'acerca', label: 'Acerca de' },
 ]);
 
@@ -898,8 +915,15 @@ export async function render(root, app, params = {}) {
       else showImportSummary(parsed, sanitizeText(file.name, 120));
     });
 
+    const cloud = ctx.mode === 'cloud';
     const backupCard = card(
-      { title: 'Backup', subtitle: 'Tus datos viven sólo en este navegador. Exportá un backup seguido y guardalo en un lugar seguro.', level: 2 },
+      {
+        title: 'Backup',
+        subtitle: cloud
+          ? 'Tus datos se guardan en tu cuenta. El backup es una copia portable (JSON) para guardar aparte o llevar a otra cuenta.'
+          : 'Tus datos viven sólo en este navegador. Exportá un backup seguido y guardalo en un lugar seguro.',
+        level: 2,
+      },
       h(
         'div',
         { class: 'stack' },
@@ -936,7 +960,8 @@ export async function render(root, app, params = {}) {
       }
     });
     const ownCompany = org.illustrative !== true;
-    const demoCard = card(
+    // En una cuenta real no se cargan datos de ejemplo: la demo está aparte (pública, en memoria).
+    const demoCard = cloud ? null : card(
       {
         title: ownCompany ? 'Volver a empezar' : 'Datos de ejemplo',
         subtitle: ownCompany
@@ -1025,7 +1050,7 @@ export async function render(root, app, params = {}) {
                 return h(
                   'li',
                   {},
-                  h('div', { class: 'cell-main' }, h('span', { class: 'cell-title' }, info.reason), h('span', { class: 'cell-sub mono' }, `${info.date} · ${key}`)),
+                  h('div', { class: 'cell-main' }, h('span', { class: 'cell-title' }, info.reason), h('span', { class: 'cell-sub mono' }, info.date)),
                   h(
                     'div',
                     { class: 'row' },
@@ -1062,6 +1087,7 @@ export async function render(root, app, params = {}) {
         ? 'memoria — este navegador no permite guardar: los datos se pierden al cerrar'
         : 'local — datos sólo en este navegador'
       : STORAGE_MODE;
+    const cloud = ctx.mode === 'cloud';
     const aboutCard = card(
       { title: 'Acerca de', className: 'about-card', level: 2 },
       h('p', { class: 'about-version mono' }, `${APP_NAME} · v${v.version || 'dev'} · build ${v.commit || 'local'}`),
@@ -1069,18 +1095,85 @@ export async function render(root, app, params = {}) {
         ['Fecha de build', v.buildDate ? formatDateTime(v.buildDate) : 'Sin fecha (versión local)'],
         v.ref ? ['Referencia', v.ref] : null,
         ['Esquema de datos', `v${SCHEMA_VERSION}`],
-        ['Almacenamiento', storageText],
+        ['Almacenamiento', cloud ? 'nube — tu cuenta (Supabase), protegida por empresa' : storageText],
         [
           'Funciones activas',
           h('div', { class: 'flag-list' }, ...(features.length ? features.map((f) => badge(f.label, 'green')) : [h('span', { class: 'muted' }, 'Las funciones básicas de cotización')])),
         ],
       ]),
-      banner('RATEOS no tiene backend, no usa analytics ni IA. Todo se calcula en tu navegador y tus datos no salen de este dispositivo, salvo que exportes un backup.', 'info', { title: 'Privacidad.' }),
+      banner(cloud
+        ? 'Tus datos se guardan en tu cuenta (Supabase) y la base sólo se los muestra a las personas de tu empresa (Row Level Security). Los cálculos se hacen en tu navegador. RATEOS no usa analytics ni IA.'
+        : 'RATEOS no tiene backend, no usa analytics ni IA. Todo se calcula en tu navegador y tus datos no salen de este dispositivo, salvo que exportes un backup.', 'info', { title: 'Privacidad.' }),
     );
     mount(panel, h('div', { class: 'view-narrow' }, aboutCard));
   }
 
-  const builders = { empresa: buildCompany, parametros: buildParams, convenios: buildAgreements, datos: buildData, acerca: buildAbout };
+  // ------------------------------------------------------------- cuenta
+
+  /**
+   * Nombre, email, empresa y rol. Nunca ids internos, tokens ni claves.
+   */
+  function buildAccount() {
+    const account = ctx.account;
+    if (!account) {
+      mount(panel, h('div', { class: 'view-narrow' }, banner('No hay una sesión iniciada.', 'info')));
+      return;
+    }
+    let nameValue = account.user.fullName || '';
+    const nameField = textField({
+      label: 'Tu nombre',
+      value: nameValue,
+      maxLength: 120,
+      onChange: (value) => {
+        nameValue = value;
+      },
+    });
+    const saveName = button('Guardar nombre', {
+      variant: 'secondary',
+      size: 'sm',
+      onClick: async () => {
+        saveName.disabled = true;
+        try {
+          const res = await ctx.updateProfileName(nameValue);
+          if (res.ok) {
+            app.toast('Nombre guardado.', 'success');
+            await app.refreshChrome();
+          } else {
+            app.toast('No pudimos guardar el nombre. Probá de nuevo.', 'danger');
+          }
+        } finally {
+          saveName.disabled = false;
+        }
+      },
+    });
+    const resetPassword = button('Cambiar contraseña', {
+      variant: 'secondary',
+      size: 'sm',
+      onClick: async () => {
+        resetPassword.disabled = true;
+        const res = await app.auth.requestPasswordReset(account.user.email);
+        resetPassword.disabled = false;
+        app.toast(res.ok ? 'Te enviamos un enlace a tu email para elegir una contraseña nueva.' : res.message, res.ok ? 'success' : 'warning');
+      },
+    });
+    const accountCard = card(
+      { title: 'Mi cuenta', level: 2 },
+      h('div', { class: 'stack' },
+        nameField,
+        h('div', { class: 'row' }, saveName),
+        kvList([
+          ['Email', account.user.email],
+          ['Empresa', typeof ctx.organizationName === 'function' ? ctx.organizationName() : account.organization.name],
+          ['Rol', account.roleLabel],
+        ]),
+        h('div', { class: 'row' }, resetPassword, button('Cerrar sesión', { variant: 'danger', icon: 'logout', onClick: () => app.signOut() })),
+        h('p', { class: 'muted small' }, 'El nombre de la empresa se cambia en Configuración → Empresa.'),
+      ),
+    );
+    mount(panel, h('div', { class: 'view-narrow' }, accountCard));
+  }
+
+  const builders = { empresa: buildCompany, parametros: buildParams, convenios: buildAgreements, datos: buildData, cuenta: buildAccount, acerca: buildAbout };
   await builders[section]();
 
   // Si se cierra o se oculta la pestaña, se guarda lo pendiente.

@@ -12,16 +12,36 @@ export const APP_TAGLINE = 'Motor de costos y tarifas para servicios industriale
 export const SCHEMA_VERSION = 2;
 
 /**
- * Modo de almacenamiento. Hoy sólo existe "local" (localStorage).
- * En el futuro podrá ser "supabase" sin tocar motores ni pantallas.
+ * Modo de almacenamiento por defecto de LocalStorageRepository. Con sesión,
+ * los datos reales viven en Supabase (SupabaseRepository); "local" queda
+ * para la demo (en memoria), los tests y la importación de datos viejos.
  */
 export const STORAGE_MODE = 'local';
 
+/**
+ * Proyecto Supabase de RATEOS. SÓLO valores públicos por diseño: la URL y la
+ * publishable key (la seguridad la da Row Level Security en Postgres).
+ * NUNCA poner acá ni en ningún archivo del frontend: service_role,
+ * sb_secret_…, la contraseña de la base, connection strings ni el JWT secret.
+ */
+export const SUPABASE = Object.freeze({
+  url: 'https://dltlnizvnvnefgbzfftu.supabase.co',
+  publishableKey: 'sb_publishable_0zN4iQ1quvW2kC8XScqNGw_ZQ1F6ztW',
+});
+
+/** URL pública del sitio (GitHub Pages). Base de los enlaces de los emails de Auth. */
+export const PUBLIC_SITE_URL = 'https://joaquinvedova1.github.io/COTIZADORWEB/';
+
 /** Claves de localStorage. Nunca se usa localStorage.clear(). */
 export const STORAGE_KEYS = Object.freeze({
+  /** Datos del modo local anterior (sin cuenta). Nunca se borran: se ofrecen para importar. */
   state: 'rateos.state',
   recoveryPrefix: 'rateos.recovery.',
   uiPrefs: 'rateos.ui',
+  /** Sesión de Supabase Auth (la escribe el cliente oficial; nunca contiene contraseñas). */
+  authSession: 'rateos.auth',
+  /** Copia local recuperable del workspace en la nube: rateos.cloud.<usuario>.<organización>. */
+  cloudCachePrefix: 'rateos.cloud.',
 });
 
 /**
@@ -30,7 +50,7 @@ export const STORAGE_KEYS = Object.freeze({
  */
 export const FEATURES = Object.freeze({
   historicalComparison: false, // Estimado vs real (diseñado en docs/DATA_MODEL.md)
-  supabase: false,
+  supabase: true, // Cuentas reales (Supabase Auth) y datos en la nube con RLS.
   multiOrganization: false,
   analytics: false, // Eventos internos desacoplados; sin envío a terceros.
   commercialModelComparator: true,

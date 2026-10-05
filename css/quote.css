@@ -120,6 +120,8 @@
 .qe-save[data-status="saving"] .qe-save-dot { background: var(--blue-400); animation: qe-pulse 1s ease-in-out infinite; }
 .qe-save[data-status="error"] { color: #B23A3A; border-color: #F0C9C9; background: var(--red-50); max-width: 100%; white-space: normal; }
 .qe-save[data-status="error"] .qe-save-dot { background: var(--red); }
+.qe-save[data-status="error"][data-sync="pending"] { color: #7A4B0E; border-color: #F4D6AB; background: var(--orange-50); }
+.qe-save[data-status="error"][data-sync="pending"] .qe-save-dot { background: var(--orange); }
 .qe-save[data-status="readonly"] .qe-save-dot { background: var(--ink-3); }
 .qe-save[data-status="invalid"] { color: #9A5F12; border-color: #F4D6AB; background: var(--orange-50); }
 .qe-save[data-status="invalid"] .qe-save-dot { background: var(--orange); }

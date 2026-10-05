@@ -4,13 +4,11 @@
  *
  * 1. El servicio · 2. Lo que cuesta prestarlo · 3. El resultado · 4. Probalo vos
  *
- * Recorrerla NO escribe nada: muestra la cotización de ejemplo guardada si
- * existe o, si se borró, la demo en memoria (ctx.quotes.getDemoQuote) y la
- * calcula con el motor (ctx.quotes.compute). Recién "Ver el análisis
- * completo" la guarda (ensureDemoQuote), porque es una acción explícita. En
- * modo sólo lectura, si el ejemplo no está guardado, ese botón queda
- * deshabilitado. El paso 4 recalcula sobre una COPIA de la cotización (días
- * activos distintos) y nunca guarda nada.
+ * AISLADA de las cuentas: usa el contexto de demo (app.demo(), en memoria).
+ * No crea usuario, organización, cotizaciones ni recursos, y no escribe en
+ * el navegador ni en la nube. "Ver el análisis completo" abre
+ * #/demo/analisis, también público y en memoria. El paso 4 recalcula sobre
+ * una COPIA de la cotización (días activos distintos).
  *
  * #/demo?paso=2 abre directo en un paso (1 a 4). #/demo?desde=app (desde la
  * aplicación) cambia "Salir del ejemplo" por "Volver a RATEOS" (→ #/inicio) y
@@ -29,8 +27,8 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { deepClone } from '../../../core/object.js';
 import { logger } from '../../../core/logger.js';
 import { costBreakdown } from '../../cost-breakdown.js';
-import { userErrorMessage } from '../../layout.js';
-import { costGroupLabel, flowHeader, focusHeading, hashParams, headerLink, illustrativeLabel, isReadOnly, pubLink, publicIcon } from './public-chrome.js';
+import { registerHash } from '../../../services/auth-routing.js';
+import { costGroupLabel, flowHeader, focusHeading, hashParams, headerLink, illustrativeLabel, isSignedIn, pubLink, publicIcon } from './public-chrome.js';
 
 const STEPS = Object.freeze(['El servicio', 'Lo que cuesta prestarlo', 'El resultado', 'Probalo vos']);
 const NEXT_LABELS = Object.freeze({ 1: 'Ver lo que cuesta', 2: 'Ver el resultado', 3: 'Probalo vos' });
@@ -94,26 +92,22 @@ function demoOrigin() {
 }
 
 /**
- * Cotización de ejemplo + función de cálculo. NO escribe: la guardada si
- * existe o la demo en memoria (stored: false). Si ni siquiera se puede leer,
- * usa la demo en memoria con el motor directamente (available: false).
+ * Cotización de ejemplo + función de cálculo, del contexto de demo (en
+ * memoria, nunca la cuenta). Si no se puede armar, usa la cotización de
+ * ejemplo con el motor directamente.
  */
 async function loadDemo(app) {
   try {
-    const { quote, stored } = await app.ctx.quotes.getDemoQuote();
-    const compute = (q, options = {}) => app.ctx.quotes.compute(q, options);
-    return { quote, result: await compute(quote), stored: Boolean(stored), available: true, compute };
+    const demoCtx = await app.demo();
+    const { quote } = await demoCtx.quotes.getDemoQuote();
+    const compute = (q, options = {}) => demoCtx.quotes.compute(q, options);
+    return { quote, result: await compute(quote), compute };
   } catch (error) {
-    logger.info('Demo guiada: se usa la cotización de ejemplo en memoria', { name: error && error.name });
-    let settings;
-    try {
-      settings = await app.getSettings();
-    } catch {
-      settings = defaultSettings();
-    }
+    logger.info('Demo guiada: se usa la cotización de ejemplo directa', { name: error && error.name });
+    const settings = defaultSettings();
     const quote = demoHydroCraneQuote();
     const compute = async (q, options = {}) => computeQuote(q, { settings, ...options });
-    return { quote, result: await compute(quote), stored: false, available: false, compute };
+    return { quote, result: await compute(quote), compute };
   }
 }
 
@@ -174,7 +168,6 @@ export async function render(root, app) {
   const origin = demoOrigin();
   const demo = await loadDemo(app);
   const { quote, result, compute } = demo;
-  const readOnly = isReadOnly(app);
   const k = result.kpis || {};
   const unit = unitText(result);
   const estimatedDays = k.activeDays;
@@ -480,45 +473,8 @@ export async function render(root, app) {
 
     showFor(state.days);
 
-    const resultHref = `#/cotizaciones/${encodeURIComponent(quote.id)}/result`;
-    // Guardada: sólo se navega (no escribe, también en sólo lectura).
-    // Sin guardar: se guarda recién ahora, ante esta acción explícita.
-    // Sin poder guardarla (sólo lectura o datos ilegibles): deshabilitado.
-    const canOpen = demo.stored || (demo.available && !readOnly);
-    let analysisAction;
-    if (demo.stored) {
-      analysisAction = pubLink('Ver el análisis completo', resultHref, { tone: 'primary', iconAfter: 'arrowRight' });
-    } else if (canOpen) {
-      let busy = false;
-      analysisAction = h(
-        'button',
-        {
-          type: 'button',
-          class: 'btn btn-primary btn-lg pub-btn',
-          on: {
-            click: async () => {
-              if (busy) return;
-              busy = true;
-              analysisAction.disabled = true;
-              try {
-                const saved = await app.ctx.quotes.ensureDemoQuote();
-                app.toast('Guardamos el ejemplo en tus cotizaciones para que puedas explorarlo.', 'success');
-                app.navigate(`#/cotizaciones/${encodeURIComponent((saved && saved.id) || quote.id)}/result`);
-              } catch (error) {
-                logger.warn('Demo guiada: no se pudo guardar el ejemplo', { name: error && error.name });
-                app.toast(userErrorMessage(error, 'No se pudo guardar el ejemplo en este navegador, así que no se puede abrir completo. Probá de nuevo.'), 'danger');
-                busy = false;
-                analysisAction.disabled = false;
-              }
-            },
-          },
-        },
-        h('span', {}, 'Ver el análisis completo'),
-        publicIcon('arrowRight', { size: 18 }),
-      );
-    } else {
-      analysisAction = button('Ver el análisis completo', { variant: 'primary', size: 'lg', disabled: true, attrs: { class: 'btn btn-primary btn-lg pub-btn', 'aria-describedby': 'pub-demo-unavailable' } });
-    }
+    // Análisis completo: también público y en memoria (nunca se guarda en una cuenta).
+    const analysisAction = pubLink('Ver el análisis completo', '#/demo/analisis', { tone: 'primary', iconAfter: 'arrowRight' });
     const pending = result.completeness && Array.isArray(result.completeness.pending) ? result.completeness.pending : [];
 
     return [
@@ -556,11 +512,8 @@ export async function render(root, app) {
           // Desde la bienvenida, la continuación es volver a ella: ahí se elige con qué datos empezar.
           origin === ORIGINS.bienvenida
             ? pubLink(origin.exitLabel, origin.exitHref, { tone: 'secondary', iconBefore: 'arrowLeft' })
-            : pubLink('Crear mi propia cotización', '#/cotizaciones/nueva', { tone: 'secondary' }),
+            : pubLink('Crear mi propia cotización', isSignedIn(app) ? '#/cotizaciones/nueva' : registerHash('/cotizaciones/nueva'), { tone: 'secondary' }),
         ),
-        canOpen
-          ? null
-          : h('p', { class: 'pub-footnote', id: 'pub-demo-unavailable' }, 'El ejemplo no está guardado en este navegador y no se puede guardar ahora (por ejemplo, porque tus datos están en modo sólo lectura), así que no se puede abrir completo.'),
       ),
     ];
   }

@@ -400,19 +400,26 @@ body.is-public .skip-link:not(:focus) { box-shadow: none; }
 .pub-auth-sub { margin-top: -0.6rem; font-size: 1.02rem; color: var(--ink-3); }
 .pub-form { display: flex; flex-direction: column; gap: 1rem; }
 .pub-form .pub-btn-block { margin-top: 0.25rem; }
-/* Campos de cuenta: visibles pero deshabilitados hasta que existan las cuentas. */
-.pub-account-fields { min-width: 0; margin: 0; padding: 1rem 1rem 0.9rem; display: flex; flex-direction: column; gap: 0.85rem; border: 1px dashed #A9BBC8; border-radius: 14px; background: var(--surface-2); }
-.pub-account-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; padding: 0 0.35rem; font-size: 0.92rem; font-weight: 700; color: var(--ink-2); }
-.pub-account-legend > span:first-child { white-space: nowrap; }
-.pub-soon-tag { display: inline-flex; align-items: center; padding: 0.12rem 0.55rem; border-radius: 999px; background: var(--line-2); border: 1px solid var(--line); font-size: 0.75rem; font-weight: 700; color: var(--ink-3); }
-.pub-account-fields .pub-label { color: var(--ink-2); }
-.pub-field input:disabled { background: var(--line-2); border-style: dashed; color: var(--ink-3); cursor: not-allowed; }
-.pub-account-note { display: flex; align-items: center; gap: 0.4rem; }
-.pub-account-note .icon { color: var(--ink-3); flex-shrink: 0; }
+/* Errores y avisos de los formularios de cuenta (texto humano, nunca técnico). */
+.pub-field input[aria-invalid="true"] { border-color: var(--red); box-shadow: 0 0 0 3px rgba(217, 87, 87, 0.15); }
+.pub-field-error { font-size: 0.88rem; line-height: 1.45; font-weight: 600; color: var(--red-text); }
+.pub-form-message { padding: 0.75rem 0.9rem; border-radius: 12px; border: 1px solid transparent; font-size: 0.93rem; line-height: 1.5; }
+.pub-form-message.is-error { background: var(--red-50); border-color: #F0C9C9; color: #8E2F2F; }
+.pub-form-message.is-success { background: var(--green-50); border-color: #BDE5D2; color: #135E3F; }
+.pub-form-message.is-warning { background: var(--orange-50); border-color: #F4D6AB; color: #7A4B0E; }
+.pub-auth-forgot { margin-top: -0.35rem; text-align: right; }
+.pub-auth-forgot a { display: inline-flex; align-items: center; min-height: 44px; font-size: 0.92rem; font-weight: 600; color: var(--blue-text); }
+.pub-auth-done { display: flex; flex-direction: column; gap: 0.6rem; line-height: 1.55; color: var(--ink-2); }
+.pub-auth-done strong { color: var(--ink); overflow-wrap: anywhere; }
+.pub-auth-switch + .pub-auth-switch { padding-top: 0; border-top: 0; }
 .pub-auth-switch { padding-top: 1rem; border-top: 1px solid var(--line-2); text-align: center; color: var(--ink-3); }
 .pub-auth-switch a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; color: var(--blue-text); }
 .pub-auth-foot { display: flex; align-items: center; justify-content: center; gap: 0.45rem; max-width: 560px; font-size: 0.85rem; color: var(--ink-3); text-align: center; }
 .pub-auth-foot .icon { color: var(--blue-600); }
+
+/* Análisis completo del ejemplo (#/demo/analisis): misma pantalla de resultado. */
+.pub-demo-analysis-main { flex: 1; display: flex; flex-direction: column; gap: 1rem; width: 100%; max-width: var(--pub-max); margin: 0 auto; padding: clamp(1.5rem, 1rem + 2vw, 2.5rem) var(--pub-gutter) 4rem; }
+.pub-demo-analysis { width: 100%; padding: 0; margin-top: 0.5rem; }
 
 /* -------------------------------------------------------------- demo guiada */
 

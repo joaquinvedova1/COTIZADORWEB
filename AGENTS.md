@@ -135,13 +135,15 @@ Hay tests que lo protegen. No los borres.
 
 ## 11. Persistencia
 
-- Toda persistencia pasa por `StorageRepository` (`js/data/storage-repository.js`); hoy la implementa `LocalStorageRepository`.
-- Estado en `rateos.state` con `schemaVersion`. La clave no depende de la versión: los datos sobreviven recargas, cierres y nuevos deploys.
+- Toda persistencia pasa por `StorageRepository` (`js/data/storage-repository.js`). Los datos de una **cuenta** los guarda `SupabaseRepository` (un workspace JSON versionado por organización en `workspace_states`, con control de revisión); `LocalStorageRepository` es la base de ambos y el modo local anterior. La **demo** pública vive en memoria y **nunca** se guarda ni se importa a una cuenta.
+- El estado tiene `schemaVersion`. En el modo local anterior vivía en `rateos.state` (esa clave no se borra nunca: se ofrece importar sus datos reales a la cuenta, sin demo ni ILUSTRATIVOS, con copia previa).
+- Nunca decir "guardado" si el cambio sólo quedó en el navegador. Nunca *last-write-wins* silencioso: un conflicto de revisión se muestra ("Tus datos cambiaron en otro dispositivo." → [Recargar] [Conservar una copia]).
+- Lo que una cuenta deja en el navegador (copia de cambios sin subir, copias de recuperación) va con prefijo de usuario y organización (`rateos.cloud.<usuario>.<organización>…`): otra persona en el mismo navegador nunca lo ve.
 - Si cambia el formato: subir `SCHEMA_VERSION`, agregar `migrateV{N}ToV{N+1}()` en `js/data/migrations.js`, tests con datos de la versión anterior y entrada en el CHANGELOG.
 - **Nunca** usar `localStorage.clear()`. **Nunca** borrar datos porque cambió la estructura: se migran, y antes se guarda una copia de recuperación.
 - Datos de una versión más nueva de RATEOS → modo sólo lectura.
 - Entidades principales con `id` (UUID), `organizationId`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`. Nunca usar el nombre visible como clave.
-- Varias pestañas comparten el mismo almacenamiento: `LocalStorageRepository` relee `rateos.state` antes de cada lectura/escritura y adopta los cambios de otra pestaña. Nunca persistir una copia vieja en memoria del estado completo. Limitación conocida: si dos pestañas editan LA MISMA cotización a la vez, gana el último guardado.
+- Modo local: varias pestañas comparten el mismo almacenamiento; `LocalStorageRepository` relee `rateos.state` antes de cada lectura/escritura y adopta los cambios de otra pestaña. Nunca persistir una copia vieja en memoria del estado completo. En una cuenta, pestañas y dispositivos se coordinan por la revisión de la nube (conflicto visible).
 
 ## 12. Backup
 
@@ -153,13 +155,17 @@ Hay tests que lo protegen. No los borres.
 ## 13. Seguridad
 
 - El repo y GitHub Pages pueden ser públicos. **Todo JavaScript frontend es público.**
+- En el navegador sólo pueden existir la **URL de Supabase y la publishable key** (`js/config.js`). **Nunca** `service_role`, secret keys (`sb_secret_…`), contraseña de la base, connection strings ni el JWT secret: ni en GitHub, `dist/`, JS, HTML, CSS ni `version.json` (un test busca esos patrones).
+- **Nunca guardar contraseñas** (ni localStorage, sessionStorage, Postgres, logs ni eventos): las administra Supabase Auth. Nunca mostrar tokens, ids de usuario, errores de Postgres ni detalles internos de Supabase.
+- **La seguridad de los datos está en Postgres (RLS)**, nunca sólo en filtros de `organizationId` del frontend. Toda tabla con datos empresariales: RLS habilitada, sin permisos para `anon`, políticas por operación y tests A/B (`supabase/tests/rls_test.sql`). Funciones `security definer` sólo en el schema `private` con `search_path` vacío.
 - Nunca guardar en el repo: API keys, passwords, tokens, service role keys, secretos, archivos `.env`, documentos reales de clientes, estructuras de costos reales ni datos confidenciales. Las planillas de referencia (`.xls`, `.xlsx`, `.ods`…) están en `.gitignore` y un test impide versionarlas: se analizan fuera del repo y sólo se documenta su lógica conceptual, nunca sus valores, nombres ni contratos (ver [docs/REFERENCE_COST_STRUCTURE.md](docs/REFERENCE_COST_STRUCTURE.md)). `.gitignore` ya excluye `.env*` (salvo `.env.example`), `secrets` (archivo o carpeta), `secrets.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `*credentials*`, `*credenciales*`, `*service-account*.json` y `.npmrc`.
 - DOM: **no usar `innerHTML`** (ni `outerHTML`, `insertAdjacentHTML`, `document.write`) con datos de usuario; preferir `textContent` / `h()` de `js/ui/dom.js`.
 - **No usar `eval()`, `new Function()`** ni `setTimeout`/`setInterval` con strings.
 - Validar inputs: cantidad ≥ 0, distancia ≥ 0, horas ≥ 0, margen válido (0 ≤ margen < 100), utilización > 0 y ≤ 100 (`RULES` en `js/core/validation.js`).
-- No relajar la CSP de `index.html` (sin scripts inline, sin CDNs, sin terceros).
-- Minimizar dependencias: hoy hay **cero** dependencias npm. No agregar paquetes sin una razón fuerte y documentada.
-- El origen `joaquinvedova1.github.io` es compartido por todos los sitios de Pages de esa cuenta (comparten `localStorage`): no publicar en esa cuenta sitios no confiables.
+- No relajar la CSP de `index.html` (sin scripts inline, sin CDNs, sin terceros; `connect-src` sólo `'self'` y el proyecto de Supabase).
+- Minimizar dependencias: hoy hay **cero** dependencias npm (el SDK de Supabase está vendorizado en `js/data/vendor/` con hash verificado; actualizarlo es un cambio explícito). No agregar paquetes sin una razón fuerte y documentada.
+- El origen `joaquinvedova1.github.io` es compartido por todos los sitios de Pages de esa cuenta (comparten `localStorage`, incluida la sesión de Supabase): no publicar en esa cuenta sitios no confiables; antes de tener clientes, usar un dominio propio.
+- Enlaces de email de Auth: sólo PKCE (`?code=`, query antes del `#`); nunca aceptar `?token_hash=` ni redirecciones `next` que no sean rutas internas (`isSafeNextPath`).
 
 ## 14. Privacidad
 
@@ -205,9 +211,10 @@ Checklists por rol en [docs/AGENT_ROLES.md](docs/AGENT_ROLES.md).
 
 ## 19. Supabase y evolución futura
 
-- **Hoy no se conecta Supabase, Firebase ni ningún backend**, ni login, ni RLS, ni PostHog, ni agentes autónomos, ni microservicios.
-- El diseño ya está preparado: `StorageRepository`, `STORAGE_MODE`, `FEATURES` (`supabase`, `multiOrganization`, `historicalComparison`, `analytics` en `false`), `organizationId` y metadatos en las entidades.
-- Cuando se implemente: `SupabaseRepository` en `js/data/` sin tocar motores; **RLS obligatoria** en todas las tablas con datos empresariales (sólo miembros de la organización); **`SUPABASE_SERVICE_ROLE_KEY` nunca en el frontend**, GitHub Pages, JavaScript público ni repositorio; operaciones privilegiadas en Edge Functions. Ver [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) y [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md).
+- **Hoy hay cuentas reales con Supabase** (proyecto `dltlnizvnvnefgbzfftu`): Auth con email + contraseña y confirmación de email, `profiles`, `organizations`, `organization_members` (OWNER / ADMIN / ESTIMATOR / VIEWER), `workspace_states` con RLS. Ver [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) y [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md).
+- Toda modificación de la base es una **migración versionada** en `supabase/migrations/` aplicada con el plugin/MCP de Supabase (nunca cambios manuales que no se puedan reconstruir), seguida de `supabase/tests/rls_test.sql` y de los advisors de seguridad. **Nunca desactivar RLS.** No desactivar la confirmación de email para facilitar tests.
+- `SUPABASE_SERVICE_ROLE_KEY` y cualquier secret key **nunca** en el frontend, GitHub Pages, JavaScript público ni repositorio; operaciones privilegiadas futuras (invitaciones, cambio de OWNER, borrado de organización) en Edge Functions.
+- Todavía **no**: invitaciones, Google OAuth, pagos, multiempresa por usuario (`FEATURES.multiOrganization`), PostHog/analytics, agentes autónomos, microservicios ni un backend propio. El modelo normalizado (una tabla por entidad) es una fase futura planificada en [.agent/PLANS.md](.agent/PLANS.md).
 
 ## 20. Execution plans
 
@@ -230,6 +237,6 @@ npm run build   # dist/ + dist/version.json
 - `npm test` en verde y CI en verde.
 - La app funciona bajo `/COTIZADORWEB/` sin errores en consola.
 - Sin `NaN`/`Infinity` en pantalla; valores demo marcados como ILUSTRATIVOS; margen y markup diferenciados.
-- Persistencia intacta (datos existentes se abren; backup exporta e importa).
+- Persistencia intacta (datos existentes se abren; backup exporta e importa; los datos de una cuenta no son visibles para otra).
 - Documentación y CHANGELOG actualizados cuando corresponde.
 - Pull Request con el checklist completo.
