@@ -61,6 +61,8 @@ Sólo para el ecosistema `github-actions` (mantiene actualizadas las versiones d
 
 Hoy el repositorio publica con **"Deploy from a branch"**. En ese modo Pages sirve la raíz de `main` **sin pasar por los tests**. El sitio igual funciona porque todas las rutas son relativas y el repo incluye `.nojekyll`, pero no hay garantía de calidad ni `version.json` del build.
 
+**Es obligatorio pasar a "GitHub Actions"**: mientras siga "Deploy from a branch", cada push a `main` dispara **dos** deploys que compiten ("pages build and deployment", que publica la raíz del repo, y "Deploy RATEOS a GitHub Pages", que publica `dist/`) y queda publicado el que termina último. Si gana el de la rama se publica el código **sin carpetas versionadas** (sin cache busting, ver §4.1) y "Acerca de" dice `build dev`.
+
 Paso a paso (lo hace una persona con permisos de administración del repositorio, una sola vez):
 
 1. Ir a **GitHub → repositorio `COTIZADORWEB` → Settings → Pages**.
@@ -74,10 +76,33 @@ Al elegir "GitHub Actions", GitHub crea el environment **`github-pages`** que, p
 ## 4. Verificación después de cada deploy
 
 1. **Actions**: el run de "Deploy RATEOS a GitHub Pages" terminó en verde (test, build y deploy).
-2. Abrir <https://joaquinvedova1.github.io/COTIZADORWEB/> (recarga forzada: Ctrl+Shift+R / Cmd+Shift+R).
+2. Abrir <https://joaquinvedova1.github.io/COTIZADORWEB/> (no hace falta recarga forzada: ver §4.1). `#/` muestra la landing.
 3. Ir a **Configuración → Acerca de** y confirmar que muestra `RATEOS · v0.1.0 · build abc1234`, donde `abc1234` es el SHA corto del commit desplegado, la fecha de build y la "Referencia" (`main`, o el `ref` pedido en un despliegue manual).
-4. Prueba de humo: Dashboard carga; abrir la cotización demo "Hidrogrúa on-call — Añelo" y el paso Resultado; "Ver cálculo" abre la traza; la consola del navegador no muestra errores.
+4. Prueba de humo: `#/inicio` abre la app (menú Inicio / Cotizaciones / Recursos / Servicios / Escenarios / Configuración); abrir la cotización demo "Hidrogrúa on-call — Añelo" y el paso Resultado; "Ver cálculo" abre la traza; la consola del navegador no muestra errores. En las herramientas de red, los JS y CSS se piden desde `build/abc1234/`.
 5. Los datos existentes del usuario siguen ahí (ver §7).
+
+### 4.1 Caché y carpetas versionadas (cache busting)
+
+GitHub Pages sirve **todos** los archivos con `Cache-Control: max-age=600` y no permite cambiar los headers. Antes, los JS y CSS tenían siempre la misma URL (`./js/app.js`, `./js/ui/layout.js`…): después de un deploy, un navegador que había entrado en los 10 minutos previos reusaba el `index.html` y los módulos de su caché, cada uno con su propio vencimiento, y las vistas que se cargan con `import()` dinámico podían salir de otro build. Resultado: interfaz vieja o mezclada aunque "Acerca de" (que pide `version.json` sin caché) mostrara el build nuevo. Una recarga normal no lo arreglaba (sólo revalida el HTML); hacía falta Ctrl+Shift+R.
+
+Ahora (`scripts/build.mjs`):
+
+```
+dist/
+  index.html              carga sólo ./boot.js (sin CSS ni app.js directos)
+  boot.js                 cargador estable: pide version.json SIN caché y carga ese build
+  version.json            { version, commit, buildDate, ref, build: { base, entry, styles } }
+  build/<sha corto>/js/…  todos los módulos (imports relativos: el grafo entero sale de acá)
+  build/<sha corto>/css/… todos los CSS
+  build/<sha corto>/assets/…
+  js/app.js               shim de transición para index.html viejos en caché (recarga)
+```
+
+- Cada deploy publica sus JS, CSS y assets en una carpeta nueva: **ninguna URL cambia de contenido** y el navegador nunca puede combinar módulos de dos builds.
+- Aunque el navegador tenga en caché un `index.html` o un `boot.js` anteriores, la carpeta a cargar sale de `version.json`, que `boot.js` pide con `cache: 'no-store'`.
+- Cada deploy reemplaza el sitio entero, así que la carpeta del build anterior deja de existir. Una pestaña que quedó abierta durante el deploy y abre una pantalla que todavía no había cargado ve "Esta pantalla no se pudo cargar… recargá la página" con el botón **Recargar la página**, que trae el build nuevo completo.
+- `npm run build` falla si `index.html` publicado referencia JS/CSS sin versionar, si un import de `build/<sha>/` sale de su carpeta o si el manifiesto apunta a archivos que no existen.
+- En desarrollo (`npm start`) no hay carpetas versionadas: `index.html` carga `./js/app.js` directo y el servidor local responde con `no-store`.
 
 Si el sitio se sirve sin build (`npm start` o "Deploy from a branch"), "Acerca de" muestra el `version.json` de desarrollo de la raíz del repo: `RATEOS · v0.1.0 · build dev`, "Sin fecha (versión local)" y referencia `local`. Si `version.json` no se puede leer, muestra `RATEOS · vdev · build local`.
 
@@ -162,7 +187,7 @@ También funciona con cualquier servidor estático (por ejemplo `python3 -m http
 | El job **deploy** falla con error de Pages o de permisos | Source todavía en "Deploy from a branch", o se ejecutó "Run workflow" desde una rama que no es `main` (el environment `github-pages` la rechaza) | Cambiar Source a "GitHub Actions" (§3); ejecutar siempre con branch `main` y usar el input `ref`. |
 | La página carga pero sin estilos o con 404 de `/js/...` | Alguna ruta absoluta (`/js/app.js`, `/css/...`) | Usar siempre rutas relativas (`./js/app.js`, `../core/x.js`) en HTML, CSS e imports; probar con `npm start` bajo `/COTIZADORWEB/`. |
 | Pantalla "Cargando RATEOS…" que no avanza | Error de JavaScript o módulo que no carga | Abrir la consola; correr `npm test`; probar con `npm start` en `/COTIZADORWEB/`. |
-| Se sigue viendo la versión anterior | Caché del navegador o de la CDN de Pages | Recarga forzada; esperar unos minutos; confirmar el build en Configuración → Acerca de. |
+| Se sigue viendo la versión anterior o una mezcla (p. ej. menú viejo con "Acerca de" nuevo) | Se publicó el código sin build (ganó "Deploy from a branch", ver §3) o el navegador tiene un `index.html` de antes de las carpetas versionadas (hasta 10 minutos, una sola vez) | Pasar Source a "GitHub Actions"; en la pestaña de red, los JS deben venir de `build/<sha>/`. Con el build versionado no hace falta recarga forzada (§4.1). |
 | "Acerca de" muestra `build dev` en producción | Pages sigue en "Deploy from a branch" (sirve el `version.json` de desarrollo, no corre el build) | Pasar Source a "GitHub Actions". |
 | El sitio no refleja un merge | El workflow no corrió o falló en test | Revisar Actions; si falló test, corregir en una rama y abrir un PR. |
 | Run manual falla con "Ref inválida" o "No se encontró el commit" | El `ref` tiene caracteres no permitidos o no existe en el repo | Usar un SHA (corto o completo) o un tag existente (`v0.1.0`) de un commit de `main`. |
