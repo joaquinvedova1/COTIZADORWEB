@@ -42,6 +42,8 @@ Pages publica **un artefacto por deploy**, así que cada corrida arma el sitio c
 - La raíz se construye sólo con un commit que es ancestro de `origin/main` (`git merge-base --is-ancestor`) y pasó `npm test`.
 - `scripts/stage-preview.mjs` (tomado siempre de `origin/main`) copia el build de la rama a `dist/preview/`, agrega la marca de staging y **falla si cambia cualquier archivo de producción** (hash de todo lo que no es `preview/` antes y después).
 
+**Un deploy de preview atrasado nunca pisa uno más nuevo:** justo antes de publicar, el job `deploy` consulta con `git ls-remote` (repositorio público, sin credenciales) el último commit de la rama; si ya no es el del preview (la cola de runners lo demoró, o se relanzó un CI viejo), **no publica** y falla con "ya no es el último commit": lo publica la corrida del commit nuevo. Como el workflow se lee de `main`, esta verificación rige desde que se mergea.
+
 Jobs:
 
 1. **plan**: decide qué se publica.
@@ -77,6 +79,7 @@ Si un preview no llegó a publicarse, volvé a empujar la rama o usá **Run work
 
 **Staging comparte origen con producción** (`joaquinvedova1.github.io`): mismo `localStorage` y, con cuentas, el **mismo proyecto de Supabase**.
 - Probá el preview con una cuenta de prueba.
+- **Staging comparte la base de datos con producción** (mismo proyecto de Supabase). Si la rama sube el esquema de datos (por ejemplo v2 → v3), la app de `/preview/` (que lee `"channel": "staging"` de su `version.json`) **pregunta antes** de actualizar el formato de los datos de la cuenta: "Versión de prueba: ¿actualizar el formato de tus datos?". Con "Ver sin cambiar (sólo lectura)" no escribe nada. Una cuenta **nueva** también pregunta antes de crear su espacio ("Versión de prueba: ¿usar esta cuenta acá?"). Si se actualizan, producción (con el esquema anterior) abrirá esa cuenta en **sólo lectura** hasta que se mergee la versión nueva: usá una cuenta de prueba. Lo mismo vale para `npm start` (localhost), que también usa el proyecto de producción.
 - Nunca publiques en `/preview/` código que no confiarías en producción. Por eso sólo se aceptan ramas de este repositorio, nunca forks.
 - Un rollback manual de producción dura hasta el próximo deploy (también uno de preview, que vuelve a publicar `main`). El rollback preferido sigue siendo `git revert` por PR (§5).
 

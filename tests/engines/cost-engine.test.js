@@ -309,9 +309,9 @@ describe('CostEngine — EECC (monto + incidencia %, TOTAL = 100 %)', () => {
     approx(row('equipment').sharePct, (30 / 38) * 100);
   });
 
-  test('las 8 categorías del EECC están siempre presentes y en orden', () => {
+  test('las 9 categorías del EECC están siempre presentes y en orden (PLAN-2026-005 agrega equipos y servicios externos)', () => {
     const s = costStructure(buildCostModel(referenceQuote()), 8);
-    assert.deepEqual(s.rows.map((r) => r.category), ['labor', 'equipment', 'fuel', 'materials', 'logistics', 'structure', 'financial', 'contingency']);
+    assert.deepEqual(s.rows.map((r) => r.category), ['labor', 'equipment', 'external', 'fuel', 'materials', 'logistics', 'structure', 'financial', 'contingency']);
   });
 
   test('cotizaciones demo: la incidencia mostrada suma exactamente 100 % y las participaciones suman 1', () => {

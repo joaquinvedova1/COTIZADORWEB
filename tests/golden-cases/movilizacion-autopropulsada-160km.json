@@ -1,0 +1,21 @@
+{
+  "id": "movilizacion-autopropulsada-160km",
+  "title": "Vactor autopropulsado: 80 km ida + 80 km vuelta, 40 L/100 km, $ 1.500/L, $ 200/km",
+  "rule": "Un equipo que va por sus propios medios suma km de ruta × consumo en ruta × precio del combustible + km × desgaste por km (sin amortización ni mano de obra extra). No hace falta cargar otro vehículo.",
+  "engine": "mobilization.self",
+  "inputs": {
+    "distanceKm": 80,
+    "roundTrip": true,
+    "litersPer100Km": 40,
+    "fuelPricePerLiter": 1500,
+    "costPerKm": 200
+  },
+  "expected": {
+    "kmPerActivation": 160,
+    "litersPerActivation": 64,
+    "fuelPerActivation": 96000,
+    "wearPerActivation": 32000,
+    "perActivation": 128000
+  },
+  "tolerance": 1e-06
+}

@@ -130,7 +130,13 @@ describe('QuoteService.createQuote', () => {
     }
     const strip = ({ id, illustrative, ...rest }) => rest;
     assert.deepEqual(quote.labor.map(strip), template.defaults.labor.map(strip));
-    assert.deepEqual(quote.equipment.map(strip), template.defaults.equipment.map(strip));
+    // Las referencias entre líneas (quién opera el equipo) apuntan a las líneas NUEVAS.
+    const stripRefs = ({ id, illustrative, operatorLaborId, ...rest }) => rest;
+    assert.deepEqual(quote.equipment.map(stripRefs), template.defaults.equipment.map(stripRefs));
+    template.defaults.equipment.forEach((e, i) => {
+      const oldIndex = template.defaults.labor.findIndex((l) => l.id === e.operatorLaborId);
+      assert.equal(quote.equipment[i].operatorLaborId, oldIndex >= 0 ? quote.labor[oldIndex].id : null);
+    });
     assert.deepEqual(quote.pricing, template.defaults.pricing);
 
     // Ids nuevos, únicos y distintos de los de la plantilla.

@@ -118,6 +118,7 @@ export function validateQuote(quote) {
     if (!r.ok) issues.push({ path, message: r.error, severity: 'error' });
   };
 
+  check('contractMonths', quote.contractMonths, 'months');
   const a = isPlainObject(quote.activity) ? quote.activity : {};
   check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'days');
   check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');
@@ -151,6 +152,29 @@ export function validateQuote(quote) {
       issues.push({ path: `equipment.${i}.residualValue`, message: 'El valor residual supera el valor de reposición.', severity: 'warning' });
     }
     check(`equipment.${i}.hoursPerActiveDay`, e.hoursPerActiveDay, 'hoursPerDay');
+    check(`equipment.${i}.otherAnnual`, e.otherAnnual, 'money');
+    // PLAN-2026-005: alquilados / tercerizados (tarifa neta y tratamiento fiscal) y movilización.
+    if (isPlainObject(e.external) && (e.acquisition === 'rented' || e.acquisition === 'outsourced')) {
+      const x = e.external;
+      check(`equipment.${i}.external.price`, x.price, 'money');
+      check(`equipment.${i}.external.minimumUnits`, x.minimumUnits, 'quantity');
+      check(`equipment.${i}.external.fuelLitersPerHour`, x.fuelLitersPerHour, 'quantity');
+      check(`equipment.${i}.external.mobilizationAmount`, x.mobilizationAmount, 'money');
+      const f = isPlainObject(x.fiscal) ? x.fiscal : {};
+      ['vatPct', 'vatRecoverablePct', 'perceptionsPct', 'nonRecoverablePct'].forEach((k) => check(`equipment.${i}.external.fiscal.${k}`, f[k], 'percent'));
+      check(`equipment.${i}.external.fiscal.paymentTermDays`, f.paymentTermDays, 'paymentDays');
+    }
+    if (isPlainObject(e.mobilization)) {
+      check(`equipment.${i}.mobilization.travelLitersPer100Km`, e.mobilization.travelLitersPer100Km, 'quantity');
+      check(`equipment.${i}.mobilization.travelCostPerKm`, e.mobilization.travelCostPerKm, 'money');
+      if (e.mobilization.mode === 'transported' && e.mobilization.carrierLineId && e.mobilization.carrierLineId === e.id) {
+        issues.push({ path: `equipment.${i}.mobilization.carrierLineId`, message: 'Un equipo no puede transportarse a sí mismo.', severity: 'error' });
+      }
+    }
+  });
+
+  (Array.isArray(quote.exchangeRates) ? quote.exchangeRates : []).forEach((r, i) => {
+    if (isPlainObject(r)) check(`exchangeRates.${i}.rate`, r.rate, 'money');
   });
 
   const lg = isPlainObject(quote.logistics) ? quote.logistics : {};

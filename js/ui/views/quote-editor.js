@@ -50,7 +50,7 @@ import {
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, RATE_UNITS, SERVICE_TYPES } from '../../domain/catalogs.js';
-import { defaultVolumeTiers, illustrativeInfo } from '../../domain/quote-factory.js';
+import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { computeQuote } from '../../engines/quote-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
@@ -90,7 +90,7 @@ const STEP_MODULES = Object.freeze({
 export const RECALC_DELAY_MS = 150;
 export const SAVE_DELAY_MS = 400;
 
-const RESOURCE_LISTS = Object.freeze(['agreements', 'laborProfiles', 'equipment', 'materials', 'locations']);
+const RESOURCE_LISTS = Object.freeze(['agreements', 'laborProfiles', 'equipment', 'externalServices', 'materials', 'locations']);
 
 const STATUS_TEXT = Object.freeze({
   red: 'faltan datos',
@@ -172,8 +172,8 @@ export const STEP_COPY = Object.freeze({
     why: 'Consumibles, repuestos menores y elementos que se gastan al prestar el servicio. Si los provee el cliente, no son costo tuyo.',
   },
   logistics: {
-    question: '¿Cuánto cuesta llegar?',
-    why: 'Combustible, kilómetros y viáticos se pagan aunque nadie los vea en la factura.',
+    question: '¿Cómo llegan los equipos y la gente al lugar del servicio?',
+    why: 'Combustible, kilómetros y viáticos se pagan aunque nadie los vea en la factura. Cada costo se cuenta una sola vez.',
   },
   indirect: {
     question: '¿Cuánto de la estructura de tu empresa carga este servicio?',
@@ -253,6 +253,8 @@ export function stepOfPath(path) {
   const p = String(path || '');
   const head = p.split('.')[0];
   if (p === 'pricing.knownRate') return 'modality';
+  // Cómo llega cada equipo al servicio se define en Movilización y viajes.
+  if (/^equipment\.\d+\.mobilization(\.|$)/.test(p)) return 'logistics';
   switch (head) {
     case 'activity':
     case 'pricingMode':
@@ -373,6 +375,14 @@ export function normalizeQuoteShape(quote) {
   // Impuestos sobre la facturación: sin definir si faltan (t = 0: el cálculo no cambia).
   if (!isPlainObject(q.billingTaxes)) q.billingTaxes = emptyBillingTaxes();
   if (!Array.isArray(q.billingTaxes.items)) q.billingTaxes.items = [];
+  // Base económica y movilización (PLAN-2026-005): contenedores sin valores
+  // (sin tipo de cambio, sin modo de movilización): el cálculo no cambia.
+  if (!Array.isArray(q.exchangeRates)) q.exchangeRates = [];
+  q.equipment.forEach((e) => {
+    if (!isPlainObject(e)) return;
+    if (!isPlainObject(e.mobilization)) e.mobilization = createMobilization();
+    if ((e.acquisition === 'rented' || e.acquisition === 'outsourced') && !isPlainObject(e.external)) e.external = createExternalTerms();
+  });
   return q;
 }
 
@@ -1493,9 +1503,21 @@ export function pendingFieldPath(item, quote) {
     }
     case 'equipment_cost': {
       const rows = listOf(q.equipment);
-      const i = firstIndex(rows, (e) => !positive(e.replacementValue) || !positive(e.usefulLifeYears));
+      const external = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
+      const i = firstIndex(rows, (e) => (external(e) ? !positive(e.external && e.external.price) : !positive(e.replacementValue) || !positive(e.usefulLifeYears)));
       if (i < 0) return null;
+      if (external(rows[i])) return `equipment.${i}.external.price`;
       return positive(rows[i].replacementValue) ? `equipment.${i}.usefulLifeYears` : `equipment.${i}.replacementValue`;
+    }
+    case 'external_terms': {
+      const rows = listOf(q.equipment);
+      const i = firstIndex(rows, (e) => (e.acquisition === 'rented' || e.acquisition === 'outsourced') && !(e.external && e.external.fiscal && e.external.fiscal.vatRecoverable));
+      return i < 0 ? null : `equipment.${i}.external.fiscal.vatRecoverable`;
+    }
+    case 'mobility': {
+      const rows = listOf(q.equipment);
+      const i = firstIndex(rows, (e) => !(e.mobilization && e.mobilization.mode) && !((e.acquisition === 'rented' || e.acquisition === 'outsourced') && e.external && e.external.mobilizationIncluded === true));
+      return i < 0 ? null : `equipment.${i}.mobilization.mode`;
     }
     case 'materials': {
       const i = firstIndex(listOf(q.materials), (m) => !m.providedBy);

@@ -6,6 +6,7 @@
 import { track } from '../core/events.js';
 import { RESOURCE_TYPES } from '../data/schema.js';
 import { computeEquipmentUnit } from '../engines/equipment-engine.js';
+import { conversionFactor, currencyOfBase } from '../engines/currency-engine.js';
 import { computeLaborLine } from '../engines/labor-engine.js';
 
 export function createResourceService({ repository }) {
@@ -42,10 +43,20 @@ export function createResourceService({ repository }) {
       return repository.deleteService(id);
     },
 
-    /** Ficha económica de un equipo de biblioteca ($/hora, $/día, $/mes). */
+    /**
+     * Ficha económica de un equipo de biblioteca ($/hora, $/día, $/mes).
+     * Un valor en otra moneda se convierte con el tipo de cambio por defecto de
+     * Configuración; si no hay, la ficha no se calcula (currency.converted =
+     * false): nunca se suman dólares con pesos.
+     */
     async equipmentCard(equipment) {
       const settings = await repository.getSettings();
-      return computeEquipmentUnit(equipment, { fuelPricePerLiter: settings.fuelPricePerLiter, fuelPaidByUs: true });
+      const eq = equipment && typeof equipment === 'object' ? equipment : {};
+      const code = currencyOfBase(eq.base);
+      const f = conversionFactor(code, settings);
+      const converted = f === null || f === 1 ? eq : { ...eq, replacementValue: (Number(eq.replacementValue) || 0) * f, residualValue: (Number(eq.residualValue) || 0) * f };
+      const card = computeEquipmentUnit(f === null ? { ...eq, replacementValue: 0, residualValue: 0 } : converted, { fuelPricePerLiter: settings.fuelPricePerLiter, fuelPaidByUs: true });
+      return { ...card, currency: f === 1 ? null : { code, rate: f, converted: f !== null } };
     },
 
     /** Costo mensual de un perfil de personal (1 persona). */

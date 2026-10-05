@@ -36,7 +36,8 @@ describe('Constantes de esquema', () => {
   });
 
   test('RESOURCE_TYPES lista las bibliotecas y está congelado', () => {
-    assert.deepEqual([...RESOURCE_TYPES], ['agreements', 'laborProfiles', 'equipment', 'materials', 'locations']);
+    // v3 (PLAN-2026-005): modelos de equipos propios y servicios externos.
+    assert.deepEqual([...RESOURCE_TYPES], ['agreements', 'laborProfiles', 'equipment', 'materials', 'locations', 'equipmentModels', 'externalServices']);
     assert.ok(Object.isFrozen(RESOURCE_TYPES));
   });
 });
@@ -256,5 +257,19 @@ describe('normalizeState', () => {
     assert.deepEqual(out.settings, {});
     RESOURCE_TYPES.forEach((t) => assert.deepEqual(out.resources[t], []));
     assert.equal(JSON.stringify(input), before);
+  });
+});
+
+describe('Plantillas: sus valores tienen la misma forma que una cotización (PLAN-2026-005)', () => {
+  test('una plantilla con líneas mal formadas se rechaza al validar (no rompe después al crear la cotización)', () => {
+    const s = validBase();
+    s.services = [{ id: 't1', name: 'Plantilla', defaults: { equipment: [{ id: 'e', external: 'str' }], labor: [{ id: 'l', base: 7 }] } }];
+    expectInvalid(s, /services\[0\]\.defaults\.(equipment\[0\]\.external|labor\[0\]\.base)/);
+  });
+
+  test('una plantilla sin valores o con valores bien formados es válida', () => {
+    const s = validBase();
+    s.services = [{ id: 't1', name: 'Vacía' }, { id: 't2', name: 'Con líneas', defaults: { equipment: [{ id: 'e', external: null, mobilization: { mode: null } }] } }];
+    assert.deepEqual(validateState(s), { ok: true, errors: [] });
   });
 });

@@ -26,7 +26,7 @@ import { resolveAccess } from '../services/auth-routing.js';
 import { render as renderNotFound } from './views/not-found.js';
 
 /** Pestañas válidas de Recursos (#/recursos/:tab). */
-export const RESOURCE_TABS = Object.freeze(['personal', 'equipos', 'materiales', 'ubicaciones']);
+export const RESOURCE_TABS = Object.freeze(['personal', 'equipos', 'externos', 'materiales', 'ubicaciones', 'catalogo']);
 
 /** Pestañas válidas de Configuración (#/configuracion/:tab). */
 export const SETTINGS_TABS = Object.freeze(['empresa', 'parametros', 'convenios', 'datos', 'cuenta', 'acerca']);

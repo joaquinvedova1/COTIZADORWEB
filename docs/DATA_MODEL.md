@@ -1,6 +1,6 @@
 # Modelo de datos de RATEOS
 
-Este documento describe el **modelo actual** (`schemaVersion` 2 desde PLAN-2026-002; v0.1.0 usaba el 1): un estado JSON versionado que en una **cuenta** se guarda en Supabase (una fila de `workspace_states` por organización, protegida con RLS), en el **modo local** anterior se guardaba en `localStorage`, y en ambos casos se exporta igual como backup JSON. También describe el **modelo futuro relacional** (una tabla por entidad), que **no está implementado**: es la guía para evolucionar sin reescribir los motores.
+Este documento describe el **modelo actual** (`schemaVersion` 3 desde PLAN-2026-005; el 2 llegó con PLAN-2026-002 y v0.1.0 usaba el 1): un estado JSON versionado que en una **cuenta** se guarda en Supabase (una fila de `workspace_states` por organización, protegida con RLS), en el **modo local** anterior se guardaba en `localStorage`, y en ambos casos se exporta igual como backup JSON. También describe el **modelo futuro relacional** (una tabla por entidad), que **no está implementado**: es la guía para evolucionar sin reescribir los motores.
 
 Código de referencia: `js/data/schema.js`, `js/data/migrations.js`, `js/data/local-storage-repository.js`, `js/domain/quote-factory.js`, `js/domain/demo-data.js`.
 
@@ -49,14 +49,14 @@ Todas las pestañas de RATEOS de un mismo navegador comparten `rateos.state`. An
 - **Almacenamiento que se puede leer pero no escribir, con datos guardados:** la app no abre la demo en memoria; muestra la pantalla de recuperación para descargar los datos tal cual.
 - **Datos dañados sin espacio para la copia** (`corrupt_no_space`): no se toca el original y se muestra la pantalla de recuperación (descargar los datos guardados y las copias, reintentar).
 
-### Estructura (schemaVersion 2)
+### Estructura (schemaVersion 3)
 
 El backup exportado (`StorageRepository.exportBackup()`, archivo `rateos-backup-AAAA-MM-DD-HH-MM-SS.json`, hora UTC) es el estado más `app` y `exportedAt`. Ejemplo abreviado:
 
 ```json
 {
-  "schemaVersion": 2,
-  "app": { "name": "RATEOS", "version": "0.1.0" },
+  "schemaVersion": 3,
+  "app": { "name": "RATEOS", "version": "0.2.0" },
   "exportedAt": "2026-10-03T12:00:00.000Z",
   "organization": {
     "id": "00000000-0000-4000-8000-000000000001",
@@ -71,14 +71,16 @@ El backup exportado (`StorageRepository.exportBackup()`, archivo `rateos-backup-
   },
   "resources": {
     "agreements":    [ { "id": "…", "organizationId": "…", "code": "petroleros_privados", "name": "Petroleros Privados", "params": { "normalHoursPerMonth": 176, "overtimePremiumPct": 50, "sacPct": 8.33, "vacationPct": 4, "employerContributionsPct": 24, "artPct": 6 }, "illustrative": true } ],
-    "laborProfiles": [ { "id": "…", "organizationId": "…", "role": "Operador de hidrogrúa", "agreementId": "…", "basicMonthly": 1800000, "…": "…" } ],
-    "equipment":     [ { "id": "…", "organizationId": "…", "name": "Hidrogrúa (camión con hidrogrúa)", "replacementValue": 250000000, "…": "…" } ],
-    "materials":     [ { "id": "…", "organizationId": "…", "description": "Consumibles menores por llamado", "basis": "per_activation", "…": "…" } ],
+    "laborProfiles": [ { "id": "…", "organizationId": "…", "role": "Operador de hidrogrúa", "agreementId": "…", "basicMonthly": 1800000, "base": { "period": "2026-09", "currency": "ARS", "source": "company", "note": "" }, "…": "…" } ],
+    "equipment":     [ { "id": "…", "organizationId": "…", "internalCode": "EQ-002", "name": "Hidrogrúa (camión con hidrogrúa)", "familyId": "crane_truck", "acquisition": "owned", "replacementValue": 250000000, "base": { "period": "2026-07", "…": "…" }, "costsBase": { "period": "2026-09", "…": "…" }, "mobility": { "selfPropelled": true, "…": "…" }, "…": "…" } ],
+    "externalServices": [ { "id": "…", "organizationId": "…", "name": "Carretón (tercerizado)", "familyId": "lowboy", "acquisition": "outsourced", "external": { "price": 1200000, "unit": "trip", "fiscal": { "vatPct": null, "vatRecoverable": "yes", "…": "…" }, "…": "…" }, "base": { "…": "…" } } ],
+    "equipmentModels": [ { "id": "…", "organizationId": "…", "familyId": "vactor", "brand": "…", "model": "…", "…": "sin precios" } ],
+    "materials":     [ { "id": "…", "organizationId": "…", "description": "Consumibles menores por llamado", "basis": "per_activation", "base": { "…": "…" }, "…": "…" } ],
     "locations":     [ { "id": "…", "organizationId": "…", "name": "Añelo", "type": "destination", "distanceFromBaseKm": 110 } ]
   },
   "services": [ { "id": "…", "organizationId": "…", "name": "Hidrogrúa on-call", "serviceType": "on_call", "description": "…", "defaults": { "…": "valores parciales de cotización" } } ],
-  "quotes":   [ { "id": "…", "organizationId": "…", "code": "COT-0001", "name": "Hidrogrúa on-call — Añelo", "vatTreatment": "excluded", "billingTaxes": { "mode": "combined", "notApplicable": false, "combinedPct": null, "items": [] }, "…": "ver §3" } ],
-  "settings": { "organizationId": "…", "fuelPricePerLiter": 1500, "defaultTargetMarginPct": 10, "defaultBillingTaxes": null, "…": "…" }
+  "quotes":   [ { "id": "…", "organizationId": "…", "code": "COT-0001", "name": "Hidrogrúa on-call — Añelo", "vatTreatment": "excluded", "billingTaxes": { "mode": "combined", "notApplicable": false, "combinedPct": null, "items": [] }, "currency": "ARS", "offerDate": "2026-10-01", "exchangeRates": [], "…": "ver §3" } ],
+  "settings": { "organizationId": "…", "fuelPricePerLiter": 1500, "fuelPriceBase": { "period": "2026-10", "…": "…" }, "exchangeRates": [], "defaultTargetMarginPct": 10, "defaultBillingTaxes": null, "…": "…" }
 }
 ```
 
@@ -86,9 +88,9 @@ Puede existir además `legacy` (claves raíz y colecciones de recursos desconoci
 
 ### Validación (`validateState`)
 
-- `schemaVersion` igual a la versión actual; `organization` con `id`; `resources` objeto con las 5 listas; `services`, `quotes` listas; `settings` objeto.
+- `schemaVersion` igual a la versión actual; `organization` con `id`; `resources` objeto con las 7 listas (`agreements`, `laborProfiles`, `equipment`, `externalServices`, `equipmentModels`, `materials`, `locations`); `services`, `quotes` listas; `settings` objeto (`exchangeRates` lista y `fuelPriceBase` objeto si están).
 - Cada lista: objetos con `id` string no vacío y **único**; `services` y `quotes` con `name` string.
-- **Forma interna de cada cotización:** `labor`, `equipment`, `materials`, `otherCosts`, `logistics.vehicles`, `risk.items`, `rules.volumeTiers` y `billingTaxes.items` deben estar ausentes, ser `null` o ser **listas de objetos**; `activity`, `pricing`, `finance`, `logistics`, `rules`, `fuel`, `indirect`, `risk` y `billingTaxes` deben estar ausentes, ser `null` o ser **objetos**. `settings.defaultBillingTaxes` debe ser `null`, estar ausente o ser un objeto (con `items` lista de objetos). Una cotización con, por ejemplo, `labor: "x"` o `equipment: [null]` se rechaza.
+- **Forma interna de cada cotización:** `labor`, `equipment`, `materials`, `otherCosts`, `logistics.vehicles`, `risk.items`, `rules.volumeTiers` y `billingTaxes.items` deben estar ausentes, ser `null` o ser **listas de objetos**; `activity`, `pricing`, `finance`, `logistics`, `rules`, `fuel`, `indirect`, `risk` y `billingTaxes` deben estar ausentes, ser `null` o ser **objetos**; `exchangeRates` ausente o lista de objetos; `offerDate` ausente, `null` o texto; en cada línea, `base`, `costsBase`, `snapshot`, `external` y `mobilization` ausentes, `null` u **objetos**. `settings.defaultBillingTaxes` debe ser `null`, estar ausente o ser un objeto (con `items` lista de objetos). Una cotización con, por ejemplo, `labor: "x"` o `equipment: [null]` se rechaza.
 - Sólo tipos JSON; números finitos; claves `__proto__`, `constructor`, `prototype` prohibidas.
 - Límites: 5.000 elementos por colección, 20.000 caracteres por texto, profundidad 12. Backup importado: máximo 5 MB (`MAX_BACKUP_BYTES`).
 
@@ -117,6 +119,8 @@ Aunque llegue un registro inválido por otra vía, los motores ignoran las líne
 | `organizationId` | organización dueña | — |
 | `locale`, `currency` | presentación | `es-AR`, `ARS` |
 | `fuelPricePerLiter` | precio de combustible por defecto ($/L) | 1500 |
+| `fuelPriceBase` (v3) | base económica del precio del combustible (`{ period, currency, source, note }`; ver §3.1). Sin período = "Base no definida" | sin definir |
+| `exchangeRates` (v3) | tipos de cambio por defecto de las cotizaciones nuevas: `[{ currency, rate, base }]` (los carga la empresa; RATEOS no los consulta) | `[]` |
 | `financeMonthlyRatePct` | tasa mensual por defecto | 3 |
 | `defaultTargetMarginPct` | margen objetivo por defecto | 10 |
 | `defaultContingencyPct` | contingencia por defecto | 5 |
@@ -136,9 +140,11 @@ Todos con `id`, `organizationId`, `createdAt`, `updatedAt`, `createdBy`, `update
 | Tipo | Campos |
 |---|---|
 | `agreements` (convenios) | `code` (`AGREEMENT_TYPES`), `name`, `params` { `normalHoursPerMonth`, `overtimePremiumPct`, `sacPct`, `vacationPct`, `employerContributionsPct`, `artPct` }, `notes`. Los parámetros demo son **genéricos e idénticos** para todos los convenios: no son valores de ningún CCT. |
-| `laborProfiles` (perfiles de personal) | `role`, `agreementId`, `category`, `basicMonthly`, `additionalsMonthly`, `normalHoursPerMonth`, `overtimeHoursPerActiveDay`, `overtimePremiumPct`, `mealPerActiveDay`, `sacPct`, `vacationPct`, `employerContributionsPct`, `artPct`, `insuranceMonthly`, `ppeMonthly`, `trainingMonthly`, `transferMonthly`. |
-| `equipment` (equipos y vehículos) | `name`, `type` (`vehicle`, `truck`, `crane_truck`, `crane`, `backhoe`, `generator`, `compressor`, `pump`, `trailer`, `tools`, `other`), `currentValue` (informativo), `replacementValue`, `usefulLifeYears`, `residualValue`, `insuranceAnnual`, `licenseAnnual`, `certificationsAnnual`, `capitalRatePctAnnual`, `maintenancePerHour`, `tiresPerHour`, `fuelLitersPerHour`, `availableHoursPerMonth`, `availableDaysPerMonth`, `utilizationPct`. |
-| `materials` | `description`, `unit`, `unitCost`, `basis` (`per_month`, `per_active_day`, `per_activation`), `quantity`, `wastePct`, `logisticsPct`, `resaleMarkupPct`, `providedBy` (`contractor`, `third_party`, `client` o `null`). |
+| `laborProfiles` (perfiles de personal) | `role`, `agreementId`, `category`, `basicMonthly`, `additionalsMonthly`, `normalHoursPerMonth`, `overtimeHoursPerActiveDay`, `overtimePremiumPct`, `mealPerActiveDay`, `sacPct`, `vacationPct`, `employerContributionsPct`, `artPct`, `insuranceMonthly`, `ppeMonthly`, `trainingMonthly`, `transferMonthly`, `base` (v3, siempre en la moneda de la empresa). |
+| `equipment` (Mis equipos: la unidad real, "legajo") | `internalCode`, `name`, `familyId` (familia del catálogo, `js/domain/equipment-catalog.js`), `modelId` (de `equipmentModels`, opcional), `year`, `plate`, `type` (anterior a v3, se conserva), `acquisition` (`owned`, `rented`, `outsourced`), `external` (condiciones si no es propio, ver §3.2), `currentValue` (informativo), `replacementValue`, `usefulLifeYears`, `residualValue`, `insuranceAnnual`, `licenseAnnual`, `certificationsAnnual`, `otherAnnual` (v3), `capitalRatePctAnnual`, `maintenancePerHour`, `tiresPerHour`, `fuelLitersPerHour`, `availableHoursPerMonth`, `availableDaysPerMonth`, `utilizationPct`, `base` (valor del equipo: puede estar en otra moneda), `costsBase` (costos de tenerlo y usarlo, moneda de la empresa), `mobility` { `selfPropelled`, `roadLegal`, `requiresTransport`, `requiresDriver` (Sí / No / `null`), `speedKmh`, `travelLitersPer100Km`, `travelCostPerKm` }. |
+| `externalServices` (v3) | alquileres y servicios tercerizados que no son una unidad propia: `name`, `familyId` (opcional), `acquisition` (`rented`, `outsourced`), `external` (§3.2), `base`, `notes`. |
+| `equipmentModels` (v3) | catálogo PROPIO de la organización, sólo descriptivo (sin precios): `familyId`, `brand`, `model`, `year`, `capacity`, `fuelType`, `selfPropelled`, `roadLegal`, `requiresTransport`, `requiresDriver`, `notes`. |
+| `materials` | `description`, `unit`, `unitCost`, `basis` (`per_month`, `per_active_day`, `per_activation`), `quantity`, `wastePct`, `logisticsPct`, `resaleMarkupPct`, `providedBy` (`contractor`, `third_party`, `client` o `null`), `base` (v3). |
 | `locations` | `name`, `type` (`base`, `destination`), `distanceFromBaseKm`. |
 
 ### Plantillas de servicio (`services`)
@@ -162,17 +168,20 @@ Creada por `createEmptyQuote` / `createQuoteFromTemplate`. Campos raíz:
 | `unit` | `day`, `hour`, `month` |
 | `contractMonths` | duración del contrato (descuento por continuidad) |
 | `materialsNotApplicable` | el servicio no usa materiales |
+| `currency` (v3) | moneda en la que calcula la cotización (la de la empresa al crearla) |
+| `offerDate` (v3) | fecha de la oferta `AAAA-MM-DD`: base general de la oferta (las bases de cada valor se comparan contra ella, nunca contra "hoy"). Migradas: la fecha de creación |
+| `exchangeRates` (v3) | `[{ currency, rate, base }]`: tipos de cambio PROPIOS de la cotización para los valores en otra moneda |
 
 Objetos embebidos:
 
 | Objeto | Campos |
 |---|---|
 | `activity` | `availability` (`24/7`, `window`), `availabilityWindow`, `responseTimeHours`, `activeDaysPerMonth` (`null` = sin cargar; así empieza una cotización nueva en blanco), `daysPerActivation`, `availableDaysPerMonth`, `hoursPerActiveDay` |
-| `labor[]` | `id`, `sourceId`, `role`, `agreementId`, `category`, `positions`, `peoplePerPosition`, `basicMonthly`, `additionalsMonthly`, `normalHoursPerMonth`, `overtimeHoursPerActiveDay`, `overtimePremiumPct`, `mealPerActiveDay`, `sacPct`, `vacationPct`, `employerContributionsPct`, `artPct`, `insuranceMonthly`, `ppeMonthly`, `trainingMonthly`, `transferMonthly`, `illustrative` (opcional) |
-| `equipment[]` | `id`, `sourceId`, `name`, `quantity`, `hoursPerActiveDay` (`null` = usar el de la actividad), `replacementValue`, `usefulLifeYears`, `residualValue`, `insuranceAnnual`, `licenseAnnual`, `certificationsAnnual`, `capitalRatePctAnnual`, `maintenancePerHour`, `tiresPerHour`, `fuelLitersPerHour`, `illustrative` (opcional) |
-| `materials[]` | `id`, `sourceId`, `description`, `unit`, `basis`, `quantity`, `unitCost`, `wastePct`, `logisticsPct`, `resaleMarkupPct`, `providedBy`, `illustrative` (opcional) |
+| `labor[]` | `id`, `sourceId`, `role`, `agreementId`, `category`, `positions`, `peoplePerPosition`, `basicMonthly`, `additionalsMonthly`, `normalHoursPerMonth`, `overtimeHoursPerActiveDay`, `overtimePremiumPct`, `mealPerActiveDay`, `sacPct`, `vacationPct`, `employerContributionsPct`, `artPct`, `insuranceMonthly`, `ppeMonthly`, `trainingMonthly`, `transferMonthly`, `base`, `snapshot` (v3), `illustrative` (opcional) |
+| `equipment[]` | `id`, `sourceId`, `name`, `internalCode`, `familyId`, `acquisition`, `quantity`, `hoursPerActiveDay` (`null` = usar el de la actividad), `operatorLaborId` (puesto de `labor[]` que lo opera; no suma costo), `replacementValue`, `usefulLifeYears`, `residualValue`, `insuranceAnnual`, `licenseAnnual`, `certificationsAnnual`, `otherAnnual`, `capitalRatePctAnnual`, `maintenancePerHour`, `tiresPerHour`, `fuelLitersPerHour`, `external` (§3.2), `mobilization` (§3.3), `base`, `costsBase`, `snapshot` (v3), `illustrative` (opcional) |
+| `materials[]` | `id`, `sourceId`, `description`, `unit`, `basis`, `quantity`, `unitCost`, `wastePct`, `logisticsPct`, `resaleMarkupPct`, `providedBy`, `base`, `snapshot` (v3), `illustrative` (opcional) |
 | `otherCosts[]` | `id`, `description`, `category` (`labor`, `equipment`, `fuel`, `materials`, `logistics`, `structure`), `behavior` (`fixed_monthly`, `per_active_day`, `per_activation`), `amount`, `illustrative` (opcional) |
-| `fuel` | `pricePerLiter`, `providedBy` (`contractor`, `client`), `illustrative` (opcional: el precio es el valor ILUSTRATIVO por defecto o de una plantilla demo) |
+| `fuel` | `pricePerLiter`, `providedBy` (`contractor`, `client`), `base` (v3), `illustrative` (opcional: el precio es el valor ILUSTRATIVO por defecto o de una plantilla demo) |
 | `logistics` | `notApplicable`, `baseName`, `destinationName`, `distanceKm`, `roundTrip`, `tripsPerActivation`, `vehicles[]` { `id`, `name`, `count`, `consumptionLPer100Km`, `costPerKm`, `illustrative` (opcional) }, `tollsPerActivation`, `lodgingPerActivation` |
 | `indirect` | `method` (`percent_direct`, `percent_labor`, `per_employee`, `per_contract`, `per_hour`, `manual`), `pct`, `amount` |
 | `finance` | `paymentTermDays` (`null` = sin definir), `invoiceLagDays`, `monthlyRatePct`, `payDays` { `salaries`, `fuel`, `suppliers`, `materials`, `structure` } |
@@ -252,6 +261,21 @@ organizations ─┬─< organization_members >── users (auth.users)
 | `createdBy` / `updatedBy` (`null`) | `created_by` / `updated_by` = `auth.uid()` desde la migración |
 | `legacy` | no se importa (queda en el backup JSON) |
 
+### 3.1 Base económica, snapshot, condiciones externas y movilización (v3)
+
+Detalle conceptual en [RESOURCE_MODEL.md](RESOURCE_MODEL.md).
+
+- **Base** (`base`, `costsBase`, `fuel.base`, `settings.fuelPriceBase`, `exchangeRates[].base`): `{ period: 'AAAA-MM' | null, currency: 'ARS' | 'USD' | 'EUR' | null, source: 'company' | 'supplier' | 'agreement' | 'index' | 'other' | null, note }`. Sin período = "Base no definida" (nunca se inventa).
+- **Snapshot** (`line.snapshot`): `{ resourceType, resourceId, resourceName, takenAt, legacy, values, dismissed }`. `values` son los campos económicos que se copiaron (con su base); `legacy: true` en las líneas migradas de v2 (sus valores de ese momento); `dismissed` = huella de la versión del recurso que se eligió no aplicar.
+
+### 3.2 Condiciones de un recurso externo (`external`)
+
+`{ supplier, price (NETO, sin IVA, en la moneda de su base), unit ('hour' | 'day' | 'month' | 'trip' | 'km' | 'activation' | 'global'), minimumUnits, validUntil ('AAAA-MM-DD'), operatorIncluded, fuelIncluded, fuelLitersPerHour, mobilizationIncluded, mobilizationAmount, insuranceIncluded (Sí / No / null), fiscal: { vatPct, vatRecoverable ('yes' | 'no' | 'partial' | null), vatRecoverablePct, perceptionsPct, nonRecoverablePct, paymentTermDays } }`. RATEOS no trae alícuotas: `vatPct` arranca en `null`.
+
+### 3.3 Movilización de un equipo (`mobilization`)
+
+`{ mode ('self' | 'transported' | 'support' | 'none' | null), travelLitersPer100Km, travelCostPerKm, driver ('operator' | 'other' | null), carrierLineId (id de otra línea de equipo), supportVehicleId (id de un vehículo de logistics.vehicles) }`.
+
 `SupabaseRepository` reconstruye el **mismo objeto `quote` plano** que hoy (uniendo `quotes`, `quote_resources` y `commercial_rules`), así los motores no cambian.
 
 ## 5. Versionado de esquema y migraciones
@@ -262,12 +286,14 @@ organizations ─┬─< organization_members >── users (auth.users)
 - `migrateState` aplica en orden las funciones registradas en `MIGRATIONS` (`js/data/migrations.js`):
   - `migrateV0ToV1` (datos sin versión → v1: completa colecciones, `organizationId`, `createdAt`, `updatedAt`; asigna un id nuevo al repetido si hay ids duplicados, conservando ambos registros; preserva claves raíz y colecciones de recursos desconocidas en `legacy`).
   - `migrateV1ToV2` (PLAN-2026-002, impuestos sobre la facturación): agrega `billingTaxes` **sin definir** a cada cotización (nunca se inventan alícuotas: los números no cambian y la interfaz avisa que la tarifa piso no incluye esos impuestos), `vatTreatment: 'excluded'` (la convención sin IVA con la que RATEOS siempre calculó, ahora explícita; si ya hubiera un valor, se conserva) y `settings.defaultBillingTaxes = null`. Un `billingTaxes` o una `settings` que no sean objeto se guardan en `legacy` (de la cotización o del estado). No toca ningún otro campo.
+  - `migrateV2ToV3` (PLAN-2026-005, base económica y recursos): todo valor existente queda con **"Base no definida"** (período `null`) y la moneda de la empresa (nunca se inventa una fecha); equipos de Recursos con `familyId` desde el `type` anterior, `acquisition: 'owned'`, `otherAnnual: 0`, movilidad sin definir y bases; nuevas colecciones vacías `externalServices` y `equipmentModels`; líneas de cotizaciones y plantillas con snapshot `legacy` (los valores que ya usaban), `mobilization` sin definir y `operatorLaborId: null`; cotizaciones con `currency`, `offerDate` (= fecha de creación) y `exchangeRates: []`; `settings.fuelPriceBase` y `settings.exchangeRates`. **Ningún número cambia** (los vehículos de viajes siguen como logística auxiliar).
 - Datos v1 que además tienen estructura inesperada: si la migración directa no da un estado válido, se normalizan como datos legados (v0 → v1 → v2) sin borrar nada (estado `repaired`; la copia previa queda en `pre-migration-v1`). Recién si eso tampoco funciona, se abren en sólo lectura.
-- Para una versión nueva: subir `SCHEMA_VERSION`, agregar `migrateV1ToV2` (y luego `migrateV2ToV3`…) en `MIGRATIONS`, agregar tests en `tests/data/` con un estado v1 real (incluido el backup demo) y documentarlo en el [CHANGELOG](../CHANGELOG.md).
+- Para una versión nueva: subir `SCHEMA_VERSION`, agregar `migrateV{N}ToV{N+1}` en `MIGRATIONS`, agregar tests en `tests/data/` con un estado v1 real (incluido el backup demo) y documentarlo en el [CHANGELOG](../CHANGELOG.md).
 - Cada migración transforma N → N+1 **sin perder datos**. Antes de migrar se guarda `rateos.recovery.<fecha>.pre-migration-v<N>`. Si el resultado de la migración no pasa `validateState`, no se persiste nada (el original queda intacto) y la app abre en modo sólo lectura.
 - Datos de una versión más nueva que la app → modo sólo lectura (no se pisan).
-- Ejemplo de migración futura: `migrateV2ToV3` podría agregar `actualCosts: []` al estado (para estimado vs real) y `quote.schemaVersion`, sin tocar los campos existentes.
-- **Varias pestañas durante un deploy:** una pestaña vieja (esquema 1) que ve datos v2 pasa a sólo lectura (no los pisa); una pestaña nueva migra los datos al abrir.
+- Ejemplo de migración futura: `migrateV3ToV4` podría agregar `actualCosts: []` al estado (para estimado vs real) y `quote.schemaVersion`, sin tocar los campos existentes.
+- **Varias pestañas durante un deploy:** una pestaña vieja (esquema 2) que ve datos v3 pasa a sólo lectura (no los pisa); una pestaña nueva migra los datos al abrir.
+- **Staging (`/preview/`) comparte la base con producción:** antes de actualizar el formato de los datos de una cuenta, el build de staging (`version.json` con `channel: "staging"`) pregunta; si la persona elige "Ver sin cambiar (sólo lectura)", los datos se migran sólo en memoria y no se escribe nada (ni en la nube ni copias).
 
 **Futuro (PostgreSQL):** migraciones SQL versionadas en el repositorio (por ejemplo `supabase/migrations/AAAAMMDDHHMM_descripcion.sql`), aplicadas por CI, nunca a mano en producción; columna `schema_version` en `quotes` para convivir con cotizaciones creadas por versiones anteriores del motor.
 

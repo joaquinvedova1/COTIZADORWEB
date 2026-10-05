@@ -28,7 +28,9 @@ function approx(actual, expected, message = '', tolerance = EPS) {
  * + impuestos sobre la facturación definidos (% sintético).
  * Reglas aplicables (peso): modalidad 2, utilización 2, personal 2, relevos 1, equipos 2,
  * combustible 2, materiales 2, logística 2, estructura 1, plazo de pago 2, contingencia 1,
- * margen 2, impuestos sobre la facturación 1, standby 1 → total 23.
+ * margen 2, impuestos sobre la facturación 1, standby 1 → 23; más PLAN-2026-005:
+ * movilización de equipos 1, costos duplicados 1, fecha base 1, antigüedad de las
+ * bases 1 → total 27.
  */
 function completeQuote() {
   const q = demoHydroCraneQuote();
@@ -37,7 +39,7 @@ function completeQuote() {
   q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: 5, items: [] };
   return q;
 }
-const TOTAL_WEIGHT = 23;
+const TOTAL_WEIGHT = 27;
 
 const item = (result, id) => result.items.find((i) => i.id === id);
 
@@ -51,21 +53,23 @@ describe('CompletenessEngine — puntaje', () => {
     assert.ok(r.items.every((i) => i.color === 'green'));
   });
 
-  test('un faltante rojo de peso 2 resta su peso completo: 21 / 23 = 91,30 %', () => {
+  test('un faltante rojo de peso 2 resta su peso completo: 25 / 27 = 92,59 %', () => {
     const q = completeQuote();
     q.finance.paymentTermDays = null;
     approx(evaluateCompleteness(q).scorePct, ((TOTAL_WEIGHT - 2) / TOTAL_WEIGHT) * 100);
   });
 
-  test('un aviso naranja de peso 1 resta la mitad de su peso: 22,5 / 23 = 97,83 %', () => {
+  test('un aviso naranja de peso 1 resta la mitad de su peso: 26,5 / 27 = 98,15 %', () => {
     const q = completeQuote();
     q.risk = { generalPct: 0, items: [] };
     approx(evaluateCompleteness(q).scorePct, ((TOTAL_WEIGHT - 0.5) / TOTAL_WEIGHT) * 100);
   });
 
-  test('la demo hidrogrúa (sin relevo, sin standby e impuestos sin definir) tiene 3 avisos naranja: 21,5 / 23', () => {
+  test('la demo hidrogrúa (sin relevo, sin standby e impuestos sin definir) tiene 3 avisos naranja: 25,5 / 27', () => {
     const r = evaluateCompleteness(demoHydroCraneQuote());
-    approx(r.scorePct, (21.5 / 23) * 100);
+    approx(r.scorePct, (25.5 / 27) * 100);
+    // Bases definidas (ILUSTRATIVAS), equipos movilizados y sin duplicados.
+    for (const id of ['mobility', 'duplicates', 'economic_base', 'base_age']) assert.equal(item(r, id).status, 'ok', id);
     assert.equal(item(r, 'relief').status, 'warning');
     assert.equal(item(r, 'standby').status, 'warning');
     assert.equal(item(r, 'billing_taxes').status, 'warning');
@@ -153,13 +157,17 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
     assert.equal(item(evaluateCompleteness(none), 'equipment_cost').status, 'missing');
   });
 
-  test('detecta falta de logística (distancia o vehículos); "sin traslados" la da por buena', () => {
+  test('detecta falta de logística (distancia o cómo se llega); "sin traslados" la da por buena', () => {
     const noDistance = completeQuote();
     noDistance.logistics.distanceKm = 0;
     assert.equal(item(evaluateCompleteness(noDistance), 'logistics').status, 'missing');
+    // Sin vehículos auxiliares y sin equipos que se movilicen: falta cómo se llega.
     const noVehicles = completeQuote();
     noVehicles.logistics.vehicles = [];
+    noVehicles.equipment.forEach((e) => { e.mobilization.mode = null; });
     assert.equal(item(evaluateCompleteness(noVehicles), 'logistics').status, 'missing');
+    // La demo no tiene vehículos auxiliares: sus equipos van por sus propios medios.
+    assert.equal(item(evaluateCompleteness(completeQuote()), 'logistics').status, 'ok');
     const na = completeQuote();
     na.logistics.notApplicable = true;
     assert.equal(item(evaluateCompleteness(na), 'logistics').status, 'ok');

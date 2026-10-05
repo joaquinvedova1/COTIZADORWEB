@@ -14,7 +14,11 @@ import { materialLineFromLibrary, createOtherCost } from '../../../domain/quote-
 import { formatMoney, formatPercent, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
-import { confirmRemove, hasNumber } from './shared.js';
+import { confirmRemove, hasNumber, stepName } from './shared.js';
+import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
+import { baseText } from '../../economic-base-ui.js';
+import { CURRENCIES } from '../../../domain/catalogs.js';
+import { conversionFactor } from '../../../engines/currency-engine.js';
 
 /** Grilla de la línea de material: la descripción más ancha que los números. */
 function materialGrid(...fields) {
@@ -62,12 +66,13 @@ export function render(container, ctx) {
       ctx.toast('Elegí un material de la biblioteca para agregarlo.', 'warning');
       return;
     }
-    const line = materialLineFromLibrary(mat);
+    const line = materialLineFromLibrary(mat, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.quantity` });
+    ctx.toast(`Se agregó "${line.description}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
   };
   const addBlank = () => {
-    const line = materialLineFromLibrary({});
+    const line = materialLineFromLibrary({}, { currency: quoteCurrencyOf(quote) });
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.description` });
   };
@@ -93,6 +98,9 @@ export function render(container, ctx) {
       // Valores copiados de una plantilla o material de demostración (UX-02).
       const ill = kit.lineIllustrative(p, { what: 'este material' });
       const illustrative = ill.marked;
+      const cur = line.base && line.base.currency;
+      const sym = (CURRENCIES.find((c) => c.id === cur) || { symbol: '$' }).symbol;
+      const noRate = cur && conversionFactor(cur, quote) === null;
       return kit.lineCard(
         {
           title: kit.out(() => (quote.materials[i] && quote.materials[i].description) || 'Material sin descripción'),
@@ -100,11 +108,14 @@ export function render(container, ctx) {
           actions: [kit.action('Quitar', () => removeMaterial(i), { variant: 'danger', icon: 'trash' })],
           className: 'qe-line-compact',
         },
+        lineOriginBlock(ctx, 'materials', i, [{ prefix: 'Base', base: line.base }]),
+        resourceSyncNotice(ctx, 'materials', i, { name: line.description || 'Material' }),
         ill.control,
+        noRate ? h('p', { class: 'qe-warn' }, `Este costo está en ${cur} y la cotización no tiene ese tipo de cambio: no se suma hasta que lo cargues en "${stepName('service')}".`) : null,
         materialGrid(
           kit.text(`${p}.description`, { label: 'Descripción', maxLength: 160 }),
           kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', hint: kit.out(() => `${basisLabel(quote.materials[i] && quote.materials[i].basis)} (se cambia en opciones avanzadas)`) }),
-          kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: '$', illustrative }),
+          kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: sym, illustrative }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
             options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),
@@ -151,6 +162,15 @@ export function render(container, ctx) {
             kit.stat('Fijo mensual / variable por día', (r) => splitLabel(at(r))),
             kit.stat('Precio de reventa (informativo)', (r) => formatMoney(at(r) && at(r).resalePrice), { hint: 'Costo × (1 + markup). No es margen.' }),
           ),
+        ),
+        kit.advanced(
+          {
+            key: `materials-base:${line.id || i}`,
+            title: 'Fecha base y moneda',
+            summary: () => baseText(quote.materials[i] && quote.materials[i].base),
+          },
+          h('p', { class: 'small' }, 'De qué mes es el costo unitario. Cambiarlo acá sólo afecta esta cotización.'),
+          baseFields(ctx, `${p}.base`, { currency: true, periodLabel: 'Mes del costo' }),
         ),
       );
     });

@@ -4,7 +4,7 @@
  */
 
 import { h, s, uniqueId, mount } from './dom.js';
-import { formatValue, EMPTY } from '../core/format.js';
+import { formatValue, formatPeriod, EMPTY } from '../core/format.js';
 import { validateNumber, numberToInputText } from '../core/validation.js';
 import { track } from '../core/events.js';
 
@@ -355,6 +355,77 @@ export function textField({ label, value = '', onChange, placeholder = '', maxLe
     if (typeof onChange === 'function') onChange(control.value.slice(0, maxLength));
   });
   return fieldShell({ id, label, hint, required }, control).el;
+}
+
+/**
+ * Período base (mes) "AAAA-MM": <input type="month">. Se muestra al lado
+ * como "sep-26" (nunca una fecha técnica sola). onChange(período | null):
+ * vacío = "Base no definida"; un formato inválido no se guarda.
+ */
+export function periodField({ label, value = null, onChange, hint = null, name = null, disabled = false }) {
+  const id = uniqueId('per');
+  const input = h('input', { id, name, type: 'month', value: typeof value === 'string' ? value : '', disabled, placeholder: 'AAAA-MM', pattern: '\\d{4}-\\d{2}', 'aria-describedby': hint ? `${id}-hint ${id}-error` : `${id}-error` });
+  const echo = h('span', { class: 'field-unit period-echo', 'aria-hidden': 'true' }, formatPeriod(value) === EMPTY ? 'sin base' : formatPeriod(value));
+  const { el, errorEl } = fieldShell({ id, label, hint }, input);
+  const control = el.querySelector('.field-control');
+  if (control) {
+    control.classList.add('has-unit');
+    control.appendChild(echo);
+  }
+  const commit = () => {
+    const raw = input.value.trim();
+    if (raw === '') {
+      input.removeAttribute('aria-invalid');
+      errorEl.hidden = true;
+      echo.textContent = 'sin base';
+      if (typeof onChange === 'function') onChange(null);
+      return;
+    }
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) {
+      input.setAttribute('aria-invalid', 'true');
+      errorEl.textContent = 'Usá el formato año-mes, por ejemplo 2026-09.';
+      errorEl.hidden = false;
+      return;
+    }
+    input.removeAttribute('aria-invalid');
+    errorEl.hidden = true;
+    echo.textContent = formatPeriod(raw);
+    if (typeof onChange === 'function') onChange(raw);
+  };
+  input.addEventListener('change', commit);
+  input.addEventListener('input', () => {
+    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(input.value.trim()) || input.value.trim() === '') commit();
+  });
+  return el;
+}
+
+/** Fecha "AAAA-MM-DD" (<input type="date">). onChange(fecha | null). */
+export function dateField({ label, value = null, onChange, hint = null, name = null, disabled = false }) {
+  const id = uniqueId('date');
+  const input = h('input', { id, name, type: 'date', value: typeof value === 'string' ? value : '', disabled });
+  input.addEventListener('change', () => {
+    const raw = input.value.trim();
+    if (typeof onChange === 'function') onChange(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null);
+  });
+  return fieldShell({ id, label, hint }, input).el;
+}
+
+/** Sí / No / Sin definir (true | false | null). */
+export function triStateField({ label, value = null, onChange, hint = null, name = null, yesLabel = 'Sí', noLabel = 'No', emptyLabel = 'Sin definir', disabled = false }) {
+  const current = value === true ? 'yes' : value === false ? 'no' : '';
+  return selectField({
+    label,
+    name,
+    hint,
+    disabled,
+    value: current,
+    includeEmpty: true,
+    emptyLabel,
+    options: [{ value: 'yes', label: yesLabel }, { value: 'no', label: noLabel }],
+    onChange: (v) => {
+      if (typeof onChange === 'function') onChange(v === 'yes' ? true : v === 'no' ? false : null);
+    },
+  });
 }
 
 /**

@@ -1,0 +1,20 @@
+{
+  "id": "externo-minimo-por-llamado",
+  "title": "Grúa tercerizada $ 450.000/h con mínimo 8 h: un llamado de 1 día de 5 h factura 8 h",
+  "rule": "Las tarifas externas con mínimo facturan max(unidades usadas, mínimo) por llamado.",
+  "engine": "external.line",
+  "inputs": {
+    "price": 450000,
+    "unit": "hour",
+    "minimumUnits": 8,
+    "hoursPerActiveDay": 5,
+    "daysPerActivation": 1,
+    "vatRecoverable": "yes"
+  },
+  "expected": {
+    "billedUnitsPerActivation": 8,
+    "netPerActivation": 3600000,
+    "variablePerActiveDay": 3600000
+  },
+  "tolerance": 1e-06
+}

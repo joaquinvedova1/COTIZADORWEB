@@ -1,14 +1,16 @@
 /**
  * Esquema de datos persistidos (localStorage y backups JSON).
  *
- * Formato (schemaVersion 2):
+ * Formato (schemaVersion 3):
  * {
- *   schemaVersion: 2,
+ *   schemaVersion: 3,
  *   organization: { id, name, ... },
- *   resources: { agreements: [], laborProfiles: [], equipment: [], materials: [], locations: [] },
+ *   resources: { agreements: [], laborProfiles: [], equipment: [], materials: [], locations: [],
+ *                equipmentModels: [], externalServices: [] },   // v3: catálogo propio y externos
  *   services: [],   // plantillas de servicio
- *   quotes: [],     // cotizaciones (v2: cada una con billingTaxes)
- *   settings: {}    // v2: defaultBillingTaxes (null = sin definir)
+ *   quotes: [],     // cotizaciones (v2: billingTaxes; v3: currency, offerDate, exchangeRates,
+ *                   //   y en cada línea base + snapshot; equipos: acquisition, external, mobilization)
+ *   settings: {}    // v2: defaultBillingTaxes; v3: fuelPriceBase, exchangeRates
  * }
  *
  * Este mismo formato es el que se exporta como backup y el que en el futuro
@@ -21,7 +23,7 @@ import { isPlainObject } from '../core/object.js';
 export const CURRENT_SCHEMA_VERSION = SCHEMA_VERSION;
 
 /** Tipos de recursos de biblioteca. */
-export const RESOURCE_TYPES = Object.freeze(['agreements', 'laborProfiles', 'equipment', 'materials', 'locations']);
+export const RESOURCE_TYPES = Object.freeze(['agreements', 'laborProfiles', 'equipment', 'materials', 'locations', 'equipmentModels', 'externalServices']);
 
 const LIMITS = Object.freeze({
   maxItemsPerCollection: 5000,
@@ -103,7 +105,9 @@ function checkEntityList(list, path, errors, { requireName = null } = {}) {
 }
 
 const QUOTE_OBJECT_FIELDS = Object.freeze(['activity', 'pricing', 'finance', 'logistics', 'rules', 'fuel', 'indirect', 'risk', 'billingTaxes']);
-const QUOTE_LIST_FIELDS = Object.freeze(['labor', 'equipment', 'materials', 'otherCosts']);
+const QUOTE_LIST_FIELDS = Object.freeze(['labor', 'equipment', 'materials', 'otherCosts', 'exchangeRates']);
+/** Sub-objetos de cada línea (v3): si están, deben ser objetos. */
+const LINE_OBJECT_FIELDS = Object.freeze(['base', 'costsBase', 'snapshot', 'external', 'mobilization']);
 const NESTED_LIST_FIELDS = Object.freeze([
   ['logistics', 'vehicles'],
   ['risk', 'items'],
@@ -122,20 +126,37 @@ function checkObjectList(value, path, errors) {
   });
 }
 
-/** Forma interna de cada cotización (listas de objetos y sub-objetos). */
-function checkQuoteShapes(quotes, errors) {
-  if (!Array.isArray(quotes)) return;
-  quotes.forEach((q, i) => {
-    if (!isPlainObject(q)) return;
-    const base = `quotes[${i}]`;
-    QUOTE_OBJECT_FIELDS.forEach((f) => {
-      if (q[f] !== undefined && q[f] !== null && !isPlainObject(q[f])) errors.push(`${base}.${f}: debe ser un objeto.`);
-    });
-    QUOTE_LIST_FIELDS.forEach((f) => checkObjectList(q[f], `${base}.${f}`, errors));
-    NESTED_LIST_FIELDS.forEach(([parent, child]) => {
-      if (isPlainObject(q[parent])) checkObjectList(q[parent][child], `${base}.${parent}.${child}`, errors);
+/** Forma interna de UNA cotización (o de los valores de una plantilla). */
+function checkQuoteShape(q, base, errors) {
+  if (!isPlainObject(q)) return;
+  QUOTE_OBJECT_FIELDS.forEach((f) => {
+    if (q[f] !== undefined && q[f] !== null && !isPlainObject(q[f])) errors.push(`${base}.${f}: debe ser un objeto.`);
+  });
+  QUOTE_LIST_FIELDS.forEach((f) => checkObjectList(q[f], `${base}.${f}`, errors));
+  NESTED_LIST_FIELDS.forEach(([parent, child]) => {
+    if (isPlainObject(q[parent])) checkObjectList(q[parent][child], `${base}.${parent}.${child}`, errors);
+  });
+  ['labor', 'equipment', 'materials'].forEach((f) => {
+    if (!Array.isArray(q[f])) return;
+    q[f].forEach((line, j) => {
+      if (!isPlainObject(line)) return;
+      LINE_OBJECT_FIELDS.forEach((k) => {
+        if (line[k] !== undefined && line[k] !== null && !isPlainObject(line[k])) errors.push(`${base}.${f}[${j}].${k}: debe ser un objeto.`);
+      });
     });
   });
+  if (q.offerDate !== undefined && q.offerDate !== null && typeof q.offerDate !== 'string') errors.push(`${base}.offerDate: debe ser una fecha.`);
+}
+
+/** Forma interna de cada cotización y de los valores de cada plantilla. */
+function checkQuoteShapes(quotes, errors, services = []) {
+  if (Array.isArray(quotes)) quotes.forEach((q, i) => checkQuoteShape(q, `quotes[${i}]`, errors));
+  // Una plantilla crea cotizaciones: sus valores deben tener la misma forma.
+  if (Array.isArray(services)) {
+    services.forEach((t, i) => {
+      if (isPlainObject(t) && isPlainObject(t.defaults)) checkQuoteShape(t.defaults, `services[${i}].defaults`, errors);
+    });
+  }
 }
 
 /**
@@ -154,12 +175,15 @@ export function validateState(state) {
   else RESOURCE_TYPES.forEach((t) => checkEntityList(state.resources[t] ?? [], `resources.${t}`, errors));
   checkEntityList(state.services, 'services', errors, { requireName: 'name' });
   checkEntityList(state.quotes, 'quotes', errors, { requireName: 'name' });
-  checkQuoteShapes(state.quotes, errors);
+  checkQuoteShapes(state.quotes, errors, state.services);
   if (!isPlainObject(state.settings)) errors.push('settings: debe ser un objeto.');
   else {
     const dbt = state.settings.defaultBillingTaxes;
     if (dbt !== undefined && dbt !== null && !isPlainObject(dbt)) errors.push('settings.defaultBillingTaxes: debe ser un objeto.');
     else if (isPlainObject(dbt)) checkObjectList(dbt.items, 'settings.defaultBillingTaxes.items', errors);
+    checkObjectList(state.settings.exchangeRates, 'settings.exchangeRates', errors);
+    const fb = state.settings.fuelPriceBase;
+    if (fb !== undefined && fb !== null && !isPlainObject(fb)) errors.push('settings.fuelPriceBase: debe ser un objeto.');
   }
   if (errors.length === 0) checkJsonSafe(state, '', errors);
   return { ok: errors.length === 0, errors: errors.slice(0, 20) };

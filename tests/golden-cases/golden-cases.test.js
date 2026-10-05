@@ -23,6 +23,8 @@ import { priceFromMargin, priceFromMarkup, marginToMarkup, markupToMargin, price
 import { breakEvenSimple, minimumRateForDays } from '../../js/engines/break-even-engine.js';
 import { simpleFinancialCost } from '../../js/engines/finance-engine.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
+import { computeExternalLine } from '../../js/engines/external-engine.js';
+import { computeMobilization } from '../../js/engines/mobilization-engine.js';
 import { demoReferenceQuote } from '../../js/domain/demo-data.js';
 import { getPath } from '../../js/core/object.js';
 
@@ -70,6 +72,17 @@ const ENGINES = {
   'finance.simpleFinancialCost': ({ amount, monthlyRatePct, days }) => ({ value: simpleFinancialCost(amount, monthlyRatePct, days) }),
   'quote.onCall': (inputs) => computeQuote(onCallQuote(inputs)),
   'quote.demoReference': () => computeQuote(demoReferenceQuote()),
+  // PLAN-2026-005: tarifa externa (precio neto + tratamiento fiscal) y movilización propia.
+  'external.line': ({ price, unit, quantity = 1, minimumUnits = null, daysPerActivation = 1, hoursPerActiveDay = 0, vatPct = null, vatRecoverable = null, tripsPerActivation = 0, routeKmPerActivation = 0 }) =>
+    computeExternalLine(
+      { acquisition: 'rented', quantity, hoursPerActiveDay, external: { price, unit, minimumUnits, fiscal: { vatPct, vatRecoverable } } },
+      { daysPerActivation, tripsPerActivation, routeKmPerActivation },
+    ),
+  'mobilization.self': ({ distanceKm, roundTrip = true, litersPer100Km, fuelPricePerLiter, costPerKm, quantity = 1, daysPerActivation = 1 }) =>
+    computeMobilization(
+      [{ id: 'eq', name: 'Equipo', acquisition: 'owned', quantity, mobilization: { mode: 'self', travelLitersPer100Km: litersPer100Km, travelCostPerKm: costPerKm, driver: 'operator' } }],
+      { routeKmPerActivation: distanceKm * (roundTrip ? 2 : 1), daysPerActivation, fuelPricePerLiter, fuelPaidByUs: true },
+    ),
 };
 
 function loadCases() {

@@ -18,8 +18,12 @@ Convenciones:
 2. [Actividad y on-call](#2-actividad-y-on-call)
 3. [Personal](#3-personal)
 4. [Equipos](#4-equipos)
+    - [4.1 Equipos y servicios externos (alquilados y tercerizados)](#41-equipos-y-servicios-externos-alquilados-y-tercerizados)
 5. [Logística](#5-logística)
+    - [5.1 Movilización del recurso principal](#51-movilización-del-recurso-principal)
 6. [Materiales y otros costos](#6-materiales-y-otros-costos)
+    - [6.1 Moneda y tipo de cambio](#61-moneda-y-tipo-de-cambio)
+    - [6.2 Base económica de la oferta](#62-base-económica-de-la-oferta)
 7. [Estructura (costos indirectos)](#7-estructura-costos-indirectos)
 8. [Financiero y capital de trabajo](#8-financiero-y-capital-de-trabajo)
 9. [Contingencia](#9-contingencia)
@@ -165,7 +169,8 @@ patente            = patente anual / 12
 certificaciones    = certificaciones anual / 12
 inversión media    = (reposición + residual) / 2
 costo de capital   = inversión media × tasa anual% / 12
-posesión en efectivo   = seguro + patente + certificaciones
+otros                = otros costos anuales de tenerlo / 12             (v3: habilitaciones, GPS…)
+posesión en efectivo   = seguro + patente + certificaciones + otros
 posesión no efectivo   = amortización + costo de capital       (no son salidas de caja mensuales)
 posesión total         = efectivo + no efectivo
 ```
@@ -214,9 +219,55 @@ posesión por hora    = posesión total / horas usadas
 
 En la cotización demo (10 h por día activo): variable no combustible 200.000/día (Equipos) y combustible 180.000/día (Combustible).
 
+Un valor de reposición en otra moneda se convierte con el tipo de cambio de la cotización antes de calcular (§6.1). La regla vale para los equipos **propios** (`acquisition = 'owned'`, el valor por defecto): un alquilado o tercerizado no tiene amortización, seguro ni costo de capital (§4.1).
+
+### 4.1 Equipos y servicios externos (alquilados y tercerizados)
+
+Archivo: `js/engines/external-engine.js` (`computeExternalLine`, `externalFiscal`). PLAN-2026-005. Un recurso externo es una **tarifa del proveedor**: precio NETO (sin IVA) por una unidad, con un mínimo opcional.
+
+| Unidad | Unidades por llamado |
+|---|---|
+| hora | horas de uso por día × días por llamado |
+| día | días por llamado |
+| viaje | viajes de ida o vuelta por llamado (de Viajes: viajes × (ida y vuelta ? 2 : 1)) |
+| km | km de ruta por llamado |
+| llamado | 1 |
+| mes | — (fijo mensual = precio × cantidad) |
+| global | — (fijo mensual = precio × cantidad / meses de contrato; sin contrato = 1 mes) |
+
+```
+facturado/llamado (neto) = máx(unidades por llamado, mínimo) × precio neto × cantidad × tipo de cambio
+por día activo (neto)    = facturado/llamado / días por llamado
+```
+
+**Tratamiento fiscal** (lo define la empresa: RATEOS no trae alícuotas; `vatPct` arranca sin definir):
+
+```
+parte recuperable = 1 (Sí) | 0 (No) | % parcial / 100 (Parcial) | 1 si está sin definir (+ aviso)
+costo económico   = neto × (1 + cargos no recuperables% + IVA% × (1 − parte recuperable))
+salida de caja    = neto × (1 + IVA% + percepciones% + cargos no recuperables%)     (informativo)
+crédito fiscal    = neto × (IVA% × parte recuperable + percepciones%)               (NO es costo)
+```
+
+- Al costo de la cotización entra **sólo el costo económico**. El IVA recuperable y las percepciones son caja que se adelanta.
+- Ganancias no se aplica como % sobre un alquiler; el IIBB del proveedor ya está en su precio (el propio se calcula sobre la facturación, §13.1).
+- "No" o "Parcial" sin alícuota de IVA → la completitud lo marca en rojo (no se puede calcular el IVA que no se recupera).
+
+Opcionales del proveedor:
+
+| Incluido | Si es "No" |
+|---|---|
+| Combustible | litros/h × horas por día × cantidad × precio (categoría **Combustible**) |
+| Movilización | monto por llamado × cantidad, con el mismo tratamiento fiscal (categoría **Equipos y servicios externos**) |
+| Operador | informativo: el operador se carga en Personal (y se asigna al equipo para no contarlo dos veces) |
+
+Categoría EECC: **Equipos y servicios externos** (`external`). Grupo de pago: proveedores.
+
+**Ejemplo (caso D):** camión alquilado $ 1.000.000 neto por día, IVA 21 % recuperable, 2 días por llamado → facturado por llamado 2.000.000 neto; costo económico **1.000.000/día**; salida de caja **1.210.000/día**; crédito fiscal **210.000/día** (no es costo). Con IVA no recuperable el costo económico es 1.210.000/día.
+
 ## 5. Logística
 
-Archivo: `js/engines/logistics-engine.js` (`computeLogistics`).
+Archivo: `js/engines/logistics-engine.js` (`computeLogistics`). Desde PLAN-2026-005 esta sección es la **logística auxiliar** (vehículos de apoyo y de personal, peajes y viáticos). Cómo llega cada equipo al lugar del servicio es la movilización del recurso principal (§5.1). El indicador "Movilización y viajes" (y su incidencia) suma ambas.
 
 ```
 km de ruta por viaje        = distancia × (ida y vuelta ? 2 : 1)
@@ -239,15 +290,42 @@ incidencia logística %      = costo logístico mensual / costo total × 100
 - La logística es 100 % **variable por día activo** (no tiene parte fija).
 - En la EECC, el **combustible de traslados** se informa en **Combustible**; desgaste, peajes y viáticos en **Logística**. El indicador "Costo logístico mensual" y su incidencia incluyen ambos.
 
-**Ejemplo demo (ILUSTRATIVO):** Neuquén Capital → Añelo 110 km, ida y vuelta, 1 viaje por activación, combustible 1.500/L.
+**Ejemplo demo (ILUSTRATIVO):** Neuquén Capital → Añelo 110 km, ida y vuelta, 1 viaje por activación, combustible 1.500/L. Desde v3 la demo carga la hidrogrúa y la pickup como **movilización por sus propios medios** de cada equipo (§5.1) en lugar de vehículos sueltos; los números son los mismos.
 
-| Vehículo | km | Litros | Combustible | Desgaste |
+| Equipo / vehículo | km | Litros | Combustible | Desgaste |
 |---|---:|---:|---:|---:|
 | Hidrogrúa (35 L/100 km, 150 $/km) | 220 | 77,0 | 115.500 | 33.000 |
 | Vehículo de apoyo (12 L/100 km, 80 $/km) | 220 | 26,4 | 39.600 | 17.600 |
 | **Por activación** | 440 | 103,4 | 155.100 | 50.600 |
 
 Costo por activación 205.700; con 2 días por activación → 102.850 por día activo; con 4 activaciones → **822.800 por mes**.
+
+### 5.1 Movilización del recurso principal
+
+Archivo: `js/engines/mobilization-engine.js` (`computeMobilization`). Por cada línea de equipo, "¿cómo llega al lugar del servicio?":
+
+```
+por sus propios medios (self):
+  km por llamado     = km de ruta por llamado × cantidad
+  litros             = km × consumo en ruta (L/100 km) / 100
+  combustible        = litros × precio       (0 si lo provee el cliente; un externo sólo si su tarifa NO incluye combustible:
+                                              sin definir no se suma y se avisa, igual que el combustible trabajando)
+  desgaste           = km × mantenimiento y neumáticos por km      (SIN combustible ni amortización)
+  conductor          = su operador (ya en Personal) → no se suma mano de obra; otra persona → debe estar en Personal
+lo transporta otro equipo (transported) → 0 (el costo está en la línea del carretón / batea / camión)
+con un vehículo de apoyo (support)      → 0 (el costo está en ese vehículo de la logística auxiliar)
+no requiere (none) / sin definir        → 0
+externo con movilización incluida       → 0
+por día activo = por llamado / días por llamado
+```
+
+- Combustible en ruta → categoría **Combustible**; desgaste por km → **Logística**.
+- La amortización ya está en el costo de tenerlo (§4): nunca se suma por km.
+- Avisos: falta el consumo en ruta, falta quién maneja, falta el equipo que lo transporta, dos equipos que se transportan entre sí, falta el vehículo de apoyo.
+
+**Ejemplo (caso B):** Vactor por sus propios medios, base → locación 80 km ida y 80 vuelta, 40 L/100 km, desgaste 300 $/km, combustible 1.500/L, sin pickup → 160 km, 64 L, combustible 96.000 + desgaste 48.000 = **144.000 por llamado**; maneja su operador: **no** se agrega mano de obra.
+
+**Ejemplo (caso C):** retroexcavadora "lo transporta otro equipo" = carretón tercerizado por viaje (1.200.000 neto, ida y vuelta = 2 viajes) → la retro suma 0 de movilización; el carretón suma 2.400.000 neto por llamado. Nada se duplica.
 
 ## 6. Materiales y otros costos
 
@@ -283,6 +361,36 @@ Base de cálculo:
 | `per_activation` | variable por día = monto / días por activación |
 
 La categoría debe ser una de `labor`, `equipment`, `fuel`, `materials`, `logistics`, `structure` (si no, se usa `materials`). El grupo de pago sale de `CATEGORY_PAY_GROUP` (`js/domain/catalogs.js`).
+
+### 6.1 Moneda y tipo de cambio
+
+Archivo: `js/engines/currency-engine.js` (`conversionFactor`). La cotización calcula en **su** moneda (`quote.currency`, la de la empresa al crearla).
+
+```
+valor en moneda de la cotización = valor × tipo de cambio de la cotización      (1 si es la misma moneda o no tiene)
+sin tipo de cambio → factor = 0: el valor NO se suma y la validación lo marca en rojo
+```
+
+- Se convierten: valor de reposición y residual de un equipo propio (su `base.currency`), la tarifa y la movilización de un externo, el costo unitario de un material.
+- Sólo falta el tipo de cambio si el valor nos cuesta algo: un material que provee el cliente, una cantidad 0 o un precio 0 no lo piden.
+- Sueldos y costos de tener/usar un equipo propio están siempre en la moneda de la empresa.
+- El tipo de cambio lo carga la empresa en cada cotización (con su mes): RATEOS nunca lo consulta ni lo inventa.
+
+### 6.2 Base económica de la oferta
+
+Archivo: `js/engines/economic-base-engine.js` (`summarizeEconomicBase`). Para cada valor que pesa en el costo (personal con sueldo, equipos propios —valor y costos—, externos, combustible que pagamos, materiales que pagamos y tipos de cambio usados) se toma su período base.
+
+```
+base general     = mes de quote.offerDate
+por rubro        = base más vieja y más nueva
+bases distintas  = (más nueva − más vieja) > BASE_SPREAD_MONTHS (3)  → "Esta cotización usa valores con diferentes fechas base."
+base vieja       = (mes de la oferta − base) > BASE_STALE_MONTHS (6)
+sin base         = "Base no definida" (nunca se inventa una fecha)
+```
+
+Son advertencias: no cambian el cálculo. Se compara contra la fecha de la OFERTA, nunca contra "hoy" (el motor es determinístico).
+
+**Ejemplo (caso F):** oferta de oct-26 con un material de base ene-26 → 9 meses antes → "Un valor tiene una base de más de 6 meses antes de la oferta: Filtros (ene-26)" y, si el resto es de sep/oct-26, "Esta cotización usa valores con diferentes fechas base (de ene-26 a oct-26)."
 
 ## 7. Estructura (costos indirectos)
 
@@ -367,10 +475,11 @@ Mapeo de categorías:
 | Categoría | Incluye |
 |---|---|
 | Mano de obra | personal (fijo y variable), standby, otros costos "personal" |
-| Equipos | posesión, mantenimiento y neumáticos, otros costos "equipos" |
-| Combustible | combustible operativo de equipos + **combustible de traslados**, otros costos "combustible" |
+| Equipos propios | posesión, mantenimiento y neumáticos, otros costos "equipos" |
+| Equipos y servicios externos (v3) | costo económico de alquilados y tercerizados (§4.1) y su movilización si no está incluida |
+| Combustible | combustible operativo de equipos + **combustible de traslados** + combustible en ruta de la movilización (§5.1) + combustible no incluido de un alquilado, otros costos "combustible" |
 | Materiales | materiales, otros costos "materiales" |
-| Logística | desgaste por km, peajes, alojamiento/viáticos, otros costos "logística" |
+| Logística | desgaste por km (logística auxiliar y movilización), peajes, alojamiento/viáticos, otros costos "logística" |
 | Estructura | absorción de estructura + otros costos "estructura" |
 | Financiero | costo financiero (§8) |
 | Contingencia | contingencia (§9) |
@@ -382,7 +491,8 @@ EECC del caso demo con 8 días (ILUSTRATIVO):
 | Categoría | Monto | Incidencia |
 |---|---:|---:|
 | Mano de obra | 4.284.508 | 27,16 % |
-| Equipos | 5.335.667 | 33,82 % |
+| Equipos propios | 5.335.667 | 33,82 % |
+| Equipos y servicios externos | 0 | 0,00 % |
 | Combustible | 2.204.400 | 13,97 % |
 | Materiales | 500.000 | 3,17 % |
 | Logística | 202.400 | 1,28 % |
@@ -852,10 +962,16 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 3 | `utilization` | on-call o "Conozco la actividad" | 2 | ok si días activos > 0; si no, rojo |
 | 4 | `labor` | tipo distinto de "Equipo sin operador" | 2 | ok si alguna línea tiene básico > 0 y posiciones > 0; si no, rojo |
 | 5 | `relief` | servicio permanente, u on-call 24/7, con personal cargado | 1 | ok si todas las líneas tienen más de 1 persona por posición; si no, naranja |
-| 6 | `equipment_cost` | tipo con equipos (on-call, equipo con/sin operador, transporte) o hay equipos | 2 | ok si hay equipos y todos tienen reposición > 0 y vida útil > 0; si no, rojo |
+| 6 | `equipment_cost` | tipo con equipos (on-call, equipo con/sin operador, transporte) o hay equipos | 2 | ok si hay equipos y todos tienen costo: los propios reposición > 0 y vida útil > 0, los externos tarifa > 0; si no, rojo |
 | 7 | `fuel` | hay equipos o vehículos de traslado | 2 | rojo sin responsable; rojo si lo pagamos y falta precio o consumo; naranja si lo pagamos y el precio es el valor ILUSTRATIVO por defecto (`fuel.illustrative = true`: "confirmalo con tu precio actual"); si no, ok |
 | 8 | `materials` | siempre | 1 / 2 | "no usa materiales" → ok (1); sin líneas → naranja (1); con líneas → ok si todas tienen responsable, si no rojo (2) |
-| 9 | `logistics` | siempre | 1 / 2 | "sin traslados" → ok (1); si no, ok si distancia > 0 y algún vehículo con cantidad > 0, si no rojo (2) |
+| 9 | `logistics` | siempre | 1 / 2 | "sin traslados" → ok (1); si no, ok si distancia > 0 y algo se mueve (un vehículo con cantidad > 0, un equipo con movilización por sus medios / transportado / con apoyo, o un externo con movilización incluida); si no, rojo (2) |
+| 9b | `mobility` (v3) | hay equipos y traslados | 1 | ok si cada equipo tiene definido cómo llega (o el externo la incluye) y no hay avisos de transporte o conductor; si no, naranja |
+| 9c | `external_terms` (v3) | hay equipos externos | 1 | rojo si falta la alícuota de IVA cuando no es recuperable (o la parte recuperable si es parcial), o si la tarifa es por km o por viaje y la cotización no tiene km / viajes (y no hay mínimo); naranja si no se definió si el IVA es recuperable, si no se definió si la tarifa incluye combustible u operador, si una tarifa global no tiene meses de contrato (se toma 1 mes), si la oferta del proveedor venció antes de la fecha de la oferta o no tiene vigencia; si no, ok |
+| 9d | `duplicates` (v3) | hay equipos | 1 | naranja si un externo incluye operador y además tiene uno de Personal asignado, si un equipo que va por sus propios medios también figura como vehículo de la logística auxiliar, o si un externo cuya movilización cobra el proveedor aparte además va "por sus propios medios"; si no, ok |
+| 9e | `economic_base` (v3) | hay valores con costo | 1 | naranja si algún valor no tiene fecha base; si no, ok |
+| 9f | `base_age` (v3) | algún valor con base | 1 | naranja si hay bases de más de 6 meses antes de la oferta o bases distintas (§6.2); si no, ok |
+| 9g | `currency` (v3) | hay valores en otra moneda o sin moneda | 2 | rojo si falta el tipo de cambio (el valor no se suma); naranja si hay valores sin moneda; si no, ok |
 | 10 | `structure` | siempre | 1 | ok si el % (métodos porcentuales) o el monto es > 0; si no, naranja |
 | 11 | `payment_term` | siempre | 2 | ok si el plazo de cobro está definido (número, incluido 0); si está vacío o `null`, rojo |
 | 12 | `contingency` | siempre | 1 | ok si la contingencia total > 0; si no, naranja |
@@ -863,7 +979,7 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 13b | `billing_taxes` | siempre | 1 | ok si están definidos (un % total, algún renglón del detalle —incluso 0 %— o "No incluir impuestos sobre la facturación en esta cotización"); naranja si están sin definir ("la tarifa piso no los incluye"); rojo si hay un % inválido |
 | 14 | `standby` | on-call | 1 | ok si hay tarifa de standby o se marcó "no aplica"; si no, naranja |
 
-Los pendientes (`pending`) se ordenan rojos primero. Ejemplos: demo Hidrogrúa **93,48 %** (pendientes en naranja: relevos, impuestos sobre la facturación y standby); caso de referencia **76,67 %** (personal en rojo; estructura, contingencia e impuestos sobre la facturación en naranja).
+Los pendientes (`pending`) se ordenan rojos primero. Ejemplos: demo Hidrogrúa **94,44 %** (pendientes en naranja: relevos, impuestos sobre la facturación y standby; con v3 suma las reglas de movilización, duplicados, base y antigüedad en verde: antes 93,48 %); caso de referencia **76,67 %** (personal en rojo; estructura, contingencia e impuestos sobre la facturación en naranja).
 
 **Efecto de borde de la regla `billing_taxes` (PLAN-2026-002).** Agrega peso 1 a todas las cotizaciones. Una cotización con impuestos sin definir suma 0,5 de 1: si su puntaje era mayor a 50 % **baja un poco** (demo 95,45 % → 93,48 %; caso de referencia 78,57 % → 76,67 %) y si era menor **sube un poco** (cotización en blanco 33,33 % → 34,21 %). Una cotización que estaba apenas arriba de 85 % puede pasar de verde a naranja, o apenas arriba de 60 % pasar a "con riesgo" (`incomplete`/`atRisk`), hasta que se definan los impuestos o se elija "No incluir impuestos sobre la facturación en esta cotización". Los números económicos no cambian.
 
@@ -966,6 +1082,10 @@ Casos de referencia que deben seguir valiendo aunque cambie la interfaz. Son **r
 | `ganancia-sobre-costo-con-impuestos.json` | margen 10 %; impuestos 10 % | ganancia sobre el costo **12,5 %** (no es el markup) |
 | `on-call-break-even-con-impuestos.json` | caso básico con impuestos 10 % | contribución 2.600.000/día; break-even **11,54 días** (12 enteros) |
 | `on-call-tarifa-minima-6-dias-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 6 días; impuestos 10 % | tarifa mínima 6.666.666,67/día |
+| `externo-alquiler-iva-recuperable.json` | alquiler 1.000.000 neto/día, IVA 21 % recuperable | costo económico 1.000.000/día; caja 1.210.000; crédito fiscal 210.000 |
+| `externo-alquiler-iva-no-recuperable.json` | mismo alquiler, IVA no recuperable | costo económico 1.210.000/día |
+| `externo-minimo-por-llamado.json` | grúa tercerizada 450.000/h, mínimo 8 h, llamado de 1 día de 5 h | factura **8 h** = 3.600.000 neto por llamado |
+| `movilizacion-autopropulsada-160km.json` | Vactor por sus medios 80 + 80 km, 40 L/100 km, 1.500/L, 200 $/km | **160 km**, 64 L, combustible 96.000 + desgaste 32.000 = 128.000 por llamado; sin mano de obra extra |
 | `on-call-cotizacion-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 10 días; margen 10 %; impuestos 10 % | costo 40.000.000; piso 4.444.444,44; objetivo 5.000.000; facturación 50.000.000; impuestos 5.000.000; resultado 5.000.000 (10 %); markup 25 %; ganancia sobre el costo 12,5 % |
 
 **Red de seguridad** (`tests/engines/regression-baseline.test.js`, PLAN-2026-002 PN0): con impuestos sin definir, los KPIs, la EECC, la matriz y los tramos de la demo, el caso de referencia, cada plantilla y variantes sintéticas son **idénticos** a los del motor anterior (`tests/fixtures/baseline-v1.json`).

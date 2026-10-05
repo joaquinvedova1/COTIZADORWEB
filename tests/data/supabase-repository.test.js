@@ -300,3 +300,66 @@ describe('importar datos del modo local', () => {
     assert.equal(server.workspaces.get(orgId).state.quotes.length, 2, 'quedó en la nube');
   });
 });
+
+describe('SupabaseRepository: producción con datos v2 en la nube (PLAN-2026-005)', () => {
+  /** Workspace v2 con la forma que guardaba producción antes de v0.2.0. */
+  function v2Workspace(orgId) {
+    return {
+      schemaVersion: 2,
+      organization: { id: orgId, organizationId: orgId, name: 'Empresa real', baseLocation: '', industry: '', notes: '', illustrative: false, createdAt: '2026-10-01T10:00:00.000Z', updatedAt: '2026-10-01T10:00:00.000Z', createdBy: null, updatedBy: null },
+      resources: {
+        agreements: [],
+        laborProfiles: [{ id: 'lp', organizationId: orgId, role: 'Operador', basicMonthly: 2000000 }],
+        equipment: [{ id: 'eq', organizationId: orgId, name: 'Hidrogrúa', type: 'crane_truck', replacementValue: 250000000, usefulLifeYears: 10 }],
+        materials: [],
+        locations: [],
+      },
+      services: [],
+      quotes: [{
+        id: 'q', organizationId: orgId, code: 'COT-0001', name: 'Cotización v2', createdAt: '2026-10-02T10:00:00.000Z', serviceType: 'on_call', pricingMode: 'known_activity', unit: 'day',
+        activity: { activeDaysPerMonth: 8, daysPerActivation: 2, availableDaysPerMonth: 30, hoursPerActiveDay: 10 },
+        labor: [{ id: 'l', sourceId: 'lp', role: 'Operador', positions: 1, peoplePerPosition: 1, basicMonthly: 2000000, normalHoursPerMonth: 176 }],
+        equipment: [{ id: 'e', sourceId: 'eq', name: 'Hidrogrúa', quantity: 1, hoursPerActiveDay: 10, replacementValue: 250000000, usefulLifeYears: 10 }],
+        materials: [], otherCosts: [],
+        fuel: { pricePerLiter: 1500, providedBy: 'contractor' },
+        logistics: { notApplicable: false, distanceKm: 110, roundTrip: true, tripsPerActivation: 1, vehicles: [{ id: 'v', name: 'Hidrogrúa', count: 1, consumptionLPer100Km: 35, costPerKm: 150 }] },
+        billingTaxes: { mode: 'combined', notApplicable: false, combinedPct: null, items: [] },
+        vatTreatment: 'excluded',
+      }],
+      settings: { currency: 'ARS', fuelPricePerLiter: 1500, defaultBillingTaxes: null, illustrative: false },
+    };
+  }
+
+  test('sin la confirmación de staging (producción): migra a v3 una vez, con copia previa en el navegador, y la sube', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'a', company: 'Empresa real' });
+    server.workspaces.set(orgId, { state: v2Workspace(orgId), revision: 7, schemaVersion: 2 });
+    const { repo, init, cache } = await openRepo(server, 'a');
+    await repo.flush();
+    assert.equal(init.status, 'migrated');
+    const ws = server.workspaces.get(orgId);
+    assert.equal(ws.schemaVersion, 3);
+    assert.equal(ws.state.schemaVersion, 3);
+    assert.ok(ws.revision > 7, 'se guardó con control de revisión');
+    const [q] = await repo.getQuotes();
+    assert.equal(q.labor[0].basicMonthly, 2000000, 'ningún valor cambia');
+    assert.equal(q.labor[0].base.period, null, '"Base no definida": nunca se inventa una fecha');
+    assert.equal(q.offerDate, '2026-10-02');
+    const keys = Array.from({ length: cache.length }, (_, i) => cache.key(i));
+    assert.ok(keys.some((k) => k.startsWith(`rateos.cloud.a.${orgId}.recovery.`) && k.includes('pre-migration-v2')), 'copia previa de la cuenta en este navegador');
+    // Abrir de nuevo no vuelve a migrar ni a escribir.
+    const again = await openRepo(server, 'a');
+    assert.equal(again.init.status, 'loaded');
+  });
+
+  test('cuenta nueva en producción: crea su espacio vacío en v3 sin preguntar', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'n', company: 'Nueva SA' });
+    const { repo, init } = await openRepo(server, 'n');
+    await repo.flush();
+    assert.equal(init.status, 'new_workspace');
+    assert.equal(server.workspaces.get(orgId).schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.deepEqual(await repo.getResources('externalServices'), []);
+    assert.deepEqual(await repo.getResources('equipmentModels'), []);
+  });
+});

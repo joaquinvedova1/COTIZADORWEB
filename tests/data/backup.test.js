@@ -196,7 +196,7 @@ describe('Backup — validación antes de importar', () => {
       organization: 'Patagonia Servicios SRL',
       quotes: 2,
       services: 12,
-      resources: { agreements: 6, laborProfiles: 5, equipment: 10, materials: 4, locations: 2 },
+      resources: { agreements: 6, laborProfiles: 5, equipment: 10, materials: 4, locations: 2, equipmentModels: 0, externalServices: 3 },
       exportedAt: '2026-10-03T10:00:00.000Z',
       appVersion: '0.1.0',
     });

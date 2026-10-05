@@ -53,6 +53,15 @@ Además: dashboard, escenarios pesimista / base / optimista, comparador de model
 
 Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de la experiencia (landing, demo guiada, editor en 5 etapas, resultado progresivo), **impuestos sobre lo que facturás** (esquema de datos 2, con migración), **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; apropiación por día y total del contrato, con controles "Los números cierran") y **cuentas reales** (ver abajo).
 
+**v0.2.0 — Recursos con base económica** ([docs/RESOURCE_MODEL.md](docs/RESOURCE_MODEL.md), esquema de datos 3 con migración, mismos números para los datos existentes):
+
+- Cada valor económico con su **base** ("Base: sep-26" / "Base no definida") y **base económica de la oferta** con avisos de bases distintas o viejas.
+- **RECURSO MAESTRO ≠ SNAPSHOT DE COTIZACIÓN**: cambiar un recurso nunca cambia una cotización hecha; la cotización avisa y vos elegís [Actualizar en esta cotización] o [Conservar valor original].
+- **Mis equipos** (legajo por unidad) + **catálogo** de familias (sin precios) + modelos propios; **servicios externos**.
+- Equipos **propios, alquilados o tercerizados**, con tarifa neta, mínimo y tratamiento fiscal (costo económico ≠ salida de caja ≠ crédito fiscal).
+- **Movilización y viajes**: cómo llega cada equipo (por sus medios, transportado, con apoyo) separado de la logística auxiliar, sin contar dos veces al operador ni al vehículo.
+- Moneda y tipo de cambio por cotización; versión visible ("v0.2.0 · build …") en el menú, la landing y Configuración → Acerca de.
+
 ## Visitante, demo y cuenta
 
 | | Qué ve | Datos |
@@ -75,7 +84,7 @@ NUEVA COTIZACIÓN
  3. Personal                    9. Riesgo / contingencia
  4. Equipos                    10. Margen y reglas comerciales
  5. Materiales                 11. Resultado
- 6. Logística
+ 6. Movilización y viajes
 ```
 
 Dos modos:
@@ -234,7 +243,8 @@ docs/                      documentación técnica
 
 ## Limitaciones conocidas (v0.1.0)
 
-- Unidades de tarifa: $/día, $/hora y $/mes (abono). Otras (por viaje, km, m³, tonelada, intervención, precio global) todavía no.
+- Unidades de tarifa de venta: $/día, $/hora y $/mes (abono). Otras (por viaje, km, m³, tonelada, intervención, precio global) todavía no. (Las tarifas de **proveedores** externos sí aceptan hora, día, mes, viaje, km, llamado y global.)
+- **Recursos (v0.2.0):** no hay todavía "Actualizar costos de esta oferta a valores actuales" de una sola vez ni índices de actualización (la estructura queda preparada); el IVA recuperable de los externos se informa aparte pero no entra en el capital de trabajo; los tipos de cambio los carga la empresa (RATEOS no los consulta); sueldos sólo en la moneda de la empresa.
 - Todos los tipos de servicio usan el mismo modelo económico (costos fijos mensuales + costos variables por día activo).
 - **Cuentas:** una empresa por cuenta y una persona por empresa (todavía no hay invitaciones ni Google). Los datos de cada empresa se guardan como un único documento (máximo 5 MB): si dos dispositivos o pestañas guardan a la vez, el segundo ve "Tus datos cambiaron en otro dispositivo." y elige [Recargar] o [Conservar una copia] (nunca se pisa nada en silencio, pero tampoco se fusionan cambios).
 - **Enlaces de email** (confirmación, recuperación): funcionan en el mismo navegador donde se pidieron (PKCE). En otro navegador, la cuenta igual queda confirmada y se ingresa con email y contraseña.
@@ -252,7 +262,8 @@ docs/                      documentación técnica
 | [AGENTS.md](AGENTS.md) | Constitución del proyecto: reglas para cualquier agente o persona que modifique RATEOS |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Capas, módulos, reglas de dependencia, flujo de datos, routing, CSP, decisiones |
 | [docs/CALCULATION_RULES.md](docs/CALCULATION_RULES.md) | Todas las fórmulas con ejemplos numéricos |
-| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Formato actual (schemaVersion 2), dónde se guarda (cuenta / demo / modo local) y modelo relacional futuro |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Formato actual (schemaVersion 3), dónde se guarda (cuenta / demo / modo local) y modelo relacional futuro |
+| [docs/RESOURCE_MODEL.md](docs/RESOURCE_MODEL.md) | Recurso maestro ≠ snapshot de cotización, base económica, propio / alquilado / tercerizado, fiscal de externos, movilización y doble conteo |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | CI/CD, GitHub Pages, verificación, rollback, tags, troubleshooting |
 | [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) | Visitante / demo / cuenta, Supabase Auth, enlaces de email con GitHub Pages, sesión, roles, riesgos |
 | [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) | Tablas, RLS, sincronización por revisión, migración desde el modo local y fases siguientes |

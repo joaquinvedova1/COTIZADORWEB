@@ -23,6 +23,8 @@
 #   puede escribir en Pages.
 # - scripts/stage-preview.mjs (tomado de main) arma /preview/ y falla si
 #   cualquier archivo de producción cambia.
+# - Un deploy de preview atrasado no pisa uno más nuevo: justo antes de
+#   publicar se verifica que su commit siga siendo el último de la rama.
 # - Si los tests de main fallan, no se despliega nada. Si fallan los del preview:
 #   en un push a main producción se publica igual (con un /preview/ que lo
 #   explica); en un deploy de preview no se publica nada.
@@ -293,6 +295,10 @@ jobs:
       ref: ${{ steps.info.outputs.ref }}
       build_date: ${{ steps.info.outputs.build_date }}
       preview: ${{ steps.stage.outputs.preview }}
+      # Para que deploy verifique que el preview sigue siendo el último commit de la rama.
+      preview_trigger: ${{ needs.plan.outputs.trigger }}
+      preview_branch: ${{ needs.plan.outputs.preview_branch }}
+      preview_sha: ${{ needs.plan.outputs.preview_sha }}
     steps:
       - name: Checkout (mismo commit que pasó los tests)
         uses: actions/checkout@v4
@@ -383,6 +389,29 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Un deploy de preview que quedó atrasado (cola de runners, re-run de un CI
+      # viejo) nunca pisa un commit más nuevo: si la rama ya avanzó, no se
+      # publica nada (lo publica la corrida del commit nuevo). Se consulta el
+      # repositorio público con git ls-remote, sin credenciales ni checkout.
+      - name: Preview vigente (último commit de la rama)
+        if: needs.build.outputs.preview_trigger == 'preview'
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+          PREVIEW_BRANCH: ${{ needs.build.outputs.preview_branch }}
+          PREVIEW_SHA: ${{ needs.build.outputs.preview_sha }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git ls-remote "$REPO_URL" "refs/heads/${PREVIEW_BRANCH}" | cut -f1)"
+          if [ -z "$HEAD_SHA" ]; then
+            echo "::error::La rama ${PREVIEW_BRANCH} ya no existe: no se publica el preview."
+            exit 1
+          fi
+          if [ "$HEAD_SHA" != "$PREVIEW_SHA" ]; then
+            echo "::error::El preview ${PREVIEW_SHA:0:7} ya no es el último commit de ${PREVIEW_BRANCH} (${HEAD_SHA:0:7}): no se publica para no pisar uno más nuevo."
+            exit 1
+          fi
+          echo "Preview vigente: ${PREVIEW_BRANCH}@${PREVIEW_SHA:0:7}"
+
       - name: Desplegar en GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
