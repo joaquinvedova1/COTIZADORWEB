@@ -55,10 +55,9 @@ on:
 permissions:
   contents: read
 
-# Un solo despliegue a la vez; nunca se cancela uno en curso.
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
+# Concurrencia: sólo en el job deploy (más abajo). A nivel workflow, una
+# corrida que después se saltea (p. ej. el CI de pull_request de la misma rama)
+# entraba a la cola y cancelaba el deploy pendiente del preview.
 
 jobs:
   plan:
@@ -370,6 +369,11 @@ jobs:
     name: Deploy
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' }}
+    # Un solo despliegue a la vez; nunca se cancela uno en curso. Si se acumulan,
+    # gana el más nuevo (cada corrida publica main actual en la raíz).
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
