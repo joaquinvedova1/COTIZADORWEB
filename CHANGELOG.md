@@ -12,6 +12,23 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+Versión **0.3.0** (en `/preview/` para probar; producción sigue en 0.2.0). Iteración corta de UX y catálogos para la carga inicial de empresa, recursos y personal. **No cambia ninguna fórmula**, ningún motor ni el esquema de datos (`schemaVersion` sigue en 3): los campos nuevos son descriptivos y opcionales.
+
+### Agregado
+
+- **Sector de la empresa buscable** (Bienvenida y Configuración → Tu empresa): 20 sectores amplios tomados de las secciones de la ClaNAE (INDEC; el CLAE de ARCA usa las mismas), con "Petróleo y gas" aparte de "Minería" y **Otro / Personalizado**. Se busca sin tildes y por palabras clave ("petróleo", "Vaca Muerta", "camiones"…). No se cargan códigos fiscales. Catálogo en `js/domain/industry-catalog.js`; componente `searchSelectField` (combobox accesible) en `js/ui/components.js`.
+- **Actividad / especialidad** (opcional, texto libre con sugerencias según el sector: servicios al pozo, transporte de cargas, mantenimiento industrial, construcción civil, servicios ambientales, montaje, ingeniería, limpieza industrial…). Se guarda en `organization.activity`; pasa a la empresa propia al "Empezar en limpio" y al importar el modo local.
+- **Catálogo de equipos ampliado** a 29 familias (se suman camión atmosférico / vacío, batea, tanque, cargadora frontal, motoniveladora, equipo de soldadura y torre de iluminación) con **variantes descriptivas sugeridas** (p. ej. Vactor 5 / 10 / 12 / 15 yd³, camión tractor 4x2 / 6x2 / 6x4, semirremolque 3 ejes tándem / 1+2 / 1+1+1 / sider / carretón / batea / tanque). Sin precios, consumos ni especificaciones económicas.
+- **Mis equipos**: sección "¿Qué equipo es?" (familia → variante → nombre) y campo **Capacidad / especificación** (`capacity`, opcional). Elegir una variante completa la capacidad y, si el nombre está vacío, sugiere el nombre; todo queda editable y "Personalizado" deja escribir la propia. La capacidad se ve en la lista. Los modelos del Catálogo usan las mismas sugerencias.
+
+### Cambiado
+
+- **Personal**: el sueldo y su base económica van juntos en "Sueldo y base económica (por persona)": **Sueldo básico mensual · Período base (mes del sueldo) · Fuente · Referencia** (antes la base estaba al final del formulario). La lista de Personal tiene la columna **"Base del sueldo"** ("Base: sep-26" o "Base no definida"), también en la vista de tarjetas.
+- Familias renombradas para que se entiendan solas: "Vactor / camión combinado", "Carretón" (la batea es ahora su propia familia), "Camioneta", "Compresor / motocompresor", "Otro / Personalizado". Los ids no cambian: los equipos guardados siguen en su familia.
+- Tipos de empresa anteriores: "Servicios petroleros" se lee como sector *Petróleo y gas* y "Mantenimiento industrial" como *Industria manufacturera*, con esa descripción como actividad; el dato guardado sólo cambia cuando la persona edita el sector o la actividad.
+
+## [0.2.0] - 2026-10-05
+
 Tres cambios en esta versión:
 
 1. **Rediseño de experiencia de usuario**: simple en la superficie, potente por debajo. No cambia ninguna fórmula económica. Ninguna capacidad se eliminó: lo avanzado quedó colapsado o en pantallas secundarias. Guía en [docs/UX.md](docs/UX.md).
@@ -226,5 +243,6 @@ Antes del merge se hizo una revisión desde Economía, QA, Seguridad, Datos, UX 
 
 - README, `docs/ARCHITECTURE.md`, `docs/CALCULATION_RULES.md`, `docs/DATA_MODEL.md`, `docs/DEPLOYMENT.md`, `docs/SUPABASE_PLAN.md`, `docs/AGENT_ROLES.md` y `.agent/PLANS.md` actualizados al código: persistencia con varias pestañas (y su limitación), pantallas de recuperación, validaciones de importación, procedimiento de rollback con commits de `main`, ejemplos numéricos recalculados (break-even §15, tramos §14, sensibilidad y comparador §17). Se corrigió la referencia colgante de `docs/ARCHITECTURE.md` (`catalogs.js` incluye `COST_CATEGORY_IDS`, `EQUIPMENT_TYPES` y `DEFAULT_VOLUME_TIERS`) y el estado de PLAN-2026-001 queda "En curso — pendiente de merge" (SPEC-07).
 
-[Unreleased]: https://github.com/joaquinvedova1/COTIZADORWEB/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/joaquinvedova1/COTIZADORWEB/compare/f6b3c08...HEAD
+[0.2.0]: https://github.com/joaquinvedova1/COTIZADORWEB/compare/v0.1.0...f6b3c08
 [0.1.0]: https://github.com/joaquinvedova1/COTIZADORWEB/releases/tag/v0.1.0

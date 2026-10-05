@@ -41,7 +41,7 @@ import { isFiniteNumber, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
 import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, VAT_RECOVERY, labelOf } from '../../domain/catalogs.js';
-import { EQUIPMENT_FAMILIES, familyById, familyIdOf, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
+import { EQUIPMENT_FAMILIES, familyById, familyIdOf, familyVariants, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
 import { emptyBase } from '../../domain/economic-base.js';
 import { createExternalTerms, createEquipmentMobility, acquisitionOf } from '../../domain/quote-factory.js';
 import { externalFiscal } from '../../engines/external-engine.js';
@@ -392,7 +392,7 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
     };
     switch (field.kind) {
       case 'text':
-        return textField({ label: field.label, value: value ?? '', required: field.required, hint: field.hint, maxLength: field.maxLength || 120, placeholder: field.placeholder || '', onChange: set });
+        return textField({ label: field.label, value: value ?? '', required: field.required, hint: field.hint, maxLength: field.maxLength || 120, placeholder: field.placeholder || '', name: field.name || null, onChange: set });
       case 'textarea':
         return textField({ label: field.label, value: value ?? '', hint: field.hint, maxLength: field.maxLength || 600, multiline: true, onChange: set });
       case 'select': {
@@ -512,9 +512,18 @@ function laborSections(agreements, app) {
       ],
     },
     {
-      title: 'Remuneración (por persona)',
+      // El sueldo y su fecha base van juntos: sin período, nadie sabe de cuándo es el valor.
+      title: 'Sueldo y base económica (por persona)',
+      hint: 'De qué mes es este sueldo (y el resto de los valores de este perfil). Cada cotización guarda una foto: si después lo actualizás, las cotizaciones hechas no cambian.',
+      cols: 4,
       fields: [
-        { key: 'basicMonthly', label: 'Básico mensual', rule: 'money', unit: '$', required: true },
+        { key: 'basicMonthly', label: 'Sueldo básico mensual', rule: 'money', unit: '$', required: true },
+        ...baseFormFields('base', { periodLabel: 'Período base (mes del sueldo)' }),
+      ],
+    },
+    {
+      title: 'Adicionales y horas (por persona)',
+      fields: [
         { key: 'additionalsMonthly', label: 'Adicionales mensuales', rule: 'money', unit: '$', hint: 'Zona, presentismo, títulos, etc.' },
         { key: 'mealPerActiveDay', label: 'Vianda por día activo', rule: 'money', unit: '$' },
         { key: 'normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h' },
@@ -567,12 +576,6 @@ function laborSections(agreements, app) {
         { key: 'trainingMonthly', label: 'Capacitación', rule: 'money', unit: '$' },
         { key: 'transferMonthly', label: 'Traslado', rule: 'money', unit: '$' },
       ],
-    },
-    {
-      title: 'Base económica',
-      hint: 'De qué mes son estos valores (sueldo y cargas). Cada cotización guarda una foto: si después los actualizás, las cotizaciones viejas no cambian.',
-      cols: 3,
-      fields: baseFormFields('base'),
     },
     { title: 'Marca', cols: 2, fields: [illustrativeField] },
   ];
@@ -730,17 +733,83 @@ function mobilitySection() {
   };
 }
 
+/** Nombre que se completó solo, por borrador: si la persona no lo tocó, otra variante lo reemplaza. */
+const autoNames = new WeakMap();
+
+const CAPACITY_FIELD = {
+  key: 'capacity',
+  name: 'capacity',
+  label: 'Capacidad / especificación (opcional)',
+  kind: 'text',
+  maxLength: 80,
+  placeholder: 'Ej.: 12 yd³ / 1.500 gal · 6x4 · 3 ejes tándem',
+};
+
+/**
+ * Variantes comunes de la familia (SUGERENCIAS de texto, sin precios ni
+ * consumos): un clic completa "Capacidad / especificación" y, si el nombre está
+ * vacío (o es el que se sugirió antes), también el nombre. Todo queda editable;
+ * "Personalizado" deja el campo libre para escribir la propia.
+ */
+function variantSuggestions({ draft, rerender, nameKey = 'name' }) {
+  const variants = familyVariants(draft.familyId);
+  const current = typeof draft.capacity === 'string' ? draft.capacity.trim() : '';
+  if (!variants.length) {
+    return h('p', { class: 'muted small variant-suggest-empty' }, draft.familyId && draft.familyId !== 'other'
+      ? 'Esta familia no tiene variantes sugeridas: escribí la capacidad o especificación de tu unidad.'
+      : 'Elegí una familia para ver variantes comunes, o escribí la tuya (personalizado).');
+  }
+  const pick = (variant) => {
+    draft.capacity = variant.label;
+    if (nameKey) {
+      const name = typeof draft[nameKey] === 'string' ? draft[nameKey].trim() : '';
+      if (!name || name === autoNames.get(draft)) {
+        draft[nameKey] = variant.name;
+        autoNames.set(draft, variant.name);
+      }
+    }
+    rerender();
+  };
+  const custom = current !== '' && !variants.some((v) => v.label === current);
+  const chip = (label, selected, onClick) => h('button', { type: 'button', class: ['chip-suggest', selected ? 'is-selected' : null], 'aria-pressed': selected ? 'true' : 'false', on: { click: onClick } }, label);
+  return h(
+    'div',
+    { class: 'variant-suggest' },
+    h('span', { class: 'variant-suggest-label', id: uniqueId('variants') }, 'Variantes comunes (sugerencias, editables):'),
+    h(
+      'div',
+      { class: 'variant-suggest-list', role: 'group', 'aria-label': 'Variantes comunes' },
+      ...variants.map((v) => chip(v.label, current === v.label, () => pick(v))),
+      chip('Personalizado', custom, () => {
+        if (variants.some((v) => v.label === current)) draft.capacity = '';
+        rerender();
+        const input = document.querySelector('dialog[open] input[name="capacity"]');
+        if (input) input.focus();
+      }),
+    ),
+  );
+}
+
 /** Legajo de una unidad de "Mis equipos": identificación, economía, operación y movilidad. */
 function equipmentSections(models = []) {
   return (draft) => {
     const familyModels = models.filter((m) => m.familyId === draft.familyId);
     const sections = [
       {
-        title: 'Identificación',
+        title: '¿Qué equipo es?',
+        hint: 'Elegí la familia y, si querés, una variante común: completa la capacidad y sugiere el nombre. Podés cambiar todo o cargarlo desde cero.',
+        fields: [
+          { key: 'familyId', label: 'Familia', kind: 'select', options: FAMILY_OPTIONS, rerender: true },
+          CAPACITY_FIELD,
+          { key: 'name', label: 'Nombre', kind: 'text', required: true, placeholder: 'Ej.: Vactor 12 yd³ / 1.500 gal' },
+        ],
+        extra: ({ draft: d, rerender }) => variantSuggestions({ draft: d, rerender }),
+      },
+      {
+        title: 'Identificación de la unidad',
+        cols: 4,
         fields: [
           { key: 'internalCode', label: 'Interno', kind: 'text', maxLength: 40, placeholder: 'Ej.: EQ-014' },
-          { key: 'name', label: 'Nombre', kind: 'text', required: true, placeholder: 'Ej.: Vactor 12 m³' },
-          { key: 'familyId', label: 'Familia', kind: 'select', options: FAMILY_OPTIONS, rerender: true },
           {
             key: 'modelId',
             label: 'Modelo (de tu catálogo)',
@@ -831,6 +900,7 @@ function newEquipment() {
     name: '',
     internalCode: '',
     familyId: 'other',
+    capacity: '',
     modelId: null,
     year: null,
     plate: '',
@@ -885,13 +955,14 @@ function modelSections() {
       title: 'Modelo',
       hint: 'El catálogo describe QUÉ equipo es. Los valores económicos van en cada unidad de "Mis equipos". No cargues datos que no tengas confirmados.',
       fields: [
-        { key: 'familyId', label: 'Familia', kind: 'select', options: FAMILY_OPTIONS },
+        { key: 'familyId', label: 'Familia', kind: 'select', options: FAMILY_OPTIONS, rerender: true },
         { key: 'brand', label: 'Marca', kind: 'text', maxLength: 60, placeholder: 'Ej.: Vac-Con' },
         { key: 'model', label: 'Modelo', kind: 'text', required: true, maxLength: 60, placeholder: 'Ej.: PD4211' },
         { key: 'year', label: 'Año / generación (opcional)', rule: 'integer', nullable: true },
-        { key: 'capacity', label: 'Capacidad (opcional)', kind: 'text', maxLength: 60, placeholder: 'Ej.: 12 m³' },
+        { key: 'capacity', name: 'capacity', label: 'Capacidad / especificación (opcional)', kind: 'text', maxLength: 80, placeholder: 'Ej.: 12 yd³ / 1.500 gal' },
         { key: 'fuelType', label: 'Combustible (opcional)', kind: 'text', maxLength: 40, placeholder: 'Ej.: gasoil' },
       ],
+      extra: ({ draft, rerender }) => variantSuggestions({ draft, rerender, nameKey: null }),
     },
     {
       title: 'Características generales',
@@ -1161,12 +1232,15 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       align: 'right',
       render: ({ item }) => rowActions({ name: item.role || 'perfil', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.role || 'perfil') }),
     };
+    // Siempre visible (también en la vista de tarjetas): "Base: sep-26" o "Base no definida".
+    const laborBaseColumn = { key: 'base', label: 'Base del sueldo', render: ({ item }) => baseTag(item.base) };
     if (!detailed) {
       return table({
         caption: 'Perfiles de personal',
         className: 'lib-table lib-table-simple table-cards',
         columns: [
-          { key: 'role', label: 'Puesto', render: ({ item }) => h('div', { class: 'cell-stack' }, nameCell(item.role, item.category, item.illustrative), baseTag(item.base)) },
+          { key: 'role', label: 'Puesto', render: ({ item }) => nameCell(item.role, item.category, item.illustrative) },
+          laborBaseColumn,
           { key: 'hourly', label: 'Costo por hora', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
           { key: 'monthly', label: 'Costo por mes (por persona)', align: 'right', render: ({ item, cost }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(cost.perPerson.fixedMonthly)), laborTrace(item, cost)) },
           actions,
@@ -1178,7 +1252,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       caption: 'Perfiles de personal',
       className: 'lib-table table-cards',
       columns: [
-        { key: 'role', label: 'Rol', render: ({ item }) => h('div', { class: 'cell-stack' }, nameCell(item.role, item.category, item.illustrative), baseTag(item.base)) },
+        { key: 'role', label: 'Rol', render: ({ item }) => nameCell(item.role, item.category, item.illustrative) },
+        laborBaseColumn,
         { key: 'agreement', label: 'Convenio', render: ({ item }) => agreementName(item.agreementId) },
         {
           key: 'basic',
@@ -1230,7 +1305,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   function equipmentSub(item) {
     const fam = familyById(familyIdOf(item));
     const model = list('equipmentModels').find((m) => m.id === item.modelId);
-    return [item.internalCode, fam ? fam.label : null, model ? modelLabel(model) : null].filter(Boolean).join(' · ');
+    const capacity = typeof item.capacity === 'string' && item.capacity.trim() ? item.capacity.trim() : null;
+    return [item.internalCode, fam ? fam.label : null, capacity, model ? modelLabel(model) : null].filter(Boolean).join(' · ');
   }
 
   function equipmentTable(detailed) {
@@ -1322,12 +1398,13 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   function familiesReference() {
     return disclosure(
-      { summary: `Familias del catálogo (${EQUIPMENT_FAMILIES.length})`, hint: 'Características generales sugeridas (no son especificaciones técnicas ni precios).', className: 'disclosure-plain' },
+      { summary: `Familias del catálogo (${EQUIPMENT_FAMILIES.length})`, hint: 'Características generales y variantes comunes SUGERIDAS (no son especificaciones técnicas ni precios).', className: 'disclosure-plain' },
       table({
         caption: 'Familias de equipos',
         className: 'lib-table table-cards',
         columns: [
           { key: 'label', label: 'Familia', render: (f) => f.label },
+          { key: 'variants', label: 'Variantes sugeridas', render: (f) => familyVariants(f.id).map((v) => v.label).join(' · ') || EMPTY },
           { key: 'self', label: 'Autopropulsado', render: (f) => yesNo(f.selfPropelled) },
           { key: 'road', label: 'Circula por ruta', render: (f) => yesNo(f.roadLegal) },
           { key: 'transport', label: 'Suele requerir transporte', render: (f) => yesNo(f.requiresTransport) },

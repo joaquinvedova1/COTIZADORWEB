@@ -443,6 +443,107 @@ export function selectField({ label, value, options, onChange, hint = null, name
   return fieldShell({ id, label, hint }, select).el;
 }
 
+/**
+ * Selector BUSCABLE (combobox accesible): se escribe para filtrar y se elige de
+ * la lista. El valor siempre es una de las opciones (o null si se permite vacío).
+ * - search(query) → opciones a mostrar ({ value, label, hint? }).
+ * - Flechas ↑/↓ recorren, Enter elige, Esc cierra; al salir del campo se vuelve
+ *   a mostrar lo elegido (texto vacío + allowEmpty = sin definir).
+ */
+export function searchSelectField({ label, value = null, options, search = null, onChange, hint = null, name = null, placeholder = 'Escribí para buscar…', allowEmpty = true, disabled = false }) {
+  const id = uniqueId('cbx');
+  const listId = `${id}-list`;
+  const byValue = (v) => options.find((o) => String(o.value) === String(v)) || null;
+  let selected = byValue(value);
+  let shown = [];
+  let active = -1;
+  const input = h('input', {
+    id, name, type: 'text', disabled, placeholder, autocomplete: 'off', spellcheck: 'false',
+    role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': listId,
+    'aria-describedby': hint ? `${id}-hint` : null,
+    value: selected ? selected.label : '',
+  });
+  const list = h('ul', { id: listId, role: 'listbox', class: 'combo-list', hidden: true, 'aria-label': label });
+  const optionId = (i) => `${id}-opt-${i}`;
+  const paint = () => {
+    mount(list, ...shown.map((o, i) => h('li', {
+      id: optionId(i), role: 'option', class: ['combo-option', i === active ? 'is-active' : null],
+      'aria-selected': selected && String(o.value) === String(selected.value) ? 'true' : 'false',
+      // mousedown (no click): elegir antes de que el campo pierda el foco.
+      on: { mousedown: (e) => { e.preventDefault(); choose(o); } },
+    }, h('span', { class: 'combo-option-label' }, o.label), o.hint ? h('span', { class: 'combo-option-hint' }, o.hint) : null)));
+    if (active >= 0) input.setAttribute('aria-activedescendant', optionId(active));
+    else input.removeAttribute('aria-activedescendant');
+    const el = active >= 0 ? list.children[active] : null;
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+  };
+  const open = (query) => {
+    shown = typeof search === 'function' ? search(query) : options.filter((o) => o.label.toLowerCase().includes(String(query || '').toLowerCase()));
+    active = shown.length ? Math.max(0, selected ? shown.findIndex((o) => String(o.value) === String(selected.value)) : 0) : -1;
+    list.hidden = shown.length === 0;
+    input.setAttribute('aria-expanded', shown.length ? 'true' : 'false');
+    paint();
+  };
+  const close = () => {
+    list.hidden = true;
+    active = -1;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  };
+  const restore = () => { input.value = selected ? selected.label : ''; };
+  function choose(option) {
+    const changed = (option ? String(option.value) : null) !== (selected ? String(selected.value) : null);
+    selected = option;
+    restore();
+    close();
+    if (!changed) return;
+    if (typeof onChange === 'function') onChange(option ? option.value : null);
+    // Los formularios con guardado automático escuchan "change".
+    input.dispatchEvent(new CustomEvent('change', { bubbles: true, detail: { combo: true } }));
+  }
+  input.addEventListener('focus', () => { if (!disabled) open(''); });
+  // El "change" nativo del texto buscado no es una elección: sólo sale el de choose().
+  input.addEventListener('change', (e) => {
+    if (!(e instanceof CustomEvent)) e.stopPropagation();
+  });
+  input.addEventListener('input', (e) => {
+    // Buscar no es cambiar el valor: no dispara el guardado del formulario.
+    e.stopPropagation();
+    open(input.value);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (list.hidden) { open(''); return; }
+      if (!shown.length) return;
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length;
+      paint();
+    } else if (e.key === 'Enter') {
+      if (!list.hidden && active >= 0) {
+        e.preventDefault();
+        choose(shown[active]);
+      }
+    } else if (e.key === 'Escape') {
+      if (!list.hidden) {
+        e.preventDefault();
+        e.stopPropagation();
+        restore();
+        close();
+      }
+    }
+  });
+  input.addEventListener('blur', () => {
+    if (input.value.trim() === '' && allowEmpty && selected) choose(null);
+    else restore();
+    close();
+  });
+  const { el } = fieldShell({ id, label, hint }, input);
+  el.classList.add('combo');
+  const control = el.querySelector('.field-control');
+  if (control) control.appendChild(list);
+  return el;
+}
+
 /** Casilla de verificación. */
 export function checkboxField({ label, checked = false, onChange, hint = null, name = null, disabled = false }) {
   const id = uniqueId('chk');

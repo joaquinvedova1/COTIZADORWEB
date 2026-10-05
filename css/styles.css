@@ -731,3 +731,42 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   .sync-notice-actions .btn { flex: 1 1 100%; }
   .economic-base-rows { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------------------------------------------
+ * Carga inicial: sector buscable y variantes de equipos
+ * ------------------------------------------------------------------ */
+
+/* Selector buscable (combobox): la lista se abre debajo del campo */
+.combo .field-control { position: relative; }
+.combo-list {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+  max-height: 18rem; overflow-y: auto; margin: 0; padding: 0.25rem; list-style: none;
+  background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+}
+.combo-list[hidden] { display: none; }
+.combo-option {
+  display: flex; flex-direction: column; gap: 0.1rem; padding: 0.45rem 0.6rem;
+  border-radius: 6px; cursor: pointer; color: var(--ink);
+}
+.combo-option:hover, .combo-option.is-active { background: var(--blue-50); }
+.combo-option[aria-selected="true"] .combo-option-label { font-weight: 600; color: var(--navy-900); }
+.combo-option-hint { font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* Variantes comunes de una familia (sugerencias que completan el campo) */
+.variant-suggest { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+.variant-suggest-label { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.variant-suggest-list { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.chip-suggest {
+  font: inherit; font-size: var(--fs-sm); line-height: 1.3; cursor: pointer;
+  padding: 0.35rem 0.75rem; border-radius: 999px;
+  border: 1px solid var(--field-border); background: var(--white); color: var(--ink);
+}
+.chip-suggest:hover { border-color: var(--blue-600); background: var(--blue-50); }
+.chip-suggest:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.chip-suggest.is-selected { border-color: var(--navy-900); background: var(--navy-50); color: var(--navy-900); font-weight: 600; }
+.variant-suggest-empty { margin: var(--sp-2) 0 0; }
+
+@media (max-width: 760px) {
+  .chip-suggest { min-height: 40px; padding: 0.3rem 0.6rem; font-size: 0.82rem; }
+  .combo-list { max-height: 14rem; }
+}

@@ -497,7 +497,7 @@ export class SupabaseRepository extends LocalStorageRepository {
       counts.quotes += mergeList(draft.quotes, data.quotes);
       // Datos de la empresa: completa sólo lo vacío (el nombre de la cuenta manda).
       if (isPlainObject(data.organization)) {
-        ['baseLocation', 'industry', 'notes'].forEach((field) => {
+        ['baseLocation', 'industry', 'activity', 'notes'].forEach((field) => {
           if (!draft.organization[field] && typeof data.organization[field] === 'string') draft.organization[field] = data.organization[field].slice(0, 500);
         });
       }

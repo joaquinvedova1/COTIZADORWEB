@@ -495,6 +495,23 @@ describe('Backup — restaurar demo', () => {
 // ================================================ empezar en limpio
 
 describe('startFresh: empezar con mi empresa en limpio', () => {
+  test('sector y actividad / especialidad pasan a la empresa propia (descriptivos, no cambian cálculos)', async () => {
+    const storage = new MemoryStorage();
+    const repo = new LocalStorageRepository(storage, { now: createClock() });
+    await repo.init();
+    const service = createBackupService({ repository: repo });
+    await service.startFresh({ name: 'Ambiental SRL', industry: 'water_waste', activity: '  Servicios ambientales ' });
+    const after = await repo.exportBackup();
+    assert.equal(after.organization.industry, 'water_waste');
+    assert.equal(after.organization.activity, 'Servicios ambientales');
+    // Sin actividad: no se agrega el campo.
+    const storage2 = new MemoryStorage();
+    const repo2 = new LocalStorageRepository(storage2, { now: createClock() });
+    await repo2.init();
+    await createBackupService({ repository: repo2 }).startFresh({ name: 'Otra SA', industry: 'construction' });
+    assert.equal((await repo2.exportBackup()).organization.activity, undefined);
+  });
+
   test('quita la empresa ficticia, cotizaciones y recursos; conserva convenios, plantillas y configuración; guarda copia de recuperación', async () => {
     const storage = new MemoryStorage();
     const repo = new LocalStorageRepository(storage, { now: createClock() });

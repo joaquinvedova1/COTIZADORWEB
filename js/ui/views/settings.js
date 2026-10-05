@@ -17,13 +17,14 @@
  */
 
 import { h, mount, uniqueId, downloadText, readFileAsText } from '../dom.js';
-import { badge, banner, button, card, checkboxField, confirmDialog, formGrid, numberField, periodField, selectField, textField } from '../components.js';
+import { badge, banner, button, card, checkboxField, confirmDialog, formGrid, numberField, periodField, searchSelectField, selectField, textField } from '../components.js';
 import { APP_NAME, CURRENCY, FEATURES, MAX_BACKUP_BYTES, SCHEMA_VERSION, STORAGE_MODE, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { formatBuildLabel, formatDateTime, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { sanitizeText, validateNumber } from '../../core/validation.js';
 import { demoOrganization } from '../../domain/demo-data.js';
 import { BASE_SOURCES, CURRENCIES } from '../../domain/catalogs.js';
+import { INDUSTRY_SECTORS, MAX_ACTIVITY_LENGTH, activitySuggestions, industryOf, searchSectors } from '../../domain/industry-catalog.js';
 import { emptyBase, normalizeBase } from '../../domain/economic-base.js';
 import { normalizeExchangeRates } from '../../domain/quote-factory.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
@@ -45,8 +46,8 @@ const DEFAULT_COMPANY_NAME = 'Mi empresa';
  * Datos de la empresa para "Empezar con mi empresa en limpio": se conserva
  * lo que el usuario cargó; sólo se vacían el nombre y la base que siguen
  * siendo los de la empresa ficticia. Nunca lanza.
- * @param {{ name?: string, baseLocation?: string, industry?: string|null, illustrative?: boolean }} org
- * @returns {{ name: string, baseLocation: string, industry: string }}
+ * @param {{ name?: string, baseLocation?: string, industry?: string|null, activity?: string|null, illustrative?: boolean }} org
+ * @returns {{ name: string, baseLocation: string, industry: string, activity?: string }}
  */
 export function freshOrgFrom(org) {
   const o = org && typeof org === 'object' ? org : {};
@@ -54,10 +55,12 @@ export function freshOrgFrom(org) {
   const clean = (v) => sanitizeText(typeof v === 'string' ? v : '', 120);
   const name = clean(o.name);
   const baseLocation = clean(o.baseLocation);
+  const activity = sanitizeText(typeof o.activity === 'string' ? o.activity : '', MAX_ACTIVITY_LENGTH);
   return {
     name: demo && name === DEMO_ORG.name ? '' : name,
     baseLocation: demo && baseLocation === DEMO_ORG.baseLocation ? '' : baseLocation,
     industry: clean(o.industry),
+    ...(activity ? { activity } : {}),
   };
 }
 const MAX_LADDER_STEPS = 6;
@@ -322,14 +325,12 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { id: 'acerca', label: 'Acerca de' },
 ]);
 
-/** Tipo de empresa (mismos ids que la bienvenida). */
-const INDUSTRIES = Object.freeze([
-  { value: 'oil_gas_services', label: 'Servicios petroleros' },
-  { value: 'industrial_maintenance', label: 'Mantenimiento industrial' },
-  { value: 'transport', label: 'Transporte' },
-  { value: 'construction', label: 'Construcción' },
-  { value: 'other', label: 'Otra' },
-]);
+/** Opciones del sector (secciones de la ClaNAE, sin códigos fiscales). */
+const SECTOR_OPTIONS = INDUSTRY_SECTORS.map((sec) => ({ value: sec.id, label: sec.label, hint: sectorHint(sec) }));
+function sectorHint(sec) {
+  return sec.clanae ? `ClaNAE sección ${sec.clanae}` : 'Contalo en "Actividad / especialidad"';
+}
+const sectorSearch = (query) => searchSectors(query).map((sec) => ({ value: sec.id, label: sec.label, hint: sectorHint(sec) }));
 
 function sectionTabs(active) {
   return h(
@@ -444,8 +445,9 @@ export async function render(root, app, params = {}) {
 
   async function buildCompany() {
     const org = await ctx.settings.getOrganization();
-    const knownIndustry = INDUSTRIES.some((i) => i.value === org.industry) ? org.industry : null;
-    const orgDraft = { name: org.name || '', baseLocation: org.baseLocation || '', industry: knownIndustry, illustrative: org.illustrative === true };
+    // Sector y actividad (también lee los tipos de empresa de versiones anteriores).
+    const known = industryOf(org);
+    const orgDraft = { name: org.name || '', baseLocation: org.baseLocation || '', industry: known.sector, activity: known.activity, illustrative: org.illustrative === true };
     let industryTouched = false;
     let lastValidOrgName = sanitizeText(orgDraft.name, 120);
     const orgChip = saveChip({ ephemeral });
@@ -459,8 +461,11 @@ export async function render(root, app, params = {}) {
           baseLocation: sanitizeText(orgDraft.baseLocation, 120),
           illustrative: Boolean(orgDraft.illustrative),
         };
-        // El tipo de empresa sólo se escribe si se cambió acá (no se pisa un valor desconocido).
-        if (industryTouched) patch.industry = orgDraft.industry;
+        // Sector y actividad sólo se escriben si se cambiaron acá (no se pisa un valor desconocido).
+        if (industryTouched) {
+          patch.industry = orgDraft.industry || '';
+          patch.activity = sanitizeText(orgDraft.activity, MAX_ACTIVITY_LENGTH);
+        }
         await ctx.settings.saveOrganization(patch);
         // Nombre de la empresa en el menú y aviso de datos de ejemplo.
         await app.refreshChrome();
@@ -500,11 +505,42 @@ export async function render(root, app, params = {}) {
       });
     }
 
+    const activityList = uniqueId('activity-list');
+    const activityOptions = () => activitySuggestions(orgDraft.industry).map((a) => h('option', { value: a }));
+    const activityDatalist = h('datalist', { id: activityList }, ...activityOptions());
+    const activityField = textField({
+      label: 'Actividad / especialidad (opcional)',
+      value: orgDraft.activity,
+      maxLength: MAX_ACTIVITY_LENGTH,
+      placeholder: 'Ej.: Servicios al pozo, Transporte de cargas',
+      hint: 'Elegí una sugerencia o escribí la tuya. No cambia ningún cálculo.',
+      onChange: (v) => {
+        orgDraft.activity = v;
+        industryTouched = true;
+      },
+    });
+    const activityInput = activityField.querySelector('input');
+    if (activityInput) activityInput.setAttribute('list', activityList);
+    activityField.appendChild(activityDatalist);
+    const sectorField = searchSelectField({
+      label: 'Sector',
+      value: orgDraft.industry,
+      options: SECTOR_OPTIONS,
+      search: sectorSearch,
+      hint: 'Sectores de la ClaNAE (sin códigos fiscales). Si no está el tuyo, elegí "Otro / Personalizado".',
+      onChange: (v) => {
+        orgDraft.industry = v;
+        industryTouched = true;
+        // Las sugerencias de actividad se ordenan según el sector.
+        mount(activityDatalist, ...activityOptions());
+      },
+    });
+
     const orgForm = h(
       'div',
       { class: 'stack' },
       formGrid(
-        3,
+        2,
         nameField,
         textField({
           label: 'Base operativa',
@@ -516,18 +552,8 @@ export async function render(root, app, params = {}) {
             orgDraft.baseLocation = v;
           },
         }),
-        selectField({
-          label: 'Tipo de empresa',
-          value: orgDraft.industry ?? '',
-          options: INDUSTRIES,
-          includeEmpty: true,
-          emptyLabel: 'Sin definir',
-          onChange: (v) => {
-            orgDraft.industry = v;
-            industryTouched = true;
-          },
-        }),
       ),
+      formGrid(2, sectorField, activityField),
       checkboxField({
         label: 'Son datos de ejemplo (mostrar el aviso de valores ILUSTRATIVOS)',
         checked: orgDraft.illustrative,
@@ -552,6 +578,7 @@ export async function render(root, app, params = {}) {
         name: sanitizeText(orgDraft.name, 120) || lastValidOrgName,
         baseLocation: orgDraft.baseLocation,
         industry: orgDraft.industry || org.industry,
+        activity: orgDraft.activity,
         illustrative: org.illustrative === true || orgDraft.illustrative === true,
       });
 

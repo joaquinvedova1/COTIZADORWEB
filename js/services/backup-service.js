@@ -54,7 +54,7 @@ export function createBackupService({ repository, clock = () => new Date().toISO
      * cotizaciones y recursos (conserva convenios, plantillas y
      * configuración). Guarda ANTES una copia de recuperación (importBackup).
      * La confirmación se pide en la UI.
-     * @param {{ name?: string, baseLocation?: string, industry?: string }} [org]
+     * @param {{ name?: string, baseLocation?: string, industry?: string, activity?: string }} [org]
      */
     async startFresh(org = {}) {
       const current = await repository.exportBackup();
