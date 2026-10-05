@@ -1,32 +1,89 @@
 /**
- * Dashboard: indicadores de cotizaciones activas, cotizaciones recientes,
- * accesos rápidos y una explicación breve de los conceptos de RATEOS.
+ * Inicio (#/inicio): una pregunta principal ("¿Qué querés cotizar hoy?"),
+ * "Continuar cotización" (el borrador más reciente), tres indicadores con
+ * "Ver cálculo" y "Tus cotizaciones". Lo demás (más indicadores, atajos,
+ * exportar backup y los conceptos de RATEOS) queda colapsado al final.
+ *
+ * Cotizaciones propias vs. de ejemplo: si hay al menos una cotización propia,
+ * los indicadores, "Continuar cotización" y "Tus cotizaciones" usan SÓLO las
+ * propias (las de ejemplo se pueden sumar a la lista con "Ver también los
+ * ejemplos"). Si todas son de ejemplo, se muestran con una nota visible:
+ * "Calculado sobre cotizaciones de ejemplo (ILUSTRATIVAS)".
  */
 
-import { h, mount, downloadText } from '../dom.js';
-import { banner, button, card, emptyState, kpi, table, traceButton } from '../components.js';
+import { indicatorsFor } from '../../services/quote-service.js';
+import { h, s, mount, downloadText } from '../dom.js';
+import { bigStat, button, card, disclosure, icon, linkButton, progressBar, table, traceButton } from '../components.js';
 import { createTrace } from '../../core/trace.js';
-import { formatMoney, formatNumber, formatPercent } from '../../core/format.js';
+import { formatDateTime, formatMoney, formatNumber, formatPercent, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { ACTIVE_QUOTE_STATUSES, QUOTE_STATUSES, labelOf } from '../../domain/catalogs.js';
+import { ACTIVE_QUOTE_STATUSES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
 import { DEMO_IDS } from '../../domain/demo-data.js';
 import { COMPLETENESS_RISK_THRESHOLD } from '../../engines/completeness-engine.js';
 import { priceFromMargin, priceFromMarkup, markupToMargin, marginToMarkup, traceMarginVsMarkup } from '../../engines/pricing-engine.js';
-import { userErrorMessage } from '../layout.js';
-import { attachRowNavigation, quoteColumns, quoteHref, quoteIllustrative, summaryFailed } from './quotes-list.js';
+import { illustrativeTag, userErrorMessage } from '../layout.js';
+import {
+  DEMO_FROM_APP_HREF,
+  attachRowNavigation,
+  completenessTone,
+  detailLink,
+  failedQuotesBanner,
+  isExampleQuote,
+  noQuotesState,
+  quoteDetailHref,
+  quoteHref,
+  quoteIllustrative,
+  quoteRateNode,
+  quoteSummaryColumns,
+  statusBadge,
+  summaryFailed,
+} from './quotes-list.js';
 
-const RECENT_LIMIT = 8;
+const RECENT_LIMIT = 6;
 
 const text = (value, fallback) => (typeof value === 'string' && value.trim() !== '' ? value : fallback);
 const quoteLabel = (quote) => `${text(quote.code, 'Sin código')} · ${text(quote.name, 'Sin nombre')}`;
 
 function activeStatusesText() {
-  return ACTIVE_QUOTE_STATUSES.map((s) => labelOf(QUOTE_STATUSES, s).toLowerCase()).join(', ');
+  return ACTIVE_QUOTE_STATUSES.map((st) => labelOf(QUOTE_STATUSES, st).toLowerCase()).join(', ');
+}
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Indicadores de un conjunto de cotizaciones: la regla vive en el servicio
+ * (indicatorsFor), la misma que usa dashboardStats(). Acá sólo se elige el
+ * conjunto (las propias, o todas si sólo hay de ejemplo).
+ */
+export const quoteIndicators = indicatorsFor;
+
+/** Nota de alcance para las trazas ("Ver cálculo") de los indicadores. */
+function scopeNote(scope) {
+  return scope.mode === 'own'
+    ? scope.exampleCount
+      ? `Sólo tus cotizaciones: no incluye ${plural(scope.exampleCount, 'cotización de ejemplo', 'cotizaciones de ejemplo')} (ILUSTRATIVAS).`
+      : null
+    : 'Calculado sobre cotizaciones de ejemplo (ILUSTRATIVAS): cuando crees la tuya, los indicadores usan sólo las tuyas.';
 }
 
 // ---------------------------------------------------------------- trazas
 
-function totalQuotedTrace(active, total) {
+function activeCountTrace(items, activeCount, scope) {
+  return createTrace({
+    id: 'dashboard_active_quotes',
+    title: 'Cotizaciones activas',
+    formula: `Activas = cantidad de cotizaciones en estado ${activeStatusesText()}`,
+    inputs: QUOTE_STATUSES.map((st) => ({
+      label: `${st.label}${ACTIVE_QUOTE_STATUSES.includes(st.id) ? ' (activa)' : ' (no cuenta)'}`,
+      value: items.filter(({ quote }) => quote.status === st.id).length,
+      format: 'number',
+    })),
+    result: { label: 'Cotizaciones activas', value: activeCount, format: 'number' },
+    notes: ['Las perdidas y las archivadas no cuentan como activas.', scopeNote(scope)],
+  });
+}
+
+function totalQuotedTrace(active, total, scope) {
   return createTrace({
     id: 'dashboard_total_quoted',
     title: 'Valor total cotizado (mensual)',
@@ -35,13 +92,14 @@ function totalQuotedTrace(active, total) {
     result: { label: 'Valor total cotizado por mes', value: total, format: 'money' },
     notes: [
       `Cotizaciones activas: estados ${activeStatusesText()}.`,
-      'Facturación esperada = tarifa comercial × unidades facturables con la actividad estimada + otros ingresos (fees, standby, km).',
+      'Facturación esperada = tarifa (la sugerida o la que ofrecés) × unidades facturables con la actividad estimada + otros ingresos (abonos, equipo en espera, km).',
       'Una cotización sin tarifa suma sólo sus otros ingresos; una que no se pudo calcular suma 0.',
+      scopeNote(scope),
     ],
   });
 }
 
-function averageMarginTrace(active, average) {
+function averageMarginTrace(active, average, scope) {
   const withMargin = active.filter(({ summary }) => isFiniteNumber(summary.marginPct));
   return createTrace({
     id: 'dashboard_average_margin',
@@ -50,30 +108,31 @@ function averageMarginTrace(active, average) {
     inputs: withMargin.map(({ quote, summary }) => ({ label: quoteLabel(quote), value: summary.marginPct, format: 'percent' })),
     steps: [{ label: 'Cotizaciones promediadas', value: withMargin.length, format: 'number' }],
     result: { label: 'Margen promedio', value: average, format: 'percent' },
-    notes: ['Es margen sobre precio de venta, no markup sobre costo.', 'Promedio simple: no pondera por facturación.'],
+    notes: ['Es margen sobre precio de venta, no markup sobre costo.', 'Promedio simple: no pondera por facturación.', scopeNote(scope)],
   });
 }
 
-function atRiskTrace(active) {
+function atRiskTrace(active, scope) {
   const risky = active.filter(({ summary }) => summary.atRisk);
   return createTrace({
     id: 'dashboard_at_risk',
-    title: 'Cotizaciones con riesgo',
-    formula: `Con riesgo = sin tarifa definida, resultado negativo, margen esperado menor al margen objetivo o completitud de costos menor a ${COMPLETENESS_RISK_THRESHOLD} %`,
+    title: 'Cotizaciones en riesgo',
+    formula: `En riesgo = sin tarifa definida, resultado negativo, margen esperado menor al margen objetivo o menos del ${COMPLETENESS_RISK_THRESHOLD} % de los costos cargados`,
     inputs: risky.map(({ quote, summary }) =>
       summaryFailed(summary)
         ? { label: `${quoteLabel(quote)} (no se pudo calcular)`, value: null, format: 'percent' }
         : { label: `${quoteLabel(quote)} (margen esperado)`, value: summary.marginPct, format: 'percent' },
     ),
-    result: { label: 'Cotizaciones activas con riesgo', value: risky.length, format: 'number' },
+    result: { label: 'Cotizaciones activas en riesgo', value: risky.length, format: 'number' },
     notes: [
-      'Un "—" en el margen indica que la cotización todavía no tiene tarifa comercial (o que no se pudo calcular).',
-      'Las cotizaciones que no se pudieron calcular cuentan como con riesgo: abrilas para revisar sus datos.',
+      'Un "—" en el margen indica que la cotización todavía no tiene tarifa (o que no se pudo calcular).',
+      'Las cotizaciones que no se pudieron calcular cuentan como en riesgo: abrilas para revisar sus datos.',
+      scopeNote(scope),
     ],
   });
 }
 
-function belowFloorTrace(active) {
+function belowFloorTrace(active, scope) {
   const below = active.filter(({ summary }) => summary.belowFloor);
   return createTrace({
     id: 'dashboard_below_floor',
@@ -89,100 +148,271 @@ function belowFloorTrace(active) {
       'Cotizar bajo piso significa perder plata con la actividad estimada.',
       'Si un mínimo garantizado cubre la diferencia y el mes no da pérdida, la cotización no se cuenta acá.',
       'La tarifa piso se muestra redondeada hacia arriba: cobrar esa cifra nunca deja debajo del piso.',
+      scopeNote(scope),
     ],
   });
 }
 
-// ----------------------------------------------------------- componentes
+// ------------------------------------------------------------- bienvenida
 
-function kpiSection(stats, settings) {
+/** Ilustración abstracta (cordillera en capas), sólo decorativa. */
+function heroArt() {
+  return s(
+    'svg',
+    { class: 'home-hero-art', viewBox: '0 0 360 160', 'aria-hidden': 'true', focusable: 'false', preserveAspectRatio: 'xMaxYMax slice' },
+    s('path', { d: 'M0 160 L70 92 L112 120 L176 48 L232 104 L268 78 L360 140 L360 160 Z', class: 'art-far' }),
+    s('path', { d: 'M0 160 L54 122 L98 140 L162 86 L214 132 L262 106 L318 138 L360 120 L360 160 Z', class: 'art-mid' }),
+    s('path', { d: 'M0 160 L80 142 L150 150 L230 128 L300 146 L360 136 L360 160 Z', class: 'art-near' }),
+    s('circle', { cx: 300, cy: 40, r: 14, class: 'art-sun' }),
+  );
+}
+
+function heroSection({ hasQuotes }) {
+  return h(
+    'section',
+    { class: 'home-hero', 'aria-labelledby': 'home-question' },
+    h(
+      'div',
+      { class: 'home-hero-text' },
+      h('p', { class: 'home-hello' }, 'Hola.'),
+      h('h2', { class: 'home-question', id: 'home-question' }, '¿Qué querés cotizar hoy?'),
+      h('p', { class: 'home-lead' }, 'Calculá cuánto te cuesta prestar un servicio y a qué tarifa conviene cotizarlo para no perder plata.'),
+      // Sin cotizaciones, la acción principal la da el estado vacío de abajo.
+      hasQuotes
+        ? h(
+            'div',
+            { class: 'home-actions' },
+            linkButton('Crear nueva cotización', '#/cotizaciones/nueva', { variant: 'primary', size: 'lg', icon: 'plus' }),
+            linkButton('Probar con un ejemplo', DEMO_FROM_APP_HREF, { variant: 'ghost', size: 'lg', icon: 'play' }),
+          )
+        : null,
+    ),
+    heroArt(),
+  );
+}
+
+function continueSection(draft) {
+  if (!draft || !draft.quote) return null;
+  const { quote, summary } = draft;
+  const failed = summaryFailed(summary);
+  const client = text(quote.client, null);
+  const pct = failed ? null : summary.completenessPct;
+  return h(
+    'section',
+    { class: 'continue-card', 'aria-labelledby': 'continue-title' },
+    h(
+      'div',
+      { class: 'continue-main' },
+      h('p', { class: 'eyebrow' }, 'Continuar cotización'),
+      h('h3', { class: 'continue-title', id: 'continue-title' }, text(quote.name, 'Sin nombre'), quoteIllustrative(quote).any ? illustrativeTag('Tiene valores ILUSTRATIVOS: reemplazalos por valores propios vigentes') : null),
+      h(
+        'p',
+        { class: 'continue-meta' },
+        statusBadge(quote.status),
+        h('span', {}, [client, labelOf(SERVICE_TYPES, quote.serviceType), `Modificada: ${formatDateTime(quote.updatedAt)}`].filter(Boolean).join(' · ')),
+      ),
+    ),
+    h(
+      'dl',
+      { class: 'continue-facts' },
+      h('div', {}, h('dt', {}, 'Tarifa'), h('dd', {}, quoteRateNode(quote, summary))),
+      h(
+        'div',
+        {},
+        h('dt', {}, 'Costos cargados'),
+        h(
+          'dd',
+          { class: 'continue-progress' },
+          isFiniteNumber(pct) ? progressBar(pct, completenessTone(pct), { label: 'Costos cargados' }) : null,
+          h('span', { class: 'mono small' }, isFiniteNumber(pct) ? formatPercent(pct, { decimals: 0 }) : EMPTY),
+        ),
+      ),
+    ),
+    linkButton('Continuar', quoteHref(quote), { variant: 'secondary', iconAfter: 'arrowRight', attrs: { 'aria-label': `Continuar la cotización ${text(quote.name, 'sin nombre')}` } }),
+  );
+}
+
+// ---------------------------------------------------------- indicadores
+
+function marginToneFor(avg, target) {
+  if (!isFiniteNumber(avg)) return null;
+  if (avg < 0) return 'red';
+  if (target !== null && avg < target) return 'orange';
+  return 'green';
+}
+
+function indicatorsSection(stats, settings, scope) {
   const active = stats.items.filter(({ quote }) => ACTIVE_QUOTE_STATUSES.includes(quote.status));
   const target = isFiniteNumber(settings.defaultTargetMarginPct) ? settings.defaultTargetMarginPct : null;
   const avg = stats.averageMarginPct;
-  let marginTone = null;
-  if (isFiniteNumber(avg)) marginTone = avg < 0 ? 'red' : target !== null && avg < target ? 'orange' : 'green';
 
-  return h(
-    'div',
-    { class: 'kpi-grid dashboard-kpis' },
-    kpi({ label: 'Cotizaciones activas', value: formatNumber(stats.activeCount), hint: `De ${formatNumber(stats.totalCount)} en total (${activeStatusesText()})` }),
-    kpi({
-      label: 'Valor total cotizado',
-      value: formatMoney(stats.totalQuotedMonthly),
-      hint: 'Facturación mensual esperada de las cotizaciones activas',
-      emphasis: true,
-      trace: totalQuotedTrace(active, stats.totalQuotedMonthly),
-    }),
-    kpi({
-      label: 'Margen promedio',
-      value: formatPercent(avg),
-      hint: target !== null ? `Sobre precio de venta · objetivo por defecto ${formatPercent(target)}` : 'Sobre precio de venta',
-      tone: marginTone,
-      trace: averageMarginTrace(active, avg),
-    }),
-    kpi({
-      label: 'Cotizaciones con riesgo',
-      value: formatNumber(stats.atRiskCount),
-      hint: 'Sin tarifa, con pérdida, debajo del margen objetivo o con costos incompletos',
-      tone: stats.atRiskCount > 0 ? 'orange' : 'green',
-      trace: atRiskTrace(active),
-    }),
-    kpi({
-      label: 'Servicios bajo piso',
-      value: formatNumber(stats.belowFloorCount),
-      hint: 'La tarifa no cubre el costo y el mes da pérdida',
-      tone: stats.belowFloorCount > 0 ? 'red' : 'green',
-      trace: belowFloorTrace(active),
-    }),
-  );
-}
-
-function recentSection(app, stats) {
-  const actions = [button('Ver todas', { variant: 'secondary', size: 'sm', onClick: () => app.navigate('#/cotizaciones') })];
-  if (stats.items.length === 0) {
-    return card(
-      { title: 'Cotizaciones recientes' },
-      emptyState(
-        'Todavía no tenés cotizaciones. Creá la primera: en pocos pasos vas a saber cuánto te cuesta el servicio y a qué tarifa conviene cotizarlo.',
-        button('Crear mi primera cotización', { variant: 'primary', icon: 'plus', onClick: () => app.navigate('#/cotizaciones/nueva') }),
-      ),
-    );
-  }
-  const rows = stats.items.slice(0, RECENT_LIMIT);
-  const tableEl = table({ columns: quoteColumns(), rows, caption: 'Cotizaciones recientes', className: 'quotes-table' });
-  attachRowNavigation(tableEl, rows, ({ quote }) => app.navigate(quoteHref(quote)));
-  const failed = stats.items.filter(({ summary }) => summaryFailed(summary)).length;
-  const illustrative = stats.items.filter(({ quote }) => quoteIllustrative(quote).any).length;
-  return card(
-    {
-      title: 'Cotizaciones recientes',
-      subtitle: 'Montos mensuales con la actividad estimada de cada cotización. Hacé clic en una fila para abrirla.',
-      actions,
-    },
+  const more = disclosure(
+    { summary: 'Ver más indicadores', hint: 'Valor total cotizado, servicios bajo piso y total de cotizaciones.', className: 'disclosure-plain' },
     h(
       'div',
-      { class: 'stack stack-tight' },
-      failed
-        ? banner(
-            `${failed === 1 ? 'Una cotización no se pudo calcular' : `${failed} cotizaciones no se pudieron calcular`}: abrila${failed === 1 ? '' : 's'} desde Cotizaciones para revisar sus datos. El resto de los indicadores se calcula igual.`,
-            'warning',
-          )
-        : null,
-      illustrative
-        ? h(
-            'p',
-            { class: 'muted small' },
-            `${illustrative === 1 ? 'Una cotización tiene' : `${illustrative} cotizaciones tienen`} valores ILUSTRATIVOS (de la demo, de plantillas o de bibliotecas de ejemplo): reemplazalos por valores propios antes de enviarlas.`,
-          )
-        : null,
-      tableEl,
+      { class: 'stat-row stat-row-secondary' },
+      bigStat({
+        label: 'Valor total cotizado',
+        value: formatMoney(stats.totalQuotedMonthly),
+        unit: '/mes',
+        hint: 'Facturación mensual esperada de las cotizaciones activas.',
+        trace: totalQuotedTrace(active, stats.totalQuotedMonthly, scope),
+      }),
+      bigStat({
+        label: 'Servicios bajo piso',
+        value: formatNumber(stats.belowFloorCount),
+        hint: 'La tarifa no cubre el costo y el mes da pérdida.',
+        tone: stats.belowFloorCount > 0 ? 'red' : null,
+        trace: belowFloorTrace(active, scope),
+      }),
+      bigStat({
+        label: 'Cotizaciones en total',
+        value: formatNumber(stats.totalCount),
+        hint: 'Incluye perdidas y archivadas.',
+      }),
     ),
+  );
+
+  // Alcance visible: sólo las propias (y cuántas de ejemplo quedan afuera) o
+  // todas de ejemplo (ILUSTRATIVAS).
+  const scopeLine =
+    scope.mode === 'examples'
+      ? h('p', { class: 'indicators-scope is-examples' }, icon('info', { size: 16 }), 'Calculado sobre cotizaciones de ejemplo (ILUSTRATIVAS).')
+      : scope.exampleCount
+        ? h('p', { class: 'indicators-scope' }, `Sólo tus cotizaciones (no incluye ${scope.exampleCount === 1 ? 'la de ejemplo' : `las ${scope.exampleCount} de ejemplo`}).`)
+        : null;
+
+  return h(
+    'section',
+    { class: 'indicators', 'aria-label': 'Indicadores' },
+    scopeLine,
+    h(
+      'div',
+      { class: 'stat-row' },
+      bigStat({
+        label: 'Cotizaciones activas',
+        value: formatNumber(stats.activeCount),
+        hint: `En borrador, enviadas o ganadas.`,
+        trace: activeCountTrace(stats.items, stats.activeCount, scope),
+      }),
+      bigStat({
+        label: 'Margen promedio',
+        value: formatPercent(avg),
+        hint: target !== null ? `Sobre el precio · tu objetivo: ${formatPercent(target)}` : 'Sobre el precio de venta',
+        tone: marginToneFor(avg, target),
+        trace: averageMarginTrace(active, avg, scope),
+      }),
+      bigStat({
+        label: 'Cotizaciones en riesgo',
+        value: formatNumber(stats.atRiskCount),
+        hint: 'Sin tarifa, con pérdida, debajo del objetivo o con costos incompletos.',
+        tone: stats.atRiskCount > 0 ? 'orange' : 'green',
+        trace: atRiskTrace(active, scope),
+      }),
+    ),
+    more,
   );
 }
 
-/** Descarga el backup JSON directamente (igual que Configuración → Backup). */
+// ------------------------------------------------------- tus cotizaciones
+
+function quotesSection(app, { all, own, scope }) {
+  const total = all.length;
+  const header = h(
+    'div',
+    { class: 'section-head' },
+    h('h2', { class: 'section-title', id: 'home-quotes' }, 'Tus cotizaciones'),
+    total ? h('a', { class: 'section-link', href: '#/cotizaciones' }, total > RECENT_LIMIT ? `Ver todas (${total})` : 'Ver todas') : null,
+  );
+  if (total === 0) {
+    return h('section', { class: 'home-section', 'aria-labelledby': 'home-quotes' }, header, noQuotesState());
+  }
+
+  // Con cotizaciones propias, las de ejemplo se muestran sólo si se piden, en
+  // su propia tabla debajo de las tuyas (por fecha nunca entrarían entre las
+  // más recientes: traen la fecha fija de los datos de ejemplo).
+  const examples = scope.mode === 'own' ? all.filter(({ quote }) => isExampleQuote(quote)) : [];
+  let showExamples = false;
+  const listHost = h('div', { class: 'home-list-host', id: 'home-quotes-list' });
+  const toggle =
+    examples.length
+      ? button('', { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm examples-toggle', 'aria-controls': 'home-quotes-list', 'aria-expanded': 'false' } })
+      : null;
+
+  /** Tabla de cotizaciones con "Ver detalle" y filas clickeables. */
+  function quotesTable(rows, caption) {
+    const tableEl = table({
+      columns: quoteSummaryColumns({ action: ({ quote, summary }) => detailLink(quote, summary) }),
+      rows,
+      caption,
+      className: 'quotes-table table-cards',
+    });
+    attachRowNavigation(tableEl, rows, ({ quote, summary }) => app.navigate(quoteDetailHref(quote, summary)));
+    return tableEl;
+  }
+
+  function paintList() {
+    // Propias (o, si sólo hay de ejemplo, todas): las más recientes.
+    const rows = (scope.mode === 'own' ? own : all).slice(0, RECENT_LIMIT);
+    const exampleRows = showExamples ? examples : [];
+    // Las de ejemplo tienen su propia tabla rotulada ILUSTRATIVAS: la nota es para las de arriba.
+    const illustrative = rows.filter(({ quote }) => quoteIllustrative(quote).any).length;
+    mount(
+      listHost,
+      failedQuotesBanner([...rows, ...exampleRows]),
+      card(
+        { className: 'list-card' },
+        quotesTable(rows, scope.mode === 'own' ? 'Tus cotizaciones más recientes' : 'Cotizaciones de ejemplo (ILUSTRATIVAS), más recientes primero'),
+        illustrative
+          ? h(
+              'p',
+              { class: 'footnote' },
+              `${illustrative === 1 ? 'Una cotización tiene' : `${illustrative} cotizaciones tienen`} valores ILUSTRATIVOS (de ejemplo, de plantillas o de recursos de ejemplo): reemplazalos por valores propios antes de enviarlas.`,
+            )
+          : null,
+      ),
+      exampleRows.length
+        ? card(
+            { title: 'Cotizaciones de ejemplo (ILUSTRATIVAS)', subtitle: 'De la empresa ficticia: no cuentan en tus indicadores.', className: 'list-card examples-card', level: 3 },
+            quotesTable(exampleRows, 'Cotizaciones de ejemplo (ILUSTRATIVAS)'),
+          )
+        : null,
+    );
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', showExamples ? 'true' : 'false');
+      mount(toggle, h('span', {}, showExamples ? 'Ocultar los ejemplos' : 'Ver también los ejemplos'));
+    }
+  }
+
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      showExamples = !showExamples;
+      paintList();
+    });
+  }
+  paintList();
+
+  return h(
+    'section',
+    { class: 'home-section', 'aria-labelledby': 'home-quotes' },
+    header,
+    listHost,
+    toggle
+      ? h(
+          'p',
+          { class: 'examples-note muted small' },
+          `Además hay ${plural(scope.exampleCount, 'cotización de ejemplo', 'cotizaciones de ejemplo')} (ILUSTRATIVAS). `,
+          toggle,
+        )
+      : null,
+  );
+}
+
+// ------------------------------------------------------ atajos y conceptos
+
+/** Descarga el backup JSON directamente (igual que Configuración → Datos y backup). */
 function exportBackupButton(app) {
-  const btn = button('Exportar backup', { variant: 'ghost', icon: 'download' });
+  const btn = button('Exportar backup', { variant: 'secondary', icon: 'download' });
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
@@ -198,29 +428,37 @@ function exportBackupButton(app) {
   return btn;
 }
 
-function quickActionsSection(app, stats) {
+function shortcutsSection(app, stats) {
   const has = (id) => stats.items.some(({ quote }) => quote.id === id);
-  return card(
-    { title: 'Accesos rápidos', className: 'quick-actions-card' },
+  return disclosure(
+    { summary: 'Atajos', hint: 'Ejemplos, recursos y backup.' },
     h(
       'div',
-      { class: 'quick-actions' },
-      button('Nueva cotización', { variant: 'primary', icon: 'plus', onClick: () => app.navigate('#/cotizaciones/nueva') }),
-      has(DEMO_IDS.quoteHydroCrane)
-        ? button('Abrir demo Hidrogrúa on-call', { variant: 'secondary', icon: 'quote', onClick: () => app.navigate(`#/cotizaciones/${DEMO_IDS.quoteHydroCrane}`) })
-        : null,
-      has(DEMO_IDS.quoteReference)
-        ? button('Caso de referencia break-even', { variant: 'secondary', icon: 'calc', onClick: () => app.navigate(`#/cotizaciones/${DEMO_IDS.quoteReference}`) })
-        : null,
-      button('Bibliotecas de recursos', { variant: 'secondary', icon: 'library', onClick: () => app.navigate('#/biblioteca') }),
+      { class: 'shortcut-grid' },
+      has(DEMO_IDS.quoteHydroCrane) ? linkButton('Abrir el ejemplo Hidrogrúa on-call', `#/cotizaciones/${DEMO_IDS.quoteHydroCrane}`, { variant: 'secondary', icon: 'quote' }) : null,
+      has(DEMO_IDS.quoteReference) ? linkButton('Ejemplo: tarifa que no cubre los costos', `#/cotizaciones/${DEMO_IDS.quoteReference}`, { variant: 'secondary', icon: 'calc' }) : null,
+      linkButton('Recursos', '#/recursos/personal', { variant: 'secondary', icon: 'resources' }),
+      linkButton('Analizar escenarios', '#/escenarios', { variant: 'secondary', icon: 'chart' }),
       exportBackupButton(app),
     ),
     h('p', { class: 'muted small' }, 'Tus datos se guardan sólo en este navegador. Exportá un backup de vez en cuando.'),
   );
 }
 
+/** "y imprevistos" → "e imprevistos" (la conjunción cambia antes de "i" / "hi"). */
+const andBefore = (word) => `${/^h?i(?![aeou])/i.test(word) ? 'e' : 'y'} ${word}`;
+
 const CONCEPTS = [
-  { key: 'cost', name: 'Costo', text: 'Lo que realmente te cuesta prestar el servicio en el mes: personal, equipos, combustible, materiales, logística, estructura, financiero y contingencia.' },
+  {
+    key: 'cost',
+    name: 'Costo',
+    // Rubros con los mismos nombres que los pasos del editor (QUOTE_STEPS).
+    text: `Lo que realmente te cuesta prestar el servicio en el mes: ${[
+      ...['labor', 'equipment'].map((id) => labelOf(QUOTE_STEPS, id).toLowerCase()),
+      'combustible',
+      ...['materials', 'logistics', 'indirect', 'finance'].map((id) => labelOf(QUOTE_STEPS, id).toLowerCase()),
+    ].join(', ')} ${andBefore(labelOf(QUOTE_STEPS, 'risk').toLowerCase())}.`,
+  },
   { key: 'floor', name: 'Tarifa piso', text: 'El precio mínimo para no perder plata: con esa tarifa el resultado es cero (margen 0 %).' },
   { key: 'target', name: 'Precio objetivo', text: 'El precio necesario para lograr el margen que buscás con la actividad que estimás.' },
   { key: 'commercial', name: 'Precio comercial', text: 'El precio que finalmente le ofrecés al cliente, con redondeos y descuentos. Lo comparamos contra el piso y el objetivo.' },
@@ -232,8 +470,8 @@ function learnSection() {
   const byMargin = priceFromMargin(cost, pct);
   const byMarkup = priceFromMarkup(cost, pct);
   const fmt = (v) => formatNumber(v, { decimals: 2 });
-  return card(
-    { title: 'Cómo piensa RATEOS', subtitle: 'Cuatro conceptos separados para no confundir costo con precio.', className: 'learn-card' },
+  return disclosure(
+    { summary: 'Cómo piensa RATEOS', hint: 'Costo, tarifa piso, precio objetivo, precio comercial y margen vs markup.' },
     h(
       'div',
       { class: 'concept-grid' },
@@ -242,7 +480,7 @@ function learnSection() {
     h(
       'div',
       { class: 'mvm' },
-      h('h4', {}, 'Margen y markup NO son lo mismo'),
+      h('h3', { class: 'mvm-title' }, 'Margen y markup NO son lo mismo'),
       h(
         'div',
         { class: 'mvm-grid' },
@@ -270,19 +508,30 @@ function learnSection() {
 
 export async function render(root, app) {
   const { ctx } = app;
-  app.setHeader({
-    title: 'Dashboard',
-    breadcrumbs: [{ label: 'Inicio' }],
-    actions: [button('Nueva cotización', { variant: 'primary', icon: 'plus', onClick: () => app.navigate('#/cotizaciones/nueva') })],
-  });
+  app.setHeader({ title: 'Inicio', breadcrumbs: [] });
 
   const [stats, settings] = await Promise.all([ctx.quotes.dashboardStats(), app.getSettings()]);
+  // listQuotes() ya viene ordenado: la modificada más recientemente primero.
+  const all = Array.isArray(stats.items) ? stats.items : [];
+  const own = all.filter(({ quote }) => !isExampleQuote(quote));
+  const scope = { mode: own.length > 0 ? 'own' : 'examples', exampleCount: all.length - own.length };
+  const shown = scope.mode === 'own' ? own : all;
+  const indicators = quoteIndicators(shown);
+  // "Continuar cotización": el último borrador propio (o, si sólo hay
+  // ejemplos, el último borrador de ejemplo).
+  const draft = shown.find(({ quote }) => quote.status === 'draft') || null;
+  const hasQuotes = all.length > 0;
 
   mount(
     root,
-    h('p', { class: 'page-intro' }, 'Resumen de tus cotizaciones activas. Todo se calcula en tu navegador con los datos que cargaste.'),
-    kpiSection(stats, settings),
-    recentSection(app, stats),
-    h('div', { class: 'dashboard-grid' }, quickActionsSection(app, stats), learnSection()),
+    h(
+      'div',
+      { class: 'home' },
+      heroSection({ hasQuotes }),
+      hasQuotes ? continueSection(draft) : null,
+      hasQuotes ? indicatorsSection(indicators, settings, scope) : null,
+      quotesSection(app, { all, own, scope }),
+      h('div', { class: 'home-more disclosure-list' }, shortcutsSection(app, { items: all }), learnSection()),
+    ),
   );
 }

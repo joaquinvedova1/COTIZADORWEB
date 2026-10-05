@@ -50,7 +50,7 @@ describe('track', () => {
 
   test('los sinks reciben las props ya saneadas', () => {
     const events = withSink(() => {
-      track('quote_created', { serviceType: 'on_call', source: 'template', client: 'YPF', monthlyCost: 85000000 });
+      track('quote_created', { serviceType: 'on_call', source: 'template', client: 'Operadora de ejemplo', monthlyCost: 85000000 });
     });
     assert.deepEqual(events, [{ name: 'quote_created', props: { serviceType: 'on_call', source: 'template' } }]);
   });
@@ -121,7 +121,7 @@ describe('sanitizeEventProps — privacidad por diseño', () => {
   });
 
   test('descarta nombres de clientes, empresas y textos libres', () => {
-    const props = { client: 'Operadora X', clientName: 'YPF', organization: 'Patagonia Servicios SRL', name: 'Hidrogrúa on-call — Añelo', notes: 'texto libre', email: 'a@b.c' };
+    const props = { client: 'Operadora X', clientName: 'Operadora de ejemplo', organization: 'Patagonia Servicios SRL', name: 'Hidrogrúa on-call — Añelo', notes: 'texto libre', email: 'a@b.c' };
     assert.deepEqual(sanitizeEventProps(props), {});
   });
 

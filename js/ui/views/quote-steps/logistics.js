@@ -1,6 +1,9 @@
 /**
- * Paso 6 — Logística.
- * Traslados entre base y locación (por activación) y combustible.
+ * Etapa 2 · Los recursos — Viajes (logística).
+ * Traslados entre base y locación (por llamado o viaje) y combustible.
+ * Básico: base, destino, distancia, vehículos, precio del combustible y quién
+ * lo paga. Opciones avanzadas (con resumen visible): ida y vuelta, viajes por
+ * llamado, desgaste por vehículo, peajes y viáticos.
  */
 
 import { h, mount } from '../../dom.js';
@@ -8,9 +11,9 @@ import { card, formGrid, selectField, emptyState, table, icon, checkboxField } f
 import { FUEL_PROVIDERS } from '../../../domain/catalogs.js';
 import { createVehicle } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
-import { nonNegative } from '../../../core/money.js';
+import { nonNegative, isFiniteNumber } from '../../../core/money.js';
 import { illustrativeTag } from '../../layout.js';
-import { confirmRemove } from './shared.js';
+import { confirmRemove, moneyText, numberText, stepName } from './shared.js';
 
 export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
@@ -53,23 +56,23 @@ export function render(container, ctx) {
   };
 
   const toggleCard = card(
-    { title: 'Traslados', subtitle: 'Viajes entre la base y la locación del cliente.' },
+    {},
     kit.check('logistics.notApplicable', { label: 'Sin traslados', structural: true, hint: 'Marcalo si el servicio se presta en tu base o el cliente traslada todo.' }),
   );
 
   const routeCard = notApplicable
     ? null
     : card(
-      { title: 'Ruta', subtitle: 'Distancia de UNA vía; marcá ida y vuelta si el vehículo vuelve a la base.' },
+      { title: '¿Adónde vas?', subtitle: 'Distancia de UNA vía entre tu base y la locación del cliente.' },
       locations.length
         ? formGrid(
           2,
           bases.length
-            ? selectField({ label: 'Completar base desde ubicaciones', value: null, includeEmpty: true, emptyLabel: 'Elegí una base…', options: bases.map((l) => ({ value: l.id, label: l.name })), onChange: pickBase })
+            ? selectField({ label: 'Completar la base desde tus ubicaciones', value: null, includeEmpty: true, emptyLabel: 'Elegí una base…', options: bases.map((l) => ({ value: l.id, label: l.name })), onChange: pickBase })
             : null,
           destinations.length
             ? selectField({
-              label: 'Completar destino y distancia desde ubicaciones',
+              label: 'Completar destino y distancia desde tus ubicaciones',
               value: null,
               includeEmpty: true,
               emptyLabel: 'Elegí un destino…',
@@ -83,13 +86,7 @@ export function render(container, ctx) {
         3,
         kit.text('logistics.baseName', { label: 'Base', maxLength: 120, placeholder: 'Ej.: Neuquén Capital' }),
         kit.text('logistics.destinationName', { label: 'Destino / locación', maxLength: 120, placeholder: 'Ej.: Añelo' }),
-        kit.num('logistics.distanceKm', { label: 'Distancia base → locación (una vía)', rule: 'distance', unit: 'km' }),
-        kit.check('logistics.roundTrip', { label: 'Ida y vuelta', hint: 'Duplica los km de cada viaje.' }),
-        kit.num('logistics.tripsPerActivation', {
-          label: 'Viajes por activación',
-          rule: 'quantity',
-          hint: quote.serviceType === 'permanent' ? 'Para servicios permanentes: viajes por cada cambio de turno.' : 'Viajes completos en cada llamado o activación.',
-        }),
+        kit.num('logistics.distanceKm', { label: 'Distancia (una vía)', rule: 'distance', unit: 'km' }),
       ),
     );
 
@@ -97,8 +94,8 @@ export function render(container, ctx) {
     ? null
     : card(
       {
-        title: 'Vehículos de traslado',
-        subtitle: 'Se costean por km recorrido. El uso en locación (horas) se carga en Equipos.',
+        title: '¿Con qué vehículos?',
+        subtitle: `Se costean por km recorrido. Si el vehículo también trabaja en locación, sus horas de uso van en "${stepName('equipment')}".`,
         actions: [kit.action('Agregar vehículo', addVehicle, { icon: 'plus' })],
       },
       lg.vehicles.length
@@ -123,18 +120,8 @@ export function render(container, ctx) {
               ),
             },
             {
-              key: 'wear',
-              label: 'Desgaste ($/km, sin combustible)',
-              render: (row, i) => h(
-                'div',
-                { class: 'qe-cell-stack' },
-                kit.num(`logistics.vehicles.${i}.costPerKm`, { label: 'Desgaste ($/km, sin combustible)', rule: 'money', illustrative: vehicleIll[i].marked }),
-                cellTag(vehicleIll[i].marked),
-              ),
-            },
-            {
               key: 'calc',
-              label: 'Por activación',
+              label: 'Por llamado o viaje',
               align: 'right',
               className: 'qe-col-calc',
               render: (row, i) => kit.out((r) => {
@@ -148,10 +135,56 @@ export function render(container, ctx) {
           rows: lg.vehicles,
         })
         : emptyState('No hay vehículos de traslado. Agregá al menos uno o marcá "Sin traslados".'),
+    );
+
+  const advancedCard = notApplicable
+    ? null
+    : kit.advanced(
+      {
+        key: 'logistics',
+        boxed: true,
+        summary: () => {
+          const wear = lg.vehicles
+            .map((v) => `${String((v && v.name) || 'Vehículo')} ${moneyText(v && v.costPerKm) || '$ 0'}/km`)
+            .join(', ');
+          const parts = [
+            lg.roundTrip === false ? 'Sólo ida' : 'Ida y vuelta',
+            `${numberText(lg.tripsPerActivation, { decimals: 2 }) || '0'} ${Number(lg.tripsPerActivation) === 1 ? 'viaje' : 'viajes'} por llamado`,
+            wear ? `desgaste: ${wear}` : null,
+            `peajes ${moneyText(lg.tollsPerActivation) || '$ 0'}`,
+            `viáticos ${moneyText(lg.lodgingPerActivation) || '$ 0'} por llamado`,
+          ].filter(Boolean);
+          return `${parts.join(' · ')}.`;
+        },
+      },
       formGrid(
         2,
-        kit.num('logistics.tollsPerActivation', { label: 'Peajes por activación', rule: 'money', unit: '$', illustrative }),
-        kit.num('logistics.lodgingPerActivation', { label: 'Alojamiento / viáticos por activación', rule: 'money', unit: '$', illustrative }),
+        kit.check('logistics.roundTrip', { label: 'Ida y vuelta', hint: 'Duplica los km de cada viaje.' }),
+        kit.num('logistics.tripsPerActivation', {
+          label: 'Viajes por llamado',
+          rule: 'quantity',
+          hint: quote.serviceType === 'permanent' ? 'Para servicios permanentes: viajes por cada cambio de turno.' : 'Cuántos viajes hacés en cada llamado.',
+        }),
+      ),
+      lg.vehicles.length
+        ? kit.group(
+          'Desgaste de cada vehículo (sin combustible)',
+          formGrid(
+            3,
+            ...lg.vehicles.map((v, i) => kit.num(`logistics.vehicles.${i}.costPerKm`, {
+              label: `Desgaste de ${String((v && v.name) || 'Vehículo')}`,
+              rule: 'money',
+              unit: '$/km',
+              illustrative: vehicleIll[i].marked,
+              hint: 'Neumáticos, mantenimiento y amortización por km.',
+            })),
+          ),
+        )
+        : null,
+      formGrid(
+        2,
+        kit.num('logistics.tollsPerActivation', { label: 'Peajes por llamado', rule: 'money', unit: '$', illustrative }),
+        kit.num('logistics.lodgingPerActivation', { label: 'Alojamiento y viáticos por llamado', rule: 'money', unit: '$', illustrative }),
       ),
     );
 
@@ -175,7 +208,7 @@ export function render(container, ctx) {
     if (fuelConfirm) fuelConfirm.hidden = true;
   };
   const fuelPriceField = kit.num('fuel.pricePerLiter', {
-    label: 'Precio del combustible',
+    label: 'Precio del combustible (sin IVA)',
     rule: 'money',
     unit: '$/L',
     illustrative: fuelMarked,
@@ -198,7 +231,7 @@ export function render(container, ctx) {
   }
 
   const fuelCard = card(
-    { title: 'Combustible', subtitle: 'Se usa para traslados y para el consumo de los equipos en operación.' },
+    { title: 'Combustible', subtitle: 'Se usa para los viajes y para el consumo de los equipos cuando trabajan.' },
     formGrid(
       2,
       fuelPriceField,
@@ -210,23 +243,42 @@ export function render(container, ctx) {
       }),
     ),
     fuelConfirm,
-    h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de traslados se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística".')),
   );
 
-  const resultsCard = notApplicable
+  const keyline = notApplicable
     ? null
-    : card(
-      { title: 'Costo logístico', subtitle: 'Con la actividad estimada de la cotización.' },
+    : kit.keyline({
+      label: 'Viajes en el costo del mes',
+      value: (r) => formatMoney(r.kpis.logisticsMonthly),
+      hint: (r) => {
+        const share = isFiniteNumber(r.kpis.logisticsIncidencePct) ? `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ` : '';
+        return `${share}${formatMoney(r.model.logistics.costPerActivation)} por llamado × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} llamados por mes.`;
+      },
+      trace: (r) => r.traces.logistics,
+      className: 'qe-keyline-total',
+    });
+
+  const resultsDetail = notApplicable
+    ? null
+    : kit.advanced(
+      {
+        key: 'logistics-detail',
+        title: 'Ver detalle de kilómetros y litros',
+        variant: 'detail',
+        boxed: true,
+        summary: (r) => `${formatValue(r.model.logistics.kmPerMonth, 'km')} y ${formatValue(r.model.logistics.litersPerMonth, 'liters')} por mes.`,
+      },
       kit.stats(
-        kit.stat('Km de ruta por activación', (r) => formatValue(r.model.logistics.routeKmPerActivation, 'km'), { hint: 'Distancia × (ida y vuelta) × viajes.' }),
-        kit.stat('Km de vehículos', (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `Por activación · ${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
-        kit.stat('Litros', (r) => formatValue(r.model.logistics.litersPerActivation, 'liters'), { hint: (r) => `Por activación · ${formatValue(r.model.logistics.litersPerMonth, 'liters')} por mes` }),
-        kit.stat('Costo por activación', (r) => formatMoney(r.model.logistics.costPerActivation), { hint: (r) => `${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} activaciones por mes` }),
+        kit.stat('Km de ruta por llamado', (r) => formatValue(r.model.logistics.routeKmPerActivation, 'km'), { hint: 'Distancia × (ida y vuelta) × viajes.' }),
+        kit.stat('Km de vehículos', (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `Por llamado · ${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
+        kit.stat('Litros', (r) => formatValue(r.model.logistics.litersPerActivation, 'liters'), { hint: (r) => `Por llamado · ${formatValue(r.model.logistics.litersPerMonth, 'liters')} por mes` }),
+        kit.stat('Costo por llamado', (r) => formatMoney(r.model.logistics.costPerActivation), { hint: (r) => `${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} viajes o llamados por mes` }),
         kit.stat('Costo logístico mensual', (r) => formatMoney(r.kpis.logisticsMonthly), { emphasis: true, trace: (r) => r.traces.logistics }),
         kit.stat('Incidencia sobre el costo total', (r) => formatPercent(r.kpis.logisticsIncidencePct), { hint: 'Combustible de traslados + desgaste + peajes + viáticos.' }),
       ),
+      h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística".')),
     );
 
-  mount(container, toggleCard, routeCard, vehiclesCard, fuelCard, resultsCard);
+  mount(container, toggleCard, routeCard, vehiclesCard, fuelCard, advancedCard, keyline, resultsDetail);
   return { update() {} };
 }

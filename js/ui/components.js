@@ -30,6 +30,14 @@ const ICONS = {
   close: 'M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z',
   print: 'M19 8H5a3 3 0 0 0-3 3v6h4v4h12v-4h4v-6a3 3 0 0 0-3-3zm-3 11H8v-5h8v5zm3-7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-1-9H6v4h12V3z',
   edit: 'M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
+  home: 'M12 3 2 11.5h3V21h5.5v-6h3v6H19v-9.5h3L12 3z',
+  menu: 'M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z',
+  arrowRight: 'M12 4 10.6 5.4l5.6 5.6H4v2h12.2l-5.6 5.6L12 20l8-8-8-8z',
+  arrowLeft: 'M12 20l1.4-1.4L7.8 13H20v-2H7.8l5.6-5.6L12 4l-8 8 8 8z',
+  chart: 'M4 20h16v2H2V2h2v18zm3-3h3v-6H7v6zm5 0h3V7h-3v10zm5 0h3v-9h-3v9z',
+  resources: 'M12 2 3 6.5v11L12 22l9-4.5v-11L12 2zm0 2.2 6.4 3.2L12 10.6 5.6 7.4 12 4.2zM5 9.1l6 3v7.6l-6-3V9.1zm8 10.6v-7.6l6-3v7.6l-6 3z',
+  lock: 'M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-5 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm3-9H9V6a3 3 0 0 1 6 0v2z',
+  play: 'M8 5v14l11-7L8 5z',
 };
 
 /** Ícono SVG inline (formas estáticas internas, nunca datos de usuario). */
@@ -47,14 +55,14 @@ export function icon(name, { size = 18, label = null } = {}) {
 /**
  * Botón.
  * @param {string} label
- * @param {{ variant?: 'primary'|'secondary'|'ghost'|'danger'|'link', onClick?: Function, icon?: string, title?: string, type?: string, size?: 'sm'|'md', disabled?: boolean, attrs?: object }} [opts]
+ * @param {{ variant?: 'primary'|'secondary'|'ghost'|'danger'|'link', onClick?: Function, icon?: string, title?: string, type?: string, size?: 'sm'|'md'|'lg', disabled?: boolean, attrs?: object }} [opts]
  */
 export function button(label, { variant = 'secondary', onClick, icon: iconName, title, type = 'button', size = 'md', disabled = false, attrs = {} } = {}) {
   return h(
     'button',
     {
       type,
-      class: ['btn', `btn-${variant}`, size === 'sm' ? 'btn-sm' : null],
+      class: ['btn', `btn-${variant}`, size === 'sm' ? 'btn-sm' : null, size === 'lg' ? 'btn-lg' : null],
       title: title || null,
       disabled,
       on: onClick ? { click: onClick } : undefined,
@@ -62,6 +70,27 @@ export function button(label, { variant = 'secondary', onClick, icon: iconName, 
     },
     iconName ? icon(iconName, { size: size === 'sm' ? 16 : 18 }) : null,
     label ? h('span', {}, label) : null,
+  );
+}
+
+/**
+ * Enlace con aspecto de botón (para navegar: el destino es un hash de la app).
+ * @param {string} label
+ * @param {string} href  p. ej. "#/cotizaciones/nueva" (siempre hash relativo)
+ * @param {{ variant?: string, size?: 'sm'|'md'|'lg', icon?: string, iconAfter?: string, attrs?: object, onClick?: Function }} [opts]
+ */
+export function linkButton(label, href, { variant = 'secondary', size = 'md', icon: iconName, iconAfter, attrs = {}, onClick } = {}) {
+  return h(
+    'a',
+    {
+      href,
+      class: ['btn', `btn-${variant}`, size === 'sm' ? 'btn-sm' : null, size === 'lg' ? 'btn-lg' : null],
+      on: onClick ? { click: onClick } : undefined,
+      ...attrs,
+    },
+    iconName ? icon(iconName, { size: size === 'sm' ? 16 : 18 }) : null,
+    h('span', {}, label),
+    iconAfter ? icon(iconAfter, { size: size === 'sm' ? 16 : 18 }) : null,
   );
 }
 
@@ -77,12 +106,14 @@ export function statusDot(tone, text) {
 
 /**
  * Tarjeta.
- * @param {{ title?: string, subtitle?: string, actions?: Node[], className?: string, id?: string }} opts
+ * @param {{ title?: string, subtitle?: string, actions?: Node[], className?: string, id?: string, level?: 2|3|4 }} opts
  */
-export function card({ title = null, subtitle = null, actions = [], className = '', id = null } = {}, ...children) {
+export function card({ title = null, subtitle = null, actions = [], className = '', id = null, level = 3 } = {}, ...children) {
+  // level: nivel del encabezado (2–4) para no saltear niveles según dónde se use la tarjeta.
+  const tag = `h${Math.min(4, Math.max(2, Number(level) || 3))}`;
   const header = title || subtitle || (actions && actions.length)
     ? h('div', { class: 'card-header' },
-      h('div', { class: 'card-titles' }, title ? h('h3', { class: 'card-title' }, title) : null, subtitle ? h('p', { class: 'card-subtitle' }, subtitle) : null),
+      h('div', { class: 'card-titles' }, title ? h(tag, { class: 'card-title' }, title) : null, subtitle ? h('p', { class: 'card-subtitle' }, subtitle) : null),
       actions && actions.length ? h('div', { class: 'card-actions' }, ...actions) : null)
     : null;
   return h('section', { class: ['card', className], id }, header, h('div', { class: 'card-body' }, ...children));
@@ -113,9 +144,80 @@ export function illustrativeBanner(text = 'Los valores de demostración son ILUS
   return banner(text, 'warning', { title: 'Datos ilustrativos.' });
 }
 
-/** Estado vacío. */
-export function emptyState(text, action = null) {
-  return h('div', { class: 'empty-state' }, h('p', {}, text), action);
+/**
+ * Estado vacío.
+ *   emptyState('Sin datos.', accion)                         (forma simple)
+ *   emptyState({ title, text, action, secondary, icon, level })  (forma completa; level 2–4 = nivel del título)
+ */
+export function emptyState(textOrOptions, action = null) {
+  if (textOrOptions && typeof textOrOptions === 'object' && !(textOrOptions instanceof Node)) {
+    const { title = null, text = null, action: main = null, secondary = null, icon: iconName = null, level = 3 } = textOrOptions;
+    const tag = `h${Math.min(4, Math.max(2, Number(level) || 3))}`;
+    return h('div', { class: ['empty-state', 'empty-state-rich'] },
+      iconName ? h('span', { class: 'empty-state-icon', 'aria-hidden': 'true' }, icon(iconName, { size: 26 })) : null,
+      title ? h(tag, { class: 'empty-state-title' }, title) : null,
+      text ? h('p', { class: 'empty-state-text' }, text) : null,
+      main || secondary ? h('div', { class: 'empty-state-actions' }, main, secondary) : null);
+  }
+  return h('div', { class: 'empty-state' }, h('p', {}, textOrOptions), action);
+}
+
+/**
+ * Bloque de presentación de una sección o pantalla: antetítulo, título,
+ * texto de contexto ("por qué importa") y acciones.
+ * @param {{ eyebrow?: string, title: string, text?: string|Node, actions?: Node[], level?: 1|2|3, className?: string, id?: string }} opts
+ */
+export function pageIntro({ eyebrow = null, title, text = null, actions = [], level = 2, className = '', id = null } = {}) {
+  const tag = `h${Math.min(3, Math.max(1, Number(level) || 2))}`;
+  const list = (actions || []).filter((a) => a instanceof Node);
+  return h('div', { class: ['page-intro', className] },
+    eyebrow ? h('p', { class: 'eyebrow' }, eyebrow) : null,
+    h(tag, { class: 'page-intro-title', id, tabindex: tag === 'h1' ? '-1' : null }, title),
+    text ? h('p', { class: 'page-intro-text' }, text) : null,
+    list.length ? h('div', { class: 'page-intro-actions' }, ...list) : null);
+}
+
+/**
+ * Número protagonista con etiqueta (resultado principal).
+ * @param {{ label: string, value: string, unit?: string, hint?: string|Node, tone?: 'green'|'orange'|'red'|'blue'|null, trace?: object, size?: 'md'|'lg', className?: string }} opts
+ */
+export function bigStat({ label, value, unit = null, hint = null, tone = null, trace = null, size = 'md', className = '' }) {
+  return h('div', { class: ['big-stat', `big-stat-${size}`, tone ? `big-stat-${tone}` : null, className] },
+    h('div', { class: 'big-stat-label' }, label),
+    h('div', { class: 'big-stat-value' }, h('span', { class: 'big-stat-number' }, value ?? EMPTY), unit ? h('span', { class: 'big-stat-unit' }, unit) : null),
+    hint ? h('div', { class: 'big-stat-hint' }, hint) : null,
+    trace ? traceButton(trace) : null);
+}
+
+/**
+ * Sección colapsable accesible (details/summary). Cerrada por defecto.
+ * @param {{ summary: string|Node, hint?: string, badge?: Node, open?: boolean, id?: string, className?: string, onToggle?: (open: boolean) => void }} opts
+ */
+export function disclosure({ summary, hint = null, badge: badgeNode = null, open = false, id = null, className = '', onToggle = null } = {}, ...children) {
+  const el = h('details', { class: ['disclosure', className], id, open: open ? true : null },
+    h('summary', { class: 'disclosure-summary' },
+      h('span', { class: 'disclosure-heading' },
+        h('span', { class: 'disclosure-title' }, summary),
+        hint ? h('span', { class: 'disclosure-hint' }, hint) : null),
+      badgeNode instanceof Node ? badgeNode : null,
+      h('span', { class: 'disclosure-chevron', 'aria-hidden': 'true' }, icon('chevronRight', { size: 18 }))),
+    h('div', { class: 'disclosure-body' }, ...children));
+  if (typeof onToggle === 'function') el.addEventListener('toggle', () => onToggle(el.open));
+  return el;
+}
+
+/**
+ * Indicador de avance "Paso 2 de 4" con barra.
+ * @param {{ current: number, total: number, label?: string }} opts  current empieza en 1
+ */
+export function stepIndicator({ current, total, label = null }) {
+  const t = Math.max(1, Math.floor(Number(total) || 1));
+  const c = Math.min(t, Math.max(1, Math.floor(Number(current) || 1)));
+  const text = label || `Paso ${c} de ${t}`;
+  return h('div', { class: 'step-indicator' },
+    h('span', { class: 'step-indicator-text' }, text),
+    h('div', { class: 'step-indicator-track', role: 'progressbar', 'aria-valuemin': '1', 'aria-valuemax': String(t), 'aria-valuenow': String(c), 'aria-valuetext': text, 'aria-label': 'Avance' },
+      h('div', { class: 'step-indicator-fill', style: { width: `${(c / t) * 100}%` } })));
 }
 
 /** Barra de progreso 0–100. */
@@ -271,13 +373,14 @@ export function selectField({ label, value, options, onChange, hint = null, name
 /** Casilla de verificación. */
 export function checkboxField({ label, checked = false, onChange, hint = null, name = null, disabled = false }) {
   const id = uniqueId('chk');
-  const input = h('input', { id, name, type: 'checkbox', checked, disabled });
+  // La ayuda se anuncia junto con la casilla (aria-describedby).
+  const input = h('input', { id, name, type: 'checkbox', checked, disabled, 'aria-describedby': hint ? `${id}-hint` : null });
   input.addEventListener('change', () => {
     if (typeof onChange === 'function') onChange(input.checked);
   });
   return h('div', { class: 'field field-check' },
     h('label', { class: 'check', for: id }, input, h('span', {}, label)),
-    hint ? h('div', { class: 'field-hint' }, hint) : null);
+    hint ? h('div', { class: 'field-hint', id: `${id}-hint` }, hint) : null);
 }
 
 /** Grupo de opciones tipo "tarjeta" (radio). options: [{ value, label, hint }] */
@@ -384,15 +487,27 @@ export function traceButton(trace, { label = 'Ver cálculo' } = {}) {
 
 // ------------------------------------------------------------------ toasts
 
-/** Notificación breve. tone: info | success | warning | danger */
-export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
+/**
+ * Región de avisos (aria-live). Se crea vacía y antes del primer aviso: si se
+ * creara junto con el mensaje, los lectores de pantalla podrían no anunciarlo.
+ */
+export function ensureToastRegion() {
   let region = document.getElementById('toast-region');
   if (!region) {
     region = h('div', { id: 'toast-region', class: 'toast-region', role: 'status', 'aria-live': 'polite' });
     document.body.appendChild(region);
   }
+  return region;
+}
+
+/** Notificación breve. tone: info | success | warning | danger */
+export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
+  const existed = Boolean(document.getElementById('toast-region'));
+  const region = ensureToastRegion();
   const el = h('div', { class: ['toast', `toast-${tone}`] }, message);
-  region.appendChild(el);
+  // Región recién creada: el mensaje entra un instante después para que se anuncie.
+  if (existed) region.appendChild(el);
+  else setTimeout(() => region.appendChild(el), 60);
   setTimeout(() => el.remove(), timeout);
   return el;
 }

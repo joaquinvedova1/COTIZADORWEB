@@ -8,6 +8,7 @@ import { deepClone } from '../core/object.js';
 import { track } from '../core/events.js';
 import { computeQuote, summarizeQuote } from '../engines/quote-engine.js';
 import { createEmptyQuote, createQuoteFromTemplate } from '../domain/quote-factory.js';
+import { DEMO_IDS, demoHydroCraneQuote } from '../domain/demo-data.js';
 import { ACTIVE_QUOTE_STATUSES, SERVICE_TYPES } from '../domain/catalogs.js';
 import { logger } from '../core/logger.js';
 import { isFiniteNumber } from '../core/money.js';
@@ -28,6 +29,33 @@ function safeSummary(quote, settings) {
 /** serviceType seguro para eventos internos (sólo valores del catálogo). */
 function eventServiceType(serviceType) {
   return SERVICE_TYPES.some((t) => t.id === serviceType) ? serviceType : 'unknown';
+}
+
+/**
+ * Indicadores de un conjunto de cotizaciones ({ quote, summary } de
+ * listQuotes()). Única regla para Inicio: activas = borrador, enviada o
+ * ganada; margen promedio sólo sobre márgenes finitos (sin márgenes → null,
+ * nunca NaN); riesgo y bajo piso según el resumen del motor.
+ * @param {{ quote: object, summary: object }[]} items
+ */
+export function indicatorsFor(items) {
+  const list = Array.isArray(items) ? items : [];
+  const active = list.filter((i) => i && i.quote && ACTIVE_QUOTE_STATUSES.includes(i.quote.status));
+  const margins = active.map((i) => i.summary && i.summary.marginPct).filter(isFiniteNumber);
+  return {
+    totalCount: list.length,
+    activeCount: active.length,
+    totalQuotedMonthly: active.reduce((s, i) => s + (i.summary && isFiniteNumber(i.summary.revenue) ? i.summary.revenue : 0), 0),
+    averageMarginPct: margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : null,
+    atRiskCount: active.filter((i) => i.summary && i.summary.atRisk).length,
+    belowFloorCount: active.filter((i) => i.summary && i.summary.belowFloor).length,
+    items: list,
+  };
+}
+
+/** ¿Es una cotización de ejemplo (demo ILUSTRATIVA)? */
+export function isExampleQuote(quote) {
+  return Boolean(quote) && quote.illustrative === true;
 }
 
 export function createQuoteService({ repository, clock = () => new Date().toISOString(), idFactory = createId }) {
@@ -74,7 +102,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     async createQuote({ templateId = null } = {}) {
       const [org, s, services] = await Promise.all([repository.getOrganization(), settings(), repository.getServices()]);
       const template = templateId ? services.find((t) => t.id === templateId) || null : null;
-      const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode() };
+      const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode(), baseName: org.baseLocation };
       const quote = template ? createQuoteFromTemplate(template, options) : createEmptyQuote(options);
       const saved = await repository.saveQuote(quote);
       track('quote_created', { serviceType: eventServiceType(saved.serviceType), source: template ? 'template' : 'blank' });
@@ -111,20 +139,47 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       return computeQuote(quote, { settings: await settings(), ...options });
     },
 
-    /** Indicadores del dashboard. */
-    async dashboardStats() {
+    /**
+     * Cotización de ejemplo "Hidrogrúa on-call — Añelo" (ILUSTRATIVA) para la
+     * demo guiada. Si existe, la devuelve tal cual (con los cambios que el
+     * usuario le haya hecho). Si se borró, la vuelve a crear con el mismo id y
+     * un código NUEVO (los códigos nunca se reutilizan). No toca otras
+     * cotizaciones. En modo sólo lectura el repositorio rechaza la escritura:
+     * la pantalla debe usar entonces la demo en memoria.
+     */
+    async ensureDemoQuote() {
+      const existing = await repository.getQuote(DEMO_IDS.quoteHydroCrane);
+      if (existing) return existing;
+      const org = await repository.getOrganization();
+      const now = clock();
+      const demo = demoHydroCraneQuote();
+      const quote = { ...demo, organizationId: org.id, createdAt: now, updatedAt: now, code: await reserveCode() };
+      return repository.saveQuote(quote);
+    },
+
+    /**
+     * Cotización de ejemplo para MOSTRAR (demo guiada) sin escribir nada: la
+     * guardada si existe; si no, la demo en memoria (stored: false). Navegar
+     * por la demo nunca agrega datos: para guardarla, usar ensureDemoQuote()
+     * sólo ante una acción explícita del usuario ("Ver el análisis completo").
+     * @returns {Promise<{ quote: object, stored: boolean }>}
+     */
+    async getDemoQuote() {
+      const existing = await repository.getQuote(DEMO_IDS.quoteHydroCrane);
+      if (existing) return { quote: existing, stored: true };
+      const org = await repository.getOrganization();
+      return { quote: { ...demoHydroCraneQuote(), organizationId: org.id }, stored: false };
+    },
+
+    /** Borrador modificado más recientemente (para "Continuar cotización"), o null. */
+    async latestDraft() {
       const items = await this.listQuotes();
-      const active = items.filter((i) => ACTIVE_QUOTE_STATUSES.includes(i.quote.status));
-      const margins = active.map((i) => i.summary.marginPct).filter(isFiniteNumber);
-      return {
-        totalCount: items.length,
-        activeCount: active.length,
-        totalQuotedMonthly: active.reduce((s, i) => s + (isFiniteNumber(i.summary.revenue) ? i.summary.revenue : 0), 0),
-        averageMarginPct: margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : null,
-        atRiskCount: active.filter((i) => i.summary.atRisk).length,
-        belowFloorCount: active.filter((i) => i.summary.belowFloor).length,
-        items,
-      };
+      return items.find((i) => i.quote.status === 'draft') || null;
+    },
+
+    /** Indicadores del dashboard (todas las cotizaciones). */
+    async dashboardStats() {
+      return indicatorsFor(await this.listQuotes());
     },
   };
 }

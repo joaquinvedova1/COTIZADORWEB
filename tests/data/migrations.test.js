@@ -6,10 +6,11 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { migrateState, migrateV0ToV1, MIGRATIONS, MigrationError } from '../../js/data/migrations.js';
+import { migrateState, migrateV0ToV1, migrateV1ToV2, MIGRATIONS, MigrationError } from '../../js/data/migrations.js';
 import { CURRENT_SCHEMA_VERSION, RESOURCE_TYPES, validateState } from '../../js/data/schema.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { isUuid } from '../../js/core/ids.js';
+import { computeQuote } from '../../js/engines/quote-engine.js';
 
 const NOW = '2026-10-03T12:00:00.000Z';
 
@@ -50,6 +51,7 @@ describe('Registro de migraciones', () => {
       assert.equal(typeof MIGRATIONS[v], 'function', `falta la migración ${v} → ${v + 1}`);
     }
     assert.equal(MIGRATIONS[0], migrateV0ToV1);
+    assert.equal(MIGRATIONS[1], migrateV1ToV2);
     assert.ok(Object.isFrozen(MIGRATIONS));
   });
 });
@@ -59,8 +61,8 @@ describe('migrateState v0 → v1', () => {
     const result = migrateState(legacyState(), { now: NOW, idFactory: sequentialIds() });
     assert.equal(result.fromVersion, 0);
     assert.equal(result.toVersion, CURRENT_SCHEMA_VERSION);
-    assert.deepEqual(result.applied, ['0→1']);
-    assert.equal(result.state.schemaVersion, 1);
+    assert.deepEqual(result.applied, ['0→1', '1→2']);
+    assert.equal(result.state.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
   });
 
@@ -70,6 +72,8 @@ describe('migrateState v0 → v1', () => {
     const old = state.quotes.find((q) => q.code === 'COT-0007');
     assert.equal(old.name, 'Cotización vieja');
     assert.deepEqual(old.pricing, { knownRate: 1500000 });
+    // v1 → v2: impuestos sobre la facturación sin definir (nunca inventados).
+    assert.deepEqual(old.billingTaxes, { mode: 'combined', notApplicable: false, combinedPct: null, items: [] });
 
     assert.equal(state.resources.laborProfiles[0].basicMonthly, 100);
     assert.equal(state.resources.equipment[0].name, 'Grúa');
@@ -77,7 +81,7 @@ describe('migrateState v0 → v1', () => {
     assert.equal(state.resources.agreements[0].name, 'Convenio viejo');
     assert.deepEqual(state.resources.materials, []);
     assert.equal(state.services.length, 2);
-    assert.deepEqual(state.settings, { fuelPricePerLiter: 900 });
+    assert.deepEqual(state.settings, { fuelPricePerLiter: 900, defaultBillingTaxes: null });
     assert.equal(state.organization.name, 'Legado SRL');
     assert.equal(state.organization.cuit, 'ficticio');
   });
@@ -175,7 +179,7 @@ describe('migrateState v0 → v1', () => {
     const out = migrateV0ToV1(null, { now: NOW, idFactory: sequentialIds() });
     assert.equal(out.schemaVersion, 1);
     assert.deepEqual(out.quotes, []);
-    assert.equal(validateState(out).ok, true);
+    assert.equal(validateState(migrateV1ToV2(out)).ok, true);
   });
 });
 
@@ -225,13 +229,122 @@ describe('migrateState — idempotencia en la versión actual', () => {
     assert.deepEqual(twice.state, once);
   });
 
-  test('un estado v1 con colecciones faltantes se normaliza sin borrar nada', () => {
-    const partial = { schemaVersion: 1, organization: { id: 'o' }, quotes: [{ id: 'q', name: 'Q' }], extra: { a: 1 } };
+  test('un estado actual con colecciones faltantes se normaliza sin borrar nada', () => {
+    const partial = { schemaVersion: CURRENT_SCHEMA_VERSION, organization: { id: 'o' }, quotes: [{ id: 'q', name: 'Q', billingTaxes: { mode: 'combined', notApplicable: false, combinedPct: null, items: [] } }], extra: { a: 1 } };
     const { state } = migrateState(partial);
     assert.deepEqual(state.quotes, partial.quotes);
     assert.deepEqual(state.extra, { a: 1 });
     assert.deepEqual(state.services, []);
     assert.deepEqual(state.settings, {});
     RESOURCE_TYPES.forEach((t) => assert.deepEqual(state.resources[t], []));
+  });
+});
+
+describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002)', () => {
+  /** Estado v1 real: el que guardaba la versión anterior de RATEOS. */
+  function v1State() {
+    const s = createDemoState(1);
+    s.quotes.forEach((q) => {
+      delete q.billingTaxes;
+      delete q.vatTreatment;
+    });
+    delete s.settings.defaultBillingTaxes;
+    return s;
+  }
+
+  test('agrega billingTaxes SIN DEFINIR a cada cotización y defaultBillingTaxes null; el resultado es válido', () => {
+    const before = v1State();
+    const result = migrateState(before);
+    assert.equal(result.fromVersion, 1);
+    assert.deepEqual(result.applied, ['1→2']);
+    assert.equal(result.state.schemaVersion, 2);
+    assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
+    result.state.quotes.forEach((q) => assert.deepEqual(q.billingTaxes, { mode: 'combined', notApplicable: false, combinedPct: null, items: [] }));
+    assert.equal(result.state.settings.defaultBillingTaxes, null);
+  });
+
+  test('no cambia ningún otro dato (cotizaciones, recursos, plantillas, organización)', () => {
+    const before = v1State();
+    const { state } = migrateState(before);
+    const strip = (q) => {
+      const { billingTaxes, vatTreatment, ...rest } = q;
+      return rest;
+    };
+    assert.deepEqual(state.quotes.map(strip), before.quotes);
+    assert.deepEqual(state.resources, before.resources);
+    assert.deepEqual(state.services, before.services);
+    assert.deepEqual(state.organization, before.organization);
+    const { defaultBillingTaxes, ...settings } = state.settings;
+    assert.deepEqual(settings, before.settings);
+  });
+
+  test('la convención de montos queda explícita: vatTreatment "excluded" (sin IVA) en cada cotización', () => {
+    const { state } = migrateState(v1State());
+    assert.ok(state.quotes.length > 0);
+    state.quotes.forEach((q) => assert.equal(q.vatTreatment, 'excluded'));
+  });
+
+  test('un vatTreatment ya presente no se pisa: si esta versión no lo soporta, el cálculo lo avisa', () => {
+    const s = v1State();
+    s.quotes[0].vatTreatment = 'excluded';
+    s.quotes[1].vatTreatment = 'included';
+    const out = migrateV1ToV2(s);
+    assert.equal(out.quotes[0].vatTreatment, 'excluded');
+    assert.equal(out.quotes[1].vatTreatment, 'included');
+    // La estructura es válida (no se descarta nada) ...
+    assert.equal(validateState(out).ok, true);
+    // ... pero la cotización no se calcula en silencio como si fuera sin IVA.
+    const issues = computeQuote(out.quotes[1]).issues.filter((i) => i.path === 'vatTreatment');
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, 'error');
+    assert.deepEqual(computeQuote(out.quotes[0]).issues.filter((i) => i.path === 'vatTreatment'), []);
+  });
+
+  test('el estado migrado equivale al estado demo actual (la demo queda "sin definir")', () => {
+    assert.deepEqual(migrateState(v1State()).state, createDemoState(CURRENT_SCHEMA_VERSION));
+  });
+
+  test('una cotización que ya trae billingTaxes válido lo conserva', () => {
+    const s = v1State();
+    s.quotes[0].billingTaxes = { mode: 'detailed', notApplicable: false, combinedPct: null, items: [{ id: 'a', kind: 'gross_income', label: 'IB', pct: 3 }] };
+    const { state } = migrateState(s);
+    assert.deepEqual(state.quotes[0].billingTaxes, s.quotes[0].billingTaxes);
+  });
+
+  test('un billingTaxes que no es objeto no se pierde: queda en legacy de la cotización', () => {
+    const s = v1State();
+    s.quotes[0].billingTaxes = 'texto ajeno';
+    s.quotes[1].legacy = 'viejo';
+    s.quotes[1].billingTaxes = 7;
+    const { state } = migrateState(s);
+    assert.equal(state.quotes[0].legacy.billingTaxes, 'texto ajeno');
+    assert.deepEqual(state.quotes[1].legacy, { previous: 'viejo', billingTaxes: 7 });
+    assert.equal(validateState(state).ok, true);
+  });
+
+  test('settings que no es objeto se guarda en legacy (no se descarta)', () => {
+    const s = v1State();
+    s.settings = 'roto';
+    const out = migrateV1ToV2(s);
+    assert.deepEqual(out.settings, { defaultBillingTaxes: null });
+    assert.equal(out.legacy.settings, 'roto');
+  });
+
+  test('no modifica el objeto de entrada y es idempotente', () => {
+    const input = v1State();
+    const text = JSON.stringify(input);
+    const once = migrateState(input).state;
+    assert.equal(JSON.stringify(input), text);
+    const twice = migrateState(once);
+    assert.deepEqual(twice.applied, []);
+    assert.deepEqual(twice.state, once);
+  });
+
+  test('migrateV1ToV2 tolera entradas que no son objetos', () => {
+    for (const bad of [null, undefined, 'x', 42, []]) {
+      const out = migrateV1ToV2(bad);
+      assert.equal(out.schemaVersion, 2);
+      assert.deepEqual(out.quotes, []);
+    }
   });
 });

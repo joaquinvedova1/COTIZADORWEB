@@ -66,7 +66,7 @@ export class StorageRepository {
   /** Backup completo en formato versionado. @returns {Promise<object>} */
   async exportBackup() { throw notImplemented('exportBackup'); }
   /** Reemplaza los datos por un backup validado. @returns {Promise<object>} */
-  async importBackup(data) { throw notImplemented('importBackup'); }
+  async importBackup(data, options) { throw notImplemented('importBackup'); } // options: { recoveryReason }
 }
 
 function notImplemented(method) {

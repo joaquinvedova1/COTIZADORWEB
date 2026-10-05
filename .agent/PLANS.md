@@ -101,6 +101,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | ID | Título | Tipo | Estado |
 |---|---|---|---|
 | PLAN-2026-001 | MVP funcional RATEOS v0.1.0 | motor de costos, migración, otro | En curso — pendiente de merge |
+| PLAN-2026-002 | Impuestos sobre la facturación (gross-up) y composición del precio | margen, motor de costos, migración | En curso |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
@@ -175,3 +176,90 @@ Web navegable bajo `/COTIZADORWEB/`, cotización creada de punta a punta, on-cal
 #### Bitácora
 - 2026-10-03 — Arquitectura en capas y contratos definidos; implementación del núcleo, UI, tests, CI/CD y documentación; PR abierto hacia `main` para revisión del dueño antes del merge.
 - 2026-10-03 — Review multidisciplinario y correcciones: persistencia con varias pestañas, pantallas de recuperación (almacenamiento lleno, datos dañados sin espacio), borradores sin guardar, validaciones de importación, copias de recuperación eliminables, deploy restringido a commits de `main` con permisos por job, motor (peor caso de tramos con minimum call, `belowFloor` vs `belowFloorRate`, sensibilidad sin variaciones, "No aplica standby", margen sin tarifa comercial, trazas de break-even y tarifa piso, comparador con días > disponibles, umbrales de completitud 85/60), defaults ILUSTRATIVOS no definidos, marca ILUSTRATIVO por línea, números en formato argentino y tarifas mínimas mostradas hacia arriba. Documentación actualizada. Estado: en curso hasta el merge.
+
+### PLAN-2026-002 — Impuestos sobre la facturación (gross-up) y composición del precio
+
+- Estado: En curso
+- Tipo: margen · motor de costos (precio) · migración (esquema 1 → 2)
+- Responsable: agentes de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-04 · Fecha de cierre: pendiente (al mergear)
+- Rama / PR: `claude/rateos-ux-progresivo` → PR pendiente (sin merge automático)
+
+#### 1. Contexto y problema
+Una estructura de costos profesional (planilla de «discriminación de precios» de contratos de servicios; análisis conceptual en [docs/REFERENCE_COST_STRUCTURE.md](../docs/REFERENCE_COST_STRUCTURE.md), sin datos de la planilla, que es privada) suma sobre el costo los impuestos que se pagan **sobre lo que se factura** (Ingresos Brutos, débitos y créditos, sellos) con un gross-up exacto. RATEOS no los contemplaba: su "tarifa piso" no era piso (cobrándola, la PyME pierde esos impuestos) y el margen real quedaba debajo del objetivo. Además, un margen objetivo inválido (≥ 100 %) se reemplazaba por 0 % en silencio y la "tarifa sugerida" quedaba igual a la piso.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo (entrega A, P0): impuestos sobre la facturación cargados por el usuario (un % total o detalle, excluyentes; "no aplica"; valor de la empresa), gross-up exacto en piso, objetivo, sugerida, resultado, break-even, matriz, tramos, escenarios y comparador; guarda de margen inválido; aclarar "sin IVA" y "margen antes de Ganancias".
+- Objetivo (entrega B, P1): "¿Cómo se forma tu precio?" (costo + impuestos + ganancia = 100 % del precio), apropiación por unidad y total del contrato, invariantes y "los números cierran".
+- Fuera de alcance: alícuotas precargadas o "reales" (AGENTS.md §7), IVA, Ganancias neta, retenciones/percepciones, índices/polinómica, cuadro con varios ítems, dedicación %, costos únicos, no remunerativos y alquiler de equipos (siguiente iteración, con aprobación del dueño), nómina, herramientas del comitente.
+
+#### 3. Impacto en fórmulas
+- `pricing-engine`: `priceFromMarginAndTaxes(c, m, t) = c / (1 − m − t)` (null si m + t ≥ 100); `markupWithTaxesPct(m, t) = (m + t) / (1 − m − t)` (markup = precio / costo − 1, AGENTS.md §9) y `profitOnCostPct(m, t) = m / (1 − m − t)` (ganancia sobre el costo, rotulada aparte); `priceLadder(…, t)` con `billingTaxes`, `gain`, `markupPct` y `profitOnCostPct` por fila. (La primera versión rotulaba como "markup efectivo" la ganancia sobre el costo; la revisión económica lo corrigió.)
+- `commercial-rules-engine.requiredNetRate`: `(Costo / (1 − m − t) − otros ingresos) / unidades` (antes `/ (1 − m)`).
+- `economics-engine.evaluateAt`: `resultado = facturación − t·facturación − costo` (antes `facturación − costo`); margen = resultado / facturación; markup = facturación / costo − 1; ganancia sobre el costo = resultado / costo. `linearDecomposition`: contribución = ingreso por día × (1 − t) − variable; fijos netos = fijos − ingresos fijos × (1 − t).
+- `break-even-engine`: contribución = p(1 − t) − v; tarifa mínima = (F/D + v)/(1 − t).
+- `scenario-engine.compareCommercialModels`: k = 1 − m − t; G = Fijos/(1 − t); resultado = R(1 − t) − C.
+- `quote-engine`: margen objetivo inválido o m + t ≥ 100 → sin objetivo/sugerida (`targetMarginInvalid`, `atRisk`), nunca 0 % en silencio.
+- Casos de verificación (sintéticos): costo 100, m 10 %, t 10 % → 125; piso 111,11; markup 25 %; ganancia sobre el costo 12,5 %. On-call 30M/1M/4M con t 10 % → 11,54 días; fijos 30M, variable 1M, 10 días, m 10 %, t 10 % → piso 4.444.444,44, objetivo 5.000.000, resultado 5.000.000 (10 %).
+- Golden cases existentes: **ninguno cambia** (t = 0 por defecto). Nuevos: 7 (ver CALCULATION_RULES §22).
+- Margen y markup siguen diferenciados: sí ("Markup (recargo sobre el costo)" y, con impuestos, "Ganancia sobre el costo" en columna aparte).
+
+#### 4. Impacto en datos
+- `SCHEMA_VERSION` 1 → 2, `migrateV1ToV2`: `quote.billingTaxes` sin definir, `quote.vatTreatment = 'excluded'` (convención sin IVA explícita) y `settings.defaultBillingTaxes = null`; valores ajenos a `legacy`. Datos v1 con estructura inesperada: migración + reparación (v0 → v1 → v2); el texto original queda en la copia de recuperación.
+- Backups v1 se importan migrándolos; un backup v2 en la versión anterior se rechaza ("más nueva") y los datos v2 se abren en sólo lectura en una pestaña vieja.
+- ¿Algún dato podría perderse? No (copia `pre-migration-v1` antes de migrar; tests de migración).
+
+#### 5. Diseño
+- Dominio: `js/domain/billing-taxes.js` (forma de los datos), `BILLING_TAX_KINDS` / `BILLING_TAX_MODES` en catálogos (sólo nombres), `billingTaxesForNewQuote` en la fábrica.
+- Motores: `billing-taxes-engine.js` + cambios arriba; `completeness-engine` regla `billing_taxes`; `core/validation` reglas `billingTax` y margen + t.
+- Datos: migración, `validateState` (forma de `billingTaxes` y `defaultBillingTaxes`), reparación en la migración del repositorio.
+- UI: etapa "El precio" (bloque de impuestos con ayuda: qué incluir y qué no), Configuración → parámetros económicos (valor de la empresa), resultado (rótulos, alerta crítica si están sin definir, composición del precio), sin fórmulas en la UI (test estático).
+- Reglas de dependencia: respetadas (`tests/architecture.test.js`).
+
+#### 6. Pasos
+- [x] PN0 — Baseline de regresión antes de tocar el motor (21 casos).
+- [x] PN2 — Motor: gross-up, break-even, matriz, tramos, escenarios, comparador, trazas, KPIs.
+- [x] PN3 — Guarda de margen inválido / m + t ≥ 100.
+- [x] Completitud, validación, valor de la empresa, esquema v2 + migración + reparación.
+- [x] Golden cases, tests unitarios e invariantes.
+- [x] Documentación (CALCULATION_RULES §13.1, DATA_MODEL, CHANGELOG).
+- [x] UI de la entrega A (editor, configuración, resultado, "sin IVA"); test estático: la interfaz no recalcula precios.
+- [x] Entrega B: composición del precio, apropiación, total del contrato, "los números cierran" (`price-composition-engine.js`).
+- [x] Revisión adversarial económica y de UX; correcciones (sin funcionalidades nuevas).
+- [x] Cierre pedido por el dueño: copy de impuestos sin afirmaciones fiscales, primera vista del resultado con sólo 4 respuestas (el resto en "Profundizá"), convención "Montos sin IVA" explícita (`vatTreatment`).
+- [ ] PR (sin merge automático).
+
+#### 7. Tests
+- `tests/engines/billing-taxes.test.js` (pricing, datos, valor de la empresa, tarifa neta, break-even, cotización completa, invariantes, economía, escenarios y comparador), golden cases nuevos, `tests/engines/regression-baseline.test.js`, completitud (TOTAL_WEIGHT 23), validación, migraciones v1 → v2 y repositorio (migrado / reparado).
+- Casos extremos: t sin definir / 0 / no aplica / inválido / 99,99; m + t = 100 y 99,99; 0 días; mínimo garantizado (el ajuste tributa); tarifa que cubre el costo pero no los impuestos (bajo piso).
+
+#### 8. Riesgos y mitigación
+| Riesgo | Mitigación |
+|---|---|
+| Se presentan alícuotas como reales | RATEOS no trae alícuotas; la demo queda "sin definir"; sólo nombres de impuestos. |
+| Doble conteo (impuestos cargados también como costo o en imprevistos) | Ayuda en el campo: "si ya los cargaste como otro costo o en imprevistos, sacalos de ahí". Modos excluyentes. |
+| Fórmula multiplicativa o sobre la lista por error | Golden 125 (no 123,46 ni 121), invariantes R = C + T + Resultado, test estático de la UI. |
+| Cambios de completitud en cotizaciones existentes | Documentado en CHANGELOG y CALCULATION_RULES §19; los números económicos no cambian. |
+| Rollback de código con datos ya migrados | Ver §9. |
+
+#### 9. Rollback
+Preferir corregir hacia adelante. Si se revierte el código, los datos ya migrados a v2 se abren en **sólo lectura** en la versión anterior (no se pierden ni se pisan); volver a desplegar la versión nueva los reabre. La copia `rateos.recovery.*.pre-migration-v1` permite volver al estado previo a la migración (perdiendo los cambios posteriores), y el backup JSON exportado con la versión nueva sólo se puede importar en una versión ≥ 2.
+
+#### 10. Review multidisciplinario
+- Economía: gross-up exacto, base = facturación neta total (incluye otros ingresos y ajuste por mínimo), impuestos fuera de la EECC y de las bases de contingencia y financiero, Sellos como aproximación proporcional documentada. Revisión adversarial hecha: sin bloqueantes; corregidos el rótulo del markup con impuestos (A1), la lectura de márgenes en texto (M1), la conversión del mínimo por llamado al cambiar de unidad (M2) y hallazgos menores. Limitación documentada: el costo financiero de pagar los impuestos antes de cobrar no se modela.
+- QA: casos extremos arriba; baseline idéntico con t = 0.
+- Seguridad: validación de cada % y del total; sin datos de la planilla en el repo (test de `.gitignore`); sin `innerHTML`.
+- UX: "Ver cálculo" de los impuestos; aviso cuando están sin definir; lenguaje "impuestos sobre lo que facturás". Revisión de UX hecha: alertas en mobile, botón de la empresa, pérdida de datos en Configuración, textos con margen inválido, foco y nombres accesibles; la composición, estructura y apropiación pasaron a "Profundizá" para no saturar la primera vista.
+
+#### 11. Documentación
+- [x] docs/CALCULATION_RULES.md  - [x] docs/DATA_MODEL.md  - [ ] docs/ARCHITECTURE.md (no cambian las capas)
+- [x] CHANGELOG.md  - [x] README.md (limitaciones)  - [x] docs/REFERENCE_COST_STRUCTURE.md  - [x] docs/UX.md
+
+#### 12. Criterio de terminación
+`npm test` en verde, golden cases nuevos y viejos en verde, baseline idéntico con t = 0, UI sin fórmulas propias, revisión económica y de UX registradas en el PR, E2E sin errores.
+
+#### Bitácora
+- 2026-10-04 — Análisis de la planilla de referencia (privada, fuera del repo) y propuesta con prioridades P0–P3; decisiones por defecto: demo "sin definir", Sellos proporcional.
+- 2026-10-04 — PN0 (baseline), motor de la entrega A, esquema v2 con migración y reparación, completitud y validación, golden cases e invariantes, documentación de fórmulas y datos.
+- 2026-10-04 — UI de la entrega A (etapa "El precio", Configuración, alertas, "Montos sin IVA") y entrega B (composición del precio, apropiación, total del contrato y controles de cuadre).
+- 2026-10-04 — Revisiones adversariales económica y de UX y correcciones. Markup con impuestos corregido a precio / costo − 1 (25 % en el caso 100 / 10 % / 10 %) con "ganancia sobre el costo" (12,5 %) aparte; golden `markup-efectivo-con-impuestos` reemplazado por `markup-con-impuestos` y `ganancia-sobre-costo-con-impuestos`. Cierre de versión sin funcionalidades nuevas: copy no fiscal, resultado progresivo, `vatTreatment`.

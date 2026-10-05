@@ -1,6 +1,6 @@
 # Arquitectura de autenticación y permisos (futura)
 
-> **Estado: NO implementado.** RATEOS v0.1.0 no tiene login, usuarios ni roles. Este documento define cómo se agregarán cuando exista backend, para que el diseño actual no lo impida. Plan de base de datos en [SUPABASE_PLAN.md](SUPABASE_PLAN.md); entidades en [DATA_MODEL.md](DATA_MODEL.md).
+> **Estado: NO implementado.** RATEOS no tiene login, usuarios ni roles (las pantallas `#/login` y `#/registro` existen sólo como flujo visual preparado, ver §1.1). Este documento define cómo se agregarán cuando exista backend, para que el diseño actual no lo impida. Plan de base de datos en [SUPABASE_PLAN.md](SUPABASE_PLAN.md); entidades en [DATA_MODEL.md](DATA_MODEL.md).
 
 ## 1. Por qué hoy no hay login
 
@@ -13,6 +13,16 @@ Lo que **sí** está preparado:
 - Todas las entidades principales tienen `organizationId`, `createdBy` y `updatedBy` (hoy `null`).
 - Toda la persistencia pasa por `StorageRepository` (`js/data/storage-repository.js`): un `SupabaseRepository` autenticado puede reemplazar a `LocalStorageRepository` sin tocar pantallas ni motores.
 - Feature flags `FEATURES.supabase` y `FEATURES.multiOrganization` (`js/config.js`), hoy en `false`.
+
+### 1.1 Pantallas preparadas (sin autenticación)
+
+Desde el rediseño UX existen `#/login` ("Bienvenido de nuevo.") y `#/registro` ("Creá tu cuenta"), más el onboarding `#/bienvenida`. Son **flujos visuales preparados**, no autenticación:
+
+- Los formularios interceptan el envío (`preventDefault`; además la CSP tiene `form-action 'none'`). **Nunca** se leen, guardan ni envían el email ni la contraseña: el campo contraseña se vacía al enviar.
+- Cada pantalla avisa, antes de enviar, que las cuentas todavía no están habilitadas y que todo funciona en este navegador. "Entrar sin cuenta" lleva a la app (`#/inicio`).
+- El registro sólo guarda el nombre de la **empresa** en la organización local (`saveOrganization({ name })`); el onboarding guarda el tipo de empresa (`organization.industry`) y la base operativa (`organization.baseLocation`). Nada de esto es un usuario.
+- Punto único de autenticación: `js/services/auth-service.js` (`ctx.auth`). Hoy es la implementación **local**: `mode: 'local'`, `available: false`, `getSession()` → `null`, `signIn()`/`signUp()` → `{ ok: false, reason: 'not_available' }` sin recibir credenciales. Hay tests que verifican que no se persiste ningún email ni contraseña (`tests/services/auth-service.test.js`).
+- Cuando exista Supabase Auth se reemplaza esa implementación por una real con la misma interfaz (la sesión la maneja el cliente oficial dentro de `js/data/`), sin tocar las pantallas. Ver §5.
 
 ## 2. Proveedor previsto: Supabase Auth
 

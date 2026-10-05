@@ -1,9 +1,12 @@
 /* ==========================================================================
    RATEOS — pantalla de RESULTADO de la cotización (análisis económico)
    Reutiliza tokens y clases de styles.css; sólo agrega lo propio (.qr-*).
+   Jerarquía: resumen (4 números + días + alertas) → ¿En qué se va el costo?
+   → Profundizá (desplegables) → acciones. También la usa #/escenarios/:id
+   (.qr-analysis).
    ========================================================================== */
 
-.qr { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; container: qr / inline-size; }
+.qr { display: flex; flex-direction: column; gap: 1.5rem; min-width: 0; container: qr / inline-size; }
 .qr .card-body > * + * { margin-top: 0.9rem; }
 .qr h4 { margin: 1.1rem 0 0.4rem; }
 
@@ -12,14 +15,180 @@
 .qr-pos { color: #157A50; font-weight: 650; }
 .qr-step-link { font-size: 0.85rem; font-weight: 650; white-space: nowrap; }
 
-/* ------------------------------------------------------------ navegación */
+/* ----------------------------------------------- 1. resumen: las 4 preguntas */
 
-.qr-nav {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem;
-  padding: 0.4rem 0.6rem; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius);
+.qr-summary {
+  display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;
+  padding: 1.5rem 1.25rem 1.35rem; background: var(--white);
+  border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow);
 }
-.qr-nav-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); margin-right: 0.25rem; }
-.qr-nav .btn { color: var(--navy-800); }
+.qr-summary-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem 1rem; flex-wrap: wrap; }
+.qr-summary-titles { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.qr-summary-title { margin: 0; font-size: var(--fs-2xl); font-weight: 720; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); }
+.qr-summary-sub { margin: 0; color: var(--ink-3); font-size: var(--fs-base); overflow-wrap: anywhere; }
+.qr-summary-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+
+/* Los 4 números (una lista <dl>: término = etiqueta, descripción = valor, ayuda y "Ver cálculo"):
+   1 columna en pantallas muy angostas, 2×2 en móvil/tablet, 4 en escritorio. */
+.qr-stats { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin: 0; }
+.qr-stats dd { margin: 0; }
+.qr-stat-trace { align-self: flex-start; }
+.qr-stat { padding: 1rem 0; border-top: 1px solid var(--line-2); gap: 0.35rem; }
+.qr-stat:first-child { border-top: 0; padding-top: 0; }
+.qr-stat .big-stat-label { font-size: 0.82rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+.qr-stat .big-stat-number { font-size: 1.75rem; overflow-wrap: anywhere; }
+.qr-stat .big-stat-unit { font-size: 0.95rem; white-space: nowrap; }
+.qr-stat .big-stat-hint { font-size: 0.82rem; line-height: 1.4; }
+.qr-stat-lines { display: flex; flex-direction: column; gap: 0.1rem; }
+.qr-stat-line + .qr-stat-line { color: var(--ink-3); }
+.qr-stat .trace-btn { align-self: flex-start; padding-left: 0; }
+.qr-stat-price .big-stat-value { color: var(--blue-text); }
+
+/* ¿Cuánto tengo que trabajar? */
+.qr-work {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.2rem 1rem; align-items: center;
+  padding: 0.9rem 1.1rem; border-radius: var(--radius); background: var(--navy-50); border-left: 4px solid var(--blue-600);
+}
+.qr-work-question { margin: 0; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.qr-work-text { margin: 0; font-size: var(--fs-lg); line-height: 1.45; color: var(--ink); max-width: 72ch; }
+.qr-work-days { color: var(--navy-900); font-weight: 750; white-space: nowrap; }
+.qr-work-trace .trace-btn { padding-left: 0; }
+.qr-work-green { background: var(--green-50); border-left-color: var(--green); }
+.qr-work-green .qr-work-days { color: var(--green-text); }
+.qr-work-red { background: var(--red-50); border-left-color: var(--red); }
+.qr-work-red .qr-work-days { color: var(--red-text); }
+
+/* Nota clave de una tabla de detalle (p. ej. tarifa de lista vs neta en la matriz). */
+.qr-note-key { padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: var(--navy-50); color: var(--ink-2); border-left: 3px solid var(--blue-600); }
+
+/* Alertas críticas: visibles y compactas. */
+.qr-alerts { display: flex; flex-direction: column; gap: 0.5rem; }
+.qr-alert { padding: 0.6rem 0.85rem; font-size: 0.88rem; align-items: center; }
+.qr-alert > div:not(.qr-alert-action) { flex: 1; min-width: 0; }
+.qr-alert-action { flex: none; }
+.qr-alert-action .btn { padding-block: 0.1rem; }
+.qr-alert.qr-issues { align-items: flex-start; }
+
+/* ------------------------------------------- encabezados de sección (h3) */
+
+.qr-section-head { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.9rem; }
+.qr-section-title { margin: 0; font-size: var(--fs-xl); font-weight: 690; letter-spacing: -0.015em; color: var(--ink); }
+.qr-section-sub { margin: 0; color: var(--ink-3); font-size: 0.92rem; }
+
+/* ------------------------------------------- 2. ¿En qué se va el costo? */
+
+.qr-costs { min-width: 0; margin-bottom: 1rem; }
+.qr-costs > .qr-section-sub, .qr-compose > .qr-section-sub { margin: 0 0 0.85rem; }
+.qr-costbars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+.qr-costbar {
+  display: grid; align-items: center; gap: 0.25rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: "label pct amount" "track track track";
+}
+.qr-costbar-label { grid-area: label; display: flex; flex-direction: column; min-width: 0; }
+.qr-costbar-name { font-weight: 600; color: var(--ink); }
+.qr-costbar-parts { font-size: 0.75rem; color: var(--ink-3); overflow-wrap: anywhere; }
+.qr-costbar-track { grid-area: track; height: 10px; background: var(--line-2); border-radius: 999px; overflow: hidden; }
+.qr-costbar-fill { display: block; height: 100%; background: var(--blue-600); border-radius: 0 4px 4px 0; }
+.qr-costbar.is-other .qr-costbar-fill { background: #9FB1BF; }
+.qr-costbar-pct { grid-area: pct; font-weight: 700; color: var(--navy-900); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.qr-costbar-amount { grid-area: amount; font-size: 0.82rem; color: var(--ink-3); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; min-width: 6.5rem; }
+.qr-costs-foot { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+
+/* ------------------------------- 2b. ¿Cómo se forma tu precio? (100 % del precio) */
+
+.qr-compose { min-width: 0; }
+.qr-compose-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--line-2); margin-bottom: 0.85rem; }
+.qr-compose-seg { display: block; height: 100%; }
+.qr-compose-seg + .qr-compose-seg { border-left: 2px solid var(--white); }
+.qr-compose-seg.is-cost, .qr-compose-item.is-cost .qr-compose-swatch { background: var(--navy-900); }
+.qr-compose-seg.is-taxes, .qr-compose-item.is-taxes .qr-compose-swatch { background: #9FB1BF; }
+.qr-compose-seg.is-result, .qr-compose-item.is-result .qr-compose-swatch { background: var(--green); }
+.qr-compose-legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem 1.25rem; }
+.qr-compose-item { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "swatch name" ". value" ". month"; gap: 0.1rem 0.5rem; align-items: center; }
+.qr-compose-swatch { grid-area: swatch; width: 12px; height: 12px; border-radius: 3px; }
+.qr-compose-name { grid-area: name; font-size: 0.85rem; color: var(--ink-2); font-weight: 600; }
+.qr-compose-value { grid-area: value; font-size: 1.35rem; font-weight: 750; color: var(--navy-900); font-variant-numeric: tabular-nums; }
+.qr-compose-month { grid-area: month; font-size: 0.8rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.qr-compose-item.is-result .qr-compose-value { color: var(--green-text); }
+.qr-compose-item.is-undefined .qr-compose-swatch { background: var(--white); border: 2px dashed var(--orange); }
+.qr-compose-item.is-undefined .qr-compose-value { color: var(--orange-text); font-size: 1rem; }
+.qr-compose-loss { margin: 0.85rem 0 0; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); background: var(--red-50); color: #8E2F2F; font-weight: 600; }
+.qr-compose:has(.qr-compose-loss) .qr-compose-item.is-result .qr-compose-value { color: var(--red-text); }
+@container qr (max-width: 560px) {
+  .qr-compose-legend { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* "Los números cierran" (clases propias: .qr-check es de la completitud). */
+.qr-cuadre-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
+.qr-cuadre { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0.4rem; align-items: baseline; }
+.qr-cuadre-mark { font-weight: 800; text-align: center; }
+.qr-cuadre-text { min-width: 0; overflow-wrap: anywhere; }
+.qr-cuadre-detail { color: var(--ink-3); font-size: 0.85em; white-space: normal; }
+.qr-cuadre.is-ok .qr-cuadre-mark { color: var(--green-text); }
+.qr-cuadre.is-fail .qr-cuadre-mark { color: var(--red-text); }
+.qr-cuadre.is-na .qr-cuadre-mark { color: var(--ink-3); }
+.qr-compose-item.is-loss .qr-compose-swatch { background: var(--red); }
+.qr-contract { margin-top: 1rem; }
+
+/* -------------------------------------------------------- 3. Profundizá */
+
+.qr-deep { min-width: 0; }
+.qr-deep-list { gap: 0.6rem; }
+.qr-deep-item > .disclosure-summary { padding: 0.95rem 1.1rem; }
+.qr-deep-item > .disclosure-summary .badge { flex: none; }
+.qr-deep-item > .disclosure-body { padding: 0.25rem 1.1rem 1.25rem; gap: 0; }
+/* Dentro de un desplegable las secciones no son cajas dentro de cajas. */
+.qr-deep-item > .disclosure-body > .card { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.qr-deep-item > .disclosure-body > .card > .card-header { padding: 0.75rem 0 0.25rem; }
+.qr-deep-item > .disclosure-body > .card > .card-body { padding: 0.5rem 0 0.75rem; }
+.qr-deep-item > .disclosure-body > * + .card,
+.qr-deep-item > .disclosure-body > .card + * { border-top: 1px solid var(--line-2); margin-top: 0.75rem; }
+.qr-deep-item > .disclosure-body > .card + .qr-equiv { border-top: 0; }
+.qr-deep-item > .disclosure-body > .qr-equiv,
+.qr-deep-item > .disclosure-body > .qr-rules,
+.qr-deep-item > .disclosure-body > .qr-deep-intro { margin-top: 0.75rem; }
+.qr-deep-intro { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 1rem; padding: 0.6rem 0.9rem; border-radius: var(--radius-sm); background: var(--surface-2); }
+.qr-deep-intro p { margin: 0; font-size: 0.9rem; color: var(--ink-2); }
+
+/* Reglas comerciales cargadas */
+.qr-rules h4.qr-subhead { margin-top: 0.25rem; }
+.qr-rules-list { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; border-top: 1px solid var(--line-2); }
+.qr-rules-item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.1rem 1rem; padding: 0.5rem 0; border-bottom: 1px solid var(--line-2); }
+.qr-rules-item dt { font-weight: 650; color: var(--ink); }
+.qr-rules-item dd { margin: 0; color: var(--ink-2); font-size: 0.9rem; }
+.qr-rules-edit { margin: 0.5rem 0 0; }
+
+/* Ver cálculo completo: índice de trazas */
+.qr-trace-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line-2); }
+.qr-trace-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title btn" "value btn"; gap: 0.1rem 0.75rem; align-items: center; padding: 0.45rem 0; border-bottom: 1px solid var(--line-2); }
+.qr-trace-title { grid-area: title; display: flex; flex-direction: column; font-weight: 600; color: var(--ink); min-width: 0; }
+.qr-trace-sub { font-size: 0.78rem; font-weight: 400; color: var(--ink-3); }
+.qr-trace-value { grid-area: value; font-family: var(--mono); font-size: 0.85rem; color: var(--ink-2); }
+.qr-trace-row .trace-btn { grid-area: btn; }
+
+/* ------------------------------------------------------------ 4. acciones */
+
+.qr-actions-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.25rem;
+  padding: 1rem 0 0; border-top: 1px solid var(--line);
+}
+.qr-actions-notes { display: flex; flex-direction: column; gap: 0.3rem; max-width: 56ch; min-width: 0; }
+.qr-actions-note { margin: 0; font-size: 0.8rem; color: var(--ink-3); max-width: 56ch; }
+/* En los ejemplos (ILUSTRATIVOS) la nota del ejemplo va primero; la de impresión queda como texto secundario. */
+.qr-actions-note-main { font-size: 0.875rem; color: var(--ink-2); }
+
+/* ------------------------------- #/escenarios/:id — punto de partida */
+
+.qr-base { padding: 1rem 1.1rem; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+.qr-base-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem 1rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.qr-base-title { margin: 0; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.qr-base-list { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1.25rem; }
+.qr-base-item dt { font-size: 0.8rem; color: var(--ink-3); }
+.qr-base-item dd { margin: 0.1rem 0 0; font-size: 1.05rem; font-weight: 700; color: var(--navy-900); overflow-wrap: anywhere; }
+.qr-base-item.qr-tone-green dd { color: var(--green-text); }
+.qr-base-item.qr-tone-orange dd { color: var(--orange-text); }
+.qr-base-item.qr-tone-red dd { color: var(--red-text); }
 
 /* ------------------------------------------------------------- decisión */
 
@@ -95,6 +264,13 @@ th.ta-right .qr-th { align-items: flex-end; }
 .qr-discounts .status { white-space: nowrap; }
 .qr-discounts .qr-days-cell { white-space: normal; }
 .qr-discounts .qr-days-tags .badge { white-space: normal; line-height: 1.2; }
+
+/* Tabla que desborda: es una región enfocable (tabindex 0) para desplazarla con las flechas.
+   El anillo va POR FUERA del contenedor: por dentro lo tapaba la primera columna fija
+   (position: sticky, fondo blanco) en la matriz, los descuentos y el comparador. Los
+   desplegables y las tarjetas no recortan (sin overflow) y el contenedor queda a ≥ 1 rem
+   del borde del desplegable, así que el anillo se ve completo. */
+.qr .table-wrap:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 
 /* Sombras de desplazamiento (sólo CSS): avisan que la tabla sigue a los costados.
    position: relative contiene los textos .sr-only dentro del área desplazable. */
@@ -177,8 +353,8 @@ th.ta-right .qr-th { align-items: flex-end; }
 }
 .qr-range { width: 100%; margin: 0.15rem 0; accent-color: var(--blue-600); cursor: pointer; }
 .qr-range:disabled { cursor: not-allowed; opacity: 0.6; }
-.qr-range:focus-visible { outline: 3px solid var(--blue-400); outline-offset: 2px; }
-.qr-slider-scale { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--ink-3); }
+.qr-range:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.qr-slider-scale { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--ink-3); }
 .qr-slider-extra { font-weight: 650; color: var(--navy-800); }
 .qr-sens-result { min-width: 0; }
 .qr-sens-summary { margin: 0 0 0.5rem; font-weight: 600; color: var(--navy-900); }
@@ -222,37 +398,62 @@ th.ta-right .qr-th { align-items: flex-end; }
 
 /* --------------------------------------------------------------- acciones */
 
-.qr-actions { gap: 0.6rem; }
+.qr-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
 
 /* ------------------------------------------------------------ impresión */
 
 .qr-print-head { display: none; }
 
 /* -------------------------------------------------------------- responsive */
-/* Se adapta al ancho REAL disponible (la vista vive dentro del editor, junto al stepper). */
+/* Se adapta al ancho REAL disponible (la vista vive dentro del editor o de Escenarios). */
+
+@container qr (min-width: 340px) {
+  /* 2×2: los cuatro números entran en una pantalla de celular. */
+  .qr-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.1rem; }
+  .qr-stat:nth-child(2) { border-top: 0; padding-top: 0; }
+  .qr-stat .big-stat-number { font-size: clamp(1.15rem, 5.4cqi, 1.75rem); }
+}
 
 @container qr (min-width: 560px) {
   .qr-sliders { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qr-summary { padding: 1.75rem 1.75rem 1.5rem; }
+  .qr-deep-item > .disclosure-summary { padding: 1rem 1.35rem; }
+  .qr-deep-item > .disclosure-body { padding: 0.25rem 1.35rem 1.35rem; }
 }
 
 @container qr (min-width: 620px) {
   .qr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .qr-costbar { grid-template-columns: minmax(130px, 210px) minmax(0, 1fr) 4.75rem 7.25rem; grid-template-areas: "label track pct amount"; }
+  .qr-rules-item { grid-template-columns: minmax(170px, 250px) minmax(0, 1fr); }
+  .qr-base-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @container qr (min-width: 760px) {
   .qr-hero { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
   .qr-split { grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); }
+  .qr-work { grid-template-columns: minmax(0, 1fr) auto; }
+  .qr-work-question { grid-column: 1 / -1; }
+  .qr-trace-row { grid-template-columns: minmax(0, 1fr) minmax(150px, auto) auto; grid-template-areas: "title value btn"; }
+  .qr-trace-value { text-align: right; }
 }
 
 @container qr (min-width: 900px) {
   .qr-eecc { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
   .qr-eecc-bars { padding-top: 2.1rem; }
+  /* Una fila: costo · tarifa piso · tarifa sugerida · margen. */
+  .qr-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 0; }
+  .qr-stat, .qr-stat:nth-child(2) { border-top: 0; padding: 0 1.25rem; border-left: 1px solid var(--line-2); }
+  .qr-stat:first-child { border-left: 0; padding-left: 0; }
+  .qr-stat:last-child { padding-right: 0; }
+  .qr-stat .big-stat-number { font-size: clamp(1.4rem, 2.3cqi, 2.1rem); }
+  .qr-base-list { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
 @container qr (min-width: 1040px) {
   .qr-kpis { grid-template-columns: repeat(var(--qr-kpi-cols), minmax(0, 1fr)); }
   .qr-sens { grid-template-columns: minmax(240px, 330px) minmax(0, 1fr); }
   .qr-sliders { grid-template-columns: minmax(0, 1fr); }
+  .qr-summary { padding: 2rem 2.25rem 1.75rem; }
 }
 
 @container qr (min-width: 1150px) {
@@ -260,11 +461,44 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-kpis .kpi-value { font-size: 1.35rem; }
 }
 
+/* Celular: el nombre del rubro ocupa su columna (nunca se pisa con el %); % y monto a la derecha, uno arriba del otro. */
+@container qr (max-width: 460px) {
+  .qr-costbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label pct" "label amount" "track track"; row-gap: 0.1rem; }
+  .qr-costbar-amount { min-width: 0; }
+  .qr-costbar-track { margin-top: 0.2rem; }
+}
+
 @container qr (max-width: 520px) {
   .qr-hero, .qr-kpis { grid-template-columns: minmax(0, 1fr); }
   .qr-chart { padding-inline: 0.25rem; }
   .qr-check { flex-direction: column; align-items: flex-start; }
   .qr-eecc-bars .bar-row { grid-template-columns: 96px 1fr 58px; }
+  .qr-summary-title { font-size: var(--fs-xl); }
+  .qr-work-text { font-size: var(--fs-base); }
+  /* En pantallas angostas sólo la primera línea de cada pista (el resto está en "Ver cálculo" y en el detalle). */
+  .qr-stat .qr-stat-line + .qr-stat-line { display: none; }
+  .qr-alert { flex-wrap: wrap; }
+  /* El texto de la alerta usa todo el ancho y el enlace va abajo (nunca una palabra por línea). */
+  .qr-alert > div:not(.qr-alert-action) { flex: 1 1 100%; }
+  .qr-alert .qr-step-link { white-space: normal; }
+  .qr-actions { width: 100%; }
+  .qr-actions .btn { flex: 1 1 auto; }
+}
+
+/* Celular: el texto del resumen (y la ayuda de una línea de cada número, que es LA explicación)
+   no baja de 14 px; mismo piso que la base (hints y labels ≥ 0.875rem en ≤ 760 px). */
+@media (max-width: 760px) {
+  .qr-stat .big-stat-label, .qr-stat .big-stat-hint, .qr-work-question,
+  .qr-actions-note, .qr-costbar-amount { font-size: 0.875rem; }
+  .qr-costbar-parts { font-size: 0.8125rem; }
+}
+
+/* Objetivos táctiles ≥ 44 × 44 px en pantallas chicas o con dedo (WCAG 2.5.5): los íconos
+   "Ver cálculo" de la matriz y los descuentos, y los enlaces a un paso sueltos en una fila. */
+@media (max-width: 760px), (pointer: coarse) {
+  .qr-trace-icon { min-width: 44px; min-height: 44px; justify-content: center; padding: 0.5rem; }
+  .qr-check .qr-step-link, .qr-rules-edit .qr-step-link { display: inline-flex; align-items: center; min-height: 44px; }
+  .qr-days-line { gap: 0; }
 }
 
 @media print {
@@ -295,4 +529,25 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr .kpi-emphasis { border: 2px solid var(--navy-900); }
   .qr .kpi-emphasis .kpi-hint { color: var(--ink-2); }
   .table tr.qr-row-exceeds td { background: none; }
+  /* Resumen y desplegables: sin sombras; cada desplegable se imprime abierto como una sección. */
+  .qr-summary, .qr-costs, .qr-base { box-shadow: none; padding: 0.75rem 0.9rem; break-inside: avoid; }
+  .qr-summary { gap: 0.75rem; }
+  .qr-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 0; }
+  .qr-stat { border-top: 0; padding: 0 0.6rem; border-left: 1px solid var(--line); }
+  .qr-stat:first-child { border-left: 0; padding-left: 0; }
+  .qr-stat .big-stat-number { font-size: 1.2rem; }
+  .qr-work { background: var(--white); border: 1px solid var(--line); border-left-width: 4px; }
+  .qr-work-text { font-size: 0.95rem; }
+  .qr-deep-item { box-shadow: none; border: 0; border-top: 2px solid var(--navy-900); border-radius: 0; break-before: auto; }
+  .qr-deep-item > .disclosure-summary { padding: 0.5rem 0 0.25rem; }
+  .qr-deep-item > .disclosure-summary .disclosure-title { font-size: 1.05rem; color: var(--navy-900); }
+  .qr-deep-item > .disclosure-summary .disclosure-chevron { display: none; }
+  .qr-deep-item > .disclosure-body { padding: 0 0 0.5rem; }
+  .qr-costbar-track { border: 1px solid var(--line); }
+  .qr-section-head { margin-bottom: 0.4rem; }
+  .qr-trace-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title value"; }
+  /* Las secciones largas se pueden partir entre hojas; el título nunca queda solo al pie. */
+  .qr-deep-item > .disclosure-body > .card { break-inside: auto; }
+  .qr-deep-item > .disclosure-summary, .qr .card-header, .qr h4 { break-after: avoid; }
+  .qr button[data-what-if] { display: none !important; }
 }

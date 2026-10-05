@@ -1,33 +1,71 @@
 /**
- * Plantillas de servicio (biblioteca de servicios reutilizables).
+ * Servicios: plantillas de servicio reutilizables.
  *
  * Cada plantilla precarga tipo de servicio, actividad y (en algunos casos)
- * personal, equipos y materiales. Desde acá se crea una cotización a partir
+ * personal, equipos, materiales, otros costos y vehículos; las guardadas
+ * desde una cotización copian también sus condiciones (gastos de estructura,
+ * financiación, imprevistos, margen y precio). Desde acá se crea una cotización a partir
  * de una plantilla, se renombra o se elimina.
  */
 
 import { h, mount } from '../dom.js';
-import { badge, button, card, confirmDialog, emptyState, openDialog, textField } from '../components.js';
+import { badge, button, confirmDialog, emptyState, linkButton, openDialog, pageIntro, textField } from '../components.js';
 import { sanitizeText } from '../../core/validation.js';
-import { SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { isPlainObject } from '../../core/object.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 
 function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** Resumen legible del contenido precargado de una plantilla. */
+/**
+ * Condiciones que una plantilla puede traer (las guardadas desde una
+ * cotización traen todo), con el nombre del paso donde se editan.
+ */
+const TEMPLATE_CONDITIONS = Object.freeze([
+  { key: 'indirect', step: 'indirect' },
+  { key: 'finance', step: 'finance' },
+  { key: 'risk', step: 'risk' },
+  { key: 'pricing', step: 'margin' },
+  { key: 'rules', step: 'margin' },
+]);
+
+/**
+ * Resumen legible del contenido precargado de una plantilla: qué líneas trae
+ * ("Incluye 1 puesto · 2 equipos · 3 materiales · 2 vehículos"), qué
+ * condiciones copia (gastos de estructura, financiación, imprevistos, margen
+ * y precio) y la actividad sugerida. "Sólo tipo de servicio y actividad"
+ * únicamente si no trae nada de eso.
+ * @returns {{ resources: string, conditions: string|null, activity: string|null, hasContent: boolean }}
+ */
 export function templateContents(service) {
-  const d = (service && service.defaults) || {};
-  const parts = [];
-  const count = (k) => (Array.isArray(d[k]) ? d[k].length : 0);
-  if (count('labor')) parts.push(plural(count('labor'), 'puesto', 'puestos'));
-  if (count('equipment')) parts.push(plural(count('equipment'), 'equipo', 'equipos'));
-  if (count('materials')) parts.push(plural(count('materials'), 'material', 'materiales'));
-  const days = d.activity && Number.isFinite(d.activity.activeDaysPerMonth) ? d.activity.activeDaysPerMonth : null;
+  const d = service && isPlainObject(service.defaults) ? service.defaults : {};
+  const len = (v) => (Array.isArray(v) ? v.filter(isPlainObject).length : 0);
+  const lines = [
+    [len(d.labor), 'puesto', 'puestos'],
+    [len(d.equipment), 'equipo', 'equipos'],
+    [len(d.materials), 'material', 'materiales'],
+    [len(d.otherCosts), 'otro costo', 'otros costos'],
+    [len(isPlainObject(d.logistics) ? d.logistics.vehicles : null), 'vehículo', 'vehículos'],
+  ]
+    .filter(([n]) => n > 0)
+    .map(([n, one, many]) => plural(n, one, many));
+  const steps = [...new Set(TEMPLATE_CONDITIONS.filter((c) => isPlainObject(d[c.key])).map((c) => labelOf(QUOTE_STEPS, c.step).toLowerCase()))];
+  const days = isPlainObject(d.activity) && Number.isFinite(d.activity.activeDaysPerMonth) ? d.activity.activeDaysPerMonth : null;
+  let resources = 'Sólo tipo de servicio y actividad';
+  let conditions = null;
+  if (lines.length) {
+    resources = `Incluye ${lines.join(' · ')}`;
+    if (steps.length) conditions = `También trae: ${steps.join(' · ')}`;
+  } else if (steps.length) {
+    resources = `Incluye ${steps.join(' · ')}`;
+  }
   return {
-    resources: parts.length ? `Incluye ${parts.join(' · ')}` : 'Sin recursos precargados.',
+    resources,
+    conditions,
     activity: days !== null ? `Actividad sugerida: ${plural(days, 'día activo', 'días activos')} por mes` : null,
+    hasContent: lines.length > 0 || steps.length > 0,
   };
 }
 
@@ -44,18 +82,14 @@ export function serviceTemplateCard(service, actions = []) {
       h('div', { class: 'row template-card-tags' }, badge(labelOf(SERVICE_TYPES, service.serviceType, 'Servicio configurable'), 'navy'), service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null),
     ),
     service.description ? h('p', { class: 'template-card-desc' }, service.description) : null,
-    h('ul', { class: 'template-card-meta' }, h('li', {}, contents.resources), contents.activity ? h('li', {}, contents.activity) : null),
+    h('ul', { class: 'template-card-meta' }, h('li', {}, contents.resources), contents.conditions ? h('li', {}, contents.conditions) : null, contents.activity ? h('li', {}, contents.activity) : null),
     actions.length ? h('div', { class: 'template-card-actions' }, ...actions) : null,
   );
 }
 
 export async function render(root, app) {
   const { ctx } = app;
-  app.setHeader({
-    title: 'Plantillas de servicio',
-    breadcrumbs: [{ label: 'Inicio', href: '#/' }],
-    actions: [button('Nueva cotización', { variant: 'primary', icon: 'plus', onClick: () => app.navigate('#/cotizaciones/nueva') })],
-  });
+  app.setHeader({ title: 'Servicios', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }] });
 
   const host = h('div', { class: 'stack' });
   let busy = false;
@@ -134,13 +168,13 @@ export async function render(root, app) {
     if (!services.length) {
       mount(
         host,
-        card(
-          {},
-          emptyState(
-            'No hay plantillas de servicio. Podés empezar una cotización en blanco o restaurar los datos demo desde Configuración.',
-            h('div', { class: 'row' }, button('Nueva cotización', { variant: 'primary', icon: 'plus', onClick: () => app.navigate('#/cotizaciones/nueva') }), button('Ir a Configuración', { variant: 'secondary', onClick: () => app.navigate('#/configuracion') })),
-          ),
-        ),
+        emptyState({
+          icon: 'services',
+          title: 'Todavía no tenés plantillas de servicio.',
+          text: 'Una plantilla guarda un servicio que cotizás seguido (tipo de servicio, actividad típica, personal y equipos) para empezar más rápido. Se crea desde el resultado de una cotización con "Guardar como plantilla".',
+          action: linkButton('Crear una cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus' }),
+          secondary: linkButton('Restaurar los datos de ejemplo', '#/configuracion/datos', { variant: 'secondary' }),
+        }),
       );
       return;
     }
@@ -150,12 +184,17 @@ export async function render(root, app) {
         'div',
         { class: 'template-grid' },
         ...services.map((service) => {
-          const createBtn = button('Crear cotización', { variant: 'primary', icon: 'plus', size: 'sm' });
+          // El nombre accesible empieza con el texto visible (WCAG 2.5.3).
+          const createBtn = button('Crear cotización', { variant: 'secondary', icon: 'plus', size: 'sm', attrs: { 'aria-label': `Crear cotización: ${service.name || 'plantilla sin nombre'}` } });
           createBtn.addEventListener('click', () => createFrom(service, createBtn));
           return serviceTemplateCard(service, [
             createBtn,
-            button('Renombrar', { variant: 'ghost', icon: 'edit', size: 'sm', onClick: () => rename(service), attrs: { 'aria-label': `Renombrar ${service.name}` } }),
-            button('', { variant: 'danger', icon: 'trash', size: 'sm', title: 'Eliminar plantilla', onClick: () => remove(service), attrs: { 'aria-label': `Eliminar ${service.name}` } }),
+            h(
+              'span',
+              { class: 'template-card-tools' },
+              button('', { variant: 'ghost', icon: 'edit', size: 'sm', title: 'Renombrar plantilla', onClick: () => rename(service), attrs: { 'aria-label': `Renombrar ${service.name}`, class: 'btn btn-ghost btn-sm btn-icon' } }),
+              button('', { variant: 'ghost', icon: 'trash', size: 'sm', title: 'Eliminar plantilla', onClick: () => remove(service), attrs: { 'aria-label': `Eliminar ${service.name}`, class: 'btn btn-ghost btn-sm btn-icon btn-ghost-danger' } }),
+            ),
           ]);
         }),
       ),
@@ -164,11 +203,10 @@ export async function render(root, app) {
 
   mount(
     root,
-    h(
-      'p',
-      { class: 'page-intro' },
-      'Servicios que cotizás seguido. Cada plantilla precarga el tipo de servicio, la actividad típica y, en algunos casos, el personal, los equipos y los materiales. Al crear una cotización se copian los valores: después podés cambiar todo.',
-    ),
+    pageIntro({
+      title: 'Tus servicios',
+      text: 'Los servicios que cotizás seguido, listos para reutilizar. Al crear una cotización desde una plantilla se copian sus valores: después podés cambiar todo.',
+    }),
     host,
   );
   await load();

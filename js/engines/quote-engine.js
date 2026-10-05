@@ -11,7 +11,7 @@
  */
 
 import { DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
-import { nonNegative, toNumber, safeDivide, isFiniteNumber } from '../core/money.js';
+import { nonNegative, safeDivide, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
 import { formatPercent } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
@@ -20,13 +20,14 @@ import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecompositio
 import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies } from './commercial-rules-engine.js';
-import { isValidMarginPct, commercialRound, marginToMarkup } from './pricing-engine.js';
+import { isValidMarginPct, isValidMarginAndTaxes, commercialRound, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
 import { evaluateCompleteness, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
+import { traceBillingTaxes } from './billing-taxes-engine.js';
 
+/** Margen leído como lo valida validateQuote (texto es-AR incluido); `fallback` si está vacío o es inválido. */
 function readMargin(value, fallback) {
-  if (value === null || value === undefined || value === '') return fallback;
-  const n = toNumber(value, NaN);
-  return isValidMarginPct(n) ? n : fallback;
+  const r = readMarginInput(value);
+  return r.state === 'ok' ? r.value : fallback;
 }
 
 function unique(values) {
@@ -54,6 +55,29 @@ export function minActiveDaysForBillableDays(ctx, billableDays) {
   return perActivation > 0 ? (bd * dpa) / perActivation : bd;
 }
 
+/**
+ * Abono mensual (unidad mes): la facturación es fija y cada día activo suma
+ * costo variable, así que en vez de días MÍNIMOS hay días MÁXIMOS sin perder
+ * (o conservando un margen sobre la facturación). Mismo buscador del
+ * break-even sobre el resultado invertido; el resultado ya descuenta los
+ * impuestos sobre la facturación.
+ * @returns {null | { status: 'until'|'all'|'none', days: number|null, wholeDays: number|null, available: number, marginPct: number, listRate: number }}
+ */
+export function monthlyFeeCap(ctx, listRate, marginPct = 0) {
+  if (!ctx || ctx.unit !== 'month' || !(isFiniteNumber(listRate) && listRate > 0)) return null;
+  const available = ctx.activity ? ctx.activity.availableDaysPerMonth : null;
+  if (!(isFiniteNumber(available) && available > 0)) return null;
+  const m = isValidMarginPct(marginPct) && marginPct > 0 ? marginPct : 0;
+  const gap = (d) => {
+    const e = evaluateAt(ctx, d, listRate);
+    return e.profit - (m / 100) * e.revenue.total;
+  };
+  const res = findBreakEvenDays((d) => -gap(d), { maxDays: available });
+  if (!res.reachable) return { status: 'all', days: null, wholeDays: null, available, marginPct: m, listRate };
+  if (!(res.days > 1e-9)) return { status: 'none', days: 0, wholeDays: 0, available, marginPct: m, listRate };
+  return { status: 'until', days: res.days, wholeDays: Math.floor(res.days + 1e-7), available, marginPct: m, listRate };
+}
+
 /** Evalúa cada tramo de descuento por cantidad de días (peor caso del tramo). */
 export function evaluateDiscountTiers(ctx, listRate, targetMarginPct) {
   if (ctx.unit === 'month' || !isFiniteNumber(listRate)) return [];
@@ -62,7 +86,7 @@ export function evaluateDiscountTiers(ctx, listRate, targetMarginPct) {
     // Peor caso: la menor actividad que ya cae en el tramo (con minimum call,
     // menos días activos que los días facturables del tramo).
     const days = Math.max(minActiveDaysForBillableDays(ctx, Math.max(tier.fromDays, 1)), 1e-6);
-    const rates = requiredRatesAt(ctx, days, [targetMarginPct], { tierOverride: tier });
+    const rates = requiredRatesAt(ctx, days, isFiniteNumber(targetMarginPct) ? [targetMarginPct] : [], { tierOverride: tier });
     const evaluation = evaluateAt(ctx, days, listRate, { tierOverride: tier });
     const netRate = listRate * rates.discountFactor;
     const target = rates.byMargin[0];
@@ -98,16 +122,23 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const D = activity.activeDaysPerMonth;
   const pricing = quote.pricing || {};
 
+  // Impuestos sobre la facturación (t, en puntos): gross-up junto con el margen.
+  const t = ctx.billingTaxPct;
+  // Margen objetivo: vacío → 0 % (la completitud lo marca). Inválido (≥ 100,
+  // negativo, texto) o margen + impuestos ≥ 100 → NO hay tarifa sugerida
+  // (antes se usaba 0 % en silencio y la "sugerida" quedaba igual a la piso).
+  const marginStatus = readMarginInput(pricing.targetMarginPct).state;
   const targetMarginPct = readMargin(pricing.targetMarginPct, 0);
+  const targetMarginInvalid = marginStatus === 'invalid' || !isValidMarginAndTaxes(targetMarginPct, t);
   const customMarginRaw = readMargin(pricing.customMarginPct, null);
-  const customMarginPct = customMarginRaw !== null && customMarginRaw > 0 ? customMarginRaw : null;
+  const customMarginPct = customMarginRaw !== null && customMarginRaw > 0 && isValidMarginAndTaxes(customMarginRaw, t) ? customMarginRaw : null;
   const ladder = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [...DEFAULT_MARGIN_LADDER];
-  const margins = unique([...ladder, targetMarginPct, ...(customMarginPct !== null ? [customMarginPct] : [])].filter((m) => isValidMarginPct(m)));
+  const margins = unique([...ladder, ...(targetMarginInvalid ? [] : [targetMarginPct]), ...(customMarginPct !== null ? [customMarginPct] : [])].filter((m) => isValidMarginAndTaxes(m, t)));
 
   // Tarifas necesarias con la actividad estimada
   const ratesAtEstimate = requiredRatesAt(ctx, D, margins);
-  const byMargin = (m) => ratesAtEstimate.byMargin.find((r) => r.marginPct === m) || { netRate: null, listRate: null };
-  const targetRates = byMargin(targetMarginPct);
+  const byMargin = (m) => ratesAtEstimate.byMargin.find((r) => r.marginPct === m) || { netRate: null, listRate: null, requiredRevenue: null };
+  const targetRates = targetMarginInvalid ? { netRate: null, listRate: null, requiredRevenue: null } : byMargin(targetMarginPct);
   const roundingStep = nonNegative(pricing.roundingStep);
   const suggestedListRate = commercialRound(targetRates.listRate, roundingStep);
 
@@ -145,28 +176,34 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     targetMarginDays = { reachable: false, days: null, wholeDays: null, reason };
   } else {
     breakEven = findBreakEvenDays((d) => evaluateAt(ctx, d, commercialListRate).profit, { maxDays });
-    targetMarginDays = findBreakEvenDays((d) => {
-      const e = evaluateAt(ctx, d, commercialListRate);
-      return e.profit - (targetMarginPct / 100) * e.revenue.total;
-    }, { maxDays });
+    targetMarginDays = targetMarginInvalid
+      ? { reachable: false, days: null, wholeDays: null, reason: 'El margen objetivo no es válido (o margen + impuestos sobre la facturación llega a 100 %).' }
+      : findBreakEvenDays((d) => {
+        const e = evaluateAt(ctx, d, commercialListRate);
+        return e.profit - (targetMarginPct / 100) * e.revenue.total;
+      }, { maxDays });
   }
   // La traza del break-even se arma en el punto de equilibrio (allí rige el
   // tramo de descuento que realmente aplica); si no se alcanza, con la
   // actividad estimada.
   const linearReferenceDays = breakEven.reachable && breakEven.days > 0 ? Math.max(breakEven.days, 1) : D > 0 ? D : 1;
   const linear = linearDecomposition(ctx, hasRate ? commercialListRate : 0, linearReferenceDays);
+  // Igual para los días del margen objetivo: en SU punto (puede caer en otro tramo).
+  const linearTarget = targetMarginDays.reachable && targetMarginDays.days > 0
+    ? linearDecomposition(ctx, hasRate ? commercialListRate : 0, Math.max(targetMarginDays.days, 1))
+    : linear;
 
   // Estructura de costos, matriz, descuentos, completitud
   const eecc = costStructure(model, D);
   // La matriz siempre incluye el margen objetivo (aunque no esté en la escalera).
-  const matrixMargins = unique([...ladder, targetMarginPct, ...(customMarginPct !== null ? [customMarginPct] : [])].filter((m) => isValidMarginPct(m) && m > 0));
+  const matrixMargins = unique([...ladder, ...(targetMarginInvalid ? [] : [targetMarginPct]), ...(customMarginPct !== null ? [customMarginPct] : [])].filter((m) => isValidMarginAndTaxes(m, t) && m > 0));
   const matrix = buildRateUtilizationMatrix(ctx, {
     days: matrixDays(Array.isArray(settings.matrixDays) && settings.matrixDays.length ? settings.matrixDays : [...DEFAULT_MATRIX_DAYS], D),
     marginsPct: matrixMargins,
     commercialListRate: hasRate ? commercialListRate : null,
     estimatedDays: D,
   });
-  const discounts = evaluateDiscountTiers(ctx, hasRate ? commercialListRate : null, targetMarginPct);
+  const discounts = evaluateDiscountTiers(ctx, hasRate ? commercialListRate : null, targetMarginInvalid ? null : targetMarginPct);
   const completeness = evaluateCompleteness(quote);
 
   // Continuidad: efecto del descuento por permanencia con la actividad estimada
@@ -202,7 +239,16 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     costPerActiveDay: costAt.perActiveDay,
     floorNetRate: ratesAtEstimate.floorNetRate,
     floorListRate: ratesAtEstimate.floorListRate,
-    targetMarginPct,
+    targetMarginPct: targetMarginInvalid ? null : targetMarginPct,
+    targetMarginInvalid,
+    // Markup (recargo sobre el costo, AGENTS.md §9) que implica el margen objetivo: (m + t) / (1 − m − t).
+    targetMarkupPct: targetMarginInvalid ? null : markupWithTaxesPct(targetMarginPct, t),
+    // Ganancia sobre el costo que implica el margen objetivo: m / (1 − m − t).
+    targetProfitOnCostPct: targetMarginInvalid ? null : profitOnCostPct(targetMarginPct, t),
+    billingTaxPct: t,
+    billingTaxesDefined: ctx.billingTaxInfo.defined,
+    billingTaxesInvalid: ctx.billingTaxInfo.invalid,
+    billingTaxes: estimate.billingTaxes,
     targetNetRate: targetRates.netRate,
     targetListRate: targetRates.listRate,
     suggestedListRate,
@@ -214,6 +260,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     // Sin tarifa comercial no hay margen de la cotización (sólo otros ingresos).
     marginPct: hasRate ? estimate.marginPct : null,
     markupPct: hasRate ? estimate.markupPct : null,
+    profitOnCostPct: hasRate ? estimate.profitOnCostPct : null,
     breakEvenDays: breakEven.days,
     breakEvenWholeDays: breakEven.wholeDays,
     targetMarginDays: targetMarginDays.days,
@@ -229,13 +276,17 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     // "Bajo piso" = la tarifa no cubre el costo Y el mes da pérdida (si un
     // mínimo garantizado cubre la diferencia, no se pierde dinero).
     belowFloor: hasRate && isFiniteNumber(ratesAtEstimate.floorNetRate) ? commercialNetRate < ratesAtEstimate.floorNetRate - 1e-6 && estimate.profit < 0 : false,
-    belowTarget: hasRate && isFiniteNumber(estimate.marginPct) ? estimate.marginPct < targetMarginPct - 1e-9 : false,
+    belowTarget: hasRate && !targetMarginInvalid && isFiniteNumber(estimate.marginPct) ? estimate.marginPct < targetMarginPct - 1e-9 : false,
     incomplete: completeness.scorePct < COMPLETENESS_RISK_THRESHOLD,
-    // Riesgo: sin tarifa, pierde dinero, no llega al margen objetivo o le faltan costos relevantes.
+    // Precio / costo (κ): cuántas veces el costo es la facturación del mes.
+    priceToCostMultiplier: costAt.total > 0 && estimate.revenue.total > 0 ? estimate.revenue.total / costAt.total : null,
+    // Riesgo: sin tarifa, pierde plata, no llega al margen objetivo, margen
+    // inválido o le faltan costos relevantes.
     atRisk:
       !hasRate ||
+      targetMarginInvalid ||
       estimate.profit < 0 ||
-      (isFiniteNumber(estimate.marginPct) && estimate.marginPct < targetMarginPct - 1e-9) ||
+      (!targetMarginInvalid && isFiniteNumber(estimate.marginPct) && estimate.marginPct < targetMarginPct - 1e-9) ||
       completeness.scorePct < COMPLETENESS_RISK_THRESHOLD,
   };
 
@@ -261,47 +312,92 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       result: breakEven,
       unitLabel,
       nonLinear: linear.hasNonLinearRules,
+      billingTaxPct: t,
+    }),
+    // Días para el margen objetivo (antes se armaba en la interfaz): con la
+    // descomposición lineal, R(D)·(1 − t − m) − C(D) ≥ 0.
+    targetMarginDays: createTrace({
+      id: 'target_margin_days',
+      title: targetMarginInvalid ? 'Días para lograr el margen objetivo (margen inválido)' : `Días para lograr el margen objetivo (${formatPercent(targetMarginPct)})`,
+      formula: t > 0
+        ? 'Días = (Costos fijos − Ingresos fijos × (1 − impuestos − margen)) / (Ingreso por día × (1 − impuestos − margen) − Costo variable por día)'
+        : 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
+      inputs: [
+        { label: 'Costos fijos mensuales', value: linearTarget.fixedCosts, format: 'money' },
+        { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera)', value: linearTarget.fixedRevenue, format: 'money' },
+        { label: 'Ingreso por día activo', value: linearTarget.revenuePerActiveDay, format: 'money' },
+        { label: 'Costo variable por día activo', value: linearTarget.variableCostPerDay, format: 'money' },
+        ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
+        { label: 'Margen objetivo', value: targetMarginInvalid ? null : targetMarginPct, format: 'percent' },
+      ],
+      steps: [{
+        label: t > 0 ? 'Ingreso por día después de impuestos y de reservar el margen − costo variable' : 'Ingreso por día después de reservar el margen − costo variable',
+        value: !targetMarginInvalid && hasRate && isFiniteNumber(linearTarget.revenuePerActiveDay) ? linearTarget.revenuePerActiveDay * (1 - (t + targetMarginPct) / 100) - linearTarget.variableCostPerDay : null,
+        format: 'money',
+      }],
+      result: { label: 'Días activos para lograr el margen', value: targetMarginDays.reachable ? targetMarginDays.days : null, format: 'days' },
+      notes: [
+        !targetMarginDays.reachable ? targetMarginDays.reason : null,
+        linearTarget.hasNonLinearRules ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o tramos de descuento): el resultado se calcula día a día.' : null,
+      ],
     }),
     floorRate: createTrace({
       id: 'floor_rate',
       title: `Tarifa piso (por ${unitLabel})`,
-      formula: 'Tarifa piso neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos',
+      formula: t > 0
+        ? 'Facturación necesaria = Costo total / (1 − impuestos sobre la facturación) · Tarifa piso neta = (Facturación necesaria − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos'
+        : 'Tarifa piso neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos',
       inputs: [
         { label: 'Costo total del mes', value: ratesAtEstimate.totalCost, format: 'money' },
-        { label: 'Otros ingresos (fees, standby, km)', value: ratesAtEstimate.otherRevenue, format: 'money' },
+        ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
+        { label: 'Otros ingresos (abono de disponibilidad, equipo en espera, km)', value: ratesAtEstimate.otherRevenue, format: 'money' },
         { label: `Unidades facturables (${unitLabel}s)`, value: ratesAtEstimate.billableUnits, format: 'number' },
         { label: 'Factor de descuentos (tramo × continuidad × comercial)', value: ratesAtEstimate.discountFactor, format: 'number' },
       ],
-      steps: [{ label: 'Tarifa piso neta (lo que efectivamente cobrás por unidad)', value: ratesAtEstimate.floorNetRate, format: 'moneyCeil' }],
+      steps: [
+        ...(t > 0 ? [{ label: 'Facturación necesaria (cubre costo e impuestos sobre la facturación)', value: ratesAtEstimate.floorRequiredRevenue, format: 'money' }] : []),
+        { label: 'Tarifa piso neta (lo que efectivamente cobrás por unidad)', value: ratesAtEstimate.floorNetRate, format: 'moneyCeil' },
+      ],
       result: { label: 'Tarifa piso de lista (la que escribís en la cotización)', value: ratesAtEstimate.floorListRate, format: 'moneyCeil' },
       notes: [
         D <= 0 ? 'Sin días activos no hay tarifa por día posible: cargá la actividad estimada.' : null,
         ratesAtEstimate.floorCoveredByOtherRevenue ? 'Los otros ingresos ya cubren el costo.' : null,
+        !ctx.billingTaxInfo.defined && !ctx.billingTaxInfo.notApplicable && !ctx.billingTaxInfo.invalid ? 'No incluye impuestos sobre lo que facturás (sin definir): cargalos en "El precio".' : null,
+        ctx.billingTaxInfo.invalid ? 'No incluye impuestos sobre lo que facturás: hay un porcentaje inválido. Corregilo en "El precio".' : null,
       ],
     }),
     targetRate: createTrace({
       id: 'target_rate',
-      title: `Precio objetivo (margen ${targetMarginPct} %)`,
-      formula: 'Tarifa objetivo = (Costo total / (1 − margen) − Otros ingresos) / Unidades facturables · Tarifa de lista = neta / factor de descuentos',
+      title: targetMarginInvalid ? 'Precio objetivo (margen inválido)' : `Precio objetivo (margen ${targetMarginPct} %)`,
+      formula: t > 0
+        ? 'Tarifa objetivo = (Costo total / (1 − margen − impuestos sobre la facturación) − Otros ingresos) / Unidades facturables · Tarifa de lista = neta / factor de descuentos'
+        : 'Tarifa objetivo = (Costo total / (1 − margen) − Otros ingresos) / Unidades facturables · Tarifa de lista = neta / factor de descuentos',
       inputs: [
         { label: 'Costo total del mes', value: ratesAtEstimate.totalCost, format: 'money' },
-        { label: 'Margen objetivo (sobre precio)', value: targetMarginPct, format: 'percent' },
+        { label: 'Margen objetivo (sobre precio, antes del impuesto a las Ganancias)', value: targetMarginInvalid ? null : targetMarginPct, format: 'percent' },
+        ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
         { label: 'Otros ingresos', value: ratesAtEstimate.otherRevenue, format: 'money' },
         { label: 'Unidades facturables', value: ratesAtEstimate.billableUnits, format: 'number' },
         { label: 'Factor de descuentos (tramo × continuidad × comercial)', value: ratesAtEstimate.discountFactor, format: 'number' },
       ],
       steps: [
-        { label: 'Facturación necesaria', value: isValidMarginPct(targetMarginPct) ? ratesAtEstimate.totalCost / (1 - targetMarginPct / 100) : null, format: 'money' },
+        { label: 'Facturación necesaria', value: targetRates.requiredRevenue, format: 'money' },
         { label: 'Tarifa objetivo neta', value: targetRates.netRate, format: 'moneyCeil' },
-        { label: 'Markup equivalente', value: marginToMarkup(targetMarginPct), format: 'percent' },
+        { label: 'Markup equivalente (recargo sobre el costo: precio = costo × (1 + markup))', value: targetMarginInvalid ? null : markupWithTaxesPct(targetMarginPct, t), format: 'percent' },
+        ...(t > 0 ? [{ label: 'Ganancia sobre el costo (resultado / costo)', value: targetMarginInvalid ? null : profitOnCostPct(targetMarginPct, t), format: 'percent' }] : []),
       ],
       result: { label: 'Precio objetivo de lista', value: targetRates.listRate, format: 'moneyCeil' },
-      notes: [roundingStep > 0 ? `Tarifa comercial sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null],
+      notes: [
+        roundingStep > 0 ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null,
+        targetMarginInvalid ? 'El margen objetivo tiene que ser mayor o igual a 0 y, sumado a los impuestos sobre la facturación, menor a 100 %.' : null,
+      ],
     }),
     expectedResult: createTrace({
       id: 'expected_result',
       title: 'Resultado esperado del mes',
-      formula: 'Resultado = Facturación − Costo total · Margen = Resultado / Facturación',
+      formula: t > 0
+        ? 'Resultado = Facturación − Impuestos sobre la facturación − Costo total · Margen = Resultado / Facturación'
+        : 'Resultado = Facturación − Costo total · Margen = Resultado / Facturación',
       inputs: [
         { label: 'Tarifa de lista', value: hasRate ? commercialListRate : null, format: 'money' },
         { label: 'Tarifa neta (después de descuentos)', value: hasRate ? commercialNetRate : null, format: 'money' },
@@ -310,11 +406,21 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         { label: 'Otros ingresos', value: estimate.revenue.otherRevenue, format: 'money' },
         { label: 'Ajuste por mínimo garantizado', value: estimate.revenue.guaranteeTopUp, format: 'money' },
         { label: 'Costo total', value: costAt.total, format: 'money' },
+        ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
       ],
-      steps: [{ label: 'Facturación total', value: estimate.revenue.total, format: 'money' }],
+      steps: [
+        { label: 'Facturación total', value: estimate.revenue.total, format: 'money' },
+        ...(t > 0 ? [{ label: 'Impuestos sobre la facturación del mes', value: estimate.billingTaxes, format: 'money' }] : []),
+      ],
       result: { label: 'Resultado', value: estimate.profit, format: 'money' },
-      notes: [hasRate && isFiniteNumber(estimate.marginPct) ? `Margen sobre precio: ${formatPercent(estimate.marginPct)}. Markup sobre costo: ${formatPercent(estimate.markupPct)}.` : null],
+      notes: [
+        hasRate && isFiniteNumber(estimate.marginPct)
+          ? `Margen sobre precio (antes del impuesto a las Ganancias): ${formatPercent(estimate.marginPct)}. Markup sobre costo: ${formatPercent(estimate.markupPct)}.${t > 0 ? ` Ganancia sobre el costo: ${formatPercent(estimate.profitOnCostPct)} (el resto del recargo son los impuestos sobre la facturación).` : ''}`
+          : null,
+        'Todos los montos son sin IVA.',
+      ],
     }),
+    billingTaxes: traceBillingTaxes(ctx.billingTaxInfo, estimate.revenue.total),
     financialCost: createTrace({
       id: 'financial_cost',
       title: 'Costo financiero',
@@ -364,7 +470,10 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     ctx,
     estimate,
     ratesAtEstimate,
-    targetMarginPct,
+    targetMarginPct: targetMarginInvalid ? null : targetMarginPct,
+    targetMarginInvalid,
+    billingTaxPct: t,
+    billingTaxInfo: ctx.billingTaxInfo,
     customMarginPct,
     breakEven,
     targetMarginDays,

@@ -1,0 +1,14 @@
+{
+  "id": "markup-con-impuestos",
+  "title": "Markup (recargo sobre el costo) con margen 10 % e impuestos 10 %: 25 %",
+  "rule": "El markup sigue siendo precio = costo × (1 + markup) (AGENTS.md §9). Con impuestos sobre la facturación el recargo incluye la ganancia y los impuestos: markup = (m + t) / (1 − m − t) = 20 / 80 = 25 % → costo 100 × 1,25 = 125 (el precio del gross-up). Sin impuestos sería 11,11 %. Margen ≠ markup. Valores sintéticos ILUSTRATIVOS.",
+  "engine": "pricing.markupWithTaxesPct",
+  "inputs": {
+    "marginPct": 10,
+    "billingTaxPct": 10
+  },
+  "expected": {
+    "value": 25
+  },
+  "tolerance": 1e-09
+}

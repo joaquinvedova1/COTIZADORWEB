@@ -6,7 +6,8 @@
 import { createId } from '../core/ids.js';
 import { deepClone, isPlainObject } from '../core/object.js';
 import { LOCALE, CURRENCY, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
-import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS } from './catalogs.js';
+import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT } from './catalogs.js';
+import { emptyBillingTaxes, copyBillingTaxes, billingTaxesDecided } from './billing-taxes.js';
 
 /** Configuración por defecto de la organización (valores ILUSTRATIVOS). */
 export function defaultSettings(organizationId = null) {
@@ -22,8 +23,22 @@ export function defaultSettings(organizationId = null) {
     roundingStep: 1000,
     matrixDays: [...DEFAULT_MATRIX_DAYS],
     marginLadder: [...DEFAULT_MARGIN_LADDER],
+    // Impuestos sobre la facturación de la empresa: sin definir (RATEOS no
+    // trae alícuotas). Cuando la empresa los guarda, cada cotización nueva
+    // arranca con ellos.
+    defaultBillingTaxes: null,
     illustrative: true,
   };
+}
+
+/**
+ * Impuestos sobre la facturación para una cotización nueva: los de la
+ * empresa si ya los decidió (no dependen de que la configuración sea de
+ * demostración: son un dato propio que cargó el usuario), si no, sin definir.
+ */
+export function billingTaxesForNewQuote(settings = {}) {
+  const own = isPlainObject(settings) ? settings.defaultBillingTaxes : null;
+  return billingTaxesDecided(own) ? copyBillingTaxes(own) : emptyBillingTaxes();
 }
 
 export function defaultRiskItems() {
@@ -43,7 +58,7 @@ export function defaultVolumeTiers() {
  * Completeness Score pida confirmarlos. La actividad estimada siempre queda
  * vacía: es un dato de cada cotización.
  */
-export function createEmptyQuote({ organizationId, settings = defaultSettings(), now = new Date().toISOString(), id = createId(), code = '' } = {}) {
+export function createEmptyQuote({ organizationId, settings = defaultSettings(), now = new Date().toISOString(), id = createId(), code = '', baseName = '' } = {}) {
   const ownSettings = settings.illustrative !== true;
   return {
     id,
@@ -79,7 +94,9 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     fuel: { pricePerLiter: settings.fuelPricePerLiter ?? 0, providedBy: 'contractor', illustrative: !ownSettings },
     logistics: {
       notApplicable: false,
-      baseName: '',
+      // Origen de los viajes: la base operativa de la empresa (sólo texto;
+      // la distancia la carga el usuario).
+      baseName: typeof baseName === 'string' ? baseName.trim().slice(0, 120) : '',
       destinationName: '',
       distanceKm: 0,
       roundTrip: true,
@@ -108,6 +125,11 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
       commercialDiscountPct: 0,
       roundingStep: settings.roundingStep ?? 0,
     },
+    // Impuestos sobre lo que se factura (Ingresos Brutos, débitos y créditos,
+    // sellos…): gross-up junto con el margen. Ver js/domain/billing-taxes.js.
+    billingTaxes: billingTaxesForNewQuote(settings),
+    // Convención de montos de la cotización: sin IVA (explícita, no supuesta).
+    vatTreatment: DEFAULT_VAT_TREATMENT,
     rules: {
       availabilityFeeMonthly: 0,
       calloutFeePerActivation: 0,
@@ -209,8 +231,8 @@ export function createOtherCost({ id = createId(), description = 'Otro costo', c
  * Crea una cotización desde una plantilla de servicio (biblioteca).
  * La plantilla aporta valores parciales que pisan los de una cotización vacía.
  */
-export function createQuoteFromTemplate(template, { organizationId, settings, now, id = createId(), code = '' } = {}) {
-  const base = createEmptyQuote({ organizationId, settings, now, id, code });
+export function createQuoteFromTemplate(template, { organizationId, settings, now, id = createId(), code = '', baseName = '' } = {}) {
+  const base = createEmptyQuote({ organizationId, settings, now, id, code, baseName });
   if (!template) return base;
   const defaults = deepClone(template.defaults || {});
   const merged = {
@@ -223,6 +245,8 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
     finance: { ...base.finance, ...(defaults.finance || {}), payDays: { ...base.finance.payDays, ...((defaults.finance || {}).payDays || {}) } },
     risk: { ...base.risk, ...(defaults.risk || {}) },
     pricing: { ...base.pricing, ...(defaults.pricing || {}) },
+    // La plantilla sólo pisa los impuestos de la empresa si trae una decisión propia.
+    billingTaxes: billingTaxesDecided(defaults.billingTaxes) ? copyBillingTaxes(defaults.billingTaxes) : base.billingTaxes,
     rules: { ...base.rules, ...(defaults.rules || {}) },
     id: base.id,
     organizationId: base.organizationId,

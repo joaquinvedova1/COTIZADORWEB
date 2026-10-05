@@ -28,3 +28,11 @@ Thumbs.db
 .vscode/
 *.log
 npm-debug.log*
+
+# Planillas de referencia de clientes / empresas: CONFIDENCIALES, nunca se
+# versionan (el repo es público). Ejemplos sólo con datos ILUSTRATIVOS en JSON.
+*.xls
+*.xlsx
+*.xlsm
+*.xlsb
+*.ods

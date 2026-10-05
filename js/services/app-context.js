@@ -9,6 +9,7 @@ import { createQuoteService } from './quote-service.js';
 import { createResourceService } from './resource-service.js';
 import { createBackupService } from './backup-service.js';
 import { createSettingsService } from './settings-service.js';
+import { createAuthService } from './auth-service.js';
 import { logger } from '../core/logger.js';
 import { STORAGE_KEYS } from '../config.js';
 import { track } from '../core/events.js';
@@ -27,6 +28,7 @@ export async function createAppContext(options = {}) {
     resources: createResourceService({ repository }),
     backup: createBackupService({ repository }),
     settings: createSettingsService({ repository }),
+    auth: createAuthService(),
     logger,
     track,
     /**

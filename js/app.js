@@ -18,7 +18,7 @@ import { createAppContext } from './services/app-context.js';
 import { loadVersionInfo } from './services/settings-service.js';
 import { createRecoveryService } from './services/recovery-service.js';
 import { h, mount, downloadText } from './ui/dom.js';
-import { banner, button, card, illustrativeBanner, toast } from './ui/components.js';
+import { banner, button, card, ensureToastRegion, toast } from './ui/components.js';
 import { createLayout } from './ui/layout.js';
 import { createRouter } from './ui/router.js';
 
@@ -117,7 +117,7 @@ function renderStartupError(root, error, version) {
           { class: 'fatal-steps' },
           h('li', {}, 'Descargá los datos guardados (archivo .json).'),
           h('li', {}, 'Recargá la página. Si el problema era momentáneo, RATEOS va a abrir normalmente.'),
-          h('li', {}, 'Si sigue fallando, abrí RATEOS en otro navegador e importá el archivo desde Configuración → Backup.'),
+          h('li', {}, 'Si sigue fallando, abrí RATEOS en otro navegador e importá el archivo desde Configuración → Datos y backup.'),
         ),
         h(
           'div',
@@ -158,6 +158,19 @@ function withDismiss(el, onDismiss) {
   return el;
 }
 
+/**
+ * Aviso corto y discreto de datos de ejemplo. "Cargar mis datos" lleva a
+ * Configuración → Datos y backup, donde está "Empezar con mi empresa en
+ * limpio" (y el detalle de qué significa ILUSTRATIVO vive en Empresa).
+ */
+function demoBanner() {
+  const el = banner('Tu empresa y tus recursos todavía son de ejemplo (ILUSTRATIVOS).', 'warning');
+  el.classList.add('banner-compact', 'banner-demo-global');
+  el.setAttribute('title', 'Los valores de la empresa de ejemplo no son escalas salariales, cargas, alícuotas, precios ni costos reales.');
+  el.appendChild(h('a', { class: 'banner-link', href: '#/configuracion/datos' }, 'Cargar mis datos'));
+  return el;
+}
+
 function buildBanners(ctx, org, dismissed, dismiss) {
   const out = [];
   const init = ctx.init || {};
@@ -174,16 +187,11 @@ function buildBanners(ctx, org, dismissed, dismiss) {
   }
   if (ctx.persistent === false) {
     const el = banner('Tu navegador no permite guardar datos: exportá un backup antes de cerrar.', 'warning', { title: 'Los cambios no se guardan.' });
-    el.appendChild(h('a', { class: 'banner-link', href: '#/configuracion' }, 'Ir a Backup'));
+    el.appendChild(h('a', { class: 'banner-link', href: '#/configuracion/datos' }, 'Exportar backup'));
     out.push(el);
   }
   if (org && org.illustrative === true && !dismissed.has('illustrative')) {
-    const el = illustrativeBanner(
-      'Estás usando datos de demostración de una empresa ficticia. Todos los valores son ILUSTRATIVOS: no son escalas salariales, cargas, alícuotas, precios ni costos reales. Reemplazalos por valores propios vigentes antes de cotizar.',
-    );
-    el.classList.add('banner-demo-global');
-    el.appendChild(h('a', { class: 'banner-link', href: '#/configuracion' }, 'Configurar mi empresa'));
-    out.push(withDismiss(el, () => dismiss('illustrative')));
+    out.push(withDismiss(demoBanner(), () => dismiss('illustrative')));
   }
   return out;
 }
@@ -263,4 +271,7 @@ async function boot(root) {
 
 const appRoot = document.getElementById('app');
 installGlobalErrorHandlers();
+// La región de avisos (aria-live) existe vacía desde el inicio: así los
+// lectores de pantalla anuncian también el primer aviso.
+ensureToastRegion();
 if (appRoot) boot(appRoot);

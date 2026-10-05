@@ -1,6 +1,8 @@
 /**
- * Paso 7 — Costos indirectos (estructura de empresa).
+ * Etapa 3 · Costos y condiciones — Gastos de estructura (costos indirectos / overhead).
  * Cómo absorbe este servicio una parte de la estructura de la empresa.
+ * Básico: el % (o monto) de estructura. Opciones avanzadas (con el método
+ * visible en el resumen): método de absorción, qué incluye y detalle.
  */
 
 import { h, mount } from '../../dom.js';
@@ -86,7 +88,7 @@ function structureTrace(result) {
   }[method];
   return createTrace({
     id: 'structure',
-    title: 'Costos indirectos (estructura)',
+    title: 'Gastos de estructura (costos indirectos)',
     formula,
     inputs: [
       { label: 'Método', value: labelOf(INDIRECT_METHODS, method), format: 'text' },
@@ -95,7 +97,7 @@ function structureTrace(result) {
     ],
     result: { label: 'Estructura absorbida en el mes', value: absorptionAtEstimate(result), format: 'money' },
     notes: [
-      'Los costos que cargaste como "Otros costos" con categoría Estructura también suman a la fila Estructura de la EECC, pero no forman parte de la base de costos directos.',
+      'Los costos que cargaste como "Otros costos" con categoría Estructura también suman al rubro Gastos de estructura, pero no forman parte de la base de costos directos.',
     ],
   });
 }
@@ -104,51 +106,80 @@ export function render(container, ctx) {
   const { quote, kit } = ctx;
   const method = INDIRECT_METHODS.find((m) => m.id === quote.indirect.method) || INDIRECT_METHODS[0];
 
-  const methodCard = card(
-    { title: 'Método de absorción', subtitle: 'Cómo le asignás a este servicio una parte de los gastos de la empresa.' },
-    kit.choice('indirect.method', {
-      label: '¿Cómo querés absorber la estructura?',
-      options: INDIRECT_METHODS.map((m) => ({ value: m.id, label: m.label, hint: METHOD_HINTS[m.id] })),
-      structural: true,
-    }),
-    formGrid(
-      2,
-      method.uses === 'pct'
-        ? kit.num('indirect.pct', { label: method.id === 'percent_labor' ? '% sobre mano de obra' : '% sobre costo directo', rule: 'percent', unit: '%', illustrative: Boolean(quote.illustrative) })
-        : kit.num('indirect.amount', {
-          label: (AMOUNT_LABELS[method.id] || AMOUNT_LABELS.manual)[0],
-          rule: 'money',
-          unit: (AMOUNT_LABELS[method.id] || AMOUNT_LABELS.manual)[1],
-          illustrative: Boolean(quote.illustrative),
-        }),
-    ),
-  );
+  const valueField = method.uses === 'pct'
+    ? kit.num('indirect.pct', {
+      label: method.id === 'percent_labor' ? '% de estructura sobre la mano de obra' : '% de estructura sobre el costo directo',
+      rule: 'percent',
+      unit: '%',
+      illustrative: Boolean(quote.illustrative),
+      hint: method.id === 'percent_labor'
+        ? 'Se suma este % sobre el costo del personal.'
+        : 'Se suma este % sobre personal, equipos, combustible, materiales y viajes.',
+    })
+    : kit.num('indirect.amount', {
+      label: (AMOUNT_LABELS[method.id] || AMOUNT_LABELS.manual)[0],
+      rule: 'money',
+      unit: (AMOUNT_LABELS[method.id] || AMOUNT_LABELS.manual)[1],
+      illustrative: Boolean(quote.illustrative),
+      hint: METHOD_HINTS[method.id] || null,
+    });
 
-  const includesCard = card(
-    { title: '¿Qué incluye la estructura?', subtitle: 'Lista orientativa de gastos que normalmente no se ven en una cotización.' },
-    h('ul', { class: 'qe-chips' }, ...STRUCTURE_ITEMS.map((t) => h('li', { class: 'qe-chip' }, t))),
-    kit.explain('Una forma simple de estimar el %: sumá los gastos mensuales de estructura y dividilos por el costo directo mensual de todos tus servicios.'),
-  );
-
-  const resultsCard = card(
-    { title: 'Estructura con la actividad estimada' },
-    kit.stats(
-      kit.stat('Estructura mensual absorbida', (r) => formatMoney(absorptionAtEstimate(r)), { emphasis: true, trace: structureTrace }),
-      kit.stat('Fila Estructura de la EECC', (r) => {
+  const basicCard = card(
+    {},
+    formGrid(2, valueField),
+    kit.explain('Una forma simple de estimar el %: sumá los gastos mensuales de estructura de tu empresa y dividilos por el costo directo mensual de todos tus servicios.'),
+    kit.keyline({
+      label: 'Gastos de estructura que absorbe este servicio',
+      value: (r) => `${formatMoney(absorptionAtEstimate(r))} por mes`,
+      hint: (r) => {
         const row = rowOf(r, 'structure');
-        return row ? `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}` : EMPTY;
-      }, { hint: 'Monto e incidencia sobre el costo total.' }),
-      kit.stat('Base del cálculo', (r) => {
-        const base = baseOf(r);
-        const m = r.model.structure.method;
-        if (base === null) return 'Monto fijo';
-        if (m === 'per_employee') return `${formatNumber(base, { decimals: 2 })} personas`;
-        if (m === 'per_hour') return `${formatNumber(base, { decimals: 1 })} h por mes`;
-        return formatMoney(base);
-      }, { hint: (r) => labelOf(INDIRECT_METHODS, r.model.structure.method) }),
+        return row ? `${formatPercent(row.displayPct)} del costo total (rubro Gastos de estructura: ${formatMoney(row.amount)}).` : '';
+      },
+      trace: structureTrace,
+    }),
+    kit.advanced(
+      {
+        key: 'indirect',
+        summary: (r) => {
+          const base = baseOf(r);
+          const m = r.model.structure.method;
+          let baseText = 'monto fijo';
+          if (base !== null) {
+            if (m === 'per_employee') baseText = `${formatNumber(base, { decimals: 2 })} personas`;
+            else if (m === 'per_hour') baseText = `${formatNumber(base, { decimals: 1 })} h por mes`;
+            else baseText = formatMoney(base);
+          }
+          return `Cómo se reparte: ${labelOf(INDIRECT_METHODS, method.id).toLowerCase()} · base del cálculo: ${baseText}.`;
+        },
+      },
+      kit.choice('indirect.method', {
+        label: '¿Cómo le asignás a este servicio una parte de los gastos de la empresa?',
+        options: INDIRECT_METHODS.map((m) => ({ value: m.id, label: m.label, hint: METHOD_HINTS[m.id] })),
+        structural: true,
+      }),
+      kit.group(
+        '¿Qué incluye la estructura?',
+        h('ul', { class: 'qe-chips' }, ...STRUCTURE_ITEMS.map((t) => h('li', { class: 'qe-chip' }, t))),
+        h('p', { class: 'qe-note' }, 'Lista orientativa de gastos que normalmente no se ven en una cotización.'),
+      ),
+      kit.stats(
+        kit.stat('Estructura mensual absorbida', (r) => formatMoney(absorptionAtEstimate(r)), { emphasis: true, trace: structureTrace }),
+        kit.stat('Rubro Gastos de estructura', (r) => {
+          const row = rowOf(r, 'structure');
+          return row ? `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}` : EMPTY;
+        }, { hint: 'Monto e incidencia sobre el costo total (incluye otros costos de categoría Estructura).' }),
+        kit.stat('Base del cálculo', (r) => {
+          const base = baseOf(r);
+          const m = r.model.structure.method;
+          if (base === null) return 'Monto fijo';
+          if (m === 'per_employee') return `${formatNumber(base, { decimals: 2 })} personas`;
+          if (m === 'per_hour') return `${formatNumber(base, { decimals: 1 })} h por mes`;
+          return formatMoney(base);
+        }, { hint: (r) => labelOf(INDIRECT_METHODS, r.model.structure.method) }),
+      ),
     ),
   );
 
-  mount(container, methodCard, resultsCard, includesCard);
+  mount(container, basicCard);
   return { update() {} };
 }

@@ -13,8 +13,8 @@ export const SERVICE_TYPES = deepFreeze([
   { id: 'per_unit', label: 'Servicio por unidad producida', hint: 'Se factura por m³, tonelada, metro, etc.' },
   { id: 'transport', label: 'Transporte', hint: 'Traslado de cargas o personas.' },
   { id: 'turnkey', label: 'Servicio llave en mano', hint: 'Alcance cerrado con entregables definidos.' },
-  { id: 'time_materials', label: 'Time & Materials', hint: 'Horas y materiales a costo + fee.' },
-  { id: 'lump_sum', label: 'Precio global / Lump Sum', hint: 'Un único precio por todo el alcance.' },
+  { id: 'time_materials', label: 'Horas y materiales (time & materials)', hint: 'Cobrás horas y materiales al costo más un recargo.' },
+  { id: 'lump_sum', label: 'Precio cerrado (lump sum)', hint: 'Un único precio por todo el alcance.' },
   { id: 'configurable', label: 'Servicio configurable', hint: 'Armá la estructura a medida.' },
 ]);
 
@@ -25,8 +25,8 @@ export const EQUIPMENT_SERVICE_TYPES = deepFreeze(['on_call', 'equipment_with_op
 export const CONTINUOUS_SERVICE_TYPES = deepFreeze(['on_call', 'permanent']);
 
 export const PRICING_MODES = deepFreeze([
-  { id: 'known_rate', label: 'Conozco la tarifa', hint: 'Ingresás la tarifa y RATEOS calcula días mínimos, break-even y resultado.' },
-  { id: 'known_activity', label: 'Conozco la actividad', hint: 'Ingresás la actividad estimada y RATEOS calcula la tarifa piso y las tarifas con margen.' },
+  { id: 'known_rate', label: 'Ya tengo la tarifa', hint: 'Ingresás la tarifa y RATEOS calcula días mínimos, break-even y resultado.' },
+  { id: 'known_activity', label: 'Calcular la tarifa', hint: 'Ingresás la actividad estimada y RATEOS calcula la tarifa piso y las tarifas con margen.' },
 ]);
 
 export const RATE_UNITS = deepFreeze([
@@ -41,7 +41,7 @@ export const COST_CATEGORIES = deepFreeze([
   { id: 'fuel', label: 'Combustible' },
   { id: 'materials', label: 'Materiales' },
   { id: 'logistics', label: 'Logística' },
-  { id: 'structure', label: 'Estructura' },
+  { id: 'structure', label: 'Gastos de estructura' },
   { id: 'financial', label: 'Financiero' },
   { id: 'contingency', label: 'Contingencia' },
 ]);
@@ -103,13 +103,13 @@ export const FUEL_PROVIDERS = deepFreeze([
 export const COST_BEHAVIORS = deepFreeze([
   { id: 'fixed_monthly', label: 'Fijo mensual' },
   { id: 'per_active_day', label: 'Por día activo' },
-  { id: 'per_activation', label: 'Por activación / viaje' },
+  { id: 'per_activation', label: 'Por llamado / viaje' },
 ]);
 
 export const MATERIAL_BASES = deepFreeze([
   { id: 'per_month', label: 'Por mes' },
   { id: 'per_active_day', label: 'Por día activo' },
-  { id: 'per_activation', label: 'Por activación' },
+  { id: 'per_activation', label: 'Por llamado' },
 ]);
 
 export const INDIRECT_METHODS = deepFreeze([
@@ -119,6 +119,36 @@ export const INDIRECT_METHODS = deepFreeze([
   { id: 'per_contract', label: 'Monto mensual por contrato', uses: 'amount' },
   { id: 'per_hour', label: 'Monto por hora operativa', uses: 'amount' },
   { id: 'manual', label: 'Monto mensual manual', uses: 'amount' },
+]);
+
+/**
+ * Impuestos que se pagan sobre lo que se FACTURA (no sobre el costo). Sólo
+ * nombres: RATEOS no trae alícuotas (las carga cada empresa con su contador).
+ * No incluye IVA, Ganancias, retenciones/percepciones (pagos a cuenta) ni
+ * costo financiero (RATEOS lo calcula por plazos de cobro y pago).
+ */
+export const BILLING_TAX_KINDS = deepFreeze([
+  { id: 'gross_income', label: 'Ingresos Brutos', hint: 'Alícuota sobre lo que facturás, según tu actividad y jurisdicción.' },
+  { id: 'debits_credits', label: 'Impuesto al cheque (débitos y créditos)', hint: 'Como el cobro entra con IVA, pedile a tu contador el % sobre tu facturación sin IVA.' },
+  { id: 'stamp', label: 'Sellos', hint: 'Si el contrato paga sellos. RATEOS lo reparte proporcional a la facturación.' },
+  { id: 'other', label: 'Otro cargo sobre lo facturado', hint: 'Por ejemplo, un seguro de caución sobre el valor del contrato.' },
+]);
+
+/**
+ * Convención de IVA de una cotización (quote.vatTreatment). Hoy RATEOS sólo
+ * trabaja con montos SIN IVA (los motores no calculan IVA); el campo deja la
+ * convención explícita y permite agregar otra en el futuro sin romper el
+ * modelo (con su migración).
+ */
+export const VAT_TREATMENTS = deepFreeze([
+  { id: 'excluded', label: 'Montos sin IVA', hint: 'Costos, precios y tarifas se cargan y se muestran sin IVA.' },
+]);
+export const DEFAULT_VAT_TREATMENT = 'excluded';
+
+/** Modos de carga de los impuestos sobre la facturación (excluyentes). */
+export const BILLING_TAX_MODES = deepFreeze([
+  { id: 'combined', label: 'Un % total' },
+  { id: 'detailed', label: 'Detalle por impuesto' },
 ]);
 
 export const RISK_ITEMS = deepFreeze([
@@ -171,18 +201,22 @@ export const CATEGORY_PAY_GROUP = deepFreeze({
   structure: 'structure',
 });
 
-/** Pasos del flujo de cotización (orden obligatorio). */
+/**
+ * Pasos del flujo de cotización (orden obligatorio). Estos nombres son la
+ * ÚNICA fuente de los nombres de paso en la interfaz (editor, resultado,
+ * avisos "Ir a…"): no repetirlos a mano en las vistas.
+ */
 export const QUOTE_STEPS = deepFreeze([
   { id: 'service', label: 'Tipo de servicio' },
-  { id: 'modality', label: 'Modalidad de cotización' },
+  { id: 'modality', label: 'Cómo se cobra' },
   { id: 'labor', label: 'Personal' },
   { id: 'equipment', label: 'Equipos' },
   { id: 'materials', label: 'Materiales' },
-  { id: 'logistics', label: 'Logística' },
-  { id: 'indirect', label: 'Costos indirectos' },
-  { id: 'finance', label: 'Financiamiento' },
-  { id: 'risk', label: 'Riesgo / contingencia' },
-  { id: 'margin', label: 'Margen y reglas comerciales' },
+  { id: 'logistics', label: 'Viajes' },
+  { id: 'indirect', label: 'Gastos de estructura' },
+  { id: 'finance', label: 'Financiación' },
+  { id: 'risk', label: 'Imprevistos' },
+  { id: 'margin', label: 'Margen y precio' },
   { id: 'result', label: 'Resultado' },
 ]);
 

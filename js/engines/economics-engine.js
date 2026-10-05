@@ -3,13 +3,20 @@
  * (CommercialRulesEngine) para evaluar el servicio con D días activos.
  *
  * Es la "economía del servicio": costos fijos mensuales + costos variables
- * por día activo, contra la facturación del mes.
+ * por día activo, contra la facturación del mes. Los impuestos sobre la
+ * facturación (t) se descuentan de lo facturado:
+ *
+ *   Resultado = Facturación − t × Facturación − Costo
+ *   Margen    = Resultado / Facturación     (sobre el precio, antes de Ganancias)
+ *   Markup    = Facturación / Costo − 1     (recargo sobre el costo: precio = costo × (1 + markup))
+ *   Ganancia sobre el costo = Resultado / Costo
  */
 
 import { nonNegative } from '../core/money.js';
 import { costAtActivity } from './cost-engine.js';
 import { computeRevenue, requiredNetRate, listRateFromNet, discountFactor, findVolumeTier, continuityApplies, normalizeRules } from './commercial-rules-engine.js';
-import { marginFromPrice, markupFromPrice } from './pricing-engine.js';
+import { marginFromPrice, markupFromPrice, markupWithTaxesPct, profitOnCostPct } from './pricing-engine.js';
+import { billingTaxInfo } from './billing-taxes-engine.js';
 
 /**
  * Contexto económico de una cotización (sin tarifa).
@@ -18,7 +25,10 @@ import { marginFromPrice, markupFromPrice } from './pricing-engine.js';
  */
 export function createEconomicsContext(quote, model) {
   const pricing = quote.pricing || {};
+  const taxes = billingTaxInfo(quote);
   return {
+    billingTaxPct: taxes.pct,
+    billingTaxInfo: taxes,
     model,
     activity: model.activity,
     unit: ['day', 'hour', 'month'].includes(quote.unit) ? quote.unit : 'day',
@@ -49,16 +59,24 @@ export function evaluateAt(ctx, activeDays, listRate, options = {}) {
   const D = nonNegative(activeDays);
   const cost = costAtActivity(ctx.model, D);
   const revenue = revenueAt(ctx, D, listRate, options);
-  const profit = revenue.total - cost.total;
+  const t = nonNegative(ctx.billingTaxPct);
+  const billingTaxes = (revenue.total * t) / 100;
+  const profit = revenue.total - billingTaxes - cost.total;
   return {
     activeDays: D,
     utilizationPct: ctx.activity.availableDaysPerMonth > 0 ? (D / ctx.activity.availableDaysPerMonth) * 100 : null,
     exceedsAvailability: ctx.activity.availableDaysPerMonth > 0 && D > ctx.activity.availableDaysPerMonth,
     cost,
     revenue,
+    billingTaxPct: t,
+    billingTaxes,
     profit,
-    marginPct: marginFromPrice(cost.total, revenue.total),
+    // Margen sobre el precio: (Facturación − impuestos − costo) / Facturación.
+    marginPct: marginFromPrice(cost.total + billingTaxes, revenue.total),
+    // Markup (AGENTS.md §9): precio = costo × (1 + markup) → Facturación / Costo − 1.
     markupPct: markupFromPrice(cost.total, revenue.total),
+    // Ganancia sobre el costo: resultado / costo (con t = 0 es igual al markup).
+    profitOnCostPct: markupFromPrice(cost.total, revenue.total - billingTaxes),
   };
 }
 
@@ -81,10 +99,21 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
     continuityPct: continuityApplies(ctx.rules, ctx.contractMonths) ? rules.continuityDiscountPct : 0,
     commercialPct: ctx.commercialDiscountPct,
   });
-  const floor = requiredNetRate({ totalCost: cost.total, marginPct: 0, billableUnits: units, otherRevenue: other });
+  const t = nonNegative(ctx.billingTaxPct);
+  const floor = requiredNetRate({ totalCost: cost.total, marginPct: 0, billingTaxPct: t, billableUnits: units, otherRevenue: other });
   const byMargin = marginsPct.map((m) => {
-    const r = requiredNetRate({ totalCost: cost.total, marginPct: m, billableUnits: units, otherRevenue: other });
-    return { marginPct: m, netRate: r.rate, listRate: listRateFromNet(r.rate, factor), coveredByOtherRevenue: r.coveredByOtherRevenue };
+    const r = requiredNetRate({ totalCost: cost.total, marginPct: m, billingTaxPct: t, billableUnits: units, otherRevenue: other });
+    // markupPct: precio / costo − 1 con ese margen y t ((m + t) / (1 − m − t));
+    // profitOnCostPct: ganancia / costo (m / (1 − m − t)).
+    return {
+      marginPct: m,
+      netRate: r.rate,
+      listRate: listRateFromNet(r.rate, factor),
+      coveredByOtherRevenue: r.coveredByOtherRevenue,
+      requiredRevenue: r.requiredRevenue,
+      markupPct: markupWithTaxesPct(m, t),
+      profitOnCostPct: profitOnCostPct(m, t),
+    };
   });
   return {
     activeDays: D,
@@ -94,6 +123,10 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
     otherRevenue: other,
     discountFactor: factor,
     tier,
+    billingTaxPct: t,
+    floorRequiredRevenue: floor.requiredRevenue,
+    // Markup de la tarifa piso: sólo los impuestos sobre la facturación (t / (1 − t)).
+    floorMarkupPct: markupWithTaxesPct(0, t),
     floorNetRate: floor.rate,
     floorListRate: listRateFromNet(floor.rate, factor),
     floorCoveredByOtherRevenue: floor.coveredByOtherRevenue,
@@ -104,22 +137,28 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
 /**
  * Descomposición lineal: ingresos fijos y contribución por día activo.
  * Sirve para explicar el break-even (exacta si no hay mínimo garantizado
- * ni cambios de tramo de descuento).
+ * ni cambios de tramo de descuento). Con impuestos sobre la facturación (t),
+ * cada peso facturado deja (1 − t):
+ *
+ *   contribución/día = ingreso por día × (1 − t) − costo variable/día
+ *   fijos netos      = costos fijos − ingresos fijos × (1 − t)
  */
 export function linearDecomposition(ctx, listRate, referenceDays) {
   const D = Math.max(nonNegative(referenceDays), 1);
   const r1 = revenueAt(ctx, D, listRate);
+  const keep = 1 - nonNegative(ctx.billingTaxPct) / 100;
   const fixedRevenue = r1.components.availabilityFee + r1.components.standby;
   const variableRevenue = r1.components.base + r1.components.callout + r1.components.mobilization + r1.components.extraKm;
   const revenuePerActiveDay = variableRevenue / D;
   const fixedCosts = ctx.model.fixedMonthly;
   const variableCostPerDay = ctx.model.variablePerActiveDay;
-  const contributionPerDay = revenuePerActiveDay - variableCostPerDay;
+  const contributionPerDay = revenuePerActiveDay * keep - variableCostPerDay;
   const netRatePerActiveDay = r1.components.base / D;
   return {
     fixedCosts,
     fixedRevenue,
-    netFixed: fixedCosts - fixedRevenue,
+    billingTaxPct: nonNegative(ctx.billingTaxPct),
+    netFixed: fixedCosts - fixedRevenue * keep,
     revenuePerActiveDay,
     netRatePerActiveDay,
     otherRevenuePerActiveDay: revenuePerActiveDay - netRatePerActiveDay,
@@ -128,4 +167,3 @@ export function linearDecomposition(ctx, listRate, referenceDays) {
     hasNonLinearRules: r1.guarantee > 0 || normalizeRules(ctx.rules).volumeTiers.some((t) => t.discountPct > 0) || r1.minimumCallApplied,
   };
 }
-

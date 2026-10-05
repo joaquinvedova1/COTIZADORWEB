@@ -6,7 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createQuoteService } from '../../js/services/quote-service.js';
+import { createQuoteService, indicatorsFor, isExampleQuote } from '../../js/services/quote-service.js';
 import { createAppContext } from '../../js/services/app-context.js';
 import { LocalStorageRepository } from '../../js/data/local-storage-repository.js';
 import { MemoryStorage } from '../../js/data/memory-storage.js';
@@ -331,6 +331,99 @@ describe('QuoteService.compute', () => {
   });
 });
 
+// ================================================= origen de los viajes
+
+describe('createQuote: base operativa como origen de los viajes', () => {
+  test('una cotización nueva toma la base operativa de la empresa como origen', async () => {
+    const { service, repository } = await setup();
+    await repository.saveOrganization({ baseLocation: '  Añelo  ' });
+    const blank = await service.createQuote();
+    assert.equal(blank.logistics.baseName, 'Añelo');
+    // Una plantilla que define su propio origen lo conserva (es más específica).
+    const template = (await repository.getServices()).find((t) => t.id === DEMO_IDS.templateHydroCrane);
+    const fromTemplate = await service.createQuote({ templateId: template.id });
+    assert.equal(fromTemplate.logistics.baseName, template.defaults.logistics.baseName);
+    // Una plantilla sin origen toma la base operativa.
+    const noBase = (await repository.getServices()).find((t) => !(t.defaults && t.defaults.logistics && t.defaults.logistics.baseName));
+    if (noBase) assert.equal((await service.createQuote({ templateId: noBase.id })).logistics.baseName, 'Añelo');
+  });
+
+  test('sin base operativa el origen queda vacío (no cambia ningún cálculo)', async () => {
+    const { service } = await setup({ empty: true });
+    const q = await service.createQuote();
+    assert.equal(q.logistics.baseName, '');
+  });
+});
+
+// ============================================================ demo guiada
+
+describe('ensureDemoQuote / latestDraft', () => {
+  test('devuelve la cotización demo existente sin modificarla', async () => {
+    const { service, repository } = await setup();
+    const before = await repository.getQuote(DEMO_IDS.quoteHydroCrane);
+    const demo = await service.ensureDemoQuote();
+    assert.equal(demo.id, DEMO_IDS.quoteHydroCrane);
+    assert.deepEqual(demo, before);
+    assert.equal((await repository.getQuotes()).length, 2);
+  });
+
+  test('si se borró, la recrea con el mismo id, la organización actual y un código nuevo', async () => {
+    const { service, repository } = await setup({ empty: true });
+    const own = await service.createQuote();
+    const demo = await service.ensureDemoQuote();
+    assert.equal(demo.id, DEMO_IDS.quoteHydroCrane);
+    assert.equal(demo.organizationId, EMPTY_ORG.id);
+    assert.equal(demo.illustrative, true);
+    assert.equal(demo.name, 'Hidrogrúa on-call — Añelo');
+    assert.notEqual(demo.code, own.code, 'nunca reutiliza el código de otra cotización');
+    assert.match(demo.code, /^COT-\d{4}$/);
+    const quotes = await repository.getQuotes();
+    assert.equal(quotes.length, 2);
+    assert.ok(quotes.some((q) => q.id === own.id), 'no toca las otras cotizaciones');
+    // Idempotente: una segunda llamada no duplica.
+    await service.ensureDemoQuote();
+    assert.equal((await repository.getQuotes()).length, 2);
+  });
+
+  test('la demo recreada calcula igual que la demo original (sin NaN/Infinity)', async () => {
+    const { service } = await setup({ empty: true });
+    const demo = await service.ensureDemoQuote();
+    const result = await service.compute(demo);
+    assert.deepEqual(nonFinitePaths(result.kpis), []);
+    assert.ok(result.kpis.totalCost > 0);
+    assert.ok(result.kpis.floorListRate > 0);
+  });
+
+  test('getDemoQuote nunca escribe: devuelve la guardada o una demo en memoria', async () => {
+    const { service, repository, storage } = await setup({ empty: true });
+    const raw = storage.getItem('rateos.state');
+    const shown = await service.getDemoQuote();
+    assert.equal(shown.stored, false);
+    assert.equal(shown.quote.id, DEMO_IDS.quoteHydroCrane);
+    assert.equal(shown.quote.organizationId, EMPTY_ORG.id);
+    assert.equal(storage.getItem('rateos.state'), raw, 'mostrar la demo no modifica los datos');
+    assert.equal((await repository.getQuotes()).length, 0);
+    await service.ensureDemoQuote();
+    const stored = await service.getDemoQuote();
+    assert.equal(stored.stored, true);
+  });
+
+  test('latestDraft devuelve el borrador modificado más recientemente o null', async () => {
+    const { service, clock } = await setup({ empty: true });
+    assert.equal(await service.latestDraft(), null);
+    const a = await service.createQuote();
+    clock.advance(5000);
+    const b = await service.createQuote();
+    clock.advance(5000);
+    await service.saveQuote({ ...a, name: 'Editada después' });
+    const latest = await service.latestDraft();
+    assert.equal(latest.quote.id, a.id);
+    clock.advance(5000);
+    await service.saveQuote({ ...(await service.getQuote(a.id)), status: 'won' });
+    assert.equal((await service.latestDraft()).quote.id, b.id);
+  });
+});
+
 // ======================================================== composition root
 
 describe('createAppContext', () => {
@@ -339,7 +432,7 @@ describe('createAppContext', () => {
     const ctx = await createAppContext({ storage, appVersion: 'test' });
     assert.equal(ctx.persistent, true);
     assert.equal(ctx.init.status, 'seeded');
-    for (const key of ['quotes', 'resources', 'backup', 'settings', 'logger', 'track', 'repository']) {
+    for (const key of ['quotes', 'resources', 'backup', 'settings', 'auth', 'logger', 'track', 'repository']) {
       assert.ok(ctx[key], `falta ctx.${key}`);
     }
     const stats = await ctx.quotes.dashboardStats();
@@ -351,5 +444,54 @@ describe('createAppContext', () => {
     const ctx = await createAppContext({ storage: null });
     assert.equal(ctx.persistent, false);
     assert.equal((await ctx.quotes.listQuotes()).length, 2);
+  });
+});
+
+// ============================================================ indicadores
+
+describe('indicatorsFor: una sola regla para los indicadores de Inicio', () => {
+  const item = (status, summary = {}, extra = {}) => ({ quote: { status, ...extra }, summary });
+
+  test('activas = borrador, enviada o ganada; margen promedio sólo de márgenes finitos', () => {
+    const r = indicatorsFor([
+      item('draft', { marginPct: 10, revenue: 100 }),
+      item('sent', { marginPct: 20, revenue: 200, atRisk: true }),
+      item('won', { marginPct: NaN, revenue: Infinity, belowFloor: true }),
+      item('lost', { marginPct: 50, revenue: 1000, atRisk: true }),
+      item('archived', { marginPct: 90 }),
+    ]);
+    assert.equal(r.totalCount, 5);
+    assert.equal(r.activeCount, 3);
+    assert.equal(r.averageMarginPct, 15);
+    assert.equal(r.totalQuotedMonthly, 300);
+    assert.equal(r.atRiskCount, 1);
+    assert.equal(r.belowFloorCount, 1);
+  });
+
+  test('sin cotizaciones activas o sin márgenes: promedio null (nunca NaN); tolera entradas inválidas', () => {
+    assert.equal(indicatorsFor([]).averageMarginPct, null);
+    assert.equal(indicatorsFor(null).totalCount, 0);
+    const r = indicatorsFor([item('draft', { marginPct: null }), null, item('draft', null)]);
+    assert.equal(r.averageMarginPct, null);
+    assert.equal(r.activeCount, 2);
+    assert.ok(Number.isFinite(r.totalQuotedMonthly));
+  });
+
+  test('dashboardStats usa la misma regla que indicatorsFor', async () => {
+    const { service } = await setup();
+    const stats = await service.dashboardStats();
+    const again = indicatorsFor(await service.listQuotes());
+    for (const key of ['totalCount', 'activeCount', 'totalQuotedMonthly', 'averageMarginPct', 'atRiskCount', 'belowFloorCount']) {
+      assert.deepEqual(stats[key], again[key], key);
+    }
+  });
+
+  test('isExampleQuote: sólo la cotización marcada como ejemplo (no una propia con valores ilustrativos copiados)', async () => {
+    const { service } = await setup();
+    const demo = await service.getQuote(DEMO_IDS.quoteHydroCrane);
+    assert.equal(isExampleQuote(demo), true);
+    const fromTemplate = await service.createQuote({ templateId: DEMO_IDS.templateHydroCrane });
+    assert.equal(isExampleQuote(fromTemplate), false);
+    assert.equal(isExampleQuote(null), false);
   });
 });

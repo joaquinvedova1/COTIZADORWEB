@@ -316,6 +316,51 @@ describe('Backup — validación antes de importar', () => {
     assert.equal((await repo.getQuotes()).length, 2);
   });
 
+  test('un backup v1 (versión anterior de RATEOS) se valida, migra a v2 y se importa sin perder datos (PLAN-2026-002)', async () => {
+    const { repo, storage, backup } = await setup();
+    const v1 = JSON.parse(await demoBackupText());
+    v1.schemaVersion = 1;
+    v1.quotes.forEach((q) => {
+      delete q.billingTaxes;
+      delete q.vatTreatment;
+    });
+    delete v1.settings.defaultBillingTaxes;
+    v1.quotes[0].name = 'Cotización guardada con la versión anterior';
+    const before = dump(storage);
+    const result = backup.parseBackupText(JSON.stringify(v1));
+    assert.equal(result.ok, true);
+    assert.equal(result.fromVersion, 1);
+    assert.equal(result.state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.deepEqual(dump(storage), before, 'validar no cambia nada');
+    await backup.applyBackup(result.data);
+    const quotes = await repo.getQuotes();
+    assert.equal(quotes.length, v1.quotes.length);
+    const q = quotes.find((x) => x.id === v1.quotes[0].id);
+    assert.equal(q.name, 'Cotización guardada con la versión anterior');
+    assert.deepEqual(q.billingTaxes, { mode: 'combined', notApplicable: false, combinedPct: null, items: [] }, 'impuestos sin definir: nunca inventados');
+    assert.equal(q.vatTreatment, 'excluded', 'la convención sin IVA queda explícita');
+    const strip = ({ billingTaxes, vatTreatment, ...rest }) => rest;
+    assert.deepEqual(strip(q), v1.quotes[0], 'el resto de la cotización queda igual');
+    assert.equal((await repo.getSettings()).defaultBillingTaxes, null);
+    assert.equal(JSON.parse(storage.getItem(STORAGE_KEYS.state)).schemaVersion, CURRENT_SCHEMA_VERSION);
+  });
+
+  test('un backup v2 con impuestos sobre la facturación hace ida y vuelta exacta', async () => {
+    const { repo, backup } = await setup();
+    const [first] = await repo.getQuotes();
+    await repo.saveQuote({ ...first, billingTaxes: { mode: 'detailed', notApplicable: false, combinedPct: null, items: [{ id: 'a', kind: 'gross_income', label: 'Ingresos Brutos', pct: 3 }] } });
+    await repo.saveSettings({ defaultBillingTaxes: { mode: 'combined', notApplicable: false, combinedPct: 4.5, items: [] } });
+    const text = JSON.stringify(await repo.exportBackup());
+    const { repo: repoB, backup: backupB } = await setup();
+    const parsed = backupB.parseBackupText(text);
+    assert.equal(parsed.ok, true);
+    await backupB.applyBackup(parsed.data);
+    const q = (await repoB.getQuotes()).find((x) => x.id === first.id);
+    assert.equal(q.billingTaxes.items[0].pct, 3);
+    assert.equal((await repoB.getSettings()).defaultBillingTaxes.combinedPct, 4.5);
+    assert.ok(backup);
+  });
+
   test('un backup legado con "__proto__" en la raíz no contamina prototipos ni conserva la clave', async () => {
     const { backup } = await setup();
     const text = '{"__proto__":{"polluted":true},"organization":{"id":"o","name":"x"},"quotes":[]}';
@@ -444,5 +489,78 @@ describe('Backup — restaurar demo', () => {
   test('getRecoverySnapshot del servicio no expone claves que no sean de recuperación', async () => {
     const { backup } = await setup();
     assert.equal(backup.getRecoverySnapshot(STORAGE_KEYS.state), null);
+  });
+});
+
+// ================================================ empezar en limpio
+
+describe('startFresh: empezar con mi empresa en limpio', () => {
+  test('quita la empresa ficticia, cotizaciones y recursos; conserva convenios, plantillas y configuración; guarda copia de recuperación', async () => {
+    const storage = new MemoryStorage();
+    const repo = new LocalStorageRepository(storage, { now: createClock() });
+    await repo.init();
+    const service = createBackupService({ repository: repo });
+    const before = await repo.exportBackup();
+    assert.ok(before.quotes.length > 0 && before.organization.illustrative === true);
+    const result = await service.startFresh({ name: '  Grúas del Sur SA ', baseLocation: 'Añelo', industry: 'oil_gas_services' });
+    assert.ok(result.recoveryKey && storage.getItem(result.recoveryKey), 'guarda una copia de recuperación antes');
+    assert.match(result.recoveryKey, /before-start-fresh/, 'la copia dice por qué se guardó');
+    const after = await repo.exportBackup();
+    assert.equal(after.organization.id, before.organization.id);
+    assert.equal(after.organization.name, 'Grúas del Sur SA');
+    assert.equal(after.organization.baseLocation, 'Añelo');
+    assert.equal(after.organization.industry, 'oil_gas_services');
+    assert.equal(after.organization.illustrative, false);
+    assert.equal(after.organization.notes, '', 'las notas de la empresa ficticia no pasan a la propia');
+    assert.equal(after.quotes.length, 0);
+    for (const type of RESOURCE_TYPES) {
+      if (type === 'agreements') assert.deepEqual(after.resources[type], before.resources[type]);
+      else assert.deepEqual(after.resources[type], [], type);
+    }
+    assert.deepEqual(after.services, before.services);
+    assert.equal(after.settings.lastQuoteNumber, before.settings.lastQuoteNumber, 'el contador de códigos nunca se reinicia');
+    // La copia de recuperación tiene los datos anteriores completos.
+    const snapshot = JSON.parse(storage.getItem(result.recoveryKey));
+    assert.equal(snapshot.quotes.length, before.quotes.length);
+  });
+
+  test('sin nombre, la empresa ficticia pasa a llamarse "Mi empresa" y sin base', async () => {
+    const repo = new LocalStorageRepository(new MemoryStorage(), { now: createClock() });
+    await repo.init();
+    await createBackupService({ repository: repo }).startFresh();
+    const org = await repo.getOrganization();
+    assert.equal(org.name, 'Mi empresa');
+    assert.equal(org.baseLocation, '');
+    assert.equal(org.illustrative, false);
+  });
+
+  test('en modo sólo lectura no modifica nada', async () => {
+    const storage = new MemoryStorage();
+    const repo = new LocalStorageRepository(storage, { now: createClock() });
+    await repo.init();
+    const raw = JSON.parse(storage.getItem(STORAGE_KEYS.state));
+    raw.schemaVersion = CURRENT_SCHEMA_VERSION + 1;
+    storage.setItem(STORAGE_KEYS.state, JSON.stringify(raw));
+    const ro = new LocalStorageRepository(storage, { now: createClock() });
+    const init = await ro.init();
+    assert.equal(init.status, 'read_only');
+    const before = storage.getItem(STORAGE_KEYS.state);
+    await assert.rejects(() => createBackupService({ repository: ro }).startFresh({ name: 'X' }));
+    assert.equal(storage.getItem(STORAGE_KEYS.state), before);
+  });
+});
+
+describe('importBackup: motivo de la copia de recuperación', () => {
+  test('por defecto "before-import"; un motivo inválido no se usa en la clave', async () => {
+    const storage = new MemoryStorage();
+    const repo = new LocalStorageRepository(storage, { now: createClock() });
+    await repo.init();
+    const data = await repo.exportBackup();
+    const a = await repo.importBackup(data);
+    assert.match(a.recoveryKey, /before-import/);
+    const b = await repo.importBackup(data, { recoveryReason: '../x"; drop' });
+    assert.match(b.recoveryKey, /before-import/);
+    const c = await repo.importBackup(data, { recoveryReason: 'before-start-fresh' });
+    assert.match(c.recoveryKey, /before-start-fresh/);
   });
 });

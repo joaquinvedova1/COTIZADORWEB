@@ -1,6 +1,6 @@
 # Modelo de datos de RATEOS
 
-Este documento describe el **modelo actual** (v0.1.0, `schemaVersion` 1, guardado en `localStorage` y exportado como backup JSON) y el **modelo futuro relacional** pensado para Supabase/PostgreSQL multiempresa. El futuro **no está implementado**: es la guía para evolucionar sin reescribir los motores.
+Este documento describe el **modelo actual** (`schemaVersion` 2 desde PLAN-2026-002; v0.1.0 usaba el 1; guardado en `localStorage` y exportado como backup JSON) y el **modelo futuro relacional** pensado para Supabase/PostgreSQL multiempresa. El futuro **no está implementado**: es la guía para evolucionar sin reescribir los motores.
 
 Código de referencia: `js/data/schema.js`, `js/data/migrations.js`, `js/data/local-storage-repository.js`, `js/domain/quote-factory.js`, `js/domain/demo-data.js`.
 
@@ -33,13 +33,13 @@ Todas las pestañas de RATEOS de un mismo navegador comparten `rateos.state`. An
 - **Almacenamiento que se puede leer pero no escribir, con datos guardados:** la app no abre la demo en memoria; muestra la pantalla de recuperación para descargar los datos tal cual.
 - **Datos dañados sin espacio para la copia** (`corrupt_no_space`): no se toca el original y se muestra la pantalla de recuperación (descargar los datos guardados y las copias, reintentar).
 
-### Estructura (schemaVersion 1)
+### Estructura (schemaVersion 2)
 
 El backup exportado (`StorageRepository.exportBackup()`, archivo `rateos-backup-AAAA-MM-DD-HH-MM-SS.json`, hora UTC) es el estado más `app` y `exportedAt`. Ejemplo abreviado:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "app": { "name": "RATEOS", "version": "0.1.0" },
   "exportedAt": "2026-10-03T12:00:00.000Z",
   "organization": {
@@ -61,18 +61,18 @@ El backup exportado (`StorageRepository.exportBackup()`, archivo `rateos-backup-
     "locations":     [ { "id": "…", "organizationId": "…", "name": "Añelo", "type": "destination", "distanceFromBaseKm": 110 } ]
   },
   "services": [ { "id": "…", "organizationId": "…", "name": "Hidrogrúa on-call", "serviceType": "on_call", "description": "…", "defaults": { "…": "valores parciales de cotización" } } ],
-  "quotes":   [ { "id": "…", "organizationId": "…", "code": "COT-0001", "name": "Hidrogrúa on-call — Añelo", "…": "ver §3" } ],
-  "settings": { "organizationId": "…", "fuelPricePerLiter": 1500, "defaultTargetMarginPct": 10, "…": "…" }
+  "quotes":   [ { "id": "…", "organizationId": "…", "code": "COT-0001", "name": "Hidrogrúa on-call — Añelo", "vatTreatment": "excluded", "billingTaxes": { "mode": "combined", "notApplicable": false, "combinedPct": null, "items": [] }, "…": "ver §3" } ],
+  "settings": { "organizationId": "…", "fuelPricePerLiter": 1500, "defaultTargetMarginPct": 10, "defaultBillingTaxes": null, "…": "…" }
 }
 ```
 
-Puede existir además `legacy` (claves raíz y colecciones de recursos desconocidas preservadas por la migración v0 → v1).
+Puede existir además `legacy` (claves raíz y colecciones de recursos desconocidas preservadas por la migración v0 → v1; una `settings` que no era objeto, preservada por la v1 → v2). Una cotización también puede tener `legacy` (por ejemplo, un `billingTaxes` que no era objeto, preservado por la v1 → v2).
 
 ### Validación (`validateState`)
 
 - `schemaVersion` igual a la versión actual; `organization` con `id`; `resources` objeto con las 5 listas; `services`, `quotes` listas; `settings` objeto.
 - Cada lista: objetos con `id` string no vacío y **único**; `services` y `quotes` con `name` string.
-- **Forma interna de cada cotización:** `labor`, `equipment`, `materials`, `otherCosts`, `logistics.vehicles`, `risk.items` y `rules.volumeTiers` deben estar ausentes, ser `null` o ser **listas de objetos**; `activity`, `pricing`, `finance`, `logistics`, `rules`, `fuel`, `indirect` y `risk` deben estar ausentes, ser `null` o ser **objetos**. Una cotización con, por ejemplo, `labor: "x"` o `equipment: [null]` se rechaza.
+- **Forma interna de cada cotización:** `labor`, `equipment`, `materials`, `otherCosts`, `logistics.vehicles`, `risk.items`, `rules.volumeTiers` y `billingTaxes.items` deben estar ausentes, ser `null` o ser **listas de objetos**; `activity`, `pricing`, `finance`, `logistics`, `rules`, `fuel`, `indirect`, `risk` y `billingTaxes` deben estar ausentes, ser `null` o ser **objetos**. `settings.defaultBillingTaxes` debe ser `null`, estar ausente o ser un objeto (con `items` lista de objetos). Una cotización con, por ejemplo, `labor: "x"` o `equipment: [null]` se rechaza.
 - Sólo tipos JSON; números finitos; claves `__proto__`, `constructor`, `prototype` prohibidas.
 - Límites: 5.000 elementos por colección, 20.000 caracteres por texto, profundidad 12. Backup importado: máximo 5 MB (`MAX_BACKUP_BYTES`).
 
@@ -92,7 +92,7 @@ Aunque llegue un registro inválido por otra vía, los motores ignoran las líne
 
 ### Organización (`organization`)
 
-`id`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`, `name`, `baseLocation`, `illustrative`, `notes`.
+`id`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`, `name`, `baseLocation`, `illustrative`, `notes` y, opcional, `industry` (tipo de empresa elegido en el onboarding `#/bienvenida`: `oil_gas_services`, `industrial_maintenance`, `transport`, `construction`, `other`). Es un campo aditivo: no cambia `schemaVersion` (los datos anteriores simplemente no lo tienen).
 
 ### Configuración (`settings`)
 
@@ -108,6 +108,7 @@ Aunque llegue un registro inválido por otra vía, los motores ignoran las líne
 | `roundingStep` | redondeo comercial | 1000 |
 | `matrixDays` | días de la matriz tarifa × utilización | [5, 8, 10, 15, 20] |
 | `marginLadder` | escalera de márgenes | [5, 10, 15] |
+| `defaultBillingTaxes` | impuestos sobre la facturación de la empresa (misma forma que `quote.billingTaxes`). `null` = sin definir: **RATEOS no trae alícuotas**. Puede ser un objeto todavía sin decidir (se guarda lo cargado para no perderlo al cambiar de modo). Si la empresa ya decidió, cada cotización nueva arranca con este valor, aunque `illustrative` sea `true` | `null` |
 | `illustrative` | marca de datos de ejemplo. Con `true`, una cotización nueva en blanco **no** toma como definidos el plazo de cobro (queda `null`) ni la contingencia (queda en 0), y marca el combustible como ILUSTRATIVO (ver [CALCULATION_RULES.md §19](CALCULATION_RULES.md#19-cost-completeness-score)) | true |
 | `scenarios` (opcional) | variaciones pesimista/optimista | `DEFAULT_SCENARIOS` |
 | `lastQuoteNumber` | último número de cotización asignado (contador monotónico de códigos `COT-NNNN`: el próximo código es `max(mayor código existente, lastQuoteNumber) + 1`, así nunca se reutiliza el de una cotización eliminada) | se crea al generar la primera cotización |
@@ -161,6 +162,8 @@ Objetos embebidos:
 | `finance` | `paymentTermDays` (`null` = sin definir), `invoiceLagDays`, `monthlyRatePct`, `payDays` { `salaries`, `fuel`, `suppliers`, `materials`, `structure` } |
 | `risk` | `generalPct`, `items[]` { `id` (`RISK_ITEMS`), `label`, `pct`, `enabled` } |
 | `pricing` | `targetMarginPct`, `customMarginPct`, `knownRate`, `offeredRateOverride`, `commercialDiscountPct`, `roundingStep` |
+| `billingTaxes` (v2) | impuestos que se pagan sobre lo que se factura (no son costo; gross-up en el precio, ver [CALCULATION_RULES.md §13.1](CALCULATION_RULES.md#131-impuestos-sobre-la-facturación-gross-up)): `mode` (`combined` = "Un % total" o `detailed` = "Detalle por impuesto", **excluyentes**), `notApplicable` ("No incluir impuestos sobre la facturación en esta cotización": elección de cálculo, no una afirmación fiscal), `combinedPct` (`null` = sin definir), `items[]` { `id`, `kind` (`gross_income`, `debits_credits`, `stamp`, `other`), `label`, `pct` } |
+| `vatTreatment` (v2) | convención de montos de la cotización. Hoy sólo `excluded` ("Montos sin IVA": costos, tarifas y facturación se cargan y calculan sin IVA). Queda explícita para no asumirla en silencio: un valor distinto no se calcula como si fuera sin IVA (`validateQuote` informa un error). Ausente (datos v2 anteriores a este campo) = `excluded`. Ver [CALCULATION_RULES.md §13.1](CALCULATION_RULES.md#131-impuestos-sobre-la-facturación-gross-up) |
 | `rules` | `availabilityFeeMonthly`, `calloutFeePerActivation`, `mobilizationFeePerActivation`, `includedKmPerActivation`, `extraKmRate`, `minimumCallUnits`, `standbyDaysPerMonth`, `standbyRatePerDay`, `standbyNotApplicable`, `volumeTiers[]` { `id`, `fromDays`, `toDays` (`null` = sin tope), `discountPct` }, `continuityMinMonths`, `continuityDiscountPct`, `minimumMonthlyGuarantee` |
 
 Las líneas embebidas (`labor[]`, `equipment[]`, …) tienen `id` UUID propio pero no metadatos: pertenecen a la cotización. **Los resultados calculados no se guardan**: se recalculan con `computeQuote` (mismos inputs = mismos outputs).
@@ -192,7 +195,7 @@ organizations ─┬─< organization_members >── users (auth.users)
 | `organizations` | `id`, `name`, `base_location`, `illustrative`, metadatos | — |
 | `users` | `id` (= `auth.users.id`), `display_name`, `created_at` | perfil público mínimo; el email vive en `auth.users` |
 | `organization_members` | PK (`organization_id`, `user_id`), `role` (`OWNER`, `ADMIN`, `ESTIMATOR`, `VIEWER`), `invited_by`, `created_at` | FK a `organizations` y `users` |
-| `settings` | PK/FK `organization_id`, `locale`, `currency`, `fuel_price_per_liter`, `finance_monthly_rate_pct`, `default_target_margin_pct`, `default_contingency_pct`, `default_payment_term_days`, `rounding_step`, `matrix_days int[]`, `margin_ladder numeric[]`, `scenarios jsonb`, `illustrative` | 1:1 con `organizations` |
+| `settings` | PK/FK `organization_id`, `locale`, `currency`, `fuel_price_per_liter`, `finance_monthly_rate_pct`, `default_target_margin_pct`, `default_contingency_pct`, `default_payment_term_days`, `rounding_step`, `matrix_days int[]`, `margin_ladder numeric[]`, `scenarios jsonb`, `default_billing_taxes jsonb`, `illustrative` | 1:1 con `organizations` |
 | `labor_agreements` | `id`, `organization_id`, `code`, `name`, `params jsonb`, `notes`, `illustrative` | agregada a la lista conceptual porque el modelo actual ya tiene convenios |
 | `labor_profiles` | `id`, `organization_id`, `agreement_id` (FK), `role`, `category`, `basic_monthly`, `additionals_monthly`, `normal_hours_per_month`, `overtime_hours_per_active_day`, `overtime_premium_pct`, `meal_per_active_day`, `sac_pct`, `vacation_pct`, `employer_contributions_pct`, `art_pct`, `insurance_monthly`, `ppe_monthly`, `training_monthly`, `transfer_monthly`, `illustrative` | FK `labor_agreements` |
 | `employees_or_roles` | `id`, `organization_id`, `labor_profile_id` (FK), `alias` (nombre o puesto nominal), `active` | **nuevo** (no existe hoy). Minimizar datos: sin DNI, CUIL, domicilio ni datos de salud. |
@@ -200,7 +203,7 @@ organizations ─┬─< organization_members >── users (auth.users)
 | `materials` | `id`, `organization_id`, `description`, `unit`, `unit_cost`, `basis`, `quantity`, `waste_pct`, `logistics_pct`, `resale_markup_pct`, `provided_by`, `illustrative` | — |
 | `locations` | `id`, `organization_id`, `name`, `type`, `distance_from_base_km` | — |
 | `service_templates` | `id`, `organization_id`, `name`, `service_type`, `description`, `defaults jsonb`, `illustrative` | — |
-| `quotes` | `id`, `organization_id`, `code` (único por organización), `name`, `client`, `status`, `service_type`, `pricing_mode`, `unit`, `contract_months`, `template_id` (FK), `illustrative`, `notes`, `activity jsonb`, `fuel jsonb`, `logistics jsonb` (sin vehículos), `indirect jsonb`, `finance jsonb`, `risk jsonb`, `pricing jsonb`, `materials_not_applicable`, `schema_version` | FK `service_templates` |
+| `quotes` | `id`, `organization_id`, `code` (único por organización), `name`, `client`, `status`, `service_type`, `pricing_mode`, `unit`, `contract_months`, `template_id` (FK), `illustrative`, `notes`, `activity jsonb`, `fuel jsonb`, `logistics jsonb` (sin vehículos), `indirect jsonb`, `finance jsonb`, `risk jsonb`, `pricing jsonb`, `billing_taxes jsonb`, `materials_not_applicable`, `schema_version` | FK `service_templates` |
 | `quote_resources` | `id`, `organization_id`, `quote_id` (FK, cascade), `kind` (`labor`, `equipment`, `material`, `other_cost`, `vehicle`), `position` (orden), `source_id` (recurso de biblioteca de origen, nullable, sin FK estricta), `data jsonb` (campos de la línea) | FK `quotes` |
 | `commercial_rules` | PK/FK `quote_id`, `organization_id`, columnas de `rules` (fees, km, minimum call, standby, continuidad, mínimo garantizado), `volume_tiers jsonb` | 1:1 con `quotes` |
 | `quote_scenarios` | `id`, `organization_id`, `quote_id`, `kind` (`pessimistic`, `optimistic`, `sensitivity`, `custom`), `name`, `deltas jsonb` (`salariesPct`, `fuelPct`, `materialsPct`, `activityPct`, `paymentTermDays`, `commercialDiscountPct`) | FK `quotes` (hoy los escenarios no se guardan: se calculan) |
@@ -223,7 +226,7 @@ organizations ─┬─< organization_members >── users (auth.users)
 | `resources.locations[]` | `locations` |
 | `services[]` (plantillas) | `service_templates` (`defaults` → `defaults jsonb`) |
 | `quote` campos raíz | `quotes` columnas |
-| `quote.activity`, `fuel`, `indirect`, `finance`, `risk`, `pricing` | `quotes.*` jsonb (mismo formato) |
+| `quote.activity`, `fuel`, `indirect`, `finance`, `risk`, `pricing`, `billingTaxes` | `quotes.*` jsonb (mismo formato) |
 | `quote.logistics` (sin `vehicles`) | `quotes.logistics` |
 | `quote.logistics.vehicles[]` | `quote_resources` (`kind = 'vehicle'`) |
 | `quote.labor[]`, `equipment[]`, `materials[]`, `otherCosts[]` | `quote_resources` (`kind` = `labor`, `equipment`, `material`, `other_cost`; `sourceId` → `source_id`) |
@@ -238,11 +241,15 @@ organizations ─┬─< organization_members >── users (auth.users)
 **Local (JSON):**
 
 - `SCHEMA_VERSION` en `js/config.js` y `schemaVersion` en el estado y en cada backup.
-- `migrateState` aplica en orden las funciones registradas en `MIGRATIONS` (`js/data/migrations.js`); hoy existe `migrateV0ToV1` (datos sin versión → v1: completa colecciones, `organizationId`, `createdAt`, `updatedAt`; asigna un id nuevo al repetido si hay ids duplicados, conservando ambos registros; preserva claves raíz y colecciones de recursos desconocidas en `legacy`).
+- `migrateState` aplica en orden las funciones registradas en `MIGRATIONS` (`js/data/migrations.js`):
+  - `migrateV0ToV1` (datos sin versión → v1: completa colecciones, `organizationId`, `createdAt`, `updatedAt`; asigna un id nuevo al repetido si hay ids duplicados, conservando ambos registros; preserva claves raíz y colecciones de recursos desconocidas en `legacy`).
+  - `migrateV1ToV2` (PLAN-2026-002, impuestos sobre la facturación): agrega `billingTaxes` **sin definir** a cada cotización (nunca se inventan alícuotas: los números no cambian y la interfaz avisa que la tarifa piso no incluye esos impuestos), `vatTreatment: 'excluded'` (la convención sin IVA con la que RATEOS siempre calculó, ahora explícita; si ya hubiera un valor, se conserva) y `settings.defaultBillingTaxes = null`. Un `billingTaxes` o una `settings` que no sean objeto se guardan en `legacy` (de la cotización o del estado). No toca ningún otro campo.
+- Datos v1 que además tienen estructura inesperada: si la migración directa no da un estado válido, se normalizan como datos legados (v0 → v1 → v2) sin borrar nada (estado `repaired`; la copia previa queda en `pre-migration-v1`). Recién si eso tampoco funciona, se abren en sólo lectura.
 - Para una versión nueva: subir `SCHEMA_VERSION`, agregar `migrateV1ToV2` (y luego `migrateV2ToV3`…) en `MIGRATIONS`, agregar tests en `tests/data/` con un estado v1 real (incluido el backup demo) y documentarlo en el [CHANGELOG](../CHANGELOG.md).
 - Cada migración transforma N → N+1 **sin perder datos**. Antes de migrar se guarda `rateos.recovery.<fecha>.pre-migration-v<N>`. Si el resultado de la migración no pasa `validateState`, no se persiste nada (el original queda intacto) y la app abre en modo sólo lectura.
 - Datos de una versión más nueva que la app → modo sólo lectura (no se pisan).
-- Ejemplo de migración futura: `migrateV1ToV2` podría agregar `actualCosts: []` al estado (para estimado vs real) y `quote.schemaVersion`, sin tocar los campos existentes.
+- Ejemplo de migración futura: `migrateV2ToV3` podría agregar `actualCosts: []` al estado (para estimado vs real) y `quote.schemaVersion`, sin tocar los campos existentes.
+- **Varias pestañas durante un deploy:** una pestaña vieja (esquema 1) que ve datos v2 pasa a sólo lectura (no los pisa); una pestaña nueva migra los datos al abrir.
 
 **Futuro (PostgreSQL):** migraciones SQL versionadas en el repositorio (por ejemplo `supabase/migrations/AAAAMMDDHHMM_descripcion.sql`), aplicadas por CI, nunca a mano en producción; columna `schema_version` en `quotes` para convivir con cotizaciones creadas por versiones anteriores del motor.
 

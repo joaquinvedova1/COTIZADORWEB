@@ -9,6 +9,7 @@
 
 import { MAX_BACKUP_BYTES, APP_NAME } from '../config.js';
 import { track } from '../core/events.js';
+import { createFreshWorkspace } from '../domain/workspace.js';
 
 export function createBackupService({ repository, clock = () => new Date().toISOString() }) {
   return {
@@ -46,6 +47,19 @@ export function createBackupService({ repository, clock = () => new Date().toISO
       const result = await repository.importBackup(data);
       track('backup_imported', { count: Math.min(result.quotes ?? 0, 10000) });
       return result;
+    },
+
+    /**
+     * "Empezar con mi empresa en limpio": quita la empresa ficticia y sus
+     * cotizaciones y recursos (conserva convenios, plantillas y
+     * configuración). Guarda ANTES una copia de recuperación (importBackup).
+     * La confirmación se pide en la UI.
+     * @param {{ name?: string, baseLocation?: string, industry?: string }} [org]
+     */
+    async startFresh(org = {}) {
+      const current = await repository.exportBackup();
+      const fresh = createFreshWorkspace(current, org);
+      return repository.importBackup(fresh, { recoveryReason: 'before-start-fresh' });
     },
 
     /** Restaura los datos demo (con copia de recuperación previa). */

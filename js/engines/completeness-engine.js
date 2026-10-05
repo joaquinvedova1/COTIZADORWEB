@@ -15,7 +15,9 @@ import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES } from '../domain/catalogs.js';
 import { contingencyPctOf } from './cost-engine.js';
-import { isValidMarginPct } from './pricing-engine.js';
+import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
+import { formatPercent } from '../core/format.js';
+import { billingTaxInfo } from './billing-taxes-engine.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
@@ -64,20 +66,20 @@ export function evaluateCompleteness(quote = {}) {
   // 1. Modalidad / tipo de servicio
   const validType = SERVICE_TYPES.some((t) => t.id === serviceType);
   const validMode = PRICING_MODES.some((m) => m.id === quote.pricingMode);
-  items.push(rule('modality', 'Modalidad de cotización', 'modality', 2,
+  items.push(rule('modality', 'Cómo se cobra', 'modality', 2,
     validType && validMode ? 'ok' : 'missing',
-    validType && validMode ? 'Tipo de servicio y modalidad definidos.' : 'Falta definir el tipo de servicio o la modalidad (conozco la tarifa / conozco la actividad).'));
+    validType && validMode ? 'Tipo de servicio y modalidad definidos.' : 'Falta definir el tipo de servicio o cómo se cobra (ya tengo la tarifa / calcular la tarifa).'));
 
   // 2. Tarifa o actividad según modalidad
   if (quote.pricingMode === 'known_rate') {
     const ok = nonNegative(pricing.knownRate) > 0;
-    items.push(rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Conozco la tarifa" pero falta ingresarla.'));
+    items.push(rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Ya tengo la tarifa" pero falta ingresarla.'));
   }
 
   // 3. Utilización on-call
   if (isOnCall || quote.pricingMode === 'known_activity') {
     const ok = nonNegative(activity.activeDaysPerMonth) > 0;
-    items.push(rule('utilization', isOnCall ? 'Utilización on-call (días activos)' : 'Actividad estimada', 'modality', 2,
+    items.push(rule('utilization', isOnCall ? 'Días de trabajo por mes' : 'Actividad estimada', 'modality', 2,
       ok ? 'ok' : 'missing',
       ok ? 'Días activos estimados por mes definidos.' : '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando? Falta ese dato.'));
   }
@@ -136,17 +138,17 @@ export function evaluateCompleteness(quote = {}) {
 
   // 9. Logística
   if (logistics.notApplicable) {
-    items.push(rule('logistics', 'Logística', 'logistics', 1, 'ok', 'Marcado como "sin traslados".'));
+    items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'Marcado como "sin traslados".'));
   } else {
     const ok = nonNegative(logistics.distanceKm) > 0 && vehicles.some((v) => nonNegative(v.count) > 0);
-    items.push(rule('logistics', 'Logística', 'logistics', 2, ok ? 'ok' : 'missing',
+    items.push(rule('logistics', 'Viajes', 'logistics', 2, ok ? 'ok' : 'missing',
       ok ? 'Distancia y vehículos definidos.' : 'Falta la distancia a locación o los vehículos de traslado.'));
   }
 
   // 10. Estructura
   const indirect = quote.indirect || {};
   const indirectOk = ['percent_direct', 'percent_labor'].includes(indirect.method) ? nonNegative(indirect.pct) > 0 : nonNegative(indirect.amount) > 0;
-  items.push(rule('structure', 'Costos de estructura', 'indirect', 1, indirectOk ? 'ok' : 'warning',
+  items.push(rule('structure', 'Gastos de estructura', 'indirect', 1, indirectOk ? 'ok' : 'warning',
     indirectOk ? 'Absorción de estructura definida.' : 'No se absorbe estructura de empresa (administración, base, seguros generales).'));
 
   // 11. Plazo de pago
@@ -156,28 +158,46 @@ export function evaluateCompleteness(quote = {}) {
 
   // 12. Contingencia
   const contOk = contingencyPctOf(quote.risk || {}) > 0;
-  items.push(rule('contingency', 'Contingencia', 'risk', 1, contOk ? 'ok' : 'warning',
+  items.push(rule('contingency', 'Imprevistos (contingencia)', 'risk', 1, contOk ? 'ok' : 'warning',
     contOk ? 'Contingencia configurada.' : 'Sin contingencia: cualquier imprevisto sale del margen.'));
 
-  // 13. Margen (un margen inválido — ≥ 100 %, negativo o texto — no cuenta como definido)
-  const marginBlank = isBlank(pricing.targetMarginPct);
-  const marginValue = toNumber(pricing.targetMarginPct, NaN);
-  const marginInvalid = !marginBlank && !isValidMarginPct(marginValue);
+  // 13. Margen (un margen inválido — ≥ 100 %, negativo o texto — no cuenta como
+  // definido; tampoco uno que, sumado a los impuestos sobre la facturación, llega a 100 %)
+  const taxes = billingTaxInfo(quote);
+  // Mismo lector que la validación y el motor (texto es-AR "10,5" incluido).
+  const marginRead = readMarginInput(pricing.targetMarginPct);
+  const marginBlank = marginRead.state === 'empty';
+  const marginValue = marginRead.value;
+  const marginInvalid = marginRead.state === 'invalid';
+  const marginTooHighWithTaxes = !marginBlank && !marginInvalid && !isValidMarginAndTaxes(marginValue, taxes.pct);
   const marginPositive = !marginBlank && !marginInvalid && marginValue > 0;
-  items.push(rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid ? 'missing' : marginPositive ? 'ok' : 'warning',
+  items.push(rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid || marginTooHighWithTaxes ? 'missing' : marginPositive ? 'ok' : 'warning',
     marginBlank
       ? 'Falta definir el margen objetivo.'
       : marginInvalid
         ? 'El margen objetivo debe ser mayor o igual a 0 y menor a 100 %.'
-        : marginPositive
-          ? 'Margen objetivo definido.'
-          : 'Margen objetivo en 0 %: cotizás sin ganancia.'));
+        : marginTooHighWithTaxes
+          ? `Con ${formatPercent(taxes.pct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - taxes.pct)}.`
+          : marginPositive
+            ? 'Margen objetivo definido.'
+            : 'Margen objetivo en 0 %: cotizás sin ganancia.'));
+
+  // 13b. Impuestos sobre lo que facturás (Ingresos Brutos, débitos y créditos, sellos…)
+  items.push(rule('billing_taxes', 'Impuestos sobre lo que facturás', 'margin', 1,
+    taxes.invalid ? 'missing' : taxes.defined ? 'ok' : 'warning',
+    taxes.invalid
+      ? 'Hay un porcentaje de impuestos inválido (negativo, no numérico o un total de 100 % o más): corregilo.'
+      : taxes.notApplicable
+        ? 'Elegiste no incluir impuestos sobre la facturación en esta cotización.'
+        : taxes.defined
+          ? 'Impuestos sobre la facturación definidos.'
+          : 'Sin definir: la tarifa piso no incluye los impuestos que pagás sobre lo que facturás (Ingresos Brutos, impuesto al cheque, sellos). Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".'));
 
   // 14. Standby (on-call)
   if (isOnCall) {
     const ok = nonNegative(rules.standbyRatePerDay) > 0 || rules.standbyNotApplicable === true;
-    items.push(rule('standby', 'Standby', 'margin', 1, ok ? 'ok' : 'warning',
-      ok ? 'Standby definido.' : 'Standby no definido: ¿qué se cobra si el equipo queda en locación sin operar?'));
+    items.push(rule('standby', 'Equipo en espera (standby)', 'margin', 1, ok ? 'ok' : 'warning',
+      ok ? 'Standby definido.' : '¿Qué cobrás si el equipo queda en locación sin operar? Definilo o marcá que no aplica.'));
   }
 
   let earned = 0;

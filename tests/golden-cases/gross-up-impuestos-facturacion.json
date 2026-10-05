@@ -1,0 +1,15 @@
+{
+  "id": "gross-up-impuestos-facturacion",
+  "title": "Margen 10 % con 10 % de impuestos sobre la facturación: 125 (NO 121 ni 123,46)",
+  "rule": "Los impuestos que se pagan sobre lo que se factura van dentro del divisor junto con el margen: precio = costo / (1 − margen − impuestos). Costo 100, margen 10 %, impuestos 10 % → 125. Nunca (1 − m)(1 − t) (= 123,46), nunca sobre el costo (= 121). Valores sintéticos ILUSTRATIVOS.",
+  "engine": "pricing.priceFromMarginAndTaxes",
+  "inputs": {
+    "cost": 100,
+    "marginPct": 10,
+    "billingTaxPct": 10
+  },
+  "expected": {
+    "value": 125
+  },
+  "tolerance": 1e-09
+}

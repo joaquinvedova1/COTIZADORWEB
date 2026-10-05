@@ -1,0 +1,15 @@
+{
+  "id": "tarifa-piso-con-impuestos",
+  "title": "Tarifa piso con 10 % de impuestos sobre la facturación: 111,11",
+  "rule": "La tarifa piso cubre el costo Y los impuestos sobre lo facturado: costo / (1 − impuestos). Costo 100 con 10 % → 111,111…; cobrar 100 deja una pérdida de 10. Valores sintéticos ILUSTRATIVOS.",
+  "engine": "pricing.priceFromMarginAndTaxes",
+  "inputs": {
+    "cost": 100,
+    "marginPct": 0,
+    "billingTaxPct": 10
+  },
+  "expected": {
+    "value": 111.11111111111111
+  },
+  "tolerance": 1e-09
+}
