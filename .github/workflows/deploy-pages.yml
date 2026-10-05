@@ -364,7 +364,7 @@ jobs:
           fi
 
       - name: Configurar GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Subir artefacto de Pages
         uses: actions/upload-pages-artifact@v3
