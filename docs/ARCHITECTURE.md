@@ -70,13 +70,14 @@ Reglas transversales (también en `tests/architecture.test.js`):
 
 | Archivo | Responsabilidad |
 |---|---|
-| `index.html` | Documento único. CSP estricta, `<noscript>`, carga `css/*.css` y `./js/app.js` como módulo. Todas las rutas relativas. |
+| `index.html` | Documento único. CSP estricta, `<noscript>`, carga `css/*.css` y `./js/app.js` como módulo. Todas las rutas relativas. En el build publicado (`dist/index.html`) los CSS y `app.js` se reemplazan por `./boot.js`. |
+| `boot.js` | Sólo en el sitio publicado: pide `./version.json` sin caché y carga los CSS y `app.js` de la carpeta versionada `build/<sha>/` que indica (cache busting, [DEPLOYMENT.md §4.1](DEPLOYMENT.md)). |
 | `css/styles.css` | Sistema de diseño base: tokens de la paleta, layout (`.app-shell`, `.sidebar`, `.main`, `.topbar`, `.content`), cards, KPIs, botones, badges, banners, formularios, tablas, diálogos, trazas, responsive e impresión. |
 | `css/views.css`, `css/quote.css`, `css/result.css` | Estilos propios de las vistas generales, del editor de cotización y de la pantalla de resultado. |
 | `version.json` | Versión de desarrollo (`commit: "dev"`, `ref: "local"`) que se ve al servir el repo sin build. En el deploy no se copia: `npm run build` genera `dist/version.json` con los datos reales. |
 | `assets/favicon.svg` | Ícono del sitio. |
 | `.nojekyll` | Evita que GitHub Pages procese el sitio con Jekyll. |
-| `scripts/build.mjs` | `npm run build`: copia **sólo** `index.html`, `.nojekyll`, `assets/`, `css/` y `js/` a `dist/` (nunca tests, docs, scripts ni dotfiles), genera `dist/version.json` (`version` de `package.json`, `commit` corto, `buildDate` ISO UTC, `ref`) y valida que todas las rutas de HTML, CSS e imports sean relativas y existan. Falla si encuentra errores. |
+| `scripts/build.mjs` | `npm run build`: copia **sólo** `assets/`, `css/` y `js/` a `dist/build/<sha corto>/`, y `boot.js` y `.nojekyll` a `dist/` (nunca tests, docs, scripts ni dotfiles); genera `dist/index.html` (carga `boot.js`), `dist/version.json` (`version` de `package.json`, `commit` corto, `buildDate` ISO UTC, `ref` y el manifiesto `build`) y un shim `dist/js/app.js` para `index.html` viejos en caché; valida que todas las rutas de HTML, CSS e imports sean relativas, existan y no salgan de su build. Falla si encuentra errores. |
 | `scripts/serve.mjs` | `npm start`: servidor estático local (sólo `node:http`) en `http://localhost:8080/COTIZADORWEB/` que simula la sub-ruta de GitHub Pages; `npm start -- --dist` sirve `dist/`. Sólo GET/HEAD, bloquea path traversal y dotfiles. |
 
 ### `js/config.js`

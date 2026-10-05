@@ -71,6 +71,8 @@ Tres cambios en esta versión:
 
 ### Corregido
 
+- **Caché después de un deploy (cache busting).** GitHub Pages cachea cada archivo 10 minutos y los JS/CSS tenían URLs fijas: tras un deploy el navegador podía mezclar módulos viejos y nuevos (menú "Dashboard / Bibliotecas / Plantillas de servicio" con "Acerca de" mostrando el build nuevo) y sólo Ctrl+Shift+R lo arreglaba. Ahora el build publica todos los JS, CSS y assets en `build/<sha corto>/`, `index.html` carga `boot.js`, que lee `version.json` sin caché y carga ese build completo (los imports relativos mantienen todo el grafo en la misma carpeta). `version.json` suma el manifiesto `build`. Si una pestaña abierta durante un deploy no puede cargar una pantalla, el botón pasa a ser "Recargar la página". Detalle en [docs/DEPLOYMENT.md §4.1](docs/DEPLOYMENT.md). No cambia ninguna fórmula ni el formato de los datos.
+
 Revisión adversarial económica y de UX de esta versión (sin funcionalidades nuevas):
 
 - **Markup con impuestos** (regla de negocio, AGENTS.md §9): el "markup" que se mostraba con impuestos era la ganancia sobre el costo (12,5 % con costo 100, margen 10 %, impuestos 10 %), pero el precio es 125 = costo × 1,25. Ahora "Markup (recargo sobre el costo)" = 25 % y "Ganancia sobre el costo" = 12,5 % por separado (escalera, "Margen vs markup", trazas y consejos del paso "El precio"). Sin impuestos no cambia nada (11,11 %).

@@ -160,7 +160,7 @@ export function createRouter({ app, layout }) {
   let current = null;
   let started = false;
 
-  function errorCard(content, { title, message, retry }) {
+  function errorCard(content, { title, message, retry, retryLabel = 'Reintentar' }) {
     mount(
       content,
       card(
@@ -170,7 +170,7 @@ export function createRouter({ app, layout }) {
         h(
           'div',
           { class: 'row' },
-          retry ? button('Reintentar', { variant: 'primary', onClick: retry }) : null,
+          retry ? button(retryLabel, { variant: 'primary', onClick: retry }) : null,
           button('Ir al inicio', { variant: 'secondary', icon: 'home', onClick: () => app.navigate(APP_HOME) }),
         ),
       ),
@@ -260,7 +260,11 @@ export function createRouter({ app, layout }) {
         message: isLoadError
           ? 'Esta pantalla no se pudo cargar. Puede que estés sin conexión o que la aplicación se haya actualizado: recargá la página.'
           : 'Ocurrió un error inesperado al preparar esta pantalla.',
-        retry: () => render(),
+        // Si se publicó una versión nueva, los módulos de esta pestaña ya no
+        // existen (cada build vive en su carpeta): recargar trae el build actual
+        // completo; reintentar el mismo import() volvería a fallar.
+        retry: isLoadError ? () => window.location.reload() : () => render(),
+        retryLabel: isLoadError ? 'Recargar la página' : 'Reintentar',
       });
     }
     if (!isCurrent()) return;
