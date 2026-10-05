@@ -29,12 +29,16 @@ export const MAX_RECOVERY_SNAPSHOTS = 3;
 export class LocalStorageRepository extends StorageRepository {
   /**
    * @param {Storage} storage objeto con la interfaz Web Storage
-   * @param {{ key?: string, now?: () => string, idFactory?: () => string, seedFactory?: () => object, appVersion?: string }} [options]
+   * @param {{ key?: string, now?: () => string, idFactory?: () => string, seedFactory?: () => object, appVersion?: string, recoveryStorage?: Storage }} [options]
+   *   recoveryStorage: dónde se guardan las copias de recuperación (por
+   *   defecto, el mismo storage). SupabaseRepository trabaja sobre un storage
+   *   en memoria y guarda las copias en el localStorage del navegador.
    */
-  constructor(storage, { key = STORAGE_KEYS.state, now = () => new Date().toISOString(), idFactory = createId, seedFactory = null, appVersion = 'dev' } = {}) {
+  constructor(storage, { key = STORAGE_KEYS.state, now = () => new Date().toISOString(), idFactory = createId, seedFactory = null, appVersion = 'dev', recoveryStorage = null } = {}) {
     super();
     if (!storage || typeof storage.getItem !== 'function') throw new RepositoryError('Storage inválido.', 'invalid_storage');
     this.storage = storage;
+    this.recoveryStorage = recoveryStorage && typeof recoveryStorage.getItem === 'function' ? recoveryStorage : storage;
     this.key = key;
     this.now = now;
     this.idFactory = idFactory;
@@ -502,7 +506,7 @@ export class LocalStorageRepository extends StorageRepository {
     } catch (error) {
       if (recoveryKey) {
         try {
-          this.storage.removeItem(recoveryKey);
+          this.recoveryStorage.removeItem(recoveryKey);
         } catch {
           /* sin efecto */
         }
@@ -518,9 +522,9 @@ export class LocalStorageRepository extends StorageRepository {
     const base = `${STORAGE_KEYS.recoveryPrefix}${this.now().replace(/[:.]/g, '-')}.${reason}`;
     let key = base;
     // Dos copias en el mismo milisegundo no deben pisarse.
-    for (let n = 2; this.storage.getItem(key) !== null; n += 1) key = `${base}.${n}`;
+    for (let n = 2; this.recoveryStorage.getItem(key) !== null; n += 1) key = `${base}.${n}`;
     try {
-      this.storage.setItem(key, String(raw));
+      this.recoveryStorage.setItem(key, String(raw));
       this.pruneRecoverySnapshots();
     } catch (error) {
       logger.warn('No se pudo guardar la copia de recuperación', { reason });
@@ -535,8 +539,8 @@ export class LocalStorageRepository extends StorageRepository {
   /** Lista claves de recuperación (más nuevas primero). */
   listRecoverySnapshots() {
     const keys = [];
-    for (let i = 0; i < this.storage.length; i += 1) {
-      const k = this.storage.key(i);
+    for (let i = 0; i < this.recoveryStorage.length; i += 1) {
+      const k = this.recoveryStorage.key(i);
       if (k && k.startsWith(STORAGE_KEYS.recoveryPrefix)) keys.push(k);
     }
     return keys.sort().reverse();
@@ -545,15 +549,15 @@ export class LocalStorageRepository extends StorageRepository {
   /** Elimina una copia de recuperación (sólo claves de recuperación). */
   deleteRecoverySnapshot(key) {
     if (typeof key !== 'string' || !key.startsWith(STORAGE_KEYS.recoveryPrefix)) return false;
-    if (this.storage.getItem(key) === null) return false;
-    this.storage.removeItem(key);
+    if (this.recoveryStorage.getItem(key) === null) return false;
+    this.recoveryStorage.removeItem(key);
     return true;
   }
 
   /** Contenido literal de una copia de recuperación. */
   getRecoverySnapshot(key) {
     if (typeof key !== 'string' || !key.startsWith(STORAGE_KEYS.recoveryPrefix)) return null;
-    return this.storage.getItem(key);
+    return this.recoveryStorage.getItem(key);
   }
 
   /**
@@ -567,7 +571,7 @@ export class LocalStorageRepository extends StorageRepository {
     // Copias del texto original dañado o con estructura inválida: pueden ser
     // la única copia de esos datos, se cuentan aparte.
     const isCorrupt = (k) => /\.(corrupt|invalid)(\.\d+)?$/.test(k);
-    keys.filter((k) => !isCorrupt(k)).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.storage.removeItem(k));
-    keys.filter(isCorrupt).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.storage.removeItem(k));
+    keys.filter((k) => !isCorrupt(k)).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.recoveryStorage.removeItem(k));
+    keys.filter(isCorrupt).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.recoveryStorage.removeItem(k));
   }
 }

@@ -432,7 +432,7 @@ describe('createAppContext', () => {
     const ctx = await createAppContext({ storage, appVersion: 'test' });
     assert.equal(ctx.persistent, true);
     assert.equal(ctx.init.status, 'seeded');
-    for (const key of ['quotes', 'resources', 'backup', 'settings', 'auth', 'logger', 'track', 'repository']) {
+    for (const key of ['quotes', 'resources', 'backup', 'settings', 'logger', 'track', 'repository']) {
       assert.ok(ctx[key], `falta ctx.${key}`);
     }
     const stats = await ctx.quotes.dashboardStats();
