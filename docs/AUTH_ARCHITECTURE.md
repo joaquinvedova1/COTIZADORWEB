@@ -126,6 +126,50 @@ Nadie puede, desde el cliente: crear o borrar organizaciones, crear/borrar/cambi
 
 "Propias" = `created_by = auth.uid()`.
 
+## 6.1 Rol de plataforma: RATEOS ADMIN
+
+Hay **dos sistemas de roles separados**:
+
+| | Dónde vive | Valores | Qué permite |
+|---|---|---|---|
+| Rol en la **empresa** | `public.organization_members.role` | OWNER / ADMIN / ESTIMATOR / VIEWER | Trabajar con los datos de **esa** empresa (RLS). |
+| Rol de **plataforma** | `private.platform_admins` | RATEOS_ADMIN | Ver **metadata** de la plataforma en `#/admin`. Nada más. |
+
+Se puede tener los dos a la vez (p. ej. OWNER de su empresa y RATEOS_ADMIN): ninguno reemplaza al otro. En la cuenta se muestra el nombre, la insignia "RATEOS ADMIN" y el rol de empresa.
+
+**Principio: administrar la plataforma ≠ leer los datos privados del cliente.** RATEOS_ADMIN **no** lee cotizaciones, costos, márgenes, recursos, tarifas ni el JSON del workspace de ninguna empresa. Las políticas RLS de las tablas de clientes no cambian: ser admin no da acceso a `workspace_states` ni a `organizations` ajenas. Lo que sí ve (sólo por funciones RPC): cantidad de usuarios, usuarios (nombre, email, email confirmado, fecha de alta, último ingreso), empresas, rol de empresa, cantidad de miembros, fecha de creación de la empresa y, del workspace, sólo revisión, versión de esquema, tamaño aproximado (`pg_column_size`) y fecha de último guardado. Nunca `state`.
+
+### Dónde está la autoridad
+
+Toda la autoridad está en Postgres (migración `supabase/migrations/20261005034916_rateos_platform_admin.sql`):
+
+- `private.platform_admins` (`user_id` → `auth.users.id`, `granted_via`, `bootstrap_email`, `created_at`) vive en el schema `private`, que la API no expone; tiene RLS **sin políticas** y sin grants: nadie la lee ni la escribe desde el cliente, ni siquiera un admin.
+- `private.is_platform_admin()` (security definer, `search_path` vacío) sólo mira `platform_admins` con `auth.uid()`. **Nunca** email, `user_metadata`, `app_metadata`, claims del JWT, `organizationId` ni nada que mande el cliente.
+- La API expone tres funciones **security invoker** sin argumentos, sólo para `authenticated` (revocadas para `anon`): `am_i_platform_admin()`, `admin_overview()` y `admin_users()`. Las dos últimas delegan en funciones de `private` que **vuelven a verificar** el rol en cada llamada y, si no, fallan con `42501`.
+- El frontend no decide nada: `js/data/admin-gateway.js` pregunta `am_i_platform_admin()` al abrir la cuenta (cualquier error = no es admin) y sólo usa la respuesta para mostrar u ocultar el menú. Para un usuario normal la entrada "RATEOS Admin" **no existe en el DOM**; si entra a `#/admin` ve "No tenés permisos para acceder a esta sección." y no se hace ninguna consulta de admin. Aunque alguien fuerce `platformAdmin = true` desde DevTools, la base no entrega nada. No hay ningún email hardcodeado en `js/` (lo verifica `tests/architecture.test.js`).
+
+### Alta del master (bootstrap server-side)
+
+No se inventa ningún UUID ni se compara el email en JavaScript:
+
+1. `private.platform_admin_bootstrap` guarda el email autorizado, **normalizado** (`lower(btrim(email))`, con `CHECK`). Hoy: `joaquinvedova@hotmail.com`.
+2. Un trigger `on_auth_user_platform_admin` (`after insert or update of email, email_confirmed_at on auth.users`) llama a `private.grant_platform_admin_bootstrap` **sólo** si la cuenta no es anónima y tiene `email_confirmed_at` (email **confirmado**). Compara el email normalizado de `auth.users` (que el cliente no puede escribir) con el bootstrap.
+3. Es de **un solo uso**: al asociar la cuenta se marca `consumed_at` / `consumed_by`. Después nadie más lo obtiene, aunque se registre otra cuenta con el mismo email en otra capitalización o cambie su email.
+4. Si la cuenta ya existía y estaba confirmada al aplicar la migración, la migración la asocia en ese momento. Al aplicarla (2026-10-05) **no existía**: queda pendiente hasta que `joaquinvedova@hotmail.com` se registre y confirme su email.
+5. El trigger nunca bloquea un registro: ante un error interno registra un warning y sigue.
+
+Nadie puede obtener RATEOS_ADMIN por email, metadata, requests, localStorage, `organizationId` ni un JWT manipulado (un JWT válido no se falsifica sin el secreto, y aun con claims inventados la decisión es sólo `platform_admins` por `sub`). Para agregar o quitar un admin en el futuro: nueva migración versionada (nunca a mano).
+
+### Auditoría
+
+`private.admin_audit_log` registra `ADMIN_PANEL_OPEN` (quién y cuándo) cada vez que se abre el panel (`admin_overview`). Lista cerrada de acciones y `detail` chico: nunca contraseñas, tokens, JWT, costos ni cotizaciones. Sólo se lee con el rol `postgres` (no hay pantalla de auditoría todavía).
+
+### Fuera de alcance (todavía)
+
+Impersonar usuarios, cambiar contraseñas, leer cotizaciones, editar workspaces de clientes, borrar empresas, suspender usuarios, modificar membresías y cualquier acción con `service_role` desde el frontend. Si alguna vez hace falta una operación privilegiada, va en una Edge Function.
+
+Tests: `supabase/tests/rls_admin_test.sql` (32 controles: bootstrap confirmado, normalizado y de un solo uso; metadata/claims que no dan admin; usuario normal y anon sin acceso; admin con metadata pero sin el workspace de otra empresa; auditoría sin datos), `tests/supabase/migrations.test.js` y `tests/services/platform-admin.test.js`.
+
 ## 7. Qué se valida en el frontend y qué en la base
 
 | Control | Frontend | Base de datos |
@@ -133,6 +177,7 @@ Nadie puede, desde el cliente: crear o borrar organizaciones, crear/borrar/cambi
 | Mostrar u ocultar acciones según el rol | Sí (sólo UX) | — |
 | Validación de inputs (rangos, finitos, textos) | Sí (`validateNumber`, `validateQuote`, `sanitizeText`, `validateState`) | `CHECK` (estado JSON objeto, ≤ 5 MB, nombres 1–120 caracteres, roles válidos) |
 | Pertenencia a la organización | Filtros por `organization_id` = **comodidad** | **RLS** (`private.is_member`) |
+| RATEOS ADMIN (rol de plataforma) | Mostrar u ocultar la entrada `#/admin` (sólo UX) | `private.platform_admins` + `private.is_platform_admin()` en cada RPC de admin |
 | Permiso por rol | Modo sólo lectura para VIEWER | **RLS** (`private.has_role`) + grants por columna |
 | `revision`, `updated_by`, `updated_at`, `organization_id` del workspace | Nunca se envían | Trigger `workspace_before_update` (revisión + 1, `auth.uid()`, `now()`, organización fija) |
 | Concurrencia | Envía la revisión base | `update … where revision = <base>`: 0 filas = conflicto |

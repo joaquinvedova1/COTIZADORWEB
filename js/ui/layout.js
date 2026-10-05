@@ -39,6 +39,13 @@ export const NAV_ITEMS = Object.freeze([
   { key: 'settings', href: '#/configuracion', label: 'Configuración', icon: 'settings', separated: true },
 ]);
 
+/**
+ * Entrada del panel de la PLATAFORMA. No está en NAV_ITEMS: sólo se agrega al
+ * menú cuando la base confirma que la sesión es RATEOS_ADMIN (y aun así el
+ * panel vuelve a verificarlo en Postgres en cada consulta).
+ */
+export const ADMIN_NAV_ITEM = Object.freeze({ key: 'admin', href: '#/admin', label: 'RATEOS Admin', icon: 'lock' });
+
 /** Destino del botón "+ Nueva cotización" del menú lateral. */
 export const NEW_QUOTE_HREF = '#/cotizaciones/nueva';
 
@@ -83,6 +90,7 @@ function brandLink(className = '') {
  */
 export function createLayout(container, { version = {} } = {}) {
   const navLinks = new Map();
+  let activeNavKey = null;
   let shellKind = 'app';
   let navOpen = false;
 
@@ -121,11 +129,14 @@ export function createLayout(container, { version = {} } = {}) {
   let signOutHandler = null;
   const userNameEl = h('div', { class: 'account-name' });
   const userEmailEl = h('div', { class: 'account-email' });
+  // Rol de plataforma: se muestra aparte del rol en la empresa (no lo reemplaza).
+  const platformBadgeEl = h('div', { class: 'account-platform', hidden: true }, 'RATEOS ADMIN');
+  let adminLink = null;
   const signOutBtn = h('button', { type: 'button', class: 'account-action', on: { click: () => signOutHandler && signOutHandler() } }, icon('logout', { size: 16 }), h('span', {}, 'Cerrar sesión'));
   const accountEl = h(
     'div',
     { class: 'account-card', hidden: true },
-    h('div', { class: 'account-text' }, userNameEl, userEmailEl),
+    h('div', { class: 'account-text' }, userNameEl, platformBadgeEl, userEmailEl),
     h('div', { class: 'account-actions' },
       h('a', { class: 'account-action', href: '#/configuracion/cuenta' }, icon('user', { size: 16 }), h('span', {}, 'Mi cuenta')),
       signOutBtn),
@@ -342,6 +353,7 @@ export function createLayout(container, { version = {} } = {}) {
 
     /** Marca el ítem de navegación activo (aria-current="page"). */
     setActiveNav(key) {
+      activeNavKey = key;
       navLinks.forEach((link, k) => {
         if (k === key) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
@@ -364,6 +376,7 @@ export function createLayout(container, { version = {} } = {}) {
 
     /** Cuenta en el pie del menú (null = sin sesión). */
     setAccount(info) {
+      this.setPlatformAdmin(Boolean(info && info.platformAdmin === true));
       if (!info) {
         accountEl.hidden = true;
         syncEl.hidden = true;
@@ -373,6 +386,23 @@ export function createLayout(container, { version = {} } = {}) {
       userNameEl.textContent = name || info.email || '';
       userEmailEl.textContent = name ? `${info.email || ''}${info.role ? ` · ${info.role}` : ''}` : info.role || '';
       accountEl.hidden = false;
+    },
+    /**
+     * Muestra "RATEOS ADMIN" en la cuenta y la entrada del panel. Para el resto
+     * de los usuarios la entrada no existe en el DOM.
+     */
+    setPlatformAdmin(isAdmin) {
+      platformBadgeEl.hidden = !isAdmin;
+      if (isAdmin && !adminLink) {
+        adminLink = navLink(ADMIN_NAV_ITEM);
+        adminLink.classList.add('nav-admin');
+        if (activeNavKey === ADMIN_NAV_ITEM.key) adminLink.setAttribute('aria-current', 'page');
+        nav.appendChild(adminLink);
+      } else if (!isAdmin && adminLink) {
+        adminLink.remove();
+        navLinks.delete(ADMIN_NAV_ITEM.key);
+        adminLink = null;
+      }
     },
     /** Acción de "Cerrar sesión". */
     onSignOut(handler) {

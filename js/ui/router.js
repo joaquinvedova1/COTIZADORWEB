@@ -71,6 +71,9 @@ export const ROUTES = Object.freeze([
   { name: 'scenarios-quote', segments: ['escenarios', ':id'], shell: 'app', access: 'auth', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
   { name: 'settings', segments: ['configuracion'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', defaults: { tab: 'empresa' }, load: () => import('./views/settings.js'), view: 'render' },
   { name: 'settings-tab', segments: ['configuracion', ':tab'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', validate: (p) => SETTINGS_TABS.includes(p.tab), load: () => import('./views/settings.js'), view: 'render' },
+  // Panel de la PLATAFORMA (RATEOS ADMIN). Requiere sesión; el permiso real lo
+  // verifica Postgres en cada consulta (la vista no muestra nada sin él).
+  { name: 'admin', segments: ['admin'], shell: 'app', access: 'auth', nav: 'admin', title: 'RATEOS Admin', load: () => import('./views/admin.js'), view: 'render' },
   // ------------------------------------------------- enlaces viejos (redirigen)
   { name: 'legacy-dashboard', segments: ['dashboard'], shell: 'app', access: 'auth', nav: 'home', title: 'Inicio', redirect: () => APP_HOME },
   { name: 'legacy-library', segments: ['biblioteca'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', redirect: () => '#/recursos/personal' },

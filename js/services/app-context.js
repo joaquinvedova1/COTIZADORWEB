@@ -21,6 +21,7 @@ import { createQuoteService } from './quote-service.js';
 import { createResourceService } from './resource-service.js';
 import { createBackupService } from './backup-service.js';
 import { createSettingsService } from './settings-service.js';
+import { createAdminService } from './admin-service.js';
 import { createLocalImportService } from './local-import-service.js';
 import { logger } from '../core/logger.js';
 import { STORAGE_KEYS } from '../config.js';
@@ -111,7 +112,7 @@ const ACCOUNT_OPEN_MESSAGES = Object.freeze({
  *   appVersion?: string,
  * }} options
  */
-export async function createAccountContext({ user, workspaceGateway, cacheStorage, appVersion = 'dev' }) {
+export async function createAccountContext({ user, workspaceGateway, adminGateway = null, cacheStorage, appVersion = 'dev' }) {
   if (!user || typeof user.id !== 'string') throw new RepositoryError('No hay una sesión válida.', 'session_expired');
   const membership = await workspaceGateway.loadMembership(user.id);
   if (!membership.ok) {
@@ -127,11 +128,23 @@ export async function createAccountContext({ user, workspaceGateway, cacheStorag
     appVersion,
   });
   const init = await repository.init();
+  // Rol de PLATAFORMA (RATEOS_ADMIN), separado del rol en la empresa. Lo
+  // decide la base (private.platform_admins); acá sólo se usa para mostrar el
+  // menú. Ante cualquier error: no es admin.
+  let platformAdmin = false;
+  if (adminGateway && typeof adminGateway.amIPlatformAdmin === 'function') {
+    try {
+      platformAdmin = (await adminGateway.amIPlatformAdmin()).isAdmin === true;
+    } catch {
+      platformAdmin = false;
+    }
+  }
   const account = {
     user: { id: user.id, email: user.email, fullName: membership.profile.fullName || user.fullName || '' },
     organization: { ...membership.organization },
     role: membership.role,
     roleLabel: ROLE_LABELS[membership.role] || membership.role,
+    platformAdmin,
   };
   return {
     mode: 'cloud',
@@ -141,6 +154,8 @@ export async function createAccountContext({ user, workspaceGateway, cacheStorag
     account,
     ...services(repository),
     localImport: createLocalImportService({ repository, userId: user.id, storage }),
+    /** Panel RATEOS ADMIN (la base verifica el rol en cada llamada). */
+    admin: adminGateway ? createAdminService(adminGateway) : null,
     sync: {
       getState: () => repository.getSyncState(),
       onChange: (listener) => repository.onSyncChange(listener),

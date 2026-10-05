@@ -102,7 +102,8 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 |---|---|---|---|
 | PLAN-2026-001 | MVP funcional RATEOS v0.1.0 | motor de costos, migración, otro | En curso — pendiente de merge |
 | PLAN-2026-002 | Impuestos sobre la facturación (gross-up) y composición del precio | margen, motor de costos, migración | En curso |
-| PLAN-2026-003 | Usuarios reales: Supabase Auth + persistencia cloud con RLS | backend, autenticación, migración | En curso — PR sin merge |
+| PLAN-2026-003 | Usuarios reales: Supabase Auth + persistencia cloud con RLS | backend, autenticación, migración | Completado (PR #9) |
+| PLAN-2026-004 | RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes | backend, autenticación | En curso — PR sin merge, publicado en staging |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
@@ -267,7 +268,7 @@ Preferir corregir hacia adelante. Si se revierte el código, los datos ya migrad
 
 ### PLAN-2026-003 — Usuarios reales: Supabase Auth + persistencia cloud con RLS
 
-- Estado: En curso — Pull Request hacia `main` sin merge automático
+- Estado: Completado — mergeado en `main` (PR #9) tras la prueba real en staging
 - Tipo: backend (Supabase) · autenticación · migración de datos (modo local → cuenta)
 - Responsable: agente de programación + revisión del dueño del repositorio
 - Fecha de inicio: 2026-10-05 · Rama: `claude/supabase-auth-v1`
@@ -299,8 +300,9 @@ Ninguno. `js/engines/**` no cambia; golden cases y baseline de regresión intact
 - [x] UX: guards, landing, demo aislada, cuenta nueva vacía, zona de cuenta, Configuración → Cuenta.
 - [x] Tests unitarios + E2E (Playwright con Supabase simulado) desktop y mobile.
 - [x] Revisión de seguridad adversarial y correcciones.
-- [ ] Configurar en el Dashboard: Site URL y Redirect URLs; SMTP propio antes de abrir el registro.
-- [ ] Merge del PR (dueño del repositorio) y prueba manual con un email real.
+- [x] Configurar en el Dashboard: Site URL y Redirect URLs.
+- [ ] SMTP propio antes de abrir el registro a clientes.
+- [x] Prueba real con un email real en staging (`/preview/`) y merge del PR por el dueño del repositorio.
 
 #### 7. Tests
 `npm test` (sesión, rutas, repositorio con Supabase falso, aislamiento A/B, importación local, migraciones SQL estáticas, secretos), `supabase/tests/rls_test.sql` contra la base real, E2E con endpoints simulados (visitante, demo, usuario nuevo, existente, seguridad A/B, conflicto, sin conexión, sesión vencida, recuperación, importación).
@@ -325,3 +327,62 @@ CI verde, PR mergeado por el dueño, configuración de Auth hecha y un registro 
 
 #### Bitácora
 - 2026-10-05: implementación, tests, E2E y revisión de seguridad en `claude/supabase-auth-v1`.
+- 2026-10-05: registro real verificado en staging y en la base (perfil, empresa, OWNER, workspace vacío, sin demo); merge a `main` y deploy de producción.
+
+### PLAN-2026-004 — RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes
+
+- Estado: En curso — Pull Request hacia `main` sin merge automático; publicado en staging (`/preview/`)
+- Tipo: backend (Supabase) · autenticación (rol de plataforma)
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-05 · Rama: `claude/rateos-admin-v1`
+
+#### 1. Contexto y problema
+Con cuentas reales, el dueño de la plataforma necesita saber cuántos usuarios y empresas hay y cómo vienen usando RATEOS, sin acceder a los datos económicos de ninguna empresa.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: rol de plataforma RATEOS_ADMIN separado de los roles de empresa; alta del master (`joaquinvedova@hotmail.com`) por bootstrap server-side con email confirmado; panel `#/admin` con 4 indicadores y tabla de usuarios (metadata); entrada de menú e insignia sólo para admins; auditoría de apertura del panel.
+- Fuera de alcance: impersonar, cambiar contraseñas, leer cotizaciones, editar workspaces de clientes, borrar empresas, suspender usuarios, modificar membresías, `service_role` en el frontend, pagos o planes, modelo normalizado, cambios en motores.
+
+#### 3. Impacto en fórmulas
+Ninguno. `js/engines/**` no cambia.
+
+#### 4. Impacto en datos
+Sin cambios en `workspace_states` ni en `SCHEMA_VERSION`. Tablas nuevas sólo en `private` (`platform_admins`, `platform_admin_bootstrap`, `admin_audit_log`). Las políticas RLS de `public` no cambian.
+
+#### 5. Diseño
+- Base: migración `20261005034916_rateos_platform_admin.sql` (tablas en `private` con RLS deny-all; `private.is_platform_admin()`; funciones `admin_*` que verifican el rol en cada llamada y nunca devuelven `state`; wrappers `public` security invoker; trigger de bootstrap en `auth.users`).
+- Frontend: `js/data/admin-gateway.js` (sólo RPC, lista blanca de campos), `js/services/admin-service.js`, `js/ui/views/admin.js`, `ADMIN_NAV_ITEM` agregado al menú sólo si la base lo confirma. Ver [docs/AUTH_ARCHITECTURE.md §6.1](../docs/AUTH_ARCHITECTURE.md#61-rol-de-plataforma-rateos-admin).
+
+#### 6. Pasos
+- [x] Migración aplicada con el plugin (sin `drop trigger` sobre `auth.users`: pide ACCESS EXCLUSIVE; con `lock_timeout`).
+- [x] `supabase/tests/rls_admin_test.sql` (32/32) y `rls_test.sql` (40/40) contra la base real.
+- [x] Panel, menú condicional, insignia y guard de la ruta.
+- [x] Tests unitarios, estáticos, de arquitectura y E2E desktop/mobile.
+- [ ] Registrar y confirmar `joaquinvedova@hotmail.com` (el bootstrap la asocia sola) y probar en staging.
+- [ ] Merge del PR por el dueño del repositorio.
+
+#### 7. Tests
+`tests/services/platform-admin.test.js` (identificación, separación OWNER/RATEOS_ADMIN, guard, menú, manipulación del frontend, admin sin acceso a otro workspace), `tests/supabase/migrations.test.js` (reglas del rol de plataforma), `tests/architecture.test.js` (sin email del master ni metadata en `js/`), `supabase/tests/rls_admin_test.sql` y E2E (usuario normal sin menú y `#/admin` rechazado; admin con menú y panel; tras cerrar sesión `#/admin` bloqueado).
+
+#### 8. Riesgos y mitigación
+- La cuenta hotmail todavía no existe: hasta que se registre y confirme, nadie es RATEOS_ADMIN (el panel no se puede ver en producción ni en staging).
+- SMTP por defecto de Supabase: sólo entrega a miembros del equipo del proyecto.
+- `last_sign_in_at` es la única señal de "última actividad" además del último guardado del workspace.
+
+#### 9. Rollback
+Revert del PR (el menú y el panel desaparecen). En la base, una migración nueva que borre el trigger y las tablas de `private` (nunca a mano); mientras tanto no afecta a ningún usuario.
+
+#### 10. Review multidisciplinario
+- Economía: sin cambios de fórmulas.
+- QA: usuario normal, admin, anon, sesión cerrada, recarga directa en `#/admin`, errores de red (= no admin).
+- Seguridad: autoridad sólo en Postgres, sin datos económicos en el panel, sin email hardcodeado en JS, ataques probados (metadata, email en el request, localStorage, PostgREST directo, `organizationId`, insertar en `platform_admins`, claims del JWT).
+- UX: entrada discreta, insignia junto al rol de empresa, mensaje claro sin permisos.
+
+#### 11. Documentación
+AGENTS §19, AUTH_ARCHITECTURE §6.1, SUPABASE_PLAN §0, `supabase/README.md`, CHANGELOG.
+
+#### 12. Criterio de terminación
+CI verde, preview publicado, prueba del dueño en staging con la cuenta master y merge del PR por el dueño.
+
+#### Bitácora
+- 2026-10-05: migración aplicada, tests de base, frontend, tests y E2E en `claude/rateos-admin-v1`.

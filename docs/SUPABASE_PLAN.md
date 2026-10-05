@@ -1,6 +1,6 @@
 # Plan de evolución a Supabase
 
-> **Estado: fases 1 y 2 implementadas** (identidad, Auth, workspace por organización con RLS y `SupabaseRepository`). Proyecto `dltlnizvnvnefgbzfftu` (us-east-1). Migraciones versionadas en [`supabase/migrations/`](../supabase/migrations/) y aplicadas con el plugin/MCP de Supabase; tests de RLS en [`supabase/tests/rls_test.sql`](../supabase/tests/rls_test.sql). El modelo **normalizado** (una tabla por entidad) de §2 y §4 sigue siendo el plan para las fases siguientes. Motores, modelos de cálculo, reglas comerciales y escenarios **no cambiaron**.
+> **Estado: fases 1 y 2 implementadas** (identidad, Auth, workspace por organización con RLS y `SupabaseRepository`), más el rol de plataforma **RATEOS ADMIN** (sólo metadata, §0). Proyecto `dltlnizvnvnefgbzfftu` (us-east-1). Migraciones versionadas en [`supabase/migrations/`](../supabase/migrations/) y aplicadas con el plugin/MCP de Supabase; tests de RLS en [`supabase/tests/rls_test.sql`](../supabase/tests/rls_test.sql). El modelo **normalizado** (una tabla por entidad) de §2 y §4 sigue siendo el plan para las fases siguientes. Motores, modelos de cálculo, reglas comerciales y escenarios **no cambiaron**.
 
 Documentos relacionados: [DATA_MODEL.md](DATA_MODEL.md) (tablas y mapeo), [AUTH_ARCHITECTURE.md](AUTH_ARCHITECTURE.md) (roles y sesión), [ARCHITECTURE.md](ARCHITECTURE.md) (capas), [`supabase/README.md`](../supabase/README.md) (cómo aplicar migraciones y correr los tests).
 
@@ -38,6 +38,22 @@ Se evaluaron dos opciones para la primera versión con cuentas:
 - `public.rls_auto_enable()` (función que trae el proyecto) quedó sin permiso de ejecución para `public`, `anon` y `authenticated`.
 - **Tests:** `supabase/tests/rls_test.sql` (40 controles, todo dentro de un bloque que termina con `RAISE EXCEPTION`: no deja nada en la base) — lectura y escritura cruzada A/B, anon, autoasignarse OWNER, sumar miembros, borrar, columnas de control, revisión vieja, usuario sin membresía. `tests/supabase/migrations.test.js` verifica en cada `npm test` que las migraciones habiliten RLS en toda tabla, no den permisos a `anon`, no tengan políticas de `insert/delete`, que las funciones `security definer` vivan en `private` con `search_path` vacío y que no haya secretos.
 - Advisors de seguridad de Supabase: sin hallazgos.
+
+### Rol de plataforma: RATEOS ADMIN (schema `private`)
+
+Migración `20261005034916_rateos_platform_admin.sql`. Detalle y principio de privacidad en [AUTH_ARCHITECTURE.md §6.1](AUTH_ARCHITECTURE.md#61-rol-de-plataforma-rateos-admin).
+
+| Tabla (`private`) | Para qué | Acceso desde el cliente |
+|---|---|---|
+| `platform_admins` | Quién es RATEOS_ADMIN (`user_id` → `auth.users`) | Ninguno (RLS sin políticas, sin grants) |
+| `platform_admin_bootstrap` | Email autorizado, normalizado, de un solo uso (`consumed_at`, `consumed_by`) | Ninguno |
+| `admin_audit_log` | `ADMIN_PANEL_OPEN` (quién y cuándo) | Ninguno |
+
+- Alta del master por trigger en `auth.users` (`on_auth_user_platform_admin`) sólo con email **confirmado** y no anónimo; nunca por metadata ni claims.
+- API: `public.am_i_platform_admin()`, `public.admin_overview()`, `public.admin_users()` (security **invoker**, sin argumentos, sólo `authenticated`), que delegan en funciones `security definer` de `private` con `search_path = ''` que verifican el rol con `auth.uid()` en cada llamada. `admin_users()` nunca devuelve `workspace_states.state` (sólo revisión, esquema, tamaño y fecha).
+- Las políticas de las tablas de `public` **no cambiaron**: RATEOS_ADMIN no lee ni escribe el workspace de otra empresa.
+- **Tests:** `supabase/tests/rls_admin_test.sql` (32 controles, también dentro de un bloque que se deshace) y reglas estáticas en `tests/supabase/migrations.test.js`.
+- Advisors: `rls_enabled_no_policy` (INFO) en las tres tablas de `private` es **intencional** (deny-all). Queda el aviso de Auth "leaked password protection" (se activa en el dashboard, plan Pro).
 
 ### Control de concurrencia (revisión)
 
