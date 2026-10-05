@@ -13,6 +13,7 @@ import {
   cleanAuthUrl,
   createAuthService,
   parseAuthRedirect,
+  siteUrlFor,
   validateSignUp,
 } from '../../js/services/auth-service.js';
 import { authErrorCode, publicUser } from '../../js/data/auth-gateway.js';
@@ -118,6 +119,24 @@ describe('AuthService: registro e ingreso', () => {
     assert.equal(seen.at(-1).endReason, 'expired');
   });
 
+  test('la base rechazó el token: se renueva una vez; si no se puede, "expired" (Tu sesión terminó)', async () => {
+    const gw = createFakeAuthGateway({ users: [{ id: 'u1', email: 'a@example.com', password: 'clave-segura-1', emailConfirmed: true }] });
+    await gw.signIn({ email: 'a@example.com', password: 'clave-segura-1' });
+    const { auth } = service(gw);
+    await auth.init();
+    assert.deepEqual(await auth.revalidate(), { ok: true });
+    assert.equal(auth.status, AUTH_STATUS.authenticated);
+    gw.refreshFails = 'network';
+    assert.equal((await auth.revalidate()).ok, false);
+    assert.equal(auth.status, AUTH_STATUS.authenticated, 'sin conexión no se cierra la sesión');
+    gw.refreshFails = 'session_missing';
+    const seen = [];
+    auth.subscribe((s) => seen.push(s));
+    assert.deepEqual(await auth.revalidate(), { ok: false, code: 'expired' });
+    assert.equal(auth.status, AUTH_STATUS.anonymous);
+    assert.equal(seen.at(-1).endReason, 'expired');
+  });
+
   test('nunca guarda la contraseña ni el email en localStorage', async () => {
     const original = globalThis.localStorage;
     const spy = new SpyStorage();
@@ -141,6 +160,15 @@ describe('AuthService: enlaces de email con GitHub Pages + router por hash', () 
     assert.equal(authRedirectUrl('confirm', '/cotizaciones/nueva', SITE), `${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva`);
     assert.equal(authRedirectUrl('recovery', null, SITE), `${SITE}?auth=recovery`);
     assert.equal(authRedirectUrl('confirm', 'https://malo.example', SITE), `${SITE}?auth=confirm`, 'destinos externos se descartan');
+  });
+
+  test('siteUrlFor: sitio público salvo en desarrollo local bajo /COTIZADORWEB/', () => {
+    assert.equal(siteUrlFor({ href: 'https://joaquinvedova1.github.io/COTIZADORWEB/#/login' }), SITE);
+    assert.equal(siteUrlFor({ href: 'http://localhost:8080/COTIZADORWEB/#/registro' }), 'http://localhost:8080/COTIZADORWEB/');
+    assert.equal(siteUrlFor({ href: 'http://127.0.0.1:9000/COTIZADORWEB/' }), 'http://127.0.0.1:9000/COTIZADORWEB/');
+    assert.equal(siteUrlFor({ href: 'https://evil.example/COTIZADORWEB/' }), SITE, 'otro origen nunca es la base de los enlaces');
+    assert.equal(siteUrlFor({ href: 'http://localhost:8080/otra-cosa/' }), SITE);
+    assert.equal(siteUrlFor(undefined), SITE);
   });
 
   test('parseAuthRedirect lee la query antes del # y descarta destinos inseguros', () => {

@@ -70,6 +70,23 @@ export function validateSignIn({ email, password }) {
  * Supabase → Authentication → URL Configuration). Sin "#": PKCE agrega
  * ?code=… y el router por hash no se rompe.
  */
+/**
+ * Base de los enlaces de los emails: el sitio público (GitHub Pages) y, en
+ * desarrollo local (localhost / 127.0.0.1 bajo /COTIZADORWEB/), el servidor
+ * local. Cualquier otro origen usa el sitio público. Supabase además sólo
+ * acepta las Redirect URLs de su lista permitida.
+ */
+export function siteUrlFor(location, fallback = PUBLIC_SITE_URL) {
+  try {
+    const url = new URL(location && location.href ? location.href : '');
+    const local = url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+    if (local && url.pathname.startsWith('/COTIZADORWEB/')) return `${url.origin}/COTIZADORWEB/`;
+  } catch {
+    /* sin location: el sitio público */
+  }
+  return fallback;
+}
+
 export function authRedirectUrl(kind, next = null, siteUrl = PUBLIC_SITE_URL) {
   const url = new URL(siteUrl);
   url.hash = '';
@@ -121,7 +138,7 @@ export function cleanAuthUrl(href) {
  *   history?: { replaceState: Function },
  * }} deps
  */
-export function createAuthService({ gateway, siteUrl = PUBLIC_SITE_URL, location = globalThis.location, history = globalThis.history }) {
+export function createAuthService({ gateway, location = globalThis.location, history = globalThis.history, siteUrl = siteUrlFor(location) }) {
   if (!gateway) throw new Error('Falta el acceso a Supabase Auth.');
   let status = AUTH_STATUS.loading;
   let user = null;
@@ -270,6 +287,29 @@ export function createAuthService({ gateway, siteUrl = PUBLIC_SITE_URL, location
       } finally {
         signingOut = false;
       }
+    },
+
+    /**
+     * La base rechazó el token (401) aunque el SDK creía tener sesión: se
+     * intenta renovar UNA vez. Si no hay sesión válida, se cierra la local
+     * con motivo "expired" ("Tu sesión terminó. Volvé a ingresar."). Sin
+     * conexión no se cierra nada (queda "sin sincronizar").
+     * @returns {Promise<{ ok: boolean, code?: string }>}
+     */
+    async revalidate() {
+      if (status !== AUTH_STATUS.authenticated) return { ok: false, code: 'session_missing' };
+      const res = await gateway.refresh();
+      if (res.ok) return { ok: true };
+      if (res.code === AUTH_ERRORS.network) return { ok: false, code: res.code };
+      signingOut = true;
+      try {
+        await gateway.signOut();
+      } finally {
+        signingOut = false;
+      }
+      recoveryMode = false;
+      setState(AUTH_STATUS.anonymous, null, 'expired');
+      return { ok: false, code: 'expired' };
     },
 
     /** Siempre responde lo mismo (no revela si el email tiene cuenta). */

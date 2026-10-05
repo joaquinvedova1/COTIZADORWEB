@@ -196,6 +196,7 @@ function heroSection({ hasQuotes, name }) {
           ? linkButton('Probar con un ejemplo', DEMO_FROM_APP_HREF, { variant: 'ghost', size: 'lg', icon: 'play' })
           : linkButton('Configurar mi empresa', '#/configuracion/empresa', { variant: 'secondary', size: 'lg', icon: 'settings' }),
       ),
+      hasQuotes ? null : h('p', { class: 'home-demo-link' }, '¿Querés ver primero cómo funciona? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá la demo'), ': está aparte y no toca tus datos.'),
     ),
     heroArt(),
   );
@@ -540,7 +541,8 @@ export async function render(root, app) {
       heroSection({ hasQuotes, name: greetingName(ctx.account && ctx.account.user ? ctx.account.user.fullName : '') }),
       hasQuotes ? continueSection(draft) : null,
       hasQuotes ? indicatorsSection(indicators, settings, scope) : null,
-      quotesSection(app, { all, own, scope }),
+      // Sin cotizaciones, el saludo ya es el estado vacío (sin botones repetidos).
+      hasQuotes ? quotesSection(app, { all, own, scope }) : null,
       h('div', { class: 'home-more disclosure-list' }, shortcutsSection(app, { items: all }), learnSection()),
     ),
   );

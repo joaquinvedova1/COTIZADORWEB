@@ -149,6 +149,11 @@ export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) 
       session = null;
       return { ok: true };
     },
+    /** refresh(): con gw.refreshFails = 'session_missing' | 'network' simula que no se puede renovar. */
+    async refresh() {
+      if (gw.refreshFails) return { ok: false, code: gw.refreshFails };
+      return session ? { ok: true, user: { ...session } } : { ok: false, code: 'session_missing' };
+    },
     async requestPasswordReset(email, redirectTo) {
       gw.lastReset = { email, redirectTo };
       return { ok: true };

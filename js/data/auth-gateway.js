@@ -121,6 +121,17 @@ export function createAuthGateway(client) {
       return { ok: true, code: null, user: publicUser(res.data && res.data.user) };
     },
 
+    /**
+     * Renueva la sesión con el refresh token (cuando la base rechazó el
+     * token). Sin sesión válida → { ok: false, code: 'session_missing' }.
+     */
+    async refresh() {
+      const res = await call(() => auth.refreshSession());
+      if (!res.ok) return { ok: false, code: res.code === AUTH_ERRORS.network ? AUTH_ERRORS.network : AUTH_ERRORS.sessionMissing };
+      const session = res.data && res.data.session;
+      return session ? { ok: true, code: null, user: publicUser(session.user) } : { ok: false, code: AUTH_ERRORS.sessionMissing };
+    },
+
     /** Cierra la sesión de este navegador (el refresh token queda revocado en el servidor). */
     async signOut() {
       const res = await call(() => auth.signOut({ scope: 'local' }));

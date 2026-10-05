@@ -151,6 +151,8 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .home-lead { margin: 0.25rem 0 0; font-size: var(--fs-lg); line-height: 1.5; color: var(--ink-2); max-width: 52ch; }
 .home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1.25rem; }
 .home-actions .btn-ghost { color: var(--blue-text); }
+.home-demo-link { margin: 0.75rem 0 0; font-size: 0.95rem; color: var(--ink-3); }
+.home-demo-link a { font-weight: 650; color: var(--blue-text); }
 .home-hero-art { position: absolute; right: 0; bottom: 0; width: min(44%, 440px); height: auto; pointer-events: none; }
 .art-far { fill: #E4EFF7; }
 .art-mid { fill: #D3E6F2; }

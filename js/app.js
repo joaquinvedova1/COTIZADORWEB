@@ -227,7 +227,7 @@ function countsText(counts) {
 
 /** "Tus datos cambiaron en otro dispositivo." [Recargar] [Conservar una copia] */
 function conflictBanner(ctx, { onReloaded }) {
-  const el = banner('Tus datos cambiaron en otro dispositivo. Para no pisar nada, tus últimos cambios de esta pestaña no se subieron.', 'danger', { title: 'Tus datos cambiaron en otro dispositivo.' });
+  const el = banner('Para no pisar nada, tus últimos cambios de esta pestaña no se subieron. Recargá para ver la versión más nueva; si querés, antes conservá una copia de la tuya.', 'danger', { title: 'Tus datos cambiaron en otro dispositivo.' });
   const actions = h('div', { class: 'banner-actions' },
     button('Recargar', {
       variant: 'primary',
@@ -462,6 +462,14 @@ async function boot(root) {
         if (state.status !== lastStatus) {
           lastStatus = state.status;
           renderBanners();
+          // La base rechazó la sesión: se renueva una vez y se reintenta; si
+          // no se puede, "Tu sesión terminó. Volvé a ingresar." (los cambios
+          // quedan en la copia local y se suben al volver a ingresar).
+          if (state.status === 'session_expired') {
+            auth.revalidate().then((res) => {
+              if (res.ok && account === ctx) ctx.sync.retry().catch(() => undefined);
+            }).catch(() => undefined);
+          }
         }
       });
       const s = ctx.sync.getState();
