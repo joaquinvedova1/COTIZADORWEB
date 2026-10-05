@@ -13,7 +13,7 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
-import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES } from '../domain/catalogs.js';
+import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { contingencyPctOf } from './cost-engine.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent } from '../core/format.js';
@@ -195,15 +195,37 @@ export function evaluateCompleteness(quote = {}) {
     const recoveryUndefined = externals.filter((e) => externalFiscal(extOf(e).fiscal).recovery === null);
     const noValidity = externals.filter((e) => !extOf(e).validUntil);
     const expired = externals.filter((e) => extOf(e).validUntil && offerDay && extOf(e).validUntil < offerDay);
+    // Qué incluye la tarifa: sin definir el combustible o el operador no se suma nada (puede faltar costo).
+    const inclusionsUndefined = externals.filter((e) => typeof extOf(e).fuelIncluded !== 'boolean' || typeof extOf(e).operatorIncluded !== 'boolean');
+    // Por km o por viaje sin km / viajes en la cotización (y sin mínimo): la tarifa queda en 0.
+    const routeKm = logistics.notApplicable ? 0 : nonNegative(logistics.distanceKm);
+    const noUnits = externals.filter((e) => {
+      const x = extOf(e);
+      if (nonNegative(x.price) <= 0 || nonNegative(x.minimumUnits) > 0) return false;
+      if (x.unit === 'km') return routeKm <= 0;
+      if (x.unit === 'trip') return Boolean(logistics.notApplicable);
+      return false;
+    });
+    // Global: se reparte en los meses de contrato (sin dato se toma 1 mes).
+    const globalNoContract = externals.filter((e) => extOf(e).unit === 'global' && !(nonNegative(quote.contractMonths) >= 1));
     const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Externo'}"`).join(', ');
     let status = 'ok';
     let message = 'Recursos externos con tratamiento fiscal y vigencia definidos.';
     if (fiscalMissing.length) {
       status = 'missing';
       message = `Falta la alícuota de IVA (o la parte recuperable) de ${names(fiscalMissing)}: sin ese dato no se puede calcular el IVA que no recuperás.`;
+    } else if (noUnits.length) {
+      status = 'missing';
+      message = `La tarifa de ${names(noUnits)} es por km o por viaje y esta cotización no tiene km ni viajes: no suma costo. Cargá la distancia y los viajes en "Movilización y viajes" o un mínimo.`;
     } else if (recoveryUndefined.length) {
       status = 'warning';
       message = `Sin definir si el IVA de ${names(recoveryUndefined)} es recuperable: RATEOS usa el precio neto (sin IVA). Si no lo recuperás, el costo es mayor.`;
+    } else if (inclusionsUndefined.length) {
+      status = 'warning';
+      message = `Sin definir si la tarifa de ${names(inclusionsUndefined)} incluye combustible u operador: si no lo incluye y no lo cargás, falta costo.`;
+    } else if (globalNoContract.length) {
+      status = 'warning';
+      message = `La tarifa global de ${names(globalNoContract)} se reparte en los meses de contrato: cargá la duración del contrato (sin ese dato se toma todo en 1 mes).`;
     } else if (expired.length) {
       status = 'warning';
       message = `La oferta de ${names(expired)} venció antes de la fecha de esta cotización: pedí un precio vigente.`;
@@ -259,8 +281,11 @@ export function evaluateCompleteness(quote = {}) {
 
   // 9f. Moneda: un valor en otra moneda necesita el tipo de cambio de la cotización
   const priced = [
-    ...equipment.map((e) => ({ name: e.name || 'Equipo', base: e.base, relevant: isExt(e) ? nonNegative(extOf(e).price) > 0 : nonNegative(e.replacementValue) > 0 })),
-    ...(quote.materialsNotApplicable ? [] : materials.map((m) => ({ name: m.description || 'Material', base: m.base, relevant: nonNegative(m.unitCost) > 0 }))),
+    ...equipment.map((e) => ({ name: e.name || 'Equipo', base: e.base, relevant: nonNegative(e.quantity) > 0 && (isExt(e) ? nonNegative(extOf(e).price) > 0 : nonNegative(e.replacementValue) > 0) })),
+    ...(quote.materialsNotApplicable ? [] : materials.map((m) => {
+      const provider = MATERIAL_PROVIDERS.find((p) => p.id === m.providedBy);
+      return { name: m.description || 'Material', base: m.base, relevant: nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0 && !(provider && provider.costForUs === false) };
+    })),
   ].filter((x) => x.relevant);
   const foreign = priced.filter((x) => currencyOfBase(x.base) && conversionFactor(currencyOfBase(x.base), quote) !== 1);
   const noRate = foreign.filter((x) => conversionFactor(currencyOfBase(x.base), quote) === null);

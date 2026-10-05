@@ -308,7 +308,8 @@ Archivo: `js/engines/mobilization-engine.js` (`computeMobilization`). Por cada l
 por sus propios medios (self):
   km por llamado     = km de ruta por llamado × cantidad
   litros             = km × consumo en ruta (L/100 km) / 100
-  combustible        = litros × precio       (0 si lo provee el cliente o si es alquilado con combustible incluido)
+  combustible        = litros × precio       (0 si lo provee el cliente; un externo sólo si su tarifa NO incluye combustible:
+                                              sin definir no se suma y se avisa, igual que el combustible trabajando)
   desgaste           = km × mantenimiento y neumáticos por km      (SIN combustible ni amortización)
   conductor          = su operador (ya en Personal) → no se suma mano de obra; otra persona → debe estar en Personal
 lo transporta otro equipo (transported) → 0 (el costo está en la línea del carretón / batea / camión)
@@ -371,6 +372,7 @@ sin tipo de cambio → factor = 0: el valor NO se suma y la validación lo marca
 ```
 
 - Se convierten: valor de reposición y residual de un equipo propio (su `base.currency`), la tarifa y la movilización de un externo, el costo unitario de un material.
+- Sólo falta el tipo de cambio si el valor nos cuesta algo: un material que provee el cliente, una cantidad 0 o un precio 0 no lo piden.
 - Sueldos y costos de tener/usar un equipo propio están siempre en la moneda de la empresa.
 - El tipo de cambio lo carga la empresa en cada cotización (con su mes): RATEOS nunca lo consulta ni lo inventa.
 
@@ -965,7 +967,7 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 8 | `materials` | siempre | 1 / 2 | "no usa materiales" → ok (1); sin líneas → naranja (1); con líneas → ok si todas tienen responsable, si no rojo (2) |
 | 9 | `logistics` | siempre | 1 / 2 | "sin traslados" → ok (1); si no, ok si distancia > 0 y algo se mueve (un vehículo con cantidad > 0, un equipo con movilización por sus medios / transportado / con apoyo, o un externo con movilización incluida); si no, rojo (2) |
 | 9b | `mobility` (v3) | hay equipos y traslados | 1 | ok si cada equipo tiene definido cómo llega (o el externo la incluye) y no hay avisos de transporte o conductor; si no, naranja |
-| 9c | `external_terms` (v3) | hay equipos externos | 1 | rojo si falta la alícuota de IVA cuando no es recuperable (o la parte recuperable si es parcial); naranja si no se definió si el IVA es recuperable, si la oferta del proveedor venció antes de la fecha de la oferta o no tiene vigencia; si no, ok |
+| 9c | `external_terms` (v3) | hay equipos externos | 1 | rojo si falta la alícuota de IVA cuando no es recuperable (o la parte recuperable si es parcial), o si la tarifa es por km o por viaje y la cotización no tiene km / viajes (y no hay mínimo); naranja si no se definió si el IVA es recuperable, si no se definió si la tarifa incluye combustible u operador, si una tarifa global no tiene meses de contrato (se toma 1 mes), si la oferta del proveedor venció antes de la fecha de la oferta o no tiene vigencia; si no, ok |
 | 9d | `duplicates` (v3) | hay equipos | 1 | naranja si un externo incluye operador y además tiene uno de Personal asignado, si un equipo que va por sus propios medios también figura como vehículo de la logística auxiliar, o si un externo cuya movilización cobra el proveedor aparte además va "por sus propios medios"; si no, ok |
 | 9e | `economic_base` (v3) | hay valores con costo | 1 | naranja si algún valor no tiene fecha base; si no, ok |
 | 9f | `base_age` (v3) | algún valor con base | 1 | naranja si hay bases de más de 6 meses antes de la oferta o bases distintas (§6.2); si no, ok |

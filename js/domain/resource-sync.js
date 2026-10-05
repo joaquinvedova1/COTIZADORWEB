@@ -17,6 +17,7 @@
  */
 
 import { isPlainObject, deepClone } from '../core/object.js';
+import { createId } from '../core/ids.js';
 import { laborLineFromProfile, equipmentLineFromLibrary, externalLineFromService, materialLineFromLibrary } from './quote-factory.js';
 import { snapshotValuesFromLine, fingerprintOf, MAIN_VALUE_FIELD } from './resource-snapshot.js';
 
@@ -34,8 +35,8 @@ function resourceIdOf(line) {
 }
 
 /** Línea "fresca" armada desde el recurso maestro (mismos factories que al agregarlo). */
-function lineFromResource(type, resource, { resources = {}, now = null, currency } = {}) {
-  const opts = { id: 'sync', now, currency };
+function lineFromResource(type, resource, { resources = {}, now = null, currency, id = 'sync' } = {}) {
+  const opts = { id, now, currency };
   switch (type) {
     case 'laborProfiles': {
       const agreements = Array.isArray(resources.agreements) ? resources.agreements : [];
@@ -110,19 +111,21 @@ const KEEP_ON_UPDATE = Object.freeze({
 export function applyResourceUpdate(listKey, line, resources = {}, { now = null, currency } = {}) {
   const status = lineSyncStatus(listKey, line, resources, { currency });
   if (!status.resource) return deepClone(line);
-  const fresh = lineFromResource(status.type, status.resource, { resources, now, currency });
+  // Una línea sin id (datos viejos) recibe uno nuevo: nunca un id compartido.
+  const id = typeof line.id === 'string' && line.id ? line.id : createId();
+  const fresh = lineFromResource(status.type, status.resource, { resources, now, currency, id });
   const next = { ...fresh };
   (KEEP_ON_UPDATE[status.type] || ['id']).forEach((k) => {
     if (Object.hasOwn(line, k)) next[k] = deepClone(line[k]);
   });
+  next.id = id;
   if (listKey === 'equipment' && isPlainObject(line.mobilization)) {
-    // Cómo llega al servicio es una decisión de la cotización; del recurso sólo
-    // se toman el consumo y el desgaste en ruta.
-    next.mobilization = {
-      ...deepClone(line.mobilization),
-      travelLitersPer100Km: fresh.mobilization.travelLitersPer100Km,
-      travelCostPerKm: fresh.mobilization.travelCostPerKm,
-    };
+    // Cómo llega al servicio es una decisión de la cotización. Del legajo de
+    // "Mis equipos" se toman el consumo y el desgaste en ruta; un servicio
+    // externo no los tiene: se conservan los de la línea.
+    next.mobilization = status.type === 'equipment'
+      ? { ...deepClone(line.mobilization), travelLitersPer100Km: fresh.mobilization.travelLitersPer100Km, travelCostPerKm: fresh.mobilization.travelCostPerKm }
+      : deepClone(line.mobilization);
   }
   if (isPlainObject(next.snapshot)) next.snapshot.resourceId = status.resourceId;
   return next;

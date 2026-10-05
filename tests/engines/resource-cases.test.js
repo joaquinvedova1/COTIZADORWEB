@@ -509,3 +509,95 @@ describe('Externos: unidades, mínimos, combustible y movilización del proveedo
     }
   });
 });
+
+describe('Revisión adversarial (§36): correcciones', () => {
+  const service = (overrides = {}) => ({
+    id: 'svc-cam',
+    name: 'Camión alquilado',
+    familyId: 'truck',
+    acquisition: 'rented',
+    external: createExternalTerms({ price: 200000, unit: 'day', operatorIncluded: false, fuelIncluded: false, fuelLitersPerHour: 0, mobilizationIncluded: true, fiscal: { vatPct: 21, vatRecoverable: 'yes' }, validUntil: '2026-12-31' }),
+    base: { period: '2026-10', currency: 'ARS', source: 'supplier', note: '' },
+    ...overrides,
+  });
+
+  test('"Actualizar" en un externo conserva el consumo y el desgaste en ruta de la línea', () => {
+    const line = externalLineFromService(service(), { id: 'x1', now: OCT });
+    line.mobilization = createMobilization({ mode: 'self', travelLitersPer100Km: 35, travelCostPerKm: 150, driver: 'operator' });
+    const resources = { externalServices: [service({ external: createExternalTerms({ ...service().external, price: 210000 }) })] };
+    assert.equal(lineSyncStatus('equipment', line, resources).state, 'changed');
+    const next = applyResourceUpdate('equipment', line, resources, { now: OCT });
+    assert.equal(next.external.price, 210000);
+    assert.equal(next.mobilization.travelLitersPer100Km, 35);
+    assert.equal(next.mobilization.travelCostPerKm, 150);
+    assert.equal(next.mobilization.mode, 'self');
+    assert.equal(next.id, 'x1');
+  });
+
+  test('"Actualizar" en una línea sin id le asigna un id nuevo (nunca uno compartido)', () => {
+    const resources = { materials: [{ id: 'mat', description: 'Filtros', unitCost: 300, base: { period: '2026-10', currency: 'ARS', source: null, note: '' } }] };
+    const a = materialLineFromLibrary({ id: 'mat', description: 'Filtros', unitCost: 100 }, { now: OCT });
+    const b = materialLineFromLibrary({ id: 'mat', description: 'Filtros', unitCost: 100 }, { now: OCT });
+    delete a.id;
+    delete b.id;
+    const na = applyResourceUpdate('materials', a, resources, { now: OCT });
+    const nb = applyResourceUpdate('materials', b, resources, { now: OCT });
+    assert.ok(typeof na.id === 'string' && na.id && na.id !== 'sync');
+    assert.notEqual(na.id, nb.id);
+  });
+
+  test('externo por sus propios medios: combustible en ruta sólo si la tarifa NO lo incluye; sin definir se avisa', () => {
+    const run = (fuelIncluded) => {
+      const q = baseQuote();
+      const line = blankEquipmentLine({ acquisition: 'outsourced', id: 'o' });
+      line.external = createExternalTerms({ price: 100, unit: 'day', operatorIncluded: true, fuelIncluded, fuelLitersPerHour: 10, mobilizationIncluded: false, mobilizationAmount: 0, fiscal: { vatRecoverable: 'yes' }, validUntil: '2026-12-31' });
+      line.mobilization = createMobilization({ mode: 'self', travelLitersPer100Km: 40, travelCostPerKm: 0, driver: 'other' });
+      q.equipment.push(line);
+      return q;
+    };
+    const fuelOf = (q) => buildCostModel(q).mobilization.fuelPerActiveDay;
+    approx(fuelOf(run(false)), 160 * 0.4 * 1500, 'no incluido: se paga');
+    approx(fuelOf(run(true)), 0, 'incluido: no se paga');
+    approx(fuelOf(run(null)), 0, 'sin definir: no se suma');
+    assert.match(evaluateCompleteness(run(null)).items.find((i) => i.id === 'external_terms').message, /incluye combustible u operador/);
+  });
+
+  test('tarifa por km sin km en la cotización (y sin mínimo): falta un dato (rojo), nunca 0 en silencio', () => {
+    const q = baseQuote();
+    q.logistics.notApplicable = true;
+    const line = blankEquipmentLine({ acquisition: 'outsourced', id: 'k' });
+    line.external = createExternalTerms({ price: 3000, unit: 'km', operatorIncluded: true, fuelIncluded: true, mobilizationIncluded: true, fiscal: { vatRecoverable: 'yes' }, validUntil: '2026-12-31' });
+    line.mobilization = createMobilization({ mode: 'none' });
+    q.equipment.push(line);
+    const it = evaluateCompleteness(q).items.find((i) => i.id === 'external_terms');
+    assert.equal(it.status, 'missing');
+    assert.match(it.message, /por km o por viaje/);
+  });
+
+  test('tarifa global sin meses de contrato: se avisa; meses de contrato inválidos se validan', () => {
+    const q = baseQuote();
+    q.contractMonths = null;
+    const line = blankEquipmentLine({ acquisition: 'outsourced', id: 'g' });
+    line.external = createExternalTerms({ price: 12000000, unit: 'global', operatorIncluded: true, fuelIncluded: true, mobilizationIncluded: true, fiscal: { vatRecoverable: 'yes' }, validUntil: '2026-12-31' });
+    line.mobilization = createMobilization({ mode: 'none' });
+    q.equipment.push(line);
+    assert.match(evaluateCompleteness(q).items.find((i) => i.id === 'external_terms').message, /meses de contrato/);
+    q.contractMonths = -2;
+    assert.ok(computeQuote(q, { settings }).issues.some((i) => i.path === 'contractMonths' && i.severity === 'error'));
+  });
+
+  test('material en USD que provee el cliente (o en 0): no pide tipo de cambio', () => {
+    const q = baseQuote();
+    q.materialsNotApplicable = false;
+    const usd = { period: '2026-10', currency: 'USD', source: null, note: '' };
+    q.materials.push(materialLineFromLibrary({ id: 'm1', description: 'Químico', unitCost: 500, quantity: 1, providedBy: 'client', base: usd }, { id: 'l1', now: OCT }));
+    q.materials.push(materialLineFromLibrary({ id: 'm2', description: 'Repuesto', unitCost: 0, quantity: 1, providedBy: 'contractor', base: usd }, { id: 'l2', now: OCT }));
+    const r = computeQuote(q, { settings });
+    assert.equal(r.issues.filter((i) => /tipo de cambio/.test(i.message)).length, 0);
+    const cur = r.completeness.items.find((i) => i.id === 'currency');
+    assert.ok(!cur || cur.status !== 'missing');
+    // Si nos cuesta, sí lo pide.
+    q.materials[1].unitCost = 10;
+    assert.ok(computeQuote(q, { settings }).issues.some((i) => /tipo de cambio USD/.test(i.message)));
+  });
+});

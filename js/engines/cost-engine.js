@@ -24,7 +24,7 @@
 import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide, roundPercentagesToTotal, roundPercentage, toNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
-import { COST_CATEGORIES, CATEGORY_PAY_GROUP, DIRECT_CATEGORY_IDS, PAY_GROUPS } from '../domain/catalogs.js';
+import { COST_CATEGORIES, CATEGORY_PAY_GROUP, DIRECT_CATEGORY_IDS, PAY_GROUPS, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { computeLabor } from './labor-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
 import { computeLogistics } from './logistics-engine.js';
@@ -127,11 +127,13 @@ export function buildCostModel(quote = {}) {
   // validación lo marca en rojo.
   const currency = quoteCurrency(quote);
   const currencyGaps = [];
-  const factorFor = (base, where) => {
+  // Sólo es un faltante si el valor nos cuesta algo (un material que provee el
+  // cliente o un precio en 0 no necesitan tipo de cambio).
+  const factorFor = (base, where, relevant = true) => {
     const cur = currencyOfBase(base);
     const f = conversionFactor(cur, quote);
     if (f === null) {
-      currencyGaps.push({ ...where, currency: cur });
+      if (relevant) currencyGaps.push({ ...where, currency: cur });
       return 0;
     }
     return f;
@@ -155,11 +157,12 @@ export function buildCostModel(quote = {}) {
   const equipment = equipmentInput.map((e, index) => {
     const acquisition = e.acquisition === 'rented' || e.acquisition === 'outsourced' ? e.acquisition : 'owned';
     if (acquisition === 'owned') {
-      const f = factorFor(e.base, { list: 'equipment', index, field: 'base', label: e.name || 'Equipo' });
+      const f = factorFor(e.base, { list: 'equipment', index, field: 'base', label: e.name || 'Equipo' }, nonNegative(e.quantity) > 0 && (nonNegative(e.replacementValue) > 0 || nonNegative(e.residualValue) > 0));
       const converted = f === 1 ? e : { ...e, replacementValue: nonNegative(e.replacementValue) * f, residualValue: nonNegative(e.residualValue) * f };
       return { ...computeEquipmentLine(converted, { fuelPricePerLiter, fuelPaidByUs, defaultHoursPerActiveDay: activity.hoursPerActiveDay }), acquisition, conversion: f, external: null };
     }
-    const f = factorFor(e.base, { list: 'equipment', index, field: 'base', label: e.name || 'Equipo externo' });
+    const ext = e.external && typeof e.external === 'object' ? e.external : {};
+    const f = factorFor(e.base, { list: 'equipment', index, field: 'base', label: e.name || 'Equipo externo' }, nonNegative(e.quantity) > 0 && (nonNegative(ext.price) > 0 || (ext.mobilizationIncluded === false && nonNegative(ext.mobilizationAmount) > 0)));
     const x = computeExternalLine({ ...e, acquisition }, {
       daysPerActivation: activity.daysPerActivation,
       defaultHoursPerActiveDay: activity.hoursPerActiveDay,
@@ -331,7 +334,9 @@ export function buildCostModel(quote = {}) {
 
   // 4. Materiales
   const materialInput = quote.materialsNotApplicable ? [] : objectList(quote.materials).map((m, index) => {
-    const f = factorFor(m.base, { list: 'materials', index, field: 'base', label: m.description || 'Material' });
+    const provider = MATERIAL_PROVIDERS.find((p) => p.id === m.providedBy);
+    const costsUs = !(provider && provider.costForUs === false) && nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0;
+    const f = factorFor(m.base, { list: 'materials', index, field: 'base', label: m.description || 'Material' }, costsUs);
     return f === 1 ? m : { ...m, unitCost: nonNegative(m.unitCost) * f };
   });
   const materials = computeMaterials(materialInput, {

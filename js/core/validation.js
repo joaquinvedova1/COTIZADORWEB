@@ -118,6 +118,7 @@ export function validateQuote(quote) {
     if (!r.ok) issues.push({ path, message: r.error, severity: 'error' });
   };
 
+  check('contractMonths', quote.contractMonths, 'months');
   const a = isPlainObject(quote.activity) ? quote.activity : {};
   check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'days');
   check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');

@@ -85,9 +85,10 @@ function equipmentTrace(result, index, source) {
   return createTrace({
     id: 'equipment_line',
     title: `Equipo — ${line.name || 'Equipo'}`,
-    formula: 'Posesión/mes = (reposición − residual) / (vida útil × 12) + (seguro + patente + certificaciones) / 12 + inversión promedio × tasa de capital / 12 · Operación/h = mantenimiento + neumáticos + litros/h × precio combustible · Costo del mes = posesión × cantidad + operación/h × horas por día × días activos × cantidad',
+    formula: 'Posesión/mes = (reposición − residual) / (vida útil × 12) + (seguro + patente + certificaciones + otros) / 12 + inversión promedio × tasa de capital / 12 · Operación/h = mantenimiento + neumáticos + litros/h × precio combustible · Costo del mes = posesión × cantidad + operación/h × horas por día × días activos × cantidad',
     inputs: [
-      { label: 'Valor de reposición', value: o.replacement, format: 'money' },
+      line.conversion !== undefined && line.conversion !== 1 ? { label: `Tipo de cambio de la cotización (${(source && source.base && source.base.currency) || ''})`, value: line.conversion, format: 'number' } : null,
+      { label: 'Valor de reposición (en la moneda de la cotización)', value: o.replacement, format: 'money' },
       { label: 'Valor residual', value: o.residual, format: 'money' },
       { label: 'Vida útil (años)', value: o.lifeYears, format: 'number' },
       { label: 'Cantidad', value: line.quantity, format: 'number' },
@@ -95,10 +96,10 @@ function equipmentTrace(result, index, source) {
       { label: 'Días activos por mes', value: result.activity.activeDaysPerMonth, format: 'days' },
       { label: 'Precio combustible (si lo pagamos)', value: op.fuelPricePerLiter, format: 'rate' },
       { label: 'Consumo', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
-    ],
+    ].filter(Boolean),
     steps: [
       { label: 'Amortización mensual (por unidad)', value: o.depreciationMonthly, format: 'money' },
-      { label: 'Seguro + patente + certificaciones (por unidad)', value: o.cashMonthly, format: 'money' },
+      { label: 'Seguro + patente + certificaciones + otros (por unidad)', value: o.cashMonthly, format: 'money' },
       { label: 'Costo de capital mensual (por unidad)', value: o.capitalCostMonthly, format: 'money' },
       { label: 'Posesión mensual × cantidad', value: line.fixedMonthly, format: 'money' },
       { label: 'Operación por hora (por unidad)', value: op.totalPerHour, format: 'money' },
@@ -207,13 +208,23 @@ export function render(container, ctx) {
   };
   /** Cambiar propio ↔ alquilado ↔ tercerizado (conserva lo cargado). */
   const setAcquisition = (index, value) => {
+    let reset = false;
     ctx.mutate((q) => {
       const line = q.equipment[index];
       if (!line) return;
+      const before = acquisitionOf(line);
       line.acquisition = ['owned', 'rented', 'outsourced'].includes(value) ? value : 'owned';
+      // Propio ↔ externo: la base deja de describir el mismo valor (valor del
+      // equipo vs tarifa del proveedor, quizás en otra moneda): se reinicia en
+      // la moneda de la cotización y sin fecha (nunca se arrastra un USD a la tarifa).
+      if ((before === 'owned') !== (line.acquisition === 'owned')) {
+        line.base = { period: null, currency, source: null, note: '' };
+        reset = true;
+      }
       if (line.acquisition !== 'owned') line.external = createExternalTerms(line.external);
       if (!line.mobilization) line.mobilization = createMobilization();
     });
+    if (reset) ctx.toast(`La fecha base y la moneda de esta línea se reiniciaron (${currency}, sin fecha): cargá las del nuevo valor en "Fecha base y moneda".`, 'info');
   };
 
   const pickerOptions = [

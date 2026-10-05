@@ -7,8 +7,8 @@
  *   self (por sus propios medios)
  *     km/llamado   = km de ruta por llamado × cantidad de unidades
  *     litros       = km × consumo en ruta (L/100 km) / 100
- *     combustible  = litros × precio      (0 si lo provee el cliente o, si es
- *                                          alquilado, si el combustible está incluido)
+ *     combustible  = litros × precio      (0 si lo provee el cliente; un externo
+ *                                          sólo si su tarifa NO incluye combustible)
  *     desgaste     = km × mantenimiento y neumáticos por km (sin combustible
  *                    NI amortización: la amortización ya está en el costo de tenerlo)
  *     conductor    = su operador ya incluido en Personal → NO se suma mano de
@@ -60,8 +60,10 @@ export function computeMobilization(equipment = [], ctx = {}) {
     if (mode === 'self' && !includedByProvider) {
       km = routeKm * quantity;
       liters = (km * nonNegative(m.travelLitersPer100Km)) / 100;
-      // Un alquilado con el combustible incluido no paga el combustible en ruta.
-      const paysFuel = !(external && ext.fuelIncluded === true);
+      // Un externo paga el combustible en ruta sólo si su tarifa NO lo incluye
+      // (false). Sin definir (null) no se suma y la completitud lo advierte,
+      // igual que el combustible trabajando (external-engine).
+      const paysFuel = !external || ext.fuelIncluded === false;
       fuel = paysFuel ? liters * fuelPrice : 0;
       wear = km * nonNegative(m.travelCostPerKm);
       driver = m.driver === 'other' ? 'other' : m.driver === 'operator' ? 'operator' : null;

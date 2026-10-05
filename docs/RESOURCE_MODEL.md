@@ -39,6 +39,8 @@ line.snapshot = { resourceType, resourceId, resourceName, takenAt, legacy, value
 - Si el maestro cambió: "El costo de X fue actualizado desde que hiciste esta cotización." con **valor utilizado** y **valor actual en Recursos** (con su base) y dos botones:
   - **Actualizar en esta cotización**: la línea toma los valores actuales y un snapshot nuevo; conserva lo operativo (id, cantidad, horas, posiciones, operador asignado, cómo llega al servicio).
   - **Conservar valor original**: se recuerda la versión del recurso descartada (`dismissed` = huella); si el maestro vuelve a cambiar, se avisa de nuevo.
+- Si la línea tiene ajustes propios (por ejemplo, se cambió a alquilado en la cotización), el aviso lo dice: al actualizar se reemplazan por los de Recursos.
+- Cambiar una línea de propio a externo (o al revés) reinicia su base (moneda de la cotización, sin fecha): la base del valor del equipo no describe la tarifa del proveedor.
 - Nunca se actualiza sola: ni al abrir, ni al migrar, ni al duplicar. Las cotizaciones migradas de v2 tienen un snapshot `legacy` (los valores que ya usaban).
 - Preparado para "Actualizar costos de esta oferta a valores actuales" (`resourceChanges` devuelve todos los cambios) e índices: no está en esta iteración.
 

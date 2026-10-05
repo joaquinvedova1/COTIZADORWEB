@@ -82,6 +82,9 @@ export function syncNotice(status, { name, onUpdate, onKeep, readOnly = false })
       h('div', {}, h('dt', {}, 'Valor actual en Recursos'), h('dd', { class: 'mono' }, mainValueText(status.type, status.current)), h('dd', {}, baseText(status.current && status.current.base))),
     ),
     h('p', { class: 'sync-notice-hint' }, 'La cotización no cambia sola. Elegí qué hacer con este recurso:'),
+    status.adjusted
+      ? h('p', { class: 'sync-notice-hint' }, 'Esta línea tiene ajustes propios de esta cotización (por ejemplo, cómo se obtiene o un valor cambiado a mano): al actualizar se reemplazan por los de Recursos. Se conservan la cantidad, las horas, el operador y cómo llega al servicio.')
+      : null,
     h(
       'div',
       { class: 'sync-notice-actions' },
