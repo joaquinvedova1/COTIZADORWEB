@@ -1,31 +1,57 @@
-# RATEOS — despliegue a GitHub Pages.
+# RATEOS — despliegue a GitHub Pages: producción + staging público.
 #
-# Flujo: push a main → tests → build (dist/ + version.json) → deploy.
-# Si los tests fallan, el build y el deploy NO se ejecutan (needs).
+#   https://<owner>.github.io/COTIZADORWEB/          ← producción: SIEMPRE main
+#   https://<owner>.github.io/COTIZADORWEB/preview/  ← staging: rama de desarrollo
 #
-# Rollback: Actions → "Deploy RATEOS a GitHub Pages" → Run workflow (branch
-# main) → completar "ref" con el commit SHA (corto o completo) o tag (p. ej.
-# v0.1.0) a desplegar. Sólo se aceptan commits que ya están en main (código
-# revisado por PR): nunca ramas sin mergear. Ver docs/DEPLOYMENT.md.
+# Pages publica UN artefacto por deploy, así que cada corrida arma los dos:
+# la raíz con main (o con un commit/tag ya mergeado en main, para rollback) y
+# /preview/ con la rama de desarrollo, marcada "RATEOS · STAGING · rama · build".
 #
-# Requisito único en el repo: Settings → Pages → Source: "GitHub Actions".
-# No usa secretos: sólo el GITHUB_TOKEN/OIDC que provee GitHub.
+# Cuándo corre:
+# - push a main: publica main en la raíz y vuelve a publicar el preview actual.
+# - CI terminó OK en un push a una rama de este repo (workflow_run): publica esa
+#   rama en /preview/ (y main, sin cambios, en la raíz). Este archivo se lee
+#   SIEMPRE desde main: una rama no puede cambiar cómo se despliega producción.
+# - Manual (workflow_dispatch): "ref" = rollback de producción a un commit o tag
+#   ya mergeado en main; "preview_ref" = rama a publicar en /preview/
+#   ("none" = sin preview).
+#
+# Garantías:
+# - La raíz se construye sólo con código que está en main y pasó los tests.
+# - El código de la rama corre en un job SIN permisos de escritura y sin
+#   credenciales; sólo el job deploy (que no ejecuta código de ninguna rama)
+#   puede escribir en Pages.
+# - scripts/stage-preview.mjs (tomado de main) arma /preview/ y falla si
+#   cualquier archivo de producción cambia.
+# - Si los tests de main fallan, no se despliega nada. Si fallan los del preview:
+#   en un push a main producción se publica igual (con un /preview/ que lo
+#   explica); en un deploy de preview no se publica nada.
+#
+# Requisito: Settings → Pages → Source = "GitHub Actions". Sin secretos.
 
 name: Deploy RATEOS a GitHub Pages
 
 on:
   push:
     branches: [main]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches-ignore: [main, "dependabot/**"]
   workflow_dispatch:
     inputs:
       ref:
-        description: "Commit SHA o tag YA MERGEADO en main a desplegar (vacío = commit actual). Usar para rollback."
+        description: "Producción: commit SHA o tag YA MERGEADO en main (vacío = main actual). Usar para rollback."
+        required: false
+        default: ""
+        type: string
+      preview_ref:
+        description: "Staging: rama a publicar en /preview/ (vacío = la publicada hoy; none = sin preview)."
         required: false
         default: ""
         type: string
 
-# Permisos mínimos: por defecto sólo lectura. Cada job pide lo que necesita
-# (sólo el job deploy puede escribir en Pages y pedir el token OIDC).
+# Permisos mínimos: por defecto sólo lectura. Sólo el job deploy escribe.
 permissions:
   contents: read
 
@@ -35,47 +61,142 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  test:
-    name: Tests
+  plan:
+    name: Qué se publica
+    # workflow_run: sólo CI exitoso de un push a una rama de ESTE repo (nunca forks).
+    if: >-
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     outputs:
-      sha: ${{ steps.resolve.outputs.sha }}
+      sha: ${{ steps.root.outputs.sha }}
+      root_ref: ${{ steps.root.outputs.ref }}
+      preview_branch: ${{ steps.preview.outputs.branch }}
+      preview_sha: ${{ steps.preview.outputs.sha }}
+      preview_note: ${{ steps.preview.outputs.note }}
+      trigger: ${{ steps.preview.outputs.trigger }}
     steps:
-      - name: Checkout
+      - name: Checkout (todas las ramas y tags)
         uses: actions/checkout@v4
         with:
-          # Historial completo + tags: permite resolver SHAs cortos y tags
-          # pedidos para un rollback.
+          ref: main
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Resolver el commit a desplegar
-        id: resolve
+      - name: Producción → commit de main
+        id: root
         env:
-          # Se pasa por variable de entorno (nunca interpolado en el script)
-          # para evitar inyección de comandos.
-          REQUESTED_REF: ${{ inputs.ref || github.sha }}
+          # Por variable de entorno (nunca interpolado en el script): sin inyección.
+          REQUESTED_REF: ${{ inputs.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if ! printf '%s' "$REQUESTED_REF" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$'; then
-            echo "::error::Ref inválida: '$REQUESTED_REF'. Usá un SHA o un tag (letras, números, . _ / -)."
+          if [ -n "${REQUESTED_REF}" ]; then
+            REF="$REQUESTED_REF"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            REF="$PUSH_SHA"
+          else
+            REF="origin/main"
+          fi
+          if ! printf '%s' "$REF" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$'; then
+            echo "::error::Ref inválida: '$REF'. Usá un SHA o un tag (letras, números, . _ / -)."
             exit 1
           fi
-          SHA="$(git rev-parse --verify --quiet "${REQUESTED_REF}^{commit}" || true)"
+          SHA="$(git rev-parse --verify --quiet "${REF}^{commit}" || true)"
           if [ -z "$SHA" ]; then
-            echo "::error::No se encontró el commit o tag '$REQUESTED_REF' en el repositorio."
+            echo "::error::No se encontró el commit o tag '$REF'."
             exit 1
           fi
-          # Sólo se despliega código que ya está en main (revisado y mergeado):
-          # un rollback nunca puede publicar una rama sin PR.
+          # Producción sólo publica código que ya está en main (revisado por PR).
           if ! git merge-base --is-ancestor "$SHA" origin/main; then
-            echo "::error::'$REQUESTED_REF' no está en main: sólo se despliegan commits o tags ya mergeados."
+            echo "::error::'$REF' no está en main: producción sólo publica commits o tags ya mergeados."
             exit 1
           fi
-          git checkout --quiet --detach "$SHA"
+          LABEL="main"
+          if [ -n "${REQUESTED_REF}" ]; then LABEL="$REQUESTED_REF"; fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "Commit a probar y desplegar: $SHA (pedido: $REQUESTED_REF)"
+          echo "ref=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "Producción: $SHA ($LABEL)"
+
+      - name: Staging → rama para /preview/
+        id: preview
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_PREVIEW: ${{ inputs.preview_ref }}
+          VAR_PREVIEW: ${{ vars.PREVIEW_BRANCH }}
+          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/preview/version.json
+        run: |
+          set -euo pipefail
+          valid_branch() {
+            printf '%s' "$1" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$' && ! printf '%s' "$1" | grep -q '\.\.'
+          }
+          TRIGGER="main"
+          BRANCH=""
+          SHA=""
+          NOTE=""
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            TRIGGER="preview"
+            BRANCH="$RUN_BRANCH"
+            SHA="$RUN_SHA"
+          elif [ -n "$INPUT_PREVIEW" ]; then
+            BRANCH="$INPUT_PREVIEW"
+          elif [ -n "$VAR_PREVIEW" ]; then
+            BRANCH="$VAR_PREVIEW"
+          else
+            # Se mantiene la rama que está publicada hoy en /preview/.
+            PUBLISHED="$(curl -fsS --max-time 15 "${PAGES_URL}?t=$(date +%s)" 2>/dev/null || true)"
+            BRANCH="$(printf '%s' "$PUBLISHED" | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{try{const v=JSON.parse(s);process.stdout.write(typeof v.branch==="string"?v.branch:"")}catch{process.stdout.write("")}})')"
+          fi
+          if [ "$BRANCH" = "none" ]; then
+            BRANCH=""
+            NOTE="Sin preview publicado (pedido manualmente)."
+          fi
+          if [ -n "$BRANCH" ]; then
+            if ! valid_branch "$BRANCH" || [ "$BRANCH" = "main" ]; then
+              echo "::error::Rama inválida para el preview: '$BRANCH'."
+              exit 1
+            fi
+            if [ -z "$SHA" ]; then
+              SHA="$(git rev-parse --verify --quiet "refs/remotes/origin/${BRANCH}^{commit}" || true)"
+            else
+              SHA="$(git rev-parse --verify --quiet "${SHA}^{commit}" || true)"
+            fi
+            if [ -z "$SHA" ]; then
+              NOTE="La rama ${BRANCH} ya no existe."
+              BRANCH=""
+            fi
+          fi
+          if [ -z "$BRANCH" ] && [ -z "$NOTE" ]; then NOTE="Todavía no se publicó ninguna rama de desarrollo."; fi
+          if [ "$TRIGGER" = "preview" ] && [ -z "$BRANCH" ]; then
+            echo "::error::No se pudo resolver la rama del preview."
+            exit 1
+          fi
+          {
+            echo "trigger=$TRIGGER"
+            echo "branch=$BRANCH"
+            echo "sha=$SHA"
+            echo "note=$NOTE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Preview: ${BRANCH:-(ninguno)} ${SHA} ${NOTE}"
+
+  test:
+    name: Tests (producción)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout (commit de producción)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -103,9 +224,65 @@ jobs:
       - name: Tests (npm test)
         run: npm test
 
+  preview:
+    name: Build del preview (sin permisos)
+    needs: plan
+    if: needs.plan.outputs.preview_sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Código de una rama de desarrollo: sólo lectura, sin credenciales en git.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (commit de la rama)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.preview_sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verificar que no hay dependencias npm
+        run: |
+          node -e '
+            const pkg = require("./package.json");
+            const fields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+            const bad = fields.filter((f) => pkg[f] && Object.keys(pkg[f]).length > 0);
+            if (bad.length) { console.error("package.json declara dependencias: " + bad.join(", ")); process.exit(1); }
+            console.log("Sin dependencias npm: OK");
+          '
+
+      - name: Tests (npm test)
+        run: npm test
+
+      - name: Build
+        run: npm run build -- --out "$RUNNER_TEMP/preview-dist"
+        env:
+          BUILD_REF: ${{ needs.plan.outputs.preview_branch }}
+          BUILD_SHA: ${{ needs.plan.outputs.preview_sha }}
+
+      - name: Subir build del preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-dist
+          path: ${{ runner.temp }}/preview-dist
+          include-hidden-files: true
+          retention-days: 1
+
   build:
     name: Build
-    needs: test
+    needs: [plan, test, preview]
+    # Producción siempre necesita sus tests en verde. El preview: si falló en un
+    # deploy de preview, no se publica nada; en un push a main, se publica
+    # producción con un /preview/ que explica que la rama no pasó los tests.
+    if: >-
+      !cancelled() && needs.test.result == 'success' && (
+        needs.preview.result == 'success' || needs.preview.result == 'skipped' ||
+        (needs.plan.outputs.trigger == 'main' && needs.preview.result == 'failure')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -116,11 +293,12 @@ jobs:
       commit: ${{ steps.info.outputs.commit }}
       ref: ${{ steps.info.outputs.ref }}
       build_date: ${{ steps.info.outputs.build_date }}
+      preview: ${{ steps.stage.outputs.preview }}
     steps:
       - name: Checkout (mismo commit que pasó los tests)
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.test.outputs.sha }}
+          ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -129,11 +307,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build (dist/ + version.json)
+      - name: Build de producción (dist/ + version.json)
         run: npm run build
         env:
-          BUILD_REF: ${{ inputs.ref || github.ref_name }}
-          BUILD_SHA: ${{ needs.test.outputs.sha }}
+          BUILD_REF: ${{ needs.plan.outputs.root_ref }}
+          BUILD_SHA: ${{ needs.plan.outputs.sha }}
 
       - name: Leer version.json
         id: info
@@ -151,6 +329,35 @@ jobs:
             console.log(JSON.stringify(v));
           '
 
+      - name: Bajar build del preview
+        if: needs.preview.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: preview-dist
+          path: ${{ runner.temp }}/preview-dist
+
+      - name: Armar /preview/ (producción no cambia)
+        id: stage
+        env:
+          PREVIEW_RESULT: ${{ needs.preview.result }}
+          PREVIEW_BRANCH: ${{ needs.plan.outputs.preview_branch }}
+          PREVIEW_SHA: ${{ needs.plan.outputs.preview_sha }}
+          PREVIEW_NOTE: ${{ needs.plan.outputs.preview_note }}
+        run: |
+          set -euo pipefail
+          # El script sale SIEMPRE de main (también en un rollback a un commit viejo).
+          git show origin/main:scripts/stage-preview.mjs > "$RUNNER_TEMP/stage-preview.mjs"
+          if [ "$PREVIEW_RESULT" = "success" ]; then
+            node "$RUNNER_TEMP/stage-preview.mjs" --site dist --from "$RUNNER_TEMP/preview-dist" --branch "$PREVIEW_BRANCH" --commit "$PREVIEW_SHA"
+            echo "preview=$PREVIEW_BRANCH@${PREVIEW_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          elif [ "$PREVIEW_RESULT" = "failure" ]; then
+            node "$RUNNER_TEMP/stage-preview.mjs" --site dist --placeholder "La rama $PREVIEW_BRANCH no pasó los tests: no se publicó."
+            echo "preview=(la rama $PREVIEW_BRANCH no pasó los tests)" >> "$GITHUB_OUTPUT"
+          else
+            node "$RUNNER_TEMP/stage-preview.mjs" --site dist --placeholder "$PREVIEW_NOTE"
+            echo "preview=(sin preview)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
@@ -162,6 +369,7 @@ jobs:
   deploy:
     name: Deploy
     needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -181,6 +389,7 @@ jobs:
           APP_COMMIT: ${{ needs.build.outputs.commit }}
           APP_REF: ${{ needs.build.outputs.ref }}
           APP_BUILD_DATE: ${{ needs.build.outputs.build_date }}
+          APP_PREVIEW: ${{ needs.build.outputs.preview }}
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -189,12 +398,10 @@ jobs:
             echo ""
             echo "| Campo | Valor |"
             echo "|---|---|"
-            echo "| Versión | \`${APP_VERSION}\` |"
-            echo "| Commit (SHA corto) | \`${APP_COMMIT}\` |"
-            echo "| Ref | \`${APP_REF}\` |"
+            echo "| Producción: versión | \`${APP_VERSION}\` |"
+            echo "| Producción: commit | \`${APP_COMMIT}\` (\`${APP_REF}\`) |"
             echo "| Fecha de build (UTC) | ${APP_BUILD_DATE} |"
+            echo "| Staging (/preview/) | \`${APP_PREVIEW}\` |"
             echo "| Disparado por | ${EVENT_NAME} |"
-            echo "| URL | ${PAGE_URL} |"
-            echo ""
-            echo "En la app: Configuración → Acerca de muestra \`RATEOS · v${APP_VERSION} · build ${APP_COMMIT}\`."
+            echo "| URL | ${PAGE_URL} — staging: ${PAGE_URL}preview/ |"
           } >> "$GITHUB_STEP_SUMMARY"

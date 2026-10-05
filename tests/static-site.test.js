@@ -142,10 +142,41 @@ describe('archivos del sitio', () => {
     assert.match(wf, /^on:\s*$[\s\S]*?^\s+push:\s*$[\s\S]*?branches:\s*\[\s*main\s*\]/m, 'Debe dispararse con push a main');
     assert.match(wf, /^\s+workflow_dispatch:\s*$[\s\S]*?^\s+ref:\s*$/m, 'Debe admitir workflow_dispatch con input "ref" (rollback)');
     assert.match(wf, /run:\s*npm test/, 'Debe ejecutar npm test');
-    assert.match(wf, /^\s+build:\s*$[\s\S]*?needs:\s*test\b/m, 'El build debe depender de los tests');
+    assert.match(wf, /^\s+build:\s*$[\s\S]*?needs:\s*\[[^\]]*\btest\b[^\]]*\]/m, 'El build debe depender de los tests');
+    assert.match(wf, /needs\.test\.result == 'success'/, 'Sin tests de producción en verde no hay build');
     assert.match(wf, /^\s+deploy:\s*$[\s\S]*?needs:\s*build\b/m, 'El deploy debe depender del build');
     assert.match(wf, /actions\/upload-pages-artifact@v\d+[\s\S]*?path:\s*dist\b/, 'Debe publicar dist/');
     assert.match(wf, /actions\/deploy-pages@v\d+/);
+  });
+
+  test('staging en /preview/: nunca reemplaza producción', () => {
+    const wf = read('.github/workflows/deploy-pages.yml');
+    const job = (name) => {
+      const m = wf.match(new RegExp(`^  ${name}:\\s*$([\\s\\S]*?)(?=^  [a-z][a-z_-]*:\\s*$|(?![\\s\\S]))`, 'm'));
+      assert.ok(m, `falta el job ${name}`);
+      return m[1];
+    };
+    // Producción: sólo commits que están en main.
+    assert.match(job('plan'), /git merge-base --is-ancestor "\$SHA" origin\/main/);
+    assert.match(job('test'), /ref: \$\{\{ needs\.plan\.outputs\.sha \}\}/, 'los tests de producción usan el commit de main');
+    assert.match(job('build'), /ref: \$\{\{ needs\.plan\.outputs\.sha \}\}/, 'la raíz se construye con el commit de main');
+    // Preview: sólo CI exitoso de un push a una rama de este repo (nunca forks ni main).
+    assert.match(wf, /workflow_run:\s*\n\s+workflows: \[CI\]\s*\n\s+types: \[completed\]\s*\n\s+branches-ignore: \[main, "dependabot\/\*\*"\]/);
+    assert.match(job('plan'), /workflow_run\.conclusion == 'success'/);
+    assert.match(job('plan'), /workflow_run\.event == 'push'/);
+    assert.match(job('plan'), /head_repository\.full_name == github\.repository/);
+    // El código de la rama corre sin permisos de escritura ni credenciales.
+    const preview = job('preview');
+    assert.match(preview, /permissions:\s*\n\s+contents: read\s*\n/);
+    assert.doesNotMatch(preview, /pages: write|id-token|contents: write/);
+    assert.match(preview, /persist-credentials: false/);
+    assert.match(preview, /run: npm test/, 'el preview también pasa sus tests');
+    // Sólo deploy escribe en Pages; build no tiene permisos de escritura.
+    assert.doesNotMatch(job('build'), /pages: write|id-token: write/);
+    assert.match(job('deploy'), /pages: write/);
+    // /preview/ se arma con el script de main, que verifica que producción no cambie.
+    assert.match(job('build'), /git show origin\/main:scripts\/stage-preview\.mjs/);
+    assert.match(job('build'), /--site dist --from/);
   });
 
   test('los workflows no interpolan datos controlables por usuarios dentro de scripts (inyección)', () => {
