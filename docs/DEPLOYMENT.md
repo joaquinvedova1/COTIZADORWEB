@@ -42,6 +42,8 @@ Pages publica **un artefacto por deploy**, así que cada corrida arma el sitio c
 - La raíz se construye sólo con un commit que es ancestro de `origin/main` (`git merge-base --is-ancestor`) y pasó `npm test`.
 - `scripts/stage-preview.mjs` (tomado siempre de `origin/main`) copia el build de la rama a `dist/preview/`, agrega la marca de staging y **falla si cambia cualquier archivo de producción** (hash de todo lo que no es `preview/` antes y después).
 
+**Un deploy de preview atrasado nunca pisa uno más nuevo:** justo antes de publicar, el job `deploy` consulta con `git ls-remote` (repositorio público, sin credenciales) el último commit de la rama; si ya no es el del preview (la cola de runners lo demoró, o se relanzó un CI viejo), **no publica** y falla con "ya no es el último commit": lo publica la corrida del commit nuevo. Como el workflow se lee de `main`, esta verificación rige desde que se mergea.
+
 Jobs:
 
 1. **plan**: decide qué se publica.

@@ -186,6 +186,15 @@ describe('archivos del sitio', () => {
     // /preview/ se arma con el script de main, que verifica que producción no cambie.
     assert.match(job('build'), /git show origin\/main:scripts\/stage-preview\.mjs/);
     assert.match(job('build'), /--site dist --from/);
+    // Un deploy de preview atrasado nunca pisa uno más nuevo: antes de publicar
+    // se verifica que el commit siga siendo el último de la rama (y si no, no se publica).
+    const deploy = job('deploy');
+    const guard = deploy.indexOf('git ls-remote');
+    assert.ok(guard > 0, 'deploy verifica el último commit de la rama del preview');
+    assert.ok(guard < deploy.indexOf('actions/deploy-pages@'), 'la verificación va antes de publicar');
+    assert.match(deploy, /if: needs\.build\.outputs\.preview_trigger == 'preview'/);
+    assert.match(deploy, /\[ "\$HEAD_SHA" != "\$PREVIEW_SHA" \][\s\S]*?exit 1/);
+    assert.match(job('build'), /preview_sha: \$\{\{ needs\.plan\.outputs\.preview_sha \}\}/);
   });
 
   test('los workflows no interpolan datos controlables por usuarios dentro de scripts (inyección)', () => {
