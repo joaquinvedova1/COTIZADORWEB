@@ -37,9 +37,17 @@ function walk(dir, { skipDirs = new Set() } = {}) {
   return out;
 }
 
-/** Módulos JS del frontend, cargados una sola vez. */
+/**
+ * Código de terceros copiado sin cambios (hoy sólo el SDK oficial de
+ * Supabase): no sigue las reglas de estilo del proyecto, pero tiene sus
+ * propios controles (integridad, único importador, sin eval/innerHTML) en
+ * tests/data/supabase-vendor.test.js.
+ */
+const VENDOR_DIR = 'js/data/vendor/';
+
+/** Módulos JS propios del frontend, cargados una sola vez. */
 const JS_FILES = walk(JS_DIR)
-  .filter((f) => f.endsWith('.js'))
+  .filter((f) => f.endsWith('.js') && !rel(f).startsWith(VENDOR_DIR))
   .map((abs) => {
     const source = readFileSync(abs, 'utf8');
     return { abs, rel: rel(abs), source, code: stripComments(source), imports: extractImports(source) };
@@ -112,6 +120,8 @@ const SECRET_PATTERNS = [
   { name: 'GitHub fine-grained token', re: new RegExp('\\bgithub' + '_pat_[A-Za-z0-9_]{22,}') },
   { name: 'Google API key', re: new RegExp('\\b' + 'AIza' + '[0-9A-Za-z_-]{35}\\b') },
   { name: 'Slack token', re: new RegExp('\\bxox' + '[abprs]-[0-9A-Za-z-]{10,}') },
+  { name: 'Supabase secret key', re: new RegExp('\\bsb_' + 'secret_[A-Za-z0-9_-]{8,}') },
+  { name: 'Connection string de Postgres con contraseña', re: new RegExp('postgres(?:ql)?:' + '\\/\\/[^\\s:/@]+:(?!\\[)[^\\s@/]{6,}@') },
   { name: 'JWT (p. ej. clave anon/service_role de Supabase)', re: new RegExp('\\beyJ' + '[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}') },
   {
     name: 'SUPABASE_SERVICE_ROLE_KEY con valor',
@@ -304,6 +314,12 @@ describe('seguridad del repositorio', () => {
     assert.equal(scanForSecrets('Nunca expongas SUPABASE_SERVICE_ROLE' + '_KEY en el navegador.').length, 0);
     assert.equal(scanForSecrets('SUPABASE_SERVICE_ROLE' + '_KEY=<tu-clave>').length, 0);
     assert.equal(scanForSecrets('La clave service' + '_role sólo vive en el backend.').length, 0);
+    // Supabase: la secret key y una connection string con contraseña se detectan;
+    // la publishable key y el placeholder [YOUR-PASSWORD] no.
+    assert.equal(scanForSecrets('const k = "sb_' + 'secret_AbCdEf123456";').length, 1);
+    assert.equal(scanForSecrets('postgresql://postgres:' + 'hunter2pass@db.example.supabase.co:5432/postgres').length, 1);
+    assert.equal(scanForSecrets('postgresql://postgres:[YOUR-PASSWORD]@db.example.supabase.co:5432/postgres').length, 0);
+    assert.equal(scanForSecrets("publishableKey: 'sb_publishable_0zN4iQ1quvW2kC8XScqNGw_ZQ1F6ztW'").length, 0);
   });
 
   test('(7) no hay secretos en los archivos versionados', () => {
