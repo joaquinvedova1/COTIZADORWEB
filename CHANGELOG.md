@@ -12,6 +12,24 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+### 0.4.0 — Mantenimiento y neumáticos con forma de carga (en `/preview/`, sin publicar)
+
+Corrige una UX que inducía errores: un mantenimiento mensual o anual cargado en el campo "$/h" se interpretaba como costo por hora (caso real: autoelevador con $ 3.000.000 "por hora" → $ 360.000.000 en 15 días). **Cambia el motor de equipos** (formas de carga nuevas) y **sube el esquema de datos a 4** (sin cambios de datos). Con los datos existentes **ningún número cambia**: sin forma de carga se sigue usando "por hora" (golden cases, baseline y migración con los mismos resultados). Plan: PLAN-2026-007.
+
+**Agregado**
+
+- **Mantenimiento**: costo por hora de uso; **service** (costo cada N horas de uso → $/h); o **presupuesto mensual o anual** → costo FIJO de tenencia (se suma a la posesión; nunca se divide por horas).
+- **Neumáticos**: costo por hora; **juego + vida útil en horas** (→ $/h); **juego + vida útil en km** para equipos de ruta (→ $/km, se suma al desgaste en ruta de la movilización).
+- "**Así lo calcula RATEOS**" en vivo, antes de guardar, en el legajo del equipo y en la línea de la cotización (por ejemplo "$ 600.000 cada 250 h = $ 2.400 por hora de uso" o "$ 3.000.000 por mes de COSTO FIJO de tenerlo").
+- **Avisos de sentido común** (no bloquean ni corrigen): "Revisá este valor. Con el mantenimiento cargado, 100 horas de uso cuestan más que el valor del equipo. ¿Seguro que el importe está expresado por hora?"; mantenimiento o neumáticos desproporcionados; presupuesto anual mayor que el equipo; neumáticos por km absurdos; residual mayor que reposición; vida útil 0; falta el intervalo del service o la vida útil del juego. En la cotización se ven siempre (fuera de las opciones avanzadas).
+
+**Cambiado**
+
+- Esquema de datos **4** (`migrateV3ToV4`: no cambia datos; copia previa automática). Una versión anterior abre los datos v4 en sólo lectura.
+- Los datos cargados no se modifican: un valor guardado "por hora" sigue siendo por hora hasta que la persona lo cambie.
+
+### 0.3.0 — Carga inicial de empresa, recursos y personal (PR #14)
+
 Versión **0.3.0** (en `/preview/` para probar; producción sigue en 0.2.0). Iteración corta de UX y catálogos para la carga inicial de empresa, recursos y personal. **No cambia ninguna fórmula**, ningún motor ni el esquema de datos (`schemaVersion` sigue en 3): los campos nuevos son descriptivos y opcionales.
 
 ### Agregado

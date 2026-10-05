@@ -40,7 +40,10 @@ import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatValue, f
 import { isFiniteNumber, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
-import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, VAT_RECOVERY, labelOf } from '../../domain/catalogs.js';
+import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../domain/catalogs.js';
+import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
+import { maintenanceOf } from '../../engines/equipment-engine.js';
+import { wearNote } from '../equipment-wear-ui.js';
 import { EQUIPMENT_FAMILIES, familyById, familyIdOf, familyVariants, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
 import { emptyBase } from '../../domain/economic-base.js';
 import { createExternalTerms, createEquipmentMobility, acquisitionOf } from '../../domain/quote-factory.js';
@@ -253,7 +256,7 @@ function equipmentTrace(eq, c) {
     id: 'equipment_card',
     title: `Costo de equipo — ${eq.name || 'equipo'}`,
     formula:
-      'Posesión/mes = amortización + seguro + patente + certificaciones + costo de capital · Operación/h = mantenimiento + neumáticos + litros/h × precio combustible · $/mes = posesión + operación/h × horas usadas · $/hora = $/mes / horas usadas · $/día = $/mes / días usados',
+      'Posesión/mes = amortización + seguro + patente + certificaciones + otros + mantenimiento fijo (presupuesto) + costo de capital · Operación/h = mantenimiento/h + neumáticos/h + litros/h × precio combustible (service = costo / horas entre services; juego = costo / vida útil en horas) · $/mes = posesión + operación/h × horas usadas · $/hora = $/mes / horas usadas · $/día = $/mes / días usados',
     inputs: [
       { label: 'Valor de reposición', value: o.replacement, format: 'money' },
       { label: 'Valor residual', value: o.residual, format: 'money' },
@@ -262,8 +265,10 @@ function equipmentTrace(eq, c) {
       { label: 'Patente anual', value: o.licenseMonthly * 12, format: 'money' },
       { label: 'Certificaciones anuales', value: o.certificationsMonthly * 12, format: 'money' },
       { label: 'Costo de capital (anual)', value: toNumber(eq.capitalRatePctAnnual), format: 'percent' },
-      { label: 'Mantenimiento por hora', value: op.maintenancePerHour, format: 'rate' },
-      { label: 'Neumáticos por hora', value: op.tiresPerHour, format: 'rate' },
+      { label: `Mantenimiento por hora (${labelOf(MAINTENANCE_MODES, op.maintenanceMode, 'por hora').toLowerCase()})`, value: op.maintenancePerHour, format: 'rate' },
+      o.maintenanceFixedMonthly > 0 ? { label: 'Mantenimiento fijo por mes (presupuesto)', value: o.maintenanceFixedMonthly, format: 'money' } : null,
+      { label: `Neumáticos por hora (${labelOf(TIRE_MODES, op.tiresMode, 'por hora').toLowerCase()})`, value: op.tiresPerHour, format: 'rate' },
+      op.tiresPerKm > 0 ? { label: 'Neumáticos por km (se suman en la ruta)', value: op.tiresPerKm, format: 'rate' } : null,
       { label: 'Consumo de combustible', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
       { label: 'Precio del combustible (Configuración)', value: op.fuelPricePerLiter, format: 'rate' },
       { label: 'Horas disponibles por mes', value: cap.availableHoursPerMonth, format: 'hours' },
@@ -272,7 +277,7 @@ function equipmentTrace(eq, c) {
     ],
     steps: [
       { label: 'Amortización mensual', value: o.depreciationMonthly, format: 'money' },
-      { label: 'Seguro + patente + certificaciones (mensual)', value: o.cashMonthly, format: 'money' },
+      { label: 'Seguro + patente + certificaciones + otros + mantenimiento fijo (mensual)', value: o.cashMonthly, format: 'money' },
       { label: 'Costo de capital mensual', value: o.capitalCostMonthly, format: 'money' },
       { label: 'COSTO DE POSESIÓN mensual', value: o.totalMonthly, format: 'money' },
       { label: 'COSTO DE OPERACIÓN por hora', value: op.totalPerHour, format: 'rate' },
@@ -370,9 +375,22 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
   const sectionsNow = () => (typeof sections === 'function' ? sections(draft) : sections).filter((sec) => sec && (typeof sec.when !== 'function' || sec.when(draft)));
   const fieldsNow = () => sectionsNow().flatMap((sec) => sec.fields.filter(Boolean).filter((f) => typeof f.when !== 'function' || f.when(draft)));
   const openSections = new Set();
+  // Bloques "en vivo" de una sección (se vuelven a dibujar con cada cambio, como la vista previa).
+  let liveHosts = [];
   let previewSeq = 0;
 
+  const updateLive = () => {
+    liveHosts.forEach(({ host, fn }) => {
+      try {
+        mount(host, fn(draft));
+      } catch {
+        mount(host, null);
+      }
+    });
+  };
+
   const updatePreview = () => {
+    updateLive();
     if (!preview) return;
     previewSeq += 1;
     const seq = previewSeq;
@@ -419,9 +437,15 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
 
   function sectionNode(section, index) {
     const fields = section.fields.filter(Boolean).filter((f) => typeof f.when !== 'function' || f.when(draft));
+    let liveHost = null;
+    if (typeof section.live === 'function') {
+      liveHost = h('div', { class: 'form-section-live', 'aria-live': 'polite' });
+      liveHosts.push({ host: liveHost, fn: section.live });
+    }
     const content = [
       section.hint ? h('p', { class: 'form-section-hint' }, section.hint) : null,
       fields.length ? formGrid(section.cols || 3, ...fields.map(buildField)) : null,
+      liveHost,
       section.extra ? section.extra({ draft, rerender }) : null,
     ];
     if (!section.collapsible) {
@@ -438,6 +462,7 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
 
   function rerender() {
     if (typeof prepare === 'function') prepare(draft);
+    liveHosts = [];
     mount(
       body,
       draft.illustrative ? banner('Este ítem tiene valores ILUSTRATIVOS de demostración. Reemplazalos por valores propios vigentes y desmarcá "Valores ilustrativos".', 'warning') : null,
@@ -713,7 +738,7 @@ function mobilitySection() {
       { key: 'mobility.requiresTransport', label: 'Requiere transporte externo', kind: 'tristate' },
       { key: 'mobility.requiresDriver', label: 'Requiere conductor', kind: 'tristate' },
       { key: 'mobility.travelLitersPer100Km', label: 'Consumo trasladándose', rule: 'quantity', unit: 'L/100 km' },
-      { key: 'mobility.travelCostPerKm', label: 'Mantenimiento y neumáticos en ruta', rule: 'money', unit: '$/km' },
+      { key: 'mobility.travelCostPerKm', label: 'Mantenimiento y neumáticos en ruta', rule: 'money', unit: '$/km', hint: 'Si cargaste los neumáticos como juego + vida útil en km, acá va sólo el mantenimiento en ruta (los neumáticos se suman aparte).' },
       { key: 'mobility.speedKmh', label: 'Velocidad estimada (opcional)', rule: 'quantity', unit: 'km/h', nullable: true },
     ],
     extra: ({ draft, rerender }) =>
@@ -790,8 +815,65 @@ function variantSuggestions({ draft, rerender, nameKey = 'name' }) {
   );
 }
 
+/**
+ * Equipo con el valor de reposición en la moneda de la empresa (para comparar
+ * con mantenimiento y neumáticos). Sin tipo de cambio: no se compara.
+ */
+function comparableEquipment(draft, settings) {
+  const f = conversionFactor(currencyOfBase(draft && draft.base), settings || {});
+  if (f === null) return { eq: draft, comparable: false };
+  if (f === 1) return { eq: draft, comparable: true };
+  return { eq: { ...draft, replacementValue: toNumber(draft.replacementValue, 0) * f, residualValue: toNumber(draft.residualValue, 0) * f }, comparable: true };
+}
+
+const MAINTENANCE_OPTIONS = MAINTENANCE_MODES.map((m) => ({ value: m.id, label: m.label }));
+const BUDGET_PERIOD_OPTIONS = BUDGET_PERIODS.map((p) => ({ value: p.id, label: p.label }));
+const TIRE_OPTIONS = TIRE_MODES.map((t) => ({ value: t.id, label: t.label }));
+const maintenanceModeIs = (mode) => (d) => (d.maintenanceMode || 'per_hour') === mode;
+const tiresModeIs = (...modes) => (d) => modes.includes(d.tiresMode || 'per_hour');
+
+/**
+ * Mantenimiento y neumáticos (PLAN-2026-007): la persona elige CÓMO lo carga
+ * y ve, antes de guardar, cómo lo interpreta RATEOS (+ avisos de sentido común).
+ */
+function wearSections(settings) {
+  const note = (group) => (d) => {
+    const { eq, comparable } = comparableEquipment(d, settings);
+    return wearNote(eq, group, { comparable });
+  };
+  return [
+    {
+      key: 'maintenance',
+      title: 'Mantenimiento',
+      hint: 'Elegí cómo lo cargás. El costo por hora y el service se suman por cada hora de uso; un presupuesto mensual o anual es un costo FIJO de tenerlo (no se divide por horas).',
+      fields: [
+        { key: 'maintenanceMode', label: '¿Cómo lo cargás?', kind: 'select', options: MAINTENANCE_OPTIONS, rerender: true },
+        { key: 'maintenancePerHour', label: 'Costo por hora de uso', rule: 'money', unit: '$/h', when: maintenanceModeIs('per_hour') },
+        { key: 'maintenanceServiceCost', label: 'Costo de cada service', rule: 'money', unit: '$', when: maintenanceModeIs('service') },
+        { key: 'maintenanceServiceHours', label: 'Cada cuántas horas de uso', rule: 'intervalHours', unit: 'h', when: maintenanceModeIs('service') },
+        { key: 'maintenanceBudget', label: 'Presupuesto de mantenimiento', rule: 'money', unit: '$', when: maintenanceModeIs('budget') },
+        { key: 'maintenanceBudgetPeriod', label: 'Por', kind: 'select', options: BUDGET_PERIOD_OPTIONS, when: maintenanceModeIs('budget') },
+      ],
+      live: note('maintenance'),
+    },
+    {
+      key: 'tires',
+      title: 'Neumáticos',
+      hint: 'Por hora de uso, o el costo del juego y su vida útil. Para equipos de ruta, la vida útil en km da un costo por km (se suma en los traslados).',
+      fields: [
+        { key: 'tiresMode', label: '¿Cómo lo cargás?', kind: 'select', options: TIRE_OPTIONS, rerender: true },
+        { key: 'tiresPerHour', label: 'Costo por hora de uso', rule: 'money', unit: '$/h', when: tiresModeIs('per_hour') },
+        { key: 'tiresSetCost', label: 'Costo del juego de neumáticos', rule: 'money', unit: '$', when: tiresModeIs('set_hours', 'set_km') },
+        { key: 'tiresLifeHours', label: 'Vida útil del juego', rule: 'intervalHours', unit: 'h', when: tiresModeIs('set_hours') },
+        { key: 'tiresLifeKm', label: 'Vida útil del juego', rule: 'lifeKm', unit: 'km', when: tiresModeIs('set_km') },
+      ],
+      live: note('tires'),
+    },
+  ];
+}
+
 /** Legajo de una unidad de "Mis equipos": identificación, economía, operación y movilidad. */
-function equipmentSections(models = []) {
+function equipmentSections(models = [], settings = {}) {
   return (draft) => {
     const familyModels = models.filter((m) => m.familyId === draft.familyId);
     const sections = [
@@ -840,12 +922,21 @@ function equipmentSections(models = []) {
             { key: 'usefulLifeYears', label: 'Vida útil', rule: 'years', unit: 'años' },
             ...baseFormFields('base', { currency: true, periodLabel: 'Base del valor (mes)' }),
           ],
+          // Residual mayor que reposición o sin vida útil: aviso (sólo si hay algo que avisar).
+          live: (d) => {
+            const note = wearNote(d, 'value');
+            return note.childElementCount ? note : null;
+          },
         },
         {
           key: 'holding',
           title: 'Más costos de tenerlo (aunque no trabaje)',
           collapsible: true,
-          summary: (d) => `Residual ${formatMoneyIn(toNumber(d.residualValue, 0), d.base && d.base.currency)} · seguro ${formatMoney(toNumber(d.insuranceAnnual, 0))}/año · patente ${formatMoney(toNumber(d.licenseAnnual, 0))}/año · certificaciones ${formatMoney(toNumber(d.certificationsAnnual, 0))}/año · otros ${formatMoney(toNumber(d.otherAnnual, 0))}/año.`,
+          summary: (d) => {
+            const m = maintenanceOf(d);
+            const fixedMaintenance = m.mode === 'budget' ? ` · mantenimiento fijo ${formatMoney(m.fixedMonthly)}/mes` : '';
+            return `Residual ${formatMoneyIn(toNumber(d.residualValue, 0), d.base && d.base.currency)} · seguro ${formatMoney(toNumber(d.insuranceAnnual, 0))}/año · patente ${formatMoney(toNumber(d.licenseAnnual, 0))}/año · certificaciones ${formatMoney(toNumber(d.certificationsAnnual, 0))}/año · otros ${formatMoney(toNumber(d.otherAnnual, 0))}/año${fixedMaintenance}.`;
+          },
           fields: [
             { key: 'residualValue', label: 'Valor residual', rule: 'money', unit: (d) => currencySymbol(d), hint: 'Mismo período y moneda que el valor de reposición.' },
             { key: 'currentValue', label: 'Valor actual (informativo)', rule: 'money', unit: '$' },
@@ -857,12 +948,12 @@ function equipmentSections(models = []) {
             ...baseFormFields('costsBase', { periodLabel: 'Base de estos costos (mes)' }),
           ],
         },
+        ...wearSections(settings),
         {
-          title: 'COSTO DE OPERACIÓN (sólo cuando trabaja, por hora de uso)',
+          title: 'Combustible (sólo cuando trabaja, por hora de uso)',
+          cols: 2,
           fields: [
-            { key: 'maintenancePerHour', label: 'Mantenimiento', rule: 'money', unit: '$/h' },
-            { key: 'tiresPerHour', label: 'Neumáticos', rule: 'money', unit: '$/h' },
-            { key: 'fuelLitersPerHour', label: 'Consumo trabajando', rule: 'quantity', unit: 'L/h', hint: 'El precio por litro se toma de Configuración.' },
+            { key: 'fuelLitersPerHour', label: 'Consumo trabajando', rule: 'quantity', unit: 'L/h', hint: 'Litros por hora de trabajo. El precio por litro se toma de Configuración.' },
           ],
         },
         {
@@ -1148,7 +1239,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         openResourceForm(app, {
           title: isNew ? 'Nuevo equipo' : `Legajo del equipo — ${item.internalCode ? `${item.internalCode} · ` : ''}${item.name || ''}`,
           initial: isNew ? newEquipment() : { ...newEquipment(), ...item, familyId: familyIdOf(item) },
-          sections: equipmentSections(list('equipmentModels')),
+          sections: equipmentSections(list('equipmentModels'), data.settings),
           prepare: prepareEquipmentDraft,
           validate: (d) => (!isExternalDraft(d) && toNumber(d.residualValue) > toNumber(d.replacementValue) ? 'El valor residual no puede superar el valor de reposición.' : null),
           preview: async (draft) => {

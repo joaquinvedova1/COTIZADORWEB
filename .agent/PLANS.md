@@ -106,6 +106,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-004 | RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes | backend, autenticación | Completado (PR #12) |
 | PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | Completado (PR #13, v0.2.0 en producción) |
 | PLAN-2026-006 | Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables | utilización, motor de costos, migración | Borrador — análisis escrito, implementación pausada |
+| PLAN-2026-007 | Mantenimiento y neumáticos con forma de carga y avisos de sentido común | motor de costos, migración | En curso — PR sin merge, en staging |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
@@ -533,4 +534,43 @@ CALCULATION_RULES (dedicación, ficha de Recursos), DATA_MODEL (esquema 4, `dedi
 #### Bitácora
 - 2026-10-05: análisis de impacto (§2): la utilización del recurso sólo alimenta la ficha de Recursos; ningún número de cotización depende de ella. Diseño A (economía permanente) / B (uso en la cotización) y dedicación al servicio sólo sobre el costo fijo.
 - 2026-10-05: caso real (autoelevador, cotización on-call): "Operación por hora $ 3.000.000" sale de `maintenancePerHour` = 3.000.000 cargado al crear el recurso (no es dato ilustrativo, ni migración, ni error de unidades del código: un monto mensual o anual cargado en un campo $/h, sin ninguna advertencia). Propuesta a confirmar: mantenimiento por hora / service + frecuencia en horas (= $/h) / presupuesto mensual o anual (costo FIJO de tenerlo, no $/h); neumáticos por hora / juego + vida útil en horas o km; resultado visible antes de guardar y control de plausibilidad (100 h de operación > valor de reposición → "¿seguro que es por hora?"). Implementación de la dedicación pausada a pedido del dueño ("no cambies fórmulas todavía").
+
+### PLAN-2026-007 — Mantenimiento y neumáticos con forma de carga y avisos de sentido común
+
+- Estado: En curso — PR hacia `main` sin merge automático, publicado en staging (`/preview/`)
+- Tipo: motor de costos (equipos y movilización) · migración de datos (esquema 3 → 4, sin cambios de datos) · UX de Recursos y cotización
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-05 · Rama: `claude/resource-usage-in-quote`
+
+#### 1. Contexto y problema
+Caso real: un autoelevador con reposición $ 100.000.000 y "mantenimiento" $ 3.000.000 cargado en el campo $/h (sin aviso) → operación $ 3.000.000/h, $ 24.000.000 por día activo de 8 h, ~$ 360.000.000 en 15 días. La UX sólo ofrecía "$/h": un presupuesto mensual o anual se interpretaba como por hora.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: cargar el mantenimiento por hora, como service cada N horas (= $/h) o como presupuesto mensual / anual (= costo FIJO de tenencia, nunca dividido por horas); los neumáticos por hora, como juego + vida útil en horas (= $/h) o juego + vida útil en km (= $/km en la ruta). Mostrar SIEMPRE, antes de guardar, cómo lo interpreta RATEOS. Avisos de sentido común (no bloqueos, no correcciones): 100 h > reposición, residual > reposición, vida útil 0, mantenimiento / neumáticos desproporcionados, falta intervalo o vida útil del juego.
+- Fuera de alcance: dedicación al servicio (PLAN-2026-006, pausado); modificar datos existentes (el autoelevador sigue en $ 3.000.000/h hasta que la persona lo edite); repuestos, horas de motor, mantenimiento por km del equipo trabajando.
+
+#### 3. Impacto en fórmulas
+- Sin forma de carga = "por hora" (igual que antes): golden cases y baseline intactos.
+- Posesión: `+ mantenimiento fijo` (presupuesto mensual o anual / 12) en la posesión en efectivo.
+- Operación: `mantenimiento/h` = cargado o `service / horas`; `neumáticos/h` = cargado o `juego / vida útil h`.
+- Movilización por sus propios medios: `desgaste = km × ($/km + neumáticos $/km)` cuando los neumáticos se cargan por km.
+- Casos numéricos: service $ 600.000 / 250 h = $ 2.400/h; presupuesto $ 36.000.000/año = $ 3.000.000/mes fijo y $ 0/h; juego $ 2.400.000 / 3.000 h = $ 800/h; juego $ 2.400.000 / 80.000 km = $ 30/km (100 km de ruta con $ 150/km de mantenimiento → $ 18.000 de desgaste).
+- Margen y markup: sin cambios.
+
+#### 4. Impacto en datos
+- `SCHEMA_VERSION` 3 → 4 con `migrateV3ToV4`: no cambia ni borra datos (copia previa automática). Campos nuevos opcionales en equipos y líneas: `maintenanceMode`, `maintenanceServiceCost`, `maintenanceServiceHours`, `maintenanceBudget`, `maintenanceBudgetPeriod`, `tiresMode`, `tiresSetCost`, `tiresLifeHours`, `tiresLifeKm`.
+- Snapshot: la clave `wear` aparece sólo cuando la forma de carga no es "por hora": las huellas anteriores no cambian (sin avisos falsos de "cambió en Recursos").
+- Staging comparte la base con producción: actualizar el formato en `/preview/` deja esa cuenta en v4 y producción (v0.2.0) la abre en sólo lectura hasta publicar esta versión. Recomendación: probar con una cuenta de prueba o "Sólo mirar".
+
+#### 5. Diseño
+Motor: `maintenanceOf`, `tiresOf`, `equipmentChecks` en `js/engines/equipment-engine.js`; `computeOwnership` / `computeOperation` los usan; `mobilization-engine` suma neumáticos por km. UI: `js/ui/equipment-wear-ui.js` (interpretación y avisos), legajo del equipo en Recursos (secciones Mantenimiento y Neumáticos con bloque "Así lo calcula RATEOS" en vivo) y línea del equipo en la cotización (mismos selectores; avisos siempre visibles).
+
+#### 7. Tests
+`tests/engines/maintenance-tires.test.js` (formas de carga, autoelevador sin cambios, avisos, snapshot sin avisos falsos, copia a la línea), migración v3 → v4 sin cambios de números, validación de los campos nuevos. E2E desktop y mobile: autoelevador real migrado de v3, aviso, presupuesto, juego + horas y + km, cotización avisada y actualizada, staging "Sólo mirar" sin escribir.
+
+#### 9. Rollback
+Revert del PR. Las cuentas actualizadas a esquema 4 quedarían en sólo lectura en la versión anterior: restaurar la copia previa (`pre-migration-v3`) o mantener esta versión.
+
+#### Bitácora
+- 2026-10-05: diseño validado por el dueño (mantenimiento A/B/C, neumáticos por hora / horas / km, avisos sin bloqueos, no modificar datos). Implementado en motor, Recursos y cotización; esquema 4 sin cambios de datos.
 

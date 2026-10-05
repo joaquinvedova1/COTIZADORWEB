@@ -57,6 +57,28 @@ function num(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Cómo se cargaron el mantenimiento y los neumáticos (PLAN-2026-007), en forma
+ * canónica. null cuando ambos son "por hora" (lo de siempre): así las huellas de
+ * las líneas y snapshots anteriores no cambian y no aparecen avisos falsos.
+ */
+function canonicalWear(l) {
+  const mm = ['service', 'budget'].includes(l.maintenanceMode) ? l.maintenanceMode : 'per_hour';
+  const tm = ['set_hours', 'set_km'].includes(l.tiresMode) ? l.tiresMode : 'per_hour';
+  if (mm === 'per_hour' && tm === 'per_hour') return null;
+  return {
+    maintenanceMode: mm,
+    maintenanceServiceCost: mm === 'service' ? num(l.maintenanceServiceCost) : null,
+    maintenanceServiceHours: mm === 'service' ? num(l.maintenanceServiceHours) : null,
+    maintenanceBudget: mm === 'budget' ? num(l.maintenanceBudget) : null,
+    maintenanceBudgetPeriod: mm === 'budget' ? (l.maintenanceBudgetPeriod === 'year' ? 'year' : 'month') : null,
+    tiresMode: tm,
+    tiresSetCost: tm === 'per_hour' ? null : num(l.tiresSetCost),
+    tiresLifeHours: tm === 'set_hours' ? num(l.tiresLifeHours) : null,
+    tiresLifeKm: tm === 'set_km' ? num(l.tiresLifeKm) : null,
+  };
+}
+
 /** Copia canónica de las condiciones externas (orden fijo, números normalizados). */
 function canonicalExternal(ext) {
   if (!isPlainObject(ext)) return null;
@@ -102,6 +124,9 @@ export function snapshotValuesFromLine(type, line = {}) {
       values.costsBase = normalizeBase(l.costsBase);
       const m = isPlainObject(l.mobilization) ? l.mobilization : {};
       values.travel = { litersPer100Km: num(m.travelLitersPer100Km), costPerKm: num(m.travelCostPerKm) };
+      // Sólo si no es "por hora": las huellas anteriores quedan iguales.
+      const wear = canonicalWear(l);
+      if (wear) values.wear = wear;
     }
   }
   return values;

@@ -234,6 +234,19 @@ function migrateEquipmentResource(e, base) {
   };
 }
 
+/**
+ * v3 → v4 (PLAN-2026-007): mantenimiento y neumáticos con forma de carga.
+ * NO cambia ni borra ningún dato: los equipos y líneas sin forma de carga
+ * siguen siendo "por hora" y calculan exactamente igual. Se sube la versión
+ * porque un presupuesto de mantenimiento (costo fijo de tenencia) o neumáticos
+ * por km cambian el costo y una versión anterior los ignoraría en silencio:
+ * con la versión nueva, la anterior abre los datos en sólo lectura.
+ */
+export function migrateV3ToV4(state) {
+  const src = isPlainObject(state) ? deepClone(state) : {};
+  return { ...src, schemaVersion: 4 };
+}
+
 /** Agrega un valor a `legacy` sin perder lo que ya hubiera (aunque no fuera un objeto). */
 function withLegacy(legacy, key, value) {
   const base = isPlainObject(legacy) ? legacy : legacy === undefined || legacy === null ? {} : { previous: legacy };
@@ -245,6 +258,7 @@ export const MIGRATIONS = Object.freeze({
   0: migrateV0ToV1,
   1: migrateV1ToV2,
   2: migrateV2ToV3,
+  3: migrateV3ToV4,
 });
 
 /**

@@ -9,7 +9,8 @@
  *     litros       = km × consumo en ruta (L/100 km) / 100
  *     combustible  = litros × precio      (0 si lo provee el cliente; un externo
  *                                          sólo si su tarifa NO incluye combustible)
- *     desgaste     = km × mantenimiento y neumáticos por km (sin combustible
+ *     desgaste     = km × (mantenimiento y neumáticos por km + neumáticos por km
+ *                    si se cargaron como juego / vida útil en km) (sin combustible
  *                    NI amortización: la amortización ya está en el costo de tenerlo)
  *     conductor    = su operador ya incluido en Personal → NO se suma mano de
  *                    obra (el tiempo de manejo está dentro de su costo)
@@ -26,6 +27,7 @@
 
 import { nonNegative, safeDivide } from '../core/money.js';
 import { isPlainObject, objectList } from '../core/object.js';
+import { tiresOf } from './equipment-engine.js';
 
 /**
  * @param {object[]} equipment  líneas de equipo (las que ve el motor)
@@ -65,7 +67,9 @@ export function computeMobilization(equipment = [], ctx = {}) {
       // igual que el combustible trabajando (external-engine).
       const paysFuel = !external || ext.fuelIncluded === false;
       fuel = paysFuel ? liters * fuelPrice : 0;
-      wear = km * nonNegative(m.travelCostPerKm);
+      // Desgaste en ruta: mantenimiento por km + neumáticos por km si se cargaron
+      // como juego + vida útil en km (PLAN-2026-007). Sin amortización.
+      wear = km * (nonNegative(m.travelCostPerKm) + tiresOf(line).perKm);
       driver = m.driver === 'other' ? 'other' : m.driver === 'operator' ? 'operator' : null;
       if (routeKm > 0 && nonNegative(m.travelLitersPer100Km) <= 0) warnings.push('travel_consumption');
       if (!driver) warnings.push('driver');
@@ -102,6 +106,7 @@ export function computeMobilization(equipment = [], ctx = {}) {
       perActiveDay: safeDivide(perActivation, dpa, 0),
       travelLitersPer100Km: nonNegative(m.travelLitersPer100Km),
       travelCostPerKm: nonNegative(m.travelCostPerKm),
+      tiresPerKm: tiresOf(line).perKm,
       driver,
       operatorName: operator ? operator.role || 'Operador' : null,
       carrier,

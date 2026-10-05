@@ -17,7 +17,7 @@ export function createTrace({ id, title, formula, inputs = [], steps = [], resul
     id,
     title,
     formula,
-    inputs: inputs.map(normalizeItem),
+    inputs: inputs.filter(Boolean).map(normalizeItem),
     steps: steps.map(normalizeItem),
     result: normalizeItem(result || { label: 'Resultado', value: null }),
     notes: notes.filter(Boolean).map(String),

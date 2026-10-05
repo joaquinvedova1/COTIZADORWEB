@@ -330,7 +330,7 @@ describe('SupabaseRepository: producción con datos v2 en la nube (PLAN-2026-005
     };
   }
 
-  test('sin la confirmación de staging (producción): migra a v3 una vez, con copia previa en el navegador, y la sube', async () => {
+  test('sin la confirmación de staging (producción): migra a la versión actual una vez, con copia previa en el navegador, y la sube', async () => {
     const server = createFakeServer();
     const orgId = server.addUser({ id: 'a', company: 'Empresa real' });
     server.workspaces.set(orgId, { state: v2Workspace(orgId), revision: 7, schemaVersion: 2 });
@@ -338,8 +338,8 @@ describe('SupabaseRepository: producción con datos v2 en la nube (PLAN-2026-005
     await repo.flush();
     assert.equal(init.status, 'migrated');
     const ws = server.workspaces.get(orgId);
-    assert.equal(ws.schemaVersion, 3);
-    assert.equal(ws.state.schemaVersion, 3);
+    assert.equal(ws.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.equal(ws.state.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.ok(ws.revision > 7, 'se guardó con control de revisión');
     const [q] = await repo.getQuotes();
     assert.equal(q.labor[0].basicMonthly, 2000000, 'ningún valor cambia');

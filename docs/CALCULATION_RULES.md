@@ -170,7 +170,8 @@ certificaciones    = certificaciones anual / 12
 inversión media    = (reposición + residual) / 2
 costo de capital   = inversión media × tasa anual% / 12
 otros                = otros costos anuales de tenerlo / 12             (v3: habilitaciones, GPS…)
-posesión en efectivo   = seguro + patente + certificaciones + otros
+mantenimiento fijo   = presupuesto mensual (o anual / 12)               (v4: sólo si el mantenimiento se carga como presupuesto)
+posesión en efectivo   = seguro + patente + certificaciones + otros + mantenimiento fijo
 posesión no efectivo   = amortización + costo de capital       (no son salidas de caja mensuales)
 posesión total         = efectivo + no efectivo
 ```
@@ -182,11 +183,39 @@ combustible/h  = litros/h × precio del combustible      (precio = 0 si el combu
 operación/h    = mantenimiento/h + neumáticos/h + combustible/h
 ```
 
+**Mantenimiento y neumáticos: forma de carga (esquema 4, PLAN-2026-007)** — `maintenanceOf`, `tiresOf`. Sin forma de carga se usa "por hora" (los datos anteriores calculan igual):
+
+| Forma de carga | Fórmula | Dónde entra |
+|---|---|---|
+| Mantenimiento por hora | `mantenimiento/h` cargado | Operación (por hora de uso) |
+| Service cada N horas | `costo del service / horas de uso entre services` | Operación (por hora de uso) |
+| Presupuesto mensual o anual | `presupuesto mensual` (o `anual / 12`) | **Posesión** (costo FIJO de tenerlo): nunca se divide por horas |
+| Neumáticos por hora | `neumáticos/h` cargado | Operación (por hora de uso) |
+| Juego + vida útil en horas | `costo del juego / vida útil en horas` | Operación (por hora de uso) |
+| Juego + vida útil en km (equipos de ruta) | `costo del juego / vida útil en km` = $/km | Desgaste en ruta de la movilización (§5.1), no por hora |
+
+Ejemplos: service $ 600.000 cada 250 h = **$ 2.400/h**; presupuesto $ 3.000.000/mes o $ 36.000.000/año = **$ 3.000.000/mes de posesión** y $ 0/h; juego $ 2.400.000 / 3.000 h = **$ 800/h**; juego $ 2.400.000 / 80.000 km = **$ 30/km**. Si en una forma de carga no hay horas o km (0 o vacío), el valor es 0 y se avisa.
+
+**Avisos de sentido común** (`equipmentChecks`, no bloquean ni corrigen: la persona decide). Se comparan con el valor de reposición en la moneda de los costos (si está en otra moneda sin tipo de cambio, no se comparan montos):
+
+| Aviso | Condición |
+|---|---|
+| Mantenimiento por hora absurdo | `mantenimiento/h × 100 > reposición` ("¿Seguro que el importe está expresado por hora?") |
+| Mantenimiento por hora alto | `mantenimiento/h × 1.000 > reposición` |
+| Presupuesto alto | `mantenimiento fijo mensual × 12 > reposición` |
+| Neumáticos por hora absurdo / alto | `neumáticos/h × 100 > reposición` / `× 1.000 > reposición` |
+| Neumáticos por km absurdo | `neumáticos/km × 1.000 > reposición` ("¿La vida útil está en km?") |
+| Residual mayor que reposición | `residual > reposición` (la amortización queda en 0) |
+| Sin vida útil | `reposición > 0` y `vida útil = 0` (la amortización queda en 0) |
+| Falta el intervalo del service / la vida útil del juego | costo cargado con horas o km en 0 |
+
+Caso real que motivó el cambio: un autoelevador con reposición $ 100.000.000 y "mantenimiento" $ 3.000.000 cargado como $/h → operación $ 3.000.000/h, $ 24.000.000 por día activo de 8 h, ~$ 360.000.000 en 15 días. RATEOS no cambia ese dato (sigue siendo $/h hasta que la persona lo edite), pero ahora lo muestra como "POR HORA de uso" y avisa que 100 horas cuestan más que el equipo.
+
 **En una cotización** (`computeEquipmentLine`), con `horas por día activo` de la línea (si está vacío se usan las horas por día activo de la actividad):
 
 | Parte | Fórmula | Categoría EECC |
 |---|---|---|
-| Fijo mensual | posesión total × cantidad | Equipos |
+| Fijo mensual | posesión total (incluye el mantenimiento fijo si se cargó como presupuesto) × cantidad | Equipos |
 | Variable no combustible / día | (mantenimiento/h + neumáticos/h) × horas/día × cantidad | Equipos |
 | Combustible / día | combustible/h × horas/día × cantidad | **Combustible** |
 
@@ -310,7 +339,8 @@ por sus propios medios (self):
   litros             = km × consumo en ruta (L/100 km) / 100
   combustible        = litros × precio       (0 si lo provee el cliente; un externo sólo si su tarifa NO incluye combustible:
                                               sin definir no se suma y se avisa, igual que el combustible trabajando)
-  desgaste           = km × mantenimiento y neumáticos por km      (SIN combustible ni amortización)
+  desgaste           = km × (mantenimiento y neumáticos por km + neumáticos por km si se cargaron como juego / vida útil en km)
+                                                                     (SIN combustible ni amortización)
   conductor          = su operador (ya en Personal) → no se suma mano de obra; otra persona → debe estar en Personal
 lo transporta otro equipo (transported) → 0 (el costo está en la línea del carretón / batea / camión)
 con un vehículo de apoyo (support)      → 0 (el costo está en ese vehículo de la logística auxiliar)

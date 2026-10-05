@@ -44,15 +44,16 @@ function mobilizationTrace(result, index) {
   return createTrace({
     id: 'mobilization_line',
     title: `Movilización — ${m.name || 'Equipo'}`,
-    formula: 'km por llamado = km de ruta por llamado × cantidad · litros = km × consumo en ruta / 100 · combustible = litros × precio · desgaste = km × $/km (sin combustible ni amortización) · por día activo = por llamado / días por llamado',
+    formula: 'km por llamado = km de ruta por llamado × cantidad · litros = km × consumo en ruta / 100 · combustible = litros × precio · desgaste = km × ($/km + neumáticos $/km si se cargaron por km) (sin combustible ni amortización) · por día activo = por llamado / días por llamado',
     inputs: [
       { label: 'Km de ruta por llamado', value: result.model.mobilization.routeKmPerActivation, format: 'km' },
       { label: 'Cantidad', value: m.quantity, format: 'number' },
       { label: 'Consumo en ruta', value: m.travelLitersPer100Km, format: 'number', unit: 'L/100 km' },
       { label: 'Precio del combustible (si lo pagás)', value: result.model.fuel.paidByUs ? result.model.fuel.pricePerLiter : 0, format: 'rate' },
       { label: 'Desgaste por km', value: m.travelCostPerKm, format: 'rate' },
+      m.tiresPerKm > 0 ? { label: 'Neumáticos por km (juego ÷ vida útil en km)', value: m.tiresPerKm, format: 'rate' } : null,
       { label: 'Días por llamado', value: result.activity.daysPerActivation, format: 'days' },
-    ],
+    ].filter(Boolean),
     steps: [
       { label: 'Km por llamado', value: m.km, format: 'km' },
       { label: 'Litros por llamado', value: m.liters, format: 'liters' },
@@ -188,7 +189,14 @@ export function render(container, ctx) {
         formGrid(
           3,
           kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'En ruta, no el consumo trabajando (L/h).' }),
-          kit.num(`${p}.travelCostPerKm`, { label: 'Desgaste por km', rule: 'money', unit: '$/km', hint: 'Mantenimiento y neumáticos en ruta. Sin combustible ni amortización (ya está en el costo de tenerlo).' }),
+          kit.num(`${p}.travelCostPerKm`, {
+            label: 'Desgaste por km',
+            rule: 'money',
+            unit: '$/km',
+            hint: (quote.equipment[i] && quote.equipment[i].tiresMode) === 'set_km'
+              ? 'Mantenimiento en ruta, SIN neumáticos: los neumáticos de este equipo se suman aparte por km (juego ÷ vida útil). Sin combustible ni amortización.'
+              : 'Mantenimiento y neumáticos en ruta. Sin combustible ni amortización (ya está en el costo de tenerlo).',
+          }),
           kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint }),
         ),
         kit.region((r) => {

@@ -66,6 +66,11 @@ const CHANGE_LABELS = Object.freeze({
   'external.fiscal': 'tratamiento fiscal', 'external.operatorIncluded': 'operador incluido', 'external.fuelIncluded': 'combustible incluido',
   'external.fuelLitersPerHour': 'consumo', 'external.mobilizationIncluded': 'movilización incluida', 'external.mobilizationAmount': 'movilización',
   'external.insuranceIncluded': 'seguro incluido', 'travel.litersPer100Km': 'consumo en ruta', 'travel.costPerKm': 'desgaste por km',
+  wear: 'forma de cargar mantenimiento o neumáticos', 'wear.maintenanceMode': 'forma de cargar el mantenimiento',
+  'wear.maintenanceServiceCost': 'costo del service', 'wear.maintenanceServiceHours': 'horas entre services',
+  'wear.maintenanceBudget': 'presupuesto de mantenimiento', 'wear.maintenanceBudgetPeriod': 'período del presupuesto',
+  'wear.tiresMode': 'forma de cargar los neumáticos', 'wear.tiresSetCost': 'costo del juego de neumáticos',
+  'wear.tiresLifeHours': 'vida útil de los neumáticos', 'wear.tiresLifeKm': 'vida útil de los neumáticos',
 });
 
 /** "Cambió: sueldo básico, ART." (o null). */

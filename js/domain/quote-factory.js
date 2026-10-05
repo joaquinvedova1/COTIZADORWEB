@@ -330,6 +330,17 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
   return line;
 }
 
+/** Campos de carga de mantenimiento y neumáticos (se copian tal cual; null = sin cargar). */
+export const WEAR_INPUT_FIELDS = Object.freeze([
+  'maintenanceMode', 'maintenanceServiceCost', 'maintenanceServiceHours', 'maintenanceBudget', 'maintenanceBudgetPeriod',
+  'tiresMode', 'tiresSetCost', 'tiresLifeHours', 'tiresLifeKm',
+]);
+
+export function wearInputsOf(eq = {}) {
+  const e = eq && typeof eq === 'object' ? eq : {};
+  return Object.fromEntries(WEAR_INPUT_FIELDS.map((k) => [k, e[k] ?? null]));
+}
+
 /**
  * Línea de equipo a partir de una unidad de "Mis equipos" (legajo).
  * Propio: valores de posesión y operación. Alquilado / tercerizado: sus
@@ -358,6 +369,8 @@ export function equipmentLineFromLibrary(eq = {}, { id = createId(), hoursPerAct
     maintenancePerHour: eq.maintenancePerHour ?? 0,
     tiresPerHour: eq.tiresPerHour ?? 0,
     fuelLitersPerHour: eq.fuelLitersPerHour ?? 0,
+    // Cómo se cargaron mantenimiento y neumáticos (PLAN-2026-007; sin modo = por hora).
+    ...wearInputsOf(eq),
     external: acquisition === 'owned' ? null : createExternalTerms(eq.external),
     // Base del VALOR (reposición / residual, puede estar en otra moneda) y base
     // de los costos de tenerlo y usarlo (en la moneda de la empresa). Para un
