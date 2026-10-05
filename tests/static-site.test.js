@@ -174,6 +174,10 @@ describe('archivos del sitio', () => {
     // Sólo deploy escribe en Pages; build no tiene permisos de escritura.
     assert.doesNotMatch(job('build'), /pages: write|id-token: write/);
     assert.match(job('deploy'), /pages: write/);
+    // La cola de despliegues vive en el job deploy: una corrida salteada (CI de
+    // pull_request) nunca cancela el deploy pendiente de un preview.
+    assert.match(job('deploy'), /concurrency:\s*\n\s+group: "pages"\s*\n\s+cancel-in-progress: false/);
+    assert.doesNotMatch(wf, /^concurrency:/m, 'sin concurrencia a nivel workflow');
     // /preview/ se arma con el script de main, que verifica que producción no cambie.
     assert.match(job('build'), /git show origin\/main:scripts\/stage-preview\.mjs/);
     assert.match(job('build'), /--site dist --from/);
