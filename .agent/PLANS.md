@@ -104,7 +104,8 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-002 | Impuestos sobre la facturación (gross-up) y composición del precio | margen, motor de costos, migración | En curso |
 | PLAN-2026-003 | Usuarios reales: Supabase Auth + persistencia cloud con RLS | backend, autenticación, migración | Completado (PR #9) |
 | PLAN-2026-004 | RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes | backend, autenticación | Completado (PR #12) |
-| PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | En curso — PR sin merge, publicado en staging |
+| PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | Completado (PR #13, v0.2.0 en producción) |
+| PLAN-2026-006 | Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables | utilización, motor de costos, migración | Borrador — análisis escrito, implementación pausada |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
@@ -390,7 +391,7 @@ CI verde, preview publicado, prueba del dueño en staging con la cuenta master y
 
 ### PLAN-2026-005 — Recursos con base económica, snapshots, equipos propios/externos y movilización
 
-- Estado: En curso — Pull Request hacia `main` sin merge automático; publicado en staging (`/preview/`)
+- Estado: Completado — PR #13 mergeado; v0.2.0 en producción (`f6b3c08`)
 - Tipo: motor de costos · migración de datos (esquema 2 → 3) · UX de Recursos y cotización
 - Responsable: agente de programación + revisión del dueño del repositorio
 - Fecha de inicio: 2026-10-05 · Rama: `claude/resources-economic-base-v1`
@@ -447,4 +448,89 @@ CI verde, preview publicado con la rama, prueba del dueño en staging y merge de
 - 2026-10-05: UX de Recursos (legajo, externos, catálogo), Configuración (base del combustible y tipos de cambio), cotización (origen + base + aviso de cambios por línea, externos, operador, "Movilización y viajes", base económica de la oferta) y Resultado. Versión visible "v0.2.0 · build …".
 - 2026-10-05: E2E con Supabase simulado (desktop y mobile): Recursos → cotización → snapshot (caso A: conservar / actualizar, persistido en la nube) → externos → movilización (casos B, C, E) → material con base vieja (F) → resultado; staging con datos v2: "sólo lectura" no escribe nada y "Actualizar mis datos" migra a v3. El E2E encontró que `loadVersionInfo` no pasaba `channel` (el resguardo de staging no se activaba): corregido con test.
 - 2026-10-05: revisión adversarial (§36) económica y de datos/UX/seguridad; correcciones en el PR.
+
+### PLAN-2026-006 — Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables
+
+- Estado: Borrador — análisis escrito; implementación pausada hasta confirmar el diseño (dedicación y carga de mantenimiento / neumáticos)
+- Tipo: utilización · motor de costos (dedicación) · migración de datos (esquema 3 → 4, sin cambios de datos) · UX de Recursos y cotización
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-05 · Rama: `claude/resource-usage-in-quote` (apilada sobre `claude/wonderful-brown-g2ehd6`, PR #14)
+
+#### 1. Contexto y problema
+Recursos es el maestro / inventario de la empresa, pero el legajo de un equipo pide **días disponibles por mes, horas disponibles por mes y "% que esperás que trabaje y facture"** (obligatorios), y el perfil de personal pide **horas extra por día activo**. Al dar de alta un camión o una persona todavía no se sabe cuánto va a trabajar: eso depende de cada cotización. Hoy además no se puede (a) cargar que un recurso se comparte con otros servicios, (b) guardar en Recursos un tercerizado cargado a mano en una cotización, ni (c) ver en qué cotizaciones o contratos se está usando un recurso.
+
+#### 2. Análisis de impacto en el motor actual (antes de cambiar nada)
+
+| Dato del recurso | ¿Quién lo usa hoy? | ¿Cambia algún número de una cotización? |
+|---|---|---|
+| `equipment.availableHoursPerMonth`, `availableDaysPerMonth`, `utilizationPct` | **Sólo** `computeEquipmentUnit` para la FICHA de Recursos (`resource-service.equipmentCard`: "$/hora usada", "$/día usado", "$/mes a la utilización configurada", lista, vista previa y "Ver cálculo"). | **No.** `computeEquipmentLine` (cotización) usa posesión mensual completa × cantidad + operación/h × horas por día activo × días activos del SERVICIO. Ningún motor de cotización (cost, quote, economics, utilization, scenario, commercial-rules, break-even) lee la disponibilidad ni la utilización del recurso: todas las ocurrencias de `availableDaysPerMonth` / `utilizationPct` en motores son de `quote.activity`. |
+| Ficha del equipo dentro de la cotización (`quote-steps/equipment.js`) | `computeEquipmentUnit` con la actividad DE LA COTIZACIÓN (días disponibles, utilización y horas del servicio). | Ya es el concepto B (utilización concreta de la cotización): se mantiene. |
+| `laborProfiles.overtimeHoursPerActiveDay` | Valor inicial al copiar el perfil a una cotización; vista previa del perfil (variable por día activo). | No: NO está en `SNAPSHOT_FIELDS` (ya se trata como dato operativo de la línea); la línea tiene su propio valor. |
+| `laborProfiles.normalHoursPerMonth` (jornada), `mealPerActiveDay`, recargo HE | Costo hora cargado (fijo ÷ horas normales), variable por día activo. | Son condiciones del puesto (permanentes), no utilización: **se quedan**. |
+
+Conclusión: la "utilización" del recurso **no distribuye costos fijos en ninguna cotización**; sólo alimenta un $/hora y $/día "de referencia" en Recursos que mezcla el costo permanente del activo con un supuesto de uso. Se separan explícitamente:
+
+- **A. Economía permanente del recurso (Recursos):** costo de TENERLO (posesión: amortización, seguro, patente, certificaciones, otros, costo de capital) por mes y costo de USARLO (operación: mantenimiento, neumáticos, combustible) por hora de uso; sueldo y cargas por persona por mes y costo hora según la jornada. No depende de ningún servicio.
+- **B. Utilización concreta dentro de una cotización:** cantidad, horas por día activo, horas extra, días activos y período del servicio, standby, cómo llega (viajes / km) y **dedicación al servicio**. El $/hora y $/día efectivos de un equipo se calculan en cada cotización con ESOS datos (ya existe).
+
+La utilización de una cotización nunca se guarda como propiedad del recurso.
+
+#### 3. Objetivo y no-objetivos
+- Objetivo:
+  1. Recursos sin datos de uso: sacar del alta / edición de equipos "Disponibilidad y uso" (días, horas, % de utilización) y del perfil de personal "Horas extra por día activo". No son obligatorios ni se muestran; **no se borran** de los datos guardados.
+  2. Ficha de Recursos = A: "Tenerlo: $ X/mes · Usarlo: $ Y/h" (+ "Ver cálculo"), con el aviso de que el $/hora y $/día se calculan en cada cotización.
+  3. Al "Agregar desde tus recursos" en una cotización, un paso que pregunta el uso (B): cantidad / posiciones y relevos, horas por día activo, horas extra por día activo, **dedicación al servicio**, cómo llega; y muestra días activos por mes, horas por mes, período y standby del servicio (se editan en sus pasos).
+  4. **Dedicación al servicio** (motor, ver §4).
+  5. Tercerizados / alquilados cargados a mano en una cotización: botón opcional **[Guardar para futuras cotizaciones]** → Recursos → Servicios externos (la línea queda vinculada con su snapshot).
+  6. **"Usado en"** por recurso: cotización / contrato, cliente, estado, período, uso / dedicación y link; diferencia **uso potencial** (Borrador, Enviada) de **compromiso real** (Adjudicada, Activa) y **Finalizada** (historial). Estados nuevos: "Activa" y "Finalizada"; "Ganada" pasa a llamarse "Adjudicada" (mismo id `won`).
+- Fuera de alcance: scheduler de flota, calendario de disponibilidad, reservas, ERP / órdenes de trabajo; días o período distintos por línea (todas las líneas trabajan los días activos del servicio); dedicación de externos (su costo ya es por unidad usada); bloqueo por sobreasignación (sólo se informa).
+
+#### 4. Impacto en fórmulas
+- Sin cambios para los datos existentes: la dedicación vale 100 % cuando no está cargada (todas las líneas actuales) → golden cases y baseline intactos.
+- **Dedicación al servicio** (`dedicationPct`, 0 < d ≤ 100, por línea de PERSONAL y de EQUIPO PROPIO): qué parte del **costo fijo mensual** del recurso carga esta cotización porque se comparte con otros servicios.
+  - Equipo propio: `fijo = posesión/mes × cantidad × d` (también su parte en caja). La operación sigue lo cargado de uso (horas por día activo × días activos): **no** se escala otra vez (evita contar dos veces la menor dedicación).
+  - Personal: `fijo = (sueldo y cargas + no remunerativos) × dotación × d`; `horas del mes = horas normales × dotación × d`; la estructura "por empleado" usa la dotación equivalente (`dotación × d`). Horas extra y vianda siguen por día activo y posición (lo cargado de uso).
+  - Externos (alquilados / tercerizados): no aplica (se paga por unidad usada).
+  - Caso numérico: hidrogrúa propia con posesión $ 1.000.000/mes, 1 unidad, dedicación 50 % → fijo $ 500.000/mes (antes $ 1.000.000). Supervisor con fijo $ 2.000.000/mes al 25 % → $ 500.000/mes.
+  - Es lineal en los días activos: break-even, matriz de días y escenarios siguen valiendo; con menos dedicación baja el fijo y baja la tarifa piso (el resto del costo fijo lo tiene que cubrir otro servicio: se avisa en la línea).
+- Margen y markup siguen diferenciados (no se tocan).
+
+#### 5. Impacto en datos
+- `SCHEMA_VERSION` 3 → 4 con `migrateV3ToV4`: **no cambia ni borra ningún dato** (copia de recuperación previa automática). Se sube la versión porque `dedicationPct` y los estados "Activa" / "Finalizada" cambian cómo se lee una cotización: una versión anterior los ignoraría y mostraría otro costo, así que abre los datos v4 en sólo lectura (regla de AGENTS §11).
+- Datos de uso que quedan en recursos anteriores (`availableHoursPerMonth`, `availableDaysPerMonth`, `utilizationPct`, `overtimeHoursPerActiveDay`): se conservan sin cambios (obsoletos, ningún cálculo los usa). Las horas extra del perfil se usan sólo como valor inicial al agregarlo a una cotización.
+- Staging comparte la base con producción: aceptar "actualizar el formato" en `/preview/` deja esa cuenta en v4 y producción (v0.2.0 / v0.3.0) la abre en sólo lectura hasta publicar esta versión. Recomendación: probar con una cuenta de prueba (se crea directamente en v4) o elegir "Sólo mirar".
+
+#### 6. Diseño
+- Motores: `labor-engine.computeLaborLine` y `equipment-engine.computeEquipmentLine` aplican `dedicationPct` al fijo; `cost-engine` usa la dotación equivalente en la estructura por empleado. `computeEquipmentUnit` no cambia (sigue usándose con la actividad de la cotización).
+- Dominio (puro): `js/domain/resource-usage.js` (asignaciones de un recurso a partir de las cotizaciones; grupos potencial / compromiso / historial), `dedicationOf(line)`.
+- Servicios: `resource-service.equipmentCard` devuelve sólo posesión y operación (A).
+- UI: legajo de equipo y perfil sin datos de uso; diálogo de uso al agregar desde Recursos; campo "Dedicación al servicio" en la línea; botón "Guardar para futuras cotizaciones" en externos sin vínculo; columna y diálogo "Usado en" en Recursos; estados nuevos en el listado.
+- Reglas de dependencia: la UI no importa `js/data/`; los motores siguen puros.
+
+#### 7. Tests
+Dedicación (equipo propio, personal, por empleado, 100 % = sin cambios, externos sin efecto, valores inválidos), golden cases y baseline intactos, migración v3 → v4 sin cambios de datos, asignaciones (vínculo por `sourceId`, grupos de estado, cotizaciones perdidas / archivadas fuera, suma de dedicación comprometida), ficha de Recursos sin utilización, validación de `dedicationPct`. E2E desktop y mobile + regresión de v0.2.0 / v0.3.0.
+
+#### 8. Riesgos y mitigación
+| Riesgo | Mitigación |
+|---|---|
+| Dedicación baja = tarifa piso baja que no cubre el costo fijo si el resto no se vende | Aviso en la línea ("el X % restante lo tiene que cubrir otro servicio") y en "Ver cálculo"; "Usado en" suma la dedicación comprometida y avisa si supera el 100 %. |
+| Doble escala del uso (dedicación + horas) | La dedicación sólo reparte el fijo; el variable sigue lo cargado de uso. Documentado y testeado. |
+| Staging comparte la base con producción | Esquema 4 sólo con confirmación en `/preview/`; recomendación de cuenta de prueba. |
+| Perder datos de uso viejos | No se borran; quedan como obsoletos. |
+
+#### 9. Rollback
+Revert del PR. Las cuentas ya actualizadas a esquema 4 quedarían en sólo lectura en la versión anterior: restaurar la copia previa a la migración (Configuración → Datos y backup) o mantener esta versión.
+
+#### 10. Review multidisciplinario
+Economía (dedicación sólo del fijo, linealidad, aviso de costo no cubierto), QA (0 / 100 / vacío / inválido, externos, migración), Seguridad (validación `dedicationPct`, sin `innerHTML`, sin cambios de Auth / RLS), UX (A vs B claro, diálogo de uso, "Usado en" potencial vs compromiso). Se deja escrito en el PR.
+
+#### 11. Documentación
+CALCULATION_RULES (dedicación, ficha de Recursos), DATA_MODEL (esquema 4, `dedicationPct`, estados, campos obsoletos), RESOURCE_MODEL (A vs B, asignaciones), CHANGELOG, AGENTS §5.1.
+
+#### 12. Criterio de terminación
+`npm test` y CI en verde, E2E desktop y mobile, preview publicado con la rama, prueba del dueño en staging y merge del PR por el dueño.
+
+#### Bitácora
+- 2026-10-05: análisis de impacto (§2): la utilización del recurso sólo alimenta la ficha de Recursos; ningún número de cotización depende de ella. Diseño A (economía permanente) / B (uso en la cotización) y dedicación al servicio sólo sobre el costo fijo.
+- 2026-10-05: caso real (autoelevador, cotización on-call): "Operación por hora $ 3.000.000" sale de `maintenancePerHour` = 3.000.000 cargado al crear el recurso (no es dato ilustrativo, ni migración, ni error de unidades del código: un monto mensual o anual cargado en un campo $/h, sin ninguna advertencia). Propuesta a confirmar: mantenimiento por hora / service + frecuencia en horas (= $/h) / presupuesto mensual o anual (costo FIJO de tenerlo, no $/h); neumáticos por hora / juego + vida útil en horas o km; resultado visible antes de guardar y control de plausibilidad (100 h de operación > valor de reposición → "¿seguro que es por hora?"). Implementación de la dedicación pausada a pedido del dueño ("no cambies fórmulas todavía").
 
