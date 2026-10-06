@@ -22,20 +22,17 @@
  */
 
 import { h, mount, uniqueId } from '../../dom.js';
-import { button, confirmDialog, stepIndicator } from '../../components.js';
+import { button, confirmDialog, searchSelectField, stepIndicator, textField } from '../../components.js';
+import { INDUSTRY_SECTORS, INDUSTRY_SECTOR_IDS, MAX_ACTIVITY_LENGTH, activitySuggestions, industryOf, searchSectors } from '../../../domain/industry-catalog.js';
 import { sanitizeText } from '../../../core/validation.js';
 import { logger } from '../../../core/logger.js';
 import { userErrorMessage } from '../../layout.js';
 import { flowHeader, focusHeading, getPendingCompanyName, headerLink, isReadOnly, publicIcon, setOnboardingDraft, setPendingCompanyName, takeOnboardingDraft } from './public-chrome.js';
 
-/** Tipos de empresa (ids estables: se guardan en organization.industry). */
-export const INDUSTRIES = Object.freeze([
-  { id: 'oil_gas_services', label: 'Servicios petroleros', hint: 'Yacimientos, pozos, Vaca Muerta.' },
-  { id: 'industrial_maintenance', label: 'Mantenimiento industrial', hint: 'Plantas, paradas, montajes.' },
-  { id: 'transport', label: 'Transporte', hint: 'Cargas, equipos y personal.' },
-  { id: 'construction', label: 'Construcción', hint: 'Obras civiles e industriales.' },
-  { id: 'other', label: 'Otra', hint: 'Otro tipo de servicio.' },
-]);
+/** Sector (secciones de la ClaNAE, sin códigos fiscales): ids estables en organization.industry. */
+const sectorHint = (sec) => (sec.clanae ? `ClaNAE sección ${sec.clanae}` : 'Contalo en "Actividad / especialidad"');
+const SECTOR_OPTIONS = INDUSTRY_SECTORS.map((sec) => ({ value: sec.id, label: sec.label, hint: sectorHint(sec) }));
+const sectorSearch = (query) => searchSectors(query).map((sec) => ({ value: sec.id, label: sec.label, hint: sectorHint(sec) }));
 
 /** ¿Con qué datos empezás? (sólo si la empresa actual es la de ejemplo). */
 const DATA_CHOICES = Object.freeze([
@@ -71,7 +68,9 @@ export async function render(root, app) {
   const currentName = own && typeof organization.name === 'string' ? organization.name.trim() : '';
   const state = {
     step: 1,
-    industry: INDUSTRIES.some((i) => i.id === (organization && organization.industry)) ? organization.industry : null,
+    // Sector y actividad de la empresa propia (también lee los tipos de versiones anteriores).
+    industry: own ? industryOf(organization).sector : null,
+    activity: own ? industryOf(organization).activity : '',
     baseLocation: own && typeof organization.baseLocation === 'string' ? organization.baseLocation : '',
     dataChoice: 'mine',
     // Empresa propia con otro nombre: cambiarlo sólo si la persona lo marca.
@@ -81,7 +80,8 @@ export async function render(root, app) {
   // Vuelve del ejemplo (#/demo?desde=bienvenida): retoma sus respuestas y el paso.
   const draft = takeOnboardingDraft();
   if (draft) {
-    if (INDUSTRIES.some((i) => i.id === draft.industry)) state.industry = draft.industry;
+    if (INDUSTRY_SECTOR_IDS.includes(draft.industry)) state.industry = draft.industry;
+    if (typeof draft.activity === 'string') state.activity = sanitizeText(draft.activity, MAX_ACTIVITY_LENGTH);
     if (typeof draft.baseLocation === 'string') state.baseLocation = draft.baseLocation;
     if (DATA_CHOICES.some((c) => c.id === draft.dataChoice)) state.dataChoice = draft.dataChoice;
     if (typeof draft.rename === 'boolean') state.rename = draft.rename;
@@ -130,20 +130,45 @@ export async function render(root, app) {
     return 'Lo guardamos con los datos de tu empresa. No cambia ningún cálculo.';
   }
 
+  /** Sector (buscable) y actividad / especialidad (libre, con sugerencias). */
+  function industryFields() {
+    const listId = uniqueId('pub-activity-list');
+    const suggestions = () => activitySuggestions(state.industry).map((a) => h('option', { value: a }));
+    const datalist = h('datalist', { id: listId }, ...suggestions());
+    const activity = textField({
+      label: 'Actividad / especialidad (opcional)',
+      value: state.activity,
+      maxLength: MAX_ACTIVITY_LENGTH,
+      placeholder: 'Ej.: Servicios al pozo, Transporte de cargas',
+      hint: 'Elegí una sugerencia o escribí la tuya.',
+      onChange: (v) => {
+        state.activity = v;
+      },
+    });
+    const activityInput = activity.querySelector('input');
+    if (activityInput) activityInput.setAttribute('list', listId);
+    activity.appendChild(datalist);
+    const sector = searchSelectField({
+      label: 'Sector',
+      value: state.industry,
+      options: SECTOR_OPTIONS,
+      search: sectorSearch,
+      hint: 'Escribí para buscar (por ejemplo "petróleo", "transporte" o "construcción"). Si no está el tuyo, elegí "Otro / Personalizado".',
+      onChange: (id) => {
+        state.industry = id;
+        mount(datalist, ...suggestions());
+      },
+    });
+    return h('div', { class: 'pub-industry-fields' }, sector, activity);
+  }
+
   function screenIndustry() {
     const titleId = uniqueId('pub-ob');
     return [
       h('p', { class: 'pub-eyebrow' }, 'Bienvenido a RATEOS'),
       h('h1', { class: 'pub-flow-title', id: titleId, tabindex: '-1' }, '¿Qué tipo de empresa tenés?'),
       h('p', { class: 'pub-flow-text' }, industrySaveText()),
-      optionGroup({
-        labelledBy: titleId,
-        options: INDUSTRIES,
-        selected: state.industry,
-        onSelect: (id) => {
-          state.industry = id;
-        },
-      }),
+      industryFields(),
       actions(h('span'), button('Continuar', { variant: 'primary', size: 'lg', icon: null, onClick: () => go(2), attrs: { class: 'btn btn-primary btn-lg pub-btn' } })),
     ];
   }
@@ -256,7 +281,7 @@ export async function render(root, app) {
           {
             href: '#/demo?desde=bienvenida',
             // Al volver del ejemplo, la bienvenida retoma estas respuestas (en memoria).
-            on: { click: () => setOnboardingDraft({ step: 3, industry: state.industry, baseLocation: state.baseLocation, dataChoice: state.dataChoice, rename: state.rename }) },
+            on: { click: () => setOnboardingDraft({ step: 3, industry: state.industry, activity: state.activity, baseLocation: state.baseLocation, dataChoice: state.dataChoice, rename: state.rename }) },
           },
           'Ver un ejemplo primero',
         ),
@@ -316,6 +341,7 @@ export async function render(root, app) {
         name: companyName || '',
         baseLocation: sanitizeText(state.baseLocation, MAX_BASE_LENGTH),
         industry: state.industry || '',
+        activity: sanitizeText(state.activity, MAX_ACTIVITY_LENGTH),
       });
       setPendingCompanyName('');
       await app.refreshChrome();
@@ -346,6 +372,8 @@ export async function render(root, app) {
     if (own && !readOnly) {
       const patch = {};
       if (state.industry) patch.industry = state.industry;
+      const activity = sanitizeText(state.activity, MAX_ACTIVITY_LENGTH);
+      if (activity) patch.activity = activity;
       const base = sanitizeText(state.baseLocation, MAX_BASE_LENGTH);
       if (base) patch.baseLocation = base;
       if (state.renameTo && state.rename) patch.name = state.renameTo;

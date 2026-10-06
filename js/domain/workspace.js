@@ -29,10 +29,10 @@ function cleanText(value) {
 
 /**
  * @param {object} backup  datos actuales en formato de backup (repository.exportBackup())
- * @param {{ name?: string, baseLocation?: string, industry?: string }} [org]
+ * @param {{ name?: string, baseLocation?: string, industry?: string, activity?: string }} [org]
  * @returns {object} nuevo backup listo para importBackup
  */
-export function createFreshWorkspace(backup, { name, baseLocation, industry } = {}) {
+export function createFreshWorkspace(backup, { name, baseLocation, industry, activity } = {}) {
   if (!isPlainObject(backup) || !isPlainObject(backup.organization)) throw new Error('Datos actuales inválidos.');
   const data = deepClone(backup);
   const organization = { ...data.organization, illustrative: false };
@@ -44,6 +44,8 @@ export function createFreshWorkspace(backup, { name, baseLocation, industry } = 
   if (b) organization.baseLocation = b;
   else if (backup.organization.illustrative === true) organization.baseLocation = '';
   if (i) organization.industry = i;
+  const a = cleanText(activity);
+  if (a) organization.activity = a;
   // Las notas de la empresa ficticia ("Empresa ficticia de demostración") no
   // pasan a la empresa propia.
   if (backup.organization.illustrative === true) organization.notes = '';

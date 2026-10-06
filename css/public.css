@@ -612,3 +612,9 @@ body.is-public .skip-link:not(:focus) { box-shadow: none; }
   .pub-sim-col-label { font-size: 0.78rem; }
   .pub-flow-actions .btn-lg.pub-btn { padding-left: 1.1rem; padding-right: 1.1rem; }
 }
+
+/* Bienvenida: sector buscable y actividad */
+.pub-industry-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+@media (max-width: 640px) {
+  .pub-industry-fields { grid-template-columns: minmax(0, 1fr); }
+}

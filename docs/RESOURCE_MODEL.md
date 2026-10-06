@@ -98,6 +98,7 @@ RATEOS **no trae alícuotas** y **no suma impuestos indiscriminadamente**:
 ## 7. Catálogo: qué puede tener y qué no
 
 - El catálogo de familias está en el código (público): sólo descripción general y movilidad típica (autopropulsado, apto para ruta, requiere transporte, requiere conductor) y el tipo de consumo. **Nunca** precios, especificaciones técnicas que no tengamos, nombres de clientes ni contratos.
+- Cada familia puede traer **variantes descriptivas** (configuración o capacidad nominal: "12 yd³ / 1.500 gal", "6x4", "3 ejes tándem", "Sider"…). Son **sugerencias de texto** para acelerar la carga: al elegir una se completa "Capacidad / especificación" (`capacity`) y, si el nombre está vacío, se sugiere el nombre ("Vactor 12 yd³ / 1.500 gal"). Todo es editable, "Otro / Personalizado" deja cargar cualquier equipo desde cero y la capacidad no entra en ningún cálculo ni en el snapshot.
 - Marca y modelo son datos privados de cada organización (`resources.equipmentModels`).
 
 ## 8. Migración v2 → v3 (resumen)
