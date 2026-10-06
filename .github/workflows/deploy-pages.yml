@@ -84,7 +84,7 @@ jobs:
       trigger: ${{ steps.preview.outputs.trigger }}
     steps:
       - name: Checkout (todas las ramas y tags)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -196,7 +196,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout (commit de producción)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
@@ -238,7 +238,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout (commit de la rama)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.plan.outputs.preview_sha }}
           persist-credentials: false
@@ -306,7 +306,7 @@ jobs:
       root_ref: ${{ needs.plan.outputs.root_ref }}
     steps:
       - name: Checkout (mismo commit que pasó los tests)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
