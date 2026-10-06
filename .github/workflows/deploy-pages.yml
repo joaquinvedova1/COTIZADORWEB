@@ -452,7 +452,7 @@ jobs:
       - name: Desplegar en GitHub Pages
         id: deployment
         if: steps.main_guard.outputs.publish == 'true'
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
       - name: Resumen del despliegue
         if: steps.main_guard.outputs.publish == 'true'
