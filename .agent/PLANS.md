@@ -105,7 +105,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-003 | Usuarios reales: Supabase Auth + persistencia cloud con RLS | backend, autenticación, migración | Completado (PR #9) |
 | PLAN-2026-004 | RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes | backend, autenticación | Completado (PR #12) |
 | PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | Completado (PR #13, v0.2.0 en producción) |
-| PLAN-2026-006 | Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables | utilización, motor de costos, migración | Borrador — análisis escrito, implementación pausada |
+| PLAN-2026-006 | Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables | utilización, motor de costos, migración | Borrador — concepto aprobado, siguiente paso (sin código) |
 | PLAN-2026-007 | Mantenimiento y neumáticos con forma de carga y avisos de sentido común | motor de costos, migración | En curso — PR sin merge, en staging |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
@@ -452,7 +452,7 @@ CI verde, preview publicado con la rama, prueba del dueño en staging y merge de
 
 ### PLAN-2026-006 — Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables
 
-- Estado: Borrador — análisis escrito; implementación pausada hasta confirmar el diseño (dedicación y carga de mantenimiento / neumáticos)
+- Estado: Borrador — concepto APROBADO por el dueño (2026-10-06) con la UX simplificada de §3.1; **sin código activo**. Es el siguiente paso después de PLAN-2026-007 (mantenimiento y neumáticos).
 - Tipo: utilización · motor de costos (dedicación) · migración de datos (esquema 3 → 4, sin cambios de datos) · UX de Recursos y cotización
 - Responsable: agente de programación + revisión del dueño del repositorio
 - Fecha de inicio: 2026-10-05 · Rama: `claude/resource-usage-in-quote` (apilada sobre `claude/wonderful-brown-g2ehd6`, PR #14)
@@ -477,56 +477,78 @@ Conclusión: la "utilización" del recurso **no distribuye costos fijos en ningu
 La utilización de una cotización nunca se guarda como propiedad del recurso.
 
 #### 3. Objetivo y no-objetivos
-- Objetivo:
+- Objetivo (siguiente iteración):
   1. Recursos sin datos de uso: sacar del alta / edición de equipos "Disponibilidad y uso" (días, horas, % de utilización) y del perfil de personal "Horas extra por día activo". No son obligatorios ni se muestran; **no se borran** de los datos guardados.
   2. Ficha de Recursos = A: "Tenerlo: $ X/mes · Usarlo: $ Y/h" (+ "Ver cálculo"), con el aviso de que el $/hora y $/día se calculan en cada cotización.
-  3. Al "Agregar desde tus recursos" en una cotización, un paso que pregunta el uso (B): cantidad / posiciones y relevos, horas por día activo, horas extra por día activo, **dedicación al servicio**, cómo llega; y muestra días activos por mes, horas por mes, período y standby del servicio (se editan en sus pasos).
-  4. **Dedicación al servicio** (motor, ver §4).
-  5. Tercerizados / alquilados cargados a mano en una cotización: botón opcional **[Guardar para futuras cotizaciones]** → Recursos → Servicios externos (la línea queda vinculada con su snapshot).
-  6. **"Usado en"** por recurso: cotización / contrato, cliente, estado, período, uso / dedicación y link; diferencia **uso potencial** (Borrador, Enviada) de **compromiso real** (Adjudicada, Activa) y **Finalizada** (historial). Estados nuevos: "Activa" y "Finalizada"; "Ganada" pasa a llamarse "Adjudicada" (mismo id `won`).
-- Fuera de alcance: scheduler de flota, calendario de disponibilidad, reservas, ERP / órdenes de trabajo; días o período distintos por línea (todas las líneas trabajan los días activos del servicio); dedicación de externos (su costo ya es por unidad usada); bloqueo por sobreasignación (sólo se informa).
+  3. En la cotización, al agregar desde Recursos, las tres preguntas de §3.1.
+  4. Tercerizados / alquilados cargados a mano en una cotización: botón opcional **[Guardar para futuras cotizaciones]** → Recursos → Servicios externos.
+  5. **"Usado en" / Asignaciones** por recurso (§3.2). Estados: "Activa" y "Finalizada" nuevos; "Ganada" pasa a "Adjudicada" (mismo id `won`).
+- Fuera de alcance: scheduler de flota, calendario de disponibilidad, reservas con fechas, ERP / órdenes de trabajo; días o período distintos por línea; bloqueo por sobreasignación (sólo se informa).
 
-#### 4. Impacto en fórmulas
-- Sin cambios para los datos existentes: la dedicación vale 100 % cuando no está cargada (todas las líneas actuales) → golden cases y baseline intactos.
-- **Dedicación al servicio** (`dedicationPct`, 0 < d ≤ 100, por línea de PERSONAL y de EQUIPO PROPIO): qué parte del **costo fijo mensual** del recurso carga esta cotización porque se comparte con otros servicios.
-  - Equipo propio: `fijo = posesión/mes × cantidad × d` (también su parte en caja). La operación sigue lo cargado de uso (horas por día activo × días activos): **no** se escala otra vez (evita contar dos veces la menor dedicación).
-  - Personal: `fijo = (sueldo y cargas + no remunerativos) × dotación × d`; `horas del mes = horas normales × dotación × d`; la estructura "por empleado" usa la dotación equivalente (`dotación × d`). Horas extra y vianda siguen por día activo y posición (lo cargado de uso).
-  - Externos (alquilados / tercerizados): no aplica (se paga por unidad usada).
-  - Caso numérico: hidrogrúa propia con posesión $ 1.000.000/mes, 1 unidad, dedicación 50 % → fijo $ 500.000/mes (antes $ 1.000.000). Supervisor con fijo $ 2.000.000/mes al 25 % → $ 500.000/mes.
-  - Es lineal en los días activos: break-even, matriz de días y escenarios siguen valiendo; con menos dedicación baja el fijo y baja la tarifa piso (el resto del costo fijo lo tiene que cubrir otro servicio: se avisa en la línea).
-- Margen y markup siguen diferenciados (no se tocan).
+#### 3.1 UX aprobada: tres conceptos separados (2026-10-06)
+
+| # | Pregunta en la cotización | Qué carga | Qué costos mueve |
+|---|---|---|---|
+| 1 | **"¿Cuánto se usa en este servicio?"** | días, horas, viajes, km | Sólo **variables**: combustible, mantenimiento por uso, neumáticos por uso, desgaste en ruta, horas extra / viandas. |
+| 2 | **"¿El equipo queda reservado para este servicio?"** — Sí / No | reserva exclusiva | Si **Sí** → **100 %** de los costos fijos. |
+| 3 | Si **No**: **"¿Se comparte con otros contratos?"** — Sí / No. Si **Sí**: **"¿Qué porcentaje de sus costos fijos querés asignar a esta cotización?"** | % explícito | Ese % de los costos fijos. Si no está reservado ni compartido: 100 % (nunca se reduce solo). |
+
+Ayuda (texto literal): "Esto no depende de cuántos días trabaje. Un equipo on-call puede trabajar 15 días y aun así quedar reservado 100 % para este contrato."
+
+Reglas:
+- El uso real mueve costos VARIABLES.
+- Los pocos días de uso **NO** reducen automáticamente amortización, seguro, patente, certificaciones, costo de capital ni mantenimiento fijo.
+- Reservado exclusivamente → 100 % de costos fijos. Compartido → porcentaje EXPLÍCITO de costos fijos (lo carga la persona; nunca se infiere "50 % de uso = 50 % de costo fijo").
+- Alquilado / tercerizado por día u hora → no aplica (no hay amortización propia): usa la tarifa del proveedor por unidad usada.
+- Alquilado por mes → esa tarifa mensual sí es un costo fijo del servicio (ya funciona así: unidad "mes").
+
+Ejemplos:
+- A. Vactor on-call reservado 100 %, 15 días activos × 8 h → fijos 100 % (amortización, seguro, patente, certificaciones, capital, mantenimiento fijo) aunque esté parado 15 días; variables × 120 h (combustible, mantenimiento por uso, neumáticos) + movilización por llamado.
+- B. Autoelevador compartido entre dos contratos, la persona asigna 50 % → fijos × 50 % (si el otro contrato no se concreta, esa mitad queda sin cubrir: se avisa); variables al 100 % de lo que trabaje en ESTE contrato.
+- C. Equipo alquilado sólo por los días usados → fijos propios: no aplica; variable = tarifa × unidades (+ combustible no incluido + movilización del proveedor, con su mínimo).
+
+#### 3.2 "Usado en" / Asignaciones (sin scheduler)
+Por recurso: cotización / contrato, cliente, estado, período, **% reservado / asignado** y **uso estimado** (días, horas, km), con link. Diferencia **uso potencial** (Borrador, Enviada) de **compromiso real** (Adjudicada, Activa) y **Finalizada** (historial); suma el % asignado comprometido y avisa si supera el 100 %.
+
+#### 4. Impacto en fórmulas (propuesto, sin código activo)
+- Datos de la línea (propuesta): `reservedForService` (boolean, por defecto `true`), `sharedWithOtherContracts` (boolean), `fixedCostSharePct` (0 < % ≤ 100, sólo si se comparte).
+- `fijo de la línea = costos fijos × cantidad × (compartido ? fixedCostSharePct : 100) / 100`. Variable sin cambios. Sin datos = 100 % (las cotizaciones existentes no cambian).
+- Aplica a equipos PROPIOS y a personal (sueldo y cargas, con el mismo criterio de reserva / asignación explícita); no a externos por unidad.
+- Lineal en los días activos: break-even, matriz y escenarios siguen valiendo.
+- Requiere tests (100 % = sin cambios, reservado, compartido, externos sin efecto, inválidos), golden cases intactos y el mismo cuidado de esquema que PLAN-2026-007 (versión nueva para que una anterior no calcule distinto en silencio).
+- El código de una primera versión (un único `dedicationPct`) quedó guardado fuera del repositorio y NO se usa: la UX aprobada lo reemplaza.
 
 #### 5. Impacto en datos
-- `SCHEMA_VERSION` 3 → 4 con `migrateV3ToV4`: **no cambia ni borra ningún dato** (copia de recuperación previa automática). Se sube la versión porque `dedicationPct` y los estados "Activa" / "Finalizada" cambian cómo se lee una cotización: una versión anterior los ignoraría y mostraría otro costo, así que abre los datos v4 en sólo lectura (regla de AGENTS §11).
+- Nueva versión de esquema (la 4 la usa PLAN-2026-007; esto sería la 5) con una migración que **no cambia ni borra ningún dato** (copia de recuperación previa automática). Se sube porque la reserva / % de costos fijos y los estados "Activa" / "Finalizada" cambian cómo se lee una cotización: una versión anterior los ignoraría y mostraría otro costo, así que abre los datos en sólo lectura (regla de AGENTS §11).
 - Datos de uso que quedan en recursos anteriores (`availableHoursPerMonth`, `availableDaysPerMonth`, `utilizationPct`, `overtimeHoursPerActiveDay`): se conservan sin cambios (obsoletos, ningún cálculo los usa). Las horas extra del perfil se usan sólo como valor inicial al agregarlo a una cotización.
-- Staging comparte la base con producción: aceptar "actualizar el formato" en `/preview/` deja esa cuenta en v4 y producción (v0.2.0 / v0.3.0) la abre en sólo lectura hasta publicar esta versión. Recomendación: probar con una cuenta de prueba (se crea directamente en v4) o elegir "Sólo mirar".
+- Staging comparte la base con producción: aceptar "actualizar el formato" en `/preview/` deja esa cuenta en la versión nueva y producción la abre en sólo lectura hasta publicarla. Recomendación: probar con una cuenta de prueba o elegir "Sólo mirar".
 
 #### 6. Diseño
-- Motores: `labor-engine.computeLaborLine` y `equipment-engine.computeEquipmentLine` aplican `dedicationPct` al fijo; `cost-engine` usa la dotación equivalente en la estructura por empleado. `computeEquipmentUnit` no cambia (sigue usándose con la actividad de la cotización).
-- Dominio (puro): `js/domain/resource-usage.js` (asignaciones de un recurso a partir de las cotizaciones; grupos potencial / compromiso / historial), `dedicationOf(line)`.
+- Motores: `labor-engine.computeLaborLine` y `equipment-engine.computeEquipmentLine` aplican el % de costos fijos (100 % si está reservado o no se comparte; el % explícito si se comparte); `cost-engine` usa la dotación equivalente en la estructura por empleado. `computeEquipmentUnit` no cambia.
+- Dominio (puro): `js/domain/resource-usage.js` (asignaciones de un recurso a partir de las cotizaciones; grupos potencial / compromiso / historial) y `fixedCostShareOf(line)`.
 - Servicios: `resource-service.equipmentCard` devuelve sólo posesión y operación (A).
-- UI: legajo de equipo y perfil sin datos de uso; diálogo de uso al agregar desde Recursos; campo "Dedicación al servicio" en la línea; botón "Guardar para futuras cotizaciones" en externos sin vínculo; columna y diálogo "Usado en" en Recursos; estados nuevos en el listado.
+- UI: legajo de equipo y perfil sin datos de uso; al agregar desde Recursos, las tres preguntas de §3.1 (uso / reservado / compartido + %); botón "Guardar para futuras cotizaciones" en externos sin vínculo; columna y diálogo "Usado en" en Recursos; estados nuevos en el listado.
 - Reglas de dependencia: la UI no importa `js/data/`; los motores siguen puros.
 
 #### 7. Tests
-Dedicación (equipo propio, personal, por empleado, 100 % = sin cambios, externos sin efecto, valores inválidos), golden cases y baseline intactos, migración v3 → v4 sin cambios de datos, asignaciones (vínculo por `sourceId`, grupos de estado, cotizaciones perdidas / archivadas fuera, suma de dedicación comprometida), ficha de Recursos sin utilización, validación de `dedicationPct`. E2E desktop y mobile + regresión de v0.2.0 / v0.3.0.
+Reserva / % de costos fijos (equipo propio, personal, por empleado, reservado = 100 %, sin datos = sin cambios, compartido con % explícito, pocos días de uso NO reducen fijos, externos por unidad sin efecto, alquiler mensual = fijo, valores inválidos), golden cases y baseline intactos, migración sin cambios de datos, asignaciones (vínculo por `sourceId`, grupos de estado, cotizaciones perdidas / archivadas fuera, suma del % comprometido), ficha de Recursos sin utilización. E2E desktop y mobile + regresión de v0.2.0 / v0.3.0.
 
 #### 8. Riesgos y mitigación
 | Riesgo | Mitigación |
 |---|---|
-| Dedicación baja = tarifa piso baja que no cubre el costo fijo si el resto no se vende | Aviso en la línea ("el X % restante lo tiene que cubrir otro servicio") y en "Ver cálculo"; "Usado en" suma la dedicación comprometida y avisa si supera el 100 %. |
-| Doble escala del uso (dedicación + horas) | La dedicación sólo reparte el fijo; el variable sigue lo cargado de uso. Documentado y testeado. |
-| Staging comparte la base con producción | Esquema 4 sólo con confirmación en `/preview/`; recomendación de cuenta de prueba. |
+| % de costos fijos bajo = tarifa piso baja que no cubre el costo fijo si el otro contrato no se concreta | Sólo con "se comparte" explícito; aviso en la línea ("el X % restante lo tiene que cubrir otro contrato") y en "Ver cálculo"; "Usado en" suma el % comprometido y avisa si supera el 100 %. |
+| Confundir uso con reserva ("50 % de uso = 50 % de fijo") | Nunca se infiere: el uso mueve sólo variables y el % de fijos es una respuesta explícita. Texto de ayuda en la pregunta. |
+| Staging comparte la base con producción | Versión de esquema nueva sólo con confirmación en `/preview/`; recomendación de cuenta de prueba. |
 | Perder datos de uso viejos | No se borran; quedan como obsoletos. |
 
 #### 9. Rollback
-Revert del PR. Las cuentas ya actualizadas a esquema 4 quedarían en sólo lectura en la versión anterior: restaurar la copia previa a la migración (Configuración → Datos y backup) o mantener esta versión.
+Revert del PR. Las cuentas ya actualizadas a la versión de esquema nueva quedarían en sólo lectura en la versión anterior: restaurar la copia previa a la migración (Configuración → Datos y backup) o mantener esta versión.
 
 #### 10. Review multidisciplinario
-Economía (dedicación sólo del fijo, linealidad, aviso de costo no cubierto), QA (0 / 100 / vacío / inválido, externos, migración), Seguridad (validación `dedicationPct`, sin `innerHTML`, sin cambios de Auth / RLS), UX (A vs B claro, diálogo de uso, "Usado en" potencial vs compromiso). Se deja escrito en el PR.
+Economía (% de fijos explícito, nunca inferido del uso; linealidad; aviso de costo no cubierto), QA (0 / 100 / vacío / inválido, externos, alquiler mensual, migración), Seguridad (validación del %, sin `innerHTML`, sin cambios de Auth / RLS), UX (tres preguntas claras, texto de ayuda, "Usado en" potencial vs compromiso). Se deja escrito en el PR.
 
 #### 11. Documentación
-CALCULATION_RULES (dedicación, ficha de Recursos), DATA_MODEL (esquema 4, `dedicationPct`, estados, campos obsoletos), RESOURCE_MODEL (A vs B, asignaciones), CHANGELOG, AGENTS §5.1.
+CALCULATION_RULES (reserva y % de costos fijos, ficha de Recursos), DATA_MODEL (esquema nuevo, campos de la línea, estados, campos obsoletos), RESOURCE_MODEL (uso vs reserva vs asignación, asignaciones), CHANGELOG, AGENTS §5.1.
 
 #### 12. Criterio de terminación
 `npm test` y CI en verde, E2E desktop y mobile, preview publicado con la rama, prueba del dueño en staging y merge del PR por el dueño.
@@ -534,6 +556,7 @@ CALCULATION_RULES (dedicación, ficha de Recursos), DATA_MODEL (esquema 4, `dedi
 #### Bitácora
 - 2026-10-05: análisis de impacto (§2): la utilización del recurso sólo alimenta la ficha de Recursos; ningún número de cotización depende de ella. Diseño A (economía permanente) / B (uso en la cotización) y dedicación al servicio sólo sobre el costo fijo.
 - 2026-10-05: caso real (autoelevador, cotización on-call): "Operación por hora $ 3.000.000" sale de `maintenancePerHour` = 3.000.000 cargado al crear el recurso (no es dato ilustrativo, ni migración, ni error de unidades del código: un monto mensual o anual cargado en un campo $/h, sin ninguna advertencia). Propuesta a confirmar: mantenimiento por hora / service + frecuencia en horas (= $/h) / presupuesto mensual o anual (costo FIJO de tenerlo, no $/h); neumáticos por hora / juego + vida útil en horas o km; resultado visible antes de guardar y control de plausibilidad (100 h de operación > valor de reposición → "¿seguro que es por hora?"). Implementación de la dedicación pausada a pedido del dueño ("no cambies fórmulas todavía").
+- 2026-10-06: concepto aprobado con UX simplificada (uso / reserva / % de costos fijos explícito, sin inferir del uso). Queda documentado como siguiente paso, sin código activo; PLAN-2026-007 (mantenimiento y neumáticos) va primero en su propio PR.
 
 ### PLAN-2026-007 — Mantenimiento y neumáticos con forma de carga y avisos de sentido común
 
