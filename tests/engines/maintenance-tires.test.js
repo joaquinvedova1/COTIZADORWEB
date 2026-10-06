@@ -14,7 +14,9 @@ import assert from 'node:assert/strict';
 import { computeOwnership, computeOperation, computeEquipmentLine, maintenanceOf, tiresOf, equipmentChecks } from '../../js/engines/equipment-engine.js';
 import { computeMobilization } from '../../js/engines/mobilization-engine.js';
 import { snapshotValuesFromLine, economicFingerprint, changedKeys } from '../../js/domain/resource-snapshot.js';
-import { equipmentLineFromLibrary } from '../../js/domain/quote-factory.js';
+import { equipmentLineFromLibrary, createEmptyQuote } from '../../js/domain/quote-factory.js';
+import { buildCostModel, costAtActivity } from '../../js/engines/cost-engine.js';
+import { computeQuote } from '../../js/engines/quote-engine.js';
 
 const ids = (warnings) => warnings.map((w) => w.id);
 // El autoelevador del caso real: $ 3.000.000 cargados como "por hora".
@@ -159,5 +161,44 @@ describe('snapshot: los datos anteriores no cambian de huella', () => {
     assert.equal(line.maintenanceBudgetPeriod, 'year');
     assert.equal(line.tiresLifeKm, 80000);
     assert.equal(computeEquipmentLine({ ...line, quantity: 1 }).fixedMonthly, 3000000);
+  });
+});
+
+describe('on-call: los costos fijos NO dependen de los días trabajados (15 días ≠ 50 % del fijo)', () => {
+  // Equipo propio con todos los fijos de tenencia y todos los variables por uso.
+  const vactor = {
+    name: 'Vactor', replacementValue: 300000000, residualValue: 60000000, usefulLifeYears: 10,
+    insuranceAnnual: 6000000, licenseAnnual: 1200000, certificationsAnnual: 2400000, capitalRatePctAnnual: 12,
+    maintenanceMode: 'budget', maintenanceBudget: 1500000, maintenanceBudgetPeriod: 'month',
+    tiresMode: 'set_hours', tiresSetCost: 9000000, tiresLifeHours: 3000, fuelLitersPerHour: 15,
+  };
+  function onCallQuote(activeDaysPerMonth) {
+    const q = createEmptyQuote({ id: 'q-oncall', now: '2026-10-01T00:00:00.000Z' });
+    q.serviceType = 'on_call';
+    q.pricingMode = 'known_activity';
+    q.activity = { ...q.activity, activeDaysPerMonth, availableDaysPerMonth: 30, hoursPerActiveDay: 10 };
+    q.fuel = { ...q.fuel, pricePerLiter: 1500, providedBy: 'contractor' };
+    q.equipment = [equipmentLineFromLibrary(vactor, { id: 'l1', hoursPerActiveDay: 10, now: '2026-10-01T00:00:00.000Z' })];
+    return q;
+  }
+
+  test('amortización, seguro, patente, certificaciones, mantenimiento por presupuesto y costo de capital: el mes completo con 1, 15 o 30 días', () => {
+    const own = computeOwnership(vactor);
+    const expectedFixed = own.depreciationMonthly + own.insuranceMonthly + own.licenseMonthly + own.certificationsMonthly + own.maintenanceFixedMonthly + own.capitalCostMonthly;
+    assert.ok(expectedFixed > 0);
+    const fixedAt = (D) => buildCostModel(onCallQuote(D)).lines.filter((l) => l.key.startsWith('equipment:ownership')).reduce((s, l) => s + l.fixedMonthly, 0);
+    for (const D of [1, 15, 30]) assert.ok(Math.abs(fixedAt(D) - expectedFixed) < 1e-6, `${D} días: ${fixedAt(D)} ≠ ${expectedFixed}`);
+    const k15 = computeQuote(onCallQuote(15)).kpis;
+    const k30 = computeQuote(onCallQuote(30)).kpis;
+    assert.equal(k15.fixedCosts, k30.fixedCosts, '15 días cargan el 100 % del fijo mensual, no el 50 %');
+  });
+
+  test('combustible, neumáticos por hora y operación sí dependen del uso: 30 días = 2 × 15 días', () => {
+    const at = (D) => costAtActivity(buildCostModel(onCallQuote(D)), D);
+    const v15 = at(15).variable;
+    const v30 = at(30).variable;
+    assert.ok(v15 > 0);
+    assert.ok(Math.abs(v30 - 2 * v15) < 1e-6, `${v30} ≠ 2 × ${v15}`);
+    assert.equal(at(15).fixed, at(30).fixed);
   });
 });

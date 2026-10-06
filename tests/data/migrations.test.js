@@ -409,6 +409,13 @@ describe('migrateState v2 → v3 (base económica, snapshots, movilización — 
     assert.deepEqual(a.eecc.rows.map((r) => r.amount), b.eecc.rows.map((r) => r.amount));
   });
 
+  test('el número (código) de la cotización no cambia y no se pierde ninguna cotización (v2 → v3 → v4)', () => {
+    const before = v2State();
+    before.quotes[0].code = 'COT-0007';
+    const { state } = migrateState(before);
+    assert.deepEqual(state.quotes.map((q) => [q.id, q.code]), [['q', 'COT-0007']]);
+  });
+
   test('ninguna fecha base se inventa: todo queda "Base no definida", en la moneda de la empresa', () => {
     const { state } = migrateState(v2State());
     const empty = { period: null, currency: 'ARS', source: null, note: '' };
@@ -519,6 +526,13 @@ describe('migrateState v3 → v4 (mantenimiento y neumáticos con forma de carga
       assert.equal(b.kpis.floorNetRate, a.kpis.floorNetRate, q.name);
     });
     assert.equal(validateState(state).ok, true);
+  });
+
+  test('el número (código) de cada cotización no cambia (v3 → v4)', () => {
+    const v3 = { ...createDemoState(3), schemaVersion: 3 };
+    const codes = v3.quotes.map((q) => [q.id, q.code]);
+    assert.ok(codes.length > 0 && codes.every(([, c]) => c), 'la demo trae cotizaciones con número');
+    assert.deepEqual(migrateState(v3).state.quotes.map((q) => [q.id, q.code]), codes);
   });
 
   test('tolera entradas que no son objetos', () => {

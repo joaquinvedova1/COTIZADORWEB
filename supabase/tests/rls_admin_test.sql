@@ -13,11 +13,19 @@
 -- metadata/claims/JWT/organizationId no dan RATEOS_ADMIN; usuario normal y
 -- anon sin acceso a nada administrativo; RATEOS_ADMIN ve metadata pero NO el
 -- workspace (state) de otra organización.
+--
+-- Funciona en los dos estados de la base:
+-- - bootstrap PENDIENTE (base nueva): crea una cuenta master de prueba y
+--   verifica todo el alta (sin confirmar → no; confirmada → sí; un solo uso);
+-- - bootstrap YA CONSUMIDO (producción, el master real ya entró): usa como
+--   RATEOS_ADMIN a esa cuenta (su id nunca sale del bloque) y verifica que el
+--   bootstrap no se puede volver a usar.
 -- =====================================================================
 
 do $$
 declare
   master uuid := gen_random_uuid();
+  pending boolean;
   normal uuid := gen_random_uuid();
   late uuid := gen_random_uuid();
   org_normal uuid;
@@ -39,21 +47,37 @@ begin
   select count(*) into n from private.platform_admins where user_id = normal;
   if n = 0 then passed := passed + 1; else failed := failed || 'metadata/app_metadata dieron RATEOS_ADMIN'; end if;
 
-  -- La cuenta master SIN confirmar (email con mayúsculas y espacios: se normaliza).
-  insert into auth.users (instance_id, id, aud, role, email, encrypted_password, raw_user_meta_data, raw_app_meta_data, created_at, updated_at, email_confirmed_at)
-  values ('00000000-0000-0000-0000-000000000000', master, 'authenticated', 'authenticated', ' JoaquinVedova@Hotmail.com ', '',
-          '{"full_name":"Master","company":"DOVA"}', '{}', now(), now(), null);
-  select count(*) into n from private.platform_admins where user_id = master;
-  if n = 0 then passed := passed + 1; else failed := failed || 'email SIN confirmar dio RATEOS_ADMIN'; end if;
-  select count(*) into n from private.platform_admin_bootstrap where consumed_at is null;
-  if n >= 1 then passed := passed + 1; else failed := failed || 'el bootstrap se consumió sin confirmación'; end if;
+  select exists (select 1 from private.platform_admin_bootstrap where consumed_at is null) into pending;
 
-  -- Confirma el email → RATEOS_ADMIN (bootstrap consumido).
-  update auth.users set email_confirmed_at = now() where id = master;
-  select count(*) into n from private.platform_admins where user_id = master and granted_via = 'bootstrap';
-  if n = 1 then passed := passed + 1; else failed := failed || 'el master confirmado no quedó RATEOS_ADMIN'; end if;
-  select count(*) into n from private.platform_admin_bootstrap where email = 'joaquinvedova@hotmail.com' and consumed_by = master;
-  if n = 1 then passed := passed + 1; else failed := failed || 'el bootstrap no quedó consumido por el master'; end if;
+  if pending then
+    -- La cuenta master SIN confirmar (email con mayúsculas y espacios: se normaliza).
+    insert into auth.users (instance_id, id, aud, role, email, encrypted_password, raw_user_meta_data, raw_app_meta_data, created_at, updated_at, email_confirmed_at)
+    values ('00000000-0000-0000-0000-000000000000', master, 'authenticated', 'authenticated', ' JoaquinVedova@Hotmail.com ', '',
+            '{"full_name":"Master","company":"DOVA"}', '{}', now(), now(), null);
+    select count(*) into n from private.platform_admins where user_id = master;
+    if n = 0 then passed := passed + 1; else failed := failed || 'email SIN confirmar dio RATEOS_ADMIN'; end if;
+    select count(*) into n from private.platform_admin_bootstrap where consumed_at is null;
+    if n >= 1 then passed := passed + 1; else failed := failed || 'el bootstrap se consumió sin confirmación'; end if;
+
+    -- Confirma el email → RATEOS_ADMIN (bootstrap consumido).
+    update auth.users set email_confirmed_at = now() where id = master;
+    select count(*) into n from private.platform_admins where user_id = master and granted_via = 'bootstrap';
+    if n = 1 then passed := passed + 1; else failed := failed || 'el master confirmado no quedó RATEOS_ADMIN'; end if;
+    select count(*) into n from private.platform_admin_bootstrap where email = 'joaquinvedova@hotmail.com' and consumed_by = master;
+    if n = 1 then passed := passed + 1; else failed := failed || 'el bootstrap no quedó consumido por el master'; end if;
+  else
+    -- El master real ya consumió el bootstrap: es el RATEOS_ADMIN de esta prueba.
+    select a.user_id into master from private.platform_admins a
+      join private.platform_admin_bootstrap pb on pb.consumed_by = a.user_id
+      where a.granted_via = 'bootstrap' limit 1;
+    if master is not null then passed := passed + 1; else failed := failed || 'el bootstrap figura consumido pero no hay RATEOS_ADMIN que lo haya usado'; end if;
+    select count(*) into n from private.platform_admin_bootstrap where consumed_at is not null and consumed_by is not null;
+    if n >= 1 then passed := passed + 1; else failed := failed || 'bootstrap consumido sin consumed_by'; end if;
+    select count(*) into n from private.platform_admins;
+    if n = 1 then passed := passed + 1; else failed := failed || 'hay más de un RATEOS_ADMIN (sólo se dan de alta por migración)'; end if;
+    select count(*) into n from private.platform_admins where user_id = master;
+    if n = 1 then passed := passed + 1; else failed := failed || 'el master real no es RATEOS_ADMIN'; end if;
+  end if;
 
   -- Un solo uso: otra cuenta confirmada con el mismo email (otra capitalización) NO lo obtiene.
   insert into auth.users (instance_id, id, aud, role, email, encrypted_password, raw_user_meta_data, raw_app_meta_data, created_at, updated_at, email_confirmed_at)
@@ -61,8 +85,12 @@ begin
   select count(*) into n from private.platform_admins where user_id = late;
   if n = 0 then passed := passed + 1; else failed := failed || 'el bootstrap se pudo usar dos veces'; end if;
   -- Ni cambiando el email de una cuenta existente (como haría GoTrue tras confirmar el cambio).
+  -- Si el master real ya tiene ese email, la base ni siquiera deja repetirlo.
   update auth.users set email = 'joaquinvedova@hotmail.com.' where id = normal;
-  update auth.users set email = 'joaquinvedova@hotmail.com' where id = late;
+  begin
+    update auth.users set email = 'joaquinvedova@hotmail.com' where id = late;
+  exception when unique_violation then null;
+  end;
   select count(*) into n from private.platform_admins where user_id in (normal, late);
   if n = 0 then passed := passed + 1; else failed := failed || 'cambiar el email dio RATEOS_ADMIN tras consumirse el bootstrap'; end if;
 
@@ -187,7 +215,8 @@ begin
 
   -- ===================================================== auditoría (postgres)
   execute 'reset role';
-  select count(*) into n from private.admin_audit_log a where a.actor = master and a.action = 'ADMIN_PANEL_OPEN' and a.detail = '{}'::jsonb;
+  -- Sólo lo registrado en esta prueba (at = now(): inicio de la transacción).
+  select count(*) into n from private.admin_audit_log a where a.actor = master and a.action = 'ADMIN_PANEL_OPEN' and a.detail = '{}'::jsonb and a.at = now();
   if n = 1 then passed := passed + 1; else failed := failed || 'no se registró ADMIN_PANEL_OPEN (o con datos de más)'; end if;
 
   if array_length(failed, 1) is null then
