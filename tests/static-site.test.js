@@ -195,6 +195,17 @@ describe('archivos del sitio', () => {
     assert.match(deploy, /if: needs\.build\.outputs\.preview_trigger == 'preview'/);
     assert.match(deploy, /\[ "\$HEAD_SHA" != "\$PREVIEW_SHA" \][\s\S]*?exit 1/);
     assert.match(job('build'), /preview_sha: \$\{\{ needs\.plan\.outputs\.preview_sha \}\}/);
+    // Producción nunca vuelve atrás sola: una corrida que eligió un commit de main
+    // ya superado (un preview que empezó antes de un merge) no publica. Un
+    // rollback pedido a mano ("ref") sí.
+    const mainGuard = deploy.indexOf('git ls-remote "$REPO_URL" refs/heads/main');
+    assert.ok(mainGuard > 0, 'deploy verifica el último commit de main');
+    assert.ok(mainGuard < deploy.indexOf('actions/deploy-pages@'), 'la verificación de main va antes de publicar');
+    assert.match(deploy, /if \[ "\$ROOT_REF" != "main" \][\s\S]*?publish=true[\s\S]*?exit 0/, 'un rollback manual publica el commit pedido');
+    assert.match(deploy, /if \[ "\$MAIN_SHA" != "\$ROOT_SHA" \][\s\S]*?publish=false/, 'si main avanzó, no se publica');
+    assert.match(deploy, /- name: Desplegar en GitHub Pages\s*\n\s+id: deployment\s*\n\s+if: steps\.main_guard\.outputs\.publish == 'true'\s*\n\s+uses: actions\/deploy-pages@/);
+    assert.match(job('build'), /root_sha: \$\{\{ needs\.plan\.outputs\.sha \}\}/);
+    assert.match(job('build'), /root_ref: \$\{\{ needs\.plan\.outputs\.root_ref \}\}/);
   });
 
   test('los workflows no interpolan datos controlables por usuarios dentro de scripts (inyección)', () => {

@@ -100,21 +100,33 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 
 | ID | Título | Tipo | Estado |
 |---|---|---|---|
-| PLAN-2026-001 | MVP funcional RATEOS v0.1.0 | motor de costos, migración, otro | En curso — pendiente de merge |
-| PLAN-2026-002 | Impuestos sobre la facturación (gross-up) y composición del precio | margen, motor de costos, migración | En curso |
+| PLAN-2026-001 | MVP funcional RATEOS v0.1.0 | motor de costos, migración, otro | Completado (merge `18cd0ea`, v0.1.0) |
+| PLAN-2026-002 | Impuestos sobre la facturación (gross-up) y composición del precio | margen, motor de costos, migración | Completado (PR #7) |
 | PLAN-2026-003 | Usuarios reales: Supabase Auth + persistencia cloud con RLS | backend, autenticación, migración | Completado (PR #9) |
 | PLAN-2026-004 | RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes | backend, autenticación | Completado (PR #12) |
 | PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | Completado (PR #13, v0.2.0 en producción) |
 | PLAN-2026-006 | Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables | utilización, motor de costos, migración | Borrador — concepto aprobado, siguiente paso (sin código) |
-| PLAN-2026-007 | Mantenimiento y neumáticos con forma de carga y avisos de sentido común | motor de costos, migración | En curso — PR sin merge, en staging |
+| PLAN-2026-007 | Mantenimiento y neumáticos con forma de carga y avisos de sentido común | motor de costos, migración | Completado (PR #15, v0.4.0 en producción) |
+
+### Pendientes registrados (sin implementar)
+
+Mejoras de UX y funcionalidades que aparecieron en la revisión de cierre del MVP (2026-10-06). Se registran acá y **no** se implementan hasta que el dueño lo pida:
+
+- **Recursos sin utilización** (PLAN-2026-006): el legajo del equipo todavía pide "Horas disponibles por mes" y "¿Qué parte de ese tiempo esperás que trabaje y facture?". Es un dato de cada cotización, no del recurso.
+- **Dedicación / reserva de fijos** (PLAN-2026-006 §3.1–§4): concepto aprobado, sin código.
+- **Resultado:** el reparto "fijos · variables" del mes se ve en "Estructura de costos" y en "Ver cálculo", no en la tarjeta principal.
+- **Externos en la cotización:** la línea muestra la salida de caja por día y el costo del mes, pero no rotula aparte el costo económico por día.
+- **Desarrollo local:** al confirmar el email de una cuenta nueva en `localhost` (build de prueba), la app espera la respuesta al diálogo de "versión de prueba" con la landing de fondo. En producción no aparece.
+- **Supabase Auth:** la protección contra contraseñas filtradas (advisor `auth_leaked_password_protection`) requiere el plan Pro.
+- **GitHub Actions:** los PR de Dependabot que suben versiones mayores de las acciones (`checkout`, `setup-node`, `configure-pages`, `upload-pages-artifact`, `deploy-pages`) siguen abiertos. Hoy funcionan forzadas a Node 24. Actualizarlas es un cambio de CI que hay que probar aparte.
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
-- Estado: En curso — pendiente de merge (pasa a **Completado** recién al mergear el PR a `main`, con fecha de cierre y nota en la bitácora)
+- Estado: Completado — mergeado en `main` (`18cd0ea`, v0.1.0)
 - Tipo: motor de costos · margen · utilización · migración (esquema inicial v1) · deploy
 - Responsable: equipo de agentes de programación + revisión del dueño del repositorio
-- Fecha de inicio: 2026-10-03 · Fecha de cierre: pendiente (al mergear)
-- Rama / PR: `claude/wonderful-brown-g2ehd6` → `main` (Pull Request pendiente de revisión; sin merge automático)
+- Fecha de inicio: 2026-10-03 · Fecha de cierre: 2026-10-03
+- Rama / PR: `claude/wonderful-brown-g2ehd6` → `main` (merge `18cd0ea`)
 
 #### 1. Contexto y problema
 Las PyMEs proveedoras de Oil & Gas de Neuquén / Vaca Muerta cotizan con planillas y conocimiento informal y olvidan costos (relevos, cargas, standby, financiero, utilización real). Objetivo de negocio: evitar ganar una licitación y perder plata ejecutándola.
@@ -184,11 +196,11 @@ Web navegable bajo `/COTIZADORWEB/`, cotización creada de punta a punta, on-cal
 
 ### PLAN-2026-002 — Impuestos sobre la facturación (gross-up) y composición del precio
 
-- Estado: En curso
+- Estado: Completado — mergeado en `main` (PR #7)
 - Tipo: margen · motor de costos (precio) · migración (esquema 1 → 2)
 - Responsable: agentes de programación + revisión del dueño del repositorio
-- Fecha de inicio: 2026-10-04 · Fecha de cierre: pendiente (al mergear)
-- Rama / PR: `claude/rateos-ux-progresivo` → PR pendiente (sin merge automático)
+- Fecha de inicio: 2026-10-04 · Fecha de cierre: 2026-10-04
+- Rama / PR: `claude/rateos-ux-progresivo` → `main` (PR #7)
 
 #### 1. Contexto y problema
 Una estructura de costos profesional (planilla de «discriminación de precios» de contratos de servicios; análisis conceptual en [docs/REFERENCE_COST_STRUCTURE.md](../docs/REFERENCE_COST_STRUCTURE.md), sin datos de la planilla, que es privada) suma sobre el costo los impuestos que se pagan **sobre lo que se factura** (Ingresos Brutos, débitos y créditos, sellos) con un gross-up exacto. RATEOS no los contemplaba: su "tarifa piso" no era piso (cobrándola, la PyME pierde esos impuestos) y el margen real quedaba debajo del objetivo. Además, un margen objetivo inválido (≥ 100 %) se reemplazaba por 0 % en silencio y la "tarifa sugerida" quedaba igual a la piso.
@@ -560,7 +572,7 @@ CALCULATION_RULES (reserva y % de costos fijos, ficha de Recursos), DATA_MODEL (
 
 ### PLAN-2026-007 — Mantenimiento y neumáticos con forma de carga y avisos de sentido común
 
-- Estado: En curso — PR hacia `main` sin merge automático, publicado en staging (`/preview/`)
+- Estado: Completado — PR #15 mergeado; v0.4.0 en producción (`2d1d58f`)
 - Tipo: motor de costos (equipos y movilización) · migración de datos (esquema 3 → 4, sin cambios de datos) · UX de Recursos y cotización
 - Responsable: agente de programación + revisión del dueño del repositorio
 - Fecha de inicio: 2026-10-05 · Rama: `claude/resource-usage-in-quote`

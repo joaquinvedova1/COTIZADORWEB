@@ -25,6 +25,8 @@
 #   cualquier archivo de producción cambia.
 # - Un deploy de preview atrasado no pisa uno más nuevo: justo antes de
 #   publicar se verifica que su commit siga siendo el último de la rama.
+# - Producción nunca vuelve atrás sola: justo antes de publicar se verifica
+#   que su commit siga siendo el último de main (salvo un rollback manual).
 # - Si los tests de main fallan, no se despliega nada. Si fallan los del preview:
 #   en un push a main producción se publica igual (con un /preview/ que lo
 #   explica); en un deploy de preview no se publica nada.
@@ -299,6 +301,9 @@ jobs:
       preview_trigger: ${{ needs.plan.outputs.trigger }}
       preview_branch: ${{ needs.plan.outputs.preview_branch }}
       preview_sha: ${{ needs.plan.outputs.preview_sha }}
+      # Para que deploy verifique que producción sigue siendo el último commit de main.
+      root_sha: ${{ needs.plan.outputs.sha }}
+      root_ref: ${{ needs.plan.outputs.root_ref }}
     steps:
       - name: Checkout (mismo commit que pasó los tests)
         uses: actions/checkout@v4
@@ -376,7 +381,8 @@ jobs:
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     # Un solo despliegue a la vez; nunca se cancela uno en curso. Si se acumulan,
-    # gana el más nuevo (cada corrida publica main actual en la raíz).
+    # gana el más nuevo: una corrida cuyo commit de main ya no es el último no
+    # publica (ver "Producción vigente").
     concurrency:
       group: "pages"
       cancel-in-progress: false
@@ -412,11 +418,44 @@ jobs:
           fi
           echo "Preview vigente: ${PREVIEW_BRANCH}@${PREVIEW_SHA:0:7}"
 
+      # Producción nunca vuelve atrás sola. Cada corrida elige el commit de main
+      # al empezar: si main avanzó mientras esperaba (p. ej. un deploy de preview
+      # que arrancó antes de un merge y termina después), no se publica nada; la
+      # corrida del commit nuevo publica la versión vigente. No aplica a un
+      # rollback pedido a mano ("ref" en workflow_dispatch).
+      - name: Producción vigente (último commit de main)
+        id: main_guard
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+          ROOT_SHA: ${{ needs.build.outputs.root_sha }}
+          ROOT_REF: ${{ needs.build.outputs.root_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$ROOT_REF" != "main" ]; then
+            echo "Rollback pedido a mano (${ROOT_REF}): se publica ${ROOT_SHA:0:7}."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          MAIN_SHA="$(git ls-remote "$REPO_URL" refs/heads/main | cut -f1)"
+          if [ -z "$MAIN_SHA" ]; then
+            echo "::error::No se pudo leer el último commit de main: no se publica."
+            exit 1
+          fi
+          if [ "$MAIN_SHA" != "$ROOT_SHA" ]; then
+            echo "::notice::main avanzó a ${MAIN_SHA:0:7} mientras esta corrida esperaba (iba a publicar ${ROOT_SHA:0:7}): no se publica para no volver atrás producción. La publica la corrida del commit nuevo."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Producción vigente: main@${ROOT_SHA:0:7}"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
       - name: Desplegar en GitHub Pages
         id: deployment
+        if: steps.main_guard.outputs.publish == 'true'
         uses: actions/deploy-pages@v4
 
       - name: Resumen del despliegue
+        if: steps.main_guard.outputs.publish == 'true'
         env:
           APP_VERSION: ${{ needs.build.outputs.version }}
           APP_COMMIT: ${{ needs.build.outputs.commit }}
