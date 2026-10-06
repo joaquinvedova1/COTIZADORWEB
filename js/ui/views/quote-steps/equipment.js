@@ -21,8 +21,9 @@
 import { h, mount } from '../../dom.js';
 import { badge, card, dateField, formGrid, selectField, triStateField, confirmDialog, emptyState, icon } from '../../components.js';
 import { equipmentLineFromLibrary, externalLineFromService, blankEquipmentLine, createExternalTerms, createMobilization, acquisitionOf } from '../../../domain/quote-factory.js';
-import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, VAT_RECOVERY, labelOf } from '../../../domain/catalogs.js';
-import { computeEquipmentUnit } from '../../../engines/equipment-engine.js';
+import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
+import { computeEquipmentUnit, maintenanceOf, tiresOf } from '../../../engines/equipment-engine.js';
+import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
@@ -90,7 +91,7 @@ function equipmentTrace(result, index, source) {
   return createTrace({
     id: 'equipment_line',
     title: `Equipo — ${line.name || 'Equipo'}`,
-    formula: 'Posesión/mes = (reposición − residual) / (vida útil × 12) + (seguro + patente + certificaciones + otros) / 12 + inversión promedio × tasa de capital / 12 · Operación/h = mantenimiento + neumáticos + litros/h × precio combustible · Costo del mes = posesión × cantidad + operación/h × horas por día × días activos × cantidad',
+    formula: 'Posesión/mes = (reposición − residual) / (vida útil × 12) + (seguro + patente + certificaciones + otros) / 12 + mantenimiento fijo (presupuesto) + inversión promedio × tasa de capital / 12 · Operación/h = mantenimiento/h + neumáticos/h + litros/h × precio combustible (service = costo / horas entre services; juego = costo / vida útil en horas) · Costo del mes = posesión × cantidad + operación/h × horas por día × días activos × cantidad',
     inputs: [
       line.conversion !== undefined && line.conversion !== 1 ? { label: `Tipo de cambio de la cotización (${(source && source.base && source.base.currency) || ''})`, value: line.conversion, format: 'number' } : null,
       { label: 'Valor de reposición (en la moneda de la cotización)', value: o.replacement, format: 'money' },
@@ -101,10 +102,12 @@ function equipmentTrace(result, index, source) {
       { label: 'Días activos por mes', value: result.activity.activeDaysPerMonth, format: 'days' },
       { label: 'Precio combustible (si lo pagamos)', value: op.fuelPricePerLiter, format: 'rate' },
       { label: 'Consumo', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
+      { label: `Mantenimiento (${labelOf(MAINTENANCE_MODES, op.maintenanceMode, 'por hora').toLowerCase()})`, value: o.maintenanceFixedMonthly > 0 ? o.maintenanceFixedMonthly : op.maintenancePerHour, format: 'money', unit: o.maintenanceFixedMonthly > 0 ? 'por mes (fijo)' : 'por hora' },
+      { label: `Neumáticos (${labelOf(TIRE_MODES, op.tiresMode, 'por hora').toLowerCase()})`, value: op.tiresPerKm > 0 ? op.tiresPerKm : op.tiresPerHour, format: 'money', unit: op.tiresPerKm > 0 ? 'por km (en la ruta)' : 'por hora' },
     ].filter(Boolean),
     steps: [
       { label: 'Amortización mensual (por unidad)', value: o.depreciationMonthly, format: 'money' },
-      { label: 'Seguro + patente + certificaciones + otros (por unidad)', value: o.cashMonthly, format: 'money' },
+      { label: 'Seguro + patente + certificaciones + otros + mantenimiento fijo (por unidad)', value: o.cashMonthly, format: 'money' },
       { label: 'Costo de capital mensual (por unidad)', value: o.capitalCostMonthly, format: 'money' },
       { label: 'Posesión mensual × cantidad', value: line.fixedMonthly, format: 'money' },
       { label: 'Operación por hora (por unidad)', value: op.totalPerHour, format: 'money' },
@@ -118,6 +121,17 @@ function equipmentTrace(result, index, source) {
         : null,
     ],
   });
+}
+
+/** Resumen corto de mantenimiento y neumáticos según cómo se cargaron. */
+function wearSummary(e = {}) {
+  const m = maintenanceOf(e);
+  const t = tiresOf(e);
+  const maintenance = m.mode === 'budget'
+    ? `mantenimiento fijo ${formatMoney(m.fixedMonthly)}/mes`
+    : `mantenimiento ${formatMoney(m.perHour)}/h${m.mode === 'service' ? ' (service)' : ''}`;
+  const tires = t.mode === 'set_km' ? `neumáticos ${formatMoney(t.perKm, { decimals: 2 })}/km` : `neumáticos ${formatMoney(t.perHour)}/h${t.mode === 'set_hours' ? ' (juego)' : ''}`;
+  return { maintenance, tires };
 }
 
 function externalTrace(result, index, source) {
@@ -345,6 +359,71 @@ export function render(container, ctx) {
     );
   };
 
+  /** Línea con el valor de reposición en la moneda de la cotización (para los avisos). */
+  const comparableLine = (r, i) => {
+    const line = quote.equipment[i];
+    if (!line) return null;
+    const f = r && r.model && r.model.equipment[i] ? r.model.equipment[i].conversion : 1;
+    const comparable = f !== undefined && f !== null && f > 0;
+    const eq = comparable && f !== 1 ? { ...line, replacementValue: Number(line.replacementValue || 0) * f, residualValue: Number(line.residualValue || 0) * f } : line;
+    return { eq, comparable };
+  };
+  /** "Así lo calcula RATEOS" de un grupo (dentro de las opciones). */
+  const wearRegion = (r, i, group) => {
+    const c = comparableLine(r, i);
+    return c ? wearNote(c.eq, group, { comparable: c.comparable, warnings: false }) : null;
+  };
+  /** Avisos de sentido común, siempre a la vista (fuera de las opciones avanzadas). */
+  const wearWarningsRegion = (r, i) => {
+    const c = comparableLine(r, i);
+    return c ? wearWarnings(c.eq, { comparable: c.comparable }) : null;
+  };
+
+  /** Mantenimiento y neumáticos: cómo se cargan + "Así lo calcula RATEOS" (PLAN-2026-007). */
+  const wearGroups = (i, illustrative) => {
+    const p = `equipment.${i}`;
+    const line = quote.equipment[i] || {};
+    const mMode = line.maintenanceMode || 'per_hour';
+    const tMode = line.tiresMode || 'per_hour';
+    return [
+      kit.group(
+        'Mantenimiento',
+        formGrid(
+          3,
+          kit.select(`${p}.maintenanceMode`, { label: '¿Cómo lo cargás?', options: MAINTENANCE_MODES.map((m) => ({ value: m.id, label: m.label })), structural: true }),
+          ...(mMode === 'service'
+            ? [
+                kit.num(`${p}.maintenanceServiceCost`, { label: 'Costo de cada service', rule: 'money', unit: '$', illustrative }),
+                kit.num(`${p}.maintenanceServiceHours`, { label: 'Cada cuántas horas de uso', rule: 'intervalHours', unit: 'h' }),
+              ]
+            : mMode === 'budget'
+              ? [
+                  kit.num(`${p}.maintenanceBudget`, { label: 'Presupuesto de mantenimiento', rule: 'money', unit: '$', illustrative }),
+                  kit.select(`${p}.maintenanceBudgetPeriod`, { label: 'Por', options: BUDGET_PERIODS.map((b) => ({ value: b.id, label: b.label })) }),
+                ]
+              : [kit.num(`${p}.maintenancePerHour`, { label: 'Costo por hora de uso', rule: 'money', unit: '$/h', illustrative })]),
+        ),
+        kit.region((r) => wearRegion(r, i, 'maintenance')),
+      ),
+      kit.group(
+        'Neumáticos',
+        formGrid(
+          3,
+          kit.select(`${p}.tiresMode`, { label: '¿Cómo lo cargás?', options: TIRE_MODES.map((t) => ({ value: t.id, label: t.label })), structural: true }),
+          ...(tMode === 'per_hour'
+            ? [kit.num(`${p}.tiresPerHour`, { label: 'Costo por hora de uso', rule: 'money', unit: '$/h', illustrative })]
+            : [
+                kit.num(`${p}.tiresSetCost`, { label: 'Costo del juego de neumáticos', rule: 'money', unit: '$', illustrative }),
+                tMode === 'set_km'
+                  ? kit.num(`${p}.tiresLifeKm`, { label: 'Vida útil del juego', rule: 'lifeKm', unit: 'km' })
+                  : kit.num(`${p}.tiresLifeHours`, { label: 'Vida útil del juego', rule: 'intervalHours', unit: 'h' }),
+              ]),
+        ),
+        kit.region((r) => wearRegion(r, i, 'tires')),
+      ),
+    ];
+  };
+
   const ownedCard = (line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
@@ -385,6 +464,7 @@ export function render(container, ctx) {
         kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative }),
         kit.num(`${p}.fuelLitersPerHour`, { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
       ),
+      kit.region((r) => wearWarningsRegion(r, i)),
       kit.keyline({
         label: 'Costo del equipo en el mes',
         value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
@@ -407,8 +487,8 @@ export function render(container, ctx) {
               `patente ${moneyText(e.licenseAnnual) || '$ 0'}/año`,
               hasNumber(e.otherAnnual) && Number(e.otherAnnual) > 0 ? `otros ${moneyText(e.otherAnnual)}/año` : null,
               `certificaciones ${moneyText(e.certificationsAnnual) || '$ 0'}/año`,
-              `mantenimiento ${moneyText(e.maintenancePerHour) || '$ 0'}/h`,
-              `neumáticos ${moneyText(e.tiresPerHour) || '$ 0'}/h`,
+              wearSummary(e).maintenance,
+              wearSummary(e).tires,
               hasNumber(e.capitalRatePctAnnual) && Number(e.capitalRatePctAnnual) > 0 ? `costo de capital ${formatPercent(Number(e.capitalRatePctAnnual))} anual` : 'sin costo de capital',
             ];
             const text = parts.filter(Boolean).join(' · ');
@@ -427,14 +507,7 @@ export function render(container, ctx) {
             kit.num(`${p}.capitalRatePctAnnual`, { label: 'Costo de capital (opcional)', rule: 'percent', unit: '% anual', hint: 'Rendimiento que le pedís a la plata invertida en el equipo.' }),
           ),
         ),
-        kit.group(
-          'Costo de usarlo (sólo cuando trabaja)',
-          formGrid(
-            3,
-            kit.num(`${p}.maintenancePerHour`, { label: 'Mantenimiento', rule: 'money', unit: '$/h', illustrative }),
-            kit.num(`${p}.tiresPerHour`, { label: 'Neumáticos', rule: 'money', unit: '$/h', illustrative }),
-          ),
-        ),
+        ...wearGroups(i, illustrative),
       ),
       kit.advanced(
         {
@@ -464,8 +537,9 @@ export function render(container, ctx) {
                   ['Patente', formatMoney(o.licenseMonthly)],
                   ['Certificaciones', formatMoney(o.certificationsMonthly)],
                   ['Otros', formatMoney(o.otherMonthly)],
+                  o.maintenanceFixedMonthly > 0 ? ['Mantenimiento (presupuesto)', formatMoney(o.maintenanceFixedMonthly)] : null,
                   ['Costo de capital', formatMoney(o.capitalCostMonthly)],
-                ],
+                ].filter(Boolean),
                 { totalLabel: 'Tenerlo por mes', total: formatMoney(o.totalMonthly) },
               );
             }),
@@ -480,8 +554,8 @@ export function render(container, ctx) {
               const op = l.operation;
               return kit.breakdown(
                 [
-                  ['Mantenimiento', formatMoney(op.maintenancePerHour)],
-                  ['Neumáticos', formatMoney(op.tiresPerHour)],
+                  [op.maintenanceMode === 'service' ? 'Mantenimiento (service)' : 'Mantenimiento', formatMoney(op.maintenancePerHour)],
+                  [op.tiresMode === 'set_km' ? 'Neumáticos (van por km, en la ruta)' : op.tiresMode === 'set_hours' ? 'Neumáticos (juego)' : 'Neumáticos', formatMoney(op.tiresPerHour)],
                   [`Combustible (${formatNumber(op.fuelLitersPerHour, { decimals: 2 })} L/h)`, formatMoney(op.fuelPerHour)],
                 ],
                 { totalLabel: 'Usarlo por hora', total: formatMoney(op.totalPerHour) },

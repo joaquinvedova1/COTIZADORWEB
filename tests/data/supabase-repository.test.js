@@ -12,6 +12,8 @@ import { createAccountContext, createDemoContext } from '../../js/services/app-c
 import { createEmptyQuote } from '../../js/domain/quote-factory.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { CURRENT_SCHEMA_VERSION } from '../../js/data/schema.js';
+import { migrateV2ToV3 } from '../../js/data/migrations.js';
+import { computeQuote } from '../../js/engines/quote-engine.js';
 import { createFakeServer, SpyStorage } from '../helpers/fake-supabase.js';
 
 const noTimers = { setTimeout: () => 1, clearTimeout: () => {} };
@@ -330,7 +332,7 @@ describe('SupabaseRepository: producción con datos v2 en la nube (PLAN-2026-005
     };
   }
 
-  test('sin la confirmación de staging (producción): migra a v3 una vez, con copia previa en el navegador, y la sube', async () => {
+  test('sin la confirmación de staging (producción): migra a la versión actual una vez, con copia previa en el navegador, y la sube', async () => {
     const server = createFakeServer();
     const orgId = server.addUser({ id: 'a', company: 'Empresa real' });
     server.workspaces.set(orgId, { state: v2Workspace(orgId), revision: 7, schemaVersion: 2 });
@@ -338,8 +340,8 @@ describe('SupabaseRepository: producción con datos v2 en la nube (PLAN-2026-005
     await repo.flush();
     assert.equal(init.status, 'migrated');
     const ws = server.workspaces.get(orgId);
-    assert.equal(ws.schemaVersion, 3);
-    assert.equal(ws.state.schemaVersion, 3);
+    assert.equal(ws.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.equal(ws.state.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.ok(ws.revision > 7, 'se guardó con control de revisión');
     const [q] = await repo.getQuotes();
     assert.equal(q.labor[0].basicMonthly, 2000000, 'ningún valor cambia');
@@ -352,7 +354,35 @@ describe('SupabaseRepository: producción con datos v2 en la nube (PLAN-2026-005
     assert.equal(again.init.status, 'loaded');
   });
 
-  test('cuenta nueva en producción: crea su espacio vacío en v3 sin preguntar', async () => {
+  test('datos v3 (cuenta ya migrada por v0.2.0): pasa a la versión actual con copia previa, sin cambiar el número ni los resultados de la cotización', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'b', company: 'Empresa real' });
+    const v3 = migrateV2ToV3(v2Workspace(orgId));
+    // Un mantenimiento cargado "por hora" (como el autoelevador): sigue por hora hasta que la persona lo edite.
+    v3.resources.equipment[0].maintenancePerHour = 3000000;
+    v3.quotes[0].equipment[0].maintenancePerHour = 3000000;
+    server.workspaces.set(orgId, { state: v3, revision: 113, schemaVersion: 3 });
+    const before = computeQuote(JSON.parse(JSON.stringify(v3.quotes[0]))).kpis;
+    const { repo, init, cache } = await openRepo(server, 'b');
+    await repo.flush();
+    assert.equal(init.status, 'migrated');
+    const ws = server.workspaces.get(orgId);
+    assert.equal(ws.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.equal(ws.state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.ok(ws.revision > 113, 'se guardó con control de revisión');
+    const [q] = await repo.getQuotes();
+    assert.equal(q.code, 'COT-0001', 'el número de la cotización no cambia');
+    assert.equal(q.equipment[0].maintenancePerHour, 3000000);
+    assert.equal((await repo.getResources('equipment'))[0].maintenancePerHour, 3000000);
+    const after = computeQuote(q).kpis;
+    for (const k of ['totalCost', 'fixedCosts', 'variableCosts', 'floorNetRate', 'floorListRate', 'targetListRate']) assert.equal(after[k], before[k], k);
+    const keys = Array.from({ length: cache.length }, (_, i) => cache.key(i));
+    assert.ok(keys.some((k) => k.startsWith(`rateos.cloud.b.${orgId}.recovery.`) && k.includes('pre-migration-v3')), 'copia previa de la cuenta en este navegador');
+    const again = await openRepo(server, 'b');
+    assert.equal(again.init.status, 'loaded', 'abrir de nuevo no vuelve a migrar');
+  });
+
+  test('cuenta nueva en producción: crea su espacio vacío en la versión actual del esquema sin preguntar', async () => {
     const server = createFakeServer();
     const orgId = server.addUser({ id: 'n', company: 'Nueva SA' });
     const { repo, init } = await openRepo(server, 'n');

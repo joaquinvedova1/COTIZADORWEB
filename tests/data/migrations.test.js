@@ -6,7 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { migrateState, migrateV0ToV1, migrateV1ToV2, migrateV2ToV3, MIGRATIONS, MigrationError } from '../../js/data/migrations.js';
+import { migrateState, migrateV0ToV1, migrateV1ToV2, migrateV2ToV3, migrateV3ToV4, MIGRATIONS, MigrationError } from '../../js/data/migrations.js';
 import { CURRENT_SCHEMA_VERSION, RESOURCE_TYPES, validateState } from '../../js/data/schema.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { isUuid } from '../../js/core/ids.js';
@@ -62,7 +62,7 @@ describe('migrateState v0 → v1', () => {
     const result = migrateState(legacyState(), { now: NOW, idFactory: sequentialIds() });
     assert.equal(result.fromVersion, 0);
     assert.equal(result.toVersion, CURRENT_SCHEMA_VERSION);
-    assert.deepEqual(result.applied, ['0→1', '1→2', '2→3']);
+    assert.deepEqual(result.applied, ['0→1', '1→2', '2→3', '3→4']);
     assert.equal(result.state.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
   });
@@ -181,7 +181,7 @@ describe('migrateState v0 → v1', () => {
     const out = migrateV0ToV1(null, { now: NOW, idFactory: sequentialIds() });
     assert.equal(out.schemaVersion, 1);
     assert.deepEqual(out.quotes, []);
-    assert.equal(validateState(migrateV2ToV3(migrateV1ToV2(out))).ok, true);
+    assert.equal(validateState(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(out)))).ok, true);
   });
 });
 
@@ -295,7 +295,7 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
     assert.equal(out.quotes[0].vatTreatment, 'excluded');
     assert.equal(out.quotes[1].vatTreatment, 'included');
     // La estructura es válida (no se descarta nada) ...
-    assert.equal(validateState(migrateV2ToV3(out)).ok, true);
+    assert.equal(validateState(migrateV3ToV4(migrateV2ToV3(out))).ok, true);
     // ... pero la cotización no se calcula en silencio como si fuera sin IVA.
     const issues = computeQuote(out.quotes[1]).issues.filter((i) => i.path === 'vatTreatment');
     assert.equal(issues.length, 1);
@@ -399,7 +399,7 @@ describe('migrateState v2 → v3 (base económica, snapshots, movilización — 
   test('el resultado es válido y NINGÚN número cambia', () => {
     const before = v2State();
     const result = migrateState(before);
-    assert.deepEqual(result.applied, ['2→3']);
+    assert.deepEqual(result.applied, ['2→3', '3→4']);
     assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
     const a = computeQuote(before.quotes[0]);
     const b = computeQuote(result.state.quotes[0]);
@@ -407,6 +407,13 @@ describe('migrateState v2 → v3 (base económica, snapshots, movilización — 
       assert.ok(Math.abs(a.kpis[k] - b.kpis[k]) < 1e-6, `${k}: ${a.kpis[k]} → ${b.kpis[k]}`);
     }
     assert.deepEqual(a.eecc.rows.map((r) => r.amount), b.eecc.rows.map((r) => r.amount));
+  });
+
+  test('el número (código) de la cotización no cambia y no se pierde ninguna cotización (v2 → v3 → v4)', () => {
+    const before = v2State();
+    before.quotes[0].code = 'COT-0007';
+    const { state } = migrateState(before);
+    assert.deepEqual(state.quotes.map((q) => [q.id, q.code]), [['q', 'COT-0007']]);
   });
 
   test('ninguna fecha base se inventa: todo queda "Base no definida", en la moneda de la empresa', () => {
@@ -493,3 +500,43 @@ describe('v2 → v3: la fecha de la oferta nunca se inventa', () => {
     assert.equal(state.quotes[0].offerDate, '2025-03-10');
   });
 });
+
+describe('migrateState v3 → v4 (mantenimiento y neumáticos con forma de carga — PLAN-2026-007)', () => {
+  test('está registrada y NO cambia ni borra ningún dato (sólo la versión)', () => {
+    assert.equal(MIGRATIONS[3], migrateV3ToV4);
+    const v3 = { ...createDemoState(3), schemaVersion: 3 };
+    v3.resources.equipment[0].maintenancePerHour = 3000000;
+    const before = JSON.parse(JSON.stringify(v3));
+    const out = migrateV3ToV4(v3);
+    assert.equal(out.schemaVersion, 4);
+    assert.deepEqual({ ...out, schemaVersion: 3 }, before, 'todo lo demás queda idéntico');
+    assert.deepEqual(v3, before, 'no muta la entrada');
+    assert.equal(out.resources.equipment[0].maintenancePerHour, 3000000, 'un valor cargado por hora sigue por hora');
+  });
+
+  test('ningún número cambia: las cotizaciones calculan igual antes y después', () => {
+    const v3 = { ...createDemoState(3), schemaVersion: 3 };
+    const { state } = migrateState(v3);
+    assert.equal(state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    v3.quotes.forEach((q, i) => {
+      const a = computeQuote(q);
+      const b = computeQuote(state.quotes[i]);
+      assert.equal(b.kpis.totalCost, a.kpis.totalCost, q.name);
+      assert.equal(b.kpis.fixedCosts, a.kpis.fixedCosts, q.name);
+      assert.equal(b.kpis.floorNetRate, a.kpis.floorNetRate, q.name);
+    });
+    assert.equal(validateState(state).ok, true);
+  });
+
+  test('el número (código) de cada cotización no cambia (v3 → v4)', () => {
+    const v3 = { ...createDemoState(3), schemaVersion: 3 };
+    const codes = v3.quotes.map((q) => [q.id, q.code]);
+    assert.ok(codes.length > 0 && codes.every(([, c]) => c), 'la demo trae cotizaciones con número');
+    assert.deepEqual(migrateState(v3).state.quotes.map((q) => [q.id, q.code]), codes);
+  });
+
+  test('tolera entradas que no son objetos', () => {
+    for (const bad of [null, undefined, 'x', 42]) assert.equal(migrateV3ToV4(bad).schemaVersion, 4);
+  });
+});
+

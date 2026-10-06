@@ -168,6 +168,28 @@ export const RISK_ITEMS = deepFreeze([
   { id: 'scope_uncertainty', label: 'Incertidumbre del alcance' },
 ]);
 
+/**
+ * Cómo se carga el mantenimiento de un equipo propio (PLAN-2026-007).
+ * El presupuesto mensual o anual es costo FIJO de tenencia (no se divide por horas).
+ */
+export const MAINTENANCE_MODES = deepFreeze([
+  { id: 'per_hour', label: 'Costo por hora de uso' },
+  { id: 'service', label: 'Service cada cierta cantidad de horas' },
+  { id: 'budget', label: 'Presupuesto mensual o anual (costo fijo)' },
+]);
+
+export const BUDGET_PERIODS = deepFreeze([
+  { id: 'month', label: 'Por mes' },
+  { id: 'year', label: 'Por año' },
+]);
+
+/** Cómo se cargan los neumáticos de un equipo propio. */
+export const TIRE_MODES = deepFreeze([
+  { id: 'per_hour', label: 'Costo por hora de uso' },
+  { id: 'set_hours', label: 'Juego + vida útil en horas' },
+  { id: 'set_km', label: 'Juego + vida útil en km (equipos de ruta)' },
+]);
+
 export const QUOTE_STATUSES = deepFreeze([
   { id: 'draft', label: 'Borrador' },
   { id: 'sent', label: 'Enviada' },

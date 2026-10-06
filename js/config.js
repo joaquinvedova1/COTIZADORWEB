@@ -9,7 +9,7 @@ export const APP_NAME = 'RATEOS';
 export const APP_TAGLINE = 'Motor de costos y tarifas para servicios industriales';
 
 /** Versión del esquema de datos persistidos (localStorage y backups JSON). */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * Modo de almacenamiento por defecto de LocalStorageRepository. Con sesión,

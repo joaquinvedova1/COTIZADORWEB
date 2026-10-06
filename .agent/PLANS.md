@@ -104,7 +104,9 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-002 | Impuestos sobre la facturación (gross-up) y composición del precio | margen, motor de costos, migración | En curso |
 | PLAN-2026-003 | Usuarios reales: Supabase Auth + persistencia cloud con RLS | backend, autenticación, migración | Completado (PR #9) |
 | PLAN-2026-004 | RATEOS ADMIN: rol de plataforma con metadata, sin datos de clientes | backend, autenticación | Completado (PR #12) |
-| PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | En curso — PR sin merge, publicado en staging |
+| PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | Completado (PR #13, v0.2.0 en producción) |
+| PLAN-2026-006 | Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables | utilización, motor de costos, migración | Borrador — concepto aprobado, siguiente paso (sin código) |
+| PLAN-2026-007 | Mantenimiento y neumáticos con forma de carga y avisos de sentido común | motor de costos, migración | En curso — PR sin merge, en staging |
 
 ### PLAN-2026-001 — MVP funcional RATEOS v0.1.0
 
@@ -390,7 +392,7 @@ CI verde, preview publicado, prueba del dueño en staging con la cuenta master y
 
 ### PLAN-2026-005 — Recursos con base económica, snapshots, equipos propios/externos y movilización
 
-- Estado: En curso — Pull Request hacia `main` sin merge automático; publicado en staging (`/preview/`)
+- Estado: Completado — PR #13 mergeado; v0.2.0 en producción (`f6b3c08`)
 - Tipo: motor de costos · migración de datos (esquema 2 → 3) · UX de Recursos y cotización
 - Responsable: agente de programación + revisión del dueño del repositorio
 - Fecha de inicio: 2026-10-05 · Rama: `claude/resources-economic-base-v1`
@@ -447,4 +449,151 @@ CI verde, preview publicado con la rama, prueba del dueño en staging y merge de
 - 2026-10-05: UX de Recursos (legajo, externos, catálogo), Configuración (base del combustible y tipos de cambio), cotización (origen + base + aviso de cambios por línea, externos, operador, "Movilización y viajes", base económica de la oferta) y Resultado. Versión visible "v0.2.0 · build …".
 - 2026-10-05: E2E con Supabase simulado (desktop y mobile): Recursos → cotización → snapshot (caso A: conservar / actualizar, persistido en la nube) → externos → movilización (casos B, C, E) → material con base vieja (F) → resultado; staging con datos v2: "sólo lectura" no escribe nada y "Actualizar mis datos" migra a v3. El E2E encontró que `loadVersionInfo` no pasaba `channel` (el resguardo de staging no se activaba): corregido con test.
 - 2026-10-05: revisión adversarial (§36) económica y de datos/UX/seguridad; correcciones en el PR.
+
+### PLAN-2026-006 — Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables
+
+- Estado: Borrador — concepto APROBADO por el dueño (2026-10-06) con la UX simplificada de §3.1; **sin código activo**. Es el siguiente paso después de PLAN-2026-007 (mantenimiento y neumáticos).
+- Tipo: utilización · motor de costos (dedicación) · migración de datos (esquema 3 → 4, sin cambios de datos) · UX de Recursos y cotización
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-05 · Rama: `claude/resource-usage-in-quote` (apilada sobre `claude/wonderful-brown-g2ehd6`, PR #14)
+
+#### 1. Contexto y problema
+Recursos es el maestro / inventario de la empresa, pero el legajo de un equipo pide **días disponibles por mes, horas disponibles por mes y "% que esperás que trabaje y facture"** (obligatorios), y el perfil de personal pide **horas extra por día activo**. Al dar de alta un camión o una persona todavía no se sabe cuánto va a trabajar: eso depende de cada cotización. Hoy además no se puede (a) cargar que un recurso se comparte con otros servicios, (b) guardar en Recursos un tercerizado cargado a mano en una cotización, ni (c) ver en qué cotizaciones o contratos se está usando un recurso.
+
+#### 2. Análisis de impacto en el motor actual (antes de cambiar nada)
+
+| Dato del recurso | ¿Quién lo usa hoy? | ¿Cambia algún número de una cotización? |
+|---|---|---|
+| `equipment.availableHoursPerMonth`, `availableDaysPerMonth`, `utilizationPct` | **Sólo** `computeEquipmentUnit` para la FICHA de Recursos (`resource-service.equipmentCard`: "$/hora usada", "$/día usado", "$/mes a la utilización configurada", lista, vista previa y "Ver cálculo"). | **No.** `computeEquipmentLine` (cotización) usa posesión mensual completa × cantidad + operación/h × horas por día activo × días activos del SERVICIO. Ningún motor de cotización (cost, quote, economics, utilization, scenario, commercial-rules, break-even) lee la disponibilidad ni la utilización del recurso: todas las ocurrencias de `availableDaysPerMonth` / `utilizationPct` en motores son de `quote.activity`. |
+| Ficha del equipo dentro de la cotización (`quote-steps/equipment.js`) | `computeEquipmentUnit` con la actividad DE LA COTIZACIÓN (días disponibles, utilización y horas del servicio). | Ya es el concepto B (utilización concreta de la cotización): se mantiene. |
+| `laborProfiles.overtimeHoursPerActiveDay` | Valor inicial al copiar el perfil a una cotización; vista previa del perfil (variable por día activo). | No: NO está en `SNAPSHOT_FIELDS` (ya se trata como dato operativo de la línea); la línea tiene su propio valor. |
+| `laborProfiles.normalHoursPerMonth` (jornada), `mealPerActiveDay`, recargo HE | Costo hora cargado (fijo ÷ horas normales), variable por día activo. | Son condiciones del puesto (permanentes), no utilización: **se quedan**. |
+
+Conclusión: la "utilización" del recurso **no distribuye costos fijos en ninguna cotización**; sólo alimenta un $/hora y $/día "de referencia" en Recursos que mezcla el costo permanente del activo con un supuesto de uso. Se separan explícitamente:
+
+- **A. Economía permanente del recurso (Recursos):** costo de TENERLO (posesión: amortización, seguro, patente, certificaciones, otros, costo de capital) por mes y costo de USARLO (operación: mantenimiento, neumáticos, combustible) por hora de uso; sueldo y cargas por persona por mes y costo hora según la jornada. No depende de ningún servicio.
+- **B. Utilización concreta dentro de una cotización:** cantidad, horas por día activo, horas extra, días activos y período del servicio, standby, cómo llega (viajes / km) y **dedicación al servicio**. El $/hora y $/día efectivos de un equipo se calculan en cada cotización con ESOS datos (ya existe).
+
+La utilización de una cotización nunca se guarda como propiedad del recurso.
+
+#### 3. Objetivo y no-objetivos
+- Objetivo (siguiente iteración):
+  1. Recursos sin datos de uso: sacar del alta / edición de equipos "Disponibilidad y uso" (días, horas, % de utilización) y del perfil de personal "Horas extra por día activo". No son obligatorios ni se muestran; **no se borran** de los datos guardados.
+  2. Ficha de Recursos = A: "Tenerlo: $ X/mes · Usarlo: $ Y/h" (+ "Ver cálculo"), con el aviso de que el $/hora y $/día se calculan en cada cotización.
+  3. En la cotización, al agregar desde Recursos, las tres preguntas de §3.1.
+  4. Tercerizados / alquilados cargados a mano en una cotización: botón opcional **[Guardar para futuras cotizaciones]** → Recursos → Servicios externos.
+  5. **"Usado en" / Asignaciones** por recurso (§3.2). Estados: "Activa" y "Finalizada" nuevos; "Ganada" pasa a "Adjudicada" (mismo id `won`).
+- Fuera de alcance: scheduler de flota, calendario de disponibilidad, reservas con fechas, ERP / órdenes de trabajo; días o período distintos por línea; bloqueo por sobreasignación (sólo se informa).
+
+#### 3.1 UX aprobada: tres conceptos separados (2026-10-06)
+
+| # | Pregunta en la cotización | Qué carga | Qué costos mueve |
+|---|---|---|---|
+| 1 | **"¿Cuánto se usa en este servicio?"** | días, horas, viajes, km | Sólo **variables**: combustible, mantenimiento por uso, neumáticos por uso, desgaste en ruta, horas extra / viandas. |
+| 2 | **"¿El equipo queda reservado para este servicio?"** — Sí / No | reserva exclusiva | Si **Sí** → **100 %** de los costos fijos. |
+| 3 | Si **No**: **"¿Se comparte con otros contratos?"** — Sí / No. Si **Sí**: **"¿Qué porcentaje de sus costos fijos querés asignar a esta cotización?"** | % explícito | Ese % de los costos fijos. Si no está reservado ni compartido: 100 % (nunca se reduce solo). |
+
+Ayuda (texto literal): "Esto no depende de cuántos días trabaje. Un equipo on-call puede trabajar 15 días y aun así quedar reservado 100 % para este contrato."
+
+Reglas:
+- El uso real mueve costos VARIABLES.
+- Los pocos días de uso **NO** reducen automáticamente amortización, seguro, patente, certificaciones, costo de capital ni mantenimiento fijo.
+- Reservado exclusivamente → 100 % de costos fijos. Compartido → porcentaje EXPLÍCITO de costos fijos (lo carga la persona; nunca se infiere "50 % de uso = 50 % de costo fijo").
+- Alquilado / tercerizado por día u hora → no aplica (no hay amortización propia): usa la tarifa del proveedor por unidad usada.
+- Alquilado por mes → esa tarifa mensual sí es un costo fijo del servicio (ya funciona así: unidad "mes").
+
+Ejemplos:
+- A. Vactor on-call reservado 100 %, 15 días activos × 8 h → fijos 100 % (amortización, seguro, patente, certificaciones, capital, mantenimiento fijo) aunque esté parado 15 días; variables × 120 h (combustible, mantenimiento por uso, neumáticos) + movilización por llamado.
+- B. Autoelevador compartido entre dos contratos, la persona asigna 50 % → fijos × 50 % (si el otro contrato no se concreta, esa mitad queda sin cubrir: se avisa); variables al 100 % de lo que trabaje en ESTE contrato.
+- C. Equipo alquilado sólo por los días usados → fijos propios: no aplica; variable = tarifa × unidades (+ combustible no incluido + movilización del proveedor, con su mínimo).
+
+#### 3.2 "Usado en" / Asignaciones (sin scheduler)
+Por recurso: cotización / contrato, cliente, estado, período, **% reservado / asignado** y **uso estimado** (días, horas, km), con link. Diferencia **uso potencial** (Borrador, Enviada) de **compromiso real** (Adjudicada, Activa) y **Finalizada** (historial); suma el % asignado comprometido y avisa si supera el 100 %.
+
+#### 4. Impacto en fórmulas (propuesto, sin código activo)
+- Datos de la línea (propuesta): `reservedForService` (boolean, por defecto `true`), `sharedWithOtherContracts` (boolean), `fixedCostSharePct` (0 < % ≤ 100, sólo si se comparte).
+- `fijo de la línea = costos fijos × cantidad × (compartido ? fixedCostSharePct : 100) / 100`. Variable sin cambios. Sin datos = 100 % (las cotizaciones existentes no cambian).
+- Aplica a equipos PROPIOS y a personal (sueldo y cargas, con el mismo criterio de reserva / asignación explícita); no a externos por unidad.
+- Lineal en los días activos: break-even, matriz y escenarios siguen valiendo.
+- Requiere tests (100 % = sin cambios, reservado, compartido, externos sin efecto, inválidos), golden cases intactos y el mismo cuidado de esquema que PLAN-2026-007 (versión nueva para que una anterior no calcule distinto en silencio).
+- El código de una primera versión (un único `dedicationPct`) quedó guardado fuera del repositorio y NO se usa: la UX aprobada lo reemplaza.
+
+#### 5. Impacto en datos
+- Nueva versión de esquema (la 4 la usa PLAN-2026-007; esto sería la 5) con una migración que **no cambia ni borra ningún dato** (copia de recuperación previa automática). Se sube porque la reserva / % de costos fijos y los estados "Activa" / "Finalizada" cambian cómo se lee una cotización: una versión anterior los ignoraría y mostraría otro costo, así que abre los datos en sólo lectura (regla de AGENTS §11).
+- Datos de uso que quedan en recursos anteriores (`availableHoursPerMonth`, `availableDaysPerMonth`, `utilizationPct`, `overtimeHoursPerActiveDay`): se conservan sin cambios (obsoletos, ningún cálculo los usa). Las horas extra del perfil se usan sólo como valor inicial al agregarlo a una cotización.
+- Staging comparte la base con producción: aceptar "actualizar el formato" en `/preview/` deja esa cuenta en la versión nueva y producción la abre en sólo lectura hasta publicarla. Recomendación: probar con una cuenta de prueba o elegir "Sólo mirar".
+
+#### 6. Diseño
+- Motores: `labor-engine.computeLaborLine` y `equipment-engine.computeEquipmentLine` aplican el % de costos fijos (100 % si está reservado o no se comparte; el % explícito si se comparte); `cost-engine` usa la dotación equivalente en la estructura por empleado. `computeEquipmentUnit` no cambia.
+- Dominio (puro): `js/domain/resource-usage.js` (asignaciones de un recurso a partir de las cotizaciones; grupos potencial / compromiso / historial) y `fixedCostShareOf(line)`.
+- Servicios: `resource-service.equipmentCard` devuelve sólo posesión y operación (A).
+- UI: legajo de equipo y perfil sin datos de uso; al agregar desde Recursos, las tres preguntas de §3.1 (uso / reservado / compartido + %); botón "Guardar para futuras cotizaciones" en externos sin vínculo; columna y diálogo "Usado en" en Recursos; estados nuevos en el listado.
+- Reglas de dependencia: la UI no importa `js/data/`; los motores siguen puros.
+
+#### 7. Tests
+Reserva / % de costos fijos (equipo propio, personal, por empleado, reservado = 100 %, sin datos = sin cambios, compartido con % explícito, pocos días de uso NO reducen fijos, externos por unidad sin efecto, alquiler mensual = fijo, valores inválidos), golden cases y baseline intactos, migración sin cambios de datos, asignaciones (vínculo por `sourceId`, grupos de estado, cotizaciones perdidas / archivadas fuera, suma del % comprometido), ficha de Recursos sin utilización. E2E desktop y mobile + regresión de v0.2.0 / v0.3.0.
+
+#### 8. Riesgos y mitigación
+| Riesgo | Mitigación |
+|---|---|
+| % de costos fijos bajo = tarifa piso baja que no cubre el costo fijo si el otro contrato no se concreta | Sólo con "se comparte" explícito; aviso en la línea ("el X % restante lo tiene que cubrir otro contrato") y en "Ver cálculo"; "Usado en" suma el % comprometido y avisa si supera el 100 %. |
+| Confundir uso con reserva ("50 % de uso = 50 % de fijo") | Nunca se infiere: el uso mueve sólo variables y el % de fijos es una respuesta explícita. Texto de ayuda en la pregunta. |
+| Staging comparte la base con producción | Versión de esquema nueva sólo con confirmación en `/preview/`; recomendación de cuenta de prueba. |
+| Perder datos de uso viejos | No se borran; quedan como obsoletos. |
+
+#### 9. Rollback
+Revert del PR. Las cuentas ya actualizadas a la versión de esquema nueva quedarían en sólo lectura en la versión anterior: restaurar la copia previa a la migración (Configuración → Datos y backup) o mantener esta versión.
+
+#### 10. Review multidisciplinario
+Economía (% de fijos explícito, nunca inferido del uso; linealidad; aviso de costo no cubierto), QA (0 / 100 / vacío / inválido, externos, alquiler mensual, migración), Seguridad (validación del %, sin `innerHTML`, sin cambios de Auth / RLS), UX (tres preguntas claras, texto de ayuda, "Usado en" potencial vs compromiso). Se deja escrito en el PR.
+
+#### 11. Documentación
+CALCULATION_RULES (reserva y % de costos fijos, ficha de Recursos), DATA_MODEL (esquema nuevo, campos de la línea, estados, campos obsoletos), RESOURCE_MODEL (uso vs reserva vs asignación, asignaciones), CHANGELOG, AGENTS §5.1.
+
+#### 12. Criterio de terminación
+`npm test` y CI en verde, E2E desktop y mobile, preview publicado con la rama, prueba del dueño en staging y merge del PR por el dueño.
+
+#### Bitácora
+- 2026-10-05: análisis de impacto (§2): la utilización del recurso sólo alimenta la ficha de Recursos; ningún número de cotización depende de ella. Diseño A (economía permanente) / B (uso en la cotización) y dedicación al servicio sólo sobre el costo fijo.
+- 2026-10-05: caso real (autoelevador, cotización on-call): "Operación por hora $ 3.000.000" sale de `maintenancePerHour` = 3.000.000 cargado al crear el recurso (no es dato ilustrativo, ni migración, ni error de unidades del código: un monto mensual o anual cargado en un campo $/h, sin ninguna advertencia). Propuesta a confirmar: mantenimiento por hora / service + frecuencia en horas (= $/h) / presupuesto mensual o anual (costo FIJO de tenerlo, no $/h); neumáticos por hora / juego + vida útil en horas o km; resultado visible antes de guardar y control de plausibilidad (100 h de operación > valor de reposición → "¿seguro que es por hora?"). Implementación de la dedicación pausada a pedido del dueño ("no cambies fórmulas todavía").
+- 2026-10-06: concepto aprobado con UX simplificada (uso / reserva / % de costos fijos explícito, sin inferir del uso). Queda documentado como siguiente paso, sin código activo; PLAN-2026-007 (mantenimiento y neumáticos) va primero en su propio PR.
+
+### PLAN-2026-007 — Mantenimiento y neumáticos con forma de carga y avisos de sentido común
+
+- Estado: En curso — PR hacia `main` sin merge automático, publicado en staging (`/preview/`)
+- Tipo: motor de costos (equipos y movilización) · migración de datos (esquema 3 → 4, sin cambios de datos) · UX de Recursos y cotización
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-05 · Rama: `claude/resource-usage-in-quote`
+
+#### 1. Contexto y problema
+Caso real: un autoelevador con reposición $ 100.000.000 y "mantenimiento" $ 3.000.000 cargado en el campo $/h (sin aviso) → operación $ 3.000.000/h, $ 24.000.000 por día activo de 8 h, ~$ 360.000.000 en 15 días. La UX sólo ofrecía "$/h": un presupuesto mensual o anual se interpretaba como por hora.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: cargar el mantenimiento por hora, como service cada N horas (= $/h) o como presupuesto mensual / anual (= costo FIJO de tenencia, nunca dividido por horas); los neumáticos por hora, como juego + vida útil en horas (= $/h) o juego + vida útil en km (= $/km en la ruta). Mostrar SIEMPRE, antes de guardar, cómo lo interpreta RATEOS. Avisos de sentido común (no bloqueos, no correcciones): 100 h > reposición, residual > reposición, vida útil 0, mantenimiento / neumáticos desproporcionados, falta intervalo o vida útil del juego.
+- Fuera de alcance: dedicación al servicio (PLAN-2026-006, pausado); modificar datos existentes (el autoelevador sigue en $ 3.000.000/h hasta que la persona lo edite); repuestos, horas de motor, mantenimiento por km del equipo trabajando.
+
+#### 3. Impacto en fórmulas
+- Sin forma de carga = "por hora" (igual que antes): golden cases y baseline intactos.
+- Posesión: `+ mantenimiento fijo` (presupuesto mensual o anual / 12) en la posesión en efectivo.
+- Operación: `mantenimiento/h` = cargado o `service / horas`; `neumáticos/h` = cargado o `juego / vida útil h`.
+- Movilización por sus propios medios: `desgaste = km × ($/km + neumáticos $/km)` cuando los neumáticos se cargan por km.
+- Casos numéricos: service $ 600.000 / 250 h = $ 2.400/h; presupuesto $ 36.000.000/año = $ 3.000.000/mes fijo y $ 0/h; juego $ 2.400.000 / 3.000 h = $ 800/h; juego $ 2.400.000 / 80.000 km = $ 30/km (100 km de ruta con $ 150/km de mantenimiento → $ 18.000 de desgaste).
+- Margen y markup: sin cambios.
+
+#### 4. Impacto en datos
+- `SCHEMA_VERSION` 3 → 4 con `migrateV3ToV4`: no cambia ni borra datos (copia previa automática). Campos nuevos opcionales en equipos y líneas: `maintenanceMode`, `maintenanceServiceCost`, `maintenanceServiceHours`, `maintenanceBudget`, `maintenanceBudgetPeriod`, `tiresMode`, `tiresSetCost`, `tiresLifeHours`, `tiresLifeKm`.
+- Snapshot: la clave `wear` aparece sólo cuando la forma de carga no es "por hora": las huellas anteriores no cambian (sin avisos falsos de "cambió en Recursos").
+- Staging comparte la base con producción: actualizar el formato en `/preview/` deja esa cuenta en v4 y producción (v0.2.0) la abre en sólo lectura hasta publicar esta versión. Recomendación: probar con una cuenta de prueba o "Sólo mirar".
+
+#### 5. Diseño
+Motor: `maintenanceOf`, `tiresOf`, `equipmentChecks` en `js/engines/equipment-engine.js`; `computeOwnership` / `computeOperation` los usan; `mobilization-engine` suma neumáticos por km. UI: `js/ui/equipment-wear-ui.js` (interpretación y avisos), legajo del equipo en Recursos (secciones Mantenimiento y Neumáticos con bloque "Así lo calcula RATEOS" en vivo) y línea del equipo en la cotización (mismos selectores; avisos siempre visibles).
+
+#### 7. Tests
+`tests/engines/maintenance-tires.test.js` (formas de carga, autoelevador sin cambios, avisos, snapshot sin avisos falsos, copia a la línea), migración v3 → v4 sin cambios de números, validación de los campos nuevos. E2E desktop y mobile: autoelevador real migrado de v3, aviso, presupuesto, juego + horas y + km, cotización avisada y actualizada, staging "Sólo mirar" sin escribir.
+
+#### 9. Rollback
+Revert del PR. Las cuentas actualizadas a esquema 4 quedarían en sólo lectura en la versión anterior: restaurar la copia previa (`pre-migration-v3`) o mantener esta versión.
+
+#### Bitácora
+- 2026-10-05: diseño validado por el dueño (mantenimiento A/B/C, neumáticos por hora / horas / km, avisos sin bloqueos, no modificar datos). Implementado en motor, Recursos y cotización; esquema 4 sin cambios de datos.
 

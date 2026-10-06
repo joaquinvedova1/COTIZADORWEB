@@ -770,3 +770,15 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   .chip-suggest { min-height: 40px; padding: 0.3rem 0.6rem; font-size: 0.82rem; }
   .combo-list { max-height: 14rem; }
 }
+
+/* ------------------------------------------------------------------
+ * Mantenimiento y neumáticos: "Así lo calcula RATEOS" y avisos (PLAN-2026-007)
+ * ------------------------------------------------------------------ */
+.form-section-live:empty { display: none; }
+.form-section-live { margin-top: var(--sp-3); }
+.wear-note { display: flex; flex-direction: column; gap: var(--sp-2); }
+.wear-note:empty { display: none; }
+.wear-interpretation {
+  margin: 0; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);
+  background: var(--navy-50); color: var(--navy-900); font-size: var(--fs-sm); line-height: 1.45;
+}

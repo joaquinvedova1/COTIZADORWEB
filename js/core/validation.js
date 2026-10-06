@@ -24,6 +24,8 @@ export const RULES = Object.freeze({
   margin: { min: 0, max: 100, exclusiveMax: true, message: 'El margen debe ser mayor o igual a 0 y menor a 100 %.' },
   billingTax: { min: 0, max: 100, exclusiveMax: true, message: 'El impuesto sobre la facturación debe ser mayor o igual a 0 y menor a 100 %.' },
   utilization: { min: 0, max: 100, exclusiveMin: true, message: 'La utilización debe ser mayor a 0 y hasta 100 %.' },
+  intervalHours: { min: 0, max: 100000, message: 'Las horas deben estar entre 0 y 100.000.' },
+  lifeKm: { min: 0, max: 10000000, message: 'Los km deben estar entre 0 y 10.000.000.' },
   positive: { min: 0, exclusiveMin: true, message: 'Debe ser mayor a 0.' },
   years: { min: 0, max: 100, exclusiveMin: true, message: 'La vida útil debe ser mayor a 0 años.' },
   months: { min: 0, max: 600, message: 'Los meses deben estar entre 0 y 600.' },
@@ -152,6 +154,13 @@ export function validateQuote(quote) {
       issues.push({ path: `equipment.${i}.residualValue`, message: 'El valor residual supera el valor de reposición.', severity: 'warning' });
     }
     check(`equipment.${i}.hoursPerActiveDay`, e.hoursPerActiveDay, 'hoursPerDay');
+    // Mantenimiento y neumáticos (PLAN-2026-007): montos y vidas útiles no negativos.
+    check(`equipment.${i}.maintenanceServiceCost`, e.maintenanceServiceCost, 'money');
+    check(`equipment.${i}.maintenanceServiceHours`, e.maintenanceServiceHours, 'intervalHours');
+    check(`equipment.${i}.maintenanceBudget`, e.maintenanceBudget, 'money');
+    check(`equipment.${i}.tiresSetCost`, e.tiresSetCost, 'money');
+    check(`equipment.${i}.tiresLifeHours`, e.tiresLifeHours, 'intervalHours');
+    check(`equipment.${i}.tiresLifeKm`, e.tiresLifeKm, 'lifeKm');
     check(`equipment.${i}.otherAnnual`, e.otherAnnual, 'money');
     // PLAN-2026-005: alquilados / tercerizados (tarifa neta y tratamiento fiscal) y movilización.
     if (isPlainObject(e.external) && (e.acquisition === 'rented' || e.acquisition === 'outsourced')) {
