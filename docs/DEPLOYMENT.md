@@ -44,6 +44,8 @@ Pages publica **un artefacto por deploy**, así que cada corrida arma el sitio c
 
 **Un deploy de preview atrasado nunca pisa uno más nuevo:** justo antes de publicar, el job `deploy` consulta con `git ls-remote` (repositorio público, sin credenciales) el último commit de la rama; si ya no es el del preview (la cola de runners lo demoró, o se relanzó un CI viejo), **no publica** y falla con "ya no es el último commit": lo publica la corrida del commit nuevo. Como el workflow se lee de `main`, esta verificación rige desde que se mergea.
 
+**Producción nunca vuelve atrás sola:** cada corrida elige el commit de `main` al empezar. Justo antes de publicar, el job `deploy` vuelve a leer con `git ls-remote` el último commit de `main`; si ya no es el que construyó (por ejemplo, un deploy de preview que arrancó antes de un merge y terminó después), **no publica** (queda un aviso en el log y la corrida termina en verde): lo publica la corrida del commit nuevo. Un **rollback** pedido a mano (`ref` en *Run workflow*) no tiene esta verificación: publica el commit o tag pedido.
+
 Jobs:
 
 1. **plan**: decide qué se publica.

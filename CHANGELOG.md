@@ -12,6 +12,15 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-06
+
+Cierre del MVP: revisión completa (sólo errores) después de publicar 0.3.0 y 0.4.0. **No cambia ninguna fórmula**, ningún motor ni el esquema de datos (sigue en 4).
+
+### Corregido
+
+- **Deploy:** producción ya no puede volver atrás sola. Cada corrida elige el commit de `main` al empezar. Un deploy de `/preview/` que arrancaba antes de un merge y terminaba después volvía a publicar en producción la versión anterior de `main`. Ahora el job `deploy` vuelve a leer el último commit de `main` justo antes de publicar y, si cambió, no publica: lo hace la corrida del commit nuevo. Un rollback pedido a mano sigue publicando el commit o tag pedido. Detalle en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+- `.agent/PLANS.md`: los planes ya mergeados (001, 002 y 007) figuraban "en curso". Se agrega la lista de pendientes de UX y funcionalidades registrados en el cierre, sin implementar.
+
 ## [0.4.0] - 2026-10-06
 
 Mantenimiento y neumáticos con forma de carga (PR #15).
