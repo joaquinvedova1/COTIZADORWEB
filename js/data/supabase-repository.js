@@ -40,9 +40,9 @@ const WORKSPACE_KEY = 'rateos.workspace';
 const RETRY_DELAYS_MS = Object.freeze([3000, 10000, 30000, 60000]);
 
 /** Métodos que escriben: en la nube esperan la confirmación del guardado. */
-const WRITE_METHODS = Object.freeze([
+export const WRITE_METHODS = Object.freeze([
   'saveOrganization', 'saveResource', 'updateResource', 'deleteResource',
-  'saveQuote', 'updateQuote', 'deleteQuote', 'saveService', 'deleteService',
+  'saveQuote', 'updateQuote', 'deleteQuote', 'saveProduct', 'deleteProduct', 'saveService', 'deleteService',
   'saveSettings', 'importBackup',
 ]);
 
@@ -281,6 +281,7 @@ export class SupabaseRepository extends LocalStorageRepository {
       RESOURCE_TYPES.forEach((type) => own(draft.resources[type]));
       own(draft.services);
       own(draft.quotes);
+      own(draft.products);
     });
   }
 
@@ -468,14 +469,14 @@ export class SupabaseRepository extends LocalStorageRepository {
    * por id. Todo queda con la organización de la cuenta. Guarda antes una
    * copia de recuperación del estado de la nube.
    * @param {object} data estado (formato backup, esquema actual)
-   * @returns {Promise<{ quotes: number, resources: number, services: number, recoveryKey: string|null }>}
+   * @returns {Promise<{ quotes: number, resources: number, services: number, products: number, recoveryKey: string|null }>}
    */
   async importLocalData(data) {
     this.ensureWritable();
     if (!isPlainObject(data)) throw new RepositoryError('Datos locales inválidos.', 'invalid_backup');
     const recoveryKey = this.saveRecoverySnapshot(JSON.stringify(this.state), 'before-local-import');
     const orgId = this.organization.id;
-    const counts = { quotes: 0, resources: 0, services: 0 };
+    const counts = { quotes: 0, resources: 0, services: 0, products: 0 };
     this.mutate((draft) => {
       const owned = (item) => ({ ...item, organizationId: orgId });
       const mergeList = (target, incoming) => {
@@ -495,6 +496,8 @@ export class SupabaseRepository extends LocalStorageRepository {
       });
       counts.services += mergeList(draft.services, data.services);
       counts.quotes += mergeList(draft.quotes, data.quotes);
+      if (!Array.isArray(draft.products)) draft.products = [];
+      counts.products += mergeList(draft.products, data.products);
       // Datos de la empresa: completa sólo lo vacío (el nombre de la cuenta manda).
       if (isPlainObject(data.organization)) {
         ['baseLocation', 'industry', 'activity', 'notes'].forEach((field) => {

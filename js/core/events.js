@@ -24,6 +24,9 @@ export const EVENT_NAMES = Object.freeze([
   'backup_exported',
   'backup_imported',
   'resource_saved',
+  'product_created',
+  'product_duplicated',
+  'product_deleted',
 ]);
 
 const ALLOWED_PROPS = Object.freeze({

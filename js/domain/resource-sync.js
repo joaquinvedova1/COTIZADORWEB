@@ -98,12 +98,16 @@ export function mainValueOf(type, values) {
   return key ? values[key] ?? null : null;
 }
 
-/** Campos operativos que se conservan al actualizar una línea desde Recursos. */
+/**
+ * Campos operativos que se conservan al actualizar una línea desde Recursos
+ * (de la cotización y, desde PLAN-2026-008, del producto: tiempo por tanda,
+ * personas, energía, % de fijos asignado, dónde va y en qué unidad se usa).
+ */
 const KEEP_ON_UPDATE = Object.freeze({
-  laborProfiles: ['id', 'positions', 'peoplePerPosition', 'overtimeHoursPerActiveDay'],
-  equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId'],
+  laborProfiles: ['id', 'positions', 'peoplePerPosition', 'overtimeHoursPerActiveDay', 'people', 'minutesPerBatch'],
+  equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode'],
   externalServices: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId'],
-  materials: ['id', 'quantity', 'basis', 'providedBy'],
+  materials: ['id', 'quantity', 'basis', 'providedBy', 'per', 'useUnit'],
 });
 
 /**

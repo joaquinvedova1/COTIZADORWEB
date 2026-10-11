@@ -247,6 +247,17 @@ export function migrateV3ToV4(state) {
   return { ...src, schemaVersion: 4 };
 }
 
+/**
+ * v4 → v5 (PLAN-2026-008, costeo de productos): agrega la colección
+ * `products` vacía. No cambia ni borra ningún dato y ningún número de una
+ * cotización cambia. Se sube la versión para que una versión anterior abra
+ * estos datos en sólo lectura y nunca guarde un estado sin los productos.
+ */
+export function migrateV4ToV5(state) {
+  const src = isPlainObject(state) ? deepClone(state) : {};
+  return { ...src, products: Array.isArray(src.products) ? src.products : [], schemaVersion: 5 };
+}
+
 /** Agrega un valor a `legacy` sin perder lo que ya hubiera (aunque no fuera un objeto). */
 function withLegacy(legacy, key, value) {
   const base = isPlainObject(legacy) ? legacy : legacy === undefined || legacy === null ? {} : { previous: legacy };
@@ -259,6 +270,7 @@ export const MIGRATIONS = Object.freeze({
   1: migrateV1ToV2,
   2: migrateV2ToV3,
   3: migrateV3ToV4,
+  4: migrateV4ToV5,
 });
 
 /**

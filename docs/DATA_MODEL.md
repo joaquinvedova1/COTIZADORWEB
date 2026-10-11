@@ -195,6 +195,30 @@ Las líneas embebidas (`labor[]`, `equipment[]`, …) tienen `id` UUID propio pe
 
 **Marca ILUSTRATIVO por línea.** `line.illustrative = true` indica que los valores de esa línea vienen de datos de demostración: la copian `laborLineFromProfile` (si el perfil o el convenio son ilustrativos), `equipmentLineFromLibrary` y `materialLineFromLibrary` (si el recurso es ilustrativo) y `createQuoteFromTemplate` (si la plantilla es ilustrativa). El campo es opcional (las cotizaciones guardadas antes no lo tienen) y no requiere migración: `validateState` acepta campos adicionales en las líneas.
 
+### Producto (`products[]`, esquema 5, PLAN-2026-008)
+
+Creado por `createEmptyProduct` / `exampleProduct` (`js/domain/product-factory.js`). Fórmulas en [CALCULATION_RULES.md §23](CALCULATION_RULES.md#23-productos-costo-por-unidad-y-precio-plan-2026-008).
+
+| Campo | Tipo / valores |
+|---|---|
+| `id`, `organizationId`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy` | metadatos |
+| `name`, `notes` | texto |
+| `saleUnit` | unidad de venta (texto: `unidad`, `docena`, `kg`, `porción`…) |
+| `unitsPerBatch` | unidades que rinde una tanda (`null` = sin cargar) |
+| `lossPct` | % que se pierde o no se vende |
+| `monthlyUnits` | unidades vendidas por mes (para repartir los fijos) |
+| `materials[]` | líneas de cotización (`materialLineFromLibrary`, con `snapshot`) más `per` (`batch` receta / `unit` por unidad), `useUnit` (unidad en que se usa), `priceMode` (`unit` / `pack`), `packPrice`, `packSize` |
+| `labor[]` | líneas de cotización (`laborLineFromProfile`, con convenio y `snapshot`) más `people` y `minutesPerBatch` |
+| `equipment[]` | líneas de equipo propio (`equipmentLineFromLibrary`, `acquisition: 'owned'`) más `minutesPerBatch`, `energyPerHour`, `fixedSharePct` (`null` = sin decidir; nunca se infiere) y `shareMode` (`dedicated` / `shared`) |
+| `fixedCosts[]` | `{ id, description, monthlyAmount, sharePct }` |
+| `pricing` | `targetMarginPct` (margen sobre el precio), `roundingStep`, `vatPct` (opcional, lo carga la empresa), `currentPrice` (opcional, sin IVA) |
+| `billingTaxes` | igual que en la cotización (§3, impuestos sobre lo que vendés) |
+| `currency`, `exchangeRates[]` | moneda del producto y tipos de cambio propios |
+| `fuelPricePerLiter` | precio del litro para las máquinas que usan combustible |
+| `illustrative` | `true` sólo en el ejemplo "Chipá (ejemplo)" |
+
+Los resultados (costo por unidad, precios, equilibrio) **no se guardan**: se recalculan con `computeProduct`. Los productos viven en el mismo workspace JSON de la organización (misma fila de `workspace_states`, mismas políticas RLS) y en el backup.
+
 ## 4. Modelo futuro relacional (Supabase / PostgreSQL)
 
 > **No implementado.** Hoy cada organización guarda su estado completo en `workspace_states` (§2). Este modelo es para una fase posterior ([SUPABASE_PLAN.md §10](SUPABASE_PLAN.md#10-plan-por-fases)).
@@ -288,11 +312,12 @@ Detalle conceptual en [RESOURCE_MODEL.md](RESOURCE_MODEL.md).
   - `migrateV1ToV2` (PLAN-2026-002, impuestos sobre la facturación): agrega `billingTaxes` **sin definir** a cada cotización (nunca se inventan alícuotas: los números no cambian y la interfaz avisa que la tarifa piso no incluye esos impuestos), `vatTreatment: 'excluded'` (la convención sin IVA con la que RATEOS siempre calculó, ahora explícita; si ya hubiera un valor, se conserva) y `settings.defaultBillingTaxes = null`. Un `billingTaxes` o una `settings` que no sean objeto se guardan en `legacy` (de la cotización o del estado). No toca ningún otro campo.
   - `migrateV2ToV3` (PLAN-2026-005, base económica y recursos): todo valor existente queda con **"Base no definida"** (período `null`) y la moneda de la empresa (nunca se inventa una fecha); equipos de Recursos con `familyId` desde el `type` anterior, `acquisition: 'owned'`, `otherAnnual: 0`, movilidad sin definir y bases; nuevas colecciones vacías `externalServices` y `equipmentModels`; líneas de cotizaciones y plantillas con snapshot `legacy` (los valores que ya usaban), `mobilization` sin definir y `operatorLaborId: null`; cotizaciones con `currency`, `offerDate` (= fecha de creación) y `exchangeRates: []`; `settings.fuelPriceBase` y `settings.exchangeRates`. **Ningún número cambia** (los vehículos de viajes siguen como logística auxiliar).
   - `migrateV3ToV4` (PLAN-2026-007, mantenimiento y neumáticos con forma de carga): **no cambia ni borra ningún dato** (sólo sube la versión). Los equipos y líneas sin forma de carga siguen siendo "por hora" y calculan igual. Se sube la versión porque un presupuesto de mantenimiento (costo fijo de tenencia) o neumáticos por km cambian el costo y una versión anterior los ignoraría en silencio: así la versión anterior abre los datos v4 en sólo lectura.
+  - `migrateV4ToV5` (PLAN-2026-008, productos): agrega `products: []` (conserva una lista que ya existiera). **No cambia ni borra ningún otro dato**: cotizaciones, recursos y números quedan iguales. Una versión anterior abre los datos v5 en sólo lectura (así nunca guarda un estado sin los productos).
 - Datos v1 que además tienen estructura inesperada: si la migración directa no da un estado válido, se normalizan como datos legados (v0 → v1 → v2) sin borrar nada (estado `repaired`; la copia previa queda en `pre-migration-v1`). Recién si eso tampoco funciona, se abren en sólo lectura.
 - Para una versión nueva: subir `SCHEMA_VERSION`, agregar `migrateV{N}ToV{N+1}` en `MIGRATIONS`, agregar tests en `tests/data/` con un estado v1 real (incluido el backup demo) y documentarlo en el [CHANGELOG](../CHANGELOG.md).
 - Cada migración transforma N → N+1 **sin perder datos**. Antes de migrar se guarda `rateos.recovery.<fecha>.pre-migration-v<N>`. Si el resultado de la migración no pasa `validateState`, no se persiste nada (el original queda intacto) y la app abre en modo sólo lectura.
 - Datos de una versión más nueva que la app → modo sólo lectura (no se pisan).
-- Ejemplo de migración futura: `migrateV4ToV5` podría agregar `actualCosts: []` al estado (para estimado vs real) y `quote.schemaVersion`, sin tocar los campos existentes.
+- Ejemplo de migración futura: `migrateV5ToV6` podría agregar `actualCosts: []` al estado (para estimado vs real) y `quote.schemaVersion`, sin tocar los campos existentes.
 - **Varias pestañas durante un deploy:** una pestaña vieja (esquema 2) que ve datos v3 pasa a sólo lectura (no los pisa); una pestaña nueva migra los datos al abrir.
 - **Staging (`/preview/`) comparte la base con producción:** antes de actualizar el formato de los datos de una cuenta, el build de staging (`version.json` con `channel: "staging"`) pregunta; si la persona elige "Ver sin cambiar (sólo lectura)", los datos se migran sólo en memoria y no se escribe nada (ni en la nube ni copias).
 

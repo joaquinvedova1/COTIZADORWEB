@@ -184,7 +184,7 @@ function heroSection({ hasQuotes, name }) {
       h('p', { class: 'home-hello' }, hello),
       h('h2', { class: 'home-question', id: 'home-question' }, hasQuotes ? '¿Qué querés cotizar hoy?' : '¿Qué querés hacer primero?'),
       h('p', { class: 'home-lead' }, hasQuotes
-        ? 'Calculá cuánto te cuesta prestar un servicio y a qué tarifa conviene cotizarlo para no perder plata.'
+        ? 'Calculá cuánto te cuesta prestar un servicio o hacer un producto, y a qué precio conviene venderlo para no perder plata.'
         : 'Todavía no tenés cotizaciones. Empezá calculando cuánto cuesta uno de tus servicios.'),
       h(
         'div',
@@ -197,6 +197,7 @@ function heroSection({ hasQuotes, name }) {
           : linkButton('Configurar mi empresa', '#/configuracion/empresa', { variant: 'secondary', size: 'lg', icon: 'settings' }),
       ),
       hasQuotes ? null : h('p', { class: 'home-demo-link' }, '¿Querés ver primero cómo funciona? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá la demo'), ': está aparte y no toca tus datos.'),
+      h('p', { class: 'home-demo-link home-product-link' }, '¿Vendés productos (chipá, facturas, viandas)? ', h('a', { href: '#/productos/nuevo' }, 'Calculá el costo y el precio de un producto'), ' paso a paso.'),
     ),
     heroArt(),
   );

@@ -12,6 +12,29 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-11
+
+**Productos**: además de servicios, RATEOS calcula el costo y el precio de un producto (chipá, facturas, viandas…) paso a paso. Motor nuevo (las cotizaciones **no cambian**: mismas fórmulas y mismos números) y **esquema de datos 5** (`migrateV4ToV5` agrega `products: []`, con copia previa). Plan: PLAN-2026-008.
+
+### Agregado
+
+- Sección **Productos** en el menú, con lista (costo por unidad, precio sugerido, margen, equilibrio y estado), duplicar y eliminar, y un **ejemplo "Chipá"** con valores ILUSTRATIVOS.
+- Editor en 7 pasos: **El producto** (tanda, pérdida, ventas por mes) → **Ingredientes y materiales** (por tanda o por unidad; g ↔ kg, ml ↔ l, unidad ↔ docena; precio por unidad o del paquete; merma) → **Personal** (sueldo, convenio y cargas, minutos por tanda) → **Máquinas y equipos** (uso por tanda: luz o gas y mantenimiento; tenencia: amortización y seguro como fijo del mes con el % que decide la empresa) → **Gastos fijos** (alquiler, servicios, contador… con el % para el producto) → **Precio y margen** (margen sobre el precio, impuestos sobre la venta, redondeo hacia arriba, IVA opcional y precio de hoy) → **Resultado** (costo por unidad, precio piso, precio sugerido, ganancia por unidad, equilibrio en unidades por mes, resultado del mes y análisis del precio actual). "Así va tu producto" en vivo en cada paso y "Ver cálculo" en cada número.
+- Personal: cuántas horas del mes dedica cada persona a este producto (por ejemplo "75 h de las 176 h que trabaja") y aviso si las ventas necesitan más horas de las que hay. Es informativo: el costo sigue siendo por minuto de tanda.
+- Traer personal, equipos y materiales de **Recursos** con copia: si el recurso cambia, el producto avisa y se elige [Actualizar en este producto] o [Conservar valor original].
+- Convenios: tipos **Empleados de Comercio (CCT 130/75)**, **Panaderos / pasteleros** y **Gastronómicos** (sólo nombres; los parámetros siguen siendo los de cada empresa o los genéricos ILUSTRATIVOS).
+- Golden case `producto-chipa-costo-y-precio.json` (costo $ 345, precio $ 492,86 con 30 % de margen, equilibrio 848,7 u/mes) y tests del motor, de la migración v4 → v5, del repositorio y de la interfaz. Fórmulas en [docs/CALCULATION_RULES.md §23](docs/CALCULATION_RULES.md#23-productos-costo-por-unidad-y-precio-plan-2026-008).
+
+### Cambiado
+
+- Esquema de datos **4 → 5**: agrega la lista de productos; no cambia ni borra ningún dato. La versión 0.4.x abre los datos v5 en sólo lectura.
+- Textos de la landing, Inicio y README: "servicios y productos".
+- Formulario de impuestos sobre la facturación: textos propios cuando se usa en un producto.
+
+### Corregido
+
+- Antes de publicar: guardar o eliminar un producto en una cuenta se subía a la nube recién con la siguiente escritura de otra cosa. Ahora se sube enseguida, como el resto, y un test verifica que **toda** escritura del repositorio local se sincroniza con la cuenta.
+
 ## [0.4.1] - 2026-10-06
 
 Cierre del MVP: revisión completa (sólo errores) después de publicar 0.3.0 y 0.4.0. **No cambia ninguna fórmula**, ningún motor ni el esquema de datos (sigue en 4).

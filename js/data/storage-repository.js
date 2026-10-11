@@ -51,6 +51,15 @@ export class StorageRepository {
   /** @returns {Promise<boolean>} */
   async deleteQuote(id) { throw notImplemented('deleteQuote'); }
 
+  /** Productos (PLAN-2026-008). @returns {Promise<object[]>} */
+  async getProducts() { throw notImplemented('getProducts'); }
+  /** @returns {Promise<object|null>} */
+  async getProduct(id) { throw notImplemented('getProduct'); }
+  /** Crea o reemplaza un producto. @returns {Promise<object>} */
+  async saveProduct(product) { throw notImplemented('saveProduct'); }
+  /** @returns {Promise<boolean>} */
+  async deleteProduct(id) { throw notImplemented('deleteProduct'); }
+
   /** Plantillas de servicio. @returns {Promise<object[]>} */
   async getServices() { throw notImplemented('getServices'); }
   /** @returns {Promise<object>} */

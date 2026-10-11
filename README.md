@@ -1,6 +1,6 @@
 # RATEOS
 
-**Motor de costos y tarifas para servicios industriales.**
+**Motor de costos y precios para servicios industriales y productos.**
 
 > Ayuda a una empresa a saber cuánto le cuesta realmente prestar un servicio y a qué precio debería cotizarlo para no perder dinero.
 
@@ -10,7 +10,7 @@
 
 ## Qué es RATEOS
 
-RATEOS es un **motor determinístico** de estructuras de costos, pricing, rentabilidad, utilización, break-even y escenarios, pensado para PyMEs proveedoras de servicios industriales, inicialmente Oil & Gas de Neuquén / Vaca Muerta. Su objetivo es **evitar que una empresa gane una licitación pero pierda plata ejecutándola**.
+RATEOS es un **motor determinístico** de estructuras de costos, pricing, rentabilidad, utilización, break-even y escenarios, pensado para PyMEs proveedoras de servicios industriales, inicialmente Oil & Gas de Neuquén / Vaca Muerta, y desde v0.5.0 también para PyMEs que **fabrican y venden productos** (panaderías, rotiserías, talleres, comercios). Su objetivo es **evitar que una empresa gane una licitación pero pierda plata ejecutándola**.
 
 Separa siempre cuatro conceptos:
 
@@ -61,6 +61,8 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 - Equipos **propios, alquilados o tercerizados**, con tarifa neta, mínimo y tratamiento fiscal (costo económico ≠ salida de caja ≠ crédito fiscal).
 - **Movilización y viajes**: cómo llega cada equipo (por sus medios, transportado, con apoyo) separado de la logística auxiliar, sin contar dos veces al operador ni al vehículo.
 - Moneda y tipo de cambio por cotización; versión visible ("v0.2.0 · build …") en el menú, la landing y Configuración → Acerca de.
+
+**v0.5.0 — Productos** (esquema de datos 5 con migración; las cotizaciones no cambian): sección **Productos** con un editor de 7 pasos (el producto y su tanda → ingredientes y materiales → personal con su convenio → máquinas con uso y amortización → gastos fijos con el % para el producto → precio y margen → resultado). Calcula costo por unidad, precio piso, precio sugerido con el margen que querés (margen ≠ markup), IVA opcional, equilibrio en unidades por mes y si tu precio de hoy cubre los costos. Fórmulas en [docs/CALCULATION_RULES.md §23](docs/CALCULATION_RULES.md#23-productos-costo-por-unidad-y-precio-plan-2026-008).
 
 ## Visitante, demo y cuenta
 

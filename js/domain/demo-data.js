@@ -487,6 +487,8 @@ export function createDemoState(schemaVersion) {
     },
     services: demoServiceTemplates(),
     quotes: [demoHydroCraneQuote(), demoReferenceQuote()],
+    // Productos (esquema 5, PLAN-2026-008): la demo no trae ninguno.
+    ...(Number(schemaVersion) >= 5 ? { products: [] } : {}),
     settings: { ...defaultSettings(DEMO_ORG_ID), fuelPriceBase: { ...DEMO_BASES.fuel }, illustrative: true },
   };
 }

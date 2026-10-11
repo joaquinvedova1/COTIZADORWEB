@@ -419,6 +419,42 @@ describe('LocalStorageRepository — recursos de biblioteca', () => {
 
 // ================================================================ services
 
+describe('LocalStorageRepository — productos (PLAN-2026-008)', () => {
+  test('guardar, leer, reemplazar y borrar; se persiste y devuelve copias', async () => {
+    const { repo, storage } = await setup();
+    assert.deepEqual(await repo.getProducts(), []);
+    const saved = await repo.saveProduct({ id: 'p1', name: 'Chipá', unitsPerBatch: 60, materials: [] });
+    assert.equal(saved.name, 'Chipá');
+    assert.ok(saved.createdAt && saved.updatedAt);
+    const copy = await repo.getProduct('p1');
+    copy.name = 'otro';
+    assert.equal((await repo.getProduct('p1')).name, 'Chipá', 'devuelve una copia');
+    await repo.saveProduct({ ...saved, unitsPerBatch: 48 });
+    assert.equal((await repo.getProducts()).length, 1);
+    assert.equal((await repo.getProduct('p1')).unitsPerBatch, 48);
+    assert.equal(JSON.parse(storage.getItem(STORAGE_KEYS.state)).products[0].unitsPerBatch, 48);
+    assert.equal(await repo.deleteProduct('p1'), true);
+    assert.equal(await repo.deleteProduct('p1'), false);
+    assert.deepEqual(await repo.getProducts(), []);
+  });
+
+  test('un producto sin id se rechaza', async () => {
+    const { repo } = await setup();
+    await assert.rejects(() => repo.saveProduct({ name: 'x' }), (e) => e.code === 'invalid');
+  });
+
+  test('el backup exporta e importa los productos', async () => {
+    const { repo } = await setup();
+    await repo.saveProduct({ id: 'p1', name: 'Facturas' });
+    const backup = await repo.exportBackup();
+    assert.deepEqual(backup.products.map((p) => p.name), ['Facturas']);
+    const other = await setup();
+    const summary = await other.repo.importBackup(JSON.parse(JSON.stringify(backup)));
+    assert.equal(summary.products, 1);
+    assert.equal((await other.repo.getProduct('p1')).name, 'Facturas');
+  });
+});
+
 describe('LocalStorageRepository — plantillas de servicio', () => {
   test('saveService crea/actualiza y deleteService borra', async () => {
     const { repo, storage, clock } = await setup();

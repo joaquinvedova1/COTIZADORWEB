@@ -27,9 +27,9 @@ RATEOS es un **motor determinístico** de:
 - break-even,
 - escenarios,
 
-para PyMEs proveedoras de servicios industriales (inicialmente Oil & Gas de Neuquén / Vaca Muerta).
+para PyMEs proveedoras de servicios industriales (inicialmente Oil & Gas de Neuquén / Vaca Muerta) y, desde v0.5.0 por pedido del dueño, para PyMEs que fabrican y venden **productos** (costo por unidad y precio; ver PLAN-2026-008).
 
-Idea central: **ayudar a una empresa a saber cuánto le cuesta realmente prestar un servicio y a qué precio debería cotizarlo para no perder dinero.** Foco:
+Idea central: **ayudar a una empresa a saber cuánto le cuesta realmente prestar un servicio (o hacer un producto) y a qué precio debería cotizarlo para no perder dinero.** Foco:
 
 ```
 COSTO → TARIFA → RENTABILIDAD → DECISIÓN COMERCIAL

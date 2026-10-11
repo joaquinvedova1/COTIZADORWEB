@@ -114,7 +114,7 @@ function sectionHead({ eyebrow, title, id, text = null, className = '' }) {
 }
 
 const RESULTS = Object.freeze([
-  { icon: 'layers', title: 'Sabé cuánto te cuesta.', text: 'Personal, equipos, materiales, viajes y gastos de estructura en un único cálculo.' },
+  { icon: 'layers', title: 'Sabé cuánto te cuesta.', text: 'Personal, equipos, materiales, viajes y gastos de estructura en un único cálculo, para un servicio o para cada unidad de un producto.' },
   { icon: 'tag', title: 'Sabé cuánto cobrar.', text: 'Conocé tu tarifa piso y el precio necesario para el margen que buscás.' },
   { icon: 'calendar', title: 'Sabé cuánto necesitás trabajar.', text: 'En servicios on-call, descubrí cuántos días u horas necesitás facturar para no perder plata.' },
 ]);
@@ -133,7 +133,7 @@ const STEPS = Object.freeze([
   { n: '03', title: 'Conocé tu tarifa.', text: 'Costo del mes, tarifa piso, margen y escenarios.' },
 ]);
 
-const AUDIENCES = Object.freeze(['PyMEs de servicios', 'Oil & Gas', 'Mantenimiento industrial', 'Transporte', 'Construcción', 'Minería']);
+const AUDIENCES = Object.freeze(['PyMEs de servicios', 'Oil & Gas', 'Mantenimiento industrial', 'Transporte', 'Construcción', 'Minería', 'Panaderías y alimentos', 'Comercios y talleres']);
 
 /** "De los recursos a la tarifa": lo que hay por debajo, sin fórmulas. */
 const CHAIN_INPUTS = Object.freeze(['Personal', 'Equipos', 'Materiales', 'Logística']);
@@ -247,9 +247,9 @@ export function render(root, app) {
       { class: 'pub-container pub-audience' },
       sectionHead({
         eyebrow: 'Para quién',
-        title: 'Para empresas que viven de prestar servicios.',
+        title: 'Para empresas que prestan servicios o hacen productos.',
         id: 'pub-quien-title',
-        text: 'Nació en Neuquén, entre empresas que trabajan en Vaca Muerta. Sirve para cualquier servicio donde el costo depende de personas, equipos y días de trabajo.',
+        text: 'Nació en Neuquén, entre empresas que trabajan en Vaca Muerta. Sirve para cualquier servicio donde el costo depende de personas, equipos y días de trabajo, y para productos que llevan materiales, personal y máquinas: una panadería, una rotisería, un taller.',
       }),
       h('ul', { class: 'pub-chips', 'aria-label': 'Rubros' }, ...AUDIENCES.map((label) => h('li', { class: 'pub-chip' }, label))),
     ),
@@ -297,15 +297,15 @@ export function render(root, app) {
       h(
         'div',
         { class: 'pub-hero-copy' },
-        h('p', { class: 'pub-pill' }, h('span', { class: 'pub-pill-dot', 'aria-hidden': 'true' }), 'Costos y tarifas para servicios industriales'),
-        h('h1', { class: 'pub-hero-title', id: 'pub-hero-title', tabindex: '-1' }, 'Cotizá servicios sabiendo ', h('span', { class: 'pub-accent' }, 'cuánto te cuestan.')),
+        h('p', { class: 'pub-pill' }, h('span', { class: 'pub-pill-dot', 'aria-hidden': 'true' }), 'Costos y precios para servicios y productos'),
+        h('h1', { class: 'pub-hero-title', id: 'pub-hero-title', tabindex: '-1' }, 'Cotizá servicios y productos sabiendo ', h('span', { class: 'pub-accent' }, 'cuánto te cuestan.')),
         h(
           'p',
           { class: 'pub-hero-sub' },
           'RATEOS transforma personal, equipos, materiales, logística y condiciones comerciales en una estructura de costos clara para saber cuánto cobrar sin perder rentabilidad.',
         ),
         heroActions,
-        h('p', { class: 'pub-hero-note' }, publicIcon('pin', { size: 18 }), h('span', {}, 'Pensado para empresas de servicios industriales. ', h('strong', {}, 'Nacido en Neuquén.'))),
+        h('p', { class: 'pub-hero-note' }, publicIcon('pin', { size: 18 }), h('span', {}, 'Pensado para empresas de servicios industriales y para quienes fabrican productos. ', h('strong', {}, 'Nacido en Neuquén.'))),
       ),
       h('div', { class: 'pub-hero-visual' }, productMockup(preview)),
     ),

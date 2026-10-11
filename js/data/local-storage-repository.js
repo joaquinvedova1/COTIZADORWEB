@@ -406,6 +406,43 @@ export class LocalStorageRepository extends StorageRepository {
     });
   }
 
+  // ----------------------------------------------------------- products
+
+  /** Productos (PLAN-2026-008). Datos viejos sin la colección → lista vacía. */
+  async getProducts() {
+    this.ensureReady();
+    return deepClone(Array.isArray(this.state.products) ? this.state.products : []);
+  }
+
+  async getProduct(id) {
+    this.ensureReady();
+    const list = Array.isArray(this.state.products) ? this.state.products : [];
+    const found = list.find((p) => p.id === id);
+    return found ? deepClone(found) : null;
+  }
+
+  async saveProduct(product) {
+    if (!isPlainObject(product) || typeof product.id !== 'string' || !product.id) throw new RepositoryError('Producto inválido.', 'invalid');
+    return this.mutate((s) => {
+      if (!Array.isArray(s.products)) s.products = [];
+      const index = s.products.findIndex((p) => p.id === product.id);
+      const stamped = this.stamp({ ...product, name: typeof product.name === 'string' ? product.name : 'Producto' }, index >= 0 ? s.products[index] : null);
+      if (index >= 0) s.products[index] = stamped;
+      else s.products.push(stamped);
+      return stamped;
+    });
+  }
+
+  async deleteProduct(id) {
+    return this.mutate((s) => {
+      if (!Array.isArray(s.products)) return false;
+      const index = s.products.findIndex((p) => p.id === id);
+      if (index < 0) return false;
+      s.products.splice(index, 1);
+      return true;
+    });
+  }
+
   // ----------------------------------------------------------- services
 
   async getServices() {
@@ -461,6 +498,7 @@ export class LocalStorageRepository extends StorageRepository {
       resources: s.resources,
       services: s.services,
       quotes: s.quotes,
+      products: Array.isArray(s.products) ? s.products : [],
       settings: s.settings,
       ...(s.legacy ? { legacy: s.legacy } : {}),
     };
@@ -477,7 +515,7 @@ export class LocalStorageRepository extends StorageRepository {
     if (version === 0) {
       // Un backup legado (sin schemaVersion) debe tener al menos alguna colección
       // de RATEOS: evita importar cualquier JSON (p. ej. package.json) y vaciar todo.
-      const looksLikeRateos = isPlainObject(rest.organization) || Array.isArray(rest.quotes) || Array.isArray(rest.services) || isPlainObject(rest.resources);
+      const looksLikeRateos = isPlainObject(rest.organization) || Array.isArray(rest.quotes) || Array.isArray(rest.services) || Array.isArray(rest.products) || isPlainObject(rest.resources);
       if (!looksLikeRateos) {
         return { ok: false, errors: ['El archivo no es un backup de RATEOS (no tiene organización, cotizaciones, plantillas ni recursos).'] };
       }
@@ -506,6 +544,7 @@ export class LocalStorageRepository extends StorageRepository {
         organization: st.organization.name || '—',
         quotes: st.quotes.length,
         services: st.services.length,
+        products: Array.isArray(st.products) ? st.products.length : 0,
         resources: Object.fromEntries(RESOURCE_TYPES.map((t) => [t, st.resources[t].length])),
         exportedAt: typeof exportedAt === 'string' ? exportedAt : null,
         appVersion: isPlainObject(app) && typeof app.version === 'string' ? app.version : null,

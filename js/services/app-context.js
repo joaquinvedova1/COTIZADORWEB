@@ -18,6 +18,7 @@ import { SupabaseRepository } from '../data/supabase-repository.js';
 import { RepositoryError } from '../data/storage-repository.js';
 import { WORKSPACE_ERRORS } from '../data/workspace-gateway.js';
 import { createQuoteService } from './quote-service.js';
+import { createProductService } from './product-service.js';
 import { createResourceService } from './resource-service.js';
 import { createBackupService } from './backup-service.js';
 import { createSettingsService } from './settings-service.js';
@@ -37,6 +38,7 @@ export const ROLE_LABELS = Object.freeze({
 function services(repository) {
   return {
     quotes: createQuoteService({ repository }),
+    products: createProductService({ repository }),
     resources: createResourceService({ repository }),
     backup: createBackupService({ repository }),
     settings: createSettingsService({ repository }),
