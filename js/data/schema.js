@@ -1,15 +1,16 @@
 /**
  * Esquema de datos persistidos (localStorage y backups JSON).
  *
- * Formato (schemaVersion 3):
+ * Formato (schemaVersion 5):
  * {
- *   schemaVersion: 3,
+ *   schemaVersion: 5,
  *   organization: { id, name, ... },
  *   resources: { agreements: [], laborProfiles: [], equipment: [], materials: [], locations: [],
  *                equipmentModels: [], externalServices: [] },   // v3: catálogo propio y externos
  *   services: [],   // plantillas de servicio
  *   quotes: [],     // cotizaciones (v2: billingTaxes; v3: currency, offerDate, exchangeRates,
  *                   //   y en cada línea base + snapshot; equipos: acquisition, external, mobilization)
+ *   products: [],   // v5 (PLAN-2026-008): costeo de productos (receta, personal, máquinas, fijos, precio)
  *   settings: {}    // v2: defaultBillingTaxes; v3: fuelPriceBase, exchangeRates
  * }
  *
@@ -39,6 +40,7 @@ export function createEmptyState(organization = null, settings = {}) {
     resources: Object.fromEntries(RESOURCE_TYPES.map((t) => [t, []])),
     services: [],
     quotes: [],
+    products: [],
     settings: { ...settings },
   };
 }
@@ -159,6 +161,32 @@ function checkQuoteShapes(quotes, errors, services = []) {
   }
 }
 
+/** Forma interna de cada producto (v5): listas de objetos y sub-objetos. */
+const PRODUCT_LIST_FIELDS = Object.freeze(['materials', 'labor', 'equipment', 'fixedCosts', 'exchangeRates']);
+const PRODUCT_OBJECT_FIELDS = Object.freeze(['pricing', 'billingTaxes']);
+
+function checkProductShapes(products, errors) {
+  if (!Array.isArray(products)) return;
+  products.forEach((p, i) => {
+    if (!isPlainObject(p)) return;
+    const base = `products[${i}]`;
+    PRODUCT_OBJECT_FIELDS.forEach((f) => {
+      if (p[f] !== undefined && p[f] !== null && !isPlainObject(p[f])) errors.push(`${base}.${f}: debe ser un objeto.`);
+    });
+    PRODUCT_LIST_FIELDS.forEach((f) => checkObjectList(p[f], `${base}.${f}`, errors));
+    if (isPlainObject(p.billingTaxes)) checkObjectList(p.billingTaxes.items, `${base}.billingTaxes.items`, errors);
+    ['materials', 'labor', 'equipment'].forEach((f) => {
+      if (!Array.isArray(p[f])) return;
+      p[f].forEach((line, j) => {
+        if (!isPlainObject(line)) return;
+        LINE_OBJECT_FIELDS.forEach((k) => {
+          if (line[k] !== undefined && line[k] !== null && !isPlainObject(line[k])) errors.push(`${base}.${f}[${j}].${k}: debe ser un objeto.`);
+        });
+      });
+    });
+  });
+}
+
 /**
  * Valida la estructura de un estado en la versión ACTUAL del esquema.
  * @returns {{ ok: boolean, errors: string[] }}
@@ -176,6 +204,8 @@ export function validateState(state) {
   checkEntityList(state.services, 'services', errors, { requireName: 'name' });
   checkEntityList(state.quotes, 'quotes', errors, { requireName: 'name' });
   checkQuoteShapes(state.quotes, errors, state.services);
+  checkEntityList(state.products ?? [], 'products', errors, { requireName: 'name' });
+  checkProductShapes(state.products, errors);
   if (!isPlainObject(state.settings)) errors.push('settings: debe ser un objeto.');
   else {
     const dbt = state.settings.defaultBillingTaxes;
@@ -201,6 +231,7 @@ export function normalizeState(state) {
   });
   if (!Array.isArray(out.services)) out.services = [];
   if (!Array.isArray(out.quotes)) out.quotes = [];
+  if (!Array.isArray(out.products)) out.products = [];
   if (!isPlainObject(out.settings)) out.settings = {};
   return out;
 }

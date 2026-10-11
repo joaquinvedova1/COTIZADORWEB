@@ -62,6 +62,11 @@ export const ROUTES = Object.freeze([
   { name: 'new-quote', segments: ['cotizaciones', 'nueva'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Nueva cotización', load: () => import('./views/quotes-list.js'), view: 'renderNewQuote' },
   { name: 'quote-editor', segments: ['cotizaciones', ':id'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Cotización', defaults: { step: 'service' }, load: () => import('./views/quote-editor.js'), view: 'render' },
   { name: 'quote-editor-step', segments: ['cotizaciones', ':id', ':step'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Cotización', load: () => import('./views/quote-editor.js'), view: 'render' },
+  // Productos (PLAN-2026-008): "productos/nuevo" va antes que "productos/:id".
+  { name: 'products', segments: ['productos'], shell: 'app', access: 'auth', nav: 'products', title: 'Productos', load: () => import('./views/products.js'), view: 'render' },
+  { name: 'new-product', segments: ['productos', 'nuevo'], shell: 'app', access: 'auth', nav: 'products', title: 'Nuevo producto', load: () => import('./views/products.js'), view: 'renderNew' },
+  { name: 'product-editor', segments: ['productos', ':id'], shell: 'app', access: 'auth', nav: 'products', title: 'Producto', defaults: { step: 'producto' }, load: () => import('./views/product-editor.js'), view: 'render' },
+  { name: 'product-editor-step', segments: ['productos', ':id', ':step'], shell: 'app', access: 'auth', nav: 'products', title: 'Producto', load: () => import('./views/product-editor.js'), view: 'render' },
   { name: 'resources', segments: ['recursos'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', defaults: { tab: 'personal' }, load: () => import('./views/library.js'), view: 'render' },
   // Los convenios se gestionan en Configuración (antes vivían junto a los recursos).
   { name: 'resources-agreements', segments: ['recursos', 'convenios'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', redirect: () => '#/configuracion/convenios' },

@@ -107,6 +107,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-005 | Recursos con base económica, snapshots, equipos propios/externos y movilización | motor de costos, migración | Completado (PR #13, v0.2.0 en producción) |
 | PLAN-2026-006 | Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables | utilización, motor de costos, migración | Borrador — concepto aprobado, siguiente paso (sin código) |
 | PLAN-2026-007 | Mantenimiento y neumáticos con forma de carga y avisos de sentido común | motor de costos, migración | Completado (PR #15, v0.4.0 en producción) |
+| PLAN-2026-008 | Costeo de productos: receta, personal con convenio, máquinas, gastos fijos y precio con margen | motor de costos, margen, migración | Completado (v0.5.0) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -608,4 +609,57 @@ Revert del PR. Las cuentas actualizadas a esquema 4 quedarían en sólo lectura 
 
 #### Bitácora
 - 2026-10-05: diseño validado por el dueño (mantenimiento A/B/C, neumáticos por hora / horas / km, avisos sin bloqueos, no modificar datos). Implementado en motor, Recursos y cotización; esquema 4 sin cambios de datos.
+
+### PLAN-2026-008 — Costeo de productos: receta, personal con convenio, máquinas, gastos fijos y precio con margen
+
+- Estado: Completado (v0.5.0)
+- Tipo: motor de costos (nuevo motor de producto) · margen · migración de datos (esquema 4 → 5) · UX nueva (sección Productos)
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-11 · Rama: `claude/wonderful-brown-g2ehd6`
+
+#### 1. Contexto y problema
+RATEOS sólo costea servicios (cotizaciones por día, hora o abono). Pedido del dueño: que dentro de la misma web una PyME pueda armar el costo y el precio de un **producto** (por ejemplo chipá o facturas): materias primas, empleados con su convenio (comercio, panaderos…), máquinas con su amortización, gastos fijos del local y el precio según el margen que quiere ganar, paso a paso y en forma intuitiva.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: sección **Productos** con un editor paso a paso (El producto → Ingredientes y materiales → Personal → Máquinas y equipos → Gastos fijos → Precio y margen → Resultado) que calcula el **costo por unidad**, el **precio piso**, el **precio con el margen deseado**, el **precio al público con IVA** (si la empresa carga la alícuota), el **punto de equilibrio en unidades por mes** y, si ya vende, si su **precio actual** cubre los costos. Todo con "Ver cálculo".
+- Reusa Recursos: perfiles de Personal (con su convenio), Mis equipos y Materiales, con la misma regla RECURSO MAESTRO ≠ COPIA (aviso + [Actualizar] / [Conservar valor original]).
+- No-objetivos: inventario, stock, recetas con sub-recetas, órdenes de producción, facturación, punto de venta, listas de precios por cliente. RATEOS no trae escalas salariales, cargas ni alícuotas (AGENTS.md §7): los convenios nuevos son sólo nombres y sus parámetros siguen siendo los genéricos ILUSTRATIVOS.
+
+#### 3. Impacto en fórmulas (motor nuevo `js/engines/product-engine.js`; las cotizaciones no cambian)
+- Tanda (receta): `S = unidades por tanda × (1 − pérdida %)` (unidades vendibles por tanda).
+- Ingredientes y materiales: `costo = cantidad usada (convertida a la unidad del precio) × precio por unidad × (1 + merma %)`; precio por unidad = cargado o `precio del paquete / contenido`. Van **por tanda** (receta) o **por unidad** (empaque, etiqueta). Unidades convertibles: g ↔ kg, ml ↔ l, unidad ↔ docena.
+- Personal: `costo por tanda = personas × minutos por tanda / 60 × costo hora con cargas`, con `costo hora = costo mensual por persona / horas normales del mes` (mismo LaborEngine que las cotizaciones).
+- Máquinas: uso `= minutos por tanda / 60 × (mantenimiento/h + neumáticos/h + energía/h)`; tenencia (amortización, seguro, patente, certificaciones, mantenimiento fijo, costo de capital) es un costo **fijo mensual**, del que se asigna al producto un % **explícito** (nunca inferido del uso, como aprobó el dueño en PLAN-2026-006).
+- Gastos fijos del negocio (alquiler, servicios, contador…): `monto mensual × % asignado al producto`.
+- `variable por unidad = (ingredientes por tanda + personal + uso de máquinas) / S + materiales por unidad`.
+- `fijo por unidad = fijos asignados del mes / unidades vendidas por mes`.
+- `costo por unidad = variable por unidad + fijo por unidad`.
+- Precio (mismas reglas que las cotizaciones, §11 y §13.1): `precio piso = costo / (1 − t)`, `precio con margen = costo / (1 − margen − t)` (margen sobre el precio ≠ markup), redondeo comercial hacia arriba, `precio al público = precio × (1 + IVA %)` sólo si la empresa carga el IVA.
+- Punto de equilibrio: `unidades por mes = fijos asignados / (precio × (1 − t) − variable por unidad)`; sin contribución positiva → inalcanzable (null, nunca Infinity).
+- Caso numérico (golden, ILUSTRATIVO): tanda de 60 chipás, ingredientes $ 6.000, empaque $ 20/u, personal 90 min a $ 6.000/h = $ 9.000, horno 40 min a $ 1.500/h = $ 1.000 → variable $ 286,67/u; fijos $ 175.000/mes con 3.000 u/mes → $ 58,33/u; costo $ 345/u; margen 30 % sin impuestos → $ 492,86 (markup 42,86 %); equilibrio 848,7 u/mes.
+
+#### 4. Impacto en datos
+- `SCHEMA_VERSION` 4 → 5 con `migrateV4ToV5`: agrega `products: []`; no cambia ni borra nada (copia previa automática). Una versión anterior abre los datos v5 en sólo lectura (así nunca guarda un estado sin los productos).
+- Producto: `{ id, organizationId, name, saleUnit, unitsPerBatch, lossPct, monthlyUnits, materials[], labor[], equipment[], fixedCosts[], pricing { targetMarginPct, roundingStep, vatPct, currentPrice }, billingTaxes, currency, illustrative, notes }` (detalle en DATA_MODEL).
+- Backup, importación, datos locales anteriores y RLS: el producto vive dentro del workspace JSON de la organización (misma fila, mismas políticas): no cambia la base de datos.
+
+#### 5. Diseño
+Dominio `js/domain/product-factory.js` (producto vacío, líneas desde Recursos con los mismos factories que la cotización, ejemplo ILUSTRATIVO), motor puro `product-engine.js` con trazas, servicio `product-service.js`, repositorio (`getProducts/saveProduct/deleteProduct`), vistas `products.js` (lista y "Nuevo producto") y `product-editor.js` (pasos con "Así lo calcula RATEOS" en vivo), navegación "Productos", accesos desde Inicio. Convenios: se suman los tipos "Empleados de Comercio (CCT 130/75)", "Panaderos / pasteleros" y "Gastronómicos" (sólo nombres).
+
+#### 6. Review multidisciplinario
+- Economía: fijos vs variables separados; el fijo nunca se reparte por un uso inventado; margen ≠ markup; impuestos sobre la venta con gross-up; IVA sólo si se carga.
+- QA: tanda 0, pérdida 100 %, ventas 0, margen ≥ 100, margen + t ≥ 100, unidades incompatibles, paquete sin contenido, precio actual menor que el costo variable, valores vacíos y negativos.
+- Seguridad: validación de entradas, sin `innerHTML`, sin dependencias, RLS sin cambios.
+- UX: lenguaje de comercio ("tanda", "receta", "cuántas vendés por mes"), interpretación en vivo, "Ver cálculo", ejemplo marcado ILUSTRATIVO.
+
+#### 7. Tests
+Motor (golden chipá, casos extremos, sin NaN/Infinity), conversiones de unidades, migración v4 → v5 (sin cambios de datos ni de números de cotizaciones), validación del estado, repositorio y servicio, arquitectura. E2E desktop y mobile: crear un producto desde cero con recursos, ejemplo, resultado igual al motor, aviso de cambio en Recursos, persistencia.
+
+#### 9. Rollback
+Revert del PR. Las cuentas que pasaron a esquema 5 quedarían en sólo lectura en la versión anterior: restaurar la copia previa (`pre-migration-v4`) o mantener esta versión.
+
+#### Bitácora
+- 2026-10-11: pedido del dueño (productos dentro de la misma web, paso a paso). Diseño e implementación en una iteración.
+- 2026-10-11: E2E (escritorio y celular, Supabase simulado): producto desde cero = golden (costo $ 345, precio $ 492,86, equilibrio 849 u/mes), ejemplo ILUSTRATIVO, cuenta v4 → v5 con copia previa y recursos intactos, aviso de cambio en Recursos y [Actualizar en este producto]. El E2E encontró que `saveProduct`/`deleteProduct` no se subían a la nube enseguida (faltaban en las escrituras sincronizadas): corregido con un test que exige que toda escritura local se sincronice.
+- 2026-10-11: impuestos sobre la venta sin decidir → aviso (como en las cotizaciones); "No corresponden" o un % lo resuelven.
 

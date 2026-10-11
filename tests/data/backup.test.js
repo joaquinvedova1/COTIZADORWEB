@@ -87,15 +87,15 @@ async function demoBackupText(mutate = (d) => d) {
 // ================================================================== export
 
 describe('Backup — exportación', () => {
-  test('formato { schemaVersion, app, exportedAt, organization, resources, services, quotes, settings }', async () => {
+  test('formato { schemaVersion, app, exportedAt, organization, resources, services, quotes, products, settings }', async () => {
     const { repo, clock } = await setup({ appVersion: '1.4.2' });
     const data = await repo.exportBackup();
-    assert.deepEqual(Object.keys(data), ['schemaVersion', 'app', 'exportedAt', 'organization', 'resources', 'services', 'quotes', 'settings']);
+    assert.deepEqual(Object.keys(data), ['schemaVersion', 'app', 'exportedAt', 'organization', 'resources', 'services', 'quotes', 'products', 'settings']);
     assert.equal(data.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.deepEqual(data.app, { name: APP_NAME, version: '1.4.2' });
     assert.equal(data.exportedAt, clock());
     assert.deepEqual(Object.keys(data.resources).sort(), [...RESOURCE_TYPES].sort());
-    assert.ok(Array.isArray(data.services) && Array.isArray(data.quotes));
+    assert.ok(Array.isArray(data.services) && Array.isArray(data.quotes) && Array.isArray(data.products));
     assert.equal(typeof data.settings, 'object');
 
     const demo = createDemoState(CURRENT_SCHEMA_VERSION);
@@ -196,7 +196,8 @@ describe('Backup — validación antes de importar', () => {
       organization: 'Patagonia Servicios SRL',
       quotes: 2,
       services: 12,
-      resources: { agreements: 6, laborProfiles: 5, equipment: 10, materials: 4, locations: 2, equipmentModels: 0, externalServices: 3 },
+      products: 0,
+      resources: { agreements: 9, laborProfiles: 5, equipment: 10, materials: 4, locations: 2, equipmentModels: 0, externalServices: 3 },
       exportedAt: '2026-10-03T10:00:00.000Z',
       appVersion: '0.1.0',
     });

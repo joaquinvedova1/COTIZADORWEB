@@ -7,12 +7,13 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SupabaseRepository, cloudCacheKey } from '../../js/data/supabase-repository.js';
+import { SupabaseRepository, WRITE_METHODS, cloudCacheKey } from '../../js/data/supabase-repository.js';
+import { LocalStorageRepository } from '../../js/data/local-storage-repository.js';
 import { createAccountContext, createDemoContext } from '../../js/services/app-context.js';
 import { createEmptyQuote } from '../../js/domain/quote-factory.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { CURRENT_SCHEMA_VERSION } from '../../js/data/schema.js';
-import { migrateV2ToV3 } from '../../js/data/migrations.js';
+import { migrateV2ToV3, migrateV3ToV4 } from '../../js/data/migrations.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { createFakeServer, SpyStorage } from '../helpers/fake-supabase.js';
 
@@ -380,6 +381,41 @@ describe('SupabaseRepository: producción con datos v2 en la nube (PLAN-2026-005
     assert.ok(keys.some((k) => k.startsWith(`rateos.cloud.b.${orgId}.recovery.`) && k.includes('pre-migration-v3')), 'copia previa de la cuenta en este navegador');
     const again = await openRepo(server, 'b');
     assert.equal(again.init.status, 'loaded', 'abrir de nuevo no vuelve a migrar');
+  });
+
+  test('datos v4 (v0.4.x): pasan a la versión actual con productos vacíos, copia previa y los mismos resultados', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'c', company: 'Empresa real' });
+    const v4 = { ...migrateV3ToV4(migrateV2ToV3(v2Workspace(orgId))), schemaVersion: 4 };
+    server.workspaces.set(orgId, { state: v4, revision: 40, schemaVersion: 4 });
+    const before = computeQuote(JSON.parse(JSON.stringify(v4.quotes[0]))).kpis;
+    const { repo, init, cache } = await openRepo(server, 'c');
+    await repo.flush();
+    assert.equal(init.status, 'migrated');
+    const ws = server.workspaces.get(orgId);
+    assert.equal(ws.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.deepEqual(ws.state.products, []);
+    const [q] = await repo.getQuotes();
+    assert.equal(q.code, 'COT-0001');
+    assert.equal(computeQuote(q).kpis.totalCost, before.totalCost);
+    const keys = Array.from({ length: cache.length }, (_, i) => cache.key(i));
+    assert.ok(keys.some((k) => k.startsWith(`rateos.cloud.c.${orgId}.recovery.`) && k.includes('pre-migration-v4')), 'copia previa');
+    // Guardar un producto lo sube a la nube SOLO (sin otra escritura ni flush manual).
+    const revision = server.workspaces.get(orgId).revision;
+    await repo.saveProduct({ id: 'p1', name: 'Chipá' });
+    assert.deepEqual(server.workspaces.get(orgId).state.products.map((p) => p.name), ['Chipá'], 'el producto queda en la nube');
+    assert.equal(server.workspaces.get(orgId).revision, revision + 1);
+    assert.equal(repo.getSyncState().status, 'saved');
+    await repo.deleteProduct('p1');
+    assert.deepEqual(server.workspaces.get(orgId).state.products, [], 'eliminarlo también se sube');
+  });
+
+  test('toda escritura del repositorio local se sube a la nube (nada queda sólo en el navegador)', () => {
+    // Las copias de recuperación son locales a propósito; la demo no se carga en una cuenta.
+    const LOCAL_ONLY = ['resetToDemo', 'saveRecoverySnapshot', 'deleteRecoverySnapshot'];
+    const writes = Object.getOwnPropertyNames(LocalStorageRepository.prototype)
+      .filter((n) => /^(save|delete|update|import)/.test(n) && !LOCAL_ONLY.includes(n));
+    assert.deepEqual([...writes].sort(), [...WRITE_METHODS].sort());
   });
 
   test('cuenta nueva en producción: crea su espacio vacío en la versión actual del esquema sin preguntar', async () => {

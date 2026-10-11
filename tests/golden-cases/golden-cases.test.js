@@ -25,6 +25,7 @@ import { simpleFinancialCost } from '../../js/engines/finance-engine.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { computeExternalLine } from '../../js/engines/external-engine.js';
 import { computeMobilization } from '../../js/engines/mobilization-engine.js';
+import { computeProduct } from '../../js/engines/product-engine.js';
 import { demoReferenceQuote } from '../../js/domain/demo-data.js';
 import { getPath } from '../../js/core/object.js';
 
@@ -72,6 +73,8 @@ const ENGINES = {
   'finance.simpleFinancialCost': ({ amount, monthlyRatePct, days }) => ({ value: simpleFinancialCost(amount, monthlyRatePct, days) }),
   'quote.onCall': (inputs) => computeQuote(onCallQuote(inputs)),
   'quote.demoReference': () => computeQuote(demoReferenceQuote()),
+  // PLAN-2026-008: costo por unidad y precio de un producto.
+  'product.compute': ({ product }) => computeProduct(product),
   // PLAN-2026-005: tarifa externa (precio neto + tratamiento fiscal) y movilización propia.
   'external.line': ({ price, unit, quantity = 1, minimumUnits = null, daysPerActivation = 1, hoursPerActiveDay = 0, vatPct = null, vatRecoverable = null, tripsPerActivation = 0, routeKmPerActivation = 0 }) =>
     computeExternalLine(

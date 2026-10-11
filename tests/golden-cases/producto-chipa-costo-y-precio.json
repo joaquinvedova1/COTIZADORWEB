@@ -1,0 +1,30 @@
+{
+  "id": "producto-chipa-costo-y-precio",
+  "title": "Producto: costo por unidad, precio con margen y equilibrio (chipá ILUSTRATIVO)",
+  "rule": "Tanda de 60: (ingredientes 6.000 + personal 90 min a 6.000/h + horno 40 min a 1.500/h) / 60 + empaque 20 = 286,67 variable; fijos (horno 50.000 × 50 % + alquiler 600.000 × 25 %) / 3.000 u = 58,33; costo 345; precio con margen 30 % sobre el precio = 345 / 0,7 = 492,86 (markup 42,86 %); equilibrio 175.000 / (492,86 − 286,67) = 848,7 u/mes.",
+  "engine": "product.compute",
+  "inputs": {
+    "product": {
+      "unitsPerBatch": 60,
+      "lossPct": 0,
+      "monthlyUnits": 3000,
+      "materials": [
+        { "id": "m1", "description": "Receta", "per": "batch", "unit": "u", "quantity": 1, "unitCost": 6000 },
+        { "id": "m2", "description": "Bolsita", "per": "unit", "unit": "u", "quantity": 1, "unitCost": 20 }
+      ],
+      "labor": [{ "id": "l1", "role": "Panadero", "basicMonthly": 1056000, "normalHoursPerMonth": 176, "people": 1, "minutesPerBatch": 90 }],
+      "equipment": [{ "id": "e1", "name": "Horno", "minutesPerBatch": 40, "energyPerHour": 1500, "fixedSharePct": 50, "insuranceAnnual": 600000 }],
+      "fixedCosts": [{ "id": "f1", "description": "Alquiler", "monthlyAmount": 600000, "sharePct": 25 }],
+      "pricing": { "targetMarginPct": 30, "roundingStep": 0 }
+    }
+  },
+  "expected": {
+    "variablePerUnit": 286.6666666666667,
+    "fixedPerUnit": 58.333333333333336,
+    "unitCost": 345,
+    "pricing.suggestedPrice": 492.85714285714283,
+    "pricing.markupPct": 42.857142857142854,
+    "pricing.breakEvenUnits": 848.7297921478062
+  },
+  "tolerance": 1e-6
+}

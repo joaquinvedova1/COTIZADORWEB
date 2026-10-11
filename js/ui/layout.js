@@ -34,6 +34,7 @@ import { icon } from './components.js';
 export const NAV_ITEMS = Object.freeze([
   { key: 'home', href: '#/inicio', label: 'Inicio', icon: 'home' },
   { key: 'quotes', href: '#/cotizaciones', label: 'Cotizaciones', icon: 'quote' },
+  { key: 'products', href: '#/productos', label: 'Productos', icon: 'product' },
   { key: 'resources', href: '#/recursos', label: 'Recursos', icon: 'resources' },
   { key: 'services', href: '#/servicios', label: 'Servicios', icon: 'services' },
   { key: 'scenarios', href: '#/escenarios', label: 'Escenarios', icon: 'chart' },

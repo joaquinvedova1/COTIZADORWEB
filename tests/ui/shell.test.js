@@ -58,6 +58,19 @@ describe('router: matchRoute', () => {
     assert.equal(step.nav, 'quotes');
   });
 
+  test('"productos/nuevo" gana sobre "productos/:id" y el editor recibe id y paso', () => {
+    assert.equal(route('#/productos').route.name, 'products');
+    assert.equal(route('#/productos/nuevo').route.name, 'new-product');
+    const editor = route('#/productos/p-1');
+    assert.equal(editor.route.name, 'product-editor');
+    assert.deepEqual(editor.params, { step: 'producto', id: 'p-1' });
+    const step = route('#/productos/p-1/resultado');
+    assert.equal(step.route.name, 'product-editor-step');
+    assert.deepEqual(step.params, { id: 'p-1', step: 'resultado' });
+    assert.equal(step.nav, 'products');
+    assert.equal(route('#/productos').route.access, 'auth');
+  });
+
   test('decodifica segmentos y rechaza codificaciones inválidas', () => {
     assert.equal(route('#/cotizaciones/a%20b').params.id, 'a b');
     assert.equal(route('#/cotizaciones/%E0%A4%A').notFound, true);
@@ -118,8 +131,8 @@ describe('router: matchRoute', () => {
 });
 
 describe('layout: navegación', () => {
-  test('el menú tiene Inicio, Cotizaciones, Recursos, Servicios, Escenarios y, separado, Configuración', () => {
-    assert.deepEqual(NAV_ITEMS.map((i) => i.label), ['Inicio', 'Cotizaciones', 'Recursos', 'Servicios', 'Escenarios', 'Configuración']);
+  test('el menú tiene Inicio, Cotizaciones, Productos, Recursos, Servicios, Escenarios y, separado, Configuración', () => {
+    assert.deepEqual(NAV_ITEMS.map((i) => i.label), ['Inicio', 'Cotizaciones', 'Productos', 'Recursos', 'Servicios', 'Escenarios', 'Configuración']);
     assert.deepEqual(NAV_ITEMS.filter((i) => i.separated).map((i) => i.key), ['settings']);
   });
 

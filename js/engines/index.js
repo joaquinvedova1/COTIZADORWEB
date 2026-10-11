@@ -18,3 +18,4 @@ export * from './quote-engine.js';
 export * from './scenario-engine.js';
 export * from './billing-taxes-engine.js';
 export * from './price-composition-engine.js';
+export * from './product-engine.js';

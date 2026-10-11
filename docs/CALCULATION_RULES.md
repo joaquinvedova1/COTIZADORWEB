@@ -1117,7 +1117,44 @@ Casos de referencia que deben seguir valiendo aunque cambie la interfaz. Son **r
 | `externo-minimo-por-llamado.json` | grúa tercerizada 450.000/h, mínimo 8 h, llamado de 1 día de 5 h | factura **8 h** = 3.600.000 neto por llamado |
 | `movilizacion-autopropulsada-160km.json` | Vactor por sus medios 80 + 80 km, 40 L/100 km, 1.500/L, 200 $/km | **160 km**, 64 L, combustible 96.000 + desgaste 32.000 = 128.000 por llamado; sin mano de obra extra |
 | `on-call-cotizacion-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 10 días; margen 10 %; impuestos 10 % | costo 40.000.000; piso 4.444.444,44; objetivo 5.000.000; facturación 50.000.000; impuestos 5.000.000; resultado 5.000.000 (10 %); markup 25 %; ganancia sobre el costo 12,5 % |
+| `producto-chipa-costo-y-precio.json` | producto (§23): tanda de 60, receta 6.000, empaque 20/u, personal 90 min a 6.000/h, horno 40 min a 1.500/h, fijos 175.000/mes, 3.000 u/mes, margen 30 % | variable **286,67**/u; fijo **58,33**/u; costo **345**/u; precio **492,86** (markup 42,86 %); equilibrio **848,73** u/mes |
 
 **Red de seguridad** (`tests/engines/regression-baseline.test.js`, PLAN-2026-002 PN0): con impuestos sin definir, los KPIs, la EECC, la matriz y los tramos de la demo, el caso de referencia, cada plantilla y variantes sintéticas son **idénticos** a los del motor anterior (`tests/fixtures/baseline-v1.json`).
 
 El caso on-call básico también existe como cotización demo "Ejemplo: tarifa que no cubre los costos (caso de referencia)" (antes "Caso de referencia on-call (prueba del motor)") (`demoReferenceQuote` en `js/domain/demo-data.js`): fijos cargados como otro costo fijo mensual, variable como otro costo por día activo, modalidad "Conozco la tarifa" con 4.000.000/día, sin financiero, contingencia ni reglas → break-even exactamente 10 días. Además, toda EECC con costo > 0 debe mostrar incidencias que suman exactamente 100,00 % (tests de `costStructure`).
+
+## 23. Productos: costo por unidad y precio (PLAN-2026-008)
+
+Motor: `js/engines/product-engine.js` (`computeProduct`). Puro, con trazas ("Ver cálculo") para cada resultado. **No cambia ninguna fórmula de las cotizaciones**: es un motor nuevo que reutiliza LaborEngine (costo hora con cargas), EquipmentEngine (tenencia y uso) y las reglas de precio de §11 y §13.1.
+
+Un producto se fabrica por **tandas** (una receta rinde N unidades) y se vende por unidad (`saleUnit`: unidad, docena, kg, porción…). Se separa siempre lo **variable** (depende de cuánto producís) de lo **fijo** (se paga igual cada mes).
+
+| Concepto | Fórmula |
+|---|---|
+| Vendibles por tanda `S` | `unidades por tanda × (1 − pérdida %)` |
+| Ingrediente o material | `cantidad usada (convertida a la unidad del precio) × precio por unidad × (1 + merma %)`; precio por unidad = cargado, o `precio del paquete ÷ contenido`. Va **por tanda** (receta) o **por unidad** (empaque, etiqueta). Conversión: g ↔ kg, ml ↔ l, unidad ↔ docena; unidades de distinto tipo no se convierten (error, no suma) |
+| Personal por tanda | `personas × minutos por tanda ÷ 60 × costo hora con cargas`; `costo hora = costo mensual por persona ÷ horas normales del mes` (mismo LaborEngine que las cotizaciones; las cargas son las del convenio que cargó la empresa) |
+| Uso de máquinas por tanda | `minutos de uso ÷ 60 × (mantenimiento/h + neumáticos/h + combustible/h + energía/h)` |
+| Tenencia de máquinas (FIJO) | `posesión mensual (amortización, seguro, patente, certificaciones, mantenimiento por presupuesto, costo de capital) × % asignado al producto` |
+| Gastos fijos del negocio | `monto mensual × % asignado al producto` |
+| Variable por unidad | `(receta + personal + uso de máquinas) ÷ S + materiales por unidad` |
+| Fijo por unidad | `fijos asignados del mes ÷ unidades vendidas por mes` |
+| Costo por unidad | `variable por unidad + fijo por unidad` |
+| Precio piso | `costo ÷ (1 − t)` (t = impuestos sobre lo que vendés, §13.1) |
+| Precio con margen | `costo ÷ (1 − margen − t)` — **margen sobre el precio, no markup** (§9 de AGENTS.md) |
+| Precio sugerido | redondeo comercial **hacia arriba** al múltiplo elegido (nunca baja el margen) |
+| Precio al público | `precio sugerido × (1 + IVA %)`, **sólo si la empresa carga el IVA** (RATEOS no trae alícuotas; el IVA no es costo ni ganancia) |
+| Equilibrio (u/mes) | `fijos asignados ÷ (precio × (1 − t) − variable por unidad)`; sin fijos → 0; contribución ≤ 0 → inalcanzable (`null`, nunca `Infinity`) |
+| Resultado del mes | `precio × N − impuestos sobre la venta − variable × N − fijos asignados` (N = unidades por mes) |
+| Precio actual (opcional) | margen real `1 − t − costo ÷ precio`, ganancia por unidad, equilibrio y aviso si queda bajo el piso o bajo el costo variable |
+
+Reglas:
+
+- **El % de los fijos que le toca al producto es SIEMPRE un dato explícito** (de cada máquina y de cada gasto fijo): nunca se infiere del uso (PLAN-2026-006). Sin %, ese fijo no se suma y el producto avisa.
+- Sin unidades vendidas por mes, los fijos no se pueden repartir: error (el costo por unidad queda sin calcular, nunca `Infinity`).
+- Impuestos sobre la venta sin decidir: aviso (el precio no los incluye). "No corresponden" o un % cargado lo resuelven.
+- Horas del mes del personal (informativo, **no cambia el costo**): `tandas por mes × minutos por tanda ÷ 60` por persona, contra sus horas normales. El costo del personal es por minuto de tanda: las horas pagadas que no se usan en este producto no entran en su costo (la pantalla lo dice y sugiere sumarlas en "Gastos fijos" si no se usan en otros productos). Más horas que las del mes → aviso.
+- Valores en otra moneda: sólo con el tipo de cambio que carga la empresa en el producto; sin él no suman y el producto queda con error.
+- Las líneas que vienen de Recursos guardan una copia (snapshot): cambiar el recurso nunca cambia el producto; se avisa y la persona elige [Actualizar en este producto] o [Conservar valor original]. Al actualizar se conservan personas, minutos por tanda, energía, % asignado, dónde va y la unidad en que se usa.
+
+Caso de referencia (golden `producto-chipa-costo-y-precio.json`, ILUSTRATIVO): tanda de 60, receta $ 6.000, bolsita $ 20/u, personal 90 min a $ 6.000/h = $ 9.000, horno 40 min a $ 1.500/h = $ 1.000 → variable $ 16.000 ÷ 60 + $ 20 = **$ 286,67**; fijos horno $ 50.000 × 50 % + alquiler $ 600.000 × 25 % = $ 175.000 ÷ 3.000 u = **$ 58,33**; costo **$ 345**; margen 30 % sin impuestos → **$ 492,86** (markup 42,86 %); equilibrio $ 175.000 ÷ ($ 492,86 − $ 286,67) = **848,7 u/mes**. Con 5 % de impuestos sobre la venta: $ 345 ÷ 0,65 = $ 530,77.

@@ -109,6 +109,7 @@ export function billingTaxesHelp() {
  *   mutate: (fn: (cfg: object) => void, opts?: { focus?: string }) => void,  cambio estructural (redibuja)
  *   readOnly?: boolean,
  *   namePrefix?: string,                        prefijo de los name (rutas de validateQuote)
+ *   scope?: 'quote'|'company'|'product',        a qué se aplica (cambia los textos)
  * }} options
  */
 export function billingTaxesFields({ get, update, mutate, readOnly = false, namePrefix = 'billingTaxes', scope = 'quote' }) {
@@ -120,12 +121,16 @@ export function billingTaxesFields({ get, update, mutate, readOnly = false, name
 
   const notApplicable = checkboxField({
     // Elección de cálculo, no una afirmación fiscal sobre la empresa.
-    label: scope === 'company' ? 'No incluir impuestos sobre la facturación en las cotizaciones nuevas' : 'No incluir impuestos sobre la facturación en esta cotización',
+    label: scope === 'company'
+      ? 'No incluir impuestos sobre la facturación en las cotizaciones nuevas'
+      : scope === 'product'
+        ? 'No incluir impuestos sobre lo que vendés en este producto'
+        : 'No incluir impuestos sobre la facturación en esta cotización',
     name: name('notApplicable'),
     checked: na,
     disabled: readOnly,
     hint: na
-      ? `Los porcentajes no se usan: ${scope === 'company' ? 'las cotizaciones nuevas se calculan' : 'la tarifa se calcula'} sin estos impuestos.`
+      ? `Los porcentajes no se usan: ${scope === 'company' ? 'las cotizaciones nuevas se calculan' : scope === 'product' ? 'el precio se calcula' : 'la tarifa se calcula'} sin estos impuestos.`
       : 'Elegilo sólo si estos impuestos no corresponden. Ante la duda, consultalo con tu contador.',
     // El foco vuelve a la misma casilla después de redibujar.
     onChange: (checked) => mutate((c) => { c.notApplicable = Boolean(checked); }, { focus: name('notApplicable') }),

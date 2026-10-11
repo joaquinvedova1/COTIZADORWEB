@@ -26,6 +26,7 @@ export const RULES = Object.freeze({
   utilization: { min: 0, max: 100, exclusiveMin: true, message: 'La utilización debe ser mayor a 0 y hasta 100 %.' },
   intervalHours: { min: 0, max: 100000, message: 'Las horas deben estar entre 0 y 100.000.' },
   lifeKm: { min: 0, max: 10000000, message: 'Los km deben estar entre 0 y 10.000.000.' },
+  minutes: { min: 0, max: 100000, message: 'Los minutos deben estar entre 0 y 100.000.' },
   positive: { min: 0, exclusiveMin: true, message: 'Debe ser mayor a 0.' },
   years: { min: 0, max: 100, exclusiveMin: true, message: 'La vida útil debe ser mayor a 0 años.' },
   months: { min: 0, max: 600, message: 'Los meses deben estar entre 0 y 600.' },

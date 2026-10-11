@@ -65,6 +65,11 @@ export const AGREEMENT_TYPES = deepFreeze([
   { code: 'uocra', label: 'UOCRA' },
   { code: 'fuera_convenio', label: 'Fuera de convenio' },
   { code: 'personalizado', label: 'Personalizado' },
+  // PLAN-2026-008 (productos): sólo nombres; los parámetros siguen siendo los
+  // genéricos ILUSTRATIVOS hasta que la empresa cargue los de su convenio.
+  { code: 'comercio', label: 'Empleados de Comercio (CCT 130/75)' },
+  { code: 'panaderos', label: 'Panaderos / pasteleros' },
+  { code: 'gastronomicos', label: 'Gastronómicos' },
 ]);
 
 export const ILLUSTRATIVE_AGREEMENT_PARAMS = deepFreeze({
@@ -320,3 +325,56 @@ export const DEFAULT_VOLUME_TIERS = deepFreeze([
   { id: 'tier-4', fromDays: 16, toDays: 30, discountPct: 0 },
   { id: 'tier-5', fromDays: 31, toDays: null, discountPct: 0 },
 ]);
+
+// ------------------------------------------------------- productos (PLAN-2026-008)
+
+/** Pasos del editor de un producto. */
+export const PRODUCT_STEPS = deepFreeze([
+  { id: 'producto', label: 'El producto' },
+  { id: 'insumos', label: 'Ingredientes y materiales' },
+  { id: 'personal', label: 'Personal' },
+  { id: 'maquinas', label: 'Máquinas y equipos' },
+  { id: 'fijos', label: 'Gastos fijos' },
+  { id: 'precio', label: 'Precio y margen' },
+  { id: 'resultado', label: 'Resultado' },
+]);
+
+/**
+ * Unidades de medida de ingredientes y materiales. `dimension` y `factor`
+ * (a la unidad base de su dimensión) permiten convertir g ↔ kg, ml ↔ l y
+ * unidad ↔ docena. Unidades de distinta dimensión no se convierten.
+ */
+export const MEASURE_UNITS = deepFreeze([
+  { id: 'kg', label: 'kg', long: 'kilo', dimension: 'mass', factor: 1000 },
+  { id: 'g', label: 'g', long: 'gramo', dimension: 'mass', factor: 1 },
+  { id: 'l', label: 'l', long: 'litro', dimension: 'volume', factor: 1000 },
+  { id: 'ml', label: 'ml', long: 'mililitro', dimension: 'volume', factor: 1 },
+  { id: 'u', label: 'unidad', long: 'unidad', dimension: 'count', factor: 1 },
+  { id: 'docena', label: 'docena', long: 'docena', dimension: 'count', factor: 12 },
+]);
+
+/** Formas de escribir una unidad (Recursos guarda texto libre) → id de MEASURE_UNITS. */
+export const MEASURE_UNIT_ALIASES = deepFreeze({
+  kg: 'kg', kgs: 'kg', kilo: 'kg', kilos: 'kg', kilogramo: 'kg', kilogramos: 'kg',
+  g: 'g', gr: 'g', grs: 'g', gramo: 'g', gramos: 'g',
+  l: 'l', lt: 'l', lts: 'l', litro: 'l', litros: 'l',
+  ml: 'ml', cc: 'ml', mililitro: 'ml', mililitros: 'ml',
+  u: 'u', un: 'u', unid: 'u', unidad: 'u', unidades: 'u',
+  docena: 'docena', docenas: 'docena', doc: 'docena',
+});
+
+/** ¿Dónde va un ingrediente o material? */
+export const PRODUCT_MATERIAL_PER = deepFreeze([
+  { id: 'batch', label: 'En la receta (por tanda)', hint: 'Harina, grasa, queso: lo que lleva cada tanda.' },
+  { id: 'unit', label: 'En cada unidad que vendés', hint: 'Bolsita, etiqueta, caja: va una (o más) por unidad.' },
+]);
+
+/** ¿Cómo cargás el precio de un ingrediente? */
+export const PRODUCT_PRICE_MODES = deepFreeze([
+  { id: 'unit', label: 'Precio por unidad de medida', hint: 'Por ejemplo $ 1.200 el kilo.' },
+  { id: 'pack', label: 'Precio del paquete o bolsa', hint: 'Por ejemplo $ 30.000 la bolsa de 25 kg.' },
+]);
+
+/** Unidades de venta sugeridas (texto libre). */
+export const SALE_UNIT_SUGGESTIONS = deepFreeze(['unidad', 'docena', 'kg', 'porción', 'caja', 'bandeja', 'paquete']);
+
