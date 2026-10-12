@@ -1,0 +1,15 @@
+{
+  "id": "unidad-movimiento-suelo-m3",
+  "title": "Movimiento de suelo facturado por m³ (C)",
+  "rule": "5.000 m³/mes a 250 m³ por día = 20 días. Costo = 20.000.000 + 1.500.000 × 20 = 50.000.000 → tarifa piso 10.000 $/m³; margen 15 % → 50.000.000 / 0,85 / 5.000 = 11.764,71 $/m³. Con 14.000 $/m³: costo variable por m³ 6.000, contribución 8.000 → equilibrio 20.000.000 / 8.000 = 2.500 m³.",
+  "engine": "quote.byUnit",
+  "inputs": { "serviceType": "per_unit", "unit": "m3", "quantityPerMonth": 5000, "unitsPerActiveDay": 250, "fixedCosts": 20000000, "variableCostPerDay": 1500000, "rate": 14000, "targetMarginPct": 15 },
+  "expected": {
+    "kpis.activeDays": 20,
+    "kpis.totalCost": 50000000,
+    "kpis.floorListRate": 10000,
+    "kpis.targetListRate": 11764.705882352942,
+    "kpis.breakEvenQuantity": 2500
+  },
+  "tolerance": 1e-6
+}

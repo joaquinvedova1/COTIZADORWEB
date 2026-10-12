@@ -59,6 +59,23 @@ function onCallQuote(inputs) {
   return q;
 }
 
+/**
+ * Cotización facturada en cualquier unidad (PLAN-2026-009) sobre la base de la
+ * demo de referencia: fijos mensuales → otro costo fijo; variable por día de
+ * trabajo → otro costo por día activo. Por cantidad (m³, viaje, unidad…) la
+ * actividad es la cantidad del mes y el rendimiento por día; por día, los días.
+ */
+function unitQuote(inputs) {
+  const q = onCallQuote({ ...inputs, ratePerDay: inputs.rate, activeDays: inputs.activeDays ?? 0 });
+  q.serviceType = inputs.serviceType ?? q.serviceType;
+  q.unit = inputs.unit ?? 'day';
+  q.unitName = inputs.unitName ?? '';
+  q.activity.billableQuantityPerMonth = inputs.quantityPerMonth ?? null;
+  q.activity.unitsPerActiveDay = inputs.unitsPerActiveDay ?? null;
+  q.activity.daysPerActivation = inputs.daysPerActivation ?? 1;
+  return q;
+}
+
 /** Despacho por "engine". Los motores escalares se envuelven como { value }. */
 const ENGINES = {
   'pricing.priceFromMargin': ({ cost, marginPct }) => ({ value: priceFromMargin(cost, marginPct) }),
@@ -73,6 +90,7 @@ const ENGINES = {
   'finance.simpleFinancialCost': ({ amount, monthlyRatePct, days }) => ({ value: simpleFinancialCost(amount, monthlyRatePct, days) }),
   'quote.onCall': (inputs) => computeQuote(onCallQuote(inputs)),
   'quote.demoReference': () => computeQuote(demoReferenceQuote()),
+  'quote.byUnit': (inputs) => computeQuote(unitQuote(inputs)),
   // PLAN-2026-008: costo por unidad y precio de un producto.
   'product.compute': ({ product }) => computeProduct(product),
   // PLAN-2026-005: tarifa externa (precio neto + tratamiento fiscal) y movilización propia.

@@ -116,10 +116,44 @@ export function findBreakEvenDays(profitAt, { maxDays, tolerance = PROFIT_TOLERA
   return { reachable: true, days, wholeDays: ceilTolerant(days), reason: null };
 }
 
-/** Traza del break-even (formato "Ver cálculo"). */
-export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, otherRevenuePerDay = 0, variableCostPerDay, contributionPerDay, result, unitLabel = 'día', nonLinear = false, billingTaxPct = 0 }) {
+/**
+ * Traza del break-even (formato "Ver cálculo"). Con `quantityUnit` (cobro por
+ * m³, viaje, llamado…; PLAN-2026-009) el equilibrio se expresa en esa unidad:
+ *   cantidad = (costos fijos − ingresos fijos) / (tarifa por unidad × (1 − t) + otros ingresos por unidad − costo variable por unidad)
+ * con costo variable por unidad = costo variable por día de trabajo ÷ unidades por día.
+ */
+export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, otherRevenuePerDay = 0, variableCostPerDay, contributionPerDay, result, unitLabel = 'día', nonLinear = false, billingTaxPct = 0, quantityUnit = null }) {
   const t = nonNegative(billingTaxPct);
   const keep = t > 0 ? ' × (1 − impuestos sobre la facturación)' : '';
+  if (quantityUnit && quantityUnit.perDay > 0) {
+    const u = quantityUnit;
+    const per = (v) => (Number.isFinite(v) ? v / u.perDay : null);
+    return createTrace({
+      id: 'break_even',
+      title: `${u.label} (cantidad de equilibrio)`,
+      formula: `${u.label} = (Costos fijos${fixedRevenue > 0 ? ` − Ingresos fijos${keep}` : ''}) / (Tarifa por ${u.singular}${keep}${otherRevenuePerDay > 0 ? ' + otros ingresos por ' + u.singular : ''} − Costo variable por ${u.singular}) · Costo variable por ${u.singular} = costo variable por día de trabajo ÷ ${u.plural} por día`,
+      inputs: [
+        { label: 'Costos fijos mensuales', value: fixedCosts, format: 'money' },
+        ...(fixedRevenue > 0 ? [{ label: 'Ingresos fijos (abono de disponibilidad, equipo en espera, materiales fijos)', value: fixedRevenue, format: 'money' }] : []),
+        { label: `Tarifa neta por ${u.singular}`, value: per(ratePerDay), format: 'money' },
+        ...(otherRevenuePerDay > 0 ? [{ label: `Otros ingresos por ${u.singular} (call-out, movilización, km, materiales)`, value: per(otherRevenuePerDay), format: 'money' }] : []),
+        ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
+        { label: `${u.plural} por día de trabajo`, value: u.perDay, format: 'number' },
+        { label: 'Costo variable por día de trabajo', value: variableCostPerDay, format: 'money' },
+      ],
+      steps: [
+        { label: `Costo variable por ${u.singular}`, value: per(variableCostPerDay), format: 'money' },
+        { label: t > 0 ? `Contribución por ${u.singular} (después de impuestos sobre la facturación)` : `Contribución por ${u.singular}`, value: per(contributionPerDay), format: 'money' },
+        { label: 'Días de trabajo para no perder', value: result && result.reachable ? result.days : null, format: 'days' },
+      ],
+      result: { label: `${u.label} (por mes)`, value: result && result.reachable && Number.isFinite(result.quantity) ? result.quantity : null, format: 'number' },
+      notes: [
+        result && !result.reachable ? result.reason : null,
+        'Los costos se calculan con los días de trabajo (personal, equipos, combustible, viajes) y la facturación, con la unidad que cobrás.',
+        nonLinear ? 'Hay reglas no lineales (mínimo garantizado o mínimo por llamado): el resultado se calcula paso a paso, no sólo con la fórmula.' : null,
+      ],
+    });
+  }
   return createTrace({
     id: 'break_even',
     title: 'Break-even (días activos mínimos)',

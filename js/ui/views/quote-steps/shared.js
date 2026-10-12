@@ -14,6 +14,7 @@ import { confirmDialog } from '../../components.js';
 import { QUOTE_STEPS, labelOf } from '../../../domain/catalogs.js';
 import { formatMoney, formatMoneyCeil, formatNumber, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
+import { perUnitSuffix } from '../../unit-text.js';
 
 /**
  * Nombre visible de un paso del editor ("Cómo se cobra", "Viajes"…).
@@ -28,8 +29,13 @@ export function plural(n, one, many) {
   return Math.abs(Number(n) - 1) < 1e-9 ? one : many;
 }
 
-/** "día" | "hora" | "mes" según la unidad de cotización. */
+/**
+ * Lo que va después de "$ … /" ("día", "hora", "mes", "m³", "viaje", "pozo"…).
+ * Recibe el resultado de computeQuote (usa su unidad de facturación,
+ * PLAN-2026-009) o, como antes, el id de una unidad por tiempo.
+ */
 export function unitShortOf(unit) {
+  if (unit && typeof unit === 'object') return perUnitSuffix(unit);
   return unit === 'hour' ? 'hora' : unit === 'month' ? 'mes' : 'día';
 }
 
@@ -44,7 +50,7 @@ export function hasDiscounts(result) {
   return Math.abs(discountFactorOf(result) - 1) > 1e-9;
 }
 
-/** "$ 2.033.055 / día" redondeado hacia arriba (tarifas mínimas). */
+/** "$ 2.033.055 / día" redondeado hacia arriba (tarifas mínimas). `unit`: el resultado (o el id de la unidad). */
 export function perUnitCeil(value, unit) {
   return isFiniteNumber(value) ? `${formatMoneyCeil(value)} / ${unitShortOf(unit)}` : EMPTY;
 }

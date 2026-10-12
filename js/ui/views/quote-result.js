@@ -79,7 +79,7 @@ import { logger } from '../../core/logger.js';
 import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { QUOTE_STEPS, QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
-import { computeQuote, monthlyFeeCap } from '../../engines/quote-engine.js';
+import { computeQuote, monthlyFeeCap, billableQuantityAt } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { normalizeRules } from '../../engines/commercial-rules-engine.js';
@@ -89,6 +89,7 @@ import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
+import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
   dayDecimals,
   resultDays,
@@ -273,6 +274,48 @@ function marginHint(marginPct, markupPct) {
 
 function wholeDays(value) {
   return formatDays(value, { decimals: 0 });
+}
+
+// ------------------------------------------- unidad comercial (PLAN-2026-009)
+// Por cantidad (m³, viaje, turno…) o por evento (llamado, trabajo, hito) la
+// actividad y el equilibrio se leen en ESA unidad ("6.000 m³ para no perder");
+// los días de trabajo quedan como dato secundario (son lo que consume costo).
+
+/** ¿Se cobra por cantidad o por evento? */
+function byQty(v) {
+  return isQuantityUnit(v.r);
+}
+
+/** "20 días activos" o "10.000 m³ (20 días de trabajo)". */
+function activityAt(v, D, billable, decimals = 2) {
+  if (!byQty(v)) return activeDaysText(D, decimals);
+  return `${quantityText(billable, v.r)} (${workDaysText(D)})`;
+}
+
+/** La actividad estimada del mes, en la unidad comercial. */
+function estimateActivity(v, decimals = 2) {
+  return activityAt(v, v.k.activeDays, v.k.billableQuantity, decimals);
+}
+
+/** "6.000 m³" (equilibrio, hacia arriba) o "12 días activos". */
+function breakEvenText(v, be) {
+  if (!byQty(v)) return activeDaysText(be.days, dayDecimals(be.days));
+  return quantityCeilText(be.quantity, v.r);
+}
+
+/** " Estimás 10.000 m³: tenés un colchón de 4.000 m³ sobre el mínimo." (o, en días, cushionText). */
+function cushionFor(v, be, opts = {}) {
+  const D = v.k.activeDays;
+  if (!byQty(v)) return cushionText(D, be.days, opts);
+  const est = v.k.billableQuantity;
+  const min = be.quantity;
+  if (!hasValue(est) || !hasValue(min)) return '';
+  const gap = est - min;
+  const estimate = ` Estimás ${quantityText(est, v.r)}:`;
+  if (Math.abs(gap) < 1e-6) return `${estimate} estás justo en el mínimo.`;
+  return gap > 0
+    ? `${estimate} tenés un colchón de ${quantityText(gap, v.r)} sobre el mínimo.`
+    : `${estimate} te faltan ${quantityText(-gap, v.r)} para no perder plata.`;
 }
 
 // Días en superficie (dayDecimals, resultDays, activeDaysText, signedDays,
@@ -914,7 +957,7 @@ function belowFloorCoveredText(v) {
   }
   const who = hasValue(topUp) && topUp > 0 ? 'el mínimo garantizado cubre la diferencia' : 'los otros ingresos cubren la diferencia';
   const marginPart = k.belowTarget && hasValue(k.marginPct) ? ` (margen ${pct(k.marginPct)}, debajo del objetivo de ${pct(k.targetMarginPct)})` : '';
-  return `La tarifa está debajo de la tarifa piso (${floorPhrase(v)}), pero ${who}: con ${activeDaysText(k.activeDays, 2)} el resultado del mes es ${money(k.profit)}${marginPart}. Si la actividad baja o cambian las condiciones, podés perder plata.`;
+  return `La tarifa está debajo de la tarifa piso (${floorPhrase(v)}), pero ${who}: con ${estimateActivity(v)} el resultado del mes es ${money(k.profit)}${marginPart}. Si la actividad baja o cambian las condiciones, podés perder plata.`;
 }
 
 /** Aviso compacto (banner) con una acción opcional a la derecha. */
@@ -935,7 +978,7 @@ function criticalAlerts(v) {
   const subject = theRate(k);
   const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
   if (k.belowFloor) {
-    out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${activeDaysText(k.activeDays, 2)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
+    out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
   } else if (k.belowFloorRate) {
     out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
   } else if (k.belowTarget) {
@@ -963,7 +1006,14 @@ function criticalAlerts(v) {
   }
   // Lo que ya es una alerta arriba (margen inválido, impuestos) no se repite acá:
   // esos valores NO se reemplazan por 0 (el margen inválido deja sin precio objetivo).
-  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct');
+  // Avisos de la unidad de cobro (PLAN-2026-009): no reemplazan valores, van aparte.
+  const unitIssue = (i) => ['unit', 'unitName', 'activity.billableQuantityPerMonth', 'activity.unitsPerActiveDay'].includes(String(i.path || ''));
+  const unitIssues = (Array.isArray(r.issues) ? r.issues : []).filter(unitIssue);
+  if (unitIssues.length) {
+    out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
+      stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`)));
+  }
+  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i);
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
   if (issues.length) {
     out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
@@ -1014,14 +1064,15 @@ function heroKnownRate(v) {
       capSentence(cap, D, 'Con este abono'));
   } else if (be.reachable) {
     // Colchón con los valores mostrados: el break-even exacto va con 2 decimales ("Break-even exacto: 6,35 días").
-    const tail = cushionText(D, be.days, { beDecimals: 2 });
-    sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) necesitás al menos ${activeDaysText(be.wholeDays, 0)} por mes para no perder plata.${tail}`);
+    const tail = cushionFor(v, be, { beDecimals: 2 });
+    const minimum = byQty(v) ? `${quantityCeilText(be.quantity, r)} por mes (${workDaysText(be.days)})` : `${activeDaysText(be.wholeDays, 0)} por mes`;
+    sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) necesitás ${byQty(v) ? 'facturar al menos' : 'al menos'} ${minimum} para no perder plata.${tail}`);
   } else {
     sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) no se cubren los costos dentro del mes. Revisá la tarifa o los costos.`);
   }
 
   const resultItem = heroItem({
-    label: `Resultado esperado con ${formatDays(D)}`,
+    label: `Resultado esperado con ${byQty(v) ? quantityText(k.billableQuantity, r) : formatDays(D)}`,
     value: rateOk ? money(k.profit) : EMPTY,
     hint: rateOk ? marginHint(k.marginPct, k.markupPct) : 'Sin tarifa.',
     trace: r.traces && r.traces.expectedResult,
@@ -1047,7 +1098,15 @@ function heroKnownRate(v) {
   return h('div', { class: 'qr-decision' },
     sentence,
     h('div', { class: 'qr-hero' },
-      heroItem({
+      byQty(v) ? heroItem({
+        label: unitTextsOf(r).breakEvenLabel,
+        value: be.reachable ? quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
+        hint: be.reachable ? `Cantidad de equilibrio por mes: ${workDaysText(be.days, { decimals: 2 })}.` : be.reason || null,
+        trace: r.traces && r.traces.breakEven,
+        tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
+        big: true,
+      }) : null,
+      byQty(v) ? null : heroItem({
         label: 'Días mínimos para no perder plata',
         value: be.reachable ? wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? `Break-even exacto: ${formatDays(be.days)} por mes.` : be.reason || null,
@@ -1056,17 +1115,19 @@ function heroKnownRate(v) {
         big: true,
       }),
       heroItem({
-        label: `Días para lograr el margen objetivo (${pct(k.targetMarginPct)})`,
-        value: tm.reachable ? wholeDays(tm.wholeDays) : rateOk ? noDays : EMPTY,
-        hint: tm.reachable ? `Exacto: ${formatDays(tm.days)}.` : tm.reason || null,
+        label: byQty(v) ? `${capitalizeUnitPhrase(r.unitInfo.plural)} para lograr el margen objetivo (${pct(k.targetMarginPct)})` : `Días para lograr el margen objetivo (${pct(k.targetMarginPct)})`,
+        value: tm.reachable ? (byQty(v) ? quantityCeilText(tm.quantity, r) : wholeDays(tm.wholeDays)) : rateOk ? noDays : EMPTY,
+        hint: tm.reachable ? (byQty(v) ? `${workDaysText(tm.days, { decimals: 2 })}.` : `Exacto: ${formatDays(tm.days)}.`) : tm.reason || null,
         lazyTrace: () => traceTargetMarginDays(v),
-        lazyTitle: `Días para lograr el margen objetivo (${pct(k.targetMarginPct)})`,
+        lazyTitle: byQty(v) ? `${capitalizeUnitPhrase(r.unitInfo.plural)} para lograr el margen objetivo (${pct(k.targetMarginPct)})` : `Días para lograr el margen objetivo (${pct(k.targetMarginPct)})`,
       }),
       resultItem,
       heroItem({
-        label: 'Contribución por día activo',
-        value: rateOk ? money(l.contributionPerDay) : EMPTY,
-        hint: 'Lo que deja cada día trabajado después de sus costos variables.',
+        label: byQty(v) ? `Contribución por ${r.unitInfo.singular}` : 'Contribución por día activo',
+        value: rateOk ? (byQty(v) ? (hasValue(l.unitsPerActiveDay) && l.unitsPerActiveDay > 0 ? rate(l.contributionPerDay / l.unitsPerActiveDay, v.unitLabel) : EMPTY) : money(l.contributionPerDay)) : EMPTY,
+        hint: byQty(v)
+          ? `Lo que deja cada ${r.unitInfo.singular} después de sus costos variables (por día de trabajo: ${money(l.contributionPerDay)}).`
+          : 'Lo que deja cada día trabajado después de sus costos variables.',
         lazyTrace: () => traceContribution(v),
         lazyTitle: 'Contribución por día activo',
         tone: rateOk && hasValue(l.contributionPerDay) && l.contributionPerDay <= 0 ? 'red' : null,
@@ -1102,7 +1163,7 @@ function ratesByMarginBlock(v) {
     { key: 'trace', label: 'Cálculo', align: 'right', render: (row) => traceBtn(traceRateForMargin(v, row)) },
   ];
   return h('div', { class: 'qr-rates-block' },
-    h('h4', { class: 'qr-subhead' }, `Tarifas por nivel de margen (con ${activeDaysText(D, 2)} por mes)`),
+    h('h4', { class: 'qr-subhead' }, `Tarifas por nivel de margen (con ${estimateActivity(v)} por mes)`),
     regionTable(v, { columns, rows, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Tarifas por nivel de margen', className: 'qr-rates-table' }),
     showList ? note(`La tarifa de lista ya contempla los descuentos que aplicarían con ${formatDays(D)} (factor ${formatNumber(ra.discountFactor, { decimals: 4 })}): es la que escribís en la cotización. Las tarifas mínimas se muestran redondeadas hacia arriba.`) : note('Las tarifas mínimas se muestran redondeadas hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo.'));
 }
@@ -1131,14 +1192,14 @@ function heroKnownActivity(v) {
 
   let sentence;
   if (!(D > 0)) {
-    sentence = h('p', { class: 'qr-lead' }, 'Falta saber cuántos días del mes esperás que el equipo esté trabajando y facturando. ', stepLink(q, 'modality', `Cargalo en ${stepLabel('modality')}`), '.');
+    sentence = h('p', { class: 'qr-lead' }, byQty(v) ? `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} esperás facturar por mes (y cuánto hacés por día de trabajo). ` : 'Falta saber cuántos días del mes esperás que el equipo esté trabajando y facturando. ', stepLink(q, 'modality', `Cargalo en ${stepLabel('modality')}`), '.');
   } else if (!(k.totalCost > 0)) {
     sentence = h('p', { class: 'qr-lead' }, 'Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.');
   } else {
     const roundingStep = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
     const subject = k.commercialSource === 'suggested' ? 'Con el abono sugerido' : 'Con el abono cotizado';
     sentence = h('p', { class: 'qr-lead' },
-      `Con ${activeDaysText(D, 2)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
+      `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
       hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
       hasValue(suggested) ? `Tarifa sugerida${roundingStep ? ` (redondeada a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
       isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject)}` : '');
@@ -1162,7 +1223,7 @@ function heroKnownActivity(v) {
       heroItem({
         label: SUGGESTED_TITLE,
         value: minRateNode(suggested, v.unitLabel),
-        hint: suggested !== null ? 'Precio objetivo redondeado hacia arriba (nunca baja el margen).' : 'Aparece cuando haya costos y días activos cargados.',
+        hint: suggested !== null ? 'Precio objetivo redondeado hacia arriba (nunca baja el margen).' : byQty(v) ? `Aparece cuando haya costos y ${r.unitInfo.plural} por mes cargados.` : 'Aparece cuando haya costos y días activos cargados.',
         lazyTrace: () => traceSuggested(v),
         lazyTitle: SUGGESTED_TITLE,
         big: true,
@@ -1257,13 +1318,16 @@ function kpiGrid(v) {
       }));
     } else {
       let beValue = EMPTY;
-      if (be.reachable) beValue = formatDays(be.days);
+      if (be.reachable) beValue = byQty(v) ? quantityCeilText(be.quantity, r) : formatDays(be.days);
       else if (be.notApplicable) beValue = 'No aplica';
       else if (rateOk) beValue = 'No se alcanza';
+      const beHint = byQty(v)
+        ? (be.reachable ? `${unitTextsOf(r).breakEvenLabel} (${workDaysText(be.days)})` : unitTextsOf(r).breakEvenLabel)
+        : be.reachable ? `Días mínimos para no perder plata (${wholeDays(be.wholeDays)} enteros)` : 'Días mínimos para no perder plata';
       items.push(kpiItem({
         label: 'Break-even',
         value: beValue,
-        hint: be.reachable ? `Días mínimos para no perder plata (${wholeDays(be.wholeDays)} enteros)` : 'Días mínimos para no perder plata',
+        hint: beHint,
         tone: be.reachable && hasValue(k.activeDays) ? (k.activeDays + 1e-9 >= be.days ? 'green' : 'red') : null,
         trace: traces.breakEven,
       }));
@@ -1282,8 +1346,8 @@ function equivalentsBlock(v) {
   return h('div', { class: 'qr-equiv' },
     h('div', { class: 'qr-equiv-title' }, `Equivalencias de ${theRate(v.k)}`),
     h('div', { class: 'qr-equiv-items' },
-      item('$ por hora', e.perHour),
-      item('$ por día', e.perDay),
+      item(byQty(v) ? '$ por hora de trabajo' : '$ por hora', e.perHour),
+      item(byQty(v) ? '$ por día de trabajo' : '$ por día', e.perDay),
       item('Facturación del mes', e.perMonth)),
     lazyTraceButton(() => traceEquivalents(v), `Equivalencias de ${theRate(v.k)}`));
 }
@@ -1316,8 +1380,12 @@ function renderResultDetail(v) {
       subtitle: mode === 'known_rate'
         ? (r.unit === 'month'
           ? `"${labelOf(PRICING_MODES, 'known_rate', 'Ya tengo la tarifa')}": cuántos días podés trabajar con este abono sin perder.`
-          : `"${labelOf(PRICING_MODES, 'known_rate', 'Ya tengo la tarifa')}": cuántos días tenés que trabajar para no perder y para ganar.`)
-        : `"${labelOf(PRICING_MODES, 'known_activity', 'Calcular la tarifa')}": qué tarifa necesitás con los días que estimás trabajar.`,
+          : byQty(v)
+            ? `"${labelOf(PRICING_MODES, 'known_rate', 'Ya tengo la tarifa')}": ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} tenés que facturar para no perder y para ganar.`
+            : `"${labelOf(PRICING_MODES, 'known_rate', 'Ya tengo la tarifa')}": cuántos días tenés que trabajar para no perder y para ganar.`)
+        : byQty(v)
+          ? `"${labelOf(PRICING_MODES, 'known_activity', 'Calcular la tarifa')}": qué tarifa por ${r.unitInfo.singular} necesitás con ${unitTextsOf(r).los} ${r.unitInfo.plural} que estimás facturar.`
+          : `"${labelOf(PRICING_MODES, 'known_activity', 'Calcular la tarifa')}": qué tarifa necesitás con los días que estimás trabajar.`,
       className: 'qr-card qr-card-decision',
       id: v.ids.decision,
     },
@@ -1360,8 +1428,8 @@ function costStat(v) {
     value: money(k.totalCost),
     unit: hasValue(k.totalCost) ? '/ mes' : null,
     hint: statHint(hasValue(D) && D > 0
-      ? `Lo que te cuesta prestar el servicio con ${activeDaysText(D, 2)}.`
-      : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días activos.'),
+      ? `Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
+      : byQty(v) ? `Lo que te cuesta prestar el servicio. Todavía no estimaste ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días activos.'),
     trace: costTrace(v),
     className: 'qr-stat qr-stat-cost',
   });
@@ -1375,7 +1443,7 @@ function floorStat(v) {
   const value = costOk ? mr.floorMain : null;
   let hint;
   if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
-  else if (!hasValue(value)) hint = statHint('Falta estimar los días activos del mes.');
+  else if (!hasValue(value)) hint = statHint(byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes.` : 'Falta estimar los días activos del mes.');
   else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`);
   return statItem({
     label: 'Tarifa piso',
@@ -1434,7 +1502,7 @@ function priceStat(v) {
       ? (k.billingTaxPct > 0
         ? `Sin tarifa sugerida: con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${pct(100 - k.billingTaxPct)}. Bajalo en "El precio".`
         : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".')
-      : `${targetGoalPrefix(k.targetMarginPct)}: aparece cuando haya costos y días activos cargados.`),
+      : `${targetGoalPrefix(k.targetMarginPct)}: aparece cuando haya costos y ${byQty(v) ? `${r.unitInfo.plural} por mes` : 'días activos'} cargados.`),
     className: 'qr-stat qr-stat-price',
   });
 }
@@ -1465,11 +1533,12 @@ function marginStat(v) {
 /** Qué falta para poder decir cuántos días hay que trabajar. */
 function noRateContent(v) {
   const { r, k, q } = v;
+  const need = byQty(v) ? `${unitTextsOf(r).cuantos} ${r.unitInfo.plural} necesitás facturar` : 'cuántos días necesitás trabajar';
   if (r.pricingMode === 'known_rate') {
-    return ['Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ' para saber cuántos días necesitás trabajar.'];
+    return ['Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ` para saber ${need}.`];
   }
   if (!(k.activeDays > 0)) {
-    return ['Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'modality', `Cargalo en ${stepLabel('modality')}`), '.'];
+    return [byQty(v) ? `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes esperás facturar (y cuánto hacés por día de trabajo). ` : 'Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'modality', `Cargalo en ${stepLabel('modality')}`), '.'];
   }
   if (!(k.totalCost > 0)) {
     return ['Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.'];
@@ -1477,9 +1546,9 @@ function noRateContent(v) {
   if (k.targetMarginInvalid) {
     return [k.billingTaxPct > 0
       ? `Sin tarifa sugerida: con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${pct(100 - k.billingTaxPct)}. `
-      : 'Sin tarifa sugerida: el margen objetivo no es válido. ', stepLink(q, 'margin', 'Corregilo en "El precio"'), ' para saber cuántos días necesitás trabajar.'];
+      : 'Sin tarifa sugerida: el margen objetivo no es válido. ', stepLink(q, 'margin', 'Corregilo en "El precio"'), ` para saber ${need}.`];
   }
-  return ['Definí una tarifa para saber cuántos días necesitás trabajar. ', stepLink(q, 'margin'), '.'];
+  return [`Definí una tarifa para saber ${need}. `, stepLink(q, 'margin'), '.'];
 }
 
 /**
@@ -1513,7 +1582,29 @@ function workBlock(v) {
       }
     }
   } else if (!rateOk) {
+    if (byQty(v)) question = `¿${unitTextsOf(r).Cuantos} ${r.unitInfo.plural} tengo que facturar?`;
     content = noRateContent(v);
+  } else if (byQty(v)) {
+    // Por cantidad o evento: el equilibrio en la unidad comercial ("6.000 m³ por mes"),
+    // con los días de trabajo que lleva (lo que consume costo).
+    question = `¿${unitTextsOf(r).Cuantos} ${r.unitInfo.plural} tengo que facturar?`;
+    const subject = `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)})`;
+    trace = traces.breakEven;
+    if (be.reachable && hasValue(be.days) && be.days <= 1e-9) {
+      content = [`${subject} cubrís todos tus costos aunque no factures ${unitTextsOf(r).ningun} ${r.unitInfo.singular}: los ingresos fijos ya alcanzan.`];
+      tone = 'green';
+    } else if (be.reachable && hasValue(be.quantity)) {
+      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      content = [
+        `${subject} necesitás facturar al menos `,
+        h('strong', { class: 'qr-work-days' }, `${quantityCeilText(be.quantity, r)} por mes`),
+        ` (${workDaysText(be.days)}) para cubrir todos tus costos.`,
+        cushionFor(v, be),
+      ];
+    } else {
+      content = [`${subject} no llegás a cubrir todos tus costos dentro del mes. `, be.reason ? `${be.reason} ` : '', 'Revisá la tarifa o los costos.'];
+      tone = 'red';
+    }
   } else {
     // "Con la tarifa sugerida ($ 2.259.000 / día)" / "Con tu tarifa ($ 4.000.000 / día)".
     const subject = `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)})`;
@@ -1749,7 +1840,7 @@ function renderCostStructure(v) {
   const e = r.eecc || { rows: [], total: 0 };
   const header = {
     title: 'Estructura de costos (EECC)',
-    subtitle: `Monto e incidencia de cada categoría con ${activeDaysText(k.activeDays, 2)} por mes.`,
+    subtitle: `Monto e incidencia de cada categoría con ${estimateActivity(v)} por mes.`,
     actions: r.traces && r.traces.totalCost ? [traceBtn(costTrace(v), { label: 'Ver cálculo del total' })] : [],
     className: 'qr-card',
     id: v.ids.eecc,
@@ -1835,10 +1926,12 @@ function trendText(v, trend) {
   if (trend === 'up') {
     return isMonth
       ? 'Con abono mensual, más días activos suman costo variable y el abono es uno solo: el abono necesario sube con los días.'
-      : 'Con estos datos la tarifa necesaria sube con los días: los ingresos fijos ya cubren los costos fijos y cada día extra suma costo variable.';
+      : byQty(v)
+        ? `Con estos datos la tarifa necesaria sube con la cantidad: los ingresos fijos ya cubren los costos fijos y cada ${v.r.unitInfo.singular} extra suma costo variable.`
+        : 'Con estos datos la tarifa necesaria sube con los días: los ingresos fijos ya cubren los costos fijos y cada día extra suma costo variable.';
   }
-  if (trend === 'down') return 'A mayor utilización, los costos fijos se reparten entre más días y la tarifa necesaria baja.';
-  return 'Con estos datos la tarifa necesaria casi no cambia con los días.';
+  if (trend === 'down') return byQty(v) ? `A mayor cantidad, los costos fijos se reparten entre más ${v.r.unitInfo.plural} y la tarifa necesaria baja.` : 'A mayor utilización, los costos fijos se reparten entre más días y la tarifa necesaria baja.';
+  return byQty(v) ? 'Con estos datos la tarifa necesaria casi no cambia con la cantidad.' : 'Con estos datos la tarifa necesaria casi no cambia con los días.';
 }
 
 function trendVerb(trend) {
@@ -1871,7 +1964,15 @@ function chartData(v) {
     const d = x0 + ((x1 - x0) * i) / N;
     samples.push({ d, ...ratesAt(d) });
   }
-  const markers = [...new Set(days)].sort((a, b) => a - b).map((d) => ({ d, ...ratesAt(d), isEstimate: sameNumber(d, k.activeDays) }));
+  const qtyAt = (d) => {
+    if (!byQty(v)) return null;
+    try {
+      return billableQuantityAt(ctx, d);
+    } catch {
+      return null;
+    }
+  };
+  const markers = [...new Set(days)].sort((a, b) => a - b).map((d) => ({ d, q: qtyAt(d), ...ratesAt(d), isEstimate: sameNumber(d, k.activeDays) }));
   const commercial = hasValue(k.commercialNetRate) && k.commercialNetRate > 0 ? k.commercialNetRate : null;
   const values = [...samples.flatMap((p) => [p.floor, p.target]), commercial].filter((x) => hasValue(x) && x >= 0);
   const maxVal = values.length ? Math.max(...values) : 0;
@@ -1912,7 +2013,9 @@ function chartSvg(v, data, width) {
     if (!prev || x - prev.x >= minGap) kept.push({ m, x });
     else if (m.isEstimate) kept[kept.length - 1] = { m, x };
   });
-  const xTicks = kept.map(({ m, x }) => s('text', { x: x.toFixed(1), y: T + PH + 18, class: ['qr-chart-tick', m.isEstimate ? 'is-estimate' : null].filter(Boolean).join(' '), 'text-anchor': 'middle' }, formatNumber(m.d, { decimals: 2 })));
+  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
+  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
+  const xTicks = kept.map(({ m, x }) => s('text', { x: x.toFixed(1), y: T + PH + 18, class: ['qr-chart-tick', m.isEstimate ? 'is-estimate' : null].filter(Boolean).join(' '), 'text-anchor': 'middle' }, tickOf(m)));
 
   const estimate = hasValue(k.activeDays) && k.activeDays >= x0 && k.activeDays <= x1
     ? [
@@ -1953,20 +2056,22 @@ function chartSvg(v, data, width) {
   const hits = markers.map((m, i) => {
     const left = i > 0 ? (px(markers[i - 1].d) + px(m.d)) / 2 : L;
     const right = i < markers.length - 1 ? (px(markers[i + 1].d) + px(m.d)) / 2 : L + PW;
-    const tip = `${formatDays(m.d)}: tarifa piso neta ${minRate(m.floor, v.unitLabel)} · margen ${pct(target)} ${minRate(m.target, v.unitLabel)}${commercial !== null ? ` · ${theRate(k)} neta ${rate(commercial, v.unitLabel)}` : ''}`;
+    const where = byQty(v) && hasValue(m.q) ? `${quantityText(m.q, v.r)} (${workDaysText(m.d)})` : formatDays(m.d);
+    const tip = `${where}: tarifa piso neta ${minRate(m.floor, v.unitLabel)} · margen ${pct(target)} ${minRate(m.target, v.unitLabel)}${commercial !== null ? ` · ${theRate(k)} neta ${rate(commercial, v.unitLabel)}` : ''}`;
     return s('rect', { x: left.toFixed(1), y: T, width: Math.max(1, right - left).toFixed(1), height: PH, class: 'qr-chart-hit' }, s('title', {}, tip));
   });
 
   const first = markers[0];
   const lastMarker = markers[markers.length - 1];
-  const aria = `Gráfico de tarifa neta necesaria por ${v.unitLabel} según los días activos del mes. `
+  const at = (m) => (byQty(v) && hasValue(m.q) ? quantityText(m.q, v.r) : formatDays(m.d));
+  const aria = `Gráfico de tarifa neta necesaria por ${v.unitLabel} según ${byQty(v) ? `${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} ${unitTextsOf(v.r).facturados} en el mes` : 'los días activos del mes'}. `
     + (markers.length > 1
-      ? `Con ${formatDays(first.d)} la tarifa piso neta es ${minRate(first.floor, v.unitLabel)}; con ${formatDays(lastMarker.d)} ${trendVerb(data.trend)} ${minRate(lastMarker.floor, v.unitLabel)}.`
-      : `Con ${formatDays(first.d)} la tarifa piso neta es ${minRate(first.floor, v.unitLabel)}.`)
+      ? `Con ${at(first)} la tarifa piso neta es ${minRate(first.floor, v.unitLabel)}; con ${at(lastMarker)} ${trendVerb(data.trend)} ${minRate(lastMarker.floor, v.unitLabel)}.`
+      : `Con ${at(first)} la tarifa piso neta es ${minRate(first.floor, v.unitLabel)}.`)
     + (commercial !== null ? ` ${commercialName(k)} neta: ${rate(commercial, v.unitLabel)}.` : '');
 
   return s('svg', { viewBox: `0 0 ${W} ${H}`, class: ['qr-chart-svg', narrow ? 'is-narrow' : null].filter(Boolean).join(' '), role: 'img', 'aria-label': aria, preserveAspectRatio: 'xMidYMid meet' },
-    s('title', {}, 'Tarifa necesaria vs días activos'),
+    s('title', {}, byQty(v) ? `Tarifa necesaria vs ${v.r.unitInfo.plural} por mes` : 'Tarifa necesaria vs días activos'),
     ...grid,
     s('line', { x1: L, x2: L + PW, y1: T + PH, y2: T + PH, class: 'qr-chart-axis' }),
     ...xTicks,
@@ -2048,7 +2153,7 @@ function rateChart(v) {
     h('div', { class: 'legend qr-chart-legend' },
       key('qr-key-floor', 'Tarifa piso neta (no perder plata)'),
       data.target !== null ? key('qr-key-target', `${sameNumber(data.target, v.k.targetMarginPct) ? 'Precio objetivo neto' : 'Tarifa neta'} (margen ${pct(data.target)})`) : null,
-      data.commercial !== null ? key('qr-key-commercial', `${commercialName(v.k)} neta (con los días estimados)`) : null),
+      data.commercial !== null ? key('qr-key-commercial', `${commercialName(v.k)} neta (con ${byQty(v) ? 'la cantidad estimada' : 'los días estimados'})`) : null),
     canvas,
     h('figcaption', { class: 'qr-note' }, `${unitNoun}. ${trendText(v, data.trend)}`));
 }
@@ -2064,12 +2169,12 @@ function matrixRates(v, row) {
 function traceMatrixRow(v, row, rr) {
   return createTrace({
     id: 'matrix_row',
-    title: `Tarifas necesarias con ${activeDaysText(row.activeDays, 2)}`,
+    title: `Tarifas necesarias con ${activityAt(v, row.activeDays, row.billableUnits)}`,
     formula: hasValue(v.k.billingTaxPct) && v.k.billingTaxPct > 0
       ? 'Tarifa necesaria(D, margen) = (Costo(D) / (1 − margen − impuestos sobre la facturación) − Otros ingresos(D)) / Unidades facturables(D)'
       : 'Tarifa necesaria(D, margen) = (Costo(D) / (1 − margen) − Otros ingresos(D)) / Unidades facturables(D)',
     inputs: [
-      { label: 'Días activos', value: row.activeDays, format: 'days' },
+      { label: byQty(v) ? 'Días de trabajo' : 'Días activos', value: row.activeDays, format: 'days' },
       { label: 'Utilización', value: row.utilizationPct, format: 'percent' },
       { label: 'Costo total del mes', value: row.cost, format: 'money' },
       { label: 'Otros ingresos', value: rr ? rr.otherRevenue : null, format: 'money' },
@@ -2088,7 +2193,7 @@ function traceMatrixResult(v, row, ev) {
   const revenue = (ev && ev.revenue) || {};
   return createTrace({
     id: 'matrix_result',
-    title: `Resultado con ${activeDaysText(row.activeDays, 2)}`,
+    title: `Resultado con ${activityAt(v, row.activeDays, row.billableUnits)}`,
     formula: 'Resultado = Facturación − Costo total · Facturación = Tarifa neta × Unidades facturables + Otros ingresos · Margen = Resultado / Facturación',
     inputs: [
       { label: `${commercialName(v.k)} de lista`, value: v.k.commercialListRate, format: 'money' },
@@ -2112,10 +2217,13 @@ function daysCell(v, row, trace) {
     row.isEstimate ? badge('estimado', 'blue') : null,
     row.exceedsAvailability ? badge('supera disponibles', 'orange', { title: 'Más días que los disponibles del mes' }) : null,
   ].filter(Boolean);
+  // Por cantidad: "2.500 m³" y debajo los días de trabajo que llevan.
+  const qty = byQty(v) && hasValue(row.billableUnits);
   return h('span', { class: 'qr-days-cell' },
     h('span', { class: 'qr-days-line' },
-      h('span', { class: 'qr-days-num' }, formatDays(row.activeDays)),
+      h('span', { class: 'qr-days-num' }, qty ? quantityText(row.billableUnits, v.r) : formatDays(row.activeDays)),
       trace ? iconTraceButton(trace) : null),
+    qty ? h('span', { class: 'qr-cell-sub' }, workDaysText(row.activeDays, { decimals: 2 })) : null,
     tags.length ? h('span', { class: 'qr-days-tags' }, ...tags) : null);
 }
 
@@ -2127,7 +2235,9 @@ function renderMatrix(v) {
   const isMonth = r.unit === 'month';
   const rowClass = (row) => [row.isEstimate ? 'row-highlight' : null, row.exceedsAvailability ? 'qr-row-exceeds' : null].filter(Boolean).join(' ') || null;
   // Un nodo por tabla (un mismo nodo no puede estar en dos lugares del DOM).
-  const daysHeader = () => abbrHeader('Días activos', 'Días activos por mes');
+  const daysHeader = () => (byQty(v)
+    ? abbrHeader(capitalizeUnitPhrase(r.unitInfo.plural), `${capitalizeUnitPhrase(r.unitInfo.plural)} ${unitTextsOf(r).facturados} por mes (y los días de trabajo que llevan)`)
+    : abbrHeader('Días activos', 'Días activos por mes'));
 
   // Tabla 1: tarifas NECESARIAS (netas) por cantidad de días.
   const ratesColumns = [
@@ -2171,7 +2281,7 @@ function renderMatrix(v) {
       },
       { key: 'marginPct', label: abbrHeader('Margen', 'Margen sobre el precio de venta'), align: 'right', render: (row) => pct(row.marginPct) },
     ];
-    resultTable = regionTable(v, { columns: resultColumns, rows, rowClass, caption: `Resultado con ${theRate(k)} según los días activos`, className: 'qr-matrix qr-matrix-result', emptyText: 'Sin días para evaluar.' });
+    resultTable = regionTable(v, { columns: resultColumns, rows, rowClass, caption: `Resultado con ${theRate(k)} según ${byQty(v) ? `${unitTextsOf(r).los} ${r.unitInfo.plural} del mes` : 'los días activos'}`, className: 'qr-matrix qr-matrix-result', emptyText: 'Sin días para evaluar.' });
   }
 
   let chart = null;
@@ -2186,12 +2296,14 @@ function renderMatrix(v) {
   const mr = minimumRates(v);
   const listVsNet = mr.floorNetDiffers
     ? h('p', { class: 'qr-note qr-note-key' },
-      `La tarifa piso del resumen (${minRate(mr.floorMain, v.unitLabel)}) es de lista, antes ${discountWords(v)}; acá ves la neta, lo que realmente cobrás (con los días estimados: ${minRate(k.floorNetRate, v.unitLabel)}).`)
+      `La tarifa piso del resumen (${minRate(mr.floorMain, v.unitLabel)}) es de lista, antes ${discountWords(v)}; acá ves la neta, lo que realmente cobrás (con ${byQty(v) ? 'la cantidad estimada' : 'los días estimados'}: ${minRate(k.floorNetRate, v.unitLabel)}).`)
     : null;
   return card(
     {
-      title: 'Matriz tarifa × utilización',
-      subtitle: `¿Qué tarifa necesitás según cuántos días del mes trabaje y facture el equipo? ${isMonth ? 'Abonos por mes.' : `Tarifas por ${v.unitLabel}.`}`,
+      title: byQty(v) ? `Matriz tarifa × ${r.unitInfo.plural}` : 'Matriz tarifa × utilización',
+      subtitle: byQty(v)
+        ? `¿Qué tarifa necesitás según ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} factures por mes? Tarifas por ${v.unitLabel}; debajo de cada cantidad, los días de trabajo que lleva.`
+        : `¿Qué tarifa necesitás según cuántos días del mes trabaje y facture el equipo? ${isMonth ? 'Abonos por mes.' : `Tarifas por ${v.unitLabel}.`}`,
       className: 'qr-card qr-card-wide',
       id: v.ids.matrix,
     },
@@ -2203,7 +2315,7 @@ function renderMatrix(v) {
     rateOk
       ? resultTable
       : banner('Definí una tarifa para ver facturación, resultado y margen de cada fila.', 'info'),
-    rows.some((row) => row.exceedsAvailability) ? note('Las filas marcadas "supera disponibles" tienen más días activos que los disponibles del mes.') : null,
+    rows.some((row) => row.exceedsAvailability) ? note(`Las filas marcadas "supera disponibles" tienen más días ${byQty(v) ? 'de trabajo' : 'activos'} que los disponibles del mes.`) : null,
     chart,
   );
 }
@@ -2326,6 +2438,8 @@ function renderDiscounts(v) {
   let body;
   if (r.unit === 'month') {
     body = note('Con abono mensual no se aplican descuentos por cantidad de días.');
+  } else if (byQty(v)) {
+    body = note(`Cobrás por ${r.unitInfo.singular}: los descuentos por cantidad de días no se aplican (sólo con tarifa por día u hora).`);
   } else if (!rows.length) {
     body = emptyState(hasRate(k) ? 'No hay tramos de descuento configurados.' : 'Definí una tarifa para evaluar los descuentos por días.');
   } else {
@@ -2367,7 +2481,7 @@ function renderDiscounts(v) {
       id: v.ids.discounts,
     },
     rows.length ? legend : null,
-    r.unit !== 'month' && minActivity ? banner(minActivity, 'info', { title: 'Actividad mínima.' }) : null,
+    r.unit !== 'month' && !byQty(v) && minActivity ? banner(minActivity, 'info', { title: 'Actividad mínima.' }) : null,
     body,
     rows.length ? note(`Tarifas netas por ${v.unitLabel}. El tramo "1 día" muestra qué pasa si en el mes sólo se trabaja un día: los costos fijos recaen en ese único día. El ícono junto a cada tramo muestra el cálculo.`) : null,
     continuityBlock(v),
@@ -2402,6 +2516,16 @@ const SENS_METRICS = Object.freeze([
   { key: 'revenue', label: 'Facturación del mes', kind: 'money', better: 'up' },
 ]);
 
+/** Rótulo del control de actividad: por cantidad (m³, viajes…) la actividad es la cantidad del mes. */
+function activityLabel(v) {
+  return byQty(v) ? `Actividad (${v.r.unitInfo.plural} por mes)` : (SENSITIVITY_VARIABLES.find((m) => m.id === 'activityPct') || {}).label;
+}
+
+/** Variables de la sensibilidad con el rótulo de actividad en la unidad comercial. */
+function sensVariables(v) {
+  return SENSITIVITY_VARIABLES.map((meta) => (meta.id === 'activityPct' ? { ...meta, label: activityLabel(v) } : meta));
+}
+
 function sensValue(kind, value, unitLabel) {
   if (kind === 'money') return money(value);
   if (kind === 'rate') return minRate(value, unitLabel);
@@ -2429,17 +2553,32 @@ function deltaTone(better, value) {
   return (better === 'up') === up ? 'good' : 'bad';
 }
 
+/**
+ * Métricas de la sensibilidad. Por cantidad (m³, viajes…; PLAN-2026-009) el
+ * equilibrio y la actividad se leen en la unidad comercial (los días de
+ * trabajo quedan como dato).
+ */
+function sensMetrics(v) {
+  if (!byQty(v)) return SENS_METRICS;
+  const Plural = capitalizeUnitPhrase(v.r.unitInfo.plural);
+  return SENS_METRICS.flatMap((m) => {
+    if (m.key === 'breakEvenDays') return [{ key: 'breakEvenQuantity', label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, kind: 'quantity', better: 'down' }];
+    if (m.key === 'activeDays') return [{ key: 'billableQuantity', label: `${Plural} por mes`, kind: 'quantity', better: null }, { ...m, label: 'Días de trabajo' }];
+    return [m];
+  });
+}
+
 function sensitivityRows(v, res) {
-  return SENS_METRICS.map((m) => {
+  return sensMetrics(v).map((m) => {
     const base = res.base[m.key];
     const scen = res.scenario[m.key];
     const delta = res.delta[m.key];
     const tone = deltaTone(m.better, delta);
     return h('tr', { class: tone === 'bad' ? 'qr-row-bad' : null },
       h('th', { scope: 'row', class: 'qr-sens-metric' }, m.label),
-      h('td', { class: 'ta-right', 'data-label': 'Base' }, sensValue(m.kind, base, v.unitLabel)),
-      h('td', { class: 'ta-right', 'data-label': 'Escenario' }, sensValue(m.kind, scen, v.unitLabel)),
-      h('td', { class: ['ta-right', tone ? `qr-delta-${tone}` : null], 'data-label': 'Diferencia' }, sensDelta(m.kind, delta, base, scen)));
+      h('td', { class: 'ta-right', 'data-label': 'Base' }, m.kind === 'quantity' ? quantityText(base, v.r) : sensValue(m.kind, base, v.unitLabel)),
+      h('td', { class: 'ta-right', 'data-label': 'Escenario' }, m.kind === 'quantity' ? quantityText(scen, v.r) : sensValue(m.kind, scen, v.unitLabel)),
+      h('td', { class: ['ta-right', tone ? `qr-delta-${tone}` : null], 'data-label': 'Diferencia' }, m.kind === 'quantity' ? signed(delta, (x) => quantityText(x, v.r)) : sensDelta(m.kind, delta, base, scen)));
   });
 }
 
@@ -2453,7 +2592,7 @@ function traceSensitivity(v, state, res) {
     title: sensitivityTitle(v),
     formula: 'Escenario = misma cotización con las variaciones aplicadas · la tarifa de lista se mantiene fija',
     inputs: [
-      ...SENSITIVITY_VARIABLES.map((meta) => ({ label: meta.label, value: sliderText(meta, state[meta.id]), format: 'text' })),
+      ...sensVariables(v).map((meta) => ({ label: meta.label, value: sliderText(meta, state[meta.id]), format: 'text' })),
       { label: `${commercialName(v.k)} fija (de lista)`, value: res ? res.listRate : null, format: 'money' },
     ],
     steps: res
@@ -2493,12 +2632,12 @@ function impactTable(v, rows) {
   });
   const toneOf = (value) => (hasValue(value) && Math.abs(value) >= 1e-6 ? (value > 0 ? 'qr-delta-good' : 'qr-delta-bad') : null);
   const stepText = (row) => {
-    const meta = SENSITIVITY_VARIABLES.find((m) => m.id === row.variable) || { unit: '' };
+    const meta = sensVariables(v).find((m) => m.id === row.variable) || { unit: '' };
     return `± ${sliderText(meta, row.step).replace(/^\+/, '')}`;
   };
   return regionTable(v, {
     columns: [
-      { key: 'label', label: 'Variable' },
+      { key: 'label', label: 'Variable', render: (row) => (row.variable === 'activityPct' ? activityLabel(v) : row.label) },
       { key: 'step', label: abbrHeader('Variación', 'Variación evaluada'), align: 'right', render: (row) => stepText(row) },
       { key: 'low', label: abbrHeader('Si baja', 'Cambio del resultado si la variable baja'), align: 'right', render: (row) => h('span', { class: toneOf(row.profitDeltaLow) }, row.low ? signedMoney(row.profitDeltaLow) : 'No aplica') },
       { key: 'high', label: abbrHeader('Si sube', 'Cambio del resultado si la variable sube'), align: 'right', render: (row) => h('span', { class: toneOf(row.profitDeltaHigh) }, row.high ? signedMoney(row.profitDeltaHigh) : 'No aplica') },
@@ -2534,9 +2673,9 @@ function renderSensitivity(v) {
     errorBox.hidden = true;
     lastResult = res;
     mount(tbody, ...sensitivityRows(v, res));
-    const changed = SENSITIVITY_VARIABLES.some((meta) => state[meta.id] !== 0);
+    const changed = sensVariables(v).some((meta) => state[meta.id] !== 0);
     // Con todo en 0 el motor devuelve exactamente la base: se verifica en vez de suponerlo.
-    const identical = SENS_METRICS.every((m) => !hasValue(res.delta[m.key]) || Math.abs(res.delta[m.key]) < 1e-6);
+    const identical = sensMetrics(v).every((m) => !hasValue(res.delta[m.key]) || Math.abs(res.delta[m.key]) < 1e-6);
     let text;
     if (changed) {
       text = `Resultado del escenario: ${money(res.scenario.profit)} (${signedMoney(res.delta.profit)} contra la base).${hasValue(res.scenario.marginPct) ? ` Margen: ${pct(res.scenario.marginPct)}.` : ''}`;
@@ -2547,7 +2686,9 @@ function renderSensitivity(v) {
       logger.warn('La sensibilidad sin variaciones no coincide con la base');
     }
     mount(summary, text);
-    activityHint.textContent = `Días activos en el escenario: ${formatDays(res.scenario.activeDays)}.`;
+    activityHint.textContent = byQty(v)
+      ? `${capitalizeUnitPhrase(v.r.unitInfo.plural)} en el escenario: ${quantityText(res.scenario.billableQuantity, v.r)} (${workDaysText(res.scenario.activeDays)}).`
+      : `Días activos en el escenario: ${formatDays(res.scenario.activeDays)}.`;
   };
   const scheduled = debounce(recompute, SENSITIVITY_DEBOUNCE_MS);
   const trackers = new Map();
@@ -2562,7 +2703,7 @@ function renderSensitivity(v) {
     trackers.forEach((fn) => fn.cancel());
   });
 
-  const sliders = SENSITIVITY_VARIABLES.map((meta) => {
+  const sliders = sensVariables(v).map((meta) => {
     const range = SENSITIVITY_RANGES[meta.id] || { min: -50, max: 50, step: 1 };
     const id = uniqueId('qr-sens');
     const output = h('output', { class: 'qr-slider-value', for: id }, sliderText(meta, state[meta.id]));
@@ -2597,14 +2738,14 @@ function renderSensitivity(v) {
       h('div', { class: 'qr-slider-head' }, h('label', { class: 'field-label', for: id }, meta.label), output),
       input,
       h('div', { class: 'qr-slider-scale', 'aria-hidden': 'true' }, h('span', {}, sliderText(meta, range.min)), h('span', {}, sliderText(meta, range.max))),
-      h('div', { class: 'field-hint', id: `${id}-hint` }, SLIDER_HINTS[meta.id] || '', meta.id === 'activityPct' ? ' ' : null, meta.id === 'activityPct' ? activityHint : null));
+      h('div', { class: 'field-hint', id: `${id}-hint` }, meta.id === 'activityPct' && byQty(v) ? `¿Y si facturás más o menos ${v.r.unitInfo.plural} en el mes? Los días de trabajo se ajustan solos.` : SLIDER_HINTS[meta.id] || '', meta.id === 'activityPct' ? ' ' : null, meta.id === 'activityPct' ? activityHint : null));
   });
 
   const reset = button('Restablecer', {
     variant: 'secondary',
     size: 'sm',
     onClick: () => {
-      SENSITIVITY_VARIABLES.forEach((meta) => {
+      sensVariables(v).forEach((meta) => {
         state[meta.id] = 0;
         const input = inputs.get(meta.id);
         const output = outputs.get(meta.id);
@@ -2702,9 +2843,12 @@ function renderScenarios(v) {
     { label: 'Costo del mes', get: (sc) => money(sc.totalCost) },
     { label: 'Margen', get: (sc) => pct(sc.marginPct) },
     { label: 'Resultado', get: (sc) => h('span', { class: hasValue(sc.profit) && hasValue(sc.commercialListRate) ? (sc.profit < -1e-6 ? 'qr-neg' : 'qr-pos') : null }, money(sc.profit)) },
+    ...(byQty(v) ? [{ label: `${capitalizeUnitPhrase(v.r.unitInfo.plural)} por mes`, get: (sc) => quantityText(sc.billableQuantity, v.r) }] : []),
     { label: 'Utilización', get: (sc) => `${pct(sc.utilizationPct, 1)} (${formatDays(sc.activeDays)})` },
-    { label: 'Tarifa efectiva por día activo', get: (sc) => money(sc.effectiveRatePerActiveDay) },
-    { label: 'Días para no perder plata (break-even)', get: (sc) => resultDays(sc.breakEvenDays) },
+    { label: byQty(v) ? 'Facturación por día de trabajo' : 'Tarifa efectiva por día activo', get: (sc) => money(sc.effectiveRatePerActiveDay) },
+    byQty(v)
+      ? { label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, get: (sc) => quantityCeilText(sc.breakEvenQuantity, v.r) }
+      : { label: 'Días para no perder plata (break-even)', get: (sc) => resultDays(sc.breakEvenDays) },
   ];
   const tbl = scrollRegion(v, h('div', { class: 'table-wrap' },
     h('table', { class: 'table qr-scenarios' },
@@ -2905,10 +3049,11 @@ function rulesSummary(v) {
     const topUp = revenue.guaranteeTopUp;
     items.push(['Mínimo mensual garantizado', `${money(rules.minimumMonthlyGuarantee)} por mes.${hasValue(topUp) && topUp > 0 ? ` Con la actividad estimada completa ${money(topUp)}.` : ''}`]);
   }
-  if (!isMonth && rules.minimumCallUnits > 0) {
-    const units = r.unit === 'hour'
-      ? `${formatNumber(rules.minimumCallUnits, { decimals: 2 })} ${Math.abs(rules.minimumCallUnits - 1) < 1e-9 ? 'hora' : 'horas'}`
-      : formatDays(rules.minimumCallUnits);
+  if (!isMonth && r.unit !== 'event' && rules.minimumCallUnits > 0) {
+    let units;
+    if (r.unit === 'hour') units = `${formatNumber(rules.minimumCallUnits, { decimals: 2 })} ${Math.abs(rules.minimumCallUnits - 1) < 1e-9 ? 'hora' : 'horas'}`;
+    else if (r.unit === 'quantity') units = quantityText(rules.minimumCallUnits, r);
+    else units = formatDays(rules.minimumCallUnits);
     items.push(['Mínimo por llamado (minimum call)', `Se facturan al menos ${units} por llamado, aunque se trabaje menos.`]);
   }
   if (rules.calloutFeePerActivation > 0) {
@@ -2923,12 +3068,16 @@ function rulesSummary(v) {
   if (rules.standbyDaysPerMonth > 0 && rules.standbyRatePerDay > 0) {
     items.push(['Equipo en espera (standby)', `${formatDays(rules.standbyDaysPerMonth)} por mes a ${rate(rules.standbyRatePerDay, 'día')}.${adds(comps.standby)}`]);
   }
+  const materialsBilled = (comps.materialsFixed || 0) + (comps.materialsVariable || 0);
+  if (r.ctx && r.ctx.materialsResale) {
+    items.push(['Materiales facturados aparte', `A su costo más el markup de reventa de cada material.${adds(materialsBilled)}`]);
+  }
   const commercialDiscount = r.ctx && hasValue(r.ctx.commercialDiscountPct) ? Math.min(r.ctx.commercialDiscountPct, 100) : 0;
   if (commercialDiscount > 0) {
     items.push(['Descuento comercial', `${pct(commercialDiscount)} sobre la tarifa de lista.`]);
   }
   // Sólo cuentan los tramos que de verdad descuentan (los de 0 % no son un descuento).
-  const tiersWithDiscount = isMonth ? 0 : rules.volumeTiers.filter((t) => t.discountPct > 0).length;
+  const tiersWithDiscount = isMonth || byQty(v) ? 0 : rules.volumeTiers.filter((t) => t.discountPct > 0).length;
   if (tiersWithDiscount > 0) {
     items.push(['Descuentos por días', `${formatNumber(tiersWithDiscount)} ${tiersWithDiscount === 1 ? 'tramo con descuento' : 'tramos con descuento'} según los días trabajados (detalle abajo).`]);
   }
@@ -2939,7 +3088,7 @@ function rulesSummary(v) {
     h('h4', { class: 'qr-subhead' }, 'Cómo se factura el servicio'),
     items.length
       ? h('dl', { class: 'qr-rules-list' }, ...items.map(([term, desc]) => h('div', { class: 'qr-rules-item' }, h('dt', {}, term), h('dd', {}, desc))))
-      : note('No hay reglas comerciales especiales: se factura la tarifa por las unidades trabajadas.'),
+      : note(byQty(v) ? `No hay reglas comerciales especiales: se factura la tarifa por cada ${r.unitInfo.singular}.` : 'No hay reglas comerciales especiales: se factura la tarifa por las unidades trabajadas.'),
     h('p', { class: 'qr-rules-edit no-print' }, stepLink(q, 'margin', 'Editar reglas comerciales')));
 }
 
@@ -3147,8 +3296,10 @@ function deepDefinitions(v) {
     },
     {
       key: 'matrix',
-      summary: 'Tarifa según días trabajados',
-      hint: '¿Qué tarifa necesitás si trabajás más o menos días? Matriz tarifa × utilización y gráfico.',
+      summary: byQty(v) ? `Tarifa según ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes` : 'Tarifa según días trabajados',
+      hint: byQty(v)
+        ? `¿Qué tarifa necesitás si facturás más o menos ${v.r.unitInfo.plural}? Matriz y gráfico.`
+        : '¿Qué tarifa necesitás si trabajás más o menos días? Matriz tarifa × utilización y gráfico.',
       build: () => [safeSection('Matriz tarifa × utilización', () => renderMatrix(v))],
     },
     {
@@ -3160,7 +3311,7 @@ function deepDefinitions(v) {
     {
       key: 'rules',
       summary: 'Ver reglas comerciales',
-      hint: 'Cómo se factura, equivalencias de la tarifa y descuentos por días o continuidad.',
+      hint: byQty(v) ? 'Cómo se factura, equivalencias de la tarifa y descuentos por continuidad.' : 'Cómo se factura, equivalencias de la tarifa y descuentos por días o continuidad.',
       badge: rulesBadge(v),
       build: () => renderCommercialRules(v),
     },
@@ -3180,7 +3331,9 @@ function deepDefinitions(v) {
     {
       key: 'traces',
       summary: 'Ver cálculo completo',
-      hint: 'Todos los indicadores (días para el margen objetivo, contribución por día, break-even…) y cada fórmula.',
+      hint: byQty(v)
+        ? `Todos los indicadores (${v.r.unitInfo.plural} para el margen objetivo, contribución, cantidad de equilibrio…) y cada fórmula.`
+        : 'Todos los indicadores (días para el margen objetivo, contribución por día, break-even…) y cada fórmula.',
       build: () => [safeSection('Todos los indicadores', () => renderResultDetail(v)), safeSection('Cada fórmula, paso a paso', () => renderTraceIndex(v)), safeSection('Los números cierran', () => renderChecks(v))],
     },
   ];
@@ -3511,7 +3664,9 @@ function analysisBase(v) {
     h('dl', { class: 'qr-base-list' },
       item('Costo del mes', money(k.totalCost)),
       item(rateOk ? commercialName(k) : 'Tu tarifa', rateOk ? commercialRate(k, v.unitLabel) : 'Sin tarifa'),
-      item('Días activos por mes', formatDays(k.activeDays)),
+      byQty(v)
+        ? item(`${capitalizeUnitPhrase(v.r.unitInfo.plural)} por mes`, `${quantityText(k.billableQuantity, v.r)} (${workDaysText(k.activeDays)})`)
+        : item('Días activos por mes', formatDays(k.activeDays)),
       item('Margen', rateOk && hasValue(k.marginPct) ? pct(k.marginPct) : EMPTY, marginTone(k)),
       item('Resultado del mes', rateOk ? money(k.profit) : EMPTY, profitTone(k))));
 }

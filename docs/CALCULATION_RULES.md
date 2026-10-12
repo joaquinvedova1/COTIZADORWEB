@@ -627,6 +627,50 @@ facturación total  = subtotal + ajuste por mínimo
 | Fee de disponibilidad | `availabilityFeeMonthly` | monto mensual fijo (× meses) |
 | Descuento comercial | `pricing.commercialDiscountPct` | multiplica el factor de descuentos |
 
+### 12.1 Unidad de facturación según el tipo de servicio (PLAN-2026-009)
+
+Archivos: `js/domain/billing-units.js` (catálogo y textos), `js/engines/cost-engine.js` (`activeDaysForQuantity`, `normalizeActivity`), `js/engines/commercial-rules-engine.js` (`billableUnits`, `unitHasDayTiers`), `js/engines/quote-engine.js` (cantidad de equilibrio).
+
+**UNIDAD DE COSTO ≠ UNIDAD DE VENTA.** Los costos se siguen calculando con sus drivers reales (días de trabajo: personal, equipos, combustible, viajes, materiales por día o por llamado). La facturación se expresa en la unidad comercial que elige la empresa:
+
+```
+facturación base = cantidad facturable × tarifa neta por unidad
+```
+
+| Tipo (`billingUnitOf(quote).kind`) | Unidades (`quote.unit`) | Actividad que se carga | Días de trabajo D (derivados) | Cantidad facturable |
+|---|---|---|---|---|
+| `day`, `hour`, `month` | `day`, `hour`, `month` | días de trabajo (como siempre) | `activity.activeDaysPerMonth` | igual que antes (tabla de arriba) |
+| `quantity` | `m3`, `trip`, `km`, `ton`, `tonkm`, `unit`, `kg`, `meter`, `m2`, `lot`, `shift` y `custom` (unidad propia: pozo, muestra…) | cantidad por mes `Q` + cantidad por día de trabajo `r` (rendimiento) | `D = Q / max(días por llamado × r, minimum call) × días por llamado` (sin minimum call: `Q / r`) | `llamados × max(días por llamado × r, minimum call)` |
+| `event` | `call` ($/llamado), `job` ($ global por trabajo), `milestone` ($/hito) | llamados o trabajos (o hitos) por mes + días de trabajo de cada uno (+ hitos por trabajo) | `D = Q / hitos por trabajo × días por llamado` | `llamados × hitos por trabajo` (1 si no es por hito); el minimum call no aplica |
+
+- La cantidad de equilibrio se busca sobre D con el mismo algoritmo robusto de §15 y se expresa en la unidad comercial: `cantidad de equilibrio = cantidad facturable(D de equilibrio)`. Lineal: `Q* = (costos fijos − ingresos fijos × (1 − t)) / (tarifa × (1 − t) + otros ingresos por unidad − costo variable por unidad)`, con `costo variable por unidad = costo variable por día de trabajo / unidades por día`.
+- Tarifa piso, objetivo y sugerida: las mismas fórmulas de §13 con las unidades facturables de esta tabla ("$ 8.450 / m³"). Nunca "/ día" si no se cobra por día.
+- **Descuentos por cantidad de días (§14) sólo con `day` u `hour`.** Con `month`, `quantity` o `event` no se aplican (los tramos quedan guardados, no se borran).
+- Sin rendimiento (`r` vacío o 0, sin minimum call) no hay días de trabajo: los costos variables quedan en 0 y la cotización muestra un error ("Cargá cuántos m³ hacés por día de trabajo"). Una cantidad negativa es un error y se toma como 0. Si los días derivados superan los disponibles del mes, se avisa (como en §16: se interpreta como trabajo de más de un mes).
+- Una unidad que no es habitual para el tipo de servicio (por ejemplo, $/día en "Servicio por unidad producida") **calcula igual** y muestra un aviso.
+- Sensibilidad y escenarios (§17): la variación de actividad cambia la cantidad del mes; los días se derivan (tope: los días disponibles).
+
+**Horas y materiales** (`pricing.materialsBilledSeparately = true`): los materiales se facturan aparte. Siguen siendo costo (no cambia el costo del mes) y lo que se cobra por ellos suma a los otros ingresos:
+
+```
+materiales facturados = costo del material (con merma y logística) × (1 + markup de reventa %)
+                        (fijos del mes × meses; por día o por llamado × D)
+```
+
+Sin la opción (o en cotizaciones anteriores) nada cambia: la tarifa cubre los materiales, como siempre.
+
+**Compatibilidad:** `$/día`, `$/hora` y `$/mes` calculan exactamente igual que antes (foto completa de 99 casos idéntica; tests `tests/engines/billing-units.test.js` y golden `unidad-on-call-dia.json`). Única diferencia de texto: el rótulo "Unidades facturables (mess)" de "Ver cálculo" pasa a "(meses)".
+
+Casos de referencia (golden):
+
+| Caso | Datos | Resultado |
+|---|---|---|
+| A — bombeo $/m³ | 10.000 m³/mes, 500 m³/día, fijos 30.000.000, variable 1.000.000 por día de trabajo, tarifa 7.000/m³, margen 20 % | 20 días de trabajo; costo 50.000.000; piso **5.000/m³**; objetivo **6.250/m³**; equilibrio **6.000 m³** (12 días) |
+| B — transporte $/viaje | 40 viajes/mes, 2 por día, fijos 12.000.000, variable 600.000/día, tarifa 900.000, margen 25 % | costo 24.000.000; piso **600.000/viaje**; objetivo **800.000**; equilibrio **20 viajes** (10 días) |
+| C — movimiento de suelo $/m³ | 5.000 m³/mes, 250 m³/día, fijos 20.000.000, variable 1.500.000/día, margen 15 % | costo 50.000.000; piso **10.000/m³**; objetivo **11.764,71/m³**; equilibrio **2.500 m³** |
+| D — inspección $/unidad | 300 u/mes, 15 por día, fijos 3.000.000, variable 150.000/día, margen 10 % | costo 6.000.000; piso **20.000/u**; objetivo **22.222,22/u**; equilibrio **200 u** |
+| E — on-call $/día | 15 días/mes, fijos 30.000.000, variable 1.000.000/día, tarifa 4.000.000 | piso **3.000.000/día**; equilibrio **10 días** (igual que siempre) |
+
 ## 13. Tarifa piso, precio objetivo y precio comercial
 
 Archivos: `js/engines/commercial-rules-engine.js` (`requiredNetRate`, `listRateFromNet`), `js/engines/economics-engine.js` (`requiredRatesAt`, `evaluateAt`), `js/engines/quote-engine.js` (`computeQuote`).
@@ -769,7 +813,7 @@ Archivos: `js/engines/commercial-rules-engine.js` (`DEFAULT_VOLUME_TIERS` —def
 
 **Tramos por defecto** (0 % de descuento): 1 día · 2–7 días · 8–15 días · 16–30 días · +30 días (`fromDays` 31, `toDays` vacío).
 
-**Búsqueda del tramo** (`findVolumeTier`): los tramos se ordenan por "desde"; aplica **el último tramo cuyo "desde" sea ≤ días facturables** (tolerancia 1e-9). Con 0 días no hay tramo. El "hasta" sólo se usa para la etiqueta: 7,5 días cae en el tramo 2–7. Con unidad `month` no se aplican tramos. Los tramos que no son objetos se ignoran; si no queda ninguno se usan los tramos por defecto.
+**Búsqueda del tramo** (`findVolumeTier`): los tramos se ordenan por "desde"; aplica **el último tramo cuyo "desde" sea ≤ días facturables** (tolerancia 1e-9). Con 0 días no hay tramo. El "hasta" sólo se usa para la etiqueta: 7,5 días cae en el tramo 2–7. Con unidad `month`, por cantidad (m³, viaje…) o por evento (llamado, trabajo, hito) no se aplican tramos (§12.1). Los tramos que no son objetos se ignoran; si no queda ninguno se usan los tramos por defecto.
 
 **Evaluación de cada tramo** (`evaluateDiscountTiers`): cada tramo se evalúa en su **peor caso**: la **menor cantidad de días activos** con la que ya se alcanza el "desde" del tramo en días **facturables**. Con menos días activos los fijos se reparten entre menos unidades. Como el tramo se elige por días facturables y, con minimum call, cada activación factura más días de los que se trabajan, el peor caso puede tener menos días activos que el "desde" del tramo (`minActiveDaysForBillableDays`):
 
@@ -1117,6 +1161,11 @@ Casos de referencia que deben seguir valiendo aunque cambie la interfaz. Son **r
 | `externo-minimo-por-llamado.json` | grúa tercerizada 450.000/h, mínimo 8 h, llamado de 1 día de 5 h | factura **8 h** = 3.600.000 neto por llamado |
 | `movilizacion-autopropulsada-160km.json` | Vactor por sus medios 80 + 80 km, 40 L/100 km, 1.500/L, 200 $/km | **160 km**, 64 L, combustible 96.000 + desgaste 32.000 = 128.000 por llamado; sin mano de obra extra |
 | `on-call-cotizacion-con-impuestos.json` | fijos 30.000.000; variable 1.000.000/día; 10 días; margen 10 %; impuestos 10 % | costo 40.000.000; piso 4.444.444,44; objetivo 5.000.000; facturación 50.000.000; impuestos 5.000.000; resultado 5.000.000 (10 %); markup 25 %; ganancia sobre el costo 12,5 % |
+| `unidad-bombeo-m3.json` | §12.1 caso A: 10.000 m³/mes, 500 m³/día, fijos 30.000.000, variable 1.000.000/día, tarifa 7.000/m³ | piso **5.000/m³**; objetivo 6.250 (20 %); equilibrio **6.000 m³** (12 días) |
+| `unidad-transporte-viaje.json` | §12.1 caso B: 40 viajes/mes, 2 por día, fijos 12.000.000, variable 600.000/día, tarifa 900.000 | piso **600.000/viaje**; objetivo 800.000 (25 %); equilibrio **20 viajes** |
+| `unidad-movimiento-suelo-m3.json` | §12.1 caso C: 5.000 m³/mes, 250 m³/día | piso **10.000/m³**; objetivo 11.764,71 (15 %); equilibrio **2.500 m³** |
+| `unidad-inspeccion-unidad.json` | §12.1 caso D: 300 u/mes, 15 por día | piso **20.000/u**; objetivo 22.222,22 (10 %); equilibrio **200 u** |
+| `unidad-on-call-dia.json` | §12.1 caso E: on-call $/día, 15 días | piso 3.000.000/día; equilibrio **10 días** (igual que siempre) |
 | `producto-chipa-costo-y-precio.json` | producto (§23): tanda de 60, receta 6.000, empaque 20/u, personal 90 min a 6.000/h, horno 40 min a 1.500/h, fijos 175.000/mes, 3.000 u/mes, margen 30 % | variable **286,67**/u; fijo **58,33**/u; costo **345**/u; precio **492,86** (markup 42,86 %); equilibrio **848,73** u/mes |
 
 **Red de seguridad** (`tests/engines/regression-baseline.test.js`, PLAN-2026-002 PN0): con impuestos sin definir, los KPIs, la EECC, la matriz y los tramos de la demo, el caso de referencia, cada plantilla y variantes sintéticas son **idénticos** a los del motor anterior (`tests/fixtures/baseline-v1.json`).

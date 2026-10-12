@@ -1,0 +1,18 @@
+{
+  "id": "unidad-transporte-viaje",
+  "title": "Transporte facturado por viaje (B)",
+  "rule": "40 viajes/mes a 2 viajes por día de trabajo = 20 días. Costo = 12.000.000 + 600.000 × 20 = 24.000.000 → tarifa piso 600.000 $/viaje; margen 25 % → 24.000.000 / 0,75 / 40 = 800.000 $/viaje. Con 900.000 $/viaje: costo variable por viaje 300.000, contribución 600.000 → equilibrio 12.000.000 / 600.000 = 20 viajes.",
+  "engine": "quote.byUnit",
+  "inputs": { "serviceType": "transport", "unit": "trip", "quantityPerMonth": 40, "unitsPerActiveDay": 2, "fixedCosts": 12000000, "variableCostPerDay": 600000, "rate": 900000, "targetMarginPct": 25 },
+  "expected": {
+    "unitLabel": "viaje",
+    "kpis.activeDays": 20,
+    "kpis.totalCost": 24000000,
+    "kpis.floorListRate": 600000,
+    "kpis.targetListRate": 800000,
+    "kpis.breakEvenQuantity": 20,
+    "kpis.breakEvenWholeQuantity": 20,
+    "kpis.breakEvenDays": 10
+  },
+  "tolerance": 1e-6
+}

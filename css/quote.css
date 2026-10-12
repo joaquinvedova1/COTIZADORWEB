@@ -169,6 +169,10 @@
 .qe-step-body { container-type: inline-size; container-name: qestep; display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
 .qe-step-body > .card .card-body > * + * { margin-top: 0.9rem; }
 .qe-step-body .choice-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+/* Unidad de cobro con muchas opciones (PLAN-2026-009): grilla compacta, la ayuda de la elegida va debajo. */
+.qe-step-body .qe-unit-choice.is-compact .choice-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.qe-step-body .qe-unit-choice.is-compact .choice { padding: 0.55rem 0.7rem; }
+.qe-unit-hint { margin-top: 0.4rem; }
 
 .qe-num-echo { font-size: 0.76rem; color: var(--blue-text); font-family: var(--mono); font-weight: 600; margin-top: -0.1rem; }
 

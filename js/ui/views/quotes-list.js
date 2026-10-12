@@ -18,6 +18,8 @@ import { formatDateTime, formatDays, formatMoney, formatPercent, EMPTY } from '.
 import { isFiniteNumber } from '../../core/money.js';
 import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
+import { billingUnitOf } from '../../domain/billing-units.js';
+import { quantityCeilText } from '../unit-text.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { templateContents } from './services.js';
@@ -27,6 +29,11 @@ export { completenessTone };
 // ------------------------------------------------------- helpers compartidos
 
 export const UNIT_SHORT = Object.freeze({ day: 'día', hour: 'hora', month: 'mes' });
+
+/** "día", "hora", "mes", "m³", "viaje", "pozo"… (unidad de cobro de la cotización, PLAN-2026-009). */
+export function quoteUnitShort(quote) {
+  return billingUnitOf(quote || {}).short || 'unidad';
+}
 
 const STATUS_TONES = Object.freeze({ draft: 'gray', sent: 'blue', won: 'green', lost: 'red', archived: 'navy' });
 
@@ -136,7 +143,7 @@ function moreIcon() {
 export function quoteRateNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
   return isFiniteNumber(summary.commercialListRate)
-    ? h('span', { class: 'nowrap' }, formatMoney(summary.commercialListRate), h('span', { class: 'unit-suffix' }, ` /${UNIT_SHORT[quote.unit] || 'unidad'}`))
+    ? h('span', { class: 'nowrap' }, formatMoney(summary.commercialListRate), h('span', { class: 'unit-suffix' }, ` /${quoteUnitShort(quote)}`))
     : muted('Sin tarifa');
 }
 
@@ -233,7 +240,7 @@ export function quoteColumns({ statusCell = null } = {}) {
     },
     {
       key: 'breakEven',
-      label: 'Días para no perder',
+      label: 'Para no perder (por mes)',
       align: 'right',
       render: ({ quote, summary }) => breakEvenNode(quote, summary),
     },
@@ -244,9 +251,13 @@ export function quoteColumns({ statusCell = null } = {}) {
 
 function breakEvenNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
-  return quote.unit === 'month'
-    ? h('span', { class: 'muted', title: 'Con abono mensual la facturación no depende de los días: no hay break-even en días.' }, 'No aplica')
-    : h('span', { class: 'nowrap', title: 'Días activos por mes necesarios para no perder plata (break-even)' }, surfaceDays(summary.breakEvenDays));
+  const unit = billingUnitOf(quote || {});
+  if (unit.kind === 'month') return h('span', { class: 'muted', title: 'Con abono mensual la facturación no depende de los días: no hay break-even en días.' }, 'No aplica');
+  // Por cantidad (m³, viajes…) el equilibrio se lee en esa unidad (PLAN-2026-009).
+  if (unit.kind === 'quantity' || unit.kind === 'event') {
+    return h('span', { class: 'nowrap', title: `Cantidad por mes para no perder plata, en ${unit.plural} (break-even)` }, quantityCeilText(summary.breakEvenQuantity, { unitInfo: unit }));
+  }
+  return h('span', { class: 'nowrap', title: 'Días activos por mes necesarios para no perder plata (break-even)' }, surfaceDays(summary.breakEvenDays));
 }
 
 /**
@@ -359,7 +370,7 @@ export async function render(root, app) {
   // Vista simple / detallada (sólo en memoria mientras se usa la pantalla).
   const viewButtons = [
     { id: 'simple', label: 'Simple', title: 'Servicio, cliente, estado, tarifa y margen' },
-    { id: 'detailed', label: 'Detallada', title: 'Suma costo del mes, días para no perder, costos cargados y acciones' },
+    { id: 'detailed', label: 'Detallada', title: 'Suma costo del mes, cuánto facturar para no perder, costos cargados y acciones' },
   ].map((v) => {
     const btn = h('button', { type: 'button', class: 'segmented-btn', title: v.title, 'aria-pressed': v.id === state.view ? 'true' : 'false' }, v.label);
     btn.addEventListener('click', () => {
@@ -474,7 +485,7 @@ export async function render(root, app) {
         ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
         ['Tarifa', quoteRateNode(quote, summary)],
         ['Margen esperado', quoteMarginNode(summary)],
-        ['Días para no perder', breakEvenNode(quote, summary)],
+        ['Para no perder (por mes)', breakEvenNode(quote, summary)],
         ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct)],
         ['Última modificación', formatDateTime(quote.updatedAt)],
       ]),

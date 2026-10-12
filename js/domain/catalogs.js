@@ -25,7 +25,7 @@ export const EQUIPMENT_SERVICE_TYPES = deepFreeze(['on_call', 'equipment_with_op
 export const CONTINUOUS_SERVICE_TYPES = deepFreeze(['on_call', 'permanent']);
 
 export const PRICING_MODES = deepFreeze([
-  { id: 'known_rate', label: 'Ya tengo la tarifa', hint: 'Ingresás la tarifa y RATEOS calcula días mínimos, break-even y resultado.' },
+  { id: 'known_rate', label: 'Ya tengo la tarifa', hint: 'Ingresás la tarifa y RATEOS calcula cuánto tenés que facturar para no perder (días, m³, viajes…) y el resultado.' },
   { id: 'known_activity', label: 'Calcular la tarifa', hint: 'Ingresás la actividad estimada y RATEOS calcula la tarifa piso y las tarifas con margen.' },
 ]);
 

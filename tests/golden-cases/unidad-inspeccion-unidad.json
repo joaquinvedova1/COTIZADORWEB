@@ -1,0 +1,16 @@
+{
+  "id": "unidad-inspeccion-unidad",
+  "title": "Inspección facturada por unidad (D)",
+  "rule": "300 unidades/mes a 15 por día = 20 días. Costo = 3.000.000 + 150.000 × 20 = 6.000.000 → tarifa piso 20.000 $/u.; margen 10 % → 6.000.000 / 0,9 / 300 = 22.222,22 $/u. Con 25.000 $/u.: costo variable por unidad 10.000, contribución 15.000 → equilibrio 3.000.000 / 15.000 = 200 unidades.",
+  "engine": "quote.byUnit",
+  "inputs": { "serviceType": "per_unit", "unit": "unit", "quantityPerMonth": 300, "unitsPerActiveDay": 15, "fixedCosts": 3000000, "variableCostPerDay": 150000, "rate": 25000, "targetMarginPct": 10 },
+  "expected": {
+    "unitLabel": "u.",
+    "kpis.activeDays": 20,
+    "kpis.totalCost": 6000000,
+    "kpis.floorListRate": 20000,
+    "kpis.targetListRate": 22222.222222222223,
+    "kpis.breakEvenQuantity": 200
+  },
+  "tolerance": 1e-6
+}

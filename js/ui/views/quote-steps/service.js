@@ -5,8 +5,9 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, dateField, formGrid, icon } from '../../components.js';
+import { card, choiceGroup, dateField, formGrid, icon } from '../../components.js';
 import { SERVICE_TYPES, QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
+import { billingUnitOf, defaultUnitFor, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../../../domain/billing-units.js';
 import { formatNumber, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
@@ -23,10 +24,10 @@ const TYPE_TIPS = Object.freeze({
   crew: `Cargá cada puesto en ${step('labor')} y los traslados de la cuadrilla en ${step('logistics')}.`,
   equipment_with_operator: `Cargá el equipo en ${step('equipment')} (lo que cuesta tenerlo y usarlo) y el operador en ${step('labor')}.`,
   equipment_only: `Alquiler sin operador: el costo principal está en ${step('equipment')}. No hace falta cargar personal.`,
-  per_unit: 'Los cálculos se expresan por día, hora o mes de actividad: estimá cuántos días activos necesitás para la producción pedida.',
-  transport: `Cargá los vehículos en ${step('equipment')} (tenerlos y usarlos) y los recorridos en ${step('logistics')}.`,
-  turnkey: 'Revisá todo el alcance: personal, supervisión, materiales menores, HSE, QA/QC, dossier, seguros, garantías e imprevistos.',
-  time_materials: `Cargá las horas en ${step('labor')} y los materiales con su markup de reventa (recargo sobre el costo, informativo) en ${step('materials')}.`,
+  per_unit: `En ${step('modality')} elegí la unidad que cobrás (unidad, m³, tonelada, metro… u otra propia) y cargá cuánto facturás por mes y cuánto hacés por día de trabajo: los costos se calculan con los días de trabajo y la tarifa sale por unidad.`,
+  transport: `Cargá los vehículos en ${step('equipment')} (tenerlos y usarlos) y los recorridos en ${step('logistics')}. En ${step('modality')} elegí si cobrás por viaje, km, tonelada, ton-km, m³, hora o día.`,
+  turnkey: `Revisá todo el alcance: personal, supervisión, materiales menores, HSE, QA/QC, dossier, seguros, garantías e imprevistos. En ${step('modality')} cobrás un precio global por trabajo (o por hito).`,
+  time_materials: `Cargá las horas en ${step('labor')}. La tarifa (por hora o por día) cubre la mano de obra y los equipos; en ${step('materials')} podés facturar los materiales aparte, al costo más un recargo.`,
   lump_sum: `Precio cerrado por todo el alcance: usá ${step('risk')} (contingencia) para cubrir la incertidumbre.`,
   configurable: `Armá la estructura a medida con "Otros costos directos" en el paso ${step('materials')}.`,
 });
@@ -43,13 +44,50 @@ export function render(container, ctx) {
     ),
   );
 
+  /**
+   * Cambio de tipo de servicio (PLAN-2026-009): la unidad de cobro sigue al
+   * tipo ("Por unidad producida" → $/unidad, "Transporte" → $/viaje). Si ya
+   * hay una tarifa o un mínimo por llamado cargados, NO se cambia la unidad
+   * (el número se leería en otra unidad): se avisa y la persona decide en
+   * "Cómo se cobra".
+   */
+  function changeServiceType(next) {
+    if (next === quote.serviceType) return;
+    const current = quote.unit || 'day';
+    const fits = unitFitsServiceType(next, current);
+    const pricing = quote.pricing || {};
+    const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+    const locked = positive(pricing.knownRate) || positive(pricing.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
+    const nextUnit = fits || locked ? current : defaultUnitFor(next);
+    // Horas y materiales: por defecto, los materiales se facturan aparte (si nunca se decidió).
+    const materialsApart = next === 'time_materials' && Boolean(quote.pricing) && quote.pricing.materialsBilledSeparately === undefined && !quote.materialsNotApplicable;
+    ctx.mutate((q) => {
+      q.serviceType = next;
+      q.unit = nextUnit;
+      if (materialsApart) q.pricing.materialsBilledSeparately = true;
+    });
+    const typeLabel = labelOf(SERVICE_TYPES, next, 'Este servicio');
+    const materialsNote = materialsApart ? ` Los materiales se facturan aparte, al costo más un recargo (podés cambiarlo en ${step('materials')}).` : '';
+    if (nextUnit !== current) {
+      ctx.toast(`"${typeLabel}" se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiar la unidad en ${step('modality')}.${materialsNote}`, 'info');
+    } else if (materialsNote && fits) {
+      ctx.toast(materialsNote.trim(), 'info');
+    } else if (!fits) {
+      const usual = (SERVICE_TYPE_UNITS[next] || []).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
+      ctx.toast(`"${typeLabel}" se suele cobrar en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
+    }
+  }
+
   const tip = TYPE_TIPS[quote.serviceType];
   const type = card(
     {},
-    kit.choice('serviceType', {
+    choiceGroup({
       label: '¿Qué tipo de servicio es?',
+      name: 'serviceType',
+      value: quote.serviceType,
+      disabled: kit.readOnly,
       options: SERVICE_TYPES.map((t) => ({ value: t.id, label: t.label, hint: t.hint })),
-      structural: true,
+      onChange: (value) => changeServiceType(value),
     }),
     tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip)) : null,
   );

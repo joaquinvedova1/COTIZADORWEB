@@ -94,11 +94,21 @@ export function continuityApplies(rules, contractMonths) {
   return r.continuityDiscountPct > 0 && nonNegative(contractMonths) >= r.continuityMinMonths && r.continuityMinMonths > 0;
 }
 
+/** ¿La unidad admite descuentos por cantidad de días (tramos)? Sólo por día u hora. */
+export function unitHasDayTiers(unit) {
+  return unit === 'day' || unit === 'hour';
+}
+
 /**
- * Unidades facturables con D días activos.
- * @param {{ activeDays:number, daysPerActivation:number, hoursPerActiveDay:number, availableDaysPerMonth:number, unit:'day'|'hour'|'month', minimumCallUnits:number }} p
+ * Unidades facturables con D días activos (en la unidad comercial).
+ *   día       D días (con mínimo por llamado)
+ *   hora      D × horas por día (con mínimo por llamado)
+ *   mes       1 abono (o la parte de más de un mes)
+ *   evento    llamados × hitos por llamado (1 si no es por hito)        (PLAN-2026-009)
+ *   cantidad  llamados × max(días por llamado × cantidad por día, mínimo) (PLAN-2026-009)
+ * @param {{ activeDays:number, daysPerActivation:number, hoursPerActiveDay:number, availableDaysPerMonth:number, unit:'day'|'hour'|'month'|'event'|'quantity', minimumCallUnits:number, unitsPerActiveDay?:number, unitsPerActivation?:number }} p
  */
-export function billableUnits({ activeDays, daysPerActivation, hoursPerActiveDay, availableDaysPerMonth, unit = 'day', minimumCallUnits = 0 }) {
+export function billableUnits({ activeDays, daysPerActivation, hoursPerActiveDay, availableDaysPerMonth, unit = 'day', minimumCallUnits = 0, unitsPerActiveDay = 0, unitsPerActivation = 1 }) {
   const D = nonNegative(activeDays);
   const dpa = nonNegative(daysPerActivation) > 0 ? nonNegative(daysPerActivation) : 1;
   const hours = nonNegative(hoursPerActiveDay);
@@ -110,17 +120,22 @@ export function billableUnits({ activeDays, daysPerActivation, hoursPerActiveDay
     const months = available > 0 && D > available ? D / available : 1;
     return { activations, unitsPerActivation: null, billableUnitsPerActivation: null, billableUnits: months, billableDays: D, minimumCallApplied: false };
   }
-  const unitsPerActivation = unit === 'hour' ? dpa * hours : dpa;
-  const billableUnitsPerActivation = Math.max(unitsPerActivation, minCall);
+  if (unit === 'event') {
+    // Cada llamado / trabajo factura sus hitos (1 si no es por hito); el mínimo por llamado no aplica.
+    const perEvent = nonNegative(unitsPerActivation) > 0 ? nonNegative(unitsPerActivation) : 1;
+    return { activations, unitsPerActivation: perEvent, billableUnitsPerActivation: perEvent, billableUnits: activations * perEvent, billableDays: D, minimumCallApplied: false };
+  }
+  const workedPerActivation = unit === 'hour' ? dpa * hours : unit === 'quantity' ? dpa * nonNegative(unitsPerActiveDay) : dpa;
+  const billableUnitsPerActivation = Math.max(workedPerActivation, minCall);
   const units = activations * billableUnitsPerActivation;
-  const billableDays = unit === 'hour' ? (hours > 0 ? units / hours : D) : units;
+  const billableDays = unit === 'hour' ? (hours > 0 ? units / hours : D) : unit === 'quantity' ? D : units;
   return {
     activations,
-    unitsPerActivation,
+    unitsPerActivation: workedPerActivation,
     billableUnitsPerActivation,
     billableUnits: units,
     billableDays,
-    minimumCallApplied: minCall > unitsPerActivation + NUMERIC_EPSILON && activations > 0,
+    minimumCallApplied: minCall > workedPerActivation + NUMERIC_EPSILON && activations > 0,
   };
 }
 
@@ -132,17 +147,18 @@ export function discountFactor({ tierPct = 0, continuityPct = 0, commercialPct =
 /**
  * Facturación mensual completa con D días activos.
  * @param {object} p
- * @param {number|null} p.listRate tarifa de lista por unidad (día/hora/mes)
+ * @param {number|null} p.listRate tarifa de lista por unidad (día, hora, mes, llamado, m³…)
  * @param {number} p.activeDays
  * @param {object} p.activity actividad normalizada (cost-engine.normalizeActivity)
- * @param {'day'|'hour'|'month'} p.unit
+ * @param {'day'|'hour'|'month'|'event'|'quantity'} p.unit tipo de unidad (billingUnitOf(quote).kind)
  * @param {object} p.rules reglas comerciales
  * @param {number} p.contractMonths
  * @param {number} p.commercialDiscountPct
  * @param {number} p.routeKmPerActivation km de ruta por activación (logística)
  * @param {object|null} [p.tierOverride] forzar un tramo de descuento (evaluación de tramos)
+ * @param {{ fixedMonthly:number, perActiveDay:number }|null} [p.materialsResale] materiales facturados aparte
  */
-export function computeRevenue({ listRate, activeDays, activity, unit = 'day', rules = {}, contractMonths = 0, commercialDiscountPct = 0, routeKmPerActivation = 0, tierOverride = null }) {
+export function computeRevenue({ listRate, activeDays, activity, unit = 'day', rules = {}, contractMonths = 0, commercialDiscountPct = 0, routeKmPerActivation = 0, tierOverride = null, materialsResale = null }) {
   const r = normalizeRules(rules);
   const D = nonNegative(activeDays);
   const units = billableUnits({
@@ -152,11 +168,14 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
     availableDaysPerMonth: activity.availableDaysPerMonth,
     unit,
     minimumCallUnits: r.minimumCallUnits,
+    unitsPerActiveDay: activity.unitsPerActiveDay,
+    unitsPerActivation: activity.unitsPerActivation,
   });
   const available = nonNegative(activity.availableDaysPerMonth);
   const months = available > 0 && D > available ? D / available : 1;
 
-  const tier = unit === 'month' ? null : tierOverride || findVolumeTier(r.volumeTiers, units.billableDays);
+  // Los tramos son por cantidad de DÍAS: sólo aplican si se cobra por día u hora.
+  const tier = unitHasDayTiers(unit) ? tierOverride || findVolumeTier(r.volumeTiers, units.billableDays) : null;
   const tierPct = tier ? tier.discountPct : 0;
   const continuityPct = continuityApplies(rules, contractMonths) ? r.continuityDiscountPct : 0;
   const commercialPct = Math.min(nonNegative(commercialDiscountPct), 100);
@@ -172,8 +191,11 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
     mobilization: r.mobilizationFeePerActivation * units.activations,
     extraKm: extraKmPerActivation * r.extraKmRate * units.activations,
     standby: r.standbyDaysPerMonth * r.standbyRatePerDay * months,
+    // Materiales facturados aparte (PLAN-2026-009, horas y materiales): costo × (1 + recargo).
+    materialsFixed: materialsResale ? nonNegative(materialsResale.fixedMonthly) * months : 0,
+    materialsVariable: materialsResale ? nonNegative(materialsResale.perActiveDay) * D : 0,
   };
-  const otherRevenue = components.availabilityFee + components.callout + components.mobilization + components.extraKm + components.standby;
+  const otherRevenue = components.availabilityFee + components.callout + components.mobilization + components.extraKm + components.standby + components.materialsFixed + components.materialsVariable;
   const subtotal = components.base + otherRevenue;
   const guarantee = r.minimumMonthlyGuarantee * months;
   const guaranteeTopUp = Math.max(0, guarantee - subtotal);

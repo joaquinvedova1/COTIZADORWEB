@@ -12,6 +12,32 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-12
+
+**Unidades de facturación según el tipo de servicio.** Elegir "Servicio por unidad producida" ya no deja sólo $/día, $/hora o $/mes: cada tipo de servicio ofrece sus unidades (m³, viaje, tonelada, km, llamado, turno, trabajo, hito… y siempre una propia), la actividad se carga en esa unidad y el equilibrio se lee en ella ("6.000 m³ para no perder"). Motor generalizado a **cantidad facturable × precio por unidad** con los costos calculados por días de trabajo (**unidad de costo ≠ unidad de venta**). **Esquema de datos 6** (`migrateV5ToV6`: sin cambios de datos). Plan: PLAN-2026-009; fórmulas en [docs/CALCULATION_RULES.md §12.1](docs/CALCULATION_RULES.md#121-unidad-de-facturación-según-el-tipo-de-servicio-plan-2026-009).
+
+### Agregado
+
+- Unidades por tipo de servicio, con "Otra / personalizada" siempre: on-call ($/día, $/hora, $/llamado o salida, $/mes); permanente ($/mes, $/día, $/hora, $/turno); cuadrilla ($/día, $/hora, $/turno, $/mes); equipo con o sin operador ($/día, $/hora, $/mes, $/viaje); por unidad producida ($/unidad, $/m³, $/tonelada, $/kg, $/metro, $/m², $/km, $/lote); transporte ($/viaje, $/km, $/tonelada, $/ton-km, $/m³, $/hora, $/día); llave en mano y precio cerrado ($ global por trabajo, $/hito); horas y materiales ($/hora, $/día); configurable (todas).
+- Unidad propia: se escribe el nombre ("pozo", "muestra") y la cotización cobra "$/pozo" y pregunta "¿Cuántos pozos esperás facturar por mes?".
+- Actividad en la unidad comercial: cantidad a facturar por mes y cantidad por día de trabajo (rendimiento); por llamado o trabajo, cuántos por mes y cuántos días de trabajo lleva cada uno (y hitos por trabajo). RATEOS deriva los días de trabajo, que son los que consumen personal, equipos y combustible, y avisa si superan los días disponibles.
+- Cantidad de equilibrio en la unidad ("Viajes para no perder: 20 viajes", "Unidades para no perder: 200 u."), con sus días de trabajo y "Ver cálculo" por unidad (costo variable y contribución por m³, viaje…).
+- Horas y materiales: opción **"Facturo los materiales aparte (al costo más un recargo)"** en Materiales (marcada al elegir ese tipo de servicio): lo que se cobra por los materiales (costo × (1 + markup de reventa)) suma a la facturación; el costo no cambia.
+- Golden cases A–E (`unidad-bombeo-m3`, `unidad-transporte-viaje`, `unidad-movimiento-suelo-m3`, `unidad-inspeccion-unidad`, `unidad-on-call-dia`) y tests del motor y de los textos por unidad.
+
+### Cambiado
+
+- Al elegir el tipo de servicio, la unidad pasa a la habitual de ese tipo (por ejemplo $/unidad o $/viaje) si todavía no hay tarifa ni mínimo por llamado cargados; si ya los hay, no se cambia (el número se leería en otra unidad) y se avisa.
+- Cambiar de unidad con una tarifa cargada entre unidades sin conversión segura (por ejemplo de m³ a toneladas) pide borrarla o cancelar; día ↔ hora se sigue convirtiendo.
+- Resultado, "El precio", resumen en vivo, matriz, gráfico, sensibilidad, escenarios y listado muestran tarifas "/ m³", "/ viaje"… y cantidades en la unidad; nunca "/ día" si no se cobra por día. El mínimo por llamado se carga en la unidad (m³, viajes…) y no aplica por llamado o trabajo.
+- Los descuentos por cantidad de días se aplican sólo con tarifa por día u hora (con otras unidades se explica que no aplican; los tramos quedan guardados).
+- Una unidad que no es habitual para el tipo de servicio (por ejemplo $/día en "por unidad producida") calcula igual y muestra "Revisá cómo cobrás".
+- **$/día, $/hora y $/mes calculan exactamente igual que antes** (comparación completa de 99 casos idéntica). En "Ver cálculo" el rótulo "Unidades facturables (mess)" se corrige a "(meses)".
+
+### Datos
+
+- `SCHEMA_VERSION` 5 → 6. `migrateV5ToV6` no cambia ni borra datos; una versión anterior abre los datos v6 en sólo lectura (no calcula "por día" una cotización por m³). Campos nuevos opcionales: `quote.unitName`, `activity.billableQuantityPerMonth`, `activity.unitsPerActiveDay`, `activity.unitsPerActivation`, `pricing.materialsBilledSeparately`.
+
 ## [0.5.1] - 2026-10-12
 
 Servicios y productos en una misma experiencia de costeo y precio. **Sólo interfaz, navegación y textos**: no cambia ninguna fórmula, ningún motor, el esquema de datos (sigue en 5), Supabase ni RLS. Cotizaciones y productos siguen siendo modelos distintos por debajo.

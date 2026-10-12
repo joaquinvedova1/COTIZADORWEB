@@ -43,6 +43,8 @@ export function computeMaterialLine(line = {}, { daysPerActivation = 1 } = {}) {
     grossCost,
     costForUs,
     resalePrice: costForUs * (1 + pct(resaleMarkupPct)),
+    // Para facturar los materiales aparte (PLAN-2026-009): costo × (1 + recargo de reventa).
+    resaleFactor: 1 + pct(resaleMarkupPct),
     ...split,
   };
 }

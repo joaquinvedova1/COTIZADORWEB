@@ -258,6 +258,19 @@ export function migrateV4ToV5(state) {
   return { ...src, products: Array.isArray(src.products) ? src.products : [], schemaVersion: 5 };
 }
 
+/**
+ * v5 → v6 (PLAN-2026-009, unidades de facturación): una cotización puede
+ * cobrarse por m³, viaje, tonelada, llamado, trabajo, hito o una unidad
+ * propia, con la actividad en esa unidad. No cambia ni borra ningún dato:
+ * las cotizaciones por día, hora o mes calculan exactamente igual. Se sube la
+ * versión porque una versión anterior leería "$/m³" como "$/día" en silencio:
+ * así abre estos datos en sólo lectura.
+ */
+export function migrateV5ToV6(state) {
+  const src = isPlainObject(state) ? deepClone(state) : {};
+  return { ...src, schemaVersion: 6 };
+}
+
 /** Agrega un valor a `legacy` sin perder lo que ya hubiera (aunque no fuera un objeto). */
 function withLegacy(legacy, key, value) {
   const base = isPlainObject(legacy) ? legacy : legacy === undefined || legacy === null ? {} : { previous: legacy };
@@ -271,6 +284,7 @@ export const MIGRATIONS = Object.freeze({
   2: migrateV2ToV3,
   3: migrateV3ToV4,
   4: migrateV4ToV5,
+  5: migrateV5ToV6,
 });
 
 /**

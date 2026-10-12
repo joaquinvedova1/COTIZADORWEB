@@ -33,6 +33,28 @@ import { computeFinance } from './finance-engine.js';
 import { computeExternalLine } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
+import { billingUnitOf } from '../domain/billing-units.js';
+
+/**
+ * Días de trabajo que lleva facturar una cantidad (PLAN-2026-009). UNIDAD DE
+ * VENTA ≠ UNIDAD DE COSTO: los costos se calculan con los días de trabajo y
+ * la facturación se expresa en la unidad comercial.
+ *
+ *   por cantidad (m³, viaje…): llamados = cantidad / max(días por llamado × cantidad por día, mínimo por llamado)
+ *                              días     = llamados × días por llamado      (sin mínimo: cantidad / cantidad por día)
+ *   por evento (llamado, trabajo, hito): llamados = cantidad / hitos por trabajo (1 si no es por hito)
+ *                              días     = llamados × días por llamado (o por trabajo)
+ */
+export function activeDaysForQuantity({ kind, quantity, unitsPerActiveDay, unitsPerActivation, daysPerActivation, minimumCallUnits = 0 }) {
+  const Q = nonNegative(quantity);
+  const dpa = nonNegative(daysPerActivation) > 0 ? nonNegative(daysPerActivation) : 1;
+  if (kind === 'event') {
+    const upa = nonNegative(unitsPerActivation) > 0 ? nonNegative(unitsPerActivation) : 1;
+    return (Q / upa) * dpa;
+  }
+  const perActivation = Math.max(dpa * nonNegative(unitsPerActiveDay), nonNegative(minimumCallUnits));
+  return perActivation > 0 ? (Q / perActivation) * dpa : 0;
+}
 
 /** Normaliza los parámetros de actividad de una cotización. */
 export function normalizeActivity(quote = {}) {
@@ -40,11 +62,32 @@ export function normalizeActivity(quote = {}) {
   const availableRaw = Math.min(nonNegative(a.availableDaysPerMonth, 30), 31);
   // 0 o inválido no tiene sentido económico: se usa 30 (y validateQuote lo informa).
   const availableDaysPerMonth = availableRaw > 0 ? availableRaw : 30;
-  const activeDaysPerMonth = nonNegative(a.activeDaysPerMonth);
   const dpaRaw = nonNegative(a.daysPerActivation, 1);
   const daysPerActivation = dpaRaw > 0 ? dpaRaw : 1;
   const hoursPerActiveDay = Math.min(nonNegative(a.hoursPerActiveDay), 24);
+  // Por día, hora o mes la actividad se carga en días (como siempre). Por
+  // cantidad o por evento se carga en la unidad comercial y los días de
+  // trabajo se derivan (PLAN-2026-009).
+  const unit = billingUnitOf(quote);
+  const byQuantity = unit.kind === 'quantity' || unit.kind === 'event';
+  const billableQuantityPerMonth = byQuantity ? nonNegative(a.billableQuantityPerMonth) : null;
+  const unitsPerActiveDay = unit.kind === 'quantity' ? nonNegative(a.unitsPerActiveDay) : null;
+  const unitsPerActivation = unit.kind === 'event' ? (unit.id === 'milestone' && nonNegative(a.unitsPerActivation) > 0 ? nonNegative(a.unitsPerActivation) : 1) : null;
+  const activeDaysPerMonth = byQuantity
+    ? activeDaysForQuantity({
+      kind: unit.kind,
+      quantity: billableQuantityPerMonth,
+      unitsPerActiveDay,
+      unitsPerActivation,
+      daysPerActivation,
+      minimumCallUnits: quote.rules ? quote.rules.minimumCallUnits : 0,
+    })
+    : nonNegative(a.activeDaysPerMonth);
   return {
+    unitKind: unit.kind,
+    billableQuantityPerMonth,
+    unitsPerActiveDay,
+    unitsPerActivation,
     availability: a.availability || '24/7',
     availabilityWindow: a.availabilityWindow || '',
     responseTimeHours: nonNegative(a.responseTimeHours),

@@ -49,7 +49,9 @@ import {
   badge,
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
-import { QUOTE_STEPS, RISK_ITEMS, RATE_UNITS, SERVICE_TYPES } from '../../domain/catalogs.js';
+import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
+import { billingUnitOf } from '../../domain/billing-units.js';
+import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { computeQuote } from '../../engines/quote-engine.js';
@@ -157,7 +159,7 @@ export const STEP_COPY = Object.freeze({
   },
   modality: {
     question: '¿Cómo lo vas a cobrar?',
-    why: 'Contanos si ya tenés una tarifa o si querés que RATEOS calcule cuánto cobrar, y cuántos días por mes esperás trabajar.',
+    why: 'Contanos en qué unidad cobrás, si ya tenés una tarifa o si querés que RATEOS calcule cuánto cobrar, y cuánto esperás trabajar o facturar por mes.',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
@@ -335,7 +337,7 @@ export function resultTone(result) {
 }
 
 function unitShort(result) {
-  return unitShortOf(result && result.unit);
+  return unitShortOf(result || null);
 }
 
 function inputNumber(value) {
@@ -972,6 +974,8 @@ function breakEvenText(r, { decimals = 1 } = {}) {
   const be = r.breakEven || {};
   if (be.notApplicable) return 'No aplica';
   if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
+  // Por cantidad (m³, viajes…; PLAN-2026-009): en la unidad comercial.
+  if (isQuantityUnit(r)) return quantityCeilText(be.quantity, r);
   return formatDays(be.days, { decimals });
 }
 
@@ -997,7 +1001,7 @@ function rateHint(r) {
         text = k.billingTaxPct > 0
           ? `Sin tarifa sugerida: con ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - k.billingTaxPct)}. Bajalo en "El precio".`
           : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".';
-      } else text = 'Cargá los días por mes para calcularla.';
+      } else text = isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
   }
   const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
     ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
@@ -1055,7 +1059,9 @@ function buildSummary({ getResult, stepHref }) {
       short: 'Costo del mes',
       value: (r) => formatMoney(r.kpis.totalCost),
       compact: (r) => formatMoneyCompact(r.kpis.totalCost),
-      hint: (r) => `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`,
+      hint: (r) => (isQuantityUnit(r)
+        ? `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`
+        : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`),
       trace: (r) => r.traces.totalCost,
     }),
     item({
@@ -1068,7 +1074,7 @@ function buildSummary({ getResult, stepHref }) {
       compact: (r) => formatMoneyCompact(floorDisplay(r).value, { ceil: true }),
       hint: (r) => {
         const floor = floorDisplay(r);
-        if (!isFiniteNumber(floor.value)) return 'Cargá los días por mes para calcularla.';
+        if (!isFiniteNumber(floor.value)) return isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
         const net = floor.base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
         return `Precio mínimo para no perder (margen 0 %), sin IVA. ${floorTaxesText(r)}${net ? ` ${net}` : ''}`;
       },
@@ -1088,13 +1094,14 @@ function buildSummary({ getResult, stepHref }) {
     }),
     item({
       key: 'breakEven',
-      label: 'Días para no perder',
+      label: (r) => (isQuantityUnit(r) ? r.unitTexts.breakEvenLabel : 'Días para no perder'),
       short: 'Para no perder',
       value: (r) => breakEvenText(r),
       compact: (r) => breakEvenText(r),
       hint: (r) => {
         const be = r.breakEven || {};
         if (be.notApplicable || !be.reachable) return be.reason || '';
+        if (isQuantityUnit(r)) return `${workDaysText(be.days)} · estimás ${quantityText(r.kpis.billableQuantity, r)} (break-even).`;
         return `Mínimo ${formatNumber(be.wholeDays)} días enteros · estimás ${formatNumber(r.kpis.activeDays, { decimals: 2 })} (break-even).`;
       },
       tone: breakEvenTone,
@@ -2027,7 +2034,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   calcErrorBanner.hidden = true;
   const stepBody = h('div', { class: ['qe-step-body', `qe-step-${stepId}`] });
 
-  const unitLabel = (RATE_UNITS.find((u) => u.id === state.quote.unit) || RATE_UNITS[0]).label;
+  const unitLabel = billingUnitOf(state.quote).label;
   // El sub-paso ya se ve en los segmentos de arriba: el antetítulo sólo dice la etapa.
   const kicker = `Etapa ${stageIndex + 1} de ${STAGES.length} · ${currentStage.label}`;
   // Convención de montos (PLAN-2026-002, PN1): todo se carga y se muestra sin IVA.
