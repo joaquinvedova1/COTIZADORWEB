@@ -58,8 +58,19 @@ export function render(container, ctx) {
   // Un solo aviso para el plazo de pago (UX-1): éste, junto al campo. No se
   // repite como "Para revisar" arriba del formulario y no alarma en rojo
   // antes de que hayas escrito algo.
+  // Sin plazo de cobro igual hay un costo parcial (los días hasta facturar):
+  // nunca decir que no se calcula nada si ya hay un monto.
   const missingTerm = kit.toggle(
-    banner('Sin el plazo de pago del cliente no se puede calcular el costo financiero. Cargalo aunque sea estimado (por ejemplo 60 o 90 días).', 'warning', { title: 'Falta el plazo de pago.' }),
+    h(
+      'div',
+      { class: 'banner banner-warning', role: 'status' },
+      h('strong', {}, 'Falta el plazo de cobro. '),
+      kit.out((r) => {
+        const partial = r.kpis.financialCost;
+        const base = 'Falta el plazo de cobro para completar el costo financiero. Mientras tanto RATEOS sólo considera el desfase que ya conoce (los días hasta facturar)';
+        return `${base}${partial > 0.5 ? `: hoy ${formatMoney(partial)} por mes` : ''}. Cargalo aunque sea estimado (por ejemplo 60 o 90 días).`;
+      }, { tag: 'span' }),
+    ),
     (r) => !r.model.finance.paymentTermDefined,
   );
 
@@ -69,8 +80,8 @@ export function render(container, ctx) {
     unit: '% mensual',
     illustrative: rateIllustrative,
     hint: rateIllustrative
-      ? 'Lo que te cuesta financiarte (descubierto, adelantos, capital propio). Valor ILUSTRATIVO: al editarlo se quita la marca.'
-      : 'Lo que te cuesta financiarte (descubierto, adelantos, capital propio).',
+      ? 'Lo que te cuesta financiarte (descubierto, adelantos, capital propio). Si tenés una tasa nominal anual, la mensual es la anual ÷ 12 (interés simple). Valor ILUSTRATIVO: al editarlo se quita la marca.'
+      : 'Lo que te cuesta financiarte (descubierto, adelantos, capital propio). Si tenés una tasa nominal anual, la mensual es la anual ÷ 12 (interés simple).',
     onValue: (value, el) => {
       if (!(quote.finance && quote.finance.illustrative === true)) return;
       ctx.update('finance.illustrative', false);
@@ -182,7 +193,7 @@ export function render(container, ctx) {
       kit.stat('Cobro efectivo', (r) => formatDays(r.model.finance.invoiceLagDays + r.model.finance.paymentTermDays), { hint: 'Días hasta facturar + plazo de pago.' }),
     ),
     groupsTable,
-    kit.explain('Interés simple sobre los costos que son salida de caja. La amortización y el costo de capital de los equipos no son pagos: no se financian. La contingencia tampoco.'),
+    kit.explain('Aproximación con interés simple: cada desembolso se financia desde que lo pagás hasta que cobrás (días financiados = días hasta facturar + plazo de cobro − días hasta pagar ese costo). Se financian sólo los desembolsos: la amortización y el costo de capital de los equipos no son pagos (no se financian) y la contingencia tampoco. De los equipos y servicios externos se financia lo que le pagás al proveedor (neto + IVA + percepciones): el IVA recuperable no es costo, pero sí caja que adelantás hasta cobrar.'),
   );
 
   mount(container, termsCard, detail);

@@ -11,9 +11,9 @@
 
 import { h, mount } from '../../dom.js';
 import { card, formGrid, selectField, emptyState, table } from '../../components.js';
-import { MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS } from '../../../domain/catalogs.js';
+import { MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
 import { materialLineFromLibrary, createOtherCost } from '../../../domain/quote-factory.js';
-import { formatMoney, formatPercent, EMPTY } from '../../../core/format.js';
+import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, hasNumber, stepName } from './shared.js';
@@ -30,6 +30,28 @@ function materialGrid(...fields) {
 }
 
 const BASIS_SHORT = Object.freeze({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: 'por llamado' });
+/** "/día", "/mes", "/salida" (cada cuánto se consume la cantidad). */
+const BASIS_PER = Object.freeze({ per_month: 'mes', per_active_day: 'día', per_activation: 'salida' });
+/** Valor del selector de unidad para "Otra / personalizada". */
+const CUSTOM_UNIT = '__custom';
+/** Líneas en las que la persona eligió "Otra…" y todavía no escribió la unidad (sólo en pantalla). */
+const customUnitLines = new Set();
+
+/**
+ * La cuenta visible de una línea (PLAN-2026-010, no cambia el cálculo):
+ *   "10 L/día × $ 5.000/L = $ 50.000/día · 20 días = $ 1.000.000/mes"
+ */
+export function materialFormulaText(line, model, { activeDays = 0, activationsPerMonth = 0 } = {}) {
+  if (!line || !model) return '';
+  const unit = String(line.unit || '').trim() || 'u.';
+  const per = BASIS_PER[model.basis] || 'mes';
+  const factor = model.quantity * model.unitCost > 0 ? model.grossCost / (model.quantity * model.unitCost) : 1;
+  const extras = Math.abs(factor - 1) > 1e-9 ? ' (con merma y logística)' : '';
+  const head = `${formatNumber(model.quantity, { decimals: 2 })} ${unit}/${per} × ${formatMoney(model.unitCost, { decimals: model.unitCost < 100 ? 2 : 0 })}/${unit}${extras} = ${formatMoney(model.grossCost)}/${per}`;
+  if (model.basis === 'per_active_day') return `${head} · ${formatNumber(activeDays, { decimals: 2 })} días = ${formatMoney(model.grossCost * activeDays)}/mes`;
+  if (model.basis === 'per_activation') return `${head} · ${formatNumber(activationsPerMonth, { decimals: 2 })} salidas = ${formatMoney(model.grossCost * activationsPerMonth)}/mes`;
+  return head;
+}
 
 function splitLabel(line) {
   if (!line) return EMPTY;
@@ -110,7 +132,6 @@ export function render(container, ctx) {
       : null,
   );
 
-  const basisLabel = (id) => (MATERIAL_BASES.find((b) => b.id === id) || { label: 'sin base' }).label.toLowerCase();
 
   const materialCards = notApplicable
     ? []
@@ -123,6 +144,33 @@ export function render(container, ctx) {
       const cur = line.base && line.base.currency;
       const sym = (CURRENCIES.find((c) => c.id === cur) || { symbol: '$' }).symbol;
       const noRate = cur && conversionFactor(cur, quote) === null;
+      // Unidad visible en la línea (PLAN-2026-010): presets + "Otra / personalizada".
+      const unitNow = String(line.unit || '').trim();
+      const unitIsPreset = MATERIAL_UNIT_PRESETS.includes(unitNow);
+      const lineKey = line.id || `i${i}`;
+      const showCustomUnit = (unitNow && !unitIsPreset) || customUnitLines.has(lineKey);
+      const unitSelect = selectField({
+        label: 'Unidad',
+        name: `${p}.unitPreset`,
+        value: showCustomUnit ? CUSTOM_UNIT : unitNow,
+        includeEmpty: true,
+        emptyLabel: 'Elegí la unidad…',
+        options: [...MATERIAL_UNIT_PRESETS.map((u) => ({ value: u, label: u })), { value: CUSTOM_UNIT, label: 'Otra / personalizada…' }],
+        disabled: kit.readOnly,
+        onChange: (value) => {
+          if (value === CUSTOM_UNIT) {
+            customUnitLines.add(lineKey);
+            ctx.mutate((q) => {
+              if (MATERIAL_UNIT_PRESETS.includes(String(q.materials[i].unit || '').trim())) q.materials[i].unit = '';
+            }, { focus: `${p}.unit` });
+            return;
+          }
+          customUnitLines.delete(lineKey);
+          ctx.mutate((q) => {
+            q.materials[i].unit = value || '';
+          });
+        },
+      });
       return kit.lineCard(
         {
           title: kit.out(() => (quote.materials[i] && quote.materials[i].description) || 'Material sin descripción'),
@@ -136,8 +184,7 @@ export function render(container, ctx) {
         noRate ? h('p', { class: 'qe-warn' }, `Este costo está en ${cur} y la cotización no tiene ese tipo de cambio: no se suma hasta que lo cargues en "${stepName('service')}".`) : null,
         materialGrid(
           kit.text(`${p}.description`, { label: 'Descripción', maxLength: 160 }),
-          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', hint: kit.out(() => `${basisLabel(quote.materials[i] && quote.materials[i].basis)} (se cambia en opciones avanzadas)`) }),
-          kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: sym, illustrative }),
+          kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: MATERIAL_BASES.map((b) => ({ value: b.id, label: b.label })), structural: true }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
             options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),
@@ -145,15 +192,28 @@ export function render(container, ctx) {
             emptyLabel: 'Elegí quién lo provee…',
           }),
         ),
+        formGrid(
+          showCustomUnit ? 4 : 3,
+          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: kit.out(() => `${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}/${BASIS_PER[quote.materials[i] && quote.materials[i].basis] || 'mes'}`) }),
+          unitSelect,
+          showCustomUnit ? kit.text(`${p}.unit`, { label: 'Tu unidad', maxLength: 30, placeholder: 'Ej.: bidón, rollo, kit' }) : null,
+          kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: kit.out(() => `${sym}/${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}`), illustrative }),
+        ),
         kit.keyline({
           label: 'Costo para vos',
-          value: (r) => formatMoney(at(r) && at(r).costForUs),
+          value: (r) => {
+            const l = at(r);
+            if (!l) return EMPTY;
+            const D = r.activity.activeDaysPerMonth;
+            const monthly = l.basis === 'per_active_day' ? l.costForUs * D : l.basis === 'per_activation' ? l.costForUs * r.activity.activationsPerMonth : l.costForUs;
+            return `${formatMoney(monthly)} por mes`;
+          },
           hint: (r) => {
             const l = at(r);
             if (!l) return '';
             if (!l.providedBy) return 'Falta definir quién lo provee.';
             if (l.costForUs === 0 && l.grossCost > 0) return 'Lo provee el cliente: no es costo tuyo.';
-            return `${BASIS_SHORT[l.basis] || ''} · en el mes: ${splitLabel(l)}`;
+            return materialFormulaText(quote.materials[i], l, { activeDays: r.activity.activeDaysPerMonth, activationsPerMonth: r.activity.activationsPerMonth });
           },
           tone: (r) => (at(r) && !at(r).providedBy ? 'red' : null),
         }),
@@ -163,8 +223,6 @@ export function render(container, ctx) {
             summary: () => {
               const m = quote.materials[i] || {};
               const parts = [
-                `se cuenta ${basisLabel(m.basis)}`,
-                `unidad: ${String(m.unit || '').trim() || 'sin unidad'}`,
                 `merma ${hasNumber(m.wastePct) ? formatPercent(Number(m.wastePct)) : '0 %'}`,
                 `logística ${hasNumber(m.logisticsPct) ? formatPercent(Number(m.logisticsPct)) : '0 %'}`,
                 hasNumber(m.resaleMarkupPct) && Number(m.resaleMarkupPct) > 0 ? `markup de reventa ${formatPercent(Number(m.resaleMarkupPct))}` : null,
@@ -174,8 +232,6 @@ export function render(container, ctx) {
           },
           formGrid(
             3,
-            kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: MATERIAL_BASES.map((b) => ({ value: b.id, label: b.label })) }),
-            kit.text(`${p}.unit`, { label: 'Unidad', maxLength: 30, placeholder: 'kit, kg, m, unidad' }),
             kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', illustrative, hint: 'Lo que se pierde o desperdicia.' }),
             kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
             kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: billedSeparately ? 'Recargo sobre el costo del material (no es margen): es lo que cobrás de más al facturarlo aparte.' : 'Recargo sobre el costo del material (no es margen). Se usa si facturás los materiales aparte (opción de arriba).' }),

@@ -170,9 +170,13 @@ export function computeExternalLine(line = {}, ctx = {}) {
     mobilizationPerActivation: economic(mobilizationNetPerActivation),
     fuelLitersPerActiveDay,
     fuelPerActiveDay,
-    // Salida de caja y crédito fiscal (informativos: no son costo).
+    // Salida de caja y crédito fiscal (no son costo). La salida de caja es lo
+    // que se financia hasta cobrar (capital de trabajo, finance-engine): el
+    // costo económico + el IVA recuperable y las percepciones que se adelantan.
     cashFixedMonthly: netFixedMonthly * fiscal.cashFactor,
     cashPerActiveDay: (netPerActiveDay + mobilizationNetPerActiveDay) * fiscal.cashFactor,
+    cashVariablePerActiveDay: netPerActiveDay * fiscal.cashFactor,
+    cashMobilizationPerActiveDay: mobilizationNetPerActiveDay * fiscal.cashFactor,
     creditFixedMonthly: netFixedMonthly * fiscal.creditFactor,
     creditPerActiveDay: (netPerActiveDay + mobilizationNetPerActiveDay) * fiscal.creditFactor,
   };

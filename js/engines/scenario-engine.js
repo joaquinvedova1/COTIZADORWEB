@@ -9,13 +9,15 @@
 
 import { DEFAULT_SCENARIOS } from '../config.js';
 import { deepClone } from '../core/object.js';
-import { nonNegative, toNumber, pct, isFiniteNumber } from '../core/money.js';
+import { nonNegative, toNumber, pct, isFiniteNumber, safeDivide } from '../core/money.js';
 import { computeQuote } from './quote-engine.js';
 import { buildCostModel, costAtActivity, normalizeActivity, monthsFactor } from './cost-engine.js';
 import { findBreakEvenDays } from './break-even-engine.js';
 import { marginFromPrice, isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent } from '../core/format.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
+import { billableUnits } from './commercial-rules-engine.js';
+import { billingUnitOf } from '../domain/billing-units.js';
 
 export const SENSITIVITY_VARIABLES = Object.freeze([
   { id: 'salariesPct', label: 'Salarios', unit: '%' },
@@ -194,6 +196,13 @@ export function runScenarios(quote, { settings = {}, scenarios = null } = {}) {
  *   2. Disponibilidad + día:         R(D) = Fee + q·D,  Fee = Fijos/k, q = Variable/día/k
  *   3. Mínimo garantizado + día:     R(D) = max(G, p·D),  G = costos fijos del mes / (1 − t)
  *   4. Paquete mensual + excedentes: R(D) = Paquete + p·max(0, D − De),  Paquete = C(De)/k
+ *
+ * Contextual a la unidad (PLAN-2026-010): si la cotización se cobra por
+ * cantidad o evento (m³, viaje, unidad, pozo…), los MISMOS modelos se
+ * expresan en esa unidad con u = cantidad facturable por día de trabajo:
+ * tarifa por m³ = p / u, excedente por m³, m³ incluidos en el paquete y
+ * equilibrio en m³. Los ingresos y resultados son idénticos (sólo cambia la
+ * unidad en que se expresan). Por día, hora y mes no cambia nada.
  */
 export function compareCommercialModels(quote, { settings = {}, pessimisticActivityPct = null } = {}) {
   const model = buildCostModel(quote);
@@ -224,7 +233,30 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
   // Montos mensuales (fee, mínimo) se prorratean igual que los costos fijos
   // cuando los días superan los disponibles (trabajo de más de un mes).
   const mf = (D) => monthsFactor(D, available);
-  const definitions = [
+  // Unidad comercial: por cantidad o evento, los modelos se expresan en esa unidad.
+  const unitInfo = billingUnitOf(quote);
+  const perUnit = unitInfo.kind === 'quantity' || unitInfo.kind === 'event';
+  const a = model.activity;
+  const quantityAt = (D) => billableUnits({
+    activeDays: D,
+    daysPerActivation: a.daysPerActivation,
+    hoursPerActiveDay: a.hoursPerActiveDay,
+    availableDaysPerMonth: a.availableDaysPerMonth,
+    unit: unitInfo.kind,
+    minimumCallUnits: 0,
+    unitsPerActiveDay: a.unitsPerActiveDay,
+    unitsPerActivation: a.unitsPerActivation,
+  }).billableUnits;
+  const u = perUnit ? safeDivide(quantityAt(De), De, 0) : 1;
+  if (perUnit && !(u > 0)) return { models: [], estimatedDays: De, pessimisticDays: null, reason: `Cargá cuántos ${unitInfo.plural} hacés por día de trabajo para comparar modelos.` };
+  const Qe = De * u;
+  const unitName = unitInfo.singular || 'unidad';
+  const definitions = perUnit ? [
+    { id: 'unit_rate', label: `Sólo tarifa por ${unitName}`, params: { ratePerUnit: p / u }, revenue: (D) => p * D },
+    { id: 'availability_plus_unit', label: `Abono de disponibilidad + tarifa por ${unitName}`, params: { availabilityFee: fixed / k, ratePerUnit: variablePerDay / k / u }, revenue: (D) => (fixed / k) * mf(D) + (variablePerDay / k) * D },
+    { id: 'guarantee_plus_unit', label: `Facturación mínima mensual (take-or-pay) + tarifa por ${unitName}`, params: { minimumGuarantee: guarantee, ratePerUnit: p / u }, revenue: (D) => Math.max(guarantee * mf(D), p * D) },
+    { id: 'package_plus_excess_unit', label: `Paquete mensual con ${unitInfo.plural} incluidos + excedente`, params: { packagePrice: C(De) / k, includedUnits: Qe, excessRatePerUnit: p / u }, revenue: (D) => C(De) / k + p * Math.max(0, D - De) },
+  ] : [
     { id: 'day_rate', label: 'Sólo tarifa por día', params: { ratePerDay: p }, revenue: (D) => p * D },
     { id: 'availability_plus_day', label: 'Abono de disponibilidad + tarifa por día', params: { availabilityFee: fixed / k, ratePerDay: variablePerDay / k }, revenue: (D) => (fixed / k) * mf(D) + (variablePerDay / k) * D },
     { id: 'guarantee_plus_day', label: 'Mínimo garantizado + tarifa por día', params: { minimumGuarantee: guarantee, ratePerDay: p }, revenue: (D) => Math.max(guarantee * mf(D), p * D) },
@@ -254,8 +286,16 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
       minimumAssuredRevenue: d.revenue(0),
       breakEvenDays: be.days,
       breakEvenReachable: be.reachable,
+      ...(perUnit ? { breakEvenQuantity: be.reachable && isFiniteNumber(be.days) ? be.days * u : null } : {}),
       risk,
     };
   });
-  return { models, estimatedDays: De, pessimisticDays: Dp, targetMarginPct: m, billingTaxPct: t };
+  return {
+    models,
+    estimatedDays: De,
+    pessimisticDays: Dp,
+    targetMarginPct: m,
+    billingTaxPct: t,
+    ...(perUnit ? { unit: { id: unitInfo.id, kind: unitInfo.kind, singular: unitInfo.singular, plural: unitInfo.plural, short: unitInfo.short }, unitsPerActiveDay: u, estimatedQuantity: Qe, pessimisticQuantity: Dp * u } : {}),
+  };
 }

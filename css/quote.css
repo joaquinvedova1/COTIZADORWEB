@@ -610,6 +610,8 @@
   .qe-summary-inner:not(.is-expanded) .qe-sum-labels { min-height: 1.8rem; align-items: flex-end; }
   .qe-summary-inner:not(.is-expanded) .qe-sum-compact { display: inline-flex; flex-direction: column; font-size: 0.95rem; line-height: 1.15; white-space: nowrap; }
   .qe-summary-inner:not(.is-expanded) .qe-sum-compact-unit { margin-left: 0; line-height: 1.2; }
+  /* Un texto ("No se alcanza") puede ocupar dos renglones: nunca se sale de la pantalla. */
+  .qe-summary-inner:not(.is-expanded) .qe-sum-compact { max-width: 100%; white-space: normal; }
   /* La barra fija ocupa lo menos posible (A11Y-1): el botón mantiene 44 px de
      objetivo táctil pero se superpone al relleno del encabezado. */
   .qe-summary-head { padding: 0.3rem 0.75rem 0; }
@@ -700,3 +702,12 @@
   .qe-sum-compact { display: none !important; }
   .qe-line, .qe-stat { break-inside: avoid; box-shadow: none; }
 }
+
+/* PLAN-2026-010: externos incompletos, asistente de datos del proveedor y horas extra por tramo. */
+.qe-incomplete { display: flex; flex-direction: column; gap: 0.5rem; }
+.qe-ext-checklist { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.25rem 0 0.5rem; }
+.qe-ext-checklist .small { margin: 0; }
+.qe-chip.is-ok { background: var(--green-50); color: var(--green-text); border-color: #BDE5D2; }
+.qe-chip.is-pending { background: var(--orange-50); color: var(--orange-text); border-color: #F4D6AB; }
+.qe-ot { display: flex; flex-direction: column; gap: 0.6rem; }
+.qe-ot-row { border: 1px solid var(--line-2); border-radius: 8px; padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; }

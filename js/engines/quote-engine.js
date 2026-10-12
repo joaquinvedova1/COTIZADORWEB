@@ -522,13 +522,23 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         { label: 'Días promedio hasta facturar', value: model.finance.invoiceLagDays, format: 'days' },
         { label: 'Tasa mensual', value: model.finance.monthlyRatePct, format: 'percent' },
         ...model.finance.groups.map((g) => ({ label: `${g.label}: días financiados`, value: g.financingDays, format: 'days' })),
+        ...(externalMonthly.cash - externalMonthly.economic > 0.005
+          ? [{ label: 'Externos: IVA y percepciones que adelantás al proveedor (caja que se financia, no costo)', value: externalMonthly.cash - externalMonthly.economic, format: 'money' }]
+          : []),
       ],
       steps: [
         { label: 'Capital de trabajo a financiar', value: workingCapital, format: 'money' },
         { label: 'Impacto en margen (puntos)', value: kpis.financialMarginImpactPct, format: 'percent' },
       ],
       result: { label: 'Costo financiero mensual', value: financialCost, format: 'money' },
-      notes: ['La amortización y el costo de capital de equipos no son salidas de caja: no se financian. La contingencia tampoco.'],
+      notes: [
+        model.finance.paymentTermDefined
+          ? null
+          : 'Falta el plazo de cobro para completar el costo financiero. Mientras tanto RATEOS sólo considera el desfase que ya conoce (los días hasta facturar).',
+        'Es una aproximación con interés simple: cada desembolso se financia desde que se paga hasta que cobrás (días hasta facturar + plazo de cobro − días hasta pagar ese costo).',
+        'Se financian sólo los desembolsos: la amortización y el costo de capital de los equipos no son salidas de caja (no se financian). La contingencia tampoco.',
+        'Equipos y servicios externos: se financia lo que le pagás al proveedor (neto + IVA + percepciones); el IVA recuperable y las percepciones no son costo, pero sí caja que adelantás hasta cobrar.',
+      ],
     }),
     logistics: createTrace({
       id: 'logistics',
@@ -549,6 +559,13 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         { label: 'Logística auxiliar: combustible por activación', value: model.logistics.fuelPerActivation, format: 'money' },
         { label: 'Logística auxiliar: desgaste, peajes y viáticos por activación', value: model.logistics.nonFuelPerActivation, format: 'money' },
         { label: 'Costo por activación', value: model.logistics.costPerActivation + model.mobilization.perActivation, format: 'money' },
+        // Por mes (PLAN-2026-010): equipos principales y logística auxiliar por separado.
+        { label: 'Equipos principales: km por mes', value: model.mobilization.kmPerActivation * activity.activationsPerMonth, format: 'km' },
+        { label: 'Equipos principales: litros por mes', value: model.mobilization.litersPerActivation * activity.activationsPerMonth, format: 'liters' },
+        { label: 'Equipos principales: combustible por mes', value: model.mobilization.fuelPerActivation * activity.activationsPerMonth, format: 'money' },
+        { label: 'Equipos principales: desgaste por mes', value: model.mobilization.wearPerActivation * activity.activationsPerMonth, format: 'money' },
+        { label: 'Vehículos auxiliares: km por mes', value: model.logistics.vehicleKmPerActivation * activity.activationsPerMonth, format: 'km' },
+        { label: 'Vehículos auxiliares: costo por mes', value: model.logistics.costPerActivation * activity.activationsPerMonth, format: 'money' },
       ],
       result: { label: 'Costo mensual de movilización y viajes', value: logisticsMonthly, format: 'money' },
       notes: [

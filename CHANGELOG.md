@@ -12,6 +12,43 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-12
+
+**Auditoría y pulido desde una cotización real (COT-0009).** Los números de COT-0009 (auditados externamente) se mantienen al peso y quedan protegidos por un golden case. Se corrige un bug económico (financiación de externos con IVA), cada número del reporte gana trazabilidad y se pulen las pantallas que podían inducir a cotizar mal. **Esquema de datos 7** (`migrateV6ToV7`: sin cambios de datos). Plan: PLAN-2026-010; fórmulas en [docs/CALCULATION_RULES.md](docs/CALCULATION_RULES.md) §3.1, §4.1, §7, §8, §10, §17 y §19.
+
+### Corregido
+
+- **Financiación de equipos y servicios externos (bug P0):** el costo financiero se calculaba sobre el costo económico del externo; ahora se calcula sobre la **salida de caja** (neto + IVA + percepciones + cargos no recuperables). El IVA recuperable y las percepciones no son costo, pero se adelantan al proveedor hasta cobrar. **Sin tratamiento fiscal definido no cambia nada** (COT-0009 y las cotizaciones existentes sin IVA cargado quedan iguales). Antes → después, pickup tercerizada $ 2.800.000/mes financiada 45 días al 3 % mensual: IVA 21 % recuperable $ 0 → $ 26.460 por mes; IVA parcial 50 % $ 14.847 → $ 28.077; IVA recuperable + percepciones 3 % $ 0 → $ 30.240; IVA no recuperable $ 29.694 (sin cambio). La movilización que cobra el proveedor aparte también se financia con su IVA.
+- Sin plazo de cobro, el costo financiero ya no se describe como "no calculado": se explica que es parcial (sólo los días hasta facturar) y cuánto da.
+- Celular: la barra de resumen del editor ya no se sale de la pantalla cuando un valor es un texto ("No se alcanza"); los números abreviados no se cortan (bug preexistente, visto en el recorrido de rutas).
+
+### Agregado
+
+- Golden case `cot-0009-prueba-real` con todos los números del PDF: costo 28.367.260, piso 12.441,78/m³, objetivo 13.905,52/m³, sugerida 14.000/m³, facturación 33.600.000, impuestos 1.680.000, resultado 3.552.740, margen 10,5736 %, equilibrio ≈ 1.929,05 m³.
+- **BORRADOR arriba del resultado** cuando quedan puntos materiales: "BORRADOR — revisar N puntos antes de usar esta tarifa", separando **crítico** (cambia el costo o el precio, por ejemplo un externo sin tarifa), **revisar** e **informativo** (no resta puntaje).
+- Línea externa incompleta nombrada ("Equipo alquilado" no tiene tarifa del proveedor) con [Completar] y [Quitar]; asistente de datos del proveedor (tarifa, unidad, IVA, recuperable, percepciones, operador, combustible, seguro, movilización) sin inventar tasas.
+- **Impacto incremental** de cada externo en "Ver cálculo": cuánto sube el costo total con la línea (proveedor + estructura + financiación + contingencia). COT-0009: la pickup de $ 2.800.000 sube el costo $ 3.221.400.
+- **Horas extra por tramos** (HE 50 %, HE 100 %, otro recargo; editables, no normativa), por día activo o promedio por mes, con detalle por persona y la pregunta "¿Estas horas extra se facturan aparte al cliente?" (siguen siendo costo y además suman ingreso). Sin tramos, el campo único de siempre da lo mismo al centavo.
+- **"Desglosar estructura"**: rubros con su propio método (administración % sobre directo, HSE por empleado, seguros por contrato…), guardables como política de la empresa en Configuración y reutilizables. El modo simple sigue igual.
+- Comparador de modelos en la unidad comercial ($/m³, $/viaje, $/unidad): tarifa por unidad, abono + tarifa, facturación mínima (take-or-pay) + tarifa, paquete con unidades incluidas + excedente; equilibrio en la unidad. Los modelos por día no cambian.
+- "Equivalencias operativas" de una tarifa por cantidad ($/m³, $/viaje…): $ por día de trabajo, $ por hora de trabajo y facturación del mes, con su cálculo.
+- Viajes con el detalle A/B/C: A. movilización de los equipos principales (salidas, km por salida y por mes, litros, combustible y desgaste por mes), B. vehículos y logística auxiliar, C. total con su incidencia; "Ver cálculo" de la logística con los pasos por mes. Cada costo sigue en un solo lugar.
+- Materiales: unidad visible con opciones habituales (unidad, L, kg, g, t, m, m², m³, paquete, bolsa, tambor) o propia, y la fórmula "10 L/día × $ 5.000/L = $ 50.000/día · 20 días = $ 1.000.000/mes".
+- Resumen por intervención (m³ por salida, costo por salida) y aviso si las salidas por mes no son enteras (el costo por salida es un promedio).
+- Fecha base: lista de los valores sin base o con base vieja y la opción **"Usar [mes] (mes de la oferta) en los N sin base…"**, con confirmación; nunca pisa una base definida y queda marcada como "Mes de la oferta".
+- Aviso informativo de equipo propio sin costo de capital (opcional; no es la financiación del contrato).
+- Contrato a 12 meses: "Valores constantes a base [mes]. No incluye actualización ni escalación".
+
+### Cambiado
+
+- "Días por viaje o llamado" → **"Duración promedio de cada salida / intervención"**.
+- La tarjeta de equilibrio dice con qué tarifa se calculó ("a $ 14.000/m³").
+- EECC: "Fijo del mes" y "Variable por día de trabajo" en columnas separadas (el "$/día activo" mezclaba los fijos); los montos no cambian.
+- Eje X del gráfico en la unidad de la cotización (m³, viajes, días…).
+- Contingencia: ayuda, aviso en 0 % y nota para no duplicarla con el margen. Estructura: texto neutro en lugar de "es el método más usado".
+- Financiación: tasa anual → mensual (÷ 12, interés simple) y explicación de qué se financia.
+- Esquema de datos 6 → 7 (`migrateV6ToV7`, sólo sube la versión): campos opcionales `labor[].overtime`, `labor[].overtimeBilled`, `indirect.mode`, `indirect.items`, `settings.indirectPolicy` y fuente de base `'offer'`. Una versión anterior abre los datos v7 en sólo lectura.
+
 ## [0.6.0] - 2026-10-12
 
 **Unidades de facturación según el tipo de servicio.** Elegir "Servicio por unidad producida" ya no deja sólo $/día, $/hora o $/mes: cada tipo de servicio ofrece sus unidades (m³, viaje, tonelada, km, llamado, turno, trabajo, hito… y siempre una propia), la actividad se carga en esa unidad y el equilibrio se lee en ella ("6.000 m³ para no perder"). Motor generalizado a **cantidad facturable × precio por unidad** con los costos calculados por días de trabajo (**unidad de costo ≠ unidad de venta**). **Esquema de datos 6** (`migrateV5ToV6`: sin cambios de datos). Plan: PLAN-2026-009; fórmulas en [docs/CALCULATION_RULES.md §12.1](docs/CALCULATION_RULES.md#121-unidad-de-facturación-según-el-tipo-de-servicio-plan-2026-009).

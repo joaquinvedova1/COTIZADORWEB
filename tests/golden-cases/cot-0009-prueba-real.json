@@ -1,0 +1,27 @@
+{
+  "id": "cot-0009-prueba-real",
+  "title": "Cotización de prueba de punta a punta COT-0009 ($/m³), números del PDF auditado",
+  "rule": "Con los mismos datos, el motor da exactamente lo que mostró el reporte de COT-0009 (auditado externamente): costo, piso, objetivo, sugerida, facturación, impuestos, resultado, margen y equilibrio. Mientras no cambien los datos fiscales, estos valores no cambian (PLAN-2026-010).",
+  "engine": "quote.cot0009",
+  "inputs": {},
+  "expected": {
+    "kpis.activeDays": 20,
+    "kpis.billableQuantity": 2400,
+    "kpis.totalCost": 28367260.167,
+    "kpis.fixedCosts": 14552372.667,
+    "kpis.variableCosts": 13814887.5,
+    "kpis.floorListRate": 12441.780775,
+    "kpis.targetListRate": 13905.519689705881,
+    "kpis.suggestedListRate": 14000,
+    "kpis.revenue": 33600000,
+    "kpis.billingTaxes": 1680000,
+    "kpis.profit": 3552739.833,
+    "kpis.marginPct": 10.573630455357144,
+    "kpis.breakEvenQuantity": 1929.051498625428,
+    "kpis.breakEvenDays": 16.0754291552119,
+    "kpis.targetMarginQuantity": 2368.6285473145554,
+    "kpis.financialCost": 1422700.767,
+    "unitLabel": "m³"
+  },
+  "tolerance": 0.01
+}

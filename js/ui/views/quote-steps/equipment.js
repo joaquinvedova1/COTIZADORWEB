@@ -26,6 +26,7 @@ import { computeEquipmentUnit, maintenanceOf, tiresOf } from '../../../engines/e
 import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
+import { lineIncrementalImpact } from '../../../engines/impact-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -134,11 +135,22 @@ function wearSummary(e = {}) {
   return { maintenance, tires };
 }
 
-function externalTrace(result, index, source) {
+function externalTrace(result, index, source, impact = null) {
   const line = result && result.model.equipment[index];
   const x = line && line.external;
   if (!x) return null;
   const f = x.fiscal;
+  // Impacto incremental (PLAN-2026-010): cuánto sube el costo total con esta línea.
+  const impactSteps = impact
+    ? [
+      { label: 'Impacto en el costo del mes: costo del proveedor', value: impact.own, format: 'money' },
+      { label: '+ estructura asociada', value: impact.structure, format: 'money' },
+      { label: '+ financiación asociada', value: impact.financial, format: 'money' },
+      Math.abs(impact.contingency) > 0.5 ? { label: '+ contingencia asociada', value: impact.contingency, format: 'money' } : null,
+      Math.abs(impact.other) > 0.5 ? { label: '+ otros impactos (combustible, movilización…)', value: impact.other, format: 'money' } : null,
+      { label: '= impacto total aproximado en el costo del mes', value: impact.total, format: 'money' },
+    ].filter(Boolean)
+    : [];
   return createTrace({
     id: 'external_line',
     title: `${x.acquisition === 'rented' ? 'Alquiler' : 'Servicio tercerizado'} — ${x.name || 'Externo'}`,
@@ -164,8 +176,9 @@ function externalTrace(result, index, source) {
       { label: 'Costo económico por día activo', value: x.variablePerActiveDay, format: 'money' },
       x.mobilizationPerActiveDay > 0 ? { label: 'Movilización del proveedor por día activo', value: x.mobilizationPerActiveDay, format: 'money' } : null,
       x.fuelPerActiveDay > 0 ? { label: 'Combustible no incluido por día activo', value: x.fuelPerActiveDay, format: 'money' } : null,
-      { label: 'Salida de caja con impuestos por día activo (informativo)', value: x.cashPerActiveDay, format: 'money' },
+      { label: 'Salida de caja con impuestos por día activo (se financia hasta cobrar; no es costo)', value: x.cashPerActiveDay, format: 'money' },
       { label: 'Crédito fiscal por día activo (no es costo)', value: x.creditPerActiveDay, format: 'money' },
+      ...impactSteps,
     ].filter(Boolean),
     result: { label: 'Costo del recurso externo en el mes (actividad estimada)', value: monthlyAtEstimate(result, line), format: 'money' },
     notes: [
@@ -173,8 +186,31 @@ function externalTrace(result, index, source) {
       f.recovery === null ? 'Sin definir si el IVA es recuperable: se usa el precio neto (sin IVA).' : null,
       'Sin amortización, seguro propio ni costo de capital: el equipo no es tuyo.',
       'Ganancias no se carga como % sobre el alquiler y el IIBB del proveedor ya está en su precio.',
+      impact ? 'El impacto total es la diferencia entre el costo del mes con y sin esta línea (misma actividad): el proveedor arrastra estructura, financiación y, si corresponde, contingencia e IVA que no recuperás.' : null,
     ],
   });
+}
+
+/**
+ * Asistente de completitud de un recurso externo (PLAN-2026-010): qué falta
+ * cargar para que su costo esté completo. No inventa alícuotas.
+ */
+export function externalChecklist(line = {}) {
+  const ext = line.external && typeof line.external === 'object' ? line.external : {};
+  const f = ext.fiscal && typeof ext.fiscal === 'object' ? ext.fiscal : {};
+  const has = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+  const tri = (v) => (v === true ? 'incluido' : v === false ? 'aparte' : null);
+  return [
+    { id: 'price', label: 'Tarifa neta', ok: Number(ext.price) > 0 },
+    { id: 'unit', label: 'Unidad ($/h, día, mes, viaje…)', ok: typeof ext.unit === 'string' && ext.unit !== '' },
+    { id: 'vat', label: 'IVA que te factura', ok: has(f.vatPct) },
+    { id: 'recovery', label: 'Recuperable / no recuperable / parcial', ok: ['yes', 'no', 'partial'].includes(f.vatRecoverable) && (f.vatRecoverable !== 'partial' || has(f.vatRecoverablePct)) },
+    { id: 'perceptions', label: 'Percepciones (0 si no hay)', ok: has(f.perceptionsPct) },
+    { id: 'operator', label: 'Operador incluido', ok: tri(ext.operatorIncluded) !== null, value: tri(ext.operatorIncluded) },
+    { id: 'fuel', label: 'Combustible incluido', ok: tri(ext.fuelIncluded) !== null, value: tri(ext.fuelIncluded) },
+    { id: 'insurance', label: 'Seguro incluido', ok: tri(ext.insuranceIncluded) !== null, value: tri(ext.insuranceIncluded) },
+    { id: 'mobilization', label: 'Movilización incluida', ok: tri(ext.mobilizationIncluded) !== null, value: tri(ext.mobilizationIncluded) },
+  ];
 }
 
 export function render(container, ctx) {
@@ -330,6 +366,14 @@ export function render(container, ctx) {
     }
     return out.length ? h('div', { class: 'qe-line-warnings' }, ...out.map((t) => h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, t)))) : null;
   };
+  /** Aviso informativo (PLAN-2026-010): equipo propio con valor y sin costo de capital. No obliga a cargarlo. */
+  const capitalCostNote = (i) => kit.out(() => {
+    const e = quote.equipment[i] || {};
+    const noCapital = Number(e.replacementValue) > 0 && !(Number(e.capitalRatePctAnnual) > 0);
+    return noCapital
+      ? h('p', { class: 'qe-note' }, icon('info', { size: 14 }), ' Sin costo de capital: RATEOS no está imputando rendimiento ni costo del dinero invertido en este equipo. Es opcional; no lo confundas con la financiación del contrato.')
+      : '';
+  }, { tag: 'div', allowEmpty: true });
   const mobilityNote = (i) => {
     const line = quote.equipment[i] || {};
     const mode = line.mobilization && line.mobilization.mode;
@@ -504,8 +548,9 @@ export function render(container, ctx) {
             kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
             kit.num(`${p}.otherAnnual`, { label: 'Otros costos anuales de tenerlo', rule: 'money', unit: '$/año', hint: 'Habilitaciones, GPS, cocheras… lo que pagás aunque no trabaje.' }),
             kit.num(`${p}.certificationsAnnual`, { label: 'Certificaciones anual', rule: 'money', unit: '$/año', illustrative }),
-            kit.num(`${p}.capitalRatePctAnnual`, { label: 'Costo de capital (opcional)', rule: 'percent', unit: '% anual', hint: 'Rendimiento que le pedís a la plata invertida en el equipo.' }),
+            kit.num(`${p}.capitalRatePctAnnual`, { label: 'Costo de capital (opcional)', rule: 'percent', unit: '% anual', hint: 'Rendimiento que le pedís a la plata invertida en el equipo. No es la financiación del contrato (eso va en "Financiación").' }),
           ),
+          capitalCostNote(i),
         ),
         ...wearGroups(i, illustrative),
       ),
@@ -637,6 +682,28 @@ export function render(container, ctx) {
       resourceSyncNotice(ctx, 'equipment', i, { name: line.name || 'Recurso externo' }),
       ill.control,
       lineWarnings(i),
+      // Línea incompleta (PLAN-2026-010): se muestra cuál es, con [Completar] y [Quitar]. No se oculta ni se inventa un costo.
+      !(Number(ext.price) > 0)
+        ? h(
+          'div',
+          { class: 'banner banner-warning qe-incomplete', role: 'status' },
+          h('div', {}, h('strong', {}, `"${line.name || 'Recurso externo'}" no tiene tarifa del proveedor. `), 'Hoy no suma costo: completá la tarifa o quitá la línea si no va.'),
+          h('div', { class: 'qe-toolbar' },
+            kit.action('Completar', () => ctx.focusField(`${p}.external.price`), { variant: 'primary', icon: 'check' }),
+            kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })),
+        )
+        : null,
+      // Asistente de completitud del externo.
+      kit.out(() => {
+        const items = externalChecklist(quote.equipment[i] || {});
+        const pending = items.filter((x) => !x.ok);
+        return h(
+          'div',
+          { class: ['qe-ext-checklist', pending.length ? 'has-pending' : 'is-complete'] },
+          h('p', { class: 'small' }, pending.length ? `Para que el costo del proveedor quede completo faltan ${pending.length} ${pending.length === 1 ? 'dato' : 'datos'}:` : 'Datos del proveedor completos.'),
+          h('ul', { class: 'qe-chips' }, ...items.map((x) => h('li', { class: ['qe-chip', x.ok ? 'is-ok' : 'is-pending'] }, `${x.ok ? '✓' : '•'} ${x.label}${x.value ? `: ${x.value}` : ''}`))),
+        );
+      }, { tag: 'div' }),
       formGrid(3, acquisitionField(i), operatorField(i)),
       formGrid(
         3,
@@ -679,7 +746,15 @@ export function render(container, ctx) {
           const billed = x.netPerActivation > 0 ? `Facturado por llamado: ${formatNumber(x.billedUnitsPerActivation, { decimals: 2 })} × ${formatMoney(x.price)} × ${formatNumber(x.quantity, { decimals: 2 })} = ${formatMoney(x.netPerActivation)} neto. ` : '';
           return `${fixed}${billed}Salida de caja con impuestos: ${formatMoney(x.cashPerActiveDay)} por día activo; el crédito fiscal (${formatMoney(x.creditPerActiveDay)}) no es costo.`;
         },
-        trace: (r) => externalTrace(r, i, quote.equipment[i]),
+        trace: (r) => {
+          let impact = null;
+          try {
+            impact = lineIncrementalImpact(quote, { list: 'equipment', index: i }, { settings: ctx.settings });
+          } catch {
+            impact = null;
+          }
+          return externalTrace(r, i, quote.equipment[i], impact);
+        },
       }),
       mobilityNote(i),
       kit.advanced(

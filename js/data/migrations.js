@@ -271,6 +271,20 @@ export function migrateV5ToV6(state) {
   return { ...src, schemaVersion: 6 };
 }
 
+/**
+ * v6 → v7 (PLAN-2026-010, auditoría COT-0009): campos nuevos y opcionales
+ * (horas extra por tramos `labor[].overtime` y `overtimeBilled`, estructura
+ * desglosada `indirect.mode` / `indirect.items`, política de estructura de la
+ * empresa `settings.indirectPolicy`, fuente de base "Mes de la oferta"). No
+ * cambia ni borra ningún dato: las cotizaciones existentes calculan igual. Se
+ * sube la versión porque una versión anterior ignoraría esos campos en
+ * silencio (otro costo): así abre estos datos en sólo lectura.
+ */
+export function migrateV6ToV7(state) {
+  const src = isPlainObject(state) ? deepClone(state) : {};
+  return { ...src, schemaVersion: 7 };
+}
+
 /** Agrega un valor a `legacy` sin perder lo que ya hubiera (aunque no fuera un objeto). */
 function withLegacy(legacy, key, value) {
   const base = isPlainObject(legacy) ? legacy : legacy === undefined || legacy === null ? {} : { previous: legacy };
@@ -285,6 +299,7 @@ export const MIGRATIONS = Object.freeze({
   3: migrateV3ToV4,
   4: migrateV4ToV5,
   5: migrateV5ToV6,
+  6: migrateV6ToV7,
 });
 
 /**

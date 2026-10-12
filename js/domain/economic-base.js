@@ -119,3 +119,38 @@ export function sameBase(a, b) {
   const y = normalizeBase(b);
   return x.period === y.period && x.currency === y.currency && x.source === y.source && x.note === y.note;
 }
+
+/** Rutas de base que se pueden asignar desde la cotización (las de economicBaseEntries). */
+const BASE_PATH_RE = /^(?:(labor|equipment|materials|exchangeRates)\.(\d+)\.(base|costsBase)|fuel\.base)$/;
+
+/**
+ * "Usar el mes de la oferta" para valores SIN base (PLAN-2026-010). Nunca se
+ * hace sola: la llama la interfaz después de que la persona confirma la lista.
+ * Sólo completa bases sin período (nunca pisa una base definida), conserva la
+ * moneda y deja la fuente "Mes de la oferta" para que se vea que fue asignada.
+ * Modifica `quote` (el borrador de la mutación) y devuelve cuántas asignó.
+ */
+export function assignOfferBase(quote, paths, period) {
+  if (!isPlainObject(quote) || !isValidPeriod(period) || !Array.isArray(paths)) return 0;
+  let count = 0;
+  paths.forEach((path) => {
+    const m = BASE_PATH_RE.exec(String(path));
+    if (!m) return;
+    let owner;
+    let key;
+    if (m[1]) {
+      const list = quote[m[1]];
+      owner = Array.isArray(list) ? list[Number(m[2])] : null;
+      key = m[3];
+    } else {
+      owner = quote.fuel;
+      key = 'base';
+    }
+    if (!isPlainObject(owner)) return;
+    const current = isPlainObject(owner[key]) ? owner[key] : {};
+    if (isValidPeriod(current.period)) return;
+    owner[key] = { ...normalizeBase(current), period, source: 'offer' };
+    count += 1;
+  });
+  return count;
+}

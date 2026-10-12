@@ -38,6 +38,8 @@ export function createEconomicsContext(quote, model) {
     unitInfo,
     // Horas y materiales: los materiales se facturan aparte (costo × (1 + recargo)).
     materialsResale: materialsResaleOf(quote, model),
+    // Horas extra facturadas aparte (PLAN-2026-010): siguen siendo costo.
+    overtimeBilling: overtimeBillingOf(model),
     rules: quote.rules || {},
     contractMonths: nonNegative(quote.contractMonths),
     commercialDiscountPct: nonNegative(pricing.commercialDiscountPct),
@@ -62,6 +64,18 @@ export function materialsResaleOf(quote = {}, model = null) {
   }, { fixedMonthly: 0, perActiveDay: 0 });
 }
 
+/** Horas extra facturadas aparte (PLAN-2026-010): fijo del mes y por día activo; null si ninguna línea las factura. */
+export function overtimeBillingOf(model = null) {
+  const lines = model && model.labor && Array.isArray(model.labor.lines) ? model.labor.lines : [];
+  const billed = lines.filter((l) => l && l.overtimeBilling);
+  if (!billed.length) return null;
+  return billed.reduce((acc, l) => {
+    acc.fixedMonthly += nonNegative(l.overtimeBilling.fixedMonthly);
+    acc.perActiveDay += nonNegative(l.overtimeBilling.perActiveDay);
+    return acc;
+  }, { fixedMonthly: 0, perActiveDay: 0 });
+}
+
 /** Facturación con D días y una tarifa de lista dada. */
 export function revenueAt(ctx, activeDays, listRate, { tierOverride = null } = {}) {
   return computeRevenue({
@@ -75,6 +89,7 @@ export function revenueAt(ctx, activeDays, listRate, { tierOverride = null } = {
     routeKmPerActivation: ctx.routeKmPerActivation,
     tierOverride,
     materialsResale: ctx.materialsResale || null,
+    overtimeBilling: ctx.overtimeBilling || null,
   });
 }
 
@@ -171,8 +186,8 @@ export function linearDecomposition(ctx, listRate, referenceDays) {
   const D = Math.max(nonNegative(referenceDays), 1);
   const r1 = revenueAt(ctx, D, listRate);
   const keep = 1 - nonNegative(ctx.billingTaxPct) / 100;
-  const fixedRevenue = r1.components.availabilityFee + r1.components.standby + r1.components.materialsFixed;
-  const variableRevenue = r1.components.base + r1.components.callout + r1.components.mobilization + r1.components.extraKm + r1.components.materialsVariable;
+  const fixedRevenue = r1.components.availabilityFee + r1.components.standby + r1.components.materialsFixed + r1.components.overtimeFixed;
+  const variableRevenue = r1.components.base + r1.components.callout + r1.components.mobilization + r1.components.extraKm + r1.components.materialsVariable + r1.components.overtimeVariable;
   const revenuePerActiveDay = variableRevenue / D;
   const fixedCosts = ctx.model.fixedMonthly;
   const variableCostPerDay = ctx.model.variablePerActiveDay;

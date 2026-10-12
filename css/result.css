@@ -558,3 +558,14 @@ th.ta-right .qr-th { align-items: flex-end; }
 @media (min-width: 720px) {
   .qr-stats.qr-stats-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 1.1rem; }
 }
+
+/* PLAN-2026-010: BORRADOR arriba del resultado y severidad de cada pendiente. */
+.qr-draft { margin: 0 0 var(--sp-3, 0.75rem); align-items: flex-start; }
+.qr-draft-list { margin: 0.4rem 0 0; padding-left: 1.1rem; font-size: 0.875rem; }
+.qr-check-head { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.qr-sev { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.05rem 0.4rem; border-radius: 4px; }
+.qr-sev-critical { background: var(--red-50); color: var(--red-text); }
+.qr-sev-review { background: var(--orange-50); color: var(--orange-text); }
+.qr-sev-info { background: var(--navy-50); color: var(--navy-900); }
+.qr-notices { margin-top: var(--sp-3, 0.75rem); }
+.qr-check-info .qr-check-msg { color: var(--ink-2); }

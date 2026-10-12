@@ -98,9 +98,16 @@ export function render(container, ctx) {
     return `${on.length} ${on.length === 1 ? 'riesgo marcado' : 'riesgos marcados'}: ${list}.`;
   };
 
+  // Ayuda (PLAN-2026-010): RATEOS no impone un %; la contingencia queda separada del margen.
+  const zeroWarning = kit.toggle(
+    h('div', { class: 'banner banner-warning', role: 'status' }, h('strong', {}, 'Sin contingencia. '), 'Cualquier desvío no contemplado (más días, roturas, demoras, precios) reduce tu margen.'),
+    () => !(contingencyPctOf(quote.risk) > 0),
+  );
   const card1 = card(
     {},
+    h('p', { class: 'qe-note' }, 'La contingencia cubre incertidumbres del alcance y del costo; no reemplaza al margen ni a la actualización de precios (escalación). RATEOS no impone un %: usá el que corresponda a este trabajo.'),
     formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
+    zeroWarning,
     kit.keyline({
       label: 'Imprevistos en el costo del mes',
       value: (r) => {
@@ -116,7 +123,7 @@ export function render(container, ctx) {
     }),
     kit.advanced(
       { key: 'risk', title: 'Opciones avanzadas: riesgos puntuales', summary: riskSummary },
-      h('p', { class: 'qe-note' }, 'Marcá los riesgos que aplican y asignales un %. Sólo suman los marcados.'),
+      h('p', { class: 'qe-note' }, 'Marcá los riesgos que aplican y asignales un %. Sólo suman los marcados, sobre la contingencia general. Para no contar dos veces el mismo riesgo, no lo incluyas también en la contingencia general ni en otro rubro (por ejemplo, combustible extra ya cargado).'),
       h('div', { class: 'qe-risk-list' }, ...rows),
       kit.stats(
         kit.stat('Contingencia total', () => formatPercent(contingencyPctOf(quote.risk)), { hint: 'General + riesgos marcados.' }),

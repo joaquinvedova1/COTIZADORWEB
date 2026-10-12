@@ -157,8 +157,9 @@ export function discountFactor({ tierPct = 0, continuityPct = 0, commercialPct =
  * @param {number} p.routeKmPerActivation km de ruta por activación (logística)
  * @param {object|null} [p.tierOverride] forzar un tramo de descuento (evaluación de tramos)
  * @param {{ fixedMonthly:number, perActiveDay:number }|null} [p.materialsResale] materiales facturados aparte
+ * @param {{ fixedMonthly:number, perActiveDay:number }|null} [p.overtimeBilling] horas extra facturadas aparte (PLAN-2026-010)
  */
-export function computeRevenue({ listRate, activeDays, activity, unit = 'day', rules = {}, contractMonths = 0, commercialDiscountPct = 0, routeKmPerActivation = 0, tierOverride = null, materialsResale = null }) {
+export function computeRevenue({ listRate, activeDays, activity, unit = 'day', rules = {}, contractMonths = 0, commercialDiscountPct = 0, routeKmPerActivation = 0, tierOverride = null, materialsResale = null, overtimeBilling = null }) {
   const r = normalizeRules(rules);
   const D = nonNegative(activeDays);
   const units = billableUnits({
@@ -194,8 +195,11 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
     // Materiales facturados aparte (PLAN-2026-009, horas y materiales): costo × (1 + recargo).
     materialsFixed: materialsResale ? nonNegative(materialsResale.fixedMonthly) * months : 0,
     materialsVariable: materialsResale ? nonNegative(materialsResale.perActiveDay) * D : 0,
+    // Horas extra facturadas aparte (PLAN-2026-010): horas × precio por hora de cada tramo.
+    overtimeFixed: overtimeBilling ? nonNegative(overtimeBilling.fixedMonthly) * months : 0,
+    overtimeVariable: overtimeBilling ? nonNegative(overtimeBilling.perActiveDay) * D : 0,
   };
-  const otherRevenue = components.availabilityFee + components.callout + components.mobilization + components.extraKm + components.standby + components.materialsFixed + components.materialsVariable;
+  const otherRevenue = components.availabilityFee + components.callout + components.mobilization + components.extraKm + components.standby + components.materialsFixed + components.materialsVariable + components.overtimeFixed + components.overtimeVariable;
   const subtotal = components.base + otherRevenue;
   const guarantee = r.minimumMonthlyGuarantee * months;
   const guaranteeTopUp = Math.max(0, guarantee - subtotal);
