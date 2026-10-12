@@ -4,7 +4,9 @@
  * Opciones avanzadas (con resumen visible): base, unidad, merma, logística y
  * markup de reventa (recargo sobre el costo del material: no es margen).
  *   costo para nosotros = cantidad × costo unitario × (1 + merma%) × (1 + logística%)
- *   (si lo provee el cliente, no es costo nuestro; el markup de reventa es informativo)
+ *   (si lo provee el cliente, no es costo nuestro)
+ * Si los materiales se facturan aparte (horas y materiales, PLAN-2026-009):
+ *   facturación de materiales = costo × (1 + markup de reventa)
  */
 
 import { h, mount } from '../../dom.js';
@@ -83,9 +85,29 @@ export function render(container, ctx) {
     if (ok) ctx.mutate((q) => q.materials.splice(index, 1));
   };
 
+  // Horas y materiales (PLAN-2026-009): los materiales se pueden facturar
+  // aparte, al costo más el markup de reventa de cada uno. Siguen siendo
+  // costo; lo que se cobra por ellos suma a la facturación.
+  const billedSeparately = !notApplicable && Boolean(quote.pricing && quote.pricing.materialsBilledSeparately === true);
   const toggleCard = card(
     {},
     kit.check('materialsNotApplicable', { label: 'El servicio no usa materiales', structural: true, hint: 'Marcalo para confirmar que no te olvidaste de cargarlos.' }),
+    notApplicable
+      ? null
+      : kit.check('pricing.materialsBilledSeparately', {
+        label: 'Facturo los materiales aparte (al costo más un recargo)',
+        structural: true,
+        hint: quote.serviceType === 'time_materials'
+          ? 'Horas y materiales: la tarifa cubre la mano de obra y los equipos; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno).'
+          : 'La tarifa cubre el resto del servicio; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno).',
+      }),
+    billedSeparately
+      ? kit.out((r) => {
+        const c = r.estimate.revenue.components;
+        const billed = (c.materialsFixed || 0) + (c.materialsVariable || 0);
+        return `Se facturan aparte ${formatMoney(billed)} por mes de materiales (con la actividad estimada). Siguen siendo costo: lo que cobrás por ellos suma a la facturación y baja la tarifa que necesitás.`;
+      }, { tag: 'p', className: 'qe-note' })
+      : null,
   );
 
   const basisLabel = (id) => (MATERIAL_BASES.find((b) => b.id === id) || { label: 'sin base' }).label.toLowerCase();
@@ -156,7 +178,7 @@ export function render(container, ctx) {
             kit.text(`${p}.unit`, { label: 'Unidad', maxLength: 30, placeholder: 'kit, kg, m, unidad' }),
             kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', illustrative, hint: 'Lo que se pierde o desperdicia.' }),
             kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
-            kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: 'Recargo sobre el costo del material (no es margen). Sólo informativo, si facturás materiales aparte.' }),
+            kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: billedSeparately ? 'Recargo sobre el costo del material (no es margen): es lo que cobrás de más al facturarlo aparte.' : 'Recargo sobre el costo del material (no es margen). Se usa si facturás los materiales aparte (opción de arriba).' }),
           ),
           kit.stats(
             kit.stat('Fijo mensual / variable por día', (r) => splitLabel(at(r))),

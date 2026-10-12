@@ -64,6 +64,8 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 
 **v0.5.0 — Productos** (esquema de datos 5 con migración; las cotizaciones no cambian): sección **Productos** con un editor de 7 pasos (el producto y su tanda → ingredientes y materiales → personal con su convenio → máquinas con uso y amortización → gastos fijos con el % para el producto → precio y margen → resultado). Calcula costo por unidad, precio piso, precio sugerido con el margen que querés (margen ≠ markup), IVA opcional, equilibrio en unidades por mes y si tu precio de hoy cubre los costos. Fórmulas en [docs/CALCULATION_RULES.md §23](docs/CALCULATION_RULES.md#23-productos-costo-por-unidad-y-precio-plan-2026-008).
 
+**v0.6.0 — Unidades de facturación según el tipo de servicio** (esquema de datos 6, sin cambios de datos; $/día, $/hora y $/mes calculan igual): cada tipo de servicio ofrece sus unidades ($/m³, $/viaje, $/tonelada, $/km, $/llamado, $/turno, $ global por trabajo, $/hito… y una propia como "$/pozo"); la actividad se carga en esa unidad y el equilibrio se lee en ella ("6.000 m³ para no perder"). Los costos se siguen calculando por días de trabajo (unidad de costo ≠ unidad de venta). Fórmulas en [docs/CALCULATION_RULES.md §12.1](docs/CALCULATION_RULES.md#121-unidad-de-facturación-según-el-tipo-de-servicio-plan-2026-009).
+
 ## Visitante, demo y cuenta
 
 | | Qué ve | Datos |

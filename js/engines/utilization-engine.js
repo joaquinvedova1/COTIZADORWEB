@@ -45,6 +45,8 @@ export function buildRateUtilizationMatrix(ctx, { days, marginsPct = DEFAULT_MAR
     const evaluation = commercialListRate !== null ? evaluateAt(ctx, D, commercialListRate) : null;
     return {
       activeDays: D,
+      // Cantidad facturable con esos días, en la unidad comercial (m³, viajes, días…).
+      billableUnits: rates.billableUnits,
       utilizationPct: utilizationPct(D, ctx.activity.availableDaysPerMonth),
       exceedsAvailability: ctx.activity.availableDaysPerMonth > 0 && D > ctx.activity.availableDaysPerMonth,
       isEstimate: estimatedDays !== null && Math.abs(D - nonNegative(estimatedDays)) < 1e-9,

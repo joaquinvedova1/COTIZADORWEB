@@ -14,7 +14,8 @@
 
 import { nonNegative } from '../core/money.js';
 import { costAtActivity } from './cost-engine.js';
-import { computeRevenue, requiredNetRate, listRateFromNet, discountFactor, findVolumeTier, continuityApplies, normalizeRules } from './commercial-rules-engine.js';
+import { computeRevenue, requiredNetRate, listRateFromNet, discountFactor, findVolumeTier, continuityApplies, normalizeRules, unitHasDayTiers } from './commercial-rules-engine.js';
+import { billingUnitOf } from '../domain/billing-units.js';
 import { marginFromPrice, markupFromPrice, markupWithTaxesPct, profitOnCostPct } from './pricing-engine.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
 
@@ -26,17 +27,39 @@ import { billingTaxInfo } from './billing-taxes-engine.js';
 export function createEconomicsContext(quote, model) {
   const pricing = quote.pricing || {};
   const taxes = billingTaxInfo(quote);
+  const unitInfo = billingUnitOf(quote);
   return {
     billingTaxPct: taxes.pct,
     billingTaxInfo: taxes,
     model,
     activity: model.activity,
-    unit: ['day', 'hour', 'month'].includes(quote.unit) ? quote.unit : 'day',
+    // Tipo de unidad comercial: 'day' | 'hour' | 'month' | 'event' | 'quantity' (PLAN-2026-009).
+    unit: unitInfo.kind,
+    unitInfo,
+    // Horas y materiales: los materiales se facturan aparte (costo × (1 + recargo)).
+    materialsResale: materialsResaleOf(quote, model),
     rules: quote.rules || {},
     contractMonths: nonNegative(quote.contractMonths),
     commercialDiscountPct: nonNegative(pricing.commercialDiscountPct),
     routeKmPerActivation: model.logistics.routeKmPerActivation,
   };
+}
+
+/**
+ * Materiales facturados aparte (PLAN-2026-009): lo que se cobra por ellos,
+ * fijo del mes y por día activo, con el recargo de reventa de cada línea.
+ * null si la cotización no los factura aparte (la tarifa los cubre, como siempre).
+ */
+export function materialsResaleOf(quote = {}, model = null) {
+  const pricing = quote.pricing || {};
+  if (pricing.materialsBilledSeparately !== true || quote.materialsNotApplicable || !model || !model.materials) return null;
+  const lines = Array.isArray(model.materials.lines) ? model.materials.lines : [];
+  return lines.reduce((acc, l) => {
+    const f = Number.isFinite(l.resaleFactor) ? l.resaleFactor : 1;
+    acc.fixedMonthly += nonNegative(l.fixedMonthly) * f;
+    acc.perActiveDay += nonNegative(l.variablePerActiveDay) * f;
+    return acc;
+  }, { fixedMonthly: 0, perActiveDay: 0 });
 }
 
 /** Facturación con D días y una tarifa de lista dada. */
@@ -51,6 +74,7 @@ export function revenueAt(ctx, activeDays, listRate, { tierOverride = null } = {
     commercialDiscountPct: ctx.commercialDiscountPct,
     routeKmPerActivation: ctx.routeKmPerActivation,
     tierOverride,
+    materialsResale: ctx.materialsResale || null,
   });
 }
 
@@ -93,7 +117,7 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
   const units = rev0.billableUnits;
   const other = rev0.otherRevenue;
   const rules = normalizeRules(ctx.rules);
-  const tier = ctx.unit === 'month' ? null : tierOverride || findVolumeTier(rules.volumeTiers, rev0.billableDays);
+  const tier = unitHasDayTiers(ctx.unit) ? tierOverride || findVolumeTier(rules.volumeTiers, rev0.billableDays) : null;
   const factor = discountFactor({
     tierPct: tier ? tier.discountPct : 0,
     continuityPct: continuityApplies(ctx.rules, ctx.contractMonths) ? rules.continuityDiscountPct : 0,
@@ -147,14 +171,17 @@ export function linearDecomposition(ctx, listRate, referenceDays) {
   const D = Math.max(nonNegative(referenceDays), 1);
   const r1 = revenueAt(ctx, D, listRate);
   const keep = 1 - nonNegative(ctx.billingTaxPct) / 100;
-  const fixedRevenue = r1.components.availabilityFee + r1.components.standby;
-  const variableRevenue = r1.components.base + r1.components.callout + r1.components.mobilization + r1.components.extraKm;
+  const fixedRevenue = r1.components.availabilityFee + r1.components.standby + r1.components.materialsFixed;
+  const variableRevenue = r1.components.base + r1.components.callout + r1.components.mobilization + r1.components.extraKm + r1.components.materialsVariable;
   const revenuePerActiveDay = variableRevenue / D;
   const fixedCosts = ctx.model.fixedMonthly;
   const variableCostPerDay = ctx.model.variablePerActiveDay;
   const contributionPerDay = revenuePerActiveDay * keep - variableCostPerDay;
   const netRatePerActiveDay = r1.components.base / D;
+  // Unidades facturables por día activo (para expresar el equilibrio en la unidad comercial).
+  const unitsPerActiveDay = r1.billableUnits / D;
   return {
+    unitsPerActiveDay,
     fixedCosts,
     fixedRevenue,
     billingTaxPct: nonNegative(ctx.billingTaxPct),

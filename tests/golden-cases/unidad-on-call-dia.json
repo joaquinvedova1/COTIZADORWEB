@@ -1,0 +1,17 @@
+{
+  "id": "unidad-on-call-dia",
+  "title": "On-call facturado por día: 15 días/mes (E)",
+  "rule": "Por día la actividad sigue en días: 15 días. Costo = 30.000.000 + 1.000.000 × 15 = 45.000.000 → tarifa piso 3.000.000 $/día; margen 10 % → 3.333.333,33 $/día. Con 4.000.000 $/día el equilibrio sigue siendo 10 días (regla de negocio del caso on-call básico), y la cantidad de equilibrio en la unidad de venta también es 10 días.",
+  "engine": "quote.byUnit",
+  "inputs": { "serviceType": "on_call", "unit": "day", "activeDays": 15, "fixedCosts": 30000000, "variableCostPerDay": 1000000, "rate": 4000000, "targetMarginPct": 10 },
+  "expected": {
+    "unitLabel": "día",
+    "kpis.activeDays": 15,
+    "kpis.totalCost": 45000000,
+    "kpis.floorListRate": 3000000,
+    "kpis.targetListRate": 3333333.3333333335,
+    "kpis.breakEvenDays": 10,
+    "kpis.breakEvenQuantity": 10
+  },
+  "tolerance": 1e-6
+}

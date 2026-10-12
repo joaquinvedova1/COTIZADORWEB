@@ -58,10 +58,23 @@ export function applySensitivity(quote, deltas = {}) {
   if (toNumber(deltas.activityPct, 0) !== 0) {
     // Mismos días disponibles que usa el motor (0 o inválido → 30); nunca se
     // recorta por debajo de la actividad base.
-    const available = normalizeActivity(q).availableDaysPerMonth;
-    const baseActive = nonNegative(q.activity.activeDaysPerMonth);
-    const active = baseActive * factor(deltas.activityPct);
-    q.activity.activeDaysPerMonth = Math.min(active, Math.max(available, baseActive));
+    const base = normalizeActivity(q);
+    const available = base.availableDaysPerMonth;
+    if (base.unitKind === 'quantity' || base.unitKind === 'event') {
+      // Por cantidad (m³, viajes, llamados…; PLAN-2026-009) la actividad es la
+      // cantidad facturable: varía la cantidad y los días de trabajo se derivan.
+      const baseQuantity = nonNegative(q.activity.billableQuantityPerMonth);
+      const baseDays = base.activeDaysPerMonth;
+      const cap = Math.max(available, baseDays);
+      let quantity = baseQuantity * factor(deltas.activityPct);
+      const days = baseDays > 0 ? (baseDays * quantity) / baseQuantity : 0;
+      if (days > cap && days > 0) quantity *= cap / days;
+      q.activity.billableQuantityPerMonth = quantity;
+    } else {
+      const baseActive = nonNegative(q.activity.activeDaysPerMonth);
+      const active = baseActive * factor(deltas.activityPct);
+      q.activity.activeDaysPerMonth = Math.min(active, Math.max(available, baseActive));
+    }
   }
 
   q.finance = q.finance || {};
@@ -91,6 +104,9 @@ function pickKpis(result) {
     breakEvenWholeDays: k.breakEvenWholeDays,
     targetMarginDays: k.targetMarginDays,
     activeDays: k.activeDays,
+    // En la unidad comercial (m³, viajes…; PLAN-2026-009): cantidad facturable y de equilibrio.
+    billableQuantity: k.billableQuantity,
+    breakEvenQuantity: k.breakEvenQuantity,
     utilizationPct: k.utilizationPct,
     effectiveRatePerActiveDay: k.activeDays > 0 ? k.revenue / k.activeDays : null,
   };

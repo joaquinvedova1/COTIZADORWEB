@@ -13,7 +13,7 @@
 
 import { h, mount } from '../../dom.js';
 import { card, formGrid, emptyState, table, badge, icon, button, confirmDialog } from '../../components.js';
-import { RATE_UNITS } from '../../../domain/catalogs.js';
+import { billingUnitOf } from '../../../domain/billing-units.js';
 import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../../domain/billing-taxes.js';
 import { billingTaxConfigInfo } from '../../../engines/billing-taxes-engine.js';
 import { priceFromMargin, priceFromMarkup, traceMarginVsMarkup } from '../../../engines/pricing-engine.js';
@@ -145,7 +145,11 @@ function companyTaxesActions(ctx) {
 
 export function render(container, ctx) {
   const { quote, kit } = ctx;
-  const unit = RATE_UNITS.find((u) => u.id === quote.unit) || RATE_UNITS[0];
+  const unitInfo = billingUnitOf(quote);
+  // "$/día", "$/hora", "$/mes (abono)" como siempre; "$/m³", "$/viaje", "$/pozo"… (PLAN-2026-009).
+  const unit = { label: unitInfo.legacy ? unitInfo.label : `$/${unitInfo.singular}` };
+  const unitKind = unitInfo.kind;
+  const dayTiers = unitKind === 'day' || unitKind === 'hour';
   const isModeB = quote.pricingMode !== 'known_rate';
   const standbyOff = Boolean(quote.rules && quote.rules.standbyNotApplicable);
 
@@ -244,7 +248,7 @@ export function render(container, ctx) {
   const priceCard = card(
     {},
     kit.stats(
-      kit.stat((r) => (r.kpis.targetMarginInvalid ? 'Precio objetivo' : `Precio para ganar ${formatPercent(r.kpis.targetMarginPct)}`), (r) => perUnitCeil(r.kpis.targetListRate, r.unit), {
+      kit.stat((r) => (r.kpis.targetMarginInvalid ? 'Precio objetivo' : `Precio para ganar ${formatPercent(r.kpis.targetMarginPct)}`), (r) => perUnitCeil(r.kpis.targetListRate, r), {
         trace: targetRateTrace,
         hint: (r) => {
           if (r.kpis.targetMarginInvalid) return 'Sin precio objetivo: revisá el margen.';
@@ -253,9 +257,9 @@ export function render(container, ctx) {
           return `Tarifa de lista, antes de descuentos, sin IVA.${taxes}${net ? ` ${net}` : ''}`;
         },
       }),
-      kit.stat('Tarifa sugerida', (r) => perUnitCeil(r.kpis.suggestedListRate, r.unit), { hint: 'El precio anterior redondeado hacia arriba (nunca baja el margen).', emphasis: true }),
+      kit.stat('Tarifa sugerida', (r) => perUnitCeil(r.kpis.suggestedListRate, r), { hint: 'El precio anterior redondeado hacia arriba (nunca baja el margen).', emphasis: true }),
       kit.toggle(
-        kit.stat((r) => (r.kpis.commercialSource === 'known_rate' ? 'Tu tarifa (de lista)' : 'Tarifa ofrecida (de lista)'), (r) => perUnitMoney(r.kpis.commercialListRate, r.unit), {
+        kit.stat((r) => (r.kpis.commercialSource === 'known_rate' ? 'Tu tarifa (de lista)' : 'Tarifa ofrecida (de lista)'), (r) => perUnitMoney(r.kpis.commercialListRate, r), {
           emphasis: true,
           hint: (r) => (isFiniteNumber(r.kpis.commercialNetRate) ? `Neta después de descuentos: ${formatMoney(r.kpis.commercialNetRate)}` : 'Sin tarifa'),
           trace: (r) => r.traces.expectedResult,
@@ -360,7 +364,7 @@ export function render(container, ctx) {
         })
         : kit.staticField(`Tu tarifa (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', `Elegiste "Sí, ya tengo la tarifa": se edita en "${stepName('modality')}".`),
     ),
-    kit.stat((r) => `${{ known_rate: 'Tu tarifa', offered: 'Tarifa ofrecida', override: 'Tarifa forzada' }[r.kpis.commercialSource] || 'Tarifa sugerida'} (de lista)`, (r) => (r.kpis.commercialSource === 'suggested' ? perUnitCeil(r.kpis.commercialListRate, r.unit) : perUnitMoney(r.kpis.commercialListRate, r.unit)), {
+    kit.stat((r) => `${{ known_rate: 'Tu tarifa', offered: 'Tarifa ofrecida', override: 'Tarifa forzada' }[r.kpis.commercialSource] || 'Tarifa sugerida'} (de lista)`, (r) => (r.kpis.commercialSource === 'suggested' ? perUnitCeil(r.kpis.commercialListRate, r) : perUnitMoney(r.kpis.commercialListRate, r)), {
       emphasis: true,
       hint: (r) => (isFiniteNumber(r.kpis.commercialNetRate) ? `Neta después de descuentos: ${formatMoney(r.kpis.commercialNetRate)}` : 'Sin tarifa'),
       trace: (r) => r.traces.expectedResult,
@@ -368,7 +372,7 @@ export function render(container, ctx) {
   );
 
   // ----------------------------------------------------- reglas comerciales
-  const minimumCallUnit = quote.unit === 'hour' ? 'horas' : 'días';
+  const minimumCallUnit = unitKind === 'hour' ? 'horas' : unitKind === 'quantity' ? unitInfo.plural : 'días';
   const RULE_NAMES = [
     ['availabilityFeeMonthly', 'abono de disponibilidad'],
     ['calloutFeePerActivation', 'cargo por salida'],
@@ -432,9 +436,11 @@ export function render(container, ctx) {
     ),
     ruleRow(
       'Mínimo por llamado (minimum call)',
-      quote.unit === 'month'
+      unitKind === 'month'
         ? 'Con abono mensual no aplica: la facturación no depende de los llamados.'
-        : `Mínimo de ${minimumCallUnit} facturables por llamado, aunque se trabaje menos.`,
+        : unitKind === 'event'
+          ? `Cobrás ${unit.label}: cada ${unitInfo.singular} ya se factura entero, el mínimo por llamado no aplica.`
+          : `Mínimo de ${minimumCallUnit} facturables por llamado, aunque se trabaje menos.`,
       [kit.num('rules.minimumCallUnits', { label: `Mínimo por llamado (${minimumCallUnit})`, rule: 'quantity', unit: minimumCallUnit })],
       kit.out((r) => (r.estimate.revenue.minimumCallApplied ? 'Se está aplicando: suma unidades facturables.' : 'Hoy no cambia la facturación (cada llamado ya supera el mínimo).')),
     ),
@@ -508,7 +514,7 @@ export function render(container, ctx) {
 
   const tierStatus = (r, id) => {
     const d = (r.discounts || []).find((x) => x.id === id);
-    if (!d) return badge(quote.unit === 'month' ? 'No aplica' : 'Sin tarifa', 'gray');
+    if (!d) return badge(!dayTiers ? 'No aplica' : 'Sin tarifa', 'gray');
     const granted = isFiniteNumber(d.discountPct) && d.discountPct > 0;
     // Sin descuento, perder plata es por la actividad (pocos días), no por el tramo.
     const [text, tone] = !granted && d.status === 'red' ? ['Pocos días: pierde plata', 'red'] : DISCOUNT_STATUS[d.status] || DISCOUNT_STATUS.unknown;
@@ -535,7 +541,7 @@ export function render(container, ctx) {
   };
   const activityNote = kit.toggle(
     h('div', { class: 'qe-tip qe-tip-warning' }, icon('alert'), kit.out((r) => minimumActivityText(r) || '', { tag: 'p', allowEmpty: true })),
-    (r) => quote.unit !== 'month' && tierFindings(r).losingByActivity && Boolean(minimumActivityText(r)),
+    (r) => dayTiers && tierFindings(r).losingByActivity && Boolean(minimumActivityText(r)),
   );
   const tiersCard = kit.advanced(
     {
@@ -551,7 +557,8 @@ export function render(container, ctx) {
       },
     },
     h('p', { class: 'qe-note' }, 'Tramos según los días facturables del mes. Semáforo: verde mantiene el margen, naranja queda debajo del objetivo, rojo pierde plata.'),
-    quote.unit === 'month' ? h('p', { class: 'qe-explain' }, 'Con abono mensual los tramos por cantidad de días no se aplican.') : null,
+    unitKind === 'month' ? h('p', { class: 'qe-explain' }, 'Con abono mensual los tramos por cantidad de días no se aplican.') : null,
+    !dayTiers && unitKind !== 'month' ? h('p', { class: 'qe-explain' }, `Cobrás ${unit.label}: los tramos por cantidad de días no se aplican (sólo con tarifa por día u hora).`) : null,
     activityNote,
     tiers.length
       ? table({

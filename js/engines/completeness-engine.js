@@ -14,6 +14,7 @@
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
+import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { contingencyPctOf } from './cost-engine.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent } from '../core/format.js';
@@ -81,8 +82,17 @@ export function evaluateCompleteness(quote = {}) {
     items.push(rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Ya tengo la tarifa" pero falta ingresarla.'));
   }
 
-  // 3. Utilización on-call
-  if (isOnCall || quote.pricingMode === 'known_activity') {
+  // 3. Actividad: por cantidad o evento (m³, viajes, llamados…; PLAN-2026-009) en la unidad comercial.
+  const unit = billingUnitOf(quote);
+  if (unit.kind === 'quantity' || unit.kind === 'event') {
+    const qOk = nonNegative(activity.billableQuantityPerMonth) > 0;
+    const yieldOk = unit.kind !== 'quantity' || nonNegative(activity.unitsPerActiveDay) > 0;
+    const ok = qOk && yieldOk;
+    const texts = unitTexts(unit);
+    items.push(rule('utilization', `${unit.plural.charAt(0).toUpperCase()}${unit.plural.slice(1)} por mes`, 'modality', 2,
+      ok ? 'ok' : 'missing',
+      ok ? `Cantidad por mes definida (${unit.plural}).` : !qOk ? `${texts.quantityQuestion} Falta ese dato.` : `${texts.perDayQuestion} Falta ese dato para calcular los días de trabajo.`));
+  } else if (isOnCall || quote.pricingMode === 'known_activity') {
     const ok = nonNegative(activity.activeDaysPerMonth) > 0;
     items.push(rule('utilization', isOnCall ? 'Días de trabajo por mes' : 'Actividad estimada', 'modality', 2,
       ok ? 'ok' : 'missing',

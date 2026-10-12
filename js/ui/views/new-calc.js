@@ -24,7 +24,7 @@ export const CALC_KINDS = Object.freeze([
     title: 'Servicio',
     text: 'Calculá cuánto cuesta prestar un servicio y cuánto deberías cobrar.',
     examples: 'On-call, cuadrilla, equipo con operador, transporte, llave en mano, abono mensual…',
-    unit: 'Por día, hora, mes o trabajo terminado.',
+    unit: 'Por día, hora, mes, m³, viaje, tonelada o trabajo terminado.',
     href: NEW_SERVICE_HREF,
     icon: 'quote',
   }),

@@ -108,6 +108,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-006 | Recurso maestro ≠ utilización de la cotización: dedicación, asignaciones y externos guardables | utilización, motor de costos, migración | Borrador — concepto aprobado, siguiente paso (sin código) |
 | PLAN-2026-007 | Mantenimiento y neumáticos con forma de carga y avisos de sentido común | motor de costos, migración | Completado (PR #15, v0.4.0 en producción) |
 | PLAN-2026-008 | Costeo de productos: receta, personal con convenio, máquinas, gastos fijos y precio con margen | motor de costos, margen, migración | Completado (v0.5.0) |
+| PLAN-2026-009 | Unidades de facturación según el tipo de servicio: cantidad facturable × precio por unidad | motor de costos, utilización, migración | Completado (v0.6.0) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -664,3 +665,47 @@ Revert del PR. Las cuentas que pasaron a esquema 5 quedarían en sólo lectura e
 - 2026-10-11: impuestos sobre la venta sin decidir → aviso (como en las cotizaciones); "No corresponden" o un % lo resuelven.
 - 2026-10-12 (v0.5.1, sólo UX): pedido del dueño de que productos no quede separado del flujo principal. "+ Nueva cotización" pasa a "+ Nuevo cálculo" (`#/nuevo`, "¿Qué querés calcular?" → Servicio / Producto); Inicio con [Nuevo servicio] [Nuevo producto] y "Tus productos"; bienvenida y textos públicos para servicios y productos. Sin cambios de motores, datos ni RLS.
 
+### PLAN-2026-009 — Unidades de facturación según el tipo de servicio
+
+- Estado: Completado (v0.6.0)
+- Tipo: motor de costos (generalización de la unidad facturable) · utilización / break-even · migración de esquema (5 → 6, sin cambios de datos) · UX ("Cómo se cobra", resultado, "El precio", materiales, listado)
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-12 · Rama: `claude/wonderful-brown-g2ehd6`
+
+#### 1. Contexto y problema
+El dueño detectó una inconsistencia conceptual: eligiendo "Servicio por unidad producida" (m³, toneladas…), "¿En qué unidad cobrás?" sólo ofrecía $/día, $/hora y $/mes. El acoplamiento estaba en todo el motor: los días activos D eran a la vez el driver de costo, la unidad de actividad, la cantidad facturable ($/día), el break-even ("días mínimos"), la matriz, los tramos de descuento y los escenarios.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: TIPO DE SERVICIO → UNIDAD DE FACTURACIÓN → ACTIVIDAD → EQUILIBRIO coherentes. Unidades habituales por tipo (on-call, permanente, cuadrilla, equipos, por unidad producida, transporte, llave en mano / precio cerrado, horas y materiales, configurable) + "Otra / personalizada" siempre; actividad en la unidad comercial ("¿Cuántos m³ esperás facturar por mes?"); cantidad de equilibrio ("6.000 m³ para no perder"); tarifas "/ m³", nunca "/ día" si no se cobra por día; horas y materiales con los materiales facturados aparte.
+- No-objetivos: facturación por hito con calendario, certificaciones de avance, precio por mezcla de unidades en una misma cotización (una tarifa principal por cotización; los materiales aparte en horas y materiales).
+
+#### 3. Impacto en fórmulas (detalle en CALCULATION_RULES §12.1)
+- UNIDAD DE COSTO ≠ UNIDAD DE VENTA: los costos siguen con los días de trabajo D; la facturación es `cantidad facturable × tarifa por unidad`.
+- Por cantidad: `D = Q / max(días por llamado × rendimiento, minimum call) × días por llamado`; cantidad facturable `llamados × max(días por llamado × rendimiento, minimum call)`. Por evento: `D = Q / hitos por trabajo × días por llamado`; facturable `llamados × hitos por trabajo`.
+- Equilibrio: misma búsqueda robusta sobre D (§15) y `cantidad de equilibrio = cantidad facturable(D*)`.
+- Tramos por cantidad de días sólo con $/día y $/hora.
+- Materiales facturados aparte: `costo × (1 + markup de reventa)` suma a los otros ingresos (el costo no cambia).
+- Antes → después: $/día, $/hora y $/mes **sin cambios** (foto de 99 casos idéntica; única diferencia el rótulo "(mess)" → "(meses)"). Caso A: 10.000 m³/mes, 500 m³/día, fijos 30.000.000, variable 1.000.000/día, tarifa 7.000/m³ → antes no se podía expresar; ahora piso 5.000/m³, equilibrio 6.000 m³ (12 días).
+
+#### 4. Impacto en datos
+- `SCHEMA_VERSION` 5 → 6 con `migrateV5ToV6`, que no cambia ni borra datos (una versión anterior abre los datos v6 en sólo lectura y no calcula "por día" una cotización por m³).
+- Campos nuevos opcionales: `quote.unitName`, `activity.billableQuantityPerMonth`, `activity.unitsPerActiveDay`, `activity.unitsPerActivation`, `pricing.materialsBilledSeparately`. `quote.unit` admite los ids de `BILLING_UNITS`.
+- Backup, importación, RLS y Supabase: sin cambios (todo vive en el workspace JSON).
+
+#### 5. Diseño
+Dominio `js/domain/billing-units.js` (catálogo, unidades por tipo, textos y concordancia); motores: `cost-engine` (`activeDaysForQuantity`, `normalizeActivity`), `commercial-rules-engine` (`billableUnits`, `unitHasDayTiers`, materiales aparte), `economics-engine` (`materialsResaleOf`), `quote-engine` (`billableQuantityAt`, cantidad de equilibrio, avisos de unidad), `break-even-engine` (traza en la unidad), `scenario-engine` (actividad en cantidad), `completeness-engine`. UI: `js/ui/unit-text.js` (textos puros); "Tipo de servicio" ajusta la unidad (si no hay tarifa ni mínimo cargados); "Cómo se cobra" con unidades del tipo, unidad propia y actividad en la unidad; resultado, matriz, gráfico, sensibilidad, escenarios, listado y "El precio" en la unidad comercial; Materiales con "Facturo los materiales aparte".
+
+#### 6. Review multidisciplinario
+- Economía: costo con drivers reales; facturación en la unidad; tramos por días no se aplican a otras unidades; materiales aparte siguen siendo costo.
+- QA: cantidad 0, sin rendimiento, negativos, más días que los disponibles, unidad propia sin nombre, unidad no habitual, cambio de unidad con tarifa cargada (sin conversión segura → borrar o cancelar), cambio de tipo de servicio con tarifa (no cambia la unidad y avisa).
+- Seguridad: nombre de unidad saneado (sin caracteres de control, máx. 30) y mostrado con `textContent`; sin dependencias; RLS sin cambios.
+- UX: preguntas en la unidad ("¿Cuántos m³…?", "¿Cuántas toneladas…?"), "m³ para no perder", "Ver cálculo" del equilibrio por unidad.
+
+#### 7. Tests
+Golden A–E (`tests/golden-cases/unidad-*.json`), `tests/engines/billing-units.test.js` (unidades por tipo, llamado, hito, trabajo, unidad propia, km, mínimo por llamado, tramos, materiales aparte, casos extremos, avisos, completitud, escenarios), `tests/ui/unit-text.test.js`, migración v5 → v6. E2E desktop y mobile (Supabase simulado): cuenta v5 → v6 con cotizaciones por día/hora/mes intactas, casos A–E en el resultado y en "El precio", flujo real por unidad producida → $/m³, unidad propia "pozo", horas y materiales.
+
+#### 9. Rollback
+Revert del PR. Las cuentas que pasaron a esquema 6 quedarían en sólo lectura en la versión anterior: restaurar la copia previa (`pre-migration-v5`) o mantener esta versión.
+
+#### Bitácora
+- 2026-10-12: pedido del dueño (unidades según el tipo de servicio, actividad y equilibrio en la unidad, revisar motor y textos). Diagnóstico entregado (acoplamiento a D) e implementado en una iteración; regresión de $/día, $/hora y $/mes idéntica.

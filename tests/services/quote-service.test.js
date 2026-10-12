@@ -119,7 +119,8 @@ describe('QuoteService.createQuote', () => {
     assert.equal(quote.illustrative, false);
 
     // Contenido copiado de la plantilla.
-    assert.deepEqual(quote.activity, { ...template.defaults.activity });
+    // La actividad de la plantilla (y los campos de cantidad de PLAN-2026-009, vacíos).
+    assert.deepEqual(quote.activity, { billableQuantityPerMonth: null, unitsPerActiveDay: null, unitsPerActivation: null, ...template.defaults.activity });
     assert.equal(quote.labor.length, template.defaults.labor.length);
     assert.equal(quote.equipment.length, template.defaults.equipment.length);
     assert.equal(quote.materials.length, template.defaults.materials.length);
