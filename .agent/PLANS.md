@@ -109,6 +109,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-007 | Mantenimiento y neumáticos con forma de carga y avisos de sentido común | motor de costos, migración | Completado (PR #15, v0.4.0 en producción) |
 | PLAN-2026-008 | Costeo de productos: receta, personal con convenio, máquinas, gastos fijos y precio con margen | motor de costos, margen, migración | Completado (v0.5.0) |
 | PLAN-2026-009 | Unidades de facturación según el tipo de servicio: cantidad facturable × precio por unidad | motor de costos, utilización, migración | Completado (v0.6.0) |
+| PLAN-2026-010 | Auditoría y pulido desde una cotización real (COT-0009): financiación de externos con IVA, trazabilidad y UX que evita cotizar mal | motor de costos, margen, migración | Completado (v0.7.0) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -709,3 +710,48 @@ Revert del PR. Las cuentas que pasaron a esquema 6 quedarían en sólo lectura e
 
 #### Bitácora
 - 2026-10-12: pedido del dueño (unidades según el tipo de servicio, actividad y equilibrio en la unidad, revisar motor y textos). Diagnóstico entregado (acoplamiento a D) e implementado en una iteración; regresión de $/día, $/hora y $/mes idéntica.
+
+### PLAN-2026-010 — Auditoría y pulido desde una cotización real (COT-0009)
+
+- Estado: Completado (v0.7.0)
+- Tipo: corrección del motor (financiación de externos) · trazabilidad · UX que puede inducir a cotizar mal · migración de esquema (6 → 7, sin cambios de datos)
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-12 · Rama: `claude/wonderful-brown-g2ehd6`
+
+#### 1. Contexto y problema
+El dueño cargó una cotización real completa (COT-0009, $/m³) y la auditó externamente: **los números cierran**. Pidió auditar y pulir sin rediseñar ni agregar features por agregar, corrigiendo sólo bugs reales, problemas económicos, inconsistencias de trazabilidad y UX que pueda inducir a cotizar mal. El PDF exportado es la evidencia principal; se reconstruyó la cotización (`tests/fixtures/cot-0009.js`, sin datos de cliente) y reproduce todos sus números al peso.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: mantener los valores de COT-0009 (golden `cot-0009-prueba-real.json`) y de toda cotización existente; corregir el bug P0 de financiación; que cada número del reporte tenga "Ver cálculo" y se entienda.
+- No-objetivos: rediseño, índices de actualización / polinómica (se avisa que no se incluyen), cambio automático del modelo de activaciones (ver §5), cálculo de convenios.
+
+#### 3. Impacto en fórmulas (CALCULATION_RULES §3.1, §4.1, §7, §8, §10, §17, §19)
+- **Bug P0 corregido — financiación de externos sobre la salida de caja**: el CostEngine pasaba el costo económico como caja; ahora se financia neto + IVA + percepciones + cargos no recuperables (el IVA recuperable no es costo pero se adelanta). Sin tratamiento fiscal definido nada cambia (COT-0009 y la foto de 99 casos idénticas). Antes → después (pickup 2.800.000/mes, 45 días al 3 %): IVA 21 % recuperable 0 → 26.460; parcial 50 % 14.847 → 28.077; recuperable + percepciones 3 % 0 → 30.240; no recuperable 29.694 sin cambio.
+- Opcionales nuevos que **no cambian** cotizaciones existentes: horas extra por tramos (HE 50 % / 100 % / otro; por día activo o por mes; facturadas aparte = costo + ingreso), estructura desglosada por rubro (+ política de la empresa), comparador de modelos en $/unidad.
+- Sólo presentación: EECC con "Fijo del mes" y "Variable por día de trabajo" (el "$/día activo" mezclaba fijos), eje del gráfico en la unidad, equivalencias operativas, impacto incremental de cada externo (`impact-engine`), severidad de la completitud y banner BORRADOR.
+
+#### 4. Impacto en datos
+- `SCHEMA_VERSION` 6 → 7 con `migrateV6ToV7` (sólo sube la versión): una versión anterior ignoraría en silencio los tramos de HE o la estructura desglosada; así abre los datos v7 en sólo lectura.
+- Campos nuevos opcionales: `labor[].overtime`, `labor[].overtimeBilled`, `indirect.mode`, `indirect.items`, `settings.indirectPolicy`; fuente de base `'offer'`.
+- Backup, importación, RLS y Supabase: sin cambios (workspace JSON).
+
+#### 5. Decisiones y propuestas pendientes del dueño
+- **Activaciones discretas (ítem 4)**: hoy 2.500 m³ / 120 m³ por día / 2 días por intervención = 10,42 salidas: el costo por salida (movilización) es un PROMEDIO. No se cambió el motor (rompería golden cases); se avisa en "Cómo se cobra" cuando las salidas no son enteras. Propuesta: opción explícita por cotización "Cada salida se cuenta completa" (`activationsRounding: 'ceil'`), apagada por defecto, que redondee hacia arriba las salidas para la movilización y los cargos por llamado, con su "Ver cálculo". Requiere aprobación (cambia números cuando se activa).
+- **Plazo de pago de cada proveedor externo** (`external.fiscal.paymentTermDays`): sigue informativo; la financiación usa los días del grupo "Proveedores". Usarlo por línea cambiaría números: propuesta para una próxima iteración.
+- **Contratos de 12 meses (ítem 20)**: aviso visible "Valores constantes a base [mes]. No incluye actualización ni escalación". Índices / polinómica: futuro (no se inventan índices).
+- **Fecha base (ítem 19)**: la base general es el mes de la oferta; cada recurso conserva la suya; los valores sin base se pueden completar con el mes de la oferta sólo después de confirmar la lista (nunca en silencio, nunca pisa una base definida).
+
+#### 6. Review multidisciplinario
+- Economía: la caja financiada incluye el IVA adelantado; el costo económico no cambia; HE facturadas siguen siendo costo; estructura desglosada = suma de rubros; contingencia separada del margen (sin doble conteo).
+- QA: 0 días, sin rendimiento, salidas fraccionarias, externo sin precio (crítico y nombrado, con [Completar] [Quitar]), estructura desglosada sin rubros, plazo de cobro vacío (costo parcial explicado), tasa anual → mensual ÷ 12.
+- Seguridad: sin `innerHTML`; textos con `textContent`; rutas de base asignables por lista blanca (`assignOfferBase`); sin dependencias; RLS sin cambios.
+- UX: BORRADOR con críticos / revisar / informativo; "Duración promedio de cada salida / intervención"; unidad visible en materiales con fórmula; equilibrio con la tarifa usada; texto neutro en estructura.
+
+#### 7. Tests
+Golden `cot-0009-prueba-real.json`; `tests/engines/external-finance.test.js` (recuperable, no recuperable, parcial, percepciones, sin IVA, movilización del proveedor); `tests/engines/audit-cot0009.test.js` (HE por tramos = campo único al centavo, HE por mes y facturadas, estructura desglosada, impacto incremental 3.221.400, comparador por m³, severidades, avisos, BORRADOR, fecha base); `tests/ui/audit-ui.test.js`; migración v6 → v7 y validación v7. Foto de 99 casos idéntica contra `main` (135029f).
+
+#### 9. Rollback
+Revert del PR. Las cuentas que pasaron a esquema 7 quedarían en sólo lectura en la versión anterior: restaurar la copia previa (`pre-migration-v6`) o mantener esta versión.
+
+#### Bitácora
+- 2026-10-12: auditoría de COT-0009 (PDF vs. motor, trazabilidad de cada número); bug P0 de financiación de externos corregido; 22 ítems de pulido implementados sin cambiar los números existentes.

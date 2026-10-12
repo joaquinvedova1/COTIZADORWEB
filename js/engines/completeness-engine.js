@@ -9,6 +9,15 @@
  *   n/a               → no participa
  *
  *   score % = Σ peso obtenido / Σ peso aplicable × 100
+ *
+ * Severidad de cada pendiente (PLAN-2026-010; no cambia el puntaje):
+ *   critical  falta algo que cambia el costo o el precio (externo sin tarifa,
+ *             moneda sin tipo de cambio, actividad o productividad faltante,
+ *             tarifa o margen faltantes)
+ *   review    revisar antes de usar la tarifa (IVA de externos, fechas base,
+ *             contingencia 0, movilización sin definir…)
+ * Además, `notices` lleva avisos INFORMATIVOS que no participan del puntaje
+ * (por ejemplo, equipo propio sin costo de capital).
  */
 
 import { objectList } from '../core/object.js';
@@ -26,6 +35,9 @@ import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
+
+/** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010). */
+const CRITICAL_RULES = Object.freeze(['equipment_cost', 'currency', 'utilization', 'rate', 'margin']);
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
@@ -118,17 +130,23 @@ export function evaluateCompleteness(quote = {}) {
   const extOf = (e) => (isPlainObject(e.external) ? e.external : {});
   const needsEquipment = EQUIPMENT_SERVICE_TYPES.includes(serviceType);
   if (needsEquipment || equipment.length > 0) {
-    const ownOk = equipment.filter((e) => !isExt(e)).every((e) => nonNegative(e.replacementValue) > 0 && nonNegative(e.usefulLifeYears) > 0);
-    const extOk = equipment.filter(isExt).every((e) => nonNegative(extOf(e).price) > 0);
+    // Cuáles líneas están incompletas (PLAN-2026-010): se nombran, nunca se ocultan.
+    const ownMissing = equipment.map((e, index) => ({ e, index })).filter(({ e }) => !isExt(e) && !(nonNegative(e.replacementValue) > 0 && nonNegative(e.usefulLifeYears) > 0));
+    const extMissing = equipment.map((e, index) => ({ e, index })).filter(({ e }) => isExt(e) && !(nonNegative(extOf(e).price) > 0));
+    const ownOk = ownMissing.length === 0;
+    const extOk = extMissing.length === 0;
     const ok = equipment.length > 0 && ownOk && extOk;
-    items.push(rule('equipment_cost', 'Costo de equipos', 'equipment', 2, ok ? 'ok' : 'missing',
+    const names = (list, fallback) => list.map(({ e }) => `"${(typeof e.name === 'string' && e.name.trim()) || fallback}"`).join(', ');
+    const item = rule('equipment_cost', 'Costo de equipos', 'equipment', 2, ok ? 'ok' : 'missing',
       ok
         ? 'Equipos propios con valor de reposición y vida útil; externos con tarifa.'
         : equipment.length === 0
           ? 'El servicio usa equipos pero no hay equipos cargados.'
           : !ownOk
-            ? 'Hay equipos propios sin valor de reposición o sin vida útil (falta su amortización).'
-            : 'Hay equipos alquilados o tercerizados sin tarifa del proveedor.'));
+            ? `Hay equipos propios sin valor de reposición o sin vida útil (falta su amortización): ${names(ownMissing, 'Equipo')}.`
+            : `Hay equipos alquilados o tercerizados sin tarifa del proveedor: ${names(extMissing, 'Recurso externo')}. Completá la tarifa o quitá la línea.`);
+    item.targets = [...ownMissing, ...extMissing].map(({ e, index }) => ({ list: 'equipment', index, name: (typeof e.name === 'string' && e.name.trim()) || 'Equipo' }));
+    items.push(item);
   }
 
   // 7. Combustible
@@ -313,14 +331,18 @@ export function evaluateCompleteness(quote = {}) {
 
   // 10. Estructura
   const indirect = quote.indirect || {};
-  const indirectOk = ['percent_direct', 'percent_labor'].includes(indirect.method) ? nonNegative(indirect.pct) > 0 : nonNegative(indirect.amount) > 0;
+  const itemOk = (it) => (['percent_direct', 'percent_labor'].includes(it.method) ? nonNegative(it.pct) > 0 : nonNegative(it.amount) > 0);
+  // Desglosada por rubro (PLAN-2026-010): alcanza con un rubro con valor.
+  const indirectOk = indirect.mode === 'detailed' && Array.isArray(indirect.items)
+    ? indirect.items.some((it) => it && itemOk(it))
+    : itemOk(indirect);
   items.push(rule('structure', 'Gastos de estructura', 'indirect', 1, indirectOk ? 'ok' : 'warning',
     indirectOk ? 'Absorción de estructura definida.' : 'No se absorbe estructura de empresa (administración, base, seguros generales).'));
 
   // 11. Plazo de pago
   const termOk = !isBlank(finance.paymentTermDays) && Number.isFinite(toNumber(finance.paymentTermDays, NaN));
   items.push(rule('payment_term', 'Plazo de pago', 'finance', 2, termOk ? 'ok' : 'missing',
-    termOk ? 'Plazo de cobro definido.' : 'Plazo de pago sin definir: no se puede calcular el costo financiero.'));
+    termOk ? 'Plazo de cobro definido.' : 'Falta el plazo de cobro para completar el costo financiero: mientras tanto sólo se considera el desfase hasta facturar.'));
 
   // 12. Contingencia
   const contOk = contingencyPctOf(quote.risk || {}) > 0;
@@ -376,7 +398,33 @@ export function evaluateCompleteness(quote = {}) {
     counts[i.status] += 1;
   });
   const scorePct = total > 0 ? (earned / total) * 100 : 0;
+  // Severidad (PLAN-2026-010): crítico si falta algo que cambia el costo o el precio.
+  items.forEach((i) => {
+    i.severity = i.status === 'ok' || i.status === 'n/a' ? null : CRITICAL_RULES.includes(i.id) && i.status === 'missing' ? 'critical' : 'review';
+  });
   const order = { missing: 0, warning: 1, ok: 2 };
-  const pending = items.filter((i) => i.status !== 'ok').sort((a, b) => order[a.status] - order[b.status]);
-  return { scorePct, items, pending, counts };
+  const pending = items.filter((i) => i.status !== 'ok').sort((a, b) => (a.severity === 'critical' ? 0 : 1) - (b.severity === 'critical' ? 0 : 1) || order[a.status] - order[b.status]);
+  // Informativos: no participan del puntaje ni de los pendientes.
+  const notices = [];
+  equipment.forEach((e, index) => {
+    if (!isExt(e) && nonNegative(e.replacementValue) > 0 && !(nonNegative(e.capitalRatePctAnnual) > 0)) {
+      notices.push({
+        id: 'capital_cost',
+        step: 'equipment',
+        severity: 'info',
+        label: 'Costo de capital',
+        message: `Sin costo de capital en "${(typeof e.name === 'string' && e.name.trim()) || 'Equipo'}": RATEOS no está imputando rendimiento ni costo del dinero invertido en este equipo (es opcional y no es la financiación del contrato).`,
+        targets: [{ list: 'equipment', index }],
+      });
+    }
+  });
+  return {
+    scorePct,
+    items,
+    pending,
+    counts,
+    notices,
+    critical: pending.filter((i) => i.severity === 'critical').length,
+    review: pending.filter((i) => i.severity === 'review').length,
+  };
 }

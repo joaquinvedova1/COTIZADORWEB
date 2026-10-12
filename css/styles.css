@@ -782,3 +782,10 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   margin: 0; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);
   background: var(--navy-50); color: var(--navy-900); font-size: var(--fs-sm); line-height: 1.45;
 }
+
+/* PLAN-2026-010: valores sin base o viejos, uno por uno, y "usar el mes de la oferta" (con confirmación). */
+.base-detail { border: 1px solid var(--line-2); border-radius: 8px; padding: 0.5rem 0.75rem; }
+.base-detail > summary { cursor: pointer; font-weight: 600; font-size: 0.875rem; }
+.base-detail-list { margin: 0.5rem 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.875rem; }
+.base-detail-list .is-undefined, .base-detail-list .is-stale { color: var(--orange-text); }
+.base-assign-list { margin: 0.5rem 0 0; padding-left: 1.1rem; max-height: 240px; overflow: auto; }

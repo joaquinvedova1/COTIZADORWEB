@@ -17,8 +17,37 @@ import { laborLineFromProfile } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { nonNegative, isFiniteNumber } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
+import { createId } from '../../../core/ids.js';
 import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
+
+/** Bases de las horas extra (PLAN-2026-010). */
+const OVERTIME_BASIS_OPTIONS = Object.freeze([
+  { value: 'per_active_day', label: 'Horas por día activo' },
+  { value: 'per_month', label: 'Horas promedio por mes (por persona)' },
+]);
+
+/** Tramo de horas extra nuevo (los recargos son presets editables, no normativa). */
+function overtimeItem(premiumPct, label = null, hours = 0, basis = 'per_active_day') {
+  return { id: `ot-${createId().slice(0, 8)}`, label: label || `HE ${premiumPct} %`, premiumPct, hours, basis, billRatePerHour: null };
+}
+
+/**
+ * Monto mensual de cada concepto del puesto con la actividad estimada (PLAN-2026-010):
+ * sueldo + cargas, cada tramo de horas extra, viandas y seguros / EPP / capacitación / traslado.
+ */
+export function laborBreakdown(line, { activeDays = 0, monthsFactor = 1 } = {}) {
+  if (!line) return [];
+  const p = line.perPerson;
+  const out = [{ label: 'Sueldo + cargas', amount: p.loadedRemunerative * line.headcount * monthsFactor }];
+  (line.overtimeItems || []).forEach((o) => {
+    const amount = o.basis === 'per_month' ? o.monthlyPerPerson * line.headcount * monthsFactor : o.perActiveDayPerPosition * line.positions * activeDays;
+    out.push({ label: o.label, amount });
+  });
+  out.push({ label: 'Viandas', amount: line.perPosition.mealPerActiveDay * line.positions * activeDays });
+  out.push({ label: 'Seguros, EPP, capacitación y traslado', amount: p.nonRemunerative * line.headcount * monthsFactor });
+  return out.filter((x) => x.amount > 0.005 || x.label === 'Sueldo + cargas');
+}
 
 /** Parámetros que se copian de un convenio a la línea. */
 export const AGREEMENT_PARAM_KEYS = Object.freeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
@@ -44,8 +73,7 @@ function laborTrace(result, index, source) {
       { label: 'Posiciones a cubrir', value: line.positions, format: 'number' },
       { label: 'Personas por posición (relevos)', value: line.peoplePerPosition, format: 'number' },
       { label: 'Horas normales por mes', value: nonNegative(src.normalHoursPerMonth), format: 'hours' },
-      { label: 'Horas extra por día activo', value: nonNegative(src.overtimeHoursPerActiveDay), format: 'hours' },
-      { label: 'Recargo de horas extra', value: nonNegative(src.overtimePremiumPct), format: 'percent' },
+      ...(line.overtimeItems || []).map((o) => ({ label: `${o.label}: horas ${o.basis === 'per_month' ? 'por mes (por persona)' : 'por día activo'} con recargo ${formatPercent(o.premiumPct)}`, value: o.hours, format: 'hours' })),
       { label: 'Vianda por día activo', value: line.perPosition.mealPerActiveDay, format: 'money' },
     ],
     steps: [
@@ -54,11 +82,17 @@ function laborTrace(result, index, source) {
       { label: 'Seguros + EPP + capacitación + traslado', value: p.nonRemunerative, format: 'money' },
       { label: 'Costo mensual por persona', value: p.fixedMonthly, format: 'money' },
       { label: 'Dotación (personas)', value: line.headcount, format: 'number' },
-      { label: 'Valor hora extra (sin cargas)', value: p.overtimeHourly, format: 'rate' },
+      ...(line.overtimeItems || []).map((o) => ({ label: `${o.label}: valor hora con recargo y cargas`, value: o.hourlyCost, format: 'rate' })),
+      ...(p.overtimeMonthly > 0 ? [{ label: 'Horas extra por mes (fijo, por persona)', value: p.overtimeMonthly, format: 'money' }] : []),
       { label: 'Variable por día activo (todas las posiciones)', value: line.variablePerActiveDay, format: 'money' },
+      ...(line.overtimeBilling ? [{ label: 'Horas extra facturadas al cliente: ingreso por día activo', value: line.overtimeBilling.perActiveDay, format: 'money' }, { label: 'Horas extra facturadas al cliente: ingreso fijo del mes', value: line.overtimeBilling.fixedMonthly, format: 'money' }] : []),
     ],
     result: { label: 'Fijo mensual total del puesto', value: line.fixedMonthly, format: 'money' },
-    notes: ['Los porcentajes de convenio son parámetros que cargás vos: los de la demostración son ILUSTRATIVOS, no valores de ningún CCT.'],
+    notes: [
+      'Hora extra = (básico ÷ horas normales) × (1 + recargo) × factor de cargas. Las horas por día activo son costo variable; las horas promedio por mes, fijo del mes.',
+      line.overtimeBilling ? 'Las horas extra que facturás aparte siguen siendo costo: además suman ingreso (horas × precio por hora).' : null,
+      'Los porcentajes de convenio son parámetros que cargás vos: los de la demostración son ILUSTRATIVOS, no valores de ningún CCT.',
+    ],
   });
 }
 
@@ -153,6 +187,70 @@ export function render(container, ctx) {
     ['ART', line.artPct],
   ].map(([label, v]) => `${label} ${hasNumber(v) ? formatPercent(Number(v)) : 'sin cargar'}`).join(' · ');
 
+  /**
+   * Horas extra por tramos (PLAN-2026-010): HE 50 %, HE 100 % u otro recargo,
+   * por día activo o promedio por mes, y si se facturan aparte. Los recargos
+   * son presets editables (no normativa). Agregar el primer tramo convierte el
+   * campo único (mismas horas y recargo: mismo costo).
+   */
+  function overtimeEditor(i, line) {
+    const p = `labor.${i}`;
+    const items = Array.isArray(line.overtime) ? line.overtime : null;
+    const addTier = (premiumPct, label = null) => ctx.mutate((q) => {
+      const l = q.labor[i];
+      if (!Array.isArray(l.overtime)) {
+        const legacyHours = Number(l.overtimeHoursPerActiveDay) || 0;
+        const legacyPremium = Number(l.overtimePremiumPct) || 0;
+        l.overtime = legacyHours > 0 ? [overtimeItem(legacyPremium, `HE ${legacyPremium} %`, legacyHours, 'per_active_day')] : [];
+        l.overtimeHoursPerActiveDay = 0;
+      }
+      l.overtime.push(overtimeItem(premiumPct, label));
+    }, { focus: `${p}.overtime.${(items ? items.length : (Number(line.overtimeHoursPerActiveDay) > 0 ? 1 : 0))}.hours` });
+    const removeTier = (j) => ctx.mutate((q) => {
+      q.labor[i].overtime.splice(j, 1);
+    });
+    const rows = items
+      ? items.map((o, j) => h(
+        'div',
+        { class: 'qe-ot-row' },
+        formGrid(
+          line.overtimeBilled === true ? 4 : 3,
+          kit.text(`${p}.overtime.${j}.label`, { label: 'Concepto', maxLength: 60, placeholder: 'Ej.: HE 50 %' }),
+          kit.num(`${p}.overtime.${j}.premiumPct`, { label: 'Recargo', rule: 'percentOpen', unit: '%' }),
+          kit.num(`${p}.overtime.${j}.hours`, { label: 'Horas', rule: 'hours', unit: kit.out(() => ((quote.labor[i] && quote.labor[i].overtime && quote.labor[i].overtime[j] && quote.labor[i].overtime[j].basis) === 'per_month' ? 'h/mes' : 'h/día')) }),
+          line.overtimeBilled === true ? kit.num(`${p}.overtime.${j}.billRatePerHour`, { label: 'Precio por hora al cliente', rule: 'money', unit: '$/h', hint: 'Lo que le cobrás por cada hora extra (sin IVA).' }) : null,
+        ),
+        h(
+          'div',
+          { class: 'qe-toolbar' },
+          kit.select(`${p}.overtime.${j}.basis`, { label: '¿Cómo la estimás?', options: OVERTIME_BASIS_OPTIONS, structural: true }),
+          kit.action('Quitar tramo', () => removeTier(j), { variant: 'ghost', icon: 'trash' }),
+        ),
+      ))
+      : [];
+    return h(
+      'div',
+      { class: 'qe-ot' },
+      h('p', { class: 'qe-note' }, 'Horas extra por tramo: cada una con su recargo (los 50 % y 100 % son valores de partida editables, no normativa). Por día activo son costo variable; las horas promedio por mes, fijo del mes.'),
+      ...rows,
+      h(
+        'div',
+        { class: 'qe-toolbar' },
+        kit.action('HE 50 %', () => addTier(50), { icon: 'plus' }),
+        kit.action('HE 100 %', () => addTier(100), { icon: 'plus' }),
+        kit.action('Otro recargo', () => addTier(0, 'Otro recargo'), { icon: 'plus' }),
+      ),
+      kit.check(`${p}.overtimeBilled`, {
+        label: '¿Estas horas extra se facturan aparte al cliente?',
+        structural: true,
+        hint: 'Si se facturan aparte, siguen siendo costo y además suman ingreso: horas × precio por hora de cada tramo.',
+      }),
+      line.overtimeBilled === true && !items
+        ? h('p', { class: 'qe-warn' }, 'Para facturarlas aparte agregá los tramos (HE 50 %, HE 100 % u otro) y el precio por hora de cada uno.')
+        : null,
+    );
+  }
+
   // -------------------------------------------------------------- líneas
   const lineCards = lines.map((line, i) => {
     const p = `labor.${i}`;
@@ -197,7 +295,10 @@ export function render(container, ctx) {
           const l = at(r);
           if (!l) return '';
           const variable = l.variablePerActiveDay > 0 ? ` + ${formatMoney(l.variablePerActiveDay)} por día activo (horas extra y vianda)` : '';
-          return `${formatMoney(l.perPerson.fixedMonthly)} por persona con cargas${variable}.`;
+          // Desglose del mes (PLAN-2026-010): sueldo + cargas, HE por tramo, viandas, seguros/EPP.
+          const D = r.activity.activeDaysPerMonth;
+          const parts = laborBreakdown(l, { activeDays: D }).map((x) => `${x.label} ${formatMoney(x.amount)}`).join(' · ');
+          return `${formatMoney(l.perPerson.fixedMonthly)} por persona con cargas${variable}. En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.`;
         },
         trace: (r) => laborTrace(r, i, quote.labor[i]),
       }),
@@ -209,7 +310,9 @@ export function render(container, ctx) {
             const l = at(r);
             const factor = l ? ` → factor × ${formatNumber(l.perPerson.loadFactor, { decimals: 4 })}` : '';
             const extras = [
-              hasNumber(current.overtimeHoursPerActiveDay) && Number(current.overtimeHoursPerActiveDay) > 0 ? `${formatNumber(Number(current.overtimeHoursPerActiveDay), { decimals: 2 })} h extra por día` : 'sin horas extra',
+              l && l.overtimeItems && l.overtimeItems.length
+                ? l.overtimeItems.map((o) => `${o.label} ${formatNumber(o.hours, { decimals: 2 })} h ${o.basis === 'per_month' ? 'por mes' : 'por día'}`).join(', ') + (current.overtimeBilled === true ? ' (se facturan aparte)' : '')
+                : 'sin horas extra',
               hasNumber(current.mealPerActiveDay) && Number(current.mealPerActiveDay) > 0 ? `vianda ${formatMoney(Number(current.mealPerActiveDay))}/día` : null,
               l && l.perPerson.nonRemunerative > 0 ? `seguros, EPP, capacitación y traslado ${formatMoney(l.perPerson.nonRemunerative)}/mes` : null,
             ].filter(Boolean).join(' · ');
@@ -239,9 +342,11 @@ export function render(container, ctx) {
           formGrid(
             3,
             kit.num(`${p}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h/mes', illustrative: illustrativeParam(line, 'normalHoursPerMonth') }),
-            kit.num(`${p}.overtimeHoursPerActiveDay`, { label: 'Horas extra por día activo', rule: 'hoursPerDay', unit: 'h/día', illustrative }),
-            kit.num(`${p}.overtimePremiumPct`, { label: 'Recargo de horas extra', rule: 'percentOpen', unit: '%', illustrative: illustrativeParam(line, 'overtimePremiumPct') }),
+            // Sin tramos: el campo único de siempre (horas por día + un recargo).
+            Array.isArray(line.overtime) ? null : kit.num(`${p}.overtimeHoursPerActiveDay`, { label: 'Horas extra por día activo', rule: 'hoursPerDay', unit: 'h/día', illustrative }),
+            kit.num(`${p}.overtimePremiumPct`, { label: Array.isArray(line.overtime) ? 'Recargo de convenio (referencia)' : 'Recargo de horas extra', rule: 'percentOpen', unit: '%', illustrative: illustrativeParam(line, 'overtimePremiumPct'), hint: Array.isArray(line.overtime) ? 'Se usa al aplicar el convenio; cada tramo tiene su recargo.' : null }),
           ),
+          overtimeEditor(i, line),
         ),
         kit.group(
           'Otros costos por persona',
@@ -261,7 +366,7 @@ export function render(container, ctx) {
             kit.stat('Costo mensual por persona', (r) => formatMoney(at(r) && at(r).perPerson.fixedMonthly)),
             kit.stat('Dotación (personas)', (r) => formatNumber(at(r) && at(r).headcount, { decimals: 2 })),
             kit.stat('Fijo mensual total', (r) => formatMoney(at(r) && at(r).fixedMonthly), { emphasis: true }),
-            kit.stat('Variable por día activo', (r) => formatMoney(at(r) && at(r).variablePerActiveDay), { hint: 'Horas extra con cargas + vianda.' }),
+            kit.stat('Variable por día activo', (r) => formatMoney(at(r) && at(r).variablePerActiveDay), { hint: 'Horas extra por día con cargas + vianda.' }),
             kit.stat('Costo hora cargado', (r) => formatMoney(at(r) && at(r).perPerson.loadedHourlyCost), { hint: 'Costo por persona ÷ horas normales.' }),
             kit.stat('Factor de cargas', (r) => {
               const l = at(r);

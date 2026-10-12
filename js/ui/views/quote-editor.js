@@ -1101,8 +1101,9 @@ function buildSummary({ getResult, stepHref }) {
       hint: (r) => {
         const be = r.breakEven || {};
         if (be.notApplicable || !be.reachable) return be.reason || '';
-        if (isQuantityUnit(r)) return `${workDaysText(be.days)} · estimás ${quantityText(r.kpis.billableQuantity, r)} (break-even).`;
-        return `Mínimo ${formatNumber(be.wholeDays)} días enteros · estimás ${formatNumber(r.kpis.activeDays, { decimals: 2 })} (break-even).`;
+        const rate = isFiniteNumber(r.kpis.commercialListRate) ? `A ${chargedRateLabel(r).toLowerCase()} de ${formatMoney(r.kpis.commercialListRate)} / ${unitShort(r)} · ` : '';
+        if (isQuantityUnit(r)) return `${rate}${workDaysText(be.days)} · estimás ${quantityText(r.kpis.billableQuantity, r)} (break-even).`;
+        return `${rate}mínimo ${formatNumber(be.wholeDays)} días enteros · estimás ${formatNumber(r.kpis.activeDays, { decimals: 2 })} (break-even).`;
       },
       tone: breakEvenTone,
       trace: (r) => r.traces.breakEven,
@@ -1262,7 +1263,8 @@ function buildSummary({ getResult, stepHref }) {
         row.unitEl.textContent = unit && unit !== EMPTY ? ` ${unit}` : '';
         if (row.compactEl) {
           const compact = resolve(row.compact, r) || EMPTY;
-          row.compactNum.textContent = compact;
+          // Un número abreviado no se corta ("$ 15,8 M"); un texto ("No se alcanza") puede ocupar dos renglones.
+          row.compactNum.textContent = /\d/.test(compact) ? compact.replace(/ /g, '\u00a0') : compact;
           row.compactUnit.textContent = compact !== EMPTY && unit && unit !== EMPTY ? unit.replace('/ ', '/') : '';
         }
         const hint = resolve(row.hint, r);
@@ -1279,9 +1281,10 @@ function buildSummary({ getResult, stepHref }) {
       bar.className = `progress progress-${completenessColor(pct)}`;
       bar.setAttribute('aria-valuenow', String(Math.round(v)));
       const pending = (r.completeness && r.completeness.pending) || [];
+      const critical = pending.filter((p) => p.severity === 'critical').length;
       moreHint.textContent = pending.length === 0
         ? 'Precio para tu margen, resultado y margen esperados.'
-        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos · resultado y margen esperados.`;
+        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · resultado y margen esperados.`;
       if (pending.length === 0) {
         mount(pendingEl, h('li', { class: 'qe-pending-ok' }, h('span', { class: 'dot dot-green', 'aria-hidden': 'true' }), 'No hay pendientes de costos.'));
       } else {

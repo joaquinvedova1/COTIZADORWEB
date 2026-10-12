@@ -434,12 +434,19 @@ export function render(container, ctx) {
         const mob = r.model.mobilization ? r.model.mobilization.perActivation : 0;
         const perActivation = r.model.logistics.costPerActivation + mob;
         const split = mob > 0 ? ` (movilización de equipos ${formatMoney(mob)} + logística auxiliar ${formatMoney(r.model.logistics.costPerActivation)})` : '';
-        return `${share}${formatMoney(perActivation)} por llamado${split} × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} llamados por mes.`;
+        return `${share}${formatMoney(perActivation)} por salida o llamado${split} × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} salidas por mes.`;
       },
       trace: (r) => r.traces.logistics,
       className: 'qe-keyline-total',
     });
 
+  // Detalle de km y litros (PLAN-2026-010): A. movilización de los equipos
+  // principales, B. logística auxiliar (vehículos de apoyo), C. total. Los
+  // montos son los mismos del costo (no se suman dos veces).
+  const mobOf = (r) => r.model.mobilization || { kmPerActivation: 0, litersPerActivation: 0, fuelPerActivation: 0, wearPerActivation: 0, perActivation: 0, routeKmPerActivation: 0 };
+  const activationsOf = (r) => r.model.logistics.activationsPerMonth;
+  const perMonth = (r, v) => v * activationsOf(r);
+  const salidas = (r) => `${formatNumber(activationsOf(r), { decimals: 2 })} ${Math.abs(activationsOf(r) - 1) < 1e-9 ? 'salida' : 'salidas'} por mes`;
   const resultsDetail = notApplicable
     ? null
     : kit.advanced(
@@ -448,17 +455,44 @@ export function render(container, ctx) {
         title: 'Ver detalle de kilómetros y litros',
         variant: 'detail',
         boxed: true,
-        summary: (r) => `${formatValue(r.model.logistics.kmPerMonth, 'km')} y ${formatValue(r.model.logistics.litersPerMonth, 'liters')} por mes.`,
+        summary: (r) => {
+          const m = mobOf(r);
+          const km = perMonth(r, m.kmPerActivation) + r.model.logistics.kmPerMonth;
+          const liters = perMonth(r, m.litersPerActivation) + r.model.logistics.litersPerMonth;
+          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} por mes (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos auxiliares ${formatValue(r.model.logistics.kmPerMonth, 'km')}) · ${salidas(r)}.`;
+        },
       },
-      kit.stats(
-        kit.stat('Km de ruta por llamado', (r) => formatValue(r.model.logistics.routeKmPerActivation, 'km'), { hint: 'Distancia × (ida y vuelta) × viajes.' }),
-        kit.stat('Km de vehículos', (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `Por llamado · ${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
-        kit.stat('Litros', (r) => formatValue(r.model.logistics.litersPerActivation, 'liters'), { hint: (r) => `Por llamado · ${formatValue(r.model.logistics.litersPerMonth, 'liters')} por mes` }),
-        kit.stat('Costo por llamado', (r) => formatMoney(r.model.logistics.costPerActivation), { hint: (r) => `${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} viajes o llamados por mes` }),
-        kit.stat('Costo logístico mensual', (r) => formatMoney(r.kpis.logisticsMonthly), { emphasis: true, trace: (r) => r.traces.logistics }),
-        kit.stat('Incidencia sobre el costo total', (r) => formatPercent(r.kpis.logisticsIncidencePct), { hint: 'Combustible de traslados + desgaste + peajes + viáticos.' }),
+      kit.group(
+        'A. Movilización de los equipos principales',
+        kit.stats(
+          kit.stat('Salidas por mes', (r) => formatNumber(activationsOf(r), { decimals: 2 }), { hint: 'Días de trabajo ÷ días por salida o intervención.' }),
+          kit.stat('Km por salida', (r) => formatValue(mobOf(r).kmPerActivation, 'km'), { hint: (r) => `Ruta de ${formatValue(mobOf(r).routeKmPerActivation, 'km')} por salida × equipos que van por sus medios.` }),
+          kit.stat('Km por mes', (r) => formatValue(perMonth(r, mobOf(r).kmPerActivation), 'km')),
+          kit.stat('Litros por mes', (r) => formatValue(perMonth(r, mobOf(r).litersPerActivation), 'liters'), { hint: (r) => `${formatValue(mobOf(r).litersPerActivation, 'liters')} por salida (consumo en ruta).` }),
+          kit.stat('Combustible por mes', (r) => formatMoney(perMonth(r, mobOf(r).fuelPerActivation))),
+          kit.stat('Desgaste por mes', (r) => formatMoney(perMonth(r, mobOf(r).wearPerActivation)), { hint: 'Mantenimiento y neumáticos por km (sin amortización).' }),
+          kit.stat('Costo mensual de movilización', (r) => formatMoney(perMonth(r, mobOf(r).perActivation)), { emphasis: true }),
+        ),
       ),
-      h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística".')),
+      kit.group(
+        'B. Vehículos y logística auxiliar',
+        kit.stats(
+          kit.stat('Km de vehículos por salida', (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
+          kit.stat('Litros por mes', (r) => formatValue(r.model.logistics.litersPerMonth, 'liters'), { hint: (r) => `${formatValue(r.model.logistics.litersPerActivation, 'liters')} por salida` }),
+          kit.stat('Costo por salida', (r) => formatMoney(r.model.logistics.costPerActivation), { hint: 'Combustible + desgaste + peajes + viáticos.' }),
+          kit.stat('Costo mensual auxiliar', (r) => formatMoney(r.model.logistics.monthlyCost), { emphasis: true }),
+        ),
+      ),
+      kit.group(
+        'C. Total',
+        kit.stats(
+          kit.stat('Km por mes', (r) => formatValue(perMonth(r, mobOf(r).kmPerActivation) + r.model.logistics.kmPerMonth, 'km')),
+          kit.stat('Litros por mes', (r) => formatValue(perMonth(r, mobOf(r).litersPerActivation) + r.model.logistics.litersPerMonth, 'liters')),
+          kit.stat('Costo mensual de movilización y viajes', (r) => formatMoney(r.kpis.logisticsMonthly), { emphasis: true, trace: (r) => r.traces.logistics }),
+          kit.stat('Incidencia sobre el costo total', (r) => formatPercent(r.kpis.logisticsIncidencePct), { hint: 'Movilización de equipos + logística auxiliar.' }),
+        ),
+      ),
+      h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de la movilización y de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística". Cada costo está en un solo lugar.')),
     );
 
   mount(container, toggleCard, routeCard, mobilizationCard, vehiclesCard, fuelCard, advancedCard, keyline, resultsDetail);

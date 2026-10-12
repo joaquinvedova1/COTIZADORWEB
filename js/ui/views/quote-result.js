@@ -71,7 +71,7 @@ import {
   toast as componentToast,
   barList,
 } from '../components.js';
-import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, EMPTY } from '../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { createTrace } from '../../core/trace.js';
 import { track } from '../../core/events.js';
@@ -104,6 +104,7 @@ import {
   discountWords,
   comparatorNote,
   completenessExampleNote,
+  draftBannerText,
 } from '../result-text.js';
 
 // ------------------------------------------------------------------ constantes
@@ -301,6 +302,11 @@ function estimateActivity(v, decimals = 2) {
 function breakEvenText(v, be) {
   if (!byQty(v)) return activeDaysText(be.days, dayDecimals(be.days));
   return quantityCeilText(be.quantity, v.r);
+}
+
+/** "a la tarifa sugerida de $ 14.000 / m³": con qué tarifa se calcula el equilibrio (PLAN-2026-010). */
+function atRateText(v) {
+  return hasRate(v.k) ? `a ${theRate(v.k)} de ${commercialRate(v.k, v.unitLabel)}` : '';
 }
 
 /** " Estimás 10.000 m³: tenés un colchón de 4.000 m³ sobre el mínimo." (o, en días, cushionText). */
@@ -717,6 +723,25 @@ function traceRateForMargin(v, row) {
 function traceEquivalents(v) {
   const { r, k } = v;
   const activity = r.activity || {};
+  if (byQty(v)) {
+    return createTrace({
+      id: 'rate_equivalents',
+      title: `Equivalencias operativas de ${theRate(k)}`,
+      formula: `$ por día de trabajo = tarifa por ${r.unitInfo.singular} × ${r.unitInfo.plural} facturados por día de trabajo · $ por hora de trabajo = $ por día ÷ horas por día · $/mes = facturación del mes con la actividad estimada`,
+      inputs: [
+        { label: `${commercialName(k)} de lista (por ${v.unitLabel})`, value: k.commercialListRate, format: 'money' },
+        { label: `${capitalizeUnitPhrase(r.unitInfo.plural)} por mes`, value: k.billableQuantity, format: 'number' },
+        { label: 'Días de trabajo por mes', value: k.activeDays, format: 'days' },
+        { label: 'Horas por día de trabajo', value: activity.hoursPerActiveDay, format: 'hours' },
+      ],
+      steps: [
+        { label: '$ por día de trabajo', value: r.equivalents && r.equivalents.perDay, format: 'money' },
+        { label: '$ por hora de trabajo', value: r.equivalents && r.equivalents.perHour, format: 'money' },
+      ],
+      result: { label: 'Facturación mensual estimada', value: r.equivalents && r.equivalents.perMonth, format: 'money' },
+      notes: [`Son equivalencias OPERATIVAS para comparar: no son unidades del contrato. Cobrás por ${r.unitInfo.singular}.`],
+    });
+  }
   return createTrace({
     id: 'rate_equivalents',
     title: `Equivalencias de ${theRate(k)}`,
@@ -999,11 +1024,7 @@ function criticalAlerts(v) {
     out.push(alertLine('warning', 'Faltan los impuestos sobre lo que facturás.', 'La tarifa piso y la sugerida no incluyen Ingresos Brutos, impuesto al cheque ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí no incluirlos en esta cotización.',
       stepLink(v.q, 'margin', 'Ir a "El precio"')));
   }
-  if (k.incomplete) {
-    const score = r.completeness ? r.completeness.scorePct : null;
-    out.push(alertLine('warning', 'Puede faltar algún costo.', `Costos cargados: ${pct(score, 0)}. Revisá lo que suele quedar afuera antes de cotizar.`,
-      button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } })));
-  }
+  // "Puede faltar algún costo" ahora es el banner de BORRADOR arriba del resultado (PLAN-2026-010).
   // Lo que ya es una alerta arriba (margen inválido, impuestos) no se repite acá:
   // esos valores NO se reemplazan por 0 (el margen inválido deja sin precio objetivo).
   // Avisos de la unidad de cobro (PLAN-2026-009): no reemplazan valores, van aparte.
@@ -1101,7 +1122,7 @@ function heroKnownRate(v) {
       byQty(v) ? heroItem({
         label: unitTextsOf(r).breakEvenLabel,
         value: be.reachable ? quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
-        hint: be.reachable ? `Cantidad de equilibrio por mes: ${workDaysText(be.days, { decimals: 2 })}.` : be.reason || null,
+        hint: be.reachable ? `Por mes, ${atRateText(v)} (${workDaysText(be.days, { decimals: 2 })}).` : be.reason || null,
         trace: r.traces && r.traces.breakEven,
         tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
@@ -1109,7 +1130,7 @@ function heroKnownRate(v) {
       byQty(v) ? null : heroItem({
         label: 'Días mínimos para no perder plata',
         value: be.reachable ? wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
-        hint: be.reachable ? `Break-even exacto: ${formatDays(be.days)} por mes.` : be.reason || null,
+        hint: be.reachable ? `Break-even exacto: ${formatDays(be.days)} por mes, ${atRateText(v)}.` : be.reason || null,
         trace: r.traces && r.traces.breakEven,
         tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
@@ -1322,8 +1343,8 @@ function kpiGrid(v) {
       else if (be.notApplicable) beValue = 'No aplica';
       else if (rateOk) beValue = 'No se alcanza';
       const beHint = byQty(v)
-        ? (be.reachable ? `${unitTextsOf(r).breakEvenLabel} (${workDaysText(be.days)})` : unitTextsOf(r).breakEvenLabel)
-        : be.reachable ? `Días mínimos para no perder plata (${wholeDays(be.wholeDays)} enteros)` : 'Días mínimos para no perder plata';
+        ? (be.reachable ? `${unitTextsOf(r).breakEvenLabel} ${atRateText(v)} (${workDaysText(be.days)})` : unitTextsOf(r).breakEvenLabel)
+        : be.reachable ? `Días mínimos para no perder plata ${atRateText(v)} (${wholeDays(be.wholeDays)} enteros)` : 'Días mínimos para no perder plata';
       items.push(kpiItem({
         label: 'Break-even',
         value: beValue,
@@ -1344,12 +1365,12 @@ function equivalentsBlock(v) {
   if (!hasRate(v.k)) return null;
   const item = (label, value) => h('div', { class: 'qr-equiv-item' }, h('span', { class: 'qr-equiv-label' }, label), h('strong', { class: 'qr-equiv-value' }, money(value)));
   return h('div', { class: 'qr-equiv' },
-    h('div', { class: 'qr-equiv-title' }, `Equivalencias de ${theRate(v.k)}`),
+    h('div', { class: 'qr-equiv-title' }, byQty(v) ? `Equivalencias operativas de ${theRate(v.k)} (no son unidades del contrato)` : `Equivalencias de ${theRate(v.k)}`),
     h('div', { class: 'qr-equiv-items' },
       item(byQty(v) ? '$ por hora de trabajo' : '$ por hora', e.perHour),
       item(byQty(v) ? '$ por día de trabajo' : '$ por día', e.perDay),
       item('Facturación del mes', e.perMonth)),
-    lazyTraceButton(() => traceEquivalents(v), `Equivalencias de ${theRate(v.k)}`));
+    lazyTraceButton(() => traceEquivalents(v), byQty(v) ? `Equivalencias operativas de ${theRate(v.k)}` : `Equivalencias de ${theRate(v.k)}`));
 }
 
 /** Insignia ILUSTRATIVO: la cotización entera o algunos de sus valores son de demostración. */
@@ -1641,6 +1662,30 @@ function quoteSubtitle(q) {
   return [q.name, q.client].filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()).join(' · ');
 }
 
+/**
+ * BORRADOR (PLAN-2026-010): si quedan pendientes críticos o para revisar, se
+ * avisa ARRIBA de los números (no abajo, donde se pierde). Los informativos
+ * no cuentan. Se imprime: un PDF con pendientes sale marcado como borrador.
+ */
+function draftBanner(v) {
+  const { r, q } = v;
+  const c = r.completeness || {};
+  const info = draftBannerText({ critical: c.critical, review: c.review });
+  if (!info) return null;
+  const pending = Array.isArray(c.pending) ? c.pending.filter((i) => i.severity === 'critical' || i.severity === 'review') : [];
+  const example = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount: pending.length });
+  const node = alertLine(info.tone, info.title, `${info.text} Costos cargados: ${pct(c.scorePct, 0)}.${example ? ` ${example}` : ''}`,
+    button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
+  node.classList.add('qr-draft');
+  const critical = pending.filter((i) => i.severity === 'critical');
+  // La lista va dentro del texto del aviso (no como otra columna del banner).
+  const body = node.querySelector(':scope > div:not(.qr-alert-action)');
+  if (critical.length && body) {
+    body.appendChild(h('ul', { class: 'qr-draft-list' }, ...critical.slice(0, 4).map((i) => h('li', {}, h('strong', {}, `${i.label}: `), String(i.message || '')))));
+  }
+  return node;
+}
+
 /** 1. Resultado: las cuatro respuestas, la frase de los días y las alertas críticas. */
 function renderSummary(v) {
   const { q, r } = v;
@@ -1648,6 +1693,7 @@ function renderSummary(v) {
   const titleId = uniqueId('qr-summary-title');
   const sub = quoteSubtitle(q);
   const alerts = criticalAlerts(v);
+  const draft = draftBanner(v);
   return h('section', { class: 'qr-summary', id: v.ids.summary, 'aria-labelledby': titleId },
     h('div', { class: 'qr-summary-head' },
       h('div', { class: 'qr-summary-titles' },
@@ -1656,6 +1702,7 @@ function renderSummary(v) {
       h('div', { class: 'qr-summary-badges' },
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
+    draft,
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
     workBlock(v),
@@ -1811,7 +1858,8 @@ function renderAppropriation(v) {
         h('div', { class: 'qr-base-item' }, h('dt', {}, 'Costo'), h('dd', {}, money(c.contract.cost))),
         h('div', { class: 'qr-base-item' }, h('dt', {}, 'Impuestos sobre lo que facturás'), h('dd', {}, money(c.contract.billingTaxes))),
         h('div', { class: ['qr-base-item', c.loss ? 'qr-tone-red' : taxesLabel ? 'qr-tone-orange' : 'qr-tone-green'] }, h('dt', {}, c.loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)'), h('dd', {}, money(c.contract.profit)))),
-      note('Estimación con la misma actividad todos los meses y sin ajustes por índices.'))
+      // Valores constantes (PLAN-2026-010): sin escalación ni índices; muy visible.
+      banner(`Valores constantes a base ${v.r.economicBase && v.r.economicBase.offerPeriod ? formatPeriodLong(v.r.economicBase.offerPeriod) : 'de la oferta (sin fecha de la oferta)'}: el total multiplica el mes por ${formatNumber(months)} con la misma actividad todos los meses. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }))
     : null;
   return card(header,
     tbl,
@@ -1853,21 +1901,24 @@ function renderCostStructure(v) {
   const columns = [
     { key: 'label', label: 'Categoría' },
     { key: 'amount', label: abbrHeader('Monto mes', 'Monto mensual'), align: 'right', render: (row) => money(row.amount) },
-    { key: 'perActiveDay', label: abbrHeader('$/día activo', 'Pesos por día activo'), align: 'right', render: (row) => money(row.perActiveDay) },
+    // Fijo y variable por separado (PLAN-2026-010): "monto ÷ días" incluía los fijos
+    // y parecía un costo variable por día.
+    { key: 'fixedMonthly', label: abbrHeader('Fijo del mes', 'Parte fija del mes: se paga igual aunque trabajes menos'), align: 'right', render: (row) => money(row.fixedMonthly) },
+    { key: 'variablePerActiveDay', label: abbrHeader('Variable por día', 'Costo variable por día de trabajo: cambia con la actividad'), align: 'right', render: (row) => money(row.variablePerActiveDay) },
     { key: 'displayPct', label: abbrHeader('Incid. %', 'Incidencia sobre el costo total'), align: 'right', render: (row) => pct(row.displayPct) },
   ];
   const tbl = regionTable(v, {
     columns,
     rows,
     rowClass: (row) => (row.amount > 0 ? null : 'row-muted'),
-    footer: { label: 'TOTAL', amount: money(e.total), perActiveDay: money(k.costPerActiveDay), displayPct: pct(e.displayTotalPct) },
+    footer: { label: 'TOTAL', amount: money(e.total), fixedMonthly: money(k.fixedCosts), variablePerActiveDay: money(v.r.model ? v.r.model.variablePerActiveDay : null), displayPct: pct(e.displayTotalPct) },
     caption: 'Estructura de costos por categoría',
     className: 'qr-eecc-table',
   });
   const bars = barList(rows.map((row) => ({ label: row.label, value: row.displayPct })));
   return card(header,
     h('div', { class: 'qr-eecc' }, tbl, h('div', { class: 'qr-eecc-bars', 'aria-hidden': 'true' }, bars)),
-    note(`Fijos del mes: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`));
+    note(`Monto mes = fijo del mes + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo. Fijos del mes: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`));
 }
 
 // ----------------------------------------------------- C. matriz + gráfico
@@ -2075,7 +2126,8 @@ function chartSvg(v, data, width) {
     ...grid,
     s('line', { x1: L, x2: L + PW, y1: T + PH, y2: T + PH, class: 'qr-chart-axis' }),
     ...xTicks,
-    s('text', { x: L + PW / 2, y: H - 4, class: 'qr-chart-axis-title', 'text-anchor': 'middle' }, 'Días activos por mes'),
+    // Eje en la unidad comercial (PLAN-2026-010): "m³ facturados por mes", "Viajes facturados por mes"…
+    s('text', { x: L + PW / 2, y: H - 4, class: 'qr-chart-axis-title', 'text-anchor': 'middle' }, byQty(v) ? `${capitalizeUnitPhrase(v.r.unitInfo.plural)} ${unitTextsOf(v.r).facturados} por mes` : 'Días activos por mes'),
     ...estimate,
     commercialLine,
     ...lines,
@@ -2562,7 +2614,8 @@ function sensMetrics(v) {
   if (!byQty(v)) return SENS_METRICS;
   const Plural = capitalizeUnitPhrase(v.r.unitInfo.plural);
   return SENS_METRICS.flatMap((m) => {
-    if (m.key === 'breakEvenDays') return [{ key: 'breakEvenQuantity', label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, kind: 'quantity', better: 'down' }];
+    // El equilibrio se muestra redondeado hacia arriba, igual que en el resultado y en escenarios.
+    if (m.key === 'breakEvenDays') return [{ key: 'breakEvenQuantity', label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, kind: 'quantity', ceil: true, better: 'down' }];
     if (m.key === 'activeDays') return [{ key: 'billableQuantity', label: `${Plural} por mes`, kind: 'quantity', better: null }, { ...m, label: 'Días de trabajo' }];
     return [m];
   });
@@ -2576,8 +2629,8 @@ function sensitivityRows(v, res) {
     const tone = deltaTone(m.better, delta);
     return h('tr', { class: tone === 'bad' ? 'qr-row-bad' : null },
       h('th', { scope: 'row', class: 'qr-sens-metric' }, m.label),
-      h('td', { class: 'ta-right', 'data-label': 'Base' }, m.kind === 'quantity' ? quantityText(base, v.r) : sensValue(m.kind, base, v.unitLabel)),
-      h('td', { class: 'ta-right', 'data-label': 'Escenario' }, m.kind === 'quantity' ? quantityText(scen, v.r) : sensValue(m.kind, scen, v.unitLabel)),
+      h('td', { class: 'ta-right', 'data-label': 'Base' }, m.kind === 'quantity' ? (m.ceil ? quantityCeilText(base, v.r) : quantityText(base, v.r)) : sensValue(m.kind, base, v.unitLabel)),
+      h('td', { class: 'ta-right', 'data-label': 'Escenario' }, m.kind === 'quantity' ? (m.ceil ? quantityCeilText(scen, v.r) : quantityText(scen, v.r)) : sensValue(m.kind, scen, v.unitLabel)),
       h('td', { class: ['ta-right', tone ? `qr-delta-${tone}` : null], 'data-label': 'Diferencia' }, m.kind === 'quantity' ? signed(delta, (x) => quantityText(x, v.r)) : sensDelta(m.kind, delta, base, scen)));
   });
 }
@@ -2887,14 +2940,19 @@ function renderScenarios(v) {
 // ----------------------------------------- H. comparador de modelos comerciales
 
 /** Parámetros de cada modelo: montos calibrados para el margen objetivo (mínimos → hacia arriba). */
-function modelParams(params = {}) {
+function modelParams(params = {}, unit = null) {
   const items = [];
+  // Por unidad (m³, viaje…; PLAN-2026-010): tarifa, incluidos y excedente en esa unidad.
+  const u = unit ? unit.short || unit.singular : null;
   if ('availabilityFee' in params) items.push(`Abono de disponibilidad: ${ceilMoney(params.availabilityFee)} / mes`);
-  if ('minimumGuarantee' in params) items.push(`Mínimo garantizado: ${ceilMoney(params.minimumGuarantee)} / mes`);
+  if ('minimumGuarantee' in params) items.push(`${unit ? 'Facturación mínima mensual' : 'Mínimo garantizado'}: ${ceilMoney(params.minimumGuarantee)} / mes`);
   if ('packagePrice' in params) items.push(`Paquete mensual: ${ceilMoney(params.packagePrice)}`);
   if ('includedDays' in params) items.push(`Días incluidos: ${formatDays(params.includedDays)}`);
   if ('ratePerDay' in params) items.push(`Tarifa por día: ${ceilMoney(params.ratePerDay)}`);
   if ('excessRatePerDay' in params) items.push(`Excedente por día: ${ceilMoney(params.excessRatePerDay)}`);
+  if ('includedUnits' in params) items.push(`${unit ? capitalizeUnitPhrase(unit.plural) : 'Unidades'} incluidos por mes: ${unit ? quantityText(params.includedUnits, { unitInfo: { ...unit, id: unit.id } }) : formatNumber(params.includedUnits)}`);
+  if ('ratePerUnit' in params) items.push(`Tarifa por ${u || 'unidad'}: ${ceilMoney(params.ratePerUnit)}`);
+  if ('excessRatePerUnit' in params) items.push(`Excedente por ${u || 'unidad'}: ${ceilMoney(params.excessRatePerUnit)}`);
   return items;
 }
 
@@ -2920,12 +2978,20 @@ function renderComparator(v) {
       ...(hasValue(cmp.billingTaxPct) && cmp.billingTaxPct > 0 ? [{ label: 'Impuestos sobre la facturación', value: cmp.billingTaxPct, format: 'percent' }] : []),
       { label: 'Costos fijos del mes', value: k.fixedCosts, format: 'money' },
     ],
-    steps: [
-      { label: 'Sólo tarifa por día', value: 'Ingreso = tarifa × días', format: 'text' },
-      { label: 'Abono de disponibilidad + día', value: 'Ingreso = abono + tarifa × días', format: 'text' },
-      { label: 'Mínimo garantizado + día', value: 'Ingreso = máx(mínimo, tarifa × días)', format: 'text' },
-      { label: 'Paquete + excedentes', value: 'Ingreso = paquete + tarifa × días extra', format: 'text' },
-    ],
+    steps: cmp.unit
+      ? [
+        { label: `${capitalizeUnitPhrase(cmp.unit.plural)} por día de trabajo`, value: cmp.unitsPerActiveDay, format: 'number' },
+        { label: `Sólo tarifa por ${cmp.unit.singular}`, value: `Ingreso = tarifa × ${cmp.unit.plural}`, format: 'text' },
+        { label: `Abono de disponibilidad + ${cmp.unit.singular}`, value: `Ingreso = abono + tarifa × ${cmp.unit.plural}`, format: 'text' },
+        { label: 'Facturación mínima (take-or-pay)', value: `Ingreso = máx(mínimo, tarifa × ${cmp.unit.plural})`, format: 'text' },
+        { label: 'Paquete + excedentes', value: `Ingreso = paquete + tarifa × ${cmp.unit.plural} por encima de los incluidos`, format: 'text' },
+      ]
+      : [
+        { label: 'Sólo tarifa por día', value: 'Ingreso = tarifa × días', format: 'text' },
+        { label: 'Abono de disponibilidad + día', value: 'Ingreso = abono + tarifa × días', format: 'text' },
+        { label: 'Mínimo garantizado + día', value: 'Ingreso = máx(mínimo, tarifa × días)', format: 'text' },
+        { label: 'Paquete + excedentes', value: 'Ingreso = paquete + tarifa × días extra', format: 'text' },
+      ],
     result: { label: 'Modelos comparados', value: cmp.models.length, format: 'number' },
     notes: [
       'Riesgo alto: con actividad pesimista perdés plata. Medio: el margen pesimista cae a menos de la mitad del objetivo. Bajo: conserva al menos la mitad del margen objetivo.',
@@ -2938,26 +3004,31 @@ function renderComparator(v) {
       {
         key: 'label',
         label: 'Modelo',
-        render: (row) => h('div', { class: 'qr-model' }, h('strong', {}, MODEL_LABELS[row.id] || row.label), h('ul', { class: 'qr-model-params' }, ...modelParams(row.params).map((p) => h('li', {}, p)))),
+        render: (row) => h('div', { class: 'qr-model' }, h('strong', {}, MODEL_LABELS[row.id] || row.label), h('ul', { class: 'qr-model-params' }, ...modelParams(row.params, cmp.unit || null).map((p) => h('li', {}, p)))),
       },
       { key: 'expectedRevenue', label: abbrHeader('Ingreso esperado', 'Ingreso esperado del mes con la actividad estimada'), align: 'right', render: (row) => money(row.expectedRevenue) },
       { key: 'expectedMarginPct', label: abbrHeader('Margen', 'Margen esperado sobre el precio'), align: 'right', render: (row) => pct(row.expectedMarginPct) },
       {
         key: 'pessimisticProfit',
-        label: abbrHeader('Pesimista', `Resultado con ${formatDays(cmp.pessimisticDays)} (escenario pesimista)`, formatDays(cmp.pessimisticDays)),
+        label: cmp.unit
+          ? abbrHeader('Pesimista', `Resultado con ${quantityText(cmp.pessimisticQuantity, v.r)} (escenario pesimista)`, quantityText(cmp.pessimisticQuantity, v.r))
+          : abbrHeader('Pesimista', `Resultado con ${formatDays(cmp.pessimisticDays)} (escenario pesimista)`, formatDays(cmp.pessimisticDays)),
         align: 'right',
         render: (row) => h('span', { class: hasValue(row.pessimisticProfit) ? (row.pessimisticProfit < -1e-6 ? 'qr-neg' : 'qr-pos') : null }, money(row.pessimisticProfit)),
       },
       { key: 'minimumAssuredRevenue', label: abbrHeader('Mínimo asegurado', 'Ingreso mínimo asegurado: lo que facturás aunque no se trabaje ningún día'), align: 'right', render: (row) => money(row.minimumAssuredRevenue) },
       {
         key: 'breakEvenDays',
-        label: abbrHeader('Break-even', 'Días para no perder plata (break-even) con cada modelo'),
+        label: cmp.unit
+          ? abbrHeader('Break-even', `${capitalizeUnitPhrase(cmp.unit.plural)} para no perder plata (break-even) con cada modelo`)
+          : abbrHeader('Break-even', 'Días para no perder plata (break-even) con cada modelo'),
         align: 'right',
         render: (row) => {
           if (!row.breakEvenReachable) return 'No se alcanza';
           if (hasValue(row.breakEvenDays) && row.breakEvenDays <= 0) {
-            return h('span', { class: 'qr-cell-stack', title: 'El ingreso fijo cubre los costos fijos aunque no se trabaje ningún día.' }, formatDays(0), h('span', { class: 'qr-cell-sub' }, 'fijos cubiertos'));
+            return h('span', { class: 'qr-cell-stack', title: 'El ingreso fijo cubre los costos fijos aunque no se trabaje ningún día.' }, cmp.unit ? quantityText(0, v.r) : formatDays(0), h('span', { class: 'qr-cell-sub' }, 'fijos cubiertos'));
           }
+          if (cmp.unit) return h('span', { class: 'qr-cell-stack' }, quantityCeilText(row.breakEvenQuantity, v.r), h('span', { class: 'qr-cell-sub' }, workDaysText(row.breakEvenDays)));
           return resultDays(row.breakEvenDays);
         },
       },
@@ -2979,7 +3050,9 @@ function renderComparator(v) {
   const beNote = beText ? ` ${beText}` : '';
   return card({ ...header, actions: [traceBtn(trace)] },
     tbl,
-    note(`Todos los modelos están calibrados por día activo para lograr ${pct(cmp.targetMarginPct)} de margen con ${formatDays(cmp.estimatedDays)}${v.r.unit !== 'day' ? ' (aunque cotices por ' + v.unitLabel + ')' : ''}. El escenario pesimista usa ${formatDays(cmp.pessimisticDays)}.${beNote}`));
+    cmp.unit
+      ? note(`Todos los modelos están expresados por ${cmp.unit.singular} y calibrados para lograr ${pct(cmp.targetMarginPct)} de margen con ${quantityText(cmp.estimatedQuantity, v.r)} por mes (${workDaysText(cmp.estimatedDays)}). El escenario pesimista usa ${quantityText(cmp.pessimisticQuantity, v.r)}.${beNote}`)
+      : note(`Todos los modelos están calibrados por día activo para lograr ${pct(cmp.targetMarginPct)} de margen con ${formatDays(cmp.estimatedDays)}${v.r.unit !== 'day' ? ' (aunque cotices por ' + v.unitLabel + ')' : ''}. El escenario pesimista usa ${formatDays(cmp.pessimisticDays)}.${beNote}`));
 }
 
 // ------------------------------------------------------- I. completitud
@@ -2989,16 +3062,33 @@ function renderCompleteness(v) {
   const c = r.completeness || { scorePct: 0, items: [] };
   const tone = completenessTone(c.scorePct);
   const order = { missing: 0, warning: 1, ok: 2 };
-  const items = (c.items || []).filter((i) => i.status in order).slice().sort((a, b) => order[a.status] - order[b.status]);
+  // Críticos primero (cambian el costo o el precio), después "para revisar" (PLAN-2026-010).
+  const rank = (i) => (i.severity === 'critical' ? 0 : 1);
+  const items = (c.items || []).filter((i) => i.status in order).slice().sort((a, b) => rank(a) - rank(b) || order[a.status] - order[b.status]);
   const pendingCount = items.filter((i) => i.status !== 'ok').length;
+  const SEVERITY_TEXT = { critical: 'Crítico', review: 'Revisar' };
   const list = h('ul', { class: 'qr-checklist' }, ...items.map((item) => {
     const step = stepForItem(item);
-    return h('li', { class: ['qr-check', `qr-check-${item.status}`] },
+    const sev = SEVERITY_TEXT[item.severity];
+    return h('li', { class: ['qr-check', `qr-check-${item.status}`, item.severity ? `qr-check-${item.severity}` : null] },
       h('div', { class: 'qr-check-main' },
-        statusDot(item.color || 'gray', item.label),
+        h('span', { class: 'qr-check-head' },
+          statusDot(item.color || 'gray', item.label),
+          sev ? h('span', { class: ['qr-sev', `qr-sev-${item.severity}`] }, sev) : null),
         h('span', { class: 'qr-check-msg' }, item.message)),
       item.status !== 'ok' ? stepLink(q, step) : null);
   }));
+  // Informativos: no restan puntaje ni son pendientes; se muestran aparte.
+  const notices = Array.isArray(c.notices) ? c.notices : [];
+  const noticeBlock = notices.length
+    ? h('div', { class: 'qr-notices' },
+      h('h4', { class: 'qr-subhead' }, 'Para tener en cuenta (informativo)'),
+      h('ul', { class: 'qr-checklist' }, ...notices.map((n) => h('li', { class: ['qr-check', 'qr-check-info'] },
+        h('div', { class: 'qr-check-main' },
+          h('span', { class: 'qr-check-head' }, statusDot('gray', n.label), h('span', { class: ['qr-sev', 'qr-sev-info'] }, 'Info')),
+          h('span', { class: 'qr-check-msg' }, n.message)),
+        stepLink(q, n.step || 'equipment')))))
+    : null;
   return card(
     {
       title: 'Costos cargados',
@@ -3011,13 +3101,16 @@ function renderCompleteness(v) {
       h('div', { class: ['qr-score-value', `qr-tone-${tone}`] }, pct(c.scorePct, 0)),
       h('div', { class: 'qr-score-bar' },
         progressBar(c.scorePct, tone, { label: 'Costos cargados' }),
-        h('div', { class: 'qr-score-text' }, pendingCount ? `${formatNumber(pendingCount)} ${pendingCount === 1 ? 'punto pendiente' : 'puntos pendientes'} de revisar.` : 'No hay pendientes: la cotización está completa.'))),
+        h('div', { class: 'qr-score-text' }, pendingCount
+          ? `${formatNumber(pendingCount)} ${pendingCount === 1 ? 'punto pendiente' : 'puntos pendientes'} de revisar${c.critical > 0 ? ` (${formatNumber(c.critical)} ${c.critical === 1 ? 'crítico' : 'críticos'})` : ''}.`
+          : 'No hay pendientes: la cotización está completa.'))),
     // Decisión UX-3: la demo deja a propósito puntos para revisar (didácticos); otros ejemplos, una nota neutra.
     (() => {
       const text = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount });
       return text ? note(text) : null;
     })(),
     list,
+    noticeBlock,
   );
 }
 
@@ -3245,7 +3338,7 @@ function renderEconomicBase(v) {
         h('h4', { class: 'qr-sub-title' }, 'Equipos y servicios externos en el mes'),
         h('dl', { class: 'qr-stats qr-stats-3' },
           statItem({ label: 'Costo económico (en el costo)', value: formatMoney(k.externalMonthly), hint: 'Neto + IVA que no recuperás + cargos no recuperables.' }),
-          statItem({ label: 'Salida de caja con impuestos', value: formatMoney(k.externalCashMonthly), hint: 'Lo que pagás al proveedor (informativo).' }),
+          statItem({ label: 'Salida de caja con impuestos', value: formatMoney(k.externalCashMonthly), hint: 'Lo que pagás al proveedor (neto + IVA + percepciones): es lo que se financia hasta cobrar.' }),
           statItem({ label: 'Crédito fiscal (no es costo)', value: formatMoney(k.externalTaxCreditMonthly), hint: 'IVA que recuperás + percepciones: caja que adelantás.' })),
         note('Ganancias no se carga como % sobre los alquileres y el IIBB del proveedor ya está en su precio: el tuyo se calcula sobre tu facturación.'))
       : null,
@@ -3257,7 +3350,7 @@ function completenessBadge(v) {
   const missing = items.filter((i) => i.status === 'missing').length;
   const pending = missing + items.filter((i) => i.status === 'warning').length;
   if (!pending) return null;
-  return badge(noticeCount(pending), missing ? 'red' : 'orange', { title: `${noticeCount(pending)}: costos que suelen olvidarse y conviene revisar` });
+  return badge(noticeCount(pending), (v.r.completeness && v.r.completeness.critical > 0) ? 'red' : 'orange', { title: `${noticeCount(pending)}: costos que suelen olvidarse y conviene revisar` });
 }
 
 function deepDefinitions(v) {

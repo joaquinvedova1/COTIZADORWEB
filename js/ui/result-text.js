@@ -17,6 +17,7 @@ import { formatDays, formatNumber, formatPercent, EMPTY } from '../core/format.j
 import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
+import { isQuantityUnit, quantityCeilText } from './unit-text.js';
 
 const EPS = 1e-9;
 
@@ -255,7 +256,8 @@ export function comparatorNote(result, models, { roundingStep = null } = {}) {
   const r = result || {};
   const be = r.breakEven || {};
   if (r.unit === 'month' || !be.reachable || !isFiniteNumber(be.days)) return '';
-  const dayRate = (Array.isArray(models) ? models : []).find((m) => m && m.id === 'day_rate');
+  // "Sólo tarifa por día" o, por cantidad (PLAN-2026-010), "Sólo tarifa por m³".
+  const dayRate = (Array.isArray(models) ? models : []).find((m) => m && (m.id === 'day_rate' || m.id === 'unit_rate'));
   if (dayRate && dayRate.breakEvenReachable && isFiniteNumber(dayRate.breakEvenDays) && resultDays(dayRate.breakEvenDays) === resultDays(be.days)) return '';
   const source = r.kpis ? r.kpis.commercialSource : null;
   const own = source !== 'suggested';
@@ -265,7 +267,8 @@ export function comparatorNote(result, models, { roundingStep = null } = {}) {
   if (!own && !extras.length && isFiniteNumber(roundingStep) && roundingStep > 0) extras.push('sin el redondeo de la tarifa sugerida');
   const cause = `${own ? ' (no tu tarifa)' : ''}${extras.length ? `, ${joinList(extras)}` : ''}`;
   const verb = own || extras.length ? 'difiere' : 'puede diferir';
-  return `El break-even de cada modelo usa la tarifa objetivo${cause}: por eso ${verb} del de tu cotización (${resultDays(be.days)}).`;
+  const own2 = isQuantityUnit(r) && isFiniteNumber(be.quantity) ? quantityCeilText(be.quantity, r) : resultDays(be.days);
+  return `El break-even de cada modelo usa la tarifa objetivo${cause}: por eso ${verb} del de tu cotización (${own2}).`;
 }
 
 // ------------------------------------------------------- completitud
@@ -282,4 +285,24 @@ export function completenessExampleNote({ quoteId = null, illustrative = false, 
     return 'Es un ejemplo: deja estos puntos para revisar a propósito, para que veas cómo RATEOS te avisa lo que suele faltar.';
   }
   return 'Es un ejemplo: puede dejar puntos sin completar. En tu cotización, revisalos antes de cotizar.';
+}
+
+/**
+ * Banner de borrador (PLAN-2026-010): si quedan pendientes críticos o para
+ * revisar, la tarifa no está lista para usar. Los informativos no cuentan.
+ * Devuelve null si no hay nada material.
+ */
+export function draftBannerText({ critical = 0, review = 0 } = {}) {
+  const c = Number.isFinite(critical) && critical > 0 ? Math.floor(critical) : 0;
+  const rv = Number.isFinite(review) && review > 0 ? Math.floor(review) : 0;
+  const total = c + rv;
+  if (total === 0) return null;
+  const parts = [];
+  if (c > 0) parts.push(c === 1 ? '1 crítico (cambia el costo o el precio)' : `${c} críticos (cambian el costo o el precio)`);
+  if (rv > 0) parts.push(`${rv} para revisar`);
+  return {
+    tone: c > 0 ? 'danger' : 'warning',
+    title: `BORRADOR — revisar ${total} ${total === 1 ? 'punto' : 'puntos'} antes de usar esta tarifa.`,
+    text: `${parts.join(' y ')}.`.replace(/^./, (x) => x.toUpperCase()),
+  };
 }

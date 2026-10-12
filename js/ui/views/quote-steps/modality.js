@@ -336,7 +336,11 @@ export function render(container, ctx) {
       if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return 'Cargá los días por mes para ver cuántos llamados y días facturás.';
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ' (incluye el mínimo por llamado)' : '';
-      return `Facturás ${billable} por mes${extra}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).`;
+      const acts = r.activity.activationsPerMonth;
+      const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
+        ? ` Son ${formatNumber(acts, { decimals: 2 })} llamados promedio por mes: la movilización y los costos por llamado se calculan como promedio.`
+        : '';
+      return `Facturás ${billable} por mes${extra}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${fractional}`;
     },
   });
 
@@ -353,7 +357,17 @@ export function render(container, ctx) {
       const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9
         ? ` Ojo: son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} disponibles del mes.`
         : '';
-      return `Facturás ${billable} por mes${extra} en ${workDaysText(r.activity.activeDaysPerMonth)}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${over}`;
+      // Por intervención (PLAN-2026-010): volumen ↔ días ↔ movilización.
+      const acts = r.activity.activationsPerMonth;
+      const perAct = acts > 0 ? r.estimate.revenue.billableUnits / acts : null;
+      const perIntervention = kind === 'quantity' && acts > 0
+        ? ` ${quantityText(perAct, r)} por intervención · ${formatNumber(acts, { decimals: 2 })} ${Math.abs(acts - 1) < 1e-9 ? 'intervención' : 'intervenciones'} (salidas) por mes de ${formatDays(r.activity.daysPerActivation, { decimals: 2 })} cada una.`
+        : '';
+      // Salidas fraccionarias: el costo por salida (movilización…) es un PROMEDIO.
+      const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
+        ? ` Son ${formatNumber(acts, { decimals: 2 })} salidas promedio por mes: la movilización y los costos por salida se calculan como promedio. Si cada salida se paga completa, ajustá la duración de cada salida.`
+        : '';
+      return `Facturás ${billable} por mes${extra} en ${workDaysText(r.activity.activeDaysPerMonth)}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${perIntervention}${fractional}${over}`;
     },
     tone: (r) => (hasQuantity() && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
   });
@@ -409,10 +423,10 @@ export function render(container, ctx) {
         // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
         kind === 'quantity'
           ? kit.num('activity.daysPerActivation', {
-            label: daysPerActivationLabel(quote.serviceType),
+            label: 'Duración promedio de cada salida / intervención',
             rule: 'positiveDays',
             unit: 'días',
-            hint: 'Cuántos días de trabajo seguidos hacés en cada salida: sirve para contar movilizaciones y el mínimo por llamado. Si es 1, cada día de trabajo es una salida.',
+            hint: 'Dato OPERATIVO (no es la unidad que cobrás): cuántos días de trabajo seguidos dura cada salida. Cuenta las movilizaciones y el mínimo por llamado. Ej.: 20 días de trabajo ÷ 2 días por intervención = 10 intervenciones por mes. Si es 1, cada día de trabajo es una salida.',
           })
           : null,
       ),
@@ -445,7 +459,7 @@ export function render(container, ctx) {
             hint: kind === 'quantity' ? `${Plural} por mes ÷ ${info.plural} por día de trabajo.` : `${Plural} por mes × días de trabajo de cada uno.`,
           })
           : null,
-        kit.stat(isOnCall ? 'Llamados por mes' : 'Viajes o llamados por mes', (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: byQuantity ? 'Días de trabajo ÷ días por llamado o salida.' : 'Días activos ÷ días por llamado.' }),
+        kit.stat(isOnCall && !byQuantity ? 'Llamados por mes' : byQuantity ? 'Salidas / intervenciones por mes' : 'Viajes o llamados por mes', (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: byQuantity ? 'Días de trabajo ÷ duración de cada salida. Es un promedio (puede tener decimales).' : 'Días activos ÷ días por llamado.' }),
         kit.stat(byQuantity ? `${Plural} facturables por mes` : 'Unidades facturables por mes', (r) => unitsLabel(r, r.estimate.revenue.billableUnits), {
           hint: (r) => (r.estimate.revenue.minimumCallApplied ? 'Incluye el mínimo por llamado.' : `En la unidad elegida (${info.label}).`),
         }),
@@ -461,7 +475,7 @@ export function render(container, ctx) {
       if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
       return quantityCeilText(be.quantity, r);
     }, {
-      hint: (r) => (r.breakEven && (r.breakEven.reason || (r.breakEven.reachable ? `${workDaysText(r.breakEven.days)} por mes` : ''))) || '',
+      hint: (r) => (r.breakEven && (r.breakEven.reason || (r.breakEven.reachable ? `${workDaysText(r.breakEven.days)} por mes, a ${formatMoney(r.kpis.commercialListRate)} / ${r.unitLabel}` : ''))) || '',
       trace: (r) => r.traces.breakEven,
       tone: (r) => {
         const be = r.breakEven || {};
@@ -476,7 +490,7 @@ export function render(container, ctx) {
       // 1 decimal en la superficie (6,4 días); los 2 decimales, en "Ver cálculo".
       return formatDays(be.days, { decimals: 1 });
     }, {
-      hint: (r) => (r.breakEven && (r.breakEven.reason || (r.breakEven.reachable ? `${formatNumber(r.breakEven.wholeDays)} días enteros` : ''))) || '',
+      hint: (r) => (r.breakEven && (r.breakEven.reason || (r.breakEven.reachable ? `${formatNumber(r.breakEven.wholeDays)} días enteros, a ${formatMoney(r.kpis.commercialListRate)} / ${r.unitLabel}` : ''))) || '',
       trace: (r) => r.traces.breakEven,
       tone: (r) => {
         const be = r.breakEven || {};

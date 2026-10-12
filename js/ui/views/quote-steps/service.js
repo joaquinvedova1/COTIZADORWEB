@@ -5,10 +5,11 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, choiceGroup, dateField, formGrid, icon } from '../../components.js';
+import { card, choiceGroup, dateField, formGrid, icon, confirmDialog } from '../../components.js';
 import { SERVICE_TYPES, QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf, defaultUnitFor, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../../../domain/billing-units.js';
-import { formatNumber, EMPTY } from '../../../core/format.js';
+import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
+import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
@@ -31,6 +32,48 @@ const TYPE_TIPS = Object.freeze({
   lump_sum: `Precio cerrado por todo el alcance: usá ${step('risk')} (contingencia) para cubrir la incertidumbre.`,
   configurable: `Armá la estructura a medida con "Otros costos directos" en el paso ${step('materials')}.`,
 });
+
+/**
+ * Valores sin fecha base o con base vieja, uno por uno (PLAN-2026-010), y la
+ * opción de usar el mes de la oferta para los que no tienen base. Nunca se
+ * asigna sola: se confirma viendo la lista. Las bases definidas no se tocan
+ * (cada recurso puede tener la suya).
+ */
+function baseDetail(info, ctx) {
+  if (!info) return null;
+  const missing = Array.isArray(info.undefinedEntries) ? info.undefinedEntries : [];
+  const stale = Array.isArray(info.stale) ? info.stale : [];
+  if (!missing.length && !stale.length) return null;
+  const rows = [
+    ...missing.map((e) => h('li', { class: 'is-undefined' }, h('strong', {}, e.label), ' — Base no definida')),
+    ...stale.map((e) => h('li', { class: 'is-stale' }, h('strong', {}, e.label), ` — Base ${formatPeriod(e.period)} (${formatNumber(e.monthsBeforeOffer)} meses antes de la oferta)`)),
+  ];
+  const canAssign = missing.length > 0 && info.offerPeriod && !ctx.readOnly;
+  const assign = canAssign
+    ? ctx.kit.action(`Usar ${formatPeriod(info.offerPeriod)} (mes de la oferta) en los ${formatNumber(missing.length)} sin base…`, async () => {
+      const ok = await confirmDialog({
+        title: 'Usar el mes de la oferta como base',
+        message: `Estos valores no tienen fecha base. Si sabés que son de ${formatPeriod(info.offerPeriod)}, RATEOS les asigna ese mes y lo marca como "Mes de la oferta". No cambia ningún monto ni las bases que ya están definidas.`,
+        confirmLabel: 'Asignar el mes de la oferta',
+        details: h('ul', { class: 'base-assign-list' }, ...missing.map((e) => h('li', {}, e.label))),
+      });
+      if (!ok) return;
+      const paths = missing.map((e) => e.path);
+      ctx.mutate((q) => {
+        assignOfferBase(q, paths, info.offerPeriod);
+      });
+    }, { icon: 'check' })
+    : null;
+  return h(
+    'details',
+    { class: 'base-detail' },
+    h('summary', {}, `Ver los valores para revisar (${formatNumber(rows.length)})`),
+    h('ul', { class: 'base-detail-list' }, ...rows),
+    h('p', { class: 'small muted' }, 'Las bases se cargan en cada recurso (en Recursos o en la línea de esta cotización). Si un valor es viejo, actualizalo o confirmá que sigue vigente.'),
+    assign ? h('div', { class: 'qe-toolbar' }, assign) : null,
+    missing.length && !info.offerPeriod ? h('p', { class: 'small' }, 'Cargá la fecha de la oferta para poder usar su mes como base.') : null,
+  );
+}
 
 export function render(container, ctx) {
   const { quote, kit } = ctx;
@@ -147,6 +190,7 @@ export function render(container, ctx) {
       }),
     ),
     kit.region((r) => economicBaseSummary(r.economicBase)),
+    kit.region((r) => baseDetail(r.economicBase, ctx)),
     h('h4', { class: 'qe-group-title' }, 'Tipos de cambio de esta cotización'),
     exchangeRatesEditor(ctx),
   );

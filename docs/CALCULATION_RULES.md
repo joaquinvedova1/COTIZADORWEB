@@ -17,6 +17,7 @@ Convenciones:
 1. [Modelo económico general](#1-modelo-económico-general)
 2. [Actividad y on-call](#2-actividad-y-on-call)
 3. [Personal](#3-personal)
+    - [3.1 Horas extra por tramos (PLAN-2026-010)](#31-horas-extra-por-tramos-plan-2026-010)
 4. [Equipos](#4-equipos)
     - [4.1 Equipos y servicios externos (alquilados y tercerizados)](#41-equipos-y-servicios-externos-alquilados-y-tercerizados)
 5. [Logística](#5-logística)
@@ -153,6 +154,20 @@ variable por día activo  = variable/día/posición × posiciones    (en un día
 
 Con 2 personas por posición (relevo) el fijo pasa a 6.735.276 y el variable por día sigue en 114.608,70.
 
+### 3.1 Horas extra por tramos (PLAN-2026-010)
+
+Opcional: `line.overtime` es una lista de tramos `{ label, premiumPct, hours, basis, billRatePerHour }` (HE 50 %, HE 100 %, otro recargo). Los 50 % y 100 % son **valores de partida editables**, no normativa: cada convenio define los suyos.
+
+```
+costo hora del tramo  = valor hora × (1 + recargo del tramo) × factorCargas
+basis 'per_active_day' (horas por día activo)          → variable por día × posiciones
+basis 'per_month'      (horas promedio por mes/persona) → fijo del mes × dotación
+```
+
+Sin lista `overtime`, se usa el campo único de siempre (horas extra por día activo + un recargo) **con el mismo orden de cálculo**: mismo resultado al centavo (test `audit-cot0009.test.js`). Antes → después: ninguna cotización existente cambia (foto de 99 casos idéntica).
+
+**Horas extra facturadas aparte** (`line.overtimeBilled = true`): siguen siendo costo y además generan ingreso `horas × precio por hora del tramo` (por día activo × posiciones, o por mes × dotación), que entra en "otros ingresos" igual que los materiales facturados aparte (§12) y por eso baja la tarifa piso. Ejemplo COT-0009: 2 h/día al 50 % facturadas a $ 30.000/h × 20 días = $ 1.200.000 de ingreso por mes; el costo no cambia.
+
 ## 4. Equipos
 
 Archivo: `js/engines/equipment-engine.js` (`computeOwnership`, `computeOperation`, `computeEquipmentUnit`, `computeEquipmentLine`).
@@ -274,11 +289,12 @@ por día activo (neto)    = facturado/llamado / días por llamado
 ```
 parte recuperable = 1 (Sí) | 0 (No) | % parcial / 100 (Parcial) | 1 si está sin definir (+ aviso)
 costo económico   = neto × (1 + cargos no recuperables% + IVA% × (1 − parte recuperable))
-salida de caja    = neto × (1 + IVA% + percepciones% + cargos no recuperables%)     (informativo)
+salida de caja    = neto × (1 + IVA% + percepciones% + cargos no recuperables%)     (se financia, §8)
 crédito fiscal    = neto × (IVA% × parte recuperable + percepciones%)               (NO es costo)
 ```
 
-- Al costo de la cotización entra **sólo el costo económico**. El IVA recuperable y las percepciones son caja que se adelanta.
+- Al costo de la cotización entra **sólo el costo económico**. El IVA recuperable y las percepciones son caja que se adelanta: **no son costo, pero sí se financian** hasta cobrar (§8, corrección de PLAN-2026-010).
+- El plazo de pago al proveedor de cada externo (`external.fiscal.paymentTermDays`) es **informativo**: la financiación usa los días de pago del grupo "Proveedores" (§8). Usarlo por línea cambiaría números de cotizaciones existentes: queda como propuesta en PLAN-2026-010.
 - Ganancias no se aplica como % sobre un alquiler; el IIBB del proveedor ya está en su precio (el propio se calcula sobre la facturación, §13.1).
 - "No" o "Parcial" sin alícuota de IVA → la completitud lo marca en rojo (no se puede calcular el IVA que no se recupera).
 
@@ -420,6 +436,8 @@ sin base         = "Base no definida" (nunca se inventa una fecha)
 
 Son advertencias: no cambian el cálculo. Se compara contra la fecha de la OFERTA, nunca contra "hoy" (el motor es determinístico).
 
+**Usar el mes de la oferta (PLAN-2026-010).** En "Tipo de servicio → Base económica de la oferta" se listan uno por uno los valores sin base y los de base vieja. Para los que no tienen base, la persona puede asignarles el mes de la oferta (`assignOfferBase`, `js/domain/economic-base.js`) **después de confirmar la lista**: nunca se hace solo, nunca pisa una base ya definida (cada recurso puede tener la suya) y queda marcado con la fuente "Mes de la oferta (asignado en la cotización)". No cambia ningún monto.
+
 **Ejemplo (caso F):** oferta de oct-26 con un material de base ene-26 → 9 meses antes → "Un valor tiene una base de más de 6 meses antes de la oferta: Filtros (ene-26)" y, si el resto es de sep/oct-26, "Esta cotización usa valores con diferentes fechas base (de ene-26 a oct-26)."
 
 ## 7. Estructura (costos indirectos)
@@ -441,6 +459,15 @@ La estructura es salida de caja (grupo de pago "Estructura y alquileres") y por 
 
 Ejemplo demo: `percent_direct` 12 % sobre directos fijos 7.259.304,67 y directos variables 658.458,70/día → estructura **871.116,56 fijo + 79.015,04 por día activo**.
 
+**Estructura desglosada por rubro (PLAN-2026-010, opcional).** Con `indirect.mode = 'detailed'`, `indirect.items` es una lista de rubros `{ label, method, pct, amount }` (administración % sobre directo, HSE por empleado, seguros generales por contrato…), cada uno con uno de los métodos de la tabla:
+
+```
+estructura fija     = Σ fijo de cada rubro
+estructura variable = Σ variable por día de cada rubro
+```
+
+Un solo rubro igual al modo simple da exactamente el mismo costo (test). Sin `mode` o con `mode = 'simple'` se usa el método único de siempre: ninguna cotización existente cambia. La empresa puede guardar su desglose como política (`settings.indirectPolicy`) y reutilizarlo en otras cotizaciones; las cotizaciones hechas no cambian.
+
 ## 8. Financiero y capital de trabajo
 
 Archivo: `js/engines/finance-engine.js` (`financingDays`, `simpleFinancialCost`, `computeFinance`).
@@ -460,6 +487,18 @@ impacto en margen    = costo financiero / facturación total × 100        (punt
 
 - **Interés simple**, mes financiero de 30 días (`DAYS_PER_MONTH_FINANCE`).
 - **No se financian**: la amortización ni el costo de capital de equipos (no son salidas de caja) ni la **contingencia** (es una reserva, no un pago).
+- **Externos: se financia la salida de caja** (neto + IVA + percepciones + cargos no recuperables, §4.1), no el costo económico. Corrección de PLAN-2026-010 (bug P0 de la auditoría COT-0009): antes se financiaba el costo económico, así que el IVA recuperable y las percepciones que se le pagan al proveedor no tenían costo financiero. **Sin tratamiento fiscal definido, caja = costo y nada cambia** (COT-0009 y la foto de 99 casos, idénticas). Antes → después, pickup tercerizada $ 2.800.000/mes en COT-0009 (proveedores a 15 + 60 − 30 = 45 días al 3 % → $ 0,045 por peso):
+
+| Tratamiento fiscal de la pickup | Costo financiero adicional antes | Después |
+|---|---:|---:|
+| Sin definir (como en el PDF) | 0 | 0 |
+| IVA 21 % recuperable | 0 | 26.460 (588.000 × 0,045) |
+| IVA 21 % no recuperable | 29.694 | 29.694 (sin cambio: ya era costo) |
+| IVA 21 % parcial 50 % | 14.847 | 28.077 |
+| IVA 21 % recuperable + percepciones 3 % | 0 | 30.240 (672.000 × 0,045) |
+
+  (El no recuperable y el parcial incluyen la estructura del 10 % sobre el IVA no recuperable, que se paga a 20 días: 55 días.) Tests: `tests/engines/external-finance.test.js`.
+- **Plazo de cobro sin cargar**: el costo financiero es parcial (sólo los días hasta facturar) y así se dice en la interfaz y en "Ver cálculo"; nunca "no se calcula".
 - Se calcula por separado para la parte fija y la parte variable por día, así que el costo financiero también escala con `D`.
 - Plazo de cobro vacío: se calcula con 0 días, y el Cost Completeness Score lo marca en rojo ("Plazo de pago sin definir").
 - Una cotización nueva en blanco toma el plazo por defecto de la configuración (`settings.defaultPaymentTermDays`) **sólo si la configuración es propia** (`settings.illustrative !== true`). Con la configuración ILUSTRATIVA de la demo el plazo queda en `null` (sin definir) para que el usuario lo cargue.
@@ -513,6 +552,8 @@ Mapeo de categorías:
 | Estructura | absorción de estructura + otros costos "estructura" |
 | Financiero | costo financiero (§8) |
 | Contingencia | contingencia (§9) |
+
+**Fijo del mes y variable por día (PLAN-2026-010).** Cada fila de la EECC trae además `fixedMonthly` (fijo_c × factorMeses(D)) y `variablePerActiveDay` (variable_c). La interfaz muestra "Fijo del mes" y "Variable por día de trabajo" en columnas separadas: el viejo "$/día activo" (monto ÷ D) mezclaba los fijos y no era un costo por día; queda sólo como "equivalente por día al nivel estimado". Ningún número cambia: es otra forma de mostrar el mismo monto.
 
 **Incidencia mostrada = 100 %.** `displayPct` se redondea a 2 decimales con el **método del mayor resto** (`roundPercentagesToTotal` en `js/core/money.js`): se reparten centésimas enteras proporcionalmente, se asignan los pisos y las centésimas faltantes van a las categorías con mayor resto (desempate por orden). Así la suma mostrada es exactamente 100,00 %. Ejemplo: tres categorías iguales → 33,34 % + 33,33 % + 33,33 %. Si el costo total es 0, todas las incidencias son 0 % y el total es 0 %.
 
@@ -990,6 +1031,8 @@ Para cada modelo: ingreso, resultado y margen esperados (con `De`), ingreso, res
 
 Ejemplo (caso de referencia, margen 10 %, sin impuestos, De = 8, Dp = 6): `p ≈ 5.277.778`, `Fee ≈ 33.333.333` + `q ≈ 1.111.111`, `G = 30.000.000`, `Paquete ≈ 42.222.222`. Todos facturan ≈ 42.222.222 con 8 días; break-even ≈ 7,01 días para "sólo tarifa" y "mínimo garantizado" (riesgo alto) y 0 días para "fee + tarifa" y "paquete" (riesgo bajo). Con t = 10 % y De = 10: `p = 5.000.000`, `G ≈ 33.333.333`; los cuatro modelos facturan 50.000.000 y dejan 5.000.000 (10 %).
 
+**Por cantidad o por evento ($/m³, $/viaje, $/unidad — PLAN-2026-010).** Con unidad de facturación por cantidad o evento (§12.1) los cuatro modelos son los mismos, con la misma facturación R(D) y la misma calibración, pero sus parámetros se expresan en la unidad comercial con `u` = unidades facturables por día de trabajo: "Sólo tarifa por m³" (`p / u`), "Abono de disponibilidad + tarifa por m³" (`q / u`), "Facturación mínima mensual (take-or-pay) + tarifa por m³" y "Paquete mensual con m³ incluidos + excedente" (`De × u` incluidos). El break-even se informa también en la unidad (`días × u`). Mismos ingresos y resultados que por día (test COT-0009: 2.400 m³ = 20 días × 120 m³). Sin rendimiento por día no se arman modelos (se pide cargarlo).
+
 La sensibilidad y los escenarios conservan los impuestos de la cotización: con la tarifa fija, los impuestos se recalculan sobre la facturación de cada escenario (`billingTaxes` en cada fila).
 
 ## 18. Redondeos y precisión
@@ -1053,7 +1096,9 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 13b | `billing_taxes` | siempre | 1 | ok si están definidos (un % total, algún renglón del detalle —incluso 0 %— o "No incluir impuestos sobre la facturación en esta cotización"); naranja si están sin definir ("la tarifa piso no los incluye"); rojo si hay un % inválido |
 | 14 | `standby` | on-call | 1 | ok si hay tarifa de standby o se marcó "no aplica"; si no, naranja |
 
-Los pendientes (`pending`) se ordenan rojos primero. Ejemplos: demo Hidrogrúa **94,44 %** (pendientes en naranja: relevos, impuestos sobre la facturación y standby; con v3 suma las reglas de movilización, duplicados, base y antigüedad en verde: antes 93,48 %); caso de referencia **76,67 %** (personal en rojo; estructura, contingencia e impuestos sobre la facturación en naranja).
+**Severidad (PLAN-2026-010, no cambia el puntaje).** Cada pendiente trae `severity`: `critical` si falta algo que cambia el costo o el precio (`equipment_cost`, `currency`, `utilization`, `rate` o `margin` en rojo: por ejemplo un externo sin tarifa, que se nombra en el mensaje y en `targets`), `review` para el resto. `critical` y `review` cuentan cuántos hay; si suman más de 0 el resultado muestra arriba **"BORRADOR — revisar N puntos antes de usar esta tarifa"**. Aparte, `notices` lleva avisos **informativos** que no restan puntaje ni son pendientes (por ejemplo, un equipo propio sin costo de capital: "RATEOS no está imputando rendimiento ni costo del dinero invertido en este equipo"). Con estructura desglosada (§7), `structure` está ok si algún rubro tiene valor.
+
+Los pendientes (`pending`) se ordenan críticos primero y después rojos. Ejemplos: demo Hidrogrúa **94,44 %** (pendientes en naranja: relevos, impuestos sobre la facturación y standby; con v3 suma las reglas de movilización, duplicados, base y antigüedad en verde: antes 93,48 %); caso de referencia **76,67 %** (personal en rojo; estructura, contingencia e impuestos sobre la facturación en naranja).
 
 **Efecto de borde de la regla `billing_taxes` (PLAN-2026-002).** Agrega peso 1 a todas las cotizaciones. Una cotización con impuestos sin definir suma 0,5 de 1: si su puntaje era mayor a 50 % **baja un poco** (demo 95,45 % → 93,48 %; caso de referencia 78,57 % → 76,67 %) y si era menor **sube un poco** (cotización en blanco 33,33 % → 34,21 %). Una cotización que estaba apenas arriba de 85 % puede pasar de verde a naranja, o apenas arriba de 60 % pasar a "con riesgo" (`incomplete`/`atRisk`), hasta que se definan los impuestos o se elija "No incluir impuestos sobre la facturación en esta cotización". Los números económicos no cambian.
 
@@ -1166,6 +1211,7 @@ Casos de referencia que deben seguir valiendo aunque cambie la interfaz. Son **r
 | `unidad-movimiento-suelo-m3.json` | §12.1 caso C: 5.000 m³/mes, 250 m³/día | piso **10.000/m³**; objetivo 11.764,71 (15 %); equilibrio **2.500 m³** |
 | `unidad-inspeccion-unidad.json` | §12.1 caso D: 300 u/mes, 15 por día | piso **20.000/u**; objetivo 22.222,22 (10 %); equilibrio **200 u** |
 | `unidad-on-call-dia.json` | §12.1 caso E: on-call $/día, 15 días | piso 3.000.000/día; equilibrio **10 días** (igual que siempre) |
+| `cot-0009-prueba-real.json` | cotización real de prueba COT-0009 reconstruida del PDF auditado (`tests/fixtures/cot-0009.js`, sin datos de cliente): 2.400 m³/mes, 120 m³/día, 2 días por intervención, vactor propio, pickup tercerizada 2.800.000/mes con IVA sin definir, estructura 10 %, financiero 3 % a 60 días, impuestos 5 %, margen 10 %, redondeo 1.000 | costo **28.367.260**; piso **12.441,78/m³**; objetivo **13.905,52/m³**; sugerida **14.000/m³**; facturación 33.600.000; impuestos 1.680.000; resultado **3.552.740**; margen **10,5736 %**; equilibrio **≈ 1.929,05 m³**; m³ para el margen objetivo ≈ 2.368,63; financiero 1.422.700,77 |
 | `producto-chipa-costo-y-precio.json` | producto (§23): tanda de 60, receta 6.000, empaque 20/u, personal 90 min a 6.000/h, horno 40 min a 1.500/h, fijos 175.000/mes, 3.000 u/mes, margen 30 % | variable **286,67**/u; fijo **58,33**/u; costo **345**/u; precio **492,86** (markup 42,86 %); equilibrio **848,73** u/mes |
 
 **Red de seguridad** (`tests/engines/regression-baseline.test.js`, PLAN-2026-002 PN0): con impuestos sin definir, los KPIs, la EECC, la matriz y los tramos de la demo, el caso de referencia, cada plantilla y variantes sintéticas son **idénticos** a los del motor anterior (`tests/fixtures/baseline-v1.json`).

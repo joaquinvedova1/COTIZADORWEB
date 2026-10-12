@@ -119,6 +119,9 @@ export const MATERIAL_BASES = deepFreeze([
   { id: 'per_activation', label: 'Por llamado' },
 ]);
 
+/** Unidades habituales de un material (PLAN-2026-010): sólo para mostrar y cargar; no cambian el cálculo. */
+export const MATERIAL_UNIT_PRESETS = deepFreeze(['unidad', 'L', 'kg', 'g', 't', 'm', 'm²', 'm³', 'paquete', 'bolsa', 'tambor']);
+
 export const INDIRECT_METHODS = deepFreeze([
   { id: 'percent_direct', label: '% sobre costo directo', uses: 'pct' },
   { id: 'percent_labor', label: '% sobre mano de obra', uses: 'pct' },
@@ -270,6 +273,8 @@ export const BASE_SOURCES = deepFreeze([
   { id: 'agreement', label: 'Convenio / escala vigente' },
   { id: 'index', label: 'Índice o publicación' },
   { id: 'other', label: 'Otra fuente' },
+  // PLAN-2026-010: la persona eligió, con confirmación, usar el mes de la oferta.
+  { id: 'offer', label: 'Mes de la oferta (asignado en la cotización)' },
 ]);
 
 /** Cómo se obtiene un recurso. */

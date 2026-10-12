@@ -1,19 +1,23 @@
 /**
  * Etapa 3 · Costos y condiciones — Gastos de estructura (costos indirectos / overhead).
  * Cómo absorbe este servicio una parte de la estructura de la empresa.
- * Básico: el % (o monto) de estructura. Opciones avanzadas (con el método
- * visible en el resumen): método de absorción, qué incluye y detalle.
+ * Modo simple (el de siempre): el % (o monto) de estructura con un método.
+ * Desglosar estructura (PLAN-2026-010, opcional): cada rubro con su propio
+ * método (administración % directo, HSE por empleado, alquiler de base por
+ * contrato…), con una política de la empresa que se guarda en Configuración
+ * y se reutiliza. Cambiar la política nunca cambia cotizaciones hechas.
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid } from '../../components.js';
+import { card, formGrid, table, emptyState, confirmDialog, choiceGroup } from '../../components.js';
+import { createId } from '../../../core/ids.js';
 import { INDIRECT_METHODS, labelOf } from '../../../domain/catalogs.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 
 const METHOD_HINTS = Object.freeze({
-  percent_direct: 'Se suma un % sobre todos los costos directos (personal, equipos, combustible, materiales y logística). Es el método más usado.',
+  percent_direct: 'Se suma un % sobre todos los costos directos (personal, equipos, combustible, materiales y logística). Es un método simple, una forma práctica de empezar.',
   percent_labor: 'Se suma un % sólo sobre la mano de obra. Útil si la estructura crece con la dotación.',
   per_employee: 'Monto mensual de estructura por cada persona de la dotación de este servicio.',
   per_contract: 'Monto mensual fijo que este contrato tiene que aportar a la estructura.',
@@ -68,6 +72,19 @@ function baseOf(result) {
 
 function structureTrace(result) {
   const s = result.model.structure;
+  if (s.mode === 'detailed') {
+    const D = result.activity.activeDaysPerMonth;
+    const f = monthsFactor(D, result.activity.availableDaysPerMonth);
+    return createTrace({
+      id: 'structure',
+      title: 'Gastos de estructura (desglosados por rubro)',
+      formula: 'Estructura = Σ rubros · cada rubro con su método (% sobre costo directo, % sobre mano de obra, por empleado, por contrato, por hora o manual)',
+      inputs: s.items.map((it) => ({ label: `${it.label} (${labelOf(INDIRECT_METHODS, it.method).toLowerCase()})`, value: (INDIRECT_METHODS.find((m) => m.id === it.method) || {}).uses === 'pct' ? it.pct : it.amount, format: (INDIRECT_METHODS.find((m) => m.id === it.method) || {}).uses === 'pct' ? 'percent' : 'money' })),
+      steps: s.items.map((it) => ({ label: `${it.label}: en el mes`, value: it.fixedMonthly * f + it.variablePerActiveDay * D, format: 'money' })),
+      result: { label: 'Estructura absorbida en el mes', value: absorptionAtEstimate(result), format: 'money' },
+      notes: ['Los costos que cargaste como "Otros costos" con categoría Estructura también suman al rubro Gastos de estructura, pero no forman parte de la base de costos directos.'],
+    });
+  }
   const method = s.method;
   const usesPct = method === 'percent_direct' || method === 'percent_labor';
   const formula = {
@@ -102,9 +119,138 @@ function structureTrace(result) {
   });
 }
 
+/** Rubro de estructura nuevo. */
+function structureItem(label, method = 'percent_direct', pct = 0, amount = 0) {
+  return { id: `str-${createId().slice(0, 8)}`, label, method, pct, amount };
+}
+
+/** Copia limpia de los rubros (para guardar como política o traerla). */
+function cleanItems(items) {
+  return (Array.isArray(items) ? items : []).filter((it) => it && typeof it === 'object').map((it) => ({
+    id: `str-${createId().slice(0, 8)}`,
+    label: typeof it.label === 'string' ? it.label.slice(0, 80) : 'Rubro',
+    method: INDIRECT_METHODS.some((m) => m.id === it.method) ? it.method : 'percent_direct',
+    pct: Number.isFinite(Number(it.pct)) ? Number(it.pct) : 0,
+    amount: Number.isFinite(Number(it.amount)) ? Number(it.amount) : 0,
+  }));
+}
+
+/** Desglose de la estructura por rubro (PLAN-2026-010). */
+function detailedCard(ctx) {
+  const { quote, kit, settings } = ctx;
+  const items = Array.isArray(quote.indirect.items) ? quote.indirect.items : [];
+  const policy = settings && settings.indirectPolicy && Array.isArray(settings.indirectPolicy.items) ? settings.indirectPolicy.items : [];
+  const add = () => ctx.mutate((q) => {
+    q.indirect.items = Array.isArray(q.indirect.items) ? q.indirect.items : [];
+    q.indirect.items.push(structureItem('Nuevo rubro'));
+  }, { focus: `indirect.items.${items.length}.label` });
+  const remove = (j) => ctx.mutate((q) => {
+    q.indirect.items.splice(j, 1);
+  });
+  const usePolicy = async () => {
+    if (items.length) {
+      const ok = await confirmDialog({ title: 'Usar la política de tu empresa', message: `Se reemplazan los ${items.length} rubros de esta cotización por los ${policy.length} de la política de tu empresa.`, confirmLabel: 'Reemplazar' });
+      if (!ok) return;
+    }
+    ctx.mutate((q) => {
+      q.indirect.items = cleanItems(policy);
+    });
+    ctx.toast('Se copió la política de estructura de tu empresa en esta cotización. Si después cambia, esta cotización no cambia sola.', 'success');
+  };
+  const savePolicy = async () => {
+    const service = ctx.app && ctx.app.ctx && ctx.app.ctx.settings;
+    if (!service || typeof service.save !== 'function') return;
+    const ok = await confirmDialog({ title: 'Guardar como política de la empresa', message: `Se guardan estos ${items.length} rubros como política de estructura de tu empresa, para reutilizarla en otras cotizaciones. Las cotizaciones hechas no cambian.`, confirmLabel: 'Guardar' });
+    if (!ok) return;
+    try {
+      const indirectPolicy = { items: cleanItems(items) };
+      await service.save({ indirectPolicy });
+      if (settings) settings.indirectPolicy = indirectPolicy;
+      ctx.toast('Política de estructura guardada en la configuración de tu empresa.', 'success');
+      ctx.rerender();
+    } catch {
+      ctx.toast('No se pudo guardar la política. Probá de nuevo.', 'danger');
+    }
+  };
+  const rowsTable = items.length
+    ? table({
+      className: 'qe-edit-table',
+      caption: 'Rubros de estructura',
+      columns: [
+        { key: 'label', label: 'Rubro', render: (row, j) => kit.text(`indirect.items.${j}.label`, { label: 'Rubro', maxLength: 80 }) },
+        { key: 'method', label: 'Cómo se asigna', render: (row, j) => kit.select(`indirect.items.${j}.method`, { label: 'Cómo se asigna', options: INDIRECT_METHODS.map((m) => ({ value: m.id, label: m.label })), structural: true }) },
+        {
+          key: 'value',
+          label: 'Valor',
+          render: (row, j) => ((INDIRECT_METHODS.find((m) => m.id === row.method) || INDIRECT_METHODS[0]).uses === 'pct'
+            ? kit.num(`indirect.items.${j}.pct`, { label: '%', rule: 'percent', unit: '%' })
+            : kit.num(`indirect.items.${j}.amount`, { label: (AMOUNT_LABELS[row.method] || AMOUNT_LABELS.manual)[0], rule: 'money', unit: (AMOUNT_LABELS[row.method] || AMOUNT_LABELS.manual)[1] })),
+        },
+        {
+          key: 'month',
+          label: 'En el mes',
+          align: 'right',
+          render: (row, j) => kit.out((r) => {
+            const it = r.model.structure.items[j];
+            if (!it) return EMPTY;
+            const D = r.activity.activeDaysPerMonth;
+            return formatMoney(it.fixedMonthly * monthsFactor(D, r.activity.availableDaysPerMonth) + it.variablePerActiveDay * D);
+          }),
+        },
+        { key: 'remove', label: '', render: (row, j) => kit.action('', () => remove(j), { variant: 'ghost', icon: 'trash', title: 'Quitar rubro' }) },
+      ],
+      rows: items,
+    })
+    : emptyState('Todavía no hay rubros. Agregá uno o usá la política de tu empresa.');
+  return h(
+    'div',
+    { class: 'stack' },
+    h('p', { class: 'qe-note' }, 'Cada rubro con su propio criterio (por ejemplo: administración como % del costo directo, HSE y sistemas por empleado, alquiler de base por contrato). Los porcentajes y montos son tuyos: RATEOS no trae valores.'),
+    rowsTable,
+    h(
+      'div',
+      { class: 'qe-toolbar' },
+      kit.action('Agregar rubro', add, { icon: 'plus' }),
+      policy.length ? kit.action(`Usar la política de mi empresa (${policy.length} ${policy.length === 1 ? 'rubro' : 'rubros'})`, usePolicy, { icon: 'check' }) : null,
+      items.length ? kit.action('Guardar como política de la empresa', savePolicy, { icon: 'check' }) : null,
+    ),
+  );
+}
+
 export function render(container, ctx) {
   const { quote, kit } = ctx;
   const method = INDIRECT_METHODS.find((m) => m.id === quote.indirect.method) || INDIRECT_METHODS[0];
+  const detailed = quote.indirect.mode === 'detailed';
+
+  /** Modo simple ↔ desglosado. Al desglosar por primera vez, el primer rubro replica el modo simple (mismo monto). */
+  const modeWrap = choiceGroup({
+    label: '¿Cómo cargás la estructura?',
+    name: 'indirect.mode',
+    value: detailed ? 'detailed' : 'simple',
+    disabled: kit.readOnly,
+    options: [
+      { value: 'simple', label: 'Simple (un método para toda la estructura)', hint: 'El de siempre: un % o un monto.' },
+      { value: 'detailed', label: 'Desglosar estructura', hint: 'Cada rubro con su propio criterio (administración, HSE, sistemas, alquiler de base…).' },
+    ],
+    onChange: (value) => ctx.mutate((q) => {
+      q.indirect.mode = value === 'detailed' ? 'detailed' : 'simple';
+      if (q.indirect.mode === 'detailed' && !(Array.isArray(q.indirect.items) && q.indirect.items.length)) {
+        q.indirect.items = [structureItem('Estructura general', q.indirect.method || 'percent_direct', Number(q.indirect.pct) || 0, Number(q.indirect.amount) || 0)];
+      }
+    }),
+  });
+  if (detailed) {
+    mount(container, card({}, modeWrap, detailedCard(ctx), kit.keyline({
+      label: 'Gastos de estructura que absorbe este servicio',
+      value: (r) => `${formatMoney(absorptionAtEstimate(r))} por mes`,
+      hint: (r) => {
+        const row = rowOf(r, 'structure');
+        return row ? `${formatPercent(row.displayPct)} del costo total (rubro Gastos de estructura: ${formatMoney(row.amount)}).` : '';
+      },
+      trace: structureTrace,
+    })));
+    return { update() {} };
+  }
 
   const valueField = method.uses === 'pct'
     ? kit.num('indirect.pct', {
@@ -126,6 +272,7 @@ export function render(container, ctx) {
 
   const basicCard = card(
     {},
+    modeWrap,
     formGrid(2, valueField),
     kit.explain('Una forma simple de estimar el %: sumá los gastos mensuales de estructura de tu empresa y dividilos por el costo directo mensual de todos tus servicios.'),
     kit.keyline({

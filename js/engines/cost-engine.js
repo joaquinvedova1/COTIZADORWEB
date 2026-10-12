@@ -248,8 +248,12 @@ export function buildCostModel(quote = {}) {
         payGroup: 'suppliers',
         fixedMonthly: x.fixedMonthly,
         variablePerActiveDay: x.variablePerActiveDay,
-        cashFixedMonthly: x.fixedMonthly,
-        cashVariablePerActiveDay: x.variablePerActiveDay,
+        // Se financia la SALIDA DE CAJA (neto + IVA + percepciones + cargos), no
+        // el costo económico: el IVA recuperable y las percepciones son caja que
+        // la empresa adelanta al proveedor hasta cobrar. Sin tratamiento fiscal
+        // definido, caja = costo (como siempre).
+        cashFixedMonthly: x.cashFixedMonthly,
+        cashVariablePerActiveDay: x.cashVariablePerActiveDay,
       });
       if (x.mobilizationPerActiveDay > 0) {
         lines.push({
@@ -261,7 +265,7 @@ export function buildCostModel(quote = {}) {
           fixedMonthly: 0,
           variablePerActiveDay: x.mobilizationPerActiveDay,
           cashFixedMonthly: 0,
-          cashVariablePerActiveDay: x.mobilizationPerActiveDay,
+          cashVariablePerActiveDay: x.cashMobilizationPerActiveDay,
         });
       }
       if (x.fuelPerActiveDay > 0) {
@@ -426,34 +430,40 @@ export function buildCostModel(quote = {}) {
     if (l.category === 'labor') addTo(laborBucket, l.fixedMonthly, l.variablePerActiveDay);
   });
 
-  // 6. Estructura (indirectos)
+  // 6. Estructura (indirectos). Modo simple (el de siempre): un método para
+  // toda la estructura. Modo desglosado (PLAN-2026-010, opcional): cada rubro
+  // con su propio método (administración % directo, HSE por empleado…).
   const indirect = quote.indirect || {};
   const method = indirect.method || 'percent_direct';
   const indirectPct = nonNegative(indirect.pct);
   const indirectAmount = nonNegative(indirect.amount);
-  let structureFixed = 0;
-  let structureVariable = 0;
-  switch (method) {
-    case 'percent_direct':
-      structureFixed = direct.fixedMonthly * pct(indirectPct);
-      structureVariable = direct.variablePerActiveDay * pct(indirectPct);
-      break;
-    case 'percent_labor':
-      structureFixed = laborBucket.fixedMonthly * pct(indirectPct);
-      structureVariable = laborBucket.variablePerActiveDay * pct(indirectPct);
-      break;
-    case 'per_employee':
-      structureFixed = indirectAmount * labor.headcount;
-      break;
-    case 'per_hour':
-      structureVariable = indirectAmount * activity.hoursPerActiveDay;
-      break;
-    case 'per_contract':
-    case 'manual':
-    default:
-      structureFixed = indirectAmount;
-      break;
-  }
+  const structureBy = (m, pctValue, amount) => {
+    switch (m) {
+      case 'percent_direct':
+        return { fixed: direct.fixedMonthly * pct(pctValue), variable: direct.variablePerActiveDay * pct(pctValue) };
+      case 'percent_labor':
+        return { fixed: laborBucket.fixedMonthly * pct(pctValue), variable: laborBucket.variablePerActiveDay * pct(pctValue) };
+      case 'per_employee':
+        return { fixed: amount * labor.headcount, variable: 0 };
+      case 'per_hour':
+        return { fixed: 0, variable: amount * activity.hoursPerActiveDay };
+      case 'per_contract':
+      case 'manual':
+      default:
+        return { fixed: amount, variable: 0 };
+    }
+  };
+  const detailed = indirect.mode === 'detailed' && Array.isArray(indirect.items);
+  const structureItems = detailed
+    ? objectList(indirect.items).map((it, idx) => {
+      const m = typeof it.method === 'string' && it.method ? it.method : 'percent_direct';
+      const value = structureBy(m, nonNegative(it.pct), nonNegative(it.amount));
+      return { id: it.id ?? `item-${idx}`, label: typeof it.label === 'string' && it.label.trim() ? it.label.trim() : 'Rubro de estructura', method: m, pct: nonNegative(it.pct), amount: nonNegative(it.amount), fixedMonthly: value.fixed, variablePerActiveDay: value.variable };
+    })
+    : [];
+  const simple = detailed ? null : structureBy(method, indirectPct, indirectAmount);
+  const structureFixed = detailed ? structureItems.reduce((acc, it) => acc + it.fixedMonthly, 0) : simple.fixed;
+  const structureVariable = detailed ? structureItems.reduce((acc, it) => acc + it.variablePerActiveDay, 0) : simple.variable;
   lines.push({
     key: 'structure:absorption',
     source: 'structure',
@@ -506,9 +516,11 @@ export function buildCostModel(quote = {}) {
     lines,
     direct,
     structure: {
+      mode: detailed ? 'detailed' : 'simple',
       method,
       pct: indirectPct,
       amount: indirectAmount,
+      items: structureItems,
       fixedMonthly: structureFixed,
       variablePerActiveDay: structureVariable,
     },
@@ -560,10 +572,16 @@ export function costStructure(model, activeDays) {
   const at = costAtActivity(model, activeDays);
   const amounts = COST_CATEGORIES.map((c) => at.byCategory[c.id]);
   const displayPcts = roundPercentagesToTotal(amounts, 2, 100);
+  const byCat = model.byCategory || {};
   const rows = COST_CATEGORIES.map((c, i) => ({
     category: c.id,
     label: c.label,
     amount: amounts[i],
+    // Fijo del mes y variable por día de trabajo de la categoría (PLAN-2026-010):
+    // "monto ÷ días" mezcla los fijos y no es un costo por día.
+    fixedMonthly: (byCat[c.id] ? byCat[c.id].fixedMonthly : 0) * at.monthsFactor,
+    variablePerActiveDay: byCat[c.id] ? byCat[c.id].variablePerActiveDay : 0,
+    // Equivalente por día AL NIVEL ESTIMADO (incluye fijos): sólo una referencia.
     perActiveDay: safeDivide(amounts[i], at.activeDays, null),
     share: at.total > 0 ? amounts[i] / at.total : 0,
     sharePct: at.total > 0 ? (amounts[i] / at.total) * 100 : 0,

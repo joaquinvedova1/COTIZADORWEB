@@ -145,8 +145,12 @@ function checkQuoteShape(q, base, errors) {
       LINE_OBJECT_FIELDS.forEach((k) => {
         if (line[k] !== undefined && line[k] !== null && !isPlainObject(line[k])) errors.push(`${base}.${f}[${j}].${k}: debe ser un objeto.`);
       });
+      // v7 (PLAN-2026-010): tramos de horas extra.
+      if (f === 'labor') checkObjectList(line.overtime, `${base}.labor[${j}].overtime`, errors);
     });
   });
+  // v7 (PLAN-2026-010): rubros de la estructura desglosada.
+  if (isPlainObject(q.indirect)) checkObjectList(q.indirect.items, `${base}.indirect.items`, errors);
   if (q.offerDate !== undefined && q.offerDate !== null && typeof q.offerDate !== 'string') errors.push(`${base}.offerDate: debe ser una fecha.`);
 }
 
@@ -212,6 +216,10 @@ export function validateState(state) {
     if (dbt !== undefined && dbt !== null && !isPlainObject(dbt)) errors.push('settings.defaultBillingTaxes: debe ser un objeto.');
     else if (isPlainObject(dbt)) checkObjectList(dbt.items, 'settings.defaultBillingTaxes.items', errors);
     checkObjectList(state.settings.exchangeRates, 'settings.exchangeRates', errors);
+    // v7 (PLAN-2026-010): política de estructura de la empresa (rubros reutilizables).
+    const ip = state.settings.indirectPolicy;
+    if (ip !== undefined && ip !== null && !isPlainObject(ip)) errors.push('settings.indirectPolicy: debe ser un objeto.');
+    else if (isPlainObject(ip)) checkObjectList(ip.items, 'settings.indirectPolicy.items', errors);
     const fb = state.settings.fuelPriceBase;
     if (fb !== undefined && fb !== null && !isPlainObject(fb)) errors.push('settings.fuelPriceBase: debe ser un objeto.');
   }

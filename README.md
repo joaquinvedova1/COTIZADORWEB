@@ -66,6 +66,8 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 
 **v0.6.0 — Unidades de facturación según el tipo de servicio** (esquema de datos 6, sin cambios de datos; $/día, $/hora y $/mes calculan igual): cada tipo de servicio ofrece sus unidades ($/m³, $/viaje, $/tonelada, $/km, $/llamado, $/turno, $ global por trabajo, $/hito… y una propia como "$/pozo"); la actividad se carga en esa unidad y el equilibrio se lee en ella ("6.000 m³ para no perder"). Los costos se siguen calculando por días de trabajo (unidad de costo ≠ unidad de venta). Fórmulas en [docs/CALCULATION_RULES.md §12.1](docs/CALCULATION_RULES.md#121-unidad-de-facturación-según-el-tipo-de-servicio-plan-2026-009).
 
+**v0.7.0 — Auditoría y pulido desde una cotización real (COT-0009)** (esquema de datos 7, sin cambios de datos): los números de COT-0009 quedan como golden case; se corrige la financiación de externos con IVA (se financia la salida de caja; sin IVA cargado nada cambia); BORRADOR arriba del resultado con pendientes críticos / para revisar / informativos; externos incompletos nombrados con [Completar] [Quitar] e impacto incremental en "Ver cálculo"; horas extra por tramos (HE 50 % / 100 % / otro, facturables aparte); estructura desglosada por rubro con política de la empresa; comparador de modelos en $/m³, $/viaje, $/unidad; EECC con fijo del mes y variable por día; fecha base con "usar el mes de la oferta" (confirmado). Plan PLAN-2026-010.
+
 ## Visitante, demo y cuenta
 
 | | Qué ve | Datos |
