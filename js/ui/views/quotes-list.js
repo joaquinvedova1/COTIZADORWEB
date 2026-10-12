@@ -611,10 +611,10 @@ export function orderTemplates(services) {
 export async function renderNewQuote(root, app) {
   const { ctx } = app;
   app.setHeader({
-    title: 'Nueva cotización',
+    title: 'Nuevo servicio',
     breadcrumbs: [
       { label: 'Inicio', href: '#/inicio' },
-      { label: 'Cotizaciones', href: '#/cotizaciones' },
+      { label: 'Nuevo cálculo', href: '#/nuevo' },
     ],
   });
 
@@ -687,6 +687,7 @@ export async function renderNewQuote(root, app) {
       services.length
         ? h('p', { class: 'muted small' }, 'Las plantillas marcadas ILUSTRATIVO traen valores de ejemplo: reemplazalos por los tuyos. Gestioná tus plantillas en ', h('a', { href: '#/servicios' }, 'Servicios'), '.')
         : h('p', { class: 'muted small' }, 'Todavía no tenés plantillas de servicio. Podés guardar cualquier cotización como plantilla desde su resultado.'),
+      h('p', { class: 'muted small' }, '¿Vendés unidades que hacés vos (por unidad, docena o kilo)? ', h('a', { href: '#/productos/nuevo' }, 'Calculá un producto'), ' en lugar de un servicio.'),
       disclosure(
         { summary: '¿Cómo sigue?', hint: 'Cinco etapas, de la descripción del servicio a la tarifa.', className: 'disclosure-plain' },
         h(

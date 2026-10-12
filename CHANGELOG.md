@@ -12,6 +12,19 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-12
+
+Servicios y productos en una misma experiencia de costeo y precio. **Sólo interfaz, navegación y textos**: no cambia ninguna fórmula, ningún motor, el esquema de datos (sigue en 5), Supabase ni RLS. Cotizaciones y productos siguen siendo modelos distintos por debajo.
+
+### Cambiado
+
+- El botón principal del menú pasa de "+ Nueva cotización" a **"+ Nuevo cálculo"** (`#/nuevo`), que pregunta primero **"¿Qué querés calcular?"**: **Servicio** ("Calculá cuánto cuesta prestar un servicio y cuánto deberías cobrar.") lleva a la pantalla de siempre para elegir el servicio y su tipo (on-call, permanente, cuadrilla, equipo con operador, transporte, llave en mano, precio cerrado…); **Producto** ("Calculá cuánto cuesta producir cada unidad y a qué precio venderla según el margen que buscás.") lleva al editor de productos existente.
+- **Inicio**: "¿Qué querés calcular hoy?" con dos accesos, **[Nuevo servicio]** y **[Nuevo producto]**.
+- "Nuevo servicio" y "Nuevo producto" muestran "Inicio / Nuevo cálculo" en la ruta de navegación y un enlace para cambiar al otro tipo de cálculo.
+- Bienvenida: "Calcular un servicio", "Calcular un producto" o "Configurar recursos".
+- Landing y textos públicos: "Sabé cuánto te cuesta. Definí cuánto cobrar." para servicios, contratos, productos, producción y comercio (sin limitarse a Oil & Gas); "Empezar a calcular" lleva a "¿Qué querés calcular?".
+- El menú lateral sigue con Cotizaciones, Productos, Recursos, Servicios y Escenarios.
+
 ## [0.5.0] - 2026-10-11
 
 **Productos**: además de servicios, RATEOS calcula el costo y el precio de un producto (chipá, facturas, viandas…) paso a paso. Motor nuevo (las cotizaciones **no cambian**: mismas fórmulas y mismos números) y **esquema de datos 5** (`migrateV4ToV5` agrega `products: []`, con copia previa). Plan: PLAN-2026-008.

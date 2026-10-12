@@ -153,7 +153,7 @@ export async function render(root, app) {
 /** #/productos/nuevo */
 export async function renderNew(root, app) {
   const { ctx } = app;
-  app.setHeader({ title: 'Nuevo producto', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }, { label: 'Productos', href: '#/productos' }] });
+  app.setHeader({ title: 'Nuevo producto', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }, { label: 'Nuevo cálculo', href: '#/nuevo' }] });
   const cards = [];
   let busy = false;
 
@@ -197,6 +197,7 @@ export async function renderNew(root, app) {
         text: 'Chipá, facturas, viandas, tortas, conservas… Pensá en una tanda: lo que hacés de una vez con una receta. RATEOS calcula cuánto te cuesta cada unidad y a qué precio venderla.',
       }),
       h('div', { class: 'quote-choice-grid' }, ...cards),
+      h('p', { class: 'muted small' }, '¿Cobrás por día, hora, mes o por un trabajo terminado? ', h('a', { href: '#/cotizaciones/nueva' }, 'Calculá un servicio'), ' en lugar de un producto.'),
       h(
         'div',
         { class: 'card' },

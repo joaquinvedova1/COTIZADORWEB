@@ -57,6 +57,8 @@ export const ROUTES = Object.freeze([
   // Bienvenida (tipo de empresa y base): ahora es parte de la cuenta.
   { name: 'onboarding', segments: ['bienvenida'], shell: 'public', access: 'auth', nav: null, title: 'Bienvenido', load: () => import('./views/public/onboarding.js'), view: 'render' },
   // ---------------------------------------------------------- aplicación
+  // "Nuevo cálculo": elegir servicio o producto antes de entrar a cada flujo.
+  { name: 'new-calc', segments: ['nuevo'], shell: 'app', access: 'auth', nav: 'new', title: 'Nuevo cálculo', load: () => import('./views/new-calc.js'), view: 'render' },
   { name: 'home', segments: ['inicio'], shell: 'app', access: 'auth', nav: 'home', title: 'Inicio', load: () => import('./views/dashboard.js'), view: 'render' },
   { name: 'quotes', segments: ['cotizaciones'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Cotizaciones', load: () => import('./views/quotes-list.js'), view: 'render' },
   { name: 'new-quote', segments: ['cotizaciones', 'nueva'], shell: 'app', access: 'auth', nav: 'quotes', title: 'Nueva cotización', load: () => import('./views/quotes-list.js'), view: 'renderNewQuote' },

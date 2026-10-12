@@ -1,8 +1,8 @@
 # RATEOS
 
-**Motor de costos y precios para servicios industriales y productos.**
+**Sabé cuánto te cuesta. Definí cuánto cobrar.** Motor de costos y precios para servicios, contratos, productos, producción y comercio.
 
-> Ayuda a una empresa a saber cuánto le cuesta realmente prestar un servicio y a qué precio debería cotizarlo para no perder dinero.
+> Ayuda a una empresa a saber cuánto le cuesta realmente prestar un servicio o hacer un producto, y a qué precio debería venderlo para no perder dinero. "+ Nuevo cálculo" pregunta primero qué querés calcular: un **servicio** (cotización) o un **producto**.
 
 **Sitio:** <https://joaquinvedova1.github.io/COTIZADORWEB/>
 

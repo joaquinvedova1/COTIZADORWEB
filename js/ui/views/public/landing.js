@@ -4,8 +4,8 @@
  * Vende resultados, no funcionalidades. El "mockup" del hero NO es una
  * imagen: es el resultado real del motor (computeQuote) sobre la cotización
  * de ejemplo "Hidrogrúa on-call — Añelo", con valores ILUSTRATIVOS.
- * No lee ni escribe datos de ninguna cuenta. "Crear una cotización" lleva a
- * crear la cuenta (y después a la cotización); con sesión, directo.
+ * No lee ni escribe datos de ninguna cuenta. "Empezar a calcular" lleva a
+ * crear la cuenta (y después a "¿Qué querés calcular?"); con sesión, directo.
  */
 
 import { h, mount } from '../../dom.js';
@@ -115,8 +115,8 @@ function sectionHead({ eyebrow, title, id, text = null, className = '' }) {
 
 const RESULTS = Object.freeze([
   { icon: 'layers', title: 'Sabé cuánto te cuesta.', text: 'Personal, equipos, materiales, viajes y gastos de estructura en un único cálculo, para un servicio o para cada unidad de un producto.' },
-  { icon: 'tag', title: 'Sabé cuánto cobrar.', text: 'Conocé tu tarifa piso y el precio necesario para el margen que buscás.' },
-  { icon: 'calendar', title: 'Sabé cuánto necesitás trabajar.', text: 'En servicios on-call, descubrí cuántos días u horas necesitás facturar para no perder plata.' },
+  { icon: 'tag', title: 'Definí cuánto cobrar.', text: 'Conocé tu precio piso y el precio necesario para el margen que buscás (margen sobre el precio, no markup).' },
+  { icon: 'calendar', title: 'Sabé cuánto necesitás vender.', text: 'Cuántos días u horas de servicio, o cuántas unidades por mes, necesitás para no perder plata.' },
 ]);
 
 const PAINS = Object.freeze([
@@ -128,19 +128,19 @@ const PAINS = Object.freeze([
 ]);
 
 const STEPS = Object.freeze([
-  { n: '01', title: 'Contanos qué servicio vas a prestar.', text: 'Cuadrilla, equipo, on-call, permanente, llave en mano, etc.' },
+  { n: '01', title: 'Elegí qué querés calcular.', text: 'Un servicio (on-call, cuadrilla, equipo, transporte, llave en mano…) o un producto (por unidad, docena o kilo).' },
   { n: '02', title: 'Cargá los recursos y condiciones.', text: 'Personal, equipos, materiales, viajes y condiciones comerciales.' },
-  { n: '03', title: 'Conocé tu tarifa.', text: 'Costo del mes, tarifa piso, margen y escenarios.' },
+  { n: '03', title: 'Conocé tu precio.', text: 'Costo, precio piso, margen, punto de equilibrio y escenarios.' },
 ]);
 
-const AUDIENCES = Object.freeze(['PyMEs de servicios', 'Oil & Gas', 'Mantenimiento industrial', 'Transporte', 'Construcción', 'Minería', 'Panaderías y alimentos', 'Comercios y talleres']);
+const AUDIENCES = Object.freeze(['Servicios', 'Contratos', 'Productos', 'Producción', 'Comercio', 'Alimentos', 'Talleres', 'Transporte', 'Construcción', 'Energía y minería']);
 
-/** "De los recursos a la tarifa": lo que hay por debajo, sin fórmulas. */
+/** "De los recursos al precio": lo que hay por debajo, sin fórmulas. */
 const CHAIN_INPUTS = Object.freeze(['Personal', 'Equipos', 'Materiales', 'Logística']);
 const CHAIN_STAGES = Object.freeze([
-  { icon: 'calc', title: 'Costo real', text: 'Lo que te cuesta prestar el servicio cada mes, con todo incluido.' },
+  { icon: 'calc', title: 'Costo real', text: 'Lo que te cuesta prestar el servicio o hacer cada unidad, con todo incluido.' },
   { icon: 'tag', title: 'Tarifa piso', text: 'Lo mínimo que tenés que cobrar para no perder plata.' },
-  { icon: 'chart', title: 'Margen', text: 'Lo que querés ganar sobre el precio de venta. Con él llegás a tu tarifa.' },
+  { icon: 'chart', title: 'Margen', text: 'Lo que querés ganar sobre el precio de venta. Con él llegás a tu precio.' },
 ]);
 
 function resourcesToRateChain() {
@@ -166,9 +166,9 @@ function resourcesToRateChain() {
   );
 }
 
-/** "Crear una cotización": con sesión va directo; sin sesión, a crear la cuenta y después a la cotización. */
-function newQuoteHref(app) {
-  return isSignedIn(app) ? '#/cotizaciones/nueva' : registerHash('/cotizaciones/nueva');
+/** "Empezar a calcular": con sesión va directo a "¿Qué querés calcular?"; sin sesión, a crear la cuenta y después ahí. */
+function newCalcHref(app) {
+  return isSignedIn(app) ? '#/nuevo' : registerHash('/nuevo');
 }
 
 /**
@@ -185,7 +185,7 @@ export function render(root, app) {
     h(
       'div',
       { class: 'pub-container' },
-      sectionHead({ eyebrow: 'Producto', title: 'Tres respuestas antes de cotizar.', id: 'pub-producto-title' }),
+      sectionHead({ eyebrow: 'Qué resuelve', title: 'Tres respuestas antes de poner un precio.', id: 'pub-producto-title' }),
       h(
         'ul',
         { class: 'pub-results' },
@@ -202,7 +202,7 @@ export function render(root, app) {
     h(
       'div',
       { class: 'pub-container' },
-      sectionHead({ eyebrow: '¿Te pasa esto?', title: 'Una cotización no debería depender de una planilla que sólo entiende una persona.', id: 'pub-dolor-title', className: 'pub-section-head-wide' }),
+      sectionHead({ eyebrow: '¿Te pasa esto?', title: 'Un precio no debería depender de una planilla que sólo entiende una persona.', id: 'pub-dolor-title', className: 'pub-section-head-wide' }),
       h('ul', { class: 'pub-pains' }, ...PAINS.map((text) => h('li', { class: 'pub-pain' }, h('p', {}, `“${text}”`)))),
       h('p', { class: 'pub-pains-answer' }, publicIcon('shield', { size: 22 }), h('span', {}, 'RATEOS convierte esas variables en una estructura clara y trazable.')),
     ),
@@ -231,7 +231,7 @@ export function render(root, app) {
       { class: 'pub-container' },
       sectionHead({
         eyebrow: 'Por dentro',
-        title: 'De los recursos a la tarifa.',
+        title: 'De los recursos al precio.',
         id: 'pub-recursos-title',
         text: 'La potencia de una estructura de costos profesional, sin la complejidad de una planilla corporativa.',
       }),
@@ -247,9 +247,9 @@ export function render(root, app) {
       { class: 'pub-container pub-audience' },
       sectionHead({
         eyebrow: 'Para quién',
-        title: 'Para empresas que prestan servicios o hacen productos.',
+        title: 'Para PyMEs que prestan servicios, producen o venden.',
         id: 'pub-quien-title',
-        text: 'Nació en Neuquén, entre empresas que trabajan en Vaca Muerta. Sirve para cualquier servicio donde el costo depende de personas, equipos y días de trabajo, y para productos que llevan materiales, personal y máquinas: una panadería, una rotisería, un taller.',
+        text: 'Sirve para cualquier servicio o contrato donde el costo depende de personas, equipos y tiempo de trabajo, y para cualquier producto que lleva materiales, personal y máquinas: un taller, una panadería, una fábrica chica, un comercio. Nació en Neuquén.',
       }),
       h('ul', { class: 'pub-chips', 'aria-label': 'Rubros' }, ...AUDIENCES.map((label) => h('li', { class: 'pub-chip' }, label))),
     ),
@@ -267,7 +267,7 @@ export function render(root, app) {
         'div',
         { class: 'pub-cta-actions' },
         pubLink('Probar con un ejemplo', '#/demo', { tone: 'light', iconBefore: 'play' }),
-        pubLink('Crear una cotización', newQuoteHref(app), { tone: 'outline-light', iconAfter: 'arrowRight' }),
+        pubLink('Empezar a calcular', newCalcHref(app), { tone: 'outline-light', iconAfter: 'arrowRight' }),
       ),
     ),
   );
@@ -275,7 +275,7 @@ export function render(root, app) {
   const header = siteHeader({
     signedIn: isSignedIn(app),
     sections: [
-      { label: 'Producto', target: () => productSection },
+      { label: 'Qué resuelve', target: () => productSection },
       { label: 'Cómo funciona', target: () => howSection },
       { label: 'Para quién', target: () => audienceSection },
     ],
@@ -284,7 +284,7 @@ export function render(root, app) {
   const heroActions = h(
     'div',
     { class: 'pub-hero-actions' },
-    pubLink('Crear una cotización', newQuoteHref(app), { tone: 'primary', iconAfter: 'arrowRight' }),
+    pubLink('Empezar a calcular', newCalcHref(app), { tone: 'primary', iconAfter: 'arrowRight' }),
     pubLink('Ver demo', '#/demo', { tone: 'secondary', iconBefore: 'play' }),
   );
 
@@ -298,14 +298,14 @@ export function render(root, app) {
         'div',
         { class: 'pub-hero-copy' },
         h('p', { class: 'pub-pill' }, h('span', { class: 'pub-pill-dot', 'aria-hidden': 'true' }), 'Costos y precios para servicios y productos'),
-        h('h1', { class: 'pub-hero-title', id: 'pub-hero-title', tabindex: '-1' }, 'Cotizá servicios y productos sabiendo ', h('span', { class: 'pub-accent' }, 'cuánto te cuestan.')),
+        h('h1', { class: 'pub-hero-title', id: 'pub-hero-title', tabindex: '-1' }, 'Sabé cuánto te cuesta. ', h('span', { class: 'pub-accent' }, 'Definí cuánto cobrar.')),
         h(
           'p',
           { class: 'pub-hero-sub' },
-          'RATEOS transforma personal, equipos, materiales, logística y condiciones comerciales en una estructura de costos clara para saber cuánto cobrar sin perder rentabilidad.',
+          'Para un servicio o para un producto: RATEOS convierte tu personal, tus equipos y máquinas, tus materiales y tus gastos en una estructura de costos clara, y te dice a qué precio vender sin perder rentabilidad.',
         ),
         heroActions,
-        h('p', { class: 'pub-hero-note' }, publicIcon('pin', { size: 18 }), h('span', {}, 'Pensado para empresas de servicios industriales y para quienes fabrican productos. ', h('strong', {}, 'Nacido en Neuquén.'))),
+        h('p', { class: 'pub-hero-note' }, publicIcon('pin', { size: 18 }), h('span', {}, 'Para servicios, contratos, productos, producción y comercio. ', h('strong', {}, 'Nacido en Neuquén.'))),
       ),
       h('div', { class: 'pub-hero-visual' }, productMockup(preview)),
     ),
@@ -315,7 +315,7 @@ export function render(root, app) {
 
   // Con sesión: acceso directo discreto a la cuenta (sin un 3er botón grande).
   if (isSignedIn(app)) {
-    heroActions.after(h('p', { class: 'pub-hero-return' }, publicIcon('check', { size: 18 }), h('span', {}, 'Tenés la sesión iniciada. ', h('a', { href: '#/inicio' }, 'Ir a mis cotizaciones'))));
+    heroActions.after(h('p', { class: 'pub-hero-return' }, publicIcon('check', { size: 18 }), h('span', {}, 'Tenés la sesión iniciada. ', h('a', { href: '#/inicio' }, 'Ir a mi cuenta'))));
   }
 
   return () => {
