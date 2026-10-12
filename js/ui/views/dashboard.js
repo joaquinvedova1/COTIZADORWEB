@@ -22,6 +22,8 @@ import { DEMO_IDS } from '../../domain/demo-data.js';
 import { COMPLETENESS_RISK_THRESHOLD } from '../../engines/completeness-engine.js';
 import { priceFromMargin, priceFromMarkup, markupToMargin, marginToMarkup, traceMarginVsMarkup } from '../../engines/pricing-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { NEW_PRODUCT_HREF, NEW_SERVICE_HREF } from './new-calc.js';
+import { productHref, unitMoney } from './products.js';
 import {
   DEMO_FROM_APP_HREF,
   attachRowNavigation,
@@ -182,22 +184,17 @@ function heroSection({ hasQuotes, name }) {
       'div',
       { class: 'home-hero-text' },
       h('p', { class: 'home-hello' }, hello),
-      h('h2', { class: 'home-question', id: 'home-question' }, hasQuotes ? '¿Qué querés cotizar hoy?' : '¿Qué querés hacer primero?'),
-      h('p', { class: 'home-lead' }, hasQuotes
-        ? 'Calculá cuánto te cuesta prestar un servicio o hacer un producto, y a qué precio conviene venderlo para no perder plata.'
-        : 'Todavía no tenés cotizaciones. Empezá calculando cuánto cuesta uno de tus servicios.'),
+      h('h2', { class: 'home-question', id: 'home-question' }, hasQuotes ? '¿Qué querés calcular hoy?' : '¿Qué querés calcular primero?'),
+      h('p', { class: 'home-lead' }, 'Sabé cuánto te cuesta y definí cuánto cobrar: un servicio (por día, hora, mes o trabajo terminado) o un producto (por unidad, docena o kilo).'),
       h(
         'div',
-        { class: 'home-actions' },
-        hasQuotes
-          ? linkButton('Crear nueva cotización', '#/cotizaciones/nueva', { variant: 'primary', size: 'lg', icon: 'plus' })
-          : linkButton('Crear mi primera cotización', '#/cotizaciones/nueva', { variant: 'primary', size: 'lg', icon: 'plus' }),
-        hasQuotes
-          ? linkButton('Probar con un ejemplo', DEMO_FROM_APP_HREF, { variant: 'ghost', size: 'lg', icon: 'play' })
-          : linkButton('Configurar mi empresa', '#/configuracion/empresa', { variant: 'secondary', size: 'lg', icon: 'settings' }),
+        { class: 'home-actions home-actions-split' },
+        linkButton('Nuevo servicio', NEW_SERVICE_HREF, { variant: 'primary', size: 'lg', icon: 'plus', attrs: { 'aria-label': 'Nuevo servicio: calculá cuánto cuesta prestarlo y cuánto cobrar' } }),
+        linkButton('Nuevo producto', NEW_PRODUCT_HREF, { variant: 'primary', size: 'lg', icon: 'plus', attrs: { 'aria-label': 'Nuevo producto: calculá cuánto cuesta cada unidad y a qué precio venderla' } }),
       ),
-      hasQuotes ? null : h('p', { class: 'home-demo-link' }, '¿Querés ver primero cómo funciona? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá la demo'), ': está aparte y no toca tus datos.'),
-      h('p', { class: 'home-demo-link home-product-link' }, '¿Vendés productos (chipá, facturas, viandas)? ', h('a', { href: '#/productos/nuevo' }, 'Calculá el costo y el precio de un producto'), ' paso a paso.'),
+      hasQuotes
+        ? h('p', { class: 'home-demo-link' }, '¿Querés ver cómo funciona con un servicio? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá el ejemplo'), '.')
+        : h('p', { class: 'home-demo-link' }, '¿Querés ver primero cómo funciona? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá la demo'), ' (está aparte y no toca tus datos) o ', h('a', { href: '#/configuracion/empresa' }, 'configurá tu empresa'), '.'),
     ),
     heroArt(),
   );
@@ -516,13 +513,56 @@ function learnSection() {
   );
 }
 
+// ----------------------------------------------------------- tus productos
+
+/** "Tus productos" (sólo si hay alguno): costo por unidad y precio sugerido. */
+function productsSection(app, items) {
+  if (!items.length) return null;
+  const rows = items.slice(0, RECENT_LIMIT);
+  const tableEl = table({
+    className: 'products-table table-cards',
+    caption: 'Tus productos más recientes',
+    rows,
+    columns: [
+      {
+        key: 'name',
+        label: 'Producto',
+        render: ({ product }) => h('div', { class: 'pe-name-cell' },
+          h('a', { href: productHref(product), class: 'pe-name-link' }, product.name || 'Producto'),
+          h('span', { class: 'muted small' }, `por ${product.saleUnit || 'unidad'}`),
+          product.illustrative ? illustrativeTag('Producto de ejemplo con valores ilustrativos') : null),
+      },
+      { key: 'cost', label: 'Costo por unidad', align: 'right', render: ({ summary }) => h('span', { class: 'mono' }, unitMoney(summary.unitCost)) },
+      { key: 'price', label: 'Precio sugerido', align: 'right', render: ({ summary }) => h('span', { class: 'mono' }, unitMoney(summary.suggestedPrice)) },
+      { key: 'margin', label: 'Margen', align: 'right', render: ({ summary }) => (Number.isFinite(summary.marginPct) ? formatPercent(summary.marginPct, { decimals: 1 }) : EMPTY) },
+      { key: 'go', label: 'Acciones', align: 'right', render: ({ product }) => linkButton('Abrir', productHref(product), { size: 'sm', attrs: { 'aria-label': `Abrir ${product.name || 'producto'}` } }) },
+    ],
+  });
+  return h(
+    'section',
+    { class: 'home-section', 'aria-labelledby': 'home-products' },
+    h(
+      'div',
+      { class: 'section-head' },
+      h('h2', { class: 'section-title', id: 'home-products' }, 'Tus productos'),
+      h('a', { class: 'section-link', href: '#/productos' }, items.length > RECENT_LIMIT ? `Ver todos (${items.length})` : 'Ver todos'),
+    ),
+    card({ className: 'list-card' }, tableEl),
+  );
+}
+
 // ------------------------------------------------------------------ vista
 
 export async function render(root, app) {
   const { ctx } = app;
   app.setHeader({ title: 'Inicio', breadcrumbs: [] });
 
-  const [stats, settings] = await Promise.all([ctx.quotes.dashboardStats(), app.getSettings()]);
+  const [stats, settings, products] = await Promise.all([
+    ctx.quotes.dashboardStats(),
+    app.getSettings(),
+    // Los productos son otro modelo: si no se pueden leer, Inicio sigue igual.
+    ctx.products ? ctx.products.listProducts().catch(() => []) : Promise.resolve([]),
+  ]);
   // listQuotes() ya viene ordenado: la modificada más recientemente primero.
   const all = Array.isArray(stats.items) ? stats.items : [];
   const own = all.filter(({ quote }) => !isExampleQuote(quote));
@@ -539,11 +579,12 @@ export async function render(root, app) {
     h(
       'div',
       { class: 'home' },
-      heroSection({ hasQuotes, name: greetingName(ctx.account && ctx.account.user ? ctx.account.user.fullName : '') }),
+      heroSection({ hasQuotes: hasQuotes || products.length > 0, name: greetingName(ctx.account && ctx.account.user ? ctx.account.user.fullName : '') }),
       hasQuotes ? continueSection(draft) : null,
       hasQuotes ? indicatorsSection(indicators, settings, scope) : null,
       // Sin cotizaciones, el saludo ya es el estado vacío (sin botones repetidos).
       hasQuotes ? quotesSection(app, { all, own, scope }) : null,
+      productsSection(app, products),
       h('div', { class: 'home-more disclosure-list' }, shortcutsSection(app, { items: all }), learnSection()),
     ),
   );

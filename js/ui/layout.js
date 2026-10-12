@@ -3,7 +3,7 @@
  *
  * - público: landing, ingreso, registro, bienvenida y demo guiada. Sin menú
  *   lateral ni topbar: cada vista arma su propio encabezado.
- * - app: sidebar (marca, "+ Nueva cotización", navegación, empresa, cuenta
+ * - app: sidebar (marca, "+ Nuevo cálculo", navegación, empresa, cuenta
  *   —nombre, email, "Mi cuenta", "Cerrar sesión"— y estado de
  *   sincronización con la nube), topbar
  *   con breadcrumbs + título + acciones, zona de banners globales y el
@@ -48,10 +48,14 @@ export const NAV_ITEMS = Object.freeze([
  */
 export const ADMIN_NAV_ITEM = Object.freeze({ key: 'admin', href: '#/admin', label: 'RATEOS Admin', icon: 'lock' });
 
-/** Destino del botón "+ Nueva cotización" del menú lateral. */
+/**
+ * Destino del botón "+ Nuevo cálculo" del menú lateral: primero se elige qué
+ * se calcula (servicio o producto). La nueva cotización sigue en NEW_QUOTE_HREF.
+ */
+export const NEW_CALC_HREF = '#/nuevo';
 export const NEW_QUOTE_HREF = '#/cotizaciones/nueva';
 
-const DEFAULT_DOCUMENT_TITLE = `${APP_NAME} — Cotizá servicios sabiendo cuánto te cuestan`;
+const DEFAULT_DOCUMENT_TITLE = `${APP_NAME} — Sabé cuánto te cuesta. Definí cuánto cobrar.`;
 
 /** Etiqueta estándar para valores de demostración. */
 export function illustrativeTag(title = 'Valor ilustrativo: reemplazalo por uno propio vigente') {
@@ -118,9 +122,9 @@ export function createLayout(container, { version = {} } = {}) {
 
   const newQuoteLink = h(
     'a',
-    { class: ['btn', 'btn-secondary', 'sidebar-cta'], href: NEW_QUOTE_HREF },
+    { class: ['btn', 'btn-secondary', 'sidebar-cta'], href: NEW_CALC_HREF, dataset: { nav: 'new' } },
     icon('plus', { size: 18 }),
-    h('span', { class: 'nav-label' }, 'Nueva cotización'),
+    h('span', { class: 'nav-label' }, 'Nuevo cálculo'),
   );
 
   const orgAvatarEl = h('span', { class: 'org-avatar', 'aria-hidden': 'true' }, 'R');
@@ -360,6 +364,8 @@ export function createLayout(container, { version = {} } = {}) {
         if (k === key) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
       });
+      if (key === 'new') newQuoteLink.setAttribute('aria-current', 'page');
+      else newQuoteLink.removeAttribute('aria-current');
     },
 
     /** Abre o cierra el menú en pantallas chicas. */

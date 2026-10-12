@@ -3,7 +3,7 @@
  *
  * 1. ¿Qué tipo de empresa tenés?   → organization.industry
  * 2. ¿Desde dónde operás?          → organization.baseLocation
- * 3. ¿Qué querés hacer primero?    → crear cotización / configurar recursos
+ * 3. ¿Qué querés hacer primero?    → calcular un servicio / un producto / configurar recursos
  *
  * Requiere cuenta (access: 'auth'). Las respuestas viven en memoria. Qué se
  * guarda y cuándo:
@@ -254,7 +254,7 @@ export async function render(root, app) {
     return [
       h('p', { class: 'pub-eyebrow' }, 'Último paso'),
       h('h1', { class: 'pub-flow-title', tabindex: '-1' }, '¿Qué querés hacer primero?'),
-      h('p', { class: 'pub-flow-text' }, 'Podés empezar por cualquiera de los dos. Después vas y venís cuando quieras.'),
+      h('p', { class: 'pub-flow-text' }, 'Podés empezar por cualquiera. Después vas y venís cuando quieras.'),
       askData
         ? optionGroup({
             legend: '¿Con qué datos empezás?',
@@ -270,8 +270,9 @@ export async function render(root, app) {
       h(
         'div',
         { class: 'pub-choice-list' },
-        choiceCard({ title: 'Crear cotización', text: 'Calculá cuánto te cuesta un servicio y cuánto cobrarlo.', target: '#/cotizaciones/nueva', iconName: 'tag', primary: true }),
-        choiceCard({ title: 'Configurar recursos', text: 'Cargá tu personal y tus equipos una vez, y reutilizalos en cada cotización.', target: '#/recursos/personal', iconName: 'layers' }),
+        choiceCard({ title: 'Calcular un servicio', text: 'Cuánto te cuesta prestarlo y cuánto cobrar (por día, hora, mes o trabajo terminado).', target: '#/cotizaciones/nueva', iconName: 'tag', primary: true }),
+        choiceCard({ title: 'Calcular un producto', text: 'Cuánto te cuesta hacer cada unidad y a qué precio venderla según el margen que buscás.', target: '#/productos/nuevo', iconName: 'product', primary: true }),
+        choiceCard({ title: 'Configurar recursos', text: 'Cargá tu personal, tus equipos y tus materiales una vez, y reutilizalos en cada cálculo.', target: '#/recursos/personal', iconName: 'layers' }),
       ),
       h(
         'p',

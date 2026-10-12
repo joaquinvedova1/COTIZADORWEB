@@ -7,7 +7,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { APP_HOME, LIBRARY_TABS, RESOURCE_TABS, ROUTES, SETTINGS_TABS, hashToPath, matchRoute } from '../../js/ui/router.js';
-import { NAV_ITEMS, NEW_QUOTE_HREF, organizationInitial } from '../../js/ui/layout.js';
+import { NAV_ITEMS, NEW_CALC_HREF, NEW_QUOTE_HREF, organizationInitial } from '../../js/ui/layout.js';
+import { CALC_KINDS, NEW_PRODUCT_HREF, NEW_SERVICE_HREF } from '../../js/ui/views/new-calc.js';
 import { filterQuoteItems, quoteDetailHref, quoteHref, summaryFailed } from '../../js/ui/views/quotes-list.js';
 import { SETTINGS_SECTIONS, parseMarginLadder, parseMatrixDays } from '../../js/ui/views/settings.js';
 import { RESOURCE_TAB_IDS } from '../../js/ui/views/library.js';
@@ -56,6 +57,22 @@ describe('router: matchRoute', () => {
     assert.equal(step.route.name, 'quote-editor-step');
     assert.deepEqual(step.params, { id: 'abc-123', step: 'result' });
     assert.equal(step.nav, 'quotes');
+  });
+
+  test('"+ Nuevo cálculo" pregunta primero qué se calcula: servicio → nueva cotización, producto → nuevo producto', () => {
+    assert.equal(NEW_CALC_HREF, '#/nuevo');
+    const m = route(NEW_CALC_HREF);
+    assert.equal(m.route.name, 'new-calc');
+    assert.equal(m.route.access, 'auth');
+    assert.equal(m.route.shell, 'app');
+    assert.deepEqual(CALC_KINDS.map((k) => k.id), ['service', 'product']);
+    assert.equal(NEW_SERVICE_HREF, NEW_QUOTE_HREF);
+    assert.equal(route(NEW_SERVICE_HREF).route.name, 'new-quote');
+    assert.equal(route(NEW_PRODUCT_HREF).route.name, 'new-product');
+    for (const kind of CALC_KINDS) {
+      assert.ok(kind.title && kind.text, kind.id);
+      assert.equal(route(kind.href).notFound, false, kind.href);
+    }
   });
 
   test('"productos/nuevo" gana sobre "productos/:id" y el editor recibe id y paso', () => {
@@ -137,7 +154,7 @@ describe('layout: navegación', () => {
   });
 
   test('todos los enlaces del menú son rutas de la app que existen (nunca la raíz "/")', () => {
-    for (const item of [...NAV_ITEMS, { href: NEW_QUOTE_HREF, key: 'quotes' }]) {
+    for (const item of [...NAV_ITEMS, { href: NEW_CALC_HREF, key: 'new' }, { href: NEW_QUOTE_HREF, key: 'quotes' }]) {
       assert.match(item.href, /^#\/[a-z]/);
       const m = matchRoute(item.href);
       assert.equal(m.notFound, false, item.href);
