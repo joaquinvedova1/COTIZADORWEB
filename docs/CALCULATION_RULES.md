@@ -16,6 +16,7 @@ Convenciones:
 
 1. [Modelo económico general](#1-modelo-económico-general)
 2. [Actividad y on-call](#2-actividad-y-on-call)
+    - [2.1 "Cada salida se cuenta completa"](#21-cada-salida-se-cuenta-completa-plan-2026-011-opcional)
 3. [Personal](#3-personal)
     - [3.1 Horas extra por tramos (PLAN-2026-010)](#31-horas-extra-por-tramos-plan-2026-010)
 4. [Equipos](#4-equipos)
@@ -94,6 +95,30 @@ ingreso por activación    → × activaciones/mes (call-out, movilización, km 
 ```
 
 Ejemplo demo: 8 días activos, 2 días por activación → **4 activaciones/mes**.
+
+### 2.1 "Cada salida se cuenta completa" (PLAN-2026-011, opcional)
+
+Las activaciones por mes son un **promedio** y pueden ser fraccionarias (2.500 m³ / 120 m³ por día / 2 días por intervención = 10,42). Por defecto (`activity.fullActivations` ausente o `false`) cada costo por salida se reparte por día y el mes paga 10,42 salidas, como siempre. Con la opción activa:
+
+```
+intervenciones estimadas  A = D / días por intervención          (no cambia: producción y facturación siguen con A)
+intervenciones costeadas  C = ⌈A⌉                                (con A entero, C = A y nada cambia)
+ajuste del mes            = (C − A) × costo discreto por salida
+costo discreto por salida = movilización por sus medios (combustible en ruta + desgaste)
+                          + logística auxiliar (combustible y desgaste de vehículos, peajes, viáticos)
+                          + externos por llamado / viaje / km, o por hora / día cuando rige el mínimo por llamado
+                          + movilización cobrada aparte por el proveedor
+                          + materiales y otros costos "por llamado"
+                          + su estructura (sólo si es % sobre directo o mano de obra)
+                          + su financiación (su salida de caja, con los días de su grupo o de su proveedor)
+                          + su contingencia
+```
+
+**No se redondean** sueldos, standby, tenencia de equipos, mantenimiento por hora, materiales por mes o por día, externos por mes o global, estructura mensual fija, producción ni facturación (los ingresos por llamado —call-out, movilización cobrada al cliente, km extra— siguen con las intervenciones estimadas: la opción sólo agrega costo). Cada driver existe en una sola línea del modelo (un equipo transportado o una movilización incluida por el proveedor no suma movilización propia), así que el ajuste no cuenta nada dos veces.
+
+El costo pasa a ser **escalonado** en D: el equilibrio, los días para el margen objetivo y el comparador evalúan cada salto (múltiplos de los días por intervención) para no saltear un tramo con pérdida (§15), y la descomposición lineal se marca como no lineal.
+
+**Ejemplo (COT-0009 con 2.500 m³):** costo por salida = movilización del vactor 77.500 (52.500 combustible + 25.000 desgaste) + estructura 10 % 7.750 + financiación 5.488,75 (52.500 × 3 % × 75/30 + 25.000 × 3 % × 45/30 + 7.750 × 3 % × 55/30) = **90.738,75**. A = 10,4167, C = 11 → ajuste = 0,5833 × 90.738,75 = **52.930,94** por mes. Personal, tenencia del vactor, la pickup mensual, los m³ y la facturación no cambian. Con 2.400 m³ (A = 10 exacto) el mes no cambia; el equilibrio (≈ 8,04 salidas) sí cuenta la novena salida completa.
 
 ## 3. Personal
 
@@ -498,6 +523,7 @@ impacto en margen    = costo financiero / facturación total × 100        (punt
 | IVA 21 % recuperable + percepciones 3 % | 0 | 30.240 (672.000 × 0,045) |
 
   (El no recuperable y el parcial incluyen la estructura del 10 % sobre el IVA no recuperable, que se paga a 20 días: 55 días.) Tests: `tests/engines/external-finance.test.js`.
+- **Plazo de pago por proveedor (PLAN-2026-011):** un equipo o servicio externo con `supplierPayDays` cargado ("¿A cuántos días pagás a este proveedor?") se financia aparte: `días financiados = días hasta facturar + plazo de cobro − plazo de ese proveedor` (nunca negativo), para su tarifa y la movilización que cobra aparte. Vacío → los días de "Proveedores" (como siempre: las cotizaciones existentes dan igual). El costo económico del externo **no cambia**; sólo el capital de trabajo y el costo financiero. Ejemplo COT-0009 (cobro a 15 + 60 días): pickup 2.800.000/mes con plazo propio 15 días → 60 días financiados en lugar de 45 → **+42.000** de costo financiero (2.800.000 × 3 % × 15/30) y +1.400.000 de capital de trabajo. "Ver cálculo" muestra por proveedor: salida de caja, plazo, días financiados, capital de trabajo y costo financiero asociado. La "Condición de pago" de Recursos o un plazo cargado antes como dato informativo no se usan solos: la cotización ofrece [Usar X días].
 - **Plazo de cobro sin cargar**: el costo financiero es parcial (sólo los días hasta facturar) y así se dice en la interfaz y en "Ver cálculo"; nunca "no se calcula".
 - Se calcula por separado para la parte fija y la parte variable por día, así que el costo financiero también escala con `D`.
 - Plazo de cobro vacío: se calcula con 0 días, y el Cost Completeness Score lo marca en rojo ("Plazo de pago sin definir").

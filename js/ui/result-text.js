@@ -13,7 +13,7 @@
  * se lee y lo que se resta (colchón, diferencias) siempre cierran.
  */
 
-import { formatDays, formatNumber, formatPercent, EMPTY } from '../core/format.js';
+import { formatDays, formatNumber, formatPercent, formatMoney, EMPTY } from '../core/format.js';
 import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
@@ -304,5 +304,31 @@ export function draftBannerText({ critical = 0, review = 0 } = {}) {
     tone: c > 0 ? 'danger' : 'warning',
     title: `BORRADOR — revisar ${total} ${total === 1 ? 'punto' : 'puntos'} antes de usar esta tarifa.`,
     text: `${parts.join(' y ')}.`.replace(/^./, (x) => x.toUpperCase()),
+  };
+}
+
+/**
+ * "Cada salida se cuenta completa" (PLAN-2026-011): salidas estimadas vs
+ * costeadas y cuánto suma. `r` = result.activationRounding (con `preview`).
+ * Devuelve null si no hay salidas.
+ */
+export function activationRoundingText(r) {
+  if (!r || !(r.estimated > 1e-9)) return null;
+  const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+  const whole = Math.abs(r.estimated - Math.round(r.estimated)) < 1e-6;
+  const preview = r.preview || r;
+  const hasDiscrete = preview.perActivationDiscrete > 0;
+  if (r.enabled) {
+    if (whole) return { tone: 'info', text: `Intervenciones estimadas: ${n(r.estimated)} · Intervenciones costeadas: ${n(r.costed)}. Ya son enteras: la opción no cambia el costo.` };
+    if (!hasDiscrete) return { tone: 'info', text: `Intervenciones estimadas: ${n(r.estimated)} · Intervenciones costeadas: ${n(r.costed)}. No hay costos por salida cargados: la opción no cambia el costo.` };
+    return {
+      tone: 'warning',
+      text: `Intervenciones estimadas: ${n(r.estimated)} · Intervenciones costeadas: ${n(r.costed)}. Suma ${formatMoney(r.total)} por mes (movilización, viajes y cargos por salida, con su estructura, financiación y contingencia). La producción y la facturación siguen con ${n(r.estimated)}.`,
+    };
+  }
+  if (whole || !hasDiscrete) return null;
+  return {
+    tone: 'info',
+    text: `Hoy se costean ${n(r.estimated)} salidas (promedio). Si cada salida se paga completa, activá la opción: se costearían ${n(preview.wholeActivations)} (+${formatMoney(preview.total)} por mes).`,
   };
 }

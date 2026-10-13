@@ -11,7 +11,7 @@ import { DEFAULT_SCENARIOS } from '../config.js';
 import { deepClone } from '../core/object.js';
 import { nonNegative, toNumber, pct, isFiniteNumber, safeDivide } from '../core/money.js';
 import { computeQuote } from './quote-engine.js';
-import { buildCostModel, costAtActivity, normalizeActivity, monthsFactor } from './cost-engine.js';
+import { buildCostModel, costAtActivity, normalizeActivity, monthsFactor, activationBreakpoints } from './cost-engine.js';
 import { findBreakEvenDays } from './break-even-engine.js';
 import { marginFromPrice, isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent } from '../core/format.js';
@@ -222,7 +222,11 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
   const keep = 1 - t / 100;
   const C = (D) => costAtActivity(model, D).total;
   const fixed = costAtActivity(model, 0).total;
-  const variablePerDay = model.variablePerActiveDay;
+  // Con "cada salida completa" (PLAN-2026-011) el costo por día al nivel estimado
+  // incluye el ajuste de las salidas: así cada modelo logra el margen objetivo.
+  const roundingOn = Boolean(model.activationRounding && model.activationRounding.enabled) && De > 0;
+  const variablePerDay = roundingOn ? (C(De) - fixed) / De : model.variablePerActiveDay;
+  const breakpoints = activationBreakpoints(model, available);
   const p = C(De) / (k * De);
   // Resultado y margen después de los impuestos sobre lo facturado.
   const profitOf = (revenue, D) => revenue * keep - C(D);
@@ -269,7 +273,7 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
     const pessRevenue = d.revenue(Dp);
     const pessProfit = profitOf(pessRevenue, Dp);
     const pessMargin = marginOf(pessRevenue, Dp);
-    const be = findBreakEvenDays((D) => profitOf(d.revenue(D), D), { maxDays: available });
+    const be = findBreakEvenDays((D) => profitOf(d.revenue(D), D), { maxDays: available, breakpoints });
     let risk = 'low';
     if (pessProfit < 0) risk = 'high';
     else if (isFiniteNumber(pessMargin) && pessMargin < m / 2) risk = 'medium';

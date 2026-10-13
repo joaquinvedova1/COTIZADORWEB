@@ -12,6 +12,26 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-13
+
+**Salidas completas y plazo de pago por proveedor.** Dos mejoras aprobadas por el dueño después de la auditoría de COT-0009, ambas opcionales: con la opción apagada y sin plazos propios, **todas las cotizaciones dan exactamente igual** (COT-0009 golden y foto de 99 casos idénticas). **Esquema de datos 8** (`migrateV7ToV8`: sin cambios de datos). Plan: PLAN-2026-011; fórmulas en [docs/CALCULATION_RULES.md §2.1 y §8](docs/CALCULATION_RULES.md).
+
+### Agregado
+
+- **"Cada salida / intervención se cuenta completa"** (en "Cómo se cobra", apagada por defecto). Las intervenciones estimadas siguen siendo un promedio (10,42) y la producción y la facturación no cambian; sólo los costos físicamente indivisibles por salida se costean con salidas enteras (11): movilización por sus medios, logística auxiliar (vehículos, peajes, viáticos), externos por llamado / viaje / km o con mínimo por llamado, movilización del proveedor, materiales y otros costos por llamado, con su estructura (si es %), su financiación y su contingencia. Sueldos, tenencia de equipos, estructura mensual y producción no se redondean. Se muestra "Intervenciones estimadas: 10,42 · Intervenciones costeadas: 11" y cuánto suma; apagada, cuánto sumaría. Ejemplo COT-0009 con 2.500 m³: +52.930,94 por mes (0,5833 salidas × 90.738,75).
+- El equilibrio, los días para el margen objetivo y el comparador de modelos evalúan cada salto del costo (inicio de cada salida) para no saltear una pérdida.
+- **"¿A cuántos días pagás a este proveedor?"** en cada equipo o servicio externo. Con plazo propio, ese externo se financia con su plazo; vacío, con el general de "Proveedores". El costo del externo no cambia: sólo el capital de trabajo y el costo financiero. Ejemplo COT-0009: pickup a 15 días → +42.000 de costo financiero. "Ver cálculo" muestra, por proveedor, la salida de caja, el plazo, los días financiados, el capital de trabajo y el costo financiero asociado; la tabla de Financiación agrega una fila por proveedor con plazo propio.
+- Una "Condición de pago" de Recursos o un plazo cargado antes como dato informativo no se usan solos: la línea ofrece [Usar X días].
+
+### Corregido
+
+- Celular: los montos de "Equipos y servicios externos en el mes" (resultado) ya no se salen de la pantalla (bug de v0.7.0, visto en las pruebas de punta a punta).
+
+### Cambiado
+
+- El campo informativo "Plazo de pago al proveedor" del tratamiento fiscal se reemplaza por el plazo activo de "Pago al proveedor" (el dato anterior se conserva y se ofrece usarlo).
+- Esquema de datos 7 → 8 (`migrateV7ToV8`, sólo sube la versión): campos opcionales `activity.fullActivations` y `equipment[].supplierPayDays`. Una versión anterior abre los datos v8 en sólo lectura.
+
 ## [0.7.0] - 2026-10-12
 
 **Auditoría y pulido desde una cotización real (COT-0009).** Los números de COT-0009 (auditados externamente) se mantienen al peso y quedan protegidos por un golden case. Se corrige un bug económico (financiación de externos con IVA), cada número del reporte gana trazabilidad y se pulen las pantallas que podían inducir a cotizar mal. **Esquema de datos 7** (`migrateV6ToV7`: sin cambios de datos). Plan: PLAN-2026-010; fórmulas en [docs/CALCULATION_RULES.md](docs/CALCULATION_RULES.md) §3.1, §4.1, §7, §8, §10, §17 y §19.

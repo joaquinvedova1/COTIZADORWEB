@@ -19,6 +19,17 @@
  *   2. Estructura (costos indirectos) según método de absorción
  *   3. Financiero (sobre costos en efectivo: directos + estructura)
  *   4. Contingencia = % × (directos + estructura + financiero)
+ *
+ * "Cada salida se cuenta completa" (PLAN-2026-011, opcional, apagado por
+ * defecto): las intervenciones estimadas A = D / días por intervención siguen
+ * siendo un promedio (producción y facturación no cambian), pero los costos
+ * físicamente indivisibles POR SALIDA (movilización, peajes, viáticos,
+ * vehículos de apoyo, cargos de proveedor por llamado / viaje / km o con
+ * mínimo por llamado, materiales y otros costos por llamado) se costean con
+ * ⌈A⌉ salidas:
+ *   ajuste(D) = (⌈A⌉ − A) × costo discreto por salida
+ *               (+ su estructura si es %, su financiación y su contingencia)
+ * Apagado (o con A entero) el costo es exactamente el de siempre.
  */
 
 import { objectList } from '../core/object.js';
@@ -29,7 +40,7 @@ import { computeLabor } from './labor-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
 import { computeLogistics } from './logistics-engine.js';
 import { computeMaterials, computeOtherCostLine } from './materials-engine.js';
-import { computeFinance } from './finance-engine.js';
+import { computeFinance, financingDaysOf } from './finance-engine.js';
 import { computeExternalLine } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
@@ -97,6 +108,8 @@ export function normalizeActivity(quote = {}) {
     hoursPerActiveDay,
     activationsPerMonth: activeDaysPerMonth / daysPerActivation,
     utilizationPct: availableDaysPerMonth > 0 ? (activeDaysPerMonth / availableDaysPerMonth) * 100 : null,
+    // PLAN-2026-011: cada salida se cuenta completa (sólo los costos por salida).
+    fullActivations: a.fullActivations === true,
   };
 }
 
@@ -240,6 +253,9 @@ export function buildCostModel(quote = {}) {
     if (e.acquisition !== 'owned') {
       const x = e.external;
       const kind = e.acquisition === 'rented' ? 'alquilado' : 'tercerizado';
+      // Plazo de pago propio de este proveedor (PLAN-2026-011): vacío = el de "Proveedores".
+      const ownTerm = optionalNumber((equipmentInput[i] || {}).supplierPayDays);
+      const finance = ownTerm !== null && ownTerm >= 0 ? { key: `supplier:${e.id ?? i}`, label: name, payDays: ownTerm, index: i } : null;
       lines.push({
         key: `external:${e.id ?? i}`,
         source: 'external',
@@ -254,6 +270,9 @@ export function buildCostModel(quote = {}) {
         // definido, caja = costo (como siempre).
         cashFixedMonthly: x.cashFixedMonthly,
         cashVariablePerActiveDay: x.cashVariablePerActiveDay,
+        discretePerActivation: x.discretePerActivation,
+        cashDiscretePerActivation: x.cashDiscretePerActivation,
+        finance,
       });
       if (x.mobilizationPerActiveDay > 0) {
         lines.push({
@@ -266,6 +285,9 @@ export function buildCostModel(quote = {}) {
           variablePerActiveDay: x.mobilizationPerActiveDay,
           cashFixedMonthly: 0,
           cashVariablePerActiveDay: x.cashMobilizationPerActiveDay,
+          discretePerActivation: x.mobilizationPerActivation,
+          cashDiscretePerActivation: x.cashMobilizationPerActivation,
+          finance,
         });
       }
       if (x.fuelPerActiveDay > 0) {
@@ -341,6 +363,8 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: mobilization.fuelPerActiveDay,
     cashFixedMonthly: 0,
     cashVariablePerActiveDay: mobilization.fuelPerActiveDay,
+    discretePerActivation: mobilization.fuelPerActivation,
+    cashDiscretePerActivation: mobilization.fuelPerActivation,
   });
   lines.push({
     key: 'mobilization:other',
@@ -352,6 +376,8 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: mobilization.wearPerActiveDay,
     cashFixedMonthly: 0,
     cashVariablePerActiveDay: mobilization.wearPerActiveDay,
+    discretePerActivation: mobilization.wearPerActivation,
+    cashDiscretePerActivation: mobilization.wearPerActivation,
   });
 
   // 3. Logística AUXILIAR (vehículos de apoyo y de personal): combustible →
@@ -366,6 +392,8 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: logistics.fuelPerActiveDay,
     cashFixedMonthly: 0,
     cashVariablePerActiveDay: logistics.fuelPerActiveDay,
+    discretePerActivation: logistics.fuelPerActivation,
+    cashDiscretePerActivation: logistics.fuelPerActivation,
   });
   lines.push({
     key: 'logistics:other',
@@ -377,6 +405,8 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: logistics.nonFuelPerActiveDay,
     cashFixedMonthly: 0,
     cashVariablePerActiveDay: logistics.nonFuelPerActiveDay,
+    discretePerActivation: logistics.nonFuelPerActivation,
+    cashDiscretePerActivation: logistics.nonFuelPerActivation,
   });
 
   // 4. Materiales
@@ -400,6 +430,8 @@ export function buildCostModel(quote = {}) {
       variablePerActiveDay: m.variablePerActiveDay,
       cashFixedMonthly: m.fixedMonthly,
       cashVariablePerActiveDay: m.variablePerActiveDay,
+      discretePerActivation: m.basis === 'per_activation' ? m.costForUs : 0,
+      cashDiscretePerActivation: m.basis === 'per_activation' ? m.costForUs : 0,
     });
   });
 
@@ -419,6 +451,8 @@ export function buildCostModel(quote = {}) {
       variablePerActiveDay: o.variablePerActiveDay,
       cashFixedMonthly: o.fixedMonthly,
       cashVariablePerActiveDay: o.variablePerActiveDay,
+      discretePerActivation: o.behavior === 'per_activation' ? o.amount : 0,
+      cashDiscretePerActivation: o.behavior === 'per_activation' ? o.amount : 0,
     });
   });
 
@@ -476,10 +510,19 @@ export function buildCostModel(quote = {}) {
     cashVariablePerActiveDay: structureVariable,
   });
 
-  // 7. Financiero
+  // 7. Financiero. Un externo con plazo de pago propio se financia aparte
+  // (PLAN-2026-011); sin plazo propio, en su grupo como siempre.
   const cashByGroup = Object.fromEntries(PAY_GROUPS.map((g) => [g.id, emptyBucket()]));
-  lines.forEach((l) => addTo(cashByGroup[l.payGroup] || cashByGroup.suppliers, l.cashFixedMonthly, l.cashVariablePerActiveDay));
-  const finance = computeFinance(cashByGroup, quote.finance || {});
+  const supplierTerms = new Map();
+  lines.forEach((l) => {
+    if (l.finance) {
+      if (!supplierTerms.has(l.finance.key)) supplierTerms.set(l.finance.key, { ...l.finance, fixedMonthly: 0, variablePerActiveDay: 0 });
+      addTo(supplierTerms.get(l.finance.key), l.cashFixedMonthly, l.cashVariablePerActiveDay);
+      return;
+    }
+    addTo(cashByGroup[l.payGroup] || cashByGroup.suppliers, l.cashFixedMonthly, l.cashVariablePerActiveDay);
+  });
+  const finance = computeFinance(cashByGroup, quote.finance || {}, { suppliers: [...supplierTerms.values()] });
 
   // 8. Contingencia
   const preContingency = emptyBucket();
@@ -500,6 +543,50 @@ export function buildCostModel(quote = {}) {
 
   const total = emptyBucket();
   Object.values(byCategory).forEach((b) => addTo(total, b.fixedMonthly, b.variablePerActiveDay));
+
+  // "Cada salida se cuenta completa" (PLAN-2026-011): costo de UNA salida
+  // completa de lo físicamente indivisible, con su estructura (sólo la que es
+  // %), su financiación y su contingencia. Se calcula siempre (para mostrar
+  // cuánto sumaría) y sólo se aplica si la opción está activa.
+  const perActivation = (() => {
+    const byCat = Object.fromEntries(COST_CATEGORIES.map((c) => [c.id, 0]));
+    const cashByKey = {};
+    const bySource = {};
+    let direct = 0;
+    let laborDirect = 0;
+    lines.forEach((l) => {
+      const amount = nonNegative(l.discretePerActivation);
+      const cash = nonNegative(l.cashDiscretePerActivation);
+      if (!(amount > 0) && !(cash > 0)) return;
+      byCat[l.category] += amount;
+      bySource[l.source] = (bySource[l.source] || 0) + amount;
+      if (l.category !== 'structure') direct += amount;
+      if (l.category === 'labor') laborDirect += amount;
+      const key = l.finance ? l.finance.key : PAY_GROUPS.some((g) => g.id === l.payGroup) ? l.payGroup : 'suppliers';
+      cashByKey[key] = (cashByKey[key] || 0) + cash;
+    });
+    // Estructura: sólo la parte que es un % del costo (la mensual fija no cambia).
+    const structurePart = (m, pctValue) => (m === 'percent_direct' ? direct * pct(pctValue) : m === 'percent_labor' ? laborDirect * pct(pctValue) : 0);
+    const structure = detailed
+      ? structureItems.reduce((acc, it) => acc + structurePart(it.method, it.pct), 0)
+      : structurePart(method, indirectPct);
+    byCat.structure += structure;
+    cashByKey.structure = (cashByKey.structure || 0) + structure;
+    const rate = pct(finance.monthlyRatePct);
+    let financial = 0;
+    let workingCapital = 0;
+    Object.entries(cashByKey).forEach(([key, cash]) => {
+      const days = financingDaysOf(finance, key);
+      workingCapital += cash * (days / 30);
+      financial += cash * rate * (days / 30);
+    });
+    byCat.financial += financial;
+    const preCont = COST_CATEGORIES.filter((c) => c.id !== 'contingency').reduce((acc, c) => acc + byCat[c.id], 0);
+    const contingencyAmount = preCont * pct(contingencyPct);
+    byCat.contingency += contingencyAmount;
+    const totalAmount = COST_CATEGORIES.reduce((acc, c) => acc + byCat[c.id], 0);
+    return { direct, structure, financial, contingency: contingencyAmount, workingCapital, byCategory: byCat, bySource, cashByKey, total: totalAmount };
+  })();
 
   return {
     activity,
@@ -529,7 +616,57 @@ export function buildCostModel(quote = {}) {
     byCategory,
     fixedMonthly: total.fixedMonthly,
     variablePerActiveDay: total.variablePerActiveDay,
+    activationRounding: {
+      enabled: activity.fullActivations === true,
+      daysPerActivation: activity.daysPerActivation,
+      perActivation,
+    },
   };
+}
+
+/**
+ * Salidas estimadas y costeadas con D días (PLAN-2026-011). `force` calcula el
+ * ajuste aunque la opción esté apagada (para mostrar cuánto sumaría).
+ */
+export function activationRoundingAt(model, activeDays, { force = false } = {}) {
+  const r = model && model.activationRounding;
+  const D = nonNegative(activeDays);
+  const dpa = r && r.daysPerActivation > 0 ? r.daysPerActivation : 1;
+  const estimated = D / dpa;
+  const costed = estimated > 1e-12 ? Math.ceil(estimated - 1e-9) : 0;
+  const extra = Math.max(0, costed - estimated);
+  const enabled = Boolean(r && r.enabled);
+  const apply = Boolean(r) && (enabled || force);
+  const per = apply ? r.perActivation : null;
+  const scale = (v) => (per ? v * extra : 0);
+  return {
+    enabled,
+    estimated,
+    costed: enabled ? Math.max(costed, estimated) : estimated,
+    wholeActivations: costed,
+    extraActivations: extra,
+    perActivationDiscrete: per ? per.total : 0,
+    direct: scale(per ? per.direct : 0),
+    structure: scale(per ? per.structure : 0),
+    financial: scale(per ? per.financial : 0),
+    contingency: scale(per ? per.contingency : 0),
+    workingCapital: scale(per ? per.workingCapital : 0),
+    total: scale(per ? per.total : 0),
+    byCategory: Object.fromEntries(COST_CATEGORIES.map((c) => [c.id, per ? per.byCategory[c.id] * extra : 0])),
+    bySource: per ? Object.fromEntries(Object.entries(per.bySource).map(([k, v]) => [k, v * extra])) : {},
+    cashByKey: per ? Object.fromEntries(Object.entries(per.cashByKey).map(([k, v]) => [k, v * extra])) : {},
+  };
+}
+
+/** Días de trabajo donde empieza una salida nueva (saltos del costo con "cada salida completa"). */
+export function activationBreakpoints(model, maxDays) {
+  const r = model && model.activationRounding;
+  if (!r || !r.enabled || !(r.perActivation && r.perActivation.total > 0)) return [];
+  const dpa = r.daysPerActivation > 0 ? r.daysPerActivation : 1;
+  const limit = nonNegative(maxDays);
+  const out = [];
+  for (let k = 1; k * dpa <= limit + 1e-9 && out.length < 500; k += 1) out.push(k * dpa);
+  return out;
 }
 
 /** Factor de prorrateo de fijos cuando D supera los días disponibles. */
@@ -553,13 +690,27 @@ export function costAtActivity(model, activeDays) {
     total += amount;
   }
   const fixed = model.fixedMonthly * factor;
+  let variable = model.variablePerActiveDay * D;
+  // "Cada salida se cuenta completa" (PLAN-2026-011): sólo si está activa.
+  let rounding = null;
+  if (model.activationRounding && model.activationRounding.enabled) {
+    rounding = activationRoundingAt(model, D);
+    if (rounding.total > 0) {
+      for (const c of COST_CATEGORIES) {
+        byCategory[c.id] += rounding.byCategory[c.id];
+        total += rounding.byCategory[c.id];
+      }
+      variable += rounding.total;
+    }
+  }
   return {
     activeDays: D,
     monthsFactor: factor,
     fixed,
-    variable: model.variablePerActiveDay * D,
+    variable,
     total,
     byCategory,
+    rounding,
     perActiveDay: safeDivide(total, D, null),
   };
 }
@@ -581,6 +732,8 @@ export function costStructure(model, activeDays) {
     // "monto ÷ días" mezcla los fijos y no es un costo por día.
     fixedMonthly: (byCat[c.id] ? byCat[c.id].fixedMonthly : 0) * at.monthsFactor,
     variablePerActiveDay: byCat[c.id] ? byCat[c.id].variablePerActiveDay : 0,
+    // Ajuste por "cada salida se cuenta completa" (PLAN-2026-011; 0 si está apagado).
+    activationRounding: at.rounding ? at.rounding.byCategory[c.id] : 0,
     // Equivalente por día AL NIVEL ESTIMADO (incluye fijos): sólo una referencia.
     perActiveDay: safeDivide(amounts[i], at.activeDays, null),
     share: at.total > 0 ? amounts[i] / at.total : 0,
@@ -611,10 +764,21 @@ export function traceTotalCost(model, activeDays) {
     ],
     steps: [
       { label: 'Fijos', value: at.fixed, format: 'money' },
+      ...(at.rounding && at.rounding.total > 0
+        ? [
+          { label: 'Variables (por día de trabajo)', value: at.variable - at.rounding.total, format: 'money' },
+          { label: 'Intervenciones estimadas', value: at.rounding.estimated, format: 'number' },
+          { label: 'Intervenciones costeadas (cada salida completa)', value: at.rounding.costed, format: 'number' },
+          { label: 'Ajuste por salidas completas (costos por salida, con su estructura, financiación y contingencia)', value: at.rounding.total, format: 'money' },
+        ]
+        : []),
       { label: 'Variables', value: at.variable, format: 'money' },
     ],
     result: { label: 'Costo total', value: at.total, format: 'money' },
-    notes: at.monthsFactor > 1 ? ['Los días superan los disponibles del mes: se prorratean los fijos como trabajo de más de un mes.'] : [],
+    notes: [
+      at.monthsFactor > 1 ? 'Los días superan los disponibles del mes: se prorratean los fijos como trabajo de más de un mes.' : null,
+      at.rounding && at.rounding.total > 0 ? 'Cada salida se cuenta completa: sólo los costos por salida (movilización, peajes, viáticos, cargos por llamado…) se costean con las salidas enteras. Sueldos, tenencia, producción y estructura mensual no cambian.' : null,
+    ].filter(Boolean),
   });
 }
 

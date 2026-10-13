@@ -110,6 +110,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-008 | Costeo de productos: receta, personal con convenio, máquinas, gastos fijos y precio con margen | motor de costos, margen, migración | Completado (v0.5.0) |
 | PLAN-2026-009 | Unidades de facturación según el tipo de servicio: cantidad facturable × precio por unidad | motor de costos, utilización, migración | Completado (v0.6.0) |
 | PLAN-2026-010 | Auditoría y pulido desde una cotización real (COT-0009): financiación de externos con IVA, trazabilidad y UX que evita cotizar mal | motor de costos, margen, migración | Completado (v0.7.0) |
+| PLAN-2026-011 | "Cada salida se cuenta completa" (opcional) y plazo de pago por proveedor externo | motor de costos, utilización, migración | Completado (v0.7.1) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -755,3 +756,42 @@ Revert del PR. Las cuentas que pasaron a esquema 7 quedarían en sólo lectura e
 
 #### Bitácora
 - 2026-10-12: auditoría de COT-0009 (PDF vs. motor, trazabilidad de cada número); bug P0 de financiación de externos corregido; 22 ítems de pulido implementados sin cambiar los números existentes.
+
+### PLAN-2026-011 — "Cada salida se cuenta completa" y plazo de pago por proveedor
+
+- Estado: Completado (v0.7.1)
+- Tipo: motor de costos (costo escalonado por salida, opcional) · financiación por proveedor · migración de esquema (7 → 8, sin cambios de datos) · UX ("Cómo se cobra", equipos externos, financiación, "Ver cálculo")
+- Responsable: agente de programación + decisión del dueño (aprobó ambas mejoras el 2026-10-13)
+- Rama: `claude/wonderful-brown-g2ehd6`
+
+#### 1. Contexto
+Con 2.500 m³ / 120 m³ por día / 2 días por intervención hay 10,42 intervenciones promedio por mes. Hoy cada costo por salida se reparte por día (costo por salida ÷ días por salida), así que el mes paga 10,42 salidas. El dueño quiere poder costear 11 **sólo** en lo físicamente indivisible, sin redondear la actividad ni la producción. Además, cada externo puede pagarse a un plazo distinto del general de "Proveedores".
+
+#### 2. Inventario de costos por salida (antes de implementar, para no contar dos veces)
+| Driver | Dónde se calcula | ¿Discreto? |
+|---|---|---|
+| Movilización del equipo principal por sus medios (combustible en ruta + desgaste por km) | `mobilization-engine` | Sí |
+| Equipo transportado / con vehículo de apoyo | costo en el equipo que transporta o en el vehículo auxiliar | No acá (ya está en esa línea: no se duplica) |
+| Logística auxiliar: combustible y desgaste de vehículos, peajes, viáticos / alojamiento por salida | `logistics-engine` | Sí |
+| Externo con tarifa por llamado, por viaje o por km | `external-engine` | Sí |
+| Externo por hora o por día cuando rige el mínimo por llamado | `external-engine` | Sí (el mínimo es por salida) |
+| Externo por hora o por día sin mínimo, combustible no incluido | `external-engine` | No (depende del tiempo trabajado) |
+| Movilización cobrada aparte por el proveedor | `external-engine` | Sí |
+| Materiales "por llamado" y otros costos "por llamado" | `materials-engine` | Sí |
+| Sueldos, standby, tenencia de equipos, mantenimiento por hora, materiales por mes o por día, externos por mes o global | varios | No |
+| Ingresos por llamado (call-out, movilización cobrada al cliente, km extra) y mínimo por llamado de la facturación | `commercial-rules-engine` | No: la facturación y la producción siguen con las intervenciones estimadas (decisión conservadora: la opción sólo agrega costo) |
+
+Cada driver discreto existe en una sola línea del modelo; el ajuste usa exactamente esos montos por salida, así que no hay doble conteo.
+
+#### 3. Fórmulas (CALCULATION_RULES §2.1 y §8)
+- Intervenciones estimadas `A = D / días por intervención` (fraccionario, igual que siempre). Con la opción: costeadas `C = ⌈A⌉`; ajuste = `(C − A) ×` costo discreto por salida.
+- El ajuste lleva lo mismo que cualquier costo directo: estructura sólo si es % (sobre directo o mano de obra), financiación de su salida de caja y contingencia. La estructura mensual fija, los sueldos, la tenencia, la producción y la facturación no cambian.
+- Equilibrio y matriz: el costo es escalonado; el buscador robusto suma los puntos de salto (múltiplos de los días por intervención) para no saltear una pérdida.
+- Plazo por proveedor: `días financiados = días hasta facturar + plazo de cobro − plazo de ese proveedor` (vacío → días de "Proveedores"). Aplica a la tarifa y a la movilización del proveedor; el costo económico no cambia.
+- Antes → después: opción apagada o intervenciones enteras → idéntico; COT-0009 idéntico (golden). Ejemplos numéricos en los tests.
+
+#### 4. Datos
+`SCHEMA_VERSION` 7 → 8 (`migrateV7ToV8`, sólo sube la versión): `activity.fullActivations` (opcional, `true` = cada salida completa) y `equipment[].supplierPayDays` (opcional; vacío = plazo general). La "Condición de pago" de Recursos y el viejo `external.fiscal.paymentTermDays` (informativo) no se usan solos: la cotización ofrece [Usar X días].
+
+#### 5. Rollback
+Revert del PR; datos v8 → restaurar `pre-migration-v7` o mantener la versión.

@@ -1918,7 +1918,11 @@ function renderCostStructure(v) {
   const bars = barList(rows.map((row) => ({ label: row.label, value: row.displayPct })));
   return card(header,
     h('div', { class: 'qr-eecc' }, tbl, h('div', { class: 'qr-eecc-bars', 'aria-hidden': 'true' }, bars)),
-    note(`Monto mes = fijo del mes + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo. Fijos del mes: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`));
+    note(`Monto mes = fijo del mes + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo${k.activationRoundingCost > 0 ? ' + ajuste por salidas completas' : ''}. Fijos del mes: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`),
+    // PLAN-2026-011: salidas estimadas vs costeadas.
+    k.activationRoundingCost > 0
+      ? note(`Cada salida se cuenta completa: intervenciones estimadas ${formatNumber(k.activationsEstimated, { decimals: 2 })} · intervenciones costeadas ${formatNumber(k.activationsCosted, { decimals: 0 })}. El ajuste (${money(k.activationRoundingCost)} por mes) está en los rubros de los costos por salida, con su estructura, financiación y contingencia; sueldos, tenencia de equipos y estructura mensual no cambian.`)
+      : null);
 }
 
 // ----------------------------------------------------- C. matriz + gráfico
