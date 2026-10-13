@@ -81,7 +81,46 @@ export function equipmentCardAtQuote(result, index, source) {
 
 function monthlyAtEstimate(result, line) {
   const D = result.activity.activeDaysPerMonth;
-  return line.fixedMonthly * monthsFactor(D, result.activity.availableDaysPerMonth) + line.variablePerActiveDay * D;
+  return line.fixedMonthly * monthsFactor(D, result.activity.availableDaysPerMonth) + line.variablePerActiveDay * D + externalRoundingAt(result, line).economic;
+}
+
+/** Lo que suma un externo por contar cada salida completa (PLAN-2026-011; 0 si está apagado). */
+function externalRoundingAt(result, line) {
+  const r = result && result.activationRounding;
+  const x = line && line.external;
+  if (!r || !r.active || !x) return { economic: 0, cash: 0 };
+  return {
+    economic: (x.discretePerActivation + x.mobilizationPerActivation) * r.extraActivations,
+    cash: (x.cashDiscretePerActivation + x.cashMobilizationPerActivation) * r.extraActivations,
+  };
+}
+
+/**
+ * Financiación de un externo (PLAN-2026-011): con su plazo propio o con el de
+ * "Proveedores". Salida de caja, días financiados, capital de trabajo y costo
+ * financiero asociado al nivel estimado.
+ */
+function supplierFinanceAt(result, index) {
+  const line = result && result.model.equipment[index];
+  const x = line && line.external;
+  if (!x) return null;
+  const fin = result.model.finance;
+  const key = `supplier:${x.id ?? index}`;
+  const own = (fin.suppliers || []).find((g) => g.key === key) || null;
+  const general = fin.groups.find((g) => g.id === 'suppliers') || null;
+  const D = result.activity.activeDaysPerMonth;
+  const factor = monthsFactor(D, result.activity.availableDaysPerMonth);
+  const cash = x.cashFixedMonthly * factor + x.cashPerActiveDay * D + externalRoundingAt(result, line).cash;
+  const days = own ? own.financingDays : general ? general.financingDays : 0;
+  const workingCapital = cash * (days / 30);
+  return {
+    own: Boolean(own),
+    payDays: own ? own.payDays : general ? general.payDays : 0,
+    days,
+    cash,
+    workingCapital,
+    financial: workingCapital * (fin.monthlyRatePct / 100),
+  };
 }
 
 function equipmentTrace(result, index, source) {
@@ -151,6 +190,18 @@ function externalTrace(result, index, source, impact = null) {
       { label: '= impacto total aproximado en el costo del mes', value: impact.total, format: 'money' },
     ].filter(Boolean)
     : [];
+  // Financiación de este proveedor (PLAN-2026-011): con su plazo o el general.
+  const sf = supplierFinanceAt(result, index);
+  const financeSteps = sf
+    ? [
+      { label: `Proveedor ${x.supplier || x.name || ''}: salida de caja del mes`.replace(/\s+:/, ':'), value: sf.cash, format: 'money' },
+      { label: sf.own ? 'Plazo de pago a este proveedor' : 'Plazo de pago (el general de Proveedores)', value: sf.payDays, format: 'days' },
+      { label: 'Días financiados (días hasta facturar + plazo de cobro − plazo del proveedor)', value: sf.days, format: 'days' },
+      { label: 'Capital de trabajo de este proveedor', value: sf.workingCapital, format: 'money' },
+      { label: 'Costo financiero asociado', value: sf.financial, format: 'money' },
+    ]
+    : [];
+  const rounding = externalRoundingAt(result, line);
   return createTrace({
     id: 'external_line',
     title: `${x.acquisition === 'rented' ? 'Alquiler' : 'Servicio tercerizado'} — ${x.name || 'Externo'}`,
@@ -178,6 +229,7 @@ function externalTrace(result, index, source, impact = null) {
       x.fuelPerActiveDay > 0 ? { label: 'Combustible no incluido por día activo', value: x.fuelPerActiveDay, format: 'money' } : null,
       { label: 'Salida de caja con impuestos por día activo (se financia hasta cobrar; no es costo)', value: x.cashPerActiveDay, format: 'money' },
       { label: 'Crédito fiscal por día activo (no es costo)', value: x.creditPerActiveDay, format: 'money' },
+      ...financeSteps,
       ...impactSteps,
     ].filter(Boolean),
     result: { label: 'Costo del recurso externo en el mes (actividad estimada)', value: monthlyAtEstimate(result, line), format: 'money' },
@@ -187,6 +239,8 @@ function externalTrace(result, index, source, impact = null) {
       'Sin amortización, seguro propio ni costo de capital: el equipo no es tuyo.',
       'Ganancias no se carga como % sobre el alquiler y el IIBB del proveedor ya está en su precio.',
       impact ? 'El impacto total es la diferencia entre el costo del mes con y sin esta línea (misma actividad): el proveedor arrastra estructura, financiación y, si corresponde, contingencia e IVA que no recuperás.' : null,
+      rounding.economic > 0.005 ? `Cada salida se cuenta completa: incluye ${formatMoney(rounding.economic)} por las salidas enteras (${formatNumber(result.activationRounding.costed, { decimals: 0 })} en lugar de ${formatNumber(result.activationRounding.estimated, { decimals: 2 })}).` : null,
+      sf && sf.own ? 'Este proveedor tiene su propio plazo de pago: sólo cambia el capital de trabajo y el costo financiero; el costo del externo no cambia.' : null,
     ],
   });
 }
@@ -736,6 +790,7 @@ export function render(container, ctx) {
           triField(`${p}.external.insuranceIncluded`, 'Seguro'),
         ),
       ),
+      supplierTermGroup(i, line),
       kit.keyline({
         label: `Costo del ${acq === 'rented' ? 'alquiler' : 'servicio'} en el mes`,
         value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
@@ -782,12 +837,49 @@ export function render(container, ctx) {
           fiscal.vatRecoverable === 'partial' ? kit.num(`${p}.external.fiscal.vatRecoverablePct`, { label: 'Parte del IVA que recuperás', rule: 'percent', unit: '%' }) : null,
           kit.num(`${p}.external.fiscal.perceptionsPct`, { label: 'Percepciones / retenciones', rule: 'percent', unit: '%', hint: 'Caja adelantada: no es costo.' }),
           kit.num(`${p}.external.fiscal.nonRecoverablePct`, { label: 'Otros cargos que no recuperás', rule: 'percent', unit: '%', hint: 'Sí es costo (un cargo que no podés computar).' }),
-          kit.num(`${p}.external.fiscal.paymentTermDays`, { label: 'Plazo de pago al proveedor', rule: 'paymentDays', unit: 'días', hint: 'Informativo.' }),
         ),
       ),
       baseAdvanced(i, line),
     );
   };
+
+  /**
+   * Plazo de pago a este proveedor (PLAN-2026-011). Vacío = el general de
+   * "Proveedores". Una condición de pago cargada antes (en Recursos o como
+   * dato informativo) nunca se usa sola: se ofrece [Usar X días].
+   */
+  function supplierTermGroup(i, line) {
+    const p = `equipment.${i}`;
+    const generalDays = quote.finance && quote.finance.payDays && hasNumber(quote.finance.payDays.suppliers) ? Number(quote.finance.payDays.suppliers) : 0;
+    const legacy = ((line.external || {}).fiscal || {}).paymentTermDays;
+    const legacyDays = hasNumber(legacy) ? Number(legacy) : null;
+    const own = hasNumber(line.supplierPayDays);
+    return kit.group(
+      'Pago al proveedor',
+      formGrid(
+        2,
+        kit.num(`${p}.supplierPayDays`, {
+          label: '¿A cuántos días pagás a este proveedor?',
+          rule: 'paymentDays',
+          unit: 'días',
+          placeholder: `${formatNumber(generalDays)} (general)`,
+          hint: `Vacío = el plazo general de Proveedores (${formatNumber(generalDays)} días, en Financiación). Sólo cambia el capital de trabajo y el costo financiero: el costo del externo no cambia.`,
+        }),
+      ),
+      !own && legacyDays !== null
+        ? kit.toggle(h('div', { class: 'qe-toolbar' },
+          h('span', { class: 'small' }, `Hay una condición de pago cargada de ${formatNumber(legacyDays)} días (de Recursos o como dato informativo). No se usa sola.`),
+          kit.action(`Usar ${formatNumber(legacyDays)} días`, () => ctx.mutate((q) => {
+            q.equipment[i].supplierPayDays = legacyDays;
+          }, { focus: `${p}.supplierPayDays` }), { icon: 'check' })), () => !hasNumber((quote.equipment[i] || {}).supplierPayDays))
+        : null,
+      kit.out((r) => {
+        const sf = supplierFinanceAt(r, i);
+        if (!sf) return '';
+        return `${sf.own ? 'Con su plazo propio' : 'Con el plazo general de Proveedores'}: se financia ${formatNumber(sf.days, { decimals: 1 })} días → capital de trabajo ${formatMoney(sf.workingCapital)}, costo financiero ${formatMoney(sf.financial)} por mes.`;
+      }, { tag: 'p', className: 'small muted', allowEmpty: true }),
+    );
+  }
 
   const lineCards = lines.map((line, i) => (isExternalLine(line) ? externalCard(line, i) : ownedCard(line, i)));
 

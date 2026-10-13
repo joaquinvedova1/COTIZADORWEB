@@ -75,10 +75,10 @@ export function minimumRateForDays({ fixedCosts, variableCostPerDay, activeDays,
  * resultado negativo y se refina por bisección hasta el siguiente punto.
  *
  * @param {(days:number) => number} profitAt
- * @param {{ maxDays: number, tolerance?: number, step?: number }} options
+ * @param {{ maxDays: number, tolerance?: number, step?: number, breakpoints?: number[] }} options  breakpoints: días donde el costo salta (salidas completas)
  * @returns {{ reachable: boolean, days: number|null, wholeDays: number|null, reason: string|null }}
  */
-export function findBreakEvenDays(profitAt, { maxDays, tolerance = PROFIT_TOLERANCE, step = 0.1 } = {}) {
+export function findBreakEvenDays(profitAt, { maxDays, tolerance = PROFIT_TOLERANCE, step = 0.1, breakpoints = [] } = {}) {
   const limit = nonNegative(maxDays);
   const ok = (d) => {
     const p = profitAt(d);
@@ -86,9 +86,19 @@ export function findBreakEvenDays(profitAt, { maxDays, tolerance = PROFIT_TOLERA
   };
   const divisions = Math.max(1, Math.round(1 / (step > 0 ? step : 0.1)));
   const lastIndex = Math.floor(limit * divisions + 1e-9);
-  const grid = [];
+  let grid = [];
   for (let i = 0; i <= lastIndex; i += 1) grid.push(i / divisions);
   if (grid[grid.length - 1] < limit - 1e-12) grid.push(limit);
+  // Costos escalonados (PLAN-2026-011, cada salida completa): se evalúa justo
+  // en cada salto y apenas después, así ningún tramo con pérdida queda entre
+  // dos puntos de la grilla y la bisección trabaja en un tramo continuo.
+  if (Array.isArray(breakpoints) && breakpoints.length) {
+    const extra = [];
+    breakpoints.forEach((b) => {
+      if (isFiniteNumber(b) && b > 0 && b < limit) extra.push(b, Math.min(limit, b + 1e-7));
+    });
+    grid = [...new Set([...grid, ...extra])].sort((a, b) => a - b);
+  }
 
   let lastNegative = -1;
   for (let i = 0; i < grid.length; i += 1) {
@@ -150,7 +160,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
       notes: [
         result && !result.reachable ? result.reason : null,
         'Los costos se calculan con los días de trabajo (personal, equipos, combustible, viajes) y la facturación, con la unidad que cobrás.',
-        nonLinear ? 'Hay reglas no lineales (mínimo garantizado o mínimo por llamado): el resultado se calcula paso a paso, no sólo con la fórmula.' : null,
+        nonLinear ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o cada salida contada completa): el resultado se calcula paso a paso, no sólo con la fórmula.' : null,
       ],
     });
   }
@@ -172,7 +182,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
     result: { label: 'Días activos para no perder plata', value: result && result.reachable ? result.days : null, format: 'days' },
     notes: [
       result && !result.reachable ? result.reason : null,
-      nonLinear ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o tramos de descuento): el resultado se calcula día a día, no sólo con la fórmula.' : null,
+      nonLinear ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado, tramos de descuento o cada salida contada completa): el resultado se calcula día a día, no sólo con la fórmula.' : null,
     ],
   });
 }

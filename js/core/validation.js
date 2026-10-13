@@ -173,6 +173,8 @@ export function validateQuote(quote) {
       const f = isPlainObject(x.fiscal) ? x.fiscal : {};
       ['vatPct', 'vatRecoverablePct', 'perceptionsPct', 'nonRecoverablePct'].forEach((k) => check(`equipment.${i}.external.fiscal.${k}`, f[k], 'percent'));
       check(`equipment.${i}.external.fiscal.paymentTermDays`, f.paymentTermDays, 'paymentDays');
+      // PLAN-2026-011: plazo de pago propio de este proveedor (vacío = el general).
+      check(`equipment.${i}.supplierPayDays`, e.supplierPayDays, 'paymentDays');
     }
     if (isPlainObject(e.mobilization)) {
       check(`equipment.${i}.mobilization.travelLitersPer100Km`, e.mobilization.travelLitersPer100Km, 'quantity');

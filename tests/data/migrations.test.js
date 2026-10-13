@@ -6,7 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { migrateState, migrateV0ToV1, migrateV1ToV2, migrateV2ToV3, migrateV3ToV4, migrateV4ToV5, migrateV5ToV6, migrateV6ToV7, MIGRATIONS, MigrationError } from '../../js/data/migrations.js';
+import { migrateState, migrateV0ToV1, migrateV1ToV2, migrateV2ToV3, migrateV3ToV4, migrateV4ToV5, migrateV5ToV6, migrateV6ToV7, migrateV7ToV8, MIGRATIONS, MigrationError } from '../../js/data/migrations.js';
 import { CURRENT_SCHEMA_VERSION, RESOURCE_TYPES, validateState } from '../../js/data/schema.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { isUuid } from '../../js/core/ids.js';
@@ -62,7 +62,7 @@ describe('migrateState v0 → v1', () => {
     const result = migrateState(legacyState(), { now: NOW, idFactory: sequentialIds() });
     assert.equal(result.fromVersion, 0);
     assert.equal(result.toVersion, CURRENT_SCHEMA_VERSION);
-    assert.deepEqual(result.applied, ['0→1', '1→2', '2→3', '3→4', '4→5', '5→6', '6→7']);
+    assert.deepEqual(result.applied, ['0→1', '1→2', '2→3', '3→4', '4→5', '5→6', '6→7', '7→8']);
     assert.equal(result.state.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
   });
@@ -181,7 +181,7 @@ describe('migrateState v0 → v1', () => {
     const out = migrateV0ToV1(null, { now: NOW, idFactory: sequentialIds() });
     assert.equal(out.schemaVersion, 1);
     assert.deepEqual(out.quotes, []);
-    assert.equal(validateState(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(out))))))).ok, true);
+    assert.equal(validateState(migrateV7ToV8(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(out)))))))).ok, true);
   });
 });
 
@@ -295,7 +295,7 @@ describe('migrateState v1 → v2 (impuestos sobre la facturación, PLAN-2026-002
     assert.equal(out.quotes[0].vatTreatment, 'excluded');
     assert.equal(out.quotes[1].vatTreatment, 'included');
     // La estructura es válida (no se descarta nada) ...
-    assert.equal(validateState(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(out)))))).ok, true);
+    assert.equal(validateState(migrateV7ToV8(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(out))))))).ok, true);
     // ... pero la cotización no se calcula en silencio como si fuera sin IVA.
     const issues = computeQuote(out.quotes[1]).issues.filter((i) => i.path === 'vatTreatment');
     assert.equal(issues.length, 1);
@@ -399,7 +399,7 @@ describe('migrateState v2 → v3 (base económica, snapshots, movilización — 
   test('el resultado es válido y NINGÚN número cambia', () => {
     const before = v2State();
     const result = migrateState(before);
-    assert.deepEqual(result.applied, ['2→3', '3→4', '4→5', '5→6', '6→7']);
+    assert.deepEqual(result.applied, ['2→3', '3→4', '4→5', '5→6', '6→7', '7→8']);
     assert.deepEqual(validateState(result.state), { ok: true, errors: [] });
     const a = computeQuote(before.quotes[0]);
     const b = computeQuote(result.state.quotes[0]);
@@ -540,7 +540,7 @@ describe('migrateState v4 → v5 (productos — PLAN-2026-008)', () => {
     assert.deepEqual({ ...out, schemaVersion: 5 }, before, 'ningún dato cambia');
     assert.deepEqual(v5, before, 'no muta la entrada');
     const { state, applied } = migrateState(v5);
-    assert.deepEqual(applied, ['5→6', '6→7']);
+    assert.deepEqual(applied, ['5→6', '6→7', '7→8']);
     assert.equal(validateState(state).ok, true);
     v5.quotes.forEach((q, i) => {
       const a = computeQuote(q).kpis;
@@ -559,7 +559,7 @@ describe('migrateState v4 → v5 (productos — PLAN-2026-008)', () => {
     assert.deepEqual({ ...out, schemaVersion: 6 }, before, 'ningún dato cambia');
     assert.deepEqual(v6, before, 'no muta la entrada');
     const { state, applied } = migrateState(v6);
-    assert.deepEqual(applied, ['6→7']);
+    assert.deepEqual(applied, ['6→7', '7→8']);
     assert.equal(validateState(state).ok, true);
     v6.quotes.forEach((q, i) => {
       const a = computeQuote(q).kpis;
@@ -621,6 +621,27 @@ describe('migrateState v3 → v4 (mantenimiento y neumáticos con forma de carga
   });
 });
 
+
+describe('migrateState v7 → v8 (PLAN-2026-011)', () => {
+  test('registrada, sólo sube la versión y ningún número cambia', () => {
+    assert.equal(MIGRATIONS[7], migrateV7ToV8);
+    const v7 = { ...createDemoState(7), schemaVersion: 7 };
+    const before = JSON.parse(JSON.stringify(v7));
+    const out = migrateV7ToV8(v7);
+    assert.equal(out.schemaVersion, 8);
+    assert.deepEqual({ ...out, schemaVersion: 7 }, before, 'ningún dato cambia');
+    assert.deepEqual(v7, before, 'no muta la entrada');
+    const { state, applied } = migrateState(v7);
+    assert.deepEqual(applied, ['7→8']);
+    assert.equal(validateState(state).ok, true);
+    v7.quotes.forEach((q, i) => {
+      const a = computeQuote(q).kpis;
+      const b = computeQuote(state.quotes[i]).kpis;
+      for (const k of ['totalCost', 'floorListRate', 'targetListRate', 'breakEvenDays', 'revenue', 'profit', 'financialCost', 'workingCapital']) assert.equal(b[k], a[k], `${q.name}: ${k}`);
+    });
+    for (const bad of [null, undefined, 'x', 42]) assert.equal(migrateV7ToV8(bad).schemaVersion, 8);
+  });
+});
 
 describe('validateState v7 (PLAN-2026-010): campos nuevos opcionales', () => {
   test('horas extra por tramos, estructura desglosada y política de estructura: listas de objetos', () => {

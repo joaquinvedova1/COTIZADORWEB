@@ -68,6 +68,8 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 
 **v0.7.0 — Auditoría y pulido desde una cotización real (COT-0009)** (esquema de datos 7, sin cambios de datos): los números de COT-0009 quedan como golden case; se corrige la financiación de externos con IVA (se financia la salida de caja; sin IVA cargado nada cambia); BORRADOR arriba del resultado con pendientes críticos / para revisar / informativos; externos incompletos nombrados con [Completar] [Quitar] e impacto incremental en "Ver cálculo"; horas extra por tramos (HE 50 % / 100 % / otro, facturables aparte); estructura desglosada por rubro con política de la empresa; comparador de modelos en $/m³, $/viaje, $/unidad; EECC con fijo del mes y variable por día; fecha base con "usar el mes de la oferta" (confirmado). Plan PLAN-2026-010.
 
+**v0.7.1 — Salidas completas y plazo por proveedor** (esquema de datos 8, sin cambios de datos; todo opcional): "Cada salida / intervención se cuenta completa" costea con salidas enteras sólo los costos por salida (movilización, viajes, cargos por llamado) sin tocar producción, facturación ni sueldos; cada externo puede tener su propio plazo de pago, que cambia sólo el capital de trabajo y el costo financiero. Plan PLAN-2026-011.
+
 ## Visitante, demo y cuenta
 
 | | Qué ve | Datos |

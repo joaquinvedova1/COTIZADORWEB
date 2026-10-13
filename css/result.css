@@ -569,3 +569,6 @@ th.ta-right .qr-th { align-items: flex-end; }
 .qr-sev-info { background: var(--navy-50); color: var(--navy-900); }
 .qr-notices { margin-top: var(--sp-3, 0.75rem); }
 .qr-check-info .qr-check-msg { color: var(--ink-2); }
+
+/* Externos del mes (costo / caja / crédito): los montos grandes nunca se salen de la pantalla. */
+.qr-stats-3 .big-stat-number { overflow-wrap: anywhere; font-size: clamp(1.2rem, 1rem + 1.2vw, 1.85rem); }

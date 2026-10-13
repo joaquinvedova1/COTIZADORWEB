@@ -711,3 +711,8 @@
 .qe-chip.is-pending { background: var(--orange-50); color: var(--orange-text); border-color: #F4D6AB; }
 .qe-ot { display: flex; flex-direction: column; gap: 0.6rem; }
 .qe-ot-row { border: 1px solid var(--line-2); border-radius: 8px; padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; }
+
+/* PLAN-2026-011: cada salida se cuenta completa (salidas estimadas vs costeadas). */
+.qe-full-activations { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem; padding-top: 0.6rem; border-top: 1px solid var(--line-2); }
+.qe-full-activations .qe-note { margin: 0; }
+.qe-note.is-warning { color: var(--orange-text); }

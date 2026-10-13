@@ -23,6 +23,7 @@ import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../
 import { isFiniteNumber } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase } from '../../unit-text.js';
+import { activationRoundingText } from '../../result-text.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -338,7 +339,9 @@ export function render(container, ctx) {
       const extra = r.estimate.revenue.minimumCallApplied ? ' (incluye el mínimo por llamado)' : '';
       const acts = r.activity.activationsPerMonth;
       const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
-        ? ` Son ${formatNumber(acts, { decimals: 2 })} llamados promedio por mes: la movilización y los costos por llamado se calculan como promedio.`
+        ? (r.activationRounding && r.activationRounding.enabled
+          ? ` Son ${formatNumber(acts, { decimals: 2 })} llamados promedio por mes; los costos por llamado se cuentan con llamados completos (abajo).`
+          : ` Son ${formatNumber(acts, { decimals: 2 })} llamados promedio por mes: la movilización y los costos por llamado se calculan como promedio.`)
         : '';
       return `Facturás ${billable} por mes${extra}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${fractional}`;
     },
@@ -365,7 +368,9 @@ export function render(container, ctx) {
         : '';
       // Salidas fraccionarias: el costo por salida (movilización…) es un PROMEDIO.
       const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
-        ? ` Son ${formatNumber(acts, { decimals: 2 })} salidas promedio por mes: la movilización y los costos por salida se calculan como promedio. Si cada salida se paga completa, ajustá la duración de cada salida.`
+        ? (r.activationRounding && r.activationRounding.enabled
+          ? ` Son ${formatNumber(acts, { decimals: 2 })} salidas promedio por mes; los costos por salida se cuentan con salidas completas (abajo).`
+          : ` Son ${formatNumber(acts, { decimals: 2 })} salidas promedio por mes: la movilización y los costos por salida se calculan como promedio (abajo podés contar cada salida completa).`)
         : '';
       return `Facturás ${billable} por mes${extra} en ${workDaysText(r.activity.activeDaysPerMonth)}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${perIntervention}${fractional}${over}`;
     },
@@ -395,6 +400,18 @@ export function render(container, ctx) {
         hourly ? hoursField() : null,
       ),
     byQuantity ? quantityKeyline : daysKeyline,
+    // PLAN-2026-011: cada salida completa (apagado por defecto). Sólo los costos
+    // físicamente indivisibles por salida; producción y facturación no cambian.
+    h('div', { class: 'qe-full-activations' },
+      kit.check('activity.fullActivations', {
+        label: 'Cada salida / intervención se cuenta completa',
+        hint: 'Si las salidas por mes no son enteras (por ejemplo 10,42), los costos por salida —movilización, peajes, viáticos, cargos del proveedor por llamado y mínimos por llamado— se costean con salidas enteras (11). Sueldos, tenencia de equipos, producción, facturación y estructura mensual no cambian.',
+      }),
+      kit.out((r) => {
+        const info = activationRoundingText(r.activationRounding);
+        if (!info) return '';
+        return h('p', { class: ['qe-note', info.tone === 'warning' ? 'is-warning' : null] }, info.text);
+      }, { tag: 'div', allowEmpty: true })),
     kit.advanced(
       {
         key: 'modality',

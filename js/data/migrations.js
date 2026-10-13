@@ -285,6 +285,20 @@ export function migrateV6ToV7(state) {
   return { ...src, schemaVersion: 7 };
 }
 
+/**
+ * v7 → v8 (PLAN-2026-011): campos nuevos y opcionales `activity.fullActivations`
+ * ("cada salida se cuenta completa", apagado si no está) y
+ * `equipment[].supplierPayDays` (plazo de pago propio de un externo; vacío =
+ * el general de "Proveedores"). No cambia ni borra ningún dato: las
+ * cotizaciones existentes calculan igual. Se sube la versión porque una
+ * versión anterior ignoraría esos campos en silencio (otro costo): así abre
+ * estos datos en sólo lectura.
+ */
+export function migrateV7ToV8(state) {
+  const src = isPlainObject(state) ? deepClone(state) : {};
+  return { ...src, schemaVersion: 8 };
+}
+
 /** Agrega un valor a `legacy` sin perder lo que ya hubiera (aunque no fuera un objeto). */
 function withLegacy(legacy, key, value) {
   const base = isPlainObject(legacy) ? legacy : legacy === undefined || legacy === null ? {} : { previous: legacy };
@@ -300,6 +314,7 @@ export const MIGRATIONS = Object.freeze({
   4: migrateV4ToV5,
   5: migrateV5ToV6,
   6: migrateV6ToV7,
+  7: migrateV7ToV8,
 });
 
 /**

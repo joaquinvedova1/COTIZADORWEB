@@ -15,7 +15,7 @@ import { nonNegative, safeDivide, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
 import { formatPercent, formatDays, formatNumber } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
-import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor } from './cost-engine.js';
+import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
 import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
@@ -75,7 +75,7 @@ export function monthlyFeeCap(ctx, listRate, marginPct = 0) {
     const e = evaluateAt(ctx, d, listRate);
     return e.profit - (m / 100) * e.revenue.total;
   };
-  const res = findBreakEvenDays((d) => -gap(d), { maxDays: available });
+  const res = findBreakEvenDays((d) => -gap(d), { maxDays: available, breakpoints: activationBreakpoints(ctx.model, available) });
   if (!res.reachable) return { status: 'all', days: null, wholeDays: null, available, marginPct: m, listRate };
   if (!(res.days > 1e-9)) return { status: 'none', days: 0, wholeDays: 0, available, marginPct: m, listRate };
   return { status: 'until', days: res.days, wholeDays: Math.floor(res.days + 1e-7), available, marginPct: m, listRate };
@@ -236,13 +236,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     breakEven = { reachable: false, days: null, wholeDays: null, reason };
     targetMarginDays = { reachable: false, days: null, wholeDays: null, reason };
   } else {
-    breakEven = findBreakEvenDays((d) => evaluateAt(ctx, d, commercialListRate).profit, { maxDays });
+    // Con "cada salida completa" el costo salta al empezar cada salida: se evalúa en cada salto.
+    const breakpoints = activationBreakpoints(model, maxDays);
+    breakEven = findBreakEvenDays((d) => evaluateAt(ctx, d, commercialListRate).profit, { maxDays, breakpoints });
     targetMarginDays = targetMarginInvalid
       ? { reachable: false, days: null, wholeDays: null, reason: 'El margen objetivo no es válido (o margen + impuestos sobre la facturación llega a 100 %).' }
       : findBreakEvenDays((d) => {
         const e = evaluateAt(ctx, d, commercialListRate);
         return e.profit - (targetMarginPct / 100) * e.revenue.total;
-      }, { maxDays });
+      }, { maxDays, breakpoints });
     // Cantidad de equilibrio en la unidad comercial (m³, viajes, días…): la
     // que se factura con esos días de trabajo (PLAN-2026-009).
     breakEven = withQuantity(ctx, breakEven);
@@ -289,10 +291,16 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   // Indicadores derivados
   const costAt = costAtActivity(model, D);
   const factor = monthsFactor(D, activity.availableDaysPerMonth);
-  const workingCapital = model.finance.workingCapitalFixed * factor + model.finance.workingCapitalPerActiveDay * D;
+  // Salidas estimadas vs costeadas (PLAN-2026-011). Apagado: ajuste 0 y todo como siempre.
+  const rounding = activationRoundingAt(model, D);
+  const roundingPreview = rounding.enabled ? rounding : activationRoundingAt(model, D, { force: true });
+  const roundingOn = rounding.enabled && rounding.total > 0;
+  let workingCapital = model.finance.workingCapitalFixed * factor + model.finance.workingCapitalPerActiveDay * D;
+  if (roundingOn) workingCapital += rounding.workingCapital;
   const financialCost = costAt.byCategory.financial;
   // Viajes = movilización de los equipos + logística auxiliar (vehículos, peajes, viáticos).
-  const logisticsMonthly = (model.logistics.perActiveDay + model.mobilization.perActiveDay) * D;
+  let logisticsMonthly = (model.logistics.perActiveDay + model.mobilization.perActiveDay) * D;
+  if (roundingOn) logisticsMonthly += (rounding.bySource.logistics || 0) + (rounding.bySource.mobilization || 0);
   // Externos (PLAN-2026-005): costo económico vs salida de caja vs crédito fiscal del mes.
   const externalMonthly = model.external.reduce((acc, x) => {
     acc.economic += (x.fixedMonthly * factor) + (x.variablePerActiveDay + x.mobilizationPerActiveDay) * D;
@@ -300,6 +308,13 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     acc.credit += (x.creditFixedMonthly * factor) + x.creditPerActiveDay * D;
     return acc;
   }, { economic: 0, cash: 0, credit: 0 });
+  if (roundingOn && rounding.bySource.external) {
+    // Lo que se le paga de más al proveedor por las salidas completas (costo y caja).
+    const extCash = model.lines.filter((l) => l.source === 'external').reduce((acc, l) => acc + nonNegative(l.cashDiscretePerActivation), 0) * rounding.extraActivations;
+    externalMonthly.economic += rounding.bySource.external;
+    externalMonthly.cash += extCash;
+    externalMonthly.credit += Math.max(0, extCash - rounding.bySource.external);
+  }
   const commercialNetRate = estimate.revenue.netRate;
   const hoursPerDay = activity.hoursPerActiveDay;
 
@@ -354,6 +369,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     externalMonthly: externalMonthly.economic,
     externalCashMonthly: externalMonthly.cash,
     externalTaxCreditMonthly: externalMonthly.credit,
+    // Salidas (PLAN-2026-011): estimadas (promedio) y costeadas (enteras si la opción está activa).
+    fullActivations: rounding.enabled,
+    activationsEstimated: rounding.estimated,
+    activationsCosted: rounding.costed,
+    activationRoundingCost: roundingOn ? rounding.total : 0,
     // Tarifa neta debajo de la tarifa piso (que no cuenta el mínimo garantizado).
     belowFloorRate: hasRate && isFiniteNumber(ratesAtEstimate.floorNetRate) ? commercialNetRate < ratesAtEstimate.floorNetRate - 1e-6 : false,
     // "Bajo piso" = la tarifa no cubre el costo Y el mes da pérdida (si un
@@ -430,7 +450,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       notes: [
         byQuantity && targetMarginDays.reachable ? `Son ${formatDays(targetMarginDays.days, { decimals: 1 })} de trabajo: los costos se calculan con esos días y la facturación, con ${texts.los} ${unitInfo.plural}.` : null,
         !targetMarginDays.reachable ? targetMarginDays.reason : null,
-        linearTarget.hasNonLinearRules ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o tramos de descuento): el resultado se calcula día a día.' : null,
+        linearTarget.hasNonLinearRules ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado, tramos de descuento o cada salida contada completa): el resultado se calcula día a día.' : null,
       ],
     }),
     floorRate: createTrace({
@@ -527,6 +547,18 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
           : []),
       ],
       steps: [
+        // Proveedores con plazo propio (PLAN-2026-011): cada uno con sus días financiados.
+        ...model.finance.suppliers.flatMap((g) => {
+          const cash = g.cashFixedMonthly * factor + g.cashVariablePerActiveDay * D + (roundingOn ? rounding.cashByKey[g.key] || 0 : 0);
+          const wc = cash * (g.financingDays / 30);
+          return [
+            { label: `${g.label}: salida de caja del mes (proveedor)`, value: cash, format: 'money' },
+            { label: `${g.label}: plazo de pago al proveedor`, value: g.payDays, format: 'days' },
+            { label: `${g.label}: días financiados`, value: g.financingDays, format: 'days' },
+            { label: `${g.label}: capital de trabajo`, value: wc, format: 'money' },
+            { label: `${g.label}: costo financiero asociado`, value: wc * (model.finance.monthlyRatePct / 100), format: 'money' },
+          ];
+        }),
         { label: 'Capital de trabajo a financiar', value: workingCapital, format: 'money' },
         { label: 'Impacto en margen (puntos)', value: kpis.financialMarginImpactPct, format: 'percent' },
       ],
@@ -538,6 +570,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         'Es una aproximación con interés simple: cada desembolso se financia desde que se paga hasta que cobrás (días hasta facturar + plazo de cobro − días hasta pagar ese costo).',
         'Se financian sólo los desembolsos: la amortización y el costo de capital de los equipos no son salidas de caja (no se financian). La contingencia tampoco.',
         'Equipos y servicios externos: se financia lo que le pagás al proveedor (neto + IVA + percepciones); el IVA recuperable y las percepciones no son costo, pero sí caja que adelantás hasta cobrar.',
+        model.finance.suppliers.length
+          ? 'Los externos con plazo de pago propio se financian con su plazo (días hasta facturar + plazo de cobro − plazo del proveedor); el resto, con los días de "Proveedores". El costo del externo no cambia.'
+          : null,
       ],
     }),
     logistics: createTrace({
@@ -566,6 +601,13 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         { label: 'Equipos principales: desgaste por mes', value: model.mobilization.wearPerActivation * activity.activationsPerMonth, format: 'money' },
         { label: 'Vehículos auxiliares: km por mes', value: model.logistics.vehicleKmPerActivation * activity.activationsPerMonth, format: 'km' },
         { label: 'Vehículos auxiliares: costo por mes', value: model.logistics.costPerActivation * activity.activationsPerMonth, format: 'money' },
+        ...(roundingOn && ((rounding.bySource.logistics || 0) + (rounding.bySource.mobilization || 0)) > 0
+          ? [
+            { label: 'Salidas estimadas por mes', value: rounding.estimated, format: 'number' },
+            { label: 'Salidas costeadas (cada salida completa)', value: rounding.costed, format: 'number' },
+            { label: 'Ajuste por salidas completas (movilización y viajes)', value: (rounding.bySource.logistics || 0) + (rounding.bySource.mobilization || 0), format: 'money' },
+          ]
+          : []),
       ],
       result: { label: 'Costo mensual de movilización y viajes', value: logisticsMonthly, format: 'money' },
       notes: [
@@ -578,6 +620,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   return {
     issues,
+    // Salidas estimadas vs costeadas y ajuste (PLAN-2026-011); `preview` = cuánto sumaría si se activa.
+    activationRounding: { ...rounding, active: roundingOn, preview: roundingPreview },
     unit: ctx.unit,
     unitLabel,
     unitInfo,

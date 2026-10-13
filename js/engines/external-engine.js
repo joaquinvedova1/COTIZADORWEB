@@ -126,6 +126,11 @@ export function computeExternalLine(line = {}, ctx = {}) {
     netPerActivation = billedUnitsPerActivation * price * quantity;
   }
   const netPerActiveDay = safeDivide(netPerActivation, dpa, 0);
+  // Costo POR SALIDA (PLAN-2026-011, "cada salida se cuenta completa"): la
+  // tarifa por llamado, por viaje o por km, y la de hora o día cuando rige el
+  // mínimo por llamado. Sin mínimo, la hora o el día siguen al tiempo trabajado.
+  const minimumApplied = (unit === 'hour' || unit === 'day') && unitsPerActivation !== null && minimum > unitsPerActivation + 1e-9;
+  const discreteNetPerActivation = unit === 'activation' || unit === 'trip' || unit === 'km' || minimumApplied ? netPerActivation : 0;
 
   const fiscal = externalFiscal(ext.fiscal);
 
@@ -168,6 +173,10 @@ export function computeExternalLine(line = {}, ctx = {}) {
     variablePerActiveDay: economic(netPerActiveDay),
     mobilizationPerActiveDay: economic(mobilizationNetPerActiveDay),
     mobilizationPerActivation: economic(mobilizationNetPerActivation),
+    minimumApplied,
+    discretePerActivation: economic(discreteNetPerActivation),
+    cashDiscretePerActivation: discreteNetPerActivation * fiscal.cashFactor,
+    cashMobilizationPerActivation: mobilizationNetPerActivation * fiscal.cashFactor,
     fuelLitersPerActiveDay,
     fuelPerActiveDay,
     // Salida de caja y crédito fiscal (no son costo). La salida de caja es lo

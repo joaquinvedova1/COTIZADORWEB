@@ -105,8 +105,8 @@ export function mainValueOf(type, values) {
  */
 const KEEP_ON_UPDATE = Object.freeze({
   laborProfiles: ['id', 'positions', 'peoplePerPosition', 'overtimeHoursPerActiveDay', 'overtime', 'overtimeBilled', 'people', 'minutesPerBatch'],
-  equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode'],
-  externalServices: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId'],
+  equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode', 'supplierPayDays'],
+  externalServices: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'supplierPayDays'],
   materials: ['id', 'quantity', 'basis', 'providedBy', 'per', 'useUnit'],
 });
 

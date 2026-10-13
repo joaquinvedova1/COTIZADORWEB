@@ -17,14 +17,20 @@ import { hasNumber } from './shared.js';
 function groupsAtEstimate(result) {
   const D = result.activity.activeDaysPerMonth;
   const factor = monthsFactor(D, result.activity.availableDaysPerMonth);
-  return result.model.finance.groups.map((g) => ({
+  const fin = result.model.finance;
+  const rate = fin.monthlyRatePct / 100;
+  // Salidas completas (PLAN-2026-011): la caja de las salidas de más, en su grupo.
+  const r = result.activationRounding;
+  const extra = (key) => (r && r.active ? r.cashByKey[key] || 0 : 0);
+  // Proveedores con plazo propio (PLAN-2026-011): una fila cada uno.
+  return [...fin.groups, ...(fin.suppliers || [])].map((g) => ({
     id: g.id,
-    label: g.label,
+    label: g.supplier ? `${g.label} (plazo propio del proveedor)` : g.label,
     payDays: g.payDays,
     financingDays: g.financingDays,
-    cash: g.cashFixedMonthly * factor + g.cashVariablePerActiveDay * D,
-    workingCapital: g.workingCapitalFixed * factor + g.workingCapitalPerActiveDay * D,
-    financial: g.financialFixedMonthly * factor + g.financialPerActiveDay * D,
+    cash: g.cashFixedMonthly * factor + g.cashVariablePerActiveDay * D + extra(g.id),
+    workingCapital: g.workingCapitalFixed * factor + g.workingCapitalPerActiveDay * D + extra(g.id) * (g.financingDays / 30),
+    financial: g.financialFixedMonthly * factor + g.financialPerActiveDay * D + extra(g.id) * rate * (g.financingDays / 30),
   }));
 }
 
@@ -193,7 +199,7 @@ export function render(container, ctx) {
       kit.stat('Cobro efectivo', (r) => formatDays(r.model.finance.invoiceLagDays + r.model.finance.paymentTermDays), { hint: 'Días hasta facturar + plazo de pago.' }),
     ),
     groupsTable,
-    kit.explain('Aproximación con interés simple: cada desembolso se financia desde que lo pagás hasta que cobrás (días financiados = días hasta facturar + plazo de cobro − días hasta pagar ese costo). Se financian sólo los desembolsos: la amortización y el costo de capital de los equipos no son pagos (no se financian) y la contingencia tampoco. De los equipos y servicios externos se financia lo que le pagás al proveedor (neto + IVA + percepciones): el IVA recuperable no es costo, pero sí caja que adelantás hasta cobrar.'),
+    kit.explain('Aproximación con interés simple: cada desembolso se financia desde que lo pagás hasta que cobrás (días financiados = días hasta facturar + plazo de cobro − días hasta pagar ese costo). Se financian sólo los desembolsos: la amortización y el costo de capital de los equipos no son pagos (no se financian) y la contingencia tampoco. De los equipos y servicios externos se financia lo que le pagás al proveedor (neto + IVA + percepciones): el IVA recuperable no es costo, pero sí caja que adelantás hasta cobrar. Un externo con su propio plazo de pago (en Equipos) se financia con ese plazo; el resto, con los días de "Proveedores".'),
   );
 
   mount(container, termsCard, detail);
