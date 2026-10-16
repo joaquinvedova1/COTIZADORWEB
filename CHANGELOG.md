@@ -12,6 +12,28 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**RATEOS Test Lab v1 (PLAN-2026-013): QA interno, simulación y auditoría.** No es una funcionalidad visible ni se publica en `dist/`: oráculo económico independiente, candado de golden, 68 escenarios curados (todos los tipos de servicio, las 18 unidades comerciales, las 7 de externos y productos), 20 sondas de contradicción, escenarios generados con seed (pairwise), 35 invariantes, auditor de consistencia UX, auditoría en navegador (escritorio y celular, Supabase simulado), mercado offline y reportes JSON + Markdown. La primera campaña encontró 11 problemas distintos y la revisión del código 1 más; se corrigen acá, cada uno con un test que falló antes del fix (`tests/engines/lab-findings.test.js`). Quedan 8 decisiones del dueño (HUMAN DECISION REQUIRED) sin tocar. **Ningún costo, tarifa ni golden cambia**; sí cambia qué se marca como pendiente, y por eso el puntaje de completitud de las cotizaciones afectadas. Sin cambio de esquema. Detalle en [docs/TEST_LAB.md](docs/TEST_LAB.md); reglas en [docs/CALCULATION_RULES.md](docs/CALCULATION_RULES.md) §19 y §20.
+
+### Agregado
+
+- `npm run test:lab` (campaña estable: falla si un golden cambia, si falta cobertura o si queda un P0/P1 sin triage), `npm run test:lab:extended` (con seed) y `npm run test:lab:e2e` (navegador). Reportes en `reports/lab/` (ignorado por git; artefactos en CI).
+- Workflow **Test Lab** (`.github/workflows/test-lab.yml`): PR gate en cada PR (lab estable + build + navegador escritorio/celular) y Extended Lab sólo manual. Sólo lectura, sin deploy; Playwright con versión fija fuera del repo (RATEOS sigue con cero dependencias).
+- Avisos informativos (no restan puntaje): puesto con sueldo y 0 posiciones ("no suma costo") y "el servicio no usa materiales" con materiales cargados ("no se suman al costo"), con botón al campo.
+
+### Corregido
+
+- **Indicador de externos con "Cada salida se cuenta completa"** (LAB-F1): sumaba el combustible por km del proveedor y quedaba más alto que la fila de externos de la EECC (COT-0011 con 13 viajes y 35 L/100 km: $ 9.205.000 → **$ 9.100.000**; caja $ 11.116.000 → **$ 11.011.000**). El costo total y las tarifas no cambian.
+- **Unidad "km" con más km facturados que los de la ruta** (LAB-F3): 8.000 km facturados con una ruta de 4.000 km quedaba 100 % completo; ahora es un pendiente a revisar con los dos números y botón a "Viajes por llamado" (no se deriva: decisión del dueño). Una vuelta vacía (más km de ruta que facturados) no se avisa.
+- **Unidad "viaje" o "km" con "Sin traslados"** (LAB-F4) y **"Sin traslados" con un equipo que viaja** por sus medios o con vehículo de apoyo (LAB-F5): se avisaba nada; ahora el pendiente dice qué no se suma y lleva a "Sin traslados".
+- **Externo $/hora sin horas** (LAB-F6): sumaba $ 0 en silencio; ahora es **crítico** ("Horas del proveedor") con botón a las horas de la línea o de la actividad. **Cobro por hora con 0 horas por día** (LAB-F7): la actividad queda crítica (no hay unidades facturables).
+- **Combustible por km con "Sin traslados"** (LAB-F2): el botón llevaba a la distancia (que con "Sin traslados" no resuelve nada); ahora explica y lleva a "Sin traslados".
+- **Material con precio y cantidad 0** (LAB-F8): sumaba $ 0 sin aviso; ahora es un pendiente con botón a la cantidad, y `validateQuote` valida cantidades, costos y % de materiales y el monto de otros costos (una cantidad negativa es un error; con "El servicio no usa materiales" las líneas ocultas no se validan).
+- **Botón al campo exacto** (LAB-F10/F11/F12): actividad, margen, tarifa conocida, plazo de cobro y costo de equipos llevan al campo; dentro de cada paso, "Ir al campo" usa el campo que indica el motor (antes faltaba en varios avisos nuevos y viejos).
+
+### Cambiado
+
+- Los golden cases se leen con un harness compartido (`tests/golden-cases/harness.js`) que usa también el Test Lab; los casos y sus valores no cambian.
+
 ## [0.7.2] - 2026-10-16
 
 **Pulido desde casos reales de transporte (COT-0010 / COT-0011).** Las dos cotizaciones $/viaje que probó el dueño se reproducen al peso (golden): costo $ 12.864.478, piso $ 1.128.463, objetivo $ 1.261.224, sugerida **$ 1.262.000 por viaje**, margen 10,05 %, equilibrio 8,55 viajes. Se corrige un bug de viajes físicos, se ordena la completitud y se suman opcionales pedidos (combustible por km, recursos compartidos, "Usado en"). Las cotizaciones existentes conservan sus números (foto de 99 casos y COT-0009 idénticas), salvo las $/viaje con un dato de viajes inconsistente. **Esquema de datos 9** (`migrateV8ToV9`: sin cambios de datos). Plan: PLAN-2026-012; fórmulas en [docs/CALCULATION_RULES.md](docs/CALCULATION_RULES.md) §4.1, §4.2, §5.2, §7, §15 y §19.

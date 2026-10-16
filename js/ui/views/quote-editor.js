@@ -1496,11 +1496,11 @@ export function pendingFieldPath(item, quote) {
     case 'mobility': {
       const rows = listOf(q.equipment);
       const i = firstIndex(rows, (e) => !(e.mobilization && e.mobilization.mode) && !((e.acquisition === 'rented' || e.acquisition === 'outsourced') && e.external && e.external.mobilizationIncluded === true));
-      return i < 0 ? null : `equipment.${i}.mobilization.mode`;
+      return i < 0 ? (typeof item.focus === 'string' ? item.focus : null) : `equipment.${i}.mobilization.mode`;
     }
     case 'materials': {
       const i = firstIndex(listOf(q.materials), (m) => !m.providedBy);
-      return i < 0 ? null : `materials.${i}.providedBy`;
+      return i < 0 ? (typeof item.focus === 'string' ? item.focus : null) : `materials.${i}.providedBy`;
     }
     case 'logistics': {
       const logistics = isPlainObject(q.logistics) ? q.logistics : {};
@@ -1508,12 +1508,10 @@ export function pendingFieldPath(item, quote) {
       const i = firstIndex(listOf(logistics.vehicles), (v) => !positive(v.count));
       return i < 0 ? null : `logistics.vehicles.${i}.count`;
     }
-    case 'fuel':
-    case 'external_route':
-      // El motor dice cuál es el campo exacto (PLAN-2026-012).
-      return typeof item.focus === 'string' ? item.focus : null;
     default:
-      return null;
+      // El motor dice cuál es el campo exacto (combustible, ruta, horas del proveedor, km de la ruta…;
+      // PLAN-2026-012 / 013). Sin `focus`, sin botón.
+      return typeof item.focus === 'string' ? item.focus : null;
   }
 }
 

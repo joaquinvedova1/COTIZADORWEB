@@ -2,6 +2,8 @@
 node_modules/
 dist/
 coverage/
+# Reportes de RATEOS Test Lab (artefactos de CI, PLAN-2026-013)
+reports/
 
 # Secretos: NUNCA versionar
 .env

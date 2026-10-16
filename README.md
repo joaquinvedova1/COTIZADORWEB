@@ -182,6 +182,14 @@ npm test
 
 Usa el test runner nativo de Node (`node --test`), sin dependencias. Cubre motores económicos (`tests/engines/`), golden cases (`tests/golden-cases/`, un `.json` por regla de negocio), core (`tests/core/`), datos, migraciones y backup (`tests/data/`), servicios (`tests/services/`, incluidos sesión, rutas protegidas e importación local), cuentas con un Supabase falso (`tests/helpers/fake-supabase.js`: aislamiento entre cuentas, conflictos, sin conexión, sesión vencida), migraciones SQL (`tests/supabase/`), reglas de arquitectura y seguridad (`tests/architecture.test.js`), build (`tests/build.test.js`) y sitio estático bajo `/COTIZADORWEB/` (`tests/static-site.test.js`). Los tests del motor son parte de la especificación del negocio: si un cambio los rompe, el cambio está mal o la regla debe revisarse explícitamente.
 
+**RATEOS Test Lab** (QA interno, [docs/TEST_LAB.md](docs/TEST_LAB.md)): RATEOS intenta romperse a sí mismo con un oráculo económico independiente, escenarios de todos los tipos de servicio y unidades, sondas de contradicción, invariantes y un auditor de consistencia UX. La campaña estable corre dentro de `npm test`; además:
+
+```bash
+npm run test:lab            # campaña estable → reports/lab/ (JSON + Markdown)
+npm run test:lab:extended   # + escenarios generados con seed (pairwise)
+npm run build && npm run test:lab:e2e   # auditoría en navegador, escritorio y celular (requiere Playwright)
+```
+
 **Row Level Security** (contra la base real): `supabase/tests/rls_test.sql` (40 controles: usuarios A/B, anon, escalada de rol…; no deja nada en la base). Se corre con el plugin/MCP de Supabase o `psql`; ver [supabase/README.md](supabase/README.md).
 
 ## Cómo desplegar
@@ -245,10 +253,11 @@ js/
       quote-steps/         un módulo por paso del editor
 tests/                     core/, data/, services/, engines/, golden-cases/,
                            architecture.test.js, build.test.js, static-site.test.js
-scripts/                   build.mjs (dist/ + version.json), serve.mjs (servidor local)
+  lab/                     RATEOS Test Lab: oráculo, escenarios, invariantes, auditor UX, navegador
+scripts/                   build.mjs (dist/ + version.json), serve.mjs (servidor local), run-lab.mjs (Test Lab)
 docs/                      documentación técnica
 .agent/PLANS.md            planes de ejecución para cambios grandes
-.github/                   workflows (deploy-pages, ci), dependabot, plantilla de PR
+.github/                   workflows (deploy-pages, ci, test-lab), dependabot, plantilla de PR
 ```
 
 ## Limitaciones conocidas (v0.1.0)
@@ -278,6 +287,7 @@ docs/                      documentación técnica
 | [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) | Visitante / demo / cuenta, Supabase Auth, enlaces de email con GitHub Pages, sesión, roles, riesgos |
 | [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) | Tablas, RLS, sincronización por revisión, migración desde el modo local y fases siguientes |
 | [supabase/README.md](supabase/README.md) | Cómo aplicar migraciones y correr los tests de RLS |
+| [docs/TEST_LAB.md](docs/TEST_LAB.md) | RATEOS Test Lab: oráculo independiente, escenarios, invariantes, auditor UX, mercado, reportes y CI |
 | [docs/AGENT_ROLES.md](docs/AGENT_ROLES.md) | Roles de revisión para el desarrollo (no son funciones del producto) |
 | [.agent/PLANS.md](.agent/PLANS.md) | Plantilla y registro de planes de ejecución |
 | [CHANGELOG.md](CHANGELOG.md) | Historial de versiones |

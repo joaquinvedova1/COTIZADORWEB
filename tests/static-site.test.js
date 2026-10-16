@@ -208,8 +208,20 @@ describe('archivos del sitio', () => {
     assert.match(job('build'), /root_ref: \$\{\{ needs\.plan\.outputs\.root_ref \}\}/);
   });
 
+  test('Test Lab (PLAN-2026-013): sólo lectura, PR gate en cada PR, Extended Lab sólo manual, Playwright fijo y fuera del repo', () => {
+    const wf = read('.github/workflows/test-lab.yml');
+    assert.match(wf, /^permissions:\s*\n\s+contents: read\s*$/m, 'el Test Lab sólo lee el repo');
+    assert.doesNotMatch(wf, /pages: write|id-token: write|contents: write|deploy-pages|git push/, 'el Test Lab nunca publica ni escribe');
+    assert.match(wf, /^\s+pr-gate:\s*$[\s\S]*?if: github\.event_name == 'pull_request'/m, 'el PR gate corre en los PR');
+    assert.match(wf, /^\s+extended:\s*$[\s\S]*?if: github\.event_name == 'workflow_dispatch'/m, 'el Extended Lab es manual (no vuelve frágil cada PR)');
+    assert.match(wf, /run: npm run test:lab\s*$/m, 'el PR gate corre la campaña estable');
+    assert.match(wf, /PLAYWRIGHT_VERSION: \d+\.\d+\.\d+\s*$/m, 'Playwright con versión fija');
+    assert.match(wf, /npm install --prefix "\$RUNNER_TEMP\/pw"/, 'Playwright se instala fuera del repo (cero dependencias de RATEOS)');
+    assert.match(wf, /actions\/upload-artifact@v\d+[\s\S]*?path: reports\/lab\//, 'los reportes son artefactos, no archivos de git');
+  });
+
   test('los workflows no interpolan datos controlables por usuarios dentro de scripts (inyección)', () => {
-    for (const file of ['.github/workflows/deploy-pages.yml', '.github/workflows/ci.yml']) {
+    for (const file of ['.github/workflows/deploy-pages.yml', '.github/workflows/ci.yml', '.github/workflows/test-lab.yml']) {
       const injected = runBlocks(read(file)).filter((block) =>
         /\$\{\{[^}]*\b(?:inputs\.|github\.event\.|github\.head_ref)/.test(block.text),
       );

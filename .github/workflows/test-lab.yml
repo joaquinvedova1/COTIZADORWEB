@@ -1,0 +1,136 @@
+# RATEOS Test Lab (PLAN-2026-013) — QA interno. No despliega ni escribe nada:
+# sólo lee el repo y sube los reportes como artefacto.
+#
+#   PR gate (cada Pull Request): campaña ESTABLE (golden + candado, oráculo
+#     independiente, invariantes, cobertura, completitud/UX determinística),
+#     build y auditoría en navegador (escritorio y celular, Supabase simulado).
+#   Extended Lab (sólo manual: Actions → Test Lab → Run workflow): escenarios
+#     generados con seed (pairwise) y capturas de pantalla. Nunca corre en un
+#     PR, así que no lo vuelve frágil. Para correrlo por schedule, ver
+#     docs/TEST_LAB.md.
+#
+# Playwright NO es dependencia de RATEOS: se instala con versión fija en
+# $RUNNER_TEMP (fuera del repo, sin tocar package.json).
+
+name: Test Lab
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Seed de la campaña extendida (entero)
+        required: false
+        default: '20261016'
+      count:
+        description: Escenarios generados (1 a 2000)
+        required: false
+        default: '120'
+      fail_on:
+        description: Qué hace fallar la corrida
+        required: false
+        default: P0
+        type: choice
+        options: [P0, P1, none]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-lab-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLAYWRIGHT_VERSION: 1.56.1
+
+jobs:
+  pr-gate:
+    name: PR gate (lab estable + navegador + build)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test Lab estable (npm run test:lab)
+        run: npm run test:lab
+
+      - name: Build (npm run build)
+        run: npm run build
+
+      - name: Instalar Playwright (versión fija, fuera del repo)
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Auditoría en navegador (escritorio y celular)
+        run: npm run test:lab:e2e
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/pw/node_modules/playwright
+
+      - name: Reportes del Test Lab
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-lab-pr-${{ github.run_number }}
+          path: reports/lab/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  extended:
+    name: Extended Lab (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Campaña extendida (seed y cantidad de la corrida)
+        run: node scripts/run-lab.mjs --extended --seed="$SEED" --count="$COUNT" --fail-on="$FAIL_ON"
+        env:
+          SEED: ${{ inputs.seed }}
+          COUNT: ${{ inputs.count }}
+          FAIL_ON: ${{ inputs.fail_on }}
+
+      - name: Build (npm run build)
+        if: always()
+        run: npm run build
+
+      - name: Instalar Playwright (versión fija, fuera del repo)
+        if: always()
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Auditoría en navegador con capturas
+        if: always()
+        run: node tests/lab/e2e/ui-lab.mjs --shots
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/pw/node_modules/playwright
+
+      - name: Reportes del Extended Lab
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-lab-extended-${{ github.run_number }}
+          path: reports/lab/
+          retention-days: 30
+          if-no-files-found: ignore

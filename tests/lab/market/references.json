@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "note": "Referencias de mercado para PLAUSIBILIDAD (PLAN-2026-013). Nunca cambian una fórmula: una diferencia produce MARKET: REVIEW para revisar los INPUTS. Valores tomados de fuentes públicas citadas; si la evidencia no alcanza, el concepto queda sin referencia (MARKET: UNKNOWN). RATEOS trabaja SIN IVA: 'comparable' es el rango expresado como se carga en RATEOS.",
+  "references": [
+    {
+      "id": "fuel-diesel500-neuquen-2026-09",
+      "concept": "fuel.diesel.ars_per_liter",
+      "description": "Gasoil Diésel 500 (grado 2) YPF en surtidor, Neuquén capital y Añelo",
+      "region": "Neuquén, Argentina",
+      "date": "2026-09",
+      "unit": "ARS por litro",
+      "raw": { "range": [2234, 2275], "basis": "precio de surtidor CON IVA e impuestos a los combustibles" },
+      "comparable": { "range": [1846, 1880], "basis": "sin IVA (÷ 1,21), como se carga en RATEOS; los impuestos internos a los combustibles quedan incluidos (no son recuperables)" },
+      "sources": [
+        { "name": "Naftas.com.ar (datos de la Secretaría de Energía): YPF Diésel 500 Neuquén $ 2.275, vigencia 21/09/2026", "url": "https://www.naftas.com.ar/ciudad/neuquen" },
+        { "name": "Alerta Digital, 26/09/2026: Diesel 500 en $ 2.270 en Neuquén", "url": "https://www.alertadigital.ar/noticias/2026/09/26/177547-nuevo-aumento-de-ypf-como-quedaron-los-precios-en-neuquen" },
+        { "name": "combustibles.ar: YPF Añelo Diesel 500 $ 2.234 (15/07/2026)", "url": "https://combustibles.ar/precios/ypf/gasoil-grado-2/neuquen" }
+      ],
+      "confidence": "medium",
+      "comparability": "Precio minorista de surtidor. Una empresa con cuenta corriente o compra a granel puede pagar menos; la fecha de la oferta puede ser posterior (YPF ajusta casi cada semana).",
+      "observations": "Valores leídos de resúmenes de búsqueda de esas fuentes (el entorno no pudo abrir las páginas): verificar antes de usarlos para algo más que plausibilidad."
+    },
+    {
+      "id": "semi-consumption-2026",
+      "concept": "transport.semi.liters_per_100km",
+      "description": "Consumo de un camión con semirremolque en ruta",
+      "region": "Argentina",
+      "date": "2026",
+      "unit": "L/100 km",
+      "raw": { "range": [28, 38], "basis": "28–30 vacío, 35–38 con carga completa" },
+      "comparable": { "range": [28, 38], "basis": "mismo dato" },
+      "sources": [
+        { "name": "CargasControl — Cuánto se cobra el km de flete en Argentina en 2026", "url": "https://cargascontrol.com.ar/blog/como-calcular-precio-flete-transporte-argentina" }
+      ],
+      "confidence": "low",
+      "comparability": "Promedio orientativo de un blog del sector; depende de la carga, el relieve y el estado del equipo.",
+      "observations": "Sirve para detectar un consumo cargado fuera de escala (por ejemplo 350 L/100 km por un error de unidad)."
+    }
+  ],
+  "withoutEvidence": [
+    {
+      "concept": "transport.semi.ars_per_km",
+      "searched": "2026-10-16",
+      "reason": "No se encontró una tarifa oficial o sectorial por km (CATAC publica tarifas de granos por tonelada y banda de distancia; FADEEAC publica un índice de costos, no un valor por km). Queda MARKET: UNKNOWN."
+    },
+    {
+      "concept": "transport.semi.ars_per_km_tariff",
+      "searched": "2026-10-16",
+      "reason": "Mismo motivo: sin referencia comparable para la tarifa por km de un servicio de transporte en Vaca Muerta."
+    }
+  ]
+}

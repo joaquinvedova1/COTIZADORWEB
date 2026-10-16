@@ -203,6 +203,19 @@ export function validateQuote(quote) {
     }
   });
 
+  // Materiales y otros costos: mismas reglas que sus campos (Test Lab, PLAN-2026-013). Con
+  // "El servicio no usa materiales" las líneas no se muestran ni se suman: no se validan.
+  (Array.isArray(quote.materials) && quote.materialsNotApplicable !== true ? quote.materials : []).forEach((m, i) => {
+    if (!isPlainObject(m)) return;
+    check(`materials.${i}.quantity`, m.quantity, 'quantity');
+    check(`materials.${i}.unitCost`, m.unitCost, 'money');
+    ['wastePct', 'logisticsPct'].forEach((k) => check(`materials.${i}.${k}`, m[k], 'percent'));
+    check(`materials.${i}.resaleMarkupPct`, m.resaleMarkupPct, 'percentOpen');
+  });
+  (Array.isArray(quote.otherCosts) ? quote.otherCosts : []).forEach((c, i) => {
+    if (isPlainObject(c)) check(`otherCosts.${i}.amount`, c.amount, 'money');
+  });
+
   (Array.isArray(quote.exchangeRates) ? quote.exchangeRates : []).forEach((r, i) => {
     if (isPlainObject(r)) check(`exchangeRates.${i}.rate`, r.rate, 'money');
   });
