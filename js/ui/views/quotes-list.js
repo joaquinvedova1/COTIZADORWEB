@@ -20,6 +20,7 @@ import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } fr
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { quantityCeilText } from '../unit-text.js';
+import { breakEvenZeroText } from '../result-text.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { templateContents } from './services.js';
@@ -253,6 +254,11 @@ function breakEvenNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
   const unit = billingUnitOf(quote || {});
   if (unit.kind === 'month') return h('span', { class: 'muted', title: 'Con abono mensual la facturación no depende de los días: no hay break-even en días.' }, 'No aplica');
+  // Equilibrio en 0 (PLAN-2026-012): "Desde el primer viaje", nunca "0 viajes".
+  const zero = summary.breakEvenZeroReason
+    ? breakEvenZeroText({ breakEven: { reachable: true, zeroReason: summary.breakEvenZeroReason }, unitInfo: unit }, { compact: true })
+    : null;
+  if (zero) return h('span', { class: 'nowrap', title: breakEvenZeroText({ breakEven: { reachable: true, zeroReason: summary.breakEvenZeroReason }, unitInfo: unit }) }, zero);
   // Por cantidad (m³, viajes…) el equilibrio se lee en esa unidad (PLAN-2026-009).
   if (unit.kind === 'quantity' || unit.kind === 'event') {
     return h('span', { class: 'nowrap', title: `Cantidad por mes para no perder plata, en ${unit.plural} (break-even)` }, quantityCeilText(summary.breakEvenQuantity, { unitInfo: unit }));

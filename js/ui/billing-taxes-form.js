@@ -95,7 +95,7 @@ export function billingTaxesHelp() {
         'details',
         { class: 'bt-help-more' },
         h('summary', {}, '¿Qué no tengo que incluir?'),
-        h('p', {}, 'IVA, impuesto a las Ganancias, retenciones o percepciones (son pagos a cuenta) ni el costo financiero (RATEOS ya lo calcula con los plazos de cobro). Si ya los cargaste como otro costo o en imprevistos, sacalos de ahí para no contarlos dos veces.'),
+        h('p', {}, 'IVA, impuesto a las Ganancias, retenciones o percepciones (son pagos a cuenta) ni el costo financiero (RATEOS ya lo calcula con los plazos de cobro). Si ya los cargaste como otro costo, como rubro de estructura (gastos de la empresa) o en imprevistos, sacalos de ahí para no contarlos dos veces.'),
       ),
     ),
   );

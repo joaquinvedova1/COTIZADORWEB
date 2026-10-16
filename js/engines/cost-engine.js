@@ -43,6 +43,7 @@ import { computeMaterials, computeOtherCostLine } from './materials-engine.js';
 import { computeFinance, financingDaysOf } from './finance-engine.js';
 import { computeExternalLine } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
+import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
 
@@ -195,8 +196,12 @@ export function buildCostModel(quote = {}) {
     return f;
   };
 
-  // Logística (ruta): la usan la movilización y las tarifas externas por km o viaje.
-  const logistics = computeLogistics(quote.logistics || {}, {
+  // Logística (ruta): la usan la movilización y las tarifas externas por km o
+  // viaje. Con la unidad "viaje" los viajes físicos por intervención se derivan
+  // de los viajes por día (PLAN-2026-012): "Viajes por llamado" no rige.
+  const route = routeTrips(quote, activity);
+  const logisticsInput = route.derived ? { ...(quote.logistics || {}), tripsPerActivation: route.tripsPerActivation } : quote.logistics || {};
+  const logistics = computeLogistics(logisticsInput, {
     activationsPerMonth: activity.activationsPerMonth,
     daysPerActivation: activity.daysPerActivation,
     fuelPricePerLiter,
@@ -301,6 +306,9 @@ export function buildCostModel(quote = {}) {
           variablePerActiveDay: x.fuelPerActiveDay,
           cashFixedMonthly: 0,
           cashVariablePerActiveDay: x.fuelPerActiveDay,
+          // Por km de ruta (PLAN-2026-012) es un costo por salida; por hora, no.
+          discretePerActivation: x.fuelPerActivationRoute,
+          cashDiscretePerActivation: x.fuelPerActivationRoute,
         });
       }
       return;
@@ -478,7 +486,8 @@ export function buildCostModel(quote = {}) {
       case 'percent_labor':
         return { fixed: laborBucket.fixedMonthly * pct(pctValue), variable: laborBucket.variablePerActiveDay * pct(pctValue) };
       case 'per_employee':
-        return { fixed: amount * labor.headcount, variable: 0 };
+        // Dotación equivalente: una persona compartida cuenta por su % asignado (PLAN-2026-012).
+        return { fixed: amount * labor.effectiveHeadcount, variable: 0 };
       case 'per_hour':
         return { fixed: 0, variable: amount * activity.hoursPerActiveDay };
       case 'per_contract':
@@ -588,8 +597,12 @@ export function buildCostModel(quote = {}) {
     return { direct, structure, financial, contingency: contingencyAmount, workingCapital, byCategory: byCat, bySource, cashByKey, total: totalAmount };
   })();
 
+  // Resumen de transporte (PLAN-2026-012): viajes facturables, físicos y km.
+  const transport = transportSummary({ quote, activity, route, logistics, external });
+
   return {
     activity,
+    transport,
     fuel: { pricePerLiter: fuelPricePerLiter, paidByUs: fuelPaidByUs, providedBy: quote.fuel && quote.fuel.providedBy ? quote.fuel.providedBy : null },
     labor,
     standby: { days: standbyDays, costPerDay: standbyCostPerDay, monthly: standbyMonthly },

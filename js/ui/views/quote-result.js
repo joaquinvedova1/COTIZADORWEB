@@ -82,6 +82,9 @@ import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { computeQuote, monthlyFeeCap, billableQuantityAt } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
+import { fieldHref, stepOfPath } from '../field-links.js';
+import { traceTransport } from '../../engines/transport-engine.js';
+import { routeText, providerActivityText } from './quote-steps/transport.js';
 import { normalizeRules } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
@@ -105,6 +108,7 @@ import {
   comparatorNote,
   completenessExampleNote,
   draftBannerText,
+  breakEvenZeroText,
 } from '../result-text.js';
 
 // ------------------------------------------------------------------ constantes
@@ -429,6 +433,19 @@ function stepLabel(step) {
 
 function stepLink(quote, step, text = null) {
   return h('a', { class: 'qr-step-link', href: stepHref(quote, step) }, text || `Ir a ${stepLabel(step)}`);
+}
+
+/**
+ * "Completar" de un pendiente (PLAN-2026-012): al campo exacto si el motor lo
+ * sabe (`focus`); el combustible sin campo exacto no muestra botón (llevar a un
+ * paso genérico confunde). El resto, al paso donde se corrige.
+ */
+function pendingLink(quote, item) {
+  if (item && typeof item.focus === 'string' && item.focus) {
+    return h('a', { class: 'qr-step-link', href: fieldHref(quote && quote.id, item.focus) }, `Ir al campo (${stepLabel(stepOfPath(item.focus))})`);
+  }
+  if (item && item.id === 'fuel') return null;
+  return stepLink(quote, stepForItem(item));
 }
 
 /** Nombre accesible de un botón "Ver cálculo": "Ver cálculo: <título>". */
@@ -1083,6 +1100,9 @@ function heroKnownRate(v) {
     sentence = h('p', { class: 'qr-lead' },
       `Cotizás un abono mensual de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día activo suma costo variable. `,
       capSentence(cap, D, 'Con este abono'));
+  } else if (be.reachable && breakEvenZeroText(r)) {
+    // Equilibrio en 0 (PLAN-2026-012): sin costos fijos, o los cubren los ingresos fijos.
+    sentence = h('p', { class: 'qr-lead' }, breakEvenZeroText(r, { rateText: atRateText(v) }));
   } else if (be.reachable) {
     // Colchón con los valores mostrados: el break-even exacto va con 2 decimales ("Break-even exacto: 6,35 días").
     const tail = cushionFor(v, be, { beDecimals: 2 });
@@ -1121,16 +1141,16 @@ function heroKnownRate(v) {
     h('div', { class: 'qr-hero' },
       byQty(v) ? heroItem({
         label: unitTextsOf(r).breakEvenLabel,
-        value: be.reachable ? quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
-        hint: be.reachable ? `Por mes, ${atRateText(v)} (${workDaysText(be.days, { decimals: 2 })}).` : be.reason || null,
+        value: be.reachable ? breakEvenZeroText(r, { compact: true }) || quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
+        hint: be.reachable ? (breakEvenZeroText(r) || `Por mes, ${atRateText(v)} (${workDaysText(be.days, { decimals: 2 })}).`) : be.reason || null,
         trace: r.traces && r.traces.breakEven,
         tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
       }) : null,
       byQty(v) ? null : heroItem({
         label: 'Días mínimos para no perder plata',
-        value: be.reachable ? wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
-        hint: be.reachable ? `Break-even exacto: ${formatDays(be.days)} por mes, ${atRateText(v)}.` : be.reason || null,
+        value: be.reachable ? breakEvenZeroText(r, { compact: true }) || wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
+        hint: be.reachable ? (breakEvenZeroText(r) || `Break-even exacto: ${formatDays(be.days)} por mes, ${atRateText(v)}.`) : be.reason || null,
         trace: r.traces && r.traces.breakEven,
         tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
@@ -1339,7 +1359,7 @@ function kpiGrid(v) {
       }));
     } else {
       let beValue = EMPTY;
-      if (be.reachable) beValue = byQty(v) ? quantityCeilText(be.quantity, r) : formatDays(be.days);
+      if (be.reachable) beValue = breakEvenZeroText(r, { compact: true }) || (byQty(v) ? quantityCeilText(be.quantity, r) : formatDays(be.days));
       else if (be.notApplicable) beValue = 'No aplica';
       else if (rateOk) beValue = 'No se alcanza';
       const beHint = byQty(v)
@@ -1612,7 +1632,8 @@ function workBlock(v) {
     const subject = `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)})`;
     trace = traces.breakEven;
     if (be.reachable && hasValue(be.days) && be.days <= 1e-9) {
-      content = [`${subject} cubrís todos tus costos aunque no factures ${unitTextsOf(r).ningun} ${r.unitInfo.singular}: los ingresos fijos ya alcanzan.`];
+      // PLAN-2026-012: sin costos fijos ≠ ingresos fijos que alcanzan.
+      content = [breakEvenZeroText(r, { rateText: atRateText(v) }) || `${subject} cubrís todos tus costos desde el inicio.`];
       tone = 'green';
     } else if (be.reachable && hasValue(be.quantity)) {
       if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
@@ -1630,7 +1651,7 @@ function workBlock(v) {
     // "Con la tarifa sugerida ($ 2.259.000 / día)" / "Con tu tarifa ($ 4.000.000 / día)".
     const subject = `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)})`;
     if (be.reachable && hasValue(be.days) && be.days <= 1e-9) {
-      content = [`${subject} cubrís todos tus costos aunque no trabajes ningún día: los ingresos fijos ya alcanzan.`];
+      content = [breakEvenZeroText(r, { rateText: atRateText(v) }) || `${subject} cubrís todos tus costos desde el inicio.`];
       tone = 'green';
       trace = traces.breakEven;
     } else if (be.reachable && hasValue(be.days)) {
@@ -1706,7 +1727,49 @@ function renderSummary(v) {
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
     workBlock(v),
+    transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
+}
+
+/**
+ * Viajes y km del mes (PLAN-2026-012): viajes facturables, viajes físicos
+ * costeados, días de trabajo, km por viaje y por mes; la distancia / actividad
+ * de cada proveedor por km o por viaje, aparte de la movilización propia; y la
+ * tarifa por viaje ligada a la ruta (con su equivalente por km, sin forzarlo).
+ */
+function transportBlock(v) {
+  const { r, k } = v;
+  const t = r.model && r.model.transport;
+  if (!t || !t.applicable || !(t.derived || t.kmPerTrip > 0 || (t.providers || []).length)) return null;
+  const trips = (n) => `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'viaje' : 'viajes'}`;
+  const item = (label, value, sub = null) => h('div', { class: 'qr-transport-item' },
+    h('dt', {}, label),
+    h('dd', {}, h('strong', {}, value), sub ? h('span', { class: 'qr-transport-sub' }, sub) : null));
+  const route = routeText(t);
+  const perKm = t.derived && hasRate(k) && t.kmPerTrip > 0 ? k.commercialListRate / t.kmPerTrip : null;
+  const own = hasValue(k.logisticsMonthly) ? k.logisticsMonthly : 0;
+  const providers = Array.isArray(t.providers) ? t.providers : [];
+  return h('div', { class: 'qr-transport' },
+    h('div', { class: 'qr-transport-head' },
+      h('h3', { class: 'qr-subhead' }, 'Viajes y km del mes'),
+      lazyTraceButton(() => traceTransport(t), 'Viajes y km del mes')),
+    perKm !== null
+      ? h('p', { class: 'qr-transport-rate' }, `${commercialName(k)}: ${money(k.commercialListRate)} por viaje${route ? ` · ${route}` : ''} · equivalente ${money(perKm)}/km.`)
+      : route ? h('p', { class: 'qr-transport-rate' }, route) : null,
+    h('dl', { class: 'qr-transport-grid' },
+      t.derived ? item('Viajes facturables', trips(t.billableTripsPerMonth)) : null,
+      item('Viajes físicos costeados', trips(t.physicalTripsPerMonth), t.notApplicable ? 'Sin traslados' : `${formatNumber(t.activationsPerMonth, { decimals: 2 })} intervenciones × ${trips(t.physicalTripsPerActivation)}`),
+      item('Días de trabajo', workDaysText(t.workDaysPerMonth)),
+      item('Km por viaje', t.kmPerTrip > 0 ? formatValue(t.kmPerTrip, 'km') : EMPTY),
+      item('Km por mes', t.kmPerTrip > 0 ? formatValue(t.routeKmPerMonth, 'km') : EMPTY)),
+    providers.length
+      ? h('div', { class: 'qr-transport-providers' },
+        h('p', { class: 'qr-transport-label' }, 'Distancia / actividad del proveedor'),
+        h('ul', {}, ...providers.map((p) => h('li', { class: p.noRoute ? 'is-missing' : null },
+          h('strong', {}, `${p.name}: `),
+          providerActivityText(p, t)))))
+      : null,
+    h('p', { class: 'qr-transport-own' }, `Movilización propia y vehículos de apoyo: ${money(own)} por mes${providers.length ? ' (los km del proveedor están en su tarifa, no acá).' : '.'}`));
 }
 
 // ------------------------------- Profundizá: ¿En qué se va el costo?
@@ -3030,7 +3093,9 @@ function renderComparator(v) {
         render: (row) => {
           if (!row.breakEvenReachable) return 'No se alcanza';
           if (hasValue(row.breakEvenDays) && row.breakEvenDays <= 0) {
-            return h('span', { class: 'qr-cell-stack', title: 'El ingreso fijo cubre los costos fijos aunque no se trabaje ningún día.' }, cmp.unit ? quantityText(0, v.r) : formatDays(0), h('span', { class: 'qr-cell-sub' }, 'fijos cubiertos'));
+            // Sin costos fijos no hay nada que "cubrir" (PLAN-2026-012).
+            const noFixed = Boolean(v.r.model) && !(v.r.model.fixedMonthly > 0.005);
+            return h('span', { class: 'qr-cell-stack', title: noFixed ? 'Sin costos fijos: desde la primera unidad hay contribución positiva.' : 'El ingreso fijo cubre los costos fijos aunque no se trabaje ningún día.' }, cmp.unit ? quantityText(0, v.r) : formatDays(0), h('span', { class: 'qr-cell-sub' }, noFixed ? 'sin costos fijos' : 'fijos cubiertos'));
           }
           if (cmp.unit) return h('span', { class: 'qr-cell-stack' }, quantityCeilText(row.breakEvenQuantity, v.r), h('span', { class: 'qr-cell-sub' }, workDaysText(row.breakEvenDays)));
           return resultDays(row.breakEvenDays);
@@ -3072,7 +3137,6 @@ function renderCompleteness(v) {
   const pendingCount = items.filter((i) => i.status !== 'ok').length;
   const SEVERITY_TEXT = { critical: 'Crítico', review: 'Revisar' };
   const list = h('ul', { class: 'qr-checklist' }, ...items.map((item) => {
-    const step = stepForItem(item);
     const sev = SEVERITY_TEXT[item.severity];
     return h('li', { class: ['qr-check', `qr-check-${item.status}`, item.severity ? `qr-check-${item.severity}` : null] },
       h('div', { class: 'qr-check-main' },
@@ -3080,7 +3144,7 @@ function renderCompleteness(v) {
           statusDot(item.color || 'gray', item.label),
           sev ? h('span', { class: ['qr-sev', `qr-sev-${item.severity}`] }, sev) : null),
         h('span', { class: 'qr-check-msg' }, item.message)),
-      item.status !== 'ok' ? stepLink(q, step) : null);
+      item.status !== 'ok' ? pendingLink(q, item) : null);
   }));
   // Informativos: no restan puntaje ni son pendientes; se muestran aparte.
   const notices = Array.isArray(c.notices) ? c.notices : [];
@@ -3091,7 +3155,7 @@ function renderCompleteness(v) {
         h('div', { class: 'qr-check-main' },
           h('span', { class: 'qr-check-head' }, statusDot('gray', n.label), h('span', { class: ['qr-sev', 'qr-sev-info'] }, 'Info')),
           h('span', { class: 'qr-check-msg' }, n.message)),
-        stepLink(q, n.step || 'equipment')))))
+        n.focus ? pendingLink(q, n) : stepLink(q, n.step || 'equipment')))))
     : null;
   return card(
     {

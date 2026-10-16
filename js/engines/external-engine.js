@@ -28,7 +28,11 @@
  * facturación, en "Impuestos sobre lo que facturás").
  *
  * Opcionales del proveedor:
- *   combustible NO incluido (false) → litros/h × horas × cantidad × precio (Combustible)
+ *   combustible NO incluido (false), según cómo se cargó el consumo (PLAN-2026-012):
+ *     por hora (el de siempre) → litros/h × horas × cantidad × precio
+ *     L/100 km o km/L          → km de ruta por llamado × cantidad × L/100 km / 100
+ *                                (o ÷ km/L) × precio: los km FÍSICOS de la ruta
+ *     va a Combustible, aparte de la tarifa; nunca las dos formas a la vez
  *   movilización NO incluida (false) → monto por llamado × cantidad (con el mismo fiscal)
  */
 
@@ -36,6 +40,15 @@ import { nonNegative, pct, safeDivide, clamp } from '../core/money.js';
 import { isPlainObject } from '../core/object.js';
 
 export const EXTERNAL_UNIT_IDS = Object.freeze(['hour', 'day', 'month', 'trip', 'km', 'activation', 'global']);
+
+/** Cómo se cargó el consumo de un externo cuyo combustible pagamos (PLAN-2026-012). */
+export const EXTERNAL_FUEL_MODE_IDS = Object.freeze(['per_hour', 'per_100km', 'km_per_liter']);
+
+/** Forma de consumo de un externo: por hora (la de siempre) o por km de ruta. */
+export function externalFuelMode(ext = {}) {
+  const e = isPlainObject(ext) ? ext : {};
+  return EXTERNAL_FUEL_MODE_IDS.includes(e.fuelMode) ? e.fuelMode : 'per_hour';
+}
 
 /** Factores fiscales de un recurso externo (sobre el precio neto). */
 export function externalFiscal(fiscal = {}) {
@@ -138,10 +151,19 @@ export function computeExternalLine(line = {}, ctx = {}) {
   const mobilizationNetPerActivation = ext.mobilizationIncluded === false ? nonNegative(ext.mobilizationAmount) * conversion * quantity : 0;
   const mobilizationNetPerActiveDay = safeDivide(mobilizationNetPerActivation, dpa, 0);
 
-  // Combustible a cargo nuestro (sólo si se dijo que NO está incluido).
-  const fuelLitersPerHour = ext.fuelIncluded === false ? nonNegative(ext.fuelLitersPerHour) : 0;
+  // Combustible a cargo nuestro (sólo si se dijo que NO está incluido): por
+  // hora trabajada o por km físicos de la ruta (PLAN-2026-012), nunca las dos.
+  const notIncluded = ext.fuelIncluded === false;
+  const fuelMode = externalFuelMode(ext);
+  const fuelLitersPerHour = notIncluded && fuelMode === 'per_hour' ? nonNegative(ext.fuelLitersPerHour) : 0;
+  const fuelLitersPer100Km = notIncluded && fuelMode === 'per_100km' ? nonNegative(ext.fuelLitersPer100Km) : 0;
+  const fuelKmPerLiter = notIncluded && fuelMode === 'km_per_liter' ? nonNegative(ext.fuelKmPerLiter) : 0;
+  const fuelKmPerActivation = notIncluded && fuelMode !== 'per_hour' ? nonNegative(ctx.routeKmPerActivation) * quantity : 0;
+  const fuelLitersPerActivationRoute = fuelMode === 'km_per_liter'
+    ? safeDivide(fuelKmPerActivation, fuelKmPerLiter, 0)
+    : (fuelKmPerActivation * fuelLitersPer100Km) / 100;
   const fuelPrice = ctx.fuelPaidByUs === false ? 0 : nonNegative(ctx.fuelPricePerLiter);
-  const fuelLitersPerActiveDay = fuelLitersPerHour * hoursPerActiveDay * quantity;
+  const fuelLitersPerActiveDay = fuelLitersPerHour * hoursPerActiveDay * quantity + safeDivide(fuelLitersPerActivationRoute, dpa, 0);
   const fuelPerActiveDay = fuelLitersPerActiveDay * fuelPrice;
 
   const economic = (net) => net * fiscal.economicFactor;
@@ -177,6 +199,14 @@ export function computeExternalLine(line = {}, ctx = {}) {
     discretePerActivation: economic(discreteNetPerActivation),
     cashDiscretePerActivation: discreteNetPerActivation * fiscal.cashFactor,
     cashMobilizationPerActivation: mobilizationNetPerActivation * fiscal.cashFactor,
+    fuelMode,
+    fuelLitersPerHour,
+    fuelLitersPer100Km,
+    fuelKmPerLiter,
+    fuelKmPerActivation,
+    fuelLitersPerActivationRoute,
+    // Combustible por km de ruta por salida (costo por salida; PLAN-2026-011/012).
+    fuelPerActivationRoute: fuelLitersPerActivationRoute * fuelPrice,
     fuelLitersPerActiveDay,
     fuelPerActiveDay,
     // Salida de caja y crédito fiscal (no son costo). La salida de caja es lo

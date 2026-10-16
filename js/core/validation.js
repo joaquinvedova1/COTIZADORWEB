@@ -24,6 +24,7 @@ export const RULES = Object.freeze({
   margin: { min: 0, max: 100, exclusiveMax: true, message: 'El margen debe ser mayor o igual a 0 y menor a 100 %.' },
   billingTax: { min: 0, max: 100, exclusiveMax: true, message: 'El impuesto sobre la facturación debe ser mayor o igual a 0 y menor a 100 %.' },
   utilization: { min: 0, max: 100, exclusiveMin: true, message: 'La utilización debe ser mayor a 0 y hasta 100 %.' },
+  sharePct: { min: 0, max: 100, exclusiveMin: true, message: 'El % del costo fijo asignado a esta cotización debe ser mayor a 0 y hasta 100 %.' },
   intervalHours: { min: 0, max: 100000, message: 'Las horas deben estar entre 0 y 100.000.' },
   lifeKm: { min: 0, max: 10000000, message: 'Los km deben estar entre 0 y 10.000.000.' },
   minutes: { min: 0, max: 100000, message: 'Los minutos deben estar entre 0 y 100.000.' },
@@ -120,6 +121,16 @@ export function validateQuote(quote) {
     const r = validateNumber(value, ruleName, { required });
     if (!r.ok) issues.push({ path, message: r.error, severity: 'error' });
   };
+  /** Recurso compartido (PLAN-2026-012): sin % no se reduce nada (100 %), pero se pide. */
+  const checkShare = (base, line) => {
+    if (line.assignment !== 'shared') return;
+    const raw = line.fixedCostSharePct;
+    if (raw === null || raw === undefined || raw === '') {
+      issues.push({ path: `${base}.fixedCostSharePct`, message: 'Cargá qué % de su costo fijo asignás a esta cotización: mientras tanto se toma el 100 %.', severity: 'error' });
+      return;
+    }
+    check(`${base}.fixedCostSharePct`, raw, 'sharePct');
+  };
 
   check('contractMonths', quote.contractMonths, 'months');
   const a = isPlainObject(quote.activity) ? quote.activity : {};
@@ -144,6 +155,8 @@ export function validateQuote(quote) {
     check(`labor.${i}.overtimeHoursPerActiveDay`, l.overtimeHoursPerActiveDay, 'hoursPerDay');
     ['sacPct', 'vacationPct', 'employerContributionsPct', 'artPct'].forEach((k) => check(`labor.${i}.${k}`, l[k], 'percent'));
     check(`labor.${i}.overtimePremiumPct`, l.overtimePremiumPct, 'percentOpen');
+    // PLAN-2026-012: persona compartida → % explícito de su costo fijo (vacío: se toma 100 %).
+    checkShare(`labor.${i}`, l);
   });
 
   (Array.isArray(quote.equipment) ? quote.equipment : []).forEach((e, i) => {
@@ -163,12 +176,17 @@ export function validateQuote(quote) {
     check(`equipment.${i}.tiresLifeHours`, e.tiresLifeHours, 'intervalHours');
     check(`equipment.${i}.tiresLifeKm`, e.tiresLifeKm, 'lifeKm');
     check(`equipment.${i}.otherAnnual`, e.otherAnnual, 'money');
+    // PLAN-2026-012: equipo propio compartido → % explícito de su costo de tenerlo.
+    if (!(e.acquisition === 'rented' || e.acquisition === 'outsourced')) checkShare(`equipment.${i}`, e);
     // PLAN-2026-005: alquilados / tercerizados (tarifa neta y tratamiento fiscal) y movilización.
     if (isPlainObject(e.external) && (e.acquisition === 'rented' || e.acquisition === 'outsourced')) {
       const x = e.external;
       check(`equipment.${i}.external.price`, x.price, 'money');
       check(`equipment.${i}.external.minimumUnits`, x.minimumUnits, 'quantity');
       check(`equipment.${i}.external.fuelLitersPerHour`, x.fuelLitersPerHour, 'quantity');
+      // PLAN-2026-012: consumo por km de ruta (L/100 km o km/L).
+      check(`equipment.${i}.external.fuelLitersPer100Km`, x.fuelLitersPer100Km, 'quantity');
+      check(`equipment.${i}.external.fuelKmPerLiter`, x.fuelKmPerLiter, 'quantity');
       check(`equipment.${i}.external.mobilizationAmount`, x.mobilizationAmount, 'money');
       const f = isPlainObject(x.fiscal) ? x.fiscal : {};
       ['vatPct', 'vatRecoverablePct', 'perceptionsPct', 'nonRecoverablePct'].forEach((k) => check(`equipment.${i}.external.fiscal.${k}`, f[k], 'percent'));

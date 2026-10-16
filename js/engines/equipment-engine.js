@@ -32,6 +32,7 @@
  */
 
 import { nonNegative, pct, safeDivide } from '../core/money.js';
+import { fixedCostShareOf } from '../domain/assignment.js';
 
 const MAINTENANCE_MODE_IDS = Object.freeze(['per_hour', 'service', 'budget']);
 const TIRE_MODE_IDS = Object.freeze(['per_hour', 'set_hours', 'set_km']);
@@ -176,7 +177,8 @@ export function computeEquipmentUnit(eq = {}, { fuelPricePerLiter = 0, fuelPaidB
 
 /**
  * Línea de equipo dentro de una cotización.
- * Posesión → fijo mensual; operación → variable por día activo.
+ * Posesión → fijo mensual (× % asignado si se comparte, PLAN-2026-012);
+ * operación → variable por día activo según el uso (no se reduce).
  */
 export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPaidByUs = true, defaultHoursPerActiveDay = 0 } = {}) {
   const quantity = nonNegative(line.quantity);
@@ -186,6 +188,11 @@ export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPai
       : nonNegative(line.hoursPerActiveDay);
   const ownership = computeOwnership(line);
   const operation = computeOperation(line, { fuelPricePerLiter, fuelPaidByUs });
+  // Equipo compartido (PLAN-2026-012): esta cotización carga el % EXPLÍCITO de
+  // su costo de tenerlo; reservado (o sin dato) = 100 %. La operación sigue el uso.
+  const allocation = fixedCostShareOf(line);
+  const share = allocation.shared ? allocation.share : 1;
+  const fullFixedMonthly = ownership.totalMonthly * quantity;
   return {
     id: line.id ?? null,
     name: line.name ?? '',
@@ -193,8 +200,14 @@ export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPai
     hoursPerActiveDay,
     ownership,
     operation,
-    fixedMonthly: ownership.totalMonthly * quantity,
-    fixedCashMonthly: ownership.cashMonthly * quantity,
+    assignment: allocation.assignment,
+    shared: allocation.shared,
+    fixedCostSharePct: allocation.sharePct,
+    shareMissing: allocation.missing,
+    fullFixedMonthly,
+    unassignedFixedMonthly: allocation.shared ? fullFixedMonthly - fullFixedMonthly * share : 0,
+    fixedMonthly: allocation.shared ? fullFixedMonthly * share : fullFixedMonthly,
+    fixedCashMonthly: allocation.shared ? ownership.cashMonthly * quantity * share : ownership.cashMonthly * quantity,
     nonFuelPerActiveDay: operation.nonFuelPerHour * hoursPerActiveDay * quantity,
     fuelPerActiveDay: operation.fuelPerHour * hoursPerActiveDay * quantity,
     fuelLitersPerActiveDay: operation.fuelLitersPerHour * hoursPerActiveDay * quantity,

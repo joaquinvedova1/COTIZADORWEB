@@ -144,6 +144,8 @@ export function unitTexts(info) {
     Cuantos: cuantos,
     ningun: fem ? 'ninguna' : 'ningún',
     facturados: fem ? 'facturadas' : 'facturados',
+    elPrimer: fem ? 'la primera' : 'el primer',
+    vendido: fem ? 'vendida' : 'vendido',
     quantityQuestion: `¿${cuantos} ${plural} esperás facturar por mes?`,
     perDayQuestion: `¿${cuantos} ${plural} hacés por día de trabajo?`,
     // Los símbolos (m³, km, kg, t) no se escriben con mayúscula.

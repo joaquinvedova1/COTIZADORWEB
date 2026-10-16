@@ -40,7 +40,7 @@ import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatValue, f
 import { isFiniteNumber, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
-import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../domain/catalogs.js';
+import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, labelOf } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import { wearNote } from '../equipment-wear-ui.js';
@@ -54,6 +54,7 @@ import { laborLoadFactor } from '../../engines/labor-engine.js';
 import { computeMaterialLine } from '../../engines/materials-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { render as renderNotFound } from './not-found.js';
+import { resourceUsage } from '../../domain/resource-usage.js';
 
 // ----------------------------------------------------------------- catálogo
 
@@ -692,7 +693,11 @@ function externalTermSections() {
       fields: [
         { key: 'external.operatorIncluded', label: 'Operador incluido', kind: 'tristate' },
         { key: 'external.fuelIncluded', label: 'Combustible incluido', kind: 'tristate', rerender: true },
-        { key: 'external.fuelLitersPerHour', label: 'Consumo (si el combustible es tuyo)', rule: 'quantity', unit: 'L/h', when: (d) => d.external && d.external.fuelIncluded === false },
+        // PLAN-2026-012: por hora (L/h) o por km de ruta (L/100 km o km/L), nunca las dos.
+        { key: 'external.fuelMode', label: '¿Cómo cargás el consumo?', kind: 'select', options: EXTERNAL_FUEL_MODES.map((m) => ({ value: m.id, label: m.label })), rerender: true, when: (d) => d.external && d.external.fuelIncluded === false },
+        { key: 'external.fuelLitersPerHour', label: 'Consumo (si el combustible es tuyo)', rule: 'quantity', unit: 'L/h', when: (d) => d.external && d.external.fuelIncluded === false && !['per_100km', 'km_per_liter'].includes(d.external.fuelMode) },
+        { key: 'external.fuelLitersPer100Km', label: 'Consumo por km de ruta (si el combustible es tuyo)', rule: 'quantity', unit: 'L/100 km', when: (d) => d.external && d.external.fuelIncluded === false && d.external.fuelMode === 'per_100km' },
+        { key: 'external.fuelKmPerLiter', label: 'Rendimiento (si el combustible es tuyo)', rule: 'quantity', unit: 'km/L', when: (d) => d.external && d.external.fuelIncluded === false && d.external.fuelMode === 'km_per_liter' },
         { key: 'external.mobilizationIncluded', label: 'Movilización incluida', kind: 'tristate', rerender: true },
         { key: 'external.mobilizationAmount', label: 'Movilización por llamado', rule: 'money', unit: (d) => currencySymbol(d), when: (d) => d.external && d.external.mobilizationIncluded === false },
         { key: 'external.insuranceIncluded', label: 'Seguros incluidos', kind: 'tristate' },
@@ -1144,7 +1149,7 @@ export async function renderAgreements(root, app) {
 
 async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   const { ctx } = app;
-  const data = { resources: {}, equipmentCards: new Map(), settings: {} };
+  const data = { resources: {}, equipmentCards: new Map(), settings: {}, quotes: [] };
 
   const addButton = () => button(tab.addLabel, { variant: 'primary', icon: 'plus', onClick: () => openEditor(null) });
   const setHeader = (hasItems) => {
@@ -1161,9 +1166,12 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   const list = (type) => (Array.isArray(data.resources[type]) ? data.resources[type] : []);
 
   async function load() {
-    const [resources, settings] = await Promise.all([ctx.resources.list(), app.getSettings()]);
+    // "Usado en" (PLAN-2026-012): las cotizaciones tal como están guardadas (sin calcular).
+    const readQuotes = ctx.quotes && typeof ctx.quotes.listQuoteRecords === 'function' ? ctx.quotes.listQuoteRecords().catch(() => []) : Promise.resolve([]);
+    const [resources, settings, quotes] = await Promise.all([ctx.resources.list(), app.getSettings(), readQuotes]);
     data.resources = resources || {};
     data.settings = settings || {};
+    data.quotes = Array.isArray(quotes) ? quotes : [];
     data.equipmentCards = new Map();
     if (tab.type === 'equipment') {
       const items = list('equipment').filter((eq) => acquisitionOf(eq) === 'owned');
@@ -1310,6 +1318,64 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   // ------------------------------------------------------------ tablas
 
+  // ------------------------------------------------ "Usado en" (PLAN-2026-012)
+
+  /** Una fila del diálogo: "COT-0010 · Transporte — Borrador · 1 persona × 25 % = 25 %". */
+  function usageRowNode(row, type) {
+    const statusLabel = labelOf(QUOTE_STATUSES, row.status, row.status);
+    const who = row.code || row.name ? `${row.code}${row.code && row.name ? ' · ' : ''}${row.name}` : 'Cotización sin nombre';
+    const unitsWord = type === 'laborProfiles' ? (Math.abs(row.units - 1) < 1e-9 ? 'persona' : 'personas') : Math.abs(row.units - 1) < 1e-9 ? 'unidad' : 'unidades';
+    const detail = row.assignedPct === null
+      ? `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} · se paga por uso (sin % de costos fijos)`
+      : `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} × ${formatPercent(row.sharePct)}${row.shared ? ' (compartido)' : ''} = ${formatPercent(row.assignedPct)}`;
+    return h('li', { class: 'lib-usage-row' },
+      h('a', { href: `#/cotizaciones/${encodeURIComponent(String(row.quoteId || ''))}/result` }, who),
+      row.client ? h('span', { class: 'muted small' }, ` (${row.client})`) : null,
+      ' ',
+      badge(statusLabel, row.group === 'committed' ? 'green' : 'gray'),
+      h('div', { class: 'small' }, detail));
+  }
+
+  function openUsage(item, type, usage) {
+    const committed = usage.rows.filter((r) => r.group === 'committed');
+    const potential = usage.rows.filter((r) => r.group === 'potential');
+    const name = item.role || item.name || 'Recurso';
+    const { close } = openDialog({
+      title: `Usado en: ${name}`,
+      content: h('div', { class: 'stack lib-usage' },
+        h('p', { class: 'small muted' }, 'Las cotizaciones guardan su propia copia de los valores: cambiar este recurso no las modifica. El % es la parte de sus costos fijos que carga cada cotización (100 % si está dedicado o reservado).'),
+        h('h4', {}, `Adjudicadas (compromiso real): ${formatPercent(usage.committedPct)}`),
+        committed.length ? h('ul', {}, ...committed.map((r) => usageRowNode(r, type))) : h('p', { class: 'small muted' }, 'Ninguna cotización ganada lo usa.'),
+        h('h4', {}, `Borradores y enviadas (uso potencial): ${formatPercent(usage.potentialPct)}`),
+        potential.length ? h('ul', {}, ...potential.map((r) => usageRowNode(r, type))) : h('p', { class: 'small muted' }, 'Ninguna cotización en curso lo usa.'),
+        usage.overCommitted
+          ? h('p', { class: 'banner banner-warning' }, `Lo adjudicado suma ${formatPercent(usage.committedPct)}: más del 100 %. Si es ${type === 'laborProfiles' ? 'una sola persona' : 'un solo equipo'}, está asignado de más (no se bloquea: revisalo).`)
+          : usage.overWithPotential
+            ? h('p', { class: 'small' }, `Si se adjudican las que están en curso, sumaría ${formatPercent(usage.committedPct + usage.potentialPct)}.`)
+            : null,
+        h('p', { class: 'small muted' }, 'Las perdidas y archivadas no cuentan.')),
+      actions: [button('Cerrar', { variant: 'secondary', onClick: () => close() })],
+    });
+  }
+
+  /** Celda "Usado en": cuántas cotizaciones, % adjudicado y aviso si supera el 100 %. */
+  function usageColumn(type) {
+    return {
+      key: 'usage',
+      label: 'Usado en',
+      render: ({ item }) => {
+        const usage = resourceUsage(type, item.id, data.quotes);
+        if (!usage.rows.length) return h('span', { class: 'muted small' }, 'Sin cotizaciones');
+        const count = `${formatNumber(usage.quotesCount)} ${usage.quotesCount === 1 ? 'cotización' : 'cotizaciones'}`;
+        const withPct = usage.rows.some((r) => r.assignedPct !== null);
+        return h('div', { class: 'cell-stack' },
+          button(count, { variant: 'link', size: 'sm', onClick: () => openUsage(item, type, usage), attrs: { 'aria-label': `Usado en: ${count} (${item.role || item.name || 'recurso'})` } }),
+          withPct ? h('span', { class: 'cell-sub nowrap' }, `Adjudicado ${formatPercent(usage.committedPct)} · en curso ${formatPercent(usage.potentialPct)}`) : null,
+          usage.overCommitted ? badge('Más del 100 % adjudicado', 'orange') : null);
+      },
+    };
+  }
+
   function laborTable(detailed) {
     const agreements = list('agreements');
     const agreementName = (id) => {
@@ -1334,6 +1400,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
           laborBaseColumn,
           { key: 'hourly', label: 'Costo por hora', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
           { key: 'monthly', label: 'Costo por mes (por persona)', align: 'right', render: ({ item, cost }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(cost.perPerson.fixedMonthly)), laborTrace(item, cost)) },
+          usageColumn('laborProfiles'),
           actions,
         ],
         rows,
@@ -1355,6 +1422,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         { key: 'monthly', label: 'Costo mensual por persona', align: 'right', render: ({ item, cost }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(cost.perPerson.fixedMonthly)), laborTrace(item, cost)) },
         { key: 'hourly', label: 'Costo hora cargado', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
         { key: 'factor', label: 'Factor de cargas', align: 'right', render: ({ cost }) => h('span', { class: 'mono nowrap' }, factorText(cost.perPerson.loadFactor)) },
+        usageColumn('laborProfiles'),
         actions,
       ],
       rows,
@@ -1421,6 +1489,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
           acqCol,
           { key: 'perDay', label: 'Costo por día usado', align: 'right', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.rates.costPerUsedDay)) },
           { key: 'perMonth', label: 'Costo por mes', align: 'right', render: ({ item, c, external }) => (external ? h('span', { class: 'muted small' }, 'Según uso en cada cotización') : noRate(c) ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
+          usageColumn('equipment'),
           actions,
         ],
         rows,
@@ -1438,6 +1507,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         { key: 'perHour', label: '$/hora', align: 'right', render: ({ c, external }) => (external || noRate(c) ? EMPTY : rate(c && c.rates.costPerUsedHour)) },
         { key: 'perDay', label: '$/día', align: 'right', render: ({ c, external }) => (external || noRate(c) ? EMPTY : money(c && c.rates.costPerUsedDay)) },
         { key: 'perMonth', label: '$/mes', align: 'right', render: ({ item, c, external }) => (external || noRate(c) ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
+        usageColumn('equipment'),
         actions,
       ],
       rows,
@@ -1464,6 +1534,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         { key: 'includes', label: 'Incluye', render: ({ item }) => includesText(item.external) },
         { key: 'fiscal', label: 'IVA', render: ({ item }) => fiscalBadge(item.external) },
         { key: 'valid', label: 'Vigencia', render: ({ item }) => (item.external && item.external.validUntil ? `Hasta ${formatDayDate(item.external.validUntil)}` : badge('Sin vigencia', 'orange')) },
+        usageColumn('externalServices'),
         { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.name || 'servicio', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.name || 'servicio') }) },
       ],
       rows,

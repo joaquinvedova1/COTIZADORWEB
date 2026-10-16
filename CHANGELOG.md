@@ -12,6 +12,34 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-16
+
+**Pulido desde casos reales de transporte (COT-0010 / COT-0011).** Las dos cotizaciones $/viaje que probó el dueño se reproducen al peso (golden): costo $ 12.864.478, piso $ 1.128.463, objetivo $ 1.261.224, sugerida **$ 1.262.000 por viaje**, margen 10,05 %, equilibrio 8,55 viajes. Se corrige un bug de viajes físicos, se ordena la completitud y se suman opcionales pedidos (combustible por km, recursos compartidos, "Usado en"). Las cotizaciones existentes conservan sus números (foto de 99 casos y COT-0009 idénticas), salvo las $/viaje con un dato de viajes inconsistente. **Esquema de datos 9** (`migrateV8ToV9`: sin cambios de datos). Plan: PLAN-2026-012; fórmulas en [docs/CALCULATION_RULES.md](docs/CALCULATION_RULES.md) §4.1, §4.2, §5.2, §7, §15 y §19.
+
+### Corregido
+
+- **Viajes físicos con la unidad "viaje" (bug P0):** la ruta usaba "Viajes por llamado" (1 por defecto) aunque se vendieran 2 o 3 viajes por día. Ahora los viajes por intervención se **derivan**: viajes por día × días por intervención. Antes → después, COT-0011 con "Viajes por llamado" en 1: 6 viajes físicos y 1.200 km para 12 facturados, proveedor $ 3.900.000, costo $ 8.320.447, sugerida $ 816.000 → 12 viajes, 2.400 km, $ 7.800.000, $ 12.864.478 y **$ 1.262.000**. Con 1, 2 o 3 viajes por día y los mismos viajes facturables, los km y el costo de un proveedor por km no cambian. El dato guardado no se toca: un aviso explica el cambio y [Entendido] lo iguala. Las demás unidades siguen con "Viajes por llamado".
+- **Completitud de combustible (P0):** sólo pide consumo a lo que consume combustible a tu cargo. Un externo con combustible incluido ya no deja "Falta el consumo" (COT-0010 / COT-0011: **92 % → 100 %** sin inventar consumo); provisto por el cliente, sin costo; si no hay nada a tu cargo, "No aplica". El botón lleva al **campo exacto** (`?campo=`) o no se muestra.
+- **Equilibrio sin costos fijos:** en lugar de "0 viajes" y "los ingresos fijos ya alcanzan" (falso sin ingresos fijos): "Sin costos fijos: cada viaje vendido cubre su costo variable. Desde el primer viaje hay contribución positiva." El caso de ingresos fijos tiene su propio texto.
+- Proveedor por km o por viaje **sin ruta**: pasa de "revisar" a **crítico** ("Falta definir la ruta/distancia para calcular este proveedor."), cuenta en la completitud y la línea dice "Falta la ruta" en lugar de $ 0, con [Definir la ruta].
+
+### Agregado
+
+- **Viajes y km del mes** en "Cómo se cobra", "Movilización y viajes" y el Resultado: viajes facturables, viajes físicos costeados, días de trabajo, km por viaje y km por mes, con "Ver cálculo" (12 ÷ 2 por día = 6 días; 12 viajes × 200 km = 2.400 km; 2.400 × $ 3.250 = $ 7.800.000).
+- **Distancia / actividad del proveedor** separada de la movilización propia ("12 viajes · 200 km/viaje · 2.400 km/mes · $ 3.250/km = $ 7.800.000" y "Movilización propia y vehículos de apoyo: $ 0").
+- **Tarifa ligada a la ruta**, sin forzar $/km: "Neuquén → Añelo · 200 km por viaje · $ 650.000 por viaje · equivalente $ 3.250/km"; en el Resultado, la tarifa por viaje con su equivalente por km.
+- **Combustible de un externo por km** (opcional): L/100 km o km/L sobre los km físicos de la ruta (2.400 km × 35 L/100 km = 840 L = $ 1.260.000), en Combustible y aparte de la tarifa; sin duplicar con L/h, la movilización propia ni "combustible incluido". También en Recursos → Servicios externos.
+- **Recursos compartidos** (opcional, PLAN-2026-006 §3.1): personal dedicado / compartido (%) / contratado para el servicio y equipo propio reservado / compartido (%). El % es explícito y mueve sólo los costos fijos ($ 3.280.036 × 25 % = $ 820.009; posesión $ 5.000.000 × 30 % = $ 1.500.000); horas extra, viandas y variables siguen el uso real. Sin dato = 100 %. La estructura por empleado usa la dotación equivalente. Aviso del resto no cubierto.
+- **"Usado en"** en Recursos (personal, equipos y servicios externos): cada cotización con su estado y su % asignado; adjudicadas = compromiso, borrador / enviada = potencial; aviso si lo adjudicado supera el 100 % (no bloquea). Sin módulo de contratos.
+- "Ver cálculo" del proveedor con la ruta (viajes, km, neto del mes, salida de caja, IVA que se adelanta y crédito fiscal) además del plazo, los días financiados y el costo financiero.
+- Golden cases `cot-0010-transporte-1-viaje-por-dia`, `cot-0011-transporte-2-viajes-por-dia`, `cot-0010-transporte-3-viajes-por-dia` y `cot-0011-viajes-por-llamado-inconsistente`.
+
+### Cambiado
+
+- Estructura: aclara que Ingresos Brutos, el impuesto al cheque y sellos van en "Impuestos sobre lo que facturás" y avisa si un rubro desglosado parece uno de esos impuestos (doble conteo). No hay capa nueva ni alícuotas.
+- Esquema de datos 8 → 9 (`migrateV8ToV9`, sólo sube la versión): campos opcionales `labor[].assignment` / `fixedCostSharePct`, `equipment[].assignment` / `fixedCostSharePct` y `external.fuelMode` / `fuelLitersPer100Km` / `fuelKmPerLiter`. Una versión anterior abre los datos v9 en sólo lectura.
+- Ya estaban en v0.7.0 y sólo se confirman con tests: unidad visible de materiales y horas extra HE 50 % / HE 100 %.
+
 ## [0.7.1] - 2026-10-13
 
 **Salidas completas y plazo de pago por proveedor.** Dos mejoras aprobadas por el dueño después de la auditoría de COT-0009, ambas opcionales: con la opción apagada y sin plazos propios, **todas las cotizaciones dan exactamente igual** (COT-0009 golden y foto de 99 casos idénticas). **Esquema de datos 8** (`migrateV7ToV8`: sin cambios de datos). Plan: PLAN-2026-011; fórmulas en [docs/CALCULATION_RULES.md §2.1 y §8](docs/CALCULATION_RULES.md).

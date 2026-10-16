@@ -98,6 +98,11 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       return repository.getQuote(id);
     },
 
+    /** Cotizaciones tal como están guardadas, sin calcular ("Usado en" de Recursos, PLAN-2026-012). */
+    async listQuoteRecords() {
+      return repository.getQuotes();
+    },
+
     /** Crea una cotización vacía o desde una plantilla de servicio. */
     async createQuote({ templateId = null } = {}) {
       const [org, s, services] = await Promise.all([repository.getOrganization(), settings(), repository.getServices()]);

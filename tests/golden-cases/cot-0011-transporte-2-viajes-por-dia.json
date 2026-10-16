@@ -1,0 +1,30 @@
+{
+  "id": "cot-0011-transporte-2-viajes-por-dia",
+  "title": "Transporte $/viaje COT-0011 (2 viajes por día, 6 días): mismos km y misma tarifa que COT-0010",
+  "rule": "12 viajes facturables a 2 por día = 6 días de trabajo y 6 intervenciones de 2 viajes: los viajes físicos son los mismos 12 y los km los mismos 2.400, así que el proveedor por km y la tarifa no cambian (PLAN-2026-012).",
+  "engine": "quote.transport",
+  "inputs": {
+    "tripsPerDay": 2
+  },
+  "expected": {
+    "kpis.activeDays": 6,
+    "kpis.billableQuantity": 12,
+    "kpis.totalCost": 12864477.768024001,
+    "kpis.floorListRate": 1128462.9621073685,
+    "kpis.targetListRate": 1261223.3105905883,
+    "kpis.suggestedListRate": 1262000,
+    "kpis.revenue": 15144000,
+    "kpis.billingTaxes": 757200,
+    "kpis.profit": 1522322.2319759987,
+    "kpis.marginPct": 10.052312678129944,
+    "kpis.breakEvenQuantity": 8.552412546798589,
+    "kpis.financialCost": 523345.3608,
+    "kpis.completenessPct": 100,
+    "model.transport.physicalTripsPerMonth": 12,
+    "model.transport.kmPerTrip": 200,
+    "model.transport.routeKmPerMonth": 2400,
+    "model.transport.providers.0.netMonthly": 7800000,
+    "unitLabel": "viaje"
+  },
+  "tolerance": 0.01
+}

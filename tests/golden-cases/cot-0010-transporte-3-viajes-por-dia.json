@@ -1,0 +1,30 @@
+{
+  "id": "cot-0010-transporte-3-viajes-por-dia",
+  "title": "Transporte $/viaje a 3 viajes por día: los km y el proveedor por km no cambian",
+  "rule": "12 viajes facturables a 3 por día = 4 días; los viajes físicos siguen siendo 12 y los km 2.400: el proveedor por km cuesta lo mismo ($ 7.800.000) y la tarifa sugerida no cambia (PLAN-2026-012).",
+  "engine": "quote.transport",
+  "inputs": {
+    "tripsPerDay": 3
+  },
+  "expected": {
+    "kpis.activeDays": 4,
+    "kpis.billableQuantity": 12,
+    "kpis.totalCost": 12864477.768024001,
+    "kpis.floorListRate": 1128462.9621073685,
+    "kpis.targetListRate": 1261223.3105905883,
+    "kpis.suggestedListRate": 1262000,
+    "kpis.revenue": 15144000,
+    "kpis.billingTaxes": 757200,
+    "kpis.profit": 1522322.2319759987,
+    "kpis.marginPct": 10.052312678129944,
+    "kpis.breakEvenQuantity": 8.552412546798589,
+    "kpis.financialCost": 523345.3608,
+    "kpis.completenessPct": 100,
+    "model.transport.physicalTripsPerMonth": 12,
+    "model.transport.kmPerTrip": 200,
+    "model.transport.routeKmPerMonth": 2400,
+    "model.transport.providers.0.netMonthly": 7800000,
+    "unitLabel": "viaje"
+  },
+  "tolerance": 0.01
+}

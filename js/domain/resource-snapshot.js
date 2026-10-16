@@ -93,6 +93,10 @@ function canonicalExternal(ext) {
     operatorIncluded: bool(ext.operatorIncluded),
     fuelIncluded: bool(ext.fuelIncluded),
     fuelLitersPerHour: num(ext.fuelLitersPerHour),
+    // Consumo por km (PLAN-2026-012): sólo si se eligió (las huellas anteriores quedan iguales).
+    ...(ext.fuelMode === 'per_100km' || ext.fuelMode === 'km_per_liter'
+      ? { fuelMode: ext.fuelMode, fuelLitersPer100Km: num(ext.fuelLitersPer100Km), fuelKmPerLiter: num(ext.fuelKmPerLiter) }
+      : {}),
     mobilizationIncluded: bool(ext.mobilizationIncluded),
     mobilizationAmount: num(ext.mobilizationAmount),
     insuranceIncluded: bool(ext.insuranceIncluded),

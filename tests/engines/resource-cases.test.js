@@ -562,16 +562,21 @@ describe('Revisión adversarial (§36): correcciones', () => {
     assert.match(evaluateCompleteness(run(null)).items.find((i) => i.id === 'external_terms').message, /incluye combustible u operador/);
   });
 
-  test('tarifa por km sin km en la cotización (y sin mínimo): falta un dato (rojo), nunca 0 en silencio', () => {
+  test('tarifa por km sin km en la cotización (y sin mínimo): falta un dato CRÍTICO (PLAN-2026-012), nunca 0 en silencio', () => {
     const q = baseQuote();
     q.logistics.notApplicable = true;
     const line = blankEquipmentLine({ acquisition: 'outsourced', id: 'k' });
     line.external = createExternalTerms({ price: 3000, unit: 'km', operatorIncluded: true, fuelIncluded: true, mobilizationIncluded: true, fiscal: { vatRecoverable: 'yes' }, validUntil: '2026-12-31' });
     line.mobilization = createMobilization({ mode: 'none' });
     q.equipment.push(line);
-    const it = evaluateCompleteness(q).items.find((i) => i.id === 'external_terms');
+    const c = evaluateCompleteness(q);
+    const it = c.items.find((i) => i.id === 'external_route');
     assert.equal(it.status, 'missing');
-    assert.match(it.message, /por km o por viaje/);
+    assert.equal(it.severity, 'critical');
+    assert.match(it.message, /Falta definir la ruta\/distancia para calcular este proveedor/);
+    assert.equal(it.focus, 'logistics.notApplicable');
+    // Ya no se repite como "revisar" en las condiciones del externo.
+    assert.equal(c.items.find((i) => i.id === 'external_terms').status, 'ok');
   });
 
   test('tarifa global sin meses de contrato: se avisa; meses de contrato inválidos se validan', () => {

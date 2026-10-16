@@ -1,0 +1,32 @@
+{
+  "id": "cot-0011-viajes-por-llamado-inconsistente",
+  "title": "COT-0011 con \"Viajes por llamado\" = 1 (dato viejo inconsistente): se costean los viajes físicos reales",
+  "rule": "Con la unidad \"viaje\" los viajes por intervención se derivan (2 por día × 1 día = 2). Antes se costeaban 6 viajes físicos (1.200 km, proveedor $ 3.900.000, sugerida $ 816.000) para 12 facturados: bug demostrado. Ahora 12 viajes, 2.400 km, sugerida $ 1.262.000 (PLAN-2026-012).",
+  "engine": "quote.transport",
+  "inputs": {
+    "tripsPerDay": 2,
+    "tripsPerActivation": 1
+  },
+  "expected": {
+    "kpis.activeDays": 6,
+    "model.transport.storedDiffers": true,
+    "kpis.billableQuantity": 12,
+    "kpis.totalCost": 12864477.768024001,
+    "kpis.floorListRate": 1128462.9621073685,
+    "kpis.targetListRate": 1261223.3105905883,
+    "kpis.suggestedListRate": 1262000,
+    "kpis.revenue": 15144000,
+    "kpis.billingTaxes": 757200,
+    "kpis.profit": 1522322.2319759987,
+    "kpis.marginPct": 10.052312678129944,
+    "kpis.breakEvenQuantity": 8.552412546798589,
+    "kpis.financialCost": 523345.3608,
+    "kpis.completenessPct": 100,
+    "model.transport.physicalTripsPerMonth": 12,
+    "model.transport.kmPerTrip": 200,
+    "model.transport.routeKmPerMonth": 2400,
+    "model.transport.providers.0.netMonthly": 7800000,
+    "unitLabel": "viaje"
+  },
+  "tolerance": 0.01
+}

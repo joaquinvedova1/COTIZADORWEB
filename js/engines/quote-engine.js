@@ -249,6 +249,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     // que se factura con esos días de trabajo (PLAN-2026-009).
     breakEven = withQuantity(ctx, breakEven);
     targetMarginDays = withQuantity(ctx, targetMarginDays);
+    // Equilibrio en 0 (PLAN-2026-012): sin costos fijos, cada unidad vendida ya
+    // cubre su costo variable; con fijos, los cubren los ingresos fijos.
+    if (breakEven.reachable && isFiniteNumber(breakEven.days) && breakEven.days <= 1e-9) {
+      breakEven = { ...breakEven, zeroReason: model.fixedMonthly > 0.005 ? 'fixed_revenue' : 'no_fixed_costs' };
+    }
   }
   // La traza del break-even se arma en el punto de equilibrio (allí rige el
   // tramo de descuento que realmente aplica); si no se alcanza, con la
@@ -359,6 +364,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     billableQuantity: estimate.revenue.billableUnits,
     breakEvenQuantity: isFiniteNumber(breakEven.quantity) ? breakEven.quantity : null,
     breakEvenWholeQuantity: isFiniteNumber(breakEven.wholeQuantity) ? breakEven.wholeQuantity : null,
+    // 'no_fixed_costs' | 'fixed_revenue' cuando el equilibrio es 0 (PLAN-2026-012).
+    breakEvenZeroReason: breakEven.zeroReason || null,
     targetMarginQuantity: isFiniteNumber(targetMarginDays.quantity) ? targetMarginDays.quantity : null,
     completenessPct: completeness.scorePct,
     financialCost,

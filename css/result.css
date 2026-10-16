@@ -230,6 +230,23 @@
 .qr-equiv-label { font-size: 0.76rem; color: var(--ink-3); }
 .qr-equiv-value { font-size: 1.05rem; color: var(--navy-900); }
 
+/* Viajes y km del mes (PLAN-2026-012): facturables, físicos, días, km y proveedores. */
+.qr-transport { margin-top: 1rem; padding: 0.85rem 1rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.qr-transport-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 1rem; }
+.qr-transport-head .qr-subhead { margin: 0; }
+.qr-transport-rate { margin: 0.35rem 0 0; font-size: 0.86rem; color: var(--ink-2); overflow-wrap: anywhere; }
+.qr-transport-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem 1rem; margin: 0.6rem 0 0; }
+.qr-transport-item { margin: 0; min-width: 0; }
+.qr-transport-item dt { font-size: 0.74rem; color: var(--ink-3); }
+.qr-transport-item dd { margin: 0; display: flex; flex-direction: column; }
+.qr-transport-item dd strong { font-size: 1.02rem; color: var(--navy-900); overflow-wrap: anywhere; }
+.qr-transport-sub { font-size: 0.72rem; color: var(--ink-3); }
+.qr-transport-providers { margin-top: 0.6rem; }
+.qr-transport-label { margin: 0; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--navy-800); }
+.qr-transport-providers ul { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.86rem; overflow-wrap: anywhere; }
+.qr-transport-providers li.is-missing { color: var(--red-text); }
+.qr-transport-own { margin: 0.5rem 0 0; font-size: 0.82rem; color: var(--ink-3); }
+
 /* ---------------------------------------------------------------- EECC */
 
 .qr-eecc { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; align-items: start; }

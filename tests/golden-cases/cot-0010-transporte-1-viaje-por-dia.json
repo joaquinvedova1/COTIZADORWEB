@@ -1,0 +1,30 @@
+{
+  "id": "cot-0010-transporte-1-viaje-por-dia",
+  "title": "Transporte $/viaje COT-0010 (1 viaje por día, 12 días), números del PDF",
+  "rule": "12 viajes facturables a 1 por día = 12 días; 12 viajes físicos × 200 km (Neuquén → Añelo ida y vuelta) = 2.400 km × $ 3.250/km = $ 7.800.000. Costo $ 12.864.478, piso $ 1.128.463, objetivo $ 1.261.224, sugerida $ 1.262.000 por viaje, margen 10,05 %, equilibrio 8,56 viajes. Combustible incluido en la tarifa: no se pide consumo (completitud 100 %) (PLAN-2026-012).",
+  "engine": "quote.transport",
+  "inputs": {
+    "tripsPerDay": 1
+  },
+  "expected": {
+    "kpis.activeDays": 12,
+    "kpis.billableQuantity": 12,
+    "kpis.totalCost": 12864477.768024001,
+    "kpis.floorListRate": 1128462.9621073685,
+    "kpis.targetListRate": 1261223.3105905883,
+    "kpis.suggestedListRate": 1262000,
+    "kpis.revenue": 15144000,
+    "kpis.billingTaxes": 757200,
+    "kpis.profit": 1522322.2319759987,
+    "kpis.marginPct": 10.052312678129944,
+    "kpis.breakEvenQuantity": 8.552412546798589,
+    "kpis.financialCost": 523345.3608,
+    "kpis.completenessPct": 100,
+    "model.transport.physicalTripsPerMonth": 12,
+    "model.transport.kmPerTrip": 200,
+    "model.transport.routeKmPerMonth": 2400,
+    "model.transport.providers.0.netMonthly": 7800000,
+    "unitLabel": "viaje"
+  },
+  "tolerance": 0.01
+}

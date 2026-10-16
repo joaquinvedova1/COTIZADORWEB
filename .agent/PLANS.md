@@ -111,13 +111,14 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-009 | Unidades de facturación según el tipo de servicio: cantidad facturable × precio por unidad | motor de costos, utilización, migración | Completado (v0.6.0) |
 | PLAN-2026-010 | Auditoría y pulido desde una cotización real (COT-0009): financiación de externos con IVA, trazabilidad y UX que evita cotizar mal | motor de costos, margen, migración | Completado (v0.7.0) |
 | PLAN-2026-011 | "Cada salida se cuenta completa" (opcional) y plazo de pago por proveedor externo | motor de costos, utilización, migración | Completado (v0.7.1) |
+| PLAN-2026-012 | Pulido desde casos reales de transporte (COT-0010 / COT-0011): viajes físicos, km del proveedor, combustible, recursos compartidos y "Usado en" | motor de costos, utilización, migración | Completado (v0.7.2) |
 
 ### Pendientes registrados (sin implementar)
 
 Mejoras de UX y funcionalidades que aparecieron en la revisión de cierre del MVP (2026-10-06). Se registran acá y **no** se implementan hasta que el dueño lo pida:
 
 - **Recursos sin utilización** (PLAN-2026-006): el legajo del equipo todavía pide "Horas disponibles por mes" y "¿Qué parte de ese tiempo esperás que trabaje y facture?". Es un dato de cada cotización, no del recurso.
-- **Dedicación / reserva de fijos** (PLAN-2026-006 §3.1–§4): concepto aprobado, sin código.
+- **Dedicación / reserva de fijos** (PLAN-2026-006 §3.1–§4): implementada en PLAN-2026-012 (personal y equipos propios, % explícito en la cotización) junto con "Usado en". Quedan pendientes de PLAN-2026-006: sacar los datos de uso del legajo de Recursos, guardar en Recursos un externo cargado a mano y los estados "Activa" / "Finalizada".
 - **Resultado:** el reparto "fijos · variables" del mes se ve en "Estructura de costos" y en "Ver cálculo", no en la tarjeta principal.
 - **Externos en la cotización:** la línea muestra la salida de caja por día y el costo del mes, pero no rotula aparte el costo económico por día.
 - **Desarrollo local:** al confirmar el email de una cuenta nueva en `localhost` (build de prueba), la app espera la respuesta al diálogo de "versión de prueba" con la landing de fondo. En producción no aparece.
@@ -795,3 +796,74 @@ Cada driver discreto existe en una sola línea del modelo; el ajuste usa exactam
 
 #### 5. Rollback
 Revert del PR; datos v8 → restaurar `pre-migration-v7` o mantener la versión.
+
+### PLAN-2026-012 — Pulido desde casos reales de transporte (COT-0010 / COT-0011)
+
+- Estado: Completado (v0.7.2)
+- Tipo: corrección del motor (viajes físicos de la unidad "viaje") · opcionales de motor (combustible por km de externos, % de costos fijos de recursos compartidos) · completitud y trazabilidad · migración de esquema (8 → 9, sin cambios de datos)
+- Responsable: agente de programación + revisión del dueño del repositorio
+- Fecha de inicio: 2026-10-16 · Rama: `claude/wonderful-brown-g2ehd6`
+
+#### 1. Contexto
+El dueño probó dos cotizaciones reales de transporte $/viaje (PDF del 16/10/2026) y pidió una iteración de pulido funcional: sin features decorativas, sin rediseño y sin romper fórmulas validadas. Se reconstruyeron ambas en `tests/fixtures/cot-0010.js` (sin cliente) y reproducen el PDF al peso:
+
+| | COT-0010 | COT-0011 |
+|---|---|---|
+| Actividad | 12 viajes/mes, 1 por día, 12 días | 12 viajes/mes, 2 por día, 6 días |
+| Ruta | Neuquén → Añelo 100 km (200 km ida y vuelta) | igual |
+| Proveedor | $ 3.250/km, todo incluido, IVA 21 % recuperable, paga a 15 días: 2.400 km = $ 7.800.000 | igual |
+| Personal / estructura 8 % / financiero / contingencia 3 % | $ 3.280.036 / $ 886.403 / $ 523.345 / $ 374.694 | igual |
+| Costo · piso · objetivo · sugerida | $ 12.864.478 · $ 1.128.463 · $ 1.261.224 · $ 1.262.000 por viaje | igual |
+| Facturación · impuestos 5 % · resultado · margen · equilibrio | $ 15.144.000 · $ 757.200 · $ 1.522.322 · 10,05 % · 8,56 viajes | igual |
+
+#### 2. Hallazgos reproducidos contra `main` (6cc1ca5)
+1. **P0 viajes contradictorios (bug):** con unidad "viaje" la ruta usa "Viajes por llamado" (`logistics.tripsPerActivation`, 1 por defecto), independiente de los viajes por día. COT-0011 con 1 viaje por llamado (estado intermedio del dueño) factura 12 viajes pero costea 6 viajes físicos: proveedor $ 3.900.000 en vez de $ 7.800.000, costo $ 8.320.447, sugerida $ 816.000 (−35 %), sin ningún aviso.
+2. **P0 completitud de combustible:** 92 % con "Falta el consumo de combustible" aunque el único equipo es un externo con combustible incluido (la regla pide consumo si hay cualquier equipo). El botón lleva a un paso genérico, no al campo.
+3. Externo por km sin ruta: la línea muestra $ 0 y la completitud lo trata como "revisar" (peso 1), no como crítico.
+4. Equilibrio sin costos fijos: "0 viajes" y el texto "los ingresos fijos ya alcanzan" (falso: no hay ingresos fijos).
+5. Los km del proveedor no se ven junto a la ruta: "Movilización y viajes $ 0" parece que los viajes no cuestan.
+6. Combustible de un externo que pagamos: sólo L/h (no sirve para un camión por km).
+7. Recursos compartidos: no se puede asignar un % del costo fijo de una persona o un equipo propio (PLAN-2026-006 §3.1, aprobado) ni ver en qué cotizaciones se usa.
+
+#### 3. Ya resuelto en `main` (no se reimplementa; se confirma con tests)
+- Unidad visible de materiales con fórmula (`MATERIAL_UNIT_PRESETS`, `materialFormulaText`, v0.7.0).
+- Horas extra por tramos HE 50 % / HE 100 % / otro, por día o por mes, facturables aparte (v0.7.0, `tests/engines/audit-cot0009.test.js`).
+
+#### 4. Cambios de FÓRMULA (CALCULATION_RULES)
+| Cambio | Antes → después | ¿Cambia datos existentes? |
+|---|---|---|
+| Unidad "viaje": viajes físicos por intervención = viajes por día × días por intervención (se derivan; "Viajes por llamado" deja de usarse con esta unidad) | COT-0011 inconsistente: 1.200 km → 2.400 km, $ 3.900.000 → $ 7.800.000 | Sólo cotizaciones $/viaje cuyo "Viajes por llamado" no coincidía (bug demostrado). Las coherentes (COT-0010, COT-0011) y las demás unidades: idénticas. |
+| Combustible de un externo por km (opcional): L/100 km o km/L × km físicos de ruta | 2.400 km × 35 L/100 km = 840 L | No (sin elegirlo sigue por L/h). |
+| Recurso compartido (opcional): % del costo FIJO de una persona o un equipo propio | $ 3.280.036 × 25 % = $ 820.009; posesión $ 5.000.000 × 30 % = $ 1.500.000 | No (sin dato = 100 %). |
+| Estructura por empleado con personal compartido: dotación equivalente (personas × %) | sólo si hay alguien compartido | No. |
+
+Reglas: la asignación es un dato de la cotización, nunca del recurso maestro; reservado / dedicado / contratado = 100 %; nunca se infiere del uso; las horas extra, viandas, combustible, mantenimiento por uso y demás variables siguen el uso real (no se reducen). El combustible por km de un externo no se duplica con su L/h, con la movilización propia (si va por sus medios, la ruta ya está en su consumo por km) ni con "combustible incluido".
+
+#### 5. Cambios sólo de UX / trazabilidad
+- Resumen de transporte (Cómo se cobra, Movilización y viajes, Resultado): viajes facturables, viajes físicos costeados, días de trabajo, km por viaje, km por mes; ruta origen → destino con km de ida, ida y vuelta y equivalente $/km de la tarifa y del proveedor (sin forzar $/km).
+- "Distancia / actividad del proveedor" separada de "Movilización propia".
+- Completitud: combustible "No aplica" si nadie usa combustible a tu cargo; externo por km o viaje sin ruta = CRÍTICO ("Falta definir la ruta/distancia para calcular este proveedor."), sin $ 0 como si fuera válido; los botones llevan al campo exacto (`?campo=`) o no se muestran.
+- Equilibrio sin costos fijos: "Sin costos fijos: cada viaje vendido cubre su costo variable." (y el caso de ingresos fijos con su propio texto).
+- Impuestos vs estructura: texto que separa IIBB / cheque / sellos (impuestos sobre lo que facturás) de los gastos de estructura y aviso si un rubro de estructura parece un impuesto que ya está cargado.
+- "Ver cálculo" del transporte: viajes ÷ viajes por día = días; viajes físicos × km = km; km × $/km = proveedor; neto, IVA adelantado, caja, crédito, plazo, días financiados y costo financiero.
+- "Usado en" en Recursos (personal, equipos y externos): cada cotización con su estado y % asignado; compromiso (adjudicadas) vs potencial (borrador / enviada); aviso si lo comprometido supera el 100 % (no bloquea). Sin módulo de contratos ni estados nuevos.
+
+#### 6. Datos
+`SCHEMA_VERSION` 8 → 9 (`migrateV8ToV9`, sólo sube la versión): una versión anterior ignoraría los campos nuevos o costearía la ruta $/viaje con el dato viejo. Campos opcionales nuevos: `labor[].assignment` ('dedicated' | 'shared' | 'hired') y `labor[].fixedCostSharePct`; `equipment[].assignment` ('reserved' | 'shared') y `equipment[].fixedCostSharePct` (equipos propios); `external.fuelMode` ('per_hour' | 'per_100km' | 'km_per_liter'), `external.fuelLitersPer100Km`, `external.fuelKmPerLiter`. `logistics.tripsPerActivation` se conserva (sigue rigiendo con las otras unidades).
+
+#### 7. Tests
+Golden COT-0010 y COT-0011; caso inconsistente (deriva 2.400 km, nunca un "completo" silencioso); 1, 2 y 3 viajes por día con los mismos km y el mismo costo del proveedor; $/km sin ruta = crítico; combustible incluido / por L/100 km / propio por L/h sin cambios / provisto por el cliente; asignación 100 % / 25 % (personal) y 100 % / 30 % (posesión) con variables iguales; "Usado en"; migración v8 → v9; confirmación de unidad de materiales y HE 50 / 100; regresión completa (COT-0009 golden y foto de 99 casos contra `main`).
+
+#### 8. Limitaciones conocidas
+- Con unidad "viaje" la cantidad de viajes de la ruta es una sola para todo lo que circula por ella (proveedor por km, equipos que van por sus medios y vehículos de apoyo).
+- Con "cada salida se cuenta completa" activado, una salida incompleta se costea con todos sus viajes (criterio conservador de PLAN-2026-011).
+
+#### 9. Rollback
+Revert del PR. Las cuentas que pasaron a esquema 9 quedarían en sólo lectura en la versión anterior: restaurar la copia previa (`pre-migration-v8`) o mantener esta versión.
+
+#### 10. Review multidisciplinario
+Economía (viajes físicos = facturables sin mínimo, % de fijos explícito, combustible sin duplicar), QA (0 viajes por día, sin ruta, sin traslados, mínimo por llamado, 100 % / vacío / inválido), Seguridad (validación de % y consumos, `?campo=` con lista blanca, sin `innerHTML`), UX (resumen de transporte, textos de equilibrio, botones al campo exacto). Se deja escrito en el PR.
+
+#### Bitácora
+- 2026-10-16: reproducción de COT-0010 / COT-0011 y de los hallazgos contra `main` (6cc1ca5); plan registrado.
+- 2026-10-16: implementado. Golden COT-0010 / COT-0011 (1, 2 y 3 viajes por día y el caso inconsistente) al peso; foto de 99 casos idéntica a `main`; COT-0009 golden sin cambios; completitud de COT-0010 / COT-0011 92 % → 100 %. E2E desktop y mobile (transporte, ruta faltante con foco en el campo, combustible por km, personal compartido 25 %, equilibrio sin fijos y "Usado en").
