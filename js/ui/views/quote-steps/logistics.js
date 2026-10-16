@@ -150,7 +150,7 @@ export function render(container, ctx) {
       ),
       kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
       // Viajes facturables, físicos, días y km (PLAN-2026-012).
-      kit.toggle(kit.group('Viajes y km del mes', transportStats(kit)), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
+      kit.toggle(kit.group('Viajes y km del mes', transportStats(kit, { billable: tripUnit })), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
     );
 
   // ---- Movilización del recurso principal: ¿cómo llega cada equipo?

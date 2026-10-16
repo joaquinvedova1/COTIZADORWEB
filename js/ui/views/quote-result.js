@@ -1740,7 +1740,9 @@ function renderSummary(v) {
 function transportBlock(v) {
   const { r, k } = v;
   const t = r.model && r.model.transport;
-  if (!t || !t.applicable || !(t.derived || t.kmPerTrip > 0 || (t.providers || []).length)) return null;
+  // Sólo donde el transporte es el servicio o hay proveedores por km o por viaje
+  // (el resto ve sus km en "Movilización y viajes"): sin bloques decorativos.
+  if (!t || !t.applicable || !(t.derived || (t.providers || []).length)) return null;
   const trips = (n) => `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'viaje' : 'viajes'}`;
   const item = (label, value, sub = null) => h('div', { class: 'qr-transport-item' },
     h('dt', {}, label),

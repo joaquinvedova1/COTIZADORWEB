@@ -75,12 +75,13 @@ export function providerRouteText(p, t) {
  * Indicadores "Viajes y km del mes": viajes facturables, viajes físicos
  * costeados, días de trabajo, km por viaje y km por mes (con "Ver cálculo").
  */
-export function transportStats(kit) {
+export function transportStats(kit, { billable = true } = {}) {
   const t = (r) => transportOf(r) || {};
   return kit.stats(
-    kit.stat('Viajes facturables', (r) => (t(r).derived ? tripsText(t(r).billableTripsPerMonth) : EMPTY), {
-      hint: (r) => (t(r).derived ? 'Lo que cobrás en el mes.' : 'Esta unidad no se factura por viaje.'),
-    }),
+    // Sólo con la unidad "viaje" hay viajes facturables (con otra unidad no se muestra).
+    billable
+      ? kit.stat('Viajes facturables', (r) => (t(r).derived ? tripsText(t(r).billableTripsPerMonth) : EMPTY), { hint: 'Lo que cobrás en el mes.' })
+      : null,
     kit.stat('Viajes físicos costeados', (r) => tripsText(t(r).physicalTripsPerMonth || 0), {
       hint: (r) => {
         const x = t(r);
