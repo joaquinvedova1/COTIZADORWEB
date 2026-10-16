@@ -634,3 +634,8 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
   .calc-choice-title { font-size: 1.25rem; }
   .home-actions-split .btn { flex: 1 1 100%; justify-content: center; }
 }
+
+/* "Usado en" (PLAN-2026-012): cotizaciones que usan un recurso y su % asignado. */
+.lib-usage ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
+.lib-usage-row { margin: 0.35rem 0; overflow-wrap: anywhere; }
+.lib-usage h4 { margin: 0.5rem 0 0; }

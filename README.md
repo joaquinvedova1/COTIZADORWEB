@@ -70,6 +70,8 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 
 **v0.7.1 — Salidas completas y plazo por proveedor** (esquema de datos 8, sin cambios de datos; todo opcional): "Cada salida / intervención se cuenta completa" costea con salidas enteras sólo los costos por salida (movilización, viajes, cargos por llamado) sin tocar producción, facturación ni sueldos; cada externo puede tener su propio plazo de pago, que cambia sólo el capital de trabajo y el costo financiero. Plan PLAN-2026-011.
 
+**v0.7.2 — Pulido desde casos reales de transporte (COT-0010 / COT-0011)** (esquema de datos 9, sin cambios de datos): con la unidad "viaje" los viajes físicos se derivan de los viajes por día (bug: antes se podían costear 6 viajes para 12 facturados); resumen "Viajes y km del mes" y la actividad del proveedor separada de la movilización propia; tarifa por viaje ligada a la ruta con su equivalente por km; combustible de un externo por km (L/100 km o km/L); la completitud sólo pide consumo a lo que consume combustible a tu cargo y sus botones llevan al campo exacto; proveedor por km sin ruta = crítico; equilibrio sin costos fijos explicado; recursos compartidos con % explícito de los costos fijos y "Usado en" en Recursos. Plan PLAN-2026-012.
+
 ## Visitante, demo y cuenta
 
 | | Qué ve | Datos |

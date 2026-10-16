@@ -29,6 +29,7 @@ import { computeProduct } from '../../js/engines/product-engine.js';
 import { demoReferenceQuote } from '../../js/domain/demo-data.js';
 import { getPath } from '../../js/core/object.js';
 import { cot0009Quote } from '../fixtures/cot-0009.js';
+import { transportQuote } from '../fixtures/cot-0010.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REQUIRED_KEYS = ['id', 'title', 'rule', 'engine', 'inputs', 'expected', 'tolerance'];
@@ -94,6 +95,8 @@ const ENGINES = {
   'quote.byUnit': (inputs) => computeQuote(unitQuote(inputs)),
   // PLAN-2026-010: cotización de prueba de punta a punta (reconstruida del PDF auditado).
   'quote.cot0009': (inputs) => computeQuote(cot0009Quote(inputs)),
+  // PLAN-2026-012: transporte $/viaje de punta a punta (COT-0010 / COT-0011).
+  'quote.transport': (inputs) => computeQuote(transportQuote(inputs)),
   // PLAN-2026-008: costo por unidad y precio de un producto.
   'product.compute': ({ product }) => computeProduct(product),
   // PLAN-2026-005: tarifa externa (precio neto + tratamiento fiscal) y movilización propia.

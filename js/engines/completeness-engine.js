@@ -24,20 +24,22 @@ import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
-import { contingencyPctOf } from './cost-engine.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
-import { formatPercent } from '../core/format.js';
+import { formatPercent, formatNumber } from '../core/format.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
-import { externalFiscal } from './external-engine.js';
+import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
+import { contingencyPctOf, normalizeActivity } from './cost-engine.js';
+import { routeTrips } from './transport-engine.js';
+import { fixedCostShareOf } from '../domain/assignment.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
-/** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010). */
-const CRITICAL_RULES = Object.freeze(['equipment_cost', 'currency', 'utilization', 'rate', 'margin']);
+/** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
+const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'currency', 'utilization', 'rate', 'margin']);
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
@@ -149,26 +151,82 @@ export function evaluateCompleteness(quote = {}) {
     items.push(item);
   }
 
-  // 7. Combustible
-  const consumesFuel = equipment.some((e) => nonNegative(e.fuelLitersPerHour) > 0)
-    || equipment.some((e) => isExt(e) && extOf(e).fuelIncluded === false && nonNegative(extOf(e).fuelLitersPerHour) > 0)
-    || equipment.some((e) => isPlainObject(e.mobilization) && e.mobilization.mode === 'self' && nonNegative(e.mobilization.travelLitersPer100Km) > 0)
-    || (!logistics.notApplicable && vehicles.some((v) => nonNegative(v.consumptionLPer100Km) > 0));
+  // Ruta física (PLAN-2026-012): con la unidad "viaje" los viajes por
+  // intervención se derivan de los viajes por día (igual que el motor).
+  const route = routeTrips(quote, normalizeActivity(quote));
+  const oneWayKm = logistics.notApplicable ? 0 : nonNegative(logistics.distanceKm);
+  const routeKmPerActivation = oneWayKm * (logistics.roundTrip === false ? 1 : 2) * route.tripsPerActivation;
+  const lineName = (e, fallback = 'Equipo') => (typeof e.name === 'string' && e.name.trim()) || fallback;
+
+  // 7. Combustible: sólo lo que consume combustible A TU CARGO (PLAN-2026-012).
+  // Un externo con el combustible incluido no necesita consumo; si lo provee
+  // el cliente, no hay costo. Cada pendiente lleva al campo exacto (`focus`).
+  const fuelUsers = [];
+  equipment.forEach((e, i) => {
+    if (!isExt(e)) {
+      fuelUsers.push({ name: lineName(e), consumes: nonNegative(e.fuelLitersPerHour) > 0, path: `equipment.${i}.fuelLitersPerHour` });
+    } else if (extOf(e).fuelIncluded === false) {
+      const x = extOf(e);
+      const mode = externalFuelMode(x);
+      if (mode === 'per_hour') {
+        fuelUsers.push({ name: lineName(e, 'Externo'), consumes: nonNegative(x.fuelLitersPerHour) > 0, path: `equipment.${i}.external.fuelLitersPerHour` });
+      } else {
+        const value = mode === 'per_100km' ? x.fuelLitersPer100Km : x.fuelKmPerLiter;
+        const loaded = nonNegative(value) > 0;
+        fuelUsers.push({ name: lineName(e, 'Externo'), consumes: loaded && routeKmPerActivation > 0, noRoute: loaded && !(routeKmPerActivation > 0), path: `equipment.${i}.external.${mode === 'per_100km' ? 'fuelLitersPer100Km' : 'fuelKmPerLiter'}` });
+      }
+    }
+    // Movilización por sus propios medios que paga combustible en ruta.
+    const m = isPlainObject(e.mobilization) ? e.mobilization : {};
+    const includedByProvider = isExt(e) && extOf(e).mobilizationIncluded === true;
+    const paysRouteFuel = !isExt(e) || (extOf(e).fuelIncluded === false && externalFuelMode(extOf(e)) === 'per_hour');
+    if (!logistics.notApplicable && m.mode === 'self' && !includedByProvider && paysRouteFuel) {
+      fuelUsers.push({ name: lineName(e), consumes: nonNegative(m.travelLitersPer100Km) > 0, path: `equipment.${i}.mobilization.travelLitersPer100Km` });
+    }
+  });
+  if (!logistics.notApplicable) {
+    vehicles.forEach((v, i) => {
+      fuelUsers.push({ name: (typeof v.name === 'string' && v.name.trim()) || 'Vehículo', consumes: nonNegative(v.consumptionLPer100Km) > 0, path: `logistics.vehicles.${i}.consumptionLPer100Km` });
+    });
+  }
   const hasFuelUsers = equipment.length > 0 || (!logistics.notApplicable && vehicles.length > 0);
   if (hasFuelUsers) {
     let status = 'ok';
     let message = 'Combustible definido.';
-    if (!fuel.providedBy) {
+    let focus = null;
+    if (fuelUsers.length === 0) {
+      message = 'No aplica: ningún equipo ni vehículo usa combustible a tu cargo (los externos lo tienen incluido en su tarifa).';
+    } else if (!fuel.providedBy) {
       status = 'missing';
       message = 'Combustible sin responsable: definí si lo pagás vos o lo provee el cliente.';
-    } else if (fuel.providedBy !== 'client' && (nonNegative(fuel.pricePerLiter) <= 0 || !consumesFuel)) {
+      focus = 'fuel.providedBy';
+    } else if (fuel.providedBy === 'client') {
+      message = 'Lo provee el cliente: no se suma costo de combustible.';
+    } else if (nonNegative(fuel.pricePerLiter) <= 0) {
       status = 'missing';
-      message = nonNegative(fuel.pricePerLiter) <= 0 ? 'Falta el precio del combustible.' : 'Falta el consumo de combustible de equipos o vehículos.';
-    } else if (fuel.providedBy !== 'client' && fuel.illustrative === true) {
+      message = 'Falta el precio del combustible.';
+      focus = 'fuel.pricePerLiter';
+    } else if (!fuelUsers.some((u) => u.consumes)) {
+      status = 'missing';
+      const routeless = fuelUsers.find((u) => u.noRoute);
+      if (routeless) {
+        message = `Falta la distancia de la ruta: sin km no se calcula el combustible por km de "${routeless.name}".`;
+        focus = 'logistics.distanceKm';
+      } else {
+        const names = [...new Set(fuelUsers.map((u) => `"${u.name}"`))].slice(0, 3).join(', ');
+        message = `Falta el consumo de combustible de ${names}: lo pagás vos y sin consumo no suma costo.`;
+        focus = fuelUsers[0].path;
+      }
+    } else if (fuel.illustrative === true) {
       status = 'warning';
       message = 'El precio del combustible es un valor ILUSTRATIVO por defecto: confirmalo con tu precio actual.';
+      focus = 'fuel.pricePerLiter';
     }
-    items.push(rule('fuel', 'Combustible', 'logistics', 2, status, message));
+    // El pendiente se muestra en el paso de su campo (el consumo de un equipo, en Equipos).
+    const step = focus && /^equipment\.\d+\.(?!mobilization)/.test(focus) ? 'equipment' : 'logistics';
+    const item = rule('fuel', 'Combustible', step, 2, status, message);
+    if (focus) item.focus = focus;
+    items.push(item);
   }
 
   // 8. Materiales y responsable
@@ -225,15 +283,6 @@ export function evaluateCompleteness(quote = {}) {
     const expired = externals.filter((e) => extOf(e).validUntil && offerDay && extOf(e).validUntil < offerDay);
     // Qué incluye la tarifa: sin definir el combustible o el operador no se suma nada (puede faltar costo).
     const inclusionsUndefined = externals.filter((e) => typeof extOf(e).fuelIncluded !== 'boolean' || typeof extOf(e).operatorIncluded !== 'boolean');
-    // Por km o por viaje sin km / viajes en la cotización (y sin mínimo): la tarifa queda en 0.
-    const routeKm = logistics.notApplicable ? 0 : nonNegative(logistics.distanceKm);
-    const noUnits = externals.filter((e) => {
-      const x = extOf(e);
-      if (nonNegative(x.price) <= 0 || nonNegative(x.minimumUnits) > 0) return false;
-      if (x.unit === 'km') return routeKm <= 0;
-      if (x.unit === 'trip') return Boolean(logistics.notApplicable);
-      return false;
-    });
     // Global: se reparte en los meses de contrato (sin dato se toma 1 mes).
     const globalNoContract = externals.filter((e) => extOf(e).unit === 'global' && !(nonNegative(quote.contractMonths) >= 1));
     const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Externo'}"`).join(', ');
@@ -242,9 +291,6 @@ export function evaluateCompleteness(quote = {}) {
     if (fiscalMissing.length) {
       status = 'missing';
       message = `Falta la alícuota de IVA (o la parte recuperable) de ${names(fiscalMissing)}: sin ese dato no se puede calcular el IVA que no recuperás.`;
-    } else if (noUnits.length) {
-      status = 'missing';
-      message = `La tarifa de ${names(noUnits)} es por km o por viaje y esta cotización no tiene km ni viajes: no suma costo. Cargá la distancia y los viajes en "Movilización y viajes" o un mínimo.`;
     } else if (recoveryUndefined.length) {
       status = 'warning';
       message = `Sin definir si el IVA de ${names(recoveryUndefined)} es recuperable: RATEOS usa el precio neto (sin IVA). Si no lo recuperás, el costo es mayor.`;
@@ -262,6 +308,27 @@ export function evaluateCompleteness(quote = {}) {
       message = `Sin vigencia de la oferta del proveedor: ${names(noValidity)}.`;
     }
     items.push(rule('external_terms', 'Equipos y servicios externos', 'equipment', 1, status, message));
+
+    // 9c'. Externo por km o por viaje sin ruta (PLAN-2026-012): CRÍTICO. Su
+    // tarifa no se puede calcular (no es un $ 0 válido): nunca pasa en silencio.
+    const legs = (logistics.roundTrip === false ? 1 : 2) * route.tripsPerActivation;
+    const routeless = externals.filter((e) => {
+      const x = extOf(e);
+      if (!(x.unit === 'km' || x.unit === 'trip') || nonNegative(x.price) <= 0 || nonNegative(x.minimumUnits) > 0) return false;
+      return x.unit === 'km' ? !(routeKmPerActivation > 0) : !(legs > 0);
+    });
+    if (routeless.length) {
+      const routeFocus = logistics.notApplicable
+        ? 'logistics.notApplicable'
+        : !(oneWayKm > 0)
+          ? 'logistics.distanceKm'
+          : route.derived ? 'activity.unitsPerActiveDay' : 'logistics.tripsPerActivation';
+      const item = rule('external_route', 'Ruta del proveedor', routeFocus.startsWith('activity.') ? 'modality' : 'logistics', 2, 'missing',
+        `Falta definir la ruta/distancia para calcular este proveedor: ${names(routeless)} (tarifa por ${extOf(routeless[0]).unit === 'km' ? 'km' : 'viaje'}). ${logistics.notApplicable ? 'Marcaste "Sin traslados".' : !(oneWayKm > 0) ? 'Cargá la distancia de ida en "Movilización y viajes".' : 'No hay viajes en la cotización.'} Hasta entonces no suma costo.`);
+      item.focus = routeFocus;
+      item.targets = routeless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
+      items.push(item);
+    }
   }
 
   // 9d. Posible doble conteo (operador o vehículo cargado dos veces)
@@ -406,6 +473,34 @@ export function evaluateCompleteness(quote = {}) {
   const pending = items.filter((i) => i.status !== 'ok').sort((a, b) => (a.severity === 'critical' ? 0 : 1) - (b.severity === 'critical' ? 0 : 1) || order[a.status] - order[b.status]);
   // Informativos: no participan del puntaje ni de los pendientes.
   const notices = [];
+  // Unidad "viaje" con un "Viajes por llamado" anterior distinto (PLAN-2026-012).
+  if (route.storedDiffers) {
+    const fmt = (n) => formatNumber(n, { decimals: 2 });
+    notices.push({
+      id: 'transport_trips',
+      step: 'logistics',
+      severity: 'info',
+      label: 'Viajes físicos',
+      message: `Con la unidad "viaje", los viajes por intervención se calculan con los viajes por día: ${fmt(route.tripsPerActiveDay)} × ${fmt(route.daysPerActivation)} ${route.daysPerActivation === 1 ? 'día' : 'días'} = ${fmt(route.tripsPerActivation)}. El dato anterior de esta cotización (${fmt(route.storedTripsPerActivation)} por llamado) ya no se usa: los km se calculan con los viajes que facturás.`,
+    });
+  }
+  // Recursos compartidos: el resto del costo fijo lo cubre otro servicio.
+  const sharedNotice = (line, list, index, fallback) => {
+    const share = fixedCostShareOf(line);
+    if (!share.shared || share.missing || share.sharePct >= 100) return;
+    notices.push({
+      id: 'shared_fixed',
+      step: list,
+      severity: 'info',
+      label: list === 'labor' ? 'Personal compartido' : 'Equipo compartido',
+      message: `"${(typeof line.role === 'string' && line.role.trim()) || (typeof line.name === 'string' && line.name.trim()) || fallback}" se comparte: esta cotización carga el ${formatPercent(share.sharePct)} de su costo fijo. El ${formatPercent(100 - share.sharePct)} restante lo tiene que cubrir otro servicio o contrato (si no se concreta, queda sin cubrir).`,
+      targets: [{ list, index }],
+    });
+  };
+  labor.forEach((l, index) => sharedNotice(l, 'labor', index, 'Personal'));
+  equipment.forEach((e, index) => {
+    if (!isExt(e)) sharedNotice(e, 'equipment', index, 'Equipo');
+  });
   equipment.forEach((e, index) => {
     if (!isExt(e) && nonNegative(e.replacementValue) > 0 && !(nonNegative(e.capitalRatePctAnnual) > 0)) {
       notices.push({

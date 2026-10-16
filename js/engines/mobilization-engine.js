@@ -8,7 +8,9 @@
  *     km/llamado   = km de ruta por llamado × cantidad de unidades
  *     litros       = km × consumo en ruta (L/100 km) / 100
  *     combustible  = litros × precio      (0 si lo provee el cliente; un externo
- *                                          sólo si su tarifa NO incluye combustible)
+ *                                          sólo si su tarifa NO incluye combustible
+ *                                          y su consumo no se cargó por km: ese ya
+ *                                          cubre la ruta, PLAN-2026-012)
  *     desgaste     = km × (mantenimiento y neumáticos por km + neumáticos por km
  *                    si se cargaron como juego / vida útil en km) (sin combustible
  *                    NI amortización: la amortización ya está en el costo de tenerlo)
@@ -28,6 +30,7 @@
 import { nonNegative, safeDivide } from '../core/money.js';
 import { isPlainObject, objectList } from '../core/object.js';
 import { tiresOf } from './equipment-engine.js';
+import { externalFuelMode } from './external-engine.js';
 
 /**
  * @param {object[]} equipment  líneas de equipo (las que ve el motor)
@@ -64,8 +67,10 @@ export function computeMobilization(equipment = [], ctx = {}) {
       liters = (km * nonNegative(m.travelLitersPer100Km)) / 100;
       // Un externo paga el combustible en ruta sólo si su tarifa NO lo incluye
       // (false). Sin definir (null) no se suma y la completitud lo advierte,
-      // igual que el combustible trabajando (external-engine).
-      const paysFuel = !external || ext.fuelIncluded === false;
+      // igual que el combustible trabajando (external-engine). Si su consumo se
+      // cargó por km (PLAN-2026-012), la ruta ya está en ese combustible: no se
+      // suma otra vez acá.
+      const paysFuel = (!external || ext.fuelIncluded === false) && !(external && externalFuelMode(ext) !== 'per_hour');
       fuel = paysFuel ? liters * fuelPrice : 0;
       // Desgaste en ruta: mantenimiento por km + neumáticos por km si se cargaron
       // como juego + vida útil en km (PLAN-2026-007). Sin amortización.

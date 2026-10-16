@@ -20,6 +20,7 @@ import { createTrace } from '../../../core/trace.js';
 import { createId } from '../../../core/ids.js';
 import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
+import { assignmentBlock } from './assignment.js';
 
 /** Bases de las horas extra (PLAN-2026-010). */
 const OVERTIME_BASIS_OPTIONS = Object.freeze([
@@ -39,13 +40,15 @@ function overtimeItem(premiumPct, label = null, hours = 0, basis = 'per_active_d
 export function laborBreakdown(line, { activeDays = 0, monthsFactor = 1 } = {}) {
   if (!line) return [];
   const p = line.perPerson;
-  const out = [{ label: 'Sueldo + cargas', amount: p.loadedRemunerative * line.headcount * monthsFactor }];
+  // Persona compartida (PLAN-2026-012): sueldo, cargas y no remunerativos al % asignado; las HE y viandas no.
+  const share = line.shared && Number.isFinite(line.fixedCostSharePct) ? line.fixedCostSharePct / 100 : 1;
+  const out = [{ label: 'Sueldo + cargas', amount: p.loadedRemunerative * share * line.headcount * monthsFactor }];
   (line.overtimeItems || []).forEach((o) => {
     const amount = o.basis === 'per_month' ? o.monthlyPerPerson * line.headcount * monthsFactor : o.perActiveDayPerPosition * line.positions * activeDays;
     out.push({ label: o.label, amount });
   });
   out.push({ label: 'Viandas', amount: line.perPosition.mealPerActiveDay * line.positions * activeDays });
-  out.push({ label: 'Seguros, EPP, capacitación y traslado', amount: p.nonRemunerative * line.headcount * monthsFactor });
+  out.push({ label: 'Seguros, EPP, capacitación y traslado', amount: p.nonRemunerative * share * line.headcount * monthsFactor });
   return out.filter((x) => x.amount > 0.005 || x.label === 'Sueldo + cargas');
 }
 
@@ -62,7 +65,7 @@ function laborTrace(result, index, source) {
   return createTrace({
     id: 'labor_line',
     title: `Personal — ${line.role || 'Puesto'}`,
-    formula: 'Costo por persona = (Básico + Adicionales) × (1 + SAC% + Vacaciones%) × (1 + Cargas% + ART%) + Seguros + EPP + Capacitación + Traslado · Fijo total = costo por persona × posiciones × personas por posición · Variable por día activo = (horas extra × valor hora extra × factor de cargas + vianda) × posiciones',
+    formula: 'Costo por persona = (Básico + Adicionales) × (1 + SAC% + Vacaciones%) × (1 + Cargas% + ART%) + Seguros + EPP + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × posiciones × personas por posición · Variable por día activo = (horas extra × valor hora extra × factor de cargas + vianda) × posiciones',
     inputs: [
       { label: 'Básico mensual', value: p.basic, format: 'money' },
       { label: 'Adicionales mensuales', value: p.additionals, format: 'money' },
@@ -82,6 +85,11 @@ function laborTrace(result, index, source) {
       { label: 'Seguros + EPP + capacitación + traslado', value: p.nonRemunerative, format: 'money' },
       { label: 'Costo mensual por persona', value: p.fixedMonthly, format: 'money' },
       { label: 'Dotación (personas)', value: line.headcount, format: 'number' },
+      ...(line.shared ? [
+        { label: 'Costo fijo completo (100 %)', value: p.fixedMonthly * line.headcount, format: 'money' },
+        { label: '% de su costo fijo asignado a esta cotización (persona compartida)', value: line.fixedCostSharePct, format: 'percent' },
+        { label: 'Lo que tiene que cubrir otro servicio', value: line.unassignedFixedMonthly, format: 'money' },
+      ] : []),
       ...(line.overtimeItems || []).map((o) => ({ label: `${o.label}: valor hora con recargo y cargas`, value: o.hourlyCost, format: 'rate' })),
       ...(p.overtimeMonthly > 0 ? [{ label: 'Horas extra por mes (fijo, por persona)', value: p.overtimeMonthly, format: 'money' }] : []),
       { label: 'Variable por día activo (todas las posiciones)', value: line.variablePerActiveDay, format: 'money' },
@@ -288,6 +296,8 @@ export function render(container, ctx) {
         kit.num(`${p}.basicMonthly`, { label: 'Sueldo básico', rule: 'money', unit: '$/mes', illustrative }),
         kit.num(`${p}.additionalsMonthly`, { label: 'Adicionales', rule: 'money', unit: '$/mes', illustrative, hint: 'Zona, diagrama, nocturnidad, etc.' }),
       ),
+      // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.
+      assignmentBlock(kit, { path: p, line, kind: 'labor', at }),
       kit.keyline({
         label: 'Costo del puesto',
         value: (r) => (at(r) ? `${formatMoney(at(r).fixedMonthly)} por mes` : EMPTY),
@@ -298,7 +308,8 @@ export function render(container, ctx) {
           // Desglose del mes (PLAN-2026-010): sueldo + cargas, HE por tramo, viandas, seguros/EPP.
           const D = r.activity.activeDaysPerMonth;
           const parts = laborBreakdown(l, { activeDays: D }).map((x) => `${x.label} ${formatMoney(x.amount)}`).join(' · ');
-          return `${formatMoney(l.perPerson.fixedMonthly)} por persona con cargas${variable}. En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.`;
+          const share = l.shared && !l.shareMissing ? ` Compartida: esta cotización carga el ${formatPercent(l.fixedCostSharePct)} de su costo fijo.` : '';
+          return `${formatMoney(l.perPerson.fixedMonthly)} por persona con cargas${variable}. En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.${share}`;
         },
         trace: (r) => laborTrace(r, i, quote.labor[i]),
       }),
@@ -365,7 +376,7 @@ export function render(container, ctx) {
           kit.stats(
             kit.stat('Costo mensual por persona', (r) => formatMoney(at(r) && at(r).perPerson.fixedMonthly)),
             kit.stat('Dotación (personas)', (r) => formatNumber(at(r) && at(r).headcount, { decimals: 2 })),
-            kit.stat('Fijo mensual total', (r) => formatMoney(at(r) && at(r).fixedMonthly), { emphasis: true }),
+            kit.stat('Fijo mensual total', (r) => formatMoney(at(r) && at(r).fixedMonthly), { emphasis: true, hint: (r) => (at(r) && at(r).shared && !at(r).shareMissing ? `${formatPercent(at(r).fixedCostSharePct)} asignado a esta cotización (persona compartida).` : '') }),
             kit.stat('Variable por día activo', (r) => formatMoney(at(r) && at(r).variablePerActiveDay), { hint: 'Horas extra por día con cargas + vianda.' }),
             kit.stat('Costo hora cargado', (r) => formatMoney(at(r) && at(r).perPerson.loadedHourlyCost), { hint: 'Costo por persona ÷ horas normales.' }),
             kit.stat('Factor de cargas', (r) => {

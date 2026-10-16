@@ -299,6 +299,23 @@ export function migrateV7ToV8(state) {
   return { ...src, schemaVersion: 8 };
 }
 
+/**
+ * v8 → v9 (PLAN-2026-012): campos nuevos y opcionales `labor[].assignment` /
+ * `labor[].fixedCostSharePct` y `equipment[].assignment` /
+ * `equipment[].fixedCostSharePct` (recurso compartido: % explícito de sus
+ * costos fijos; sin dato = 100 %) y `external.fuelMode`,
+ * `external.fuelLitersPer100Km`, `external.fuelKmPerLiter` (combustible de un
+ * externo por km de ruta). Con la unidad "viaje" los viajes físicos de la
+ * ruta se derivan de los viajes por día (`logistics.tripsPerActivation` se
+ * conserva). No cambia ni borra ningún dato. Se sube la versión porque una
+ * versión anterior ignoraría estos campos (otro costo): así abre estos datos
+ * en sólo lectura.
+ */
+export function migrateV8ToV9(state) {
+  const src = isPlainObject(state) ? deepClone(state) : {};
+  return { ...src, schemaVersion: 9 };
+}
+
 /** Agrega un valor a `legacy` sin perder lo que ya hubiera (aunque no fuera un objeto). */
 function withLegacy(legacy, key, value) {
   const base = isPlainObject(legacy) ? legacy : legacy === undefined || legacy === null ? {} : { previous: legacy };
@@ -315,6 +332,7 @@ export const MIGRATIONS = Object.freeze({
   5: migrateV5ToV6,
   6: migrateV6ToV7,
   7: migrateV7ToV8,
+  8: migrateV8ToV9,
 });
 
 /**

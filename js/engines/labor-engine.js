@@ -31,11 +31,19 @@
  * Si las horas extra se FACTURAN aparte (`overtimeBilled`), siguen siendo
  * costo y además generan ingreso: horas × precio por hora de cada tramo.
  *
+ * Persona compartida (PLAN-2026-012, opcional): si la línea se comparte con
+ * otros servicios, esta cotización carga sólo el % EXPLÍCITO de su costo fijo
+ * (sueldo, cargas y no remunerativos):
+ *   fijo total = (fijoMensual × % asignado + horas extra por mes) × dotación
+ * Las horas extra y las viandas siguen el uso real: no se reducen. Dedicada o
+ * contratada para el servicio (o sin dato) = 100 %, como siempre.
+ *
  * Todos los porcentajes son parámetros. Los valores demo son ILUSTRATIVOS.
  */
 
 import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide } from '../core/money.js';
+import { fixedCostShareOf } from '../domain/assignment.js';
 
 /** Factor de cargas aplicado a conceptos remunerativos. */
 export function laborLoadFactor({ sacPct = 0, vacationPct = 0, employerContributionsPct = 0, artPct = 0 } = {}) {
@@ -129,6 +137,9 @@ export function computeLaborLine(line = {}) {
   const variablePerActiveDayPerPosition = overtimePerActiveDay + mealPerActiveDay;
 
   const loadedHourlyCost = safeDivide(fixedMonthlyPerPerson, normalHours, null);
+  // % del costo fijo asignado a esta cotización (100 % si no se comparte).
+  const allocation = fixedCostShareOf(line);
+  const assignedFixedPerPerson = allocation.shared ? fixedMonthlyPerPerson * allocation.share : fixedMonthlyPerPerson;
 
   return {
     id: line.id ?? null,
@@ -136,6 +147,15 @@ export function computeLaborLine(line = {}) {
     positions,
     peoplePerPosition,
     headcount,
+    assignment: allocation.assignment,
+    shared: allocation.shared,
+    fixedCostSharePct: allocation.sharePct,
+    shareMissing: allocation.missing,
+    // Dotación equivalente (estructura por empleado): personas × % asignado.
+    effectiveHeadcount: allocation.shared ? headcount * allocation.share : headcount,
+    // Costo fijo completo (100 %) y la parte que tiene que cubrir otro servicio.
+    fullFixedMonthly: (fixedMonthlyPerPerson + overtimeMonthlyPerPerson) * headcount,
+    unassignedFixedMonthly: (fixedMonthlyPerPerson - assignedFixedPerPerson) * headcount,
     perPerson: {
       basic,
       additionals,
@@ -171,7 +191,7 @@ export function computeLaborLine(line = {}) {
         perActiveDay: overtimeItems.reduce((acc, o) => acc + o.billedPerActiveDayPerPosition, 0) * positions,
       }
       : null,
-    fixedMonthly: (fixedMonthlyPerPerson + overtimeMonthlyPerPerson) * headcount,
+    fixedMonthly: (assignedFixedPerPerson + overtimeMonthlyPerPerson) * headcount,
     variablePerActiveDay: variablePerActiveDayPerPosition * positions,
     hoursPerMonth: normalHours * headcount,
   };
@@ -183,6 +203,7 @@ export function computeLabor(lines = []) {
   return {
     lines: results,
     headcount: results.reduce((s, r) => s + r.headcount, 0),
+    effectiveHeadcount: results.reduce((s, r) => s + r.effectiveHeadcount, 0),
     positions: results.reduce((s, r) => s + r.positions, 0),
     fixedMonthly: results.reduce((s, r) => s + r.fixedMonthly, 0),
     variablePerActiveDay: results.reduce((s, r) => s + r.variablePerActiveDay, 0),

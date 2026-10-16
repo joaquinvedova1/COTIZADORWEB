@@ -18,6 +18,7 @@ import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
 import { isQuantityUnit, quantityCeilText } from './unit-text.js';
+import { unitTexts } from '../domain/billing-units.js';
 
 const EPS = 1e-9;
 
@@ -331,4 +332,35 @@ export function activationRoundingText(r) {
     tone: 'info',
     text: `Hoy se costean ${n(r.estimated)} salidas (promedio). Si cada salida se paga completa, activá la opción: se costearían ${n(preview.wholeActivations)} (+${formatMoney(preview.total)} por mes).`,
   };
+}
+
+/**
+ * Equilibrio en 0 (PLAN-2026-012): nunca "0 viajes" sin explicación.
+ *   no_fixed_costs  sin costos fijos: cada unidad vendida cubre su costo variable
+ *   fixed_revenue   los ingresos fijos (abono, standby) ya cubren los costos fijos
+ * @param {{ breakEven?: object, unitInfo?: object, unit?: string }} result
+ * @param {{ compact?: boolean, rateText?: string }} [options]  compact: para un KPI o un resumen;
+ *   rateText: con qué tarifa ("a la tarifa sugerida de $ 1.262.000 / viaje")
+ * @returns {string|null}  null si el equilibrio no es 0
+ */
+export function breakEvenZeroText(result, { compact = false, rateText = '' } = {}) {
+  const r = result || {};
+  const be = r.breakEven || {};
+  const reason = be.zeroReason;
+  if (!be.reachable || (reason !== 'no_fixed_costs' && reason !== 'fixed_revenue')) return null;
+  const byQuantity = isQuantityUnit(r);
+  const u = r.unitInfo || {};
+  const t = unitTexts(u);
+  const singular = byQuantity ? u.singular || 'unidad' : 'día';
+  const first = byQuantity ? `${t.elPrimer} ${singular}` : 'el primer día';
+  const rate = rateText ? ` ${rateText}` : '';
+  if (reason === 'no_fixed_costs') {
+    if (compact) return `Desde ${first}`;
+    const each = byQuantity ? `cada ${singular} ${t.vendido}` : 'cada día trabajado';
+    return `Sin costos fijos: ${each} cubre su costo variable. Desde ${first} hay contribución positiva${rate}.`;
+  }
+  if (compact) return 'Cubierto con ingresos fijos';
+  return byQuantity
+    ? `Cubrís todos tus costos aunque no factures ${t.ningun} ${singular}${rate}: los ingresos fijos (abono, equipo en espera) ya cubren los costos fijos.`
+    : `Cubrís todos tus costos aunque no trabajes ningún día${rate}: los ingresos fijos (abono, equipo en espera) ya cubren los costos fijos.`;
 }

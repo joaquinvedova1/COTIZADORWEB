@@ -92,6 +92,7 @@ Reglas de import (verificadas por `tests/architecture.test.js`):
 - **Nunca inventar ni buscar un tipo de cambio**: lo carga la empresa en cada cotización; sin tipo de cambio, el valor no se suma y la cotización queda en rojo.
 - **Externos (alquilados / tercerizados):** precio NETO; sólo el IVA **no** recuperable y los cargos no recuperables son costo; IVA recuperable y percepciones son caja, no costo. No hardcodear alícuotas, no aplicar Ganancias como % sobre un alquiler, no duplicar el IIBB. Un externo no tiene amortización, seguro propio ni costo de capital.
 - **Movilización:** cada costo en un solo lugar (el equipo que se moviliza, el que lo transporta o el vehículo de apoyo). Si maneja el operador, no se suma otra persona; el desgaste por km no incluye amortización.
+- **Asignación a la cotización:** dedicado / reservado / compartido es un dato de la línea de la cotización, nunca del recurso maestro. Compartido = % EXPLÍCITO de los costos fijos; **nunca** se infiere de los días de uso (el uso real mueve sólo los costos variables). Sin dato = 100 %.
 - El catálogo global de familias de equipos es sólo descriptivo: **nunca** precios, especificaciones que no tengamos ni datos de clientes. Marcas, modelos y valores son privados de cada organización.
 
 ## 6. Protección del motor

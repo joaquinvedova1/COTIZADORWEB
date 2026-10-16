@@ -90,6 +90,10 @@ export function createExternalTerms(src = {}) {
     operatorIncluded: boolOrNull(s.operatorIncluded),
     fuelIncluded: boolOrNull(s.fuelIncluded),
     fuelLitersPerHour: finiteOr(s.fuelLitersPerHour, 0),
+    // Consumo por km de ruta (PLAN-2026-012): sólo si se eligió esa forma.
+    ...(s.fuelMode === 'per_100km' || s.fuelMode === 'km_per_liter'
+      ? { fuelMode: s.fuelMode, fuelLitersPer100Km: opt(s.fuelLitersPer100Km), fuelKmPerLiter: opt(s.fuelKmPerLiter) }
+      : {}),
     mobilizationIncluded: boolOrNull(s.mobilizationIncluded),
     mobilizationAmount: finiteOr(s.mobilizationAmount, 0),
     insuranceIncluded: boolOrNull(s.insuranceIncluded),

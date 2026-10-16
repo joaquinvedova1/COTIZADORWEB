@@ -21,7 +21,7 @@
 import { h, mount } from '../../dom.js';
 import { badge, card, dateField, formGrid, selectField, triStateField, confirmDialog, emptyState, icon } from '../../components.js';
 import { equipmentLineFromLibrary, externalLineFromService, blankEquipmentLine, createExternalTerms, createMobilization, acquisitionOf } from '../../../domain/quote-factory.js';
-import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
+import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
 import { computeEquipmentUnit, maintenanceOf, tiresOf } from '../../../engines/equipment-engine.js';
 import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
@@ -34,6 +34,9 @@ import { hasNumber, moneyText, plural, stepName } from './shared.js';
 import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { MOBILIZATION_MODES } from '../../../domain/catalogs.js';
+import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
+import { fieldHref } from '../../field-links.js';
+import { assignmentBlock } from './assignment.js';
 
 const isExternalLine = (line) => acquisitionOf(line) !== 'owned';
 
@@ -51,8 +54,8 @@ const UNIT_HINTS = Object.freeze({
   hour: 'Unidades por llamado = horas de uso por día × días por llamado.',
   day: 'Unidades por llamado = días por llamado.',
   month: 'Costo fijo por mes (trabaje o no).',
-  trip: 'Unidades por llamado = viajes de ida o vuelta (de "Viajes").',
-  km: 'Unidades por llamado = km de ruta por llamado (de "Viajes").',
+  trip: 'Cobra cada ida o cada vuelta (tramo): un viaje ida y vuelta son 2 tramos. Los viajes salen de la ruta y de los viajes físicos de la cotización.',
+  km: 'Unidades por llamado = km de ruta por llamado: viajes físicos × km por viaje (de "Movilización y viajes").',
   activation: 'Un cobro por cada llamado.',
   global: 'Monto por todo el contrato, repartido en los meses de contrato.',
 });
@@ -90,9 +93,40 @@ function externalRoundingAt(result, line) {
   const x = line && line.external;
   if (!r || !r.active || !x) return { economic: 0, cash: 0 };
   return {
-    economic: (x.discretePerActivation + x.mobilizationPerActivation) * r.extraActivations,
+    // El combustible por km de ruta (PLAN-2026-012) también es por salida (va a Combustible, no al proveedor).
+    economic: (x.discretePerActivation + x.mobilizationPerActivation + (x.fuelPerActivationRoute || 0)) * r.extraActivations,
     cash: (x.cashDiscretePerActivation + x.cashMobilizationPerActivation) * r.extraActivations,
   };
+}
+
+/** Actividad del proveedor por km o por viaje (PLAN-2026-012), o null. */
+function providerOf(result, index) {
+  const t = transportOf(result);
+  return t && Array.isArray(t.providers) ? t.providers.find((p) => p.index === index) || null : null;
+}
+
+/** Campo donde se define la ruta que falta (el mismo que marca la completitud). */
+function routeFieldOf(result) {
+  const item = result && result.completeness && (result.completeness.items || []).find((i) => i.id === 'external_route');
+  return item && item.focus ? item.focus : 'logistics.distanceKm';
+}
+
+/** "Combustible a tu cargo: 2.400 km × 35 L/100 km = 840 L × $ 1.500 = $ 1.260.000 por mes". */
+function externalFuelText(result, line) {
+  const x = line && line.external;
+  if (!x || !(x.fuelLitersPerActiveDay > 0 || x.fuelKmPerActivation > 0)) return '';
+  const D = result.activity.activeDaysPerMonth;
+  const A = result.activity.activationsPerMonth;
+  const price = result.model.fuel.paidByUs ? result.model.fuel.pricePerLiter : 0;
+  const liters = x.fuelLitersPerActiveDay * D;
+  const cost = x.fuelPerActiveDay * D;
+  if (x.fuelMode === 'per_hour') {
+    return `Combustible a tu cargo: ${formatNumber(x.fuelLitersPerHour, { decimals: 2 })} L/h × ${formatNumber(x.hoursPerActiveDay, { decimals: 2 })} h × ${formatNumber(D, { decimals: 2 })} días = ${formatValue(liters, 'liters')} × ${formatMoney(price)} = ${formatMoney(cost)} por mes (va a Combustible, aparte de la tarifa).`;
+  }
+  if (!(x.fuelKmPerActivation > 0)) return 'Falta la distancia de la ruta: sin km no se calcula el combustible por km.';
+  const km = x.fuelKmPerActivation * A;
+  const per = x.fuelMode === 'km_per_liter' ? `÷ ${formatNumber(x.fuelKmPerLiter, { decimals: 2 })} km/L` : `× ${formatNumber(x.fuelLitersPer100Km, { decimals: 2 })} L/100 km`;
+  return `Combustible a tu cargo: ${formatValue(km, 'km')} de ruta ${per} = ${formatValue(liters, 'liters')} × ${formatMoney(price)} = ${formatMoney(cost)} por mes (va a Combustible, aparte de la tarifa).`;
 }
 
 /**
@@ -149,13 +183,21 @@ function equipmentTrace(result, index, source) {
       { label: 'Amortización mensual (por unidad)', value: o.depreciationMonthly, format: 'money' },
       { label: 'Seguro + patente + certificaciones + otros + mantenimiento fijo (por unidad)', value: o.cashMonthly, format: 'money' },
       { label: 'Costo de capital mensual (por unidad)', value: o.capitalCostMonthly, format: 'money' },
-      { label: 'Posesión mensual × cantidad', value: line.fixedMonthly, format: 'money' },
+      ...(line.shared
+        ? [
+          { label: 'Posesión mensual × cantidad (100 %)', value: line.fullFixedMonthly, format: 'money' },
+          { label: '% de sus costos fijos asignado a esta cotización (equipo compartido)', value: line.fixedCostSharePct, format: 'percent' },
+          { label: 'Posesión que carga esta cotización', value: line.fixedMonthly, format: 'money' },
+          { label: 'Lo que tiene que cubrir otro contrato', value: line.unassignedFixedMonthly, format: 'money' },
+        ]
+        : [{ label: 'Posesión mensual × cantidad', value: line.fixedMonthly, format: 'money' }]),
       { label: 'Operación por hora (por unidad)', value: op.totalPerHour, format: 'money' },
       { label: 'Operación por día activo × cantidad', value: line.variablePerActiveDay, format: 'money' },
     ],
     result: { label: 'Costo del equipo en el mes (actividad estimada)', value: monthlyAtEstimate(result, line), format: 'money' },
     notes: [
       'La amortización y el costo de capital no son salidas de caja: no se financian en el costo financiero.',
+      line.shared ? 'Equipo compartido: el % asignado reparte sólo los costos fijos (lo cargás vos; no sale de los días que trabaje). La operación sigue el uso real.' : null,
       source && (source.hoursPerActiveDay === null || source.hoursPerActiveDay === undefined || source.hoursPerActiveDay === '')
         ? 'Horas de uso vacías: se usan las horas por día activo de la cotización.'
         : null,
@@ -202,6 +244,32 @@ function externalTrace(result, index, source, impact = null) {
     ]
     : [];
   const rounding = externalRoundingAt(result, line);
+  // Ruta (PLAN-2026-012): viajes facturables → días → viajes físicos → km → proveedor.
+  const t = transportOf(result);
+  const p = providerOf(result, index);
+  const routeSteps = p && t && !p.noRoute
+    ? [
+      t.derived ? { label: `Días de trabajo = ${formatNumber(t.billableTripsPerMonth, { decimals: 2 })} viajes facturables ÷ ${formatNumber(t.tripsPerActiveDay, { decimals: 2 })} por día`, value: t.workDaysPerMonth, format: 'days' } : null,
+      { label: 'Viajes físicos por mes (intervenciones × viajes por intervención)', value: t.physicalTripsPerMonth, format: 'number' },
+      { label: `Km por viaje${routeName(t) ? ` (${routeName(t)})` : ''}`, value: t.kmPerTrip, format: 'km' },
+      p.unit === 'km'
+        ? { label: 'Km facturados por mes = viajes físicos × km por viaje', value: p.unitsPerMonth, format: 'km' }
+        : { label: 'Tramos facturados por mes (cada ida o vuelta)', value: p.unitsPerMonth, format: 'number' },
+      { label: `Neto del proveedor en el mes = ${p.unit === 'km' ? 'km' : 'tramos'} × ${formatMoney(p.price)} × cantidad`, value: p.netMonthly, format: 'money' },
+      p.perTripNet !== null ? { label: 'Equivalente por viaje (neto)', value: p.perTripNet, format: 'money' } : null,
+      p.perKmNet !== null ? { label: 'Equivalente por km (neto)', value: p.perKmNet, format: 'money' } : null,
+    ].filter(Boolean)
+    : [];
+  const D = result.activity.activeDaysPerMonth;
+  const factor = monthsFactor(D, result.activity.availableDaysPerMonth);
+  const netMonth = x.netFixedMonthly * factor + x.netPerActiveDay * D;
+  const cashMonth = x.cashFixedMonthly * factor + x.cashPerActiveDay * D;
+  const creditMonth = x.creditFixedMonthly * factor + x.creditPerActiveDay * D;
+  const monthSteps = [
+    { label: 'Neto del proveedor en el mes (sin IVA)', value: netMonth, format: 'money' },
+    { label: 'Salida de caja del mes (neto + IVA + percepciones + cargos)', value: cashMonth, format: 'money' },
+    { label: 'IVA y percepciones que adelantás y recuperás (crédito fiscal, no es costo)', value: creditMonth, format: 'money' },
+  ];
   return createTrace({
     id: 'external_line',
     title: `${x.acquisition === 'rented' ? 'Alquiler' : 'Servicio tercerizado'} — ${x.name || 'Externo'}`,
@@ -226,9 +294,11 @@ function externalTrace(result, index, source, impact = null) {
       { label: 'Fijo mensual neto (tarifas por mes o globales)', value: x.netFixedMonthly, format: 'money' },
       { label: 'Costo económico por día activo', value: x.variablePerActiveDay, format: 'money' },
       x.mobilizationPerActiveDay > 0 ? { label: 'Movilización del proveedor por día activo', value: x.mobilizationPerActiveDay, format: 'money' } : null,
-      x.fuelPerActiveDay > 0 ? { label: 'Combustible no incluido por día activo', value: x.fuelPerActiveDay, format: 'money' } : null,
+      x.fuelPerActiveDay > 0 ? { label: x.fuelMode === 'per_hour' ? 'Combustible no incluido por día activo (L/h × horas)' : 'Combustible no incluido por día activo (km de ruta × consumo por km)', value: x.fuelPerActiveDay, format: 'money' } : null,
       { label: 'Salida de caja con impuestos por día activo (se financia hasta cobrar; no es costo)', value: x.cashPerActiveDay, format: 'money' },
       { label: 'Crédito fiscal por día activo (no es costo)', value: x.creditPerActiveDay, format: 'money' },
+      ...routeSteps,
+      ...monthSteps,
       ...financeSteps,
       ...impactSteps,
     ].filter(Boolean),
@@ -563,13 +633,16 @@ export function render(container, ctx) {
         kit.num(`${p}.fuelLitersPerHour`, { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
       ),
       kit.region((r) => wearWarningsRegion(r, i)),
+      // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
+      assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
       kit.keyline({
         label: 'Costo del equipo en el mes',
         value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
-          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día activo · con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días activos.`;
+          const share = l.shared && !l.shareMissing ? ` (${formatPercent(l.fixedCostSharePct)} asignado a esta cotización de ${formatMoney(l.fullFixedMonthly)})` : '';
+          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día activo · con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días activos.`;
         },
         trace: (r) => equipmentTrace(r, i, quote.equipment[i]),
       }),
@@ -747,6 +820,26 @@ export function render(container, ctx) {
             kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })),
         )
         : null,
+      // Tarifa por km o por viaje sin ruta (PLAN-2026-012): nunca un $ 0 como si valiera.
+      unit === 'km' || unit === 'trip'
+        ? kit.toggle(h(
+          'div',
+          { class: 'banner banner-warning qe-incomplete qe-route-missing', role: 'status' },
+          h('div', {}, h('strong', {}, 'Falta definir la ruta/distancia para calcular este proveedor. '), `Su tarifa es ${unit === 'km' ? 'por km' : 'por viaje'} y la cotización no tiene km ni viajes: hasta definirla no suma costo.`),
+          h('div', { class: 'qe-toolbar' }, kit.out((r) => h('a', { class: 'btn btn-primary btn-sm', href: fieldHref(ctx.quoteId, routeFieldOf(r)) }, 'Definir la ruta'))),
+        ), (r) => Boolean(providerOf(r, i) && providerOf(r, i).noRoute))
+        : null,
+      // Distancia / actividad del proveedor y su tarifa ligada a la ruta (PLAN-2026-012).
+      unit === 'km' || unit === 'trip'
+        ? kit.out((r) => {
+          const pa = providerOf(r, i);
+          const t = transportOf(r);
+          if (!pa || pa.noRoute) return '';
+          return h('div', { class: 'qe-provider-line' },
+            h('p', { class: 'small' }, h('strong', {}, 'Distancia / actividad del proveedor: '), providerActivityText(pa, t)),
+            providerRouteText(pa, t) ? h('p', { class: 'small muted' }, providerRouteText(pa, t)) : null);
+        }, { tag: 'div', allowEmpty: true })
+        : null,
       // Asistente de completitud del externo.
       kit.out(() => {
         const items = externalChecklist(quote.equipment[i] || {});
@@ -784,7 +877,23 @@ export function render(container, ctx) {
           2,
           triField(`${p}.external.operatorIncluded`, 'Operador'),
           triField(`${p}.external.fuelIncluded`, 'Combustible'),
-          ext.fuelIncluded === false ? kit.num(`${p}.external.fuelLitersPerHour`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/h', hint: 'Se suma como combustible con el precio de la cotización.' }) : null,
+          // Combustible a tu cargo (PLAN-2026-012): por hora o por km FÍSICO de la ruta, nunca las dos.
+          ext.fuelIncluded === false
+            ? kit.select(`${p}.external.fuelMode`, {
+              label: '¿Cómo cargás el consumo?',
+              options: EXTERNAL_FUEL_MODES.map((m) => ({ value: m.id, label: m.label })),
+              structural: true,
+              hint: 'Un camión por km o por viaje: por km de ruta. Un equipo que trabaja por horas: por hora.',
+            })
+            : null,
+          ext.fuelIncluded === false && ext.fuelMode === 'per_100km'
+            ? kit.num(`${p}.external.fuelLitersPer100Km`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/100 km', hint: 'Sobre los km físicos de la ruta (viajes × km por viaje). Se suma como combustible, aparte de la tarifa.' })
+            : ext.fuelIncluded === false && ext.fuelMode === 'km_per_liter'
+              ? kit.num(`${p}.external.fuelKmPerLiter`, { label: 'Rendimiento', rule: 'quantity', unit: 'km/L', hint: 'Km por litro sobre los km físicos de la ruta. Se suma como combustible, aparte de la tarifa.' })
+              : ext.fuelIncluded === false
+                ? kit.num(`${p}.external.fuelLitersPerHour`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/h', hint: 'Se suma como combustible con el precio de la cotización.' })
+                : null,
+          ext.fuelIncluded === false ? kit.out((r) => (at(r) ? externalFuelText(r, at(r)) : ''), { tag: 'p', className: 'small qe-fuel-calc', allowEmpty: true }) : null,
           triField(`${p}.external.mobilizationIncluded`, 'Movilización (llevarlo y traerlo)'),
           ext.mobilizationIncluded === false ? kit.num(`${p}.external.mobilizationAmount`, { label: 'Movilización del proveedor por llamado (neta)', rule: 'money', unit: sym, hint: 'Lo que te cobra por llevarlo y traerlo en cada llamado.' }) : null,
           triField(`${p}.external.insuranceIncluded`, 'Seguro'),
@@ -793,13 +902,17 @@ export function render(container, ctx) {
       supplierTermGroup(i, line),
       kit.keyline({
         label: `Costo del ${acq === 'rented' ? 'alquiler' : 'servicio'} en el mes`,
-        value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
+        value: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'Falta la ruta' : at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
+        tone: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'red' : null),
         hint: (r) => {
           const x = at(r) && at(r).external;
           if (!x) return '';
+          if (providerOf(r, i) && providerOf(r, i).noRoute) return 'Falta definir la ruta/distancia para calcular este proveedor: hasta entonces no suma costo.';
           const fixed = x.fixedMonthly > 0 ? `Fijo: ${formatMoney(x.fixedMonthly)} por mes (trabaje o no). ` : '';
           const billed = x.netPerActivation > 0 ? `Facturado por llamado: ${formatNumber(x.billedUnitsPerActivation, { decimals: 2 })} × ${formatMoney(x.price)} × ${formatNumber(x.quantity, { decimals: 2 })} = ${formatMoney(x.netPerActivation)} neto. ` : '';
-          return `${fixed}${billed}Salida de caja con impuestos: ${formatMoney(x.cashPerActiveDay)} por día activo; el crédito fiscal (${formatMoney(x.creditPerActiveDay)}) no es costo.`;
+          // Combustible a tu cargo (no incluido en la tarifa): suma acá, pero va a Combustible.
+          const fuel = x.fuelPerActiveDay > 0 ? `Incluye combustible a tu cargo: ${formatMoney(x.fuelPerActiveDay * r.activity.activeDaysPerMonth)} por mes (en la estructura de costos va a Combustible). ` : '';
+          return `${fixed}${billed}${fuel}Salida de caja con impuestos: ${formatMoney(x.cashPerActiveDay)} por día activo; el crédito fiscal (${formatMoney(x.creditPerActiveDay)}) no es costo.`;
         },
         trace: (r) => {
           let impact = null;

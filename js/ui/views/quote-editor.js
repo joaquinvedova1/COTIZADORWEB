@@ -52,6 +52,8 @@ import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
+import { breakEvenZeroText } from '../result-text.js';
+import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { computeQuote } from '../../engines/quote-engine.js';
@@ -250,43 +252,7 @@ let stepChangeQuoteId = null;
 
 // ------------------------------------------------------------ utilidades puras
 
-/** Paso del flujo en el que vive un campo (ruta de validateQuote). */
-export function stepOfPath(path) {
-  const p = String(path || '');
-  const head = p.split('.')[0];
-  if (p === 'pricing.knownRate') return 'modality';
-  // Cómo llega cada equipo al servicio se define en Movilización y viajes.
-  if (/^equipment\.\d+\.mobilization(\.|$)/.test(p)) return 'logistics';
-  switch (head) {
-    case 'activity':
-    case 'pricingMode':
-    case 'unit':
-      return 'modality';
-    case 'labor':
-      return 'labor';
-    case 'equipment':
-      return 'equipment';
-    case 'materials':
-    case 'materialsNotApplicable':
-    case 'otherCosts':
-      return 'materials';
-    case 'logistics':
-    case 'fuel':
-      return 'logistics';
-    case 'indirect':
-      return 'indirect';
-    case 'finance':
-      return 'finance';
-    case 'risk':
-      return 'risk';
-    case 'pricing':
-    case 'rules':
-    case 'billingTaxes':
-      return 'margin';
-    default:
-      return 'service';
-  }
-}
+export { stepOfPath, fieldFromHash, fieldHref };
 
 /**
  * Paso de un ítem de completitud. El motor ubica "utilization" en el paso
@@ -974,6 +940,9 @@ function breakEvenText(r, { decimals = 1 } = {}) {
   const be = r.breakEven || {};
   if (be.notApplicable) return 'No aplica';
   if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
+  // Equilibrio en 0 (PLAN-2026-012): "Desde el primer viaje", nunca "0 viajes".
+  const zero = breakEvenZeroText(r, { compact: true });
+  if (zero) return zero;
   // Por cantidad (m³, viajes…; PLAN-2026-009): en la unidad comercial.
   if (isQuantityUnit(r)) return quantityCeilText(be.quantity, r);
   return formatDays(be.days, { decimals });
@@ -1294,7 +1263,7 @@ function buildSummary({ getResult, stepHref }) {
             'li',
             {},
             h('span', { class: ['dot', `dot-${p.color === 'red' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }),
-            h('div', {}, h('a', { href: stepHref(stepOfItem(p)) }, p.label), h('div', { class: 'qe-pending-msg' }, p.message)),
+            h('div', {}, h('a', { href: p.focus ? stepHref(stepOfPath(p.focus), p.focus) : stepHref(stepOfItem(p)) }, p.label), h('div', { class: 'qe-pending-msg' }, p.message)),
           )),
           pending.length > 3 ? h('li', { class: 'qe-pending-more' }, `y ${pending.length - 3} más (ver el estado de cada etapa)`) : null,
         );
@@ -1539,15 +1508,10 @@ export function pendingFieldPath(item, quote) {
       const i = firstIndex(listOf(logistics.vehicles), (v) => !positive(v.count));
       return i < 0 ? null : `logistics.vehicles.${i}.count`;
     }
-    case 'fuel': {
-      const fuel = isPlainObject(q.fuel) ? q.fuel : {};
-      if (!fuel.providedBy) return 'fuel.providedBy';
-      if (fuel.providedBy !== 'client' && !positive(fuel.pricePerLiter)) return 'fuel.pricePerLiter';
-      // Consumo de los vehículos (en este paso); el de los equipos está en Equipos.
-      const vehicles = listOf(q.logistics && q.logistics.vehicles);
-      const i = firstIndex(vehicles, (v) => !positive(v.consumptionLPer100Km));
-      return i < 0 ? null : `logistics.vehicles.${i}.consumptionLPer100Km`;
-    }
+    case 'fuel':
+    case 'external_route':
+      // El motor dice cuál es el campo exacto (PLAN-2026-012).
+      return typeof item.focus === 'string' ? item.focus : null;
     default:
       return null;
   }
@@ -1569,9 +1533,9 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
     if (key && typeof onReveal === 'function') return goButton('Ir al campo', () => onReveal(key));
     const path = pendingFieldPath(item, quote);
     if (path && typeof onFocusField === 'function' && hasField(path)) return goButton('Ir al campo', () => onFocusField(path));
-    // Consumo de combustible de los equipos: se carga en Equipos.
-    if (item.id === 'fuel' && stepId !== 'equipment' && typeof stepHref === 'function' && listOf(quote && quote.equipment).length > 0) {
-      return h('a', { class: 'qe-notice-go', href: stepHref('equipment') }, `Ir a ${stepName('equipment')}`);
+    // El campo está en otro paso (PLAN-2026-012): enlace que lo enfoca. Sin campo exacto, sin botón.
+    if (item.focus && typeof stepHref === 'function' && stepOfPath(item.focus) !== stepId) {
+      return h('a', { class: 'qe-notice-go', href: stepHref(stepOfPath(item.focus), item.focus) }, `Ir al campo (${stepName(stepOfPath(item.focus))})`);
     }
     return null;
   };
@@ -1639,7 +1603,7 @@ function resultFallback(result, error) {
 
 // ------------------------------------------------------------------ editor
 
-function createEditor(root, app, { quote, settings, resources, stepId, restoredDraft = false, revealStep = false }) {
+function createEditor(root, app, { quote, settings, resources, stepId, restoredDraft = false, revealStep = false, focusPath = null }) {
   const quoteId = quote.id;
   const readOnly = Boolean(app.ctx && app.ctx.init && app.ctx.init.readOnly);
   // Sin almacenamiento persistente (modo memoria) no hay que decir "Guardado".
@@ -1669,7 +1633,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     if (app && typeof app.navigate === 'function') app.navigate(hash);
     else window.location.hash = hash;
   };
-  const stepHref = (id) => `#/cotizaciones/${encodeURIComponent(quoteId)}/${id}`;
+  const stepHref = (id, field = null) => (field ? fieldHref(quoteId, field) : `#/cotizaciones/${encodeURIComponent(quoteId)}/${id}`);
 
   // ------------------------------------------------------------- cálculo
   function recompute() {
@@ -2712,7 +2676,14 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       renderStep();
       refreshAll();
       revealCurrentStep();
-      if (revealStep) revealStepHead();
+      // "Completar" de un pendiente (PLAN-2026-012): lleva al campo exacto
+      // (…/<paso>?campo=<ruta>), sólo si el paso dibuja ese campo. Tiene
+      // prioridad sobre llevar la vista al encabezado del paso.
+      if (focusPath && stepId !== 'result') {
+        setTimeout(() => {
+          if (!state.disposed) focusField(focusPath);
+        }, 0);
+      } else if (revealStep) revealStepHead();
       layout.addEventListener('input', onFieldInput);
       layout.addEventListener('change', onFieldChange);
       mainEl.addEventListener('focusin', onFormFocus);
@@ -2794,6 +2765,7 @@ export async function render(root, app, params = {}) {
     return undefined;
   }
   const stepId = validStep ? requested : 'service';
+  const focusPath = fieldFromHash(typeof window !== 'undefined' && window.location ? window.location.hash : '');
 
   // Un editor anterior (otro paso u otra cotización) guarda antes de seguir.
   if (activeEditor) await activeEditor.dispose();
@@ -2833,7 +2805,7 @@ export async function render(root, app, params = {}) {
 
   // Cambios que no se pudieron guardar antes (p. ej. almacenamiento lleno).
   const draft = unsavedDrafts.get(id);
-  const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft), revealStep });
+  const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft), revealStep, focusPath });
   activeEditor = editor;
   editor.mount();
   return () => {

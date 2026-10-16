@@ -295,6 +295,16 @@ export const EXTERNAL_UNITS = deepFreeze([
   { id: 'global', label: 'Global (todo el contrato)', short: ' global' },
 ]);
 
+/**
+ * Cómo se carga el consumo de un externo cuyo combustible pagás (PLAN-2026-012).
+ * Por km: sobre los km FÍSICOS de la ruta (viajes × km por viaje).
+ */
+export const EXTERNAL_FUEL_MODES = deepFreeze([
+  { id: 'per_hour', label: 'Por hora trabajada (L/h)', unit: 'L/h' },
+  { id: 'per_100km', label: 'Por km de ruta (L/100 km)', unit: 'L/100 km' },
+  { id: 'km_per_liter', label: 'Rendimiento (km por litro)', unit: 'km/L' },
+]);
+
 /** ¿El IVA que cobra el proveedor es recuperable (crédito fiscal) para tu empresa? */
 export const VAT_RECOVERY = deepFreeze([
   { id: 'yes', label: 'Sí, lo recupero (crédito fiscal)' },

@@ -15,6 +15,23 @@ import { INDIRECT_METHODS, labelOf } from '../../../domain/catalogs.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
+import { stepName } from './shared.js';
+
+/**
+ * Impuestos sobre lo que facturás ≠ gastos de estructura (PLAN-2026-012).
+ * RATEOS no trae alícuotas: sólo evita que el mismo impuesto se cargue en
+ * las dos capas (como rubro de estructura y como impuesto sobre la facturación).
+ */
+const BILLING_TAX_WORDS = /ingresos\s+brutos|\biibb\b|impuesto\s+al\s+cheque|d[eé]bitos?\s+y\s+cr[eé]ditos|\bsellos\b|impuestos?\s+sobre\s+(la\s+)?factura/i;
+
+/** ¿El nombre de un rubro parece un impuesto sobre la facturación? */
+export function looksLikeBillingTax(label) {
+  return BILLING_TAX_WORDS.test(String(label || ''));
+}
+
+function taxesNote() {
+  return h('p', { class: 'qe-note' }, `No incluyas acá Ingresos Brutos, el impuesto al cheque ni sellos: son impuestos sobre lo que facturás y van en "${stepName('margin')}" → Impuestos sobre lo que facturás. Cargados en los dos lados se cuentan dos veces.`);
+}
 
 const METHOD_HINTS = Object.freeze({
   percent_direct: 'Se suma un % sobre todos los costos directos (personal, equipos, combustible, materiales y logística). Es un método simple, una forma práctica de empezar.',
@@ -65,7 +82,8 @@ function baseOf(result) {
   const method = result.model.structure.method;
   if (method === 'percent_direct') return DIRECT_CATEGORIES.reduce((s, c) => s + (rowOf(result, c) ? rowOf(result, c).amount : 0), 0);
   if (method === 'percent_labor') return rowOf(result, 'labor') ? rowOf(result, 'labor').amount : 0;
-  if (method === 'per_employee') return result.model.labor.headcount;
+  // Dotación equivalente (una persona compartida cuenta por su %), igual que el motor (PLAN-2026-012).
+  if (method === 'per_employee') return result.model.labor.effectiveHeadcount ?? result.model.labor.headcount;
   if (method === 'per_hour') return result.activity.hoursPerActiveDay * result.activity.activeDaysPerMonth;
   return null;
 }
@@ -90,7 +108,7 @@ function structureTrace(result) {
   const formula = {
     percent_direct: 'Estructura = % × costos directos (personal + equipos + combustible + materiales + logística)',
     percent_labor: 'Estructura = % × costo de mano de obra',
-    per_employee: 'Estructura = monto por empleado × dotación',
+    per_employee: 'Estructura = monto por empleado × dotación (una persona compartida cuenta por el % asignado)',
     per_contract: 'Estructura = monto mensual del contrato',
     per_hour: 'Estructura = monto por hora × horas por día activo × días activos',
     manual: 'Estructura = monto mensual manual',
@@ -202,11 +220,22 @@ function detailedCard(ctx) {
       rows: items,
     })
     : emptyState('Todavía no hay rubros. Agregá uno o usá la política de tu empresa.');
+  // Un rubro que parece un impuesto sobre la facturación (PLAN-2026-012): se avisa, no se corrige solo.
+  const taxLike = kit.out((r) => {
+    const names = items.filter((it) => it && looksLikeBillingTax(it.label)).map((it) => `"${String(it.label).trim()}"`);
+    if (!names.length) return '';
+    const both = r && r.kpis && r.kpis.billingTaxesDefined && r.kpis.billingTaxPct > 0;
+    return h('p', { class: 'qe-warn' }, both
+      ? `Posible doble conteo: ${names.join(', ')} parece un impuesto sobre la facturación y además cargaste ${formatPercent(r.kpis.billingTaxPct)} en "${stepName('margin')}". Dejalo en un solo lugar.`
+      : `${names.join(', ')} parece un impuesto sobre la facturación: se calcula mejor sobre lo que facturás, en "${stepName('margin')}" → Impuestos sobre lo que facturás (no como % del costo).`);
+  }, { tag: 'div', allowEmpty: true });
   return h(
     'div',
     { class: 'stack' },
     h('p', { class: 'qe-note' }, 'Cada rubro con su propio criterio (por ejemplo: administración como % del costo directo, HSE y sistemas por empleado, alquiler de base por contrato). Los porcentajes y montos son tuyos: RATEOS no trae valores.'),
+    taxesNote(),
     rowsTable,
+    taxLike,
     h(
       'div',
       { class: 'qe-toolbar' },
@@ -275,6 +304,7 @@ export function render(container, ctx) {
     modeWrap,
     formGrid(2, valueField),
     kit.explain('Una forma simple de estimar el %: sumá los gastos mensuales de estructura de tu empresa y dividilos por el costo directo mensual de todos tus servicios.'),
+    taxesNote(),
     kit.keyline({
       label: 'Gastos de estructura que absorbe este servicio',
       value: (r) => `${formatMoney(absorptionAtEstimate(r))} por mes`,

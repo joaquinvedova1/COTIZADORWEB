@@ -24,6 +24,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
+import { transportStats } from './transport.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -108,6 +109,19 @@ function askUnitChange({ from, to, fromUnit, rates, convertible, hours }) {
 export function render(container, ctx) {
   const { quote, kit, settings } = ctx;
   const info = billingUnitOf(quote);
+  // Unidad "viaje" (PLAN-2026-012): los viajes físicos por intervención se
+  // derivan de los viajes por día × días por intervención. Al editar esos
+  // datos se deja el mismo número en "Viajes por llamado" (que con esta unidad
+  // no rige), así nunca queda un dato viejo distinto.
+  const tripUnit = info.id === 'trip' && info.kind === 'quantity';
+  const syncRouteTrips = () => {
+    if (!tripUnit) return;
+    const perDay = Number(kit.get('activity.unitsPerActiveDay'));
+    const dpaRaw = kit.get('activity.daysPerActivation');
+    const dpa = dpaRaw === null || dpaRaw === undefined || dpaRaw === '' ? 1 : Number(dpaRaw);
+    if (!(Number.isFinite(perDay) && perDay > 0) || !(Number.isFinite(dpa) && dpa > 0)) return;
+    ctx.update('logistics.tripsPerActivation', perDay * dpa);
+  };
   const texts = unitTexts(info);
   const kind = info.kind;
   // Por cantidad (m³, viajes, turnos…) o por evento (llamados, trabajos, hitos):
@@ -324,8 +338,11 @@ export function render(container, ctx) {
         rule: 'quantity',
         unit: texts.perDay,
         requiredMark: true,
-        placeholder: 'Ej.: 500',
-        hint: 'Lo que hacés en un día de trabajo (rendimiento). Con esto se calculan los días de trabajo: lo que consume personal, equipos y combustible.',
+        placeholder: tripUnit ? 'Ej.: 2' : 'Ej.: 500',
+        hint: tripUnit
+          ? 'Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo (personal, equipos) y los viajes por intervención; los km del mes salen de los viajes que facturás.'
+          : 'Lo que hacés en un día de trabajo (rendimiento). Con esto se calculan los días de trabajo: lo que consume personal, equipos y combustible.',
+        onValue: () => syncRouteTrips(),
       }),
     );
   }
@@ -400,6 +417,8 @@ export function render(container, ctx) {
         hourly ? hoursField() : null,
       ),
     byQuantity ? quantityKeyline : daysKeyline,
+    // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
+    tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,
     // PLAN-2026-011: cada salida completa (apagado por defecto). Sólo los costos
     // físicamente indivisibles por salida; producción y facturación no cambian.
     h('div', { class: 'qe-full-activations' },
@@ -443,7 +462,10 @@ export function render(container, ctx) {
             label: 'Duración promedio de cada salida / intervención',
             rule: 'positiveDays',
             unit: 'días',
-            hint: 'Dato OPERATIVO (no es la unidad que cobrás): cuántos días de trabajo seguidos dura cada salida. Cuenta las movilizaciones y el mínimo por llamado. Ej.: 20 días de trabajo ÷ 2 días por intervención = 10 intervenciones por mes. Si es 1, cada día de trabajo es una salida.',
+            hint: tripUnit
+              ? 'Dato OPERATIVO: cuántos días de trabajo seguidos dura cada salida. Viajes por intervención = viajes por día × estos días. Si es 1, cada día de trabajo es una salida.'
+              : 'Dato OPERATIVO (no es la unidad que cobrás): cuántos días de trabajo seguidos dura cada salida. Cuenta las movilizaciones y el mínimo por llamado. Ej.: 20 días de trabajo ÷ 2 días por intervención = 10 intervenciones por mes. Si es 1, cada día de trabajo es una salida.',
+            onValue: () => syncRouteTrips(),
           })
           : null,
       ),

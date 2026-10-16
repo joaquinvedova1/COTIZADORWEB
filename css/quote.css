@@ -716,3 +716,15 @@
 .qe-full-activations { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem; padding-top: 0.6rem; border-top: 1px solid var(--line-2); }
 .qe-full-activations .qe-note { margin: 0; }
 .qe-note.is-warning { color: var(--orange-text); }
+
+/* Viajes y km del mes (PLAN-2026-012): ruta, viajes por intervención y proveedores por km o por viaje. */
+.qe-route-line { margin: 0.35rem 0 0; overflow-wrap: anywhere; }
+.qe-trips-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; margin-top: 0.5rem; padding: 0.55rem 0.75rem; border-radius: var(--radius-sm); background: var(--orange-50); }
+.qe-trips-notice p { margin: 0; flex: 1 1 260px; }
+.qe-provider-line { margin-top: 0.4rem; }
+.qe-provider-line p { margin: 0.15rem 0 0; overflow-wrap: anywhere; }
+.qe-provider-activity { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.86rem; }
+.qe-provider-activity li { margin: 0.2rem 0; overflow-wrap: anywhere; }
+.qe-provider-activity li.is-missing, .qe-warn-text { color: var(--red-text); }
+.qe-provider-route { display: block; }
+.qe-fuel-calc { margin: 0.2rem 0 0; grid-column: 1 / -1; overflow-wrap: anywhere; }

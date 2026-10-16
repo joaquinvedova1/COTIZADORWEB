@@ -3,7 +3,7 @@
 > **RECURSO MAESTRO ≠ SNAPSHOT DE COTIZACIÓN.**
 > Recursos es el maestro de la empresa. Cada cotización guarda una copia de los valores que usó (snapshot). Cambiar un recurso **nunca** cambia una cotización hecha: la cotización avisa y la persona decide.
 
-Plan: [PLAN-2026-005](../.agent/PLANS.md). Fórmulas: [CALCULATION_RULES.md](CALCULATION_RULES.md) §4.1, §5.1, §6.1 y §19. Esquema: [DATA_MODEL.md](DATA_MODEL.md) (v3).
+Plan: [PLAN-2026-005](../.agent/PLANS.md) (asignación y "Usado en": PLAN-2026-012). Fórmulas: [CALCULATION_RULES.md](CALCULATION_RULES.md) §4.1, §4.2, §5.1, §5.2, §6.1 y §19. Esquema: [DATA_MODEL.md](DATA_MODEL.md) (v3).
 
 ## 1. Qué es cada cosa
 
@@ -90,7 +90,9 @@ RATEOS **no trae alícuotas** y **no suma impuestos indiscriminadamente**:
 | Operador incluido en la tarifa y además asignado de Personal | Aviso en la línea + regla `duplicates`. |
 | Chofer agregado cuando maneja el operador | "Maneja su operador" no suma mano de obra; la traza lo explica. |
 | Amortización también en $/km | El desgaste por km excluye amortización (texto y traza). |
-| Combustible trabajando (L/h) y en ruta (L/100 km) | Son consumos distintos y se muestran separados; un alquilado con combustible incluido no suma combustible. |
+| Combustible trabajando (L/h) y en ruta (L/100 km) | Son consumos distintos y se muestran separados; un alquilado con combustible incluido no suma combustible. Un externo con consumo por km (PLAN-2026-012) usa los km físicos de la ruta: no suma además L/h ni combustible en ruta de su movilización. |
+| Viajes de la ruta distintos de los que se venden ($/viaje) | Con la unidad "viaje" los viajes por intervención se derivan de los viajes por día (PLAN-2026-012): 12 viajes facturables recorren siempre los mismos km. |
+| Recurso compartido contado entero en cada contrato | Asignación en la línea de la cotización (§9): % explícito de los costos fijos; "Usado en" suma lo adjudicado y avisa si supera el 100 %. |
 | Movilización del proveedor y modo propio a la vez | Externo con movilización incluida → 0 en movilización. Si el proveedor la cobra aparte y además se eligió "por sus propios medios", la regla `duplicates` y la fila de movilización lo advierten (elegí "No requiere movilización" si la hace el proveedor). |
 | IVA como costo | Sólo el IVA no recuperable es costo; el resto se informa aparte. |
 | Alquiler como activo propio | Un externo no tiene amortización, seguro ni costo de capital. |
@@ -109,3 +111,9 @@ RATEOS **no trae alícuotas** y **no suma impuestos indiscriminadamente**:
 - Cotizaciones: moneda de la empresa, fecha de la oferta = fecha de creación, sin tipos de cambio.
 - Una cotización v0 sin fecha de creación queda **sin fecha de oferta** (la fecha que completa la migración no se toma como dato). Sin fecha de oferta, el resumen y la completitud lo avisan (nunca se usa "hoy" ni la fecha de creación).
 - Copia de recuperación previa. En staging (`/preview/`) y en el servidor local se pide confirmación antes de actualizar el formato de los datos de la cuenta (y antes de crear el espacio de una cuenta nueva); si no, se abren en sólo lectura sin escribir nada.
+
+## 9. Asignación a la cotización y "Usado en" (PLAN-2026-012)
+
+La **asignación** (dedicado / reservado / compartido / contratado para el servicio y el % de costos fijos) es un dato de la **línea de la cotización**, nunca del recurso maestro: el mismo camión puede estar reservado 100 % para un contrato y compartido al 30 % en otra oferta. Sin dato = 100 % (nada cambia). El uso real (días, horas, km) mueve sólo los costos variables; los pocos días de uso **no** reducen solos la amortización, el seguro ni el sueldo (concepto aprobado en PLAN-2026-006 §3.1). Fórmulas: [CALCULATION_RULES.md §4.2](CALCULATION_RULES.md#42-recursos-compartidos--de-los-costos-fijos-plan-2026-012-opcional).
+
+**"Usado en"** (Recursos → Personal, Equipos y Servicios externos): lista cada cotización que usa el recurso (vínculo por `snapshot.resourceId` o `sourceId`), con su estado y su % asignado (personas o unidades × %). Ganadas = **compromiso real**; borradores y enviadas = **uso potencial**; perdidas y archivadas no cuentan. Si lo adjudicado supera el 100 % se avisa ("si es una sola persona / un solo equipo, está asignado de más"), sin bloquear. No es un módulo de contratos ni un calendario de flota.
