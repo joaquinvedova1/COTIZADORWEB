@@ -32,6 +32,15 @@ describe('Beta Security Gate', () => {
     assert.equal(human.length, HUMAN_DECISIONS.length);
     assert.ok(human.every((r) => /^HD-\d+$/.test(r.id) && r.details[0]));
   });
+
+  test('HD-01, HD-02 y HD-03 son requisitos obligatorios antes de usuarios reales (decisión del dueño) y siguen pendientes', async () => {
+    const verdict = gateVerdict(await runSecurityChecks());
+    assert.deepEqual(verdict.requiredBeforeRealUsers.map((r) => r.id), ['HD-01', 'HD-02', 'HD-03']);
+    assert.ok(verdict.requiredBeforeRealUsers.every((r) => r.status === 'human' && /^Requisito obligatorio antes de habilitar usuarios reales/.test(r.details[0])));
+    assert.match(verdict.requiredBeforeRealUsers[0].details[0], /dominio propio/);
+    assert.match(verdict.requiredBeforeRealUsers[1].details[0], /origen y en base de datos, o \/preview\/ deshabilitado/);
+    assert.match(verdict.requiredBeforeRealUsers[2].details[0], /registro cerrado o por invitación/);
+  });
 });
 
 describe('Beta Security Gate: los detectores detectan', () => {

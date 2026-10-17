@@ -114,7 +114,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-012 | Pulido desde casos reales de transporte (COT-0010 / COT-0011): viajes físicos, km del proveedor, combustible, recursos compartidos y "Usado en" | motor de costos, utilización, migración | Completado (v0.7.2) |
 | PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | Completado (main `37179e7`) |
 | PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Completado (PR #24 mergeado, main `0c213a3`, v0.8.0 en producción) |
-| PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | En curso (rama `claude/rateos-beta-security-v1`, sin merge) |
+| PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado — v0.8.1 (merge del PR #25 autorizado por el dueño); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 
 ### Pendientes registrados (sin implementar)
 
@@ -990,7 +990,7 @@ Revert del PR; los datos v10 sólo agregan campos opcionales (una versión anter
 
 ### PLAN-2026-015 — Beta Readiness v1: seguridad, tenancy, integridad y privacidad
 
-- Estado: En curso — rama `claude/rateos-beta-security-v1` (desde `main` `0c213a3`, v0.8.0, esquema 10); PR sin merge (sin merge ni publicación sin autorización del dueño)
+- Estado: Completado — el dueño autorizó (2026-10-17) el cierre y merge del PR #25 como **v0.8.1** (parche, esquema 10), desde la rama `claude/rateos-beta-security-v1` (base `main` `0c213a3`, v0.8.0; tag `v0.8.0`). **Beta con empresas externas: no iniciada** (decisión del dueño): HD-01, HD-02 y HD-03 son requisitos obligatorios antes de habilitar usuarios reales. El SHA del merge se anota en la próxima tarea (no se escribe en `main` directo).
 - Tipo: backend, autenticación, otro (seguridad y privacidad; sin fórmulas nuevas)
 - Responsable: agente de desarrollo (Claude) · decisiones de permisos e infraestructura: el dueño
 - Fecha de inicio: 2026-10-17
@@ -1001,7 +1001,7 @@ Antes de una beta cerrada con empresas reales hay que probar que una empresa nun
 #### 2. Objetivo y no-objetivos
 - Objetivo: inventario real de la base, tests de negación A/B en la base, auditoría del navegador (sesión, pestañas, import/export, recuperación, logs), correcciones claras con un test que falla antes, Beta Security Gate reproducible y lista de decisiones del dueño.
 - Fuera de alcance (pedido del dueño): historial/revisiones, billing, créditos beta, landing pública, modalidades nuevas, fórmulas nuevas, IA. Ninguna política se "arregla" sola si el modelo de permisos es ambiguo (HUMAN DECISION).
-- Housekeeping: PLAN-2026-014 → completado (PR #24, `main` `0c213a3`, v0.8.0). **Tag `v0.8.0`:** la política (DEPLOYMENT.md §6) usa tags sólo para hitos y como punto natural de rollback, pero **no existe ningún tag** en el repo (tampoco `v0.1.0`). Aporta un punto de retorno con nombre para la versión que llega a la beta (el rollback manual también acepta SHAs, así que no es imprescindible). Propuesta: `git tag -a v0.8.0 0c213a3 -m "RATEOS v0.8.0"` — **no creado**: espera la decisión del dueño.
+- Housekeeping: PLAN-2026-014 → completado (PR #24, `main` `0c213a3`, v0.8.0). **Tag `v0.8.0`:** la política (DEPLOYMENT.md §6) usa tags sólo para hitos y como punto natural de rollback, pero **no existe ningún tag** en el repo (tampoco `v0.1.0`). Aporta un punto de retorno con nombre para la versión que llega a la beta (el rollback manual también acepta SHAs, así que no es imprescindible). Propuesta: `git tag -a v0.8.0 0c213a3 -m "RATEOS v0.8.0"`. **Decisión del dueño (2026-10-17):** crearlo exactamente sobre `0c213a3` y no moverlo nunca; creado en el cierre (ver bitácora).
 
 #### 3. Impacto en fórmulas
 Ninguno. No se tocan motores; golden 39/39 sin cambios.
@@ -1047,3 +1047,4 @@ Revert del PR. No hay migraciones ni cambio de esquema; una versión anterior si
 - 2026-10-17: reproducidos contra `main` BS-01 (nube dañada → espacio vacío subido), BS-02 (pestaña que borra la copia pendiente de otra) y BS-07 (`organizationId` del cliente guardado).
 - 2026-10-17: tests SQL en la base real: 132 + 40 + 32 controles en verde; sin restos (conteos iguales). El plugin de Supabase pide confirmación para DELETE: el test se rediseñó para no ejecutar ningún DELETE como `postgres` (savepoint) en lugar de saltear ese control.
 - 2026-10-17: correcciones BS-01…BS-09 (BS-08 y BS-09: "Conservar una copia" con la versión actual y cupo propio para copias de cambios sin subir); gate en verde (contra `main` falla en SEC-05/06/07/08). E2E 574/574 (16 controles nuevos de sesión).
+- 2026-10-17 (cierre, autorización del dueño con condiciones): versión de parche **0.8.1** con esquema 10 y CHANGELOG `[0.8.1]` (BS-01…BS-09 con su clasificación); tag `v0.8.0` creado sobre `0c213a3` (no se mueve nunca); HD-01 (dominio propio), HD-02 (staging separado en origen y base, o `/preview/` deshabilitado) y HD-03 (registro cerrado o por invitación) registrados como requisitos obligatorios antes de habilitar usuarios reales (AGENTS.md §13, BETA_SECURITY.md §6; el gate los rotula REQUISITO pendiente, sin bloquear el CI del código); no se inicia la beta con empresas externas; sin funcionalidades nuevas ni cambios en motores. Antes del release se volvieron a correr los tres SQL en la base real (23:44 UTC): 132 + 40 + 32 = 204 controles en verde; sin restos (conteos, revisión máxima y fecha del último guardado iguales antes y después). Qué corre dónde: BETA_SECURITY.md §3 (base real a mano / Supabase simulado / navegador / estático en CI).

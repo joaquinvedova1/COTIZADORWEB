@@ -486,28 +486,36 @@ async function dynamicChecks() {
 
 // -------------------------------------------------- decisiones del dueño
 
-/** Riesgos que no se "arreglan" solos: decide el dueño (no bloquean el gate). */
+/**
+ * Riesgos que no se "arreglan" solos: decide el dueño (no bloquean el gate).
+ * `requiredBeforeRealUsers`: el dueño ya decidió que es un requisito obligatorio
+ * antes de habilitar usuarios reales (2026-10-17); se informa como pendiente
+ * hasta que se cumpla en la infraestructura (no es un control del código).
+ */
 export const HUMAN_DECISIONS = Object.freeze([
   {
     id: 'HD-01',
     severity: 'P1',
     category: 'SECURITY',
+    requiredBeforeRealUsers: true,
     title: 'Origen compartido joaquinvedova1.github.io: todo sitio de GitHub Pages de esa cuenta comparte localStorage con RATEOS (sesión de Supabase incluida)',
-    recommendation: 'Antes de la beta con empresas reales: dominio propio para RATEOS (y verificar que ningún otro repo de la cuenta publique Pages mientras tanto).',
+    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): dominio propio para producción. Mientras tanto, verificar que ningún otro repo de la cuenta publique Pages.',
   },
   {
     id: 'HD-02',
     severity: 'P1',
     category: 'SECURITY',
+    requiredBeforeRealUsers: true,
     title: 'Staging (/preview/) comparte origen y base de datos con producción: el código de cualquier rama con CI verde corre junto a las sesiones y los datos reales',
-    recommendation: 'Proyecto (o branch) de Supabase separado para staging, o no abrir /preview/ con cuentas de empresas reales.',
+    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): staging separado de producción en origen y en base de datos, o /preview/ deshabilitado temporalmente.',
   },
   {
     id: 'HD-03',
     severity: 'P1',
     category: 'SECURITY',
+    requiredBeforeRealUsers: true,
     title: 'El registro está abierto: cualquiera puede crear una cuenta en una beta "cerrada" (no expone datos de otras empresas: cada cuenta nace con su propia empresa)',
-    recommendation: 'Decidir si se cierra el alta (Supabase Auth → desactivar signups y dar de alta a mano, o lista de emails permitidos).',
+    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): registro cerrado o por invitación.',
   },
   {
     id: 'HD-04',
@@ -556,7 +564,10 @@ export const HUMAN_DECISIONS = Object.freeze([
 /** Corre todos los controles. */
 export async function runSecurityChecks() {
   const results = [...staticChecks(), ...(await dynamicChecks())];
-  const human = HUMAN_DECISIONS.map((d) => ({ id: d.id, title: d.title, severity: d.severity, category: d.category, status: 'human', details: [d.recommendation] }));
+  const human = HUMAN_DECISIONS.map((d) => ({
+    id: d.id, title: d.title, severity: d.severity, category: d.category, status: 'human',
+    requiredBeforeRealUsers: d.requiredBeforeRealUsers === true, details: [d.recommendation],
+  }));
   return [...results, ...human].sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
 }
 
@@ -564,5 +575,6 @@ export async function runSecurityChecks() {
 export function gateVerdict(results) {
   const blocking = results.filter((r) => r.status === 'fail' && (r.severity === 'P0' || r.severity === 'P1'));
   const warnings = results.filter((r) => r.status === 'fail' && r.severity === 'P2');
-  return { ok: blocking.length === 0, blocking, warnings, human: results.filter((r) => r.status === 'human') };
+  const human = results.filter((r) => r.status === 'human');
+  return { ok: blocking.length === 0, blocking, warnings, human, requiredBeforeRealUsers: human.filter((r) => r.requiredBeforeRealUsers) };
 }

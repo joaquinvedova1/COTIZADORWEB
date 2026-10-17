@@ -191,6 +191,7 @@ Nunca: force push a `main`, borrar commits publicados ni subir archivos a mano a
   ```
 - Para un hito nuevo: actualizar `version` en `package.json` y la sección del [CHANGELOG.md](../CHANGELOG.md) en el mismo PR; después del merge, crear el tag.
 - Los tags son el punto de retorno natural del rollback (método 2).
+- Tags existentes: `v0.8.0` → `0c213a3` (2026-10-17, decisión del dueño: punto de retorno previo a v0.8.1). Un tag publicado **no se mueve ni se borra**: si hace falta otro punto de retorno, se crea un tag nuevo.
 
 ## 7. Qué pasa con los datos de los usuarios en cada deploy
 

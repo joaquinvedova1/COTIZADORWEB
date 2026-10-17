@@ -7,6 +7,8 @@ Proyecto: **RATEOS** (`dltlnizvnvnefgbzfftu`, us-east-1). URL pública: `https:/
 - `tests/beta_security_test.sql` — **Beta Security Gate** (PLAN-2026-015): negación entre empresas A→B y B→A con los IDs reales de la otra (leer, escribir, borrar, altas con `organization_id` ajeno, upsert, columnas de control, filtros manipulados, búsqueda por contenido), roles dentro de una empresa, un miembro quitado, un RATEOS ADMIN sintético (metadata sí, contenido no), anon, un JWT sin usuario y el catálogo en vivo (RLS, grants, `security definer`, Storage, Realtime). Mismo mecanismo (todo se deshace, sin DELETE como postgres). Resultado esperado: `BETA_SECURITY_TESTS_PASSED: <n> controles`.
 - `tests/rls_admin_test.sql` — tests del rol de plataforma **RATEOS ADMIN** (bootstrap del master sólo con email confirmado y de un solo uso; metadata/claims que no dan admin; usuario normal y anon sin acceso; admin con metadata pero sin el workspace de otra empresa). Mismo mecanismo (todo se deshace). Resultado esperado: `ADMIN_TESTS_PASSED: <n> controles`.
 
+Los tres se corren **a mano** (plugin/MCP `execute_sql` o `psql` como `postgres`) después de cada migración y antes de cada release: **no corren en CI**, que no tiene credenciales de la base a propósito (en CI el Beta Security Gate sólo verifica que los archivos existan, cubran lo previsto y siempre deshagan). Última ejecución: 2026-10-17 23:44 UTC, antes de v0.8.1 — 132 + 40 + 32 = 204 controles en verde, sin restos.
+
 Con la CLI (opcional):
 
 ```bash

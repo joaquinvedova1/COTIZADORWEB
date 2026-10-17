@@ -13,7 +13,9 @@
  *    en reports/security/latest/). reports/ está ignorado por git.
  *
  * Código de salida 1 si falla algún control P0/P1 o algún test. Las
- * decisiones del dueño (HD-…) se informan siempre y no bloquean.
+ * decisiones del dueño (HD-…) se informan siempre y no bloquean; las que el
+ * dueño ya fijó como requisito antes de habilitar usuarios reales (HD-01,
+ * HD-02, HD-03) se rotulan REQUISITO y se listan como pendientes.
  *
  * La negación real entre empresas se prueba EN LA BASE (no se puede desde CI
  * sin credenciales): supabase/tests/beta_security_test.sql, rls_test.sql y
@@ -69,7 +71,9 @@ function runTests() {
   return { files: SECURITY_TEST_FILES.length, tests: num('tests'), pass: num('pass'), fail: num('fail'), cancelled: num('cancelled'), exitCode: res.status, failures };
 }
 
-const ICON = Object.freeze({ pass: 'OK', fail: 'FALLA', human: 'DECISIÓN' });
+const ICON = Object.freeze({ pass: 'OK', fail: 'FALLA', human: 'DECISIÓN', required: 'REQUISITO' });
+/** Una decisión del dueño que ya es requisito obligatorio antes de usuarios reales se rotula REQUISITO. */
+const label = (r) => ICON[r.requiredBeforeRealUsers ? 'required' : r.status];
 
 function toMarkdown(report) {
   const lines = [];
@@ -77,6 +81,9 @@ function toMarkdown(report) {
   lines.push('');
   lines.push(`- Commit: \`${report.commit}\` · fecha: ${report.date}`);
   lines.push(`- Veredicto: **${report.ok ? 'PASA' : 'NO PASA'}** (P0/P1 en falla: ${report.blocking.length}; P2 en falla: ${report.warnings.length}; decisiones del dueño: ${report.human.length})`);
+  if (report.requiredBeforeRealUsers.length) {
+    lines.push(`- Requisitos obligatorios antes de habilitar usuarios reales (decisión del dueño), pendientes: ${report.requiredBeforeRealUsers.join(', ')}. No bloquean este gate del código; sí bloquean habilitar usuarios reales.`);
+  }
   lines.push(`- Tests del gate: ${report.tests.pass}/${report.tests.tests} en verde (${report.tests.files} archivos)${report.tests.fail ? ` — **${report.tests.fail} fallan**` : ''}`);
   lines.push('- Negación real entre empresas: en la base (supabase/tests/*.sql), ver docs/BETA_SECURITY.md.');
   lines.push('');
@@ -84,7 +91,7 @@ function toMarkdown(report) {
   lines.push('|---|---|---|---|---|');
   for (const r of report.results) {
     const detail = r.details.join(' · ').replace(/\|/g, '\\|');
-    lines.push(`| ${r.id} — ${r.title.replace(/\|/g, '\\|')} | ${r.severity} | ${r.category} | ${ICON[r.status]} | ${detail} |`);
+    lines.push(`| ${r.id} — ${r.title.replace(/\|/g, '\\|')} | ${r.severity} | ${r.category} | ${label(r)} | ${detail} |`);
   }
   if (report.tests.failures.length) {
     lines.push('');
@@ -114,6 +121,7 @@ const report = {
   blocking: verdict.blocking.map((r) => r.id),
   warnings: verdict.warnings.map((r) => r.id),
   human: verdict.human.map((r) => r.id),
+  requiredBeforeRealUsers: verdict.requiredBeforeRealUsers.map((r) => r.id),
   tests,
   results,
 };
@@ -127,10 +135,13 @@ for (const dir of [runDir, latestDir]) {
 }
 
 for (const r of results) {
-  console.log(`${ICON[r.status].padEnd(8)} ${r.severity} ${r.id.padEnd(7)} ${r.title}`);
+  console.log(`${label(r).padEnd(9)} ${r.severity} ${r.id.padEnd(7)} ${r.title}`);
   if (r.status === 'fail') r.details.forEach((d) => console.log(`           · ${d}`));
 }
 console.log(`\nTests del gate: ${tests.pass}/${tests.tests} en verde (${tests.files} archivos).`);
 console.log(`Reporte: ${path.relative(ROOT, latestDir)}/beta-security-gate.md`);
+if (report.requiredBeforeRealUsers.length) {
+  console.log(`Requisitos obligatorios antes de habilitar usuarios reales, pendientes: ${report.requiredBeforeRealUsers.join(', ')}.`);
+}
 console.log(report.ok ? 'BETA SECURITY GATE: PASA' : `BETA SECURITY GATE: NO PASA (${[...report.blocking, ...(tests.fail ? ['tests'] : [])].join(', ')})`);
 process.exitCode = report.ok ? 0 : 1;

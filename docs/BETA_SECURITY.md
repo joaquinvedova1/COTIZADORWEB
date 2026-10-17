@@ -1,6 +1,8 @@
 # RATEOS — Seguridad para la beta cerrada (Beta Readiness v1)
 
-Plan: [PLAN-2026-015](../.agent/PLANS.md). Base: `main` `0c213a3` (v0.8.0, esquema 10). Fecha: 2026-10-17.
+Plan: [PLAN-2026-015](../.agent/PLANS.md). Base: `main` `0c213a3` (v0.8.0, esquema 10; tag `v0.8.0`). Publicado como **v0.8.1** (esquema 10). Fecha: 2026-10-17.
+
+> **Estado (decisión del dueño, 2026-10-17): todavía NO hay beta con empresas externas.** Antes de habilitar usuarios reales son **requisitos obligatorios** HD-01 (dominio propio para producción), HD-02 (staging separado de producción en origen y en base de datos, o `/preview/` deshabilitado temporalmente) y HD-03 (registro cerrado o por invitación): ver §6. El Beta Security Gate los informa como REQUISITO pendiente en cada corrida.
 
 Objetivo: que una empresa **nunca** pueda leer, modificar ni inferir datos económicos de otra, que el admin de plataforma no lea contenido de clientes, que no queden datos de una sesión anterior a la vista y que nunca se pierda en silencio el último dato válido. Esta tarea no agrega fórmulas ni toca los motores de costos y precios.
 
@@ -38,6 +40,15 @@ Persistencia en el navegador, import/export, auth, logs y eventos: ver [DATA_MOD
 
 ## 3. Pruebas ejecutadas
 
+Qué se prueba dónde (y qué **no** corre solo):
+
+| Dónde | Qué | Cuántos | Cómo se corre |
+|---|---|---|---|
+| **Base real de Supabase** (el proyecto de producción), con usuarios y empresas sintéticos; todo se deshace | `supabase/tests/beta_security_test.sql`, `rls_test.sql`, `rls_admin_test.sql` | **204 controles** (132 + 40 + 32) | **A mano**, con el plugin/MCP de Supabase (`execute_sql` como `postgres`) o `psql`: después de cada migración y antes de cada release. **No corren en CI** (CI no tiene credenciales de la base, a propósito). Es la única prueba de RLS real. |
+| Node, con un **Supabase simulado** que imita RLS (`tests/helpers/fake-supabase.js`) | `tests/data/beta-security.test.js` (23) y el resto de los tests de datos, sesión y recuperación | dentro de `npm test` | `npm test`, local y en CI ("Tests y build"). Prueban el navegador (repositorio, pestañas, sesión), **no** la base. |
+| **Navegador real** (Chromium, escritorio y celular) con Supabase simulado | E2E `tests/lab/e2e/ui-lab.mjs`, incluidos `SESION-01/02` | 574 controles | A mano y en CI (Test Lab → "PR gate", en cada PR). |
+| **Estático** (código, migraciones y archivos SQL) | Beta Security Gate SEC-01…SEC-16 + SEC-10b. SEC-03 revisa las migraciones; **SEC-04 revisa que los 3 archivos SQL existan, cubran lo previsto, no tengan DELETE sin protección y siempre deshagan, pero no los ejecuta** | 17 controles + 15 archivos de tests | `npm test`, `npm run test:security` y el paso "Beta Security Gate" de CI. |
+
 ### 3.1 En la base real, con datos sintéticos (todo se deshace)
 
 Se corrieron con el plugin/MCP de Supabase (`execute_sql`, rol `postgres`) los bloques `DO` de los tres archivos, tal cual están en el repo. Cada bloque crea usuarios/empresas **sintéticos** (`@rateos.invalid`), simula cada rol como la API (`SET ROLE authenticated|anon` + claims del JWT) y **siempre** termina con `RAISE EXCEPTION`: Postgres deshace todo.
@@ -48,7 +59,12 @@ Se corrieron con el plugin/MCP de Supabase (`execute_sql`, rol `postgres`) los b
 | `supabase/tests/rls_test.sql` | `RLS_TESTS_PASSED: 40 controles` |
 | `supabase/tests/rls_admin_test.sql` | `ADMIN_TESTS_PASSED: 32 controles` |
 
-Verificación posterior (sólo conteos): 0 usuarios sintéticos; 2 usuarios, 2 organizaciones, 2 workspaces, 2 membresías, 1 admin y 0 filas de auditoría, igual que antes.
+Ejecuciones registradas (las dos con el mismo resultado, sobre las mismas 2 migraciones):
+
+1. 2026-10-17, durante la auditoría (antes de abrir el PR #25).
+2. 2026-10-17 23:44 UTC, otra vez antes del release v0.8.1 (AGENTS.md §13: deben pasar antes de cada release).
+
+Verificación (sólo conteos, nunca contenido): después de cada ejecución, 0 usuarios sintéticos y los mismos conteos que antes (2 usuarios, 2 organizaciones, 2 workspaces, 2 membresías, 1 admin y 0 filas de auditoría). En la segunda, además, la revisión máxima y la fecha del último guardado de los workspaces fueron las mismas antes y después: ninguna escritura real.
 
 Qué prueba `beta_security_test.sql`, **en las dos direcciones (A→B y B→A) y con los IDs reales de la otra empresa** (organización, fila del workspace, usuario):
 
@@ -69,7 +85,7 @@ Nota de ejecución: el plugin de Supabase pide confirmación para sentencias des
 ### 3.2 En el navegador (servidor falso que imita RLS, datos sintéticos)
 
 - `tests/data/beta-security.test.js` (23 tests): tenancy A→B y B→A con IDs conocidos; `organizationId` del cliente y de un backup (con recursos referenciados por id de otra empresa); varias pestañas; una copia pendiente de v0.8.0; dos pestañas sobre la misma cotización; falla a mitad de guardado; nube dañada, con estructura inesperada, de una versión más nueva y "Recargar" con nube dañada; copia local ilegible; miembro quitado; otra persona en el mismo navegador; borradores por cuenta; datos del modo local ya importados.
-- `tests/security/beta-security-gate.test.js` (7 tests): el gate dentro de `npm test` y las autopruebas de sus detectores.
+- `tests/security/beta-security-gate.test.js` (8 tests): el gate dentro de `npm test`, las autopruebas de sus detectores y que HD-01/02/03 sigan informados como requisitos pendientes antes de usuarios reales.
 - E2E (`node tests/lab/e2e/ui-lab.mjs`, escritorio y celular, Supabase simulado): `SESION-01` (al cerrar sesión no queda en pantalla ni en el DOM oculto la empresa, el email ni las cotizaciones; la sesión se borra del navegador) y `SESION-02` (otra cuenta en la **misma pestaña**, sin recargar, ve su empresa y nada de la anterior, ni abriendo por id una cotización o un producto de A; nada de A llega a su workspace).
 
 ### 3.3 Beta Security Gate
@@ -132,11 +148,13 @@ Sin cambios en la base (ninguna migración), en el esquema de datos (sigue en 10
 
 Ninguna se "arregló" sola: cambian el modelo de permisos, la infraestructura o el costo.
 
-| ID | Sev. | Riesgo | Recomendación |
+**HD-01, HD-02 y HD-03 son requisitos obligatorios antes de habilitar usuarios reales** (decisión del dueño, 2026-10-17). Hasta que estén cumplidos los tres no se habilitan usuarios reales ni se abre la beta a empresas externas. No son controles del código: se cumplen en la infraestructura (dominio, Supabase, Auth), y el Beta Security Gate los lista como REQUISITO pendiente en cada corrida, sin bloquear el CI del código.
+
+| ID | Sev. | Riesgo | Requisito o recomendación |
 |---|---|---|---|
-| HD-01 | P1 | **Origen compartido** `joaquinvedova1.github.io`: todo sitio de Pages de esa cuenta comparte `localStorage` con RATEOS, incluida la sesión de Supabase (refresh token). | Dominio propio antes de la beta con empresas reales (y no publicar otros sitios en esa cuenta mientras tanto). |
-| HD-02 | P1 | **Staging comparte origen y base** con producción: el código de cualquier rama con CI verde corre junto a sesiones y datos reales. | Proyecto o branch de Supabase separado para staging, o no abrir `/preview/` con cuentas de empresas reales. |
-| HD-03 | P1 | **Registro abierto** en una beta "cerrada" (no expone datos de otras empresas: cada cuenta nace con su empresa). | Cerrar el alta (desactivar signups en Supabase Auth y dar de alta a mano, o lista de emails permitidos). |
+| HD-01 | P1 | **Origen compartido** `joaquinvedova1.github.io`: todo sitio de Pages de esa cuenta comparte `localStorage` con RATEOS, incluida la sesión de Supabase (refresh token). | **Requisito obligatorio:** dominio propio para producción. Mientras tanto, ningún otro sitio de Pages en esa cuenta. |
+| HD-02 | P1 | **Staging comparte origen y base** con producción: el código de cualquier rama con CI verde corre junto a sesiones y datos reales. | **Requisito obligatorio:** staging separado de producción en origen **y** en base de datos (proyecto o branch de Supabase propio), o `/preview/` deshabilitado temporalmente. |
+| HD-03 | P1 | **Registro abierto** en una beta "cerrada" (no expone datos de otras empresas: cada cuenta nace con su empresa). | **Requisito obligatorio:** registro cerrado o por invitación (signups desactivados en Supabase Auth y alta a mano, o lista de emails permitidos). |
 | HD-04 | P2 | Protección de contraseñas filtradas apagada (advisor). | Requiere plan Pro de Supabase. |
 | HD-05 | P2 | Al cerrar sesión quedan en el navegador las copias pendientes y de recuperación de la cuenta (no se muestran a otra cuenta; con DevTools se leen en una computadora compartida). | Ofrecer "Cerrar sesión y borrar las copias de este navegador" sólo cuando no hay cambios sin subir. |
 | HD-06 | P2 | El email de la cuenta master está en una migración del repo público. | Aceptarlo o cargar el bootstrap fuera del repo en una próxima migración (hoy AGENTS.md pide el alta por migración). |
@@ -150,7 +168,7 @@ Ninguna se "arregló" sola: cambian el modelo de permisos, la infraestructura o 
 - No se probó un JWT **falsificado**: sin el secreto de Supabase no se puede firmar; los tests prueban que, aunque los claims digan otra cosa, la autoridad es `auth.uid()` + membresías.
 - Sin historial en el servidor (fuera de alcance por pedido del dueño): un OWNER/ADMIN/ESTIMATOR puede sobrescribir el workspace completo; hay control de revisión, copias locales y backup.
 - Las copias de recuperación se conservan de a 3 por grupo (otras · datos dañados · cambios que nunca llegaron a la nube): desde esta versión, importar o migrar ya no rota las copias de cambios sin subir; pero un cuarto conflicto sí rota el más viejo. Mitigación: avisos y descarga desde Configuración → Datos y backup.
-- Las decisiones HD-01 a HD-03 son condiciones para empresas reales, no bugs del código.
+- HD-01, HD-02 y HD-03 son requisitos obligatorios antes de habilitar usuarios reales (§6), no bugs del código: siguen pendientes.
 
 ## 8. Cómo correr todo
 
@@ -170,6 +188,7 @@ Cualquier otro resultado bloquea la beta.
 
 ## 9. Impacto en datos y esquema
 
+- Versión: **0.8.1** (parche sobre v0.8.0; tag `v0.8.0` = `0c213a3`).
 - Base: **sin cambios** (ninguna migración nueva; sólo un archivo de tests).
 - Esquema de datos de RATEOS: **10, sin cambios**; backups iguales.
 - Navegador: la copia de cambios sin subir pasa de `rateos.cloud.<u>.<o>` a `rateos.cloud.<u>.<o>.pending.<pestaña>`; la clave vieja se sigue leyendo y se suelta recién cuando su contenido quedó a salvo. Nueva marca `rateos.cloud.local-import.claimed` (sin datos ni ids).

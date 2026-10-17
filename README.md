@@ -74,6 +74,8 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 
 **v0.8.0 — Decisiones del dueño LAB-D1…D8 y RATEOS Test Lab v1** (esquema de datos 10, sin cambios de datos; ninguna cotización ni producto existente cambia sus números): financiación opcional de productos con el mismo cálculo que las cotizaciones (estimación sobre costos netos: el IVA de compras no se incluye); "No usa combustible" explícito en equipos propios; aviso de horas de cobertura del personal (control mensual, sin inventar horas extra ni turnos); aviso con salidas promedio, costeadas y efecto del redondeo cuando hay menos de una por mes; km facturables y km de ruta por separado; el combustible ILUSTRATIVO se confirma en cada cotización real nueva; un nombre por cotización para la activación (llamado, salida, trabajo o intervención). Test Lab: oráculo independiente, candado de golden, escenarios con seed, invariantes y auditoría de UX y terminología en CI. Planes PLAN-2026-013 y PLAN-2026-014.
 
+**v0.8.1 — Beta Readiness v1: parche de seguridad y de pérdida de datos** (esquema de datos 10, sin cambios de datos ni de base; ninguna cotización ni producto cambia sus números): datos de la nube que la versión no puede leer se abren en sólo lectura y nunca se reemplazan solos por un espacio vacío o "reparado"; una copia de cambios sin subir por pestaña (un guardado en una pestaña ya no borra lo pendiente de otra); al cerrar o cambiar de cuenta no queda nada de la sesión anterior; datos del modo local ya importados no se ofrecen a otra cuenta; el `organizationId` del cliente nunca decide; Beta Security Gate y tests de negación entre empresas en la base. **Todavía no hay beta con empresas externas**: antes de habilitar usuarios reales son obligatorios un dominio propio, un staging separado de producción (o `/preview/` deshabilitado) y el registro cerrado o por invitación ([docs/BETA_SECURITY.md](docs/BETA_SECURITY.md) §6).
+
 ## Visitante, demo y cuenta
 
 | | Qué ve | Datos |
@@ -192,7 +194,7 @@ npm run test:lab:extended   # + escenarios generados con seed (pairwise)
 npm run build && npm run test:lab:e2e   # auditoría en navegador, escritorio y celular (requiere Playwright)
 ```
 
-**Row Level Security** (contra la base real): `supabase/tests/rls_test.sql` (40 controles: usuarios A/B, anon, escalada de rol…), `rls_admin_test.sql` (32, RATEOS ADMIN) y `beta_security_test.sql` (132: negación A→B y B→A con IDs conocidos, roles, miembro quitado, admin sin contenido, anon y catálogo en vivo). Ninguno deja nada en la base. Se corren con el plugin/MCP de Supabase o `psql`; ver [supabase/README.md](supabase/README.md).
+**Row Level Security** (contra la base real): `supabase/tests/rls_test.sql` (40 controles: usuarios A/B, anon, escalada de rol…), `rls_admin_test.sql` (32, RATEOS ADMIN) y `beta_security_test.sql` (132: negación A→B y B→A con IDs conocidos, roles, miembro quitado, admin sin contenido, anon y catálogo en vivo). Ninguno deja nada en la base. Se corren **a mano** con el plugin/MCP de Supabase o `psql`, después de cada migración y antes de cada release: **no corren en CI** (CI no tiene credenciales de la base, a propósito; ahí sólo se verifica que los archivos existan, cubran lo previsto y siempre deshagan). Ver [supabase/README.md](supabase/README.md).
 
 **Beta Security Gate** (PLAN-2026-015, [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md)): controles de seguridad, tenancy, sesión, privacidad y recuperación sin red ni base (también corre dentro de `npm test` y en CI):
 
