@@ -156,9 +156,10 @@ export const PROBES = [
     respond: (q, r) => responseOf(q, r, { paths: ['labor.0.fixedCostSharePct'] }),
   },
   {
-    id: 'PRB-14', dimension: 'A', title: 'Menos de una intervención por mes (2 días de trabajo con intervenciones de 5 días) y costos por salida prorrateados',
-    expect: 'warn', onSilent: { severity: 'HUMAN', category: 'HUMAN DECISION REQUIRED' },
-    explain: 'Con 0,4 intervenciones por mes se costea 0,4 de la movilización. "Cada salida se cuenta completa" (PLAN-2026-011) es opcional y apagado: ¿se avisa cuando hay menos de una salida entera?',
+    // Decisión del dueño LAB-D1 (PLAN-2026-014): la semántica no cambia; se hace explícita.
+    id: 'PRB-14', dimension: 'A', title: 'Menos de una intervención por mes (2 días de trabajo con intervenciones de 5 días): se avisa con promedio, costeadas y efecto del redondeo',
+    expect: 'warn', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    explain: 'Con 0,4 intervenciones por mes se costea 0,4 de la movilización (promedio). Con la opción apagada RATEOS tiene que decirlo y ofrecer contar cada intervención completa (aviso informativo "Menos de una intervención por mes").',
     build: () => service({
       id: 'prb-14', serviceType: 'equipment_with_operator', unit: 'day',
       activity: { activeDaysPerMonth: 2, daysPerActivation: 5 },
@@ -166,7 +167,7 @@ export const PROBES = [
       equipment: [owned({ name: 'Equipo pesado', operatorLaborId: 'op-prb14', mobilization: { mode: 'self', travelLitersPer100Km: 40, travelCostPerKm: 300, driver: 'operator' } })],
       logistics: route({ distanceKm: 250 }),
     }),
-    respond: (q, r) => (r.activationRounding && r.activationRounding.enabled ? { how: 'derive', evidence: 'salidas completas activas' } : responseOf(q, r, { messages: [/salida|intervenci/i] })),
+    respond: (q, r) => (r.activationRounding && r.activationRounding.enabled ? { how: 'derive', evidence: 'salidas completas activas' } : responseOf(q, r, { notices: ['activations_below_one'] })),
   },
   {
     id: 'PRB-15', dimension: 'A', title: '"No usa materiales" marcado con materiales cargados (se ignoran)',
@@ -179,11 +180,12 @@ export const PROBES = [
     respond: (q, r) => responseOf(q, r, { notices: ['materials_ignored'], messages: [/Pintura|materiales? cargados?/i] }),
   },
   {
-    id: 'PRB-16', dimension: 'A', title: '12 horas de trabajo por día con personal de jornada normal y sin horas extra',
-    expect: 'warn', onSilent: { severity: 'HUMAN', category: 'HUMAN DECISION REQUIRED' },
-    explain: 'Las horas por día de la actividad mueven equipos y facturación por hora, pero no el costo del personal: 12 h diarias con 176 h normales por mes y 0 horas extra se cotizan como jornada normal. ¿Turnos/relevos u horas extra? Hay dos modelos válidos.',
+    // Decisión del dueño LAB-D2 (PLAN-2026-014): nunca se infieren horas extra, turnos ni relevos; se avisa.
+    id: 'PRB-16', dimension: 'A', title: '12 horas de trabajo por día con personal de jornada normal y sin horas extra: aviso "más horas que la jornada cargada"',
+    expect: 'warn', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    explain: '20 días × 12 h = 240 h por posición; 1 persona de 176 h normales y 0 horas extra cubre 176 h. RATEOS no agrega horas extra ni personas: avisa y lleva a "Personas por posición".',
     build: () => service({ id: 'prb-16', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 12 }, labor: [person({ positions: 2, overtimeHoursPerActiveDay: 0 })] }),
-    respond: (q, r) => responseOf(q, r, { messages: [/horas extra|jornada/i] }),
+    respond: (q, r) => responseOf(q, r, { items: ['labor_hours'] }),
   },
   {
     id: 'PRB-17', dimension: 'C', title: 'Equipo propio con mantenimiento y consumo por hora pero 0 horas por día en su línea',
@@ -198,13 +200,35 @@ export const PROBES = [
     respond: (q, r) => responseOf(q, r, { items: ['external_route'] }),
   },
   {
-    id: 'PRB-20', dimension: 'D', title: 'Equipo propio que no usa combustible (andamio): RATEOS pide su consumo y no hay forma de decir "no usa"',
-    expect: 'derive', onSilent: { severity: 'HUMAN', category: 'HUMAN DECISION REQUIRED' },
-    explain: 'El consumo de un equipo propio se pide siempre (0 se lee como "falta"): la completitud no llega a 100 % sin cargar un consumo falso. Un dato nuevo ("No usa combustible") o leer 0 como "no usa" son dos modelos válidos.',
-    build: () => service({ id: 'prb-20', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned({ name: 'Andamio multidireccional', replacementValue: 30000000, usefulLifeYears: 8 })] }),
+    // Decisión del dueño LAB-D5 (PLAN-2026-014): "No usa combustible" es un dato explícito.
+    id: 'PRB-20', dimension: 'D', title: 'Equipo propio marcado "No usa combustible" (andamio): no se pide consumo ni precio y llega a 100 %',
+    expect: 'derive', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    build: () => service({ id: 'prb-20', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned({ name: 'Andamio multidireccional', replacementValue: 30000000, usefulLifeYears: 8, fuelNotApplicable: true })] }),
     respond: (q, r) => {
       const f = r.completeness.items.find((x) => x.id === 'fuel');
-      return !f || f.status === 'ok' ? { how: 'derive', evidence: f ? f.message : 'sin regla de combustible' } : { how: 'warn', evidence: `${f.status}: ${f.message}` };
+      return !f || (f.status === 'ok' && /^No aplica/.test(f.message)) ? { how: 'derive', evidence: f ? f.message : 'sin regla de combustible' } : { how: 'silent', evidence: `${f.status}: ${f.message}` };
+    },
+  },
+  {
+    id: 'PRB-20b', dimension: 'D', title: 'Equipo propio con consumo 0 y SIN la marca "No usa combustible": sigue siendo un dato faltante',
+    expect: 'warn', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    explain: 'Nunca se infiere "no consume" de un 0 (decisión LAB-D5): el pendiente lleva al consumo del equipo.',
+    build: () => service({ id: 'prb-20b', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned({ name: 'Andamio multidireccional', replacementValue: 30000000, usefulLifeYears: 8 })] }),
+    respond: (q, r) => responseOf(q, r, { items: ['fuel'] }),
+  },
+  {
+    // Decisión del dueño LAB-D7 (PLAN-2026-014): el precio de ejemplo no cuenta como definido en una cotización real nueva.
+    id: 'PRB-21', dimension: 'D', title: 'Cotización real nueva con el precio de combustible de ejemplo (ILUSTRATIVO): pide confirmarlo',
+    expect: 'warn', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    explain: 'Con la configuración de ejemplo, la cotización nueva trae $ 1.500/l ILUSTRATIVO: hasta "Es mi precio vigente" o un precio propio, el combustible queda en rojo (las cotizaciones anteriores conservan el aviso naranja).',
+    build: () => {
+      const q = service({ id: 'prb-21', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned({ name: 'Grupo electrógeno', fuelLitersPerHour: 6 })] });
+      q.fuel = { ...q.fuel, illustrative: true, requiresConfirmation: true };
+      return q;
+    },
+    respond: (q, r) => {
+      const f = r.completeness.items.find((x) => x.id === 'fuel');
+      return f && f.status === 'missing' && /ILUSTRATIVO/.test(f.message) ? { how: 'warn', evidence: f.message } : { how: 'silent', evidence: f ? `${f.status}: ${f.message}` : 'sin regla' };
     },
   },
   {

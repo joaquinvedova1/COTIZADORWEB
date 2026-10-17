@@ -21,11 +21,14 @@ export const PRODUCT_KEYS = Object.freeze([
   ['pricing.floorPrice', 'money'], ['pricing.targetPrice', 'money'], ['pricing.suggestedPrice', 'money'], ['pricing.priceWithVat', 'money'],
   ['pricing.markupPct', 'pct'], ['pricing.breakEvenUnits', 'qty'], ['monthly.profit', 'money'],
   ['current.marginPct', 'pct'], ['current.breakEvenUnits', 'qty'], ['current.belowFloor', 'text'], ['current.belowVariable', 'text'],
+  // Financiación de productos (PLAN-2026-014, LAB-D3).
+  ['finance.financialPerUnit', 'money'], ['finance.financialMonthly', 'money'],
 ]);
 
 const ORACLE_PRODUCT_PATH = {
   'pricing.floorPrice': 'floorPrice', 'pricing.targetPrice': 'targetPrice', 'pricing.suggestedPrice': 'suggestedPrice', 'pricing.priceWithVat': 'priceWithVat',
   'pricing.markupPct': 'markupPct', 'pricing.breakEvenUnits': 'breakEvenUnits', 'monthly.profit': 'monthlyProfit',
+  'finance.financialPerUnit': 'financialPerUnit', 'finance.financialMonthly': 'financialMonthly',
 };
 
 /** Lee una ruta "a.b.0.c" (y "eecc.<categoría>" = monto de esa fila de la estructura de costos). */

@@ -118,6 +118,14 @@
       "sha256": "2ffd5de5b0719ad8e5cc081a08cfcddbd0077aa6e6332fcbed528afaf056afdc",
       "approved": "aprobado antes de PLAN-2026-013"
     },
+    "salidas-menos-de-una-completa": {
+      "sha256": "da99ddcdf1c309586b7dbc18b065ec8b667f8e355a803a657e17190ef1ddca1c",
+      "approved": "PLAN-2026-014: decisión del dueño LAB-D1 (semántica de salidas promedio y costeadas, sin cambio de fórmula)"
+    },
+    "salidas-menos-de-una-promedio": {
+      "sha256": "d0968d64980cf5a46010cbd519aaa4f42d52df93cd36dd0b24a70fbb5f824ef1",
+      "approved": "PLAN-2026-014: decisión del dueño LAB-D1 (semántica de salidas promedio y costeadas, sin cambio de fórmula)"
+    },
     "tarifa-margen-10-con-10-dias": {
       "sha256": "3e17b854eb06201c8ca9e636dc0fb1608a627a5aa1e0aa5ccefaa3809f9c20a8",
       "approved": "aprobado antes de PLAN-2026-013"

@@ -30,7 +30,7 @@ export const BILLING_UNITS = deepFreeze([
   { id: 'hour', kind: 'hour', singular: 'hora', plural: 'horas', short: 'hora', label: '$/hora', hint: 'Se factura cada hora trabajada (días de trabajo × horas por día).' },
   { id: 'day', kind: 'day', singular: 'día', plural: 'días', short: 'día', label: '$/día', hint: 'Se factura cada día de trabajo.' },
   { id: 'month', kind: 'month', singular: 'mes', plural: 'meses', short: 'mes', label: '$/mes (abono)', hint: 'Abono fijo mensual: la facturación no depende de cuánto trabajes.' },
-  { id: 'call', kind: 'event', singular: 'llamado', plural: 'llamados', short: 'llamado', label: '$/llamado o salida', hint: 'Se factura cada llamado o salida, dure lo que dure.' },
+  { id: 'call', kind: 'event', singular: 'llamado', plural: 'llamados', short: 'llamado', label: '$/llamado', hint: 'Se factura cada llamado, dure lo que dure.' },
   { id: 'shift', kind: 'quantity', singular: 'turno', plural: 'turnos', short: 'turno', label: '$/turno', hint: 'Se factura cada turno cubierto.' },
   { id: 'trip', kind: 'quantity', singular: 'viaje', plural: 'viajes', short: 'viaje', label: '$/viaje', hint: 'Se factura cada viaje.' },
   { id: 'km', kind: 'quantity', singular: 'km', plural: 'km', short: 'km', label: '$/km', hint: 'Se factura cada km recorrido.' },

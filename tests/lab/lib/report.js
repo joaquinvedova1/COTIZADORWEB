@@ -85,8 +85,18 @@ export function toMarkdown(campaign, meta = {}) {
     push('');
   }
 
+  push('## Aceptados por el dueño', '');
+  if (!(c.accepted || []).length) push('Ninguno.', '');
+  else {
+    (c.accepted || []).forEach((d) => push(`- **${d.id}**${d.key || d.code ? ` (\`${d.key || d.code}\`)` : ''} — ${d.title}. ${d.decision}`));
+    push('');
+  }
+
   push('## Huecos de la especificación (decisiones del oráculo)', '');
+  if (!c.docGaps.length) push('Ninguno.');
   c.docGaps.forEach((g) => push(`- ${g.rule}: ${g.text}`));
+  // PLAN-2026-014 (LAB-D6): huecos anteriores que ya son reglas escritas (el oráculo las sigue desde la documentación).
+  (c.confirmedRules || []).forEach((g) => push(`- Confirmada en ${g.rule}: ${g.text}`));
   push('');
 
   push('## Mercado', '', 'El mercado nunca define la fórmula: una diferencia pide revisar los inputs.', '');

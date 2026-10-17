@@ -33,7 +33,8 @@ import { computeQuote } from '../../../js/engines/quote-engine.js';
 import { formatMoney, formatMoneyCeil, formatNumber } from '../../../js/core/format.js';
 import { fieldHref } from '../../../js/ui/field-links.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
-import { service, person, owned, external, material } from '../lib/build.js';
+import { service, person, owned, external, material, product, ingredient, worker, fixedCost } from '../lib/build.js';
+import { computeProduct } from '../../../js/engines/product-engine.js';
 import { assertSafeReport } from '../lib/report.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
 
@@ -123,7 +124,48 @@ export const E2E_SCENARIOS = [
       return q;
     },
   },
+  // ---- Decisiones LAB-D1…D8 (PLAN-2026-014): los avisos nuevos llevan a su campo (bucle general) y se ven bien.
+  {
+    id: 'E2E-11', title: 'D1: 0,5 salidas por mes (transporte): aviso con promedio, costeadas y efecto del redondeo',
+    build: () => service({ id: 'lab-e11', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 2, daysPerActivation: 4 }, labor: [person({ role: 'Chofer' })],
+      equipment: [owned({ name: 'Camión', fuelLitersPerHour: 8, mobilization: { mode: 'self', travelLitersPer100Km: 35, travelCostPerKm: 250, driver: 'operator' } })], logistics: route({ distanceKm: 150, tollsPerActivation: 40000 }) }),
+  },
+  {
+    id: 'E2E-12', title: 'D2: 12 h × 20 días con 1 persona por posición: "más horas que la jornada cargada"',
+    build: () => service({ id: 'lab-e12', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 12 }, labor: [person({ role: 'Soldador', positions: 2 })] }),
+  },
+  {
+    id: 'E2E-13', title: 'D5: equipo propio "No usa combustible": sin campo de consumo',
+    build: () => service({ id: 'lab-e13', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned({ name: 'Andamio multidireccional', replacementValue: 30000000, usefulLifeYears: 8, fuelNotApplicable: true })] }),
+  },
+  {
+    id: 'E2E-14', title: 'D7: cotización real nueva con precio de combustible de ejemplo: pide confirmarlo',
+    build: () => {
+      const q = service({ id: 'lab-e14', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned({ name: 'Grupo electrógeno', fuelLitersPerHour: 6 })] });
+      q.fuel = { ...q.fuel, illustrative: true, requiresConfirmation: true };
+      return q;
+    },
+  },
+  {
+    id: 'E2E-15', title: 'D4: cobro por km: km facturables y km de ruta por separado',
+    build: () => service({ id: 'lab-e15', serviceType: 'transport', unit: 'km', activity: { billableQuantityPerMonth: 2400, unitsPerActiveDay: 400, daysPerActivation: 1 }, labor: [person({ role: 'Chofer' })],
+      equipment: [external({ name: 'Camión' }, { price: 3250, unit: 'km', fuelIncluded: true })], logistics: route({ destinationName: 'Añelo', tripsPerActivation: 2 }) }),
+  },
+  {
+    id: 'E2E-16', title: 'D8: on-call: la activación se llama "llamado" en "Cómo se cobra"',
+    build: () => service({ id: 'lab-e16', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 5, daysPerActivation: 2 }, labor: [person({ peoplePerPosition: 2 })], logistics: route({ distanceKm: 80, tollsPerActivation: 12000 }) }),
+  },
 ];
+
+/** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
+export const E2E_PRODUCT = () => product({
+  id: 'lab-p01', saleUnit: 'unidad', unitsPerBatch: 10, monthlyUnits: 500,
+  materials: [ingredient({ description: 'Componente', per: 'unit', unit: 'u', useUnit: 'u', quantity: 1, unitCost: 5200 })],
+  labor: [worker({ role: 'Armador', basicMonthly: 1250000, minutesPerBatch: 50 })],
+  fixedCosts: [fixedCost({ description: 'Taller', monthlyAmount: 800000, sharePct: 50 })],
+  pricing: { targetMarginPct: 20, roundingStep: 10 },
+  finance: { invoiceLagDays: 15, paymentTermDays: 60, monthlyRatePct: 3, payDays: { materials: 30, salaries: 30, fuel: 0, suppliers: 30, structure: 30 } },
+});
 
 // -------------------------------------------------------------------- runner
 const args = parseArgs(process.argv.slice(2));
@@ -228,6 +270,9 @@ async function runMode(mode) {
     return { s, q, r: computeQuote(structuredClone(q)) };
   });
   ws.state.quotes = seeded.map((x) => x.q);
+  const prod = E2E_PRODUCT();
+  Object.assign(prod, { id: randomUUID(), organizationId: orgId, name: 'E2E producto financiado (LAB-D3)', createdAt: now, updatedAt: now });
+  ws.state.products = [...(Array.isArray(ws.state.products) ? ws.state.products : []), prod];
   ws.revision += 1;
   await page.reload();
   await page.waitForTimeout(2500);
@@ -280,7 +325,7 @@ async function runMode(mode) {
         ['Viajes facturables', `${formatNumber(k.billableQuantity, { decimals: 2 })} viajes`],
         ['Viajes físicos costeados', `${formatNumber(tr.physicalTripsPerMonth, { decimals: 2 })} viajes`],
         ['Días de trabajo', `${formatNumber(k.activeDays, { decimals: 2 })} días`],
-        ['Km por mes', `${formatNumber(tr.routeKmPerMonth, { decimals: 2 })} km`],
+        ['Km de ruta por mes', `${formatNumber(tr.routeKmPerMonth, { decimals: 2 })} km`],
       ];
       // Rótulo y valor son elementos vecinos: en el texto pueden quedar pegados.
       const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -323,6 +368,58 @@ async function runMode(mode) {
       }
     }
   }
+  // ---- Decisiones LAB-D1…D8 (PLAN-2026-014): lo que se ve en pantalla.
+  const byId = Object.fromEntries(seeded.map((x) => [x.s.id, x]));
+  const screenText = async (id, step) => {
+    await go(`#/cotizaciones/${encodeURIComponent(byId[id].q.id)}/${step}`, 300);
+    await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+    // textContent (como los demás rótulos): innerText aplica las mayúsculas del CSS.
+    return norm(await page.evaluate(() => document.body.textContent));
+  };
+  {
+    const t = await screenText('E2E-11', 'modality');
+    check('E2E-11', 'D1: "Cómo se cobra" muestra salidas promedio, costeadas y el efecto del redondeo', /Salidas promedio por mes: 0,5/.test(t) && /salidas costeadas: 0,5/.test(t) && /efecto del redondeo/i.test(t), 'faltan los tres números');
+    check('E2E-11', 'D1: la casilla se llama "Cada salida se cuenta completa"', t.includes('Cada salida se cuenta completa'), 'no aparece el rótulo');
+  }
+  {
+    await screenText('E2E-13', 'equipment');
+    const ui = await page.evaluate(() => ({
+      flag: Boolean(document.querySelector('input[name="equipment.0.fuelNotApplicable"]') && document.querySelector('input[name="equipment.0.fuelNotApplicable"]').checked),
+      consumption: Boolean(document.querySelector('[name="equipment.0.fuelLitersPerHour"]')),
+    }));
+    check('E2E-13', 'D5: "No usa combustible" marcado y sin campo de consumo', ui.flag && !ui.consumption, JSON.stringify(ui));
+  }
+  {
+    const t = await screenText('E2E-14', 'logistics');
+    const confirm = await page.evaluate(() => Boolean(document.querySelector('input[name="fuel.illustrative"]')));
+    check('E2E-14', 'D7: el precio de ejemplo se ve ILUSTRATIVO, con su base, y se puede confirmar', confirm && /ILUSTRATIVO de ejemplo/.test(t) && /Base no definida/.test(t), `confirmar: ${confirm}`);
+  }
+  {
+    const t = await screenText('E2E-15', 'modality');
+    const at = t.search(/Km facturables/);
+    check('E2E-15', 'D4: km facturables y km de ruta por separado', /Km facturables\s*2\.400 km/.test(t) && /Km de ruta por mes\s*2\.400 km/.test(t), `no aparecen los dos: …${at >= 0 ? t.slice(Math.max(0, at - 80), at + 220) : 'sin "Km facturables"'}…`);
+  }
+  {
+    const t = await screenText('E2E-16', 'modality');
+    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuántos días dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
+  }
+  {
+    const pr = computeProduct(structuredClone(prod));
+    await go(`#/productos/${encodeURIComponent(prod.id)}/resultado`, 300);
+    await page.waitForTimeout(800);
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+    const t = norm(await page.evaluate(() => document.body.innerText));
+    const unitCost = norm(formatMoney(pr.unitCost, { decimals: 2 }));
+    check('E2E-P01', 'D3: el Resultado del producto muestra la financiación', t.includes('Financiación (capital de trabajo)'), 'sin fila de financiación');
+    check('E2E-P01', 'D3: costo por unidad = motor (con financiación)', t.includes(unitCost) || t.includes(norm(formatMoney(pr.unitCost))), `no aparece ${unitCost}`);
+    await go(`#/productos/${encodeURIComponent(prod.id)}/precio`, 300);
+    await page.waitForTimeout(600);
+    const fields = await page.evaluate(() => ['finance.invoiceLagDays', 'finance.paymentTermDays', 'finance.monthlyRatePct'].every((n) => document.querySelector(`[name="${n}"]`)));
+    check('E2E-P01', 'D3: "Precio y margen" tiene los campos de financiación', fields, 'faltan campos');
+    await scan('E2E-P01', 'producto');
+  }
+
   check('consola', 'sin errores de la app en la consola', errors.length === 0, errors.slice(0, 3).join(' | '));
   check('red', 'ningún pedido fuera del sitio y del Supabase simulado', blocked.length === 0, blocked.slice(0, 3).join(' | '));
   await context.close();

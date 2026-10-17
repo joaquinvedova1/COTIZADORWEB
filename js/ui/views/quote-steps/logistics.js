@@ -30,6 +30,7 @@ import { baseFields } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { transportStats, transportOf, providerActivityList, routeText, tripsText } from './transport.js';
+import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 
 const WARNING_TEXT = Object.freeze({
   travel_consumption: 'Falta el consumo en ruta (L/100 km): el combustible del traslado queda en 0.',
@@ -40,30 +41,30 @@ const WARNING_TEXT = Object.freeze({
 });
 
 /** "Ver cálculo" de la movilización de un equipo que va por sus propios medios. */
-function mobilizationTrace(result, index) {
+function mobilizationTrace(result, index, T) {
   const m = result && result.model.mobilization && result.model.mobilization.lines[index];
   if (!m) return null;
   return createTrace({
     id: 'mobilization_line',
     title: `Movilización — ${m.name || 'Equipo'}`,
-    formula: 'km por llamado = km de ruta por llamado × cantidad · litros = km × consumo en ruta / 100 · combustible = litros × precio · desgaste = km × ($/km + neumáticos $/km si se cargaron por km) (sin combustible ni amortización) · por día activo = por llamado / días por llamado',
+    formula: `km ${T.per} = km de ruta ${T.per} × cantidad · litros = km × consumo en ruta / 100 · combustible = litros × precio · desgaste = km × ($/km + neumáticos $/km si se cargaron por km) (sin combustible ni amortización) · por día activo = ${T.per} / días ${T.per}`,
     inputs: [
-      { label: 'Km de ruta por llamado', value: result.model.mobilization.routeKmPerActivation, format: 'km' },
+      { label: `Km de ruta ${T.per}`, value: result.model.mobilization.routeKmPerActivation, format: 'km' },
       { label: 'Cantidad', value: m.quantity, format: 'number' },
       { label: 'Consumo en ruta', value: m.travelLitersPer100Km, format: 'number', unit: 'L/100 km' },
       { label: 'Precio del combustible (si lo pagás)', value: result.model.fuel.paidByUs ? result.model.fuel.pricePerLiter : 0, format: 'rate' },
       { label: 'Desgaste por km', value: m.travelCostPerKm, format: 'rate' },
       m.tiresPerKm > 0 ? { label: 'Neumáticos por km (juego ÷ vida útil en km)', value: m.tiresPerKm, format: 'rate' } : null,
-      { label: 'Días por llamado', value: result.activity.daysPerActivation, format: 'days' },
+      { label: `Días ${T.per}`, value: result.activity.daysPerActivation, format: 'days' },
     ].filter(Boolean),
     steps: [
-      { label: 'Km por llamado', value: m.km, format: 'km' },
-      { label: 'Litros por llamado', value: m.liters, format: 'liters' },
-      { label: 'Combustible en ruta por llamado', value: m.fuelPerActivation, format: 'money' },
-      { label: 'Desgaste por llamado', value: m.wearPerActivation, format: 'money' },
+      { label: `Km ${T.per}`, value: m.km, format: 'km' },
+      { label: `Litros ${T.per}`, value: m.liters, format: 'liters' },
+      { label: `Combustible en ruta ${T.per}`, value: m.fuelPerActivation, format: 'money' },
+      { label: `Desgaste ${T.per}`, value: m.wearPerActivation, format: 'money' },
       { label: 'Por día activo', value: m.perActiveDay, format: 'money' },
     ],
-    result: { label: 'Movilización por llamado', value: m.perActivation, format: 'money' },
+    result: { label: `Movilización ${T.per}`, value: m.perActivation, format: 'money' },
     notes: [
       m.driver === 'operator' ? `Maneja su operador${m.operatorName ? ` (${m.operatorName})` : ''}: no se suma mano de obra (ya está en Personal).` : null,
       m.driver === 'other' ? 'Maneja otra persona: tiene que estar cargada en Personal (RATEOS no la agrega sola).' : null,
@@ -76,6 +77,9 @@ export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
   const lg = quote.logistics;
   const notApplicable = Boolean(lg.notApplicable);
+  // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
+  const T = activationTerms(quote);
+  const L = activationFieldLabels(T);
   // Unidad "viaje" (PLAN-2026-012): los viajes por intervención se derivan.
   const unitInfo = billingUnitOf(quote);
   const tripUnit = unitInfo.id === 'trip' && unitInfo.kind === 'quantity';
@@ -150,7 +154,7 @@ export function render(container, ctx) {
       ),
       kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
       // Viajes facturables, físicos, días y km (PLAN-2026-012).
-      kit.toggle(kit.group('Viajes y km del mes', transportStats(kit, { billable: tripUnit })), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
+      kit.toggle(kit.group('Viajes y km del mes', transportStats(kit, { billable: tripUnit, km: unitInfo.id === 'km' })), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
     );
 
   // ---- Movilización del recurso principal: ¿cómo llega cada equipo?
@@ -213,11 +217,11 @@ export function render(container, ctx) {
           return h(
             'div',
             { class: 'mob-calc' },
-            h('span', { class: 'mono' }, `${formatValue(ml.km, 'km')} · ${formatValue(ml.liters, 'liters')} por llamado`),
-            h('span', {}, `Combustible ${formatMoney(ml.fuelPerActivation)} + desgaste ${formatMoney(ml.wearPerActivation)} = `, h('strong', { class: 'mono' }, formatMoney(ml.perActivation)), ' por llamado'),
+            h('span', { class: 'mono' }, `${formatValue(ml.km, 'km')} · ${formatValue(ml.liters, 'liters')} ${T.per}`),
+            h('span', {}, `Combustible ${formatMoney(ml.fuelPerActivation)} + desgaste ${formatMoney(ml.wearPerActivation)} = `, h('strong', { class: 'mono' }, formatMoney(ml.perActivation)), ` ${T.per}`),
           );
         }),
-        kit.trace((r) => mobilizationTrace(r, i)),
+        kit.trace((r) => mobilizationTrace(r, i, T)),
       );
     } else if (m.mode === 'transported') {
       const carriers = equipmentLines.filter((e, j) => j !== i && e && e.id).map((e) => ({ value: e.id, label: `${e.name || 'Equipo'} (${labelOf(ACQUISITION_MODES, acquisitionOf(e), 'Propio').toLowerCase()})` }));
@@ -300,7 +304,7 @@ export function render(container, ctx) {
             },
             {
               key: 'calc',
-              label: 'Por llamado o viaje',
+              label: L.perActivation,
               align: 'right',
               className: 'qe-col-calc',
               render: (row, i) => kit.out((r) => {
@@ -329,11 +333,11 @@ export function render(container, ctx) {
           const parts = [
             lg.roundTrip === false ? 'Sólo ida' : 'Ida y vuelta',
             tripUnit
-              ? 'viajes por intervención según los viajes por día'
-              : `${numberText(lg.tripsPerActivation, { decimals: 2 }) || '0'} ${Number(lg.tripsPerActivation) === 1 ? 'viaje' : 'viajes'} por llamado`,
+              ? `viajes ${T.per} según los viajes por día`
+              : `${numberText(lg.tripsPerActivation, { decimals: 2 }) || '0'} ${Number(lg.tripsPerActivation) === 1 ? 'viaje' : 'viajes'} ${T.per}`,
             wear ? `desgaste: ${wear}` : null,
             `peajes ${moneyText(lg.tollsPerActivation) || '$ 0'}`,
-            `viáticos ${moneyText(lg.lodgingPerActivation) || '$ 0'} por llamado`,
+            `viáticos ${moneyText(lg.lodgingPerActivation) || '$ 0'} ${T.per}`,
           ].filter(Boolean);
           return `${parts.join(' · ')}.`;
         },
@@ -343,7 +347,7 @@ export function render(container, ctx) {
         kit.check('logistics.roundTrip', { label: 'Ida y vuelta', hint: 'Duplica los km de cada viaje.' }),
         tripUnit
           ? h('div', { class: 'field' },
-            h('span', { class: 'field-label' }, 'Viajes por intervención'),
+            h('span', { class: 'field-label' }, L.tripsPerActivation),
             kit.out((r) => {
               const t = transportOf(r);
               return t ? tripsText(t.physicalTripsPerActivation) : EMPTY;
@@ -351,12 +355,12 @@ export function render(container, ctx) {
             kit.out((r) => {
               const t = transportOf(r);
               if (!t) return '';
-              return `Se calcula solo: ${formatNumber(t.tripsPerActiveDay || 0, { decimals: 2 })} viajes por día × ${formatNumber(t.daysPerActivation, { decimals: 2 })} ${t.daysPerActivation === 1 ? 'día' : 'días'} por intervención (en "${stepName('modality')}"). Con la unidad "viaje" los km del mes salen de los viajes que facturás.`;
+              return `Se calcula solo: ${formatNumber(t.tripsPerActiveDay || 0, { decimals: 2 })} viajes por día × ${formatNumber(t.daysPerActivation, { decimals: 2 })} ${t.daysPerActivation === 1 ? 'día' : 'días'} ${T.per} (en "${stepName('modality')}"). Con la unidad "viaje" los km del mes salen de los viajes que facturás.`;
             }, { tag: 'div', className: 'field-hint', allowEmpty: true }))
           : kit.num('logistics.tripsPerActivation', {
-            label: 'Viajes por llamado',
+            label: L.tripsPerActivation,
             rule: 'quantity',
-            hint: quote.serviceType === 'permanent' ? 'Para servicios permanentes: viajes por cada cambio de turno.' : 'Cuántos viajes hacés en cada llamado.',
+            hint: `Cuántos viajes hacés en ${T.each}.`,
           }),
       ),
       // Cotización anterior con otro "Viajes por llamado" (PLAN-2026-012): se avisa y se puede dar por visto.
@@ -365,7 +369,7 @@ export function render(container, ctx) {
           kit.out((r) => {
             const t = transportOf(r);
             if (!t || !t.storedDiffers) return '';
-            return `Esta cotización tenía cargado ${tripsText(t.storedTripsPerActivation)} por llamado: con la unidad "viaje" ya no se usa. Se costean ${tripsText(t.physicalTripsPerMonth)} físicos (${formatNumber(t.routeKmPerMonth, { decimals: 0 })} km) para los ${tripsText(t.billableTripsPerMonth)} que facturás.`;
+            return `Esta cotización tenía cargado ${tripsText(t.storedTripsPerActivation)} ${T.per}: con la unidad "viaje" ya no se usa. Se costean ${tripsText(t.physicalTripsPerMonth)} físicos (${formatNumber(t.routeKmPerMonth, { decimals: 0 })} km) para los ${tripsText(t.billableTripsPerMonth)} que facturás.`;
           }, { tag: 'p', allowEmpty: true }),
           kit.action('Entendido', () => ctx.mutate((q) => {
             const t = transportOf(ctx.result);
@@ -392,8 +396,8 @@ export function render(container, ctx) {
         : null,
       formGrid(
         2,
-        kit.num('logistics.tollsPerActivation', { label: 'Peajes por llamado', rule: 'money', unit: '$', illustrative }),
-        kit.num('logistics.lodgingPerActivation', { label: 'Alojamiento y viáticos por llamado', rule: 'money', unit: '$', illustrative }),
+        kit.num('logistics.tollsPerActivation', { label: L.tollsPerActivation, rule: 'money', unit: '$', illustrative }),
+        kit.num('logistics.lodgingPerActivation', { label: L.lodgingPerActivation, rule: 'money', unit: '$', illustrative }),
       ),
     );
 
@@ -421,7 +425,9 @@ export function render(container, ctx) {
     rule: 'money',
     unit: '$/L',
     illustrative: fuelMarked,
-    hint: fuelFlag && !illustrative ? 'Valor ILUSTRATIVO por defecto: cargá tu precio actual (al editarlo se quita la marca).' : null,
+    hint: fuelFlag && !illustrative
+      ? `Valor ILUSTRATIVO de ejemplo (${baseText(quote.fuel.base, { prefix: 'Base' })}): cargá tu precio actual o, si ya es el tuyo, tildá "Es mi precio vigente". RATEOS nunca lo actualiza solo.`
+      : null,
     onValue: (value, el) => clearFuelFlag(el),
   });
   if (fuelFlag && !illustrative) {
@@ -477,7 +483,7 @@ export function render(container, ctx) {
         const providerNote = providers.length
           ? ` Los viajes del proveedor (${providers.map((p) => `${p.name}: ${formatMoney(p.netMonthly)} neto`).join('; ')}) están en "${stepName('equipment')}", no acá.`
           : '';
-        return `${share}${formatMoney(perActivation)} por salida o llamado${split} × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} salidas por mes.${providerNote}`;
+        return `${share}${formatMoney(perActivation)} ${T.per}${split} × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} ${T.many} por mes.${providerNote}`;
       },
       trace: (r) => r.traces.logistics,
       className: 'qe-keyline-total',
@@ -489,7 +495,7 @@ export function render(container, ctx) {
   const mobOf = (r) => r.model.mobilization || { kmPerActivation: 0, litersPerActivation: 0, fuelPerActivation: 0, wearPerActivation: 0, perActivation: 0, routeKmPerActivation: 0 };
   const activationsOf = (r) => r.model.logistics.activationsPerMonth;
   const perMonth = (r, v) => v * activationsOf(r);
-  const salidas = (r) => `${formatNumber(activationsOf(r), { decimals: 2 })} ${Math.abs(activationsOf(r) - 1) < 1e-9 ? 'salida' : 'salidas'} por mes`;
+  const activationsText = (r) => `${formatNumber(activationsOf(r), { decimals: 2 })} ${T.word(activationsOf(r))} por mes`;
   const resultsDetail = notApplicable
     ? null
     : kit.advanced(
@@ -502,7 +508,7 @@ export function render(container, ctx) {
           const m = mobOf(r);
           const km = perMonth(r, m.kmPerActivation) + r.model.logistics.kmPerMonth;
           const liters = perMonth(r, m.litersPerActivation) + r.model.logistics.litersPerMonth;
-          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} por mes (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos auxiliares ${formatValue(r.model.logistics.kmPerMonth, 'km')}) · ${salidas(r)}.`;
+          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} por mes (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos auxiliares ${formatValue(r.model.logistics.kmPerMonth, 'km')}) · ${activationsText(r)}.`;
         },
       },
       // Distancia / actividad de los proveedores por km o por viaje (PLAN-2026-012):
@@ -514,10 +520,10 @@ export function render(container, ctx) {
       kit.group(
         'A. Movilización propia (equipos que van por sus medios)',
         kit.stats(
-          kit.stat('Salidas por mes', (r) => formatNumber(activationsOf(r), { decimals: 2 }), { hint: 'Días de trabajo ÷ días por salida o intervención.' }),
-          kit.stat('Km por salida', (r) => formatValue(mobOf(r).kmPerActivation, 'km'), { hint: (r) => `Ruta de ${formatValue(mobOf(r).routeKmPerActivation, 'km')} por salida × equipos que van por sus medios.` }),
+          kit.stat(`${T.Many} por mes`, (r) => formatNumber(activationsOf(r), { decimals: 2 }), { hint: `Días de trabajo ÷ días ${T.per}.` }),
+          kit.stat(`Km ${T.per}`, (r) => formatValue(mobOf(r).kmPerActivation, 'km'), { hint: (r) => `Ruta de ${formatValue(mobOf(r).routeKmPerActivation, 'km')} ${T.per} × equipos que van por sus medios.` }),
           kit.stat('Km por mes', (r) => formatValue(perMonth(r, mobOf(r).kmPerActivation), 'km')),
-          kit.stat('Litros por mes', (r) => formatValue(perMonth(r, mobOf(r).litersPerActivation), 'liters'), { hint: (r) => `${formatValue(mobOf(r).litersPerActivation, 'liters')} por salida (consumo en ruta).` }),
+          kit.stat('Litros por mes', (r) => formatValue(perMonth(r, mobOf(r).litersPerActivation), 'liters'), { hint: (r) => `${formatValue(mobOf(r).litersPerActivation, 'liters')} ${T.per} (consumo en ruta).` }),
           kit.stat('Combustible por mes', (r) => formatMoney(perMonth(r, mobOf(r).fuelPerActivation))),
           kit.stat('Desgaste por mes', (r) => formatMoney(perMonth(r, mobOf(r).wearPerActivation)), { hint: 'Mantenimiento y neumáticos por km (sin amortización).' }),
           kit.stat('Costo mensual de movilización', (r) => formatMoney(perMonth(r, mobOf(r).perActivation)), { emphasis: true }),
@@ -526,9 +532,9 @@ export function render(container, ctx) {
       kit.group(
         'B. Vehículos y logística auxiliar',
         kit.stats(
-          kit.stat('Km de vehículos por salida', (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
-          kit.stat('Litros por mes', (r) => formatValue(r.model.logistics.litersPerMonth, 'liters'), { hint: (r) => `${formatValue(r.model.logistics.litersPerActivation, 'liters')} por salida` }),
-          kit.stat('Costo por salida', (r) => formatMoney(r.model.logistics.costPerActivation), { hint: 'Combustible + desgaste + peajes + viáticos.' }),
+          kit.stat(`Km de vehículos ${T.per}`, (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
+          kit.stat('Litros por mes', (r) => formatValue(r.model.logistics.litersPerMonth, 'liters'), { hint: (r) => `${formatValue(r.model.logistics.litersPerActivation, 'liters')} ${T.per}` }),
+          kit.stat(`Costo ${T.per}`, (r) => formatMoney(r.model.logistics.costPerActivation), { hint: 'Combustible + desgaste + peajes + viáticos.' }),
           kit.stat('Costo mensual auxiliar', (r) => formatMoney(r.model.logistics.monthlyCost), { emphasis: true }),
         ),
       ),

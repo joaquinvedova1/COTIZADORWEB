@@ -1,0 +1,17 @@
+{
+  "id": "salidas-menos-de-una-completa",
+  "title": "Menos de una salida por mes, opción encendida: la salida indivisible se costea completa (⌈0,5⌉ = 1)",
+  "rule": "Decisión LAB-D1 (PLAN-2026-014): con \"Cada salida se cuenta completa\" los costos indivisibles por salida se cuentan con salidas enteras: ⌈0,5⌉ = 1 salida costeada; efecto del redondeo = (1 − 0,5) × 100.000 = 50.000 por mes. Costo total 3.500.000. La producción y la facturación siguen con el promedio (2 días facturables).",
+  "engine": "quote.activations",
+  "inputs": { "fixedCosts": 3000000, "variableCostPerDay": 200000, "activeDays": 2, "daysPerActivation": 4, "costPerActivation": 100000, "fullActivations": true, "targetMarginPct": 0 },
+  "expected": {
+    "activationRounding.estimated": 0.5,
+    "activationRounding.costed": 1,
+    "activationRounding.total": 50000,
+    "kpis.logisticsMonthly": 100000,
+    "kpis.totalCost": 3500000,
+    "kpis.activationRoundingCost": 50000,
+    "estimate.revenue.billableUnits": 2
+  },
+  "tolerance": 1e-6
+}

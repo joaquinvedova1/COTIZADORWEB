@@ -14,7 +14,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runCampaign, BLOCKING } from './lib/lab.js';
-import { auditQuoteUx } from './lib/ux-audit.js';
+import { auditQuoteUx, auditActivationTerms, hardcodedActivationWords } from './lib/ux-audit.js';
+import { activationTerms } from '../../js/domain/activation-terms.js';
 import { service, person } from './lib/build.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { toJSON, toMarkdown, assertSafeReport } from './lib/report.js';
@@ -64,6 +65,28 @@ describe('Test Lab — terminología de la interfaz (auditor UX F)', () => {
     r.completeness.items.push({ id: 'fake', label: 'Prueba', step: 'labor', status: 'warning', message: 'Cargá "Campo que no existe" y "Oficial".' });
     const codes = auditQuoteUx(q, r).filter((f) => f.code === 'UX-TERM-LABEL').map((f) => f.evidence.label);
     assert.deepEqual(codes, ['Campo que no existe']);
+  });
+
+  // PLAN-2026-014 (LAB-D8): una magnitud = un nombre por cotización.
+  test('terminología de la activación: cada cotización usa sólo su nombre (llamado / salida / intervención…)', () => {
+    const cases = [
+      ['on_call', 'day', 'llamado'], ['transport', 'trip', 'salida'], ['permanent', 'month', 'cambio de turno'],
+      ['turnkey', 'job', 'trabajo'], ['crew', 'day', 'intervención'], ['configurable', 'call', 'llamado'],
+    ];
+    for (const [serviceType, unit, term] of cases) {
+      const q = service({ id: `lab-t-${serviceType}`, serviceType, unit, activity: { activeDaysPerMonth: 3, daysPerActivation: 2, billableQuantityPerMonth: 3, unitsPerActiveDay: 1 }, labor: [person()],
+        logistics: { notApplicable: false, distanceKm: 50, roundTrip: true, tripsPerActivation: 1, tollsPerActivation: 10000, lodgingPerActivation: 0, vehicles: [] } });
+      assert.equal(activationTerms(q).one, term, `${serviceType}/${unit}`);
+      assert.deepEqual(auditActivationTerms(q, computeQuote(q)).map((f) => f.detail), [], `${serviceType}/${unit}`);
+    }
+  });
+  test('el auditor de terminología detecta otra palabra para la misma magnitud (no es un control vacío)', () => {
+    const q = service({ id: 'lab-t-foreign', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 5 }, labor: [person({ role: 'Chofer' })] });
+    const r = computeQuote(q);
+    r.completeness.notices.push({ id: 'fake', label: 'Prueba', message: 'Costo por llamado sin cargar. La salida de caja es otra magnitud. "Chofer" no cuenta.' });
+    const found = auditActivationTerms(q, r);
+    assert.deepEqual(found.map((f) => f.evidence.word.toLowerCase()), ['llamado']);
+    assert.deepEqual(hardcodedActivationWords(), [], 'sin palabras de activación escritas a mano fuera de la lista justificada');
   });
 });
 

@@ -365,6 +365,59 @@ export const QUOTE_INVARIANTS = [
       return r2.kpis.suggestedListRate >= r.kpis.suggestedListRate - TOL(r.kpis.suggestedListRate) ? ok(`${r.kpis.suggestedListRate} → ${r2.kpis.suggestedListRate}`) : fail(`${r.kpis.suggestedListRate} → ${r2.kpis.suggestedListRate}`);
     },
   },
+  {
+    // PLAN-2026-014 (LAB-D1): la semántica decidida, también con menos de una salida por mes.
+    id: 'INV-29', title: '"Cada salida completa" suma exactamente (⌈A⌉ − A) × costo indivisible por salida (también con A < 1); apagada, se costea el promedio A',
+    check(q, r) {
+      const ar = r.activationRounding;
+      if (!ar || !(ar.estimated > 1e-9) || !(ar.preview && ar.preview.perActivationDiscrete > 0)) return notApplicable;
+      const off = clone(q); off.activity = { ...off.activity, fullActivations: false };
+      const on = clone(q); on.activity = { ...on.activity, fullActivations: true };
+      const rOff = run(off);
+      const rOn = run(on);
+      const A = rOff.activationRounding.estimated;
+      const whole = Math.ceil(A - 1e-9);
+      const expected = (whole - A) * rOff.activationRounding.preview.perActivationDiscrete;
+      const delta = rOn.kpis.totalCost - rOff.kpis.totalCost;
+      const okCosted = Math.abs(rOff.activationRounding.costed - A) < 1e-9 && Math.abs(rOn.activationRounding.costed - Math.max(whole, A)) < 1e-9;
+      return okCosted && Math.abs(delta - expected) <= TOL(expected)
+        ? ok(`A = ${A.toFixed(2)} → ${whole}: +${expected.toFixed(2)}`)
+        : fail(`A = ${A}: costeadas ${rOff.activationRounding.costed} / ${rOn.activationRounding.costed}; diferencia ${delta} ≠ ${expected}`);
+    },
+  },
+  {
+    // PLAN-2026-014 (LAB-D5): "No usa combustible" es explícito y nunca encarece.
+    id: 'INV-30', title: 'Marcar "No usa combustible" en un equipo propio nunca sube el costo y deja su combustible en 0 (trabajando y en ruta)',
+    check(q, r) {
+      const i = list(q.equipment).findIndex((e) => !isExt(e) && e.fuelNotApplicable !== true && Number(e.quantity) > 0
+        && (Number(e.fuelLitersPerHour) > 0 || (e.mobilization && e.mobilization.mode === 'self' && Number(e.mobilization.travelLitersPer100Km) > 0)));
+      if (i < 0) return notApplicable;
+      const q2 = clone(q); q2.equipment[i].fuelNotApplicable = true;
+      const r2 = run(q2);
+      const line = r2.model.equipment[i];
+      const mob = r2.model.mobilization.lines[i];
+      const fuelZero = line.operation.fuelLitersPerHour === 0 && (!mob || mob.liters === 0);
+      return fuelZero && r2.kpis.totalCost <= r.kpis.totalCost + TOL(r.kpis.totalCost)
+        ? ok(`${r.kpis.totalCost.toFixed(2)} → ${r2.kpis.totalCost.toFixed(2)}`)
+        : fail(`costo ${r.kpis.totalCost} → ${r2.kpis.totalCost}; litros/h ${line.operation.fuelLitersPerHour}, ruta ${mob ? mob.liters : '—'}`);
+    },
+  },
+  {
+    // PLAN-2026-014 (LAB-D2): el aviso de horas nunca agrega horas extra ni personas.
+    id: 'INV-31', title: 'Más horas por día que la jornada cargada: se avisa y el costo del personal no cambia solo',
+    check(q, r) {
+      if (!list(q.labor).length || !(r.kpis.activeDays > 0)) return notApplicable;
+      const q2 = clone(q); q2.activity = { ...q2.activity, hoursPerActiveDay: 24 };
+      const r2 = run(q2);
+      const warned = r2.completeness.items.some((x) => x.id === 'labor_hours');
+      const before = r.model.labor.fixedMonthly + r.model.labor.variablePerActiveDay;
+      const after = r2.model.labor.fixedMonthly + r2.model.labor.variablePerActiveDay;
+      const needs = list(q.labor).some((l) => Number(l.positions) > 0 && Number(l.normalHoursPerMonth) > 0
+        && r2.kpis.activeDays * 24 > Number(l.peoplePerPosition || 1) * Number(l.normalHoursPerMonth) + 1e-6 && !Array.isArray(l.overtime) && !(Number(l.overtimeHoursPerActiveDay) > 0));
+      if (!needs) return notApplicable;
+      return warned && Math.abs(after - before) <= TOL(before) ? ok('avisa, sin costo inventado') : fail(`aviso: ${warned}; personal ${before} → ${after}`);
+    },
+  },
 ];
 
 /** Copia de la cotización con D días de trabajo (o la cantidad que los produce). */
@@ -417,11 +470,11 @@ export const PRODUCT_INVARIANTS = [
     },
   },
   {
-    id: 'PINV-05', title: 'Producto: el resultado del mes cierra (ventas − impuestos − variables − fijos)',
+    id: 'PINV-05', title: 'Producto: el resultado del mes cierra (ventas − impuestos − variables − fijos − financiación)',
     check(p, r) {
       if (r.pricing.suggestedPrice === null || r.variablePerUnit === null) return notApplicable;
       const N = r.monthlyUnits;
-      const expected = r.pricing.suggestedPrice * N * (1 - r.taxPct / 100) - r.variablePerUnit * N - r.fixedMonthly;
+      const expected = r.pricing.suggestedPrice * N * (1 - r.taxPct / 100) - r.variablePerUnit * N - r.fixedMonthly - r.finance.financialMonthly;
       return Math.abs(r.monthly.profit - expected) <= TOL(expected) ? ok('cierra') : fail(`${r.monthly.profit} ≠ ${expected}`);
     },
   },
@@ -434,6 +487,43 @@ export const PRODUCT_INVARIANTS = [
       const a = prun(below);
       const b = prun(above);
       return a.current.belowFloor === true && b.current.belowFloor === false ? ok('avisa') : fail(`debajo: ${a.current.belowFloor}; arriba: ${b.current.belowFloor}`);
+    },
+  },
+  {
+    // PLAN-2026-014 (LAB-D3): la financiación de productos sigue las mismas reglas que las cotizaciones.
+    id: 'PINV-08', title: 'Producto: cobrar más tarde nunca baja la financiación ni el costo por unidad',
+    check(p, r) {
+      if (r.unitCost === null) return notApplicable;
+      const p2 = clone(p); p2.finance = { ...(p2.finance || {}), paymentTermDays: Number((p.finance || {}).paymentTermDays || 0) + 30, monthlyRatePct: Number((p.finance || {}).monthlyRatePct) > 0 ? p.finance.monthlyRatePct : 3 };
+      const p1 = clone(p); p1.finance = { ...(p1.finance || {}), monthlyRatePct: p2.finance.monthlyRatePct };
+      const a = prun(p1);
+      const b = prun(p2);
+      return b.finance.financialMonthly >= a.finance.financialMonthly - TOL(a.finance.financialMonthly) && b.unitCost >= a.unitCost - TOL(a.unitCost)
+        ? ok(`${a.finance.financialMonthly.toFixed(2)} → ${b.finance.financialMonthly.toFixed(2)}`)
+        : fail(`${a.finance.financialMonthly} → ${b.finance.financialMonthly}`);
+    },
+  },
+  {
+    id: 'PINV-09', title: 'Producto: pagarle más tarde a los proveedores nunca sube la financiación',
+    check(p, r) {
+      if (r.unitCost === null) return notApplicable;
+      const base = { ...(p.finance || {}), paymentTermDays: Number((p.finance || {}).paymentTermDays || 0) + 60, monthlyRatePct: 3 };
+      const p1 = clone(p); p1.finance = base;
+      const p2 = clone(p); p2.finance = { ...base, payDays: Object.fromEntries(['materials', 'salaries', 'fuel', 'suppliers', 'structure'].map((g) => [g, Number(((base.payDays || {})[g]) || 0) + 30])) };
+      const a = prun(p1);
+      const b = prun(p2);
+      return b.finance.financialMonthly <= a.finance.financialMonthly + TOL(a.finance.financialMonthly) ? ok('no sube') : fail(`${a.finance.financialMonthly} → ${b.finance.financialMonthly}`);
+    },
+  },
+  {
+    id: 'PINV-10', title: 'Producto: con tasa 0 la financiación es 0 y el costo es el de sin financiación',
+    check(p, r) {
+      if (r.unitCost === null) return notApplicable;
+      const p0 = clone(p); p0.finance = { ...(p0.finance || {}), monthlyRatePct: 0, paymentTermDays: 60, invoiceLagDays: 15 };
+      const none = clone(p); delete none.finance;
+      const a = prun(p0);
+      const b = prun(none);
+      return a.finance.financialMonthly === 0 && Math.abs(a.unitCost - b.unitCost) <= TOL(b.unitCost) ? ok('0') : fail(`financiación ${a.finance.financialMonthly}; costo ${a.unitCost} vs ${b.unitCost}`);
     },
   },
   {

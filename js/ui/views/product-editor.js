@@ -72,6 +72,7 @@ const ISSUE_STEPS = Object.freeze({
   exchangeRates: 'insumos',
   pricing: 'precio',
   billingTaxes: 'precio',
+  finance: 'precio',
 });
 
 const STATUS_TEXT = Object.freeze({ green: 'listo', orange: 'revisá un dato', red: 'falta un dato', gray: 'sin cargar' });
@@ -1216,6 +1217,34 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
           kit.num('pricing.currentPrice', { label: `¿A cuánto lo vendés hoy? (opcional)`, unit: '$', hint: 'Sin IVA. Para compararlo con el precio sugerido.' }),
         ),
       ),
+      // Financiación (PLAN-2026-014, LAB-D3): opcional; el mismo cálculo que las cotizaciones.
+      card(
+        { title: 'Financiación (opcional)', subtitle: 'Si cobrás después de producir, la plata que ponés para producir queda inmovilizada. Cargá tus plazos y tu tasa: RATEOS no los inventa.' },
+        formGrid(
+          3,
+          kit.num('finance.invoiceLagDays', { label: 'Días entre producir y vender', rule: 'paymentDays', unit: 'días', hint: 'Promedio que queda en stock lo que producís. Vacío = 0.' }),
+          kit.num('finance.paymentTermDays', { label: 'Plazo de cobro', rule: 'paymentDays', unit: 'días', hint: 'Días entre que vendés y cobrás (0 = al contado).' }),
+          kit.num('finance.monthlyRatePct', { label: 'Tasa mensual', rule: 'percent', unit: '% mensual', hint: 'Lo que te cuesta la plata inmovilizada (o lo que dejás de ganar). RATEOS no trae tasas.' }),
+        ),
+        disclosure(
+          { summary: '¿Cuándo pagás cada costo?', hint: 'Días después de producir. Vacío = lo pagás al producir.' },
+          formGrid(
+            3,
+            kit.num('finance.payDays.materials', { label: 'Ingredientes y materiales', rule: 'paymentDays', unit: 'días' }),
+            kit.num('finance.payDays.salaries', { label: 'Sueldos', rule: 'paymentDays', unit: 'días' }),
+            kit.num('finance.payDays.fuel', { label: 'Combustible y energía', rule: 'paymentDays', unit: 'días' }),
+            kit.num('finance.payDays.suppliers', { label: 'Mantenimiento y gastos de las máquinas', rule: 'paymentDays', unit: 'días' }),
+            kit.num('finance.payDays.structure', { label: 'Gastos fijos del negocio', rule: 'paymentDays', unit: 'días' }),
+          ),
+        ),
+        calc((r) => {
+          const f = r.finance;
+          if (!f.defined) return 'Sin plazos ni tasa: el costo no incluye financiación.';
+          if (!(f.financialMonthly > 0)) return 'Con estos plazos y esta tasa no hay costo financiero.';
+          return `Capital financiado: ${money0(f.workingCapitalMonthly)} · costo financiero: ${money0(f.financialMonthly)} por mes = ${unitMoney(f.financialPerUnit)} por ${saleUnit()}. Sube el precio con tu margen en ${unitMoney(r.pricing.financeEffect)}.`;
+        }),
+        liveTrace('finance', 'Ver cálculo de la financiación'),
+      ),
       card(
         { title: `Tu precio por ${saleUnit()}` },
         h(
@@ -1272,7 +1301,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
           ? (N >= be ? `Vendés ${num(N, 0)} por mes: estás por encima.` : `Vendés ${num(N, 0)} por mes: todavía no llegás.`)
           : 'Para cubrir los gastos fijos del mes.';
     const traceCell = (key) => (r.traces[key] ? liveTrace(key) : null);
-    const breakdownRows = r.breakdown.map((b) => ({ ...b, trace: { materials: 'materials', labor: 'labor', equipmentUse: 'equipmentUse', equipmentFixed: 'fixed', otherFixed: 'fixed' }[b.key] }));
+    const breakdownRows = r.breakdown.map((b) => ({ ...b, trace: { materials: 'materials', labor: 'labor', equipmentUse: 'equipmentUse', equipmentFixed: 'fixed', otherFixed: 'fixed', financial: 'finance' }[b.key] }));
     const current = r.current;
     const nodes = [
       p.illustrative ? illustrativeBanner('Este es un producto de EJEMPLO con valores ILUSTRATIVOS: no son precios, sueldos ni costos reales. Cambialos por los tuyos o borralo.') : null,
@@ -1368,8 +1397,9 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
               { label: 'Impuestos sobre la venta', value: `− ${money0(r.monthly.salesTaxes)}` },
               { label: 'Costos variables (ingredientes, personal, uso de máquinas)', value: `− ${money0(r.monthly.variable)}` },
               { label: 'Gastos fijos asignados', value: `− ${money0(r.monthly.fixed)}` },
+              r.monthly.financial > 0 ? { label: 'Costo financiero (capital de trabajo)', value: `− ${money0(r.monthly.financial)}` } : null,
               { label: 'Ganancia del mes', value: money0(r.monthly.profit), strong: true },
-            ],
+            ].filter(Boolean),
           }),
         )
         : null,

@@ -106,7 +106,8 @@ describe('viajes físicos con la unidad "viaje" (P0)', () => {
     const notice = r.completeness.notices.find((n) => n.id === 'transport_trips');
     assert.ok(notice, 'aviso informativo del dato anterior');
     assert.match(notice.message, /2 × 1 día = 2/);
-    assert.match(notice.message, /1 por llamado\) ya no se usa/);
+    // PLAN-2026-014 (LAB-D8): en transporte la activación se llama "salida".
+    assert.match(notice.message, /1 por salida\) ya no se usa/);
     // El dato guardado no se toca.
     assert.equal(q.logistics.tripsPerActivation, 1);
   });

@@ -98,6 +98,20 @@ ingreso por activación    → × activaciones/mes (call-out, movilización, km 
 
 Ejemplo demo: 8 días activos, 2 días por activación → **4 activaciones/mes**.
 
+**Terminología de la activación (PLAN-2026-014, LAB-D8).** Internamente hay **una sola magnitud** (la activación: `activationsPerMonth`, `daysPerActivation`, costos "por activación"). En la interfaz se nombra según la cotización (`activationTerms`, `js/domain/activation-terms.js`) y, dentro de una cotización, siempre igual:
+
+| Cotización | Nombre |
+|---|---|
+| unidad de facturación "llamado" | llamado |
+| unidad "trabajo" o "hito" | trabajo |
+| on-call | llamado |
+| transporte | salida (agrupa uno o más viajes) |
+| permanente | cambio de turno |
+| llave en mano / precio cerrado | trabajo |
+| el resto (servicios técnicos, cuadrillas, equipos…) | intervención |
+
+"Viaje" (un viaje físico; con la unidad "viaje", lo que se factura), "día de trabajo", "turno" (unidad) y "salida de caja" (plata que sale) son **otras** magnitudes y conservan su nombre. Una magnitud = un significado económico. Los rótulos que citan los avisos salen de la misma función que arma el campo (`activationFieldLabels`), así un aviso nunca nombra un campo que no existe.
+
 ### 2.1 "Cada salida se cuenta completa" (PLAN-2026-011, opcional)
 
 Las activaciones por mes son un **promedio** y pueden ser fraccionarias (2.500 m³ / 120 m³ por día / 2 días por intervención = 10,42). Por defecto (`activity.fullActivations` ausente o `false`) cada costo por salida se reparte por día y el mes paga 10,42 salidas, como siempre. Con la opción activa:
@@ -119,6 +133,8 @@ costo discreto por salida = movilización por sus medios (combustible en ruta + 
 **No se redondean** sueldos, standby, tenencia de equipos, mantenimiento por hora, materiales por mes o por día, externos por mes o global, estructura mensual fija, producción ni facturación (los ingresos por llamado —call-out, movilización cobrada al cliente, km extra— siguen con las intervenciones estimadas: la opción sólo agrega costo). Cada driver existe en una sola línea del modelo (un equipo transportado o una movilización incluida por el proveedor no suma movilización propia), así que el ajuste no cuenta nada dos veces.
 
 El costo pasa a ser **escalonado** en D: el equilibrio, los días para el margen objetivo y el comparador evalúan cada salto (múltiplos de los días por intervención) para no saltear un tramo con pérdida (§15), y la descomposición lineal se marca como no lineal.
+
+**Semántica explícita (PLAN-2026-014, decisión del dueño LAB-D1; la fórmula no cambia).** Apagada, la frecuencia es un **promedio**: con 2 días de trabajo y salidas de 4 días hay 0,5 salidas por mes y los costos por salida se cuentan en proporción (0,5 de la salida). Encendida, los costos físicamente indivisibles por salida se cuentan completos (⌈A⌉). La interfaz muestra siempre tres números: **salidas promedio** (A), **salidas costeadas** (A apagada; ⌈A⌉ encendida) y el **efecto del redondeo** `(⌈A⌉ − A) × costo discreto por salida` (incluido o "no incluido"), en "Cómo se cobra" (`activationRoundingText`), en "Ver cálculo" del costo total y de Movilización y viajes (como nota, apagada) y en el Resultado. Con **menos de una salida por mes**, la opción apagada y costos por salida, un aviso informativo (no resta puntaje; `activations_below_one`, `focus` a la casilla) lo dice con los tres números. Golden: `salidas-menos-de-una-promedio` (costo 3.450.000, efecto +50.000 sin sumar) y `salidas-menos-de-una-completa` (⌈0,5⌉ = 1, costo 3.500.000). Invariante de Test Lab INV-29.
 
 **Ejemplo (COT-0009 con 2.500 m³):** costo por salida = movilización del vactor 77.500 (52.500 combustible + 25.000 desgaste) + estructura 10 % 7.750 + financiación 5.488,75 (52.500 × 3 % × 75/30 + 25.000 × 3 % × 45/30 + 7.750 × 3 % × 55/30) = **90.738,75**. A = 10,4167, C = 11 → ajuste = 0,5833 × 90.738,75 = **52.930,94** por mes. Personal, tenencia del vactor, la pickup mensual, los m³ y la facturación no cambian. Con 2.400 m³ (A = 10 exacto) el mes no cambia; el equilibrio (≈ 8,04 salidas) sí cuenta la novena salida completa.
 
@@ -195,6 +211,8 @@ basis 'per_month'      (horas promedio por mes/persona) → fijo del mes × dota
 
 Sin lista `overtime`, se usa el campo único de siempre (horas extra por día activo + un recargo) **con el mismo orden de cálculo**: mismo resultado al centavo (test `audit-cot0009.test.js`). Antes → después: ninguna cotización existente cambia (foto de 99 casos idéntica).
 
+**Horas de la operación vs jornada cargada (PLAN-2026-014, decisión del dueño LAB-D2; no es una fórmula de costo).** Con días de trabajo D y horas por día H (de la actividad), cada posición tiene que cubrir `D × H` horas por mes. Con lo cargado se cubren `personas por posición × horas normales del puesto + horas extra por día activo × D + horas extra por mes × personas por posición`. Si falta cubrir horas, la completitud avisa (`labor_hours`, naranja, sólo aparece en ese caso): "La operación requiere más horas que la jornada cargada. Revisá turnos, dotación y/o horas extra.", con las horas que faltan y `focus` a "Personas por posición". RATEOS **nunca** infiere horas extra, turnos, relevos ni convenio, ni cambia el costo: lo decide la empresa. Ejemplos: 8 h × 20 días = 160 h ≤ 176 h → sin aviso; 12 h × 20 = 240 h con 1 persona de 176 h → faltan 64 h; con 2 personas por posición (352 h) o 4 h extra por día (256 h) → sin aviso; 24 h × 20 = 480 h necesita 3 personas (2 cubren 352 h). Invariante INV-31.
+
 **Horas extra facturadas aparte** (`line.overtimeBilled = true`): siguen siendo costo y además generan ingreso `horas × precio por hora del tramo` (por día activo × posiciones, o por mes × dotación), que entra en "otros ingresos" igual que los materiales facturados aparte (§12) y por eso baja la tarifa piso. Ejemplo COT-0009: 2 h/día al 50 % facturadas a $ 30.000/h × 20 días = $ 1.200.000 de ingreso por mes; el costo no cambia.
 
 ## 4. Equipos
@@ -226,6 +244,9 @@ Operación por hora de uso:
 combustible/h  = litros/h × precio del combustible      (precio = 0 si el combustible lo provee el cliente)
 operación/h    = mantenimiento/h + neumáticos/h + combustible/h
 ```
+
+- **"No usa combustible"** (`equipment[].fuelNotApplicable = true`, PLAN-2026-014, decisión LAB-D5): equipo propio eléctrico, manual o estacionario. Es un dato **explícito**: litros/h = 0 trabajando y en ruta (§5.1), no se pide consumo ni precio de combustible por ese equipo y no impide el 100 % de completitud. Un consumo 0 **sin** la marca sigue siendo un dato faltante (nunca se infiere "no consume" de un 0). Viene del legajo de Recursos (y cambia la huella del snapshot sólo si está marcado: ninguna cotización existente se marca sola). Invariante INV-30.
+- **Horas de uso por día de una línea** (regla real documentada en PLAN-2026-014, LAB-D6): las de la línea o, vacías, las de la actividad. **No se limitan a 24**: si se cargan más, `validateQuote` marca error (0 a 24) y se calcula con lo cargado hasta que se corrija. Las horas de la actividad sí se limitan a 24 (§2).
 
 **Mantenimiento y neumáticos: forma de carga (esquema 4, PLAN-2026-007)** — `maintenanceOf`, `tiresOf`. Sin forma de carga se usa "por hora" (los datos anteriores calculan igual):
 
@@ -316,7 +337,7 @@ por día activo (neto)    = facturado/llamado / días por llamado
 **Tratamiento fiscal** (lo define la empresa: RATEOS no trae alícuotas; `vatPct` arranca sin definir):
 
 ```
-parte recuperable = 1 (Sí) | 0 (No) | % parcial / 100 (Parcial) | 1 si está sin definir (+ aviso)
+parte recuperable = 1 (Sí) | 0 (No) | % parcial / 100 (Parcial) | 0 si es Parcial sin % (+ pendiente rojo) | 1 si está sin definir (+ aviso)
 costo económico   = neto × (1 + cargos no recuperables% + IVA% × (1 − parte recuperable))
 salida de caja    = neto × (1 + IVA% + percepciones% + cargos no recuperables%)     (se financia, §8)
 crédito fiscal    = neto × (IVA% × parte recuperable + percepciones%)               (NO es costo)
@@ -326,6 +347,7 @@ crédito fiscal    = neto × (IVA% × parte recuperable + percepciones%)        
 - El plazo de pago de cada externo es el de su línea (`equipment[].supplierPayDays`, PLAN-2026-011, §8); vacío = el de "Proveedores". El viejo `external.fiscal.paymentTermDays` sigue informativo (la línea ofrece [Usar X días]).
 - Ganancias no se aplica como % sobre un alquiler; el IIBB del proveedor ya está en su precio (el propio se calcula sobre la facturación, §13.1).
 - "No" o "Parcial" sin alícuota de IVA → la completitud lo marca en rojo (no se puede calcular el IVA que no se recupera).
+- **"Parcial" sin % recuperable** (regla real documentada en PLAN-2026-014, LAB-D6): se toma **0 % recuperable** —todo el IVA es costo, como "No", criterio conservador— y la completitud lo marca en rojo ("Falta … la parte recuperable") hasta que se cargue el %.
 
 Opcionales del proveedor:
 
@@ -428,6 +450,7 @@ por día activo = por llamado / días por llamado
 ```
 
 - Combustible en ruta → categoría **Combustible**; desgaste por km → **Logística**.
+- Un equipo propio marcado **"No usa combustible"** (§4) tampoco consume al trasladarse: litros = 0, sigue el desgaste por km y no se pide el consumo en ruta (PLAN-2026-014).
 - La amortización ya está en el costo de tenerlo (§4): nunca se suma por km.
 - Avisos: falta el consumo en ruta, falta quién maneja, falta el equipo que lo transporta, dos equipos que se transportan entre sí, falta el vehículo de apoyo.
 
@@ -455,7 +478,8 @@ km de ruta por mes            = viajes físicos por mes × km por viaje
 - Sin mínimo por llamado, los viajes físicos de la unidad "viaje" son los facturables: **1, 2 o 3 viajes por día recorren los mismos km** y el proveedor por km cuesta lo mismo (golden). Con mínimo por llamado se costean los viajes que se hacen (el mínimo factura de más).
 - **Corrección (bug demostrado, antes → después):** antes la ruta usaba "Viajes por llamado" (1 por defecto) aunque se vendieran 2 viajes por día. COT-0011 con ese dato en 1: 12 viajes facturados pero 6 físicos costeados → proveedor $ 3.900.000, costo $ 8.320.447, sugerida $ 816.000 (−35 %). Ahora: 12 viajes, 2.400 km, $ 7.800.000, costo $ 12.864.478, sugerida $ 1.262.000. Sólo cambian las cotizaciones $/viaje cuyo "Viajes por llamado" no coincidía con viajes por día × días por intervención; el dato guardado no se toca y se muestra un aviso informativo ([Entendido] lo iguala).
 - Limitación: con la unidad "viaje" la cantidad de viajes es una sola para todo lo que circula por la ruta (proveedor por km, equipos por sus medios y vehículos de apoyo). Con "cada salida completa" activado, una salida incompleta se costea con todos sus viajes (criterio conservador de §2.1).
-- Resumen visible en "Cómo se cobra", "Movilización y viajes" y el Resultado: viajes facturables, viajes físicos costeados, días de trabajo, km por viaje y km por mes, con "Ver cálculo" (`traceTransport`). La distancia / actividad del proveedor se muestra aparte de la movilización propia.
+- Resumen visible en "Cómo se cobra", "Movilización y viajes" y el Resultado: viajes facturables, viajes físicos costeados, días de trabajo, km por viaje y **km de ruta por mes**, con "Ver cálculo" (`traceTransport`). La distancia / actividad del proveedor se muestra aparte de la movilización propia.
+- **Cobro por km: km FACTURABLES ≠ km DE RUTA** (PLAN-2026-014, decisión del dueño LAB-D4). Los km facturables son lo que se cobra (cantidad del mes); los km de ruta, lo que se recorre y se costea (combustible, desgaste, proveedor por km): `transportSummary` expone `billableKmPerMonth` y `billableToRouteKm` (km facturables por km de ruta). **Nunca** se deriva uno del otro ni se pisa lo cargado. "Ver cálculo" muestra los dos, la relación y la diferencia; si se facturan **más** km que los de la ruta, la completitud avisa (`route_consistency`, §19: los costos por km quedarían cortos) y "Ver cálculo" lo explica; si la ruta recorre más (vueltas vacías), se costean todos los km de la ruta.
 
 **Ejemplo (COT-0010 / COT-0011):** 12 viajes facturables, Neuquén → Añelo 100 km (200 km por viaje). COT-0010 a 1 viaje por día: 12 días, 12 intervenciones de 1 viaje. COT-0011 a 2 por día: 6 días, 6 intervenciones de 2 viajes. En ambos 12 viajes físicos × 200 km = **2.400 km × $ 3.250 = $ 7.800.000**.
 
@@ -492,7 +516,7 @@ Base de cálculo:
 | `per_active_day` | variable por día = monto |
 | `per_activation` | variable por día = monto / días por activación |
 
-La categoría debe ser una de `labor`, `equipment`, `fuel`, `materials`, `logistics`, `structure` (si no, se usa `materials`). El grupo de pago sale de `CATEGORY_PAY_GROUP` (`js/domain/catalogs.js`).
+La categoría debe ser una de `labor`, `equipment`, `external`, `fuel`, `materials`, `logistics`, `structure` (`DIRECT_CATEGORY_IDS`; si no, se usa `materials`). El grupo de pago sale de `CATEGORY_PAY_GROUP` (`js/domain/catalogs.js`). `external` ("Equipos y servicios externos", por ejemplo un subcontrato) es un costo **directo** del grupo de pago **Proveedores** (regla real documentada en PLAN-2026-014, LAB-D6).
 
 ### 6.1 Moneda y tipo de cambio
 
@@ -1168,15 +1192,16 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 3 | `utilization` | on-call o "Conozco la actividad"; por cantidad o evento; cobro por hora | 2 | ok si días activos > 0 (por cantidad: cantidad del mes > 0 y, si es cantidad, cantidad por día > 0); **cobro por hora** (Test Lab, PLAN-2026-013): también horas por día > 0 (sin horas no hay unidades facturables), aun con "Ya tengo la tarifa"; si no, rojo. `focus` al dato que falta (días, cantidad del mes, cantidad por día u horas) |
 | 4 | `labor` | tipo distinto de "Equipo sin operador" | 2 | ok si alguna línea tiene básico > 0 y posiciones > 0; si no, rojo |
 | 5 | `relief` | servicio permanente, u on-call 24/7, con personal cargado | 1 | ok si todas las líneas tienen más de 1 persona por posición; si no, naranja |
+| 5b | `labor_hours` (PLAN-2026-014) | días de trabajo y horas por día > 0, y alguna línea con posiciones y horas normales que no cubre `D × H` | 1 | **sólo aparece en ese caso** (las demás cotizaciones no cambian de puntaje): naranja "La operación requiere más horas que la jornada cargada. Revisá turnos, dotación y/o horas extra." con las horas que faltan, `focus` a "Personas por posición" y `targets` a cada línea. Nunca agrega horas extra ni personas (§3) |
 | 6 | `equipment_cost` | tipo con equipos (on-call, equipo con/sin operador, transporte) o hay equipos | 2 | ok si hay equipos y todos tienen costo: los propios reposición > 0 y vida útil > 0, los externos tarifa > 0; si no, rojo. `focus` al dato que falta de la primera línea que nombra el mensaje (reposición, vida útil o tarifa del proveedor); sin equipos cargados no hay campo y el botón lleva al paso |
-| 7 | `fuel` | hay equipos o vehículos de traslado | 2 | **sólo cuenta lo que consume combustible a nuestro cargo** (PLAN-2026-012): equipos propios, externos con combustible NO incluido (por hora o por km), movilización por sus medios que paga combustible y vehículos de apoyo. Si no hay ninguno → ok "No aplica" (un externo con combustible incluido no pide consumo); provisto por el cliente → ok sin costo; rojo sin responsable, sin precio, sin consumo (o, por km, sin km: con "Sin traslados" el pendiente lo dice y lleva a esa opción; sin distancia, a la distancia; sin viajes, a los viajes); naranja si el precio es el ILUSTRATIVO por defecto. El pendiente trae `focus` (el campo exacto) y se muestra en el paso de ese campo |
+| 7 | `fuel` | hay equipos o vehículos de traslado | 2 | **sólo cuenta lo que consume combustible a nuestro cargo** (PLAN-2026-012): equipos propios, externos con combustible NO incluido (por hora o por km), movilización por sus medios que paga combustible y vehículos de apoyo. Si no hay ninguno → ok "No aplica" (un externo con combustible incluido no pide consumo); provisto por el cliente → ok sin costo; rojo sin responsable, sin precio, sin consumo (o, por km, sin km: con "Sin traslados" el pendiente lo dice y lleva a esa opción; sin distancia, a la distancia; sin viajes, a los viajes); naranja si el precio es el ILUSTRATIVO por defecto; **rojo** si es ILUSTRATIVO en una cotización real **nueva** (`fuel.requiresConfirmation`, PLAN-2026-014 / LAB-D7: "confirmalo («Es mi precio vigente») o cargá tu precio actual", con el valor y su base). Un equipo propio marcado **"No usa combustible"** no consume (LAB-D5). El pendiente trae `focus` (el campo exacto) y se muestra en el paso de ese campo |
 | 8 | `materials` | siempre | 1 / 2 | "no usa materiales" → ok (1); sin líneas → naranja (1); con líneas → ok si todas tienen responsable, si no rojo (2); con responsable, una línea que pagamos con precio y cantidad 0 (o al revés) → **naranja** "no suma costo", con `focus` a su cantidad o precio (Test Lab) |
 | 9 | `logistics` | siempre | 1 / 2 | "sin traslados" → ok (1); si no, ok si distancia > 0 y algo se mueve (un vehículo con cantidad > 0, un equipo con movilización por sus medios / transportado / con apoyo, o un externo con movilización incluida); si no, rojo (2) |
 | 9b | `mobility` (v3) | hay equipos y traslados | 1 | ok si cada equipo tiene definido cómo llega (o el externo la incluye) y no hay avisos de transporte o conductor; si no, naranja. Con **"Sin traslados"** y un equipo que viaja por sus medios o con vehículo de apoyo (Test Lab): naranja "esa movilización no se suma", con `focus` a "Sin traslados" |
 | 9c | `external_terms` (v3) | hay equipos externos | 1 | rojo si falta la alícuota de IVA cuando no es recuperable (o la parte recuperable si es parcial); naranja si no se definió si el IVA es recuperable, si no se definió si la tarifa incluye combustible u operador, si una tarifa global no tiene meses de contrato (se toma 1 mes), si la oferta del proveedor venció antes de la fecha de la oferta o no tiene vigencia; si no, ok |
 | 9c' | `external_route` (PLAN-2026-012) | un externo por km o por viaje, con tarifa y sin mínimo, en una cotización sin km / viajes ("Sin traslados", sin distancia o sin viajes) | 2 | **rojo y crítico**: "Falta definir la ruta/distancia para calcular este proveedor." (antes era parte de 9c, peso 1, sólo "revisar"); `focus` al campo de la ruta; la línea dice "Falta la ruta" en lugar de $ 0 |
 | 9c'' | `external_hours` (Test Lab, PLAN-2026-013) | un externo por hora, con tarifa, cantidad > 0 y sin mínimo, con 0 horas por día (las de su línea, o las de la actividad si la línea las hereda) | 2 | **rojo y crítico**: su tarifa no se puede calcular (nunca es un $ 0 válido); `focus` a las horas de la línea o de la actividad |
-| 9c''' | `route_consistency` (Test Lab) | unidad "viaje" o "km" | 1 | naranja si se cobran viajes o km con "Sin traslados" (`focus` a esa opción), o si con la unidad "km" se facturan **más** km que los que recorre la ruta (llamados × viajes por llamado × km por viaje): los costos por km quedarían cortos (`focus` a "Viajes por llamado"). Una ruta con más km que los facturados (vuelta vacía) no se avisa. No se deriva (decisión del dueño) |
+| 9c''' | `route_consistency` (Test Lab) | unidad "viaje" o "km" | 1 | naranja si se cobran viajes o km con "Sin traslados" (`focus` a esa opción), o si con la unidad "km" se facturan **más** km que los que recorre la ruta (llamados × viajes por llamado × km por viaje): los costos por km quedarían cortos (`focus` a "Viajes por …", el rótulo con el nombre de la activación de la cotización: "Viajes por salida" en transporte). Una ruta con más km que los facturados (vuelta vacía) no se avisa. No se deriva (decisión del dueño) |
 | 9d | `duplicates` (v3) | hay equipos | 1 | naranja si un externo incluye operador y además tiene uno de Personal asignado, si un equipo que va por sus propios medios también figura como vehículo de la logística auxiliar, o si un externo cuya movilización cobra el proveedor aparte además va "por sus propios medios"; si no, ok |
 | 9e | `economic_base` (v3) | hay valores con costo | 1 | naranja si algún valor no tiene fecha base; si no, ok |
 | 9f | `base_age` (v3) | algún valor con base | 1 | naranja si hay bases de más de 6 meses antes de la oferta o bases distintas (§6.2); si no, ok |
@@ -1190,9 +1215,9 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 
 **Severidad (PLAN-2026-010, no cambia el puntaje).** Cada pendiente trae `severity`: `critical` si falta algo que cambia el costo o el precio (`equipment_cost`, `external_route`, `external_hours`, `currency`, `utilization`, `rate` o `margin` en rojo: por ejemplo un externo sin tarifa, que se nombra en el mensaje y en `targets`), `review` para el resto. `critical` y `review` cuentan cuántos hay; si suman más de 0 el resultado muestra arriba **"BORRADOR — revisar N puntos antes de usar esta tarifa"**. Aparte, `notices` lleva avisos **informativos** que no restan puntaje ni son pendientes (por ejemplo, un equipo propio sin costo de capital: "RATEOS no está imputando rendimiento ni costo del dinero invertido en este equipo"). Con estructura desglosada (§7), `structure` está ok si algún rubro tiene valor.
 
-**Botones al campo exacto (PLAN-2026-012).** Un pendiente con `focus` lleva a `#/cotizaciones/<id>/<paso>?campo=<ruta>` y el editor enfoca ese campo (ruta validada por lista blanca); el combustible sin campo exacto no muestra botón. Avisos informativos nuevos: viajes físicos derivados con un "Viajes por llamado" anterior distinto, y recurso compartido con el resto de su costo fijo sin cubrir. COT-0010 / COT-0011 pasan de **92 % a 100 %** sin inventar consumo.
+**Botones al campo exacto (PLAN-2026-012).** Un pendiente con `focus` lleva a `#/cotizaciones/<id>/<paso>?campo=<ruta>` y el editor enfoca ese campo (ruta validada por lista blanca); el combustible sin campo exacto no muestra botón. Avisos informativos nuevos: viajes físicos derivados con un dato anterior de viajes por salida distinto, y recurso compartido con el resto de su costo fijo sin cubrir. PLAN-2026-014 agrega el aviso informativo **menos de una salida por mes** (`activations_below_one`, §2.1: salidas promedio, costeadas y efecto del redondeo, con botón a la casilla) y el pendiente `labor_hours` (5b). COT-0010 / COT-0011 pasan de **92 % a 100 %** sin inventar consumo.
 
-**Test Lab (PLAN-2026-013).** La tarifa conocida, la actividad, el plazo de cobro, el margen y el costo de equipos también traen `focus`, y dentro de cada paso "Ir al campo" usa el campo que indica el motor. Los avisos citan el rótulo del campo tal como se ve ("Horas trabajadas por día activo", "Viajes por llamado", "Sin traslados"). Dos avisos informativos nuevos (no restan puntaje): **puesto con sueldo y 0 posiciones** (`labor_no_positions`, "no suma costo", `focus` a sus posiciones) y **"el servicio no usa materiales" con materiales cargados** (`materials_ignored`, "no se suman al costo"). `validateQuote` valida además los materiales (cantidad ≥ 0, costo ≥ 0, merma y logística 0–100 %, markup de reventa 0–1000 %; salvo con "El servicio no usa materiales", donde las líneas no se ven ni se suman) y el monto de otros costos (≥ 0), con las mismas reglas que sus campos. Nada de esto cambia un costo ni un precio: cambia qué se marca como pendiente (y por lo tanto el puntaje de las cotizaciones afectadas).
+**Test Lab (PLAN-2026-013).** La tarifa conocida, la actividad, el plazo de cobro, el margen y el costo de equipos también traen `focus`, y dentro de cada paso "Ir al campo" usa el campo que indica el motor. Los avisos citan el rótulo del campo tal como se ve ("Horas trabajadas por día activo", "Viajes por salida", "Sin traslados"); desde PLAN-2026-014 los rótulos que nombran la activación salen de la misma función que arma el campo (`activationFieldLabels`). Dos avisos informativos nuevos (no restan puntaje): **puesto con sueldo y 0 posiciones** (`labor_no_positions`, "no suma costo", `focus` a sus posiciones) y **"el servicio no usa materiales" con materiales cargados** (`materials_ignored`, "no se suman al costo"). `validateQuote` valida además los materiales (cantidad ≥ 0, costo ≥ 0, merma y logística 0–100 %, markup de reventa 0–1000 %; salvo con "El servicio no usa materiales", donde las líneas no se ven ni se suman) y el monto de otros costos (≥ 0), con las mismas reglas que sus campos. Nada de esto cambia un costo ni un precio: cambia qué se marca como pendiente (y por lo tanto el puntaje de las cotizaciones afectadas).
 
 Los pendientes (`pending`) se ordenan críticos primero y después rojos. Ejemplos: demo Hidrogrúa **94,44 %** (pendientes en naranja: relevos, impuestos sobre la facturación y standby; con v3 suma las reglas de movilización, duplicados, base y antigüedad en verde: antes 93,48 %); caso de referencia **76,67 %** (personal en rojo; estructura, contingencia e impuestos sobre la facturación en naranja).
 
@@ -1207,7 +1232,7 @@ Los pendientes (`pending`) se ordenan críticos primero y después rojos. Ejempl
 | Días activos (`activity.activeDaysPerMonth`) | `null` (siempre, también con configuración propia) | `utilization` en rojo |
 | Plazo de cobro (`finance.paymentTermDays`) | `null` | `payment_term` en rojo |
 | Contingencia general (`risk.generalPct`) | 0 | `contingency` en naranja |
-| Precio del combustible (`fuel.pricePerLiter`) | el de la configuración, con `fuel.illustrative = true` | `fuel` en naranja (si hay equipos o vehículos) |
+| Precio del combustible (`fuel.pricePerLiter`) | el de la configuración, con `fuel.illustrative = true` y `fuel.requiresConfirmation = true` (PLAN-2026-014) | `fuel` en **rojo** hasta confirmarlo o reemplazarlo (si hay equipos o vehículos que lo consumen). Las cotizaciones anteriores —sin `requiresConfirmation`— y la demo siguen en naranja: no se modifican |
 | Margen objetivo (`pricing.targetMarginPct`) | el de la configuración (10 % en la demo) | `margin` en verde |
 | Impuestos sobre la facturación (`billingTaxes`) | los de la empresa (`settings.defaultBillingTaxes`) si ya los decidió, aun con configuración de demostración; si no, sin definir | `billing_taxes` en naranja si quedan sin definir |
 
@@ -1336,13 +1361,13 @@ Un producto se fabrica por **tandas** (una receta rinde N unidades) y se vende p
 | Gastos fijos del negocio | `monto mensual × % asignado al producto` |
 | Variable por unidad | `(receta + personal + uso de máquinas) ÷ S + materiales por unidad` |
 | Fijo por unidad | `fijos asignados del mes ÷ unidades vendidas por mes` |
-| Costo por unidad | `variable por unidad + fijo por unidad` |
+| Costo por unidad | `variable por unidad + fijo por unidad + financiación por unidad` (la financiación es 0 sin plazos ni tasa, §23.1) |
 | Precio piso | `costo ÷ (1 − t)` (t = impuestos sobre lo que vendés, §13.1) |
 | Precio con margen | `costo ÷ (1 − margen − t)` — **margen sobre el precio, no markup** (§9 de AGENTS.md) |
 | Precio sugerido | redondeo comercial **hacia arriba** al múltiplo elegido (nunca baja el margen) |
 | Precio al público | `precio sugerido × (1 + IVA %)`, **sólo si la empresa carga el IVA** (RATEOS no trae alícuotas; el IVA no es costo ni ganancia) |
-| Equilibrio (u/mes) | `fijos asignados ÷ (precio × (1 − t) − variable por unidad)`; sin fijos → 0; contribución ≤ 0 → inalcanzable (`null`, nunca `Infinity`) |
-| Resultado del mes | `precio × N − impuestos sobre la venta − variable × N − fijos asignados` (N = unidades por mes) |
+| Equilibrio (u/mes) | `(fijos asignados + financiación fija) ÷ (precio × (1 − t) − (variable por unidad + financiación variable por unidad))`; sin fijos → 0; contribución ≤ 0 → inalcanzable (`null`, nunca `Infinity`) |
+| Resultado del mes | `precio × N − impuestos sobre la venta − variable × N − fijos asignados − costo financiero del mes` (N = unidades por mes) |
 | Precio actual (opcional) | margen real `1 − t − costo ÷ precio`, ganancia por unidad, equilibrio y aviso si queda bajo el piso o bajo el costo variable |
 
 Reglas:
@@ -1355,3 +1380,32 @@ Reglas:
 - Las líneas que vienen de Recursos guardan una copia (snapshot): cambiar el recurso nunca cambia el producto; se avisa y la persona elige [Actualizar en este producto] o [Conservar valor original]. Al actualizar se conservan personas, minutos por tanda, energía, % asignado, dónde va y la unidad en que se usa.
 
 Caso de referencia (golden `producto-chipa-costo-y-precio.json`, ILUSTRATIVO): tanda de 60, receta $ 6.000, bolsita $ 20/u, personal 90 min a $ 6.000/h = $ 9.000, horno 40 min a $ 1.500/h = $ 1.000 → variable $ 16.000 ÷ 60 + $ 20 = **$ 286,67**; fijos horno $ 50.000 × 50 % + alquiler $ 600.000 × 25 % = $ 175.000 ÷ 3.000 u = **$ 58,33**; costo **$ 345**; margen 30 % sin impuestos → **$ 492,86** (markup 42,86 %); equilibrio $ 175.000 ÷ ($ 492,86 − $ 286,67) = **848,7 u/mes**. Con 5 % de impuestos sobre la venta: $ 345 ÷ 0,65 = $ 530,77.
+
+### 23.1 Financiación de productos (PLAN-2026-014, decisión del dueño LAB-D3)
+
+Opcional (`product.finance`). Usa el **mismo motor que las cotizaciones** (`computeFinance`, §8; no se duplica): cada costo en efectivo se paga X_g días después de producir; lo producido se vende Z días después (stock) y se cobra Y días después de vender.
+
+```
+días financiados_g   = max(0, Z días entre producir y vender + Y plazo de cobro − X_g días hasta pagar ese costo)
+capital de trabajo   = Σ caja_g × días_g ÷ 30
+costo financiero     = capital de trabajo × tasa mensual            (interés simple)
+financiación/unidad  = Σ caja variable por unidad_g × tasa × días_g ÷ 30
+                     + (Σ caja fija del mes_g × tasa × días_g ÷ 30) ÷ unidades por mes
+efecto en el precio  = precio con tu margen − precio con tu margen sin la financiación
+```
+
+| Grupo de pago (`payDays`) | Caja del producto |
+|---|---|
+| `materials` | ingredientes y materiales (por unidad) |
+| `salaries` | personal (por unidad) |
+| `fuel` | combustible y energía de las máquinas (por unidad) |
+| `suppliers` | mantenimiento y neumáticos (por unidad) + tenencia **en efectivo** de las máquinas × % asignado (seguro, patente, certificaciones, otros, mantenimiento fijo; por mes) |
+| `structure` | gastos fijos del negocio × % asignado (por mes) |
+
+- La amortización y el costo de capital **no** son salidas de caja: no se financian (igual que §8). Se financian los montos sin IVA (como los materiales de una cotización).
+- El impulsor variable es la **unidad vendida** (en una cotización, el día activo): `variablePerActiveDay` de FinanceEngine es, en productos, por unidad.
+- **Nunca se inventan plazos ni tasas:** un producto nuevo arranca con todo vacío (`invoiceLagDays`, `paymentTermDays`, `monthlyRatePct` y cada `payDays` en `null`) y la financiación es 0; un producto anterior (sin `finance`) calcula exactamente igual. Días hasta pagar vacíos = se paga al producir.
+- Avisos (sólo si se empezó a cargar): tasa sin plazo de cobro ("la financiación sólo cuenta los días hasta vender") y plazos sin tasa ("sin tasa el costo financiero es 0").
+- El costo por unidad, los precios (piso, con margen, sugerido), el equilibrio y el resultado del mes incluyen la financiación; el desglose agrega la fila "Financiación (capital de trabajo)" sólo si es > 0, y "Ver cálculo" (`traces.finance`) muestra los días y la caja de cada grupo.
+
+**Ejemplo (chipá del golden + 10 días de stock, cobro a 20 días, todo pagado al producir, 3 % mensual → 30 días financiados):** caja variable 286,67 por unidad × 3 % = **8,60**; caja fija 175.000 (seguro del horno 25.000 + alquiler 150.000) × 3 % = 5.250 por mes ÷ 3.000 u = **1,75**; financiación **10,35** por unidad → costo **355,35** (antes 345), precio con margen 30 % **507,64** (+14,79). Capital de trabajo 1.035.000; costo financiero 31.050 por mes. Invariantes de Test Lab PINV-08/09/10.

@@ -17,6 +17,10 @@
  * con su propio plazo de pago se financia aparte, con
  *   díasFinanciados = Z + Y − plazo de ese proveedor
  * (sin plazo propio va en el grupo "Proveedores", como siempre).
+ *
+ * Productos (PLAN-2026-014): el mismo cálculo con Z = días entre producir y
+ * vender y X_g = días después de producir. Ahí "por día activo" se lee "por
+ * unidad vendida" (el impulsor variable de un producto).
  */
 
 import { nonNegative, pct, toNumber } from '../core/money.js';

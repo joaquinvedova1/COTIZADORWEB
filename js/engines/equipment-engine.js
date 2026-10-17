@@ -122,7 +122,9 @@ export function computeOperation(eq = {}, { fuelPricePerLiter = 0, fuelPaidByUs 
   const tires = tiresOf(eq);
   const maintenancePerHour = maintenance.perHour;
   const tiresPerHour = tires.perHour;
-  const fuelLitersPerHour = nonNegative(eq.fuelLitersPerHour);
+  // "No usa combustible" (PLAN-2026-014, LAB-D5): eléctrico, manual o estacionario. Es un dato
+  // explícito: un consumo 0 sin marcar sigue siendo un dato faltante.
+  const fuelLitersPerHour = eq.fuelNotApplicable === true ? 0 : nonNegative(eq.fuelLitersPerHour);
   const fuelPrice = fuelPaidByUs ? nonNegative(fuelPricePerLiter) : 0;
   const fuelPerHour = fuelLitersPerHour * fuelPrice;
   const nonFuelPerHour = maintenancePerHour + tiresPerHour;
@@ -132,6 +134,7 @@ export function computeOperation(eq = {}, { fuelPricePerLiter = 0, fuelPaidByUs 
     maintenanceMode: maintenance.mode,
     tiresMode: tires.mode,
     tiresPerKm: tires.perKm,
+    fuelNotApplicable: eq.fuelNotApplicable === true,
     fuelLitersPerHour,
     fuelPricePerLiter: fuelPrice,
     fuelPerHour,

@@ -2124,7 +2124,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       notices.push(el);
     }
     if (fuelHere) {
-      const el = banner(h('span', {}, 'El precio del combustible es de ejemplo: cargá el tuyo.', illustrativeTag('Precio del combustible por defecto: reemplazalo por tu precio actual')), 'warning');
+      const el = banner(h('span', {}, 'El precio del combustible es de ejemplo: cargá el tuyo o confirmá que es tu precio vigente.', illustrativeTag('Precio del combustible por defecto: reemplazalo por tu precio actual')), 'warning');
       el.classList.add('qe-illustrative-line');
       const body = el.lastElementChild || el;
       body.appendChild(

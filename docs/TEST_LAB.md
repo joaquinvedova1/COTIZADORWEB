@@ -39,9 +39,9 @@ tests/lab/
   lib/
     oracle.js                 fórmulas de referencia cortas, escritas desde CALCULATION_RULES
     product-oracle.js         ídem para productos (sólo reutiliza helpers de oracle.js)
-    compare.js                motor vs oráculo (27 indicadores + EECC + transporte + proveedores)
-    invariants.js             INV-01…28 (servicios) y PINV-01…07 (productos)
-    ux-audit.js               auditor UX A–H (resolubles, cero silencioso, no aplica, terminología, 100 %)
+    compare.js                motor vs oráculo (27 indicadores + EECC + transporte + proveedores; productos con financiación)
+    invariants.js             INV-01…31 (servicios) y PINV-01…10 (productos)
+    ux-audit.js               auditor UX A–H + T (resolubles, cero silencioso, no aplica, terminología, 100 %)
     driver-trace.js           explicación de cada escenario en lenguaje de negocio
     market.js                 PLAUSIBLE / REVIEW / UNKNOWN
     coverage.js               lee los catálogos del proyecto y exige un escenario por valor
@@ -51,15 +51,16 @@ tests/lab/
     lab.js                    campaña: corre todo, clasifica y arma el gate
     report.js                 JSON + Markdown, con control de secretos
   scenarios/
-    services.js               SRV-01…39 + SRV-E01…E17 (todos los tipos de servicio y unidades + extremos)
-    products.js               PRD-01…10 + PRD-E01…E02 (reventa, fabricado, con equipo, financiación, volumen…)
-    probes.js                 PRB-01…20 (contradicciones, redundantes, cero silencioso, no aplica)
-    generate.js               escenarios generados (18 factores, pairwise, con seed)
+    services.js               SRV-01…39 + SRV-E01…E17 + SRV-D1…D8 (todos los tipos de servicio y unidades + extremos + decisiones del dueño)
+    products.js               PRD-01…10 + PRD-E01…E02 (reventa, fabricado, con equipo, financiado, volumen…)
+    probes.js                 PRB-01…21 + PRB-20b (contradicciones, redundantes, cero silencioso, no aplica)
+    generate.js               escenarios generados (20 factores, pairwise, con seed)
   e2e/
     ui-lab.mjs                auditoría en navegador (dist/ + Supabase simulado)
     supabase-mock.mjs         GoTrue + PostgREST con RLS emulada (nunca toca la base real)
 scripts/run-lab.mjs           runner de npm run test:lab
 tests/engines/lab-findings.test.js   regresión de cada hallazgo corregido (falló antes del fix)
+tests/engines/lab-decisions.test.js  decisiones del dueño LAB-D1…D8 (PLAN-2026-014; cada test falló antes)
 .github/workflows/test-lab.yml       PR gate + Extended Lab
 ```
 
@@ -71,17 +72,17 @@ Se reutiliza lo que ya existía: el harness de golden cases (`tests/golden-cases
 
 ## Oráculo independiente
 
-No se verifica el motor llamándolo dos veces. `oracle.js` no importa nada de `js/` (lo verifica `oracle-independence.test.js`) y recalcula desde las reglas escritas: actividad, unidades físicas, personal, equipos propios, externos (unidades, mínimos, fiscal), ruta y km, combustible, materiales, estructura, financiación por grupo de pago y por proveedor, contingencia, impuestos sobre la facturación, piso, objetivo, sugerida, resultado, margen y equilibrio. Donde la documentación no dice algo, el oráculo lo deja escrito en `DOC_GAPS` (aparece en el reporte y como decisión del dueño), nunca lo inventa.
+No se verifica el motor llamándolo dos veces. `oracle.js` no importa nada de `js/` (lo verifica `oracle-independence.test.js`) y recalcula desde las reglas escritas: actividad, unidades físicas, personal, equipos propios, externos (unidades, mínimos, fiscal), ruta y km, combustible, materiales, estructura, financiación por grupo de pago y por proveedor, contingencia, impuestos sobre la facturación, piso, objetivo, sugerida, resultado, margen y equilibrio. Donde la documentación no dice algo, el oráculo lo deja escrito en `DOC_GAPS` (aparece en el reporte y como decisión del dueño), nunca lo inventa. Desde PLAN-2026-014 (LAB-D6) `DOC_GAPS` está vacío: los tres huecos (IVA "Parcial" sin %, categoría "external" en otros costos, horas por línea sin tope) se documentaron como reglas reales en CALCULATION_RULES y el oráculo los cita en `CONFIRMED_RULES`. El oráculo de productos calcula la financiación (§23.1) por su cuenta.
 
 ## Escenarios y cobertura
 
-- **Campaña estable** (IDs fijos, corre en cada PR): 56 escenarios de servicios + 12 de productos + 20 sondas + auditoría de terminología.
+- **Campaña estable** (IDs fijos, corre en cada PR): 65 escenarios de servicios (incluidos los 9 `SRV-D*` de las decisiones del dueño) + 12 de productos (PRD-04 financiado) + 22 sondas + auditoría de terminología.
 - **Cobertura automática** (`coverage.js`): lee `SERVICE_TYPES`, `BILLING_UNITS`, `EXTERNAL_UNITS`, obtención, IVA, movilización, mantenimiento, neumáticos, materiales, estructura, impuestos, asignación, unidades de productos… Si mañana se agrega una unidad o modalidad sin escenario, **el test de cobertura falla**. Un valor opcional tiene que decir por qué (p. ej. EUR usa la misma regla que USD).
-- **Generador** (`generate.js`): 18 factores (tipo de servicio, unidad, días, horas, intervención, viajes, km, propio/alquilado/tercerizado, combustible incluido o no, IVA, plazos, margen, impuestos, estructura, contingencia, materiales, compartido, mínimos…) combinados por **pairwise** con un PRNG con seed. La misma seed da los mismos escenarios en cualquier máquina; cada escenario guarda su seed y su combinación.
+- **Generador** (`generate.js`): 20 factores (los de PLAN-2026-014: equipo propio que no usa combustible y menos de una salida por mes; tipo de servicio, unidad, días, horas, intervención, viajes, km, propio/alquilado/tercerizado, combustible incluido o no, IVA, plazos, margen, impuestos, estructura, contingencia, materiales, compartido, mínimos…) combinados por **pairwise** con un PRNG con seed. La misma seed da los mismos escenarios en cualquier máquina; cada escenario guarda su seed y su combinación.
 
 ## Invariantes
 
-Subir el margen nunca baja la tarifa objetivo · subir un costo nunca baja el total · los fijos no desaparecen al bajar la actividad · los variables escalan con su driver · externo $/km, $/viaje, $/día, $/hora siguen a km, tramos, días y horas físicos y $/mes conserva su componente · cambiar viajes por día no cambia los km si los viajes físicos son los mismos · combustible incluido / del cliente · IVA recuperable no es costo (sí caja) · más plazo de cobro nunca reduce el financiamiento y más plazo de pago nunca lo aumenta · margen ≥ 100 % inválido · el piso recupera el costo con impuestos · el objetivo logra el margen · facturación = costo + impuestos + resultado · descuentos coherentes · compartido reduce sólo fijos · nunca NaN/Infinity · EECC = 100 % · cada número central tiene "Ver cálculo" que termina en él · el equilibrio es una raíz · sugerida ≥ objetivo ≥ piso · más impuestos nunca bajan el piso · más redondeo nunca baja la sugerida. Productos: margen, volumen, % de fijos, pérdida, cierre del mes, precio bajo el piso, sin NaN.
+Subir el margen nunca baja la tarifa objetivo · subir un costo nunca baja el total · los fijos no desaparecen al bajar la actividad · los variables escalan con su driver · externo $/km, $/viaje, $/día, $/hora siguen a km, tramos, días y horas físicos y $/mes conserva su componente · cambiar viajes por día no cambia los km si los viajes físicos son los mismos · combustible incluido / del cliente · IVA recuperable no es costo (sí caja) · más plazo de cobro nunca reduce el financiamiento y más plazo de pago nunca lo aumenta · margen ≥ 100 % inválido · el piso recupera el costo con impuestos · el objetivo logra el margen · facturación = costo + impuestos + resultado · descuentos coherentes · compartido reduce sólo fijos · nunca NaN/Infinity · EECC = 100 % · cada número central tiene "Ver cálculo" que termina en él · el equilibrio es una raíz · sugerida ≥ objetivo ≥ piso · más impuestos nunca bajan el piso · más redondeo nunca baja la sugerida · "cada salida completa" suma exactamente (⌈A⌉ − A) × costo indivisible, también con A < 1 (INV-29) · "No usa combustible" nunca encarece y deja el combustible en 0 (INV-30) · el aviso de horas nunca agrega horas extra ni personas (INV-31). Productos: margen, volumen, % de fijos, pérdida, cierre del mes (con financiación), precio bajo el piso, sin NaN, cobrar más tarde nunca baja la financiación, pagar más tarde nunca la sube y con tasa 0 es 0 (PINV-08…10).
 
 ## Auditor UX
 
@@ -92,7 +93,8 @@ Subir el margen nunca baja la tarifa objetivo · subir un costo nunca baja el to
 | C | Cero silencioso: un costo con tarifa que da $ 0 está marcado | `ux-audit.js`, sondas |
 | D | No aplica: nunca pedir datos de algo incluido o provisto por el cliente | `ux-audit.js`, sondas |
 | E | Campos redundantes (viajes por llamado vs viajes por día, km facturados vs ruta…) | sondas |
-| F | Terminología: magnitudes distintas con nombres distintos; todo rótulo citado en un aviso existe en la interfaz | `auditTerminology`, `ux-audit.js`, navegador |
+| F | Terminología: magnitudes distintas con nombres distintos (km facturables ≠ km de ruta, viajes facturables ≠ físicos…); todo rótulo citado en un aviso existe en la interfaz (también los que se arman con el nombre de la activación) | `auditTerminology`, `ux-audit.js`, navegador |
+| T | Activación (PLAN-2026-014, LAB-D8): una magnitud = un nombre por cotización (llamado / salida / cambio de turno / trabajo / intervención). Estático: ningún texto del código la nombra a mano fuera de `ACTIVATION_WORDS_ALLOWED` (cada entrada con su motivo) → `UX-TERM-HARDCODED`. Dinámico, en cada escenario: pendientes, avisos, "Ver cálculo" y el texto de "cada salida completa" usan sólo el nombre de esa cotización → `UX-TERM-FOREIGN` (P1 UX) | `auditTerminology`, `auditActivationTerms`, navegador |
 | G | 100 % de completitud = sin críticos, errores ni ceros silenciosos | `ux-audit.js` |
 | H | Pendientes en un paso real, con texto | `ux-audit.js` |
 | I | Mismas cifras en resumen en vivo, "Ver cálculo", Resultado y PDF | navegador |
@@ -112,7 +114,7 @@ Subir el margen nunca baja la tarifa objetivo · subir un costo nunca baja el to
 
 ## Protocolo de corrección
 
-Detectar → reproducir → causa raíz → **test que falla antes del fix** (`tests/engines/lab-findings.test.js`) → fix → escenario → golden → suite → Test Lab de nuevo → documentar (CHANGELOG, CALCULATION_RULES si cambia una regla). Cada hallazgo queda en `known-findings.js`: `fixed` (si vuelve a aparecer, el gate falla y el reporte dice "VOLVIÓ A APARECER"), `human` (decisión del dueño, no frena) o `accepted`. Nunca se corrige solo: una regla ambigua, política comercial, una fórmula porque el mercado difiere o un caso con dos modelos válidos.
+Detectar → reproducir → causa raíz → **test que falla antes del fix** (`tests/engines/lab-findings.test.js`) → fix → escenario → golden → suite → Test Lab de nuevo → documentar (CHANGELOG, CALCULATION_RULES si cambia una regla). Cada hallazgo queda en `known-findings.js`: `fixed` (si vuelve a aparecer, el gate falla y el reporte dice "VOLVIÓ A APARECER"), `human` (decisión del dueño, no frena) o `accepted`. Las decisiones LAB-D1…D8 se cerraron en PLAN-2026-014: D1–D6 y D8 quedan `fixed` (con su test en `lab-decisions.test.js`) y D7 `accepted` (el mercado puede seguir avisando sobre el combustible de los escenarios; nunca cambia el valor). Nunca se corrige solo: una regla ambigua, política comercial, una fórmula porque el mercado difiere o un caso con dos modelos válidos.
 
 ## Mercado
 

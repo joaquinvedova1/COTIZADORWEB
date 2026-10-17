@@ -13,7 +13,7 @@
 import { DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
 import { nonNegative, safeDivide, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
-import { formatPercent, formatDays, formatNumber } from '../core/format.js';
+import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
 import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
@@ -21,7 +21,8 @@ import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, commercialRound, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
-import { evaluateCompleteness, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
+import { evaluateCompleteness, activationRoundingNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
+import { activationTerms } from '../domain/activation-terms.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../domain/billing-units.js';
@@ -300,6 +301,12 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const rounding = activationRoundingAt(model, D);
   const roundingPreview = rounding.enabled ? rounding : activationRoundingAt(model, D, { force: true });
   const roundingOn = rounding.enabled && rounding.total > 0;
+  // Menos de una salida por mes (PLAN-2026-014, LAB-D1): aviso informativo, la fórmula no cambia.
+  const belowOne = activationRoundingNotice(quote, rounding, roundingPreview);
+  if (belowOne) completeness.notices.push(belowOne);
+  // Nombre de la activación en los textos: llamado / salida / intervención (PLAN-2026-014, LAB-D8).
+  const T = activationTerms(quote);
+  const num = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
   let workingCapital = model.finance.workingCapitalFixed * factor + model.finance.workingCapitalPerActiveDay * D;
   if (roundingOn) workingCapital += rounding.workingCapital;
   const financialCost = costAt.byCategory.financial;
@@ -431,6 +438,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       nonLinear: linear.hasNonLinearRules,
       billingTaxPct: t,
       quantityUnit: byQuantity ? { plural: unitInfo.plural, singular: unitInfo.singular, label: texts.breakEvenLabel, perDay: linear.unitsPerActiveDay } : null,
+      terms: T,
     }),
     // Días para el margen objetivo (antes se armaba en la interfaz): con la
     // descomposición lineal, R(D)·(1 − t − m) − C(D) ≥ 0.
@@ -461,7 +469,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       notes: [
         byQuantity && targetMarginDays.reachable ? `Son ${formatDays(targetMarginDays.days, { decimals: 1 })} de trabajo: los costos se calculan con esos días y la facturación, con ${texts.los} ${unitInfo.plural}.` : null,
         !targetMarginDays.reachable ? targetMarginDays.reason : null,
-        linearTarget.hasNonLinearRules ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado, tramos de descuento o cada salida contada completa): el resultado se calcula día a día.' : null,
+        linearTarget.hasNonLinearRules ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula día a día.` : null,
       ],
     }),
     floorRate: createTrace({
@@ -589,22 +597,22 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     logistics: createTrace({
       id: 'logistics',
       title: 'Movilización y viajes',
-      formula: 'Por llamado = movilización de equipos (km × consumo en ruta × precio + km × desgaste por km) + logística auxiliar (km × consumo × precio + desgaste + peajes + viáticos) · Mensual = por llamado × llamados',
+      formula: `Por ${T.one} = movilización de equipos (km × consumo en ruta × precio + km × desgaste por km) + logística auxiliar (km × consumo × precio + desgaste + peajes + viáticos) · Mensual = ${T.per} × ${T.many} promedio por mes`,
       inputs: [
         { label: 'Distancia base → locación', value: model.logistics.distanceKm, format: 'km' },
-        { label: 'Km de ruta por activación', value: model.logistics.routeKmPerActivation, format: 'km' },
-        { label: 'Km de equipos que van por sus medios, por activación', value: model.mobilization.kmPerActivation, format: 'km' },
-        { label: 'Km de vehículos auxiliares por activación', value: model.logistics.vehicleKmPerActivation, format: 'km' },
-        { label: 'Litros por activación (equipos + auxiliares)', value: model.mobilization.litersPerActivation + model.logistics.litersPerActivation, format: 'liters' },
+        { label: `Km de ruta ${T.per}`, value: model.logistics.routeKmPerActivation, format: 'km' },
+        { label: `Km de equipos que van por sus medios, ${T.per}`, value: model.mobilization.kmPerActivation, format: 'km' },
+        { label: `Km de vehículos auxiliares ${T.per}`, value: model.logistics.vehicleKmPerActivation, format: 'km' },
+        { label: `Litros ${T.per} (equipos + auxiliares)`, value: model.mobilization.litersPerActivation + model.logistics.litersPerActivation, format: 'liters' },
         { label: 'Precio combustible', value: model.fuel.paidByUs ? model.fuel.pricePerLiter : 0, format: 'rate' },
-        { label: 'Activaciones por mes', value: activity.activationsPerMonth, format: 'number' },
+        { label: `${T.Many} promedio por mes`, value: activity.activationsPerMonth, format: 'number' },
       ],
       steps: [
         ...model.mobilization.lines.filter((l) => l.mode === 'self' && l.perActivation > 0).map((l) => ({ label: `Movilización de ${l.name || 'equipo'}: ${l.km.toFixed(0)} km`, value: l.perActivation, format: 'money' })),
-        { label: 'Movilización de equipos por activación', value: model.mobilization.perActivation, format: 'money' },
-        { label: 'Logística auxiliar: combustible por activación', value: model.logistics.fuelPerActivation, format: 'money' },
-        { label: 'Logística auxiliar: desgaste, peajes y viáticos por activación', value: model.logistics.nonFuelPerActivation, format: 'money' },
-        { label: 'Costo por activación', value: model.logistics.costPerActivation + model.mobilization.perActivation, format: 'money' },
+        { label: `Movilización de equipos ${T.per}`, value: model.mobilization.perActivation, format: 'money' },
+        { label: `Logística auxiliar: combustible ${T.per}`, value: model.logistics.fuelPerActivation, format: 'money' },
+        { label: `Logística auxiliar: desgaste, peajes y viáticos ${T.per}`, value: model.logistics.nonFuelPerActivation, format: 'money' },
+        { label: `Costo ${T.per}`, value: model.logistics.costPerActivation + model.mobilization.perActivation, format: 'money' },
         // Por mes (PLAN-2026-010): equipos principales y logística auxiliar por separado.
         { label: 'Equipos principales: km por mes', value: model.mobilization.kmPerActivation * activity.activationsPerMonth, format: 'km' },
         { label: 'Equipos principales: litros por mes', value: model.mobilization.litersPerActivation * activity.activationsPerMonth, format: 'liters' },
@@ -614,9 +622,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         { label: 'Vehículos auxiliares: costo por mes', value: model.logistics.costPerActivation * activity.activationsPerMonth, format: 'money' },
         ...(roundingOn && ((rounding.bySource.logistics || 0) + (rounding.bySource.mobilization || 0)) > 0
           ? [
-            { label: 'Salidas estimadas por mes', value: rounding.estimated, format: 'number' },
-            { label: 'Salidas costeadas (cada salida completa)', value: rounding.costed, format: 'number' },
-            { label: 'Ajuste por salidas completas (movilización y viajes)', value: (rounding.bySource.logistics || 0) + (rounding.bySource.mobilization || 0), format: 'money' },
+            { label: `${T.Many} ${T.g('costeadas', 'costeados')} (${T.each} ${T.whole})`, value: rounding.costed, format: 'number' },
+            { label: 'Efecto del redondeo (movilización y viajes)', value: (rounding.bySource.logistics || 0) + (rounding.bySource.mobilization || 0), format: 'money' },
           ]
           : []),
       ],
@@ -625,6 +632,10 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         'En la estructura de costos, el combustible de los traslados se informa en "Combustible" y el resto en "Logística".',
         model.mobilization.lines.some((l) => l.mode === 'self' && l.driver === 'operator') ? 'Los equipos que maneja su operador no suman mano de obra: el operador ya está en Personal.' : null,
         'El desgaste por km de un equipo propio no incluye amortización (ya está en el costo de tenerlo).',
+        // Apagada y con salidas no enteras (PLAN-2026-014, LAB-D1): promedio, costeadas y efecto del redondeo.
+        !rounding.enabled && ((roundingPreview.bySource.logistics || 0) + (roundingPreview.bySource.mobilization || 0)) > 0
+          ? `${T.Many} promedio por mes: ${num(rounding.estimated)} · ${T.many} ${T.g('costeadas', 'costeados')}: ${num(rounding.estimated)} (en proporción). Con "${T.Each} se cuenta ${T.whole}" se costearía${roundingPreview.wholeActivations === 1 ? '' : 'n'} ${num(roundingPreview.wholeActivations)}: efecto del redondeo en movilización y viajes +${formatMoney((roundingPreview.bySource.logistics || 0) + (roundingPreview.bySource.mobilization || 0))} por mes (no incluido).`
+          : null,
       ],
     }),
   };

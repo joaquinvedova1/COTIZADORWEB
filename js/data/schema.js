@@ -167,7 +167,7 @@ function checkQuoteShapes(quotes, errors, services = []) {
 
 /** Forma interna de cada producto (v5): listas de objetos y sub-objetos. */
 const PRODUCT_LIST_FIELDS = Object.freeze(['materials', 'labor', 'equipment', 'fixedCosts', 'exchangeRates']);
-const PRODUCT_OBJECT_FIELDS = Object.freeze(['pricing', 'billingTaxes']);
+const PRODUCT_OBJECT_FIELDS = Object.freeze(['pricing', 'billingTaxes', 'finance']);
 
 function checkProductShapes(products, errors) {
   if (!Array.isArray(products)) return;
@@ -179,6 +179,8 @@ function checkProductShapes(products, errors) {
     });
     PRODUCT_LIST_FIELDS.forEach((f) => checkObjectList(p[f], `${base}.${f}`, errors));
     if (isPlainObject(p.billingTaxes)) checkObjectList(p.billingTaxes.items, `${base}.billingTaxes.items`, errors);
+    // v10 (PLAN-2026-014): plazos de pago de la financiación del producto.
+    if (isPlainObject(p.finance) && p.finance.payDays !== undefined && p.finance.payDays !== null && !isPlainObject(p.finance.payDays)) errors.push(`${base}.finance.payDays: debe ser un objeto.`);
     ['materials', 'labor', 'equipment'].forEach((f) => {
       if (!Array.isArray(p[f])) return;
       p[f].forEach((line, j) => {

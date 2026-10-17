@@ -100,8 +100,13 @@ describe('cada salida se cuenta completa: 2.500 m³ → 10,42 estimadas, 11 cost
 
   test('"Ver cálculo": costo total y movilización muestran estimadas vs costeadas', () => {
     const steps = on.traces.totalCost.steps.map((s) => s.label);
-    assert.ok(steps.includes('Intervenciones costeadas (cada salida completa)'));
-    assert.ok(on.traces.logistics.steps.some((s) => /Salidas costeadas/.test(s.label)));
+    // PLAN-2026-014 (LAB-D1/D8): promedio, costeadas y efecto del redondeo, con el nombre del servicio (por cantidad: intervención).
+    assert.ok(steps.includes('Intervenciones promedio por mes'));
+    assert.ok(steps.includes('Intervenciones costeadas (cada intervención completa)'));
+    assert.ok(on.traces.totalCost.steps.some((s) => /^Efecto del redondeo/.test(s.label)));
+    assert.ok(on.traces.logistics.steps.some((s) => /Intervenciones costeadas/.test(s.label)));
+    // Apagada: "Ver cálculo" dice que es un promedio y cuánto sumaría (sin sumarlo).
+    assert.ok(off.traces.totalCost.notes.some((n) => /promedio por mes: 10,42/.test(n) && /no incluido/.test(n)));
     close(on.kpis.logisticsMonthly - off.kpis.logisticsMonthly, extra * 77500, 0.01);
   });
 
@@ -135,7 +140,9 @@ describe('cada salida se cuenta completa: 2.500 m³ → 10,42 estimadas, 11 cost
 
   test('textos: estimadas vs costeadas y cuánto sumaría', () => {
     const t = activationRoundingText(on.activationRounding);
-    assert.match(t.text, /Intervenciones estimadas: 10,42 · Intervenciones costeadas: 11/);
+    // PLAN-2026-014 (LAB-D1): salidas promedio, costeadas y efecto del redondeo.
+    assert.match(t.text, /Intervenciones promedio por mes: 10,42 · intervenciones costeadas: 11/);
+    assert.match(t.text, /Efecto del redondeo: \+/);
     const preview = activationRoundingText(off.activationRounding);
     assert.match(preview.text, /se costearían 11/);
     assert.equal(activationRoundingText(base.activationRounding), null, '10 exactas y apagada: sin aviso');

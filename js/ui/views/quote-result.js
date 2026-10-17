@@ -84,6 +84,7 @@ import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
+import { activationTerms } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
 import { normalizeRules } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
@@ -109,6 +110,7 @@ import {
   completenessExampleNote,
   draftBannerText,
   breakEvenZeroText,
+  termsOfResult,
 } from '../result-text.js';
 
 // ------------------------------------------------------------------ constantes
@@ -652,7 +654,7 @@ function traceContribution(v) {
       : 'Contribución por día = Ingreso por día activo − Costo variable por día activo',
     inputs: [
       { label: 'Tarifa neta por día activo', value: l.netRatePerActiveDay, format: 'money' },
-      { label: 'Otros ingresos por día activo (cargos por llamado, movilización, km)', value: l.otherRevenuePerActiveDay, format: 'money' },
+      { label: `Otros ingresos por día activo (cargos ${termsOfResult(v.r).per}, movilización, km)`, value: l.otherRevenuePerActiveDay, format: 'money' },
       ...(hasValue(l.billingTaxPct) && l.billingTaxPct > 0 ? [{ label: 'Impuestos sobre la facturación', value: l.billingTaxPct, format: 'percent' }] : []),
       { label: 'Costo variable por día activo', value: l.variableCostPerDay, format: 'money' },
     ],
@@ -1742,7 +1744,8 @@ function transportBlock(v) {
   const t = r.model && r.model.transport;
   // Sólo donde el transporte es el servicio o hay proveedores por km o por viaje
   // (el resto ve sus km en "Movilización y viajes"): sin bloques decorativos.
-  if (!t || !t.applicable || !(t.derived || (t.providers || []).length)) return null;
+  const byKm = t && t.billableKmPerMonth !== null && t.billableKmPerMonth !== undefined;
+  if (!t || !t.applicable || !(t.derived || byKm || (t.providers || []).length)) return null;
   const trips = (n) => `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'viaje' : 'viajes'}`;
   const item = (label, value, sub = null) => h('div', { class: 'qr-transport-item' },
     h('dt', {}, label),
@@ -1760,10 +1763,11 @@ function transportBlock(v) {
       : route ? h('p', { class: 'qr-transport-rate' }, route) : null,
     h('dl', { class: 'qr-transport-grid' },
       t.derived ? item('Viajes facturables', trips(t.billableTripsPerMonth)) : null,
-      item('Viajes físicos costeados', trips(t.physicalTripsPerMonth), t.notApplicable ? 'Sin traslados' : `${formatNumber(t.activationsPerMonth, { decimals: 2 })} intervenciones × ${trips(t.physicalTripsPerActivation)}`),
+      item('Viajes físicos costeados', trips(t.physicalTripsPerMonth), t.notApplicable ? 'Sin traslados' : `${formatNumber(t.activationsPerMonth, { decimals: 2 })} ${activationTerms(t.terms).word(t.activationsPerMonth)} × ${trips(t.physicalTripsPerActivation)}`),
       item('Días de trabajo', workDaysText(t.workDaysPerMonth)),
       item('Km por viaje', t.kmPerTrip > 0 ? formatValue(t.kmPerTrip, 'km') : EMPTY),
-      item('Km por mes', t.kmPerTrip > 0 ? formatValue(t.routeKmPerMonth, 'km') : EMPTY)),
+      item('Km de ruta por mes', t.kmPerTrip > 0 ? formatValue(t.routeKmPerMonth, 'km') : EMPTY, 'Lo que se recorre y se costea'),
+      byKm ? item('Km facturables', formatValue(t.billableKmPerMonth, 'km'), t.billableToRouteKm > 0 ? `${formatNumber(t.billableToRouteKm, { decimals: 2 })} por km de ruta` : 'No se calcula con la ruta') : null),
     providers.length
       ? h('div', { class: 'qr-transport-providers' },
         h('p', { class: 'qr-transport-label' }, 'Distancia / actividad del proveedor'),
@@ -1983,10 +1987,13 @@ function renderCostStructure(v) {
   const bars = barList(rows.map((row) => ({ label: row.label, value: row.displayPct })));
   return card(header,
     h('div', { class: 'qr-eecc' }, tbl, h('div', { class: 'qr-eecc-bars', 'aria-hidden': 'true' }, bars)),
-    note(`Monto mes = fijo del mes + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo${k.activationRoundingCost > 0 ? ' + ajuste por salidas completas' : ''}. Fijos del mes: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`),
-    // PLAN-2026-011: salidas estimadas vs costeadas.
+    note(`Monto mes = fijo del mes + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo${k.activationRoundingCost > 0 ? ` + efecto del redondeo (${termsOfResult(v.r).many} ${termsOfResult(v.r).wholeMany})` : ''}. Fijos del mes: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`),
+    // PLAN-2026-011 / 014 (LAB-D1): salidas promedio, costeadas y efecto del redondeo.
     k.activationRoundingCost > 0
-      ? note(`Cada salida se cuenta completa: intervenciones estimadas ${formatNumber(k.activationsEstimated, { decimals: 2 })} · intervenciones costeadas ${formatNumber(k.activationsCosted, { decimals: 0 })}. El ajuste (${money(k.activationRoundingCost)} por mes) está en los rubros de los costos por salida, con su estructura, financiación y contingencia; sueldos, tenencia de equipos y estructura mensual no cambian.`)
+      ? (() => {
+        const T = termsOfResult(v.r);
+        return note(`${T.Each} se cuenta ${T.whole}: ${T.many} promedio por mes ${formatNumber(k.activationsEstimated, { decimals: 2 })} · ${T.many} ${T.g('costeadas', 'costeados')} ${formatNumber(k.activationsCosted, { decimals: 0 })}. El efecto del redondeo (${money(k.activationRoundingCost)} por mes) está en los rubros de los costos ${T.per}, con su estructura, financiación y contingencia; sueldos, tenencia de equipos y estructura mensual no cambian.`);
+      })()
       : null);
 }
 
@@ -3193,6 +3200,7 @@ function renderCompleteness(v) {
  */
 function rulesSummary(v) {
   const { q, r } = v;
+  const T = termsOfResult(r);
   let rules;
   try {
     rules = normalizeRules(q.rules || {});
@@ -3217,16 +3225,16 @@ function rulesSummary(v) {
     if (r.unit === 'hour') units = `${formatNumber(rules.minimumCallUnits, { decimals: 2 })} ${Math.abs(rules.minimumCallUnits - 1) < 1e-9 ? 'hora' : 'horas'}`;
     else if (r.unit === 'quantity') units = quantityText(rules.minimumCallUnits, r);
     else units = formatDays(rules.minimumCallUnits);
-    items.push(['Mínimo por llamado (minimum call)', `Se facturan al menos ${units} por llamado, aunque se trabaje menos.`]);
+    items.push([`Mínimo ${T.per} (minimum call)`, `Se facturan al menos ${units} ${T.per}, aunque se trabaje menos.`]);
   }
   if (rules.calloutFeePerActivation > 0) {
-    items.push(['Cargo por llamado (call-out fee)', `${money(rules.calloutFeePerActivation)} por llamado.${adds(comps.callout)}`]);
+    items.push([`Cargo ${T.per} (call-out fee)`, `${money(rules.calloutFeePerActivation)} ${T.per}.${adds(comps.callout)}`]);
   }
   if (rules.mobilizationFeePerActivation > 0) {
-    items.push(['Movilización', `${money(rules.mobilizationFeePerActivation)} por llamado.${adds(comps.mobilization)}`]);
+    items.push(['Movilización', `${money(rules.mobilizationFeePerActivation)} ${T.per}.${adds(comps.mobilization)}`]);
   }
   if (rules.extraKmRate > 0) {
-    items.push(['Km adicionales', `${rate(rules.extraKmRate, 'km')} desde los ${formatNumber(rules.includedKmPerActivation, { decimals: 1 })} km incluidos por llamado.${adds(comps.extraKm)}`]);
+    items.push(['Km adicionales', `${rate(rules.extraKmRate, 'km')} desde los ${formatNumber(rules.includedKmPerActivation, { decimals: 1 })} km incluidos ${T.per}.${adds(comps.extraKm)}`]);
   }
   if (rules.standbyDaysPerMonth > 0 && rules.standbyRatePerDay > 0) {
     items.push(['Equipo en espera (standby)', `${formatDays(rules.standbyDaysPerMonth)} por mes a ${rate(rules.standbyRatePerDay, 'día')}.${adds(comps.standby)}`]);

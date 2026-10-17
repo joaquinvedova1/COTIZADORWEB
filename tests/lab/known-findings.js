@@ -8,7 +8,7 @@
  *   status 'human'     HUMAN DECISION REQUIRED: hay más de una interpretación
  *                      válida o es política comercial. No se inventa la regla:
  *                      se informa y no frena el gate hasta que el dueño decida.
- *   status 'accepted'  aceptado por el dueño (con motivo).
+ *   status 'accepted'  aceptado por el dueño (con motivo): se informa y no frena.
  *
  * key = "<escenario o sonda>:<código>" (o `code`, acotado con `subjects` y/o
  * `match` sobre el detalle, para el mismo problema en varios escenarios).
@@ -151,60 +151,82 @@ export const KNOWN_FINDINGS = [
     test: `${REGRESSION} › LAB-F10 y LAB-F11`,
   },
 
-  // ---- Decisiones del dueño (HUMAN DECISION REQUIRED): no se inventa la regla ----
+  // ---- Decisiones del dueño LAB-D1…D8 (PLAN-2026-014): implementadas con el protocolo ----
+  // Si el hallazgo original vuelve a aparecer, el gate falla igual que un fix que se rompe.
   {
     id: 'LAB-D1',
-    status: 'human',
+    status: 'fixed',
+    classification: 'HUMAN DECISION REQUIRED',
     key: 'PRB-14:PROBE:PRB-14',
-    title: 'Menos de una intervención por mes con costos por salida prorrateados',
-    decision: '¿Avisar cuando hay menos de una salida entera por mes (0,4 de movilización), o activar "Cada salida se cuenta completa" por defecto en ese caso? Hoy es opcional y está apagado (PLAN-2026-011).',
+    title: 'Menos de una salida por mes con costos por salida prorrateados',
+    rootCause: 'Decisión del dueño: mantener la semántica (apagada = promedio; encendida = ⌈A⌉ en los costos indivisibles) y hacerla explícita. La fórmula no cambia.',
+    fix: 'Salidas promedio, salidas costeadas y efecto del redondeo en "Cómo se cobra", "Ver cálculo" y Resultado; con menos de una salida y la opción apagada, aviso informativo con botón a la casilla. Golden salidas-menos-de-una-promedio / -completa e invariante INV-29.',
+    test: 'tests/engines/lab-decisions.test.js › LAB-D1',
   },
   {
     id: 'LAB-D2',
-    status: 'human',
+    status: 'fixed',
+    classification: 'HUMAN DECISION REQUIRED',
     key: 'PRB-16:PROBE:PRB-16',
     title: 'Horas de trabajo por día mayores que la jornada del personal',
-    decision: '12 h diarias con jornada normal y 0 horas extra se cotizan como jornada normal. ¿Se modelan como horas extra o como turnos/relevos? Dos modelos válidos: elegir antes de agregar un aviso o un cálculo.',
+    rootCause: 'Decisión del dueño: nunca inferir horas extra, turnos, relevos ni convenio; avisar y llevar a los campos.',
+    fix: 'Regla `labor_hours` (naranja, sólo si faltan horas): "La operación requiere más horas que la jornada cargada. Revisá turnos, dotación y/o horas extra.", con las horas que faltan y botón a "Personas por posición". El costo no cambia (INV-31).',
+    test: 'tests/engines/lab-decisions.test.js › LAB-D2',
   },
   {
     id: 'LAB-D3',
-    status: 'human',
+    status: 'fixed',
+    classification: 'HUMAN DECISION REQUIRED',
     key: 'PRD-04-FINANCING-GAP:GAP:product-financing',
     title: 'Productos sin financiación',
-    decision: 'El motor de productos no tiene plazos de cobro y pago ni costo financiero (las cotizaciones sí). ¿Se agrega? Es una funcionalidad nueva (PLAN propio).',
+    rootCause: 'Decisión del dueño: soportar financiación y capital de trabajo sin duplicar finance-engine ni inventar plazos.',
+    fix: 'product.finance (días entre producir y vender, plazo de cobro, tasa, días hasta pagar por grupo) con el mismo computeFinance de las cotizaciones; entra al costo, los precios, el equilibrio y el resultado; vacío = 0. Oráculo de productos e invariantes PINV-08/09/10; escenario PRD-04-FINANCING.',
+    test: 'tests/engines/lab-decisions.test.js › LAB-D3',
   },
   {
     id: 'LAB-D4',
-    status: 'human',
-    title: 'Unidad "km": ¿derivar los km de la ruta de los km facturados?',
-    decision: 'Con la unidad "viaje" los viajes físicos se derivan (v0.7.2). Con "km", desde esta rama se AVISA cuando los km facturados no coinciden con los de la ruta (LAB-F3), pero no se deriva: un km facturado puede no ser un km recorrido (km cargados vs. vacíos, tarifa por km de distancia). ¿Derivar los viajes de la ruta, o dejar el aviso?',
+    status: 'fixed',
+    classification: 'HUMAN DECISION REQUIRED',
+    title: 'Unidad "km": km facturables vs km de la ruta',
+    rootCause: 'Decisión del dueño: no derivar los km facturables de la ruta; mantener los dos datos separados, avisar si son incoherentes y no pisar lo cargado.',
+    fix: 'transportSummary expone km facturables y su relación con los km de ruta; "Ver cálculo", "Cómo se cobra", "Movilización y viajes" y el Resultado muestran los dos. El aviso route_consistency (LAB-F3) se mantiene.',
+    test: 'tests/engines/lab-decisions.test.js › LAB-D4',
   },
   {
     id: 'LAB-D5',
-    status: 'human',
+    status: 'fixed',
+    classification: 'HUMAN DECISION REQUIRED',
     key: 'PRB-20:PROBE:PRB-20',
     title: 'Equipo propio que no usa combustible',
-    decision: 'El consumo de un equipo propio se pide siempre (0 = falta). Un andamio o una herramienta eléctrica no consume: la completitud no llega a 100 % sin cargar un consumo falso. Opciones: un dato nuevo "No usa combustible" por equipo, o leer 0 como "no usa" y vacío como "falta" (cambia el significado de un dato guardado).',
+    rootCause: 'Decisión del dueño: un dato explícito "No usa combustible"; nunca inferir "no consume" de un 0.',
+    fix: 'equipment[].fuelNotApplicable (en la cotización y en Recursos): sin consumo ni combustible trabajando o en ruta, completitud "No aplica". Un consumo 0 sin la marca sigue faltando. Ninguna cotización existente se marca sola (INV-30).',
+    test: 'tests/engines/lab-decisions.test.js › LAB-D5',
   },
   {
     id: 'LAB-D6',
-    status: 'human',
-    title: 'Huecos de CALCULATION_RULES (el oráculo sigue al motor, a confirmar)',
-    decision: 'Tres comportamientos del motor que la documentación no dice: IVA "Parcial" sin % recuperable = 0 % recuperable (todo costo, y queda pendiente); "Otros costos" con categoría "external" se acepta como costo directo; las horas por día de una línea de equipo no se limitan a 24. ¿Se documentan así o se cambian?',
+    status: 'fixed',
+    classification: 'HUMAN DECISION REQUIRED',
+    title: 'Huecos de CALCULATION_RULES (el oráculo seguía al motor)',
+    rootCause: 'Decisión del dueño: documentar la regla REAL implementada (no cambiar el motor para que coincida con la documentación).',
+    fix: 'CALCULATION_RULES §4 (horas por línea sin tope de 24, con error de validación), §4.1 (IVA "Parcial" sin % = 0 % recuperable + pendiente rojo) y §6 (categoría "external" en otros costos). DOC_GAPS vacío; el oráculo cita las reglas confirmadas.',
+    test: 'tests/engines/lab-decisions.test.js › LAB-D6',
   },
   {
     id: 'LAB-D8',
-    status: 'human',
+    status: 'fixed',
+    classification: 'HUMAN DECISION REQUIRED',
     key: 'UI-TERMS:UX-TERM-SYNONYMS',
-    title: '"Llamado", "salida" e "intervención" nombran la misma magnitud',
-    decision: 'No es un error de cálculo (es una sola magnitud: cada intervención del servicio), pero en un mismo flujo aparece "Duración promedio de cada salida / intervención" y "Viajes por llamado". ¿Se elige un término por tipo de servicio (llamado en on-call, salida en transporte, intervención en el resto) y se unifica el copy?',
+    title: '"Llamado", "salida" e "intervención" nombraban la misma magnitud',
+    rootCause: 'Decisión del dueño: un concepto interno y un nombre por cotización (llamado en on-call, salida en transporte, intervención en servicios técnicos…). Una magnitud = un significado económico.',
+    fix: 'activationTerms / activationFieldLabels (js/domain/activation-terms.js) en formulario, ayudas, avisos, "Ver cálculo", Resultado e impresión. Test Lab: auditoría estática (sin palabras fijas fuera de una lista justificada) y dinámica por escenario (UX-TERM-HARDCODED / UX-TERM-FOREIGN, P1 UX).',
+    test: 'tests/lab/lab.test.js › terminología de la activación',
   },
   {
     id: 'LAB-D7',
-    status: 'human',
+    status: 'accepted',
     code: 'MARKET:fuel.diesel.ars_per_liter',
     classification: 'MARKET REVIEW',
     title: 'Combustible de los escenarios ($ 1.500/l) 19 % debajo del gasoil de referencia sin IVA (sep-2026)',
-    decision: 'Es un input sintético de los escenarios (la matemática da PASS). El precio ILUSTRATIVO por defecto de una cuenta sin configuración propia también es $ 1.500/l (quote-factory, marcado ILUSTRATIVO y con pendiente "confirmalo"). ¿Se actualiza ese valor de ejemplo? Es decisión del dueño: el mercado nunca cambia una fórmula.',
+    decision: 'Decisión del dueño (PLAN-2026-014): sin precio automático de mercado, scraping ni actualización. $ 1.500/l queda sólo como valor ILUSTRATIVO de demo, marcado y con su base; una cotización real nueva pide confirmarlo ("Es mi precio vigente") y la completitud no lo toma como definido hasta entonces. Las cotizaciones anteriores no se tocan. MARKET REVIEW puede seguir avisando: el mercado nunca cambia el valor.',
   },
 ];

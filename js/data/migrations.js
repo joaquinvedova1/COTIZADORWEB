@@ -316,6 +316,22 @@ export function migrateV8ToV9(state) {
   return { ...src, schemaVersion: 9 };
 }
 
+/**
+ * v9 → v10 (PLAN-2026-014, decisiones LAB-D1…D8): campos nuevos y opcionales
+ * `equipment[].fuelNotApplicable` (un equipo propio que no usa combustible:
+ * no se le pide consumo ni suma combustible), `fuel.requiresConfirmation`
+ * (cotización real nueva con el precio ILUSTRATIVO del combustible: hay que
+ * confirmarlo o reemplazarlo) y `product.finance` (financiación de un producto:
+ * días hasta vender, plazo de cobro, tasa y plazos de pago). No cambia ni borra
+ * ningún dato y no agrega estos campos a los datos existentes: las cotizaciones
+ * y los productos guardados calculan igual. Se sube la versión porque una
+ * versión anterior ignoraría estos campos: así abre estos datos en sólo lectura.
+ */
+export function migrateV9ToV10(state) {
+  const src = isPlainObject(state) ? deepClone(state) : {};
+  return { ...src, schemaVersion: 10 };
+}
+
 /** Agrega un valor a `legacy` sin perder lo que ya hubiera (aunque no fuera un objeto). */
 function withLegacy(legacy, key, value) {
   const base = isPlainObject(legacy) ? legacy : legacy === undefined || legacy === null ? {} : { previous: legacy };
@@ -333,6 +349,7 @@ export const MIGRATIONS = Object.freeze({
   6: migrateV6ToV7,
   7: migrateV7ToV8,
   8: migrateV8ToV9,
+  9: migrateV9ToV10,
 });
 
 /**

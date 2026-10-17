@@ -1,0 +1,17 @@
+{
+  "id": "salidas-menos-de-una-promedio",
+  "title": "Menos de una salida por mes, opción apagada: se costea el promedio (0,5 de la salida)",
+  "rule": "Decisión LAB-D1 (PLAN-2026-014): las salidas por mes son un PROMEDIO. Con 2 días de trabajo y salidas de 4 días hay 0,5 salidas por mes; con \"Cada salida se cuenta completa\" apagada, el costo por salida (peajes 100.000) se cuenta en proporción: 0,5 × 100.000 = 50.000 por mes. El costo total = fijos 3.000.000 + variable 200.000 × 2 días + 50.000 = 3.450.000. Se informa cuánto sumaría la salida completa (+50.000) sin sumarlo.",
+  "engine": "quote.activations",
+  "inputs": { "fixedCosts": 3000000, "variableCostPerDay": 200000, "activeDays": 2, "daysPerActivation": 4, "costPerActivation": 100000, "fullActivations": false, "targetMarginPct": 0 },
+  "expected": {
+    "activationRounding.estimated": 0.5,
+    "activationRounding.costed": 0.5,
+    "activationRounding.preview.wholeActivations": 1,
+    "activationRounding.preview.total": 50000,
+    "kpis.logisticsMonthly": 50000,
+    "kpis.totalCost": 3450000,
+    "kpis.activationRoundingCost": 0
+  },
+  "tolerance": 1e-6
+}

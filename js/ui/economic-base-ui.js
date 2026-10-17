@@ -60,7 +60,7 @@ const CHANGE_LABELS = Object.freeze({
   insuranceMonthly: 'seguros', ppeMonthly: 'EPP', trainingMonthly: 'capacitación', transferMonthly: 'traslado',
   replacementValue: 'valor de reposición', usefulLifeYears: 'vida útil', residualValue: 'valor residual', insuranceAnnual: 'seguro',
   licenseAnnual: 'patente', certificationsAnnual: 'certificaciones', otherAnnual: 'otros costos de tenerlo', capitalRatePctAnnual: 'costo de capital',
-  maintenancePerHour: 'mantenimiento', tiresPerHour: 'neumáticos', fuelLitersPerHour: 'consumo', unitCost: 'costo unitario', wastePct: 'merma',
+  maintenancePerHour: 'mantenimiento', tiresPerHour: 'neumáticos', fuelLitersPerHour: 'consumo', fuelNotApplicable: 'no usa combustible', unitCost: 'costo unitario', wastePct: 'merma',
   logisticsPct: 'logística', acquisition: 'cómo se obtiene', external: 'condiciones del proveedor', 'external.price': 'tarifa',
   'external.unit': 'unidad de la tarifa', 'external.minimumUnits': 'mínimo', 'external.supplier': 'proveedor', 'external.validUntil': 'vigencia',
   'external.fiscal': 'tratamiento fiscal', 'external.operatorIncluded': 'operador incluido', 'external.fuelIncluded': 'combustible incluido',

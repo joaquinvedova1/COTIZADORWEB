@@ -112,7 +112,8 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-010 | Auditoría y pulido desde una cotización real (COT-0009): financiación de externos con IVA, trazabilidad y UX que evita cotizar mal | motor de costos, margen, migración | Completado (v0.7.0) |
 | PLAN-2026-011 | "Cada salida se cuenta completa" (opcional) y plazo de pago por proveedor externo | motor de costos, utilización, migración | Completado (v0.7.1) |
 | PLAN-2026-012 | Pulido desde casos reales de transporte (COT-0010 / COT-0011): viajes físicos, km del proveedor, combustible, recursos compartidos y "Usado en" | motor de costos, utilización, migración | Completado (v0.7.2) |
-| PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | En revisión (PR sin merge) |
+| PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | Completado (main `37179e7`) |
+| PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, jornada, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Implementado (PR abierto, sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -871,7 +872,7 @@ Economía (viajes físicos = facturables sin mínimo, % de fijos explícito, com
 
 ### PLAN-2026-013 — RATEOS Test Lab v1 (QA, simulación y auditoría internas)
 
-- Estado: En revisión (PR sin merge; el dueño decide)
+- Estado: Completado (PR #23, main `37179e7`)
 - Tipo: otro — infraestructura interna de QA. **No es una funcionalidad visible de RATEOS** y no se publica en `dist/`.
 - Responsable: agente de desarrollo (Claude) · revisión del dueño antes de cualquier merge
 - Fecha de inicio: 2026-10-16
@@ -933,3 +934,53 @@ Economía (el oráculo sigue CALCULATION_RULES), QA (casos extremos y propiedade
 - 2026-10-16: fixes con el protocolo (test que falla antes en `tests/engines/lab-findings.test.js`, 22 tests): LAB-F1 indicador de externos; F2 combustible con "Sin traslados"; F3 km facturados > km de ruta (sólo cuando faltan costos: una vuelta vacía no se avisa); F4 viaje/km con "Sin traslados"; F5 "Sin traslados" con equipo que viaja; F6 externo $/hora sin horas (crítico); F7 cobro por hora sin horas (crítico); F8 material con precio y cantidad 0 + validación de materiales; F9 avisos informativos (puesto sin posiciones, materiales ignorados); F10/F11 botón al campo exacto; F12 "Ir al campo" dentro del paso usa el `focus` del motor. Ninguno cambia un costo ni una tarifa.
 - 2026-10-16: decisiones del dueño registradas (no se inventa la regla): LAB-D1 menos de una salida por mes; D2 horas por día mayores que la jornada; D3 productos sin financiación; D4 derivar km de la ruta; D5 equipo propio que no usa combustible; D6 huecos de CALCULATION_RULES; D7 precio ILUSTRATIVO del combustible frente al mercado; D8 "llamado / salida / intervención".
 - 2026-10-16: estado final: estable y extendida (seeds 20261016, 7 y 42) sin P0/P1/P2; navegador escritorio y celular 352/352 controles; `npm test` en verde.
+
+### PLAN-2026-014 — Cierre de las decisiones LAB-D1…D8 (Test Lab)
+
+- Estado: Implementado — PR abierto, sin merge (espera la revisión del dueño)
+- Tipo: motor de costos (productos), migración de esquema (9 → 10), UX y completitud
+- Responsable: agente de desarrollo (Claude) · el dueño decidió cada punto · sin merge ni deploy sin autorización
+- Fecha de inicio: 2026-10-17
+- Rama / PR: `claude/rateos-lab-decisions-d1-d8` (desde `main` `37179e7`)
+
+#### 1. Contexto
+Test Lab v1 dejó 8 decisiones del dueño. El dueño ya las tomó; este plan las implementa sin cambiar ningún golden ni el resultado de una cotización existente salvo donde la decisión lo pide explícitamente (y sólo si la persona confirma un dato nuevo).
+
+#### 2. Decisiones y cómo se implementan
+| ID | Decisión del dueño | Implementación | ¿Fórmula? |
+|---|---|---|---|
+| D1 | < 1 salida por mes: mantener la semántica (opción apagada = promedio; prendida = ⌈A⌉ para lo indivisible) y hacerla explícita | Aviso informativo con salidas promedio, salidas costeadas y efecto económico del redondeo, en el paso y en el Resultado; golden + invariante para A < 1 | No |
+| D2 | Horas de operación > jornada cargada: avisar, nunca inferir horas extra, turnos ni convenio | Regla de completitud `labor_hours` (a revisar, sólo si faltan horas) que compara horas de operación del mes (días × horas por día) con las horas cubiertas por posición (personas × horas normales + horas extra cargadas), con el texto del dueño y botón a "Personas por posición" (el mensaje nombra también horas extra y horas normales) | No |
+| D3 | Productos con financiación, sin parche ni motor duplicado | `finance` opcional del producto con los mismos datos que una cotización (días hasta vender, plazo de cobro, tasa, plazo de pago por grupo) reutilizando `computeFinance`; sin datos = $ 0 (los productos existentes no cambian) | Sí (sólo productos con datos de financiación) |
+| D4 | Km facturables ≠ km de ruta: no derivar, mostrar ambos y avisar si dejan costos sin cubrir | Resumen de transporte con km facturables, km de ruta y su relación; "Ver cálculo" con las dos magnitudes; el aviso de km de LAB-F3 se mantiene | No |
+| D5 | Equipo propio que no usa combustible | Dato explícito `equipment[].fuelNotApplicable` ("No usa combustible"): no se pide consumo ni precio por ese equipo y no impide el 100 %; 0 sigue siendo "falta"; sin el dato todo calcula igual | Sí (sólo si se marca) |
+| D6 | Huecos de CALCULATION_RULES | Se reconstruye y documenta la regla real (IVA parcial sin %, otros costos "externos", horas de una línea de equipo); el oráculo pasa a citar reglas confirmadas | No |
+| D7 | Precio ILUSTRATIVO del combustible | Las cotizaciones reales nuevas con precio ilustrativo lo marcan `fuel.requiresConfirmation`: la completitud pide confirmarlo o reemplazarlo (rojo, con el valor y su base) y se confirma con "Es mi precio vigente" (la casilla que ya existía) o cargando un precio; demo e históricas sin cambios; el mercado nunca cambia el valor | No |
+| D8 | Una magnitud = un significado | Un concepto canónico (activación) con copy contextual (`activationTerms`): llamado en on-call o con la unidad "llamado", salida en transporte, cambio de turno en permanentes, trabajo en llave en mano / precio cerrado, intervención en el resto; en formulario, ayudas, avisos, "Ver cálculo", Resultado/PDF y docs; auditoría de terminología estática y dinámica en Test Lab | No |
+
+#### 3. Impacto en fórmulas
+Sólo D3 (productos con financiación cargada) y D5 (equipo marcado "No usa combustible"). Ningún golden cambia; los productos y las cotizaciones existentes calculan igual.
+
+#### 4. Impacto en datos
+Esquema 9 → 10 (`migrateV9ToV10`: sin cambios de datos; sólo sube la versión). Campos opcionales: `equipment[].fuelNotApplicable`, `fuel.requiresConfirmation`, `product.finance`. Una versión anterior abre los datos v10 en sólo lectura.
+
+#### 5. Pasos
+- [x] 1. Helper de terminología + esquema 10.
+- [x] 2. D5, D7 (datos y completitud) · D1, D2, D4 (avisos y trazas).
+- [x] 3. D3 (motor, validación, editor y resultado de productos) · D6 (documentación y oráculo).
+- [x] 4. D8 en toda la interfaz y los motores + auditoría de terminología.
+- [x] 5. Test Lab: escenarios D1…D8, gate estable, extendido con varias seeds, E2E escritorio/celular; docs; PR sin merge.
+
+#### 6. Tests
+Test que falla antes de cada cambio, suite completa, candado de golden, Test Lab estable y extendido, E2E.
+
+#### 7. Rollback
+Revert del PR; los datos v10 sólo agregan campos opcionales (una versión anterior los abre en sólo lectura).
+
+#### Bitácora
+- 2026-10-17: auditoría del código de cada decisión; plan registrado. Base `main` `37179e7`.
+- 2026-10-17: D3 auditado antes de implementar: `computeFinance` sirve sin cambios (Z = días entre producir y vender, X_g = días después de producir; el impulsor variable es la unidad vendida). No hizo falta rediseño ni plazos nuevos: se implementó (no queda como plan pendiente).
+- 2026-10-17: implementado D1…D8 con un test que falló antes de cada cambio (`tests/engines/lab-decisions.test.js`); dos golden nuevos para D1 aprobados en el candado; los 37 anteriores intactos. Antes → después en COT-0009/0010/0011, la demo y 56 escenarios del Lab: costos, tarifas, equilibrio y costo financiero idénticos; sólo cambia el puntaje de completitud donde aparece el aviso de D2.
+- 2026-10-17: Test Lab estable (77 escenarios + 22 sondas + auditoría de terminología) y extendido (seeds 20261016, 7, 42 y 20261017, 197 escenarios cada una) sin hallazgos bloqueantes; golden 39/39 con el candado OK; `npm test` 1632 (main: 1580); E2E escritorio y celular 277/277.
+- Quedan para el dueño (no bloquean el PR): número de versión al publicar (el esquema ya es 10; `package.json` sigue en 0.7.2); las horas por día de la actividad se limitan a 24 y las de una línea de equipo no (regla real documentada en §4); D2 compara horas del mes porque no existe un dato de jornada diaria (agregarlo sería un dato nuevo); la financiación de productos usa importes netos (el IVA de los insumos no se financia, igual que los materiales de una cotización).
+

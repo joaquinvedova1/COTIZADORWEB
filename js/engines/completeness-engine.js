@@ -25,13 +25,16 @@ import { nonNegative, toNumber } from '../core/money.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
-import { formatPercent, formatNumber } from '../core/format.js';
+import { formatPercent, formatNumber, formatMoney } from '../core/format.js';
+import { baseLabel } from '../domain/economic-base.js';
+import { activationTerms, activationFieldLabels } from '../domain/activation-terms.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { contingencyPctOf, normalizeActivity } from './cost-engine.js';
 import { routeTrips } from './transport-engine.js';
+import { overtimeItemsOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
@@ -70,6 +73,9 @@ function isBlank(v) {
  */
 export function evaluateCompleteness(quote = {}) {
   const items = [];
+  // La activación con el nombre de la cotización y los rótulos que se citan (PLAN-2026-014, LAB-D8).
+  const T = activationTerms(quote);
+  const L = activationFieldLabels(T);
   const serviceType = quote.serviceType;
   const isOnCall = serviceType === 'on_call';
   const activity = quote.activity || {};
@@ -144,6 +150,40 @@ export function evaluateCompleteness(quote = {}) {
       ok ? 'Relevos configurados.' : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.'));
   }
 
+  // 5 bis. Horas de la operación vs jornada cargada (PLAN-2026-014, LAB-D2). Sólo con datos
+  // cargados: horas por posición que pide la actividad (días × horas por día) contra las que
+  // cubren las personas por posición (horas normales del puesto) y las horas extra cargadas.
+  // Nunca se infieren horas extra, turnos, relevos ni convenio, ni cambia el costo: sólo avisa
+  // (y la regla aparece únicamente si falta cubrir horas).
+  const act = normalizeActivity(quote);
+  const D = act.activeDaysPerMonth;
+  const H = act.hoursPerActiveDay;
+  if (labor.length > 0 && D > 0 && H > 0) {
+    const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+    const short = labor.map((l, index) => {
+      const normal = nonNegative(l.normalHoursPerMonth);
+      if (!(nonNegative(l.positions) > 0) || !(normal > 0)) return null;
+      const ppp = nonNegative(l.peoplePerPosition, 1);
+      const items = overtimeItemsOf(l);
+      const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
+      const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
+      const required = D * H;
+      const covered = ppp * normal + perDay * D + perMonth * ppp;
+      return required > covered + 1e-6 ? { l, index, ppp, normal, extra: perDay * D + perMonth * ppp, required, covered } : null;
+    }).filter(Boolean);
+    if (short.length) {
+      const first = short[0];
+      const name = (typeof first.l.role === 'string' && first.l.role.trim()) || 'Personal';
+      const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
+      const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
+      const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
+        `La operación requiere más horas que la jornada cargada. Revisá turnos, dotación y/o horas extra. "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo.${others}`);
+      item.focus = `labor.${first.index}.peoplePerPosition`;
+      item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
+      items.push(item);
+    }
+  }
+
   // 6. Costo de equipos (propios: reposición y vida útil; externos: tarifa)
   const isExt = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
   const extOf = (e) => (isPlainObject(e.external) ? e.external : {});
@@ -187,8 +227,10 @@ export function evaluateCompleteness(quote = {}) {
   // el cliente, no hay costo. Cada pendiente lleva al campo exacto (`focus`).
   const fuelUsers = [];
   equipment.forEach((e, i) => {
+    // "No usa combustible" (PLAN-2026-014, LAB-D5): un dato explícito; consumo 0 sin marcar sigue siendo "falta".
+    const noFuel = !isExt(e) && e.fuelNotApplicable === true;
     if (!isExt(e)) {
-      fuelUsers.push({ name: lineName(e), consumes: nonNegative(e.fuelLitersPerHour) > 0, path: `equipment.${i}.fuelLitersPerHour` });
+      if (!noFuel) fuelUsers.push({ name: lineName(e), consumes: nonNegative(e.fuelLitersPerHour) > 0, path: `equipment.${i}.fuelLitersPerHour` });
     } else if (extOf(e).fuelIncluded === false) {
       const x = extOf(e);
       const mode = externalFuelMode(x);
@@ -204,7 +246,7 @@ export function evaluateCompleteness(quote = {}) {
     const m = isPlainObject(e.mobilization) ? e.mobilization : {};
     const includedByProvider = isExt(e) && extOf(e).mobilizationIncluded === true;
     const paysRouteFuel = !isExt(e) || (extOf(e).fuelIncluded === false && externalFuelMode(extOf(e)) === 'per_hour');
-    if (!logistics.notApplicable && m.mode === 'self' && !includedByProvider && paysRouteFuel) {
+    if (!logistics.notApplicable && m.mode === 'self' && !includedByProvider && paysRouteFuel && !noFuel) {
       fuelUsers.push({ name: lineName(e), consumes: nonNegative(m.travelLitersPer100Km) > 0, path: `equipment.${i}.mobilization.travelLitersPer100Km` });
     }
   });
@@ -219,7 +261,7 @@ export function evaluateCompleteness(quote = {}) {
     let message = 'Combustible definido.';
     let focus = null;
     if (fuelUsers.length === 0) {
-      message = 'No aplica: ningún equipo ni vehículo usa combustible a tu cargo (los externos lo tienen incluido en su tarifa).';
+      message = 'No aplica: ningún equipo ni vehículo usa combustible a tu cargo (equipos que no usan combustible o externos con el combustible incluido en su tarifa).';
     } else if (!fuel.providedBy) {
       status = 'missing';
       message = 'Combustible sin responsable: definí si lo pagás vos o lo provee el cliente.';
@@ -248,8 +290,13 @@ export function evaluateCompleteness(quote = {}) {
         focus = fuelUsers[0].path;
       }
     } else if (fuel.illustrative === true) {
-      status = 'warning';
-      message = 'El precio del combustible es un valor ILUSTRATIVO por defecto: confirmalo con tu precio actual.';
+      // PLAN-2026-014 (LAB-D7): en una cotización real nueva el precio de ejemplo no cuenta como
+      // definido hasta que se confirma o se reemplaza. Las anteriores y la demo: el aviso de siempre.
+      const mustConfirm = fuel.requiresConfirmation === true && quote.illustrative !== true;
+      status = mustConfirm ? 'missing' : 'warning';
+      message = mustConfirm
+        ? `El precio del combustible (${formatMoney(nonNegative(fuel.pricePerLiter))}/L, ${baseLabel(fuel.base)}) es un valor ILUSTRATIVO de ejemplo: confirmalo ("Es mi precio vigente") o cargá tu precio actual. Hasta entonces no se toma como definido.`
+        : 'El precio del combustible es un valor ILUSTRATIVO por defecto: confirmalo con tu precio actual.';
       focus = 'fuel.pricePerLiter';
     }
     // El pendiente se muestra en el paso de su campo (el consumo de un equipo, en Equipos).
@@ -421,7 +468,7 @@ export function evaluateCompleteness(quote = {}) {
       message = `Cobrás por ${unit.plural} pero marcaste "Sin traslados": los ${unit.plural} que vendés no tienen ${unit.id === 'km' ? '' : 'km ni '}costos de ruta (combustible, desgaste, peajes, proveedores por km). Si hay viajes, desmarcalo y cargá la ruta.`;
       focus = 'logistics.notApplicable';
     } else if (unit.id === 'km' && billed > 0 && oneWayKm > 0 && billed - routeKmPerMonth > Math.max(1, billed * 0.01)) {
-      message = `Facturás ${fmtN(billed)} km por mes pero la ruta recorre ${fmtN(routeKmPerMonth)} km (${fmtN(activations)} ${activations === 1 ? 'llamado' : 'llamados'} × ${fmtN(route.tripsPerActivation)} ${route.tripsPerActivation === 1 ? 'viaje' : 'viajes'} × ${fmtN(oneWayKm * (logistics.roundTrip === false ? 1 : 2))} km por viaje): los costos por km (proveedor, combustible, desgaste) se calculan con los km de la ruta y quedan cortos si el equipo recorre los km que facturás. Ajustá "Viajes por llamado" o la distancia.`;
+      message = `Facturás ${fmtN(billed)} km por mes pero la ruta recorre ${fmtN(routeKmPerMonth)} km (${fmtN(activations)} ${T.word(activations)} × ${fmtN(route.tripsPerActivation)} ${route.tripsPerActivation === 1 ? 'viaje' : 'viajes'} × ${fmtN(oneWayKm * (logistics.roundTrip === false ? 1 : 2))} km por viaje): los costos por km (proveedor, combustible, desgaste) se calculan con los km de la ruta y quedan cortos si el equipo recorre los km que facturás. Ajustá "${L.tripsPerActivation}" o la distancia.`;
       focus = 'logistics.tripsPerActivation';
     }
     if (message) {
@@ -585,7 +632,7 @@ export function evaluateCompleteness(quote = {}) {
       step: 'logistics',
       severity: 'info',
       label: 'Viajes físicos',
-      message: `Con la unidad "viaje", los viajes por intervención se calculan con los viajes por día: ${fmt(route.tripsPerActiveDay)} × ${fmt(route.daysPerActivation)} ${route.daysPerActivation === 1 ? 'día' : 'días'} = ${fmt(route.tripsPerActivation)}. El dato anterior de esta cotización (${fmt(route.storedTripsPerActivation)} por llamado) ya no se usa: los km se calculan con los viajes que facturás.`,
+      message: `Con la unidad "viaje", los viajes ${T.per} se calculan con los viajes por día: ${fmt(route.tripsPerActiveDay)} × ${fmt(route.daysPerActivation)} ${route.daysPerActivation === 1 ? 'día' : 'días'} = ${fmt(route.tripsPerActivation)}. El dato anterior de esta cotización (${fmt(route.storedTripsPerActivation)} ${T.per}) ya no se usa: los km se calculan con los viajes que facturás.`,
     });
   }
   // Recursos compartidos: el resto del costo fijo lo cubre otro servicio.
@@ -653,3 +700,28 @@ export function evaluateCompleteness(quote = {}) {
     review: pending.filter((i) => i.severity === 'review').length,
   };
 }
+
+/**
+ * Menos de una salida por mes con costos por salida y "cada salida completa"
+ * apagada (PLAN-2026-014, LAB-D1). La fórmula no cambia: la frecuencia es un
+ * promedio y los costos por salida se cuentan en proporción. Informativo (no
+ * resta puntaje): salidas promedio, costeadas y efecto del redondeo, y el campo
+ * donde se decide. `rounding` = activationRoundingAt(model, D) con su preview.
+ * @returns {object|null}
+ */
+export function activationRoundingNotice(quote, rounding, preview) {
+  if (!rounding || rounding.enabled) return null;
+  const A = rounding.estimated;
+  if (!(A > 1e-9 && A < 1 - 1e-9) || !preview || !(preview.perActivationDiscrete > 0) || !(preview.total > 0)) return null;
+  const T = activationTerms(quote);
+  const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+  return {
+    id: 'activations_below_one',
+    step: 'modality',
+    severity: 'info',
+    label: `Menos de ${T.a} ${T.one} por mes`,
+    message: `${T.Many} promedio por mes: ${n(A)} · ${T.many} ${T.g('costeadas', 'costeados')}: ${n(A)} (promedio): los costos por ${T.one} (movilización, peajes, viáticos y cargos por ${T.one}) se cuentan en proporción. Si ${T.each} se paga ${T.whole}, marcá "${activationFieldLabels(T).fullActivations}": se costearía${preview.wholeActivations === 1 ? '' : 'n'} ${n(preview.wholeActivations)} (efecto del redondeo: +${formatMoney(preview.total)} por mes).`,
+    focus: 'activity.fullActivations',
+  };
+}
+
