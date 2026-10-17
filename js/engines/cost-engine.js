@@ -46,6 +46,8 @@ import { computeMobilization } from './mobilization-engine.js';
 import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
+import { activationTerms } from '../domain/activation-terms.js';
+import { formatMoney, formatNumber } from '../core/format.js';
 
 /**
  * Días de trabajo que lleva facturar una cantidad (PLAN-2026-009). UNIDAD DE
@@ -633,6 +635,8 @@ export function buildCostModel(quote = {}) {
       enabled: activity.fullActivations === true,
       daysPerActivation: activity.daysPerActivation,
       perActivation,
+      // Para nombrar la activación en las trazas (llamado / salida / intervención, PLAN-2026-014).
+      terms: { serviceType: typeof quote.serviceType === 'string' ? quote.serviceType : null, unit: typeof quote.unit === 'string' ? quote.unit : null },
     },
   };
 }
@@ -765,6 +769,11 @@ export function costStructure(model, activeDays) {
 /** Traza del costo total mensual. */
 export function traceTotalCost(model, activeDays) {
   const at = costAtActivity(model, activeDays);
+  // Salidas promedio, costeadas y efecto del redondeo (PLAN-2026-014, LAB-D1), con el nombre del servicio.
+  const T = activationTerms(model.activationRounding && model.activationRounding.terms);
+  const preview = at.rounding ? null : activationRoundingAt(model, activeDays, { force: true });
+  const averageOnly = preview && preview.total > 0;
+  const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
   return createTrace({
     id: 'total_cost',
     title: 'Costo total mensual',
@@ -780,9 +789,9 @@ export function traceTotalCost(model, activeDays) {
       ...(at.rounding && at.rounding.total > 0
         ? [
           { label: 'Variables (por día de trabajo)', value: at.variable - at.rounding.total, format: 'money' },
-          { label: 'Intervenciones estimadas', value: at.rounding.estimated, format: 'number' },
-          { label: 'Intervenciones costeadas (cada salida completa)', value: at.rounding.costed, format: 'number' },
-          { label: 'Ajuste por salidas completas (costos por salida, con su estructura, financiación y contingencia)', value: at.rounding.total, format: 'money' },
+          { label: `${T.Many} promedio por mes`, value: at.rounding.estimated, format: 'number' },
+          { label: `${T.Many} ${T.g('costeadas', 'costeados')} (${T.each} ${T.whole})`, value: at.rounding.costed, format: 'number' },
+          { label: `Efecto del redondeo (costos por ${T.one}, con su estructura, financiación y contingencia)`, value: at.rounding.total, format: 'money' },
         ]
         : []),
       { label: 'Variables', value: at.variable, format: 'money' },
@@ -790,7 +799,10 @@ export function traceTotalCost(model, activeDays) {
     result: { label: 'Costo total', value: at.total, format: 'money' },
     notes: [
       at.monthsFactor > 1 ? 'Los días superan los disponibles del mes: se prorratean los fijos como trabajo de más de un mes.' : null,
-      at.rounding && at.rounding.total > 0 ? 'Cada salida se cuenta completa: sólo los costos por salida (movilización, peajes, viáticos, cargos por llamado…) se costean con las salidas enteras. Sueldos, tenencia, producción y estructura mensual no cambian.' : null,
+      at.rounding && at.rounding.total > 0 ? `${T.Each} se cuenta ${T.whole}: sólo los costos por ${T.one} (movilización, peajes, viáticos, cargos por ${T.one}…) se costean con ${T.theMany} ${T.many} ${T.wholeMany}. Sueldos, tenencia, producción y estructura mensual no cambian.` : null,
+      averageOnly
+        ? `${T.Many} promedio por mes: ${n(preview.estimated)} · ${T.many} ${T.g('costeadas', 'costeados')}: ${n(preview.estimated)} (los costos por ${T.one} se cuentan en proporción). Con "${T.Each} se cuenta ${T.whole}" se costearía${preview.wholeActivations === 1 ? '' : 'n'} ${n(preview.wholeActivations)}: efecto del redondeo +${formatMoney(preview.total)} por mes (no incluido).`
+        : null,
     ].filter(Boolean),
   });
 }

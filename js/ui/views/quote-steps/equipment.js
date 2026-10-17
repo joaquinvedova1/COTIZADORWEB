@@ -22,7 +22,8 @@ import { h, mount } from '../../dom.js';
 import { badge, card, dateField, formGrid, selectField, triStateField, confirmDialog, emptyState, icon } from '../../components.js';
 import { equipmentLineFromLibrary, externalLineFromService, blankEquipmentLine, createExternalTerms, createMobilization, acquisitionOf } from '../../../domain/quote-factory.js';
 import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
-import { computeEquipmentUnit, maintenanceOf, tiresOf } from '../../../engines/equipment-engine.js';
+import { activationTerms, withActivationOptions } from '../../../domain/activation-terms.js';
+import { computeEquipmentUnit, maintenanceOf, tiresOf, MAX_EQUIPMENT_HOURS_PER_DAY } from '../../../engines/equipment-engine.js';
 import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
@@ -47,16 +48,20 @@ function currencyUnit(base, quote) {
   return c ? c.symbol : '$';
 }
 
-const unitShort = (unit) => (EXTERNAL_UNITS.find((u) => u.id === unit) || EXTERNAL_UNITS[1]).short;
+/** Nombre de la activación de la cotización de un resultado (llamado / salida / intervención…, PLAN-2026-014). */
+const termsOfResult = (result) => activationTerms(result && result.model && result.model.activationRounding ? result.model.activationRounding.terms : null);
+/** Unidades de tarifa externa con la activación nombrada como en la cotización ("Por salida", "/salida"). */
+const unitsFor = (T) => withActivationOptions(EXTERNAL_UNITS, T);
+const unitShort = (unit, T = activationTerms()) => (unitsFor(T).find((u) => u.id === unit) || EXTERNAL_UNITS[1]).short;
 
-/** "Por qué" de cada unidad de tarifa (cómo se cuentan las unidades por llamado). */
-const UNIT_HINTS = Object.freeze({
-  hour: 'Unidades por llamado = horas de uso por día × días por llamado.',
-  day: 'Unidades por llamado = días por llamado.',
+/** "Por qué" de cada unidad de tarifa (cómo se cuentan las unidades por activación). */
+const unitHints = (T) => ({
+  hour: `Unidades ${T.per} = horas de uso por día × días ${T.per}.`,
+  day: `Unidades ${T.per} = días ${T.per}.`,
   month: 'Costo fijo por mes (trabaje o no).',
   trip: 'Cobra cada ida o cada vuelta (tramo): un viaje ida y vuelta son 2 tramos. Los viajes salen de la ruta y de los viajes físicos de la cotización.',
-  km: 'Unidades por llamado = km de ruta por llamado: viajes físicos × km por viaje (de "Movilización y viajes").',
-  activation: 'Un cobro por cada llamado.',
+  km: `Unidades ${T.per} = km de ruta ${T.per}: viajes físicos × km por viaje (de "Movilización y viajes").`,
+  activation: `Un cobro en ${T.each}.`,
   global: 'Monto por todo el contrato, repartido en los meses de contrato.',
 });
 
@@ -157,6 +162,17 @@ function supplierFinanceAt(result, index) {
   };
 }
 
+/**
+ * Horas por día cargadas por encima del tope (PLAN-2026-014): el dato sigue marcado con error,
+ * el costo se calcula con 24 h por unidad y más horas se cargan como más equipos.
+ */
+function hoursCapNote(source) {
+  const h = source ? Number(source.hoursPerActiveDay) : NaN;
+  if (!(Number.isFinite(h) && h > MAX_EQUIPMENT_HOURS_PER_DAY)) return null;
+  const max = MAX_EQUIPMENT_HOURS_PER_DAY;
+  return `Cargaste ${formatNumber(h, { decimals: 2 })} h de uso por día: el máximo es ${max} h por unidad y el costo se calcula con ${max} h. Para más horas por día, sumá equipos en "Cantidad" (2 equipos × 20 h = 40 equipo-horas por día).`;
+}
+
 function equipmentTrace(result, index, source) {
   const line = result && result.model.equipment[index];
   if (!line) return null;
@@ -174,8 +190,8 @@ function equipmentTrace(result, index, source) {
       { label: 'Cantidad', value: line.quantity, format: 'number' },
       { label: 'Horas de uso por día activo', value: line.hoursPerActiveDay, format: 'hours' },
       { label: 'Días activos por mes', value: result.activity.activeDaysPerMonth, format: 'days' },
-      { label: 'Precio combustible (si lo pagamos)', value: op.fuelPricePerLiter, format: 'rate' },
-      { label: 'Consumo', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
+      op.fuelNotApplicable ? { label: 'Combustible', value: 'No usa combustible', format: 'text' } : { label: 'Precio combustible (si lo pagamos)', value: op.fuelPricePerLiter, format: 'rate' },
+      op.fuelNotApplicable ? null : { label: 'Consumo', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
       { label: `Mantenimiento (${labelOf(MAINTENANCE_MODES, op.maintenanceMode, 'por hora').toLowerCase()})`, value: o.maintenanceFixedMonthly > 0 ? o.maintenanceFixedMonthly : op.maintenancePerHour, format: 'money', unit: o.maintenanceFixedMonthly > 0 ? 'por mes (fijo)' : 'por hora' },
       { label: `Neumáticos (${labelOf(TIRE_MODES, op.tiresMode, 'por hora').toLowerCase()})`, value: op.tiresPerKm > 0 ? op.tiresPerKm : op.tiresPerHour, format: 'money', unit: op.tiresPerKm > 0 ? 'por km (en la ruta)' : 'por hora' },
     ].filter(Boolean),
@@ -201,6 +217,7 @@ function equipmentTrace(result, index, source) {
       source && (source.hoursPerActiveDay === null || source.hoursPerActiveDay === undefined || source.hoursPerActiveDay === '')
         ? 'Horas de uso vacías: se usan las horas por día activo de la cotización.'
         : null,
+      hoursCapNote(source),
     ],
   });
 }
@@ -217,6 +234,7 @@ function wearSummary(e = {}) {
 }
 
 function externalTrace(result, index, source, impact = null) {
+  const T = termsOfResult(result);
   const line = result && result.model.equipment[index];
   const x = line && line.external;
   if (!x) return null;
@@ -250,7 +268,7 @@ function externalTrace(result, index, source, impact = null) {
   const routeSteps = p && t && !p.noRoute
     ? [
       t.derived ? { label: `Días de trabajo = ${formatNumber(t.billableTripsPerMonth, { decimals: 2 })} viajes facturables ÷ ${formatNumber(t.tripsPerActiveDay, { decimals: 2 })} por día`, value: t.workDaysPerMonth, format: 'days' } : null,
-      { label: 'Viajes físicos por mes (intervenciones × viajes por intervención)', value: t.physicalTripsPerMonth, format: 'number' },
+      { label: `Viajes físicos por mes (${T.many} × viajes ${T.per})`, value: t.physicalTripsPerMonth, format: 'number' },
       { label: `Km por viaje${routeName(t) ? ` (${routeName(t)})` : ''}`, value: t.kmPerTrip, format: 'km' },
       p.unit === 'km'
         ? { label: 'Km facturados por mes = viajes físicos × km por viaje', value: p.unitsPerMonth, format: 'km' }
@@ -273,24 +291,24 @@ function externalTrace(result, index, source, impact = null) {
   return createTrace({
     id: 'external_line',
     title: `${x.acquisition === 'rented' ? 'Alquiler' : 'Servicio tercerizado'} — ${x.name || 'Externo'}`,
-    formula: 'Facturado por llamado = máx(unidades por llamado, mínimo) × tarifa neta × cantidad · Costo económico = neto × (1 + cargos no recuperables % + IVA % × (1 − parte recuperable)) · Por día activo = por llamado / días por llamado',
+    formula: `Facturado ${T.per} = máx(unidades ${T.per}, mínimo) × tarifa neta × cantidad · Costo económico = neto × (1 + cargos no recuperables % + IVA % × (1 − parte recuperable)) · Por día activo = ${T.per} / días ${T.per}`,
     inputs: [
       x.conversion !== 1
-        ? { label: `Tarifa neta (sin IVA) ${unitShort(x.unit)} en ${(source && source.base && source.base.currency) || 'otra moneda'}`, value: x.priceOriginal, format: 'number' }
-        : { label: `Tarifa neta (sin IVA) ${unitShort(x.unit)}`, value: x.priceOriginal, format: 'money' },
+        ? { label: `Tarifa neta (sin IVA) ${unitShort(x.unit, T)} en ${(source && source.base && source.base.currency) || 'otra moneda'}`, value: x.priceOriginal, format: 'number' }
+        : { label: `Tarifa neta (sin IVA) ${unitShort(x.unit, T)}`, value: x.priceOriginal, format: 'money' },
       x.conversion !== 1 ? { label: 'Tipo de cambio de la cotización', value: x.conversion, format: 'number' } : null,
       x.conversion !== 1 ? { label: 'Tarifa neta convertida', value: x.price, format: 'money' } : null,
-      { label: 'Unidades por llamado', value: x.unitsPerActivation, format: 'number' },
+      { label: `Unidades ${T.per}`, value: x.unitsPerActivation, format: 'number' },
       { label: 'Mínimo facturable', value: x.minimum, format: 'number' },
       { label: 'Cantidad', value: x.quantity, format: 'number' },
-      { label: 'Días por llamado', value: result.activity.daysPerActivation, format: 'days' },
+      { label: `Días ${T.per}`, value: result.activity.daysPerActivation, format: 'days' },
       { label: 'IVA del proveedor', value: f.vatPct, format: 'percent' },
       { label: 'Parte del IVA que recuperás', value: f.recoverableShare * 100, format: 'percent' },
       { label: 'Cargos no recuperables', value: f.nonRecoverablePct, format: 'percent' },
     ].filter(Boolean),
     steps: [
-      { label: 'Unidades facturadas por llamado', value: x.billedUnitsPerActivation, format: 'number' },
-      { label: 'Neto facturado por llamado', value: x.netPerActivation, format: 'money' },
+      { label: `Unidades facturadas ${T.per}`, value: x.billedUnitsPerActivation, format: 'number' },
+      { label: `Neto facturado ${T.per}`, value: x.netPerActivation, format: 'money' },
       { label: 'Fijo mensual neto (tarifas por mes o globales)', value: x.netFixedMonthly, format: 'money' },
       { label: 'Costo económico por día activo', value: x.variablePerActiveDay, format: 'money' },
       x.mobilizationPerActiveDay > 0 ? { label: 'Movilización del proveedor por día activo', value: x.mobilizationPerActiveDay, format: 'money' } : null,
@@ -309,8 +327,9 @@ function externalTrace(result, index, source, impact = null) {
       'Sin amortización, seguro propio ni costo de capital: el equipo no es tuyo.',
       'Ganancias no se carga como % sobre el alquiler y el IIBB del proveedor ya está en su precio.',
       impact ? 'El impacto total es la diferencia entre el costo del mes con y sin esta línea (misma actividad): el proveedor arrastra estructura, financiación y, si corresponde, contingencia e IVA que no recuperás.' : null,
-      rounding.economic > 0.005 ? `Cada salida se cuenta completa: incluye ${formatMoney(rounding.economic)} por las salidas enteras (${formatNumber(result.activationRounding.costed, { decimals: 0 })} en lugar de ${formatNumber(result.activationRounding.estimated, { decimals: 2 })}).` : null,
+      rounding.economic > 0.005 ? `${T.Each} se cuenta ${T.whole}: incluye ${formatMoney(rounding.economic)} de efecto del redondeo (${formatNumber(result.activationRounding.costed, { decimals: 0 })} ${T.many} ${T.g('costeadas', 'costeados')} en lugar de ${formatNumber(result.activationRounding.estimated, { decimals: 2 })} promedio).` : null,
       sf && sf.own ? 'Este proveedor tiene su propio plazo de pago: sólo cambia el capital de trabajo y el costo financiero; el costo del externo no cambia.' : null,
+      hoursCapNote(source),
     ],
   });
 }
@@ -339,6 +358,8 @@ export function externalChecklist(line = {}) {
 
 export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
+  // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
+  const T = activationTerms(quote);
   const library = Array.isArray(resources.equipment) ? resources.equipment : [];
   const services = Array.isArray(resources.externalServices) ? resources.externalServices : [];
   const lines = quote.equipment;
@@ -630,7 +651,15 @@ export function render(container, ctx) {
         }),
         kit.num(`${p}.replacementValue`, { label: 'Valor de reposición', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que costaría comprarlo hoy.' }),
         kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative }),
-        kit.num(`${p}.fuelLitersPerHour`, { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
+        // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
+        line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
+        kit.check(`${p}.fuelNotApplicable`, {
+          label: 'No usa combustible',
+          structural: true,
+          hint: line.fuelNotApplicable === true
+            ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
+            : 'Eléctrico, manual o estacionario: marcalo en vez de dejar el consumo en 0.',
+        }),
       ),
       kit.region((r) => wearWarningsRegion(r, i)),
       // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
@@ -728,7 +757,7 @@ export function render(container, ctx) {
                 [
                   [op.maintenanceMode === 'service' ? 'Mantenimiento (service)' : 'Mantenimiento', formatMoney(op.maintenancePerHour)],
                   [op.tiresMode === 'set_km' ? 'Neumáticos (van por km, en la ruta)' : op.tiresMode === 'set_hours' ? 'Neumáticos (juego)' : 'Neumáticos', formatMoney(op.tiresPerHour)],
-                  [`Combustible (${formatNumber(op.fuelLitersPerHour, { decimals: 2 })} L/h)`, formatMoney(op.fuelPerHour)],
+                  [op.fuelNotApplicable ? 'Combustible (no usa)' : `Combustible (${formatNumber(op.fuelLitersPerHour, { decimals: 2 })} L/h)`, formatMoney(op.fuelPerHour)],
                 ],
                 { totalLabel: 'Usarlo por hora', total: formatMoney(op.totalPerHour) },
               );
@@ -857,9 +886,9 @@ export function render(container, ctx) {
         kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }),
         kit.text(`${p}.external.supplier`, { label: 'Proveedor', maxLength: 120 }),
         kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.' }),
-        kit.num(`${p}.external.price`, { label: 'Tarifa neta (sin IVA)', rule: 'money', unit: `${sym}${unitShort(unit)}`, illustrative, hint: 'El precio del proveedor SIN IVA: el IVA se trata aparte.' }),
-        kit.select(`${p}.external.unit`, { label: 'Unidad de la tarifa', options: EXTERNAL_UNITS.map((u) => ({ value: u.id, label: u.label })), hint: UNIT_HINTS[unit], structural: true }),
-        kit.num(`${p}.external.minimumUnits`, { label: 'Mínimo facturable', rule: 'quantity', unit: unitShort(unit).replace('/', '').trim() || 'u.', hint: 'Unidades mínimas por llamado. Vacío = sin mínimo.' }),
+        kit.num(`${p}.external.price`, { label: 'Tarifa neta (sin IVA)', rule: 'money', unit: `${sym}${unitShort(unit, T)}`, illustrative, hint: 'El precio del proveedor SIN IVA: el IVA se trata aparte.' }),
+        kit.select(`${p}.external.unit`, { label: 'Unidad de la tarifa', options: unitsFor(T).map((u) => ({ value: u.id, label: u.label })), hint: unitHints(T)[unit], structural: true }),
+        kit.num(`${p}.external.minimumUnits`, { label: 'Mínimo facturable', rule: 'quantity', unit: unitShort(unit, T).replace('/', '').trim() || 'u.', hint: `Unidades mínimas ${T.per}. Vacío = sin mínimo.` }),
         unit === 'hour'
           ? kit.num(`${p}.hoursPerActiveDay`, {
             label: 'Horas de uso por día activo',
@@ -895,7 +924,7 @@ export function render(container, ctx) {
                 : null,
           ext.fuelIncluded === false ? kit.out((r) => (at(r) ? externalFuelText(r, at(r)) : ''), { tag: 'p', className: 'small qe-fuel-calc', allowEmpty: true }) : null,
           triField(`${p}.external.mobilizationIncluded`, 'Movilización (llevarlo y traerlo)'),
-          ext.mobilizationIncluded === false ? kit.num(`${p}.external.mobilizationAmount`, { label: 'Movilización del proveedor por llamado (neta)', rule: 'money', unit: sym, hint: 'Lo que te cobra por llevarlo y traerlo en cada llamado.' }) : null,
+          ext.mobilizationIncluded === false ? kit.num(`${p}.external.mobilizationAmount`, { label: `Movilización del proveedor ${T.per} (neta)`, rule: 'money', unit: sym, hint: `Lo que te cobra por llevarlo y traerlo en ${T.each}.` }) : null,
           triField(`${p}.external.insuranceIncluded`, 'Seguro'),
         ),
       ),
@@ -909,7 +938,7 @@ export function render(container, ctx) {
           if (!x) return '';
           if (providerOf(r, i) && providerOf(r, i).noRoute) return 'Falta definir la ruta/distancia para calcular este proveedor: hasta entonces no suma costo.';
           const fixed = x.fixedMonthly > 0 ? `Fijo: ${formatMoney(x.fixedMonthly)} por mes (trabaje o no). ` : '';
-          const billed = x.netPerActivation > 0 ? `Facturado por llamado: ${formatNumber(x.billedUnitsPerActivation, { decimals: 2 })} × ${formatMoney(x.price)} × ${formatNumber(x.quantity, { decimals: 2 })} = ${formatMoney(x.netPerActivation)} neto. ` : '';
+          const billed = x.netPerActivation > 0 ? `Facturado ${T.per}: ${formatNumber(x.billedUnitsPerActivation, { decimals: 2 })} × ${formatMoney(x.price)} × ${formatNumber(x.quantity, { decimals: 2 })} = ${formatMoney(x.netPerActivation)} neto. ` : '';
           // Combustible a tu cargo (no incluido en la tarifa): suma acá, pero va a Combustible.
           const fuel = x.fuelPerActiveDay > 0 ? `Incluye combustible a tu cargo: ${formatMoney(x.fuelPerActiveDay * r.activity.activeDaysPerMonth)} por mes (en la estructura de costos va a Combustible). ` : '';
           return `${fixed}${billed}${fuel}Salida de caja con impuestos: ${formatMoney(x.cashPerActiveDay)} por día activo; el crédito fiscal (${formatMoney(x.creditPerActiveDay)}) no es costo.`;

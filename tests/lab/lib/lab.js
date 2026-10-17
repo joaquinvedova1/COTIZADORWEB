@@ -16,13 +16,13 @@
 import { computeQuote } from '../../../js/engines/quote-engine.js';
 import { compareQuote, compareProduct, resolvePath, sameValue, findNonFinite } from './compare.js';
 import { checkQuoteInvariants, checkProductInvariants } from './invariants.js';
-import { auditQuoteUx, auditTerminology } from './ux-audit.js';
+import { auditQuoteUx, auditTerminology, auditActivationTerms, auditJornadaWording, auditProductFinanceScope } from './ux-audit.js';
 import { driverTrace } from './driver-trace.js';
 import { marketCheck, loadReferences } from './market.js';
 import { quoteFeatures, productFeatures, computeCoverage } from './coverage.js';
 import { checkGoldenLock } from './golden-lock.js';
 import { ENGINES, loadCases, assertMatches } from '../../golden-cases/harness.js';
-import { DOC_GAPS } from './oracle.js';
+import { DOC_GAPS, CONFIRMED_RULES } from './oracle.js';
 import { resetIds } from './build.js';
 import { SERVICE_SCENARIOS } from '../scenarios/services.js';
 import { PRODUCT_SCENARIOS } from '../scenarios/products.js';
@@ -96,6 +96,10 @@ export function runServiceScenario(s, { refs = loadReferences(), invariants = tr
   const inv = invariants ? checkQuoteInvariants(quote) : [];
   inv.filter((r) => !r.ok).forEach((r) => findings.push({ code: r.id, classification: 'P0 ECONOMIC', title: r.title, detail: r.detail }));
   auditQuoteUx(quote, engine, { scenario: s }).forEach((f) => findings.push({ code: f.code, classification: f.category, title: f.title, detail: f.detail }));
+  // Terminología de la activación en lo que muestra el motor (PLAN-2026-014, LAB-D8).
+  auditActivationTerms(quote, engine).forEach((f) => findings.push({ code: f.code, classification: f.category, title: f.title, detail: f.detail }));
+  // Sin dato de jornada diaria, nada de lo que muestra el motor habla de "jornada" (PLAN-2026-014, LAB-D2).
+  auditJornadaWording(quote, engine).forEach((f) => findings.push({ code: f.code, classification: f.category, title: f.title, detail: f.detail }));
   const market = marketCheck(s, quote, engine, refs);
   market.filter((m) => m.status === 'REVIEW').forEach((m) => findings.push({ code: `MARKET:${m.concept}`, classification: 'MARKET REVIEW', title: `Mercado: ${m.concept}`, detail: m.message }));
   const classified = findings.map((f) => classify(f, s.id));
@@ -135,6 +139,8 @@ export function runProductScenario(s) {
   const inv = checkProductInvariants(product);
   inv.filter((r) => !r.ok).forEach((r) => findings.push({ code: r.id, classification: 'P0 ECONOMIC', title: r.title, detail: r.detail }));
   if (s.gap) findings.push({ code: `GAP:${s.gap.id}`, classification: 'HUMAN DECISION REQUIRED', title: 'Funcionalidad no modelada (no se inventa)', detail: s.gap.text });
+  // Financiación de productos: siempre aclara que es sobre costos netos, sin IVA de compras (PLAN-2026-014, LAB-D3).
+  auditProductFinanceScope(product, engine).forEach((f) => findings.push({ code: f.code, classification: f.category, title: f.title, detail: f.detail }));
   // Silencios del producto: errores que dejan el precio igual al costo de los datos cargados.
   engine.issues.filter((i) => i.severity === 'warning' && /packSize/.test(i.path)).forEach((i) => findings.push({ code: 'UX-PRODUCT-PACK', classification: 'P1 COMPLETENESS', title: 'Ingrediente sin contenido del paquete suma $ 0 con sólo un aviso', detail: i.message }));
   const classified = findings.map((f) => classify(f, s.id));
@@ -241,9 +247,11 @@ export function runCampaign({ mode = 'stable', seed = 20261016, count = 120 } = 
     byClass,
     perScenario,
     docGaps: DOC_GAPS,
+    confirmedRules: CONFIRMED_RULES,
     // Un fix "volvió a aparecer" si algún hallazgo de esta corrida coincide con su registro.
     fixes: KNOWN_FINDINGS.filter((k) => k.status === 'fixed').map((k) => ({ ...k, stillPresent: allFindings.some((f) => f.known && f.known.id === k.id) })),
     decisions: KNOWN_FINDINGS.filter((k) => k.status === 'human'),
+    accepted: KNOWN_FINDINGS.filter((k) => k.status === 'accepted'),
     gate: { ok: gateOk, reasons: [!goldens.lock.ok ? 'candado de golden' : null, goldens.failed.length ? 'golden en rojo' : null, !coverage.ok ? 'cobertura incompleta' : null, blocking.length ? `${blocking.length} hallazgos P0/P1 sin resolver` : null].filter(Boolean) },
   };
 }

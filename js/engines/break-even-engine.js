@@ -21,6 +21,7 @@
 
 import { nonNegative, safeDivide, ceilTolerant, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
+import { activationTerms } from '../domain/activation-terms.js';
 
 /** Tolerancia absoluta de resultado ($) para considerar equilibrio. */
 export const PROFIT_TOLERANCE = 1e-6;
@@ -132,7 +133,9 @@ export function findBreakEvenDays(profitAt, { maxDays, tolerance = PROFIT_TOLERA
  *   cantidad = (costos fijos − ingresos fijos) / (tarifa por unidad × (1 − t) + otros ingresos por unidad − costo variable por unidad)
  * con costo variable por unidad = costo variable por día de trabajo ÷ unidades por día.
  */
-export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, otherRevenuePerDay = 0, variableCostPerDay, contributionPerDay, result, unitLabel = 'día', nonLinear = false, billingTaxPct = 0, quantityUnit = null }) {
+export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, otherRevenuePerDay = 0, variableCostPerDay, contributionPerDay, result, unitLabel = 'día', nonLinear = false, billingTaxPct = 0, quantityUnit = null, terms = activationTerms() }) {
+  // La activación con el nombre de la cotización (llamado / salida / intervención…, PLAN-2026-014).
+  const T = terms;
   const t = nonNegative(billingTaxPct);
   const keep = t > 0 ? ' × (1 − impuestos sobre la facturación)' : '';
   if (quantityUnit && quantityUnit.perDay > 0) {
@@ -160,7 +163,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
       notes: [
         result && !result.reachable ? result.reason : null,
         'Los costos se calculan con los días de trabajo (personal, equipos, combustible, viajes) y la facturación, con la unidad que cobrás.',
-        nonLinear ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado o cada salida contada completa): el resultado se calcula paso a paso, no sólo con la fórmula.' : null,
+        nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per} o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula paso a paso, no sólo con la fórmula.` : null,
       ],
     });
   }
@@ -182,7 +185,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
     result: { label: 'Días activos para no perder plata', value: result && result.reachable ? result.days : null, format: 'days' },
     notes: [
       result && !result.reachable ? result.reason : null,
-      nonLinear ? 'Hay reglas no lineales (mínimo garantizado, mínimo por llamado, tramos de descuento o cada salida contada completa): el resultado se calcula día a día, no sólo con la fórmula.' : null,
+      nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula día a día, no sólo con la fórmula.` : null,
     ],
   });
 }

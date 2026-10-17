@@ -217,5 +217,7 @@ export function product(o = {}) {
   p.billingTaxes = o.billingTaxes === undefined ? taxes('na') : o.billingTaxes;
   if (o.currency) p.currency = o.currency;
   if (o.exchangeRates) p.exchangeRates = o.exchangeRates;
+  // Financiación (PLAN-2026-014): pisa la vacía del producto nuevo.
+  if (o.finance) p.finance = { ...p.finance, ...o.finance, payDays: { ...p.finance.payDays, ...(o.finance.payDays || {}) } };
   return p;
 }

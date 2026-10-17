@@ -29,6 +29,11 @@ function knownUnit(raw, fallback = 'u') {
   return MEASURE_UNIT_ALIASES[key] || raw.trim().slice(0, 30);
 }
 
+/** Financiación de un producto sin cargar (nunca se inventan plazos ni tasas). */
+export function emptyProductFinance() {
+  return { invoiceLagDays: null, paymentTermDays: null, monthlyRatePct: null, payDays: { materials: null, salaries: null, fuel: null, suppliers: null, structure: null } };
+}
+
 /** Producto vacío. */
 export function createEmptyProduct({ organizationId = null, settings = {}, now = new Date().toISOString(), id = createId() } = {}) {
   const currency = companyCurrency(settings);
@@ -50,6 +55,8 @@ export function createEmptyProduct({ organizationId = null, settings = {}, now =
     equipment: [],
     fixedCosts: [],
     pricing: { targetMarginPct: margin, roundingStep: 0, vatPct: null, currentPrice: null },
+    // Financiación (PLAN-2026-014, LAB-D3): sin plazos ni tasa hasta que la empresa los cargue.
+    finance: emptyProductFinance(),
     billingTaxes: billingTaxesForNewQuote(settings),
     currency,
     exchangeRates: normalizeExchangeRates(settings.exchangeRates, { currency }),
@@ -70,6 +77,10 @@ export function normalizeProductShape(product = {}) {
   });
   p.pricing = { targetMarginPct: null, roundingStep: 0, vatPct: null, currentPrice: null, ...(isPlainObject(p.pricing) ? p.pricing : {}) };
   if (!isPlainObject(p.billingTaxes)) p.billingTaxes = emptyBillingTaxes();
+  // Productos anteriores (sin financiación): bloque vacío, el costo no cambia.
+  const finance = emptyProductFinance();
+  const src = isPlainObject(p.finance) ? p.finance : {};
+  p.finance = { ...finance, ...src, payDays: { ...finance.payDays, ...(isPlainObject(src.payDays) ? src.payDays : {}) } };
   if (!Array.isArray(p.exchangeRates)) p.exchangeRates = [];
   if (typeof p.name !== 'string') p.name = 'Producto';
   if (typeof p.saleUnit !== 'string' || !p.saleUnit.trim()) p.saleUnit = 'unidad';

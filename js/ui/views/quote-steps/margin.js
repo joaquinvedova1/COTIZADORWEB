@@ -26,6 +26,7 @@ import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove,
 import { minActivityNotice } from '../../result-text.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillingTaxes, sameBillingTaxes, invalidTaxesText } from '../../billing-taxes-form.js';
 import { userErrorMessage } from '../../layout.js';
+import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -372,13 +373,16 @@ export function render(container, ctx) {
   );
 
   // ----------------------------------------------------- reglas comerciales
+  // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
+  const T = activationTerms(quote);
+  const L = activationFieldLabels(T);
   const minimumCallUnit = unitKind === 'hour' ? 'horas' : unitKind === 'quantity' ? unitInfo.plural : 'días';
   const RULE_NAMES = [
     ['availabilityFeeMonthly', 'abono de disponibilidad'],
-    ['calloutFeePerActivation', 'cargo por salida'],
+    ['calloutFeePerActivation', `cargo ${T.per}`],
     ['mobilizationFeePerActivation', 'movilización'],
     ['extraKmRate', 'km adicional'],
-    ['minimumCallUnits', 'mínimo por llamado'],
+    ['minimumCallUnits', `mínimo ${T.per}`],
     ['minimumMonthlyGuarantee', 'mínimo mensual'],
     ['continuityDiscountPct', 'descuento por continuidad'],
   ];
@@ -388,7 +392,7 @@ export function render(container, ctx) {
     if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
     else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
     else active.push('equipo en espera sin definir');
-    return `Abono, cargos por llamado, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
+    return `Abono, cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
   };
   const rulesCard = kit.advanced(
     {
@@ -411,38 +415,38 @@ export function render(container, ctx) {
       [kit.num('rules.availabilityFeeMonthly', { label: 'Abono mensual', rule: 'money', unit: '$/mes' })],
     ),
     ruleRow(
-      'Cargo por salida (call-out)',
-      'Monto fijo que se cobra cada vez que el cliente llama.',
-      [kit.num('rules.calloutFeePerActivation', { label: 'Por llamado', rule: 'money', unit: '$' })],
+      `Cargo ${T.per} (call-out)`,
+      `Monto fijo que se cobra en ${T.each}.`,
+      [kit.num('rules.calloutFeePerActivation', { label: L.perActivation, rule: 'money', unit: '$' })],
     ),
     ruleRow(
       'Movilización',
-      'Cobro por llevar los recursos a la locación en cada llamado.',
-      [kit.num('rules.mobilizationFeePerActivation', { label: 'Por llamado', rule: 'money', unit: '$' })],
+      `Cobro por llevar los recursos a la locación en ${T.each}.`,
+      [kit.num('rules.mobilizationFeePerActivation', { label: L.perActivation, rule: 'money', unit: '$' })],
     ),
     ruleRow(
       'Km incluidos y km adicional',
-      'Los km de ruta de cada llamado que superen los incluidos se cobran aparte.',
+      `Los km de ruta de ${T.each} que superen los incluidos se cobran aparte.`,
       [
-        kit.num('rules.includedKmPerActivation', { label: 'Km incluidos por llamado', rule: 'distance', unit: 'km' }),
+        kit.num('rules.includedKmPerActivation', { label: L.includedKm, rule: 'distance', unit: 'km' }),
         kit.num('rules.extraKmRate', { label: '$ por km adicional', rule: 'money', unit: '$/km' }),
       ],
       kit.out((r) => {
         const rev = r.estimate.revenue;
         const route = formatValue(r.model.logistics.routeKmPerActivation, 'km');
-        if (!(rev.components.extraKm > 0)) return `Km de ruta por llamado: ${route}. Cargá un $ por km para cobrar los que superen los incluidos.`;
-        return `Se cobran ${formatValue(rev.extraKmPerActivation, 'km')} adicionales por llamado (de ${route} de ruta): ${formatMoney(rev.components.extraKm)} por mes.`;
+        if (!(rev.components.extraKm > 0)) return `Km de ruta ${T.per}: ${route}. Cargá un $ por km para cobrar los que superen los incluidos.`;
+        return `Se cobran ${formatValue(rev.extraKmPerActivation, 'km')} adicionales ${T.per} (de ${route} de ruta): ${formatMoney(rev.components.extraKm)} por mes.`;
       }),
     ),
     ruleRow(
-      'Mínimo por llamado (minimum call)',
+      `${L.minimumCall} (minimum call)`,
       unitKind === 'month'
-        ? 'Con abono mensual no aplica: la facturación no depende de los llamados.'
+        ? `Con abono mensual no aplica: la facturación no depende de ${T.theMany} ${T.many}.`
         : unitKind === 'event'
-          ? `Cobrás ${unit.label}: cada ${unitInfo.singular} ya se factura entero, el mínimo por llamado no aplica.`
-          : `Mínimo de ${minimumCallUnit} facturables por llamado, aunque se trabaje menos.`,
-      [kit.num('rules.minimumCallUnits', { label: `Mínimo por llamado (${minimumCallUnit})`, rule: 'quantity', unit: minimumCallUnit })],
-      kit.out((r) => (r.estimate.revenue.minimumCallApplied ? 'Se está aplicando: suma unidades facturables.' : 'Hoy no cambia la facturación (cada llamado ya supera el mínimo).')),
+          ? `Cobrás ${unit.label}: cada ${unitInfo.singular} ya se factura entero, el mínimo ${T.per} no aplica.`
+          : `Mínimo de ${minimumCallUnit} facturables ${T.per}, aunque se trabaje menos.`,
+      [kit.num('rules.minimumCallUnits', { label: `${L.minimumCall} (${minimumCallUnit})`, rule: 'quantity', unit: minimumCallUnit })],
+      kit.out((r) => (r.estimate.revenue.minimumCallApplied ? 'Se está aplicando: suma unidades facturables.' : `Hoy no cambia la facturación (${T.each} ya supera el mínimo).`)),
     ),
     ruleRow(
       'Equipo en espera (standby)',

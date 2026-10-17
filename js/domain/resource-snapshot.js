@@ -131,6 +131,8 @@ export function snapshotValuesFromLine(type, line = {}) {
       // Sólo si no es "por hora": las huellas anteriores quedan iguales.
       const wear = canonicalWear(l);
       if (wear) values.wear = wear;
+      // "No usa combustible" (PLAN-2026-014): sólo si está marcado (las huellas anteriores quedan iguales).
+      if (values.acquisition === 'owned' && l.fuelNotApplicable === true) values.fuelNotApplicable = true;
     }
   }
   return values;

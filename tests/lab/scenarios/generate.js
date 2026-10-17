@@ -35,6 +35,9 @@ const FACTORS = {
   fuelProvider: ['contractor', 'client'],
   fullActivations: [false, true],
   currency: ['ARS', 'USD'],
+  // PLAN-2026-014: equipo propio que no usa combustible (LAB-D5) y menos de una salida por mes (LAB-D1).
+  ownedFuel: ['consumes', 'no_fuel'],
+  activations: ['normal', 'below_one'],
 };
 
 const EXTERNAL_PRICE = { hour: [30000, 500000, 1000], day: [150000, 900000, 1000], month: [1000000, 10000000, 10000], trip: [50000, 1500000, 1000], km: [500, 5000, 10], activation: [50000, 800000, 1000], global: [2000000, 20000000, 10000] };
@@ -46,9 +49,11 @@ function buildGenerated(combo, seed, { edge = false } = {}) {
   const units = SERVICE_TYPE_UNITS[combo.serviceType] || ['day'];
   const unit = combo.serviceType === 'configurable' && combo.unitSlot === 3 ? 'custom' : units[combo.unitSlot % units.length];
   const kind = ['day', 'hour', 'month'].includes(unit) ? unit : ['call', 'job', 'milestone'].includes(unit) ? 'event' : 'quantity';
-  const dpa = rng.pick([1, 1, 1, 2, 3, 1.5]);
+  let dpa = rng.pick([1, 1, 1, 2, 3, 1.5]);
   const available = rng.pick([30, 30, 22, 26]);
   let D = rng.int(2, Math.min(available, 26));
+  // Menos de una salida por mes: cada salida dura más que los días de trabajo del mes.
+  if (combo.activations === 'below_one') dpa = D + rng.pick([1, 3, 10]);
   const hours = rng.pick([6, 8, 9, 10, 12]);
   const activity = { daysPerActivation: dpa, availableDaysPerMonth: available, hoursPerActiveDay: hours, fullActivations: combo.fullActivations };
   if (edge) D = rng.pick([0, available, 0.1, D + 0.37]);
@@ -93,6 +98,7 @@ function buildGenerated(combo, seed, { edge = false } = {}) {
     if (combo.owned === 'service_tires_hours') Object.assign(e, { maintenanceMode: 'service', maintenanceServiceCost: rng.money(200000, 900000, 1000), maintenanceServiceHours: rng.pick([250, 500]), tiresMode: 'set_hours', tiresSetCost: rng.money(800000, 4000000, 1000), tiresLifeHours: rng.pick([2000, 3000]) });
     if (combo.owned === 'budget_tires_km') Object.assign(e, { maintenanceMode: 'budget', maintenanceBudget: rng.money(1000000, 6000000, 1000), maintenanceBudgetPeriod: rng.pick(['month', 'year']), tiresMode: 'set_km', tiresSetCost: rng.money(2000000, 6000000, 1000), tiresLifeKm: rng.pick([80000, 120000]) });
     if (combo.owned === 'shared') Object.assign(e, { maintenancePerHour: rng.money(1000, 20000, 100), assignment: 'shared', fixedCostSharePct: rng.pick([30, 50, 70]) });
+    if (combo.ownedFuel === 'no_fuel') e.fuelNotApplicable = true;
     equipment.push(e);
   }
   if (combo.externalUnit !== 'none') {
@@ -174,7 +180,7 @@ export function generateScenarios({ seed = 20261016, count = 120 } = {}) {
   return combos.slice(0, Math.max(count, 1)).map((combo, n) => {
     const scenarioSeed = seedOf(`${seed}:${n}`);
     const edge = n >= rows.length ? createRng(scenarioSeed ^ 0x9e3779b9).chance(0.15) : false;
-    const title = `${combo.serviceType} · ${combo.unitSlot} · ${combo.pricingMode} · personal ${combo.labor} · propio ${combo.owned} · externo ${combo.externalUnit}/${combo.externalFuel}/${combo.externalVat}/${combo.externalExtra} · mov. ${combo.mobility} · ${combo.logistics} · mat. ${combo.materials} · estr. ${combo.structure} · imp. ${combo.taxes} · reglas ${combo.rules} · comb. ${combo.fuelProvider}${combo.fullActivations ? ' · salidas completas' : ''}${combo.currency !== 'ARS' ? ' · USD' : ''}${edge ? ' · EXTREMO' : ''}`;
+    const title = `${combo.serviceType} · ${combo.unitSlot} · ${combo.pricingMode} · personal ${combo.labor} · propio ${combo.owned} · externo ${combo.externalUnit}/${combo.externalFuel}/${combo.externalVat}/${combo.externalExtra} · mov. ${combo.mobility} · ${combo.logistics} · mat. ${combo.materials} · estr. ${combo.structure} · imp. ${combo.taxes} · reglas ${combo.rules} · comb. ${combo.fuelProvider}${combo.ownedFuel === 'no_fuel' ? ' · propio sin combustible' : ''}${combo.activations === 'below_one' ? ' · menos de 1 salida' : ''}${combo.fullActivations ? ' · salidas completas' : ''}${combo.currency !== 'ARS' ? ' · USD' : ''}${edge ? ' · EXTREMO' : ''}`;
     return {
       id: `GEN-${seed}-${String(n + 1).padStart(3, '0')}`,
       seed: scenarioSeed,

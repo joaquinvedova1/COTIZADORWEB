@@ -24,6 +24,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
+import { activationTerms } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 
 const MODE_LABELS = Object.freeze({
@@ -36,10 +37,13 @@ const AVAILABILITY_HINTS = Object.freeze({
   window: 'Disponible sólo en una franja horaria acordada.',
 });
 
-function daysPerActivationLabel(serviceType) {
-  if (serviceType === 'on_call') return '¿Cuántos días dura cada llamado?';
-  if (serviceType === 'permanent') return 'Días entre traslados / cambio de turno';
-  return 'Días por viaje o llamado';
+/**
+ * Rótulo de los días por activación con el nombre de la cotización (PLAN-2026-014, LAB-D8).
+ * En un servicio permanente es un intervalo (cada cuántos días), no una duración.
+ */
+function daysPerActivationLabel(T, serviceType) {
+  if (serviceType === 'permanent') return `¿Cada cuántos días hay ${T.a} ${T.one}?`;
+  return `¿Cuántos días dura ${T.each}?`;
 }
 
 /** Unidades facturables en la unidad comercial ("8 días", "160 horas", "1 abono", "10.000 m³"). */
@@ -128,6 +132,9 @@ export function render(container, ctx) {
   // la actividad se carga en la unidad comercial y los días de trabajo se derivan.
   const byQuantity = kind === 'quantity' || kind === 'event';
   const isOnCall = quote.serviceType === 'on_call';
+  // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
+  const T = activationTerms(quote);
+  const num = (v) => formatNumber(v, { decimals: 2 });
   const knownRate = quote.pricingMode === 'known_rate';
   const Plural = capitalizeUnitPhrase(info.plural);
 
@@ -160,11 +167,11 @@ export function render(container, ctx) {
     let minCallNote = '';
     if (hasMinCall) {
       if (isFiniteNumber(minCallConverted)) {
-        minCallNote = ` Mínimo por llamado: ${minCallUnitText(minCall, from)} → ${minCallUnitText(minCallConverted, to)}.`;
+        minCallNote = ` Mínimo ${T.per}: ${minCallUnitText(minCall, from)} → ${minCallUnitText(minCallConverted, to)}.`;
       } else if (timeToTime) {
-        minCallNote = ` Revisá el mínimo por llamado en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir (faltan las horas por día activo).`;
+        minCallNote = ` Revisá el mínimo ${T.per} en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir (faltan las horas por día activo).`;
       } else {
-        minCallNote = ` Revisá el mínimo por llamado en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir y ahora se lee en ${to.plural || 'la unidad nueva'}.`;
+        minCallNote = ` Revisá el mínimo ${T.per} en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir y ahora se lee en ${to.plural || 'la unidad nueva'}.`;
       }
     }
     const rates = [
@@ -300,13 +307,13 @@ export function render(container, ctx) {
           requiredMark: true,
           placeholder: isCall ? 'Ej.: 6' : 'Ej.: 1',
           hint: isCall
-            ? 'Llamados o salidas que esperás facturar en el mes. Si no estás seguro, cargá una estimación.'
+            ? 'Llamados que esperás facturar en el mes. Si no estás seguro, cargá una estimación.'
             : isMilestone
               ? 'Hitos que esperás facturar en el mes.'
               : 'Trabajos que esperás terminar y facturar en el mes. Si cada trabajo lleva más de un mes, poné la fracción (0,5 = uno cada dos meses).',
         }),
         kit.num('activity.daysPerActivation', {
-          label: isCall ? '¿Cuántos días de trabajo lleva cada llamado?' : '¿Cuántos días de trabajo lleva cada trabajo?',
+          label: `¿Cuántos días de trabajo lleva ${T.each}?`,
           rule: 'positiveDays',
           unit: 'días',
           requiredMark: true,
@@ -340,7 +347,7 @@ export function render(container, ctx) {
         requiredMark: true,
         placeholder: tripUnit ? 'Ej.: 2' : 'Ej.: 500',
         hint: tripUnit
-          ? 'Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo (personal, equipos) y los viajes por intervención; los km del mes salen de los viajes que facturás.'
+          ? `Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo (personal, equipos) y los viajes ${T.per}; los km del mes salen de los viajes que facturás.`
           : 'Lo que hacés en un día de trabajo (rendimiento). Con esto se calculan los días de trabajo: lo que consume personal, equipos y combustible.',
         onValue: () => syncRouteTrips(),
       }),
@@ -349,16 +356,16 @@ export function render(container, ctx) {
 
   const daysKeyline = kit.keyline({
     label: 'Con estos datos',
-    value: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) ? `${formatNumber(r.activity.activationsPerMonth, { decimals: 2 })} ${isOnCall ? 'llamados' : 'viajes o llamados'} por mes` : EMPTY),
+    value: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) ? `${num(r.activity.activationsPerMonth)} ${T.word(r.activity.activationsPerMonth)} por mes` : EMPTY),
     hint: (r) => {
-      if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return 'Cargá los días por mes para ver cuántos llamados y días facturás.';
+      if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return `Cargá los días por mes para ver cuántos ${T.many} y días facturás.`;
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
-      const extra = r.estimate.revenue.minimumCallApplied ? ' (incluye el mínimo por llamado)' : '';
+      const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
       const acts = r.activity.activationsPerMonth;
       const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
         ? (r.activationRounding && r.activationRounding.enabled
-          ? ` Son ${formatNumber(acts, { decimals: 2 })} llamados promedio por mes; los costos por llamado se cuentan con llamados completos (abajo).`
-          : ` Son ${formatNumber(acts, { decimals: 2 })} llamados promedio por mes: la movilización y los costos por llamado se calculan como promedio.`)
+          ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
+          : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`)
         : '';
       return `Facturás ${billable} por mes${extra}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${fractional}`;
     },
@@ -373,7 +380,7 @@ export function render(container, ctx) {
         return kind === 'quantity' ? `Cargá ${texts.cuantos} ${info.plural} hacés por día de trabajo para calcular los días de trabajo.` : 'Cargá cuántos días de trabajo lleva cada uno.';
       }
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
-      const extra = r.estimate.revenue.minimumCallApplied ? ' (incluye el mínimo por llamado)' : '';
+      const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
       const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9
         ? ` Ojo: son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} disponibles del mes.`
         : '';
@@ -381,13 +388,13 @@ export function render(container, ctx) {
       const acts = r.activity.activationsPerMonth;
       const perAct = acts > 0 ? r.estimate.revenue.billableUnits / acts : null;
       const perIntervention = kind === 'quantity' && acts > 0
-        ? ` ${quantityText(perAct, r)} por intervención · ${formatNumber(acts, { decimals: 2 })} ${Math.abs(acts - 1) < 1e-9 ? 'intervención' : 'intervenciones'} (salidas) por mes de ${formatDays(r.activity.daysPerActivation, { decimals: 2 })} cada una.`
+        ? ` ${quantityText(perAct, r)} ${T.per} · ${num(acts)} ${T.word(acts)} por mes de ${formatDays(r.activity.daysPerActivation, { decimals: 2 })} ${T.g('cada una', 'cada uno')}.`
         : '';
       // Salidas fraccionarias: el costo por salida (movilización…) es un PROMEDIO.
       const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
         ? (r.activationRounding && r.activationRounding.enabled
-          ? ` Son ${formatNumber(acts, { decimals: 2 })} salidas promedio por mes; los costos por salida se cuentan con salidas completas (abajo).`
-          : ` Son ${formatNumber(acts, { decimals: 2 })} salidas promedio por mes: la movilización y los costos por salida se calculan como promedio (abajo podés contar cada salida completa).`)
+          ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
+          : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`)
         : '';
       return `Facturás ${billable} por mes${extra} en ${workDaysText(r.activity.activeDaysPerMonth)}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${perIntervention}${fractional}${over}`;
     },
@@ -409,25 +416,27 @@ export function render(container, ctx) {
           hint: 'Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.',
         }),
         kit.num('activity.daysPerActivation', {
-          label: daysPerActivationLabel(quote.serviceType),
+          label: daysPerActivationLabel(T, quote.serviceType),
           rule: 'positiveDays',
           unit: 'días',
-          hint: 'Sirve para saber cuántos llamados o viajes hay por mes.',
+          hint: `Sirve para saber cuántos ${T.many} hay por mes.`,
         }),
         hourly ? hoursField() : null,
       ),
     byQuantity ? quantityKeyline : daysKeyline,
     // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
     tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,
+    // Cobro por km (PLAN-2026-014, LAB-D4): km facturables y km de ruta, por separado.
+    info.id === 'km' ? kit.group('Viajes y km del mes', transportStats(kit, { billable: false, km: true })) : null,
     // PLAN-2026-011: cada salida completa (apagado por defecto). Sólo los costos
     // físicamente indivisibles por salida; producción y facturación no cambian.
     h('div', { class: 'qe-full-activations' },
       kit.check('activity.fullActivations', {
-        label: 'Cada salida / intervención se cuenta completa',
-        hint: 'Si las salidas por mes no son enteras (por ejemplo 10,42), los costos por salida —movilización, peajes, viáticos, cargos del proveedor por llamado y mínimos por llamado— se costean con salidas enteras (11). Sueldos, tenencia de equipos, producción, facturación y estructura mensual no cambian.',
+        label: `${T.Each} se cuenta ${T.whole}`,
+        hint: `Apagada, ${T.theMany} ${T.many} por mes son un promedio (por ejemplo 10,42) y los costos ${T.per} se cuentan en proporción. Encendida, esos costos —movilización, peajes, viáticos, cargos del proveedor ${T.per} y mínimos ${T.per}— se costean con ${T.many} ${T.wholeMany} (11). Sueldos, tenencia de equipos, producción, facturación y estructura mensual no cambian.`,
       }),
       kit.out((r) => {
-        const info = activationRoundingText(r.activationRounding);
+        const info = activationRoundingText(r.activationRounding, T);
         if (!info) return '';
         return h('p', { class: ['qe-note', info.tone === 'warning' ? 'is-warning' : null] }, info.text);
       }, { tag: 'div', allowEmpty: true })),
@@ -439,7 +448,7 @@ export function render(container, ctx) {
           const parts = [
             isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días disponibles por mes` : 'días disponibles sin cargar',
             hourly ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
-            kind === 'quantity' && hasNumber(a.daysPerActivation) ? `${formatDays(Number(a.daysPerActivation))} por llamado o salida` : null,
+            kind === 'quantity' && hasNumber(a.daysPerActivation) ? `${formatDays(Number(a.daysPerActivation))} ${T.per}` : null,
             isOnCall ? `disponibilidad ${a.availability === 'window' ? 'por franja horaria' : '24/7'}` : null,
             isOnCall && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
           ].filter(Boolean);
@@ -459,12 +468,12 @@ export function render(container, ctx) {
         // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
         kind === 'quantity'
           ? kit.num('activity.daysPerActivation', {
-            label: 'Duración promedio de cada salida / intervención',
+            label: `Duración promedio de ${T.each}`,
             rule: 'positiveDays',
             unit: 'días',
             hint: tripUnit
-              ? 'Dato OPERATIVO: cuántos días de trabajo seguidos dura cada salida. Viajes por intervención = viajes por día × estos días. Si es 1, cada día de trabajo es una salida.'
-              : 'Dato OPERATIVO (no es la unidad que cobrás): cuántos días de trabajo seguidos dura cada salida. Cuenta las movilizaciones y el mínimo por llamado. Ej.: 20 días de trabajo ÷ 2 días por intervención = 10 intervenciones por mes. Si es 1, cada día de trabajo es una salida.',
+              ? `Dato OPERATIVO: cuántos días de trabajo seguidos dura ${T.each}. Viajes ${T.per} = viajes por día × estos días. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`
+              : `Dato OPERATIVO (no es la unidad que cobrás): cuántos días de trabajo seguidos dura ${T.each}. Cuenta las movilizaciones y el mínimo ${T.per}. Ej.: 20 días de trabajo ÷ 2 días ${T.per} = 10 ${T.many} por mes. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`,
             onValue: () => syncRouteTrips(),
           })
           : null,
@@ -498,9 +507,9 @@ export function render(container, ctx) {
             hint: kind === 'quantity' ? `${Plural} por mes ÷ ${info.plural} por día de trabajo.` : `${Plural} por mes × días de trabajo de cada uno.`,
           })
           : null,
-        kit.stat(isOnCall && !byQuantity ? 'Llamados por mes' : byQuantity ? 'Salidas / intervenciones por mes' : 'Viajes o llamados por mes', (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: byQuantity ? 'Días de trabajo ÷ duración de cada salida. Es un promedio (puede tener decimales).' : 'Días activos ÷ días por llamado.' }),
+        kit.stat(`${T.Many} por mes`, (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: byQuantity ? `Días de trabajo ÷ duración de ${T.each}. Es un promedio (puede tener decimales).` : `Días activos ÷ días ${T.per}. Es un promedio (puede tener decimales).` }),
         kit.stat(byQuantity ? `${Plural} facturables por mes` : 'Unidades facturables por mes', (r) => unitsLabel(r, r.estimate.revenue.billableUnits), {
-          hint: (r) => (r.estimate.revenue.minimumCallApplied ? 'Incluye el mínimo por llamado.' : `En la unidad elegida (${info.label}).`),
+          hint: (r) => (r.estimate.revenue.minimumCallApplied ? `Incluye el mínimo ${T.per}.` : `En la unidad elegida (${info.label}).`),
         }),
       ),
     ),

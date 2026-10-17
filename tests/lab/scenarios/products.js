@@ -3,10 +3,11 @@
  *
  * Producto simple (compra / reventa), fabricado (materiales + mano de obra),
  * con equipo (tenencia + uso), con impuestos e IVA, con moneda extranjera,
- * volumen y "descuento" (precio actual menor al sugerido). La financiación y
- * los descuentos por volumen NO existen en el motor de productos: se dejan
- * como escenarios que documentan el hueco (HUMAN DECISION REQUIRED), nunca se
- * inventan. Datos SINTÉTICOS e ILUSTRATIVOS.
+ * volumen, "descuento" (precio actual menor al sugerido) y financiación
+ * (PLAN-2026-014, el mismo motor que las cotizaciones). Los descuentos por
+ * volumen NO existen en el motor de productos: se dejan como escenario que
+ * documenta el hueco (HUMAN DECISION REQUIRED), nunca se inventan. Datos
+ * SINTÉTICOS e ILUSTRATIVOS.
  */
 
 import { product, ingredient, worker, machine, fixedCost, taxes, base } from '../lib/build.js';
@@ -55,16 +56,20 @@ export const PRODUCT_SCENARIOS = [
     }),
   },
   {
-    id: 'PRD-04-FINANCING-GAP',
-    title: 'Producto con financiación (cobro a 60 días): el motor de productos no modela plazos → hueco documentado',
-    family: 'gap',
-    gap: { id: 'product-financing', text: 'El motor de productos no tiene plazos de cobro ni de pago ni costo financiero (las cotizaciones sí, §8). Un producto vendido a 60 días no carga ese costo.' },
+    // Antes "PRD-04-FINANCING-GAP" (hueco LAB-D3): desde PLAN-2026-014 los productos se financian.
+    id: 'PRD-04-FINANCING',
+    title: 'Producto financiado: 15 días de stock, cobro a 60 días, proveedores y sueldos a 30 días, 3 % mensual',
+    family: 'finance',
     build: () => product({
       id: 'prd-04', saleUnit: 'unidad', unitsPerBatch: 10, monthlyUnits: 500,
       materials: [ingredient({ description: 'Componente', per: 'unit', unit: 'u', useUnit: 'u', quantity: 1, unitCost: 5200 })],
       labor: [worker({ role: 'Armador', basicMonthly: 1250000, minutesPerBatch: 50 })],
+      fixedCosts: [fixedCost({ description: 'Taller', monthlyAmount: 800000, sharePct: 50 })],
       pricing: { targetMarginPct: 20, roundingStep: 10 },
+      finance: { invoiceLagDays: 15, paymentTermDays: 60, monthlyRatePct: 3, payDays: { materials: 30, salaries: 30, fuel: 0, suppliers: 30, structure: 30 } },
     }),
+    // Días financiados: materiales 15 + 60 − 30 = 45; combustible (pagado al producir) 75 (el oráculo recalcula los montos).
+    expect: { 'finance.groups.3.financingDays': 45, 'finance.groups.1.financingDays': 75 },
   },
   {
     id: 'PRD-05-VOLUME',

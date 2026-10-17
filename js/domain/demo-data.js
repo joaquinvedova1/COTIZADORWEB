@@ -142,6 +142,8 @@ export function demoEquipment() {
     maintenancePerHour: v.maintenancePerHour,
     tiresPerHour: v.tiresPerHour ?? 0,
     fuelLitersPerHour: v.fuelLitersPerHour,
+    // No usa combustible (PLAN-2026-014): explícito, no un consumo 0.
+    ...(v.fuelNotApplicable ? { fuelNotApplicable: true } : {}),
     availableHoursPerMonth: v.availableHoursPerMonth ?? 300,
     availableDaysPerMonth: v.availableDaysPerMonth ?? 30,
     utilizationPct: v.utilizationPct ?? 30,
@@ -155,9 +157,9 @@ export function demoEquipment() {
     eq(3005, 'Generador 100 kVA', 'generator', { replacementValue: 45000000, usefulLifeYears: 8, residualValue: 5000000, insuranceAnnual: 900000, maintenancePerHour: 2500, fuelLitersPerHour: 18, availableHoursPerMonth: 720, utilizationPct: 60 }),
     eq(3006, 'Compresor', 'compressor', { replacementValue: 30000000, usefulLifeYears: 8, residualValue: 3000000, insuranceAnnual: 600000, maintenancePerHour: 2000, fuelLitersPerHour: 8, utilizationPct: 40 }),
     eq(3007, 'Bomba', 'pump', { replacementValue: 25000000, usefulLifeYears: 7, residualValue: 2500000, insuranceAnnual: 500000, maintenancePerHour: 1800, fuelLitersPerHour: 6, availableHoursPerMonth: 720, utilizationPct: 50 }),
-    eq(3008, 'Tráiler / semirremolque', 'trailer', { replacementValue: 40000000, usefulLifeYears: 12, residualValue: 8000000, insuranceAnnual: 800000, licenseAnnual: 600000, maintenancePerHour: 800, tiresPerHour: 1200, fuelLitersPerHour: 0, utilizationPct: 40 }),
+    eq(3008, 'Tráiler / semirremolque', 'trailer', { replacementValue: 40000000, usefulLifeYears: 12, residualValue: 8000000, insuranceAnnual: 800000, licenseAnnual: 600000, maintenancePerHour: 800, tiresPerHour: 1200, fuelLitersPerHour: 0, fuelNotApplicable: true, utilizationPct: 40 }),
     eq(3009, 'Grúa', 'crane', { replacementValue: 600000000, usefulLifeYears: 15, residualValue: 120000000, insuranceAnnual: 12000000, licenseAnnual: 3000000, certificationsAnnual: 4000000, maintenancePerHour: 35000, tiresPerHour: 8000, fuelLitersPerHour: 20, utilizationPct: 35 }),
-    eq(3010, 'Herramientas especiales (kit)', 'tools', { replacementValue: 12000000, usefulLifeYears: 4, residualValue: 0, insuranceAnnual: 300000, maintenancePerHour: 500, fuelLitersPerHour: 0, utilizationPct: 40 }),
+    eq(3010, 'Herramientas especiales (kit)', 'tools', { replacementValue: 12000000, usefulLifeYears: 4, residualValue: 0, insuranceAnnual: 300000, maintenancePerHour: 500, fuelLitersPerHour: 0, fuelNotApplicable: true, utilizationPct: 40 }),
   ];
 }
 

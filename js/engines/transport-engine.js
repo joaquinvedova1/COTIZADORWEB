@@ -26,6 +26,7 @@ import { nonNegative, safeDivide } from '../core/money.js';
 import { isPlainObject } from '../core/object.js';
 import { createTrace } from '../core/trace.js';
 import { billingUnitOf } from '../domain/billing-units.js';
+import { activationTerms } from '../domain/activation-terms.js';
 
 /** ¿Los viajes físicos se derivan de la actividad? (unidad comercial "viaje"). */
 export function tripsAreDerived(quote = {}) {
@@ -108,8 +109,12 @@ export function transportSummary({ quote = {}, activity = {}, route = {}, logist
   const providers = (Array.isArray(external) ? external : [])
     .filter((x) => x && (x.unit === 'km' || x.unit === 'trip'))
     .map((x) => providerActivity(x, { activationsPerMonth, kmPerTrip, oneWayKm, roundTrip }));
+  // Cobro por km (PLAN-2026-014, LAB-D4): km FACTURABLES (lo que se cobra) y km DE RUTA (lo que
+  // se recorre y se costea) son dos datos; nunca se deriva uno del otro ni se pisa lo cargado.
+  const routeKmPerMonth = activationsPerMonth * nonNegative(logistics.routeKmPerActivation);
+  const billableKmPerMonth = billingUnitOf(quote).id === 'km' ? nonNegative(activity.billableQuantityPerMonth) : null;
   return {
-    applicable: Boolean(route.derived) || (!route.notApplicable && oneWayKm > 0) || providers.length > 0,
+    applicable: Boolean(route.derived) || billableKmPerMonth !== null || (!route.notApplicable && oneWayKm > 0) || providers.length > 0,
     derived: Boolean(route.derived),
     notApplicable: Boolean(route.notApplicable),
     origin: typeof lg.baseName === 'string' ? lg.baseName.trim() : '',
@@ -125,7 +130,12 @@ export function transportSummary({ quote = {}, activity = {}, route = {}, logist
     physicalTripsPerActivation: tripsPerActivation,
     physicalTripsPerMonth,
     routeKmPerActivation: nonNegative(logistics.routeKmPerActivation),
-    routeKmPerMonth: activationsPerMonth * nonNegative(logistics.routeKmPerActivation),
+    routeKmPerMonth,
+    billableKmPerMonth,
+    // Km facturables por km de ruta (null sin ruta): 1 = coinciden; > 1 = se cobran más km de los que se recorren.
+    billableToRouteKm: billableKmPerMonth !== null && routeKmPerMonth > 0 ? billableKmPerMonth / routeKmPerMonth : null,
+    // Para nombrar la activación (llamado / salida / intervención, PLAN-2026-014).
+    terms: { serviceType: typeof quote.serviceType === 'string' ? quote.serviceType : null, unit: typeof quote.unit === 'string' ? quote.unit : null },
     storedTripsPerActivation: route.storedTripsPerActivation,
     storedDiffers: Boolean(route.storedDiffers),
     // Facturables > físicos: el mínimo por llamado factura viajes que no se hacen.
@@ -138,39 +148,54 @@ export function transportSummary({ quote = {}, activity = {}, route = {}, logist
 export function traceTransport(transport) {
   const t = transport || {};
   const derived = t.derived === true;
+  const T = activationTerms(t.terms);
+  const byKm = t.billableKmPerMonth !== null && t.billableKmPerMonth !== undefined;
   const inputs = [
     derived ? { label: 'Viajes facturables por mes', value: t.billableTripsPerMonth, format: 'number' } : null,
     derived ? { label: 'Viajes por día de trabajo', value: t.tripsPerActiveDay, format: 'number' } : null,
-    { label: 'Días por intervención (salida)', value: t.daysPerActivation, format: 'days' },
+    byKm ? { label: 'Km facturables por mes (lo que cobrás)', value: t.billableKmPerMonth, format: 'km' } : null,
+    { label: `Días ${T.per}`, value: t.daysPerActivation, format: 'days' },
     { label: 'Distancia de ida', value: t.oneWayKm, format: 'km' },
     { label: 'Ida y vuelta', value: t.roundTrip ? 'Sí' : 'No', format: 'text' },
   ].filter(Boolean);
   const steps = [
     derived
-      ? { label: `Días de trabajo = viajes facturables ÷ viajes por día${t.minimumPadding ? ' (con el mínimo por llamado)' : ''}`, value: t.workDaysPerMonth, format: 'days' }
+      ? { label: `Días de trabajo = viajes facturables ÷ viajes por día${t.minimumPadding ? ` (con el mínimo ${T.per})` : ''}`, value: t.workDaysPerMonth, format: 'days' }
       : { label: 'Días de trabajo por mes', value: t.workDaysPerMonth, format: 'days' },
-    { label: 'Intervenciones por mes = días de trabajo ÷ días por intervención', value: t.activationsPerMonth, format: 'number' },
-    { label: derived ? 'Viajes físicos por intervención = viajes por día × días por intervención' : 'Viajes físicos por intervención ("Viajes por llamado")', value: t.physicalTripsPerActivation, format: 'number' },
-    { label: 'Viajes físicos por mes = intervenciones × viajes por intervención', value: t.physicalTripsPerMonth, format: 'number' },
+    { label: `${T.Many} por mes = días de trabajo ÷ días ${T.per}`, value: t.activationsPerMonth, format: 'number' },
+    { label: derived ? `Viajes físicos ${T.per} = viajes por día × días ${T.per}` : `Viajes físicos ${T.per} ("Viajes ${T.per}")`, value: t.physicalTripsPerActivation, format: 'number' },
+    { label: `Viajes físicos por mes = ${T.many} × viajes ${T.per}`, value: t.physicalTripsPerMonth, format: 'number' },
     { label: 'Km por viaje = distancia × (ida y vuelta ? 2 : 1)', value: t.kmPerTrip, format: 'km' },
-    { label: 'Km de ruta por mes = viajes físicos × km por viaje', value: t.routeKmPerMonth, format: 'km' },
+    { label: 'Km de ruta por mes (lo que se recorre y se costea) = viajes físicos × km por viaje', value: t.routeKmPerMonth, format: 'km' },
+    ...(byKm
+      ? [
+        { label: 'Km facturables por mes (lo que cobrás)', value: t.billableKmPerMonth, format: 'km' },
+        t.billableToRouteKm !== null ? { label: 'Km facturables por km de ruta', value: t.billableToRouteKm, format: 'number' } : null,
+        { label: 'Diferencia = km facturables − km de ruta', value: t.billableKmPerMonth - t.routeKmPerMonth, format: 'km' },
+      ]
+      : []),
     ...(Array.isArray(t.providers) ? t.providers : []).flatMap((p) => [
       p.unit === 'km'
         ? { label: `${p.name}: km facturados por mes`, value: p.unitsPerMonth, format: 'km' }
         : { label: `${p.name}: tramos facturados por mes (cada ida o vuelta)`, value: p.unitsPerMonth, format: 'number' },
       { label: `${p.name}: ${p.unit === 'km' ? 'km' : 'tramos'} × tarifa neta × cantidad`, value: p.netMonthly, format: 'money' },
     ]),
-  ];
+  ].filter(Boolean);
+  const over = byKm && t.billableKmPerMonth - t.routeKmPerMonth > Math.max(1, t.billableKmPerMonth * 0.01);
+  const under = byKm && t.routeKmPerMonth - t.billableKmPerMonth > Math.max(1, t.billableKmPerMonth * 0.01);
   return createTrace({
     id: 'transport',
     title: 'Viajes y km del mes',
-    formula: 'Días = viajes facturables ÷ viajes por día · intervenciones = días ÷ días por intervención · viajes físicos = intervenciones × viajes por intervención · km = viajes físicos × km por viaje · proveedor por km = km × $/km',
+    formula: `Días = viajes facturables ÷ viajes por día · ${T.many} = días ÷ días ${T.per} · viajes físicos = ${T.many} × viajes ${T.per} · km de ruta = viajes físicos × km por viaje · proveedor por km = km de ruta × $/km`,
     inputs,
     steps,
     result: { label: 'Km de ruta por mes', value: t.routeKmPerMonth, format: 'km' },
     notes: [
-      derived ? 'Con la unidad "viaje", los viajes por intervención se calculan con los viajes por día: cambiar 1, 2 o 3 viajes por día no cambia los km ni el costo de un proveedor por km si los viajes facturables son los mismos.' : null,
-      t.minimumPadding ? 'El mínimo por llamado factura más viajes de los que se hacen: se costean los viajes físicos.' : null,
+      derived ? `Con la unidad "viaje", los viajes ${T.per} se calculan con los viajes por día: cambiar 1, 2 o 3 viajes por día no cambia los km ni el costo de un proveedor por km si los viajes facturables son los mismos.` : null,
+      byKm ? 'Km facturables (lo que cobrás) y km de ruta (lo que se recorre: combustible, desgaste, proveedor por km) son dos datos distintos: uno no se deriva del otro y RATEOS no cambia los que cargaste.' : null,
+      over ? 'Facturás más km de los que recorre la ruta: si el equipo recorre los km que facturás, los costos por km quedan cortos (revisá los viajes o la distancia).' : null,
+      under ? 'La ruta recorre más km de los que facturás (por ejemplo, vueltas vacías): se costean todos los km de la ruta.' : null,
+      t.minimumPadding ? `El mínimo ${T.per} factura más viajes de los que se hacen: se costean los viajes físicos.` : null,
       t.notApplicable ? 'Marcaste "Sin traslados": no hay km de ruta.' : null,
       'Los montos son netos (sin IVA). El costo económico, el IVA que adelantás y la financiación de cada proveedor están en su "Ver cálculo" (Equipos).',
     ].filter(Boolean),

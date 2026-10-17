@@ -44,11 +44,18 @@ export function readDecimal(raw) {
   return /^-?\d*\.\d+$/.test(t) ? Number(t) : NaN;
 }
 
-/** Decisiones del oráculo donde la especificación no es explícita (se informan en el reporte). */
-export const DOC_GAPS = Object.freeze([
-  { id: 'vat-partial-without-pct', rule: '§4.1', text: 'IVA "Parcial" sin % recuperable: el oráculo toma 0 % recuperable (todo el IVA es costo).' },
-  { id: 'other-cost-category-external', rule: '§6', text: 'Otros costos con categoría "external": §6 no la lista; el oráculo la acepta (es una categoría directa).' },
-  { id: 'line-hours-no-cap', rule: '§4', text: 'Horas por día de una línea de equipo: §2 limita a 24 las de la actividad; para la línea no dice nada (el oráculo no la limita).' },
+/**
+ * Decisiones del oráculo donde la especificación no es explícita (se informan en el reporte).
+ * Vacío desde PLAN-2026-014 (LAB-D6): los tres huecos anteriores se documentaron como reglas
+ * reales en CALCULATION_RULES (ver CONFIRMED_RULES) y el oráculo los sigue desde la documentación.
+ */
+export const DOC_GAPS = Object.freeze([]);
+
+/** Reglas que eran huecos y hoy están escritas en CALCULATION_RULES (PLAN-2026-014, LAB-D6). */
+export const CONFIRMED_RULES = Object.freeze([
+  { id: 'vat-partial-without-pct', rule: '§4.1', text: 'IVA "Parcial" sin % recuperable = 0 % recuperable (todo el IVA es costo) + pendiente rojo.' },
+  { id: 'other-cost-category-external', rule: '§6', text: 'Otros costos con categoría "external": costo directo del grupo de pago Proveedores.' },
+  { id: 'line-hours-cap', rule: '§4', text: 'Horas por día de una línea de equipo (propia o externa): son POR UNIDAD y como mucho 24, igual que las de la actividad (§2); un dato mayor es error de validación y se calcula con 24; más horas = más equipos (cantidad). Decisión del dueño (PLAN-2026-014).' },
 ]);
 
 // ------------------------------------------------------------- catálogos (§12.1, §6.1)
@@ -203,10 +210,13 @@ export function ownership(e, factor = 1) {
 export function operation(e, fuelPrice) {
   const m = maintenance(e);
   const t = tires(e);
-  return { nonFuelPerHour: m.perHour + t.perHour, fuelPerHour: n(e.fuelLitersPerHour) * fuelPrice, tiresPerKm: t.perKm };
+  // "No usa combustible" (§4, PLAN-2026-014): explícito; un consumo 0 sin marcar es otra cosa (falta el dato).
+  const liters = e.fuelNotApplicable === true ? 0 : n(e.fuelLitersPerHour);
+  return { nonFuelPerHour: m.perHour + t.perHour, fuelPerHour: liters * fuelPrice, tiresPerKm: t.perKm };
 }
 
-const lineHours = (line, act) => (blank(line.hoursPerActiveDay) ? act.hours : n(line.hoursPerActiveDay));
+// Horas de uso por día de UNA unidad, propia o externa: como mucho 24 (§4; la cantidad multiplica).
+const lineHours = (line, act) => Math.min(blank(line.hoursPerActiveDay) ? act.hours : n(line.hoursPerActiveDay), 24);
 const isExternal = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
 
 /** Factores fiscales de un externo (§4.1). */
@@ -353,7 +363,7 @@ export function oracleModel(q) {
     const x = obj(e.external);
     if (m.mode !== 'self' || (external && x.mobilizationIncluded === true)) return;
     const km = route.routeKmPerActivation * n(e.quantity);
-    const liters = (km * n(m.travelLitersPer100Km)) / 100;
+    const liters = !external && e.fuelNotApplicable === true ? 0 : (km * n(m.travelLitersPer100Km)) / 100;
     const perKmFuelMode = external && ['per_100km', 'km_per_liter'].includes(x.fuelMode);
     const paysFuel = (!external || x.fuelIncluded === false) && !perKmFuelMode;
     mobFuelPerActivation += paysFuel ? liters * fuelPrice : 0;

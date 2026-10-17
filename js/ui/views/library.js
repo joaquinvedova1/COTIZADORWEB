@@ -55,6 +55,7 @@ import { computeMaterialLine } from '../../engines/materials-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { render as renderNotFound } from './not-found.js';
 import { resourceUsage } from '../../domain/resource-usage.js';
+import { activationTerms, activationFieldLabels } from '../../domain/activation-terms.js';
 
 // ----------------------------------------------------------------- catálogo
 
@@ -139,7 +140,9 @@ const LOCATION_TYPES = Object.freeze([
   { id: 'destination', label: 'Destino / locación' },
 ]);
 
-const BASIS_SUFFIX = Object.freeze({ per_month: '/mes', per_active_day: '/día activo', per_activation: '/llamado' });
+// Recursos no tienen tipo de servicio: la activación se nombra "intervención" (PLAN-2026-014).
+const BASIS_SUFFIX = Object.freeze({ per_month: '/mes', per_active_day: '/día activo', per_activation: `/${activationTerms().one}` });
+const RESOURCE_LABELS = activationFieldLabels(activationTerms());
 
 /** Pestañas con vista Simple / Detallada (Ubicaciones ya es una tabla corta). */
 const VIEW_TABS = Object.freeze(['laborProfiles', 'equipment', 'materials']);
@@ -270,8 +273,10 @@ function equipmentTrace(eq, c) {
       o.maintenanceFixedMonthly > 0 ? { label: 'Mantenimiento fijo por mes (presupuesto)', value: o.maintenanceFixedMonthly, format: 'money' } : null,
       { label: `Neumáticos por hora (${labelOf(TIRE_MODES, op.tiresMode, 'por hora').toLowerCase()})`, value: op.tiresPerHour, format: 'rate' },
       op.tiresPerKm > 0 ? { label: 'Neumáticos por km (se suman en la ruta)', value: op.tiresPerKm, format: 'rate' } : null,
-      { label: 'Consumo de combustible', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
-      { label: 'Precio del combustible (Configuración)', value: op.fuelPricePerLiter, format: 'rate' },
+      op.fuelNotApplicable
+        ? { label: 'Combustible', value: 'No usa combustible', format: 'text' }
+        : { label: 'Consumo de combustible', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
+      op.fuelNotApplicable ? null : { label: 'Precio del combustible (Configuración)', value: op.fuelPricePerLiter, format: 'rate' },
       { label: 'Horas disponibles por mes', value: cap.availableHoursPerMonth, format: 'hours' },
       { label: 'Días disponibles por mes', value: cap.availableDaysPerMonth, format: 'number', unit: 'días' },
       { label: 'Utilización esperada', value: cap.utilizationPct, format: 'percent' },
@@ -682,7 +687,7 @@ function externalTermSections() {
         { key: 'external.supplier', label: 'Proveedor (opcional)', kind: 'text', maxLength: 120 },
         { key: 'external.price', label: 'Precio neto', rule: 'money', unit: (d) => currencySymbol(d), required: true },
         { key: 'external.unit', label: 'Por', kind: 'select', options: UNIT_OPTIONS },
-        { key: 'external.minimumUnits', label: 'Mínimo por llamado (opcional)', rule: 'quantity', nullable: true, hint: 'Ej.: mínimo 8 h o 3 días.' },
+        { key: 'external.minimumUnits', label: RESOURCE_LABELS.externalMinimum, rule: 'quantity', nullable: true, hint: 'Ej.: mínimo 8 h o 3 días.' },
         { key: 'external.validUntil', label: 'Vigencia de la oferta', kind: 'date', hint: 'Hasta qué fecha vale este precio.' },
         ...baseFormFields('base', { currency: true, periodLabel: 'Base de la tarifa (mes)' }),
       ],
@@ -699,7 +704,7 @@ function externalTermSections() {
         { key: 'external.fuelLitersPer100Km', label: 'Consumo por km de ruta (si el combustible es tuyo)', rule: 'quantity', unit: 'L/100 km', when: (d) => d.external && d.external.fuelIncluded === false && d.external.fuelMode === 'per_100km' },
         { key: 'external.fuelKmPerLiter', label: 'Rendimiento (si el combustible es tuyo)', rule: 'quantity', unit: 'km/L', when: (d) => d.external && d.external.fuelIncluded === false && d.external.fuelMode === 'km_per_liter' },
         { key: 'external.mobilizationIncluded', label: 'Movilización incluida', kind: 'tristate', rerender: true },
-        { key: 'external.mobilizationAmount', label: 'Movilización por llamado', rule: 'money', unit: (d) => currencySymbol(d), when: (d) => d.external && d.external.mobilizationIncluded === false },
+        { key: 'external.mobilizationAmount', label: RESOURCE_LABELS.externalMobilization, rule: 'money', unit: (d) => currencySymbol(d), when: (d) => d.external && d.external.mobilizationIncluded === false },
         { key: 'external.insuranceIncluded', label: 'Seguros incluidos', kind: 'tristate' },
       ],
     },
@@ -958,7 +963,9 @@ function equipmentSections(models = [], settings = {}) {
           title: 'Combustible (sólo cuando trabaja, por hora de uso)',
           cols: 2,
           fields: [
-            { key: 'fuelLitersPerHour', label: 'Consumo trabajando', rule: 'quantity', unit: 'L/h', hint: 'Litros por hora de trabajo. El precio por litro se toma de Configuración.' },
+            // PLAN-2026-014 (LAB-D5): explícito; un consumo 0 sin marcar sigue siendo un dato faltante en la cotización.
+            { key: 'fuelNotApplicable', label: 'No usa combustible', kind: 'checkbox', rerender: true, hint: 'Eléctrico, manual o estacionario: no se pide consumo ni se suma combustible (tampoco al trasladarse).' },
+            { key: 'fuelLitersPerHour', label: 'Consumo trabajando', rule: 'quantity', unit: 'L/h', hint: 'Litros por hora de trabajo. El precio por litro se toma de Configuración.', when: (d) => d.fuelNotApplicable !== true },
           ],
         },
         {

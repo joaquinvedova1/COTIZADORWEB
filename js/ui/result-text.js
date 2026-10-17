@@ -19,6 +19,7 @@ import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
 import { isQuantityUnit, quantityCeilText } from './unit-text.js';
 import { unitTexts } from '../domain/billing-units.js';
+import { activationTerms } from '../domain/activation-terms.js';
 
 const EPS = 1e-9;
 
@@ -264,7 +265,7 @@ export function comparatorNote(result, models, { roundingStep = null } = {}) {
   const own = source !== 'suggested';
   const extras = [];
   if (tierDiscountFindings(r.discounts).granted > 0) extras.push('sin tramos de descuento');
-  if (hasOtherCharges(r)) extras.push('sin los otros cobros de tu cotización (abono, cargos por llamado, equipo en espera y mínimos)');
+  if (hasOtherCharges(r)) extras.push(`sin los otros cobros de tu cotización (abono, cargos ${termsOfResult(r).per}, equipo en espera y mínimos)`);
   if (!own && !extras.length && isFiniteNumber(roundingStep) && roundingStep > 0) extras.push('sin el redondeo de la tarifa sugerida');
   const cause = `${own ? ' (no tu tarifa)' : ''}${extras.length ? `, ${joinList(extras)}` : ''}`;
   const verb = own || extras.length ? 'difiere' : 'puede diferir';
@@ -309,28 +310,39 @@ export function draftBannerText({ critical = 0, review = 0 } = {}) {
 }
 
 /**
- * "Cada salida se cuenta completa" (PLAN-2026-011): salidas estimadas vs
- * costeadas y cuánto suma. `r` = result.activationRounding (con `preview`).
- * Devuelve null si no hay salidas.
+ * "Cada salida se cuenta completa" (PLAN-2026-011; semántica explícita en
+ * PLAN-2026-014, LAB-D1): salidas PROMEDIO, salidas COSTEADAS y EFECTO DEL
+ * REDONDEO. Apagada, la frecuencia es un promedio y los costos por salida se
+ * cuentan en proporción; encendida, los costos indivisibles por salida se
+ * cuentan con salidas completas (⌈promedio⌉). `r` = result.activationRounding
+ * (con `preview`); `terms` = activationTerms(quote). Null si no hay salidas.
  */
-export function activationRoundingText(r) {
+/** Nombre de la activación de la cotización de un resultado (llamado / salida / intervención…, PLAN-2026-014). */
+export function termsOfResult(result) {
+  const r = result && result.model && result.model.activationRounding;
+  return activationTerms(r ? r.terms : null);
+}
+
+export function activationRoundingText(r, terms = activationTerms()) {
   if (!r || !(r.estimated > 1e-9)) return null;
+  const T = terms;
   const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
   const whole = Math.abs(r.estimated - Math.round(r.estimated)) < 1e-6;
   const preview = r.preview || r;
   const hasDiscrete = preview.perActivationDiscrete > 0;
+  const head = (costed) => `${T.Many} promedio por mes: ${n(r.estimated)} · ${T.many} ${T.g('costeadas', 'costeados')}: ${n(costed)}`;
   if (r.enabled) {
-    if (whole) return { tone: 'info', text: `Intervenciones estimadas: ${n(r.estimated)} · Intervenciones costeadas: ${n(r.costed)}. Ya son enteras: la opción no cambia el costo.` };
-    if (!hasDiscrete) return { tone: 'info', text: `Intervenciones estimadas: ${n(r.estimated)} · Intervenciones costeadas: ${n(r.costed)}. No hay costos por salida cargados: la opción no cambia el costo.` };
+    if (whole) return { tone: 'info', text: `${head(r.costed)}. Ya son ${T.g('enteras', 'enteros')}: la opción no cambia el costo.` };
+    if (!hasDiscrete) return { tone: 'info', text: `${head(r.costed)}. No hay costos por ${T.one} cargados: la opción no cambia el costo.` };
     return {
       tone: 'warning',
-      text: `Intervenciones estimadas: ${n(r.estimated)} · Intervenciones costeadas: ${n(r.costed)}. Suma ${formatMoney(r.total)} por mes (movilización, viajes y cargos por salida, con su estructura, financiación y contingencia). La producción y la facturación siguen con ${n(r.estimated)}.`,
+      text: `${head(r.costed)} (${T.each} ${T.whole}). Efecto del redondeo: +${formatMoney(r.total)} por mes (movilización, viajes y cargos por ${T.one}, con su estructura, financiación y contingencia). La producción y la facturación siguen con ${n(r.estimated)}.`,
     };
   }
   if (whole || !hasDiscrete) return null;
   return {
     tone: 'info',
-    text: `Hoy se costean ${n(r.estimated)} salidas (promedio). Si cada salida se paga completa, activá la opción: se costearían ${n(preview.wholeActivations)} (+${formatMoney(preview.total)} por mes).`,
+    text: `${head(r.estimated)} (promedio: los costos por ${T.one} se cuentan en proporción). Si ${T.each} se paga ${T.whole}, activá la opción: se costearía${preview.wholeActivations === 1 ? '' : 'n'} ${n(preview.wholeActivations)} (efecto del redondeo: +${formatMoney(preview.total)} por mes).`,
   };
 }
 

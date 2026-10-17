@@ -236,7 +236,15 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     materials: [],
     materialsNotApplicable: false,
     otherCosts: [],
-    fuel: { pricePerLiter: settings.fuelPricePerLiter ?? 0, providedBy: 'contractor', illustrative: !ownSettings, base: { ...normalizeBase(settings.fuelPriceBase, { currency }), currency } },
+    // Precio de ejemplo (PLAN-2026-014, LAB-D7): una cotización real nueva pide confirmarlo
+    // explícitamente; las anteriores, sin este pedido, siguen con el aviso de siempre.
+    fuel: {
+      pricePerLiter: settings.fuelPricePerLiter ?? 0,
+      providedBy: 'contractor',
+      illustrative: !ownSettings,
+      ...(ownSettings ? {} : { requiresConfirmation: true }),
+      base: { ...normalizeBase(settings.fuelPriceBase, { currency }), currency },
+    },
     logistics: {
       notApplicable: false,
       // Origen de los viajes: la base operativa de la empresa (sólo texto;
@@ -379,6 +387,8 @@ export function equipmentLineFromLibrary(eq = {}, { id = createId(), hoursPerAct
     maintenancePerHour: eq.maintenancePerHour ?? 0,
     tiresPerHour: eq.tiresPerHour ?? 0,
     fuelLitersPerHour: eq.fuelLitersPerHour ?? 0,
+    // "No usa combustible" (PLAN-2026-014): sólo si el equipo propio lo tiene marcado.
+    ...(acquisition === 'owned' && eq.fuelNotApplicable === true ? { fuelNotApplicable: true } : {}),
     // Cómo se cargaron mantenimiento y neumáticos (PLAN-2026-007; sin modo = por hora).
     ...wearInputsOf(eq),
     external: acquisition === 'owned' ? null : createExternalTerms(eq.external),
@@ -513,7 +523,7 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
       : e.mobilization,
   }));
   if (fromIllustrative && isPlainObject(defaults.fuel) && defaults.fuel.pricePerLiter !== undefined) {
-    merged.fuel = { ...merged.fuel, illustrative: true };
+    merged.fuel = { ...merged.fuel, illustrative: true, requiresConfirmation: true };
   }
   if (fromIllustrative && isPlainObject(defaults.finance) && defaults.finance.monthlyRatePct !== undefined) {
     merged.finance = { ...merged.finance, illustrative: true };

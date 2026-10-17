@@ -68,6 +68,20 @@ function unitQuote(inputs) {
   return q;
 }
 
+/**
+ * Cotización con un costo indivisible por salida (PLAN-2026-014, LAB-D1) sobre la base de la demo
+ * de referencia: fijos → otro costo fijo; variable por día → otro costo por día activo; costo por
+ * salida → peajes por salida (logística, sin km). D días de trabajo y días por salida dan A = D ÷ días.
+ */
+function activationsQuote(inputs) {
+  const q = onCallQuote({ ...inputs, activeDays: inputs.activeDays ?? 0 });
+  q.serviceType = inputs.serviceType ?? q.serviceType;
+  q.activity.daysPerActivation = inputs.daysPerActivation ?? 1;
+  q.activity.fullActivations = inputs.fullActivations === true;
+  q.logistics = { ...q.logistics, notApplicable: false, distanceKm: 0, tollsPerActivation: inputs.costPerActivation ?? 0, lodgingPerActivation: 0, vehicles: [] };
+  return q;
+}
+
 /** Despacho por "engine". Los motores escalares se envuelven como { value }. */
 export const ENGINES = {
   'pricing.priceFromMargin': ({ cost, marginPct }) => ({ value: priceFromMargin(cost, marginPct) }),
@@ -83,6 +97,8 @@ export const ENGINES = {
   'quote.onCall': (inputs) => computeQuote(onCallQuote(inputs)),
   'quote.demoReference': () => computeQuote(demoReferenceQuote()),
   'quote.byUnit': (inputs) => computeQuote(unitQuote(inputs)),
+  // PLAN-2026-014 (LAB-D1): salidas promedio vs salidas costeadas ("cada salida se cuenta completa").
+  'quote.activations': (inputs) => computeQuote(activationsQuote(inputs)),
   // PLAN-2026-010: cotización de prueba de punta a punta (reconstruida del PDF auditado).
   'quote.cot0009': (inputs) => computeQuote(cot0009Quote(inputs)),
   // PLAN-2026-012: transporte $/viaje de punta a punta (COT-0010 / COT-0011).

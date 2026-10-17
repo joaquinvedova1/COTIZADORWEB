@@ -13,6 +13,14 @@
  *   fijo por unidad      = fijos asignados ÷ unidades por mes
  *   precio piso          = costo ÷ (1 − t);  precio = costo ÷ (1 − margen − t)
  *   equilibrio (u/mes)   = fijos ÷ (precio × (1 − t) − variable por unidad)
+ *
+ * Financiación (§23.1, PLAN-2026-014; opcional, sin datos = 0):
+ *   días_g               = max(0, días entre producir y vender + plazo de cobro − días hasta pagar g)
+ *   costo financiero     = Σ caja_g × tasa mensual × días_g ÷ 30
+ *   caja: ingredientes y materiales, personal, combustible y energía, mantenimiento y neumáticos
+ *   (variables, por unidad); tenencia en efectivo de máquinas × % y gastos fijos × % (fijos del mes).
+ *   La amortización y el costo de capital no se financian. El costo financiero se suma al costo por
+ *   unidad (su parte fija ÷ unidades por mes) y al equilibrio (fija con los fijos, variable con el variable).
  */
 
 import { n, div, currencyFactor, ownership, operation, billingTaxPct, commercialRound, readMargin } from './oracle.js';
@@ -66,14 +74,20 @@ export function oracleProduct(p) {
   }
 
   let batchUse = 0;
+  let batchEnergy = 0;
+  let batchWear = 0;
   let equipmentFixed = 0;
+  let equipmentFixedCash = 0;
   for (const e of list(p.equipment)) {
     const factor = currencyFactor(e.base, p);
     const own = ownership(e, factor ?? 0);
     const op = operation(e, n(p.fuelPricePerLiter));
     batchUse += (n(e.minutesPerBatch) * (op.nonFuelPerHour + op.fuelPerHour + n(e.energyPerHour))) / 60;
+    batchEnergy += (n(e.minutesPerBatch) * (op.fuelPerHour + n(e.energyPerHour))) / 60;
+    batchWear += (n(e.minutesPerBatch) * op.nonFuelPerHour) / 60;
     const share = typeof e.fixedSharePct === 'number' && Number.isFinite(e.fixedSharePct) ? Math.min(100, Math.max(0, e.fixedSharePct)) : null;
     equipmentFixed += share === null ? 0 : own.total * (share / 100);
+    equipmentFixedCash += share === null ? 0 : own.cash * (share / 100);
   }
   let otherFixed = 0;
   for (const f of list(p.fixedCosts)) {
@@ -83,7 +97,23 @@ export function oracleProduct(p) {
   const fixedMonthly = equipmentFixed + otherFixed;
   const variablePerUnit = S > 0 ? (batchMaterials + batchLabor + batchUse) / S + unitMaterials : null;
   const fixedPerUnit = fixedMonthly <= 0 ? 0 : div(fixedMonthly, N, null);
-  const unitCost = variablePerUnit !== null && fixedPerUnit !== null ? variablePerUnit + fixedPerUnit : null;
+
+  // Financiación (§23.1).
+  const fin = isObj(p.finance) ? p.finance : {};
+  const opt = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Math.max(0, Number(v)));
+  const lag = (opt(fin.invoiceLagDays) ?? 0) + (opt(fin.paymentTermDays) ?? 0);
+  const rate = (opt(fin.monthlyRatePct) ?? 0) / 100;
+  const financed = (group) => Math.max(0, lag - (opt(isObj(fin.payDays) ? fin.payDays[group] : null) ?? 0)) / 30;
+  const perUnit = (batch) => (S > 0 ? batch / S : 0);
+  const finVariablePerUnit = rate * (
+    (S > 0 ? batchMaterials / S + unitMaterials : 0) * financed('materials')
+    + perUnit(batchLabor) * financed('salaries')
+    + perUnit(batchEnergy) * financed('fuel')
+    + perUnit(batchWear) * financed('suppliers'));
+  const finFixedMonthly = rate * (equipmentFixedCash * financed('suppliers') + otherFixed * financed('structure'));
+  const finFixedPerUnit = finFixedMonthly > 0 ? div(finFixedMonthly, N, null) : 0;
+  const financialPerUnit = finFixedPerUnit === null ? null : finVariablePerUnit + finFixedPerUnit;
+  const unitCost = variablePerUnit !== null && fixedPerUnit !== null && financialPerUnit !== null ? variablePerUnit + fixedPerUnit + financialPerUnit : null;
 
   const t = billingTaxPct(p.billingTaxes).t;
   const pricing = isObj(p.pricing) ? p.pricing : {};
@@ -94,11 +124,13 @@ export function oracleProduct(p) {
   const targetPrice = price(m);
   const suggestedPrice = commercialRound(targetPrice, pricing.roundingStep);
   const vat = typeof pricing.vatPct === 'number' && pricing.vatPct > 0 && pricing.vatPct < 100 ? pricing.vatPct : null;
+  const allFixed = fixedMonthly + finFixedMonthly;
+  const allVariable = variablePerUnit === null ? null : variablePerUnit + finVariablePerUnit;
   const breakEven = (pr) => {
-    if (pr === null || variablePerUnit === null) return null;
-    if (fixedMonthly <= 0) return 0;
-    const contribution = pr * (1 - t / 100) - variablePerUnit;
-    return contribution > 0 ? fixedMonthly / contribution : null;
+    if (pr === null || allVariable === null) return null;
+    if (allFixed <= 0) return 0;
+    const contribution = pr * (1 - t / 100) - allVariable;
+    return contribution > 0 ? allFixed / contribution : null;
   };
   const current = typeof pricing.currentPrice === 'number' && pricing.currentPrice > 0 ? pricing.currentPrice : null;
   return {
@@ -109,6 +141,8 @@ export function oracleProduct(p) {
     fixedMonthly,
     variablePerUnit,
     fixedPerUnit,
+    financialPerUnit,
+    financialMonthly: finFixedMonthly + finVariablePerUnit * N,
     unitCost,
     taxPct: t,
     marginPct: m,
@@ -118,13 +152,13 @@ export function oracleProduct(p) {
     priceWithVat: suggestedPrice !== null && vat !== null ? suggestedPrice * (1 + vat / 100) : null,
     markupPct: suggestedPrice === null ? null : div((suggestedPrice - unitCost) * 100, unitCost, null),
     breakEvenUnits: breakEven(suggestedPrice),
-    monthlyProfit: suggestedPrice === null || variablePerUnit === null ? null : suggestedPrice * N * (1 - t / 100) - variablePerUnit * N - fixedMonthly,
+    monthlyProfit: suggestedPrice === null || variablePerUnit === null ? null : suggestedPrice * N * (1 - t / 100) - variablePerUnit * N - fixedMonthly - finFixedMonthly - finVariablePerUnit * N,
     current: current === null ? null : {
       price: current,
       marginPct: unitCost === null ? null : (1 - t / 100 - unitCost / current) * 100,
       breakEvenUnits: breakEven(current),
       belowFloor: floorPrice !== null && current < floorPrice,
-      belowVariable: variablePerUnit !== null && current * (1 - t / 100) <= variablePerUnit,
+      belowVariable: allVariable !== null && current * (1 - t / 100) <= allVariable,
     },
   };
 }

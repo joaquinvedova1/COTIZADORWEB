@@ -685,4 +685,75 @@ export const SERVICE_SCENARIOS = [
       pricing: { targetMarginPct: '12,5' },
     }),
   },
+
+  // ------------------------------------------- decisiones del dueño LAB-D1…D8 (PLAN-2026-014)
+  {
+    id: 'SRV-D1-BELOW-ONE-AVERAGE',
+    title: 'D1: 0,5 salidas por mes con la opción apagada: se costea el promedio y se avisa (salidas promedio / costeadas / efecto)',
+    family: 'decisions',
+    build: () => service({ id: 'srv-d1a', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 2, daysPerActivation: 4 }, labor: [person({ role: 'Chofer' })],
+      equipment: [owned({ name: 'Camión', fuelLitersPerHour: 8, mobilization: { mode: 'self', travelLitersPer100Km: 35, travelCostPerKm: 250, driver: 'operator' } })], logistics: route({ distanceKm: 150, tollsPerActivation: 40000 }) }),
+    expect: { 'activationRounding.estimated': 0.5, 'activationRounding.costed': 0.5, 'activationRounding.preview.wholeActivations': 1 },
+    ux: { notices: ['activations_below_one'] },
+  },
+  {
+    id: 'SRV-D1-BELOW-ONE-WHOLE',
+    title: 'D1: 0,5 salidas por mes con "cada salida se cuenta completa": la salida indivisible se costea entera (⌈0,5⌉ = 1)',
+    family: 'decisions',
+    build: () => service({ id: 'srv-d1b', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 2, daysPerActivation: 4, fullActivations: true }, labor: [person({ role: 'Chofer' })],
+      equipment: [owned({ name: 'Camión', fuelLitersPerHour: 8, mobilization: { mode: 'self', travelLitersPer100Km: 35, travelCostPerKm: 250, driver: 'operator' } })], logistics: route({ distanceKm: 150, tollsPerActivation: 40000 }) }),
+    expect: { 'activationRounding.costed': 1 },
+  },
+  {
+    id: 'SRV-D2-HOURS-SHORT',
+    title: 'D2: 12 h × 20 días con 1 persona de 176 h por posición: aviso "más horas de cobertura que las horas cargadas" (el costo no cambia)',
+    family: 'decisions',
+    build: () => service({ id: 'srv-d2a', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 12 }, labor: [person({ role: 'Soldador', positions: 2 })] }),
+    ux: { itemStatus: { labor_hours: 'warning' } },
+  },
+  {
+    id: 'SRV-D2-HOURS-COVERED',
+    title: 'D2: 24 h × 20 días con 4 personas por posición (704 h): sin aviso',
+    family: 'decisions',
+    build: () => service({ id: 'srv-d2b', serviceType: 'permanent', unit: 'month', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 24 }, labor: [person({ role: 'Guardia', positions: 1, peoplePerPosition: 4 })] }),
+  },
+  {
+    id: 'SRV-D4-KM-BILLED-ROUTE',
+    title: 'D4: cobro por km con km facturables = km de ruta (2.400): los dos datos separados, relación 1',
+    family: 'decisions',
+    build: () => service({ id: 'srv-d4', serviceType: 'transport', unit: 'km', activity: { billableQuantityPerMonth: 2400, unitsPerActiveDay: 400, daysPerActivation: 1 }, labor: [person({ role: 'Chofer' })],
+      equipment: [external({ name: 'Camión' }, { price: 3250, unit: 'km', fuelIncluded: true })], logistics: route({ destinationName: 'Añelo', tripsPerActivation: 2 }) }),
+    expect: { 'model.transport.billableKmPerMonth': 2400, 'model.transport.routeKmPerMonth': 2400, 'model.transport.billableToRouteKm': 1 },
+  },
+  {
+    id: 'SRV-D5-NO-FUEL',
+    title: 'D5: equipo propio "No usa combustible" que va por sus medios: sin combustible trabajando ni en ruta, sí el desgaste',
+    family: 'decisions',
+    build: () => service({ id: 'srv-d5', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()],
+      equipment: [owned({ name: 'Plataforma eléctrica', fuelNotApplicable: true, fuelLitersPerHour: 5, mobilization: { mode: 'self', travelLitersPer100Km: 20, travelCostPerKm: 150, driver: 'other' } })], logistics: route({ distanceKm: 60 }) }),
+    ux: { itemStatus: { fuel: 'ok' } },
+  },
+  {
+    id: 'SRV-D7-ILLUSTRATIVE-FUEL',
+    title: 'D7: cotización real nueva con el precio de combustible de ejemplo: no cuenta como definido',
+    family: 'decisions',
+    build: () => {
+      const q = service({ id: 'srv-d7', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned({ name: 'Grupo electrógeno', fuelLitersPerHour: 6 })] });
+      q.fuel = { ...q.fuel, illustrative: true, requiresConfirmation: true };
+      return q;
+    },
+    ux: { itemStatus: { fuel: 'missing' } },
+  },
+  {
+    id: 'SRV-D8-PERMANENT-NEUTRAL',
+    title: 'D8: servicio permanente: la activación se llama "intervención" (neutral: RATEOS no sabe si es un relevo), nunca "cambio de turno"',
+    family: 'decisions',
+    build: () => service({ id: 'srv-d8a', serviceType: 'permanent', unit: 'month', activity: { activeDaysPerMonth: 30, daysPerActivation: 7, hoursPerActiveDay: 8 }, labor: [person({ role: 'Vigilador', positions: 1, peoplePerPosition: 2 })], logistics: route({ distanceKm: 40, vehicles: [vehicle()] }) }),
+  },
+  {
+    id: 'SRV-D8-TURNKEY-JOB',
+    title: 'D8: llave en mano por trabajo: la activación se llama "trabajo" en todos los textos',
+    family: 'decisions',
+    build: () => service({ id: 'srv-d8b', serviceType: 'turnkey', unit: 'job', activity: { billableQuantityPerMonth: 0.5, daysPerActivation: 20 }, labor: [person({ role: 'Oficial' })], logistics: route({ distanceKm: 90, tollsPerActivation: 15000, vehicles: [vehicle()] }) }),
+  },
 ];

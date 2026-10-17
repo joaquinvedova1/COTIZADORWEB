@@ -19,7 +19,22 @@
  *
  *   variable por unidad = (ingredientes por tanda + personal + uso de máquinas) / S + materiales por unidad
  *   fijo por unidad     = fijos asignados del mes / unidades vendidas por mes
- *   costo por unidad    = variable por unidad + fijo por unidad
+ *   costo por unidad    = variable por unidad + fijo por unidad + financiación por unidad
+ *
+ * Financiación (PLAN-2026-014, LAB-D3; opcional): el MISMO motor que las
+ * cotizaciones (FinanceEngine). Cada costo en efectivo se paga X_g días después
+ * de producir; lo producido se vende Z días después (stock) y se cobra Y días
+ * después de vender:
+ *   días financiados_g  = max(0, Z + Y − X_g)
+ *   capital de trabajo  = Σ caja_g × días_g / 30
+ *   costo financiero    = capital de trabajo × tasa mensual
+ * Grupos: ingredientes y materiales → materiales; personal → salarios;
+ * combustible y energía de las máquinas → combustible; mantenimiento,
+ * neumáticos y tenencia en efectivo de las máquinas → proveedores; gastos fijos
+ * → estructura. La amortización y el costo de capital no son salidas de caja:
+ * no se financian. El impulsor variable es la unidad vendida (en servicios, el
+ * día activo). Sin plazos ni tasa cargados, la financiación es 0 (nunca se
+ * inventan plazos).
  *
  * Precio (mismas reglas que las cotizaciones; margen ≠ markup, AGENTS.md §9):
  *   precio piso         = costo / (1 − t)                       (t: impuestos sobre lo que vendés)
@@ -41,6 +56,7 @@ import { computeLaborLine } from './labor-engine.js';
 import { computeOwnership, computeOperation } from './equipment-engine.js';
 import { billingTaxConfigInfo } from './billing-taxes-engine.js';
 import { conversionFactor, quoteCurrency, currencyOfBase } from './currency-engine.js';
+import { computeFinance } from './finance-engine.js';
 import {
   isValidMarginPct,
   isValidMarginAndTaxes,
@@ -238,7 +254,78 @@ export function validateProduct(product = {}, computed = null) {
   r.fixedCosts.forEach((line, i) => {
     if (line.issue === 'share_missing') issues.push({ path: `fixedCosts.${i}.sharePct`, message: `"${line.description || 'Gasto fijo'}": cargá qué parte le toca a este producto.`, severity: 'warning' });
   });
+  // Financiación (PLAN-2026-014): sólo si se empezó a cargar; nunca se inventan plazos ni tasas.
+  const f = r.finance;
+  if (f.input.rate !== null && f.input.rate > 0 && f.input.paymentTerm === null) {
+    issues.push({ path: 'finance.paymentTermDays', message: 'Cargaste una tasa pero no en cuántos días cobrás: la financiación sólo cuenta los días hasta vender. Cargá el plazo de cobro (0 si cobrás al contado).', severity: 'warning' });
+  }
+  if (f.input.rate === null && ((f.input.paymentTerm || 0) > 0 || (f.input.stock || 0) > 0)) {
+    issues.push({ path: 'finance.monthlyRatePct', message: 'Cargaste plazos pero no la tasa mensual: sin tasa el costo financiero es 0. Cargala (0 si financiarte no te cuesta nada).', severity: 'warning' });
+  }
   return issues;
+}
+
+/**
+ * Alcance de la financiación de un producto (PLAN-2026-014, LAB-D3): se calcula sobre costos NETOS.
+ * No es una simulación completa de caja: el IVA de las compras no se modela (se muestra siempre
+ * junto a la financiación, en el editor, el resultado y "Ver cálculo").
+ */
+export const PRODUCT_FINANCE_NET_NOTE = 'Estimación financiera sobre costos netos. El IVA de compras no está incluido en este capital de trabajo.';
+
+/** Número opcional (null si no se cargó). */
+function optional(value) {
+  if (value === null || value === undefined || value === '') return null;
+  return isFiniteNumber(value) ? nonNegative(value) : null;
+}
+
+/**
+ * Financiación de un producto con FinanceEngine (PLAN-2026-014, LAB-D3): caja
+ * por unidad (variable) y por mes (fija) en los grupos de pago de siempre.
+ * `variablePerActiveDay` de FinanceEngine es, acá, por UNIDAD VENDIDA.
+ */
+function productFinance(p, parts) {
+  const fin = isPlainObject(p.finance) ? p.finance : {};
+  const payDays = isPlainObject(fin.payDays) ? fin.payDays : {};
+  const input = { stock: optional(fin.invoiceLagDays), paymentTerm: optional(fin.paymentTermDays), rate: optional(fin.monthlyRatePct) };
+  const S = parts.sellablePerBatch;
+  const perUnit = (perBatch) => (S > 0 ? perBatch / S : 0);
+  const useBy = (pick) => perUnit(parts.equipment.reduce((acc, l) => acc + (l.minutesPerBatch * pick(l)) / 60, 0));
+  const cashByGroup = {
+    materials: { fixedMonthly: 0, variablePerActiveDay: isFiniteNumber(parts.perUnit.materials) ? parts.perUnit.materials : 0 },
+    salaries: { fixedMonthly: 0, variablePerActiveDay: isFiniteNumber(parts.perUnit.labor) ? parts.perUnit.labor : 0 },
+    fuel: { fixedMonthly: 0, variablePerActiveDay: useBy((l) => l.operation.fuelPerHour + l.energyPerHour) },
+    suppliers: {
+      // Tenencia en efectivo (seguro, patente, certificaciones, mantenimiento fijo) × % asignado: sin amortización ni costo de capital.
+      fixedMonthly: parts.equipment.reduce((acc, l) => acc + (l.sharePct === null ? 0 : l.ownership.cashMonthly * pct(l.sharePct)), 0),
+      variablePerActiveDay: useBy((l) => l.operation.maintenancePerHour + l.operation.tiresPerHour),
+    },
+    structure: { fixedMonthly: parts.otherFixedMonthly, variablePerActiveDay: 0 },
+  };
+  const finance = computeFinance(cashByGroup, {
+    invoiceLagDays: input.stock ?? 0,
+    paymentTermDays: input.paymentTerm,
+    monthlyRatePct: input.rate ?? 0,
+    payDays: Object.fromEntries(['materials', 'salaries', 'fuel', 'suppliers', 'structure'].map((g) => [g, optional(payDays[g]) ?? 0])),
+  });
+  const N = parts.monthlyUnits;
+  const fixedPerUnit = finance.fixedMonthly > 0 ? safeDivide(finance.fixedMonthly, N, null) : 0;
+  return {
+    input,
+    defined: input.rate !== null || input.paymentTerm !== null || input.stock !== null,
+    stockDays: input.stock ?? 0,
+    paymentTermDays: input.paymentTerm,
+    monthlyRatePct: input.rate ?? 0,
+    groups: finance.groups,
+    cashByGroup,
+    variablePerUnit: finance.variablePerActiveDay,
+    fixedMonthly: finance.fixedMonthly,
+    fixedPerUnit,
+    financialPerUnit: fixedPerUnit === null ? null : finance.variablePerActiveDay + fixedPerUnit,
+    workingCapitalPerUnit: finance.workingCapitalPerActiveDay,
+    workingCapitalFixed: finance.workingCapitalFixed,
+    workingCapitalMonthly: finance.workingCapitalFixed + finance.workingCapitalPerActiveDay * N,
+    financialMonthly: finance.fixedMonthly + finance.variablePerActiveDay * N,
+  };
 }
 
 /** Partes del cálculo (sin precio): líneas, totales por tanda, por unidad y del mes. */
@@ -284,7 +371,9 @@ function computeProductParts(p) {
   };
   const variablePerUnit = sellablePerBatch > 0 ? variablePerBatch / sellablePerBatch + materialsPerUnitDirect : null;
   const fixedPerUnit = fixedMonthly <= 0 ? 0 : safeDivide(fixedMonthly, monthlyUnits, null);
-  const unitCost = variablePerUnit !== null && fixedPerUnit !== null ? variablePerUnit + fixedPerUnit : null;
+  const finance = productFinance(p, { sellablePerBatch, monthlyUnits, perUnit, equipment, otherFixedMonthly });
+  // Sin financiación cargada, financialPerUnit = 0: el costo es el de siempre.
+  const unitCost = variablePerUnit !== null && fixedPerUnit !== null && finance.financialPerUnit !== null ? variablePerUnit + fixedPerUnit + finance.financialPerUnit : null;
 
   const taxInfo = billingTaxConfigInfo(p.billingTaxes);
   return {
@@ -305,6 +394,7 @@ function computeProductParts(p) {
     fixedMonthly,
     variablePerUnit,
     fixedPerUnit,
+    finance,
     unitCost,
     taxInfo,
     taxPct: taxInfo.pct,
@@ -331,14 +421,21 @@ export function computeProduct(product = {}) {
   const priceWithVat = suggestedPrice !== null && vatPct !== null ? suggestedPrice * (1 + pct(vatPct)) : null;
   const markupPct = suggestedPrice === null ? null : markupFromPrice(r.unitCost, suggestedPrice);
   const realMarginPct = marginAfterTaxesPct(r.unitCost, suggestedPrice, t);
-  const breakEvenUnits = productBreakEvenUnits({ fixedMonthly: r.fixedMonthly, variablePerUnit: r.variablePerUnit, price: suggestedPrice, taxPct: t });
+  // Con financiación, su parte fija va con los fijos y su parte variable con el costo variable (como en las cotizaciones).
+  const fin = r.finance;
+  const fixedWithFinance = r.fixedMonthly + fin.fixedMonthly;
+  const variableWithFinance = r.variablePerUnit === null ? null : r.variablePerUnit + fin.variablePerUnit;
+  const breakEvenUnits = productBreakEvenUnits({ fixedMonthly: fixedWithFinance, variablePerUnit: variableWithFinance, price: suggestedPrice, taxPct: t });
+  // Efecto de la financiación en el precio objetivo (0 sin financiación).
+  const costWithoutFinance = r.unitCost === null || fin.financialPerUnit === null ? null : r.unitCost - fin.financialPerUnit;
+  const financeEffect = targetPrice === null || costWithoutFinance === null ? null : targetPrice - priceFromMarginAndTaxes(costWithoutFinance, marginPct, t);
 
   // Resultado del mes con el precio sugerido y las unidades que vendés.
   const N = r.monthlyUnits;
   const revenue = suggestedPrice === null ? null : suggestedPrice * N;
   const salesTaxes = revenue === null ? null : revenue * pct(t);
   const variableMonthly = r.variablePerUnit === null ? null : r.variablePerUnit * N;
-  const profit = revenue === null || variableMonthly === null ? null : revenue - salesTaxes - variableMonthly - r.fixedMonthly;
+  const profit = revenue === null || variableMonthly === null ? null : revenue - salesTaxes - variableMonthly - r.fixedMonthly - fin.financialMonthly;
 
   // Precio actual (si ya lo vendés).
   const currentPrice = isFiniteNumber(pricingIn.currentPrice) && pricingIn.currentPrice > 0 ? pricingIn.currentPrice : null;
@@ -348,10 +445,10 @@ export function computeProduct(product = {}) {
       price: currentPrice,
       marginPct: marginAfterTaxesPct(r.unitCost, currentPrice, t),
       profitPerUnit: r.unitCost === null ? null : currentPrice * (1 - pct(t)) - r.unitCost,
-      breakEvenUnits: productBreakEvenUnits({ fixedMonthly: r.fixedMonthly, variablePerUnit: r.variablePerUnit, price: currentPrice, taxPct: t }),
+      breakEvenUnits: productBreakEvenUnits({ fixedMonthly: fixedWithFinance, variablePerUnit: variableWithFinance, price: currentPrice, taxPct: t }),
       belowFloor: floorPrice !== null && currentPrice < floorPrice,
-      belowVariable: r.variablePerUnit !== null && currentPrice * (1 - pct(t)) <= r.variablePerUnit,
-      monthlyProfit: r.unitCost === null || r.variablePerUnit === null ? null : currentPrice * N * (1 - pct(t)) - r.variablePerUnit * N - r.fixedMonthly,
+      belowVariable: variableWithFinance !== null && currentPrice * (1 - pct(t)) <= variableWithFinance,
+      monthlyProfit: r.unitCost === null || r.variablePerUnit === null ? null : currentPrice * N * (1 - pct(t)) - r.variablePerUnit * N - r.fixedMonthly - fin.financialMonthly,
     };
 
   // ¿Cómo se forma el costo por unidad? (incidencia que suma 100 %).
@@ -361,7 +458,9 @@ export function computeProduct(product = {}) {
     { key: 'equipmentUse', label: 'Uso de máquinas (energía y desgaste)', amount: r.perUnit.equipmentUse },
     { key: 'equipmentFixed', label: 'Máquinas: amortización y otros fijos', amount: r.perUnit.equipmentFixed },
     { key: 'otherFixed', label: 'Gastos fijos del negocio', amount: r.perUnit.otherFixed },
-  ];
+    // Sólo con financiación (PLAN-2026-014): sin plazos ni tasa la estructura es la de siempre.
+    fin.financialPerUnit > 0 ? { key: 'financial', label: 'Financiación (capital de trabajo)', amount: fin.financialPerUnit } : null,
+  ].filter(Boolean);
   const amounts = rows.map((row) => (isFiniteNumber(row.amount) ? row.amount : 0));
   const display = r.unitCost > 0 ? roundPercentagesToTotal(amounts, 2, 100) : amounts.map(() => 0);
   const breakdown = rows.map((row, i) => ({ ...row, amount: isFiniteNumber(row.amount) ? row.amount : null, displayPct: display[i] }));
@@ -382,9 +481,10 @@ export function computeProduct(product = {}) {
       markupPct,
       realMarginPct,
       breakEvenUnits,
+      financeEffect,
       gainPerUnit: suggestedPrice === null || r.unitCost === null ? null : suggestedPrice * (1 - pct(t)) - r.unitCost,
     },
-    monthly: { units: N, revenue, salesTaxes, variable: variableMonthly, fixed: r.fixedMonthly, profit },
+    monthly: { units: N, revenue, salesTaxes, variable: variableMonthly, fixed: r.fixedMonthly, financial: fin.financialMonthly, profit },
     current,
     breakdown,
   };
@@ -478,15 +578,18 @@ function productTraces(r, p) {
     result: { label: `Gastos fijos ${per}`, value: r.fixedPerUnit, format: 'money' },
     notes: ['Los fijos se pagan aunque vendas menos: si vendés menos unidades, a cada una le toca más. El % asignado lo decidís vos (no se calcula solo).'],
   });
+  const f = r.finance;
+  const financed = f.financialPerUnit > 0;
   traces.unitCost = createTrace({
     id: 'product_unit_cost',
     title: `Costo ${per}`,
-    formula: 'Costo por unidad = (Receta + Personal + Uso de máquinas) ÷ Vendibles por tanda + Materiales por unidad + Fijos del mes ÷ Unidades por mes',
+    formula: `Costo por unidad = (Receta + Personal + Uso de máquinas) ÷ Vendibles por tanda + Materiales por unidad + Fijos del mes ÷ Unidades por mes${financed ? ' + Financiación por unidad' : ''}`,
     inputs: [
       { label: 'Ingredientes y materiales', value: r.perUnit.materials, format: 'money' },
       { label: 'Personal', value: r.perUnit.labor, format: 'money' },
       { label: 'Uso de máquinas', value: r.perUnit.equipmentUse, format: 'money' },
       { label: 'Gastos fijos (máquinas y negocio)', value: r.fixedPerUnit, format: 'money' },
+      financed ? { label: 'Financiación (capital de trabajo)', value: f.financialPerUnit, format: 'money' } : null,
     ],
     steps: [
       { label: 'Costo variable por unidad', value: r.variablePerUnit, format: 'money' },
@@ -528,12 +631,49 @@ function productTraces(r, p) {
     formula: 'Unidades por mes = Fijos asignados ÷ (Precio × (1 − t) − Costo variable por unidad)',
     inputs: [
       { label: 'Fijos asignados del mes', value: r.fixedMonthly, format: 'money' },
+      financed ? { label: 'Financiación fija del mes (se suma a los fijos)', value: f.fixedMonthly, format: 'money' } : null,
       { label: 'Precio sugerido', value: r.pricing.suggestedPrice, format: 'money' },
       { label: 'Impuestos sobre lo que vendés (t)', value: r.pricing.taxPct, format: 'percent' },
       { label: 'Costo variable por unidad', value: r.variablePerUnit, format: 'money' },
+      financed ? { label: 'Financiación variable por unidad (se suma al costo variable)', value: f.variablePerUnit, format: 'money' } : null,
     ],
     result: { label: 'Unidades por mes para no perder plata', value: r.pricing.breakEvenUnits, format: 'number' },
     notes: [r.pricing.breakEvenUnits === null && r.pricing.suggestedPrice !== null ? 'Con este precio cada unidad no cubre su costo variable: no hay cantidad que alcance.' : null],
+  });
+  // Financiación (PLAN-2026-014, LAB-D3): días financiados, capital de trabajo y costo por grupo.
+  const GROUP_LABELS = { materials: 'Ingredientes y materiales', salaries: 'Personal', fuel: 'Combustible y energía de las máquinas', suppliers: 'Mantenimiento y tenencia en efectivo de las máquinas', structure: 'Gastos fijos del negocio' };
+  const N = r.monthlyUnits;
+  traces.finance = createTrace({
+    id: 'product_finance',
+    title: 'Financiación (capital de trabajo)',
+    formula: 'Días financiados = días entre producir y vender + plazo de cobro − días hasta pagar ese costo (mínimo 0) · Capital de trabajo = caja del mes × días ÷ 30 · Costo financiero = capital de trabajo × tasa mensual',
+    inputs: [
+      { label: 'Días entre producir y vender (stock)', value: f.stockDays, format: 'days' },
+      { label: 'Plazo de cobro al cliente', value: f.paymentTermDays, format: 'days' },
+      { label: 'Tasa mensual', value: f.monthlyRatePct, format: 'percent' },
+      { label: 'Unidades vendidas por mes', value: N, format: 'number' },
+    ],
+    steps: f.groups.flatMap((g) => {
+      const cash = g.cashFixedMonthly + g.cashVariablePerActiveDay * N;
+      if (!(cash > 0)) return [];
+      return [
+        { label: `${GROUP_LABELS[g.id] || g.label}: caja del mes`, value: cash, format: 'money' },
+        { label: `${GROUP_LABELS[g.id] || g.label}: días hasta pagarlo`, value: g.payDays, format: 'days' },
+        { label: `${GROUP_LABELS[g.id] || g.label}: días financiados`, value: g.financingDays, format: 'days' },
+      ];
+    }).concat([
+      { label: 'Capital de trabajo (lo que tenés financiado)', value: f.workingCapitalMonthly, format: 'money' },
+      { label: 'Costo financiero del mes', value: f.financialMonthly, format: 'money' },
+      { label: `Financiación ${per}`, value: f.financialPerUnit, format: 'money' },
+      { label: 'Efecto en el precio con tu margen', value: r.pricing.financeEffect, format: 'money' },
+    ]),
+    result: { label: `Financiación ${per}`, value: f.financialPerUnit, format: 'money' },
+    notes: [
+      PRODUCT_FINANCE_NET_NOTE,
+      f.defined ? null : 'Sin plazos ni tasa cargados: el costo no incluye financiación (RATEOS no inventa plazos).',
+      'Interés simple, el mismo cálculo que las cotizaciones. La amortización y el costo de capital de las máquinas no son salidas de caja: no se financian.',
+      'Días hasta pagar vacíos = lo pagás al producir.',
+    ],
   });
   if (r.pricing.priceWithVat !== null) {
     traces.vat = createTrace({

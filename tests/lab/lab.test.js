@@ -14,9 +14,12 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runCampaign, BLOCKING } from './lib/lab.js';
-import { auditQuoteUx } from './lib/ux-audit.js';
+import { auditQuoteUx, auditActivationTerms, hardcodedActivationWords, jornadaWords, auditJornadaWording, auditProductFinanceScope } from './lib/ux-audit.js';
+import { activationTerms } from '../../js/domain/activation-terms.js';
 import { service, person } from './lib/build.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
+import { computeProduct } from '../../js/engines/product-engine.js';
+import { PRODUCT_SCENARIOS } from './scenarios/products.js';
 import { toJSON, toMarkdown, assertSafeReport } from './lib/report.js';
 import { ORACLE_UNIT_KINDS, ORACLE_EXTERNAL_UNITS } from './lib/oracle.js';
 import { BILLING_UNITS } from '../../js/domain/billing-units.js';
@@ -64,6 +67,61 @@ describe('Test Lab — terminología de la interfaz (auditor UX F)', () => {
     r.completeness.items.push({ id: 'fake', label: 'Prueba', step: 'labor', status: 'warning', message: 'Cargá "Campo que no existe" y "Oficial".' });
     const codes = auditQuoteUx(q, r).filter((f) => f.code === 'UX-TERM-LABEL').map((f) => f.evidence.label);
     assert.deepEqual(codes, ['Campo que no existe']);
+  });
+
+  // PLAN-2026-014 (LAB-D8): una magnitud = un nombre por cotización.
+  test('terminología de la activación: cada cotización usa sólo su nombre (llamado / salida / intervención…)', () => {
+    const cases = [
+      ['on_call', 'day', 'llamado'], ['transport', 'trip', 'salida'], ['permanent', 'month', 'intervención'],
+      ['turnkey', 'job', 'trabajo'], ['crew', 'day', 'intervención'], ['configurable', 'call', 'llamado'],
+    ];
+    for (const [serviceType, unit, term] of cases) {
+      const q = service({ id: `lab-t-${serviceType}`, serviceType, unit, activity: { activeDaysPerMonth: 3, daysPerActivation: 2, billableQuantityPerMonth: 3, unitsPerActiveDay: 1 }, labor: [person()],
+        logistics: { notApplicable: false, distanceKm: 50, roundTrip: true, tripsPerActivation: 1, tollsPerActivation: 10000, lodgingPerActivation: 0, vehicles: [] } });
+      assert.equal(activationTerms(q).one, term, `${serviceType}/${unit}`);
+      assert.deepEqual(auditActivationTerms(q, computeQuote(q)).map((f) => f.detail), [], `${serviceType}/${unit}`);
+    }
+  });
+  test('el auditor de terminología detecta otra palabra para la misma magnitud (no es un control vacío)', () => {
+    const q = service({ id: 'lab-t-foreign', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 5 }, labor: [person({ role: 'Chofer' })] });
+    const r = computeQuote(q);
+    r.completeness.notices.push({ id: 'fake', label: 'Prueba', message: 'Costo por llamado sin cargar. La salida de caja es otra magnitud. "Chofer" no cuenta.' });
+    const found = auditActivationTerms(q, r);
+    assert.deepEqual(found.map((f) => f.evidence.word.toLowerCase()), ['llamado']);
+    assert.deepEqual(hardcodedActivationWords(), [], 'sin palabras de activación escritas a mano fuera de la lista justificada');
+  });
+
+  // PLAN-2026-014 (LAB-D2): RATEOS no tiene un dato de jornada diaria; el control de horas es de cobertura mensual.
+  test('sin dato de jornada diaria, ningún texto habla de "jornada" (código y lo que muestra el motor)', () => {
+    assert.deepEqual(jornadaWords(), [], 'ningún literal del código dice "jornada"');
+    const q = service({ id: 'lab-t-jornada', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 12 }, labor: [person({ role: 'Soldador' })] });
+    const r = computeQuote(q);
+    assert.ok(r.completeness.items.some((x) => x.id === 'labor_hours'), 'el aviso de horas aparece');
+    assert.deepEqual(auditJornadaWording(q, r).map((f) => f.detail), []);
+  });
+  test('el auditor detecta un texto que habla de "jornada" (no es un control vacío)', () => {
+    const q = service({ id: 'lab-t-jornada-2', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Jornada completa' })] });
+    const r = computeQuote(q);
+    r.completeness.items.push({ id: 'fake', label: 'Prueba', step: 'labor', status: 'warning', message: 'Más horas que la jornada cargada. "Jornada completa" es un nombre cargado.' });
+    assert.deepEqual(auditJornadaWording(q, r).map((f) => f.code), ['UX-TERM-JORNADA']);
+  });
+});
+
+// PLAN-2026-014 (LAB-D3): la financiación de productos es sobre costos netos; el IVA de compras no se modela.
+describe('Test Lab — alcance de la financiación de productos', () => {
+  const financed = PRODUCT_SCENARIOS.find((s) => s.id === 'PRD-04-FINANCING');
+  test('con financiación cargada, "Ver cálculo" aclara que es sobre costos netos y sin IVA de compras', () => {
+    const p = financed.build();
+    const r = computeProduct(structuredClone(p));
+    assert.ok(r.finance.defined && r.finance.financialPerUnit > 0, 'el escenario tiene financiación');
+    assert.deepEqual(auditProductFinanceScope(p, r).map((f) => f.detail), []);
+    assert.match(r.traces.finance.notes.join(' '), /Estimación financiera sobre costos netos\. El IVA de compras no está incluido en este capital de trabajo\./);
+  });
+  test('el auditor detecta la financiación sin esa aclaración (no es un control vacío)', () => {
+    const p = financed.build();
+    const r = computeProduct(structuredClone(p));
+    r.traces.finance.notes = r.traces.finance.notes.filter((n) => !/costos netos/i.test(n));
+    assert.deepEqual(auditProductFinanceScope(p, r).map((f) => f.code), ['UX-PRODUCT-FINANCE-SCOPE']);
   });
 });
 

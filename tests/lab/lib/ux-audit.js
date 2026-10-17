@@ -10,6 +10,9 @@
  *   D. no aplica: nunca pedir datos de algo que no aplica (combustible incluido…)
  *   G. 100 % de completitud = sin faltantes ni errores que cambien el resultado
  *   H. pendientes visibles en un paso existente; textos no vacíos
+ *   T. terminología de la activación (PLAN-2026-014, LAB-D8): una magnitud = un
+ *      nombre por cotización (llamado / salida / intervención…), sin palabras
+ *      fijas en el código fuera de una lista justificada
  *
  * Cada hallazgo: { code, severity (P0/P1/P2), category, title, detail, evidence }.
  */
@@ -21,6 +24,8 @@ import { evaluateCompleteness } from '../../../js/engines/completeness-engine.js
 import { validateQuote } from '../../../js/core/validation.js';
 import { QUOTE_STEPS } from '../../../js/domain/catalogs.js';
 import { fieldFromHash, stepOfPath } from '../../../js/ui/field-links.js';
+import { activationTerms, activationFieldLabels, EVERY_ACTIVATION_TERMS } from '../../../js/domain/activation-terms.js';
+import { activationRoundingText } from '../../../js/ui/result-text.js';
 
 const JS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../js');
 let uiSourceCache = null;
@@ -45,6 +50,12 @@ const STEP_IDS = new Set(QUOTE_STEPS.map((s) => s.id));
 const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
 const isExt = (e) => e && (e.acquisition === 'rented' || e.acquisition === 'outsourced');
 
+/**
+ * Rótulos que la interfaz arma con el nombre de la activación (PLAN-2026-014): no están
+ * literales en el código, salen de activationFieldLabels (la misma función que usa el campo).
+ */
+const DYNAMIC_LABELS = new Set(EVERY_ACTIVATION_TERMS.flatMap((T) => Object.values(activationFieldLabels(T))).map((x) => x.toLowerCase()));
+
 /** Valor plausible para "completar" cada campo al que lleva un pendiente (la persona lo carga). */
 const FIX_VALUES = {
   distanceKm: 100, pricePerLiter: 1500, providedBy: 'contractor', fuelLitersPerHour: 10, fuelLitersPer100Km: 30, fuelKmPerLiter: 3,
@@ -52,6 +63,8 @@ const FIX_VALUES = {
   fixedCostSharePct: 50, billableQuantityPerMonth: 10, activeDaysPerMonth: 10, knownRate: 1000000, targetMarginPct: 10,
   paymentTermDays: 60, price: 100000, replacementValue: 100000000, usefulLifeYears: 10, vatPct: 21, generalPct: 3, pct: 10,
   quantity: 1, unitCost: 1000, hoursPerActiveDay: 8,
+  // Horas de cobertura del personal (PLAN-2026-014): con 6 personas por posición alcanza hasta 24 h × 31 días.
+  peoplePerPosition: 6,
 };
 /** Efectos de la interfaz al editar un campo (editar el precio del combustible lo confirma, etc.). */
 const UI_SIDE_EFFECTS = {
@@ -205,7 +218,7 @@ export function auditQuoteUx(quote, result, { scenario = null } = {}) {
   for (const item of [...comp.items, ...(comp.notices || [])]) {
     for (const m of String(item.message || '').matchAll(/"([^"]{3,80})"/g)) {
       const label = m[1].trim().toLowerCase();
-      if (lineNames.has(label) || FALLBACK_NAMES.has(label) || uiSource().includes(label)) continue;
+      if (lineNames.has(label) || FALLBACK_NAMES.has(label) || uiSource().includes(label) || DYNAMIC_LABELS.has(label)) continue;
       findings.push(finding('UX-TERM-LABEL', 'P1', 'P1 UX', 'El aviso cita un rótulo que no existe en la interfaz', `"${item.label}" cita "${m[1]}": no hay un campo, opción ni paso con ese nombre.`, { item: item.id, label: m[1] }));
     }
   }
@@ -239,21 +252,25 @@ export function auditQuoteUx(quote, result, { scenario = null } = {}) {
 }
 
 /**
- * F (terminología, nivel interfaz): magnitudes distintas con nombres distintos y
- * sinónimos de una misma magnitud. Se corre una vez por campaña.
- *   - viajes facturables ≠ viajes físicos, km por viaje ≠ km por mes, días de
- *     trabajo ≠ intervenciones: cada una tiene su rótulo propio (P1 UX si falta)
- *   - "llamado", "salida" e "intervención" nombran la MISMA magnitud (una
- *     intervención del servicio): se informa el inventario para que el dueño
- *     elija el término (HUMAN DECISION; no se cambia copy por cuenta propia)
+ * F (terminología, nivel interfaz): magnitudes distintas con nombres distintos.
+ * Se corre una vez por campaña.
+ *   - viajes facturables ≠ viajes físicos, km por viaje ≠ km de ruta por mes,
+ *     km facturables ≠ km de ruta, tarifa piso ≠ sugerida, margen ≠ markup:
+ *     cada una tiene su rótulo propio (P1 UX si falta)
+ *   - T estático (PLAN-2026-014, LAB-D8): la activación se nombra con
+ *     activationTerms (llamado / salida / intervención según la cotización).
+ *     Ningún texto del código usa "llamado", "salida" o "intervención" fijo,
+ *     salvo los de ACTIVATION_WORDS_ALLOWED (cada uno con su motivo): P1 UX.
+ *   - Jornada (PLAN-2026-014, LAB-D2): sin un dato de jornada diaria, ningún
+ *     texto del código habla de "jornada": P1 UX.
  */
 export function auditTerminology() {
   const src = uiSource();
   const findings = [];
   const DISTINCT = [
     ['viajes facturables', 'viajes físicos costeados'],
-    ['km por viaje', 'km por mes'],
-    ['días de trabajo', 'intervenciones'],
+    ['km por viaje', 'km de ruta por mes'],
+    ['km facturables', 'km de ruta'],
     ['tarifa piso', 'tarifa sugerida'],
     ['margen', 'markup'],
   ];
@@ -261,13 +278,161 @@ export function auditTerminology() {
     const missing = pair.filter((t) => !src.includes(t));
     if (missing.length) findings.push(finding('UX-TERM-DISTINCT', 'P1', 'P1 UX', 'Dos magnitudes distintas sin rótulo propio', `Falta en la interfaz: ${missing.map((t) => `"${t}"`).join(', ')} (par ${pair.join(' / ')}).`, { pair }));
   }
-  const count = (re) => (src.match(re) || []).length;
-  const synonyms = { llamado: count(/\bllamados?\b/g), salida: count(/\bsalidas?\b/g), 'intervención': count(/\bintervenci(?:ón|ones)\b/g) };
-  if (Object.values(synonyms).filter((n) => n > 0).length > 1) {
-    findings.push(finding('UX-TERM-SYNONYMS', 'HUMAN', 'HUMAN DECISION REQUIRED', 'La misma magnitud (una intervención del servicio) se nombra de tres formas',
-      `En la interfaz: "llamado" ${synonyms.llamado} veces, "salida" ${synonyms.salida}, "intervención" ${synonyms['intervención']}. P. ej. en "Cómo se cobra" (por cantidad) el campo es "Duración promedio de cada salida / intervención" y en "Movilización y viajes" el de viajes es "Viajes por llamado". No es un error de cálculo: ¿se elige un término por tipo de servicio?`, { synonyms }));
+  for (const hit of hardcodedActivationWords()) {
+    findings.push(finding('UX-TERM-HARDCODED', 'P1', 'P1 UX', 'Texto con la activación escrita a mano', `${hit.file}: ${hit.text} — usar activationTerms (llamado / salida / intervención según la cotización) o agregarlo a ACTIVATION_WORDS_ALLOWED con su motivo.`, hit));
+  }
+  for (const hit of jornadaWords()) {
+    findings.push(finding('UX-TERM-JORNADA', 'P1', 'P1 UX', 'Texto que habla de "jornada" sin un dato de jornada diaria', `${hit.file}: ${hit.text} — el control de horas del personal es de cobertura mensual: "horas de cobertura" / "horas cargadas para este puesto".`, hit));
   }
   return findings;
+}
+
+/** Palabras que nombran la activación en algún servicio ("salida de caja" es otra magnitud). */
+const ACTIVATION_WORD = /\b(llamados?|salidas?|intervenci(?:ón|ones)|cambios? de turno)\b/i;
+const CASH_OUT = /salidas? de caja/gi;
+
+/**
+ * Textos del código que pueden nombrar la activación a mano (archivo → textos exactos o "*").
+ * Cada entrada tiene su motivo: son el nombre correcto en su contexto.
+ */
+export const ACTIVATION_WORDS_ALLOWED = Object.freeze({
+  // La definición de los nombres.
+  'domain/activation-terms.js': '*',
+  // La unidad de facturación "llamado" ES la activación (en esa cotización se nombra "llamado").
+  'domain/billing-units.js': ["'llamado'", "'llamados'", "'$/llamado'", "'Se factura cada llamado, dure lo que dure.'"],
+  // Recursos (sin tipo de servicio): etiqueta genérica; en la cotización se nombra como su activación.
+  'domain/catalogs.js': ["'Por intervención (llamado o salida)'", "'/intervención'"],
+  // Datos de la demo on-call (Hidrogrúa): ahí la activación es "llamado".
+  'domain/demo-data.js': ["'Consumibles menores por llamado'", "'Hidrogrúa con operador disponible 24/7, se activa por llamado.'"],
+  // Unidad "llamado" (sólo con esa unidad) y on-call (tiempo de respuesta).
+  'ui/views/quote-steps/modality.js': ["'Llamados que esperás facturar en el mes. Si no estás seguro, cargá una estimación.'", "'Desde el llamado hasta estar operativo en locación.'"],
+  // Consejo sólo del tipo on-call.
+  'ui/views/quote-steps/service.js': ['on_call'],
+});
+
+/** Literales de texto del código (js/, sin vendor ni comentarios), por archivo (ruta relativa a js/). */
+function jsLiterals() {
+  const files = [];
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).forEach((d) => {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) { if (d.name !== 'vendor') walk(p); } else if (d.name.endsWith('.js')) files.push(p);
+  });
+  walk(JS_DIR);
+  const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/(^|[^:\\'"`])\/\/.*$/gm, '$1');
+  return files.sort().map((f) => ({
+    rel: path.relative(JS_DIR, f).split(path.sep).join('/'),
+    literals: strip(readFileSync(f, 'utf8')).match(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g) || [],
+  }));
+}
+
+/** Literales del código (js/, sin vendor ni comentarios) que nombran la activación a mano fuera de la lista. */
+export function hardcodedActivationWords() {
+  const hits = [];
+  for (const { rel, literals } of jsLiterals()) {
+    const allowed = ACTIVATION_WORDS_ALLOWED[rel];
+    if (allowed === '*') continue;
+    for (const lit of literals) {
+      if (!ACTIVATION_WORD.test(lit.replace(CASH_OUT, ''))) continue;
+      if (Array.isArray(allowed) && allowed.some((a) => (a === 'on_call' ? false : a === lit))) continue;
+      // service.js: el consejo del tipo on-call (y sólo ese) puede decir "llamado".
+      if (rel === 'ui/views/quote-steps/service.js' && /contá cuántos días por mes esperás trabajar/.test(lit)) continue;
+      hits.push({ file: rel, text: lit.slice(0, 140) });
+    }
+  }
+  return hits;
+}
+
+/**
+ * "Jornada" (PLAN-2026-014, LAB-D2): RATEOS no tiene un dato de jornada diaria. El control de
+ * horas del personal es de cobertura MENSUAL (días × horas por día contra horas normales por
+ * mes y horas extra). Mientras no exista ese dato, ningún texto habla de jornada.
+ */
+const JORNADA_WORD = /\bjornadas?\b/i;
+
+/** Literales del código (js/, sin vendor ni comentarios) que hablan de "jornada". */
+export function jornadaWords() {
+  return jsLiterals().flatMap(({ rel, literals }) => literals.filter((lit) => JORNADA_WORD.test(lit)).map((lit) => ({ file: rel, text: lit.slice(0, 140) })));
+}
+
+/** Nombres que cargó la persona (puestos, equipos, materiales…): no son rótulos. */
+function userNames(quote) {
+  return [
+    ...list(quote.labor).map((l) => l.role),
+    ...list(quote.equipment).map((e) => e.name),
+    ...list(quote.materials).map((m) => m.description),
+    ...list(quote.otherCosts).map((o) => o.description),
+    ...list(quote.logistics && quote.logistics.vehicles).map((v) => v.name),
+  ].filter((x) => typeof x === 'string' && x.trim());
+}
+
+/** Lo que muestra el motor de una cotización: pendientes, avisos, "Ver cálculo" y "cada salida completa". */
+function resultTexts(result, T) {
+  const texts = [];
+  const walk = (v, where) => {
+    if (typeof v === 'string') texts.push({ where, text: v });
+    else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${where}[${i}]`));
+    else if (v && typeof v === 'object') ['title', 'formula', 'label', 'message', 'text', 'notes', 'inputs', 'steps', 'result'].forEach((k) => { if (k in v) walk(v[k], `${where}.${k}`); });
+  };
+  const comp = result.completeness || {};
+  walk(comp.items || [], 'completeness.items');
+  walk(comp.notices || [], 'completeness.notices');
+  Object.entries(result.traces || {}).forEach(([k, tr]) => walk(tr, `traces.${k}`));
+  const rounding = activationRoundingText(result.activationRounding, T);
+  if (rounding) walk(rounding, 'activationRoundingText');
+  return texts;
+}
+
+/** Dinámico (PLAN-2026-014, LAB-D2): nada de lo que muestra el motor habla de "jornada" (P1 UX). */
+export function auditJornadaWording(quote, result) {
+  const names = userNames(quote);
+  return resultTexts(result, activationTerms(quote)).flatMap(({ where, text }) => {
+    let clean = text;
+    names.forEach((n) => { clean = clean.split(n).join(''); });
+    return JORNADA_WORD.test(clean)
+      ? [finding('UX-TERM-JORNADA', 'P1', 'P1 UX', 'Habla de "jornada" sin un dato de jornada diaria', `${where}: ${text.slice(0, 160)}`, { where })]
+      : [];
+  });
+}
+
+/**
+ * T dinámico (PLAN-2026-014, LAB-D8): en una cotización, todo lo que muestra el
+ * motor (pendientes, avisos, "Ver cálculo") y el texto de "cada salida
+ * completa" nombra la activación SÓLO con el nombre de esa cotización. Otro
+ * nombre ("salida" en un on-call, "llamado" en un transporte) es P1 UX.
+ */
+export function auditActivationTerms(quote, result) {
+  const T = activationTerms(quote);
+  const own = new RegExp(`\\b(${T.one}|${T.many})\\b`, 'gi');
+  const names = userNames(quote);
+  const texts = resultTexts(result, T);
+  const findings = [];
+  for (const { where, text } of texts) {
+    let clean = text.replace(CASH_OUT, '');
+    names.forEach((n) => { clean = clean.split(n).join(''); });
+    const foreign = clean.replace(own, '').match(ACTIVATION_WORD);
+    if (foreign) {
+      findings.push(finding('UX-TERM-FOREIGN', 'P1', 'P1 UX', 'Otra palabra para la misma magnitud',
+        `${where}: "${foreign[0]}" en una cotización que la llama "${T.one}" — ${text.slice(0, 160)}`, { where, word: foreign[0], term: T.one }));
+    }
+  }
+  return findings;
+}
+
+/**
+ * Productos (PLAN-2026-014, LAB-D3): la financiación de un producto se calcula sobre costos
+ * NETOS (el IVA de compras no se modela). Con financiación cargada, "Ver cálculo" tiene que
+ * decirlo; si no, parece una simulación completa de caja (P1 UX). Se busca el sentido del texto,
+ * no la constante: cambiar la redacción sin esa aclaración también falla.
+ */
+const NET_SCOPE = [/estimación financiera sobre costos netos/i, /iva de compras no está incluido/i];
+export function auditProductFinanceScope(product, engine) {
+  const f = engine && engine.finance;
+  if (!f || !f.defined) return [];
+  const notes = (engine.traces && engine.traces.finance && engine.traces.finance.notes) || [];
+  const text = notes.join(' ');
+  return NET_SCOPE.every((re) => re.test(text))
+    ? []
+    : [finding('UX-PRODUCT-FINANCE-SCOPE', 'P1', 'P1 UX', 'Financiación de un producto sin aclarar que es sobre costos netos', `"Ver cálculo" de la financiación: ${text.slice(0, 160) || '(sin notas)'}`, { product: product && product.id })];
 }
 
 /** Ruta de un pendiente → ¿existe en la cotización? (para el auditor de navegador). */

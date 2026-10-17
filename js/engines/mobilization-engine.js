@@ -62,9 +62,12 @@ export function computeMobilization(equipment = [], ctx = {}) {
     let carrier = null;
     let support = null;
 
+    // "No usa combustible" (PLAN-2026-014): un equipo propio así tampoco consume al trasladarse
+    // (un externo define su combustible con "combustible incluido").
+    const noFuel = !external && line.fuelNotApplicable === true;
     if (mode === 'self' && !includedByProvider) {
       km = routeKm * quantity;
-      liters = (km * nonNegative(m.travelLitersPer100Km)) / 100;
+      liters = noFuel ? 0 : (km * nonNegative(m.travelLitersPer100Km)) / 100;
       // Un externo paga el combustible en ruta sólo si su tarifa NO lo incluye
       // (false). Sin definir (null) no se suma y la completitud lo advierte,
       // igual que el combustible trabajando (external-engine). Si su consumo se
@@ -76,7 +79,7 @@ export function computeMobilization(equipment = [], ctx = {}) {
       // como juego + vida útil en km (PLAN-2026-007). Sin amortización.
       wear = km * (nonNegative(m.travelCostPerKm) + tiresOf(line).perKm);
       driver = m.driver === 'other' ? 'other' : m.driver === 'operator' ? 'operator' : null;
-      if (routeKm > 0 && nonNegative(m.travelLitersPer100Km) <= 0) warnings.push('travel_consumption');
+      if (routeKm > 0 && !noFuel && nonNegative(m.travelLitersPer100Km) <= 0) warnings.push('travel_consumption');
       if (!driver) warnings.push('driver');
     } else if (mode === 'transported') {
       const target = items.find((e, i) => i !== index && e && e.id && e.id === m.carrierLineId) || null;

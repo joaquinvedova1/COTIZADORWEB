@@ -12,6 +12,7 @@ import { h } from '../../dom.js';
 import { formatMoney, formatNumber, formatValue, EMPTY } from '../../../core/format.js';
 import { traceTransport } from '../../../engines/transport-engine.js';
 import { workDaysText } from '../../unit-text.js';
+import { activationTerms } from '../../../domain/activation-terms.js';
 
 const num = (value, decimals = 2) => formatNumber(value, { decimals });
 const plural = (n, one, many) => (Math.abs(n - 1) < 1e-9 ? one : many);
@@ -73,10 +74,13 @@ export function providerRouteText(p, t) {
 
 /**
  * Indicadores "Viajes y km del mes": viajes facturables, viajes físicos
- * costeados, días de trabajo, km por viaje y km por mes (con "Ver cálculo").
+ * costeados, días de trabajo, km por viaje, km de ruta por mes y, si se cobra
+ * por km, los km facturables (dos datos distintos, PLAN-2026-014 / LAB-D4),
+ * con "Ver cálculo".
  */
-export function transportStats(kit, { billable = true } = {}) {
+export function transportStats(kit, { billable = true, km = false } = {}) {
   const t = (r) => transportOf(r) || {};
+  const T = (r) => activationTerms(t(r).terms);
   return kit.stats(
     // Sólo con la unidad "viaje" hay viajes facturables (con otra unidad no se muestra).
     billable
@@ -86,8 +90,8 @@ export function transportStats(kit, { billable = true } = {}) {
       hint: (r) => {
         const x = t(r);
         if (x.notApplicable) return 'Marcaste "Sin traslados".';
-        const per = `${num(x.activationsPerMonth)} ${plural(x.activationsPerMonth, 'intervención', 'intervenciones')} × ${tripsText(x.physicalTripsPerActivation)}`;
-        return x.minimumPadding ? `${per} (el mínimo por llamado factura más viajes de los que se hacen).` : `${per}.`;
+        const per = `${num(x.activationsPerMonth)} ${T(r).word(x.activationsPerMonth)} × ${tripsText(x.physicalTripsPerActivation)}`;
+        return x.minimumPadding ? `${per} (el mínimo ${T(r).per} factura más viajes de los que se hacen).` : `${per}.`;
       },
       tone: (r) => (t(r).derived && !t(r).notApplicable && !t(r).minimumPadding && Math.abs((t(r).billableTripsPerMonth || 0) - (t(r).physicalTripsPerMonth || 0)) > 1e-6 ? 'orange' : null),
     }),
@@ -97,12 +101,23 @@ export function transportStats(kit, { billable = true } = {}) {
     kit.stat('Km por viaje', (r) => (t(r).kmPerTrip > 0 ? formatValue(t(r).kmPerTrip, 'km') : EMPTY), {
       hint: (r) => routeText(t(r)) || 'Cargá la distancia de ida en "Movilización y viajes".',
     }),
-    kit.stat('Km por mes', (r) => (t(r).kmPerTrip > 0 ? formatValue(t(r).routeKmPerMonth, 'km') : EMPTY), {
+    kit.stat('Km de ruta por mes', (r) => (t(r).kmPerTrip > 0 ? formatValue(t(r).routeKmPerMonth, 'km') : EMPTY), {
       emphasis: true,
-      hint: (r) => (t(r).kmPerTrip > 0 ? `${tripsText(t(r).physicalTripsPerMonth)} × ${formatValue(t(r).kmPerTrip, 'km')}.` : ''),
+      hint: (r) => (t(r).kmPerTrip > 0 ? `Lo que se recorre y se costea: ${tripsText(t(r).physicalTripsPerMonth)} × ${formatValue(t(r).kmPerTrip, 'km')}.` : ''),
       trace: (r) => traceTransport(transportOf(r)),
       traceLabel: 'Ver cálculo: Viajes y km del mes',
     }),
+    // Cobro por km: lo que se factura, aparte de la ruta (nunca se deriva uno del otro).
+    km
+      ? kit.stat('Km facturables', (r) => (t(r).billableKmPerMonth !== null && t(r).billableKmPerMonth !== undefined ? formatValue(t(r).billableKmPerMonth, 'km') : EMPTY), {
+        hint: (r) => {
+          const x = t(r);
+          if (!(x.billableToRouteKm > 0)) return 'Lo que cobrás en el mes. No se calcula con la ruta.';
+          return `Lo que cobrás en el mes: ${num(x.billableToRouteKm)} km facturables por km de ruta${Math.abs(x.billableToRouteKm - 1) < 0.01 ? ' (coinciden).' : '.'}`;
+        },
+        tone: (r) => (t(r).billableToRouteKm > 1.01 ? 'orange' : null),
+      })
+      : null,
   );
 }
 
