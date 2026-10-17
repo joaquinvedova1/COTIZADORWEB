@@ -11,6 +11,9 @@
   "scripts": {
     "test": "node --test --test-reporter=spec",
     "build": "node scripts/build.mjs",
-    "start": "node scripts/serve.mjs"
+    "start": "node scripts/serve.mjs",
+    "test:lab": "node scripts/run-lab.mjs",
+    "test:lab:extended": "node scripts/run-lab.mjs --extended",
+    "test:lab:e2e": "node tests/lab/e2e/ui-lab.mjs"
   }
 }

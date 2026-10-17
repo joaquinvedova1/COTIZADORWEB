@@ -39,7 +39,7 @@ import { isPlainObject } from '../core/object.js';
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
-const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'currency', 'utilization', 'rate', 'margin']);
+const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin']);
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
@@ -93,24 +93,41 @@ export function evaluateCompleteness(quote = {}) {
   // 2. Tarifa o actividad según modalidad
   if (quote.pricingMode === 'known_rate') {
     const ok = nonNegative(pricing.knownRate) > 0;
-    items.push(rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Ya tengo la tarifa" pero falta ingresarla.'));
+    const item = rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Ya tengo la tarifa" pero falta ingresarla.');
+    if (!ok) item.focus = 'pricing.knownRate';
+    items.push(item);
   }
 
   // 3. Actividad: por cantidad o evento (m³, viajes, llamados…; PLAN-2026-009) en la unidad comercial.
+  // Cada pendiente lleva al campo que falta (Test Lab, PLAN-2026-013).
   const unit = billingUnitOf(quote);
+  // Cobro por hora: sin horas por día no hay unidades facturables (la tarifa queda "—").
+  const hoursMissing = unit.kind === 'hour' && !(Math.min(nonNegative(activity.hoursPerActiveDay), 24) > 0);
+  // Los avisos citan el rótulo del campo tal como se ve en "Cómo se cobra".
+  const activityHoursLabel = unit.kind === 'quantity' || unit.kind === 'event' ? 'Horas trabajadas por día de trabajo' : 'Horas trabajadas por día activo';
+  const hoursMessage = `Cobrás por hora y falta "${activityHoursLabel}": sin horas no hay unidades facturables ni tarifa.`;
   if (unit.kind === 'quantity' || unit.kind === 'event') {
     const qOk = nonNegative(activity.billableQuantityPerMonth) > 0;
     const yieldOk = unit.kind !== 'quantity' || nonNegative(activity.unitsPerActiveDay) > 0;
     const ok = qOk && yieldOk;
     const texts = unitTexts(unit);
-    items.push(rule('utilization', `${unit.plural.charAt(0).toUpperCase()}${unit.plural.slice(1)} por mes`, 'modality', 2,
+    const item = rule('utilization', `${unit.plural.charAt(0).toUpperCase()}${unit.plural.slice(1)} por mes`, 'modality', 2,
       ok ? 'ok' : 'missing',
-      ok ? `Cantidad por mes definida (${unit.plural}).` : !qOk ? `${texts.quantityQuestion} Falta ese dato.` : `${texts.perDayQuestion} Falta ese dato para calcular los días de trabajo.`));
+      ok ? `Cantidad por mes definida (${unit.plural}).` : !qOk ? `${texts.quantityQuestion} Falta ese dato.` : `${texts.perDayQuestion} Falta ese dato para calcular los días de trabajo.`);
+    if (!ok) item.focus = !qOk ? 'activity.billableQuantityPerMonth' : 'activity.unitsPerActiveDay';
+    items.push(item);
   } else if (isOnCall || quote.pricingMode === 'known_activity') {
-    const ok = nonNegative(activity.activeDaysPerMonth) > 0;
-    items.push(rule('utilization', isOnCall ? 'Días de trabajo por mes' : 'Actividad estimada', 'modality', 2,
+    const daysOk = nonNegative(activity.activeDaysPerMonth) > 0;
+    const ok = daysOk && !hoursMissing;
+    const item = rule('utilization', isOnCall ? 'Días de trabajo por mes' : 'Actividad estimada', 'modality', 2,
       ok ? 'ok' : 'missing',
-      ok ? 'Días activos estimados por mes definidos.' : '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando? Falta ese dato.'));
+      ok ? 'Días activos estimados por mes definidos.' : !daysOk ? '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando? Falta ese dato.' : hoursMessage);
+    if (!ok) item.focus = !daysOk ? 'activity.activeDaysPerMonth' : 'activity.hoursPerActiveDay';
+    items.push(item);
+  } else if (hoursMissing) {
+    const item = rule('utilization', 'Horas por día de trabajo', 'modality', 2, 'missing', hoursMessage);
+    item.focus = 'activity.hoursPerActiveDay';
+    items.push(item);
   }
 
   // 4. Personal
@@ -148,6 +165,13 @@ export function evaluateCompleteness(quote = {}) {
             ? `Hay equipos propios sin valor de reposición o sin vida útil (falta su amortización): ${names(ownMissing, 'Equipo')}.`
             : `Hay equipos alquilados o tercerizados sin tarifa del proveedor: ${names(extMissing, 'Recurso externo')}. Completá la tarifa o quitá la línea.`);
     item.targets = [...ownMissing, ...extMissing].map(({ e, index }) => ({ list: 'equipment', index, name: (typeof e.name === 'string' && e.name.trim()) || 'Equipo' }));
+    // El botón lleva al dato que falta de la primera línea que nombra el mensaje (Test Lab, PLAN-2026-013).
+    if (!ownOk) {
+      const { e, index } = ownMissing[0];
+      item.focus = `equipment.${index}.${nonNegative(e.replacementValue) > 0 ? 'usefulLifeYears' : 'replacementValue'}`;
+    } else if (!extOk) {
+      item.focus = `equipment.${extMissing[0].index}.external.price`;
+    }
     items.push(item);
   }
 
@@ -209,9 +233,15 @@ export function evaluateCompleteness(quote = {}) {
     } else if (!fuelUsers.some((u) => u.consumes)) {
       status = 'missing';
       const routeless = fuelUsers.find((u) => u.noRoute);
-      if (routeless) {
+      if (routeless && logistics.notApplicable) {
+        message = `Marcaste "Sin traslados": sin km no se calcula el combustible por km de "${routeless.name}". Si el proveedor viaja, desmarcalo y cargá la distancia.`;
+        focus = 'logistics.notApplicable';
+      } else if (routeless && !(oneWayKm > 0)) {
         message = `Falta la distancia de la ruta: sin km no se calcula el combustible por km de "${routeless.name}".`;
         focus = 'logistics.distanceKm';
+      } else if (routeless) {
+        message = `No hay viajes en la cotización: sin km no se calcula el combustible por km de "${routeless.name}".`;
+        focus = route.derived ? 'activity.unitsPerActiveDay' : 'logistics.tripsPerActivation';
       } else {
         const names = [...new Set(fuelUsers.map((u) => `"${u.name}"`))].slice(0, 3).join(', ');
         message = `Falta el consumo de combustible de ${names}: lo pagás vos y sin consumo no suma costo.`;
@@ -236,8 +266,20 @@ export function evaluateCompleteness(quote = {}) {
     items.push(rule('materials', 'Materiales', 'materials', 1, 'warning', 'No hay materiales cargados: confirmá si el servicio no usa materiales.'));
   } else {
     const ok = materials.every((m) => Boolean(m.providedBy));
-    items.push(rule('materials', 'Responsable de materiales', 'materials', 2, ok ? 'ok' : 'missing',
-      ok ? 'Todos los materiales tienen responsable.' : 'Hay materiales sin definir quién los provee (cliente, nosotros o tercero).'));
+    // Un material que pagamos con precio y sin cantidad (o al revés) suma $ 0: se avisa (Test Lab, PLAN-2026-013).
+    const paidByUs = (m) => MATERIAL_PROVIDERS.some((p) => p.id === m.providedBy && p.costForUs !== false);
+    const incomplete = materials.map((m, index) => ({ m, index })).find(({ m }) => paidByUs(m) && (nonNegative(m.unitCost) > 0) !== (nonNegative(m.quantity) > 0));
+    const item = rule('materials', 'Responsable de materiales', 'materials', 2, !ok ? 'missing' : incomplete ? 'warning' : 'ok',
+      !ok
+        ? 'Hay materiales sin definir quién los provee (cliente, nosotros o tercero).'
+        : incomplete
+          ? `"${(typeof incomplete.m.description === 'string' && incomplete.m.description.trim()) || 'Material'}" tiene ${nonNegative(incomplete.m.unitCost) > 0 ? 'precio pero cantidad 0' : 'cantidad pero precio 0'}: no suma costo. Completalo o quitá la línea.`
+          : 'Todos los materiales tienen responsable.');
+    if (ok && incomplete) {
+      item.focus = `materials.${incomplete.index}.${nonNegative(incomplete.m.unitCost) > 0 ? 'quantity' : 'unitCost'}`;
+      item.targets = [{ list: 'materials', index: incomplete.index, name: incomplete.m.description || 'Material' }];
+    }
+    items.push(item);
   }
 
   // 9. Logística: ruta + cómo se llega (equipos que se movilizan o vehículos auxiliares)
@@ -253,6 +295,18 @@ export function evaluateCompleteness(quote = {}) {
   }
 
   // 9b. Movilización de cada equipo (¿cómo llega al lugar del servicio?)
+  if (logistics.notApplicable && equipment.length > 0) {
+    // "Sin traslados" y un equipo que dice que viaja: dos datos incompatibles (Test Lab, PLAN-2026-013).
+    const travelling = equipment.filter((e) => isPlainObject(e.mobilization) && ['self', 'support'].includes(e.mobilization.mode) && !(isExt(e) && extOf(e).mobilizationIncluded === true));
+    if (travelling.length) {
+      const names = travelling.slice(0, 3).map((x) => `"${lineName(x)}"`).join(', ');
+      const item = rule('mobility', 'Movilización de equipos', 'logistics', 1, 'warning',
+        `Marcaste "Sin traslados" pero ${names} ${travelling.length === 1 ? 'figura' : 'figuran'} viajando desde la base (por sus propios medios o con un vehículo de apoyo): esa movilización no se suma. Si viaja, desmarcá "Sin traslados" y cargá la distancia; si ya está en la locación, elegí "No requiere movilización".`);
+      item.focus = 'logistics.notApplicable';
+      item.targets = travelling.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e) }));
+      items.push(item);
+    }
+  }
   if (!logistics.notApplicable && equipment.length > 0) {
     const mob = computeMobilization(equipment, { notApplicable: false, routeKmPerActivation: nonNegative(logistics.distanceKm), vehicles, labor });
     const pending = equipment.filter((e) => !(isExt(e) && extOf(e).mobilizationIncluded === true) && !(isPlainObject(e.mobilization) && e.mobilization.mode));
@@ -327,6 +381,52 @@ export function evaluateCompleteness(quote = {}) {
         `Falta definir la ruta/distancia para calcular este proveedor: ${names(routeless)} (tarifa por ${extOf(routeless[0]).unit === 'km' ? 'km' : 'viaje'}). ${logistics.notApplicable ? 'Marcaste "Sin traslados".' : !(oneWayKm > 0) ? 'Cargá la distancia de ida en "Movilización y viajes".' : 'No hay viajes en la cotización.'} Hasta entonces no suma costo.`);
       item.focus = routeFocus;
       item.targets = routeless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
+      items.push(item);
+    }
+  }
+
+  // 9c''. Externo por hora sin horas por día (Test Lab, PLAN-2026-013): CRÍTICO, igual que la
+  // ruta faltante. Su tarifa no se puede calcular: nunca es un $ 0 válido.
+  const activityHours = Math.min(nonNegative(activity.hoursPerActiveDay), 24);
+  const hourless = equipment.filter((e) => {
+    if (!isExt(e)) return false;
+    const x = extOf(e);
+    if (x.unit !== 'hour' || !(nonNegative(x.price) > 0) || nonNegative(x.minimumUnits) > 0 || !(nonNegative(e.quantity) > 0)) return false;
+    const hours = isBlank(e.hoursPerActiveDay) ? activityHours : nonNegative(e.hoursPerActiveDay);
+    return !(hours > 0);
+  });
+  if (hourless.length) {
+    const first = hourless[0];
+    const inherits = isBlank(first.hoursPerActiveDay);
+    const names = hourless.slice(0, 3).map((x) => `"${lineName(x, 'Externo')}"`).join(', ');
+    const item = rule('external_hours', 'Horas del proveedor', inherits ? 'modality' : 'equipment', 2, 'missing',
+      `Falta cuántas horas por día trabaja ${names} (tarifa por hora): sin horas no suma costo. ${inherits ? `Cargá "${activityHoursLabel}" en "Cómo se cobra" o sus "Horas de uso por día activo" en "Equipos".` : 'Cargá sus "Horas de uso por día activo" en "Equipos".'}`);
+    item.focus = inherits ? 'activity.hoursPerActiveDay' : `equipment.${equipment.indexOf(first)}.hoursPerActiveDay`;
+    item.targets = hourless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
+    items.push(item);
+  }
+
+  // 9c'''. Unidades que recorren la ruta (viaje, km) y la ruta de la cotización (Test Lab, PLAN-2026-013).
+  // "Sin traslados" con viajes vendidos, o más km facturados que los que recorre la ruta (los costos
+  // por km quedarían cortos): dos datos que describen realidades incompatibles. Se avisa (no se deriva:
+  // ver PLANS.md). Una ruta con MÁS km que los facturados (vuelta vacía) no se avisa: es lo físico.
+  if (unit.id === 'trip' || unit.id === 'km') {
+    const billed = nonNegative(activity.billableQuantityPerMonth);
+    const activations = normalizeActivity(quote).activationsPerMonth;
+    const routeKmPerMonth = activations * routeKmPerActivation;
+    const fmtN = (n) => formatNumber(n, { decimals: 2 });
+    let message = null;
+    let focus = null;
+    if (logistics.notApplicable && billed > 0) {
+      message = `Cobrás por ${unit.plural} pero marcaste "Sin traslados": los ${unit.plural} que vendés no tienen ${unit.id === 'km' ? '' : 'km ni '}costos de ruta (combustible, desgaste, peajes, proveedores por km). Si hay viajes, desmarcalo y cargá la ruta.`;
+      focus = 'logistics.notApplicable';
+    } else if (unit.id === 'km' && billed > 0 && oneWayKm > 0 && billed - routeKmPerMonth > Math.max(1, billed * 0.01)) {
+      message = `Facturás ${fmtN(billed)} km por mes pero la ruta recorre ${fmtN(routeKmPerMonth)} km (${fmtN(activations)} ${activations === 1 ? 'llamado' : 'llamados'} × ${fmtN(route.tripsPerActivation)} ${route.tripsPerActivation === 1 ? 'viaje' : 'viajes'} × ${fmtN(oneWayKm * (logistics.roundTrip === false ? 1 : 2))} km por viaje): los costos por km (proveedor, combustible, desgaste) se calculan con los km de la ruta y quedan cortos si el equipo recorre los km que facturás. Ajustá "Viajes por llamado" o la distancia.`;
+      focus = 'logistics.tripsPerActivation';
+    }
+    if (message) {
+      const item = rule('route_consistency', 'Viajes y km de la ruta', 'logistics', 1, 'warning', message);
+      item.focus = focus;
       items.push(item);
     }
   }
@@ -408,8 +508,10 @@ export function evaluateCompleteness(quote = {}) {
 
   // 11. Plazo de pago
   const termOk = !isBlank(finance.paymentTermDays) && Number.isFinite(toNumber(finance.paymentTermDays, NaN));
-  items.push(rule('payment_term', 'Plazo de pago', 'finance', 2, termOk ? 'ok' : 'missing',
-    termOk ? 'Plazo de cobro definido.' : 'Falta el plazo de cobro para completar el costo financiero: mientras tanto sólo se considera el desfase hasta facturar.'));
+  const termItem = rule('payment_term', 'Plazo de pago', 'finance', 2, termOk ? 'ok' : 'missing',
+    termOk ? 'Plazo de cobro definido.' : 'Falta el plazo de cobro para completar el costo financiero: mientras tanto sólo se considera el desfase hasta facturar.');
+  if (!termOk) termItem.focus = 'finance.paymentTermDays';
+  items.push(termItem);
 
   // 12. Contingencia
   const contOk = contingencyPctOf(quote.risk || {}) > 0;
@@ -426,7 +528,7 @@ export function evaluateCompleteness(quote = {}) {
   const marginInvalid = marginRead.state === 'invalid';
   const marginTooHighWithTaxes = !marginBlank && !marginInvalid && !isValidMarginAndTaxes(marginValue, taxes.pct);
   const marginPositive = !marginBlank && !marginInvalid && marginValue > 0;
-  items.push(rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid || marginTooHighWithTaxes ? 'missing' : marginPositive ? 'ok' : 'warning',
+  const marginItem = rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid || marginTooHighWithTaxes ? 'missing' : marginPositive ? 'ok' : 'warning',
     marginBlank
       ? 'Falta definir el margen objetivo.'
       : marginInvalid
@@ -435,7 +537,9 @@ export function evaluateCompleteness(quote = {}) {
           ? `Con ${formatPercent(taxes.pct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - taxes.pct)}.`
           : marginPositive
             ? 'Margen objetivo definido.'
-            : 'Margen objetivo en 0 %: cotizás sin ganancia.'));
+            : 'Margen objetivo en 0 %: cotizás sin ganancia.');
+  if (!marginPositive || marginTooHighWithTaxes) marginItem.focus = 'pricing.targetMarginPct';
+  items.push(marginItem);
 
   // 13b. Impuestos sobre lo que facturás (Ingresos Brutos, débitos y créditos, sellos…)
   items.push(rule('billing_taxes', 'Impuestos sobre lo que facturás', 'margin', 1,
@@ -501,6 +605,32 @@ export function evaluateCompleteness(quote = {}) {
   equipment.forEach((e, index) => {
     if (!isExt(e)) sharedNotice(e, 'equipment', index, 'Equipo');
   });
+  // Puesto con sueldo y 0 posiciones: no suma costo (Test Lab, PLAN-2026-013).
+  labor.forEach((l, index) => {
+    if (nonNegative(l.basicMonthly) > 0 && !(nonNegative(l.positions) > 0)) {
+      const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+      notices.push({
+        id: 'labor_no_positions',
+        step: 'labor',
+        severity: 'info',
+        label: 'Puesto sin posiciones',
+        message: `"${name}" tiene sueldo pero 0 posiciones: no suma costo. Si trabaja en el servicio, cargá cuántas posiciones; si no, quitá la línea.`,
+        focus: `labor.${index}.positions`,
+        targets: [{ list: 'labor', index, name }],
+      });
+    }
+  });
+  // "El servicio no usa materiales" con materiales cargados: esas líneas no se suman.
+  if (quote.materialsNotApplicable && materials.length > 0) {
+    notices.push({
+      id: 'materials_ignored',
+      step: 'materials',
+      severity: 'info',
+      label: 'Materiales sin sumar',
+      message: `Marcaste "el servicio no usa materiales" y hay ${materials.length === 1 ? '1 material cargado' : `${materials.length} materiales cargados`}: no se suman al costo. Si los usás, desmarcá esa opción.`,
+      focus: 'materialsNotApplicable',
+    });
+  }
   equipment.forEach((e, index) => {
     if (!isExt(e) && nonNegative(e.replacementValue) > 0 && !(nonNegative(e.capitalRatePctAnnual) > 0)) {
       notices.push({

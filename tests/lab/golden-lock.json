@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "note": "Huellas de los golden cases aprobados (PLAN-2026-013). Test Lab nunca las actualiza: si un caso cambia es un cambio de regla de negocio que se documenta y aprueba antes.",
+  "cases": {
+    "break-even-inalcanzable": {
+      "sha256": "ff04cef764f1cdd88c16afc6bc3ed6dd8eeec67b6c2032df5dafadf6742857e1",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "caso-demo-referencia": {
+      "sha256": "8b60f7230745d9051efce71c73b3adbcaa2f34d58c962fac304238aa46a8bce9",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "conversion-margen-a-markup": {
+      "sha256": "22748652c19915adad7c8c3632d6c25dcadddc77fef5bb99f1be10049494c37e",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "conversion-markup-a-margen": {
+      "sha256": "90c142279d975e3e7aafb5f58df618bf20c24fd9d7833046b71c20ee0cbd154c",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "costo-financiero-simple": {
+      "sha256": "542235d622a4d6f03186e42745df77484a8d7cf341cd9c0c1e950285080940ec",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "cot-0009-prueba-real": {
+      "sha256": "2c5a910ba53cdc9bbb64709e5fc12d2ca2f2b582789fe540ae85774330589d93",
+      "approved": "PLAN-2026-010 (v0.7.0)"
+    },
+    "cot-0010-transporte-1-viaje-por-dia": {
+      "sha256": "7ac5b215f3aec8e953d0c35aaa7c11ea1281dd6a18bc9db3732ecc28f777fca4",
+      "approved": "PLAN-2026-012 (v0.7.2)"
+    },
+    "cot-0010-transporte-3-viajes-por-dia": {
+      "sha256": "fe1b0750202b49c7a73c18d6cc031aa4909db0bd4f4a24f8a44ad25250eabecb",
+      "approved": "PLAN-2026-012 (v0.7.2)"
+    },
+    "cot-0011-transporte-2-viajes-por-dia": {
+      "sha256": "3b28ef2d1a6319ce679fad5839e2f534c1a85f042fa1cb6f180b29852a296b3d",
+      "approved": "PLAN-2026-012 (v0.7.2)"
+    },
+    "cot-0011-viajes-por-llamado-inconsistente": {
+      "sha256": "1a5cab28ebbcf369d561d0df6f907cd288a878df3e04c697b512d7e6f3f11a49",
+      "approved": "PLAN-2026-012 (v0.7.2)"
+    },
+    "externo-alquiler-iva-no-recuperable": {
+      "sha256": "2376fb18aadd34b839ef7199209e4e94a068867a6c76a6ad5ef1c81b52d08df4",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "externo-alquiler-iva-recuperable": {
+      "sha256": "1905eb36d71428ae18b5565218431a67c1dfd76d5989873063d016a6d133d1ed",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "externo-minimo-por-llamado": {
+      "sha256": "8e638680c13e2ae36cbefbaddffbfe1532ccddff189c033e0b0fe79738c9b1b3",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "ganancia-sobre-costo-con-impuestos": {
+      "sha256": "dc9709d951cf810920f0397f39498e4ea25d88f192c686c16646a9b3df01804e",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "gross-up-impuestos-facturacion": {
+      "sha256": "f343b79902a56cc59c912f16f8778dd2cae94e07d9580d4bec3593c1edef2a3a",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "margen-10-sobre-precio": {
+      "sha256": "5508c0d7f54b81624d841ad19749c357a408243cabdb53c9cd2ce3afc6abe8e3",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "markup-10-sobre-costo": {
+      "sha256": "391d40c958e2db8fbc26fe936bd214688e551b32eba0868172f39c9a28c8620a",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "markup-con-impuestos": {
+      "sha256": "eeaf4a11aac8918a0a44e200cafefeca79b97cbf7a34569ca29075ad2c9a27fb",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "minimo-garantizado-break-even-robusto": {
+      "sha256": "923c19bb9742156f8d03bb17a56402f14a611d290518a07b934594aa7db22552",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "modo-b-margen-objetivo": {
+      "sha256": "f89b87a89ee7eeb38e4ad43491cc55cf1b9c0caca362e9aa1c4b3866604d884a",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "movilizacion-autopropulsada-160km": {
+      "sha256": "162df0b5f6ba568b22ca15c36fe1db875ed157deefb284a5f57e65c1352c2389",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "on-call-basico-cotizacion": {
+      "sha256": "06c2fc9c00dffa7dcd6c7c07949142cf4410f1e00714cebbbced65f15feb740d",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "on-call-basico": {
+      "sha256": "cce27977b62942229f23e09249d5fca3f8ef8cac867c2b8f4bf5825b3b464d9e",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "on-call-break-even-con-impuestos": {
+      "sha256": "37824a0227ffcec80cc25e6480a290563cb013d2ebdb2484b645f4d7e7bd8513",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "on-call-cotizacion-con-impuestos": {
+      "sha256": "135eecb0a9a155269221430ea591831fcdf2becb931d974687c0ae3189581995",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "on-call-fee-disponibilidad": {
+      "sha256": "f3aa7f8423020d7c0cb1fa787bfb7676161e8bff949bd78ac626c581042950e6",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "on-call-tarifa-minima-6-dias-con-impuestos": {
+      "sha256": "c0b2bd6e650f0fe769c76eb6ba3c868134e2664d6c71832f418eae4687d0c76f",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "on-call-tarifa-minima-6-dias": {
+      "sha256": "1b6ba33f5c6e83e2c4d0eecc1a31656c12970a23206091d01cbc1372b2d21636",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "producto-chipa-costo-y-precio": {
+      "sha256": "2ffd5de5b0719ad8e5cc081a08cfcddbd0077aa6e6332fcbed528afaf056afdc",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "tarifa-margen-10-con-10-dias": {
+      "sha256": "3e17b854eb06201c8ca9e636dc0fb1608a627a5aa1e0aa5ccefaa3809f9c20a8",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "tarifa-piso-8-dias": {
+      "sha256": "a5b1c97261bc92a700a44fb37f4d15cf5adf968d9c0f5cc03bd02399897c7466",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "tarifa-piso-con-impuestos": {
+      "sha256": "9f39731f1fd6b756315b83d55409097757dce07dd2f9033bdaf9c0faafc1909f",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "unidad-bombeo-m3": {
+      "sha256": "798713459b9ed1d785916d0fddd643a78125546017809247ebe957e47f2825b6",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "unidad-inspeccion-unidad": {
+      "sha256": "5d28f38d306a9689deec4fd9dd041f07258cb896822eb46ac3258130072cf0da",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "unidad-movimiento-suelo-m3": {
+      "sha256": "5f9fafdf1067b790afdb1e15408743befb284793bf66eb51d3040a549c810e03",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "unidad-on-call-dia": {
+      "sha256": "df37856f9ce766bf301ef55dbea5ea31afeccff2cd23129f84af1fa1089ad2d2",
+      "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "unidad-transporte-viaje": {
+      "sha256": "1a185a8ae73d9d736281c10b4129cbca839a43c43ae42873db159344f1d0988d",
+      "approved": "aprobado antes de PLAN-2026-013"
+    }
+  }
+}

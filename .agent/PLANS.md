@@ -112,6 +112,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-010 | Auditoría y pulido desde una cotización real (COT-0009): financiación de externos con IVA, trazabilidad y UX que evita cotizar mal | motor de costos, margen, migración | Completado (v0.7.0) |
 | PLAN-2026-011 | "Cada salida se cuenta completa" (opcional) y plazo de pago por proveedor externo | motor de costos, utilización, migración | Completado (v0.7.1) |
 | PLAN-2026-012 | Pulido desde casos reales de transporte (COT-0010 / COT-0011): viajes físicos, km del proveedor, combustible, recursos compartidos y "Usado en" | motor de costos, utilización, migración | Completado (v0.7.2) |
+| PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | En revisión (PR sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -867,3 +868,68 @@ Economía (viajes físicos = facturables sin mínimo, % de fijos explícito, com
 #### Bitácora
 - 2026-10-16: reproducción de COT-0010 / COT-0011 y de los hallazgos contra `main` (6cc1ca5); plan registrado.
 - 2026-10-16: implementado. Golden COT-0010 / COT-0011 (1, 2 y 3 viajes por día y el caso inconsistente) al peso; foto de 99 casos idéntica a `main`; COT-0009 golden sin cambios; completitud de COT-0010 / COT-0011 92 % → 100 %. E2E desktop y mobile (transporte, ruta faltante con foco en el campo, combustible por km, personal compartido 25 %, equilibrio sin fijos y "Usado en").
+
+### PLAN-2026-013 — RATEOS Test Lab v1 (QA, simulación y auditoría internas)
+
+- Estado: En revisión (PR sin merge; el dueño decide)
+- Tipo: otro — infraestructura interna de QA. **No es una funcionalidad visible de RATEOS** y no se publica en `dist/`.
+- Responsable: agente de desarrollo (Claude) · revisión del dueño antes de cualquier merge
+- Fecha de inicio: 2026-10-16
+- Rama / PR: `claude/rateos-test-lab-v1` · sin auto-merge ni deploy
+
+#### 1. Contexto
+Las auditorías manuales (COT-0009, COT-0010/0011) encontraron inputs contradictorios, resultados posibles pero conceptualmente mal, avisos imposibles de resolver, combustible pedido aunque estaba incluido, costos en $ 0 por un driver faltante y confusión entre viajes, intervenciones, días y km. Test Lab automatiza ese trabajo: RATEOS intenta romperse a sí mismo.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: evaluar por separado (una dimensión nunca reemplaza a otra) **MATH** (oráculo independiente), **DRIVERS** (cada costo sigue su driver), **INPUTS** (contradicciones), **COMPLETITUD** (faltantes reales, nunca inexistentes), **UX** (avisos resolubles, terminología, consistencia entre pantallas, responsive) y **MERCADO** (plausibilidad, sólo informativa).
+- **El mercado no define la fórmula**: una referencia externa distinta nunca cambia una fórmula; produce "MARKET: REVIEW" para revisar los inputs.
+- Fuera de alcance: cambiar reglas económicas ambiguas, política comercial o fórmulas por diferencias de mercado (quedan como HUMAN DECISION REQUIRED); funcionalidades nuevas del producto.
+
+#### 3. Impacto en fórmulas
+Ninguno por diseño. Si la campaña demuestra un bug, se corrige con el protocolo de AGENTS.md §6 (test que falla antes, golden, suite, CHANGELOG y CALCULATION_RULES) y queda en esta misma rama.
+
+#### 4. Impacto en datos
+Ninguno: no cambia `SCHEMA_VERSION` ni el formato. Escenarios 100 % sintéticos (más los golden ya aprobados); nunca datos de clientes.
+
+#### 5. Diseño (se extiende lo existente: `node --test`, golden cases, fixtures, Playwright de los E2E)
+- `tests/lab/lib/`: `rng` (PRNG con seed), `oracle` (oráculo económico **independiente**: no importa `js/engines/`; fórmulas cortas escritas desde `docs/CALCULATION_RULES.md`), `product-oracle`, `invariants` (propiedades y relaciones metamórficas), `ux-audit` (contradicciones, avisos resolubles, cero silencioso, no aplica, completitud, terminología, trazabilidad), `coverage` (lee los catálogos del proyecto), `market` (referencias offline → PLAUSIBLE / REVIEW / UNKNOWN), `classify` y `report` (JSON + Markdown), `golden-lock` (candado de los golden).
+- `tests/lab/scenarios/`: campaña estable curada (IDs fijos) y generador con seed (pairwise) para la campaña extendida.
+- `tests/lab/*.test.js` (**FAST GATE**, dentro de `npm test`): candado de golden, oráculo vs motor, invariantes, cobertura y consistencia determinística.
+- `scripts/run-lab.mjs`: `npm run test:lab` (estable) y `npm run test:lab:extended` (seed, 100+ escenarios, mercado). Reportes en `reports/lab/` (ignorado por git; artefacto de CI).
+- `tests/lab/e2e/`: auditoría en navegador (escritorio y celular) con el Supabase simulado: cada aviso lleva a un campo real, mismos números en formulario, resumen, "Ver cálculo" y resultado, sin scroll horizontal, sin NaN, controles no tapados.
+- `.github/workflows/test-lab.yml`: **PR GATE** (lab estable + E2E principales + build) en cada PR; **EXTENDED LAB** sólo manual (`workflow_dispatch`), listo para correr antes de una release o por schedule. Playwright se instala sólo en ese job (versión fija, sin tocar `package.json`: RATEOS sigue con cero dependencias).
+
+#### 6. Pasos
+- [x] 1. Candado de golden + oráculo independiente.
+- [x] 2. Escenarios (todos los tipos de servicio y unidades, productos, edge cases) + cobertura automática.
+- [x] 3. Invariantes y auditor UX determinístico + trazas de drivers.
+- [x] 4. Runner, reportes, mercado, E2E y CI.
+- [x] 5. Primera campaña: triage, fixes permitidos (con test que falla antes), re-ejecución.
+- [x] 6. Docs (`docs/TEST_LAB.md`), PR sin merge e informe.
+
+#### 7. Tests
+Los del propio lab (FAST GATE) + `npm test` completo antes y después de cada fix; golden intactos.
+
+#### 8. Riesgos y mitigación
+| Riesgo | Mitigación |
+|---|---|
+| El oráculo copia el motor (falsa seguridad) | No importa `js/engines/`; un test de arquitectura lo verifica |
+| Lab frágil en cada PR | Campaña estable con IDs fijos; lo exploratorio va al Extended Lab (manual) |
+| Actualizar un golden "porque cambió" | Candado con hash por caso: si cambia, FAIL con explicación |
+| Datos sensibles en reportes | Sólo datos sintéticos; el reporte se escanea y falla si aparece algo con forma de secreto |
+
+#### 9. Rollback
+Revert del PR: no toca datos ni el sitio publicado.
+
+#### 10. Review multidisciplinario
+Economía (el oráculo sigue CALCULATION_RULES), QA (casos extremos y propiedades), Seguridad (sin secretos ni PII, CI sin permisos de escritura), UX (auditor de avisos y consistencia). Se deja escrito en el PR.
+
+#### 11. Documentación
+- [x] docs/TEST_LAB.md (nuevo)  - [x] README.md (comandos)  - [x] CHANGELOG.md (hubo fixes del producto)  - [x] CALCULATION_RULES.md §19 y §20
+
+#### Bitácora
+- 2026-10-16: inventario del repo (11 tipos de servicio, 18 unidades de facturación en 5 familias, 7 unidades de externos, 3 formas de consumo de externos, propios / alquilados / tercerizados, 6 métodos de estructura + desglose, 5 grupos de pago, impuestos combinados / detalle / no aplica, asignación de personal y equipos, completitud con 20 reglas, productos con 6 unidades de medida); plan registrado. Base: `main` `bd75c8c` (v0.7.2, esquema 9).
+- 2026-10-16: Test Lab construido. Primera campaña estable (68 escenarios + 19 sondas): 9 hallazgos P0/P1 y 4 P2 que bloqueaban el gate; extendida (seed 20261016, 188): los mismos más variantes generadas. Ningún golden cambió (37/37 y candado OK). El oráculo coincidió con el motor en todos los costos, tarifas y equilibrios; la única diferencia real fue un indicador (externos con salidas completas, LAB-F1). Tres diferencias resultaron ser del lab, no del motor (INV-10 comparaba proveedores por día, INV-25 caía en un salto de tramo, el oráculo no veía una ventana de pérdida justo después de un quiebre): se corrigió el lab.
+- 2026-10-16: fixes con el protocolo (test que falla antes en `tests/engines/lab-findings.test.js`, 22 tests): LAB-F1 indicador de externos; F2 combustible con "Sin traslados"; F3 km facturados > km de ruta (sólo cuando faltan costos: una vuelta vacía no se avisa); F4 viaje/km con "Sin traslados"; F5 "Sin traslados" con equipo que viaja; F6 externo $/hora sin horas (crítico); F7 cobro por hora sin horas (crítico); F8 material con precio y cantidad 0 + validación de materiales; F9 avisos informativos (puesto sin posiciones, materiales ignorados); F10/F11 botón al campo exacto; F12 "Ir al campo" dentro del paso usa el `focus` del motor. Ninguno cambia un costo ni una tarifa.
+- 2026-10-16: decisiones del dueño registradas (no se inventa la regla): LAB-D1 menos de una salida por mes; D2 horas por día mayores que la jornada; D3 productos sin financiación; D4 derivar km de la ruta; D5 equipo propio que no usa combustible; D6 huecos de CALCULATION_RULES; D7 precio ILUSTRATIVO del combustible frente al mercado; D8 "llamado / salida / intervención".
+- 2026-10-16: estado final: estable y extendida (seeds 20261016, 7 y 42) sin P0/P1/P2; navegador escritorio y celular 352/352 controles; `npm test` en verde.

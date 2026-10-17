@@ -314,11 +314,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     return acc;
   }, { economic: 0, cash: 0, credit: 0 });
   if (roundingOn && rounding.bySource.external) {
-    // Lo que se le paga de más al proveedor por las salidas completas (costo y caja).
-    const extCash = model.lines.filter((l) => l.source === 'external').reduce((acc, l) => acc + nonNegative(l.cashDiscretePerActivation), 0) * rounding.extraActivations;
-    externalMonthly.economic += rounding.bySource.external;
+    // Lo que se le paga de más al proveedor por las salidas completas (costo y caja):
+    // sólo su tarifa y su movilización. El combustible no incluido en la tarifa va a
+    // "Combustible", igual que arriba (Test Lab LAB-F1, PLAN-2026-013).
+    const extLines = model.lines.filter((l) => l.source === 'external' && l.category === 'external');
+    const extEconomic = extLines.reduce((acc, l) => acc + nonNegative(l.discretePerActivation), 0) * rounding.extraActivations;
+    const extCash = extLines.reduce((acc, l) => acc + nonNegative(l.cashDiscretePerActivation), 0) * rounding.extraActivations;
+    externalMonthly.economic += extEconomic;
     externalMonthly.cash += extCash;
-    externalMonthly.credit += Math.max(0, extCash - rounding.bySource.external);
+    externalMonthly.credit += Math.max(0, extCash - extEconomic);
   }
   const commercialNetRate = estimate.revenue.netRate;
   const hoursPerDay = activity.hoursPerActiveDay;
