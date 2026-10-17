@@ -27,6 +27,11 @@ npm run build && npm run test:lab:e2e   # auditoría en navegador (escritorio 13
 
 `--fail-on`: `gate` (estable, por defecto), `P0` (extendida, por defecto), `P1` o `none` (sólo reporta). La auditoría en navegador busca Playwright en `PLAYWRIGHT_MODULE`, en una instalación global o en `/opt/node22`; nunca lo agrega a `package.json`.
 
+Si la auditoría en navegador corre en segundo plano:
+
+- Sirve `dist/`: hacé el build **antes** y no lo regeneres mientras corre. Si `dist/` se reescribe a mitad de la corrida, las pantallas que se cargan en ese momento fallan ("No se pudo mostrar la pantalla") y aparecen rojos falsos.
+- Para esperar a que termine, esperá por su PID, con un tope de tiempo: `node tests/lab/e2e/ui-lab.mjs & pid=$!` y después `for i in $(seq 240); do kill -0 "$pid" 2>/dev/null || break; sleep 5; done` (20 minutos como máximo). No uses `until ! pgrep -f "ui-lab.mjs"` dentro de un comando que contenga ese texto: `pgrep -f` también encuentra la línea de comando del propio bucle (y la de su shell padre), así que el bucle nunca termina solo y se corta recién por timeout.
+
 ## Estructura
 
 ```
