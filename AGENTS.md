@@ -149,7 +149,9 @@ Hay tests que lo protegen. No los borres.
 - Toda persistencia pasa por `StorageRepository` (`js/data/storage-repository.js`). Los datos de una **cuenta** los guarda `SupabaseRepository` (un workspace JSON versionado por organización en `workspace_states`, con control de revisión); `LocalStorageRepository` es la base de ambos y el modo local anterior. La **demo** pública vive en memoria y **nunca** se guarda ni se importa a una cuenta.
 - El estado tiene `schemaVersion`. En el modo local anterior vivía en `rateos.state` (esa clave no se borra nunca: se ofrece importar sus datos reales a la cuenta, sin demo ni ILUSTRATIVOS, con copia previa).
 - Nunca decir "guardado" si el cambio sólo quedó en el navegador. Nunca *last-write-wins* silencioso: un conflicto de revisión se muestra ("Tus datos cambiaron en otro dispositivo." → [Recargar] [Conservar una copia]).
-- Lo que una cuenta deja en el navegador (copia de cambios sin subir, copias de recuperación) va con prefijo de usuario y organización (`rateos.cloud.<usuario>.<organización>…`): otra persona en el mismo navegador nunca lo ve.
+- Lo que una cuenta deja en el navegador (copia de cambios sin subir, copias de recuperación) va con prefijo de usuario y organización (`rateos.cloud.<usuario>.<organización>…`): otra persona en el mismo navegador nunca lo ve. La copia de cambios sin subir es **una por pestaña**: una pestaña nunca borra ni pisa la de otra.
+- Datos de la nube que una versión no puede leer (dañados o con estructura inesperada) se abren en **sólo lectura**: nunca se reemplazan solos por un espacio vacío o "reparado". El `organizationId` que mande el cliente o un archivo nunca decide: toda escritura de una cuenta queda en su organización (el límite real es RLS).
+- Al cerrar o cambiar de cuenta en una pestaña no queda nada de la sesión anterior en pantalla ni en la memoria de las vistas (borradores por cuenta).
 - Si cambia el formato: subir `SCHEMA_VERSION`, agregar `migrateV{N}ToV{N+1}()` en `js/data/migrations.js`, tests con datos de la versión anterior y entrada en el CHANGELOG.
 - **Nunca** usar `localStorage.clear()`. **Nunca** borrar datos porque cambió la estructura: se migran, y antes se guarda una copia de recuperación.
 - Datos de una versión más nueva de RATEOS → modo sólo lectura.
@@ -177,6 +179,7 @@ Hay tests que lo protegen. No los borres.
 - Minimizar dependencias: hoy hay **cero** dependencias npm (el SDK de Supabase está vendorizado en `js/data/vendor/` con hash verificado; actualizarlo es un cambio explícito). No agregar paquetes sin una razón fuerte y documentada.
 - El origen `joaquinvedova1.github.io` es compartido por todos los sitios de Pages de esa cuenta (comparten `localStorage`, incluida la sesión de Supabase): no publicar en esa cuenta sitios no confiables; antes de tener clientes, usar un dominio propio.
 - Enlaces de email de Auth: sólo PKCE (`?code=`, query antes del `#`); nunca aceptar `?token_hash=` ni redirecciones `next` que no sean rutas internas (`isSafeNextPath`).
+- **Beta Security Gate** (`npm run test:security`, también dentro de `npm test` y en CI) y los tests de negación en la base (`supabase/tests/beta_security_test.sql`, `rls_test.sql`, `rls_admin_test.sql`) deben pasar antes de cada release. Ver [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md).
 
 ## 14. Privacidad
 

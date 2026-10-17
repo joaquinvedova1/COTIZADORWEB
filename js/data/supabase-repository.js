@@ -17,9 +17,17 @@
  *   visible (nunca last-write-wins silencioso); se bloquean más escrituras
  *   hasta que la persona elija recargar o conservar una copia.
  * - Copia local recuperable: mientras haya cambios sin subir, el estado se
- *   guarda en localStorage (rateos.cloud.<usuario>.<organización>). Al
- *   volver (otra pestaña, recarga, sin conexión, sesión vencida) se retoma.
- *   Cuando la nube confirma, la copia se borra.
+ *   guarda en localStorage, UNA COPIA POR PESTAÑA
+ *   (rateos.cloud.<usuario>.<organización>.pending.<pestaña>): una pestaña
+ *   nunca pisa ni borra los cambios sin subir de otra. Al volver (recarga,
+ *   otra pestaña, sin conexión, sesión vencida) se retoma la más nueva hecha
+ *   sobre la revisión actual de la nube; las demás quedan en copias de
+ *   recuperación. Cuando la nube confirma, la pestaña borra SU copia.
+ * - Datos de la nube que esta versión no puede leer (dañados o con estructura
+ *   inesperada): se abren en sólo lectura y NUNCA se reemplazan solos por un
+ *   espacio vacío o "reparado"; queda una copia en este navegador.
+ * - Toda escritura deja cada entidad con la organización de la cuenta: nunca
+ *   se confía en el organizationId que traiga el cliente o un archivo.
  * - Las copias de recuperación (antes de importar, conflictos) van al
  *   localStorage del navegador con un prefijo propio de la cuenta
  *   (rateos.cloud.<usuario>.<organización>.recovery.): otra persona que use
@@ -27,6 +35,7 @@
  */
 
 import { STORAGE_KEYS } from '../config.js';
+import { createId } from '../core/ids.js';
 import { logger } from '../core/logger.js';
 import { LocalStorageRepository } from './local-storage-repository.js';
 import { MemoryStorage } from './memory-storage.js';
@@ -37,6 +46,8 @@ import { defaultSettings } from '../domain/quote-factory.js';
 import { deepClone, isPlainObject } from '../core/object.js';
 
 const WORKSPACE_KEY = 'rateos.workspace';
+/** Estados de apertura en los que la base cambió datos que no pudo leer (vacío o reparado). */
+const UNREADABLE_STATUSES = new Set(['recovered', 'repaired']);
 const RETRY_DELAYS_MS = Object.freeze([3000, 10000, 30000, 60000]);
 
 /** Métodos que escriben: en la nube esperan la confirmación del guardado. */
@@ -53,8 +64,22 @@ const SYNC_MESSAGES = Object.freeze({
   [WORKSPACE_ERRORS.network]: 'No pudimos sincronizar tus cambios. Quedaron guardados en este navegador y vamos a reintentar.',
   [WORKSPACE_ERRORS.forbidden]: 'Tu rol en esta empresa no permite guardar cambios.',
   [WORKSPACE_ERRORS.tooLarge]: 'Los datos superan el máximo que se puede guardar (5 MB). Exportá un backup y eliminá cotizaciones que no uses.',
+  [WORKSPACE_ERRORS.notFound]: 'Ya no tenés acceso a esta empresa. Tus cambios sin subir quedaron guardados en este navegador. Si creés que es un error, hablá con quien administra la cuenta de tu empresa.',
   [WORKSPACE_ERRORS.unknown]: 'No pudimos sincronizar tus cambios. Quedaron guardados en este navegador y vamos a reintentar.',
 });
+
+/** Código del error de sincronización cuando la cuenta perdió el acceso a la empresa (membresía quitada). */
+export const ACCESS_LOST_CODE = 'access_lost';
+
+/** La nube tiene datos que esta versión no puede leer: no se tocan. */
+export const UNREADABLE_CLOUD_MESSAGE = 'Los datos de tu empresa en la nube tienen una estructura que esta versión de RATEOS no puede leer. Para no dañarlos no se modificó nada y se abren en sólo lectura. Guardamos una copia en este navegador (Configuración → Datos y backup → Copias de recuperación). Contactá a soporte antes de seguir cargando datos.';
+
+/** Cambios sin subir de este navegador que no se pudieron leer: se abre la nube. */
+const UNREADABLE_LOCAL_MESSAGE = 'Había cambios sin subir en este navegador que esta versión no pudo leer. Quedaron en una copia de recuperación (Configuración → Datos y backup) y se abrió la versión de la nube.';
+
+const OTHER_TAB_MESSAGE = 'Había cambios sin subir de otra pestaña de este navegador. Abrimos los más recientes; los demás quedaron en una copia de recuperación (Configuración → Datos y backup).';
+
+const CONFLICT_AT_LOAD_MESSAGE = 'Tus datos cambiaron en otro dispositivo mientras había cambios de este navegador sin subir. Abrimos la versión más nueva; tus cambios quedaron en una copia de recuperación (Configuración → Datos y backup).';
 
 /** Estado inicial de una cuenta nueva: la organización real y NADA de demo. */
 export function emptyWorkspaceState({ id, name }, now = new Date().toISOString()) {
@@ -83,6 +108,17 @@ export function cloudRecoveryPrefix(userId, organizationId) {
   return `${cloudCacheKey(userId, organizationId)}.recovery.`;
 }
 
+/**
+ * Cambios sin subir de una cuenta, una clave por pestaña:
+ * rateos.cloud.<usuario>.<organización>.pending.<pestaña>. (Hasta v0.8.0 había
+ * una sola clave, cloudCacheKey(): se sigue leyendo para no perder nada.)
+ */
+export function cloudPendingPrefix(userId, organizationId) {
+  return `${cloudCacheKey(userId, organizationId)}.pending.`;
+}
+
+const TAB_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+
 export class SupabaseRepository extends LocalStorageRepository {
   /**
    * @param {{
@@ -93,9 +129,10 @@ export class SupabaseRepository extends LocalStorageRepository {
    *   cacheStorage?: Storage|null,   localStorage del navegador (copia recuperable y copias de recuperación)
    *   now?: () => string, idFactory?: () => string, appVersion?: string,
    *   timers?: { setTimeout: Function, clearTimeout: Function },
+   *   tabId?: string,   identificador de esta pestaña (por defecto, uno nuevo)
    * }} options
    */
-  constructor({ gateway, organization, userId, role, cacheStorage = null, now, idFactory, appVersion = 'dev', timers = globalThis, confirmSchemaUpgrade = null }) {
+  constructor({ gateway, organization, userId, role, cacheStorage = null, now, idFactory, appVersion = 'dev', timers = globalThis, confirmSchemaUpgrade = null, tabId = null }) {
     const memory = new MemoryStorage();
     const nowFn = typeof now === 'function' ? now : () => new Date().toISOString();
     super(memory, {
@@ -114,6 +151,10 @@ export class SupabaseRepository extends LocalStorageRepository {
     this.userId = userId;
     this.role = role;
     this.cacheStorage = cacheStorage;
+    /** Esta pestaña: su copia de cambios sin subir es sólo suya. */
+    this.tabId = typeof tabId === 'string' && TAB_ID_RE.test(tabId) ? tabId : createId();
+    /** La nube tiene datos que esta versión no puede leer (se abren en sólo lectura). */
+    this.cloudUnreadable = false;
     this.timers = timers;
     this.revision = 0;
     this.dirty = false;
@@ -125,6 +166,8 @@ export class SupabaseRepository extends LocalStorageRepository {
     this.retryTimer = null;
     this.retryIndex = 0;
     this.disposed = false;
+    /** La cuenta dejó de ser miembro de la empresa (la nube ya no muestra su workspace). */
+    this.accessLost = false;
     this.loading = true;
     this.wrapWriteMethods();
   }
@@ -154,36 +197,61 @@ export class SupabaseRepository extends LocalStorageRepository {
     });
   }
 
+  /** Copia de cambios sin subir de ESTA pestaña. */
   get cacheKey() {
-    return cloudCacheKey(this.userId, this.organization.id);
+    return `${cloudPendingPrefix(this.userId, this.organization.id)}${this.tabId}`;
   }
 
-  readCache() {
-    if (!this.cacheStorage) return null;
+  /**
+   * Cambios sin subir de esta cuenta que hay en este navegador: los de cada
+   * pestaña y la clave única de versiones anteriores. Más nuevos primero.
+   * @returns {{ key: string, cache: { baseRevision: number, savedAt: string, text: string } }[]}
+   */
+  readPendingCopies() {
+    if (!this.cacheStorage) return [];
+    const keys = [cloudCacheKey(this.userId, this.organization.id)];
+    const prefix = cloudPendingPrefix(this.userId, this.organization.id);
     try {
-      const raw = this.cacheStorage.getItem(this.cacheKey);
-      if (!raw) return null;
-      const cache = JSON.parse(raw);
-      if (!isPlainObject(cache) || cache.orgId !== this.organization.id || cache.userId !== this.userId || typeof cache.text !== 'string') return null;
-      return cache;
+      for (let i = 0; i < this.cacheStorage.length; i += 1) {
+        const k = this.cacheStorage.key(i);
+        if (k && k.startsWith(prefix)) keys.push(k);
+      }
     } catch {
-      return null;
+      /* no se pueden listar las claves: sólo la clave conocida */
     }
+    const copies = [];
+    keys.forEach((key) => {
+      try {
+        const raw = this.cacheStorage.getItem(key);
+        if (!raw) return;
+        const cache = JSON.parse(raw);
+        if (!isPlainObject(cache) || cache.orgId !== this.organization.id || cache.userId !== this.userId || typeof cache.text !== 'string' || cache.dirty !== true) return;
+        copies.push({ key, cache });
+      } catch {
+        /* una clave ilegible no es una copia de RATEOS: no se toca */
+      }
+    });
+    return copies.sort((a, b) => String(b.cache.savedAt || '').localeCompare(String(a.cache.savedAt || '')));
   }
 
   writeCache(text) {
     if (!this.cacheStorage) return;
     try {
-      this.cacheStorage.setItem(this.cacheKey, JSON.stringify({ v: 1, userId: this.userId, orgId: this.organization.id, baseRevision: this.revision, dirty: true, savedAt: this.now(), text }));
+      this.cacheStorage.setItem(this.cacheKey, JSON.stringify({ v: 2, userId: this.userId, orgId: this.organization.id, tabId: this.tabId, baseRevision: this.revision, dirty: true, savedAt: this.now(), text }));
     } catch (error) {
       logger.warn('No se pudo guardar la copia local de los cambios pendientes', { name: error && error.name });
     }
   }
 
+  /** Borra sólo la copia de ESTA pestaña (las de otras pestañas siguen ahí). */
   clearCache() {
+    this.removeCacheKey(this.cacheKey);
+  }
+
+  removeCacheKey(key) {
     if (!this.cacheStorage) return;
     try {
-      this.cacheStorage.removeItem(this.cacheKey);
+      this.cacheStorage.removeItem(key);
     } catch {
       /* nada que borrar */
     }
@@ -203,34 +271,51 @@ export class SupabaseRepository extends LocalStorageRepository {
           : 'No se pudieron abrir tus datos en la nube.', code);
     }
     this.revision = Number.isFinite(server.revision) ? server.revision : 0;
-    let text = server.state && isPlainObject(server.state) ? JSON.stringify(server.state) : null;
-    let resumed = false;
+    const serverText = server.state && isPlainObject(server.state) ? JSON.stringify(server.state) : null;
+    let text = serverText;
     let conflictAtLoad = false;
-    const cache = this.readCache();
-    if (cache && cache.dirty) {
-      if (cache.baseRevision === this.revision) {
-        // Cambios de este navegador que no llegaron a subirse: se retoman.
-        text = cache.text;
-        resumed = true;
-      } else {
-        // Mientras tanto otro dispositivo guardó: no se pisa nada. Los cambios
-        // locales quedan en una copia de recuperación y se avisa.
-        conflictAtLoad = true;
-        try {
-          this.saveRecoverySnapshot(cache.text, 'cloud-unsynced');
-        } catch (error) {
-          logger.warn('No se pudo copiar los cambios sin sincronizar', { name: error && error.name });
-        }
-        this.conflictBackupText = cache.text;
-        this.clearCache();
+    let otherTabsAtLoad = false;
+    // Cambios sin subir de este navegador (de esta pestaña al recargar, o de
+    // otras): se retoma la copia más nueva hecha sobre la revisión actual de
+    // la nube; las demás (otro dispositivo guardó después, u otra pestaña)
+    // quedan en copias de recuperación. Una copia se borra sólo cuando quedó a
+    // salvo: nunca se pierde en silencio.
+    const copies = this.readPendingCopies();
+    const resume = copies.find((c) => c.cache.baseRevision === this.revision) || null;
+    copies.forEach((copy) => {
+      if (copy === resume) return;
+      if (copy.cache.baseRevision === this.revision) otherTabsAtLoad = true;
+      else conflictAtLoad = true;
+      let saved = null;
+      try {
+        saved = this.saveRecoverySnapshot(copy.cache.text, 'cloud-unsynced');
+      } catch (error) {
+        logger.warn('No se pudo copiar los cambios sin sincronizar', { name: error && error.name });
       }
-    }
+      if (saved) this.removeCacheKey(copy.key);
+    });
+    if (resume) text = resume.cache.text;
     if (text !== null) this.storage.setItem(this.key, text);
-    const result = await super.init();
-    // Los cambios retomados de la copia local todavía no están en la nube.
+    let result = await super.init();
+    let resumed = Boolean(resume);
+    let unreadableLocal = false;
+    if (resumed && UNREADABLE_STATUSES.has(result.status)) {
+      // La copia retomada no se pudo leer (la apertura ya la guardó en una copia
+      // de recuperación): se descarta lo que armó y se abre la versión de la nube.
+      this.clearCache();
+      this.removeCacheKey(resume.key);
+      resumed = false;
+      unreadableLocal = true;
+      result = await this.reopenFrom(serverText);
+    }
+    result = this.protectUnreadableCloud(result);
     if (resumed) {
+      // Los cambios retomados todavía no están en la nube: pasan a ser la copia
+      // de ESTA pestaña (antes de soltar la anterior) y se suben.
       this.dirty = true;
       this.localVersion += 1;
+      this.writeCache(this.storage.getItem(this.key));
+      if (resume.key !== this.cacheKey) this.removeCacheKey(resume.key);
     }
     // La organización real manda: id y nombre de la nube (RLS ya garantizó que es del usuario).
     this.adoptCloudOrganization();
@@ -238,7 +323,9 @@ export class SupabaseRepository extends LocalStorageRepository {
     if (this.role === 'VIEWER') this.readOnly = true;
 
     const messages = result.status === 'seeded' ? [] : [...(result.messages || [])];
-    if (conflictAtLoad) messages.push('Tus datos cambiaron en otro dispositivo mientras había cambios de este navegador sin subir. Abrimos la versión más nueva; tus cambios quedaron en una copia de recuperación (Configuración → Datos y backup).');
+    if (unreadableLocal) messages.push(UNREADABLE_LOCAL_MESSAGE);
+    if (conflictAtLoad) messages.push(CONFLICT_AT_LOAD_MESSAGE);
+    else if (otherTabsAtLoad) messages.push(OTHER_TAB_MESSAGE);
     this.initResult = { ...result, status: result.status === 'seeded' ? 'new_workspace' : result.status, messages, resumed, conflictAtLoad };
 
     if (this.dirty && !this.readOnly) {
@@ -251,6 +338,34 @@ export class SupabaseRepository extends LocalStorageRepository {
       this.setSync('saved');
     }
     return this.initResult;
+  }
+
+  /** Vuelve a abrir el estado desde un texto (la versión de la nube) con la misma lógica de init. */
+  async reopenFrom(text) {
+    this.storage.removeItem(this.key);
+    if (text !== null) this.storage.setItem(this.key, text);
+    this.state = null;
+    this.lastRaw = null;
+    this.readOnly = false;
+    this.initResult = null;
+    this.dirty = false;
+    return LocalStorageRepository.prototype.init.call(this);
+  }
+
+  /**
+   * La apertura local "recupera" datos que no puede leer cargando un espacio
+   * vacío o reparando la estructura. En la nube eso pisaría la única copia
+   * compartida: nunca se sube solo. Se abre en sólo lectura, sin nada
+   * pendiente (la copia original ya quedó en este navegador).
+   */
+  protectUnreadableCloud(result) {
+    if (!UNREADABLE_STATUSES.has(result.status)) return result;
+    this.readOnly = true;
+    this.dirty = false;
+    this.clearCache();
+    this.cloudUnreadable = true;
+    logger.warn('Datos de la nube con un formato que esta versión no puede leer: se abren en sólo lectura', { status: result.status });
+    return { ...result, status: 'read_only', readOnly: true, messages: [UNREADABLE_CLOUD_MESSAGE] };
   }
 
   /** Alinea el estado con la organización de la nube (id y nombre). */
@@ -269,23 +384,42 @@ export class SupabaseRepository extends LocalStorageRepository {
     }
   }
 
-  /** Todas las entidades pasan a pertenecer a la organización de la cuenta. */
+  /** Todas las entidades pasan a pertenecer a la organización de la cuenta (mutate lo asegura). */
   remapToCloudOrganization() {
     const orgId = this.organization.id;
     this.mutate((draft) => {
       draft.organization = { ...draft.organization, id: orgId, organizationId: orgId, name: this.organization.name || draft.organization.name };
-      if (isPlainObject(draft.settings)) draft.settings.organizationId = orgId;
-      const own = (list) => (Array.isArray(list) ? list.forEach((item) => {
-        if (isPlainObject(item)) item.organizationId = orgId;
-      }) : undefined);
-      RESOURCE_TYPES.forEach((type) => own(draft.resources[type]));
-      own(draft.services);
-      own(draft.quotes);
-      own(draft.products);
     });
   }
 
   // ------------------------------------------------------ escrituras
+
+  /**
+   * Toda mutación termina con cada entidad de la organización de la cuenta
+   * (nunca la que traiga el cliente, un backup o datos locales viejos). El
+   * límite real es RLS (la fila del workspace); esto mantiene los datos
+   * coherentes con ese límite.
+   */
+  mutate(mutator) {
+    return super.mutate((draft) => {
+      const result = mutator(draft);
+      this.claimForCloudOrganization(draft);
+      return result;
+    });
+  }
+
+  claimForCloudOrganization(draft) {
+    const orgId = this.organization.id;
+    const own = (list) => (Array.isArray(list) ? list.forEach((item) => {
+      if (isPlainObject(item) && item.organizationId !== orgId) item.organizationId = orgId;
+    }) : undefined);
+    if (isPlainObject(draft.organization)) draft.organization.id = orgId;
+    if (isPlainObject(draft.settings)) draft.settings.organizationId = orgId;
+    if (isPlainObject(draft.resources)) RESOURCE_TYPES.forEach((type) => own(draft.resources[type]));
+    own(draft.services);
+    own(draft.quotes);
+    own(draft.products);
+  }
 
   persist(state) {
     super.persist(state);
@@ -377,6 +511,13 @@ export class SupabaseRepository extends LocalStorageRepository {
         this.setSync('session_expired', { code, message: SYNC_MESSAGES[code] });
         throw new RepositoryError(SYNC_MESSAGES[code], 'session_expired');
       }
+      if (code === WORKSPACE_ERRORS.notFound) {
+        // La fila ya no es visible: la cuenta dejó de ser miembro de la empresa.
+        // No se reintenta; los cambios siguen en la copia de esta pestaña.
+        this.accessLost = true;
+        this.setSync('error', { code: ACCESS_LOST_CODE, message: SYNC_MESSAGES[code] });
+        throw new RepositoryError(SYNC_MESSAGES[code], ACCESS_LOST_CODE);
+      }
       if (code === WORKSPACE_ERRORS.forbidden || code === WORKSPACE_ERRORS.tooLarge) {
         this.setSync('error', { code, message: SYNC_MESSAGES[code] });
         throw new RepositoryError(SYNC_MESSAGES[code], code);
@@ -412,9 +553,13 @@ export class SupabaseRepository extends LocalStorageRepository {
 
   // ------------------------------------------------------- conflictos
 
-  /** Texto (backup JSON) de la versión de este navegador, para descargar. */
+  /**
+   * Texto (backup JSON) de la versión ACTUAL de esta pestaña, para descargar
+   * ("Conservar una copia"). Las copias que se apartaron al abrir están en las
+   * copias de recuperación (Configuración → Datos y backup).
+   */
   localCopyText() {
-    const text = this.conflictBackupText || this.storage.getItem(this.key);
+    const text = this.storage.getItem(this.key);
     try {
       return JSON.stringify(JSON.parse(text), null, 2);
     } catch {
@@ -438,27 +583,20 @@ export class SupabaseRepository extends LocalStorageRepository {
     if (!server.ok) throw new RepositoryError(SYNC_MESSAGES[server.code] || SYNC_MESSAGES.unknown, server.code === WORKSPACE_ERRORS.sessionExpired ? 'session_expired' : 'sync_failed');
     this.clearRetry();
     this.conflict = null;
-    this.conflictBackupText = null;
     this.clearCache();
     this.revision = Number(server.revision) || 0;
     // Se vuelve a abrir el estado de la nube con la misma lógica de init
     // (migraciones y validación), sin pasar por la copia local.
-    this.storage.removeItem(this.key);
-    if (server.state && isPlainObject(server.state)) this.storage.setItem(this.key, JSON.stringify(server.state));
-    this.state = null;
-    this.lastRaw = null;
-    this.readOnly = false;
-    this.initResult = null;
     this.loading = true;
-    this.dirty = false;
-    await LocalStorageRepository.prototype.init.call(this);
+    const result = this.protectUnreadableCloud(await this.reopenFrom(server.state && isPlainObject(server.state) ? JSON.stringify(server.state) : null));
     this.adoptCloudOrganization();
     this.loading = false;
     if (this.role === 'VIEWER') this.readOnly = true;
-    this.initResult = { status: 'loaded', messages: [], resumed: false, conflictAtLoad: false };
+    const unreadable = result.status === 'read_only' && this.cloudUnreadable;
+    this.initResult = { status: unreadable ? 'read_only' : 'loaded', messages: unreadable ? result.messages : [], resumed: false, conflictAtLoad: false };
     if (this.dirty && !this.readOnly) await this.flush();
     else this.setSync('saved');
-    return { ok: true };
+    return { ok: true, readOnly: this.readOnly, message: unreadable ? UNREADABLE_CLOUD_MESSAGE : null };
   }
 
   // --------------------------------------------- importación de datos locales

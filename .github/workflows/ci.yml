@@ -55,3 +55,9 @@ jobs:
             }
             console.log("version.json OK: " + JSON.stringify(v));
           '
+
+      # PLAN-2026-015: controles de seguridad, tenancy, sesión, privacidad y
+      # recuperación, también sobre dist/ (sin red ni base; la negación real
+      # entre empresas está en supabase/tests/).
+      - name: Beta Security Gate (npm run test:security)
+        run: npm run test:security

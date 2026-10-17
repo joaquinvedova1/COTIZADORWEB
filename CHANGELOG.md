@@ -12,6 +12,28 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Beta Readiness v1 (PLAN-2026-015): seguridad, tenancy, integridad y privacidad para una beta cerrada.** Sin fórmulas nuevas ni cambios en los motores: ningún costo, tarifa ni golden cambia (39/39). **Sin cambios en la base** (ninguna migración) **ni en el esquema de datos** (sigue en 10). Auditoría completa en [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md): 0 P0 de seguridad (ningún acceso entre empresas, ni con IDs conocidos; el admin de plataforma no lee contenido económico); 2 P0 de pérdida de datos y 3 P1 de sesión, corregidos; 9 decisiones del dueño.
+
+### Agregado
+
+- **Tests de negación en la base** `supabase/tests/beta_security_test.sql` (132 controles, todo se deshace): A→B y B→A con los IDs reales de la otra empresa (leer, escribir, borrar, altas con `organization_id` ajeno, upsert, columnas de control, filtros manipulados, búsqueda por contenido), roles OWNER/ADMIN/ESTIMATOR/VIEWER, miembro quitado, RATEOS ADMIN sintético (metadata sí, contenido no), anon, JWT sin usuario y el catálogo en vivo (RLS, grants, `security definer`, Storage, Realtime).
+- **Beta Security Gate** (`npm run test:security`; también dentro de `npm test` y como paso de CI): 17 controles estáticos y dinámicos (secretos en lo publicado, superficie de Supabase del navegador, migraciones, cobertura del test SQL, la nube nunca se pisa con datos "recuperados", pestañas, `organizationId`, sesión, PKCE, logs, eventos, backup, CSP, admin, dependencias) + 15 archivos de tests; reporte JSON + Markdown en `reports/security/`.
+- Tests de tenancy, recuperación, varias pestañas, acceso perdido y memoria de sesión (`tests/data/beta-security.test.js`) y controles E2E `SESION-01/02` (escritorio y celular): al cerrar sesión no queda nada de la empresa en pantalla ni en el DOM, y otra cuenta en la misma pestaña no ve nada de la anterior, ni con los ids de sus cotizaciones o productos.
+
+### Corregido
+
+- **(P0 pérdida de datos)** Si los datos de la nube no se podían leer con la versión abierta (dañados o con estructura inesperada; por ejemplo escritos por otra versión con el mismo esquema, como el staging, que comparte la base), la cuenta cargaba un espacio **vacío** o "reparado" y **lo subía solo**, pisando la única copia compartida. Ahora se abren en **sólo lectura** con un aviso, sin subir nada, y queda una copia en el navegador (también al "Recargar"). Si lo ilegible era una copia local sin subir, se abre la versión de la nube y la copia queda en recuperación.
+- **(P0 pérdida de datos)** Con varias pestañas, un guardado exitoso en una **borraba** la copia de cambios sin subir de otra (sin conexión o en conflicto): al cerrarla, esos cambios se perdían sin aviso. Ahora cada pestaña tiene su propia copia (`rateos.cloud.<u>.<o>.pending.<pestaña>`); al abrir se retoma la más nueva hecha sobre la revisión actual y las demás quedan en copias de recuperación. La copia única de v0.8.0 se sigue leyendo.
+- **(P1 sesión)** Al cerrar sesión o entrar con otra cuenta en la misma pestaña quedaban en memoria los borradores no guardados (se restauraban por id de cotización, sin mirar la cuenta), los sliders y las secciones abiertas; y el menú y la barra ocultos conservaban la empresa, su base, el nombre, el email, el título y las migas de la sesión anterior. Ahora los borradores son de cada cuenta y todo lo demás se borra al cerrar la cuenta.
+- **(P1 sesión)** Los datos del modo local anterior se ofrecían a cualquier cuenta que ingresara en el navegador aunque otra ya los hubiera importado. Ahora quedan "reclamados" (huella, sin datos ni ids) y no se ofrecen a otra cuenta. `rateos.state` nunca se borra.
+- Un miembro quitado de la empresa veía "Tu rol no permite guardar" y seguía con los datos en pantalla: ahora se cierra la cuenta en pantalla ("Ya no tenés acceso a esta empresa"), sin reintentos, y sus cambios sin subir quedan en el navegador.
+- Las copias de recuperación de cambios que nunca llegaron a la nube (`cloud-unsynced`, `cloud-conflict-local`) tienen su propio cupo de 3: importar o migrar ya no las rota.
+- "Conservar una copia" (conflicto) descarga siempre la versión actual de la pestaña: antes, si al abrir se había apartado una copia vieja de cambios sin subir, descargaba esa copia vieja.
+
+### Seguridad
+
+- Toda escritura de una cuenta deja cada entidad con la organización de la cuenta: nunca se guarda el `organizationId` que mande el navegador o un backup (el límite real sigue siendo RLS: nunca hubo acceso entre empresas por esto).
+
 ## [0.8.0] - 2026-10-17
 
 **RATEOS v0.8.0: decisiones del dueño LAB-D1…D8 (PLAN-2026-014) y RATEOS Test Lab v1 (PLAN-2026-013).** **Esquema de datos 10** (`migrateV9ToV10`: sólo sube la versión, no cambia ni marca ningún dato; una versión anterior abre estos datos en sólo lectura). Ningún golden anterior cambia (39/39: 37 + 2 nuevos de D1).

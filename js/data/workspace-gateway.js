@@ -11,7 +11,7 @@
  *   session_expired  el JWT venció o fue revocado
  *   conflict         la revisión cambió (otro dispositivo guardó antes)
  *   forbidden        el rol no permite guardar (p. ej. VIEWER) o no es miembro
- *   not_found        no hay organización para este usuario
+ *   not_found        no hay organización para este usuario (o dejó de ser miembro)
  *   too_large        el estado supera el límite de la base (5 MB)
  *   unknown
  */
@@ -107,10 +107,12 @@ export function createWorkspaceGateway(client) {
       if (!res.ok) return { ok: false, code: res.code };
       const row = Array.isArray(res.data) ? res.data[0] : null;
       if (row) return { ok: true, code: null, revision: Number(row.revision), updatedAt: row.updated_at };
-      // 0 filas: o cambió la revisión (conflicto) o RLS no deja guardar.
+      // 0 filas: cambió la revisión (conflicto), RLS no deja guardar con este
+      // rol (la fila se ve) o la cuenta ya no es miembro (la fila no se ve).
       const current = await run(() => client.from('workspace_states').select('revision').eq('organization_id', organizationId).maybeSingle());
       if (!current.ok) return { ok: false, code: current.code };
-      if (current.data && Number(current.data.revision) !== Number(baseRevision)) {
+      if (!current.data) return { ok: false, code: WORKSPACE_ERRORS.notFound };
+      if (Number(current.data.revision) !== Number(baseRevision)) {
         return { ok: false, code: WORKSPACE_ERRORS.conflict, serverRevision: Number(current.data.revision) };
       }
       return { ok: false, code: WORKSPACE_ERRORS.forbidden };

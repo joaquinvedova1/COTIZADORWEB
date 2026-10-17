@@ -646,16 +646,20 @@ export class LocalStorageRepository extends StorageRepository {
 
   /**
    * Conserva sólo las MAX_RECOVERY_SNAPSHOTS copias más recientes de cada
-   * tipo. Las copias de datos dañados ("corrupt" e "invalid") se podan aparte para que
-   * importaciones o restauraciones posteriores nunca borren la única copia
-   * del texto original dañado.
+   * grupo. Las copias de datos dañados ("corrupt" e "invalid") y las de
+   * cambios de una cuenta que nunca llegaron a la nube ("cloud-unsynced",
+   * "cloud-conflict-local") se podan aparte: importaciones, migraciones o
+   * restauraciones posteriores nunca borran la única copia de esos datos.
    */
   pruneRecoverySnapshots() {
     const keys = this.listRecoverySnapshots();
-    // Copias del texto original dañado o con estructura inválida: pueden ser
-    // la única copia de esos datos, se cuentan aparte.
-    const isCorrupt = (k) => /\.(corrupt|invalid)(\.\d+)?$/.test(k);
-    keys.filter((k) => !isCorrupt(k)).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.recoveryStorage.removeItem(k));
-    keys.filter(isCorrupt).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.recoveryStorage.removeItem(k));
+    const groupOf = (k) => {
+      if (/\.(corrupt|invalid)(\.\d+)?$/.test(k)) return 'damaged';
+      if (/\.(cloud-unsynced|cloud-conflict-local)(\.\d+)?$/.test(k)) return 'unsynced';
+      return 'other';
+    };
+    ['other', 'damaged', 'unsynced'].forEach((group) => {
+      keys.filter((k) => groupOf(k) === group).slice(MAX_RECOVERY_SNAPSHOTS).forEach((k) => this.recoveryStorage.removeItem(k));
+    });
   }
 }

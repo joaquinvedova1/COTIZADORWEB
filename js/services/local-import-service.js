@@ -7,11 +7,15 @@
  *   "Empezar en limpio". La decisión se recuerda por usuario.
  * - Antes de importar se guarda una copia de recuperación del texto local y
  *   otra del estado de la nube. rateos.state nunca se borra.
+ * - Una vez que una cuenta los importó, no se le ofrecen a OTRA cuenta que
+ *   ingrese en el mismo navegador (PLAN-2026-015): serían datos de otra empresa.
  */
 
 import {
   backupLegacyLocalData,
+  claimLegacyData,
   getLocalImportDecision,
+  isLegacyDataClaimed,
   readLegacyLocalData,
   setLocalImportDecision,
 } from '../data/legacy-local.js';
@@ -25,13 +29,15 @@ export function createLocalImportService({ repository, userId, storage, now = ()
     /** ¿Hay datos reales locales sin decidir? → { available, counts } */
     inspect() {
       if (getLocalImportDecision(userId, opts)) return { available: false, counts: null };
-      const { real } = readLegacyLocalData(opts);
+      const { raw, real } = readLegacyLocalData(opts);
+      if (isLegacyDataClaimed(raw, opts)) return { available: false, counts: null };
       return real.hasRealData ? { available: true, counts: real.counts } : { available: false, counts: null };
     },
 
     async importToAccount() {
       const { raw, real } = readLegacyLocalData(opts);
       if (!real.hasRealData) return { ok: false, message: 'No hay datos reales para importar en este navegador.' };
+      if (isLegacyDataClaimed(raw, opts)) return { ok: false, message: 'Estos datos de este navegador ya se importaron a otra cuenta.' };
       // La copia queda entre las de la cuenta (Configuración → Datos y backup).
       const backupKey = backupLegacyLocalData(raw, { ...opts, now: now(), prefix: repository.recoveryPrefix });
       if (!backupKey) {
@@ -39,6 +45,7 @@ export function createLocalImportService({ repository, userId, storage, now = ()
       }
       const result = await repository.importLocalData(real.data);
       setLocalImportDecision(userId, 'imported', opts);
+      claimLegacyData(raw, { ...opts, now: now() });
       return { ok: true, ...result, backupKey };
     },
 

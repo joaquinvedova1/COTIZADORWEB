@@ -425,6 +425,49 @@ async function runMode(mode) {
     await scan('E2E-P01', 'producto');
   }
 
+  // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
+  // pantalla ni en el menú oculto, y otra cuenta que ingresa en la MISMA
+  // pestaña (sin recargar) no ve nada de A, ni con los ids de sus cotizaciones.
+  {
+    const ofA = ['Empresa sintética', email, seeded[0].q.name, seeded[seeded.length - 1].q.name, 'E2E producto financiado'];
+    const leaks = (text) => ofA.filter((x) => norm(text).includes(norm(x)));
+    await go('#/inicio', 600);
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Cerrar sesión');
+      if (btn) btn.click();
+    });
+    await page.waitForTimeout(1200);
+    const after = await page.evaluate(() => ({
+      visible: document.body.innerText,
+      all: document.body.textContent,
+      session: localStorage.getItem('rateos.auth'),
+    }));
+    check('SESION-01', 'al cerrar sesión no queda en pantalla nada de la empresa', leaks(after.visible).length === 0, leaks(after.visible).join(', '));
+    check('SESION-01', 'tampoco en el menú y la barra ocultos (DOM)', leaks(after.all).length === 0, leaks(after.all).join(', '));
+    check('SESION-01', 'la sesión se borró del navegador', after.session === null, 'quedó rateos.auth');
+
+    const emailB = `lab.${mode}.b@rateos.test`;
+    const passwordB = `lab-${randomUUID()}`;
+    db.createUser({ email: emailB, password: passwordB, fullName: 'Otra persona', company: 'Empresa B sintética' });
+    await go('#/login', 800);
+    await page.getByLabel('Email').fill(emailB);
+    await page.getByLabel('Contraseña', { exact: true }).fill(passwordB);
+    await page.getByRole('button', { name: 'Ingresar' }).click();
+    await page.waitForTimeout(2500);
+    const asB = await page.evaluate(() => ({ visible: document.body.innerText, all: document.body.textContent }));
+    check('SESION-02', 'otra cuenta en la misma pestaña: ve su empresa', norm(asB.all).includes('Empresa B sintética'), 'no aparece la empresa B');
+    check('SESION-02', 'otra cuenta en la misma pestaña: nada de la empresa anterior (pantalla y DOM)', leaks(asB.all).length === 0, leaks(asB.all).join(', '));
+    await go(`#/cotizaciones/${encodeURIComponent(seeded[0].q.id)}/result`, 1500);
+    const byId = await page.evaluate(() => document.body.textContent);
+    check('SESION-02', 'con el id de una cotización de A, B no ve nada de A', leaks(byId).length === 0, leaks(byId).join(', '));
+    await go(`#/productos/${encodeURIComponent(prod.id)}/resultado`, 1500);
+    const byProduct = await page.evaluate(() => document.body.textContent);
+    check('SESION-02', 'con el id del producto de A, B no ve nada de A', leaks(byProduct).length === 0, leaks(byProduct).join(', '));
+    const orgB = db.orgOf(db.users.get(emailB).id);
+    const wsB = JSON.stringify(db.workspaces.get(orgB).state || {});
+    check('SESION-02', 'nada de A llegó al workspace de B', leaks(wsB).length === 0, leaks(wsB).join(', '));
+  }
+
   check('consola', 'sin errores de la app en la consola', errors.length === 0, errors.slice(0, 3).join(' | '));
   check('red', 'ningún pedido fuera del sitio y del Supabase simulado', blocked.length === 0, blocked.slice(0, 3).join(' | '));
   await context.close();

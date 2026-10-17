@@ -192,7 +192,13 @@ npm run test:lab:extended   # + escenarios generados con seed (pairwise)
 npm run build && npm run test:lab:e2e   # auditoría en navegador, escritorio y celular (requiere Playwright)
 ```
 
-**Row Level Security** (contra la base real): `supabase/tests/rls_test.sql` (40 controles: usuarios A/B, anon, escalada de rol…; no deja nada en la base). Se corre con el plugin/MCP de Supabase o `psql`; ver [supabase/README.md](supabase/README.md).
+**Row Level Security** (contra la base real): `supabase/tests/rls_test.sql` (40 controles: usuarios A/B, anon, escalada de rol…), `rls_admin_test.sql` (32, RATEOS ADMIN) y `beta_security_test.sql` (132: negación A→B y B→A con IDs conocidos, roles, miembro quitado, admin sin contenido, anon y catálogo en vivo). Ninguno deja nada en la base. Se corren con el plugin/MCP de Supabase o `psql`; ver [supabase/README.md](supabase/README.md).
+
+**Beta Security Gate** (PLAN-2026-015, [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md)): controles de seguridad, tenancy, sesión, privacidad y recuperación sin red ni base (también corre dentro de `npm test` y en CI):
+
+```bash
+npm run test:security       # → reports/security/latest/beta-security-gate.md
+```
 
 ## Cómo desplegar
 
@@ -221,7 +227,7 @@ Nunca force push a `main`. Paso a paso en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.m
 
 ## Persistencia y backup
 
-- **Con cuenta**, los datos viven en Supabase (una fila por empresa, mismo formato versionado que el backup) y en el navegador sólo queda la sesión y, mientras haya cambios sin subir, una copia recuperable. El resto de esta sección describe el formato y las garantías comunes (migraciones, backup, copias de recuperación).
+- **Con cuenta**, los datos viven en Supabase (una fila por empresa, mismo formato versionado que el backup) y en el navegador sólo queda la sesión y, mientras haya cambios sin subir, una copia recuperable (una por pestaña: una pestaña nunca borra los cambios sin subir de otra). Si los datos de la nube no se pueden leer con tu versión, se abren en sólo lectura: nunca se reemplazan solos. El resto de esta sección describe el formato y las garantías comunes (migraciones, backup, copias de recuperación).
 - En el **modo local** anterior (sin cuenta, hasta v0.1.0) los datos se guardaban en este navegador (`localStorage`, clave `rateos.state`) con `schemaVersion`; nunca se borran y se ofrecen para importar a la cuenta.
 - Si una versión nueva cambia el formato, RATEOS **migra** tus datos al abrir y guarda antes una **copia de recuperación**. Nunca borra datos por un cambio de estructura.
 - **Varias pestañas:** podés tener RATEOS abierto en más de una pestaña. Antes de leer o guardar, cada pestaña toma los cambios que hizo otra, así ninguna borra lo que guardó la otra y los códigos `COT-NNNN` no se repiten (se numeran con un contador que nunca reutiliza el código de una cotización eliminada). La pantalla se actualiza sola con el aviso "Los datos se actualizaron desde otra pestaña." (ver la limitación sobre editar la misma cotización en dos pestañas, más abajo).
@@ -289,6 +295,7 @@ docs/                      documentación técnica
 | [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) | Visitante / demo / cuenta, Supabase Auth, enlaces de email con GitHub Pages, sesión, roles, riesgos |
 | [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) | Tablas, RLS, sincronización por revisión, migración desde el modo local y fases siguientes |
 | [supabase/README.md](supabase/README.md) | Cómo aplicar migraciones y correr los tests de RLS |
+| [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md) | Beta cerrada: frontera de tenant, inventario de la base, pruebas A/B, hallazgos, decisiones del dueño y Beta Security Gate |
 | [docs/TEST_LAB.md](docs/TEST_LAB.md) | RATEOS Test Lab: oráculo independiente, escenarios, invariantes, auditor UX, mercado, reportes y CI |
 | [docs/AGENT_ROLES.md](docs/AGENT_ROLES.md) | Roles de revisión para el desarrollo (no son funciones del producto) |
 | [.agent/PLANS.md](.agent/PLANS.md) | Plantilla y registro de planes de ejecución |
@@ -303,6 +310,7 @@ docs/                      documentación técnica
 - Inputs validados; nunca se muestran `NaN` ni `Infinity`.
 - Los backups se validan antes de importarse (un JSON que no es de RATEOS, una colección con tipo incorrecto o una cotización mal formada se rechazan) y nunca se sobrescribe sin confirmación. Aunque llegue un dato inválido, una cotización mala no rompe el dashboard ni el listado.
 - Los eventos internos de producto (sin envío a terceros) sólo aceptan valores de una lista blanca: nunca montos ni nombres.
+- Al cerrar sesión o entrar con otra cuenta en la misma pestaña no queda nada de la empresa anterior en pantalla (ni en el menú oculto ni en borradores). El `organizationId` que mande el navegador o un backup nunca decide de qué empresa es un dato. Resumen y decisiones pendientes para la beta en [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md).
 - El deploy usa permisos mínimos por job y el rollback manual sólo publica commits o tags que ya están en `main`.
 - No subas a issues, PRs ni al repositorio estructuras de costos reales ni datos de clientes.
 
