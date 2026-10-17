@@ -247,7 +247,7 @@ operación/h    = mantenimiento/h + neumáticos/h + combustible/h
 ```
 
 - **"No usa combustible"** (`equipment[].fuelNotApplicable = true`, PLAN-2026-014, decisión LAB-D5): equipo propio eléctrico, manual o estacionario. Es un dato **explícito**: litros/h = 0 trabajando y en ruta (§5.1), no se pide consumo ni precio de combustible por ese equipo y no impide el 100 % de completitud. Un consumo 0 **sin** la marca sigue siendo un dato faltante (nunca se infiere "no consume" de un 0). Viene del legajo de Recursos (y cambia la huella del snapshot sólo si está marcado: ninguna cotización existente se marca sola). Invariante INV-30.
-- **Horas de uso por día de una línea** (regla real documentada en PLAN-2026-014, LAB-D6): las de la línea o, vacías, las de la actividad. **No se limitan a 24**: si se cargan más, `validateQuote` marca error (0 a 24) y se calcula con lo cargado hasta que se corrija. Las horas de la actividad sí se limitan a 24 (§2).
+- **Horas de uso por día de una línea** (decisión del dueño, PLAN-2026-014; reemplaza la regla anterior "sin tope"): son las horas **por unidad** de equipo, propio o externo (alquilado o tercerizado): las de la línea o, vacías, las de la actividad. **Máximo físico: 24 h por día** (`equipmentHoursPerDay`, el mismo tope de la validación y de la actividad, §2). La cantidad de equipos va en `quantity`, que multiplica las horas como siempre: **2 equipos × 20 h = 40 equipo-horas por día**, nunca 1 equipo × 40 h. Un dato mayor a 24 sigue siendo un **error** de `validateQuote` (0 a 24) para que se corrija, y el motor nunca calcula por encima del tope: 24,1 h o 30 h cuestan lo mismo que 24 h (operación, combustible por hora y tarifa por hora de un externo). "Ver cálculo" lo explica en la línea. Antes → después: una línea cargada con 30 h y $ 1.000/h de operación pasaba de $ 30.000 a **$ 24.000 por día**; con 24 h o menos nada cambia (ningún golden ni escenario anterior usaba más de 24).
 
 **Mantenimiento y neumáticos: forma de carga (esquema 4, PLAN-2026-007)** — `maintenanceOf`, `tiresOf`. Sin forma de carga se usa "por hora" (los datos anteriores calculan igual):
 
@@ -277,7 +277,7 @@ Ejemplos: service $ 600.000 cada 250 h = **$ 2.400/h**; presupuesto $ 3.000.000/
 
 Caso real que motivó el cambio: un autoelevador con reposición $ 100.000.000 y "mantenimiento" $ 3.000.000 cargado como $/h → operación $ 3.000.000/h, $ 24.000.000 por día activo de 8 h, ~$ 360.000.000 en 15 días. RATEOS no cambia ese dato (sigue siendo $/h hasta que la persona lo edite), pero ahora lo muestra como "POR HORA de uso" y avisa que 100 horas cuestan más que el equipo.
 
-**En una cotización** (`computeEquipmentLine`), con `horas por día activo` de la línea (si está vacío se usan las horas por día activo de la actividad):
+**En una cotización** (`computeEquipmentLine`), con `horas por día activo` de la línea por unidad (si está vacío se usan las horas por día activo de la actividad), como mucho 24:
 
 | Parte | Fórmula | Categoría EECC |
 |---|---|---|

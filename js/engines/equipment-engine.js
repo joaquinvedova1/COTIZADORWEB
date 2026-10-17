@@ -32,6 +32,7 @@
  */
 
 import { nonNegative, pct, safeDivide } from '../core/money.js';
+import { RULES } from '../core/validation.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
 
 const MAINTENANCE_MODE_IDS = Object.freeze(['per_hour', 'service', 'budget']);
@@ -178,6 +179,21 @@ export function computeEquipmentUnit(eq = {}, { fuelPricePerLiter = 0, fuelPaidB
   };
 }
 
+/** Máximo físico de horas de uso de UNA unidad de equipo en un día (el mismo de la validación). */
+export const MAX_EQUIPMENT_HOURS_PER_DAY = RULES.hoursPerDay.max;
+
+/**
+ * Horas de uso por día de UNA unidad de equipo, propio o externo (decisión del dueño,
+ * PLAN-2026-014): las de la línea o, si están vacías, las de la actividad; como mucho 24.
+ * Un dato mayor sigue siendo un error de validación (`validateQuote`), pero el motor nunca
+ * calcula por encima del tope: más horas por día son más equipos (`quantity`), p. ej.
+ * 2 equipos × 20 h = 40 equipo-horas por día, nunca 1 equipo × 40 h.
+ */
+export function equipmentHoursPerDay(lineHours, defaultHours = 0) {
+  const raw = lineHours === null || lineHours === undefined || lineHours === '' ? nonNegative(defaultHours) : nonNegative(lineHours);
+  return Math.min(raw, MAX_EQUIPMENT_HOURS_PER_DAY);
+}
+
 /**
  * Línea de equipo dentro de una cotización.
  * Posesión → fijo mensual (× % asignado si se comparte, PLAN-2026-012);
@@ -185,10 +201,7 @@ export function computeEquipmentUnit(eq = {}, { fuelPricePerLiter = 0, fuelPaidB
  */
 export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPaidByUs = true, defaultHoursPerActiveDay = 0 } = {}) {
   const quantity = nonNegative(line.quantity);
-  const hoursPerActiveDay =
-    line.hoursPerActiveDay === null || line.hoursPerActiveDay === undefined || line.hoursPerActiveDay === ''
-      ? nonNegative(defaultHoursPerActiveDay)
-      : nonNegative(line.hoursPerActiveDay);
+  const hoursPerActiveDay = equipmentHoursPerDay(line.hoursPerActiveDay, defaultHoursPerActiveDay);
   const ownership = computeOwnership(line);
   const operation = computeOperation(line, { fuelPricePerLiter, fuelPaidByUs });
   // Equipo compartido (PLAN-2026-012): esta cotización carga el % EXPLÍCITO de

@@ -208,7 +208,7 @@ export const KNOWN_FINDINGS = [
     classification: 'HUMAN DECISION REQUIRED',
     title: 'Huecos de CALCULATION_RULES (el oráculo seguía al motor)',
     rootCause: 'Decisión del dueño: documentar la regla REAL implementada (no cambiar el motor para que coincida con la documentación).',
-    fix: 'CALCULATION_RULES §4 (horas por línea sin tope de 24, con error de validación), §4.1 (IVA "Parcial" sin % = 0 % recuperable + pendiente rojo) y §6 (categoría "external" en otros costos). DOC_GAPS vacío; el oráculo cita las reglas confirmadas.',
+    fix: 'CALCULATION_RULES §4 (horas por línea de equipo: por unidad y como mucho 24, propia o externa, decisión del dueño que reemplazó la regla "sin tope"; más de 24 sigue siendo error de validación), §4.1 (IVA "Parcial" sin % = 0 % recuperable + pendiente rojo) y §6 (categoría "external" en otros costos). DOC_GAPS vacío; el oráculo cita las reglas confirmadas.',
     test: 'tests/engines/lab-decisions.test.js › LAB-D6',
   },
   {

@@ -430,7 +430,7 @@ describe('LAB-D8 · Un nombre por cotización; un servicio permanente usa "inter
   });
 });
 
-describe('LAB-D6 · Reglas reales que CALCULATION_RULES no decía (se documentan, el motor no cambia)', () => {
+describe('LAB-D6 · Reglas reales que CALCULATION_RULES no decía (documentadas; la de horas por línea el dueño la unificó en 24 h por unidad)', () => {
   test('§4.1 IVA "Parcial" sin % recuperable: 0 % recuperable (todo el IVA es costo) y pendiente rojo', () => {
     const line = (fiscal) => computeExternalLine({ acquisition: 'rented', quantity: 1, external: { price: 1000000, unit: 'month', fiscal } }, { daysPerActivation: 1 });
     const partial = line({ vatPct: 21, vatRecoverable: 'partial', vatRecoverablePct: null });
@@ -456,15 +456,76 @@ describe('LAB-D6 · Reglas reales que CALCULATION_RULES no decía (se documentan
     assert.equal(line.payGroup, 'suppliers');
   });
 
-  test('§4 Horas por día de una línea de equipo: no se limitan a 24 (la validación marca error y se usa lo cargado)', () => {
+  test('§4 Horas por día de una línea de equipo: máximo 24 por unidad, igual que las de la actividad (decisión del dueño)', () => {
     const q = service({ id: 'd6c', serviceType: 'equipment_with_operator', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()],
       equipment: [owned({ name: 'Bomba', hoursPerActiveDay: 30, maintenancePerHour: 1000 })] });
     const r = computeQuote(q);
-    assert.equal(r.model.equipment[0].hoursPerActiveDay, 30);
+    assert.equal(r.model.equipment[0].hoursPerActiveDay, 24);
     assert.ok(validateQuote(q).some((e) => e.path === 'equipment.0.hoursPerActiveDay' && e.severity === 'error'));
-    // Las de la actividad sí se limitan a 24 (§2).
+    // Las de la actividad también se limitan a 24 (§2).
     const q2 = { ...structuredClone(q), activity: { ...q.activity, hoursPerActiveDay: 30 } };
     assert.equal(computeQuote(q2).activity.hoursPerActiveDay, 24);
+  });
+});
+
+describe('Horas de equipo por día (decisión del dueño): máximo 24 h POR UNIDAD; más horas = más equipos (cantidad)', () => {
+  const ownedQuote = (hours, quantity = 1) => service({
+    id: 'h24o', serviceType: 'equipment_with_operator', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()],
+    equipment: [owned({ name: 'Bomba', quantity, hoursPerActiveDay: hours, maintenancePerHour: 1000, fuelNotApplicable: true })],
+  });
+  const externalQuote = (hours, quantity = 1) => service({
+    id: 'h24x', serviceType: 'equipment_only', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 },
+    equipment: [external({ name: 'Grúa por hora', quantity, hoursPerActiveDay: hours }, { price: 10000, unit: 'hour' })],
+  });
+  const hoursError = (q) => validateQuote(q).some((e) => e.path === 'equipment.0.hoursPerActiveDay' && e.severity === 'error');
+  // Costo por hora de UNA unidad: propio = operación $ 1.000/h; externo = tarifa $ 10.000/h (IVA recuperable).
+  for (const [kind, quoteOf, perHour] of [['propio', ownedQuote, 1000], ['externo', externalQuote, 10000]]) {
+    const line = (hours, quantity) => computeQuote(quoteOf(hours, quantity)).model.equipment[0];
+
+    test(`${kind}: 8 h y 24 h se calculan tal cual y no tienen error de validación`, () => {
+      for (const h of [8, 24]) {
+        const l = line(h);
+        assert.equal(l.hoursPerActiveDay, h);
+        assert.equal(l.variablePerActiveDay, perHour * h);
+        assert.equal(hoursError(quoteOf(h)), false, `${h} h`);
+      }
+    });
+
+    test(`${kind}: 24,1 h y 30 h son error de validación y económicamente se calculan con 24 h`, () => {
+      const at24 = computeQuote(quoteOf(24));
+      for (const h of [24.1, 30]) {
+        assert.equal(hoursError(quoteOf(h)), true, `${h} h: la validación sigue marcando error`);
+        const r = computeQuote(quoteOf(h));
+        assert.equal(r.model.equipment[0].hoursPerActiveDay, 24, `${h} h`);
+        assert.equal(r.model.equipment[0].variablePerActiveDay, perHour * 24, `${h} h`);
+        assert.equal(r.kpis.totalCost, at24.kpis.totalCost, `${h} h cuesta lo mismo que 24 h`);
+      }
+    });
+
+    test(`${kind}: 2 equipos × 20 h = 40 equipo-horas por día (la cantidad multiplica; no 1 × 40 h)`, () => {
+      const two = line(20, 2);
+      assert.equal(two.hoursPerActiveDay, 20);
+      assert.equal(two.variablePerActiveDay, perHour * 40);
+      assert.equal(hoursError(quoteOf(20, 2)), false);
+      // 1 equipo × 40 h es un dato inválido: error y, como mucho, 24 equipo-horas.
+      assert.equal(hoursError(quoteOf(40, 1)), true);
+      assert.equal(line(40, 1).variablePerActiveDay, perHour * 24);
+    });
+  }
+
+  test('sin horas en la línea se usan las de la actividad (que ya tienen tope de 24)', () => {
+    const q = ownedQuote(null);
+    q.activity.hoursPerActiveDay = 30;
+    assert.equal(computeQuote(q).model.equipment[0].hoursPerActiveDay, 24);
+  });
+
+  test('el combustible por hora de un externo también usa como mucho 24 h por unidad', () => {
+    const q = (hours) => service({
+      id: 'h24f', serviceType: 'equipment_only', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 },
+      equipment: [external({ name: 'Grúa', hoursPerActiveDay: hours }, { price: 10000, unit: 'hour', fuelIncluded: false, fuelMode: 'per_hour', fuelLitersPerHour: 10 })],
+    });
+    assert.equal(computeQuote(q(30)).model.equipment[0].fuelLitersPerActiveDay, 240);
+    assert.equal(computeQuote(q(24)).model.equipment[0].fuelLitersPerActiveDay, 240);
   });
 });
 

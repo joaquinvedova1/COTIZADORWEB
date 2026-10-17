@@ -23,7 +23,7 @@ import { badge, card, dateField, formGrid, selectField, triStateField, confirmDi
 import { equipmentLineFromLibrary, externalLineFromService, blankEquipmentLine, createExternalTerms, createMobilization, acquisitionOf } from '../../../domain/quote-factory.js';
 import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
 import { activationTerms, withActivationOptions } from '../../../domain/activation-terms.js';
-import { computeEquipmentUnit, maintenanceOf, tiresOf } from '../../../engines/equipment-engine.js';
+import { computeEquipmentUnit, maintenanceOf, tiresOf, MAX_EQUIPMENT_HOURS_PER_DAY } from '../../../engines/equipment-engine.js';
 import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
@@ -162,6 +162,17 @@ function supplierFinanceAt(result, index) {
   };
 }
 
+/**
+ * Horas por día cargadas por encima del tope (PLAN-2026-014): el dato sigue marcado con error,
+ * el costo se calcula con 24 h por unidad y más horas se cargan como más equipos.
+ */
+function hoursCapNote(source) {
+  const h = source ? Number(source.hoursPerActiveDay) : NaN;
+  if (!(Number.isFinite(h) && h > MAX_EQUIPMENT_HOURS_PER_DAY)) return null;
+  const max = MAX_EQUIPMENT_HOURS_PER_DAY;
+  return `Cargaste ${formatNumber(h, { decimals: 2 })} h de uso por día: el máximo es ${max} h por unidad y el costo se calcula con ${max} h. Para más horas por día, sumá equipos en "Cantidad" (2 equipos × 20 h = 40 equipo-horas por día).`;
+}
+
 function equipmentTrace(result, index, source) {
   const line = result && result.model.equipment[index];
   if (!line) return null;
@@ -206,6 +217,7 @@ function equipmentTrace(result, index, source) {
       source && (source.hoursPerActiveDay === null || source.hoursPerActiveDay === undefined || source.hoursPerActiveDay === '')
         ? 'Horas de uso vacías: se usan las horas por día activo de la cotización.'
         : null,
+      hoursCapNote(source),
     ],
   });
 }
@@ -317,6 +329,7 @@ function externalTrace(result, index, source, impact = null) {
       impact ? 'El impacto total es la diferencia entre el costo del mes con y sin esta línea (misma actividad): el proveedor arrastra estructura, financiación y, si corresponde, contingencia e IVA que no recuperás.' : null,
       rounding.economic > 0.005 ? `${T.Each} se cuenta ${T.whole}: incluye ${formatMoney(rounding.economic)} de efecto del redondeo (${formatNumber(result.activationRounding.costed, { decimals: 0 })} ${T.many} ${T.g('costeadas', 'costeados')} en lugar de ${formatNumber(result.activationRounding.estimated, { decimals: 2 })} promedio).` : null,
       sf && sf.own ? 'Este proveedor tiene su propio plazo de pago: sólo cambia el capital de trabajo y el costo financiero; el costo del externo no cambia.' : null,
+      hoursCapNote(source),
     ],
   });
 }

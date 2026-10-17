@@ -38,6 +38,7 @@
 
 import { nonNegative, pct, safeDivide, clamp } from '../core/money.js';
 import { isPlainObject } from '../core/object.js';
+import { equipmentHoursPerDay } from './equipment-engine.js';
 
 export const EXTERNAL_UNIT_IDS = Object.freeze(['hour', 'day', 'month', 'trip', 'km', 'activation', 'global']);
 
@@ -96,10 +97,8 @@ export function computeExternalLine(line = {}, ctx = {}) {
   const quantity = nonNegative(line.quantity);
   const dpaRaw = nonNegative(ctx.daysPerActivation, 1);
   const dpa = dpaRaw > 0 ? dpaRaw : 1;
-  const hoursPerActiveDay =
-    line.hoursPerActiveDay === null || line.hoursPerActiveDay === undefined || line.hoursPerActiveDay === ''
-      ? nonNegative(ctx.defaultHoursPerActiveDay)
-      : nonNegative(line.hoursPerActiveDay);
+  // Horas por UNIDAD, con el mismo tope de 24 h que un equipo propio (PLAN-2026-014).
+  const hoursPerActiveDay = equipmentHoursPerDay(line.hoursPerActiveDay, ctx.defaultHoursPerActiveDay);
   const unit = EXTERNAL_UNIT_IDS.includes(ext.unit) ? ext.unit : 'day';
   const priceOriginal = nonNegative(ext.price);
   const price = priceOriginal * conversion;

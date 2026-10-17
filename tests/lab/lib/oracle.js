@@ -55,7 +55,7 @@ export const DOC_GAPS = Object.freeze([]);
 export const CONFIRMED_RULES = Object.freeze([
   { id: 'vat-partial-without-pct', rule: '§4.1', text: 'IVA "Parcial" sin % recuperable = 0 % recuperable (todo el IVA es costo) + pendiente rojo.' },
   { id: 'other-cost-category-external', rule: '§6', text: 'Otros costos con categoría "external": costo directo del grupo de pago Proveedores.' },
-  { id: 'line-hours-no-cap', rule: '§4', text: 'Horas por día de una línea de equipo: no se limitan a 24 (la validación marca error); las de la actividad sí (§2).' },
+  { id: 'line-hours-cap', rule: '§4', text: 'Horas por día de una línea de equipo (propia o externa): son POR UNIDAD y como mucho 24, igual que las de la actividad (§2); un dato mayor es error de validación y se calcula con 24; más horas = más equipos (cantidad). Decisión del dueño (PLAN-2026-014).' },
 ]);
 
 // ------------------------------------------------------------- catálogos (§12.1, §6.1)
@@ -215,7 +215,8 @@ export function operation(e, fuelPrice) {
   return { nonFuelPerHour: m.perHour + t.perHour, fuelPerHour: liters * fuelPrice, tiresPerKm: t.perKm };
 }
 
-const lineHours = (line, act) => (blank(line.hoursPerActiveDay) ? act.hours : n(line.hoursPerActiveDay));
+// Horas de uso por día de UNA unidad, propia o externa: como mucho 24 (§4; la cantidad multiplica).
+const lineHours = (line, act) => Math.min(blank(line.hoursPerActiveDay) ? act.hours : n(line.hoursPerActiveDay), 24);
 const isExternal = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
 
 /** Factores fiscales de un externo (§4.1). */
