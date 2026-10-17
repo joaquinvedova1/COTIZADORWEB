@@ -50,6 +50,12 @@ export const COMPLETENESS_RISK_THRESHOLD = 60;
 /** Colores del puntaje en toda la interfaz: verde ≥ 85, naranja ≥ 60, rojo < 60. */
 export const COMPLETENESS_GREEN_THRESHOLD = 85;
 
+/**
+ * Aviso de cobertura de horas del personal (PLAN-2026-014, LAB-D2). Es un control mensual de
+ * horas de cobertura: no habla de "jornada" porque RATEOS no tiene un dato de jornada diaria.
+ */
+export const LABOR_COVERAGE_MESSAGE = 'La operación requiere más horas de cobertura que las horas cargadas para este puesto. Revisá dotación, turnos y/o horas extra.';
+
 /** Tono (green | orange | red) de un puntaje de completitud. */
 export function completenessTone(scorePct) {
   if (!Number.isFinite(scorePct)) return 'red';
@@ -150,11 +156,13 @@ export function evaluateCompleteness(quote = {}) {
       ok ? 'Relevos configurados.' : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.'));
   }
 
-  // 5 bis. Horas de la operación vs jornada cargada (PLAN-2026-014, LAB-D2). Sólo con datos
-  // cargados: horas por posición que pide la actividad (días × horas por día) contra las que
-  // cubren las personas por posición (horas normales del puesto) y las horas extra cargadas.
-  // Nunca se infieren horas extra, turnos, relevos ni convenio, ni cambia el costo: sólo avisa
-  // (y la regla aparece únicamente si falta cubrir horas).
+  // 5 bis. Horas de cobertura de la operación vs horas cargadas del puesto (PLAN-2026-014,
+  // LAB-D2). Control MENSUAL, sólo con datos cargados: horas por posición que pide la actividad
+  // en el mes (días × horas por día) contra las que cubren las personas por posición (horas
+  // normales por mes del puesto) y las horas extra cargadas. RATEOS no conoce la jornada diaria
+  // de cada persona, así que el aviso no habla de jornada. Nunca se infieren horas extra,
+  // turnos, relevos ni convenio, ni cambia el costo: sólo avisa (y la regla aparece únicamente
+  // si falta cubrir horas).
   const act = normalizeActivity(quote);
   const D = act.activeDaysPerMonth;
   const H = act.hoursPerActiveDay;
@@ -174,10 +182,10 @@ export function evaluateCompleteness(quote = {}) {
     if (short.length) {
       const first = short[0];
       const name = (typeof first.l.role === 'string' && first.l.role.trim()) || 'Personal';
-      const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
+      const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
-        `La operación requiere más horas que la jornada cargada. Revisá turnos, dotación y/o horas extra. "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo.${others}`);
+        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo.${others}`);
       item.focus = `labor.${first.index}.peoplePerPosition`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);

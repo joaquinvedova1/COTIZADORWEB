@@ -404,7 +404,7 @@ export const QUOTE_INVARIANTS = [
   },
   {
     // PLAN-2026-014 (LAB-D2): el aviso de horas nunca agrega horas extra ni personas.
-    id: 'INV-31', title: 'Más horas por día que la jornada cargada: se avisa y el costo del personal no cambia solo',
+    id: 'INV-31', title: 'Más horas de cobertura que las cargadas para el puesto: se avisa y el costo del personal no cambia solo',
     check(q, r) {
       if (!list(q.labor).length || !(r.kpis.activeDays > 0)) return notApplicable;
       const q2 = clone(q); q2.activity = { ...q2.activity, hoursPerActiveDay: 24 };

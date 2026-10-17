@@ -706,7 +706,7 @@ export const SERVICE_SCENARIOS = [
   },
   {
     id: 'SRV-D2-HOURS-SHORT',
-    title: 'D2: 12 h × 20 días con 1 persona de 176 h por posición: aviso "más horas que la jornada cargada" (el costo no cambia)',
+    title: 'D2: 12 h × 20 días con 1 persona de 176 h por posición: aviso "más horas de cobertura que las horas cargadas" (el costo no cambia)',
     family: 'decisions',
     build: () => service({ id: 'srv-d2a', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 12 }, labor: [person({ role: 'Soldador', positions: 2 })] }),
     ux: { itemStatus: { labor_hours: 'warning' } },
@@ -745,8 +745,8 @@ export const SERVICE_SCENARIOS = [
     ux: { itemStatus: { fuel: 'missing' } },
   },
   {
-    id: 'SRV-D8-PERMANENT-SHIFT-CHANGE',
-    title: 'D8: servicio permanente: la activación se llama "cambio de turno" en todos los textos',
+    id: 'SRV-D8-PERMANENT-NEUTRAL',
+    title: 'D8: servicio permanente: la activación se llama "intervención" (neutral: RATEOS no sabe si es un relevo), nunca "cambio de turno"',
     family: 'decisions',
     build: () => service({ id: 'srv-d8a', serviceType: 'permanent', unit: 'month', activity: { activeDaysPerMonth: 30, daysPerActivation: 7, hoursPerActiveDay: 8 }, labor: [person({ role: 'Vigilador', positions: 1, peoplePerPosition: 2 })], logistics: route({ distanceKm: 40, vehicles: [vehicle()] }) }),
   },

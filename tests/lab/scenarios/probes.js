@@ -181,7 +181,7 @@ export const PROBES = [
   },
   {
     // Decisión del dueño LAB-D2 (PLAN-2026-014): nunca se infieren horas extra, turnos ni relevos; se avisa.
-    id: 'PRB-16', dimension: 'A', title: '12 horas de trabajo por día con personal de jornada normal y sin horas extra: aviso "más horas que la jornada cargada"',
+    id: 'PRB-16', dimension: 'A', title: '12 horas de trabajo por día con 176 h normales por mes y sin horas extra: aviso "más horas de cobertura que las horas cargadas"',
     expect: 'warn', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
     explain: '20 días × 12 h = 240 h por posición; 1 persona de 176 h normales y 0 horas extra cubre 176 h. RATEOS no agrega horas extra ni personas: avisa y lleva a "Personas por posición".',
     build: () => service({ id: 'prb-16', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 12 }, labor: [person({ positions: 2, overtimeHoursPerActiveDay: 0 })] }),

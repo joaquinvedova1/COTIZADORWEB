@@ -131,7 +131,7 @@ export const E2E_SCENARIOS = [
       equipment: [owned({ name: 'Camión', fuelLitersPerHour: 8, mobilization: { mode: 'self', travelLitersPer100Km: 35, travelCostPerKm: 250, driver: 'operator' } })], logistics: route({ distanceKm: 150, tollsPerActivation: 40000 }) }),
   },
   {
-    id: 'E2E-12', title: 'D2: 12 h × 20 días con 1 persona por posición: "más horas que la jornada cargada"',
+    id: 'E2E-12', title: 'D2: 12 h × 20 días con 1 persona por posición: "más horas de cobertura que las horas cargadas"',
     build: () => service({ id: 'lab-e12', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 12 }, labor: [person({ role: 'Soldador', positions: 2 })] }),
   },
   {
@@ -413,10 +413,15 @@ async function runMode(mode) {
     const unitCost = norm(formatMoney(pr.unitCost, { decimals: 2 }));
     check('E2E-P01', 'D3: el Resultado del producto muestra la financiación', t.includes('Financiación (capital de trabajo)'), 'sin fila de financiación');
     check('E2E-P01', 'D3: costo por unidad = motor (con financiación)', t.includes(unitCost) || t.includes(norm(formatMoney(pr.unitCost))), `no aparece ${unitCost}`);
+    // Alcance (LAB-D3): la financiación es sobre costos netos; el IVA de compras no está incluido.
+    const NET = /estimación financiera sobre costos netos\. el iva de compras no está incluido en este capital de trabajo\./i;
+    check('E2E-P01', 'D3: el Resultado aclara que la financiación es sobre costos netos (sin IVA de compras)', NET.test(t), 'sin la aclaración');
     await go(`#/productos/${encodeURIComponent(prod.id)}/precio`, 300);
     await page.waitForTimeout(600);
     const fields = await page.evaluate(() => ['finance.invoiceLagDays', 'finance.paymentTermDays', 'finance.monthlyRatePct'].every((n) => document.querySelector(`[name="${n}"]`)));
     check('E2E-P01', 'D3: "Precio y margen" tiene los campos de financiación', fields, 'faltan campos');
+    const tp = norm(await page.evaluate(() => document.body.innerText));
+    check('E2E-P01', 'D3: "Precio y margen" aclara que la financiación es sobre costos netos (sin IVA de compras)', NET.test(tp), 'sin la aclaración');
     await scan('E2E-P01', 'producto');
   }
 

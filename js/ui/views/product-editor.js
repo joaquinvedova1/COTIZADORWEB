@@ -27,7 +27,7 @@ import { deepClone, getPath, setPath } from '../../core/object.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { logger } from '../../core/logger.js';
 import { CURRENCY } from '../../config.js';
-import { computeProduct } from '../../engines/product-engine.js';
+import { computeProduct, PRODUCT_FINANCE_NET_NOTE } from '../../engines/product-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import {
   PRODUCT_STEPS, MEASURE_UNITS, PRODUCT_PRICE_MODES, PRODUCT_MATERIAL_PER, SALE_UNIT_SUGGESTIONS, MAINTENANCE_MODES,
@@ -1243,6 +1243,8 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
           if (!(f.financialMonthly > 0)) return 'Con estos plazos y esta tasa no hay costo financiero.';
           return `Capital financiado: ${money0(f.workingCapitalMonthly)} · costo financiero: ${money0(f.financialMonthly)} por mes = ${unitMoney(f.financialPerUnit)} por ${saleUnit()}. Sube el precio con tu margen en ${unitMoney(r.pricing.financeEffect)}.`;
         }),
+        // Alcance (LAB-D3): no es una simulación completa de caja.
+        h('p', { class: 'footnote', 'data-note': 'finance-net' }, PRODUCT_FINANCE_NET_NOTE),
         liveTrace('finance', 'Ver cálculo de la financiación'),
       ),
       card(
@@ -1401,6 +1403,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
               { label: 'Ganancia del mes', value: money0(r.monthly.profit), strong: true },
             ].filter(Boolean),
           }),
+          r.monthly.financial > 0 ? h('p', { class: 'footnote', 'data-note': 'finance-net' }, PRODUCT_FINANCE_NET_NOTE) : null,
         )
         : null,
       current

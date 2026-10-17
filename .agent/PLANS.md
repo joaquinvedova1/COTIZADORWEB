@@ -113,7 +113,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-011 | "Cada salida se cuenta completa" (opcional) y plazo de pago por proveedor externo | motor de costos, utilización, migración | Completado (v0.7.1) |
 | PLAN-2026-012 | Pulido desde casos reales de transporte (COT-0010 / COT-0011): viajes físicos, km del proveedor, combustible, recursos compartidos y "Usado en" | motor de costos, utilización, migración | Completado (v0.7.2) |
 | PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | Completado (main `37179e7`) |
-| PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, jornada, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Implementado (PR abierto, sin merge) |
+| PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Implementado (PR #24 abierto, sin merge; para v0.8.0) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -937,11 +937,11 @@ Economía (el oráculo sigue CALCULATION_RULES), QA (casos extremos y propiedade
 
 ### PLAN-2026-014 — Cierre de las decisiones LAB-D1…D8 (Test Lab)
 
-- Estado: Implementado — PR abierto, sin merge (espera la revisión del dueño)
+- Estado: Implementado — PR #24 abierto, sin merge (espera la autorización del dueño); se publica como v0.8.0
 - Tipo: motor de costos (productos), migración de esquema (9 → 10), UX y completitud
 - Responsable: agente de desarrollo (Claude) · el dueño decidió cada punto · sin merge ni deploy sin autorización
 - Fecha de inicio: 2026-10-17
-- Rama / PR: `claude/rateos-lab-decisions-d1-d8` (desde `main` `37179e7`)
+- Rama / PR: `claude/rateos-lab-decisions-d1-d8` (desde `main` `37179e7`) · PR #24
 
 #### 1. Contexto
 Test Lab v1 dejó 8 decisiones del dueño. El dueño ya las tomó; este plan las implementa sin cambiar ningún golden ni el resultado de una cotización existente salvo donde la decisión lo pide explícitamente (y sólo si la persona confirma un dato nuevo).
@@ -950,13 +950,13 @@ Test Lab v1 dejó 8 decisiones del dueño. El dueño ya las tomó; este plan las
 | ID | Decisión del dueño | Implementación | ¿Fórmula? |
 |---|---|---|---|
 | D1 | < 1 salida por mes: mantener la semántica (opción apagada = promedio; prendida = ⌈A⌉ para lo indivisible) y hacerla explícita | Aviso informativo con salidas promedio, salidas costeadas y efecto económico del redondeo, en el paso y en el Resultado; golden + invariante para A < 1 | No |
-| D2 | Horas de operación > jornada cargada: avisar, nunca inferir horas extra, turnos ni convenio | Regla de completitud `labor_hours` (a revisar, sólo si faltan horas) que compara horas de operación del mes (días × horas por día) con las horas cubiertas por posición (personas × horas normales + horas extra cargadas), con el texto del dueño y botón a "Personas por posición" (el mensaje nombra también horas extra y horas normales) | No |
-| D3 | Productos con financiación, sin parche ni motor duplicado | `finance` opcional del producto con los mismos datos que una cotización (días hasta vender, plazo de cobro, tasa, plazo de pago por grupo) reutilizando `computeFinance`; sin datos = $ 0 (los productos existentes no cambian) | Sí (sólo productos con datos de financiación) |
+| D2 | Horas de cobertura de la operación > horas cargadas del puesto: avisar, nunca inferir horas extra, turnos ni convenio | Regla de completitud `labor_hours` (a revisar, sólo si faltan horas): control **mensual** de cobertura que compara las horas del mes (días × horas por día) con las cubiertas por posición (personas × horas normales por mes + horas extra cargadas), con el texto del dueño ("La operación requiere más horas de cobertura que las horas cargadas para este puesto. Revisá dotación, turnos y/o horas extra."), el cálculo del mes y botón a "Personas por posición". No habla de jornada: no existe un dato de jornada diaria y no se agrega (Test Lab: `UX-TERM-JORNADA`) | No |
+| D3 | Productos con financiación, sin parche ni motor duplicado | `finance` opcional del producto con los mismos datos que una cotización (días hasta vender, plazo de cobro, tasa, plazo de pago por grupo) reutilizando `computeFinance`; sin datos = $ 0 (los productos existentes no cambian). Es una estimación sobre costos netos: el IVA de compras no se incluye y la interfaz lo aclara siempre junto a la financiación | Sí (sólo productos con datos de financiación) |
 | D4 | Km facturables ≠ km de ruta: no derivar, mostrar ambos y avisar si dejan costos sin cubrir | Resumen de transporte con km facturables, km de ruta y su relación; "Ver cálculo" con las dos magnitudes; el aviso de km de LAB-F3 se mantiene | No |
 | D5 | Equipo propio que no usa combustible | Dato explícito `equipment[].fuelNotApplicable` ("No usa combustible"): no se pide consumo ni precio por ese equipo y no impide el 100 %; 0 sigue siendo "falta"; sin el dato todo calcula igual | Sí (sólo si se marca) |
 | D6 | Huecos de CALCULATION_RULES | Se reconstruye y documenta la regla real (IVA parcial sin %, otros costos "externos", horas de una línea de equipo); el oráculo pasa a citar reglas confirmadas | No |
 | D7 | Precio ILUSTRATIVO del combustible | Las cotizaciones reales nuevas con precio ilustrativo lo marcan `fuel.requiresConfirmation`: la completitud pide confirmarlo o reemplazarlo (rojo, con el valor y su base) y se confirma con "Es mi precio vigente" (la casilla que ya existía) o cargando un precio; demo e históricas sin cambios; el mercado nunca cambia el valor | No |
-| D8 | Una magnitud = un significado | Un concepto canónico (activación) con copy contextual (`activationTerms`): llamado en on-call o con la unidad "llamado", salida en transporte, cambio de turno en permanentes, trabajo en llave en mano / precio cerrado, intervención en el resto; en formulario, ayudas, avisos, "Ver cálculo", Resultado/PDF y docs; auditoría de terminología estática y dinámica en Test Lab | No |
+| D8 | Una magnitud = un significado | Un concepto canónico (activación) con copy contextual (`activationTerms`): llamado en on-call o con la unidad "llamado", salida en transporte, trabajo en llave en mano / precio cerrado, intervención en el resto, incluidos los permanentes (término neutral: no hay un dato que diga que cada activación es un relevo o cambio de turno); en formulario, ayudas, avisos, "Ver cálculo", Resultado/PDF y docs; auditoría de terminología estática y dinámica en Test Lab | No |
 
 #### 3. Impacto en fórmulas
 Sólo D3 (productos con financiación cargada) y D5 (equipo marcado "No usa combustible"). Ningún golden cambia; los productos y las cotizaciones existentes calculan igual.
@@ -983,4 +983,5 @@ Revert del PR; los datos v10 sólo agregan campos opcionales (una versión anter
 - 2026-10-17: implementado D1…D8 con un test que falló antes de cada cambio (`tests/engines/lab-decisions.test.js`); dos golden nuevos para D1 aprobados en el candado; los 37 anteriores intactos. Antes → después en COT-0009/0010/0011, la demo y 56 escenarios del Lab: costos, tarifas, equilibrio y costo financiero idénticos; sólo cambia el puntaje de completitud donde aparece el aviso de D2.
 - 2026-10-17: Test Lab estable (77 escenarios + 22 sondas + auditoría de terminología) y extendido (seeds 20261016, 7, 42 y 20261017, 197 escenarios cada una) sin hallazgos bloqueantes; golden 39/39 con el candado OK; `npm test` 1632 (main: 1580); E2E escritorio y celular 277/277.
 - Quedan para el dueño (no bloquean el PR): número de versión al publicar (el esquema ya es 10; `package.json` sigue en 0.7.2); las horas por día de la actividad se limitan a 24 y las de una línea de equipo no (regla real documentada en §4); D2 compara horas del mes porque no existe un dato de jornada diaria (agregarlo sería un dato nuevo); la financiación de productos usa importes netos (el IVA de los insumos no se financia, igual que los materiales de una cotización).
+- 2026-10-17 (revisión del dueño del PR #24, micro-pase sin ampliar alcance): D2 sin "jornada" (texto de cobertura mensual, sin dato nuevo; auditoría `UX-TERM-JORNADA` estática y dinámica); D3 sigue sobre costos netos y lo dice en la tarjeta "Financiación", el resultado del mes y "Ver cálculo" ("Estimación financiera sobre costos netos. El IVA de compras no está incluido en este capital de trabajo."; Test Lab: `UX-PRODUCT-FINANCE-SCOPE`); productos sigue en confianza MEDIUM hasta un caso real auditado; D8: un servicio permanente usa "intervención" (sin "cambio de turno" automático); versión **0.8.0** (`package.json`, `version.json`, CHANGELOG, README; el esquema no se toca). Ninguna fórmula cambia. Decisión abierta: el tope de 24 h por día de la actividad vs una línea de equipo sin tope.
 

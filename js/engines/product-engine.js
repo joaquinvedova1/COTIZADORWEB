@@ -265,6 +265,13 @@ export function validateProduct(product = {}, computed = null) {
   return issues;
 }
 
+/**
+ * Alcance de la financiación de un producto (PLAN-2026-014, LAB-D3): se calcula sobre costos NETOS.
+ * No es una simulación completa de caja: el IVA de las compras no se modela (se muestra siempre
+ * junto a la financiación, en el editor, el resultado y "Ver cálculo").
+ */
+export const PRODUCT_FINANCE_NET_NOTE = 'Estimación financiera sobre costos netos. El IVA de compras no está incluido en este capital de trabajo.';
+
 /** Número opcional (null si no se cargó). */
 function optional(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -662,9 +669,10 @@ function productTraces(r, p) {
     ]),
     result: { label: `Financiación ${per}`, value: f.financialPerUnit, format: 'money' },
     notes: [
+      PRODUCT_FINANCE_NET_NOTE,
       f.defined ? null : 'Sin plazos ni tasa cargados: el costo no incluye financiación (RATEOS no inventa plazos).',
       'Interés simple, el mismo cálculo que las cotizaciones. La amortización y el costo de capital de las máquinas no son salidas de caja: no se financian.',
-      'Días hasta pagar vacíos = lo pagás al producir. Se financian los montos sin IVA.',
+      'Días hasta pagar vacíos = lo pagás al producir.',
     ],
   });
   if (r.pricing.priceWithVat !== null) {

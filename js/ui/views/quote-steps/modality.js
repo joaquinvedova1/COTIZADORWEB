@@ -37,9 +37,12 @@ const AVAILABILITY_HINTS = Object.freeze({
   window: 'Disponible sólo en una franja horaria acordada.',
 });
 
-/** Rótulo de los días por activación con el nombre de la cotización (PLAN-2026-014, LAB-D8). */
-function daysPerActivationLabel(T) {
-  if (T.id === 'cambio_de_turno') return `¿Cada cuántos días hay ${T.a} ${T.one}?`;
+/**
+ * Rótulo de los días por activación con el nombre de la cotización (PLAN-2026-014, LAB-D8).
+ * En un servicio permanente es un intervalo (cada cuántos días), no una duración.
+ */
+function daysPerActivationLabel(T, serviceType) {
+  if (serviceType === 'permanent') return `¿Cada cuántos días hay ${T.a} ${T.one}?`;
   return `¿Cuántos días dura ${T.each}?`;
 }
 
@@ -413,7 +416,7 @@ export function render(container, ctx) {
           hint: 'Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.',
         }),
         kit.num('activity.daysPerActivation', {
-          label: daysPerActivationLabel(T),
+          label: daysPerActivationLabel(T, quote.serviceType),
           rule: 'positiveDays',
           unit: 'días',
           hint: `Sirve para saber cuántos ${T.many} hay por mes.`,

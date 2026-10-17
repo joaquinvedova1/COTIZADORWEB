@@ -7,13 +7,16 @@
  * interfaz se nombra según la cotización y, dentro de una cotización, siempre
  * con el mismo nombre:
  *
- *   unidad "llamado"            llamado           se factura cada llamado
- *   unidad "trabajo" o "hito"   trabajo           cada trabajo es una activación
- *   on-call                     llamado           el cliente llama y el equipo sale
- *   transporte                  salida            una salida agrupa uno o más viajes
- *   permanente                  cambio de turno   el traslado de cada relevo
+ *   unidad "llamado"            llamado        se factura cada llamado
+ *   unidad "trabajo" o "hito"   trabajo        cada trabajo es una activación
+ *   on-call                     llamado        el cliente llama y el equipo sale
+ *   transporte                  salida         una salida agrupa uno o más viajes
  *   llave en mano / cerrado     trabajo
- *   el resto                    intervención      (servicios técnicos, cuadrillas, equipos…)
+ *   el resto                    intervención   (servicios técnicos, cuadrillas, equipos…)
+ *
+ * Un servicio permanente usa "intervención": RATEOS no sabe si cada activación
+ * es un relevo o un cambio de turno (no hay un dato que lo diga), así que no lo
+ * nombra así.
  *
  * Otras magnitudes NO son activaciones y tienen su propio nombre: "viaje" (un
  * viaje físico; con la unidad "viaje", lo que se factura), "día de trabajo",
@@ -23,16 +26,15 @@
 
 const LLAMADO = Object.freeze({ id: 'llamado', one: 'llamado', many: 'llamados', feminine: false });
 const SALIDA = Object.freeze({ id: 'salida', one: 'salida', many: 'salidas', feminine: true });
-const CAMBIO_DE_TURNO = Object.freeze({ id: 'cambio_de_turno', one: 'cambio de turno', many: 'cambios de turno', feminine: false });
 const TRABAJO = Object.freeze({ id: 'trabajo', one: 'trabajo', many: 'trabajos', feminine: false });
 const INTERVENCION = Object.freeze({ id: 'intervencion', one: 'intervención', many: 'intervenciones', feminine: true });
 
 /** La unidad que se factura ES la activación: manda su nombre. */
 const BY_UNIT = Object.freeze({ call: LLAMADO, job: TRABAJO, milestone: TRABAJO });
-const BY_SERVICE = Object.freeze({ on_call: LLAMADO, transport: SALIDA, permanent: CAMBIO_DE_TURNO, turnkey: TRABAJO, lump_sum: TRABAJO });
+const BY_SERVICE = Object.freeze({ on_call: LLAMADO, transport: SALIDA, turnkey: TRABAJO, lump_sum: TRABAJO });
 
 /** Nombres posibles de una activación (para la auditoría de terminología de Test Lab). */
-export const ACTIVATION_TERMS = Object.freeze([LLAMADO, SALIDA, CAMBIO_DE_TURNO, TRABAJO, INTERVENCION]);
+export const ACTIVATION_TERMS = Object.freeze([LLAMADO, SALIDA, TRABAJO, INTERVENCION]);
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 

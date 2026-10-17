@@ -210,9 +210,9 @@ describe('LAB-D1 · Menos de 1 salida por mes (semántica explícita, sin cambia
   });
 });
 
-describe('LAB-D2 · Horas por día mayores que la jornada cargada (nunca se inventan HE, turnos ni convenio)', () => {
-  const MSG = 'La operación requiere más horas que la jornada cargada. Revisá turnos, dotación y/o horas extra.';
-  // 20 días de trabajo; jornada cargada: 176 h normales por mes por persona.
+describe('LAB-D2 · La operación pide más horas de cobertura que las cargadas para el puesto (control mensual; nunca se inventan HE, turnos ni convenio)', () => {
+  const MSG = 'La operación requiere más horas de cobertura que las horas cargadas para este puesto. Revisá dotación, turnos y/o horas extra.';
+  // 20 días de trabajo; 176 h normales por mes por persona (RATEOS no tiene un dato de jornada diaria).
   const quote = ({ hours, ppp = 1, overtime = 0, perMonth = null } = {}) => service({
     id: 'd2', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20, hoursPerActiveDay: hours },
     labor: [person({
@@ -237,6 +237,14 @@ describe('LAB-D2 · Horas por día mayores que la jornada cargada (nunca se inve
     assert.match(it.message, /Faltan 64 h/);
     assert.equal(it.focus, 'labor.0.peoplePerPosition');
     assert.deepEqual(it.targets.map((t) => t.index), [0]);
+  });
+
+  test('es un control MENSUAL de cobertura: muestra el cálculo del mes y nunca habla de "jornada" (no hay ese dato)', () => {
+    const it = check(quote({ hours: 12 }));
+    assert.match(it.message, /20 días × 12 h = 240 h de cobertura por posición en el mes/);
+    assert.match(it.message, /lo cargado cubre 176 h \(1 persona × 176 h normales por mes\)/);
+    assert.doesNotMatch(it.message, /jornada/i);
+    assert.doesNotMatch(check(quote({ hours: 24, ppp: 2 })).message, /jornada/i);
   });
 
   test('12 h con 2 personas por posición (relevo) o con las horas extra cargadas: sin aviso', () => {
@@ -361,6 +369,8 @@ describe('LAB-D3 · Financiación de productos (el mismo motor que las cotizacio
     close(r.pricing.financeEffect, 355.35 / 0.7 - 345 / 0.7);
     assert.ok(r.breakdown.some((x) => x.key === 'financial' && Math.abs(x.amount - f.financialPerUnit) < 1e-9));
     assert.ok(r.traces.finance, '"Ver cálculo" de la financiación');
+    // Alcance: estimación sobre costos netos; el IVA de compras no se modela (no es una simulación completa de caja).
+    assert.equal(r.traces.finance.notes[0], 'Estimación financiera sobre costos netos. El IVA de compras no está incluido en este capital de trabajo.');
     // Equilibrio con la financiación fija y variable.
     close(r.pricing.breakEvenUnits, (175000 + 5250) / (r.pricing.suggestedPrice - (286.6666666666667 + 8.6)));
   });
@@ -392,6 +402,31 @@ describe('LAB-D3 · Financiación de productos (el mismo motor que las cotizacio
   test('un producto nuevo arranca sin plazos ni tasa (nada inventado)', () => {
     const p = createEmptyProduct({ settings: { financeMonthlyRatePct: 3, defaultPaymentTermDays: 60 } });
     assert.deepEqual(p.finance, { invoiceLagDays: null, paymentTermDays: null, monthlyRatePct: null, payDays: { materials: null, salaries: null, fuel: null, suppliers: null, structure: null } });
+  });
+});
+
+describe('LAB-D8 · Un nombre por cotización; un servicio permanente usa "intervención" (neutral)', () => {
+  test('on-call → llamado · transporte → salida · llave en mano / precio cerrado → trabajo · permanente y el resto → intervención', () => {
+    assert.equal(activationTerms('on_call').one, 'llamado');
+    assert.equal(activationTerms('transport').one, 'salida');
+    assert.equal(activationTerms('turnkey').one, 'trabajo');
+    assert.equal(activationTerms('lump_sum').one, 'trabajo');
+    assert.equal(activationTerms('permanent').one, 'intervención', 'RATEOS no sabe si cada activación es un relevo o un cambio de turno');
+    assert.equal(activationTerms('crew').one, 'intervención');
+  });
+
+  test('una cotización permanente nunca dice "cambio de turno" (avisos, notas y "Ver cálculo"); los números no cambian', () => {
+    const q = service({
+      id: 'd8p', serviceType: 'permanent', unit: 'month', activity: { activeDaysPerMonth: 30, daysPerActivation: 7, hoursPerActiveDay: 8 },
+      labor: [person({ role: 'Vigilador', positions: 1, peoplePerPosition: 2 })],
+      logistics: { notApplicable: false, distanceKm: 40, roundTrip: true, tripsPerActivation: 1, tollsPerActivation: 5000, lodgingPerActivation: 0, vehicles: [] },
+    });
+    const r = computeQuote(structuredClone(q));
+    const shown = JSON.stringify({ items: r.completeness.items, notices: r.completeness.notices, traces: r.traces });
+    assert.doesNotMatch(shown, /cambios? de turno/i);
+    assert.match(shown, /intervenci(ón|ones)/);
+    const asCrew = computeQuote(structuredClone({ ...q, serviceType: 'crew' }));
+    assert.equal(r.kpis.logisticsMonthly, asCrew.kpis.logisticsMonthly, 'sólo cambia el nombre, no la cuenta');
   });
 });
 
