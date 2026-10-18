@@ -29,12 +29,16 @@ import { h, mount, downloadText } from './ui/dom.js';
 import { banner, button, card, confirmDialog, ensureToastRegion, toast } from './ui/components.js';
 import { createLayout, userErrorMessage } from './ui/layout.js';
 import { createRouter } from './ui/router.js';
+import { resetSessionMemory } from './ui/session-memory.js';
 
 const FALLBACK_VERSION = Object.freeze({ version: 'dev', commit: 'local', buildDate: null, ref: null });
 const ERROR_TOAST_INTERVAL_MS = 5000;
 
 /** Tono del banner según el resultado de inicializar los datos. */
 const INIT_STATUS_TONE = Object.freeze({ migrated: 'warning', recovered: 'warning', repaired: 'warning', read_only: 'danger' });
+
+/** Código de sincronización cuando la cuenta ya no es miembro de la empresa (SupabaseRepository). */
+const ACCESS_LOST_CODE = 'access_lost';
 
 // ------------------------------------------------------------ errores globales
 
@@ -270,8 +274,9 @@ function conflictBanner(ctx, { onReloaded }) {
       size: 'sm',
       onClick: async () => {
         try {
-          await ctx.sync.reloadFromCloud();
-          toast('Abrimos la versión más nueva. Tus cambios de esta pestaña quedaron en una copia de recuperación.', 'info', { timeout: 6000 });
+          const res = await ctx.sync.reloadFromCloud();
+          if (res && res.message) toast(res.message, 'warning', { timeout: 10000 });
+          else toast('Abrimos la versión más nueva. Tus cambios de esta pestaña quedaron en una copia de recuperación.', 'info', { timeout: 6000 });
           onReloaded();
         } catch (error) {
           toast(userErrorMessage(error, 'No pudimos recargar. Revisá tu conexión.'), 'danger');
@@ -507,6 +512,17 @@ async function boot(root) {
       if (unsubscribeSync) unsubscribeSync();
       let lastStatus = null;
       unsubscribeSync = ctx.sync.onChange((state) => {
+        // La cuenta dejó de ser miembro de la empresa: nada de esa empresa sigue
+        // en pantalla. Sus cambios sin subir quedan en la copia del navegador.
+        if (state.code === ACCESS_LOST_CODE) {
+          if (account === ctx) {
+            closeAccount();
+            accountError = Object.assign(new Error(state.message || 'Ya no tenés acceso a esta empresa.'), { name: 'RepositoryError', code: ACCESS_LOST_CODE });
+            accountState = 'error';
+            if (router) router.render();
+          }
+          return;
+        }
         layout.setSyncStatus({ status: state.status, label: SYNC_LABELS[state.status] || '' });
         // Sólo se redibujan los avisos cuando cambia el tipo de estado.
         if (state.status !== lastStatus) {
@@ -539,14 +555,20 @@ async function boot(root) {
     if (router) router.render();
   }
 
+  /**
+   * Cierra la cuenta en ESTA pestaña (logout, sesión vencida, otra persona,
+   * acceso perdido): no queda nada de esa empresa en pantalla ni en la memoria
+   * de las vistas. Los cambios sin subir siguen en la copia del navegador.
+   */
   function closeAccount() {
     if (unsubscribeSync) unsubscribeSync();
     unsubscribeSync = null;
     if (account) account.dispose();
     account = null;
     accountState = 'idle';
-    layout.setAccount(null);
-    layout.setBanners([]);
+    dismissed.clear();
+    resetSessionMemory();
+    layout.clearSession();
   }
 
   router = createRouter({ app, layout });

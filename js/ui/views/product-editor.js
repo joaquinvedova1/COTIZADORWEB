@@ -43,6 +43,7 @@ import { maintenanceInterpretation } from '../equipment-wear-ui.js';
 import { billingTaxesFields } from '../billing-taxes-form.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { STEP_HINTS, unitMoney, productHref } from './products.js';
+import { createDraftStore } from '../session-memory.js';
 
 export const RECALC_DELAY_MS = 150;
 export const SAVE_DELAY_MS = 400;
@@ -77,8 +78,8 @@ const ISSUE_STEPS = Object.freeze({
 
 const STATUS_TEXT = Object.freeze({ green: 'listo', orange: 'revisá un dato', red: 'falta un dato', gray: 'sin cargar' });
 
-/** Cambios que no se pudieron guardar (por id): al volver se recuperan. */
-const unsavedDrafts = new Map();
+/** Cambios que no se pudieron guardar (por cuenta e id): al volver se recuperan; otra cuenta nunca los ve. */
+const unsavedDrafts = createDraftStore();
 /** Guardados en curso (por id): el paso siguiente espera a que terminen. */
 const pendingSaves = new Map();
 let activeEditor = null;
@@ -368,11 +369,11 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
     });
     try {
       await promise;
-      unsavedDrafts.delete(productId);
+      unsavedDrafts.delete(app.ctx, productId);
       if (!state.dirty) setSaveStatus('saved');
     } catch (error) {
       state.dirty = true;
-      unsavedDrafts.set(productId, deepClone(state.product));
+      unsavedDrafts.set(app.ctx, productId, deepClone(state.product));
       logger.warn('No se pudo guardar el producto', { code: error && error.code });
       setSaveStatus('error', error);
     }
@@ -1604,7 +1605,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
           if (state.disposed || state.saveStatus !== 'error') return;
           if (state.saveErrorCode === 'conflict' && !sync.conflict) {
             state.dirty = false;
-            unsavedDrafts.delete(productId);
+            unsavedDrafts.delete(app.ctx, productId);
             scheduleSave.cancel();
             setSaveStatus('saved');
             return;
@@ -1612,7 +1613,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
           if (!['sync_failed', 'session_expired'].includes(state.saveErrorCode)) return;
           if (sync.status === 'saved' && !sync.dirty) {
             state.dirty = false;
-            unsavedDrafts.delete(productId);
+            unsavedDrafts.delete(app.ctx, productId);
             setSaveStatus('saved');
           }
         });
@@ -1717,7 +1718,7 @@ export async function render(root, app, params = {}) {
     return undefined;
   }
 
-  const draft = unsavedDrafts.get(id);
+  const draft = unsavedDrafts.get(app.ctx, id);
   const editor = createEditor(root, app, { product: draft ? deepClone(draft) : product, resources, stepId, restoredDraft: Boolean(draft) });
   activeEditor = editor;
   editor.mount();

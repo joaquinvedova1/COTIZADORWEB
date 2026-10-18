@@ -113,7 +113,8 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-011 | "Cada salida se cuenta completa" (opcional) y plazo de pago por proveedor externo | motor de costos, utilización, migración | Completado (v0.7.1) |
 | PLAN-2026-012 | Pulido desde casos reales de transporte (COT-0010 / COT-0011): viajes físicos, km del proveedor, combustible, recursos compartidos y "Usado en" | motor de costos, utilización, migración | Completado (v0.7.2) |
 | PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | Completado (main `37179e7`) |
-| PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Implementado (PR #24 abierto, sin merge; para v0.8.0) |
+| PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Completado (PR #24 mergeado, main `0c213a3`, v0.8.0 en producción) |
+| PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado — v0.8.1 (merge del PR #25 autorizado por el dueño); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 
 ### Pendientes registrados (sin implementar)
 
@@ -937,10 +938,10 @@ Economía (el oráculo sigue CALCULATION_RULES), QA (casos extremos y propiedade
 
 ### PLAN-2026-014 — Cierre de las decisiones LAB-D1…D8 (Test Lab)
 
-- Estado: Implementado — PR #24 abierto, sin merge (espera la autorización del dueño); se publica como v0.8.0
+- Estado: Completado — PR #24 mergeado con autorización del dueño (merge `0c213a3` en `main`); v0.8.0 (esquema 10) en producción
 - Tipo: motor de costos (productos), migración de esquema (9 → 10), UX y completitud
 - Responsable: agente de desarrollo (Claude) · el dueño decidió cada punto · sin merge ni deploy sin autorización
-- Fecha de inicio: 2026-10-17
+- Fecha de inicio: 2026-10-17 · Fecha de cierre: 2026-10-17
 - Rama / PR: `claude/rateos-lab-decisions-d1-d8` (desde `main` `37179e7`) · PR #24
 
 #### 1. Contexto
@@ -985,4 +986,65 @@ Revert del PR; los datos v10 sólo agregan campos opcionales (una versión anter
 - Quedan para el dueño (no bloquean el PR): número de versión al publicar (el esquema ya es 10; `package.json` sigue en 0.7.2); las horas por día de la actividad se limitan a 24 y las de una línea de equipo no (regla real documentada en §4); D2 compara horas del mes porque no existe un dato de jornada diaria (agregarlo sería un dato nuevo); la financiación de productos usa importes netos (el IVA de los insumos no se financia, igual que los materiales de una cotización).
 - 2026-10-17 (revisión del dueño del PR #24, micro-pase sin ampliar alcance): D2 sin "jornada" (texto de cobertura mensual, sin dato nuevo; auditoría `UX-TERM-JORNADA` estática y dinámica); D3 sigue sobre costos netos y lo dice en la tarjeta "Financiación", el resultado del mes y "Ver cálculo" ("Estimación financiera sobre costos netos. El IVA de compras no está incluido en este capital de trabajo."; Test Lab: `UX-PRODUCT-FINANCE-SCOPE`); productos sigue en confianza MEDIUM hasta un caso real auditado; D8: un servicio permanente usa "intervención" (sin "cambio de turno" automático); versión **0.8.0** (`package.json`, `version.json`, CHANGELOG, README; el esquema no se toca). Ninguna fórmula cambia. Decisión abierta: el tope de 24 h por día de la actividad vs una línea de equipo sin tope.
 - 2026-10-17 (última decisión del dueño antes del merge, cierra la decisión abierta): `hoursPerActiveDay` de una línea de equipo, propia o externa, son horas **por unidad**, como mucho 24 (el mismo tope de la actividad y de la validación); la cantidad va en `quantity` (2 equipos × 20 h = 40 equipo-horas por día). Más de 24 sigue siendo error de validación y el motor ya no calcula por encima (`equipmentHoursPerDay` en `computeEquipmentLine` y `computeExternalLine`; nota en "Ver cálculo"; el oráculo de Test Lab sigue la misma regla). Tests 8 / 24 / 24,1 / 30 h y 2 × 20 h, propio y externo, que fallaron antes del cambio. Sin cambio de esquema ni de versión (0.8.0, esquema 10); ningún golden ni escenario anterior usaba más de 24 h. No quedan decisiones abiertas en este plan.
+- 2026-10-17 (cierre): el dueño autorizó el merge del PR #24 (head `82df9d6`, sin conflictos, checks en verde). Merge `0c213a3` en `main`; el deploy de producción publicó **v0.8.0** (esquema 10) desde ese commit. Verificado después del merge: `npm test` en verde, golden 39/39 con el candado, gate estable de Test Lab en verde. No se creó el tag `v0.8.0` (ver PLAN-2026-015 §2).
 
+### PLAN-2026-015 — Beta Readiness v1: seguridad, tenancy, integridad y privacidad
+
+- Estado: Completado — el dueño autorizó (2026-10-17) el cierre y merge del PR #25 como **v0.8.1** (parche, esquema 10), desde la rama `claude/rateos-beta-security-v1` (base `main` `0c213a3`, v0.8.0; tag `v0.8.0`). **Beta con empresas externas: no iniciada** (decisión del dueño): HD-01, HD-02 y HD-03 son requisitos obligatorios antes de habilitar usuarios reales. El SHA del merge se anota en la próxima tarea (no se escribe en `main` directo).
+- Tipo: backend, autenticación, otro (seguridad y privacidad; sin fórmulas nuevas)
+- Responsable: agente de desarrollo (Claude) · decisiones de permisos e infraestructura: el dueño
+- Fecha de inicio: 2026-10-17
+
+#### 1. Contexto y problema
+Antes de una beta cerrada con empresas reales hay que probar que una empresa nunca puede leer, modificar ni inferir datos económicos de otra (aunque conozca sus IDs), que el admin de plataforma no lee contenido de clientes, que no quedan datos de una sesión anterior a la vista y que nunca se pierde en silencio el último dato válido.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: inventario real de la base, tests de negación A/B en la base, auditoría del navegador (sesión, pestañas, import/export, recuperación, logs), correcciones claras con un test que falla antes, Beta Security Gate reproducible y lista de decisiones del dueño.
+- Fuera de alcance (pedido del dueño): historial/revisiones, billing, créditos beta, landing pública, modalidades nuevas, fórmulas nuevas, IA. Ninguna política se "arregla" sola si el modelo de permisos es ambiguo (HUMAN DECISION).
+- Housekeeping: PLAN-2026-014 → completado (PR #24, `main` `0c213a3`, v0.8.0). **Tag `v0.8.0`:** la política (DEPLOYMENT.md §6) usa tags sólo para hitos y como punto natural de rollback, pero **no existe ningún tag** en el repo (tampoco `v0.1.0`). Aporta un punto de retorno con nombre para la versión que llega a la beta (el rollback manual también acepta SHAs, así que no es imprescindible). Propuesta: `git tag -a v0.8.0 0c213a3 -m "RATEOS v0.8.0"`. **Decisión del dueño (2026-10-17):** crearlo exactamente sobre `0c213a3` y no moverlo nunca; creado en el cierre (ver bitácora).
+
+#### 3. Impacto en fórmulas
+Ninguno. No se tocan motores; golden 39/39 sin cambios.
+
+#### 4. Impacto en datos
+- Base: sin migraciones (sólo un archivo de tests SQL).
+- Esquema de RATEOS: 10, sin cambios; backups iguales.
+- Navegador: la copia de cambios sin subir pasa a una clave por pestaña (`rateos.cloud.<u>.<o>.pending.<pestaña>`); la de v0.8.0 se sigue leyendo. Marca `rateos.cloud.local-import.claimed` (sin datos ni ids). Ningún dato se pierde: una copia se suelta sólo cuando quedó a salvo.
+
+#### 5. Diseño
+Detalle en [docs/BETA_SECURITY.md](../docs/BETA_SECURITY.md): frontera de tenant (RLS sobre `workspace_states` por membresía), inventario en vivo, pruebas, hallazgos BS-01…BS-09, decisiones HD-01…HD-09 y gate SEC-01…SEC-16.
+
+#### 6. Pasos
+- [x] 1. Housekeeping de PLAN-2026-014 y propuesta del tag (sin crearlo).
+- [x] 2. Inventario de la base en vivo (sólo lectura) y del navegador.
+- [x] 3. `supabase/tests/beta_security_test.sql` (132 controles) + `rls_test.sql` (40) + `rls_admin_test.sql` (32) corridos en la base real con datos sintéticos (todo deshecho; conteos verificados después).
+- [x] 4. Reproducción de los hallazgos contra `main` y correcciones (BS-01…BS-09) con tests (los de BS-01, BS-02, BS-03/04, BS-07 y BS-09 fallaron antes del cambio).
+- [x] 5. Beta Security Gate (`npm run test:security`, dentro de `npm test` y en CI); contra `main` falla en SEC-05/06/07/08, con la rama pasa.
+- [x] 6. E2E `SESION-01/02` (escritorio y celular).
+- [x] 7. Documentación (BETA_SECURITY, ARCHITECTURE, AUTH_ARCHITECTURE, DATA_MODEL, SUPABASE_PLAN, AGENTS, README, CHANGELOG).
+- [ ] 8. Decisiones del dueño HD-01…HD-09 y merge (sólo con autorización).
+
+#### 7. Tests
+`tests/data/beta-security.test.js`, `tests/security/beta-security-gate.test.js`, `supabase/tests/beta_security_test.sql`, E2E `SESION-01/02`; suite completa, Test Lab estable y E2E escritorio/celular.
+
+#### 8. Riesgos y mitigación
+| Riesgo | Mitigación |
+|---|---|
+| Los tests en la base no corren en CI (sin credenciales, a propósito) | Se corren con el plugin/MCP antes de cada release y después de cada migración; el gate verifica que el test SQL siga completo |
+| Origen compartido, staging con la base de producción, registro abierto | Decisiones del dueño HD-01…HD-03 (condiciones para empresas reales) |
+
+#### 9. Rollback
+Revert del PR. No hay migraciones ni cambio de esquema; una versión anterior sigue leyendo la copia pendiente de su clave (las copias por pestaña que queden las ignora, sin borrarlas).
+
+#### 10. Review multidisciplinario
+- Economía: sin cambios de fórmulas; los motores no se tocaron.
+- QA: pestañas, sesión vencida, cambio de cuenta, miembro quitado, nube ilegible, esquema futuro, falla a mitad de guardado, misma cotización en dos pestañas.
+- Seguridad: RLS probada en la base con IDs conocidos en ambas direcciones; sin service-role; admin sin contenido; `organizationId` del cliente ignorado.
+- UX: mensajes claros ("Ya no tenés acceso a esta empresa", sólo lectura con datos ilegibles, otra pestaña), nunca "guardado" sin la nube.
+
+#### Bitácora
+- 2026-10-17: base `main` `0c213a3` confirmada, árbol limpio, rama nueva. Inventario de la base en vivo: migraciones 2 = 2, RLS en todas las tablas, grants mínimos, sin Storage, Realtime ni GraphQL, advisors (sólo `auth_leaked_password_protection`).
+- 2026-10-17: reproducidos contra `main` BS-01 (nube dañada → espacio vacío subido), BS-02 (pestaña que borra la copia pendiente de otra) y BS-07 (`organizationId` del cliente guardado).
+- 2026-10-17: tests SQL en la base real: 132 + 40 + 32 controles en verde; sin restos (conteos iguales). El plugin de Supabase pide confirmación para DELETE: el test se rediseñó para no ejecutar ningún DELETE como `postgres` (savepoint) en lugar de saltear ese control.
+- 2026-10-17: correcciones BS-01…BS-09 (BS-08 y BS-09: "Conservar una copia" con la versión actual y cupo propio para copias de cambios sin subir); gate en verde (contra `main` falla en SEC-05/06/07/08). E2E 574/574 (16 controles nuevos de sesión).
+- 2026-10-17 (cierre, autorización del dueño con condiciones): versión de parche **0.8.1** con esquema 10 y CHANGELOG `[0.8.1]` (BS-01…BS-09 con su clasificación); tag `v0.8.0` creado sobre `0c213a3` (no se mueve nunca); HD-01 (dominio propio), HD-02 (staging separado en origen y base, o `/preview/` deshabilitado) y HD-03 (registro cerrado o por invitación) registrados como requisitos obligatorios antes de habilitar usuarios reales (AGENTS.md §13, BETA_SECURITY.md §6; el gate los rotula REQUISITO pendiente, sin bloquear el CI del código); no se inicia la beta con empresas externas; sin funcionalidades nuevas ni cambios en motores. Antes del release se volvieron a correr los tres SQL en la base real (23:44 UTC): 132 + 40 + 32 = 204 controles en verde; sin restos (conteos, revisión máxima y fecha del último guardado iguales antes y después). Qué corre dónde: BETA_SECURITY.md §3 (base real a mano / Supabase simulado / navegador / estático en CI).

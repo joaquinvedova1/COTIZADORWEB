@@ -6,6 +6,12 @@
  * datos reales (sin demo ni ILUSTRATIVOS). La decisión de la persona
  * ("importar" o "empezar en limpio") se recuerda por usuario para no volver
  * a preguntar.
+ *
+ * Cuando una cuenta los IMPORTA, quedan "reclamados" en este navegador
+ * (rateos.cloud.local-import.claimed, con una huella del texto y la fecha;
+ * sin datos ni ids): ya no se le ofrecen a otra cuenta que ingrese en el mismo
+ * navegador (PLAN-2026-015). Si el texto local cambiara, la huella deja de
+ * coincidir.
  */
 
 import { STORAGE_KEYS } from '../config.js';
@@ -18,6 +24,41 @@ const DECISIONS = Object.freeze(['imported', 'skipped']);
 
 function decisionKey(userId) {
   return `${STORAGE_KEYS.cloudCachePrefix}${userId}.local-import`;
+}
+
+const CLAIM_KEY = `${STORAGE_KEYS.cloudCachePrefix}local-import.claimed`;
+
+/** Huella corta y determinística del texto local (FNV-1a de 32 bits): sólo para reconocerlo, no es secreta. */
+export function legacyFingerprint(raw) {
+  let hash = 0x811c9dc5;
+  const text = String(raw ?? '');
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${text.length}-${hash.toString(16).padStart(8, '0')}`;
+}
+
+/** ¿Estos datos locales ya los importó una cuenta en este navegador? */
+export function isLegacyDataClaimed(raw, { storage = getBrowserStorage() } = {}) {
+  if (!storage || typeof raw !== 'string') return false;
+  try {
+    const claim = JSON.parse(storage.getItem(CLAIM_KEY) || 'null');
+    return Boolean(claim && typeof claim === 'object' && claim.fingerprint === legacyFingerprint(raw));
+  } catch {
+    return false;
+  }
+}
+
+/** Marca los datos locales como importados por una cuenta (sin guardar datos ni ids). */
+export function claimLegacyData(raw, { storage = getBrowserStorage(), now = new Date().toISOString() } = {}) {
+  if (!storage || typeof raw !== 'string') return false;
+  try {
+    storage.setItem(CLAIM_KEY, JSON.stringify({ v: 1, fingerprint: legacyFingerprint(raw), claimedAt: now }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

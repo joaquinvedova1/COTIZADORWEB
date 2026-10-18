@@ -22,6 +22,7 @@ import { baseText } from '../../economic-base-ui.js';
 import { CURRENCIES } from '../../../domain/catalogs.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { activationTerms, withActivationOptions } from '../../../domain/activation-terms.js';
+import { onSessionReset } from '../../session-memory.js';
 
 /** Grilla de la línea de material: la descripción más ancha que los números. */
 function materialGrid(...fields) {
@@ -38,6 +39,7 @@ const basisPer = (basis, T) => ({ per_month: 'mes', per_active_day: 'día', per_
 const CUSTOM_UNIT = '__custom';
 /** Líneas en las que la persona eligió "Otra…" y todavía no escribió la unidad (sólo en pantalla). */
 const customUnitLines = new Set();
+onSessionReset(() => customUnitLines.clear());
 
 /**
  * La cuenta visible de una línea (PLAN-2026-010, no cambia el cálculo):

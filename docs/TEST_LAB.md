@@ -106,6 +106,7 @@ Subir el margen nunca baja la tarifa objetivo · subir un costo nunca baja el to
 | H | Pendientes en un paso real, con texto | `ux-audit.js` |
 | I | Mismas cifras en resumen en vivo, "Ver cálculo", Resultado y PDF | navegador |
 | J | Escritorio y celular: foco visible y sin nada encima, sin scroll horizontal, sin NaN | navegador |
+| M | Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa en pantalla ni en el DOM oculto (empresa, email, cotizaciones, producto) y la sesión se borra; otra cuenta en la **misma pestaña** ve su empresa y nada de la anterior, ni abriendo por id una cotización o un producto ajenos, y nada de A llega a su workspace → `SESION-01`, `SESION-02` | navegador |
 
 ## Clasificación de hallazgos
 

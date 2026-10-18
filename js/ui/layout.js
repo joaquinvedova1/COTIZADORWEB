@@ -386,6 +386,9 @@ export function createLayout(container, { version = {} } = {}) {
     setAccount(info) {
       this.setPlatformAdmin(Boolean(info && info.platformAdmin === true));
       if (!info) {
+        // Sin sesión: nada de la cuenta anterior queda en el DOM (ni oculto).
+        userNameEl.textContent = '';
+        userEmailEl.textContent = '';
         accountEl.hidden = true;
         syncEl.hidden = true;
         return;
@@ -422,6 +425,23 @@ export function createLayout(container, { version = {} } = {}) {
       syncTextEl.textContent = label || '';
       syncEl.dataset.status = status || '';
     },
+    /**
+     * Al cerrar la cuenta (PLAN-2026-015): el menú y la barra de la app (ocultos
+     * en las pantallas públicas) no conservan nada de la sesión anterior:
+     * empresa, base, cuenta, título, migas, acciones, avisos ni sincronización.
+     */
+    clearSession() {
+      this.setAccount(null);
+      this.setOrganization(null);
+      mount(crumbsEl);
+      crumbsEl.hidden = true;
+      titleEl.textContent = '';
+      mount(actionsEl);
+      actionsEl.hidden = true;
+      this.setBanners([]);
+      this.setSyncStatus({});
+    },
+
     /** Banners globales (debajo de la topbar; sólo en el shell de la app). */
     setBanners(nodes = []) {
       const list = nodes.filter((n) => n instanceof Node);

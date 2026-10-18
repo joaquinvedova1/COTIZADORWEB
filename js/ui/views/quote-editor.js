@@ -77,6 +77,7 @@ import * as indirectStep from './quote-steps/indirect.js';
 import * as financeStep from './quote-steps/finance.js';
 import * as riskStep from './quote-steps/risk.js';
 import * as marginStep from './quote-steps/margin.js';
+import { createDraftStore, onSessionReset } from '../session-memory.js';
 
 const STEP_MODULES = Object.freeze({
   service: serviceStep,
@@ -233,11 +234,17 @@ const CLOUD_SAVE_LABELS = Object.freeze({
 });
 
 /**
- * Borradores que NO se pudieron guardar (p. ej. almacenamiento lleno), por id
- * de cotización. Si el usuario sale del editor y vuelve, se recupera el
- * borrador en lugar de la versión guardada, para no perder cambios.
+ * Borradores que NO se pudieron guardar (p. ej. almacenamiento lleno), por
+ * cuenta e id de cotización. Si el usuario sale del editor y vuelve, se
+ * recupera el borrador en lugar de la versión guardada, para no perder
+ * cambios. Otra cuenta en la misma pestaña nunca recibe un borrador ajeno.
  */
-const unsavedDrafts = new Map();
+const unsavedDrafts = createDraftStore();
+// Preferencias de pantalla de la sesión: se borran al cerrar la cuenta.
+onSessionReset(() => {
+  advancedOpenState.clear();
+  visitedSteps.clear();
+});
 /** Editor activo (sólo uno a la vez). */
 let activeEditor = null;
 /** Secuencia de renders (descarta cargas viejas si el usuario navega rápido). */
@@ -1840,11 +1847,11 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     });
     try {
       await promise;
-      unsavedDrafts.delete(quoteId);
+      unsavedDrafts.delete(app.ctx, quoteId);
       if (!state.dirty) setSaveStatus('saved');
     } catch (error) {
       state.dirty = true;
-      unsavedDrafts.set(quoteId, deepClone(state.quote));
+      unsavedDrafts.set(app.ctx, quoteId, deepClone(state.quote));
       logger.warn('No se pudo guardar la cotización', { code: error && error.code });
       setSaveStatus('error', error);
     }
@@ -2655,7 +2662,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
           // NO se vuelve a guardar al salir (pisaría la versión más nueva).
           if (state.saveErrorCode === 'conflict' && !sync.conflict) {
             state.dirty = false;
-            unsavedDrafts.delete(quoteId);
+            unsavedDrafts.delete(app.ctx, quoteId);
             scheduleSave.cancel();
             setSaveStatus('saved');
             return;
@@ -2663,7 +2670,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
           if (!['sync_failed', 'session_expired'].includes(state.saveErrorCode)) return;
           if (sync.status === 'saved' && !sync.dirty) {
             state.dirty = false;
-            unsavedDrafts.delete(quoteId);
+            unsavedDrafts.delete(app.ctx, quoteId);
             setSaveStatus('saved');
           }
         });
@@ -2802,7 +2809,7 @@ export async function render(root, app, params = {}) {
   }
 
   // Cambios que no se pudieron guardar antes (p. ej. almacenamiento lleno).
-  const draft = unsavedDrafts.get(id);
+  const draft = unsavedDrafts.get(app.ctx, id);
   const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft), revealStep, focusPath });
   activeEditor = editor;
   editor.mount();

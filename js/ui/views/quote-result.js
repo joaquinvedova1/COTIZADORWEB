@@ -93,6 +93,7 @@ import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
+import { onSessionReset } from '../session-memory.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
   dayDecimals,
@@ -210,6 +211,11 @@ const SLIDER_MEMORY_LIMIT = 30;
  */
 const openMemory = new Map();
 const OPEN_MEMORY_LIMIT = 30;
+// Memoria de pantalla de la sesión: se borra al cerrar la cuenta.
+onSessionReset(() => {
+  sliderMemory.clear();
+  openMemory.clear();
+});
 
 /** Cantidad de rubros que se muestran por nombre en "¿En qué se va el costo?" (el resto va a "Otros"). */
 const COST_TOP = 4;

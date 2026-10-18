@@ -134,7 +134,8 @@ export function createFakeServer() {
           this.calls.push({ orgId, baseRevision });
           const code = fail();
           if (code) return { ok: false, code };
-          if (!isMember(orgId)) return { ok: false, code: 'forbidden' };
+          // Como el gateway real: si la fila ya no es visible (no es miembro), not_found.
+          if (!isMember(orgId)) return { ok: false, code: 'not_found' };
           const m = members.find((x) => x.organization_id === orgId && x.user_id === userId);
           if (m.role === 'VIEWER') return { ok: false, code: 'forbidden' };
           const ws = workspaces.get(orgId);

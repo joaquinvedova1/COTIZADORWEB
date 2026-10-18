@@ -7,7 +7,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SupabaseRepository, WRITE_METHODS, cloudCacheKey } from '../../js/data/supabase-repository.js';
+import { SupabaseRepository, WRITE_METHODS, cloudCacheKey, cloudPendingPrefix } from '../../js/data/supabase-repository.js';
 import { LocalStorageRepository } from '../../js/data/local-storage-repository.js';
 import { createAccountContext, createDemoContext } from '../../js/services/app-context.js';
 import { createEmptyQuote } from '../../js/domain/quote-factory.js';
@@ -18,6 +18,9 @@ import { computeQuote } from '../../js/engines/quote-engine.js';
 import { createFakeServer, SpyStorage } from '../helpers/fake-supabase.js';
 
 const noTimers = { setTimeout: () => 1, clearTimeout: () => {} };
+
+/** Claves de cambios sin subir de una cuenta (una por pestaña, y la única de v0.8.0). */
+const pendingKeys = (cache, userId, orgId) => [...cache.map.keys()].filter((k) => k === cloudCacheKey(userId, orgId) || k.startsWith(cloudPendingPrefix(userId, orgId)));
 
 async function openRepo(server, userId, { cache = new SpyStorage(), role } = {}) {
   const gw = server.gatewayFor(userId);
@@ -59,7 +62,7 @@ describe('SupabaseRepository: cuenta nueva', () => {
     assert.equal(ws.state.quotes.length, 1);
     assert.equal(ws.state.quotes[0].organizationId, orgId);
     assert.equal(repo.getSyncState().status, 'saved');
-    assert.equal(cache.getItem(cloudCacheKey('a', orgId)), null, 'sin cambios pendientes no queda copia local');
+    assert.deepEqual(pendingKeys(cache, 'a', orgId), [], 'sin cambios pendientes no queda copia local');
   });
 
   test('otro dispositivo (recarga) ve los datos guardados', async () => {
@@ -106,14 +109,15 @@ describe('SupabaseRepository: conflictos, red y sesión', () => {
     await assert.rejects(repo.saveQuote({ ...createEmptyQuote({ organizationId: orgId }), name: 'Offline' }), (e) => e.code === 'sync_failed' && /No pudimos sincronizar/.test(e.message));
     assert.equal(repo.getSyncState().status, 'offline');
     assert.equal(server.workspaces.get(orgId).state.quotes.length, 0, 'no llegó a la nube');
-    const pending = JSON.parse(cache.getItem(cloudCacheKey('a', orgId)));
+    assert.deepEqual(pendingKeys(cache, 'a', orgId), [repo.cacheKey], 'una copia, la de esta pestaña');
+    const pending = JSON.parse(cache.getItem(repo.cacheKey));
     assert.equal(pending.dirty, true);
     assert.match(pending.text, /Offline/);
     // Se recarga la página (otro repositorio, mismo navegador): retoma y sube.
     const again = await openRepo(server, 'a', { cache });
     assert.equal(again.init.resumed, true);
     assert.deepEqual(server.workspaces.get(orgId).state.quotes.map((q) => q.name), ['Offline']);
-    assert.equal(cache.getItem(cloudCacheKey('a', orgId)), null);
+    assert.deepEqual(pendingKeys(cache, 'a', orgId), [], 'subido: no queda ninguna copia pendiente');
   });
 
   test('retryNow sube lo pendiente cuando vuelve la conexión', async () => {
@@ -135,7 +139,7 @@ describe('SupabaseRepository: conflictos, red y sesión', () => {
     server.failNext = 'session_expired';
     await assert.rejects(repo.saveQuote({ ...createEmptyQuote({ organizationId: orgId }), name: 'Pendiente' }), (e) => e.code === 'session_expired' && /Tu sesión terminó/.test(e.message));
     assert.equal(repo.getSyncState().status, 'session_expired');
-    assert.match(cache.getItem(cloudCacheKey('a', orgId)), /Pendiente/);
+    assert.match(cache.getItem(repo.cacheKey), /Pendiente/);
   });
 
   test('cambios pendientes de este navegador + otro dispositivo guardó: abre la nube y deja los locales en una copia de recuperación', async () => {
