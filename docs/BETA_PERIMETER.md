@@ -25,7 +25,7 @@ Objetivo: cerrar los tres requisitos obligatorios antes de habilitar usuarios re
 - la app no tiene service worker y Pages cachea 10 minutos: después de ese margen ningún navegador puede seguir sirviendo el preview viejo;
 - control **SEC-17** del Beta Security Gate y tests en `tests/static-site.test.js`. Contra `main` (v0.8.1) SEC-17 falla con 5 hallazgos.
 
-**Ojo al pushear ramas antes del merge:** mientras `main` tenga el workflow viejo, cada push de una rama con CI verde **vuelve a publicar `/preview/`** con esa rama (el workflow se lee siempre de `main`). Este PR se pushea sólo con autorización.
+**Estado durante este PR (2026-10-18):** antes del push de esta rama, el dueño **deshabilitó a mano** el workflow "Deploy RATEOS a GitHub Pages" (`disabled_manually`), así que el push **no publicó nada** en GitHub Pages: no hubo ninguna corrida de deploy y `/preview/` sigue con lo que publicó el run #73 (`claude/rateos-beta-security-v1@1f8e000`). Mientras siga deshabilitado, ningún push ni merge despliega: para que este cambio llegue a producción (y borre `/preview/`) hay que **volver a habilitarlo**, con autorización, antes del merge o justo después (en ese caso, correrlo a mano sobre `main`: *Run workflow* con `ref` vacío). Si se lo habilitara antes del merge, el workflow viejo de `main` volvería a publicar `/preview/` con cada push de rama (se lee siempre desde `main`).
 
 **Verificación manual después del deploy:** abrir `https://joaquinvedova1.github.io/COTIZADORWEB/preview/` → página 404 de GitHub; producción sigue en `https://joaquinvedova1.github.io/COTIZADORWEB/` (Configuración → Acerca de: versión y build nuevos).
 
@@ -156,8 +156,8 @@ Si el dueño agrega `dltlnizvnvnefgbzfftu.supabase.co` a los dominios permitidos
 
 **Antes de habilitar a la primera empresa externa:**
 
-- [ ] **Autorizar** el push y el PR de esta rama. Al pushear, `main` todavía publica `/preview/` una última vez con esta rama.
-- [ ] **Autorizar** el merge y el deploy; confirmar en Actions que "Verificar el sitio publicado" quedó en verde (`/preview/` → 404). **HD-02 cumplido.**
+- [x] Push y PR de esta rama, autorizados con el workflow de deploy **deshabilitado a mano**: el push no publicó nada en Pages (ninguna corrida de deploy).
+- [ ] **Autorizar** el merge y **volver a habilitar** el workflow de deploy (antes del merge, o después y correrlo a mano sobre `main`); confirmar en Actions que "Verificar el sitio publicado" quedó en verde (`/preview/` → 404). **HD-02 cumplido.**
 - [ ] Supabase → Authentication → Sign In / Providers → apagar **"Allow new users to sign up"** (no el proveedor Email).
 - [ ] Correr `node scripts/check-auth-perimeter.mjs` → OK. **HD-03 cumplido.**
 - [ ] Authentication → Emails → SMTP Settings: **SMTP propio** (SPF/DKIM/DMARC, sin seguimiento de enlaces) y probar "¿Olvidaste tu contraseña?" con un email que no sea del equipo de Supabase (§2 paso 3). Sin esto nadie de afuera puede elegir su contraseña.
@@ -173,7 +173,7 @@ Si el dueño agrega `dltlnizvnvnefgbzfftu.supabase.co` a los dominios permitidos
 
 ## 6. Riesgos que siguen
 
-- **Hasta el deploy**, `/preview/` sigue publicado (y cada push de rama lo vuelve a publicar): HD-02 se cumple recién con el deploy de este cambio.
+- **Hasta el deploy**, `/preview/` sigue publicado (lo del run #73): HD-02 se cumple recién con el deploy de este cambio, que necesita volver a habilitar el workflow de deploy. Mientras siga deshabilitado, ningún push lo vuelve a publicar, pero tampoco llega nada a producción (ni un rollback).
 - **Hasta apagar el registro en Supabase**, cualquiera puede crear una cuenta llamando a la API: la app sólo dejó de ofrecerlo. No expone datos de otras empresas (cada cuenta nace con su propia empresa y RLS lo garantiza).
 - **Hasta configurar un SMTP propio**, sólo reciben correos de RATEOS los miembros del equipo de Supabase: una persona invitada no puede elegir su contraseña y, fuera de sesión, la app no lo dice (respuesta neutra a propósito). Lo detecta la prueba del §2 paso 3.
 - **Escáneres de correo corporativos:** algunos abren los enlaces antes que la persona y, como los enlaces de Auth son de un solo uso, al hacer clic aparece "El enlace venció o ya se usó". Primero, pedir otro enlace; si se repite con una empresa, la mitigación que documenta Supabase es cambiar la plantilla del correo por un enlace a una página propia con un botón (cambio de Auth y de la app: con autorización).
