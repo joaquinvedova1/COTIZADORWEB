@@ -176,6 +176,23 @@ function publishedSurfaceFiles() {
   return files;
 }
 
+/**
+ * HD-02: ¿el workflow de deploy publica un staging en el origen de producción?
+ * (una rama en /preview/ corre junto a las sesiones y los datos reales).
+ * @param {string} workflow texto de .github/workflows/deploy-pages.yml
+ * @param {{ stagePreviewScript?: boolean }} [opts] ¿existe scripts/stage-preview.mjs?
+ */
+export function stagingFindings(workflow, { stagePreviewScript = false } = {}) {
+  const out = [];
+  const wf = String(workflow || '');
+  if (/workflow_run/.test(wf)) out.push('deploy-pages.yml se dispara con workflow_run: una rama se publicaría en el origen de producción');
+  if (/preview_ref|PREVIEW_BRANCH|preview_sha|stage-preview|preview-dist/.test(wf)) out.push('deploy-pages.yml todavía arma un staging (/preview/)');
+  if (!/if \[ -e dist\/preview \]; then[\s\S]*?exit 1/.test(wf)) out.push('falta la guardia del build que impide publicar dist/preview');
+  if (!/\$\{PAGE_URL\}preview\/version\.json\?t=/.test(wf) || !/"\$PREVIEW_VERSION" = "404"/.test(wf)) out.push('falta la verificación posterior al deploy: /preview/ → 404');
+  if (stagePreviewScript) out.push('scripts/stage-preview.mjs existe: el staging en el mismo origen está prohibido (HD-02)');
+  return out;
+}
+
 function staticChecks() {
   const results = [];
 
@@ -299,6 +316,10 @@ function staticChecks() {
   if (!/^reports\/$/m.test(gitignore)) ignoreHits.push('reports/ no está en .gitignore');
   if (!/^dist\/$/m.test(gitignore)) ignoreHits.push('dist/ no está en .gitignore');
   results.push(check('SEC-16', 'Reportes (Test Lab, E2E, este gate) y builds fuera de git', 'P2', 'PRIVACY', ignoreHits));
+
+  // SEC-17 — HD-02: sin staging en el origen de producción.
+  const stagingHits = stagingFindings(read('.github/workflows/deploy-pages.yml'), { stagePreviewScript: exists('scripts/stage-preview.mjs') });
+  results.push(check('SEC-17', 'Sin staging en el origen de producción (HD-02): el deploy publica sólo main, el artefacto nunca trae /preview/ y después de publicar se verifica que /preview/ responda 404', 'P1', 'SECURITY', stagingHits));
 
   return results;
 }
@@ -507,7 +528,7 @@ export const HUMAN_DECISIONS = Object.freeze([
     category: 'SECURITY',
     requiredBeforeRealUsers: true,
     title: 'Staging (/preview/) comparte origen y base de datos con producción: el código de cualquier rama con CI verde corre junto a las sesiones y los datos reales',
-    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): staging separado de producción en origen y en base de datos, o /preview/ deshabilitado temporalmente.',
+    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): staging separado de producción en origen y en base de datos, o /preview/ deshabilitado temporalmente. Estado: /preview/ deshabilitado en el código (SEC-17, PLAN-2026-016); se cumple cuando ese cambio se despliega y el workflow verifica /preview/ → 404.',
   },
   {
     id: 'HD-03',
@@ -515,7 +536,7 @@ export const HUMAN_DECISIONS = Object.freeze([
     category: 'SECURITY',
     requiredBeforeRealUsers: true,
     title: 'El registro está abierto: cualquiera puede crear una cuenta en una beta "cerrada" (no expone datos de otras empresas: cada cuenta nace con su propia empresa)',
-    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): registro cerrado o por invitación.',
+    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): registro cerrado o por invitación. Estado: la app ya no ofrece ni llama al registro (FEATURES.publicSignup = false, PLAN-2026-016); se cumple cuando el dueño apaga "Allow new users to sign up" en Supabase Auth (verificar con node scripts/check-auth-perimeter.mjs).',
   },
   {
     id: 'HD-04',
@@ -550,7 +571,7 @@ export const HUMAN_DECISIONS = Object.freeze([
     severity: 'P2',
     category: 'UX SECURITY',
     title: 'El registro avisa "Ese email ya está registrado": permite saber si un email tiene cuenta',
-    recommendation: 'Decidir entre la ayuda a la persona y un mensaje uniforme.',
+    recommendation: 'Decidir entre la ayuda a la persona y un mensaje uniforme antes de reabrir el registro. Con la beta por invitación (FEATURES.publicSignup = false) la app no llama al registro: hoy ese aviso no aparece.',
   },
   {
     id: 'HD-09',

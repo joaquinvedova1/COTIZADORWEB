@@ -76,15 +76,17 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 
 **v0.8.1 — Beta Readiness v1: parche de seguridad y de pérdida de datos** (esquema de datos 10, sin cambios de datos ni de base; ninguna cotización ni producto cambia sus números): datos de la nube que la versión no puede leer se abren en sólo lectura y nunca se reemplazan solos por un espacio vacío o "reparado"; una copia de cambios sin subir por pestaña (un guardado en una pestaña ya no borra lo pendiente de otra); al cerrar o cambiar de cuenta no queda nada de la sesión anterior; datos del modo local ya importados no se ofrecen a otra cuenta; el `organizationId` del cliente nunca decide; Beta Security Gate y tests de negación entre empresas en la base. **Todavía no hay beta con empresas externas**: antes de habilitar usuarios reales son obligatorios un dominio propio, un staging separado de producción (o `/preview/` deshabilitado) y el registro cerrado o por invitación ([docs/BETA_SECURITY.md](docs/BETA_SECURITY.md) §6).
 
+**Beta Perimeter v1 (PLAN-2026-016, sin versión nueva todavía; esquema de datos 10, sin cambios de datos ni de base):** el deploy publica **sólo producción** (sin `/preview/` en el mismo sitio: el build lo rechaza y, después de publicar, el workflow verifica que `/preview/` dé 404); la app pasa a **beta por invitación** (no ofrece ni llama al registro); y queda preparado el paso a un **dominio propio**. Lo que tiene que configurar el dueño (registro apagado en Supabase, SMTP propio, dominio) y la prueba A/B real: [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md).
+
 ## Visitante, demo y cuenta
 
 | | Qué ve | Datos |
 |---|---|---|
-| **Visitante** | Landing `#/`, ingreso, registro, recuperar contraseña | Ninguno |
+| **Visitante** | Landing `#/`, ingreso, recuperar contraseña (sin registro: beta por invitación) | Ninguno |
 | **Demo** (`#/demo`, sin cuenta) | La cotización de ejemplo "Hidrogrúa on-call — Añelo" y su análisis completo | ILUSTRATIVOS, en memoria: no se guarda nada y nunca pasa a una cuenta |
 | **Cuenta** (`#/inicio` y toda la app) | Tus cotizaciones, recursos, servicios, escenarios y configuración | Los de **tu empresa**, en Supabase, protegidos con Row Level Security: nadie de otra empresa puede verlos ni modificarlos |
 
-- **Crear cuenta:** nombre, empresa, email y contraseña. Supabase envía un email de confirmación ("Revisá tu email"); el enlace abre RATEOS ya ingresado (en el mismo navegador). La cuenta empieza **vacía**: "Hola, <nombre>" → [Crear mi primera cotización] [Configurar mi empresa].
+- **Beta por invitación:** no hay registro público. El dueño de RATEOS da de alta cada cuenta desde Supabase y la persona elige su contraseña con **¿Olvidaste tu contraseña?** (el enlace se abre en el mismo navegador); `#/registro` explica cómo es el acceso. La cuenta empieza **vacía**: "Hola, <nombre>" → [Crear mi primera cotización] [Configurar mi empresa]. Procedimiento en [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2. El registro abierto (nombre, empresa, email y contraseña, con email de confirmación) sigue en el código detrás de `FEATURES.publicSignup` (`js/config.js`), apagado.
 - **Guardado en la nube:** "Guardado" significa guardado en tu cuenta. Sin conexión, el cambio queda en este navegador ("No pudimos sincronizar tus cambios.") y se sube solo al volver. Si otro dispositivo guardó antes: "Tus datos cambiaron en otro dispositivo." con [Recargar] [Conservar una copia]: nunca se pisa nada en silencio.
 - **Datos de antes:** si usaste RATEOS sin cuenta en este navegador, al ingresar aparece "Encontramos datos guardados en este navegador." con [Importarlos a mi cuenta] [Empezar en limpio]. La demo y los datos ILUSTRATIVOS nunca se importan, se guarda una copia antes y los datos locales no se borran.
 - Detalle: [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) (sesión, roles, enlaces de email), [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) (tablas, RLS, sincronización).
@@ -174,7 +176,7 @@ npm start
 
 Abrí <http://localhost:8080/COTIZADORWEB/> (simula la sub-ruta de GitHub Pages). Opciones: `PORT=9000 npm start` para otro puerto; `npm run build && npm start -- --dist` para probar exactamente lo que se publica.
 
-La landing y la demo funcionan sin conexión a Supabase. Para ingresar o registrarte en local, la URL `http://localhost:8080/COTIZADORWEB/**` tiene que estar en las Redirect URLs del proyecto (ver "Supabase" más abajo).
+La landing y la demo funcionan sin conexión a Supabase. Para ingresar en local, la URL `http://localhost:8080/COTIZADORWEB/**` tiene que estar en las Redirect URLs del proyecto (ver "Supabase" más abajo).
 
 También funciona con cualquier servidor estático desde la raíz del repo (por ejemplo `python3 -m http.server 8080` → <http://localhost:8080/>). **No funciona abriendo `index.html` con `file://`**: los ES modules del navegador necesitan HTTP.
 
@@ -225,7 +227,7 @@ Nunca force push a `main`. Paso a paso en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.m
 - Proyecto `dltlnizvnvnefgbzfftu`. En el frontend sólo hay **URL + publishable key** (`js/config.js`); nunca `service_role`, secret keys, contraseña de la base ni connection strings.
 - **Migraciones** versionadas en `supabase/migrations/` y aplicadas con el plugin/MCP de Supabase (nunca cambios manuales que no estén en una migración). Tests de RLS en `supabase/tests/`.
 - **Configuración de Auth** (Dashboard → Authentication → URL Configuration): Site URL `https://joaquinvedova1.github.io/COTIZADORWEB/`; Redirect URLs `https://joaquinvedova1.github.io/COTIZADORWEB/**` (y `http://localhost:8080/COTIZADORWEB/**` sólo mientras se prueba en local). Confirmación de email **activada**.
-- **Antes de abrir el registro a clientes:** configurar un **SMTP propio** (el de Supabase sólo entrega a miembros del equipo del proyecto y tiene un límite bajo por hora) y, idealmente, un **dominio propio** (ver [docs/AUTH_ARCHITECTURE.md §9.1](docs/AUTH_ARCHITECTURE.md#91-riesgos-conocidos-y-mitigaciones)).
+- **Antes de invitar a la primera empresa:** registro apagado en Supabase ("Allow new users to sign up"), un **SMTP propio** (el de Supabase sólo entrega a miembros del equipo del proyecto: sin él, una persona invitada no recibe el correo para elegir su contraseña) y un **dominio propio**. Checklist en [docs/BETA_PERIMETER.md §5](docs/BETA_PERIMETER.md#5-checklist-del-dueño); `node scripts/check-auth-perimeter.mjs` verifica lo que la configuración pública de Auth deja ver.
 
 ## Persistencia y backup
 
@@ -298,6 +300,7 @@ docs/                      documentación técnica
 | [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) | Tablas, RLS, sincronización por revisión, migración desde el modo local y fases siguientes |
 | [supabase/README.md](supabase/README.md) | Cómo aplicar migraciones y correr los tests de RLS |
 | [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md) | Beta cerrada: frontera de tenant, inventario de la base, pruebas A/B, hallazgos, decisiones del dueño y Beta Security Gate |
+| [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) | Perímetro de la beta: sin staging en producción, registro por invitación (con SMTP propio), dominio propio, prueba A/B real y checklist del dueño |
 | [docs/TEST_LAB.md](docs/TEST_LAB.md) | RATEOS Test Lab: oráculo independiente, escenarios, invariantes, auditor UX, mercado, reportes y CI |
 | [docs/AGENT_ROLES.md](docs/AGENT_ROLES.md) | Roles de revisión para el desarrollo (no son funciones del producto) |
 | [.agent/PLANS.md](.agent/PLANS.md) | Plantilla y registro de planes de ejecución |
@@ -313,7 +316,7 @@ docs/                      documentación técnica
 - Los backups se validan antes de importarse (un JSON que no es de RATEOS, una colección con tipo incorrecto o una cotización mal formada se rechazan) y nunca se sobrescribe sin confirmación. Aunque llegue un dato inválido, una cotización mala no rompe el dashboard ni el listado.
 - Los eventos internos de producto (sin envío a terceros) sólo aceptan valores de una lista blanca: nunca montos ni nombres.
 - Al cerrar sesión o entrar con otra cuenta en la misma pestaña no queda nada de la empresa anterior en pantalla (ni en el menú oculto ni en borradores). El `organizationId` que mande el navegador o un backup nunca decide de qué empresa es un dato. Resumen y decisiones pendientes para la beta en [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md).
-- El deploy usa permisos mínimos por job y el rollback manual sólo publica commits o tags que ya están en `main`.
+- El deploy usa permisos mínimos por job, publica sólo producción (ningún staging comparte el sitio ni la base) y el rollback manual sólo publica commits o tags que ya están en `main`.
 - No subas a issues, PRs ni al repositorio estructuras de costos reales ni datos de clientes.
 
 ## Cómo contribuir

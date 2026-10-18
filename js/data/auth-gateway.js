@@ -12,11 +12,13 @@
 /** Códigos de error que entiende la app. */
 export const AUTH_ERRORS = Object.freeze({
   emailTaken: 'email_taken',
+  signupClosed: 'signup_closed',
   invalidCredentials: 'invalid_credentials',
   emailNotConfirmed: 'email_not_confirmed',
   weakPassword: 'weak_password',
   samePassword: 'same_password',
   invalidEmail: 'invalid_email',
+  emailNotAuthorized: 'email_not_authorized',
   rateLimited: 'rate_limited',
   linkInvalid: 'link_invalid',
   sessionMissing: 'session_missing',
@@ -32,11 +34,15 @@ export function authErrorCode(error) {
   const status = Number(error.status);
   if (name === 'AuthRetryableFetchError' || status === 0 || name === 'TypeError') return AUTH_ERRORS.network;
   if (code === 'user_already_exists' || code === 'email_exists') return AUTH_ERRORS.emailTaken;
+  // Registro cerrado en Supabase Auth (beta por invitación): el login y la recuperación siguen.
+  if (code === 'signup_disabled' || code === 'email_provider_disabled') return AUTH_ERRORS.signupClosed;
   if (code === 'invalid_credentials') return AUTH_ERRORS.invalidCredentials;
   if (code === 'email_not_confirmed') return AUTH_ERRORS.emailNotConfirmed;
   if (code === 'weak_password') return AUTH_ERRORS.weakPassword;
   if (code === 'same_password') return AUTH_ERRORS.samePassword;
   if (code === 'email_address_invalid' || code === 'validation_failed') return AUTH_ERRORS.invalidEmail;
+  // SMTP por defecto de Supabase: sólo manda correos al equipo del proyecto (para invitar hace falta un SMTP propio).
+  if (code === 'email_address_not_authorized') return AUTH_ERRORS.emailNotAuthorized;
   if (code.startsWith('over_') || status === 429) return AUTH_ERRORS.rateLimited;
   if (['otp_expired', 'flow_state_not_found', 'flow_state_expired', 'bad_code_verifier', 'bad_oauth_state'].includes(code)) return AUTH_ERRORS.linkInvalid;
   if (name === 'AuthPKCECodeVerifierMissingError') return AUTH_ERRORS.linkInvalid;

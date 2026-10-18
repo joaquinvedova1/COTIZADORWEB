@@ -328,7 +328,7 @@ Detalle conceptual en [RESOURCE_MODEL.md](RESOURCE_MODEL.md).
 - Datos de una versión más nueva que la app → modo sólo lectura (no se pisan).
 - Ejemplo de migración futura: `migrateV10ToV11` podría agregar `actualCosts: []` al estado (para estimado vs real) y `quote.schemaVersion`, sin tocar los campos existentes.
 - **Varias pestañas durante un deploy:** una pestaña vieja (esquema 2) que ve datos v3 pasa a sólo lectura (no los pisa); una pestaña nueva migra los datos al abrir.
-- **Staging (`/preview/`) comparte la base con producción:** antes de actualizar el formato de los datos de una cuenta, el build de staging (`version.json` con `channel: "staging"`) pregunta; si la persona elige "Ver sin cambiar (sólo lectura)", los datos se migran sólo en memoria y no se escribe nada (ni en la nube ni copias).
+- **Una versión de prueba que usa la base de producción** (hoy, el servidor local de `npm start`; ya no hay staging público: HD-02) pregunta antes de actualizar el formato de los datos de una cuenta (también un build con `version.json` `channel: "staging"`); si la persona elige "Ver sin cambiar (sólo lectura)", los datos se migran sólo en memoria y no se escribe nada (ni en la nube ni copias).
 
 **Futuro (PostgreSQL):** migraciones SQL versionadas en el repositorio (por ejemplo `supabase/migrations/AAAAMMDDHHMM_descripcion.sql`), aplicadas por CI, nunca a mano en producción; columna `schema_version` en `quotes` para convivir con cotizaciones creadas por versiones anteriores del motor.
 

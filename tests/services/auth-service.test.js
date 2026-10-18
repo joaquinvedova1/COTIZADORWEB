@@ -12,17 +12,22 @@ import {
   authRedirectUrl,
   cleanAuthUrl,
   createAuthService,
+  messageFor,
+  movedTarget,
   parseAuthRedirect,
   siteUrlFor,
   validateSignUp,
 } from '../../js/services/auth-service.js';
-import { authErrorCode, createAuthGateway, publicUser } from '../../js/data/auth-gateway.js';
+import { AUTH_ERRORS, authErrorCode, createAuthGateway, publicUser } from '../../js/data/auth-gateway.js';
+import { FEATURES } from '../../js/config.js';
+import { addLogSink } from '../../js/core/logger.js';
 import { clearLocalAuthSession } from '../../js/data/supabase-client.js';
 import { createFakeAuthGateway, SpyStorage } from '../helpers/fake-supabase.js';
 
 const SITE = 'https://joaquinvedova1.github.io/COTIZADORWEB/';
 
-function service(gateway, href = `${SITE}#/`) {
+/** publicSignup: true por defecto acá (el flujo de registro se sigue probando para cuando se reabra). */
+function service(gateway, href = `${SITE}#/`, { publicSignup = true } = {}) {
   const location = { href };
   const history = {
     replaced: [],
@@ -31,7 +36,7 @@ function service(gateway, href = `${SITE}#/`) {
       location.href = url;
     },
   };
-  return { auth: createAuthService({ gateway, siteUrl: SITE, location, history }), location, history };
+  return { auth: createAuthService({ gateway, siteUrl: SITE, location, history, publicSignup }), location, history };
 }
 
 describe('AuthService: registro e ingreso', () => {
@@ -172,14 +177,34 @@ describe('AuthService: enlaces de email con GitHub Pages + router por hash', () 
     assert.equal(siteUrlFor(undefined), SITE);
   });
 
-  test('siteUrlFor: desde el staging (/preview/) los enlaces vuelven al staging, nunca a producción', () => {
-    assert.equal(siteUrlFor({ href: `${SITE}preview/#/registro` }), `${SITE}preview/`);
-    assert.equal(siteUrlFor({ href: `${SITE}preview/?auth=confirm#/` }), `${SITE}preview/`);
-    assert.equal(siteUrlFor({ href: 'http://localhost:8080/COTIZADORWEB/preview/#/login' }), 'http://localhost:8080/COTIZADORWEB/preview/');
-    assert.equal(siteUrlFor({ href: `${SITE}#/registro` }), SITE, 'producción sigue en la raíz');
-    assert.equal(siteUrlFor({ href: `${SITE}previewx/` }), SITE);
-    assert.equal(siteUrlFor({ href: 'https://evil.example/COTIZADORWEB/preview/' }), SITE);
-    assert.equal(authRedirectUrl('confirm', '/inicio', siteUrlFor({ href: `${SITE}preview/#/registro` })), `${SITE}preview/?auth=confirm&next=%2Finicio`);
+  test('siteUrlFor sin staging público (HD-02): una ruta /preview/ ya no tiene enlaces propios', () => {
+    assert.equal(siteUrlFor({ href: `${SITE}preview/#/registro` }), SITE);
+    assert.equal(siteUrlFor({ href: 'http://localhost:8080/COTIZADORWEB/preview/#/login' }), 'http://localhost:8080/COTIZADORWEB/');
+  });
+
+  test('siteUrlFor con dominio propio (HD-01): cada sitio usa sus enlaces (PKCE vuelve al mismo origen); un origen desconocido, el principal', () => {
+    const DOMAIN = 'https://app.ejemplo.com.ar/';
+    const sites = [DOMAIN, SITE];
+    assert.equal(siteUrlFor({ href: `${DOMAIN}#/login` }, sites), DOMAIN);
+    assert.equal(siteUrlFor({ href: `${DOMAIN}?auth=recovery&code=x#/` }, sites), DOMAIN);
+    assert.equal(siteUrlFor({ href: `${SITE}#/recuperar-contrasena` }, sites), SITE, 'mientras conviven, github.io usa los suyos');
+    assert.equal(siteUrlFor({ href: 'https://evil.example/#/login' }, sites), DOMAIN, 'otro origen: el principal');
+    assert.equal(siteUrlFor({ href: 'https://app.ejemplo.com.ar.evil.example/' }, sites), DOMAIN, 'un sufijo no engaña');
+    assert.equal(siteUrlFor(undefined, sites), DOMAIN);
+    assert.equal(authRedirectUrl('recovery', null, siteUrlFor({ href: `${DOMAIN}#/recuperar-contrasena` }, sites)), `${DOMAIN}?auth=recovery`);
+  });
+
+  test('movedTarget: mudanza al dominio propio sólo desde un sitio público viejo (nunca local, el nuevo ni otro origen)', () => {
+    const DOMAIN = 'https://app.ejemplo.com.ar/';
+    const sites = [DOMAIN, SITE];
+    assert.equal(movedTarget({ href: `${SITE}#/login` }), null, 'apagado mientras MOVED_TO_SITE_URL es null');
+    assert.equal(movedTarget({ href: `${SITE}#/cotizaciones/nueva` }, { movedTo: DOMAIN, sites }), `${DOMAIN}#/cotizaciones/nueva`);
+    assert.equal(movedTarget({ href: `${SITE}?auth=recovery&code=viejo#/` }, { movedTo: DOMAIN, sites }), `${DOMAIN}#/`, 'la query (?code=) no viaja');
+    assert.equal(movedTarget({ href: `${DOMAIN}#/login` }, { movedTo: DOMAIN, sites }), null, 'en el sitio nuevo: sin bucles');
+    assert.equal(movedTarget({ href: 'http://localhost:8080/COTIZADORWEB/#/' }, { movedTo: DOMAIN, sites }), null, 'desarrollo local');
+    assert.equal(movedTarget({ href: 'https://evil.example/COTIZADORWEB/' }, { movedTo: DOMAIN, sites }), null, 'un origen desconocido no se redirige');
+    assert.equal(movedTarget({ href: `${SITE}#/` }, { movedTo: 'http://app.ejemplo.com.ar/', sites }), null, 'sólo HTTPS');
+    assert.equal(movedTarget({ href: `${SITE}#/` }, { movedTo: 'no-es-una-url', sites }), null);
   });
 
   test('parseAuthRedirect lee la query antes del # y descarta destinos inseguros', () => {
@@ -277,5 +302,77 @@ describe('auth-gateway: errores del SDK → códigos propios', () => {
   test('publicUser no expone tokens ni metadatos internos', () => {
     const u = publicUser({ id: 'u1', email: 'a@example.com', user_metadata: { full_name: 'Ana', company: 'X' }, email_confirmed_at: '2026-01-01', app_metadata: { provider: 'email' }, aud: 'authenticated' });
     assert.deepEqual(u, { id: 'u1', email: 'a@example.com', fullName: 'Ana', emailConfirmed: true });
+  });
+});
+
+describe('AuthService: beta cerrada por invitación (HD-03, PLAN-2026-016)', () => {
+  test('lo publicado es beta por invitación: la app no ofrece ni llama al registro', () => {
+    assert.equal(FEATURES.publicSignup, false);
+  });
+
+  test('con el registro cerrado, signUp no llama a Supabase y explica la invitación', async () => {
+    const gw = createFakeAuthGateway({ confirmEmail: true });
+    const { auth } = service(gw, `${SITE}#/registro`, { publicSignup: false });
+    await auth.init();
+    const res = await auth.signUp({ fullName: 'Ana', company: 'Norte', email: 'ana@example.com', password: 'clave-segura-1' });
+    assert.equal(res.ok, false);
+    assert.equal(res.code, AUTH_ERRORS.signupClosed);
+    assert.match(res.message, /beta cerrada/);
+    assert.match(res.message, /¿Olvidaste tu contraseña\?/, 'dice cómo es el primer ingreso');
+    assert.equal(gw.lastSignUp, undefined, 'no se llamó al registro de Supabase');
+    assert.equal(auth.status, AUTH_STATUS.anonymous);
+  });
+
+  test('con el registro cerrado, una persona dada de alta ingresa y recupera su contraseña igual', async () => {
+    const gw = createFakeAuthGateway({ users: [{ id: 'inv-1', email: 'invitada@example.com', password: 'clave-segura-1', emailConfirmed: true }] });
+    const { auth } = service(gw, `${SITE}#/login`, { publicSignup: false });
+    await auth.init();
+    const reset = await auth.requestPasswordReset('invitada@example.com');
+    assert.equal(reset.ok, true);
+    assert.equal(gw.lastReset.redirectTo, `${SITE}?auth=recovery`, 'recuperación PKCE de siempre');
+    const res = await auth.signIn({ email: 'invitada@example.com', password: 'clave-segura-1' });
+    assert.equal(res.ok, true);
+    assert.equal(auth.status, AUTH_STATUS.authenticated);
+  });
+
+  test('Supabase con el registro apagado (signup_disabled, email_provider_disabled) → mensaje de invitación, nunca el error interno', () => {
+    for (const code of ['signup_disabled', 'email_provider_disabled']) {
+      assert.equal(authErrorCode({ code, status: 422, message: 'Signups not allowed for this instance' }), AUTH_ERRORS.signupClosed, code);
+    }
+    assert.doesNotMatch(messageFor(AUTH_ERRORS.signupClosed), /Signups|instance|422/);
+  });
+
+  test('SMTP por defecto de Supabase (email_address_not_authorized): sin sesión, respuesta neutra; con la sesión y el propio email, se avisa', async () => {
+    assert.equal(authErrorCode({ code: 'email_address_not_authorized', status: 400, message: 'Email address not authorized' }), AUTH_ERRORS.emailNotAuthorized);
+    const gw = createFakeAuthGateway({ users: [{ id: 'inv-1', email: 'invitada@example.com', password: 'clave-segura-1', emailConfirmed: true }] });
+    let failWith = AUTH_ERRORS.emailNotAuthorized;
+    gw.requestPasswordReset = async () => ({ ok: false, code: failWith });
+    const entries = [];
+    const remove = addLogSink((e) => entries.push(e));
+    try {
+      const { auth } = service(gw, `${SITE}#/recuperar-contrasena`, { publicSignup: false });
+      await auth.init();
+      const neutral = await auth.requestPasswordReset('invitada@example.com');
+      assert.equal(neutral.ok, true, 'fuera de sesión no revela que la cuenta existe');
+      assert.match(neutral.message, /Si hay una cuenta con ese email/);
+      assert.ok(entries.some((e) => e.level === 'warn' && /SMTP propio/.test(e.message)), 'queda un aviso técnico para quien diagnostica');
+      assert.ok(entries.every((e) => !/invitada@example\.com/.test(`${e.message} ${JSON.stringify(e.context ?? null)}`)), 'el aviso no lleva el email');
+
+      await auth.signIn({ email: 'invitada@example.com', password: 'clave-segura-1' });
+      assert.equal(auth.status, AUTH_STATUS.authenticated);
+      const own = await auth.requestPasswordReset('Invitada@Example.com ');
+      assert.equal(own.ok, false, '"Cambiar contraseña" con la sesión iniciada no dice que lo envió');
+      assert.equal(own.message, messageFor(AUTH_ERRORS.emailNotAuthorized));
+      assert.match(own.message, /no tiene habilitado el envío de correos/);
+      assert.doesNotMatch(own.message, /SMTP|Supabase|authorized/);
+      failWith = AUTH_ERRORS.unknown;
+      const broken = await auth.requestPasswordReset('invitada@example.com');
+      assert.equal(broken.ok, false, 'un SMTP propio mal configurado tampoco se tapa con la sesión iniciada');
+      assert.equal(broken.message, messageFor(AUTH_ERRORS.unknown));
+      const other = await auth.requestPasswordReset('otra@example.com');
+      assert.equal(other.ok, true, 'otro email, aun con la sesión iniciada: respuesta neutra');
+    } finally {
+      remove();
+    }
   });
 });

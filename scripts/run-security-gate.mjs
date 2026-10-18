@@ -33,6 +33,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** Tests que forman parte del gate (seguridad, tenancy, sesión, privacidad, recuperación). */
 export const SECURITY_TEST_FILES = Object.freeze([
   'tests/security/beta-security-gate.test.js',
+  'tests/security/auth-perimeter.test.js',
+  'tests/security/live-ab.test.js',
   'tests/data/beta-security.test.js',
   'tests/data/supabase-repository.test.js',
   'tests/data/backup.test.js',

@@ -12,9 +12,33 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Beta Perimeter v1 (PLAN-2026-016).** Prepara el perímetro de la beta cerrada con 3–5 empresas: HD-02 queda resuelto en el código, HD-03 del lado de la app y HD-01 preparado. Sin cambios en motores ni fórmulas (golden 39/39), **ni en la base** (ninguna migración) **ni en el esquema de datos** (sigue en 10). **Todavía no hay beta:** falta lo que configura el dueño (registro apagado en Supabase, SMTP propio y dominio: [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §5).
+
+### Seguridad
+
+- **(HD-02) Sin staging en el origen de producción.** El deploy publica sólo producción (`push` a `main` y rollback manual): sin `workflow_run`, sin job de preview y sin `scripts/stage-preview.mjs`. El build falla si `dist/` trae `preview/`; después de publicar, el workflow verifica que `version.json` tenga el commit desplegado y que `/preview/` y `/preview/version.json` respondan 404 (si no, el deploy queda en rojo). Pages reemplaza el sitio entero en cada deploy: el primer deploy con este cambio borra también los archivos del preview viejo. Nuevo control SEC-17 del Beta Security Gate.
+- **(HD-03) Beta por invitación en la app.** `FEATURES.publicSignup = false`: la app no ofrece "Crear cuenta" (las llamadas a la acción llevan a Ingresar), `#/registro` explica el acceso por invitación sin formulario y `signUp` no llama a Supabase; `signup_disabled` / `email_provider_disabled` muestran el mensaje de la invitación. La barrera real es apagar "Allow new users to sign up" en Supabase Auth: paso del dueño (la configuración de Auth no se tocó).
+- El Beta Security Gate rotula HD-01, HD-02 y HD-03 como REQUISITO pendiente antes de habilitar usuarios reales (18 controles y 17 archivos de tests).
+
+### Agregado
+
+- `docs/BETA_PERIMETER.md`: estado de HD-01/02/03, cómo reactivar más adelante un staging aislado (otro origen y otra base), alta por invitación, procedimiento del dominio propio (dato que falta, DNS, Pages, HTTPS, URLs de Supabase, rollback), prueba A/B real, checklist del dueño y riesgos.
+- `scripts/check-auth-perimeter.mjs`: lee la configuración pública de Auth y verifica registro cerrado, proveedor Email activo, confirmación de email activa y ningún otro método de ingreso; el SMTP propio (no es público) queda como verificación manual.
+- **Prueba A/B real** (manual, nunca en CI ni en `npm test`): `tests/live/perimeter-ab.mjs` (dos usuarios autenticados y dos organizaciones sintéticos `@rateos.invalid`; la app compilada en un navegador y la API con JWT reales: acceso, aislamiento A↔B, guardado, logout, cambio de usuario en la misma pestaña y refresh token revocado) y `supabase/tests/live_ab.sql` (alta, identificación, verificación y limpieza sólo de lo sintético). Preparada, no ejecutada: la red del entorno de desarrollo no llega a Supabase.
+- (HD-01) Soporte para un segundo origen: `PUBLIC_SITE_URLS` (cada sitio usa sus propios enlaces de email, porque el enlace PKCE vuelve al origen donde se pidió) y `MOVED_TO_SITE_URL` (mudanza desde github.io antes de iniciar sesión, apagada hasta verificar el dominio).
+- E2E `REGISTRO-01` (escritorio y celular): `#/registro` sin formulario ni campo de contraseña, ningún enlace a "Crear cuenta", y siguen Ingresar y "¿Olvidaste tu contraseña?".
+
+### Corregido
+
+- Con el SMTP por defecto de Supabase (sólo envía correos al equipo del proyecto) la recuperación respondía "te enviamos un enlace" aunque el correo no saliera: con la beta por invitación, nadie de afuera habría podido elegir su contraseña, sin ningún aviso. `email_address_not_authorized` tiene código propio: fuera de sesión la respuesta sigue neutra (no revela qué emails tienen cuenta) y queda un aviso técnico sin el email; con la sesión iniciada, "Cambiar contraseña" avisa que el correo no se pudo enviar (también ante cualquier otra falla). El SMTP propio pasa a ser paso obligatorio del dueño antes de la primera alta.
+
+### Eliminado
+
+- El staging público `/preview/` dentro del sitio de producción y `scripts/stage-preview.mjs` (queda en el historial de git, `998b932`). Un staging futuro tiene que estar aislado en origen y en base.
+
 ## [0.8.1] - 2026-10-17
 
-**RATEOS v0.8.1: parche de seguridad y de pérdida de datos — Beta Readiness v1 (PLAN-2026-015).** Versión de parche sobre v0.8.0 (tag `v0.8.0` = `0c213a3`, punto de retorno). Sin fórmulas nuevas ni cambios en los motores: ningún costo, tarifa ni golden cambia (39/39). **Sin cambios en la base** (ninguna migración) **ni en el esquema de datos** (sigue en 10): los datos y backups de v0.8.0 se abren igual. Auditoría completa en [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md): 0 P0 de seguridad (ningún acceso entre empresas, ni con IDs conocidos; el admin de plataforma no lee contenido económico); 2 P0 de pérdida de datos, 3 P1 de sesión y 4 P2, corregidos (BS-01…BS-09); 9 decisiones del dueño.
+**RATEOS v0.8.1: parche de seguridad y de pérdida de datos — Beta Readiness v1 (PLAN-2026-015).** Versión de parche sobre v0.8.0 (`0c213a3`, punto de retorno; el tag `v0.8.0` lo crea el dueño). Sin fórmulas nuevas ni cambios en los motores: ningún costo, tarifa ni golden cambia (39/39). **Sin cambios en la base** (ninguna migración) **ni en el esquema de datos** (sigue en 10): los datos y backups de v0.8.0 se abren igual. Auditoría completa en [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md): 0 P0 de seguridad (ningún acceso entre empresas, ni con IDs conocidos; el admin de plataforma no lee contenido económico); 2 P0 de pérdida de datos, 3 P1 de sesión y 4 P2, corregidos (BS-01…BS-09); 9 decisiones del dueño.
 
 **Todavía no hay beta con empresas externas.** Requisitos obligatorios antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): **HD-01** dominio propio para producción; **HD-02** staging separado de producción en origen y en base de datos, o `/preview/` deshabilitado temporalmente; **HD-03** registro cerrado o por invitación. El Beta Security Gate los informa como REQUISITO pendiente en cada corrida.
 

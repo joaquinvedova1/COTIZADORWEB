@@ -6,6 +6,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   findSecrets,
@@ -14,6 +15,7 @@ import {
   loggerTemplateCalls,
   migrationFindings,
   runSecurityChecks,
+  stagingFindings,
   supabaseSurface,
   unguardedDeletes,
 } from './lib/checks.js';
@@ -44,6 +46,21 @@ describe('Beta Security Gate', () => {
 });
 
 describe('Beta Security Gate: los detectores detectan', () => {
+  test('staging (HD-02): un preview en el origen de producción se detecta; el workflow actual no lo tiene', () => {
+    const viejo = [
+      'on:\n  workflow_run:\n    workflows: [CI]\n',
+      'jobs:\n  preview:\n    steps:\n      - run: git show origin/main:scripts/stage-preview.mjs > s.mjs && node s.mjs --site dist --from preview-dist\n',
+    ].join('');
+    const hallazgos = stagingFindings(viejo, { stagePreviewScript: true });
+    assert.ok(hallazgos.some((h) => /workflow_run/.test(h)), 'publicar ramas con workflow_run');
+    assert.ok(hallazgos.some((h) => /staging/.test(h)), 'armar /preview/');
+    assert.ok(hallazgos.some((h) => /guardia/.test(h)), 'sin la guardia de dist/preview');
+    assert.ok(hallazgos.some((h) => /404/.test(h)), 'sin verificar /preview/ → 404');
+    assert.ok(hallazgos.some((h) => /stage-preview\.mjs existe/.test(h)), 'el script del preview');
+    const actual = readFileSync(new URL('../../.github/workflows/deploy-pages.yml', import.meta.url), 'utf8');
+    assert.deepEqual(stagingFindings(actual), []);
+  });
+
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 
   test('secretos: secret key, clave privada, connection string y JWT de service_role (no la publishable key)', () => {

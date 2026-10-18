@@ -29,8 +29,23 @@ export const SUPABASE = Object.freeze({
   publishableKey: 'sb_publishable_0zN4iQ1quvW2kC8XScqNGw_ZQ1F6ztW',
 });
 
-/** URL pública del sitio (GitHub Pages). Base de los enlaces de los emails de Auth. */
-export const PUBLIC_SITE_URL = 'https://joaquinvedova1.github.io/COTIZADORWEB/';
+/**
+ * Sitios públicos de producción (HD-01, PLAN-2026-016). Cada sitio usa SUS
+ * enlaces en los emails de Auth (PKCE: el enlace vuelve al origen donde se
+ * pidió). El PRIMERO es el principal (enlaces desde cualquier otro origen).
+ * Con dominio propio va primero "https://<dominio>/" y github.io queda en la
+ * lista hasta verificar el dominio: ver docs/BETA_PERIMETER.md.
+ */
+export const PUBLIC_SITE_URLS = Object.freeze(['https://joaquinvedova1.github.io/COTIZADORWEB/']);
+/** Sitio principal: base de los enlaces de los emails de Auth. */
+export const PUBLIC_SITE_URL = PUBLIC_SITE_URLS[0];
+/**
+ * Mudanza al dominio propio (HD-01): con un sitio acá (p. ej. "https://<dominio>/"),
+ * la app abierta en OTRO sitio público de la lista (el origen compartido
+ * joaquinvedova1.github.io) se va al nuevo antes de iniciar sesión o leer datos.
+ * null hasta haber verificado el dominio nuevo (producción sigue en github.io).
+ */
+export const MOVED_TO_SITE_URL = null;
 
 /** Claves de localStorage. Nunca se usa localStorage.clear(). */
 export const STORAGE_KEYS = Object.freeze({
@@ -51,6 +66,10 @@ export const STORAGE_KEYS = Object.freeze({
 export const FEATURES = Object.freeze({
   historicalComparison: false, // Estimado vs real (diseñado en docs/DATA_MODEL.md)
   supabase: true, // Cuentas reales (Supabase Auth) y datos en la nube con RLS.
+  // Registro abierto. false = beta cerrada por invitación (HD-03, PLAN-2026-016):
+  // la app no ofrece "Crear cuenta" y no llama al registro. La barrera real es
+  // Supabase Auth ("Allow new users to sign up" apagado): ver docs/BETA_PERIMETER.md.
+  publicSignup: false,
   multiOrganization: false,
   analytics: false, // Eventos internos desacoplados; sin envío a terceros.
   commercialModelComparator: true,
