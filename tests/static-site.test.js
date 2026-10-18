@@ -154,58 +154,55 @@ describe('archivos del sitio', () => {
     assert.match(wf, /actions\/deploy-pages@v\d+/);
   });
 
-  test('staging en /preview/: nunca reemplaza producción', () => {
+  test('sin staging en el origen de producción (HD-02): sólo main, sin /preview/ y verificado después de publicar', () => {
     const wf = read('.github/workflows/deploy-pages.yml');
     const job = (name) => {
       const m = wf.match(new RegExp(`^  ${name}:\\s*$([\\s\\S]*?)(?=^  [a-z][a-z_-]*:\\s*$|(?![\\s\\S]))`, 'm'));
       assert.ok(m, `falta el job ${name}`);
       return m[1];
     };
+    // Ninguna rama se publica: sólo push a main y el rollback manual ("ref").
+    assert.doesNotMatch(wf, /workflow_run/, 'ninguna rama se publica (sin workflow_run)');
+    assert.doesNotMatch(wf, /preview_ref|PREVIEW_BRANCH|preview_sha|stage-preview|--from/, 'sin staging en el workflow');
+    const jobs = [...wf.slice(wf.search(/^jobs:\s*$/m)).matchAll(/^  ([a-z][a-z_-]*):\s*$/gm)].map((m) => m[1]);
+    assert.deepEqual(jobs, ['plan', 'test', 'build', 'deploy'], 'sin job de preview');
+    assert.ok(!existsSync(path.join(ROOT, 'scripts', 'stage-preview.mjs')), 'el armado de /preview/ no existe más');
     // Producción: sólo commits que están en main.
     assert.match(job('plan'), /git merge-base --is-ancestor "\$SHA" origin\/main/);
     assert.match(job('test'), /ref: \$\{\{ needs\.plan\.outputs\.sha \}\}/, 'los tests de producción usan el commit de main');
-    assert.match(job('build'), /ref: \$\{\{ needs\.plan\.outputs\.sha \}\}/, 'la raíz se construye con el commit de main');
-    // Preview: sólo CI exitoso de un push a una rama de este repo (nunca forks ni main).
-    assert.match(wf, /workflow_run:\s*\n\s+workflows: \[CI\]\s*\n\s+types: \[completed\]\s*\n\s+branches-ignore: \[main, "dependabot\/\*\*"\]/);
-    assert.match(job('plan'), /workflow_run\.conclusion == 'success'/);
-    assert.match(job('plan'), /workflow_run\.event == 'push'/);
-    assert.match(job('plan'), /head_repository\.full_name == github\.repository/);
-    // El código de la rama corre sin permisos de escritura ni credenciales.
-    const preview = job('preview');
-    assert.match(preview, /permissions:\s*\n\s+contents: read\s*\n/);
-    assert.doesNotMatch(preview, /pages: write|id-token|contents: write/);
-    assert.match(preview, /persist-credentials: false/);
-    assert.match(preview, /run: npm test/, 'el preview también pasa sus tests');
+    assert.match(job('build'), /ref: \$\{\{ needs\.plan\.outputs\.sha \}\}/, 'el sitio se construye con el commit de main');
+    // El artefacto nunca trae preview/: el build falla antes de subirlo.
+    const build = job('build');
+    const guard = build.indexOf('if [ -e dist/preview ]');
+    assert.ok(guard > 0, 'guardia: dist/ sin preview/');
+    assert.ok(guard < build.indexOf('actions/upload-pages-artifact@'), 'la guardia va antes de subir el artefacto');
+    assert.match(build, /if \[ -e dist\/preview \]; then[\s\S]*?exit 1/);
     // Sólo deploy escribe en Pages; build no tiene permisos de escritura.
-    assert.doesNotMatch(job('build'), /pages: write|id-token: write/);
-    assert.match(job('deploy'), /pages: write/);
-    // La cola de despliegues vive en el job deploy: una corrida salteada (CI de
-    // pull_request) nunca cancela el deploy pendiente de un preview.
-    assert.match(job('deploy'), /concurrency:\s*\n\s+group: "pages"\s*\n\s+cancel-in-progress: false/);
-    assert.doesNotMatch(wf, /^concurrency:/m, 'sin concurrencia a nivel workflow');
-    // /preview/ se arma con el script de main, que verifica que producción no cambie.
-    assert.match(job('build'), /git show origin\/main:scripts\/stage-preview\.mjs/);
-    assert.match(job('build'), /--site dist --from/);
-    // Un deploy de preview atrasado nunca pisa uno más nuevo: antes de publicar
-    // se verifica que el commit siga siendo el último de la rama (y si no, no se publica).
+    assert.doesNotMatch(build, /pages: write|id-token: write/);
     const deploy = job('deploy');
-    const guard = deploy.indexOf('git ls-remote');
-    assert.ok(guard > 0, 'deploy verifica el último commit de la rama del preview');
-    assert.ok(guard < deploy.indexOf('actions/deploy-pages@'), 'la verificación va antes de publicar');
-    assert.match(deploy, /if: needs\.build\.outputs\.preview_trigger == 'preview'/);
-    assert.match(deploy, /\[ "\$HEAD_SHA" != "\$PREVIEW_SHA" \][\s\S]*?exit 1/);
-    assert.match(job('build'), /preview_sha: \$\{\{ needs\.plan\.outputs\.preview_sha \}\}/);
+    assert.match(deploy, /pages: write/);
+    // Un solo despliegue a la vez y nunca se cancela uno en curso.
+    assert.match(deploy, /concurrency:\s*\n\s+group: "pages"\s*\n\s+cancel-in-progress: false/);
+    assert.doesNotMatch(wf, /^concurrency:/m, 'sin concurrencia a nivel workflow');
     // Producción nunca vuelve atrás sola: una corrida que eligió un commit de main
-    // ya superado (un preview que empezó antes de un merge) no publica. Un
-    // rollback pedido a mano ("ref") sí.
+    // ya superado no publica. Un rollback pedido a mano ("ref") sí.
     const mainGuard = deploy.indexOf('git ls-remote "$REPO_URL" refs/heads/main');
     assert.ok(mainGuard > 0, 'deploy verifica el último commit de main');
     assert.ok(mainGuard < deploy.indexOf('actions/deploy-pages@'), 'la verificación de main va antes de publicar');
     assert.match(deploy, /if \[ "\$ROOT_REF" != "main" \][\s\S]*?publish=true[\s\S]*?exit 0/, 'un rollback manual publica el commit pedido');
     assert.match(deploy, /if \[ "\$MAIN_SHA" != "\$ROOT_SHA" \][\s\S]*?publish=false/, 'si main avanzó, no se publica');
     assert.match(deploy, /- name: Desplegar en GitHub Pages\s*\n\s+id: deployment\s*\n\s+if: steps\.main_guard\.outputs\.publish == 'true'\s*\n\s+uses: actions\/deploy-pages@/);
-    assert.match(job('build'), /root_sha: \$\{\{ needs\.plan\.outputs\.sha \}\}/);
-    assert.match(job('build'), /root_ref: \$\{\{ needs\.plan\.outputs\.root_ref \}\}/);
+    assert.match(build, /root_sha: \$\{\{ needs\.plan\.outputs\.sha \}\}/);
+    assert.match(build, /root_ref: \$\{\{ needs\.plan\.outputs\.root_ref \}\}/);
+    // Después de publicar: lo publicado es el commit construido y /preview/ → 404
+    // (no queda ningún staging viejo accesible).
+    const verify = deploy.indexOf('Verificar el sitio publicado');
+    assert.ok(verify > deploy.indexOf('actions/deploy-pages@'), 'la verificación va después de publicar');
+    assert.match(deploy, /\$\{PAGE_URL\}version\.json\?t=/);
+    assert.match(deploy, /\$\{PAGE_URL\}preview\/\?t=/);
+    assert.match(deploy, /\$\{PAGE_URL\}preview\/version\.json\?t=/);
+    assert.match(deploy, /\[ "\$COMMIT" = "\$EXPECTED_COMMIT" \] && \[ "\$PREVIEW_DIR" = "404" \] && \[ "\$PREVIEW_VERSION" = "404" \]/);
+    assert.match(deploy, /::error::El sitio publicado no coincide[\s\S]*?exit 1/, 'si /preview/ responde, el deploy queda en rojo');
   });
 
   test('Test Lab (PLAN-2026-013): sólo lectura, PR gate en cada PR, Extended Lab sólo manual, Playwright fijo y fuera del repo', () => {

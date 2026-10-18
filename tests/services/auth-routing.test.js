@@ -5,7 +5,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isSafeNextPath, loginHash, nextFromHash, registerHash, resolveAccess } from '../../js/services/auth-routing.js';
+import { accountEntry, isSafeNextPath, loginHash, nextFromHash, registerHash, resolveAccess } from '../../js/services/auth-routing.js';
 import { ROUTES, matchRoute } from '../../js/ui/router.js';
 
 describe('auth-routing', () => {
@@ -41,5 +41,15 @@ describe('auth-routing', () => {
     for (const h of ['#/', '#/demo', '#/demo/analisis', '#/recuperar-contrasena']) assert.equal(accessOf(h), 'public', h);
     for (const h of ['#/login', '#/registro']) assert.equal(accessOf(h), 'guest', h);
     for (const h of ['#/inicio', '#/cotizaciones', '#/cotizaciones/nueva', '#/cotizaciones/x/result', '#/recursos', '#/servicios', '#/escenarios', '#/configuracion', '#/configuracion/cuenta', '#/bienvenida']) assert.equal(accessOf(h), 'auth', h);
+  });
+});
+
+describe('auth-routing: entrada sin cuenta (HD-03)', () => {
+  test('beta por invitación: "Ingresar" conservando el destino; con registro abierto, "Crear cuenta"', () => {
+    assert.deepEqual(accountEntry('/nuevo', { publicSignup: false }), { label: 'Ingresar', hash: '#/login?next=%2Fnuevo', signup: false });
+    assert.deepEqual(accountEntry(null, { publicSignup: false }), { label: 'Ingresar', hash: '#/login', signup: false });
+    assert.deepEqual(accountEntry('/cotizaciones/nueva', { publicSignup: true }), { label: 'Crear cuenta', hash: '#/registro?next=%2Fcotizaciones%2Fnueva', signup: true });
+    assert.equal(accountEntry('https://evil.example/', { publicSignup: false }).hash, '#/login', 'un destino externo nunca se conserva');
+    assert.equal(accountEntry().signup, false, 'lo publicado es beta por invitación');
   });
 });

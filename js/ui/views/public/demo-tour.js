@@ -27,7 +27,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { deepClone } from '../../../core/object.js';
 import { logger } from '../../../core/logger.js';
 import { costBreakdown } from '../../cost-breakdown.js';
-import { registerHash } from '../../../services/auth-routing.js';
+import { accountEntry } from '../../../services/auth-routing.js';
 import { costGroupLabel, flowHeader, focusHeading, hashParams, headerLink, illustrativeLabel, isSignedIn, pubLink, publicIcon } from './public-chrome.js';
 
 const STEPS = Object.freeze(['El servicio', 'Lo que cuesta prestarlo', 'El resultado', 'Probalo vos']);
@@ -512,7 +512,7 @@ export async function render(root, app) {
           // Desde la bienvenida, la continuación es volver a ella: ahí se elige con qué datos empezar.
           origin === ORIGINS.bienvenida
             ? pubLink(origin.exitLabel, origin.exitHref, { tone: 'secondary', iconBefore: 'arrowLeft' })
-            : pubLink('Crear mi propia cotización', isSignedIn(app) ? '#/cotizaciones/nueva' : registerHash('/cotizaciones/nueva'), { tone: 'secondary' }),
+            : pubLink('Crear mi propia cotización', isSignedIn(app) ? '#/cotizaciones/nueva' : accountEntry('/cotizaciones/nueva').hash, { tone: 'secondary' }),
         ),
       ),
     ];

@@ -14,6 +14,8 @@
  * Postgres (sin sesión válida la base no devuelve nada).
  */
 
+import { FEATURES } from '../config.js';
+
 export const APP_HOME_PATH = '/inicio';
 const GUEST_PATHS = new Set(['/login', '/registro', '/recuperar-contrasena']);
 
@@ -54,6 +56,16 @@ export function loginHash(path = null, { expired = false } = {}) {
 
 export function registerHash(path = null) {
   return path && isSafeNextPath(path) ? `#/registro?next=${encodeURIComponent(path)}` : '#/registro';
+}
+
+/**
+ * Entrada para alguien sin sesión: "Crear cuenta" con registro abierto o, en la
+ * beta cerrada por invitación (HD-03), "Ingresar" (conservando el destino).
+ */
+export function accountEntry(path = null, { publicSignup = FEATURES.publicSignup } = {}) {
+  return publicSignup
+    ? { label: 'Crear cuenta', hash: registerHash(path), signup: true }
+    : { label: 'Ingresar', hash: loginHash(path), signup: false };
 }
 
 /**

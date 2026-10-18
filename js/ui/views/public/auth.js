@@ -7,13 +7,16 @@
  *   las credenciales van directo al SDK por HTTPS. Nunca se guardan ni se
  *   loguean; el campo contraseña se vacía después de cada intento.
  * - ?next=/ruta conserva el destino pedido (p. ej. "Crear una cotización").
+ * - Beta cerrada (FEATURES.publicSignup = false, HD-03): #/registro no tiene
+ *   formulario; explica el acceso por invitación y el primer ingreso con
+ *   "¿Olvidaste tu contraseña?".
  * - Errores en lenguaje humano: nunca mensajes internos ni detalles técnicos.
  */
 
 import { h, mount, uniqueId } from '../../dom.js';
 import { brand, headerLink, publicIcon } from './public-chrome.js';
 import { MIN_PASSWORD_LENGTH } from '../../../services/auth-service.js';
-import { nextFromHash, hashQuery } from '../../../services/auth-routing.js';
+import { accountEntry, nextFromHash, hashQuery } from '../../../services/auth-routing.js';
 
 /** Campo con label real, ayuda y error accesibles. */
 function field({ label, type = 'text', name, autocomplete, hint = null, maxLength = 200, inputmode = null }) {
@@ -166,7 +169,11 @@ export function renderLogin(root, app) {
       title: 'Bienvenido de nuevo.',
       subtitle: 'Ingresá con tu email y contraseña.',
       content: form,
-      footer: h('div', {}, switchLine('¿Todavía no tenés cuenta?', 'Crear cuenta', withNext('#/registro', next)), switchLine('¿Querés ver cómo funciona?', 'Probar la demo sin cuenta', '#/demo')),
+      footer: h('div', {},
+        accountEntry().signup
+          ? switchLine('¿Todavía no tenés cuenta?', 'Crear cuenta', withNext('#/registro', next))
+          : switchLine('¿Todavía no tenés cuenta?', 'RATEOS está en beta por invitación', '#/registro'),
+        switchLine('¿Querés ver cómo funciona?', 'Probar la demo sin cuenta', '#/demo')),
     }),
   );
 }
@@ -174,8 +181,12 @@ export function renderLogin(root, app) {
 // ------------------------------------------------------------------ registro
 
 export function renderRegister(root, app) {
-  app.setHeader({ title: 'Crear cuenta' });
   const next = nextFromHash(window.location.hash);
+  if (!accountEntry().signup) {
+    renderInviteOnly(root, app, next);
+    return;
+  }
+  app.setHeader({ title: 'Crear cuenta' });
 
   const fullName = field({ label: 'Tu nombre', name: 'name', autocomplete: 'name', maxLength: 120 });
   const company = field({ label: 'Empresa', name: 'organization', autocomplete: 'organization', maxLength: 120, hint: 'Así se va a llamar tu espacio de trabajo. Podés cambiarlo después.' });
@@ -238,6 +249,34 @@ export function renderRegister(root, app) {
   });
   const card = view.querySelector('.pub-auth-card');
   mount(root, view);
+}
+
+/**
+ * Beta cerrada (HD-03): sin formulario de registro. Las cuentas las da de alta
+ * el dueño desde Supabase; la persona entra con su email y, la primera vez,
+ * elige su contraseña con "¿Olvidaste tu contraseña?" (enlace PKCE).
+ */
+function renderInviteOnly(root, app, next) {
+  app.setHeader({ title: 'Acceso por invitación' });
+  const content = h(
+    'div',
+    { class: 'pub-auth-invite' },
+    h('p', {}, '¿Te invitaron? Ingresá con el email de la invitación.'),
+    h('p', {}, 'Si es la primera vez, elegí tu contraseña con ', h('strong', {}, '«¿Olvidaste tu contraseña?»'), ': te llega un enlace a ese email. Abrilo desde este mismo navegador.'),
+    h('p', { class: 'pub-field-hint' }, 'Si querés probar RATEOS y todavía no tenés invitación, pedísela a quien te compartió este enlace.'),
+  );
+  mount(
+    root,
+    authLayout({
+      title: 'RATEOS está en beta cerrada',
+      subtitle: 'Por ahora, las cuentas se crean sólo por invitación.',
+      content,
+      footer: h('div', {},
+        switchLine('¿Ya te dieron acceso?', 'Ingresar', withNext('#/login', next)),
+        switchLine('¿Es tu primer ingreso?', 'Elegir mi contraseña', '#/recuperar-contrasena'),
+        switchLine('¿Querés ver cómo funciona?', 'Probar la demo sin cuenta', '#/demo')),
+    }),
+  );
 }
 
 // --------------------------------------------------------- recuperar contraseña

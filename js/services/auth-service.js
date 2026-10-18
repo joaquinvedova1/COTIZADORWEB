@@ -5,7 +5,10 @@
  * protegido) → 'anonymous' | 'authenticated'.
  *
  * - Registro: nombre, empresa, email y contraseña. El trigger de la base
- *   crea perfil, organización (OWNER) y workspace vacío.
+ *   crea perfil, organización (OWNER) y workspace vacío. En la beta cerrada
+ *   (FEATURES.publicSignup = false) el registro está cerrado: las cuentas las
+ *   da de alta el dueño desde Supabase y la persona elige su contraseña con
+ *   "¿Olvidaste tu contraseña?" (PKCE).
  * - Ingreso, cierre de sesión, recuperación y cambio de contraseña.
  * - Enlaces de los emails (confirmación y recuperación) con flujo PKCE:
  *   vuelven a https://…/COTIZADORWEB/?code=…&auth=…&next=… (query ANTES del
@@ -15,7 +18,8 @@
  * - Las contraseñas nunca se guardan ni se loguean: sólo pasan al SDK.
  */
 
-import { PUBLIC_SITE_URL } from '../config.js';
+import { FEATURES, MOVED_TO_SITE_URL, PUBLIC_SITE_URL, PUBLIC_SITE_URLS } from '../config.js';
+import { logger } from '../core/logger.js';
 import { AUTH_ERRORS } from '../data/auth-gateway.js';
 import { isSafeNextPath } from './auth-routing.js';
 
@@ -24,11 +28,13 @@ export const AUTH_STATUS = Object.freeze({ loading: 'loading', anonymous: 'anony
 /** Textos para personas. */
 export const AUTH_MESSAGES = Object.freeze({
   [AUTH_ERRORS.emailTaken]: 'Ese email ya está registrado. Ingresá o recuperá tu contraseña.',
+  [AUTH_ERRORS.signupClosed]: 'RATEOS está en beta cerrada: las cuentas se crean sólo por invitación. Si ya te dieron acceso, ingresá con tu email (la primera vez, elegí tu contraseña con «¿Olvidaste tu contraseña?»).',
   [AUTH_ERRORS.invalidCredentials]: 'No pudimos iniciar sesión. Revisá el email y la contraseña.',
   [AUTH_ERRORS.emailNotConfirmed]: 'Todavía no confirmaste tu email. Revisá tu correo (también la carpeta de spam).',
   [AUTH_ERRORS.weakPassword]: 'La contraseña es muy débil. Usá al menos 8 caracteres combinando letras y números.',
   [AUTH_ERRORS.samePassword]: 'La contraseña nueva tiene que ser distinta de la anterior.',
   [AUTH_ERRORS.invalidEmail]: 'Revisá el email: no parece válido.',
+  [AUTH_ERRORS.emailNotAuthorized]: 'No pudimos enviarte el email: RATEOS todavía no tiene habilitado el envío de correos a tu dirección. Avisale a quien te dio acceso.',
   [AUTH_ERRORS.rateLimited]: 'Hubo muchos intentos seguidos. Esperá unos minutos y probá de nuevo.',
   [AUTH_ERRORS.linkInvalid]: 'El enlace venció o ya se usó. Pedí uno nuevo.',
   [AUTH_ERRORS.sessionMissing]: 'Tu sesión terminó. Volvé a ingresar.',
@@ -66,33 +72,58 @@ export function validateSignIn({ email, password }) {
 }
 
 /**
- * URL a la que vuelven los enlaces de los emails (debe estar permitida en
+ * Base de los enlaces de los emails de Auth (deben estar permitidos en
  * Supabase → Authentication → URL Configuration). Sin "#": PKCE agrega
  * ?code=… y el router por hash no se rompe.
+ *
+ * - En un sitio público de producción (PUBLIC_SITE_URLS), ese mismo sitio: el
+ *   enlace PKCE sólo funciona en el origen donde se pidió (ahí quedó el
+ *   code_verifier), así que mientras convivan github.io y el dominio propio
+ *   cada uno usa los suyos.
+ * - En desarrollo local (localhost / 127.0.0.1 bajo /COTIZADORWEB/), el servidor local.
+ * - Cualquier otro origen: el sitio principal (el primero de la lista).
  */
-/**
- * Base de los enlaces de los emails: el sitio público (GitHub Pages) y, en
- * desarrollo local (localhost / 127.0.0.1 bajo /COTIZADORWEB/), el servidor
- * local. Desde el staging (/COTIZADORWEB/preview/) los enlaces vuelven al
- * staging. Cualquier otro origen usa el sitio público. Supabase además sólo
- * acepta las Redirect URLs de su lista permitida.
- */
-export function siteUrlFor(location, fallback = PUBLIC_SITE_URL) {
+export function siteUrlFor(location, sites = PUBLIC_SITE_URLS) {
+  const list = Array.isArray(sites) && sites.length ? sites : [PUBLIC_SITE_URL];
   try {
     const url = new URL(location && location.href ? location.href : '');
-    const site = new URL(fallback);
     const local = url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
-    let base = null;
-    if (local && url.pathname.startsWith('/COTIZADORWEB/')) base = `${url.origin}/COTIZADORWEB/`;
-    else if (url.origin === site.origin && url.pathname.startsWith(site.pathname)) base = site.href;
-    if (!base) return fallback;
-    // Staging (/COTIZADORWEB/preview/): los enlaces vuelven al preview, nunca a producción.
-    const preview = `${new URL(base).pathname}preview/`;
-    return url.pathname.startsWith(preview) ? `${base}preview/` : base;
+    if (local && url.pathname.startsWith('/COTIZADORWEB/')) return `${url.origin}/COTIZADORWEB/`;
+    for (const site of list) {
+      const s = new URL(site);
+      if (url.origin === s.origin && url.pathname.startsWith(s.pathname)) return s.href;
+    }
   } catch {
-    /* sin location: el sitio público */
+    /* sin location: el sitio principal */
   }
-  return fallback;
+  return new URL(list[0]).href;
+}
+
+/**
+ * Mudanza al dominio propio (HD-01): ¿hay que irse de este sitio? Devuelve la
+ * URL nueva (conservando la ruta del hash) sólo si `movedTo` está definido y
+ * la app corre en OTRO sitio público de producción (nunca en desarrollo local,
+ * en el sitio nuevo ni en un origen desconocido). La query (p. ej. ?code= de
+ * un enlace viejo) no viaja: no serviría en el origen nuevo.
+ * @returns {string|null}
+ */
+export function movedTarget(location, { movedTo = MOVED_TO_SITE_URL, sites = PUBLIC_SITE_URLS } = {}) {
+  if (!movedTo) return null;
+  try {
+    const url = new URL(location && location.href ? location.href : '');
+    const target = new URL(movedTo);
+    if (target.protocol !== 'https:' || url.origin === target.origin) return null;
+    const onPublicSite = (Array.isArray(sites) ? sites : []).some((site) => {
+      const s = new URL(site);
+      return url.origin === s.origin && url.pathname.startsWith(s.pathname);
+    });
+    if (!onPublicSite) return null;
+    target.search = '';
+    target.hash = url.hash;
+    return target.href;
+  } catch {
+    return null;
+  }
 }
 
 export function authRedirectUrl(kind, next = null, siteUrl = PUBLIC_SITE_URL) {
@@ -149,9 +180,10 @@ export function cleanAuthUrl(href) {
  *   siteUrl?: string,
  *   location?: { href: string },
  *   history?: { replaceState: Function },
- * }} deps
+ *   publicSignup?: boolean,
+ * }} deps publicSignup: false = beta por invitación (la app no llama al registro).
  */
-export function createAuthService({ gateway, location = globalThis.location, history = globalThis.history, siteUrl = siteUrlFor(location) }) {
+export function createAuthService({ gateway, location = globalThis.location, history = globalThis.history, siteUrl = siteUrlFor(location), publicSignup = FEATURES.publicSignup }) {
   if (!gateway) throw new Error('Falta el acceso a Supabase Auth.');
   let status = AUTH_STATUS.loading;
   let user = null;
@@ -261,6 +293,9 @@ export function createAuthService({ gateway, location = globalThis.location, his
     },
 
     async signUp({ fullName, company, email, password, next = null }) {
+      // Beta por invitación: ni se llama a Supabase (la barrera real es Auth con
+      // el registro apagado; esto sólo evita ofrecerlo).
+      if (!publicSignup) return { ok: false, errors: {}, message: messageFor(AUTH_ERRORS.signupClosed), code: AUTH_ERRORS.signupClosed };
       const errors = validateSignUp({ fullName, company, email, password });
       if (Object.keys(errors).length) return { ok: false, errors, message: 'Revisá los campos marcados.' };
       const res = await gateway.signUp({
@@ -323,11 +358,21 @@ export function createAuthService({ gateway, location = globalThis.location, his
       return { ok: false, code: 'expired' };
     },
 
-    /** Siempre responde lo mismo (no revela si el email tiene cuenta). */
+    /**
+     * Sin sesión responde siempre lo mismo (no revela si el email tiene
+     * cuenta). Con la sesión iniciada y el propio email ("Cambiar contraseña")
+     * no hay nada que revelar: si el correo no salió, se dice.
+     */
     async requestPasswordReset(email) {
       if (!EMAIL_RE.test(String(email || '').trim())) return { ok: false, errors: { email: 'Ingresá un email válido.' }, message: 'Revisá los campos marcados.' };
-      const res = await gateway.requestPasswordReset(String(email).trim(), authRedirectUrl('recovery', null, siteUrl));
-      if (!res.ok && (res.code === AUTH_ERRORS.network || res.code === AUTH_ERRORS.rateLimited)) return { ok: false, errors: {}, message: messageFor(res.code) };
+      const address = String(email).trim();
+      const res = await gateway.requestPasswordReset(address, authRedirectUrl('recovery', null, siteUrl));
+      if (!res.ok && res.code === AUTH_ERRORS.emailNotAuthorized) {
+        // HD-03: con el SMTP por defecto de Supabase las personas invitadas nunca reciben el correo (docs/BETA_PERIMETER.md §2).
+        logger.warn('Auth: Supabase no envió el correo (usa su SMTP por defecto, que sólo envía al equipo del proyecto: configurar un SMTP propio).');
+      }
+      const own = status === AUTH_STATUS.authenticated && Boolean(user && user.email) && user.email.toLowerCase() === address.toLowerCase();
+      if (!res.ok && (own || res.code === AUTH_ERRORS.network || res.code === AUTH_ERRORS.rateLimited)) return { ok: false, errors: {}, message: messageFor(res.code) };
       return { ok: true, message: 'Si hay una cuenta con ese email, te enviamos un enlace para recuperar tu contraseña.' };
     },
 

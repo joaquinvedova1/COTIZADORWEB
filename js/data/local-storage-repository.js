@@ -51,7 +51,7 @@ export class LocalStorageRepository extends StorageRepository {
     /**
      * confirmSchemaUpgrade(fromVersion, toVersion) → Promise<boolean>: si se
      * pasa, se pregunta ANTES de actualizar datos viejos al esquema actual
-     * (lo usa el staging: sus datos de la nube son los de producción). Si
+     * (lo usa una versión de prueba que comparte la base de producción). Si
      * responde false, se abren en sólo lectura sin modificar nada.
      */
     this.confirmSchemaUpgrade = typeof confirmSchemaUpgrade === 'function' ? confirmSchemaUpgrade : null;

@@ -11,7 +11,7 @@ import { h, mount } from '../../dom.js';
 import { banner } from '../../components.js';
 import { logger } from '../../../core/logger.js';
 import { userErrorMessage } from '../../layout.js';
-import { registerHash } from '../../../services/auth-routing.js';
+import { accountEntry } from '../../../services/auth-routing.js';
 import { renderQuoteResult } from '../quote-result.js';
 import { flowHeader, headerLink, isSignedIn, pubLink } from './public-chrome.js';
 
@@ -23,7 +23,7 @@ export async function render(root, app) {
       headerLink('Volver a la demo', '#/demo?paso=4', { iconBefore: 'arrowLeft' }),
       signedIn
         ? pubLink('Abrir RATEOS', '#/inicio', { tone: 'primary', size: 'md' })
-        : pubLink('Crear cuenta', registerHash('/cotizaciones/nueva'), { tone: 'primary', size: 'md' }),
+        : pubLink(accountEntry('/cotizaciones/nueva').label, accountEntry('/cotizaciones/nueva').hash, { tone: 'primary', size: 'md' }),
     ],
   });
   const body = h('div', { class: 'pub-container pub-demo-analysis' });

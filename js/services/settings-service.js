@@ -38,8 +38,9 @@ export async function loadVersionInfo(fetchImpl = globalThis.fetch) {
       commit: typeof data.commit === 'string' ? data.commit.slice(0, 12) : fallback.commit,
       buildDate: typeof data.buildDate === 'string' ? data.buildDate : null,
       ref: typeof data.ref === 'string' ? data.ref : null,
-      // "staging" en /preview/ (stage-preview.mjs): la app pide confirmación
-      // antes de actualizar el formato de los datos de la cuenta.
+      // "staging" (sólo un staging aislado, con su propia base: ver
+      // docs/BETA_PERIMETER.md): la app pide confirmación antes de
+      // actualizar el formato de los datos de la cuenta.
       channel: data.channel === 'staging' || data.channel === 'production' ? data.channel : null,
     };
   } catch {

@@ -20,7 +20,7 @@ import { APP_NAME } from './config.js';
 import { logger } from './core/logger.js';
 import { track } from './core/events.js';
 import { createAccountContext, createDemoContext } from './services/app-context.js';
-import { createAuthService } from './services/auth-service.js';
+import { createAuthService, movedTarget } from './services/auth-service.js';
 import { loginHash } from './services/auth-routing.js';
 import { createCloud } from './services/cloud.js';
 import { loadVersionInfo } from './services/settings-service.js';
@@ -89,8 +89,9 @@ function recoveryKeyLabel(key) {
 
 /** Pantalla mostrada si createAppContext() falla. No accede al almacenamiento directamente. */
 /**
- * Staging (/preview/): sus datos de la nube son los de producción. Antes de
- * actualizar el formato se pregunta; si no se acepta, se abren en sólo lectura.
+ * Versión de prueba que usa la base de producción (hoy, el servidor local de
+ * npm start; ya no hay staging público: HD-02). Antes de actualizar el formato
+ * se pregunta; si no se acepta, se abren en sólo lectura.
  */
 function confirmStagingUpgrade(fromVersion, toVersion) {
   if (fromVersion === null || fromVersion === undefined) {
@@ -110,9 +111,10 @@ function confirmStagingUpgrade(fromVersion, toVersion) {
 }
 
 /**
- * ¿Es una versión de prueba que comparte la base de producción? Staging
- * (/preview/, o version.json con channel "staging") y el servidor local
- * (npm start) preguntan antes de cambiar el formato de los datos de la nube.
+ * ¿Es una versión de prueba que comparte la base de producción? El servidor
+ * local (npm start), un build con version.json channel "staging" o una ruta
+ * /preview/ (ya no se publica: HD-02) preguntan antes de cambiar el formato de
+ * los datos de la nube.
  */
 function isTrialBuild(version) {
   if (version && version.channel === 'staging') return true;
@@ -348,6 +350,14 @@ function syncBanner(state, ctx) {
 // ------------------------------------------------------------------ boot
 
 async function boot(root) {
+  // Mudanza al dominio propio (HD-01): en el sitio viejo no se inicia sesión
+  // ni se lee nada; se va directo al nuevo (apagado mientras MOVED_TO_SITE_URL
+  // sea null).
+  const moved = movedTarget(window.location);
+  if (moved) {
+    window.location.replace(moved);
+    return;
+  }
   let version = FALLBACK_VERSION;
   try {
     version = { ...FALLBACK_VERSION, ...(await loadVersionInfo()) };
@@ -494,9 +504,10 @@ async function boot(root) {
         workspaceGateway: cloud.workspaceGateway,
         adminGateway: cloud.adminGateway,
         appVersion: version.version,
-        // En staging (/preview/) los datos de la nube son los de producción:
-        // actualizar su formato haría que la versión publicada los abra en
-        // sólo lectura. Se pregunta antes; si no, se ven sin cambiarlos.
+        // En una versión de prueba (servidor local) los datos de la nube son
+        // los de producción: actualizar su formato haría que la versión
+        // publicada los abra en sólo lectura. Se pregunta antes; si no, se ven
+        // sin cambiarlos.
         confirmSchemaUpgrade: isTrialBuild(version) ? confirmStagingUpgrade : null,
       });
       // Mientras se abría, la sesión se cerró o cambió de persona (otra pestaña): se descarta.

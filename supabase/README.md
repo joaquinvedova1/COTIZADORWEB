@@ -9,6 +9,8 @@ Proyecto: **RATEOS** (`dltlnizvnvnefgbzfftu`, us-east-1). URL pública: `https:/
 
 Los tres se corren **a mano** (plugin/MCP `execute_sql` o `psql` como `postgres`) después de cada migración y antes de cada release: **no corren en CI**, que no tiene credenciales de la base a propósito (en CI el Beta Security Gate sólo verifica que los archivos existan, cubran lo previsto y siempre deshagan). Última ejecución: 2026-10-17 23:44 UTC, antes de v0.8.1 — 132 + 40 + 32 = 204 controles en verde, sin restos.
 
+`tests/live_ab.sql` es otra cosa: el soporte de la **prueba A/B real** (PLAN-2026-016, `tests/live/perimeter-ab.mjs`, ver [docs/BETA_PERIMETER.md §4](../docs/BETA_PERIMETER.md#4-prueba-ab-real-contra-supabase)). **No se deshace solo**: el bloque 1 deja dos cuentas sintéticas (`perimetro-a@rateos.invalid`, `perimetro-b@rateos.invalid`, contraseñas que se reemplazan al correrlo y nunca van al repo) para poder ingresar de verdad. Los bloques 2 y 3 son de sólo lectura y el 4 borra **sólo** lo sintético (se niega si encuentra cualquier otra cosa), con autorización del dueño. Se corre bloque por bloque, a mano; nunca en CI.
+
 Con la CLI (opcional):
 
 ```bash

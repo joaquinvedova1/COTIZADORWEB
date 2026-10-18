@@ -17,7 +17,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { logger } from '../../../core/logger.js';
 import { costBreakdown } from '../../cost-breakdown.js';
 import { siteHeader, siteFooter, publicIcon, pubLink, illustrativeLabel, costGroupLabel, isSignedIn } from './public-chrome.js';
-import { registerHash } from '../../../services/auth-routing.js';
+import { accountEntry } from '../../../services/auth-routing.js';
 
 /** Resultado del ejemplo ilustrativo (o null si no se pudo calcular). */
 function computePreview() {
@@ -166,9 +166,12 @@ function resourcesToRateChain() {
   );
 }
 
-/** "Empezar a calcular": con sesión va directo a "¿Qué querés calcular?"; sin sesión, a crear la cuenta y después ahí. */
+/**
+ * "Empezar a calcular": con sesión va directo a "¿Qué querés calcular?"; sin
+ * sesión, a crear la cuenta (o a ingresar, en la beta por invitación) y después ahí.
+ */
 function newCalcHref(app) {
-  return isSignedIn(app) ? '#/nuevo' : registerHash('/nuevo');
+  return isSignedIn(app) ? '#/nuevo' : accountEntry('/nuevo').hash;
 }
 
 /**

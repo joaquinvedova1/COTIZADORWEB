@@ -178,7 +178,8 @@ Hay tests que lo protegen. No los borres.
 - No relajar la CSP de `index.html` (sin scripts inline, sin CDNs, sin terceros; `connect-src` sólo `'self'` y el proyecto de Supabase).
 - Minimizar dependencias: hoy hay **cero** dependencias npm (el SDK de Supabase está vendorizado en `js/data/vendor/` con hash verificado; actualizarlo es un cambio explícito). No agregar paquetes sin una razón fuerte y documentada.
 - El origen `joaquinvedova1.github.io` es compartido por todos los sitios de Pages de esa cuenta (comparten `localStorage`, incluida la sesión de Supabase): no publicar en esa cuenta sitios no confiables; antes de tener clientes, usar un dominio propio.
-- **Requisitos obligatorios antes de habilitar usuarios reales** (decisión del dueño, 2026-10-17; HD-01, HD-02 y HD-03 de [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md) §6): (1) dominio propio para producción; (2) staging separado de producción en origen y en base de datos, o `/preview/` deshabilitado mientras tanto; (3) registro cerrado o por invitación. Hasta cumplir los tres no se habilitan usuarios reales ni una beta con empresas externas.
+- **Requisitos obligatorios antes de habilitar usuarios reales** (decisión del dueño, 2026-10-17; HD-01, HD-02 y HD-03 de [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md) §6): (1) dominio propio para producción; (2) staging separado de producción en origen y en base de datos, o `/preview/` deshabilitado mientras tanto; (3) registro cerrado o por invitación. Hasta cumplir los tres no se habilitan usuarios reales ni una beta con empresas externas. Estado y procedimientos: [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) (PLAN-2026-016).
+- **Beta por invitación** (HD-03): `FEATURES.publicSignup = false` (la app no ofrece ni llama al registro); la barrera real es Supabase Auth con "Allow new users to sign up" apagado, nunca el proveedor Email apagado. Altas manuales desde el Dashboard (Create new user + "¿Olvidaste tu contraseña?"); no hay invitaciones dentro de la app.
 - Enlaces de email de Auth: sólo PKCE (`?code=`, query antes del `#`); nunca aceptar `?token_hash=` ni redirecciones `next` que no sean rutas internas (`isSafeNextPath`).
 - **Beta Security Gate** (`npm run test:security`, también dentro de `npm test` y en CI) y los tests de negación en la base (`supabase/tests/beta_security_test.sql`, `rls_test.sql`, `rls_admin_test.sql`) deben pasar antes de cada release. Ver [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md).
 
@@ -200,7 +201,8 @@ Hay tests que lo protegen. No los borres.
 
 ## 16. Despliegue
 
-- GitHub Pages bajo **`/COTIZADORWEB/`**: nunca asumir la raíz `/`. Todas las rutas relativas; routing por hash.
+- GitHub Pages bajo **`/COTIZADORWEB/`**: nunca asumir la raíz `/` (con dominio propio, la app queda en la raíz de ese dominio: por eso todo es relativo). Todas las rutas relativas; routing por hash.
+- **Sin staging en el origen de producción** (HD-02): el workflow publica sólo `main`; nunca publicar una rama en `/preview/` ni en ninguna carpeta del sitio (el build falla si `dist/preview` existe y el deploy verifica `/preview/` → 404). Un staging sólo aislado: otro origen y otro proyecto de Supabase ([docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §1).
 - Workflow "Deploy RATEOS a GitHub Pages" (`.github/workflows/deploy-pages.yml`): push a `main` o manual → test → build → deploy. **Si fallan los tests, no se despliega.**
 - Rollback: revert vía PR (preferido) o redeploy manual de un tag/SHA anterior que ya esté en `main` (el workflow rechaza commits que no están en main). Detalle en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 - Cada build expone versión, commit corto y fecha en Configuración → Acerca de.

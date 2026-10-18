@@ -128,8 +128,8 @@ export async function createAccountContext({ user, workspaceGateway, adminGatewa
     role: membership.role,
     cacheStorage: storage,
     appVersion,
-    // Staging comparte la base con producción: antes de actualizar el formato
-    // de los datos de la nube se pregunta (ver docs/DEPLOYMENT.md).
+    // Una versión de prueba (servidor local) comparte la base con producción:
+    // antes de actualizar el formato de los datos de la nube se pregunta.
     confirmSchemaUpgrade,
   });
   const init = await repository.init();

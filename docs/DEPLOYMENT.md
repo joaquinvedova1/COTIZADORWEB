@@ -24,66 +24,53 @@ rama de trabajo ──► npm test ──► Pull Request ──► review ─�
 
 ### `.github/workflows/deploy-pages.yml` — "Deploy RATEOS a GitHub Pages"
 
-Pages publica **un artefacto por deploy**, así que cada corrida arma el sitio completo:
+Publica **sólo producción**: <https://joaquinvedova1.github.io/COTIZADORWEB/>, siempre `main` (o, en un rollback manual, un commit o tag que ya está en `main`).
 
-| URL | Qué se publica |
+**No hay staging público** (HD-02, PLAN-2026-016). Hasta v0.8.1, `/preview/` publicaba la rama de desarrollo **dentro del mismo sitio**: mismo origen (mismo `localStorage`, incluida la sesión) y misma base de Supabase que producción, así que el código de cualquier rama con CI verde corría junto a las sesiones y los datos reales. Ahora:
+
+- ninguna rama se publica (sin `workflow_run`, sin job de preview, sin `scripts/stage-preview.mjs`);
+- el build **falla** si el artefacto trae una carpeta `preview/`;
+- Pages reemplaza el sitio entero en cada deploy, así que el primer deploy sin preview **borra también los archivos del preview viejo**;
+- después de publicar, el job `deploy` **verifica** que `version.json` tenga el commit desplegado y que `/preview/` y `/preview/version.json` respondan **404** (reintenta hasta ~4 minutos; si no, el deploy queda en rojo);
+- control SEC-17 del Beta Security Gate.
+
+Un staging nuevo tiene que ser **aislado** (otro origen y otro proyecto de Supabase): ver [BETA_PERIMETER.md §1](BETA_PERIMETER.md#1-staging-hd-02). Nunca volver a publicarlo dentro de este sitio.
+
+| Disparador | Qué se publica |
 |---|---|
-| <https://joaquinvedova1.github.io/COTIZADORWEB/> (**producción**) | siempre `main` (o, en un rollback manual, un commit o tag que ya está en `main`) |
-| <https://joaquinvedova1.github.io/COTIZADORWEB/preview/> (**staging**) | la rama de desarrollo, con la franja **"RATEOS · STAGING · rama … · build …"**, `noindex` y "[STAGING]" en el título |
+| `push` a `main` | el commit recién mergeado |
+| `workflow_dispatch` (manual, desde `main`) | input `ref`: SHA o tag **ya mergeado en `main`** (rollback); vacío = `main` actual |
 
-| Disparador | Producción | Staging (`/preview/`) |
-|---|---|---|
-| `push` a `main` | el commit recién mergeado | la rama que ya estaba publicada en `/preview/` (se lee de `preview/version.json`); si esa rama ya no existe, una página "No hay un preview publicado" |
-| CI terminó **en verde** en un **push** a una rama de este repo (`workflow_run`; nunca forks, `main` ni `dependabot/**`) | `main` actual (sin cambios) | **esa rama**, en el commit exacto que pasó CI |
-| `workflow_dispatch` (manual, desde `main`) | input `ref`: SHA o tag **ya mergeado en `main`** (rollback); vacío = `main` actual | input `preview_ref`: rama a publicar; vacío = la publicada hoy; `none` = sin preview. También acepta la variable de repositorio `PREVIEW_BRANCH` |
+**Sólo código de `main`:** se construye un commit que es ancestro de `origin/main` (`git merge-base --is-ancestor`) y pasó `npm test`.
 
-**Un deploy de preview nunca reemplaza producción:**
-- `workflow_run` ejecuta siempre la definición del workflow que está en `main`: una rama no puede cambiar cómo se despliega.
-- La raíz se construye sólo con un commit que es ancestro de `origin/main` (`git merge-base --is-ancestor`) y pasó `npm test`.
-- `scripts/stage-preview.mjs` (tomado siempre de `origin/main`) copia el build de la rama a `dist/preview/`, agrega la marca de staging y **falla si cambia cualquier archivo de producción** (hash de todo lo que no es `preview/` antes y después).
-
-**Un deploy de preview atrasado nunca pisa uno más nuevo:** justo antes de publicar, el job `deploy` consulta con `git ls-remote` (repositorio público, sin credenciales) el último commit de la rama; si ya no es el del preview (la cola de runners lo demoró, o se relanzó un CI viejo), **no publica** y falla con "ya no es el último commit": lo publica la corrida del commit nuevo. Como el workflow se lee de `main`, esta verificación rige desde que se mergea.
-
-**Producción nunca vuelve atrás sola:** cada corrida elige el commit de `main` al empezar. Justo antes de publicar, el job `deploy` vuelve a leer con `git ls-remote` el último commit de `main`; si ya no es el que construyó (por ejemplo, un deploy de preview que arrancó antes de un merge y terminó después), **no publica** (queda un aviso en el log y la corrida termina en verde): lo publica la corrida del commit nuevo. Un **rollback** pedido a mano (`ref` en *Run workflow*) no tiene esta verificación: publica el commit o tag pedido.
+**Producción nunca vuelve atrás sola:** cada corrida elige el commit de `main` al empezar. Justo antes de publicar, el job `deploy` vuelve a leer con `git ls-remote` el último commit de `main`; si ya no es el que construyó, **no publica** (queda un aviso en el log y la corrida termina en verde): lo publica la corrida del commit nuevo. Un **rollback** pedido a mano (`ref` en *Run workflow*) no tiene esta verificación: publica el commit o tag pedido.
 
 Jobs:
 
-1. **plan**: decide qué se publica.
-   - Valida el formato de `ref` y `preview_ref` (letras, números, `.`, `_`, `/`, `-`; se pasan por variables de entorno, nunca interpolados).
-   - Rechaza `main` como rama de preview.
-2. **test** (producción): checkout del commit de `main` → verifica que no haya dependencias npm → `npm test`.
-3. **preview** (sólo si hay rama): checkout del commit de la rama **con permisos de sólo lectura y sin credenciales** → `npm test` → `npm run build` → sube el build como artefacto temporal.
-4. **build**: checkout del commit de producción → `npm run build` → `dist/` y `dist/version.json`:
+1. **plan**: decide qué commit se publica (valida el formato de `ref`: letras, números, `.`, `_`, `/`, `-`; se pasa por variable de entorno, nunca interpolado).
+2. **test**: checkout del commit de `main` → verifica que no haya dependencias npm → `npm test`.
+3. **build**: checkout del mismo commit → `npm run build` → `dist/` y `dist/version.json`:
    ```json
    { "version": "0.1.0", "commit": "abc1234", "buildDate": "2026-10-03T15:04:05.123Z", "ref": "main", "build": { "base": "build/abc1234/", ... } }
    ```
-   Después arma `dist/preview/` con `stage-preview.mjs`. El `version.json` del preview agrega `"channel": "staging"` y `"branch"`.
-5. **deploy**: publica `dist/` con `actions/deploy-pages` y deja un resumen (producción, staging, URL).
+   → guardia "sin `dist/preview`" → sube el artefacto de Pages.
+4. **deploy**: verifica que siga siendo el último commit de `main` → publica `dist/` con `actions/deploy-pages` → verifica el sitio publicado (commit y `/preview/` → 404) → resumen.
 
-Si fallan los tests de producción, no se publica nada. Si fallan los del preview:
-- en un push a `main`, producción se publica igual y `/preview/` explica que la rama no pasó los tests;
-- en un deploy de preview, no se publica nada (queda el sitio anterior).
+Si fallan los tests, no se publica nada.
 
 Permisos mínimos **por job** (no usa secretos, sólo el `GITHUB_TOKEN` y el token OIDC que provee GitHub):
 
 | Nivel | Permisos | Por qué |
 |---|---|---|
-| Workflow (por defecto: **plan**, **test**, **preview**) | `contents: read` | checkout y tests: el código (de `main` o de una rama) nunca recibe permisos de Pages ni OIDC |
+| Workflow (por defecto: **plan**, **test**) | `contents: read` | checkout y tests: el código nunca recibe permisos de Pages ni OIDC |
 | Job **build** | `contents: read`, `pages: read` | `actions/configure-pages` sólo lee la configuración de Pages; `upload-pages-artifact` no usa el token |
 | Job **deploy** | `pages: write`, `id-token: write` | sólo `actions/deploy-pages` publica (no hace checkout ni ejecuta código del repo) |
 
-Concurrencia `pages` **en el job deploy** (no en todo el workflow):
-- un despliegue a la vez, nunca se cancela uno en curso;
-- si se acumulan varios, se publica el más nuevo (cada corrida publica `main` actual en la raíz);
-- a nivel workflow, el CI de `pull_request` de la misma rama (que después se saltea) cancelaba el deploy pendiente del preview.
+Concurrencia `pages` **en el job deploy**: un despliegue a la vez, nunca se cancela uno en curso; si se acumulan, se publica el más nuevo.
 
-Si un preview no llegó a publicarse, volvé a empujar la rama o usá **Run workflow** con `preview_ref`.
+**`npm start` (localhost) usa el proyecto de Supabase de producción:** si una rama sube el esquema de datos, la app local **pregunta antes** de actualizar el formato de los datos de la cuenta ("Versión de prueba: ¿actualizar el formato de tus datos?"; con "Ver sin cambiar (sólo lectura)" no escribe nada). Probá siempre con una cuenta de prueba.
 
-**Staging comparte origen con producción** (`joaquinvedova1.github.io`): mismo `localStorage` y, con cuentas, el **mismo proyecto de Supabase**.
-- Probá el preview con una cuenta de prueba.
-- **Staging comparte la base de datos con producción** (mismo proyecto de Supabase). Si la rama sube el esquema de datos (por ejemplo v2 → v3), la app de `/preview/` (que lee `"channel": "staging"` de su `version.json`) **pregunta antes** de actualizar el formato de los datos de la cuenta: "Versión de prueba: ¿actualizar el formato de tus datos?". Con "Ver sin cambiar (sólo lectura)" no escribe nada. Una cuenta **nueva** también pregunta antes de crear su espacio ("Versión de prueba: ¿usar esta cuenta acá?"). Si se actualizan, producción (con el esquema anterior) abrirá esa cuenta en **sólo lectura** hasta que se mergee la versión nueva: usá una cuenta de prueba. Lo mismo vale para `npm start` (localhost), que también usa el proyecto de producción.
-- Nunca publiques en `/preview/` código que no confiarías en producción. Por eso sólo se aceptan ramas de este repositorio, nunca forks.
-- Un rollback manual de producción dura hasta el próximo deploy (también uno de preview, que vuelve a publicar `main`). El rollback preferido sigue siendo `git revert` por PR (§5).
+Un rollback manual de producción dura hasta el próximo deploy. El rollback preferido sigue siendo `git revert` por PR (§5).
 
 ### `.github/workflows/ci.yml` — "CI"
 
@@ -111,7 +98,7 @@ Al elegir "GitHub Actions", GitHub crea el environment **`github-pages`** que, p
 
 ## 4. Verificación después de cada deploy
 
-1. **Actions**: el run de "Deploy RATEOS a GitHub Pages" terminó en verde (test, build y deploy).
+1. **Actions**: el run de "Deploy RATEOS a GitHub Pages" terminó en verde (test, build, deploy y "Verificar el sitio publicado": el commit publicado es el construido y `/preview/` responde 404).
 2. Abrir <https://joaquinvedova1.github.io/COTIZADORWEB/> (no hace falta recarga forzada: ver §4.1). `#/` muestra la landing.
 3. Ir a **Configuración → Acerca de** y confirmar que muestra `RATEOS · v0.1.0 · build abc1234`, donde `abc1234` es el SHA corto del commit desplegado, la fecha de build y la "Referencia" (`main`, o el `ref` pedido en un despliegue manual).
 4. Prueba de humo: `#/inicio` abre la app (menú Inicio / Cotizaciones / Recursos / Servicios / Escenarios / Configuración); abrir la cotización demo "Hidrogrúa on-call — Añelo" y el paso Resultado; "Ver cálculo" abre la traza; la consola del navegador no muestra errores. En las herramientas de red, los JS y CSS se piden desde `build/abc1234/`.
@@ -191,7 +178,7 @@ Nunca: force push a `main`, borrar commits publicados ni subir archivos a mano a
   ```
 - Para un hito nuevo: actualizar `version` en `package.json` y la sección del [CHANGELOG.md](../CHANGELOG.md) en el mismo PR; después del merge, crear el tag.
 - Los tags son el punto de retorno natural del rollback (método 2).
-- Tags existentes: `v0.8.0` → `0c213a3` (2026-10-17, decisión del dueño: punto de retorno previo a v0.8.1). Un tag publicado **no se mueve ni se borra**: si hace falta otro punto de retorno, se crea un tag nuevo.
+- Tag decidido: `v0.8.0` → `0c213a3` (2026-10-17, decisión del dueño: punto de retorno previo a v0.8.1). Lo crea el dueño (`git tag -a v0.8.0 0c213a3 …` y `git push origin v0.8.0`): las sesiones del agente no pueden publicar tags. Un tag publicado **no se mueve ni se borra**: si hace falta otro punto de retorno, se crea un tag nuevo.
 
 ## 7. Qué pasa con los datos de los usuarios en cada deploy
 

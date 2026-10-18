@@ -1,35 +1,29 @@
-# RATEOS — despliegue a GitHub Pages: producción + staging público.
+# RATEOS — despliegue a GitHub Pages: SÓLO producción.
 #
-#   https://<owner>.github.io/COTIZADORWEB/          ← producción: SIEMPRE main
-#   https://<owner>.github.io/COTIZADORWEB/preview/  ← staging: rama de desarrollo
+#   https://<owner>.github.io/COTIZADORWEB/   ← producción: SIEMPRE main
 #
-# Pages publica UN artefacto por deploy, así que cada corrida arma los dos:
-# la raíz con main (o con un commit/tag ya mergeado en main, para rollback) y
-# /preview/ con la rama de desarrollo, marcada "RATEOS · STAGING · rama · build".
+# Sin staging público (HD-02, PLAN-2026-016): el preview en /preview/ compartía
+# el origen y la base de datos de producción (el código de cualquier rama con
+# CI verde corría junto a las sesiones y los datos reales). Ya no se publica
+# ninguna rama: Pages sirve UN artefacto por deploy y lo reemplaza entero, así
+# que el próximo deploy de producción borra también los archivos del preview
+# viejo. Después de publicar se verifica que /preview/ responda 404. Un staging
+# nuevo tiene que ser AISLADO (otro origen y otro proyecto de Supabase): ver
+# docs/BETA_PERIMETER.md. Nunca volver a publicarlo dentro de este sitio.
 #
 # Cuándo corre:
-# - push a main: publica main en la raíz y vuelve a publicar el preview actual.
-# - CI terminó OK en un push a una rama de este repo (workflow_run): publica esa
-#   rama en /preview/ (y main, sin cambios, en la raíz). Este archivo se lee
-#   SIEMPRE desde main: una rama no puede cambiar cómo se despliega producción.
-# - Manual (workflow_dispatch): "ref" = rollback de producción a un commit o tag
-#   ya mergeado en main; "preview_ref" = rama a publicar en /preview/
-#   ("none" = sin preview).
+# - push a main: publica main.
+# - Manual (workflow_dispatch): "ref" = rollback a un commit o tag ya mergeado
+#   en main (vacío = main actual).
 #
 # Garantías:
-# - La raíz se construye sólo con código que está en main y pasó los tests.
-# - El código de la rama corre en un job SIN permisos de escritura y sin
-#   credenciales; sólo el job deploy (que no ejecuta código de ninguna rama)
-#   puede escribir en Pages.
-# - scripts/stage-preview.mjs (tomado de main) arma /preview/ y falla si
-#   cualquier archivo de producción cambia.
-# - Un deploy de preview atrasado no pisa uno más nuevo: justo antes de
-#   publicar se verifica que su commit siga siendo el último de la rama.
+# - Sólo se construye y publica código que está en main y pasó los tests.
+# - El build no tiene permisos de escritura; sólo el job deploy (que no ejecuta
+#   código del repo) puede escribir en Pages.
+# - El artefacto nunca trae una carpeta preview/ (el build falla si aparece).
 # - Producción nunca vuelve atrás sola: justo antes de publicar se verifica
 #   que su commit siga siendo el último de main (salvo un rollback manual).
-# - Si los tests de main fallan, no se despliega nada. Si fallan los del preview:
-#   en un push a main producción se publica igual (con un /preview/ que lo
-#   explica); en un deploy de preview no se publica nada.
+# - Si los tests fallan, no se despliega nada.
 #
 # Requisito: Settings → Pages → Source = "GitHub Actions". Sin secretos.
 
@@ -38,19 +32,10 @@ name: Deploy RATEOS a GitHub Pages
 on:
   push:
     branches: [main]
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches-ignore: [main, "dependabot/**"]
   workflow_dispatch:
     inputs:
       ref:
         description: "Producción: commit SHA o tag YA MERGEADO en main (vacío = main actual). Usar para rollback."
-        required: false
-        default: ""
-        type: string
-      preview_ref:
-        description: "Staging: rama a publicar en /preview/ (vacío = la publicada hoy; none = sin preview)."
         required: false
         default: ""
         type: string
@@ -59,31 +44,19 @@ on:
 permissions:
   contents: read
 
-# Concurrencia: sólo en el job deploy (más abajo). A nivel workflow, una
-# corrida que después se saltea (p. ej. el CI de pull_request de la misma rama)
-# entraba a la cola y cancelaba el deploy pendiente del preview.
+# Concurrencia: sólo en el job deploy (más abajo), para que una corrida nunca
+# cancele un despliegue en curso.
 
 jobs:
   plan:
     name: Qué se publica
-    # workflow_run: sólo CI exitoso de un push a una rama de ESTE repo (nunca forks).
-    if: >-
-      github.event_name != 'workflow_run' || (
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_repository.full_name == github.repository
-      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.root.outputs.sha }}
       root_ref: ${{ steps.root.outputs.ref }}
-      preview_branch: ${{ steps.preview.outputs.branch }}
-      preview_sha: ${{ steps.preview.outputs.sha }}
-      preview_note: ${{ steps.preview.outputs.note }}
-      trigger: ${{ steps.preview.outputs.trigger }}
     steps:
-      - name: Checkout (todas las ramas y tags)
+      - name: Checkout (main y tags)
         uses: actions/checkout@v4
         with:
           ref: main
@@ -126,69 +99,6 @@ jobs:
           echo "ref=$LABEL" >> "$GITHUB_OUTPUT"
           echo "Producción: $SHA ($LABEL)"
 
-      - name: Staging → rama para /preview/
-        id: preview
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
-          INPUT_PREVIEW: ${{ inputs.preview_ref }}
-          VAR_PREVIEW: ${{ vars.PREVIEW_BRANCH }}
-          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/preview/version.json
-        run: |
-          set -euo pipefail
-          valid_branch() {
-            printf '%s' "$1" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$' && ! printf '%s' "$1" | grep -q '\.\.'
-          }
-          TRIGGER="main"
-          BRANCH=""
-          SHA=""
-          NOTE=""
-          if [ "$EVENT_NAME" = "workflow_run" ]; then
-            TRIGGER="preview"
-            BRANCH="$RUN_BRANCH"
-            SHA="$RUN_SHA"
-          elif [ -n "$INPUT_PREVIEW" ]; then
-            BRANCH="$INPUT_PREVIEW"
-          elif [ -n "$VAR_PREVIEW" ]; then
-            BRANCH="$VAR_PREVIEW"
-          else
-            # Se mantiene la rama que está publicada hoy en /preview/.
-            PUBLISHED="$(curl -fsS --max-time 15 "${PAGES_URL}?t=$(date +%s)" 2>/dev/null || true)"
-            BRANCH="$(printf '%s' "$PUBLISHED" | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{try{const v=JSON.parse(s);process.stdout.write(typeof v.branch==="string"?v.branch:"")}catch{process.stdout.write("")}})')"
-          fi
-          if [ "$BRANCH" = "none" ]; then
-            BRANCH=""
-            NOTE="Sin preview publicado (pedido manualmente)."
-          fi
-          if [ -n "$BRANCH" ]; then
-            if ! valid_branch "$BRANCH" || [ "$BRANCH" = "main" ]; then
-              echo "::error::Rama inválida para el preview: '$BRANCH'."
-              exit 1
-            fi
-            if [ -z "$SHA" ]; then
-              SHA="$(git rev-parse --verify --quiet "refs/remotes/origin/${BRANCH}^{commit}" || true)"
-            else
-              SHA="$(git rev-parse --verify --quiet "${SHA}^{commit}" || true)"
-            fi
-            if [ -z "$SHA" ]; then
-              NOTE="La rama ${BRANCH} ya no existe."
-              BRANCH=""
-            fi
-          fi
-          if [ -z "$BRANCH" ] && [ -z "$NOTE" ]; then NOTE="Todavía no se publicó ninguna rama de desarrollo."; fi
-          if [ "$TRIGGER" = "preview" ] && [ -z "$BRANCH" ]; then
-            echo "::error::No se pudo resolver la rama del preview."
-            exit 1
-          fi
-          {
-            echo "trigger=$TRIGGER"
-            echo "branch=$BRANCH"
-            echo "sha=$SHA"
-            echo "note=$NOTE"
-          } >> "$GITHUB_OUTPUT"
-          echo "Preview: ${BRANCH:-(ninguno)} ${SHA} ${NOTE}"
-
   test:
     name: Tests (producción)
     needs: plan
@@ -227,65 +137,11 @@ jobs:
       - name: Tests (npm test)
         run: npm test
 
-  preview:
-    name: Build del preview (sin permisos)
-    needs: plan
-    if: needs.plan.outputs.preview_sha != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # Código de una rama de desarrollo: sólo lectura, sin credenciales en git.
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout (commit de la rama)
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.plan.outputs.preview_sha }}
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Verificar que no hay dependencias npm
-        run: |
-          node -e '
-            const pkg = require("./package.json");
-            const fields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
-            const bad = fields.filter((f) => pkg[f] && Object.keys(pkg[f]).length > 0);
-            if (bad.length) { console.error("package.json declara dependencias: " + bad.join(", ")); process.exit(1); }
-            console.log("Sin dependencias npm: OK");
-          '
-
-      - name: Tests (npm test)
-        run: npm test
-
-      - name: Build
-        run: npm run build -- --out "$RUNNER_TEMP/preview-dist"
-        env:
-          BUILD_REF: ${{ needs.plan.outputs.preview_branch }}
-          BUILD_SHA: ${{ needs.plan.outputs.preview_sha }}
-
-      - name: Subir build del preview
-        uses: actions/upload-artifact@v4
-        with:
-          name: preview-dist
-          path: ${{ runner.temp }}/preview-dist
-          include-hidden-files: true
-          retention-days: 1
-
   build:
     name: Build
-    needs: [plan, test, preview]
-    # Producción siempre necesita sus tests en verde. El preview: si falló en un
-    # deploy de preview, no se publica nada; en un push a main, se publica
-    # producción con un /preview/ que explica que la rama no pasó los tests.
-    if: >-
-      !cancelled() && needs.test.result == 'success' && (
-        needs.preview.result == 'success' || needs.preview.result == 'skipped' ||
-        (needs.plan.outputs.trigger == 'main' && needs.preview.result == 'failure')
-      )
+    needs: [plan, test]
+    # Producción siempre necesita sus tests en verde.
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -296,11 +152,6 @@ jobs:
       commit: ${{ steps.info.outputs.commit }}
       ref: ${{ steps.info.outputs.ref }}
       build_date: ${{ steps.info.outputs.build_date }}
-      preview: ${{ steps.stage.outputs.preview }}
-      # Para que deploy verifique que el preview sigue siendo el último commit de la rama.
-      preview_trigger: ${{ needs.plan.outputs.trigger }}
-      preview_branch: ${{ needs.plan.outputs.preview_branch }}
-      preview_sha: ${{ needs.plan.outputs.preview_sha }}
       # Para que deploy verifique que producción sigue siendo el último commit de main.
       root_sha: ${{ needs.plan.outputs.sha }}
       root_ref: ${{ needs.plan.outputs.root_ref }}
@@ -309,7 +160,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.sha }}
-          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
@@ -322,6 +172,15 @@ jobs:
         env:
           BUILD_REF: ${{ needs.plan.outputs.root_ref }}
           BUILD_SHA: ${{ needs.plan.outputs.sha }}
+
+      - name: Sin staging en el artefacto de producción (HD-02)
+        run: |
+          set -euo pipefail
+          if [ -e dist/preview ]; then
+            echo "::error::dist/ trae una carpeta preview/: el staging no se publica en el origen de producción (HD-02)."
+            exit 1
+          fi
+          echo "Artefacto sin preview/: OK"
 
       - name: Leer version.json
         id: info
@@ -338,35 +197,6 @@ jobs:
             fs.appendFileSync(process.env.GITHUB_OUTPUT, out);
             console.log(JSON.stringify(v));
           '
-
-      - name: Bajar build del preview
-        if: needs.preview.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: preview-dist
-          path: ${{ runner.temp }}/preview-dist
-
-      - name: Armar /preview/ (producción no cambia)
-        id: stage
-        env:
-          PREVIEW_RESULT: ${{ needs.preview.result }}
-          PREVIEW_BRANCH: ${{ needs.plan.outputs.preview_branch }}
-          PREVIEW_SHA: ${{ needs.plan.outputs.preview_sha }}
-          PREVIEW_NOTE: ${{ needs.plan.outputs.preview_note }}
-        run: |
-          set -euo pipefail
-          # El script sale SIEMPRE de main (también en un rollback a un commit viejo).
-          git show origin/main:scripts/stage-preview.mjs > "$RUNNER_TEMP/stage-preview.mjs"
-          if [ "$PREVIEW_RESULT" = "success" ]; then
-            node "$RUNNER_TEMP/stage-preview.mjs" --site dist --from "$RUNNER_TEMP/preview-dist" --branch "$PREVIEW_BRANCH" --commit "$PREVIEW_SHA"
-            echo "preview=$PREVIEW_BRANCH@${PREVIEW_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          elif [ "$PREVIEW_RESULT" = "failure" ]; then
-            node "$RUNNER_TEMP/stage-preview.mjs" --site dist --placeholder "La rama $PREVIEW_BRANCH no pasó los tests: no se publicó."
-            echo "preview=(la rama $PREVIEW_BRANCH no pasó los tests)" >> "$GITHUB_OUTPUT"
-          else
-            node "$RUNNER_TEMP/stage-preview.mjs" --site dist --placeholder "$PREVIEW_NOTE"
-            echo "preview=(sin preview)" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
@@ -387,7 +217,7 @@ jobs:
       group: "pages"
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       pages: write
       id-token: write
@@ -395,34 +225,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # Un deploy de preview que quedó atrasado (cola de runners, re-run de un CI
-      # viejo) nunca pisa un commit más nuevo: si la rama ya avanzó, no se
-      # publica nada (lo publica la corrida del commit nuevo). Se consulta el
-      # repositorio público con git ls-remote, sin credenciales ni checkout.
-      - name: Preview vigente (último commit de la rama)
-        if: needs.build.outputs.preview_trigger == 'preview'
-        env:
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
-          PREVIEW_BRANCH: ${{ needs.build.outputs.preview_branch }}
-          PREVIEW_SHA: ${{ needs.build.outputs.preview_sha }}
-        run: |
-          set -euo pipefail
-          HEAD_SHA="$(git ls-remote "$REPO_URL" "refs/heads/${PREVIEW_BRANCH}" | cut -f1)"
-          if [ -z "$HEAD_SHA" ]; then
-            echo "::error::La rama ${PREVIEW_BRANCH} ya no existe: no se publica el preview."
-            exit 1
-          fi
-          if [ "$HEAD_SHA" != "$PREVIEW_SHA" ]; then
-            echo "::error::El preview ${PREVIEW_SHA:0:7} ya no es el último commit de ${PREVIEW_BRANCH} (${HEAD_SHA:0:7}): no se publica para no pisar uno más nuevo."
-            exit 1
-          fi
-          echo "Preview vigente: ${PREVIEW_BRANCH}@${PREVIEW_SHA:0:7}"
-
       # Producción nunca vuelve atrás sola. Cada corrida elige el commit de main
-      # al empezar: si main avanzó mientras esperaba (p. ej. un deploy de preview
-      # que arrancó antes de un merge y termina después), no se publica nada; la
+      # al empezar: si main avanzó mientras esperaba, no se publica nada; la
       # corrida del commit nuevo publica la versión vigente. No aplica a un
-      # rollback pedido a mano ("ref" en workflow_dispatch).
+      # rollback pedido a mano ("ref" en workflow_dispatch). Se consulta el
+      # repositorio público con git ls-remote, sin credenciales ni checkout.
       - name: Producción vigente (último commit de main)
         id: main_guard
         env:
@@ -454,6 +261,32 @@ jobs:
         if: steps.main_guard.outputs.publish == 'true'
         uses: actions/deploy-pages@v4
 
+      # Prueba de que quedó publicado lo que se construyó y de que no queda
+      # ningún staging viejo (HD-02): version.json con el commit desplegado y
+      # /preview/ respondiendo 404. Pages tarda unos segundos en servir el
+      # artefacto nuevo: se reintenta hasta ~4 minutos, sin caché (?t=).
+      - name: Verificar el sitio publicado (versión y /preview/ → 404)
+        if: steps.main_guard.outputs.publish == 'true'
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          EXPECTED_COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          set -uo pipefail
+          for attempt in $(seq 1 24); do
+            T="$(date +%s)"
+            COMMIT="$(curl -fsS --max-time 15 "${PAGE_URL}version.json?t=${T}" 2>/dev/null | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{try{const v=JSON.parse(s);process.stdout.write(typeof v.commit==="string"?v.commit:"")}catch{process.stdout.write("")}})')"
+            PREVIEW_DIR="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${PAGE_URL}preview/?t=${T}" || true)"
+            PREVIEW_VERSION="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${PAGE_URL}preview/version.json?t=${T}" || true)"
+            if [ "$COMMIT" = "$EXPECTED_COMMIT" ] && [ "$PREVIEW_DIR" = "404" ] && [ "$PREVIEW_VERSION" = "404" ]; then
+              echo "Publicado ${COMMIT}; /preview/ → 404 y /preview/version.json → 404 (sin staging)."
+              exit 0
+            fi
+            echo "Intento ${attempt}: commit='${COMMIT}' (esperado ${EXPECTED_COMMIT}), /preview/=${PREVIEW_DIR}, /preview/version.json=${PREVIEW_VERSION}"
+            sleep 10
+          done
+          echo "::error::El sitio publicado no coincide con el build o /preview/ todavía responde: revisar Pages (HD-02)."
+          exit 1
+
       - name: Resumen del despliegue
         if: steps.main_guard.outputs.publish == 'true'
         env:
@@ -461,7 +294,6 @@ jobs:
           APP_COMMIT: ${{ needs.build.outputs.commit }}
           APP_REF: ${{ needs.build.outputs.ref }}
           APP_BUILD_DATE: ${{ needs.build.outputs.build_date }}
-          APP_PREVIEW: ${{ needs.build.outputs.preview }}
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -473,7 +305,7 @@ jobs:
             echo "| Producción: versión | \`${APP_VERSION}\` |"
             echo "| Producción: commit | \`${APP_COMMIT}\` (\`${APP_REF}\`) |"
             echo "| Fecha de build (UTC) | ${APP_BUILD_DATE} |"
-            echo "| Staging (/preview/) | \`${APP_PREVIEW}\` |"
+            echo "| Staging | sin staging público (HD-02): \`${PAGE_URL}preview/\` → 404 |"
             echo "| Disparado por | ${EVENT_NAME} |"
-            echo "| URL | ${PAGE_URL} — staging: ${PAGE_URL}preview/ |"
+            echo "| URL | ${PAGE_URL} |"
           } >> "$GITHUB_STEP_SUMMARY"

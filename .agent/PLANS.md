@@ -114,7 +114,8 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-012 | Pulido desde casos reales de transporte (COT-0010 / COT-0011): viajes físicos, km del proveedor, combustible, recursos compartidos y "Usado en" | motor de costos, utilización, migración | Completado (v0.7.2) |
 | PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | Completado (main `37179e7`) |
 | PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Completado (PR #24 mergeado, main `0c213a3`, v0.8.0 en producción) |
-| PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado — v0.8.1 (merge del PR #25 autorizado por el dueño); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
+| PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
+| PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -990,7 +991,7 @@ Revert del PR; los datos v10 sólo agregan campos opcionales (una versión anter
 
 ### PLAN-2026-015 — Beta Readiness v1: seguridad, tenancy, integridad y privacidad
 
-- Estado: Completado — el dueño autorizó (2026-10-17) el cierre y merge del PR #25 como **v0.8.1** (parche, esquema 10), desde la rama `claude/rateos-beta-security-v1` (base `main` `0c213a3`, v0.8.0; tag `v0.8.0`). **Beta con empresas externas: no iniciada** (decisión del dueño): HD-01, HD-02 y HD-03 son requisitos obligatorios antes de habilitar usuarios reales. El SHA del merge se anota en la próxima tarea (no se escribe en `main` directo).
+- Estado: Completado — PR #25 mergeado con autorización del dueño (merge `998b932` en `main`, 2026-10-18); el deploy de producción (run #73) publicó **v0.8.1** (esquema 10) desde ese commit. Rama `claude/rateos-beta-security-v1` (base `main` `0c213a3`, v0.8.0). **Beta con empresas externas: no iniciada** (decisión del dueño): HD-01, HD-02 y HD-03 son requisitos obligatorios antes de habilitar usuarios reales (los cierra PLAN-2026-016). Tag `v0.8.0` → `0c213a3`: decidido; lo crea el dueño (esta sesión no puede publicar tags: el push de un tag da 403).
 - Tipo: backend, autenticación, otro (seguridad y privacidad; sin fórmulas nuevas)
 - Responsable: agente de desarrollo (Claude) · decisiones de permisos e infraestructura: el dueño
 - Fecha de inicio: 2026-10-17
@@ -1001,7 +1002,7 @@ Antes de una beta cerrada con empresas reales hay que probar que una empresa nun
 #### 2. Objetivo y no-objetivos
 - Objetivo: inventario real de la base, tests de negación A/B en la base, auditoría del navegador (sesión, pestañas, import/export, recuperación, logs), correcciones claras con un test que falla antes, Beta Security Gate reproducible y lista de decisiones del dueño.
 - Fuera de alcance (pedido del dueño): historial/revisiones, billing, créditos beta, landing pública, modalidades nuevas, fórmulas nuevas, IA. Ninguna política se "arregla" sola si el modelo de permisos es ambiguo (HUMAN DECISION).
-- Housekeeping: PLAN-2026-014 → completado (PR #24, `main` `0c213a3`, v0.8.0). **Tag `v0.8.0`:** la política (DEPLOYMENT.md §6) usa tags sólo para hitos y como punto natural de rollback, pero **no existe ningún tag** en el repo (tampoco `v0.1.0`). Aporta un punto de retorno con nombre para la versión que llega a la beta (el rollback manual también acepta SHAs, así que no es imprescindible). Propuesta: `git tag -a v0.8.0 0c213a3 -m "RATEOS v0.8.0"`. **Decisión del dueño (2026-10-17):** crearlo exactamente sobre `0c213a3` y no moverlo nunca; creado en el cierre (ver bitácora).
+- Housekeeping: PLAN-2026-014 → completado (PR #24, `main` `0c213a3`, v0.8.0). **Tag `v0.8.0`:** la política (DEPLOYMENT.md §6) usa tags sólo para hitos y como punto natural de rollback, pero **no existe ningún tag** en el repo (tampoco `v0.1.0`). Aporta un punto de retorno con nombre para la versión que llega a la beta (el rollback manual también acepta SHAs, así que no es imprescindible). Propuesta: `git tag -a v0.8.0 0c213a3 -m "RATEOS v0.8.0"`. **Decisión del dueño (2026-10-17):** crearlo exactamente sobre `0c213a3` y no moverlo nunca. Lo crea el dueño: el push de tags desde esta sesión da 403 (ver bitácora).
 
 #### 3. Impacto en fórmulas
 Ninguno. No se tocan motores; golden 39/39 sin cambios.
@@ -1047,4 +1048,68 @@ Revert del PR. No hay migraciones ni cambio de esquema; una versión anterior si
 - 2026-10-17: reproducidos contra `main` BS-01 (nube dañada → espacio vacío subido), BS-02 (pestaña que borra la copia pendiente de otra) y BS-07 (`organizationId` del cliente guardado).
 - 2026-10-17: tests SQL en la base real: 132 + 40 + 32 controles en verde; sin restos (conteos iguales). El plugin de Supabase pide confirmación para DELETE: el test se rediseñó para no ejecutar ningún DELETE como `postgres` (savepoint) en lugar de saltear ese control.
 - 2026-10-17: correcciones BS-01…BS-09 (BS-08 y BS-09: "Conservar una copia" con la versión actual y cupo propio para copias de cambios sin subir); gate en verde (contra `main` falla en SEC-05/06/07/08). E2E 574/574 (16 controles nuevos de sesión).
-- 2026-10-17 (cierre, autorización del dueño con condiciones): versión de parche **0.8.1** con esquema 10 y CHANGELOG `[0.8.1]` (BS-01…BS-09 con su clasificación); tag `v0.8.0` creado sobre `0c213a3` (no se mueve nunca); HD-01 (dominio propio), HD-02 (staging separado en origen y base, o `/preview/` deshabilitado) y HD-03 (registro cerrado o por invitación) registrados como requisitos obligatorios antes de habilitar usuarios reales (AGENTS.md §13, BETA_SECURITY.md §6; el gate los rotula REQUISITO pendiente, sin bloquear el CI del código); no se inicia la beta con empresas externas; sin funcionalidades nuevas ni cambios en motores. Antes del release se volvieron a correr los tres SQL en la base real (23:44 UTC): 132 + 40 + 32 = 204 controles en verde; sin restos (conteos, revisión máxima y fecha del último guardado iguales antes y después). Qué corre dónde: BETA_SECURITY.md §3 (base real a mano / Supabase simulado / navegador / estático en CI).
+- 2026-10-17 (cierre, autorización del dueño con condiciones): versión de parche **0.8.1** con esquema 10 y CHANGELOG `[0.8.1]` (BS-01…BS-09 con su clasificación); tag `v0.8.0` sobre `0c213a3` decidido (no se mueve nunca; lo crea el dueño); HD-01 (dominio propio), HD-02 (staging separado en origen y base, o `/preview/` deshabilitado) y HD-03 (registro cerrado o por invitación) registrados como requisitos obligatorios antes de habilitar usuarios reales (AGENTS.md §13, BETA_SECURITY.md §6; el gate los rotula REQUISITO pendiente, sin bloquear el CI del código); no se inicia la beta con empresas externas; sin funcionalidades nuevas ni cambios en motores. Antes del release se volvieron a correr los tres SQL en la base real (23:44 UTC): 132 + 40 + 32 = 204 controles en verde; sin restos (conteos, revisión máxima y fecha del último guardado iguales antes y después). Qué corre dónde: BETA_SECURITY.md §3 (base real a mano / Supabase simulado / navegador / estático en CI).
+- 2026-10-18 (merge): el push del tag `v0.8.0` dio 403 (esta sesión sólo puede publicar ramas); el dueño eligió mergear primero y crear el tag después. Merge `998b932` (padres `0c213a3` y `1f8e000`); deploy de producción run #73 en verde (tests, build, deploy; Pages publicó `998b932`, versión 0.8.1, ref `main`, 00:55 UTC); sobre `998b932`: `npm test` 1678/1678, golden 39/39 con el candado, gate PASA (324/324), Test Lab estable OK.
+
+### PLAN-2026-016 — Beta Perimeter v1: preview deshabilitado, registro por invitación, dominio propio y prueba A/B real
+
+- Estado: En curso — rama `claude/rateos-beta-perimeter-v1` (desde `main` `998b932`, v0.8.1, esquema 10); PR sin merge ni deploy (sin autorización del dueño no se mergea ni se publica)
+- Tipo: backend, autenticación, otro (infraestructura y seguridad; sin fórmulas nuevas)
+- Responsable: agente de desarrollo (Claude) · configuración de Auth, DNS, dominio y Pages: el dueño
+- Fecha de inicio: 2026-10-18
+
+#### 1. Contexto y problema
+PLAN-2026-015 dejó tres requisitos obligatorios antes de habilitar usuarios reales: HD-01 (el origen `joaquinvedova1.github.io` es compartido por todos los sitios de Pages de la cuenta), HD-02 (el staging `/preview/` comparte origen y base con producción: el código de cualquier rama con CI verde corre junto a sesiones y datos reales) y HD-03 (el registro está abierto). Objetivo del dueño: una beta cerrada con 3–5 empresas.
+
+#### 2. Objetivo y no-objetivos
+- **HD-02:** deshabilitar por completo el preview público: el workflow publica sólo producción, ningún artefacto trae `/preview/` (así no quedan archivos viejos: cada deploy reemplaza el sitio entero) y después de publicar se verifica que `/preview/` responda 404. Documentar cómo reactivar un staging **aislado** (otro origen y otra base) más adelante.
+- **HD-03:** registro exclusivamente por invitación, preservando login, recuperación de contraseña y usuarios existentes. Investigar la configuración actual (sólo lectura) y proponer el método más simple. La app deja de ofrecer el registro; la barrera real es Supabase Auth y **no se toca sin autorización del dueño**.
+- **HD-01:** procedimiento para publicar en un dominio propio con HTTPS (datos que necesita el dueño, DNS, Pages, Supabase) y la app lista para el origen nuevo, manteniendo producción en github.io hasta verificar el dominio.
+- **Prueba A/B real:** dos usuarios autenticados y dos organizaciones sintéticos contra Supabase real (acceso, aislamiento, guardado, logout, cambio de usuario), sin leer datos económicos existentes; limpiar sólo los datos sintéticos identificados, con autorización.
+- No-objetivos: motores, fórmulas, esquema, migraciones de base, iniciar la beta, comprar o inventar un dominio, infraestructura compleja (staging aislado sólo documentado), cambiar Auth/DNS/Pages, merge o deploy sin autorización.
+
+#### 3. Impacto en fórmulas
+Ninguno. Golden 39/39 y el candado del Test Lab sin cambios.
+
+#### 4. Impacto en datos
+Esquema 10 sin cambios; ninguna migración. La prueba A/B crea en la base real 2 usuarios con email `@rateos.invalid` y sus 2 organizaciones/workspaces (el trigger de alta); se identifican por esos emails y se borran sólo con autorización.
+
+#### 5. Diseño
+- **HD-02:** `deploy-pages.yml` sólo con `push` a `main` y `workflow_dispatch` (`ref` = rollback); sin `workflow_run`, sin job de preview ni `stage-preview.mjs`. Guardia en el build: falla si `dist/preview` existe. Verificación posterior al deploy: `version.json` publicado = commit desplegado y `/preview/` + `/preview/version.json` → 404 (con reintentos). Control SEC-17 del Beta Security Gate.
+- **HD-03:** `FEATURES.publicSignup = false`: la app no ofrece "Crear cuenta" (las llamadas a la acción llevan a Ingresar; `#/registro` explica la beta por invitación) y `signUp` no llama a la API. `signup_disabled` / `email_provider_disabled` → mensaje "registro por invitación". Método propuesto: apagar **"Allow new users to sign up"** en Supabase Auth (no el proveedor Email) y dar de alta desde el Dashboard (Add user → Create new user, Auto Confirm); la persona elige su contraseña con "¿Olvidaste tu contraseña?" (PKCE). Los enlaces de invitación del Dashboard no se usan: no son PKCE y la app los rechaza a propósito. `scripts/check-auth-perimeter.mjs` verifica la configuración pública de Auth (`/auth/v1/settings`) y lista lo que no es público (SMTP propio) como verificación manual. **SMTP propio obligatorio antes de invitar:** con el SMTP por defecto Supabase sólo envía correos al equipo del proyecto (`email_address_not_authorized`), así que una persona invitada nunca recibe el correo para elegir su contraseña. La app lo mapea a `email_not_authorized`: fuera de sesión la recuperación sigue neutra (ese error sólo aparece si la cuenta existe) con un aviso técnico sin el email; con la sesión iniciada y el propio email, "Cambiar contraseña" informa cualquier falla de envío.
+- **HD-01:** `PUBLIC_SITE_URLS` (el primero es el principal para los enlaces de los emails) y `MOVED_TO_SITE_URL` (redirección desde el origen viejo, apagada hasta verificar el dominio). Procedimiento en `docs/BETA_PERIMETER.md`.
+- **Prueba A/B:** `tests/live/perimeter-ab.mjs` (opcional, nunca en CI) con la app compilada y Supabase real; SQL de alta, verificación y limpieza con marcadores sintéticos en `supabase/tests/live_ab.sql` (sin contraseñas en el repo).
+
+#### 6. Pasos
+- [x] 1. Housekeeping de PLAN-2026-015 (merge `998b932`, deploy run #73, tag `v0.8.0` pendiente del dueño) y este plan.
+- [x] 2. HD-02: workflow sólo producción + guardias + tests + SEC-17 + docs.
+- [x] 3. HD-03: investigación (sólo lectura), app por invitación, tests, verificación de la configuración pública y docs (incluido el requisito de SMTP propio).
+- [x] 4. HD-01: config para el origen nuevo, tests y procedimiento.
+- [ ] 5. Prueba A/B real: script + SQL listos; ejecutarla cuando la red del entorno llegue a Supabase (o el dueño en su máquina); limpiar con autorización.
+- [x] 6. Validación completa (npm test, gate, Test Lab, golden, E2E), docs, riesgos y checklist del dueño. PR sin merge: se abre con la autorización del push (riesgo de `/preview/`, §8).
+
+#### 7. Tests
+`tests/static-site.test.js` (workflow sin preview, guardia y verificación), SEC-17, tests de `siteUrlFor`/`movedTarget`, registro cerrado en `AuthService` y en las vistas, E2E (registro por invitación, CTAs), y la prueba A/B real (manual, fuera de CI).
+
+#### 8. Riesgos y mitigación
+- El registro sigue abierto **en la API** hasta que el dueño apague "Allow new users to sign up": la app sólo deja de ofrecerlo (el gate y `check-auth-perimeter` lo informan).
+- Pushear una rama mientras `main` todavía tenga el workflow viejo vuelve a publicar `/preview/` con esa rama: se pide autorización antes del primer push.
+- Sin SMTP propio las personas invitadas no reciben el correo para elegir su contraseña, y fuera de sesión la app no lo puede decir sin revelar qué emails tienen cuenta: SMTP propio en el checklist del dueño, antes de la primera alta, con una prueba con un email ajeno al equipo de Supabase.
+- Escáneres de correo corporativos pueden abrir el enlace de un solo uso antes que la persona ("El enlace venció o ya se usó"): pedir otro; si se repite, la mitigación documentada por Supabase (plantilla con un enlace a una página propia con un botón) es un cambio aparte, con autorización.
+- Cambio de dominio: los datos locales del origen viejo (copias sin subir, sesión) no pasan al nuevo; antes del cambio cada persona sincroniza, exporta un backup y cierra sesión.
+- Con `disable_signup`, Supabase sólo crea usuarios por invitación o desde el Dashboard (comportamiento documentado de GoTrue); el login y la recuperación de usuarios existentes no dependen del registro: verificarlo con la prueba A/B real.
+
+#### 9. Rollback
+Revert del PR. Volver a publicar un preview en el mismo origen está **prohibido** (HD-02); un staging nuevo tiene que ser aislado (`docs/BETA_PERIMETER.md`).
+
+#### 10. Review multidisciplinario
+- Economía: sin cambios en motores ni fórmulas.
+- QA: registro cerrado, recuperación, usuario existente, cambio de usuario, `/preview/` 404, origen nuevo y viejo.
+- Seguridad: sin staging en el origen de producción, registro por invitación sin `token_hash`, sin secretos ni contraseñas en el repo, limpieza sólo de datos sintéticos.
+- UX: textos claros de beta por invitación y primer ingreso con "¿Olvidaste tu contraseña?".
+
+#### Bitácora
+- 2026-10-18: base `main` `998b932` (v0.8.1, esquema 10), árbol limpio, rama nueva. Sin tags en el repo (el tag `v0.8.0` sigue pendiente del dueño). La red de este entorno no llega a `dltlnizvnvnefgbzfftu.supabase.co` (403 del proxy): la prueba A/B real queda preparada hasta que el dueño agregue ese host o la corra en su máquina.
+- 2026-10-18: Auth en la base (sólo conteos): 2 usuarios, ambos confirmados; identidades sólo `email`; 0 invitados, 0 anónimos, 0 SSO, 0 MFA. El trigger `private.handle_new_user` crea perfil, organización ("Mi empresa" si no hay `company`), membresía OWNER y workspace vacío para **cualquier** usuario nuevo (también los creados desde el Dashboard). Borrar un usuario no borra su organización: la limpieza borra primero las organizaciones sintéticas.
+- 2026-10-18: hallazgo al revisar el alta por invitación: el primer ingreso depende del correo de recuperación y, según la documentación de Supabase, el SMTP por defecto rechaza toda dirección que no sea del equipo del proyecto (*Email address not authorized*). La recuperación respondía "te enviamos un enlace" igual (neutra a propósito), así que la falla habría sido silenciosa. Corregido en la app lo que se puede sin revelar cuentas (código propio, aviso técnico, "Cambiar contraseña" con la sesión iniciada informa la falla) y agregado el SMTP propio como paso obligatorio del dueño. La configuración de SMTP no es pública: no se pudo verificar desde acá.
+- 2026-10-18: validación sobre la rama (cambios sin commitear sobre `998b932`): `npm test` 1694/1694; Beta Security Gate PASA (347/347 tests en 17 archivos; SEC-17 OK, contra `main` falla con 5 hallazgos); Test Lab estable OK, golden 39/39 con el candado; `npm run build` sin `dist/preview`; E2E escritorio y celular 584/584 (10 controles nuevos `REGISTRO-01`). Motores, fórmulas, esquema (10) y migraciones de base sin cambios.

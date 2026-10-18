@@ -10,6 +10,7 @@
 import { h, s } from '../../dom.js';
 import { icon } from '../../components.js';
 import { APP_NAME } from '../../../config.js';
+import { accountEntry } from '../../../services/auth-routing.js';
 import { formatBuildLabel } from '../../../core/format.js';
 
 // ------------------------------------------------------------------ íconos
@@ -174,7 +175,7 @@ export function takeOnboardingDraft() {
 
 /**
  * Encabezado del sitio (landing): marca, secciones e "Ingresar" + "Crear
- * cuenta"; con sesión, "Abrir RATEOS".
+ * cuenta" (en la beta por invitación, sólo "Ingresar"); con sesión, "Abrir RATEOS".
  * En pantallas angostas las secciones se pliegan detrás de un botón "Menú"
  * accesible (aria-expanded / aria-controls; Escape y clic afuera cierran).
  *
@@ -183,6 +184,7 @@ export function takeOnboardingDraft() {
  */
 export function siteHeader({ sections = [], signedIn = false } = {}) {
   const navId = 'pub-site-nav';
+  const entry = accountEntry();
   let open = false;
 
   const toggleLabel = h('span', {}, 'Menú');
@@ -220,7 +222,7 @@ export function siteHeader({ sections = [], signedIn = false } = {}) {
           ),
         ),
       ),
-      signedIn ? null : h('li', { class: 'pub-nav-login-item' }, h('a', { class: 'pub-nav-item pub-nav-login', href: '#/login' }, 'Ingresar')),
+      signedIn || !entry.signup ? null : h('li', { class: 'pub-nav-login-item' }, h('a', { class: 'pub-nav-item pub-nav-login', href: '#/login' }, 'Ingresar')),
     ),
   );
 
@@ -234,7 +236,7 @@ export function siteHeader({ sections = [], signedIn = false } = {}) {
       nav,
       h('div', { class: 'pub-header-actions' }, signedIn
         ? pubLink('Abrir RATEOS', '#/inicio', { tone: 'primary', size: 'md', iconAfter: 'arrowRight', className: 'pub-header-cta' })
-        : pubLink('Crear cuenta', '#/registro', { tone: 'primary', size: 'md', className: 'pub-header-cta' }), toggle),
+        : pubLink(entry.label, entry.signup ? '#/registro' : '#/login', { tone: 'primary', size: 'md', className: 'pub-header-cta' }), toggle),
     ),
   );
 

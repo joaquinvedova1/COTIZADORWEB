@@ -110,7 +110,7 @@ RATEOS **no trae alícuotas** y **no suma impuestos indiscriminadamente**:
 - Líneas de cotizaciones: snapshot `legacy` con los valores que ya usaban, movilización sin definir, sin operador asignado. **Ningún número cambia** (los viajes existentes siguen en la logística auxiliar).
 - Cotizaciones: moneda de la empresa, fecha de la oferta = fecha de creación, sin tipos de cambio.
 - Una cotización v0 sin fecha de creación queda **sin fecha de oferta** (la fecha que completa la migración no se toma como dato). Sin fecha de oferta, el resumen y la completitud lo avisan (nunca se usa "hoy" ni la fecha de creación).
-- Copia de recuperación previa. En staging (`/preview/`) y en el servidor local se pide confirmación antes de actualizar el formato de los datos de la cuenta (y antes de crear el espacio de una cuenta nueva); si no, se abren en sólo lectura sin escribir nada.
+- Copia de recuperación previa. En el servidor local (y en un build marcado como staging) se pide confirmación antes de actualizar el formato de los datos de la cuenta (y antes de crear el espacio de una cuenta nueva); si no, se abren en sólo lectura sin escribir nada.
 
 ## 9. Asignación a la cotización y "Usado en" (PLAN-2026-012)
 
