@@ -231,6 +231,8 @@ export function buildCostModel(quote = {}) {
       defaultHoursPerActiveDay: activity.hoursPerActiveDay,
       routeKmPerActivation: logistics.routeKmPerActivation,
       tripsPerActivation: oneWayTripsPerActivation,
+      // Viajes completos de la ruta (ECO-01): para un proveedor que cobra por viaje ida y vuelta.
+      fullTripsPerActivation: logistics.notApplicable ? 0 : logistics.tripsPerActivation,
       contractMonths: quote.contractMonths,
       fuelPricePerLiter,
       fuelPaidByUs,

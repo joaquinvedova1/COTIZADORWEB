@@ -12,6 +12,23 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**ECO-01 (PLAN-2026-017): bloqueantes económicos de la beta (H-01, H-02, H-03).** Ninguna fórmula cambia y ningún dato guardado se reinterpreta: golden 39/39 sin tocar y las mismas cifras que `main` en 2.097 cotizaciones y 13 productos sintéticos. Cambia qué se puede cargar (una unidad nueva) y qué se marca como pendiente. Esquema sin cambios (sigue en 10), sin migraciones.
+
+### Agregado
+
+- **(H-01) Unidad "Por viaje completo (ida y vuelta)"** para equipos y servicios externos: un viaje ida y vuelta es 1 unidad (`external.tripBasis = 'round_trip'`, opcional). En la cotización (Equipos) y en Recursos ("¿Qué cobra?"). La línea y "Ver cálculo" muestran viajes completos, tramos y el equivalente por km.
+- **(H-01) Pendiente crítico "Unidad del proveedor"**: un externo "Por salida" en una ruta con más de un viaje por salida, con salidas, viajes y el equivalente por viaje; [Por viaje completo (ida y vuelta)] o [Sí, cobra por salida]. La confirmación guarda el supuesto (tarifa, viajes por salida y ruta, `equipment[].externalUnitConfirmed`) y deja de valer si cambia.
+- **"RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA"** arriba de los números del Resultado (a la vista y en el PDF) con un doble abono, un "por salida" sin confirmar o un puesto sin sueldo; el margen, el cálculo de días y el resumen del editor dicen "NO CONFIABLE" en lugar de "Ganás…". Las cifras no cambian.
+- **(H-02) "Cómo se compone la facturación del mes"** en el Resultado (`revenueComposition`): tarifa, abono de disponibilidad, cargos, ajuste al mínimo y total, con los números del motor.
+- **(H-02) Pendiente crítico "Dos abonos por mes"** (`monthly_fee_overlap`): tarifa en $/mes + abono de disponibilidad. El resultado queda como borrador hasta dejar un solo abono; "El precio" lo avisa junto al campo. Abono solo, disponibilidad + tarifa por uso y mínimo garantizado siguen igual.
+- **(H-03) Puesto usado sin sueldo básico:** "Personal" pasa a **crítico**, nombra el puesto y lleva a su básico (también en "Equipo sin operador" si se cargó un puesto con posiciones); la línea muestra el aviso. En productos, un puesto con minutos por tanda y sin básico es un error.
+- Regresiones: `tests/engines/eco-01.test.js` (20 tests; 12 fallan en `main`) y E2E-17 a E2E-20.
+
+### Cambiado
+
+- Rótulos de las unidades de externos: "Por viaje (cada ida o vuelta)" → **"Por tramo (cada ida o cada vuelta)"** (mismo significado y mismos números) y "Por km" → "Por km recorrido".
+- El puntaje de completitud cambia sólo en las cotizaciones donde aparece uno de los avisos nuevos.
+
 **Beta Perimeter v1 (PLAN-2026-016).** Prepara el perímetro de la beta cerrada con 3–5 empresas: HD-02 queda resuelto en el código, HD-03 del lado de la app y HD-01 preparado. Sin cambios en motores ni fórmulas (golden 39/39), **ni en la base** (ninguna migración) **ni en el esquema de datos** (sigue en 10). **Todavía no hay beta:** falta lo que configura el dueño (registro apagado en Supabase, SMTP propio y dominio: [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §5).
 
 ### Seguridad

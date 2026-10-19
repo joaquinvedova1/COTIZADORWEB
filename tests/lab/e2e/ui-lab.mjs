@@ -155,6 +155,26 @@ export const E2E_SCENARIOS = [
     id: 'E2E-16', title: 'D8: on-call: la activación se llama "llamado" en "Cómo se cobra"',
     build: () => service({ id: 'lab-e16', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 5, daysPerActivation: 2 }, labor: [person({ peoplePerPosition: 2 })], logistics: route({ distanceKm: 80, tollsPerActivation: 12000 }) }),
   },
+  // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): los avisos nuevos llevan a su campo y las cifras son las del motor.
+  {
+    id: 'E2E-17', title: 'ECO-01 H-01: proveedor "por salida" con 2 viajes por salida: pide elegir la unidad o confirmarla',
+    build: () => service({ id: 'lab-e17', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 18, daysPerActivation: 1 }, labor: [person({ role: 'Coordinador' })],
+      equipment: [external({ name: 'Camión cisterna' }, { price: 928000, unit: 'activation', fuelIncluded: true, operatorIncluded: true })], logistics: route({ distanceKm: 160, tripsPerActivation: 2 }) }),
+  },
+  {
+    id: 'E2E-18', title: 'ECO-01 H-01: proveedor "por viaje completo (ida y vuelta)": viajes, tramos y equivalente por km',
+    build: () => service({ id: 'lab-e18', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 18, daysPerActivation: 1 }, labor: [person({ role: 'Coordinador' })],
+      equipment: [external({ name: 'Camión cisterna' }, { price: 928000, unit: 'trip', tripBasis: 'round_trip', fuelIncluded: true, operatorIncluded: true })], logistics: route({ distanceKm: 160, tripsPerActivation: 2 }) }),
+  },
+  {
+    id: 'E2E-19', title: 'ECO-01 H-02: abono mensual + abono de disponibilidad: crítico y composición de la facturación',
+    build: () => service({ id: 'lab-e19', serviceType: 'permanent', unit: 'month', pricingMode: 'known_rate', activity: { activeDaysPerMonth: 22 }, labor: [person({ role: 'Técnico' })],
+      pricing: { knownRate: 25000000 }, rules: { availabilityFeeMonthly: 25000000 } }),
+  },
+  {
+    id: 'E2E-20', title: 'ECO-01 H-03: puesto usado sin sueldo básico: crítico, nombra el puesto y lleva al campo',
+    build: () => service({ id: 'lab-e20', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Operador de hidrogrúa', basicMonthly: null }), person({ role: 'Rigger' })] }),
+  },
 ];
 
 /** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
@@ -377,6 +397,34 @@ async function runMode(mode) {
     // textContent (como los demás rótulos): innerText aplica las mayúsculas del CSS.
     return norm(await page.evaluate(() => document.body.textContent));
   };
+  /**
+   * ECO-01: en el Resultado (ya abierto), "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" está a la
+   * vista ARRIBA del margen (no dentro de un bloque plegado), el margen lo repite, y el PDF lo imprime
+   * antes del margen.
+   */
+  const unreliableFirst = async (id, cause) => {
+    const info = await page.evaluate(() => {
+      const banner = document.querySelector('.qr-draft.qr-unreliable');
+      const margin = document.querySelector('.qr-stat-margin');
+      const visible = (el) => Boolean(el) && el.offsetParent !== null && !el.closest('details:not([open])');
+      return {
+        banner: banner ? banner.innerText : null,
+        bannerVisible: visible(banner),
+        before: Boolean(banner && margin && (banner.compareDocumentPosition(margin) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        margin: margin ? margin.innerText : null,
+        work: (document.querySelector('.qr-work') || {}).innerText || '',
+      };
+    });
+    check(id, 'ECO-01: "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" a la vista, arriba del margen, con la causa', info.bannerVisible && info.before && /RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA/.test(info.banner || '') && cause.test(info.banner || ''), JSON.stringify(info).slice(0, 300));
+    check(id, 'ECO-01: el margen dice NO CONFIABLE (no "Ganás")', /NO CONFIABLE/.test(info.margin || '') && !/Ganás/.test(info.margin || ''), norm(info.margin));
+    check(id, 'ECO-01: el cálculo de días / equilibrio también dice NO CONFIABLE', /NO CONFIABLE/.test(info.work), norm(info.work).slice(0, 200));
+    await page.emulateMedia({ media: 'print' });
+    const printed = norm(await page.evaluate(() => document.body.innerText));
+    await page.emulateMedia({ media: 'screen' });
+    const at = printed.indexOf('RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA');
+    const marginAt = printed.indexOf('Margen');
+    check(id, 'ECO-01: el PDF imprime "RESULTADO NO CONFIABLE" antes del margen', at >= 0 && marginAt > at, `aviso en ${at}, margen en ${marginAt}`);
+  };
   {
     const t = await screenText('E2E-11', 'modality');
     check('E2E-11', 'D1: "Cómo se cobra" muestra salidas promedio, costeadas y el efecto del redondeo', /Salidas promedio por mes: 0,5/.test(t) && /salidas costeadas: 0,5/.test(t) && /efecto del redondeo/i.test(t), 'faltan los tres números');
@@ -403,6 +451,71 @@ async function runMode(mode) {
   {
     const t = await screenText('E2E-16', 'modality');
     check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuántos días dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
+  }
+  // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): lo que se ve en pantalla y los botones de cada aviso.
+  {
+    const t = await screenText('E2E-17', 'equipment');
+    check('E2E-17', 'H-01: "Por salida" con 2 viajes por salida pide elegir o confirmar (18 salidas, 36 viajes, $ 464.000 por viaje)', /¿Cobra por salida o por viaje\?/.test(t) && /18 salidas por mes son 36 viajes/.test(t) && /\$ 464\.000 por viaje/.test(t), 'falta el aviso con sus números');
+    const options = await page.evaluate(() => [...(document.querySelector('select[name="equipment.0.external.unit"]') || { options: [] }).options].map((o) => o.textContent));
+    check('E2E-17', 'H-01: la unidad ofrece "Por tramo" y "Por viaje completo (ida y vuelta)" por separado', options.includes('Por tramo (cada ida o cada vuelta)') && options.includes('Por viaje completo (ida y vuelta)') && options.includes('Por salida'), options.join(' · '));
+    // "Por viaje completo (ida y vuelta)": la línea pasa a 36 viajes y cuesta lo mismo que E2E-18 (mismo dato con la unidad correcta).
+    await tap(page.getByRole('button', { name: 'Por viaje completo (ida y vuelta)' }).first());
+    await page.waitForTimeout(900);
+    const after = await page.evaluate(() => ({
+      unit: (document.querySelector('select[name="equipment.0.external.unit"]') || {}).value,
+      cost: (document.querySelector('[data-kpi="totalCost"] .qe-sum-full') || {}).textContent,
+      banner: Boolean([...document.querySelectorAll('.qe-unit-confirm')].find((b) => !b.hidden)),
+    }));
+    const expected = formatMoney(byId['E2E-18'].r.kpis.totalCost);
+    check('E2E-17', 'H-01: el botón "Por viaje completo" cambia la unidad, el costo es el del motor y el aviso se va', after.unit === 'trip:round_trip' && norm(after.cost) === norm(expected) && !after.banner, `${JSON.stringify(after)} · motor ${expected}`);
+    // Vuelve a "Por salida" y confirma: el aviso se va y el costo vuelve al de "por salida".
+    await page.selectOption('select[name="equipment.0.external.unit"]', 'activation');
+    await page.waitForTimeout(900);
+    await tap(page.getByRole('button', { name: 'Sí, cobra por salida' }).first());
+    await page.waitForTimeout(900);
+    const confirmed = await page.evaluate(() => ({
+      text: document.body.textContent,
+      cost: (document.querySelector('[data-kpi="totalCost"] .qe-sum-full') || {}).textContent,
+    }));
+    check('E2E-17', 'H-01: "Sí, cobra por salida" deja la confirmación a la vista y el costo de siempre', /Confirmado: el proveedor cobra por salida/.test(confirmed.text) && norm(confirmed.cost) === norm(formatMoney(byId['E2E-17'].r.kpis.totalCost)), norm(confirmed.cost));
+    // Confirmación ligada al supuesto: con 3 viajes por salida ya no vale y vuelve el crítico.
+    // Por el enlace al campo de la app (abre el desplegable donde está).
+    await go(fieldHref(byId['E2E-17'].q.id, 'logistics.tripsPerActivation').replace(/^.*#/, '#'), 600);
+    await waitFocus('logistics.tripsPerActivation');
+    const trips = page.locator('[name="logistics.tripsPerActivation"]').first();
+    await trips.scrollIntoViewIfNeeded().catch(() => {});
+    await trips.fill('3');
+    await trips.press('Tab');
+    await page.waitForTimeout(900);
+    const t17 = await screenText('E2E-17', 'equipment');
+    const stale = await page.evaluate(() => [...document.querySelectorAll('.qe-unit-confirm')].filter((b) => !b.hidden).map((b) => b.textContent));
+    check('E2E-17', 'H-01: si cambian los viajes por salida, la confirmación vieja no vale y vuelve el aviso', stale.length === 1 && /La confirmación anterior .*ya no vale: cambió los viajes por salida/.test(stale[0]) && !/Confirmado:/.test(stale[0]) && /3 viajes/.test(t17), JSON.stringify(stale).slice(0, 300));
+  }
+  {
+    const t = await screenText('E2E-18', 'equipment');
+    check('E2E-18', 'H-01: viaje completo: 36 viajes completos por mes a $ 928.000 por viaje, equivalente $ 2.900/km', /36 viajes completos\/mes \(ida y vuelta\)/.test(t) && /\$ 928\.000\/viaje/.test(t) && /equivalente \$ 2\.900\/km/.test(t), 'faltan viajes, tarifa o equivalente');
+  }
+  {
+    const t = await screenText('E2E-19', 'margin');
+    check('E2E-19', 'H-02: "El precio" avisa los dos abonos con sus montos', /Dos abonos por mes/.test(t) && /\$ 25\.000\.000/.test(t) && /\$ 50\.000\.000 por mes/.test(t), 'falta el aviso');
+    await go(`#/cotizaciones/${encodeURIComponent(byId['E2E-19'].q.id)}/result`, 300);
+    await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+    const comp = norm(await page.evaluate(() => (document.querySelector('.qr-revenue-composition') || {}).textContent || ''));
+    const total = formatMoney(byId['E2E-19'].r.estimate.revenue.total);
+    check('E2E-19', 'H-02: el Resultado muestra cómo se compone la facturación (abono + disponibilidad = total del motor) y el aviso crítico', /Cómo se compone la facturación del mes/.test(comp) && /Abono mensual \(la tarifa\)\s*\$ 25\.000\.000/.test(comp) && /Abono de disponibilidad\s*\$ 25\.000\.000/.test(comp) && comp.includes(norm(total)) && /Dos abonos por mes/.test(comp), comp.slice(0, 300));
+    await unreliableFirst('E2E-19', /Dos abonos por mes/);
+  }
+  {
+    await screenText('E2E-20', 'labor');
+    // Sólo los avisos a la vista (el de cada línea existe oculto hasta que la completitud lo marca).
+    const shown = await page.evaluate(() => [...document.querySelectorAll('.qe-salary-missing')].filter((b) => !b.hidden).map((b) => b.textContent));
+    check('E2E-20', 'H-03: la línea avisa el puesto sin sueldo básico, con su nombre (y sólo esa)', shown.length === 1 && /"Operador de hidrogrúa" no tiene sueldo básico/.test(shown[0]), JSON.stringify(shown));
+    const critical = byId['E2E-20'].r.completeness.pending.find((p) => p.id === 'labor');
+    check('E2E-20', 'H-03: es crítico en el motor', Boolean(critical && critical.severity === 'critical'), JSON.stringify(critical && critical.severity));
+    await go(`#/cotizaciones/${encodeURIComponent(byId['E2E-20'].q.id)}/result`, 300);
+    await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+    await unreliableFirst('E2E-20', /Personal/);
   }
   {
     const pr = computeProduct(structuredClone(prod));

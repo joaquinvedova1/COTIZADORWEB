@@ -86,7 +86,7 @@ import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
-import { normalizeRules } from '../../engines/commercial-rules-engine.js';
+import { normalizeRules, revenueComposition } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
 import { priceComposition } from '../../engines/price-composition-engine.js';
@@ -110,6 +110,8 @@ import {
   comparatorNote,
   completenessExampleNote,
   draftBannerText,
+  unreliableItems,
+  unreliableText,
   breakEvenZeroText,
   termsOfResult,
 } from '../result-text.js';
@@ -1562,13 +1564,16 @@ function marginStat(v) {
   const rateOk = hasRate(k);
   const ok = rateOk && hasValue(k.marginPct);
   let hint;
+  // ECO-01: con un dato que vuelve no confiable el resultado, el margen se muestra pero no se lee como real.
+  const unreliable = ok ? unreliableText(v.r.completeness, 'este margen') : null;
   if (!rateOk) hint = statHint('Sin tarifa no hay margen.');
   else if (!ok) hint = statHint('Sin facturación no hay margen.');
+  else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
   else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
   else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
-  const tone = ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
+  const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
   return statItem({
     label: 'Margen',
     value: ok ? pct(k.marginPct) : EMPTY,
@@ -1681,8 +1686,12 @@ function workBlock(v) {
       trace = traces.breakEven;
     }
   }
+  // ECO-01: con un dato que vuelve no confiable el resultado, este cálculo tampoco se lee en verde.
+  const unreliable = rateOk ? unreliableText(r.completeness, 'este cálculo') : null;
+  if (unreliable) tone = 'red';
   return h('div', { class: ['qr-work', tone ? `qr-work-${tone}` : null] },
     h('p', { class: 'qr-work-question' }, question),
+    unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
     h('p', { class: 'qr-work-text' }, ...content),
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
@@ -1699,14 +1708,17 @@ function quoteSubtitle(q) {
 function draftBanner(v) {
   const { r, q } = v;
   const c = r.completeness || {};
-  const info = draftBannerText({ critical: c.critical, review: c.review });
+  const info = draftBannerText({ critical: c.critical, review: c.review, unreliable: c.unreliable });
   if (!info) return null;
   const pending = Array.isArray(c.pending) ? c.pending.filter((i) => i.severity === 'critical' || i.severity === 'review') : [];
   const example = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount: pending.length });
   const node = alertLine(info.tone, info.title, `${info.text} Costos cargados: ${pct(c.scorePct, 0)}.${example ? ` ${example}` : ''}`,
     button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
   node.classList.add('qr-draft');
-  const critical = pending.filter((i) => i.severity === 'critical');
+  // RESULTADO NO CONFIABLE (ECO-01): lo que lo causa va primero en la lista.
+  if (info.unreliable) node.classList.add('qr-unreliable');
+  const unreliable = unreliableItems(c);
+  const critical = [...unreliable, ...pending.filter((i) => i.severity === 'critical' && i.unreliable !== true)];
   // La lista va dentro del texto del aviso (no como otra columna del banner).
   const body = node.querySelector(':scope > div:not(.qr-alert-action)');
   if (critical.length && body) {
@@ -3266,7 +3278,39 @@ function rulesSummary(v) {
     items.length
       ? h('dl', { class: 'qr-rules-list' }, ...items.map(([term, desc]) => h('div', { class: 'qr-rules-item' }, h('dt', {}, term), h('dd', {}, desc))))
       : note(byQty(v) ? `No hay reglas comerciales especiales: se factura la tarifa por cada ${r.unitInfo.singular}.` : 'No hay reglas comerciales especiales: se factura la tarifa por las unidades trabajadas.'),
+    revenueCompositionBlock(v, revenue, T),
     h('p', { class: 'qr-rules-edit no-print' }, stepLink(q, 'margin', 'Editar reglas comerciales')));
+}
+
+/**
+ * Cómo se compone la facturación del mes (ECO-01, H-02): cada componente que suma, el ajuste
+ * por mínimo garantizado y el total, con los valores del motor (revenueComposition). Con
+ * abono mensual + abono de disponibilidad, el aviso crítico va acá también.
+ */
+function revenueCompositionBlock(v, revenue, T) {
+  const { r } = v;
+  const c = revenueComposition(revenue);
+  if (!(c.total > 0) || !c.rows.length) return null;
+  const units = hasValue(revenue.billableUnits) ? (r.unit === 'quantity' ? quantityText(revenue.billableUnits, r) : `${formatNumber(revenue.billableUnits, { decimals: 2 })} ${r.unitInfo.plural || 'unidades'}`) : null;
+  const labels = {
+    base: r.unit === 'month' ? 'Abono mensual (la tarifa)' : `Tarifa${units ? ` × ${units}` : ''}`,
+    availabilityFee: 'Abono de disponibilidad',
+    callout: `Cargos ${T.per}`,
+    mobilization: 'Movilización',
+    extraKm: 'Km adicionales',
+    standby: 'Equipo en espera',
+    materials: 'Materiales facturados aparte',
+    overtime: 'Horas extra facturadas aparte',
+    guaranteeTopUp: 'Ajuste al mínimo mensual garantizado',
+  };
+  const overlap = ((r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap');
+  return h('div', { class: 'qr-revenue-composition' },
+    h('h4', { class: 'qr-subhead' }, 'Cómo se compone la facturación del mes'),
+    overlap ? h('div', { class: 'banner banner-danger', role: 'alert' }, h('div', {}, h('strong', {}, 'Dos abonos por mes. '), overlap.message)) : null,
+    h('dl', { class: 'qr-rules-list' },
+      ...c.rows.map((row) => h('div', { class: 'qr-rules-item' }, h('dt', {}, labels[row.id] || row.id), h('dd', { class: 'mono' }, money(row.amount)))),
+      h('div', { class: 'qr-rules-item is-total' }, h('dt', {}, 'Facturación del mes (sin IVA)'), h('dd', { class: 'mono' }, h('strong', {}, money(c.total))))),
+    note('Con la actividad estimada. Son los mismos números que usa el resultado: no se recalcula nada.'));
 }
 
 function renderCommercialRules(v) {

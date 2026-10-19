@@ -1,0 +1,351 @@
+{
+  "id": "8987eb27-879a-4a05-bed6-37e2c2cbbfce",
+  "code": "REG-E2",
+  "name": "Regresión ECO-01 · hidrogrúa on-call (sintético)",
+  "client": "",
+  "status": "draft",
+  "illustrative": false,
+  "serviceType": "on_call",
+  "templateId": null,
+  "pricingMode": "known_activity",
+  "unit": "day",
+  "unitName": "",
+  "contractMonths": 12,
+  "activity": {
+    "availability": "24/7",
+    "availabilityWindow": "",
+    "responseTimeHours": 4,
+    "activeDaysPerMonth": 10,
+    "daysPerActivation": 2,
+    "availableDaysPerMonth": 30,
+    "hoursPerActiveDay": 10,
+    "billableQuantityPerMonth": null,
+    "unitsPerActiveDay": null,
+    "unitsPerActivation": null,
+    "fullActivations": true
+  },
+  "labor": [
+    {
+      "id": "a8d8cb59-4af5-4937-b5b8-72cb781a11c5",
+      "sourceId": null,
+      "role": "Operador de hidrogrúa",
+      "agreementId": "d16ed0c0-fb1e-45f9-bc00-0b9db45d9bcd",
+      "category": "",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 2100000,
+      "additionalsMonthly": 350000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 2,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 20000,
+      "sacPct": 8.33,
+      "vacationPct": 4.5,
+      "employerContributionsPct": 24,
+      "artPct": 7,
+      "insuranceMonthly": 12000,
+      "ppeMonthly": 50000,
+      "trainingMonthly": 20000,
+      "transferMonthly": 0,
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    },
+    {
+      "id": "ddc378b8-4117-4860-a29b-f3be0d7c77a0",
+      "sourceId": null,
+      "role": "Rigger / ayudante",
+      "agreementId": "d16ed0c0-fb1e-45f9-bc00-0b9db45d9bcd",
+      "category": "",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 1450000,
+      "additionalsMonthly": 200000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 2,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 20000,
+      "sacPct": 8.33,
+      "vacationPct": 4.5,
+      "employerContributionsPct": 24,
+      "artPct": 7,
+      "insuranceMonthly": 12000,
+      "ppeMonthly": 50000,
+      "trainingMonthly": 20000,
+      "transferMonthly": 0,
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    }
+  ],
+  "equipment": [
+    {
+      "id": "07918b50-5577-423f-868c-003ffe6d1825",
+      "sourceId": null,
+      "name": "Equipo 1",
+      "internalCode": "",
+      "familyId": null,
+      "acquisition": "owned",
+      "quantity": 1,
+      "hoursPerActiveDay": 8,
+      "replacementValue": 320000000,
+      "usefulLifeYears": 10,
+      "residualValue": 80000000,
+      "insuranceAnnual": 9600000,
+      "licenseAnnual": 4200000,
+      "certificationsAnnual": 3000000,
+      "otherAnnual": 0,
+      "capitalRatePctAnnual": 10,
+      "maintenancePerHour": 0,
+      "tiresPerHour": 0,
+      "fuelLitersPerHour": 9,
+      "maintenanceMode": "service",
+      "maintenanceServiceCost": 1200000,
+      "maintenanceServiceHours": 250,
+      "maintenanceBudget": null,
+      "maintenanceBudgetPeriod": null,
+      "tiresMode": "set_km",
+      "tiresSetCost": 6000000,
+      "tiresLifeHours": null,
+      "tiresLifeKm": 60000,
+      "external": null,
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "costsBase": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "mobilization": {
+        "mode": "self",
+        "travelLitersPer100Km": 38,
+        "travelCostPerKm": 180,
+        "driver": "operator",
+        "carrierLineId": null,
+        "supportVehicleId": null
+      },
+      "operatorLaborId": "a8d8cb59-4af5-4937-b5b8-72cb781a11c5",
+      "snapshot": null,
+      "illustrative": false
+    }
+  ],
+  "materials": [],
+  "materialsNotApplicable": true,
+  "otherCosts": [],
+  "fuel": {
+    "pricePerLiter": 1450,
+    "providedBy": "contractor",
+    "illustrative": false,
+    "base": {
+      "period": "2026-10",
+      "currency": "ARS",
+      "source": "company",
+      "note": ""
+    }
+  },
+  "logistics": {
+    "notApplicable": false,
+    "baseName": "Base",
+    "destinationName": "Destino",
+    "distanceKm": 105,
+    "roundTrip": true,
+    "tripsPerActivation": 1,
+    "vehicles": [],
+    "tollsPerActivation": 0,
+    "lodgingPerActivation": 170000
+  },
+  "indirect": {
+    "method": "percent_direct",
+    "pct": 10,
+    "amount": 0
+  },
+  "finance": {
+    "paymentTermDays": 45,
+    "invoiceLagDays": 10,
+    "monthlyRatePct": 3.5,
+    "illustrative": false,
+    "payDays": {
+      "salaries": 20,
+      "fuel": 0,
+      "suppliers": 30,
+      "materials": 30,
+      "structure": 20
+    }
+  },
+  "risk": {
+    "generalPct": 4,
+    "items": [
+      {
+        "id": "activity_variation",
+        "label": "Variación de actividad",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "unproductive",
+        "label": "Improductivos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "weather",
+        "label": "Clima",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "rework",
+        "label": "Retrabajos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "equipment_failure",
+        "label": "Rotura de equipos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "prices",
+        "label": "Variación de precios",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "inflation",
+        "label": "Inflación",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "logistics",
+        "label": "Logística",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "penalties",
+        "label": "Penalidades",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "warranty",
+        "label": "Garantía",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "accidents",
+        "label": "Accidentes",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "scope_uncertainty",
+        "label": "Incertidumbre del alcance",
+        "pct": 0,
+        "enabled": false
+      }
+    ]
+  },
+  "pricing": {
+    "targetMarginPct": 18,
+    "customMarginPct": null,
+    "knownRate": 0,
+    "offeredRateOverride": null,
+    "commercialDiscountPct": 0,
+    "roundingStep": 1000
+  },
+  "billingTaxes": {
+    "mode": "detailed",
+    "notApplicable": false,
+    "combinedPct": null,
+    "items": [
+      {
+        "id": "tax-d4c229bc",
+        "kind": "gross_income",
+        "label": "Ingresos Brutos",
+        "pct": 4
+      },
+      {
+        "id": "tax-d9f0251f",
+        "kind": "debits_credits",
+        "label": "Impuesto al cheque (débitos y créditos)",
+        "pct": 1.2
+      },
+      {
+        "id": "tax-d344149d",
+        "kind": "stamp",
+        "label": "Sellos",
+        "pct": null
+      }
+    ]
+  },
+  "vatTreatment": "excluded",
+  "rules": {
+    "availabilityFeeMonthly": 0,
+    "calloutFeePerActivation": 0,
+    "mobilizationFeePerActivation": 0,
+    "includedKmPerActivation": 0,
+    "extraKmRate": 0,
+    "minimumCallUnits": 1,
+    "standbyDaysPerMonth": 0,
+    "standbyRatePerDay": 0,
+    "standbyNotApplicable": true,
+    "volumeTiers": [
+      {
+        "id": "tier-1",
+        "fromDays": 1,
+        "toDays": 1,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-2",
+        "fromDays": 2,
+        "toDays": 7,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-3",
+        "fromDays": 8,
+        "toDays": 15,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-4",
+        "fromDays": 16,
+        "toDays": 30,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-5",
+        "fromDays": 31,
+        "toDays": null,
+        "discountPct": 0
+      }
+    ],
+    "continuityMinMonths": 6,
+    "continuityDiscountPct": 0,
+    "minimumMonthlyGuarantee": 0
+  },
+  "notes": "",
+  "currency": "ARS",
+  "offerDate": "2026-10-19",
+  "exchangeRates": []
+}

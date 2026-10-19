@@ -386,6 +386,8 @@ export function render(container, ctx) {
     ['minimumMonthlyGuarantee', 'mínimo mensual'],
     ['continuityDiscountPct', 'descuento por continuidad'],
   ];
+  /** Pendiente crítico "Dos abonos por mes" (completitud, ECO-01), o null. */
+  const feeOverlapOf = (r) => ((r && r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap') || null;
   const rulesSummary = () => {
     const rules = quote.rules || {};
     const active = RULE_NAMES.filter(([key]) => hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
@@ -403,6 +405,8 @@ export function render(container, ctx) {
       // Mismo criterio que el Resultado: el descuento por continuidad también cuenta.
       flag: (r) => {
         const c = r.continuity || {};
+        // Abono mensual + abono de disponibilidad (ECO-01, H-02): se ve aunque la sección esté cerrada.
+        if (feeOverlapOf(r)) return { tone: 'red', text: 'Dos abonos por mes' };
         if (c.applies && c.status === 'red') return { tone: 'red', text: 'Un descuento pierde plata' };
         if (c.applies && c.status === 'orange') return { tone: 'orange', text: 'Un descuento bajo el objetivo' };
         return null;
@@ -411,8 +415,14 @@ export function render(container, ctx) {
     h('p', { class: 'qe-note' }, 'Cómo se factura el servicio además de la tarifa. Dejá en 0 lo que no aplica.'),
     ruleRow(
       'Abono de disponibilidad',
-      'Monto fijo por mes por tener el recurso reservado, se trabaje o no.',
+      unitKind === 'month'
+        ? 'Monto fijo por mes por tener el recurso reservado. Tu tarifa ya es un abono mensual: no cargues acá el mismo abono, se facturarían los dos. Sirve con una tarifa por uso, como por día, por hora o por cantidad (un fijo por estar disponible más lo que se usa).'
+        : 'Monto fijo por mes por tener el recurso reservado, se trabaje o no.',
       [kit.num('rules.availabilityFeeMonthly', { label: 'Abono mensual', rule: 'money', unit: '$/mes' })],
+      kit.out((r) => {
+        const item = feeOverlapOf(r);
+        return item ? h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, item.message)) : '';
+      }, { tag: 'div', allowEmpty: true }),
     ),
     ruleRow(
       `Cargo ${T.per} (call-out)`,

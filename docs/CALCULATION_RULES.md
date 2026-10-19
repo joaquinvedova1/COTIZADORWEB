@@ -34,6 +34,7 @@ Convenciones:
 10. [Costo total y estructura de costos (EECC)](#10-costo-total-y-estructura-de-costos-eecc)
 11. [Margen vs markup](#11-margen-vs-markup)
 12. [Unidades, reglas comerciales y facturación](#12-unidades-reglas-comerciales-y-facturación)
+    - [12.0 Cómo se compone la facturación del mes (ECO-01)](#120-cómo-se-compone-la-facturación-del-mes-eco-01-aud-t1-h-02)
 13. [Tarifa piso, precio objetivo y precio comercial](#13-tarifa-piso-precio-objetivo-y-precio-comercial)
     - [13.1 Impuestos sobre la facturación (gross-up)](#131-impuestos-sobre-la-facturación-gross-up)
     - [13.2 Composición del precio, apropiación y total del contrato](#132-composición-del-precio-apropiación-y-total-del-contrato)
@@ -324,9 +325,10 @@ Archivo: `js/engines/external-engine.js` (`computeExternalLine`, `externalFiscal
 |---|---|
 | hora | horas de uso por día × días por llamado |
 | día | días por llamado |
-| viaje | viajes de ida o vuelta por llamado (de Viajes: viajes × (ida y vuelta ? 2 : 1)) |
-| km | km de ruta por llamado |
-| llamado | 1 |
+| viaje — **por tramo** (`unit: 'trip'`, "Por tramo (cada ida o cada vuelta)") | tramos por llamado (de Viajes: viajes × (ida y vuelta ? 2 : 1)) |
+| viaje — **por viaje completo** (`unit: 'trip'` + `tripBasis: 'round_trip'`, ECO-01) | viajes por llamado (un viaje ida y vuelta = 1 unidad) |
+| km | km de ruta por llamado ("Por km recorrido") |
+| llamado (salida / intervención) | 1 |
 | mes | — (fijo mensual = precio × cantidad) |
 | global | — (fijo mensual = precio × cantidad / meses de contrato; sin contrato = 1 mes) |
 
@@ -364,7 +366,21 @@ Categoría EECC: **Equipos y servicios externos** (`external`). Grupo de pago: p
 
 **Combustible por km (PLAN-2026-012, opcional).** COT-0010 con el combustible del camión a nuestro cargo: 12 viajes × 200 km = **2.400 km × 35 L/100 km = 840 L × $ 1.500 = $ 1.260.000** por mes en Combustible; la tarifa ($ 7.800.000) no cambia. Es un costo por salida (con "cada salida completa" se costea con salidas enteras). Si el externo además "va por sus propios medios", la movilización no vuelve a sumar combustible en ruta (ya está en su consumo por km). Sin elegir la forma, sigue por hora: ninguna cotización existente cambia.
 
-**Tarifa ligada a la ruta (sólo presentación).** Por km: "Neuquén → Añelo · 200 km por viaje · $ 650.000 por viaje (ida y vuelta) · equivalente $ 3.250/km". Por viaje: la unidad sigue siendo **cada ida o vuelta (tramo)** y se muestra cuántos tramos tiene un viaje y su equivalente por km. Nunca se fuerza el $/km.
+**Tarifa ligada a la ruta (sólo presentación).** Por km: "Neuquén → Añelo · 200 km por viaje · $ 650.000 por viaje (ida y vuelta) · equivalente $ 3.250/km". Por tramo: la unidad es **cada ida o vuelta** y se muestra cuántos tramos tiene un viaje y su equivalente por viaje y por km. Por viaje completo: viajes completos del mes, la tarifa por viaje y su equivalente por km. Nunca se fuerza el $/km.
+
+**Tramo, viaje completo, salida y km (ECO-01, AUD-T1 H-01).** Cuatro magnitudes distintas, cada una con su nombre en la unidad del proveedor:
+
+| Unidad del proveedor | Qué cuenta | Ejemplo E3 de la regresión ECO-01 (18 salidas × 2 viajes de 320 km ida y vuelta) |
+|---|---|---|
+| Por tramo (cada ida o cada vuelta) | cada ida **o** cada vuelta: un viaje ida y vuelta son 2 tramos | 72 tramos × precio |
+| Por viaje completo (ida y vuelta) | cada viaje ida y vuelta | 36 viajes × precio |
+| Por salida (llamado / intervención) | cada salida, tenga los viajes que tenga | 18 salidas × precio |
+| Por km recorrido | km físicos de la ruta | 11.520 km × precio |
+
+- **"Por tramo" conserva su significado**: es la unidad `trip` de siempre (antes se llamaba "Por viaje (cada ida o vuelta)"; sólo cambió el rótulo). Nada guardado se reinterpreta: una línea `trip` sin `tripBasis` sigue contando tramos y da los mismos números.
+- **"Por viaje completo"** es la misma unidad `trip` con `external.tripBasis = 'round_trip'` (dato opcional; sin él es por tramo). El motor cuenta los viajes de la ruta (`fullTripsPerActivation` = viajes por llamado), no los tramos; el mínimo, la cantidad, el IVA y la financiación se aplican igual. Con la ruta "sólo ida" un viaje completo es un viaje de ida.
+- Con los datos de E3: 928.000 por viaje completo = 2.900 $/km = 464.000 por tramo → costo del mes **$ 41.281.757,11** y sugerida **$ 1.377.000** (los tres dan lo mismo, test `tests/engines/eco-01.test.js`). Cargado "Por salida" da 18 × 928.000 (costo $ 21.875.213,61, sugerida $ 730.000); cargado "Por tramo" da 72 × 928.000 (costo $ 80.094.844,11, sugerida $ 2.671.000). **Las fórmulas de "Por salida" y "Por tramo" no cambian**: lo que cambia es que ahora existe la unidad correcta y que la combinación ambigua se avisa.
+- **"Por salida" con varios viajes por salida** (ruta con más de 1 viaje por llamado): pendiente **crítico** y resultado **no confiable** hasta elegir la unidad o confirmarla (`external_unit_trips`, §19), nombrando salidas por mes, viajes por salida, viajes del mes y el equivalente por viaje. "Sí, cobra por salida" guarda en la línea **el supuesto confirmado** (`line.externalUnitConfirmed = { unit: 'activation', price, tripsPerActivation, distanceKm, roundTrip }`, `externalUnitAssumption`) y el crítico se va sin cambiar el costo. La confirmación **sólo vale mientras ese supuesto siga igual**: si cambian la tarifa, los viajes por salida (también los que se derivan de la unidad "viaje"), la distancia o ida y vuelta, vuelve el crítico diciendo qué cambió; cambiar la unidad la borra. Con 1 viaje por salida (el on-call de siempre) no hay ambigüedad y no se avisa.
 
 ### 4.2 Recursos compartidos: % de los costos fijos (PLAN-2026-012, opcional)
 
@@ -475,7 +491,7 @@ km por viaje                  = distancia de ida × (ida y vuelta ? 2 : 1)
 km de ruta por mes            = viajes físicos por mes × km por viaje
 ```
 
-- Proveedor por km → km de ruta; por viaje → tramos (cada ida o vuelta); por día → días; por hora → horas; por mes → fijo; por llamado → intervenciones. Nunca se asume intervención = viaje ni día = viaje.
+- Proveedor por km → km de ruta; por tramo → tramos (cada ida o vuelta); por viaje completo (ECO-01) → viajes; por día → días; por hora → horas; por mes → fijo; por llamado → intervenciones. Nunca se asume intervención = viaje, viaje = tramo ni día = viaje.
 - Sin mínimo por llamado, los viajes físicos de la unidad "viaje" son los facturables: **1, 2 o 3 viajes por día recorren los mismos km** y el proveedor por km cuesta lo mismo (golden). Con mínimo por llamado se costean los viajes que se hacen (el mínimo factura de más).
 - **Corrección (bug demostrado, antes → después):** antes la ruta usaba "Viajes por llamado" (1 por defecto) aunque se vendieran 2 viajes por día. COT-0011 con ese dato en 1: 12 viajes facturados pero 6 físicos costeados → proveedor $ 3.900.000, costo $ 8.320.447, sugerida $ 816.000 (−35 %). Ahora: 12 viajes, 2.400 km, $ 7.800.000, costo $ 12.864.478, sugerida $ 1.262.000. Sólo cambian las cotizaciones $/viaje cuyo "Viajes por llamado" no coincidía con viajes por día × días por intervención; el dato guardado no se toca y se muestra un aviso informativo ([Entendido] lo iguala).
 - Limitación: con la unidad "viaje" la cantidad de viajes es una sola para todo lo que circula por la ruta (proveedor por km, equipos por sus medios y vehículos de apoyo). Con "cada salida completa" activado, una salida incompleta se costea con todos sus viajes (criterio conservador de §2.1).
@@ -779,8 +795,14 @@ facturación total  = subtotal + ajuste por mínimo
 | Descuento por cantidad de días | `volumeTiers` | ver §14 |
 | Descuento por continuidad | `continuityMinMonths`, `continuityDiscountPct` | ver §14 |
 | Mínimo mensual garantizado | `minimumMonthlyGuarantee` | la facturación del mes nunca es menor (× meses) |
-| Fee de disponibilidad | `availabilityFeeMonthly` | monto mensual fijo (× meses) |
+| Fee de disponibilidad | `availabilityFeeMonthly` | monto mensual fijo (× meses). Con la tarifa en **$/mes (abono)** se sumarían dos abonos por mes: pendiente **crítico** `monthly_fee_overlap` (ECO-01, §19 y §12.2); la fórmula no cambia |
 | Descuento comercial | `pricing.commercialDiscountPct` | multiplica el factor de descuentos |
+
+### 12.0 Cómo se compone la facturación del mes (ECO-01, AUD-T1 H-02)
+
+Archivo: `js/engines/commercial-rules-engine.js` (`revenueComposition`). Presenta, **sin calcular nada nuevo**, los componentes de `computeRevenue` que suman en el mes con la actividad estimada, en este orden: tarifa × unidades (`base`), abono de disponibilidad, cargos por llamado, movilización, km adicionales, equipo en espera, materiales facturados aparte (fijos + variables), horas extra facturadas aparte (fijas + variables) y el ajuste al mínimo mensual garantizado. Sólo las filas mayores que 0; **las filas suman el total** (`revenue.total`). El Resultado lo muestra en "Cómo se factura el servicio" ("Cómo se compone la facturación del mes").
+
+**Abono mensual + abono de disponibilidad.** Con la tarifa en $/mes, la tarifa ya es el abono: un "Abono de disponibilidad" > 0 es un segundo cargo fijo del mismo mes y **se suma** (fórmula histórica, no se elimina en silencio). Ejemplo (regresión ECO-01, escenario E1): tarifa conocida 25.000.000 + abono de disponibilidad 25.000.000 → facturación 50.000.000, cuando con un solo abono es 25.000.000. Desde ECO-01 esa combinación es un pendiente **crítico** (`monthly_fee_overlap`): el resultado queda como BORRADOR (no confiable) hasta dejar un solo abono. En modo "calculá", la tarifa sugerida ya descuenta el abono de disponibilidad (es un "otro ingreso", §13): el aviso lo dice. Dos cargos fijos distintos se expresan igual con un número: la tarifa mensual. **Siguen igual** los modelos legítimos: abono mensual fijo solo; abono de disponibilidad + tarifa por uso (día, hora, llamado, cantidad); mínimo mensual garantizado (con abono o con tarifa por uso).
 
 ### 12.1 Unidad de facturación según el tipo de servicio (PLAN-2026-009)
 
@@ -1191,7 +1213,7 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 1 | `modality` | siempre | 2 | ok si el tipo de servicio y la modalidad son válidos; si no, rojo |
 | 2 | `rate` | modalidad "Conozco la tarifa" | 2 | ok si tarifa > 0; si no, rojo |
 | 3 | `utilization` | on-call o "Conozco la actividad"; por cantidad o evento; cobro por hora | 2 | ok si días activos > 0 (por cantidad: cantidad del mes > 0 y, si es cantidad, cantidad por día > 0); **cobro por hora** (Test Lab, PLAN-2026-013): también horas por día > 0 (sin horas no hay unidades facturables), aun con "Ya tengo la tarifa"; si no, rojo. `focus` al dato que falta (días, cantidad del mes, cantidad por día u horas) |
-| 4 | `labor` | tipo distinto de "Equipo sin operador" | 2 | ok si alguna línea tiene básico > 0 y posiciones > 0; si no, rojo |
+| 4 | `labor` | tipo distinto de "Equipo sin operador"; **o** cualquier tipo con un puesto usado sin básico | 2 | ok si alguna línea tiene básico > 0 y posiciones > 0; si no, rojo. **Puesto usado sin sueldo (ECO-01, AUD-T1 H-03):** si alguna línea con posiciones > 0 tiene el básico vacío o ≤ 0, rojo y **crítico** (`critical: true`), con el nombre de cada puesto, `focus` a su básico y `targets` a cada línea. Vale también para "Equipo sin operador" si se cargó un puesto con posiciones. No se inventa ningún sueldo; un puesto con 0 posiciones no se usa y no se marca. No hay excepciones: un puesto que no se paga no se carga con posiciones |
 | 5 | `relief` | servicio permanente, u on-call 24/7, con personal cargado | 1 | ok si todas las líneas tienen más de 1 persona por posición; si no, naranja |
 | 5b | `labor_hours` (PLAN-2026-014) | días de trabajo y horas por día > 0, y alguna línea con posiciones y horas normales que no cubre `D × H` | 1 | **sólo aparece en ese caso** (las demás cotizaciones no cambian de puntaje): naranja "La operación requiere más horas de cobertura que las horas cargadas para este puesto. Revisá dotación, turnos y/o horas extra." con el cálculo del mes y las horas que faltan, `focus` a "Personas por posición" y `targets` a cada línea. Nunca agrega horas extra ni personas (§3) |
 | 6 | `equipment_cost` | tipo con equipos (on-call, equipo con/sin operador, transporte) o hay equipos | 2 | ok si hay equipos y todos tienen costo: los propios reposición > 0 y vida útil > 0, los externos tarifa > 0; si no, rojo. `focus` al dato que falta de la primera línea que nombra el mensaje (reposición, vida útil o tarifa del proveedor); sin equipos cargados no hay campo y el botón lleva al paso |
@@ -1202,6 +1224,7 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 9c | `external_terms` (v3) | hay equipos externos | 1 | rojo si falta la alícuota de IVA cuando no es recuperable (o la parte recuperable si es parcial); naranja si no se definió si el IVA es recuperable, si no se definió si la tarifa incluye combustible u operador, si una tarifa global no tiene meses de contrato (se toma 1 mes), si la oferta del proveedor venció antes de la fecha de la oferta o no tiene vigencia; si no, ok |
 | 9c' | `external_route` (PLAN-2026-012) | un externo por km o por viaje, con tarifa y sin mínimo, en una cotización sin km / viajes ("Sin traslados", sin distancia o sin viajes) | 2 | **rojo y crítico**: "Falta definir la ruta/distancia para calcular este proveedor." (antes era parte de 9c, peso 1, sólo "revisar"); `focus` al campo de la ruta; la línea dice "Falta la ruta" en lugar de $ 0 |
 | 9c'' | `external_hours` (Test Lab, PLAN-2026-013) | un externo por hora, con tarifa, cantidad > 0 y sin mínimo, con 0 horas por día (las de su línea, o las de la actividad si la línea las hereda) | 2 | **rojo y crítico**: su tarifa no se puede calcular (nunca es un $ 0 válido); `focus` a las horas de la línea o de la actividad |
+| 9c'''' | `external_unit_trips` (ECO-01, AUD-T1 H-01) | un externo "Por salida" (unidad `activation`) con tarifa y cantidad > 0, en una ruta con **más de 1 viaje por llamado**, sin una confirmación vigente (`externalUnitConfirmed` igual al supuesto actual, §4.1) | 2 | **sólo aparece en ese caso** (las demás cotizaciones no cambian de puntaje): rojo, **crítico** y **no confiable** "Unidad del proveedor": la tarifa se paga una vez por salida; el mensaje nombra salidas por mes, viajes por salida, viajes del mes y el equivalente por viaje, y ofrece "Por viaje completo (ida y vuelta)" / "Por tramo" o confirmar "Sí, cobra por salida". Con una confirmación vencida empieza con "La confirmación anterior … ya no vale: cambió …". `focus` a la unidad de la línea, `targets` a cada línea. No cambia la fórmula |
 | 9c''' | `route_consistency` (Test Lab) | unidad "viaje" o "km" | 1 | naranja si se cobran viajes o km con "Sin traslados" (`focus` a esa opción), o si con la unidad "km" se facturan **más** km que los que recorre la ruta (llamados × viajes por llamado × km por viaje): los costos por km quedarían cortos (`focus` a "Viajes por …", el rótulo con el nombre de la activación de la cotización: "Viajes por salida" en transporte). Una ruta con más km que los facturados (vuelta vacía) no se avisa. No se deriva (decisión del dueño) |
 | 9d | `duplicates` (v3) | hay equipos | 1 | naranja si un externo incluye operador y además tiene uno de Personal asignado, si un equipo que va por sus propios medios también figura como vehículo de la logística auxiliar, o si un externo cuya movilización cobra el proveedor aparte además va "por sus propios medios"; si no, ok |
 | 9e | `economic_base` (v3) | hay valores con costo | 1 | naranja si algún valor no tiene fecha base; si no, ok |
@@ -1212,9 +1235,10 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 12 | `contingency` | siempre | 1 | ok si la contingencia total > 0; si no, naranja |
 | 13 | `margin` | siempre | 2 | rojo si está vacío, es inválido (≥ 100 %, negativo o no numérico) o margen + impuestos sobre la facturación ≥ 100 %; naranja si es 0; ok si es > 0 (`focus` al margen cuando no está ok) |
 | 13b | `billing_taxes` | siempre | 1 | ok si están definidos (un % total, algún renglón del detalle —incluso 0 %— o "No incluir impuestos sobre la facturación en esta cotización"); naranja si están sin definir ("la tarifa piso no los incluye"); rojo si hay un % inválido |
+| 13c | `monthly_fee_overlap` (ECO-01, AUD-T1 H-02) | tarifa en $/mes y abono de disponibilidad > 0 | 2 | **sólo aparece en ese caso**: rojo y **crítico** "Dos abonos por mes": con tarifa conocida nombra la tarifa, el abono y la suma (`$ 25.000.000 + $ 25.000.000 = $ 50.000.000 por mes, de lista`); en modo "calculá", que la sugerida ya descuenta el abono. `focus` al abono de disponibilidad. No cambia la fórmula (§12.0) |
 | 14 | `standby` | on-call | 1 | ok si hay tarifa de standby o se marcó "no aplica"; si no, naranja |
 
-**Severidad (PLAN-2026-010, no cambia el puntaje).** Cada pendiente trae `severity`: `critical` si falta algo que cambia el costo o el precio (`equipment_cost`, `external_route`, `external_hours`, `currency`, `utilization`, `rate` o `margin` en rojo: por ejemplo un externo sin tarifa, que se nombra en el mensaje y en `targets`), `review` para el resto. `critical` y `review` cuentan cuántos hay; si suman más de 0 el resultado muestra arriba **"BORRADOR — revisar N puntos antes de usar esta tarifa"**. Aparte, `notices` lleva avisos **informativos** que no restan puntaje ni son pendientes (por ejemplo, un equipo propio sin costo de capital: "RATEOS no está imputando rendimiento ni costo del dinero invertido en este equipo"). Con estructura desglosada (§7), `structure` está ok si algún rubro tiene valor.
+**Severidad (PLAN-2026-010, no cambia el puntaje).** Cada pendiente trae `severity`: `critical` si falta algo que cambia el costo o el precio (`equipment_cost`, `external_route`, `external_hours`, `currency`, `utilization`, `rate`, `margin` o —desde ECO-01— `monthly_fee_overlap` y `external_unit_trips` en rojo: por ejemplo un externo sin tarifa, que se nombra en el mensaje y en `targets`), también cuando la regla lo marca en su ítem (`critical: true`: `labor` con un puesto usado sin sueldo básico, ECO-01), `review` para el resto. `critical` y `review` cuentan cuántos hay; si suman más de 0 el resultado muestra arriba **"BORRADOR — revisar N puntos antes de usar esta tarifa"**. **Resultado no confiable (ECO-01):** los pendientes con `unreliable: true` (`monthly_fee_overlap`, `external_unit_trips` y `labor` con un puesto usado sin sueldo) son los que dejan números a la vista que **no son reales** (facturación duplicada, costo de un proveedor o de un puesto de menos); `unreliable` cuenta cuántos hay. Con alguno, el aviso de arriba del Resultado —que va antes del costo, la tarifa y el margen, a la vista y en el PDF— dice **"RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA"** con la causa primero, y el margen, el cálculo de días / equilibrio y el resumen en vivo del editor dicen "NO CONFIABLE (…)" en lugar de "Ganás…". Las cifras no cambian. Aparte, `notices` lleva avisos **informativos** que no restan puntaje ni son pendientes (por ejemplo, un equipo propio sin costo de capital: "RATEOS no está imputando rendimiento ni costo del dinero invertido en este equipo"). Con estructura desglosada (§7), `structure` está ok si algún rubro tiene valor.
 
 **Botones al campo exacto (PLAN-2026-012).** Un pendiente con `focus` lleva a `#/cotizaciones/<id>/<paso>?campo=<ruta>` y el editor enfoca ese campo (ruta validada por lista blanca); el combustible sin campo exacto no muestra botón. Avisos informativos nuevos: viajes físicos derivados con un dato anterior de viajes por salida distinto, y recurso compartido con el resto de su costo fijo sin cubrir. PLAN-2026-014 agrega el aviso informativo **menos de una salida por mes** (`activations_below_one`, §2.1: salidas promedio, costeadas y efecto del redondeo, con botón a la casilla) y el pendiente `labor_hours` (5b). COT-0010 / COT-0011 pasan de **92 % a 100 %** sin inventar consumo.
 
@@ -1375,6 +1399,7 @@ Reglas:
 
 - **El % de los fijos que le toca al producto es SIEMPRE un dato explícito** (de cada máquina y de cada gasto fijo): nunca se infiere del uso (PLAN-2026-006). Sin %, ese fijo no se suma y el producto avisa.
 - Sin unidades vendidas por mes, los fijos no se pueden repartir: error (el costo por unidad queda sin calcular, nunca `Infinity`).
+- **Puesto sin sueldo básico (ECO-01, AUD-T1 H-03):** una línea de personal con personas > 0 y minutos por tanda > 0 sin básico (> 0) es un **error** (`labor.N.basicMonthly`, con el nombre del puesto): su costo hora quedaría sin sueldo. No cambia el cálculo; un puesto con 0 minutos no se usa y no se marca.
 - Impuestos sobre la venta sin decidir: aviso (el precio no los incluye). "No corresponden" o un % cargado lo resuelven.
 - Horas del mes del personal (informativo, **no cambia el costo**): `tandas por mes × minutos por tanda ÷ 60` por persona, contra sus horas normales. El costo del personal es por minuto de tanda: las horas pagadas que no se usan en este producto no entran en su costo (la pantalla lo dice y sugiere sumarlas en "Gastos fijos" si no se usan en otros productos). Más horas que las del mes → aviso.
 - Valores en otra moneda: sólo con el tipo de cambio que carga la empresa en el producto; sin él no suman y el producto queda con error.

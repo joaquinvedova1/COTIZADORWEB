@@ -16,6 +16,11 @@
  *             tarifa o margen faltantes)
  *   review    revisar antes de usar la tarifa (IVA de externos, fechas base,
  *             contingencia 0, movilización sin definir…)
+ * Una regla también es crítica si lo dice su ítem (`critical: true`): por
+ * ejemplo, "Personal" con un puesto usado sin sueldo básico (ECO-01, H-03).
+ * `unreliable: true` (ECO-01) marca los pendientes con los que los números se
+ * muestran pero NO son reales (doble abono, "por salida" sin confirmar, puesto
+ * sin sueldo): el resultado dice "RESULTADO NO CONFIABLE" arriba del margen.
  * Además, `notices` lleva avisos INFORMATIVOS que no participan del puntaje
  * (por ejemplo, equipo propio sin costo de capital).
  */
@@ -42,7 +47,7 @@ import { isPlainObject } from '../core/object.js';
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
-const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin']);
+const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips']);
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
@@ -70,6 +75,38 @@ function rule(id, label, step, weight, status, message) {
 
 function isBlank(v) {
   return v === null || v === undefined || v === '' || (typeof v === 'number' && !Number.isFinite(v));
+}
+
+/**
+ * Supuesto de "Sí, cobra por salida" (ECO-01, H-01) para una línea externa: tarifa, viajes por
+ * salida y ruta (distancia de ida, ida y vuelta) TAL COMO ESTÁN AHORA. La confirmación guarda
+ * esto en `line.externalUnitConfirmed` y sólo vale mientras siga igual: si cambian la tarifa,
+ * los viajes por salida (también los que se derivan de la unidad "viaje") o la ruta, se vuelve
+ * a pedir. Así una confirmación vieja nunca silencia el aviso para otra operación.
+ */
+export function externalUnitAssumption(quote = {}, line = {}) {
+  const logistics = isPlainObject(quote.logistics) ? quote.logistics : {};
+  const x = isPlainObject(line.external) ? line.external : {};
+  const route = routeTrips(quote, normalizeActivity(quote));
+  return {
+    unit: 'activation',
+    price: nonNegative(x.price),
+    tripsPerActivation: logistics.notApplicable ? 0 : nonNegative(route.tripsPerActivation),
+    distanceKm: logistics.notApplicable ? 0 : nonNegative(logistics.distanceKm),
+    roundTrip: logistics.roundTrip !== false,
+  };
+}
+
+/** Qué cambió desde la confirmación (vacío = sigue valiendo). Sin confirmación válida: null. */
+function assumptionChanges(confirmed, current) {
+  if (!isPlainObject(confirmed) || confirmed.unit !== 'activation') return null;
+  const differs = (a, b) => !(Number.isFinite(Number(a)) && Math.abs(Number(a) - Number(b)) < 1e-9);
+  const changes = [];
+  if (differs(confirmed.price, current.price)) changes.push('price');
+  if (differs(confirmed.tripsPerActivation, current.tripsPerActivation)) changes.push('trips');
+  if (differs(confirmed.distanceKm, current.distanceKm)) changes.push('distance');
+  if (Boolean(confirmed.roundTrip) !== current.roundTrip) changes.push('roundTrip');
+  return changes;
 }
 
 /**
@@ -142,8 +179,22 @@ export function evaluateCompleteness(quote = {}) {
     items.push(item);
   }
 
-  // 4. Personal
-  if (serviceType !== 'equipment_only') {
+  // 4. Personal. Un puesto USADO (posiciones > 0) sin sueldo básico es CRÍTICO (ECO-01, H-03):
+  // su costo laboral sería $ 0 y la cotización no está completa. No se inventa ningún sueldo.
+  // Vale también para "sólo equipo": si se cargó un puesto con posiciones, se usa.
+  const unpaid = labor.map((l, index) => ({ l, index })).filter(({ l }) => nonNegative(l.positions) > 0 && !(nonNegative(l.basicMonthly) > 0));
+  const roleOf = (l) => (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+  if (unpaid.length) {
+    const names = unpaid.slice(0, 3).map(({ l }) => `"${roleOf(l)}"`).join(', ');
+    const more = unpaid.length > 3 ? ` y ${unpaid.length - 3} más` : '';
+    const item = rule('labor', 'Personal', 'labor', 2, 'missing',
+      `${unpaid.length === 1 ? 'Un puesto que se usa en la cotización no tiene' : 'Hay puestos que se usan en la cotización sin'} sueldo básico: ${names}${more}. Sin el básico faltan su sueldo, las cargas sociales sobre él y el valor de sus horas extra: la cotización no está completa. Cargá el básico mensual; si el puesto no trabaja en este servicio, poné 0 posiciones o quitá la línea.`);
+    item.critical = true;
+    item.unreliable = true;
+    item.focus = `labor.${unpaid[0].index}.basicMonthly`;
+    item.targets = unpaid.map(({ l, index }) => ({ list: 'labor', index, name: roleOf(l) }));
+    items.push(item);
+  } else if (serviceType !== 'equipment_only') {
     const ok = labor.some((l) => nonNegative(l.basicMonthly) > 0 && nonNegative(l.positions) > 0);
     items.push(rule('labor', 'Personal', 'labor', 2, ok ? 'ok' : 'missing', ok ? 'Personal cargado.' : 'No hay personal con salario cargado.'));
   }
@@ -438,6 +489,37 @@ export function evaluateCompleteness(quote = {}) {
       item.targets = routeless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
       items.push(item);
     }
+
+    // 9c'. Externo "por salida" cuando cada salida tiene VARIOS viajes (ECO-01, H-01): la tarifa
+    // se cobra una vez por salida, no por viaje. Si en realidad es por viaje, el costo queda corto.
+    // CRÍTICO (no confiable) hasta elegir la unidad o confirmarla; la confirmación vale sólo para
+    // el supuesto confirmado (`externalUnitAssumption`). No cambia la fórmula. Con un viaje por
+    // salida no hay ambigüedad.
+    const tripsPerActivation = logistics.notApplicable ? 0 : route.tripsPerActivation;
+    const perActivation = tripsPerActivation > 1 + 1e-9
+      ? externals
+        .filter((e) => extOf(e).unit === 'activation' && nonNegative(extOf(e).price) > 0 && nonNegative(e.quantity) > 0)
+        .map((e) => ({ e, changes: assumptionChanges(e.externalUnitConfirmed, externalUnitAssumption(quote, e)) }))
+        .filter(({ changes }) => changes === null || changes.length > 0)
+      : [];
+    if (perActivation.length) {
+      const { e: first, changes } = perActivation[0];
+      const price = nonNegative(extOf(first).price);
+      const A = act.activationsPerMonth;
+      const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+      const tripWord = (v) => (Math.abs(v - 1) < 1e-9 ? 'viaje' : 'viajes');
+      const legs = logistics.roundTrip === false ? '' : ' (ida y vuelta)';
+      const month = A > 0 ? ` Con ${n(A)} ${T.word(A)} por mes son ${n(A * tripsPerActivation)} ${tripWord(A * tripsPerActivation)}, pero se ${A === 1 ? 'paga' : 'pagan'} ${n(A)} ${A === 1 ? 'vez' : 'veces'} ${formatMoney(price)}.` : '';
+      const changed = { price: 'la tarifa', trips: `los viajes ${T.per}`, distance: 'la distancia', roundTrip: 'ida y vuelta / sólo ida' };
+      const stale = changes && changes.length ? `La confirmación anterior ("cobra ${T.per}") ya no vale: cambió ${changes.map((c) => changed[c]).join(', ')}. ` : '';
+      const others = perActivation.length > 1 ? ` También: ${perActivation.slice(1, 4).map(({ e }) => `"${lineName(e, 'Externo')}"`).join(', ')}.` : '';
+      const item = rule('external_unit_trips', 'Unidad del proveedor', 'equipment', 2, 'missing',
+        `${stale}"${lineName(first, 'Externo')}" cobra ${formatMoney(price)} ${T.per} y cada ${T.one} tiene ${n(tripsPerActivation)} ${tripWord(tripsPerActivation)}${legs}.${month} Equivale a ${formatMoney(price / tripsPerActivation)} por viaje. Si el proveedor cobra ${formatMoney(price)} por cada viaje, elegí "Por viaje completo (ida y vuelta)" (o "Por tramo" si cobra cada ida o cada vuelta); si cobra ${T.per}, confirmalo. Hasta entonces el resultado no es confiable.${others}`);
+      item.unreliable = true;
+      item.focus = `equipment.${equipment.indexOf(first)}.external.unit`;
+      item.targets = perActivation.map(({ e }) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
+      items.push(item);
+    }
   }
 
   // 9c''. Externo por hora sin horas por día (Test Lab, PLAN-2026-013): CRÍTICO, igual que la
@@ -607,6 +689,24 @@ export function evaluateCompleteness(quote = {}) {
           ? 'Impuestos sobre la facturación definidos.'
           : 'Sin definir: la tarifa piso no incluye los impuestos que pagás sobre lo que facturás (Ingresos Brutos, impuesto al cheque, sellos). Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".'));
 
+  // 13 bis. Abono mensual + "Abono de disponibilidad" (ECO-01, H-02): con la tarifa en $/mes los
+  // dos son cargos fijos del mismo mes y se SUMAN: el mismo abono cargado dos veces muestra
+  // facturación y margen que no existen. Disponibilidad + tarifa por uso (día, hora, llamado…) y el
+  // mínimo mensual garantizado no son doble cobro. La fórmula no cambia: el resultado queda
+  // crítico (no confiable) hasta dejar un solo abono. Dos cargos fijos distintos se expresan
+  // igual con un solo número: la tarifa mensual.
+  const availabilityFee = nonNegative(rules.availabilityFeeMonthly);
+  if (unit.kind === 'month' && availabilityFee > 0) {
+    const knownRate = quote.pricingMode === 'known_rate' && nonNegative(pricing.knownRate) > 0 ? nonNegative(pricing.knownRate) : null;
+    const item = rule('monthly_fee_overlap', 'Dos abonos por mes', 'margin', 2, 'missing',
+      knownRate !== null
+        ? `Cobrás un abono mensual de ${formatMoney(knownRate)} y además un "Abono de disponibilidad" de ${formatMoney(availabilityFee)} por mes: se facturan los dos (${formatMoney(knownRate + availabilityFee)} por mes, de lista). Si es el mismo abono, dejá el de disponibilidad en 0; si son dos cargos distintos, sumalos en la tarifa mensual. Hasta entonces el resultado no es confiable.`
+        : `La tarifa es un abono mensual y además cargaste un "Abono de disponibilidad" de ${formatMoney(availabilityFee)} por mes: se facturan los dos y la tarifa sugerida ya descuenta ese abono. Si es el mismo abono, dejá el de disponibilidad en 0; si es un cargo distinto, incluilo en la tarifa mensual. Hasta entonces el resultado no es confiable.`);
+    item.unreliable = true;
+    item.focus = 'rules.availabilityFeeMonthly';
+    items.push(item);
+  }
+
   // 14. Standby (on-call)
   if (isOnCall) {
     const ok = nonNegative(rules.standbyRatePerDay) > 0 || rules.standbyNotApplicable === true;
@@ -626,7 +726,7 @@ export function evaluateCompleteness(quote = {}) {
   const scorePct = total > 0 ? (earned / total) * 100 : 0;
   // Severidad (PLAN-2026-010): crítico si falta algo que cambia el costo o el precio.
   items.forEach((i) => {
-    i.severity = i.status === 'ok' || i.status === 'n/a' ? null : CRITICAL_RULES.includes(i.id) && i.status === 'missing' ? 'critical' : 'review';
+    i.severity = i.status === 'ok' || i.status === 'n/a' ? null : (CRITICAL_RULES.includes(i.id) || i.critical === true) && i.status === 'missing' ? 'critical' : 'review';
   });
   const order = { missing: 0, warning: 1, ok: 2 };
   const pending = items.filter((i) => i.status !== 'ok').sort((a, b) => (a.severity === 'critical' ? 0 : 1) - (b.severity === 'critical' ? 0 : 1) || order[a.status] - order[b.status]);
@@ -706,6 +806,8 @@ export function evaluateCompleteness(quote = {}) {
     notices,
     critical: pending.filter((i) => i.severity === 'critical').length,
     review: pending.filter((i) => i.severity === 'review').length,
+    // Con estos pendientes el resultado NO es confiable (ECO-01): cuántos hay.
+    unreliable: pending.filter((i) => i.unreliable === true).length,
   };
 }
 

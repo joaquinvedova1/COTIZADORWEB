@@ -589,3 +589,8 @@ th.ta-right .qr-th { align-items: flex-end; }
 
 /* Externos del mes (costo / caja / crédito): los montos grandes nunca se salen de la pantalla. */
 .qr-stats-3 .big-stat-number { overflow-wrap: anywhere; font-size: clamp(1.2rem, 1rem + 1.2vw, 1.85rem); }
+
+/* Cómo se compone la facturación del mes (ECO-01) */
+.qr-revenue-composition { margin-top: 1rem; }
+.qr-revenue-composition .banner { margin: 0.5rem 0; }
+.qr-revenue-composition .qr-rules-item.is-total dt { font-weight: 750; }

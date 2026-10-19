@@ -52,7 +52,7 @@ import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText } from '../result-text.js';
+import { breakEvenZeroText, unreliableText } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -1111,8 +1111,9 @@ function buildSummary({ getResult, stepHref }) {
       key: 'expectedResult',
       label: 'Resultado esperado del mes',
       value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
-      tone: resultTone,
+      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
+      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
+      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
       trace: (r) => r.traces.expectedResult,
     }),
     item({
@@ -1124,11 +1125,13 @@ function buildSummary({ getResult, stepHref }) {
         const k = r.kpis;
         const base = k.targetMarginInvalid ? 'Objetivo inválido' : `Objetivo ${formatPercent(k.targetMarginPct)}`;
         if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
+        const unreliable = unreliableText(r.completeness, 'este margen');
+        if (unreliable) return unreliable;
         const state = k.profit < 0 ? 'perdés plata' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
         const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
         return `${base} · ${state}${markup}.`;
       },
-      tone: resultTone,
+      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
       trace: (r) => r.traces.expectedResult,
     }),
   );

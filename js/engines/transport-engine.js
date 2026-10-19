@@ -18,13 +18,16 @@
  *
  * Con unidad "viaje" y sin mínimo por llamado, los viajes físicos son los
  * facturables: 12 viajes a 1, 2 o 3 por día recorren los mismos 2.400 km.
- * Un proveedor por km se paga por esos km; por viaje, por cada ida o vuelta
- * (tramo); por día, hora o mes, por su unidad (external-engine).
+ * Un proveedor por km se paga por esos km; por tramo, por cada ida o vuelta;
+ * por viaje completo (ECO-01), por cada viaje ida y vuelta de la ruta; por
+ * salida, una vez por salida con todos sus viajes; por día, hora o mes, por
+ * su unidad (external-engine).
  */
 
 import { nonNegative, safeDivide } from '../core/money.js';
 import { isPlainObject } from '../core/object.js';
 import { createTrace } from '../core/trace.js';
+import { formatNumber } from '../core/format.js';
 import { billingUnitOf } from '../domain/billing-units.js';
 import { activationTerms } from '../domain/activation-terms.js';
 
@@ -63,19 +66,32 @@ export function routeTrips(quote = {}, activity = {}) {
   };
 }
 
-/** Por proveedor por km o por viaje: km, viajes y equivalencias de su tarifa. */
+/** Por proveedor por km, por tramo o por viaje completo: km, viajes y equivalencias de su tarifa. */
 function providerActivity(x, { activationsPerMonth, kmPerTrip, oneWayKm, roundTrip }) {
   const legsPerTrip = roundTrip ? 2 : 1;
   const unitsPerMonth = nonNegative(x.billedUnitsPerActivation) * activationsPerMonth;
   const netMonthly = nonNegative(x.netPerActivation) * activationsPerMonth;
+  const fullTrip = x.unit === 'trip' && x.tripBasis === 'round_trip';
   // Equivalencias de la tarifa POR UNIDAD de equipo (sin la cantidad).
-  const perTripNet = x.unit === 'km' ? x.price * kmPerTrip : x.price * legsPerTrip;
-  const perKmNet = x.unit === 'km' ? x.price : safeDivide(x.price, oneWayKm, null);
+  let perTripNet;
+  let perKmNet;
+  if (x.unit === 'km') {
+    perTripNet = x.price * kmPerTrip;
+    perKmNet = x.price;
+  } else if (fullTrip) {
+    perTripNet = x.price;
+    perKmNet = safeDivide(x.price, kmPerTrip, null);
+  } else {
+    perTripNet = x.price * legsPerTrip;
+    perKmNet = safeDivide(x.price, oneWayKm, null);
+  }
   return {
     index: x.index,
     name: x.name || 'Proveedor',
     supplier: x.supplier || '',
     unit: x.unit,
+    // "trip": 'leg' (por tramo) o 'round_trip' (por viaje completo, ECO-01); null con otras unidades.
+    tripBasis: x.unit === 'trip' ? (fullTrip ? 'round_trip' : 'leg') : null,
     price: x.price,
     quantity: x.quantity,
     minimum: x.minimum,
@@ -84,7 +100,9 @@ function providerActivity(x, { activationsPerMonth, kmPerTrip, oneWayKm, roundTr
     minimumApplied: nonNegative(x.billedUnitsPerActivation) > nonNegative(x.unitsPerActivation) + 1e-9,
     unitsPerMonth,
     kmPerMonth: x.unit === 'km' ? unitsPerMonth : null,
-    legsPerMonth: x.unit === 'trip' ? unitsPerMonth : null,
+    // Tramos y viajes completos que factura el proveedor (por tramo: tramos; por viaje completo: viajes).
+    legsPerMonth: x.unit === 'trip' ? (fullTrip ? unitsPerMonth * legsPerTrip : unitsPerMonth) : null,
+    tripsPerMonth: x.unit === 'trip' ? (fullTrip ? unitsPerMonth : safeDivide(unitsPerMonth, legsPerTrip, 0)) : null,
     netMonthly,
     perTripNet: kmPerTrip > 0 ? perTripNet : null,
     perKmNet: kmPerTrip > 0 ? perKmNet : null,
@@ -109,6 +127,22 @@ export function transportSummary({ quote = {}, activity = {}, route = {}, logist
   const providers = (Array.isArray(external) ? external : [])
     .filter((x) => x && (x.unit === 'km' || x.unit === 'trip'))
     .map((x) => providerActivity(x, { activationsPerMonth, kmPerTrip, oneWayKm, roundTrip }));
+  // Proveedores que cobran POR SALIDA (ECO-01, AUD-T1 H-01): una vez por salida con todos sus
+  // viajes. Se explica cuántas salidas factura y cuánto equivale por viaje (nunca se reinterpreta).
+  const perActivationProviders = (Array.isArray(external) ? external : [])
+    .filter((x) => x && x.unit === 'activation' && tripsPerActivation > 0)
+    .map((x) => ({
+      index: x.index,
+      name: x.name || 'Proveedor',
+      supplier: x.supplier || '',
+      price: x.price,
+      quantity: x.quantity,
+      activationsPerMonth,
+      tripsPerActivation,
+      tripsPerMonth: activationsPerMonth * tripsPerActivation,
+      netMonthly: nonNegative(x.netPerActivation) * activationsPerMonth,
+      perTripNet: safeDivide(x.price, tripsPerActivation, null),
+    }));
   // Cobro por km (PLAN-2026-014, LAB-D4): km FACTURABLES (lo que se cobra) y km DE RUTA (lo que
   // se recorre y se costea) son dos datos; nunca se deriva uno del otro ni se pisa lo cargado.
   const routeKmPerMonth = activationsPerMonth * nonNegative(logistics.routeKmPerActivation);
@@ -141,6 +175,7 @@ export function transportSummary({ quote = {}, activity = {}, route = {}, logist
     // Facturables > físicos: el mínimo por llamado factura viajes que no se hacen.
     minimumPadding: billable !== null && billable > physicalTripsPerMonth + 1e-9 && physicalTripsPerMonth > 0,
     providers,
+    perActivationProviders,
   };
 }
 
@@ -174,11 +209,21 @@ export function traceTransport(transport) {
         { label: 'Diferencia = km facturables − km de ruta', value: t.billableKmPerMonth - t.routeKmPerMonth, format: 'km' },
       ]
       : []),
-    ...(Array.isArray(t.providers) ? t.providers : []).flatMap((p) => [
-      p.unit === 'km'
-        ? { label: `${p.name}: km facturados por mes`, value: p.unitsPerMonth, format: 'km' }
-        : { label: `${p.name}: tramos facturados por mes (cada ida o vuelta)`, value: p.unitsPerMonth, format: 'number' },
-      { label: `${p.name}: ${p.unit === 'km' ? 'km' : 'tramos'} × tarifa neta × cantidad`, value: p.netMonthly, format: 'money' },
+    ...(Array.isArray(t.providers) ? t.providers : []).flatMap((p) => {
+      const what = p.unit === 'km' ? 'km' : p.tripBasis === 'round_trip' ? 'viajes completos' : 'tramos';
+      return [
+        p.unit === 'km'
+          ? { label: `${p.name}: km facturados por mes`, value: p.unitsPerMonth, format: 'km' }
+          : p.tripBasis === 'round_trip'
+            ? { label: `${p.name}: viajes completos (ida y vuelta) facturados por mes`, value: p.unitsPerMonth, format: 'number' }
+            : { label: `${p.name}: tramos facturados por mes (cada ida o cada vuelta)`, value: p.unitsPerMonth, format: 'number' },
+        { label: `${p.name}: ${what} × tarifa neta × cantidad`, value: p.netMonthly, format: 'money' },
+      ];
+    }),
+    ...(Array.isArray(t.perActivationProviders) ? t.perActivationProviders : []).flatMap((p) => [
+      { label: `${p.name}: ${T.many} que factura por mes (${formatNumber(p.tripsPerActivation, { decimals: 2 })} viajes ${T.per})`, value: p.activationsPerMonth, format: 'number' },
+      { label: `${p.name}: ${T.many} × tarifa neta × cantidad`, value: p.netMonthly, format: 'money' },
+      { label: `${p.name}: equivale por viaje = tarifa ÷ viajes ${T.per}`, value: p.perTripNet, format: 'money' },
     ]),
   ].filter(Boolean);
   const over = byKm && t.billableKmPerMonth - t.routeKmPerMonth > Math.max(1, t.billableKmPerMonth * 0.01);

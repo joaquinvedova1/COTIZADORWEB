@@ -85,6 +85,8 @@ export function createExternalTerms(src = {}) {
     supplier: shortText(s.supplier),
     price: finiteOr(s.price, 0),
     unit: EXTERNAL_UNIT_IDS.includes(s.unit) ? s.unit : 'day',
+    // Viaje completo (ECO-01): sólo con la unidad "trip"; sin el dato, la tarifa es por tramo (lo de siempre).
+    ...(s.unit === 'trip' && s.tripBasis === 'round_trip' ? { tripBasis: 'round_trip' } : {}),
     minimumUnits: opt(s.minimumUnits),
     validUntil: isValidDayDate(s.validUntil) ? s.validUntil : null,
     operatorIncluded: boolOrNull(s.operatorIncluded),

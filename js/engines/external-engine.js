@@ -7,7 +7,9 @@
  *
  *   hora        unidades/llamado = horas por día × días por llamado
  *   día         unidades/llamado = días por llamado
- *   viaje       unidades/llamado = viajes de ida o vuelta por llamado
+ *   tramo       unidades/llamado = tramos (cada ida o cada vuelta) por llamado   (unidad "trip", lo de siempre)
+ *   viaje completo unidades/llamado = viajes completos de la ruta por llamado
+ *               (unidad "trip" con `tripBasis: 'round_trip'`, ECO-01: un viaje ida y vuelta es UNA unidad)
  *   km          unidades/llamado = km de ruta por llamado
  *   llamado     1 por llamado (sin mínimo)
  *   mes         fijo mensual = precio × cantidad
@@ -88,7 +90,8 @@ export function externalFiscal(fiscal = {}) {
  * Costo de UNA línea externa (alquilado o tercerizado) en la cotización.
  * @param {object} line  línea de equipo con acquisition rented | outsourced y `external`
  * @param {object} ctx   { daysPerActivation, defaultHoursPerActiveDay, routeKmPerActivation,
- *                         tripsPerActivation (viajes de ida o vuelta), contractMonths,
+ *                         tripsPerActivation (tramos: cada ida o cada vuelta),
+ *                         fullTripsPerActivation (viajes completos de la ruta), contractMonths,
  *                         fuelPricePerLiter, fuelPaidByUs, conversion (factor de moneda; 0 si falta el tipo de cambio) }
  */
 export function computeExternalLine(line = {}, ctx = {}) {
@@ -100,6 +103,8 @@ export function computeExternalLine(line = {}, ctx = {}) {
   // Horas por UNIDAD, con el mismo tope de 24 h que un equipo propio (PLAN-2026-014).
   const hoursPerActiveDay = equipmentHoursPerDay(line.hoursPerActiveDay, ctx.defaultHoursPerActiveDay);
   const unit = EXTERNAL_UNIT_IDS.includes(ext.unit) ? ext.unit : 'day';
+  // Tarifa "trip": por tramo (lo de siempre) o por viaje completo (ECO-01, AUD-T1 H-01).
+  const tripBasis = unit === 'trip' ? (ext.tripBasis === 'round_trip' ? 'round_trip' : 'leg') : null;
   const priceOriginal = nonNegative(ext.price);
   const price = priceOriginal * conversion;
   const minimum = nonNegative(ext.minimumUnits);
@@ -118,7 +123,7 @@ export function computeExternalLine(line = {}, ctx = {}) {
       unitsPerActivation = dpa;
       break;
     case 'trip':
-      unitsPerActivation = nonNegative(ctx.tripsPerActivation);
+      unitsPerActivation = tripBasis === 'round_trip' ? nonNegative(ctx.fullTripsPerActivation) : nonNegative(ctx.tripsPerActivation);
       break;
     case 'km':
       unitsPerActivation = nonNegative(ctx.routeKmPerActivation);
@@ -172,6 +177,7 @@ export function computeExternalLine(line = {}, ctx = {}) {
     acquisition: line.acquisition === 'rented' ? 'rented' : 'outsourced',
     supplier: typeof ext.supplier === 'string' ? ext.supplier : '',
     unit,
+    tripBasis,
     quantity,
     hoursPerActiveDay,
     priceOriginal,

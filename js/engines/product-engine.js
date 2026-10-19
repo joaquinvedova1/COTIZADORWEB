@@ -243,7 +243,13 @@ export function validateProduct(product = {}, computed = null) {
     if (line.issue === 'pack_size_missing') issues.push({ path: `materials.${i}.packSize`, message: `"${line.description || 'Ingrediente'}": cargá cuánto trae el paquete.`, severity: 'warning' });
     if (line.currencyGap) issues.push({ path: `materials.${i}.base.currency`, message: `"${line.description || 'Ingrediente'}" está en otra moneda: cargá el tipo de cambio.`, severity: 'error' });
   });
+  const laborInput = objectList(p.labor);
   r.labor.forEach((line, i) => {
+    // Puesto que trabaja en la tanda sin sueldo básico (ECO-01, H-03): el costo hora quedaría sin
+    // sueldo y el producto no está completo. Nunca se inventa un sueldo.
+    if (line.people > 0 && line.minutesPerBatch > 0 && !(nonNegative(laborInput[i]?.basicMonthly) > 0)) {
+      issues.push({ path: `labor.${i}.basicMonthly`, message: `"${line.role || 'Puesto'}" trabaja en cada tanda pero no tiene sueldo básico: sin el básico faltan su sueldo y las cargas sociales sobre él en el costo hora. Cargalo; si no trabaja en este producto, poné 0 minutos o quitá la línea.`, severity: 'error' });
+    }
     if (line.issue === 'normal_hours_missing') issues.push({ path: `labor.${i}.normalHoursPerMonth`, message: `"${line.role || 'Puesto'}": cargá las horas normales del mes para calcular el costo hora.`, severity: 'warning' });
     if (isFiniteNumber(line.usedPct) && line.usedPct > 100) issues.push({ path: `labor.${i}.minutesPerBatch`, message: `"${line.role || 'Puesto'}": con las unidades que vendés por mes necesitaría más horas de las que trabaja en el mes. Revisá los minutos por tanda, las personas o las ventas.`, severity: 'warning' });
   });

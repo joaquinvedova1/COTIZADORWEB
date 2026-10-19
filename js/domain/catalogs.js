@@ -102,6 +102,23 @@ export const MATERIAL_PROVIDERS = deepFreeze([
   { id: 'client', label: 'Cliente (no es costo nuestro)', costForUs: false },
 ]);
 
+/**
+ * Base de una tarifa "trip" (ECO-01, AUD-T1 H-01): por TRAMO (cada ida o cada
+ * vuelta, lo de siempre) o por VIAJE COMPLETO (ida y vuelta de la ruta). Se guarda
+ * en `external.tripBasis` sólo cuando es 'round_trip'; sin el dato es 'leg'.
+ */
+export const EXTERNAL_TRIP_BASES = deepFreeze([
+  { id: 'leg', label: 'Por tramo (cada ida o cada vuelta)', short: '/tramo' },
+  { id: 'round_trip', label: 'Por viaje completo (ida y vuelta)', short: '/viaje' },
+]);
+
+/** Abreviatura de la unidad de una tarifa externa: "/tramo", "/viaje" (viaje completo), "/km"… */
+export function externalUnitShort(ext) {
+  const x = ext && typeof ext === 'object' ? ext : {};
+  if (x.unit === 'trip' && x.tripBasis === 'round_trip') return EXTERNAL_TRIP_BASES.find((b) => b.id === 'round_trip').short;
+  return (EXTERNAL_UNITS.find((u) => u.id === x.unit) || {}).short || '';
+}
+
 export const FUEL_PROVIDERS = deepFreeze([
   { id: 'contractor', label: 'Lo pagamos nosotros' },
   { id: 'client', label: 'Lo provee el cliente' },
@@ -291,8 +308,9 @@ export const EXTERNAL_UNITS = deepFreeze([
   { id: 'hour', label: 'Por hora', short: '/h' },
   { id: 'day', label: 'Por día', short: '/día' },
   { id: 'month', label: 'Por mes', short: '/mes' },
-  { id: 'trip', label: 'Por viaje (cada ida o vuelta)', short: '/viaje' },
-  { id: 'km', label: 'Por km', short: '/km' },
+  // "trip" es POR TRAMO (cada ida o cada vuelta): lo que significó siempre (ECO-01: sólo cambia el rótulo).
+  { id: 'trip', label: 'Por tramo (cada ida o cada vuelta)', short: '/tramo' },
+  { id: 'km', label: 'Por km recorrido', short: '/km' },
   // En una cotización se nombra como su activación (withActivationOptions, PLAN-2026-014).
   { id: 'activation', label: 'Por intervención (llamado o salida)', short: '/intervención' },
   { id: 'global', label: 'Global (todo el contrato)', short: ' global' },

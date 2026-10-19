@@ -21,13 +21,14 @@
 import { h, mount } from '../../dom.js';
 import { badge, card, dateField, formGrid, selectField, triStateField, confirmDialog, emptyState, icon } from '../../components.js';
 import { equipmentLineFromLibrary, externalLineFromService, blankEquipmentLine, createExternalTerms, createMobilization, acquisitionOf } from '../../../domain/quote-factory.js';
-import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
+import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
 import { activationTerms, withActivationOptions } from '../../../domain/activation-terms.js';
 import { computeEquipmentUnit, maintenanceOf, tiresOf, MAX_EQUIPMENT_HOURS_PER_DAY } from '../../../engines/equipment-engine.js';
 import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { lineIncrementalImpact } from '../../../engines/impact-engine.js';
+import { externalUnitAssumption } from '../../../engines/completeness-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -50,8 +51,23 @@ function currencyUnit(base, quote) {
 
 /** Nombre de la activación de la cotización de un resultado (llamado / salida / intervención…, PLAN-2026-014). */
 const termsOfResult = (result) => activationTerms(result && result.model && result.model.activationRounding ? result.model.activationRounding.terms : null);
-/** Unidades de tarifa externa con la activación nombrada como en la cotización ("Por salida", "/salida"). */
-const unitsFor = (T) => withActivationOptions(EXTERNAL_UNITS, T);
+/**
+ * Unidades de tarifa externa con la activación nombrada como en la cotización ("Por salida", "/salida").
+ * "Por viaje completo (ida y vuelta)" (ECO-01) es la unidad "trip" con `tripBasis: 'round_trip'`:
+ * en el selector es una opción más (`trip:round_trip`); lo guardado como "trip" sigue siendo por tramo.
+ */
+const ROUND_TRIP = 'trip:round_trip';
+const unitsFor = (T) => withActivationOptions(EXTERNAL_UNITS, T).flatMap((u) => {
+  if (u.id !== 'trip') return [u];
+  const round = EXTERNAL_TRIP_BASES.find((b) => b.id === 'round_trip');
+  return [u, { id: ROUND_TRIP, label: round.label, short: round.short }];
+});
+/** Opción del selector de una tarifa externa (o de un resultado del motor). */
+const unitKeyOf = (ext) => {
+  const x = ext || {};
+  const unit = x.unit || 'day';
+  return unit === 'trip' && x.tripBasis === 'round_trip' ? ROUND_TRIP : unit;
+};
 const unitShort = (unit, T = activationTerms()) => (unitsFor(T).find((u) => u.id === unit) || EXTERNAL_UNITS[1]).short;
 
 /** "Por qué" de cada unidad de tarifa (cómo se cuentan las unidades por activación). */
@@ -60,6 +76,7 @@ const unitHints = (T) => ({
   day: `Unidades ${T.per} = días ${T.per}.`,
   month: 'Costo fijo por mes (trabaje o no).',
   trip: 'Cobra cada ida o cada vuelta (tramo): un viaje ida y vuelta son 2 tramos. Los viajes salen de la ruta y de los viajes físicos de la cotización.',
+  [ROUND_TRIP]: 'Cobra cada viaje completo (ida y vuelta): un viaje ida y vuelta es 1 unidad. Los viajes salen de la ruta y de los viajes físicos de la cotización.',
   km: `Unidades ${T.per} = km de ruta ${T.per}: viajes físicos × km por viaje (de "Movilización y viajes").`,
   activation: `Un cobro en ${T.each}.`,
   global: 'Monto por todo el contrato, repartido en los meses de contrato.',
@@ -272,9 +289,11 @@ function externalTrace(result, index, source, impact = null) {
       { label: `Km por viaje${routeName(t) ? ` (${routeName(t)})` : ''}`, value: t.kmPerTrip, format: 'km' },
       p.unit === 'km'
         ? { label: 'Km facturados por mes = viajes físicos × km por viaje', value: p.unitsPerMonth, format: 'km' }
-        : { label: 'Tramos facturados por mes (cada ida o vuelta)', value: p.unitsPerMonth, format: 'number' },
-      { label: `Neto del proveedor en el mes = ${p.unit === 'km' ? 'km' : 'tramos'} × ${formatMoney(p.price)} × cantidad`, value: p.netMonthly, format: 'money' },
-      p.perTripNet !== null ? { label: 'Equivalente por viaje (neto)', value: p.perTripNet, format: 'money' } : null,
+        : p.tripBasis === 'round_trip'
+          ? { label: 'Viajes completos facturados por mes (ida y vuelta)', value: p.unitsPerMonth, format: 'number' }
+          : { label: 'Tramos facturados por mes (cada ida o vuelta)', value: p.unitsPerMonth, format: 'number' },
+      { label: `Neto del proveedor en el mes = ${p.unit === 'km' ? 'km' : p.tripBasis === 'round_trip' ? 'viajes completos' : 'tramos'} × ${formatMoney(p.price)} × cantidad`, value: p.netMonthly, format: 'money' },
+      p.perTripNet !== null ? { label: 'Equivalente por viaje completo (neto)', value: p.perTripNet, format: 'money' } : null,
       p.perKmNet !== null ? { label: 'Equivalente por km (neto)', value: p.perKmNet, format: 'money' } : null,
     ].filter(Boolean)
     : [];
@@ -294,8 +313,8 @@ function externalTrace(result, index, source, impact = null) {
     formula: `Facturado ${T.per} = máx(unidades ${T.per}, mínimo) × tarifa neta × cantidad · Costo económico = neto × (1 + cargos no recuperables % + IVA % × (1 − parte recuperable)) · Por día activo = ${T.per} / días ${T.per}`,
     inputs: [
       x.conversion !== 1
-        ? { label: `Tarifa neta (sin IVA) ${unitShort(x.unit, T)} en ${(source && source.base && source.base.currency) || 'otra moneda'}`, value: x.priceOriginal, format: 'number' }
-        : { label: `Tarifa neta (sin IVA) ${unitShort(x.unit, T)}`, value: x.priceOriginal, format: 'money' },
+        ? { label: `Tarifa neta (sin IVA) ${unitShort(unitKeyOf(x), T)} en ${(source && source.base && source.base.currency) || 'otra moneda'}`, value: x.priceOriginal, format: 'number' }
+        : { label: `Tarifa neta (sin IVA) ${unitShort(unitKeyOf(x), T)}`, value: x.priceOriginal, format: 'money' },
       x.conversion !== 1 ? { label: 'Tipo de cambio de la cotización', value: x.conversion, format: 'number' } : null,
       x.conversion !== 1 ? { label: 'Tarifa neta convertida', value: x.price, format: 'money' } : null,
       { label: `Unidades ${T.per}`, value: x.unitsPerActivation, format: 'number' },
@@ -813,6 +832,68 @@ export function render(container, ctx) {
     },
   });
 
+  /**
+   * Unidad de la tarifa externa (ECO-01): "Por tramo" y "Por viaje completo (ida y vuelta)" son
+   * la unidad "trip" con o sin `tripBasis`. Cambiar la unidad descarta una confirmación anterior.
+   */
+  const setExternalUnit = (index, value) => ctx.mutate((q) => {
+    const line = q.equipment[index];
+    if (!line) return;
+    if (!line.external || typeof line.external !== 'object') line.external = createExternalTerms({});
+    if (value === ROUND_TRIP) {
+      line.external.unit = 'trip';
+      line.external.tripBasis = 'round_trip';
+    } else {
+      line.external.unit = value;
+      delete line.external.tripBasis;
+    }
+    delete line.externalUnitConfirmed;
+  });
+  const unitField = (index, value) => selectField({
+    label: 'Unidad de la tarifa',
+    name: `equipment.${index}.external.unit`,
+    value,
+    options: unitsFor(T).map((u) => ({ value: u.id, label: u.label })),
+    hint: unitHints(T)[value],
+    disabled: ctx.readOnly,
+    onChange: (v) => setExternalUnit(index, v || 'day'),
+  });
+  /** Pendiente "Unidad del proveedor" de esta línea (completitud), o null. */
+  const unitPendingOf = (r, index) => ((r && r.completeness && r.completeness.pending) || [])
+    .find((x) => x.id === 'external_unit_trips' && (x.targets || []).some((t) => t.index === index)) || null;
+  /**
+   * "Por salida" con varios viajes por salida (ECO-01, H-01): crítico hasta elegir la unidad o
+   * confirmarla. "Sí, cobra por salida" guarda el supuesto actual (tarifa, viajes por salida y
+   * ruta, `externalUnitAssumption`): si después cambia, el motor vuelve a pedirlo.
+   */
+  const unitConfirmBanner = (index) => {
+    const pendingBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-warning qe-unit-confirm', role: 'status' },
+      kit.out((r) => {
+        const item = unitPendingOf(r, index);
+        return item ? h('div', {}, h('strong', {}, `¿Cobra ${T.per} o por viaje? `), item.message) : '';
+      }, { tag: 'div', allowEmpty: true }),
+      ctx.readOnly
+        ? null
+        : h('div', { class: 'qe-toolbar' },
+          kit.action('Por viaje completo (ida y vuelta)', () => setExternalUnit(index, ROUND_TRIP), { variant: 'primary' }),
+          kit.action(`Sí, cobra ${T.per}`, () => ctx.mutate((q) => { q.equipment[index].externalUnitConfirmed = externalUnitAssumption(q, q.equipment[index]); }), { icon: 'check' })),
+    ), (r) => Boolean(unitPendingOf(r, index)));
+    const line = quote.equipment[index] || {};
+    const c = line.externalUnitConfirmed;
+    if (!c || typeof c !== 'object') return pendingBanner;
+    // Confirmación vigente: se muestra lo que se confirmó (desaparece si el motor la da por vencida).
+    const confirmedBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-info qe-unit-confirm is-confirmed', role: 'status' },
+      h('div', {}, h('strong', {}, `Confirmado: el proveedor cobra ${T.per}. `),
+        `${formatMoney(Number(c.price) || 0)} ${T.per} con ${formatNumber(Number(c.tripsPerActivation) || 0, { decimals: 2 })} viajes ${T.per}: se paga una vez en ${T.each}. Si cambian la tarifa, los viajes ${T.per} o la ruta, se vuelve a pedir.`),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar la unidad', () => ctx.mutate((q) => { delete q.equipment[index].externalUnitConfirmed; }, { focus: `equipment.${index}.external.unit` }), { icon: 'edit' })),
+    ), (r) => !unitPendingOf(r, index));
+    return h('div', { class: 'qe-unit-confirm-wrap' }, pendingBanner, confirmedBanner);
+  };
+
   const externalCard = (line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
@@ -822,6 +903,7 @@ export function render(container, ctx) {
     const ext = line.external || {};
     const sym = currencyUnit(line.base, quote);
     const unit = ext.unit || 'day';
+    const unitKey = unitKeyOf(ext);
     const fiscal = ext.fiscal || {};
     return kit.lineCard(
       {
@@ -869,6 +951,8 @@ export function render(container, ctx) {
             providerRouteText(pa, t) ? h('p', { class: 'small muted' }, providerRouteText(pa, t)) : null);
         }, { tag: 'div', allowEmpty: true })
         : null,
+      // "Por salida" con varios viajes por salida (ECO-01, H-01): elegir la unidad o confirmarla.
+      unit === 'activation' ? unitConfirmBanner(i) : null,
       // Asistente de completitud del externo.
       kit.out(() => {
         const items = externalChecklist(quote.equipment[i] || {});
@@ -886,9 +970,9 @@ export function render(container, ctx) {
         kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }),
         kit.text(`${p}.external.supplier`, { label: 'Proveedor', maxLength: 120 }),
         kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.' }),
-        kit.num(`${p}.external.price`, { label: 'Tarifa neta (sin IVA)', rule: 'money', unit: `${sym}${unitShort(unit, T)}`, illustrative, hint: 'El precio del proveedor SIN IVA: el IVA se trata aparte.' }),
-        kit.select(`${p}.external.unit`, { label: 'Unidad de la tarifa', options: unitsFor(T).map((u) => ({ value: u.id, label: u.label })), hint: unitHints(T)[unit], structural: true }),
-        kit.num(`${p}.external.minimumUnits`, { label: 'Mínimo facturable', rule: 'quantity', unit: unitShort(unit, T).replace('/', '').trim() || 'u.', hint: `Unidades mínimas ${T.per}. Vacío = sin mínimo.` }),
+        kit.num(`${p}.external.price`, { label: 'Tarifa neta (sin IVA)', rule: 'money', unit: `${sym}${unitShort(unitKey, T)}`, illustrative, hint: 'El precio del proveedor SIN IVA: el IVA se trata aparte.' }),
+        unitField(i, unitKey),
+        kit.num(`${p}.external.minimumUnits`, { label: 'Mínimo facturable', rule: 'quantity', unit: unitShort(unitKey, T).replace('/', '').trim() || 'u.', hint: `Unidades mínimas ${T.per}. Vacío = sin mínimo.` }),
         unit === 'hour'
           ? kit.num(`${p}.hoursPerActiveDay`, {
             label: 'Horas de uso por día activo',

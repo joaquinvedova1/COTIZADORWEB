@@ -88,6 +88,8 @@ function canonicalExternal(ext) {
     supplier: typeof ext.supplier === 'string' ? ext.supplier.trim() : '',
     price: num(ext.price),
     unit: typeof ext.unit === 'string' ? ext.unit : null,
+    // Viaje completo (ECO-01): sólo si se eligió (las huellas anteriores quedan iguales).
+    ...(ext.unit === 'trip' && ext.tripBasis === 'round_trip' ? { tripBasis: 'round_trip' } : {}),
     minimumUnits: num(ext.minimumUnits),
     validUntil: typeof ext.validUntil === 'string' ? ext.validUntil : null,
     operatorIncluded: bool(ext.operatorIncluded),

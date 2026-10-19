@@ -294,19 +294,43 @@ export function completenessExampleNote({ quoteId = null, illustrative = false, 
  * revisar, la tarifa no está lista para usar. Los informativos no cuentan.
  * Devuelve null si no hay nada material.
  */
-export function draftBannerText({ critical = 0, review = 0 } = {}) {
+export function draftBannerText({ critical = 0, review = 0, unreliable = 0 } = {}) {
   const c = Number.isFinite(critical) && critical > 0 ? Math.floor(critical) : 0;
   const rv = Number.isFinite(review) && review > 0 ? Math.floor(review) : 0;
+  const u = Number.isFinite(unreliable) && unreliable > 0 ? Math.floor(unreliable) : 0;
   const total = c + rv;
   if (total === 0) return null;
   const parts = [];
   if (c > 0) parts.push(c === 1 ? '1 crítico (cambia el costo o el precio)' : `${c} críticos (cambian el costo o el precio)`);
   if (rv > 0) parts.push(`${rv} para revisar`);
+  const counts = `${parts.join(' y ')}.`.replace(/^./, (x) => x.toUpperCase());
+  // ECO-01: los números se muestran (no se reinterpreta nada) pero no son reales: se dice primero.
+  if (u > 0) {
+    return {
+      tone: 'danger',
+      unreliable: true,
+      title: 'RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA.',
+      text: `${u === 1 ? 'Un dato hace' : `${u} datos hacen`} que el costo, la facturación o el margen de abajo no sean reales: resolvelo antes de cotizar. ${counts}`,
+    };
+  }
   return {
     tone: c > 0 ? 'danger' : 'warning',
     title: `BORRADOR — revisar ${total} ${total === 1 ? 'punto' : 'puntos'} antes de usar esta tarifa.`,
-    text: `${parts.join(' y ')}.`.replace(/^./, (x) => x.toUpperCase()),
+    text: counts,
   };
+}
+
+/** Pendientes que vuelven NO CONFIABLE el resultado (ECO-01): `unreliable` del motor de completitud. */
+export function unreliableItems(completeness) {
+  const pending = completeness && Array.isArray(completeness.pending) ? completeness.pending : [];
+  return pending.filter((i) => i && i.unreliable === true);
+}
+
+/** "NO CONFIABLE (Dos abonos por mes): no uses este número." o null (para el margen y el resultado). */
+export function unreliableText(completeness, what = 'este número') {
+  const items = unreliableItems(completeness);
+  if (!items.length) return null;
+  return `NO CONFIABLE (${items.map((i) => i.label).join(', ')}): no uses ${what} hasta resolverlo.`;
 }
 
 /**

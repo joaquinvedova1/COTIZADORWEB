@@ -40,7 +40,7 @@ import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatValue, f
 import { isFiniteNumber, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
-import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, labelOf } from '../../domain/catalogs.js';
+import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import { wearNote } from '../equipment-wear-ui.js';
@@ -354,7 +354,7 @@ function externalPreview(draft) {
   const f = externalFiscal(x.fiscal);
   const price = toNumber(x.price, 0);
   const cur = draft.base && draft.base.currency;
-  const unit = (EXTERNAL_UNITS.find((u) => u.id === x.unit) || {}).short || '';
+  const unit = externalUnitShort(x);
   return previewKpis([
     { label: `Costo económico ${unit}`, value: formatMoneyIn(price * f.economicFactor, cur), emphasis: true, hint: 'Neto + IVA no recuperable + cargos no recuperables' },
     { label: `Salida de caja ${unit}`, value: f.vatDefined ? formatMoneyIn(price * f.cashFactor, cur) : 'IVA sin cargar', hint: 'Neto + IVA + percepciones + cargos' },
@@ -666,6 +666,7 @@ function agreementSections() {
 
 const ACQ_OPTIONS = ACQUISITION_MODES.map((a) => ({ value: a.id, label: a.label }));
 const UNIT_OPTIONS = EXTERNAL_UNITS.map((u) => ({ value: u.id, label: u.label }));
+const TRIP_BASIS_OPTIONS = EXTERNAL_TRIP_BASES.map((b) => ({ value: b.id, label: b.label }));
 const FAMILY_OPTIONS = EQUIPMENT_FAMILIES.map((f) => ({ value: f.id, label: f.label }));
 const isExternalDraft = (d) => acquisitionOf(d) !== 'owned';
 const currencySymbol = (d, key = 'base') => {
@@ -686,7 +687,9 @@ function externalTermSections() {
       fields: [
         { key: 'external.supplier', label: 'Proveedor (opcional)', kind: 'text', maxLength: 120 },
         { key: 'external.price', label: 'Precio neto', rule: 'money', unit: (d) => currencySymbol(d), required: true },
-        { key: 'external.unit', label: 'Por', kind: 'select', options: UNIT_OPTIONS },
+        { key: 'external.unit', label: 'Por', kind: 'select', options: UNIT_OPTIONS, rerender: true },
+        // ECO-01 (H-01): con "Por tramo", si el proveedor cobra el viaje completo (ida y vuelta).
+        { key: 'external.tripBasis', label: '¿Qué cobra?', kind: 'select', options: TRIP_BASIS_OPTIONS, when: (d) => d.external && d.external.unit === 'trip', hint: 'Un viaje ida y vuelta son 2 tramos y 1 viaje completo.' },
         { key: 'external.minimumUnits', label: RESOURCE_LABELS.externalMinimum, rule: 'quantity', nullable: true, hint: 'Ej.: mínimo 8 h o 3 días.' },
         { key: 'external.validUntil', label: 'Vigencia de la oferta', kind: 'date', hint: 'Hasta qué fecha vale este precio.' },
         ...baseFormFields('base', { currency: true, periodLabel: 'Base de la tarifa (mes)' }),
@@ -1485,7 +1488,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const acqCol = { key: 'acq', label: 'Obtención', render: ({ item }) => badge(labelOf(ACQUISITION_MODES, acquisitionOf(item), 'Propio'), acquisitionOf(item) === 'owned' ? 'navy' : 'blue') };
     const tariff = (item) => {
       const x = item.external || {};
-      return h('span', { class: 'nowrap' }, h('strong', {}, formatMoneyIn(toNumber(x.price, 0), item.base && item.base.currency)), h('span', { class: 'unit-suffix' }, ` ${(EXTERNAL_UNITS.find((u) => u.id === x.unit) || {}).short || ''}`));
+      return h('span', { class: 'nowrap' }, h('strong', {}, formatMoneyIn(toNumber(x.price, 0), item.base && item.base.currency)), h('span', { class: 'unit-suffix' }, ` ${externalUnitShort(x)}`));
     };
     if (!detailed) {
       return table({
@@ -1535,7 +1538,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
           align: 'right',
           render: ({ item }) => {
             const x = item.external || {};
-            return h('div', { class: 'cell-main cell-num' }, h('strong', { class: 'nowrap' }, `${formatMoneyIn(toNumber(x.price, 0), item.base && item.base.currency)} ${(EXTERNAL_UNITS.find((u) => u.id === x.unit) || {}).short || ''}`), toNumber(x.minimumUnits, 0) > 0 ? h('span', { class: 'cell-sub' }, `Mínimo ${formatNumber(toNumber(x.minimumUnits, 0), { decimals: 2 })}`) : null);
+            return h('div', { class: 'cell-main cell-num' }, h('strong', { class: 'nowrap' }, `${formatMoneyIn(toNumber(x.price, 0), item.base && item.base.currency)} ${externalUnitShort(x)}`), toNumber(x.minimumUnits, 0) > 0 ? h('span', { class: 'cell-sub' }, `Mínimo ${formatNumber(toNumber(x.minimumUnits, 0), { decimals: 2 })}`) : null);
           },
         },
         { key: 'includes', label: 'Incluye', render: ({ item }) => includesText(item.external) },
