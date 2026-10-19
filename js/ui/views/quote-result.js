@@ -86,7 +86,7 @@ import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
-import { normalizeRules } from '../../engines/commercial-rules-engine.js';
+import { normalizeRules, revenueComposition } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
 import { priceComposition } from '../../engines/price-composition-engine.js';
@@ -3266,7 +3266,39 @@ function rulesSummary(v) {
     items.length
       ? h('dl', { class: 'qr-rules-list' }, ...items.map(([term, desc]) => h('div', { class: 'qr-rules-item' }, h('dt', {}, term), h('dd', {}, desc))))
       : note(byQty(v) ? `No hay reglas comerciales especiales: se factura la tarifa por cada ${r.unitInfo.singular}.` : 'No hay reglas comerciales especiales: se factura la tarifa por las unidades trabajadas.'),
+    revenueCompositionBlock(v, revenue, T),
     h('p', { class: 'qr-rules-edit no-print' }, stepLink(q, 'margin', 'Editar reglas comerciales')));
+}
+
+/**
+ * Cómo se compone la facturación del mes (ECO-01, H-02): cada componente que suma, el ajuste
+ * por mínimo garantizado y el total, con los valores del motor (revenueComposition). Con
+ * abono mensual + abono de disponibilidad, el aviso crítico va acá también.
+ */
+function revenueCompositionBlock(v, revenue, T) {
+  const { r } = v;
+  const c = revenueComposition(revenue);
+  if (!(c.total > 0) || !c.rows.length) return null;
+  const units = hasValue(revenue.billableUnits) ? (r.unit === 'quantity' ? quantityText(revenue.billableUnits, r) : `${formatNumber(revenue.billableUnits, { decimals: 2 })} ${r.unitInfo.plural || 'unidades'}`) : null;
+  const labels = {
+    base: r.unit === 'month' ? 'Abono mensual (la tarifa)' : `Tarifa${units ? ` × ${units}` : ''}`,
+    availabilityFee: 'Abono de disponibilidad',
+    callout: `Cargos ${T.per}`,
+    mobilization: 'Movilización',
+    extraKm: 'Km adicionales',
+    standby: 'Equipo en espera',
+    materials: 'Materiales facturados aparte',
+    overtime: 'Horas extra facturadas aparte',
+    guaranteeTopUp: 'Ajuste al mínimo mensual garantizado',
+  };
+  const overlap = ((r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap');
+  return h('div', { class: 'qr-revenue-composition' },
+    h('h4', { class: 'qr-subhead' }, 'Cómo se compone la facturación del mes'),
+    overlap ? h('div', { class: 'banner banner-danger', role: 'alert' }, h('div', {}, h('strong', {}, 'Dos abonos por mes. '), overlap.message)) : null,
+    h('dl', { class: 'qr-rules-list' },
+      ...c.rows.map((row) => h('div', { class: 'qr-rules-item' }, h('dt', {}, labels[row.id] || row.id), h('dd', { class: 'mono' }, money(row.amount)))),
+      h('div', { class: 'qr-rules-item is-total' }, h('dt', {}, 'Facturación del mes (sin IVA)'), h('dd', { class: 'mono' }, h('strong', {}, money(c.total))))),
+    note('Con la actividad estimada. Son los mismos números que usa el resultado: no se recalcula nada.'));
 }
 
 function renderCommercialRules(v) {

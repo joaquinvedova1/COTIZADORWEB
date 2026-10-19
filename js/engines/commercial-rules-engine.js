@@ -224,6 +224,37 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
   };
 }
 
+/** Orden de los componentes de la facturación del mes (ECO-01, H-02). */
+export const REVENUE_COMPONENTS = Object.freeze(['base', 'availabilityFee', 'callout', 'mobilization', 'extraKm', 'standby', 'materials', 'overtime', 'guaranteeTopUp']);
+
+/**
+ * Cómo se compone la facturación del mes (ECO-01, H-02): los componentes de
+ * computeRevenue que suman, en orden, con el ajuste por mínimo garantizado. No
+ * calcula nada nuevo: agrupa (materiales y horas extra fijos + variables) y
+ * filtra los que son 0. Las filas suman el total.
+ * @param {ReturnType<typeof computeRevenue>} revenue
+ * @returns {{ rows: { id: string, amount: number }[], total: number }}
+ */
+export function revenueComposition(revenue) {
+  const r = isPlainObject(revenue) ? revenue : {};
+  const c = isPlainObject(r.components) ? r.components : {};
+  const amounts = {
+    base: nonNegative(c.base),
+    availabilityFee: nonNegative(c.availabilityFee),
+    callout: nonNegative(c.callout),
+    mobilization: nonNegative(c.mobilization),
+    extraKm: nonNegative(c.extraKm),
+    standby: nonNegative(c.standby),
+    materials: nonNegative(c.materialsFixed) + nonNegative(c.materialsVariable),
+    overtime: nonNegative(c.overtimeFixed) + nonNegative(c.overtimeVariable),
+    guaranteeTopUp: nonNegative(r.guaranteeTopUp),
+  };
+  return {
+    rows: REVENUE_COMPONENTS.filter((id) => amounts[id] > NUMERIC_EPSILON).map((id) => ({ id, amount: amounts[id] })),
+    total: nonNegative(r.total),
+  };
+}
+
 /**
  * Tarifa NETA por unidad necesaria para lograr un margen sobre la
  * facturación total, dado el costo total, los otros ingresos y los impuestos

@@ -1,0 +1,487 @@
+{
+  "id": "04100179-0ff8-4780-95bc-c788b5cf7eca",
+  "code": "REG-E1",
+  "name": "Regresión ECO-01 · servicio permanente con abono mensual (sintético)",
+  "client": "",
+  "status": "draft",
+  "illustrative": false,
+  "serviceType": "crew",
+  "templateId": null,
+  "pricingMode": "known_activity",
+  "unit": "month",
+  "unitName": "",
+  "contractMonths": 24,
+  "activity": {
+    "availability": "24/7",
+    "availabilityWindow": "",
+    "responseTimeHours": 4,
+    "activeDaysPerMonth": 22,
+    "daysPerActivation": 1,
+    "availableDaysPerMonth": 30,
+    "hoursPerActiveDay": 9,
+    "billableQuantityPerMonth": null,
+    "unitsPerActiveDay": null,
+    "unitsPerActivation": null
+  },
+  "labor": [
+    {
+      "id": "2d326572-cb17-4944-a537-1b4f477c0a92",
+      "sourceId": null,
+      "role": "Supervisor de mantenimiento",
+      "agreementId": "10f1a51a-dccf-4916-898a-01ab760d6a9e",
+      "category": "Fuera de convenio",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 2600000,
+      "additionalsMonthly": 300000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 0,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 18000,
+      "sacPct": 8.33,
+      "vacationPct": 4.5,
+      "employerContributionsPct": 24,
+      "artPct": 7,
+      "insuranceMonthly": 12000,
+      "ppeMonthly": 45000,
+      "trainingMonthly": 15000,
+      "transferMonthly": 0,
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    },
+    {
+      "id": "3bc48ac1-7408-4268-aa2f-ef53f48ac1e1",
+      "sourceId": null,
+      "role": "Técnico mecánico/electricista",
+      "agreementId": "10f1a51a-dccf-4916-898a-01ab760d6a9e",
+      "category": "",
+      "positions": 3,
+      "peoplePerPosition": 1,
+      "basicMonthly": 1700000,
+      "additionalsMonthly": 250000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 1,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 18000,
+      "sacPct": 8.33,
+      "vacationPct": 4.5,
+      "employerContributionsPct": 24,
+      "artPct": 7,
+      "insuranceMonthly": 12000,
+      "ppeMonthly": 45000,
+      "trainingMonthly": 15000,
+      "transferMonthly": 0,
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    },
+    {
+      "id": "33fc65f7-8ea1-4fa8-8ce4-3516828fa847",
+      "sourceId": null,
+      "role": "Ayudante",
+      "agreementId": "10f1a51a-dccf-4916-898a-01ab760d6a9e",
+      "category": "",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 1250000,
+      "additionalsMonthly": 150000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 1,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 18000,
+      "sacPct": 8.33,
+      "vacationPct": 4.5,
+      "employerContributionsPct": 24,
+      "artPct": 7,
+      "insuranceMonthly": 12000,
+      "ppeMonthly": 45000,
+      "trainingMonthly": 15000,
+      "transferMonthly": 0,
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    }
+  ],
+  "equipment": [
+    {
+      "id": "586bc421-edb6-4753-bb42-09e8a60bd700",
+      "sourceId": null,
+      "name": "Equipo 1",
+      "internalCode": "",
+      "familyId": null,
+      "acquisition": "owned",
+      "quantity": 1,
+      "hoursPerActiveDay": null,
+      "replacementValue": 9000000,
+      "usefulLifeYears": 3,
+      "residualValue": 0,
+      "insuranceAnnual": 0,
+      "licenseAnnual": 0,
+      "certificationsAnnual": 0,
+      "otherAnnual": 0,
+      "capitalRatePctAnnual": 0,
+      "maintenancePerHour": 0,
+      "tiresPerHour": 0,
+      "fuelLitersPerHour": 0,
+      "maintenanceMode": null,
+      "maintenanceServiceCost": null,
+      "maintenanceServiceHours": null,
+      "maintenanceBudget": null,
+      "maintenanceBudgetPeriod": null,
+      "tiresMode": null,
+      "tiresSetCost": null,
+      "tiresLifeHours": null,
+      "tiresLifeKm": null,
+      "external": null,
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "costsBase": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "mobilization": {
+        "mode": "transported",
+        "travelLitersPer100Km": 0,
+        "travelCostPerKm": 0,
+        "driver": null,
+        "carrierLineId": "d01fc579-0191-4b73-a9a1-ce873e952dd7",
+        "supportVehicleId": null
+      },
+      "operatorLaborId": null,
+      "snapshot": null,
+      "illustrative": false,
+      "fuelNotApplicable": true
+    },
+    {
+      "id": "d01fc579-0191-4b73-a9a1-ce873e952dd7",
+      "sourceId": null,
+      "name": "Equipo 2",
+      "internalCode": "",
+      "familyId": null,
+      "acquisition": "owned",
+      "quantity": 1,
+      "hoursPerActiveDay": null,
+      "replacementValue": 48000000,
+      "usefulLifeYears": 5,
+      "residualValue": 14000000,
+      "insuranceAnnual": 3600000,
+      "licenseAnnual": 1200000,
+      "certificationsAnnual": 0,
+      "otherAnnual": 0,
+      "capitalRatePctAnnual": 0,
+      "maintenancePerHour": 0,
+      "tiresPerHour": 0,
+      "fuelLitersPerHour": 0,
+      "maintenanceMode": "budget",
+      "maintenanceServiceCost": null,
+      "maintenanceServiceHours": null,
+      "maintenanceBudget": 4200000,
+      "maintenanceBudgetPeriod": "year",
+      "tiresMode": null,
+      "tiresSetCost": null,
+      "tiresLifeHours": null,
+      "tiresLifeKm": null,
+      "external": null,
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "costsBase": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "mobilization": {
+        "mode": "self",
+        "travelLitersPer100Km": 13,
+        "travelCostPerKm": 0,
+        "driver": "operator",
+        "carrierLineId": null,
+        "supportVehicleId": null
+      },
+      "operatorLaborId": null,
+      "snapshot": null,
+      "illustrative": false
+    }
+  ],
+  "materials": [
+    {
+      "id": "6876f270-df3b-4143-aa41-6a522b9ca722",
+      "sourceId": null,
+      "description": "Material 1",
+      "unit": "unidad",
+      "basis": "per_month",
+      "quantity": 1,
+      "unitCost": 650000,
+      "wastePct": 0,
+      "logisticsPct": 0,
+      "resaleMarkupPct": 0,
+      "providedBy": "contractor",
+      "base": {
+        "period": "2026-10",
+        "currency": "ARS",
+        "source": "company",
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    },
+    {
+      "id": "531a8e4b-85c6-45d4-9236-a8ca81c8f8ce",
+      "sourceId": null,
+      "description": "Material 2",
+      "unit": "unidad",
+      "basis": "per_month",
+      "quantity": 1,
+      "unitCost": 0,
+      "wastePct": 0,
+      "logisticsPct": 0,
+      "resaleMarkupPct": 0,
+      "providedBy": "client",
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    }
+  ],
+  "materialsNotApplicable": false,
+  "otherCosts": [
+    {
+      "id": "df103304-95a4-4439-84d1-295843caf5ba",
+      "description": "Otro costo 1",
+      "category": "materials",
+      "behavior": "fixed_monthly",
+      "amount": 150000
+    }
+  ],
+  "fuel": {
+    "pricePerLiter": 1450,
+    "providedBy": "contractor",
+    "illustrative": false,
+    "base": {
+      "period": "2026-10",
+      "currency": "ARS",
+      "source": "company",
+      "note": ""
+    }
+  },
+  "logistics": {
+    "notApplicable": false,
+    "baseName": "Base",
+    "destinationName": "Destino",
+    "distanceKm": 45,
+    "roundTrip": true,
+    "tripsPerActivation": 1,
+    "vehicles": [],
+    "tollsPerActivation": 0,
+    "lodgingPerActivation": 0
+  },
+  "indirect": {
+    "method": "percent_direct",
+    "pct": 12,
+    "amount": 0
+  },
+  "finance": {
+    "paymentTermDays": 60,
+    "invoiceLagDays": 15,
+    "monthlyRatePct": 3.5,
+    "illustrative": false,
+    "payDays": {
+      "salaries": 20,
+      "fuel": 0,
+      "suppliers": 30,
+      "materials": 30,
+      "structure": 20
+    }
+  },
+  "risk": {
+    "generalPct": 3,
+    "items": [
+      {
+        "id": "activity_variation",
+        "label": "Variación de actividad",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "unproductive",
+        "label": "Improductivos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "weather",
+        "label": "Clima",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "rework",
+        "label": "Retrabajos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "equipment_failure",
+        "label": "Rotura de equipos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "prices",
+        "label": "Variación de precios",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "inflation",
+        "label": "Inflación",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "logistics",
+        "label": "Logística",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "penalties",
+        "label": "Penalidades",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "warranty",
+        "label": "Garantía",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "accidents",
+        "label": "Accidentes",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "scope_uncertainty",
+        "label": "Incertidumbre del alcance",
+        "pct": 0,
+        "enabled": false
+      }
+    ]
+  },
+  "pricing": {
+    "targetMarginPct": 15,
+    "customMarginPct": null,
+    "knownRate": 0,
+    "offeredRateOverride": null,
+    "commercialDiscountPct": 0,
+    "roundingStep": 10000
+  },
+  "billingTaxes": {
+    "mode": "detailed",
+    "notApplicable": false,
+    "combinedPct": null,
+    "items": [
+      {
+        "id": "tax-bd1bf28d",
+        "kind": "gross_income",
+        "label": "Ingresos Brutos",
+        "pct": 3.5
+      },
+      {
+        "id": "tax-d29a0ab6",
+        "kind": "debits_credits",
+        "label": "Impuesto al cheque (débitos y créditos)",
+        "pct": 1.2
+      },
+      {
+        "id": "tax-6f4935a3",
+        "kind": "stamp",
+        "label": "Sellos",
+        "pct": null
+      }
+    ]
+  },
+  "vatTreatment": "excluded",
+  "rules": {
+    "availabilityFeeMonthly": 0,
+    "calloutFeePerActivation": 0,
+    "mobilizationFeePerActivation": 0,
+    "includedKmPerActivation": 0,
+    "extraKmRate": 0,
+    "minimumCallUnits": 0,
+    "standbyDaysPerMonth": 0,
+    "standbyRatePerDay": 0,
+    "standbyNotApplicable": true,
+    "volumeTiers": [
+      {
+        "id": "tier-1",
+        "fromDays": 1,
+        "toDays": 1,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-2",
+        "fromDays": 2,
+        "toDays": 7,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-3",
+        "fromDays": 8,
+        "toDays": 15,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-4",
+        "fromDays": 16,
+        "toDays": 30,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-5",
+        "fromDays": 31,
+        "toDays": null,
+        "discountPct": 0
+      }
+    ],
+    "continuityMinMonths": 6,
+    "continuityDiscountPct": 0,
+    "minimumMonthlyGuarantee": 0
+  },
+  "notes": "",
+  "currency": "ARS",
+  "offerDate": "2026-10-19",
+  "exchangeRates": []
+}

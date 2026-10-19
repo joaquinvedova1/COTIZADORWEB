@@ -1,0 +1,346 @@
+{
+  "id": "e1a369e8-276f-43d7-aac8-b9430c544666",
+  "name": "Regresión ECO-01 · producto metalúrgico (sintético)",
+  "saleUnit": "unidad",
+  "unitsPerBatch": 20,
+  "lossPct": 2,
+  "monthlyUnits": 200,
+  "materials": [
+    {
+      "id": "09916dc1-1677-4e59-b13e-6053e43a0791",
+      "sourceId": null,
+      "description": "Material 1",
+      "per": "batch",
+      "unit": "kg",
+      "useUnit": "kg",
+      "quantity": 180,
+      "unitCost": 2600,
+      "priceMode": "unit",
+      "packPrice": null,
+      "packSize": null,
+      "wastePct": 6,
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    },
+    {
+      "id": "1431935b-3643-4bff-83fd-2dc6c1c7a028",
+      "sourceId": null,
+      "description": "Material 2",
+      "per": "batch",
+      "unit": "kg",
+      "useUnit": "kg",
+      "quantity": 180,
+      "unitCost": 1900,
+      "priceMode": "unit",
+      "packPrice": null,
+      "packSize": null,
+      "wastePct": 0,
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    },
+    {
+      "id": "195e370f-c41c-4d60-9e19-4bb2b42c7700",
+      "sourceId": null,
+      "description": "Material 3",
+      "per": "unit",
+      "unit": "u",
+      "useUnit": "u",
+      "quantity": 1,
+      "unitCost": 3500,
+      "priceMode": "unit",
+      "packPrice": null,
+      "packSize": null,
+      "wastePct": 0,
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    },
+    {
+      "id": "dbf76802-3fb5-44b1-a4e5-4806c38827c6",
+      "sourceId": null,
+      "description": "Material 4",
+      "per": "unit",
+      "unit": "u",
+      "useUnit": "u",
+      "quantity": 1,
+      "unitCost": 2000,
+      "priceMode": "unit",
+      "packPrice": null,
+      "packSize": null,
+      "wastePct": 0,
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    }
+  ],
+  "labor": [
+    {
+      "id": "7d4f2e6c-1557-4929-ab8c-e94fd89d1a24",
+      "sourceId": null,
+      "role": "Soldador",
+      "agreementId": "0be1295e-3709-4e6a-bc4a-b342869524bd",
+      "category": "",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 1800000,
+      "additionalsMonthly": 200000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 0,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 0,
+      "sacPct": 8.33,
+      "vacationPct": 4.5,
+      "employerContributionsPct": 24,
+      "artPct": 7,
+      "insuranceMonthly": 12000,
+      "ppeMonthly": 60000,
+      "trainingMonthly": 0,
+      "transferMonthly": 0,
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false,
+      "people": 2,
+      "minutesPerBatch": 300
+    },
+    {
+      "id": "6785d1c8-3fe1-466b-8e5e-b3b3e4b4914e",
+      "sourceId": null,
+      "role": "Ayudante",
+      "agreementId": "0be1295e-3709-4e6a-bc4a-b342869524bd",
+      "category": "",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 1300000,
+      "additionalsMonthly": 100000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 0,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 0,
+      "sacPct": 8.33,
+      "vacationPct": 4.5,
+      "employerContributionsPct": 24,
+      "artPct": 7,
+      "insuranceMonthly": 12000,
+      "ppeMonthly": 60000,
+      "trainingMonthly": 0,
+      "transferMonthly": 0,
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false,
+      "people": 1,
+      "minutesPerBatch": 300
+    }
+  ],
+  "equipment": [
+    {
+      "id": "b1c4513e-cb8a-4790-b6fa-122e5d771c05",
+      "sourceId": null,
+      "name": "Equipo 1",
+      "internalCode": "",
+      "familyId": null,
+      "acquisition": "owned",
+      "quantity": 1,
+      "hoursPerActiveDay": null,
+      "replacementValue": 6000000,
+      "usefulLifeYears": 6,
+      "residualValue": 0,
+      "insuranceAnnual": 0,
+      "licenseAnnual": 0,
+      "certificationsAnnual": 0,
+      "otherAnnual": 0,
+      "capitalRatePctAnnual": 0,
+      "maintenancePerHour": 200,
+      "tiresPerHour": 0,
+      "fuelLitersPerHour": 0,
+      "maintenanceMode": null,
+      "maintenanceServiceCost": null,
+      "maintenanceServiceHours": null,
+      "maintenanceBudget": null,
+      "maintenanceBudgetPeriod": null,
+      "tiresMode": null,
+      "tiresSetCost": null,
+      "tiresLifeHours": null,
+      "tiresLifeKm": null,
+      "external": null,
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "costsBase": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "mobilization": {
+        "mode": null,
+        "travelLitersPer100Km": 0,
+        "travelCostPerKm": 0,
+        "driver": null,
+        "carrierLineId": null,
+        "supportVehicleId": null
+      },
+      "operatorLaborId": null,
+      "snapshot": null,
+      "illustrative": false,
+      "minutesPerBatch": 250,
+      "energyPerHour": 900,
+      "fixedSharePct": 50,
+      "shareMode": "shared"
+    },
+    {
+      "id": "6eb19c57-df46-4793-8cfd-729487c90577",
+      "sourceId": null,
+      "name": "Equipo 2",
+      "internalCode": "",
+      "familyId": null,
+      "acquisition": "owned",
+      "quantity": 1,
+      "hoursPerActiveDay": null,
+      "replacementValue": 45000000,
+      "usefulLifeYears": 15,
+      "residualValue": 5000000,
+      "insuranceAnnual": 1200000,
+      "licenseAnnual": 0,
+      "certificationsAnnual": 0,
+      "otherAnnual": 0,
+      "capitalRatePctAnnual": 0,
+      "maintenancePerHour": 1500,
+      "tiresPerHour": 0,
+      "fuelLitersPerHour": 0,
+      "maintenanceMode": null,
+      "maintenanceServiceCost": null,
+      "maintenanceServiceHours": null,
+      "maintenanceBudget": null,
+      "maintenanceBudgetPeriod": null,
+      "tiresMode": null,
+      "tiresSetCost": null,
+      "tiresLifeHours": null,
+      "tiresLifeKm": null,
+      "external": null,
+      "base": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "costsBase": {
+        "period": null,
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "mobilization": {
+        "mode": null,
+        "travelLitersPer100Km": 0,
+        "travelCostPerKm": 0,
+        "driver": null,
+        "carrierLineId": null,
+        "supportVehicleId": null
+      },
+      "operatorLaborId": null,
+      "snapshot": null,
+      "illustrative": false,
+      "minutesPerBatch": 60,
+      "energyPerHour": 2500,
+      "fixedSharePct": 40,
+      "shareMode": "shared"
+    }
+  ],
+  "fixedCosts": [
+    {
+      "id": "e09c2dac-4c6c-41da-9ef1-efd8eefdac49",
+      "description": "Gasto fijo 1",
+      "monthlyAmount": 3500000,
+      "sharePct": 30
+    },
+    {
+      "id": "89cb04f9-5007-4eab-9f86-bad93f9dc974",
+      "description": "Gasto fijo 2",
+      "monthlyAmount": 2000000,
+      "sharePct": 25
+    }
+  ],
+  "pricing": {
+    "targetMarginPct": 25,
+    "roundingStep": 1000,
+    "vatPct": 21,
+    "currentPrice": 92000
+  },
+  "finance": {
+    "invoiceLagDays": 20,
+    "paymentTermDays": 45,
+    "monthlyRatePct": 3.5,
+    "payDays": {
+      "materials": 30,
+      "salaries": 20,
+      "fuel": 30,
+      "suppliers": 30,
+      "structure": 20
+    }
+  },
+  "billingTaxes": {
+    "mode": "detailed",
+    "notApplicable": false,
+    "combinedPct": null,
+    "items": [
+      {
+        "id": "tax-90f7eb8a",
+        "kind": "gross_income",
+        "label": "Ingresos Brutos",
+        "pct": 3
+      },
+      {
+        "id": "tax-9dbeac64",
+        "kind": "debits_credits",
+        "label": "Impuesto al cheque (débitos y créditos)",
+        "pct": 1.2
+      },
+      {
+        "id": "tax-ddcea883",
+        "kind": "stamp",
+        "label": "Sellos",
+        "pct": null
+      }
+    ]
+  },
+  "currency": "ARS",
+  "exchangeRates": [],
+  "fuelPricePerLiter": 1500,
+  "illustrative": false,
+  "notes": ""
+}

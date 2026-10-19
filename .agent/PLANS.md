@@ -116,6 +116,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Completado (PR #24 mergeado, main `0c213a3`, v0.8.0 en producción) |
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
+| PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1113,3 +1114,62 @@ Revert del PR. Volver a publicar un preview en el mismo origen está **prohibido
 - 2026-10-18: Auth en la base (sólo conteos): 2 usuarios, ambos confirmados; identidades sólo `email`; 0 invitados, 0 anónimos, 0 SSO, 0 MFA. El trigger `private.handle_new_user` crea perfil, organización ("Mi empresa" si no hay `company`), membresía OWNER y workspace vacío para **cualquier** usuario nuevo (también los creados desde el Dashboard). Borrar un usuario no borra su organización: la limpieza borra primero las organizaciones sintéticas.
 - 2026-10-18: hallazgo al revisar el alta por invitación: el primer ingreso depende del correo de recuperación y, según la documentación de Supabase, el SMTP por defecto rechaza toda dirección que no sea del equipo del proyecto (*Email address not authorized*). La recuperación respondía "te enviamos un enlace" igual (neutra a propósito), así que la falla habría sido silenciosa. Corregido en la app lo que se puede sin revelar cuentas (código propio, aviso técnico, "Cambiar contraseña" con la sesión iniciada informa la falla) y agregado el SMTP propio como paso obligatorio del dueño. La configuración de SMTP no es pública: no se pudo verificar desde acá.
 - 2026-10-18: validación sobre la rama (cambios sin commitear sobre `998b932`): `npm test` 1694/1694; Beta Security Gate PASA (347/347 tests en 17 archivos; SEC-17 OK, contra `main` falla con 5 hallazgos); Test Lab estable OK, golden 39/39 con el candado; `npm run build` sin `dist/preview`; E2E escritorio y celular 584/584 (10 controles nuevos `REGISTRO-01`). Motores, fórmulas, esquema (10) y migraciones de base sin cambios.
+
+### PLAN-2026-017 — ECO-01: bloqueantes económicos de la beta (H-01, H-02, H-03)
+
+- Estado: En curso — rama `claude/wonderful-brown-g2ehd6` (desde `main` `d580d9f`, v0.8.1, esquema 10); PR sin merge ni deploy (espera la aprobación del dueño)
+- Tipo: motor de costos (unidad de externos), completitud, UX
+- Responsable: agente de desarrollo (Claude) · decisiones económicas: el dueño
+- Fecha de inicio: 2026-10-19
+
+#### 1. Contexto y problema
+El dueño decidió que tres hallazgos de la auditoría comercial AUD-T1 bloquean la beta comercial. En los tres el motor calcula bien lo que se carga; el problema es que la carga lleva a un resultado falso sin aviso:
+- **H-01:** un transportista que cobra "por viaje ida y vuelta" no tenía unidad: "Por viaje" era cada tramo (ida **o** vuelta) y "Por salida", una vez por salida con todos sus viajes. La misma tarifa daba la mitad o el doble del costo.
+- **H-02:** con la tarifa en $/mes (abono), el "Abono de disponibilidad" se suma como otro ingreso fijo: el abono cargado en los dos lugares se factura dos veces.
+- **H-03:** un puesto usado con el sueldo básico vacío o en 0 no generaba ningún aviso (costo laboral de menos, completitud casi completa).
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: que servicios vendidos y unidades facturadas por el proveedor sean coherentes y explicables (H-01); impedir que el doble abono pase como resultado confiable y mostrar cómo se compone la facturación (H-02); no presentar como completa una cotización con un puesto sin sueldo (H-03). Sin reinterpretar datos guardados ni cambiar fórmulas históricas.
+- Fuera de alcance: H-04 a H-15, la tanda 2 de la auditoría, el esquema de Supabase, migraciones de datos, datos reales, Auth/DNS/SMTP/producción.
+
+#### 3. Impacto en fórmulas
+- **Ninguna fórmula existente cambia.** "Por tramo" (`trip`) cuenta tramos como siempre, "Por salida" cobra una vez por salida y el abono de disponibilidad se suma como siempre.
+- **Unidad nueva (opcional):** "Por viaje completo (ida y vuelta)" = `trip` + `external.tripBasis = 'round_trip'`: unidades por llamado = viajes por llamado (no tramos). E3: 928.000 por viaje completo = 2.900 $/km = 464.000 por tramo → costo $ 41.281.757,11, sugerida $ 1.377.000 (CALCULATION_RULES §4.1).
+- **Completitud:** `external_unit_trips` (revisar, peso 1), `monthly_fee_overlap` (crítico, peso 2) y `labor` crítico con un puesto usado sin básico; productos: error con un puesto con minutos por tanda y sin básico (§19, §23). Sólo aparecen cuando se disparan.
+- `revenueComposition`: presentación de los componentes de `computeRevenue` (§12.0), sin cálculo nuevo.
+- Golden: 39/39 sin cambios (ningún archivo de golden tocado). Margen y markup sin cambios.
+
+#### 4. Impacto en datos
+- Esquema 10 sin cambios; ninguna migración. Campos opcionales nuevos: `external.tripBasis` (sólo `'round_trip'`) y `equipment[].externalUnitConfirmed` (`'activation'`). Sin ellos todo calcula igual.
+- Ningún dato se pierde ni se reinterpreta. Compatibilidad con una pestaña de la versión anterior y alternativa de subir a v11: DATA_MODEL §5 y decisión D-ECO01-1 del informe.
+
+#### 5. Diseño
+- Motores: `external-engine` (base del viaje), `cost-engine` (viajes por llamado al externo), `transport-engine` (tramos, viajes completos, equivalencias y proveedores por salida en la traza), `completeness-engine` (tres reglas), `commercial-rules-engine` (`revenueComposition`), `product-engine` (error de sueldo). Dominio: `catalogs` (rótulos y `EXTERNAL_TRIP_BASES`), `quote-factory` y `resource-snapshot` (el campo nuevo sólo con `round_trip`: las huellas anteriores no cambian).
+- UI: Equipos (opción "Por viaje completo", aviso con [Por viaje completo] / [Sí, cobra por salida]), Recursos ("¿Qué cobra?" con "Por tramo"), El precio (aviso del doble abono), Personal (aviso en la línea) y Resultado ("Cómo se compone la facturación del mes"). Sin fórmulas en la UI.
+
+#### 6. Pasos
+- [x] 1. Leer la evidencia de AUD-T1 y escribir las regresiones (fallan 12 de 20 en `main`).
+- [x] 2. Motores y dominio (H-01, H-02, H-03).
+- [x] 3. Interfaz y E2E (E2E-17 a E2E-20).
+- [x] 4. Validación completa, comparación con `main` y regresión en navegador con E1, E2 y E3.
+- [ ] 5. PR sin merge, informe ECO-01 en el repositorio privado de auditoría y aprobación del dueño.
+
+#### 7. Tests
+`tests/engines/eco-01.test.js` (20 tests: 12 fallan en `main`, los 8 restantes protegen lo que no debe cambiar), fixtures sintéticos en `tests/fixtures/eco-01/` (sólo datos económicos) y E2E-17 a E2E-20 en `tests/lab/e2e/ui-lab.mjs`.
+
+#### 8. Riesgos y mitigación
+- Una pestaña de la versión anterior abierta durante el deploy costea una línea "por viaje completo" por tramo (de más, nunca de menos) y no ve los avisos: documentado; subir el esquema es decisión del dueño.
+- Una cotización existente con "Por salida" y varios viajes por salida, o con abono mensual + abono de disponibilidad, pasa a mostrar un aviso (y la segunda, a borrador): es el objetivo. Comparación con `main`: 58 y 39 de 2.097 cotizaciones sintéticas; ninguna cifra cambia.
+
+#### 9. Rollback
+Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior (se costean por tramo).
+
+#### 10. Review multidisciplinario
+- Economía: ninguna fórmula cambia; la unidad nueva da lo mismo que el $/km equivalente.
+- QA: rojo en `main`, verde en la rama; golden y candado sin cambios; corpus de 2.097 cotizaciones con las mismas cifras.
+- Seguridad: sin cambios de esquema, Auth ni base; sin datos reales.
+- UX: cada aviso nombra los números y lleva al campo; el resultado muestra cómo se compone la facturación.
+
+#### Bitácora
+- 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
+- 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3.

@@ -286,6 +286,17 @@ export function render(container, ctx) {
       lineOriginBlock(ctx, 'labor', i, [{ prefix: 'Base', base: line.base }]),
       resourceSyncNotice(ctx, 'labor', i, { name: line.role || 'Puesto' }),
       ill.control,
+      // Puesto usado sin sueldo básico (ECO-01, H-03): crítico, se nombra y lleva al campo. No se inventa un sueldo.
+      kit.toggle(h(
+        'div',
+        { class: 'banner banner-warning qe-incomplete qe-salary-missing', role: 'status' },
+        h('div', {}, h('strong', {}, kit.out(() => `"${(quote.labor[i] && quote.labor[i].role) || 'Puesto'}" no tiene sueldo básico. `)), 'Sin el básico faltan su sueldo, las cargas sociales sobre él y el valor de sus horas extra: la cotización no está completa. Si no trabaja en este servicio, poné 0 posiciones o quitá la línea.'),
+        ctx.readOnly
+          ? null
+          : h('div', { class: 'qe-toolbar' },
+            kit.action('Completar', () => ctx.focusField(`${p}.basicMonthly`), { variant: 'primary', icon: 'check' }),
+            kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })),
+      ), (r) => ((r.completeness && r.completeness.pending) || []).some((x) => x.id === 'labor' && (x.targets || []).some((t) => t.index === i))),
       formGrid(
         3,
         kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Operador' }),

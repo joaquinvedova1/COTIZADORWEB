@@ -45,7 +45,7 @@ export function tripsText(n) {
 }
 
 /**
- * Actividad de un proveedor por km o por viaje:
+ * Actividad de un proveedor por km, por tramo o por viaje completo:
  * "12 viajes · 200 km/viaje · 2.400 km/mes · $ 3.250/km = $ 7.800.000".
  */
 export function providerActivityText(p, t) {
@@ -55,6 +55,10 @@ export function providerActivityText(p, t) {
   if (p.unit === 'km') {
     const perUnitKm = t.routeKmPerMonth;
     return `${tripsText(t.physicalTripsPerMonth)} · ${formatValue(t.kmPerTrip, 'km')}/viaje · ${formatValue(perUnitKm, 'km')}/mes${qty} · ${formatMoney(p.price)}/km${p.minimumApplied ? ' (con el mínimo)' : ''} = ${formatMoney(p.netMonthly)}`;
+  }
+  // Por viaje completo (ECO-01): cada viaje ida y vuelta es UNA unidad.
+  if (p.tripBasis === 'round_trip') {
+    return `${tripsText(t.physicalTripsPerMonth)} · ${num(p.unitsPerMonth)} ${plural(p.unitsPerMonth, 'viaje completo', 'viajes completos')}/mes${t.roundTrip ? ' (ida y vuelta)' : ''}${qty} · ${formatMoney(p.price)}/viaje${p.minimumApplied ? ' (con el mínimo)' : ''} = ${formatMoney(p.netMonthly)}`;
   }
   const legs = t.roundTrip ? 2 : 1;
   return `${tripsText(t.physicalTripsPerMonth)} · ${num(legs, 0)} ${plural(legs, 'tramo', 'tramos')} por viaje (cada ida o vuelta) · ${num(p.unitsPerMonth)} tramos/mes${qty} · ${formatMoney(p.price)}/tramo${p.minimumApplied ? ' (con el mínimo)' : ''} = ${formatMoney(p.netMonthly)}`;
