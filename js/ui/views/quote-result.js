@@ -110,6 +110,8 @@ import {
   comparatorNote,
   completenessExampleNote,
   draftBannerText,
+  unreliableItems,
+  unreliableText,
   breakEvenZeroText,
   termsOfResult,
 } from '../result-text.js';
@@ -1562,13 +1564,16 @@ function marginStat(v) {
   const rateOk = hasRate(k);
   const ok = rateOk && hasValue(k.marginPct);
   let hint;
+  // ECO-01: con un dato que vuelve no confiable el resultado, el margen se muestra pero no se lee como real.
+  const unreliable = ok ? unreliableText(v.r.completeness, 'este margen') : null;
   if (!rateOk) hint = statHint('Sin tarifa no hay margen.');
   else if (!ok) hint = statHint('Sin facturación no hay margen.');
+  else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
   else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
   else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
-  const tone = ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
+  const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
   return statItem({
     label: 'Margen',
     value: ok ? pct(k.marginPct) : EMPTY,
@@ -1681,8 +1686,12 @@ function workBlock(v) {
       trace = traces.breakEven;
     }
   }
+  // ECO-01: con un dato que vuelve no confiable el resultado, este cálculo tampoco se lee en verde.
+  const unreliable = rateOk ? unreliableText(r.completeness, 'este cálculo') : null;
+  if (unreliable) tone = 'red';
   return h('div', { class: ['qr-work', tone ? `qr-work-${tone}` : null] },
     h('p', { class: 'qr-work-question' }, question),
+    unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
     h('p', { class: 'qr-work-text' }, ...content),
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
@@ -1699,14 +1708,17 @@ function quoteSubtitle(q) {
 function draftBanner(v) {
   const { r, q } = v;
   const c = r.completeness || {};
-  const info = draftBannerText({ critical: c.critical, review: c.review });
+  const info = draftBannerText({ critical: c.critical, review: c.review, unreliable: c.unreliable });
   if (!info) return null;
   const pending = Array.isArray(c.pending) ? c.pending.filter((i) => i.severity === 'critical' || i.severity === 'review') : [];
   const example = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount: pending.length });
   const node = alertLine(info.tone, info.title, `${info.text} Costos cargados: ${pct(c.scorePct, 0)}.${example ? ` ${example}` : ''}`,
     button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
   node.classList.add('qr-draft');
-  const critical = pending.filter((i) => i.severity === 'critical');
+  // RESULTADO NO CONFIABLE (ECO-01): lo que lo causa va primero en la lista.
+  if (info.unreliable) node.classList.add('qr-unreliable');
+  const unreliable = unreliableItems(c);
+  const critical = [...unreliable, ...pending.filter((i) => i.severity === 'critical' && i.unreliable !== true)];
   // La lista va dentro del texto del aviso (no como otra columna del banner).
   const body = node.querySelector(':scope > div:not(.qr-alert-action)');
   if (critical.length && body) {

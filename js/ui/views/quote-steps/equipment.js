@@ -28,6 +28,7 @@ import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { lineIncrementalImpact } from '../../../engines/impact-engine.js';
+import { externalUnitAssumption } from '../../../engines/completeness-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -860,18 +861,13 @@ export function render(container, ctx) {
   /** Pendiente "Unidad del proveedor" de esta línea (completitud), o null. */
   const unitPendingOf = (r, index) => ((r && r.completeness && r.completeness.pending) || [])
     .find((x) => x.id === 'external_unit_trips' && (x.targets || []).some((t) => t.index === index)) || null;
+  /**
+   * "Por salida" con varios viajes por salida (ECO-01, H-01): crítico hasta elegir la unidad o
+   * confirmarla. "Sí, cobra por salida" guarda el supuesto actual (tarifa, viajes por salida y
+   * ruta, `externalUnitAssumption`): si después cambia, el motor vuelve a pedirlo.
+   */
   const unitConfirmBanner = (index) => {
-    const line = quote.equipment[index] || {};
-    if (line.externalUnitConfirmed === 'activation') {
-      return h(
-        'div',
-        { class: 'banner banner-info qe-unit-confirm', role: 'status' },
-        h('div', {}, h('strong', {}, `Confirmado: el proveedor cobra ${T.per}. `), `Se paga una vez en ${T.each}, aunque tenga varios viajes.`),
-        ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar la unidad', () => ctx.mutate((q) => { delete q.equipment[index].externalUnitConfirmed; }, { focus: `equipment.${index}.external.unit` }), { icon: 'edit' })),
-      );
-    }
-    // Sólo cuando la completitud lo marca (varios viajes por salida): nunca un aviso vacío.
-    return kit.toggle(h(
+    const pendingBanner = kit.toggle(h(
       'div',
       { class: 'banner banner-warning qe-unit-confirm', role: 'status' },
       kit.out((r) => {
@@ -882,8 +878,20 @@ export function render(container, ctx) {
         ? null
         : h('div', { class: 'qe-toolbar' },
           kit.action('Por viaje completo (ida y vuelta)', () => setExternalUnit(index, ROUND_TRIP), { variant: 'primary' }),
-          kit.action(`Sí, cobra ${T.per}`, () => ctx.mutate((q) => { q.equipment[index].externalUnitConfirmed = 'activation'; }), { icon: 'check' })),
+          kit.action(`Sí, cobra ${T.per}`, () => ctx.mutate((q) => { q.equipment[index].externalUnitConfirmed = externalUnitAssumption(q, q.equipment[index]); }), { icon: 'check' })),
     ), (r) => Boolean(unitPendingOf(r, index)));
+    const line = quote.equipment[index] || {};
+    const c = line.externalUnitConfirmed;
+    if (!c || typeof c !== 'object') return pendingBanner;
+    // Confirmación vigente: se muestra lo que se confirmó (desaparece si el motor la da por vencida).
+    const confirmedBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-info qe-unit-confirm is-confirmed', role: 'status' },
+      h('div', {}, h('strong', {}, `Confirmado: el proveedor cobra ${T.per}. `),
+        `${formatMoney(Number(c.price) || 0)} ${T.per} con ${formatNumber(Number(c.tripsPerActivation) || 0, { decimals: 2 })} viajes ${T.per}: se paga una vez en ${T.each}. Si cambian la tarifa, los viajes ${T.per} o la ruta, se vuelve a pedir.`),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar la unidad', () => ctx.mutate((q) => { delete q.equipment[index].externalUnitConfirmed; }, { focus: `equipment.${index}.external.unit` }), { icon: 'edit' })),
+    ), (r) => !unitPendingOf(r, index));
+    return h('div', { class: 'qe-unit-confirm-wrap' }, pendingBanner, confirmedBanner);
   };
 
   const externalCard = (line, i) => {

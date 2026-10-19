@@ -5,7 +5,8 @@
  *        "Por viaje (cada ida o vuelta)" sigue siendo POR TRAMO (no se reinterpreta
  *        nada guardado); el viaje completo es una variante explícita
  *        (`external.tripBasis = 'round_trip'`). Un proveedor "por salida" cuya
- *        salida incluye varios viajes pide confirmación.
+ *        salida incluye varios viajes es CRÍTICO hasta elegir la unidad o confirmarla;
+ *        la confirmación vale sólo para el supuesto confirmado (tarifa, viajes, ruta).
  *  H-02  Abono mensual ($/mes) + "Abono de disponibilidad": se sumarían dos ingresos
  *        fijos por mes. Es crítico (no es un resultado confiable) y la facturación
  *        muestra cómo se compone. Disponibilidad + tarifa por uso y mínimo mensual
@@ -25,12 +26,13 @@ import { readFileSync } from 'node:fs';
 
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { computeProduct } from '../../js/engines/product-engine.js';
-import { evaluateCompleteness } from '../../js/engines/completeness-engine.js';
+import * as completenessEngine from '../../js/engines/completeness-engine.js';
 import { computeExternalLine } from '../../js/engines/external-engine.js';
 import * as commercialRules from '../../js/engines/commercial-rules-engine.js';
 import { createExternalTerms } from '../../js/domain/quote-factory.js';
 import * as catalogs from '../../js/domain/catalogs.js';
 import { snapshotValuesFromLine } from '../../js/domain/resource-snapshot.js';
+import * as resultText from '../../js/ui/result-text.js';
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../fixtures/eco-01/${name}.json`, import.meta.url), 'utf8'));
 const approx = (actual, expected, label = '', tol = 0.01) => {
@@ -85,14 +87,19 @@ describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', ()
     approx(leg.unitsPerActivation, 4, 'por tramo sigue contando tramos');
   });
 
-  test('"Por salida" con varios viajes por salida pide confirmación, nombrando salidas, viajes y el equivalente por viaje', () => {
+  test('"Por salida" con varios viajes por salida es CRÍTICO (no confiable) hasta confirmar, nombrando salidas, viajes y el equivalente por viaje', () => {
     const q = fixture('e3-cotizacion');
     Object.assign(carrier(q).external, { unit: 'activation', price: 928000 });
     const r = computeQuote(q);
     approx(r.kpis.totalCost, 21875213.61, 'la fórmula no cambia: 18 salidas × 928.000');
     const p = pendingOf(r, 'external_unit_trips');
     assert.ok(p, 'falta el aviso de unidad');
-    assert.equal(p.severity, 'review');
+    assert.equal(p.severity, 'critical');
+    assert.equal(p.status, 'missing');
+    assert.match(p.message, /no es confiable/);
+    assert.equal(p.unreliable, true);
+    assert.ok(r.completeness.critical >= 1);
+    assert.ok(r.completeness.unreliable >= 1);
     assert.match(p.message, /18 salidas/);
     assert.match(p.message, /2 viajes/);
     assert.match(p.message, /36 viajes/);
@@ -101,18 +108,54 @@ describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', ()
     assert.equal(p.focus, `equipment.${q.equipment.indexOf(carrier(q))}.external.unit`);
   });
 
-  test('confirmado "sí, cobra por salida": el aviso se va y el costo queda igual', () => {
+  test('confirmado "sí, cobra por salida": el crítico se va (uno menos) y el costo queda igual', () => {
     const q = fixture('e3-cotizacion');
     const c = carrier(q);
     Object.assign(c.external, { unit: 'activation', price: 928000 });
+    const before = computeQuote(q);
+    assert.equal(pendingOf(before, 'external_unit_trips').severity, 'critical');
+    assert.equal(typeof completenessEngine.externalUnitAssumption, 'function', 'falta externalUnitAssumption');
+    c.externalUnitConfirmed = completenessEngine.externalUnitAssumption(q, c);
+    assert.deepEqual(c.externalUnitConfirmed, { unit: 'activation', price: 928000, tripsPerActivation: 2, distanceKm: 160, roundTrip: true });
+    const after = computeQuote(q);
+    assert.equal(pendingOf(after, 'external_unit_trips'), null);
+    assert.equal(after.completeness.critical, before.completeness.critical - 1);
+    approx(after.kpis.totalCost, before.kpis.totalCost, 'costo igual antes y después de confirmar');
+    approx(after.kpis.totalCost, 21875213.61, 'costo');
+    // Una marca sin el supuesto (formato de prueba anterior) no confirma nada.
     c.externalUnitConfirmed = 'activation';
-    const r = computeQuote(q);
-    assert.equal(pendingOf(r, 'external_unit_trips'), null);
-    approx(r.kpis.totalCost, 21875213.61, 'costo');
-    // Si después cambia la unidad, la confirmación anterior ya no vale.
+    assert.equal(pendingOf(computeQuote(q), 'external_unit_trips').severity, 'critical');
+    // Con otra unidad no hay ambigüedad (la confirmación no importa).
     c.external.unit = 'day';
-    c.externalUnitConfirmed = 'activation';
     assert.equal(pendingOf(computeQuote(q), 'external_unit_trips'), null, 'por día no es ambiguo');
+  });
+
+  test('confirmación vencida: si cambian la tarifa, los viajes por salida o la ruta, vuelve el crítico; otros cambios no la tocan', () => {
+    const confirmed = () => {
+      const q = fixture('e3-cotizacion');
+      const c = carrier(q);
+      Object.assign(c.external, { unit: 'activation', price: 928000 });
+      c.externalUnitConfirmed = completenessEngine.externalUnitAssumption(q, c);
+      return { q, c };
+    };
+    const staleBy = (mutate, what) => {
+      const { q, c } = confirmed();
+      mutate(q, c);
+      const p = pendingOf(computeQuote(q), 'external_unit_trips');
+      assert.ok(p, `${what}: falta el crítico`);
+      assert.equal(p.severity, 'critical', what);
+      assert.match(p.message, /La confirmación anterior .* ya no vale/, what);
+      return p;
+    };
+    assert.match(staleBy((q) => { q.activity.unitsPerActiveDay = 3; }, 'viajes por día 2 → 3 (viajes por salida derivados)').message, /los viajes por salida/);
+    assert.match(staleBy((q, c) => { c.external.price = 950000; }, 'tarifa').message, /la tarifa/);
+    assert.match(staleBy((q) => { q.logistics.distanceKm = 200; }, 'distancia').message, /la distancia/);
+    assert.match(staleBy((q) => { q.logistics.roundTrip = false; }, 'sólo ida').message, /ida y vuelta \/ sólo ida/);
+    // Cambios que no tocan el supuesto: la confirmación sigue valiendo.
+    const { q } = confirmed();
+    q.pricing.targetMarginPct = 25;
+    q.labor[0].basicMonthly = Number(q.labor[0].basicMonthly) + 1;
+    assert.equal(pendingOf(computeQuote(q), 'external_unit_trips'), null);
   });
 
   test('"Por salida" con UN viaje por salida (on-call de siempre) no avisa: nada cambia en las cotizaciones anteriores', () => {
@@ -170,6 +213,28 @@ describe('ECO-01 · H-02: abono mensual + abono de disponibilidad (E1 de AUD-T1)
     assert.match(p.message, /50\.000\.000/);
     assert.equal(p.focus, 'rules.availabilityFeeMonthly');
     assert.ok(r.completeness.critical >= 1);
+    assert.equal(p.unreliable, true);
+    assert.equal(r.completeness.unreliable, 1);
+  });
+
+  test('resultado NO CONFIABLE: el aviso de arriba y el margen lo dicen antes de cualquier número (sin cambiar las cifras)', () => {
+    const q = fixture('e1-cotizacion');
+    q.pricingMode = 'known_rate';
+    q.pricing.knownRate = 25000000;
+    q.rules.availabilityFeeMonthly = 25000000;
+    const r = computeQuote(q);
+    assert.equal(typeof resultText.unreliableText, 'function', 'falta unreliableText');
+    const banner = resultText.draftBannerText({ critical: r.completeness.critical, review: r.completeness.review, unreliable: r.completeness.unreliable });
+    assert.equal(banner.tone, 'danger');
+    assert.equal(banner.title, 'RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA.');
+    assert.match(banner.text, /costo, la facturación o el margen/);
+    assert.match(resultText.unreliableText(r.completeness, 'este margen'), /^NO CONFIABLE \(Dos abonos por mes\): no uses este margen/);
+    approx(r.kpis.revenue, 50000000, 'la facturación histórica no cambia');
+    // Sin un dato que lo vuelva no confiable, el borrador de siempre.
+    const base = computeQuote(fixture('e1-cotizacion'));
+    assert.equal(base.completeness.unreliable, 0);
+    assert.equal(resultText.unreliableText(base.completeness), null);
+    assert.match(resultText.draftBannerText({ critical: 1, review: 0 }).title, /^BORRADOR/);
   });
 
   test('modo "calculá" con el abono sólo en "abono de disponibilidad": también crítico', () => {
@@ -239,6 +304,7 @@ describe('ECO-01 · H-03: puesto sin sueldo básico (E2 de AUD-T1)', () => {
       const p = pendingOf(r, 'labor');
       assert.ok(p, 'falta el aviso de personal');
       assert.equal(p.severity, 'critical');
+      assert.equal(p.unreliable, true);
       assert.match(p.message, /Operador de hidrogrúa/);
       assert.equal(p.focus, 'labor.0.basicMonthly');
       assert.deepEqual(p.targets.map((t) => t.index), [0]);
@@ -252,7 +318,7 @@ describe('ECO-01 · H-03: puesto sin sueldo básico (E2 de AUD-T1)', () => {
     assert.equal(pendingOf(computeQuote(q), 'labor'), null);
     const empty = fixture('e2-cotizacion');
     empty.labor = [];
-    const c = evaluateCompleteness(empty);
+    const c = completenessEngine.evaluateCompleteness(empty);
     const p = c.pending.find((x) => x.id === 'labor');
     assert.ok(p);
     assert.match(p.message, /No hay personal con salario cargado/);

@@ -1135,12 +1135,12 @@ El dueño decidió que tres hallazgos de la auditoría comercial AUD-T1 bloquean
 #### 3. Impacto en fórmulas
 - **Ninguna fórmula existente cambia.** "Por tramo" (`trip`) cuenta tramos como siempre, "Por salida" cobra una vez por salida y el abono de disponibilidad se suma como siempre.
 - **Unidad nueva (opcional):** "Por viaje completo (ida y vuelta)" = `trip` + `external.tripBasis = 'round_trip'`: unidades por llamado = viajes por llamado (no tramos). E3: 928.000 por viaje completo = 2.900 $/km = 464.000 por tramo → costo $ 41.281.757,11, sugerida $ 1.377.000 (CALCULATION_RULES §4.1).
-- **Completitud:** `external_unit_trips` (revisar, peso 1), `monthly_fee_overlap` (crítico, peso 2) y `labor` crítico con un puesto usado sin básico; productos: error con un puesto con minutos por tanda y sin básico (§19, §23). Sólo aparecen cuando se disparan.
+- **Completitud:** `external_unit_trips` (crítico, peso 2; confirmación ligada al supuesto), `monthly_fee_overlap` (crítico, peso 2) y `labor` crítico con un puesto usado sin básico, los tres `unreliable` ("RESULTADO NO CONFIABLE"); productos: error con un puesto con minutos por tanda y sin básico (§19, §23). Sólo aparecen cuando se disparan.
 - `revenueComposition`: presentación de los componentes de `computeRevenue` (§12.0), sin cálculo nuevo.
 - Golden: 39/39 sin cambios (ningún archivo de golden tocado). Margen y markup sin cambios.
 
 #### 4. Impacto en datos
-- Esquema 10 sin cambios; ninguna migración. Campos opcionales nuevos: `external.tripBasis` (sólo `'round_trip'`) y `equipment[].externalUnitConfirmed` (`'activation'`). Sin ellos todo calcula igual.
+- Esquema 10 sin cambios; ninguna migración. Campos opcionales nuevos: `external.tripBasis` (sólo `'round_trip'`) y `equipment[].externalUnitConfirmed` (el supuesto confirmado: tarifa, viajes por salida y ruta). Sin ellos todo calcula igual.
 - Ningún dato se pierde ni se reinterpreta. Compatibilidad con una pestaña de la versión anterior y alternativa de subir a v11: DATA_MODEL §5 y decisión D-ECO01-1 del informe.
 
 #### 5. Diseño
@@ -1172,4 +1172,5 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 
 #### Bitácora
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
-- 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3.
+- 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
+- 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).

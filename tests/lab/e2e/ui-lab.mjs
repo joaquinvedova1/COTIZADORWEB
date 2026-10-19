@@ -397,6 +397,34 @@ async function runMode(mode) {
     // textContent (como los demás rótulos): innerText aplica las mayúsculas del CSS.
     return norm(await page.evaluate(() => document.body.textContent));
   };
+  /**
+   * ECO-01: en el Resultado (ya abierto), "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" está a la
+   * vista ARRIBA del margen (no dentro de un bloque plegado), el margen lo repite, y el PDF lo imprime
+   * antes del margen.
+   */
+  const unreliableFirst = async (id, cause) => {
+    const info = await page.evaluate(() => {
+      const banner = document.querySelector('.qr-draft.qr-unreliable');
+      const margin = document.querySelector('.qr-stat-margin');
+      const visible = (el) => Boolean(el) && el.offsetParent !== null && !el.closest('details:not([open])');
+      return {
+        banner: banner ? banner.innerText : null,
+        bannerVisible: visible(banner),
+        before: Boolean(banner && margin && (banner.compareDocumentPosition(margin) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        margin: margin ? margin.innerText : null,
+        work: (document.querySelector('.qr-work') || {}).innerText || '',
+      };
+    });
+    check(id, 'ECO-01: "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" a la vista, arriba del margen, con la causa', info.bannerVisible && info.before && /RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA/.test(info.banner || '') && cause.test(info.banner || ''), JSON.stringify(info).slice(0, 300));
+    check(id, 'ECO-01: el margen dice NO CONFIABLE (no "Ganás")', /NO CONFIABLE/.test(info.margin || '') && !/Ganás/.test(info.margin || ''), norm(info.margin));
+    check(id, 'ECO-01: el cálculo de días / equilibrio también dice NO CONFIABLE', /NO CONFIABLE/.test(info.work), norm(info.work).slice(0, 200));
+    await page.emulateMedia({ media: 'print' });
+    const printed = norm(await page.evaluate(() => document.body.innerText));
+    await page.emulateMedia({ media: 'screen' });
+    const at = printed.indexOf('RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA');
+    const marginAt = printed.indexOf('Margen');
+    check(id, 'ECO-01: el PDF imprime "RESULTADO NO CONFIABLE" antes del margen', at >= 0 && marginAt > at, `aviso en ${at}, margen en ${marginAt}`);
+  };
   {
     const t = await screenText('E2E-11', 'modality');
     check('E2E-11', 'D1: "Cómo se cobra" muestra salidas promedio, costeadas y el efecto del redondeo', /Salidas promedio por mes: 0,5/.test(t) && /salidas costeadas: 0,5/.test(t) && /efecto del redondeo/i.test(t), 'faltan los tres números');
@@ -450,6 +478,18 @@ async function runMode(mode) {
       cost: (document.querySelector('[data-kpi="totalCost"] .qe-sum-full') || {}).textContent,
     }));
     check('E2E-17', 'H-01: "Sí, cobra por salida" deja la confirmación a la vista y el costo de siempre', /Confirmado: el proveedor cobra por salida/.test(confirmed.text) && norm(confirmed.cost) === norm(formatMoney(byId['E2E-17'].r.kpis.totalCost)), norm(confirmed.cost));
+    // Confirmación ligada al supuesto: con 3 viajes por salida ya no vale y vuelve el crítico.
+    // Por el enlace al campo de la app (abre el desplegable donde está).
+    await go(fieldHref(byId['E2E-17'].q.id, 'logistics.tripsPerActivation').replace(/^.*#/, '#'), 600);
+    await waitFocus('logistics.tripsPerActivation');
+    const trips = page.locator('[name="logistics.tripsPerActivation"]').first();
+    await trips.scrollIntoViewIfNeeded().catch(() => {});
+    await trips.fill('3');
+    await trips.press('Tab');
+    await page.waitForTimeout(900);
+    const t17 = await screenText('E2E-17', 'equipment');
+    const stale = await page.evaluate(() => [...document.querySelectorAll('.qe-unit-confirm')].filter((b) => !b.hidden).map((b) => b.textContent));
+    check('E2E-17', 'H-01: si cambian los viajes por salida, la confirmación vieja no vale y vuelve el aviso', stale.length === 1 && /La confirmación anterior .*ya no vale: cambió los viajes por salida/.test(stale[0]) && !/Confirmado:/.test(stale[0]) && /3 viajes/.test(t17), JSON.stringify(stale).slice(0, 300));
   }
   {
     const t = await screenText('E2E-18', 'equipment');
@@ -464,6 +504,7 @@ async function runMode(mode) {
     const comp = norm(await page.evaluate(() => (document.querySelector('.qr-revenue-composition') || {}).textContent || ''));
     const total = formatMoney(byId['E2E-19'].r.estimate.revenue.total);
     check('E2E-19', 'H-02: el Resultado muestra cómo se compone la facturación (abono + disponibilidad = total del motor) y el aviso crítico', /Cómo se compone la facturación del mes/.test(comp) && /Abono mensual \(la tarifa\)\s*\$ 25\.000\.000/.test(comp) && /Abono de disponibilidad\s*\$ 25\.000\.000/.test(comp) && comp.includes(norm(total)) && /Dos abonos por mes/.test(comp), comp.slice(0, 300));
+    await unreliableFirst('E2E-19', /Dos abonos por mes/);
   }
   {
     await screenText('E2E-20', 'labor');
@@ -472,6 +513,9 @@ async function runMode(mode) {
     check('E2E-20', 'H-03: la línea avisa el puesto sin sueldo básico, con su nombre (y sólo esa)', shown.length === 1 && /"Operador de hidrogrúa" no tiene sueldo básico/.test(shown[0]), JSON.stringify(shown));
     const critical = byId['E2E-20'].r.completeness.pending.find((p) => p.id === 'labor');
     check('E2E-20', 'H-03: es crítico en el motor', Boolean(critical && critical.severity === 'critical'), JSON.stringify(critical && critical.severity));
+    await go(`#/cotizaciones/${encodeURIComponent(byId['E2E-20'].q.id)}/result`, 300);
+    await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+    await unreliableFirst('E2E-20', /Personal/);
   }
   {
     const pr = computeProduct(structuredClone(prod));
