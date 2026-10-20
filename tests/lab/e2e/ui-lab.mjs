@@ -36,6 +36,7 @@ import { cot0010Quote } from '../../fixtures/cot-0010.js';
 import { service, person, owned, external, material, product, ingredient, worker, fixedCost } from '../lib/build.js';
 import { computeProduct } from '../../../js/engines/product-engine.js';
 import { computeLaborLine } from '../../../js/engines/labor-engine.js';
+import { computeOwnership } from '../../../js/engines/equipment-engine.js';
 import { laborLineFromProfile } from '../../../js/domain/quote-factory.js';
 import { roundMoney } from '../../../js/core/money.js';
 import { assertSafeReport } from '../lib/report.js';
@@ -771,6 +772,154 @@ async function runMode(mode) {
     await scan(R, 'Personal (al final)');
     if (args.shots) await page.screenshot({ path: path.join(outDir, `${mode}-RES-02-personal.png`), fullPage: true });
     // Ningún diálogo abierto para lo que sigue.
+    for (let i = 0; i < 3 && (await page.locator('dialog[open]').count()) > 0; i += 1) await page.keyboard.press('Escape');
+  }
+
+  // ---- RES-02 Equipos (PLAN-2026-024): agrupados por familia (vacío y pozo aparte de los camiones),
+  // unidades propias ≠ alquiladas o tercerizadas (no suman), posesión de la flota propia = motor,
+  // otra moneda sin tipo de cambio como subtotal parcial, búsqueda y filtro en la dirección.
+  {
+    const R = 'RES-02-EQ';
+    const T = { timeout: 4000 };
+    const soft = async (fn) => {
+      try {
+        await fn();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const press = (loc) => soft(async () => {
+      await loc.scrollIntoViewIfNeeded(T).catch(() => {});
+      if (mode === 'mobile') await loc.tap(T);
+      else await loc.click(T);
+    });
+    const ars = { period: '2026-09', currency: 'ARS', source: 'company', note: '' };
+    const meta = (id) => ({ id, organizationId: orgId, createdAt: now, updatedAt: now, createdBy: null, updatedBy: null });
+    const own = (id, name, familyId, o = {}) => ({
+      ...meta(id), name, internalCode: '', familyId, capacity: '', modelId: null, year: null, plate: '', acquisition: 'owned', currentValue: 0,
+      replacementValue: 120000000, usefulLifeYears: 10, residualValue: 20000000, insuranceAnnual: 2400000, licenseAnnual: 600000, certificationsAnnual: 300000,
+      otherAnnual: 0, capitalRatePctAnnual: 8, maintenancePerHour: 9000, tiresPerHour: 2000, fuelLitersPerHour: 12, availableHoursPerMonth: 200,
+      availableDaysPerMonth: 22, utilizationPct: 60, external: null, base: { ...ars }, costsBase: { ...ars }, illustrative: false, ...o,
+    });
+    const ext = (id, name, familyId, acquisition, price, unit) => ({
+      ...meta(id), name, internalCode: '', familyId, capacity: '', modelId: null, year: null, plate: '', acquisition,
+      external: { supplier: 'Proveedor sintético', price, unit, minimumUnits: 0, includes: {}, fuelIncluded: true, operatorIncluded: acquisition === 'outsourced' },
+      base: { ...ars }, costsBase: { ...ars }, illustrative: false,
+    });
+    const units = [
+      own('eq-hg1', 'Hidrogrúa 30 t·m', 'crane_truck', { internalCode: 'HG-01', replacementValue: 180000000 }),
+      own('eq-hg2', 'Hidrogrúa 30 t·m', 'crane_truck', { internalCode: 'HG-02', replacementValue: 180000000 }),
+      ext('eq-gr50', 'Grúa 50 t', 'crane', 'rented', 1800000, 'day'),
+      own('eq-cam', 'Camión 6x4', 'truck', { internalCode: 'CA-01' }),
+      own('eq-vac', 'Vactor 12 yd³', 'vactor', { internalCode: 'VC-01', replacementValue: 260000000 }),
+      ext('eq-atm', 'Camión atmosférico', 'vacuum_truck', 'outsourced', 950000, 'day'),
+      own('eq-fb', 'Flushby', 'flushby', { internalCode: 'FB-01', replacementValue: 320000000 }),
+      own('eq-wl', 'Unidad de wireline', 'wireline', { internalCode: 'WL-01', replacementValue: 410000000 }),
+      own('eq-leg', 'Batea (tipo anterior)', undefined, { type: 'trailer', internalCode: 'BT-07', fuelLitersPerHour: 0, fuelNotApplicable: true }),
+      own('eq-pk', 'Camioneta 4x4', 'pickup', { internalCode: 'PK-01', replacementValue: 45000000 }),
+      ext('eq-pk2', 'Camioneta 4x4 (alquiler)', 'pickup', 'rented', 2600000, 'month'),
+      own('eq-exc', 'Excavadora 20 t', 'excavator', { internalCode: 'EX-01', replacementValue: 210000, residualValue: 40000, base: { ...ars, currency: 'USD' } }),
+      own('eq-otro', 'Hidrolavadora industrial', 'other', { internalCode: 'HL-01', replacementValue: 8000000 }),
+    ];
+    ws.state.resources.equipment = units;
+    // Sin tipos de cambio: la excavadora en USD tiene que quedar sin convertir aunque otro bloque (p. ej. el de
+    // Configuración de UX-01, en el árbol combinado) haya guardado uno.
+    ws.state.settings = { ...(ws.state.settings || {}), exchangeRates: [] };
+    ws.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+    const byId = Object.fromEntries(units.map((u) => [u.id, u]));
+    const holding = (id) => computeOwnership(byId[id]).totalMonthly;
+    const storedUnits = () => canon((db.workspaces.get(orgId).state.resources || {}).equipment || []);
+    const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+    const groupsOnScreen = () => page.evaluate(() => [...document.querySelectorAll('.equipment-group')].map((d) => ({
+      id: d.dataset.group,
+      open: d.open,
+      title: (d.querySelector('.equipment-group-title') || {}).textContent || '',
+      counts: (d.querySelector('.equipment-group-counts') || {}).textContent || '',
+      amount: (d.querySelector('.equipment-group-amount') || {}).textContent || '',
+      rows: [...d.querySelectorAll('tbody tr')].map((tr) => ({ name: (tr.querySelector('td') || {}).textContent || '', holding: (tr.querySelector('td:nth-child(3)') || {}).textContent || '' })),
+    })));
+    const openEquipment = async (hash = '#/recursos/equipos') => {
+      await go(hash, 900);
+      await page.waitForSelector('.equipment-group', { timeout: 8000 }).catch(() => {});
+    };
+    const before = storedUnits();
+
+    await openEquipment();
+    const top = await page.evaluate(() => {
+      const g = document.querySelector('.equipment-group');
+      return g ? Math.round(g.getBoundingClientRect().top) : null;
+    });
+    check(R, 'Recursos → Equipos arranca agrupado por familia y el primer grupo se ve sin desplazar', top !== null && top < viewport.height - 80, `primer grupo a ${top}px (pantalla de ${viewport.height}px)`);
+    let groups = await groupsOnScreen();
+    check(R, 'grupos en orden fijo: grúas, camiones, vacío, pozo, remolques, livianos, movimiento de suelo y "Otros / sin familia"', groups.map((g) => g.id).join(',') === 'cranes,trucks,vacuum,well,trailers,light,earthmoving,other', groups.map((g) => g.id).join(','));
+    const g = Object.fromEntries(groups.map((x) => [x.id, x]));
+    const names = (id) => (g[id] ? g[id].rows.map((r) => norm(r.name)) : []);
+    check(R, 'vactor, camión atmosférico, flushby y wireline no van con los camiones (revisión de ChatGPT, punto 6)', names('trucks').length === 1 && /Camión 6x4/.test(names('trucks')[0])
+      && /Equipos de vacío y succión/.test(g.vacuum && g.vacuum.title) && names('vacuum').some((n) => /Vactor/.test(n)) && names('vacuum').some((n) => /Camión atmosférico/.test(n))
+      && /Equipos de pozo/.test(g.well && g.well.title) && names('well').length === 2, JSON.stringify({ trucks: names('trucks'), vacuum: names('vacuum'), well: names('well') }));
+    const cranes = formatMoney(roundMoney(holding('eq-hg1') + holding('eq-hg2')));
+    check(R, 'grúas: "2 unidades propias · 1 alquilada o tercerizada (no suma)" y posesión = motor, sin la alquilada', g.cranes && norm(g.cranes.counts) === '2 unidades propias · 1 alquilada o tercerizada (no suma)' && norm(g.cranes.amount).startsWith(`${norm(cranes)} / mes`), JSON.stringify(g.cranes && { counts: g.cranes.counts, amount: g.cranes.amount, motor: cranes }));
+    const rowMismatch = ['eq-hg1', 'eq-cam', 'eq-vac', 'eq-fb', 'eq-wl', 'eq-leg', 'eq-pk', 'eq-otro'].filter((id) => {
+      const row = groups.flatMap((x) => x.rows).find((r) => norm(r.name).includes(byId[id].internalCode));
+      return !row || !norm(row.holding).startsWith(`${norm(formatMoney(holding(id)))} / mes`);
+    });
+    check(R, 'posesión por mes de cada unidad propia = motor', rowMismatch.length === 0, `distinta en: ${rowMismatch.join(', ')}`);
+    const rented = groups.flatMap((x) => x.rows).find((r) => /Grúa 50 t/.test(r.name));
+    check(R, 'una alquilada muestra su tarifa, no una posesión', Boolean(rented) && /1\.800\.000/.test(norm(rented.holding)) && !/\/ mes/.test(norm(rented.holding)), JSON.stringify(rented));
+    check(R, 'el tipo anterior "trailer" cae en "Remolques y tanques" y "Otro" en "Otros / sin familia"', names('trailers').some((n) => /Batea/.test(n)) && names('other').some((n) => /Hidrolavadora/.test(n)), JSON.stringify({ trailers: names('trailers'), other: names('other') }));
+    const summaryText = norm(await page.evaluate(() => (document.querySelector('.equipment-summary') || {}).textContent || ''));
+    check(R, 'otra moneda sin tipo de cambio: no se suma (grupo sin monto, "subtotal parcial" arriba) y lo dice en la fila', g.earthmoving && /Sin monto: la unidad propia está valuada en otra moneda sin tipo de cambio/.test(g.earthmoving.amount)
+      && /Valor en USD/.test(norm(g.earthmoving.rows[0] && g.earthmoving.rows[0].holding)) && /subtotal parcial/.test(summaryText), `${g.earthmoving && g.earthmoving.amount} | ${summaryText.slice(0, 200)}`);
+    check(R, 'el resumen cuenta propias y, aparte, alquiladas o tercerizadas (no suman)', summaryText.startsWith('10 unidades propias · 3 alquiladas o tercerizadas (no suman)'), summaryText.slice(0, 160));
+    await scan(R, 'Equipos por familia');
+
+    // "Ver cálculo" de la posesión: termina en el número de la fila.
+    await press(page.locator('.equipment-group[data-group="cranes"] tbody tr').first().locator('.trace-btn'));
+    await page.waitForSelector('dialog[open]', T).catch(() => {});
+    const trace = norm(await page.evaluate(() => (document.querySelector('dialog[open]') || {}).textContent || ''));
+    check(R, '"Ver cálculo" de la posesión termina en el número de la fila', /COSTO DE POSESIÓN mensual/.test(trace) && trace.includes(norm(formatMoney(holding('eq-hg1')))), trace.slice(0, 200));
+    for (let i = 0; i < 3 && (await page.locator('dialog[open]').count()) > 0; i += 1) await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+
+    // Búsqueda y filtro en la dirección.
+    await soft(() => page.locator('input[name="q"]').fill('fb-01', T));
+    await page.waitForTimeout(300);
+    groups = await groupsOnScreen();
+    const hashQ = await page.evaluate(() => window.location.hash);
+    check(R, 'buscar por interno ("fb-01") deja sólo esa unidad y queda en la dirección', groups.length === 1 && groups[0].rows.length === 1 && /Flushby/.test(groups[0].rows[0].name) && /[?&]q=fb-01(&|$)/.test(hashQ), `${hashQ} · ${JSON.stringify(groups.map((x) => [x.id, x.rows.length]))}`);
+    await openEquipment('#/recursos/equipos?tenencia=externas');
+    groups = await groupsOnScreen();
+    const sel = await page.evaluate(() => (document.querySelector('select[name="tenencia"]') || {}).value);
+    check(R, 'filtro "Sólo alquiladas o tercerizadas" desde la dirección: sus grupos, sin montos de posesión', sel === 'externas' && groups.map((x) => x.id).join(',') === 'cranes,vacuum,light' && groups.every((x) => /Sin unidades propias/.test(x.amount)), JSON.stringify({ sel, groups: groups.map((x) => [x.id, norm(x.amount).slice(0, 40)]) }));
+    await soft(() => page.selectOption('select[name="tenencia"]', '', T));
+    await page.waitForTimeout(300);
+    const cleared = await page.evaluate(() => ({ hash: window.location.hash, groups: document.querySelectorAll('.equipment-group').length }));
+    check(R, '"Todas" quita el filtro de la dirección', cleared.groups === 8 && !/tenencia=/.test(cleared.hash), JSON.stringify(cleared));
+
+    // Plegar / desplegar y las otras vistas.
+    await openEquipment();
+    await press(page.getByRole('button', { name: 'Plegar todo', exact: true }));
+    await page.waitForTimeout(300);
+    // Con grupos: sin grupos, "todos plegados" sería cierto sin probar nada.
+    const afterFold = await groupsOnScreen();
+    const folded = afterFold.length > 0 && afterFold.every((x) => !x.open);
+    await press(page.getByRole('button', { name: 'Desplegar todo', exact: true }));
+    await page.waitForTimeout(300);
+    const afterUnfold = await groupsOnScreen();
+    const unfolded = afterUnfold.length > 0 && afterUnfold.every((x) => x.open);
+    check(R, '"Plegar todo" / "Desplegar todo"', folded && unfolded, JSON.stringify({ folded, unfolded, groups: afterUnfold.length }));
+    await press(page.getByRole('button', { name: 'Lista', exact: true }));
+    await page.waitForTimeout(400);
+    const flat = await page.evaluate(() => ({ groups: document.querySelectorAll('.equipment-group').length, rows: document.querySelectorAll('.lib-table tbody tr').length }));
+    await press(page.getByRole('button', { name: 'Por familia', exact: true }));
+    await page.waitForTimeout(400);
+    check(R, '"Lista" muestra todas las fichas en una tabla y "Por familia" vuelve', flat.groups === 0 && flat.rows === units.length && (await page.locator('.equipment-group').count()) === 8, JSON.stringify(flat));
+    check(R, 'ver, buscar y filtrar no cambia ninguna ficha guardada', storedUnits() === before, 'cambió una ficha guardada');
+    await scan(R, 'Equipos (al final)');
+    if (args.shots) await page.screenshot({ path: path.join(outDir, `${mode}-RES-02-equipos.png`), fullPage: true });
     for (let i = 0; i < 3 && (await page.locator('dialog[open]').count()) > 0; i += 1) await page.keyboard.press('Escape');
   }
 
