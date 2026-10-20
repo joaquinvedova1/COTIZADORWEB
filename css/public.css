@@ -52,7 +52,7 @@ body.is-public .skip-link:not(:focus) { box-shadow: none; }
 
 .pub-tag-illustrative {
   display: inline-flex; align-items: center; white-space: nowrap; flex-shrink: 0;
-  font-size: 0.74rem; font-weight: 700; letter-spacing: 0.02em;
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em;
   color: var(--orange-text); background: var(--orange-50); border: 1px solid #F4D6AB;
   border-radius: 999px; padding: 0.22rem 0.65rem;
 }

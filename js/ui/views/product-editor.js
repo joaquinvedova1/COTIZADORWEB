@@ -44,6 +44,7 @@ import { billingTaxesFields } from '../billing-taxes-form.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { STEP_HINTS, unitMoney, productHref } from './products.js';
 import { createDraftStore } from '../session-memory.js';
+import { REFERENCE_PRICE_NOTE } from '../reference-text.js';
 
 export const RECALC_DELAY_MS = 150;
 export const SAVE_DELAY_MS = 400;
@@ -1363,6 +1364,8 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
             { label: 'Markup equivalente (recargo sobre el costo)', value: pr.markupPct === null ? EMPTY : pctText(pr.markupPct), trace: null },
           ].filter(Boolean),
         }),
+        // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado.
+        h('p', { class: 'footnote pe-reference-note' }, REFERENCE_PRICE_NOTE),
         h('p', { class: 'footnote' }, 'Margen ≠ markup: el margen se mide sobre el precio y el markup sobre el costo. Los precios son sin IVA salvo donde se indica.'),
       ),
       card(

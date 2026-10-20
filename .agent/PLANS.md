@@ -117,6 +117,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-025 | DESIGN-02 (1/2) — "Ingeniería clara": DESIGN.md propio y leer bien montos, unidades, riesgo y estado de guardado | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-ingenieria-clara`, PR sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1175,101 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-025 — DESIGN-02 (1/2): DESIGN.md propio y leer bien montos, unidades, riesgo y estado de guardado
+
+- Estado: En curso — rama `claude/design-02-ingenieria-clara`, desde `main` `d6540b7`. PR sin merge ni deploy
+- Tipo: UX y accesibilidad; **ninguna fórmula ni dato cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (20/10: "Apruebo como dirección general «Ingeniería clara» […] Prepará las mejoras prioritarias de UX y un DESIGN.md propio […] El logo concepto C queda como propuesta: todavía NO lo reemplaces. Priorizá la experiencia real de cotizar y entender resultados"), sobre la auditoría DESIGN-01 de RATEOS-AUDIT (`tasks/DESIGN-01/`: AUDITORIA, DESIGN.md propuesto y PLAN)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Verificado en el código de `main` (RATEOS-AUDIT `tasks/DESIGN-01/AUDITORIA.md`, con `archivo:línea`):
+- **No hay un sistema de diseño escrito.** Los tokens existen (`css/styles.css`, `:root`), pero sin nombres por función: hay 135 colores sueltos y 87 tamaños de letra.
+- **Texto chico donde se lee el riesgo y la plata:**
+  - la etiqueta ILUSTRATIVO mide unos 10 px;
+  - los subtítulos de columna del Resultado, 9,9 px;
+  - los textos del gráfico, 10 y 11 px;
+  - en total hay 91 tamaños de letra por debajo de 12 px.
+- **La raíz está fija en 15 px:** ignora el tamaño de letra que elige la persona en su navegador (WCAG 1.4.4).
+- **Montos clave sin cifras tabulares** (`font-variant-numeric: normal` en las cifras del Resultado): los dígitos "bailan" al cambiar.
+- **"Ver cálculo" mide unos 18 px de alto en escritorio.** Es la puerta para entender cada número; WCAG 2.5.8 pide 24 px.
+- **En el gráfico del Resultado, la tarifa piso y el precio objetivo** son dos líneas llenas que sólo se distinguen por el tono de azul (WCAG 1.4.1).
+- **Los campos dentro de tablas** tienen un borde de 1,3:1: no se ve dónde se escribe (WCAG 1.4.11 pide 3:1).
+- **Estado de guardado:**
+  - en el riel (761 a 1100 px), "Sin conexión", "Conflicto" o "Guardado" quedan como un punto de color sin texto;
+  - en el celular, el estado queda dentro del menú cerrado.
+- **Precio de referencia:** VAL-01 (condición VAL-G4 de la beta) pide decir que RATEOS calcula con los datos de la empresa y que **no es un precio de mercado**. Hoy no lo dice en ningún lado.
+- **El PDF imprime la fecha de impresión, no la de la oferta** (`offerDate`; AUD-T1 C-E2-11).
+
+#### 2. Decisiones (las del dueño; para lo técnico, lo más seguro y sencillo)
+- **Dirección "Ingeniería clara" (DD-1, aprobada):** evolución, no rediseño. Misma paleta, sin efectos ni animaciones nuevas.
+- **Logo (DD-2):** el concepto C queda como propuesta. **No se toca la marca.**
+- **Tipografía (DD-3, sin decisión):** no se carga ninguna fuente. `DESIGN.md` documenta la pila actual y deja Inter autoalojada como propuesta.
+- **Prioridades del Issue #5:** legibilidad de montos y unidades, estado guardado, precios de referencia frente a resultado no confiable, y datos ilustrativos. "Nunca romper claridad de cotización por embellecer".
+- **Alcance de este PR (1/2), cada punto con su control automático:**
+  1. **`DESIGN.md` en la raíz:** principios, tokens por función, tipografía y números, estados de riesgo, componentes, celular, impresión, voz, checklist de accesibilidad por PR, estados de pantalla y guía para agentes. Un test verifica que sus colores coincidan con los de `css/styles.css`.
+  2. **Alias por función** (`--color-text`, `--color-status-critical`…) en `:root`, que apuntan a los tokens actuales. Sin cambio visual. Se usan en las reglas que toca este PR.
+  3. **Raíz en %:** `93.75 %` (15 px) en escritorio y `100 %` (16 px) en el celular. Con el tamaño de fábrica del navegador se ve igual; si la persona agranda la letra, la app la sigue.
+  4. **Mínimo de 12 px:**
+     - `--fs-xs` pasa de 0,78 rem a 0,8 rem (12 px);
+     - todo tamaño menor en `styles.css`, `quote.css`, `result.css` y `views.css` pasa a `var(--fs-xs)`;
+     - los textos del gráfico pasan a 12 px.
+     - `public.css` (landing y registro) queda para D7, después del merge de HD-03 (#28), salvo la etiqueta ILUSTRATIVO.
+  5. **Cifras tabulares** en las cifras clave del Resultado.
+  6. **"Ver cálculo" de al menos 24 px de alto** en escritorio (en el celular ya mide 44 px).
+  7. **Gráfico:** la tarifa piso pasa a línea de trazos (con su muestra igual en la leyenda); el objetivo queda lleno. Ya no se distinguen sólo por el color.
+  8. **Campos en tablas** con el borde de los campos (`--field-border`, 3,3:1).
+  9. **Estado de guardado con palabra:**
+     - en el riel, ícono + palabra corta;
+     - en el celular, el estado en la barra de arriba, sin abrir el menú.
+     - El texto completo sigue igual; los avisos de error no cambian.
+  10. **"No es un precio de mercado" (VAL-G4):** junto a "Montos sin IVA" en el Resultado y en el encabezado del PDF: "Calculado con tus costos y tus supuestos: no es un precio de mercado."
+  11. **PDF:** la fecha de la oferta y, aparte, la de impresión.
+- **Para después** (DESIGN-02 2/2 y siguientes):
+  - Resumen en vivo con el resultado y el margen esperados siempre a la vista; tablas de estructura y de tramos apiladas en el celular; barra compacta que destaca la sugerida; avisos arriba en el celular; `aria-required` y ayudas asociadas; montos con separadores al salir del campo.
+  - Configuración con los mismos textos de sincronización que el editor: después de UX-01 (#32), que cambia ese código.
+  - Primer uso (D2), Inter (DD-3), logo (DD-2) y landing y registro (D7, después de #28).
+
+#### 3. Impacto en fórmulas
+Ninguno. No se toca `js/engines/**` ni `js/domain/**`. Golden 39/39 y candado sin cambios.
+
+#### 4. Impacto en datos
+Ninguno: ni campos nuevos ni esquema (sigue en 10). El PDF sólo lee `offerDate`, que ya existe.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests que fallan en `main`: el estático de `DESIGN.md` y los tokens (`tests/ui/design-system.test.js`) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+- [x] 3. `DESIGN.md`, tokens, CSS, estado de guardado, nota de precio de referencia y fecha de la oferta.
+- [x] 4. Validación completa:
+  - suite, Test Lab, gate, `ui-lab` y `auth-lab`;
+  - capturas antes y después a 1440 y 390 px;
+  - Code Review (skill) del diff;
+  - PR sin merge, evidencia en RATEOS-AUDIT y verificación combinada con los PR #28 a #34.
+
+#### 6. Rollback
+Revert del PR. No deja datos.
+
+#### Bitácora
+- 2026-10-20: base `main` `d6540b7`. Primero este plan; después los tests y la implementación.
+- 2026-10-20: tests escritos antes del código: los 15 estáticos fallan en `main` (`tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js`); el bloque DESIGN-02 del `ui-lab` se corre contra `main` con acciones "suaves".
+- 2026-10-20: implementado.
+  - CSS: 75 tamaños por debajo de 12 px pasan a `var(--fs-xs)` (0,8 rem), salvo los textos del gráfico, que van en `12px` porque el SVG se dibuja en px reales. Con texto de 12 px, los rótulos al final de las líneas del gráfico piden 14 px de separación (antes 13).
+  - Decisiones técnicas:
+    - la tarifa piso va **punteada** (no con guiones), porque los guiones ya son de la tarifa cotizada;
+    - en el riel, el texto completo del estado queda para los lectores de pantalla y se ve la palabra corta (`SYNC_SHORT_LABELS` en `js/app.js`);
+    - en el celular, la barra lleva su propio `role="status"`: con el menú cerrado, el del menú no se ve ni se anuncia;
+    - los textos nuevos están en `js/ui/reference-text.js` (puro, con tests): la nota de mercado y las fechas del PDF, que leen `offerDate` como fecha sin hora (no se corre un día por la zona horaria).
+- 2026-10-20: el control de 12 px del `ui-lab` encontró, en escritorio, tamaños en `em` que dentro de un texto de 12 px quedaban en 10,7 a 11 px (`.mono`, `.unit-suffix`, `.qr-unit`, `.qr-cuadre-detail`). Pasan a `max(…em, var(--fs-xs))`, con un test estático que lo exige (`32ba256`). Contra `main`, el detalle de ese control copiaba el email sintético de la cuenta y el lab, con razón, no escribía el reporte: ahora cuenta por pantalla, clase y tamaño, sin copiar el texto.
+- 2026-10-20: revisión de código (skill Code Review, nivel medio, sobre `d6540b7..32ba256`): 8 observaciones, ninguna sobre un cálculo. Siete se corrigieron en `2607790`:
+  - margen izquierdo y separación del eje X del gráfico según el ancho de los rótulos de 12 px;
+  - en el celular, el estado del menú se oculta (con el menú abierto se anunciaba dos veces) y la palabra de la barra se acorta antes que apretar "Menú";
+  - un solo validador de fechas (`dayFromDate`);
+  - en el `ui-lab`, la fecha de impresión sale del navegador, la cotización ilustrativa sintética entra en el control de fugas de sesión y hay dos controles nuevos en el celular (un solo estado con el menú abierto; la barra a 320 px).
+  - Queda a propósito el mínimo de 24 px de "Ver cálculo" también en los botones compactos: son controles sueltos (WCAG 2.5.8).
+- 2026-10-20: validación en `2607790` (SIMULADA):
+  - `npm test` en verde, Test Lab OK (golden 39/39), gate PASA;
+  - `ui-lab` 395/395 (escritorio) y 397/397 (celular), con 15 y 17 controles DESIGN-02;
+  - contra `main` fallan 12 de 15 y 10 de 17 (fuera del bloque, 0);
+  - combinado con los PR #28 a #34: `npm test` 1918/1918, `ui-lab` 606/606 y 608/608, `auth-lab` 136/136.
+  - Al combinarse con ECO-02 (#29), su pastilla "No confiable" (0,75 rem) queda por debajo de 12 px: el test de DESIGN-02 la marca y la pasa a `var(--fs-xs)`.

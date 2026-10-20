@@ -71,7 +71,7 @@ import {
   toast as componentToast,
   barList,
 } from '../components.js';
-import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { createTrace } from '../../core/trace.js';
 import { track } from '../../core/events.js';
@@ -94,6 +94,7 @@ import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import { onSessionReset } from '../session-memory.js';
+import { REFERENCE_PRICE_NOTE, documentDatesText } from '../reference-text.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
   dayDecimals,
@@ -1745,6 +1746,8 @@ function renderSummary(v) {
         illustrativeBadge(v))),
     draft,
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
+    // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado. Se imprime.
+    h('p', { class: 'qr-note qr-reference-note' }, REFERENCE_PRICE_NOTE),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
     workBlock(v),
     transportBlock(v),
@@ -2132,14 +2135,18 @@ function chartSvg(v, data, width) {
   const W = Math.max(280, Math.round(width));
   const narrow = W < 560;
   const H = narrow ? 260 : 300;
-  const L = narrow ? 62 : 78;
+  const step = niceStep(maxVal);
+  const yMax = Math.ceil(maxVal / step - 1e-9) * step || step;
+  // Rótulos de 12 px (DESIGN-02): unos 7 px por carácter. El margen izquierdo deja entrar el más ancho del eje Y.
+  const CHAR_PX = 7;
+  let widestY = 0;
+  for (let y = 0; y <= yMax + step * 1e-6; y += step) widestY = Math.max(widestY, compactMoney(y).length);
+  const L = Math.max(narrow ? 62 : 78, 12 + widestY * CHAR_PX);
   const R = narrow ? 14 : 132;
   const T = 18;
   const B = 42;
   const PW = W - L - R;
   const PH = H - T - B;
-  const step = niceStep(maxVal);
-  const yMax = Math.ceil(maxVal / step - 1e-9) * step || step;
   const px = (d) => L + ((d - x0) / (x1 - x0)) * PW;
   const py = (y) => T + PH - (Math.min(Math.max(y, 0), yMax) / yMax) * PH;
 
@@ -2149,17 +2156,18 @@ function chartSvg(v, data, width) {
     grid.push(s('text', { x: L - 8, y: (py(y) + 4).toFixed(1), class: 'qr-chart-tick', 'text-anchor': 'end' }, compactMoney(y)));
   }
 
-  // Rótulos del eje X sin superponerse (el día estimado siempre se rotula).
-  const minGap = 26;
+  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
+  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
+  // Rótulos del eje X sin superponerse (el día estimado siempre se rotula): dos vecinos necesitan la mitad
+  // del ancho de cada uno y un respiro.
+  const halfTick = (m) => (tickOf(m).length * CHAR_PX) / 2 + 4;
   const kept = [];
   markers.forEach((m) => {
     const x = px(m.d);
     const prev = kept[kept.length - 1];
-    if (!prev || x - prev.x >= minGap) kept.push({ m, x });
+    if (!prev || x - prev.x >= Math.max(26, halfTick(prev.m) + halfTick(m))) kept.push({ m, x });
     else if (m.isEstimate) kept[kept.length - 1] = { m, x };
   });
-  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
-  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
   const xTicks = kept.map(({ m, x }) => s('text', { x: x.toFixed(1), y: T + PH + 18, class: ['qr-chart-tick', m.isEstimate ? 'is-estimate' : null].filter(Boolean).join(' '), 'text-anchor': 'middle' }, tickOf(m)));
 
   const estimate = hasValue(k.activeDays) && k.activeDays >= x0 && k.activeDays <= x1
@@ -2194,7 +2202,8 @@ function chartSvg(v, data, width) {
   const labelNodes = endLabels.filter((lbl, i) => {
     const prev = endLabels[i - 1];
     const next = endLabels[i + 1];
-    return (!prev || lbl.y - prev.y >= 13) && (!next || next.y - lbl.y >= 13);
+    // Con texto de 12 px (DESIGN-02), dos rótulos necesitan 14 px de separación para no pisarse.
+    return (!prev || lbl.y - prev.y >= 14) && (!next || next.y - lbl.y >= 14);
   }).map((lbl) => s('text', { x: L + PW + 8, y: (lbl.y + 4).toFixed(1), class: 'qr-chart-label' }, lbl.text));
 
   // Zonas de hover (tooltip nativo) por cada día de la matriz.
@@ -3716,7 +3725,8 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
     h('div', { class: 'qr-print-title' }, parts || 'Cotización'),
     h('div', { class: 'qr-print-meta' },
       q.client ? `Cliente: ${String(q.client)} · ` : '',
-      `Fecha: ${formatDate(new Date())} · Montos sin IVA`,
+      // AUD-T1 C-E2-11 (DESIGN-02): la fecha de la oferta y, aparte, la de impresión.
+      `${documentDatesText({ offerDate: q.offerDate })} · Montos sin IVA`,
       v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''));
 }
 
