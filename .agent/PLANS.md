@@ -1244,7 +1244,7 @@ En los tres casos el motor calcula bien lo que se carga. El problema es que la c
 - [x] 4. UI: el costo de tenerlo en cada vehículo de apoyo y la confirmación del operador en Equipos (cada línea).
 - [x] 5. Fábrica (plantillas) y Recursos (actualizar).
 - [x] 6. E2E (E2E-22 a E2E-24, escritorio y celular), A/B contra `main` y docs.
-- [ ] 7. PR sin merge y evidencia en RATEOS-AUDIT (`tasks/ECO-04/`).
+- [x] 7. PR sin merge (#31) y evidencia en RATEOS-AUDIT (`tasks/ECO-04/`).
 
 #### 6. HUMAN DECISION REQUIRED (no bloquean)
 1. **"Más días que disponibles" en las otras unidades** (D-9, VAL-01-F3, C-E3-10): hoy es trabajo de más de un mes, con el aviso corregido. ¿Pedir confirmación también ahí?
@@ -1279,3 +1279,4 @@ Revert del PR. Los campos nuevos quedan en los datos y la versión anterior los 
   - `vehicle_ownership_costs` en las 626 con vehículos de apoyo;
   - la pregunta de F2 en 310 (VAL-01 E12, el caso F2, y las generadas con "Operador" y un externo con operador);
   - la demo, las plantillas, el golden y los fixtures no cambian.
+- 2026-10-20: las capturas a 390 px mostraron la pregunta del operador en una columna angosta, con el botón al costado. Ahora el botón baja debajo del texto cuando no entran juntos (`css/quote.css`); en escritorio no cambia.

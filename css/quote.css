@@ -224,6 +224,10 @@
 .qe-toolbar-pick .field { flex: 1; }
 .qe-toolbar .btn { min-height: 38px; }
 
+/* Pregunta del operador (ECO-04): si el texto y el botón no entran juntos (celular), el botón baja. */
+.qe-operator-scope { flex-wrap: wrap; }
+.qe-operator-scope > :first-child { flex: 1 1 18rem; min-width: 0; }
+
 /* ------------------------------------------------------- líneas editables */
 
 .qe-lines { display: flex; flex-direction: column; gap: 1rem; }
