@@ -12,6 +12,19 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**ECO-02 (PLAN-2026-019): riesgo a la vista.** Un resultado NO CONFIABLE (ECO-01) se marca también fuera del Resultado y no se puede marcar como enviado. Ninguna fórmula ni indicador del motor cambia (golden sin tocar); esquema sin cambios (sigue en 10), sin migraciones.
+
+### Agregado
+
+- **"No confiable" en las listas:** Cotizaciones (simple y detallada), Inicio ("Tus cotizaciones" y "Continuar cotización", con la causa) y Escenarios marcan la fila y muestran "No confiable" en lugar del margen; la tarifa se ve apagada.
+- **Resultado:** costo del mes, tarifa piso, tarifa y margen llevan "No confiable" (apagados) y el **PDF** dice "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" en el encabezado, antes del primer número; las marcas de riesgo conservan su color al imprimir. El análisis de Escenarios lleva el aviso arriba.
+- **Regla de "Enviada"** (`js/domain/quote-risk.js`), igual en el Resultado, la lista y el editor: con un resultado NO CONFIABLE (o que no se pudo calcular) no se puede pasar a Enviada, ni a Ganada sin haber estado enviada; se dice por qué, a la vista, con "Ver qué falta". Con pendientes críticos se pide confirmar, nombrándolos. Una cotización ya enviada que hoy es NO CONFIABLE lo avisa en el Resultado.
+- Tests: `tests/domain/quote-risk.test.js` y el bloque ECO-02 del lab en navegador (escritorio y celular).
+
+### Cambiado
+
+- **Inicio:** una cotización activa NO CONFIABLE cuenta como activa y en riesgo, pero ya no entra en el valor total cotizado, el margen promedio ni "Servicios bajo piso" (sus números no son reales); los rótulos y "Ver cálculo" lo aclaran.
+
 **ECO-01 (PLAN-2026-017): bloqueantes económicos de la beta (H-01, H-02, H-03).** Ninguna fórmula cambia y ningún dato guardado se reinterpreta: golden 39/39 sin tocar y las mismas cifras que `main` en 2.097 cotizaciones y 13 productos sintéticos. Cambia qué se puede cargar (una unidad nueva) y qué se marca como pendiente. Esquema sin cambios (sigue en 10), sin migraciones.
 
 ### Agregado

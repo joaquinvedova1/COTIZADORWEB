@@ -75,7 +75,7 @@
 /* -------------------------------------------------------------- tablas */
 
 .cell-main { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
-.cell-main .tag-illustrative { margin-left: 0; align-self: flex-start; }
+.cell-main .tag-illustrative, .cell-main .tag-unreliable { margin-left: 0; align-self: flex-start; }
 .cell-title { font-weight: 650; color: var(--ink); }
 a.cell-title { color: var(--navy-900); text-decoration: none; }
 a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
@@ -166,7 +166,8 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 }
 .continue-main { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 .continue-title { font-size: 1.15rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; overflow-wrap: anywhere; }
-.continue-title .tag-illustrative { margin-left: 0; }
+.continue-title .tag-illustrative, .continue-title .tag-unreliable { margin-left: 0; }
+.continue-risk { margin: 0; font-size: var(--fs-sm); color: var(--red-text); }
 .continue-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; color: var(--ink-3); font-size: var(--fs-sm); }
 .continue-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1.5rem; margin: 0; }
 .continue-facts dt { font-size: 0.78rem; font-weight: 600; color: var(--ink-3); }

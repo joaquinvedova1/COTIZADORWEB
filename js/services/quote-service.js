@@ -10,6 +10,7 @@ import { computeQuote, summarizeQuote } from '../engines/quote-engine.js';
 import { createEmptyQuote, createQuoteFromTemplate } from '../domain/quote-factory.js';
 import { DEMO_IDS, demoHydroCraneQuote } from '../domain/demo-data.js';
 import { ACTIVE_QUOTE_STATUSES, SERVICE_TYPES } from '../domain/catalogs.js';
+import { isUnreliableSummary } from '../domain/quote-risk.js';
 import { logger } from '../core/logger.js';
 import { isFiniteNumber } from '../core/money.js';
 
@@ -22,7 +23,7 @@ function safeSummary(quote, settings) {
     return summarizeQuote(quote, { settings });
   } catch (error) {
     logger.warn('No se pudo calcular una cotización', { name: error && error.name });
-    return { error: true, atRisk: true, belowFloor: false, incomplete: true, revenue: null, totalCost: null, marginPct: null, completenessPct: 0, issuesCount: 1 };
+    return { error: true, atRisk: true, belowFloor: false, incomplete: true, revenue: null, totalCost: null, marginPct: null, completenessPct: 0, issuesCount: 1, unreliable: false, unreliableLabels: [], criticalLabels: [] };
   }
 }
 
@@ -31,24 +32,32 @@ function eventServiceType(serviceType) {
   return SERVICE_TYPES.some((t) => t.id === serviceType) ? serviceType : 'unknown';
 }
 
+/** true si el resumen dice que el resultado NO ES CONFIABLE (ECO-01/02): sus números no son reales. */
+const isUnreliable = (i) => isUnreliableSummary(i.summary);
+
 /**
  * Indicadores de un conjunto de cotizaciones ({ quote, summary } de
  * listQuotes()). Única regla para Inicio: activas = borrador, enviada o
  * ganada; margen promedio sólo sobre márgenes finitos (sin márgenes → null,
  * nunca NaN); riesgo y bajo piso según el resumen del motor.
+ * Una cotización con resultado NO CONFIABLE (ECO-02) cuenta como activa y en
+ * riesgo, pero sus montos no entran en el valor cotizado, el margen promedio
+ * ni "bajo piso": no son reales (`unreliableCount` dice cuántas quedan afuera).
  * @param {{ quote: object, summary: object }[]} items
  */
 export function indicatorsFor(items) {
   const list = Array.isArray(items) ? items : [];
   const active = list.filter((i) => i && i.quote && ACTIVE_QUOTE_STATUSES.includes(i.quote.status));
-  const margins = active.map((i) => i.summary && i.summary.marginPct).filter(isFiniteNumber);
+  const reliable = active.filter((i) => !isUnreliable(i));
+  const margins = reliable.map((i) => i.summary && i.summary.marginPct).filter(isFiniteNumber);
   return {
     totalCount: list.length,
     activeCount: active.length,
-    totalQuotedMonthly: active.reduce((s, i) => s + (i.summary && isFiniteNumber(i.summary.revenue) ? i.summary.revenue : 0), 0),
+    totalQuotedMonthly: reliable.reduce((s, i) => s + (i.summary && isFiniteNumber(i.summary.revenue) ? i.summary.revenue : 0), 0),
     averageMarginPct: margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : null,
-    atRiskCount: active.filter((i) => i.summary && i.summary.atRisk).length,
-    belowFloorCount: active.filter((i) => i.summary && i.summary.belowFloor).length,
+    atRiskCount: active.filter((i) => i.summary && (i.summary.atRisk || isUnreliable(i))).length,
+    belowFloorCount: reliable.filter((i) => i.summary && i.summary.belowFloor).length,
+    unreliableCount: active.filter(isUnreliable).length,
     items: list,
   };
 }

@@ -43,6 +43,8 @@
 .qr-stat-line + .qr-stat-line { color: var(--ink-3); }
 .qr-stat .trace-btn { align-self: flex-start; padding-left: 0; }
 .qr-stat-price .big-stat-value { color: var(--blue-text); }
+/* ECO-02: con un resultado NO CONFIABLE, costo, piso y tarifa se apagan (no se leen como cifras para usar). */
+.qr-stat.big-stat-unreliable:not(.big-stat-red) .big-stat-value { color: var(--ink-3); }
 
 /* ¿Cuánto tengo que trabajar? */
 .qr-work {
@@ -175,6 +177,9 @@
 }
 .qr-actions-notes { display: flex; flex-direction: column; gap: 0.3rem; max-width: 56ch; min-width: 0; }
 .qr-actions-note { margin: 0; font-size: 0.8rem; color: var(--ink-3); max-width: 56ch; }
+/* ECO-02: por qué no se puede marcar como enviada (a la vista, no sólo en el botón deshabilitado). */
+.qr-actions-note.qr-send-blocked { color: var(--red-text); font-size: 0.875rem; }
+.qr-send-review { margin-top: -0.15rem; }
 /* En los ejemplos (ILUSTRATIVOS) la nota del ejemplo va primero; la de impresión queda como texto secundario. */
 .qr-actions-note-main { font-size: 0.875rem; color: var(--ink-2); }
 
@@ -524,6 +529,9 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-print-brand { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
   .qr-print-title { font-size: 1.2rem; font-weight: 700; color: var(--navy-900); }
   .qr-print-meta { font-size: 0.8rem; color: var(--ink-2); }
+  .qr-print-flag { display: inline-block; margin-top: 0.35rem; padding: 0.15rem 0.45rem; border: 2px solid var(--red-text); color: var(--red-text); font-weight: 800; font-size: 0.85rem; }
+  /* En columnas angostas la marca va debajo del rótulo y puede partirse (nunca se sale de la hoja). */
+  .qr-stat .big-stat-label .tag-unreliable { display: inline-block; margin: 0.1rem 0 0; white-space: normal; letter-spacing: 0; }
   .qr-step-link, .qr-chart-hit { display: none !important; }
   .qr-th { cursor: auto; }
   .qr-matrix .table th.qr-sticky-col, .qr-matrix .table td.qr-sticky-col,

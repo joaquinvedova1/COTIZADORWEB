@@ -20,6 +20,7 @@ import { DEMO_IDS } from '../domain/demo-data.js';
 import { isQuantityUnit, quantityCeilText } from './unit-text.js';
 import { unitTexts } from '../domain/billing-units.js';
 import { activationTerms } from '../domain/activation-terms.js';
+import { unreliablePending } from '../domain/quote-risk.js';
 
 const EPS = 1e-9;
 
@@ -320,10 +321,9 @@ export function draftBannerText({ critical = 0, review = 0, unreliable = 0 } = {
   };
 }
 
-/** Pendientes que vuelven NO CONFIABLE el resultado (ECO-01): `unreliable` del motor de completitud. */
+/** Pendientes que vuelven NO CONFIABLE el resultado (ECO-01): `unreliable` del motor de completitud (única definición en js/domain/quote-risk.js). */
 export function unreliableItems(completeness) {
-  const pending = completeness && Array.isArray(completeness.pending) ? completeness.pending : [];
-  return pending.filter((i) => i && i.unreliable === true);
+  return unreliablePending(completeness);
 }
 
 /** "NO CONFIABLE (Dos abonos por mes): no uses este número." o null (para el margen y el resultado). */

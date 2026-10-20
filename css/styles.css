@@ -325,6 +325,13 @@ html { scroll-padding-top: 7rem; }
   display: inline-block; margin-left: 0.4rem; font-size: 0.68rem; letter-spacing: 0.06em; font-weight: 700;
   color: #9A5F12; background: var(--orange-50); border: 1px solid #F4D6AB; padding: 0 0.35rem; border-radius: 4px; vertical-align: middle;
 }
+/* ECO-02: resultado NO CONFIABLE en las listas, Inicio, Escenarios y en los números del Resultado (5,1:1). */
+.tag-unreliable {
+  display: inline-block; margin-left: 0.4rem; font-size: 0.75rem; font-weight: 700; white-space: nowrap;
+  color: var(--red-text); background: var(--red-50); border: 1px solid #F0C9C9; padding: 0 0.4rem; border-radius: 4px; vertical-align: middle;
+}
+/* Una cifra calculada con un resultado NO CONFIABLE: se lee, pero apagada. */
+.is-unreliable { color: var(--ink-3); }
 
 /* ----------------------------------------------------------------- banners */
 
@@ -634,6 +641,8 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 
 @media print {
   body { background: var(--white); }
+  /* ECO-02: las marcas de riesgo conservan su color en el PDF. */
+  .tag-unreliable, .tag-illustrative, .banner, .qr-print-flag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .sidebar, .mobile-bar, .nav-backdrop, .topbar-actions, .no-print, .trace-btn, .toast-region { display: none !important; }
   .topbar { position: static; padding: 0 0 0.5rem; background: none; backdrop-filter: none; }
   .app-shell { display: block; }

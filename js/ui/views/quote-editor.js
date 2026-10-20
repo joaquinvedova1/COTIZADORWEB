@@ -575,16 +575,44 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       });
     },
 
-    select(path, { structural = false, ...opts } = {}) {
-      return selectField({
+    /**
+     * Selector conectado a una ruta. `guard(next, previous)` (opcional, puede
+     * ser async): si devuelve false, el valor no cambia y el selector vuelve
+     * al anterior (p. ej. "Enviada" con un resultado NO CONFIABLE, ECO-02).
+     */
+    select(path, { structural = false, guard = null, ...opts } = {}) {
+      let el = null;
+      el = selectField({
         ...opts,
         name: path,
         value: kit.get(path),
-        onChange: (value) => {
+        onChange: async (value) => {
+          if (typeof guard === 'function') {
+            const previous = kit.get(path);
+            const control = el && el.querySelector('select');
+            const previousText = previous === null || previous === undefined ? '' : String(previous);
+            // Mientras se confirma, el selector muestra el valor vigente y no acepta otro cambio (el diálogo es modal, pero el teclado no).
+            const wasDisabled = control ? control.disabled : false;
+            if (control) {
+              control.value = previousText;
+              control.disabled = true;
+            }
+            let ok = false;
+            try {
+              ok = Boolean(await guard(value, previous));
+            } catch (error) {
+              logger.warn('No se pudo confirmar el cambio', { message: error && error.message });
+            } finally {
+              if (control) control.disabled = wasDisabled;
+            }
+            if (!ok) return;
+            if (control) control.value = value === null || value === undefined ? '' : String(value);
+          }
           update(path, value);
           if (structural) rerender();
         },
       });
+      return el;
     },
 
     check(path, { structural = false, ...opts } = {}) {

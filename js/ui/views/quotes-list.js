@@ -20,8 +20,10 @@ import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } fr
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { quantityCeilText } from '../unit-text.js';
-import { breakEvenZeroText } from '../result-text.js';
+import { breakEvenZeroText, joinList } from '../result-text.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
+import { impliesSending, isUnreliableSummary, riskSummary, sendCheck } from '../../domain/quote-risk.js';
+import { guardSending } from '../send-guard.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { templateContents } from './services.js';
 
@@ -82,6 +84,24 @@ export function summaryFailed(summary) {
   return !summary || summary.error === true;
 }
 
+/** true si el resultado es NO CONFIABLE (ECO-01): los números se calculan pero no son reales. */
+export const summaryUnreliable = isUnreliableSummary;
+
+/** Por qué el resultado no es confiable, para títulos y lectores de pantalla. */
+function unreliableTitle(summary) {
+  const labels = Array.isArray(summary.unreliableLabels) ? summary.unreliableLabels : [];
+  return `Resultado NO CONFIABLE${labels.length ? ` (${joinList(labels)})` : ''}: los números no son reales. Abrí la cotización para resolverlo.`;
+}
+
+/**
+ * Marca "No confiable" de una cotización (ECO-02): va en la fila de las listas,
+ * en Inicio y en Escenarios, junto a ILUSTRATIVO. null si el resultado es confiable.
+ */
+export function unreliableTag(summary) {
+  if (!summaryUnreliable(summary)) return null;
+  return h('span', { class: 'tag-unreliable', title: unreliableTitle(summary) }, 'No confiable');
+}
+
 /** Nombre del paso "Cómo se cobra" (única fuente: QUOTE_STEPS). */
 const PRICING_STEP_LABEL = labelOf(QUOTE_STEPS, 'modality');
 
@@ -140,16 +160,24 @@ function moreIcon() {
   );
 }
 
-/** Tarifa de lista (la sugerida o la que ofrecés) con su unidad ("$ 2.259.000 /día") o "Sin tarifa". */
+/**
+ * Tarifa de lista (la sugerida o la que ofrecés) con su unidad ("$ 2.259.000 /día") o "Sin tarifa".
+ * Con un resultado NO CONFIABLE se muestra apagada (no se lee como una tarifa para usar).
+ */
 export function quoteRateNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
-  return isFiniteNumber(summary.commercialListRate)
-    ? h('span', { class: 'nowrap' }, formatMoney(summary.commercialListRate), h('span', { class: 'unit-suffix' }, ` /${quoteUnitShort(quote)}`))
-    : muted('Sin tarifa');
+  if (!isFiniteNumber(summary.commercialListRate)) return muted('Sin tarifa');
+  const unreliable = summaryUnreliable(summary);
+  return h('span', { class: ['nowrap', unreliable ? 'is-unreliable' : null], title: unreliable ? unreliableTitle(summary) : null },
+    formatMoney(summary.commercialListRate), h('span', { class: 'unit-suffix' }, ` /${quoteUnitShort(quote)}`));
 }
 
-/** Margen esperado como insignia de color (o "—" si no hay tarifa). */
+/**
+ * Margen esperado como insignia de color (o "—" si no hay tarifa). Con un
+ * resultado NO CONFIABLE no se muestra el porcentaje (no es real): "No confiable".
+ */
 export function quoteMarginNode(summary) {
+  if (summaryUnreliable(summary)) return badge('No confiable', 'red', { title: unreliableTitle(summary) });
   return !summaryFailed(summary) && isFiniteNumber(summary.marginPct)
     ? badge(formatPercent(summary.marginPct), marginTone(summary), { title: 'Margen sobre precio de venta (no es markup)' })
     : h('span', { class: 'muted', title: summaryFailed(summary) ? 'No se pudo calcular' : 'Sin tarifa no hay margen' }, EMPTY);
@@ -172,6 +200,7 @@ function serviceCell({ quote, summary }, href) {
     h('a', { href, class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
     h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
     summaryFailed(summary) ? failedBadge(quote) : null,
+    unreliableTag(summary),
     illustrativeQuoteTag(quote),
   );
 }
@@ -220,6 +249,7 @@ export function quoteColumns({ statusCell = null } = {}) {
           h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
           h('span', { class: 'cell-sub' }, `${PRICING_STEP_LABEL}: ${labelOf(PRICING_MODES, quote.pricingMode)}`),
           failed ? failedBadge(quote) : null,
+          unreliableTag(summary),
           illustrativeQuoteTag(quote),
         );
       },
@@ -403,19 +433,42 @@ export async function render(root, app) {
     renderList();
   }
 
-  async function changeStatus(quote, status, select) {
+  /**
+   * Cambia el estado desde la lista. Pasar a Enviada (o a Ganada sin haber
+   * estado enviada) sigue la regla de ECO-02 con la cotización GUARDADA (no la
+   * de la lista, que puede ser vieja): con un resultado NO CONFIABLE o que no
+   * se pudo calcular no se puede y con pendientes críticos se confirma.
+   */
+  async function changeStatus(quote, summary, status, select) {
+    // Hasta guardarlo, el selector muestra el estado que la cotización tiene de verdad.
+    select.value = quote.status;
     select.disabled = true;
+    const restore = () => {
+      select.value = quote.status;
+      select.disabled = false;
+    };
     try {
       const fresh = await ctx.quotes.getQuote(quote.id);
       if (!fresh) throw new Error('not_found');
+      if (impliesSending(fresh.status, status)) {
+        let check;
+        try {
+          check = sendCheck(riskSummary((await ctx.quotes.compute(fresh)).completeness));
+        } catch {
+          check = sendCheck(null);
+        }
+        if (!(await guardSending(check, { status, reviewHref: quoteDetailHref(quote, summary) }))) {
+          restore();
+          return false;
+        }
+      }
       await ctx.quotes.saveQuote({ ...fresh, status });
       app.toast(`${textOf(quote.code, 'Cotización')}: estado "${labelOf(QUOTE_STATUSES, status)}".`, 'success');
       await load();
       return true;
     } catch (error) {
       app.toast(userErrorMessage(error, 'No se pudo cambiar el estado.'), 'danger');
-      select.value = quote.status;
-      select.disabled = false;
+      restore();
       return false;
     }
   }
@@ -469,7 +522,7 @@ export async function render(root, app) {
     const select = statusSelectFor(quote, { id: statusId });
     let dialogRef = null;
     select.addEventListener('change', async () => {
-      if (await changeStatus(quote, select.value, select)) dialogRef.close();
+      if (await changeStatus(quote, summary, select.value, select)) dialogRef.close();
     });
     const dupBtn = button('Duplicar', { variant: 'secondary', icon: 'copy' });
     dupBtn.addEventListener('click', async () => {
@@ -533,9 +586,9 @@ export async function render(root, app) {
       button('', { variant: 'danger', size: 'sm', icon: 'trash', title: 'Eliminar', onClick: () => remove(quote), attrs: { 'aria-label': `Eliminar ${quoteRef(quote)}` } }),
     );
 
-  const detailedStatusCell = ({ quote }) => {
+  const detailedStatusCell = ({ quote, summary }) => {
     const select = statusSelectFor(quote);
-    select.addEventListener('change', () => changeStatus(quote, select.value, select));
+    select.addEventListener('change', () => changeStatus(quote, summary, select.value, select));
     return select;
   };
 

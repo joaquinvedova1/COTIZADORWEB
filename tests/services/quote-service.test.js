@@ -320,7 +320,7 @@ describe('QuoteService.dashboardStats', () => {
     const stats = await service.dashboardStats();
     assert.deepEqual(
       { ...stats, items: undefined },
-      { totalCount: 0, activeCount: 0, totalQuotedMonthly: 0, averageMarginPct: null, atRiskCount: 0, belowFloorCount: 0, items: undefined },
+      { totalCount: 0, activeCount: 0, totalQuotedMonthly: 0, averageMarginPct: null, atRiskCount: 0, belowFloorCount: 0, unreliableCount: 0, items: undefined },
     );
   });
 });
@@ -475,6 +475,22 @@ describe('indicatorsFor: una sola regla para los indicadores de Inicio', () => {
     assert.equal(r.belowFloorCount, 1);
   });
 
+  test('ECO-02: una cotización NO CONFIABLE cuenta como activa y en riesgo, pero no entra en los montos', () => {
+    const r = indicatorsFor([
+      item('draft', { marginPct: 10, revenue: 100 }),
+      item('sent', { marginPct: 90, revenue: 5000, belowFloor: true, unreliable: true, unreliableLabels: ['Dos abonos por mes'] }),
+      item('won', { marginPct: 20, revenue: 200, unreliable: false }),
+      item('lost', { marginPct: 99, revenue: 9000, unreliable: true }),
+      item('draft', { error: true, atRisk: true, unreliable: true }),
+    ]);
+    assert.equal(r.activeCount, 4);
+    assert.equal(r.unreliableCount, 1, 'sólo las activas y calculadas; un error de cálculo no es "no confiable"');
+    assert.equal(r.averageMarginPct, 15, 'el 90 % no real no entra en el promedio');
+    assert.equal(r.totalQuotedMonthly, 300, 'su facturación tampoco');
+    assert.equal(r.belowFloorCount, 0, 'ni su "bajo piso" (calculado con números que no son reales)');
+    assert.equal(r.atRiskCount, 2, 'en riesgo: la NO CONFIABLE y la que no se pudo calcular');
+  });
+
   test('sin cotizaciones activas o sin márgenes: promedio null (nunca NaN); tolera entradas inválidas', () => {
     assert.equal(indicatorsFor([]).averageMarginPct, null);
     assert.equal(indicatorsFor(null).totalCount, 0);
@@ -488,7 +504,7 @@ describe('indicatorsFor: una sola regla para los indicadores de Inicio', () => {
     const { service } = await setup();
     const stats = await service.dashboardStats();
     const again = indicatorsFor(await service.listQuotes());
-    for (const key of ['totalCount', 'activeCount', 'totalQuotedMonthly', 'averageMarginPct', 'atRiskCount', 'belowFloorCount']) {
+    for (const key of ['totalCount', 'activeCount', 'totalQuotedMonthly', 'averageMarginPct', 'atRiskCount', 'belowFloorCount', 'unreliableCount']) {
       assert.deepEqual(stats[key], again[key], key);
     }
   });

@@ -1,0 +1,72 @@
+/**
+ * Riesgo de una cotización fuera del Resultado y regla de "Enviada" (ECO-02).
+ *
+ * El motor de completitud ya marca los pendientes con los que el resultado
+ * NO ES CONFIABLE (ECO-01: doble abono, "por salida" sin confirmar, puesto sin
+ * sueldo) y los críticos (cambian el costo o el precio). Acá sólo se proyectan
+ * para las listas, Inicio, Escenarios y la regla de estado: nada de esto cambia
+ * un número.
+ *
+ * Regla de "Enviada": una cotización pasa a Enviada (o a Ganada sin haber
+ * estado enviada) sólo con un resultado confiable. Con un resultado NO
+ * CONFIABLE, o si no se pudo calcular, no se puede: primero hay que resolver lo
+ * que lo causa. Con pendientes críticos se puede, confirmando y nombrándolos.
+ */
+
+/** Estados que suponen mandarla al cliente. */
+const SENDING_STATUSES = Object.freeze(['sent', 'won']);
+/** Estados desde los que la cotización ya se mandó (Perdida → Ganada corrige un hecho, no la manda de nuevo). */
+const ALREADY_SENT_STATUSES = Object.freeze(['sent', 'won', 'lost']);
+
+const labelsOf = (items) => items.map((i) => (typeof i.label === 'string' && i.label.trim() ? i.label.trim() : 'Pendiente'));
+const pendingOf = (completeness) => (completeness && Array.isArray(completeness.pending) ? completeness.pending.filter((i) => i && typeof i === 'object') : []);
+
+/**
+ * Pendientes de la completitud que vuelven NO CONFIABLE el resultado (ECO-01): única definición, la usan
+ * el Resultado (`unreliableItems` de result-text.js), las listas y la regla de "Enviada".
+ * @param {object|null} completeness  `computeQuote().completeness`
+ */
+export function unreliablePending(completeness) {
+  return pendingOf(completeness).filter((i) => i.unreliable === true);
+}
+
+/**
+ * Riesgo del resultado a partir de la completitud del motor: si es NO
+ * CONFIABLE y los rótulos de lo que lo causa, y los rótulos de los demás
+ * pendientes críticos.
+ * @param {object|null} completeness  `computeQuote().completeness`
+ * @returns {{ unreliable: boolean, unreliableLabels: string[], criticalLabels: string[] }}
+ */
+export function riskSummary(completeness) {
+  const unreliable = unreliablePending(completeness);
+  const critical = pendingOf(completeness).filter((i) => i.severity === 'critical' && i.unreliable !== true);
+  return { unreliable: unreliable.length > 0, unreliableLabels: labelsOf(unreliable), criticalLabels: labelsOf(critical) };
+}
+
+/** true si el resumen de una cotización (`summarizeQuote`) dice que su resultado NO ES CONFIABLE (no cuenta un error de cálculo). */
+export function isUnreliableSummary(summary) {
+  return Boolean(summary) && typeof summary === 'object' && summary.error !== true && summary.unreliable === true;
+}
+
+/**
+ * true si pasar de `from` a `to` supone mandarla al cliente por primera vez: a Enviada, o a Ganada, desde
+ * un estado en el que todavía no se mandó (Borrador, Archivada o sin estado). Perdida → Ganada no cuenta.
+ */
+export function impliesSending(from, to) {
+  return SENDING_STATUSES.includes(to) && !ALREADY_SENT_STATUSES.includes(from);
+}
+
+/**
+ * ¿Se puede marcar como enviada? A partir del resumen de la lista
+ * (`summarizeQuote`) o de `riskSummary()`; null o `{ error: true }` = no se
+ * pudo calcular.
+ * @returns {{ allowed: boolean, confirm: boolean, reason: 'failed'|'unreliable'|'critical'|null, items: string[] }}
+ */
+export function sendCheck(summary) {
+  if (!summary || typeof summary !== 'object' || summary.error === true) return { allowed: false, confirm: false, reason: 'failed', items: [] };
+  const unreliable = Array.isArray(summary.unreliableLabels) ? summary.unreliableLabels.filter((x) => typeof x === 'string') : [];
+  if (summary.unreliable === true || unreliable.length) return { allowed: false, confirm: false, reason: 'unreliable', items: unreliable };
+  const critical = Array.isArray(summary.criticalLabels) ? summary.criticalLabels.filter((x) => typeof x === 'string') : [];
+  if (critical.length) return { allowed: true, confirm: true, reason: 'critical', items: critical };
+  return { allowed: true, confirm: false, reason: null, items: [] };
+}

@@ -27,6 +27,7 @@ import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../domain/billing-units.js';
 import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
+import { riskSummary } from '../domain/quote-risk.js';
 
 /** Margen leído como lo valida validateQuote (texto es-AR incluido); `fallback` si está vacío o es inválido. */
 function readMargin(value, fallback) {
@@ -675,8 +676,12 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   };
 }
 
-/** Indicadores compactos para dashboard y listados (sin trazas). */
+/**
+ * Indicadores compactos para dashboard y listados (sin trazas). Suma el riesgo
+ * del resultado (ECO-02: NO CONFIABLE y pendientes críticos, con sus rótulos)
+ * para que las listas lo muestren; los indicadores (`kpis`) no cambian.
+ */
 export function summarizeQuote(quote, options = {}) {
   const r = computeQuote(quote, options);
-  return { ...r.kpis, issuesCount: r.issues.length };
+  return { ...r.kpis, issuesCount: r.issues.length, ...riskSummary(r.completeness) };
 }

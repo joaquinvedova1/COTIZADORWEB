@@ -117,6 +117,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-019 | ECO-02 — Riesgo a la vista: resultado NO CONFIABLE marcado fuera del Resultado (listas, Inicio, Escenarios, PDF) y regla de "Enviada" | UX, completitud (presentación) | En curso (rama `claude/eco-02-riesgo-a-la-vista`, PR sin merge; espera revisión independiente y aprobación del dueño) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1175,54 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-019 — ECO-02: riesgo a la vista (NO CONFIABLE fuera del Resultado y regla de "Enviada")
+
+- Estado: En curso — rama `claude/eco-02-riesgo-a-la-vista` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: UX y presentación de la completitud (sin cambios de fórmulas)
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (autorizó implementar en ramas y PRs el 2026-10-20)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+ECO-01 marca "RESULTADO NO CONFIABLE" **dentro** del Resultado. La auditoría DESIGN-01 (UX-P1-1, UX-P1-2 y UX-P1-3, verificados en código y capturas) mostró que **fuera** del Resultado no se ve: la lista, Inicio, "Continuar cotización" y Escenarios muestran la tarifa y un margen de color normal (un doble abono figuraba con "88,72 %" en verde); dentro del Resultado, costo, tarifa piso y tarifa se ven normales; y "Marcar como enviada al cliente" sigue activo, de un clic, también desde la lista y el editor. Inicio, además, promedia ese margen y suma esa facturación.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: que un resultado NO CONFIABLE se vea en cada lugar donde aparece la cotización (listas, Inicio, Escenarios, Resultado y PDF) y que no se pueda marcar como enviada sin resolverlo, con la misma regla en todos los caminos.
+- Fuera de alcance (PRs siguientes): el redondeo comercial (VAL-01-F1), H-04, H-08 y el doble conteo de operadores (VAL-01-F2), formularios que pierden cambios, RES-02 y DESIGN-01. Sin cambios de Auth, Supabase, esquema ni datos.
+
+#### 3. Impacto en fórmulas
+- **Ninguna fórmula cambia** y ningún indicador del motor (`kpis`) cambia: `summarizeQuote` sólo suma `unreliable`, `unreliableLabels` y `criticalLabels` (proyección de la completitud ya calculada). Golden y candado sin cambios.
+- **Agregados de Inicio (`indicatorsFor`):** una cotización activa NO CONFIABLE cuenta como activa y en riesgo, pero no entra en el valor cotizado, el margen promedio ni "bajo piso" (`unreliableCount` dice cuántas quedan afuera). Es una regla de presentación de Inicio, documentada en CALCULATION_RULES §dashboard.
+
+#### 4. Impacto en datos
+Esquema 10 sin cambios; ninguna migración; ningún campo nuevo guardado. El estado de una cotización ya enviada no se toca: si hoy es NO CONFIABLE, el Resultado lo dice ("figura como enviada, pero…").
+
+#### 5. Diseño
+- Dominio `js/domain/quote-risk.js`: `riskSummary(completeness)`, `impliesSending(from, to)` (Enviada, o Ganada sin haber estado enviada) y `sendCheck(summary)` (NO CONFIABLE o sin calcular → no; críticos → confirmar; si no → sí).
+- UI: `js/ui/send-guard.js` (textos y diálogos), lista y columnas compartidas (`quotes-list.js`), Inicio (`dashboard.js`), Resultado (cuatro números, acciones y encabezado del PDF), Escenarios (aviso arriba del análisis) y el estado en el editor (`kit.select` con `guard`). Sin fórmulas en la UI.
+
+#### 6. Pasos
+- [x] 1. Regla de dominio y resumen del motor (sin cambiar `kpis`).
+- [x] 2. Listas, Inicio, Escenarios, Resultado, PDF y editor.
+- [x] 3. Tests unitarios y E2E (los controles nuevos fallan en `main`: 14 en escritorio).
+- [ ] 4. PR sin merge, evidencia en RATEOS-AUDIT (`tasks/ECO-02/`) y revisión independiente.
+
+#### 7. Tests
+`tests/domain/quote-risk.test.js` (regla, `summarizeQuote` con los mismos `kpis` que el motor, textos), `tests/services/quote-service.test.js` (agregados de Inicio) y el bloque ECO-02 de `tests/lab/e2e/ui-lab.mjs` (escritorio y celular).
+
+#### 8. Riesgos y mitigación
+- Una cotización enviada antes de este cambio que hoy es NO CONFIABLE no cambia de estado: se avisa en el Resultado y se marca en las listas.
+- Los montos de Inicio bajan si hay cotizaciones NO CONFIABLES activas: es el objetivo, y se aclara en los rótulos y en "Ver cálculo".
+
+#### 9. Rollback
+Revert del PR. No hay datos nuevos que limpiar.
+
+#### 10. Review multidisciplinario
+- Economía: ninguna fórmula ni indicador del motor cambia; Inicio deja de promediar y sumar números que no son reales.
+- QA: rojo en `main`, verde en la rama; golden y Test Lab sin cambios.
+- Seguridad: sin cambios de esquema, Auth ni base; sin datos reales.
+- UX: la marca "No confiable" está en cada fila, número y PDF; "Enviada" bloqueada dice por qué, a la vista, con "Ver qué falta".
+
+#### Bitácora
+- 2026-10-20: el dueño autorizó implementar en ramas y PRs (sin merge ni deploy) y pidió empezar por las correcciones críticas. Base `main` `d6540b7`.
+
