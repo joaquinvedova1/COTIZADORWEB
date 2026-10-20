@@ -25,10 +25,10 @@ Reglas para este archivo:
 ### Cambiado
 
 - **Raíz en %** (`93.75 %` en escritorio, `100 %` en el celular): con la letra de fábrica se ve igual, y si la persona agranda la letra del navegador, la app la sigue (WCAG 1.4.4).
-- **Mínimo de 12 px:** `--fs-xs` pasa a 0,8 rem y los 75 tamaños menores de la app (ILUSTRATIVO, subtítulos de tablas, rótulos del resumen, textos del gráfico…) pasan a 12 px.
+- **Mínimo de 12 px:** `--fs-xs` pasa a 0,8 rem y los 75 tamaños menores de la app (ILUSTRATIVO, subtítulos de tablas, rótulos del resumen, textos del gráfico…) pasan a 12 px. Los tamaños en `em` (códigos, unidades) llevan piso: `max(…em, var(--fs-xs))`.
 - **Cifras tabulares** también en las cifras clave del Resultado.
 - **"Ver cálculo"** mide 24 px de alto o más en escritorio (WCAG 2.5.8).
-- **Gráfico del Resultado:** la tarifa piso va punteada, el objetivo lleno y la tarifa cotizada con guiones, igual en la leyenda: ya no se distinguen sólo por el tono (WCAG 1.4.1).
+- **Gráfico del Resultado:** la tarifa piso va punteada, el objetivo lleno y la tarifa cotizada con guiones, igual en la leyenda: ya no se distinguen sólo por el tono (WCAG 1.4.1). El margen izquierdo y la separación de los rótulos del eje X se calculan con el ancho de los rótulos.
 - **Campos dentro de tablas** con el borde de los campos (3,3:1 en lugar de 1,3:1; WCAG 1.4.11).
 
 ### Corregido

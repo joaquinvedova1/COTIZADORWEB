@@ -1241,7 +1241,7 @@ Ninguno: ni campos nuevos ni esquema (sigue en 10). El PDF sólo lee `offerDate`
 - [x] 1. Este plan, antes del código.
 - [x] 2. Tests que fallan en `main`: el estático de `DESIGN.md` y los tokens (`tests/ui/design-system.test.js`) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
 - [x] 3. `DESIGN.md`, tokens, CSS, estado de guardado, nota de precio de referencia y fecha de la oferta.
-- [ ] 4. Validación completa:
+- [x] 4. Validación completa:
   - suite, Test Lab, gate, `ui-lab` y `auth-lab`;
   - capturas antes y después a 1440 y 390 px;
   - Code Review (skill) del diff;
@@ -1260,3 +1260,16 @@ Revert del PR. No deja datos.
     - en el riel, el texto completo del estado queda para los lectores de pantalla y se ve la palabra corta (`SYNC_SHORT_LABELS` en `js/app.js`);
     - en el celular, la barra lleva su propio `role="status"`: con el menú cerrado, el del menú no se ve ni se anuncia;
     - los textos nuevos están en `js/ui/reference-text.js` (puro, con tests): la nota de mercado y las fechas del PDF, que leen `offerDate` como fecha sin hora (no se corre un día por la zona horaria).
+- 2026-10-20: el control de 12 px del `ui-lab` encontró, en escritorio, tamaños en `em` que dentro de un texto de 12 px quedaban en 10,7 a 11 px (`.mono`, `.unit-suffix`, `.qr-unit`, `.qr-cuadre-detail`). Pasan a `max(…em, var(--fs-xs))`, con un test estático que lo exige (`32ba256`). Contra `main`, el detalle de ese control copiaba el email sintético de la cuenta y el lab, con razón, no escribía el reporte: ahora cuenta por pantalla, clase y tamaño, sin copiar el texto.
+- 2026-10-20: revisión de código (skill Code Review, nivel medio, sobre `d6540b7..32ba256`): 8 observaciones, ninguna sobre un cálculo. Siete se corrigieron en `2607790`:
+  - margen izquierdo y separación del eje X del gráfico según el ancho de los rótulos de 12 px;
+  - en el celular, el estado del menú se oculta (con el menú abierto se anunciaba dos veces) y la palabra de la barra se acorta antes que apretar "Menú";
+  - un solo validador de fechas (`dayFromDate`);
+  - en el `ui-lab`, la fecha de impresión sale del navegador, la cotización ilustrativa sintética entra en el control de fugas de sesión y hay dos controles nuevos en el celular (un solo estado con el menú abierto; la barra a 320 px).
+  - Queda a propósito el mínimo de 24 px de "Ver cálculo" también en los botones compactos: son controles sueltos (WCAG 2.5.8).
+- 2026-10-20: validación en `2607790` (SIMULADA):
+  - `npm test` en verde, Test Lab OK (golden 39/39), gate PASA;
+  - `ui-lab` 395/395 (escritorio) y 397/397 (celular), con 15 y 17 controles DESIGN-02;
+  - contra `main` fallan 12 de 15 y 10 de 17 (fuera del bloque, 0);
+  - combinado con los PR #28 a #34: `npm test` 1918/1918, `ui-lab` 606/606 y 608/608, `auth-lab` 136/136.
+  - Al combinarse con ECO-02 (#29), su pastilla "No confiable" (0,75 rem) queda por debajo de 12 px: el test de DESIGN-02 la marca y la pasa a `var(--fs-xs)`.
