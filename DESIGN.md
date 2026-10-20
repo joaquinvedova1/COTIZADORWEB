@@ -106,21 +106,25 @@ La paleta no cambia (`--navy-900`, `--blue-600`, `--ink`, verdes, naranjas y roj
 | Componente | Reglas |
 |---|---|
 | **KPI de resultado** | Rótulo chico, monto grande tabular con su unidad, una línea de explicación y "Ver cálculo". Orden fijo: costo del mes → tarifa piso → tarifa sugerida u ofrecida → margen |
+| **Resumen en vivo del editor** | Panel (más de 1180 px): costo, piso, tarifa cobrada, resultado y margen esperados y "Para no perder", siempre a la vista; "Ver más" deja el precio para tu margen y la completitud. Barra compacta (1180 px o menos): costo, piso, **tarifa cobrada destacada** (fondo y cifra más fuerte) y margen con su palabra ("cumple", "debajo", "pierde", "no confiable"); el resto, en "Ver detalle" |
 | **"Ver cálculo"** | Botón con nombre accesible "Ver cálculo: <rótulo>". La traza **termina en el mismo número** que se ve. Mide 24 px de alto o más en escritorio y 44 px en el celular (WCAG 2.5.8) |
 | **Aviso** | Tres niveles: info, revisar y crítico. Título, causa y acción ("Ir al campo"). El crítico va antes de los KPI y se imprime |
 | **Pastilla** | `nowrap`, 12 px o más, texto + color de estado. "No confiable" (crítico), "Borrador" e "ILUSTRATIVO" (revisar) |
 | **Tabla** | `th` con `scope`, números a la derecha y tabulares. En el celular pasa a tarjetas con rótulo por celda. Los campos dentro de tablas llevan `--color-border-control` |
 | **Campo numérico** | Formato argentino ("2.600.000,50"), teclado decimal, unidad dentro del campo y error en línea con cómo arreglarlo. Un valor inválido no se pierde en silencio: se avisa |
+| **Eco de montos** | Debajo de todo campo de plata, desde $ 10.000: el monto con separadores ("$ 2.600.000"), leído con el mismo intérprete que el campo. **El texto del campo no se reformatea** al entrar ni al salir: cambiarlo al tomar el foco borra la selección y, con Tab, lo tipeado se sumaría al número anterior en vez de reemplazarlo |
+| **Campo obligatorio** | Asterisco visible y `aria-required="true"`. La ayuda, el error y los avisos del motor junto al campo se asocian con `aria-describedby` |
 | **Diálogo** | `<dialog>` nativo, foco adentro y de vuelta al botón que lo abrió. Con cambios, pregunta "¿Descartar los cambios?"; un clic afuera no cierra un formulario |
 | **Grupo plegable** | `<details>`/`<summary>` con conteos y monto a la derecha (Recursos por convenio y por familia). Enter o Espacio lo abren |
 | **Botón** | Uno primario por vista; secundario y "enlace". Sólo con ícono: `aria-label` siempre |
-| **Aviso emergente (toast)** | Para confirmaciones sin acción ("Guardado"). Los errores quedan hasta cerrarlos y se anuncian |
+| **Aviso emergente (toast)** | Para confirmaciones sin acción ("Guardado"). Los errores quedan hasta cerrarlos y se anuncian. En el celular salen arriba, debajo de la barra de la app: nunca tapan el resumen fijo |
 | **Gráfico** | Dibujado al ancho real (1 unidad = 1 px), con tabla alternativa y descripción para lectores; trazos distintos por serie (§2) y rótulos de 12 px |
 
 ## 6. Celular
 
 - **Cortes:** ≤ 760 px celular; 761 a 1100 px riel (menú con íconos y palabras cortas); ≤ 1180 px el resumen del editor pasa a una barra fija abajo.
-- **Sin scroll horizontal** en ninguna pantalla: las tablas anchas pasan a tarjetas y las notas largas se parten.
+- **Sin scroll horizontal** en ninguna pantalla: las tablas editables pasan a tarjetas (`qe-stack-table`, también estructura y tramos) y las notas largas se parten. Se prueba a 390, 360 y 320 px.
+- **Los avisos emergentes salen arriba**, debajo de la barra de la app.
 - **Objetivos táctiles de 44 px** o más.
 - **El estado de guardado se ve sin abrir el menú**, en la barra de arriba.
 - Lo primero que importa entra en la primera pantalla (en Recursos, el primer grupo; en el Resultado, los montos). Lo secundario se pliega, sin perder desgloses.
@@ -146,6 +150,7 @@ La paleta no cambia (`--navy-900`, `--blue-600`, `--ink`, verdes, naranjas y roj
 Checklist de cada PR que toca la interfaz:
 - [ ] Un `h1` por pantalla y títulos en orden.
 - [ ] Todo campo con `label`; los botones sólo con ícono, con `aria-label`.
+- [ ] Obligatorios con `aria-required`; ayuda, error y avisos del motor asociados al campo con `aria-describedby`.
 - [ ] Foco visible en todo control, sin nada encima (ni la barra de resumen ni la de arriba) (WCAG 2.4.7 y 2.4.11).
 - [ ] Texto ≥ 4,5:1; bordes de controles, foco e íconos con significado ≥ 3:1 (WCAG 1.4.3 y 1.4.11).
 - [ ] Nada sólo con color (WCAG 1.4.1).
@@ -190,3 +195,8 @@ Checklist de cada PR que toca la interfaz:
   - alias por función, raíz en %, mínimo de 12 px y cifras tabulares;
   - "Ver cálculo" de 24 px, trazos distintos en el gráfico y bordes de campos en tablas;
   - estado de guardado con palabra, nota de precio de referencia y fecha de la oferta en el PDF.
+- **alpha.2 (2026-10-20, DESIGN-02 2/2 · PLAN-2026-026):**
+  - resumen en vivo con el resultado y el margen a la vista, y barra compacta con la tarifa cobrada destacada y el margen con su palabra;
+  - eco de montos en todo campo de plata, sin reformatear el texto del campo;
+  - avisos arriba y tablas de estructura y de tramos apiladas en el celular;
+  - `aria-required` y `aria-describedby` en los campos y en los avisos del motor.

@@ -53,6 +53,7 @@ import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
 import { breakEvenZeroText, unreliableText } from '../result-text.js';
+import { marginStateWord } from '../live-summary-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -61,7 +62,6 @@ import { completenessTone } from '../../engines/completeness-engine.js';
 import { getPath, setPath, deepClone, isPlainObject } from '../../core/object.js';
 import { formatMoney, formatMoneyCeil, formatMoneyCompact, formatPercent, formatDays, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { parseDecimalInput } from '../../core/validation.js';
 import { createId } from '../../core/ids.js';
 import { createTrace } from '../../core/trace.js';
 import { logger } from '../../core/logger.js';
@@ -421,31 +421,6 @@ function lockInputs(container) {
   });
 }
 
-/**
- * Muestra el monto con separadores debajo de un input de dinero grande
- * (250000000 → $ 250.000.000) para evitar errores de magnitud.
- */
-const MONEY_ECHO_FROM = 10000;
-function attachMoneyEcho(fieldEl) {
-  const input = fieldEl.querySelector('input');
-  const control = fieldEl.querySelector('.field-control');
-  if (!input || !control) return;
-  const echoEl = h('div', { class: 'qe-num-echo', 'aria-hidden': 'true' });
-  const sync = () => {
-    const raw = String(input.value || '').trim();
-    // Mismo intérprete que el campo (formato argentino: "1.800.000,50").
-    const n = parseDecimalInput(raw);
-    const show = raw !== '' && Number.isFinite(n) && Math.abs(n) >= MONEY_ECHO_FROM;
-    echoEl.textContent = show ? formatMoney(n) : '';
-    echoEl.hidden = !show;
-  };
-  input.addEventListener('input', sync);
-  // Si el campo restaura el valor anterior (valor inválido confirmado).
-  input.addEventListener('change', sync);
-  sync();
-  control.after(echoEl);
-}
-
 function setContent(el, content) {
   if (content instanceof Node) mount(el, content);
   else if (Array.isArray(content)) mount(el, ...content);
@@ -456,17 +431,37 @@ function cssEscape(value) {
   return globalThis.CSS && typeof globalThis.CSS.escape === 'function' ? globalThis.CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&');
 }
 
-/** Avisos de validación junto al campo correspondiente (por atributo name = ruta). */
+/**
+ * Avisos de validación junto al campo correspondiente (por atributo name = ruta).
+ * Cada aviso se asocia a su control (aria-describedby, DESIGN-02 2/2): un lector
+ * de pantalla lo lee al entrar al campo. No se anuncia en vivo: se repetiría en
+ * cada recálculo.
+ */
 function decorateFieldIssues(container, issues) {
+  // Los avisos anteriores se van, y también sus ids del aria-describedby de cada control.
+  container.querySelectorAll('[data-issue-notes]').forEach((control) => {
+    const stale = control.dataset.issueNotes.split(' ');
+    const kept = (control.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && !stale.includes(id));
+    if (kept.length) control.setAttribute('aria-describedby', kept.join(' '));
+    else control.removeAttribute('aria-describedby');
+    delete control.dataset.issueNotes;
+  });
   container.querySelectorAll('.qe-issue-note').forEach((n) => n.remove());
   container.querySelectorAll('.qe-has-issue').forEach((n) => n.classList.remove('qe-has-issue'));
   issues.forEach((issue) => {
     if (!issue.path) return;
-    const control = container.querySelector(`[name="${cssEscape(issue.path)}"]`);
-    const field = control && control.closest('.field, .choice-group');
+    const controls = [...container.querySelectorAll(`[name="${cssEscape(issue.path)}"]`)];
+    const field = controls.length ? controls[0].closest('.field, .choice-group') : null;
     if (!field) return;
     field.classList.add('qe-has-issue');
-    field.appendChild(h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`] }, issue.message));
+    const note = h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`], id: uniqueId('qe-aviso') }, issue.message);
+    field.appendChild(note);
+    // Todos los controles del campo con esa ruta (p. ej. cada opción de un grupo).
+    controls.filter((c) => field.contains(c)).forEach((c) => {
+      const ids = (c.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+      c.setAttribute('aria-describedby', [...ids, note.id].join(' '));
+      c.dataset.issueNotes = [c.dataset.issueNotes, note.id].filter(Boolean).join(' ');
+    });
   });
 }
 
@@ -540,6 +535,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       el = numberField({
         rule: 'money',
         ...opts,
+        echo,
         name: path,
         value: inputNumber(kit.get(path)),
         disabled: readOnly || Boolean(disabled),
@@ -558,8 +554,9 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       if (requiredMark) {
         const label = el.querySelector('.field-label');
         if (label) label.insertBefore(h('span', { class: 'req', 'aria-hidden': 'true' }, ' *'), label.querySelector('.tag-illustrative'));
+        const input = el.querySelector('input');
+        if (input) input.setAttribute('aria-required', 'true');
       }
-      if (echo && (opts.rule || 'money') === 'money') attachMoneyEcho(el);
       return el;
     },
 
@@ -985,16 +982,22 @@ function rateHint(r) {
   return `${text}${net}`;
 }
 
+/** Margen esperado: "10,0 %", o "—" sin tarifa comercial (el motor no informa margen). */
+function expectedMarginText(r) {
+  return isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY;
+}
+
 /**
- * Resumen en vivo: 4 números (costo del mes, tarifa piso, tarifa que se
- * cobra y días para no perder), cada uno con "Ver cálculo", y "Ver más" con
- * el resto (precio para el margen, resultado, margen esperado, completitud).
- * En pantallas chicas es una barra compacta fija abajo que se expande.
+ * Resumen en vivo: costo del mes, tarifa piso, tarifa que se cobra, resultado
+ * y margen esperados y días para no perder, cada uno con "Ver cálculo", y
+ * "Ver más" con el precio para el margen y la completitud (DESIGN-02 2/2).
+ * En pantallas chicas es una barra compacta fija abajo (costo, piso, tarifa
+ * cobrada y margen con su palabra) que se expande con "Ver detalle".
  */
 function buildSummary({ getResult, stepHref }) {
   const rows = [];
 
-  const item = ({ key, label, short = null, value, unit = null, compact = null, hint, tone = null, trace = null }) => {
+  const item = ({ key, label, short = null, value, unit = null, compact = null, state = null, hint, tone = null, trace = null }) => {
     const labelEl = h('span', { class: 'qe-sum-label' });
     // Rótulo corto para la barra compacta (pantallas chicas); el completo queda para lectores de pantalla.
     const shortEl = short ? h('span', { class: 'qe-sum-short', 'aria-hidden': 'true' }) : null;
@@ -1004,6 +1007,9 @@ function buildSummary({ getResult, stepHref }) {
     const compactUnit = h('span', { class: 'qe-sum-compact-unit' });
     const compactEl = compact ? h('span', { class: 'qe-sum-compact', 'aria-hidden': 'true' }, compactNum, compactUnit) : null;
     const valueEl = h('div', { class: 'qe-sum-value' }, h('span', { class: 'qe-sum-full' }, numberEl, unitEl), compactEl);
+    // Estado en una palabra ("cumple", "no confiable"…) en la barra compacta plegada, donde la ayuda no se ve:
+    // el estado no se lee sólo por el color (WCAG 1.4.1). Visual: plegada, la ayuda completa está en "Ver detalle".
+    const stateEl = state ? h('span', { class: 'qe-sum-state', 'aria-hidden': 'true' }) : null;
     const hintEl = h('div', { class: 'qe-sum-hint' });
     const traceBtn = trace
       ? button('Ver cálculo', {
@@ -1021,8 +1027,8 @@ function buildSummary({ getResult, stepHref }) {
         },
       })
       : null;
-    const el = h('div', { class: 'qe-sum-item', dataset: { kpi: key } }, h('div', { class: 'qe-sum-labels' }, labelEl, shortEl), valueEl, hintEl, traceBtn);
-    rows.push({ el, labelEl, shortEl, numberEl, unitEl, compactEl, compactNum, compactUnit, hintEl, traceBtn, label, short, value, unit, compact, hint, tone });
+    const el = h('div', { class: 'qe-sum-item', dataset: { kpi: key } }, h('div', { class: 'qe-sum-labels' }, labelEl, shortEl), valueEl, stateEl, hintEl, traceBtn);
+    rows.push({ el, labelEl, shortEl, numberEl, unitEl, compactEl, compactNum, compactUnit, stateEl, hintEl, traceBtn, label, short, value, unit, compact, state, hint, tone });
     return el;
   };
 
@@ -1069,6 +1075,36 @@ function buildSummary({ getResult, stepHref }) {
       trace: commercialRateTrace,
     }),
     item({
+      key: 'expectedResult',
+      label: 'Resultado esperado del mes',
+      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
+      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
+      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
+      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
+      trace: (r) => r.traces.expectedResult,
+    }),
+    item({
+      key: 'expectedMargin',
+      label: 'Margen esperado',
+      short: 'Margen',
+      // Sin tarifa comercial el motor no informa margen (null) → "—".
+      value: expectedMarginText,
+      compact: expectedMarginText,
+      state: (r) => marginStateWord(r).word,
+      hint: (r) => {
+        const k = r.kpis;
+        const base = k.targetMarginInvalid ? 'Objetivo inválido' : `Objetivo ${formatPercent(k.targetMarginPct)}`;
+        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
+        const unreliable = unreliableText(r.completeness, 'este margen');
+        if (unreliable) return unreliable;
+        const state = k.profit < 0 ? 'perdés plata' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
+        const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
+        return `${base} · ${state}${markup}.`;
+      },
+      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
+      trace: (r) => r.traces.expectedResult,
+    }),
+    item({
       key: 'breakEven',
       label: (r) => (isQuantityUnit(r) ? r.unitTexts.breakEvenLabel : 'Días para no perder'),
       short: 'Para no perder',
@@ -1106,33 +1142,6 @@ function buildSummary({ getResult, stepHref }) {
         return [`Tarifa de lista sin redondear, sin IVA.`, net, markup].filter(Boolean).join(' ');
       },
       trace: targetRateTrace,
-    }),
-    item({
-      key: 'expectedResult',
-      label: 'Resultado esperado del mes',
-      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
-      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
-      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
-      trace: (r) => r.traces.expectedResult,
-    }),
-    item({
-      key: 'expectedMargin',
-      label: 'Margen esperado',
-      // Sin tarifa comercial el motor no informa margen (null) → "—".
-      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY),
-      hint: (r) => {
-        const k = r.kpis;
-        const base = k.targetMarginInvalid ? 'Objetivo inválido' : `Objetivo ${formatPercent(k.targetMarginPct)}`;
-        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
-        const unreliable = unreliableText(r.completeness, 'este margen');
-        if (unreliable) return unreliable;
-        const state = k.profit < 0 ? 'perdés plata' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
-        const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
-        return `${base} · ${state}${markup}.`;
-      },
-      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
-      trace: (r) => r.traces.expectedResult,
     }),
   );
 
@@ -1246,6 +1255,10 @@ function buildSummary({ getResult, stepHref }) {
           row.compactNum.textContent = /\d/.test(compact) ? compact.replace(/ /g, '\u00a0') : compact;
           row.compactUnit.textContent = compact !== EMPTY && unit && unit !== EMPTY ? unit.replace('/ ', '/') : '';
         }
+        if (row.stateEl) {
+          const state = resolve(row.state, r);
+          row.stateEl.textContent = state && state !== EMPTY ? state : '';
+        }
         const hint = resolve(row.hint, r);
         row.hintEl.textContent = hint && hint !== EMPTY ? hint : '';
         row.hintEl.hidden = !row.hintEl.textContent;
@@ -1262,8 +1275,8 @@ function buildSummary({ getResult, stepHref }) {
       const pending = (r.completeness && r.completeness.pending) || [];
       const critical = pending.filter((p) => p.severity === 'critical').length;
       moreHint.textContent = pending.length === 0
-        ? 'Precio para tu margen, resultado y margen esperados.'
-        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · resultado y margen esperados.`;
+        ? 'Precio para tu margen y costos completos.'
+        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · precio para tu margen.`;
       if (pending.length === 0) {
         mount(pendingEl, h('li', { class: 'qe-pending-ok' }, h('span', { class: 'dot dot-green', 'aria-hidden': 'true' }), 'No hay pendientes de costos.'));
       } else {
