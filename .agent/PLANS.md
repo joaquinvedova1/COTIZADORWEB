@@ -1200,15 +1200,18 @@ Esquema 10 sin cambios; ninguna migración; ningún campo nuevo guardado. El est
 #### 5. Diseño
 - Dominio `js/domain/quote-risk.js`: `riskSummary(completeness)`, `impliesSending(from, to)` (Enviada, o Ganada sin haber estado enviada) y `sendCheck(summary)` (NO CONFIABLE o sin calcular → no; críticos → confirmar; si no → sí).
 - UI: `js/ui/send-guard.js` (textos y diálogos), lista y columnas compartidas (`quotes-list.js`), Inicio (`dashboard.js`), Resultado (cuatro números, acciones y encabezado del PDF), Escenarios (aviso arriba del análisis) y el estado en el editor (`kit.select` con `guard`). Sin fórmulas en la UI.
+- Servicio (R1): `QuoteService.saveQuote` aplica la misma regla contra el estado GUARDADO y rechaza con `send_blocked` (sin guardar nada); el editor vuelve al estado guardado a la vista y guarda el resto; la lista dice el motivo. El respaldo importado (`importBackup`) no pasa por esa regla.
+- Alcance: salvaguarda de la app en el navegador (pantallas y servicio), no de la base ni del servidor: el servidor guarda el espacio de trabajo completo y no ejecuta el motor. Una pestaña con una versión anterior, un respaldo o una escritura directa con la propia cuenta pueden dejar una NO CONFIABLE como Enviada; por eso la marca no depende del estado (listas, Resultado y PDF).
 
 #### 6. Pasos
 - [x] 1. Regla de dominio y resumen del motor (sin cambiar `kpis`).
 - [x] 2. Listas, Inicio, Escenarios, Resultado, PDF y editor.
 - [x] 3. Tests unitarios y E2E (los controles nuevos fallan en `main`: 14 en escritorio).
-- [ ] 4. PR sin merge, evidencia en RATEOS-AUDIT (`tasks/ECO-02/`) y revisión independiente.
+- [x] 4. PR sin merge (#29), evidencia en RATEOS-AUDIT (`tasks/ECO-02/`) y revisión independiente (comentario, no aprobación).
+- [x] 5. R1: la regla también en `QuoteService.saveQuote`, alcance documentado (no es del servidor), Perdida → Ganada explícito, verificación combinada con HD-03 (PR #28).
 
 #### 7. Tests
-`tests/domain/quote-risk.test.js` (regla, `summarizeQuote` con los mismos `kpis` que el motor, textos), `tests/services/quote-service.test.js` (agregados de Inicio) y el bloque ECO-02 de `tests/lab/e2e/ui-lab.mjs` (escritorio y celular).
+`tests/domain/quote-risk.test.js` (regla, `summarizeQuote` con los mismos `kpis` que el motor, textos), `tests/services/quote-service.test.js` (agregados de Inicio y, desde R1, la regla en `saveQuote`: bloquea Borrador/Archivada/nueva → Enviada o Ganada con NO CONFIABLE o sin calcular; deja pasar Perdida → Ganada, ediciones de una ya enviada, Perdida/Archivada, críticos y el respaldo) y el bloque ECO-02 de `tests/lab/e2e/ui-lab.mjs` (escritorio y celular; desde R1, Perdida → Ganada y el aviso del Resultado).
 
 #### 8. Riesgos y mitigación
 - Una cotización enviada antes de este cambio que hoy es NO CONFIABLE no cambia de estado: se avisa en el Resultado y se marca en las listas.
@@ -1225,4 +1228,5 @@ Revert del PR. No hay datos nuevos que limpiar.
 
 #### Bitácora
 - 2026-10-20: el dueño autorizó implementar en ramas y PRs (sin merge ni deploy) y pidió empezar por las correcciones críticas. Base `main` `d6540b7`.
+- 2026-10-20: PR #29 publicado (`5d19758`). Revisión independiente (comentario, sin aprobar): dirección adecuada para beta; pide documentar que la regla es de la UX y no de la persistencia/servidor y valorar una guarda de servicio, verificar el conjunto con HD-03 y dejar explícito Perdida → Ganada. R1: guarda en `saveQuote` (la opción más segura; no rompe el respaldo ni los estados históricos), alcance y Perdida → Ganada en CALCULATION_RULES, verificación combinada local.
 

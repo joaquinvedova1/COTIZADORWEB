@@ -11,6 +11,8 @@
  * estado enviada) sólo con un resultado confiable. Con un resultado NO
  * CONFIABLE, o si no se pudo calcular, no se puede: primero hay que resolver lo
  * que lo causa. Con pendientes críticos se puede, confirmando y nombrándolos.
+ * La aplican las pantallas (con su aviso) y QuoteService.saveQuote (ECO-02 R1);
+ * es una regla de esta app, no del servidor: ver docs/CALCULATION_RULES.md.
  */
 
 /** Estados que suponen mandarla al cliente. */
@@ -48,12 +50,19 @@ export function isUnreliableSummary(summary) {
   return Boolean(summary) && typeof summary === 'object' && summary.error !== true && summary.unreliable === true;
 }
 
+/** true si el estado supone que la cotización se mandó al cliente (Enviada o Ganada). */
+export function isSendingStatus(status) {
+  return SENDING_STATUSES.includes(status);
+}
+
 /**
  * true si pasar de `from` a `to` supone mandarla al cliente por primera vez: a Enviada, o a Ganada, desde
- * un estado en el que todavía no se mandó (Borrador, Archivada o sin estado). Perdida → Ganada no cuenta.
+ * un estado en el que todavía no se mandó (Borrador, Archivada o sin estado). Perdida → Ganada no cuenta:
+ * registra un hecho (el cliente la aceptó después), no autoriza a mandar una propuesta nueva; si hoy es NO
+ * CONFIABLE, el Resultado lo sigue avisando ("resolvé lo pendiente antes de volver a mandarla").
  */
 export function impliesSending(from, to) {
-  return SENDING_STATUSES.includes(to) && !ALREADY_SENT_STATUSES.includes(from);
+  return isSendingStatus(to) && !ALREADY_SENT_STATUSES.includes(from);
 }
 
 /**

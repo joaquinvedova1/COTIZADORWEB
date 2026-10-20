@@ -10,7 +10,7 @@ import { computeQuote, summarizeQuote } from '../engines/quote-engine.js';
 import { createEmptyQuote, createQuoteFromTemplate } from '../domain/quote-factory.js';
 import { DEMO_IDS, demoHydroCraneQuote } from '../domain/demo-data.js';
 import { ACTIVE_QUOTE_STATUSES, SERVICE_TYPES } from '../domain/catalogs.js';
-import { isUnreliableSummary } from '../domain/quote-risk.js';
+import { impliesSending, isSendingStatus, isUnreliableSummary, riskSummary, sendCheck } from '../domain/quote-risk.js';
 import { logger } from '../core/logger.js';
 import { isFiniteNumber } from '../core/money.js';
 
@@ -25,6 +25,18 @@ function safeSummary(quote, settings) {
     logger.warn('No se pudo calcular una cotización', { name: error && error.name });
     return { error: true, atRisk: true, belowFloor: false, incomplete: true, revenue: null, totalCost: null, marginPct: null, completenessPct: 0, issuesCount: 1, unreliable: false, unreliableLabels: [], criticalLabels: [] };
   }
+}
+
+/**
+ * Error de un guardado que la marcaría como enviada con un resultado NO CONFIABLE o que no se puede
+ * calcular (ECO-02 R1). Lleva el `sendCheck()` (para el aviso) y el estado guardado (para volver a él).
+ */
+function sendBlockedError(check, previousStatus) {
+  const error = new Error('send_blocked');
+  error.code = 'send_blocked';
+  error.check = check;
+  error.previousStatus = typeof previousStatus === 'string' && previousStatus ? previousStatus : 'draft';
+  return error;
 }
 
 /** serviceType seguro para eventos internos (sólo valores del catálogo). */
@@ -123,8 +135,28 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       return saved;
     },
 
-    /** Guarda la cotización completa (reemplazo). */
+    /**
+     * Guarda la cotización completa (reemplazo).
+     * ECO-02 R1: la regla de "Enviada" también vale acá, no sólo en las pantallas. Si el guardado la pasa
+     * a Enviada (o a Ganada sin haber estado enviada) respecto de lo GUARDADO y su resultado NO ES
+     * CONFIABLE o no se puede calcular, se rechaza con `send_blocked` y no se guarda nada. Los demás
+     * cambios de estado, y los guardados de una cotización ya enviada, ganada o perdida, pasan igual. Los
+     * pendientes críticos los confirma la pantalla. El respaldo importado no pasa por acá (es historia).
+     */
     async saveQuote(quote) {
+      if (quote && isSendingStatus(quote.status)) {
+        const stored = quote.id ? await repository.getQuote(quote.id) : null;
+        const from = stored ? stored.status : undefined;
+        if (impliesSending(from, quote.status)) {
+          let check;
+          try {
+            check = sendCheck(riskSummary(computeQuote(quote, { settings: await settings() }).completeness));
+          } catch {
+            check = sendCheck(null);
+          }
+          if (!check.allowed) throw sendBlockedError(check, from);
+        }
+      }
       return repository.saveQuote(quote);
     },
 

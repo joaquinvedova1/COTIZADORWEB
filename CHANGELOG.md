@@ -18,8 +18,9 @@ Reglas para este archivo:
 
 - **"No confiable" en las listas:** Cotizaciones (simple y detallada), Inicio ("Tus cotizaciones" y "Continuar cotización", con la causa) y Escenarios marcan la fila y muestran "No confiable" en lugar del margen; la tarifa se ve apagada.
 - **Resultado:** costo del mes, tarifa piso, tarifa y margen llevan "No confiable" (apagados) y el **PDF** dice "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" en el encabezado, antes del primer número; las marcas de riesgo conservan su color al imprimir. El análisis de Escenarios lleva el aviso arriba.
-- **Regla de "Enviada"** (`js/domain/quote-risk.js`), igual en el Resultado, la lista y el editor: con un resultado NO CONFIABLE (o que no se pudo calcular) no se puede pasar a Enviada, ni a Ganada sin haber estado enviada; se dice por qué, a la vista, con "Ver qué falta". Con pendientes críticos se pide confirmar, nombrándolos. Una cotización ya enviada que hoy es NO CONFIABLE lo avisa en el Resultado.
-- Tests: `tests/domain/quote-risk.test.js` y el bloque ECO-02 del lab en navegador (escritorio y celular).
+- **Regla de "Enviada"** (`js/domain/quote-risk.js`), igual en el Resultado, la lista y el editor: con un resultado NO CONFIABLE (o que no se pudo calcular) no se puede pasar a Enviada, ni a Ganada sin haber estado enviada; se dice por qué, a la vista, con "Ver qué falta". Con pendientes críticos se pide confirmar, nombrándolos. Una cotización ya enviada (o ganada) que hoy es NO CONFIABLE lo avisa en el Resultado. Perdida → Ganada no se controla (registra un hecho) y no autoriza a mandarla de nuevo.
+- **La misma regla en `QuoteService.saveQuote`** (revisión R1): un guardado que la pasaría a Enviada o Ganada con un resultado NO CONFIABLE se rechaza (`send_blocked`) sin guardar nada; el editor vuelve al estado guardado, a la vista, y guarda el resto. Sigue siendo una regla de la app en el navegador, no del servidor (`docs/CALCULATION_RULES.md`); el respaldo importado conserva sus estados.
+- Tests: `tests/domain/quote-risk.test.js`, la regla en el servicio (`tests/services/quote-service.test.js`) y el bloque ECO-02 del lab en navegador (escritorio y celular).
 
 ### Cambiado
 

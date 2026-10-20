@@ -53,9 +53,9 @@ export function sendGuardText(check, { status = 'sent' } = {}) {
   };
 }
 
-/** Texto corto (visible junto al botón) de por qué no se puede marcar como enviada; null si se puede. */
-export function sendBlockedNote(check) {
-  const t = sendGuardText(check);
+/** Texto corto (junto al botón, o en el aviso del editor) de por qué no se puede marcar como enviada (o ganada); null si se puede. */
+export function sendBlockedNote(check, { status = 'sent' } = {}) {
+  const t = sendGuardText(check, { status });
   return t && t.kind === 'blocked' ? `${t.title}: ${t.message.charAt(0).toLowerCase()}${t.message.slice(1)}` : null;
 }
 

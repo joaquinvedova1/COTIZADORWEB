@@ -9,7 +9,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { riskSummary, impliesSending, sendCheck, unreliablePending, isUnreliableSummary } from '../../js/domain/quote-risk.js';
+import { riskSummary, impliesSending, isSendingStatus, sendCheck, unreliablePending, isUnreliableSummary } from '../../js/domain/quote-risk.js';
 import { unreliableItems } from '../../js/ui/result-text.js';
 import { computeQuote, summarizeQuote } from '../../js/engines/quote-engine.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
@@ -94,6 +94,10 @@ describe('impliesSending: sólo el paso a Enviada (o a Ganada sin haber estado e
     for (const [from, to] of yes) assert.equal(impliesSending(from, to), true, `${from} → ${to}`);
     for (const [from, to] of no) assert.equal(impliesSending(from, to), false, `${from} → ${to}`);
   });
+
+  test('isSendingStatus: sólo Enviada y Ganada', () => {
+    assert.deepEqual(['draft', 'sent', 'won', 'lost', 'archived', undefined, 'x'].filter(isSendingStatus), ['sent', 'won']);
+  });
 });
 
 describe('sendCheck: la regla de "Enviada"', () => {
@@ -137,6 +141,7 @@ describe('Textos del aviso de "Enviada" (send-guard)', () => {
     assert.match(t.message, /NO ES CONFIABLE \(Dos abonos por mes\)/);
     assert.match(t.message, /resolvé lo pendiente antes de mandarla al cliente/);
     assert.match(sendBlockedNote({ allowed: false, confirm: false, reason: 'unreliable', items: ['Personal'] }), /^No se puede marcar como enviada: el resultado de esta cotización NO ES CONFIABLE \(Personal\)/);
+    assert.match(sendBlockedNote({ allowed: false, confirm: false, reason: 'unreliable', items: ['Personal'] }, { status: 'won' }), /^No se puede marcar como ganada: /);
   });
 
   test('sin calcular: lo dice y pide revisarla', () => {

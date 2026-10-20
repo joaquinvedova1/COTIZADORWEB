@@ -23,7 +23,7 @@ import { quantityCeilText } from '../unit-text.js';
 import { breakEvenZeroText, joinList } from '../result-text.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { impliesSending, isUnreliableSummary, riskSummary, sendCheck } from '../../domain/quote-risk.js';
-import { guardSending } from '../send-guard.js';
+import { guardSending, sendBlockedNote } from '../send-guard.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { templateContents } from './services.js';
 
@@ -467,7 +467,9 @@ export async function render(root, app) {
       await load();
       return true;
     } catch (error) {
-      app.toast(userErrorMessage(error, 'No se pudo cambiar el estado.'), 'danger');
+      // ECO-02 R1: si el servicio no la deja pasar a Enviada, se dice por qué (no un error genérico).
+      const blocked = error && error.code === 'send_blocked' ? sendBlockedNote(error.check, { status }) : null;
+      app.toast(blocked || userErrorMessage(error, 'No se pudo cambiar el estado.'), 'danger');
       restore();
       return false;
     }

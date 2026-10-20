@@ -683,6 +683,30 @@ async function runMode(mode) {
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     await tap(page.locator('dialog[open]').getByRole('button', { name: 'Marcar como enviada igual' }));
     check('ECO-02', '"Marcar como enviada igual" la marca como enviada (y se guarda)', (await storedStatus(c.q.id, 'sent')) === 'sent', 'no se guardó');
+
+    // ECO-02 R1: Perdida → Ganada registra un hecho (no se controla), pero no autoriza a mandarla: el
+    // Resultado sigue diciendo que hoy NO ES CONFIABLE y que se resuelve antes de volver a mandarla.
+    await go('#/cotizaciones', 700);
+    const detailedAgain = page.getByRole('button', { name: 'Detallada' }).first();
+    if (await detailedAgain.isVisible().catch(() => false)) await tap(detailedAgain);
+    await page.waitForTimeout(500);
+    const statusOf = () => page.locator('.table-wrap tbody tr').filter({ hasText: u.q.name }).locator('select.status-select').first();
+    if ((await statusOf().count()) > 0) {
+      await statusOf().selectOption('lost');
+      const lost = await storedStatus(u.q.id, 'lost');
+      await page.waitForTimeout(500);
+      await statusOf().selectOption('won');
+      await page.waitForTimeout(400);
+      const dialogs = await page.locator('dialog[open]').count();
+      const won = await storedStatus(u.q.id, 'won');
+      check('ECO-02', 'Perdida → Ganada (registra un hecho) no se bloquea ni pide confirmar', lost === 'lost' && won === 'won' && dialogs === 0, `perdida ${lost} · ganada ${won} · diálogos ${dialogs}`);
+      await go(`#/cotizaciones/${encodeURIComponent(u.q.id)}/result`, 300);
+      await page.waitForSelector('.qr-actions-bar', { timeout: 8000 }).catch(() => {});
+      const note = norm(await page.evaluate(() => [...document.querySelectorAll('.qr-send-blocked')].map((n) => n.textContent).join(' ')));
+      check('ECO-02', 'Ganada con un resultado NO CONFIABLE: el Resultado avisa que se resuelve antes de volver a mandarla', /Figura como ganada, pero hoy su resultado NO ES CONFIABLE/.test(note) && /antes de volver a mandarla/.test(note), note.slice(0, 200));
+    } else {
+      check('ECO-02', 'Lista (detallada): la fila tiene el selector de estado (Perdida → Ganada)', false, 'sin selector');
+    }
   }
 
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en

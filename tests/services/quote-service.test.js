@@ -16,6 +16,7 @@ import { isUuid } from '../../js/core/ids.js';
 import { isFiniteNumber } from '../../js/core/money.js';
 import { configureLogger } from '../../js/core/logger.js';
 import { addEventSink } from '../../js/core/events.js';
+import { service as labQuote, person, external } from '../lab/lib/build.js';
 
 configureLogger({ consoleImpl: null });
 
@@ -235,6 +236,91 @@ describe('QuoteService.duplicateQuote / deleteQuote / saveQuote', () => {
     const again = await service.getQuote(DEMO_IDS.quoteHydroCrane);
     assert.equal(again.client, 'Cliente nuevo');
     assert.equal(again.pricing.customMarginPct, 15);
+  });
+});
+
+// ================================== saveQuote: regla de "Enviada" (ECO-02 R1)
+
+/** Abono mensual + abono de disponibilidad (ECO-01 H-02): resultado NO CONFIABLE. */
+const doubleFee = (status = 'draft') => ({ ...labQuote({ id: 'r1-h02', serviceType: 'permanent', unit: 'month', pricingMode: 'known_rate', activity: { activeDaysPerMonth: 22 }, labor: [person({ role: 'Técnico' })], pricing: { knownRate: 25000000 }, rules: { availabilityFeeMonthly: 25000000 } }), status });
+/** Proveedor por km sin ruta: crítico, pero no NO CONFIABLE. */
+const criticalOnly = (status = 'draft') => ({ ...labQuote({ id: 'r1-crit', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Chofer' })], equipment: [external({ name: 'Camión' }, { price: 3250, unit: 'km', fuelIncluded: true })] }), status });
+
+describe('QuoteService.saveQuote: la regla de "Enviada" también en el servicio (ECO-02 R1)', () => {
+  async function stored(status) {
+    const ctx = await setup({ empty: true });
+    await ctx.repository.saveQuote(doubleFee(status));
+    return ctx;
+  }
+
+  test('Borrador → Enviada o Ganada con un resultado NO CONFIABLE: se rechaza (send_blocked) y no se guarda nada', async () => {
+    for (const to of ['sent', 'won']) {
+      const { service, repository } = await stored('draft');
+      const before = await repository.getQuote('r1-h02');
+      await assert.rejects(service.saveQuote({ ...before, status: to, client: 'Otro cambio' }), (error) => {
+        assert.equal(error.code, 'send_blocked');
+        assert.equal(error.previousStatus, 'draft');
+        assert.equal(error.check.reason, 'unreliable');
+        assert.deepEqual(error.check.items, ['Dos abonos por mes']);
+        return true;
+      });
+      assert.deepEqual(await repository.getQuote('r1-h02'), before, `${to}: ni el estado ni el otro cambio`);
+    }
+  });
+
+  test('Archivada → Ganada también (no sabemos si se mandó); una nueva guardada directo como Enviada, también', async () => {
+    const { service, repository } = await stored('archived');
+    await assert.rejects(service.saveQuote({ ...(await repository.getQuote('r1-h02')), status: 'won' }), { code: 'send_blocked' });
+    assert.equal((await repository.getQuote('r1-h02')).status, 'archived');
+    const fresh = await setup({ empty: true });
+    await assert.rejects(fresh.service.saveQuote(doubleFee('sent')), (error) => error.code === 'send_blocked' && error.previousStatus === 'draft');
+    assert.equal(await fresh.repository.getQuote('r1-h02'), null);
+  });
+
+  test('registro legítimo de estados: Perdida → Ganada, una ya enviada que se edita, y Perdida o Archivada pasan', async () => {
+    const lost = await stored('lost');
+    await lost.service.saveQuote({ ...(await lost.repository.getQuote('r1-h02')), status: 'won' });
+    assert.equal((await lost.repository.getQuote('r1-h02')).status, 'won', 'Perdida → Ganada registra un hecho');
+    for (const status of ['sent', 'won']) {
+      const ctx = await stored(status);
+      await ctx.service.saveQuote({ ...(await ctx.repository.getQuote('r1-h02')), client: 'Editada después' });
+      assert.equal((await ctx.repository.getQuote('r1-h02')).client, 'Editada después', `${status}: se sigue editando`);
+    }
+    for (const to of ['lost', 'archived', 'draft']) {
+      const ctx = await stored('draft');
+      await ctx.service.saveQuote({ ...(await ctx.repository.getQuote('r1-h02')), status: to });
+      assert.equal((await ctx.repository.getQuote('r1-h02')).status, to);
+    }
+  });
+
+  test('con pendientes críticos sí se guarda (la confirmación es de la pantalla)', async () => {
+    const { service, repository } = await setup({ empty: true });
+    await repository.saveQuote(criticalOnly('draft'));
+    await service.saveQuote({ ...(await repository.getQuote('r1-crit')), status: 'sent' });
+    assert.equal((await repository.getQuote('r1-crit')).status, 'sent');
+  });
+
+  test('una cotización que no se puede calcular no pasa a Enviada; las demás se guardan sin calcularse', async () => {
+    const saved = [];
+    const bad = (status) => ({ id: 'bad', name: 'Mala', status, get activity() { throw new Error('boom'); } });
+    const repository = {
+      getQuote: async () => ({ id: 'bad', status: 'draft' }),
+      getSettings: async () => ({}),
+      saveQuote: async (q) => { saved.push(q.status); return q; },
+    };
+    const service = createQuoteService({ repository });
+    await assert.rejects(service.saveQuote(bad('sent')), (error) => error.code === 'send_blocked' && error.check.reason === 'failed');
+    await service.saveQuote(bad('draft'));
+    await service.saveQuote(bad('lost'));
+    assert.deepEqual(saved, ['draft', 'lost']);
+  });
+
+  test('un respaldo importado no pasa por la regla: conserva sus estados', async () => {
+    const { repository } = await setup({ empty: true });
+    const state = createEmptyState({ ...EMPTY_ORG });
+    state.quotes = [{ ...doubleFee('sent'), organizationId: EMPTY_ORG.id }];
+    await repository.importBackup(state);
+    assert.equal((await repository.getQuote('r1-h02')).status, 'sent');
   });
 });
 
