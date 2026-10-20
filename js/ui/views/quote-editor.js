@@ -78,6 +78,7 @@ import * as financeStep from './quote-steps/finance.js';
 import * as riskStep from './quote-steps/risk.js';
 import * as marginStep from './quote-steps/margin.js';
 import { createDraftStore, onSessionReset } from '../session-memory.js';
+import { sendBlockedNote } from '../send-guard.js';
 
 const STEP_MODULES = Object.freeze({
   service: serviceStep,
@@ -575,16 +576,44 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       });
     },
 
-    select(path, { structural = false, ...opts } = {}) {
-      return selectField({
+    /**
+     * Selector conectado a una ruta. `guard(next, previous)` (opcional, puede
+     * ser async): si devuelve false, el valor no cambia y el selector vuelve
+     * al anterior (p. ej. "Enviada" con un resultado NO CONFIABLE, ECO-02).
+     */
+    select(path, { structural = false, guard = null, ...opts } = {}) {
+      let el = null;
+      el = selectField({
         ...opts,
         name: path,
         value: kit.get(path),
-        onChange: (value) => {
+        onChange: async (value) => {
+          if (typeof guard === 'function') {
+            const previous = kit.get(path);
+            const control = el && el.querySelector('select');
+            const previousText = previous === null || previous === undefined ? '' : String(previous);
+            // Mientras se confirma, el selector muestra el valor vigente y no acepta otro cambio (el diálogo es modal, pero el teclado no).
+            const wasDisabled = control ? control.disabled : false;
+            if (control) {
+              control.value = previousText;
+              control.disabled = true;
+            }
+            let ok = false;
+            try {
+              ok = Boolean(await guard(value, previous));
+            } catch (error) {
+              logger.warn('No se pudo confirmar el cambio', { message: error && error.message });
+            } finally {
+              if (control) control.disabled = wasDisabled;
+            }
+            if (!ok) return;
+            if (control) control.value = value === null || value === undefined ? '' : String(value);
+          }
           update(path, value);
           if (structural) rerender();
         },
       });
+      return el;
     },
 
     check(path, { structural = false, ...opts } = {}) {
@@ -1853,6 +1882,21 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       unsavedDrafts.delete(app.ctx, quoteId);
       if (!state.dirty) setSaveStatus('saved');
     } catch (error) {
+      if (error && error.code === 'send_blocked' && state.quote.status === snapshot.status) {
+        // ECO-02 R1: el servicio no la deja pasar a Enviada (resultado NO CONFIABLE o sin calcular), p. ej.
+        // si se eligió "Enviada" y enseguida otro cambio la volvió NO CONFIABLE: vuelve al estado guardado,
+        // a la vista (aviso y selector), y el resto de los cambios se guarda igual.
+        state.quote.status = error.previousStatus;
+        notify(sendBlockedNote(error.check, { status: snapshot.status }) || 'No se pudo cambiar el estado de la cotización.', 'danger');
+        if (!state.disposed) {
+          const statusSelect = stepBody.querySelector('select[name="status"]');
+          if (statusSelect) statusSelect.value = String(error.previousStatus);
+          if (stepId === 'result') rerenderStep();
+          else refreshAll();
+        }
+        state.dirty = true;
+        return save();
+      }
       state.dirty = true;
       unsavedDrafts.set(app.ctx, quoteId, deepClone(state.quote));
       logger.warn('No se pudo guardar la cotización', { code: error && error.code });

@@ -39,7 +39,10 @@ import {
   quoteSummaryColumns,
   statusBadge,
   summaryFailed,
+  summaryUnreliable,
+  unreliableTag,
 } from './quotes-list.js';
+import { joinList } from '../result-text.js';
 
 const RECENT_LIMIT = 6;
 
@@ -68,6 +71,15 @@ function scopeNote(scope) {
     : 'Calculado sobre cotizaciones de ejemplo (ILUSTRATIVAS): cuando crees la tuya, los indicadores usan sólo las tuyas.';
 }
 
+/** Nota de las cotizaciones con resultado NO CONFIABLE que quedan fuera de los montos (ECO-02). */
+function unreliableNote(count) {
+  return count > 0
+    ? `No incluye ${plural(count, 'cotización activa con resultado NO CONFIABLE', 'cotizaciones activas con resultado NO CONFIABLE')}: sus números no son reales (sí cuentan como en riesgo).`
+    : null;
+}
+
+const reliableOf = (items) => items.filter(({ summary }) => !summaryUnreliable(summary));
+
 // ---------------------------------------------------------------- trazas
 
 function activeCountTrace(items, activeCount, scope) {
@@ -86,48 +98,53 @@ function activeCountTrace(items, activeCount, scope) {
 }
 
 function totalQuotedTrace(active, total, scope) {
+  const reliable = reliableOf(active);
   return createTrace({
     id: 'dashboard_total_quoted',
     title: 'Valor total cotizado (mensual)',
-    formula: 'Valor total = Σ facturación mensual esperada de cada cotización activa',
-    inputs: active.map(({ quote, summary }) => ({ label: quoteLabel(quote), value: isFiniteNumber(summary.revenue) ? summary.revenue : 0, format: 'money' })),
+    formula: 'Valor total = Σ facturación mensual esperada de cada cotización activa con resultado confiable',
+    inputs: reliable.map(({ quote, summary }) => ({ label: quoteLabel(quote), value: isFiniteNumber(summary.revenue) ? summary.revenue : 0, format: 'money' })),
     result: { label: 'Valor total cotizado por mes', value: total, format: 'money' },
     notes: [
       `Cotizaciones activas: estados ${activeStatusesText()}.`,
       'Facturación esperada = tarifa (la sugerida o la que ofrecés) × unidades facturables con la actividad estimada + otros ingresos (abonos, equipo en espera, km).',
       'Una cotización sin tarifa suma sólo sus otros ingresos; una que no se pudo calcular suma 0.',
+      unreliableNote(active.length - reliable.length),
       scopeNote(scope),
     ],
   });
 }
 
 function averageMarginTrace(active, average, scope) {
-  const withMargin = active.filter(({ summary }) => isFiniteNumber(summary.marginPct));
+  const reliable = reliableOf(active);
+  const withMargin = reliable.filter(({ summary }) => isFiniteNumber(summary.marginPct));
   return createTrace({
     id: 'dashboard_average_margin',
     title: 'Margen promedio',
-    formula: 'Margen promedio = Σ márgenes / cantidad de cotizaciones activas con tarifa (promedio simple) · Margen = Resultado / Facturación',
+    formula: 'Margen promedio = Σ márgenes / cantidad de cotizaciones activas con tarifa y resultado confiable (promedio simple) · Margen = Resultado / Facturación',
     inputs: withMargin.map(({ quote, summary }) => ({ label: quoteLabel(quote), value: summary.marginPct, format: 'percent' })),
     steps: [{ label: 'Cotizaciones promediadas', value: withMargin.length, format: 'number' }],
     result: { label: 'Margen promedio', value: average, format: 'percent' },
-    notes: ['Es margen sobre precio de venta, no markup sobre costo.', 'Promedio simple: no pondera por facturación.', scopeNote(scope)],
+    notes: ['Es margen sobre precio de venta, no markup sobre costo.', 'Promedio simple: no pondera por facturación.', unreliableNote(active.length - reliable.length), scopeNote(scope)],
   });
 }
 
 function atRiskTrace(active, scope) {
-  const risky = active.filter(({ summary }) => summary.atRisk);
+  const risky = active.filter(({ summary }) => summary.atRisk || summaryUnreliable(summary));
   return createTrace({
     id: 'dashboard_at_risk',
     title: 'Cotizaciones en riesgo',
-    formula: `En riesgo = sin tarifa definida, resultado negativo, margen esperado menor al margen objetivo o menos del ${COMPLETENESS_RISK_THRESHOLD} % de los costos cargados`,
+    formula: `En riesgo = sin tarifa definida, resultado negativo, margen esperado menor al margen objetivo, menos del ${COMPLETENESS_RISK_THRESHOLD} % de los costos cargados o resultado NO CONFIABLE`,
     inputs: risky.map(({ quote, summary }) =>
       summaryFailed(summary)
         ? { label: `${quoteLabel(quote)} (no se pudo calcular)`, value: null, format: 'percent' }
-        : { label: `${quoteLabel(quote)} (margen esperado)`, value: summary.marginPct, format: 'percent' },
+        : summaryUnreliable(summary)
+          ? { label: `${quoteLabel(quote)} (resultado NO CONFIABLE: ${joinList(summary.unreliableLabels || [])})`, value: null, format: 'percent' }
+          : { label: `${quoteLabel(quote)} (margen esperado)`, value: summary.marginPct, format: 'percent' },
     ),
     result: { label: 'Cotizaciones activas en riesgo', value: risky.length, format: 'number' },
     notes: [
-      'Un "—" en el margen indica que la cotización todavía no tiene tarifa (o que no se pudo calcular).',
+      'Un "—" en el margen indica que la cotización todavía no tiene tarifa, que no se pudo calcular o que su resultado NO ES CONFIABLE (su margen no es real).',
       'Las cotizaciones que no se pudieron calcular cuentan como en riesgo: abrilas para revisar sus datos.',
       scopeNote(scope),
     ],
@@ -135,7 +152,8 @@ function atRiskTrace(active, scope) {
 }
 
 function belowFloorTrace(active, scope) {
-  const below = active.filter(({ summary }) => summary.belowFloor);
+  const reliable = reliableOf(active);
+  const below = reliable.filter(({ summary }) => summary.belowFloor);
   return createTrace({
     id: 'dashboard_below_floor',
     title: 'Servicios bajo piso',
@@ -150,6 +168,7 @@ function belowFloorTrace(active, scope) {
       'Cotizar bajo piso significa perder plata con la actividad estimada.',
       'Si un mínimo garantizado cubre la diferencia y el mes no da pérdida, la cotización no se cuenta acá.',
       'La tarifa piso se muestra redondeada hacia arriba: cobrar esa cifra nunca deja debajo del piso.',
+      unreliableNote(active.length - reliable.length),
       scopeNote(scope),
     ],
   });
@@ -213,13 +232,17 @@ function continueSection(draft) {
       'div',
       { class: 'continue-main' },
       h('p', { class: 'eyebrow' }, 'Continuar cotización'),
-      h('h3', { class: 'continue-title', id: 'continue-title' }, text(quote.name, 'Sin nombre'), quoteIllustrative(quote).any ? illustrativeTag('Tiene valores ILUSTRATIVOS: reemplazalos por valores propios vigentes') : null),
+      h('h3', { class: 'continue-title', id: 'continue-title' }, text(quote.name, 'Sin nombre'), unreliableTag(summary), quoteIllustrative(quote).any ? illustrativeTag('Tiene valores ILUSTRATIVOS: reemplazalos por valores propios vigentes') : null),
       h(
         'p',
         { class: 'continue-meta' },
         statusBadge(quote.status),
         h('span', {}, [client, labelOf(SERVICE_TYPES, quote.serviceType), `Modificada: ${formatDateTime(quote.updatedAt)}`].filter(Boolean).join(' · ')),
       ),
+      // ECO-02: el riesgo se ve antes de abrirla, no sólo dentro del Resultado.
+      summaryUnreliable(summary)
+        ? h('p', { class: 'continue-risk' }, h('strong', {}, 'Resultado NO CONFIABLE: '), `${joinList(summary.unreliableLabels || [])}. Resolvelo antes de usar la tarifa.`)
+        : null,
     ),
     h(
       'dl',
@@ -264,13 +287,13 @@ function indicatorsSection(stats, settings, scope) {
         label: 'Valor total cotizado',
         value: formatMoney(stats.totalQuotedMonthly),
         unit: '/mes',
-        hint: 'Facturación mensual esperada de las cotizaciones activas.',
+        hint: stats.unreliableCount > 0 ? 'Facturación mensual esperada de las cotizaciones activas, sin las de resultado NO CONFIABLE.' : 'Facturación mensual esperada de las cotizaciones activas.',
         trace: totalQuotedTrace(active, stats.totalQuotedMonthly, scope),
       }),
       bigStat({
         label: 'Servicios bajo piso',
         value: formatNumber(stats.belowFloorCount),
-        hint: 'La tarifa no cubre el costo y el mes da pérdida.',
+        hint: stats.unreliableCount > 0 ? 'La tarifa no cubre el costo y el mes da pérdida (sin las de resultado NO CONFIABLE).' : 'La tarifa no cubre el costo y el mes da pérdida.',
         tone: stats.belowFloorCount > 0 ? 'red' : null,
         trace: belowFloorTrace(active, scope),
       }),
@@ -307,14 +330,16 @@ function indicatorsSection(stats, settings, scope) {
       bigStat({
         label: 'Margen promedio',
         value: formatPercent(avg),
-        hint: target !== null ? `Sobre el precio · tu objetivo: ${formatPercent(target)}` : 'Sobre el precio de venta',
+        hint: [target !== null ? `Sobre el precio · tu objetivo: ${formatPercent(target)}` : 'Sobre el precio de venta', stats.unreliableCount > 0 ? `sin ${plural(stats.unreliableCount, 'no confiable', 'no confiables')}` : null].filter(Boolean).join(' · '),
         tone: marginToneFor(avg, target),
         trace: averageMarginTrace(active, avg, scope),
       }),
       bigStat({
         label: 'Cotizaciones en riesgo',
         value: formatNumber(stats.atRiskCount),
-        hint: 'Sin tarifa, con pérdida, debajo del objetivo o con costos incompletos.',
+        hint: stats.unreliableCount > 0
+          ? `Incluye ${plural(stats.unreliableCount, 'con resultado NO CONFIABLE', 'con resultado NO CONFIABLE')}. También: sin tarifa, con pérdida, debajo del objetivo o con costos incompletos.`
+          : 'Sin tarifa, con pérdida, debajo del objetivo, con costos incompletos o con resultado no confiable.',
         tone: stats.atRiskCount > 0 ? 'orange' : 'green',
         trace: atRiskTrace(active, scope),
       }),

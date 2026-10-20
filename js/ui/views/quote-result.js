@@ -82,6 +82,8 @@ import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { computeQuote, monthlyFeeCap, billableQuantityAt } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
+import { impliesSending, riskSummary, sendCheck } from '../../domain/quote-risk.js';
+import { guardSending, sendBlockedNote } from '../send-guard.js';
 import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
@@ -1461,13 +1463,20 @@ function statHint(...lines) {
  * Uno de los cuatro números del resumen como par término / descripción de
  * una lista <dl> (los lectores de pantalla anuncian "Tarifa piso: $ …").
  * Mismas clases que bigStat() de components.js, para el mismo aspecto.
+ * `unreliable` (ECO-02): resultado NO CONFIABLE → el número se apaga y el
+ * rótulo lleva "No confiable" (también en el PDF), para que no se copie.
  */
-function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '' }) {
-  return h('div', { class: ['big-stat', 'big-stat-md', tone ? `big-stat-${tone}` : null, className] },
-    h('dt', { class: 'big-stat-label' }, label),
+function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '', unreliable = false }) {
+  return h('div', { class: ['big-stat', 'big-stat-md', tone ? `big-stat-${tone}` : null, unreliable ? 'big-stat-unreliable' : null, className] },
+    h('dt', { class: 'big-stat-label' }, label, unreliable ? h('span', { class: 'tag-unreliable' }, 'No confiable') : null),
     h('dd', { class: 'big-stat-value' }, h('span', { class: 'big-stat-number' }, value ?? EMPTY), unit ? h('span', { class: 'big-stat-unit' }, unit) : null),
     hint ? h('dd', { class: 'big-stat-hint' }, hint) : null,
     trace ? h('dd', { class: 'qr-stat-trace' }, traceBtn(trace)) : null);
+}
+
+/** true si el resultado es NO CONFIABLE (ECO-01): los números se muestran pero no son reales. */
+function isUnreliable(v) {
+  return unreliableItems(v.r.completeness).length > 0;
 }
 
 /** ¿Cuánto me cuesta? */
@@ -1478,6 +1487,7 @@ function costStat(v) {
     label: 'Costo del mes',
     value: money(k.totalCost),
     unit: hasValue(k.totalCost) ? '/ mes' : null,
+    unreliable: isUnreliable(v) && hasValue(k.totalCost),
     hint: statHint(hasValue(D) && D > 0
       ? `Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
       : byQty(v) ? `Lo que te cuesta prestar el servicio. Todavía no estimaste ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días activos.'),
@@ -1500,6 +1510,7 @@ function floorStat(v) {
     label: 'Tarifa piso',
     value: ceilMoney(value),
     unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
+    unreliable: isUnreliable(v) && hasValue(value),
     hint,
     // Sin impuestos sobre la facturación definidos, la "piso" no es piso: se marca.
     tone: hasValue(value) && (!k.billingTaxesDefined || k.billingTaxesInvalid) ? 'orange' : null,
@@ -1518,6 +1529,7 @@ function priceStat(v) {
       label: 'Tarifa sugerida',
       value: ceilMoney(k.commercialListRate),
       unit,
+      unreliable: isUnreliable(v),
       hint: statHint(targetGoalHint(k.targetMarginPct)),
       trace: traceSuggested(v),
       className: 'qr-stat qr-stat-price',
@@ -1533,6 +1545,7 @@ function priceStat(v) {
       label: 'Tu tarifa',
       value: rateValue(k.commercialListRate),
       unit,
+      unreliable: isUnreliable(v),
       hint: statHint(hint),
       trace: traceCommercial(v),
       className: 'qr-stat qr-stat-price',
@@ -1577,6 +1590,7 @@ function marginStat(v) {
   return statItem({
     label: 'Margen',
     value: ok ? pct(k.marginPct) : EMPTY,
+    unreliable: Boolean(unreliable),
     hint,
     tone,
     trace: traceMargin(v),
@@ -1705,7 +1719,7 @@ function quoteSubtitle(q) {
  * avisa ARRIBA de los números (no abajo, donde se pierde). Los informativos
  * no cuentan. Se imprime: un PDF con pendientes sale marcado como borrador.
  */
-function draftBanner(v) {
+function draftBanner(v, { action } = {}) {
   const { r, q } = v;
   const c = r.completeness || {};
   const info = draftBannerText({ critical: c.critical, review: c.review, unreliable: c.unreliable });
@@ -1713,7 +1727,8 @@ function draftBanner(v) {
   const pending = Array.isArray(c.pending) ? c.pending.filter((i) => i.severity === 'critical' || i.severity === 'review') : [];
   const example = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount: pending.length });
   const node = alertLine(info.tone, info.title, `${info.text} Costos cargados: ${pct(c.scorePct, 0)}.${example ? ` ${example}` : ''}`,
-    button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
+    // `action`: sin pasar → "Ver qué falta" abre la lista de pendientes; null → sin acción.
+    action === undefined ? button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }) : action);
   node.classList.add('qr-draft');
   // RESULTADO NO CONFIABLE (ECO-01): lo que lo causa va primero en la lista.
   if (info.unreliable) node.classList.add('qr-unreliable');
@@ -3651,19 +3666,29 @@ function printAllSections(v, getItems) {
  * principal es "Crear mi propia cotización".
  */
 function renderActions(v) {
-  const { q, onQuoteChange } = v;
+  const { q, r, onQuoteChange } = v;
   const status = q.status || 'draft';
   const isDraft = status === 'draft';
   const canChange = typeof onQuoteChange === 'function';
   const example = Boolean(v.ill && v.ill.quote);
+  // ECO-02: con un resultado NO CONFIABLE no se puede marcar como enviada (se dice por qué, a la
+  // vista); con pendientes críticos se confirma nombrándolos. Misma regla que la lista y el editor.
+  const check = sendCheck(riskSummary(r.completeness));
+  const blockedNote = isDraft ? sendBlockedNote(check) : null;
+  const noteId = uniqueId('qr-send-note');
+  const sentUnreliable = !isDraft && impliesSending('draft', status) && check.reason === 'unreliable';
   const sent = button(isDraft ? 'Marcar como enviada al cliente' : `Estado: ${labelOf(QUOTE_STATUSES, status, 'Borrador')}`, {
     variant: 'secondary',
     icon: 'check',
-    disabled: !isDraft || !canChange,
-    attrs: { 'data-edit': 'status' },
-    onClick: () => {
-      if (!isDraft || !canChange) return;
+    disabled: !isDraft || !canChange || !check.allowed,
+    attrs: { 'data-edit': 'status', 'aria-describedby': blockedNote ? noteId : null },
+    onClick: async () => {
+      if (!isDraft || !canChange || !check.allowed) return;
       sent.disabled = true;
+      if (!(await guardSending(check, { status: 'sent' }))) {
+        sent.disabled = false;
+        return;
+      }
       try {
         onQuoteChange('status', 'sent');
         track('quote_completed', { completed: true });
@@ -3686,9 +3711,15 @@ function renderActions(v) {
     ? linkButton('Crear mi propia cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus', attrs: { 'data-action': 'new-quote' } })
     : null;
   const printNote = 'Al imprimir se abren todas las secciones y se ocultan los controles. Para obtener el archivo, elegí "Guardar como PDF".';
+  const review = () => button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } });
   return h('section', { class: 'qr-actions-bar no-print', id: v.ids.actions, 'aria-label': 'Acciones' },
     h('div', { class: 'qr-actions-notes' },
       example ? h('p', { class: 'qr-actions-note qr-actions-note-main' }, 'Este es un ejemplo con valores ILUSTRATIVOS. Para cotizar tu servicio, creá tu propia cotización con tus costos.') : null,
+      blockedNote ? h('p', { class: 'qr-actions-note qr-send-blocked', id: noteId }, blockedNote) : null,
+      sentUnreliable
+        ? h('p', { class: 'qr-actions-note qr-send-blocked' }, `Figura como ${labelOf(QUOTE_STATUSES, status, 'enviada').toLowerCase()}, pero hoy su resultado NO ES CONFIABLE: resolvé lo pendiente antes de volver a mandarla.`)
+        : null,
+      blockedNote || sentUnreliable ? h('div', { class: 'qr-send-review' }, review()) : null,
       h('p', { class: 'qr-actions-note' }, printNote)),
     h('div', { class: 'qr-actions' }, print, sent, own));
 }
@@ -3717,7 +3748,9 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
     h('div', { class: 'qr-print-meta' },
       q.client ? `Cliente: ${String(q.client)} · ` : '',
       `Fecha: ${formatDate(new Date())} · Montos sin IVA`,
-      v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''));
+      v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''),
+    // ECO-02: un PDF con un resultado NO CONFIABLE lo dice arriba de todo, antes del primer número.
+    isUnreliable(v) ? h('div', { class: 'qr-print-flag' }, 'RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA') : null);
 }
 
 const SECTION_KEYS = Object.freeze([
@@ -3904,8 +3937,14 @@ function analysisBase(v) {
 export function renderScenarioAnalysis(container, app, { quote, result, settings } = {}) {
   const v = createView(container, app, { quote, result, settings, onQuoteChange: null });
   if (!v) return () => {};
+  // ECO-02: los "¿Qué pasa si…?" parten de los mismos números: si el resultado es BORRADOR o NO
+  // CONFIABLE, se avisa arriba (con "Ver qué falta" en el Resultado de la cotización).
+  const risk = safeSection('Pendientes', () => draftBanner(v, {
+    action: v.q.id ? linkButton('Ver qué falta', `#/cotizaciones/${encodeURIComponent(String(v.q.id))}/result`, { variant: 'link', size: 'sm' }) : null,
+  }));
   mount(container, h('div', { class: 'qr qr-analysis' },
     printHeader(v, 'Análisis de escenarios'),
+    risk,
     safeSection('Punto de partida', () => analysisBase(v)),
     ...analysisSections(v)));
   return cleanupOf(v);
