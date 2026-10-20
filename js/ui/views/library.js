@@ -38,7 +38,7 @@ import {
 import { createTrace } from '../../core/trace.js';
 import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatValue, formatDayDate, EMPTY } from '../../core/format.js';
 import { isFiniteNumber, toNumber } from '../../core/money.js';
-import { deepClone, getPath, setPath } from '../../core/object.js';
+import { contentSnapshot, deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
 import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
@@ -478,9 +478,30 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
     updatePreview();
   }
 
+  /** Lo que se guarda: textos saneados, casillas sí/no, fechas y números vacíos como null o 0. */
+  const normalized = (src) => {
+    const entity = deepClone(src);
+    fieldsNow().forEach((f) => {
+      const v = getPath(entity, f.key);
+      if (f.kind === 'text') setPath(entity, f.key, sanitizeText(v, f.maxLength || 120));
+      else if (f.kind === 'textarea') setPath(entity, f.key, sanitizeText(v, f.maxLength || 600));
+      else if (f.kind === 'checkbox') setPath(entity, f.key, Boolean(v));
+      else if (f.kind === 'period' || f.kind === 'date') setPath(entity, f.key, typeof v === 'string' && v ? v : null);
+      else if (f.kind === 'tristate') setPath(entity, f.key, typeof v === 'boolean' ? v : null);
+      // Números opcionales ("sin definir" = null, p. ej. una alícuota que no se cargó): no se convierten en 0.
+      else if (f.kind === 'number' || !f.kind) setPath(entity, f.key, isFiniteNumber(v) ? v : f.nullable ? null : 0);
+    });
+    return entity;
+  };
+
   rerender();
+  // Hay cambios (UX-01) si lo que se guardaría difiere de lo que se abrió (ya
+  // dibujado: los selectores completan su opción por defecto al dibujarse), o
+  // si hay un campo con un texto inválido todavía sin confirmar.
+  const opened = deepClone(draft);
+  const isDirty = () => contentSnapshot(normalized(draft)) !== contentSnapshot(normalized(opened)) || Boolean(body.querySelector('[aria-invalid="true"]'));
   const saveBtn = button('Guardar', { variant: 'primary', icon: 'check' });
-  const { close } = openDialog({ title, content: body, wide: true, actions: [button('Cancelar', { variant: 'secondary', onClick: () => close() }), saveBtn] });
+  const { close, requestClose } = openDialog({ title, content: body, wide: true, isDirty, actions: [button('Cancelar', { variant: 'secondary', onClick: () => requestClose() }), saveBtn] });
 
   saveBtn.addEventListener('click', async () => {
     const invalid = body.querySelector('[aria-invalid="true"]');
@@ -500,18 +521,7 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
       app.toast(problem, 'warning');
       return;
     }
-    // Normalización: textos saneados y números vacíos como 0.
-    const entity = deepClone(draft);
-    allFields.forEach((f) => {
-      const v = getPath(entity, f.key);
-      if (f.kind === 'text') setPath(entity, f.key, sanitizeText(v, f.maxLength || 120));
-      else if (f.kind === 'textarea') setPath(entity, f.key, sanitizeText(v, f.maxLength || 600));
-      else if (f.kind === 'checkbox') setPath(entity, f.key, Boolean(v));
-      else if (f.kind === 'period' || f.kind === 'date') setPath(entity, f.key, typeof v === 'string' && v ? v : null);
-      else if (f.kind === 'tristate') setPath(entity, f.key, typeof v === 'boolean' ? v : null);
-      // Números opcionales ("sin definir" = null, p. ej. una alícuota que no se cargó): no se convierten en 0.
-      else if (f.kind === 'number' || !f.kind) setPath(entity, f.key, isFiniteNumber(v) ? v : f.nullable ? null : 0);
-    });
+    const entity = normalized(draft);
     saveBtn.disabled = true;
     try {
       await onSave(entity);

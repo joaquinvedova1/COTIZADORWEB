@@ -117,6 +117,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-022 | UX-01 — Formularios que pierden cambios sin avisar y valores que se corrigen en silencio: diálogos con formulario, valores que vuelven al anterior al salir, Configuración, "Mi cuenta" y avisos de error | UX (sin cambios de fórmulas ni de datos) | En curso (rama `claude/ux-01-no-perder-cambios`, PR sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1175,91 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-022 — UX-01: formularios que pierden cambios sin avisar y valores que se corrigen en silencio
+
+- Estado: En curso — rama `claude/ux-01-no-perder-cambios` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: UX (formularios y avisos); **ninguna fórmula cambia** y no hay datos nuevos
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (pidió el 2026-10-20 "resolver formularios que pierden cambios sin advertir y validaciones que corrigen valores silenciosamente"; la auditoría DESIGN-01 los detalla en D1b, con RES-02-G4)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Casos verificados en el código de `main`:
+- **Diálogos con formulario** (`openDialog` en `js/ui/components.js`):
+  - un clic afuera o Esc los cierran **sin preguntar**, con todo lo cargado (RES-02-G4);
+  - afecta a la ficha de cada recurso (Personal, Equipos, Materiales, Externos, Convenios…: `openResourceForm` en `js/ui/views/library.js`), a "Renombrar plantilla" (`services.js`) y a "Guardar como plantilla" (editor de cotizaciones).
+- **Un valor inválido vuelve al anterior sin que se vea** (`numberField` en `js/ui/components.js`):
+  - al confirmar un número inválido, el campo vuelve al valor anterior y lo dice debajo del campo;
+  - si eso pasa porque se sale de la pantalla (otro paso, el menú, Atrás), el aviso queda en la vista que se destruye: el valor escrito no se guardó y nadie se entera;
+  - pasa en el editor de cotizaciones (`dispose` → `revertInvalidFields`), en el de productos y en Configuración. El nombre de la empresa borrado hace lo mismo.
+- **Configuración guarda cada sección sólo si toda la sección es válida:** con un campo inválido enfocado, si se sale sin que el campo pierda el foco (Atrás, un atajo), no se guarda nada de esa sección, ni siquiera los cambios válidos.
+- **"Mi cuenta":** el nombre se guarda con "Guardar nombre"; si se sale sin tocarlo, el cambio se pierde sin aviso.
+- **Los avisos de error desaparecen a los 3,5 s** y no se pueden cerrar: un "No se pudo guardar" puede pasar sin que se lea.
+
+#### 2. Decisiones (la opción más segura y sencilla)
+- **Diálogos con formulario:**
+  - un clic en el fondo no los cierra;
+  - Esc, la X o "Cancelar" con cambios sin guardar preguntan "¿Descartar los cambios?", con [Seguir editando] y [Descartar];
+  - sin cambios, cierran como siempre; después de "Guardar", sin preguntar;
+  - Esc se atiende antes de que el navegador procese el cierre (Chrome no deja retener con `cancel` un segundo Esc seguido); si igual se cierra (otro pedido de cierre), se vuelve a abrir con la pregunta encima;
+  - "cambios" quiere decir lo que se guardaría distinto de lo que se abrió (normalizado como al guardar: sin contar los campos vacíos, y marcar y desmarcar una casilla no cuenta) o un campo con un valor inválido escrito.
+- **Valores que vuelven al anterior:**
+  - no se frena la navegación: el router no puede cancelar un cambio de dirección de forma confiable, y los editores guardan solos;
+  - si el campo ya no está en pantalla cuando vuelve al valor anterior, aparece un aviso que queda hasta cerrarlo, con la pantalla, el campo, lo que se escribió, por qué no se guardó y qué valor quedó;
+  - si el campo sigue en pantalla, alcanza con el aviso debajo del campo, como hoy;
+  - en un diálogo que se cierra sin guardar (Cancelar, Esc, la X, Descartar) no se avisa: se descartó a propósito. Si se guardó, sí;
+  - los campos de mes (`periodField`) hacen lo mismo que los números: en navegadores sin selector de mes (se ven como texto), un texto inválido queda marcado mientras se escribe y, al confirmarlo, vuelve al último mes guardado con su aviso.
+- **Configuración:**
+  - al salir (y al cerrar la pestaña), primero vuelven al valor anterior los campos inválidos, con su aviso, y después se guarda el resto de la sección;
+  - el guardado automático recuerda que hay cambios sin guardar aunque en ese momento la sección esté inválida: al salir se guardan si ya se puede; si ni así (p. ej. impuestos que suman 100 % o más), un aviso lo dice;
+  - si la misma pantalla se redibuja sin navegar (después de recargar la versión de la nube o de importar), no se revierte ni se guarda lo que quedó en pantalla: esos datos ya cambiaron.
+- **"Mi cuenta":** al salir con un nombre escrito y sin guardar, aviso con el nombre que no se guardó (no, si se está guardando).
+- **Avisos:**
+  - los de error quedan hasta cerrarlos;
+  - todos tienen "Cerrar";
+  - como máximo 4 a la vez: se van primero los que igual se iban solos; uno igual a otro que ya está a la vista no se repite;
+  - el plazo de 1,5 s para decidir si el campo se fue con la pantalla queda así: alcanza para el cambio de vista (que es inmediato) y un diálogo que se redibuja ya está cubierto por la regla de arriba.
+
+#### 3. Impacto en fórmulas
+Ninguno: no se toca ningún motor. Golden y candado sin cambios.
+
+#### 4. Impacto en datos
+- Sin campos nuevos ni migraciones (esquema 10).
+- Lo único que cambia en lo que se guarda: al salir de Configuración se guardan los cambios válidos de una sección aunque otro campo estuviera inválido, o aunque la sección haya estado inválida un momento (antes se perdían).
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests:
+  - unitarios de las funciones puras (huella del borrador y texto del aviso);
+  - E2E que reproducen cada caso y fallan en `main`.
+- [x] 3. `openDialog` con `isDirty`; recursos y plantillas.
+- [x] 4. Aviso del valor que volvió al anterior fuera de pantalla; Configuración (revertir y guardar) y "Mi cuenta".
+- [x] 5. Avisos de error que quedan hasta cerrarlos.
+- [x] 5b. Revisión de código propia (10 observaciones): 9 corregidas con su control E2E (ver Bitácora); el plazo de 1,5 s queda como está.
+- [ ] 6. Validación completa, capturas antes y después, PR sin merge y evidencia en RATEOS-AUDIT (`tasks/UX-01/`).
+
+#### 6. Fuera de alcance (documentado)
+- El resto de D1b de DESIGN-01 (no pierde datos; va en DESIGN-02):
+  - el monto con separadores y su eco en Recursos;
+  - `aria-required` y las ayudas asociadas con `aria-describedby`.
+- "1.500" se sigue leyendo como mil quinientos (punto de miles, formato argentino). El editor ya muestra el eco del monto.
+- "Se guardó la plantilla", con su enlace, sigue durando 3,5 s (ahora se puede cerrar). No pierde datos.
+
+#### 7. Rollback
+Revert del PR. No deja datos nuevos.
+
+#### Bitácora
+- 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests que reproducen los casos y la implementación.
+- 2026-10-20: implementación y revisión de código propia (10 observaciones). Corregidas 9, cada una con su control E2E:
+  - campo de mes (`periodField`) con texto inválido: no volvía al anterior y frenaba el guardado de su sección en Configuración;
+  - al redibujar Configuración sin navegar (recargar de la nube, importar) no se revierte ni se guarda lo que quedó en pantalla;
+  - un valor restaurado dentro de un diálogo que se cierra sin guardar no deja un aviso fijo; si se guardó, sí avisa;
+  - "Mi cuenta": no avisa mientras el nombre se está guardando, y guarda como guardado lo que se mandó;
+  - el tope de 4 avisos saca primero los que se iban solos;
+  - Esc se atiende antes del cierre del navegador y la pregunta queda siempre encima (se reemplaza si ya había una);
+  - `clearToasts` también frena un aviso que todavía no había entrado;
+  - el motivo del aviso lo decide el campo (vacío: sin motivo), sin comparar textos;
+  - la ficha de un recurso compara lo que se guardaría (normalizado como al guardar): marcar y desmarcar una casilla no es un cambio.
+  - Además, al probarlo: el guardado automático de Configuración olvidaba un cambio si la sección estaba inválida justo cuando tocaba guardar. Ahora lo recuerda, lo guarda al salir si ya se puede y, si no, lo avisa.
+  - Queda como está el plazo de 1,5 s del aviso (ver Decisiones).
+- 2026-10-20: `ui-lab` con 28 controles UX-01 por modo: 20 fallan en `main` (388/408 en escritorio; todas las fallas son de UX-01) y pasan todos en la rama. Los 8 que pasan en `main` son de no regresión (p. ej. "sin cambios, Esc cierra sin preguntar").

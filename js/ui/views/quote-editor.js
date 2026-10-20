@@ -2288,6 +2288,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     const info = illustrativeInfo(state.quote);
     let name = String(state.quote.name || '').trim().slice(0, 120) || 'Plantilla sin nombre';
     let description = state.quote.code ? `Creada desde ${state.quote.code}.` : '';
+    // Lo escrito se pregunta antes de descartarlo (UX-01).
+    const initialName = name;
+    const initialDescription = description;
     const nameField = textField({
       label: 'Nombre de la plantilla',
       value: name,
@@ -2351,6 +2354,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     });
     const dialog = openDialog({
       title: 'Guardar como plantilla',
+      isDirty: () => String(name || '').trim() !== initialName.trim() || String(description || '').trim() !== initialDescription.trim(),
       content: h(
         'div',
         { class: 'stack' },
@@ -2359,7 +2363,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         nameField,
         descField,
       ),
-      actions: [button('Cancelar', { variant: 'secondary', onClick: () => dialog.close() }), confirmBtn],
+      actions: [button('Cancelar', { variant: 'secondary', onClick: () => dialog.requestClose() }), confirmBtn],
     });
   }
 
