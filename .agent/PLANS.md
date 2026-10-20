@@ -117,6 +117,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-020 | ECO-03 — Redondeo comercial proporcional a la tarifa (VAL-01-F1): automático hasta 1 % sobre la objetivo, múltiplo fijo conservado en lo guardado, margen objetivo y real a la vista | motor (tarifa sugerida), UX | En curso (rama `claude/eco-03-redondeo`, PR sin merge; la ambigüedad de compatibilidad está documentada en §2 antes del cambio de regla) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1175,73 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-020 — ECO-03: redondeo comercial proporcional a la tarifa (VAL-01-F1)
+
+- Estado: En curso — rama `claude/eco-03-redondeo` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: **cambio de regla de negocio** (redondeo de la tarifa sugerida, AGENTS.md §6) y UX (margen objetivo y real a la vista)
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (pidió el 2026-10-20 un redondeo proporcional, configurable y, por defecto, a no más de 1 % sobre la objetivo, conservando las configuraciones explícitas y las cotizaciones existentes, y documentar la ambigüedad de compatibilidad antes de cambiar la regla)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+VAL-01-F1 (P1): el redondeo comercial por defecto es un **múltiplo fijo de $ 1.000** (`defaultSettings().roundingStep`) para cualquier unidad, y cada cotización nueva lo copia (`pricing.roundingStep`). Con $/día ($ 2.408.340 → $ 2.409.000) no se nota; en las unidades de valor bajo la "tarifa sugerida" queda muy arriba del precio objetivo y la pantalla igual dice "Para ganar el 10 % sobre el precio":
+
+| Unidad | Precio objetivo | Sugerida con $ 1.000 | Sobreprecio | Margen con la sugerida |
+|---|---:|---:|---:|---:|
+| $/ton-km | 277,80 | 1.000 | +260 % | 71,4 % |
+| $/kg | 609,87 | 1.000 | +64 % | 43,2 % |
+| $/km | 3.003,52 | 4.000 | +33 % | 31,2 % |
+| $/t | 12.018,31 | 13.000 | +8,2 % | 16,4 % |
+| $/m³ | 10.235,19 | 11.000 | +7,5 % | 15,9 % |
+
+#### 2. Compatibilidad: la ambigüedad (documentada ANTES de cambiar la regla)
+- **Dónde vive el redondeo:** en la empresa (`settings.roundingStep`, para las cotizaciones nuevas) y en cada cotización (`quote.pricing.roundingStep`, copiado al crearla y editable en "El precio").
+- **La ambigüedad:** un `roundingStep: 1000` guardado no dice si alguien lo eligió o si es el de fábrica. `defaultSettings()` lo trae, cada cotización nueva lo copia y nada marca que se haya elegido.
+- **La única señal:** `settings.illustrative`. Es `true` mientras la empresa no confirmó sus parámetros ("Son los valores de mi empresa"). Con `illustrative: true` y $ 1.000, es el valor de fábrica sin confirmar. Con los parámetros confirmados, $ 1.000 pudo elegirse o aceptarse al confirmar: no se puede saber.
+- **Interpretación de este PR (la más conservadora):**
+  1. **Cotizaciones existentes: sin cambios.** Sin `roundingMode` rige el múltiplo fijo guardado (la regla de siempre), con los mismos números. Una cotización pasa a automático sólo si alguien lo elige.
+  2. **Empresas con parámetros confirmados**, o con un paso distinto de $ 1.000: las cotizaciones nuevas conservan su múltiplo.
+  3. **Empresas con los parámetros de fábrica sin confirmar** (`illustrative: true`) y $ 1.000: las cotizaciones nuevas usan el automático, que es el nuevo valor de fábrica. Las existentes no cambian.
+  4. **Empresas nuevas:** automático, hasta 1 %.
+- **Lo que no se puede saber:** si una empresa con parámetros confirmados y $ 1.000 eligió ese valor. Se conserva, y se avisa: el margen objetivo y el real quedan a la vista, y si el redondeo sube la tarifa más de 1 % aparece "la sugerida quedó X % arriba de tu precio objetivo" con [Usar redondeo automático].
+- **HUMAN DECISION REQUIRED (no bloquea):** ¿mantener el punto 2 para las empresas con $ 1.000 confirmado, o pasarlas a automático para sus cotizaciones nuevas? Cambiarlo es una regla en `settingsRounding()` (`js/domain/rounding.js`), sin migración.
+- **Sin migración ni cambio de esquema** (sigue en 10): los campos nuevos (`roundingMode`, `roundingMaxPct`) son opcionales, y no tenerlos es la regla de siempre. El validador del esquema no rechaza campos nuevos dentro de `pricing` ni de la configuración. `saveSettings` mezcla, así que una pestaña abierta con 0.8.1 no los borra.
+- **Pestañas con 0.8.1 abiertas:** ignoran `roundingMode` y calculan con `roundingStep`. Por eso, una cotización o una empresa en automático guarda `roundingStep: 0`. Así una versión anterior la muestra sin redondeo, nunca inflada.
+
+#### 3. Regla nueva
+- **Automático (`roundingMode: 'auto'`):** la tarifa objetivo se redondea **hacia arriba** al múltiplo de 1, 10, 100, 1.000… más grande que **no la suba más de `roundingMaxPct`** (1 % por defecto, configurable de 0 a 10). Con una objetivo menor a $ 100 (el 1 % no llega a $ 1) no hay redondeo.
+  - Ejemplos: 277,80 → 278; 3.003,52 → 3.010; 12.018,31 → 12.100; 2.408.340 → 2.410.000.
+  - Nunca baja el margen y nunca sube más del tope.
+- **Múltiplo fijo (`roundingMode: 'step'`, o sin `roundingMode`):** `roundingStep`, como siempre (0 = sin redondeo).
+- **Productos:** sin cambios. Tienen su propio redondeo, que por defecto es 0.
+
+#### 4. Impacto en fórmulas
+- **Cotizaciones existentes y plantillas:** sin cambios. Golden y candado sin cambios, y A/B contra `main` en las cotizaciones sintéticas del Test Lab: mismos números.
+- **Cotizaciones nuevas en automático:** la sugerida cambia (más cerca de la objetivo) y, con ella, el margen, el equilibrio y los indicadores, cuando la tarifa comercial es la sugerida.
+- **Indicadores nuevos** (sin tocar los existentes):
+  - `roundingMode`, `roundingStep` (el paso que se aplicó) y `roundingMaxPct`;
+  - `suggestedRoundUpPct` (cuánto sube la sugerida sobre la objetivo);
+  - `suggestedMarginPct` (el margen con la sugerida);
+  - `roundingExceedsLimit` (múltiplo fijo que sube más de 1 %).
+
+#### 5. UX: margen objetivo y real siempre a la vista
+- **Resultado y PDF:**
+  - la sugerida dice "Objetivo: 10 % · con esta tarifa: 10,06 %" y el precio objetivo exacto;
+  - el margen dice siempre su objetivo;
+  - con un múltiplo fijo que sube más de 1 %, aviso arriba con [Usar redondeo automático].
+- **"El precio" y el resumen en vivo:** el mismo par (objetivo y real) y el control del redondeo: Automático (hasta X %) / Múltiplo fijo ($).
+- **Configuración:** el mismo control para las cotizaciones nuevas. Con un múltiplo fijo de $ 1.000 se avisa que en $/ton-km, $/kg o $/km puede subir mucho.
+
+#### 6. Pasos
+- [x] 1. Documentar la ambigüedad y la interpretación (este plan, antes de cambiar la regla) y fijar con tests que lo guardado no cambia.
+- [ ] 2. Dominio (`js/domain/rounding.js`) y motor (indicadores nuevos).
+- [ ] 3. Fábrica: empresas y cotizaciones nuevas en automático; interpretación de lo guardado.
+- [ ] 4. UI: Resultado, PDF, "El precio", resumen en vivo y Configuración.
+- [ ] 5. Tests: dominio, motor en las 18 unidades con 0/1/10/1.000 y automático, compatibilidad, oráculo del Test Lab, E2E.
+- [ ] 6. PR sin merge y evidencia en RATEOS-AUDIT (`tasks/ECO-03/`).
+
+#### 7. Rollback
+Revert del PR. Las cotizaciones creadas en automático después del deploy guardan `roundingStep: 0`: con el revert se calculan sin redondeo (nunca infladas).
+
+#### Bitácora
+- 2026-10-20: el dueño pidió el redondeo proporcional (configurable, por defecto a no más de 1 % sobre la objetivo), margen objetivo y real siempre a la vista, conservar las configuraciones explícitas y las cotizaciones existentes, y documentar la ambigüedad de compatibilidad antes de cambiar la regla. La revisión independiente de ECO-02 pidió priorizar `roundingStep` explícito vs. de fábrica, muestras con 0/1/10/1.000, margen real/objetivo y las 18 unidades. Base `main` `d6540b7`. Primero este plan y los tests que fijan lo guardado; después el cambio de regla.
