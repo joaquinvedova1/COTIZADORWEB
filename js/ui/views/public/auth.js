@@ -7,9 +7,12 @@
  *   las credenciales van directo al SDK por HTTPS. Nunca se guardan ni se
  *   loguean; el campo contraseña se vacía después de cada intento.
  * - ?next=/ruta conserva el destino pedido (p. ej. "Crear una cotización").
- * - Beta cerrada (FEATURES.publicSignup = false, HD-03): #/registro no tiene
- *   formulario; explica el acceso por invitación y el primer ingreso con
- *   "¿Olvidaste tu contraseña?" (sin alta previa no llega ningún correo).
+ * - Registro público (FEATURES.publicSignup = true, HD-03): nombre, empresa,
+ *   email y contraseña; después, "Revisá tu correo" con la misma respuesta sea
+ *   el email nuevo o ya registrado, y reenvío del correo de confirmación (también
+ *   desde el ingreso, si la cuenta todavía no está confirmada).
+ * - Beta por invitación (publicSignup = false): #/registro no tiene formulario;
+ *   explica el primer ingreso con "¿Olvidaste tu contraseña?".
  * - Recuperación en dos pasos: pedir el correo (respuesta neutra, espera antes
  *   de reenviar, sólo de UX) y elegir la contraseña con el enlace PKCE (este
  *   navegador) o con el código del correo (cualquier navegador, si nadie abrió
@@ -118,6 +121,49 @@ function authLayout({ title, subtitle, content, footer = null }) {
   );
 }
 
+/**
+ * Botón de reenvío con espera visible. La espera es sólo de UX (recargar la
+ * saltea): los límites reales los pone Supabase.
+ */
+function resendButton(label, onClick) {
+  const el = h('button', { type: 'button', class: 'btn btn-secondary pub-btn pub-btn-block pub-auth-resend' }, label);
+  let timer = null;
+  const wait = (seconds = 0) => {
+    if (timer) clearInterval(timer);
+    timer = null;
+    let left = seconds;
+    const tick = () => {
+      el.disabled = left > 0;
+      el.textContent = left > 0 ? `${label} (en ${left} s)` : label;
+    };
+    tick();
+    if (left > 0) {
+      timer = setInterval(() => {
+        left -= 1;
+        tick();
+        if (left <= 0) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }, 1000);
+    }
+  };
+  el.addEventListener('click', () => {
+    el.disabled = true;
+    onClick(wait);
+  });
+  return { el, wait };
+}
+
+/** Reenvío del correo de confirmación: respuesta neutra (no revela si la cuenta existe). */
+function confirmationResend(app, emailText, next, message) {
+  return resendButton('Reenviar el correo de confirmación', async (wait) => {
+    const res = await app.auth.resendConfirmation(emailText, next);
+    message.show(res.message, res.ok ? 'success' : 'error');
+    wait(res.ok ? res.cooldownSeconds || 0 : 0);
+  });
+}
+
 function switchLine(text, label, href) {
   return h('p', { class: 'pub-auth-switch' }, `${text} `, h('a', { href }, label));
 }
@@ -138,6 +184,8 @@ export function renderLogin(root, app) {
   const password = field({ label: 'Contraseña', type: 'password', name: 'password', autocomplete: 'current-password', maxLength: 200 });
   const message = formMessage();
   const submit = submitButton('Ingresar');
+  // Cuenta sin confirmar (la contraseña era correcta): ofrece reenviar la confirmación.
+  const unconfirmed = h('div', { class: 'pub-auth-unconfirmed' });
   if (flash) message.show(flash.message, flash.tone === 'success' ? 'success' : 'warning');
   else if (expired) message.show('Tu sesión terminó. Volvé a ingresar.', 'warning');
 
@@ -145,6 +193,7 @@ export function renderLogin(root, app) {
     'form',
     { class: 'pub-form', novalidate: true, 'aria-label': 'Ingresar a RATEOS' },
     message.el,
+    unconfirmed,
     email.el,
     password.el,
     h('p', { class: 'pub-auth-forgot' }, h('a', { href: '#/recuperar-contrasena' }, '¿Olvidaste tu contraseña?')),
@@ -153,6 +202,7 @@ export function renderLogin(root, app) {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     message.show('');
+    mount(unconfirmed);
     submit.busy(true, 'Ingresando…');
     const res = await app.auth.signIn({ email: email.input.value, password: password.input.value });
     password.input.value = '';
@@ -160,6 +210,7 @@ export function renderLogin(root, app) {
     if (!res.ok) {
       applyErrors({ email, password }, res.errors);
       message.show(res.message, 'error');
+      if (res.unconfirmed) mount(unconfirmed, confirmationResend(app, email.input.value.trim(), next, message).el);
       if (!res.errors || !Object.keys(res.errors).length) password.input.focus();
       return;
     }
@@ -210,13 +261,21 @@ export function renderRegister(root, app) {
     submit.el,
   );
 
-  const done = (emailText) => h(
-    'div',
-    { class: 'pub-auth-done', role: 'status' },
-    h('h2', { class: 'pub-h3' }, 'Revisá tu email'),
-    h('p', {}, 'Te enviamos un enlace a ', h('strong', {}, emailText), ' para confirmar tu cuenta. Abrilo desde este mismo navegador para entrar directo a RATEOS.'),
-    h('p', { class: 'pub-field-hint' }, '¿No llegó? Revisá la carpeta de spam. El enlace vence en unas horas.'),
-  );
+  /** Después del registro: la misma pantalla sea el email nuevo o ya registrado. */
+  const done = (emailText, res) => {
+    const sent = formMessage();
+    sent.show(res.message, 'success');
+    const again = confirmationResend(app, emailText, next, sent);
+    again.wait(res.cooldownSeconds || 0);
+    return h(
+      'div',
+      { class: 'pub-auth-done stack' },
+      h('p', { class: 'pub-field-hint pub-auth-account' }, 'Email: ', h('strong', {}, emailText)),
+      sent.el,
+      h('p', { class: 'pub-field-hint' }, 'El enlace de confirmación sirve una sola vez y vence en una hora. Si lo abrís en otro dispositivo, tu email queda confirmado igual: después ingresá con tu email y contraseña.'),
+      again.el,
+    );
+  };
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -237,7 +296,7 @@ export function renderRegister(root, app) {
       return;
     }
     if (res.needsConfirmation) {
-      mount(card, h('h1', { class: 'pub-auth-title', tabindex: '-1' }, 'Ya casi está.'), done(email.input.value.trim()), switchLine('¿Ya confirmaste?', 'Ingresar', withNext('#/login', next)));
+      mount(card, h('h1', { class: 'pub-auth-title', tabindex: '-1' }, 'Revisá tu correo'), done(email.input.value.trim(), res), switchLine('¿Ya confirmaste?', 'Ingresar', withNext('#/login', next)));
       const title = card.querySelector('h1');
       if (title) title.focus();
       return;
@@ -413,7 +472,8 @@ export function renderRecover(root, app) {
       content: form,
       footer: h('div', {},
         h('p', { class: 'pub-auth-switch' }, '¿Ya te llegó el correo? ', haveCode),
-        switchLine('¿La recordaste?', 'Ingresar', '#/login')),
+        switchLine('¿La recordaste?', 'Ingresar', '#/login'),
+        accountEntry().signup ? switchLine('¿Todavía no tenés cuenta?', 'Crear cuenta', '#/registro') : null),
     }));
   };
 

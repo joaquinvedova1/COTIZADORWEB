@@ -18,12 +18,15 @@ import { readFileSync } from 'node:fs';
 import {
   AUTH_STATUS,
   CODE_INVALID_MESSAGE,
+  CONFIRMATION_RESENT_MESSAGE,
   INVITE_LINK_MESSAGE,
   RECOVERY_LINK_INVALID_MESSAGE,
   RECOVER_REQUEST_SUBTITLE,
   RESET_COOLDOWN_SECONDS,
   RESET_REQUESTED_MESSAGE,
   RESET_SENT_OWN_MESSAGE,
+  SIGNUP_MAIL_FAILED_MESSAGE,
+  SIGNUP_REQUESTED_MESSAGE,
   authRedirectUrl,
   cleanAuthFragment,
   createAuthService,
@@ -32,12 +35,13 @@ import {
 } from '../../js/services/auth-service.js';
 import { AUTH_ERRORS, createAuthGateway } from '../../js/data/auth-gateway.js';
 import { addLogSink } from '../../js/core/logger.js';
+import { FEATURES } from '../../js/config.js';
 import { createFakeAuthGateway } from '../helpers/fake-supabase.js';
 
 const SITE = 'https://joaquinvedova1.github.io/COTIZADORWEB/';
 const INVITED = { id: 'inv-1', email: 'invitada@example.com', password: 'clave-larga-al-azar-1', emailConfirmed: true };
 
-function service(gateway, href = `${SITE}#/recuperar-contrasena`) {
+function service(gateway, href = `${SITE}#/recuperar-contrasena`, { publicSignup = FEATURES.publicSignup } = {}) {
   const location = { href };
   const history = {
     replaced: [],
@@ -46,7 +50,7 @@ function service(gateway, href = `${SITE}#/recuperar-contrasena`) {
       location.href = url;
     },
   };
-  return { auth: createAuthService({ gateway, siteUrl: SITE, location, history, publicSignup: false }), location, history };
+  return { auth: createAuthService({ gateway, siteUrl: SITE, location, history, publicSignup }), location, history };
 }
 
 /** Captura los logs de la prueba (nunca deben llevar el email ni el código). */
@@ -78,15 +82,15 @@ describe('HD-03: "¿Olvidaste tu contraseña?" sin sesión', () => {
 
   test('la respuesta no afirma que se envió un correo y dice qué hacer si no llega (sin alta previa no sale nada)', () => {
     assert.doesNotMatch(RESET_REQUESTED_MESSAGE, /te enviamos/i);
-    assert.match(RESET_REQUESTED_MESSAGE, /Si ese email tiene acceso a RATEOS/);
+    assert.match(RESET_REQUESTED_MESSAGE, /Si ese email tiene una cuenta en RATEOS/);
     assert.match(RESET_REQUESTED_MESSAGE, /spam/);
-    assert.match(RESET_REQUESTED_MESSAGE, /avisale a quien te invitó: puede que tu acceso todavía no esté creado/);
+    assert.match(RESET_REQUESTED_MESSAGE, /puede que ese email todavía no tenga cuenta: creala en «Crear cuenta»/);
     assert.equal(RESET_COOLDOWN_SECONDS, 60);
   });
 
-  test('antes de pedir nada, la pantalla no promete un correo y dice que primero hace falta acceso', () => {
+  test('antes de pedir nada, la pantalla no promete un correo y dice que sólo llega si hay cuenta', () => {
     assert.doesNotMatch(RECOVER_REQUEST_SUBTITLE, /te mandamos|te enviamos|te llega/i);
-    assert.match(RECOVER_REQUEST_SUBTITLE, /Sólo llega si ya te dieron acceso a RATEOS/);
+    assert.match(RECOVER_REQUEST_SUBTITLE, /Sólo llega si ese email tiene una cuenta en RATEOS/);
   });
 
   test('sin conexión o con muchos intentos seguidos, se dice (no depende de si la cuenta existe)', async () => {
@@ -327,9 +331,178 @@ describe('HD-03: plantillas de correo (supabase/templates/)', () => {
     assert.deepEqual(hrefs(html), ['{{ .SiteURL }}#/recuperar-contrasena']);
   });
 
+  test('confirmación del registro: enlace PKCE ({{ .ConfirmationURL }}), nunca token_hash, y explica el otro dispositivo', () => {
+    const html = tpl('confirmation.html');
+    assert.deepEqual(hrefs(html), ['{{ .ConfirmationURL }}']);
+    assert.doesNotMatch(html, /TokenHash/);
+    assert.match(html, /tu email queda confirmado igual/);
+  });
+
   test('invitación: no usa el enlace de "Send invitation" (implícito, la app lo rechaza)', () => {
     const html = tpl('invite.html');
     assert.doesNotMatch(html, /ConfirmationURL|TokenHash/);
     assert.deepEqual(hrefs(html), ['{{ .SiteURL }}#/recuperar-contrasena']);
+  });
+});
+
+describe('HD-03: registro público con confirmación de email (decisión del dueño, 2026-10-20)', () => {
+  const NEW = { fullName: 'Ana Pérez', company: 'Grúas del Sur', email: 'ana@example.com', password: 'clave-segura-1' };
+  const CONFIRMED = { id: 'u-ok', email: 'ya@example.com', password: 'clave-larga-1', emailConfirmed: true };
+  const PENDING = { id: 'u-nc', email: 'pendiente@example.com', password: 'clave-larga-2', emailConfirmed: false };
+
+  test('lo publicado ofrece el registro (sin invitación) y exige confirmar el email', async () => {
+    assert.equal(FEATURES.publicSignup, true);
+    const gw = createFakeAuthGateway({ confirmEmail: true });
+    const { auth } = service(gw, `${SITE}#/registro`);
+    await auth.init();
+    const res = await auth.signUp(NEW);
+    assert.equal(res.ok, true);
+    assert.equal(res.needsConfirmation, true);
+    assert.equal(auth.status, AUTH_STATUS.anonymous, 'sin sesión hasta confirmar');
+  });
+
+  test('la misma respuesta para un email nuevo, uno ya registrado y uno sin confirmar: no revela quién usa RATEOS', async () => {
+    const outcomes = [];
+    for (const email of [NEW.email, CONFIRMED.email, PENDING.email]) {
+      const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING] });
+      const { auth } = service(gw, `${SITE}#/registro`);
+      await auth.init();
+      outcomes.push(await auth.signUp({ ...NEW, email }));
+    }
+    for (const res of outcomes) {
+      assert.deepEqual(res, { ok: true, needsConfirmation: true, message: SIGNUP_REQUESTED_MESSAGE, cooldownSeconds: RESET_COOLDOWN_SECONDS });
+    }
+    assert.doesNotMatch(SIGNUP_REQUESTED_MESSAGE, /ya está registrado|te enviamos/i);
+    assert.match(SIGNUP_REQUESTED_MESSAGE, /Si ya tenías cuenta con ese email, no te llega nada/);
+  });
+
+  test('puerta real: el usuario "de mentira" de Supabase (email ya registrado) se responde igual que un registro nuevo', async () => {
+    const calls = [];
+    const client = {
+      auth: {
+        async signUp(params) {
+          calls.push(params);
+          if (params.email === 'ya@example.com') return { data: { user: { id: 'x', email: params.email, identities: [] }, session: null }, error: null };
+          return { data: { user: { id: 'n1', email: params.email, identities: [{ id: 'i1' }] }, session: null }, error: null };
+        },
+      },
+    };
+    const gateway = createAuthGateway(client);
+    const results = [];
+    for (const email of ['ya@example.com', 'nueva@example.com']) {
+      const { auth } = service(gateway, `${SITE}#/registro`);
+      results.push(await auth.signUp({ ...NEW, email }));
+    }
+    assert.deepEqual(results[0], results[1]);
+    assert.deepEqual(calls[1].options, { emailRedirectTo: `${SITE}?auth=confirm`, data: { full_name: 'Ana Pérez', company: 'Grúas del Sur' } }, 'enlace PKCE de vuelta al sitio publicado');
+    assert.equal(calls[1].password, NEW.password, 'la contraseña sólo pasa al SDK');
+  });
+
+  test('el enlace de confirmación vuelve al sitio con ?auth=confirm y sólo conserva un destino interno', async () => {
+    const gw = createFakeAuthGateway();
+    const { auth } = service(gw, `${SITE}#/registro`);
+    await auth.signUp({ ...NEW, next: '/cotizaciones/nueva' });
+    assert.equal(gw.lastSignUp.redirectTo, `${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva`);
+    await auth.signUp({ ...NEW, email: 'otra@example.com', next: 'https://evil.example/' });
+    assert.equal(gw.lastSignUp.redirectTo, `${SITE}?auth=confirm`, 'un destino externo nunca viaja en el enlace');
+  });
+
+  test('si el correo de confirmación no sale (SMTP por defecto), se dice (la cuenta no se creó) y el aviso técnico no lleva el email', async () => {
+    const logs = captureLogs();
+    try {
+      const gw = createFakeAuthGateway();
+      gw.signUp = async () => ({ ok: false, code: AUTH_ERRORS.emailNotAuthorized });
+      const { auth } = service(gw, `${SITE}#/registro`);
+      const res = await auth.signUp(NEW);
+      assert.equal(res.ok, false);
+      assert.equal(res.message, SIGNUP_MAIL_FAILED_MESSAGE);
+      assert.ok(logs.entries.some((e) => e.level === 'warn' && /SMTP propio/.test(e.message)));
+      assert.doesNotMatch(logs.text(), /ana@example\.com|clave-segura-1/);
+    } finally {
+      logs.remove();
+    }
+  });
+
+  test('red, límite de envíos, contraseña débil o registro cerrado en el servidor: mensaje humano, sin detalles internos', async () => {
+    for (const code of [AUTH_ERRORS.network, AUTH_ERRORS.rateLimited, AUTH_ERRORS.weakPassword, AUTH_ERRORS.signupClosed, AUTH_ERRORS.unknown]) {
+      const gw = createFakeAuthGateway();
+      gw.signUp = async () => ({ ok: false, code });
+      const { auth } = service(gw, `${SITE}#/registro`);
+      const res = await auth.signUp(NEW);
+      assert.equal(res.ok, false, code);
+      assert.equal(res.message, messageFor(code), code);
+    }
+  });
+
+  test('valida antes de la red: nombre, empresa, email y contraseña de 8 o más', async () => {
+    const gw = createFakeAuthGateway();
+    const { auth } = service(gw, `${SITE}#/registro`);
+    const res = await auth.signUp({ fullName: ' ', company: '', email: 'no-es-email', password: '1234567' });
+    assert.deepEqual(Object.keys(res.errors).sort(), ['company', 'email', 'fullName', 'password']);
+    assert.equal(gw.lastSignUp, undefined);
+  });
+
+  test('reenviar la confirmación: la misma respuesta haya o no cuenta sin confirmar; sólo la red y el límite se informan', async () => {
+    const outcomes = [];
+    for (const [email, failure] of [[PENDING.email, null], [CONFIRMED.email, null], ['nadie@example.com', null], [PENDING.email, AUTH_ERRORS.emailNotAuthorized], [PENDING.email, AUTH_ERRORS.unknown]]) {
+      const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING] });
+      if (failure) gw.resendSignupConfirmation = async () => ({ ok: false, code: failure });
+      const { auth } = service(gw, `${SITE}#/login`);
+      outcomes.push(await auth.resendConfirmation(email, '/cotizaciones/nueva'));
+      if (!failure) assert.equal(gw.lastResend.redirectTo, `${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva`);
+    }
+    for (const res of outcomes) assert.deepEqual(res, { ok: true, message: CONFIRMATION_RESENT_MESSAGE, cooldownSeconds: RESET_COOLDOWN_SECONDS });
+    for (const code of [AUTH_ERRORS.network, AUTH_ERRORS.rateLimited]) {
+      const gw = createFakeAuthGateway({ users: [PENDING] });
+      gw.resendSignupConfirmation = async () => ({ ok: false, code });
+      const { auth } = service(gw, `${SITE}#/login`);
+      const res = await auth.resendConfirmation(PENDING.email);
+      assert.equal(res.ok, false);
+      assert.equal(res.message, messageFor(code));
+    }
+    const gw = createFakeAuthGateway();
+    const { auth } = service(gw, `${SITE}#/login`);
+    const bad = await auth.resendConfirmation('no-es-email');
+    assert.ok(bad.errors.email);
+    assert.equal(gw.lastResend, undefined, 'no se llamó a Supabase');
+  });
+
+  test('puerta real: reenvía con resend type "signup" y el enlace PKCE de vuelta', async () => {
+    const calls = [];
+    const gateway = createAuthGateway({ auth: { resend: async (p) => (calls.push(p), { data: {}, error: null }) } });
+    const res = await gateway.resendSignupConfirmation('a@example.com', `${SITE}?auth=confirm`);
+    assert.deepEqual(res, { ok: true, code: null });
+    assert.deepEqual(calls[0], { type: 'signup', email: 'a@example.com', options: { emailRedirectTo: `${SITE}?auth=confirm` } });
+  });
+
+  test('ingreso sin confirmar: lo explica y marca la cuenta para ofrecer el reenvío (sólo con la contraseña correcta)', async () => {
+    const gw = createFakeAuthGateway({ users: [PENDING] });
+    const { auth } = service(gw, `${SITE}#/login`);
+    await auth.init();
+    const res = await auth.signIn({ email: PENDING.email, password: PENDING.password });
+    assert.equal(res.ok, false);
+    assert.equal(res.unconfirmed, true);
+    assert.match(res.message, /Todavía no confirmaste tu email/);
+    const wrong = await auth.signIn({ email: PENDING.email, password: 'otra-clave-9' });
+    assert.equal(wrong.unconfirmed, false, 'con la contraseña equivocada no se revela nada');
+    assert.equal(auth.status, AUTH_STATUS.anonymous);
+  });
+
+  test('confirmación: el enlace PKCE canjea el código, abre la sesión y limpia la URL', async () => {
+    const gw = createFakeAuthGateway({ users: [PENDING] });
+    const { auth, location } = service(gw, `${SITE}?code=codigo-pkce&auth=confirm#/`);
+    const redirect = await auth.handleRedirect();
+    assert.equal(redirect.ok, true);
+    assert.equal(redirect.kind, 'confirm');
+    assert.deepEqual(gw.exchanged, ['codigo-pkce']);
+    assert.doesNotMatch(location.href, /code=/);
+  });
+
+  test('confirmación abierta en otro navegador: el email igual quedó confirmado y se explica que hay que ingresar', async () => {
+    const gw = createFakeAuthGateway({ users: [PENDING] });
+    const { auth } = service(gw, `${SITE}?code=bad&auth=confirm#/`);
+    const redirect = await auth.handleRedirect();
+    assert.equal(redirect.ok, false);
+    assert.match(redirect.message, /Tu email ya puede estar confirmado\. Ingresá con tu email y contraseña/);
   });
 });

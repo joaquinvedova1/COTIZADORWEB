@@ -115,10 +115,18 @@ export function createAuthGateway(client, { clearLocalSession = () => {} } = {})
       if (!res.ok) return { ok: false, code: res.code };
       const user = res.data && res.data.user;
       // Con confirmación activada, un email ya registrado devuelve un usuario
-      // sin identidades (Supabase no revela si existe): se avisa igual.
+      // sin identidades y no se le envía nada. La puerta lo traduce a
+      // email_taken; el servicio responde igual que a un registro nuevo (no
+      // revela quién usa RATEOS).
       if (user && Array.isArray(user.identities) && user.identities.length === 0) return { ok: false, code: AUTH_ERRORS.emailTaken };
       const session = res.data && res.data.session;
       return { ok: true, code: null, needsConfirmation: !session, user: session ? publicUser(session.user) : null };
+    },
+
+    /** Reenvía el correo de confirmación del registro (enlace PKCE de vuelta a redirectTo). */
+    async resendSignupConfirmation(email, redirectTo) {
+      const res = await call(() => auth.resend({ type: 'signup', email, options: { emailRedirectTo: redirectTo } }));
+      return res.ok ? { ok: true, code: null } : { ok: false, code: res.code };
     },
 
     async signIn({ email, password }) {

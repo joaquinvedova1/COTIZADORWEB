@@ -7,9 +7,11 @@
  * modifica filas de las organizaciones de las que el usuario del token es
  * miembro. Usuarios, organizaciones y tokens son sintéticos y viven en memoria.
  *
- * Correos de Auth (HD-03): "¿Olvidaste tu contraseña?" deja el correo en
- * db.outbox (enlace /verify + código de 6 dígitos) sólo si la cuenta existe,
- * como Supabase. db.smtp.mode simula el SMTP: 'custom' (entrega todo),
+ * Correos de Auth (HD-03): el registro público deja en db.outbox el correo de
+ * confirmación (enlace /verify PKCE) y "¿Olvidaste tu contraseña?" el de
+ * recuperación (enlace + código de 6 dígitos), sólo si corresponde, como
+ * Supabase: un email ya registrado recibe la misma respuesta y ningún correo;
+ * sin confirmar no se puede ingresar. db.smtp.mode simula el SMTP: 'custom' (entrega todo),
  * 'default' (SMTP por defecto: sólo al equipo, db.smtp.team) o 'broken'.
  * El enlace sigue el flujo PKCE real (code_challenge → ?code= → canje con el
  * code_verifier) y el código, verifyOtp type 'recovery'. Nada sale a internet.
@@ -40,11 +42,11 @@ export function createDb() {
     flows: new Map(),
     smtp: { mode: 'custom', team: [] },
   };
-  db.createUser = ({ email, password, fullName, company }) => {
+  db.createUser = ({ email, password, fullName, company, confirmed = true }) => {
     const id = randomUUID();
     const orgId = randomUUID();
     const now = new Date().toISOString();
-    db.users.set(email, { id, email, password, fullName, company, createdAt: now });
+    db.users.set(email, { id, email, password, fullName, company, confirmed, createdAt: now });
     db.profiles.set(id, { id, full_name: String(fullName || '').slice(0, 120) });
     db.orgs.set(orgId, { id: orgId, name: String(company || 'Mi empresa').slice(0, 120), created_at: now, updated_at: now });
     db.members.push({ organization_id: orgId, user_id: id, role: 'OWNER', created_at: now });
@@ -71,7 +73,7 @@ function userJson(u) {
     aud: 'authenticated',
     role: 'authenticated',
     email: u.email,
-    email_confirmed_at: now,
+    email_confirmed_at: u.confirmed === false ? null : now,
     app_metadata: { provider: 'email', providers: ['email'] },
     user_metadata: { full_name: u.fullName, company: u.company, email_verified: true },
     identities: [{ id: u.id, user_id: u.id, provider: 'email', identity_data: { sub: u.id, email: u.email } }],
@@ -137,6 +139,7 @@ export async function installSupabaseMock(context, db) {
         return route.fulfill({ status: 303, headers: { location: target.href } });
       }
       mail.used = true;
+      if (mail.type === 'signup') db.users.get(mail.to).confirmed = true; // el enlace confirma el email aunque se abra en otro navegador
       const authCode = randomUUID();
       db.flows.set(authCode, { email: mail.to, challenge: mail.challenge, method: mail.method });
       target.searchParams.set('code', authCode);
@@ -158,6 +161,8 @@ export async function installSupabaseMock(context, db) {
       if (grant === 'password') {
         const u = db.users.get(body && body.email);
         if (!u || u.password !== body.password) return authErr(route, 400, 'invalid_credentials', 'Invalid login credentials');
+        // Como GoTrue: "sin confirmar" recién después de validar la contraseña (no revela cuentas).
+        if (u.confirmed === false) return authErr(route, 400, 'email_not_confirmed', 'Email not confirmed');
         return reply(route, 200, session(db, u));
       }
       if (grant === 'pkce') {
@@ -179,6 +184,53 @@ export async function installSupabaseMock(context, db) {
       return authErr(route, 400, 'unsupported_grant_type', 'unsupported');
     }
     if (url.pathname === '/auth/v1/logout') return route.fulfill({ status: 204, headers: CORS });
+    // Registro público con confirmación (como GoTrue con "Confirm email" encendido).
+    const mailTo = (u, type) => {
+      for (const m of db.outbox) if (m.to === u.email && m.type === type) m.used = true;
+      db.outbox.push({
+        to: u.email,
+        type,
+        otp: String(randomInt(0, 1000000)).padStart(6, '0'),
+        tokenHash: createHash('sha256').update(randomUUID()).digest('hex'),
+        redirectTo: url.searchParams.get('redirect_to'),
+        challenge: (body && body.code_challenge) || null,
+        method: String((body && body.code_challenge_method) || 's256').toLowerCase(),
+        used: false,
+        at: Date.now(),
+      });
+    };
+    const smtpFails = (email) => {
+      if (db.smtp.mode === 'default' && !db.smtp.team.some((t) => sameEmail(t, email))) return ['email_address_not_authorized', 400, 'Email address not authorized'];
+      if (db.smtp.mode === 'broken') return ['unexpected_failure', 500, 'Error sending confirmation email'];
+      return null;
+    };
+    if (url.pathname === '/auth/v1/signup' && method === 'POST') {
+      const email = String((body && body.email) || '').trim().toLowerCase();
+      if (String((body && body.password) || '').length < 6) return authErr(route, 422, 'weak_password', 'Password should be at least 6 characters.');
+      const existing = [...db.users.values()].find((x) => sameEmail(x.email, email));
+      if (existing && existing.confirmed !== false) {
+        // Ya registrado y confirmado: usuario "de mentira", sin identidades y sin correo.
+        return reply(route, 200, { id: randomUUID(), aud: 'authenticated', role: 'authenticated', email, identities: [], user_metadata: {}, app_metadata: { provider: 'email', providers: ['email'] }, created_at: new Date().toISOString() });
+      }
+      const fail = smtpFails(email);
+      if (fail) return authErr(route, fail[1], fail[0], fail[2]); // GoTrue no crea la cuenta si no pudo enviar.
+      const last = existing && db.outbox.filter((m) => m.to === existing.email && m.type === 'signup').at(-1);
+      if (last && Date.now() - last.at < 60000) return authErr(route, 429, 'over_email_send_rate_limit', 'For security purposes, you can only request this after 60 seconds.');
+      const data = (body && body.data) || {};
+      const u = existing || db.createUser({ email, password: body.password, fullName: data.full_name, company: data.company || 'Mi empresa', confirmed: false });
+      mailTo(u, 'signup');
+      return reply(route, 200, userJson(u));
+    }
+    if (url.pathname === '/auth/v1/resend' && method === 'POST') {
+      const u = [...db.users.values()].find((x) => sameEmail(x.email, body && body.email));
+      if (!u || u.confirmed !== false || (body && body.type) !== 'signup') return reply(route, 200, {});
+      const fail = smtpFails(u.email);
+      if (fail) return authErr(route, fail[1], fail[0], fail[2]);
+      const last = db.outbox.filter((m) => m.to === u.email && m.type === 'signup').at(-1);
+      if (last && Date.now() - last.at < 60000) return authErr(route, 429, 'over_email_send_rate_limit', 'For security purposes, you can only request this after 60 seconds.');
+      mailTo(u, 'signup');
+      return reply(route, 200, {});
+    }
     // "¿Olvidaste tu contraseña?": como Supabase, 200 aunque la cuenta no exista (y entonces no sale nada).
     if (url.pathname === '/auth/v1/recover' && method === 'POST') {
       const u = [...db.users.values()].find((x) => sameEmail(x.email, body && body.email));

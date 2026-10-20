@@ -559,30 +559,30 @@ async function runMode(mode) {
     check('SESION-01', 'tampoco en el menú y la barra ocultos (DOM)', leaks(after.all).length === 0, leaks(after.all).join(', '));
     check('SESION-01', 'la sesión se borró del navegador', after.session === null, 'quedó rateos.auth');
 
-    // Registro por invitación (HD-03, PLAN-2026-016): sin sesión, #/registro no
-    // tiene formulario y nada en la landing ni en el ingreso ofrece crear cuenta.
+    // Registro público (HD-03, decisión del dueño del 2026-10-20): sin sesión,
+    // #/registro tiene el formulario y la landing y el ingreso ofrecen crear cuenta.
+    // El alta completa (confirmación por correo) la recorre tests/lab/e2e/auth-lab.mjs.
     await go('#/registro', 800);
     const reg = await page.evaluate(() => ({
       text: document.body.innerText,
       forms: document.querySelectorAll('form').length,
       passwords: document.querySelectorAll('input[type="password"]').length,
+      fields: [...document.querySelectorAll('form input')].map((i) => i.getAttribute('autocomplete')),
     }));
-    check('REGISTRO-01', '#/registro explica la beta cerrada por invitación', /beta cerrada/i.test(reg.text) && /invitaci/i.test(reg.text), 'sin el texto de la invitación');
-    check('REGISTRO-01', '#/registro no tiene formulario ni campo de contraseña', reg.forms === 0 && reg.passwords === 0, `${reg.forms} formularios, ${reg.passwords} contraseñas`);
+    check('REGISTRO-01', '#/registro: nombre, empresa, email y contraseña nueva', reg.forms === 1 && reg.passwords === 1 && ['name', 'organization', 'email', 'new-password'].every((f) => reg.fields.includes(f)), reg.fields.join(', '));
+    check('REGISTRO-01', '#/registro ya no habla de una beta cerrada por invitación', !/beta cerrada|por invitación/i.test(reg.text), 'texto de la invitación');
     await go('#/', 1000);
     const landing = await page.evaluate(() => {
       const cta = document.querySelector('.pub-header-cta');
       return {
         ctaText: cta ? cta.textContent.trim() : '',
         ctaHref: cta ? cta.getAttribute('href') : '',
-        signupLinks: [...document.querySelectorAll('a')].filter((a) => /^#\/registro/.test(a.getAttribute('href') || '') || /Crear cuenta/i.test(a.textContent)).map((a) => a.textContent.trim()),
       };
     });
-    check('REGISTRO-01', 'el botón principal de la landing es "Ingresar"', landing.ctaText === 'Ingresar' && landing.ctaHref === '#/login', `${landing.ctaText} → ${landing.ctaHref}`);
-    check('REGISTRO-01', 'la landing no ofrece crear cuenta', landing.signupLinks.length === 0, landing.signupLinks.join(', '));
+    check('REGISTRO-01', 'el botón principal de la landing es "Crear cuenta"', landing.ctaText === 'Crear cuenta' && landing.ctaHref === '#/registro', `${landing.ctaText} → ${landing.ctaHref}`);
     await go('#/login', 800);
     const loginText = await page.evaluate(() => document.body.innerText);
-    check('REGISTRO-01', 'el ingreso no ofrece "Crear cuenta" y sí "¿Olvidaste tu contraseña?"', !/Crear cuenta/.test(loginText) && /¿Olvidaste tu contraseña\?/.test(loginText), 'texto inesperado en el ingreso');
+    check('REGISTRO-01', 'el ingreso ofrece "Crear cuenta" y "¿Olvidaste tu contraseña?"', /Crear cuenta/.test(loginText) && /¿Olvidaste tu contraseña\?/.test(loginText), 'texto inesperado en el ingreso');
 
     const emailB = `lab.${mode}.b@rateos.test`;
     const passwordB = `lab-${randomUUID()}`;

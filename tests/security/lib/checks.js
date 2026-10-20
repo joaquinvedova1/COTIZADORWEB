@@ -499,6 +499,38 @@ async function dynamicChecks() {
       if (backup.includes('u-gate')) backupHits.push('el backup incluye el id del usuario');
     }
     results.push(check('SEC-12', 'Backup exportado: sólo datos de la empresa (sin sesión, tokens ni id de usuario)', 'P1', 'PRIVACY', backupHits));
+
+    // SEC-18 — registro público (HD-03, decisión del dueño del 2026-10-20): ni el
+    // registro ni los correos de Auth revelan qué emails tienen cuenta.
+    const enumHits = [];
+    {
+      const { createAuthService } = await import('../../../js/services/auth-service.js');
+      const { createFakeAuthGateway } = await import('../../helpers/fake-supabase.js');
+      const site = 'https://joaquinvedova1.github.io/COTIZADORWEB/';
+      const users = [
+        { id: 'u-conf', email: 'confirmada@example.com', password: 'clave-sintetica-1', emailConfirmed: true },
+        { id: 'u-pend', email: 'pendiente@example.com', password: 'clave-sintetica-2', emailConfirmed: false },
+      ];
+      const svc = () => {
+        const location = { href: `${site}#/registro` };
+        return createAuthService({ gateway: createFakeAuthGateway({ users }), siteUrl: site, location, history: { replaceState() {} }, publicSignup: true });
+      };
+      const emails = ['nueva@example.com', 'confirmada@example.com', 'pendiente@example.com'];
+      const same = async (label, run) => {
+        const outs = [];
+        for (const email of emails) outs.push(JSON.stringify(await run(svc(), email)));
+        if (new Set(outs).size !== 1) enumHits.push(`${label}: la respuesta cambia según el email tenga cuenta o no`);
+      };
+      await same('registro', (a, email) => a.signUp({ fullName: 'Persona', company: 'Empresa sintética', email, password: 'clave-sintetica-9' }));
+      await same('reenvío de la confirmación', (a, email) => a.resendConfirmation(email));
+      await same('"¿Olvidaste tu contraseña?"', (a, email) => a.requestPasswordReset(email));
+      const a = svc();
+      const wrong = await a.signIn({ email: 'pendiente@example.com', password: 'otra-clave-sintetica' });
+      const unknown = await a.signIn({ email: 'nadie@example.com', password: 'otra-clave-sintetica' });
+      if (JSON.stringify(wrong) !== JSON.stringify(unknown)) enumHits.push('ingreso: con la contraseña equivocada, una cuenta sin confirmar responde distinto que un email sin cuenta');
+      if (!FEATURES.publicSignup) enumHits.push('FEATURES.publicSignup no coincide con la decisión del dueño (registro público)');
+    }
+    results.push(check('SEC-18', 'Registro público sin enumeración de cuentas: registro, reenvío de la confirmación y "¿Olvidaste tu contraseña?" responden igual haya o no cuenta; "sin confirmar" sólo con la contraseña correcta', 'P1', 'PRIVACY', enumHits));
   } finally {
     configureLogger({ consoleImpl: globalThis.console });
   }
@@ -535,8 +567,8 @@ export const HUMAN_DECISIONS = Object.freeze([
     severity: 'P1',
     category: 'SECURITY',
     requiredBeforeRealUsers: true,
-    title: 'El registro está abierto: cualquiera puede crear una cuenta en una beta "cerrada" (no expone datos de otras empresas: cada cuenta nace con su propia empresa)',
-    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): registro cerrado o por invitación. Estado: la app ya no ofrece ni llama al registro (FEATURES.publicSignup = false, PLAN-2026-016); se cumple cuando el dueño apaga "Allow new users to sign up" en Supabase Auth (verificar con node scripts/check-auth-perimeter.mjs).',
+    title: 'Registro público (decisión del dueño, 2026-10-20): cualquiera crea su cuenta y su propia empresa (aislada por RLS). Sin SMTP propio nadie de afuera recibe la confirmación, así que todavía no funciona para terceros',
+    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-20: registro público con confirmación de email): "Allow new users to sign up" y "Confirm email" encendidos (node scripts/check-auth-perimeter.mjs), SMTP propio con remitente verificado y seguimiento de clics apagado, y las pruebas reales de docs/BETA_PERIMETER.md §2.4. Sin enumeración de cuentas: SEC-18. Antiabuso: límites de Supabase Auth (Rate Limits) y, si aparece abuso, CAPTCHA (decisión aparte: suma un tercero a la CSP).',
   },
   {
     id: 'HD-04',
@@ -565,13 +597,6 @@ export const HUMAN_DECISIONS = Object.freeze([
     category: 'PRIVACY',
     title: 'La auditoría registra ADMIN_PANEL_OPEN (admin_overview) pero no cada lectura de admin_users (emails y nombres de todos los usuarios)',
     recommendation: 'Decidir si se audita también admin_users (migración nueva).',
-  },
-  {
-    id: 'HD-08',
-    severity: 'P2',
-    category: 'UX SECURITY',
-    title: 'El registro avisa "Ese email ya está registrado": permite saber si un email tiene cuenta',
-    recommendation: 'Decidir entre la ayuda a la persona y un mensaje uniforme antes de reabrir el registro. Con la beta por invitación (FEATURES.publicSignup = false) la app no llama al registro: hoy ese aviso no aparece.',
   },
   {
     id: 'HD-09',

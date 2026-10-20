@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * RATEOS — alta por invitación y correos de Auth en NAVEGADOR (HD-03, PLAN-2026-018).
+ * RATEOS — registro público y correos de Auth en NAVEGADOR (HD-03, PLAN-2026-018).
  *
  *   npm run build && npm run test:auth:e2e          escritorio (1360 × 900) y celular (390 × 844)
  *   node tests/lab/e2e/auth-lab.mjs --mode=mobile   uno solo
@@ -10,15 +10,20 @@
  * la base real nunca recibe un pedido. Las pruebas con envío REAL son manuales
  * (docs/BETA_PERIMETER.md §2.4).
  *
- * Recorre lo que hace una persona de la beta:
- *   AUTH-01 "#/registro" (beta cerrada): sin formulario y con los pasos del primer ingreso
- *   AUTH-02 email sin alta: la pantalla no promete un correo; respuesta neutra, ningún correo, espera (UX) antes de reenviar
- *   AUTH-03 alta desde el Dashboard (simulada): la misma respuesta y UN correo con enlace y código
+ * Recorre lo que hace una persona:
+ *   AUTH-01 registro público: formulario, respuesta neutra y UN correo de confirmación (PKCE); la cuenta nace con SU empresa
+ *   AUTH-10 sin confirmar no entra: con la contraseña correcta lo explica y reenvía (sólo sirve el último correo)
+ *   AUTH-11 enlace de confirmación en el mismo navegador: entra a SU empresa
+ *   AUTH-12 email ya registrado: la misma pantalla y ningún correo (no revela cuentas)
+ *   AUTH-13 confirmación abierta en otro navegador: el email queda confirmado y pide ingresar
+ *   AUTH-02 email sin cuenta: la pantalla no promete un correo; respuesta neutra, ningún correo, espera (UX) antes de reenviar
+ *   AUTH-03 cuenta creada desde el Dashboard (alternativa del dueño): la misma respuesta y UN correo con enlace y código
  *   AUTH-04 enlace en el mismo navegador (PKCE): elegir la contraseña, entrar a SU empresa
  *   AUTH-05 enlace abierto en otro navegador: ofrece el código; con el código entra
  *   AUTH-06 enlace de "Send invitation" (tokens en el #): no abre sesión y se borra de la URL
  *   AUTH-07 SMTP por defecto (sólo equipo): fuera de sesión neutro; "Cambiar contraseña" avisa
- *   AUTH-08 dos personas invitadas: cada una ve sólo su empresa (RLS simulada)
+ *   AUTH-14 SMTP por defecto: el registro dice que el correo no salió y no crea la cuenta
+ *   AUTH-08 cada cuenta ve sólo su empresa (RLS simulada)
  *   AUTH-09 privacidad: ni contraseña ni código en el almacenamiento; URL sin códigos
  * Escribe reports/lab/e2e/auth-lab-report.{json,md} (sin emails: sólo resultados).
  */
@@ -31,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../../../scripts/serve.mjs';
 import { assertSafeReport } from '../lib/report.js';
 import { PUBLIC_SITE_URL, SUPABASE } from '../../../js/config.js';
-import { INVITE_LINK_MESSAGE, RECOVER_REQUEST_SUBTITLE, RECOVERY_LINK_INVALID_MESSAGE, RESET_REQUESTED_MESSAGE, RESET_SENT_OWN_MESSAGE } from '../../../js/services/auth-service.js';
+import { CONFIRMATION_RESENT_MESSAGE, INVITE_LINK_MESSAGE, RECOVER_REQUEST_SUBTITLE, RECOVERY_LINK_INVALID_MESSAGE, RESET_REQUESTED_MESSAGE, RESET_SENT_OWN_MESSAGE, SIGNUP_MAIL_FAILED_MESSAGE, SIGNUP_REQUESTED_MESSAGE } from '../../../js/services/auth-service.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -83,13 +88,13 @@ const mask = (s) => String(s || '').replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A
 /**
  * El enlace del correo apunta al sitio publicado (lo que se verifica); para
  * abrirlo en el servidor local se cambia SÓLO el origen del redirect_to, como
- * si Supabase redirigiera al sitio: la query (?auth=recovery) queda igual.
+ * si Supabase redirigiera al sitio: la query (?auth=recovery|confirm) queda igual.
  */
 function mailLink(mail) {
   const published = new URL(mail.redirectTo);
   const local = new URL(base);
   local.search = published.search;
-  return `${SUPA}/auth/v1/verify?token=${mail.tokenHash}&type=recovery&redirect_to=${encodeURIComponent(local.href)}`;
+  return `${SUPA}/auth/v1/verify?token=${mail.tokenHash}&type=${mail.type}&redirect_to=${encodeURIComponent(local.href)}`;
 }
 
 async function runMode(mode) {
@@ -156,40 +161,125 @@ async function runMode(mode) {
     return email;
   };
 
-  // AUTH-01 · #/registro en la beta cerrada.
+  const signUp = async (page, { name, company, email, password }) => {
+    if (/#\/registro/.test(page.url())) await go(page, '#/login', 300);
+    await go(page, '#/registro');
+    await waitText(page, /Creá tu cuenta/);
+    await page.getByLabel('Tu nombre', { exact: true }).fill(name);
+    await page.getByLabel('Empresa', { exact: true }).fill(company);
+    await page.getByLabel('Email', { exact: true }).fill(email);
+    await page.getByLabel('Contraseña', { exact: true }).fill(password);
+    await tap(page, page.getByRole('button', { name: 'Crear cuenta' }));
+    await page.waitForTimeout(900);
+  };
+  const logIn = async (page, email, password) => {
+    await go(page, '#/login');
+    await page.getByLabel('Email', { exact: true }).fill(email);
+    await page.getByLabel('Contraseña', { exact: true }).fill(password);
+    await tap(page, page.getByRole('button', { name: 'Ingresar' }));
+    await page.waitForTimeout(900);
+  };
+  const orgNameOf = (email) => db.orgs.get(db.orgOf(db.users.get(email).id)).name;
+  const signupMails = (email) => db.outbox.filter((m) => m.type === 'signup' && (!email || m.to === email));
+
+  // AUTH-01 · registro público.
   const p1 = await newBrowser();
-  await p1.goto(`${base}#/registro`);
-  await p1.waitForTimeout(900);
+  await p1.goto(`${base}#/`);
+  await waitText(p1, /Crear cuenta/);
+  check('AUTH-01', 'la landing ofrece "Crear cuenta" (sin invitación)', /Crear cuenta/.test(await text(p1)), (await text(p1)).slice(0, 200));
+  await go(p1, '#/registro');
+  await waitText(p1, /Creá tu cuenta/);
+  const labels = await Promise.all(['Tu nombre', 'Empresa', 'Email', 'Contraseña'].map((l) => p1.getByLabel(l, { exact: true }).count()));
+  check('AUTH-01', 'formulario: nombre, empresa, email y contraseña', labels.every((n) => n === 1), labels.join(','));
+  const emailS = `registro.${mode}@rateos.test`;
+  const passS = `clave-propia-${randomUUID().slice(0, 8)}`;
+  await signUp(p1, { name: 'Persona Uno', company: 'Constructora Uno', email: emailS, password: passS });
   const t1 = await text(p1);
-  check('AUTH-01', 'sin formulario de registro (ningún campo de contraseña)', (await p1.locator('input[type="password"]').count()) === 0, 'hay un campo de contraseña');
-  check('AUTH-01', 'dice que sin alta previa no llega ningún correo', /Hasta que no lo haga, no te llega ningún correo de RATEOS/.test(t1), t1.slice(0, 200));
-  check('AUTH-01', 'explica el enlace en este navegador o el código en otro dispositivo', /escribí el código que trae/.test(t1), t1.slice(0, 200));
+  check('AUTH-01', 'respuesta neutra: dice qué pasa si el email es nuevo y si ya tenía cuenta', t1.includes(norm(SIGNUP_REQUESTED_MESSAGE)), t1.slice(0, 260));
+  check('AUTH-01', 'no afirma "te enviamos" ni "ya está registrado"', !/te enviamos|ya está registrado/i.test(t1), 'texto que revela o promete');
+  const mailS = signupMails(emailS)[0];
+  check('AUTH-01', 'salió UN correo de confirmación', signupMails().length === 1 && Boolean(mailS), `${signupMails().length} correos`);
+  check('AUTH-01', 'el enlace es PKCE y vuelve al sitio publicado con ?auth=confirm', Boolean(mailS && mailS.challenge) && mailS.redirectTo === `${PUBLIC_SITE_URL}?auth=confirm`, mailS ? mailS.redirectTo : 'sin correo');
+  check('AUTH-01', 'la cuenta nace SIN confirmar y con SU empresa (la que escribió)', db.users.get(emailS).confirmed === false && orgNameOf(emailS) === 'Constructora Uno', orgNameOf(emailS));
+  const resendS = p1.getByRole('button', { name: /Reenviar el correo de confirmación/ });
+  check('AUTH-01', 'reenvío con espera visible', (await resendS.isDisabled()) && /en \d+ s/.test(await resendS.innerText()), await resendS.innerText());
+  check('AUTH-01', 'ninguna sesión todavía', !/access_token/.test(await storageDump(p1)), 'hay una sesión');
   check('AUTH-01', 'sin scroll horizontal', (await overflow(p1)) <= 1, `${await overflow(p1)}px`);
 
-  // AUTH-02 · email sin alta previa: neutro y ningún correo.
+  // AUTH-10 · sin confirmar no entra; con la contraseña correcta lo explica y ofrece reenviar.
+  await logIn(p1, emailS, 'contraseña-equivocada-1');
+  const t10a = await text(p1);
+  check('AUTH-10', 'con la contraseña equivocada no revela que la cuenta existe', /No pudimos iniciar sesión/.test(t10a) && !/confirmaste/.test(t10a) && (await p1.getByRole('button', { name: /Reenviar el correo de confirmación/ }).count()) === 0, t10a.slice(0, 200));
+  await logIn(p1, emailS, passS);
+  const t10 = await text(p1);
+  check('AUTH-10', 'con la contraseña correcta: "Todavía no confirmaste tu email" y no entra', /Todavía no confirmaste tu email/.test(t10) && /#\/login/.test(p1.url()), t10.slice(0, 200));
+  mailS.at -= 61000;
+  await tap(p1, p1.getByRole('button', { name: /Reenviar el correo de confirmación/ }));
+  await p1.waitForTimeout(900);
+  check('AUTH-10', 'reenvío: respuesta neutra', (await text(p1)).includes(norm(CONFIRMATION_RESENT_MESSAGE)), (await text(p1)).slice(0, 240));
+  const mailS2 = signupMails(emailS).at(-1);
+  check('AUTH-10', 'salió otro correo y el anterior ya no sirve', signupMails(emailS).length === 2 && mailS.used === true && mailS2.used === false, `${signupMails(emailS).length} correos`);
+
+  // AUTH-11 · enlace de confirmación en el mismo navegador.
+  await p1.goto(mailLink(mailS2));
+  await waitUrl(p1, /#\/inicio/);
+  await waitText(p1, /Inicio/);
+  await p1.waitForTimeout(800);
+  check('AUTH-11', 'el email quedó confirmado', db.users.get(emailS).confirmed === true, 'sin confirmar');
+  check('AUTH-11', 'entra a la app (#/inicio) con SU empresa', /#\/inicio/.test(p1.url()) && /Constructora Uno/.test(await allText(p1)), mask(p1.url()));
+  check('AUTH-11', 'el código PKCE no queda en la URL', !/[?&]code=/.test(p1.url()), mask(p1.url()));
+
+  // AUTH-12 · email ya registrado: la misma pantalla y ningún correo.
+  const pDup = await newBrowser();
+  const mailsBefore = db.outbox.length;
+  await signUp(pDup, { name: 'Otra persona', company: 'Otra empresa', email: emailS, password: `otra-clave-${randomUUID().slice(0, 8)}` });
+  const t12 = await text(pDup);
+  check('AUTH-12', 'la misma respuesta que un registro nuevo (no revela que el email tiene cuenta)', t12.includes(norm(SIGNUP_REQUESTED_MESSAGE)) && !/ya está registrado/i.test(t12), t12.slice(0, 240));
+  check('AUTH-12', 'no salió ningún correo y la cuenta original no cambió', db.outbox.length === mailsBefore && orgNameOf(emailS) === 'Constructora Uno', `${db.outbox.length - mailsBefore} correos`);
+
+  // AUTH-13 · confirmación abierta en otro navegador.
+  const emailT = `registro-otro.${mode}@rateos.test`;
+  const passT = `clave-propia-${randomUUID().slice(0, 8)}`;
+  const pPideT = await newBrowser();
+  await signUp(pPideT, { name: 'Persona Dos', company: 'Servicios Dos', email: emailT, password: passT });
+  const pOtroT = await newBrowser();
+  await pOtroT.goto(mailLink(signupMails(emailT).at(-1)));
+  await waitText(pOtroT, /Tu email ya puede estar confirmado/);
+  const t13 = await text(pOtroT);
+  check('AUTH-13', 'en otro navegador no abre la sesión: dice que el email quedó confirmado y que ingrese', /Tu email ya puede estar confirmado/.test(t13) && /#\/login/.test(pOtroT.url()) && !/access_token/.test(await storageDump(pOtroT)), t13.slice(0, 200));
+  check('AUTH-13', 'el email quedó confirmado igual', db.users.get(emailT).confirmed === true, 'sin confirmar');
+  await logIn(pOtroT, emailT, passT);
+  await waitUrl(pOtroT, /#\/inicio/);
+  await waitText(pOtroT, /Inicio/);
+  await pOtroT.waitForTimeout(800);
+  check('AUTH-13', 'con email y contraseña entra a SU empresa', /#\/inicio/.test(pOtroT.url()) && /Servicios Dos/.test(await allText(pOtroT)), mask(pOtroT.url()));
+
+  // AUTH-02 · email sin cuenta: neutro y ningún correo (otro navegador, sin sesión).
+  const recoveryMails = () => db.outbox.filter((m) => m.type === 'recovery');
+  const p2 = await newBrowser();
   // Antes de pedir nada, la pantalla no promete un correo.
-  await go(p1, '#/recuperar-contrasena');
-  await waitText(p1, /Elegí o recuperá tu contraseña/);
-  const t2a = await text(p1);
-  check('AUTH-02', 'antes del pedido no promete un correo y dice que hace falta acceso', t2a.includes(norm(RECOVER_REQUEST_SUBTITLE)) && !/te mandamos|te enviamos/i.test(t2a), t2a.slice(0, 240));
-  await requestReset(p1, `sin-alta.${mode}@rateos.test`);
-  const t2 = await text(p1);
+  await go(p2, '#/recuperar-contrasena');
+  await waitText(p2, /Elegí o recuperá tu contraseña/);
+  const t2a = await text(p2);
+  check('AUTH-02', 'antes del pedido no promete un correo y dice que sólo llega si hay cuenta', t2a.includes(norm(RECOVER_REQUEST_SUBTITLE)) && !/te mandamos|te enviamos/i.test(t2a), t2a.slice(0, 240));
+  await requestReset(p2, `sin-alta.${mode}@rateos.test`);
+  const t2 = await text(p2);
   check('AUTH-02', 'respuesta neutra con qué hacer si no llega nada', t2.includes(norm(RESET_REQUESTED_MESSAGE)), t2.slice(0, 240));
   check('AUTH-02', 'no afirma "te enviamos"', !/te enviamos/i.test(t2), 'dice "te enviamos"');
-  check('AUTH-02', 'no salió ningún correo', db.outbox.length === 0, `${db.outbox.length} correos`);
-  const resend = p1.getByRole('button', { name: /Volver a enviar el correo/ });
+  check('AUTH-02', 'no salió ningún correo', recoveryMails().length === 0, `${recoveryMails().length} correos`);
+  const resend = p2.getByRole('button', { name: /Volver a enviar el correo/ });
   check('AUTH-02', 'espera antes de reenviar (botón deshabilitado con cuenta regresiva)', (await resend.isDisabled()) && /en \d+ s/.test(await resend.innerText()), await resend.innerText());
-  check('AUTH-02', 'ofrece escribir el código del correo', (await p1.getByLabel('Código del correo', { exact: true }).count()) === 1, 'sin campo de código');
-  const neutralA = norm(await p1.locator('.pub-auth-card').innerText());
+  check('AUTH-02', 'ofrece escribir el código del correo', (await p2.getByLabel('Código del correo', { exact: true }).count()) === 1, 'sin campo de código');
+  const neutralA = norm(await p2.locator('.pub-auth-card').innerText());
 
-  // AUTH-03 · alta previa: la misma pantalla y un correo con enlace + código.
+  // AUTH-03 · cuenta creada desde el Dashboard (alternativa del dueño): la misma pantalla y un correo con enlace + código.
   const emailA = invite('Empresa A');
   const pA = await newBrowser();
   await requestReset(pA, emailA);
   const neutralB = norm(await pA.locator('.pub-auth-card').innerText());
   check('AUTH-03', 'misma pantalla haya o no cuenta (no revela quién usa RATEOS)', neutralA === neutralB, 'las pantallas difieren');
-  const mailA = db.outbox.find((m) => m.to === emailA);
-  check('AUTH-03', 'salió UN correo, con enlace y código de 6 dígitos', db.outbox.length === 1 && Boolean(mailA && mailA.tokenHash && /^\d{6}$/.test(mailA.otp)), `${db.outbox.length} correos`);
+  const mailA = recoveryMails().find((m) => m.to === emailA);
+  check('AUTH-03', 'salió UN correo, con enlace y código de 6 dígitos', recoveryMails().length === 1 && Boolean(mailA && mailA.tokenHash && /^\d{6}$/.test(mailA.otp)), `${recoveryMails().length} correos`);
   check('AUTH-03', 'el enlace vuelve al sitio publicado con ?auth=recovery (Redirect URLs)', Boolean(mailA) && mailA.redirectTo === `${PUBLIC_SITE_URL}?auth=recovery`, mailA ? mailA.redirectTo : 'sin correo');
   check('AUTH-03', 'el pedido es PKCE (lleva code_challenge)', Boolean(mailA && mailA.challenge), 'sin code_challenge');
   // En http://rateos.test (sin crypto.subtle) el SDK usa PKCE "plain"; en el sitio publicado (https), S256.
@@ -290,9 +380,17 @@ async function runMode(mode) {
   } else {
     check('AUTH-07', 'con la sesión iniciada, "Cambiar contraseña" avisa que no se pudo enviar', false, 'no se encontró el botón');
   }
+  // AUTH-14 · SMTP por defecto: el registro dice que el correo no salió y no crea la cuenta.
+  const emailU = `registro-smtp.${mode}@rateos.test`;
+  const pU = await newBrowser();
+  const beforeU = db.outbox.length;
+  await signUp(pU, { name: 'Persona Tres', company: 'Taller Tres', email: emailU, password: `clave-${randomUUID().slice(0, 8)}` });
+  const t14 = await text(pU);
+  check('AUTH-14', 'dice que el correo de confirmación no salió (no deja esperando)', t14.includes(norm(SIGNUP_MAIL_FAILED_MESSAGE)), t14.slice(0, 240));
+  check('AUTH-14', 'no se creó la cuenta ni salió un correo', !db.users.has(emailU) && db.outbox.length === beforeU, 'se creó la cuenta');
   db.smtp.mode = 'custom';
 
-  // AUTH-08 · dos personas invitadas, cada una sólo su empresa.
+  // AUTH-08 · cada cuenta ve sólo su empresa (registro público y alta del dueño).
   const tokenOf = (page) => page.evaluate(() => {
     for (let i = 0; i < localStorage.length; i += 1) {
       const v = localStorage.getItem(localStorage.key(i));
@@ -313,9 +411,18 @@ async function runMode(mode) {
   }, { supa: SUPA, key: SUPABASE.publishableKey, token: tokenC, org: orgA });
   check('AUTH-08', 'con su sesión, C no puede leer el workspace de A', Boolean(tokenC) && cross.rows === 0, JSON.stringify(cross));
   check('AUTH-08', 'C no ve el nombre de la empresa de A', !/Empresa A/.test(await allText(pOtro)), 'aparece "Empresa A"');
+  const orgS = db.orgOf(db.users.get(emailS).id);
+  const orgT = db.orgOf(db.users.get(emailT).id);
+  check('AUTH-08', 'cada registro público nació con su propia empresa', new Set([orgS, orgT, orgA, orgC]).size === 4, 'empresas compartidas');
+  const tokenS = await tokenOf(p1);
+  const crossS = await p1.evaluate(async ({ supa, key, token, org }) => {
+    const r = await fetch(`${supa}/rest/v1/workspace_states?organization_id=eq.${org}&select=*`, { headers: { apikey: key, Authorization: `Bearer ${token}` } });
+    return { status: r.status, rows: (await r.json()).length };
+  }, { supa: SUPA, key: SUPABASE.publishableKey, token: tokenS, org: orgT });
+  check('AUTH-08', 'con su sesión, quien se registró no puede leer el workspace de otro registro', Boolean(tokenS) && crossS.rows === 0, JSON.stringify(crossS));
 
   // AUTH-09 · privacidad.
-  for (const [who, page, secret, code] of [['A', pA, passA, mailA.otp], ['C', pOtro, passC, mailC2.otp]]) {
+  for (const [who, page, secret, code] of [['A', pA, passA, mailA.otp], ['C', pOtro, passC, mailC2.otp], ['registro', p1, passS, mailS2.otp], ['registro en otro navegador', pOtroT, passT, signupMails(emailT).at(-1).otp]]) {
     const dump = await storageDump(page);
     check('AUTH-09', `${who}: ni la contraseña ni el código quedan en el almacenamiento del navegador`, !dump.includes(secret) && !new RegExp(`(^|[^0-9])${code}([^0-9]|$)`).test(dump), 'aparecen en el almacenamiento');
     check('AUTH-09', `${who}: la URL no guarda códigos ni tokens`, !/[?&](code|token_hash)=|access_token/.test(page.url()), mask(page.url()));
@@ -328,7 +435,7 @@ async function runMode(mode) {
 
 try {
   for (const mode of args.modes) {
-    process.stdout.write(`\n=== HD-03: alta por invitación y correos (SIMULADO) — ${mode} ===\n`);
+    process.stdout.write(`\n=== HD-03: registro público y correos (SIMULADO) — ${mode} ===\n`);
     await runMode(mode);
   }
 } finally {
@@ -338,7 +445,7 @@ try {
 
 const failed = results.filter((x) => !x.ok);
 const md = [
-  '# RATEOS — alta por invitación y correos de Auth (HD-03) · pruebas SIMULADAS',
+  '# RATEOS — registro público y correos de Auth (HD-03) · pruebas SIMULADAS',
   '',
   'Supabase simulado y correos en un buzón en memoria: ningún correo real. Las pruebas con envío real son manuales (docs/BETA_PERIMETER.md §2.4).',
   '',

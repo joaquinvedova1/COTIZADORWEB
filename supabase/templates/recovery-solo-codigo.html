@@ -5,12 +5,11 @@
   empresa) abre los enlaces antes que la persona: ese clic automático usa el correo entero.
   Acá no hay ningún enlace que verifique nada: el único enlace lleva a la pantalla de RATEOS,
   sin credenciales, y el código sólo sirve tipeado junto con el email (Supabase lo recomienda
-  contra el "prefetch" de enlaces). Costo: no hay un clic directo, y con la sesión iniciada
-  ("Cambiar contraseña") primero hay que salir de la cuenta.
+  contra el "prefetch" de enlaces). Costo: no hay un clic directo.
   Sin imágenes externas ni seguimiento.
 -->
 <h2>Elegí tu contraseña de RATEOS</h2>
 <p>Recibimos un pedido para elegir o cambiar la contraseña de <strong>{{ .Email }}</strong>.</p>
-<p>Entrá a <a href="{{ .SiteURL }}#/recuperar-contrasena">RATEOS → Elegir mi contraseña</a>, tocá «Ya tengo un código» y escribí tu email y este código (si tenés la sesión iniciada, primero salí de tu cuenta):</p>
+<p>Entrá a <a href="{{ .SiteURL }}#/recuperar-contrasena">RATEOS → Elegir mi contraseña</a>, tocá «Ya tengo un código» y escribí tu email y este código:</p>
 <p style="font-size:22px;font-weight:bold;letter-spacing:4px">{{ .Token }}</p>
 <p>Sirve una sola vez y vence en una hora. Si no lo pediste, ignorá este correo: tu contraseña no cambia.</p>

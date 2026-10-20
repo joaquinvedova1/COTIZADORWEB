@@ -4,11 +4,12 @@
  * Estados de sesión: 'loading' (todavía no se sabe: la UI no muestra nada
  * protegido) → 'anonymous' | 'authenticated'.
  *
- * - Registro: nombre, empresa, email y contraseña. El trigger de la base
- *   crea perfil, organización (OWNER) y workspace vacío. En la beta cerrada
- *   (FEATURES.publicSignup = false) el registro está cerrado: las cuentas las
- *   da de alta el dueño desde Supabase y la persona elige su contraseña con
- *   "¿Olvidaste tu contraseña?" (PKCE).
+ * - Registro público (FEATURES.publicSignup = true, decisión del dueño del
+ *   2026-10-20): nombre, empresa, email y contraseña, con confirmación de
+ *   email obligatoria. El trigger de la base crea perfil, organización
+ *   (OWNER) y workspace vacío. La respuesta es la misma sea el email nuevo o
+ *   ya registrado (no revela quién usa RATEOS). Con publicSignup = false
+ *   (beta por invitación) la app no llama al registro.
  * - Ingreso, cierre de sesión, recuperación y cambio de contraseña.
  * - Enlaces de los emails (confirmación y recuperación) con flujo PKCE:
  *   vuelven a https://…/COTIZADORWEB/?code=…&auth=…&next=… (query ANTES del
@@ -27,14 +28,15 @@ export const AUTH_STATUS = Object.freeze({ loading: 'loading', anonymous: 'anony
 
 /** Textos para personas. */
 export const AUTH_MESSAGES = Object.freeze({
+  // Sólo para registros internos: en pantalla el registro responde neutro (no revela si el email existe).
   [AUTH_ERRORS.emailTaken]: 'Ese email ya está registrado. Ingresá o recuperá tu contraseña.',
-  [AUTH_ERRORS.signupClosed]: 'RATEOS está en beta cerrada: las cuentas se crean sólo por invitación. Si ya te dieron acceso, ingresá con tu email (la primera vez, elegí tu contraseña con «¿Olvidaste tu contraseña?»).',
+  [AUTH_ERRORS.signupClosed]: 'En este momento no se pueden crear cuentas nuevas en RATEOS. Si ya tenés una, ingresá con tu email (o elegí tu contraseña con «¿Olvidaste tu contraseña?»).',
   [AUTH_ERRORS.invalidCredentials]: 'No pudimos iniciar sesión. Revisá el email y la contraseña.',
-  [AUTH_ERRORS.emailNotConfirmed]: 'Todavía no confirmaste tu email. Revisá tu correo (también la carpeta de spam).',
+  [AUTH_ERRORS.emailNotConfirmed]: 'Todavía no confirmaste tu email. Abrí el enlace del correo que te enviamos (revisá también spam y promociones) o pedí que te lo reenviemos.',
   [AUTH_ERRORS.weakPassword]: 'La contraseña es muy débil. Usá al menos 8 caracteres combinando letras y números.',
   [AUTH_ERRORS.samePassword]: 'La contraseña nueva tiene que ser distinta de la anterior.',
   [AUTH_ERRORS.invalidEmail]: 'Revisá el email: no parece válido.',
-  [AUTH_ERRORS.emailNotAuthorized]: 'No pudimos enviarte el email: RATEOS todavía no tiene habilitado el envío de correos a tu dirección. Avisale a quien te dio acceso.',
+  [AUTH_ERRORS.emailNotAuthorized]: 'No pudimos enviarte el email: RATEOS todavía no tiene habilitado el envío de correos a tu dirección. Probá de nuevo más tarde.',
   [AUTH_ERRORS.rateLimited]: 'Hubo muchos intentos seguidos. Esperá unos minutos y probá de nuevo.',
   [AUTH_ERRORS.linkInvalid]: 'El enlace venció o ya se usó. Pedí uno nuevo.',
   [AUTH_ERRORS.sessionMissing]: 'Tu sesión terminó. Volvé a ingresar.',
@@ -47,14 +49,29 @@ export const AUTH_MESSAGES = Object.freeze({
  * cuenta (no revela quién usa RATEOS), pero dice qué hacer si no llega nada:
  * sin alta previa Supabase no envía ningún correo.
  */
-export const RESET_REQUESTED_MESSAGE = 'Pedido enviado. Si ese email tiene acceso a RATEOS, en unos minutos te llega un correo para elegir tu contraseña. Si no llega en 10 minutos (revisá también spam y promociones), avisale a quien te invitó: puede que tu acceso todavía no esté creado.';
+export const RESET_REQUESTED_MESSAGE = 'Pedido enviado. Si ese email tiene una cuenta en RATEOS, en unos minutos te llega un correo para elegir tu contraseña. Si no llega en 10 minutos (revisá también spam y promociones), puede que ese email todavía no tenga cuenta: creala en «Crear cuenta».';
 /**
  * Subtítulo de "¿Olvidaste tu contraseña?" ANTES de pedir nada: no promete un
  * correo (sin alta previa no sale ninguno) y dice que primero hace falta acceso.
  */
-export const RECOVER_REQUEST_SUBTITLE = 'Pedí un correo para elegir tu contraseña (también en tu primer ingreso). Sólo llega si ya te dieron acceso a RATEOS.';
+export const RECOVER_REQUEST_SUBTITLE = 'Pedí un correo para elegir una contraseña nueva. Sólo llega si ese email tiene una cuenta en RATEOS.';
 /** "Cambiar contraseña" con la sesión iniciada y el propio email: no hay nada que ocultar. */
 export const RESET_SENT_OWN_MESSAGE = 'Te enviamos un correo para elegir una contraseña nueva. Seguí sus pasos: si trae un enlace, abrilo en este mismo navegador.';
+/**
+ * Registro (HD-03, registro público): la misma respuesta sea el email nuevo o
+ * ya registrado. Supabase tampoco lo revela: con la confirmación activa, a un
+ * email ya registrado le devuelve un usuario "de mentira" y no le manda nada.
+ */
+export const SIGNUP_REQUESTED_MESSAGE = 'Listo. Si ese email no tenía una cuenta en RATEOS, en unos minutos te llega un correo para confirmarla: abrí el enlace en este mismo navegador. Si ya tenías cuenta con ese email, no te llega nada: ingresá o usá «¿Olvidaste tu contraseña?». Si no llega en 10 minutos, revisá spam y promociones y pedí que te lo reenviemos.';
+/** Reenvío del correo de confirmación: neutro (no revela si la cuenta existe ni si ya está confirmada). */
+export const CONFIRMATION_RESENT_MESSAGE = 'Pedido enviado. Si ese email tiene una cuenta sin confirmar, en unos minutos te llega otro correo para confirmarla (sólo sirve el último). Abrí el enlace en este mismo navegador.';
+/**
+ * El correo de confirmación no salió (SMTP por defecto o roto). Supabase no
+ * crea la cuenta si no puede enviarlo, así que se dice: callar dejaría a la
+ * persona esperando un correo que no existe (lo que originó HD-03). Sólo pasa
+ * mientras el envío de correos está roto.
+ */
+export const SIGNUP_MAIL_FAILED_MESSAGE = 'No pudimos enviarte el correo para confirmar la cuenta, así que todavía no se creó. Probá de nuevo en unos minutos.';
 /**
  * Espera de la pantalla entre dos pedidos del correo. Es sólo una ayuda de UX:
  * vive en la memoria de esa pantalla (recargar o navegar la saltea). Los
@@ -383,19 +400,39 @@ export function createAuthService({ gateway, location = globalThis.location, his
         company: clean(company),
         redirectTo: authRedirectUrl('confirm', next, siteUrl),
       });
-      if (!res.ok) return { ok: false, errors: res.code === AUTH_ERRORS.emailTaken ? { email: messageFor(res.code) } : {}, message: messageFor(res.code), code: res.code };
-      if (res.needsConfirmation) {
-        return { ok: true, needsConfirmation: true, message: 'Revisá tu email para confirmar tu cuenta. Te enviamos un enlace.' };
+      // Email ya registrado: la misma respuesta que un registro nuevo (no se revela quién usa RATEOS).
+      if (res.ok ? res.needsConfirmation : res.code === AUTH_ERRORS.emailTaken) {
+        return { ok: true, needsConfirmation: true, message: SIGNUP_REQUESTED_MESSAGE, cooldownSeconds: RESET_COOLDOWN_SECONDS };
       }
+      if (!res.ok && res.code === AUTH_ERRORS.emailNotAuthorized) {
+        logger.warn('Auth: Supabase no envió la confirmación del registro (usa su SMTP por defecto, que sólo envía al equipo del proyecto: configurar un SMTP propio).');
+        return { ok: false, errors: {}, message: SIGNUP_MAIL_FAILED_MESSAGE, code: res.code };
+      }
+      if (!res.ok) return { ok: false, errors: {}, message: messageFor(res.code), code: res.code };
       setState(AUTH_STATUS.authenticated, res.user);
       return { ok: true, needsConfirmation: false, message: null };
+    },
+
+    /**
+     * "Reenviar el correo de confirmación": la misma respuesta haya o no cuenta
+     * sin confirmar (sólo la red o el límite de envíos se informan).
+     */
+    async resendConfirmation(email, next = null) {
+      if (!EMAIL_RE.test(String(email || '').trim())) return { ok: false, errors: { email: 'Ingresá un email válido.' }, message: 'Revisá los campos marcados.' };
+      const res = await gateway.resendSignupConfirmation(String(email).trim(), authRedirectUrl('confirm', next, siteUrl));
+      if (!res.ok && res.code === AUTH_ERRORS.emailNotAuthorized) {
+        logger.warn('Auth: Supabase no reenvió la confirmación (usa su SMTP por defecto, que sólo envía al equipo del proyecto: configurar un SMTP propio).');
+      }
+      if (!res.ok && (res.code === AUTH_ERRORS.network || res.code === AUTH_ERRORS.rateLimited)) return { ok: false, errors: {}, message: messageFor(res.code) };
+      return { ok: true, message: CONFIRMATION_RESENT_MESSAGE, cooldownSeconds: RESET_COOLDOWN_SECONDS };
     },
 
     async signIn({ email, password }) {
       const errors = validateSignIn({ email, password });
       if (Object.keys(errors).length) return { ok: false, errors, message: 'Revisá los campos marcados.' };
       const res = await gateway.signIn({ email: String(email).trim(), password: String(password) });
-      if (!res.ok) return { ok: false, errors: {}, message: messageFor(res.code), code: res.code };
+      // Sin confirmar: Supabase lo dice sólo con la contraseña correcta (no revela cuentas); se ofrece reenviar.
+      if (!res.ok) return { ok: false, errors: {}, message: messageFor(res.code), code: res.code, unconfirmed: res.code === AUTH_ERRORS.emailNotConfirmed };
       setState(AUTH_STATUS.authenticated, res.user);
       return { ok: true, message: null };
     },

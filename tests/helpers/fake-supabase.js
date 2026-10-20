@@ -189,6 +189,12 @@ export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) 
       session = { id: user.id, email, fullName, emailConfirmed: true };
       return { ok: true, needsConfirmation: false, user: { ...session } };
     },
+    /** Reenvío de la confirmación: sólo "sale" si la cuenta existe y no está confirmada. */
+    async resendSignupConfirmation(email, redirectTo) {
+      const u = registry.get(email);
+      gw.lastResend = { email, redirectTo, sent: Boolean(u && !u.emailConfirmed) };
+      return { ok: true };
+    },
     async signIn({ email, password }) {
       const u = registry.get(email);
       if (!u || u.password !== password) return { ok: false, code: 'invalid_credentials' };
