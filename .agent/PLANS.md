@@ -1334,7 +1334,7 @@ Ninguno: ni campos nuevos ni esquema (sigue en 10). El eco sólo lee el texto de
   - estáticos de CSS y de las tablas;
   - un bloque DESIGN-02B del `ui-lab` en escritorio y en el celular, con una prueba sólo con teclado.
 - [x] 3. Implementación.
-- [ ] 4. Validación completa:
+- [x] 4. Validación completa:
   - suite, Test Lab, gate y `ui-lab`;
   - capturas antes y después a 1440 y 390 px, más 360 y 320 px para las tablas;
   - Code Review (skill) del diff;
@@ -1370,3 +1370,9 @@ Revert del PR. No deja datos.
   - **CSS de las tarjetas duplicado:** `qe-stack-narrow` es copia exacta de `qe-stack-table` y un test estático avisa si se separan;
   - **tramos en tarjeta:** el tramo y su evaluación van a lo ancho.
   - **Queda a propósito:** `aria-required` en los campos con asterisco del editor, aunque el campo acepte quedar vacío. El asterisco ya dice "obligatorio" a la vista y lo que falta lo marcan los avisos del motor y la completitud, ahora asociados al campo.
+- 2026-10-20: validación en `5adca99` (SIMULADA):
+  - `npm test` 1750/1750, Test Lab OK (golden 39/39, candado OK), gate PASA (347/347);
+  - `ui-lab` 413/413 (escritorio) y 414/414 (celular), con 18 y 17 controles DESIGN-02B;
+  - contra la base (`6a310e2`) fallan 12 de 18 y 12 de 17 controles (fuera del bloque, 0); los 9 estáticos fallan y los dos módulos nuevos no existen;
+  - combinado con los PR #28 a #35: `npm test` 1936/1936, Test Lab OK, gate 349/349, `ui-lab` 624/624 y 625/625, `auth-lab` 136/136. Los conflictos son de imports y de funciones agregadas en el mismo lugar de `components.js` (UX-01): se resolvieron sumando los dos lados.
+  - **Límite conocido:** en escritorio (más de 1180 px) el aviso sigue abajo a la derecha y por unos segundos puede tapar el pie del panel del resumen (antes tapaba "Ver más").
