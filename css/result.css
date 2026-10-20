@@ -124,7 +124,7 @@
 .qr-cuadre { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0.4rem; align-items: baseline; }
 .qr-cuadre-mark { font-weight: 800; text-align: center; }
 .qr-cuadre-text { min-width: 0; overflow-wrap: anywhere; }
-.qr-cuadre-detail { color: var(--ink-3); font-size: 0.85em; white-space: normal; }
+.qr-cuadre-detail { color: var(--ink-3); font-size: max(0.85em, var(--fs-xs)); white-space: normal; }
 .qr-cuadre.is-ok .qr-cuadre-mark { color: var(--green-text); }
 .qr-cuadre.is-fail .qr-cuadre-mark { color: var(--red-text); }
 .qr-cuadre.is-na .qr-cuadre-mark { color: var(--ink-3); }
@@ -217,7 +217,7 @@
 .qr-kpis { --qr-kpi-cols: 4; margin-top: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .qr-kpis .kpi-value { font-size: 1.25rem; overflow-wrap: anywhere; }
 .qr-rate { display: inline; }
-.qr-unit { font-size: 0.68em; font-weight: 600; opacity: 0.8; white-space: nowrap; }
+.qr-unit { font-size: max(0.68em, var(--fs-xs)); font-weight: 600; opacity: 0.8; white-space: nowrap; }
 .qr-issues ul { margin: 0.35rem 0 0; padding-left: 1.1rem; }
 
 .qr-equiv {

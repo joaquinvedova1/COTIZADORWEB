@@ -80,7 +80,7 @@
 a.cell-title { color: var(--navy-900); text-decoration: none; }
 a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .cell-sub { font-size: 0.8rem; color: var(--ink-3); }
-.unit-suffix { color: var(--ink-3); font-size: 0.82em; }
+.unit-suffix { color: var(--ink-3); font-size: max(0.82em, var(--fs-xs)); }
 
 .table tr.row-link { cursor: pointer; }
 .table tr.row-link:hover { background: var(--blue-50); }

@@ -566,7 +566,7 @@ async function runMode(mode) {
         if (cs.visibility === 'hidden' || Number(cs.opacity) === 0) continue;
         const size = parseFloat(cs.fontSize);
         const cls = typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '';
-        if (size < 11.95) out.push(`"${text.slice(0, 28)}" ${size.toFixed(1)}px (${cls.split(' ')[0] || el.tagName.toLowerCase()})`);
+        if (size < 11.95) out.push(`${cls.split(' ')[0] || el.tagName.toLowerCase()} ${size.toFixed(1)}px`);
       }
       return out;
     });
@@ -601,14 +601,16 @@ async function runMode(mode) {
       ['Configuración', '#/configuracion/parametros'],
       ['Producto', `#/productos/${encodeURIComponent(prod.id)}/resultado`],
     ];
-    const small = [];
+    // El detalle cuenta por pantalla, clase y tamaño (sin copiar el texto: puede ser un email o un nombre).
+    const small = new Map();
     for (const [name, hash] of screens) {
       await go(hash, 900);
       await openAll();
       await page.waitForTimeout(150);
-      (await smallTexts()).forEach((x) => small.push(`${name}: ${x}`));
+      (await smallTexts()).forEach((x) => small.set(`${name}: ${x}`, (small.get(`${name}: ${x}`) || 0) + 1));
     }
-    check(D, 'ningún texto visible por debajo de 12 px (Inicio, Cotizaciones, editor, Resultado, Escenarios, Recursos, Configuración y producto)', small.length === 0, `${small.length}: ${small.slice(0, 8).join(' | ')}`);
+    const smallTotal = [...small.values()].reduce((a, b) => a + b, 0);
+    check(D, 'ningún texto visible por debajo de 12 px (Inicio, Cotizaciones, editor, Resultado, Escenarios, Recursos, Configuración y producto)', smallTotal === 0, `${smallTotal} textos: ${[...small].map(([k, n]) => `${k} ×${n}`).slice(0, 12).join(' | ')}`);
     // La última pantalla del recorrido es el resultado del producto: también dice que no es un precio de mercado.
     const productText = norm(await page.evaluate(() => document.body.innerText));
     check(D, 'producto: el resultado también dice que no es un precio de mercado (VAL-G4)', productText.includes('Calculado con tus costos y tus supuestos: no es un precio de mercado.'), 'no lo dice');

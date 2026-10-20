@@ -25,7 +25,7 @@ const read = (p) => readFileSync(path.join(ROOT, p), 'utf8');
 /** CSS de la aplicación (la landing y el registro, css/public.css, van en D7 después de HD-03). */
 const APP_CSS = ['css/styles.css', 'css/quote.css', 'css/result.css', 'css/views.css'];
 const STYLES = read('css/styles.css');
-const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '');
+const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ''));
 
 /** Variables de :root (la primera regla :root de styles.css). */
 function rootVars(css) {
@@ -142,6 +142,14 @@ describe('DESIGN-02 · tamaños de letra', () => {
       return px !== null && px < 11.99;
     });
     assert.deepEqual(small.map((d) => `${d.where} ${d.value}`), []);
+  });
+
+  test('un tamaño relativo al padre (em) por debajo de 1 lleva piso: max(…, var(--fs-xs))', () => {
+    const bare = APP_CSS.flatMap(fontSizes).filter((d) => {
+      const m = /^([0-9.]+)em$/.exec(d.value.replace(/\s*!important$/, ''));
+      return m && Number(m[1]) < 1;
+    });
+    assert.deepEqual(bare.map((d) => `${d.where} ${d.value}`), []);
   });
 
   test('la etiqueta ILUSTRATIVO de las páginas públicas también llega a 12 px', () => {
