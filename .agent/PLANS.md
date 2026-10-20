@@ -1239,19 +1239,43 @@ En los tres casos el motor calcula bien lo que se carga. El problema es que la c
 
 #### 5. Pasos
 - [x] 1. Este plan, antes del código.
-- [ ] 2. Tests que reproducen H-04, H-08 y F2 (fallan en `main`) y los que fijan lo que no cambia.
-- [ ] 3. Completitud (tres reglas), el aviso de días y el Resultado.
-- [ ] 4. UI: el costo de tenerlo en cada vehículo de apoyo y la confirmación del operador en Equipos.
-- [ ] 5. Fábrica (plantillas) y Recursos (actualizar).
-- [ ] 6. E2E (escritorio y celular), A/B contra `main` y docs.
+- [x] 2. Tests que reproducen H-04, H-08 y F2 (`tests/engines/eco-04.test.js`: 10 de 16 fallan en `main`; los demás fijan lo que no cambia) y los de las correcciones del Code Review.
+- [x] 3. Completitud (tres reglas), el aviso de días (en el motor, con sus días) y el Resultado.
+- [x] 4. UI: el costo de tenerlo en cada vehículo de apoyo y la confirmación del operador en Equipos (cada línea).
+- [x] 5. Fábrica (plantillas) y Recursos (actualizar).
+- [x] 6. E2E (E2E-22 a E2E-24, escritorio y celular), A/B contra `main` y docs.
 - [ ] 7. PR sin merge y evidencia en RATEOS-AUDIT (`tasks/ECO-04/`).
 
 #### 6. HUMAN DECISION REQUIRED (no bloquean)
 1. **"Más días que disponibles" en las otras unidades** (D-9, VAL-01-F3, C-E3-10): hoy es trabajo de más de un mes, con el aviso corregido. ¿Pedir confirmación también ahí?
 2. **Vehículo de apoyo propio:** este PR lo resuelve ligándolo a una línea de Equipos. La alternativa es cargar su costo de tenerlo en el mismo vehículo, con más campos y un cálculo nuevo.
+3. **Severidad de la pregunta del vehículo de apoyo:**
+   - **Hoy:** es **crítica**, porque H-08 es P1.
+   - **Alcance:** en el corpus sintético aparece en todas las cotizaciones con vehículos de apoyo (626 de 2.196) hasta que se responde una vez por vehículo.
+   - **Alternativa:** "para revisar", que no pide confirmar antes de mandarla.
 
 #### 7. Rollback
 Revert del PR. Los campos nuevos quedan en los datos y la versión anterior los ignora.
 
 #### Bitácora
 - 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests que reproducen los tres casos y la implementación.
+- 2026-10-20: F2 se acotó a los puestos que **suenan a operador o chofer**.
+  - **Por qué:** preguntar por cualquier puesto libre llenaba de preguntas el transporte normal (un transportista con chofer más un coordinador propio). Los casos de la auditoría (VAL-01 E12, AUD-T1 C-E2-07) son choferes.
+  - **Qué se perdió:** nada del golden ni del Test Lab.
+- 2026-10-20: Code Review (skill, nivel medio), 10 observaciones, todas atendidas:
+  - el aviso de días pasó al motor, con los días que usa (tope de 31, y no en unidades por cantidad);
+  - cada externo pregunta en Equipos (antes, sólo el primero, y un operador asignado en otra línea las tapaba);
+  - "asignado" igual que en el motor (un id viejo no cuenta);
+  - la guía de H-08 dice "No requiere movilización";
+  - quitar un equipo limpia el vehículo ligado;
+  - el texto de los datos inválidos;
+  - más nombres de operador ("Hidrogruista", "Operario de grúa");
+  - un solo formateador y un solo nombre de puesto;
+  - sin re-export.
+- 2026-10-20: A/B contra `main` (2.196 cotizaciones: lab, generadas, línea base, demo, fixtures, AUD-T1, plantillas y las 87 de VAL-01):
+  - **cifras:** 0 diferencias;
+  - **completitud:** ningún cambio fuera de los tres pendientes;
+  - `month_days_overflow` sólo en VAL-01 E24 (el caso H-04);
+  - `vehicle_ownership_costs` en las 626 con vehículos de apoyo;
+  - la pregunta de F2 en 310 (VAL-01 E12, el caso F2, y las generadas con "Operador" y un externo con operador);
+  - la demo, las plantillas, el golden y los fixtures no cambian.
