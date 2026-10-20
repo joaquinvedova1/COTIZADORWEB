@@ -576,8 +576,8 @@ export function render(container, ctx) {
     activityNote,
     tiers.length
       ? table({
-        // Una tarjeta por tramo cuando no entra como tabla (celular), como "Otros costos" (DESIGN-02 2/2).
-        className: 'qe-edit-table qe-stack-table qe-tiers-table',
+        // Una tarjeta por tramo cuando no entra como tabla (celular y tablet); en escritorio sigue tabla (DESIGN-02 2/2).
+        className: 'qe-edit-table qe-stack-narrow qe-tiers-table',
         caption: 'Tramos de descuento por cantidad de días',
         columns: [
           { key: 'from', label: 'Desde (días)', render: (row, i) => kit.num(`rules.volumeTiers.${i}.fromDays`, { label: 'Desde (días)', rule: 'days' }) },

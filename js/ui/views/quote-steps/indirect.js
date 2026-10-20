@@ -192,8 +192,8 @@ function detailedCard(ctx) {
   };
   const rowsTable = items.length
     ? table({
-      // Una tarjeta por rubro cuando no entra como tabla (celular), como "Otros costos" (DESIGN-02 2/2).
-      className: 'qe-edit-table qe-stack-table',
+      // Una tarjeta por rubro cuando no entra como tabla (celular y tablet); en escritorio sigue tabla (DESIGN-02 2/2).
+      className: 'qe-edit-table qe-stack-narrow',
       caption: 'Rubros de estructura',
       columns: [
         { key: 'label', label: 'Rubro', render: (row, j) => kit.text(`indirect.items.${j}.label`, { label: 'Rubro', maxLength: 80 }) },

@@ -1300,14 +1300,14 @@ Verificado en el código (`6a310e2`; las mismas líneas que en `main` `d6540b7`)
 
 #### 2. Decisiones (lo técnico: lo más seguro y sencillo)
 1. **Resumen en vivo:**
-   - **Panel (más de 1180 px):** el margen y el resultado esperados pasan a la lista principal, debajo de la tarifa cobrada, y quedan siempre a la vista. "Ver más" queda con el precio para tu margen y la completitud.
+   - **Panel (más de 1180 px):** el margen y el resultado esperados pasan a la lista principal, sin abrir "Ver más": costo, piso, tarifa cobrada, margen, "Para no perder" y resultado. "Ver más" queda con el precio para tu margen y la completitud.
    - **Barra compacta (1180 px o menos):** los cuatro números pasan a ser costo del mes, tarifa piso, tarifa cobrada y **margen esperado**.
      - El margen lleva una palabra, no sólo un color (WCAG 1.4.1): "cumple", "debajo", "pierde" o "no confiable".
      - Con un resultado NO CONFIABLE, dice "no confiable" en rojo (ECO-01).
      - "Para no perder" y el resultado en pesos siguen en "Ver detalle".
 2. **Barra compacta:** la tarifa cobrada (sugerida, ofrecida o forzada) se destaca con fondo y una cifra más fuerte. La piso queda sobria.
 3. **Avisos en el celular (760 px o menos):** arriba, debajo de la barra de la app y a lo ancho. Nunca tapan el resumen fijo ni "Menú".
-4. **Tablas apiladas:** `qe-stack-table` en las tablas de estructura y de tramos. En el celular no queda scroll horizontal (control a 320, 360 y 390 px).
+4. **Tablas apiladas:** las tablas de estructura y de tramos pasan a tarjetas cuando el paso mide 680 px o menos (`qe-stack-narrow`, las mismas reglas que `qe-stack-table`). En escritorio siguen como tabla. En el celular no queda scroll horizontal (control a 320, 360 y 390 px).
 5. **Campos accesibles:**
    - `aria-required="true"` en todo campo obligatorio, también en los que marca el editor;
    - `aria-describedby` con la ayuda y el error en los campos de texto, fecha, selector y buscador;
@@ -1357,3 +1357,6 @@ Revert del PR. No deja datos.
   - Decisiones técnicas:
     - el texto del campo no se reformatea (con Tab, lo tipeado se sumaría al número anterior);
     - las tablas de estructura y de tramos usan `qe-stack-table`, la misma regla que "Otros costos": también pasan a tarjetas en escritorio cuando el paso mide 940 px o menos. En los tramos, "desde" y "hasta" van juntos.
+- 2026-10-20: ajustes después de las capturas:
+  - **Tablas:** con `qe-stack-table`, la de estructura pasaba a tarjetas también en escritorio (el paso mide unos 720 a 800 px), donde entraba bien como tabla. Ahora usa `qe-stack-narrow`: tarjetas sólo con el paso de 680 px o menos (celular y tablet). Un control nuevo del `ui-lab` verifica que en escritorio sigan como tabla.
+  - **Orden del panel:** a 1440 × 900, con seis números, el último queda debajo del borde del panel (que se desplaza). Va primero el margen, después "Para no perder" y al final el resultado en pesos: así se ven costo, piso, tarifa, margen y días sin desplazar.

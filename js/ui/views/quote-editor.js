@@ -988,9 +988,10 @@ function expectedMarginText(r) {
 }
 
 /**
- * Resumen en vivo: costo del mes, tarifa piso, tarifa que se cobra, resultado
- * y margen esperados y días para no perder, cada uno con "Ver cálculo", y
- * "Ver más" con el precio para el margen y la completitud (DESIGN-02 2/2).
+ * Resumen en vivo: costo del mes, tarifa piso, tarifa que se cobra, margen
+ * esperado, días para no perder y resultado esperado, cada uno con "Ver
+ * cálculo", y "Ver más" con el precio para el margen y la completitud
+ * (DESIGN-02 2/2).
  * En pantallas chicas es una barra compacta fija abajo (costo, piso, tarifa
  * cobrada y margen con su palabra) que se expande con "Ver detalle".
  */
@@ -1075,15 +1076,6 @@ function buildSummary({ getResult, stepHref }) {
       trace: commercialRateTrace,
     }),
     item({
-      key: 'expectedResult',
-      label: 'Resultado esperado del mes',
-      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
-      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
-      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
-      trace: (r) => r.traces.expectedResult,
-    }),
-    item({
       key: 'expectedMargin',
       label: 'Margen esperado',
       short: 'Margen',
@@ -1119,6 +1111,15 @@ function buildSummary({ getResult, stepHref }) {
       },
       tone: breakEvenTone,
       trace: (r) => r.traces.breakEven,
+    }),
+    item({
+      key: 'expectedResult',
+      label: 'Resultado esperado del mes',
+      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
+      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
+      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
+      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
+      trace: (r) => r.traces.expectedResult,
     }),
   );
 

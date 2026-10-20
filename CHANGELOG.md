@@ -22,10 +22,10 @@ Reglas para este archivo:
 
 ### Cambiado
 
-- **Resumen en vivo:** el resultado y el margen esperados pasan a la lista principal y quedan siempre a la vista en el panel; "Ver más" deja el precio para tu margen y la completitud. La barra compacta muestra costo, piso, tarifa cobrada y margen; "Para no perder" y el resultado en pesos quedan en "Ver detalle".
+- **Resumen en vivo:** el margen y el resultado esperados pasan a la lista principal del panel (costo, piso, tarifa cobrada, margen, "Para no perder" y resultado); "Ver más" deja el precio para tu margen y la completitud. La barra compacta muestra costo, piso, tarifa cobrada y margen; "Para no perder" y el resultado en pesos quedan en "Ver detalle".
 - **La tarifa cobrada se destaca** en la barra compacta (fondo y cifra más fuerte): ya no se ve igual que la piso.
 - **Avisos arriba en el celular**, debajo de la barra de la app: ya no tapan el resumen fijo del editor.
-- **Tablas de estructura y de tramos en tarjetas** cuando no entran, como "Otros costos" y los vehículos: sin scroll horizontal en el celular.
+- **Tablas de estructura y de tramos en tarjetas** cuando el paso mide 680 px o menos (celular y tablet): sin scroll horizontal en el celular. En escritorio siguen como tabla.
 
 ### Corregido
 

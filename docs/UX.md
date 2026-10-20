@@ -84,7 +84,7 @@ Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **5 etapas**:
 | 4. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
 | 5. Resultado | Resultado |
 
-Resumen en vivo con el costo del mes, la tarifa piso, la tarifa cobrada, el resultado y el margen esperados y los días para no perder, siempre a la vista; "Ver más" deja el precio para tu margen y la completitud. En la barra compacta (1180 px o menos) van cuatro números: costo, piso, tarifa cobrada (destacada) y margen con su palabra ("cumple", "debajo", "pierde", "no confiable"); el resto, en "Ver detalle". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
+Resumen en vivo con el costo del mes, la tarifa piso, la tarifa cobrada, el margen esperado, los días para no perder y el resultado esperado, sin abrir nada; "Ver más" deja el precio para tu margen y la completitud. En la barra compacta (1180 px o menos) van cuatro números: costo, piso, tarifa cobrada (destacada) y margen con su palabra ("cumple", "debajo", "pierde", "no confiable"); el resto, en "Ver detalle". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
 
 **Convención de montos: sin IVA.** Es una convención explícita de cada cotización (`vatTreatment`), no un supuesto silencioso: la primera etapa lo dice al empezar ("Esta cotización usa costos, precios y tarifas sin IVA: si tenés un valor con IVA, descontalo antes de cargarlo"), cada etapa muestra la marca **"Montos sin IVA"**, los formularios de equipos, materiales y el precio del combustible lo repiten donde suele llegar un precio con IVA, y el resultado y la impresión lo rotulan.
 
@@ -127,7 +127,7 @@ Reglas que no cambian: margen ≠ markup ([AGENTS.md §9](../AGENTS.md)); valore
 ## 6. Mobile
 
 - Landing, ingreso y registro se diseñan también a 360 px: menú colapsable, botones táctiles ≥ 44 px, sin scroll horizontal.
-- En la app mobile se puede: ver cotizaciones, ver el resultado, entender las tarifas e iniciar una cotización. Las tablas grandes se muestran como tarjetas o con scroll contenido, nunca forzando el ancho de la página. Las tablas editables del editor (estructura, tramos, otros costos, vehículos) pasan a una tarjeta por fila.
+- En la app mobile se puede: ver cotizaciones, ver el resultado, entender las tarifas e iniciar una cotización. Las tablas grandes se muestran como tarjetas o con scroll contenido, nunca forzando el ancho de la página. Las tablas editables del editor (otros costos, vehículos y, en pasos angostos, estructura y tramos) pasan a una tarjeta por fila.
 - Los avisos emergentes salen arriba, debajo de la barra de la app: no tapan el resumen fijo del editor.
 - El estado de guardado ("Guardado", "Sin conexión", "Conflicto"…) se ve en la barra de arriba, sin abrir el menú; en el riel (761 a 1100 px), con una palabra debajo del punto de color.
 

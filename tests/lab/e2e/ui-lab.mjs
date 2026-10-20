@@ -870,6 +870,35 @@ async function runMode(mode) {
       await page.waitForTimeout(400);
     }
 
+    /** La tabla con ese título: si está apilada (una tarjeta por fila) y si algo se sale de su caja o de la página. */
+    const tableInfo = (caption) => page.evaluate((cap) => {
+      const t = [...document.querySelectorAll('table')].find((x) => (x.querySelector('caption') || {}).textContent === cap);
+      if (!t) return null;
+      const wrap = t.closest('.table-wrap');
+      return {
+        stacked: getComputedStyle(t).display === 'block',
+        wrapOverflow: wrap ? wrap.scrollWidth - wrap.clientWidth : 0,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    }, caption);
+    const STACK_TABLES = [['indirect', 'Rubros de estructura'], ['margin', 'Tramos de descuento por cantidad de días']];
+    const openStep = async (q, step) => {
+      await go(editorHash(q, step), 900);
+      // Los tramos pueden estar dentro de un plegable cerrado.
+      await page.evaluate(() => document.querySelectorAll('.qe-step-body details').forEach((d) => { d.open = true; }));
+      await page.waitForTimeout(200);
+    };
+
+    if (mode === 'desktop') {
+      // En escritorio (1360 px) las dos tablas entran: siguen como tabla, sin tarjetas.
+      const desk = [];
+      for (const [step, caption] of STACK_TABLES) {
+        await openStep(stackQ, step);
+        desk.push({ caption, ...((await tableInfo(caption)) || { missing: true }) });
+      }
+      check(D, 'escritorio: las tablas de estructura y de tramos siguen como tabla (no pasan a tarjetas)', desk.every((x) => !x.missing && !x.stacked && x.pageOverflow <= 1), JSON.stringify(desk));
+    }
+
     if (mode === 'mobile') {
       // Avisos arriba, debajo de la barra de la app: no tapan el resumen fijo ni "Menú".
       await openEditor(q0, 'labor');
@@ -894,22 +923,9 @@ async function runMode(mode) {
       check(D, 'celular: los avisos salen arriba, debajo de la barra de la app, y no tapan el resumen fijo', Boolean(toastBox) && toastBox.top >= toastBox.appBar - 1 && toastBox.top < toastBox.vh / 3 && (toastBox.summaryTop === null || toastBox.bottom <= toastBox.summaryTop) && toastBox.left >= 0 && toastBox.right <= toastBox.vw, toastBox ? JSON.stringify(toastBox) : 'no apareció el aviso');
 
       // Tablas de estructura y de tramos apiladas: sin scroll horizontal a 390, 360 y 320 px.
-      const tableInfo = (caption) => page.evaluate((cap) => {
-        const t = [...document.querySelectorAll('table')].find((x) => (x.querySelector('caption') || {}).textContent === cap);
-        if (!t) return null;
-        const wrap = t.closest('.table-wrap');
-        return {
-          stacked: getComputedStyle(t).display === 'block',
-          wrapOverflow: wrap ? wrap.scrollWidth - wrap.clientWidth : 0,
-          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        };
-      }, caption);
       const tables = [];
-      for (const [step, caption] of [['indirect', 'Rubros de estructura'], ['margin', 'Tramos de descuento por cantidad de días']]) {
-        await go(editorHash(stackQ, step), 900);
-        // Los tramos pueden estar dentro de un plegable cerrado.
-        await page.evaluate(() => document.querySelectorAll('.qe-step-body details').forEach((d) => { d.open = true; }));
-        await page.waitForTimeout(200);
+      for (const [step, caption] of STACK_TABLES) {
+        await openStep(stackQ, step);
         if (!(await tableInfo(caption))) {
           tables.push({ caption, missing: true });
           continue;

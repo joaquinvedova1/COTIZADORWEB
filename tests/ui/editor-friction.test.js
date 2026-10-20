@@ -95,7 +95,7 @@ describe('celular (760 px o menos)', () => {
     assert.equal(bottom, 'auto');
   });
 
-  test('las tablas de estructura y de tramos se apilan (qe-stack-table), como las de materiales y vehículos', () => {
+  test('las tablas de estructura y de tramos se apilan en pasos angostos (qe-stack-narrow); en escritorio siguen como tabla', () => {
     const cases = [
       ['js/ui/views/quote-steps/indirect.js', 'Rubros de estructura'],
       ['js/ui/views/quote-steps/margin.js', 'Tramos de descuento por cantidad de días'],
@@ -103,7 +103,15 @@ describe('celular (760 px o menos)', () => {
     for (const [file, caption] of cases) {
       const m = new RegExp(`className:\\s*'([^']*)',\\s*caption:\\s*'${caption}'`).exec(read(file));
       assert.ok(m, `no encuentro la tabla "${caption}" en ${file}`);
-      assert.ok(m[1].split(/\s+/).includes('qe-stack-table'), `${file}: "${caption}" no se apila (${m[1]})`);
+      assert.ok(m[1].split(/\s+/).includes('qe-stack-narrow'), `${file}: "${caption}" no se apila (${m[1]})`);
+    }
+    // La regla vive en una consulta de contenedor del paso que alcanza al celular (≤ 760 px) y no al escritorio.
+    const css = stripComments(read('css/quote.css'));
+    const narrow = [...css.matchAll(/@container qestep \(max-width: (\d+)px\)\s*\{([\s\S]*?)\n\}/g)].filter((x) => x[2].includes('.qe-stack-narrow'));
+    assert.ok(narrow.length > 0, 'falta la regla de .qe-stack-narrow');
+    for (const [, width, body] of narrow) {
+      assert.ok(Number(width) >= 400 && Number(width) <= 720, `qe-stack-narrow se activa con el paso de ${width} px o menos`);
+      assert.match(body, /\.qe-stack-narrow \.table thead \{[^}]*position: absolute/);
     }
   });
 });

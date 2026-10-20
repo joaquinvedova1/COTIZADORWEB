@@ -106,7 +106,7 @@ La paleta no cambia (`--navy-900`, `--blue-600`, `--ink`, verdes, naranjas y roj
 | Componente | Reglas |
 |---|---|
 | **KPI de resultado** | Rótulo chico, monto grande tabular con su unidad, una línea de explicación y "Ver cálculo". Orden fijo: costo del mes → tarifa piso → tarifa sugerida u ofrecida → margen |
-| **Resumen en vivo del editor** | Panel (más de 1180 px): costo, piso, tarifa cobrada, resultado y margen esperados y "Para no perder", siempre a la vista; "Ver más" deja el precio para tu margen y la completitud. Barra compacta (1180 px o menos): costo, piso, **tarifa cobrada destacada** (fondo y cifra más fuerte) y margen con su palabra ("cumple", "debajo", "pierde", "no confiable"); el resto, en "Ver detalle" |
+| **Resumen en vivo del editor** | Panel (más de 1180 px): costo, piso, tarifa cobrada, margen esperado, "Para no perder" y resultado esperado, en la lista principal; "Ver más" deja el precio para tu margen y la completitud. Si no entra en la altura de la pantalla, el panel se desplaza. Barra compacta (1180 px o menos): costo, piso, **tarifa cobrada destacada** (fondo y cifra más fuerte) y margen con su palabra ("cumple", "debajo", "pierde", "no confiable"); el resto, en "Ver detalle" |
 | **"Ver cálculo"** | Botón con nombre accesible "Ver cálculo: <rótulo>". La traza **termina en el mismo número** que se ve. Mide 24 px de alto o más en escritorio y 44 px en el celular (WCAG 2.5.8) |
 | **Aviso** | Tres niveles: info, revisar y crítico. Título, causa y acción ("Ir al campo"). El crítico va antes de los KPI y se imprime |
 | **Pastilla** | `nowrap`, 12 px o más, texto + color de estado. "No confiable" (crítico), "Borrador" e "ILUSTRATIVO" (revisar) |
@@ -123,7 +123,7 @@ La paleta no cambia (`--navy-900`, `--blue-600`, `--ink`, verdes, naranjas y roj
 ## 6. Celular
 
 - **Cortes:** ≤ 760 px celular; 761 a 1100 px riel (menú con íconos y palabras cortas); ≤ 1180 px el resumen del editor pasa a una barra fija abajo.
-- **Sin scroll horizontal** en ninguna pantalla: las tablas editables pasan a tarjetas (`qe-stack-table`, también estructura y tramos) y las notas largas se parten. Se prueba a 390, 360 y 320 px.
+- **Sin scroll horizontal** en ninguna pantalla: las tablas editables pasan a tarjetas (`qe-stack-table`; estructura y tramos con `qe-stack-narrow`, sólo cuando el paso mide 680 px o menos, porque en escritorio entran como tabla) y las notas largas se parten. Se prueba a 390, 360 y 320 px.
 - **Los avisos emergentes salen arriba**, debajo de la barra de la app.
 - **Objetivos táctiles de 44 px** o más.
 - **El estado de guardado se ve sin abrir el menú**, en la barra de arriba.
@@ -198,5 +198,5 @@ Checklist de cada PR que toca la interfaz:
 - **alpha.2 (2026-10-20, DESIGN-02 2/2 · PLAN-2026-026):**
   - resumen en vivo con el resultado y el margen a la vista, y barra compacta con la tarifa cobrada destacada y el margen con su palabra;
   - eco de montos en todo campo de plata, sin reformatear el texto del campo;
-  - avisos arriba y tablas de estructura y de tramos apiladas en el celular;
+  - avisos arriba en el celular, y tablas de estructura y de tramos apiladas en pasos angostos;
   - `aria-required` y `aria-describedby` en los campos y en los avisos del motor.
