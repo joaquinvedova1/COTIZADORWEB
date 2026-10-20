@@ -53,7 +53,7 @@ function quoteWith({ activeDays = 10, fixed = 0, perDay = 0, mode = 'known_rate'
   if (perDay) q.otherCosts.push(createOtherCost({ id: 'c-dia', description: 'Por día', category: 'labor', behavior: 'per_active_day', amount: perDay }));
   if (knownRate !== null) q.pricing.knownRate = knownRate;
   if (margin !== undefined) q.pricing.targetMarginPct = margin;
-  if (roundingStep !== undefined) q.pricing.roundingStep = roundingStep;
+  if (roundingStep !== undefined) Object.assign(q.pricing, { roundingMode: 'step', roundingStep });
   if (tiers) q.rules.volumeTiers = tiers;
   return { q, settings, r: computeQuote(q, { settings }) };
 }
@@ -237,7 +237,7 @@ describe('tramos de descuento y actividad mínima (PROD-2 / REG-8)', () => {
 });
 
 describe('nota del comparador de modelos (UX-5)', () => {
-  const noteFor = ({ q, settings, r }) => comparatorNote(r, compareCommercialModels(q, { settings }).models, { roundingStep: q.pricing.roundingStep });
+  const noteFor = ({ q, settings, r }) => comparatorNote(r, compareCommercialModels(q, { settings }).models, { roundingStep: r.kpis.roundingStep });
 
   test('tu tarifa (caso de referencia): la causa es la tarifa, no los tramos', () => {
     const text = noteFor(demoResult(DEMO_IDS.quoteReference));

@@ -1204,9 +1204,13 @@ VAL-01-F1 (P1): el redondeo comercial por defecto es un **múltiplo fijo de $ 1.
   3. **Empresas con los parámetros de fábrica sin confirmar** (`illustrative: true`) y $ 1.000: las cotizaciones nuevas usan el automático, que es el nuevo valor de fábrica. Las existentes no cambian.
   4. **Empresas nuevas:** automático, hasta 1 %.
 - **Lo que no se puede saber:** si una empresa con parámetros confirmados y $ 1.000 eligió ese valor. Se conserva, y se avisa: el margen objetivo y el real quedan a la vista, y si el redondeo sube la tarifa más de 1 % aparece "la sugerida quedó X % arriba de tu precio objetivo" con [Usar redondeo automático].
-- **HUMAN DECISION REQUIRED (no bloquea):** ¿mantener el punto 2 para las empresas con $ 1.000 confirmado, o pasarlas a automático para sus cotizaciones nuevas? Cambiarlo es una regla en `settingsRounding()` (`js/domain/rounding.js`), sin migración.
+- **Plantillas:** una plantilla guardada antes de ECO-03 trae `pricing.roundingStep` sin `roundingMode`: se conserva como múltiplo fijo (es una configuración guardada), salvo el $ 1.000 de fábrica en una plantilla ILUSTRATIVA (las de la demo local), que sigue la regla de la empresa, igual que la configuración de fábrica (`isFactoryLegacyStep`). Las plantillas nuevas guardan su regla.
+- **Configuración:** `SettingsService.get` completa lo que falta con los valores de fábrica; desde ECO-03 no completa `roundingMode` en una configuración guardada antes (sería pasarla a automático sin que nadie lo elija, y Configuración lo guardaría al tocar cualquier otro parámetro).
+- **HUMAN DECISION REQUIRED (no bloquea):**
+  1. ¿mantener el punto 2 para las empresas con $ 1.000 confirmado, o pasarlas a automático para sus cotizaciones nuevas? Cambiarlo es una regla en `settingsRounding()` (`js/domain/rounding.js`), sin migración.
+  2. **Tope por defecto del automático: 1 % (lo pedido) o menos.** Con 1 %, las tarifas grandes se redondean a cifras más redondas que antes: $/día de 2.408.340 → 2.410.000 (+0,07 %, antes 2.409.000, +0,03 %); un llamado de 1.761.345 → 1.770.000 (+0,49 %, antes +0,04 %). Siempre ≤ 1 %. Con 0,1 % las tarifas de $ 1 M a $ 10 M quedan como antes (múltiplo de 1.000) y las de valor bajo igual se corrigen (277,80 → 277,80, sin redondeo; 3.003,52 → 3.004). Es un valor de fábrica: cada empresa lo cambia en Configuración.
 - **Sin migración ni cambio de esquema** (sigue en 10): los campos nuevos (`roundingMode`, `roundingMaxPct`) son opcionales, y no tenerlos es la regla de siempre. El validador del esquema no rechaza campos nuevos dentro de `pricing` ni de la configuración. `saveSettings` mezcla, así que una pestaña abierta con 0.8.1 no los borra.
-- **Pestañas con 0.8.1 abiertas:** ignoran `roundingMode` y calculan con `roundingStep`. Por eso, una cotización o una empresa en automático guarda `roundingStep: 0`. Así una versión anterior la muestra sin redondeo, nunca inflada.
+- **Pestañas con 0.8.1 abiertas:** ignoran `roundingMode` y calculan con `roundingStep`. Por eso todo lo que queda en automático guarda `roundingStep: 0` (cotizaciones y empresas nuevas, y las que alguien pasa a automático desde "El precio", el aviso del Resultado o Configuración): una versión anterior, o un revert, las muestra sin redondeo, nunca infladas. Al volver a "Múltiplo fijo" el múltiplo se carga de nuevo.
 
 #### 3. Regla nueva
 - **Automático (`roundingMode: 'auto'`):** la tarifa objetivo se redondea **hacia arriba** al múltiplo de 1, 10, 100, 1.000… más grande que **no la suba más de `roundingMaxPct`** (1 % por defecto, configurable de 0 a 10). Con una objetivo menor a $ 100 (el 1 % no llega a $ 1) no hay redondeo.
@@ -1234,14 +1238,15 @@ VAL-01-F1 (P1): el redondeo comercial por defecto es un **múltiplo fijo de $ 1.
 
 #### 6. Pasos
 - [x] 1. Documentar la ambigüedad y la interpretación (este plan, antes de cambiar la regla) y fijar con tests que lo guardado no cambia.
-- [ ] 2. Dominio (`js/domain/rounding.js`) y motor (indicadores nuevos).
-- [ ] 3. Fábrica: empresas y cotizaciones nuevas en automático; interpretación de lo guardado.
-- [ ] 4. UI: Resultado, PDF, "El precio", resumen en vivo y Configuración.
-- [ ] 5. Tests: dominio, motor en las 18 unidades con 0/1/10/1.000 y automático, compatibilidad, oráculo del Test Lab, E2E.
-- [ ] 6. PR sin merge y evidencia en RATEOS-AUDIT (`tasks/ECO-03/`).
+- [x] 2. Dominio (`js/domain/rounding.js`) y motor (indicadores nuevos).
+- [x] 3. Fábrica: empresas y cotizaciones nuevas en automático; interpretación de lo guardado (empresa y plantillas).
+- [x] 4. UI: Resultado, PDF, "El precio", resumen en vivo y Configuración.
+- [x] 5. Tests: dominio, motor en las 18 unidades con 0/1/10/1.000 y automático, compatibilidad, vuelta atrás, oráculo del Test Lab (implementación propia del automático), E2E-21 y bloque ECO-03 en el navegador.
+- [ ] 6. PR sin merge y evidencia en RATEOS-AUDIT (`tasks/ECO-03/`: A/B contra `main` y capturas antes/después).
 
 #### 7. Rollback
 Revert del PR. Las cotizaciones creadas en automático después del deploy guardan `roundingStep: 0`: con el revert se calculan sin redondeo (nunca infladas).
 
 #### Bitácora
+- 2026-10-20: Code Review (skill, nivel medio) sobre el cambio: 10 observaciones, todas atendidas antes de publicar. La más importante: `SettingsService.get` completaba `roundingMode: 'auto'` de fábrica en una configuración guardada antes, y Configuración la habría guardado como automático. También: pasar a automático deja el múltiplo en 0, plantillas ILUSTRATIVAS con la regla de fábrica, texto con tope 0, una evaluación menos con tarifa forzada, JSDoc, lógica muerta y constantes.
 - 2026-10-20: el dueño pidió el redondeo proporcional (configurable, por defecto a no más de 1 % sobre la objetivo), margen objetivo y real siempre a la vista, conservar las configuraciones explícitas y las cotizaciones existentes, y documentar la ambigüedad de compatibilidad antes de cambiar la regla. La revisión independiente de ECO-02 pidió priorizar `roundingStep` explícito vs. de fábrica, muestras con 0/1/10/1.000, margen real/objetivo y las 18 unidades. Base `main` `d6540b7`. Primero este plan y los tests que fijan lo guardado; después el cambio de regla.

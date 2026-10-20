@@ -40,6 +40,7 @@ const BOUNDARIES = {
   years: [[0.5, 10, 100], [0, -1, 101]],
   months: [[0, 12, 600], [-1, 601]],
   integer: [[0, 1, 42], [1.5, -1, 0.1]],
+  roundingMaxPct: [[0, 1, 0.5, 10], [-1, 10.5, 100]],
 };
 
 describe('RULES', () => {

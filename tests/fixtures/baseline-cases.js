@@ -15,7 +15,9 @@ const NOW = '2026-10-01T12:00:00.000Z';
 
 export function baselineCases() {
   const state = createDemoState(1);
-  const settings = state.settings;
+  // ECO-03: este baseline mide los impuestos sobre la facturación, no el redondeo: la empresa demo conserva
+  // el múltiplo fijo de $ 1.000 que tenía cuando se generó (desde ECO-03 la de fábrica es automática).
+  const settings = { ...state.settings, roundingMode: 'step', roundingMaxPct: null, roundingStep: 1000 };
   const hydro = state.quotes.find((q) => q.id === DEMO_IDS.quoteHydroCrane);
   const reference = state.quotes.find((q) => q.id === DEMO_IDS.quoteReference);
   const cases = [

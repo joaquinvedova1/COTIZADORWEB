@@ -32,6 +32,8 @@ export const RULES = Object.freeze({
   years: { min: 0, max: 100, exclusiveMin: true, message: 'La vida útil debe ser mayor a 0 años.' },
   months: { min: 0, max: 600, message: 'Los meses deben estar entre 0 y 600.' },
   integer: { min: 0, integer: true, message: 'Ingresá un número entero mayor o igual a 0.' },
+  // Tope del redondeo automático de la tarifa sugerida (ECO-03).
+  roundingMaxPct: { min: 0, max: 10, message: 'El redondeo automático puede subir la tarifa entre 0 y 10 %.' },
 });
 
 /**
