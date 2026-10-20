@@ -113,8 +113,10 @@ export async function render(root, app) {
   function rename(service) {
     const draft = { name: service.name || '', description: service.description || '' };
     const saveBtn = button('Guardar', { variant: 'primary', icon: 'check' });
-    const { close } = openDialog({
+    const { close, requestClose } = openDialog({
       title: 'Renombrar plantilla',
+      // Lo escrito se pregunta antes de descartarlo (UX-01).
+      isDirty: () => draft.name.trim() !== String(service.name || '').trim() || draft.description.trim() !== String(service.description || '').trim(),
       content: h(
         'div',
         { class: 'stack' },
@@ -122,7 +124,7 @@ export async function render(root, app) {
         textField({ label: 'Descripción', value: draft.description, multiline: true, maxLength: 400, onChange: (v) => { draft.description = v; } }),
         h('p', { class: 'muted small' }, 'Las cotizaciones ya creadas desde esta plantilla no cambian.'),
       ),
-      actions: [button('Cancelar', { variant: 'secondary', onClick: () => close() }), saveBtn],
+      actions: [button('Cancelar', { variant: 'secondary', onClick: () => requestClose() }), saveBtn],
     });
     saveBtn.addEventListener('click', async () => {
       const name = sanitizeText(draft.name, 120);

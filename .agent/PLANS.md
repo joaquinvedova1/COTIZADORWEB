@@ -1201,34 +1201,41 @@ Casos verificados en el código de `main`:
   - un clic en el fondo no los cierra;
   - Esc, la X o "Cancelar" con cambios sin guardar preguntan "¿Descartar los cambios?", con [Seguir editando] y [Descartar];
   - sin cambios, cierran como siempre; después de "Guardar", sin preguntar;
-  - si el navegador cierra el diálogo igual (Esc repetido: el navegador no deja retenerlo dos veces seguidas), se vuelve a abrir y se pregunta;
-  - "cambios" quiere decir el borrador distinto del inicial (sin contar los campos vacíos) o un campo con un valor inválido escrito.
+  - Esc se atiende antes de que el navegador procese el cierre (Chrome no deja retener con `cancel` un segundo Esc seguido); si igual se cierra (otro pedido de cierre), se vuelve a abrir con la pregunta encima;
+  - "cambios" quiere decir lo que se guardaría distinto de lo que se abrió (normalizado como al guardar: sin contar los campos vacíos, y marcar y desmarcar una casilla no cuenta) o un campo con un valor inválido escrito.
 - **Valores que vuelven al anterior:**
   - no se frena la navegación: el router no puede cancelar un cambio de dirección de forma confiable, y los editores guardan solos;
   - si el campo ya no está en pantalla cuando vuelve al valor anterior, aparece un aviso que queda hasta cerrarlo, con la pantalla, el campo, lo que se escribió, por qué no se guardó y qué valor quedó;
-  - si el campo sigue en pantalla, alcanza con el aviso debajo del campo, como hoy.
-- **Configuración:** al salir (y al cerrar la pestaña), primero vuelven al valor anterior los campos inválidos, con su aviso, y después se guarda el resto de la sección.
-- **"Mi cuenta":** al salir con un nombre escrito y sin guardar, aviso con el nombre que no se guardó.
+  - si el campo sigue en pantalla, alcanza con el aviso debajo del campo, como hoy;
+  - en un diálogo que se cierra sin guardar (Cancelar, Esc, la X, Descartar) no se avisa: se descartó a propósito. Si se guardó, sí;
+  - los campos de mes (`periodField`) hacen lo mismo que los números: en navegadores sin selector de mes (se ven como texto), un texto inválido queda marcado mientras se escribe y, al confirmarlo, vuelve al último mes guardado con su aviso.
+- **Configuración:**
+  - al salir (y al cerrar la pestaña), primero vuelven al valor anterior los campos inválidos, con su aviso, y después se guarda el resto de la sección;
+  - el guardado automático recuerda que hay cambios sin guardar aunque en ese momento la sección esté inválida: al salir se guardan si ya se puede; si ni así (p. ej. impuestos que suman 100 % o más), un aviso lo dice;
+  - si la misma pantalla se redibuja sin navegar (después de recargar la versión de la nube o de importar), no se revierte ni se guarda lo que quedó en pantalla: esos datos ya cambiaron.
+- **"Mi cuenta":** al salir con un nombre escrito y sin guardar, aviso con el nombre que no se guardó (no, si se está guardando).
 - **Avisos:**
   - los de error quedan hasta cerrarlos;
   - todos tienen "Cerrar";
-  - como máximo 4 a la vez, y uno igual a otro que ya está a la vista no se repite.
+  - como máximo 4 a la vez: se van primero los que igual se iban solos; uno igual a otro que ya está a la vista no se repite;
+  - el plazo de 1,5 s para decidir si el campo se fue con la pantalla queda así: alcanza para el cambio de vista (que es inmediato) y un diálogo que se redibuja ya está cubierto por la regla de arriba.
 
 #### 3. Impacto en fórmulas
 Ninguno: no se toca ningún motor. Golden y candado sin cambios.
 
 #### 4. Impacto en datos
 - Sin campos nuevos ni migraciones (esquema 10).
-- Lo único que cambia en lo que se guarda: al salir de Configuración se guardan los cambios válidos de una sección aunque otro campo estuviera inválido (antes se perdían).
+- Lo único que cambia en lo que se guarda: al salir de Configuración se guardan los cambios válidos de una sección aunque otro campo estuviera inválido, o aunque la sección haya estado inválida un momento (antes se perdían).
 
 #### 5. Pasos
 - [x] 1. Este plan, antes del código.
-- [ ] 2. Tests:
+- [x] 2. Tests:
   - unitarios de las funciones puras (huella del borrador y texto del aviso);
   - E2E que reproducen cada caso y fallan en `main`.
-- [ ] 3. `openDialog` con `isDirty`; recursos y plantillas.
-- [ ] 4. Aviso del valor que volvió al anterior fuera de pantalla; Configuración (revertir y guardar) y "Mi cuenta".
-- [ ] 5. Avisos de error que quedan hasta cerrarlos.
+- [x] 3. `openDialog` con `isDirty`; recursos y plantillas.
+- [x] 4. Aviso del valor que volvió al anterior fuera de pantalla; Configuración (revertir y guardar) y "Mi cuenta".
+- [x] 5. Avisos de error que quedan hasta cerrarlos.
+- [x] 5b. Revisión de código propia (10 observaciones): 9 corregidas con su control E2E (ver Bitácora); el plazo de 1,5 s queda como está.
 - [ ] 6. Validación completa, capturas antes y después, PR sin merge y evidencia en RATEOS-AUDIT (`tasks/UX-01/`).
 
 #### 6. Fuera de alcance (documentado)
@@ -1243,3 +1250,16 @@ Revert del PR. No deja datos nuevos.
 
 #### Bitácora
 - 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests que reproducen los casos y la implementación.
+- 2026-10-20: implementación y revisión de código propia (10 observaciones). Corregidas 9, cada una con su control E2E:
+  - campo de mes (`periodField`) con texto inválido: no volvía al anterior y frenaba el guardado de su sección en Configuración;
+  - al redibujar Configuración sin navegar (recargar de la nube, importar) no se revierte ni se guarda lo que quedó en pantalla;
+  - un valor restaurado dentro de un diálogo que se cierra sin guardar no deja un aviso fijo; si se guardó, sí avisa;
+  - "Mi cuenta": no avisa mientras el nombre se está guardando, y guarda como guardado lo que se mandó;
+  - el tope de 4 avisos saca primero los que se iban solos;
+  - Esc se atiende antes del cierre del navegador y la pregunta queda siempre encima (se reemplaza si ya había una);
+  - `clearToasts` también frena un aviso que todavía no había entrado;
+  - el motivo del aviso lo decide el campo (vacío: sin motivo), sin comparar textos;
+  - la ficha de un recurso compara lo que se guardaría (normalizado como al guardar): marcar y desmarcar una casilla no es un cambio.
+  - Además, al probarlo: el guardado automático de Configuración olvidaba un cambio si la sección estaba inválida justo cuando tocaba guardar. Ahora lo recuerda, lo guarda al salir si ya se puede y, si no, lo avisa.
+  - Queda como está el plazo de 1,5 s del aviso (ver Decisiones).
+- 2026-10-20: `ui-lab` con 28 controles UX-01 por modo: 20 fallan en `main` (388/408 en escritorio; todas las fallas son de UX-01) y pasan todos en la rama. Los 8 que pasan en `main` son de no regresión (p. ej. "sin cambios, Esc cierra sin preguntar").

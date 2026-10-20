@@ -26,7 +26,7 @@ import { createCloud } from './services/cloud.js';
 import { loadVersionInfo } from './services/settings-service.js';
 import { createRecoveryService } from './services/recovery-service.js';
 import { h, mount, downloadText } from './ui/dom.js';
-import { banner, button, card, confirmDialog, ensureToastRegion, toast } from './ui/components.js';
+import { banner, button, card, clearToasts, confirmDialog, ensureToastRegion, installRestoreNotices, toast } from './ui/components.js';
 import { createLayout, userErrorMessage } from './ui/layout.js';
 import { createRouter } from './ui/router.js';
 import { resetSessionMemory } from './ui/session-memory.js';
@@ -451,6 +451,14 @@ async function boot(root) {
     },
     navigate: (hash, options) => router.navigate(hash, options),
     toast: (message, tone = 'info') => toast(message, tone),
+    /**
+     * Aviso de algo que no se guardó al salir de una pantalla (UX-01): queda
+     * hasta cerrarlo. Sólo con la cuenta abierta: al cerrar sesión no se
+     * muestra nada de la empresa.
+     */
+    notice(message) {
+      if (app.accessStatus() === 'authenticated') toast(message, 'warning', { timeout: 0 });
+    },
     setHeader: (options) => layout.setHeader(options),
     getSettings: () => (account ? account.settings.get() : null),
     async refreshChrome() {
@@ -579,10 +587,13 @@ async function boot(root) {
     accountState = 'idle';
     dismissed.clear();
     resetSessionMemory();
+    clearToasts();
     layout.clearSession();
   }
 
   router = createRouter({ app, layout });
+  // Un valor que vuelve al anterior cuando su pantalla se va se avisa en la siguiente (UX-01).
+  installRestoreNotices({ notify: (text) => app.notice(text) });
 
   if (auth.status === 'authenticated') await openAccount();
 
