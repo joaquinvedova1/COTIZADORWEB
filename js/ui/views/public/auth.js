@@ -11,14 +11,15 @@
  *   formulario; explica el acceso por invitación y el primer ingreso con
  *   "¿Olvidaste tu contraseña?" (sin alta previa no llega ningún correo).
  * - Recuperación en dos pasos: pedir el correo (respuesta neutra, espera antes
- *   de reenviar) y elegir la contraseña con el enlace PKCE (este navegador) o
- *   con el código del correo (cualquier navegador; un escáner no lo consume).
+ *   de reenviar, sólo de UX) y elegir la contraseña con el enlace PKCE (este
+ *   navegador) o con el código del correo (cualquier navegador, si nadie abrió
+ *   antes el enlace: son la misma credencial).
  * - Errores en lenguaje humano: nunca mensajes internos ni detalles técnicos.
  */
 
 import { h, mount, uniqueId } from '../../dom.js';
 import { brand, headerLink, publicIcon } from './public-chrome.js';
-import { MIN_PASSWORD_LENGTH } from '../../../services/auth-service.js';
+import { MIN_PASSWORD_LENGTH, RECOVER_REQUEST_SUBTITLE } from '../../../services/auth-service.js';
 import { accountEntry, nextFromHash, hashQuery } from '../../../services/auth-routing.js';
 
 /** Campo con label real, ayuda y error accesibles. */
@@ -271,7 +272,7 @@ function renderInviteOnly(root, app, next) {
       { class: 'pub-auth-steps' },
       h('li', {}, 'Quien te invita te da de alta en RATEOS con tu email. ', h('strong', {}, 'Hasta que no lo haga, no te llega ningún correo de RATEOS.')),
       h('li', {}, 'Cuando te avise, tocá ', h('strong', {}, '«Elegir mi contraseña»'), ' y escribí ese email.'),
-      h('li', {}, 'Abrí el correo que te llega: usá el enlace en este mismo navegador o, si lo abrís en otro dispositivo, escribí el código que trae.'),
+      h('li', {}, 'Abrí el correo que te llega: usá el enlace en este mismo navegador o, si lo leés en otro dispositivo, no toques el enlace y escribí el código que trae.'),
     ),
     h('p', { class: 'pub-field-hint' }, 'Si querés probar RATEOS y todavía no tenés invitación, pedísela a quien te compartió este enlace. Mientras tanto, podés ver la demo sin cuenta.'),
   );
@@ -374,7 +375,7 @@ export function renderRecover(root, app) {
     if (sentMessage) codeMessage.show(sentMessage, 'success');
     mount(root, authLayout({
       title: sentMessage ? 'Revisá tu correo' : 'Ingresá el código del correo',
-      subtitle: sentMessage ? 'Abrí el enlace en este mismo navegador o escribí acá el código que trae el correo.' : 'Escribí tu email y el código que te llegó.',
+      subtitle: sentMessage ? 'Abrí el enlace en este mismo navegador o, si leés el correo en otro dispositivo, escribí acá su código sin tocar el enlace.' : 'Escribí tu email y el código que te llegó.',
       content: h('div', { class: 'stack' }, form, resend),
       footer: switchLine('¿La recordaste?', 'Ingresar', '#/login'),
     }));
@@ -408,7 +409,7 @@ export function renderRecover(root, app) {
     });
     mount(root, authLayout({
       title: 'Elegí o recuperá tu contraseña',
-      subtitle: 'Te mandamos un correo para elegir una contraseña nueva. Sirve también para el primer ingreso, si ya te dieron de alta.',
+      subtitle: RECOVER_REQUEST_SUBTITLE,
       content: form,
       footer: h('div', {},
         h('p', { class: 'pub-auth-switch' }, '¿Ya te llegó el correo? ', haveCode),

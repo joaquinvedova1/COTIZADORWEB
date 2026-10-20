@@ -16,15 +16,16 @@ Reglas para este archivo:
 
 ### Agregado
 
-- **Código del correo de recuperación:** "¿Olvidaste tu contraseña?" → "Ya tengo un código" (email + código de 6 a 10 dígitos, `verifyOtp` tipo `recovery`). Sirve en cualquier navegador y un escáner de correo no lo consume. Requiere la plantilla `supabase/templates/recovery.html` en Supabase.
-- Plantillas de correo en español (`supabase/templates/`): recuperación (enlace + código), invitación (lleva a "Elegir mi contraseña") y confirmación.
+- **Código del correo de recuperación:** "¿Olvidaste tu contraseña?" → "Ya tengo un código" (email + código de 6 a 10 dígitos, `verifyOtp` tipo `recovery`). Sirve en cualquier navegador mientras nadie haya abierto el enlace de ese correo (enlace y código son la misma credencial). Requiere la plantilla `supabase/templates/recovery.html` en Supabase; si un escáner de correo consume los enlaces, `recovery-solo-codigo.html`.
+- Plantillas de correo en español (`supabase/templates/`): recuperación (enlace + código, o sólo código si un escáner consume los enlaces), invitación (lleva a "Elegir mi contraseña") y confirmación (no se usa en la beta cerrada: las altas son con *Auto Confirm*; su entrega real no está probada).
 - Pruebas simuladas de Auth: `tests/services/auth-email.test.js` y `npm run test:auth:e2e` (navegador, escritorio y celular; en el PR gate). El Supabase simulado del Test Lab suma recuperación, `/verify`, canje PKCE y un buzón en memoria.
 
 ### Cambiado
 
 - `#/registro` (beta cerrada) explica el primer ingreso en tres pasos y avisa que **sin alta previa no llega ningún correo**.
-- La respuesta de "¿Olvidaste tu contraseña?" sin sesión sigue siendo la misma haya o no cuenta, pero ya no dice "te enviamos": dice qué hacer si no llega en 10 minutos (avisar a quien invitó). Espera 60 s antes de reenviar. Con la sesión iniciada, "Cambiar contraseña" confirma el envío o avisa que no salió.
-- Un enlace de recuperación que no se puede canjear (otro navegador, vencido, usado) ofrece el código.
+- La respuesta de "¿Olvidaste tu contraseña?" sin sesión sigue siendo la misma haya o no cuenta, pero ya no dice "te enviamos": dice qué hacer si no llega en 10 minutos (avisar a quien invitó). Antes de pedir, la pantalla no promete un correo. Pide esperar 60 s antes de reenviar (ayuda de UX: los límites reales son de Supabase). Con la sesión iniciada, "Cambiar contraseña" confirma el envío o avisa que no salió.
+- Un enlace de recuperación que no se puede canjear (otro navegador, vencido, usado) pide un correo nuevo y explica que, en otro dispositivo, se escribe el código sin tocar el enlace (abrir el enlace usa también el código de ese correo).
+- Una verificación del código que vuelve sin sesión o sin usuario válido no abre la recuperación.
 
 ### Seguridad
 

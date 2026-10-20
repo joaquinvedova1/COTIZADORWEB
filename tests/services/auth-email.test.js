@@ -13,12 +13,14 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   AUTH_STATUS,
   CODE_INVALID_MESSAGE,
   INVITE_LINK_MESSAGE,
   RECOVERY_LINK_INVALID_MESSAGE,
+  RECOVER_REQUEST_SUBTITLE,
   RESET_COOLDOWN_SECONDS,
   RESET_REQUESTED_MESSAGE,
   RESET_SENT_OWN_MESSAGE,
@@ -80,6 +82,11 @@ describe('HD-03: "¿Olvidaste tu contraseña?" sin sesión', () => {
     assert.match(RESET_REQUESTED_MESSAGE, /spam/);
     assert.match(RESET_REQUESTED_MESSAGE, /avisale a quien te invitó: puede que tu acceso todavía no esté creado/);
     assert.equal(RESET_COOLDOWN_SECONDS, 60);
+  });
+
+  test('antes de pedir nada, la pantalla no promete un correo y dice que primero hace falta acceso', () => {
+    assert.doesNotMatch(RECOVER_REQUEST_SUBTITLE, /te mandamos|te enviamos|te llega/i);
+    assert.match(RECOVER_REQUEST_SUBTITLE, /Sólo llega si ya te dieron acceso a RATEOS/);
   });
 
   test('sin conexión o con muchos intentos seguidos, se dice (no depende de si la cuenta existe)', async () => {
@@ -196,7 +203,7 @@ describe('HD-03: código del correo de recuperación (cualquier navegador)', () 
         async verifyOtp(params) {
           calls.push(params);
           if (params.token === '000000') return { data: { user: null, session: null }, error: { name: 'AuthApiError', status: 403, code: 'otp_expired', message: 'Token has expired or is invalid' } };
-          return { data: { user: { id: 'u1', email: params.email, user_metadata: {} }, session: { user: { id: 'u1', email: params.email } } }, error: null };
+          return { data: { user: { id: 'u1', email: params.email, user_metadata: {} }, session: { access_token: 'token-de-prueba', user: { id: 'u1', email: params.email } } }, error: null };
         },
       },
     };
@@ -208,6 +215,34 @@ describe('HD-03: código del correo de recuperación (cualquier navegador)', () 
     assert.equal(ok.user.access_token, undefined, 'sin tokens');
     const bad = await gateway.verifyRecoveryCode('a@example.com', '000000');
     assert.deepEqual(bad, { ok: false, code: AUTH_ERRORS.linkInvalid, user: null });
+  });
+
+  test('puerta real: una respuesta sin error pero sin sesión o sin usuario válido NO cuenta como verificada', async () => {
+    const user = { id: 'u1', email: 'a@example.com', user_metadata: {} };
+    const incompletas = [
+      { user: null, session: null },
+      { user, session: null },
+      { user, session: { user } },
+      { user: null, session: { access_token: 'token-de-prueba', user: { email: 'a@example.com' } } },
+      null,
+    ];
+    for (const data of incompletas) {
+      const gateway = createAuthGateway({ auth: { verifyOtp: async () => ({ data, error: null }) } });
+      const res = await gateway.verifyRecoveryCode('a@example.com', '123456');
+      assert.deepEqual(res, { ok: false, code: AUTH_ERRORS.unknown, user: null }, JSON.stringify(data));
+    }
+  });
+
+  test('servicio: si la puerta dice ok sin usuario, no queda autenticado ni en modo recuperación', async () => {
+    const gw = createFakeAuthGateway({ users: [INVITED] });
+    gw.verifyRecoveryCode = async () => ({ ok: true, code: null, user: null });
+    const { auth } = service(gw);
+    await auth.init();
+    const res = await auth.verifyRecoveryCode(INVITED.email, '123456');
+    assert.equal(res.ok, false);
+    assert.equal(res.message, messageFor(AUTH_ERRORS.unknown));
+    assert.equal(auth.status, AUTH_STATUS.anonymous);
+    assert.equal(auth.snapshot().recoveryMode, false);
   });
 });
 
@@ -263,5 +298,38 @@ describe('HD-03: enlaces de los correos', () => {
     assert.deepEqual(parseAuthFragment(`${SITE}#access_token=a&type=invite`), { kind: 'implicit', error: null });
     assert.deepEqual(parseAuthFragment(`${SITE}#error=access_denied&error_code=otp_expired`), { kind: 'error', error: 'otp_expired' });
     assert.equal(cleanAuthFragment(`${SITE}?auth=recovery&code=x#access_token=a`), SITE);
+  });
+});
+
+describe('HD-03: plantillas de correo (supabase/templates/)', () => {
+  const tpl = (name) => readFileSync(new URL(`../../supabase/templates/${name}`, import.meta.url), 'utf8');
+  const hrefs = (html) => [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+
+  test('sin imágenes, scripts ni enlaces a terceros (nada de seguimiento)', () => {
+    for (const name of ['recovery.html', 'recovery-solo-codigo.html', 'invite.html', 'confirmation.html']) {
+      const html = tpl(name);
+      assert.doesNotMatch(html, /<img|<script|<iframe|https?:\/\//i, name);
+      for (const href of hrefs(html)) assert.match(href, /^\{\{ \.(ConfirmationURL|SiteURL) \}\}/, `${name}: ${href}`);
+    }
+  });
+
+  test('recuperación: enlace PKCE y código, y avisa que son la misma credencial', () => {
+    const html = tpl('recovery.html');
+    assert.ok(html.includes('{{ .ConfirmationURL }}') && html.includes('{{ .Token }}'));
+    assert.match(html, /No toques el enlace/);
+    assert.doesNotMatch(html, /TokenHash/, 'nunca un enlace con token_hash (no es PKCE)');
+  });
+
+  test('variante sólo código: ningún enlace que verifique nada (un escáner no puede usar el correo)', () => {
+    const html = tpl('recovery-solo-codigo.html');
+    assert.ok(html.includes('{{ .Token }}'));
+    assert.doesNotMatch(html, /ConfirmationURL|TokenHash|token_hash|\/verify/);
+    assert.deepEqual(hrefs(html), ['{{ .SiteURL }}#/recuperar-contrasena']);
+  });
+
+  test('invitación: no usa el enlace de "Send invitation" (implícito, la app lo rechaza)', () => {
+    const html = tpl('invite.html');
+    assert.doesNotMatch(html, /ConfirmationURL|TokenHash/);
+    assert.deepEqual(hrefs(html), ['{{ .SiteURL }}#/recuperar-contrasena']);
   });
 });

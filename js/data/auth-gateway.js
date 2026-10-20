@@ -159,13 +159,18 @@ export function createAuthGateway(client, { clearLocalSession = () => {} } = {})
     /**
      * Código de un solo uso del correo de recuperación ({{ .Token }} en la
      * plantilla, HD-03). A diferencia del enlace PKCE, sirve en cualquier
-     * navegador y un escáner de correo no lo consume: hace falta tipearlo junto
-     * con el email. Con éxito hay sesión en modo recuperación.
+     * navegador (se tipea junto con el email). Es la misma credencial que el
+     * enlace: si el enlace ya se abrió, el código tampoco sirve. Con éxito hay
+     * sesión en modo recuperación.
      */
     async verifyRecoveryCode(email, code) {
       const res = await call(() => auth.verifyOtp({ email, token: code, type: 'recovery' }));
       if (!res.ok) return { ok: false, code: res.code, user: null };
-      return { ok: true, code: null, user: publicUser(res.data && (res.data.user || (res.data.session && res.data.session.user))) };
+      // Sin sesión o sin usuario válido la respuesta está incompleta: no se da por verificado.
+      const session = res.data && res.data.session;
+      const user = publicUser((res.data && res.data.user) || (session && session.user));
+      if (!session || !session.access_token || !user) return { ok: false, code: AUTH_ERRORS.unknown, user: null };
+      return { ok: true, code: null, user };
     },
 
     async updatePassword(password) {

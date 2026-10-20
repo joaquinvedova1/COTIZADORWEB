@@ -12,7 +12,7 @@
  *
  * Recorre lo que hace una persona de la beta:
  *   AUTH-01 "#/registro" (beta cerrada): sin formulario y con los pasos del primer ingreso
- *   AUTH-02 email sin alta: respuesta neutra, ningún correo, espera antes de reenviar
+ *   AUTH-02 email sin alta: la pantalla no promete un correo; respuesta neutra, ningún correo, espera (UX) antes de reenviar
  *   AUTH-03 alta desde el Dashboard (simulada): la misma respuesta y UN correo con enlace y código
  *   AUTH-04 enlace en el mismo navegador (PKCE): elegir la contraseña, entrar a SU empresa
  *   AUTH-05 enlace abierto en otro navegador: ofrece el código; con el código entra
@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../../../scripts/serve.mjs';
 import { assertSafeReport } from '../lib/report.js';
 import { PUBLIC_SITE_URL, SUPABASE } from '../../../js/config.js';
-import { INVITE_LINK_MESSAGE, RECOVERY_LINK_INVALID_MESSAGE, RESET_REQUESTED_MESSAGE, RESET_SENT_OWN_MESSAGE } from '../../../js/services/auth-service.js';
+import { INVITE_LINK_MESSAGE, RECOVER_REQUEST_SUBTITLE, RECOVERY_LINK_INVALID_MESSAGE, RESET_REQUESTED_MESSAGE, RESET_SENT_OWN_MESSAGE } from '../../../js/services/auth-service.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -167,6 +167,11 @@ async function runMode(mode) {
   check('AUTH-01', 'sin scroll horizontal', (await overflow(p1)) <= 1, `${await overflow(p1)}px`);
 
   // AUTH-02 · email sin alta previa: neutro y ningún correo.
+  // Antes de pedir nada, la pantalla no promete un correo.
+  await go(p1, '#/recuperar-contrasena');
+  await waitText(p1, /Elegí o recuperá tu contraseña/);
+  const t2a = await text(p1);
+  check('AUTH-02', 'antes del pedido no promete un correo y dice que hace falta acceso', t2a.includes(norm(RECOVER_REQUEST_SUBTITLE)) && !/te mandamos|te enviamos/i.test(t2a), t2a.slice(0, 240));
   await requestReset(p1, `sin-alta.${mode}@rateos.test`);
   const t2 = await text(p1);
   check('AUTH-02', 'respuesta neutra con qué hacer si no llega nada', t2.includes(norm(RESET_REQUESTED_MESSAGE)), t2.slice(0, 240));
@@ -218,7 +223,13 @@ async function runMode(mode) {
   await go(pOtro, '#/recuperar-contrasena');
   await tap(pOtro, pOtro.getByRole('button', { name: 'Ya tengo un código' }));
   await pOtro.waitForTimeout(400);
-  // El enlace ya consumió ese correo: se pide otro (pasado el minuto) y se usa su código.
+  // Abrir el enlace usó el correo entero: su código tampoco sirve (como en Supabase, misma credencial).
+  await pOtro.getByLabel('Email de tu cuenta', { exact: true }).fill(emailC);
+  await pOtro.getByLabel('Código del correo', { exact: true }).fill(mailC.otp);
+  await tap(pOtro, pOtro.getByRole('button', { name: 'Verificar código' }));
+  await pOtro.waitForTimeout(900);
+  check('AUTH-05', 'el código de un correo cuyo enlace ya se abrió no sirve (hay que pedir otro, como dice la pantalla)', /El código no es válido o venció/.test(await text(pOtro)) && !/Elegí una contraseña nueva/.test(await text(pOtro)), (await text(pOtro)).slice(0, 200));
+  // Se pide otro (pasado el minuto) y se usa su código, sin abrir su enlace.
   mailC.at -= 61000;
   await requestReset(pPide, emailC);
   const mailC2 = db.outbox.filter((m) => m.to === emailC).at(-1);

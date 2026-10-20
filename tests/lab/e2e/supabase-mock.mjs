@@ -187,6 +187,8 @@ export async function installSupabaseMock(context, db) {
       if (db.smtp.mode === 'broken') return authErr(route, 500, 'unexpected_failure', 'Error sending recovery email');
       const last = db.outbox.filter((m) => m.to === u.email).at(-1);
       if (last && Date.now() - last.at < 60000) return authErr(route, 429, 'over_email_send_rate_limit', 'For security purposes, you can only request this after 60 seconds.');
+      // Como GoTrue (un solo recovery_token por usuario): un correo nuevo anula el enlace y el código del anterior.
+      for (const m of db.outbox) if (m.to === u.email && m.type === 'recovery') m.used = true;
       db.outbox.push({
         to: u.email,
         type: 'recovery',
@@ -200,7 +202,7 @@ export async function installSupabaseMock(context, db) {
       });
       return reply(route, 200, {});
     }
-    // Código del correo (verifyOtp): sirve en cualquier navegador, una sola vez.
+    // Código del correo (verifyOtp): sirve en cualquier navegador, una sola vez. Es la misma credencial que el enlace (mail.used).
     if (url.pathname === '/auth/v1/verify' && method === 'POST') {
       const mail = db.outbox.find((m) => !m.used && m.type === (body && body.type) && sameEmail(m.to, body && body.email) && m.otp === String((body && body.token) || ''));
       if (!mail) return authErr(route, 403, 'otp_expired', 'Token has expired or is invalid');

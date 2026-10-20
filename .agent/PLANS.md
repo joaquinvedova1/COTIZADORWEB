@@ -1200,16 +1200,17 @@ Ninguno: sin migraciones ni campos nuevos. No se tocó ninguna cuenta.
 - `auth-gateway`: `verifyRecoveryCode(email, code)` → `verifyOtp({ type: 'recovery' })`.
 - `auth-service`: respuesta neutra `RESET_REQUESTED_MESSAGE` (la misma con o sin cuenta, SMTP por defecto o roto) con qué hacer si no llega y `cooldownSeconds: 60`; `RESET_SENT_OWN_MESSAGE` con la sesión iniciada; `verifyRecoveryCode` (6–10 dígitos) que deja la sesión en modo recuperación; `parseAuthFragment`/`cleanAuthFragment`: los enlaces con tokens o errores en el # ("Send invitation") nunca se usan y se borran de la URL; enlace de recuperación inválido → mensaje que ofrece el código.
 - UI: `#/registro` con los pasos del primer ingreso (sin alta no llega ningún correo); recuperación en dos pasos (pedir el correo; enlace o "Ya tengo un código"), reenvío con cuenta regresiva y la cuenta a la vista al elegir la contraseña.
-- Plantillas de correo en español (`supabase/templates/`): recuperación con enlace y código; invitación que lleva a "Elegir mi contraseña"; confirmación para el futuro.
-- Proveedor recomendado: Resend (seguimiento de enlaces apagado por defecto). Brevo descartado para Auth (reescribe los enlaces de los transaccionales).
+- Plantillas de correo en español (`supabase/templates/`): recuperación con enlace y código (misma credencial: abrir el enlace usa el código); variante sólo código si un escáner consume los enlaces; invitación que lleva a "Elegir mi contraseña"; confirmación para el futuro (no se usa en la beta cerrada).
+- Proveedor recomendado: Resend (seguimiento de enlaces apagado por defecto). Con cualquier proveedor, el seguimiento de clics tiene que estar apagado; Brevo no se recomienda porque en transaccionales viene activo y apagarlo no es autoservicio.
 
 #### 6. Pasos
 - [x] 1. Diagnóstico en sólo lectura (usuarios agregados sin datos personales, logs de Auth y del gateway).
 - [x] 2. Servicio, puerta y pantallas; plantillas.
 - [x] 3. Tests simulados: unitarios (`tests/services/auth-email.test.js`) y navegador (`npm run test:auth:e2e`, escritorio y celular, en el PR gate).
 - [x] 4. Docs: BETA_PERIMETER §2 (diagnóstico, §2.3 SMTP con Resend, §2.4 pruebas reales, §2.5 simuladas), AUTH_ARCHITECTURE §4, CHANGELOG.
-- [ ] 5. PR sin merge; informe HD-03 en el repositorio privado de auditoría.
-- [ ] 6. El dueño: dominio, Resend, SMTP y plantillas en Supabase, apagar el registro, pruebas reales R1–R7.
+- [x] 5. PR sin merge; informe HD-03 en el repositorio privado de auditoría.
+- [x] 5b. Ronda R1 (revisión independiente): ver abajo.
+- [ ] 6. El dueño: apagar el registro, dominio, Resend, SMTP y plantillas en Supabase, pruebas reales R1–R9 (R4 después del deploy).
 
 #### 7. Tests
 - Simulados: `tests/services/auth-email.test.js` (15) y `tests/services/auth-service.test.js` (actualizado); `tests/lab/e2e/auth-lab.mjs` (AUTH-01 a AUTH-09: 38 controles por modo). El Supabase simulado suma `/recover`, `/verify` (enlace y código), canje PKCE y un buzón en memoria.
@@ -1217,5 +1218,12 @@ Ninguno: sin migraciones ni campos nuevos. No se tocó ninguna cuenta.
 
 #### 8. Riesgos y mitigación
 - Sin SMTP propio nadie de afuera recibe correos: lo detecta la prueba R2.
-- Un escáner puede consumir el enlace: el código no se consume (requiere la plantilla de §2.3).
+- Un escáner puede consumir el enlace y, con él, el código de ese correo (misma credencial): lo detecta la prueba R9; mitigación, la plantilla sólo código.
 - Enumeración de cuentas: la respuesta sin sesión es idéntica; sólo los límites de envío del propio Supabase podrían distinguirlas (sin cambios).
+
+#### 9. Ronda R1 (revisión independiente del PR)
+- El subtítulo de "¿Olvidaste tu contraseña?" prometía un correo antes de pedirlo ("Te mandamos un correo…"): ahora `RECOVER_REQUEST_SUBTITLE` ("Sólo llega si ya te dieron acceso a RATEOS"), con test unitario y control en navegador (AUTH-02).
+- `verifyRecoveryCode`: la puerta exige sesión con `access_token` y usuario válido; el servicio, además, nunca queda autenticado ni en modo recuperación sin usuario. Tests de respuestas incompletas.
+- La espera de 60 s es sólo de UX (vive en la pantalla; recargar la saltea). Los límites efectivos son los de Supabase; su 429 se informa. Documentado así.
+- Corrección propia: en Supabase el enlace y el código de un correo son la misma credencial (`recovery_token`). El mensaje de enlace inválido sugería usar el código de ese mismo correo, que ya no sirve: ahora pide un correo nuevo y explica que en otro dispositivo se escribe el código sin tocar el enlace. El simulado lo modela (abrir el enlace usa el código; un correo nuevo anula el anterior) y AUTH-05 lo controla. Con la sesión iniciada, "Cambiar contraseña" ya no sugiere el código (la pantalla de código es sólo sin sesión). Variante `recovery-solo-codigo.html` para casillas con escáner.
+- Alcance: la confirmación de email no se usa en la beta cerrada (Auto Confirm) y su entrega real no está probada; ninguna prueba simulada prueba entrega real. Brevo: el criterio es el seguimiento de clics, no el proveedor.

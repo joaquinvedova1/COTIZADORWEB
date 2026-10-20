@@ -48,14 +48,29 @@ export const AUTH_MESSAGES = Object.freeze({
  * sin alta previa Supabase no envía ningún correo.
  */
 export const RESET_REQUESTED_MESSAGE = 'Pedido enviado. Si ese email tiene acceso a RATEOS, en unos minutos te llega un correo para elegir tu contraseña. Si no llega en 10 minutos (revisá también spam y promociones), avisale a quien te invitó: puede que tu acceso todavía no esté creado.';
+/**
+ * Subtítulo de "¿Olvidaste tu contraseña?" ANTES de pedir nada: no promete un
+ * correo (sin alta previa no sale ninguno) y dice que primero hace falta acceso.
+ */
+export const RECOVER_REQUEST_SUBTITLE = 'Pedí un correo para elegir tu contraseña (también en tu primer ingreso). Sólo llega si ya te dieron acceso a RATEOS.';
 /** "Cambiar contraseña" con la sesión iniciada y el propio email: no hay nada que ocultar. */
-export const RESET_SENT_OWN_MESSAGE = 'Te enviamos un correo para elegir una contraseña nueva. Abrí el enlace en este navegador o escribí el código que trae.';
-/** Espera entre dos pedidos del correo (Supabase también limita los envíos seguidos a una dirección). */
+export const RESET_SENT_OWN_MESSAGE = 'Te enviamos un correo para elegir una contraseña nueva. Seguí sus pasos: si trae un enlace, abrilo en este mismo navegador.';
+/**
+ * Espera de la pantalla entre dos pedidos del correo. Es sólo una ayuda de UX:
+ * vive en la memoria de esa pantalla (recargar o navegar la saltea). Los
+ * límites efectivos los pone Supabase (por dirección y por hora); su 429 se
+ * informa con `rateLimited`.
+ */
 export const RESET_COOLDOWN_SECONDS = 60;
 /** El código del correo ({{ .Token }}) no sirve o venció. */
 export const CODE_INVALID_MESSAGE = 'El código no es válido o venció. Pedí un correo nuevo y usá el código del último que llegue.';
-/** Enlace de recuperación que no se pudo canjear (otro navegador, escáner de correo, vencido). */
-export const RECOVERY_LINK_INVALID_MESSAGE = 'El enlace venció, ya se usó o se abrió en otro navegador. Si el correo trae un código, escribilo en «¿Olvidaste tu contraseña?» → «Ya tengo un código»; si no, pedí un correo nuevo.';
+/**
+ * Enlace de recuperación que no se pudo canjear (otro navegador, escáner de
+ * correo, vencido). Abrir el enlace ya usó el correo entero: en Supabase el
+ * enlace y el código son la misma credencial, así que el código de ESE correo
+ * tampoco sirve. Hay que pedir otro.
+ */
+export const RECOVERY_LINK_INVALID_MESSAGE = 'El enlace venció, ya se usó o se abrió en otro navegador, y con eso el código de ese correo tampoco sirve. Pedí un correo nuevo en «¿Olvidaste tu contraseña?»: abrí el enlace en el mismo navegador donde lo pediste o, si lo leés en otro dispositivo, no toques el enlace y escribí el código en «Ya tengo un código».';
 /** Enlace con tokens en el # (p. ej. "Send invitation" de Supabase): RATEOS no lo usa. */
 export const INVITE_LINK_MESSAGE = 'Ese enlace no sirve para entrar a RATEOS. Si ya te dieron de alta, elegí tu contraseña con «¿Olvidaste tu contraseña?» y el mismo email.';
 
@@ -441,9 +456,10 @@ export function createAuthService({ gateway, location = globalThis.location, his
 
     /**
      * Código del correo de recuperación (HD-03): alternativa al enlace PKCE que
-     * sirve en cualquier navegador (correo abierto en el celular, escáner de
-     * correo que ya consumió el enlace). Con éxito queda la sesión en modo
-     * recuperación: la pantalla pide la contraseña nueva.
+     * sirve en cualquier navegador (correo leído en el celular), siempre que
+     * nadie haya abierto antes el enlace de ese correo: enlace y código son la
+     * misma credencial. Con éxito queda la sesión en modo recuperación: la
+     * pantalla pide la contraseña nueva.
      */
     async verifyRecoveryCode(email, code) {
       const errors = {};
@@ -453,6 +469,11 @@ export function createAuthService({ gateway, location = globalThis.location, his
       if (!RECOVERY_CODE_RE.test(digits)) errors.code = 'El código son los números que trae el correo.';
       if (Object.keys(errors).length) return { ok: false, errors, message: 'Revisá los campos marcados.' };
       const res = await gateway.verifyRecoveryCode(address, digits);
+      if (res.ok && !(res.user && res.user.id)) {
+        // Respuesta incompleta: nunca queda "autenticado" ni en modo recuperación sin usuario.
+        logger.warn('Auth: la verificación del código no devolvió un usuario; no se abre la recuperación.');
+        return { ok: false, errors: {}, message: messageFor(AUTH_ERRORS.unknown), code: AUTH_ERRORS.unknown };
+      }
       if (!res.ok) {
         const invalid = res.code === AUTH_ERRORS.linkInvalid;
         return { ok: false, errors: invalid ? { code: CODE_INVALID_MESSAGE } : {}, message: invalid ? CODE_INVALID_MESSAGE : messageFor(res.code), code: res.code };

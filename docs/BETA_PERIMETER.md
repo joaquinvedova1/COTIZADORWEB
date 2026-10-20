@@ -57,9 +57,9 @@ Relevado en sólo lectura; el detalle está en la bitácora privada de auditorí
 - **Sin alta previa, Supabase no envía nada.** "¿Olvidaste tu contraseña?" responde igual exista o no la cuenta (para no revelar quién usa RATEOS) y, si no existe, no sale ningún correo. La pantalla decía "…te enviamos un enlace", y eso confundía.
 - **El SMTP es el por defecto de Supabase**: sólo entrega al equipo del proyecto. Aunque la cuenta existiera, a una persona de afuera no le llegaría nada.
 - **"Allow new users to sign up"**, con toda probabilidad, sigue encendido en el backend: hay que apagarlo (paso 1). La app ya no ofrece el registro.
-- **Escáneres de enlaces:** hay señales de que un escáner de correo abrió un enlace de un solo uso antes que la persona. Por eso la recuperación ahora también acepta el **código** del correo (§2.3).
+- **Escáneres de enlaces:** hay señales de que un escáner de correo abrió un enlace de un solo uso antes que la persona. La recuperación ahora también acepta el **código** del correo (§2.3), pero el enlace y el código de un mismo correo son **la misma credencial**: si un escáner abre el enlace, el código de ese correo tampoco sirve. Para ese caso está la plantilla **sólo código** (§2.3 paso 6).
 
-Qué corrige la app (PLAN-2026-018): `#/registro` dice que sin alta previa no llega ningún correo; la recuperación responde neutro pero dice qué hacer si no llega, espera 60 s antes de reenviar y acepta el código del correo; un enlace de "Send invitation" se borra de la URL sin abrir sesión.
+Qué corrige la app (PLAN-2026-018): `#/registro` dice que sin alta previa no llega ningún correo; la recuperación no promete un correo antes de pedirlo, responde neutro pero dice qué hacer si no llega, pide esperar 60 s antes de reenviar (sólo una ayuda de la pantalla: recargar la saltea; los límites reales los pone Supabase) y acepta el código del correo; un enlace de "Send invitation" se borra de la URL sin abrir sesión.
 
 ### Método propuesto (el más simple que preserva login, recuperación y usuarios existentes)
 
@@ -85,24 +85,24 @@ Alternativas descartadas por ahora: el *hook* "Before User Created" (lista de em
    ```
    Tiene que terminar en `PERÍMETRO DE AUTH: OK (beta por invitación)`: `disable_signup = true`, `external.email = true`, `mailer_autoconfirm = false` y ningún otro método de ingreso. Lee sólo la configuración pública (la misma que ve cualquier navegador) y no imprime datos de usuarios.
    El script no puede ver el SMTP (no es público): lo lista como verificación **A MANO**.
-3. **SMTP propio** (antes de la primera alta): ver **§2.3** (Resend, paso a paso) y las **plantillas** de `supabase/templates/` (la de recuperación trae el enlace y el código). Después, las **pruebas reales** de §2.4.
+3. **SMTP propio** (antes de la primera alta): ver **§2.3** (Resend, paso a paso) y las **plantillas** de `supabase/templates/` (la de recuperación trae el enlace y el código; hay una variante sólo con código). Después, las **pruebas reales** de §2.4.
 4. Dar de alta a cada persona de la beta: **Authentication → Users → Add user → Create new user**: su email, una contraseña larga al azar que **no** compartís, **Auto Confirm User** tildado.
-   - Avisale: "Entrá a RATEOS → Ingresar → **¿Olvidaste tu contraseña?** → tu email → abrí el enlace **en el mismo navegador** (o, si abrís el correo en otro dispositivo, **«Ya tengo un código»** y escribí el código del correo) → elegí tu contraseña".
+   - Avisale: "Entrá a RATEOS → Ingresar → **¿Olvidaste tu contraseña?** → tu email → abrí el enlace **en el mismo navegador** (o, si leés el correo en otro dispositivo, **no toques el enlace**: **«Ya tengo un código»** y escribí el código del correo) → elegí tu contraseña".
    - **Primero el alta y después el aviso:** sin alta no sale ningún correo.
    - Su empresa se crea como **"Mi empresa"**: la persona la renombra en **Configuración → Empresa**.
-   - Si el enlace dice "venció o ya se usó" apenas llega, puede haberlo abierto antes un **escáner de correo corporativo** (los enlaces de Auth son de un solo uso): pedir otro (§6).
+   - Si el enlace dice "venció o ya se usó" apenas llega, puede haberlo abierto antes un **escáner de correo corporativo** (los enlaces de Auth son de un solo uso, y con el enlace se usa también el código de ese correo): pedir otro y, si se repite, pasar a la plantilla **sólo código** (§2.3 paso 6, §6).
 5. **No usar "Send invitation"**: ese enlace no es PKCE y la app lo rechaza a propósito (AUTH_ARCHITECTURE.md §4): lo borra de la URL sin abrir sesión y explica cómo entrar. Si alguien lo recibe, igual puede entrar con "¿Olvidaste tu contraseña?". Como red de seguridad, `supabase/templates/invite.html` reemplaza ese enlace por uno a "Elegir mi contraseña".
 6. Quitar a alguien: borrar el usuario en Authentication → Users. Su organización y su workspace quedan sin miembros (nadie los ve); borrarlos es un paso aparte de la base (SQL, con autorización).
 
 ### 2.3 SMTP propio recomendado: Resend (HD-03)
 
-**Por qué Resend:** tiene SMTP compatible con Supabase (es el primero que lista su guía), **seguimiento de clics y aperturas apagado por defecto** (Supabase pide no reescribir los enlaces de Auth), un plan gratis que sobra para la beta y precio fijo si crece. **Brevo** queda descartado para Auth: en correos transaccionales reescribe los enlaces para medir clics y, según su propio foro, desactivarlo es a pedido y para clientes Enterprise. Los dos piden un **dominio propio** verificado (con una dirección `@gmail.com` no se puede firmar DKIM).
+**Por qué Resend:** tiene SMTP compatible con Supabase (es el primero que lista su guía), **seguimiento de clics y aperturas apagado por defecto** (Supabase pide no reescribir los enlaces de Auth), un plan gratis que sobra para la beta y precio fijo si crece. Con **cualquier** proveedor, el seguimiento de clics tiene que estar **apagado**: reescribir los enlaces de Auth los rompe (Supabase pide desactivarlo). **Brevo** no se recomienda por eso: en sus correos transaccionales el seguimiento de clics viene activo y, según su propio foro, apagarlo no es autoservicio. Los dos piden un **dominio propio** verificado (con una dirección `@gmail.com` no se puede firmar DKIM).
 
 | | Resend | Brevo |
 |---|---|---|
 | Plan gratis | 3.000 correos/mes, 100 por día, 1 dominio | 300 correos por día |
 | Pago | Pro: USD 20/mes (50.000 correos) | Desde ~USD 9/mes |
-| Seguimiento de enlaces | **Apagado por defecto**, por dominio | Activo en transaccionales; apagarlo, a pedido |
+| Seguimiento de enlaces | **Apagado por defecto**, por dominio | Activo en transaccionales; según su foro, apagarlo no es autoservicio |
 | SMTP | `smtp.resend.com`, puerto 465 (SSL), usuario `resend`, contraseña = API key | `smtp-relay.brevo.com`, puerto 587, clave SMTP |
 
 Precios aproximados a octubre de 2026: confirmarlos en cada sitio.
@@ -116,31 +116,39 @@ Precios aproximados a octubre de 2026: confirmarlos en cada sitio.
 3. En Resend: confirmar que el dominio tiene **Click tracking** y **Open tracking** apagados.
 4. Resend → **API Keys → Create** con permiso **Sending access** sólo para ese dominio. Copiarla una sola vez y pegarla directo en Supabase (paso 5). No guardarla en ningún otro lado.
 5. Supabase → **Authentication → Emails → SMTP Settings** → *Enable custom SMTP*: host `smtp.resend.com`, puerto `465`, usuario `resend`, contraseña = la API key, remitente `no-reply@mail.<tu-dominio>`, nombre `RATEOS` → Save.
-6. Supabase → **Authentication → Emails → Templates**: pegar `supabase/templates/recovery.html` en **Reset password** (asunto "RATEOS: elegí tu contraseña") y `invite.html` en **Invite user**. `confirmation.html` es para cuando se reabra el registro.
+6. Supabase → **Authentication → Emails → Templates**: pegar `supabase/templates/recovery.html` en **Reset password** (asunto "RATEOS: elegí tu contraseña") y `invite.html` en **Invite user**.
+   - **Si un escáner de correo consume los enlaces** (prueba R9): usar `recovery-solo-codigo.html` en su lugar. No trae ningún enlace que verifique nada (es lo que recomienda Supabase contra el *prefetch*); el costo es que no hay clic directo y, con la sesión iniciada, "Cambiar contraseña" pide salir de la cuenta para escribir el código.
+   - Hasta que se publique PLAN-2026-018, la app no tiene dónde escribir el código: el enlace (mismo navegador) funciona igual.
+   - `confirmation.html` **no se usa en la beta cerrada** (las altas son con *Auto Confirm*): es para cuando se reabra el registro, y su entrega real no está probada.
 7. Supabase → **Authentication → Rate Limits**: con SMTP propio arranca en 30 correos por hora; alcanza para 3–5 empresas.
 8. Supabase → **Authentication → URL Configuration**: Site URL `https://joaquinvedova1.github.io/COTIZADORWEB/` y Redirect URLs `https://joaquinvedova1.github.io/COTIZADORWEB/**` (lo que ya documenta AUTH_ARCHITECTURE.md §4). Con el dominio propio se agrega el suyo (§3).
 9. Correr las pruebas reales de §2.4.
 
-**Compatibilidad con PKCE:** el SMTP sólo transporta el correo; el enlace lo arma Supabase (`…/auth/v1/verify?token=…&type=recovery&redirect_to=https://…/COTIZADORWEB/?auth=recovery`) y vuelve con `?code=`, que la app canjea con el `code_verifier` de ese navegador. Lo único que lo rompe es que el proveedor **reescriba el enlace** (seguimiento de clics): con Resend está apagado. El **código** del correo (`{{ .Token }}`) no depende del navegador ni lo consume un escáner.
+**Compatibilidad con PKCE:** el SMTP sólo transporta el correo; el enlace lo arma Supabase (`…/auth/v1/verify?token=…&type=recovery&redirect_to=https://…/COTIZADORWEB/?auth=recovery`) y vuelve con `?code=`, que la app canjea con el `code_verifier` de ese navegador. Lo rompe que el proveedor **reescriba el enlace** (seguimiento de clics; con Resend está apagado) o que algo lo abra antes que la persona. El **código** del correo (`{{ .Token }}`) no depende del navegador, pero es **la misma credencial** que el enlace: si el enlace ya se abrió (otro navegador, un escáner), el código de ese correo tampoco sirve.
 
 ### 2.4 Pruebas REALES (manuales, con SMTP propio configurado)
 
 Las hace el dueño con un email propio que **no** sea del equipo de Supabase. Anotar sólo el resultado (sí/no y hora), nunca el email ni el código.
+
+**Orden recomendado:** (A) apagar "Allow new users to sign up" (§2 paso 1), sin tocar Email ni *Confirm email*; (B) dominio + Resend + SMTP verificado; (C) estas pruebas con la versión publicada (R1–R3 y R5–R9); (D) revisión, aprobación explícita y deploy controlado de PLAN-2026-018, y recién ahí **R4** (el código necesita la pantalla nueva); (E) prueba A/B real (§4) antes de la beta externa.
 
 | # | Prueba | Resultado esperado |
 |---|---|---|
 | R1 | "¿Olvidaste tu contraseña?" con un email **sin** cuenta | Mensaje neutro; **no** llega ningún correo |
 | R2 | Alta (Add user → Create new user, Auto Confirm) y "¿Olvidaste tu contraseña?" con ese email | Llega en menos de 5 min, de `no-reply@mail.<tu-dominio>`, con enlace y código; no cae en spam (probar Gmail y Outlook) |
 | R3 | Abrir el enlace en el **mismo** navegador | "Elegí una contraseña nueva" con la cuenta; guardar → entra a **su** empresa ("Mi empresa") |
-| R4 | Pedir otro correo, abrirlo en **otro** dispositivo y usar el **código** en "Ya tengo un código" | Elegir la contraseña funciona; el enlace en el otro navegador ofrece el código |
+| R4 | (Con PLAN-2026-018 publicado.) Pedir otro correo, leerlo en **otro** dispositivo **sin tocar el enlace** y escribir el **código** en "Ya tengo un código" | Elegir la contraseña funciona |
 | R5 | Ingresar con la contraseña nueva; Configuración → Cuenta → "Cambiar contraseña" | Llega el correo; el enlace cambia la contraseña |
 | R6 | La cuenta nueva no ve DOVA ni otra empresa | Sólo "Mi empresa" vacía |
 | R7 | En Resend → Emails: los correos figuran como *Delivered*, sin seguimiento | Delivered; enlaces sin reescribir |
+| R8 | Pedir el correo, recargar la página (la espera de la pantalla es sólo de UX) y pedirlo otra vez antes de 60 s; pasado el minuto, pedir otro | El segundo pedido lo rechaza Supabase ("muchos intentos"); el tercero llega y **sólo sirve el último** correo |
+| R9 | Recibir el correo en la casilla corporativa que se va a usar y esperar 2 minutos antes de abrir el enlace | El enlace funciona. Si dice "venció o ya se usó" sin haberlo tocado, hay un escáner: pasar a `recovery-solo-codigo.html` (§2.3 paso 6) |
 
 ### 2.5 Pruebas SIMULADAS (automáticas)
 
 - `node --test tests/services/auth-email.test.js` (+ `auth-service.test.js`): respuesta neutra igual con o sin cuenta, con SMTP por defecto o roto; código de 6 a 10 dígitos de un solo uso; enlaces con tokens en el # descartados; enlace de recuperación en otro navegador; nada de emails ni códigos en los logs.
-- `npm run build && npm run test:auth:e2e`: el recorrido completo en navegador (escritorio y celular) con Supabase simulado y un buzón en memoria: alta, enlace PKCE, código en otro navegador, "Send invitation", SMTP por defecto, dos empresas separadas y privacidad del almacenamiento.
+- `npm run build && npm run test:auth:e2e`: el recorrido completo en navegador (escritorio y celular) con Supabase simulado y un buzón en memoria: alta, enlace PKCE, código en otro navegador (y que el código de un correo cuyo enlace ya se abrió no sirve), "Send invitation", SMTP por defecto, dos empresas separadas y privacidad del almacenamiento.
+- **Lo que las simuladas NO prueban:** la entrega real (SMTP, spam, escáneres), los límites reales de Supabase y la confirmación de email por correo (no se usa en la beta cerrada). Eso es §2.4.
 
 ## 3. Dominio propio (HD-01)
 
@@ -232,7 +240,7 @@ Si el dueño agrega `dltlnizvnvnefgbzfftu.supabase.co` a los dominios permitidos
 - **Hasta el deploy**, `/preview/` sigue publicado (lo del run #73): HD-02 se cumple recién con el deploy de este cambio, que necesita volver a habilitar el workflow de deploy. Mientras siga deshabilitado, ningún push lo vuelve a publicar, pero tampoco llega nada a producción (ni un rollback).
 - **Hasta apagar el registro en Supabase**, cualquiera puede crear una cuenta llamando a la API: la app sólo dejó de ofrecerlo. No expone datos de otras empresas (cada cuenta nace con su propia empresa y RLS lo garantiza).
 - **Hasta configurar un SMTP propio**, sólo reciben correos de RATEOS los miembros del equipo de Supabase: una persona invitada no puede elegir su contraseña. Fuera de sesión la app responde neutro a propósito, pero ahora dice qué hacer si no llega nada (avisar a quien la invitó). Lo detecta la prueba R2 de §2.4.
-- **Escáneres de correo corporativos:** algunos abren los enlaces antes que la persona y, como los enlaces de Auth son de un solo uso, al hacer clic aparece "El enlace venció…". Mitigación ya hecha en la app: el **código** del correo ("Ya tengo un código"), que un escáner no consume; requiere la plantilla `supabase/templates/recovery.html` (§2.3 paso 6).
+- **Escáneres de correo corporativos:** algunos abren los enlaces antes que la persona y, como los enlaces de Auth son de un solo uso, al hacer clic aparece "El enlace venció…". Con el enlace se usa también el código de ese correo (misma credencial). Mitigación: la plantilla **sólo código** (`supabase/templates/recovery-solo-codigo.html`, §2.3 paso 6), que no trae ningún enlace que verifique nada; lo detecta la prueba R9.
 - **Sesiones viejas en el origen compartido:** las sesiones abiertas en github.io quedan en el `localStorage` de ese origen. Mitigación: cerrar sesión antes del cambio de dominio (§3 paso 5).
 - **JWT vigente después del logout:** un access token ya emitido sigue siendo válido hasta su vencimiento (Supabase: 1 hora por defecto); el logout revoca el refresh token y la app borra la sesión del navegador. Lo mide la prueba A/B.
 - **La prueba A/B real no se pudo ejecutar** desde este entorno (red); hasta correrla, el aislamiento entre usuarios autenticados reales está probado por los tests SQL en la base real (204 controles, simulando la API) y por los E2E con Supabase simulado.
