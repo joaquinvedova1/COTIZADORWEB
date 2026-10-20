@@ -12,7 +12,7 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
-**HD-03 (PLAN-2026-018): alta por invitación y correos de Auth.** Una persona invitada no recibió ningún correo: no tenía cuenta (Supabase no envía nada) y la pantalla decía "te enviamos un enlace"; además el SMTP es el por defecto de Supabase (sólo entrega al equipo). Sin cambios de fórmulas, esquema ni datos.
+**HD-03 (PLAN-2026-018): alta por invitación y correos de Auth.** Sin alta previa, "¿Olvidaste tu contraseña?" no envía nada, pero la pantalla decía "te enviamos un enlace". Además, el SMTP por defecto de Supabase sólo entrega al equipo del proyecto. Sin cambios de fórmulas, esquema ni datos.
 
 ### Agregado
 

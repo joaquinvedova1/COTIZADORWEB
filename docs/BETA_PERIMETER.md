@@ -50,15 +50,14 @@ Un staging tiene que estar aislado en **origen** y en **base**:
 - No pude leer la configuración pública de Auth (`/auth/v1/settings`) desde el entorno de desarrollo: la red de este entorno no llega al host de Supabase. Lo comprueba `node scripts/check-auth-perimeter.mjs` (abajo).
 - **Correo:** el repo no registra ningún SMTP propio (README y AUTH_ARCHITECTURE.md §9.1 lo dejan pendiente) y esa configuración no es pública, así que no la pude verificar. Con el **SMTP por defecto**, Supabase **sólo envía correos a los miembros del equipo del proyecto** (Organization → Team): a cualquier otra dirección responde *Email address not authorized*. Además tiene un límite bajo por hora y no tiene garantía de entrega.
 
-### Diagnóstico del 2026-10-20 (HD-03: "no me llegó el correo")
+### Diagnóstico de HD-03 (2026-10-20): "no me llegó el correo"
 
-Relevado en sólo lectura (tabla `auth.users` agregada, sin emails, y logs de Auth del 05/10 al 20/10). Detalle y evidencia en la bitácora privada (RATEOS-AUDIT `tasks/HD-03/`).
+Relevado en sólo lectura; el detalle está en la bitácora privada de auditoría (no en este repositorio público).
 
-- **El intento no fue un registro.** Desde el 05/10 no hay ningún `/signup` en los logs (ni en Auth ni en el gateway): los únicos dos son las cuentas del dueño. Hay **5 pedidos de recuperación** (19/10, 20:59–21:03 hora argentina) para un email **sin cuenta**: Supabase responde 200 y **no envía nada** (no hay evento de envío). La pantalla decía "Si hay una cuenta con ese email, te enviamos un enlace…".
-- **No hay ninguna cuenta pendiente:** 2 usuarios, ambos confirmados; 0 invitados.
-- **SMTP: el por defecto de Supabase.** Los únicos correos enviados (05/10) salieron de `noreply@mail.app.supabase.io`, y no hubo cambios de configuración de Auth después (no hay recargas de configuración en los logs). Ese SMTP **sólo entrega al equipo del proyecto**: aunque la cuenta existiera, a una persona de afuera no le llegaría nada.
-- **"Allow new users to sign up" sigue, con toda probabilidad, encendido** (el 05/10 los registros funcionaron y no hubo cambios después). La app no lo ofrece, pero la API sí: hay que apagarlo (paso 1).
-- **Escáner de enlaces:** en la confirmación de la segunda cuenta llegó un `HEAD` y un `GET` al enlace 20 s después del envío, y el clic humano posterior dio "Email link is invalid or has expired". Por eso la recuperación ahora también acepta el **código** del correo (§2.3).
+- **Sin alta previa, Supabase no envía nada.** "¿Olvidaste tu contraseña?" responde igual exista o no la cuenta (para no revelar quién usa RATEOS) y, si no existe, no sale ningún correo. La pantalla decía "…te enviamos un enlace", y eso confundía.
+- **El SMTP es el por defecto de Supabase**: sólo entrega al equipo del proyecto. Aunque la cuenta existiera, a una persona de afuera no le llegaría nada.
+- **"Allow new users to sign up"**, con toda probabilidad, sigue encendido en el backend: hay que apagarlo (paso 1). La app ya no ofrece el registro.
+- **Escáneres de enlaces:** hay señales de que un escáner de correo abrió un enlace de un solo uso antes que la persona. Por eso la recuperación ahora también acepta el **código** del correo (§2.3).
 
 Qué corrige la app (PLAN-2026-018): `#/registro` dice que sin alta previa no llega ningún correo; la recuperación responde neutro pero dice qué hacer si no llega, espera 60 s antes de reenviar y acepta el código del correo; un enlace de "Send invitation" se borra de la URL sin abrir sesión.
 
@@ -89,7 +88,7 @@ Alternativas descartadas por ahora: el *hook* "Before User Created" (lista de em
 3. **SMTP propio** (antes de la primera alta): ver **§2.3** (Resend, paso a paso) y las **plantillas** de `supabase/templates/` (la de recuperación trae el enlace y el código). Después, las **pruebas reales** de §2.4.
 4. Dar de alta a cada persona de la beta: **Authentication → Users → Add user → Create new user**: su email, una contraseña larga al azar que **no** compartís, **Auto Confirm User** tildado.
    - Avisale: "Entrá a RATEOS → Ingresar → **¿Olvidaste tu contraseña?** → tu email → abrí el enlace **en el mismo navegador** (o, si abrís el correo en otro dispositivo, **«Ya tengo un código»** y escribí el código del correo) → elegí tu contraseña".
-   - **Primero el alta y después el aviso:** sin alta no sale ningún correo (es lo que pasó el 19/10).
+   - **Primero el alta y después el aviso:** sin alta no sale ningún correo.
    - Su empresa se crea como **"Mi empresa"**: la persona la renombra en **Configuración → Empresa**.
    - Si el enlace dice "venció o ya se usó" apenas llega, puede haberlo abierto antes un **escáner de correo corporativo** (los enlaces de Auth son de un solo uso): pedir otro (§6).
 5. **No usar "Send invitation"**: ese enlace no es PKCE y la app lo rechaza a propósito (AUTH_ARCHITECTURE.md §4): lo borra de la URL sin abrir sesión y explica cómo entrar. Si alguien lo recibe, igual puede entrar con "¿Olvidaste tu contraseña?". Como red de seguridad, `supabase/templates/invite.html` reemplaza ese enlace por uno a "Elegir mi contraseña".

@@ -1184,7 +1184,7 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - Fecha de inicio: 2026-10-20
 
 #### 1. Contexto y problema
-Una persona invitada completó un formulario y nunca recibió el correo. Diagnóstico en sólo lectura (BETA_PERIMETER.md §2): no hubo ningún registro; hubo 5 pedidos de "¿Olvidaste tu contraseña?" para un email sin cuenta (Supabase no envía nada) y la pantalla decía "…te enviamos un enlace". Además el SMTP es el por defecto de Supabase (sólo entrega al equipo del proyecto), el registro del backend sigue abierto y hay señales de un escáner de enlaces que consume los enlaces de un solo uso.
+Una persona invitada completó un formulario y nunca recibió el correo. Diagnóstico en sólo lectura (resumen en BETA_PERIMETER.md §2; detalle en la bitácora privada): no había alta previa, así que "¿Olvidaste tu contraseña?" no envió nada, y la pantalla decía "…te enviamos un enlace". Además, el SMTP es el por defecto de Supabase (sólo entrega al equipo del proyecto), el registro del backend sigue abierto y hay señales de un escáner que consume los enlaces de un solo uso.
 
 #### 2. Objetivo y no-objetivos
 - Objetivo: que una persona de la beta pueda entrar por primera vez con un correo real, sin depender del navegador donde lo abre, y que la app diga la verdad cuando no llega nada, sin revelar quién tiene cuenta.
@@ -1204,7 +1204,7 @@ Ninguno: sin migraciones ni campos nuevos. No se tocó ninguna cuenta.
 - Proveedor recomendado: Resend (seguimiento de enlaces apagado por defecto). Brevo descartado para Auth (reescribe los enlaces de los transaccionales).
 
 #### 6. Pasos
-- [x] 1. Diagnóstico en sólo lectura (usuarios agregados sin PII, logs de Auth y del gateway del 05/10 al 20/10).
+- [x] 1. Diagnóstico en sólo lectura (usuarios agregados sin datos personales, logs de Auth y del gateway).
 - [x] 2. Servicio, puerta y pantallas; plantillas.
 - [x] 3. Tests simulados: unitarios (`tests/services/auth-email.test.js`) y navegador (`npm run test:auth:e2e`, escritorio y celular, en el PR gate).
 - [x] 4. Docs: BETA_PERIMETER §2 (diagnóstico, §2.3 SMTP con Resend, §2.4 pruebas reales, §2.5 simuladas), AUTH_ARCHITECTURE §4, CHANGELOG.
