@@ -1238,9 +1238,9 @@ Ninguno. No se toca `js/engines/**` ni `js/domain/**`. Golden 39/39 y candado si
 Ninguno: ni campos nuevos ni esquema (sigue en 10). El PDF sólo lee `offerDate`, que ya existe.
 
 #### 5. Pasos
-- [ ] 1. Este plan, antes del código.
-- [ ] 2. Tests que fallan en `main`: el estático de `DESIGN.md` y los tokens (`tests/ui/design-system.test.js`) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
-- [ ] 3. `DESIGN.md`, tokens, CSS, estado de guardado, nota de precio de referencia y fecha de la oferta.
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests que fallan en `main`: el estático de `DESIGN.md` y los tokens (`tests/ui/design-system.test.js`) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+- [x] 3. `DESIGN.md`, tokens, CSS, estado de guardado, nota de precio de referencia y fecha de la oferta.
 - [ ] 4. Validación completa:
   - suite, Test Lab, gate, `ui-lab` y `auth-lab`;
   - capturas antes y después a 1440 y 390 px;
@@ -1252,3 +1252,11 @@ Revert del PR. No deja datos.
 
 #### Bitácora
 - 2026-10-20: base `main` `d6540b7`. Primero este plan; después los tests y la implementación.
+- 2026-10-20: tests escritos antes del código: los 15 estáticos fallan en `main` (`tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js`); el bloque DESIGN-02 del `ui-lab` se corre contra `main` con acciones "suaves".
+- 2026-10-20: implementado.
+  - CSS: 75 tamaños por debajo de 12 px pasan a `var(--fs-xs)` (0,8 rem), salvo los textos del gráfico, que van en `12px` porque el SVG se dibuja en px reales. Con texto de 12 px, los rótulos al final de las líneas del gráfico piden 14 px de separación (antes 13).
+  - Decisiones técnicas:
+    - la tarifa piso va **punteada** (no con guiones), porque los guiones ya son de la tarifa cotizada;
+    - en el riel, el texto completo del estado queda para los lectores de pantalla y se ve la palabra corta (`SYNC_SHORT_LABELS` en `js/app.js`);
+    - en el celular, la barra lleva su propio `role="status"`: con el menú cerrado, el del menú no se ve ni se anuncia;
+    - los textos nuevos están en `js/ui/reference-text.js` (puro, con tests): la nota de mercado y las fechas del PDF, que leen `offerDate` como fecha sin hora (no se corre un día por la zona horaria).

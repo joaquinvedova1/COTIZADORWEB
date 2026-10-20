@@ -149,7 +149,10 @@ export function createLayout(container, { version = {} } = {}) {
   );
   const syncDotEl = h('span', { class: 'sync-dot', 'aria-hidden': 'true' });
   const syncTextEl = h('span', { class: 'sync-text' });
-  const syncEl = h('div', { class: 'sync-status', role: 'status', hidden: true }, syncDotEl, syncTextEl);
+  // En el riel (761 a 1100 px) el texto completo no entra: se ve una palabra corta y los lectores de
+  // pantalla leen el completo (DESIGN-02). Así el estado nunca queda como un punto de color solo.
+  const syncShortEl = h('span', { class: 'sync-short', 'aria-hidden': 'true' });
+  const syncEl = h('div', { class: 'sync-status', role: 'status', hidden: true }, syncDotEl, syncTextEl, syncShortEl);
   const sidebarFooter = h(
     'div',
     { class: 'sidebar-footer' },
@@ -170,7 +173,12 @@ export function createLayout(container, { version = {} } = {}) {
     menuIconHost,
     h('span', {}, 'Menú'),
   );
-  const mobileBar = h('div', { class: 'mobile-bar' }, brandLink('brand-compact'), menuToggle);
+  // Celular: el estado de la nube también en la barra de arriba (con el menú cerrado, el del menú no se ve).
+  const mobileSyncTextEl = h('span', { class: 'sr-only' });
+  const mobileSyncShortEl = h('span', { class: 'sync-short', 'aria-hidden': 'true' });
+  const mobileSyncEl = h('div', { class: 'sync-status sync-status-bar', role: 'status', hidden: true },
+    h('span', { class: 'sync-dot', 'aria-hidden': 'true' }), mobileSyncTextEl, mobileSyncShortEl);
+  const mobileBar = h('div', { class: 'mobile-bar' }, brandLink('brand-compact'), mobileSyncEl, menuToggle);
   const backdrop = h('div', { class: 'nav-backdrop', 'aria-hidden': 'true' });
 
   function setNavOpen(open, { returnFocus = false } = {}) {
@@ -391,6 +399,7 @@ export function createLayout(container, { version = {} } = {}) {
         userEmailEl.textContent = '';
         accountEl.hidden = true;
         syncEl.hidden = true;
+        mobileSyncEl.hidden = true;
         return;
       }
       const name = typeof info.name === 'string' && info.name.trim() ? info.name.trim() : '';
@@ -419,11 +428,19 @@ export function createLayout(container, { version = {} } = {}) {
     onSignOut(handler) {
       signOutHandler = typeof handler === 'function' ? handler : null;
     },
-    /** Estado de sincronización con la nube (texto + punto de color). */
-    setSyncStatus({ status, label } = {}) {
-      syncEl.hidden = !label;
-      syncTextEl.textContent = label || '';
-      syncEl.dataset.status = status || '';
+    /**
+     * Estado de sincronización con la nube: punto de color + texto completo y
+     * una palabra corta para el riel y la barra del celular ("Guardado",
+     * "Sin conexión"…). Sin `short`, la palabra es el texto completo.
+     */
+    setSyncStatus({ status, label, short } = {}) {
+      const word = label ? short || label : '';
+      for (const [el, textEl, shortEl] of [[syncEl, syncTextEl, syncShortEl], [mobileSyncEl, mobileSyncTextEl, mobileSyncShortEl]]) {
+        el.hidden = !label;
+        textEl.textContent = label || '';
+        shortEl.textContent = word;
+        el.dataset.status = status || '';
+      }
     },
     /**
      * Al cerrar la cuenta (PLAN-2026-015): el menú y la barra de la app (ocultos

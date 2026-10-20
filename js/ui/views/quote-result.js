@@ -71,7 +71,7 @@ import {
   toast as componentToast,
   barList,
 } from '../components.js';
-import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { createTrace } from '../../core/trace.js';
 import { track } from '../../core/events.js';
@@ -94,6 +94,7 @@ import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import { onSessionReset } from '../session-memory.js';
+import { REFERENCE_PRICE_NOTE, documentDatesText } from '../reference-text.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
   dayDecimals,
@@ -1745,6 +1746,8 @@ function renderSummary(v) {
         illustrativeBadge(v))),
     draft,
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
+    // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado. Se imprime.
+    h('p', { class: 'qr-note qr-reference-note' }, REFERENCE_PRICE_NOTE),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
     workBlock(v),
     transportBlock(v),
@@ -2194,7 +2197,8 @@ function chartSvg(v, data, width) {
   const labelNodes = endLabels.filter((lbl, i) => {
     const prev = endLabels[i - 1];
     const next = endLabels[i + 1];
-    return (!prev || lbl.y - prev.y >= 13) && (!next || next.y - lbl.y >= 13);
+    // Con texto de 12 px (DESIGN-02), dos rótulos necesitan 14 px de separación para no pisarse.
+    return (!prev || lbl.y - prev.y >= 14) && (!next || next.y - lbl.y >= 14);
   }).map((lbl) => s('text', { x: L + PW + 8, y: (lbl.y + 4).toFixed(1), class: 'qr-chart-label' }, lbl.text));
 
   // Zonas de hover (tooltip nativo) por cada día de la matriz.
@@ -3716,7 +3720,8 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
     h('div', { class: 'qr-print-title' }, parts || 'Cotización'),
     h('div', { class: 'qr-print-meta' },
       q.client ? `Cliente: ${String(q.client)} · ` : '',
-      `Fecha: ${formatDate(new Date())} · Montos sin IVA`,
+      // AUD-T1 C-E2-11 (DESIGN-02): la fecha de la oferta y, aparte, la de impresión.
+      `${documentDatesText({ offerDate: q.offerDate })} · Montos sin IVA`,
       v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''));
 }
 
