@@ -131,3 +131,15 @@ Recursos → Personal arranca **agrupado por convenio** ("Por convenio"; "Lista"
 - búsqueda (puesto, categoría o convenio) y filtro por convenio en la dirección (`#/recursos/personal?q=…&convenio=…`).
 
 **"Editar sueldo"** (`js/ui/labor-salary-dialog.js`): bruto mensual remunerativo, básico opcional, mes base (obligatorio si cambia el sueldo), fuente y referencia; vista previa del costo empresa por persona antes → después con "Ver cálculo". Nunca cambia cotizaciones: las que usan el perfil avisan "El costo de … fue actualizado" (§3) y la persona decide. Sin aumentos automáticos, paritarias ni historial de sueldos.
+
+## 11. Equipos por familia (RES-02, PLAN-2026-024)
+
+Recursos → Equipos arranca **agrupado por familia** ("Por familia"; "Lista" y "Detallada" siguen). Funciones puras en `js/domain/equipment-groups.js`:
+
+- grupos visibles fijos que juntan las familias del catálogo (§7); cada familia está en un solo grupo (test). Vactor y camión atmosférico van en "Equipos de vacío y succión", y flushby y wireline en "Equipos de pozo", no con los camiones. Lo que no tiene familia (o es "Otro / Personalizado") va en "Otros / sin familia";
+- **cada ficha es una unidad**: las propias forman la flota; las alquiladas y tercerizadas se cuentan aparte y **no suman** (se pagan por uso, con su tarifa);
+- el monto de un grupo es la **posesión** de las propias por mes (de la ficha: amortización, costo de capital, seguro, patente, certificaciones, otros y mantenimiento fijo), aunque no trabajen. Una propia valuada en otra moneda sin tipo de cambio no se suma (no se mezclan monedas): el monto es un subtotal parcial y lo dice;
+- búsqueda (nombre, interno, dominio, familia, capacidad o modelo) y filtro por tenencia en la dirección (`#/recursos/equipos?q=…&tenencia=propias|externas`).
+
+Nada de esto cambia datos ni fórmulas: los montos salen de `equipmentCard`.
+

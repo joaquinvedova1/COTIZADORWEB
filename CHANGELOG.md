@@ -12,6 +12,24 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**RES-02 (2/2) (PLAN-2026-024): Equipos agrupados por familia.** Ninguna fórmula ni dato cambia: golden 39/39 sin tocar, esquema 10 y ningún campo nuevo.
+
+### Agregado
+
+- **Recursos → Equipos "Por familia"** (la vista de entrada), en grupos fijos: grúas, camiones, equipos de vacío y succión, equipos de pozo, remolques y tanques, camionetas y vehículos livianos, movimiento de suelo, equipos de apoyo y "Otros / sin familia". Vactor, camión atmosférico, flushby y wireline van aparte de los camiones (revisión de ChatGPT del Issue #4, punto 6). Cada familia del catálogo está en un solo grupo (test).
+- Cada encabezado cuenta las **unidades propias** y, aparte, las **alquiladas o tercerizadas, que no suman**; el monto es la **posesión de las propias por mes** (lo que cuestan aunque no trabajen). Una propia valuada en otra moneda sin tipo de cambio no se suma: el monto queda como subtotal parcial y lo dice.
+- Filas con la posesión por mes (con "Ver cálculo" que termina en ese número), la operación ($/h sin combustible + L/h), la tarifa de las alquiladas, "Usado en" y Editar. Búsqueda (nombre, interno, dominio, familia, capacidad o modelo) y filtro por tenencia en la dirección (`?q=&tenencia=`), "Plegar todo" / "Desplegar todo". "Lista" y "Detallada" siguen.
+- Regresiones: `tests/domain/equipment-groups.test.js` (13 tests) y 20 controles RES-02-EQ por modo en el `ui-lab`.
+
+### Cambiado
+
+- En el celular, la explicación de posesión y operación de Equipos queda plegada en una línea, y en las vistas agrupadas la cantidad de la barra se oculta (el resumen ya la dice): los grupos aparecen en la primera pantalla.
+- Personal y Equipos comparten el mismo grupo plegable (`resource-group*`).
+
+### Corregido
+
+- En el celular, la nota "Valor en … : se calcula en cada cotización con su tipo de cambio" de una unidad sin tipo de cambio no se partía y ensanchaba la página (también en "Lista").
+
 **RES-02 (1/2) (PLAN-2026-023): Personal agrupado por convenio y sueldo bruto sin doble conteo.** Ninguna fórmula cambia: golden 39/39 sin tocar. Un campo opcional e informativo (`laborProfiles[].peopleCount`), sin migración: el esquema sigue en 10. Las cotizaciones guardadas no cambian.
 
 ### Agregado

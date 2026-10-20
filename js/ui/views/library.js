@@ -15,6 +15,11 @@
  * Personal (RES-02, PLAN-2026-023) arranca agrupado por convenio, con
  * búsqueda y filtro en la dirección (?q=&convenio=) y "Editar sueldo" (bruto
  * que se descompone en básico + adicionales). "Lista" y "Detallada" siguen.
+ *
+ * Equipos (RES-02, PLAN-2026-024) arranca agrupado por familia: unidades
+ * propias y, aparte, alquiladas o tercerizadas (no suman), con el costo de
+ * posesión de la flota propia y búsqueda y filtro en la dirección
+ * (?q=&tenencia=).
  */
 
 import { h, mount, uniqueId } from '../dom.js';
@@ -41,7 +46,7 @@ import {
 } from '../components.js';
 import { createTrace } from '../../core/trace.js';
 import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatValue, formatDayDate, EMPTY } from '../../core/format.js';
-import { isFiniteNumber, toNumber } from '../../core/money.js';
+import { isFiniteNumber, roundMoney, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
 import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf } from '../../domain/catalogs.js';
@@ -60,6 +65,7 @@ import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { render as renderNotFound } from './not-found.js';
 import { resourceUsage } from '../../domain/resource-usage.js';
 import { filterLaborGroups, grossOf, groupCountsText, groupLaborProfiles } from '../../domain/labor-groups.js';
+import { TENURE_EXTERNAL, TENURE_OWNED, equipmentCountsText, filterEquipmentGroups, groupEquipment } from '../../domain/equipment-groups.js';
 import { openSalaryDialog } from '../labor-salary-dialog.js';
 import { activationTerms, activationFieldLabels } from '../../domain/activation-terms.js';
 
@@ -92,7 +98,7 @@ const TABS = Object.freeze([
     type: 'equipment',
     addLabel: 'Agregar equipo',
     icon: 'services',
-    intro: 'Mis equipos: las unidades reales de tu empresa (interno, modelo, valor, base y movilidad). En las propias, RATEOS separa lo que cuesta tenerlas (COSTO DE POSESIÓN, aunque no trabajen) de lo que cuesta usarlas (COSTO DE OPERACIÓN).',
+    intro: 'Mis equipos: las unidades reales de tu empresa, propias, alquiladas o tercerizadas.',
     emptyTitle: 'Todavía no agregaste equipos.',
     emptyText: 'Guardá tus equipos una vez y reutilizalos en futuras cotizaciones.',
   },
@@ -160,6 +166,10 @@ let resourceView = 'simple';
 let laborView = 'grouped';
 /** Grupos de Personal que se plegaron (sólo en memoria). */
 const collapsedLaborGroups = new Set();
+/** Vista de Equipos (RES-02): grouped (por familia, la de entrada) | simple | detailed. Sólo en memoria. */
+let equipmentView = 'grouped';
+/** Grupos de Equipos que se plegaron (sólo en memoria). */
+const collapsedEquipmentGroups = new Set();
 
 /** Parámetros de la dirección de la vista ("#/recursos/personal?q=…&convenio=…"). */
 function hashQuery() {
@@ -206,6 +216,24 @@ function rowActions({ name, onEdit, onDelete }) {
     button('Editar', { variant: 'secondary', size: 'sm', icon: 'edit', onClick: onEdit, attrs: { 'aria-label': `Editar ${name}` } }),
     button('', { variant: 'danger', size: 'sm', icon: 'trash', title: 'Eliminar', onClick: onDelete, attrs: { 'aria-label': `Eliminar ${name}` } }),
   );
+}
+
+/**
+ * Grupo plegable de Recursos (RES-02): Personal por convenio y Equipos por
+ * familia. Las clases `resource-group*` dan el estilo; las `${prefix}-group*`
+ * quedan como ganchos para las pruebas.
+ */
+function resourceGroupNode({ prefix, key, title, counts, amount, help = null, body, open, warn = false, className = null, onToggle }) {
+  const cls = (part) => [`resource-group${part}`, `${prefix}-group${part}`];
+  const details = h('details', { class: [...cls(''), warn ? 'resource-group-warn' : null, className], open, dataset: { group: key } },
+    h('summary', { class: cls('-summary') },
+      h('span', { class: cls('-title') }, title),
+      h('span', { class: cls('-counts') }, counts),
+      amount),
+    help,
+    body);
+  details.addEventListener('toggle', () => onToggle(details.open));
+  return details;
 }
 
 /** Resultado + "Ver cálculo" debajo (la traza queda junto al número que explica). */
@@ -325,6 +353,37 @@ function equipmentTrace(eq, c) {
     notes: [
       'La amortización y el costo de capital no son salidas de caja mensuales, pero sí son costo: el equipo se desgasta y la plata invertida tiene un costo.',
       'Con menos utilización, el costo de posesión se reparte en menos horas y sube el $/hora.',
+    ],
+  });
+}
+
+/** "Ver cálculo" del costo de posesión de una unidad propia (RES-02): termina en el número de su fila. */
+function holdingTrace(eq, c) {
+  const o = c.ownership;
+  return createTrace({
+    id: 'equipment_holding',
+    title: `Costo de posesión — ${eq.name || 'equipo'}`,
+    formula: 'Posesión/mes = amortización + seguro + patente + certificaciones + otros + mantenimiento fijo (presupuesto) + costo de capital',
+    inputs: [
+      { label: 'Valor de reposición', value: o.replacement, format: 'money' },
+      { label: 'Valor residual', value: o.residual, format: 'money' },
+      { label: 'Vida útil', value: o.lifeYears, format: 'number', unit: 'años' },
+      { label: 'Seguro anual', value: o.insuranceMonthly * 12, format: 'money' },
+      { label: 'Patente anual', value: o.licenseMonthly * 12, format: 'money' },
+      { label: 'Certificaciones anuales', value: o.certificationsMonthly * 12, format: 'money' },
+      { label: 'Otros costos anuales', value: o.otherMonthly * 12, format: 'money' },
+      { label: 'Costo de capital (anual)', value: toNumber(eq.capitalRatePctAnnual), format: 'percent' },
+      o.maintenanceFixedMonthly > 0 ? { label: 'Mantenimiento fijo por mes (presupuesto)', value: o.maintenanceFixedMonthly, format: 'money' } : null,
+    ],
+    steps: [
+      { label: 'Amortización mensual', value: o.depreciationMonthly, format: 'money' },
+      { label: 'Seguro + patente + certificaciones + otros + mantenimiento fijo (mensual)', value: o.cashMonthly, format: 'money' },
+      { label: 'Costo de capital mensual', value: o.capitalCostMonthly, format: 'money' },
+    ],
+    result: { label: 'COSTO DE POSESIÓN mensual', value: o.totalMonthly, format: 'money' },
+    notes: [
+      'Existe aunque el equipo no trabaje. No incluye la operación (mantenimiento y neumáticos por hora y combustible): depende del uso en cada cotización.',
+      'La amortización y el costo de capital no son salidas de caja mensuales, pero sí son costo: el equipo se desgasta y la plata invertida tiene un costo.',
     ],
   });
 }
@@ -1493,8 +1552,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   /** Monto del encabezado de un grupo: nunca "total del personal" si falta alguna cantidad. */
   function groupAmount(g) {
-    if (g.subtotal === null) return h('span', { class: 'labor-group-amount muted' }, 'Sin monto: cargá cuántas personas tiene cada perfil');
-    return h('span', { class: 'labor-group-amount' },
+    const cls = ['resource-group-amount', 'labor-group-amount'];
+    if (g.subtotal === null) return h('span', { class: [...cls, 'muted'] }, 'Sin monto: cargá cuántas personas tiene cada perfil');
+    return h('span', { class: cls },
       h('strong', { class: 'nowrap' }, `${g.partial ? 'Subtotal parcial: ' : ''}${formatMoney(g.subtotal)} / mes`),
       h('span', { class: 'cell-sub' }, g.partial ? 'sólo los perfiles con cantidad cargada' : 'costo empresa de las personas cargadas'));
   }
@@ -1502,7 +1562,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   function laborGroupTable(g) {
     return table({
       caption: `Perfiles: ${g.title}`,
-      className: 'lib-table labor-group-table table-cards',
+      className: 'lib-table resource-group-table labor-group-table table-cards',
       columns: [
         { key: 'role', label: 'Puesto', render: ({ profile }) => nameCell(profile.role, profile.category, profile.illustrative) },
         {
@@ -1544,22 +1604,24 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   }
 
   function laborGroupNode(g) {
-    const details = h('details', { class: ['labor-group', `labor-group-${g.kind}`], open: g.kind === 'none' || !collapsedLaborGroups.has(g.key), dataset: { group: g.key } },
-      h('summary', { class: 'labor-group-summary' },
-        h('span', { class: 'labor-group-title' }, g.title, g.kind === 'none' ? [' ', badge('Falta el dato', 'orange')] : null),
-        h('span', { class: 'labor-group-counts' }, groupCountsText(g)),
-        groupAmount(g)),
-      g.kind === 'none'
-        ? h('p', { class: 'small labor-group-help' }, 'Estos perfiles no dicen su convenio. Elegilo en "Editar" o creá el de tu empresa en ', h('a', { href: '#/configuracion/convenios' }, 'Configuración → Convenios'), '. No cambia el costo.')
+    const help = (...text) => h('p', { class: ['small', 'resource-group-help', 'labor-group-help'] }, ...text);
+    return resourceGroupNode({
+      prefix: 'labor',
+      key: g.key,
+      className: `labor-group-${g.kind}`,
+      warn: g.kind === 'none',
+      title: [g.title, g.kind === 'none' ? [' ', badge('Falta el dato', 'orange')] : null],
+      counts: groupCountsText(g),
+      amount: groupAmount(g),
+      help: g.kind === 'none'
+        ? help('Estos perfiles no dicen su convenio. Elegilo en "Editar" o creá el de tu empresa en ', h('a', { href: '#/configuracion/convenios' }, 'Configuración → Convenios'), '. No cambia el costo.')
         : g.kind === 'outside'
-          ? h('p', { class: 'small labor-group-help' }, 'Sin reglas de convenio: el sueldo y los parámetros de cargas los define la empresa.')
+          ? help('Sin reglas de convenio: el sueldo y los parámetros de cargas los define la empresa.')
           : null,
-      laborGroupTable(g));
-    details.addEventListener('toggle', () => {
-      if (details.open) collapsedLaborGroups.delete(g.key);
-      else collapsedLaborGroups.add(g.key);
+      body: laborGroupTable(g),
+      open: g.kind === 'none' || !collapsedLaborGroups.has(g.key),
+      onToggle: (open) => (open ? collapsedLaborGroups.delete(g.key) : collapsedLaborGroups.add(g.key)),
     });
-    return details;
   }
 
   /** Personal agrupado por convenio: la vista de entrada (RES-02). */
@@ -1567,8 +1629,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const params = hashQuery();
     const all = groupLaborProfiles(list('laborProfiles'), list('agreements'), { costOf: (p) => ctx.resources.laborProfileCost(p).perPerson.fixedMonthly });
     const state = { query: params.get('q') || '', group: all.some((g) => g.key === params.get('convenio')) ? params.get('convenio') : '' };
-    const host = h('div', { class: 'labor-groups' });
-    const summary = h('p', { class: 'small labor-summary', role: 'status' });
+    const host = h('div', { class: ['resource-groups', 'labor-groups'] });
+    const summary = h('p', { class: ['small', 'resource-summary', 'labor-summary'], role: 'status' });
     const toggleAll = button('Plegar todo', { variant: 'secondary', size: 'sm' });
 
     const draw = () => {
@@ -1579,7 +1641,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       mount(summary,
         `${profiles} ${profiles === 1 ? 'perfil' : 'perfiles'} en ${groups.length} ${groups.length === 1 ? 'grupo' : 'grupos'}`
           + (known ? ` · ${people} ${people === 1 ? 'persona' : 'personas'} cargadas en ${known} ${known === 1 ? 'perfil' : 'perfiles'}.` : ' · personas sin cargar.'),
-        h('span', { class: 'labor-summary-help' }, ' Un perfil es un puesto; las personas se cargan en cada perfil (opcional).'));
+        h('span', { class: ['resource-summary-help', 'labor-summary-help'] }, ' Un perfil es un puesto; las personas se cargan en cada perfil (opcional).'));
       mount(host, groups.length ? groups.map(laborGroupNode) : h('p', { class: 'muted' }, 'Ningún perfil coincide con la búsqueda.'));
       const anyOpen = groups.some((g) => g.kind !== 'none' && !collapsedLaborGroups.has(g.key));
       toggleAll.textContent = anyOpen ? 'Plegar todo' : 'Desplegar todo';
@@ -1618,7 +1680,142 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     });
     draw();
     return h('div', { class: 'stack labor-grouped' },
-      h('div', { class: 'labor-filters' }, searchInput, groupSelect, h('div', { class: 'labor-filters-actions' }, toggleAll)),
+      h('div', { class: ['resource-filters', 'labor-filters'] }, searchInput, groupSelect, h('div', { class: 'resource-filters-actions' }, toggleAll)),
+      summary,
+      host);
+  }
+
+  // ------------------------------------------- Equipos por familia (RES-02)
+
+  /** Monto del encabezado: la posesión de las propias. Las alquiladas y tercerizadas nunca suman. */
+  function equipmentGroupAmount(g) {
+    const cls = ['resource-group-amount', 'equipment-group-amount'];
+    if (g.holdingMonthly === null) {
+      return h('span', { class: [...cls, 'muted'] }, g.ownedCount
+        ? `Sin monto: ${g.unvaluedCount === 1 ? 'la unidad propia está valuada' : 'las unidades propias están valuadas'} en otra moneda sin tipo de cambio`
+        : 'Sin unidades propias: las alquiladas y tercerizadas se pagan por uso');
+    }
+    const missing = g.unvaluedCount === 1 ? '1 unidad valuada' : `${g.unvaluedCount} unidades valuadas`;
+    return h('span', { class: cls },
+      h('strong', { class: 'nowrap' }, `${g.partial ? 'Subtotal parcial: ' : ''}${formatMoney(g.holdingMonthly)} / mes`),
+      h('span', { class: 'cell-sub' }, g.partial ? `posesión de las propias, sin ${missing} en otra moneda sin tipo de cambio` : 'posesión de las propias (aunque no trabajen)'));
+  }
+
+  /** Lo que cuesta usar una unidad: lo de su ficha sin combustible y los litros (el combustible se valúa en cada cotización). */
+  function operationCell(item, c) {
+    if (acquisitionOf(item) !== 'owned') return h('span', { class: 'muted small' }, 'En la tarifa');
+    if (!c) return EMPTY;
+    const op = c.operation;
+    return h('div', { class: 'cell-main cell-num' },
+      h('span', { class: 'nowrap' }, `${formatValue(op.nonFuelPerHour, 'rate')} / h`),
+      h('span', { class: 'cell-sub nowrap' }, op.fuelNotApplicable ? 'no usa combustible' : `+ ${formatNumber(op.fuelLitersPerHour, { decimals: 2 })} L/h de combustible`));
+  }
+
+  function equipmentGroupTable(g) {
+    return table({
+      caption: `Equipos: ${g.title}`,
+      className: 'lib-table resource-group-table equipment-group-table table-cards',
+      columns: [
+        { key: 'name', label: 'Equipo', render: ({ item }) => h('div', { class: 'cell-stack' }, nameCell(item.name, equipmentSub(item), item.illustrative), baseTag(item.base, { prefix: acquisitionOf(item) === 'owned' ? 'Base del valor' : 'Base' })) },
+        { key: 'tenure', label: 'Tenencia', render: ({ item }) => badge(labelOf(ACQUISITION_MODES, acquisitionOf(item), 'Propio'), acquisitionOf(item) === 'owned' ? 'navy' : 'blue') },
+        {
+          key: 'holding',
+          label: 'Posesión por mes',
+          align: 'right',
+          render: ({ item, c, holdingMonthly }) => {
+            if (acquisitionOf(item) !== 'owned') return equipmentTariff(item);
+            if (holdingMonthly === null) return c && c.currency && !c.currency.converted ? noRateNote(c) : EMPTY;
+            return withTrace(h('strong', { class: 'nowrap' }, `${formatMoney(holdingMonthly)} / mes`), holdingTrace(item, c));
+          },
+        },
+        { key: 'operation', label: 'Operación', align: 'right', render: ({ item, c }) => operationCell(item, c) },
+        usageColumn('equipment'),
+        { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.name || 'equipo', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.name || 'equipo') }) },
+      ],
+      rows: g.items.map((i) => ({ ...i, item: i.equipment, c: i.card })),
+    });
+  }
+
+  function equipmentGroupNode(g) {
+    return resourceGroupNode({
+      prefix: 'equipment',
+      key: g.id,
+      title: g.title,
+      counts: equipmentCountsText(g),
+      amount: equipmentGroupAmount(g),
+      help: g.id === 'other'
+        ? h('p', { class: ['small', 'resource-group-help', 'equipment-group-help'] }, 'Equipos "Otro / Personalizado" o sin familia del catálogo. Si alguno tiene familia, elegila en "Editar": no cambia el costo.')
+        : null,
+      body: equipmentGroupTable(g),
+      open: !collapsedEquipmentGroups.has(g.id),
+      onToggle: (open) => (open ? collapsedEquipmentGroups.delete(g.id) : collapsedEquipmentGroups.add(g.id)),
+    });
+  }
+
+  /** Equipos agrupados por familia: la vista de entrada (RES-02). */
+  function equipmentGrouped() {
+    const params = hashQuery();
+    const models = list('equipmentModels');
+    const modelLabelOf = (eq) => {
+      const m = models.find((x) => x.id === eq.modelId);
+      return m ? modelLabel(m) : '';
+    };
+    const all = groupEquipment(list('equipment'), { cardOf: (eq) => data.equipmentCards.get(eq.id) || null });
+    const tenure = params.get('tenencia');
+    const state = { query: params.get('q') || '', tenure: [TENURE_OWNED, TENURE_EXTERNAL].includes(tenure) ? tenure : '' };
+    const host = h('div', { class: ['resource-groups', 'equipment-groups'] });
+    const summary = h('p', { class: ['small', 'resource-summary', 'equipment-summary'], role: 'status' });
+    const toggleAll = button('Plegar todo', { variant: 'secondary', size: 'sm' });
+
+    const draw = () => {
+      const groups = filterEquipmentGroups(all, { ...state, modelLabelOf });
+      const owned = groups.reduce((n, g) => n + g.ownedCount, 0);
+      const external = groups.reduce((n, g) => n + g.externalCount, 0);
+      const valued = groups.filter((g) => g.holdingMonthly !== null);
+      const partial = groups.some((g) => g.unvaluedCount > 0);
+      const counts = [`${owned} ${owned === 1 ? 'unidad propia' : 'unidades propias'}`, external ? `${external} ${external === 1 ? 'alquilada o tercerizada' : 'alquiladas o tercerizadas'} (no ${external === 1 ? 'suma' : 'suman'})` : null];
+      const holding = valued.length ? ` · posesión de la flota propia: ${partial ? 'subtotal parcial de ' : ''}${formatMoney(roundMoney(valued.reduce((s, g) => s + g.holdingMonthly, 0)))} / mes.` : '.';
+      mount(summary,
+        counts.filter(Boolean).join(' · ') + holding,
+        h('span', { class: ['resource-summary-help', 'equipment-summary-help'] }, ' Cada ficha es una unidad; las alquiladas y tercerizadas se pagan por uso y no suman a la flota.'));
+      mount(host, groups.length ? groups.map(equipmentGroupNode) : h('p', { class: 'muted' }, 'Ningún equipo coincide con la búsqueda.'));
+      toggleAll.textContent = groups.some((g) => !collapsedEquipmentGroups.has(g.id)) ? 'Plegar todo' : 'Desplegar todo';
+    };
+    toggleAll.addEventListener('click', () => {
+      const ids = all.map((g) => g.id);
+      const anyOpen = ids.some((id) => !collapsedEquipmentGroups.has(id));
+      ids.forEach((id) => (anyOpen ? collapsedEquipmentGroups.add(id) : collapsedEquipmentGroups.delete(id)));
+      draw();
+    });
+
+    const searchInput = textField({
+      label: 'Buscar',
+      name: 'q',
+      value: state.query,
+      maxLength: 80,
+      placeholder: 'Buscar equipo, interno, dominio o tipo…',
+      onChange: (v) => {
+        state.query = v;
+        replaceHashQuery({ q: v.trim() });
+        draw();
+      },
+    });
+    const tenureSelect = selectField({
+      label: 'Tenencia',
+      name: 'tenencia',
+      value: state.tenure,
+      includeEmpty: true,
+      emptyLabel: 'Todas',
+      options: [{ value: TENURE_OWNED, label: 'Sólo propias' }, { value: TENURE_EXTERNAL, label: 'Sólo alquiladas o tercerizadas' }],
+      onChange: (v) => {
+        state.tenure = v || '';
+        replaceHashQuery({ tenencia: state.tenure });
+        draw();
+      },
+    });
+    draw();
+    return h('div', { class: 'stack equipment-grouped' },
+      h('div', { class: ['resource-filters', 'equipment-filters'] }, searchInput, tenureSelect, h('div', { class: 'resource-filters-actions' }, toggleAll)),
       summary,
       host);
   }
@@ -1662,18 +1859,21 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     return [item.internalCode, fam ? fam.label : null, capacity, model ? modelLabel(model) : null].filter(Boolean).join(' · ');
   }
 
+  // Valor en otra moneda sin tipo de cambio en Configuración: no se mezclan monedas.
+  const noRate = (c) => Boolean(c && c.currency && !c.currency.converted);
+  const noRateNote = (c) => h('span', { class: 'muted small cell-note' }, `Valor en ${c.currency.code}: se calcula en cada cotización con su tipo de cambio`);
+  /** Tarifa neta de una unidad alquilada o tercerizada, con su unidad. */
+  const equipmentTariff = (item) => {
+    const x = item.external || {};
+    return h('span', { class: 'nowrap' }, h('strong', {}, formatMoneyIn(toNumber(x.price, 0), item.base && item.base.currency)), h('span', { class: 'unit-suffix' }, ` ${externalUnitShort(x)}`));
+  };
+
   function equipmentTable(detailed) {
     const rows = list('equipment').map((eq) => ({ item: eq, c: data.equipmentCards.get(eq.id) || null, external: acquisitionOf(eq) !== 'owned' }));
-    // Valor en otra moneda sin tipo de cambio en Configuración: no se mezclan monedas.
-    const noRate = (c) => Boolean(c && c.currency && !c.currency.converted);
-    const noRateNote = (c) => h('span', { class: 'muted small' }, `Valor en ${c.currency.code}: se calcula en cada cotización con su tipo de cambio`);
     const actions = { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.name || 'equipo', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.name || 'equipo') }) };
     const nameCol = { key: 'name', label: 'Equipo', render: ({ item }) => h('div', { class: 'cell-stack' }, nameCell(item.name, equipmentSub(item), item.illustrative), baseTag(item.base, { prefix: acquisitionOf(item) === 'owned' ? 'Base del valor' : 'Base' })) };
     const acqCol = { key: 'acq', label: 'Obtención', render: ({ item }) => badge(labelOf(ACQUISITION_MODES, acquisitionOf(item), 'Propio'), acquisitionOf(item) === 'owned' ? 'navy' : 'blue') };
-    const tariff = (item) => {
-      const x = item.external || {};
-      return h('span', { class: 'nowrap' }, h('strong', {}, formatMoneyIn(toNumber(x.price, 0), item.base && item.base.currency)), h('span', { class: 'unit-suffix' }, ` ${externalUnitShort(x)}`));
-    };
+    const tariff = equipmentTariff;
     if (!detailed) {
       return table({
         caption: 'Equipos',
@@ -1855,12 +2055,15 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     }
     if (tab.type === 'equipment') {
       const fuel = data.settings.fuelPricePerLiter;
-      return h(
+      const legend = h(
         'div',
         { class: 'cost-legend' },
         h('div', { class: 'cost-legend-item cost-legend-ownership' }, h('strong', {}, 'COSTO DE POSESIÓN'), h('span', {}, 'Existe aunque el equipo no trabaje: amortización, seguro, patente, certificaciones y costo de capital.')),
         h('div', { class: 'cost-legend-item cost-legend-operation' }, h('strong', {}, 'COSTO DE OPERACIÓN'), h('span', {}, `Sólo cuando trabaja: mantenimiento, neumáticos y combustible (a ${formatValue(fuel, 'rate')}/L según Configuración).`)),
       );
+      // En el celular, plegada (RES-02): la explicación queda a un toque y los grupos suben a la primera pantalla.
+      const narrow = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches;
+      return narrow ? h('details', { class: 'cost-legend-details' }, h('summary', {}, 'Posesión y operación: qué es cada una'), legend) : legend;
     }
     if (tab.type === 'externalServices') {
       return banner('Tarifas NETAS (sin IVA). El costo de una cotización usa el neto más el IVA que NO recuperás y los cargos no recuperables; el IVA recuperable y las percepciones son caja adelantada, no costo.', anyIllustrative ? 'warning' : 'info', { title: anyIllustrative ? 'Ejemplos ILUSTRATIVOS.' : null });
@@ -1886,7 +2089,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       case 'agreements':
         return agreementsTable();
       case 'equipment':
-        return equipmentTable(detailed);
+        return equipmentView === 'grouped' ? equipmentGrouped() : equipmentTable(equipmentView === 'detailed');
       case 'materials':
         return materialsTable(detailed);
       case 'externalServices':
@@ -1906,19 +2109,24 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   /** Barra de la lista: cantidad y vista Simple / Detallada. */
   function listToolbar(count) {
-    // Personal cuenta perfiles (puestos), no personas (RES-02).
-    const noun = tab.type === 'laborProfiles' ? ['perfil', 'perfiles'] : ['ítem', 'ítems'];
+    // Personal cuenta perfiles (puestos), no personas; Equipos, fichas (RES-02).
+    const noun = tab.type === 'laborProfiles' ? ['perfil', 'perfiles'] : tab.type === 'equipment' ? ['equipo', 'equipos'] : ['ítem', 'ítems'];
     const countEl = h('span', { class: 'muted small toolbar-count' }, `${count} ${count === 1 ? noun[0] : noun[1]}`);
     if (!VIEW_TABS.includes(tab.type)) return null;
     const labor = tab.type === 'laborProfiles';
-    const current = labor ? laborView : resourceView;
+    const equipment = tab.type === 'equipment';
+    const current = labor ? laborView : equipment ? equipmentView : resourceView;
     const views = labor
       ? [
         { id: 'grouped', label: 'Por convenio', title: 'Agrupado por convenio, con personas, bruto, mes base y costo empresa' },
         { id: 'simple', label: 'Lista', title: 'Todos los perfiles en una tabla' },
         { id: 'detailed', label: 'Detallada', title: VIEW_HINTS[tab.type] },
       ]
-      : [
+      : equipment ? [
+        { id: 'grouped', label: 'Por familia', title: 'Agrupado por familia, con unidades propias, alquiladas y el costo de posesión de la flota propia' },
+        { id: 'simple', label: 'Lista', title: 'Nombre, costo por día usado, costo por mes y Editar' },
+        { id: 'detailed', label: 'Detallada', title: VIEW_HINTS[tab.type] },
+      ] : [
         { id: 'simple', label: 'Simple', title: 'Nombre, costo por día u hora, costo por mes y Editar' },
         { id: 'detailed', label: 'Detallada', title: VIEW_HINTS[tab.type] },
       ];
@@ -1934,6 +2142,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
             click: () => {
               if (current === v.id) return;
               if (labor) laborView = v.id;
+              else if (equipment) equipmentView = v.id;
               else resourceView = v.id;
               paint({ keepFocus: v.id });
             },
@@ -1943,7 +2152,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         v.label,
       ),
     );
-    return h('div', { class: 'toolbar resource-toolbar' }, countEl, h('span', { class: 'spacer' }), h('div', { class: 'segmented', role: 'group', 'aria-label': 'Vista de la lista' }, ...buttons));
+    // En una vista agrupada, el resumen de arriba de los grupos ya dice los conteos (en el celular la barra se achica).
+    return h('div', { class: ['toolbar', 'resource-toolbar', current === 'grouped' ? 'is-grouped' : null] }, countEl, h('span', { class: 'spacer' }), h('div', { class: 'segmented', role: 'group', 'aria-label': 'Vista de la lista' }, ...buttons));
   }
 
   function introFor() {

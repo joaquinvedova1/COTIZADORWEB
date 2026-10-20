@@ -1276,14 +1276,14 @@ Verificado en el código (RATEOS-AUDIT `tasks/RES-02/GAP-ANALISIS.md`, R6 y R7):
 | Grúas | `crane_truck`, `crane` |
 | Camiones | `truck`, `tank_truck`, `tractor` |
 | Equipos de vacío y succión | `vactor`, `vacuum_truck` |
-| Equipos de pozo e intervención | `flushby`, `wireline` |
+| Equipos de pozo | `flushby`, `wireline` |
 | Remolques y tanques | `semitrailer`, `lowboy`, `dump_trailer`, `tank`, `frac_tank` |
 | Camionetas y vehículos livianos | `pickup`, `minibus` |
 | Movimiento de suelo | `backhoe`, `excavator`, `wheel_loader`, `motor_grader` |
 | Equipos de apoyo | `generator`, `compressor`, `pump`, `welder`, `light_tower`, `forklift`, `telehandler`, `tools` |
 | Otros / sin familia | `other` y las fichas sin familia (después de `familyIdOf`) |
 
-- **Punto 6 de ChatGPT (equipos especiales):** vactor y camión atmosférico pasan a "Equipos de vacío y succión"; flushby y wireline, a "Equipos de pozo e intervención".
+- **Punto 6 de ChatGPT (equipos especiales):** vactor y camión atmosférico pasan a "Equipos de vacío y succión"; flushby y wireline, a "Equipos de pozo" (sin la palabra "intervención": en RATEOS es la activación de los servicios permanentes, D8).
   - Por qué: se cotizan como servicios especiales (con su operador y su consumo), no como transporte. Mezclados con los camiones, no se ve la flota.
   - Cada fila sigue diciendo su familia ("Vactor", "Flushby").
   - Los nombres y el reparto (D-R8) quedan para el dueño. Un test garantiza que cada familia esté en un solo grupo, así que cambiarlo es una línea.
@@ -1308,9 +1308,9 @@ Ninguno: no hay campos nuevos y las familias de las fichas no cambian.
 
 #### 5. Pasos
 - [x] 1. Este plan, antes del código.
-- [ ] 2. Dominio con tests: cada familia en un solo grupo, agrupar, contar, monto de tenencia, filtros.
-- [ ] 3. Vista "Por familia", búsqueda y filtro en la dirección, traza de tenencia, celular.
-- [ ] 4. E2E (escritorio y celular) que fallan sin este cambio, validación completa, capturas antes y después, PR apilado sin merge y evidencia en RATEOS-AUDIT.
+- [x] 2. Dominio con tests: cada familia en un solo grupo, agrupar, contar, monto de tenencia, filtros.
+- [x] 3. Vista "Por familia", búsqueda y filtro en la dirección, traza de tenencia, celular.
+- [x] 4. E2E (escritorio y celular) que fallan sin este cambio, validación completa, capturas antes y después, PR apilado sin merge y evidencia en RATEOS-AUDIT.
 
 #### 6. Fuera de alcance (documentado)
 - Cantidad en el maestro (cada ficha sigue siendo una unidad).
@@ -1322,3 +1322,13 @@ Revert del PR. No deja datos.
 
 #### Bitácora
 - 2026-10-20: base `claude/res-02-personal-por-convenio` `ed43a43` (PR #33). Primero este plan; después los tests y la implementación.
+- 2026-10-20: implementado.
+  - Dominio: `js/domain/equipment-groups.js`, con 13 tests.
+  - Vista: `js/ui/views/library.js` y `css/views.css`. Personal y Equipos comparten el grupo plegable (`resourceGroupNode`, clases `resource-group*`); las clases `labor-group*` y `equipment-group*` quedan como ganchos de las pruebas.
+  - `ui-lab`: 20 controles RES-02-EQ por modo.
+  - Decisiones técnicas:
+    - el grupo de flushby y wireline se llama "Equipos de pozo": el auditor de terminología del Test Lab no deja usar "intervención" fuera de la activación de los servicios permanentes (D8);
+    - "Ver cálculo" de la posesión es una traza propia (`holdingTrace`) que termina en el número de la fila; la del equipo completo termina en el costo a la utilización esperada;
+    - la operación se muestra sin combustible y con los litros por hora: el combustible se valúa en cada cotización;
+    - en el celular, la explicación de posesión y operación se pliega y la cantidad de la barra se oculta en las vistas agrupadas (el resumen la dice), para que el primer grupo aparezca en la primera pantalla;
+    - la nota "Valor en USD…" de una unidad sin tipo de cambio ensanchaba la página en el celular (ya pasaba en "Lista"): ahora se parte.
