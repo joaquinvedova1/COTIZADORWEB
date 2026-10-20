@@ -112,7 +112,7 @@ Nota de ejecución: el plugin de Supabase pide confirmación para sentencias des
 | SEC-15 | P1 SECURITY | Cero dependencias npm. |
 | SEC-16 | P2 PRIVACY | Reportes y builds fuera de git. |
 | SEC-17 | P1 SECURITY | Sin staging en el origen de producción (HD-02, PLAN-2026-016): el deploy publica sólo `main`, el artefacto nunca trae `/preview/` y después de publicar se verifica `/preview/` → 404. |
-| SEC-18 | P1 PRIVACY | Registro público sin enumeración de cuentas (HD-03, PLAN-2026-018): registro, reenvío de la confirmación y "¿Olvidaste tu contraseña?" responden igual haya o no cuenta; "sin confirmar" sólo con la contraseña correcta. |
+| SEC-18 | P1 PRIVACY | Registro público sin enumeración de cuentas (HD-03, PLAN-2026-018): registro, reenvío de la confirmación y "¿Olvidaste tu contraseña?" responden igual haya o no cuenta; "sin confirmar" sólo con la contraseña correcta. Excepción documentada (R3): con el envío roto, el reenvío dice que no salió; sólo puede pasar con una cuenta sin confirmar, y sin cuenta o confirmada siguen respondiendo igual entre sí. |
 
 Contra `main` (v0.8.0) el gate **falla** en SEC-05, SEC-06, SEC-07 (P0) y SEC-08 (P1); con esta rama pasa.
 

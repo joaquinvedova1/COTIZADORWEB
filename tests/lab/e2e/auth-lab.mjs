@@ -23,6 +23,7 @@
  *   AUTH-06 enlace de "Send invitation" (tokens en el #): no abre sesión y se borra de la URL
  *   AUTH-07 SMTP por defecto (sólo equipo): fuera de sesión neutro; "Cambiar contraseña" avisa
  *   AUTH-14 SMTP por defecto: el registro dice que el correo no salió y no crea la cuenta
+ *   AUTH-15 envío rechazado (HD-03 R3): el reenvío de una cuenta sin confirmar dice que no salió, nunca "Pedido enviado"
  *   AUTH-08 cada cuenta ve sólo su empresa (RLS simulada)
  *   AUTH-09 privacidad: ni contraseña ni código en el almacenamiento; URL sin códigos
  * Escribe reports/lab/e2e/auth-lab-report.{json,md} (sin emails: sólo resultados).
@@ -36,7 +37,7 @@ import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../../../scripts/serve.mjs';
 import { assertSafeReport } from '../lib/report.js';
 import { PUBLIC_SITE_URL, SUPABASE } from '../../../js/config.js';
-import { CONFIRMATION_RESENT_MESSAGE, INVITE_LINK_MESSAGE, RECOVER_REQUEST_SUBTITLE, RECOVERY_LINK_INVALID_MESSAGE, RESET_REQUESTED_MESSAGE, RESET_SENT_OWN_MESSAGE, SIGNUP_MAIL_FAILED_MESSAGE, SIGNUP_REQUESTED_MESSAGE } from '../../../js/services/auth-service.js';
+import { CONFIRMATION_RESEND_FAILED_MESSAGE, CONFIRMATION_RESENT_MESSAGE, INVITE_LINK_MESSAGE, RECOVER_REQUEST_SUBTITLE, RECOVERY_LINK_INVALID_MESSAGE, RESET_REQUESTED_MESSAGE, RESET_SENT_OWN_MESSAGE, SIGNUP_MAIL_FAILED_MESSAGE, SIGNUP_REQUESTED_MESSAGE } from '../../../js/services/auth-service.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -388,6 +389,21 @@ async function runMode(mode) {
   const t14 = await text(pU);
   check('AUTH-14', 'dice que el correo de confirmación no salió (no deja esperando)', t14.includes(norm(SIGNUP_MAIL_FAILED_MESSAGE)), t14.slice(0, 240));
   check('AUTH-14', 'no se creó la cuenta ni salió un correo', !db.users.has(emailU) && db.outbox.length === beforeU, 'se creó la cuenta');
+  // AUTH-15 · HD-03 R3: con el envío rechazado, el reenvío de una cuenta sin confirmar dice que no salió.
+  db.smtp.mode = 'custom';
+  const emailV = `reenvio-smtp.${mode}@rateos.test`;
+  const passV = `clave-${randomUUID().slice(0, 8)}`;
+  const pV = await newBrowser();
+  await signUp(pV, { name: 'Persona Cuatro', company: 'Taller Cuatro', email: emailV, password: passV });
+  db.smtp.mode = 'default';
+  signupMails(emailV)[0].at -= 61000;
+  await logIn(pV, emailV, passV);
+  const beforeV = signupMails(emailV).length;
+  await tap(pV, pV.getByRole('button', { name: /Reenviar el correo de confirmación/ }));
+  await pV.waitForTimeout(900);
+  const t15 = await text(pV);
+  check('AUTH-15', 'con el envío rechazado, el reenvío dice que el correo no salió (nunca "Pedido enviado")', t15.includes(norm(CONFIRMATION_RESEND_FAILED_MESSAGE)) && !t15.includes(norm(CONFIRMATION_RESENT_MESSAGE)), t15.slice(0, 240));
+  check('AUTH-15', 'no salió ningún correo', signupMails(emailV).length === beforeV, `${signupMails(emailV).length - beforeV} correos`);
   db.smtp.mode = 'custom';
 
   // AUTH-08 · cada cuenta ve sólo su empresa (registro público y alta del dueño).

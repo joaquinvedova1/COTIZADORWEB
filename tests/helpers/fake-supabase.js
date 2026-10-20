@@ -162,7 +162,12 @@ export function createFakeServer() {
 }
 
 /** Puerta de Auth falsa: usuarios en memoria, sin guardar contraseñas en ningún storage. */
-export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) {
+/**
+ * `mailFailure` (opcional) simula que el proveedor de correo rechaza el envío (por ejemplo
+ * 'email_not_authorized' con el SMTP por defecto). Como Supabase, el reenvío sólo intenta
+ * enviar si hay una cuenta sin confirmar: sin cuenta o ya confirmada responde ok sin enviar.
+ */
+export function createFakeAuthGateway({ users = [], confirmEmail = true, mailFailure = null } = {}) {
   let session = null;
   let listener = null;
   const registry = new Map(users.map((u) => [u.email, { ...u }]));
@@ -192,7 +197,9 @@ export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) 
     /** Reenvío de la confirmación: sólo "sale" si la cuenta existe y no está confirmada. */
     async resendSignupConfirmation(email, redirectTo) {
       const u = registry.get(email);
-      gw.lastResend = { email, redirectTo, sent: Boolean(u && !u.emailConfirmed) };
+      const pending = Boolean(u && !u.emailConfirmed);
+      gw.lastResend = { email, redirectTo, sent: pending && !mailFailure };
+      if (pending && mailFailure) return { ok: false, code: mailFailure };
       return { ok: true };
     },
     async signIn({ email, password }) {

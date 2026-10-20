@@ -524,13 +524,25 @@ async function dynamicChecks() {
       await same('registro', (a, email) => a.signUp({ fullName: 'Persona', company: 'Empresa sintética', email, password: 'clave-sintetica-9' }));
       await same('reenvío de la confirmación', (a, email) => a.resendConfirmation(email));
       await same('"¿Olvidaste tu contraseña?"', (a, email) => a.requestPasswordReset(email));
+      // HD-03 R3: si el proveedor rechaza el correo, el reenvío dice que no salió (nunca "enviado"). Como Supabase
+      // sólo intenta enviar con una cuenta sin confirmar, la excepción se limita a eso: sin cuenta y confirmada
+      // siguen respondiendo igual entre sí, y el mensaje no lleva el email.
+      {
+        const broken = () => createAuthService({ gateway: createFakeAuthGateway({ users, mailFailure: 'email_not_authorized' }), siteUrl: site, location: { href: `${site}#/login` }, history: { replaceState() {} }, publicSignup: true });
+        const nueva = JSON.stringify(await broken().resendConfirmation('nueva@example.com'));
+        const confirmada = JSON.stringify(await broken().resendConfirmation('confirmada@example.com'));
+        const pendiente = await broken().resendConfirmation('pendiente@example.com');
+        if (nueva !== confirmada) enumHits.push('reenvío con el envío roto: una cuenta confirmada responde distinto que un email sin cuenta');
+        if (pendiente.ok !== false || /enviado|te llega/i.test(pendiente.message || '')) enumHits.push('reenvío con el envío roto: dice que el correo salió (o no avisa que falló)');
+        if (/pendiente@example\.com/.test(JSON.stringify(pendiente))) enumHits.push('reenvío con el envío roto: la respuesta lleva el email');
+      }
       const a = svc();
       const wrong = await a.signIn({ email: 'pendiente@example.com', password: 'otra-clave-sintetica' });
       const unknown = await a.signIn({ email: 'nadie@example.com', password: 'otra-clave-sintetica' });
       if (JSON.stringify(wrong) !== JSON.stringify(unknown)) enumHits.push('ingreso: con la contraseña equivocada, una cuenta sin confirmar responde distinto que un email sin cuenta');
       if (!FEATURES.publicSignup) enumHits.push('FEATURES.publicSignup no coincide con la decisión del dueño (registro público)');
     }
-    results.push(check('SEC-18', 'Registro público sin enumeración de cuentas: registro, reenvío de la confirmación y "¿Olvidaste tu contraseña?" responden igual haya o no cuenta; "sin confirmar" sólo con la contraseña correcta', 'P1', 'PRIVACY', enumHits));
+    results.push(check('SEC-18', 'Registro público sin enumeración de cuentas: registro, reenvío de la confirmación y "¿Olvidaste tu contraseña?" responden igual haya o no cuenta; "sin confirmar" sólo con la contraseña correcta; con el envío roto el reenvío dice que no salió (excepción documentada, sólo con una cuenta sin confirmar)', 'P1', 'PRIVACY', enumHits));
   } finally {
     configureLogger({ consoleImpl: globalThis.console });
   }

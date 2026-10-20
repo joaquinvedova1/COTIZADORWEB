@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import {
   AUTH_STATUS,
   CODE_INVALID_MESSAGE,
-  CONFIRMATION_RESENT_MESSAGE,
+  CONFIRMATION_RESENT_MESSAGE, CONFIRMATION_RESEND_FAILED_MESSAGE,
   INVITE_LINK_MESSAGE,
   RECOVERY_LINK_INVALID_MESSAGE,
   RECOVER_REQUEST_SUBTITLE,
@@ -442,16 +442,68 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     assert.equal(gw.lastSignUp, undefined);
   });
 
-  test('reenviar la confirmación: la misma respuesta haya o no cuenta sin confirmar; sólo la red y el límite se informan', async () => {
+  test('reenviar la confirmación con el envío funcionando: la misma respuesta haya o no cuenta sin confirmar', async () => {
     const outcomes = [];
-    for (const [email, failure] of [[PENDING.email, null], [CONFIRMED.email, null], ['nadie@example.com', null], [PENDING.email, AUTH_ERRORS.emailNotAuthorized], [PENDING.email, AUTH_ERRORS.unknown]]) {
+    for (const email of [PENDING.email, CONFIRMED.email, 'nadie@example.com']) {
       const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING] });
-      if (failure) gw.resendSignupConfirmation = async () => ({ ok: false, code: failure });
       const { auth } = service(gw, `${SITE}#/login`);
       outcomes.push(await auth.resendConfirmation(email, '/cotizaciones/nueva'));
-      if (!failure) assert.equal(gw.lastResend.redirectTo, `${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva`);
+      assert.equal(gw.lastResend.redirectTo, `${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva`);
     }
     for (const res of outcomes) assert.deepEqual(res, { ok: true, message: CONFIRMATION_RESENT_MESSAGE, cooldownSeconds: RESET_COOLDOWN_SECONDS });
+  });
+
+  test('HD-03 R3: si el proveedor rechaza el reenvío, nunca dice "Pedido enviado": dice que no salió, con el mismo mensaje para cualquier falla', async () => {
+    const failures = [AUTH_ERRORS.emailNotAuthorized, AUTH_ERRORS.unknown, 'otro_error_del_proveedor'];
+    const outcomes = [];
+    for (const failure of failures) {
+      const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING] });
+      gw.resendSignupConfirmation = async () => ({ ok: false, code: failure });
+      const { auth } = service(gw, `${SITE}#/login`);
+      outcomes.push(await auth.resendConfirmation(PENDING.email));
+    }
+    for (const res of outcomes) {
+      assert.deepEqual(res, { ok: false, errors: {}, message: CONFIRMATION_RESEND_FAILED_MESSAGE });
+      assert.notEqual(res.message, CONFIRMATION_RESENT_MESSAGE);
+      assert.doesNotMatch(res.message, /Pedido enviado|te llega|te enviamos/i);
+      assert.doesNotMatch(res.message, /pendiente@example\.com/);
+    }
+    assert.match(CONFIRMATION_RESEND_FAILED_MESSAGE, /No pudimos enviar el correo de confirmación/);
+  });
+
+  test('HD-03 R3: con el envío roto, sólo una cuenta sin confirmar recibe el error; sin cuenta y confirmada siguen respondiendo igual entre sí (excepción documentada)', async () => {
+    const run = async (email) => {
+      const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING], mailFailure: AUTH_ERRORS.emailNotAuthorized });
+      const { auth } = service(gw, `${SITE}#/login`);
+      return { res: await auth.resendConfirmation(email), sent: gw.lastResend.sent };
+    };
+    const nueva = await run('nadie@example.com');
+    const confirmada = await run(CONFIRMED.email);
+    const pendiente = await run(PENDING.email);
+    assert.deepEqual(nueva.res, confirmada.res, 'sin cuenta y confirmada: la misma respuesta');
+    assert.equal(nueva.res.ok, true);
+    assert.equal(pendiente.res.ok, false);
+    assert.equal(pendiente.res.message, CONFIRMATION_RESEND_FAILED_MESSAGE);
+    assert.equal(pendiente.sent, false, 'no salió ningún correo');
+  });
+
+  test('HD-03 R3: el aviso técnico del reenvío fallido no lleva el email', async () => {
+    const logs = captureLogs();
+    try {
+      for (const failure of [AUTH_ERRORS.emailNotAuthorized, AUTH_ERRORS.unknown]) {
+        const gw = createFakeAuthGateway({ users: [PENDING], mailFailure: failure });
+        const { auth } = service(gw, `${SITE}#/login`);
+        await auth.resendConfirmation(PENDING.email);
+      }
+      assert.ok(logs.entries.some((e) => /SMTP propio/.test(e.message)));
+      assert.ok(logs.entries.some((e) => /proveedor de correo/.test(e.message)));
+      assert.doesNotMatch(logs.text(), /pendiente@example\.com/);
+    } finally {
+      logs.remove();
+    }
+  });
+
+  test('reenviar la confirmación: la red y el límite de envíos se informan; un email inválido no llama a Supabase', async () => {
     for (const code of [AUTH_ERRORS.network, AUTH_ERRORS.rateLimited]) {
       const gw = createFakeAuthGateway({ users: [PENDING] });
       gw.resendSignupConfirmation = async () => ({ ok: false, code });

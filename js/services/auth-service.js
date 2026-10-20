@@ -66,6 +66,12 @@ export const SIGNUP_REQUESTED_MESSAGE = 'Listo. Si ese email no tenía una cuent
 /** Reenvío del correo de confirmación: neutro (no revela si la cuenta existe ni si ya está confirmada). */
 export const CONFIRMATION_RESENT_MESSAGE = 'Pedido enviado. Si ese email tiene una cuenta sin confirmar, en unos minutos te llega otro correo para confirmarla (sólo sirve el último). Abrí el enlace en este mismo navegador.';
 /**
+ * El proveedor de correo rechazó el reenvío (SMTP por defecto o roto): nunca se dice "Pedido enviado" (HD-03 R3).
+ * Supabase sólo intenta enviar si hay una cuenta sin confirmar con ese email: mientras el envío esté roto, esta
+ * respuesta revela eso (la misma excepción documentada del registro). Con el envío funcionando no aparece.
+ */
+export const CONFIRMATION_RESEND_FAILED_MESSAGE = 'No pudimos enviar el correo de confirmación. Probá de nuevo en unos minutos; si sigue sin llegar, revisá que el email esté bien escrito o ingresá más tarde.';
+/**
  * El correo de confirmación no salió (SMTP por defecto o roto). Supabase no
  * crea la cuenta si no puede enviarlo, así que se dice: callar dejaría a la
  * persona esperando un correo que no existe (lo que originó HD-03). Sólo pasa
@@ -415,16 +421,25 @@ export function createAuthService({ gateway, location = globalThis.location, his
 
     /**
      * "Reenviar el correo de confirmación": la misma respuesta haya o no cuenta
-     * sin confirmar (sólo la red o el límite de envíos se informan).
+     * sin confirmar, mientras el envío funcione (Supabase responde igual y sólo
+     * envía si hay una cuenta sin confirmar). Si el proveedor rechaza el correo
+     * (SMTP por defecto o roto) o falla, se dice que no salió: nunca "Pedido
+     * enviado" cuando se sabe que no se envió (HD-03 R3). Esa respuesta sólo
+     * puede darse con una cuenta sin confirmar: es la excepción documentada.
      */
     async resendConfirmation(email, next = null) {
       if (!EMAIL_RE.test(String(email || '').trim())) return { ok: false, errors: { email: 'Ingresá un email válido.' }, message: 'Revisá los campos marcados.' };
       const res = await gateway.resendSignupConfirmation(String(email).trim(), authRedirectUrl('confirm', next, siteUrl));
-      if (!res.ok && res.code === AUTH_ERRORS.emailNotAuthorized) {
+      if (res.ok) return { ok: true, message: CONFIRMATION_RESENT_MESSAGE, cooldownSeconds: RESET_COOLDOWN_SECONDS };
+      if (res.code === AUTH_ERRORS.network || res.code === AUTH_ERRORS.rateLimited) return { ok: false, errors: {}, message: messageFor(res.code) };
+      if (res.code === AUTH_ERRORS.invalidEmail) return { ok: false, errors: { email: messageFor(res.code) }, message: messageFor(res.code) };
+      if (res.code === AUTH_ERRORS.emailNotAuthorized) {
         logger.warn('Auth: Supabase no reenvió la confirmación (usa su SMTP por defecto, que sólo envía al equipo del proyecto: configurar un SMTP propio).');
+      } else {
+        logger.warn('Auth: el reenvío de la confirmación falló del lado del proveedor de correo.');
       }
-      if (!res.ok && (res.code === AUTH_ERRORS.network || res.code === AUTH_ERRORS.rateLimited)) return { ok: false, errors: {}, message: messageFor(res.code) };
-      return { ok: true, message: CONFIRMATION_RESENT_MESSAGE, cooldownSeconds: RESET_COOLDOWN_SECONDS };
+      // El mismo mensaje para cualquier falla del envío: no distingue SMTP por defecto, roto u otro error.
+      return { ok: false, errors: {}, message: CONFIRMATION_RESEND_FAILED_MESSAGE };
     },
 
     async signIn({ email, password }) {

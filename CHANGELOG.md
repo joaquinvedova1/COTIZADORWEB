@@ -19,7 +19,7 @@ Reglas para este archivo:
 - **Registro público** (`FEATURES.publicSignup = true`): "Crear cuenta" en la landing y el ingreso; nombre, empresa, email y contraseña; confirmación de email obligatoria (enlace PKCE). Cada cuenta nace con su propia empresa (trigger + RLS).
 - **Sin enumeración de cuentas:** el registro responde igual a un email nuevo, a uno ya registrado y a uno sin confirmar (antes decía "Ese email ya está registrado": HD-08 resuelto). Lo controla el Beta Security Gate (SEC-18, nuevo).
 - **Reenviar el correo de confirmación** (respuesta neutra) después del registro y desde el ingreso cuando la cuenta todavía no está confirmada (sólo con la contraseña correcta).
-- Si el correo de confirmación no sale (SMTP por defecto o roto), el registro lo dice: Supabase no crea la cuenta y la persona no queda esperando.
+- Si el correo de confirmación no sale (SMTP por defecto o roto), el registro lo dice: Supabase no crea la cuenta y la persona no queda esperando. Lo mismo el reenvío: si el proveedor lo rechaza, dice "No pudimos enviar el correo de confirmación" y nunca "Pedido enviado" (R3).
 
 - **Código del correo de recuperación:** "¿Olvidaste tu contraseña?" → "Ya tengo un código" (email + código de 6 a 10 dígitos, `verifyOtp` tipo `recovery`). Sirve en cualquier navegador mientras nadie haya abierto el enlace de ese correo (enlace y código son la misma credencial). Requiere la plantilla `supabase/templates/recovery.html` en Supabase; si un escáner de correo consume los enlaces, `recovery-solo-codigo.html`.
 - Plantillas de correo en español (`supabase/templates/`): confirmación del registro (obligatoria), recuperación (enlace + código, o sólo código si un escáner consume los enlaces) e invitación (lleva a "Elegir mi contraseña").
