@@ -17,6 +17,8 @@ import {
   parseAuthRedirect,
   siteUrlFor,
   validateSignUp,
+  RESET_REQUESTED_MESSAGE,
+  SIGNUP_REQUESTED_MESSAGE,
 } from '../../js/services/auth-service.js';
 import { AUTH_ERRORS, authErrorCode, createAuthGateway, publicUser } from '../../js/data/auth-gateway.js';
 import { FEATURES } from '../../js/config.js';
@@ -54,7 +56,7 @@ describe('AuthService: registro e ingreso', () => {
     const res = await auth.signUp({ fullName: 'Joaquín', company: 'Grúas del Sur', email: 'j@example.com', password: 'clave-segura-1', next: '/cotizaciones/nueva' });
     assert.equal(res.ok, true);
     assert.equal(res.needsConfirmation, true);
-    assert.match(res.message, /Revisá tu email/);
+    assert.equal(res.message, SIGNUP_REQUESTED_MESSAGE);
     assert.equal(auth.status, AUTH_STATUS.anonymous);
     assert.deepEqual(gw.lastSignUp, { email: 'j@example.com', fullName: 'Joaquín', company: 'Grúas del Sur', redirectTo: `${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva`, passwordLength: 14 });
   });
@@ -72,12 +74,14 @@ describe('AuthService: registro e ingreso', () => {
     assert.deepEqual(Object.keys(errors).sort(), ['company', 'email', 'fullName', 'password']);
   });
 
-  test('email ya registrado y credenciales inválidas: mensajes humanos', async () => {
+  test('email ya registrado (misma respuesta que uno nuevo: no revela cuentas) y credenciales inválidas', async () => {
     const gw = createFakeAuthGateway({ users: [{ id: 'u1', email: 'ya@example.com', password: 'clave-segura-1', emailConfirmed: true }] });
     const { auth } = service(gw);
     await auth.init();
     const taken = await auth.signUp({ fullName: 'X', company: 'Y', email: 'ya@example.com', password: 'otra-clave-123' });
-    assert.equal(taken.message, 'Ese email ya está registrado. Ingresá o recuperá tu contraseña.');
+    const fresh = await auth.signUp({ fullName: 'X', company: 'Y', email: 'nueva@example.com', password: 'otra-clave-123' });
+    assert.deepEqual(taken, fresh);
+    assert.doesNotMatch(taken.message, /ya está registrado/);
     const bad = await auth.signIn({ email: 'ya@example.com', password: 'mal' });
     assert.equal(bad.message, 'No pudimos iniciar sesión. Revisá el email y la contraseña.');
     const ok = await auth.signIn({ email: 'ya@example.com', password: 'clave-segura-1' });
@@ -263,7 +267,7 @@ describe('AuthService: enlaces de email con GitHub Pages + router por hash', () 
     const { auth } = service(gw);
     await auth.init();
     const res = await auth.requestPasswordReset('a@example.com');
-    assert.match(res.message, /te enviamos un enlace para recuperar tu contraseña/);
+    assert.equal(res.message, RESET_REQUESTED_MESSAGE, 'respuesta neutra (HD-03)');
     assert.equal(gw.lastReset.redirectTo, `${SITE}?auth=recovery`);
     const neutral = await auth.requestPasswordReset('noexiste@example.com');
     assert.equal(neutral.message, res.message, 'no revela si el email tiene cuenta');
@@ -305,19 +309,19 @@ describe('auth-gateway: errores del SDK → códigos propios', () => {
   });
 });
 
-describe('AuthService: beta cerrada por invitación (HD-03, PLAN-2026-016)', () => {
-  test('lo publicado es beta por invitación: la app no ofrece ni llama al registro', () => {
-    assert.equal(FEATURES.publicSignup, false);
+describe('AuthService: registro público y, como alternativa, beta por invitación (HD-03)', () => {
+  test('lo publicado es registro público con confirmación de email (decisión del dueño, 2026-10-20)', () => {
+    assert.equal(FEATURES.publicSignup, true);
   });
 
-  test('con el registro cerrado, signUp no llama a Supabase y explica la invitación', async () => {
+  test('si se vuelve a la beta por invitación (publicSignup = false), signUp no llama a Supabase y explica cómo entrar', async () => {
     const gw = createFakeAuthGateway({ confirmEmail: true });
     const { auth } = service(gw, `${SITE}#/registro`, { publicSignup: false });
     await auth.init();
     const res = await auth.signUp({ fullName: 'Ana', company: 'Norte', email: 'ana@example.com', password: 'clave-segura-1' });
     assert.equal(res.ok, false);
     assert.equal(res.code, AUTH_ERRORS.signupClosed);
-    assert.match(res.message, /beta cerrada/);
+    assert.match(res.message, /no se pueden crear cuentas nuevas/);
     assert.match(res.message, /¿Olvidaste tu contraseña\?/, 'dice cómo es el primer ingreso');
     assert.equal(gw.lastSignUp, undefined, 'no se llamó al registro de Supabase');
     assert.equal(auth.status, AUTH_STATUS.anonymous);
@@ -354,7 +358,7 @@ describe('AuthService: beta cerrada por invitación (HD-03, PLAN-2026-016)', () 
       await auth.init();
       const neutral = await auth.requestPasswordReset('invitada@example.com');
       assert.equal(neutral.ok, true, 'fuera de sesión no revela que la cuenta existe');
-      assert.match(neutral.message, /Si hay una cuenta con ese email/);
+      assert.equal(neutral.message, RESET_REQUESTED_MESSAGE);
       assert.ok(entries.some((e) => e.level === 'warn' && /SMTP propio/.test(e.message)), 'queda un aviso técnico para quien diagnostica');
       assert.ok(entries.every((e) => !/invitada@example\.com/.test(`${e.message} ${JSON.stringify(e.context ?? null)}`)), 'el aviso no lleva el email');
 

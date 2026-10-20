@@ -82,11 +82,11 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 
 | | Qué ve | Datos |
 |---|---|---|
-| **Visitante** | Landing `#/`, ingreso, recuperar contraseña (sin registro: beta por invitación) | Ninguno |
+| **Visitante** | Landing `#/`, crear cuenta (con confirmación de email), ingreso y recuperar contraseña | Ninguno |
 | **Demo** (`#/demo`, sin cuenta) | La cotización de ejemplo "Hidrogrúa on-call — Añelo" y su análisis completo | ILUSTRATIVOS, en memoria: no se guarda nada y nunca pasa a una cuenta |
 | **Cuenta** (`#/inicio` y toda la app) | Tus cotizaciones, recursos, servicios, escenarios y configuración | Los de **tu empresa**, en Supabase, protegidos con Row Level Security: nadie de otra empresa puede verlos ni modificarlos |
 
-- **Beta por invitación:** no hay registro público. El dueño de RATEOS da de alta cada cuenta desde Supabase y la persona elige su contraseña con **¿Olvidaste tu contraseña?** (el enlace se abre en el mismo navegador); `#/registro` explica cómo es el acceso. La cuenta empieza **vacía**: "Hola, <nombre>" → [Crear mi primera cotización] [Configurar mi empresa]. Procedimiento en [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2. El registro abierto (nombre, empresa, email y contraseña, con email de confirmación) sigue en el código detrás de `FEATURES.publicSignup` (`js/config.js`), apagado.
+- **Registro público** (decisión del dueño, 2026-10-20): **Crear cuenta** pide nombre, empresa, email y contraseña; llega un correo para **confirmar el email** (el enlace se abre en el mismo navegador) y recién ahí se puede ingresar. Cada cuenta nace con **su propia empresa**, vacía: "Hola, <nombre>" → [Crear mi primera cotización] [Configurar mi empresa]. La respuesta no revela si un email ya tenía cuenta. **Requiere un SMTP propio** en Supabase: con el de por defecto, nadie de afuera recibe la confirmación. Procedimiento en [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2. `FEATURES.publicSignup = false` (`js/config.js`) vuelve a la beta por invitación.
 - **Guardado en la nube:** "Guardado" significa guardado en tu cuenta. Sin conexión, el cambio queda en este navegador ("No pudimos sincronizar tus cambios.") y se sube solo al volver. Si otro dispositivo guardó antes: "Tus datos cambiaron en otro dispositivo." con [Recargar] [Conservar una copia]: nunca se pisa nada en silencio.
 - **Datos de antes:** si usaste RATEOS sin cuenta en este navegador, al ingresar aparece "Encontramos datos guardados en este navegador." con [Importarlos a mi cuenta] [Empezar en limpio]. La demo y los datos ILUSTRATIVOS nunca se importan, se guarda una copia antes y los datos locales no se borran.
 - Detalle: [docs/AUTH_ARCHITECTURE.md](docs/AUTH_ARCHITECTURE.md) (sesión, roles, enlaces de email), [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) (tablas, RLS, sincronización).
@@ -300,7 +300,7 @@ docs/                      documentación técnica
 | [docs/SUPABASE_PLAN.md](docs/SUPABASE_PLAN.md) | Tablas, RLS, sincronización por revisión, migración desde el modo local y fases siguientes |
 | [supabase/README.md](supabase/README.md) | Cómo aplicar migraciones y correr los tests de RLS |
 | [docs/BETA_SECURITY.md](docs/BETA_SECURITY.md) | Beta cerrada: frontera de tenant, inventario de la base, pruebas A/B, hallazgos, decisiones del dueño y Beta Security Gate |
-| [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) | Perímetro de la beta: sin staging en producción, registro por invitación (con SMTP propio), dominio propio, prueba A/B real y checklist del dueño |
+| [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) | Perímetro de la beta: sin staging en producción, registro público con confirmación (con SMTP propio), dominio propio, prueba A/B real y checklist del dueño |
 | [docs/TEST_LAB.md](docs/TEST_LAB.md) | RATEOS Test Lab: oráculo independiente, escenarios, invariantes, auditor UX, mercado, reportes y CI |
 | [docs/AGENT_ROLES.md](docs/AGENT_ROLES.md) | Roles de revisión para el desarrollo (no son funciones del producto) |
 | [.agent/PLANS.md](.agent/PLANS.md) | Plantilla y registro de planes de ejecución |

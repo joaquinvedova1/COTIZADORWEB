@@ -1261,7 +1261,7 @@ export async function render(root, app, params = {}) {
         resetPassword.disabled = true;
         const res = await app.auth.requestPasswordReset(account.user.email);
         resetPassword.disabled = false;
-        app.toast(res.ok ? 'Te enviamos un enlace a tu email para elegir una contraseña nueva.' : res.message, res.ok ? 'success' : 'warning');
+        app.toast(res.message, res.ok ? 'success' : 'warning');
       },
     });
     const accountCard = card(

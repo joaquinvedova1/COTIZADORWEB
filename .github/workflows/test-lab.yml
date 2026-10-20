@@ -77,6 +77,12 @@ jobs:
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/pw/node_modules/playwright
 
+      # HD-03: alta por invitación y correos de Auth (SIMULADO: Supabase y buzón en memoria).
+      - name: Alta por invitación y correos en navegador (simulado)
+        run: npm run test:auth:e2e
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/pw/node_modules/playwright
+
       - name: Reportes del Test Lab
         if: always()
         uses: actions/upload-artifact@v4
