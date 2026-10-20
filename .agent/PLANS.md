@@ -117,6 +117,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-021 | ECO-04 — Avisos verificables de la beta: abono con más días trabajados que disponibles (AUD-T1 H-04), vehículo de apoyo sin su costo de tenerlo (H-08) y operador de Personal que el externo ya trae (VAL-01-F2) | completitud, UX (sin cambios de fórmulas) | En curso (rama `claude/eco-04-abono-apoyo-operador`, PR sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1175,108 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-021 — ECO-04: abono con más días que disponibles (H-04), vehículo de apoyo sin costo de tenerlo (H-08) y operador contado dos veces (VAL-01-F2)
+
+- Estado: En curso — rama `claude/eco-04-abono-apoyo-operador` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: completitud (avisos y "RESULTADO NO CONFIABLE") y UX; **ninguna fórmula cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (pidió el 2026-10-20 "soluciones verificables para H-04, H-08 y el doble conteo del operador"; la revisión independiente de VAL-01 pidió para H-04 "advertencia crítica de resultado no confiable hasta que el usuario resuelva el período", para H-08 "corrección o aviso contextual comprobado" y para F2 "advertir y pedir confirmación de alcance", porque no toda superposición es doble conteo)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+En los tres casos el motor calcula bien lo que se carga. El problema es que la carga lleva a un resultado equivocado sin aviso, o con un aviso falso:
+- **H-04 (AUD-T1, P1):**
+  - **Caso:** tarifa en $/mes (abono) con más días trabajados que disponibles (26 con 22, porque la ayuda sugiere "22 si sólo trabajás días hábiles").
+  - **Qué hace el motor:** lo toma como "más de un mes de trabajo". Multiplica los fijos por 26/22 y factura **1,18 abonos**, pero un abono mensual no se cobra 1,18 veces.
+  - **Efecto:** margen 15,02 % en vez de 12,26 %, y "trabajando más se gana más".
+  - **Aviso actual:** dice que "los cálculos reemplazan los valores inválidos por 0", y no es cierto.
+- **H-08 (AUD-T1, P1):**
+  - **Caso:** una camioneta propia cargada sólo como vehículo de apoyo.
+  - **Qué hace el motor:** suma combustible y desgaste por km, pero no su costo de tenerlo (amortización, seguro, patente).
+  - **Efecto:** costo −5,87 %, sugerida −5,9 % y margen real 10 % en vez de 15 %, sin ningún aviso (completitud 98 %).
+- **VAL-01-F2 (P2):**
+  - **Caso:** el externo trae operador y el mismo operador está en Personal sin estar asignado al equipo.
+  - **Efecto:** se paga dos veces sin aviso. En E12, costo +13,5 % y sugerida +9,1 %.
+  - **Aviso actual:** sólo aparece si el puesto está asignado al equipo.
+
+#### 2. Decisiones (la opción más segura y sencilla; ninguna fórmula cambia)
+- **H-04:**
+  - **Regla:** con la tarifa en $/mes y días trabajados mayores que los disponibles, el resultado queda **NO CONFIABLE** (pendiente crítico `month_days_overflow`) hasta corregir los días.
+  - **Cómo se corrige:** subir los disponibles (30 si se trabaja todo el mes) o bajar los trabajados.
+  - **Sin confirmación:** un abono mensual no se factura más de una vez por mes.
+  - **Cifras:** no cambian. Sólo dejan de presentarse como confiables.
+  - **Otras unidades** (día, hora, cantidad, evento): "más días que disponibles" sigue siendo "trabajo de más de un mes" (CALCULATION_RULES §1), es decir, fijos y cargos mensuales × días ÷ disponibles. El aviso pasa a decir eso.
+  - **Resultado:** los avisos que no reemplazan nada ya no se presentan como "los cálculos reemplazan los valores inválidos por 0".
+- **H-08:**
+  - **Pregunta:** cada vehículo de apoyo dice dónde está su **costo de tenerlo**:
+    - en una línea de Equipos (la camioneta cargada también como equipo, sin horas si sólo traslada);
+    - o ya en el costo por km (un tercero que cobra por km, o el desgaste con la amortización, el seguro y la patente incluidos).
+  - **Sin respuesta:** pendiente **crítico** `vehicle_ownership_costs`. No vuelve NO CONFIABLE el resultado, porque el costo por km puede estar bien: se pide confirmar antes de mandarla.
+  - **Si se borra la línea de Equipos elegida:** se vuelve a preguntar.
+  - **Con el vehículo ligado a Equipos:**
+    - la ayuda del desgaste dice que no repita la amortización;
+    - si esa línea "va por sus propios medios", el control de duplicados lo marca, porque los km se contarían dos veces.
+- **VAL-01-F2:**
+  - **Cuándo pregunta:** un externo con operador incluido, sin operador asignado, y puestos de Personal (con posiciones) que no operan ningún equipo. El control de duplicados (`duplicates`, para revisar) pregunta si alguno es ese operador.
+  - **Cómo se confirma:** en Equipos, "Ningún puesto de Personal lo opera" (`operatorBySupplier`). La confirmación queda ligada a esos puestos (id y nombre): si se agrega otro o se renombra, vuelve a preguntar.
+  - **Si se asigna el puesto como operador:** lleva al aviso de siempre ("Operador posiblemente duplicado").
+
+#### 3. Impacto en fórmulas
+- **Fórmulas:** ninguna cambia.
+- **Golden y candado:** golden 39/39 sin tocar y candado sin cambios.
+- **A/B contra `main`:** las mismas cifras en el corpus sintético.
+- **Qué cambia:** la completitud (pendientes nuevos, que aparecen sólo cuando se disparan) y los textos.
+
+#### 4. Impacto en datos
+- **Esquema:** 10, sin cambios ni migración.
+- **Campos opcionales nuevos:**
+  - `logistics.vehicles[].ownershipCostsIn`: el id de la línea de Equipos con su costo de tenerlo, o `'per_km'`;
+  - `equipment[].operatorBySupplier`: la confirmación de F2 (`{ labor: [{ id, role }] }`).
+- **Sin ellos:** todo calcula igual.
+- **Pestaña con la versión anterior:** los ignora; calcula igual y no avisa, como hoy.
+- **Plantillas:** al crear una cotización desde una plantilla se remapean, como el resto de las referencias entre líneas.
+- **"Actualizar desde Recursos":** conserva la confirmación de F2, que es de la cotización, como el operador asignado.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests que reproducen H-04, H-08 y F2 (`tests/engines/eco-04.test.js`: 10 de 16 fallan en `main`; los demás fijan lo que no cambia) y los de las correcciones del Code Review.
+- [x] 3. Completitud (tres reglas), el aviso de días (en el motor, con sus días) y el Resultado.
+- [x] 4. UI: el costo de tenerlo en cada vehículo de apoyo y la confirmación del operador en Equipos (cada línea).
+- [x] 5. Fábrica (plantillas) y Recursos (actualizar).
+- [x] 6. E2E (E2E-22 a E2E-24, escritorio y celular), A/B contra `main` y docs.
+- [x] 7. PR sin merge (#31) y evidencia en RATEOS-AUDIT (`tasks/ECO-04/`).
+
+#### 6. HUMAN DECISION REQUIRED (no bloquean)
+1. **"Más días que disponibles" en las otras unidades** (D-9, VAL-01-F3, C-E3-10): hoy es trabajo de más de un mes, con el aviso corregido. ¿Pedir confirmación también ahí?
+2. **Vehículo de apoyo propio:** este PR lo resuelve ligándolo a una línea de Equipos. La alternativa es cargar su costo de tenerlo en el mismo vehículo, con más campos y un cálculo nuevo.
+3. **Severidad de la pregunta del vehículo de apoyo:**
+   - **Hoy:** es **crítica**, porque H-08 es P1.
+   - **Alcance:** en el corpus sintético aparece en todas las cotizaciones con vehículos de apoyo (626 de 2.196) hasta que se responde una vez por vehículo.
+   - **Alternativa:** "para revisar", que no pide confirmar antes de mandarla.
+
+#### 7. Rollback
+Revert del PR. Los campos nuevos quedan en los datos y la versión anterior los ignora.
+
+#### Bitácora
+- 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests que reproducen los tres casos y la implementación.
+- 2026-10-20: F2 se acotó a los puestos que **suenan a operador o chofer**.
+  - **Por qué:** preguntar por cualquier puesto libre llenaba de preguntas el transporte normal (un transportista con chofer más un coordinador propio). Los casos de la auditoría (VAL-01 E12, AUD-T1 C-E2-07) son choferes.
+  - **Qué se perdió:** nada del golden ni del Test Lab.
+- 2026-10-20: Code Review (skill, nivel medio), 10 observaciones, todas atendidas:
+  - el aviso de días pasó al motor, con los días que usa (tope de 31, y no en unidades por cantidad);
+  - cada externo pregunta en Equipos (antes, sólo el primero, y un operador asignado en otra línea las tapaba);
+  - "asignado" igual que en el motor (un id viejo no cuenta);
+  - la guía de H-08 dice "No requiere movilización";
+  - quitar un equipo limpia el vehículo ligado;
+  - el texto de los datos inválidos;
+  - más nombres de operador ("Hidrogruista", "Operario de grúa");
+  - un solo formateador y un solo nombre de puesto;
+  - sin re-export.
+- 2026-10-20: A/B contra `main` (2.196 cotizaciones: lab, generadas, línea base, demo, fixtures, AUD-T1, plantillas y las 87 de VAL-01):
+  - **cifras:** 0 diferencias;
+  - **completitud:** ningún cambio fuera de los tres pendientes;
+  - `month_days_overflow` sólo en VAL-01 E24 (el caso H-04);
+  - `vehicle_ownership_costs` en las 626 con vehículos de apoyo;
+  - la pregunta de F2 en 310 (VAL-01 E12, el caso F2, y las generadas con "Operador" y un externo con operador);
+  - la demo, las plantillas, el golden y los fixtures no cambian.
+- 2026-10-20: las capturas a 390 px mostraron la pregunta del operador en una columna angosta, con el botón al costado. Ahora el botón baja debajo del texto cuando no entran juntos (`css/quote.css`); en escritorio no cambia.

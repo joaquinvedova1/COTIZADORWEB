@@ -175,6 +175,22 @@ export const E2E_SCENARIOS = [
     id: 'E2E-20', title: 'ECO-01 H-03: puesto usado sin sueldo básico: crítico, nombra el puesto y lleva al campo',
     build: () => service({ id: 'lab-e20', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Operador de hidrogrúa', basicMonthly: null }), person({ role: 'Rigger' })] }),
   },
+  // ---- ECO-04 (AUD-T1 H-04, H-08 y VAL-01-F2): avisos verificables; las cifras son las del motor.
+  {
+    id: 'E2E-22', title: 'ECO-04 H-04: abono con 26 días trabajados y 22 disponibles: NO CONFIABLE, lleva a los días disponibles',
+    build: () => service({ id: 'lab-e22', serviceType: 'crew', unit: 'month', activity: { activeDaysPerMonth: 26, availableDaysPerMonth: 22 }, labor: [person({ role: 'Técnico' })] }),
+  },
+  {
+    id: 'E2E-23', title: 'ECO-04 H-08: camioneta sólo como vehículo de apoyo: crítico hasta decir dónde está su costo de tenerlo',
+    build: () => service({ id: 'lab-e23', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20 }, labor: [person({ role: 'Técnico' })],
+      equipment: [owned({ id: 'lab-e23-herr', name: 'Herramientas', mobilization: { mode: 'support', supportVehicleId: 'lab-e23-veh' } })],
+      logistics: route({ distanceKm: 60, vehicles: [{ id: 'lab-e23-veh', name: 'Camioneta', count: 1, consumptionLPer100Km: 13, costPerKm: 60 }] }) }),
+  },
+  {
+    id: 'E2E-24', title: 'ECO-04 F2: camión tercerizado con chofer y un "Chofer del camión" en Personal: se pregunta y se confirma',
+    build: () => service({ id: 'lab-e24', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 18, daysPerActivation: 1 }, labor: [person({ role: 'Chofer del camión' })],
+      equipment: [external({ name: 'Camión volcador' }, { price: 450000, unit: 'day', fuelIncluded: true, operatorIncluded: true, mobilizationIncluded: true })], logistics: route({ distanceKm: 40 }) }),
+  },
 ];
 
 /** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
@@ -516,6 +532,81 @@ async function runMode(mode) {
     await go(`#/cotizaciones/${encodeURIComponent(byId['E2E-20'].q.id)}/result`, 300);
     await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
     await unreliableFirst('E2E-20', /Personal/);
+  }
+  // ---- ECO-04 (AUD-T1 H-04, H-08 y VAL-01-F2): lo que se ve, los botones de cada aviso y lo que se guarda.
+  // Las cifras son las del motor en el bucle general (y no cambian al responder).
+  {
+    const storedQuote = (id) => (db.workspaces.get(orgId).state.quotes || []).find((x) => x.id === id) || null;
+    const waitStored = async (id, test) => {
+      let q = null;
+      for (let i = 0; i < 20; i += 1) {
+        q = storedQuote(id);
+        if (q && test(q)) break;
+        await page.waitForTimeout(150);
+      }
+      return q;
+    };
+    const pendingIds = () => page.evaluate(() => [...document.querySelectorAll('.qr-checklist a[href*="campo="]')].map((a) => decodeURIComponent((a.getAttribute('href') || '').split('campo=')[1] || '')));
+
+    // H-04: abono con más días que disponibles → RESULTADO NO CONFIABLE con la causa; el aviso ya no dice "reemplazan por 0".
+    const e22 = byId['E2E-22'];
+    check('E2E-22', 'H-04: el motor lo marca crítico y no confiable', Boolean(e22.r.completeness.pending.find((p) => p.id === 'month_days_overflow' && p.severity === 'critical' && p.unreliable === true)), 'sin el pendiente');
+    await go(`#/cotizaciones/${encodeURIComponent(e22.q.id)}/result`, 300);
+    await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+    await unreliableFirst('E2E-22', /Días trabajados del abono/);
+    const e22text = norm(await page.evaluate(() => document.body.innerText));
+    check('E2E-22', 'H-04: el aviso dice los días y los abonos (26 con 22: 1,18)', /26 días trabajados por mes con 22 días disponibles/.test(e22text) && /1,18 abonos/.test(e22text), 'sin los números');
+    check('E2E-22', 'H-04: ningún aviso dice que los cálculos reemplazan valores por 0', !/reemplazan los valores inválidos/.test(e22text), 'sigue el texto viejo');
+
+    // H-08: "Costo de tenerlo" en Logística; "Ya está en el costo por km" saca el crítico y no cambia las cifras.
+    const e23 = byId['E2E-23'];
+    check('E2E-23', 'H-08: el motor pide el costo de tenerlo del vehículo (crítico)', Boolean(e23.r.completeness.pending.find((p) => p.id === 'vehicle_ownership_costs' && p.severity === 'critical')), 'sin el pendiente');
+    await go(`#/cotizaciones/${encodeURIComponent(e23.q.id)}/logistics`, 300);
+    await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
+    const ownership = page.locator('select[name="logistics.vehicles.0.ownershipCostsIn"]').first();
+    const hasOwnership = (await ownership.count()) > 0;
+    check('E2E-23', 'H-08: el vehículo tiene "Costo de tenerlo" con "Ya está en el costo por km" y las líneas de Equipos', hasOwnership && await ownership.evaluate((el) => [...el.options].some((o) => o.value === 'per_km') && [...el.options].some((o) => /En Equipos: Herramientas/.test(o.textContent))), 'sin el campo');
+    if (hasOwnership) {
+      await ownership.selectOption('per_km');
+      const saved = await waitStored(e23.q.id, (q) => q.logistics && q.logistics.vehicles[0] && q.logistics.vehicles[0].ownershipCostsIn === 'per_km');
+      check('E2E-23', 'H-08: la respuesta se guarda en la cotización', Boolean(saved) && saved.logistics.vehicles[0].ownershipCostsIn === 'per_km', saved ? JSON.stringify(saved.logistics.vehicles[0].ownershipCostsIn) : 'sin guardar');
+      await go(`#/cotizaciones/${encodeURIComponent(e23.q.id)}/result`, 300);
+      await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+      const after = await pendingIds();
+      const cost = norm(await page.evaluate(() => document.body.innerText));
+      check('E2E-23', 'H-08: respondido, el pendiente se va y el costo del mes es el mismo', !after.some((x) => /ownershipCostsIn/.test(x)) && cost.includes(norm(formatMoney(e23.r.kpis.totalCost))), JSON.stringify(after));
+    }
+
+    // F2: Equipos pregunta y "Ningún puesto de Personal lo opera" lo confirma (ligado a ese puesto).
+    const e24 = byId['E2E-24'];
+    check('E2E-24', 'F2: el motor pregunta por el operador (para revisar)', Boolean(e24.r.completeness.pending.find((p) => p.id === 'duplicates' && p.severity === 'review' && p.focus === 'equipment.0.operatorLaborId')), 'sin el pendiente');
+    await go(`#/cotizaciones/${encodeURIComponent(e24.q.id)}/equipment`, 300);
+    await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    const scope = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.qe-operator-scope')].find((x) => !x.closest('[hidden]') && x.offsetParent !== null && !x.classList.contains('is-confirmed'));
+      return b ? b.innerText : '';
+    });
+    check('E2E-24', 'F2: Equipos pregunta si el "Chofer del camión" opera el camión que ya trae operador', /¿Lo opera alguien de tu Personal\?/.test(scope) && /Chofer del camión/.test(scope) && /Camión volcador/.test(scope), norm(scope).slice(0, 200));
+    const confirm = page.getByRole('button', { name: 'Ningún puesto de Personal lo opera' }).first();
+    if (await confirm.isVisible().catch(() => false)) {
+      await tap(confirm);
+      const saved = await waitStored(e24.q.id, (q) => q.equipment[0] && q.equipment[0].operatorBySupplier);
+      const labor = saved && saved.equipment[0].operatorBySupplier && saved.equipment[0].operatorBySupplier.labor;
+      check('E2E-24', 'F2: la confirmación se guarda ligada a ese puesto (id y nombre)', Array.isArray(labor) && labor.length === 1 && labor[0].role === 'Chofer del camión' && labor[0].id === saved.labor[0].id, JSON.stringify(labor));
+      await page.waitForTimeout(400);
+      const confirmed = await page.evaluate(() => {
+        const b = [...document.querySelectorAll('.qe-operator-scope.is-confirmed')].find((x) => !x.closest('[hidden]') && x.offsetParent !== null);
+        return b ? b.innerText : '';
+      });
+      check('E2E-24', 'F2: queda a la vista "Confirmado: el operador lo pone el proveedor"', /Confirmado: el operador lo pone el proveedor/.test(confirmed), norm(confirmed).slice(0, 160));
+      await go(`#/cotizaciones/${encodeURIComponent(e24.q.id)}/result`, 300);
+      await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+      const after = await pendingIds();
+      check('E2E-24', 'F2: confirmado, el Resultado ya no lo pide', !after.includes('equipment.0.operatorLaborId'), JSON.stringify(after));
+    } else {
+      check('E2E-24', 'F2: el botón "Ningún puesto de Personal lo opera" está a la vista', false, 'sin botón');
+    }
   }
   {
     const pr = computeProduct(structuredClone(prod));

@@ -65,6 +65,10 @@ const FIX_VALUES = {
   quantity: 1, unitCost: 1000, hoursPerActiveDay: 8,
   // Horas de cobertura del personal (PLAN-2026-014): con 6 personas por posición alcanza hasta 24 h × 31 días.
   peoplePerPosition: 6,
+  // ECO-04: dónde está el costo de tenerlo de un vehículo de apoyo (H-08) y asignar el chofer u
+  // operador de Personal a un externo que ya lo trae (F2: el aviso pasa a "operador duplicado").
+  ownershipCostsIn: 'per_km',
+  operatorLaborId: (quote) => (list(quote.labor).find((l) => Number(l.positions) > 0) || {}).id,
 };
 /** Efectos de la interfaz al editar un campo (editar el precio del combustible lo confirma, etc.). */
 const UI_SIDE_EFFECTS = {
@@ -135,8 +139,10 @@ export function auditQuoteUx(quote, result, { scenario = null } = {}) {
     // Si el valor de prueba ya es el cargado (p. ej. 1 viaje por salida), la persona cargaría otro:
     // se prueba también el doble y uno más.
     const current = getPath(quote, item.focus);
-    const candidates = [FIX_VALUES[field]];
-    if (typeof FIX_VALUES[field] === 'number' && Number(current) === FIX_VALUES[field]) candidates.push(FIX_VALUES[field] * 2, FIX_VALUES[field] + 1);
+    // Un valor que depende de la cotización (un id de otra línea) se calcula.
+    const fix = typeof FIX_VALUES[field] === 'function' ? FIX_VALUES[field](quote, item) : FIX_VALUES[field];
+    const candidates = [fix];
+    if (typeof fix === 'number' && Number(current) === fix) candidates.push(fix * 2, fix + 1);
     const resolved = candidates.some((value) => {
       const q2 = structuredClone(quote);
       setPath(q2, item.focus, value);

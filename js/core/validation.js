@@ -138,13 +138,7 @@ export function validateQuote(quote) {
   check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');
   check('activity.daysPerActivation', a.daysPerActivation, 'positiveDays');
   check('activity.hoursPerActiveDay', a.hoursPerActiveDay, 'hoursPerDay');
-  if (toNumber(a.activeDaysPerMonth) > toNumber(a.availableDaysPerMonth) && toNumber(a.availableDaysPerMonth) > 0) {
-    issues.push({
-      path: 'activity.activeDaysPerMonth',
-      message: 'Los días activos superan los días disponibles del mes (utilización mayor a 100 %).',
-      severity: 'warning',
-    });
-  }
+  // Más días que disponibles: lo avisa el motor con los días que usa (ECO-04, `unitIssues`).
 
   (Array.isArray(quote.labor) ? quote.labor : []).forEach((l, i) => {
     if (!isPlainObject(l)) return;

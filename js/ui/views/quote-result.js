@@ -1061,15 +1061,32 @@ function criticalAlerts(v) {
     out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
       stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`)));
   }
-  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i);
+  // Abono con más días que disponibles (ECO-04, H-04): ya lo dice "RESULTADO NO CONFIABLE" arriba.
+  const monthDays = (r.completeness.pending || []).some((p) => p.id === 'month_days_overflow');
+  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i)
+    || (monthDays && i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning');
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
-  if (issues.length) {
+  // Sólo los datos INVÁLIDOS se reemplazan por 0 o por un valor por defecto; los avisos (ECO-04: días
+  // de más, valor residual…) se calculan con lo cargado y no se presentan como reemplazados.
+  const issueList = (list) => [
+    h('ul', {}, ...list.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
+    list.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(list.length - 6)} más.`) : null,
+  ];
+  const invalid = issues.filter((i) => i.severity === 'error');
+  const warnings = issues.filter((i) => i.severity !== 'error');
+  if (invalid.length) {
+    out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
+      h('div', {},
+        h('strong', {}, 'Hay datos inválidos. '),
+        'El cálculo no los toma como están: usa 0 o un valor por defecto, salvo que el aviso diga otra cosa:',
+        ...issueList(invalid))));
+  }
+  if (warnings.length) {
     out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
       h('div', {},
         h('strong', {}, 'Hay datos para revisar. '),
-        'Los cálculos reemplazan los valores inválidos por 0 o por un valor por defecto:',
-        h('ul', {}, ...issues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
-        issues.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(issues.length - 6)} más.`) : null)));
+        'Se calculan con lo que cargaste:',
+        ...issueList(warnings))));
   }
   return out;
 }
