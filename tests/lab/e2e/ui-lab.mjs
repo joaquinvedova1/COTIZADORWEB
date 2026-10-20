@@ -823,6 +823,9 @@ async function runMode(mode) {
       own('eq-otro', 'Hidrolavadora industrial', 'other', { internalCode: 'HL-01', replacementValue: 8000000 }),
     ];
     ws.state.resources.equipment = units;
+    // Sin tipos de cambio: la excavadora en USD tiene que quedar sin convertir aunque otro bloque (p. ej. el de
+    // Configuración de UX-01, en el árbol combinado) haya guardado uno.
+    ws.state.settings = { ...(ws.state.settings || {}), exchangeRates: [] };
     ws.revision += 1;
     await page.reload();
     await page.waitForTimeout(2500);
