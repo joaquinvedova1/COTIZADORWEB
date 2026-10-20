@@ -12,6 +12,26 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**DESIGN-02 (2/2), cotizar sin fricción (PLAN-2026-026).** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10).
+
+### Agregado
+
+- **Eco de montos en todo campo de plata** (Recursos, Configuración, Productos y el editor): debajo del campo, "$ 2.600.000" desde $ 10.000, con centavos si los hay. Antes existía sólo en el editor de cotizaciones. El texto del campo no se reformatea: cambiarlo al entrar borraría la selección y, con Tab, lo tipeado se sumaría al número anterior (`DESIGN.md` §5).
+- **Margen con su palabra** en la barra compacta del resumen en vivo: "cumple", "debajo", "pierde" o "no confiable" (no sólo el color, WCAG 1.4.1).
+- Pruebas: `tests/ui/money-echo.test.js`, `tests/ui/live-summary-text.test.js` y `tests/ui/editor-friction.test.js` (15 tests) y el bloque DESIGN-02B del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+
+### Cambiado
+
+- **Resumen en vivo:** el resultado y el margen esperados pasan a la lista principal y quedan siempre a la vista en el panel; "Ver más" deja el precio para tu margen y la completitud. La barra compacta muestra costo, piso, tarifa cobrada y margen; "Para no perder" y el resultado en pesos quedan en "Ver detalle".
+- **La tarifa cobrada se destaca** en la barra compacta (fondo y cifra más fuerte): ya no se ve igual que la piso.
+- **Avisos arriba en el celular**, debajo de la barra de la app: ya no tapan el resumen fijo del editor.
+- **Tablas de estructura y de tramos en tarjetas** cuando no entran, como "Otros costos" y los vehículos: sin scroll horizontal en el celular.
+
+### Corregido
+
+- **Accesibilidad de los campos:** los obligatorios llevan `aria-required` (también los que marca el editor); la ayuda y el error de los campos de texto, fecha, selector y buscador se asocian con `aria-describedby` (antes sólo el numérico), y también los avisos del motor junto a un campo.
+- El eco de un monto con centavos los muestra ("$ 1.800.000,50"); antes redondeaba al peso.
+
 **DESIGN-02 (1/2), "Ingeniería clara" (PLAN-2026-025): `DESIGN.md` propio y leer bien montos, unidades, riesgo y estado de guardado.** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10). El logo no cambia y no se carga ninguna fuente.
 
 ### Agregado

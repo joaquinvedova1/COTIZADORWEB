@@ -1328,12 +1328,12 @@ Ninguno. No se toca `js/engines/**` ni `js/domain/**`. Golden 39/39 y candado si
 Ninguno: ni campos nuevos ni esquema (sigue en 10). El eco sólo lee el texto del campo con el mismo intérprete que el campo (`parseDecimalInput`); nunca cambia lo que se guarda.
 
 #### 5. Pasos
-- [ ] 1. Este plan, antes del código.
-- [ ] 2. Tests que fallan en la base (`6a310e2`):
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests que fallan en la base (`6a310e2`):
   - unitarios de las funciones puras nuevas (texto del eco y palabra del margen);
   - estáticos de CSS y de las tablas;
   - un bloque DESIGN-02B del `ui-lab` en escritorio y en el celular, con una prueba sólo con teclado.
-- [ ] 3. Implementación.
+- [x] 3. Implementación.
 - [ ] 4. Validación completa:
   - suite, Test Lab, gate y `ui-lab`;
   - capturas antes y después a 1440 y 390 px, más 360 y 320 px para las tablas;
@@ -1345,3 +1345,15 @@ Revert del PR. No deja datos.
 
 #### Bitácora
 - 2026-10-20: base `claude/design-02-ingenieria-clara` `6a310e2` (PR #35). Primero este plan; después los tests y la implementación.
+- 2026-10-20: tests antes del código (`f88230f`):
+  - los 15 unitarios y estáticos fallan en la base (los dos módulos nuevos no existen);
+  - el bloque DESIGN-02B del `ui-lab` se corre contra la base con acciones "suaves".
+  - El control del panel de escritorio usa `checkVisibility()`: lo que está dentro de "Ver más" cerrado tiene tamaño para el navegador aunque no se vea.
+  - Ninguna cotización sembrada trae la estructura desglosada: el bloque agrega una copia sintética con dos rubros y tramos, también en el control de fugas de sesión.
+- 2026-10-20: implementado (`bd90a37`).
+  - Eco de montos: pasa de `quote-editor.js` (`attachMoneyEcho`) a `numberField`, con el texto en `js/ui/money-echo.js` (puro). Muestra los centavos si los hay (antes redondeaba al peso).
+  - Palabra del margen: `js/ui/live-summary-text.js` (puro), con el mismo criterio que el tono del resumen.
+  - `fieldShell` pone `aria-required` y, si el control no trae uno, `aria-describedby` con la ayuda y el error. Los avisos del motor llevan un id que se suma al `aria-describedby` del control y se saca al recalcular.
+  - Decisiones técnicas:
+    - el texto del campo no se reformatea (con Tab, lo tipeado se sumaría al número anterior);
+    - las tablas de estructura y de tramos usan `qe-stack-table`, la misma regla que "Otros costos": también pasan a tarjetas en escritorio cuando el paso mide 940 px o menos. En los tramos, "desde" y "hasta" van juntos.
