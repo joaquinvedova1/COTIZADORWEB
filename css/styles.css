@@ -469,6 +469,10 @@ html { scroll-padding-top: 7rem; }
 .toast-success { background: #157A50; }
 .toast-warning { background: #9A5F12; }
 .toast-danger { background: var(--red-text); }
+/* Con el resumen del editor fijo abajo (1180 px o menos), los avisos salen arriba: abajo lo tapaban (DESIGN-02 2/2). */
+@media (max-width: 1180px) {
+  .toast-region { top: 1rem; bottom: auto; }
+}
 
 /* ------------------------------------------------------------------- misc */
 
@@ -626,8 +630,10 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   .nav a { min-height: 46px; font-size: 1.02rem; }
   .sidebar-footer { margin-top: 0.75rem; }
   body.nav-open { overflow: hidden; }
-  /* Avisos arriba, debajo de la barra de la app y a lo ancho: abajo tapaban el resumen fijo del editor (DESIGN-02 2/2). */
+  /* Avisos arriba, debajo de la barra de la app y a lo ancho: abajo tapaban el resumen fijo del editor (DESIGN-02 2/2).
+     Con el menú abierto van abajo, para no taparlo. */
   .toast-region { top: calc(56px + 0.5rem); bottom: auto; left: 0.75rem; right: 0.75rem; }
+  body.nav-open .toast-region { top: auto; bottom: 0.75rem; }
   .toast { max-width: none; }
 
   .topbar { position: static; padding: 1.1rem 1rem 0.5rem; background: transparent; backdrop-filter: none; align-items: flex-start; }

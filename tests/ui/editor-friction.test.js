@@ -85,7 +85,7 @@ describe('barra compacta del resumen en vivo (1180 px o menos)', () => {
 });
 
 describe('celular (760 px o menos)', () => {
-  test('los avisos salen arriba, debajo de la barra de la app: nunca tapan el resumen fijo', () => {
+  test('los avisos salen arriba, debajo de la barra de la app: nunca tapan el resumen fijo; con el menú abierto, abajo', () => {
     const mobile = mediaBlocks(read('css/styles.css'), '(max-width: 760px)').flatMap(rules);
     const region = mobile.filter((r) => r.selector.split(',').some((s) => s.trim() === '.toast-region'));
     assert.ok(region.length > 0, 'falta .toast-region en el bloque del celular');
@@ -93,6 +93,15 @@ describe('celular (760 px o menos)', () => {
     const bottom = region.map((r) => decl(r.decls, 'bottom')).find(Boolean);
     assert.ok(top && top !== 'auto', `top: ${top}`);
     assert.equal(bottom, 'auto');
+    const menuOpen = mobile.find((r) => r.selector.trim() === 'body.nav-open .toast-region');
+    assert.ok(menuOpen && decl(menuOpen.decls, 'top') === 'auto', 'con el menú abierto los avisos tienen que ir abajo');
+  });
+
+  test('con el resumen fijo abajo (1180 px o menos) los avisos también salen arriba', () => {
+    const compact = mediaBlocks(read('css/styles.css'), '(max-width: 1180px)').flatMap(rules);
+    const region = compact.filter((r) => r.selector.split(',').some((s) => s.trim() === '.toast-region'));
+    assert.ok(region.length > 0, 'falta .toast-region en el bloque de 1180 px');
+    assert.ok(region.some((r) => decl(r.decls, 'top') && decl(r.decls, 'top') !== 'auto' && decl(r.decls, 'bottom') === 'auto'));
   });
 
   test('las tablas de estructura y de tramos se apilan en pasos angostos (qe-stack-narrow); en escritorio siguen como tabla', () => {
@@ -112,6 +121,28 @@ describe('celular (760 px o menos)', () => {
     for (const [, width, body] of narrow) {
       assert.ok(Number(width) >= 400 && Number(width) <= 720, `qe-stack-narrow se activa con el paso de ${width} px o menos`);
       assert.match(body, /\.qe-stack-narrow \.table thead \{[^}]*position: absolute/);
+    }
+  });
+});
+
+describe('tarjetas de estructura y tramos', () => {
+  test('qe-stack-narrow tiene las mismas reglas que qe-stack-table (no se separan con el tiempo)', () => {
+    const src = stripComments(read('css/quote.css'));
+    /** Reglas del bloque `@container qestep (max-width: <width>px)` (sin llaves anidadas). */
+    const block = (width) => {
+      const head = `@container qestep (max-width: ${width}px) {`;
+      const at = src.indexOf(head);
+      assert.ok(at !== -1, `falta ${head}`);
+      const end = src.indexOf('\n}', at);
+      return rules(src.slice(at + head.length, end));
+    };
+    const norm = (t) => t.replace(/\s+/g, ' ').trim();
+    const table = block(940).filter((r) => r.selector.includes('.qe-stack-table'));
+    const narrow = block(680).map((r) => `${norm(r.selector)} {${norm(r.decls)}}`);
+    assert.ok(table.length >= 10, 'no encuentro las reglas de .qe-stack-table');
+    for (const r of table) {
+      const twin = `${norm(r.selector.replaceAll('.qe-stack-table', '.qe-stack-narrow'))} {${norm(r.decls)}}`;
+      assert.ok(narrow.includes(twin), `falta en .qe-stack-narrow: ${twin.slice(0, 120)}`);
     }
   });
 });

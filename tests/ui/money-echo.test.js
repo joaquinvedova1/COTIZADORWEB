@@ -8,7 +8,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MONEY_ECHO_FROM, moneyEchoText } from '../../js/ui/money-echo.js';
+import { MONEY_ECHO_FROM, echoCurrency, moneyEchoText } from '../../js/ui/money-echo.js';
 import { parseDecimalInput } from '../../js/core/validation.js';
 
 const norm = (s) => String(s).replace(/[  ]/g, ' ');
@@ -35,6 +35,21 @@ describe('eco de montos', () => {
     for (const raw of ['', '   ', null, undefined, 'abc', '1,234.56', '1.2.3', '1e5', '-']) {
       assert.equal(moneyEchoText(raw), '', `"${raw}"`);
     }
+  });
+
+  test('en la moneda del campo: un precio en dólares nunca se lee como pesos', () => {
+    assert.equal(norm(moneyEchoText('15000', { unit: 'USD' })), 'US$ 15.000');
+    assert.equal(norm(moneyEchoText('15000', { unit: 'US$' })), 'US$ 15.000');
+    assert.equal(norm(moneyEchoText('15000,5', { unit: 'US$/día' })), 'US$ 15.000,50');
+    assert.equal(norm(moneyEchoText('15000', { unit: 'EUR' })), '€ 15.000');
+    assert.equal(norm(moneyEchoText('15000', { unit: '€' })), '€ 15.000');
+    assert.equal(norm(moneyEchoText('850000', { unit: '$/mes' })), '$ 850.000');
+    assert.equal(norm(moneyEchoText('850000', { unit: null })), '$ 850.000');
+    // Una unidad que no dice una moneda conocida: sin eco (no se adivina).
+    assert.equal(moneyEchoText('850000', { unit: 'km' }), '');
+    assert.equal(echoCurrency('$'), '$');
+    assert.equal(echoCurrency('USD'), 'US$');
+    assert.equal(echoCurrency('litros'), null);
   });
 
   test('el eco es el mismo número que se guarda (sin redondear los centavos)', () => {

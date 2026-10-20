@@ -128,7 +128,7 @@ Reglas que no cambian: margen ≠ markup ([AGENTS.md §9](../AGENTS.md)); valore
 
 - Landing, ingreso y registro se diseñan también a 360 px: menú colapsable, botones táctiles ≥ 44 px, sin scroll horizontal.
 - En la app mobile se puede: ver cotizaciones, ver el resultado, entender las tarifas e iniciar una cotización. Las tablas grandes se muestran como tarjetas o con scroll contenido, nunca forzando el ancho de la página. Las tablas editables del editor (otros costos, vehículos y, en pasos angostos, estructura y tramos) pasan a una tarjeta por fila.
-- Los avisos emergentes salen arriba, debajo de la barra de la app: no tapan el resumen fijo del editor.
+- Los avisos emergentes salen arriba, debajo de la barra de la app: no tapan el resumen fijo del editor (con el menú abierto, abajo). Entre 761 y 1180 px, con el resumen fijo abajo, también salen arriba.
 - El estado de guardado ("Guardado", "Sin conexión", "Conflicto"…) se ve en la barra de arriba, sin abrir el menú; en el riel (761 a 1100 px), con una palabra debajo del punto de color.
 
 ## 7. Accesibilidad

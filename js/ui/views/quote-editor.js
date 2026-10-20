@@ -454,7 +454,9 @@ function decorateFieldIssues(container, issues) {
     const field = controls.length ? controls[0].closest('.field, .choice-group') : null;
     if (!field) return;
     field.classList.add('qe-has-issue');
-    const note = h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`], id: uniqueId('qe-aviso') }, issue.message);
+    // Id estable (el del control + su número de aviso): al recalcular, el aria-describedby queda igual.
+    const noteId = `${controls[0].id || uniqueId('qe-campo')}-aviso-${field.querySelectorAll('.qe-issue-note').length + 1}`;
+    const note = h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`], id: noteId }, issue.message);
     field.appendChild(note);
     // Todos los controles del campo con esa ruta (p. ej. cada opción de un grupo).
     controls.filter((c) => field.contains(c)).forEach((c) => {
@@ -1085,15 +1087,17 @@ function buildSummary({ getResult, stepHref }) {
       state: (r) => marginStateWord(r).word,
       hint: (r) => {
         const k = r.kpis;
-        const base = k.targetMarginInvalid ? 'Objetivo inválido' : `Objetivo ${formatPercent(k.targetMarginPct)}`;
-        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
+        // ECO-01: NO CONFIABLE va primero, como en la palabra de la barra compacta.
         const unreliable = unreliableText(r.completeness, 'este margen');
         if (unreliable) return unreliable;
-        const state = k.profit < 0 ? 'perdés plata' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
+        const base = k.targetMarginInvalid ? 'Objetivo inválido' : `Objetivo ${formatPercent(k.targetMarginPct)}`;
+        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
+        const state = k.profit < 0 ? 'perdés plata' : k.targetMarginInvalid ? 'revisá el margen en "El precio"' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
         const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
         return `${base} · ${state}${markup}.`;
       },
-      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
+      // El mismo criterio que la palabra: sin tarifa o sin objetivo válido, sin color.
+      tone: (r) => marginStateWord(r).tone,
       trace: (r) => r.traces.expectedResult,
     }),
     item({
@@ -1116,8 +1120,8 @@ function buildSummary({ getResult, stepHref }) {
       key: 'expectedResult',
       label: 'Resultado esperado del mes',
       value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
-      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
+      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que todo (también sin tarifa).
+      hint: (r) => unreliableText(r.completeness, 'este resultado') || (isFiniteNumber(r.kpis.commercialListRate) ? `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
       tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
       trace: (r) => r.traces.expectedResult,
     }),

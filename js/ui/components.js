@@ -284,7 +284,8 @@ function fieldShell({ id, label, hint, unit, error, required, illustrative }, co
  *   restaura el valor que tenía al entrar al campo: nunca queda guardado un
  *   prefijo intermedio (p. ej. "15" al tipear "150" en un margen).
  * - Montos (rule 'money', DESIGN-02 2/2): debajo, el eco con separadores
- *   ("$ 2.600.000"). El texto del campo no se reformatea: cambiarlo al tomar el
+ *   ("$ 2.600.000", en la moneda de la unidad del campo: "US$ 15.000"). El
+ *   texto del campo no se reformatea: cambiarlo al tomar el
  *   foco borraría la selección y, con Tab, lo tipeado se sumaría al número
  *   anterior en vez de reemplazarlo.
  * @param {{ label: string, value: number|null, rule?: string, onChange: Function, hint?: string, unit?: string, required?: boolean, step?: string|number, placeholder?: string, disabled?: boolean, illustrative?: boolean, name?: string, echo?: boolean }} opts
@@ -351,20 +352,21 @@ export function numberField({ label, value, rule = 'money', onChange, hint = nul
     errorEl.hidden = false;
     input.dataset.restored = 'true';
   });
-  if (echo && rule === 'money') attachMoneyEcho(el, input);
+  if (echo && rule === 'money') attachMoneyEcho(el, input, typeof unit === 'string' ? unit : unit && unit.textContent ? unit.textContent : null);
   return el;
 }
 
 /**
- * Eco del monto debajo del campo ("$ 2.600.000"), con el mismo intérprete que
- * el campo (moneyEchoText). Visual: el valor se anuncia desde el campo.
+ * Eco del monto debajo del campo ("$ 2.600.000"; "US$ 15.000" si la unidad
+ * del campo es otra moneda), con el mismo intérprete que el campo
+ * (moneyEchoText). Visual: el valor se anuncia desde el campo.
  */
-function attachMoneyEcho(fieldEl, input) {
+function attachMoneyEcho(fieldEl, input, unit) {
   const control = fieldEl.querySelector('.field-control');
   if (!control) return;
   const echoEl = h('div', { class: 'field-echo', 'aria-hidden': 'true' });
   const sync = () => {
-    echoEl.textContent = moneyEchoText(input.value);
+    echoEl.textContent = moneyEchoText(input.value, { unit });
     echoEl.hidden = !echoEl.textContent;
   };
   input.addEventListener('input', sync);

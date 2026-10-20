@@ -112,12 +112,12 @@ La paleta no cambia (`--navy-900`, `--blue-600`, `--ink`, verdes, naranjas y roj
 | **Pastilla** | `nowrap`, 12 px o más, texto + color de estado. "No confiable" (crítico), "Borrador" e "ILUSTRATIVO" (revisar) |
 | **Tabla** | `th` con `scope`, números a la derecha y tabulares. En el celular pasa a tarjetas con rótulo por celda. Los campos dentro de tablas llevan `--color-border-control` |
 | **Campo numérico** | Formato argentino ("2.600.000,50"), teclado decimal, unidad dentro del campo y error en línea con cómo arreglarlo. Un valor inválido no se pierde en silencio: se avisa |
-| **Eco de montos** | Debajo de todo campo de plata, desde $ 10.000: el monto con separadores ("$ 2.600.000"), leído con el mismo intérprete que el campo. **El texto del campo no se reformatea** al entrar ni al salir: cambiarlo al tomar el foco borra la selección y, con Tab, lo tipeado se sumaría al número anterior en vez de reemplazarlo |
+| **Eco de montos** | Debajo de todo campo de plata, desde 10.000: el monto con separadores en la moneda del campo ("$ 2.600.000", "US$ 15.000"), leído con el mismo intérprete que el campo. Con una unidad que no dice una moneda, sin eco: nunca se adivina. **El texto del campo no se reformatea** al entrar ni al salir: cambiarlo al tomar el foco borra la selección y, con Tab, lo tipeado se sumaría al número anterior en vez de reemplazarlo |
 | **Campo obligatorio** | Asterisco visible y `aria-required="true"`. La ayuda, el error y los avisos del motor junto al campo se asocian con `aria-describedby` |
 | **Diálogo** | `<dialog>` nativo, foco adentro y de vuelta al botón que lo abrió. Con cambios, pregunta "¿Descartar los cambios?"; un clic afuera no cierra un formulario |
 | **Grupo plegable** | `<details>`/`<summary>` con conteos y monto a la derecha (Recursos por convenio y por familia). Enter o Espacio lo abren |
 | **Botón** | Uno primario por vista; secundario y "enlace". Sólo con ícono: `aria-label` siempre |
-| **Aviso emergente (toast)** | Para confirmaciones sin acción ("Guardado"). Los errores quedan hasta cerrarlos y se anuncian. En el celular salen arriba, debajo de la barra de la app: nunca tapan el resumen fijo |
+| **Aviso emergente (toast)** | Para confirmaciones sin acción ("Guardado"). Los errores quedan hasta cerrarlos y se anuncian. Con el resumen del editor fijo abajo (1180 px o menos) salen arriba, y en el celular debajo de la barra de la app: nunca tapan el resumen. Con el menú del celular abierto, abajo |
 | **Gráfico** | Dibujado al ancho real (1 unidad = 1 px), con tabla alternativa y descripción para lectores; trazos distintos por serie (§2) y rótulos de 12 px |
 
 ## 6. Celular

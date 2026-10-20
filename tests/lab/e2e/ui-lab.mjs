@@ -866,6 +866,20 @@ async function runMode(mode) {
     check(D, `${where}: con un resultado NO CONFIABLE el margen dice "no confiable", en rojo`, unreliableBar.word === 'no confiable' && unreliableBar.tone === 'red', `palabra "${unreliableBar.word}" · tono ${unreliableBar.tone || 'ninguno'}`);
     await scan(D, where);
     if (mode === 'desktop') {
+      // A 1000 px el resumen también está fijo abajo: el aviso sale arriba y no lo tapa.
+      await openEditor(q0, 'labor');
+      let deskToast = null;
+      await soft(async () => {
+        await tap(page.locator('.qe-toolbar-pick').getByRole('button', { name: 'Agregar', exact: true }).first());
+        await page.waitForSelector('.toast', { timeout: 3000 });
+        await page.waitForTimeout(150);
+        deskToast = await page.evaluate(() => {
+          const r = [...document.querySelectorAll('.toast')].pop().getBoundingClientRect();
+          const sum = document.querySelector('.qe-summary');
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: window.innerHeight, summaryTop: sum ? Math.round(sum.getBoundingClientRect().top) : null };
+        });
+      });
+      check(D, `${where}: los avisos salen arriba y no tapan el resumen fijo`, Boolean(deskToast) && deskToast.summaryTop !== null && deskToast.bottom <= deskToast.summaryTop && deskToast.top < deskToast.vh / 3, deskToast ? JSON.stringify(deskToast) : 'no apareció el aviso');
       await page.setViewportSize(viewport);
       await page.waitForTimeout(400);
     }

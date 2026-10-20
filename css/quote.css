@@ -512,7 +512,8 @@
   .qe-stack-table td.qe-col-remove { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
 }
 /* Estructura y tramos (DESIGN-02 2/2): en escritorio entran como tabla; una tarjeta por fila sólo cuando el paso
-   mide 680 px o menos (celular y tablet), con las mismas reglas que .qe-stack-table. */
+   mide 680 px o menos (celular y tablet). Las reglas son las de .qe-stack-table, con la otra clase
+   (tests/ui/editor-friction.test.js verifica que sigan iguales); después, las propias de los tramos. */
 @container qestep (max-width: 680px) {
   .qe-stack-narrow.table-wrap { overflow: visible; }
   .qe-stack-narrow .table, .qe-stack-narrow .table tbody { display: block; width: 100%; }
@@ -527,15 +528,18 @@
   .qe-stack-narrow .field-label {
     position: static !important; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal;
   }
-  .qe-stack-narrow .field-control input, .qe-stack-narrow .field-control select { min-width: 0; }
+  .qe-stack-narrow .field-control input, .qe-stack-narrow .field-control select,
+  .qe-stack-narrow td:first-child .field-control input { min-width: 0; }
+  .qe-stack-narrow .qe-cell-tag { display: none; }
   .qe-stack-narrow td.qe-col-calc::before {
-    content: attr(data-label); display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); margin-bottom: 0.2rem;
+    content: attr(data-label); display: block; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); margin-bottom: 0.2rem;
   }
   .qe-stack-narrow td.qe-col-calc .qe-cell-calc, .qe-stack-narrow td.qe-col-calc .qe-out.mono { align-items: flex-start; padding-top: 0; }
-  .qe-stack-narrow .qe-tier-label { padding-top: 0; white-space: normal; }
   .qe-stack-narrow td.qe-col-remove { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
-  /* Tramos: "desde" y "hasta" van juntos (son números cortos). */
+  /* Tramos: "desde" y "hasta" van juntos (son números cortos); el tramo y su evaluación, a lo ancho. */
   .qe-stack-narrow.qe-tiers-table .table td:first-child { grid-column: auto; }
+  .qe-stack-narrow.qe-tiers-table td.qe-col-calc { grid-column: 1 / -1; }
+  .qe-stack-narrow .qe-tier-label { padding-top: 0; white-space: normal; }
 }
 @container qestep (max-width: 460px) {
   .form-grid.cols-4, .form-grid.cols-3, .form-grid.cols-2, .form-grid.cols-4.qe-material-grid { grid-template-columns: 1fr; }

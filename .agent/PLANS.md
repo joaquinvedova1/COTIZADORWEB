@@ -1360,3 +1360,13 @@ Revert del PR. No deja datos.
 - 2026-10-20: ajustes después de las capturas:
   - **Tablas:** con `qe-stack-table`, la de estructura pasaba a tarjetas también en escritorio (el paso mide unos 720 a 800 px), donde entraba bien como tabla. Ahora usa `qe-stack-narrow`: tarjetas sólo con el paso de 680 px o menos (celular y tablet). Un control nuevo del `ui-lab` verifica que en escritorio sigan como tabla.
   - **Orden del panel:** a 1440 × 900, con seis números, el último queda debajo del borde del panel (que se desplaza). Va primero el margen, después "Para no perder" y al final el resultado en pesos: así se ven costo, piso, tarifa, margen y días sin desplazar.
+- 2026-10-20: revisión de código (skill Code Review, nivel medio, sobre `6a310e2..1af8e4e`): 9 observaciones. Ocho se corrigieron:
+  - **el eco usaba siempre pesos:** un precio en dólares de Recursos ("Precio neto", unidad USD) se leía "$ 15.000". Ahora sale en la moneda del campo ("US$ 15.000", "€ 15.000"); con una unidad que no dice una moneda, sin eco. Ya pasaba en el editor con las líneas en dólares;
+  - **margen con objetivo inválido:** se pintaba de verde con la palabra "sin objetivo" y la ayuda decía "cumple el objetivo". El tono sale ahora de la misma función que la palabra, y la ayuda dice que se revise el margen;
+  - **NO CONFIABLE sin tarifa:** la palabra decía "no confiable" y la ayuda, "sin tarifa todavía". NO CONFIABLE va primero en las dos (también en el resultado);
+  - **avisos entre 761 y 1180 px:** seguían abajo, sobre el resumen fijo. Ahora salen arriba en todo ese rango; control nuevo del `ui-lab` a 1000 px;
+  - **avisos con el menú del celular abierto:** lo tapaban. Con el menú abierto van abajo;
+  - **ids de los avisos del motor:** se regeneraban en cada recálculo. Ahora son estables (el id del control y el número de aviso);
+  - **CSS de las tarjetas duplicado:** `qe-stack-narrow` es copia exacta de `qe-stack-table` y un test estático avisa si se separan;
+  - **tramos en tarjeta:** el tramo y su evaluación van a lo ancho.
+  - **Queda a propósito:** `aria-required` en los campos con asterisco del editor, aunque el campo acepte quedar vacío. El asterisco ya dice "obligatorio" a la vista y lo que falta lo marcan los avisos del motor y la completitud, ahora asociados al campo.
