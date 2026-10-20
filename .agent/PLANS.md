@@ -117,6 +117,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-023 | RES-02 (1/2) — Personal agrupado por convenio, perfiles ≠ personas, sueldo bruto sin doble conteo (con la base de las horas extra explícita) y convenios borrados sin referencias colgadas | UX, datos (campo opcional `peopleCount`, sin migración) | En curso (rama `claude/res-02-personal-por-convenio`, PR sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1175,80 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-023 — RES-02 (1/2): Personal agrupado por convenio y sueldo bruto sin doble conteo
+
+- Estado: En curso — rama `claude/res-02-personal-por-convenio` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: UX y datos: un campo opcional e informativo (`peopleCount`) sin migración; **ninguna fórmula cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (20/10: "RES-02 — Implementar Recursos. Autorizo la dirección visual propuesta, con los ajustes de ChatGPT"), con el diseño de RATEOS-AUDIT `tasks/RES-02/` y la revisión de ChatGPT del Issue #4
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Verificado en el código de `main` (detalle con `archivo:línea` en RATEOS-AUDIT `tasks/RES-02/GAP-ANALISIS.md`):
+- **Recursos → Personal es una tabla sin agrupar.** La vista simple ni muestra el convenio y no hay búsqueda.
+- **No hay cantidad de personas.** Un perfil se lee como una persona.
+- **Doble conteo posible:** el formulario pide "Sueldo básico" y, en otra sección, "Adicionales". Si se escribe el bruto del recibo como básico y además los adicionales, se suman dos veces (+20 % de costo en el ejemplo del diseño).
+- **Horas extra:** se valúan sobre el básico. Si el básico es en realidad el bruto, se sobrevalúan sin aviso.
+- **RES-02-G1:** al borrar un convenio, el aviso dice que los perfiles "quedarán sin convenio asignado", pero su `agreementId` queda colgando.
+
+#### 2. Decisiones (las del dueño y los ajustes de ChatGPT; para lo técnico, lo más seguro y sencillo)
+- **Vista principal agrupada por convenio** (D-R10): "Por convenio" es la vista por defecto de Personal; "Lista" y "Detallada" siguen disponibles.
+  - Un grupo por convenio de la empresa, con su nombre (los códigos de CCT no se muestran: no están confirmados, D-R5).
+  - **"Fuera de convenio":** los perfiles con un convenio del tipo `fuera_convenio`.
+  - **"Sin convenio indicado":** sin convenio o con uno que ya no existe. Siempre desplegado y con la salida a Configuración → Convenios.
+  - Orden: los convenios con más perfiles primero (después por nombre), "Fuera de convenio" y "Sin convenio indicado" al final.
+  - Grupos con `<details>`/`<summary>` (teclado), "Desplegar todo" / "Plegar todo", búsqueda y filtro por convenio que quedan en la dirección (`?q=&convenio=`).
+- **Perfiles ≠ personas** (D-R3, D-R9 y ajuste 3 de ChatGPT):
+  - campo opcional `peopleCount` (entero ≥ 0), **informativo**: no se copia a las cotizaciones, no entra en la huella (`SNAPSHOT_FIELDS`) y no cambia `positions` ni `peoplePerPosition`;
+  - el encabezado dice "N perfiles · M personas", o "M personas en K de N perfiles" si falta el dato;
+  - el monto del grupo suma costo por persona × personas sólo de los perfiles con cantidad. Si falta en alguno, se llama **"subtotal parcial"**; nunca "total del personal". Sin ninguna cantidad, no hay monto;
+  - un valor guardado inválido se toma como "sin dato". **No** se agrega una regla a `validateState`: un dato informativo malo no debe bloquear toda la cuenta.
+- **"Editar sueldo" a un clic** (D-R1, D-R7):
+  - **bruto mensual remunerativo** (obligatorio) que se descompone: `basicMonthly` = básico (o el bruto si no se carga) y `additionalsMonthly` = bruto − básico. El doble conteo es imposible por construcción y se guardan los mismos dos campos de siempre (el motor no cambia);
+  - básico mayor que el bruto: error en el campo;
+  - **horas extra** (D-R2, ajuste 2 de ChatGPT, pedido del dueño "no asumir silenciosamente que el bruto completo es el básico"): si el perfil o alguna cotización que lo usa tiene horas extra y no se carga el básico, para guardar hay que **cargarlo o confirmar** "valuar las horas extra sobre el bruto completo". Sin horas extra, el diálogo dice que sin básico se valuarían sobre el bruto;
+  - si el bruto cambia y el básico no, se avisa que el básico se usa para las horas extra (RATEOS no lo sube solo);
+  - **mes base** obligatorio si cambió el sueldo; fuente y referencia opcionales;
+  - vista previa del costo empresa por persona antes → después y "Ver cálculo"; los parámetros de cargas a la vista, ILUSTRATIVOS si lo son;
+  - cuántas cotizaciones en curso o ganadas lo usan: no cambian y van a avisar "El recurso cambió" (como hoy);
+  - sin historial de sueldos en el maestro (D-R7).
+- **Formulario completo (el de siempre)** (ajuste 5 de ChatGPT): sigue permitiendo cargar básico y adicionales por separado, ahora con ayudas que lo dicen y la línea "Bruto mensual = básico + adicionales", y suma "Personas en este puesto".
+- **RES-02-G1** (D-R11): borrar un convenio limpia el `agreementId` de los perfiles que lo usaban en la misma operación. Las cotizaciones no cambian (el convenio no está en la huella).
+- **Celular** (ajuste 1 de ChatGPT): los grupos aparecen en la primera pantalla: el resumen es una línea y no tres tarjetas.
+
+#### 3. Impacto en fórmulas
+Ninguno. No se toca ningún motor; golden y candado sin cambios.
+
+#### 4. Impacto en datos
+- Campo nuevo, opcional e informativo: `laborProfiles[].peopleCount`. Sin migración ni cambio de `SCHEMA_VERSION` (no cambia costos; `validateState` no tiene lista blanca de campos). Una versión anterior lo ignora.
+- "Editar sueldo" guarda `basicMonthly`, `additionalsMonthly` y la base del perfil, como el formulario de siempre.
+- Borrar un convenio deja `agreementId: null` en sus perfiles.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Funciones puras con tests (agrupación, conteos y subtotales; descomposición del bruto; horas extra en el perfil y en las cotizaciones) y G1 en el repositorio.
+- [x] 3. Vista "Por convenio", búsqueda y filtro en la dirección, celular.
+- [x] 4. "Editar sueldo" y ayudas del formulario completo.
+- [x] 5. E2E (escritorio y celular) que fallan en `main`, validación completa, capturas antes y después, PR sin merge y evidencia en RATEOS-AUDIT.
+
+#### 6. Fuera de alcance (documentado)
+- Equipos agrupados por familia: segundo PR de RES-02.
+- "+ Nuevo convenio…" desde el perfil y la lista de CCT con códigos (D-R5): los códigos no están confirmados.
+- Sumas no remunerativas del convenio (ajuste 5 de ChatGPT): no se mezclan con EPP o seguros sin revisión profesional (D-R12).
+- Escalas, vigencias, paritarias, aumentos automáticos e historial (decisión del dueño del 20/10).
+
+#### 7. Rollback
+Revert del PR. `peopleCount` queda en los datos y la versión anterior lo ignora.
+
+#### Bitácora
+- 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests y la implementación.
+- 2026-10-20: implementado.
+  - Dominio: `js/domain/labor-groups.js`, con 23 tests.
+  - Diálogo: `js/ui/labor-salary-dialog.js`.
+  - Vista: `js/ui/views/library.js` y `css/views.css`.
+  - G1: `deleteResource` del repositorio, que hereda la nube.
+  - `ui-lab`: 32 controles RES-02 por modo; contra `main`, los que dependen de la vista fallan (detalle en la evidencia).
+  - Decisiones técnicas:
+    - el error del diálogo tiene clase propia (`salary-error`);
+    - las acciones del bloque del `ui-lab` son "suaves", para que la corrida contra `main` falle control por control y no se corte;
+    - en el celular, las pestañas de Recursos se compactan (chips más chicos): con una sola fila desplazable la página crecía a lo ancho.
