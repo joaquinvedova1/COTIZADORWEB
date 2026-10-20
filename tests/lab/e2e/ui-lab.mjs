@@ -636,9 +636,12 @@ async function runMode(mode) {
     await page.emulateMedia({ media: 'print' });
     const printed = await page.evaluate(() => ({ head: (document.querySelector('.qr-print-head') || {}).innerText || '', body: document.body.innerText }));
     await page.emulateMedia({ media: 'screen' });
-    const dd = (n) => String(n).padStart(2, '0');
-    const today = new Date();
-    const printedOn = `${dd(today.getDate())}/${dd(today.getMonth() + 1)}/${today.getFullYear()}`;
+    // La fecha de impresión esperada sale del reloj del navegador, el mismo que usa la app.
+    const printedOn = await page.evaluate(() => {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+    });
     check(D, 'PDF: la fecha de la oferta (16/10/2026) y, aparte, la de impresión', norm(printed.head).includes('Oferta del 16/10/2026') && norm(printed.head).includes(`impreso el ${printedOn}`), norm(printed.head).slice(0, 160));
     check(D, 'PDF: también dice que no es un precio de mercado', norm(printed.body).includes('no es un precio de mercado'), 'no aparece en la impresión');
 
@@ -727,6 +730,31 @@ async function runMode(mode) {
       await go('#/inicio', 900);
       const bar = await visibleLeafText('.mobile-bar');
       check(D, 'celular: el estado de guardado se ve en la barra de arriba, sin abrir el menú', SYNC_WORDS.test(bar), `barra: "${bar}"`);
+      // Con el menú abierto se ve un solo estado (si no, los lectores de pantalla lo anunciarían dos veces).
+      const shownWithMenu = await soft(async () => {
+        await tap(page.locator('.menu-toggle').first());
+        await page.waitForTimeout(400);
+      }) ? await page.evaluate(() => [...document.querySelectorAll('.sync-status')].filter((el) => !el.hidden && el.getBoundingClientRect().width > 0).length) : null;
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      check(D, 'celular: con el menú abierto se ve un solo estado de guardado (no se anuncia dos veces)', shownWithMenu === 1, `estados visibles: ${shownWithMenu}`);
+      // A 320 px la barra entra: la palabra se acorta antes que apretar "Menú" (44 × 44 px) o la marca.
+      await page.setViewportSize({ width: 320, height: 700 });
+      await page.waitForTimeout(400);
+      const narrowBar = await page.evaluate(() => {
+        const barEl = document.querySelector('.mobile-bar');
+        const menu = document.querySelector('.menu-toggle');
+        const r = menu ? menu.getBoundingClientRect() : null;
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          barOverflow: barEl ? barEl.scrollWidth - barEl.clientWidth : null,
+          menu: r ? { w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right) } : null,
+          vw: window.innerWidth,
+        };
+      });
+      check(D, 'celular a 320 px: la barra entra sin scroll horizontal y "Menú" sigue de 44 × 44 px', narrowBar.overflow <= 1 && narrowBar.barOverflow !== null && narrowBar.barOverflow <= 1 && Boolean(narrowBar.menu) && narrowBar.menu.w >= 44 && narrowBar.menu.h >= 44 && narrowBar.menu.right <= narrowBar.vw, JSON.stringify(narrowBar));
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(400);
     }
 
     // Datos de ejemplo: una copia sintética marcada ILUSTRATIVA muestra la marca a 12 px o más.
@@ -747,7 +775,7 @@ async function runMode(mode) {
   // pantalla ni en el menú oculto, y otra cuenta que ingresa en la MISMA
   // pestaña (sin recargar) no ve nada de A, ni con los ids de sus cotizaciones.
   {
-    const ofA = ['Empresa sintética', email, seeded[0].q.name, seeded[seeded.length - 1].q.name, 'E2E producto financiado'];
+    const ofA = ['Empresa sintética', email, seeded[0].q.name, seeded[seeded.length - 1].q.name, 'E2E producto financiado', 'DESIGN-02 cotización ilustrativa'];
     const leaks = (text) => ofA.filter((x) => norm(text).includes(norm(x)));
     await go('#/inicio', 600);
     await page.evaluate(() => {

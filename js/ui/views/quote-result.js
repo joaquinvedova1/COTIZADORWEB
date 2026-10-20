@@ -2135,14 +2135,18 @@ function chartSvg(v, data, width) {
   const W = Math.max(280, Math.round(width));
   const narrow = W < 560;
   const H = narrow ? 260 : 300;
-  const L = narrow ? 62 : 78;
+  const step = niceStep(maxVal);
+  const yMax = Math.ceil(maxVal / step - 1e-9) * step || step;
+  // Rótulos de 12 px (DESIGN-02): unos 7 px por carácter. El margen izquierdo deja entrar el más ancho del eje Y.
+  const CHAR_PX = 7;
+  let widestY = 0;
+  for (let y = 0; y <= yMax + step * 1e-6; y += step) widestY = Math.max(widestY, compactMoney(y).length);
+  const L = Math.max(narrow ? 62 : 78, 12 + widestY * CHAR_PX);
   const R = narrow ? 14 : 132;
   const T = 18;
   const B = 42;
   const PW = W - L - R;
   const PH = H - T - B;
-  const step = niceStep(maxVal);
-  const yMax = Math.ceil(maxVal / step - 1e-9) * step || step;
   const px = (d) => L + ((d - x0) / (x1 - x0)) * PW;
   const py = (y) => T + PH - (Math.min(Math.max(y, 0), yMax) / yMax) * PH;
 
@@ -2152,17 +2156,18 @@ function chartSvg(v, data, width) {
     grid.push(s('text', { x: L - 8, y: (py(y) + 4).toFixed(1), class: 'qr-chart-tick', 'text-anchor': 'end' }, compactMoney(y)));
   }
 
-  // Rótulos del eje X sin superponerse (el día estimado siempre se rotula).
-  const minGap = 26;
+  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
+  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
+  // Rótulos del eje X sin superponerse (el día estimado siempre se rotula): dos vecinos necesitan la mitad
+  // del ancho de cada uno y un respiro.
+  const halfTick = (m) => (tickOf(m).length * CHAR_PX) / 2 + 4;
   const kept = [];
   markers.forEach((m) => {
     const x = px(m.d);
     const prev = kept[kept.length - 1];
-    if (!prev || x - prev.x >= minGap) kept.push({ m, x });
+    if (!prev || x - prev.x >= Math.max(26, halfTick(prev.m) + halfTick(m))) kept.push({ m, x });
     else if (m.isEstimate) kept[kept.length - 1] = { m, x };
   });
-  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
-  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
   const xTicks = kept.map(({ m, x }) => s('text', { x: x.toFixed(1), y: T + PH + 18, class: ['qr-chart-tick', m.isEstimate ? 'is-estimate' : null].filter(Boolean).join(' '), 'text-anchor': 'middle' }, tickOf(m)));
 
   const estimate = hasValue(k.activeDays) && k.activeDays >= x0 && k.activeDays <= x1

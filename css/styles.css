@@ -601,9 +601,13 @@ h3.page-intro-title { font-size: var(--fs-xl); }
     background: var(--white); border-bottom: 1px solid var(--line);
   }
   .menu-toggle { min-height: 44px; padding: 0.4rem 0.75rem; color: var(--navy-900); }
-  /* Estado de la nube en la barra: punto + palabra corta, junto a "Menú" (DESIGN-02). */
-  .sync-status-bar { flex-direction: row; gap: 0.35rem; margin-left: auto; color: var(--color-text-secondary); white-space: nowrap; }
-  .sync-status-bar .sync-short { display: inline; }
+  /* Estado de la nube en la barra: punto + palabra corta, junto a "Menú" (DESIGN-02). Si no entra, la palabra
+     se acorta con "…" antes que apretar la marca o "Menú"; el texto completo sigue para lectores de pantalla. */
+  .sync-status-bar { flex: 0 1 auto; min-width: 0; flex-direction: row; gap: 0.35rem; margin-left: auto; color: var(--color-text-secondary); white-space: nowrap; }
+  .sync-status-bar .sync-short { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .brand-compact, .menu-toggle { flex-shrink: 0; }
+  /* El del menú no se muestra: con el menú abierto se anunciaría dos veces. */
+  .sidebar .sync-status { display: none; }
   .brand-compact { min-height: 44px; }
   .menu-toggle[aria-expanded="true"] { background: var(--navy-50); }
   .menu-toggle-icon { display: inline-flex; }
