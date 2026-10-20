@@ -118,6 +118,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
 | PLAN-2026-025 | DESIGN-02 (1/2) — "Ingeniería clara": DESIGN.md propio y leer bien montos, unidades, riesgo y estado de guardado | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-ingenieria-clara`, PR sin merge) |
+| PLAN-2026-026 | DESIGN-02 (2/2) — Cotizar sin fricción: resumen en vivo con margen y resultado, barra compacta, avisos y tablas en el celular, campos accesibles y eco de montos | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-cotizar-sin-friccion`, apilada sobre PLAN-2026-025; PR sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1273,3 +1274,74 @@ Revert del PR. No deja datos.
   - contra `main` fallan 12 de 15 y 10 de 17 (fuera del bloque, 0);
   - combinado con los PR #28 a #34: `npm test` 1918/1918, `ui-lab` 606/606 y 608/608, `auth-lab` 136/136.
   - Al combinarse con ECO-02 (#29), su pastilla "No confiable" (0,75 rem) queda por debajo de 12 px: el test de DESIGN-02 la marca y la pasa a `var(--fs-xs)`.
+
+### PLAN-2026-026 — DESIGN-02 (2/2): cotizar sin fricción
+
+- Estado: En curso — rama `claude/design-02-cotizar-sin-friccion`, apilada sobre `claude/design-02-ingenieria-clara` (PLAN-2026-025, `6a310e2`). PR sin merge ni deploy
+- Tipo: UX y accesibilidad del editor y de los formularios; **ninguna fórmula ni dato cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (20/10: "Priorizá la experiencia real de cotizar y entender resultados"), sobre la auditoría DESIGN-01 de RATEOS-AUDIT (`tasks/DESIGN-01/AUDITORIA.md`) y lo que PLAN-2026-025 dejó "para después"
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Verificado en el código (`6a310e2`; las mismas líneas que en `main` `d6540b7`):
+- **Resumen en vivo** (`js/ui/views/quote-editor.js`, `buildSummary`):
+  - "Resultado esperado del mes" y "Margen esperado" quedan detrás de "Ver más";
+  - en la barra compacta (1180 px o menos) no se ven sin abrir el detalle.
+- **Barra compacta:** la tarifa cobrada pierde su fondo (`css/quote.css`, `.qe-sum-main .qe-sum-item[data-kpi="commercialRate"] { background: transparent; }`). La sugerida se ve igual que la tarifa piso, al lado.
+- **Avisos (toasts) en el celular:** salen abajo a la derecha (`css/styles.css`, `.toast-region`) y tapan la barra fija del resumen.
+- **Tablas del editor en el celular:** la de rubros de estructura (`quote-steps/indirect.js`) y la de tramos (`quote-steps/margin.js`) no se apilan como las de materiales y vehículos (`qe-stack-table`). Hay scroll horizontal con campos de 96 a 150 px.
+- **Campos:**
+  - "Obligatorio" es sólo un asterisco visual: el control no lleva `aria-required` (`js/ui/components.js`, `fieldShell`; ni el `requiredMark` del editor);
+  - los campos de texto, fecha y selector no asocian su ayuda con `aria-describedby` (el numérico sí);
+  - los avisos del motor junto a un campo (`decorateFieldIssues`) no se asocian al campo: un lector de pantalla no los lee al entrar.
+- **Montos:**
+  - el eco "$ 2.600.000" debajo de los montos grandes existe sólo en el editor de cotizaciones (`attachMoneyEcho`);
+  - en Recursos, Configuración y Productos, un sueldo se carga como "2600000" sin ninguna lectura con separadores.
+
+#### 2. Decisiones (lo técnico: lo más seguro y sencillo)
+1. **Resumen en vivo:**
+   - **Panel (más de 1180 px):** el margen y el resultado esperados pasan a la lista principal, debajo de la tarifa cobrada, y quedan siempre a la vista. "Ver más" queda con el precio para tu margen y la completitud.
+   - **Barra compacta (1180 px o menos):** los cuatro números pasan a ser costo del mes, tarifa piso, tarifa cobrada y **margen esperado**.
+     - El margen lleva una palabra, no sólo un color (WCAG 1.4.1): "cumple", "debajo", "pierde" o "no confiable".
+     - Con un resultado NO CONFIABLE, dice "no confiable" en rojo (ECO-01).
+     - "Para no perder" y el resultado en pesos siguen en "Ver detalle".
+2. **Barra compacta:** la tarifa cobrada (sugerida, ofrecida o forzada) se destaca con fondo y una cifra más fuerte. La piso queda sobria.
+3. **Avisos en el celular (760 px o menos):** arriba, debajo de la barra de la app y a lo ancho. Nunca tapan el resumen fijo ni "Menú".
+4. **Tablas apiladas:** `qe-stack-table` en las tablas de estructura y de tramos. En el celular no queda scroll horizontal (control a 320, 360 y 390 px).
+5. **Campos accesibles:**
+   - `aria-required="true"` en todo campo obligatorio, también en los que marca el editor;
+   - `aria-describedby` con la ayuda y el error en los campos de texto, fecha, selector y buscador;
+   - los avisos del motor se asocian a su campo con un id. No se anuncian en vivo: se repetirían en cada recálculo.
+6. **Montos:**
+   - el eco con separadores ("$ 2.600.000", desde $ 10.000) pasa al componente `numberField` y aparece en **todo** campo de plata: Recursos, Configuración, Productos y el editor;
+   - **no se reformatea el texto del campo** al entrar o salir. Reemplazar el valor al tomar el foco borra la selección: con Tab, lo que se tipea se agregaría al número anterior en vez de reemplazarlo ("2600000" seguido de "3500000"). El eco da la misma lectura sin ese riesgo.
+   - Queda escrito en `DESIGN.md`.
+7. **Fuera de alcance:**
+   - "$ 850 mil" junto a "$ 8,5 M" en la barra (P3: hay que decidir las unidades);
+   - Configuración con los textos de sincronización del editor (después de UX-01, #32);
+   - primer uso (D2), Inter (DD-3), logo (DD-2), y landing y registro (D7).
+
+#### 3. Impacto en fórmulas
+Ninguno. No se toca `js/engines/**` ni `js/domain/**`. Golden 39/39 y candado sin cambios.
+
+#### 4. Impacto en datos
+Ninguno: ni campos nuevos ni esquema (sigue en 10). El eco sólo lee el texto del campo con el mismo intérprete que el campo (`parseDecimalInput`); nunca cambia lo que se guarda.
+
+#### 5. Pasos
+- [ ] 1. Este plan, antes del código.
+- [ ] 2. Tests que fallan en la base (`6a310e2`):
+  - unitarios de las funciones puras nuevas (texto del eco y palabra del margen);
+  - estáticos de CSS y de las tablas;
+  - un bloque DESIGN-02B del `ui-lab` en escritorio y en el celular, con una prueba sólo con teclado.
+- [ ] 3. Implementación.
+- [ ] 4. Validación completa:
+  - suite, Test Lab, gate y `ui-lab`;
+  - capturas antes y después a 1440 y 390 px, más 360 y 320 px para las tablas;
+  - Code Review (skill) del diff;
+  - PR sin merge, evidencia en RATEOS-AUDIT y verificación combinada con los PR #28 a #35.
+
+#### 6. Rollback
+Revert del PR. No deja datos.
+
+#### Bitácora
+- 2026-10-20: base `claude/design-02-ingenieria-clara` `6a310e2` (PR #35). Primero este plan; después los tests y la implementación.
