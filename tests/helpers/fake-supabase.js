@@ -205,9 +205,21 @@ export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) 
       if (gw.refreshFails) return { ok: false, code: gw.refreshFails };
       return session ? { ok: true, user: { ...session } } : { ok: false, code: 'session_missing' };
     },
+    /** Como Supabase: sólo si la cuenta existe "sale" un correo (con enlace y código). */
     async requestPasswordReset(email, redirectTo) {
       gw.lastReset = { email, redirectTo };
+      if (registry.has(email)) gw.codes.set(email, '123456');
       return { ok: true };
+    },
+    codes: new Map(),
+    /** Código del correo de recuperación (verifyOtp type: 'recovery'). */
+    async verifyRecoveryCode(email, code) {
+      gw.lastCode = { email, length: String(code).length };
+      const u = registry.get(email);
+      if (!u || gw.codes.get(email) !== code) return { ok: false, code: 'link_invalid', user: null };
+      gw.codes.delete(email);
+      session = { id: u.id, email: u.email, fullName: u.fullName, emailConfirmed: true };
+      return { ok: true, code: null, user: { ...session } };
     },
     async updatePassword(password) {
       if (!session) return { ok: false, code: 'session_missing' };

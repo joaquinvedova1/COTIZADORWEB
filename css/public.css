@@ -411,6 +411,12 @@ body.is-public .skip-link:not(:focus) { box-shadow: none; }
 .pub-auth-forgot a { display: inline-flex; align-items: center; min-height: 44px; font-size: 0.92rem; font-weight: 600; color: var(--blue-text); }
 .pub-auth-done { display: flex; flex-direction: column; gap: 0.6rem; line-height: 1.55; color: var(--ink-2); }
 .pub-auth-done strong { color: var(--ink); overflow-wrap: anywhere; }
+.pub-auth-steps { margin: 0.2rem 0 0.4rem; padding-left: 1.3rem; display: flex; flex-direction: column; gap: 0.45rem; line-height: 1.55; color: var(--ink-2); }
+.pub-auth-steps strong { color: var(--ink); }
+.pub-auth-account strong { color: var(--ink); overflow-wrap: anywhere; }
+.pub-auth-resend { min-height: 44px; }
+.pub-link-button { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--blue-text); text-decoration: underline; cursor: pointer; }
+.pub-link-button:focus-visible { outline: 2px solid var(--blue-text); outline-offset: 2px; border-radius: 4px; }
 .pub-auth-switch + .pub-auth-switch { padding-top: 0; border-top: 0; }
 .pub-auth-switch { padding-top: 1rem; border-top: 1px solid var(--line-2); text-align: center; color: var(--ink-3); }
 .pub-auth-switch a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; color: var(--blue-text); }

@@ -17,6 +17,7 @@ import {
   parseAuthRedirect,
   siteUrlFor,
   validateSignUp,
+  RESET_REQUESTED_MESSAGE,
 } from '../../js/services/auth-service.js';
 import { AUTH_ERRORS, authErrorCode, createAuthGateway, publicUser } from '../../js/data/auth-gateway.js';
 import { FEATURES } from '../../js/config.js';
@@ -263,7 +264,7 @@ describe('AuthService: enlaces de email con GitHub Pages + router por hash', () 
     const { auth } = service(gw);
     await auth.init();
     const res = await auth.requestPasswordReset('a@example.com');
-    assert.match(res.message, /te enviamos un enlace para recuperar tu contraseña/);
+    assert.equal(res.message, RESET_REQUESTED_MESSAGE, 'respuesta neutra (HD-03)');
     assert.equal(gw.lastReset.redirectTo, `${SITE}?auth=recovery`);
     const neutral = await auth.requestPasswordReset('noexiste@example.com');
     assert.equal(neutral.message, res.message, 'no revela si el email tiene cuenta');
@@ -354,7 +355,7 @@ describe('AuthService: beta cerrada por invitación (HD-03, PLAN-2026-016)', () 
       await auth.init();
       const neutral = await auth.requestPasswordReset('invitada@example.com');
       assert.equal(neutral.ok, true, 'fuera de sesión no revela que la cuenta existe');
-      assert.match(neutral.message, /Si hay una cuenta con ese email/);
+      assert.equal(neutral.message, RESET_REQUESTED_MESSAGE);
       assert.ok(entries.some((e) => e.level === 'warn' && /SMTP propio/.test(e.message)), 'queda un aviso técnico para quien diagnostica');
       assert.ok(entries.every((e) => !/invitada@example\.com/.test(`${e.message} ${JSON.stringify(e.context ?? null)}`)), 'el aviso no lleva el email');
 

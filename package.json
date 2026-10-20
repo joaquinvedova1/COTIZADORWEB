@@ -15,6 +15,7 @@
     "test:lab": "node scripts/run-lab.mjs",
     "test:lab:extended": "node scripts/run-lab.mjs --extended",
     "test:lab:e2e": "node tests/lab/e2e/ui-lab.mjs",
-    "test:security": "node scripts/run-security-gate.mjs"
+    "test:security": "node scripts/run-security-gate.mjs",
+    "test:auth:e2e": "node tests/lab/e2e/auth-lab.mjs"
   }
 }

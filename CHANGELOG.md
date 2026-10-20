@@ -12,6 +12,24 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**HD-03 (PLAN-2026-018): alta por invitación y correos de Auth.** Una persona invitada no recibió ningún correo: no tenía cuenta (Supabase no envía nada) y la pantalla decía "te enviamos un enlace"; además el SMTP es el por defecto de Supabase (sólo entrega al equipo). Sin cambios de fórmulas, esquema ni datos.
+
+### Agregado
+
+- **Código del correo de recuperación:** "¿Olvidaste tu contraseña?" → "Ya tengo un código" (email + código de 6 a 10 dígitos, `verifyOtp` tipo `recovery`). Sirve en cualquier navegador y un escáner de correo no lo consume. Requiere la plantilla `supabase/templates/recovery.html` en Supabase.
+- Plantillas de correo en español (`supabase/templates/`): recuperación (enlace + código), invitación (lleva a "Elegir mi contraseña") y confirmación.
+- Pruebas simuladas de Auth: `tests/services/auth-email.test.js` y `npm run test:auth:e2e` (navegador, escritorio y celular; en el PR gate). El Supabase simulado del Test Lab suma recuperación, `/verify`, canje PKCE y un buzón en memoria.
+
+### Cambiado
+
+- `#/registro` (beta cerrada) explica el primer ingreso en tres pasos y avisa que **sin alta previa no llega ningún correo**.
+- La respuesta de "¿Olvidaste tu contraseña?" sin sesión sigue siendo la misma haya o no cuenta, pero ya no dice "te enviamos": dice qué hacer si no llega en 10 minutos (avisar a quien invitó). Espera 60 s antes de reenviar. Con la sesión iniciada, "Cambiar contraseña" confirma el envío o avisa que no salió.
+- Un enlace de recuperación que no se puede canjear (otro navegador, vencido, usado) ofrece el código.
+
+### Seguridad
+
+- Los enlaces con tokens o errores en el `#` (p. ej. "Send invitation" de Supabase) nunca abren sesión y se borran de la URL al arrancar (los tokens no quedan en la barra ni en el historial).
+
 **ECO-01 (PLAN-2026-017): bloqueantes económicos de la beta (H-01, H-02, H-03).** Ninguna fórmula cambia y ningún dato guardado se reinterpreta: golden 39/39 sin tocar y las mismas cifras que `main` en 2.097 cotizaciones y 13 productos sintéticos. Cambia qué se puede cargar (una unidad nueva) y qué se marca como pendiente. Esquema sin cambios (sigue en 10), sin migraciones.
 
 ### Agregado

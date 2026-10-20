@@ -42,9 +42,28 @@ export const AUTH_MESSAGES = Object.freeze({
   [AUTH_ERRORS.unknown]: 'No pudimos completar la operación. Probá de nuevo en unos minutos.',
 });
 
+/**
+ * "¿Olvidaste tu contraseña?" sin sesión (HD-03): la misma respuesta haya o no
+ * cuenta (no revela quién usa RATEOS), pero dice qué hacer si no llega nada:
+ * sin alta previa Supabase no envía ningún correo.
+ */
+export const RESET_REQUESTED_MESSAGE = 'Pedido enviado. Si ese email tiene acceso a RATEOS, en unos minutos te llega un correo para elegir tu contraseña. Si no llega en 10 minutos (revisá también spam y promociones), avisale a quien te invitó: puede que tu acceso todavía no esté creado.';
+/** "Cambiar contraseña" con la sesión iniciada y el propio email: no hay nada que ocultar. */
+export const RESET_SENT_OWN_MESSAGE = 'Te enviamos un correo para elegir una contraseña nueva. Abrí el enlace en este navegador o escribí el código que trae.';
+/** Espera entre dos pedidos del correo (Supabase también limita los envíos seguidos a una dirección). */
+export const RESET_COOLDOWN_SECONDS = 60;
+/** El código del correo ({{ .Token }}) no sirve o venció. */
+export const CODE_INVALID_MESSAGE = 'El código no es válido o venció. Pedí un correo nuevo y usá el código del último que llegue.';
+/** Enlace de recuperación que no se pudo canjear (otro navegador, escáner de correo, vencido). */
+export const RECOVERY_LINK_INVALID_MESSAGE = 'El enlace venció, ya se usó o se abrió en otro navegador. Si el correo trae un código, escribilo en «¿Olvidaste tu contraseña?» → «Ya tengo un código»; si no, pedí un correo nuevo.';
+/** Enlace con tokens en el # (p. ej. "Send invitation" de Supabase): RATEOS no lo usa. */
+export const INVITE_LINK_MESSAGE = 'Ese enlace no sirve para entrar a RATEOS. Si ya te dieron de alta, elegí tu contraseña con «¿Olvidaste tu contraseña?» y el mismo email.';
+
 export const MIN_PASSWORD_LENGTH = 8;
 const MAX_NAME = 120;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+/** Código de recuperación: de 6 a 10 dígitos según "Email OTP Length" de Supabase. */
+const RECOVERY_CODE_RE = /^\d{6,10}$/;
 
 export function messageFor(code) {
   return AUTH_MESSAGES[code] || AUTH_MESSAGES[AUTH_ERRORS.unknown];
@@ -175,6 +194,37 @@ export function cleanAuthUrl(href) {
 }
 
 /**
+ * Enlaces "implícitos", con datos de Auth en el # (#access_token=…,
+ * #error_code=…): los arma "Send invitation" de Supabase y algunos errores de
+ * sus enlaces. RATEOS no los usa (abrirían una sesión sin el code_verifier de
+ * este navegador, igual que ?token_hash=): sólo se detectan para borrarlos de la
+ * URL y explicar qué hacer. Una ruta del router (#/…) nunca coincide.
+ * @returns {null | { kind: 'implicit' | 'error', error: string|null }}
+ */
+export function parseAuthFragment(href) {
+  let url;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  const fragment = url.hash.replace(/^#/, '');
+  if (!fragment || fragment.startsWith('/')) return null;
+  const p = new URLSearchParams(fragment);
+  const tokens = p.has('access_token') || p.has('refresh_token') || p.has('provider_token');
+  const error = p.get('error_code') || p.get('error');
+  if (!tokens && !error) return null;
+  return { kind: tokens ? 'implicit' : 'error', error: error || null };
+}
+
+/** La URL sin el # ni los parámetros de Auth (los tokens no quedan en la barra ni en el historial). */
+export function cleanAuthFragment(href) {
+  const url = new URL(cleanAuthUrl(href));
+  url.hash = '';
+  return url.toString();
+}
+
+/**
  * @param {{
  *   gateway: ReturnType<import('../data/auth-gateway.js').createAuthGateway>,
  *   siteUrl?: string,
@@ -264,14 +314,27 @@ export function createAuthService({ gateway, location = globalThis.location, his
     async handleRedirect() {
       const href = location && location.href;
       const params = href ? parseAuthRedirect(href) : null;
-      if (!params) return null;
-      if (history && typeof history.replaceState === 'function') {
-        try {
-          history.replaceState(null, '', cleanAuthUrl(href));
-        } catch {
-          /* la URL queda como estaba */
+      const fragment = href ? parseAuthFragment(href) : null;
+      const replaceUrl = (url) => {
+        if (history && typeof history.replaceState === 'function') {
+          try {
+            history.replaceState(null, '', url);
+          } catch {
+            /* la URL queda como estaba */
+          }
         }
+      };
+      if (fragment) {
+        // Tokens o errores en el #: nunca se usan; se borran y se explica qué hacer.
+        replaceUrl(cleanAuthFragment(href));
+        const kind = params && params.kind;
+        const message = fragment.kind === 'implicit'
+          ? INVITE_LINK_MESSAGE
+          : kind === 'recovery' ? RECOVERY_LINK_INVALID_MESSAGE : messageFor(AUTH_ERRORS.linkInvalid);
+        return { ok: false, kind: kind || null, next: null, message };
       }
+      if (!params) return null;
+      replaceUrl(cleanAuthUrl(href));
       let result;
       if (params.error && !params.code) {
         result = { ok: false, code: AUTH_ERRORS.linkInvalid };
@@ -285,9 +348,9 @@ export function createAuthService({ gateway, location = globalThis.location, his
       let message = null;
       if (!result.ok && result.code) {
         // Confirmación abierta en otro navegador (PKCE): el email igual quedó confirmado.
-        message = result.code === AUTH_ERRORS.linkInvalid && kind === 'confirm'
-          ? 'Tu email ya puede estar confirmado. Ingresá con tu email y contraseña; si no podés, pedí un enlace nuevo.'
-          : messageFor(result.code);
+        if (result.code === AUTH_ERRORS.linkInvalid && kind === 'confirm') message = 'Tu email ya puede estar confirmado. Ingresá con tu email y contraseña; si no podés, pedí un enlace nuevo.';
+        else if (result.code === AUTH_ERRORS.linkInvalid && kind === 'recovery') message = RECOVERY_LINK_INVALID_MESSAGE;
+        else message = messageFor(result.code);
       }
       return { ok: Boolean(result.ok), kind, next: params.next, message };
     },
@@ -373,7 +436,30 @@ export function createAuthService({ gateway, location = globalThis.location, his
       }
       const own = status === AUTH_STATUS.authenticated && Boolean(user && user.email) && user.email.toLowerCase() === address.toLowerCase();
       if (!res.ok && (own || res.code === AUTH_ERRORS.network || res.code === AUTH_ERRORS.rateLimited)) return { ok: false, errors: {}, message: messageFor(res.code) };
-      return { ok: true, message: 'Si hay una cuenta con ese email, te enviamos un enlace para recuperar tu contraseña.' };
+      return { ok: true, message: own ? RESET_SENT_OWN_MESSAGE : RESET_REQUESTED_MESSAGE, cooldownSeconds: RESET_COOLDOWN_SECONDS };
+    },
+
+    /**
+     * Código del correo de recuperación (HD-03): alternativa al enlace PKCE que
+     * sirve en cualquier navegador (correo abierto en el celular, escáner de
+     * correo que ya consumió el enlace). Con éxito queda la sesión en modo
+     * recuperación: la pantalla pide la contraseña nueva.
+     */
+    async verifyRecoveryCode(email, code) {
+      const errors = {};
+      const address = String(email || '').trim();
+      const digits = String(code ?? '').replace(/[\s-]/g, '');
+      if (!EMAIL_RE.test(address)) errors.email = 'Ingresá el email de tu cuenta.';
+      if (!RECOVERY_CODE_RE.test(digits)) errors.code = 'El código son los números que trae el correo.';
+      if (Object.keys(errors).length) return { ok: false, errors, message: 'Revisá los campos marcados.' };
+      const res = await gateway.verifyRecoveryCode(address, digits);
+      if (!res.ok) {
+        const invalid = res.code === AUTH_ERRORS.linkInvalid;
+        return { ok: false, errors: invalid ? { code: CODE_INVALID_MESSAGE } : {}, message: invalid ? CODE_INVALID_MESSAGE : messageFor(res.code), code: res.code };
+      }
+      recoveryMode = true;
+      setState(AUTH_STATUS.authenticated, res.user);
+      return { ok: true, message: null };
     },
 
     async updatePassword(password) {

@@ -115,8 +115,9 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | Completado (main `37179e7`) |
 | PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Completado (PR #24 mergeado, main `0c213a3`, v0.8.0 en producción) |
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
-| PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
-| PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | Completado en la app (merge `d580d9f`, HD-02 publicado en el run #74); HD-01 y HD-03 esperan configuración del dueño (dominio, Auth, SMTP) |
+| PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | Completado (merge `d6540b7`, publicado en el run #75) |
+| PLAN-2026-018 | HD-03 — Alta por invitación y correos de Auth: diagnóstico del correo que no llegó, respuesta neutra que dice qué hacer, código de recuperación, enlaces de invitación descartados y SMTP propio (Resend) | autenticación, UX, otro (correo) | En curso (rama `claude/wonderful-brown-g2ehd6` desde `main` `d6540b7`, PR sin merge; la configuración de Auth/SMTP/DNS la hace el dueño) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1175,47 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-018 — HD-03: alta por invitación y correos de Auth
+
+- Estado: En curso — rama `claude/wonderful-brown-g2ehd6` (reiniciada desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: autenticación, UX, otro (correo transaccional)
+- Responsable: agente de desarrollo (Claude) · configuración de Auth, SMTP y DNS: el dueño
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Una persona invitada completó un formulario y nunca recibió el correo. Diagnóstico en sólo lectura (BETA_PERIMETER.md §2): no hubo ningún registro; hubo 5 pedidos de "¿Olvidaste tu contraseña?" para un email sin cuenta (Supabase no envía nada) y la pantalla decía "…te enviamos un enlace". Además el SMTP es el por defecto de Supabase (sólo entrega al equipo del proyecto), el registro del backend sigue abierto y hay señales de un escáner de enlaces que consume los enlaces de un solo uso.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: que una persona de la beta pueda entrar por primera vez con un correo real, sin depender del navegador donde lo abre, y que la app diga la verdad cuando no llega nada, sin revelar quién tiene cuenta.
+- Fuera de alcance: abrir el registro público, cambiar Auth, SMTP, DNS o cuentas en producción (los hace el dueño, con los pasos de BETA_PERIMETER.md §2.3), esquema y datos.
+
+#### 3. Impacto en fórmulas
+Ninguno.
+
+#### 4. Impacto en datos
+Ninguno: sin migraciones ni campos nuevos. No se tocó ninguna cuenta.
+
+#### 5. Diseño
+- `auth-gateway`: `verifyRecoveryCode(email, code)` → `verifyOtp({ type: 'recovery' })`.
+- `auth-service`: respuesta neutra `RESET_REQUESTED_MESSAGE` (la misma con o sin cuenta, SMTP por defecto o roto) con qué hacer si no llega y `cooldownSeconds: 60`; `RESET_SENT_OWN_MESSAGE` con la sesión iniciada; `verifyRecoveryCode` (6–10 dígitos) que deja la sesión en modo recuperación; `parseAuthFragment`/`cleanAuthFragment`: los enlaces con tokens o errores en el # ("Send invitation") nunca se usan y se borran de la URL; enlace de recuperación inválido → mensaje que ofrece el código.
+- UI: `#/registro` con los pasos del primer ingreso (sin alta no llega ningún correo); recuperación en dos pasos (pedir el correo; enlace o "Ya tengo un código"), reenvío con cuenta regresiva y la cuenta a la vista al elegir la contraseña.
+- Plantillas de correo en español (`supabase/templates/`): recuperación con enlace y código; invitación que lleva a "Elegir mi contraseña"; confirmación para el futuro.
+- Proveedor recomendado: Resend (seguimiento de enlaces apagado por defecto). Brevo descartado para Auth (reescribe los enlaces de los transaccionales).
+
+#### 6. Pasos
+- [x] 1. Diagnóstico en sólo lectura (usuarios agregados sin PII, logs de Auth y del gateway del 05/10 al 20/10).
+- [x] 2. Servicio, puerta y pantallas; plantillas.
+- [x] 3. Tests simulados: unitarios (`tests/services/auth-email.test.js`) y navegador (`npm run test:auth:e2e`, escritorio y celular, en el PR gate).
+- [x] 4. Docs: BETA_PERIMETER §2 (diagnóstico, §2.3 SMTP con Resend, §2.4 pruebas reales, §2.5 simuladas), AUTH_ARCHITECTURE §4, CHANGELOG.
+- [ ] 5. PR sin merge; informe HD-03 en el repositorio privado de auditoría.
+- [ ] 6. El dueño: dominio, Resend, SMTP y plantillas en Supabase, apagar el registro, pruebas reales R1–R7.
+
+#### 7. Tests
+- Simulados: `tests/services/auth-email.test.js` (15) y `tests/services/auth-service.test.js` (actualizado); `tests/lab/e2e/auth-lab.mjs` (AUTH-01 a AUTH-09: 38 controles por modo). El Supabase simulado suma `/recover`, `/verify` (enlace y código), canje PKCE y un buzón en memoria.
+- Reales (manuales, del dueño): BETA_PERIMETER.md §2.4.
+
+#### 8. Riesgos y mitigación
+- Sin SMTP propio nadie de afuera recibe correos: lo detecta la prueba R2.
+- Un escáner puede consumir el enlace: el código no se consume (requiere la plantilla de §2.3).
+- Enumeración de cuentas: la respuesta sin sesión es idéntica; sólo los límites de envío del propio Supabase podrían distinguirlas (sin cambios).

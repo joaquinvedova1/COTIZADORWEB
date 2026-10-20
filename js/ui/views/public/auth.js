@@ -9,7 +9,10 @@
  * - ?next=/ruta conserva el destino pedido (p. ej. "Crear una cotización").
  * - Beta cerrada (FEATURES.publicSignup = false, HD-03): #/registro no tiene
  *   formulario; explica el acceso por invitación y el primer ingreso con
- *   "¿Olvidaste tu contraseña?".
+ *   "¿Olvidaste tu contraseña?" (sin alta previa no llega ningún correo).
+ * - Recuperación en dos pasos: pedir el correo (respuesta neutra, espera antes
+ *   de reenviar) y elegir la contraseña con el enlace PKCE (este navegador) o
+ *   con el código del correo (cualquier navegador; un escáner no lo consume).
  * - Errores en lenguaje humano: nunca mensajes internos ni detalles técnicos.
  */
 
@@ -254,16 +257,23 @@ export function renderRegister(root, app) {
 /**
  * Beta cerrada (HD-03): sin formulario de registro. Las cuentas las da de alta
  * el dueño desde Supabase; la persona entra con su email y, la primera vez,
- * elige su contraseña con "¿Olvidaste tu contraseña?" (enlace PKCE).
+ * elige su contraseña con "¿Olvidaste tu contraseña?" (enlace PKCE o código del
+ * correo). Sin alta previa Supabase no envía ningún correo: se dice antes.
  */
 function renderInviteOnly(root, app, next) {
   app.setHeader({ title: 'Acceso por invitación' });
   const content = h(
     'div',
     { class: 'pub-auth-invite' },
-    h('p', {}, '¿Te invitaron? Ingresá con el email de la invitación.'),
-    h('p', {}, 'Si es la primera vez, elegí tu contraseña con ', h('strong', {}, '«¿Olvidaste tu contraseña?»'), ': te llega un enlace a ese email. Abrilo desde este mismo navegador.'),
-    h('p', { class: 'pub-field-hint' }, 'Si querés probar RATEOS y todavía no tenés invitación, pedísela a quien te compartió este enlace.'),
+    h('p', {}, '¿Te invitaron? Así es el primer ingreso:'),
+    h(
+      'ol',
+      { class: 'pub-auth-steps' },
+      h('li', {}, 'Quien te invita te da de alta en RATEOS con tu email. ', h('strong', {}, 'Hasta que no lo haga, no te llega ningún correo de RATEOS.')),
+      h('li', {}, 'Cuando te avise, tocá ', h('strong', {}, '«Elegir mi contraseña»'), ' y escribí ese email.'),
+      h('li', {}, 'Abrí el correo que te llega: usá el enlace en este mismo navegador o, si lo abrís en otro dispositivo, escribí el código que trae.'),
+    ),
+    h('p', { class: 'pub-field-hint' }, 'Si querés probar RATEOS y todavía no tenés invitación, pedísela a quien te compartió este enlace. Mientras tanto, podés ver la demo sin cuenta.'),
   );
   mount(
     root,
@@ -287,10 +297,13 @@ export function renderRecover(root, app) {
   const message = formMessage();
 
   if (snapshot.recoveryMode) {
-    // Llegó desde el enlace del email: elegir la contraseña nueva.
+    // Llegó desde el enlace o el código del correo: elegir la contraseña nueva.
     const password = field({ label: 'Contraseña nueva', type: 'password', name: 'new-password', autocomplete: 'new-password', maxLength: 200, hint: `Al menos ${MIN_PASSWORD_LENGTH} caracteres.` });
     const submit = submitButton('Guardar contraseña');
-    const form = h('form', { class: 'pub-form', novalidate: true, 'aria-label': 'Elegir una contraseña nueva' }, message.el, password.el, submit.el);
+    const who = snapshot.user && snapshot.user.email
+      ? h('p', { class: 'pub-field-hint pub-auth-account' }, 'Cuenta: ', h('strong', {}, snapshot.user.email))
+      : null;
+    const form = h('form', { class: 'pub-form', novalidate: true, 'aria-label': 'Elegir una contraseña nueva' }, message.el, who, password.el, submit.el);
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       message.show('');
@@ -310,26 +323,98 @@ export function renderRecover(root, app) {
     return;
   }
 
-  const email = field({ label: 'Email de tu cuenta', type: 'email', name: 'email', autocomplete: 'email', inputmode: 'email', maxLength: 254 });
-  const submit = submitButton('Enviarme el enlace');
-  const form = h('form', { class: 'pub-form', novalidate: true, 'aria-label': 'Recuperar la contraseña' }, message.el, email.el, submit.el);
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    message.show('');
-    submit.busy(true, 'Enviando…');
-    const res = await app.auth.requestPasswordReset(email.input.value);
-    submit.busy(false);
-    if (!res.ok) {
-      applyErrors({ email }, res.errors);
-      message.show(res.message, 'error');
-      return;
+  let typedEmail = '';
+  let cooldownTimer = null;
+
+  /** Paso 2: el código del correo (sirve en cualquier navegador). */
+  const codeForm = ({ sentMessage = null, cooldown = 0 } = {}) => {
+    const codeMessage = formMessage();
+    const email = field({ label: 'Email de tu cuenta', type: 'email', name: 'email', autocomplete: 'email', inputmode: 'email', maxLength: 254 });
+    email.input.value = typedEmail;
+    const code = field({ label: 'Código del correo', name: 'code', autocomplete: 'one-time-code', inputmode: 'numeric', maxLength: 12, hint: 'Son los números que trae el correo. Sirve aunque lo hayas abierto en otro dispositivo.' });
+    const submit = submitButton('Verificar código');
+    const resend = h('button', { type: 'button', class: 'btn btn-secondary pub-btn pub-btn-block pub-auth-resend' }, 'Volver a enviar el correo');
+    const tick = (left) => {
+      resend.disabled = left > 0;
+      resend.textContent = left > 0 ? `Volver a enviar el correo (en ${left} s)` : 'Volver a enviar el correo';
+    };
+    if (cooldownTimer) clearInterval(cooldownTimer);
+    let left = cooldown;
+    tick(left);
+    if (left > 0) {
+      cooldownTimer = setInterval(() => {
+        left -= 1;
+        tick(left);
+        if (left <= 0) {
+          clearInterval(cooldownTimer);
+          cooldownTimer = null;
+        }
+      }, 1000);
     }
-    message.show(res.message, 'success');
-  });
-  mount(root, authLayout({
-    title: 'Recuperá tu contraseña',
-    subtitle: 'Te mandamos un enlace para elegir una nueva.',
-    content: form,
-    footer: switchLine('¿La recordaste?', 'Ingresar', '#/login'),
-  }));
+    resend.addEventListener('click', () => {
+      typedEmail = email.input.value.trim();
+      showRequest();
+    });
+    const form = h('form', { class: 'pub-form', novalidate: true, 'aria-label': 'Ingresar el código del correo' }, codeMessage.el, email.el, code.el, submit.el);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      codeMessage.show('');
+      submit.busy(true, 'Verificando…');
+      const res = await app.auth.verifyRecoveryCode(email.input.value, code.input.value);
+      code.input.value = '';
+      submit.busy(false);
+      if (!res.ok) {
+        applyErrors({ email, code }, res.errors);
+        codeMessage.show(res.message, 'error');
+        return;
+      }
+      if (cooldownTimer) clearInterval(cooldownTimer);
+      renderRecover(root, app);
+    });
+    if (sentMessage) codeMessage.show(sentMessage, 'success');
+    mount(root, authLayout({
+      title: sentMessage ? 'Revisá tu correo' : 'Ingresá el código del correo',
+      subtitle: sentMessage ? 'Abrí el enlace en este mismo navegador o escribí acá el código que trae el correo.' : 'Escribí tu email y el código que te llegó.',
+      content: h('div', { class: 'stack' }, form, resend),
+      footer: switchLine('¿La recordaste?', 'Ingresar', '#/login'),
+    }));
+    (sentMessage ? code.input : (email.input.value ? code.input : email.input)).focus();
+  };
+
+  /** Paso 1: pedir el correo. */
+  const showRequest = () => {
+    const email = field({ label: 'Email de tu cuenta', type: 'email', name: 'email', autocomplete: 'email', inputmode: 'email', maxLength: 254 });
+    email.input.value = typedEmail;
+    const submit = submitButton('Enviarme el correo');
+    const form = h('form', { class: 'pub-form', novalidate: true, 'aria-label': 'Recuperar la contraseña' }, message.el, email.el, submit.el);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      message.show('');
+      submit.busy(true, 'Enviando…');
+      const res = await app.auth.requestPasswordReset(email.input.value);
+      submit.busy(false);
+      if (!res.ok) {
+        applyErrors({ email }, res.errors);
+        message.show(res.message, 'error');
+        return;
+      }
+      typedEmail = email.input.value.trim();
+      codeForm({ sentMessage: res.message, cooldown: res.cooldownSeconds || 0 });
+    });
+    const haveCode = h('button', { type: 'button', class: 'pub-link-button' }, 'Ya tengo un código');
+    haveCode.addEventListener('click', () => {
+      typedEmail = email.input.value.trim();
+      codeForm();
+    });
+    mount(root, authLayout({
+      title: 'Elegí o recuperá tu contraseña',
+      subtitle: 'Te mandamos un correo para elegir una contraseña nueva. Sirve también para el primer ingreso, si ya te dieron de alta.',
+      content: form,
+      footer: h('div', {},
+        h('p', { class: 'pub-auth-switch' }, '¿Ya te llegó el correo? ', haveCode),
+        switchLine('¿La recordaste?', 'Ingresar', '#/login')),
+    }));
+  };
+
+  showRequest();
 }

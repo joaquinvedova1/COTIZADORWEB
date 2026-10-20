@@ -1,0 +1,11 @@
+<!--
+  RATEOS · plantilla "Confirm signup" de Supabase Auth (HD-03, PLAN-2026-018).
+  Asunto sugerido: RATEOS: confirmá tu email (se pega desde <h2> hasta el final)
+  En la beta por invitación no se usa (el registro está cerrado y las altas se crean
+  ya confirmadas). Queda lista para cuando se reabra el registro.
+-->
+<h2>Confirmá tu email en RATEOS</h2>
+<p>Para terminar de crear tu cuenta con <strong>{{ .Email }}</strong>, confirmá tu email:</p>
+<p><a href="{{ .ConfirmationURL }}">Confirmar mi email</a><br>
+Abrilo en el mismo navegador donde creaste la cuenta.</p>
+<p>Si no creaste una cuenta en RATEOS, ignorá este correo.</p>

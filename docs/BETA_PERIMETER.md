@@ -50,6 +50,18 @@ Un staging tiene que estar aislado en **origen** y en **base**:
 - No pude leer la configuración pública de Auth (`/auth/v1/settings`) desde el entorno de desarrollo: la red de este entorno no llega al host de Supabase. Lo comprueba `node scripts/check-auth-perimeter.mjs` (abajo).
 - **Correo:** el repo no registra ningún SMTP propio (README y AUTH_ARCHITECTURE.md §9.1 lo dejan pendiente) y esa configuración no es pública, así que no la pude verificar. Con el **SMTP por defecto**, Supabase **sólo envía correos a los miembros del equipo del proyecto** (Organization → Team): a cualquier otra dirección responde *Email address not authorized*. Además tiene un límite bajo por hora y no tiene garantía de entrega.
 
+### Diagnóstico del 2026-10-20 (HD-03: "no me llegó el correo")
+
+Relevado en sólo lectura (tabla `auth.users` agregada, sin emails, y logs de Auth del 05/10 al 20/10). Detalle y evidencia en la bitácora privada (RATEOS-AUDIT `tasks/HD-03/`).
+
+- **El intento no fue un registro.** Desde el 05/10 no hay ningún `/signup` en los logs (ni en Auth ni en el gateway): los únicos dos son las cuentas del dueño. Hay **5 pedidos de recuperación** (19/10, 20:59–21:03 hora argentina) para un email **sin cuenta**: Supabase responde 200 y **no envía nada** (no hay evento de envío). La pantalla decía "Si hay una cuenta con ese email, te enviamos un enlace…".
+- **No hay ninguna cuenta pendiente:** 2 usuarios, ambos confirmados; 0 invitados.
+- **SMTP: el por defecto de Supabase.** Los únicos correos enviados (05/10) salieron de `noreply@mail.app.supabase.io`, y no hubo cambios de configuración de Auth después (no hay recargas de configuración en los logs). Ese SMTP **sólo entrega al equipo del proyecto**: aunque la cuenta existiera, a una persona de afuera no le llegaría nada.
+- **"Allow new users to sign up" sigue, con toda probabilidad, encendido** (el 05/10 los registros funcionaron y no hubo cambios después). La app no lo ofrece, pero la API sí: hay que apagarlo (paso 1).
+- **Escáner de enlaces:** en la confirmación de la segunda cuenta llegó un `HEAD` y un `GET` al enlace 20 s después del envío, y el clic humano posterior dio "Email link is invalid or has expired". Por eso la recuperación ahora también acepta el **código** del correo (§2.3).
+
+Qué corrige la app (PLAN-2026-018): `#/registro` dice que sin alta previa no llega ningún correo; la recuperación responde neutro pero dice qué hacer si no llega, espera 60 s antes de reenviar y acepta el código del correo; un enlace de "Send invitation" se borra de la URL sin abrir sesión.
+
 ### Método propuesto (el más simple que preserva login, recuperación y usuarios existentes)
 
 **Apagar el registro en Supabase Auth y dar de alta a mano desde el Dashboard.** Nada de código del lado del servidor ni migraciones:
@@ -74,18 +86,62 @@ Alternativas descartadas por ahora: el *hook* "Before User Created" (lista de em
    ```
    Tiene que terminar en `PERÍMETRO DE AUTH: OK (beta por invitación)`: `disable_signup = true`, `external.email = true`, `mailer_autoconfirm = false` y ningún otro método de ingreso. Lee sólo la configuración pública (la misma que ve cualquier navegador) y no imprime datos de usuarios.
    El script no puede ver el SMTP (no es público): lo lista como verificación **A MANO**.
-3. **SMTP propio** (antes de la primera alta): **Authentication → Emails → SMTP Settings** → activar *custom SMTP*.
-   - Datos de tu proveedor de correo transaccional (Supabase menciona Resend, AWS SES, Postmark, Twilio SendGrid, ZeptoMail y Brevo; sirve cualquiera con SMTP): host, puerto, usuario y contraseña; remitente (por ejemplo `no-reply@<tu-dominio>`) y nombre (`RATEOS`).
-   - En el proveedor: **SPF, DKIM y DMARC** del dominio remitente, y **sin seguimiento de enlaces** (*link tracking*): reescribe los enlaces de Auth y los rompe.
-   - Al guardar, Supabase limita los correos de Auth a **30 por hora** (se ajusta en Authentication → Rate Limits): alcanza para 3–5 empresas.
-   - La contraseña del SMTP queda sólo en Supabase: nunca en el repo ni en la app (no hace falta pasármela).
-   - Probar: **¿Olvidaste tu contraseña?** con un email tuyo que **no** sea del equipo de Supabase → el correo llega y el enlace abre "Elegí una contraseña nueva".
+3. **SMTP propio** (antes de la primera alta): ver **§2.3** (Resend, paso a paso) y las **plantillas** de `supabase/templates/` (la de recuperación trae el enlace y el código). Después, las **pruebas reales** de §2.4.
 4. Dar de alta a cada persona de la beta: **Authentication → Users → Add user → Create new user**: su email, una contraseña larga al azar que **no** compartís, **Auto Confirm User** tildado.
-   - Avisale: "Entrá a RATEOS → Ingresar → **¿Olvidaste tu contraseña?** → tu email → abrí el enlace **en el mismo navegador** → elegí tu contraseña".
+   - Avisale: "Entrá a RATEOS → Ingresar → **¿Olvidaste tu contraseña?** → tu email → abrí el enlace **en el mismo navegador** (o, si abrís el correo en otro dispositivo, **«Ya tengo un código»** y escribí el código del correo) → elegí tu contraseña".
+   - **Primero el alta y después el aviso:** sin alta no sale ningún correo (es lo que pasó el 19/10).
    - Su empresa se crea como **"Mi empresa"**: la persona la renombra en **Configuración → Empresa**.
    - Si el enlace dice "venció o ya se usó" apenas llega, puede haberlo abierto antes un **escáner de correo corporativo** (los enlaces de Auth son de un solo uso): pedir otro (§6).
-5. **No usar "Send invitation"**: ese enlace no es PKCE y la app lo rechaza a propósito (AUTH_ARCHITECTURE.md §4). Si alguien lo recibe, igual puede entrar con "¿Olvidaste tu contraseña?".
+5. **No usar "Send invitation"**: ese enlace no es PKCE y la app lo rechaza a propósito (AUTH_ARCHITECTURE.md §4): lo borra de la URL sin abrir sesión y explica cómo entrar. Si alguien lo recibe, igual puede entrar con "¿Olvidaste tu contraseña?". Como red de seguridad, `supabase/templates/invite.html` reemplaza ese enlace por uno a "Elegir mi contraseña".
 6. Quitar a alguien: borrar el usuario en Authentication → Users. Su organización y su workspace quedan sin miembros (nadie los ve); borrarlos es un paso aparte de la base (SQL, con autorización).
+
+### 2.3 SMTP propio recomendado: Resend (HD-03)
+
+**Por qué Resend:** tiene SMTP compatible con Supabase (es el primero que lista su guía), **seguimiento de clics y aperturas apagado por defecto** (Supabase pide no reescribir los enlaces de Auth), un plan gratis que sobra para la beta y precio fijo si crece. **Brevo** queda descartado para Auth: en correos transaccionales reescribe los enlaces para medir clics y, según su propio foro, desactivarlo es a pedido y para clientes Enterprise. Los dos piden un **dominio propio** verificado (con una dirección `@gmail.com` no se puede firmar DKIM).
+
+| | Resend | Brevo |
+|---|---|---|
+| Plan gratis | 3.000 correos/mes, 100 por día, 1 dominio | 300 correos por día |
+| Pago | Pro: USD 20/mes (50.000 correos) | Desde ~USD 9/mes |
+| Seguimiento de enlaces | **Apagado por defecto**, por dominio | Activo en transaccionales; apagarlo, a pedido |
+| SMTP | `smtp.resend.com`, puerto 465 (SSL), usuario `resend`, contraseña = API key | `smtp-relay.brevo.com`, puerto 587, clave SMTP |
+
+Precios aproximados a octubre de 2026: confirmarlos en cada sitio.
+
+**Requisito previo: un dominio** (es el mismo que pide HD-01). Un dominio `.com` cuesta unos USD 10–15 por año; `.com.ar` se registra en NIC Argentina. Conviene un subdominio para el correo, por ejemplo `mail.<tu-dominio>`.
+
+**Pasos (los hace el dueño; las claves nunca van al chat, a GitHub ni al repo):**
+
+1. Crear la cuenta en Resend → **Domains → Add domain** → `mail.<tu-dominio>` (o el dominio).
+2. En el DNS del dominio, crear **exactamente** los registros que muestra Resend (los valores son de tu cuenta): un **MX** y un **TXT (SPF)** para el subdominio `send`, un **TXT (DKIM)** `resend._domainkey` y, recomendado, un **TXT DMARC** `_dmarc` (por ejemplo `v=DMARC1; p=none;` para empezar). Esperar a que Resend marque el dominio como **Verified**.
+3. En Resend: confirmar que el dominio tiene **Click tracking** y **Open tracking** apagados.
+4. Resend → **API Keys → Create** con permiso **Sending access** sólo para ese dominio. Copiarla una sola vez y pegarla directo en Supabase (paso 5). No guardarla en ningún otro lado.
+5. Supabase → **Authentication → Emails → SMTP Settings** → *Enable custom SMTP*: host `smtp.resend.com`, puerto `465`, usuario `resend`, contraseña = la API key, remitente `no-reply@mail.<tu-dominio>`, nombre `RATEOS` → Save.
+6. Supabase → **Authentication → Emails → Templates**: pegar `supabase/templates/recovery.html` en **Reset password** (asunto "RATEOS: elegí tu contraseña") y `invite.html` en **Invite user**. `confirmation.html` es para cuando se reabra el registro.
+7. Supabase → **Authentication → Rate Limits**: con SMTP propio arranca en 30 correos por hora; alcanza para 3–5 empresas.
+8. Supabase → **Authentication → URL Configuration**: Site URL `https://joaquinvedova1.github.io/COTIZADORWEB/` y Redirect URLs `https://joaquinvedova1.github.io/COTIZADORWEB/**` (lo que ya documenta AUTH_ARCHITECTURE.md §4). Con el dominio propio se agrega el suyo (§3).
+9. Correr las pruebas reales de §2.4.
+
+**Compatibilidad con PKCE:** el SMTP sólo transporta el correo; el enlace lo arma Supabase (`…/auth/v1/verify?token=…&type=recovery&redirect_to=https://…/COTIZADORWEB/?auth=recovery`) y vuelve con `?code=`, que la app canjea con el `code_verifier` de ese navegador. Lo único que lo rompe es que el proveedor **reescriba el enlace** (seguimiento de clics): con Resend está apagado. El **código** del correo (`{{ .Token }}`) no depende del navegador ni lo consume un escáner.
+
+### 2.4 Pruebas REALES (manuales, con SMTP propio configurado)
+
+Las hace el dueño con un email propio que **no** sea del equipo de Supabase. Anotar sólo el resultado (sí/no y hora), nunca el email ni el código.
+
+| # | Prueba | Resultado esperado |
+|---|---|---|
+| R1 | "¿Olvidaste tu contraseña?" con un email **sin** cuenta | Mensaje neutro; **no** llega ningún correo |
+| R2 | Alta (Add user → Create new user, Auto Confirm) y "¿Olvidaste tu contraseña?" con ese email | Llega en menos de 5 min, de `no-reply@mail.<tu-dominio>`, con enlace y código; no cae en spam (probar Gmail y Outlook) |
+| R3 | Abrir el enlace en el **mismo** navegador | "Elegí una contraseña nueva" con la cuenta; guardar → entra a **su** empresa ("Mi empresa") |
+| R4 | Pedir otro correo, abrirlo en **otro** dispositivo y usar el **código** en "Ya tengo un código" | Elegir la contraseña funciona; el enlace en el otro navegador ofrece el código |
+| R5 | Ingresar con la contraseña nueva; Configuración → Cuenta → "Cambiar contraseña" | Llega el correo; el enlace cambia la contraseña |
+| R6 | La cuenta nueva no ve DOVA ni otra empresa | Sólo "Mi empresa" vacía |
+| R7 | En Resend → Emails: los correos figuran como *Delivered*, sin seguimiento | Delivered; enlaces sin reescribir |
+
+### 2.5 Pruebas SIMULADAS (automáticas)
+
+- `node --test tests/services/auth-email.test.js` (+ `auth-service.test.js`): respuesta neutra igual con o sin cuenta, con SMTP por defecto o roto; código de 6 a 10 dígitos de un solo uso; enlaces con tokens en el # descartados; enlace de recuperación en otro navegador; nada de emails ni códigos en los logs.
+- `npm run build && npm run test:auth:e2e`: el recorrido completo en navegador (escritorio y celular) con Supabase simulado y un buzón en memoria: alta, enlace PKCE, código en otro navegador, "Send invitation", SMTP por defecto, dos empresas separadas y privacidad del almacenamiento.
 
 ## 3. Dominio propio (HD-01)
 
@@ -157,10 +213,11 @@ Si el dueño agrega `dltlnizvnvnefgbzfftu.supabase.co` a los dominios permitidos
 **Antes de habilitar a la primera empresa externa:**
 
 - [x] Push y PR de esta rama, autorizados con el workflow de deploy **deshabilitado a mano**: el push no publicó nada en Pages (ninguna corrida de deploy).
-- [ ] **Autorizar** el merge y **volver a habilitar** el workflow de deploy (antes del merge, o después y correrlo a mano sobre `main`); confirmar en Actions que "Verificar el sitio publicado" quedó en verde (`/preview/` → 404). **HD-02 cumplido.**
+- [x] Merge, workflow de deploy habilitado y "Verificar el sitio publicado" en verde (`/preview/` → 404): runs #74 (`d580d9f`) y #75 (`d6540b7`). **HD-02 cumplido.**
 - [ ] Supabase → Authentication → Sign In / Providers → apagar **"Allow new users to sign up"** (no el proveedor Email).
 - [ ] Correr `node scripts/check-auth-perimeter.mjs` → OK. **HD-03 cumplido.**
-- [ ] Authentication → Emails → SMTP Settings: **SMTP propio** (SPF/DKIM/DMARC, sin seguimiento de enlaces) y probar "¿Olvidaste tu contraseña?" con un email que no sea del equipo de Supabase (§2 paso 3). Sin esto nadie de afuera puede elegir su contraseña.
+- [ ] **Dominio** (lo pide el correo y HD-01) y **SMTP propio con Resend** + plantillas (§2.3). Sin esto nadie de afuera puede elegir su contraseña.
+- [ ] Pruebas reales R1–R7 (§2.4) en verde.
 - [ ] Darme el **dominio o subdominio** para RATEOS y el proveedor de DNS.
 - [ ] Verificar el dominio en GitHub (TXT) y crear el CNAME (o los A/AAAA).
 - [ ] Autorizar el PR de `PUBLIC_SITE_URLS` y el alta de `https://<dominio>/**` en las Redirect URLs de Supabase.
@@ -175,8 +232,8 @@ Si el dueño agrega `dltlnizvnvnefgbzfftu.supabase.co` a los dominios permitidos
 
 - **Hasta el deploy**, `/preview/` sigue publicado (lo del run #73): HD-02 se cumple recién con el deploy de este cambio, que necesita volver a habilitar el workflow de deploy. Mientras siga deshabilitado, ningún push lo vuelve a publicar, pero tampoco llega nada a producción (ni un rollback).
 - **Hasta apagar el registro en Supabase**, cualquiera puede crear una cuenta llamando a la API: la app sólo dejó de ofrecerlo. No expone datos de otras empresas (cada cuenta nace con su propia empresa y RLS lo garantiza).
-- **Hasta configurar un SMTP propio**, sólo reciben correos de RATEOS los miembros del equipo de Supabase: una persona invitada no puede elegir su contraseña y, fuera de sesión, la app no lo dice (respuesta neutra a propósito). Lo detecta la prueba del §2 paso 3.
-- **Escáneres de correo corporativos:** algunos abren los enlaces antes que la persona y, como los enlaces de Auth son de un solo uso, al hacer clic aparece "El enlace venció o ya se usó". Primero, pedir otro enlace; si se repite con una empresa, la mitigación que documenta Supabase es cambiar la plantilla del correo por un enlace a una página propia con un botón (cambio de Auth y de la app: con autorización).
+- **Hasta configurar un SMTP propio**, sólo reciben correos de RATEOS los miembros del equipo de Supabase: una persona invitada no puede elegir su contraseña. Fuera de sesión la app responde neutro a propósito, pero ahora dice qué hacer si no llega nada (avisar a quien la invitó). Lo detecta la prueba R2 de §2.4.
+- **Escáneres de correo corporativos:** algunos abren los enlaces antes que la persona y, como los enlaces de Auth son de un solo uso, al hacer clic aparece "El enlace venció…". Mitigación ya hecha en la app: el **código** del correo ("Ya tengo un código"), que un escáner no consume; requiere la plantilla `supabase/templates/recovery.html` (§2.3 paso 6).
 - **Sesiones viejas en el origen compartido:** las sesiones abiertas en github.io quedan en el `localStorage` de ese origen. Mitigación: cerrar sesión antes del cambio de dominio (§3 paso 5).
 - **JWT vigente después del logout:** un access token ya emitido sigue siendo válido hasta su vencimiento (Supabase: 1 hora por defecto); el logout revoca el refresh token y la app borra la sesión del navegador. Lo mide la prueba A/B.
 - **La prueba A/B real no se pudo ejecutar** desde este entorno (red); hasta correrla, el aislamiento entre usuarios autenticados reales está probado por los tests SQL en la base real (204 controles, simulando la API) y por los E2E con Supabase simulado.
