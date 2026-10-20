@@ -1226,10 +1226,10 @@ Ninguno. No se toca ningún motor; golden y candado sin cambios.
 
 #### 5. Pasos
 - [x] 1. Este plan, antes del código.
-- [ ] 2. Funciones puras con tests (agrupación, conteos y subtotales; descomposición del bruto; horas extra en el perfil y en las cotizaciones) y G1 en el repositorio.
-- [ ] 3. Vista "Por convenio", búsqueda y filtro en la dirección, celular.
-- [ ] 4. "Editar sueldo" y ayudas del formulario completo.
-- [ ] 5. E2E (escritorio y celular) que fallan en `main`, validación completa, capturas antes y después, PR sin merge y evidencia en RATEOS-AUDIT.
+- [x] 2. Funciones puras con tests (agrupación, conteos y subtotales; descomposición del bruto; horas extra en el perfil y en las cotizaciones) y G1 en el repositorio.
+- [x] 3. Vista "Por convenio", búsqueda y filtro en la dirección, celular.
+- [x] 4. "Editar sueldo" y ayudas del formulario completo.
+- [x] 5. E2E (escritorio y celular) que fallan en `main`, validación completa, capturas antes y después, PR sin merge y evidencia en RATEOS-AUDIT.
 
 #### 6. Fuera de alcance (documentado)
 - Equipos agrupados por familia: segundo PR de RES-02.
@@ -1242,3 +1242,13 @@ Revert del PR. `peopleCount` queda en los datos y la versión anterior lo ignora
 
 #### Bitácora
 - 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests y la implementación.
+- 2026-10-20: implementado.
+  - Dominio: `js/domain/labor-groups.js`, con 23 tests.
+  - Diálogo: `js/ui/labor-salary-dialog.js`.
+  - Vista: `js/ui/views/library.js` y `css/views.css`.
+  - G1: `deleteResource` del repositorio, que hereda la nube.
+  - `ui-lab`: 32 controles RES-02 por modo; contra `main`, los que dependen de la vista fallan (detalle en la evidencia).
+  - Decisiones técnicas:
+    - el error del diálogo tiene clase propia (`salary-error`);
+    - las acciones del bloque del `ui-lab` son "suaves", para que la corrida contra `main` falle control por control y no se corte;
+    - en el celular, las pestañas de Recursos se compactan (chips más chicos): con una sola fila desplazable la página crecía a lo ancho.

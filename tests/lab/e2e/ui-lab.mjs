@@ -35,6 +35,9 @@ import { fieldHref } from '../../../js/ui/field-links.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
 import { service, person, owned, external, material, product, ingredient, worker, fixedCost } from '../lib/build.js';
 import { computeProduct } from '../../../js/engines/product-engine.js';
+import { computeLaborLine } from '../../../js/engines/labor-engine.js';
+import { laborLineFromProfile } from '../../../js/domain/quote-factory.js';
+import { roundMoney } from '../../../js/core/money.js';
 import { assertSafeReport } from '../lib/report.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
 
@@ -536,6 +539,239 @@ async function runMode(mode) {
     const tp = norm(await page.evaluate(() => document.body.innerText));
     check('E2E-P01', 'D3: "Precio y margen" aclara que la financiación es sobre costos netos (sin IVA de compras)', NET.test(tp), 'sin la aclaración');
     await scan('E2E-P01', 'producto');
+  }
+
+  // ---- RES-02 Personal (PLAN-2026-023): agrupado por convenio desde la vista de entrada, personas ≠
+  // perfiles, subtotales parciales, "Editar sueldo" (bruto = básico + adicionales, sin doble conteo),
+  // horas extra con confirmación, cotizaciones que no cambian y convenio borrado sin referencias.
+  {
+    const R = 'RES-02';
+    const PARAMS = { normalHoursPerMonth: 176, overtimePremiumPct: 50, sacPct: 8.33, vacationPct: 4, employerContributionsPct: 24, artPct: 6 };
+    const meta = (id) => ({ id, organizationId: orgId, createdAt: now, updatedAt: now, createdBy: null, updatedBy: null });
+    const agreement = (id, code, name) => ({ ...meta(id), code, name, params: { ...PARAMS }, notes: '', illustrative: false });
+    const profile = (id, role, agreementId, basic, additionals, o = {}) => ({
+      ...meta(id), role, agreementId, category: '', basicMonthly: basic, additionalsMonthly: additionals, mealPerActiveDay: 0, overtimeHoursPerActiveDay: 0,
+      ...PARAMS, insuranceMonthly: 35000, ppeMonthly: 40000, trainingMonthly: 0, transferMonthly: 0,
+      base: { period: '2026-09', currency: 'ARS', source: 'company', note: '' }, illustrative: false, ...o,
+    });
+    const agreements = [agreement('res-pp', 'petroleros_privados', 'Petroleros Privados (empresa)'), agreement('res-uocra', 'uocra', 'UOCRA Yacimientos'), agreement('res-fuera', 'fuera_convenio', 'Fuera de convenio')];
+    const profiles = [
+      profile('res-op', 'Operador de hidrogrúa', 'res-pp', 2800000, 700000, { peopleCount: 2, overtimeHoursPerActiveDay: 2 }),
+      profile('res-ch', 'Chofer de camión', 'res-pp', 2300000, 600000, { peopleCount: 3 }),
+      profile('res-of', 'Oficial', 'res-uocra', 1600000, 300000, { peopleCount: 4 }),
+      profile('res-ca', 'Capataz', 'res-uocra', 2100000, 400000),
+      profile('res-ge', 'Gerente de operaciones', 'res-fuera', 6500000, 0, { peopleCount: 1 }),
+      profile('res-su', 'Supervisor HSE', null, 3200000, 0),
+    ];
+    // Una cotización en curso con el operador, armada como la arma la app al agregarlo desde Recursos.
+    const linked = service({ id: 'res-q', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [laborLineFromProfile(profiles[0], agreements[0], { id: 'res-q-l1', now })] });
+    Object.assign(linked, { id: randomUUID(), organizationId: orgId, code: 'LAB-R01', name: 'RES-02 cotización con el operador', createdAt: now, updatedAt: now });
+    const linkedCost = formatMoney(computeQuote(structuredClone(linked)).kpis.totalCost);
+    Object.assign(ws.state.resources, { agreements, laborProfiles: profiles });
+    ws.state.quotes = [...ws.state.quotes, linked];
+    ws.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+
+    const perPerson = (p) => computeLaborLine({ ...p, positions: 1, peoplePerPosition: 1 }).perPerson.fixedMonthly;
+    const byKey = Object.fromEntries(profiles.map((p) => [p.id, p]));
+    const stored = (id) => ((db.workspaces.get(orgId).state.resources || {}).laborProfiles || []).find((p) => p.id === id) || null;
+    const storedQuote = () => (db.workspaces.get(orgId).state.quotes || []).find((q) => q.id === linked.id) || null;
+    const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+    const groupsOnScreen = () => page.evaluate(() => [...document.querySelectorAll('.labor-group')].map((d) => ({
+      key: d.dataset.group,
+      open: d.open,
+      title: (d.querySelector('.labor-group-title') || {}).textContent || '',
+      counts: (d.querySelector('.labor-group-counts') || {}).textContent || '',
+      amount: (d.querySelector('.labor-group-amount') || {}).textContent || '',
+      roles: [...d.querySelectorAll('tbody tr')].map((tr) => (tr.querySelector('td') || {}).textContent || ''),
+      text: d.textContent,
+    })));
+    // Acciones "suaves": si el control no existe (estos controles también corren contra `main`, que no
+    // tiene la vista), falla el control y la corrida sigue.
+    const T = { timeout: 4000 };
+    const soft = async (fn) => {
+      try {
+        await fn();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const press = (loc) => soft(async () => {
+      await loc.scrollIntoViewIfNeeded(T).catch(() => {});
+      if (mode === 'mobile') await loc.tap(T);
+      else await loc.click(T);
+    });
+    const openPersonal = async (hash = '#/recursos/personal') => {
+      await go(hash, 900);
+      await page.waitForSelector('.labor-group', { timeout: 8000 }).catch(() => {});
+    };
+
+    await openPersonal();
+    const top = await page.evaluate(() => {
+      const g = document.querySelector('.labor-group');
+      return g ? Math.round(g.getBoundingClientRect().top) : null;
+    });
+    check(R, 'Recursos → Personal arranca agrupado por convenio y el primer grupo se ve sin desplazar', top !== null && top < viewport.height - 80, `primer grupo a ${top}px (pantalla de ${viewport.height}px)`);
+    let groups = await groupsOnScreen();
+    check(R, 'grupos en orden: convenios, "Fuera de convenio" y "Sin convenio indicado" al final', groups.map((g) => g.key).join(',') === 'res-pp,res-uocra,fuera,sin', groups.map((g) => g.key).join(','));
+    const g = Object.fromEntries(groups.map((x) => [x.key, x]));
+    const pp = formatMoney(roundMoney(perPerson(byKey['res-op']) * 2 + perPerson(byKey['res-ch']) * 3));
+    check(R, 'convenio completo: "2 perfiles · 5 personas" y el monto = motor (costo por persona × personas)', g['res-pp'] && /Petroleros Privados \(empresa\)/.test(g['res-pp'].title) && norm(g['res-pp'].counts) === '2 perfiles · 5 personas' && norm(g['res-pp'].amount).startsWith(`${norm(pp)} / mes`), JSON.stringify(g['res-pp'] && { counts: g['res-pp'].counts, amount: g['res-pp'].amount, motor: pp }));
+    const uocra = formatMoney(roundMoney(perPerson(byKey['res-of']) * 4));
+    check(R, 'falta una cantidad: "4 personas en 1 de 2 perfiles" y "Subtotal parcial" (sólo los que tienen cantidad)', g['res-uocra'] && norm(g['res-uocra'].counts) === '4 personas en 1 de 2 perfiles' && norm(g['res-uocra'].amount).startsWith(`Subtotal parcial: ${norm(uocra)} / mes`) && /sólo los perfiles con cantidad cargada/.test(g['res-uocra'].amount), JSON.stringify(g['res-uocra'] && { counts: g['res-uocra'].counts, amount: g['res-uocra'].amount, motor: uocra }));
+    check(R, '"Sin convenio indicado": abierto, "Falta el dato", sin monto y con el enlace a Configuración → Convenios', g.sin && g.sin.open && /Falta el dato/.test(g.sin.title) && /Sin monto/.test(g.sin.amount) && norm(g.sin.counts) === '1 perfil · personas sin cargar'
+      && (await page.locator('.labor-group-none a[href="#/configuracion/convenios"]').count()) === 1, JSON.stringify(g.sin && { open: g.sin.open, title: g.sin.title, counts: g.sin.counts, amount: g.sin.amount }));
+    const summaryText = norm(await page.evaluate(() => (document.querySelector('.labor-summary') || {}).textContent || ''));
+    const toolbarCount = norm(await page.evaluate(() => (document.querySelector('.toolbar-count') || {}).textContent || ''));
+    check(R, 'personas ≠ perfiles: "6 perfiles en 4 grupos · 10 personas cargadas en 4 perfiles" y la barra cuenta perfiles', summaryText.startsWith('6 perfiles en 4 grupos · 10 personas cargadas en 4 perfiles.') && toolbarCount === '6 perfiles', `${summaryText} | ${toolbarCount}`);
+    const rowCosts = await page.evaluate(() => [...document.querySelectorAll('.labor-group tbody tr')].map((tr) => ({ role: (tr.querySelector('td') || {}).textContent || '', cost: (tr.querySelector('td:nth-child(5) strong') || {}).textContent || '' })));
+    const costMismatch = profiles.filter((p) => {
+      const row = rowCosts.find((r) => norm(r.role).startsWith(p.role));
+      return !row || norm(row.cost) !== norm(`${formatMoney(perPerson(p))} / mes`);
+    }).map((p) => p.role);
+    check(R, 'costo empresa por persona de cada perfil = motor', costMismatch.length === 0, `distinto en: ${costMismatch.join(', ')}`);
+    await scan(R, 'Personal por convenio');
+
+    // Plegar / desplegar: con el teclado (escritorio) o tocando (celular); "Plegar todo" no pliega "Sin convenio indicado".
+    const ppSummary = page.locator('.labor-group[data-group="res-pp"] > summary');
+    await soft(async () => {
+      if (mode === 'mobile') await ppSummary.tap(T);
+      else {
+        await ppSummary.focus(T);
+        await page.keyboard.press('Enter');
+      }
+    });
+    await page.waitForTimeout(200);
+    const folded = await page.evaluate(() => {
+      const d = document.querySelector('.labor-group[data-group="res-pp"]');
+      return d ? d.open : null;
+    });
+    await press(page.getByRole('button', { name: 'Plegar todo', exact: true }));
+    await page.waitForTimeout(300);
+    groups = await groupsOnScreen();
+    const allFolded = groups.length > 1 && groups.filter((x) => x.key !== 'sin').every((x) => !x.open) && Boolean((groups.find((x) => x.key === 'sin') || {}).open);
+    await press(page.getByRole('button', { name: 'Desplegar todo', exact: true }));
+    await page.waitForTimeout(300);
+    groups = await groupsOnScreen();
+    check(R, 'un grupo se pliega desde su encabezado; "Plegar todo" / "Desplegar todo" (sin plegar "Sin convenio indicado")', folded === false && allFolded && groups.length > 1 && groups.every((x) => x.open), JSON.stringify({ folded, allFolded, open: groups.map((x) => x.open) }));
+
+    // Búsqueda y filtro en la dirección: se pueden recargar o compartir.
+    await soft(() => page.locator('input[name="q"]').fill('capataz', T));
+    await page.waitForTimeout(300);
+    groups = await groupsOnScreen();
+    const hashQ = await page.evaluate(() => window.location.hash);
+    check(R, 'buscar "capataz" deja sólo su grupo y su perfil, y queda en la dirección', groups.length === 1 && groups[0].key === 'res-uocra' && groups[0].roles.length === 1 && /Capataz/.test(groups[0].roles[0]) && /[?&]q=capataz(&|$)/.test(hashQ), `${hashQ} · ${JSON.stringify(groups.map((x) => [x.key, x.roles.length]))}`);
+    await page.reload();
+    await page.waitForTimeout(2500);
+    await page.waitForSelector('.labor-group', { timeout: 8000 }).catch(() => {});
+    groups = await groupsOnScreen();
+    const kept = await page.evaluate(() => (document.querySelector('input[name="q"]') || {}).value);
+    check(R, 'al recargar, la búsqueda sigue (campo y resultados)', kept === 'capataz' && groups.length === 1 && groups[0].roles.length === 1, `campo "${kept}" · ${groups.length} grupos`);
+    await openPersonal('#/recursos/personal?convenio=fuera');
+    groups = await groupsOnScreen();
+    const selected = await page.evaluate(() => (document.querySelector('select[name="convenio"]') || {}).value);
+    await soft(() => page.selectOption('select[name="convenio"]', '', T));
+    await page.waitForTimeout(300);
+    const cleared = await page.evaluate(() => ({ hash: window.location.hash, groups: document.querySelectorAll('.labor-group').length }));
+    check(R, 'filtro por convenio desde la dirección ("Fuera de convenio") y "Todos los convenios" lo quita', selected === 'fuera' && groups.length === 1 && groups[0].key === 'fuera' && cleared.groups === 4 && !/convenio=/.test(cleared.hash), JSON.stringify({ selected, groups: groups.map((x) => x.key), cleared }));
+
+    // "Editar sueldo" del chofer (sin horas extra): bruto + básico → adicionales; vista previa = motor; mes base obligatorio.
+    await openPersonal();
+    await press(page.getByRole('button', { name: 'Editar sueldo de Chofer de camión', exact: true }));
+    await page.waitForSelector('dialog[open] [name="salary.gross"]', { timeout: 3000 }).catch(() => {});
+    const dlg = page.locator('dialog[open]');
+    const prefilled = await dlg.evaluate((d) => ({ gross: d.querySelector('[name="salary.gross"]').value, basic: d.querySelector('[name="salary.basic"]').value, period: d.querySelector('[name="salary.period"]').value }), null, T).catch(() => ({}));
+    check(R, '"Editar sueldo" abre con el bruto (básico + adicionales), el básico y el mes base', /2\.?900\.?000/.test(prefilled.gross) && /2\.?300\.?000/.test(prefilled.basic) && prefilled.period === '2026-09', JSON.stringify(prefilled));
+    await soft(() => dlg.locator('[name="salary.gross"]').fill('3190000', T));
+    await soft(() => dlg.locator('[name="salary.basic"]').fill('2530000', T));
+    await page.waitForTimeout(300);
+    const nextCh = { ...byKey['res-ch'], basicMonthly: 2530000, additionalsMonthly: 660000 };
+    const preview = await dlg.evaluate((d) => ({
+      after: Number((d.querySelector('[data-cost-after]') || { dataset: {} }).dataset.costAfter),
+      before: Number((d.querySelector('[data-cost-before]') || { dataset: {} }).dataset.costBefore),
+      additionals: (d.querySelector('.salary-additionals') || {}).textContent || '',
+      samePeriod: [...d.querySelectorAll('p')].some((p) => !p.hidden && /¿El sueldo nuevo es del mismo mes base\?/.test(p.textContent)),
+      overflow: d.scrollWidth - d.clientWidth,
+    }), null, T).catch(() => ({ after: NaN, before: NaN, additionals: '', samePeriod: false, overflow: NaN }));
+    check(R, 'vista previa: costo empresa por persona antes → después = motor, y adicionales = bruto − básico', Math.abs(preview.before - perPerson(byKey['res-ch'])) < 0.01 && Math.abs(preview.after - perPerson(nextCh)) < 0.01 && norm(preview.additionals).includes(norm(formatMoney(660000))), `${JSON.stringify(preview)} · motor ${perPerson(byKey['res-ch'])} → ${perPerson(nextCh)}`);
+    check(R, 'con el sueldo cambiado y el mismo mes, pregunta si el mes base es el mismo', preview.samePeriod, 'sin la pregunta');
+    check(R, '"Editar sueldo": sin scroll horizontal en el diálogo', preview.overflow <= 1, `${preview.overflow}px de más`);
+    await soft(() => dlg.locator('[name="salary.period"]').fill('', T));
+    await press(dlg.getByRole('button', { name: 'Guardar sueldo', exact: true }));
+    await page.waitForTimeout(500);
+    const periodError = await dlg.evaluate((d) => (d.querySelector('.salary-error') || {}).textContent || '', null, T).catch(() => '');
+    check(R, 'sueldo cambiado sin mes base: no guarda y pide el mes', /Cargá el mes base del sueldo nuevo/.test(periodError) && stored('res-ch').basicMonthly === 2300000, `${periodError} · básico guardado ${stored('res-ch').basicMonthly}`);
+    await soft(() => dlg.locator('[name="salary.period"]').fill('2026-10', T));
+    await press(dlg.getByRole('button', { name: 'Guardar sueldo', exact: true }));
+    await page.waitForTimeout(1200);
+    const ch = stored('res-ch');
+    check(R, 'guardado: básico 2.530.000 + adicionales 660.000 (= bruto 3.190.000, sin sumar dos veces) y mes 2026-10', ch && ch.basicMonthly === 2530000 && ch.additionalsMonthly === 660000 && ch.base && ch.base.period === '2026-10' && (await page.locator('dialog[open]').count()) === 0, JSON.stringify(ch && { b: ch.basicMonthly, a: ch.additionalsMonthly, base: ch.base }));
+    const chRow = norm(await page.evaluate(() => {
+      const tr = [...document.querySelectorAll('.labor-group tbody tr')].find((r) => /Chofer de camión/.test(r.textContent));
+      return tr ? tr.textContent : '';
+    }));
+    check(R, 'la fila muestra el bruto nuevo con su básico y el costo del motor', chRow.includes(norm(formatMoney(3190000))) && chRow.includes(`básico ${norm(formatMoney(2530000))}`) && chRow.includes(norm(`${formatMoney(perPerson(nextCh))} / mes`)), chRow.slice(0, 300));
+
+    // Operador con horas extra (en el perfil y en una cotización): sin básico hay que confirmar; la cotización no cambia.
+    const quoteBefore = canon(storedQuote());
+    await press(page.getByRole('button', { name: 'Editar sueldo de Operador de hidrogrúa', exact: true }));
+    await page.waitForSelector('dialog[open] [name="salary.gross"]', { timeout: 3000 }).catch(() => {});
+    await soft(() => dlg.locator('[name="salary.gross"]').fill('3850000', T));
+    await page.waitForTimeout(200);
+    const hintShown = await dlg.evaluate((d) => {
+      const p = d.querySelector('.salary-basic-hint');
+      return Boolean(p && !p.hidden && /El bruto cambió y el básico no/.test(p.textContent));
+    }, null, T).catch(() => false);
+    check(R, 'el bruto cambió y el básico no: lo dice (RATEOS no sube el básico solo)', hintShown, 'sin el aviso');
+    await soft(() => dlg.locator('[name="salary.basic"]').fill('', T));
+    await soft(() => dlg.locator('[name="salary.period"]').fill('2026-10', T));
+    await page.waitForTimeout(300);
+    const ot = await dlg.evaluate((d) => ({ text: d.textContent, box: Boolean(d.querySelector('input[name="salary.overtimeOnGross"]')) }), null, T).catch(() => ({ text: '', box: false }));
+    check(R, 'horas extra sin básico: lo avisa (perfil y 1 cotización), ofrece valuarlas sobre el bruto y dice que el bruto se guarda como básico', ot.box && /Horas extra: el perfil tiene horas extra y 1 cotización que lo usa tiene horas extra/.test(norm(ot.text)) && /Sin el básico, el bruto completo se guarda como básico/.test(norm(ot.text)), norm(ot.text).slice(0, 300));
+    check(R, 'el diálogo avisa que las cotizaciones hechas no cambian', /Las cotizaciones hechas no cambian\. La cotización en curso o ganada que usa este perfil te va a avisar/.test(norm(ot.text)), 'sin el aviso');
+    await press(dlg.getByRole('button', { name: 'Guardar sueldo', exact: true }));
+    await page.waitForTimeout(500);
+    const otError = await dlg.evaluate((d) => (d.querySelector('.salary-error') || {}).textContent || '', null, T).catch(() => '');
+    check(R, 'sin confirmar no guarda: no asume en silencio que el bruto completo es el básico', /Este perfil se usa con horas extra: cargá el básico o marcá/.test(otError) && stored('res-op').basicMonthly === 2800000, `${otError} · básico guardado ${stored('res-op').basicMonthly}`);
+    await soft(() => dlg.locator('input[name="salary.overtimeOnGross"]').check(T));
+    await press(dlg.getByRole('button', { name: 'Guardar sueldo', exact: true }));
+    await page.waitForTimeout(1200);
+    const op = stored('res-op');
+    check(R, 'confirmado: guarda el bruto como básico y adicionales 0', op && op.basicMonthly === 3850000 && op.additionalsMonthly === 0 && op.base && op.base.period === '2026-10', JSON.stringify(op && { b: op.basicMonthly, a: op.additionalsMonthly, base: op.base }));
+    check(R, 'la cotización guardada que usa el perfil no cambió (ni una coma)', canon(storedQuote()) === quoteBefore, 'cambió la cotización guardada');
+    await go(`#/cotizaciones/${encodeURIComponent(linked.id)}/labor`, 600);
+    await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
+    const inQuote = await page.evaluate(() => ({ text: document.body.textContent, cost: (document.querySelector('[data-kpi="totalCost"] .qe-sum-full') || {}).textContent || '' }));
+    check(R, 'la cotización avisa que el recurso cambió y conserva su costo hasta que se actualice', inQuote.text.includes('El costo de "Operador de hidrogrúa" fue actualizado desde que hiciste esta cotización.') && norm(inQuote.cost) === norm(linkedCost), `costo ${norm(inQuote.cost)} · antes ${linkedCost}`);
+
+    // Borrar un convenio en uso: sus perfiles quedan "Sin convenio indicado", sin un id que ya no existe.
+    await go('#/configuracion/convenios', 900);
+    await press(page.getByRole('button', { name: 'Eliminar UOCRA Yacimientos', exact: true }));
+    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+    const askText = norm(await page.evaluate(() => (document.querySelector('dialog[open]') || {}).textContent || ''));
+    await press(page.locator('dialog[open]').getByRole('button', { name: 'Eliminar', exact: true }));
+    await page.waitForTimeout(1200);
+    const left = ['res-of', 'res-ca'].map((id) => stored(id));
+    const st = db.workspaces.get(orgId).state.resources;
+    check(R, 'borrar un convenio en uso: lo avisa y sus perfiles quedan sin convenio (null, no un id borrado)', /Hay 2 perfiles de personal que lo usan: quedarán sin convenio asignado/.test(askText) && !st.agreements.some((a) => a.id === 'res-uocra') && left.every((p) => p && p.agreementId === null), `${askText.slice(0, 160)} · ${JSON.stringify(left.map((p) => p && p.agreementId))}`);
+    await openPersonal();
+    groups = await groupsOnScreen();
+    const none = groups.find((x) => x.key === 'sin');
+    check(R, 'y se ven en "Sin convenio indicado" con sus personas', groups.length === 3 && none && none.roles.length === 3 && norm(none.counts) === '4 personas en 1 de 3 perfiles', JSON.stringify(groups.map((x) => [x.key, x.counts])));
+
+    // "Lista" y "Detallada" siguen.
+    await press(page.getByRole('button', { name: 'Lista', exact: true }));
+    await page.waitForTimeout(400);
+    const flat = await page.evaluate(() => ({ groups: document.querySelectorAll('.labor-group').length, rows: document.querySelectorAll('.lib-table tbody tr').length }));
+    await press(page.getByRole('button', { name: 'Por convenio', exact: true }));
+    await page.waitForTimeout(400);
+    check(R, '"Lista" muestra todos los perfiles en una tabla y "Por convenio" vuelve', flat.groups === 0 && flat.rows === 6 && (await page.locator('.labor-group').count()) === 3, JSON.stringify(flat));
+    await scan(R, 'Personal (al final)');
+    if (args.shots) await page.screenshot({ path: path.join(outDir, `${mode}-RES-02-personal.png`), fullPage: true });
+    // Ningún diálogo abierto para lo que sigue.
+    for (let i = 0; i < 3 && (await page.locator('dialog[open]').count()) > 0; i += 1) await page.keyboard.press('Escape');
   }
 
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
