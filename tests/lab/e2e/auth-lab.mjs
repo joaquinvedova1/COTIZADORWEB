@@ -166,7 +166,7 @@ async function runMode(mode) {
   check('AUTH-01', 'explica el enlace en este navegador o el código en otro dispositivo', /escribí el código que trae/.test(t1), t1.slice(0, 200));
   check('AUTH-01', 'sin scroll horizontal', (await overflow(p1)) <= 1, `${await overflow(p1)}px`);
 
-  // AUTH-02 · email sin alta (el caso del amigo): neutro y ningún correo.
+  // AUTH-02 · email sin alta previa: neutro y ningún correo.
   await requestReset(p1, `sin-alta.${mode}@rateos.test`);
   const t2 = await text(p1);
   check('AUTH-02', 'respuesta neutra con qué hacer si no llega nada', t2.includes(norm(RESET_REQUESTED_MESSAGE)), t2.slice(0, 240));

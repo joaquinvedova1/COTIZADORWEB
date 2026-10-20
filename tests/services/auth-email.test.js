@@ -74,7 +74,7 @@ describe('HD-03: "¿Olvidaste tu contraseña?" sin sesión', () => {
     }
   });
 
-  test('la respuesta no afirma que se envió un correo y dice qué hacer si no llega (el caso del amigo: sin alta previa no sale nada)', () => {
+  test('la respuesta no afirma que se envió un correo y dice qué hacer si no llega (sin alta previa no sale nada)', () => {
     assert.doesNotMatch(RESET_REQUESTED_MESSAGE, /te enviamos/i);
     assert.match(RESET_REQUESTED_MESSAGE, /Si ese email tiene acceso a RATEOS/);
     assert.match(RESET_REQUESTED_MESSAGE, /spam/);
