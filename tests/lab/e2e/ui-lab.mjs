@@ -900,11 +900,14 @@ async function runMode(mode) {
     await openEquipment();
     await press(page.getByRole('button', { name: 'Plegar todo', exact: true }));
     await page.waitForTimeout(300);
-    const folded = (await groupsOnScreen()).every((x) => !x.open);
+    // Con grupos: sin grupos, "todos plegados" sería cierto sin probar nada.
+    const afterFold = await groupsOnScreen();
+    const folded = afterFold.length > 0 && afterFold.every((x) => !x.open);
     await press(page.getByRole('button', { name: 'Desplegar todo', exact: true }));
     await page.waitForTimeout(300);
-    const unfolded = (await groupsOnScreen()).every((x) => x.open);
-    check(R, '"Plegar todo" / "Desplegar todo"', folded && unfolded, JSON.stringify({ folded, unfolded }));
+    const afterUnfold = await groupsOnScreen();
+    const unfolded = afterUnfold.length > 0 && afterUnfold.every((x) => x.open);
+    check(R, '"Plegar todo" / "Desplegar todo"', folded && unfolded, JSON.stringify({ folded, unfolded, groups: afterUnfold.length }));
     await press(page.getByRole('button', { name: 'Lista', exact: true }));
     await page.waitForTimeout(400);
     const flat = await page.evaluate(() => ({ groups: document.querySelectorAll('.equipment-group').length, rows: document.querySelectorAll('.lib-table tbody tr').length }));
