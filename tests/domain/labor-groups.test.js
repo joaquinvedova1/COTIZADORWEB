@@ -21,6 +21,7 @@ import {
 } from '../../js/domain/labor-groups.js';
 import { computeLaborLine } from '../../js/engines/labor-engine.js';
 import { SNAPSHOT_FIELDS, economicFingerprint, snapshotValuesFromLine } from '../../js/domain/resource-snapshot.js';
+import { laborLineFromProfile } from '../../js/domain/quote-factory.js';
 import { LocalStorageRepository } from '../../js/data/local-storage-repository.js';
 import { MemoryStorage } from '../../js/data/memory-storage.js';
 import { configureLogger } from '../../js/core/logger.js';
@@ -136,11 +137,22 @@ describe('RES-02 · un perfil no es una persona', () => {
     assert.equal(noPeople.partial, false);
   });
 
-  test('peopleCount no entra en la huella ni se copia a las cotizaciones', () => {
+  test('peopleCount no entra en la huella ni se copia a las cotizaciones: la línea sigue con 1 posición × 1 persona y el mismo costo', () => {
     assert.ok(!SNAPSHOT_FIELDS.laborProfiles.includes('peopleCount'));
     const p = profile('p1');
     const fp = economicFingerprint(snapshotValuesFromLine('laborProfiles', p));
     assert.equal(economicFingerprint(snapshotValuesFromLine('laborProfiles', { ...p, peopleCount: 7 })), fp);
+    // La línea que arma la cotización desde el perfil no se entera de las personas del perfil: una
+    // posición con una persona, el mismo costo y sin peopleCount (revisión de ChatGPT, punto 3).
+    const now = '2026-10-20T00:00:00.000Z';
+    const plain = laborLineFromProfile(p, null, { id: 'l1', now });
+    const counted = laborLineFromProfile({ ...p, peopleCount: 7 }, null, { id: 'l1', now });
+    assert.equal(counted.positions, 1);
+    assert.equal(counted.peoplePerPosition, 1);
+    assert.ok(!('peopleCount' in counted));
+    assert.deepEqual(counted, plain);
+    assert.equal(computeLaborLine(counted).headcount, 1);
+    assert.equal(computeLaborLine(counted).fullFixedMonthly, computeLaborLine(plain).fullFixedMonthly);
   });
 });
 
