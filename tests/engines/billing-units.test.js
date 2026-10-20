@@ -43,7 +43,7 @@ function base({ F = 30000000, v = 1000000, unit = 'day', serviceType = 'configur
   q.activity.availableDaysPerMonth = 30;
   q.activity.daysPerActivation = 1;
   q.pricingMode = rate === null ? 'known_activity' : 'known_rate';
-  q.pricing = { ...q.pricing, knownRate: rate === null ? 0 : rate, targetMarginPct: margin, roundingStep: 0, offeredRateOverride: null };
+  q.pricing = { ...q.pricing, knownRate: rate === null ? 0 : rate, targetMarginPct: margin, roundingMode: 'step', roundingStep: 0, offeredRateOverride: null };
   return q;
 }
 

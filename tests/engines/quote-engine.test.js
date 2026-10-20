@@ -137,7 +137,7 @@ describe('QuoteEngine — caso de referencia (golden): F 30M, v 1M/día, tarifa 
 
 describe('QuoteEngine — modo A (conozco la tarifa) vs modo B (conozco la actividad)', () => {
   test('modo B sin redondeo: la tarifa sugerida es la del margen objetivo y el margen esperado es 10 %', () => {
-    const r = computeQuote(onCall({ pricingMode: 'known_activity', pricing: { roundingStep: 0 } }));
+    const r = computeQuote(onCall({ pricingMode: 'known_activity', pricing: { roundingMode: 'step', roundingStep: 0 } }));
     assert.equal(r.kpis.commercialSource, 'suggested');
     approx(r.kpis.commercialListRate, 38_000_000 / 0.9 / 8);
     approx(r.kpis.marginPct, 10);
@@ -148,7 +148,7 @@ describe('QuoteEngine — modo A (conozco la tarifa) vs modo B (conozco la activ
   });
 
   test('modo B con redondeo comercial a 1.000: la tarifa sugerida se redondea hacia arriba (nunca baja el margen)', () => {
-    const r = computeQuote(onCall({ pricingMode: 'known_activity', pricing: { roundingStep: 1000 } }));
+    const r = computeQuote(onCall({ pricingMode: 'known_activity', pricing: { roundingMode: 'step', roundingStep: 1000 } }));
     assert.equal(r.kpis.suggestedListRate, 5_278_000);
     assert.ok(r.kpis.marginPct >= 10);
   });

@@ -12,6 +12,20 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**ECO-03 (PLAN-2026-020): redondeo comercial proporcional a la tarifa (VAL-01-F1).** **Cambio de regla de negocio** para las cotizaciones nuevas: la sugerida se redondea en automático, a lo sumo 1 % sobre el precio objetivo, en lugar de un múltiplo fijo de $ 1.000 para cualquier unidad. **Lo guardado no cambia:** las cotizaciones, las plantillas y las empresas con su múltiplo elegido o confirmado siguen igual (golden 39/39 sin tocar). Esquema sin cambios (sigue en 10), sin migraciones.
+
+### Cambiado
+
+- **Redondeo automático** (`js/domain/rounding.js`), el de fábrica en empresas y cotizaciones nuevas: la tarifa objetivo sube al múltiplo de 1, 10, 100, 1.000… más grande que no la suba más del tope (1 %, configurable de 0 a 10 %). Con $ 1.000 fijo, una tarifa de $ 277,80 / ton-km pasaba a $ 1.000 (+260 %, margen 71 %); en automático queda en $ 278. El múltiplo fijo sigue disponible ("Múltiplo fijo" en "El precio" y en Configuración).
+- **Compatibilidad:** una cotización o plantilla sin `roundingMode` usa su múltiplo guardado; una empresa con los parámetros confirmados lo conserva para las nuevas; con los parámetros de fábrica sin confirmar y $ 1.000 (empresa o plantilla ILUSTRATIVA), las nuevas pasan a automático. Lo que pasa a automático guarda el múltiplo en 0: una versión anterior nunca lo infla. Ambigüedad y decisiones pendientes documentadas en PLAN-2026-020 §2.
+
+### Agregado
+
+- **Margen objetivo y margen real, siempre a la vista** en el Resultado (y el PDF), "El precio" y el resumen en vivo: "Objetivo: 10 % de margen · con esta tarifa: 10,06 %", y el precio objetivo exacto cuando el redondeo lo movió. El margen del Resultado dice siempre su objetivo.
+- **Aviso** cuando un múltiplo fijo sube la sugerida más de 1 % sobre la objetivo ("La tarifa sugerida quedó X % arriba de tu precio objetivo por el redondeo"), con [Usar redondeo automático].
+- Indicadores `roundingMode`, `roundingStep`, `roundingMaxPct`, `suggestedRoundUpPct`, `suggestedMarginPct` y `roundingExceedsLimit`; el oráculo del Test Lab implementa el automático por su cuenta.
+- Tests: `tests/engines/eco-03-rounding.test.js` (las 18 unidades con 0/1/10/1.000 y automático, compatibilidad, plantillas, vuelta atrás y textos).
+
 **ECO-01 (PLAN-2026-017): bloqueantes económicos de la beta (H-01, H-02, H-03).** Ninguna fórmula cambia y ningún dato guardado se reinterpreta: golden 39/39 sin tocar y las mismas cifras que `main` en 2.097 cotizaciones y 13 productos sintéticos. Cambia qué se puede cargar (una unidad nueva) y qué se marca como pendiente. Esquema sin cambios (sigue en 10), sin migraciones.
 
 ### Agregado

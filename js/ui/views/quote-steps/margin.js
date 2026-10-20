@@ -12,7 +12,7 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, emptyState, table, badge, icon, button, confirmDialog } from '../../components.js';
+import { card, formGrid, emptyState, table, badge, icon, button, confirmDialog, selectField } from '../../components.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../../domain/billing-taxes.js';
 import { billingTaxConfigInfo } from '../../../engines/billing-taxes-engine.js';
@@ -23,7 +23,8 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
 import { isPlainObject } from '../../../core/object.js';
 import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove, hasNumber, stepName, plural } from './shared.js';
-import { minActivityNotice } from '../../result-text.js';
+import { minActivityNotice, roundingText, marginPairText } from '../../result-text.js';
+import { roundingModeChange } from '../../../domain/rounding.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillingTaxes, sameBillingTaxes, invalidTaxesText } from '../../billing-taxes-form.js';
 import { userErrorMessage } from '../../layout.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
@@ -258,7 +259,15 @@ export function render(container, ctx) {
           return `Tarifa de lista, antes de descuentos, sin IVA.${taxes}${net ? ` ${net}` : ''}`;
         },
       }),
-      kit.stat('Tarifa sugerida', (r) => perUnitCeil(r.kpis.suggestedListRate, r), { hint: 'El precio anterior redondeado hacia arriba (nunca baja el margen).', emphasis: true }),
+      // ECO-03: cómo se redondeó y el margen con la sugerida junto al objetivo, siempre a la vista.
+      kit.stat('Tarifa sugerida', (r) => perUnitCeil(r.kpis.suggestedListRate, r), {
+        hint: (r) => {
+          const pair = marginPairText(r.kpis);
+          return `El precio anterior ${roundingText(r.kpis)} (nunca baja el margen).${pair ? ` ${pair}.` : ''}`;
+        },
+        tone: (r) => (r.kpis.roundingExceedsLimit ? 'orange' : null),
+        emphasis: true,
+      }),
       kit.toggle(
         kit.stat((r) => (r.kpis.commercialSource === 'known_rate' ? 'Tu tarifa (de lista)' : 'Tarifa ofrecida (de lista)'), (r) => perUnitMoney(r.kpis.commercialListRate, r), {
           emphasis: true,
@@ -270,7 +279,10 @@ export function render(container, ctx) {
       kit.stat('Margen esperado', (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY), {
         // Con la tarifa sugerida el recuadro de arriba ya dice el markup
         // equivalente (COPY-8): acá sólo cuando la tarifa es la tuya u ofrecida.
-        hint: (r) => (r.kpis.commercialSource !== 'suggested' && isFiniteNumber(r.kpis.markupPct) ? `Markup sobre el costo: ${formatPercent(r.kpis.markupPct)}` : ''),
+        hint: (r) => [
+          isFiniteNumber(r.kpis.targetMarginPct) ? `Objetivo: ${formatPercent(r.kpis.targetMarginPct)}` : '',
+          r.kpis.commercialSource !== 'suggested' && isFiniteNumber(r.kpis.markupPct) ? `Markup sobre el costo: ${formatPercent(r.kpis.markupPct)}` : '',
+        ].filter(Boolean).join(' · '),
         tone: (r) => (!isFiniteNumber(r.kpis.commercialListRate) ? 'gray' : r.kpis.profit < 0 ? 'red' : r.kpis.belowTarget ? 'orange' : 'green'),
         trace: (r) => r.traces.expectedResult,
       }),
@@ -327,7 +339,9 @@ export function render(container, ctx) {
         const parts = [
           hasNumber(pr.customMarginPct) ? `margen personalizado ${formatPercent(Number(pr.customMarginPct))}` : 'sin margen personalizado',
           `descuento comercial ${hasNumber(pr.commercialDiscountPct) ? formatPercent(Number(pr.commercialDiscountPct)) : '0 %'}`,
-          hasNumber(pr.roundingStep) && Number(pr.roundingStep) > 0 ? `redondeo hacia arriba a ${formatMoney(Number(pr.roundingStep))}` : 'sin redondeo',
+          pr.roundingMode === 'auto'
+            ? `redondeo automático (hasta ${formatPercent(hasNumber(pr.roundingMaxPct) ? Number(pr.roundingMaxPct) : 1)} sobre el precio objetivo)`
+            : hasNumber(pr.roundingStep) && Number(pr.roundingStep) > 0 ? `redondeo hacia arriba a ${formatMoney(Number(pr.roundingStep))}` : 'sin redondeo',
           isModeB
             ? (hasNumber(pr.offeredRateOverride) && Number(pr.offeredRateOverride) > 0 ? `tarifa ofrecida a mano ${formatMoney(Number(pr.offeredRateOverride))}` : 'se ofrece la tarifa sugerida')
             : `tu tarifa (en "${stepName('modality')}")`,
@@ -350,12 +364,35 @@ export function render(container, ctx) {
         unit: '%',
         hint: 'Descuento sobre la tarifa de lista para este cliente.',
       }),
-      kit.num('pricing.roundingStep', {
-        label: 'Redondeo comercial',
-        rule: 'money',
-        unit: '$',
-        hint: 'La tarifa sugerida se redondea HACIA ARRIBA a múltiplos de este valor (nunca baja el margen). 0 = sin redondeo.',
+      // ECO-03: automático (proporcional a la tarifa) o múltiplo fijo. Una cotización de antes no tiene
+      // `roundingMode`: se muestra y se calcula como múltiplo fijo (lo guardado no cambia).
+      // Pasar a automático deja el múltiplo en 0 (una versión anterior no la infla, PLAN-2026-020 §2).
+      selectField({
+        label: 'Redondeo de la tarifa sugerida',
+        name: 'pricing.roundingMode',
+        value: quote.pricing.roundingMode === 'auto' ? 'auto' : 'step',
+        disabled: kit.readOnly,
+        options: [
+          { value: 'auto', label: 'Automático' },
+          { value: 'step', label: 'Múltiplo fijo' },
+        ],
+        hint: 'Automático: proporcional a la tarifa, a lo sumo el tope sobre el precio objetivo. Múltiplo fijo: el que elijas. Siempre hacia arriba: nunca baja el margen.',
+        onChange: (value) => ctx.mutate((q) => Object.assign(q.pricing, roundingModeChange(value, q.pricing))),
       }),
+      quote.pricing.roundingMode === 'auto'
+        ? kit.num('pricing.roundingMaxPct', {
+          label: 'Tope del redondeo automático',
+          rule: 'roundingMaxPct',
+          unit: '%',
+          placeholder: '1',
+          hint: 'La sugerida se redondea a 1, 10, 100, 1.000… sin subir más que esto sobre el precio objetivo. Vacío = 1 %.',
+        })
+        : kit.num('pricing.roundingStep', {
+          label: 'Múltiplo del redondeo',
+          rule: 'money',
+          unit: '$',
+          hint: 'La tarifa sugerida se redondea HACIA ARRIBA a múltiplos de este valor. 0 = sin redondeo. En unidades de valor bajo ($/ton-km, $/kg, $/km) un múltiplo grande la aleja mucho del precio objetivo.',
+        }),
       isModeB
         ? kit.num('pricing.offeredRateOverride', {
           label: `Tarifa ofrecida a mano (opcional, de lista, ${unit.label}, sin IVA)`,

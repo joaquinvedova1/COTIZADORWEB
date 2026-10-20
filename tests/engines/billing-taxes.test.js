@@ -54,7 +54,7 @@ function onCall({ F = 30000000, v = 1000000, D = 10, rate = null, margin = 10, t
   q.otherCosts[1].amount = v;
   q.activity.activeDaysPerMonth = D;
   q.pricingMode = rate === null ? 'known_activity' : 'known_rate';
-  q.pricing = { ...q.pricing, knownRate: rate ?? 0, targetMarginPct: margin, roundingStep: 0, offeredRateOverride: null };
+  q.pricing = { ...q.pricing, knownRate: rate ?? 0, targetMarginPct: margin, roundingMode: 'step', roundingStep: 0, offeredRateOverride: null };
   q.rules = { ...q.rules, minimumMonthlyGuarantee: guarantee };
   if (taxes !== null) q.billingTaxes = typeof taxes === 'number' ? combined(taxes) : taxes;
   return q;
