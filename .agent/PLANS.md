@@ -2284,3 +2284,15 @@ Reglas de `admin_review_bug_report`:
 
 #### Bitácora
 - 2026-10-21: plan antes del código. Base: los 204 controles SQL existentes pasan en el Postgres simulado (40 + 32 + 132).
+- 2026-10-21: migración y tests SQL (SIMULADO, Postgres 16 local):
+  - `credits_reports_test.sql`: 100 controles;
+  - concurrencia: 6/6;
+  - los existentes, con la migración: 40 + 32 + 132;
+  - mutaciones M1 a M6 detectadas. M4 (aprobar sin RATEOS ADMIN) obligó a agregar el caso "otra empresa sin rol";
+  - vuelta atrás: el workspace queda idéntico;
+  - migración sobre empresas existentes: sin cuentas y sin cambios.
+- 2026-10-21: cliente y panel de admin.
+  - **Rojo antes:** con el cliente de `bc31190`, la regla de la base deja el guardado trabado (reintenta, falla al editar y consume un código). En la rama, nada a medias.
+  - `npm test`: 2002/2002.
+  - Gate: PASA, con SEC-19 nuevo y su detector probado con mutaciones.
+  - `beta-lab`: escritorio 43/43 y celular 43/43.

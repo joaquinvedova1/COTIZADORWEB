@@ -64,7 +64,7 @@ export function bugScreenFromHash(hash) {
   if (first === 'cotizaciones') {
     if (!second) return 'cotizaciones';
     if (second === 'nueva') return 'nuevo';
-    return third === 'resultado' ? 'resultado' : 'cotizacion';
+    return third === 'result' || third === 'resultado' ? 'resultado' : 'cotizacion';
   }
   if (first === 'productos') {
     if (!second) return 'productos';

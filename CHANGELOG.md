@@ -12,6 +12,34 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**BETA-CR: créditos de prueba y reporte de errores para las empresas testers (PLAN-2026-029, [docs/BETA_CREDITS.md](docs/BETA_CREDITS.md)).** Ninguna fórmula cambia (golden 39/39, esquema 10). La migración `20261021120000` **no está aplicada** en Supabase.
+
+### Agregado
+- **Créditos de prueba:** 10 por empresa tester, compartidos por sus miembros. Crear una cotización, un producto o un duplicado usa 1. Editar, recalcular, guardar o exportar no usa ninguno. Borrar no reintegra.
+  - **Quién cobra:** Postgres, al guardar el workspace y en la misma transacción. Sin saldo se rechaza toda la escritura.
+  - **Lo existente:** las empresas que ya existían no tienen cuota.
+  - **El saldo a la vista:** en Nuevo cálculo, Nueva cotización y Nuevo producto.
+  - **Con 0:** se bloquean sólo crear y duplicar, con «Se agotaron tus cálculos de prueba; podés seguir trabajando con los que ya tenés y enviarnos feedback».
+- **"Reportar un error"** (menú de la cuenta, `#/reportar`): categoría, qué hiciste, qué esperabas, qué pasó, pantalla y versión.
+  - Sin datos económicos, ids ni capturas.
+  - Tiene "Reportes de tu empresa", con su estado y la respuesta.
+- **RATEOS Admin:** cola de "Reportes de errores" con filtros e historial (quién y cuándo), y saldos por empresa.
+  - "Validado y aprobado (+2)" se confirma, suma una sola vez y es definitivo.
+  - Un admin no revisa reportes de su propia empresa.
+- **Antes de restaurar un respaldo:** se avisa cuántos cálculos que la empresa nunca tuvo usaría y si alcanzan.
+- **Pruebas:**
+  - SQL (100 controles) y concurrencia real en un Postgres local SIMULADO (6 casos);
+  - vuelta atrás probada;
+  - `tests/data/beta-credits.test.js` y `tests/services/beta-service.test.js`;
+  - `tests/lab/e2e/beta-lab.mjs` en escritorio y celular;
+  - control SEC-19 del Beta Security Gate.
+
+### Cambiado
+- **El código COT-NNNN** de una cotización nueva o duplicada se reserva **en la misma escritura** que la cotización (antes eran dos). Una creación rechazada no consume código.
+- **El ejemplo "Chipá"** usa un id fijo: hay uno solo a la vez y, si ya existe, "Ver un ejemplo" lo abre.
+- **El rechazo por créditos** (`credits_exhausted`) no se reintenta. Primero guarda una copia de recuperación, después quita del navegador los cálculos que la nube nunca aceptó y sube el resto. Los ids inválidos (`invalid_calculations`) tampoco se reintentan.
+- **`supabase/tests/beta_security_test.sql`:** la cotización de prueba del JSON con `organization_id` ajeno lleva id (con la cuota, una sin id se rechaza). Pasa igual con y sin la migración nueva.
+
 ## [0.9.0] - sin publicar (candidato a beta, PLAN-2026-027)
 
 **RATEOS v0.9.0, candidato a beta.** Reúne todo lo que estaba sin versión:

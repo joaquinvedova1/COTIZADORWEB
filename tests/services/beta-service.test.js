@@ -119,6 +119,7 @@ describe('beta: reporte de errores', () => {
 
   test('la pantalla sale del hash SIN ids ni parámetros', () => {
     const id = '7d0b1f0e-0000-4000-8000-123456789abc';
+    assert.equal(bugScreenFromHash(`#/cotizaciones/${id}/result`), 'resultado');
     assert.equal(bugScreenFromHash(`#/cotizaciones/${id}/resultado`), 'resultado');
     assert.equal(bugScreenFromHash(`#/cotizaciones/${id}/labor`), 'cotizacion');
     assert.equal(bugScreenFromHash('#/cotizaciones'), 'cotizaciones');
@@ -128,7 +129,7 @@ describe('beta: reporte de errores', () => {
     assert.equal(bugScreenFromHash('#/configuracion/cuenta'), 'cuenta');
     assert.equal(bugScreenFromHash('#/servicios'), 'plantillas');
     assert.equal(bugScreenFromHash('#/algo-raro'), 'otra');
-    assert.ok(!reportHrefFrom(`#/cotizaciones/${id}/resultado`).includes(id));
+    assert.equal(reportHrefFrom(`#/cotizaciones/${id}/result`), '#/reportar?desde=resultado');
     assert.equal(reportOrigin('#/reportar?desde=resultado'), 'resultado');
     assert.equal(reportOrigin('#/reportar?desde=<script>'), 'otra');
     assert.equal(matchRoute('#/reportar?desde=inicio').route.name, 'report');

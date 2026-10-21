@@ -41,6 +41,15 @@ export function createDb() {
     /** Códigos PKCE emitidos por /verify, a canjear con el code_verifier. */
     flows: new Map(),
     smtp: { mode: 'custom', team: [] },
+    // ---- Beta (PLAN-2026-029), como la migración 20261021120000: apagado por defecto (los
+    // otros labs no cambian). policy.quotaForNewOrgs = las empresas nuevas nacen con cuota.
+    policy: { quotaForNewOrgs: false, initialCredits: 10, reportReward: 2 },
+    /** orgId → { enabled, balance, ledger: Set('quote:id'), used, rewarded } (private.credit_accounts + credit_ledger). */
+    credits: new Map(),
+    /** private.bug_reports (+ historial). */
+    reports: [],
+    /** RATEOS_ADMIN (private.platform_admins). */
+    admins: new Set(),
   };
   db.createUser = ({ email, password, fullName, company, confirmed = true }) => {
     const id = randomUUID();
@@ -51,6 +60,7 @@ export function createDb() {
     db.orgs.set(orgId, { id: orgId, name: String(company || 'Mi empresa').slice(0, 120), created_at: now, updated_at: now });
     db.members.push({ organization_id: orgId, user_id: id, role: 'OWNER', created_at: now });
     db.workspaces.set(orgId, { id: randomUUID(), organization_id: orgId, state: null, revision: 0, schema_version: 2, updated_at: now, updated_by: null });
+    if (db.policy.quotaForNewOrgs) db.credits.set(orgId, { enabled: true, balance: db.policy.initialCredits, initial: db.policy.initialCredits, ledger: new Set(), used: 0, rewarded: 0 });
     return db.users.get(email);
   };
   db.userById = (id) => [...db.users.values()].find((u) => u.id === id);
@@ -120,6 +130,128 @@ function pick(row, select) {
     if (col && !col.includes('(')) out[col] = row[col];
   }
   return out;
+}
+
+const EXAMPLE_PRODUCT = '00000000-0000-4000-8000-000000002001';
+
+/** Como private.workspace_credit_guard: { ok } o el error que devolvería la base. */
+function chargeCredits(db, orgId, state, uid) {
+  const acct = db.credits.get(orgId);
+  if (!acct || !acct.enabled || !state || typeof state !== 'object') return { ok: true };
+  const keys = [];
+  for (const [kind, list] of [['quote', state.quotes], ['product', state.products]]) {
+    if (list === undefined || list === null) continue;
+    if (!Array.isArray(list)) return { ok: false, message: 'rateos_invalid_calculations', details: kind };
+    const seen = new Set();
+    for (const item of list) {
+      if (!item || typeof item !== 'object' || typeof item.id !== 'string' || !item.id || item.id.length > 100 || seen.has(item.id)) return { ok: false, message: 'rateos_invalid_calculations', details: kind };
+      seen.add(item.id);
+      if (kind === 'product' && item.id === EXAMPLE_PRODUCT) continue;
+      if (!acct.ledger.has(`${kind}:${item.id}`)) keys.push(`${kind}:${item.id}`);
+    }
+  }
+  if (keys.length > acct.balance) return { ok: false, message: 'rateos_credits_exhausted', details: JSON.stringify({ needed: keys.length, balance: acct.balance }) };
+  keys.forEach((k) => acct.ledger.add(k));
+  acct.balance -= keys.length;
+  acct.used += keys.length;
+  acct.lastActor = uid;
+  return { ok: true };
+}
+
+const CATEGORIES = ['calculo', 'guardado', 'pdf', 'cuenta', 'pantalla', 'otro'];
+const SCREENS = ['inicio', 'nuevo', 'cotizacion', 'resultado', 'escenarios', 'cotizaciones', 'productos', 'producto', 'recursos', 'plantillas', 'configuracion', 'cuenta', 'registro', 'pdf', 'reportar', 'otra'];
+const cleanText = (v) => String(v ?? '').replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+
+/** RPC de la beta y de RATEOS ADMIN, con las mismas reglas que las funciones de la migración. */
+function betaRpc(db, route, name, args, uid, memberOrgs) {
+  const forbidden = () => reply(route, 403, { code: '42501', message: 'forbidden' });
+  const fail = (message) => reply(route, 400, { code: 'P0001', message, details: null, hint: null });
+  const isAdmin = db.admins.has(uid);
+  const email = (id) => (db.userById(id) || {}).email || null;
+  const member = (org) => typeof org === 'string' && memberOrgs.has(org);
+  if (name === 'am_i_platform_admin') return reply(route, 200, isAdmin);
+  if (name === 'get_my_credits') {
+    if (!member(args.p_org)) return forbidden();
+    const a = db.credits.get(args.p_org);
+    if (!a || !a.enabled) return reply(route, 200, { enabled: false });
+    return reply(route, 200, { enabled: true, balance: a.balance, initial: a.initial, used: a.used, rewarded: a.rewarded, report_reward: db.policy.reportReward });
+  }
+  if (name === 'credit_preview') {
+    if (!member(args.p_org)) return forbidden();
+    const a = db.credits.get(args.p_org);
+    if (!a || !a.enabled) return reply(route, 200, { enabled: false, chargeable: 0 });
+    const q = new Set((args.p_quote_ids || []).filter((x) => !a.ledger.has(`quote:${x}`)));
+    const p = new Set((args.p_product_ids || []).filter((x) => x !== EXAMPLE_PRODUCT && !a.ledger.has(`product:${x}`)));
+    return reply(route, 200, { enabled: true, balance: a.balance, chargeable: q.size + p.size });
+  }
+  if (name === 'submit_bug_report') {
+    if (!member(args.p_org)) return forbidden();
+    const r = { did: cleanText(args.p_did), expected: cleanText(args.p_expected), happened: cleanText(args.p_happened) };
+    const len = (t) => t.length >= 3 && t.length <= 2000;
+    if (!CATEGORIES.includes(args.p_category) || !SCREENS.includes(args.p_screen) || !/^[0-9A-Za-z.+-]{1,40}$/.test(String(args.p_app_version || '')) || !len(r.did) || !len(r.expected) || !len(r.happened)) return fail('rateos_report_invalid');
+    const day = Date.now() - 86400000;
+    if (db.reports.filter((x) => x.reporter === uid && x.at > day).length >= 5 || db.reports.filter((x) => x.organization_id === args.p_org && x.at > day).length >= 10) return fail('rateos_report_rate_limited');
+    if (db.reports.some((x) => x.organization_id === args.p_org && x.did === r.did && x.expected === r.expected && x.happened === r.happened)) return fail('rateos_report_duplicate');
+    const now = new Date().toISOString();
+    const report = { id: randomUUID(), organization_id: args.p_org, reporter: uid, category: args.p_category, screen: args.p_screen, app_version: args.p_app_version, ...r, status: 'received', created_at: now, at: Date.now(), review_note: null, reviewed_at: null, reviewed_by: null, duplicate_of: null, history: [{ at: now, actor: uid, from: null, to: 'received', note: null, credits: 0 }] };
+    db.reports.push(report);
+    return reply(route, 200, { id: report.id, status: 'received', created_at: now });
+  }
+  const reward = (r) => (r.rewarded || 0);
+  if (name === 'my_bug_reports') {
+    if (!member(args.p_org)) return forbidden();
+    return reply(route, 200, db.reports.filter((r) => r.organization_id === args.p_org).slice().reverse().map((r) => ({
+      id: r.id, created_at: r.created_at, category: r.category, screen: r.screen, app_version: r.app_version, did: r.did, expected: r.expected, happened: r.happened,
+      status: r.status, review_note: r.review_note, reviewed_at: r.reviewed_at, mine: r.reporter === uid, credits_added: reward(r),
+    })));
+  }
+  // ---- RATEOS ADMIN: sólo metadata y el texto de los reportes; nunca el workspace.
+  if (['admin_overview', 'admin_users', 'admin_bug_reports', 'admin_review_bug_report', 'admin_credit_accounts'].includes(name) && !isAdmin) return forbidden();
+  if (name === 'admin_overview') {
+    return reply(route, 200, { users_total: db.users.size, users_confirmed: db.users.size, users_7d: db.users.size, users_30d: db.users.size, organizations_total: db.orgs.size, workspaces_total: db.workspaces.size, workspaces_active_30d: [...db.workspaces.values()].filter((w) => w.revision > 0).length, generated_at: new Date().toISOString() });
+  }
+  if (name === 'admin_users') {
+    return reply(route, 200, db.members.map((m) => ({ full_name: (db.profiles.get(m.user_id) || {}).full_name || '', email: email(m.user_id), email_confirmed: true, organization_name: db.orgs.get(m.organization_id).name, organization_role: m.role, organization_members: db.members.filter((x) => x.organization_id === m.organization_id).length, workspace_revision: db.workspaces.get(m.organization_id).revision, is_platform_admin: db.admins.has(m.user_id) })));
+  }
+  if (name === 'admin_bug_reports') {
+    const st = args.p_status ?? null;
+    const rows = db.reports.filter((r) => st === null || (st === 'open' ? ['received', 'in_review'].includes(r.status) : r.status === st));
+    return reply(route, 200, rows.slice().reverse().map((r) => {
+      const a = db.credits.get(r.organization_id);
+      return {
+        id: r.id, created_at: r.created_at, organization_name: db.orgs.get(r.organization_id).name, reporter_email: email(r.reporter), category: r.category, screen: r.screen, app_version: r.app_version,
+        did: r.did, expected: r.expected, happened: r.happened, status: r.status, duplicate_of: r.duplicate_of, review_note: r.review_note, reviewed_at: r.reviewed_at, reviewer_email: email(r.reviewed_by),
+        credits_added: reward(r), org_quota_enabled: Boolean(a && a.enabled), org_balance: a ? a.balance : null,
+        similar_reports: db.reports.filter((s) => s.id !== r.id && s.category === r.category && s.screen === r.screen && s.status !== 'rejected').length,
+        history: r.history.map((e) => ({ ...e, actor: email(e.actor) })),
+      };
+    }));
+  }
+  if (name === 'admin_review_bug_report') {
+    const r = db.reports.find((x) => x.id === args.p_report);
+    if (!['in_review', 'approved', 'rejected', 'duplicate'].includes(args.p_status)) return fail('rateos_report_invalid');
+    if (!r) return fail('rateos_report_not_found');
+    if (r.reporter === uid || memberOrgs.has(r.organization_id)) return reply(route, 403, { code: '42501', message: 'rateos_report_self_review' });
+    if (r.status === 'approved') return args.p_status === 'approved' ? reply(route, 200, { status: 'approved', already: true, credits_added: 0 }) : fail('rateos_report_final');
+    if (args.p_status === 'duplicate' && (!args.p_duplicate_of || args.p_duplicate_of === r.id || !db.reports.some((x) => x.id === args.p_duplicate_of))) return fail('rateos_report_invalid');
+    const from = r.status;
+    const note = cleanText(args.p_note).slice(0, 1000) || null;
+    Object.assign(r, { status: args.p_status, duplicate_of: args.p_status === 'duplicate' ? args.p_duplicate_of : null, review_note: note || r.review_note, reviewed_by: uid, reviewed_at: new Date().toISOString() });
+    let added = 0;
+    const a = db.credits.get(r.organization_id);
+    if (args.p_status === 'approved' && a && a.enabled && !r.rewarded) {
+      added = db.policy.reportReward;
+      r.rewarded = added;
+      a.balance += added;
+      a.rewarded += added;
+    }
+    r.history.push({ at: new Date().toISOString(), actor: uid, from, to: args.p_status, note, credits: added });
+    return reply(route, 200, { status: args.p_status, already: false, credits_added: added, balance: a ? a.balance : null });
+  }
+  if (name === 'admin_credit_accounts') {
+    return reply(route, 200, [...db.credits.entries()].map(([org, a]) => ({ organization_name: db.orgs.get(org).name, enabled: a.enabled, balance: a.balance, initial: a.initial, used: a.used, rewarded: a.rewarded, adjusted: 0, created_at: null })));
+  }
+  return reply(route, 404, { code: 'PGRST202', message: `Could not find the function public.${name}` });
 }
 
 /** Intercepta Supabase en un contexto de Playwright. */
@@ -281,10 +413,7 @@ export async function installSupabaseMock(context, db) {
         if (single) return rows.length === 1 ? reply(route, 200, rows[0]) : reply(route, 406, { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' });
         return reply(route, 200, rows);
       };
-      if (method === 'POST' && table.startsWith('rpc/')) {
-        // Sólo la consulta de rol de plataforma: en el lab nadie es RATEOS ADMIN.
-        return table === 'rpc/am_i_platform_admin' ? reply(route, 200, false) : reply(route, 403, { code: '42501', message: 'forbidden' });
-      }
+      if (method === 'POST' && table.startsWith('rpc/')) return betaRpc(db, route, table.slice('rpc/'.length), body || {}, uid, memberOrgs);
       if (method === 'GET') {
         if (table === 'organization_members') {
           const rows = db.members.filter((m) => memberOrgs.has(m.organization_id) && matches(m, f)).map((m) => ({ ...pick(m, select), organizations: { id: m.organization_id, name: db.orgs.get(m.organization_id).name } }));
@@ -298,6 +427,11 @@ export async function installSupabaseMock(context, db) {
       if (method === 'PATCH' && table === 'workspace_states') {
         if (Object.keys(body || {}).some((k) => !['state', 'schema_version'].includes(k))) return reply(route, 401, { code: '42501', message: 'permission denied for column' });
         const rows = [...db.workspaces.values()].filter((w) => memberOrgs.has(w.organization_id) && ['OWNER', 'ADMIN', 'ESTIMATOR'].includes(roleIn(w.organization_id)) && matches(w, f));
+        // Trigger de cobro (workspace_states_credit_guard): sin saldo se rechaza TODA la escritura.
+        for (const w of rows) {
+          const charge = chargeCredits(db, w.organization_id, body.state, uid);
+          if (!charge.ok) return reply(route, 400, { code: 'P0001', message: charge.message, details: charge.details || null, hint: null });
+        }
         rows.forEach((w) => {
           w.state = body.state;
           w.schema_version = body.schema_version;
