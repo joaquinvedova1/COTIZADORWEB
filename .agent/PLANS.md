@@ -2271,10 +2271,10 @@ Reglas de `admin_review_bug_report`:
 - **UX:** el saldo se ve antes de crear. El bloqueo dice qué sigue funcionando. El reporte pide sólo texto, sin datos económicos.
 
 #### 11. Documentación
-- [ ] `docs/BETA_CREDITS.md` (contrato, reglas, runbook SQL del dueño, corte y vuelta atrás)
-- [ ] `supabase/README.md`
-- [ ] CHANGELOG
-- [ ] PLANS (bitácora)
+- [x] `docs/BETA_CREDITS.md` (contrato, reglas, runbook SQL del dueño, corte y vuelta atrás)
+- [x] `supabase/README.md`
+- [x] CHANGELOG
+- [x] PLANS (bitácora)
 
 #### 12. Criterio de terminación
 - Tests en verde (SQL simulado, JS, E2E, gate, Test Lab).
@@ -2296,3 +2296,21 @@ Reglas de `admin_review_bug_report`:
   - `npm test`: 2002/2002.
   - Gate: PASA, con SEC-19 nuevo y su detector probado con mutaciones.
   - `beta-lab`: escritorio 43/43 y celular 43/43.
+- 2026-10-21: revisión de corrección y de seguridad del diff (`bc31190..116e559`), con un test propio por hallazgo.
+  - **Corrección:** 9 de 9 corregidos (`6979814`). Entre ellos: el rechazo en segundo plano no es silencioso, el error llega al guardado correcto, sin copia no se quita nada, la copia no se poda, el código COT no se reusa, el ejemplo sigue disponible con saldo 0, no se pierde el formulario de reporte y la restauración parcial se avisa.
+  - **Seguridad:** 4 de 6 corregidos (`6979814` y `86253d4`): el detalle con los ids que se cobrarían, el tope de 5000 y de 100 caracteres, el índice de similares y los caracteres invisibles. Documentados: el registro abierto (D-CR-1) y que las plantillas no se cobran.
+  - SQL: 102 controles.
+- 2026-10-21: auditoría de producto como PyME nueva (SIMULADA, escritorio y celular): 0 P0, 2 P1, 4 P2 y 7 P3.
+  - **P1-1** (consumo en ruta en 0) y **P1-2** (cargas genéricas sin convenio): pendientes de completitud nuevos, sin cambiar fórmulas. `tests/engines/beta-pyme.test.js`: 2 fallan antes, 7/7 después.
+  - P2-3: la insignia ILUSTRATIVO nombra la tasa de financiación.
+  - Los demás P2 y P3, documentados para después de la beta.
+  - **Cálculo manual independiente** de 3 escenarios de Vaca Muerta, sólo con `docs/`: igual al centavo antes y después.
+- 2026-10-21: validación final en `86253d4` (SIMULADO):
+  - `npm test` 2016/2016;
+  - gate PASA (350/350);
+  - Test Lab 97 PASS y golden 39/39;
+  - VAL-01 87/87 (3480 valores);
+  - A/B: 0 diferencias en las cifras, y la completitud cambia sólo `labor_generic_params` en 1610 cotizaciones sintéticas del lab y de VAL-01;
+  - SQL 102 + 40 + 32 + 132 y concurrencia 6/6;
+  - `beta-lab` 86/86, `auth-lab` 136/136 y `ui-lab` 1430/1430 (escritorio 713 y celular 717).
+  - PR #38 en borrador, apilado sobre #37.
