@@ -49,6 +49,8 @@ import {
   badge,
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
+import { canCreateCalculation, creditsAfterCreate } from '../credits-ui.js';
+import { isCreditsExhausted } from '../../services/beta-service.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
@@ -2314,15 +2316,22 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     if (readOnly) return;
     duplicateBtn.disabled = true;
     try {
+      // Un duplicado es un cálculo nuevo: usa 1 crédito de prueba (PLAN-2026-029).
+      if (!(await canCreateCalculation(app))) return;
       await save();
       const copy = await app.ctx.quotes.duplicateQuote(quoteId);
       if (!copy) {
         notify('No se encontró la cotización para duplicar.', 'warning');
         return;
       }
-      notify(`Se creó ${copy.code || 'la copia'}: ${copy.name}.`, 'success');
+      notify(`Se creó ${copy.code || 'la copia'}: ${copy.name}.${await creditsAfterCreate(app.ctx)}`, 'success');
       navigate(`#/cotizaciones/${encodeURIComponent(copy.id)}/${stepId}`);
     } catch (error) {
+      if (isCreditsExhausted(error)) {
+        app.ctx.credits.status({ refresh: true }).catch(() => {});
+        notify(error.message, 'warning');
+        return;
+      }
       logger.warn('No se pudo duplicar la cotización', { code: error && error.code });
       notify(error && error.code === 'quota_exceeded' && error.message ? error.message : 'No se pudo duplicar la cotización.', 'danger');
     } finally {

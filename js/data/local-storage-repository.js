@@ -385,13 +385,23 @@ export class LocalStorageRepository extends StorageRepository {
     return found ? deepClone(found) : null;
   }
 
-  async saveQuote(quote) {
+  /**
+   * @param {object} quote
+   * @param {{ lastQuoteNumber?: number }} [options] reserva del código COT-NNNN de una
+   *   cotización nueva, en la MISMA escritura (PLAN-2026-029: si la nube la
+   *   rechaza, no queda un código consumido sin cotización). Nunca retrocede.
+   */
+  async saveQuote(quote, { lastQuoteNumber = null } = {}) {
     if (!isPlainObject(quote)) throw new RepositoryError('Cotización inválida.', 'invalid');
     return this.mutate((s) => {
       const index = s.quotes.findIndex((q) => q.id === quote.id);
       const stamped = this.stamp({ ...quote, name: typeof quote.name === 'string' ? quote.name : 'Cotización' }, index >= 0 ? s.quotes[index] : null);
       if (index >= 0) s.quotes[index] = stamped;
       else s.quotes.push(stamped);
+      if (Number.isInteger(lastQuoteNumber) && lastQuoteNumber > 0) {
+        const current = Number.isInteger(s.settings.lastQuoteNumber) ? s.settings.lastQuoteNumber : 0;
+        s.settings = { ...s.settings, lastQuoteNumber: Math.max(current, lastQuoteNumber) };
+      }
       return stamped;
     });
   }

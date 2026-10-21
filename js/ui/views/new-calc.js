@@ -12,6 +12,7 @@
 
 import { h, mount } from '../dom.js';
 import { icon, pageIntro } from '../components.js';
+import { creditsBanner } from '../credits-ui.js';
 
 /** Destino de cada opción (también lo usan Inicio y otras pantallas). */
 export const NEW_SERVICE_HREF = '#/cotizaciones/nueva';
@@ -39,10 +40,13 @@ export const CALC_KINDS = Object.freeze([
   }),
 ]);
 
-function kindCard(kind) {
+function kindCard(kind, { disabled = false } = {}) {
+  // Sin créditos de prueba (PLAN-2026-029) la opción se ve pero no lleva a crear.
   return h(
-    'a',
-    { href: kind.href, class: ['quote-choice', 'calc-choice'], dataset: { kind: kind.id }, 'aria-label': `${kind.title}: ${kind.text}` },
+    disabled ? 'div' : 'a',
+    disabled
+      ? { class: ['quote-choice', 'calc-choice', 'is-disabled'], dataset: { kind: kind.id }, 'aria-disabled': 'true', 'aria-label': `${kind.title}: no quedan cálculos de prueba` }
+      : { href: kind.href, class: ['quote-choice', 'calc-choice'], dataset: { kind: kind.id }, 'aria-label': `${kind.title}: ${kind.text}` },
     h('span', { class: 'quote-choice-icon calc-choice-icon', 'aria-hidden': 'true' }, icon(kind.icon, { size: 26 })),
     h('span', { class: 'calc-choice-title' }, kind.title),
     h('span', { class: 'quote-choice-text calc-choice-text' }, kind.text),
@@ -53,8 +57,10 @@ function kindCard(kind) {
 }
 
 /** #/nuevo */
-export function render(root, app) {
+export async function render(root, app) {
   app.setHeader({ title: 'Nuevo cálculo', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }] });
+  const credits = app.ctx && app.ctx.credits ? await app.ctx.credits.status({ refresh: true }) : { enabled: false };
+  const exhausted = credits.enabled === true && credits.balance <= 0;
   mount(
     root,
     h(
@@ -64,7 +70,8 @@ export function render(root, app) {
         title: '¿Qué querés calcular?',
         text: 'Sabé cuánto te cuesta y definí cuánto cobrar. Los dos usan tu mismo personal, tus equipos y tus materiales de Recursos.',
       }),
-      h('div', { class: 'calc-choice-grid' }, ...CALC_KINDS.map(kindCard)),
+      creditsBanner(credits),
+      h('div', { class: 'calc-choice-grid' }, ...CALC_KINDS.map((kind) => kindCard(kind, { disabled: exhausted }))),
       h(
         'p',
         { class: 'muted small calc-start-help' },

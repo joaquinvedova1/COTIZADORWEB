@@ -25,6 +25,7 @@ import { completenessTone } from '../../engines/completeness-engine.js';
 import { impliesSending, isUnreliableSummary, riskSummary, sendCheck, summaryCriticalCount } from '../../domain/quote-risk.js';
 import { guardSending, sendBlockedNote } from '../send-guard.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { canCreateCalculation, creationErrorToast, creditsAfterCreate, creditsBanner } from '../credits-ui.js';
 import { templateContents } from './services.js';
 
 export { completenessTone };
@@ -476,14 +477,17 @@ export async function render(root, app) {
   }
 
   async function duplicate(quote) {
+    // Un duplicado es un cálculo nuevo: usa 1 crédito de prueba (PLAN-2026-029).
+    if (!(await canCreateCalculation(app))) return false;
     try {
       const copy = await ctx.quotes.duplicateQuote(quote.id);
       if (!copy) throw new Error('not_found');
-      app.toast(`Se creó ${copy.code}: copia de ${quoteRef(quote)}.`, 'success');
+      app.toast(`Se creó ${copy.code}: copia de ${quoteRef(quote)}.${await creditsAfterCreate(ctx)}`, 'success');
       await load();
       return true;
     } catch (error) {
-      app.toast(userErrorMessage(error, 'No se pudo duplicar la cotización.'), 'danger');
+      creationErrorToast(app, error, 'No se pudo duplicar la cotización.');
+      if (error && error.code === 'credits_exhausted') await load();
       return false;
     }
   }
@@ -690,7 +694,9 @@ export async function renderNewQuote(root, app) {
     ],
   });
 
-  const services = orderTemplates(await ctx.resources.listServices());
+  const [services, credits] = await Promise.all([ctx.resources.listServices().then(orderTemplates), ctx.credits.status({ refresh: true })]);
+  // Sin créditos de prueba se bloquea SÓLO crear: lo que ya existe se sigue abriendo y editando.
+  const exhausted = credits.enabled === true && credits.balance <= 0;
   const choices = [];
   let busy = false;
 
@@ -702,14 +708,15 @@ export async function renderNewQuote(root, app) {
     });
     try {
       const quote = await ctx.quotes.createQuote({ templateId });
-      app.toast(`Cotización ${quote.code || ''} creada.`, 'success');
+      app.toast(`Cotización ${quote.code || ''} creada.${await creditsAfterCreate(ctx)}`, 'success');
       app.navigate(quoteHref(quote, 'service'));
     } catch (error) {
       busy = false;
       choices.forEach((b) => {
         b.disabled = false;
       });
-      app.toast(userErrorMessage(error, 'No se pudo crear la cotización.'), 'danger');
+      creationErrorToast(app, error, 'No se pudo crear la cotización.');
+      if (error && error.code === 'credits_exhausted') renderNewQuote(root, app);
     }
   }
 
@@ -739,6 +746,11 @@ export async function renderNewQuote(root, app) {
   });
   const first = templateCards.slice(0, VISIBLE_TEMPLATES);
   const rest = templateCards.slice(VISIBLE_TEMPLATES);
+  if (exhausted) {
+    choices.forEach((b) => {
+      b.disabled = true;
+    });
+  }
 
   mount(
     root,
@@ -749,6 +761,7 @@ export async function renderNewQuote(root, app) {
         title: '¿Qué servicio vas a cotizar?',
         text: 'Elegí un servicio parecido al tuyo: arrancás con su tipo de servicio y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.',
       }),
+      creditsBanner(credits),
       h('div', { class: 'quote-choice-grid' }, blank, ...first),
       rest.length
         ? disclosure(

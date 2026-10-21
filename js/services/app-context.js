@@ -24,6 +24,7 @@ import { createBackupService } from './backup-service.js';
 import { createSettingsService } from './settings-service.js';
 import { createAdminService } from './admin-service.js';
 import { createLocalImportService } from './local-import-service.js';
+import { createBugReportService, createCreditsService } from './beta-service.js';
 import { logger } from '../core/logger.js';
 import { STORAGE_KEYS } from '../config.js';
 import { track } from '../core/events.js';
@@ -42,6 +43,9 @@ function services(repository) {
     resources: createResourceService({ repository }),
     backup: createBackupService({ repository }),
     settings: createSettingsService({ repository }),
+    // Créditos de prueba y reportes (PLAN-2026-029): sólo existen en una cuenta.
+    credits: createCreditsService(),
+    bugReports: createBugReportService(),
   };
 }
 
@@ -114,7 +118,7 @@ const ACCOUNT_OPEN_MESSAGES = Object.freeze({
  *   appVersion?: string,
  * }} options
  */
-export async function createAccountContext({ user, workspaceGateway, adminGateway = null, cacheStorage, appVersion = 'dev', confirmSchemaUpgrade = null }) {
+export async function createAccountContext({ user, workspaceGateway, adminGateway = null, betaGateway = null, cacheStorage, appVersion = 'dev', confirmSchemaUpgrade = null }) {
   if (!user || typeof user.id !== 'string') throw new RepositoryError('No hay una sesión válida.', 'session_expired');
   const membership = await workspaceGateway.loadMembership(user.id);
   if (!membership.ok) {
@@ -158,6 +162,9 @@ export async function createAccountContext({ user, workspaceGateway, adminGatewa
     init,
     account,
     ...services(repository),
+    // La base decide el saldo y cobra al guardar; esto sólo lo muestra.
+    credits: createCreditsService({ gateway: betaGateway, organizationId: membership.organization.id }),
+    bugReports: createBugReportService({ gateway: betaGateway, organizationId: membership.organization.id, appVersion }),
     localImport: createLocalImportService({ repository, userId: user.id, storage }),
     /** Panel RATEOS ADMIN (la base verifica el rol en cada llamada). */
     admin: adminGateway ? createAdminService(adminGateway) : null,

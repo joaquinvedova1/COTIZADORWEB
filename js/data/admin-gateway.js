@@ -10,15 +10,16 @@
  * workspace (cotizaciones, costos, tarifas).
  */
 
-import { workspaceErrorCode, WORKSPACE_ERRORS } from './workspace-gateway.js';
+import { WORKSPACE_ERRORS } from './workspace-gateway.js';
+import { betaErrorCode } from './beta-gateway.js';
 
-async function rpc(client, name) {
+async function rpc(client, name, args) {
   try {
-    const res = await client.rpc(name);
-    if (res && res.error) return { ok: false, code: workspaceErrorCode({ ...res.error, status: res.status }) || WORKSPACE_ERRORS.unknown, data: null };
+    const res = args === undefined ? await client.rpc(name) : await client.rpc(name, args);
+    if (res && res.error) return { ok: false, code: betaErrorCode({ ...res.error, status: res.status }) || WORKSPACE_ERRORS.unknown, data: null };
     return { ok: true, code: null, data: res ? res.data : null };
   } catch (error) {
-    return { ok: false, code: workspaceErrorCode(error) || WORKSPACE_ERRORS.unknown, data: null };
+    return { ok: false, code: betaErrorCode(error) || WORKSPACE_ERRORS.unknown, data: null };
   }
 }
 
@@ -28,6 +29,15 @@ const USER_FIELDS = Object.freeze([
   'organization_name', 'organization_role', 'organization_members', 'organization_created_at',
   'workspace_revision', 'workspace_schema_version', 'workspace_bytes', 'workspace_updated_at', 'is_platform_admin',
 ]);
+
+/** Reportes de errores (PLAN-2026-029): texto del reporte y su revisión, nunca el workspace. */
+const BUG_REPORT_FIELDS = Object.freeze([
+  'id', 'created_at', 'organization_name', 'reporter_email', 'category', 'screen', 'app_version', 'did', 'expected', 'happened',
+  'status', 'duplicate_of', 'review_note', 'reviewed_at', 'reviewer_email', 'credits_added', 'org_quota_enabled', 'org_balance',
+  'similar_reports', 'history',
+]);
+
+const CREDIT_ACCOUNT_FIELDS = Object.freeze(['organization_name', 'enabled', 'balance', 'initial', 'used', 'rewarded', 'adjusted', 'created_at']);
 
 const OVERVIEW_FIELDS = Object.freeze([
   'users_total', 'users_confirmed', 'users_7d', 'users_30d', 'organizations_total', 'workspaces_total', 'workspaces_active_30d', 'generated_at',
@@ -67,6 +77,31 @@ export function createAdminGateway(client) {
       if (!res.ok) return { ok: false, code: res.code };
       const rows = Array.isArray(res.data) ? res.data.map((r) => pick(r, USER_FIELDS)) : [];
       return { ok: true, code: null, users: rows };
+    },
+
+    /** Cola de reportes de errores ('open' = recibidos y en revisión; null = todos). */
+    async bugReports(status = null) {
+      const res = await rpc(client, 'admin_bug_reports', { p_status: status });
+      if (!res.ok) return { ok: false, code: res.code };
+      return { ok: true, code: null, reports: Array.isArray(res.data) ? res.data.map((r) => pick(r, BUG_REPORT_FIELDS)) : [] };
+    },
+
+    /**
+     * Cambia el estado de un reporte. "approved" suma los créditos del premio
+     * UNA sola vez (lo garantiza la base) y es definitivo.
+     */
+    async reviewBugReport(reportId, { status, note = null, duplicateOf = null }) {
+      const res = await rpc(client, 'admin_review_bug_report', { p_report: reportId, p_status: status, p_note: note, p_duplicate_of: duplicateOf });
+      if (!res.ok) return { ok: false, code: res.code };
+      const d = res.data || {};
+      return { ok: true, code: null, status: d.status, already: d.already === true, creditsAdded: Number(d.credits_added) || 0, balance: d.balance ?? null };
+    },
+
+    /** Saldos de créditos por empresa (metadata del ledger). */
+    async creditAccounts() {
+      const res = await rpc(client, 'admin_credit_accounts');
+      if (!res.ok) return { ok: false, code: res.code };
+      return { ok: true, code: null, accounts: Array.isArray(res.data) ? res.data.map((r) => pick(r, CREDIT_ACCOUNT_FIELDS)) : [] };
     },
   };
 }

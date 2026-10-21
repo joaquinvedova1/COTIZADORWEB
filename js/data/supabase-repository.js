@@ -43,6 +43,7 @@ import { RepositoryError } from './storage-repository.js';
 import { createEmptyState, RESOURCE_TYPES, validateState } from './schema.js';
 import { WORKSPACE_ERRORS } from './workspace-gateway.js';
 import { defaultSettings } from '../domain/quote-factory.js';
+import { DEMO_IDS } from '../domain/demo-data.js';
 import { deepClone, isPlainObject } from '../core/object.js';
 
 const WORKSPACE_KEY = 'rateos.workspace';
@@ -65,8 +66,24 @@ const SYNC_MESSAGES = Object.freeze({
   [WORKSPACE_ERRORS.forbidden]: 'Tu rol en esta empresa no permite guardar cambios.',
   [WORKSPACE_ERRORS.tooLarge]: 'Los datos superan el máximo que se puede guardar (5 MB). Exportá un backup y eliminá cotizaciones que no uses.',
   [WORKSPACE_ERRORS.notFound]: 'Ya no tenés acceso a esta empresa. Tus cambios sin subir quedaron guardados en este navegador. Si creés que es un error, hablá con quien administra la cuenta de tu empresa.',
+  [WORKSPACE_ERRORS.creditsExhausted]: 'Se agotaron tus cálculos de prueba; podés seguir trabajando con los que ya tenés y enviarnos feedback.',
+  [WORKSPACE_ERRORS.invalidCalculations]: 'Hay cotizaciones o productos con datos que no se pueden guardar. Tus cambios quedaron en este navegador: exportá un backup y escribinos desde "Reportar un error".',
   [WORKSPACE_ERRORS.unknown]: 'No pudimos sincronizar tus cambios. Quedaron guardados en este navegador y vamos a reintentar.',
 });
+
+/** Mensaje de "sin créditos de prueba" (texto decidido por el dueño, PLAN-2026-029). */
+export const CREDITS_EXHAUSTED_MESSAGE = SYNC_MESSAGES[WORKSPACE_ERRORS.creditsExhausted];
+
+/** Ids de cotizaciones y productos y la reserva de códigos de un estado de la nube. */
+export function cloudCalculationIndex(state) {
+  const ids = (list) => new Set(Array.isArray(list) ? list.filter((x) => isPlainObject(x) && typeof x.id === 'string').map((x) => x.id) : []);
+  const settings = isPlainObject(state) && isPlainObject(state.settings) ? state.settings : {};
+  return {
+    quotes: ids(isPlainObject(state) ? state.quotes : null),
+    products: ids(isPlainObject(state) ? state.products : null),
+    lastQuoteNumber: Number.isInteger(settings.lastQuoteNumber) && settings.lastQuoteNumber > 0 ? settings.lastQuoteNumber : 0,
+  };
+}
 
 /** Código del error de sincronización cuando la cuenta perdió el acceso a la empresa (membresía quitada). */
 export const ACCESS_LOST_CODE = 'access_lost';
@@ -168,6 +185,8 @@ export class SupabaseRepository extends LocalStorageRepository {
     this.disposed = false;
     /** La cuenta dejó de ser miembro de la empresa (la nube ya no muestra su workspace). */
     this.accessLost = false;
+    /** Cotizaciones y productos que la nube ya aceptó (los créditos sólo se cobran por ids nuevos). */
+    this.cloudIndex = cloudCalculationIndex(null);
     this.loading = true;
     this.wrapWriteMethods();
   }
@@ -271,6 +290,7 @@ export class SupabaseRepository extends LocalStorageRepository {
           : 'No se pudieron abrir tus datos en la nube.', code);
     }
     this.revision = Number.isFinite(server.revision) ? server.revision : 0;
+    this.cloudIndex = cloudCalculationIndex(server.state);
     const serverText = server.state && isPlainObject(server.state) ? JSON.stringify(server.state) : null;
     let text = serverText;
     let conflictAtLoad = false;
@@ -480,6 +500,7 @@ export class SupabaseRepository extends LocalStorageRepository {
   }
 
   async pushPending() {
+    let creditsBlocked = null;
     while (this.dirty && !this.disposed) {
       if (this.conflict) throw new RepositoryError(SYNC_MESSAGES.conflict, 'conflict');
       const version = this.localVersion;
@@ -489,6 +510,7 @@ export class SupabaseRepository extends LocalStorageRepository {
       const res = await this.gateway.saveWorkspace(this.organization.id, { state, schemaVersion: state.schemaVersion, baseRevision: this.revision });
       if (res.ok) {
         this.revision = res.revision;
+        this.cloudIndex = cloudCalculationIndex(state);
         this.retryIndex = 0;
         this.clearRetry();
         if (this.localVersion === version) {
@@ -502,6 +524,17 @@ export class SupabaseRepository extends LocalStorageRepository {
         continue;
       }
       const code = res.code || WORKSPACE_ERRORS.unknown;
+      if (code === WORKSPACE_ERRORS.creditsExhausted && !creditsBlocked) {
+        // La base rechazó TODO el guardado: hay cálculos nuevos y no alcanzan los
+        // créditos. Se quitan del estado local los que la nube nunca aceptó (con
+        // una copia de recuperación antes) y se sube el resto. Sin reintentos.
+        creditsBlocked = { removed: this.dropUnsyncedCalculations(), detail: res.credits || null };
+        continue;
+      }
+      if (code === WORKSPACE_ERRORS.creditsExhausted || code === WORKSPACE_ERRORS.invalidCalculations) {
+        this.setSync('error', { code, message: SYNC_MESSAGES[code] });
+        throw new RepositoryError(SYNC_MESSAGES[code], code);
+      }
       if (code === WORKSPACE_ERRORS.conflict) {
         this.conflict = { serverRevision: res.serverRevision ?? null, detectedAt: this.now() };
         this.setSync('conflict', { code, message: SYNC_MESSAGES[code] });
@@ -526,7 +559,42 @@ export class SupabaseRepository extends LocalStorageRepository {
       this.scheduleRetry();
       throw new RepositoryError(SYNC_MESSAGES[code] || SYNC_MESSAGES.unknown, 'sync_failed');
     }
+    if (creditsBlocked) {
+      // Lo demás quedó guardado; quien creó el cálculo recibe el aviso.
+      const error = new RepositoryError(CREDITS_EXHAUSTED_MESSAGE, WORKSPACE_ERRORS.creditsExhausted);
+      error.removed = creditsBlocked.removed;
+      throw error;
+    }
     return this.getSyncState();
+  }
+
+  /**
+   * Quita del estado local las cotizaciones y productos que la nube todavía no
+   * aceptó (salvo el ejemplo, que no se cobra) y vuelve la reserva de códigos
+   * COT-NNNN a la de la nube: la creación rechazada no deja nada a medias. Antes
+   * guarda el estado completo en una copia de recuperación (Configuración →
+   * Datos y backup). Devuelve cuántos quitó.
+   */
+  dropUnsyncedCalculations() {
+    try {
+      this.saveRecoverySnapshot(this.storage.getItem(this.key), 'credits-exhausted');
+    } catch (error) {
+      logger.warn('No se pudo copiar los cálculos sin créditos', { name: error && error.name });
+    }
+    const { quotes, products, lastQuoteNumber } = this.cloudIndex;
+    let removed = 0;
+    this.mutate((draft) => {
+      const before = draft.quotes.length + (Array.isArray(draft.products) ? draft.products.length : 0);
+      draft.quotes = draft.quotes.filter((q) => isPlainObject(q) && quotes.has(q.id));
+      if (Array.isArray(draft.products)) draft.products = draft.products.filter((p) => isPlainObject(p) && (products.has(p.id) || p.id === DEMO_IDS.productExample));
+      removed = before - draft.quotes.length - (Array.isArray(draft.products) ? draft.products.length : 0);
+      const codes = draft.quotes.map((q) => {
+        const m = /^COT-(\d+)$/.exec(String(q.code || ''));
+        return m ? Number(m[1]) : 0;
+      });
+      if (isPlainObject(draft.settings)) draft.settings.lastQuoteNumber = Math.max(lastQuoteNumber, ...codes, 0);
+    });
+    return removed;
   }
 
   scheduleRetry() {
@@ -585,6 +653,7 @@ export class SupabaseRepository extends LocalStorageRepository {
     this.conflict = null;
     this.clearCache();
     this.revision = Number(server.revision) || 0;
+    this.cloudIndex = cloudCalculationIndex(server.state);
     // Se vuelve a abrir el estado de la nube con la misma lógica de init
     // (migraciones y validación), sin pasar por la copia local.
     this.loading = true;

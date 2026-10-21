@@ -13,6 +13,11 @@
  *   forbidden        el rol no permite guardar (p. ej. VIEWER) o no es miembro
  *   not_found        no hay organización para este usuario (o dejó de ser miembro)
  *   too_large        el estado supera el límite de la base (5 MB)
+ *   credits_exhausted la empresa no tiene créditos de prueba para los
+ *                    cálculos nuevos de este guardado (PLAN-2026-029): la
+ *                    base rechazó TODA la escritura
+ *   invalid_calculations quotes[] o products[] con ids repetidos o sin id
+ *                    (sólo en empresas con cuota)
  *   unknown
  */
 
@@ -23,8 +28,23 @@ export const WORKSPACE_ERRORS = Object.freeze({
   forbidden: 'forbidden',
   notFound: 'not_found',
   tooLarge: 'too_large',
+  creditsExhausted: 'credits_exhausted',
+  invalidCalculations: 'invalid_calculations',
   unknown: 'unknown',
 });
+
+/** Detalle del rechazo por créditos ({ needed, balance }), si la base lo mandó. */
+export function creditsDetail(error) {
+  try {
+    const raw = error && (error.details ?? error.detail);
+    const d = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const needed = Number(d && d.needed);
+    const balance = Number(d && d.balance);
+    return Number.isFinite(needed) && Number.isFinite(balance) ? { needed, balance } : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Código propio a partir de un error de PostgREST / fetch (sin exponer detalles). */
 export function workspaceErrorCode(error) {
@@ -32,6 +52,8 @@ export function workspaceErrorCode(error) {
   const code = String(error.code || '');
   const status = Number(error.status);
   const message = String(error.message || '');
+  if (message === 'rateos_credits_exhausted') return WORKSPACE_ERRORS.creditsExhausted;
+  if (message === 'rateos_invalid_calculations') return WORKSPACE_ERRORS.invalidCalculations;
   if (error.name === 'TypeError' || /Failed to fetch|NetworkError|network/i.test(message) || status === 0) return WORKSPACE_ERRORS.network;
   if (code === 'PGRST301' || code === 'PGRST303' || status === 401 || /JWT/i.test(message)) return WORKSPACE_ERRORS.sessionExpired;
   if (code === '42501' || status === 403) return WORKSPACE_ERRORS.forbidden;
@@ -43,7 +65,7 @@ export function workspaceErrorCode(error) {
 async function run(fn) {
   try {
     const res = await fn();
-    if (res && res.error) return { ok: false, code: workspaceErrorCode({ ...res.error, status: res.status }), data: null };
+    if (res && res.error) return { ok: false, code: workspaceErrorCode({ ...res.error, status: res.status }), data: null, credits: creditsDetail(res.error) };
     return { ok: true, code: null, data: res ? res.data : null };
   } catch (error) {
     return { ok: false, code: workspaceErrorCode(error) || WORKSPACE_ERRORS.unknown, data: null };
@@ -104,7 +126,7 @@ export function createWorkspaceGateway(client) {
         .eq('organization_id', organizationId)
         .eq('revision', baseRevision)
         .select('revision, updated_at'));
-      if (!res.ok) return { ok: false, code: res.code };
+      if (!res.ok) return res.code === WORKSPACE_ERRORS.creditsExhausted ? { ok: false, code: res.code, credits: res.credits || null } : { ok: false, code: res.code };
       const row = Array.isArray(res.data) ? res.data[0] : null;
       if (row) return { ok: true, code: null, revision: Number(row.revision), updatedAt: row.updated_at };
       // 0 filas: cambió la revisión (conflicto), RLS no deja guardar con este

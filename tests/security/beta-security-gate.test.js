@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  creditsFindings,
   findSecrets,
   gateVerdict,
   HUMAN_DECISIONS,
@@ -97,6 +98,28 @@ describe('Beta Security Gate: los detectores detectan', () => {
     assert.ok(findings.some((f) => /"true"/.test(f)));
     assert.ok(findings.some((f) => /fuera de private/.test(f)));
     assert.ok(findings.some((f) => /search_path/.test(f)));
+  });
+
+  test('créditos y reportes (SEC-19): detecta cobro fuera de Postgres, tablas expuestas y revisión sin admin', () => {
+    const real = {
+      migration: readFileSync(new URL('../../supabase/migrations/20261021120000_rateos_beta_credits_reports.sql', import.meta.url), 'utf8'),
+      sqlTest: readFileSync(new URL('../../supabase/tests/credits_reports_test.sql', import.meta.url), 'utf8'),
+      concurrency: readFileSync(new URL('../../supabase/tests/local/credits_concurrency.sh', import.meta.url), 'utf8'),
+      clientFiles: [],
+    };
+    assert.deepEqual(creditsFindings(real), []);
+    assert.deepEqual(creditsFindings({ ...real, migration: '' }), ['falta la migración de créditos y reportes']);
+    const has = (input, re) => creditsFindings(input).some((f) => re.test(f));
+    assert.ok(has({ ...real, migration: real.migration.replace('create trigger workspace_states_credit_guard', 'create trigger otro') }, /trigger BEFORE/));
+    assert.ok(has({ ...real, migration: real.migration.replace('create table private.credit_accounts', 'create table public.credit_accounts') }, /credit_accounts no está en private/));
+    assert.ok(has({ ...real, migration: real.migration.replace(/create unique index credit_ledger_reward_once[^;]*;/, '') }, /premio por reporte/));
+    assert.ok(has({ ...real, migration: real.migration.replace('if v_uid is null or not private.is_platform_admin() then\n    raise exception \'forbidden\' using errcode = \'42501\';\n  end if;\n  if p_status is null or p_status not in (\'in_review\'', 'if v_uid is null then\n    raise exception \'forbidden\' using errcode = \'42501\';\n  end if;\n  if p_status is null or p_status not in (\'in_review\'') }, /exige RATEOS ADMIN/));
+    assert.ok(has({ ...real, migration: `${real.migration}\ngrant execute on function private.admin_adjust_credits(uuid, integer, text) to authenticated;` }, /admin_adjust_credits se puede ejecutar/));
+    assert.ok(has({ ...real, migration: real.migration.replace('select o.name, a.enabled, a.balance,', 'select o.name, a.enabled, a.balance, (select pg_column_size(w.state) from public.workspace_states w limit 1),') }, /admin_credit_accounts lee workspace_states/));
+    assert.ok(has({ ...real, clientFiles: [{ rel: 'js/x.js', text: "client.from('credit_accounts').update({ balance: 99 })" }] }, /js\/x\.js: nombra una tabla/));
+    assert.deepEqual(creditsFindings({ ...real, clientFiles: [{ rel: 'js/data/admin-gateway.js', text: "rpc(client, 'admin_credit_accounts')" }] }), []);
+    assert.ok(has({ ...real, sqlTest: real.sqlTest.replace(/raise exception 'CREDITS_TESTS_FAILED[^;]*;/, '') }, /RAISE EXCEPTION/));
+    assert.ok(has({ ...real, concurrency: 'psql -c "select 1"' }, /fuera de la base local/));
   });
 
   test('superficie de Supabase: tabla/RPC no revisadas, borrados y Realtime desde el cliente', () => {

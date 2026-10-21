@@ -8,6 +8,7 @@ import { deepClone } from '../core/object.js';
 import { track } from '../core/events.js';
 import { computeProduct, summarizeProduct } from '../engines/product-engine.js';
 import { createEmptyProduct, exampleProduct } from '../domain/product-factory.js';
+import { DEMO_IDS } from '../domain/demo-data.js';
 
 export function createProductService({ repository, clock = () => new Date().toISOString(), idFactory = createId }) {
   return {
@@ -23,10 +24,18 @@ export function createProductService({ repository, clock = () => new Date().toIS
       return repository.getProduct(id);
     },
 
-    /** Crea un producto vacío o el ejemplo ILUSTRATIVO ("Chipá"). */
+    /**
+     * Crea un producto vacío o el ejemplo ILUSTRATIVO ("Chipá"). El ejemplo usa
+     * un id fijo: hay uno solo a la vez (si ya existe, se abre ese) y la cuota
+     * de la beta no lo cobra (PLAN-2026-029).
+     */
     async createProduct({ example = false } = {}) {
+      if (example) {
+        const existing = await repository.getProduct(DEMO_IDS.productExample);
+        if (existing) return existing;
+      }
       const [org, settings] = await Promise.all([repository.getOrganization(), repository.getSettings()]);
-      const options = { organizationId: org.id, settings, now: clock(), id: idFactory() };
+      const options = { organizationId: org.id, settings, now: clock(), id: example ? DEMO_IDS.productExample : idFactory() };
       const product = example ? exampleProduct({ ...options, idFactory }) : createEmptyProduct(options);
       const saved = await repository.saveProduct(product);
       track('product_created', { source: example ? 'example' : 'blank' });

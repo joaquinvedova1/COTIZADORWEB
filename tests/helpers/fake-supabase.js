@@ -39,12 +39,43 @@ export function createFakeServer() {
   const profiles = new Map();
   /** RATEOS_ADMIN (como private.platform_admins): sólo lo cambia el "servidor". */
   const admins = new Set();
+  /**
+   * Créditos de prueba (como private.credit_accounts + credit_ledger y el trigger
+   * workspace_states_credit_guard, PLAN-2026-029): orgId → { enabled, balance, ledger }.
+   */
+  const credits = new Map();
+  const EXAMPLE_PRODUCT = '00000000-0000-4000-8000-000000002001';
+  /** Mismo criterio que el trigger: null = aceptar; si no, el error que devolvería la base. */
+  const chargeFor = (orgId, state) => {
+    const acct = credits.get(orgId);
+    if (!acct || !acct.enabled || !state) return { ok: true, keys: [] };
+    const keys = [];
+    for (const [kind, list] of [['quote', state.quotes], ['product', state.products]]) {
+      if (list === undefined || list === null) continue;
+      if (!Array.isArray(list)) return { ok: false, code: 'invalid_calculations' };
+      const seen = new Set();
+      for (const item of list) {
+        if (!item || typeof item !== 'object' || typeof item.id !== 'string' || item.id.length < 1 || item.id.length > 100 || seen.has(item.id)) return { ok: false, code: 'invalid_calculations' };
+        seen.add(item.id);
+        if (kind === 'product' && item.id === EXAMPLE_PRODUCT) continue;
+        if (!acct.ledger.has(`${kind}:${item.id}`)) keys.push(`${kind}:${item.id}`);
+      }
+    }
+    if (keys.length > acct.balance) return { ok: false, code: 'credits_exhausted', credits: { needed: keys.length, balance: acct.balance } };
+    return { ok: true, keys };
+  };
   const server = {
     orgs,
     members,
     workspaces,
     profiles,
     admins,
+    credits,
+    /** Cuenta de créditos de una empresa tester (las demás no tienen límite). */
+    enableCredits(orgId, balance = 10) {
+      credits.set(orgId, { enabled: true, balance, ledger: new Set(), saves: 0 });
+      return credits.get(orgId);
+    },
     failNext: null,
     /** Alta como el trigger de la base. */
     addUser({ id, fullName = '', company = 'Mi empresa', orgId = `org-${id}`, role = 'OWNER' }) {
@@ -140,6 +171,14 @@ export function createFakeServer() {
           if (m.role === 'VIEWER') return { ok: false, code: 'forbidden' };
           const ws = workspaces.get(orgId);
           if (ws.revision !== baseRevision) return { ok: false, code: 'conflict', serverRevision: ws.revision };
+          // El cobro va en la misma "transacción": sin saldo no se guarda nada.
+          const charge = chargeFor(orgId, state);
+          if (!charge.ok) return { ok: false, code: charge.code, ...(charge.credits ? { credits: charge.credits } : {}) };
+          const acct = credits.get(orgId);
+          if (acct && charge.keys.length) {
+            charge.keys.forEach((k) => acct.ledger.add(k));
+            acct.balance -= charge.keys.length;
+          }
           ws.state = JSON.parse(JSON.stringify(state));
           ws.schemaVersion = schemaVersion;
           ws.revision += 1;

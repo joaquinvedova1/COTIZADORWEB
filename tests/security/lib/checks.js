@@ -151,7 +151,9 @@ export function supabaseSurface(files) {
   for (const { rel, text } of files) {
     for (const m of text.matchAll(/\.rpc\(\s*'([a-z_]+)'/g)) rpcNames.add(m[1]);
     for (const m of text.matchAll(/\brpc\(\s*client\s*,\s*'([a-z_]+)'/g)) rpcNames.add(m[1]);
-    if (/\.rpc\(\s*(?!['"`])/.test(text) && rel !== 'js/data/admin-gateway.js') dynamicRpc.push(rel);
+    // Los gateways de admin y de la beta llaman a sus RPC con rpc(client, '<nombre literal>'): el
+    // .rpc(name) de su ayuda no es dinámico (los nombres se toman de esas llamadas).
+    if (/\.rpc\(\s*(?!['"`])/.test(text) && rel !== 'js/data/admin-gateway.js' && rel !== 'js/data/beta-gateway.js') dynamicRpc.push(rel);
     for (const m of text.matchAll(/\.from\(\s*'([a-z_]+)'/g)) tables.add(m[1]);
     if (/\.from\(\s*'[a-z_]+'/.test(text) && /\.(?:insert|upsert|delete)\(/.test(text)) mutations.push(rel);
     if (/\.channel\(|\.functions\.invoke\(|\bauth\.admin\b|\.storage\.from\(/.test(text)) features.push(rel);
@@ -161,7 +163,66 @@ export function supabaseSurface(files) {
   return { rpcNames: [...rpcNames].sort(), tables: [...tables].sort(), mutations, features, dynamicRpc, sdkImports, clientImports };
 }
 
-const ALLOWED_RPC = Object.freeze(['admin_overview', 'admin_users', 'am_i_platform_admin']);
+const ALLOWED_RPC = Object.freeze([
+  'admin_overview', 'admin_users', 'am_i_platform_admin',
+  // PLAN-2026-029 (créditos de prueba y reportes de errores): revisadas en SEC-19.
+  'admin_bug_reports', 'admin_credit_accounts', 'admin_review_bug_report', 'credit_preview', 'get_my_credits', 'my_bug_reports', 'submit_bug_report',
+]);
+
+/** Funciones de créditos y reportes que llama el navegador (PLAN-2026-029). */
+const CREDIT_RPC = Object.freeze(['get_my_credits', 'credit_preview', 'submit_bug_report', 'my_bug_reports', 'admin_bug_reports', 'admin_review_bug_report', 'admin_credit_accounts']);
+
+/**
+ * SEC-19 — créditos y reportes (PLAN-2026-029): la autoridad está en Postgres.
+ * @param {{ migration: string, sqlTest: string, concurrency: string, clientFiles: { rel: string, text: string }[] }} input
+ * @returns {string[]} hallazgos
+ */
+export function creditsFindings({ migration = '', sqlTest = '', concurrency = '', clientFiles = [] } = {}) {
+  const out = [];
+  const sql = String(migration);
+  if (!sql) return ['falta la migración de créditos y reportes'];
+  if (!/create trigger workspace_states_credit_guard\s+before insert or update of state on public\.workspace_states/.test(sql)) out.push('el cobro no es un trigger BEFORE INSERT OR UPDATE OF state en workspace_states');
+  if (!/create trigger organizations_credit_account\s+after insert on public\.organizations/.test(sql)) out.push('las empresas nuevas no reciben su cuenta en la misma transacción del alta');
+  ['beta_policy', 'credit_accounts', 'credit_ledger', 'bug_reports', 'bug_report_events'].forEach((t) => {
+    if (!new RegExp(`create table private\\.${t}\\b`).test(sql)) out.push(`la tabla ${t} no está en private`);
+  });
+  if (/create table public\./.test(sql)) out.push('la migración crea tablas en public');
+  if (!/credit_ledger_entity_once[\s\S]*?\(organization_id, entity_kind, entity_id\)/.test(sql)) out.push('falta el índice único de cobro por (empresa, tipo, id)');
+  if (!/credit_ledger_reward_once[\s\S]*?\(bug_report_id\) where reason = 'bug_report_reward'/.test(sql)) out.push('falta el índice único de premio por reporte');
+  if (!/check \(balance >= 0\)/.test(sql)) out.push('el saldo puede quedar negativo');
+  CREDIT_RPC.forEach((name) => {
+    const body = (sql.match(new RegExp(`create or replace function private\\.${name}\\([\\s\\S]*?\\$\\$;`)) || [''])[0];
+    if (!body) out.push(`falta private.${name}`);
+    else if (/workspace_states/.test(body)) out.push(`private.${name} lee workspace_states`);
+    if (!new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?security invoker`).test(sql)) out.push(`public.${name} no es un wrapper security invoker`);
+  });
+  const review = (sql.match(/create or replace function private\.admin_review_bug_report\([\s\S]*?\$\$;/) || [''])[0];
+  if (!/is_platform_admin\(\)/.test(review)) out.push('la revisión de reportes no exige RATEOS ADMIN');
+  if (!/for update/.test(review)) out.push('la revisión no bloquea el reporte');
+  if (!/rateos_report_self_review/.test(review)) out.push('un admin podría revisar reportes de su propia empresa');
+  ['enable_credit_quota', 'admin_adjust_credits'].forEach((name) => {
+    if (new RegExp(`grant execute on function private\\.${name}`).test(sql)) out.push(`private.${name} se puede ejecutar desde la API`);
+  });
+  // El navegador nunca toca las tablas: sólo las RPC.
+  clientFiles.forEach(({ rel, text }) => {
+    if (/(?<![a-z_])(?:credit_accounts|credit_ledger|bug_report_events|beta_policy)\b|\.from\(\s*'bug_reports'/.test(text)) out.push(`${rel}: nombra una tabla de créditos o reportes`);
+  });
+  const t = String(sqlTest);
+  if (!t) out.push('falta supabase/tests/credits_reports_test.sql');
+  else {
+    [
+      ['rateos_credits_exhausted', 'saldo agotado'], ['rateos_invalid_calculations', 'ids repetidos o ausentes'], ['doble aprobación', 'doble aprobación'],
+      ['B ve el saldo de A', 'A↔B'], ['act_anon', 'anon'], ['RATEOS ADMIN', 'admin sin rol'], ['propia empresa', 'auto-revisión'],
+      ['empresa existente', 'empresas sin cuota'], ['catálogo en vivo', 'catálogo'],
+    ].forEach(([needle, what]) => {
+      if (!t.includes(needle)) out.push(`el test SQL no cubre: ${what}`);
+    });
+    unguardedDeletes(t).forEach((d) => out.push(`credits_reports_test.sql: DELETE sin protección: ${d}`));
+    if (!/raise exception 'CREDITS_TESTS_PASSED[\s\S]*raise exception 'CREDITS_TESTS_FAILED[\s\S]*end;\s*\$test\$;\s*$/.test(t)) out.push('el test SQL no termina siempre con RAISE EXCEPTION (debe deshacer todo)');
+  }
+  if (!/current_database\(\)/.test(String(concurrency)) || !/Se niega a correr/.test(String(concurrency))) out.push('la prueba de concurrencia no se niega a correr fuera de la base local');
+  return out;
+}
 const ALLOWED_TABLES = Object.freeze(['organization_members', 'organizations', 'profiles', 'workspace_states']);
 
 // ------------------------------------------------------- controles estáticos
@@ -214,7 +275,7 @@ function staticChecks() {
   surface.dynamicRpc.forEach((f) => surfaceHits.push(`${f}: RPC con nombre no literal`));
   surface.sdkImports.forEach((f) => surfaceHits.push(`${f}: importa el SDK fuera de js/data/supabase-client.js`));
   surface.clientImports.forEach((f) => surfaceHits.push(`${f}: usa el cliente de Supabase fuera de js/services/cloud.js`));
-  results.push(check('SEC-02', `El navegador sólo usa ${ALLOWED_TABLES.length} tablas (select + update del workspace propio) y ${ALLOWED_RPC.length} RPC de admin; sin Storage, Realtime ni auth.admin`, 'P0', 'SECURITY', surfaceHits, { pass: `tablas: ${surface.tables.join(', ')} · RPC: ${surface.rpcNames.join(', ')}` }));
+  results.push(check('SEC-02', `El navegador sólo usa ${ALLOWED_TABLES.length} tablas (select + update del workspace propio) y ${ALLOWED_RPC.length} RPC revisadas (admin, créditos y reportes); sin Storage, Realtime ni auth.admin`, 'P0', 'SECURITY', surfaceHits, { pass: `tablas: ${surface.tables.join(', ')} · RPC: ${surface.rpcNames.join(', ')}` }));
 
   // SEC-03 — migraciones: RLS, grants, políticas y security definer.
   const migrationFiles = walk('supabase/migrations').filter((f) => f.endsWith('.sql')).sort();
@@ -299,11 +360,26 @@ function staticChecks() {
   const adminGw = read('js/data/admin-gateway.js');
   const fields = (adminGw.match(/const USER_FIELDS = Object\.freeze\(\[([\s\S]*?)\]\)/) || [])[1] || '';
   if (/'state'/.test(fields)) adminHits.push('admin-gateway deja pasar el state');
+  ['BUG_REPORT_FIELDS', 'CREDIT_ACCOUNT_FIELDS'].forEach((name) => {
+    const list = (adminGw.match(new RegExp(`const ${name} = Object\\.freeze\\(\\[([\\s\\S]*?)\\]\\)`)) || [])[1];
+    if (list === undefined) adminHits.push(`admin-gateway sin la lista ${name}`);
+    else if (/'state'/.test(list)) adminHits.push(`admin-gateway: ${name} deja pasar el state`);
+  });
   const adminSql = migrationFiles.filter((f) => /platform_admin/.test(f)).map(read).join('\n');
   const usersFn = (adminSql.match(/create or replace function private\.admin_users\(\)[\s\S]*?\$\$;/) || [''])[0];
   if (!usersFn) adminHits.push('no se encontró private.admin_users');
   else if (/\bw\.state\b/.test(usersFn.replace(/pg_column_size\(w\.state\)/g, ''))) adminHits.push('admin_users devuelve w.state');
   results.push(check('SEC-14', 'RATEOS ADMIN ≠ lector de datos: las funciones de admin sólo devuelven metadata (nunca workspace_states.state)', 'P0', 'SECURITY', adminHits));
+
+  // SEC-19 — créditos de prueba y reportes de errores (PLAN-2026-029).
+  const creditMigration = migrationFiles.filter((f) => /beta_credits_reports/.test(f)).map(read).join('\n');
+  const creditHits = creditsFindings({
+    migration: creditMigration,
+    sqlTest: exists('supabase/tests/credits_reports_test.sql') ? read('supabase/tests/credits_reports_test.sql') : '',
+    concurrency: exists('supabase/tests/local/credits_concurrency.sh') ? read('supabase/tests/local/credits_concurrency.sh') : '',
+    clientFiles: clientCodeFiles(),
+  });
+  results.push(check('SEC-19', 'Créditos y reportes: saldo y cobro sólo en Postgres (trigger al guardar, ledger con cobro y premio únicos, tablas en private sin grants), revisión sólo de RATEOS ADMIN y nunca de su propia empresa, sin leer el workspace; test SQL completo que se deshace', 'P0', 'SECURITY', creditHits, { pass: 'migración 20261021120000 + credits_reports_test.sql (correrlo en vivo con los otros tests SQL)' }));
 
   // SEC-15 — cero dependencias npm.
   const pkg = JSON.parse(read('package.json'));

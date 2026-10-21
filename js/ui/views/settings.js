@@ -29,6 +29,7 @@ import { emptyBase, normalizeBase } from '../../domain/economic-base.js';
 import { normalizeExchangeRates } from '../../domain/quote-factory.js';
 import { settingsRounding } from '../../domain/rounding.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { creationErrorToast, REPORT_HREF } from '../credits-ui.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, invalidTaxesText } from '../billing-taxes-form.js';
 import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { billingTaxConfigInfo } from '../../engines/billing-taxes-engine.js';
@@ -1022,6 +1023,19 @@ export async function render(root, app, params = {}) {
       const looksEmpty = count(s.quotes) === 0 && resourcesTotal === 0;
       const emptyWarning = 'Este backup no tiene cotizaciones ni recursos. Si lo importás, tus datos actuales se reemplazan por una empresa vacía. Revisá que sea el archivo correcto.';
       const applyBtn = button('Reemplazar mis datos con este backup', { variant: 'danger', icon: 'upload' });
+      // Créditos de prueba (PLAN-2026-029): los cálculos que la empresa ya tuvo se restauran sin
+      // costo; los que nunca tuvo usan uno cada uno. Se avisa antes (la base cobra al guardar).
+      const creditsHost = h('div', { class: 'import-credits' });
+      const ids = (list) => (Array.isArray(list) ? list.filter((x) => x && typeof x.id === 'string').map((x) => x.id) : []);
+      ctx.credits.preview({ quoteIds: ids(parsed.data && parsed.data.quotes), productIds: ids(parsed.data && parsed.data.products) }).then((p) => {
+        if (!p.enabled) return;
+        if (p.chargeable > (p.balance ?? 0)) {
+          applyBtn.disabled = true;
+          mount(creditsHost, banner(h('span', {}, `Este backup tiene ${p.chargeable} cálculos que tu empresa nunca tuvo y te quedan ${p.balance ?? 0} cálculos de prueba. Lo que ya era de tu empresa se restaura sin costo. Si necesitás restaurarlo completo, `, h('a', { href: REPORT_HREF }, 'escribinos'), '.'), 'warning', { title: 'No alcanzan los cálculos de prueba.' }));
+        } else if (p.chargeable > 0) {
+          mount(creditsHost, banner(`Este backup tiene ${p.chargeable} cálculos que tu empresa nunca tuvo: usan ${p.chargeable} de tus ${p.balance} cálculos de prueba. Lo que ya era de tu empresa se restaura sin costo.`, 'info'));
+        }
+      }).catch(() => {});
       applyBtn.addEventListener('click', async () => {
         const ok = await confirmDialog({
           title: 'Importar backup',
@@ -1042,7 +1056,7 @@ export async function render(root, app, params = {}) {
           await app.refreshChrome();
           app.navigate('#/inicio');
         } catch (error) {
-          app.toast(userErrorMessage(error, 'No se pudo importar el backup.'), 'danger');
+          creationErrorToast(app, error, 'No se pudo importar el backup.');
           applyBtn.disabled = false;
         }
       });
@@ -1065,6 +1079,7 @@ export async function render(root, app, params = {}) {
             fromVersion !== null ? ['Formato de datos', fromVersion < SCHEMA_VERSION ? `v${fromVersion} (se actualiza a v${SCHEMA_VERSION} al importar)` : `v${fromVersion}`] : null,
           ]),
           banner('Importar REEMPLAZA todos tus datos actuales. Antes se guarda una copia de recuperación.', 'warning'),
+          creditsHost,
           h('div', { class: 'row' }, applyBtn, button('Cancelar', { variant: 'ghost', onClick: () => mount(importHost) })),
         ),
       );

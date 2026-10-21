@@ -27,6 +27,10 @@ export const DEMO_IDS = Object.freeze({
   equipmentHydroCrane: uid(3003),
   equipmentPickup: uid(3001),
   profileOperator: uid(4001),
+  // Producto de ejemplo "Chipá" de una cuenta: id fijo para que haya uno solo a
+  // la vez y la cuota de la beta no lo cobre (PLAN-2026-029; el mismo valor
+  // está en la migración 20261021120000_rateos_beta_credits_reports.sql).
+  productExample: uid(2001),
 });
 
 const meta = (id) => ({ id, organizationId: DEMO_ORG_ID, createdAt: DEMO_TIMESTAMP, updatedAt: DEMO_TIMESTAMP, createdBy: null, updatedBy: null });

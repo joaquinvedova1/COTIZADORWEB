@@ -328,6 +328,13 @@ function localImportBanner(ctx, info, { onDone }) {
         onDone();
       } catch (error) {
         importBtn.disabled = false;
+        // PLAN-2026-029: sin créditos para las cotizaciones y productos, el resto se importó y
+        // lo que no entró sigue en este navegador (y en una copia de recuperación).
+        if (error && error.code === 'credits_exhausted') {
+          toast('Importamos tus recursos, pero no alcanzan los cálculos de prueba para todas tus cotizaciones y productos. Los que no entraron siguen en este navegador y en una copia de recuperación (Configuración → Datos y backup).', 'warning', { timeout: 9000 });
+          onDone();
+          return;
+        }
         toast(userErrorMessage(error, 'No pudimos importar tus datos. Siguen guardados en este navegador.'), 'danger', { timeout: 6000 });
       }
     },
@@ -523,6 +530,7 @@ async function boot(root) {
         user,
         workspaceGateway: cloud.workspaceGateway,
         adminGateway: cloud.adminGateway,
+        betaGateway: cloud.betaGateway,
         appVersion: version.version,
         // En una versión de prueba (servidor local) los datos de la nube son
         // los de producción: actualizar su formato haría que la versión

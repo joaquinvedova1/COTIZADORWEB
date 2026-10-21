@@ -14,6 +14,7 @@ import { sanitizeText } from '../../core/validation.js';
 import { QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
 import { isPlainObject } from '../../core/object.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { canCreateCalculation, creationErrorToast, creditsAfterCreate } from '../credits-ui.js';
 
 function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many}`;
@@ -99,11 +100,16 @@ export async function render(root, app) {
     busy = true;
     btn.disabled = true;
     try {
+      // Una cotización nueva usa 1 crédito de prueba (PLAN-2026-029).
+      if (!(await canCreateCalculation(app))) {
+        btn.disabled = false;
+        return;
+      }
       const quote = await ctx.quotes.createQuote({ templateId: service.id });
-      app.toast(`Cotización ${quote.code || ''} creada desde "${service.name}".`, 'success');
+      app.toast(`Cotización ${quote.code || ''} creada desde "${service.name}".${await creditsAfterCreate(ctx)}`, 'success');
       app.navigate(`#/cotizaciones/${encodeURIComponent(quote.id)}/service`);
     } catch (error) {
-      app.toast(userErrorMessage(error, 'No se pudo crear la cotización.'), 'danger');
+      creationErrorToast(app, error, 'No se pudo crear la cotización.');
       btn.disabled = false;
     } finally {
       busy = false;

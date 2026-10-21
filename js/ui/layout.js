@@ -26,6 +26,7 @@ import { APP_NAME } from '../config.js';
 import { formatBuildLabel } from '../core/format.js';
 import { h, mount } from './dom.js';
 import { icon } from './components.js';
+import { bugScreenFromHash } from '../domain/bug-report.js';
 
 /**
  * Navegación principal de la aplicación. `key` lo usa el router para marcar
@@ -139,12 +140,18 @@ export function createLayout(container, { version = {} } = {}) {
   const platformBadgeEl = h('div', { class: 'account-platform', hidden: true }, 'RATEOS ADMIN');
   let adminLink = null;
   const signOutBtn = h('button', { type: 'button', class: 'account-action', on: { click: () => signOutHandler && signOutHandler() } }, icon('logout', { size: 16 }), h('span', {}, 'Cerrar sesión'));
+  // "Reportar un error" (PLAN-2026-029): lleva la pantalla actual de una lista fija, sin ids.
+  const reportLink = h('a', { class: 'account-action account-report', href: '#/reportar' }, icon('alert', { size: 16 }), h('span', {}, 'Reportar un error'));
+  reportLink.addEventListener('click', () => {
+    reportLink.href = `#/reportar?desde=${bugScreenFromHash(window.location.hash)}`;
+  });
   const accountEl = h(
     'div',
     { class: 'account-card', hidden: true },
     h('div', { class: 'account-text' }, userNameEl, platformBadgeEl, userEmailEl),
     h('div', { class: 'account-actions' },
       h('a', { class: 'account-action', href: '#/configuracion/cuenta' }, icon('user', { size: 16 }), h('span', {}, 'Mi cuenta')),
+      reportLink,
       signOutBtn),
   );
   const syncDotEl = h('span', { class: 'sync-dot', 'aria-hidden': 'true' });

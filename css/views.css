@@ -696,3 +696,21 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
   /* Los rótulos quedan para lectores de pantalla: el marcador de la búsqueda y la primera opción del filtro ya dicen qué es cada uno. */
   .resource-filters .field-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }
+
+/* -------------------------------------------- beta: créditos y reportes (PLAN-2026-029) */
+.quote-choice.is-disabled { opacity: 0.6; cursor: not-allowed; }
+.report-list, .admin-report-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3, 0.75rem); }
+.report-item, .admin-report { border: 1px solid var(--line); border-radius: 10px; padding: 0.75rem 1rem; background: var(--white); display: grid; gap: 0.4rem; min-width: 0; }
+.report-item-head, .admin-report-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.report-item-text, .report-item-note { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.report-item-note { color: var(--ink-2); }
+.report-item-detail, .admin-report-text { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.25rem 0.75rem; }
+.report-item-detail dt, .admin-report-text dt { font-weight: 650; color: var(--ink-2); }
+.report-item-detail dd, .admin-report-text dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.admin-report-history { margin: 0; padding-left: 1.25rem; color: var(--ink-3); }
+.admin-report-filters { flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+.admin-report-duplicate { align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; }
+@media (max-width: 560px) {
+  .report-item-detail, .admin-report-text { grid-template-columns: minmax(0, 1fr); }
+  .report-item-detail dd, .admin-report-text dd { margin-bottom: 0.35rem; }
+}

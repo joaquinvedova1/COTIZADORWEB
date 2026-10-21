@@ -11,6 +11,7 @@ import { badge, button, confirmDialog, emptyState, icon, linkButton, pageIntro, 
 import { formatMoney, formatNumber, formatPercent, formatDateTime } from '../../core/format.js';
 import { PRODUCT_STEPS } from '../../domain/catalogs.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { canCreateCalculation, creationErrorToast, creditsAfterCreate, creditsBanner } from '../credits-ui.js';
 
 const EMPTY = '—';
 
@@ -69,14 +70,17 @@ export async function render(root, app) {
   }
 
   async function duplicate(product) {
+    // Un duplicado es un cálculo nuevo: usa 1 crédito de prueba (PLAN-2026-029).
+    if (!(await canCreateCalculation(app))) return;
     try {
       const copy = await ctx.products.duplicateProduct(product.id);
       if (copy) {
-        app.toast('Producto duplicado.', 'success');
+        app.toast(`Producto duplicado.${await creditsAfterCreate(ctx)}`, 'success');
         app.navigate(productHref(copy));
       }
     } catch (error) {
-      app.toast(userErrorMessage(error, 'No se pudo duplicar el producto.'), 'danger');
+      creationErrorToast(app, error, 'No se pudo duplicar el producto.');
+      if (error && error.code === 'credits_exhausted') render(root, app);
     }
   }
 
@@ -178,8 +182,17 @@ export async function render(root, app) {
 export async function renderNew(root, app) {
   const { ctx } = app;
   app.setHeader({ title: 'Nuevo producto', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }, { label: 'Nuevo cálculo', href: '#/nuevo' }] });
+  const credits = await ctx.credits.status({ refresh: true });
+  // Sin créditos de prueba se bloquea SÓLO crear: el ejemplo no usa créditos (hay uno por empresa).
+  const exhausted = credits.enabled === true && credits.balance <= 0;
   const cards = [];
   let busy = false;
+
+  const enableCards = () => {
+    cards.forEach((c) => {
+      c.disabled = exhausted && c.classList.contains('quote-choice-blank');
+    });
+  };
 
   async function create(example) {
     if (busy) return;
@@ -189,14 +202,13 @@ export async function renderNew(root, app) {
     });
     try {
       const product = await ctx.products.createProduct({ example });
-      app.toast(example ? 'Se creó el ejemplo "Chipá" con valores ILUSTRATIVOS.' : 'Producto creado.', 'success');
+      app.toast(example ? 'Se abrió el ejemplo "Chipá" con valores ILUSTRATIVOS.' : `Producto creado.${await creditsAfterCreate(ctx)}`, 'success');
       app.navigate(productHref(product, example ? 'resultado' : 'producto'));
     } catch (error) {
       busy = false;
-      cards.forEach((c) => {
-        c.disabled = false;
-      });
-      app.toast(userErrorMessage(error, 'No se pudo crear el producto.'), 'danger');
+      enableCards();
+      creationErrorToast(app, error, 'No se pudo crear el producto.');
+      if (error && error.code === 'credits_exhausted') renderNew(root, app);
     }
   }
 
@@ -204,12 +216,13 @@ export async function renderNew(root, app) {
     choiceCard({ title: 'Empezar en blanco', text: 'Cargás tu receta, tu personal, tus máquinas y tus gastos, paso a paso.', iconName: 'plus', className: 'quote-choice-blank', onChoose: () => create(false) }),
     choiceCard({
       title: 'Ver un ejemplo: Chipá',
-      text: 'Un producto ya armado para ver cómo funciona. Después lo cambiás o lo borrás.',
+      text: `Un producto ya armado para ver cómo funciona. Después lo cambiás o lo borrás.${credits.enabled ? ' Hay uno solo y no usa cálculos de prueba.' : ''}`,
       iconName: 'product',
       tags: [illustrativeTag('Valores de ejemplo: no son precios, sueldos ni costos reales')],
       onChoose: () => create(true),
     }),
   );
+  enableCards();
 
   mount(
     root,
@@ -220,6 +233,7 @@ export async function renderNew(root, app) {
         title: '¿Qué producto querés costear?',
         text: 'Chipá, facturas, viandas, tortas, conservas… Pensá en una tanda: lo que hacés de una vez con una receta. RATEOS calcula cuánto te cuesta cada unidad y a qué precio venderla.',
       }),
+      creditsBanner(credits),
       h('div', { class: 'quote-choice-grid' }, ...cards),
       h('p', { class: 'muted small' }, '¿Cobrás por día, hora, mes o por un trabajo terminado? ', h('a', { href: '#/cotizaciones/nueva' }, 'Calculá un servicio'), ' en lugar de un producto.'),
       h(

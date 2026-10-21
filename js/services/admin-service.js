@@ -13,6 +13,8 @@
  */
 
 import { WORKSPACE_ERRORS } from '../data/workspace-gateway.js';
+import { BETA_ERRORS } from '../data/beta-gateway.js';
+import { bugCategoryLabel, bugScreenLabel, bugStatus } from '../domain/bug-report.js';
 
 export const PLATFORM_ADMIN_LABEL = 'RATEOS ADMIN';
 export const ADMIN_NO_ACCESS = 'No tenés permisos para acceder a esta sección.';
@@ -63,11 +65,95 @@ export function adminRows(users = []) {
   }));
 }
 
+const REVIEW_ERRORS = Object.freeze({
+  [BETA_ERRORS.final]: 'Este reporte ya está aprobado: es definitivo.',
+  [BETA_ERRORS.selfReview]: 'No podés revisar reportes de una empresa de la que sos miembro.',
+  [BETA_ERRORS.invalid]: 'Elegí un estado válido (y, para "Duplicado", el reporte original).',
+  [BETA_ERRORS.notFound]: 'El reporte ya no existe.',
+  [BETA_ERRORS.unsupported]: 'Los reportes todavía no están habilitados en la base.',
+});
+
+export function reviewErrorMessage(code) {
+  return REVIEW_ERRORS[code] || adminErrorMessage(code);
+}
+
+const shortId = (id) => (typeof id === 'string' ? id.slice(0, 8) : '');
+
+/** Reporte de la cola con textos para personas (nunca datos del workspace). */
+export function adminReportRow(r = {}) {
+  const status = bugStatus(r.status);
+  const history = Array.isArray(r.history) ? r.history : [];
+  return {
+    id: typeof r.id === 'string' ? r.id : '',
+    ref: shortId(r.id),
+    createdAt: r.created_at || null,
+    organization: typeof r.organization_name === 'string' && r.organization_name ? r.organization_name : '—',
+    reporter: typeof r.reporter_email === 'string' && r.reporter_email ? r.reporter_email : '—',
+    category: bugCategoryLabel(r.category),
+    screen: bugScreenLabel(r.screen),
+    appVersion: typeof r.app_version === 'string' ? r.app_version : '—',
+    did: typeof r.did === 'string' ? r.did : '',
+    expected: typeof r.expected === 'string' ? r.expected : '',
+    happened: typeof r.happened === 'string' ? r.happened : '',
+    status: typeof r.status === 'string' ? r.status : 'received',
+    statusLabel: status.label,
+    tone: status.tone,
+    open: r.status === 'received' || r.status === 'in_review',
+    final: r.status === 'approved',
+    duplicateOf: shortId(r.duplicate_of) || null,
+    reviewNote: typeof r.review_note === 'string' ? r.review_note : '',
+    reviewedAt: r.reviewed_at || null,
+    reviewer: typeof r.reviewer_email === 'string' ? r.reviewer_email : null,
+    creditsAdded: toCount(r.credits_added) || 0,
+    quotaEnabled: r.org_quota_enabled === true,
+    balance: toCount(r.org_balance),
+    similar: toCount(r.similar_reports) || 0,
+    history: history.map((e) => ({
+      at: e && e.at ? e.at : null,
+      actor: e && typeof e.actor === 'string' ? e.actor : '—',
+      from: e && e.from ? bugStatus(e.from).label : null,
+      to: e && e.to ? bugStatus(e.to).label : '—',
+      note: e && typeof e.note === 'string' ? e.note : null,
+      credits: e ? toCount(e.credits) || 0 : 0,
+    })),
+  };
+}
+
 /**
  * @param {ReturnType<import('../data/admin-gateway.js').createAdminGateway>} gateway
  */
 export function createAdminService(gateway) {
   return {
+    /** Cola de reportes de errores y saldos por empresa (PLAN-2026-029). */
+    async loadReports(status = 'open') {
+      if (typeof gateway.bugReports !== 'function') return { ok: false, code: BETA_ERRORS.unsupported, message: reviewErrorMessage(BETA_ERRORS.unsupported) };
+      const [reports, accounts] = await Promise.all([gateway.bugReports(status), gateway.creditAccounts()]);
+      if (!reports.ok) return { ok: false, code: reports.code, message: reviewErrorMessage(reports.code) };
+      return {
+        ok: true,
+        rows: reports.reports.map(adminReportRow),
+        accounts: accounts.ok ? accounts.accounts.map((a) => ({
+          organization: typeof a.organization_name === 'string' ? a.organization_name : '—',
+          enabled: a.enabled === true,
+          balance: toCount(a.balance),
+          initial: toCount(a.initial),
+          used: toCount(a.used),
+          rewarded: toCount(a.rewarded),
+          adjusted: Number.isFinite(Number(a.adjusted)) ? Math.trunc(Number(a.adjusted)) : 0,
+        })) : [],
+      };
+    },
+
+    /**
+     * Cambia el estado de un reporte. "approved" suma los créditos del premio
+     * una sola vez (lo garantiza la base) y no se puede deshacer.
+     */
+    async reviewReport(reportId, { status, note = null, duplicateOf = null }) {
+      const res = await gateway.reviewBugReport(reportId, { status, note, duplicateOf });
+      if (!res.ok) return { ok: false, code: res.code, message: reviewErrorMessage(res.code) };
+      return { ok: true, status: res.status, already: res.already, creditsAdded: res.creditsAdded, balance: res.balance };
+    },
+
     /** Panel completo: indicadores + usuarios. Si la base dice que no, no hay nada. */
     async load() {
       const overview = await gateway.overview();

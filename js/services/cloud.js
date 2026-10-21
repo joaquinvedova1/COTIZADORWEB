@@ -6,6 +6,7 @@ import { clearLocalAuthSession, getSupabaseClient } from '../data/supabase-clien
 import { createAuthGateway } from '../data/auth-gateway.js';
 import { createWorkspaceGateway } from '../data/workspace-gateway.js';
 import { createAdminGateway } from '../data/admin-gateway.js';
+import { createBetaGateway } from '../data/beta-gateway.js';
 
 /** @param {{ client?: object, clearLocalSession?: () => void }} [options] */
 export function createCloud({ client, clearLocalSession = clearLocalAuthSession } = {}) {
@@ -14,5 +15,6 @@ export function createCloud({ client, clearLocalSession = clearLocalAuthSession 
     authGateway: createAuthGateway(c, { clearLocalSession: () => clearLocalSession() }),
     workspaceGateway: createWorkspaceGateway(c),
     adminGateway: createAdminGateway(c),
+    betaGateway: createBetaGateway(c),
   };
 }

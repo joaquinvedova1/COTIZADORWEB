@@ -100,10 +100,16 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     return { code: `COT-${String(number).padStart(4, '0')}`, number };
   }
 
-  async function reserveCode() {
+  /**
+   * Guarda una cotización NUEVA con su código en una sola escritura: la
+   * reserva del COT-NNNN y la cotización se guardan juntas o no se guarda
+   * ninguna (en la nube, una creación rechazada por créditos no consume
+   * código). PLAN-2026-029.
+   */
+  async function saveNewQuote(build) {
     const next = await nextCode();
-    await repository.saveSettings({ lastQuoteNumber: next.number });
-    return next.code;
+    const quote = build(next.code);
+    return repository.saveQuote(quote, { lastQuoteNumber: next.number });
   }
 
   return {
@@ -128,9 +134,10 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     async createQuote({ templateId = null } = {}) {
       const [org, s, services] = await Promise.all([repository.getOrganization(), settings(), repository.getServices()]);
       const template = templateId ? services.find((t) => t.id === templateId) || null : null;
-      const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode(), baseName: org.baseLocation };
-      const quote = template ? createQuoteFromTemplate(template, options) : createEmptyQuote(options);
-      const saved = await repository.saveQuote(quote);
+      const saved = await saveNewQuote((code) => {
+        const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code, baseName: org.baseLocation };
+        return template ? createQuoteFromTemplate(template, options) : createEmptyQuote(options);
+      });
       track('quote_created', { serviceType: eventServiceType(saved.serviceType), source: template ? 'template' : 'blank' });
       return saved;
     },
@@ -163,13 +170,15 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     async duplicateQuote(id) {
       const original = await repository.getQuote(id);
       if (!original) return null;
-      const copy = deepClone(original);
-      copy.id = idFactory();
-      copy.code = await reserveCode();
-      copy.name = `${original.name} (copia)`;
-      copy.status = 'draft';
-      copy.createdAt = clock();
-      const saved = await repository.saveQuote(copy);
+      const saved = await saveNewQuote((code) => {
+        const copy = deepClone(original);
+        copy.id = idFactory();
+        copy.code = code;
+        copy.name = `${original.name} (copia)`;
+        copy.status = 'draft';
+        copy.createdAt = clock();
+        return copy;
+      });
       track('quote_duplicated', { serviceType: eventServiceType(saved.serviceType) });
       return saved;
     },
@@ -199,8 +208,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       const org = await repository.getOrganization();
       const now = clock();
       const demo = demoHydroCraneQuote();
-      const quote = { ...demo, organizationId: org.id, createdAt: now, updatedAt: now, code: await reserveCode() };
-      return repository.saveQuote(quote);
+      return saveNewQuote((code) => ({ ...demo, organizationId: org.id, createdAt: now, updatedAt: now, code }));
     },
 
     /**
