@@ -12,6 +12,23 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.9.0] - sin publicar (candidato a beta, PLAN-2026-027)
+
+**RATEOS v0.9.0, candidato a beta.** Reúne todo lo que estaba sin versión:
+- ya publicado en `main`: Beta Perimeter v1 (PLAN-2026-016) y ECO-01 (PLAN-2026-017);
+- los PR #28 a #36:
+  - registro público con confirmación de email (HD-03);
+  - riesgo a la vista y regla de "Enviada" (ECO-02);
+  - redondeo proporcional a la tarifa para lo nuevo (ECO-03);
+  - avisos H-04, H-08 y F2 (ECO-04);
+  - formularios que no pierden cambios (UX-01);
+  - Recursos por convenio y por familia (RES-02);
+  - DESIGN-02.
+
+**Esquema 10, sin migraciones.** Lo guardado conserva sus cifras; cambia el redondeo de la sugerida en las cotizaciones nuevas (ECO-03).
+
+Antes de abrir el registro a terceros hace falta el SMTP propio ([docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2). La fecha se pone al publicarse.
+
 **DESIGN-02 (2/2), cotizar sin fricción (PLAN-2026-026).** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10).
 
 ### Agregado
