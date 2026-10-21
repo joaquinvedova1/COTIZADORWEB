@@ -302,9 +302,10 @@ begin
     end;
 
     -- Su propio workspace con el organization_id ajeno ADENTRO del JSON:
-    -- queda en su fila (RLS), nunca en la de la otra empresa.
+    -- queda en su fila (RLS), nunca en la de la otra empresa. (La cotización
+    -- lleva id: con la cuota de PLAN-2026-029, una sin id se rechaza.)
     update public.workspace_states
-       set state = jsonb_build_object('schemaVersion', 10, 'organization', jsonb_build_object('id', yo), 'quotes', jsonb_build_array(jsonb_build_object('organizationId', yo)))
+       set state = jsonb_build_object('schemaVersion', 10, 'organization', jsonb_build_object('id', yo), 'quotes', jsonb_build_array(jsonb_build_object('id', 'cot-ajena', 'organizationId', yo)))
      where organization_id = xo;
     get diagnostics n = row_count;
     if n = 1 then passed := passed + 1; else failed := failed || format('%s: no pudo guardar su propio workspace', lbl); end if;
