@@ -8,6 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { RULES, validateNumber, validateQuote, sanitizeText, parseDecimalInput, numberToInputText } from '../../js/core/validation.js';
+import { computeQuote } from '../../js/engines/quote-engine.js';
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { createEmptyQuote } from '../../js/domain/quote-factory.js';
 import { deepClone, setPath } from '../../js/core/object.js';
@@ -40,6 +41,7 @@ const BOUNDARIES = {
   years: [[0.5, 10, 100], [0, -1, 101]],
   months: [[0, 12, 600], [-1, 601]],
   integer: [[0, 1, 42], [1.5, -1, 0.1]],
+  roundingMaxPct: [[0, 1, 0.5, 10], [-1, 10.5, 100]],
 };
 
 describe('RULES', () => {
@@ -205,13 +207,16 @@ describe('validateQuote', () => {
     assert.ok(validateQuote(quote).some((i) => i.path === 'pricing.targetMarginPct' && i.severity === 'error'));
   });
 
-  test('advierte días activos mayores que los disponibles (utilización > 100 %)', () => {
+  test('días activos mayores que los disponibles: lo avisa el motor con sus días (ECO-04), no validateQuote', () => {
     const quote = deepClone(createDemoState(1).quotes[0]);
     quote.activity.activeDaysPerMonth = 31;
     quote.activity.availableDaysPerMonth = 30;
-    const issue = validateQuote(quote).find((i) => i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning');
+    assert.equal(validateQuote(quote).some((i) => i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning'), false);
+    const issue = computeQuote(quote).issues.find((i) => i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning');
     assert.ok(issue);
-    assert.match(issue.message, /100 %/);
+    // ECO-04 (H-04): el aviso dice lo que se calcula (no que se reemplaza algo por 0).
+    assert.match(issue.message, /superan los disponibles del mes \(30\)/);
+    assert.match(issue.message, quote.unit === 'month' ? /abono mensual se cobra una vez por mes/ : /trabajo de más de un mes/);
   });
 
   test('advierte valor residual mayor que el de reposición', () => {

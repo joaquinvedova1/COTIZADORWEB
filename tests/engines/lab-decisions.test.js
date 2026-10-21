@@ -160,7 +160,7 @@ describe('LAB-D1 · Menos de 1 salida por mes (semántica explícita, sin cambia
     q.otherCosts[1].amount = 200000;
     Object.assign(q.activity, { activeDaysPerMonth: days, daysPerActivation: dpa, availableDaysPerMonth: 30, fullActivations: full });
     q.pricingMode = 'known_activity';
-    q.pricing = { ...q.pricing, knownRate: 0, targetMarginPct: 0, roundingStep: 0, offeredRateOverride: null };
+    q.pricing = { ...q.pricing, knownRate: 0, targetMarginPct: 0, roundingMode: 'step', roundingStep: 0, offeredRateOverride: null };
     q.logistics = { ...q.logistics, notApplicable: tolls === null, distanceKm: 0, tollsPerActivation: tolls ?? 0, lodgingPerActivation: 0, vehicles: [] };
     return q;
   };

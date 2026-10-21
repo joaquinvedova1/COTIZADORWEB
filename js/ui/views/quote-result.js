@@ -71,7 +71,7 @@ import {
   toast as componentToast,
   barList,
 } from '../components.js';
-import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { createTrace } from '../../core/trace.js';
 import { track } from '../../core/events.js';
@@ -79,9 +79,12 @@ import { logger } from '../../core/logger.js';
 import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { QUOTE_STEPS, QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
+import { roundingModeChange } from '../../domain/rounding.js';
 import { computeQuote, monthlyFeeCap, billableQuantityAt } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
+import { impliesSending, riskSummary, sendCheck } from '../../domain/quote-risk.js';
+import { guardSending, sendBlockedNote } from '../send-guard.js';
 import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
@@ -94,6 +97,7 @@ import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import { onSessionReset } from '../session-memory.js';
+import { REFERENCE_PRICE_NOTE, documentDatesText } from '../reference-text.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
   dayDecimals,
@@ -114,6 +118,9 @@ import {
   unreliableText,
   breakEvenZeroText,
   termsOfResult,
+  roundingText,
+  marginPairText,
+  roundingWarning,
 } from '../result-text.js';
 
 // ------------------------------------------------------------------ constantes
@@ -602,7 +609,7 @@ function traceCommercial(v) {
       { label: 'Tarifa de lista', value: k.commercialListRate, format: 'money' },
       { label: 'Factor de descuentos con la actividad estimada', value: rules.discountFactor, format: 'number' },
       { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
-      { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(v.q.pricing && v.q.pricing.roundingStep), format: 'money' },
+      { label: 'Redondeo comercial', value: roundingText(k), format: 'text' },
     ],
     steps: [{ label: 'Tarifa sugerida (precio objetivo redondeado hacia arriba)', value: k.suggestedListRate, format: 'moneyCeil' }],
     result: { label: 'Tarifa neta cobrada', value: k.commercialNetRate, format: 'money' },
@@ -612,11 +619,6 @@ function traceCommercial(v) {
       'En el detalle técnico a esta tarifa también se la llama "tarifa comercial": es el precio finalmente ofrecido.',
     ],
   });
-}
-
-function nonNegativeOrNull(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function traceMargin(v) {
@@ -675,18 +677,27 @@ function traceContribution(v) {
 const SUGGESTED_TITLE = 'Tarifa sugerida';
 
 function traceSuggested(v) {
-  const { k, q } = v;
+  const { k } = v;
   return createTrace({
     id: 'suggested_rate',
     title: SUGGESTED_TITLE,
-    formula: 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
+    formula: k.roundingMode === 'auto'
+      ? 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo de 1, 10, 100, 1.000… más grande que no lo suba más del tope'
+      : 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
     inputs: [
       { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
-      { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(q.pricing && q.pricing.roundingStep), format: 'money' },
+      { label: 'Redondeo comercial', value: roundingText(k), format: 'text' },
+      { label: 'Múltiplo aplicado', value: k.roundingStep, format: 'money' },
+      { label: 'Margen objetivo', value: k.targetMarginPct, format: 'percent' },
+    ],
+    steps: [
+      { label: 'Cuánto sube la sugerida sobre el precio objetivo', value: k.suggestedRoundUpPct, format: 'percent' },
+      { label: 'Margen con la tarifa sugerida', value: k.suggestedMarginPct, format: 'percent' },
     ],
     result: { label: SUGGESTED_TITLE, value: k.suggestedListRate, format: 'moneyCeil' },
     notes: [
       'Si no hay redondeo configurado, el sugerido es igual al precio objetivo.',
+      'El redondeo automático (el de fábrica) nunca sube la sugerida más del tope (1 % si no se cambió); un múltiplo fijo puede subirla más: en ese caso se avisa arriba del Resultado.',
       'Se muestra redondeado hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo del objetivo.',
     ],
   });
@@ -1021,21 +1032,26 @@ function alertLine(tone, title, text, action = null) {
 }
 
 /**
- * Alertas que hacen perder plata (o que pueden esconder costos): siempre
- * visibles arriba, nunca dentro de un desplegable.
+ * La alerta de la tarifa (perdés plata, debajo del piso o del margen objetivo). UI-01 (revisión de frontend
+ * de la beta): va arriba de los números que afecta; las demás alertas siguen al final del resumen.
+ */
+function priceAlert(v) {
+  const { k } = v;
+  const subject = theRate(k);
+  const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
+  if (k.belowFloor) return alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`);
+  if (k.belowFloorRate) return alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v));
+  if (k.belowTarget) return alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`);
+  return null;
+}
+
+/**
+ * Las demás alertas que hacen perder plata (o que pueden esconder costos):
+ * siempre visibles, nunca dentro de un desplegable.
  */
 function criticalAlerts(v) {
   const { k, r } = v;
   const out = [];
-  const subject = theRate(k);
-  const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
-  if (k.belowFloor) {
-    out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
-  } else if (k.belowFloorRate) {
-    out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
-  } else if (k.belowTarget) {
-    out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
-  }
   // Margen objetivo inválido (incluido margen + impuestos ≥ 100): no hay precio objetivo.
   if (k.targetMarginInvalid) {
     out.push(alertLine('danger', 'El margen objetivo no es válido.', hasValue(k.billingTaxPct) && k.billingTaxPct > 0
@@ -1061,15 +1077,32 @@ function criticalAlerts(v) {
     out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
       stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`)));
   }
-  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i);
+  // Abono con más días que disponibles (ECO-04, H-04): ya lo dice "RESULTADO NO CONFIABLE" arriba.
+  const monthDays = (r.completeness.pending || []).some((p) => p.id === 'month_days_overflow');
+  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i)
+    || (monthDays && i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning');
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
-  if (issues.length) {
+  // Sólo los datos INVÁLIDOS se reemplazan por 0 o por un valor por defecto; los avisos (ECO-04: días
+  // de más, valor residual…) se calculan con lo cargado y no se presentan como reemplazados.
+  const issueList = (list) => [
+    h('ul', {}, ...list.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
+    list.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(list.length - 6)} más.`) : null,
+  ];
+  const invalid = issues.filter((i) => i.severity === 'error');
+  const warnings = issues.filter((i) => i.severity !== 'error');
+  if (invalid.length) {
+    out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
+      h('div', {},
+        h('strong', {}, 'Hay datos inválidos. '),
+        'El cálculo no los toma como están: usa 0 o un valor por defecto, salvo que el aviso diga otra cosa:',
+        ...issueList(invalid))));
+  }
+  if (warnings.length) {
     out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
       h('div', {},
         h('strong', {}, 'Hay datos para revisar. '),
-        'Los cálculos reemplazan los valores inválidos por 0 o por un valor por defecto:',
-        h('ul', {}, ...issues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
-        issues.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(issues.length - 6)} más.`) : null)));
+        'Se calculan con lo que cargaste:',
+        ...issueList(warnings))));
   }
   return out;
 }
@@ -1247,12 +1280,12 @@ function heroKnownActivity(v) {
   } else if (!(k.totalCost > 0)) {
     sentence = h('p', { class: 'qr-lead' }, 'Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.');
   } else {
-    const roundingStep = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
+    const rounded = hasValue(suggested) && roundedAway(k);
     const subject = k.commercialSource === 'suggested' ? 'Con el abono sugerido' : 'Con el abono cotizado';
     sentence = h('p', { class: 'qr-lead' },
       `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
       hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
-      hasValue(suggested) ? `Tarifa sugerida${roundingStep ? ` (redondeada a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
+      hasValue(suggested) ? `Tarifa sugerida${rounded ? ` (${roundingText(k)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
       isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject)}` : '');
   }
 
@@ -1385,7 +1418,7 @@ function kpiGrid(v) {
     }
   }
 
-  items.push(kpiItem({ label: 'Costos cargados', value: pct(score, 0), hint: 'Completitud: lo que suele olvidarse', tone: completenessTone(score), trace: traceCompleteness(v) }));
+  items.push(kpiItem({ label: 'Costos cargados', value: pct(score, 0), hint: 'Completitud: lo que suele olvidarse', tone: completenessTone(score, (v.r.completeness && v.r.completeness.critical) || 0), trace: traceCompleteness(v) }));
 
   return h('div', { class: 'kpi-grid qr-kpis', style: { '--qr-kpi-cols': String(items.length) } }, ...items);
 }
@@ -1461,13 +1494,20 @@ function statHint(...lines) {
  * Uno de los cuatro números del resumen como par término / descripción de
  * una lista <dl> (los lectores de pantalla anuncian "Tarifa piso: $ …").
  * Mismas clases que bigStat() de components.js, para el mismo aspecto.
+ * `unreliable` (ECO-02): resultado NO CONFIABLE → el número se apaga y el
+ * rótulo lleva "No confiable" (también en el PDF), para que no se copie.
  */
-function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '' }) {
-  return h('div', { class: ['big-stat', 'big-stat-md', tone ? `big-stat-${tone}` : null, className] },
-    h('dt', { class: 'big-stat-label' }, label),
+function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '', unreliable = false }) {
+  return h('div', { class: ['big-stat', 'big-stat-md', tone ? `big-stat-${tone}` : null, unreliable ? 'big-stat-unreliable' : null, className] },
+    h('dt', { class: 'big-stat-label' }, label, unreliable ? h('span', { class: 'tag-unreliable' }, 'No confiable') : null),
     h('dd', { class: 'big-stat-value' }, h('span', { class: 'big-stat-number' }, value ?? EMPTY), unit ? h('span', { class: 'big-stat-unit' }, unit) : null),
     hint ? h('dd', { class: 'big-stat-hint' }, hint) : null,
     trace ? h('dd', { class: 'qr-stat-trace' }, traceBtn(trace)) : null);
+}
+
+/** true si el resultado es NO CONFIABLE (ECO-01): los números se muestran pero no son reales. */
+function isUnreliable(v) {
+  return unreliableItems(v.r.completeness).length > 0;
 }
 
 /** ¿Cuánto me cuesta? */
@@ -1478,6 +1518,7 @@ function costStat(v) {
     label: 'Costo del mes',
     value: money(k.totalCost),
     unit: hasValue(k.totalCost) ? '/ mes' : null,
+    unreliable: isUnreliable(v) && hasValue(k.totalCost),
     hint: statHint(hasValue(D) && D > 0
       ? `Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
       : byQty(v) ? `Lo que te cuesta prestar el servicio. Todavía no estimaste ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días activos.'),
@@ -1500,6 +1541,7 @@ function floorStat(v) {
     label: 'Tarifa piso',
     value: ceilMoney(value),
     unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
+    unreliable: isUnreliable(v) && hasValue(value),
     hint,
     // Sin impuestos sobre la facturación definidos, la "piso" no es piso: se marca.
     tone: hasValue(value) && (!k.billingTaxesDefined || k.billingTaxesInvalid) ? 'orange' : null,
@@ -1508,32 +1550,48 @@ function floorStat(v) {
   });
 }
 
+/** true si el redondeo comercial movió la sugerida de la cifra que se ve del precio objetivo (ECO-03). */
+function roundedAway(k) {
+  return hasValue(k.targetListRate) && hasValue(k.suggestedListRate) && ceilMoney(k.suggestedListRate) !== ceilMoney(k.targetListRate);
+}
+
 /** ¿Cuánto tengo que cobrar? (para ganar) — o la tarifa que ya cotizás. */
 function priceStat(v) {
   const { k, r, q } = v;
   const unit = `/ ${v.unitLabel}`;
   const suggested = hasValue(k.suggestedListRate) && k.suggestedListRate > 0 ? k.suggestedListRate : null;
   if (k.commercialSource === 'suggested' && hasRate(k)) {
+    // ECO-03: margen objetivo y margen real con la sugerida, siempre; y el precio objetivo exacto si el redondeo lo movió.
+    const pair = marginPairText(k, { realPct: k.marginPct });
+    const exact = roundedAway(k) ? ` Precio objetivo exacto: ${ceilMoney(k.targetListRate)} (la sugerida está ${roundingText(k)}).` : '';
     return statItem({
       label: 'Tarifa sugerida',
       value: ceilMoney(k.commercialListRate),
       unit,
-      hint: statHint(targetGoalHint(k.targetMarginPct)),
+      unreliable: isUnreliable(v),
+      hint: statHint(pair ? `${pair}.${exact}` : `${targetGoalHint(k.targetMarginPct)}${exact}`),
+      tone: k.roundingExceedsLimit ? 'orange' : null,
       trace: traceSuggested(v),
       className: 'qr-stat qr-stat-price',
     });
   }
   if (hasRate(k)) {
     let hint;
-    if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(suggested, v.unitLabel)}.`;
+    // Con un múltiplo fijo que la aleja más de 1 % del objetivo, la referencia es el precio objetivo exacto.
+    if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(k.roundingExceedsLimit && hasValue(k.targetListRate) ? k.targetListRate : suggested, v.unitLabel)}.`;
     else if (k.commercialSource === 'known_rate') hint = 'La tarifa que vas a ofrecer.';
     else if (k.commercialSource === 'offered') hint = 'La tarifa que ofrecés (cargada a mano).';
     else hint = `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
+    // UI-01 (revisión de frontend de la beta): bajo el piso la tarifa no se ve como una sana; mismo
+    // nombre que en el editor según su origen. Con un resultado NO CONFIABLE la cifra queda apagada.
+    const unreliable = isUnreliable(v);
     return statItem({
-      label: 'Tu tarifa',
+      label: { offered: 'Tarifa ofrecida', override: 'Tarifa forzada' }[k.commercialSource] || 'Tu tarifa',
       value: rateValue(k.commercialListRate),
       unit,
+      unreliable,
       hint: statHint(hint),
+      tone: unreliable ? null : k.belowFloor ? 'red' : k.belowTarget ? 'orange' : null,
       trace: traceCommercial(v),
       className: 'qr-stat qr-stat-price',
     });
@@ -1570,13 +1628,14 @@ function marginStat(v) {
   else if (!ok) hint = statHint('Sin facturación no hay margen.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
-  else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
+  else if (hasValue(k.targetMarginPct)) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
   else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
   return statItem({
     label: 'Margen',
     value: ok ? pct(k.marginPct) : EMPTY,
+    unreliable: Boolean(unreliable),
     hint,
     tone,
     trace: traceMargin(v),
@@ -1705,7 +1764,7 @@ function quoteSubtitle(q) {
  * avisa ARRIBA de los números (no abajo, donde se pierde). Los informativos
  * no cuentan. Se imprime: un PDF con pendientes sale marcado como borrador.
  */
-function draftBanner(v) {
+function draftBanner(v, { action } = {}) {
   const { r, q } = v;
   const c = r.completeness || {};
   const info = draftBannerText({ critical: c.critical, review: c.review, unreliable: c.unreliable });
@@ -1713,7 +1772,8 @@ function draftBanner(v) {
   const pending = Array.isArray(c.pending) ? c.pending.filter((i) => i.severity === 'critical' || i.severity === 'review') : [];
   const example = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount: pending.length });
   const node = alertLine(info.tone, info.title, `${info.text} Costos cargados: ${pct(c.scorePct, 0)}.${example ? ` ${example}` : ''}`,
-    button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
+    // `action`: sin pasar → "Ver qué falta" abre la lista de pendientes; null → sin acción.
+    action === undefined ? button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }) : action);
   node.classList.add('qr-draft');
   // RESULTADO NO CONFIABLE (ECO-01): lo que lo causa va primero en la lista.
   if (info.unreliable) node.classList.add('qr-unreliable');
@@ -1722,8 +1782,27 @@ function draftBanner(v) {
   // La lista va dentro del texto del aviso (no como otra columna del banner).
   const body = node.querySelector(':scope > div:not(.qr-alert-action)');
   if (critical.length && body) {
-    body.appendChild(h('ul', { class: 'qr-draft-list' }, ...critical.slice(0, 4).map((i) => h('li', {}, h('strong', {}, `${i.label}: `), String(i.message || '')))));
+    // El texto va en un span: en el celular se recorta el span (el li conserva su viñeta).
+    body.appendChild(h('ul', { class: 'qr-draft-list' }, ...critical.slice(0, 4).map((i) => h('li', {}, h('span', { class: 'qr-draft-item' }, h('strong', {}, `${i.label}: `), String(i.message || ''))))));
   }
+  return node;
+}
+
+/**
+ * ECO-03 (VAL-01-F1): con un múltiplo fijo que sube la sugerida más de 1 % sobre el precio objetivo, aviso
+ * arriba de los números (también en el PDF) y [Usar redondeo automático]. Sólo si se cotiza la sugerida.
+ */
+function roundingBanner(v) {
+  const { k, q } = v;
+  if (k.commercialSource !== 'suggested') return null;
+  const w = roundingWarning(k, v.unitLabel);
+  if (!w) return null;
+  const canChange = typeof v.onQuoteChange === 'function' && !(v.ill && v.ill.quote);
+  const action = canChange
+    ? button('Usar redondeo automático', { variant: 'secondary', size: 'sm', attrs: { 'data-action': 'rounding-auto' }, onClick: () => v.onQuoteChange(Object.fromEntries(Object.entries(roundingModeChange('auto', q.pricing)).map(([key, value]) => [`pricing.${key}`, value]))) })
+    : stepLink(q, 'margin', `Cambialo en ${stepLabel('margin')}`);
+  const node = alertLine('warning', w.title, w.message, action);
+  node.classList.add('qr-rounding');
   return node;
 }
 
@@ -1733,18 +1812,25 @@ function renderSummary(v) {
   const mode = r.pricingMode === 'known_rate' ? 'known_rate' : 'known_activity';
   const titleId = uniqueId('qr-summary-title');
   const sub = quoteSubtitle(q);
+  const price = priceAlert(v);
   const alerts = criticalAlerts(v);
   const draft = draftBanner(v);
   return h('section', { class: 'qr-summary', id: v.ids.summary, 'aria-labelledby': titleId },
     h('div', { class: 'qr-summary-head' },
       h('div', { class: 'qr-summary-titles' },
         h('h2', { class: 'qr-summary-title', id: titleId }, 'Resultado'),
-        sub ? h('p', { class: 'qr-summary-sub' }, sub) : null),
+        // UI-03: sin cliente, el subtítulo repite el título de la página; en el celular se oculta (el PDF lo imprime).
+        sub ? h('p', { class: ['qr-summary-sub', typeof q.client === 'string' && q.client.trim() ? null : 'qr-summary-sub-name-only'] }, sub) : null),
       h('div', { class: 'qr-summary-badges' },
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
     draft,
+    roundingBanner(v),
+    // UI-01: la alerta de la tarifa va arriba de los números que afecta (DESIGN.md §1.2).
+    price ? h('div', { class: ['qr-alerts', 'qr-alerts-price'] }, price) : null,
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
+    // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado. Se imprime.
+    h('p', { class: 'qr-note qr-reference-note' }, REFERENCE_PRICE_NOTE),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
     workBlock(v),
     transportBlock(v),
@@ -2132,14 +2218,18 @@ function chartSvg(v, data, width) {
   const W = Math.max(280, Math.round(width));
   const narrow = W < 560;
   const H = narrow ? 260 : 300;
-  const L = narrow ? 62 : 78;
+  const step = niceStep(maxVal);
+  const yMax = Math.ceil(maxVal / step - 1e-9) * step || step;
+  // Rótulos de 12 px (DESIGN-02): unos 7 px por carácter. El margen izquierdo deja entrar el más ancho del eje Y.
+  const CHAR_PX = 7;
+  let widestY = 0;
+  for (let y = 0; y <= yMax + step * 1e-6; y += step) widestY = Math.max(widestY, compactMoney(y).length);
+  const L = Math.max(narrow ? 62 : 78, 12 + widestY * CHAR_PX);
   const R = narrow ? 14 : 132;
   const T = 18;
   const B = 42;
   const PW = W - L - R;
   const PH = H - T - B;
-  const step = niceStep(maxVal);
-  const yMax = Math.ceil(maxVal / step - 1e-9) * step || step;
   const px = (d) => L + ((d - x0) / (x1 - x0)) * PW;
   const py = (y) => T + PH - (Math.min(Math.max(y, 0), yMax) / yMax) * PH;
 
@@ -2149,17 +2239,18 @@ function chartSvg(v, data, width) {
     grid.push(s('text', { x: L - 8, y: (py(y) + 4).toFixed(1), class: 'qr-chart-tick', 'text-anchor': 'end' }, compactMoney(y)));
   }
 
-  // Rótulos del eje X sin superponerse (el día estimado siempre se rotula).
-  const minGap = 26;
+  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
+  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
+  // Rótulos del eje X sin superponerse (el día estimado siempre se rotula): dos vecinos necesitan la mitad
+  // del ancho de cada uno y un respiro.
+  const halfTick = (m) => (tickOf(m).length * CHAR_PX) / 2 + 4;
   const kept = [];
   markers.forEach((m) => {
     const x = px(m.d);
     const prev = kept[kept.length - 1];
-    if (!prev || x - prev.x >= minGap) kept.push({ m, x });
+    if (!prev || x - prev.x >= Math.max(26, halfTick(prev.m) + halfTick(m))) kept.push({ m, x });
     else if (m.isEstimate) kept[kept.length - 1] = { m, x };
   });
-  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
-  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
   const xTicks = kept.map(({ m, x }) => s('text', { x: x.toFixed(1), y: T + PH + 18, class: ['qr-chart-tick', m.isEstimate ? 'is-estimate' : null].filter(Boolean).join(' '), 'text-anchor': 'middle' }, tickOf(m)));
 
   const estimate = hasValue(k.activeDays) && k.activeDays >= x0 && k.activeDays <= x1
@@ -2194,7 +2285,8 @@ function chartSvg(v, data, width) {
   const labelNodes = endLabels.filter((lbl, i) => {
     const prev = endLabels[i - 1];
     const next = endLabels[i + 1];
-    return (!prev || lbl.y - prev.y >= 13) && (!next || next.y - lbl.y >= 13);
+    // Con texto de 12 px (DESIGN-02), dos rótulos necesitan 14 px de separación para no pisarse.
+    return (!prev || lbl.y - prev.y >= 14) && (!next || next.y - lbl.y >= 14);
   }).map((lbl) => s('text', { x: L + PW + 8, y: (lbl.y + 4).toFixed(1), class: 'qr-chart-label' }, lbl.text));
 
   // Zonas de hover (tooltip nativo) por cada día de la matriz.
@@ -3142,7 +3234,7 @@ function renderComparator(v) {
     className: 'qr-models',
   });
   // Por qué el break-even de los modelos difiere del de la cotización (la causa según el caso; sin nota si coincide).
-  const beText = comparatorNote(v.r, cmp.models, { roundingStep: nonNegativeOrNull(q.pricing && q.pricing.roundingStep) });
+  const beText = comparatorNote(v.r, cmp.models, { roundingStep: v.k.roundingStep });
   const beNote = beText ? ` ${beText}` : '';
   return card({ ...header, actions: [traceBtn(trace)] },
     tbl,
@@ -3156,7 +3248,7 @@ function renderComparator(v) {
 function renderCompleteness(v) {
   const { r, q } = v;
   const c = r.completeness || { scorePct: 0, items: [] };
-  const tone = completenessTone(c.scorePct);
+  const tone = completenessTone(c.scorePct, c.critical || 0);
   const order = { missing: 0, warning: 1, ok: 2 };
   // Críticos primero (cambian el costo o el precio), después "para revisar" (PLAN-2026-010).
   const rank = (i) => (i.severity === 'critical' ? 0 : 1);
@@ -3651,19 +3743,29 @@ function printAllSections(v, getItems) {
  * principal es "Crear mi propia cotización".
  */
 function renderActions(v) {
-  const { q, onQuoteChange } = v;
+  const { q, r, onQuoteChange } = v;
   const status = q.status || 'draft';
   const isDraft = status === 'draft';
   const canChange = typeof onQuoteChange === 'function';
   const example = Boolean(v.ill && v.ill.quote);
+  // ECO-02: con un resultado NO CONFIABLE no se puede marcar como enviada (se dice por qué, a la
+  // vista); con pendientes críticos se confirma nombrándolos. Misma regla que la lista y el editor.
+  const check = sendCheck(riskSummary(r.completeness));
+  const blockedNote = isDraft ? sendBlockedNote(check) : null;
+  const noteId = uniqueId('qr-send-note');
+  const sentUnreliable = !isDraft && impliesSending('draft', status) && check.reason === 'unreliable';
   const sent = button(isDraft ? 'Marcar como enviada al cliente' : `Estado: ${labelOf(QUOTE_STATUSES, status, 'Borrador')}`, {
     variant: 'secondary',
     icon: 'check',
-    disabled: !isDraft || !canChange,
-    attrs: { 'data-edit': 'status' },
-    onClick: () => {
-      if (!isDraft || !canChange) return;
+    disabled: !isDraft || !canChange || !check.allowed,
+    attrs: { 'data-edit': 'status', 'aria-describedby': blockedNote ? noteId : null },
+    onClick: async () => {
+      if (!isDraft || !canChange || !check.allowed) return;
       sent.disabled = true;
+      if (!(await guardSending(check, { status: 'sent' }))) {
+        sent.disabled = false;
+        return;
+      }
       try {
         onQuoteChange('status', 'sent');
         track('quote_completed', { completed: true });
@@ -3686,9 +3788,15 @@ function renderActions(v) {
     ? linkButton('Crear mi propia cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus', attrs: { 'data-action': 'new-quote' } })
     : null;
   const printNote = 'Al imprimir se abren todas las secciones y se ocultan los controles. Para obtener el archivo, elegí "Guardar como PDF".';
+  const review = () => button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } });
   return h('section', { class: 'qr-actions-bar no-print', id: v.ids.actions, 'aria-label': 'Acciones' },
     h('div', { class: 'qr-actions-notes' },
       example ? h('p', { class: 'qr-actions-note qr-actions-note-main' }, 'Este es un ejemplo con valores ILUSTRATIVOS. Para cotizar tu servicio, creá tu propia cotización con tus costos.') : null,
+      blockedNote ? h('p', { class: 'qr-actions-note qr-send-blocked', id: noteId }, blockedNote) : null,
+      sentUnreliable
+        ? h('p', { class: 'qr-actions-note qr-send-blocked' }, `Figura como ${labelOf(QUOTE_STATUSES, status, 'enviada').toLowerCase()}, pero hoy su resultado NO ES CONFIABLE: resolvé lo pendiente antes de volver a mandarla.`)
+        : null,
+      blockedNote || sentUnreliable ? h('div', { class: 'qr-send-review' }, review()) : null,
       h('p', { class: 'qr-actions-note' }, printNote)),
     h('div', { class: 'qr-actions' }, print, sent, own));
 }
@@ -3716,8 +3824,11 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
     h('div', { class: 'qr-print-title' }, parts || 'Cotización'),
     h('div', { class: 'qr-print-meta' },
       q.client ? `Cliente: ${String(q.client)} · ` : '',
-      `Fecha: ${formatDate(new Date())} · Montos sin IVA`,
-      v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''));
+      // AUD-T1 C-E2-11 (DESIGN-02): la fecha de la oferta y, aparte, la de impresión.
+      `${documentDatesText({ offerDate: q.offerDate })} · Montos sin IVA`,
+      v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''),
+    // ECO-02: un PDF con un resultado NO CONFIABLE lo dice arriba de todo, antes del primer número.
+    isUnreliable(v) ? h('div', { class: 'qr-print-flag' }, 'RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA') : null);
 }
 
 const SECTION_KEYS = Object.freeze([
@@ -3904,8 +4015,14 @@ function analysisBase(v) {
 export function renderScenarioAnalysis(container, app, { quote, result, settings } = {}) {
   const v = createView(container, app, { quote, result, settings, onQuoteChange: null });
   if (!v) return () => {};
+  // ECO-02: los "¿Qué pasa si…?" parten de los mismos números: si el resultado es BORRADOR o NO
+  // CONFIABLE, se avisa arriba (con "Ver qué falta" en el Resultado de la cotización).
+  const risk = safeSection('Pendientes', () => draftBanner(v, {
+    action: v.q.id ? linkButton('Ver qué falta', `#/cotizaciones/${encodeURIComponent(String(v.q.id))}/result`, { variant: 'link', size: 'sm' }) : null,
+  }));
   mount(container, h('div', { class: 'qr qr-analysis' },
     printHeader(v, 'Análisis de escenarios'),
+    risk,
     safeSection('Punto de partida', () => analysisBase(v)),
     ...analysisSections(v)));
   return cleanupOf(v);

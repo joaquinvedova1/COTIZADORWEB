@@ -27,6 +27,8 @@ import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../domain/billing-units.js';
 import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
+import { riskSummary } from '../domain/quote-risk.js';
+import { quoteRounding, roundingStepFor, ROUNDING_WARN_PCT } from '../domain/rounding.js';
 
 /** Margen leído como lo valida validateQuote (texto es-AR incluido); `fallback` si está vacío o es inválido. */
 function readMargin(value, fallback) {
@@ -116,6 +118,22 @@ function unitIssues(quote, ctx) {
       });
     }
   }
+  // Más días que disponibles con la actividad en días (día, hora, mes; ECO-04, AUD-T1 H-04): con los días
+  // del motor (los disponibles con su tope) y diciendo lo que se calcula, sin decir que se reemplaza
+  // algo. Con abono ($/mes) además es NO CONFIABLE (completitud, `month_days_overflow`). Por cantidad o
+  // evento lo avisa la cantidad del mes (arriba).
+  if ((u.kind === 'day' || u.kind === 'hour' || u.kind === 'month') && a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
+    const n = (v) => formatNumber(v, { decimals: 2 });
+    const worked = a.activeDaysPerMonth;
+    const available = a.availableDaysPerMonth;
+    issues.push({
+      path: 'activity.activeDaysPerMonth',
+      message: u.kind === 'month'
+        ? `Los días trabajados (${n(worked)}) superan los disponibles del mes (${n(available)}): un abono mensual se cobra una vez por mes. Subí los días disponibles (30 si trabajás todo el mes) o bajá los trabajados.`
+        : `Los días de trabajo (${n(worked)}) superan los disponibles del mes (${n(available)}): se calcula como un trabajo de más de un mes (los costos fijos y los cargos mensuales × ${n(worked / available)}). Si es un trabajo mensual, revisá los días disponibles (30 si trabajás todo el mes).`,
+      severity: 'warning',
+    });
+  }
   if (quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
     const usual = SERVICE_TYPE_UNITS[quote.serviceType].map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
     issues.push({
@@ -201,8 +219,14 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const ratesAtEstimate = requiredRatesAt(ctx, D, margins);
   const byMargin = (m) => ratesAtEstimate.byMargin.find((r) => r.marginPct === m) || { netRate: null, listRate: null, requiredRevenue: null };
   const targetRates = targetMarginInvalid ? { netRate: null, listRate: null, requiredRevenue: null } : byMargin(targetMarginPct);
-  const roundingStep = nonNegative(pricing.roundingStep);
+  // Redondeo comercial (ECO-03): automático (múltiplo que no sube la objetivo más del tope) o múltiplo
+  // fijo; sin `roundingMode` (cotizaciones de antes) rige el múltiplo guardado, como siempre.
+  const priceRounding = quoteRounding(pricing);
+  const roundingStep = roundingStepFor(priceRounding, targetRates.listRate);
   const suggestedListRate = commercialRound(targetRates.listRate, roundingStep);
+  const suggestedRoundUpPct = isFiniteNumber(suggestedListRate) && isFiniteNumber(targetRates.listRate) && targetRates.listRate > 0
+    ? (suggestedListRate / targetRates.listRate - 1) * 100
+    : null;
 
   // Tarifa comercial (de lista) ofrecida
   let commercialListRate = null;
@@ -223,6 +247,12 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   const hasRate = isFiniteNumber(commercialListRate) && commercialListRate > 0;
   const estimate = evaluateAt(ctx, D, hasRate ? commercialListRate : 0);
+  // Margen con la tarifa sugerida (ECO-03): se muestra junto al objetivo aunque se ofrezca otra tarifa.
+  // Con una tarifa forzada (matriz, escenarios) no se calcula: nadie lo muestra y evita otra evaluación.
+  const forced = listRateOverride !== null && listRateOverride !== undefined;
+  const suggestedEstimate = isFiniteNumber(suggestedListRate) && suggestedListRate > 0 && !forced
+    ? (commercialSource === 'suggested' ? estimate : evaluateAt(ctx, D, suggestedListRate))
+    : null;
   const maxDays = activity.availableDaysPerMonth;
 
   // Break-even y días para margen objetivo
@@ -356,6 +386,14 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     targetNetRate: targetRates.netRate,
     targetListRate: targetRates.listRate,
     suggestedListRate,
+    // Redondeo comercial (ECO-03): regla, múltiplo aplicado, cuánto sube la sugerida sobre la objetivo
+    // y su margen; con un múltiplo fijo que la sube más de 1 % se avisa (el automático nunca llega).
+    roundingMode: priceRounding.mode,
+    roundingStep,
+    roundingMaxPct: priceRounding.mode === 'auto' ? priceRounding.maxPct : null,
+    suggestedRoundUpPct,
+    suggestedMarginPct: suggestedEstimate && isFiniteNumber(suggestedEstimate.marginPct) ? suggestedEstimate.marginPct : null,
+    roundingExceedsLimit: priceRounding.mode === 'step' && isFiniteNumber(suggestedRoundUpPct) && suggestedRoundUpPct > ROUNDING_WARN_PCT + 1e-9,
     commercialListRate: hasRate ? commercialListRate : null,
     commercialNetRate: hasRate ? commercialNetRate : null,
     commercialSource: hasRate ? commercialSource : 'none',
@@ -519,7 +557,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       result: { label: 'Precio objetivo de lista', value: targetRates.listRate, format: 'moneyCeil' },
       notes: [
-        roundingStep > 0 ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null,
+        roundingStep > 0
+          ? (priceRounding.mode === 'auto'
+            ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${formatMoney(roundingStep)} (redondeo automático: sube a lo sumo ${formatPercent(priceRounding.maxPct)} sobre el precio objetivo).`
+            : `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.`)
+          : null,
         targetMarginInvalid ? 'El margen objetivo tiene que ser mayor o igual a 0 y, sumado a los impuestos sobre la facturación, menor a 100 %.' : null,
       ],
     }),
@@ -675,8 +717,12 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   };
 }
 
-/** Indicadores compactos para dashboard y listados (sin trazas). */
+/**
+ * Indicadores compactos para dashboard y listados (sin trazas). Suma el riesgo
+ * del resultado (ECO-02: NO CONFIABLE y pendientes críticos, con sus rótulos)
+ * para que las listas lo muestren; los indicadores (`kpis`) no cambian.
+ */
 export function summarizeQuote(quote, options = {}) {
   const r = computeQuote(quote, options);
-  return { ...r.kpis, issuesCount: r.issues.length };
+  return { ...r.kpis, issuesCount: r.issues.length, ...riskSummary(r.completeness) };
 }

@@ -19,7 +19,7 @@
 
 import { h, mount } from '../../dom.js';
 import { badge, card, formGrid, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
-import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf } from '../../../domain/catalogs.js';
+import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, OWNERSHIP_COSTS_PER_KM, labelOf } from '../../../domain/catalogs.js';
 import { createVehicle, acquisitionOf } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { nonNegative, isFiniteNumber } from '../../../core/money.js';
@@ -303,6 +303,24 @@ export function render(container, ctx) {
               ),
             },
             {
+              // ECO-04 (AUD-T1 H-08): como vehículo de apoyo sólo se suman sus costos por km. Dónde está su
+              // costo de tenerlo: una línea de Equipos o ya en el costo por km (sin respuesta, crítico).
+              key: 'ownership',
+              label: 'Costo de tenerlo',
+              render: (row, i) => kit.select(`logistics.vehicles.${i}.ownershipCostsIn`, {
+                label: 'Costo de tenerlo',
+                includeEmpty: true,
+                emptyLabel: '¿Dónde está?',
+                options: [
+                  { value: OWNERSHIP_COSTS_PER_KM, label: 'Ya está en el costo por km' },
+                  ...equipmentLines.filter((e) => e && e.id).map((e) => ({ value: e.id, label: `En Equipos: ${e.name || 'Equipo'}` })),
+                ],
+                structural: true,
+                disabled: ctx.readOnly,
+                hint: 'Amortización, seguro, patente o alquiler. Si es propio, cargalo también en Equipos (sin horas si sólo traslada) y elegilo acá.',
+              }),
+            },
+            {
               key: 'calc',
               label: L.perActivation,
               align: 'right',
@@ -384,13 +402,19 @@ export function render(container, ctx) {
           'Desgaste de cada vehículo (sin combustible)',
           formGrid(
             3,
-            ...lg.vehicles.map((v, i) => kit.num(`logistics.vehicles.${i}.costPerKm`, {
-              label: `Desgaste de ${String((v && v.name) || 'Vehículo')}`,
-              rule: 'money',
-              unit: '$/km',
-              illustrative: vehicleIll[i].marked,
-              hint: 'Neumáticos, mantenimiento y amortización por km.',
-            })),
+            ...lg.vehicles.map((v, i) => {
+              // ECO-04: con su costo de tenerlo en una línea de Equipos, la amortización ya está ahí.
+              const inEquipment = v && equipmentLines.find((e) => e && e.id && e.id === v.ownershipCostsIn);
+              return kit.num(`logistics.vehicles.${i}.costPerKm`, {
+                label: `Desgaste de ${String((v && v.name) || 'Vehículo')}`,
+                rule: 'money',
+                unit: '$/km',
+                illustrative: vehicleIll[i].marked,
+                hint: inEquipment
+                  ? `Neumáticos y mantenimiento por km. Sin amortización: ya está en el costo de tenerlo de "${inEquipment.name || 'Equipo'}" (${stepName('equipment')}).`
+                  : 'Neumáticos, mantenimiento y amortización por km.',
+              });
+            }),
           ),
         )
         : null,

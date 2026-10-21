@@ -92,6 +92,9 @@ RATEOS **no trae alícuotas** y **no suma impuestos indiscriminadamente**:
 | Amortización también en $/km | El desgaste por km excluye amortización (texto y traza). |
 | Combustible trabajando (L/h) y en ruta (L/100 km) | Son consumos distintos y se muestran separados; un alquilado con combustible incluido no suma combustible. Un externo con consumo por km (PLAN-2026-012) usa los km físicos de la ruta: no suma además L/h ni combustible en ruta de su movilización. |
 | Viajes de la ruta distintos de los que se venden ($/viaje) | Con la unidad "viaje" los viajes por intervención se derivan de los viajes por día (PLAN-2026-012): 12 viajes facturables recorren siempre los mismos km. |
+| Bruto del recibo cargado como básico y además los adicionales (RES-02) | "Editar sueldo" pide el **bruto** y lo descompone: básico (o el bruto, si no se carga) + adicionales = bruto. Se guardan los dos campos de siempre, así que no se puede sumar dos veces. El formulario completo muestra "Bruto mensual = básico + adicionales". |
+| Horas extra valuadas sobre el bruto como si fuera el básico (RES-02) | Si el perfil o una cotización que lo usa tiene horas extra, guardar un sueldo sin básico exige confirmar "Valuar las horas extra sobre el bruto completo" (o cargar el básico). |
+| Perfiles leídos como personas (RES-02) | `peopleCount` es aparte e informativo; los montos de un grupo con cantidades faltantes se llaman "subtotal parcial". |
 | Recurso compartido contado entero en cada contrato | Asignación en la línea de la cotización (§9): % explícito de los costos fijos; "Usado en" suma lo adjudicado y avisa si supera el 100 %. |
 | Movilización del proveedor y modo propio a la vez | Externo con movilización incluida → 0 en movilización. Si el proveedor la cobra aparte y además se eligió "por sus propios medios", la regla `duplicates` y la fila de movilización lo advierten (elegí "No requiere movilización" si la hace el proveedor). |
 | IVA como costo | Sólo el IVA no recuperable es costo; el resto se informa aparte. |
@@ -117,3 +120,26 @@ RATEOS **no trae alícuotas** y **no suma impuestos indiscriminadamente**:
 La **asignación** (dedicado / reservado / compartido / contratado para el servicio y el % de costos fijos) es un dato de la **línea de la cotización**, nunca del recurso maestro: el mismo camión puede estar reservado 100 % para un contrato y compartido al 30 % en otra oferta. Sin dato = 100 % (nada cambia). El uso real (días, horas, km) mueve sólo los costos variables; los pocos días de uso **no** reducen solos la amortización, el seguro ni el sueldo (concepto aprobado en PLAN-2026-006 §3.1). Fórmulas: [CALCULATION_RULES.md §4.2](CALCULATION_RULES.md#42-recursos-compartidos--de-los-costos-fijos-plan-2026-012-opcional).
 
 **"Usado en"** (Recursos → Personal, Equipos y Servicios externos): lista cada cotización que usa el recurso (vínculo por `snapshot.resourceId` o `sourceId`), con su estado y su % asignado (personas o unidades × %). Ganadas = **compromiso real**; borradores y enviadas = **uso potencial**; perdidas y archivadas no cuentan. Si lo adjudicado supera el 100 % se avisa ("si es una sola persona / un solo equipo, está asignado de más"), sin bloquear. No es un módulo de contratos ni un calendario de flota.
+
+## 10. Personal por convenio (RES-02, PLAN-2026-023)
+
+Recursos → Personal arranca **agrupado por convenio** ("Por convenio"; "Lista" y "Detallada" siguen). Funciones puras en `js/domain/labor-groups.js`:
+
+- un grupo por convenio de la empresa, con su nombre; **"Fuera de convenio"** (convenios del tipo `fuera_convenio`) y **"Sin convenio indicado"** (sin convenio o con uno que ya no existe) al final;
+- **perfiles ≠ personas**: el encabezado dice "N perfiles · M personas" o "M personas en K de N perfiles". Las personas salen sólo de `peopleCount`, nunca de contar perfiles;
+- el monto de un grupo es costo empresa por persona × personas, sólo de los perfiles con cantidad: si falta en alguno es un **subtotal parcial** (nunca "total del personal"), y sin ninguna cantidad no hay monto;
+- búsqueda (puesto, categoría o convenio) y filtro por convenio en la dirección (`#/recursos/personal?q=…&convenio=…`).
+
+**"Editar sueldo"** (`js/ui/labor-salary-dialog.js`): bruto mensual remunerativo, básico opcional, mes base (obligatorio si cambia el sueldo), fuente y referencia; vista previa del costo empresa por persona antes → después con "Ver cálculo". Nunca cambia cotizaciones: las que usan el perfil avisan "El costo de … fue actualizado" (§3) y la persona decide. Sin aumentos automáticos, paritarias ni historial de sueldos.
+
+## 11. Equipos por familia (RES-02, PLAN-2026-024)
+
+Recursos → Equipos arranca **agrupado por familia** ("Por familia"; "Lista" y "Detallada" siguen). Funciones puras en `js/domain/equipment-groups.js`:
+
+- grupos visibles fijos que juntan las familias del catálogo (§7); cada familia está en un solo grupo (test). Vactor y camión atmosférico van en "Equipos de vacío y succión", y flushby y wireline en "Equipos de pozo", no con los camiones. Lo que no tiene familia (o es "Otro / Personalizado") va en "Otros / sin familia";
+- **cada ficha es una unidad**: las propias forman la flota; las alquiladas y tercerizadas se cuentan aparte y **no suman** (se pagan por uso, con su tarifa);
+- el monto de un grupo es la **posesión** de las propias por mes (de la ficha: amortización, costo de capital, seguro, patente, certificaciones, otros y mantenimiento fijo), aunque no trabajen. Una propia valuada en otra moneda sin tipo de cambio no se suma (no se mezclan monedas): el monto es un subtotal parcial y lo dice;
+- búsqueda (nombre, interno, dominio, familia, capacidad o modelo) y filtro por tenencia en la dirección (`#/recursos/equipos?q=…&tenencia=propias|externas`).
+
+Nada de esto cambia datos ni fórmulas: los montos salen de `equipmentCard`.
+

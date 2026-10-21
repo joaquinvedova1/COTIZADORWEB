@@ -621,6 +621,22 @@ export function requiredNetRate(q, model, D, marginPct, t) {
 /** Redondeo comercial hacia arriba al múltiplo del paso (§13): nunca baja el margen. */
 export const commercialRound = (price, step) => (price === null || !Number.isFinite(price) ? null : n(step) > 0 ? Math.ceil(price / n(step) - 1e-9) * n(step) : price);
 
+/**
+ * Múltiplo del redondeo de la sugerida (ECO-03, escrito desde CALCULATION_RULES §13, sin importar la app):
+ * con `roundingMode: 'auto'`, la potencia de 10 más grande que no supere el tope (`roundingMaxPct`, 1 % si
+ * falta o no es válido, 0 a 10) aplicado a la objetivo; si ese tope no llega a $ 1, sin redondeo. Sin
+ * `roundingMode` o con 'step', el múltiplo guardado.
+ */
+export function oracleRoundingStep(pricing, target) {
+  if (pricing.roundingMode !== 'auto') return n(pricing.roundingStep);
+  const raw = Number(pricing.roundingMaxPct);
+  const maxPct = pricing.roundingMaxPct !== null && pricing.roundingMaxPct !== '' && Number.isFinite(raw) && raw >= 0 && raw <= 10 ? raw : 1;
+  if (target === null || !Number.isFinite(target) || target <= 0) return 0;
+  const room = (target * maxPct) / 100;
+  if (room < 1) return 0;
+  return 10 ** Math.floor(Math.log10(room) + 1e-12);
+}
+
 /** Resultado con D días y una tarifa de lista (§13): facturación − impuestos − costo. */
 export function evaluate(q, model, D, listRate, t) {
   const cost = costAt(model, D);
@@ -674,7 +690,7 @@ export function oracleQuote(q, { listRateOverride = null } = {}) {
 
   const floor = requiredNetRate(q, model, D, 0, t);
   const target = targetMarginInvalid ? null : requiredNetRate(q, model, D, m, t);
-  const suggested = commercialRound(target ? target.list : null, pricing.roundingStep);
+  const suggested = commercialRound(target ? target.list : null, oracleRoundingStep(pricing, target ? target.list : null));
 
   let commercial = null;
   let source = 'none';

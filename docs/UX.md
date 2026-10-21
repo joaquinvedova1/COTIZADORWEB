@@ -1,6 +1,6 @@
 # UX de RATEOS — "Simple en la superficie, potente por debajo"
 
-Guía permanente de experiencia de usuario. Complementa [AGENTS.md](../AGENTS.md) (§17 UX) y [ARCHITECTURE.md](ARCHITECTURE.md). Si una pantalla nueva contradice esta guía, se discute antes de mergear.
+Guía permanente de experiencia de usuario. Complementa [AGENTS.md](../AGENTS.md) (§17 UX), [ARCHITECTURE.md](ARCHITECTURE.md) y el sistema de diseño [DESIGN.md](../DESIGN.md) (tokens, tipografía, marcas de riesgo, componentes y checklist de accesibilidad). Si una pantalla nueva contradice esta guía, se discute antes de mergear.
 
 ## 1. Objetivo
 
@@ -84,7 +84,7 @@ Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **5 etapas**:
 | 4. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
 | 5. Resultado | Resultado |
 
-Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, días para no perder) y "Ver más". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
+Resumen en vivo con el costo del mes, la tarifa piso, la tarifa cobrada, el margen esperado, los días para no perder y el resultado esperado, sin abrir nada; "Ver más" deja el precio para tu margen y la completitud. En la barra compacta (1180 px o menos) van cuatro números: costo, piso, tarifa cobrada (destacada) y margen con su palabra ("cumple", "debajo", "pierde", "no confiable"); el resto, en "Ver detalle". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
 
 **Convención de montos: sin IVA.** Es una convención explícita de cada cotización (`vatTreatment`), no un supuesto silencioso: la primera etapa lo dice al empezar ("Esta cotización usa costos, precios y tarifas sin IVA: si tenés un valor con IVA, descontalo antes de cargarlo"), cada etapa muestra la marca **"Montos sin IVA"**, los formularios de equipos, materiales y el precio del combustible lo repiten donde suele llegar un precio con IVA, y el resultado y la impresión lo rotulan.
 
@@ -99,9 +99,24 @@ Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, dí
 - **Movilización y viajes**: primero "¿Cómo llega cada equipo al lugar del servicio?" (una fila por equipo, con km, litros y $ por llamado y "Ver cálculo"); después "Logística auxiliar: vehículos de apoyo y de personal", con la advertencia de no cargar dos veces un equipo que ya se moviliza solo.
 - **Tipo de servicio**: "Base económica de la oferta" con la fecha de la oferta, la base por rubro, las advertencias y los tipos de cambio de la cotización.
 
+### Recursos → Personal (`#/recursos/personal`, RES-02)
+
+- Arranca **agrupado por convenio**: cada grupo es un desplegable (teclado: Enter o Espacio en su encabezado) con nombre, "N perfiles · M personas" y el costo empresa de las personas cargadas. Si falta la cantidad en algún perfil, dice "M personas en K de N perfiles" y "Subtotal parcial". "Sin convenio indicado" va siempre abierto, con la salida a Configuración → Convenios.
+- Búsqueda y filtro por convenio arriba; quedan en la dirección, así que se pueden recargar o compartir. "Plegar todo" / "Desplegar todo".
+- Cada fila: puesto (y categoría), personas ("sin dato" si falta), bruto mensual (y el básico si hay adicionales), mes base, costo empresa por persona con "Ver cálculo", "Usado en" y **"Editar sueldo"**, además de Editar y Eliminar.
+- "Editar sueldo" es un diálogo corto: bruto, cuánto es básico (opcional), mes base, vista previa antes → después y el aviso de que las cotizaciones hechas no cambian. Con horas extra y sin básico pide confirmar que se valúan sobre el bruto completo.
+- En el celular, los grupos aparecen en la primera pantalla: el resumen es una línea y los filtros, dos controles sin rótulo visible (tienen nombre accesible).
+
+### Recursos → Equipos (`#/recursos/equipos`, RES-02)
+
+- Arranca **agrupado por familia**: cada grupo es un desplegable con su nombre, "N unidades propias · M alquiladas o tercerizadas (no suman)" y la posesión por mes de las propias. Si una propia está valuada en otra moneda sin tipo de cambio, el monto es "Subtotal parcial" y lo dice.
+- Búsqueda y filtro por tenencia arriba; quedan en la dirección. "Plegar todo" / "Desplegar todo".
+- Cada fila: equipo (interno, familia, capacidad o modelo y base), tenencia, posesión por mes con "Ver cálculo" (o la tarifa si es alquilado o tercerizado), operación ($/h sin combustible + L/h), "Usado en", Editar y Eliminar.
+- En el celular, la explicación de posesión y operación queda plegada en una línea y los grupos aparecen en la primera pantalla.
+
 ### Resultado
 
-La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
+La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Calculado con tus costos y tus supuestos: no es un precio de mercado.", la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
 
 Todo lo demás está en **"Profundizá"**, cerrado por defecto y dibujado al abrirlo: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), **"¿En qué se va el costo?"** (4 rubros + otros, y la estructura de costos completa; 100 % del costo), **reparto de la tarifa (apropiación) y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, **base económica de la oferta** (bases por rubro, tipos de cambio y externos: costo económico vs salida de caja vs crédito fiscal), completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
 
@@ -127,12 +142,16 @@ Reglas que no cambian: margen ≠ markup ([AGENTS.md §9](../AGENTS.md)); valore
 ## 6. Mobile
 
 - Landing, ingreso y registro se diseñan también a 360 px: menú colapsable, botones táctiles ≥ 44 px, sin scroll horizontal.
-- En la app mobile se puede: ver cotizaciones, ver el resultado, entender las tarifas e iniciar una cotización. Las tablas grandes se muestran como tarjetas o con scroll contenido, nunca forzando el ancho de la página.
+- En la app mobile se puede: ver cotizaciones, ver el resultado, entender las tarifas e iniciar una cotización. Las tablas grandes se muestran como tarjetas o con scroll contenido, nunca forzando el ancho de la página. Las tablas editables del editor (otros costos, vehículos y, en pasos angostos, estructura y tramos) pasan a una tarjeta por fila.
+- Los avisos emergentes salen arriba, debajo de la barra de la app: no tapan el resumen fijo del editor (con el menú abierto, abajo). Entre 761 y 1180 px, con el resumen fijo abajo, también salen arriba.
+- El estado de guardado ("Guardado", "Sin conexión", "Conflicto"…) se ve en la barra de arriba, sin abrir el menú; en el riel (761 a 1100 px), con una palabra debajo del punto de color.
 
 ## 7. Accesibilidad
 
-- Contraste WCAG AA (tokens de texto `--ink-2`, `--ink-3`, `--*-text`); acción principal `--primary` (azul Neuquén profundo).
+- Contraste WCAG AA (tokens de texto `--ink-2`, `--ink-3`, `--*-text`, o sus alias `--color-*` de [DESIGN.md](../DESIGN.md) §2); acción principal `--primary` (azul Neuquén profundo). Bordes de campos, también dentro de tablas, con `--color-border-control` (≥ 3:1).
+- Raíz en % y ningún texto por debajo de 12 px (`--fs-xs`); "Ver cálculo" de 24 px o más (44 px en el celular); nada se distingue sólo por el color, tampoco en los gráficos.
 - Foco visible siempre; al cambiar de pantalla se enfoca el título (h1).
+- Campos: los obligatorios con `aria-required` además del asterisco; la ayuda, el error y los avisos del motor junto al campo, asociados con `aria-describedby`. Los montos llevan debajo su eco con separadores ("$ 2.600.000"); el texto del campo no se reformatea.
 - Un `h1` por pantalla, jerarquía de headings sin saltos, labels reales en formularios, `aria-expanded` en menús, `<details>/<summary>` nativo para las secciones colapsables.
 
 ## 8. Checklist por pantalla (test de carga cognitiva)
@@ -146,6 +165,13 @@ Antes de agregar algo a una pantalla, preguntate: **¿todo lo que estoy mostrand
 
 Y verificá: un CTA principal, contexto antes de cada input, estados vacíos con acción, "Ver cálculo" en cada resultado importante, mobile sin scroll horizontal.
 
+**No perder lo cargado (UX-01):** un formulario nunca descarta lo cargado sin preguntar, y un valor que no se guardó siempre se dice:
+
+- **Diálogos con formulario:** sin cierre por clic en el fondo; Esc, la X o "Cancelar" con cambios preguntan "¿Descartar los cambios?" ([Seguir editando] / [Descartar]). "Cambios" es lo que se guardaría distinto de lo que se abrió: marcar y desmarcar una casilla no lo es.
+- **Un número, un mes o un texto obligatorio inválido** vuelve a su valor anterior al confirmarlo, y lo dice debajo del campo. Si eso pasa porque se sale de la pantalla, el aviso aparece en la siguiente (la pantalla, el campo, lo que se escribió y qué quedó) y queda hasta cerrarlo. En un diálogo que se cierra sin guardar, no hace falta.
+- **Pantallas que guardan solas:** al salir, lo válido se guarda aunque otro campo esté (o haya estado) inválido; lo que ni así se puede guardar, se avisa. Lo que se guarda con un botón y no se guardó, se avisa.
+- **Los avisos de error** quedan hasta cerrarlos.
+
 ## 9. Componentes de base (`js/ui/components.js`)
 
 | Componente | Uso |
@@ -156,5 +182,8 @@ Y verificá: un CTA principal, contexto antes de cada input, estados vacíos con
 | `emptyState({ title, text, action, secondary, icon })` | Estado vacío con salida. |
 | `linkButton(label, href, opts)` | Navegación con aspecto de botón (enlace real). |
 | `stepIndicator({ current, total })` | "Paso 2 de 4" con barra. |
+| `openDialog({ title, content, actions, isDirty })` | Diálogo modal. Con `isDirty` (un formulario): un clic en el fondo no lo cierra; Esc (también dos veces seguidas), la X y `requestClose()` (el "Cancelar") preguntan "¿Descartar los cambios?" si hay cambios. `close()` cierra sin preguntar (después de guardar). |
+| `toast(message, tone, { timeout })` | Aviso abajo a la derecha, con "Cerrar". Los de error (y `timeout: 0`) quedan hasta cerrarlos; como máximo 4 (se van primero los que se iban solos), y uno igual a otro a la vista no se repite. |
+| `announceRestored(field, …)` + `installRestoreNotices({ notify })` | Un valor que no se guardó y volvió al anterior cuando su pantalla se fue se avisa en la siguiente (`app.notice`, sólo con la cuenta abierta). Si era de un diálogo que se cerró sin guardar, no. |
 
 Formato abreviado para resúmenes: `formatMoneyCompact()` en `js/core/format.js` ("$ 15,8 M"; con `ceil: true` para tarifas, nunca muestra menos que el valor calculado).

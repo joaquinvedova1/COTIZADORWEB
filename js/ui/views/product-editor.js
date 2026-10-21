@@ -44,6 +44,7 @@ import { billingTaxesFields } from '../billing-taxes-form.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { STEP_HINTS, unitMoney, productHref } from './products.js';
 import { createDraftStore } from '../session-memory.js';
+import { REFERENCE_PRICE_NOTE } from '../reference-text.js';
 
 export const RECALC_DELAY_MS = 150;
 export const SAVE_DELAY_MS = 400;
@@ -108,6 +109,30 @@ export function productStepStatus(stepId, product, result) {
     precio: Boolean(p.pricing) && isFiniteNumber(p.pricing.targetMarginPct),
   };
   return filled[stepId] ? 'green' : 'gray';
+}
+
+/**
+ * Veredicto sobre "Tu precio de hoy" (P1 CIERRE, AUD-T1 H-14). Nunca verde sin un resultado válido:
+ * con datos faltantes, sin precio sugerido o sin margen real, "no se puede evaluar"; con datos para
+ * revisar, amarillo. Los rojos (no cubre lo variable o queda debajo del piso) van primero.
+ * @returns {null|{ kind: string, tone: 'danger'|'warning'|'success', text: string }}
+ */
+export function currentPriceVerdict(result, { unit = 'unidad' } = {}) {
+  const current = result && result.current;
+  if (!current) return null;
+  const pr = result.pricing || {};
+  const issues = Array.isArray(result.issues) ? result.issues : [];
+  const errors = issues.filter((i) => i.severity === 'error').length;
+  const warnings = issues.length - errors;
+  if (current.belowVariable) return { kind: 'below_variable', tone: 'danger', text: `Con este precio cada ${unit} no cubre ni lo que cuesta hacerla: cuanto más vendés, más perdés.` };
+  if (current.belowFloor) return { kind: 'below_floor', tone: 'danger', text: 'Tu precio de hoy está por debajo del precio piso: no cubre todos tus costos.' };
+  const evaluable = errors === 0 && Number.isFinite(result.unitCost) && Number.isFinite(pr.floorPrice) && Number.isFinite(pr.suggestedPrice) && Number.isFinite(current.marginPct);
+  if (!evaluable) {
+    return { kind: 'not_evaluable', tone: 'warning', text: 'No se puede evaluar tu precio de hoy: faltan datos para calcular el costo o el precio sugerido (mirá "Faltan datos para calcular bien" arriba). Hasta completarlos, no sabés si cubre tus costos.' };
+  }
+  if (current.price < pr.suggestedPrice) return { kind: 'below_suggested', tone: 'warning', text: 'Cubre tus costos, pero está por debajo del precio sugerido: ganás menos que el margen que querés.' };
+  if (warnings) return { kind: 'review', tone: 'warning', text: 'Con los datos cargados cubre tus costos y el margen que querés, pero hay datos para revisar (arriba): confirmalos antes de usar este precio.' };
+  return { kind: 'ok', tone: 'success', text: 'Tu precio de hoy cubre tus costos y el margen que querés.' };
 }
 
 /** "unidad" → "unidades", "docena" → "docenas", "porción" → "porciones", "kg" → "kg". */
@@ -403,6 +428,20 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
     } catch {
       logger.warn('Ruta de campo inválida', { path: String(path) });
       return;
+    }
+    // P1 CIERRE (H-13): cargar otro margen válido lo hace propio; deja de ser el de la configuración de ejemplo.
+    // Vaciar el campo o escribir un valor inválido no lo confirma (revisión de código).
+    const ownMargin = typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 100;
+    if (path === 'pricing.targetMarginPct' && ownMargin && state.product.pricing && state.product.pricing.marginFromExample) {
+      delete state.product.pricing.marginFromExample;
+      const field = stepBody && stepBody.querySelector(`[name="${cssEscape(path)}"]`);
+      const wrap = field && field.closest('.field');
+      if (wrap) {
+        wrap.classList.remove('field-illustrative');
+        wrap.querySelectorAll('.tag-illustrative').forEach((tag) => tag.remove());
+      }
+      const note = stepBody && stepBody.querySelector('.pe-margin-example');
+      if (note) note.remove();
     }
     markDirty();
     scheduleRecalc();
@@ -814,7 +853,8 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
           return `Con unas ${num(r.batchesPerMonth, 1)} tandas por mes, cada persona dedica ${num(l.hoursPerMonth, 1)} h de las ${num(l.normalHoursPerMonth)} h que trabaja (${pctText(l.usedPct)}).${rest}`;
         }),
         disclosure(
-          { summary: 'Cargas sociales y horas del mes', hint: anyIll ? 'Valores ILUSTRATIVOS: reemplazalos por los de tu convenio' : 'Aguinaldo, vacaciones, contribuciones, ART' },
+          // P1 CIERRE (H-13): con valores ILUSTRATIVOS el desplegable arranca abierto (antes quedaban a la vista sólo al abrirlo).
+          { summary: 'Cargas sociales y horas del mes', hint: anyIll ? 'Valores ILUSTRATIVOS: reemplazalos por los de tu convenio' : 'Aguinaldo, vacaciones, contribuciones, ART', open: anyIll },
           anyIll ? h('p', { class: 'small' }, 'Estos valores son genéricos e ILUSTRATIVOS: no son los de ningún convenio real. Cargá los vigentes de tu CCT o elegí un convenio con tus valores.') : null,
           formGrid(
             3,
@@ -1185,7 +1225,13 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
     return [
       card(
         { title: '¿Cuánto querés ganar?' },
-        formGrid(2, kit.num('pricing.targetMarginPct', { label: 'Margen que querés ganar', rule: 'margin', unit: '%', hint: 'Sobre el precio: con 30 %, de cada $ 100 que cobrás (sin IVA ni impuestos) te quedan $ 30 de ganancia.' })),
+        formGrid(2, kit.num('pricing.targetMarginPct', { label: 'Margen que querés ganar', rule: 'margin', unit: '%', hint: 'Sobre el precio: con 30 %, de cada $ 100 que cobrás (sin IVA ni impuestos) te quedan $ 30 de ganancia.', illustrative: Boolean(state.product.pricing && state.product.pricing.marginFromExample) })),
+        // P1 CIERRE (H-13): el margen heredado de la configuración de EJEMPLO se marca hasta confirmarlo o cambiarlo.
+        state.product.pricing && state.product.pricing.marginFromExample
+          ? h('div', { class: 'banner banner-warning pe-margin-example', role: 'status' },
+            h('div', {}, h('strong', {}, 'Margen de ejemplo. '), 'Este margen viene de la configuración de ejemplo de RATEOS, no de tu empresa. Cambialo por el que querés ganar o, si es el tuyo, confirmalo.'),
+            readOnly ? null : h('div', { class: 'qe-toolbar' }, button('Es mi margen', { size: 'sm', icon: 'check', onClick: () => mutate((p) => { delete p.pricing.marginFromExample; }) })))
+          : null,
         calc((r) => {
           const pr = r.pricing;
           if (pr.marginInput === null || pr.marginInput === undefined) return 'Sin margen cargado, el precio sugerido es el precio piso: no ganás nada.';
@@ -1317,7 +1363,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
         bigStat({
           label: 'Precio sugerido (sin IVA)',
           value: unitMoney(pr.suggestedPrice),
-          hint: `Con ${pctText(pr.marginPct)} de margen${pr.taxPct > 0 ? ` y ${pctText(pr.taxPct)} de impuestos sobre la venta` : ''}${pr.roundingStep > 0 ? `, redondeado a ${formatMoney(pr.roundingStep)}` : ''}.`,
+          hint: `Con ${pctText(pr.marginPct)} de margen${p.pricing && p.pricing.marginFromExample ? ' (de EJEMPLO: confirmalo o cambialo en "Precio y margen")' : ''}${pr.taxPct > 0 ? ` y ${pctText(pr.taxPct)} de impuestos sobre la venta` : ''}${pr.roundingStep > 0 ? `, redondeado a ${formatMoney(pr.roundingStep)}` : ''}.`,
           trace: r.traces.target,
           tone: 'blue',
           size: 'lg',
@@ -1363,6 +1409,8 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
             { label: 'Markup equivalente (recargo sobre el costo)', value: pr.markupPct === null ? EMPTY : pctText(pr.markupPct), trace: null },
           ].filter(Boolean),
         }),
+        // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado.
+        h('p', { class: 'footnote pe-reference-note' }, REFERENCE_PRICE_NOTE),
         h('p', { class: 'footnote' }, 'Margen ≠ markup: el margen se mide sobre el precio y el markup sobre el costo. Los precios son sin IVA salvo donde se indica.'),
       ),
       card(
@@ -1410,13 +1458,12 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
       current
         ? card(
           { title: `Tu precio de hoy: ${unitMoney(current.price)}` },
-          current.belowVariable
-            ? banner(`Con este precio cada ${u} no cubre ni lo que cuesta hacerla: cuanto más vendés, más perdés.`, 'danger')
-            : current.belowFloor
-              ? banner('Tu precio de hoy está por debajo del precio piso: no cubre todos tus costos.', 'danger')
-              : pr.suggestedPrice !== null && current.price < pr.suggestedPrice
-                ? banner('Cubre tus costos, pero está por debajo del precio sugerido: ganás menos que el margen que querés.', 'warning')
-                : banner('Tu precio de hoy cubre tus costos y el margen que querés.', 'success'),
+          (() => {
+            const v = currentPriceVerdict(r, { unit: u });
+            const el = banner(v.text, v.tone);
+            el.dataset.verdict = v.kind;
+            return el;
+          })(),
           h(
             'div',
             { class: 'qe-stats' },

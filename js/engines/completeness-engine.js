@@ -27,7 +27,7 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
-import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
+import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS, OWNERSHIP_COSTS_PER_KM } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent, formatNumber, formatMoney } from '../core/format.js';
@@ -61,10 +61,95 @@ export const COMPLETENESS_GREEN_THRESHOLD = 85;
  */
 export const LABOR_COVERAGE_MESSAGE = 'La operación requiere más horas de cobertura que las horas cargadas para este puesto. Revisá dotación, turnos y/o horas extra.';
 
-/** Tono (green | orange | red) de un puntaje de completitud. */
-export function completenessTone(scorePct) {
+/**
+ * ¿El vehículo de apoyo dice dónde está su costo de tenerlo (ECO-04, H-08)? "Ya está en el costo
+ * por km", o una línea de Equipos que existe (si esa línea se borra, se vuelve a preguntar).
+ */
+export function vehicleOwnershipAnswered(vehicle = {}, equipment = []) {
+  const at = isPlainObject(vehicle) ? vehicle.ownershipCostsIn : null;
+  if (at === OWNERSHIP_COSTS_PER_KM) return true;
+  return typeof at === 'string' && at !== '' && objectList(equipment).some((e) => e.id === at);
+}
+
+/** Nombre de un puesto ("Personal" si no tiene). */
+const roleOf = (l) => (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+
+/**
+ * Puestos de Personal que no operan ningún equipo (ECO-04, VAL-01-F2): con posiciones y sin ser el
+ * operador asignado de ninguna línea de Equipos. Alguno puede ser el operador que un externo ya
+ * trae en su tarifa.
+ * @returns {{ id: string, role: string }[]}
+ */
+export function freeLaborOf(quote = {}) {
+  const operating = new Set(objectList(quote.equipment).map((e) => e.operatorLaborId).filter((id) => typeof id === 'string' && id));
+  return objectList(quote.labor)
+    .filter((l) => typeof l.id === 'string' && l.id && nonNegative(l.positions) > 0 && !operating.has(l.id))
+    .map((l) => ({ id: l.id, role: roleOf(l) }));
+}
+
+/**
+ * Nombres de puesto que suenan a operador o chofer (ECO-04, F2; los casos de VAL-01 E12 y AUD-T1
+ * C-E2-07): "Chofer del camión", "Operador de grúa", "Conductor"… No "Coordinador", "Ayudante" ni
+ * "Supervisor": así la pregunta no aparece en cualquier cotización con un externo y personal propio.
+ */
+const OPERATOR_ROLE = /\b(chofer(es)?|conductor(a|as|es)?|operador(a|as|es)?|maquinistas?|camioner[oa]s?|motoristas?)\b|gruistas?\b|\boperari[oa]s?\s+(de\s+(la\s+|el\s+)?)?(grua|hidrogrua|camion|equipo|maquina|maquinaria|retro\w*|autoelevador|pala|excavadora|topadora|motoniveladora|vactor)\b/;
+
+/** ¿El nombre del puesto suena a operador o chofer? (sin mayúsculas ni tildes) */
+export function looksLikeOperatorRole(role) {
+  const text = String(role || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return OPERATOR_ROLE.test(text);
+}
+
+/**
+ * Puestos que podrían ser el operador que un externo ya trae (ECO-04, F2): no operan ningún equipo
+ * y su nombre suena a operador o chofer.
+ */
+export function operatorCandidatesOf(quote = {}) {
+  return freeLaborOf(quote).filter((x) => looksLikeOperatorRole(x.role));
+}
+
+/** ¿La línea tiene un operador de Personal asignado (un puesto que existe)? */
+function operatorAssigned(line, labor) {
+  return typeof line.operatorLaborId === 'string' && objectList(labor).some((l) => l.id === line.operatorLaborId);
+}
+
+/**
+ * Externos que preguntan "¿lo opera alguien de tu Personal?" (ECO-04, F2): traen operador, no tienen
+ * uno asignado, hay candidatos y no hay una confirmación vigente. Todos, no sólo el primero: cada
+ * línea muestra su pregunta en Equipos aunque el control de duplicados nombre otra cosa.
+ * @returns {{ index: number, name: string }[]}
+ */
+export function operatorScopeLines(quote = {}) {
+  const candidates = operatorCandidatesOf(quote);
+  if (!candidates.length) return [];
+  const labor = objectList(quote.labor);
+  return objectList(quote.equipment)
+    .map((e, index) => ({ e, index }))
+    .filter(({ e }) => (e.acquisition === 'rented' || e.acquisition === 'outsourced') && isPlainObject(e.external) && e.external.operatorIncluded === true
+      && !operatorAssigned(e, labor) && !operatorConfirmationHolds(e.operatorBySupplier, candidates))
+    .map(({ e, index }) => ({ index, name: (typeof e.name === 'string' && e.name.trim()) || 'Externo' }));
+}
+
+/**
+ * Lo que confirma "Ningún puesto de Personal lo opera" en un externo con operador (ECO-04, F2): los
+ * puestos candidatos de AHORA. Vale mientras no aparezca otro ni cambie el nombre de uno de ellos:
+ * entonces se vuelve a preguntar.
+ */
+export function operatorSupplierSnapshot(quote = {}) {
+  return { labor: operatorCandidatesOf(quote) };
+}
+
+function operatorConfirmationHolds(confirmed, free) {
+  if (!isPlainObject(confirmed) || !Array.isArray(confirmed.labor)) return false;
+  const known = new Map(confirmed.labor.filter(isPlainObject).map((x) => [x.id, roleOf(x)]));
+  return free.every((x) => known.has(x.id) && known.get(x.id) === x.role);
+}
+
+/** Tono (green | orange | red) de un puntaje de completitud; con pendientes críticos (`criticalCount`), nunca green. */
+export function completenessTone(scorePct, criticalCount = 0) {
   if (!Number.isFinite(scorePct)) return 'red';
-  if (scorePct >= COMPLETENESS_GREEN_THRESHOLD) return 'green';
+  // UI-02 (revisión de frontend de la beta): con un pendiente crítico nunca es verde, aunque el % sea alto.
+  if (scorePct >= COMPLETENESS_GREEN_THRESHOLD) return criticalCount > 0 ? 'orange' : 'green';
   if (scorePct >= COMPLETENESS_RISK_THRESHOLD) return 'orange';
   return 'red';
 }
@@ -95,6 +180,64 @@ export function externalUnitAssumption(quote = {}, line = {}) {
     distanceKm: logistics.notApplicable ? 0 : nonNegative(logistics.distanceKm),
     roundTrip: logistics.roundTrip !== false,
   };
+}
+
+/**
+ * Supuesto de "Cada unidad hace todo el recorrido" (P1 CIERRE, AUD-T1 H-09) para un externo por km
+ * o por tramo con cantidad mayor que 1: unidad de la tarifa, base del viaje y cantidad TAL COMO ESTÁN.
+ * La confirmación se guarda en `line.externalQuantityConfirmed` y vale mientras siga igual.
+ */
+export function externalQuantityAssumption(quote = {}, line = {}) {
+  const x = isPlainObject(line.external) ? line.external : {};
+  return {
+    unit: typeof x.unit === 'string' ? x.unit : null,
+    tripBasis: x.unit === 'trip' ? (x.tripBasis === 'round_trip' ? 'round_trip' : 'leg') : null,
+    quantity: nonNegative(line.quantity),
+  };
+}
+
+/** Qué cambió desde "cada unidad hace todo el recorrido" (vacío = sigue valiendo). Sin confirmación: null. */
+function quantityAssumptionChanges(confirmed, current) {
+  if (!isPlainObject(confirmed) || typeof confirmed.unit !== 'string') return null;
+  const changes = [];
+  if (confirmed.unit !== current.unit || (confirmed.tripBasis ?? null) !== current.tripBasis) changes.push('unit');
+  if (!(Math.abs(Number(confirmed.quantity) - current.quantity) < 1e-9)) changes.push('quantity');
+  return changes;
+}
+
+/** ¿La confirmación "cada unidad hace todo el recorrido" de la línea sigue valiendo con los valores de ahora? */
+export function externalQuantityHolds(quote, line) {
+  const changes = quantityAssumptionChanges(line && line.externalQuantityConfirmed, externalQuantityAssumption(quote, line || {}));
+  return Array.isArray(changes) && changes.length === 0;
+}
+
+/**
+ * Supuesto de "La cobertura está prevista" (P1 CIERRE, AUD-T1 H-10) para un puesto: días y horas de
+ * la operación, personas por posición, horas normales, horas extra y si el servicio es continuo, TAL
+ * COMO ESTÁN. Se guarda en `line.coverageConfirmed`: mientras siga igual, el puesto no cuenta para
+ * "Horas del personal" ni para "Relevos". Nunca cambia el costo ni suma personas.
+ */
+export function laborCoverageAssumption(quote = {}, line = {}) {
+  const act = normalizeActivity(quote);
+  const activity = isPlainObject(quote.activity) ? quote.activity : {};
+  const items = overtimeItemsOf(line);
+  return {
+    activeDaysPerMonth: nonNegative(act.activeDaysPerMonth),
+    hoursPerActiveDay: nonNegative(act.hoursPerActiveDay),
+    peoplePerPosition: nonNegative(line.peoplePerPosition, 1),
+    normalHoursPerMonth: nonNegative(line.normalHoursPerMonth),
+    overtimePerActiveDay: items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0),
+    overtimePerMonth: items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0),
+    continuous: CONTINUOUS_SERVICE_TYPES.includes(quote.serviceType) && (quote.serviceType === 'permanent' || activity.availability === '24/7'),
+  };
+}
+
+/** ¿La confirmación de cobertura del puesto sigue valiendo para la cotización tal como está? */
+export function laborCoverageHolds(quote = {}, line = {}) {
+  const c = isPlainObject(line) ? line.coverageConfirmed : null;
+  if (!isPlainObject(c)) return false;
+  const now = laborCoverageAssumption(quote, line);
+  return Object.keys(now).every((k) => (typeof now[k] === 'boolean' ? c[k] === now[k] : Math.abs(Number(c[k]) - now[k]) < 1e-9));
 }
 
 /** Qué cambió desde la confirmación (vacío = sigue valiendo). Sin confirmación válida: null. */
@@ -179,11 +322,30 @@ export function evaluateCompleteness(quote = {}) {
     items.push(item);
   }
 
+  // 3 bis. Abono ($/mes) con más días trabajados que disponibles (ECO-04, AUD-T1 H-04): el motor lo
+  // toma como más de un mes de trabajo (factura días ÷ disponibles abonos y prorratea los fijos), pero
+  // un abono mensual se cobra una vez por mes. La fórmula no cambia: el resultado queda NO
+  // CONFIABLE hasta corregir los días. En las otras unidades sigue siendo trabajo de más de un mes.
+  if (unit.kind === 'month') {
+    const days = normalizeActivity(quote);
+    const worked = days.activeDaysPerMonth;
+    const available = days.availableDaysPerMonth;
+    if (available > 0 && worked > available + 1e-9) {
+      const n = (v) => formatNumber(v, { decimals: 2 });
+      const ratio = n(worked / available);
+      const item = rule('month_days_overflow', 'Días trabajados del abono', 'modality', 2, 'missing',
+        `Cargaste ${n(worked)} días trabajados por mes con ${n(available)} días disponibles: RATEOS lo toma como más de un mes de trabajo y factura ${ratio} abonos por mes (y los costos fijos × ${ratio}). Un abono mensual se cobra una vez por mes. Si también trabajás sábados, domingos o feriados, subí los días disponibles (30 si es todo el mes); si no, bajá los días trabajados. Hasta entonces el resultado no es confiable.`);
+      item.critical = true;
+      item.unreliable = true;
+      item.focus = 'activity.availableDaysPerMonth';
+      items.push(item);
+    }
+  }
+
   // 4. Personal. Un puesto USADO (posiciones > 0) sin sueldo básico es CRÍTICO (ECO-01, H-03):
   // su costo laboral sería $ 0 y la cotización no está completa. No se inventa ningún sueldo.
   // Vale también para "sólo equipo": si se cargó un puesto con posiciones, se usa.
   const unpaid = labor.map((l, index) => ({ l, index })).filter(({ l }) => nonNegative(l.positions) > 0 && !(nonNegative(l.basicMonthly) > 0));
-  const roleOf = (l) => (typeof l.role === 'string' && l.role.trim()) || 'Personal';
   if (unpaid.length) {
     const names = unpaid.slice(0, 3).map(({ l }) => `"${roleOf(l)}"`).join(', ');
     const more = unpaid.length > 3 ? ` y ${unpaid.length - 3} más` : '';
@@ -202,9 +364,25 @@ export function evaluateCompleteness(quote = {}) {
   // 5. Relevos (cobertura continua)
   const continuous = CONTINUOUS_SERVICE_TYPES.includes(serviceType) && (serviceType === 'permanent' || activity.availability === '24/7');
   if (continuous && labor.length > 0) {
-    const ok = labor.every((l) => nonNegative(l.peoplePerPosition, 1) > 1);
-    items.push(rule('relief', 'Relevos', 'labor', 1, ok ? 'ok' : 'warning',
-      ok ? 'Relevos configurados.' : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.'));
+    // P1 CIERRE (AUD-T1 H-10): es una revisión, no una orden de sumar personal. Dice de dónde sale la
+    // cobertura continua (disponibilidad 24/7 o servicio permanente) y cada puesto puede confirmarla.
+    const open = labor.map((l, index) => ({ l, index })).filter(({ l }) => !(nonNegative(l.peoplePerPosition, 1) > 1) && !laborCoverageHolds(quote, l));
+    const confirmedSome = labor.some((l) => !(nonNegative(l.peoplePerPosition, 1) > 1));
+    const roleName = (l) => (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+    const names = open.slice(0, 3).map(({ l }) => `"${roleName(l)}"`).join(', ') + (open.length > 3 ? ` y ${open.length - 3} más` : '');
+    const source = activity.availability === '24/7'
+      ? `Disponibilidad 24/7 (en la modalidad del servicio)${serviceType === 'permanent' ? ' en un servicio permanente' : ''}`
+      : 'Servicio permanente';
+    const fix = activity.availability === '24/7' ? ' Si el servicio no es 24/7, cambiá la disponibilidad en la modalidad.' : '';
+    const item = rule('relief', 'Relevos', 'labor', 1, open.length ? 'warning' : 'ok',
+      open.length
+        ? `${source} con una sola persona por posición en ${names}: revisá quién cubre relevos, francos y vacaciones.${fix} Si la cobertura ya está prevista (horas extra, personal de reemplazo de la empresa o el puesto no acompaña toda la operación), tocá "La cobertura está prevista" en el puesto: no hace falta sumar personas. RATEOS no agrega personal solo.`
+        : confirmedSome ? 'Cobertura confirmada en los puestos con una sola persona por posición.' : 'Relevos configurados.');
+    if (open.length) {
+      item.focus = `labor.${open[0].index}.peoplePerPosition`;
+      item.targets = open.map(({ l, index }) => ({ list: 'labor', index, name: roleName(l) }));
+    }
+    items.push(item);
   }
 
   // 5 bis. Horas de cobertura de la operación vs horas cargadas del puesto (PLAN-2026-014,
@@ -228,6 +406,8 @@ export function evaluateCompleteness(quote = {}) {
       const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
       const required = D * H;
       const covered = ppp * normal + perDay * D + perMonth * ppp;
+      // P1 CIERRE (H-10): un puesto con "La cobertura está prevista" vigente no se vuelve a marcar.
+      if (laborCoverageHolds(quote, l)) return null;
       return required > covered + 1e-6 ? { l, index, ppp, normal, extra: perDay * D + perMonth * ppp, required, covered } : null;
     }).filter(Boolean);
     if (short.length) {
@@ -236,9 +416,9 @@ export function evaluateCompleteness(quote = {}) {
       const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
-        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo.${others}`);
+        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo. Puede estar bien: si el puesto no acompaña todas las horas de la operación (por ejemplo, está compartido o supervisa) o esas horas ya están en el sueldo, tocá "La cobertura está prevista" en el puesto: no hace falta sumar personas.${others}`);
       item.focus = `labor.${first.index}.peoplePerPosition`;
-      item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
+      item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal', required: x.required, covered: x.covered }));
       items.push(item);
     }
   }
@@ -430,6 +610,25 @@ export function evaluateCompleteness(quote = {}) {
             : `Falta definir quién maneja ${names(noDriver)} en el traslado.`));
   }
 
+  // 9b bis. Vehículos de apoyo (ECO-04, AUD-T1 H-08): como vehículo de apoyo sólo se suman sus costos
+  // por km (combustible y desgaste). Cada uno dice dónde está su costo de tenerlo: una línea de
+  // Equipos o ya en el costo por km. Sin respuesta es CRÍTICO (se pide confirmar antes de mandarla),
+  // pero no vuelve NO CONFIABLE el resultado: el costo por km puede estar bien. La fórmula no cambia.
+  if (!logistics.notApplicable) {
+    const unanswered = vehicles.map((v, index) => ({ v, index })).filter(({ v }) => nonNegative(v.count) > 0 && !vehicleOwnershipAnswered(v, equipment));
+    if (unanswered.length) {
+      const vehicleName = (v) => (typeof v.name === 'string' && v.name.trim()) || 'Vehículo';
+      const first = unanswered[0];
+      const others = unanswered.length > 1 ? ` También: ${unanswered.slice(1, 4).map(({ v }) => `"${vehicleName(v)}"`).join(', ')}${unanswered.length > 4 ? '…' : ''}.` : '';
+      const item = rule('vehicle_ownership_costs', 'Costo de tenerlo de los vehículos de apoyo', 'logistics', 2, 'missing',
+        `"${vehicleName(first.v)}": como vehículo de apoyo sólo se suman sus costos por km (combustible y desgaste). Si es propio o lo alquilás por mes, su costo de tenerlo (amortización, seguro, patente o el alquiler) no está en la cotización: cargalo también en Equipos (sin horas si sólo traslada y, en cómo llega, "No requiere movilización": el traslado ya está acá) y elegí esa línea en "Costo de tenerlo". Si ya está en el costo por km (un tercero que cobra por km, o lo incluiste en el desgaste), elegí "Ya está en el costo por km".${others}`);
+      item.critical = true;
+      item.focus = `logistics.vehicles.${first.index}.ownershipCostsIn`;
+      item.targets = unanswered.map(({ v, index }) => ({ list: 'vehicles', index, name: vehicleName(v) }));
+      items.push(item);
+    }
+  }
+
   // 9c. Equipos y servicios externos: tratamiento fiscal y vigencia de la oferta
   const externals = equipment.filter(isExt);
   if (externals.length > 0) {
@@ -522,6 +721,45 @@ export function evaluateCompleteness(quote = {}) {
     }
   }
 
+  // 9c'''. Externo por km o por tramo con cantidad mayor que 1 (P1 CIERRE, AUD-T1 H-09): cada unidad
+  // cuenta TODO el recorrido de la ruta. Si en realidad las unidades se reparten los viajes, el costo
+  // sale de más (+94 % en AUD-T1 E3). CRÍTICO (se pide confirmar antes de mandarla) sin volver NO
+  // CONFIABLE el resultado; la confirmación vale sólo para el supuesto (`externalQuantityAssumption`).
+  // No cambia la fórmula. Sin ruta (o con "Sin traslados") no pregunta: la línea no suma costo y ya lo
+  // marca "Ruta del proveedor".
+  {
+    const legsPerActivation = (logistics.roundTrip === false ? 1 : 2) * route.tripsPerActivation;
+    const perActivationOf = (x) => (logistics.notApplicable ? 0 : x.unit === 'km' ? routeKmPerActivation : x.tripBasis === 'round_trip' ? route.tripsPerActivation : legsPerActivation);
+    const multi = equipment
+      .filter((e) => isExt(e) && (extOf(e).unit === 'km' || extOf(e).unit === 'trip') && nonNegative(extOf(e).price) > 0 && nonNegative(e.quantity) > 1 + 1e-9 && perActivationOf(extOf(e)) > 0)
+      .map((e) => ({ e, changes: quantityAssumptionChanges(e.externalQuantityConfirmed, externalQuantityAssumption(quote, e)) }))
+      .filter(({ changes }) => changes === null || changes.length > 0);
+    if (multi.length) {
+      const { e: first, changes } = multi[0];
+      const x = extOf(first);
+      const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+      const qty = nonNegative(first.quantity);
+      const isKm = x.unit === 'km';
+      const roundTrip = x.unit === 'trip' && x.tripBasis === 'round_trip';
+      const perActivation = perActivationOf(x);
+      const A = act.activationsPerMonth;
+      const unitWord = isKm ? 'km' : roundTrip ? 'viaje completo' : 'tramo';
+      const many = isKm ? 'km' : roundTrip ? 'viajes completos' : 'tramos';
+      const month = A > 0 && perActivation > 0
+        ? ` (${n(perActivation * A)} ${many} de la ruta en el mes × ${n(qty)} = ${n(perActivation * A * qty)} ${many} facturados)`
+        : '';
+      const changed = { unit: 'la unidad de la tarifa', quantity: 'la cantidad' };
+      const stale = changes && changes.length ? `La confirmación anterior ("cada unidad hace todo el recorrido") ya no vale: cambió ${changes.map((c) => changed[c]).join(' y ')}. ` : '';
+      const others = multi.length > 1 ? ` También: ${multi.slice(1, 4).map(({ e }) => `"${lineName(e, 'Externo')}"`).join(', ')}.` : '';
+      const item = rule('external_quantity', 'Cantidad del proveedor', 'equipment', 2, 'missing',
+        `${stale}"${lineName(first, 'Externo')}" cobra ${formatMoney(nonNegative(x.price))} por ${unitWord} con cantidad ${n(qty)}: RATEOS cuenta todo el recorrido por cada unidad${month}. Si las ${n(qty)} unidades se reparten los viajes de la cotización, poné cantidad 1; si cada unidad hace todo el recorrido, confirmalo.${others}`);
+      item.critical = true;
+      item.focus = `equipment.${equipment.indexOf(first)}.quantity`;
+      item.targets = multi.map(({ e }) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
+      items.push(item);
+    }
+  }
+
   // 9c''. Externo por hora sin horas por día (Test Lab, PLAN-2026-013): CRÍTICO, igual que la
   // ruta faltante. Su tarifa no se puede calcular: nunca es un $ 0 válido.
   const activityHours = Math.min(nonNegative(activity.hoursPerActiveDay), 24);
@@ -572,8 +810,17 @@ export function evaluateCompleteness(quote = {}) {
   if (equipment.length > 0) {
     const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
     const operatorTwice = equipment.filter((e) => isExt(e) && extOf(e).operatorIncluded === true && typeof e.operatorLaborId === 'string' && labor.some((l) => l.id === e.operatorLaborId));
+    // VAL-01-F2 (ECO-04): un externo que trae operador, sin operador asignado, y un puesto de Personal
+    // que suena a operador o chofer y no opera ningún equipo: puede ser ese operador (se pagaría dos
+    // veces). No toda superposición es doble conteo: se pregunta, y "Ningún puesto de Personal lo
+    // opera" lo confirma para esos puestos (uno nuevo o renombrado vuelve a preguntar).
+    const candidates = operatorCandidatesOf(quote);
+    const operatorScope = operatorScopeLines(quote);
     const selfMoving = equipment.filter((e) => isPlainObject(e.mobilization) && e.mobilization.mode === 'self');
+    // Un vehículo de apoyo ligado a la línea (su costo de tenerlo está ahí, ECO-04) o con el mismo nombre.
+    const linkedVehicle = (e) => vehicles.findIndex((v) => nonNegative(v.count) > 0 && v.ownershipCostsIn === e.id);
     const vehicleTwice = logistics.notApplicable ? [] : selfMoving.filter((e) => {
+      if (linkedVehicle(e) >= 0) return true;
       const n = norm(e.name);
       return n.length >= 4 && vehicles.some((v) => {
         const vn = norm(v.name);
@@ -582,15 +829,25 @@ export function evaluateCompleteness(quote = {}) {
     });
     // Un externo cuya movilización cobra el proveedor aparte y que además "va por sus propios medios".
     const mobilizationTwice = logistics.notApplicable ? [] : selfMoving.filter((e) => isExt(e) && extOf(e).mobilizationIncluded === false && nonNegative(extOf(e).mobilizationAmount) > 0);
-    const ok = operatorTwice.length === 0 && vehicleTwice.length === 0 && mobilizationTwice.length === 0;
-    items.push(rule('duplicates', 'Costos posiblemente duplicados', 'logistics', 1, ok ? 'ok' : 'warning',
+    const ok = operatorTwice.length === 0 && operatorScope.length === 0 && vehicleTwice.length === 0 && mobilizationTwice.length === 0;
+    const candidateNames = `${candidates.slice(0, 3).map((x) => `"${x.role}"`).join(', ')}${candidates.length > 3 ? ` y ${candidates.length - 3} más` : ''}`;
+    const oneCandidate = candidates.length === 1;
+    const item = rule('duplicates', 'Costos posiblemente duplicados', 'logistics', 1, ok ? 'ok' : 'warning',
       ok
         ? 'Sin señales de operadores, vehículos o movilizaciones cargados dos veces.'
         : operatorTwice.length
           ? `Operador posiblemente duplicado: la tarifa de "${operatorTwice[0].name || 'Externo'}" ya incluye operador y además le asignaste uno de Personal.`
-          : vehicleTwice.length
-            ? `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está como vehículo de la logística auxiliar.`
-            : `Movilización posiblemente duplicada: el proveedor de "${mobilizationTwice[0].name || 'Externo'}" cobra la movilización aparte y además lo marcaste "por sus propios medios" (se suman km, combustible y desgaste).`));
+          : operatorScope.length
+            ? `${oneCandidate ? `¿${candidateNames} opera` : `¿Alguno de estos puestos de Personal (${candidateNames}) opera`} "${operatorScope[0].name}"? Su tarifa ya incluye operador y ${oneCandidate ? 'ese puesto no opera' : 'esos puestos no operan'} ningún equipo: si es el mismo, se paga dos veces. Si es el mismo, sacalo de Personal (o dejalo en 0 posiciones); si es otra persona, confirmá en Equipos "Ningún puesto de Personal lo opera".`
+            : vehicleTwice.length
+              ? (linkedVehicle(vehicleTwice[0]) >= 0
+                ? `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" tiene el costo de tenerlo de un vehículo de apoyo y además "Se traslada por sus propios medios": los km del traslado se cuentan dos veces. Si sólo traslada como vehículo de apoyo, elegí "No requiere movilización" en esa línea.`
+                : `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está como vehículo de la logística auxiliar.`)
+              : `Movilización posiblemente duplicada: el proveedor de "${mobilizationTwice[0].name || 'Externo'}" cobra la movilización aparte y además lo marcaste "por sus propios medios" (se suman km, combustible y desgaste).`);
+    if (operatorScope.length) item.targets = operatorScope.map(({ index, name }) => ({ list: 'equipment', index, name }));
+    if (!ok && !operatorTwice.length && operatorScope.length) item.focus = `equipment.${operatorScope[0].index}.operatorLaborId`;
+    else if (!ok && !operatorTwice.length && vehicleTwice.length && linkedVehicle(vehicleTwice[0]) >= 0) item.focus = `logistics.vehicles.${linkedVehicle(vehicleTwice[0])}.ownershipCostsIn`;
+    items.push(item);
   }
 
   // 9e. Base económica (fecha base de los valores) y su antigüedad
@@ -808,6 +1065,8 @@ export function evaluateCompleteness(quote = {}) {
     review: pending.filter((i) => i.severity === 'review').length,
     // Con estos pendientes el resultado NO es confiable (ECO-01): cuántos hay.
     unreliable: pending.filter((i) => i.unreliable === true).length,
+    // Externos que preguntan si alguien de Personal los opera (ECO-04, F2), cada uno con su índice.
+    operatorScope: operatorScopeLines(quote),
   };
 }
 

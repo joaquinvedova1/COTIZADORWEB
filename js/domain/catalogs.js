@@ -112,6 +112,14 @@ export const EXTERNAL_TRIP_BASES = deepFreeze([
   { id: 'round_trip', label: 'Por viaje completo (ida y vuelta)', short: '/viaje' },
 ]);
 
+/**
+ * Dónde está el costo de tenerlo de un vehículo de apoyo (ECO-04, AUD-T1 H-08), en
+ * `logistics.vehicles[].ownershipCostsIn`: el id de una línea de Equipos (la camioneta
+ * cargada también como equipo) o este valor: ya está en el costo por km (un tercero que
+ * cobra por km, o la amortización, el seguro y la patente incluidos en el desgaste).
+ */
+export const OWNERSHIP_COSTS_PER_KM = 'per_km';
+
 /** Abreviatura de la unidad de una tarifa externa: "/tramo", "/viaje" (viaje completo), "/km"… */
 export function externalUnitShort(ext) {
   const x = ext && typeof ext === 'object' ? ext : {};

@@ -6,14 +6,24 @@
  * producción). Emula las políticas RLS de la migración: cada consulta sólo ve y
  * modifica filas de las organizaciones de las que el usuario del token es
  * miembro. Usuarios, organizaciones y tokens son sintéticos y viven en memoria.
+ *
+ * Correos de Auth (HD-03): el registro público deja en db.outbox el correo de
+ * confirmación (enlace /verify PKCE) y "¿Olvidaste tu contraseña?" el de
+ * recuperación (enlace + código de 6 dígitos), sólo si corresponde, como
+ * Supabase: un email ya registrado recibe la misma respuesta y ningún correo;
+ * sin confirmar no se puede ingresar. db.smtp.mode simula el SMTP: 'custom' (entrega todo),
+ * 'default' (SMTP por defecto: sólo al equipo, db.smtp.team) o 'broken'.
+ * El enlace sigue el flujo PKCE real (code_challenge → ?code= → canje con el
+ * code_verifier) y el código, verifyOtp type 'recovery'. Nada sale a internet.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { SUPABASE } from '../../../js/config.js';
 
 export const SUPA = SUPABASE.url;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+const sameEmail = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
 /** Base en memoria (como el trigger on_auth_user_created: cada usuario nace con su organización y su workspace vacío). */
 export function createDb() {
@@ -26,12 +36,17 @@ export function createDb() {
     profiles: new Map(),
     workspaces: new Map(),
     log: [],
+    /** Correos de Auth simulados (nunca se envían). */
+    outbox: [],
+    /** Códigos PKCE emitidos por /verify, a canjear con el code_verifier. */
+    flows: new Map(),
+    smtp: { mode: 'custom', team: [] },
   };
-  db.createUser = ({ email, password, fullName, company }) => {
+  db.createUser = ({ email, password, fullName, company, confirmed = true }) => {
     const id = randomUUID();
     const orgId = randomUUID();
     const now = new Date().toISOString();
-    db.users.set(email, { id, email, password, fullName, company, createdAt: now });
+    db.users.set(email, { id, email, password, fullName, company, confirmed, createdAt: now });
     db.profiles.set(id, { id, full_name: String(fullName || '').slice(0, 120) });
     db.orgs.set(orgId, { id: orgId, name: String(company || 'Mi empresa').slice(0, 120), created_at: now, updated_at: now });
     db.members.push({ organization_id: orgId, user_id: id, role: 'OWNER', created_at: now });
@@ -58,7 +73,7 @@ function userJson(u) {
     aud: 'authenticated',
     role: 'authenticated',
     email: u.email,
-    email_confirmed_at: now,
+    email_confirmed_at: u.confirmed === false ? null : now,
     app_metadata: { provider: 'email', providers: ['email'] },
     user_metadata: { full_name: u.fullName, company: u.company, email_verified: true },
     identities: [{ id: u.id, user_id: u.id, provider: 'email', identity_data: { sub: u.id, email: u.email } }],
@@ -115,6 +130,21 @@ export async function installSupabaseMock(context, db) {
     const method = req.method();
     if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
     db.log.push(`${method} ${url.pathname}`);
+    // Enlace del correo (lo abre el navegador, sin apikey): consume el token y vuelve al sitio con ?code= (PKCE).
+    if (url.pathname === '/auth/v1/verify' && method === 'GET') {
+      const mail = db.outbox.find((m) => m.tokenHash === url.searchParams.get('token'));
+      const target = new URL(url.searchParams.get('redirect_to') || (mail && mail.redirectTo));
+      if (!mail || mail.used) {
+        target.hash = 'error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired';
+        return route.fulfill({ status: 303, headers: { location: target.href } });
+      }
+      mail.used = true;
+      if (mail.type === 'signup') db.users.get(mail.to).confirmed = true; // el enlace confirma el email aunque se abra en otro navegador
+      const authCode = randomUUID();
+      db.flows.set(authCode, { email: mail.to, challenge: mail.challenge, method: mail.method });
+      target.searchParams.set('code', authCode);
+      return route.fulfill({ status: 303, headers: { location: target.href } });
+    }
     if (req.headers().apikey !== SUPABASE.publishableKey) return reply(route, 401, { message: 'Invalid API key' });
     const bearer = (req.headers().authorization || '').replace(/^Bearer\s+/i, '');
     const uid = db.tokens.get(bearer) || null;
@@ -131,7 +161,19 @@ export async function installSupabaseMock(context, db) {
       if (grant === 'password') {
         const u = db.users.get(body && body.email);
         if (!u || u.password !== body.password) return authErr(route, 400, 'invalid_credentials', 'Invalid login credentials');
+        // Como GoTrue: "sin confirmar" recién después de validar la contraseña (no revela cuentas).
+        if (u.confirmed === false) return authErr(route, 400, 'email_not_confirmed', 'Email not confirmed');
         return reply(route, 200, session(db, u));
+      }
+      if (grant === 'pkce') {
+        const flow = db.flows.get(body && body.auth_code);
+        if (!flow) return authErr(route, 404, 'flow_state_not_found', 'invalid flow state, no valid flow state found');
+        // Como GoTrue: s256 (https) o plain (el SDK lo usa sin crypto.subtle, p. ej. en http://rateos.test).
+        const verifier = String((body && body.code_verifier) || '');
+        const expected = flow.method === 'plain' ? verifier : b64url(createHash('sha256').update(verifier).digest());
+        if (!flow.challenge || !verifier || flow.challenge !== expected) return authErr(route, 403, 'bad_code_verifier', 'code challenge does not match previously saved code verifier');
+        db.flows.delete(body.auth_code);
+        return reply(route, 200, session(db, db.users.get(flow.email)));
       }
       if (grant === 'refresh_token') {
         const userId = db.refresh.get(body && body.refresh_token);
@@ -142,9 +184,88 @@ export async function installSupabaseMock(context, db) {
       return authErr(route, 400, 'unsupported_grant_type', 'unsupported');
     }
     if (url.pathname === '/auth/v1/logout') return route.fulfill({ status: 204, headers: CORS });
+    // Registro público con confirmación (como GoTrue con "Confirm email" encendido).
+    const mailTo = (u, type) => {
+      for (const m of db.outbox) if (m.to === u.email && m.type === type) m.used = true;
+      db.outbox.push({
+        to: u.email,
+        type,
+        otp: String(randomInt(0, 1000000)).padStart(6, '0'),
+        tokenHash: createHash('sha256').update(randomUUID()).digest('hex'),
+        redirectTo: url.searchParams.get('redirect_to'),
+        challenge: (body && body.code_challenge) || null,
+        method: String((body && body.code_challenge_method) || 's256').toLowerCase(),
+        used: false,
+        at: Date.now(),
+      });
+    };
+    const smtpFails = (email) => {
+      if (db.smtp.mode === 'default' && !db.smtp.team.some((t) => sameEmail(t, email))) return ['email_address_not_authorized', 400, 'Email address not authorized'];
+      if (db.smtp.mode === 'broken') return ['unexpected_failure', 500, 'Error sending confirmation email'];
+      return null;
+    };
+    if (url.pathname === '/auth/v1/signup' && method === 'POST') {
+      const email = String((body && body.email) || '').trim().toLowerCase();
+      if (String((body && body.password) || '').length < 6) return authErr(route, 422, 'weak_password', 'Password should be at least 6 characters.');
+      const existing = [...db.users.values()].find((x) => sameEmail(x.email, email));
+      if (existing && existing.confirmed !== false) {
+        // Ya registrado y confirmado: usuario "de mentira", sin identidades y sin correo.
+        return reply(route, 200, { id: randomUUID(), aud: 'authenticated', role: 'authenticated', email, identities: [], user_metadata: {}, app_metadata: { provider: 'email', providers: ['email'] }, created_at: new Date().toISOString() });
+      }
+      const fail = smtpFails(email);
+      if (fail) return authErr(route, fail[1], fail[0], fail[2]); // GoTrue no crea la cuenta si no pudo enviar.
+      const last = existing && db.outbox.filter((m) => m.to === existing.email && m.type === 'signup').at(-1);
+      if (last && Date.now() - last.at < 60000) return authErr(route, 429, 'over_email_send_rate_limit', 'For security purposes, you can only request this after 60 seconds.');
+      const data = (body && body.data) || {};
+      const u = existing || db.createUser({ email, password: body.password, fullName: data.full_name, company: data.company || 'Mi empresa', confirmed: false });
+      mailTo(u, 'signup');
+      return reply(route, 200, userJson(u));
+    }
+    if (url.pathname === '/auth/v1/resend' && method === 'POST') {
+      const u = [...db.users.values()].find((x) => sameEmail(x.email, body && body.email));
+      if (!u || u.confirmed !== false || (body && body.type) !== 'signup') return reply(route, 200, {});
+      const fail = smtpFails(u.email);
+      if (fail) return authErr(route, fail[1], fail[0], fail[2]);
+      const last = db.outbox.filter((m) => m.to === u.email && m.type === 'signup').at(-1);
+      if (last && Date.now() - last.at < 60000) return authErr(route, 429, 'over_email_send_rate_limit', 'For security purposes, you can only request this after 60 seconds.');
+      mailTo(u, 'signup');
+      return reply(route, 200, {});
+    }
+    // "¿Olvidaste tu contraseña?": como Supabase, 200 aunque la cuenta no exista (y entonces no sale nada).
+    if (url.pathname === '/auth/v1/recover' && method === 'POST') {
+      const u = [...db.users.values()].find((x) => sameEmail(x.email, body && body.email));
+      if (!u) return reply(route, 200, {});
+      if (db.smtp.mode === 'default' && !db.smtp.team.some((t) => sameEmail(t, u.email))) return authErr(route, 400, 'email_address_not_authorized', 'Email address not authorized');
+      if (db.smtp.mode === 'broken') return authErr(route, 500, 'unexpected_failure', 'Error sending recovery email');
+      const last = db.outbox.filter((m) => m.to === u.email).at(-1);
+      if (last && Date.now() - last.at < 60000) return authErr(route, 429, 'over_email_send_rate_limit', 'For security purposes, you can only request this after 60 seconds.');
+      // Como GoTrue (un solo recovery_token por usuario): un correo nuevo anula el enlace y el código del anterior.
+      for (const m of db.outbox) if (m.to === u.email && m.type === 'recovery') m.used = true;
+      db.outbox.push({
+        to: u.email,
+        type: 'recovery',
+        otp: String(randomInt(0, 1000000)).padStart(6, '0'),
+        tokenHash: createHash('sha256').update(randomUUID()).digest('hex'),
+        redirectTo: url.searchParams.get('redirect_to'),
+        challenge: (body && body.code_challenge) || null,
+        method: String((body && body.code_challenge_method) || 's256').toLowerCase(),
+        used: false,
+        at: Date.now(),
+      });
+      return reply(route, 200, {});
+    }
+    // Código del correo (verifyOtp): sirve en cualquier navegador, una sola vez. Es la misma credencial que el enlace (mail.used).
+    if (url.pathname === '/auth/v1/verify' && method === 'POST') {
+      const mail = db.outbox.find((m) => !m.used && m.type === (body && body.type) && sameEmail(m.to, body && body.email) && m.otp === String((body && body.token) || ''));
+      if (!mail) return authErr(route, 403, 'otp_expired', 'Token has expired or is invalid');
+      mail.used = true;
+      return reply(route, 200, session(db, db.users.get(mail.to)));
+    }
     if (url.pathname === '/auth/v1/user') {
       if (!uid) return authErr(route, 401, 'bad_jwt', 'invalid JWT');
-      return reply(route, 200, userJson(db.userById(uid)));
+      const u = db.userById(uid);
+      if (method === 'PUT' && body && typeof body.password === 'string') u.password = body.password;
+      return reply(route, 200, userJson(u));
     }
 
     // PostgREST con RLS emulada

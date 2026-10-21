@@ -41,7 +41,8 @@ describe('Beta Security Gate', () => {
     assert.ok(verdict.requiredBeforeRealUsers.every((r) => r.status === 'human' && /^Requisito obligatorio antes de habilitar usuarios reales/.test(r.details[0])));
     assert.match(verdict.requiredBeforeRealUsers[0].details[0], /dominio propio/);
     assert.match(verdict.requiredBeforeRealUsers[1].details[0], /origen y en base de datos, o \/preview\/ deshabilitado/);
-    assert.match(verdict.requiredBeforeRealUsers[2].details[0], /registro cerrado o por invitación/);
+    assert.match(verdict.requiredBeforeRealUsers[2].details[0], /registro público con confirmación de email/, 'HD-03 cambió por decisión del dueño (2026-10-20)');
+    assert.match(verdict.requiredBeforeRealUsers[2].details[0], /SMTP propio/);
   });
 });
 
