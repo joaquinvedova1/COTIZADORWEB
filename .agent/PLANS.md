@@ -1381,3 +1381,8 @@ Revert del PR. No deja datos.
   - **Control nuevo del `ui-lab`, en el celular a 360 × 640 px** (con esa altura el sueldo queda debajo del borde al abrir el diálogo): primero verifica que el campo quedó en el borde, después escribe con el teclado y mide el eco. Falla en `d3b7cb1` (el eco en y=550 a 570, con el borde en 546) y pasa con la corrección. En escritorio el sueldo queda en la mitad de arriba del diálogo: el caso no se da.
   - La herramienta de capturas de la evidencia reproduce el mismo caso (el sueldo en el borde de abajo, escrito con el teclado).
   - El CHANGELOG corrige la cuenta de tests nuevos: 18 en DESIGN-02 (2/2) y 16 en DESIGN-02 (1/2), no 15.
+- 2026-10-21: validación en `0cfe9ea` (SIMULADA):
+  - `npm test` 1750/1750, Test Lab OK (golden 39/39, candado OK), gate PASA (347/347), build OK;
+  - `ui-lab` 413/413 (escritorio) y 415/415 (celular), con 18 controles DESIGN-02B en cada uno;
+  - contra la base (`6a310e2`) fallan 12 de 18 en escritorio y 13 de 18 en el celular (fuera del bloque, 0); contra `d3b7cb1`, sólo el control nuevo del eco;
+  - combinado con los PR #28 a #35: `npm test` 1936/1936, Test Lab OK, gate 349/349, `ui-lab` 624/624 y 626/626, `auth-lab` 136/136. La corrección se combinó sin conflictos.
