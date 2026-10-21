@@ -84,7 +84,7 @@ Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **5 etapas**:
 | 4. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
 | 5. Resultado | Resultado |
 
-Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, días para no perder) y "Ver más". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
+Resumen en vivo con el costo del mes, la tarifa piso, la tarifa cobrada, el margen esperado, los días para no perder y el resultado esperado, sin abrir nada; "Ver más" deja el precio para tu margen y la completitud. En la barra compacta (1180 px o menos) van cuatro números: costo, piso, tarifa cobrada (destacada) y margen con su palabra ("cumple", "debajo", "pierde", "no confiable"); el resto, en "Ver detalle". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
 
 **Convención de montos: sin IVA.** Es una convención explícita de cada cotización (`vatTreatment`), no un supuesto silencioso: la primera etapa lo dice al empezar ("Esta cotización usa costos, precios y tarifas sin IVA: si tenés un valor con IVA, descontalo antes de cargarlo"), cada etapa muestra la marca **"Montos sin IVA"**, los formularios de equipos, materiales y el precio del combustible lo repiten donde suele llegar un precio con IVA, y el resultado y la impresión lo rotulan.
 
@@ -142,7 +142,8 @@ Reglas que no cambian: margen ≠ markup ([AGENTS.md §9](../AGENTS.md)); valore
 ## 6. Mobile
 
 - Landing, ingreso y registro se diseñan también a 360 px: menú colapsable, botones táctiles ≥ 44 px, sin scroll horizontal.
-- En la app mobile se puede: ver cotizaciones, ver el resultado, entender las tarifas e iniciar una cotización. Las tablas grandes se muestran como tarjetas o con scroll contenido, nunca forzando el ancho de la página.
+- En la app mobile se puede: ver cotizaciones, ver el resultado, entender las tarifas e iniciar una cotización. Las tablas grandes se muestran como tarjetas o con scroll contenido, nunca forzando el ancho de la página. Las tablas editables del editor (otros costos, vehículos y, en pasos angostos, estructura y tramos) pasan a una tarjeta por fila.
+- Los avisos emergentes salen arriba, debajo de la barra de la app: no tapan el resumen fijo del editor (con el menú abierto, abajo). Entre 761 y 1180 px, con el resumen fijo abajo, también salen arriba.
 - El estado de guardado ("Guardado", "Sin conexión", "Conflicto"…) se ve en la barra de arriba, sin abrir el menú; en el riel (761 a 1100 px), con una palabra debajo del punto de color.
 
 ## 7. Accesibilidad
@@ -150,6 +151,7 @@ Reglas que no cambian: margen ≠ markup ([AGENTS.md §9](../AGENTS.md)); valore
 - Contraste WCAG AA (tokens de texto `--ink-2`, `--ink-3`, `--*-text`, o sus alias `--color-*` de [DESIGN.md](../DESIGN.md) §2); acción principal `--primary` (azul Neuquén profundo). Bordes de campos, también dentro de tablas, con `--color-border-control` (≥ 3:1).
 - Raíz en % y ningún texto por debajo de 12 px (`--fs-xs`); "Ver cálculo" de 24 px o más (44 px en el celular); nada se distingue sólo por el color, tampoco en los gráficos.
 - Foco visible siempre; al cambiar de pantalla se enfoca el título (h1).
+- Campos: los obligatorios con `aria-required` además del asterisco; la ayuda, el error y los avisos del motor junto al campo, asociados con `aria-describedby`. Los montos llevan debajo su eco con separadores ("$ 2.600.000"); el texto del campo no se reformatea.
 - Un `h1` por pantalla, jerarquía de headings sin saltos, labels reales en formularios, `aria-expanded` en menús, `<details>/<summary>` nativo para las secciones colapsables.
 
 ## 8. Checklist por pantalla (test de carga cognitiva)

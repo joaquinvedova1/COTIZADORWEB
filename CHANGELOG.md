@@ -12,6 +12,27 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**DESIGN-02 (2/2), cotizar sin fricción (PLAN-2026-026).** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10).
+
+### Agregado
+
+- **Eco de montos en todo campo de plata** (Recursos, Configuración, Productos y el editor): debajo del campo, "$ 2.600.000" desde 10.000, con centavos si los hay y en la moneda del campo ("US$ 15.000"; antes, en el editor, un precio en dólares se leía como "$ 15.000"). Antes existía sólo en el editor de cotizaciones. Si aparece mientras se escribe con el campo en el borde de abajo de un diálogo, se desplaza lo justo para verse. El texto del campo no se reformatea: cambiarlo al entrar borraría la selección y, con Tab, lo tipeado se sumaría al número anterior (`DESIGN.md` §5).
+- **Margen con su palabra** en la barra compacta del resumen en vivo: "cumple", "debajo", "pierde" o "no confiable" (no sólo el color, WCAG 1.4.1).
+- Pruebas: `tests/ui/money-echo.test.js`, `tests/ui/live-summary-text.test.js` y `tests/ui/editor-friction.test.js` (18 tests) y el bloque DESIGN-02B del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+
+### Cambiado
+
+- **Resumen en vivo:** el margen y el resultado esperados pasan a la lista principal del panel (costo, piso, tarifa cobrada, margen, "Para no perder" y resultado); "Ver más" deja el precio para tu margen y la completitud. La barra compacta muestra costo, piso, tarifa cobrada y margen; "Para no perder" y el resultado en pesos quedan en "Ver detalle".
+- **La tarifa cobrada se destaca** en la barra compacta (fondo y cifra más fuerte): ya no se ve igual que la piso.
+- **Avisos arriba** cuando el resumen del editor está fijo abajo (1180 px o menos; en el celular, debajo de la barra de la app): ya no lo tapan. Con el menú del celular abierto van abajo.
+- **Tablas de estructura y de tramos en tarjetas** cuando el paso mide 680 px o menos (celular y tablet): sin scroll horizontal en el celular. En escritorio siguen como tabla.
+
+### Corregido
+
+- **Accesibilidad de los campos:** los obligatorios llevan `aria-required` (también los que marca el editor); la ayuda y el error de los campos de texto, fecha, selector y buscador se asocian con `aria-describedby` (antes sólo el numérico), y también los avisos del motor junto a un campo.
+- El eco de un monto con centavos los muestra ("$ 1.800.000,50"); antes redondeaba al peso.
+- **Margen esperado del resumen:** con un objetivo inválido ya no se pinta de verde ni dice "cumple el objetivo"; y NO CONFIABLE se dice primero también sin tarifa (resultado y margen).
+
 **DESIGN-02 (1/2), "Ingeniería clara" (PLAN-2026-025): `DESIGN.md` propio y leer bien montos, unidades, riesgo y estado de guardado.** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10). El logo no cambia y no se carga ninguna fuente.
 
 ### Agregado
@@ -20,7 +41,7 @@ Reglas para este archivo:
 - **Alias de color por función** (`--color-text`, `--color-status-critical`…) en `:root`, que apuntan a la paleta de siempre.
 - **"Calculado con tus costos y tus supuestos: no es un precio de mercado."** junto a los montos del Resultado (servicios y productos), también impreso (VAL-G4).
 - **Estado de guardado con palabra:** en el riel (761 a 1100 px), "Guardado", "Sin conexión", "Conflicto"… debajo del punto de color; en el celular, en la barra de arriba sin abrir el menú.
-- Pruebas: `tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js` (15 tests) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+- Pruebas: `tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js` (16 tests) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
 
 ### Cambiado
 

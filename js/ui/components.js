@@ -7,6 +7,7 @@ import { h, s, uniqueId, mount } from './dom.js';
 import { formatValue, formatPeriod, EMPTY } from '../core/format.js';
 import { validateNumber, numberToInputText } from '../core/validation.js';
 import { track } from '../core/events.js';
+import { moneyEchoText } from './money-echo.js';
 
 // ------------------------------------------------------------------ íconos
 
@@ -261,6 +262,10 @@ export function table({ columns, rows, footer = null, className = '', emptyText 
 
 function fieldShell({ id, label, hint, unit, error, required, illustrative }, control) {
   const errorEl = h('div', { class: 'field-error', id: `${id}-error`, role: 'alert', hidden: !error }, error || '');
+  // Lectores de pantalla (DESIGN-02 2/2): "obligatorio" no es sólo el asterisco, y la ayuda y el error se leen
+  // al entrar al campo. Un control que ya trae su aria-describedby (numérico, período, buscador) lo conserva.
+  if (required) control.setAttribute('aria-required', 'true');
+  if (!control.hasAttribute('aria-describedby')) control.setAttribute('aria-describedby', hint ? `${id}-hint ${id}-error` : `${id}-error`);
   return {
     el: h('div', { class: ['field', illustrative ? 'field-illustrative' : null] },
       h('label', { class: 'field-label', for: id }, label, required ? h('span', { class: 'req', 'aria-hidden': 'true' }, ' *') : null,
@@ -278,9 +283,14 @@ function fieldShell({ id, label, hint, unit, error, required, illustrative }, co
  * - Si al confirmar (salir del campo / Enter) el valor es inválido, se
  *   restaura el valor que tenía al entrar al campo: nunca queda guardado un
  *   prefijo intermedio (p. ej. "15" al tipear "150" en un margen).
- * @param {{ label: string, value: number|null, rule?: string, onChange: Function, hint?: string, unit?: string, required?: boolean, step?: string|number, placeholder?: string, disabled?: boolean, illustrative?: boolean, name?: string }} opts
+ * - Montos (rule 'money', DESIGN-02 2/2): debajo, el eco con separadores
+ *   ("$ 2.600.000", en la moneda de la unidad del campo: "US$ 15.000"). El
+ *   texto del campo no se reformatea: cambiarlo al tomar el
+ *   foco borraría la selección y, con Tab, lo tipeado se sumaría al número
+ *   anterior en vez de reemplazarlo.
+ * @param {{ label: string, value: number|null, rule?: string, onChange: Function, hint?: string, unit?: string, required?: boolean, step?: string|number, placeholder?: string, disabled?: boolean, illustrative?: boolean, name?: string, echo?: boolean }} opts
  */
-export function numberField({ label, value, rule = 'money', onChange, hint = null, unit = null, required = false, placeholder = '', disabled = false, illustrative = false, name = null }) {
+export function numberField({ label, value, rule = 'money', onChange, hint = null, unit = null, required = false, placeholder = '', disabled = false, illustrative = false, name = null, echo = true }) {
   const id = uniqueId('num');
   const input = h('input', {
     id,
@@ -347,7 +357,32 @@ export function numberField({ label, value, rule = 'money', onChange, hint = nul
     // Vacío: el aviso ya dice "no puede quedar vacío" (sin el motivo).
     announceRestored(input, { label, typed, restored: focusText, reason: typed.trim() ? message : '' });
   });
+  if (echo && rule === 'money') attachMoneyEcho(el, input, typeof unit === 'string' ? unit : unit && unit.textContent ? unit.textContent : null);
   return el;
+}
+
+/**
+ * Eco del monto debajo del campo ("$ 2.600.000"; "US$ 15.000" si la unidad
+ * del campo es otra moneda), con el mismo intérprete que el campo
+ * (moneyEchoText). Visual: el valor se anuncia desde el campo.
+ */
+function attachMoneyEcho(fieldEl, input, unit) {
+  const control = fieldEl.querySelector('.field-control');
+  if (!control) return;
+  const echoEl = h('div', { class: 'field-echo', 'aria-hidden': 'true' });
+  const sync = () => {
+    const wasHidden = echoEl.hidden;
+    echoEl.textContent = moneyEchoText(input.value, { unit });
+    echoEl.hidden = !echoEl.textContent;
+    // Si aparece mientras se escribe con el campo en el borde de abajo (el pie de un diálogo, la barra del
+    // resumen), se desplaza lo justo para que se vea.
+    if (wasHidden && !echoEl.hidden && document.activeElement === input) echoEl.scrollIntoView({ block: 'nearest' });
+  };
+  input.addEventListener('input', sync);
+  // También cuando el campo restaura el valor anterior (valor inválido confirmado).
+  input.addEventListener('change', sync);
+  sync();
+  control.after(echoEl);
 }
 
 /** Evento que emite un campo cuando un valor que no se pudo guardar vuelve al anterior (UX-01). */

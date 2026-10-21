@@ -41,7 +41,7 @@ import { service, person, owned, external, material, product, ingredient, worker
 import { computeProduct } from '../../../js/engines/product-engine.js';
 import { computeLaborLine } from '../../../js/engines/labor-engine.js';
 import { computeOwnership } from '../../../js/engines/equipment-engine.js';
-import { laborLineFromProfile } from '../../../js/domain/quote-factory.js';
+import { laborLineFromProfile, defaultVolumeTiers } from '../../../js/domain/quote-factory.js';
 import { roundMoney } from '../../../js/core/money.js';
 import { assertSafeReport } from '../lib/report.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
@@ -1803,11 +1803,355 @@ async function runMode(mode) {
     check(D, 'ILUSTRATIVO: la marca de datos de ejemplo se ve y mide 12 px o más', illSizes.length > 0 && illSizes.every((x) => x >= 11.95), illSizes.length ? `${illSizes.join(', ')} px` : 'no aparece la marca');
   }
 
+  // ---- DESIGN-02 (2/2) (PLAN-2026-026), cotizar sin fricción: el resumen en vivo con el resultado y el margen
+  // esperados, la barra compacta que destaca la tarifa cobrada, los avisos arriba y las tablas apiladas en el
+  // celular, campos accesibles (aria-required y aria-describedby) y el eco de montos en todo campo de plata, con
+  // una prueba sólo con teclado. Acciones "suaves", como en DESIGN-02.
+  {
+    const D = 'DESIGN-02B';
+    const soft = async (fn) => { try { await fn(); return true; } catch { return false; } };
+    const editorHash = (q, st) => `#/cotizaciones/${encodeURIComponent(q.id)}/${st}`;
+    const byId = (id) => (seeded.find((x) => x.s.id === id) || seeded[0]).q;
+    const q0 = seeded[0].q;
+    // Copia sintética de la primera con la estructura desglosada en rubros y tramos de descuento: ninguna de las
+    // sembradas trae la tabla de estructura.
+    const stackQ = {
+      ...structuredClone(q0),
+      id: randomUUID(),
+      code: 'LAB-D02B',
+      name: 'DESIGN-02B estructura y tramos',
+      indirect: {
+        ...structuredClone(q0.indirect || {}),
+        mode: 'detailed',
+        items: [
+          { id: 'str-d02b-1', label: 'Administración', method: 'percent_direct', pct: 5, amount: 0 },
+          { id: 'str-d02b-2', label: 'Alquiler de base', method: 'manual', pct: 0, amount: 850000 },
+        ],
+      },
+      rules: { ...structuredClone(q0.rules || {}), volumeTiers: defaultVolumeTiers() },
+    };
+    const liveWs = db.workspaces.get(orgId);
+    liveWs.state.quotes = [...liveWs.state.quotes, stackQ];
+    liveWs.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+    /** Ítems del resumen a la vista (data-kpi), la palabra del margen y cómo se ven la tarifa cobrada y la piso. */
+    const summaryState = () => page.evaluate(() => {
+      // checkVisibility: lo de un <details> cerrado ("Ver más") no se ve aunque el navegador le calcule tamaño.
+      const shown = (n) => Boolean(n) && n.getBoundingClientRect().width > 0 && (typeof n.checkVisibility === 'function' ? n.checkVisibility({ checkVisibilityCSS: true }) : getComputedStyle(n).display !== 'none');
+      const style = (key) => {
+        const n = document.querySelector(`.qe-summary [data-kpi="${key}"]`);
+        const v = n && n.querySelector('.qe-sum-value');
+        return n && v ? { bg: getComputedStyle(n).backgroundColor, weight: Number(getComputedStyle(v).fontWeight) } : null;
+      };
+      const margin = document.querySelector('.qe-summary [data-kpi="expectedMargin"]');
+      const word = margin ? margin.querySelector('.qe-sum-state') : null;
+      return {
+        kpis: [...document.querySelectorAll('.qe-summary .qe-sum-item')].filter(shown).map((n) => n.dataset.kpi),
+        word: shown(word) ? word.textContent.trim() : '',
+        tone: margin ? margin.dataset.tone || '' : '',
+        commercial: style('commercialRate'),
+        floor: style('floorRate'),
+      };
+    });
+    const openEditor = async (q, st) => {
+      await go(editorHash(q, st), 900);
+      await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
+      // La barra compacta, plegada (se abre sólo con "Ver detalle").
+      await page.evaluate(() => {
+        const toggle = document.querySelector('.qe-sum-toggle');
+        if (toggle && document.querySelector('.qe-summary-inner.is-expanded')) toggle.click();
+      });
+      await page.waitForTimeout(200);
+    };
+
+    // Panel del escritorio: el resultado y el margen esperados, siempre a la vista.
+    if (mode === 'desktop') {
+      await openEditor(q0, 'service');
+      const panel = await summaryState();
+      check(D, 'resumen en vivo (panel de escritorio): el resultado y el margen esperados se ven sin abrir "Ver más"', panel.kpis.includes('expectedResult') && panel.kpis.includes('expectedMargin'), `a la vista: ${panel.kpis.join(', ')}`);
+      await page.setViewportSize({ width: 1000, height: 900 });
+      await page.waitForTimeout(500);
+    }
+
+    // Barra compacta (1000 px en escritorio; 390 px en el celular).
+    const where = mode === 'desktop' ? 'barra compacta (1000 px)' : 'barra compacta (celular)';
+    const WORDS = ['cumple', 'debajo', 'pierde', 'no confiable', 'sin tarifa', 'sin objetivo'];
+    await openEditor(q0, 'service');
+    const bar = await summaryState();
+    check(D, `${where}: plegada muestra costo, piso, tarifa cobrada y margen esperado`, bar.kpis.length === 4 && ['totalCost', 'floorRate', 'commercialRate', 'expectedMargin'].every((k) => bar.kpis.includes(k)), `a la vista: ${bar.kpis.join(', ')}`);
+    check(D, `${where}: el margen dice su estado con una palabra, no sólo con el color (WCAG 1.4.1)`, WORDS.includes(bar.word), `palabra: "${bar.word}"`);
+    check(D, `${where}: la tarifa cobrada se destaca de la piso (fondo propio y cifra más fuerte)`, Boolean(bar.commercial && bar.floor) && bar.commercial.bg !== bar.floor.bg && bar.commercial.weight > bar.floor.weight, JSON.stringify({ cobrada: bar.commercial, piso: bar.floor }));
+    let detail = null;
+    await soft(async () => {
+      await tap(page.locator('.qe-sum-toggle').first());
+      await page.waitForTimeout(400);
+      detail = await summaryState();
+      await tap(page.locator('.qe-sum-toggle').first());
+      await page.waitForTimeout(300);
+    });
+    check(D, `${where}: "Ver detalle" muestra además "Para no perder" y el resultado esperado`, Boolean(detail) && ['breakEven', 'expectedResult', 'expectedMargin'].every((k) => detail.kpis.includes(k)), detail ? `a la vista: ${detail.kpis.join(', ')}` : 'no se pudo abrir');
+    // Con un resultado NO CONFIABLE (E2E-20: un puesto sin sueldo básico), la barra lo dice en rojo (ECO-01).
+    await openEditor(byId('E2E-20'), 'service');
+    const unreliableBar = await summaryState();
+    check(D, `${where}: con un resultado NO CONFIABLE el margen dice "no confiable", en rojo`, unreliableBar.word === 'no confiable' && unreliableBar.tone === 'red', `palabra "${unreliableBar.word}" · tono ${unreliableBar.tone || 'ninguno'}`);
+    await scan(D, where);
+    if (mode === 'desktop') {
+      // A 1000 px el resumen también está fijo abajo: el aviso sale arriba y no lo tapa.
+      await openEditor(q0, 'labor');
+      let deskToast = null;
+      await soft(async () => {
+        await tap(page.locator('.qe-toolbar-pick').getByRole('button', { name: 'Agregar', exact: true }).first());
+        await page.waitForSelector('.toast', { timeout: 3000 });
+        await page.waitForTimeout(150);
+        deskToast = await page.evaluate(() => {
+          const r = [...document.querySelectorAll('.toast')].pop().getBoundingClientRect();
+          const sum = document.querySelector('.qe-summary');
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: window.innerHeight, summaryTop: sum ? Math.round(sum.getBoundingClientRect().top) : null };
+        });
+      });
+      check(D, `${where}: los avisos salen arriba y no tapan el resumen fijo`, Boolean(deskToast) && deskToast.summaryTop !== null && deskToast.bottom <= deskToast.summaryTop && deskToast.top < deskToast.vh / 3, deskToast ? JSON.stringify(deskToast) : 'no apareció el aviso');
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(400);
+    }
+
+    /** La tabla con ese título: si está apilada (una tarjeta por fila) y si algo se sale de su caja o de la página. */
+    const tableInfo = (caption) => page.evaluate((cap) => {
+      const t = [...document.querySelectorAll('table')].find((x) => (x.querySelector('caption') || {}).textContent === cap);
+      if (!t) return null;
+      const wrap = t.closest('.table-wrap');
+      return {
+        stacked: getComputedStyle(t).display === 'block',
+        wrapOverflow: wrap ? wrap.scrollWidth - wrap.clientWidth : 0,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    }, caption);
+    const STACK_TABLES = [['indirect', 'Rubros de estructura'], ['margin', 'Tramos de descuento por cantidad de días']];
+    const openStep = async (q, step) => {
+      await go(editorHash(q, step), 900);
+      // Los tramos pueden estar dentro de un plegable cerrado.
+      await page.evaluate(() => document.querySelectorAll('.qe-step-body details').forEach((d) => { d.open = true; }));
+      await page.waitForTimeout(200);
+    };
+
+    if (mode === 'desktop') {
+      // En escritorio (1360 px) las dos tablas entran: siguen como tabla, sin tarjetas.
+      const desk = [];
+      for (const [step, caption] of STACK_TABLES) {
+        await openStep(stackQ, step);
+        desk.push({ caption, ...((await tableInfo(caption)) || { missing: true }) });
+      }
+      check(D, 'escritorio: las tablas de estructura y de tramos siguen como tabla (no pasan a tarjetas)', desk.every((x) => !x.missing && !x.stacked && x.pageOverflow <= 1), JSON.stringify(desk));
+    }
+
+    if (mode === 'mobile') {
+      // Avisos arriba, debajo de la barra de la app: no tapan el resumen fijo ni "Menú".
+      await openEditor(q0, 'labor');
+      let toastBox = null;
+      await soft(async () => {
+        await tap(page.locator('.qe-toolbar-pick').getByRole('button', { name: 'Agregar', exact: true }).first());
+        await page.waitForSelector('.toast', { timeout: 3000 });
+        await page.waitForTimeout(150);
+        toastBox = await page.evaluate(() => {
+          const t = [...document.querySelectorAll('.toast')].pop();
+          const r = t.getBoundingClientRect();
+          const appBar = document.querySelector('.mobile-bar');
+          const sum = document.querySelector('.qe-summary');
+          return {
+            top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right),
+            vw: window.innerWidth, vh: window.innerHeight,
+            appBar: appBar ? Math.round(appBar.getBoundingClientRect().bottom) : 0,
+            summaryTop: sum ? Math.round(sum.getBoundingClientRect().top) : null,
+          };
+        });
+      });
+      check(D, 'celular: los avisos salen arriba, debajo de la barra de la app, y no tapan el resumen fijo', Boolean(toastBox) && toastBox.top >= toastBox.appBar - 1 && toastBox.top < toastBox.vh / 3 && (toastBox.summaryTop === null || toastBox.bottom <= toastBox.summaryTop) && toastBox.left >= 0 && toastBox.right <= toastBox.vw, toastBox ? JSON.stringify(toastBox) : 'no apareció el aviso');
+
+      // Tablas de estructura y de tramos apiladas: sin scroll horizontal a 390, 360 y 320 px.
+      const tables = [];
+      for (const [step, caption] of STACK_TABLES) {
+        await openStep(stackQ, step);
+        if (!(await tableInfo(caption))) {
+          tables.push({ caption, missing: true });
+          continue;
+        }
+        for (const width of [390, 360, 320]) {
+          await page.setViewportSize({ width, height: 844 });
+          await page.waitForTimeout(300);
+          tables.push({ caption, width, ...(await tableInfo(caption)) });
+        }
+        await page.setViewportSize(viewport);
+        await page.waitForTimeout(300);
+      }
+      const badTables = tables.filter((x) => x.missing || !x.stacked || x.wrapOverflow > 1 || x.pageOverflow > 1);
+      check(D, 'celular: las tablas de estructura y de tramos se apilan, sin scroll horizontal a 390, 360 y 320 px', tables.length > 0 && badTables.length === 0, JSON.stringify(badTables.slice(0, 4)));
+    }
+
+    // Campos: los obligatorios llevan aria-required y la ayuda de cada campo se asocia al control.
+    const fieldAria = () => page.evaluate(() => {
+      const out = { required: 0, hinted: 0, bad: [] };
+      for (const f of document.querySelectorAll('.field')) {
+        if (f.getBoundingClientRect().width === 0) continue;
+        const control = f.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea');
+        if (!control) continue;
+        const label = ((f.querySelector('.field-label') || {}).textContent || '').replace(/\*/g, '').trim().slice(0, 40);
+        if (f.querySelector('.field-label .req')) {
+          out.required += 1;
+          if (control.getAttribute('aria-required') !== 'true') out.bad.push(`obligatorio sin aria-required: ${label}`);
+        }
+        const hint = f.querySelector('.field-hint[id]');
+        if (hint) {
+          out.hinted += 1;
+          if (!(control.getAttribute('aria-describedby') || '').split(/\s+/).includes(hint.id)) out.bad.push(`ayuda sin asociar: ${label}`);
+        }
+      }
+      return out;
+    });
+    const aria = { required: 0, hinted: 0, bad: [] };
+    for (const st of ['service', 'modality', 'labor', 'margin']) {
+      await go(editorHash(q0, st), 800);
+      const a = await fieldAria();
+      aria.required += a.required;
+      aria.hinted += a.hinted;
+      aria.bad.push(...a.bad.map((b) => `${st}: ${b}`));
+    }
+    check(D, 'editor: los obligatorios llevan aria-required y la ayuda de cada campo se asocia al control (aria-describedby)', aria.required > 0 && aria.hinted > 0 && aria.bad.length === 0, `${aria.bad.length} de ${aria.required + aria.hinted}: ${aria.bad.slice(0, 5).join(' | ')}`);
+
+    // Los avisos del motor junto a un campo se asocian al control: un lector de pantalla los lee al entrar.
+    let notes = null;
+    for (const id of ['E2E-07', 'E2E-20']) {
+      for (const st of ['modality', 'margin', 'labor', 'finance']) {
+        await go(editorHash(byId(id), st), 700);
+        const found = await page.evaluate(() => [...document.querySelectorAll('.qe-issue-note')]
+          .filter((note) => note.getBoundingClientRect().width > 0)
+          .map((note) => {
+            const field = note.closest('.field, .choice-group');
+            const control = field && field.querySelector('input, select, textarea');
+            const ids = control ? (control.getAttribute('aria-describedby') || '').split(/\s+/) : [];
+            return Boolean(note.id) && ids.includes(note.id);
+          }));
+        if (found.length) notes = (notes || []).concat(found);
+      }
+      if (notes) break;
+    }
+    check(D, 'editor: los avisos del motor junto a un campo se asocian al control (aria-describedby)', Boolean(notes) && notes.every(Boolean), notes ? `${notes.filter((x) => !x).length} de ${notes.length} sin asociar` : 'ningún escenario mostró avisos junto a un campo');
+
+    // El eco de los montos sigue en el editor: el sueldo del primer puesto se lee con separadores.
+    await go(editorHash(q0, 'labor'), 800);
+    const editorEcho = await page.evaluate(() => [...document.querySelectorAll('.field-echo, .qe-num-echo')]
+      .filter((e) => !e.hidden && e.getBoundingClientRect().width > 0).map((e) => e.textContent.trim()));
+    check(D, 'editor: los montos grandes siguen con su eco con separadores ("$ …")', editorEcho.length > 0 && editorEcho.every((t) => /^-?\$\s?[\d.]+(,\d+)?$/.test(t.replace(/[  ]/g, ' '))), editorEcho.slice(0, 3).join(' | ') || 'sin eco');
+
+    // Recursos: el eco también ahí. Sólo con teclado: Tab hasta "Agregar perfil", Enter, Tab hasta el sueldo,
+    // tipear; Tab y Shift+Tab vuelven al campo con todo seleccionado y lo nuevo reemplaza al número anterior.
+    const activeField = () => page.evaluate(() => {
+      const el = document.activeElement;
+      const field = el && el.closest('.field');
+      const echo = field ? field.querySelector('.field-echo, .qe-num-echo') : null;
+      return {
+        value: el ? el.value : null,
+        echo: echo && !echo.hidden && echo.getBoundingClientRect().width > 0 ? echo.textContent.replace(/[  ]/g, ' ').trim() : '',
+        required: el ? el.getAttribute('aria-required') : null,
+      };
+    });
+    const kb = { opened: false, reached: false, first: null, second: null, closed: false };
+    await soft(async () => {
+      await go('#/recursos/personal', 900);
+      await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); window.scrollTo(0, 0); });
+      for (let i = 0; i < 60; i += 1) {
+        await page.keyboard.press('Tab');
+        if (await page.evaluate(() => Boolean(document.activeElement && /Agregar perfil/.test(document.activeElement.textContent || '')))) break;
+      }
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('dialog[open]', { timeout: 3000 });
+      kb.opened = true;
+      for (let i = 0; i < 40 && !kb.reached; i += 1) {
+        await page.keyboard.press('Tab');
+        kb.reached = await page.evaluate(() => {
+          const field = document.activeElement && document.activeElement.closest('.field');
+          return Boolean(field && /Sueldo básico mensual/.test((field.querySelector('.field-label') || {}).textContent || ''));
+        });
+      }
+      if (!kb.reached) return;
+      await page.keyboard.type('2600000');
+      await page.waitForTimeout(150);
+      kb.first = await activeField();
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.type('3500000');
+      await page.waitForTimeout(150);
+      kb.second = await activeField();
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+      // Con UX-01 (#32), un formulario con cambios pregunta antes de descartarlos.
+      if (await page.locator('dialog[open]').count()) {
+        const discard = page.locator('dialog[open]').getByRole('button', { name: /Descartar/ }).first();
+        if (await discard.count()) await discard.click();
+        await page.waitForTimeout(300);
+      }
+      kb.closed = (await page.locator('dialog[open]').count()) === 0;
+    });
+    check(D, 'Recursos: el sueldo básico es obligatorio también para los lectores de pantalla (aria-required)', Boolean(kb.first) && kb.first.required === 'true', JSON.stringify(kb.first));
+    check(D, 'Recursos: al escribir un sueldo aparece el eco con separadores ("$ 2.600.000")', Boolean(kb.first) && kb.first.echo === '$ 2.600.000', JSON.stringify(kb.first));
+    check(D, 'sólo con teclado: Tab hasta el sueldo y tipear; Shift+Tab vuelve con todo seleccionado y lo nuevo reemplaza al número anterior; Esc cierra', kb.opened && kb.reached && Boolean(kb.second) && kb.second.value === '3500000' && kb.second.echo === '$ 3.500.000' && kb.closed, JSON.stringify(kb));
+
+    // En el celular, con el sueldo justo en el borde de abajo del diálogo (como al tocarlo sin desplazar), el eco que
+    // aparece al escribir tiene que quedar a la vista, no debajo del pie. Con 360 × 640 px el sueldo queda debajo
+    // del borde al abrir el diálogo; en escritorio queda en la mitad de arriba y ese caso no se da.
+    if (mode === 'mobile') {
+      const edge = { atEdge: null, closed: false, echo: null };
+      await soft(async () => {
+        await page.setViewportSize({ width: 360, height: 640 });
+        await go('#/recursos/personal', 900);
+        await tap(page.getByRole('button', { name: 'Agregar perfil' }).first());
+        await page.waitForSelector('dialog[open]', { timeout: 3000 });
+        await page.waitForTimeout(300);
+        const salary = page.locator('dialog[open]').getByLabel('Sueldo básico mensual').first();
+        // El campo, alineado con el borde de abajo de lo visible del diálogo, y con el foco sin desplazar.
+        edge.atEdge = await salary.evaluate((el) => {
+          el.scrollIntoView({ block: 'end' });
+          el.focus({ preventScroll: true });
+          const body = el.closest('.dialog-body');
+          const visibleBottom = body.getBoundingClientRect().top + body.clientTop + body.clientHeight;
+          return Math.abs(el.getBoundingClientRect().bottom - visibleBottom) <= 2;
+        });
+        await page.keyboard.type('2600000');
+        await page.waitForTimeout(250);
+        edge.echo = await page.evaluate(() => {
+          const field = document.activeElement && document.activeElement.closest('.field');
+          const echo = field ? field.querySelector('.field-echo, .qe-num-echo') : null;
+          if (!echo || echo.hidden) return { text: '' };
+          const body = echo.closest('.dialog-body');
+          const box = body.getBoundingClientRect();
+          const r = echo.getBoundingClientRect();
+          return {
+            text: echo.textContent.replace(/[\u00a0\u202f]/g, ' ').trim(),
+            top: Math.round(r.top), bottom: Math.round(r.bottom),
+            visibleTop: Math.round(box.top + body.clientTop), visibleBottom: Math.round(Math.min(window.innerHeight, box.top + body.clientTop + body.clientHeight)),
+          };
+        });
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(400);
+        if (await page.locator('dialog[open]').count()) {
+          const discard = page.locator('dialog[open]').getByRole('button', { name: /Descartar/ }).first();
+          if (await discard.count()) await discard.click();
+          await page.waitForTimeout(300);
+        }
+        edge.closed = (await page.locator('dialog[open]').count()) === 0;
+      });
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(300);
+      const e = edge.echo;
+      check(D, 'celular (360 × 640 px), Recursos: con el sueldo en el borde de abajo del diálogo, el eco que aparece al escribir queda a la vista (no debajo del pie)', edge.atEdge === true && Boolean(e) && e.text === '$ 2.600.000' && e.top >= e.visibleTop - 1 && e.bottom <= e.visibleBottom + 1 && edge.closed, JSON.stringify(edge));
+    }
+    await scan(D, 'Recursos');
+  }
+
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
   // pantalla ni en el menú oculto, y otra cuenta que ingresa en la MISMA
   // pestaña (sin recargar) no ve nada de A, ni con los ids de sus cotizaciones.
   {
-    const ofA = ['Empresa sintética', email, seeded[0].q.name, seeded[seeded.length - 1].q.name, 'E2E producto financiado', 'DESIGN-02 cotización ilustrativa'];
+    const ofA = ['Empresa sintética', email, seeded[0].q.name, seeded[seeded.length - 1].q.name, 'E2E producto financiado', 'DESIGN-02 cotización ilustrativa', 'DESIGN-02B estructura y tramos'];
     const leaks = (text) => ofA.filter((x) => norm(text).includes(norm(x)));
     await go('#/inicio', 600);
     await page.evaluate(() => {
