@@ -128,6 +128,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-026 | DESIGN-02 (2/2) — Cotizar sin fricción: resumen en vivo con margen y resultado, barra compacta, avisos y tablas en el celular, campos accesibles y eco de montos | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-cotizar-sin-friccion`, apilada sobre PLAN-2026-025; PR sin merge) |
 | PLAN-2026-027 | BETA-RC1 — Candidato de beta integrado: los PR #28 a #36 sobre `main` `d6540b7`, verificados en el árbol final, versión 0.9.0 e informe GO/NO-GO | integración y release (sin funcionalidades nuevas) | En curso (rama `claude/beta-candidato-1`; PR candidato en borrador, sin merge ni deploy) |
 | PLAN-2026-028 | P1 CIERRE — Señales engañosas antes del autoservicio (Gate A de la revisión del 21/10): H-14, H-12 y H-13 en Productos, H-09 en externos y H-10 en los avisos de personal | corrección de UI, validación y confirmaciones (sin fórmulas) | En curso (sobre el candidato `claude/beta-candidato-1`, sin merge ni deploy) |
+| PLAN-2026-029 | BETA-CR — Créditos de prueba por empresa (10 cálculos nuevos, aplicados por Postgres) y reporte de errores con aprobación manual de +2 por RATEOS ADMIN | backend, seguridad, UX (sin fórmulas ni cambios del workspace) | En curso (rama `claude/beta-creditos-reportes`, apilada sobre el candidato; sin merge, deploy ni migración real) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -2085,3 +2086,201 @@ Ninguno. Cambian textos, la completitud y el estado de la lista de productos. Se
 - 2026-10-21: Gate A implementado. En `f7e8a29` fallan 24 de los 30 tests nuevos (los otros 6 fijan lo que no cambia) y 10 de los 13 controles del bloque P1-CIERRE del `ui-lab`, en escritorio y en celular. Con el cambio: `npm test` 1966/1966, Test Lab 97 PASS con golden 39/39, gate PASA y `ui-lab` 648/648 y 650/650.
 - 2026-10-21: revisión de frontend (`3ce88e8`): `ui-lab` 656/656 y 660/660, `auth-lab` 136/136.
 - 2026-10-21: revisión de código del diff `f7e8a29..3ce88e8`: 10 observaciones: 5 corregidas (3 con tests que fallan en `3ce88e8`; las viñetas, verificadas en captura; el margen vacío, en el código), 2 en parte y 3 documentadas (CHANGELOG).
+
+---
+
+### PLAN-2026-029 — BETA-CR: créditos de prueba y reporte de errores (beta con empresas testers)
+
+- Estado: En curso
+- Tipo: backend, seguridad, UX
+- Responsable: agente (Claude Code), revisión de ChatGPT y decisión del dueño
+- Fecha de inicio: 2026-10-21
+- Rama / PR: `claude/beta-creditos-reportes`, apilada sobre `claude/beta-candidato-1` (`bc31190`, PR #37). PR en borrador, sin merge ni deploy. La migración **no** se aplica al Supabase real sin autorización.
+
+#### 1. Contexto y problema
+La beta se comparte con 3 a 5 empresas testers. El dueño decidió:
+- **10 cálculos de prueba por empresa.** Editar, recalcular, guardar o exportar lo que ya existe no consume.
+- **Un canal para reportar errores** dentro de RATEOS. Si el equipo confirma el error, aprueba **a mano** +2 cálculos para esa empresa. Nunca automático y nunca desde el navegador.
+
+Restricción de arquitectura: el estado de cada empresa es **una sola fila JSONB** (`workspace_states.state`) que el cliente reescribe completa. Un contador en el cliente se elude desde DevTools o escribiendo el JSON por la API. El control tiene que estar en Postgres.
+
+#### 2. Objetivo y no-objetivos
+- **Objetivo:** cuota de cálculos nuevos por empresa, aplicada por Postgres al escribir el workspace. Reportes con estado visible. Cola de revisión para RATEOS ADMIN con aprobación manual, atómica e idempotente.
+- **Fuera de alcance:**
+  - pagos, planes, renovación mensual y monetización;
+  - herramientas de terceros (helpdesk), correos e IA;
+  - normalizar el modelo (tablas por cotización) o reescribir el motor;
+  - capturas de pantalla y datos económicos en los reportes.
+
+#### 3. Impacto en fórmulas
+Ninguno. No se toca ningún motor. Golden 39/39, A/B y oráculo deben dar 0 diferencias.
+
+#### 4. Impacto en datos
+**Workspace (JSON):**
+- El esquema sigue en 10, sin migración de datos.
+- El trigger nuevo **nunca modifica** `state`: sólo acepta o rechaza la escritura.
+- Las empresas existentes (incluida DOVA) **no** tienen cuenta de créditos: para ellas nada cambia.
+
+**Producto de ejemplo:**
+- "Chipá" pasa a crearse con un **id fijo** (`DEMO_IDS.productExample`), que la cuota no cobra.
+- Como los ids no se repiten, hay **un solo ejemplo a la vez** por empresa.
+- Si ya existe, "Ver un ejemplo" lo abre en lugar de crear otro.
+
+**Tablas nuevas, todas en `private`:**
+- No están expuestas por la API, tienen RLS y **ningún grant** a `anon` ni `authenticated`.
+- Sólo se leen o escriben por funciones `security definer` con `search_path = ''`, detrás de wrappers `security invoker` en `public`. Es el patrón de RATEOS ADMIN.
+
+| Tabla | Contenido | Garantías |
+|---|---|---|
+| `private.beta_policy` (1 fila) | `quota_for_new_orgs`, `initial_credits` (10) y `report_reward` (2) | La política explícita de testers |
+| `private.credit_accounts` | `organization_id` PK, `balance`, `enabled`, fechas | `balance >= 0` (CHECK) |
+| `private.credit_ledger` | Una fila por movimiento: `delta`, `reason` (`initial_grant`, `new_calculation`, `bug_report_reward`, `admin_adjustment`, `existing_at_activation`), `entity_kind` y `entity_id`, `bug_report_id`, `actor` y `created_at` | Índices únicos parciales: un cobro por (empresa, tipo, id), un premio por reporte y una asignación inicial por empresa |
+| `private.bug_reports` | Categoría, qué hizo, qué esperaba, qué pasó, pantalla (clave de una lista fija, sin ids), versión, estado, `duplicate_of`, revisión (quién, cuándo, nota) | Longitudes y formatos con CHECK |
+| `private.bug_report_events` | Historial: quién, cuándo, de qué estado a cuál, nota | Sólo se agrega |
+
+#### 5. Diseño
+
+**5.1 Regla de cobro**
+
+Lo que se cobra es la **existencia simultánea** de cálculos. El trigger `BEFORE INSERT OR UPDATE OF state` en `public.workspace_states` corre sólo si la empresa tiene una cuenta habilitada:
+1. **Valida los arreglos.** `state.quotes` y `state.products` deben ser arreglos de objetos con `id` de texto no vacío (≤ 100) y sin ids repetidos. Si no, rechaza con `rateos_invalid_calculations`.
+2. **Cuenta los cobrables.** Son los ids de esos arreglos que **no** están en el ledger de la empresa y no son el id fijo del ejemplo.
+3. **Cobra o rechaza.** Bloquea la cuenta (`FOR UPDATE`). Si los cobrables superan el saldo, rechaza **toda** la escritura con `rateos_credits_exhausted` y no guarda nada. Si alcanza, registra un `new_calculation` (-1) por id y descuenta el saldo, en la misma transacción que el guardado.
+
+Consecuencias:
+
+| Acción | Créditos |
+|---|---|
+| Nueva cotización (en blanco o desde plantilla), duplicado y producto nuevo | 1 |
+| Editar, recalcular, guardar, escenarios, revisión y PDF | 0: el id ya está cobrado |
+| Borrar | No reintegra: el id queda en el ledger |
+| Restaurar un respaldo propio (ids ya cobrados) | 0 |
+| Importar cálculos de otro lado (ids nuevos) | Se cobra cada uno |
+| Creación fallida o cancelada | 0: la escritura se rechaza entera o no llega a la base |
+| Demo pública | 0: no tiene cuenta en la nube |
+| Ejemplo Chipá | 0: id fijo, uno a la vez |
+
+- **Invariante:** cálculos que existen a la vez ≤ créditos gastados + 1 ejemplo.
+- Reescribir por completo un cálculo existente es **editar**, y está permitido por la regla del dueño.
+
+**5.2 Cuentas**
+- Un trigger `AFTER INSERT` en `public.organizations` crea la cuenta con `initial_credits` y el `initial_grant`, en la misma transacción del alta, si `beta_policy.quota_for_new_orgs` está encendida.
+- Falla cerrado: si no se puede crear la cuenta, el alta falla. Nunca queda una empresa nueva sin cuota.
+- Para activar la cuota en una empresa existente hay que usar `private.enable_credit_quota(org, saldo)`, sólo por SQL del dueño. Registra los cálculos que ya tiene como `existing_at_activation` (delta 0), así que nunca se le cobra lo que ya existía.
+
+**5.3 Reportes**
+- `public.submit_bug_report(...)` la usa cualquier miembro de la empresa.
+- **Validación:**
+  - limpia los caracteres de control;
+  - limita las longitudes;
+  - la categoría y la pantalla salen de listas fijas;
+  - la versión tiene formato.
+- **Límites:**
+  - 5 reportes por persona en 24 h;
+  - 10 por empresa en 24 h;
+  - 20 abiertos por empresa;
+  - rechaza el mismo texto repetido por la misma empresa en 7 días.
+- `public.my_bug_reports()` devuelve los reportes de la empresa propia: estado, categoría, fechas, el texto propio y la nota de revisión. Nunca los de otra empresa.
+
+**5.4 Panel de RATEOS ADMIN**
+
+| Función | Qué hace |
+|---|---|
+| `public.admin_bug_reports(estado)` | La cola, con empresa, email de quien reportó, saldo de la empresa y posibles duplicados (misma categoría y pantalla) |
+| `public.admin_review_bug_report(id, estado, nota, duplicado_de)` | Cambia el estado |
+| `public.admin_credit_accounts()` | Saldos por empresa |
+
+Reglas de `admin_review_bug_report`:
+- **Validado y aprobado** es terminal.
+- La aprobación bloquea el reporte (`FOR UPDATE`), registra el premio (único por reporte) y suma `report_reward` al saldo, **en una transacción**.
+- Una segunda aprobación no suma nada.
+- Un admin no puede revisar reportes de una empresa de la que es miembro.
+- Todo cambio deja un evento.
+- Nada de esto lee `workspace_states.state`.
+
+**5.5 Cliente**
+- **`credits-gateway` y `bug-report-gateway`:** RPC. Si la base todavía no tiene la migración, quedan apagados sin romper la app.
+- **`SupabaseRepository`:**
+  - `rateos_credits_exhausted` se traduce al código `credits_exhausted` y no se reintenta;
+  - se guarda una copia de recuperación;
+  - se sacan del estado local los cálculos que todavía no estaban en la nube;
+  - se sube el resto.
+- **Reserva del código:** el COT-NNNN y la cotización se escriben **en una sola escritura** (antes eran dos). Si se rechaza, no queda un código consumido.
+- **Saldo a la vista** en Nuevo cálculo, Nueva cotización y Nuevo producto. Con 0 se bloquean sólo las creaciones, con el mensaje «Se agotaron tus cálculos de prueba; podés seguir trabajando con los que ya tenés y enviarnos feedback». Los duplicados avisan lo mismo.
+- **"Reportar un error"** (`#/reportar`): formulario y "Mis reportes", en el menú de la cuenta.
+- **"Reportes" en el panel de RATEOS ADMIN.**
+- **Al restaurar un respaldo:** se pregunta antes cuántos cálculos nuevos cobraría (`credit_preview`) y se avisa si no alcanzan.
+
+#### 6. Amenazas y respuesta
+| Amenaza | Respuesta |
+|---|---|
+| Cambiar el saldo desde el navegador o la API | El saldo vive en `private`, sin grants. Sólo lo cambian el trigger y la aprobación del admin |
+| Escribir el JSON completo por la API con cálculos nuevos | El trigger cuenta los ids nuevos en cada escritura, sea cual sea el cliente |
+| Ids repetidos o sin id para esconder cálculos | Se rechaza la escritura |
+| Reusar el id de un cálculo borrado | Vuelve a existir uno solo con ese id: es editar ese cálculo |
+| Doble débito (reintentos, dos pestañas, dos usuarios) | Índice único por (empresa, tipo, id) y la cuenta bloqueada. La revisión optimista rechaza la segunda escritura |
+| Doble premio | Índice único por reporte, el reporte bloqueado y "Aprobado" terminal |
+| Auto-aprobación | Sólo RATEOS ADMIN (tabla `private.platform_admins`), nunca de su propia empresa |
+| Pérdida de datos al quedarse sin saldo | Copia de recuperación antes de quitar lo no guardado. Lo ya guardado no se toca |
+| Spam o contenido malicioso en reportes | Límites, longitudes, listas fijas. La UI muestra texto plano, nunca HTML |
+| Fuga entre empresas | Reportes y saldos se filtran por `auth.uid()` y membresía. Pruebas A↔B |
+| El admin lee datos económicos | Las funciones de admin no leen `state` (test de catálogo) |
+| Bloqueo del alta | El trigger de cuentas es un `insert` simple. Si falla, falla el alta (falla cerrado, visible) |
+| Límite de 5 MB | El trigger no agrega nada al JSON |
+
+#### 7. Tests (todo SIMULADO salvo el CI)
+- **SQL** (`supabase/tests/credits_reports_test.sql`): un bloque que se deshace solo, en un Postgres 16 local con un andamiaje mínimo que imita Supabase. Cubre:
+  - cobro por creación, duplicado, producto e importación;
+  - edición, borrado y restauración sin cobro;
+  - saldo 0 y escritura entera rechazada;
+  - ids repetidos y sin id;
+  - empresa sin cuenta;
+  - A↔B;
+  - dos usuarios de la misma empresa;
+  - dos transacciones concurrentes (con `dblink` o dos sesiones);
+  - reportes: límites, validación, otra empresa, admin y no admin, doble aprobación, auto-revisión;
+  - grants y catálogo.
+- **Regresión:** los 204 controles existentes, con la migración nueva aplicada.
+- **Unitarios JS:** gateways, mapeo de errores, repositorio (`credits_exhausted` limpia sin perder nada), creación en una sola escritura, id fijo del ejemplo y pantallas.
+- **E2E en escritorio y celular** (Supabase simulado con la regla de cobro):
+  - saldo;
+  - 10 creaciones y la 11.ª bloqueada;
+  - editar y exportar con 0;
+  - reportar;
+  - panel de admin: aprobar y ver +2;
+  - la segunda aprobación no suma.
+- **Gate de seguridad, build, Test Lab (golden 39/39), oráculo VAL-01 87/87 y A/B económico.**
+
+#### 8. Riesgos y mitigación
+| Riesgo | Mitigación |
+|---|---|
+| Un cliente viejo (0.9.0 en caché) contra la base nueva no entiende el rechazo | Orden de corte: migración, controles SQL y deploy del frontend **antes** de crear empresas testers. Las empresas existentes no tienen cuota |
+| El frontend nuevo contra una base sin la migración | Los gateways detectan la función faltante y apagan la funcionalidad |
+| Error en el trigger que bloquee guardados de testers | Tests SQL. La cuenta se puede deshabilitar (`enabled = false`) por SQL sin tocar el workspace |
+
+#### 9. Rollback
+- **Frontend:** revertir el PR.
+- **Base:** `supabase/rollback/20261021120000_beta_credits_reports_down.sql` borra triggers, funciones y tablas nuevas.
+  - **No toca** `workspace_states` ni las tablas existentes.
+  - Se pierden el ledger y los reportes: exportarlos antes con la consulta del runbook.
+
+#### 10. Review multidisciplinario
+- **Economía:** sin cambios.
+- **QA:** los casos de §7.
+- **Seguridad:** §6. Se repiten el Beta Security Gate y los tests de admin con la migración.
+- **UX:** el saldo se ve antes de crear. El bloqueo dice qué sigue funcionando. El reporte pide sólo texto, sin datos económicos.
+
+#### 11. Documentación
+- [ ] `docs/BETA_CREDITS.md` (contrato, reglas, runbook SQL del dueño, corte y vuelta atrás)
+- [ ] `supabase/README.md`
+- [ ] CHANGELOG
+- [ ] PLANS (bitácora)
+
+#### 12. Criterio de terminación
+- Tests en verde (SQL simulado, JS, E2E, gate, Test Lab).
+- CI en verde.
+- Informe GO/NO-GO en RATEOS-AUDIT.
+- El merge, el deploy y la migración real esperan la autorización del dueño.
+
+#### Bitácora
+- 2026-10-21: plan antes del código. Base: los 204 controles SQL existentes pasan en el Postgres simulado (40 + 32 + 132).
