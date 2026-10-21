@@ -2084,4 +2084,4 @@ Ninguno. Cambian textos, la completitud y el estado de la lista de productos. Se
 - 2026-10-21: plan antes del código.
 - 2026-10-21: Gate A implementado. En `f7e8a29` fallan 24 de los 30 tests nuevos (los otros 6 fijan lo que no cambia) y 10 de los 13 controles del bloque P1-CIERRE del `ui-lab`, en escritorio y en celular. Con el cambio: `npm test` 1966/1966, Test Lab 97 PASS con golden 39/39, gate PASA y `ui-lab` 648/648 y 650/650.
 - 2026-10-21: revisión de frontend (`3ce88e8`): `ui-lab` 656/656 y 660/660, `auth-lab` 136/136.
-- 2026-10-21: revisión de código del diff `f7e8a29..3ce88e8`: 10 observaciones. Se corrigieron 6 (con tests que fallan en `3ce88e8`) y se documentaron 4 (CHANGELOG).
+- 2026-10-21: revisión de código del diff `f7e8a29..3ce88e8`: 10 observaciones: 5 corregidas (3 con tests que fallan en `3ce88e8`; las viñetas, verificadas en captura; el margen vacío, en el código), 2 en parte y 3 documentadas (CHANGELOG).

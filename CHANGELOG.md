@@ -44,7 +44,7 @@ Antes de abrir el registro a terceros hace falta el SMTP propio ([docs/BETA_PERI
 - **Barra del celular (UI-04):** a menos de 400 px la marca queda en su "R" y la palabra del estado de guardado entra entera.
 - **Cuenta nueva (UI-05):** en Personal y Equipos, sin recursos cargados, el paso dice "Todavía no cargaste…" con un enlace a Recursos (la cotización se guarda sola) y "Agregar puesto en blanco" pasa a ser el botón principal. Inicio también menciona Recursos.
 - **P3:** "Resultado" no se corta en las etapas entre 761 y 1280 px (UI-06); los filtros de Recursos se leen enteros en el celular ("Todos los convenios", "Todas las tenencias", UI-11); "Mi cuenta", "Cerrar sesión" y los desplegables de ayuda tienen 44 px en el celular (UI-12); el mínimo de un servicio externo dice su unidad ("Mínimo 8 h", "Mínimo 3 días", UI-19).
-- **Revisión de código del diff `f7e8a29..3ce88e8`** (10 observaciones; se corrigieron las 6 de comportamiento):
+- **Revisión de código del diff `f7e8a29..3ce88e8`** (10 observaciones: 5 corregidas, 2 en parte y 3 documentadas):
   - la lista de cotizaciones e Inicio cuentan también los críticos que vuelven NO CONFIABLE el resultado (`summaryCriticalCount`): "Costos cargados" tampoco va en verde ahí;
   - "¿Cada unidad hace todo el recorrido?" no se pregunta sin ruta;
   - el aviso "Confirmado: cada unidad hace todo el recorrido" desaparece si la cantidad o la unidad ya no son las confirmadas (`externalQuantityHolds`);
