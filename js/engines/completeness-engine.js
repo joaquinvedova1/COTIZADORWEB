@@ -181,6 +181,58 @@ export function externalUnitAssumption(quote = {}, line = {}) {
   };
 }
 
+/**
+ * Supuesto de "Cada unidad hace todo el recorrido" (P1 CIERRE, AUD-T1 H-09) para un externo por km
+ * o por tramo con cantidad mayor que 1: unidad de la tarifa, base del viaje y cantidad TAL COMO ESTÁN.
+ * La confirmación se guarda en `line.externalQuantityConfirmed` y vale mientras siga igual.
+ */
+export function externalQuantityAssumption(quote = {}, line = {}) {
+  const x = isPlainObject(line.external) ? line.external : {};
+  return {
+    unit: typeof x.unit === 'string' ? x.unit : null,
+    tripBasis: x.unit === 'trip' ? (x.tripBasis === 'round_trip' ? 'round_trip' : 'leg') : null,
+    quantity: nonNegative(line.quantity),
+  };
+}
+
+/** Qué cambió desde "cada unidad hace todo el recorrido" (vacío = sigue valiendo). Sin confirmación: null. */
+function quantityAssumptionChanges(confirmed, current) {
+  if (!isPlainObject(confirmed) || typeof confirmed.unit !== 'string') return null;
+  const changes = [];
+  if (confirmed.unit !== current.unit || (confirmed.tripBasis ?? null) !== current.tripBasis) changes.push('unit');
+  if (!(Math.abs(Number(confirmed.quantity) - current.quantity) < 1e-9)) changes.push('quantity');
+  return changes;
+}
+
+/**
+ * Supuesto de "La cobertura está prevista" (P1 CIERRE, AUD-T1 H-10) para un puesto: días y horas de
+ * la operación, personas por posición, horas normales, horas extra y si el servicio es continuo, TAL
+ * COMO ESTÁN. Se guarda en `line.coverageConfirmed`: mientras siga igual, el puesto no cuenta para
+ * "Horas del personal" ni para "Relevos". Nunca cambia el costo ni suma personas.
+ */
+export function laborCoverageAssumption(quote = {}, line = {}) {
+  const act = normalizeActivity(quote);
+  const activity = isPlainObject(quote.activity) ? quote.activity : {};
+  const items = overtimeItemsOf(line);
+  return {
+    activeDaysPerMonth: nonNegative(act.activeDaysPerMonth),
+    hoursPerActiveDay: nonNegative(act.hoursPerActiveDay),
+    peoplePerPosition: nonNegative(line.peoplePerPosition, 1),
+    normalHoursPerMonth: nonNegative(line.normalHoursPerMonth),
+    overtimePerActiveDay: items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0),
+    overtimePerMonth: items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0),
+    continuous: CONTINUOUS_SERVICE_TYPES.includes(quote.serviceType) && (quote.serviceType === 'permanent' || activity.availability === '24/7'),
+  };
+}
+
+/** ¿La confirmación de cobertura del puesto sigue valiendo para la cotización tal como está? */
+export function laborCoverageHolds(quote = {}, line = {}) {
+  const c = isPlainObject(line) ? line.coverageConfirmed : null;
+  if (!isPlainObject(c)) return false;
+  const now = laborCoverageAssumption(quote, line);
+  return Object.keys(now).every((k) => (typeof now[k] === 'boolean' ? c[k] === now[k] : Math.abs(Number(c[k]) - now[k]) < 1e-9));
+}
+
 /** Qué cambió desde la confirmación (vacío = sigue valiendo). Sin confirmación válida: null. */
 function assumptionChanges(confirmed, current) {
   if (!isPlainObject(confirmed) || confirmed.unit !== 'activation') return null;
@@ -305,9 +357,25 @@ export function evaluateCompleteness(quote = {}) {
   // 5. Relevos (cobertura continua)
   const continuous = CONTINUOUS_SERVICE_TYPES.includes(serviceType) && (serviceType === 'permanent' || activity.availability === '24/7');
   if (continuous && labor.length > 0) {
-    const ok = labor.every((l) => nonNegative(l.peoplePerPosition, 1) > 1);
-    items.push(rule('relief', 'Relevos', 'labor', 1, ok ? 'ok' : 'warning',
-      ok ? 'Relevos configurados.' : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.'));
+    // P1 CIERRE (AUD-T1 H-10): es una revisión, no una orden de sumar personal. Dice de dónde sale la
+    // cobertura continua (disponibilidad 24/7 o servicio permanente) y cada puesto puede confirmarla.
+    const open = labor.map((l, index) => ({ l, index })).filter(({ l }) => !(nonNegative(l.peoplePerPosition, 1) > 1) && !laborCoverageHolds(quote, l));
+    const confirmedSome = labor.some((l) => !(nonNegative(l.peoplePerPosition, 1) > 1));
+    const roleName = (l) => (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+    const names = open.slice(0, 3).map(({ l }) => `"${roleName(l)}"`).join(', ') + (open.length > 3 ? ` y ${open.length - 3} más` : '');
+    const source = activity.availability === '24/7'
+      ? `Disponibilidad 24/7 (en la modalidad del servicio)${serviceType === 'permanent' ? ' en un servicio permanente' : ''}`
+      : 'Servicio permanente';
+    const fix = activity.availability === '24/7' ? ' Si el servicio no es 24/7, cambiá la disponibilidad en la modalidad.' : '';
+    const item = rule('relief', 'Relevos', 'labor', 1, open.length ? 'warning' : 'ok',
+      open.length
+        ? `${source} con una sola persona por posición en ${names}: revisá quién cubre relevos, francos y vacaciones.${fix} Si la cobertura ya está prevista (horas extra, personal de reemplazo de la empresa o el puesto no acompaña toda la operación), tocá "La cobertura está prevista" en el puesto: no hace falta sumar personas. RATEOS no agrega personal solo.`
+        : confirmedSome ? 'Cobertura confirmada en los puestos con una sola persona por posición.' : 'Relevos configurados.');
+    if (open.length) {
+      item.focus = `labor.${open[0].index}.peoplePerPosition`;
+      item.targets = open.map(({ l, index }) => ({ list: 'labor', index, name: roleName(l) }));
+    }
+    items.push(item);
   }
 
   // 5 bis. Horas de cobertura de la operación vs horas cargadas del puesto (PLAN-2026-014,
@@ -331,6 +399,8 @@ export function evaluateCompleteness(quote = {}) {
       const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
       const required = D * H;
       const covered = ppp * normal + perDay * D + perMonth * ppp;
+      // P1 CIERRE (H-10): un puesto con "La cobertura está prevista" vigente no se vuelve a marcar.
+      if (laborCoverageHolds(quote, l)) return null;
       return required > covered + 1e-6 ? { l, index, ppp, normal, extra: perDay * D + perMonth * ppp, required, covered } : null;
     }).filter(Boolean);
     if (short.length) {
@@ -339,9 +409,9 @@ export function evaluateCompleteness(quote = {}) {
       const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
-        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo.${others}`);
+        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo. Puede estar bien: si el puesto no acompaña todas las horas de la operación (por ejemplo, está compartido o supervisa) o esas horas ya están en el sueldo, tocá "La cobertura está prevista" en el puesto: no hace falta sumar personas.${others}`);
       item.focus = `labor.${first.index}.peoplePerPosition`;
-      item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
+      item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal', required: x.required, covered: x.covered }));
       items.push(item);
     }
   }
@@ -640,6 +710,45 @@ export function evaluateCompleteness(quote = {}) {
       item.unreliable = true;
       item.focus = `equipment.${equipment.indexOf(first)}.external.unit`;
       item.targets = perActivation.map(({ e }) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
+      items.push(item);
+    }
+  }
+
+  // 9c'''. Externo por km o por tramo con cantidad mayor que 1 (P1 CIERRE, AUD-T1 H-09): cada unidad
+  // cuenta TODO el recorrido de la ruta. Si en realidad las unidades se reparten los viajes, el costo
+  // sale de más (+94 % en AUD-T1 E3). CRÍTICO (se pide confirmar antes de mandarla) sin volver NO
+  // CONFIABLE el resultado; la confirmación vale sólo para el supuesto (`externalQuantityAssumption`).
+  // No cambia la fórmula.
+  {
+    const isExtLine = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
+    const x0 = (e) => (isPlainObject(e.external) ? e.external : {});
+    const multi = equipment
+      .filter((e) => isExtLine(e) && (x0(e).unit === 'km' || x0(e).unit === 'trip') && nonNegative(x0(e).price) > 0 && nonNegative(e.quantity) > 1 + 1e-9)
+      .map((e) => ({ e, changes: quantityAssumptionChanges(e.externalQuantityConfirmed, externalQuantityAssumption(quote, e)) }))
+      .filter(({ changes }) => changes === null || changes.length > 0);
+    if (multi.length) {
+      const { e: first, changes } = multi[0];
+      const x = x0(first);
+      const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+      const qty = nonNegative(first.quantity);
+      const isKm = x.unit === 'km';
+      const roundTrip = x.unit === 'trip' && x.tripBasis === 'round_trip';
+      const legsPerActivation = (logistics.roundTrip === false ? 1 : 2) * route.tripsPerActivation;
+      const perActivation = logistics.notApplicable ? 0 : isKm ? routeKmPerActivation : roundTrip ? route.tripsPerActivation : legsPerActivation;
+      const A = act.activationsPerMonth;
+      const unitWord = isKm ? 'km' : roundTrip ? 'viaje completo' : 'tramo';
+      const many = isKm ? 'km' : roundTrip ? 'viajes completos' : 'tramos';
+      const month = A > 0 && perActivation > 0
+        ? ` (${n(perActivation * A)} ${many} de la ruta en el mes × ${n(qty)} = ${n(perActivation * A * qty)} ${many} facturados)`
+        : '';
+      const changed = { unit: 'la unidad de la tarifa', quantity: 'la cantidad' };
+      const stale = changes && changes.length ? `La confirmación anterior ("cada unidad hace todo el recorrido") ya no vale: cambió ${changes.map((c) => changed[c]).join(' y ')}. ` : '';
+      const others = multi.length > 1 ? ` También: ${multi.slice(1, 4).map(({ e }) => `"${lineName(e, 'Externo')}"`).join(', ')}.` : '';
+      const item = rule('external_quantity', 'Cantidad del proveedor', 'equipment', 2, 'missing',
+        `${stale}"${lineName(first, 'Externo')}" cobra ${formatMoney(nonNegative(x.price))} por ${unitWord} con cantidad ${n(qty)}: RATEOS cuenta todo el recorrido por cada unidad${month}. Si las ${n(qty)} unidades se reparten los viajes de la cotización, poné cantidad 1; si cada unidad hace todo el recorrido, confirmalo.${others}`);
+      item.critical = true;
+      item.focus = `equipment.${equipment.indexOf(first)}.quantity`;
+      item.targets = multi.map(({ e }) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
       items.push(item);
     }
   }

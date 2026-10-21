@@ -28,7 +28,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,7 +41,8 @@ import { service, person, owned, external, material, product, ingredient, worker
 import { computeProduct } from '../../../js/engines/product-engine.js';
 import { computeLaborLine } from '../../../js/engines/labor-engine.js';
 import { computeOwnership } from '../../../js/engines/equipment-engine.js';
-import { laborLineFromProfile, defaultVolumeTiers } from '../../../js/domain/quote-factory.js';
+import { laborLineFromProfile, defaultVolumeTiers, defaultSettings } from '../../../js/domain/quote-factory.js';
+import { createEmptyProduct } from '../../../js/domain/product-factory.js';
 import { roundMoney } from '../../../js/core/money.js';
 import { assertSafeReport } from '../lib/report.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
@@ -2145,6 +2146,130 @@ async function runMode(mode) {
       check(D, 'celular (360 × 640 px), Recursos: con el sueldo en el borde de abajo del diálogo, el eco que aparece al escribir queda a la vista (no debajo del pie)', edge.atEdge === true && Boolean(e) && e.text === '$ 2.600.000' && e.top >= e.visibleTop - 1 && e.bottom <= e.visibleBottom + 1 && edge.closed, JSON.stringify(edge));
     }
     await scan(D, 'Recursos');
+  }
+
+  // ---- P1 CIERRE (PLAN-2026-028, Gate A de la revisión del 21/10): señales que pueden llevar a confiar en un
+  // precio equivocado. H-09 cantidad de un externo por km, H-10 cobertura del personal, H-12 estado de la lista
+  // de productos, H-13 margen de la configuración de ejemplo y H-14 veredicto del precio de hoy. Las cifras son
+  // las del motor y no cambian al confirmar. Siembra sus propios datos SINTÉTICOS (fixtures de AUD-T1 E3 y E4).
+  {
+    const P = 'P1-CIERRE';
+    const fixture = (name) => JSON.parse(readFileSync(path.join(ROOT, 'tests', 'fixtures', 'eco-01', `${name}.json`), 'utf8'));
+    const stored = (list, id) => ((db.workspaces.get(orgId).state[list] || []).find((x) => x.id === id) || null);
+    const waitFor = async (list, id, test) => {
+      let x = null;
+      for (let i = 0; i < 30; i += 1) {
+        x = stored(list, id);
+        if (x && test(x)) break;
+        await page.waitForTimeout(150);
+      }
+      return x;
+    };
+    const visibleText = (selector) => page.evaluate((sel) => {
+      const b = [...document.querySelectorAll(sel)].find((x) => !x.closest('[hidden]') && x.offsetParent !== null);
+      return b ? b.innerText : '';
+    }, selector);
+    const pendingFields = () => page.evaluate(() => [...document.querySelectorAll('.qr-checklist a[href*="campo="]')].map((a) => decodeURIComponent((a.getAttribute('href') || '').split('campo=')[1] || '')));
+
+    const e3 = fixture('e3-cotizacion');
+    e3.equipment[0].quantity = 2;
+    Object.assign(e3, { id: randomUUID(), organizationId: orgId, code: 'LAB-P1C', name: 'P1C transporte con 2 camiones por km', offerDate: '2026-10-16', createdAt: now, updatedAt: now });
+    const e3r = computeQuote(structuredClone(e3));
+    const e4 = (name, patch) => {
+      const p = fixture('e4-producto');
+      Object.assign(p, { id: randomUUID(), organizationId: orgId, name, createdAt: now, updatedAt: now });
+      patch(p);
+      return p;
+    };
+    const review = e4('P1C producto con impuestos sin definir', (p) => { p.billingTaxes = null; });
+    const impossible = e4('P1C producto sin ventas por mes', (p) => { p.monthlyUnits = 0; p.pricing.currentPrice = 120000; });
+    const fresh = createEmptyProduct({ organizationId: orgId, settings: defaultSettings(orgId), now, id: randomUUID() });
+    fresh.name = 'P1C producto nuevo con el margen de ejemplo';
+    const live = db.workspaces.get(orgId);
+    live.state.quotes = [...live.state.quotes, e3];
+    live.state.products = [...(Array.isArray(live.state.products) ? live.state.products : []), review, impossible, fresh];
+    live.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+
+    // H-09: externo por km con cantidad 2 → ¿cada unidad hace todo el recorrido?
+    check(P, 'H-09: el motor pide confirmar la cantidad del externo por km (crítico, no NO CONFIABLE)', Boolean(e3r.completeness.pending.find((p) => p.id === 'external_quantity' && p.severity === 'critical' && p.unreliable !== true)), 'sin el pendiente');
+    await go(`#/cotizaciones/${encodeURIComponent(e3.id)}/equipment`, 300);
+    await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    const qty = norm(await visibleText('.qe-quantity-confirm:not(.is-confirmed)'));
+    check(P, 'H-09: Equipos pregunta "¿Cada unidad hace todo el recorrido?" con los km de la ruta y los facturados', /¿Cada unidad hace todo el recorrido\?/.test(qty) && qty.includes('11.520 km') && qty.includes('23.040 km'), qty.slice(0, 220));
+    const allRoute = page.getByRole('button', { name: 'Cada unidad hace todo el recorrido' }).first();
+    if (await allRoute.isVisible().catch(() => false)) {
+      await tap(allRoute);
+      const saved = await waitFor('quotes', e3.id, (q) => q.equipment[0] && q.equipment[0].externalQuantityConfirmed);
+      const c = saved && saved.equipment[0].externalQuantityConfirmed;
+      check(P, 'H-09: la confirmación se guarda ligada a la unidad y la cantidad', Boolean(c) && c.unit === 'km' && c.quantity === 2, JSON.stringify(c));
+      await page.waitForTimeout(400);
+      check(P, 'H-09: queda a la vista "Confirmado: cada unidad hace todo el recorrido"', /Confirmado: cada unidad hace todo el recorrido/.test(await visibleText('.qe-quantity-confirm.is-confirmed')), 'sin la confirmación a la vista');
+    } else {
+      check(P, 'H-09: el botón "Cada unidad hace todo el recorrido" está a la vista', false, 'sin botón');
+    }
+
+    // H-10: el coordinador compartido (18 días × 10 h contra 176 h) → revisar o confirmar, sin sumar personas.
+    await go(`#/cotizaciones/${encodeURIComponent(e3.id)}/labor`, 300);
+    await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    const cov = norm(await visibleText('.qe-coverage-confirm:not(.is-confirmed)'));
+    check(P, 'H-10: Personal pregunta si la operación está cubierta, con las horas que faltan, y dice que no hace falta sumar personas', /¿Está cubierta la operación\?/.test(cov) && /faltan 4 h/.test(cov) && /no hace falta sumar personas/.test(cov), cov.slice(0, 220));
+    const covered = page.getByRole('button', { name: 'La cobertura está prevista' }).first();
+    if (await covered.isVisible().catch(() => false)) {
+      await tap(covered);
+      const saved = await waitFor('quotes', e3.id, (q) => q.labor[0] && q.labor[0].coverageConfirmed);
+      const c = saved && saved.labor[0].coverageConfirmed;
+      check(P, 'H-10: la confirmación se guarda con el supuesto (días, horas y personas)', Boolean(c) && c.activeDaysPerMonth === 18 && c.hoursPerActiveDay === 10 && c.peoplePerPosition === 1, JSON.stringify(c));
+      check(P, 'H-10: no se sumó ninguna persona', Boolean(saved) && saved.labor[0].peoplePerPosition === 1, saved ? String(saved.labor[0].peoplePerPosition) : 'sin guardar');
+    } else {
+      check(P, 'H-10: el botón "La cobertura está prevista" está a la vista', false, 'sin botón');
+    }
+    await go(`#/cotizaciones/${encodeURIComponent(e3.id)}/result`, 300);
+    await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+    const after = await pendingFields();
+    const resultText = norm(await page.evaluate(() => document.body.innerText));
+    check(P, 'H-09 y H-10: confirmados, el Resultado ya no los pide y el costo del mes es el del motor', !after.includes('equipment.0.quantity') && !after.includes('labor.0.peoplePerPosition') && resultText.includes(norm(formatMoney(e3r.kpis.totalCost))), JSON.stringify(after));
+
+    // H-12: un aviso pendiente no dice "Completo" en la lista.
+    await go('#/productos', 800);
+    const row = await page.evaluate((name) => {
+      const r = [...document.querySelectorAll('tr')].find((x) => x.innerText && x.innerText.includes(name));
+      return r ? r.innerText : '';
+    }, review.name);
+    check(P, 'H-12: con un aviso pendiente la lista dice "Revisar (1)" y ofrece "Ver avisos", no "Completo"', /Revisar \(1\)/.test(row) && /Ver avisos/.test(row) && !/Completo/.test(row), norm(row).slice(0, 200));
+
+    // H-14: sin ventas por mes el precio de hoy no se puede evaluar.
+    await go(`#/productos/${encodeURIComponent(impossible.id)}/resultado`, 300);
+    await page.waitForTimeout(800);
+    const verdict = await page.evaluate(() => {
+      const b = document.querySelector('[data-verdict]');
+      return b ? { kind: b.dataset.verdict, cls: b.className, text: b.innerText } : null;
+    });
+    check(P, 'H-14: sin ventas por mes el precio de hoy "no se puede evaluar" (nunca verde)', Boolean(verdict) && verdict.kind === 'not_evaluable' && !/banner-success/.test(verdict.cls) && /No se puede evaluar/.test(verdict.text), JSON.stringify(verdict));
+    check(P, 'H-14: no aparece "Tu precio de hoy cubre tus costos y el margen que querés."', !norm(await page.evaluate(() => document.body.innerText)).includes('Tu precio de hoy cubre tus costos y el margen que querés.'), 'sigue el veredicto verde');
+
+    // H-13: el margen de la configuración de ejemplo se marca y "Es mi margen" lo confirma sin cambiarlo.
+    await go(`#/productos/${encodeURIComponent(fresh.id)}/precio`, 300);
+    await page.waitForTimeout(800);
+    const marg = await page.evaluate(() => {
+      const input = document.querySelector('[name="pricing.targetMarginPct"]');
+      const field = input && input.closest('.field');
+      const note = document.querySelector('.pe-margin-example');
+      return { tag: Boolean(field && field.querySelector('.tag-illustrative')), note: note ? note.innerText : '' };
+    });
+    check(P, 'H-13: el margen heredado de la configuración de ejemplo lleva la marca ILUSTRATIVO y lo explica', marg.tag && /Margen de ejemplo/.test(marg.note), JSON.stringify(marg));
+    const mine = page.getByRole('button', { name: 'Es mi margen' }).first();
+    if (await mine.isVisible().catch(() => false)) {
+      await tap(mine);
+      const saved = await waitFor('products', fresh.id, (p) => p.pricing && p.pricing.marginFromExample === undefined);
+      check(P, 'H-13: "Es mi margen" lo confirma (se guarda) sin cambiar el valor', Boolean(saved) && saved.pricing.marginFromExample === undefined && saved.pricing.targetMarginPct === fresh.pricing.targetMarginPct, saved ? JSON.stringify(saved.pricing) : 'sin guardar');
+    } else {
+      check(P, 'H-13: el botón "Es mi margen" está a la vista', false, 'sin botón');
+    }
+    await scan(P, 'producto');
   }
 
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en

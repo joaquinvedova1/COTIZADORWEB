@@ -48,7 +48,7 @@
  * red, fecha actual ni aleatoriedad.
  */
 
-import { MEASURE_UNITS, MEASURE_UNIT_ALIASES } from '../domain/catalogs.js';
+import { MEASURE_UNITS, MEASURE_UNIT_ALIASES, ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { isPlainObject, objectList } from '../core/object.js';
 import { isFiniteNumber, nonNegative, pct, safeDivide, roundPercentagesToTotal } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
@@ -222,6 +222,9 @@ export function productBreakEvenUnits({ fixedMonthly, variablePerUnit, price, ta
   return contribution > 0 ? fixedMonthly / contribution : null;
 }
 
+/** Parámetros del puesto que vienen de un convenio (los mismos que marca el editor como ILUSTRATIVOS). */
+const GENERIC_LABOR_KEYS = Object.freeze(['normalHoursPerMonth', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
+
 /**
  * Valida un producto: lista de { path, message, severity: 'error'|'warning' }.
  * Errores = el resultado no se puede calcular o es inválido; avisos = falta un dato.
@@ -236,6 +239,12 @@ export function validateProduct(product = {}, computed = null) {
   const m = isPlainObject(p.pricing) ? p.pricing.targetMarginPct : null;
   if (m !== null && m !== undefined && !isValidMarginPct(m)) issues.push({ path: 'pricing.targetMarginPct', message: 'El margen debe ser mayor o igual a 0 y menor a 100 %.', severity: 'error' });
   else if (isValidMarginPct(m) && !isValidMarginAndTaxes(m, r.taxPct)) issues.push({ path: 'pricing.targetMarginPct', message: 'El margen más los impuestos sobre la venta llegan a 100 % o más: no hay precio posible.', severity: 'error' });
+  // P1 CIERRE (AUD-T1 H-13): supuestos ILUSTRATIVOS que no se ven a simple vista. El producto de
+  // EJEMPLO ya está marcado entero. Son avisos: ninguna cifra cambia.
+  const example = p.illustrative === true;
+  if (!example && isPlainObject(p.pricing) && p.pricing.marginFromExample === true && isValidMarginPct(m)) {
+    issues.push({ path: 'pricing.targetMarginPct', message: `El margen que querés ganar (${String(m).replace('.', ',')} %) es el de la configuración de EJEMPLO de RATEOS, no uno tuyo: confirmalo con "Es mi margen" o cambialo.`, severity: 'warning' });
+  }
   if (r.taxInfo.invalid) issues.push({ path: 'billingTaxes', message: 'Revisá los impuestos sobre la venta: hay un porcentaje inválido.', severity: 'error' });
   else if (!r.taxInfo.defined) issues.push({ path: 'billingTaxes', message: 'No cargaste los impuestos sobre lo que vendés (Ingresos Brutos, tasa municipal…): el precio no los incluye. Cargalos o marcá que no corresponden.', severity: 'warning' });
   r.materials.forEach((line, i) => {
@@ -249,6 +258,12 @@ export function validateProduct(product = {}, computed = null) {
     // sueldo y el producto no está completo. Nunca se inventa un sueldo.
     if (line.people > 0 && line.minutesPerBatch > 0 && !(nonNegative(laborInput[i]?.basicMonthly) > 0)) {
       issues.push({ path: `labor.${i}.basicMonthly`, message: `"${line.role || 'Puesto'}" trabaja en cada tanda pero no tiene sueldo básico: sin el básico faltan su sueldo y las cargas sociales sobre él en el costo hora. Cargalo; si no trabaja en este producto, poné 0 minutos o quitá la línea.`, severity: 'error' });
+    }
+    // Sin convenio y con los cinco parámetros genéricos de ejemplo (H-13): el costo hora usa cargas ILUSTRATIVAS.
+    const input = laborInput[i] || {};
+    if (!example && line.people > 0 && line.minutesPerBatch > 0 && !input.agreementId
+      && GENERIC_LABOR_KEYS.every((k) => input[k] === ILLUSTRATIVE_AGREEMENT_PARAMS[k])) {
+      issues.push({ path: `labor.${i}.agreementId`, message: `"${line.role || 'Puesto'}": las cargas sociales y las horas del mes son las genéricas de ejemplo (sin convenio), no las de tu CCT. Elegí tu convenio o cargá tus valores en "Cargas sociales y horas del mes".`, severity: 'warning' });
     }
     if (line.issue === 'normal_hours_missing') issues.push({ path: `labor.${i}.normalHoursPerMonth`, message: `"${line.role || 'Puesto'}": cargá las horas normales del mes para calcular el costo hora.`, severity: 'warning' });
     if (isFiniteNumber(line.usedPct) && line.usedPct > 100) issues.push({ path: `labor.${i}.minutesPerBatch`, message: `"${line.role || 'Puesto'}": con las unidades que vendés por mes necesitaría más horas de las que trabaja en el mes. Revisá los minutos por tanda, las personas o las ventas.`, severity: 'warning' });

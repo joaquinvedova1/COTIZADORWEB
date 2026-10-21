@@ -29,6 +29,14 @@ Reglas para este archivo:
 
 Antes de abrir el registro a terceros hace falta el SMTP propio ([docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2). La fecha se pone al publicarse.
 
+**P1 CIERRE, señales engañosas antes del autoservicio (PLAN-2026-028, Gate A de la revisión del 21/10).** Ninguna fórmula cambia (lo guardado conserva sus cifras, golden 39/39, esquema 10). Cambian la completitud, los avisos y los textos:
+- **Productos (AUD-T1 H-14):** "Tu precio de hoy cubre tus costos y el margen que querés" ya no sale en verde sin un resultado válido. Con datos faltantes dice "No se puede evaluar tu precio de hoy", y con datos para revisar queda en amarillo.
+- **Productos (H-12):** la lista dice "Completo" sólo sin datos faltantes ni avisos. Con avisos dice "Revisar (n)", y el ejemplo dice "Ejemplo". Hay un enlace "Ver avisos".
+- **Productos (H-13):** el margen de la configuración de ejemplo se marca ILUSTRATIVO en un producto nuevo hasta cambiarlo o tocar "Es mi margen". Un puesto sin convenio con las cargas genéricas de ejemplo queda para revisar y su desplegable se abre solo.
+- **Externos por km o por tramo con cantidad mayor que 1 (H-09):** pendiente crítico "¿Cada unidad hace todo el recorrido?", con los km o tramos del mes y los facturados. Se resuelve con "Poner cantidad 1" o con "Cada unidad hace todo el recorrido".
+- **Avisos de personal (H-10):** "Horas del personal" y "Relevos" aclaran que son una revisión y que no hace falta sumar personas; "Relevos" ya no dice 24/7 si el servicio no lo es. Cada puesto marcado ofrece "La cobertura está prevista", que vale mientras sigan iguales los días, las horas, las personas y las horas normales y extra.
+- Pruebas: `tests/engines/p1-cierre.test.js` y `tests/ui/p1-cierre-ui.test.js` (30 tests) y el bloque P1-CIERRE del `ui-lab` (escritorio y celular). En el candidato anterior (`f7e8a29`) fallan 24 de los 30 tests nuevos (los otros 6 fijan lo que no debe cambiar) y 10 de los 13 controles del bloque.
+
 **DESIGN-02 (2/2), cotizar sin fricción (PLAN-2026-026).** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10).
 
 ### Agregado

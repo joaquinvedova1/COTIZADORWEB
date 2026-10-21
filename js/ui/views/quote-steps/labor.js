@@ -14,6 +14,7 @@ import { illustrativeTag } from '../../layout.js';
 import { hasNumber, plural, stepName } from './shared.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS, CONTINUOUS_SERVICE_TYPES } from '../../../domain/catalogs.js';
 import { laborLineFromProfile } from '../../../domain/quote-factory.js';
+import { laborCoverageAssumption, laborCoverageHolds } from '../../../engines/completeness-engine.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { nonNegative, isFiniteNumber } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
@@ -118,6 +119,48 @@ export function render(container, ctx) {
   const illustrativeParam = (line, key) => {
     const agreement = agreementOf(line);
     return Boolean(quote.illustrative) || line.illustrative === true || Boolean(agreement && agreement.illustrative) || line[key] === ILLUSTRATIVE_AGREEMENT_PARAMS[key];
+  };
+
+  /** "Horas del personal" y "Relevos" que marcan este puesto (P1 CIERRE, AUD-T1 H-10). */
+  const coverageTargetsOf = (r, index) => ((r && r.completeness && r.completeness.pending) || [])
+    .filter((x) => x.id === 'labor_hours' || x.id === 'relief')
+    .map((x) => ({ id: x.id, target: (x.targets || []).find((t) => t.index === index) }))
+    .filter((x) => x.target);
+  const hoursText = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+  /**
+   * Es una revisión, no una orden de sumar personal: "Revisar personas y horas" lleva al campo y
+   * "La cobertura está prevista" guarda el supuesto (`laborCoverageAssumption`), que vale mientras
+   * sigan igual los días, las horas, las personas, las horas normales y las extra. No cambia el costo.
+   */
+  const coverageBanner = (index) => {
+    const path = `labor.${index}`;
+    const pendingBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-warning qe-coverage-confirm', role: 'status' },
+      kit.out((r) => {
+        const found = coverageTargetsOf(r, index);
+        if (!found.length) return '';
+        const parts = found.map(({ id, target }) => (id === 'labor_hours'
+          ? `La operación pide ${hoursText(target.required)} h de cobertura por posición en el mes y este puesto cubre ${hoursText(target.covered)} h (faltan ${hoursText(target.required - target.covered)} h).`
+          : 'Servicio continuo con una sola persona por posición: ¿quién cubre relevos, francos y vacaciones?'));
+        return h('div', {}, h('strong', {}, '¿Está cubierta la operación? '), `${parts.join(' ')} Si ya está previsto (horas extra, reemplazos de la empresa o el puesto no acompaña toda la operación), confirmalo: no hace falta sumar personas.`);
+      }, { tag: 'div', allowEmpty: true }),
+      ctx.readOnly
+        ? null
+        : h('div', { class: 'qe-toolbar' },
+          kit.action('Revisar personas y horas', () => ctx.focusField(`${path}.peoplePerPosition`), { icon: 'edit' }),
+          kit.action('La cobertura está prevista', () => ctx.mutate((q) => { q.labor[index].coverageConfirmed = laborCoverageAssumption(q, q.labor[index]); }), { icon: 'check' })),
+    ), (r) => coverageTargetsOf(r, index).length > 0);
+    const c = (quote.labor[index] || {}).coverageConfirmed;
+    if (!c || typeof c !== 'object') return pendingBanner;
+    // Confirmación vigente: se muestra (desaparece si el motor la da por vencida).
+    const confirmedBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-info qe-coverage-confirm is-confirmed', role: 'status' },
+      h('div', {}, h('strong', {}, 'Confirmado: la cobertura de este puesto está prevista. '), 'RATEOS no suma personas. Si cambian los días, las horas por día, las personas por posición, las horas normales o las horas extra, se vuelve a preguntar.'),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar', () => ctx.mutate((q) => { delete q.labor[index].coverageConfirmed; }, { focus: `${path}.peoplePerPosition` }), { icon: 'edit' })),
+    ), (r) => coverageTargetsOf(r, index).length === 0 && laborCoverageHolds(quote, quote.labor[index] || {}));
+    return h('div', { class: 'qe-coverage-confirm-wrap' }, pendingBanner, confirmedBanner);
   };
 
   // ------------------------------------------------------------ acciones
@@ -297,6 +340,8 @@ export function render(container, ctx) {
             kit.action('Completar', () => ctx.focusField(`${p}.basicMonthly`), { variant: 'primary', icon: 'check' }),
             kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })),
       ), (r) => ((r.completeness && r.completeness.pending) || []).some((x) => x.id === 'labor' && (x.targets || []).some((t) => t.index === i))),
+      // "Horas del personal" o "Relevos" (P1 CIERRE, H-10): revisar o confirmar que la cobertura está prevista.
+      coverageBanner(i),
       formGrid(
         3,
         kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Operador' }),

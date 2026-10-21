@@ -2052,8 +2052,8 @@ Ninguno. Cambian textos, la completitud y el estado de la lista de productos. Se
 - Esquema 10 y sin migración. `main` los ignora (vuelta atrás) y no cambian costos.
 
 #### 5. Pasos
-- [ ] 1. Este plan y los tests que fallan en `f7e8a29`.
-- [ ] 2. Implementación y tests en verde.
+- [x] 1. Este plan y los tests que fallan en `f7e8a29`.
+- [x] 2. Implementación y tests en verde.
 - [ ] 3. Revisión de frontend y correcciones de usabilidad relevantes para la beta (aparte, documentadas).
 - [ ] 4. Verificación completa del candidato y revisión de código del diff.
 - [ ] 5. Evidencia "P1 CIERRE" en RATEOS-AUDIT y GO/NO-GO actualizado.
@@ -2064,3 +2064,4 @@ Ninguno. Cambian textos, la completitud y el estado de la lista de productos. Se
 
 #### Bitácora
 - 2026-10-21: plan antes del código.
+- 2026-10-21: Gate A implementado. En `f7e8a29` fallan 24 de los 30 tests nuevos (los otros 6 fijan lo que no cambia) y 10 de los 13 controles del bloque P1-CIERRE del `ui-lab`, en escritorio y en celular. Con el cambio: `npm test` 1966/1966, Test Lab 97 PASS con golden 39/39, gate PASA y `ui-lab` 648/648 y 650/650.

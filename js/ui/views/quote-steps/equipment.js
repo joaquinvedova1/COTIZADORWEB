@@ -28,7 +28,7 @@ import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { lineIncrementalImpact } from '../../../engines/impact-engine.js';
-import { externalUnitAssumption, operatorSupplierSnapshot } from '../../../engines/completeness-engine.js';
+import { externalUnitAssumption, externalQuantityAssumption, operatorSupplierSnapshot } from '../../../engines/completeness-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -898,6 +898,43 @@ export function render(container, ctx) {
     return h('div', { class: 'qe-unit-confirm-wrap' }, pendingBanner, confirmedBanner);
   };
 
+  /** Pendiente "Cantidad del proveedor" de esta línea (P1 CIERRE, H-09), o null. */
+  const quantityPendingOf = (r, index) => ((r && r.completeness && r.completeness.pending) || [])
+    .find((x) => x.id === 'external_quantity' && (x.targets || []).some((t) => t.index === index)) || null;
+  /**
+   * Externo por km o por tramo con cantidad mayor que 1 (P1 CIERRE, AUD-T1 H-09): cada unidad cuenta
+   * todo el recorrido. "Poner cantidad 1" si se reparten los viajes; "Cada unidad hace todo el
+   * recorrido" guarda el supuesto (`externalQuantityAssumption`): si cambian la cantidad o la unidad, se
+   * vuelve a pedir. La fórmula no cambia.
+   */
+  const quantityConfirmBanner = (index) => {
+    const pendingBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-warning qe-quantity-confirm', role: 'status' },
+      kit.out((r) => {
+        const item = quantityPendingOf(r, index);
+        return item ? h('div', {}, h('strong', {}, '¿Cada unidad hace todo el recorrido? '), item.message) : '';
+      }, { tag: 'div', allowEmpty: true }),
+      ctx.readOnly
+        ? null
+        : h('div', { class: 'qe-toolbar' },
+          kit.action('Poner cantidad 1', () => ctx.mutate((q) => { q.equipment[index].quantity = 1; delete q.equipment[index].externalQuantityConfirmed; }, { focus: `equipment.${index}.quantity` }), { variant: 'primary' }),
+          kit.action('Cada unidad hace todo el recorrido', () => ctx.mutate((q) => { q.equipment[index].externalQuantityConfirmed = externalQuantityAssumption(q, q.equipment[index]); }), { icon: 'check' })),
+    ), (r) => Boolean(quantityPendingOf(r, index)));
+    const line = quote.equipment[index] || {};
+    const c = line.externalQuantityConfirmed;
+    if (!c || typeof c !== 'object') return pendingBanner;
+    // Confirmación vigente: se muestra lo que se confirmó (desaparece si el motor la da por vencida).
+    const confirmedBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-info qe-quantity-confirm is-confirmed', role: 'status' },
+      h('div', {}, h('strong', {}, 'Confirmado: cada unidad hace todo el recorrido. '),
+        `Con cantidad ${formatNumber(Number(c.quantity) || 0, { decimals: 2 })}, la tarifa se paga por el recorrido completo de cada unidad. Si cambian la cantidad o la unidad de la tarifa, se vuelve a pedir.`),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar la cantidad', () => ctx.mutate((q) => { delete q.equipment[index].externalQuantityConfirmed; }, { focus: `equipment.${index}.quantity` }), { icon: 'edit' })),
+    ), (r) => !quantityPendingOf(r, index) && (Number((quote.equipment[index] || {}).quantity) || 0) > 1);
+    return h('div', { class: 'qe-quantity-confirm-wrap' }, pendingBanner, confirmedBanner);
+  };
+
   /** ¿Esta línea pregunta "¿lo opera alguien de tu Personal?" (ECO-04, VAL-01-F2)? Cada línea, no sólo la primera. */
   const operatorScopeOf = (r, index) => ((r && r.completeness && r.completeness.operatorScope) || []).some((x) => x.index === index);
   /** Pregunta de la línea con los puestos candidatos de ahora. */
@@ -996,6 +1033,8 @@ export function render(container, ctx) {
         : null,
       // "Por salida" con varios viajes por salida (ECO-01, H-01): elegir la unidad o confirmarla.
       unit === 'activation' ? unitConfirmBanner(i) : null,
+      // Por km o por tramo con cantidad mayor que 1 (P1 CIERRE, H-09): ¿cada unidad hace todo el recorrido?
+      unit === 'km' || unit === 'trip' ? quantityConfirmBanner(i) : null,
       // Asistente de completitud del externo.
       kit.out(() => {
         const items = externalChecklist(quote.equipment[i] || {});
