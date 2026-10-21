@@ -126,6 +126,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-024 | RES-02 (2/2) — Equipos agrupados por familia (equipos de vacío y de pozo aparte de los camiones), unidades propias ≠ alquiladas o tercerizadas y costo de tener la flota propia | UX (sin cambios de fórmulas ni de datos) | En curso (rama `claude/res-02-equipos-por-familia`, apilada sobre el PR #33, sin merge) |
 | PLAN-2026-025 | DESIGN-02 (1/2) — "Ingeniería clara": DESIGN.md propio y leer bien montos, unidades, riesgo y estado de guardado | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-ingenieria-clara`, PR sin merge) |
 | PLAN-2026-026 | DESIGN-02 (2/2) — Cotizar sin fricción: resumen en vivo con margen y resultado, barra compacta, avisos y tablas en el celular, campos accesibles y eco de montos | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-cotizar-sin-friccion`, apilada sobre PLAN-2026-025; PR sin merge) |
+| PLAN-2026-027 | BETA-RC1 — Candidato de beta integrado: los PR #28 a #36 sobre `main` `d6540b7`, verificados en el árbol final, versión 0.9.0 e informe GO/NO-GO | integración y release (sin funcionalidades nuevas) | En curso (rama `claude/beta-candidato-1`; PR candidato en borrador, sin merge ni deploy) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1939,3 +1940,69 @@ Revert del PR. No deja datos.
   - `ui-lab` 413/413 (escritorio) y 415/415 (celular), con 18 controles DESIGN-02B en cada uno;
   - contra la base (`6a310e2`) fallan 12 de 18 en escritorio y 13 de 18 en el celular (fuera del bloque, 0); contra `d3b7cb1`, sólo el control nuevo del eco;
   - combinado con los PR #28 a #35: `npm test` 1936/1936, Test Lab OK, gate 349/349, `ui-lab` 624/624 y 626/626, `auth-lab` 136/136. La corrección se combinó sin conflictos.
+
+### PLAN-2026-027 — BETA-RC1: candidato de beta integrado (PR #28 a #36)
+
+- Estado: En curso — rama `claude/beta-candidato-1` desde `main` `d6540b7`. PR candidato en borrador, sin merge ni deploy
+- Tipo: integración y release. **Sin funcionalidades nuevas**; ninguna fórmula ni dato cambia respecto de los PR integrados
+- Responsable: agente de desarrollo (Claude) · coordinación y criterios: ChatGPT (RATEOS-AUDIT, Issue #5, comentarios del 21/10) · decisiones y autorizaciones: el dueño
+- Fecha de inicio: 2026-10-21
+
+#### 1. Contexto
+- **Producción:** v0.8.1 con ECO-01, `main` `d6540b7`.
+- **Abiertos:** los PR #28 a #36. Cada uno se verificó por separado y combinado con los anteriores en árboles locales; ninguno está en `main`. #34 está apilado sobre #33 y #36 sobre #35.
+- **Pedido del dueño (21/10):** dejar de abrir funcionalidades y cerrar la beta, con registro público y autoservicio.
+- **Fase 1 autorizada:** rama candidata aislada, verificación en el árbol final e informe. **No** autoriza merge, deploy, cuentas reales ni cambios de Supabase, Auth, DNS o SMTP.
+- **Por qué un candidato único:** cada push a `main` despliega. Mergear los 9 PR uno por uno publicaría 9 estados intermedios; el candidato es un merge y un deploy.
+
+#### 2. Decisiones
+1. **Integración:** `git merge --no-ff` de los **heads exactos** de cada PR, en orden #28 → #36 (#34 después de #33; #36 después de #35).
+   - Ningún commit se copia ni se reescribe: los heads quedan como ancestros del candidato.
+   - Cuando el candidato llegue a `main`, GitHub marca como integrados los PR con base `main`. #34 y #36 apuntan a otra rama: hay que cambiarles la base a `main` o cerrarlos.
+2. **Conflictos:** sólo de texto (índice de planes, CHANGELOG, imports y bloques agregados en el mismo lugar). Se resuelven igual que en las verificaciones combinadas ya probadas, y **cada paso se compara contra ese árbol**:
+   - #28 a #34: idénticos;
+   - #35 y #36: la única diferencia es la documentación que esos PR sumaron después de su verificación combinada (`6a310e2` y `baf8b56`) y el ajuste del punto 3.
+3. **Un ajuste de integración, en commit propio:** la pastilla "No confiable" de #29 usa 0,75 rem, y el test de DESIGN-02 (#35) pide el mínimo `var(--fs-xs)`.
+4. **Versión 0.9.0** (minor: registro público y regla nueva de redondeo para lo nuevo). Lo que estaba en [Unreleased] pasa a [0.9.0], sin fecha hasta publicarse. Esquema 10, sin migraciones.
+5. **Alcance congelado:**
+   - si la verificación encuentra un P0 o P1 causado por la integración, se corrige acá, con test;
+   - lo que no viene de la integración se informa como bloqueo y no se amplía el alcance.
+
+#### 3. Impacto en fórmulas
+Ninguno propio. Lo que traen los PR:
+- ECO-03 cambia la regla de redondeo **sólo para cotizaciones nuevas**; lo guardado no cambia;
+- el resto no cambia cifras.
+
+Se verifica en el árbol final con el A/B contra `main` (las cotizaciones guardadas dan las mismas cifras) y con el oráculo independiente de VAL-01.
+
+#### 4. Impacto en datos
+Ninguno propio: esquema 10, sin migraciones. Los PR agregan campos opcionales (por ejemplo `pricing.roundingMode` de ECO-03 y `laborProfiles[].peopleCount` de RES-02). Se verifica que `main` (el rollback) abra datos guardados con el candidato.
+
+#### 5. Pasos
+- [x] 1. Rama y merges de #28 a #36, comparados paso a paso con los árboles ya verificados.
+- [ ] 2. Este plan; después, el ajuste de integración y la versión.
+- [ ] 3. Verificación en el árbol final:
+  - `npm test`, `npm run test:lab`, `npm run test:security` y `npm run build`;
+  - `ui-lab` (escritorio y celular) y `auth-lab`;
+  - economía (#29 a #31): A/B contra `main`, cotización nueva en las 18 unidades y VAL-01 contra el oráculo;
+  - registro público (#28);
+  - compatibilidad hacia atrás (rollback).
+- [ ] 4. PR candidato en borrador (sin merge) y CI del candidato.
+- [ ] 5. Informe único en RATEOS-AUDIT:
+  - GO/NO-GO por requisito;
+  - pruebas hechas y pruebas reales pendientes;
+  - checklist del dueño y smoke test real propuesto;
+  - rollback y puerta final.
+
+#### 6. Rollback
+- **Antes del merge:** nada que deshacer (rama aparte).
+- **Después del merge y el deploy:**
+  - `git revert` del merge del candidato (DEPLOYMENT.md §5), o
+  - el workflow de deploy a mano con `ref` = `d6540b7`.
+- Esquema 10 en los dos lados: `main` abre lo guardado con el candidato (se verifica en el paso 3).
+- **Antes del merge (puerta final):** respaldo de DOVA exportado y verificado.
+
+#### Bitácora
+- 2026-10-21: rama `claude/beta-candidato-1` desde `main` `d6540b7`. Merges de los heads exactos: #28 `38f6c24`, #29 `d5d46d1`, #30 `7b164e3`, #31 `fb5dbd9`, #32 `d74fbf3`, #33 `ed43a43`, #34 `3cba29b`, #35 `6a310e2` y #36 `baf8b56`.
+  - Conflictos sólo de texto. Se resolvieron con las mismas soluciones de las verificaciones combinadas; cada paso quedó **idéntico** a ese árbol (#28 a #34), o distinto sólo en la documentación posterior de #35 y #36 y en el ajuste de la pastilla.
+  - Los merges van antes de este plan porque cada PR agrega su sección al final de este archivo: con el plan antes, habría chocado nueve veces. **Ningún cambio propio va antes del plan.**
