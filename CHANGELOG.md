@@ -12,6 +12,28 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**ECO-04 (PLAN-2026-021): avisos verificables para AUD-T1 H-04, H-08 y VAL-01-F2.** Ninguna fórmula cambia: golden 39/39 y candado sin tocar, y las mismas cifras que `main` (A/B). Cambian la completitud (pendientes nuevos que aparecen sólo cuando se disparan) y los textos. Esquema sin cambios (sigue en 10), sin migraciones.
+
+### Agregado
+
+- **Abono con más días trabajados que disponibles (H-04):** con la tarifa en $/mes, el resultado queda **NO CONFIABLE** (`month_days_overflow`, crítico) hasta corregir los días.
+  - **Por qué:** el motor facturaba días ÷ disponibles abonos (26 con 22: 1,18) y los fijos × 1,18, y un abono se cobra una vez por mes.
+  - **Qué dice el aviso:** los números y cómo corregirlos. "Ir al campo" lleva a los días disponibles.
+- **Costo de tenerlo de los vehículos de apoyo (H-08):** cada vehículo dice dónde está su amortización, seguro, patente o alquiler.
+  - **Dónde:** Logística → "Costo de tenerlo".
+  - **Opciones:** "Ya está en el costo por km" o "En Equipos: …".
+  - **Sin respuesta:** pendiente **crítico** (`vehicle_ownership_costs`).
+  - **Desgaste:** con el vehículo ligado a Equipos, la ayuda del desgaste dice que no repita la amortización.
+  - **Duplicados:** si esa línea va por sus propios medios, el control de duplicados lo marca.
+- **Operador de Personal que el externo ya trae (VAL-01-F2):** si un externo incluye operador, no tiene uno asignado y en Personal hay un chofer u operador que no opera ningún equipo, se pregunta (para revisar).
+  - **Cómo se confirma:** en Equipos, "Ningún puesto de Personal lo opera", ligado a esos puestos.
+  - **Sin falsos positivos:** un coordinador, un ayudante o un supervisor no disparan la pregunta.
+
+### Cambiado
+
+- **Aviso de "más días que disponibles":** dice lo que se calcula (trabajo de más de un mes, o que un abono se cobra una vez por mes).
+- **Resultado:** separa los datos inválidos (que sí se reemplazan por 0 o por un valor por defecto) de los avisos, que se calculan con lo cargado. Antes todos decían "los cálculos reemplazan los valores inválidos por 0".
+- **Test Lab:** sabe completar los campos nuevos (`ownershipCostsIn`, el operador).
 **ECO-03 (PLAN-2026-020): redondeo comercial proporcional a la tarifa (VAL-01-F1).** **Cambio de regla de negocio** para las cotizaciones nuevas: la sugerida se redondea en automático, a lo sumo 1 % sobre el precio objetivo, en lugar de un múltiplo fijo de $ 1.000 para cualquier unidad. **Lo guardado no cambia:** las cotizaciones, las plantillas y las empresas con su múltiplo elegido o confirmado siguen igual (golden 39/39 sin tocar). Esquema sin cambios (sigue en 10), sin migraciones.
 
 ### Cambiado

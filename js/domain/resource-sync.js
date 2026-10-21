@@ -106,8 +106,9 @@ export function mainValueOf(type, values) {
 const KEEP_ON_UPDATE = Object.freeze({
   // assignment / fixedCostSharePct (PLAN-2026-012): la asignación es de la cotización, nunca del recurso.
   laborProfiles: ['id', 'positions', 'peoplePerPosition', 'overtimeHoursPerActiveDay', 'overtime', 'overtimeBilled', 'people', 'minutesPerBatch', 'assignment', 'fixedCostSharePct'],
-  equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode', 'supplierPayDays', 'assignment', 'fixedCostSharePct'],
-  externalServices: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'supplierPayDays'],
+  // operatorBySupplier (ECO-04): "ningún puesto de Personal lo opera" es de la cotización, como el operador asignado.
+  equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'operatorBySupplier', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode', 'supplierPayDays', 'assignment', 'fixedCostSharePct'],
+  externalServices: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'operatorBySupplier', 'supplierPayDays'],
   materials: ['id', 'quantity', 'basis', 'providedBy', 'per', 'useUnit'],
 });
 

@@ -28,7 +28,7 @@ import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { lineIncrementalImpact } from '../../../engines/impact-engine.js';
-import { externalUnitAssumption } from '../../../engines/completeness-engine.js';
+import { externalUnitAssumption, operatorSupplierSnapshot } from '../../../engines/completeness-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -424,6 +424,10 @@ export function render(container, ctx) {
           if (e && e.mobilization && e.mobilization.carrierLineId === removed.id) {
             e.mobilization.carrierLineId = null;
           }
+        });
+        // ECO-04 (H-08): el vehículo de apoyo que tenía ahí su costo de tenerlo vuelve a preguntar.
+        ((q.logistics && q.logistics.vehicles) || []).forEach((v) => {
+          if (v && v.ownershipCostsIn === removed.id) v.ownershipCostsIn = null;
         });
       }
     });
@@ -894,6 +898,45 @@ export function render(container, ctx) {
     return h('div', { class: 'qe-unit-confirm-wrap' }, pendingBanner, confirmedBanner);
   };
 
+  /** ¿Esta línea pregunta "¿lo opera alguien de tu Personal?" (ECO-04, VAL-01-F2)? Cada línea, no sólo la primera. */
+  const operatorScopeOf = (r, index) => ((r && r.completeness && r.completeness.operatorScope) || []).some((x) => x.index === index);
+  /** Pregunta de la línea con los puestos candidatos de ahora. */
+  const operatorScopeText = (index) => {
+    const line = quote.equipment[index] || {};
+    const names = operatorSupplierSnapshot(quote).labor.map((x) => `"${x.role}"`);
+    const who = names.length === 1 ? `${names[0]} no opera ningún equipo` : `${names.slice(0, 3).join(', ')} no operan ningún equipo`;
+    return `La tarifa de "${line.name || 'Externo'}" ya incluye operador y ${who}: si es el mismo, se paga dos veces. Si es el mismo, sacalo de Personal (o dejalo en 0 posiciones); si la tarifa no lo incluye, marcá el operador como "No, lo pago aparte". Si es otra persona, confirmalo acá.`;
+  };
+  /**
+   * Externo que trae operador y un puesto de Personal que suena a operador o chofer sin equipo (ECO-04,
+   * VAL-01-F2): asignarlo o confirmar "Ningún puesto de Personal lo opera", que guarda esos puestos
+   * (`operatorSupplierSnapshot`). Si aparece otro o se renombra, el motor vuelve a preguntar.
+   */
+  const operatorScopeBanner = (index) => {
+    const pendingBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-warning qe-operator-scope', role: 'status' },
+      kit.out((r) => (operatorScopeOf(r, index) ? h('div', {}, h('strong', {}, '¿Lo opera alguien de tu Personal? '), operatorScopeText(index)) : ''), { tag: 'div', allowEmpty: true }),
+      ctx.readOnly
+        ? null
+        : h('div', { class: 'qe-toolbar' },
+          kit.action('Ningún puesto de Personal lo opera', () => ctx.mutate((q) => { q.equipment[index].operatorBySupplier = operatorSupplierSnapshot(q); }), { icon: 'check' })),
+    ), (r) => operatorScopeOf(r, index));
+    const line = quote.equipment[index] || {};
+    // "Asignado" como lo cuenta el motor: un puesto que existe (un id viejo no cuenta).
+    const assigned = typeof line.operatorLaborId === 'string' && (quote.labor || []).some((l) => l && l.id === line.operatorLaborId);
+    const confirmed = line.operatorBySupplier && typeof line.operatorBySupplier === 'object' && line.external && line.external.operatorIncluded === true && !assigned;
+    if (!confirmed) return pendingBanner;
+    // Confirmación vigente: se muestra (desaparece si el motor la da por vencida).
+    const confirmedBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-info qe-operator-scope is-confirmed', role: 'status' },
+      h('div', {}, h('strong', {}, 'Confirmado: el operador lo pone el proveedor. '), 'Ningún puesto de Personal opera este equipo. Si agregás o renombrás un puesto de chofer u operador, se vuelve a preguntar.'),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar', () => ctx.mutate((q) => { delete q.equipment[index].operatorBySupplier; }, { focus: `equipment.${index}.operatorLaborId` }), { icon: 'edit' })),
+    ), (r) => !operatorScopeOf(r, index));
+    return h('div', { class: 'qe-operator-scope-wrap' }, pendingBanner, confirmedBanner);
+  };
+
   const externalCard = (line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
@@ -965,6 +1008,8 @@ export function render(container, ctx) {
         );
       }, { tag: 'div' }),
       formGrid(3, acquisitionField(i), operatorField(i)),
+      // ECO-04 (VAL-01-F2): la tarifa trae operador y en Personal hay un chofer u operador sin equipo.
+      ext.operatorIncluded === true ? operatorScopeBanner(i) : null,
       formGrid(
         3,
         kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }),

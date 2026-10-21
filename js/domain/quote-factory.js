@@ -6,7 +6,7 @@
 import { createId } from '../core/ids.js';
 import { deepClone, isPlainObject } from '../core/object.js';
 import { LOCALE, CURRENCY, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
-import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY } from './catalogs.js';
+import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY, OWNERSHIP_COSTS_PER_KM } from './catalogs.js';
 import { emptyBillingTaxes, copyBillingTaxes, billingTaxesDecided } from './billing-taxes.js';
 import { DEFAULT_ROUNDING_MAX_PCT, isFactoryLegacyStep, settingsRounding } from './rounding.js';
 import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate } from './economic-base.js';
@@ -543,10 +543,18 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
   merged.equipment = merged.equipment.map((e) => ({
     ...e,
     operatorLaborId: remap(e.operatorLaborId),
+    // ECO-04 (F2): "ningún puesto de Personal lo opera" vale para los puestos de la cotización nueva.
+    ...(isPlainObject(e.operatorBySupplier) && Array.isArray(e.operatorBySupplier.labor)
+      ? { operatorBySupplier: { labor: e.operatorBySupplier.labor.filter(isPlainObject).map((x) => ({ ...x, id: remap(x.id) })).filter((x) => x.id) } }
+      : {}),
     mobilization: isPlainObject(e.mobilization)
       ? { ...e.mobilization, carrierLineId: remap(e.mobilization.carrierLineId), supportVehicleId: remap(e.mobilization.supportVehicleId) }
       : e.mobilization,
   }));
+  // ECO-04 (H-08): el vehículo de apoyo apunta a la línea de Equipos nueva con su costo de tenerlo.
+  merged.logistics.vehicles = merged.logistics.vehicles.map((v) => (typeof v.ownershipCostsIn === 'string' && v.ownershipCostsIn !== OWNERSHIP_COSTS_PER_KM
+    ? { ...v, ownershipCostsIn: remap(v.ownershipCostsIn) }
+    : v));
   if (fromIllustrative && isPlainObject(defaults.fuel) && defaults.fuel.pricePerLiter !== undefined) {
     merged.fuel = { ...merged.fuel, illustrative: true, requiresConfirmation: true };
   }

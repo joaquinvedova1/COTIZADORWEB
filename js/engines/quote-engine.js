@@ -118,6 +118,22 @@ function unitIssues(quote, ctx) {
       });
     }
   }
+  // Más días que disponibles con la actividad en días (día, hora, mes; ECO-04, AUD-T1 H-04): con los días
+  // del motor (los disponibles con su tope) y diciendo lo que se calcula, sin decir que se reemplaza
+  // algo. Con abono ($/mes) además es NO CONFIABLE (completitud, `month_days_overflow`). Por cantidad o
+  // evento lo avisa la cantidad del mes (arriba).
+  if ((u.kind === 'day' || u.kind === 'hour' || u.kind === 'month') && a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
+    const n = (v) => formatNumber(v, { decimals: 2 });
+    const worked = a.activeDaysPerMonth;
+    const available = a.availableDaysPerMonth;
+    issues.push({
+      path: 'activity.activeDaysPerMonth',
+      message: u.kind === 'month'
+        ? `Los días trabajados (${n(worked)}) superan los disponibles del mes (${n(available)}): un abono mensual se cobra una vez por mes. Subí los días disponibles (30 si trabajás todo el mes) o bajá los trabajados.`
+        : `Los días de trabajo (${n(worked)}) superan los disponibles del mes (${n(available)}): se calcula como un trabajo de más de un mes (los costos fijos y los cargos mensuales × ${n(worked / available)}). Si es un trabajo mensual, revisá los días disponibles (30 si trabajás todo el mes).`,
+      severity: 'warning',
+    });
+  }
   if (quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
     const usual = SERVICE_TYPE_UNITS[quote.serviceType].map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
     issues.push({
