@@ -16,9 +16,9 @@ Reglas para este archivo:
 
 ### Agregado
 
-- **Eco de montos en todo campo de plata** (Recursos, Configuración, Productos y el editor): debajo del campo, "$ 2.600.000" desde 10.000, con centavos si los hay y en la moneda del campo ("US$ 15.000"; antes, en el editor, un precio en dólares se leía como "$ 15.000"). Antes existía sólo en el editor de cotizaciones. El texto del campo no se reformatea: cambiarlo al entrar borraría la selección y, con Tab, lo tipeado se sumaría al número anterior (`DESIGN.md` §5).
+- **Eco de montos en todo campo de plata** (Recursos, Configuración, Productos y el editor): debajo del campo, "$ 2.600.000" desde 10.000, con centavos si los hay y en la moneda del campo ("US$ 15.000"; antes, en el editor, un precio en dólares se leía como "$ 15.000"). Antes existía sólo en el editor de cotizaciones. Si aparece mientras se escribe con el campo en el borde de abajo de un diálogo, se desplaza lo justo para verse. El texto del campo no se reformatea: cambiarlo al entrar borraría la selección y, con Tab, lo tipeado se sumaría al número anterior (`DESIGN.md` §5).
 - **Margen con su palabra** en la barra compacta del resumen en vivo: "cumple", "debajo", "pierde" o "no confiable" (no sólo el color, WCAG 1.4.1).
-- Pruebas: `tests/ui/money-echo.test.js`, `tests/ui/live-summary-text.test.js` y `tests/ui/editor-friction.test.js` (15 tests) y el bloque DESIGN-02B del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+- Pruebas: `tests/ui/money-echo.test.js`, `tests/ui/live-summary-text.test.js` y `tests/ui/editor-friction.test.js` (18 tests) y el bloque DESIGN-02B del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
 
 ### Cambiado
 
@@ -41,7 +41,7 @@ Reglas para este archivo:
 - **Alias de color por función** (`--color-text`, `--color-status-critical`…) en `:root`, que apuntan a la paleta de siempre.
 - **"Calculado con tus costos y tus supuestos: no es un precio de mercado."** junto a los montos del Resultado (servicios y productos), también impreso (VAL-G4).
 - **Estado de guardado con palabra:** en el riel (761 a 1100 px), "Guardado", "Sin conexión", "Conflicto"… debajo del punto de color; en el celular, en la barra de arriba sin abrir el menú.
-- Pruebas: `tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js` (15 tests) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+- Pruebas: `tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js` (16 tests) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
 
 ### Cambiado
 

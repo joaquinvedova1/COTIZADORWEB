@@ -366,8 +366,12 @@ function attachMoneyEcho(fieldEl, input, unit) {
   if (!control) return;
   const echoEl = h('div', { class: 'field-echo', 'aria-hidden': 'true' });
   const sync = () => {
+    const wasHidden = echoEl.hidden;
     echoEl.textContent = moneyEchoText(input.value, { unit });
     echoEl.hidden = !echoEl.textContent;
+    // Si aparece mientras se escribe con el campo en el borde de abajo (el pie de un diálogo, la barra del
+    // resumen), se desplaza lo justo para que se vea.
+    if (wasHidden && !echoEl.hidden && document.activeElement === input) echoEl.scrollIntoView({ block: 'nearest' });
   };
   input.addEventListener('input', sync);
   // También cuando el campo restaura el valor anterior (valor inválido confirmado).

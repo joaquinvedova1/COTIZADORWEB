@@ -1063,6 +1063,56 @@ async function runMode(mode) {
     check(D, 'Recursos: el sueldo básico es obligatorio también para los lectores de pantalla (aria-required)', Boolean(kb.first) && kb.first.required === 'true', JSON.stringify(kb.first));
     check(D, 'Recursos: al escribir un sueldo aparece el eco con separadores ("$ 2.600.000")', Boolean(kb.first) && kb.first.echo === '$ 2.600.000', JSON.stringify(kb.first));
     check(D, 'sólo con teclado: Tab hasta el sueldo y tipear; Shift+Tab vuelve con todo seleccionado y lo nuevo reemplaza al número anterior; Esc cierra', kb.opened && kb.reached && Boolean(kb.second) && kb.second.value === '3500000' && kb.second.echo === '$ 3.500.000' && kb.closed, JSON.stringify(kb));
+
+    // En el celular, con el sueldo justo en el borde de abajo del diálogo (como al tocarlo sin desplazar), el eco que
+    // aparece al escribir tiene que quedar a la vista, no debajo del pie. Con 360 × 640 px el sueldo queda debajo
+    // del borde al abrir el diálogo; en escritorio queda en la mitad de arriba y ese caso no se da.
+    if (mode === 'mobile') {
+      const edge = { atEdge: null, closed: false, echo: null };
+      await soft(async () => {
+        await page.setViewportSize({ width: 360, height: 640 });
+        await go('#/recursos/personal', 900);
+        await tap(page.getByRole('button', { name: 'Agregar perfil' }).first());
+        await page.waitForSelector('dialog[open]', { timeout: 3000 });
+        await page.waitForTimeout(300);
+        const salary = page.locator('dialog[open]').getByLabel('Sueldo básico mensual').first();
+        // El campo, alineado con el borde de abajo de lo visible del diálogo, y con el foco sin desplazar.
+        edge.atEdge = await salary.evaluate((el) => {
+          el.scrollIntoView({ block: 'end' });
+          el.focus({ preventScroll: true });
+          const body = el.closest('.dialog-body');
+          const visibleBottom = body.getBoundingClientRect().top + body.clientTop + body.clientHeight;
+          return Math.abs(el.getBoundingClientRect().bottom - visibleBottom) <= 2;
+        });
+        await page.keyboard.type('2600000');
+        await page.waitForTimeout(250);
+        edge.echo = await page.evaluate(() => {
+          const field = document.activeElement && document.activeElement.closest('.field');
+          const echo = field ? field.querySelector('.field-echo, .qe-num-echo') : null;
+          if (!echo || echo.hidden) return { text: '' };
+          const body = echo.closest('.dialog-body');
+          const box = body.getBoundingClientRect();
+          const r = echo.getBoundingClientRect();
+          return {
+            text: echo.textContent.replace(/[\u00a0\u202f]/g, ' ').trim(),
+            top: Math.round(r.top), bottom: Math.round(r.bottom),
+            visibleTop: Math.round(box.top + body.clientTop), visibleBottom: Math.round(Math.min(window.innerHeight, box.top + body.clientTop + body.clientHeight)),
+          };
+        });
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(400);
+        if (await page.locator('dialog[open]').count()) {
+          const discard = page.locator('dialog[open]').getByRole('button', { name: /Descartar/ }).first();
+          if (await discard.count()) await discard.click();
+          await page.waitForTimeout(300);
+        }
+        edge.closed = (await page.locator('dialog[open]').count()) === 0;
+      });
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(300);
+      const e = edge.echo;
+      check(D, 'celular (360 × 640 px), Recursos: con el sueldo en el borde de abajo del diálogo, el eco que aparece al escribir queda a la vista (no debajo del pie)', edge.atEdge === true && Boolean(e) && e.text === '$ 2.600.000' && e.top >= e.visibleTop - 1 && e.bottom <= e.visibleBottom + 1 && edge.closed, JSON.stringify(edge));
+    }
     await scan(D, 'Recursos');
   }
 
