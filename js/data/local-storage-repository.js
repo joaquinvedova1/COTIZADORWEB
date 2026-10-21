@@ -360,6 +360,14 @@ export class LocalStorageRepository extends StorageRepository {
       const index = list.findIndex((r) => r.id === id);
       if (index < 0) return false;
       list.splice(index, 1);
+      // Un convenio borrado no queda colgando en sus perfiles (RES-02-G1): pasan
+      // a "Sin convenio indicado". Las cotizaciones no cambian (guardan su copia).
+      if (type === 'agreements') {
+        const profiles = s.resources.laborProfiles || [];
+        profiles.forEach((p, i) => {
+          if (p && p.agreementId === id) profiles[i] = this.stamp({ ...p, agreementId: null }, p);
+        });
+      }
       return true;
     });
   }

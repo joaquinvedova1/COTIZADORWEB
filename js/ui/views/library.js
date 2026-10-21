@@ -11,6 +11,10 @@
  * Personal, Equipos y Materiales tienen vista Simple (nombre, costo por día /
  * hora y por mes, Editar) y Detallada (la tabla completa). La elección se
  * recuerda sólo en memoria mientras se usa la aplicación.
+ *
+ * Personal (RES-02, PLAN-2026-023) arranca agrupado por convenio, con
+ * búsqueda y filtro en la dirección (?q=&convenio=) y "Editar sueldo" (bruto
+ * que se descompone en básico + adicionales). "Lista" y "Detallada" siguen.
  */
 
 import { h, mount, uniqueId } from '../dom.js';
@@ -55,6 +59,8 @@ import { computeMaterialLine } from '../../engines/materials-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { render as renderNotFound } from './not-found.js';
 import { resourceUsage } from '../../domain/resource-usage.js';
+import { filterLaborGroups, grossOf, groupCountsText, groupLaborProfiles } from '../../domain/labor-groups.js';
+import { openSalaryDialog } from '../labor-salary-dialog.js';
 import { activationTerms, activationFieldLabels } from '../../domain/activation-terms.js';
 
 // ----------------------------------------------------------------- catálogo
@@ -66,7 +72,7 @@ const TABS = Object.freeze([
     type: 'laborProfiles',
     addLabel: 'Agregar perfil',
     icon: 'resources',
-    intro: 'Cada puesto con su sueldo, convenio y cargas, calculado por persona. Al sumar personal a una cotización se copian estos valores.',
+    intro: 'Cada puesto con su sueldo, convenio y cargas, por persona.',
     emptyTitle: 'Todavía no agregaste personal.',
     emptyText: 'Cargá cada puesto una vez (sueldo, convenio y cargas) y reutilizalo en tus cotizaciones.',
   },
@@ -149,6 +155,28 @@ const VIEW_TABS = Object.freeze(['laborProfiles', 'equipment', 'materials']);
 
 /** Vista elegida (simple | detailed), sólo en memoria: se mantiene al cambiar de pestaña. */
 let resourceView = 'simple';
+
+/** Vista de Personal (RES-02): grouped (por convenio, la de entrada) | simple | detailed. Sólo en memoria. */
+let laborView = 'grouped';
+/** Grupos de Personal que se plegaron (sólo en memoria). */
+const collapsedLaborGroups = new Set();
+
+/** Parámetros de la dirección de la vista ("#/recursos/personal?q=…&convenio=…"). */
+function hashQuery() {
+  const hash = typeof window !== 'undefined' ? String(window.location.hash || '') : '';
+  const i = hash.indexOf('?');
+  return new URLSearchParams(i >= 0 ? hash.slice(i + 1) : '');
+}
+
+/** Cambia la búsqueda en la dirección sin navegar (se puede compartir o recargar). */
+function replaceHashQuery(values) {
+  if (typeof window === 'undefined' || !window.history) return;
+  const params = hashQuery();
+  Object.entries(values).forEach(([k, v]) => (v ? params.set(k, v) : params.delete(k)));
+  const path = String(window.location.hash || '').split('?')[0];
+  const qs = params.toString();
+  window.history.replaceState(window.history.state, '', `${path}${qs ? `?${qs}` : ''}`);
+}
 
 const AGREEMENT_PARAM_KEYS = Object.freeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
 
@@ -546,10 +574,13 @@ function laborSections(agreements, app) {
   return [
     {
       title: 'Puesto',
+      cols: 4,
       fields: [
         { key: 'role', label: 'Rol / puesto', kind: 'text', required: true, placeholder: 'Ej.: Operador de hidrogrúa' },
-        { key: 'agreementId', label: 'Convenio', kind: 'select', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio' },
+        { key: 'agreementId', label: 'Convenio', kind: 'select', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio indicado' },
         { key: 'category', label: 'Categoría', kind: 'text', placeholder: 'Según tu convenio' },
+        // RES-02: informativo. No se copia a las cotizaciones ni cambia costos (un perfil no es una persona).
+        { key: 'peopleCount', label: 'Personas en este puesto (opcional)', rule: 'integer', nullable: true, hint: 'Sólo para agrupar y contar. No cambia el costo ni las cotizaciones.' },
       ],
     },
     {
@@ -558,14 +589,16 @@ function laborSections(agreements, app) {
       hint: 'De qué mes es este sueldo (y el resto de los valores de este perfil). Cada cotización guarda una foto: si después lo actualizás, las cotizaciones hechas no cambian.',
       cols: 4,
       fields: [
-        { key: 'basicMonthly', label: 'Sueldo básico mensual', rule: 'money', unit: '$', required: true },
+        { key: 'basicMonthly', label: 'Sueldo básico mensual (sin adicionales)', rule: 'money', unit: '$', required: true, hint: 'Sólo el básico. Si tenés el bruto del recibo, usá "Editar sueldo" en la lista: lo separa solo y no se suma dos veces.' },
         ...baseFormFields('base', { periodLabel: 'Período base (mes del sueldo)' }),
       ],
+      // RES-02: el bruto a la vista, para que no se cargue dos veces lo mismo.
+      live: (d) => h('p', { class: 'small' }, `Bruto mensual remunerativo = básico ${formatMoney(toNumber(d.basicMonthly, 0))} + adicionales ${formatMoney(toNumber(d.additionalsMonthly, 0))} = ${formatMoney(grossOf(d))}.`),
     },
     {
       title: 'Adicionales y horas (por persona)',
       fields: [
-        { key: 'additionalsMonthly', label: 'Adicionales mensuales', rule: 'money', unit: '$', hint: 'Zona, presentismo, títulos, etc.' },
+        { key: 'additionalsMonthly', label: 'Adicionales mensuales (remunerativos)', rule: 'money', unit: '$', hint: 'Zona, presentismo, títulos, etc.: lo que se suma al básico. No repitas lo que ya está en el básico.' },
         { key: 'mealPerActiveDay', label: 'Vianda por día activo', rule: 'money', unit: '$' },
         { key: 'normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h' },
         { key: 'overtimeHoursPerActiveDay', label: 'Horas extra por día activo', rule: 'hoursPerDay', unit: 'h' },
@@ -1400,7 +1433,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const agreements = list('agreements');
     const agreementName = (id) => {
       const a = agreements.find((x) => x.id === id);
-      return a ? a.name : 'Sin convenio';
+      return a ? a.name : 'Sin convenio indicado';
     };
     const rows = list('laborProfiles').map((p) => ({ item: p, cost: ctx.resources.laborProfileCost(p) }));
     const actions = {
@@ -1447,6 +1480,157 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       ],
       rows,
     });
+  }
+
+  // ------------------------------------------- Personal por convenio (RES-02)
+
+  /** "Editar sueldo": bruto que se descompone, mes base y vista previa (labor-salary-dialog.js). */
+  function openSalary(item) {
+    openSalaryDialog({
+      profile: item,
+      quotes: data.quotes,
+      quotesUsing: resourceUsage('laborProfiles', item.id, data.quotes).quotesCount,
+      costOf: (p) => ctx.resources.laborProfileCost(p),
+      traceOf: (p, cost) => laborTrace(p, cost),
+      onSave: async (entity) => {
+        await ctx.resources.save('laborProfiles', entity);
+        app.toast(`Sueldo guardado: ${entity.role || 'perfil'}.`, 'success');
+        await refresh();
+      },
+      onEditProfile: () => openEditor(item),
+    });
+  }
+
+  /** Monto del encabezado de un grupo: nunca "total del personal" si falta alguna cantidad. */
+  function groupAmount(g) {
+    if (g.subtotal === null) return h('span', { class: 'labor-group-amount muted' }, 'Sin monto: cargá cuántas personas tiene cada perfil');
+    return h('span', { class: 'labor-group-amount' },
+      h('strong', { class: 'nowrap' }, `${g.partial ? 'Subtotal parcial: ' : ''}${formatMoney(g.subtotal)} / mes`),
+      h('span', { class: 'cell-sub' }, g.partial ? 'sólo los perfiles con cantidad cargada' : 'costo empresa de las personas cargadas'));
+  }
+
+  function laborGroupTable(g) {
+    return table({
+      caption: `Perfiles: ${g.title}`,
+      className: 'lib-table labor-group-table table-cards',
+      columns: [
+        { key: 'role', label: 'Puesto', render: ({ profile }) => nameCell(profile.role, profile.category, profile.illustrative) },
+        {
+          key: 'people',
+          label: 'Personas',
+          align: 'right',
+          render: ({ people }) => (people === null ? h('span', { class: 'muted small' }, 'sin dato') : h('span', { class: 'nowrap' }, formatNumber(people))),
+        },
+        {
+          key: 'gross',
+          label: 'Bruto mensual',
+          align: 'right',
+          render: ({ profile }) => h('div', { class: 'cell-main cell-num' },
+            money(grossOf(profile)),
+            toNumber(profile.additionalsMonthly, 0) > 0 ? h('span', { class: 'cell-sub nowrap' }, `básico ${formatMoney(toNumber(profile.basicMonthly, 0))}`) : null),
+        },
+        { key: 'base', label: 'Mes base', render: ({ profile }) => baseTag(profile.base) },
+        {
+          key: 'cost',
+          label: 'Costo empresa por persona',
+          align: 'right',
+          render: ({ profile }) => {
+            const cost = ctx.resources.laborProfileCost(profile);
+            return withTrace(h('strong', { class: 'nowrap' }, `${formatMoney(cost.perPerson.fixedMonthly)} / mes`), laborTrace(profile, cost));
+          },
+        },
+        usageColumn('laborProfiles'),
+        {
+          key: 'actions',
+          label: 'Acciones',
+          align: 'right',
+          render: ({ profile }) => h('div', { class: 'table-actions' },
+            button('Editar sueldo', { variant: 'secondary', size: 'sm', onClick: () => openSalary(profile), attrs: { 'aria-label': `Editar sueldo de ${profile.role || 'perfil'}` } }),
+            rowActions({ name: profile.role || 'perfil', onEdit: () => openEditor(profile), onDelete: () => removeResource(profile, profile.role || 'perfil') })),
+        },
+      ],
+      rows: g.items.map((i) => ({ ...i, item: i.profile })),
+    });
+  }
+
+  function laborGroupNode(g) {
+    const details = h('details', { class: ['labor-group', `labor-group-${g.kind}`], open: g.kind === 'none' || !collapsedLaborGroups.has(g.key), dataset: { group: g.key } },
+      h('summary', { class: 'labor-group-summary' },
+        h('span', { class: 'labor-group-title' }, g.title, g.kind === 'none' ? [' ', badge('Falta el dato', 'orange')] : null),
+        h('span', { class: 'labor-group-counts' }, groupCountsText(g)),
+        groupAmount(g)),
+      g.kind === 'none'
+        ? h('p', { class: 'small labor-group-help' }, 'Estos perfiles no dicen su convenio. Elegilo en "Editar" o creá el de tu empresa en ', h('a', { href: '#/configuracion/convenios' }, 'Configuración → Convenios'), '. No cambia el costo.')
+        : g.kind === 'outside'
+          ? h('p', { class: 'small labor-group-help' }, 'Sin reglas de convenio: el sueldo y los parámetros de cargas los define la empresa.')
+          : null,
+      laborGroupTable(g));
+    details.addEventListener('toggle', () => {
+      if (details.open) collapsedLaborGroups.delete(g.key);
+      else collapsedLaborGroups.add(g.key);
+    });
+    return details;
+  }
+
+  /** Personal agrupado por convenio: la vista de entrada (RES-02). */
+  function laborGrouped() {
+    const params = hashQuery();
+    const all = groupLaborProfiles(list('laborProfiles'), list('agreements'), { costOf: (p) => ctx.resources.laborProfileCost(p).perPerson.fixedMonthly });
+    const state = { query: params.get('q') || '', group: all.some((g) => g.key === params.get('convenio')) ? params.get('convenio') : '' };
+    const host = h('div', { class: 'labor-groups' });
+    const summary = h('p', { class: 'small labor-summary', role: 'status' });
+    const toggleAll = button('Plegar todo', { variant: 'secondary', size: 'sm' });
+
+    const draw = () => {
+      const groups = filterLaborGroups(all, state);
+      const profiles = groups.reduce((n, g) => n + g.profilesCount, 0);
+      const known = groups.reduce((n, g) => n + g.peopleKnown, 0);
+      const people = groups.reduce((n, g) => n + g.people, 0);
+      mount(summary,
+        `${profiles} ${profiles === 1 ? 'perfil' : 'perfiles'} en ${groups.length} ${groups.length === 1 ? 'grupo' : 'grupos'}`
+          + (known ? ` · ${people} ${people === 1 ? 'persona' : 'personas'} cargadas en ${known} ${known === 1 ? 'perfil' : 'perfiles'}.` : ' · personas sin cargar.'),
+        h('span', { class: 'labor-summary-help' }, ' Un perfil es un puesto; las personas se cargan en cada perfil (opcional).'));
+      mount(host, groups.length ? groups.map(laborGroupNode) : h('p', { class: 'muted' }, 'Ningún perfil coincide con la búsqueda.'));
+      const anyOpen = groups.some((g) => g.kind !== 'none' && !collapsedLaborGroups.has(g.key));
+      toggleAll.textContent = anyOpen ? 'Plegar todo' : 'Desplegar todo';
+    };
+    toggleAll.addEventListener('click', () => {
+      const keys = all.filter((g) => g.kind !== 'none').map((g) => g.key);
+      const anyOpen = keys.some((k) => !collapsedLaborGroups.has(k));
+      keys.forEach((k) => (anyOpen ? collapsedLaborGroups.add(k) : collapsedLaborGroups.delete(k)));
+      draw();
+    });
+
+    const searchInput = textField({
+      label: 'Buscar',
+      name: 'q',
+      value: state.query,
+      maxLength: 80,
+      placeholder: 'Buscar puesto, categoría o convenio…',
+      onChange: (v) => {
+        state.query = v;
+        replaceHashQuery({ q: v.trim() });
+        draw();
+      },
+    });
+    const groupSelect = selectField({
+      label: 'Convenio',
+      name: 'convenio',
+      value: state.group,
+      includeEmpty: true,
+      emptyLabel: 'Todos los convenios',
+      options: all.map((g) => ({ value: g.key, label: g.title })),
+      onChange: (v) => {
+        state.group = v || '';
+        replaceHashQuery({ convenio: state.group });
+        draw();
+      },
+    });
+    draw();
+    return h('div', { class: 'stack labor-grouped' },
+      h('div', { class: 'labor-filters' }, searchInput, groupSelect, h('div', { class: 'labor-filters-actions' }, toggleAll)),
+      summary,
+      host);
   }
 
   function agreementsTable() {
@@ -1708,7 +1892,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const detailed = !VIEW_TABS.includes(tab.type) || resourceView === 'detailed';
     switch (tab.type) {
       case 'laborProfiles':
-        return laborTable(detailed);
+        return laborView === 'grouped' ? laborGrouped() : laborTable(laborView === 'detailed');
       case 'agreements':
         return agreementsTable();
       case 'equipment':
@@ -1732,23 +1916,35 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   /** Barra de la lista: cantidad y vista Simple / Detallada. */
   function listToolbar(count) {
-    const countEl = h('span', { class: 'muted small toolbar-count' }, `${count} ${count === 1 ? 'ítem' : 'ítems'}`);
+    // Personal cuenta perfiles (puestos), no personas (RES-02).
+    const noun = tab.type === 'laborProfiles' ? ['perfil', 'perfiles'] : ['ítem', 'ítems'];
+    const countEl = h('span', { class: 'muted small toolbar-count' }, `${count} ${count === 1 ? noun[0] : noun[1]}`);
     if (!VIEW_TABS.includes(tab.type)) return null;
-    const buttons = [
-      { id: 'simple', label: 'Simple', title: 'Nombre, costo por día u hora, costo por mes y Editar' },
-      { id: 'detailed', label: 'Detallada', title: VIEW_HINTS[tab.type] },
-    ].map((v) =>
+    const labor = tab.type === 'laborProfiles';
+    const current = labor ? laborView : resourceView;
+    const views = labor
+      ? [
+        { id: 'grouped', label: 'Por convenio', title: 'Agrupado por convenio, con personas, bruto, mes base y costo empresa' },
+        { id: 'simple', label: 'Lista', title: 'Todos los perfiles en una tabla' },
+        { id: 'detailed', label: 'Detallada', title: VIEW_HINTS[tab.type] },
+      ]
+      : [
+        { id: 'simple', label: 'Simple', title: 'Nombre, costo por día u hora, costo por mes y Editar' },
+        { id: 'detailed', label: 'Detallada', title: VIEW_HINTS[tab.type] },
+      ];
+    const buttons = views.map((v) =>
       h(
         'button',
         {
           type: 'button',
           class: 'segmented-btn',
           title: v.title,
-          'aria-pressed': v.id === resourceView ? 'true' : 'false',
+          'aria-pressed': v.id === current ? 'true' : 'false',
           on: {
             click: () => {
-              if (resourceView === v.id) return;
-              resourceView = v.id;
+              if (current === v.id) return;
+              if (labor) laborView = v.id;
+              else resourceView = v.id;
               paint({ keepFocus: v.id });
             },
           },

@@ -12,6 +12,24 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**RES-02 (1/2) (PLAN-2026-023): Personal agrupado por convenio y sueldo bruto sin doble conteo.** Ninguna fórmula cambia: golden 39/39 sin tocar. Un campo opcional e informativo (`laborProfiles[].peopleCount`), sin migración: el esquema sigue en 10. Las cotizaciones guardadas no cambian.
+
+### Agregado
+
+- **Recursos → Personal "Por convenio"** (la vista de entrada): un grupo por convenio, "Fuera de convenio" y "Sin convenio indicado" (siempre abierto, con la salida a Configuración → Convenios). Cada encabezado dice perfiles y personas por separado ("2 perfiles · 5 personas" o "4 personas en 1 de 2 perfiles") y el costo empresa de las personas cargadas; si falta una cantidad, **"Subtotal parcial"**. Búsqueda y filtro por convenio en la dirección (`?q=&convenio=`), "Plegar todo" / "Desplegar todo". "Lista" y "Detallada" siguen.
+- **"Personas en este puesto (opcional)"** en el perfil (`peopleCount`): sólo agrupa y cuenta; no se copia a las cotizaciones ni cambia costos.
+- **"Editar sueldo"** en cada fila: bruto mensual remunerativo que se guarda como básico + adicionales (no se puede sumar dos veces), básico opcional, mes base obligatorio si cambia el sueldo, vista previa del costo empresa por persona antes → después con "Ver cálculo", y el aviso de que las cotizaciones hechas no cambian.
+- **Horas extra sin básico:** si el perfil o una cotización que lo usa tiene horas extra, guardar un sueldo sin básico exige confirmar "Valuar las horas extra sobre el bruto completo" (o cargar el básico).
+- Regresiones: `tests/domain/labor-groups.test.js` (23 tests) y 32 controles RES-02 por modo en el `ui-lab` (fallan en `main`).
+
+### Cambiado
+
+- Formulario completo del perfil: "Sueldo básico mensual (sin adicionales)" y "Adicionales mensuales (remunerativos)", con ayudas y la línea "Bruto mensual remunerativo = básico + adicionales". "Sin convenio" → "Sin convenio indicado". La barra de Personal cuenta "perfiles", no "ítems".
+
+### Corregido
+
+- **(RES-02-G1)** Borrar un convenio deja a sus perfiles sin convenio (`agreementId: null`) en la misma operación, como decía el aviso; antes quedaba el id del convenio borrado.
+
 **UX-01 (PLAN-2026-022): formularios que no pierden cambios sin avisar y valores que no se corrigen en silencio.** Ninguna fórmula ni dato cambia (esquema 10, golden 39/39 sin tocar).
 
 ### Corregido

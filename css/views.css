@@ -640,3 +640,50 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .lib-usage ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
 .lib-usage-row { margin: 0.35rem 0; overflow-wrap: anywhere; }
 .lib-usage h4 { margin: 0.5rem 0 0; }
+
+/* Personal agrupado por convenio (RES-02, PLAN-2026-023). */
+.labor-filters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: 0.75rem; align-items: end; }
+.labor-filters .field { margin: 0; }
+.labor-filters-actions { display: flex; align-items: flex-end; padding-bottom: 0.1rem; }
+.labor-summary { margin: 0; color: var(--ink-2); }
+.labor-groups { display: flex; flex-direction: column; gap: 0.75rem; }
+.labor-group { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); min-width: 0; }
+.labor-group-none { border-color: #F4D6AB; border-left: 4px solid var(--orange); }
+.labor-group-summary {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 0.25rem 1rem; align-items: center;
+  padding: 0.85rem 1.1rem; cursor: pointer; list-style: none; border-radius: var(--radius);
+}
+.labor-group-summary::-webkit-details-marker { display: none; }
+.labor-group-summary::marker { content: ""; }
+.labor-group-title::before { content: "›"; display: inline-block; width: 1rem; color: var(--ink-3); transition: transform 0.15s; }
+.labor-group[open] > .labor-group-summary .labor-group-title::before { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .labor-group-title::before { transition: none; } }
+.labor-group-summary:hover { background: var(--surface-2); }
+.labor-group-summary:focus-visible { outline: 3px solid var(--focus, #2563eb); outline-offset: 2px; }
+.labor-group-title { font-weight: 680; color: var(--ink); overflow-wrap: anywhere; }
+.labor-group-counts { font-size: var(--fs-sm); color: var(--ink-2); }
+.labor-group-amount { display: flex; flex-direction: column; align-items: flex-end; text-align: right; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.labor-group-help { margin: 0 1.1rem 0.5rem; color: var(--ink-2); }
+.labor-group-table { width: auto; margin: 0 0.5rem 0.75rem; }
+.labor-group-table .table td.ta-right { font-variant-numeric: tabular-nums; }
+.salary-dialog .salary-preview-line { margin: 0; }
+.salary-dialog .salary-additionals { margin: -0.25rem 0 0; }
+
+@media (max-width: 760px) {
+  .labor-filters { grid-template-columns: 1fr 1fr; }
+  .labor-filters .field:first-child { grid-column: 1 / -1; }
+  .labor-filters-actions { justify-content: flex-end; }
+  .labor-group-summary { grid-template-columns: 1fr; padding: 0.75rem 0.9rem; }
+  .labor-group-amount { align-items: flex-start; text-align: left; }
+  .labor-group-table { margin: 0 0.4rem 0.6rem; }
+}
+
+@media (max-width: 760px) {
+  /* Recursos (RES-02): pestañas más compactas, así los grupos de Personal aparecen en la primera pantalla. */
+  .library-tabs { gap: 0.3rem; }
+  .library-tabs a { padding: 0.3rem 0.65rem; font-size: 0.875rem; }
+  .labor-summary { font-size: 0.8rem; }
+  .labor-summary-help { display: none; }
+  /* Los rótulos quedan para lectores de pantalla: el marcador de la búsqueda y la primera opción del convenio ya dicen qué es cada uno. */
+  .labor-filters .field-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+}

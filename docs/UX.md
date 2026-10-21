@@ -99,6 +99,14 @@ Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, dí
 - **Movilización y viajes**: primero "¿Cómo llega cada equipo al lugar del servicio?" (una fila por equipo, con km, litros y $ por llamado y "Ver cálculo"); después "Logística auxiliar: vehículos de apoyo y de personal", con la advertencia de no cargar dos veces un equipo que ya se moviliza solo.
 - **Tipo de servicio**: "Base económica de la oferta" con la fecha de la oferta, la base por rubro, las advertencias y los tipos de cambio de la cotización.
 
+### Recursos → Personal (`#/recursos/personal`, RES-02)
+
+- Arranca **agrupado por convenio**: cada grupo es un desplegable (teclado: Enter o Espacio en su encabezado) con nombre, "N perfiles · M personas" y el costo empresa de las personas cargadas. Si falta la cantidad en algún perfil, dice "M personas en K de N perfiles" y "Subtotal parcial". "Sin convenio indicado" va siempre abierto, con la salida a Configuración → Convenios.
+- Búsqueda y filtro por convenio arriba; quedan en la dirección, así que se pueden recargar o compartir. "Plegar todo" / "Desplegar todo".
+- Cada fila: puesto (y categoría), personas ("sin dato" si falta), bruto mensual (y el básico si hay adicionales), mes base, costo empresa por persona con "Ver cálculo", "Usado en" y **"Editar sueldo"**, además de Editar y Eliminar.
+- "Editar sueldo" es un diálogo corto: bruto, cuánto es básico (opcional), mes base, vista previa antes → después y el aviso de que las cotizaciones hechas no cambian. Con horas extra y sin básico pide confirmar que se valúan sobre el bruto completo.
+- En el celular, los grupos aparecen en la primera pantalla: el resumen es una línea y los filtros, dos controles sin rótulo visible (tienen nombre accesible).
+
 ### Resultado
 
 La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
