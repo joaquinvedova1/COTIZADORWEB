@@ -1570,11 +1570,244 @@ async function runMode(mode) {
     for (let i = 0; i < 3 && (await page.locator('dialog[open]').count()) > 0; i += 1) await page.keyboard.press('Escape');
   }
 
+  // ---- DESIGN-02 (PLAN-2026-025), "Ingeniería clara": leer bien montos, unidades, riesgo y estado de guardado.
+  // Raíz en %, ningún texto visible por debajo de 12 px, cifras tabulares, "Ver cálculo" de 24 px, gráfico que no
+  // depende del color, campos de tablas con borde de 3:1, estado de guardado con palabra, "no es un precio de
+  // mercado" (VAL-G4), fecha de la oferta en el PDF y una prueba sólo con teclado. Las acciones son "suaves": si
+  // algo no existe (p. ej. contra main), falla ese control y la corrida sigue.
+  {
+    const D = 'DESIGN-02';
+    const soft = async (fn) => { try { await fn(); return true; } catch { return false; } };
+    const openAll = () => page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+    const q0 = seeded[0].q;
+    const resultHash = (q) => `#/cotizaciones/${encodeURIComponent(q.id)}/result`;
+    /** Textos visibles por debajo de 12 px en la pantalla actual: "texto" tamaño (clase). */
+    const smallTexts = () => page.evaluate(() => {
+      const out = [];
+      const seen = new Set();
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const text = node.textContent.replace(/\s+/g, ' ').trim();
+        const el = node.parentElement;
+        if (!text || !el || seen.has(el)) continue;
+        seen.add(el);
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) continue; // no se ve, o es sólo para lectores de pantalla
+        const cs = getComputedStyle(el);
+        if (cs.visibility === 'hidden' || Number(cs.opacity) === 0) continue;
+        const size = parseFloat(cs.fontSize);
+        const cls = typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '';
+        if (size < 11.95) out.push(`${cls.split(' ')[0] || el.tagName.toLowerCase()} ${size.toFixed(1)}px`);
+      }
+      return out;
+    });
+
+    // Raíz en %: con la letra de fábrica se ve igual (15 px escritorio, 16 px celular) y sigue a la del navegador.
+    const rootPx = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+    await go('#/inicio', 600);
+    const baseRoot = await rootPx();
+    let scaled = null;
+    await soft(async () => {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Page.setFontSizes', { fontSizes: { standard: 20 } });
+      await page.waitForTimeout(250);
+      scaled = await rootPx();
+      await cdp.send('Page.setFontSizes', { fontSizes: { standard: 16 } });
+      await page.waitForTimeout(250);
+      await cdp.detach();
+    });
+    const expectBase = mode === 'mobile' ? 16 : 15;
+    const expectScaled = mode === 'mobile' ? 20 : 18.75;
+    check(D, `la raíz sigue la letra del navegador: ${expectBase} px de fábrica y ${expectScaled} px con la letra en 20 px (WCAG 1.4.4)`, baseRoot === expectBase && scaled !== null && Math.abs(scaled - expectScaled) < 0.01, `de fábrica ${baseRoot}px · con 20 px: ${scaled === null ? 'sin dato' : `${scaled}px`}`);
+
+    // Ningún texto visible por debajo de 12 px en las pantallas de cotizar y entender el resultado.
+    const screens = [
+      ['Inicio', '#/inicio'],
+      ['Cotizaciones', '#/cotizaciones'],
+      ...['service', 'modality', 'labor', 'equipment', 'logistics', 'indirect', 'margin'].map((st) => [`editor (${st})`, `#/cotizaciones/${encodeURIComponent(q0.id)}/${st}`]),
+      ['Resultado', resultHash(q0)],
+      ['Escenarios', `#/escenarios/${encodeURIComponent(q0.id)}`],
+      ['Recursos (personal)', '#/recursos/personal'],
+      ['Recursos (equipos)', '#/recursos/equipos'],
+      ['Configuración', '#/configuracion/parametros'],
+      ['Producto', `#/productos/${encodeURIComponent(prod.id)}/resultado`],
+    ];
+    // El detalle cuenta por pantalla, clase y tamaño (sin copiar el texto: puede ser un email o un nombre).
+    const small = new Map();
+    for (const [name, hash] of screens) {
+      await go(hash, 900);
+      await openAll();
+      await page.waitForTimeout(150);
+      (await smallTexts()).forEach((x) => small.set(`${name}: ${x}`, (small.get(`${name}: ${x}`) || 0) + 1));
+    }
+    const smallTotal = [...small.values()].reduce((a, b) => a + b, 0);
+    check(D, 'ningún texto visible por debajo de 12 px (Inicio, Cotizaciones, editor, Resultado, Escenarios, Recursos, Configuración y producto)', smallTotal === 0, `${smallTotal} textos: ${[...small].map(([k, n]) => `${k} ×${n}`).slice(0, 12).join(' | ')}`);
+    // La última pantalla del recorrido es el resultado del producto: también dice que no es un precio de mercado.
+    const productText = norm(await page.evaluate(() => document.body.innerText));
+    check(D, 'producto: el resultado también dice que no es un precio de mercado (VAL-G4)', productText.includes('Calculado con tus costos y tus supuestos: no es un precio de mercado.'), 'no lo dice');
+
+    // Resultado: cifras tabulares, "Ver cálculo" de 24 px (44 en el celular) y "no es un precio de mercado".
+    await go(resultHash(q0), 900);
+    await openAll();
+    await page.waitForTimeout(150);
+    const nums = await page.evaluate(() => [...document.querySelectorAll('.big-stat-number, .qr-hero-value, .qr-score-value')]
+      .filter((n) => n.getBoundingClientRect().width > 0)
+      .map((n) => ({ cls: n.className.split(' ')[0], v: getComputedStyle(n).fontVariantNumeric })));
+    const notTabular = nums.filter((n) => !/tabular-nums/.test(n.v));
+    check(D, 'Resultado: las cifras clave usan cifras tabulares (los dígitos no "bailan")', nums.some((n) => n.cls === 'qr-hero-value') && notTabular.length === 0, nums.length ? notTabular.map((n) => `${n.cls}: ${n.v}`).slice(0, 4).join(' | ') || 'falta .qr-hero-value' : 'no hay cifras clave');
+    const traces = await page.evaluate(() => [...document.querySelectorAll('.trace-btn')].map((b) => b.getBoundingClientRect()).filter((r) => r.width > 0).map((r) => Math.round(r.height * 10) / 10));
+    const minTrace = mode === 'mobile' ? 44 : 24;
+    const lowTraces = traces.filter((x) => x < minTrace - 0.05);
+    check(D, `Resultado: "Ver cálculo" mide ${minTrace} px de alto o más (WCAG 2.5.8)`, traces.length > 0 && lowTraces.length === 0, traces.length ? `${lowTraces.length} de ${traces.length} más bajos: ${[...new Set(lowTraces)].slice(0, 5).join(', ')} px` : 'no hay botones "Ver cálculo"');
+    const summaryText = norm(await page.evaluate(() => (document.querySelector('.qr-summary') || {}).innerText || ''));
+    check(D, 'Resultado: junto a los montos dice "Calculado con tus costos y tus supuestos: no es un precio de mercado." (VAL-G4)', summaryText.includes('Calculado con tus costos y tus supuestos: no es un precio de mercado.'), 'no lo dice');
+    await scan(D, 'Resultado');
+
+    // PDF: la fecha de la oferta (la de la cotización, 16/10/2026) y, aparte, la de impresión; y el aviso de mercado.
+    await page.emulateMedia({ media: 'print' });
+    const printed = await page.evaluate(() => ({ head: (document.querySelector('.qr-print-head') || {}).innerText || '', body: document.body.innerText }));
+    await page.emulateMedia({ media: 'screen' });
+    // La fecha de impresión esperada sale del reloj del navegador, el mismo que usa la app.
+    const printedOn = await page.evaluate(() => {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+    });
+    check(D, 'PDF: la fecha de la oferta (16/10/2026) y, aparte, la de impresión', norm(printed.head).includes('Oferta del 16/10/2026') && norm(printed.head).includes(`impreso el ${printedOn}`), norm(printed.head).slice(0, 160));
+    check(D, 'PDF: también dice que no es un precio de mercado', norm(printed.body).includes('no es un precio de mercado'), 'no aparece en la impresión');
+
+    // Teclado: Tab hasta "Ver cálculo" de los montos, Enter abre la traza, Esc la cierra y el foco vuelve al botón.
+    const kb = { reached: false, opened: false, closed: false, back: false, presses: 0 };
+    await soft(async () => {
+      await go(resultHash(q0), 900);
+      await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); window.scrollTo(0, 0); });
+      for (; kb.presses < 90 && !kb.reached; kb.presses += 1) {
+        await page.keyboard.press('Tab');
+        kb.reached = await page.evaluate(() => Boolean(document.activeElement && document.activeElement.classList.contains('trace-btn') && document.activeElement.closest('.qr-stats')));
+      }
+      if (!kb.reached) return;
+      const label = await page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(350);
+      kb.opened = await page.evaluate(() => Boolean(document.querySelector('dialog[open]')));
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(350);
+      const after = await page.evaluate(() => ({ open: Boolean(document.querySelector('dialog[open]')), label: document.activeElement ? document.activeElement.getAttribute('aria-label') || document.activeElement.textContent : null }));
+      kb.closed = !after.open;
+      kb.back = after.label === label;
+    });
+    check(D, 'sólo con teclado: Tab llega a "Ver cálculo" de los montos, Enter abre la traza y Esc la cierra y devuelve el foco', kb.reached && kb.opened && kb.closed && kb.back, JSON.stringify(kb));
+
+    // Gráfico: la tarifa piso (punteada) y el objetivo (lleno) no se distinguen sólo por el tono, tampoco en la leyenda.
+    let chart = null;
+    for (const { q } of seeded) {
+      await go(resultHash(q), 700);
+      await openAll();
+      await page.waitForTimeout(150);
+      chart = await page.evaluate(() => {
+        const floor = document.querySelector('.qr-chart-floor');
+        const target = document.querySelector('.qr-chart-target');
+        if (!floor || !target) return null;
+        const key = document.querySelector('.qr-key-floor');
+        return { floor: getComputedStyle(floor).strokeDasharray, target: getComputedStyle(target).strokeDasharray, key: key ? getComputedStyle(key).borderTopStyle : null };
+      });
+      if (chart) break;
+    }
+    check(D, 'gráfico: la tarifa piso va punteada y el objetivo lleno, igual en la leyenda (WCAG 1.4.1)', Boolean(chart) && chart.floor !== 'none' && chart.target === 'none' && /dotted|dashed/.test(chart.key || ''), chart ? JSON.stringify(chart) : 'ningún resultado con gráfico');
+
+    // Campos dentro de tablas del editor: borde de 3:1 o más contra su fondo (WCAG 1.4.11).
+    const borders = [];
+    for (const st of ['labor', 'equipment', 'indirect', 'margin']) {
+      await go(`#/cotizaciones/${encodeURIComponent(q0.id)}/${st}`, 700);
+      await openAll();
+      borders.push(...await page.evaluate((stepId) => {
+        const lum = (rgb) => {
+          const [r, g, b] = rgb.match(/[\d.]+/g).slice(0, 3).map(Number).map((x) => x / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+          return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        };
+        const ratio = (a, b) => {
+          const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+          return (x + 0.05) / (y + 0.05);
+        };
+        return [...document.querySelectorAll('.table input:not([type="checkbox"]):not([type="radio"]), .table select')]
+          .filter((el) => el.getBoundingClientRect().width > 0)
+          .map((el) => {
+            const cs = getComputedStyle(el);
+            const bg = cs.backgroundColor === 'rgba(0, 0, 0, 0)' ? 'rgb(255, 255, 255)' : cs.backgroundColor;
+            return { step: stepId, ratio: Math.round(ratio(cs.borderTopColor, bg) * 100) / 100 };
+          });
+      }, st));
+    }
+    const weak = borders.filter((b) => b.ratio < 3);
+    check(D, 'editor: los campos dentro de tablas tienen borde de 3:1 o más (WCAG 1.4.11)', borders.length > 0 && weak.length === 0, borders.length ? `${weak.length} de ${borders.length} con menos de 3:1 (${[...new Set(weak.map((w) => `${w.step} ${w.ratio}:1`))].slice(0, 4).join(', ')})` : 'no hay campos en tablas');
+
+    // Estado de guardado: en el riel (1000 px) con una palabra; en el celular, en la barra de arriba sin abrir el menú.
+    const SYNC_WORDS = /Guardado|Guardando|Sin conexión|Sin sincronizar|Conflicto|Sesión vencida|Conectando/;
+    const visibleLeafText = (selector) => page.evaluate((sel) => {
+      const root = document.querySelector(sel);
+      if (!root || root.closest('[hidden]')) return '';
+      return [...root.querySelectorAll('*')]
+        .filter((n) => n.childElementCount === 0 && !n.closest('.sr-only') && n.getBoundingClientRect().width > 2 && getComputedStyle(n).visibility !== 'hidden')
+        .map((n) => n.textContent.trim()).filter(Boolean).join(' ');
+    }, selector);
+    if (mode === 'desktop') {
+      await page.setViewportSize({ width: 1000, height: 900 });
+      await go('#/inicio', 900);
+      const rail = await visibleLeafText('.sidebar .sync-status');
+      check(D, 'riel (1000 px): el estado de guardado se lee con una palabra, no sólo con un punto de color', SYNC_WORDS.test(rail), `texto visible: "${rail}"`);
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(400);
+    } else {
+      await go('#/inicio', 900);
+      const bar = await visibleLeafText('.mobile-bar');
+      check(D, 'celular: el estado de guardado se ve en la barra de arriba, sin abrir el menú', SYNC_WORDS.test(bar), `barra: "${bar}"`);
+      // Con el menú abierto se ve un solo estado (si no, los lectores de pantalla lo anunciarían dos veces).
+      const shownWithMenu = await soft(async () => {
+        await tap(page.locator('.menu-toggle').first());
+        await page.waitForTimeout(400);
+      }) ? await page.evaluate(() => [...document.querySelectorAll('.sync-status')].filter((el) => !el.hidden && el.getBoundingClientRect().width > 0).length) : null;
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      check(D, 'celular: con el menú abierto se ve un solo estado de guardado (no se anuncia dos veces)', shownWithMenu === 1, `estados visibles: ${shownWithMenu}`);
+      // A 320 px la barra entra: la palabra se acorta antes que apretar "Menú" (44 × 44 px) o la marca.
+      await page.setViewportSize({ width: 320, height: 700 });
+      await page.waitForTimeout(400);
+      const narrowBar = await page.evaluate(() => {
+        const barEl = document.querySelector('.mobile-bar');
+        const menu = document.querySelector('.menu-toggle');
+        const r = menu ? menu.getBoundingClientRect() : null;
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          barOverflow: barEl ? barEl.scrollWidth - barEl.clientWidth : null,
+          menu: r ? { w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right) } : null,
+          vw: window.innerWidth,
+        };
+      });
+      check(D, 'celular a 320 px: la barra entra sin scroll horizontal y "Menú" sigue de 44 × 44 px', narrowBar.overflow <= 1 && narrowBar.barOverflow !== null && narrowBar.barOverflow <= 1 && Boolean(narrowBar.menu) && narrowBar.menu.w >= 44 && narrowBar.menu.h >= 44 && narrowBar.menu.right <= narrowBar.vw, JSON.stringify(narrowBar));
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(400);
+    }
+
+    // Datos de ejemplo: una copia sintética marcada ILUSTRATIVA muestra la marca a 12 px o más.
+    const live = db.workspaces.get(orgId);
+    const illQ = { ...structuredClone(q0), id: randomUUID(), code: 'LAB-D02', name: 'DESIGN-02 cotización ilustrativa', illustrative: true };
+    live.state.quotes = [...live.state.quotes, illQ];
+    live.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+    await go(resultHash(illQ), 900);
+    const illSizes = await page.evaluate(() => [...document.querySelectorAll('.badge, .tag-illustrative')]
+      .filter((b) => /ILUSTRATIV/.test(b.textContent) && b.getBoundingClientRect().width > 0)
+      .map((b) => parseFloat(getComputedStyle(b).fontSize)));
+    check(D, 'ILUSTRATIVO: la marca de datos de ejemplo se ve y mide 12 px o más', illSizes.length > 0 && illSizes.every((x) => x >= 11.95), illSizes.length ? `${illSizes.join(', ')} px` : 'no aparece la marca');
+  }
+
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
   // pantalla ni en el menú oculto, y otra cuenta que ingresa en la MISMA
   // pestaña (sin recargar) no ve nada de A, ni con los ids de sus cotizaciones.
   {
-    const ofA = ['Empresa sintética', email, seeded[0].q.name, seeded[seeded.length - 1].q.name, 'E2E producto financiado'];
+    const ofA = ['Empresa sintética', email, seeded[0].q.name, seeded[seeded.length - 1].q.name, 'E2E producto financiado', 'DESIGN-02 cotización ilustrativa'];
     const leaks = (text) => ofA.filter((x) => norm(text).includes(norm(x)));
     await go('#/inicio', 600);
     await page.evaluate(() => {

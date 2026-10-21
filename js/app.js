@@ -259,6 +259,18 @@ const SYNC_LABELS = Object.freeze({
   session_expired: 'Sesión vencida: cambios sin sincronizar',
 });
 
+/** Lo mismo en una o dos palabras, para el riel y la barra del celular (DESIGN-02). */
+const SYNC_SHORT_LABELS = Object.freeze({
+  idle: 'Conectando…',
+  saving: 'Guardando…',
+  saved: 'Guardado',
+  pending: 'Sin sincronizar',
+  offline: 'Sin conexión',
+  error: 'Sin sincronizar',
+  conflict: 'Conflicto',
+  session_expired: 'Sesión vencida',
+});
+
 function countsText(counts) {
   const parts = [];
   if (counts.quotes) parts.push(`${counts.quotes} ${counts.quotes === 1 ? 'cotización' : 'cotizaciones'}`);
@@ -542,7 +554,7 @@ async function boot(root) {
           }
           return;
         }
-        layout.setSyncStatus({ status: state.status, label: SYNC_LABELS[state.status] || '' });
+        layout.setSyncStatus({ status: state.status, label: SYNC_LABELS[state.status] || '', short: SYNC_SHORT_LABELS[state.status] || '' });
         // Sólo se redibujan los avisos cuando cambia el tipo de estado.
         if (state.status !== lastStatus) {
           lastStatus = state.status;
@@ -558,7 +570,7 @@ async function boot(root) {
         }
       });
       const s = ctx.sync.getState();
-      layout.setSyncStatus({ status: s.status, label: SYNC_LABELS[s.status] || '' });
+      layout.setSyncStatus({ status: s.status, label: SYNC_LABELS[s.status] || '', short: SYNC_SHORT_LABELS[s.status] || '' });
       await app.refreshChrome();
       track('app_started', { isDemo: false });
     } catch (error) {

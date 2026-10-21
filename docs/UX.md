@@ -1,6 +1,6 @@
 # UX de RATEOS — "Simple en la superficie, potente por debajo"
 
-Guía permanente de experiencia de usuario. Complementa [AGENTS.md](../AGENTS.md) (§17 UX) y [ARCHITECTURE.md](ARCHITECTURE.md). Si una pantalla nueva contradice esta guía, se discute antes de mergear.
+Guía permanente de experiencia de usuario. Complementa [AGENTS.md](../AGENTS.md) (§17 UX), [ARCHITECTURE.md](ARCHITECTURE.md) y el sistema de diseño [DESIGN.md](../DESIGN.md) (tokens, tipografía, marcas de riesgo, componentes y checklist de accesibilidad). Si una pantalla nueva contradice esta guía, se discute antes de mergear.
 
 ## 1. Objetivo
 
@@ -116,7 +116,7 @@ Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, dí
 
 ### Resultado
 
-La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
+La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Calculado con tus costos y tus supuestos: no es un precio de mercado.", la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
 
 Todo lo demás está en **"Profundizá"**, cerrado por defecto y dibujado al abrirlo: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), **"¿En qué se va el costo?"** (4 rubros + otros, y la estructura de costos completa; 100 % del costo), **reparto de la tarifa (apropiación) y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, **base económica de la oferta** (bases por rubro, tipos de cambio y externos: costo económico vs salida de caja vs crédito fiscal), completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
 
@@ -143,10 +143,12 @@ Reglas que no cambian: margen ≠ markup ([AGENTS.md §9](../AGENTS.md)); valore
 
 - Landing, ingreso y registro se diseñan también a 360 px: menú colapsable, botones táctiles ≥ 44 px, sin scroll horizontal.
 - En la app mobile se puede: ver cotizaciones, ver el resultado, entender las tarifas e iniciar una cotización. Las tablas grandes se muestran como tarjetas o con scroll contenido, nunca forzando el ancho de la página.
+- El estado de guardado ("Guardado", "Sin conexión", "Conflicto"…) se ve en la barra de arriba, sin abrir el menú; en el riel (761 a 1100 px), con una palabra debajo del punto de color.
 
 ## 7. Accesibilidad
 
-- Contraste WCAG AA (tokens de texto `--ink-2`, `--ink-3`, `--*-text`); acción principal `--primary` (azul Neuquén profundo).
+- Contraste WCAG AA (tokens de texto `--ink-2`, `--ink-3`, `--*-text`, o sus alias `--color-*` de [DESIGN.md](../DESIGN.md) §2); acción principal `--primary` (azul Neuquén profundo). Bordes de campos, también dentro de tablas, con `--color-border-control` (≥ 3:1).
+- Raíz en % y ningún texto por debajo de 12 px (`--fs-xs`); "Ver cálculo" de 24 px o más (44 px en el celular); nada se distingue sólo por el color, tampoco en los gráficos.
 - Foco visible siempre; al cambiar de pantalla se enfoca el título (h1).
 - Un `h1` por pantalla, jerarquía de headings sin saltos, labels reales en formularios, `aria-expanded` en menús, `<details>/<summary>` nativo para las secciones colapsables.
 

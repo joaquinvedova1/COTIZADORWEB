@@ -12,6 +12,29 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**DESIGN-02 (1/2), "Ingeniería clara" (PLAN-2026-025): `DESIGN.md` propio y leer bien montos, unidades, riesgo y estado de guardado.** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10). El logo no cambia y no se carga ninguna fuente.
+
+### Agregado
+
+- **`DESIGN.md`** en la raíz: principios, tokens por función, tipografía y números, marcas de riesgo, componentes, celular, impresión, voz, checklist de accesibilidad por PR, estados de pantalla, guía para agentes y decisiones pendientes (logo C, Inter). `tests/ui/design-system.test.js` verifica que sus colores sean los de `css/styles.css`.
+- **Alias de color por función** (`--color-text`, `--color-status-critical`…) en `:root`, que apuntan a la paleta de siempre.
+- **"Calculado con tus costos y tus supuestos: no es un precio de mercado."** junto a los montos del Resultado (servicios y productos), también impreso (VAL-G4).
+- **Estado de guardado con palabra:** en el riel (761 a 1100 px), "Guardado", "Sin conexión", "Conflicto"… debajo del punto de color; en el celular, en la barra de arriba sin abrir el menú.
+- Pruebas: `tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js` (15 tests) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+
+### Cambiado
+
+- **Raíz en %** (`93.75 %` en escritorio, `100 %` en el celular): con la letra de fábrica se ve igual, y si la persona agranda la letra del navegador, la app la sigue (WCAG 1.4.4).
+- **Mínimo de 12 px:** `--fs-xs` pasa a 0,8 rem y los 75 tamaños menores de la app (ILUSTRATIVO, subtítulos de tablas, rótulos del resumen, textos del gráfico…) pasan a 12 px. Los tamaños en `em` (códigos, unidades) llevan piso: `max(…em, var(--fs-xs))`.
+- **Cifras tabulares** también en las cifras clave del Resultado.
+- **"Ver cálculo"** mide 24 px de alto o más en escritorio (WCAG 2.5.8).
+- **Gráfico del Resultado:** la tarifa piso va punteada, el objetivo lleno y la tarifa cotizada con guiones, igual en la leyenda: ya no se distinguen sólo por el tono (WCAG 1.4.1). El margen izquierdo y la separación de los rótulos del eje X se calculan con el ancho de los rótulos.
+- **Campos dentro de tablas** con el borde de los campos (3,3:1 en lugar de 1,3:1; WCAG 1.4.11).
+
+### Corregido
+
+- **El PDF imprimía la fecha de impresión como si fuera la de la oferta:** ahora dice "Oferta del dd/mm/aaaa · impreso el dd/mm/aaaa" (AUD-T1 C-E2-11). Sin fecha de oferta válida, sólo la de impresión.
+
 **RES-02 (2/2) (PLAN-2026-024): Equipos agrupados por familia.** Ninguna fórmula ni dato cambia: golden 39/39 sin tocar, esquema 10 y ningún campo nuevo.
 
 ### Agregado
