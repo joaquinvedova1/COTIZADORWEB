@@ -115,8 +115,9 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | Completado (main `37179e7`) |
 | PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Completado (PR #24 mergeado, main `0c213a3`, v0.8.0 en producción) |
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
-| PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
-| PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | Completado en la app (merge `d580d9f`, HD-02 publicado en el run #74); HD-01 y HD-03 esperan configuración del dueño (dominio, Auth, SMTP) |
+| PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | Completado (merge `d6540b7`, publicado en el run #75) |
+| PLAN-2026-018 | HD-03 — Registro público con confirmación de email (decisión del dueño, 2026-10-20) y correos de Auth: diagnóstico del correo que no llegó, respuestas neutras sin enumeración, reenvío de la confirmación, código de recuperación, enlaces de invitación descartados y SMTP propio (Resend) | autenticación, UX, otro (correo) | En curso (rama `claude/wonderful-brown-g2ehd6` desde `main` `d6540b7`, PR #28 sin merge; la configuración de Auth/SMTP/DNS la hace el dueño) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1175,72 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-018 — HD-03: alta por invitación y correos de Auth
+
+- Estado: En curso — rama `claude/wonderful-brown-g2ehd6` (reiniciada desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: autenticación, UX, otro (correo transaccional)
+- Responsable: agente de desarrollo (Claude) · configuración de Auth, SMTP y DNS: el dueño
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Una persona invitada completó un formulario y nunca recibió el correo. Diagnóstico en sólo lectura (resumen en BETA_PERIMETER.md §2; detalle en la bitácora privada): no había alta previa, así que "¿Olvidaste tu contraseña?" no envió nada, y la pantalla decía "…te enviamos un enlace". Además, el SMTP es el por defecto de Supabase (sólo entrega al equipo del proyecto), el registro del backend sigue abierto y hay señales de un escáner que consume los enlaces de un solo uso.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: que una persona pueda entrar por primera vez con un correo real, sin depender del navegador donde lo abre, y que la app diga la verdad cuando no llega nada, sin revelar quién tiene cuenta. **Desde R2 (decisión del dueño, 2026-10-20): registro público y autoservicio**, con confirmación de email obligatoria y su propia empresa.
+- Fuera de alcance: cambiar Auth, SMTP, DNS o cuentas en producción (los hace el dueño, con los pasos de BETA_PERIMETER.md §2), esquema, datos y migraciones.
+
+#### 3. Impacto en fórmulas
+Ninguno.
+
+#### 4. Impacto en datos
+Ninguno: sin migraciones ni campos nuevos. No se tocó ninguna cuenta.
+
+#### 5. Diseño
+- `auth-gateway`: `verifyRecoveryCode(email, code)` → `verifyOtp({ type: 'recovery' })`.
+- `auth-service`: respuesta neutra `RESET_REQUESTED_MESSAGE` (la misma con o sin cuenta, SMTP por defecto o roto) con qué hacer si no llega y `cooldownSeconds: 60`; `RESET_SENT_OWN_MESSAGE` con la sesión iniciada; `verifyRecoveryCode` (6–10 dígitos) que deja la sesión en modo recuperación; `parseAuthFragment`/`cleanAuthFragment`: los enlaces con tokens o errores en el # ("Send invitation") nunca se usan y se borran de la URL; enlace de recuperación inválido → mensaje que ofrece el código.
+- UI: `#/registro` con los pasos del primer ingreso (sin alta no llega ningún correo); recuperación en dos pasos (pedir el correo; enlace o "Ya tengo un código"), reenvío con cuenta regresiva y la cuenta a la vista al elegir la contraseña.
+- Plantillas de correo en español (`supabase/templates/`): recuperación con enlace y código (misma credencial: abrir el enlace usa el código); variante sólo código si un escáner consume los enlaces; invitación que lleva a "Elegir mi contraseña"; confirmación para el futuro (no se usa en la beta cerrada).
+- Proveedor recomendado: Resend (seguimiento de enlaces apagado por defecto). Con cualquier proveedor, el seguimiento de clics tiene que estar apagado; Brevo no se recomienda porque en transaccionales viene activo y apagarlo no es autoservicio.
+
+#### 6. Pasos
+- [x] 1. Diagnóstico en sólo lectura (usuarios agregados sin datos personales, logs de Auth y del gateway).
+- [x] 2. Servicio, puerta y pantallas; plantillas.
+- [x] 3. Tests simulados: unitarios (`tests/services/auth-email.test.js`) y navegador (`npm run test:auth:e2e`, escritorio y celular, en el PR gate).
+- [x] 4. Docs: BETA_PERIMETER §2 (diagnóstico, §2.3 SMTP con Resend, §2.4 pruebas reales, §2.5 simuladas), AUTH_ARCHITECTURE §4, CHANGELOG.
+- [x] 5. PR sin merge; informe HD-03 en el repositorio privado de auditoría.
+- [x] 5b. Ronda R1 (revisión independiente): ver abajo.
+- [ ] 6. El dueño: apagar el registro, dominio, Resend, SMTP y plantillas en Supabase, pruebas reales R1–R9 (R4 después del deploy).
+
+#### 7. Tests
+- Simulados: `tests/services/auth-email.test.js` (15) y `tests/services/auth-service.test.js` (actualizado); `tests/lab/e2e/auth-lab.mjs` (AUTH-01 a AUTH-09: 38 controles por modo). El Supabase simulado suma `/recover`, `/verify` (enlace y código), canje PKCE y un buzón en memoria.
+- Reales (manuales, del dueño): BETA_PERIMETER.md §2.4.
+
+#### 8. Riesgos y mitigación
+- Sin SMTP propio nadie de afuera recibe correos: lo detecta la prueba R2.
+- Un escáner puede consumir el enlace y, con él, el código de ese correo (misma credencial): lo detecta la prueba R9; mitigación, la plantilla sólo código.
+- Enumeración de cuentas: la respuesta sin sesión es idéntica; sólo los límites de envío del propio Supabase podrían distinguirlas (sin cambios).
+
+#### 9. Ronda R1 (revisión independiente del PR)
+- El subtítulo de "¿Olvidaste tu contraseña?" prometía un correo antes de pedirlo ("Te mandamos un correo…"): ahora `RECOVER_REQUEST_SUBTITLE` ("Sólo llega si ya te dieron acceso a RATEOS"), con test unitario y control en navegador (AUTH-02).
+- `verifyRecoveryCode`: la puerta exige sesión con `access_token` y usuario válido; el servicio, además, nunca queda autenticado ni en modo recuperación sin usuario. Tests de respuestas incompletas.
+- La espera de 60 s es sólo de UX (vive en la pantalla; recargar la saltea). Los límites efectivos son los de Supabase; su 429 se informa. Documentado así.
+- Corrección propia: en Supabase el enlace y el código de un correo son la misma credencial (`recovery_token`). El mensaje de enlace inválido sugería usar el código de ese mismo correo, que ya no sirve: ahora pide un correo nuevo y explica que en otro dispositivo se escribe el código sin tocar el enlace. El simulado lo modela (abrir el enlace usa el código; un correo nuevo anula el anterior) y AUTH-05 lo controla. Variante `recovery-solo-codigo.html` para casillas con escáner. (En R1 se dijo que la pantalla del código era sólo sin sesión: no es así, `#/recuperar-contrasena` es pública; R2 lo corrige en las docs.)
+- Alcance: la confirmación de email no se usa en la beta cerrada (Auto Confirm) y su entrega real no está probada; ninguna prueba simulada prueba entrega real. Brevo: el criterio es el seguimiento de clics, no el proveedor.
+
+#### 10. Ronda R2 — registro público (decisión del dueño, 2026-10-20)
+El dueño revocó la beta por invitación: quiere **registro público y autoservicio** (cualquiera crea su cuenta, confirma su email y tiene su propia empresa). Volvió a encender "Allow new users to sign up" (declaración del dueño, sin lectura independiente).
+- `FEATURES.publicSignup = true`. Formulario de siempre (nombre, empresa, email, contraseña) con confirmación obligatoria por enlace PKCE (`?auth=confirm`).
+- **Sin enumeración:** el registro responde igual a un email nuevo, ya registrado o sin confirmar (`SIGNUP_REQUESTED_MESSAGE`); la puerta sigue traduciendo el usuario "de mentira" de Supabase a `email_taken` y el servicio lo neutraliza. HD-08 resuelto. Reenvío de la confirmación neutro (`resendConfirmation`, `auth.resend({ type: 'signup' })`), también desde el ingreso cuando la cuenta no está confirmada (sólo con la contraseña correcta).
+- **Excepción documentada:** si el correo de confirmación no sale (SMTP por defecto o roto), GoTrue no crea la cuenta; la app lo dice (`SIGNUP_MAIL_FAILED_MESSAGE`). Revela que el email era nuevo sólo mientras el envío está roto; callar dejaría a la persona esperando (el origen de HD-03).
+- Antiabuso: límites de Supabase Auth (correos por hora = tope de registros por hora con SMTP propio) y confirmación obligatoria; CAPTCHA queda como decisión aparte (suma un tercero a la CSP). Las cuentas sin confirmar quedan con su empresa vacía (nadie entra); limpieza manual si se acumulan.
+- Gate: SEC-18 (sin enumeración en registro, reenvío y recuperación); HD-03 pasa a "registro público con confirmación y SMTP propio"; `scripts/check-auth-perimeter.mjs` sigue a `FEATURES.publicSignup`.
+- Tests: unitarios del registro público (`auth-email.test.js`), perímetro, gate y navegador (AUTH-01 y AUTH-10 a AUTH-14). Docs: AGENTS.md §13, README, AUTH_ARCHITECTURE, BETA_PERIMETER §2, BETA_SECURITY, plantillas.
+- Pendiente del dueño: SMTP propio + plantillas (sin eso nadie de afuera confirma su cuenta), verificar la configuración con el script, pruebas reales R1–R14 y la prueba A/B real.
+
+#### 11. Ronda R3 — revisión independiente sobre `93448e2`
+- **Hallazgo:** `resendConfirmation` devolvía "Pedido enviado" para cualquier falla que no fuera la red o el límite, incluido el rechazo del SMTP por defecto (`emailNotAuthorized`) y `unknown`: decía que se envió cuando se sabía que no (el incidente de HD-03).
+- **Corrección:** con cualquier falla del proveedor el reenvío dice `CONFIRMATION_RESEND_FAILED_MESSAGE` ("No pudimos enviar el correo de confirmación…"), el mismo mensaje para toda falla de envío, sin el email ni el código del error; aviso técnico en el logger sin datos personales. Un email rechazado por formato se marca en el campo.
+- **Enumeración:** Supabase (`/resend`) responde 200 sin enviar si no hay cuenta o ya está confirmada; sólo intenta enviar con una cuenta sin confirmar. Por eso la respuesta sigue siendo idéntica para un email sin cuenta y uno confirmado, y sólo una cuenta sin confirmar puede recibir el error, **mientras el envío esté roto**: misma excepción documentada que el registro (AGENTS.md §13, SEC-18 la verifica con su límite). Con el SMTP propio funcionando no aparece.
+- **"¿Olvidaste tu contraseña?" sin sesión no cambia** (decisión de R1, aceptada en la revisión): su respuesta no promete el correo y explica qué hacer si no llega; informar el rechazo ahí revelaría que el email tiene una cuenta (cualquiera, confirmada o no).
+- Tests: 4 unitarios nuevos (fallan sin la corrección), SEC-18 ampliado, AUTH-15 en el navegador (escritorio y celular).

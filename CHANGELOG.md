@@ -12,6 +12,31 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**HD-03 (PLAN-2026-018): registro público con confirmación de email y correos de Auth.** Por decisión del dueño (2026-10-20), cualquiera puede crear su cuenta y su propia empresa, sin invitación, confirmando su email. Además: sin cuenta, "¿Olvidaste tu contraseña?" no envía nada, pero la pantalla decía "te enviamos un enlace"; y el SMTP por defecto de Supabase sólo entrega al equipo del proyecto (requiere un SMTP propio). Sin cambios de fórmulas, esquema ni datos.
+
+### Agregado
+
+- **Registro público** (`FEATURES.publicSignup = true`): "Crear cuenta" en la landing y el ingreso; nombre, empresa, email y contraseña; confirmación de email obligatoria (enlace PKCE). Cada cuenta nace con su propia empresa (trigger + RLS).
+- **Sin enumeración de cuentas:** el registro responde igual a un email nuevo, a uno ya registrado y a uno sin confirmar (antes decía "Ese email ya está registrado": HD-08 resuelto). Lo controla el Beta Security Gate (SEC-18, nuevo).
+- **Reenviar el correo de confirmación** (respuesta neutra) después del registro y desde el ingreso cuando la cuenta todavía no está confirmada (sólo con la contraseña correcta).
+- Si el correo de confirmación no sale (SMTP por defecto o roto), el registro lo dice: Supabase no crea la cuenta y la persona no queda esperando. Lo mismo el reenvío: si el proveedor lo rechaza, dice "No pudimos enviar el correo de confirmación" y nunca "Pedido enviado" (R3).
+
+- **Código del correo de recuperación:** "¿Olvidaste tu contraseña?" → "Ya tengo un código" (email + código de 6 a 10 dígitos, `verifyOtp` tipo `recovery`). Sirve en cualquier navegador mientras nadie haya abierto el enlace de ese correo (enlace y código son la misma credencial). Requiere la plantilla `supabase/templates/recovery.html` en Supabase; si un escáner de correo consume los enlaces, `recovery-solo-codigo.html`.
+- Plantillas de correo en español (`supabase/templates/`): confirmación del registro (obligatoria), recuperación (enlace + código, o sólo código si un escáner consume los enlaces) e invitación (lleva a "Elegir mi contraseña").
+- Pruebas simuladas de Auth: `tests/services/auth-email.test.js` y `npm run test:auth:e2e` (navegador, escritorio y celular; en el PR gate). El Supabase simulado del Test Lab suma registro con confirmación, reenvío, recuperación, `/verify`, canje PKCE y un buzón en memoria.
+- `scripts/check-auth-perimeter.mjs` verifica que la configuración de Auth coincida con la app: hoy, registro abierto con confirmación obligatoria.
+
+### Cambiado
+
+- Requisito HD-03 (AGENTS.md §13, BETA_SECURITY.md §6): de "registro cerrado o por invitación" a **registro público con confirmación de email obligatoria y SMTP propio** (decisión del dueño, 2026-10-20). Con `publicSignup = false`, `#/registro` vuelve a explicar la beta por invitación.
+- La respuesta de "¿Olvidaste tu contraseña?" sin sesión sigue siendo la misma haya o no cuenta, pero ya no dice "te enviamos": dice qué hacer si no llega en 10 minutos (y que, si no hay cuenta, se crea en "Crear cuenta"). Antes de pedir, la pantalla no promete un correo. Pide esperar 60 s antes de reenviar (ayuda de UX: los límites reales son de Supabase). Con la sesión iniciada, "Cambiar contraseña" confirma el envío o avisa que no salió.
+- Un enlace de recuperación que no se puede canjear (otro navegador, vencido, usado) pide un correo nuevo y explica que, en otro dispositivo, se escribe el código sin tocar el enlace (abrir el enlace usa también el código de ese correo).
+- Una verificación del código que vuelve sin sesión o sin usuario válido no abre la recuperación.
+
+### Seguridad
+
+- Los enlaces con tokens o errores en el `#` (p. ej. "Send invitation" de Supabase) nunca abren sesión y se borran de la URL al arrancar (los tokens no quedan en la barra ni en el historial).
+
 **ECO-01 (PLAN-2026-017): bloqueantes económicos de la beta (H-01, H-02, H-03).** Ninguna fórmula cambia y ningún dato guardado se reinterpreta: golden 39/39 sin tocar y las mismas cifras que `main` en 2.097 cotizaciones y 13 productos sintéticos. Cambia qué se puede cargar (una unidad nueva) y qué se marca como pendiente. Esquema sin cambios (sigue en 10), sin migraciones.
 
 ### Agregado

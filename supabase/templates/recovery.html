@@ -1,0 +1,18 @@
+<!--
+  RATEOS · plantilla "Reset password" de Supabase Auth (HD-03, PLAN-2026-018).
+  Asunto sugerido: RATEOS: elegí tu contraseña
+  Se pega (desde <h2> hasta el final) en Supabase → Authentication → Emails → Templates → Reset password.
+  Sirve para el primer ingreso de una persona invitada y para "¿Olvidaste tu contraseña?".
+  Trae el enlace PKCE (mismo navegador) y el código de un solo uso (cualquier navegador).
+  Enlace y código son la MISMA credencial: si alguien abre el enlace (otro navegador o un
+  escáner de correo que sigue los enlaces), el código de ese correo tampoco sirve. Si un
+  escáner corporativo consume los enlaces, usar recovery-solo-codigo.html.
+  Sin imágenes externas ni seguimiento.
+-->
+<h2>Elegí tu contraseña de RATEOS</h2>
+<p>Recibimos un pedido para elegir o cambiar la contraseña de <strong>{{ .Email }}</strong>.</p>
+<p><a href="{{ .ConfirmationURL }}">Elegir mi contraseña</a><br>
+Abrilo en el mismo navegador donde lo pediste.</p>
+<p>¿Lo leés en otro dispositivo? <strong>No toques el enlace</strong>: en RATEOS tocá «¿Olvidaste tu contraseña?» → «Ya tengo un código» y escribí este código:</p>
+<p style="font-size:22px;font-weight:bold;letter-spacing:4px">{{ .Token }}</p>
+<p>El enlace y el código valen una sola vez entre los dos (si usás uno, el otro deja de servir) y vencen en una hora. Si no lo pediste, ignorá este correo: tu contraseña no cambia.</p>
