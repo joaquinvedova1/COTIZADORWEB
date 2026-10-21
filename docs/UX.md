@@ -107,6 +107,13 @@ Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, dí
 - "Editar sueldo" es un diálogo corto: bruto, cuánto es básico (opcional), mes base, vista previa antes → después y el aviso de que las cotizaciones hechas no cambian. Con horas extra y sin básico pide confirmar que se valúan sobre el bruto completo.
 - En el celular, los grupos aparecen en la primera pantalla: el resumen es una línea y los filtros, dos controles sin rótulo visible (tienen nombre accesible).
 
+### Recursos → Equipos (`#/recursos/equipos`, RES-02)
+
+- Arranca **agrupado por familia**: cada grupo es un desplegable con su nombre, "N unidades propias · M alquiladas o tercerizadas (no suman)" y la posesión por mes de las propias. Si una propia está valuada en otra moneda sin tipo de cambio, el monto es "Subtotal parcial" y lo dice.
+- Búsqueda y filtro por tenencia arriba; quedan en la dirección. "Plegar todo" / "Desplegar todo".
+- Cada fila: equipo (interno, familia, capacidad o modelo y base), tenencia, posesión por mes con "Ver cálculo" (o la tarifa si es alquilado o tercerizado), operación ($/h sin combustible + L/h), "Usado en", Editar y Eliminar.
+- En el celular, la explicación de posesión y operación queda plegada en una línea y los grupos aparecen en la primera pantalla.
+
 ### Resultado
 
 La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).

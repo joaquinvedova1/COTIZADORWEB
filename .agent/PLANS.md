@@ -123,6 +123,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-021 | ECO-04 — Avisos verificables de la beta: abono con más días trabajados que disponibles (AUD-T1 H-04), vehículo de apoyo sin su costo de tenerlo (H-08) y operador de Personal que el externo ya trae (VAL-01-F2) | completitud, UX (sin cambios de fórmulas) | En curso (rama `claude/eco-04-abono-apoyo-operador`, PR sin merge) |
 | PLAN-2026-022 | UX-01 — Formularios que pierden cambios sin avisar y valores que se corrigen en silencio: diálogos con formulario, valores que vuelven al anterior al salir, Configuración, "Mi cuenta" y avisos de error | UX (sin cambios de fórmulas ni de datos) | En curso (rama `claude/ux-01-no-perder-cambios`, PR sin merge) |
 | PLAN-2026-023 | RES-02 (1/2) — Personal agrupado por convenio, perfiles ≠ personas, sueldo bruto sin doble conteo (con la base de las horas extra explícita) y convenios borrados sin referencias colgadas | UX, datos (campo opcional `peopleCount`, sin migración) | En curso (rama `claude/res-02-personal-por-convenio`, PR sin merge) |
+| PLAN-2026-024 | RES-02 (2/2) — Equipos agrupados por familia (equipos de vacío y de pozo aparte de los camiones), unidades propias ≠ alquiladas o tercerizadas y costo de tener la flota propia | UX (sin cambios de fórmulas ni de datos) | En curso (rama `claude/res-02-equipos-por-familia`, apilada sobre el PR #33, sin merge) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1647,3 +1648,82 @@ Revert del PR. `peopleCount` queda en los datos y la versión anterior lo ignora
     - el error del diálogo tiene clase propia (`salary-error`);
     - las acciones del bloque del `ui-lab` son "suaves", para que la corrida contra `main` falle control por control y no se corte;
     - en el celular, las pestañas de Recursos se compactan (chips más chicos): con una sola fila desplazable la página crecía a lo ancho.
+
+### PLAN-2026-024 — RES-02 (2/2): Equipos agrupados por familia
+
+- Estado: En curso — rama `claude/res-02-equipos-por-familia`, apilada sobre `claude/res-02-personal-por-convenio` (PR #33, desde `main` `d6540b7`): usa sus grupos, filtros en la dirección y estilos. PR sin merge ni deploy
+- Tipo: UX; **ninguna fórmula ni dato cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (20/10: "Equipos agrupados por familias, revisando la clasificación de equipos especiales"), con el diseño de RATEOS-AUDIT `tasks/RES-02/` (DISENO.md §3, D-R8) y la revisión de ChatGPT del Issue #4 (punto 6)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Verificado en el código (RATEOS-AUDIT `tasks/RES-02/GAP-ANALISIS.md`, R6 y R7):
+- **Recursos → Equipos es una tabla** con propios, alquilados y tercerizados mezclados, sin grupos ni búsqueda.
+- **Cada ficha es una unidad** (no hay cantidad en el maestro): no se ve la flota por tipo ni cuánto cuesta tenerla.
+- **El catálogo tiene 29 familias en una lista plana.** El diseño ponía vactor, flushby y wireline en "Camiones"; la revisión de ChatGPT (punto 6) pidió revisarlo: para un contratista de servicios especiales eso confunde.
+
+#### 2. Decisiones (las del dueño y los ajustes de ChatGPT; para lo técnico, lo más seguro y sencillo)
+- **Vista "Por familia" de entrada.** "Lista" y "Detallada" siguen.
+- **Grupos visibles:** una constante descriptiva (`js/domain/equipment-groups.js`), en orden fijo:
+
+| Grupo | Familias del catálogo |
+|---|---|
+| Grúas | `crane_truck`, `crane` |
+| Camiones | `truck`, `tank_truck`, `tractor` |
+| Equipos de vacío y succión | `vactor`, `vacuum_truck` |
+| Equipos de pozo | `flushby`, `wireline` |
+| Remolques y tanques | `semitrailer`, `lowboy`, `dump_trailer`, `tank`, `frac_tank` |
+| Camionetas y vehículos livianos | `pickup`, `minibus` |
+| Movimiento de suelo | `backhoe`, `excavator`, `wheel_loader`, `motor_grader` |
+| Equipos de apoyo | `generator`, `compressor`, `pump`, `welder`, `light_tower`, `forklift`, `telehandler`, `tools` |
+| Otros / sin familia | `other` y las fichas sin familia (después de `familyIdOf`) |
+
+- **Punto 6 de ChatGPT (equipos especiales):** vactor y camión atmosférico pasan a "Equipos de vacío y succión"; flushby y wireline, a "Equipos de pozo" (sin la palabra "intervención": en RATEOS es la activación de los servicios permanentes, D8).
+  - Por qué: se cotizan como servicios especiales (con su operador y su consumo), no como transporte. Mezclados con los camiones, no se ve la flota.
+  - Cada fila sigue diciendo su familia ("Vactor", "Flushby").
+  - Los nombres y el reparto (D-R8) quedan para el dueño. Un test garantiza que cada familia esté en un solo grupo, así que cambiarlo es una línea.
+- **Conteos:** "unidades propias" (fichas `owned`; una ficha = una unidad) y, aparte, "alquiladas o tercerizadas (no suman)".
+- **Monto del grupo:** costo de **tener** las propias por mes, sin usarlas.
+  - Es la Σ de la posesión de la ficha: amortización, costo de capital, seguro, patente, certificaciones, otros y mantenimiento fijo.
+  - Las alquiladas y tercerizadas **nunca** suman.
+  - Una propia valuada en otra moneda sin tipo de cambio no se suma (no se mezclan monedas): el monto es "Subtotal parcial" y lo dice.
+  - Sin propias en el grupo, no hay monto.
+- **Filas:** equipo (con familia, interno, capacidad o modelo), tenencia, "Tenerlo por mes" (con "Ver cálculo" que termina en ese número), "Usarlo" ($/h sin combustible + L/h, porque el combustible se valúa en cada cotización; o "No usa combustible"; alquilados y tercerizados: la tarifa neta), base, "Usado en" y acciones.
+- **Búsqueda y filtro en la dirección** (`?q=&tenencia=`):
+  - búsqueda por nombre, interno, dominio, familia, capacidad y modelo;
+  - tenencia: todas, propias, o alquiladas y tercerizadas;
+  - "Plegar todo" / "Desplegar todo".
+- **Celular:** resumen en una línea; el primer grupo en la primera pantalla.
+
+#### 3. Impacto en fórmulas
+Ninguno. Los montos salen de la ficha del equipo (`equipmentCard`); golden y candado sin cambios.
+
+#### 4. Impacto en datos
+Ninguno: no hay campos nuevos y las familias de las fichas no cambian.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Dominio con tests: cada familia en un solo grupo, agrupar, contar, monto de tenencia, filtros.
+- [x] 3. Vista "Por familia", búsqueda y filtro en la dirección, traza de tenencia, celular.
+- [x] 4. E2E (escritorio y celular) que fallan sin este cambio, validación completa, capturas antes y después, PR apilado sin merge y evidencia en RATEOS-AUDIT.
+
+#### 6. Fuera de alcance (documentado)
+- Cantidad en el maestro (cada ficha sigue siendo una unidad).
+- Servicios externos (otra pestaña) y el catálogo de modelos.
+- Cambiar el catálogo de familias o la familia de las fichas existentes.
+
+#### 7. Rollback
+Revert del PR. No deja datos.
+
+#### Bitácora
+- 2026-10-20: base `claude/res-02-personal-por-convenio` `ed43a43` (PR #33). Primero este plan; después los tests y la implementación.
+- 2026-10-20: implementado.
+  - Dominio: `js/domain/equipment-groups.js`, con 13 tests.
+  - Vista: `js/ui/views/library.js` y `css/views.css`. Personal y Equipos comparten el grupo plegable (`resourceGroupNode`, clases `resource-group*`); las clases `labor-group*` y `equipment-group*` quedan como ganchos de las pruebas.
+  - `ui-lab`: 20 controles RES-02-EQ por modo.
+  - Decisiones técnicas:
+    - el grupo de flushby y wireline se llama "Equipos de pozo": el auditor de terminología del Test Lab no deja usar "intervención" fuera de la activación de los servicios permanentes (D8);
+    - "Ver cálculo" de la posesión es una traza propia (`holdingTrace`) que termina en el número de la fila; la del equipo completo termina en el costo a la utilización esperada;
+    - la operación se muestra sin combustible y con los litros por hora: el combustible se valúa en cada cotización;
+    - en el celular, la explicación de posesión y operación se pliega y la cantidad de la barra se oculta en las vistas agrupadas (el resumen la dice), para que el primer grupo aparezca en la primera pantalla;
+    - la nota "Valor en USD…" de una unidad sin tipo de cambio ensanchaba la página en el celular (ya pasaba en "Lista"): ahora se parte.
