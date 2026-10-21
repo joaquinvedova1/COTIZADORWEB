@@ -1032,21 +1032,26 @@ function alertLine(tone, title, text, action = null) {
 }
 
 /**
- * Alertas que hacen perder plata (o que pueden esconder costos): siempre
- * visibles arriba, nunca dentro de un desplegable.
+ * La alerta de la tarifa (perdés plata, debajo del piso o del margen objetivo). UI-01 (revisión de frontend
+ * de la beta): va arriba de los números que afecta; las demás alertas siguen al final del resumen.
+ */
+function priceAlert(v) {
+  const { k } = v;
+  const subject = theRate(k);
+  const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
+  if (k.belowFloor) return alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`);
+  if (k.belowFloorRate) return alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v));
+  if (k.belowTarget) return alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`);
+  return null;
+}
+
+/**
+ * Las demás alertas que hacen perder plata (o que pueden esconder costos):
+ * siempre visibles, nunca dentro de un desplegable.
  */
 function criticalAlerts(v) {
   const { k, r } = v;
   const out = [];
-  const subject = theRate(k);
-  const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
-  if (k.belowFloor) {
-    out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
-  } else if (k.belowFloorRate) {
-    out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
-  } else if (k.belowTarget) {
-    out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
-  }
   // Margen objetivo inválido (incluido margen + impuestos ≥ 100): no hay precio objetivo.
   if (k.targetMarginInvalid) {
     out.push(alertLine('danger', 'El margen objetivo no es válido.', hasValue(k.billingTaxPct) && k.billingTaxPct > 0
@@ -1413,7 +1418,7 @@ function kpiGrid(v) {
     }
   }
 
-  items.push(kpiItem({ label: 'Costos cargados', value: pct(score, 0), hint: 'Completitud: lo que suele olvidarse', tone: completenessTone(score), trace: traceCompleteness(v) }));
+  items.push(kpiItem({ label: 'Costos cargados', value: pct(score, 0), hint: 'Completitud: lo que suele olvidarse', tone: completenessTone(score, (v.r.completeness && v.r.completeness.critical) || 0), trace: traceCompleteness(v) }));
 
   return h('div', { class: 'kpi-grid qr-kpis', style: { '--qr-kpi-cols': String(items.length) } }, ...items);
 }
@@ -1577,12 +1582,16 @@ function priceStat(v) {
     else if (k.commercialSource === 'known_rate') hint = 'La tarifa que vas a ofrecer.';
     else if (k.commercialSource === 'offered') hint = 'La tarifa que ofrecés (cargada a mano).';
     else hint = `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
+    // UI-01 (revisión de frontend de la beta): bajo el piso la tarifa no se ve como una sana; mismo
+    // nombre que en el editor según su origen. Con un resultado NO CONFIABLE la cifra queda apagada.
+    const unreliable = isUnreliable(v);
     return statItem({
-      label: 'Tu tarifa',
+      label: { offered: 'Tarifa ofrecida', override: 'Tarifa forzada' }[k.commercialSource] || 'Tu tarifa',
       value: rateValue(k.commercialListRate),
       unit,
-      unreliable: isUnreliable(v),
+      unreliable,
       hint: statHint(hint),
+      tone: unreliable ? null : k.belowFloor ? 'red' : k.belowTarget ? 'orange' : null,
       trace: traceCommercial(v),
       className: 'qr-stat qr-stat-price',
     });
@@ -1802,18 +1811,22 @@ function renderSummary(v) {
   const mode = r.pricingMode === 'known_rate' ? 'known_rate' : 'known_activity';
   const titleId = uniqueId('qr-summary-title');
   const sub = quoteSubtitle(q);
+  const price = priceAlert(v);
   const alerts = criticalAlerts(v);
   const draft = draftBanner(v);
   return h('section', { class: 'qr-summary', id: v.ids.summary, 'aria-labelledby': titleId },
     h('div', { class: 'qr-summary-head' },
       h('div', { class: 'qr-summary-titles' },
         h('h2', { class: 'qr-summary-title', id: titleId }, 'Resultado'),
-        sub ? h('p', { class: 'qr-summary-sub' }, sub) : null),
+        // UI-03: sin cliente, el subtítulo repite el título de la página; en el celular se oculta (el PDF lo imprime).
+        sub ? h('p', { class: ['qr-summary-sub', typeof q.client === 'string' && q.client.trim() ? null : 'qr-summary-sub-name-only'] }, sub) : null),
       h('div', { class: 'qr-summary-badges' },
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
     draft,
     roundingBanner(v),
+    // UI-01: la alerta de la tarifa va arriba de los números que afecta (DESIGN.md §1.2).
+    price ? h('div', { class: ['qr-alerts', 'qr-alerts-price'] }, price) : null,
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado. Se imprime.
     h('p', { class: 'qr-note qr-reference-note' }, REFERENCE_PRICE_NOTE),
@@ -3234,7 +3247,7 @@ function renderComparator(v) {
 function renderCompleteness(v) {
   const { r, q } = v;
   const c = r.completeness || { scorePct: 0, items: [] };
-  const tone = completenessTone(c.scorePct);
+  const tone = completenessTone(c.scorePct, c.critical || 0);
   const order = { missing: 0, warning: 1, ok: 2 };
   // Críticos primero (cambian el costo o el precio), después "para revisar" (PLAN-2026-010).
   const rank = (i) => (i.severity === 'critical' ? 0 : 1);

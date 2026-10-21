@@ -213,7 +213,7 @@ function heroSection({ hasQuotes, name }) {
       ),
       hasQuotes
         ? h('p', { class: 'home-demo-link' }, '¿Querés ver cómo funciona con un servicio? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá el ejemplo'), '.')
-        : h('p', { class: 'home-demo-link' }, '¿Querés ver primero cómo funciona? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá la demo'), ' (está aparte y no toca tus datos) o ', h('a', { href: '#/configuracion/empresa' }, 'configurá tu empresa'), '.'),
+        : h('p', { class: 'home-demo-link' }, '¿Querés ver primero cómo funciona? ', h('a', { href: DEMO_FROM_APP_HREF }, 'Probá la demo'), ' (está aparte y no toca tus datos), ', h('a', { href: '#/configuracion/empresa' }, 'configurá tu empresa'), ' o cargá tu personal y tus equipos en ', h('a', { href: '#/recursos/personal' }, 'Recursos'), ' para usarlos en cada cotización.'),
     ),
     heroArt(),
   );
@@ -255,7 +255,7 @@ function continueSection(draft) {
         h(
           'dd',
           { class: 'continue-progress' },
-          isFiniteNumber(pct) ? progressBar(pct, completenessTone(pct), { label: 'Costos cargados' }) : null,
+          isFiniteNumber(pct) ? progressBar(pct, completenessTone(pct, (summary.criticalLabels || []).length), { label: 'Costos cargados' }) : null,
           h('span', { class: 'mono small' }, isFiniteNumber(pct) ? formatPercent(pct, { decimals: 0 }) : EMPTY),
         ),
       ),

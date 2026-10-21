@@ -209,25 +209,29 @@ export function render(container, ctx) {
     if (ok) ctx.mutate((q) => q.labor.splice(index, 1));
   };
 
+  // UI-05 (revisión de frontend de la beta): con Recursos vacío no se ofrece elegir de una lista sin nada;
+  // se dice dónde cargarlo (la cotización se guarda sola) y el puesto en blanco pasa a ser la acción principal.
   const toolbar = h(
     'div',
     { class: 'qe-toolbar' },
-    h(
-      'div',
-      { class: 'qe-toolbar-pick' },
-      selectField({
-        label: 'Agregar desde tus recursos de personal',
-        value: null,
-        includeEmpty: true,
-        emptyLabel: profiles.length ? 'Elegí un perfil…' : 'Todavía no cargaste perfiles',
-        options: profiles.map((p) => ({ value: p.id, label: `${p.role}${p.category ? ` — ${p.category}` : ''}` })),
-        onChange: (v) => {
-          selectedProfileId = v;
-        },
-      }),
-      kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
-    ),
-    kit.action('Agregar puesto en blanco', addBlank, { icon: 'plus', size: 'md' }),
+    profiles.length
+      ? h(
+        'div',
+        { class: 'qe-toolbar-pick' },
+        selectField({
+          label: 'Agregar desde tus recursos de personal',
+          value: null,
+          includeEmpty: true,
+          emptyLabel: 'Elegí un perfil…',
+          options: profiles.map((p) => ({ value: p.id, label: `${p.role}${p.category ? ` — ${p.category}` : ''}` })),
+          onChange: (v) => {
+            selectedProfileId = v;
+          },
+        }),
+        kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
+      )
+      : h('p', { class: 'qe-toolbar-empty small' }, 'Todavía no cargaste personal en Recursos. ', h('a', { href: '#/recursos/personal' }, 'Cargar personal en Recursos'), ' (esta cotización se guarda sola) o agregá un puesto en blanco.'),
+    kit.action('Agregar puesto en blanco', addBlank, { icon: 'plus', size: 'md', ...(profiles.length ? {} : { variant: 'primary' }) }),
   );
 
   /** "SAC 8,33 % · vacaciones 4 % · …" con lo cargado en la línea. */
@@ -493,7 +497,7 @@ export function render(container, ctx) {
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({
         title: 'Todavía no cargaste personal.',
-        text: 'Agregá un perfil desde tus recursos o un puesto en blanco. Si el servicio no lleva personal propio, seguí al próximo paso.',
+        text: h('span', {}, 'Agregá un perfil desde ', h('a', { href: '#/recursos/personal' }, 'tus recursos'), ' o un puesto en blanco. Si el servicio no lleva personal propio, seguí al próximo paso.'),
         icon: 'resources',
       }),
     totals,

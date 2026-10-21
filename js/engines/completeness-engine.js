@@ -145,10 +145,11 @@ function operatorConfirmationHolds(confirmed, free) {
   return free.every((x) => known.has(x.id) && known.get(x.id) === x.role);
 }
 
-/** Tono (green | orange | red) de un puntaje de completitud. */
-export function completenessTone(scorePct) {
+/** Tono (green | orange | red) de un puntaje de completitud; con pendientes críticos (`criticalCount`), nunca green. */
+export function completenessTone(scorePct, criticalCount = 0) {
   if (!Number.isFinite(scorePct)) return 'red';
-  if (scorePct >= COMPLETENESS_GREEN_THRESHOLD) return 'green';
+  // UI-02 (revisión de frontend de la beta): con un pendiente crítico nunca es verde, aunque el % sea alto.
+  if (scorePct >= COMPLETENESS_GREEN_THRESHOLD) return criticalCount > 0 ? 'orange' : 'green';
   if (scorePct >= COMPLETENESS_RISK_THRESHOLD) return 'orange';
   return 'red';
 }

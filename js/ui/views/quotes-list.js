@@ -138,11 +138,11 @@ function textOf(value, fallback) {
   return typeof value === 'string' && value.trim() !== '' ? value : fallback;
 }
 
-function completenessCell(pct) {
+function completenessCell(pct, criticalCount = 0) {
   return h(
     'div',
     { class: 'completeness-cell', title: 'Qué parte de la estructura de costos ya cargaste' },
-    progressBar(pct, completenessTone(pct), { label: 'Costos cargados' }),
+    progressBar(pct, completenessTone(pct, criticalCount), { label: 'Costos cargados' }),
     h('span', { class: 'mono small' }, formatPercent(pct, { decimals: 0 })),
   );
 }
@@ -275,7 +275,7 @@ export function quoteColumns({ statusCell = null } = {}) {
       align: 'right',
       render: ({ quote, summary }) => breakEvenNode(quote, summary),
     },
-    { key: 'completeness', label: 'Costos cargados', render: ({ summary }) => (summaryFailed(summary) ? muted() : completenessCell(summary.completenessPct)) },
+    { key: 'completeness', label: 'Costos cargados', render: ({ summary }) => (summaryFailed(summary) ? muted() : completenessCell(summary.completenessPct, (summary.criticalLabels || []).length)) },
     { key: 'status', label: 'Estado', render: statusCell || (({ quote }) => statusBadge(quote.status)) },
   ];
 }
@@ -547,7 +547,7 @@ export async function render(root, app) {
         ['Tarifa', quoteRateNode(quote, summary)],
         ['Margen esperado', quoteMarginNode(summary)],
         ['Para no perder (por mes)', breakEvenNode(quote, summary)],
-        ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct)],
+        ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct, (summary.criticalLabels || []).length)],
         ['Última modificación', formatDateTime(quote.updatedAt)],
       ]),
       h('div', { class: 'field' }, h('label', { class: 'field-label', for: statusId }, 'Estado'), h('div', {}, select)),

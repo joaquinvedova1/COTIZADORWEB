@@ -2272,6 +2272,86 @@ async function runMode(mode) {
     await scan(P, 'producto');
   }
 
+  // ---- BETA-RC2 UI (revisión de frontend de la beta): lo que la pantalla afirma con color y orden.
+  // UI-01 "perdés plata" arriba de los números y tarifa bajo el piso en rojo con su nombre, UI-03 un monto en la
+  // primera pantalla con BORRADOR, UI-02 "Costos cargados"
+  // nunca en verde con un pendiente crítico, UI-11 filtros de Recursos legibles y UI-12 objetivos de 44 px en el
+  // celular. Cotización SINTÉTICA: AUD-T1 E3 con 2 camiones por km sin confirmar y una tarifa ofrecida de $ 1.000.
+  {
+    const P = 'BETA-RC2-UI';
+    const ui = JSON.parse(readFileSync(path.join(ROOT, 'tests', 'fixtures', 'eco-01', 'e3-cotizacion.json'), 'utf8'));
+    ui.equipment[0].quantity = 2;
+    ui.pricing.offeredRateOverride = 1000;
+    Object.assign(ui, { id: randomUUID(), organizationId: orgId, code: 'LAB-UI2', name: 'UI2 tarifa ofrecida bajo el piso', offerDate: '2026-10-16', createdAt: now, updatedAt: now });
+    const uir = computeQuote(structuredClone(ui));
+    check(P, 'el caso tiene un pendiente crítico con "Costos cargados" sobre el umbral verde y la tarifa bajo el piso', uir.completeness.critical > 0 && uir.completeness.scorePct >= 85 && uir.kpis.belowFloor === true && uir.kpis.commercialSource === 'offered', JSON.stringify({ critical: uir.completeness.critical, pct: uir.completeness.scorePct, belowFloor: uir.kpis.belowFloor }));
+    const live = db.workspaces.get(orgId);
+    live.state.quotes = [...live.state.quotes, ui];
+    live.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+
+    await go(`#/cotizaciones/${encodeURIComponent(ui.id)}/result`, 300);
+    await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+    const res = await page.evaluate(() => {
+      const alerts = document.querySelector('.qr-alerts-price');
+      const stats = document.querySelector('.qr-stats');
+      const price = document.querySelector('.qr-stat-price');
+      const kpi = [...document.querySelectorAll('.qr-kpis .kpi')].find((k) => /Costos cargados/.test(k.innerText));
+      const top = (el) => (el ? Math.round(el.getBoundingClientRect().top + window.scrollY) : null);
+      return {
+        alertsFirst: Boolean(alerts && stats) && Boolean(alerts.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING),
+        alertText: alerts ? alerts.innerText.slice(0, 120) : '',
+        alertTop: top(alerts),
+        statsTop: top(stats),
+        draftHeight: document.querySelector('.qr-draft') ? Math.round(document.querySelector('.qr-draft').getBoundingClientRect().height) : null,
+        screen: window.innerHeight,
+        priceCls: price ? price.className : '',
+        priceLabel: price ? price.innerText.split('\n')[0] : '',
+        kpiCls: kpi ? kpi.className : 'sin KPI',
+      };
+    });
+    check(P, 'UI-01: "perdés plata" está arriba de los números del resumen', res.alertsFirst && /perdés plata/.test(res.alertText), JSON.stringify(res));
+    // UI-03: con BORRADOR, el aviso no ocupa la pantalla (cada pendiente en 2 renglones en el celular). En escritorio, la
+    // alerta de la tarifa entra en la primera pantalla. En el celular, con otro aviso de página arriba, todavía no: ver el informe.
+    if (mode === 'mobile') check(P, 'UI-03: en el celular el aviso BORRADOR ocupa menos de un tercio de la pantalla', res.draftHeight !== null && res.draftHeight < res.screen / 3, JSON.stringify({ draftHeight: res.draftHeight, screen: res.screen }));
+    else check(P, 'UI-03: con BORRADOR, la alerta de la tarifa entra en la primera pantalla', res.alertTop !== null && res.alertTop < res.screen, JSON.stringify({ alertTop: res.alertTop, statsTop: res.statsTop, screen: res.screen }));
+    check(P, 'UI-01: la tarifa ofrecida bajo el piso se llama "Tarifa ofrecida" y va en rojo', /big-stat-red/.test(res.priceCls) && /Tarifa ofrecida/i.test(res.priceLabel), JSON.stringify({ cls: res.priceCls, label: res.priceLabel }));
+    check(P, 'UI-02: con un pendiente crítico, el KPI "Costos cargados" no es verde', !/kpi-green/.test(res.kpiCls), res.kpiCls);
+    await go('#/cotizaciones', 800);
+    // "Costos cargados" está en la vista Detallada de la lista.
+    await tap(page.getByRole('button', { name: 'Detallada' }).first()).catch(() => {});
+    await page.waitForTimeout(400);
+    const listTone = await page.evaluate((name) => {
+      const r = [...document.querySelectorAll('tr, .table-card, li')].find((x) => x.innerText && x.innerText.includes(name));
+      const bar = r && r.querySelector('.progress');
+      return bar ? bar.className : 'sin barra';
+    }, ui.name);
+    check(P, 'UI-02: en la lista de cotizaciones la barra de "Costos cargados" tampoco es verde', !/progress-green/.test(listTone) && /progress-/.test(listTone), listTone);
+
+    if (mode === 'mobile') {
+      // UI-11: el filtro por convenio se lee entero ("Todos los convenios").
+      await go('#/recursos/personal', 800);
+      const fits = await page.evaluate(() => {
+        const sel = document.querySelector('select[name="convenio"]');
+        if (!sel) return { ok: false, why: 'sin selector' };
+        const cs = getComputedStyle(sel);
+        const ctx = document.createElement('canvas').getContext('2d');
+        ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        const text = sel.options[sel.selectedIndex].text;
+        const room = sel.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        return { ok: ctx.measureText(text).width <= room, text, room: Math.round(room), need: Math.round(ctx.measureText(text).width) };
+      });
+      check(P, 'UI-11: en el celular el filtro de Personal se lee entero', fits.ok, JSON.stringify(fits));
+      // UI-12: objetivos de al menos 44 px (computados: el menú puede estar cerrado).
+      const small = await page.evaluate(() => [...document.querySelectorAll('.account-action, .cost-legend-details > summary')]
+        .map((el) => ({ cls: el.className || el.tagName, min: parseFloat(getComputedStyle(el).minHeight) || 0 }))
+        .filter((x) => x.min < 44));
+      check(P, 'UI-12: "Mi cuenta", "Cerrar sesión" y los desplegables de Recursos tienen 44 px en el celular', small.length === 0, JSON.stringify(small));
+    }
+    await scan(P, 'resultado');
+  }
+
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
   // pantalla ni en el menú oculto, y otra cuenta que ingresa en la MISMA
   // pestaña (sin recargar) no ve nada de A, ni con los ids de sus cotizaciones.

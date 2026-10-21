@@ -611,6 +611,16 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   .form-grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* UI-04 (revisión de frontend de la beta): en celulares angostos la marca queda en su "R" (el enlace conserva su
+   aria-label) para que la palabra del estado de guardado entre entera y el estado no dependa sólo del color. */
+@media (max-width: 400px) {
+  .mobile-bar .brand-compact .brand-name { display: none; }
+}
+/* UI-12: "Mi cuenta" y "Cerrar sesión" del menú del celular, con 44 px para el dedo. */
+@media (max-width: 760px) {
+  .account-action { min-height: 44px; }
+}
+
 /* Celular: barra compacta con marca + "Menú"; la navegación se despliega como panel. */
 @media (max-width: 760px) {
   .app-shell { grid-template-columns: minmax(0, 1fr); }

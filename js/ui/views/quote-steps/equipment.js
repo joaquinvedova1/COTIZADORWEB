@@ -461,22 +461,26 @@ export function render(container, ctx) {
   const toolbar = h(
     'div',
     { class: 'qe-toolbar' },
-    h(
-      'div',
-      { class: 'qe-toolbar-pick' },
-      selectField({
-        label: 'Agregar desde tus recursos (Mis equipos y Externos)',
-        value: null,
-        includeEmpty: true,
-        emptyLabel: pickerOptions.length ? 'Elegí un equipo o servicio…' : 'Todavía no cargaste equipos ni servicios externos',
-        options: pickerOptions,
-        onChange: (v) => {
-          selectedId = v;
-        },
-      }),
-      kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
-    ),
-    kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md' }),
+    // UI-05 (revisión de frontend de la beta): con Recursos vacío se dice dónde cargarlos (la cotización se
+    // guarda sola) en vez de ofrecer una lista sin nada; el equipo en blanco pasa a ser la acción principal.
+    pickerOptions.length
+      ? h(
+        'div',
+        { class: 'qe-toolbar-pick' },
+        selectField({
+          label: 'Agregar desde tus recursos (Mis equipos y Externos)',
+          value: null,
+          includeEmpty: true,
+          emptyLabel: 'Elegí un equipo o servicio…',
+          options: pickerOptions,
+          onChange: (v) => {
+            selectedId = v;
+          },
+        }),
+        kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
+      )
+      : h('p', { class: 'qe-toolbar-empty small' }, 'Todavía no cargaste equipos ni servicios externos en Recursos. ', h('a', { href: '#/recursos/equipos' }, 'Cargar equipos en Recursos'), ' (esta cotización se guarda sola) o agregá uno en blanco.'),
+    kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md', ...(pickerOptions.length ? {} : { variant: 'primary' }) }),
     kit.action('Agregar alquilado o tercerizado', () => addBlank('rented'), { icon: 'plus', size: 'md' }),
   );
 
@@ -1207,7 +1211,7 @@ export function render(container, ctx) {
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({
         title: 'Todavía no agregaste equipos.',
-        text: 'Agregá uno desde tus recursos o en blanco (propio, alquilado o tercerizado). Si el servicio no usa equipos, seguí al próximo paso.',
+        text: h('span', {}, 'Agregá uno desde ', h('a', { href: '#/recursos/equipos' }, 'tus recursos'), ' o en blanco (propio, alquilado o tercerizado). Si el servicio no usa equipos, seguí al próximo paso.'),
         icon: 'resources',
       }),
     lineCards.length ? totals : null,

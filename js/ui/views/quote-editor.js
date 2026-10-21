@@ -935,8 +935,8 @@ function breakEvenTone(r) {
 }
 
 /** Semáforo del Cost Completeness Score: mismos umbrales que el motor y el Resultado. */
-function completenessColor(pct) {
-  return isFiniteNumber(pct) ? completenessTone(pct) : 'gray';
+function completenessColor(pct, criticalCount = 0) {
+  return isFiniteNumber(pct) ? completenessTone(pct, criticalCount) : 'gray';
 }
 
 /**
@@ -1307,10 +1307,10 @@ function buildSummary({ getResult, stepHref }) {
       const v = isFiniteNumber(pct) ? Math.max(0, Math.min(100, pct)) : 0;
       pctEl.textContent = isFiniteNumber(pct) ? `${formatNumber(pct, { decimals: 0 })} % completo` : EMPTY;
       barFill.style.setProperty('width', `${v}%`);
-      bar.className = `progress progress-${completenessColor(pct)}`;
-      bar.setAttribute('aria-valuenow', String(Math.round(v)));
       const pending = (r.completeness && r.completeness.pending) || [];
       const critical = pending.filter((p) => p.severity === 'critical').length;
+      bar.className = `progress progress-${completenessColor(pct, critical)}`;
+      bar.setAttribute('aria-valuenow', String(Math.round(v)));
       moreHint.textContent = pending.length === 0
         ? 'Precio para tu margen y costos completos.'
         : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · precio para tu margen.`;

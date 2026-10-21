@@ -37,6 +37,15 @@ Antes de abrir el registro a terceros hace falta el SMTP propio ([docs/BETA_PERI
 - **Avisos de personal (H-10):** "Horas del personal" y "Relevos" aclaran que son una revisión y que no hace falta sumar personas; "Relevos" ya no dice 24/7 si el servicio no lo es. Cada puesto marcado ofrece "La cobertura está prevista", que vale mientras sigan iguales los días, las horas, las personas y las horas normales y extra.
 - Pruebas: `tests/engines/p1-cierre.test.js` y `tests/ui/p1-cierre-ui.test.js` (30 tests) y el bloque P1-CIERRE del `ui-lab` (escritorio y celular). En el candidato anterior (`f7e8a29`) fallan 24 de los 30 tests nuevos (los otros 6 fijan lo que no debe cambiar) y 10 de los 13 controles del bloque.
 
+**Revisión de frontend de la beta (PLAN-2026-028, paso 3).** Ninguna fórmula ni dato cambia. De los 5 hallazgos P2 se corrigieron 4 y se atenuó 1 (UI-03), más 4 P3 de una línea; el resto queda para después de la beta:
+- **Resultado (UI-01):** una tarifa bajo el piso se ve en rojo y con el nombre del editor ("Tarifa ofrecida", "Tarifa forzada"); "Con tu tarifa perdés plata" va arriba de los cuatro números y no al final. Las demás alertas siguen donde estaban.
+- **"Costos cargados" (UI-02):** con un pendiente crítico nunca va en verde, aunque el porcentaje pase el umbral (Resultado, editor, lista de cotizaciones e Inicio). El color del aviso BORRADOR no cambia (decisión del dueño, ver PLAN-2026-028).
+- **Resultado en el celular (UI-03, atenuado):** cada pendiente del aviso BORRADOR muestra 2 renglones (el detalle sigue en "Ver qué falta" y en el PDF) y, sin cliente, no se repite el nombre debajo del título. El aviso pasa de hasta 680 px a unos 230 px. Con otro aviso de página arriba (por ejemplo, el combustible ILUSTRATIVO), el primer monto todavía queda debajo de la primera pantalla: un encabezado compacto en el celular queda para después de la beta.
+- **Barra del celular (UI-04):** a menos de 400 px la marca queda en su "R" y la palabra del estado de guardado entra entera.
+- **Cuenta nueva (UI-05):** en Personal y Equipos, sin recursos cargados, el paso dice "Todavía no cargaste…" con un enlace a Recursos (la cotización se guarda sola) y "Agregar puesto en blanco" pasa a ser el botón principal. Inicio también menciona Recursos.
+- **P3:** "Resultado" no se corta en las etapas entre 761 y 1280 px (UI-06); los filtros de Recursos se leen enteros en el celular ("Todos los convenios", "Todas las tenencias", UI-11); "Mi cuenta", "Cerrar sesión" y los desplegables de ayuda tienen 44 px en el celular (UI-12); el mínimo de un servicio externo dice su unidad ("Mínimo 8 h", "Mínimo 3 días", UI-19).
+- Pruebas: `tests/ui/beta-ui-review.test.js` (8 tests; en `c736abd` fallan 6, los otros 2 fijan los umbrales de siempre) y el bloque BETA-RC2-UI del `ui-lab` (escritorio y celular).
+
 **DESIGN-02 (2/2), cotizar sin fricción (PLAN-2026-026).** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10).
 
 ### Agregado

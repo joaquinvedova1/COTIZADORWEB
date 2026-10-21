@@ -435,6 +435,16 @@ function fiscalBadge(ext = {}) {
   return badge(labelOf(VAT_RECOVERY, f.recovery).replace(/ \(.*\)$/, ''), f.recovery === 'yes' ? 'green' : 'orange');
 }
 
+const UNIT_PLURALS = { día: 'días', mes: 'meses', tramo: 'tramos', viaje: 'viajes' };
+
+/** "Mínimo 8 h", "Mínimo 3 días": el mínimo facturable con la unidad de la tarifa. */
+export function externalMinimumText(x) {
+  const n = toNumber(x.minimumUnits, 0);
+  const word = externalUnitShort(x).replace('/', '').trim();
+  const unit = x.unit === 'global' ? '' : x.unit === 'activation' ? activationTerms().word(n) : n === 1 ? word : UNIT_PLURALS[word] || word;
+  return `Mínimo ${formatNumber(n, { decimals: 2 })}${unit ? ` ${unit}` : ''}`;
+}
+
 /** Vista previa de una tarifa externa: costo económico vs salida de caja por unidad. */
 function externalPreview(draft) {
   const x = draft.external || {};
@@ -1815,7 +1825,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       name: 'tenencia',
       value: state.tenure,
       includeEmpty: true,
-      emptyLabel: 'Todas',
+      emptyLabel: 'Todas las tenencias',
       options: [{ value: TENURE_OWNED, label: 'Sólo propias' }, { value: TENURE_EXTERNAL, label: 'Sólo alquiladas o tercerizadas' }],
       onChange: (v) => {
         state.tenure = v || '';
@@ -1932,7 +1942,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
           align: 'right',
           render: ({ item }) => {
             const x = item.external || {};
-            return h('div', { class: 'cell-main cell-num' }, h('strong', { class: 'nowrap' }, `${formatMoneyIn(toNumber(x.price, 0), item.base && item.base.currency)} ${externalUnitShort(x)}`), toNumber(x.minimumUnits, 0) > 0 ? h('span', { class: 'cell-sub' }, `Mínimo ${formatNumber(toNumber(x.minimumUnits, 0), { decimals: 2 })}`) : null);
+            return h('div', { class: 'cell-main cell-num' }, h('strong', { class: 'nowrap' }, `${formatMoneyIn(toNumber(x.price, 0), item.base && item.base.currency)} ${externalUnitShort(x)}`), toNumber(x.minimumUnits, 0) > 0 ? h('span', { class: 'cell-sub' }, externalMinimumText(x)) : null);
           },
         },
         { key: 'includes', label: 'Incluye', render: ({ item }) => includesText(item.external) },

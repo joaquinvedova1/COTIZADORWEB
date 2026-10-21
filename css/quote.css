@@ -207,6 +207,10 @@
 .bt-add { flex-wrap: wrap; gap: 0.5rem; }
 .bt-help-more summary { cursor: pointer; font-weight: 600; color: var(--blue-text); }
 .bt-help-more[open] summary { margin-bottom: 0.25rem; }
+/* UI-12: en el celular, los desplegables de ayuda tienen 44 px para el dedo (sin perder su triángulo). */
+@media (max-width: 760px) {
+  .bt-help-more > summary { min-height: 44px; padding-block: 0.7rem; box-sizing: border-box; }
+}
 /* Convención de montos (paso "El servicio"). */
 .qe-convention { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--ink-2); }
 /* Enlace dentro de un texto ("Ver ejemplo"). */
@@ -561,7 +565,8 @@
 /* Etapas: en pantallas medianas, sólo el número y el nombre. */
 @media (max-width: 1280px) {
   .qe-stage-link { padding: 0.5rem 0.55rem; gap: 0.5rem; }
-  .qe-stage-label { font-size: 0.86rem; }
+  .qe-stage-label { font-size: 0.86rem; overflow-wrap: normal; }
+  .qe-stage-list { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
 /* < 1180 px: el resumen pasa a una barra compacta fija abajo (4 números) que

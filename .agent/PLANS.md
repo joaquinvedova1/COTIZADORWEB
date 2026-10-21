@@ -2054,9 +2054,27 @@ Ninguno. Cambian textos, la completitud y el estado de la lista de productos. Se
 #### 5. Pasos
 - [x] 1. Este plan y los tests que fallan en `f7e8a29`.
 - [x] 2. Implementación y tests en verde.
-- [ ] 3. Revisión de frontend y correcciones de usabilidad relevantes para la beta (aparte, documentadas).
+- [x] 3. Revisión de frontend y correcciones de usabilidad relevantes para la beta (aparte, documentadas).
 - [ ] 4. Verificación completa del candidato y revisión de código del diff.
 - [ ] 5. Evidencia "P1 CIERRE" en RATEOS-AUDIT y GO/NO-GO actualizado.
+
+#### 5 bis. Revisión de frontend (paso 3)
+- Auditoría de landing, registro, inicio, cotizaciones, resultado, recursos, productos, navegación y celular (1440, 1000, 390, 360 y 320 px), con `DESIGN.md` y las guías de interfaz web de Vercel. Sin P1. 5 P2 y 14 P3.
+- **Corregidos:** UI-01, UI-02 (en parte, ver abajo), UI-04 y UI-05 (P2) y UI-06, UI-11, UI-12 y UI-19 (P3 de una línea). **Atenuado:** UI-03 (el aviso BORRADOR del celular pasa de hasta 680 px a unos 230 px; con otro aviso de página arriba, el primer monto sigue debajo de la primera pantalla). Ver CHANGELOG.
+- **DECISIÓN DEL DUEÑO (UI-02, segunda parte):** el aviso BORRADOR con un pendiente crítico usa el mismo rojo que RESULTADO NO CONFIABLE. Pasarlo a naranja deshace la decisión de PLAN-2026-010 (`tests/engines/audit-cot0009.test.js` espera `danger`), así que no se cambia sin el dueño. Lo que sí se corrigió: "Costos cargados" ya no queda en verde debajo.
+- **Para después de la beta:**
+  - UI-07: "(break-even)" en inglés en la ayuda de "Días para no perder" y en 21 textos;
+  - UI-08: una etapa con un crítico todavía no abierta dice "Pendiente" en gris;
+  - UI-09: la pastilla del modo de cálculo parece un botón;
+  - UI-10: "Costo del mes $ 0" grande y en azul en una cotización vacía;
+  - UI-13: columnas que no se alinean entre grupos de Recursos;
+  - UI-14: dos tipografías numéricas y decimales mezclados;
+  - UI-15: dos títulos "Productos" y otro componente de pasos;
+  - UI-16: el botón "Reenviar…" desactivado se sale de su caja;
+  - UI-17: 3 textos de menos de 12 px en la landing (D7);
+  - UI-18: "Margen promedio" en verde aunque promedie una cotización que pierde;
+  - UI-03 (resto): encabezado compacto del Resultado en el celular (título, acciones y etapas) para que un monto entre siempre en la primera pantalla;
+  - y la lista de estética secundaria del informe (avisos más cortos, íconos de plegado, `theme-color`, `overscroll-behavior`, "(minimum call)", orden de KPI del producto).
 
 #### 6. Rollback
 - Los commits van sobre el candidato: revertirlos devuelve `f7e8a29`.

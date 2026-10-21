@@ -587,6 +587,13 @@ th.ta-right .qr-th { align-items: flex-end; }
 /* PLAN-2026-010: BORRADOR arriba del resultado y severidad de cada pendiente. */
 .qr-draft { margin: 0 0 var(--sp-3, 0.75rem); align-items: flex-start; }
 .qr-draft-list { margin: 0.4rem 0 0; padding-left: 1.1rem; font-size: 0.875rem; }
+/* UI-03 (revisión de frontend de la beta): en el celular, cada pendiente del aviso de BORRADOR o NO CONFIABLE
+   ocupa a lo sumo 2 líneas (el texto completo sigue en "Ver qué falta") y se oculta el subtítulo que repite el
+   título, para que los montos entren antes en la pantalla. Sólo en pantalla: el PDF imprime todo. */
+@media screen and (max-width: 760px) {
+  .qr-draft-list li { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  .qr-summary-sub-name-only { display: none; }
+}
 .qr-check-head { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .qr-sev { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.05rem 0.4rem; border-radius: 4px; }
 .qr-sev-critical { background: var(--red-50); color: var(--red-text); }

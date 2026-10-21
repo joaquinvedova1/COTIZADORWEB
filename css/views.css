@@ -671,10 +671,14 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .lib-table .table td .cell-note { white-space: normal; min-width: 0; }
 .cost-legend-details > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--blue-text); padding: 0.35rem 0; }
 .cost-legend-details[open] > .cost-legend { margin-top: 0.5rem; }
+@media (max-width: 760px) {
+  .cost-legend-details > summary { min-height: 44px; padding-block: 0.7rem; box-sizing: border-box; }
+}
 .salary-dialog .salary-additionals { margin: -0.25rem 0 0; }
 
 @media (max-width: 760px) {
-  .resource-filters { grid-template-columns: 1fr 1fr; }
+  /* El filtro toma el ancho que deja "Plegar todo": así se lee entero ("Todos los convenios"). */
+  .resource-filters { grid-template-columns: minmax(0, 1fr) auto; }
   .resource-filters .field:first-child { grid-column: 1 / -1; }
   .resource-filters-actions { justify-content: flex-end; }
   .resource-group-summary { grid-template-columns: 1fr; padding: 0.75rem 0.9rem; }
