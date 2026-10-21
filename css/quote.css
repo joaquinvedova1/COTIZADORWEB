@@ -174,7 +174,6 @@
 .qe-step-body .qe-unit-choice.is-compact .choice { padding: 0.55rem 0.7rem; }
 .qe-unit-hint { margin-top: 0.4rem; }
 
-.qe-num-echo { font-size: var(--fs-xs); color: var(--blue-text); font-family: var(--mono); font-weight: 600; margin-top: -0.1rem; }
 
 .qe-static {
   min-height: 38px; display: flex; align-items: center; padding: 0.5rem 0.65rem; border-radius: 8px;
@@ -437,6 +436,8 @@
 .qe-sum-value { color: var(--navy-900); font-weight: 720; font-size: 1.42rem; letter-spacing: -0.02em; line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .qe-sum-unit { font-size: 0.86rem; font-weight: 600; color: var(--ink-3); letter-spacing: 0; }
 .qe-sum-compact { display: none; }
+/* Estado del margen en una palabra: sólo en la barra compacta plegada (ver @media 1180 px). */
+.qe-sum-state { display: none; color: var(--color-text-secondary); }
 .qe-sum-hint { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.38; }
 .qe-sum-item .trace-btn { align-self: flex-start; padding: 0; margin-top: 0.15rem; font-size: var(--fs-xs); gap: 0.25rem; }
 .qe-sum-item .trace-btn .icon { width: 14px; height: 14px; }
@@ -447,6 +448,9 @@
 .qe-sum-item[data-tone="orange"] .qe-sum-value { color: var(--orange-text); }
 .qe-sum-item[data-tone="red"]::before { background: var(--red); }
 .qe-sum-item[data-tone="red"] .qe-sum-value { color: var(--red-text); }
+.qe-sum-item[data-tone="green"] .qe-sum-state { color: var(--green-text); }
+.qe-sum-item[data-tone="orange"] .qe-sum-state { color: var(--orange-text); }
+.qe-sum-item[data-tone="red"] .qe-sum-state { color: var(--red-text); }
 
 .qe-sum-more { border-top: 1px solid var(--line-2) !important; }
 .qe-sum-more > .disclosure-summary { padding: 0.8rem 1.1rem !important; }
@@ -507,6 +511,36 @@
   .qe-stack-table td.qe-col-calc .qe-cell-calc, .qe-stack-table td.qe-col-calc .qe-out.mono { align-items: flex-start; padding-top: 0; }
   .qe-stack-table td.qe-col-remove { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
 }
+/* Estructura y tramos (DESIGN-02 2/2): en escritorio entran como tabla; una tarjeta por fila sólo cuando el paso
+   mide 680 px o menos (celular y tablet). Las reglas son las de .qe-stack-table, con la otra clase
+   (tests/ui/editor-friction.test.js verifica que sigan iguales); después, las propias de los tramos. */
+@container qestep (max-width: 680px) {
+  .qe-stack-narrow.table-wrap { overflow: visible; }
+  .qe-stack-narrow .table, .qe-stack-narrow .table tbody { display: block; width: 100%; }
+  .qe-stack-narrow .table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .qe-stack-narrow .table tbody tr {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 0.8rem; align-items: end;
+    padding: 0.75rem 0.85rem; margin-bottom: 0.65rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--white);
+  }
+  .qe-stack-narrow .table tbody tr:hover { background: var(--white); }
+  .qe-stack-narrow .table td { display: block; padding: 0; border: 0; min-width: 0; text-align: left; }
+  .qe-stack-narrow .table td:first-child { grid-column: 1 / -1; }
+  .qe-stack-narrow .field-label {
+    position: static !important; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal;
+  }
+  .qe-stack-narrow .field-control input, .qe-stack-narrow .field-control select,
+  .qe-stack-narrow td:first-child .field-control input { min-width: 0; }
+  .qe-stack-narrow .qe-cell-tag { display: none; }
+  .qe-stack-narrow td.qe-col-calc::before {
+    content: attr(data-label); display: block; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); margin-bottom: 0.2rem;
+  }
+  .qe-stack-narrow td.qe-col-calc .qe-cell-calc, .qe-stack-narrow td.qe-col-calc .qe-out.mono { align-items: flex-start; padding-top: 0; }
+  .qe-stack-narrow td.qe-col-remove { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+  /* Tramos: "desde" y "hasta" van juntos (son números cortos); el tramo y su evaluación, a lo ancho. */
+  .qe-stack-narrow.qe-tiers-table .table td:first-child { grid-column: auto; }
+  .qe-stack-narrow.qe-tiers-table td.qe-col-calc { grid-column: 1 / -1; }
+  .qe-stack-narrow .qe-tier-label { padding-top: 0; white-space: normal; }
+}
 @container qestep (max-width: 460px) {
   .form-grid.cols-4, .form-grid.cols-3, .form-grid.cols-2, .form-grid.cols-4.qe-material-grid { grid-template-columns: 1fr; }
   .qe-compare { grid-template-columns: 1fr; }
@@ -541,7 +575,13 @@
   .qe-sum-toggle { display: inline-flex; }
   .qe-sum-main { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .qe-sum-main .qe-sum-item { border-top: 0; padding: 0.3rem 1rem 0.65rem; }
-  .qe-sum-main .qe-sum-item[data-kpi="commercialRate"] { background: transparent; }
+  /* La tarifa cobrada se destaca de la piso: fondo propio y cifra más fuerte (DESIGN-02 2/2). */
+  .qe-sum-main .qe-sum-item[data-kpi="commercialRate"] { background: var(--blue-50); }
+  .qe-sum-main .qe-sum-item[data-kpi="commercialRate"] .qe-sum-value { font-weight: 800; }
+  /* Plegada: costo, piso, tarifa cobrada y margen con su palabra. "Para no perder" y el resultado, en "Ver detalle". */
+  .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-item[data-kpi="breakEven"],
+  .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-item[data-kpi="expectedResult"] { display: none; }
+  .qe-summary-inner:not(.is-expanded) .qe-sum-state:not(:empty) { display: block; font-size: var(--fs-xs); font-weight: 700; line-height: 1.2; }
   .qe-sum-main .qe-sum-item::before { top: 6px; bottom: 10px; }
   .qe-sum-main .qe-sum-value { font-size: 1.12rem; }
   .qe-sum-main .qe-sum-unit { font-size: var(--fs-xs); }
@@ -632,7 +672,7 @@
   .qe-save { min-height: 32px; font-size: 0.875rem; }
   .qe-stat-label, .qe-group-title, .qe-nav-kicker, .qe-compare-kicker, .qe-summary-title, .qe-tier-eval .small, .qe-group-name .small { font-size: var(--fs-xs); }
   .qe-sum-hint, .qe-stat-hint, .qe-pending-msg, .qe-pending, .qe-issue-note, .qe-note, .qe-keyline-hint, .qe-rule-output,
-  .qe-adv .disclosure-hint, .qe-num-echo, .qe-line-subtitle, .qe-term, .qe-explain, .qe-tip, .qe-notice-list, .qe-rule-explain,
+  .qe-adv .disclosure-hint, .field-echo, .qe-line-subtitle, .qe-term, .qe-explain, .qe-tip, .qe-notice-list, .qe-rule-explain,
   .qe-breakdown, .qe-finance-table .table, .qe-cell-stack .qe-own-values, .qe-keyline-label, .qe-sum-label, .qe-more-action-text,
   .qe-sum-more-hint, .qe-chip, .qe-pending li.qe-pending-more { font-size: 0.875rem; }
   .qe-more-action { grid-template-columns: 1fr; }

@@ -576,7 +576,8 @@ export function render(container, ctx) {
     activityNote,
     tiers.length
       ? table({
-        className: 'qe-edit-table qe-tiers-table',
+        // Una tarjeta por tramo cuando no entra como tabla (celular y tablet); en escritorio sigue tabla (DESIGN-02 2/2).
+        className: 'qe-edit-table qe-stack-narrow qe-tiers-table',
         caption: 'Tramos de descuento por cantidad de días',
         columns: [
           { key: 'from', label: 'Desde (días)', render: (row, i) => kit.num(`rules.volumeTiers.${i}.fromDays`, { label: 'Desde (días)', rule: 'days' }) },
@@ -585,6 +586,7 @@ export function render(container, ctx) {
           {
             key: 'status',
             label: 'Tramo y evaluación (peor caso)',
+            className: 'qe-col-calc',
             render: (row, i) => h(
               'div',
               { class: 'qe-tier-cell' },
@@ -592,7 +594,7 @@ export function render(container, ctx) {
               kit.out((r) => tierStatus(r, row.id), { className: 'qe-tier-status' }),
             ),
           },
-          { key: 'remove', label: '', render: (row, i) => kit.action('', () => removeTier(i), { variant: 'ghost', icon: 'trash', title: 'Quitar tramo' }) },
+          { key: 'remove', label: '', className: 'qe-col-remove', render: (row, i) => kit.action('', () => removeTier(i), { variant: 'ghost', icon: 'trash', title: 'Quitar tramo' }) },
         ],
         rows: tiers,
       })

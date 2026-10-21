@@ -192,7 +192,8 @@ function detailedCard(ctx) {
   };
   const rowsTable = items.length
     ? table({
-      className: 'qe-edit-table',
+      // Una tarjeta por rubro cuando no entra como tabla (celular y tablet); en escritorio sigue tabla (DESIGN-02 2/2).
+      className: 'qe-edit-table qe-stack-narrow',
       caption: 'Rubros de estructura',
       columns: [
         { key: 'label', label: 'Rubro', render: (row, j) => kit.text(`indirect.items.${j}.label`, { label: 'Rubro', maxLength: 80 }) },
@@ -208,6 +209,7 @@ function detailedCard(ctx) {
           key: 'month',
           label: 'En el mes',
           align: 'right',
+          className: 'qe-col-calc',
           render: (row, j) => kit.out((r) => {
             const it = r.model.structure.items[j];
             if (!it) return EMPTY;
@@ -215,7 +217,7 @@ function detailedCard(ctx) {
             return formatMoney(it.fixedMonthly * monthsFactor(D, r.activity.availableDaysPerMonth) + it.variablePerActiveDay * D);
           }),
         },
-        { key: 'remove', label: '', render: (row, j) => kit.action('', () => remove(j), { variant: 'ghost', icon: 'trash', title: 'Quitar rubro' }) },
+        { key: 'remove', label: '', className: 'qe-col-remove', render: (row, j) => kit.action('', () => remove(j), { variant: 'ghost', icon: 'trash', title: 'Quitar rubro' }) },
       ],
       rows: items,
     })
