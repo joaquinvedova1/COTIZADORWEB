@@ -118,6 +118,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | Completado en la app (merge `d580d9f`, HD-02 publicado en el run #74); HD-01 y HD-03 esperan configuración del dueño (dominio, Auth, SMTP) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | Completado (merge `d6540b7`, publicado en el run #75) |
 | PLAN-2026-018 | HD-03 — Registro público con confirmación de email (decisión del dueño, 2026-10-20) y correos de Auth: diagnóstico del correo que no llegó, respuestas neutras sin enumeración, reenvío de la confirmación, código de recuperación, enlaces de invitación descartados y SMTP propio (Resend) | autenticación, UX, otro (correo) | En curso (rama `claude/wonderful-brown-g2ehd6` desde `main` `d6540b7`, PR #28 sin merge; la configuración de Auth/SMTP/DNS la hace el dueño) |
+| PLAN-2026-019 | ECO-02 — Riesgo a la vista: resultado NO CONFIABLE marcado fuera del Resultado (listas, Inicio, Escenarios, PDF) y regla de "Enviada" | UX, completitud (presentación) | En curso (rama `claude/eco-02-riesgo-a-la-vista`, PR sin merge; espera revisión independiente y aprobación del dueño) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1244,3 +1245,58 @@ El dueño revocó la beta por invitación: quiere **registro público y autoserv
 - **Enumeración:** Supabase (`/resend`) responde 200 sin enviar si no hay cuenta o ya está confirmada; sólo intenta enviar con una cuenta sin confirmar. Por eso la respuesta sigue siendo idéntica para un email sin cuenta y uno confirmado, y sólo una cuenta sin confirmar puede recibir el error, **mientras el envío esté roto**: misma excepción documentada que el registro (AGENTS.md §13, SEC-18 la verifica con su límite). Con el SMTP propio funcionando no aparece.
 - **"¿Olvidaste tu contraseña?" sin sesión no cambia** (decisión de R1, aceptada en la revisión): su respuesta no promete el correo y explica qué hacer si no llega; informar el rechazo ahí revelaría que el email tiene una cuenta (cualquiera, confirmada o no).
 - Tests: 4 unitarios nuevos (fallan sin la corrección), SEC-18 ampliado, AUTH-15 en el navegador (escritorio y celular).
+
+### PLAN-2026-019 — ECO-02: riesgo a la vista (NO CONFIABLE fuera del Resultado y regla de "Enviada")
+
+- Estado: En curso — rama `claude/eco-02-riesgo-a-la-vista` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: UX y presentación de la completitud (sin cambios de fórmulas)
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (autorizó implementar en ramas y PRs el 2026-10-20)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+ECO-01 marca "RESULTADO NO CONFIABLE" **dentro** del Resultado. La auditoría DESIGN-01 (UX-P1-1, UX-P1-2 y UX-P1-3, verificados en código y capturas) mostró que **fuera** del Resultado no se ve: la lista, Inicio, "Continuar cotización" y Escenarios muestran la tarifa y un margen de color normal (un doble abono figuraba con "88,72 %" en verde); dentro del Resultado, costo, tarifa piso y tarifa se ven normales; y "Marcar como enviada al cliente" sigue activo, de un clic, también desde la lista y el editor. Inicio, además, promedia ese margen y suma esa facturación.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: que un resultado NO CONFIABLE se vea en cada lugar donde aparece la cotización (listas, Inicio, Escenarios, Resultado y PDF) y que no se pueda marcar como enviada sin resolverlo, con la misma regla en todos los caminos.
+- Fuera de alcance (PRs siguientes): el redondeo comercial (VAL-01-F1), H-04, H-08 y el doble conteo de operadores (VAL-01-F2), formularios que pierden cambios, RES-02 y DESIGN-01. Sin cambios de Auth, Supabase, esquema ni datos.
+
+#### 3. Impacto en fórmulas
+- **Ninguna fórmula cambia** y ningún indicador del motor (`kpis`) cambia: `summarizeQuote` sólo suma `unreliable`, `unreliableLabels` y `criticalLabels` (proyección de la completitud ya calculada). Golden y candado sin cambios.
+- **Agregados de Inicio (`indicatorsFor`):** una cotización activa NO CONFIABLE cuenta como activa y en riesgo, pero no entra en el valor cotizado, el margen promedio ni "bajo piso" (`unreliableCount` dice cuántas quedan afuera). Es una regla de presentación de Inicio, documentada en CALCULATION_RULES §dashboard.
+
+#### 4. Impacto en datos
+Esquema 10 sin cambios; ninguna migración; ningún campo nuevo guardado. El estado de una cotización ya enviada no se toca: si hoy es NO CONFIABLE, el Resultado lo dice ("figura como enviada, pero…").
+
+#### 5. Diseño
+- Dominio `js/domain/quote-risk.js`: `riskSummary(completeness)`, `impliesSending(from, to)` (Enviada, o Ganada sin haber estado enviada) y `sendCheck(summary)` (NO CONFIABLE o sin calcular → no; críticos → confirmar; si no → sí).
+- UI: `js/ui/send-guard.js` (textos y diálogos), lista y columnas compartidas (`quotes-list.js`), Inicio (`dashboard.js`), Resultado (cuatro números, acciones y encabezado del PDF), Escenarios (aviso arriba del análisis) y el estado en el editor (`kit.select` con `guard`). Sin fórmulas en la UI.
+- Servicio (R1): `QuoteService.saveQuote` aplica la misma regla contra el estado GUARDADO y rechaza con `send_blocked` (sin guardar nada); el editor vuelve al estado guardado a la vista y guarda el resto; la lista dice el motivo. El respaldo importado (`importBackup`) no pasa por esa regla.
+- Alcance: salvaguarda de la app en el navegador (pantallas y servicio), no de la base ni del servidor: el servidor guarda el espacio de trabajo completo y no ejecuta el motor. Una pestaña con una versión anterior, un respaldo o una escritura directa con la propia cuenta pueden dejar una NO CONFIABLE como Enviada; por eso la marca no depende del estado (listas, Resultado y PDF).
+
+#### 6. Pasos
+- [x] 1. Regla de dominio y resumen del motor (sin cambiar `kpis`).
+- [x] 2. Listas, Inicio, Escenarios, Resultado, PDF y editor.
+- [x] 3. Tests unitarios y E2E (los controles nuevos fallan en `main`: 14 en escritorio).
+- [x] 4. PR sin merge (#29), evidencia en RATEOS-AUDIT (`tasks/ECO-02/`) y revisión independiente (comentario, no aprobación).
+- [x] 5. R1: la regla también en `QuoteService.saveQuote`, alcance documentado (no es del servidor), Perdida → Ganada explícito, verificación combinada con HD-03 (PR #28).
+
+#### 7. Tests
+`tests/domain/quote-risk.test.js` (regla, `summarizeQuote` con los mismos `kpis` que el motor, textos), `tests/services/quote-service.test.js` (agregados de Inicio y, desde R1, la regla en `saveQuote`: bloquea Borrador/Archivada/nueva → Enviada o Ganada con NO CONFIABLE o sin calcular; deja pasar Perdida → Ganada, ediciones de una ya enviada, Perdida/Archivada, críticos y el respaldo) y el bloque ECO-02 de `tests/lab/e2e/ui-lab.mjs` (escritorio y celular; desde R1, Perdida → Ganada y el aviso del Resultado).
+
+#### 8. Riesgos y mitigación
+- Una cotización enviada antes de este cambio que hoy es NO CONFIABLE no cambia de estado: se avisa en el Resultado y se marca en las listas.
+- Los montos de Inicio bajan si hay cotizaciones NO CONFIABLES activas: es el objetivo, y se aclara en los rótulos y en "Ver cálculo".
+
+#### 9. Rollback
+Revert del PR. No hay datos nuevos que limpiar.
+
+#### 10. Review multidisciplinario
+- Economía: ninguna fórmula ni indicador del motor cambia; Inicio deja de promediar y sumar números que no son reales.
+- QA: rojo en `main`, verde en la rama; golden y Test Lab sin cambios.
+- Seguridad: sin cambios de esquema, Auth ni base; sin datos reales.
+- UX: la marca "No confiable" está en cada fila, número y PDF; "Enviada" bloqueada dice por qué, a la vista, con "Ver qué falta".
+
+#### Bitácora
+- 2026-10-20: el dueño autorizó implementar en ramas y PRs (sin merge ni deploy) y pidió empezar por las correcciones críticas. Base `main` `d6540b7`.
+- 2026-10-20: PR #29 publicado (`5d19758`). Revisión independiente (comentario, sin aprobar): dirección adecuada para beta; pide documentar que la regla es de la UX y no de la persistencia/servidor y valorar una guarda de servicio, verificar el conjunto con HD-03 y dejar explícito Perdida → Ganada. R1: guarda en `saveQuote` (la opción más segura; no rompe el respaldo ni los estados históricos), alcance y Perdida → Ganada en CALCULATION_RULES, verificación combinada local.
+

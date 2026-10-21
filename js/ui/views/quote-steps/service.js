@@ -14,6 +14,21 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
 import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
+import { impliesSending, riskSummary, sendCheck } from '../../../domain/quote-risk.js';
+import { computeQuote } from '../../../engines/quote-engine.js';
+import { guardSending } from '../../send-guard.js';
+
+/**
+ * Regla de "Enviada" (ECO-02) con la cotización tal como está AHORA en el editor (no con el último
+ * resultado bueno: si hoy no se puede calcular, no se puede marcar como enviada).
+ */
+function currentSendCheck(ctx) {
+  try {
+    return sendCheck(riskSummary(computeQuote(ctx.quote, { settings: ctx.settings }).completeness));
+  } catch {
+    return sendCheck(null);
+  }
+}
 
 /** Nombre de un paso entre comillas ("Viajes"): siempre el de QUOTE_STEPS. */
 const step = (id) => `"${stepName(id)}"`;
@@ -155,7 +170,14 @@ export function render(container, ctx) {
     formGrid(
       3,
       kit.staticField('Código', quote.code, 'Se asigna automáticamente y no se puede cambiar.'),
-      kit.select('status', { label: 'Estado', options: QUOTE_STATUSES.map((s) => ({ value: s.id, label: s.label })) }),
+      // ECO-02: pasar a Enviada (o a Ganada sin haber estado enviada) sigue la misma regla que el Resultado y la lista.
+      kit.select('status', {
+        label: 'Estado',
+        options: QUOTE_STATUSES.map((s) => ({ value: s.id, label: s.label })),
+        guard: (next, previous) => (impliesSending(previous, next)
+          ? guardSending(currentSendCheck(ctx), { status: next, reviewHref: quote.id ? `#/cotizaciones/${encodeURIComponent(String(quote.id))}/result` : null })
+          : true),
+      }),
       kit.num('contractMonths', {
         label: 'Duración del contrato',
         rule: 'months',

@@ -16,6 +16,9 @@
  *   - magnitudes distintas con su propio nombre y valor (viajes facturables ≠
  *     viajes físicos, días de trabajo, km por mes)
  *   - sin NaN / Infinity, sin scroll horizontal y sin errores de consola
+ *   - ECO-02: "No confiable" fuera del Resultado (lista, Inicio, Escenarios), en los
+ *     cuatro números y en el PDF; "Enviada" bloqueada con un resultado NO CONFIABLE
+ *     (Resultado, lista y editor) y confirmada con pendientes críticos
  * Escribe reports/lab/e2e/ui-lab-report.{json,md} (artefacto de CI).
  *
  * Playwright NO es dependencia de RATEOS (cero dependencias npm): se toma de
@@ -536,6 +539,174 @@ async function runMode(mode) {
     const tp = norm(await page.evaluate(() => document.body.innerText));
     check('E2E-P01', 'D3: "Precio y margen" aclara que la financiación es sobre costos netos (sin IVA de compras)', NET.test(tp), 'sin la aclaración');
     await scan('E2E-P01', 'producto');
+  }
+
+  // ---- ECO-02: el riesgo se ve FUERA del Resultado (lista, Inicio, Escenarios), en los cuatro números y en
+  // el PDF; una cotización NO CONFIABLE no se marca como enviada por ningún camino (Resultado, lista, editor)
+  // y con pendientes críticos se confirma. Lo esperado sale del motor sobre lo GUARDADO en la cuenta.
+  {
+    const storedQuotes = () => (db.workspaces.get(orgId).state.quotes || []);
+    const storedStatus = async (id, expected) => {
+      let status = null;
+      for (let i = 0; i < 20; i += 1) {
+        const q = storedQuotes().find((x) => x.id === id);
+        status = q ? q.status : null;
+        if (status === expected) break;
+        await page.waitForTimeout(150);
+      }
+      return status;
+    };
+    const unreliableNames = new Set(storedQuotes().filter((q) => computeQuote(structuredClone(q)).completeness.unreliable > 0).map((q) => norm(q.name)));
+    check('ECO-02', 'hay cotizaciones NO CONFIABLES para probar (E2E-17, E2E-19, E2E-20)', unreliableNames.size >= 2, `${unreliableNames.size}`);
+    // Filas de las tablas de cotizaciones: nombre, marca "No confiable" y qué dice la columna del margen.
+    const rows = () => page.evaluate(() => [...document.querySelectorAll('.table-wrap tbody tr')].map((tr) => ({
+      name: ((tr.querySelector('.cell-title') || {}).textContent || '').trim(),
+      tag: Boolean(tr.querySelector('.tag-unreliable')),
+      margin: ((tr.querySelector('td[data-label="Margen"], td[data-label="Margen esperado"]') || {}).textContent || '').trim(),
+    })).filter((r) => r.name));
+    const listCheck = async (where, { mustShow = true } = {}) => {
+      const list = await rows();
+      const bad = list.filter((r) => {
+        const u = unreliableNames.has(norm(r.name));
+        return u !== r.tag || u !== /No confiable/.test(r.margin);
+      });
+      check('ECO-02', `${where}: "No confiable" en la fila y en lugar del margen, sólo en las cotizaciones NO CONFIABLES`, list.length > 0 && bad.length === 0 && (!mustShow || list.some((r) => r.tag)), bad.length ? JSON.stringify(bad.slice(0, 3)) : `filas: ${list.length}`);
+    };
+    await go('#/cotizaciones', 700);
+    await listCheck('Cotizaciones');
+    await scan('ECO-02', 'lista');
+    await go('#/escenarios', 700);
+    await listCheck('Escenarios');
+    await go('#/inicio', 900);
+    await listCheck('Inicio', { mustShow: false });
+    const home = await page.evaluate(() => ({
+      continueName: ((document.querySelector('.continue-title') || {}).textContent || '').replace('No confiable', '').replace('ILUSTRATIVO', '').trim(),
+      continueTag: Boolean(document.querySelector('.continue-title .tag-unreliable')),
+      continueRisk: ((document.querySelector('.continue-risk') || {}).textContent || ''),
+      text: document.body.textContent,
+    }));
+    const continueUnreliable = unreliableNames.has(norm(home.continueName));
+    check('ECO-02', 'Inicio: "Continuar cotización" marca "No confiable" (y por qué) sólo si su resultado no es confiable', !home.continueName || (continueUnreliable === home.continueTag && continueUnreliable === /Resultado NO CONFIABLE/.test(home.continueRisk)), JSON.stringify({ name: home.continueName, tag: home.continueTag, risk: home.continueRisk }));
+    check('ECO-02', 'Inicio: "Cotizaciones en riesgo" dice que incluye las de resultado NO CONFIABLE', /Incluye \d+ con resultado NO CONFIABLE/.test(norm(home.text)), 'sin la aclaración');
+    await scan('ECO-02', 'inicio');
+
+    // Escenarios de una cotización NO CONFIABLE: el aviso va arriba del análisis.
+    const u = byId['E2E-19'];
+    await go(`#/escenarios/${encodeURIComponent(u.q.id)}`, 900);
+    const sc = await page.evaluate(() => {
+      const b = document.querySelector('.qr-analysis .qr-draft.qr-unreliable');
+      return { text: b ? b.innerText : '', visible: Boolean(b && b.offsetParent !== null) };
+    });
+    check('ECO-02', 'Escenarios: "RESULTADO NO CONFIABLE" arriba del análisis, con la causa', sc.visible && /RESULTADO NO CONFIABLE/.test(sc.text) && /Dos abonos por mes/.test(sc.text), norm(sc.text).slice(0, 200));
+
+    // Resultado NO CONFIABLE: los cuatro números marcados, "Marcar como enviada" deshabilitado con el motivo a la vista, PDF marcado.
+    await go(`#/cotizaciones/${encodeURIComponent(u.q.id)}/result`, 300);
+    await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+    const res = await page.evaluate(() => {
+      const tagged = (sel) => Boolean(document.querySelector(`${sel} .big-stat-label .tag-unreliable`));
+      const sent = document.querySelector('button[data-edit="status"]');
+      const note = document.querySelector('.qr-send-blocked');
+      return {
+        cost: tagged('.qr-stat-cost'), price: tagged('.qr-stat-price'), margin: tagged('.qr-stat-margin'),
+        floor: tagged('.qr-stat-floor') || !/\$/.test((document.querySelector('.qr-stat-floor .big-stat-number') || {}).textContent || ''),
+        sentDisabled: Boolean(sent && sent.disabled),
+        note: note ? note.innerText : '',
+        noteVisible: Boolean(note && note.offsetParent !== null),
+      };
+    });
+    check('ECO-02', 'Resultado: costo, piso, tarifa y margen llevan "No confiable"', res.cost && res.floor && res.price && res.margin, JSON.stringify(res));
+    check('ECO-02', 'Resultado: "Marcar como enviada" deshabilitado y el motivo a la vista (con la causa)', res.sentDisabled && res.noteVisible && /No se puede marcar como enviada/.test(res.note) && /Dos abonos por mes/.test(res.note), JSON.stringify(res).slice(0, 300));
+    await page.emulateMedia({ media: 'print' });
+    const pdf = await page.evaluate(() => {
+      const flag = document.querySelector('.qr-print-flag');
+      const stat = document.querySelector('.qr-stat');
+      return {
+        flag: flag && flag.offsetParent !== null ? flag.innerText : '',
+        first: Boolean(flag && stat && (flag.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        tags: document.querySelectorAll('.qr-stat .tag-unreliable').length,
+        tagsShown: [...document.querySelectorAll('.qr-stat .tag-unreliable')].filter((t) => t.offsetParent !== null).length,
+      };
+    });
+    await page.emulateMedia({ media: 'screen' });
+    check('ECO-02', 'PDF: "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" en el encabezado, antes del primer número, y las marcas se imprimen', /RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA/.test(pdf.flag) && pdf.first && pdf.tagsShown >= 3, JSON.stringify(pdf));
+
+    // Lista (vista detallada): elegir "Enviada" en una NO CONFIABLE avisa por qué y no cambia el estado.
+    await go('#/cotizaciones', 700);
+    const detailed = page.getByRole('button', { name: 'Detallada' }).first();
+    if (await detailed.isVisible().catch(() => false)) await tap(detailed);
+    await page.waitForTimeout(500);
+    const rowSel = page.locator('.table-wrap tbody tr').filter({ hasText: u.q.name }).locator('select.status-select').first();
+    const hasSelect = (await rowSel.count()) > 0;
+    check('ECO-02', 'Lista (detallada): la fila tiene el selector de estado', hasSelect, 'sin selector');
+    if (hasSelect) {
+      await rowSel.selectOption('sent');
+      await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+      const dlg = norm(await page.evaluate(() => (document.querySelector('dialog[open]') || {}).textContent || ''));
+      check('ECO-02', 'Lista: "Enviada" en una NO CONFIABLE abre el aviso "No se puede marcar como enviada" con la causa', /No se puede marcar como enviada/.test(dlg) && /Dos abonos por mes/.test(dlg), dlg.slice(0, 200));
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+      const shown = await rowSel.inputValue().catch(() => null);
+      check('ECO-02', 'Lista: el estado sigue en Borrador (pantalla y cuenta)', shown === 'draft' && (await storedStatus(u.q.id, 'draft')) === 'draft', `selector ${shown}`);
+    }
+
+    // Editor ("Más datos de la cotización"): el mismo aviso y el estado no cambia.
+    await go(`#/cotizaciones/${encodeURIComponent(u.q.id)}/service`, 600);
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+    const ed = page.locator('select[name="status"]').first();
+    if ((await ed.count()) > 0) {
+      await ed.scrollIntoViewIfNeeded().catch(() => {});
+      await ed.selectOption('sent');
+      await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+      const dlg = norm(await page.evaluate(() => (document.querySelector('dialog[open]') || {}).textContent || ''));
+      check('ECO-02', 'Editor: "Enviada" en una NO CONFIABLE abre el mismo aviso', /No se puede marcar como enviada/.test(dlg) && /Dos abonos por mes/.test(dlg), dlg.slice(0, 200));
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(600);
+      check('ECO-02', 'Editor: el estado sigue en Borrador (pantalla y cuenta)', (await ed.inputValue().catch(() => null)) === 'draft' && (await storedStatus(u.q.id, 'draft')) === 'draft', 'cambió el estado');
+    } else {
+      check('ECO-02', 'Editor: el selector de estado existe', false, 'sin select[name="status"]');
+    }
+
+    // Pendientes críticos sin NO CONFIABLE (E2E-02, "Ruta del proveedor"): se confirma nombrándolos; cancelar no cambia nada.
+    const c = byId['E2E-02'];
+    await go(`#/cotizaciones/${encodeURIComponent(c.q.id)}/result`, 300);
+    await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
+    const sentBtn = page.locator('button[data-edit="status"]').first();
+    check('ECO-02', 'Con pendientes críticos (no NO CONFIABLE) "Marcar como enviada" está habilitado y sin aviso de bloqueo', (await sentBtn.isEnabled().catch(() => false)) && (await page.locator('.qr-send-blocked').count()) === 0, 'deshabilitado o con aviso');
+    await tap(sentBtn);
+    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+    const conf = norm(await page.evaluate(() => (document.querySelector('dialog[open]') || {}).textContent || ''));
+    check('ECO-02', 'Con pendientes críticos se pide confirmar y se nombran', /¿Marcarla como enviada con pendientes críticos\?/.test(conf) && /Ruta del proveedor/.test(conf), conf.slice(0, 200));
+    await tap(page.locator('dialog[open]').getByRole('button', { name: 'Revisar primero' }));
+    await page.waitForTimeout(500);
+    check('ECO-02', '"Revisar primero" no cambia el estado', (await storedStatus(c.q.id, 'draft')) === 'draft', 'cambió');
+    await tap(sentBtn);
+    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+    await tap(page.locator('dialog[open]').getByRole('button', { name: 'Marcar como enviada igual' }));
+    check('ECO-02', '"Marcar como enviada igual" la marca como enviada (y se guarda)', (await storedStatus(c.q.id, 'sent')) === 'sent', 'no se guardó');
+
+    // ECO-02 R1: Perdida → Ganada registra un hecho (no se controla), pero no autoriza a mandarla: el
+    // Resultado sigue diciendo que hoy NO ES CONFIABLE y que se resuelve antes de volver a mandarla.
+    await go('#/cotizaciones', 700);
+    const detailedAgain = page.getByRole('button', { name: 'Detallada' }).first();
+    if (await detailedAgain.isVisible().catch(() => false)) await tap(detailedAgain);
+    await page.waitForTimeout(500);
+    const statusOf = () => page.locator('.table-wrap tbody tr').filter({ hasText: u.q.name }).locator('select.status-select').first();
+    if ((await statusOf().count()) > 0) {
+      await statusOf().selectOption('lost');
+      const lost = await storedStatus(u.q.id, 'lost');
+      await page.waitForTimeout(500);
+      await statusOf().selectOption('won');
+      await page.waitForTimeout(400);
+      const dialogs = await page.locator('dialog[open]').count();
+      const won = await storedStatus(u.q.id, 'won');
+      check('ECO-02', 'Perdida → Ganada (registra un hecho) no se bloquea ni pide confirmar', lost === 'lost' && won === 'won' && dialogs === 0, `perdida ${lost} · ganada ${won} · diálogos ${dialogs}`);
+      await go(`#/cotizaciones/${encodeURIComponent(u.q.id)}/result`, 300);
+      await page.waitForSelector('.qr-actions-bar', { timeout: 8000 }).catch(() => {});
+      const note = norm(await page.evaluate(() => [...document.querySelectorAll('.qr-send-blocked')].map((n) => n.textContent).join(' ')));
+      check('ECO-02', 'Ganada con un resultado NO CONFIABLE: el Resultado avisa que se resuelve antes de volver a mandarla', /Figura como ganada, pero hoy su resultado NO ES CONFIABLE/.test(note) && /antes de volver a mandarla/.test(note), note.slice(0, 200));
+    } else {
+      check('ECO-02', 'Lista (detallada): la fila tiene el selector de estado (Perdida → Ganada)', false, 'sin selector');
+    }
   }
 
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
