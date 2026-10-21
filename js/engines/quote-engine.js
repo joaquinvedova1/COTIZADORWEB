@@ -28,6 +28,7 @@ import { summarizeEconomicBase } from './economic-base-engine.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../domain/billing-units.js';
 import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
 import { riskSummary } from '../domain/quote-risk.js';
+import { quoteRounding, roundingStepFor, ROUNDING_WARN_PCT } from '../domain/rounding.js';
 
 /** Margen leído como lo valida validateQuote (texto es-AR incluido); `fallback` si está vacío o es inválido. */
 function readMargin(value, fallback) {
@@ -202,8 +203,14 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const ratesAtEstimate = requiredRatesAt(ctx, D, margins);
   const byMargin = (m) => ratesAtEstimate.byMargin.find((r) => r.marginPct === m) || { netRate: null, listRate: null, requiredRevenue: null };
   const targetRates = targetMarginInvalid ? { netRate: null, listRate: null, requiredRevenue: null } : byMargin(targetMarginPct);
-  const roundingStep = nonNegative(pricing.roundingStep);
+  // Redondeo comercial (ECO-03): automático (múltiplo que no sube la objetivo más del tope) o múltiplo
+  // fijo; sin `roundingMode` (cotizaciones de antes) rige el múltiplo guardado, como siempre.
+  const priceRounding = quoteRounding(pricing);
+  const roundingStep = roundingStepFor(priceRounding, targetRates.listRate);
   const suggestedListRate = commercialRound(targetRates.listRate, roundingStep);
+  const suggestedRoundUpPct = isFiniteNumber(suggestedListRate) && isFiniteNumber(targetRates.listRate) && targetRates.listRate > 0
+    ? (suggestedListRate / targetRates.listRate - 1) * 100
+    : null;
 
   // Tarifa comercial (de lista) ofrecida
   let commercialListRate = null;
@@ -224,6 +231,12 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   const hasRate = isFiniteNumber(commercialListRate) && commercialListRate > 0;
   const estimate = evaluateAt(ctx, D, hasRate ? commercialListRate : 0);
+  // Margen con la tarifa sugerida (ECO-03): se muestra junto al objetivo aunque se ofrezca otra tarifa.
+  // Con una tarifa forzada (matriz, escenarios) no se calcula: nadie lo muestra y evita otra evaluación.
+  const forced = listRateOverride !== null && listRateOverride !== undefined;
+  const suggestedEstimate = isFiniteNumber(suggestedListRate) && suggestedListRate > 0 && !forced
+    ? (commercialSource === 'suggested' ? estimate : evaluateAt(ctx, D, suggestedListRate))
+    : null;
   const maxDays = activity.availableDaysPerMonth;
 
   // Break-even y días para margen objetivo
@@ -357,6 +370,14 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     targetNetRate: targetRates.netRate,
     targetListRate: targetRates.listRate,
     suggestedListRate,
+    // Redondeo comercial (ECO-03): regla, múltiplo aplicado, cuánto sube la sugerida sobre la objetivo
+    // y su margen; con un múltiplo fijo que la sube más de 1 % se avisa (el automático nunca llega).
+    roundingMode: priceRounding.mode,
+    roundingStep,
+    roundingMaxPct: priceRounding.mode === 'auto' ? priceRounding.maxPct : null,
+    suggestedRoundUpPct,
+    suggestedMarginPct: suggestedEstimate && isFiniteNumber(suggestedEstimate.marginPct) ? suggestedEstimate.marginPct : null,
+    roundingExceedsLimit: priceRounding.mode === 'step' && isFiniteNumber(suggestedRoundUpPct) && suggestedRoundUpPct > ROUNDING_WARN_PCT + 1e-9,
     commercialListRate: hasRate ? commercialListRate : null,
     commercialNetRate: hasRate ? commercialNetRate : null,
     commercialSource: hasRate ? commercialSource : 'none',
@@ -520,7 +541,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       result: { label: 'Precio objetivo de lista', value: targetRates.listRate, format: 'moneyCeil' },
       notes: [
-        roundingStep > 0 ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null,
+        roundingStep > 0
+          ? (priceRounding.mode === 'auto'
+            ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${formatMoney(roundingStep)} (redondeo automático: sube a lo sumo ${formatPercent(priceRounding.maxPct)} sobre el precio objetivo).`
+            : `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.`)
+          : null,
         targetMarginInvalid ? 'El margen objetivo tiene que ser mayor o igual a 0 y, sumado a los impuestos sobre la facturación, menor a 100 %.' : null,
       ],
     }),

@@ -52,7 +52,7 @@ import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText, unreliableText } from '../result-text.js';
+import { breakEvenZeroText, unreliableText, marginPairText } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -997,9 +997,12 @@ function rateHint(r) {
     case 'override':
       text = 'Tarifa forzada.';
       break;
-    case 'suggested':
-      text = `Para ganar ${formatPercent(r.kpis.targetMarginPct)} de margen, redondeada hacia arriba.`;
+    case 'suggested': {
+      // ECO-03: el margen objetivo y el real con la sugerida (el redondeo puede alejarlos).
+      const pair = marginPairText(r.kpis, { realPct: r.kpis.marginPct });
+      text = pair ? `${pair}.` : `Para ganar ${formatPercent(r.kpis.targetMarginPct)} de margen, redondeada hacia arriba.`;
       break;
+    }
     default:
       if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('modality')}".`;
       else if (k.targetMarginInvalid) {
@@ -2473,12 +2476,14 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         quote: deepClone(state.quote),
         result: state.result,
         settings: state.settings,
+        // (path, value), o un objeto { ruta: valor } para cambiar varios campos de una vez (ECO-03).
         onQuoteChange: (path, value) => {
           if (readOnly) {
             notify('Modo sólo lectura: no se guardan cambios.', 'warning');
             return;
           }
-          update(path, value);
+          if (isPlainObject(path)) Object.entries(path).forEach(([p, v]) => update(p, v));
+          else update(path, value);
           scheduleRecalc.cancel();
           recompute();
           refreshAll();

@@ -79,6 +79,7 @@ import { logger } from '../../core/logger.js';
 import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { QUOTE_STEPS, QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
+import { roundingModeChange } from '../../domain/rounding.js';
 import { computeQuote, monthlyFeeCap, billableQuantityAt } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
@@ -116,6 +117,9 @@ import {
   unreliableText,
   breakEvenZeroText,
   termsOfResult,
+  roundingText,
+  marginPairText,
+  roundingWarning,
 } from '../result-text.js';
 
 // ------------------------------------------------------------------ constantes
@@ -604,7 +608,7 @@ function traceCommercial(v) {
       { label: 'Tarifa de lista', value: k.commercialListRate, format: 'money' },
       { label: 'Factor de descuentos con la actividad estimada', value: rules.discountFactor, format: 'number' },
       { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
-      { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(v.q.pricing && v.q.pricing.roundingStep), format: 'money' },
+      { label: 'Redondeo comercial', value: roundingText(k), format: 'text' },
     ],
     steps: [{ label: 'Tarifa sugerida (precio objetivo redondeado hacia arriba)', value: k.suggestedListRate, format: 'moneyCeil' }],
     result: { label: 'Tarifa neta cobrada', value: k.commercialNetRate, format: 'money' },
@@ -614,11 +618,6 @@ function traceCommercial(v) {
       'En el detalle técnico a esta tarifa también se la llama "tarifa comercial": es el precio finalmente ofrecido.',
     ],
   });
-}
-
-function nonNegativeOrNull(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function traceMargin(v) {
@@ -677,18 +676,27 @@ function traceContribution(v) {
 const SUGGESTED_TITLE = 'Tarifa sugerida';
 
 function traceSuggested(v) {
-  const { k, q } = v;
+  const { k } = v;
   return createTrace({
     id: 'suggested_rate',
     title: SUGGESTED_TITLE,
-    formula: 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
+    formula: k.roundingMode === 'auto'
+      ? 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo de 1, 10, 100, 1.000… más grande que no lo suba más del tope'
+      : 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
     inputs: [
       { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
-      { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(q.pricing && q.pricing.roundingStep), format: 'money' },
+      { label: 'Redondeo comercial', value: roundingText(k), format: 'text' },
+      { label: 'Múltiplo aplicado', value: k.roundingStep, format: 'money' },
+      { label: 'Margen objetivo', value: k.targetMarginPct, format: 'percent' },
+    ],
+    steps: [
+      { label: 'Cuánto sube la sugerida sobre el precio objetivo', value: k.suggestedRoundUpPct, format: 'percent' },
+      { label: 'Margen con la tarifa sugerida', value: k.suggestedMarginPct, format: 'percent' },
     ],
     result: { label: SUGGESTED_TITLE, value: k.suggestedListRate, format: 'moneyCeil' },
     notes: [
       'Si no hay redondeo configurado, el sugerido es igual al precio objetivo.',
+      'El redondeo automático (el de fábrica) nunca sube la sugerida más del tope (1 % si no se cambió); un múltiplo fijo puede subirla más: en ese caso se avisa arriba del Resultado.',
       'Se muestra redondeado hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo del objetivo.',
     ],
   });
@@ -1249,12 +1257,12 @@ function heroKnownActivity(v) {
   } else if (!(k.totalCost > 0)) {
     sentence = h('p', { class: 'qr-lead' }, 'Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.');
   } else {
-    const roundingStep = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
+    const rounded = hasValue(suggested) && roundedAway(k);
     const subject = k.commercialSource === 'suggested' ? 'Con el abono sugerido' : 'Con el abono cotizado';
     sentence = h('p', { class: 'qr-lead' },
       `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
       hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
-      hasValue(suggested) ? `Tarifa sugerida${roundingStep ? ` (redondeada a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
+      hasValue(suggested) ? `Tarifa sugerida${rounded ? ` (${roundingText(k)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
       isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject)}` : '');
   }
 
@@ -1519,25 +1527,35 @@ function floorStat(v) {
   });
 }
 
+/** true si el redondeo comercial movió la sugerida de la cifra que se ve del precio objetivo (ECO-03). */
+function roundedAway(k) {
+  return hasValue(k.targetListRate) && hasValue(k.suggestedListRate) && ceilMoney(k.suggestedListRate) !== ceilMoney(k.targetListRate);
+}
+
 /** ¿Cuánto tengo que cobrar? (para ganar) — o la tarifa que ya cotizás. */
 function priceStat(v) {
   const { k, r, q } = v;
   const unit = `/ ${v.unitLabel}`;
   const suggested = hasValue(k.suggestedListRate) && k.suggestedListRate > 0 ? k.suggestedListRate : null;
   if (k.commercialSource === 'suggested' && hasRate(k)) {
+    // ECO-03: margen objetivo y margen real con la sugerida, siempre; y el precio objetivo exacto si el redondeo lo movió.
+    const pair = marginPairText(k, { realPct: k.marginPct });
+    const exact = roundedAway(k) ? ` Precio objetivo exacto: ${ceilMoney(k.targetListRate)} (la sugerida está ${roundingText(k)}).` : '';
     return statItem({
       label: 'Tarifa sugerida',
       value: ceilMoney(k.commercialListRate),
       unit,
       unreliable: isUnreliable(v),
-      hint: statHint(targetGoalHint(k.targetMarginPct)),
+      hint: statHint(pair ? `${pair}.${exact}` : `${targetGoalHint(k.targetMarginPct)}${exact}`),
+      tone: k.roundingExceedsLimit ? 'orange' : null,
       trace: traceSuggested(v),
       className: 'qr-stat qr-stat-price',
     });
   }
   if (hasRate(k)) {
     let hint;
-    if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(suggested, v.unitLabel)}.`;
+    // Con un múltiplo fijo que la aleja más de 1 % del objetivo, la referencia es el precio objetivo exacto.
+    if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(k.roundingExceedsLimit && hasValue(k.targetListRate) ? k.targetListRate : suggested, v.unitLabel)}.`;
     else if (k.commercialSource === 'known_rate') hint = 'La tarifa que vas a ofrecer.';
     else if (k.commercialSource === 'offered') hint = 'La tarifa que ofrecés (cargada a mano).';
     else hint = `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
@@ -1583,7 +1601,7 @@ function marginStat(v) {
   else if (!ok) hint = statHint('Sin facturación no hay margen.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
-  else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
+  else if (hasValue(k.targetMarginPct)) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
   else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
@@ -1742,6 +1760,24 @@ function draftBanner(v, { action } = {}) {
   return node;
 }
 
+/**
+ * ECO-03 (VAL-01-F1): con un múltiplo fijo que sube la sugerida más de 1 % sobre el precio objetivo, aviso
+ * arriba de los números (también en el PDF) y [Usar redondeo automático]. Sólo si se cotiza la sugerida.
+ */
+function roundingBanner(v) {
+  const { k, q } = v;
+  if (k.commercialSource !== 'suggested') return null;
+  const w = roundingWarning(k, v.unitLabel);
+  if (!w) return null;
+  const canChange = typeof v.onQuoteChange === 'function' && !(v.ill && v.ill.quote);
+  const action = canChange
+    ? button('Usar redondeo automático', { variant: 'secondary', size: 'sm', attrs: { 'data-action': 'rounding-auto' }, onClick: () => v.onQuoteChange(Object.fromEntries(Object.entries(roundingModeChange('auto', q.pricing)).map(([key, value]) => [`pricing.${key}`, value]))) })
+    : stepLink(q, 'margin', `Cambialo en ${stepLabel('margin')}`);
+  const node = alertLine('warning', w.title, w.message, action);
+  node.classList.add('qr-rounding');
+  return node;
+}
+
 /** 1. Resultado: las cuatro respuestas, la frase de los días y las alertas críticas. */
 function renderSummary(v) {
   const { q, r } = v;
@@ -1759,6 +1795,7 @@ function renderSummary(v) {
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
     draft,
+    roundingBanner(v),
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
     workBlock(v),
@@ -3157,7 +3194,7 @@ function renderComparator(v) {
     className: 'qr-models',
   });
   // Por qué el break-even de los modelos difiere del de la cotización (la causa según el caso; sin nota si coincide).
-  const beText = comparatorNote(v.r, cmp.models, { roundingStep: nonNegativeOrNull(q.pricing && q.pricing.roundingStep) });
+  const beText = comparatorNote(v.r, cmp.models, { roundingStep: v.k.roundingStep });
   const beNote = beText ? ` ${beText}` : '';
   return card({ ...header, actions: [traceBtn(trace)] },
     tbl,

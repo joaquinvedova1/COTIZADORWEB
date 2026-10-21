@@ -19,6 +19,7 @@
  *   - ECO-02: "No confiable" fuera del Resultado (lista, Inicio, Escenarios), en los
  *     cuatro números y en el PDF; "Enviada" bloqueada con un resultado NO CONFIABLE
  *     (Resultado, lista y editor) y confirmada con pendientes críticos
+ *   - ECO-03: el múltiplo fijo guardado se conserva y avisa, margen objetivo y real, pasar a automático
  * Escribe reports/lab/e2e/ui-lab-report.{json,md} (artefacto de CI).
  *
  * Playwright NO es dependencia de RATEOS (cero dependencias npm): se toma de
@@ -177,6 +178,12 @@ export const E2E_SCENARIOS = [
   {
     id: 'E2E-20', title: 'ECO-01 H-03: puesto usado sin sueldo básico: crítico, nombra el puesto y lleva al campo',
     build: () => service({ id: 'lab-e20', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Operador de hidrogrúa', basicMonthly: null }), person({ role: 'Rigger' })] }),
+  },
+  // ---- ECO-03 (VAL-01-F1): una cotización de antes con el múltiplo fijo de $ 1.000 en $/ton-km.
+  {
+    id: 'E2E-21', title: 'ECO-03: $/ton-km con el múltiplo fijo de $ 1.000 guardado: aviso, margen objetivo y real, y pasar a automático',
+    build: () => service({ id: 'lab-e21', serviceType: 'transport', unit: 'tonkm', activity: { billableQuantityPerMonth: 25000, unitsPerActiveDay: 1250, availableDaysPerMonth: 30 }, labor: [person({ role: 'Chofer' })],
+      equipment: [owned({ name: 'Camión', replacementValue: 300000000, usefulLifeYears: 10 })], pricing: { roundingMode: 'step', roundingStep: 1000 } }),
   },
 ];
 
@@ -706,6 +713,117 @@ async function runMode(mode) {
       check('ECO-02', 'Ganada con un resultado NO CONFIABLE: el Resultado avisa que se resuelve antes de volver a mandarla', /Figura como ganada, pero hoy su resultado NO ES CONFIABLE/.test(note) && /antes de volver a mandarla/.test(note), note.slice(0, 200));
     } else {
       check('ECO-02', 'Lista (detallada): la fila tiene el selector de estado (Perdida → Ganada)', false, 'sin selector');
+    }
+  }
+
+  // ---- ECO-03 (VAL-01-F1): el múltiplo fijo guardado se conserva y se avisa; el margen objetivo y el real
+  // se ven siempre; "Usar redondeo automático" lo cambia; la empresa nueva y sus cotizaciones nuevas, en automático.
+  {
+    const stored = (id) => (db.workspaces.get(orgId).state.quotes || []).find((x) => x.id === id) || null;
+    // Como la app muestra las tarifas mínimas: hacia arriba, con centavos si son menores a $ 100.
+    const shownCeil = (v) => (Math.abs(v) > 0 && Math.abs(v) < 100 ? formatMoney(Math.ceil(v * 100 - 1e-6) / 100, { decimals: 2 }) : formatMoneyCeil(v));
+    const t = byId['E2E-21'];
+    const k0 = t.r.kpis;
+    await go(`#/cotizaciones/${encodeURIComponent(t.q.id)}/result`, 300);
+    await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+    const readPrice = () => page.evaluate(() => {
+      const stat = document.querySelector('.qr-stat-price');
+      const banner = document.querySelector('.qr-rounding');
+      return {
+        value: stat ? (stat.querySelector('.big-stat-number') || {}).textContent : null,
+        hint: stat ? (stat.querySelector('.big-stat-hint') || {}).textContent : null,
+        banner: banner ? banner.textContent : null,
+        bannerBefore: Boolean(banner && stat && (banner.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      };
+    });
+    const before = await readPrice();
+    check('E2E-21', 'ECO-03: lo guardado no cambia: la sugerida es la del múltiplo fijo de $ 1.000 (la del motor)', norm(before.value) === norm(shownCeil(k0.suggestedListRate)) && k0.roundingMode === 'step', `pantalla ${norm(before.value)} · motor ${shownCeil(k0.suggestedListRate)}`);
+    check('E2E-21', 'ECO-03: aviso arriba de los números: "quedó X % arriba de tu precio objetivo por el redondeo"', /La tarifa sugerida quedó .* arriba de tu precio objetivo por el redondeo/.test(norm(before.banner)) && before.bannerBefore, norm(before.banner).slice(0, 200));
+    check('E2E-21', 'ECO-03: la sugerida muestra el margen objetivo y el real', /Objetivo: 10 % de margen · con esta tarifa: [\d.,]+ %/.test(norm(before.hint)) && /Precio objetivo exacto/.test(norm(before.hint)), norm(before.hint).slice(0, 200));
+    await page.emulateMedia({ media: 'print' });
+    const printed = await page.evaluate(() => {
+      const b = document.querySelector('.qr-rounding');
+      return Boolean(b) && getComputedStyle(b).display !== 'none';
+    });
+    await page.emulateMedia({ media: 'screen' });
+    check('E2E-21', 'ECO-03: el aviso del redondeo se imprime en el PDF', printed, 'no se imprime');
+    const autoBtn = page.locator('[data-action="rounding-auto"]').first();
+    const hasBtn = (await autoBtn.count()) > 0;
+    check('E2E-21', 'ECO-03: el aviso ofrece "Usar redondeo automático"', hasBtn, 'sin botón');
+    if (hasBtn) {
+      await tap(autoBtn);
+      let q = null;
+      for (let i = 0; i < 20; i += 1) {
+        q = stored(t.q.id);
+        if (q && q.pricing && q.pricing.roundingMode === 'auto') break;
+        await page.waitForTimeout(150);
+      }
+      const k1 = q ? computeQuote(structuredClone(q)).kpis : null;
+      await page.waitForTimeout(500);
+      const after = await readPrice();
+      check('E2E-21', 'ECO-03: "Usar redondeo automático" lo guarda y la sugerida queda a lo sumo 1 % sobre la objetivo', Boolean(k1) && q.pricing.roundingMode === 'auto' && k1.suggestedRoundUpPct <= 1 + 1e-9 && k1.roundingStep > 0 && norm(after.value) === norm(shownCeil(k1.suggestedListRate)), `guardado ${q && q.pricing.roundingMode} · múltiplo ${k1 && k1.roundingStep} · pantalla ${norm(after.value)} · motor ${k1 && shownCeil(k1.suggestedListRate)}`);
+      check('E2E-21', 'ECO-03: sin el múltiplo fijo, el aviso se va', !after.banner, norm(after.banner).slice(0, 120));
+    }
+    // "El precio": el control del redondeo con el automático elegido y su tope.
+    await go(`#/cotizaciones/${encodeURIComponent(t.q.id)}/margin`, 600);
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+    const control = await page.evaluate(() => {
+      const sel = document.querySelector('select[name="pricing.roundingMode"]');
+      return { mode: sel ? sel.value : null, maxPct: Boolean(document.querySelector('input[name="pricing.roundingMaxPct"]')), step: Boolean(document.querySelector('input[name="pricing.roundingStep"]')) };
+    });
+    check('E2E-21', 'ECO-03: "El precio" muestra el redondeo automático con su tope', control.mode === 'auto' && control.maxPct && !control.step, JSON.stringify(control));
+    // Empresa nueva (la cuenta del lab): Configuración en automático, y una cotización nueva también.
+    await go('#/configuracion/parametros', 900);
+    const settingsMode = await page.evaluate(() => {
+      const sel = document.querySelector('select[name="roundingMode"]');
+      return sel ? sel.value : null;
+    });
+    check('ECO-03', 'Configuración de una empresa nueva: redondeo automático', settingsMode === 'auto', `selector ${settingsMode}`);
+    const ids = new Set((db.workspaces.get(orgId).state.quotes || []).map((x) => x.id));
+    await go('#/cotizaciones/nueva', 900);
+    const blank = page.getByRole('button', { name: /Empezar en blanco/ }).first();
+    if (await blank.isVisible().catch(() => false)) await tap(blank);
+    else {
+      const card = page.locator('.quote-choice-blank').first();
+      if (await card.count()) await tap(card);
+    }
+    let created = null;
+    for (let i = 0; i < 20 && !created; i += 1) {
+      created = (db.workspaces.get(orgId).state.quotes || []).find((x) => !ids.has(x.id)) || null;
+      if (!created) await page.waitForTimeout(200);
+    }
+    check('ECO-03', 'una cotización nueva de una empresa nueva arranca en redondeo automático (hasta 1 %)', Boolean(created) && created.pricing.roundingMode === 'auto' && created.pricing.roundingMaxPct === 1 && created.pricing.roundingStep === 0, created ? JSON.stringify({ mode: created.pricing.roundingMode, max: created.pricing.roundingMaxPct, step: created.pricing.roundingStep }) : 'no se creó');
+
+    // Empresa guardada antes de ECO-03 con sus parámetros confirmados y $ 1.000: Configuración la muestra como
+    // múltiplo fijo y, al guardar otro parámetro, no la pasa a automático (hallazgo de la revisión de código).
+    const w = db.workspaces.get(orgId);
+    const { roundingMode: _mode, roundingMaxPct: _max, ...legacySettings } = w.state.settings;
+    w.state.settings = { ...legacySettings, illustrative: false, roundingStep: 1000 };
+    w.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+    await go('#/configuracion/parametros', 900);
+    const legacyShown = await page.evaluate(() => {
+      const sel = document.querySelector('select[name="roundingMode"]');
+      const label = [...document.querySelectorAll('label')].find((l) => /Múltiplo del redondeo/.test(l.textContent));
+      const input = label ? document.getElementById(label.getAttribute('for')) : null;
+      const box = input ? input.closest('[hidden]') : null;
+      return { mode: sel ? sel.value : null, step: input ? input.value : null, visible: Boolean(input) && !box };
+    });
+    check('ECO-03', 'Configuración de una empresa de antes con $ 1.000 confirmado: "Múltiplo fijo" de $ 1.000', legacyShown.mode === 'step' && legacyShown.visible && /^1\.?000$/.test(String(legacyShown.step).trim()), JSON.stringify(legacyShown));
+    const fuel = page.getByLabel(/Precio del combustible/).first();
+    if (await fuel.count()) {
+      await fuel.fill('1600');
+      await fuel.press('Tab').catch(() => {});
+      let saved = null;
+      for (let i = 0; i < 25; i += 1) {
+        saved = db.workspaces.get(orgId).state.settings;
+        if (saved && Number(saved.fuelPricePerLiter) === 1600) break;
+        await page.waitForTimeout(200);
+      }
+      check('ECO-03', 'al guardar otro parámetro, la empresa de antes conserva su múltiplo fijo (no pasa a automático)', Boolean(saved) && Number(saved.fuelPricePerLiter) === 1600 && saved.roundingMode !== 'auto' && Number(saved.roundingStep) === 1000, saved ? JSON.stringify({ fuel: saved.fuelPricePerLiter, mode: saved.roundingMode, step: saved.roundingStep }) : 'sin configuración');
+    } else {
+      check('ECO-03', 'Configuración: el campo del combustible existe', false, 'sin campo');
     }
   }
 

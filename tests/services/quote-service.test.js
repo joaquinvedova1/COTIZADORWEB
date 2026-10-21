@@ -139,7 +139,11 @@ describe('QuoteService.createQuote', () => {
       const oldIndex = template.defaults.labor.findIndex((l) => l.id === e.operatorLaborId);
       assert.equal(quote.equipment[i].operatorLaborId, oldIndex >= 0 ? quote.labor[oldIndex].id : null);
     });
-    assert.deepEqual(quote.pricing, template.defaults.pricing);
+    // ECO-03: una plantilla ILUSTRATIVA con el $ 1.000 de fábrica (sin roundingMode) sigue la regla de la
+    // empresa (la demo, en automático); el resto del precio es el de la plantilla.
+    const { roundingStep, ...templatePricing } = template.defaults.pricing;
+    assert.equal(roundingStep, 1000);
+    assert.deepEqual(quote.pricing, { ...templatePricing, roundingMode: 'auto', roundingMaxPct: 1, roundingStep: 0 });
 
     // Ids nuevos, únicos y distintos de los de la plantilla.
     const templateIds = new Set(

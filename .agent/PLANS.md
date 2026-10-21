@@ -119,6 +119,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | Completado (merge `d6540b7`, publicado en el run #75) |
 | PLAN-2026-018 | HD-03 — Registro público con confirmación de email (decisión del dueño, 2026-10-20) y correos de Auth: diagnóstico del correo que no llegó, respuestas neutras sin enumeración, reenvío de la confirmación, código de recuperación, enlaces de invitación descartados y SMTP propio (Resend) | autenticación, UX, otro (correo) | En curso (rama `claude/wonderful-brown-g2ehd6` desde `main` `d6540b7`, PR #28 sin merge; la configuración de Auth/SMTP/DNS la hace el dueño) |
 | PLAN-2026-019 | ECO-02 — Riesgo a la vista: resultado NO CONFIABLE marcado fuera del Resultado (listas, Inicio, Escenarios, PDF) y regla de "Enviada" | UX, completitud (presentación) | En curso (rama `claude/eco-02-riesgo-a-la-vista`, PR sin merge; espera revisión independiente y aprobación del dueño) |
+| PLAN-2026-020 | ECO-03 — Redondeo comercial proporcional a la tarifa (VAL-01-F1): automático hasta 1 % sobre la objetivo, múltiplo fijo conservado en lo guardado, margen objetivo y real a la vista | motor (tarifa sugerida), UX | En curso (rama `claude/eco-03-redondeo`, PR sin merge; la ambigüedad de compatibilidad está documentada en §2 antes del cambio de regla) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1300,3 +1301,77 @@ Revert del PR. No hay datos nuevos que limpiar.
 - 2026-10-20: el dueño autorizó implementar en ramas y PRs (sin merge ni deploy) y pidió empezar por las correcciones críticas. Base `main` `d6540b7`.
 - 2026-10-20: PR #29 publicado (`5d19758`). Revisión independiente (comentario, sin aprobar): dirección adecuada para beta; pide documentar que la regla es de la UX y no de la persistencia/servidor y valorar una guarda de servicio, verificar el conjunto con HD-03 y dejar explícito Perdida → Ganada. R1: guarda en `saveQuote` (la opción más segura; no rompe el respaldo ni los estados históricos), alcance y Perdida → Ganada en CALCULATION_RULES, verificación combinada local.
 
+### PLAN-2026-020 — ECO-03: redondeo comercial proporcional a la tarifa (VAL-01-F1)
+
+- Estado: En curso — rama `claude/eco-03-redondeo` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: **cambio de regla de negocio** (redondeo de la tarifa sugerida, AGENTS.md §6) y UX (margen objetivo y real a la vista)
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (pidió el 2026-10-20 un redondeo proporcional, configurable y, por defecto, a no más de 1 % sobre la objetivo, conservando las configuraciones explícitas y las cotizaciones existentes, y documentar la ambigüedad de compatibilidad antes de cambiar la regla)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+VAL-01-F1 (P1): el redondeo comercial por defecto es un **múltiplo fijo de $ 1.000** (`defaultSettings().roundingStep`) para cualquier unidad, y cada cotización nueva lo copia (`pricing.roundingStep`). Con $/día ($ 2.408.340 → $ 2.409.000) no se nota; en las unidades de valor bajo la "tarifa sugerida" queda muy arriba del precio objetivo y la pantalla igual dice "Para ganar el 10 % sobre el precio":
+
+| Unidad | Precio objetivo | Sugerida con $ 1.000 | Sobreprecio | Margen con la sugerida |
+|---|---:|---:|---:|---:|
+| $/ton-km | 277,80 | 1.000 | +260 % | 71,4 % |
+| $/kg | 609,87 | 1.000 | +64 % | 43,2 % |
+| $/km | 3.003,52 | 4.000 | +33 % | 31,2 % |
+| $/t | 12.018,31 | 13.000 | +8,2 % | 16,4 % |
+| $/m³ | 10.235,19 | 11.000 | +7,5 % | 15,9 % |
+
+#### 2. Compatibilidad: la ambigüedad (documentada ANTES de cambiar la regla)
+- **Dónde vive el redondeo:** en la empresa (`settings.roundingStep`, para las cotizaciones nuevas) y en cada cotización (`quote.pricing.roundingStep`, copiado al crearla y editable en "El precio").
+- **La ambigüedad:** un `roundingStep: 1000` guardado no dice si alguien lo eligió o si es el de fábrica. `defaultSettings()` lo trae, cada cotización nueva lo copia y nada marca que se haya elegido.
+- **La única señal:** `settings.illustrative`. Es `true` mientras la empresa no confirmó sus parámetros ("Son los valores de mi empresa"). Con `illustrative: true` y $ 1.000, es el valor de fábrica sin confirmar. Con los parámetros confirmados, $ 1.000 pudo elegirse o aceptarse al confirmar: no se puede saber.
+- **Interpretación de este PR (la más conservadora):**
+  1. **Cotizaciones existentes: sin cambios.** Sin `roundingMode` rige el múltiplo fijo guardado (la regla de siempre), con los mismos números. Una cotización pasa a automático sólo si alguien lo elige.
+  2. **Empresas con parámetros confirmados**, o con un paso distinto de $ 1.000: las cotizaciones nuevas conservan su múltiplo.
+  3. **Empresas con los parámetros de fábrica sin confirmar** (`illustrative: true`) y $ 1.000: las cotizaciones nuevas usan el automático, que es el nuevo valor de fábrica. Las existentes no cambian.
+  4. **Empresas nuevas:** automático, hasta 1 %.
+- **Lo que no se puede saber:** si una empresa con parámetros confirmados y $ 1.000 eligió ese valor. Se conserva, y se avisa: el margen objetivo y el real quedan a la vista, y si el redondeo sube la tarifa más de 1 % aparece "la sugerida quedó X % arriba de tu precio objetivo" con [Usar redondeo automático].
+- **Plantillas:** una plantilla guardada antes de ECO-03 trae `pricing.roundingStep` sin `roundingMode`: se conserva como múltiplo fijo (es una configuración guardada), salvo el $ 1.000 de fábrica en una plantilla ILUSTRATIVA (las de la demo local), que sigue la regla de la empresa, igual que la configuración de fábrica (`isFactoryLegacyStep`). Las plantillas nuevas guardan su regla.
+- **Configuración:** `SettingsService.get` completa lo que falta con los valores de fábrica; desde ECO-03 no completa `roundingMode` en una configuración guardada antes (sería pasarla a automático sin que nadie lo elija, y Configuración lo guardaría al tocar cualquier otro parámetro).
+- **HUMAN DECISION REQUIRED (no bloquea):**
+  1. ¿mantener el punto 2 para las empresas con $ 1.000 confirmado, o pasarlas a automático para sus cotizaciones nuevas? Cambiarlo es una regla en `settingsRounding()` (`js/domain/rounding.js`), sin migración.
+  2. **Tope por defecto del automático: 1 % (lo pedido) o menos.** Con 1 %, las tarifas grandes se redondean a cifras más redondas que antes: $/día de 2.408.340 → 2.410.000 (+0,07 %, antes 2.409.000, +0,03 %); un llamado de 1.761.345 → 1.770.000 (+0,49 %, antes +0,04 %). Siempre ≤ 1 %. Con 0,1 % las tarifas de $ 1 M a $ 10 M quedan como antes (múltiplo de 1.000) y las de valor bajo igual se corrigen (277,80 → 277,80, sin redondeo; 3.003,52 → 3.004). Es un valor de fábrica: cada empresa lo cambia en Configuración.
+- **Sin migración ni cambio de esquema** (sigue en 10): los campos nuevos (`roundingMode`, `roundingMaxPct`) son opcionales, y no tenerlos es la regla de siempre. El validador del esquema no rechaza campos nuevos dentro de `pricing` ni de la configuración. `saveSettings` mezcla, así que una pestaña abierta con 0.8.1 no los borra.
+- **Pestañas con 0.8.1 abiertas:** ignoran `roundingMode` y calculan con `roundingStep`. Por eso todo lo que queda en automático guarda `roundingStep: 0` (cotizaciones y empresas nuevas, y las que alguien pasa a automático desde "El precio", el aviso del Resultado o Configuración): una versión anterior, o un revert, las muestra sin redondeo, nunca infladas. Al volver a "Múltiplo fijo" el múltiplo se carga de nuevo.
+
+#### 3. Regla nueva
+- **Automático (`roundingMode: 'auto'`):** la tarifa objetivo se redondea **hacia arriba** al múltiplo de 1, 10, 100, 1.000… más grande que **no la suba más de `roundingMaxPct`** (1 % por defecto, configurable de 0 a 10). Con una objetivo menor a $ 100 (el 1 % no llega a $ 1) no hay redondeo.
+  - Ejemplos: 277,80 → 278; 3.003,52 → 3.010; 12.018,31 → 12.100; 2.408.340 → 2.410.000.
+  - Nunca baja el margen y nunca sube más del tope.
+- **Múltiplo fijo (`roundingMode: 'step'`, o sin `roundingMode`):** `roundingStep`, como siempre (0 = sin redondeo).
+- **Productos:** sin cambios. Tienen su propio redondeo, que por defecto es 0.
+
+#### 4. Impacto en fórmulas
+- **Cotizaciones existentes y plantillas:** sin cambios. Golden y candado sin cambios, y A/B contra `main` en las cotizaciones sintéticas del Test Lab: mismos números.
+- **Cotizaciones nuevas en automático:** la sugerida cambia (más cerca de la objetivo) y, con ella, el margen, el equilibrio y los indicadores, cuando la tarifa comercial es la sugerida.
+- **Indicadores nuevos** (sin tocar los existentes):
+  - `roundingMode`, `roundingStep` (el paso que se aplicó) y `roundingMaxPct`;
+  - `suggestedRoundUpPct` (cuánto sube la sugerida sobre la objetivo);
+  - `suggestedMarginPct` (el margen con la sugerida);
+  - `roundingExceedsLimit` (múltiplo fijo que sube más de 1 %).
+
+#### 5. UX: margen objetivo y real siempre a la vista
+- **Resultado y PDF:**
+  - la sugerida dice "Objetivo: 10 % · con esta tarifa: 10,06 %" y el precio objetivo exacto;
+  - el margen dice siempre su objetivo;
+  - con un múltiplo fijo que sube más de 1 %, aviso arriba con [Usar redondeo automático].
+- **"El precio" y el resumen en vivo:** el mismo par (objetivo y real) y el control del redondeo: Automático (hasta X %) / Múltiplo fijo ($).
+- **Configuración:** el mismo control para las cotizaciones nuevas. Con un múltiplo fijo de $ 1.000 se avisa que en $/ton-km, $/kg o $/km puede subir mucho.
+
+#### 6. Pasos
+- [x] 1. Documentar la ambigüedad y la interpretación (este plan, antes de cambiar la regla) y fijar con tests que lo guardado no cambia.
+- [x] 2. Dominio (`js/domain/rounding.js`) y motor (indicadores nuevos).
+- [x] 3. Fábrica: empresas y cotizaciones nuevas en automático; interpretación de lo guardado (empresa y plantillas).
+- [x] 4. UI: Resultado, PDF, "El precio", resumen en vivo y Configuración.
+- [x] 5. Tests: dominio, motor en las 18 unidades con 0/1/10/1.000 y automático, compatibilidad, vuelta atrás, oráculo del Test Lab (implementación propia del automático), E2E-21 y bloque ECO-03 en el navegador.
+- [ ] 6. PR sin merge y evidencia en RATEOS-AUDIT (`tasks/ECO-03/`: A/B contra `main` y capturas antes/después).
+
+#### 7. Rollback
+Revert del PR. Las cotizaciones creadas en automático después del deploy guardan `roundingStep: 0`: con el revert se calculan sin redondeo (nunca infladas).
+
+#### Bitácora
+- 2026-10-20: Code Review (skill, nivel medio) sobre el cambio: 10 observaciones, todas atendidas antes de publicar. La más importante: `SettingsService.get` completaba `roundingMode: 'auto'` de fábrica en una configuración guardada antes, y Configuración la habría guardado como automático. También: pasar a automático deja el múltiplo en 0, plantillas ILUSTRATIVAS con la regla de fábrica, texto con tope 0, una evaluación menos con tarifa forzada, JSDoc, lógica muerta y constantes.
+- 2026-10-20: el dueño pidió el redondeo proporcional (configurable, por defecto a no más de 1 % sobre la objetivo), margen objetivo y real siempre a la vista, conservar las configuraciones explícitas y las cotizaciones existentes, y documentar la ambigüedad de compatibilidad antes de cambiar la regla. La revisión independiente de ECO-02 pidió priorizar `roundingStep` explícito vs. de fábrica, muestras con 0/1/10/1.000, margen real/objetivo y las 18 unidades. Base `main` `d6540b7`. Primero este plan y los tests que fijan lo guardado; después el cambio de regla.

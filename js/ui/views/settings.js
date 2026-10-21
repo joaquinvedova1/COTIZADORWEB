@@ -27,6 +27,7 @@ import { BASE_SOURCES, CURRENCIES } from '../../domain/catalogs.js';
 import { INDUSTRY_SECTORS, MAX_ACTIVITY_LENGTH, activitySuggestions, industryOf, searchSectors } from '../../domain/industry-catalog.js';
 import { emptyBase, normalizeBase } from '../../domain/economic-base.js';
 import { normalizeExchangeRates } from '../../domain/quote-factory.js';
+import { settingsRounding } from '../../domain/rounding.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, invalidTaxesText } from '../billing-taxes-form.js';
 import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -618,18 +619,24 @@ export async function render(root, app, params = {}) {
 
   async function buildParams() {
     const settings = await app.getSettings();
+    const rounding = settingsRounding(settings);
     const params = {
       fuelPricePerLiter: settings.fuelPricePerLiter,
       financeMonthlyRatePct: settings.financeMonthlyRatePct,
       defaultTargetMarginPct: settings.defaultTargetMarginPct,
       defaultContingencyPct: settings.defaultContingencyPct,
       defaultPaymentTermDays: settings.defaultPaymentTermDays,
-      roundingStep: settings.roundingStep,
+      // Redondeo de la tarifa sugerida (ECO-03): automático o múltiplo fijo; lo guardado antes de ECO-03
+      // se interpreta en settingsRounding (PLAN-2026-020 §2). En automático se guarda el múltiplo en 0 (una
+      // versión anterior no infla): al volver a "Múltiplo fijo" después de recargar hay que cargarlo de nuevo.
+      roundingMode: rounding.roundingMode,
+      roundingMaxPct: rounding.roundingMode === 'auto' ? rounding.roundingMaxPct : 1,
+      roundingStep: isFiniteNumber(Number(settings.roundingStep)) && settings.roundingStep !== null ? Number(settings.roundingStep) : 0,
       matrixDays: Array.isArray(settings.matrixDays) && settings.matrixDays.length ? [...settings.matrixDays] : [...DEFAULT_MATRIX_DAYS],
       marginLadder: Array.isArray(settings.marginLadder) && settings.marginLadder.length ? [...settings.marginLadder] : [...DEFAULT_MARGIN_LADDER],
       ownValues: settings.illustrative !== true,
     };
-    const REQUIRED_PARAMS = ['fuelPricePerLiter', 'financeMonthlyRatePct', 'defaultTargetMarginPct', 'defaultContingencyPct', 'defaultPaymentTermDays', 'roundingStep'];
+    const REQUIRED_PARAMS = ['fuelPricePerLiter', 'financeMonthlyRatePct', 'defaultTargetMarginPct', 'defaultContingencyPct', 'defaultPaymentTermDays'];
 
     // Los campos se crean con la etiqueta ILUSTRATIVO y se muestra u oculta
     // según lo guardado (sin volver a dibujar la pantalla).
@@ -657,6 +664,29 @@ export async function render(root, app, params = {}) {
       illustrative: true,
     });
 
+    // Redondeo de las tarifas sugeridas (ECO-03): el campo que no aplica queda oculto (y no se valida).
+    const roundingMaxBox = h('div', {}, num('roundingMaxPct', 'Tope del redondeo automático', 'roundingMaxPct', '%', 'La tarifa sugerida se redondea hacia arriba a 1, 10, 100, 1.000… sin subir más que esto sobre el precio objetivo (1 % de fábrica).'));
+    const roundingStepBox = h('div', {}, num('roundingStep', 'Múltiplo del redondeo', 'money', '$', 'La tarifa sugerida se redondea hacia arriba a este múltiplo. 0 = sin redondeo. En unidades de valor bajo ($/ton-km, $/kg, $/km) un múltiplo grande la aleja mucho del precio objetivo.'));
+    const syncRounding = () => {
+      roundingMaxBox.hidden = params.roundingMode !== 'auto';
+      roundingStepBox.hidden = params.roundingMode === 'auto';
+    };
+    const roundingModeField = selectField({
+      label: 'Redondeo de las tarifas sugeridas',
+      name: 'roundingMode',
+      value: params.roundingMode,
+      options: [
+        { value: 'auto', label: 'Automático' },
+        { value: 'step', label: 'Múltiplo fijo' },
+      ],
+      hint: 'Para las cotizaciones nuevas (las guardadas no cambian). Automático: proporcional a la tarifa, a lo sumo el tope sobre el precio objetivo. Siempre hacia arriba: nunca baja el margen.',
+      onChange: (v) => {
+        params.roundingMode = v === 'step' ? 'step' : 'auto';
+        syncRounding();
+      },
+    });
+    syncRounding();
+
     const paramsFields = h(
       'div',
       { class: 'stack params-groups' },
@@ -679,7 +709,9 @@ export async function render(root, app, params = {}) {
         formGrid(
           2,
           num('defaultTargetMarginPct', 'Margen objetivo', 'margin', '%', 'Sobre el precio de venta (no es markup).'),
-          num('roundingStep', 'Redondeo de tarifas', 'money', '$', 'Las tarifas sugeridas se redondean hacia arriba a este múltiplo. 0 = sin redondeo.'),
+          roundingModeField,
+          roundingMaxBox,
+          roundingStepBox,
           matrixField.el,
           ladderField.el,
         ),
@@ -689,7 +721,8 @@ export async function render(root, app, params = {}) {
     /** Válido = todos los parámetros cargados y el texto de cada campo pasa su regla. */
     const paramsValid = () =>
       REQUIRED_PARAMS.every((k) => isFiniteNumber(params[k])) &&
-      numericInputs.every(({ input, rule }) => validateNumber(input.value, rule, { required: true }).ok) &&
+      (params.roundingMode === 'auto' ? isFiniteNumber(params.roundingMaxPct) : isFiniteNumber(params.roundingStep)) &&
+      numericInputs.every(({ input, rule }) => Boolean(input.closest('[hidden]')) || validateNumber(input.value, rule, { required: true }).ok) &&
       matrixField.isValid() &&
       ladderField.isValid();
 
@@ -710,7 +743,9 @@ export async function render(root, app, params = {}) {
       isValid: paramsValid,
       save: async () => {
         const { ownValues, ...rest } = params;
-        const snapshot = { ...rest, matrixDays: [...rest.matrixDays], marginLadder: [...rest.marginLadder], illustrative: !ownValues };
+        const auto = rest.roundingMode === 'auto';
+        // En automático se guarda el múltiplo en 0: una versión anterior abierta no redondea (nunca infla).
+        const snapshot = { ...rest, roundingMaxPct: auto ? rest.roundingMaxPct : null, roundingStep: auto ? 0 : rest.roundingStep, matrixDays: [...rest.matrixDays], marginLadder: [...rest.marginLadder], illustrative: !ownValues };
         await ctx.settings.save(snapshot);
         applyIllustrative(snapshot.illustrative);
       },
