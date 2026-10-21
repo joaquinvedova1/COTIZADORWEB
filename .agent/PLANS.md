@@ -127,6 +127,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-025 | DESIGN-02 (1/2) — "Ingeniería clara": DESIGN.md propio y leer bien montos, unidades, riesgo y estado de guardado | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-ingenieria-clara`, PR sin merge) |
 | PLAN-2026-026 | DESIGN-02 (2/2) — Cotizar sin fricción: resumen en vivo con margen y resultado, barra compacta, avisos y tablas en el celular, campos accesibles y eco de montos | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-cotizar-sin-friccion`, apilada sobre PLAN-2026-025; PR sin merge) |
 | PLAN-2026-027 | BETA-RC1 — Candidato de beta integrado: los PR #28 a #36 sobre `main` `d6540b7`, verificados en el árbol final, versión 0.9.0 e informe GO/NO-GO | integración y release (sin funcionalidades nuevas) | En curso (rama `claude/beta-candidato-1`; PR candidato en borrador, sin merge ni deploy) |
+| PLAN-2026-028 | P1 CIERRE — Señales engañosas antes del autoservicio (Gate A de la revisión del 21/10): H-14, H-12 y H-13 en Productos, H-09 en externos y H-10 en los avisos de personal | corrección de UI, validación y confirmaciones (sin fórmulas) | En curso (sobre el candidato `claude/beta-candidato-1`, sin merge ni deploy) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -2006,3 +2007,60 @@ Ninguno propio: esquema 10, sin migraciones. Los PR agregan campos opcionales (p
 - 2026-10-21: rama `claude/beta-candidato-1` desde `main` `d6540b7`. Merges de los heads exactos: #28 `38f6c24`, #29 `d5d46d1`, #30 `7b164e3`, #31 `fb5dbd9`, #32 `d74fbf3`, #33 `ed43a43`, #34 `3cba29b`, #35 `6a310e2` y #36 `baf8b56`.
   - Conflictos sólo de texto. Se resolvieron con las mismas soluciones de las verificaciones combinadas; cada paso quedó **idéntico** a ese árbol (#28 a #34), o distinto sólo en la documentación posterior de #35 y #36 y en el ajuste de la pastilla.
   - Los merges van antes de este plan porque cada PR agrega su sección al final de este archivo: con el plan antes, habría chocado nueve veces. **Ningún cambio propio va antes del plan.**
+
+### PLAN-2026-028 — P1 CIERRE: señales engañosas antes del autoservicio (Gate A)
+
+- Estado: En curso — commits sobre el candidato `claude/beta-candidato-1` (PR #37, en borrador). Sin merge ni deploy
+- Tipo: correcciones de interfaz, validación y confirmaciones. **Ninguna fórmula cambia**, no hay migraciones y lo guardado conserva sus cifras
+- Responsable: agente de desarrollo (Claude) · criterios: ChatGPT (RATEOS-AUDIT, Issue #5, "Dirección técnica de beta" del 21/10) · decisiones y autorizaciones: el dueño
+- Fecha de inicio: 2026-10-21
+
+#### 1. Contexto
+- El dueño eligió **registro público y autoservicio**. La revisión independiente del 21/10 separó los P1 abiertos de AUD-T1 en dos grupos:
+  - **Gate A**, obligatorio antes del autoservicio: H-14, H-12, H-13, H-09 y H-10. Son señales que pueden llevar a confiar en un precio equivocado;
+  - **Gate B**, aceptable con advertencia y onboarding: H-05, H-06, H-07, H-11 y H-15.
+- Pedido: el parche mínimo del Gate A, con tests que fallen antes y pasen después, sin funcionalidades nuevas.
+
+#### 2. Decisiones
+1. **H-14 (Productos, veredicto del precio de hoy).** Nunca verde sin un resultado válido:
+   - con datos faltantes (errores), sin precio sugerido o sin margen real: "No se puede evaluar tu precio de hoy", con la razón;
+   - con datos para revisar (avisos): amarillo, "con los datos cargados…, pero hay datos para revisar";
+   - verde sólo sin errores ni avisos;
+   - los avisos rojos de "no cubre ni lo que cuesta hacerla" y "debajo del piso" siguen primero (son conservadores).
+2. **H-12 (Productos, estado en la lista).**
+   - "Completo" sólo sin errores ni avisos;
+   - con avisos: "Revisar (n)";
+   - el producto de ejemplo: "Ejemplo";
+   - con errores o avisos, un enlace "Ver avisos" al Resultado.
+3. **H-13 (Productos, supuestos ILUSTRATIVOS).** Sin cambiar ningún valor ni lo guardado:
+   - **margen heredado:** un producto **nuevo** creado con la configuración de ejemplo guarda `pricing.marginFromExample: true` (campo opcional). Mientras siga así, el margen lleva la marca ILUSTRATIVO y un aviso para revisar; desaparece al cambiar el margen o al tocar "Es mi margen". Los productos guardados antes no tienen el campo: no se reinterpretan;
+   - **cargas genéricas:** un puesto sin convenio con los cinco parámetros genéricos de ejemplo (`ILLUSTRATIVE_AGREEMENT_PARAMS`) da un aviso para revisar y el desplegable "Cargas sociales y horas del mes" se abre solo.
+4. **H-09 (externo por km o por tramo con cantidad mayor que 1).**
+   - El costo sigue igual: cada unidad cuenta los km o los viajes de la ruta.
+   - Hay un pendiente **crítico** (no vuelve NO CONFIABLE el resultado) que pregunta si cada unidad hace todo el recorrido o si se reparten los viajes, con los números.
+   - "Cada unidad hace todo el recorrido" guarda el supuesto (`equipment[].externalQuantityConfirmed`: unidad, base del viaje y cantidad) y vale mientras siga igual.
+5. **H-10 (avisos de personal).**
+   - Los textos aclaran que es una revisión y que sumar personal no es la única salida.
+   - "Relevos" dice de dónde viene la cobertura continua (disponibilidad 24/7 o servicio permanente) y no habla de 24/7 si no lo es.
+   - Cada puesto marcado ofrece "La cobertura está prevista", que guarda el supuesto (`labor[].coverageConfirmed`: días, horas por día, personas por posición, horas normales, horas extra y continuidad) y saca el puesto de "Horas del personal" y de "Relevos" mientras siga igual.
+
+#### 3. Impacto en fórmulas
+Ninguno. Cambian textos, la completitud y el estado de la lista de productos. Se verifica con el A/B contra `main` (las cifras de lo guardado no cambian) y con el oráculo de VAL-01.
+
+#### 4. Impacto en datos
+- Tres campos opcionales: `pricing.marginFromExample` en productos, `equipment[].externalQuantityConfirmed` y `labor[].coverageConfirmed` en cotizaciones.
+- Esquema 10 y sin migración. `main` los ignora (vuelta atrás) y no cambian costos.
+
+#### 5. Pasos
+- [ ] 1. Este plan y los tests que fallan en `f7e8a29`.
+- [ ] 2. Implementación y tests en verde.
+- [ ] 3. Revisión de frontend y correcciones de usabilidad relevantes para la beta (aparte, documentadas).
+- [ ] 4. Verificación completa del candidato y revisión de código del diff.
+- [ ] 5. Evidencia "P1 CIERRE" en RATEOS-AUDIT y GO/NO-GO actualizado.
+
+#### 6. Rollback
+- Los commits van sobre el candidato: revertirlos devuelve `f7e8a29`.
+- Después de un deploy, vale lo de PLAN-2026-027 §6.
+
+#### Bitácora
+- 2026-10-21: plan antes del código.
