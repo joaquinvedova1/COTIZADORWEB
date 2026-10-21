@@ -26,7 +26,7 @@ import { createCloud } from './services/cloud.js';
 import { loadVersionInfo } from './services/settings-service.js';
 import { createRecoveryService } from './services/recovery-service.js';
 import { h, mount, downloadText } from './ui/dom.js';
-import { banner, button, card, clearToasts, confirmDialog, ensureToastRegion, installRestoreNotices, toast } from './ui/components.js';
+import { banner, button, card, clearToasts, confirmDialog, ensureToastRegion, installRestoreNotices, linkButton, toast } from './ui/components.js';
 import { createLayout, userErrorMessage } from './ui/layout.js';
 import { createRouter } from './ui/router.js';
 import { resetSessionMemory } from './ui/session-memory.js';
@@ -411,6 +411,8 @@ async function boot(root) {
   let router = null;
   let unsubscribeSync = null;
   const dismissed = new Set();
+  /** La base rechazó cálculos nuevos por créditos (PLAN-2026-029): el aviso queda hasta que se cierra. */
+  let creditsDropNotice = null;
 
   const layout = createLayout(root, { version });
 
@@ -425,6 +427,13 @@ async function boot(root) {
       renderBanners();
     });
     const state = account.sync.getState();
+    if (creditsDropNotice) {
+      const el = banner(creditsDropNotice, 'warning', { title: 'Se agotaron tus cálculos de prueba.' });
+      el.appendChild(h('div', { class: 'banner-actions' },
+        linkButton('Ver copias de recuperación', '#/configuracion/datos', { size: 'sm' }),
+        button('Entendido', { variant: 'secondary', size: 'sm', onClick: () => { creditsDropNotice = null; renderBanners(); } })));
+      out.unshift(el);
+    }
     if (state.conflict) out.unshift(conflictBanner(account, { onReloaded: () => { renderBanners(); router.render(); } }));
     else {
       const sb = syncBanner(state, account);
@@ -563,9 +572,12 @@ async function boot(root) {
           return;
         }
         layout.setSyncStatus({ status: state.status, label: SYNC_LABELS[state.status] || '', short: SYNC_SHORT_LABELS[state.status] || '' });
-        // Sólo se redibujan los avisos cuando cambia el tipo de estado.
-        if (state.status !== lastStatus) {
-          lastStatus = state.status;
+        // La base quitó cálculos nuevos sin créditos (también en segundo plano): aviso que queda.
+        if (state.status === 'saved' && state.code === 'credits_exhausted' && state.message) creditsDropNotice = state.message;
+        // Sólo se redibujan los avisos cuando cambia el tipo de estado (o el motivo).
+        const statusKey = `${state.status}|${state.code || ''}`;
+        if (statusKey !== lastStatus) {
+          lastStatus = statusKey;
           renderBanners();
           // La base rechazó la sesión: se renueva una vez y se reintenta; si
           // no se puede, "Tu sesión terminó. Volvé a ingresar." (los cambios
@@ -606,6 +618,7 @@ async function boot(root) {
     account = null;
     accountState = 'idle';
     dismissed.clear();
+    creditsDropNotice = null;
     resetSessionMemory();
     clearToasts();
     layout.clearSession();

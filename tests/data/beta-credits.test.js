@@ -43,7 +43,8 @@ describe('créditos: errores de la base', () => {
   test('el rechazo por créditos y por ids inválidos tiene su propio código (no "unknown", que se reintenta)', () => {
     assert.equal(workspaceErrorCode({ code: 'P0001', message: 'rateos_credits_exhausted', details: '{"needed":1,"balance":0}' }), WORKSPACE_ERRORS.creditsExhausted);
     assert.equal(workspaceErrorCode({ code: 'P0001', message: 'rateos_invalid_calculations' }), WORKSPACE_ERRORS.invalidCalculations);
-    assert.deepEqual(creditsDetail({ details: '{"needed":3,"balance":1}' }), { needed: 3, balance: 1 });
+    assert.deepEqual(creditsDetail({ details: '{"needed":3,"balance":1}' }), { needed: 3, balance: 1, quotes: null, products: null });
+    assert.deepEqual(creditsDetail({ details: '{"needed":2,"balance":0,"quotes":["a",7],"products":["p"]}' }), { needed: 2, balance: 0, quotes: ['a'], products: ['p'] });
     assert.equal(creditsDetail({ details: 'texto' }), null);
     assert.equal(workspaceErrorCode({ code: 'P0001', message: 'otra cosa' }), WORKSPACE_ERRORS.unknown);
   });
@@ -88,21 +89,23 @@ describe('créditos: crear con saldo y sin saldo', () => {
       assert.equal(error.removed, 1);
       return true;
     });
-    // Nada a medias: ni la cotización ni el código consumido, en la nube ni en el navegador.
+    // Nada a medias: la cotización no queda en la nube ni en el navegador.
     assert.deepEqual(serverQuotes(server, orgId), [q1.id]);
     assert.deepEqual((await repo.getQuotes()).map((q) => q.id), [q1.id]);
-    assert.equal((await repo.getSettings()).lastQuoteNumber, 1);
-    assert.equal(server.workspaces.get(orgId).state.settings.lastQuoteNumber, 1);
+    // El código no vuelve atrás (pudo verse o imprimirse): queda un salto, como al borrar.
+    assert.equal((await repo.getSettings()).lastQuoteNumber, 2);
     // Sin reintentos automáticos y sin cambios pendientes trabados.
     assert.equal(timersSet, timersBefore);
     assert.equal(repo.getSyncState().dirty, false);
     assert.equal(repo.getSyncState().status, 'saved');
+    assert.equal(repo.getSyncState().code, 'credits_exhausted', 'el aviso queda en el estado de sincronización');
+    assert.match(repo.getSyncState().message, /copia de recuperación/);
     // Lo rechazado quedó en una copia de recuperación.
     const copies = recoveryKeys(cache).map((k) => cache.getItem(k));
     assert.ok(copies.some((text) => text.includes('credits-exhausted') || text.includes('COT-0002')), 'hay una copia con la cotización rechazada');
-    // El código siguiente sigue la secuencia (no saltea el que se rechazó).
+    // El código siguiente nunca reutiliza el de la rechazada.
     server.credits.get(orgId).balance = 1;
-    assert.equal((await quotes.createQuote()).code, 'COT-0002');
+    assert.equal((await quotes.createQuote()).code, 'COT-0003');
   });
 
   test('sin saldo se sigue editando, guardando, borrando y restaurando lo existente', async () => {
@@ -211,3 +214,95 @@ describe('créditos: productos y el ejemplo', () => {
     assert.equal(serverQuotes(server, orgId).length, 15);
   });
 });
+
+describe('créditos: revisiones de seguridad y de corrección', () => {
+  test('el rechazo en segundo plano (creada sin conexión) no es silencioso', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'a' });
+    server.enableCredits(orgId, 0);
+    const { repo, quotes } = await open(server, 'a');
+    server.failNext = 'network';
+    await assert.rejects(quotes.createQuote(), (e) => e.code === 'sync_failed');
+    assert.equal((await repo.getQuotes()).length, 1, 'sin conexión queda en el navegador');
+    await repo.retryNow().catch(() => undefined); // como el reintento automático
+    assert.equal((await repo.getQuotes()).length, 0);
+    const s = repo.getSyncState();
+    assert.equal(s.status, 'saved');
+    assert.equal(s.code, 'credits_exhausted');
+    assert.match(s.message, /quedó en una copia de recuperación/);
+  });
+
+  test('al abrir con una creación retomada que la base rechaza, se avisa', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'a' });
+    server.enableCredits(orgId, 0);
+    const first = await open(server, 'a');
+    server.failNext = 'network';
+    await assert.rejects(first.quotes.createQuote());
+    const gw = server.gatewayFor('a');
+    const m = await gw.loadMembership('a');
+    const again = new SupabaseRepository({ gateway: gw, organization: m.organization, userId: 'a', role: m.role, cacheStorage: first.cache, timers: noTimers, tabId: first.repo.tabId });
+    const init = await again.init();
+    assert.ok(init.messages.some((t) => /cálculos de prueba/.test(t)), init.messages.join(' | '));
+    assert.equal((await again.getQuotes()).length, 0);
+  });
+
+  test('una edición en curso no recibe el error de otra creación, y la creación rechazada sí', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'a' });
+    server.enableCredits(orgId, 1);
+    const { repo, quotes } = await open(server, 'a');
+    const q1 = await quotes.createQuote();
+    const stored = await repo.getQuote(q1.id);
+    const edit = quotes.saveQuote({ ...stored, name: 'Editada en paralelo' });
+    const create = quotes.createQuote();
+    const [e, c] = await Promise.allSettled([edit, create]);
+    assert.equal(e.status, 'fulfilled', e.reason && e.reason.message);
+    assert.equal(c.status, 'rejected');
+    assert.equal(c.reason.code, 'credits_exhausted');
+    assert.equal(server.workspaces.get(orgId).state.quotes.find((q) => q.id === q1.id).name, 'Editada en paralelo');
+  });
+
+  test('sin lugar para la copia de recuperación no se quita nada', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'a' });
+    server.enableCredits(orgId, 0);
+    const { repo, quotes, cache } = await open(server, 'a');
+    const original = cache.setItem.bind(cache);
+    cache.setItem = (k, v) => {
+      if (k.includes('.recovery.')) throw new Error('QuotaExceededError');
+      return original(k, v);
+    };
+    await assert.rejects(quotes.createQuote(), (e) => e.code === 'credits_exhausted' && /no hay espacio/.test(e.message));
+    assert.equal((await repo.getQuotes()).length, 1, 'la cotización sigue en el navegador');
+    assert.equal(repo.getSyncState().dirty, true);
+    assert.equal(repo.getSyncState().status, 'error');
+  });
+
+  test('se quitan sólo los ids que la base cobraría: lo que la empresa ya tuvo vuelve sin costo', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'a' });
+    server.enableCredits(orgId, 1);
+    const { repo, quotes } = await open(server, 'a');
+    const q1 = await quotes.createQuote();
+    const kept = await repo.getQuote(q1.id);
+    await quotes.deleteQuote(q1.id);
+    // Restaurar la borrada y crear una nueva en la misma subida, sin saldo.
+    server.failNext = 'network';
+    await assert.rejects(repo.saveQuote(kept));
+    await assert.rejects(quotes.createQuote(), (e) => e.code === 'credits_exhausted');
+    assert.deepEqual(serverQuotes(server, orgId), [q1.id], 'la restaurada (ya cobrada) se guardó');
+  });
+
+  test('la copia de los cálculos rechazados no se poda con importaciones posteriores', async () => {
+    const server = createFakeServer();
+    const orgId = server.addUser({ id: 'a' });
+    server.enableCredits(orgId, 0);
+    const { repo, quotes, cache } = await open(server, 'a');
+    await assert.rejects(quotes.createQuote());
+    const backup = await repo.exportBackup();
+    for (let i = 0; i < 4; i += 1) await repo.importBackup(backup);
+    assert.ok(recoveryKeys(cache).some((k) => k.endsWith('.credits-exhausted')), recoveryKeys(cache).join(', '));
+  });
+});
+

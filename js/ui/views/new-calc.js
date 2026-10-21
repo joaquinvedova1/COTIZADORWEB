@@ -71,7 +71,8 @@ export async function render(root, app) {
         text: 'Sabé cuánto te cuesta y definí cuánto cobrar. Los dos usan tu mismo personal, tus equipos y tus materiales de Recursos.',
       }),
       creditsBanner(credits),
-      h('div', { class: 'calc-choice-grid' }, ...CALC_KINDS.map((kind) => kindCard(kind, { disabled: exhausted }))),
+      // Producto sigue disponible: el ejemplo "Chipá" no usa créditos (ahí se bloquea sólo "Empezar en blanco").
+      h('div', { class: 'calc-choice-grid' }, ...CALC_KINDS.map((kind) => kindCard(kind, { disabled: exhausted && kind.id === 'service' }))),
       h(
         'p',
         { class: 'muted small calc-start-help' },

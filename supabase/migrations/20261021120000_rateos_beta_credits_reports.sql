@@ -75,6 +75,8 @@ create table private.bug_reports (
 create index bug_reports_org_created_idx on private.bug_reports (organization_id, created_at desc);
 create index bug_reports_reporter_created_idx on private.bug_reports (reporter, created_at desc);
 create index bug_reports_status_idx on private.bug_reports (status, created_at desc);
+-- "Parecidos" de la cola de admin (misma categoría y pantalla).
+create index bug_reports_similar_idx on private.bug_reports (category, screen, status);
 
 -- Movimientos de créditos. delta 0 sólo para los cálculos que ya existían al
 -- activar la cuota a mano (quedan registrados para no cobrarlos nunca).
@@ -146,7 +148,9 @@ begin
   if v_list is null or jsonb_typeof(v_list) = 'null' then
     return array[]::text[];
   end if;
-  if jsonb_typeof(v_list) <> 'array' then
+  -- Mismo tope que el cliente (js/data/schema.js, 5.000 por colección): un JSON enorme se
+  -- rechaza antes de recorrerlo.
+  if jsonb_typeof(v_list) <> 'array' or jsonb_array_length(v_list) > 5000 then
     raise exception 'rateos_invalid_calculations' using errcode = 'P0001', detail = p_key;
   end if;
   if exists (
@@ -214,8 +218,10 @@ begin
   -- bloquea también (la aprobación de un reporte la modifica en paralelo).
   select a.balance into v_balance from private.credit_accounts a where a.organization_id = new.organization_id for update;
   if v_balance < v_needed then
+    -- El detalle lleva los ids que se cobrarían (son de la propia empresa): el cliente
+    -- quita sólo esos y conserva lo que la empresa ya tuvo.
     raise exception 'rateos_credits_exhausted'
-      using errcode = 'P0001', detail = json_build_object('needed', v_needed, 'balance', v_balance)::text;
+      using errcode = 'P0001', detail = json_build_object('needed', v_needed, 'balance', v_balance, 'quotes', to_json(v_new_quotes), 'products', to_json(v_new_products))::text;
   end if;
 
   insert into private.credit_ledger (organization_id, delta, reason, entity_kind, entity_id, actor)
@@ -420,15 +426,16 @@ grant execute on function private.credit_preview(uuid, text[], text[]) to authen
 
 -- ------------------------------------------------- reportes (miembros)
 
--- Texto de una persona: sin caracteres de control (salvo salto de línea y
--- tabulación) y sin espacios en los extremos.
+-- Texto de una persona: sin caracteres de control (C0 salvo salto de línea y
+-- tabulación, DEL y C1), sin los invisibles que disfrazan un texto (ancho cero,
+-- marcas y controles de dirección, BOM) y sin espacios en los extremos.
 create or replace function private.clean_report_text(p_text text)
 returns text
 language sql
 immutable
 set search_path = ''
 as $$
-  select btrim(regexp_replace(coalesce(p_text, ''), '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]', '', 'g'));
+  select btrim(regexp_replace(coalesce(p_text, ''), '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]', '', 'g'));
 $$;
 
 revoke all on function private.clean_report_text(text) from public, anon, authenticated;

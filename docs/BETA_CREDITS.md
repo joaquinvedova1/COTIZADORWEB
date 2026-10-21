@@ -45,7 +45,11 @@ Postgres cobra al guardar el workspace (la fila JSON `workspace_states.state`) e
 | Demo pública | 0. No usa la nube |
 
 - **Invariante:** los cálculos que existen a la vez son, como mucho, los créditos gastados más 1 ejemplo.
-- Reescribir por completo un cálculo existente es **editar**, y está permitido.
+- Reescribir por completo un cálculo existente es **editar**, y está permitido. Esto incluye:
+  - convertir el ejemplo "Chipá" en un producto propio;
+  - volcar por la API el contenido de una plantilla (`services[]`) sobre un cálculo ya cobrado.
+
+  Las plantillas no se cobran: no muestran resultado. Crear una cotización desde una plantilla sí cobra.
 - La reserva del código COT-NNNN y la cotización van en **una sola escritura**. Si la base la rechaza, no queda un código consumido.
 
 ## 3. Modelo de datos (todo en `private`)
@@ -82,13 +86,20 @@ Reglas de los reportes:
 
 **No tienen cuenta de créditos:** para ellas nada cambia, ni límite ni validación nueva.
 
-La cuota se activa sola para las empresas que se registran **después** de aplicar la migración, mientras `beta_policy.quota_for_new_orgs` esté encendida. Por eso, en el corte:
+La cuota se activa sola para las empresas que se registran **después** de aplicar la migración, mientras `beta_policy.quota_for_new_orgs` esté encendida. Para dejar a una cuenta propia sin cuota, ver §7.
 
-| Antes de aplicar la migración | Después de aplicar la migración |
+**HUMAN DECISION REQUIRED (D-CR-1): el registro público.** Hoy el código tiene el registro público encendido (`js/config.js`, `publicSignup: true`; decisión del 20/10). La cuota es **por empresa**:
+- cada cuenta nueva crea su propia empresa con 10 créditos;
+- con varios emails (alias como `x+1@…`) alguien junta créditos;
+- muchas empresas pueden llenar la cola de reportes (10 por empresa por día).
+
+La cuota no es una barrera contra el registro abusivo. Opciones:
+
+| Opción | Qué implica |
 |---|---|
-| El registro está apagado (D-P1-1) | Las cuentas que se creen (las testers) tienen cuota |
-
-Para dejar a una cuenta propia sin cuota, ver §7.
+| **a) Recomendada** | Mantener el registro apagado en Auth durante la beta (D-P1-1, revisión del 21/10). Las testers entran por invitación o por la ventana de registro controlada |
+| b) | Registro abierto con `initial_credits = 0` y créditos dados a mano (`admin_adjust_credits`) a cada tester aprobada |
+| c) | Registro abierto tal como está, aceptando el riesgo. Sólo para un piloto chico y vigilado |
 
 ## 5. Qué ve cada persona
 

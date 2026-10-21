@@ -50,6 +50,7 @@ export function createFakeServer() {
     const acct = credits.get(orgId);
     if (!acct || !acct.enabled || !state) return { ok: true, keys: [] };
     const keys = [];
+    const newIds = { quote: [], product: [] };
     for (const [kind, list] of [['quote', state.quotes], ['product', state.products]]) {
       if (list === undefined || list === null) continue;
       if (!Array.isArray(list)) return { ok: false, code: 'invalid_calculations' };
@@ -58,10 +59,14 @@ export function createFakeServer() {
         if (!item || typeof item !== 'object' || typeof item.id !== 'string' || item.id.length < 1 || item.id.length > 100 || seen.has(item.id)) return { ok: false, code: 'invalid_calculations' };
         seen.add(item.id);
         if (kind === 'product' && item.id === EXAMPLE_PRODUCT) continue;
-        if (!acct.ledger.has(`${kind}:${item.id}`)) keys.push(`${kind}:${item.id}`);
+        if (!acct.ledger.has(`${kind}:${item.id}`)) {
+          keys.push(`${kind}:${item.id}`);
+          newIds[kind].push(item.id);
+        }
       }
     }
-    if (keys.length > acct.balance) return { ok: false, code: 'credits_exhausted', credits: { needed: keys.length, balance: acct.balance } };
+    // Como el DETAIL de la base: cuántos, el saldo y los ids que se cobrarían.
+    if (keys.length > acct.balance) return { ok: false, code: 'credits_exhausted', credits: { needed: keys.length, balance: acct.balance, quotes: newIds.quote, products: newIds.product } };
     return { ok: true, keys };
   };
   const server = {

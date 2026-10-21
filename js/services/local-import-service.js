@@ -43,10 +43,21 @@ export function createLocalImportService({ repository, userId, storage, now = ()
       if (!backupKey) {
         return { ok: false, message: 'No hay espacio en el navegador para guardar una copia de seguridad antes de importar. Exportá un backup y liberá espacio.' };
       }
-      const result = await repository.importLocalData(real.data);
-      setLocalImportDecision(userId, 'imported', opts);
-      claimLegacyData(raw, { ...opts, now: now() });
-      return { ok: true, ...result, backupKey };
+      try {
+        const result = await repository.importLocalData(real.data);
+        setLocalImportDecision(userId, 'imported', opts);
+        claimLegacyData(raw, { ...opts, now: now() });
+        return { ok: true, ...result, backupKey };
+      } catch (error) {
+        // Sin créditos de prueba (PLAN-2026-029): lo demás ya está en la cuenta y lo que no
+        // entró quedó en una copia de recuperación. Los datos quedan de esta cuenta: no se
+        // ofrecen otra vez ni a otra cuenta de este navegador.
+        if (error && error.code === 'credits_exhausted') {
+          setLocalImportDecision(userId, 'imported', opts);
+          claimLegacyData(raw, { ...opts, now: now() });
+        }
+        throw error;
+      }
     },
 
     /** "Empezar en limpio": no importa nada y no vuelve a preguntar (los datos locales quedan intactos). */

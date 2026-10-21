@@ -33,14 +33,19 @@ export const WORKSPACE_ERRORS = Object.freeze({
   unknown: 'unknown',
 });
 
-/** Detalle del rechazo por créditos ({ needed, balance }), si la base lo mandó. */
+/**
+ * Detalle del rechazo por créditos, si la base lo mandó: { needed, balance } y los
+ * ids de la propia empresa que se cobrarían ({ quotes, products }; null si no vinieron).
+ */
 export function creditsDetail(error) {
   try {
     const raw = error && (error.details ?? error.detail);
     const d = typeof raw === 'string' ? JSON.parse(raw) : raw;
     const needed = Number(d && d.needed);
     const balance = Number(d && d.balance);
-    return Number.isFinite(needed) && Number.isFinite(balance) ? { needed, balance } : null;
+    if (!Number.isFinite(needed) || !Number.isFinite(balance)) return null;
+    const ids = (list) => (Array.isArray(list) ? list.filter((x) => typeof x === 'string').slice(0, 10000) : null);
+    return { needed, balance, quotes: ids(d.quotes), products: ids(d.products) };
   } catch {
     return null;
   }

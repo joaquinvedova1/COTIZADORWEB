@@ -138,6 +138,7 @@ describe('beta: reporte de errores', () => {
   test('validación: categoría, 3 a 2000 caracteres y texto limpio', () => {
     assert.equal(cleanBugText('  hola\u0007 mundo\n  '), 'hola mundo');
     assert.equal(cleanBugText('línea 1\nlínea 2\tfin'), 'línea 1\nlínea 2\tfin');
+    assert.equal(cleanBugText('pago\u200B\u202E ok\u0085\uFEFF'), 'pago ok', 'sin invisibles ni controles de dirección');
     const bad = validateBugReport({ category: 'hack', did: 'a', expected: 'x'.repeat(BUG_TEXT_MAX + 1), happened: '', screen: 'cotizaciones/123' });
     assert.equal(bad.ok, false);
     assert.deepEqual(Object.keys(bad.errors).sort(), ['category', 'did', 'expected', 'happened']);

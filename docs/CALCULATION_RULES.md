@@ -79,7 +79,7 @@ Orden de cálculo dentro de `buildCostModel(quote)`:
 3. Financiero, sobre los costos que son salida de caja (directos + estructura).
 4. Contingencia = % × (directos + estructura + financiero).
 
-Cada línea del modelo (`model.lines`) tiene `category` (categoría de la EECC), `payGroup` (grupo de pago para el financiero), `fixedMonthly`, `variablePerActiveDay` y su parte en efectivo (`cashFixedMonthly`, `cashVariablePerActiveDay`). `F` y `v` son la suma de las 8 categorías (incluidos financiero y contingencia).
+Cada línea del modelo (`model.lines`) tiene `category` (categoría de la EECC), `payGroup` (grupo de pago para el financiero), `fixedMonthly`, `variablePerActiveDay` y su parte en efectivo (`cashFixedMonthly`, `cashVariablePerActiveDay`). `F` y `v` son la suma de las 9 categorías de la EECC (incluidos financiero y contingencia; ver §10).
 
 **Ejemplo (demo Hidrogrúa on-call — Añelo, ILUSTRATIVO):** `F ≈ 9.031.407`, `v ≈ 843.136/día`, `D = 8` → `Costo(8) ≈ 9.031.407 + 6.745.091 = 15.776.498`.
 
@@ -970,7 +970,7 @@ Archivo: `js/engines/price-composition-engine.js` (`priceComposition(result)`), 
 "¿Cómo se forma tu precio?" descompone la **facturación del mes** (sin IVA) con la tarifa que se cotiza:
 
 ```
-Facturación = Σ costo por rubro (8 categorías de la EECC) + impuestos sobre la facturación + resultado
+Facturación = Σ costo por rubro (9 categorías de la EECC) + impuestos sobre la facturación + resultado
 % del precio de cada fila = fila / Facturación
 ```
 
@@ -1316,7 +1316,7 @@ El Dashboard (`QuoteService.dashboardStats`) suma sólo cotizaciones activas (`A
 | Margen + impuestos sobre la facturación ≥ 100 | No existe un precio que deje ese margen: igual que un margen inválido; `validateQuote` informa "Con X % de impuestos sobre la facturación, el margen tiene que ser menor a (100 − X) %"; el comparador de modelos devuelve `models: []` con el motivo. |
 | Impuestos sobre la facturación sin definir | t = 0 (los números no cambian), `billingTaxesDefined = false`, la traza de la tarifa piso avisa que no los incluye y la completitud lo marca en naranja. |
 | Impuestos sobre la facturación inválidos (negativos, texto, total ≥ 100) | Se calcula con t = 0, `billingTaxesInvalid = true`; `validateQuote` y la completitud (rojo) lo informan. |
-| Impuestos 0 % explícito o "no incluir impuestos sobre la facturación en esta cotización" (la columna sigue)go impuestos sobre lo que facturo" | t = 0 y definido: sin aviso. |
+| Impuestos 0 % explícito o "No incluir impuestos sobre la facturación en esta cotización" | t = 0 y definido: sin aviso. |
 | Margen 0 | Tarifa objetivo = tarifa piso; completitud en naranja. |
 | Precio inferior al costo | Margen y markup negativos, `belowFloorRate` y `belowFloor` (si el mes da pérdida), semáforo rojo, `atRisk`. |
 | Tarifa neta bajo piso con mínimo garantizado que cubre el costo | `belowFloorRate = true`, `belowFloor = false`; el resultado se informa positivo (§20). |

@@ -160,7 +160,7 @@ function chargeCredits(db, orgId, state, uid) {
 
 const CATEGORIES = ['calculo', 'guardado', 'pdf', 'cuenta', 'pantalla', 'otro'];
 const SCREENS = ['inicio', 'nuevo', 'cotizacion', 'resultado', 'escenarios', 'cotizaciones', 'productos', 'producto', 'recursos', 'plantillas', 'configuracion', 'cuenta', 'registro', 'pdf', 'reportar', 'otra'];
-const cleanText = (v) => String(v ?? '').replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+const cleanText = (v) => String(v ?? '').replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, '').trim();
 
 /** RPC de la beta y de RATEOS ADMIN, con las mismas reglas que las funciones de la migración. */
 function betaRpc(db, route, name, args, uid, memberOrgs) {

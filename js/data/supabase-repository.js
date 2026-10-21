@@ -74,6 +74,20 @@ const SYNC_MESSAGES = Object.freeze({
 /** Mensaje de "sin créditos de prueba" (texto decidido por el dueño, PLAN-2026-029). */
 export const CREDITS_EXHAUSTED_MESSAGE = SYNC_MESSAGES[WORKSPACE_ERRORS.creditsExhausted];
 
+/** Aviso persistente cuando la base rechazó cálculos nuevos (también si pasó en segundo plano). */
+export const CREDITS_DROPPED_MESSAGE = 'Se agotaron tus cálculos de prueba: lo que intentaste crear no se guardó en la nube y quedó en una copia de recuperación (Configuración → Datos y backup). Todo lo demás está guardado.';
+
+/** Sin espacio para la copia: no se quita nada (nunca se pierde un cálculo). */
+export const CREDITS_NO_COPY_MESSAGE = 'Se agotaron tus cálculos de prueba y no hay espacio en este navegador para guardar una copia de lo que intentaste crear. Exportá un backup (Configuración → Datos y backup) y después eliminá ese cálculo nuevo para seguir guardando.';
+
+/** Error de "se agotaron los créditos" cuando la base rechazó cálculos y se quitaron del navegador. */
+function creditsDroppedError(removed) {
+  const error = new RepositoryError(CREDITS_EXHAUSTED_MESSAGE, WORKSPACE_ERRORS.creditsExhausted);
+  error.removed = removed;
+  error.dropped = true;
+  return error;
+}
+
 /** Ids de cotizaciones y productos y la reserva de códigos de un estado de la nube. */
 export function cloudCalculationIndex(state) {
   const ids = (list) => new Set(Array.isArray(list) ? list.filter((x) => isPlainObject(x) && typeof x.id === 'string').map((x) => x.id) : []);
@@ -187,6 +201,8 @@ export class SupabaseRepository extends LocalStorageRepository {
     this.accessLost = false;
     /** Cotizaciones y productos que la nube ya aceptó (los créditos sólo se cobran por ids nuevos). */
     this.cloudIndex = cloudCalculationIndex(null);
+    /** Cálculos que la base rechazó por créditos ('quote:id' / 'product:id') y se quitaron del navegador. */
+    this.droppedCalculations = new Set();
     this.loading = true;
     this.wrapWriteMethods();
   }
@@ -351,8 +367,10 @@ export class SupabaseRepository extends LocalStorageRepository {
     if (this.dirty && !this.readOnly) {
       try {
         await this.flush();
-      } catch {
-        /* queda pendiente: la UI muestra el estado de sincronización */
+      } catch (error) {
+        // Queda pendiente: la UI muestra el estado de sincronización. Si la base
+        // rechazó cálculos retomados de antes por créditos, se dice al abrir.
+        if (error && error.code === WORKSPACE_ERRORS.creditsExhausted) this.initResult.messages.push(error.message);
       }
     } else {
       this.setSync('saved');
@@ -466,10 +484,27 @@ export class SupabaseRepository extends LocalStorageRepository {
         // Un backup de OTRA organización (o manipulado) queda igual dentro del
         // workspace propio (RLS) y además se realinea a la organización real.
         if (name === 'importBackup') this.remapToCloudOrganization();
-        await this.flush();
+        const kind = name === 'saveQuote' ? 'quote' : name === 'saveProduct' ? 'product' : null;
+        const ownDropped = () => Boolean(kind && result && this.droppedCalculations.has(`${kind}:${result.id}`) && !this.hasCalculation(kind, result.id));
+        try {
+          await this.flush();
+        } catch (error) {
+          // Créditos (PLAN-2026-029): el error es de quien creó el cálculo rechazado. Si lo
+          // de ESTA llamada se guardó (otra creación fue la rechazada), esta llamada salió bien.
+          if (error && error.code === WORKSPACE_ERRORS.creditsExhausted && error.dropped && name !== 'importBackup' && !ownDropped()) return result;
+          throw error;
+        }
+        // Lo de esta llamada lo rechazó la base en una subida de otra llamada: se avisa acá.
+        if (ownDropped()) throw creditsDroppedError(1);
         return result;
       };
     });
+  }
+
+  /** ¿El estado local tiene esta cotización o producto? */
+  hasCalculation(kind, id) {
+    const list = kind === 'quote' ? this.state && this.state.quotes : this.state && this.state.products;
+    return Array.isArray(list) && list.some((x) => isPlainObject(x) && x.id === id);
   }
 
   async resetToDemo() {
@@ -526,9 +561,15 @@ export class SupabaseRepository extends LocalStorageRepository {
       const code = res.code || WORKSPACE_ERRORS.unknown;
       if (code === WORKSPACE_ERRORS.creditsExhausted && !creditsBlocked) {
         // La base rechazó TODO el guardado: hay cálculos nuevos y no alcanzan los
-        // créditos. Se quitan del estado local los que la nube nunca aceptó (con
-        // una copia de recuperación antes) y se sube el resto. Sin reintentos.
-        creditsBlocked = { removed: this.dropUnsyncedCalculations(), detail: res.credits || null };
+        // créditos. Se quitan del estado local los que la base cobraría (con una
+        // copia de recuperación antes) y se sube el resto. Sin reintentos. Si no
+        // hay lugar para la copia, no se quita nada.
+        const drop = this.dropUnsyncedCalculations(res.credits || null);
+        if (!drop.copied) {
+          this.setSync('error', { code, message: CREDITS_NO_COPY_MESSAGE });
+          throw new RepositoryError(CREDITS_NO_COPY_MESSAGE, code);
+        }
+        creditsBlocked = drop;
         continue;
       }
       if (code === WORKSPACE_ERRORS.creditsExhausted || code === WORKSPACE_ERRORS.invalidCalculations) {
@@ -560,10 +601,10 @@ export class SupabaseRepository extends LocalStorageRepository {
       throw new RepositoryError(SYNC_MESSAGES[code] || SYNC_MESSAGES.unknown, 'sync_failed');
     }
     if (creditsBlocked) {
-      // Lo demás quedó guardado; quien creó el cálculo recibe el aviso.
-      const error = new RepositoryError(CREDITS_EXHAUSTED_MESSAGE, WORKSPACE_ERRORS.creditsExhausted);
-      error.removed = creditsBlocked.removed;
-      throw error;
+      // Lo demás quedó guardado. El aviso queda en el estado de sincronización (se ve
+      // aunque haya pasado en segundo plano) y quien creó el cálculo recibe el error.
+      this.setSync('saved', { code: WORKSPACE_ERRORS.creditsExhausted, message: CREDITS_DROPPED_MESSAGE });
+      throw creditsDroppedError(creditsBlocked.removed);
     }
     return this.getSyncState();
   }
@@ -575,26 +616,33 @@ export class SupabaseRepository extends LocalStorageRepository {
    * guarda el estado completo en una copia de recuperación (Configuración →
    * Datos y backup). Devuelve cuántos quitó.
    */
-  dropUnsyncedCalculations() {
+  dropUnsyncedCalculations(detail = null) {
+    let copied = false;
     try {
-      this.saveRecoverySnapshot(this.storage.getItem(this.key), 'credits-exhausted');
+      copied = Boolean(this.saveRecoverySnapshot(this.storage.getItem(this.key), 'credits-exhausted'));
     } catch (error) {
       logger.warn('No se pudo copiar los cálculos sin créditos', { name: error && error.name });
     }
-    const { quotes, products, lastQuoteNumber } = this.cloudIndex;
+    if (!copied) return { copied: false, removed: 0 };
+    // Se quitan los ids que la base dijo que cobraría; si no vinieron, los que la nube nunca aceptó.
+    const listed = Boolean(detail && (Array.isArray(detail.quotes) || Array.isArray(detail.products)));
+    const dropQuotes = listed ? new Set(detail.quotes || []) : null;
+    const dropProducts = listed ? new Set(detail.products || []) : null;
+    const { quotes, products } = this.cloudIndex;
+    const keepQuote = (q) => isPlainObject(q) && (listed ? !dropQuotes.has(q.id) : quotes.has(q.id));
+    const keepProduct = (p) => isPlainObject(p) && (p.id === DEMO_IDS.productExample || (listed ? !dropProducts.has(p.id) : products.has(p.id)));
     let removed = 0;
     this.mutate((draft) => {
+      draft.quotes.filter((q) => !keepQuote(q)).forEach((q) => this.droppedCalculations.add(`quote:${q && q.id}`));
+      if (Array.isArray(draft.products)) draft.products.filter((p) => !keepProduct(p)).forEach((p) => this.droppedCalculations.add(`product:${p && p.id}`));
       const before = draft.quotes.length + (Array.isArray(draft.products) ? draft.products.length : 0);
-      draft.quotes = draft.quotes.filter((q) => isPlainObject(q) && quotes.has(q.id));
-      if (Array.isArray(draft.products)) draft.products = draft.products.filter((p) => isPlainObject(p) && (products.has(p.id) || p.id === DEMO_IDS.productExample));
+      draft.quotes = draft.quotes.filter(keepQuote);
+      if (Array.isArray(draft.products)) draft.products = draft.products.filter(keepProduct);
       removed = before - draft.quotes.length - (Array.isArray(draft.products) ? draft.products.length : 0);
-      const codes = draft.quotes.map((q) => {
-        const m = /^COT-(\d+)$/.exec(String(q.code || ''));
-        return m ? Number(m[1]) : 0;
-      });
-      if (isPlainObject(draft.settings)) draft.settings.lastQuoteNumber = Math.max(lastQuoteNumber, ...codes, 0);
+      // lastQuoteNumber NO vuelve atrás: un código de una cotización rechazada pudo
+      // verse o imprimirse (p. ej. creada sin conexión). Queda un salto, como al borrar.
     });
-    return removed;
+    return { copied: true, removed };
   }
 
   scheduleRetry() {

@@ -134,11 +134,12 @@ begin
     '{"schemaVersion":10,"quotes":[{"id":""}],"products":[]}',
     '{"schemaVersion":10,"quotes":{"q1":{"id":"q1"}},"products":[]}',
     '{"schemaVersion":10,"quotes":["q1"],"products":[]}',
-    '{"schemaVersion":10,"quotes":[],"products":[{"id":"p1"},{"id":"p1"}]}'
+    '{"schemaVersion":10,"quotes":[],"products":[{"id":"p1"},{"id":"p1"}]}',
+    (select jsonb_build_object('schemaVersion', 10, 'quotes', jsonb_agg(jsonb_build_object('id', 'x' || g)))::text from generate_series(1, 5001) g)
   ] loop
     begin
       update public.workspace_states set state = t::jsonb where organization_id = org_a;
-      failed := failed || ('estructura inválida aceptada: ' || t);
+      failed := failed || ('estructura inválida aceptada: ' || left(t, 120));
     exception when others then
       if sqlerrm = 'rateos_invalid_calculations' then passed := passed + 1; else failed := failed || ('estructura inválida con otro error: ' || sqlerrm); end if;
     end;
@@ -169,7 +170,10 @@ begin
     update public.workspace_states set state = pg_temp.ws(array['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10'], array['p1', example_product]) where organization_id = org_a;
     failed := failed || text 'con 0 créditos se guardó un cálculo nuevo';
   exception when others then
+    get stacked diagnostics t = pg_exception_detail;
     if sqlerrm = 'rateos_credits_exhausted' then passed := passed + 1; else failed := failed || ('sin saldo, otro error: ' || sqlerrm); end if;
+    -- El detalle dice cuántos y cuáles (sólo ids de la propia empresa).
+    if t::jsonb = '{"needed": 1, "balance": 0, "quotes": ["q10"], "products": []}'::jsonb then passed := passed + 1; else failed := failed || ('detalle del rechazo: ' || coalesce(t, 'null')); end if;
   end;
   select revision into rev2 from public.workspace_states where organization_id = org_a;
   select count(*) into n from public.workspace_states w, jsonb_array_elements(w.state -> 'quotes') e where w.organization_id = org_a and e ->> 'id' = 'q10';
@@ -285,7 +289,7 @@ begin
 
   -- ----------------------------------------------------------- reportes
   perform pg_temp.act_as(a1);
-  j := public.submit_bug_report(org_a, 'calculo', E'Cargué una cotización\u0007 de hidrogrúa', 'Que el margen sea 20 %', 'Dio 35 %', 'resultado', '0.9.0');
+  j := public.submit_bug_report(org_a, 'calculo', E'Cargué una cotización\u0007\u200B\u202E de hidrogrúa\u0085', 'Que el margen sea 20 %', 'Dio 35 %', 'resultado', '0.9.0');
   r1 := (j ->> 'id')::uuid;
   if j ->> 'status' = 'received' and r1 is not null then passed := passed + 1; else failed := failed || ('enviar reporte: ' || j::text); end if;
   perform pg_temp.act_postgres();

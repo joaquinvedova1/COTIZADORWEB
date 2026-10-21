@@ -666,14 +666,14 @@ export class LocalStorageRepository extends StorageRepository {
    * Conserva sólo las MAX_RECOVERY_SNAPSHOTS copias más recientes de cada
    * grupo. Las copias de datos dañados ("corrupt" e "invalid") y las de
    * cambios de una cuenta que nunca llegaron a la nube ("cloud-unsynced",
-   * "cloud-conflict-local") se podan aparte: importaciones, migraciones o
+   * "cloud-conflict-local", "credits-exhausted") se podan aparte: importaciones, migraciones o
    * restauraciones posteriores nunca borran la única copia de esos datos.
    */
   pruneRecoverySnapshots() {
     const keys = this.listRecoverySnapshots();
     const groupOf = (k) => {
       if (/\.(corrupt|invalid)(\.\d+)?$/.test(k)) return 'damaged';
-      if (/\.(cloud-unsynced|cloud-conflict-local)(\.\d+)?$/.test(k)) return 'unsynced';
+      if (/\.(cloud-unsynced|cloud-conflict-local|credits-exhausted)(\.\d+)?$/.test(k)) return 'unsynced';
       return 'other';
     };
     ['other', 'damaged', 'unsynced'].forEach((group) => {

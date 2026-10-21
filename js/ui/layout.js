@@ -142,7 +142,12 @@ export function createLayout(container, { version = {} } = {}) {
   const signOutBtn = h('button', { type: 'button', class: 'account-action', on: { click: () => signOutHandler && signOutHandler() } }, icon('logout', { size: 16 }), h('span', {}, 'Cerrar sesión'));
   // "Reportar un error" (PLAN-2026-029): lleva la pantalla actual de una lista fija, sin ids.
   const reportLink = h('a', { class: 'account-action account-report', href: '#/reportar' }, icon('alert', { size: 16 }), h('span', {}, 'Reportar un error'));
-  reportLink.addEventListener('click', () => {
+  reportLink.addEventListener('click', (event) => {
+    // Ya en el formulario: no se vuelve a abrir (se perdería lo escrito).
+    if (/^#\/reportar(\?|$)/.test(window.location.hash)) {
+      event.preventDefault();
+      return;
+    }
     reportLink.href = `#/reportar?desde=${bugScreenFromHash(window.location.hash)}`;
   });
   const accountEl = h(

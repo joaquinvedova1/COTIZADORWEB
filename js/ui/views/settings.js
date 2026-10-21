@@ -109,6 +109,7 @@ const RECOVERY_REASONS = Object.freeze({
   'before-local-import': 'Tu cuenta, antes de importar los datos de este navegador',
   'cloud-conflict-local': 'Tu versión, antes de recargar la más nueva',
   'cloud-unsynced': 'Cambios sin subir cuando otro dispositivo guardó antes',
+  'credits-exhausted': 'Cálculos que no se guardaron porque se agotaron los cálculos de prueba',
 });
 
 // --------------------------------------------------------- parseo de listas
@@ -1027,7 +1028,10 @@ export async function render(root, app, params = {}) {
       // costo; los que nunca tuvo usan uno cada uno. Se avisa antes (la base cobra al guardar).
       const creditsHost = h('div', { class: 'import-credits' });
       const ids = (list) => (Array.isArray(list) ? list.filter((x) => x && typeof x.id === 'string').map((x) => x.id) : []);
+      // Con cuota, el botón espera la cuenta de créditos (sin cuota o sin respuesta, sigue habilitado).
+      if (ctx.credits.cached().enabled) applyBtn.disabled = true;
       ctx.credits.preview({ quoteIds: ids(parsed.data && parsed.data.quotes), productIds: ids(parsed.data && parsed.data.products) }).then((p) => {
+        applyBtn.disabled = false;
         if (!p.enabled) return;
         if (p.chargeable > (p.balance ?? 0)) {
           applyBtn.disabled = true;
@@ -1035,7 +1039,9 @@ export async function render(root, app, params = {}) {
         } else if (p.chargeable > 0) {
           mount(creditsHost, banner(`Este backup tiene ${p.chargeable} cálculos que tu empresa nunca tuvo: usan ${p.chargeable} de tus ${p.balance} cálculos de prueba. Lo que ya era de tu empresa se restaura sin costo.`, 'info'));
         }
-      }).catch(() => {});
+      }).catch(() => {
+        applyBtn.disabled = false;
+      });
       applyBtn.addEventListener('click', async () => {
         const ok = await confirmDialog({
           title: 'Importar backup',
@@ -1056,6 +1062,14 @@ export async function render(root, app, params = {}) {
           await app.refreshChrome();
           app.navigate('#/inicio');
         } catch (error) {
+          if (error && error.code === 'credits_exhausted' && error.dropped) {
+            // La base rechazó los cálculos que la empresa nunca tuvo: lo demás del backup se aplicó.
+            disposeAll();
+            app.toast('Se restauró el backup sin los cálculos que tu empresa nunca tuvo: no alcanzaban los cálculos de prueba. Quedaron en una copia de recuperación.', 'warning', { timeout: 9000 });
+            await app.refreshChrome();
+            app.navigate('#/inicio');
+            return;
+          }
           creationErrorToast(app, error, 'No se pudo importar el backup.');
           applyBtn.disabled = false;
         }

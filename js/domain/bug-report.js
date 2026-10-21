@@ -78,9 +78,13 @@ export function bugScreenFromHash(hash) {
   return 'otra';
 }
 
-/** Texto de una persona: sin caracteres de control (salvo salto de línea y tabulación), sin espacios en los extremos. */
+/**
+ * Texto de una persona: sin caracteres de control (salvo salto de línea y tabulación), sin los
+ * invisibles que disfrazan un texto (ancho cero, marcas y controles de dirección, BOM) y sin
+ * espacios en los extremos. Igual que private.clean_report_text en la base.
+ */
 export function cleanBugText(value) {
-  return String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+  return String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, '').trim();
 }
 
 /**
