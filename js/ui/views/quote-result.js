@@ -1782,7 +1782,8 @@ function draftBanner(v, { action } = {}) {
   // La lista va dentro del texto del aviso (no como otra columna del banner).
   const body = node.querySelector(':scope > div:not(.qr-alert-action)');
   if (critical.length && body) {
-    body.appendChild(h('ul', { class: 'qr-draft-list' }, ...critical.slice(0, 4).map((i) => h('li', {}, h('strong', {}, `${i.label}: `), String(i.message || '')))));
+    // El texto va en un span: en el celular se recorta el span (el li conserva su viñeta).
+    body.appendChild(h('ul', { class: 'qr-draft-list' }, ...critical.slice(0, 4).map((i) => h('li', {}, h('span', { class: 'qr-draft-item' }, h('strong', {}, `${i.label}: `), String(i.message || ''))))));
   }
   return node;
 }

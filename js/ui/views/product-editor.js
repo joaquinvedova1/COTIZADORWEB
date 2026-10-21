@@ -429,8 +429,10 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
       logger.warn('Ruta de campo inválida', { path: String(path) });
       return;
     }
-    // P1 CIERRE (H-13): cambiar el margen lo hace propio; deja de ser el de la configuración de ejemplo.
-    if (path === 'pricing.targetMarginPct' && state.product.pricing && state.product.pricing.marginFromExample) {
+    // P1 CIERRE (H-13): cargar otro margen válido lo hace propio; deja de ser el de la configuración de ejemplo.
+    // Vaciar el campo o escribir un valor inválido no lo confirma (revisión de código).
+    const ownMargin = typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 100;
+    if (path === 'pricing.targetMarginPct' && ownMargin && state.product.pricing && state.product.pricing.marginFromExample) {
       delete state.product.pricing.marginFromExample;
       const field = stepBody && stepBody.querySelector(`[name="${cssEscape(path)}"]`);
       const wrap = field && field.closest('.field');

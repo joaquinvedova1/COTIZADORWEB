@@ -591,7 +591,7 @@ th.ta-right .qr-th { align-items: flex-end; }
    ocupa a lo sumo 2 líneas (el texto completo sigue en "Ver qué falta") y se oculta el subtítulo que repite el
    título, para que los montos entren antes en la pantalla. Sólo en pantalla: el PDF imprime todo. */
 @media screen and (max-width: 760px) {
-  .qr-draft-list li { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  .qr-draft-item { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   .qr-summary-sub-name-only { display: none; }
 }
 .qr-check-head { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }

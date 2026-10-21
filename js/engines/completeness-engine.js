@@ -205,6 +205,12 @@ function quantityAssumptionChanges(confirmed, current) {
   return changes;
 }
 
+/** ¿La confirmación "cada unidad hace todo el recorrido" de la línea sigue valiendo con los valores de ahora? */
+export function externalQuantityHolds(quote, line) {
+  const changes = quantityAssumptionChanges(line && line.externalQuantityConfirmed, externalQuantityAssumption(quote, line || {}));
+  return Array.isArray(changes) && changes.length === 0;
+}
+
 /**
  * Supuesto de "La cobertura está prevista" (P1 CIERRE, AUD-T1 H-10) para un puesto: días y horas de
  * la operación, personas por posición, horas normales, horas extra y si el servicio es continuo, TAL
@@ -719,23 +725,23 @@ export function evaluateCompleteness(quote = {}) {
   // cuenta TODO el recorrido de la ruta. Si en realidad las unidades se reparten los viajes, el costo
   // sale de más (+94 % en AUD-T1 E3). CRÍTICO (se pide confirmar antes de mandarla) sin volver NO
   // CONFIABLE el resultado; la confirmación vale sólo para el supuesto (`externalQuantityAssumption`).
-  // No cambia la fórmula.
+  // No cambia la fórmula. Sin ruta (o con "Sin traslados") no pregunta: la línea no suma costo y ya lo
+  // marca "Ruta del proveedor".
   {
-    const isExtLine = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
-    const x0 = (e) => (isPlainObject(e.external) ? e.external : {});
+    const legsPerActivation = (logistics.roundTrip === false ? 1 : 2) * route.tripsPerActivation;
+    const perActivationOf = (x) => (logistics.notApplicable ? 0 : x.unit === 'km' ? routeKmPerActivation : x.tripBasis === 'round_trip' ? route.tripsPerActivation : legsPerActivation);
     const multi = equipment
-      .filter((e) => isExtLine(e) && (x0(e).unit === 'km' || x0(e).unit === 'trip') && nonNegative(x0(e).price) > 0 && nonNegative(e.quantity) > 1 + 1e-9)
+      .filter((e) => isExt(e) && (extOf(e).unit === 'km' || extOf(e).unit === 'trip') && nonNegative(extOf(e).price) > 0 && nonNegative(e.quantity) > 1 + 1e-9 && perActivationOf(extOf(e)) > 0)
       .map((e) => ({ e, changes: quantityAssumptionChanges(e.externalQuantityConfirmed, externalQuantityAssumption(quote, e)) }))
       .filter(({ changes }) => changes === null || changes.length > 0);
     if (multi.length) {
       const { e: first, changes } = multi[0];
-      const x = x0(first);
+      const x = extOf(first);
       const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
       const qty = nonNegative(first.quantity);
       const isKm = x.unit === 'km';
       const roundTrip = x.unit === 'trip' && x.tripBasis === 'round_trip';
-      const legsPerActivation = (logistics.roundTrip === false ? 1 : 2) * route.tripsPerActivation;
-      const perActivation = logistics.notApplicable ? 0 : isKm ? routeKmPerActivation : roundTrip ? route.tripsPerActivation : legsPerActivation;
+      const perActivation = perActivationOf(x);
       const A = act.activationsPerMonth;
       const unitWord = isKm ? 'km' : roundTrip ? 'viaje completo' : 'tramo';
       const many = isKm ? 'km' : roundTrip ? 'viajes completos' : 'tramos';

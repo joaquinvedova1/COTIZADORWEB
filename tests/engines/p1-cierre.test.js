@@ -104,6 +104,28 @@ describe('P1 CIERRE · H-09: cantidad de un externo por km o por tramo', () => {
     assert.equal(pendingOf(computeQuote(e3(2, { price: 0 })), 'external_quantity'), null);
     assert.equal(pendingOf(computeQuote(e3(0)), 'external_quantity'), null);
   });
+
+  test('externalQuantityHolds: la confirmación vale sólo con la cantidad y la unidad confirmadas, aunque la regla no se aplique (revisión de código)', () => {
+    const holds = fn('externalQuantityHolds');
+    const q = e3(3);
+    q.equipment[0].externalQuantityConfirmed = fn('externalQuantityAssumption')(q, q.equipment[0]);
+    assert.equal(holds(q, q.equipment[0]), true);
+    q.equipment[0].external.price = 0; // la regla deja de aplicarse
+    q.equipment[0].quantity = 2;
+    assert.equal(pendingOf(computeQuote(q), 'external_quantity'), null);
+    assert.equal(holds(q, q.equipment[0]), false, 'confirmada con 3, ahora 2: el aviso "Confirmado" no se muestra');
+    assert.equal(holds(q, {}), false, 'sin confirmación');
+  });
+
+  test('sin ruta ("Sin traslados" o sin distancia) no pregunta: lo pide "Ruta del proveedor" (revisión de código)', () => {
+    for (const [name, patch] of [['Sin traslados', (q) => { q.logistics.notApplicable = true; }], ['sin distancia', (q) => { q.logistics.distanceKm = 0; }]]) {
+      const q = e3(2);
+      patch(q);
+      const r = computeQuote(q);
+      assert.equal(pendingOf(r, 'external_quantity'), null, name);
+      assert.ok(pendingOf(r, 'external_route'), `${name}: la ruta sigue pedida`);
+    }
+  });
 });
 
 // ------------------------------------------------------------------ H-10

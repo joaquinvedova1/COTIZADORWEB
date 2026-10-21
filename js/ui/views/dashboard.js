@@ -19,6 +19,7 @@ import { formatDateTime, formatMoney, formatNumber, formatPercent, EMPTY } from 
 import { isFiniteNumber } from '../../core/money.js';
 import { ACTIVE_QUOTE_STATUSES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
 import { DEMO_IDS } from '../../domain/demo-data.js';
+import { summaryCriticalCount } from '../../domain/quote-risk.js';
 import { COMPLETENESS_RISK_THRESHOLD } from '../../engines/completeness-engine.js';
 import { priceFromMargin, priceFromMarkup, markupToMargin, marginToMarkup, traceMarginVsMarkup } from '../../engines/pricing-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
@@ -255,7 +256,7 @@ function continueSection(draft) {
         h(
           'dd',
           { class: 'continue-progress' },
-          isFiniteNumber(pct) ? progressBar(pct, completenessTone(pct, (summary.criticalLabels || []).length), { label: 'Costos cargados' }) : null,
+          isFiniteNumber(pct) ? progressBar(pct, completenessTone(pct, summaryCriticalCount(summary)), { label: 'Costos cargados' }) : null,
           h('span', { class: 'mono small' }, isFiniteNumber(pct) ? formatPercent(pct, { decimals: 0 }) : EMPTY),
         ),
       ),

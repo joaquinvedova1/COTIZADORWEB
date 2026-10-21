@@ -28,7 +28,7 @@ import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { lineIncrementalImpact } from '../../../engines/impact-engine.js';
-import { externalUnitAssumption, externalQuantityAssumption, operatorSupplierSnapshot } from '../../../engines/completeness-engine.js';
+import { externalUnitAssumption, externalQuantityAssumption, externalQuantityHolds, operatorSupplierSnapshot } from '../../../engines/completeness-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -935,7 +935,8 @@ export function render(container, ctx) {
       h('div', {}, h('strong', {}, 'Confirmado: cada unidad hace todo el recorrido. '),
         `Con cantidad ${formatNumber(Number(c.quantity) || 0, { decimals: 2 })}, la tarifa se paga por el recorrido completo de cada unidad. Si cambian la cantidad o la unidad de la tarifa, se vuelve a pedir.`),
       ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar la cantidad', () => ctx.mutate((q) => { delete q.equipment[index].externalQuantityConfirmed; }, { focus: `equipment.${index}.quantity` }), { icon: 'edit' })),
-    ), (r) => !quantityPendingOf(r, index) && (Number((quote.equipment[index] || {}).quantity) || 0) > 1);
+    // Además tiene que coincidir con la cantidad y la unidad de ahora, aunque la regla no se aplique (p. ej., tarifa en 0).
+    ), (r) => !quantityPendingOf(r, index) && (Number((quote.equipment[index] || {}).quantity) || 0) > 1 && externalQuantityHolds(quote, quote.equipment[index]));
     return h('div', { class: 'qe-quantity-confirm-wrap' }, pendingBanner, confirmedBanner);
   };
 

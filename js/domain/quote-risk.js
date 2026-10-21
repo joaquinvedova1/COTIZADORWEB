@@ -45,6 +45,16 @@ export function riskSummary(completeness) {
   return { unreliable: unreliable.length > 0, unreliableLabels: labelsOf(unreliable), criticalLabels: labelsOf(critical) };
 }
 
+/**
+ * Pendientes críticos del resumen de una cotización (`summarizeQuote`), contando los que la vuelven NO CONFIABLE
+ * (que `criticalLabels` deja aparte). Es lo que decide que "Costos cargados" nunca vaya en verde (UI-02).
+ */
+export function summaryCriticalCount(summary) {
+  if (!summary || typeof summary !== 'object') return 0;
+  const n = (list) => (Array.isArray(list) ? list.length : 0);
+  return n(summary.criticalLabels) + n(summary.unreliableLabels);
+}
+
 /** true si el resumen de una cotización (`summarizeQuote`) dice que su resultado NO ES CONFIABLE (no cuenta un error de cálculo). */
 export function isUnreliableSummary(summary) {
   return Boolean(summary) && typeof summary === 'object' && summary.error !== true && summary.unreliable === true;

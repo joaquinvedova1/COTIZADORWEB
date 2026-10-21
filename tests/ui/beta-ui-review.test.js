@@ -12,6 +12,9 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { completenessTone } from '../../js/engines/completeness-engine.js';
+import { computeQuote, summarizeQuote } from '../../js/engines/quote-engine.js';
+import * as quoteRisk from '../../js/domain/quote-risk.js';
+import { readFileSync } from 'node:fs';
 // Import de espacio de nombres: contra el candidato anterior (sin la función) el test falla por su cuenta.
 import * as library from '../../js/ui/views/library.js';
 
@@ -32,6 +35,20 @@ describe('UI-02 · tono de "Costos cargados"', () => {
   test('un crítico no mejora un tono peor', () => {
     assert.equal(completenessTone(70, 1), 'orange');
     assert.equal(completenessTone(20, 1), 'red');
+  });
+
+  test('listas e Inicio cuentan también los críticos que vuelven NO CONFIABLE el resultado (revisión de código)', () => {
+    assert.equal(typeof quoteRisk.summaryCriticalCount, 'function', 'falta summaryCriticalCount');
+    // AUD-T1 E1: el abono con más días que los disponibles (ECO-04, H-04) es crítico y NO CONFIABLE.
+    const q = JSON.parse(readFileSync(new URL('../fixtures/eco-01/e1-cotizacion.json', import.meta.url), 'utf8'));
+    q.activity.activeDaysPerMonth = (q.activity.availableDaysPerMonth || 30) + 5;
+    const r = computeQuote(structuredClone(q));
+    const s = summarizeQuote(q);
+    const unreliableCritical = r.completeness.pending.filter((p) => p.severity === 'critical' && p.unreliable === true).length;
+    assert.ok(unreliableCritical > 0, 'el caso tiene un crítico NO CONFIABLE');
+    assert.ok(quoteRisk.summaryCriticalCount(s) > 0);
+    assert.notEqual(completenessTone(100, quoteRisk.summaryCriticalCount(s)), 'green');
+    assert.equal(quoteRisk.summaryCriticalCount(null), 0);
   });
 });
 

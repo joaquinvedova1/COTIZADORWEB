@@ -22,7 +22,7 @@ import { billingUnitOf } from '../../domain/billing-units.js';
 import { quantityCeilText } from '../unit-text.js';
 import { breakEvenZeroText, joinList } from '../result-text.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
-import { impliesSending, isUnreliableSummary, riskSummary, sendCheck } from '../../domain/quote-risk.js';
+import { impliesSending, isUnreliableSummary, riskSummary, sendCheck, summaryCriticalCount } from '../../domain/quote-risk.js';
 import { guardSending, sendBlockedNote } from '../send-guard.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { templateContents } from './services.js';
@@ -275,7 +275,7 @@ export function quoteColumns({ statusCell = null } = {}) {
       align: 'right',
       render: ({ quote, summary }) => breakEvenNode(quote, summary),
     },
-    { key: 'completeness', label: 'Costos cargados', render: ({ summary }) => (summaryFailed(summary) ? muted() : completenessCell(summary.completenessPct, (summary.criticalLabels || []).length)) },
+    { key: 'completeness', label: 'Costos cargados', render: ({ summary }) => (summaryFailed(summary) ? muted() : completenessCell(summary.completenessPct, summaryCriticalCount(summary))) },
     { key: 'status', label: 'Estado', render: statusCell || (({ quote }) => statusBadge(quote.status)) },
   ];
 }
@@ -547,7 +547,7 @@ export async function render(root, app) {
         ['Tarifa', quoteRateNode(quote, summary)],
         ['Margen esperado', quoteMarginNode(summary)],
         ['Para no perder (por mes)', breakEvenNode(quote, summary)],
-        ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct, (summary.criticalLabels || []).length)],
+        ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct, summaryCriticalCount(summary))],
         ['Última modificación', formatDateTime(quote.updatedAt)],
       ]),
       h('div', { class: 'field' }, h('label', { class: 'field-label', for: statusId }, 'Estado'), h('div', {}, select)),
