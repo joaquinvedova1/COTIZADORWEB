@@ -28,16 +28,27 @@ Reglas para este archivo:
   - Un admin no revisa reportes de su propia empresa.
 - **Antes de restaurar un respaldo:** se avisa cuántos cálculos que la empresa nunca tuvo usaría y si alcanzan.
 - **Pruebas:**
-  - SQL (100 controles) y concurrencia real en un Postgres local SIMULADO (6 casos);
+  - SQL (102 controles) y concurrencia real en un Postgres local SIMULADO (6 casos);
   - vuelta atrás probada;
-  - `tests/data/beta-credits.test.js` y `tests/services/beta-service.test.js`;
+  - `tests/data/beta-credits.test.js`, `tests/services/beta-service.test.js` y `tests/engines/beta-pyme.test.js`;
   - `tests/lab/e2e/beta-lab.mjs` en escritorio y celular;
   - control SEC-19 del Beta Security Gate.
 
 ### Cambiado
-- **El código COT-NNNN** de una cotización nueva o duplicada se reserva **en la misma escritura** que la cotización (antes eran dos). Una creación rechazada no consume código.
+- **El código COT-NNNN** de una cotización nueva o duplicada se reserva **en la misma escritura** que la cotización (antes eran dos). Si la base rechaza la creación por falta de créditos, ese código no se reusa: queda un salto en la numeración, como una factura anulada.
 - **El ejemplo "Chipá"** usa un id fijo: hay uno solo a la vez y, si ya existe, "Ver un ejemplo" lo abre.
-- **El rechazo por créditos** (`credits_exhausted`) no se reintenta. Primero guarda una copia de recuperación, después quita del navegador los cálculos que la nube nunca aceptó y sube el resto. Los ids inválidos (`invalid_calculations`) tampoco se reintentan.
+- **El rechazo por créditos** (`credits_exhausted`) no se reintenta.
+  - Primero guarda una copia de recuperación.
+  - Después quita del navegador sólo los cálculos que la base dice que cobraría (vienen en el detalle del rechazo) y sube el resto.
+  - Sin copia no se quita nada.
+  - Queda un aviso fijo hasta que la persona lo cierra.
+  - Los ids inválidos (`invalid_calculations`) tampoco se reintentan.
+  - Las listas de más de 5000 cálculos se rechazan.
+- **Completitud (auditoría PyME de la beta, P1-1 y P1-2).** Ninguna fórmula cambia. En el A/B, las cifras son iguales en 2196 cotizaciones.
+  - **Consumo en ruta en 0:** un equipo que va por sus propios medios, con km y "Consumo trasladándose" en 0, deja "Combustible" pendiente aunque consuma trabajando. Antes quedaba ✓ y la ruta no sumaba combustible.
+  - **Cargas sociales de ejemplo:** un puesto usado, sin convenio y con las cargas y horas genéricas, suma "Cargas sociales del personal" como pendiente para revisar (BORRADOR), igual que en productos (H-13).
+- **Insignia ILUSTRATIVO:** nombra la tasa de financiación de ejemplo. Antes decía "Incluye valores ILUSTRATIVOS: .".
+- **Reportes:** se quitan los caracteres invisibles y de dirección de texto, en la base y en el navegador.
 - **`supabase/tests/beta_security_test.sql`:** la cotización de prueba del JSON con `organization_id` ajeno lleva id (con la cuota, una sin id se rechaza). Pasa igual con y sin la migración nueva.
 
 ## [0.9.0] - sin publicar (candidato a beta, PLAN-2026-027)

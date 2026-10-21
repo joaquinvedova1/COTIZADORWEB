@@ -50,7 +50,7 @@ Postgres cobra al guardar el workspace (la fila JSON `workspace_states.state`) e
   - volcar por la API el contenido de una plantilla (`services[]`) sobre un cálculo ya cobrado.
 
   Las plantillas no se cobran: no muestran resultado. Crear una cotización desde una plantilla sí cobra.
-- La reserva del código COT-NNNN y la cotización van en **una sola escritura**. Si la base la rechaza, no queda un código consumido.
+- La reserva del código COT-NNNN y la cotización van en **una sola escritura**: nunca queda una cotización sin código ni un código a medias. Si la base rechaza la creación por falta de créditos, ese código no se reusa (queda un salto en la numeración, como una factura anulada): así dos pestañas o dos personas nunca terminan con el mismo COT.
 
 ## 3. Modelo de datos (todo en `private`)
 
@@ -123,7 +123,7 @@ La cuota no es una barrera contra el registro abusivo. Opciones:
    | `rls_test.sql` | 40 |
    | `rls_admin_test.sql` | 32 |
    | `beta_security_test.sql` | 132 |
-   | `credits_reports_test.sql` | `CREDITS_TESTS_PASSED: 100 controles` |
+   | `credits_reports_test.sql` | `CREDITS_TESTS_PASSED: 102 controles` |
 
    Después, un control de 0 filas sintéticas.
 5. **Recién entonces, las cuentas testers** (Dashboard o la ventana de registro controlada).

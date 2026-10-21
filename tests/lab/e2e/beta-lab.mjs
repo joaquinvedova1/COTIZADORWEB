@@ -195,9 +195,10 @@ async function runMode(mode) {
   check('agotar', 'un producto en blanco usa el último crédito', acct.balance === 0 && productsT().length === 2, `saldo ${acct.balance}, productos ${productsT().length}`);
   await t.go('#/nuevo');
   body = await t.text();
-  const cards = await page.evaluate(() => [...document.querySelectorAll('.calc-choice')].map((c) => ({ disabled: c.getAttribute('aria-disabled') === 'true', link: c.tagName === 'A' })));
+  const cards = await page.evaluate(() => [...document.querySelectorAll('.calc-choice')].map((c) => ({ text: c.textContent.trim().slice(0, 20), disabled: c.getAttribute('aria-disabled') === 'true', link: c.tagName === 'A' })));
   check('agotar', 'Nuevo cálculo: el mensaje del dueño, palabra por palabra', body.includes(EXHAUSTED), norm(body).slice(0, 240));
-  check('agotar', 'Nuevo cálculo: servicio y producto no llevan a crear', cards.length === 2 && cards.every((c) => c.disabled && !c.link), JSON.stringify(cards));
+  // Servicio no lleva a crear; producto sí, porque ahí está el ejemplo, que no usa créditos.
+  check('agotar', 'Nuevo cálculo: servicio deshabilitado y producto disponible (el ejemplo no cobra)', cards.length === 2 && cards[0].disabled && !cards[0].link && !cards[1].disabled && cards[1].link, JSON.stringify(cards));
   await t.go('#/cotizaciones/nueva');
   const choices = await page.evaluate(() => [...document.querySelectorAll('.quote-choice')].map((b) => b.disabled));
   check('agotar', 'Nueva cotización: todas las opciones deshabilitadas y el aviso a la vista', choices.length > 0 && choices.every(Boolean) && (await t.text()).includes(EXHAUSTED), JSON.stringify(choices));
@@ -246,7 +247,8 @@ async function runMode(mode) {
     recovery: Object.keys(localStorage).filter((k) => k.includes('.recovery.')).length,
   }));
   check('carrera', 'la base rechaza la creación: aviso con el mensaje del dueño', (await t.toasts()).includes(EXHAUSTED), await t.toasts());
-  check('carrera', 'nada a medias: ni la cotización ni el código en la nube', quotesT().length === before && wsT().state.settings.lastQuoteNumber === 1, `${quotesT().length} cotizaciones, último código ${wsT().state.settings.lastQuoteNumber}`);
+  // El código COT que se reservó no se reusa (queda un salto, como en una numeración de facturas anulada).
+  check('carrera', 'nada a medias: la cotización no llega a la nube y su código no se reusa', quotesT().length === before && wsT().state.settings.lastQuoteNumber === 2, `${quotesT().length} cotizaciones, último código ${wsT().state.settings.lastQuoteNumber}`);
   check('carrera', 'no queda en el editor de una cotización inexistente y la sincronización no queda en error', !/\/service$/.test(afterRace.hash) && !/No pudimos sincronizar/.test(afterRace.sync), JSON.stringify(afterRace));
   check('carrera', 'lo rechazado queda en una copia de recuperación del navegador', afterRace.recovery >= 1, JSON.stringify(afterRace));
 

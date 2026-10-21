@@ -88,7 +88,7 @@ function checkJsonSafe(value, path, errors, depth = 0) {
   errors.push(`${path}: tipo de dato no soportado (${t}).`);
 }
 
-function checkEntityList(list, path, errors, { requireName = null } = {}) {
+function checkEntityList(list, path, errors, { requireName = null, maxIdLength = null } = {}) {
   if (!Array.isArray(list)) {
     errors.push(`${path}: debe ser una lista.`);
     return;
@@ -100,6 +100,8 @@ function checkEntityList(list, path, errors, { requireName = null } = {}) {
       return;
     }
     if (typeof item.id !== 'string' || item.id.trim() === '') errors.push(`${path}[${i}]: falta "id".`);
+    // Mismo tope que la cuota de la beta en Postgres (BETA-CR): un id más largo bloquearía todos los guardados.
+    else if (maxIdLength && item.id.length > maxIdLength) errors.push(`${path}[${i}]: el id supera los ${maxIdLength} caracteres.`);
     else if (ids.has(item.id)) errors.push(`${path}[${i}]: id duplicado.`);
     else ids.add(item.id);
     if (requireName && typeof item[requireName] !== 'string') errors.push(`${path}[${i}]: falta "${requireName}".`);
@@ -208,9 +210,9 @@ export function validateState(state) {
   if (!isPlainObject(state.resources)) errors.push('resources: debe ser un objeto.');
   else RESOURCE_TYPES.forEach((t) => checkEntityList(state.resources[t] ?? [], `resources.${t}`, errors));
   checkEntityList(state.services, 'services', errors, { requireName: 'name' });
-  checkEntityList(state.quotes, 'quotes', errors, { requireName: 'name' });
+  checkEntityList(state.quotes, 'quotes', errors, { requireName: 'name', maxIdLength: 100 });
   checkQuoteShapes(state.quotes, errors, state.services);
-  checkEntityList(state.products ?? [], 'products', errors, { requireName: 'name' });
+  checkEntityList(state.products ?? [], 'products', errors, { requireName: 'name', maxIdLength: 100 });
   checkProductShapes(state.products, errors);
   if (!isPlainObject(state.settings)) errors.push('settings: debe ser un objeto.');
   else {

@@ -15,6 +15,7 @@ import { createQuoteService } from '../../js/services/quote-service.js';
 import { createProductService } from '../../js/services/product-service.js';
 import { DEMO_IDS } from '../../js/domain/demo-data.js';
 import { createFakeServer, SpyStorage } from '../helpers/fake-supabase.js';
+import { validateState, createEmptyState } from '../../js/data/schema.js';
 
 let timersSet = 0;
 const noTimers = { setTimeout: () => { timersSet += 1; return 1; }, clearTimeout: () => {} };
@@ -303,6 +304,16 @@ describe('créditos: revisiones de seguridad y de corrección', () => {
     const backup = await repo.exportBackup();
     for (let i = 0; i < 4; i += 1) await repo.importBackup(backup);
     assert.ok(recoveryKeys(cache).some((k) => k.endsWith('.credits-exhausted')), recoveryKeys(cache).join(', '));
+  });
+
+  test('un respaldo con un id de cálculo de más de 100 caracteres se rechaza al validarlo (la base lo rechazaría siempre)', () => {
+    const state = createEmptyState();
+    state.quotes = [{ id: 'x'.repeat(101), name: 'Larga' }];
+    assert.ok(validateState(state).errors.some((e) => /quotes\[0\]: el id supera los 100 caracteres/.test(e)));
+    state.quotes = [{ id: 'x'.repeat(100), name: 'Justa' }];
+    assert.ok(!validateState(state).errors.some((e) => /supera/.test(e)));
+    state.products = [{ id: 'p'.repeat(101), name: 'Larga' }];
+    assert.ok(validateState(state).errors.some((e) => /products\[0\]: el id supera/.test(e)));
   });
 });
 

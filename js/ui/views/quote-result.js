@@ -1445,7 +1445,9 @@ function illustrativeBadge(v) {
     const parts = [];
     if (info.lines > 0) parts.push(`${formatNumber(info.lines)} ${info.lines === 1 ? 'ítem copiado' : 'ítems copiados'} de plantillas o bibliotecas de demostración`);
     if (info.fuel) parts.push('precio de combustible ilustrativo');
-    title = `Incluye valores ILUSTRATIVOS: ${parts.join(' y ')}. Reemplazalos por valores propios vigentes.`;
+    // Auditoría PyME (BETA-CR, P2): la tasa de financiación de ejemplo también cuenta (antes quedaba "…: .").
+    if (info.finance) parts.push('tasa de financiación ilustrativa');
+    title = `Incluye valores ILUSTRATIVOS: ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}` : parts[0]}. Reemplazalos por valores propios vigentes.`;
   }
   return badge('ILUSTRATIVO', 'orange', { title });
 }
