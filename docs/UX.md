@@ -146,6 +146,13 @@ Antes de agregar algo a una pantalla, preguntate: **¿todo lo que estoy mostrand
 
 Y verificá: un CTA principal, contexto antes de cada input, estados vacíos con acción, "Ver cálculo" en cada resultado importante, mobile sin scroll horizontal.
 
+**No perder lo cargado (UX-01):** un formulario nunca descarta lo cargado sin preguntar, y un valor que no se guardó siempre se dice:
+
+- **Diálogos con formulario:** sin cierre por clic en el fondo; Esc, la X o "Cancelar" con cambios preguntan "¿Descartar los cambios?" ([Seguir editando] / [Descartar]). "Cambios" es lo que se guardaría distinto de lo que se abrió: marcar y desmarcar una casilla no lo es.
+- **Un número, un mes o un texto obligatorio inválido** vuelve a su valor anterior al confirmarlo, y lo dice debajo del campo. Si eso pasa porque se sale de la pantalla, el aviso aparece en la siguiente (la pantalla, el campo, lo que se escribió y qué quedó) y queda hasta cerrarlo. En un diálogo que se cierra sin guardar, no hace falta.
+- **Pantallas que guardan solas:** al salir, lo válido se guarda aunque otro campo esté (o haya estado) inválido; lo que ni así se puede guardar, se avisa. Lo que se guarda con un botón y no se guardó, se avisa.
+- **Los avisos de error** quedan hasta cerrarlos.
+
 ## 9. Componentes de base (`js/ui/components.js`)
 
 | Componente | Uso |
@@ -156,5 +163,8 @@ Y verificá: un CTA principal, contexto antes de cada input, estados vacíos con
 | `emptyState({ title, text, action, secondary, icon })` | Estado vacío con salida. |
 | `linkButton(label, href, opts)` | Navegación con aspecto de botón (enlace real). |
 | `stepIndicator({ current, total })` | "Paso 2 de 4" con barra. |
+| `openDialog({ title, content, actions, isDirty })` | Diálogo modal. Con `isDirty` (un formulario): un clic en el fondo no lo cierra; Esc (también dos veces seguidas), la X y `requestClose()` (el "Cancelar") preguntan "¿Descartar los cambios?" si hay cambios. `close()` cierra sin preguntar (después de guardar). |
+| `toast(message, tone, { timeout })` | Aviso abajo a la derecha, con "Cerrar". Los de error (y `timeout: 0`) quedan hasta cerrarlos; como máximo 4 (se van primero los que se iban solos), y uno igual a otro a la vista no se repite. |
+| `announceRestored(field, …)` + `installRestoreNotices({ notify })` | Un valor que no se guardó y volvió al anterior cuando su pantalla se fue se avisa en la siguiente (`app.notice`, sólo con la cuenta abierta). Si era de un diálogo que se cerró sin guardar, no. |
 
 Formato abreviado para resúmenes: `formatMoneyCompact()` en `js/core/format.js` ("$ 15,8 M"; con `ceil: true` para tarifas, nunca muestra menos que el valor calculado).

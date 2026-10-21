@@ -441,7 +441,12 @@ html { scroll-padding-top: 7rem; }
 /* ------------------------------------------------------------------ toasts */
 
 .toast-region { position: fixed; right: 1.25rem; bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 50; }
-.toast { background: var(--ink); color: var(--white); padding: 0.65rem 1rem; border-radius: 8px; box-shadow: var(--shadow); font-size: 0.9rem; max-width: 380px; }
+.toast { display: flex; align-items: flex-start; gap: 0.5rem; background: var(--ink); color: var(--white); padding: 0.65rem 0.5rem 0.65rem 1rem; border-radius: 8px; box-shadow: var(--shadow); font-size: 0.9rem; max-width: min(380px, calc(100vw - 2.5rem)); }
+.toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-text a { color: inherit; }
+.toast-close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -0.25rem 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.toast-close:hover { background: rgba(255, 255, 255, 0.16); }
+.toast-close:focus-visible { outline: 2px solid var(--white); outline-offset: 1px; }
 .toast-success { background: #157A50; }
 .toast-warning { background: #9A5F12; }
 .toast-danger { background: var(--red-text); }

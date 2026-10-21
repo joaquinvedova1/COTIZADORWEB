@@ -12,6 +12,32 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**UX-01 (PLAN-2026-022): formularios que no pierden cambios sin avisar y valores que no se corrigen en silencio.** Ninguna fórmula ni dato cambia (esquema 10, golden 39/39 sin tocar).
+
+### Corregido
+
+- **Diálogos con formulario** (la ficha de cada recurso, "Renombrar plantilla" y "Guardar como plantilla"):
+  - un clic en el fondo ya no los cierra;
+  - Esc (también dos veces seguidas), la X o "Cancelar" con cambios sin guardar preguntan "¿Descartar los cambios?" ([Seguir editando] / [Descartar]);
+  - sin cambios, cierran como siempre; marcar y desmarcar una casilla no cuenta como cambio (RES-02-G4, DESIGN-01 D1b).
+- **Un valor inválido que vuelve al anterior al salir de la pantalla** (otro paso, el menú o Atrás):
+  - aparece un aviso que queda hasta cerrarlo, con la pantalla, el campo, lo que se escribió, por qué no se guardó y qué valor quedó;
+  - antes, el aviso quedaba en la vista que se cerraba;
+  - vale para el editor de cotizaciones, el de productos y Configuración (también para el nombre de la empresa borrado);
+  - en un diálogo que se cierra sin guardar no hay aviso: se descartó a propósito.
+- **Campos de mes** (en navegadores sin selector de mes se ven como texto): un texto inválido vuelve al último mes guardado y lo dice, como los números. Antes quedaba marcado como inválido y, en Configuración, frenaba el guardado de su sección.
+- **Configuración:**
+  - al salir con un campo inválido, ese campo vuelve a su valor anterior (con el aviso) y el resto de la sección se guarda. Antes no se guardaba nada de esa sección;
+  - un cambio que no se guardó porque en ese momento la sección estaba inválida se guarda al salir, si ya se puede;
+  - si una sección ni así se puede guardar (p. ej. impuestos que suman 100 % o más), un aviso lo dice.
+- **"Mi cuenta":** si se sale con un nombre escrito sin tocar "Guardar nombre", un aviso lo dice (no, si el nombre se está guardando).
+- **Avisos:**
+  - los de error quedan hasta cerrarlos;
+  - todos tienen "Cerrar";
+  - como máximo 4 a la vez: se van primero los que igual se iban solos; uno igual a otro que ya está a la vista no se repite;
+  - al cerrar la cuenta se borran todos (no queda nada de la empresa en pantalla).
+- Tests: `tests/ui/ux-01-forms.test.js` y el bloque UX-01 de `ui-lab` (28 controles por modo; 20 fallan en `main`).
+
 **ECO-04 (PLAN-2026-021): avisos verificables para AUD-T1 H-04, H-08 y VAL-01-F2.** Ninguna fórmula cambia: golden 39/39 y candado sin tocar, y las mismas cifras que `main` (A/B). Cambian la completitud (pendientes nuevos que aparecen sólo cuando se disparan) y los textos. Esquema sin cambios (sigue en 10), sin migraciones.
 
 ### Agregado

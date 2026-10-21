@@ -918,6 +918,273 @@ async function runMode(mode) {
     }
   }
 
+  // ---- UX-01 (PLAN-2026-022): ningún formulario pierde cambios sin avisar y ningún valor se corrige en silencio.
+  // Cada paso tolera que el anterior falle (en `main` estos controles fallan y la corrida sigue).
+  {
+    const S = 'UX-01';
+    const state = () => db.workspaces.get(orgId).state;
+    const dialogs = () => page.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => ((d.querySelector('.dialog-title') || {}).textContent || '').trim()));
+    const toastList = () => page.evaluate(() => [...document.querySelectorAll('.toast')].map((t) => ({ text: t.textContent.replace(/\s+/g, ' ').trim(), close: Boolean(t.querySelector('.toast-close')) })));
+    const tapIf = async (loc) => {
+      if (!(await loc.count())) return false;
+      await tap(loc.first());
+      return true;
+    };
+    const closeToasts = () => page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => t.remove()));
+    const ASK = '¿Descartar los cambios?';
+    let list = [];
+
+    // 1. Ficha de un recurso (RES-02-G4): Esc, clic en el fondo, la X y "Descartar".
+    await go('#/recursos/personal', 900);
+    const profilesBefore = (state().laborProfiles || []).length;
+    await tapIf(page.getByRole('button', { name: 'Agregar perfil' }));
+    await page.waitForTimeout(500);
+    const role = page.locator('dialog[open]').getByLabel('Rol / puesto');
+    if (await role.count()) await role.fill('Puesto UX-01');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    let open = await dialogs();
+    check(S, `Recursos: con cambios, Esc pregunta "${ASK}" y la ficha sigue abierta`, open.length === 2 && open.includes(ASK), JSON.stringify(open));
+    await tapIf(page.getByRole('button', { name: 'Seguir editando' }));
+    await page.waitForTimeout(300);
+    open = await dialogs();
+    const kept = (await role.count()) ? await role.inputValue() : null;
+    check(S, 'Recursos: "Seguir editando" vuelve a la ficha con lo cargado', open.length === 1 && kept === 'Puesto UX-01', `${JSON.stringify(open)} · ${kept}`);
+    // Clic en el fondo: el evento llega al propio <dialog> (fuera de la caja).
+    await page.evaluate(() => {
+      const d = document.querySelector('dialog[open]');
+      if (d) d.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    open = await dialogs();
+    check(S, 'Recursos: un clic en el fondo no cierra la ficha', open.length === 1, JSON.stringify(open));
+    await tapIf(page.locator('dialog[open] .dialog-header button[aria-label="Cerrar"]'));
+    await page.waitForTimeout(300);
+    open = await dialogs();
+    check(S, 'Recursos: la X también pregunta antes de cerrar', open.includes(ASK), JSON.stringify(open));
+    await tapIf(page.getByRole('button', { name: 'Descartar', exact: true }));
+    await page.waitForTimeout(500);
+    open = await dialogs();
+    check(S, 'Recursos: "Descartar" cierra la ficha sin guardar nada', open.length === 0 && (state().laborProfiles || []).length === profilesBefore, `${JSON.stringify(open)} · ${(state().laborProfiles || []).length} perfiles (antes ${profilesBefore})`);
+    // Sin cambios, Esc cierra como siempre.
+    if (open.length) await page.keyboard.press('Escape');
+    await tapIf(page.getByRole('button', { name: 'Agregar perfil' }));
+    await page.waitForTimeout(500);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    open = await dialogs();
+    check(S, 'Recursos: sin cambios, Esc cierra la ficha sin preguntar', open.length === 0, JSON.stringify(open));
+    while ((await dialogs()).length) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+    }
+    const discardAll = async () => {
+      for (let i = 0; i < 4 && (await dialogs()).length; i += 1) {
+        if ((await dialogs()).includes(ASK)) await tapIf(page.getByRole('button', { name: 'Descartar', exact: true }));
+        else await tapIf(page.locator('dialog[open] .dialog-header button[aria-label="Cerrar"]').last());
+        await page.waitForTimeout(300);
+      }
+    };
+    // Esc dos veces seguidas, sin un clic en el medio (Chrome cierra el segundo sin `cancel` cancelable).
+    await tapIf(page.getByRole('button', { name: 'Agregar perfil' }));
+    await page.waitForTimeout(500);
+    if (await role.count()) await role.fill('Puesto UX-01 bis');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    open = await dialogs();
+    const keptTwice = (await role.count()) ? await role.inputValue() : null;
+    check(S, 'Recursos: Esc dos veces seguidas no cierra la ficha con cambios (sigue lo cargado)', open.some((t) => t !== ASK) && keptTwice === 'Puesto UX-01 bis', `${JSON.stringify(open)} · ${keptTwice}`);
+    // Un valor inválido en la ficha y "Cancelar" → "Descartar": no queda un aviso de lo que no se guardó (se descartó a propósito).
+    await closeToasts();
+    const basic = page.locator('dialog[open]').getByLabel('Sueldo básico mensual');
+    if (await basic.count()) await basic.fill('abc');
+    await tapIf(page.locator('dialog[open]').getByRole('button', { name: 'Cancelar', exact: true }));
+    await page.waitForTimeout(300);
+    await tapIf(page.getByRole('button', { name: 'Descartar', exact: true }));
+    await page.waitForTimeout(1900);
+    open = await dialogs();
+    list = await toastList();
+    check(S, 'Recursos: al descartar la ficha, un valor inválido de la ficha no deja un aviso fijo', open.length === 0 && !list.some((t) => /abc/.test(t.text)), `${JSON.stringify(open)} · ${JSON.stringify(list).slice(0, 200)}`);
+    await discardAll();
+    // Marcar y desmarcar una casilla (sin valor guardado) no es un cambio: Esc cierra sin preguntar.
+    await go('#/recursos/equipos', 900);
+    await tapIf(page.getByRole('button', { name: 'Agregar equipo' }));
+    await page.waitForTimeout(500);
+    const noFuel = () => page.locator('dialog[open]').getByLabel('No usa combustible').first();
+    let toggledBack = false;
+    if (await page.locator('dialog[open]').getByLabel('No usa combustible').count()) {
+      await tap(noFuel());
+      await page.waitForTimeout(250);
+      await tap(noFuel());
+      await page.waitForTimeout(250);
+      toggledBack = !(await noFuel().isChecked());
+    }
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    open = await dialogs();
+    check(S, 'Recursos: marcar y desmarcar una casilla no cuenta como cambio (Esc cierra sin preguntar)', toggledBack && open.length === 0, `${toggledBack} · ${JSON.stringify(open)}`);
+    await discardAll();
+
+    // 2. "Guardar como plantilla" (editor): Esc con cambios pregunta; "Descartar" no crea la plantilla.
+    const q1 = byId['E2E-01'].q;
+    await go(`#/cotizaciones/${encodeURIComponent(q1.id)}/service`, 900);
+    const servicesBefore = (state().services || []).length;
+    await tapIf(page.getByRole('button', { name: 'Guardar como plantilla' }));
+    await page.waitForTimeout(500);
+    const desc = page.locator('dialog[open]').getByLabel('Descripción');
+    if (await desc.count()) await desc.fill('Plantilla UX-01 sin guardar');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    open = await dialogs();
+    check(S, `Guardar como plantilla: con cambios, Esc pregunta "${ASK}"`, open.length === 2 && open.includes(ASK), JSON.stringify(open));
+    await tapIf(page.getByRole('button', { name: 'Descartar', exact: true }));
+    await page.waitForTimeout(500);
+    open = await dialogs();
+    check(S, 'Guardar como plantilla: "Descartar" cierra sin crear la plantilla', open.length === 0 && (state().services || []).length === servicesBefore, `${JSON.stringify(open)} · ${(state().services || []).length} plantillas (antes ${servicesBefore})`);
+    while ((await dialogs()).length) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+    }
+
+    // 3. Editor: un valor inválido sin confirmar y salir del paso (sin que el campo pierda el foco).
+    await closeToasts();
+    const storedMargin = () => ((state().quotes || []).find((x) => x.id === q1.id) || {}).pricing?.targetMarginPct;
+    const marginBefore = storedMargin();
+    await go(`#/cotizaciones/${encodeURIComponent(q1.id)}/margin`, 900);
+    const marginInput = page.locator('[name="pricing.targetMarginPct"]').first();
+    if (await marginInput.count()) await marginInput.fill('12x');
+    await go(`#/cotizaciones/${encodeURIComponent(q1.id)}/service`, 1200);
+    list = await toastList();
+    const editorNotice = list.find((t) => /Margen que querés ganar/.test(t.text) && /12x/.test(t.text));
+    check(S, 'Editor: al salir del paso con un valor inválido, un aviso dice qué campo, qué se escribió y qué valor quedó', Boolean(editorNotice) && /Quedó/.test(editorNotice.text), JSON.stringify(list).slice(0, 300));
+    check(S, 'Editor: lo guardado es el valor anterior (no se guardó el inválido)', storedMargin() === marginBefore, `${storedMargin()} vs ${marginBefore}`);
+
+    // 4. Configuración: un cambio válido y, sin salir del campo, otro inválido; se sale con Atrás o un atajo (sin perder el foco).
+    await closeToasts();
+    await go('#/configuracion/parametros', 1200);
+    const marginBase = state().settings ? state().settings.defaultTargetMarginPct : null;
+    const target = marginBase === 23 ? 24 : 23;
+    const sMargin = page.getByLabel('Margen objetivo').first();
+    const sFuel = page.getByLabel('Precio del combustible (sin IVA)').first();
+    if (await sMargin.count()) await sMargin.fill(String(target));
+    if (await sFuel.count()) await sFuel.fill('mil');
+    await go('#/inicio', 2000);
+    check(S, 'Configuración: al salir con un campo inválido, el resto de la sección se guarda igual (margen objetivo)', state().settings && state().settings.defaultTargetMarginPct === target, `guardado ${state().settings && state().settings.defaultTargetMarginPct}, esperado ${target}`);
+    list = await toastList();
+    const settingsNotice = list.find((t) => /Precio del combustible/.test(t.text) && /mil/.test(t.text));
+    check(S, 'Configuración: un aviso dice que "mil" no se guardó en el precio del combustible y qué valor quedó', Boolean(settingsNotice) && /Quedó/.test(settingsNotice.text), JSON.stringify(list).slice(0, 300));
+
+    // 4b. Configuración: un mes inválido (navegador sin selector de mes: se ve como texto) no frena el guardado de su sección.
+    await closeToasts();
+    await go('#/configuracion/parametros', 1200);
+    await tapIf(page.getByRole('button', { name: 'Agregar tipo de cambio' }));
+    await page.waitForTimeout(300);
+    const rateField = () => page.getByLabel(/^Tipo de cambio \(/).last();
+    const monthField = () => page.getByLabel('Mes del tipo de cambio').last();
+    const hasRow = async () => (await page.getByLabel(/^Tipo de cambio \(/).count()) > 0 && (await page.getByLabel('Mes del tipo de cambio').count()) > 0;
+    const savedRates = () => (state().settings && state().settings.exchangeRates) || [];
+    let monthState = null;
+    if (await hasRow()) {
+      await rateField().fill('1234');
+      await monthField().evaluate((el) => { el.type = 'text'; });
+      await monthField().fill('sept 26');
+      await monthField().press('Tab');
+      await page.waitForTimeout(300);
+      monthState = await monthField().evaluate((el) => ({ value: el.value, invalid: el.getAttribute('aria-invalid'), error: (document.getElementById(`${el.id}-error`) || {}).textContent || '' }));
+    }
+    check(S, 'Configuración: un mes inválido vuelve al anterior al salir del campo y lo dice', Boolean(monthState) && monthState.value === '' && monthState.invalid !== 'true' && /Se restauró el valor anterior/.test(monthState.error), JSON.stringify(monthState));
+    await page.waitForTimeout(800);
+    await go('#/inicio', 1500);
+    check(S, 'Configuración: un mes inválido no frena el guardado del tipo de cambio de la misma sección', savedRates().some((r) => r.rate === 1234), JSON.stringify(savedRates()).slice(0, 200));
+    // Sin salir del campo (p. ej. con Atrás): el guardado automático pasa con la sección inválida y después se sale de la pantalla.
+    await closeToasts();
+    await go('#/configuracion/parametros', 1200);
+    if (await hasRow()) {
+      await rateField().fill('4321');
+      await monthField().evaluate((el) => { el.type = 'text'; });
+      await monthField().fill('sept 26');
+      await page.waitForTimeout(900);
+    }
+    await go('#/inicio', 2000);
+    check(S, 'Configuración: con el mes inválido sin confirmar, el tipo de cambio se guarda al salir de la pantalla', savedRates().some((r) => r.rate === 4321), JSON.stringify(savedRates()).slice(0, 200));
+    list = await toastList();
+    check(S, 'Configuración: y un aviso dice que "sept 26" no se guardó en el mes del tipo de cambio', list.some((t) => /Mes del tipo de cambio/.test(t.text) && /sept 26/.test(t.text)), JSON.stringify(list).slice(0, 300));
+
+    // 4c. Una sección que así no se puede guardar (impuestos que suman 100 % o más): al salir, un aviso lo dice.
+    await closeToasts();
+    await go('#/configuracion/parametros', 1200);
+    const detailed = page.locator('input[name="defaultBillingTaxes.mode"][value="detailed"]');
+    if (await detailed.count()) {
+      await detailed.first().check({ timeout: 3000 }).catch(() => detailed.first().evaluate((el) => el.click()));
+      await page.waitForTimeout(400);
+    }
+    const pct0 = page.locator('[name="defaultBillingTaxes.items.0.pct"]').first();
+    const pct1 = page.locator('[name="defaultBillingTaxes.items.1.pct"]').first();
+    const taxRows = (await pct0.count()) > 0 && (await pct1.count()) > 0;
+    if (taxRows) {
+      await pct0.fill('60');
+      await pct1.fill('60');
+      await pct1.press('Tab');
+      await page.waitForTimeout(300);
+    }
+    await go('#/inicio', 1500);
+    list = await toastList();
+    check(S, 'Configuración: si una sección no se puede guardar (impuestos que suman 100 % o más), al salir un aviso lo dice', taxRows && list.some((t) => /No se guardaron los cambios de "Impuestos sobre lo que facturás"/.test(t.text)), `${taxRows} · ${JSON.stringify(list).slice(0, 300)}`);
+
+    // 5. "Mi cuenta": el nombre escrito y no guardado.
+    await closeToasts();
+    await go('#/configuracion/cuenta', 1200);
+    const nameInput = page.getByLabel('Tu nombre').first();
+    if (await nameInput.count()) await nameInput.fill('Nombre UX-01 sin guardar');
+    await go('#/inicio', 1200);
+    list = await toastList();
+    check(S, 'Mi cuenta: al salir sin "Guardar nombre", un aviso dice que el nombre no se guardó', list.some((t) => /Nombre UX-01 sin guardar/.test(t.text) && /Guardar nombre/.test(t.text)), JSON.stringify(list).slice(0, 300));
+
+    // 6. Avisos de error: quedan hasta cerrarlos, con "Cerrar"; no se repiten ni se acumulan sin límite.
+    await closeToasts();
+    const shown = await page.evaluate(async () => {
+      const url = performance.getEntriesByType('resource').map((e) => e.name).find((n) => /\/js\/ui\/components\.js$/.test(n));
+      if (!url) return { error: 'sin components.js' };
+      const { toast } = await import(url);
+      toast('UX-01: no se pudo guardar (prueba).', 'danger');
+      toast('UX-01: no se pudo guardar (prueba).', 'danger');
+      return { ok: true };
+    });
+    await page.waitForTimeout(4200);
+    list = await toastList();
+    const errors = list.filter((t) => /UX-01: no se pudo guardar/.test(t.text));
+    check(S, 'Avisos: uno de error sigue a la vista después de 4 s y tiene "Cerrar"', errors.length >= 1 && errors.every((t) => t.close), `${JSON.stringify(shown)} · ${JSON.stringify(list).slice(0, 200)}`);
+    check(S, 'Avisos: el mismo aviso no se repite', errors.length === 1, `${errors.length} iguales`);
+    const closed = await tapIf(page.locator('.toast .toast-close'));
+    await page.waitForTimeout(300);
+    list = await toastList();
+    check(S, 'Avisos: "Cerrar" lo saca', errors.length >= 1 && closed && !list.some((t) => /UX-01: no se pudo guardar/.test(t.text)), JSON.stringify(list).slice(0, 200));
+    await page.evaluate(async () => {
+      const url = performance.getEntriesByType('resource').map((e) => e.name).find((n) => /\/js\/ui\/components\.js$/.test(n));
+      if (!url) return;
+      const { toast } = await import(url);
+      for (let i = 1; i <= 6; i += 1) toast(`UX-01: error ${i} (prueba).`, 'danger');
+    });
+    await page.waitForTimeout(300);
+    list = await toastList();
+    check(S, 'Avisos: como máximo 4 a la vez (quedan los más nuevos)', list.length <= 4 && list.some((t) => /error 6/.test(t.text)), `${list.length} avisos`);
+    await closeToasts();
+    // Un error no se va para hacerle lugar a avisos que igual se iban solos.
+    await page.evaluate(async () => {
+      const url = performance.getEntriesByType('resource').map((e) => e.name).find((n) => /\/js\/ui\/components\.js$/.test(n));
+      if (!url) return;
+      const { toast } = await import(url);
+      toast('UX-01: error que queda (prueba).', 'danger');
+      for (let i = 1; i <= 4; i += 1) toast(`UX-01: aviso ${i} (prueba).`, 'info');
+    });
+    await page.waitForTimeout(300);
+    list = await toastList();
+    check(S, 'Avisos: con más de 4, se van primero los que se iban solos (el error queda)', list.length <= 4 && list.some((t) => /error que queda/.test(t.text)) && list.some((t) => /aviso 4/.test(t.text)), JSON.stringify(list.map((t) => t.text)).slice(0, 300));
+    await closeToasts();
+    await scan(S, 'después de los avisos');
+  }
+
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
   // pantalla ni en el menú oculto, y otra cuenta que ingresa en la MISMA
   // pestaña (sin recargar) no ve nada de A, ni con los ids de sus cotizaciones.
