@@ -504,7 +504,14 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
       .catch(() => mount(previewHost, h('p', { class: 'muted small' }, 'No se pudo calcular la vista previa.')));
   };
 
+  /** Cada campo lleva su clave, para llevar el foco al primero que falta. */
   const buildField = (field) => {
+    const node = fieldNode(field);
+    if (node && node.dataset) node.dataset.fieldKey = field.key;
+    return node;
+  };
+
+  const fieldNode = (field) => {
     const value = getPath(draft, field.key);
     const set = (v) => {
       setPath(draft, field.key, v);
@@ -598,24 +605,40 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
   const opened = deepClone(draft);
   const isDirty = () => contentSnapshot(normalized(draft)) !== contentSnapshot(normalized(opened)) || Boolean(body.querySelector('[aria-invalid="true"]'));
   const saveBtn = button('Guardar', { variant: 'primary', icon: 'check' });
-  const { close, requestClose } = openDialog({ title, content: body, wide: true, isDirty, actions: [button('Cancelar', { variant: 'secondary', onClick: () => requestClose() }), saveBtn] });
+  // Lo que impide guardar se dice DENTRO del diálogo, junto a "Guardar": un toast queda detrás del
+  // fondo del modal y no se ve ni se anuncia (ESC-08, CEL-01).
+  const formAlert = h('p', { class: 'dialog-form-alert', role: 'alert' });
+  const { close, requestClose } = openDialog({ title, content: body, wide: true, isDirty, actions: [formAlert, button('Cancelar', { variant: 'secondary', onClick: () => requestClose() }), saveBtn] });
+  const showProblem = (text, control = null) => {
+    formAlert.textContent = text;
+    if (!control) return;
+    // Si el campo está en unas opciones plegadas, se abren; después, a la vista y con el foco.
+    for (let d = control.closest('details'); d && body.contains(d); d = d.parentElement && d.parentElement.closest('details')) d.open = true;
+    if (typeof control.scrollIntoView === 'function') control.scrollIntoView({ block: 'center' });
+    control.focus({ preventScroll: true });
+  };
+  const controlOf = (key) => {
+    const node = [...body.querySelectorAll('[data-field-key]')].find((el) => el.dataset.fieldKey === key);
+    return node ? node.querySelector('input, select, textarea') : null;
+  };
 
   saveBtn.addEventListener('click', async () => {
+    formAlert.textContent = '';
     const invalid = body.querySelector('[aria-invalid="true"]');
     if (invalid) {
-      app.toast('Revisá los campos marcados en rojo.', 'warning');
-      invalid.focus();
+      showProblem('Revisá los campos marcados en rojo.', invalid);
       return;
     }
     const allFields = fieldsNow();
     const missing = allFields.filter((f) => f.required && isBlankValue(f.kind === 'text' ? sanitizeText(getPath(draft, f.key)) : getPath(draft, f.key)));
     if (missing.length) {
-      app.toast(`Completá: ${missing.map((f) => f.label).join(', ')}.`, 'warning');
+      const labels = missing.map((f) => f.label).join(', ');
+      showProblem(`Completá: ${labels}${/[?.]$/.test(labels) ? '' : '.'}`, controlOf(missing[0].key));
       return;
     }
     const problem = validate ? validate(draft) : null;
     if (problem) {
-      app.toast(problem, 'warning');
+      showProblem(problem);
       return;
     }
     const entity = normalized(draft);
@@ -624,7 +647,7 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
       await onSave(entity);
       close();
     } catch (error) {
-      app.toast(userErrorMessage(error, 'No se pudo guardar.'), 'danger');
+      showProblem(userErrorMessage(error, 'No se pudo guardar.'));
       saveBtn.disabled = false;
     }
   });

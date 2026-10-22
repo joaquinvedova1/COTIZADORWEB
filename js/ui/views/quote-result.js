@@ -1437,21 +1437,34 @@ function equivalentsBlock(v) {
     lazyTraceButton(() => traceEquivalents(v), byQty(v) ? `Equivalencias operativas de ${theRate(v.k)}` : `Equivalencias de ${theRate(v.k)}`));
 }
 
+/**
+ * Qué valores de una cotización propia son ILUSTRATIVOS (para la insignia y el
+ * encabezado del PDF; en pantalla los nombra el aviso del editor, con su campo).
+ * La tasa de financiación de ejemplo también cuenta (auditoría PyME, BETA-CR P2).
+ */
+function illustrativeParts(info) {
+  if (!info || !info.any || info.quote) return [];
+  return [
+    info.lines > 0 ? { text: `${formatNumber(info.lines)} ${info.lines === 1 ? 'ítem copiado' : 'ítems copiados'} de plantillas o bibliotecas de demostración` } : null,
+    info.fuel ? { text: 'el precio del combustible' } : null,
+    info.finance ? { text: 'la tasa de financiación' } : null,
+  ].filter(Boolean);
+}
+
+const listText = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}` : items[0] || '');
+
 /** Insignia ILUSTRATIVO: la cotización entera o algunos de sus valores son de demostración. */
 function illustrativeBadge(v) {
   const info = v.ill;
   if (!info || !info.any) return null;
-  let title = 'Cotización con valores de demostración';
-  if (!info.quote) {
-    const parts = [];
-    if (info.lines > 0) parts.push(`${formatNumber(info.lines)} ${info.lines === 1 ? 'ítem copiado' : 'ítems copiados'} de plantillas o bibliotecas de demostración`);
-    if (info.fuel) parts.push('precio de combustible ilustrativo');
-    // Auditoría PyME (BETA-CR, P2): la tasa de financiación de ejemplo también cuenta (antes quedaba "…: .").
-    if (info.finance) parts.push('tasa de financiación ilustrativa');
-    title = `Incluye valores ILUSTRATIVOS: ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}` : parts[0]}. Reemplazalos por valores propios vigentes.`;
-  }
+  const parts = illustrativeParts(info);
+  const title = info.quote || !parts.length
+    ? 'Cotización con valores de demostración'
+    : `Incluye valores ILUSTRATIVOS: ${listText(parts.map((p) => p.text))}. Reemplazalos por valores propios vigentes.`;
   return badge('ILUSTRATIVO', 'orange', { title });
 }
+
+
 
 /**
  * Todos los indicadores de la decisión (según la modalidad): días mínimos y
@@ -1758,8 +1771,17 @@ function workBlock(v) {
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
 
+/**
+ * "Nombre · Cliente". El nombre va en su propio span: en el celular se oculta
+ * (ya es el título de la página) y los montos suben (CEL-03). El PDF imprime todo.
+ */
 function quoteSubtitle(q) {
-  return [q.name, q.client].filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()).join(' · ');
+  const text = (x) => (typeof x === 'string' && x.trim() ? x.trim() : null);
+  const name = text(q.name);
+  const client = text(q.client);
+  if (!name && !client) return null;
+  if (!name || !client) return name || client;
+  return [h('span', { class: 'qr-sub-name' }, `${name} · `), client];
 }
 
 /**
@@ -1823,7 +1845,7 @@ function renderSummary(v) {
       h('div', { class: 'qr-summary-titles' },
         h('h2', { class: 'qr-summary-title', id: titleId }, 'Resultado'),
         // UI-03: sin cliente, el subtítulo repite el título de la página; en el celular se oculta (el PDF lo imprime).
-        sub ? h('p', { class: ['qr-summary-sub', typeof q.client === 'string' && q.client.trim() ? null : 'qr-summary-sub-name-only'] }, sub) : null),
+        sub ? h('p', { class: ['qr-summary-sub', typeof q.client === 'string' && q.client.trim() ? null : 'qr-summary-sub-name-only'] }, ...[].concat(sub)) : null),
       h('div', { class: 'qr-summary-badges' },
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
@@ -3781,16 +3803,13 @@ function renderActions(v) {
     },
   });
   // Después de exportar (tarea completa), una invitación discreta a dejar un comentario (PLAN-2026-029).
-  const inviteHost = h('div', { class: 'qr-invite-host' });
+  const inviteHost = h('div', { class: 'qr-invite-host', 'aria-live': 'polite', dataset: v.feedbackSupported ? { feedback: 'on' } : {} });
   const print = button('Imprimir / guardar PDF', {
     variant: 'secondary',
     icon: 'print',
     onClick: () => {
       if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
-      if (v.feedbackSupported && !inviteHost.firstChild) {
-        const invite = feedbackInvite({ screen: 'resultado' });
-        if (invite) inviteHost.appendChild(invite);
-      }
+      showFeedbackInvite(inviteHost.parentNode);
     },
   });
   const own = example
@@ -3811,6 +3830,25 @@ function renderActions(v) {
     inviteHost);
 }
 
+/**
+ * La invitación a comentar después de imprimir, también desde el "Imprimir"
+ * de la cabecera del editor (ESC-01). Una sola vez por Resultado dibujado.
+ * @param {ParentNode|null} scope donde está el Resultado
+ */
+export function showFeedbackInvite(scope) {
+  const host = scope && scope.querySelector('.qr-invite-host');
+  if (!host || host.firstChild || host.dataset.feedback !== 'on') return;
+  const invite = feedbackInvite({
+    screen: 'resultado',
+    // "Ahora no" no deja el foco en <body>: vuelve a la primera acción del Resultado.
+    onDismiss: () => {
+      const first = host.parentNode && host.parentNode.querySelector('.qr-actions button, .qr-actions a');
+      if (first) first.focus();
+    },
+  });
+  if (invite) host.appendChild(invite);
+}
+
 // ------------------------------------------------------------- composición
 
 function sectionError(title, error) {
@@ -3826,6 +3864,12 @@ function safeSection(title, build) {
   }
 }
 
+/** En el encabezado del PDF: qué valores son de ejemplo (ESC-02). */
+function printIllustrativeText(info) {
+  const parts = illustrativeParts(info).map((p) => p.text);
+  return parts.length ? ` · Incluye valores ILUSTRATIVOS: ${listText(parts)}` : ' · Incluye valores ILUSTRATIVOS';
+}
+
 function printHeader(v, heading = 'Análisis económico de la cotización') {
   const { q } = v;
   const parts = [q.code, q.name].filter((x) => typeof x === 'string' && x.trim()).join(' — ');
@@ -3836,7 +3880,7 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
       q.client ? `Cliente: ${String(q.client)} · ` : '',
       // AUD-T1 C-E2-11 (DESIGN-02): la fecha de la oferta y, aparte, la de impresión.
       `${documentDatesText({ offerDate: q.offerDate })} · Montos sin IVA`,
-      v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''),
+      v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : printIllustrativeText(v.ill)) : ''),
     // ECO-02: un PDF con un resultado NO CONFIABLE lo dice arriba de todo, antes del primer número.
     isUnreliable(v) ? h('div', { class: 'qr-print-flag' }, 'RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA') : null);
 }

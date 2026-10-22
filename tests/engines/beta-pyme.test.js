@@ -83,7 +83,8 @@ describe('P1-2 · Cargas sociales genéricas de ejemplo en un puesto sin conveni
     assert.equal(p.status, 'warning');
     assert.equal(p.severity, 'review');
     assert.equal(p.step, 'labor');
-    assert.equal(p.focus, 'labor.0.agreementId');
+    // Al campo de las cargas en "Opciones avanzadas": sin convenios cargados, el selector no tiene salida (ESC-03).
+    assert.equal(p.focus, 'labor.0.employerContributionsPct');
     assert.match(p.message, /"Operador de grúa"/);
     assert.match(p.message, /ILUSTRATIV/);
   });

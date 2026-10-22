@@ -791,6 +791,9 @@ export function openDialog({ title, content, actions = [], wide = false, onClose
     // Cerrado sin guardar: un valor que volvió al anterior en el formulario no
     // necesita aviso (no se iba a guardar nada).
     if (discarded || !closing) dropRestoreNotices(dialog);
+    // Los avisos que se mostraron adentro (p. ej. "Guardado") siguen a la vista afuera.
+    const inner = dialog.querySelector(':scope > .toast-region');
+    if (inner) inner.querySelectorAll('.toast').forEach((t) => ensureToastRegion().appendChild(t));
     dialog.remove();
     if (typeof onClose === 'function') onClose();
   });
@@ -870,6 +873,29 @@ export function ensureToastRegion() {
   return region;
 }
 
+/**
+ * Con un diálogo modal abierto, los avisos van ADENTRO del de arriba: afuera
+ * quedan detrás del fondo del modal y fuera del alcance de los lectores de
+ * pantalla (ESC-08, CEL-01). Al cerrarse el diálogo pasan a la región general.
+ */
+function modalToastRegion() {
+  let open;
+  try {
+    open = [...document.querySelectorAll('dialog:modal')];
+  } catch {
+    open = [...document.querySelectorAll('dialog[open]')];
+  }
+  const top = open[open.length - 1];
+  if (!top) return null;
+  let region = top.querySelector(':scope > .toast-region');
+  const existed = Boolean(region);
+  if (!region) {
+    region = h('div', { class: 'toast-region', role: 'status', 'aria-live': 'polite' });
+    top.appendChild(region);
+  }
+  return { region, existed };
+}
+
 /** Avisos a la vista como máximo: con más, se van los más viejos (primero los que se van solos). */
 const MAX_TOASTS = 4;
 /** Cambia con clearToasts: un aviso que todavía no entró (región recién creada) ya no entra. */
@@ -882,8 +908,9 @@ let toastGeneration = 0;
  * que ya está a la vista lo reemplaza.
  */
 export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
-  const existed = Boolean(document.getElementById('toast-region'));
-  const region = ensureToastRegion();
+  const modal = modalToastRegion();
+  const existed = modal ? modal.existed : Boolean(document.getElementById('toast-region'));
+  const region = modal ? modal.region : ensureToastRegion();
   const text = String(message instanceof Node ? message.textContent : message);
   const closeBtn = h('button', { type: 'button', class: 'toast-close', 'aria-label': 'Cerrar aviso' }, icon('close', { size: 16 }));
   const el = h('div', { class: ['toast', `toast-${tone}`] }, h('div', { class: 'toast-text' }, message), closeBtn);
@@ -917,8 +944,7 @@ export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
 export function clearToasts() {
   toastGeneration += 1;
   pendingRestores.clear();
-  const region = typeof document !== 'undefined' ? document.getElementById('toast-region') : null;
-  if (region) region.querySelectorAll('.toast').forEach((t) => t.remove());
+  if (typeof document !== 'undefined') document.querySelectorAll('.toast-region .toast').forEach((t) => t.remove());
 }
 
 // ----------------------------------------------------------- gráfico barras

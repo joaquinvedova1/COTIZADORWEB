@@ -365,6 +365,8 @@ export function evaluateCompleteness(quote = {}) {
   // 4 bis. Auditoría PyME (BETA-CR, P1-2; igual que productos, H-13): un puesto usado, sin convenio y
   // con las cargas y horas genéricas de ejemplo calcula con valores ILUSTRATIVOS que no son de su CCT.
   // Pendiente "para revisar" (BORRADOR); el costo no cambia. La demo ya se muestra como ILUSTRATIVA.
+  // Se va cuando la persona cambia AL MENOS UNO de esos valores (revisó el puesto): con "alguno sigue
+  // igual" sería un aviso imposible de sacar, porque SAC 8,33 % es el legal y 24 %/6 % son tasas reales.
   if (quote.illustrative !== true) {
     const generic = labor.map((l, index) => ({ l, index })).filter(({ l }) => nonNegative(l.positions) > 0 && !l.agreementId
       && GENERIC_LABOR_KEYS.every((k) => l[k] === ILLUSTRATIVE_AGREEMENT_PARAMS[k]));
@@ -372,8 +374,10 @@ export function evaluateCompleteness(quote = {}) {
       const names = generic.slice(0, 3).map(({ l }) => `"${roleOf(l)}"`).join(', ');
       const more = generic.length > 3 ? ` y ${generic.length - 3} más` : '';
       const item = rule('labor_generic_params', 'Cargas sociales del personal', 'labor', 1, 'warning',
-        `${names}${more}: sin convenio, las cargas sociales y las horas del mes son las GENÉRICAS de ejemplo (ILUSTRATIVAS), no las de tu CCT. Elegí tu convenio o cargá tus valores en "Opciones avanzadas" del puesto.`);
-      item.focus = `labor.${generic[0].index}.agreementId`;
+        `${names}${more}: sin convenio, las cargas sociales y las horas del mes son las GENÉRICAS de ejemplo (ILUSTRATIVAS), no las de tu CCT. Cargá tus valores en "Opciones avanzadas" del puesto (cargas patronales, ART, SAC, vacaciones y horas) o elegí tu convenio, si lo cargaste en Configuración → Convenios.`);
+      // Al campo de las cargas (en "Opciones avanzadas"), no al selector de convenio: sin convenios
+      // cargados, ese selector sólo ofrece "Sin convenio" y no hay salida (ESC-03).
+      item.focus = `labor.${generic[0].index}.employerContributionsPct`;
       item.targets = generic.map(({ l, index }) => ({ list: 'labor', index, name: roleOf(l) }));
       items.push(item);
     }

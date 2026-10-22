@@ -427,6 +427,15 @@ html { scroll-padding-top: 7rem; }
 .table thead th.ta-right { text-align: right; }
 .table thead th.ta-center { text-align: center; }
 .table tbody tr:hover { background: #FAFCFE; }
+/* ESC-07: en anchos medianos (laptop con el menú angosto, zoom) una tabla ancha se desplaza adentro: la
+   columna "Acciones" (Editar, Eliminar) queda fija a la derecha, siempre a la vista. En el celular las
+   tablas de listados pasan a tarjetas. */
+@media screen and (min-width: 761px) {
+  .table td[data-label="Acciones"]:last-child,
+  .table:has(td[data-label="Acciones"]:last-child) thead th:last-child { position: sticky; right: 0; z-index: 1; box-shadow: -8px 0 8px -8px rgba(10, 30, 50, 0.22); }
+  .table td[data-label="Acciones"]:last-child { background: var(--white); }
+  .table tbody tr:hover td[data-label="Acciones"]:last-child { background: #FAFCFE; }
+}
 .table tfoot td { font-weight: 700; border-top: 2px solid var(--line); border-bottom: 0; background: #F8FBFD; }
 .table td.ta-right, .table th.ta-right { font-variant-numeric: tabular-nums; }
 .table-compact th, .table-compact td { padding: 0.35rem 0.5rem; }
@@ -468,6 +477,9 @@ html { scroll-padding-top: 7rem; }
 .dialog-header, .dialog-actions { flex-shrink: 0; }
 .dialog-body { padding: 1rem 1.25rem; max-height: 70vh; overflow: auto; flex: 0 1 auto; min-height: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--line); background: #F8FBFD; border-radius: 0 0 12px 12px; }
+/* Lo que impide guardar un formulario de diálogo, junto a sus botones (siempre a la vista). */
+.dialog-form-alert { flex: 1 1 14rem; align-self: center; margin: 0; color: var(--red-text); font-size: var(--fs-sm); font-weight: 600; }
+.dialog-form-alert:empty { display: none; }
 
 .trace { display: flex; flex-direction: column; gap: 0.5rem; }
 .trace-formula { background: var(--navy-50); border-radius: 8px; padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.25rem; }

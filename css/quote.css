@@ -93,6 +93,11 @@
 /* Resultado: sólo el estado de guardado (el título lo pone la vista de resultados). */
 .qe-step-head.is-result { justify-content: flex-end; margin-bottom: -0.75rem; }
 .qe-step-head.is-result .qe-step-meta { width: auto; padding-top: 0; }
+/* CEL-03: en el Resultado del celular, "Guardado" ya está en la barra de arriba y los montos suben.
+   Un guardado pendiente o con error sigue a la vista (con Reintentar y Descargar backup). */
+@media screen and (max-width: 760px) {
+  .qe-step-head.is-result:has(.qe-save[data-status="saved"]) { display: none; }
+}
 .qe-step-heading { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; flex: 1 1 420px; }
 .qe-step-kicker { margin: 0; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.09em; font-weight: 700; color: var(--blue-text); }
 .qe-step-title { margin: 0; font-size: var(--fs-2xl); font-weight: 720; letter-spacing: -0.02em; line-height: 1.15; color: var(--navy-900); text-wrap: balance; }

@@ -121,8 +121,25 @@ export async function renderFeedback(host, app, filters = { status: 'open', kind
     await reload();
   }
 
+  // Candidatos a "original" de un duplicado: de TODOS los estados, no sólo del filtro activo. El
+  // duplicado más común es el de algo ya resuelto (ESC-05).
   const all = res.rows;
+  let candidates = all;
+  if (status !== null || kind !== null) {
+    try {
+      const every = await ctx.admin.loadFeedback({ status: null, kind: null });
+      if (every.ok) candidates = every.rows;
+    } catch (error) {
+      logger.warn('No se pudieron cargar los originales posibles', { name: error && error.name });
+    }
+  }
+  const excerpt = (text) => {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    return t.length > 48 ? `${t.slice(0, 47)}…` : t;
+  };
+  const originalsFor = (row) => candidates.filter((o) => o.id !== row.id && o.kind === row.kind && o.status !== 'duplicate');
   const actionsFor = (row) => {
+    const originals = originalsFor(row);
     const draft = { response: '', duplicateOf: null };
     const choice = (to, label, variant = 'secondary') => (row.status === to ? null
       : button(label, { size: 'sm', variant, onClick: () => review(row, to, { response: draft.response || null }) }));
@@ -135,13 +152,13 @@ export async function renderFeedback(host, app, filters = { status: 'open', kind
         choice('confirmed', row.kind === 'suggestion' ? 'La tenemos en cuenta' : 'Confirmado'),
         choice('resolved', row.kind === 'suggestion' ? 'Ya está disponible' : 'Resuelto', 'primary'),
         choice('not_applicable', 'No corresponde', 'ghost')),
-      all.length > 1
+      originals.length
         ? h('div', { class: 'row admin-report-duplicate' },
           selectField({
             label: 'Duplicado de',
             includeEmpty: true,
             emptyLabel: 'Elegí el original…',
-            options: all.filter((o) => o.id !== row.id).map((o) => ({ value: o.id, label: `#${o.ref} · ${o.kindLabel} · ${o.organization}` })),
+            options: originals.map((o) => ({ value: o.id, label: `#${o.ref} · ${o.statusLabel} · ${o.organization} · "${excerpt(o.message)}"` })),
             onChange: (v) => { draft.duplicateOf = v; },
           }),
           button('Marcar duplicado', { size: 'sm', variant: 'ghost', onClick: () => (draft.duplicateOf ? review(row, 'duplicate', { response: draft.response || null, duplicateOf: draft.duplicateOf }) : app.toast('Elegí el original.', 'warning')) }))

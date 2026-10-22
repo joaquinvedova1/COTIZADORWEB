@@ -65,7 +65,7 @@ function baseDetail(info, ctx) {
   ];
   const canAssign = missing.length > 0 && info.offerPeriod && !ctx.readOnly;
   const assign = canAssign
-    ? ctx.kit.action(`Usar ${formatPeriod(info.offerPeriod)} (mes de la oferta) en los ${formatNumber(missing.length)} sin base…`, async () => {
+    ? ctx.kit.action(`Usar ${formatPeriod(info.offerPeriod)} (mes de la oferta) en ${missing.length === 1 ? 'el valor' : `los ${formatNumber(missing.length)} valores`} sin base…`, async () => {
       const ok = await confirmDialog({
         title: 'Usar el mes de la oferta como base',
         message: `Estos valores no tienen fecha base. Si sabés que son de ${formatPeriod(info.offerPeriod)}, RATEOS les asigna ese mes y lo marca como "Mes de la oferta". No cambia ningún monto ni las bases que ya están definidas.`,

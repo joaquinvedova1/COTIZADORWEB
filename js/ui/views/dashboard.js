@@ -402,7 +402,7 @@ function quotesSection(app, { all, own, scope }) {
           ? h(
               'p',
               { class: 'footnote' },
-              `${illustrative === 1 ? 'Una cotización tiene' : `${illustrative} cotizaciones tienen`} valores ILUSTRATIVOS (de ejemplo, de plantillas o de recursos de ejemplo): reemplazalos por valores propios antes de enviarlas.`,
+              `${illustrative === 1 ? 'Una cotización tiene' : `${illustrative} cotizaciones tienen`} valores ILUSTRATIVOS (de ejemplo o que todavía no reemplazaste, como el precio del combustible o la tasa de financiación). Su Resultado dice cuáles: reemplazalos por los tuyos antes de enviarlas.`,
             )
           : null,
       ),

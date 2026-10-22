@@ -1523,6 +1523,8 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
   );
 
   const asideRow = (label, fn, { strong = false } = {}) => h('div', { class: ['pe-aside-row', strong ? 'is-strong' : null] }, h('dt', {}, label), h('dd', { class: 'mono' }, out(fn, { fixed: true })));
+  // Sin costos cargados, "—" y no "$ 0,00" ni "0 por mes": un dato que falta no es un 0 (DESIGN.md §8, CEL-04).
+  const costed = (fn) => (r) => (r.unitCost > 0 ? fn(r) : EMPTY);
   const aside = step.id === 'resultado'
     ? null
     : h(
@@ -1532,10 +1534,10 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
       h(
         'dl',
         { class: 'pe-aside-list' },
-        asideRow('Costo por unidad', (r) => unitMoney(r.unitCost)),
-        asideRow('Precio sugerido', (r) => unitMoney(r.pricing.suggestedPrice), { strong: true }),
-        asideRow('Ganás por unidad', (r) => unitMoney(r.pricing.gainPerUnit)),
-        asideRow('Para no perder', (r) => (r.pricing.breakEvenUnits === null ? (r.pricing.suggestedPrice === null ? EMPTY : 'No se alcanza') : `${formatNumber(Math.ceil(r.pricing.breakEvenUnits))} por mes`)),
+        asideRow('Costo por unidad', costed((r) => unitMoney(r.unitCost))),
+        asideRow('Precio sugerido', costed((r) => unitMoney(r.pricing.suggestedPrice)), { strong: true }),
+        asideRow('Ganás por unidad', costed((r) => unitMoney(r.pricing.gainPerUnit))),
+        asideRow('Para no perder', costed((r) => (r.pricing.breakEvenUnits === null ? (r.pricing.suggestedPrice === null ? EMPTY : 'No se alcanza') : `${formatNumber(Math.ceil(r.pricing.breakEvenUnits))} por mes`))),
       ),
       out((r) => (r.unitCost > 0 ? barList(r.breakdown.filter((b) => b.displayPct > 0).map((b) => ({ label: b.label, value: b.displayPct }))) : h('p', { class: 'small muted' }, 'A medida que cargues datos, acá vas a ver cómo se forma el costo.')), { tag: 'div', className: 'pe-aside-bars', fixed: true }),
       out((r) => {
@@ -1765,7 +1767,7 @@ export async function render(root, app, params = {}) {
     return undefined;
   }
 
-  const draft = unsavedDrafts.get(app.ctx, id);
+  const draft = unsavedDrafts.recover(app.ctx, id, product);
   const editor = createEditor(root, app, { product: draft ? deepClone(draft) : product, resources, stepId, restoredDraft: Boolean(draft) });
   activeEditor = editor;
   editor.mount();

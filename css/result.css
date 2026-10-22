@@ -538,6 +538,8 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-discounts .table th:first-child, .qr-discounts .table td:first-child,
   .qr-models .table th:first-child, .qr-models .table td:first-child { position: static; }
   .qr .table-wrap { overflow: visible; background: none; }
+  /* Sin scroll en papel, una tabla ancha invadía la columna lateral (ESC-04): en la hoja, apilado. */
+  .qr-split { grid-template-columns: minmax(0, 1fr); }
   .qr .table { font-size: var(--fs-xs); }
   .qr .table th, .qr .table td { padding: 0.25rem 0.35rem; }
   .qr-card-wide, .qr-card-decision { break-inside: auto; }
@@ -593,6 +595,8 @@ th.ta-right .qr-th { align-items: flex-end; }
 @media screen and (max-width: 760px) {
   .qr-draft-item { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   .qr-summary-sub-name-only { display: none; }
+  /* CEL-03: queda sólo el cliente (el nombre es el título de la página). */
+  .qr-summary-sub .qr-sub-name { display: none; }
 }
 .qr-check-head { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .qr-sev { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.05rem 0.4rem; border-radius: 4px; }

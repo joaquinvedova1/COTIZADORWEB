@@ -983,6 +983,10 @@ function breakEvenText(r, { decimals = 1 } = {}) {
   return formatDays(be.days, { decimals });
 }
 
+/** Sin costos cargados el piso es $ 0 y no hay sugerida: se dice qué falta, como en el Resultado. */
+const hasCost = (r) => isFiniteNumber(r.kpis.totalCost) && r.kpis.totalCost > 0;
+const NO_COST_HINT = 'Aparece cuando cargues costos: personal, equipos u otros gastos.';
+
 function rateHint(r) {
   const k = r.kpis;
   let text;
@@ -1008,7 +1012,8 @@ function rateHint(r) {
         text = k.billingTaxPct > 0
           ? `Sin tarifa sugerida: con ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - k.billingTaxPct)}. Bajalo en "El precio".`
           : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".';
-      } else text = isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
+      } else if (!hasCost(r)) text = NO_COST_HINT;
+      else text = isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
   }
   const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
     ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
@@ -1086,16 +1091,17 @@ function buildSummary({ getResult, stepHref }) {
       // Base de LISTA: es la que se escribe en la cotización (UX-01).
       label: (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso (neta)' : 'Tarifa piso'),
       short: 'Tarifa piso',
-      value: (r) => formatMoneyCeil(floorDisplay(r).value),
+      value: (r) => (hasCost(r) ? formatMoneyCeil(floorDisplay(r).value) : EMPTY),
       unit: (r) => `/ ${unitShort(r)}`,
-      compact: (r) => formatMoneyCompact(floorDisplay(r).value, { ceil: true }),
+      compact: (r) => (hasCost(r) ? formatMoneyCompact(floorDisplay(r).value, { ceil: true }) : EMPTY),
       hint: (r) => {
         const floor = floorDisplay(r);
+        if (!hasCost(r)) return NO_COST_HINT;
         if (!isFiniteNumber(floor.value)) return isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
         const net = floor.base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
         return `Precio mínimo para no perder (margen 0 %), sin IVA. ${floorTaxesText(r)}${net ? ` ${net}` : ''}`;
       },
-      tone: (r) => (r.kpis.billingTaxesDefined || !isFiniteNumber(floorDisplay(r).value) ? null : 'orange'),
+      tone: (r) => (r.kpis.billingTaxesDefined || !hasCost(r) || !isFiniteNumber(floorDisplay(r).value) ? null : 'orange'),
       trace: floorRateTrace,
     }),
     item({
@@ -2158,7 +2164,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     const isResult = stepId === 'result';
     const shownGroups = isResult ? groups : groups.filter((g) => g.step === stepId);
     const fuelHere = info.fuel && (stepId === 'logistics' || isResult);
-    const key = JSON.stringify([info.quote, fuelHere, shownGroups.map((g) => [g.label, g.n])]);
+    // ESC-02 / CEL-07: en el Resultado también la tasa de financiación de ejemplo (antes sólo la decía el
+    // title de la insignia, que no se ve en el celular). En Financiación la marca su propio campo.
+    const financeHere = info.finance && isResult;
+    const key = JSON.stringify([info.quote, fuelHere, financeHere, shownGroups.map((g) => [g.label, g.n])]);
     if (key === illustrativeKey) return;
     illustrativeKey = key;
     const hide = () => {
@@ -2181,7 +2190,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       mount(illustrativeHolder, el);
       return;
     }
-    if (shownGroups.length === 0 && !fuelHere) {
+    if (shownGroups.length === 0 && !fuelHere && !financeHere) {
       hide();
       return;
     }
@@ -2198,15 +2207,23 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       }
       notices.push(el);
     }
-    if (fuelHere) {
+    if (isResult && (fuelHere || financeHere)) {
+      // Un solo aviso para los valores sueltos de ejemplo, cada uno con "Ir al campo".
+      const values = [
+        fuelHere ? { text: 'el precio del combustible', go: 'Ir al combustible', step: 'logistics', field: 'fuel.pricePerLiter' } : null,
+        financeHere ? { text: 'la tasa de financiación', go: 'Ir a la tasa', step: 'finance', field: 'finance.monthlyRatePct' } : null,
+      ].filter(Boolean);
+      const what = values.length > 1 ? `${values[0].text} y ${values[1].text}` : values[0].text;
+      const el = banner(h('span', {}, `Valores de ejemplo: ${what}. Reemplazalos por los tuyos o confirmá que están vigentes.`, illustrativeTag('Valores por defecto: reemplazalos por los tuyos vigentes')), 'warning');
+      el.classList.add('qe-illustrative-line');
+      const body = el.lastElementChild || el;
+      body.appendChild(h('span', { class: 'qe-illustrative-links' }, ...values.map((v) => h('a', { class: 'qe-illustrative-go', href: stepHref(v.step, v.field) }, v.go))));
+      notices.push(el);
+    } else if (fuelHere) {
       const el = banner(h('span', {}, 'El precio del combustible es de ejemplo: cargá el tuyo o confirmá que es tu precio vigente.', illustrativeTag('Precio del combustible por defecto: reemplazalo por tu precio actual')), 'warning');
       el.classList.add('qe-illustrative-line');
       const body = el.lastElementChild || el;
-      body.appendChild(
-        isResult
-          ? h('a', { class: 'qe-illustrative-go', href: stepHref('logistics') }, `Ir a ${stepName('logistics')}`)
-          : button('Ir al precio', { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-illustrative-go' }, onClick: () => focusField('fuel.pricePerLiter') }),
-      );
+      body.appendChild(button('Ir al precio', { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-illustrative-go' }, onClick: () => focusField('fuel.pricePerLiter') }));
       notices.push(el);
     }
     illustrativeHolder.hidden = false;
@@ -2435,6 +2452,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   function print() {
     if (stepId === 'result') {
       window.print();
+      if (resultModule && typeof resultModule.showFeedbackInvite === 'function') resultModule.showFeedbackInvite(stepBody);
       return;
     }
     printRequested = true;
@@ -2543,7 +2561,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     if (!printRequested) return;
     printRequested = false;
     setTimeout(() => {
-      if (!state.disposed) window.print();
+      if (state.disposed) return;
+      window.print();
+      if (resultModule && typeof resultModule.showFeedbackInvite === 'function') resultModule.showFeedbackInvite(stepBody);
     }, 300);
   }
 
@@ -2883,7 +2903,7 @@ export async function render(root, app, params = {}) {
   }
 
   // Cambios que no se pudieron guardar antes (p. ej. almacenamiento lleno).
-  const draft = unsavedDrafts.get(app.ctx, id);
+  const draft = unsavedDrafts.recover(app.ctx, id, quote);
   const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft), revealStep, focusPath });
   activeEditor = editor;
   editor.mount();

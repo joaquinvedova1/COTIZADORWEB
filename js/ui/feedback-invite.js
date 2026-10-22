@@ -12,9 +12,10 @@ import { claimInvite, snoozeInvite } from '../services/feedback-invite-policy.js
 
 /**
  * Nodo de la invitación, o null si no corresponde mostrarla.
- * @param {{ screen?: string, storage?: object|null, now?: number }} [options]
+ * @param {{ screen?: string, onDismiss?: () => void, storage?: object|null, now?: number }} [options]
+ *   onDismiss: después de "Ahora no" (por ejemplo, devolver el foco).
  */
-export function feedbackInvite({ screen = 'resultado', ...policy } = {}) {
+export function feedbackInvite({ screen = 'resultado', onDismiss = null, ...policy } = {}) {
   if (!claimInvite(policy)) return null;
   const node = h(
     'aside',
@@ -31,6 +32,7 @@ export function feedbackInvite({ screen = 'resultado', ...policy } = {}) {
         onClick: () => {
           snoozeInvite(policy.storage === undefined ? {} : { storage: policy.storage });
           node.remove();
+          if (typeof onDismiss === 'function') onDismiss();
         },
       })),
   );

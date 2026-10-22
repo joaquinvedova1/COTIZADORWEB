@@ -11,7 +11,7 @@
  */
 
 import { h, mount } from '../dom.js';
-import { badge, banner, button, card, choiceGroup, disclosure, emptyState, pageIntro, selectField, textField } from '../components.js';
+import { badge, banner, button, card, choiceGroup, disclosure, emptyState, selectField, textField } from '../components.js';
 import { formatDateTime } from '../../core/format.js';
 import { FEEDBACK_CATEGORIES, FEEDBACK_KINDS, FEEDBACK_SCREENS, FEEDBACK_TEXT_MAX, feedbackKindFromParam } from '../../domain/feedback.js';
 import { FEEDBACK_THANKS } from '../../services/feedback-service.js';
@@ -65,7 +65,8 @@ export async function render(root, app) {
   const params = feedbackParams(window.location.hash);
   const service = ctx.feedback;
   const about = aboutBeta({ open: params.about });
-  const intro = pageIntro({ title: 'Ayudanos a mejorar RATEOS', text: FEEDBACK_INTRO });
+  // El título ya es el de la página (h1): acá sólo el pedido, sin repetirlo.
+  const intro = h('div', { class: 'page-intro' }, h('p', { class: 'page-intro-text' }, FEEDBACK_INTRO));
 
   if (!service || !service.supported) {
     mount(root, h('div', { class: 'view-narrow stack-lg feedback-view' },
@@ -81,6 +82,8 @@ export async function render(root, app) {
   const listHost = h('div', { class: 'report-list-host' }, h('p', { class: 'muted', role: 'status' }, 'Cargando los comentarios…'));
   const kindHost = h('div', {});
   const fieldsHost = h('div', { class: 'stack' });
+  /** Campos de texto dibujados, por clave del borrador (para marcar el error junto a cada uno). */
+  const fieldRefs = {};
   let sending = false;
 
   const isSuggestion = () => draft.kind === 'suggestion';
@@ -93,8 +96,12 @@ export async function render(root, app) {
       renderFields();
     },
   }));
+  const keep = (key, node) => {
+    fieldRefs[key] = node;
+    return node;
+  };
   const renderFields = () => mount(fieldsHost,
-    textField({
+    keep('message', textField({
       label: isSuggestion() ? '¿Qué te gustaría mejorar o agregar?' : '¿Qué pasó?',
       value: draft.message,
       multiline: true,
@@ -102,18 +109,18 @@ export async function render(root, app) {
       required: true,
       hint: isSuggestion() ? 'Una idea, algo que te costó encontrar o que se podría explicar mejor.' : 'Lo que viste: un mensaje, un número que no cierra, un botón que no responde…',
       onChange: (v) => { draft.message = v; },
-    }),
+    })),
     disclosure({ summary: 'Agregar detalles', hint: 'Opcional', className: 'disclosure-plain feedback-details' },
       h('div', { class: 'stack' },
-        textField({
+        keep('details', textField({
           label: isSuggestion() ? '¿Para qué te serviría? (opcional)' : '¿Qué estabas haciendo? (opcional)',
           value: draft.details,
           multiline: true,
           maxLength: FEEDBACK_TEXT_MAX,
           hint: isSuggestion() ? null : 'Los pasos, si te acordás. Por ejemplo: abrí una cotización, cambié los días a 20 y fui a Resultado.',
           onChange: (v) => { draft.details = v; },
-        }),
-        isSuggestion() ? null : textField({ label: '¿Qué esperabas que pasara? (opcional)', value: draft.expected, multiline: true, maxLength: FEEDBACK_TEXT_MAX, onChange: (v) => { draft.expected = v; } }),
+        })),
+        isSuggestion() ? null : keep('expected', textField({ label: '¿Qué esperabas que pasara? (opcional)', value: draft.expected, multiline: true, maxLength: FEEDBACK_TEXT_MAX, onChange: (v) => { draft.expected = v; } })),
         selectField({
           label: '¿En qué pantalla?',
           value: draft.screen,
@@ -137,6 +144,31 @@ export async function render(root, app) {
     h('div', { class: 'row' }, sendBtn),
   );
 
+  /** El error va junto a su campo (con aria-invalid) y el foco, al primero (ESC-17, CEL-12). */
+  function showFieldErrors(errors) {
+    let first = null;
+    for (const [key, message] of Object.entries(errors || {})) {
+      const node = fieldRefs[key];
+      if (!node || !node.isConnected) continue;
+      const control = node.querySelector('textarea, input');
+      const errorEl = node.querySelector('.field-error');
+      if (!control || !errorEl) continue;
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+      control.setAttribute('aria-invalid', 'true');
+      control.addEventListener('input', () => {
+        control.removeAttribute('aria-invalid');
+        errorEl.hidden = true;
+      }, { once: true });
+      if (!first) first = control;
+    }
+    if (!first) return false;
+    const details = first.closest('details');
+    if (details) details.open = true;
+    first.focus();
+    return true;
+  }
+
   async function loadList() {
     const res = await service.list();
     if (!res.ok) {
@@ -159,8 +191,8 @@ export async function render(root, app) {
     try {
       const res = await service.submit(draft);
       if (!res.ok) {
-        const details = res.errors ? Object.values(res.errors) : [];
-        mount(statusEl, banner(details.length ? h('span', {}, res.message, h('ul', {}, ...details.map((d) => h('li', {}, d)))) : res.message, 'warning'));
+        if (res.errors && showFieldErrors(res.errors)) return;
+        mount(statusEl, banner(res.message, 'warning'));
         statusEl.focus();
         return;
       }
@@ -200,7 +232,8 @@ export async function render(root, app) {
       about,
     ),
   );
-  if (params.about) about.scrollIntoView({ block: 'start' });
   await loadList();
+  // Después de la lista: si no, la lista empuja "Acerca de la beta" fuera de la pantalla (ESC-06).
+  if (params.about && about.isConnected) about.scrollIntoView({ block: 'start' });
   return undefined;
 }
