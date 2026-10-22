@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  feedbackFindings,
   findSecrets,
   gateVerdict,
   HUMAN_DECISIONS,
@@ -41,7 +42,8 @@ describe('Beta Security Gate', () => {
     assert.ok(verdict.requiredBeforeRealUsers.every((r) => r.status === 'human' && /^Requisito obligatorio antes de habilitar usuarios reales/.test(r.details[0])));
     assert.match(verdict.requiredBeforeRealUsers[0].details[0], /dominio propio/);
     assert.match(verdict.requiredBeforeRealUsers[1].details[0], /origen y en base de datos, o \/preview\/ deshabilitado/);
-    assert.match(verdict.requiredBeforeRealUsers[2].details[0], /registro cerrado o por invitación/);
+    assert.match(verdict.requiredBeforeRealUsers[2].details[0], /registro público con confirmación de email/, 'HD-03 cambió por decisión del dueño (2026-10-20)');
+    assert.match(verdict.requiredBeforeRealUsers[2].details[0], /SMTP propio/);
   });
 });
 
@@ -96,6 +98,32 @@ describe('Beta Security Gate: los detectores detectan', () => {
     assert.ok(findings.some((f) => /"true"/.test(f)));
     assert.ok(findings.some((f) => /fuera de private/.test(f)));
     assert.ok(findings.some((f) => /search_path/.test(f)));
+  });
+
+  test('feedback de la beta (SEC-19): detecta tablas expuestas, revisión sin admin, cuotas y restos de créditos', () => {
+    const real = {
+      migration: readFileSync(new URL('../../supabase/migrations/20261022120000_rateos_beta_feedback.sql', import.meta.url), 'utf8'),
+      sqlTest: readFileSync(new URL('../../supabase/tests/feedback_test.sql', import.meta.url), 'utf8'),
+      concurrency: readFileSync(new URL('../../supabase/tests/local/feedback_concurrency.sh', import.meta.url), 'utf8'),
+      clientFiles: [],
+    };
+    assert.deepEqual(feedbackFindings(real), []);
+    assert.deepEqual(feedbackFindings({ ...real, migration: '' }), ['falta la migración del feedback']);
+    const has = (input, re) => feedbackFindings(input).some((f) => re.test(f));
+    assert.ok(has({ ...real, migration: real.migration.replace('create table private.feedback (', 'create table public.feedback (') }, /feedback no está en private/));
+    assert.ok(has({ ...real, migration: real.migration.replace('alter table private.feedback_events enable row level security;', '') }, /feedback_events no tiene RLS/));
+    assert.ok(has({ ...real, migration: real.migration.replace(/(create or replace function private\.admin_review_feedback[\s\S]*?)if v_uid is null or not private\.is_platform_admin\(\) then/, '$1if v_uid is null then') }, /admin_review_feedback no exige RATEOS ADMIN/));
+    assert.ok(has({ ...real, migration: real.migration.replace(/(create or replace function private\.submit_feedback[\s\S]*?)not private\.is_member\(p_org\)/, '$1false') }, /submit_feedback no exige ser miembro/));
+    assert.ok(has({ ...real, migration: `${real.migration}\ncreate trigger workspace_states_quota before update of state on public.workspace_states for each row execute function private.x();` }, /crea un trigger/));
+    assert.ok(has({ ...real, migration: `${real.migration}\ncreate table private.credit_ledger (id int);` }, /créditos, saldos o premios/));
+    assert.ok(has({ ...real, migration: `${real.migration}\ngrant execute on function public.my_feedback(uuid) to anon;` }, /sin sesión/));
+    assert.ok(has({ ...real, migration: real.migration.replace(/perform pg_advisory_xact_lock[^;]*;/g, '') }, /límites contra el spam/));
+    // Sin el lock por persona (sólo el de la empresa), tampoco: el límite por persona vale en todas sus empresas.
+    assert.ok(has({ ...real, migration: real.migration.replace(/perform pg_advisory_xact_lock\(hashtextextended\('rateos_feedback_author:[^;]*;/, '') }, /límites contra el spam/));
+    assert.ok(has({ ...real, clientFiles: [{ rel: 'js/x.js', text: "client.from('feedback').update({ status: 'resolved' })" }] }, /js\/x\.js: nombra una tabla/));
+    assert.ok(has({ ...real, clientFiles: [{ rel: 'js/y.js', text: "if (error.code === 'credits_exhausted') block();" }] }, /restos de los créditos/));
+    assert.ok(has({ ...real, sqlTest: real.sqlTest.replace(/raise exception 'FEEDBACK_TESTS_FAILED[^;]*;/, '') }, /RAISE EXCEPTION/));
+    assert.ok(has({ ...real, concurrency: 'psql -c "select 1"' }, /fuera de la base local/));
   });
 
   test('superficie de Supabase: tabla/RPC no revisadas, borrados y Realtime desde el cliente', () => {

@@ -115,8 +115,20 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-013 | RATEOS Test Lab v1: oráculo económico independiente, escenarios con seed, invariantes, auditor de consistencia UX y mercado | otro (QA interno + correcciones de completitud que encontró) | Completado (main `37179e7`) |
 | PLAN-2026-014 | Cierre de las decisiones LAB-D1…D8 de Test Lab: salidas fraccionarias, horas de cobertura del personal, financiación de productos, km facturables, equipo sin combustible, huecos de reglas, precio ilustrativo y terminología | motor de costos, productos, migración, UX | Completado (PR #24 mergeado, main `0c213a3`, v0.8.0 en producción) |
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
-| PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
-| PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | Completado en la app (merge `d580d9f`, HD-02 publicado en el run #74); HD-01 y HD-03 esperan configuración del dueño (dominio, Auth, SMTP) |
+| PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | Completado (merge `d6540b7`, publicado en el run #75) |
+| PLAN-2026-018 | HD-03 — Registro público con confirmación de email (decisión del dueño, 2026-10-20) y correos de Auth: diagnóstico del correo que no llegó, respuestas neutras sin enumeración, reenvío de la confirmación, código de recuperación, enlaces de invitación descartados y SMTP propio (Resend) | autenticación, UX, otro (correo) | En curso (rama `claude/wonderful-brown-g2ehd6` desde `main` `d6540b7`, PR #28 sin merge; la configuración de Auth/SMTP/DNS la hace el dueño) |
+| PLAN-2026-019 | ECO-02 — Riesgo a la vista: resultado NO CONFIABLE marcado fuera del Resultado (listas, Inicio, Escenarios, PDF) y regla de "Enviada" | UX, completitud (presentación) | En curso (rama `claude/eco-02-riesgo-a-la-vista`, PR sin merge; espera revisión independiente y aprobación del dueño) |
+| PLAN-2026-020 | ECO-03 — Redondeo comercial proporcional a la tarifa (VAL-01-F1): automático hasta 1 % sobre la objetivo, múltiplo fijo conservado en lo guardado, margen objetivo y real a la vista | motor (tarifa sugerida), UX | En curso (rama `claude/eco-03-redondeo`, PR sin merge; la ambigüedad de compatibilidad está documentada en §2 antes del cambio de regla) |
+| PLAN-2026-021 | ECO-04 — Avisos verificables de la beta: abono con más días trabajados que disponibles (AUD-T1 H-04), vehículo de apoyo sin su costo de tenerlo (H-08) y operador de Personal que el externo ya trae (VAL-01-F2) | completitud, UX (sin cambios de fórmulas) | En curso (rama `claude/eco-04-abono-apoyo-operador`, PR sin merge) |
+| PLAN-2026-022 | UX-01 — Formularios que pierden cambios sin avisar y valores que se corrigen en silencio: diálogos con formulario, valores que vuelven al anterior al salir, Configuración, "Mi cuenta" y avisos de error | UX (sin cambios de fórmulas ni de datos) | En curso (rama `claude/ux-01-no-perder-cambios`, PR sin merge) |
+| PLAN-2026-023 | RES-02 (1/2) — Personal agrupado por convenio, perfiles ≠ personas, sueldo bruto sin doble conteo (con la base de las horas extra explícita) y convenios borrados sin referencias colgadas | UX, datos (campo opcional `peopleCount`, sin migración) | En curso (rama `claude/res-02-personal-por-convenio`, PR sin merge) |
+| PLAN-2026-024 | RES-02 (2/2) — Equipos agrupados por familia (equipos de vacío y de pozo aparte de los camiones), unidades propias ≠ alquiladas o tercerizadas y costo de tener la flota propia | UX (sin cambios de fórmulas ni de datos) | En curso (rama `claude/res-02-equipos-por-familia`, apilada sobre el PR #33, sin merge) |
+| PLAN-2026-025 | DESIGN-02 (1/2) — "Ingeniería clara": DESIGN.md propio y leer bien montos, unidades, riesgo y estado de guardado | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-ingenieria-clara`, PR sin merge) |
+| PLAN-2026-026 | DESIGN-02 (2/2) — Cotizar sin fricción: resumen en vivo con margen y resultado, barra compacta, avisos y tablas en el celular, campos accesibles y eco de montos | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-cotizar-sin-friccion`, apilada sobre PLAN-2026-025; PR sin merge) |
+| PLAN-2026-027 | BETA-RC1 — Candidato de beta integrado: los PR #28 a #36 sobre `main` `d6540b7`, verificados en el árbol final, versión 0.9.0 e informe GO/NO-GO | integración y release (sin funcionalidades nuevas) | En curso (rama `claude/beta-candidato-1`; PR candidato en borrador, sin merge ni deploy) |
+| PLAN-2026-028 | P1 CIERRE — Señales engañosas antes del autoservicio (Gate A de la revisión del 21/10): H-14, H-12 y H-13 en Productos, H-09 en externos y H-10 en los avisos de personal | corrección de UI, validación y confirmaciones (sin fórmulas) | En curso (sobre el candidato `claude/beta-candidato-1`, sin merge ni deploy) |
+| PLAN-2026-029 | BETA — beta gratuita y sin límites, feedback de las empresas (problemas y sugerencias) clasificado por RATEOS ADMIN y última revisión de UX antes del lanzamiento. Reemplaza los créditos de prueba del 21/10 (decisión del dueño del 22/10) | backend, seguridad, UX (sin fórmulas ni cambios del workspace) | En curso (rama `claude/beta-creditos-reportes`, PR #38 apilado sobre #37; sin merge, deploy ni migración real) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1174,3 +1186,1056 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-018 — HD-03: alta por invitación y correos de Auth
+
+- Estado: En curso — rama `claude/wonderful-brown-g2ehd6` (reiniciada desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: autenticación, UX, otro (correo transaccional)
+- Responsable: agente de desarrollo (Claude) · configuración de Auth, SMTP y DNS: el dueño
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Una persona invitada completó un formulario y nunca recibió el correo. Diagnóstico en sólo lectura (resumen en BETA_PERIMETER.md §2; detalle en la bitácora privada): no había alta previa, así que "¿Olvidaste tu contraseña?" no envió nada, y la pantalla decía "…te enviamos un enlace". Además, el SMTP es el por defecto de Supabase (sólo entrega al equipo del proyecto), el registro del backend sigue abierto y hay señales de un escáner que consume los enlaces de un solo uso.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: que una persona pueda entrar por primera vez con un correo real, sin depender del navegador donde lo abre, y que la app diga la verdad cuando no llega nada, sin revelar quién tiene cuenta. **Desde R2 (decisión del dueño, 2026-10-20): registro público y autoservicio**, con confirmación de email obligatoria y su propia empresa.
+- Fuera de alcance: cambiar Auth, SMTP, DNS o cuentas en producción (los hace el dueño, con los pasos de BETA_PERIMETER.md §2), esquema, datos y migraciones.
+
+#### 3. Impacto en fórmulas
+Ninguno.
+
+#### 4. Impacto en datos
+Ninguno: sin migraciones ni campos nuevos. No se tocó ninguna cuenta.
+
+#### 5. Diseño
+- `auth-gateway`: `verifyRecoveryCode(email, code)` → `verifyOtp({ type: 'recovery' })`.
+- `auth-service`: respuesta neutra `RESET_REQUESTED_MESSAGE` (la misma con o sin cuenta, SMTP por defecto o roto) con qué hacer si no llega y `cooldownSeconds: 60`; `RESET_SENT_OWN_MESSAGE` con la sesión iniciada; `verifyRecoveryCode` (6–10 dígitos) que deja la sesión en modo recuperación; `parseAuthFragment`/`cleanAuthFragment`: los enlaces con tokens o errores en el # ("Send invitation") nunca se usan y se borran de la URL; enlace de recuperación inválido → mensaje que ofrece el código.
+- UI: `#/registro` con los pasos del primer ingreso (sin alta no llega ningún correo); recuperación en dos pasos (pedir el correo; enlace o "Ya tengo un código"), reenvío con cuenta regresiva y la cuenta a la vista al elegir la contraseña.
+- Plantillas de correo en español (`supabase/templates/`): recuperación con enlace y código (misma credencial: abrir el enlace usa el código); variante sólo código si un escáner consume los enlaces; invitación que lleva a "Elegir mi contraseña"; confirmación para el futuro (no se usa en la beta cerrada).
+- Proveedor recomendado: Resend (seguimiento de enlaces apagado por defecto). Con cualquier proveedor, el seguimiento de clics tiene que estar apagado; Brevo no se recomienda porque en transaccionales viene activo y apagarlo no es autoservicio.
+
+#### 6. Pasos
+- [x] 1. Diagnóstico en sólo lectura (usuarios agregados sin datos personales, logs de Auth y del gateway).
+- [x] 2. Servicio, puerta y pantallas; plantillas.
+- [x] 3. Tests simulados: unitarios (`tests/services/auth-email.test.js`) y navegador (`npm run test:auth:e2e`, escritorio y celular, en el PR gate).
+- [x] 4. Docs: BETA_PERIMETER §2 (diagnóstico, §2.3 SMTP con Resend, §2.4 pruebas reales, §2.5 simuladas), AUTH_ARCHITECTURE §4, CHANGELOG.
+- [x] 5. PR sin merge; informe HD-03 en el repositorio privado de auditoría.
+- [x] 5b. Ronda R1 (revisión independiente): ver abajo.
+- [ ] 6. El dueño: apagar el registro, dominio, Resend, SMTP y plantillas en Supabase, pruebas reales R1–R9 (R4 después del deploy).
+
+#### 7. Tests
+- Simulados: `tests/services/auth-email.test.js` (15) y `tests/services/auth-service.test.js` (actualizado); `tests/lab/e2e/auth-lab.mjs` (AUTH-01 a AUTH-09: 38 controles por modo). El Supabase simulado suma `/recover`, `/verify` (enlace y código), canje PKCE y un buzón en memoria.
+- Reales (manuales, del dueño): BETA_PERIMETER.md §2.4.
+
+#### 8. Riesgos y mitigación
+- Sin SMTP propio nadie de afuera recibe correos: lo detecta la prueba R2.
+- Un escáner puede consumir el enlace y, con él, el código de ese correo (misma credencial): lo detecta la prueba R9; mitigación, la plantilla sólo código.
+- Enumeración de cuentas: la respuesta sin sesión es idéntica; sólo los límites de envío del propio Supabase podrían distinguirlas (sin cambios).
+
+#### 9. Ronda R1 (revisión independiente del PR)
+- El subtítulo de "¿Olvidaste tu contraseña?" prometía un correo antes de pedirlo ("Te mandamos un correo…"): ahora `RECOVER_REQUEST_SUBTITLE` ("Sólo llega si ya te dieron acceso a RATEOS"), con test unitario y control en navegador (AUTH-02).
+- `verifyRecoveryCode`: la puerta exige sesión con `access_token` y usuario válido; el servicio, además, nunca queda autenticado ni en modo recuperación sin usuario. Tests de respuestas incompletas.
+- La espera de 60 s es sólo de UX (vive en la pantalla; recargar la saltea). Los límites efectivos son los de Supabase; su 429 se informa. Documentado así.
+- Corrección propia: en Supabase el enlace y el código de un correo son la misma credencial (`recovery_token`). El mensaje de enlace inválido sugería usar el código de ese mismo correo, que ya no sirve: ahora pide un correo nuevo y explica que en otro dispositivo se escribe el código sin tocar el enlace. El simulado lo modela (abrir el enlace usa el código; un correo nuevo anula el anterior) y AUTH-05 lo controla. Variante `recovery-solo-codigo.html` para casillas con escáner. (En R1 se dijo que la pantalla del código era sólo sin sesión: no es así, `#/recuperar-contrasena` es pública; R2 lo corrige en las docs.)
+- Alcance: la confirmación de email no se usa en la beta cerrada (Auto Confirm) y su entrega real no está probada; ninguna prueba simulada prueba entrega real. Brevo: el criterio es el seguimiento de clics, no el proveedor.
+
+#### 10. Ronda R2 — registro público (decisión del dueño, 2026-10-20)
+El dueño revocó la beta por invitación: quiere **registro público y autoservicio** (cualquiera crea su cuenta, confirma su email y tiene su propia empresa). Volvió a encender "Allow new users to sign up" (declaración del dueño, sin lectura independiente).
+- `FEATURES.publicSignup = true`. Formulario de siempre (nombre, empresa, email, contraseña) con confirmación obligatoria por enlace PKCE (`?auth=confirm`).
+- **Sin enumeración:** el registro responde igual a un email nuevo, ya registrado o sin confirmar (`SIGNUP_REQUESTED_MESSAGE`); la puerta sigue traduciendo el usuario "de mentira" de Supabase a `email_taken` y el servicio lo neutraliza. HD-08 resuelto. Reenvío de la confirmación neutro (`resendConfirmation`, `auth.resend({ type: 'signup' })`), también desde el ingreso cuando la cuenta no está confirmada (sólo con la contraseña correcta).
+- **Excepción documentada:** si el correo de confirmación no sale (SMTP por defecto o roto), GoTrue no crea la cuenta; la app lo dice (`SIGNUP_MAIL_FAILED_MESSAGE`). Revela que el email era nuevo sólo mientras el envío está roto; callar dejaría a la persona esperando (el origen de HD-03).
+- Antiabuso: límites de Supabase Auth (correos por hora = tope de registros por hora con SMTP propio) y confirmación obligatoria; CAPTCHA queda como decisión aparte (suma un tercero a la CSP). Las cuentas sin confirmar quedan con su empresa vacía (nadie entra); limpieza manual si se acumulan.
+- Gate: SEC-18 (sin enumeración en registro, reenvío y recuperación); HD-03 pasa a "registro público con confirmación y SMTP propio"; `scripts/check-auth-perimeter.mjs` sigue a `FEATURES.publicSignup`.
+- Tests: unitarios del registro público (`auth-email.test.js`), perímetro, gate y navegador (AUTH-01 y AUTH-10 a AUTH-14). Docs: AGENTS.md §13, README, AUTH_ARCHITECTURE, BETA_PERIMETER §2, BETA_SECURITY, plantillas.
+- Pendiente del dueño: SMTP propio + plantillas (sin eso nadie de afuera confirma su cuenta), verificar la configuración con el script, pruebas reales R1–R14 y la prueba A/B real.
+
+#### 11. Ronda R3 — revisión independiente sobre `93448e2`
+- **Hallazgo:** `resendConfirmation` devolvía "Pedido enviado" para cualquier falla que no fuera la red o el límite, incluido el rechazo del SMTP por defecto (`emailNotAuthorized`) y `unknown`: decía que se envió cuando se sabía que no (el incidente de HD-03).
+- **Corrección:** con cualquier falla del proveedor el reenvío dice `CONFIRMATION_RESEND_FAILED_MESSAGE` ("No pudimos enviar el correo de confirmación…"), el mismo mensaje para toda falla de envío, sin el email ni el código del error; aviso técnico en el logger sin datos personales. Un email rechazado por formato se marca en el campo.
+- **Enumeración:** Supabase (`/resend`) responde 200 sin enviar si no hay cuenta o ya está confirmada; sólo intenta enviar con una cuenta sin confirmar. Por eso la respuesta sigue siendo idéntica para un email sin cuenta y uno confirmado, y sólo una cuenta sin confirmar puede recibir el error, **mientras el envío esté roto**: misma excepción documentada que el registro (AGENTS.md §13, SEC-18 la verifica con su límite). Con el SMTP propio funcionando no aparece.
+- **"¿Olvidaste tu contraseña?" sin sesión no cambia** (decisión de R1, aceptada en la revisión): su respuesta no promete el correo y explica qué hacer si no llega; informar el rechazo ahí revelaría que el email tiene una cuenta (cualquiera, confirmada o no).
+- Tests: 4 unitarios nuevos (fallan sin la corrección), SEC-18 ampliado, AUTH-15 en el navegador (escritorio y celular).
+
+### PLAN-2026-019 — ECO-02: riesgo a la vista (NO CONFIABLE fuera del Resultado y regla de "Enviada")
+
+- Estado: En curso — rama `claude/eco-02-riesgo-a-la-vista` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: UX y presentación de la completitud (sin cambios de fórmulas)
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (autorizó implementar en ramas y PRs el 2026-10-20)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+ECO-01 marca "RESULTADO NO CONFIABLE" **dentro** del Resultado. La auditoría DESIGN-01 (UX-P1-1, UX-P1-2 y UX-P1-3, verificados en código y capturas) mostró que **fuera** del Resultado no se ve: la lista, Inicio, "Continuar cotización" y Escenarios muestran la tarifa y un margen de color normal (un doble abono figuraba con "88,72 %" en verde); dentro del Resultado, costo, tarifa piso y tarifa se ven normales; y "Marcar como enviada al cliente" sigue activo, de un clic, también desde la lista y el editor. Inicio, además, promedia ese margen y suma esa facturación.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: que un resultado NO CONFIABLE se vea en cada lugar donde aparece la cotización (listas, Inicio, Escenarios, Resultado y PDF) y que no se pueda marcar como enviada sin resolverlo, con la misma regla en todos los caminos.
+- Fuera de alcance (PRs siguientes): el redondeo comercial (VAL-01-F1), H-04, H-08 y el doble conteo de operadores (VAL-01-F2), formularios que pierden cambios, RES-02 y DESIGN-01. Sin cambios de Auth, Supabase, esquema ni datos.
+
+#### 3. Impacto en fórmulas
+- **Ninguna fórmula cambia** y ningún indicador del motor (`kpis`) cambia: `summarizeQuote` sólo suma `unreliable`, `unreliableLabels` y `criticalLabels` (proyección de la completitud ya calculada). Golden y candado sin cambios.
+- **Agregados de Inicio (`indicatorsFor`):** una cotización activa NO CONFIABLE cuenta como activa y en riesgo, pero no entra en el valor cotizado, el margen promedio ni "bajo piso" (`unreliableCount` dice cuántas quedan afuera). Es una regla de presentación de Inicio, documentada en CALCULATION_RULES §dashboard.
+
+#### 4. Impacto en datos
+Esquema 10 sin cambios; ninguna migración; ningún campo nuevo guardado. El estado de una cotización ya enviada no se toca: si hoy es NO CONFIABLE, el Resultado lo dice ("figura como enviada, pero…").
+
+#### 5. Diseño
+- Dominio `js/domain/quote-risk.js`: `riskSummary(completeness)`, `impliesSending(from, to)` (Enviada, o Ganada sin haber estado enviada) y `sendCheck(summary)` (NO CONFIABLE o sin calcular → no; críticos → confirmar; si no → sí).
+- UI: `js/ui/send-guard.js` (textos y diálogos), lista y columnas compartidas (`quotes-list.js`), Inicio (`dashboard.js`), Resultado (cuatro números, acciones y encabezado del PDF), Escenarios (aviso arriba del análisis) y el estado en el editor (`kit.select` con `guard`). Sin fórmulas en la UI.
+- Servicio (R1): `QuoteService.saveQuote` aplica la misma regla contra el estado GUARDADO y rechaza con `send_blocked` (sin guardar nada); el editor vuelve al estado guardado a la vista y guarda el resto; la lista dice el motivo. El respaldo importado (`importBackup`) no pasa por esa regla.
+- Alcance: salvaguarda de la app en el navegador (pantallas y servicio), no de la base ni del servidor: el servidor guarda el espacio de trabajo completo y no ejecuta el motor. Una pestaña con una versión anterior, un respaldo o una escritura directa con la propia cuenta pueden dejar una NO CONFIABLE como Enviada; por eso la marca no depende del estado (listas, Resultado y PDF).
+
+#### 6. Pasos
+- [x] 1. Regla de dominio y resumen del motor (sin cambiar `kpis`).
+- [x] 2. Listas, Inicio, Escenarios, Resultado, PDF y editor.
+- [x] 3. Tests unitarios y E2E (los controles nuevos fallan en `main`: 14 en escritorio).
+- [x] 4. PR sin merge (#29), evidencia en RATEOS-AUDIT (`tasks/ECO-02/`) y revisión independiente (comentario, no aprobación).
+- [x] 5. R1: la regla también en `QuoteService.saveQuote`, alcance documentado (no es del servidor), Perdida → Ganada explícito, verificación combinada con HD-03 (PR #28).
+
+#### 7. Tests
+`tests/domain/quote-risk.test.js` (regla, `summarizeQuote` con los mismos `kpis` que el motor, textos), `tests/services/quote-service.test.js` (agregados de Inicio y, desde R1, la regla en `saveQuote`: bloquea Borrador/Archivada/nueva → Enviada o Ganada con NO CONFIABLE o sin calcular; deja pasar Perdida → Ganada, ediciones de una ya enviada, Perdida/Archivada, críticos y el respaldo) y el bloque ECO-02 de `tests/lab/e2e/ui-lab.mjs` (escritorio y celular; desde R1, Perdida → Ganada y el aviso del Resultado).
+
+#### 8. Riesgos y mitigación
+- Una cotización enviada antes de este cambio que hoy es NO CONFIABLE no cambia de estado: se avisa en el Resultado y se marca en las listas.
+- Los montos de Inicio bajan si hay cotizaciones NO CONFIABLES activas: es el objetivo, y se aclara en los rótulos y en "Ver cálculo".
+
+#### 9. Rollback
+Revert del PR. No hay datos nuevos que limpiar.
+
+#### 10. Review multidisciplinario
+- Economía: ninguna fórmula ni indicador del motor cambia; Inicio deja de promediar y sumar números que no son reales.
+- QA: rojo en `main`, verde en la rama; golden y Test Lab sin cambios.
+- Seguridad: sin cambios de esquema, Auth ni base; sin datos reales.
+- UX: la marca "No confiable" está en cada fila, número y PDF; "Enviada" bloqueada dice por qué, a la vista, con "Ver qué falta".
+
+#### Bitácora
+- 2026-10-20: el dueño autorizó implementar en ramas y PRs (sin merge ni deploy) y pidió empezar por las correcciones críticas. Base `main` `d6540b7`.
+- 2026-10-20: PR #29 publicado (`5d19758`). Revisión independiente (comentario, sin aprobar): dirección adecuada para beta; pide documentar que la regla es de la UX y no de la persistencia/servidor y valorar una guarda de servicio, verificar el conjunto con HD-03 y dejar explícito Perdida → Ganada. R1: guarda en `saveQuote` (la opción más segura; no rompe el respaldo ni los estados históricos), alcance y Perdida → Ganada en CALCULATION_RULES, verificación combinada local.
+
+### PLAN-2026-020 — ECO-03: redondeo comercial proporcional a la tarifa (VAL-01-F1)
+
+- Estado: En curso — rama `claude/eco-03-redondeo` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: **cambio de regla de negocio** (redondeo de la tarifa sugerida, AGENTS.md §6) y UX (margen objetivo y real a la vista)
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (pidió el 2026-10-20 un redondeo proporcional, configurable y, por defecto, a no más de 1 % sobre la objetivo, conservando las configuraciones explícitas y las cotizaciones existentes, y documentar la ambigüedad de compatibilidad antes de cambiar la regla)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+VAL-01-F1 (P1): el redondeo comercial por defecto es un **múltiplo fijo de $ 1.000** (`defaultSettings().roundingStep`) para cualquier unidad, y cada cotización nueva lo copia (`pricing.roundingStep`). Con $/día ($ 2.408.340 → $ 2.409.000) no se nota; en las unidades de valor bajo la "tarifa sugerida" queda muy arriba del precio objetivo y la pantalla igual dice "Para ganar el 10 % sobre el precio":
+
+| Unidad | Precio objetivo | Sugerida con $ 1.000 | Sobreprecio | Margen con la sugerida |
+|---|---:|---:|---:|---:|
+| $/ton-km | 277,80 | 1.000 | +260 % | 71,4 % |
+| $/kg | 609,87 | 1.000 | +64 % | 43,2 % |
+| $/km | 3.003,52 | 4.000 | +33 % | 31,2 % |
+| $/t | 12.018,31 | 13.000 | +8,2 % | 16,4 % |
+| $/m³ | 10.235,19 | 11.000 | +7,5 % | 15,9 % |
+
+#### 2. Compatibilidad: la ambigüedad (documentada ANTES de cambiar la regla)
+- **Dónde vive el redondeo:** en la empresa (`settings.roundingStep`, para las cotizaciones nuevas) y en cada cotización (`quote.pricing.roundingStep`, copiado al crearla y editable en "El precio").
+- **La ambigüedad:** un `roundingStep: 1000` guardado no dice si alguien lo eligió o si es el de fábrica. `defaultSettings()` lo trae, cada cotización nueva lo copia y nada marca que se haya elegido.
+- **La única señal:** `settings.illustrative`. Es `true` mientras la empresa no confirmó sus parámetros ("Son los valores de mi empresa"). Con `illustrative: true` y $ 1.000, es el valor de fábrica sin confirmar. Con los parámetros confirmados, $ 1.000 pudo elegirse o aceptarse al confirmar: no se puede saber.
+- **Interpretación de este PR (la más conservadora):**
+  1. **Cotizaciones existentes: sin cambios.** Sin `roundingMode` rige el múltiplo fijo guardado (la regla de siempre), con los mismos números. Una cotización pasa a automático sólo si alguien lo elige.
+  2. **Empresas con parámetros confirmados**, o con un paso distinto de $ 1.000: las cotizaciones nuevas conservan su múltiplo.
+  3. **Empresas con los parámetros de fábrica sin confirmar** (`illustrative: true`) y $ 1.000: las cotizaciones nuevas usan el automático, que es el nuevo valor de fábrica. Las existentes no cambian.
+  4. **Empresas nuevas:** automático, hasta 1 %.
+- **Lo que no se puede saber:** si una empresa con parámetros confirmados y $ 1.000 eligió ese valor. Se conserva, y se avisa: el margen objetivo y el real quedan a la vista, y si el redondeo sube la tarifa más de 1 % aparece "la sugerida quedó X % arriba de tu precio objetivo" con [Usar redondeo automático].
+- **Plantillas:** una plantilla guardada antes de ECO-03 trae `pricing.roundingStep` sin `roundingMode`: se conserva como múltiplo fijo (es una configuración guardada), salvo el $ 1.000 de fábrica en una plantilla ILUSTRATIVA (las de la demo local), que sigue la regla de la empresa, igual que la configuración de fábrica (`isFactoryLegacyStep`). Las plantillas nuevas guardan su regla.
+- **Configuración:** `SettingsService.get` completa lo que falta con los valores de fábrica; desde ECO-03 no completa `roundingMode` en una configuración guardada antes (sería pasarla a automático sin que nadie lo elija, y Configuración lo guardaría al tocar cualquier otro parámetro).
+- **HUMAN DECISION REQUIRED (no bloquea):**
+  1. ¿mantener el punto 2 para las empresas con $ 1.000 confirmado, o pasarlas a automático para sus cotizaciones nuevas? Cambiarlo es una regla en `settingsRounding()` (`js/domain/rounding.js`), sin migración.
+  2. **Tope por defecto del automático: 1 % (lo pedido) o menos.** Con 1 %, las tarifas grandes se redondean a cifras más redondas que antes: $/día de 2.408.340 → 2.410.000 (+0,07 %, antes 2.409.000, +0,03 %); un llamado de 1.761.345 → 1.770.000 (+0,49 %, antes +0,04 %). Siempre ≤ 1 %. Con 0,1 % las tarifas de $ 1 M a $ 10 M quedan como antes (múltiplo de 1.000) y las de valor bajo igual se corrigen (277,80 → 277,80, sin redondeo; 3.003,52 → 3.004). Es un valor de fábrica: cada empresa lo cambia en Configuración.
+- **Sin migración ni cambio de esquema** (sigue en 10): los campos nuevos (`roundingMode`, `roundingMaxPct`) son opcionales, y no tenerlos es la regla de siempre. El validador del esquema no rechaza campos nuevos dentro de `pricing` ni de la configuración. `saveSettings` mezcla, así que una pestaña abierta con 0.8.1 no los borra.
+- **Pestañas con 0.8.1 abiertas:** ignoran `roundingMode` y calculan con `roundingStep`. Por eso todo lo que queda en automático guarda `roundingStep: 0` (cotizaciones y empresas nuevas, y las que alguien pasa a automático desde "El precio", el aviso del Resultado o Configuración): una versión anterior, o un revert, las muestra sin redondeo, nunca infladas. Al volver a "Múltiplo fijo" el múltiplo se carga de nuevo.
+
+#### 3. Regla nueva
+- **Automático (`roundingMode: 'auto'`):** la tarifa objetivo se redondea **hacia arriba** al múltiplo de 1, 10, 100, 1.000… más grande que **no la suba más de `roundingMaxPct`** (1 % por defecto, configurable de 0 a 10). Con una objetivo menor a $ 100 (el 1 % no llega a $ 1) no hay redondeo.
+  - Ejemplos: 277,80 → 278; 3.003,52 → 3.010; 12.018,31 → 12.100; 2.408.340 → 2.410.000.
+  - Nunca baja el margen y nunca sube más del tope.
+- **Múltiplo fijo (`roundingMode: 'step'`, o sin `roundingMode`):** `roundingStep`, como siempre (0 = sin redondeo).
+- **Productos:** sin cambios. Tienen su propio redondeo, que por defecto es 0.
+
+#### 4. Impacto en fórmulas
+- **Cotizaciones existentes y plantillas:** sin cambios. Golden y candado sin cambios, y A/B contra `main` en las cotizaciones sintéticas del Test Lab: mismos números.
+- **Cotizaciones nuevas en automático:** la sugerida cambia (más cerca de la objetivo) y, con ella, el margen, el equilibrio y los indicadores, cuando la tarifa comercial es la sugerida.
+- **Indicadores nuevos** (sin tocar los existentes):
+  - `roundingMode`, `roundingStep` (el paso que se aplicó) y `roundingMaxPct`;
+  - `suggestedRoundUpPct` (cuánto sube la sugerida sobre la objetivo);
+  - `suggestedMarginPct` (el margen con la sugerida);
+  - `roundingExceedsLimit` (múltiplo fijo que sube más de 1 %).
+
+#### 5. UX: margen objetivo y real siempre a la vista
+- **Resultado y PDF:**
+  - la sugerida dice "Objetivo: 10 % · con esta tarifa: 10,06 %" y el precio objetivo exacto;
+  - el margen dice siempre su objetivo;
+  - con un múltiplo fijo que sube más de 1 %, aviso arriba con [Usar redondeo automático].
+- **"El precio" y el resumen en vivo:** el mismo par (objetivo y real) y el control del redondeo: Automático (hasta X %) / Múltiplo fijo ($).
+- **Configuración:** el mismo control para las cotizaciones nuevas. Con un múltiplo fijo de $ 1.000 se avisa que en $/ton-km, $/kg o $/km puede subir mucho.
+
+#### 6. Pasos
+- [x] 1. Documentar la ambigüedad y la interpretación (este plan, antes de cambiar la regla) y fijar con tests que lo guardado no cambia.
+- [x] 2. Dominio (`js/domain/rounding.js`) y motor (indicadores nuevos).
+- [x] 3. Fábrica: empresas y cotizaciones nuevas en automático; interpretación de lo guardado (empresa y plantillas).
+- [x] 4. UI: Resultado, PDF, "El precio", resumen en vivo y Configuración.
+- [x] 5. Tests: dominio, motor en las 18 unidades con 0/1/10/1.000 y automático, compatibilidad, vuelta atrás, oráculo del Test Lab (implementación propia del automático), E2E-21 y bloque ECO-03 en el navegador.
+- [ ] 6. PR sin merge y evidencia en RATEOS-AUDIT (`tasks/ECO-03/`: A/B contra `main` y capturas antes/después).
+
+#### 7. Rollback
+Revert del PR. Las cotizaciones creadas en automático después del deploy guardan `roundingStep: 0`: con el revert se calculan sin redondeo (nunca infladas).
+
+#### Bitácora
+- 2026-10-20: Code Review (skill, nivel medio) sobre el cambio: 10 observaciones, todas atendidas antes de publicar. La más importante: `SettingsService.get` completaba `roundingMode: 'auto'` de fábrica en una configuración guardada antes, y Configuración la habría guardado como automático. También: pasar a automático deja el múltiplo en 0, plantillas ILUSTRATIVAS con la regla de fábrica, texto con tope 0, una evaluación menos con tarifa forzada, JSDoc, lógica muerta y constantes.
+- 2026-10-20: el dueño pidió el redondeo proporcional (configurable, por defecto a no más de 1 % sobre la objetivo), margen objetivo y real siempre a la vista, conservar las configuraciones explícitas y las cotizaciones existentes, y documentar la ambigüedad de compatibilidad antes de cambiar la regla. La revisión independiente de ECO-02 pidió priorizar `roundingStep` explícito vs. de fábrica, muestras con 0/1/10/1.000, margen real/objetivo y las 18 unidades. Base `main` `d6540b7`. Primero este plan y los tests que fijan lo guardado; después el cambio de regla.
+### PLAN-2026-021 — ECO-04: abono con más días que disponibles (H-04), vehículo de apoyo sin costo de tenerlo (H-08) y operador contado dos veces (VAL-01-F2)
+
+- Estado: En curso — rama `claude/eco-04-abono-apoyo-operador` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: completitud (avisos y "RESULTADO NO CONFIABLE") y UX; **ninguna fórmula cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (pidió el 2026-10-20 "soluciones verificables para H-04, H-08 y el doble conteo del operador"; la revisión independiente de VAL-01 pidió para H-04 "advertencia crítica de resultado no confiable hasta que el usuario resuelva el período", para H-08 "corrección o aviso contextual comprobado" y para F2 "advertir y pedir confirmación de alcance", porque no toda superposición es doble conteo)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+En los tres casos el motor calcula bien lo que se carga. El problema es que la carga lleva a un resultado equivocado sin aviso, o con un aviso falso:
+- **H-04 (AUD-T1, P1):**
+  - **Caso:** tarifa en $/mes (abono) con más días trabajados que disponibles (26 con 22, porque la ayuda sugiere "22 si sólo trabajás días hábiles").
+  - **Qué hace el motor:** lo toma como "más de un mes de trabajo". Multiplica los fijos por 26/22 y factura **1,18 abonos**, pero un abono mensual no se cobra 1,18 veces.
+  - **Efecto:** margen 15,02 % en vez de 12,26 %, y "trabajando más se gana más".
+  - **Aviso actual:** dice que "los cálculos reemplazan los valores inválidos por 0", y no es cierto.
+- **H-08 (AUD-T1, P1):**
+  - **Caso:** una camioneta propia cargada sólo como vehículo de apoyo.
+  - **Qué hace el motor:** suma combustible y desgaste por km, pero no su costo de tenerlo (amortización, seguro, patente).
+  - **Efecto:** costo −5,87 %, sugerida −5,9 % y margen real 10 % en vez de 15 %, sin ningún aviso (completitud 98 %).
+- **VAL-01-F2 (P2):**
+  - **Caso:** el externo trae operador y el mismo operador está en Personal sin estar asignado al equipo.
+  - **Efecto:** se paga dos veces sin aviso. En E12, costo +13,5 % y sugerida +9,1 %.
+  - **Aviso actual:** sólo aparece si el puesto está asignado al equipo.
+
+#### 2. Decisiones (la opción más segura y sencilla; ninguna fórmula cambia)
+- **H-04:**
+  - **Regla:** con la tarifa en $/mes y días trabajados mayores que los disponibles, el resultado queda **NO CONFIABLE** (pendiente crítico `month_days_overflow`) hasta corregir los días.
+  - **Cómo se corrige:** subir los disponibles (30 si se trabaja todo el mes) o bajar los trabajados.
+  - **Sin confirmación:** un abono mensual no se factura más de una vez por mes.
+  - **Cifras:** no cambian. Sólo dejan de presentarse como confiables.
+  - **Otras unidades** (día, hora, cantidad, evento): "más días que disponibles" sigue siendo "trabajo de más de un mes" (CALCULATION_RULES §1), es decir, fijos y cargos mensuales × días ÷ disponibles. El aviso pasa a decir eso.
+  - **Resultado:** los avisos que no reemplazan nada ya no se presentan como "los cálculos reemplazan los valores inválidos por 0".
+- **H-08:**
+  - **Pregunta:** cada vehículo de apoyo dice dónde está su **costo de tenerlo**:
+    - en una línea de Equipos (la camioneta cargada también como equipo, sin horas si sólo traslada);
+    - o ya en el costo por km (un tercero que cobra por km, o el desgaste con la amortización, el seguro y la patente incluidos).
+  - **Sin respuesta:** pendiente **crítico** `vehicle_ownership_costs`. No vuelve NO CONFIABLE el resultado, porque el costo por km puede estar bien: se pide confirmar antes de mandarla.
+  - **Si se borra la línea de Equipos elegida:** se vuelve a preguntar.
+  - **Con el vehículo ligado a Equipos:**
+    - la ayuda del desgaste dice que no repita la amortización;
+    - si esa línea "va por sus propios medios", el control de duplicados lo marca, porque los km se contarían dos veces.
+- **VAL-01-F2:**
+  - **Cuándo pregunta:** un externo con operador incluido, sin operador asignado, y puestos de Personal (con posiciones) que no operan ningún equipo. El control de duplicados (`duplicates`, para revisar) pregunta si alguno es ese operador.
+  - **Cómo se confirma:** en Equipos, "Ningún puesto de Personal lo opera" (`operatorBySupplier`). La confirmación queda ligada a esos puestos (id y nombre): si se agrega otro o se renombra, vuelve a preguntar.
+  - **Si se asigna el puesto como operador:** lleva al aviso de siempre ("Operador posiblemente duplicado").
+
+#### 3. Impacto en fórmulas
+- **Fórmulas:** ninguna cambia.
+- **Golden y candado:** golden 39/39 sin tocar y candado sin cambios.
+- **A/B contra `main`:** las mismas cifras en el corpus sintético.
+- **Qué cambia:** la completitud (pendientes nuevos, que aparecen sólo cuando se disparan) y los textos.
+
+#### 4. Impacto en datos
+- **Esquema:** 10, sin cambios ni migración.
+- **Campos opcionales nuevos:**
+  - `logistics.vehicles[].ownershipCostsIn`: el id de la línea de Equipos con su costo de tenerlo, o `'per_km'`;
+  - `equipment[].operatorBySupplier`: la confirmación de F2 (`{ labor: [{ id, role }] }`).
+- **Sin ellos:** todo calcula igual.
+- **Pestaña con la versión anterior:** los ignora; calcula igual y no avisa, como hoy.
+- **Plantillas:** al crear una cotización desde una plantilla se remapean, como el resto de las referencias entre líneas.
+- **"Actualizar desde Recursos":** conserva la confirmación de F2, que es de la cotización, como el operador asignado.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests que reproducen H-04, H-08 y F2 (`tests/engines/eco-04.test.js`: 10 de 16 fallan en `main`; los demás fijan lo que no cambia) y los de las correcciones del Code Review.
+- [x] 3. Completitud (tres reglas), el aviso de días (en el motor, con sus días) y el Resultado.
+- [x] 4. UI: el costo de tenerlo en cada vehículo de apoyo y la confirmación del operador en Equipos (cada línea).
+- [x] 5. Fábrica (plantillas) y Recursos (actualizar).
+- [x] 6. E2E (E2E-22 a E2E-24, escritorio y celular), A/B contra `main` y docs.
+- [x] 7. PR sin merge (#31) y evidencia en RATEOS-AUDIT (`tasks/ECO-04/`).
+
+#### 6. HUMAN DECISION REQUIRED (no bloquean)
+1. **"Más días que disponibles" en las otras unidades** (D-9, VAL-01-F3, C-E3-10): hoy es trabajo de más de un mes, con el aviso corregido. ¿Pedir confirmación también ahí?
+2. **Vehículo de apoyo propio:** este PR lo resuelve ligándolo a una línea de Equipos. La alternativa es cargar su costo de tenerlo en el mismo vehículo, con más campos y un cálculo nuevo.
+3. **Severidad de la pregunta del vehículo de apoyo:**
+   - **Hoy:** es **crítica**, porque H-08 es P1.
+   - **Alcance:** en el corpus sintético aparece en todas las cotizaciones con vehículos de apoyo (626 de 2.196) hasta que se responde una vez por vehículo.
+   - **Alternativa:** "para revisar", que no pide confirmar antes de mandarla.
+
+#### 7. Rollback
+Revert del PR. Los campos nuevos quedan en los datos y la versión anterior los ignora.
+
+#### Bitácora
+- 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests que reproducen los tres casos y la implementación.
+- 2026-10-20: F2 se acotó a los puestos que **suenan a operador o chofer**.
+  - **Por qué:** preguntar por cualquier puesto libre llenaba de preguntas el transporte normal (un transportista con chofer más un coordinador propio). Los casos de la auditoría (VAL-01 E12, AUD-T1 C-E2-07) son choferes.
+  - **Qué se perdió:** nada del golden ni del Test Lab.
+- 2026-10-20: Code Review (skill, nivel medio), 10 observaciones, todas atendidas:
+  - el aviso de días pasó al motor, con los días que usa (tope de 31, y no en unidades por cantidad);
+  - cada externo pregunta en Equipos (antes, sólo el primero, y un operador asignado en otra línea las tapaba);
+  - "asignado" igual que en el motor (un id viejo no cuenta);
+  - la guía de H-08 dice "No requiere movilización";
+  - quitar un equipo limpia el vehículo ligado;
+  - el texto de los datos inválidos;
+  - más nombres de operador ("Hidrogruista", "Operario de grúa");
+  - un solo formateador y un solo nombre de puesto;
+  - sin re-export.
+- 2026-10-20: A/B contra `main` (2.196 cotizaciones: lab, generadas, línea base, demo, fixtures, AUD-T1, plantillas y las 87 de VAL-01):
+  - **cifras:** 0 diferencias;
+  - **completitud:** ningún cambio fuera de los tres pendientes;
+  - `month_days_overflow` sólo en VAL-01 E24 (el caso H-04);
+  - `vehicle_ownership_costs` en las 626 con vehículos de apoyo;
+  - la pregunta de F2 en 310 (VAL-01 E12, el caso F2, y las generadas con "Operador" y un externo con operador);
+  - la demo, las plantillas, el golden y los fixtures no cambian.
+- 2026-10-20: las capturas a 390 px mostraron la pregunta del operador en una columna angosta, con el botón al costado. Ahora el botón baja debajo del texto cuando no entran juntos (`css/quote.css`); en escritorio no cambia.
+
+### PLAN-2026-022 — UX-01: formularios que pierden cambios sin avisar y valores que se corrigen en silencio
+
+- Estado: En curso — rama `claude/ux-01-no-perder-cambios` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: UX (formularios y avisos); **ninguna fórmula cambia** y no hay datos nuevos
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (pidió el 2026-10-20 "resolver formularios que pierden cambios sin advertir y validaciones que corrigen valores silenciosamente"; la auditoría DESIGN-01 los detalla en D1b, con RES-02-G4)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Casos verificados en el código de `main`:
+- **Diálogos con formulario** (`openDialog` en `js/ui/components.js`):
+  - un clic afuera o Esc los cierran **sin preguntar**, con todo lo cargado (RES-02-G4);
+  - afecta a la ficha de cada recurso (Personal, Equipos, Materiales, Externos, Convenios…: `openResourceForm` en `js/ui/views/library.js`), a "Renombrar plantilla" (`services.js`) y a "Guardar como plantilla" (editor de cotizaciones).
+- **Un valor inválido vuelve al anterior sin que se vea** (`numberField` en `js/ui/components.js`):
+  - al confirmar un número inválido, el campo vuelve al valor anterior y lo dice debajo del campo;
+  - si eso pasa porque se sale de la pantalla (otro paso, el menú, Atrás), el aviso queda en la vista que se destruye: el valor escrito no se guardó y nadie se entera;
+  - pasa en el editor de cotizaciones (`dispose` → `revertInvalidFields`), en el de productos y en Configuración. El nombre de la empresa borrado hace lo mismo.
+- **Configuración guarda cada sección sólo si toda la sección es válida:** con un campo inválido enfocado, si se sale sin que el campo pierda el foco (Atrás, un atajo), no se guarda nada de esa sección, ni siquiera los cambios válidos.
+- **"Mi cuenta":** el nombre se guarda con "Guardar nombre"; si se sale sin tocarlo, el cambio se pierde sin aviso.
+- **Los avisos de error desaparecen a los 3,5 s** y no se pueden cerrar: un "No se pudo guardar" puede pasar sin que se lea.
+
+#### 2. Decisiones (la opción más segura y sencilla)
+- **Diálogos con formulario:**
+  - un clic en el fondo no los cierra;
+  - Esc, la X o "Cancelar" con cambios sin guardar preguntan "¿Descartar los cambios?", con [Seguir editando] y [Descartar];
+  - sin cambios, cierran como siempre; después de "Guardar", sin preguntar;
+  - Esc se atiende antes de que el navegador procese el cierre (Chrome no deja retener con `cancel` un segundo Esc seguido); si igual se cierra (otro pedido de cierre), se vuelve a abrir con la pregunta encima;
+  - "cambios" quiere decir lo que se guardaría distinto de lo que se abrió (normalizado como al guardar: sin contar los campos vacíos, y marcar y desmarcar una casilla no cuenta) o un campo con un valor inválido escrito.
+- **Valores que vuelven al anterior:**
+  - no se frena la navegación: el router no puede cancelar un cambio de dirección de forma confiable, y los editores guardan solos;
+  - si el campo ya no está en pantalla cuando vuelve al valor anterior, aparece un aviso que queda hasta cerrarlo, con la pantalla, el campo, lo que se escribió, por qué no se guardó y qué valor quedó;
+  - si el campo sigue en pantalla, alcanza con el aviso debajo del campo, como hoy;
+  - en un diálogo que se cierra sin guardar (Cancelar, Esc, la X, Descartar) no se avisa: se descartó a propósito. Si se guardó, sí;
+  - los campos de mes (`periodField`) hacen lo mismo que los números: en navegadores sin selector de mes (se ven como texto), un texto inválido queda marcado mientras se escribe y, al confirmarlo, vuelve al último mes guardado con su aviso.
+- **Configuración:**
+  - al salir (y al cerrar la pestaña), primero vuelven al valor anterior los campos inválidos, con su aviso, y después se guarda el resto de la sección;
+  - el guardado automático recuerda que hay cambios sin guardar aunque en ese momento la sección esté inválida: al salir se guardan si ya se puede; si ni así (p. ej. impuestos que suman 100 % o más), un aviso lo dice;
+  - si la misma pantalla se redibuja sin navegar (después de recargar la versión de la nube o de importar), no se revierte ni se guarda lo que quedó en pantalla: esos datos ya cambiaron.
+- **"Mi cuenta":** al salir con un nombre escrito y sin guardar, aviso con el nombre que no se guardó (no, si se está guardando).
+- **Avisos:**
+  - los de error quedan hasta cerrarlos;
+  - todos tienen "Cerrar";
+  - como máximo 4 a la vez: se van primero los que igual se iban solos; uno igual a otro que ya está a la vista no se repite;
+  - el plazo de 1,5 s para decidir si el campo se fue con la pantalla queda así: alcanza para el cambio de vista (que es inmediato) y un diálogo que se redibuja ya está cubierto por la regla de arriba.
+
+#### 3. Impacto en fórmulas
+Ninguno: no se toca ningún motor. Golden y candado sin cambios.
+
+#### 4. Impacto en datos
+- Sin campos nuevos ni migraciones (esquema 10).
+- Lo único que cambia en lo que se guarda: al salir de Configuración se guardan los cambios válidos de una sección aunque otro campo estuviera inválido, o aunque la sección haya estado inválida un momento (antes se perdían).
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests:
+  - unitarios de las funciones puras (huella del borrador y texto del aviso);
+  - E2E que reproducen cada caso y fallan en `main`.
+- [x] 3. `openDialog` con `isDirty`; recursos y plantillas.
+- [x] 4. Aviso del valor que volvió al anterior fuera de pantalla; Configuración (revertir y guardar) y "Mi cuenta".
+- [x] 5. Avisos de error que quedan hasta cerrarlos.
+- [x] 5b. Revisión de código propia (10 observaciones): 9 corregidas con su control E2E (ver Bitácora); el plazo de 1,5 s queda como está.
+- [ ] 6. Validación completa, capturas antes y después, PR sin merge y evidencia en RATEOS-AUDIT (`tasks/UX-01/`).
+
+#### 6. Fuera de alcance (documentado)
+- El resto de D1b de DESIGN-01 (no pierde datos; va en DESIGN-02):
+  - el monto con separadores y su eco en Recursos;
+  - `aria-required` y las ayudas asociadas con `aria-describedby`.
+- "1.500" se sigue leyendo como mil quinientos (punto de miles, formato argentino). El editor ya muestra el eco del monto.
+- "Se guardó la plantilla", con su enlace, sigue durando 3,5 s (ahora se puede cerrar). No pierde datos.
+
+#### 7. Rollback
+Revert del PR. No deja datos nuevos.
+
+#### Bitácora
+- 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests que reproducen los casos y la implementación.
+- 2026-10-20: implementación y revisión de código propia (10 observaciones). Corregidas 9, cada una con su control E2E:
+  - campo de mes (`periodField`) con texto inválido: no volvía al anterior y frenaba el guardado de su sección en Configuración;
+  - al redibujar Configuración sin navegar (recargar de la nube, importar) no se revierte ni se guarda lo que quedó en pantalla;
+  - un valor restaurado dentro de un diálogo que se cierra sin guardar no deja un aviso fijo; si se guardó, sí avisa;
+  - "Mi cuenta": no avisa mientras el nombre se está guardando, y guarda como guardado lo que se mandó;
+  - el tope de 4 avisos saca primero los que se iban solos;
+  - Esc se atiende antes del cierre del navegador y la pregunta queda siempre encima (se reemplaza si ya había una);
+  - `clearToasts` también frena un aviso que todavía no había entrado;
+  - el motivo del aviso lo decide el campo (vacío: sin motivo), sin comparar textos;
+  - la ficha de un recurso compara lo que se guardaría (normalizado como al guardar): marcar y desmarcar una casilla no es un cambio.
+  - Además, al probarlo: el guardado automático de Configuración olvidaba un cambio si la sección estaba inválida justo cuando tocaba guardar. Ahora lo recuerda, lo guarda al salir si ya se puede y, si no, lo avisa.
+  - Queda como está el plazo de 1,5 s del aviso (ver Decisiones).
+- 2026-10-20: `ui-lab` con 28 controles UX-01 por modo: 20 fallan en `main` (388/408 en escritorio; todas las fallas son de UX-01) y pasan todos en la rama. Los 8 que pasan en `main` son de no regresión (p. ej. "sin cambios, Esc cierra sin preguntar").
+
+### PLAN-2026-023 — RES-02 (1/2): Personal agrupado por convenio y sueldo bruto sin doble conteo
+
+- Estado: En curso — rama `claude/res-02-personal-por-convenio` (desde `main` `d6540b7`, v0.8.1, esquema 10); PR sin merge ni deploy
+- Tipo: UX y datos: un campo opcional e informativo (`peopleCount`) sin migración; **ninguna fórmula cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (20/10: "RES-02 — Implementar Recursos. Autorizo la dirección visual propuesta, con los ajustes de ChatGPT"), con el diseño de RATEOS-AUDIT `tasks/RES-02/` y la revisión de ChatGPT del Issue #4
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Verificado en el código de `main` (detalle con `archivo:línea` en RATEOS-AUDIT `tasks/RES-02/GAP-ANALISIS.md`):
+- **Recursos → Personal es una tabla sin agrupar.** La vista simple ni muestra el convenio y no hay búsqueda.
+- **No hay cantidad de personas.** Un perfil se lee como una persona.
+- **Doble conteo posible:** el formulario pide "Sueldo básico" y, en otra sección, "Adicionales". Si se escribe el bruto del recibo como básico y además los adicionales, se suman dos veces (+20 % de costo en el ejemplo del diseño).
+- **Horas extra:** se valúan sobre el básico. Si el básico es en realidad el bruto, se sobrevalúan sin aviso.
+- **RES-02-G1:** al borrar un convenio, el aviso dice que los perfiles "quedarán sin convenio asignado", pero su `agreementId` queda colgando.
+
+#### 2. Decisiones (las del dueño y los ajustes de ChatGPT; para lo técnico, lo más seguro y sencillo)
+- **Vista principal agrupada por convenio** (D-R10): "Por convenio" es la vista por defecto de Personal; "Lista" y "Detallada" siguen disponibles.
+  - Un grupo por convenio de la empresa, con su nombre (los códigos de CCT no se muestran: no están confirmados, D-R5).
+  - **"Fuera de convenio":** los perfiles con un convenio del tipo `fuera_convenio`.
+  - **"Sin convenio indicado":** sin convenio o con uno que ya no existe. Siempre desplegado y con la salida a Configuración → Convenios.
+  - Orden: los convenios con más perfiles primero (después por nombre), "Fuera de convenio" y "Sin convenio indicado" al final.
+  - Grupos con `<details>`/`<summary>` (teclado), "Desplegar todo" / "Plegar todo", búsqueda y filtro por convenio que quedan en la dirección (`?q=&convenio=`).
+- **Perfiles ≠ personas** (D-R3, D-R9 y ajuste 3 de ChatGPT):
+  - campo opcional `peopleCount` (entero ≥ 0), **informativo**: no se copia a las cotizaciones, no entra en la huella (`SNAPSHOT_FIELDS`) y no cambia `positions` ni `peoplePerPosition`;
+  - el encabezado dice "N perfiles · M personas", o "M personas en K de N perfiles" si falta el dato;
+  - el monto del grupo suma costo por persona × personas sólo de los perfiles con cantidad. Si falta en alguno, se llama **"subtotal parcial"**; nunca "total del personal". Sin ninguna cantidad, no hay monto;
+  - un valor guardado inválido se toma como "sin dato". **No** se agrega una regla a `validateState`: un dato informativo malo no debe bloquear toda la cuenta.
+- **"Editar sueldo" a un clic** (D-R1, D-R7):
+  - **bruto mensual remunerativo** (obligatorio) que se descompone: `basicMonthly` = básico (o el bruto si no se carga) y `additionalsMonthly` = bruto − básico. El doble conteo es imposible por construcción y se guardan los mismos dos campos de siempre (el motor no cambia);
+  - básico mayor que el bruto: error en el campo;
+  - **horas extra** (D-R2, ajuste 2 de ChatGPT, pedido del dueño "no asumir silenciosamente que el bruto completo es el básico"): si el perfil o alguna cotización que lo usa tiene horas extra y no se carga el básico, para guardar hay que **cargarlo o confirmar** "valuar las horas extra sobre el bruto completo". Sin horas extra, el diálogo dice que sin básico se valuarían sobre el bruto;
+  - si el bruto cambia y el básico no, se avisa que el básico se usa para las horas extra (RATEOS no lo sube solo);
+  - **mes base** obligatorio si cambió el sueldo; fuente y referencia opcionales;
+  - vista previa del costo empresa por persona antes → después y "Ver cálculo"; los parámetros de cargas a la vista, ILUSTRATIVOS si lo son;
+  - cuántas cotizaciones en curso o ganadas lo usan: no cambian y van a avisar "El recurso cambió" (como hoy);
+  - sin historial de sueldos en el maestro (D-R7).
+- **Formulario completo (el de siempre)** (ajuste 5 de ChatGPT): sigue permitiendo cargar básico y adicionales por separado, ahora con ayudas que lo dicen y la línea "Bruto mensual = básico + adicionales", y suma "Personas en este puesto".
+- **RES-02-G1** (D-R11): borrar un convenio limpia el `agreementId` de los perfiles que lo usaban en la misma operación. Las cotizaciones no cambian (el convenio no está en la huella).
+- **Celular** (ajuste 1 de ChatGPT): los grupos aparecen en la primera pantalla: el resumen es una línea y no tres tarjetas.
+
+#### 3. Impacto en fórmulas
+Ninguno. No se toca ningún motor; golden y candado sin cambios.
+
+#### 4. Impacto en datos
+- Campo nuevo, opcional e informativo: `laborProfiles[].peopleCount`. Sin migración ni cambio de `SCHEMA_VERSION` (no cambia costos; `validateState` no tiene lista blanca de campos). Una versión anterior lo ignora.
+- "Editar sueldo" guarda `basicMonthly`, `additionalsMonthly` y la base del perfil, como el formulario de siempre.
+- Borrar un convenio deja `agreementId: null` en sus perfiles.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Funciones puras con tests (agrupación, conteos y subtotales; descomposición del bruto; horas extra en el perfil y en las cotizaciones) y G1 en el repositorio.
+- [x] 3. Vista "Por convenio", búsqueda y filtro en la dirección, celular.
+- [x] 4. "Editar sueldo" y ayudas del formulario completo.
+- [x] 5. E2E (escritorio y celular) que fallan en `main`, validación completa, capturas antes y después, PR sin merge y evidencia en RATEOS-AUDIT.
+
+#### 6. Fuera de alcance (documentado)
+- Equipos agrupados por familia: segundo PR de RES-02.
+- "+ Nuevo convenio…" desde el perfil y la lista de CCT con códigos (D-R5): los códigos no están confirmados.
+- Sumas no remunerativas del convenio (ajuste 5 de ChatGPT): no se mezclan con EPP o seguros sin revisión profesional (D-R12).
+- Escalas, vigencias, paritarias, aumentos automáticos e historial (decisión del dueño del 20/10).
+
+#### 7. Rollback
+Revert del PR. `peopleCount` queda en los datos y la versión anterior lo ignora.
+
+#### Bitácora
+- 2026-10-20: base `main` `d6540b7` (v0.8.1, esquema 10). Primero este plan; después los tests y la implementación.
+- 2026-10-20: implementado.
+  - Dominio: `js/domain/labor-groups.js`, con 23 tests.
+  - Diálogo: `js/ui/labor-salary-dialog.js`.
+  - Vista: `js/ui/views/library.js` y `css/views.css`.
+  - G1: `deleteResource` del repositorio, que hereda la nube.
+  - `ui-lab`: 32 controles RES-02 por modo; contra `main`, los que dependen de la vista fallan (detalle en la evidencia).
+  - Decisiones técnicas:
+    - el error del diálogo tiene clase propia (`salary-error`);
+    - las acciones del bloque del `ui-lab` son "suaves", para que la corrida contra `main` falle control por control y no se corte;
+    - en el celular, las pestañas de Recursos se compactan (chips más chicos): con una sola fila desplazable la página crecía a lo ancho.
+
+### PLAN-2026-024 — RES-02 (2/2): Equipos agrupados por familia
+
+- Estado: En curso — rama `claude/res-02-equipos-por-familia`, apilada sobre `claude/res-02-personal-por-convenio` (PR #33, desde `main` `d6540b7`): usa sus grupos, filtros en la dirección y estilos. PR sin merge ni deploy
+- Tipo: UX; **ninguna fórmula ni dato cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (20/10: "Equipos agrupados por familias, revisando la clasificación de equipos especiales"), con el diseño de RATEOS-AUDIT `tasks/RES-02/` (DISENO.md §3, D-R8) y la revisión de ChatGPT del Issue #4 (punto 6)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Verificado en el código (RATEOS-AUDIT `tasks/RES-02/GAP-ANALISIS.md`, R6 y R7):
+- **Recursos → Equipos es una tabla** con propios, alquilados y tercerizados mezclados, sin grupos ni búsqueda.
+- **Cada ficha es una unidad** (no hay cantidad en el maestro): no se ve la flota por tipo ni cuánto cuesta tenerla.
+- **El catálogo tiene 29 familias en una lista plana.** El diseño ponía vactor, flushby y wireline en "Camiones"; la revisión de ChatGPT (punto 6) pidió revisarlo: para un contratista de servicios especiales eso confunde.
+
+#### 2. Decisiones (las del dueño y los ajustes de ChatGPT; para lo técnico, lo más seguro y sencillo)
+- **Vista "Por familia" de entrada.** "Lista" y "Detallada" siguen.
+- **Grupos visibles:** una constante descriptiva (`js/domain/equipment-groups.js`), en orden fijo:
+
+| Grupo | Familias del catálogo |
+|---|---|
+| Grúas | `crane_truck`, `crane` |
+| Camiones | `truck`, `tank_truck`, `tractor` |
+| Equipos de vacío y succión | `vactor`, `vacuum_truck` |
+| Equipos de pozo | `flushby`, `wireline` |
+| Remolques y tanques | `semitrailer`, `lowboy`, `dump_trailer`, `tank`, `frac_tank` |
+| Camionetas y vehículos livianos | `pickup`, `minibus` |
+| Movimiento de suelo | `backhoe`, `excavator`, `wheel_loader`, `motor_grader` |
+| Equipos de apoyo | `generator`, `compressor`, `pump`, `welder`, `light_tower`, `forklift`, `telehandler`, `tools` |
+| Otros / sin familia | `other` y las fichas sin familia (después de `familyIdOf`) |
+
+- **Punto 6 de ChatGPT (equipos especiales):** vactor y camión atmosférico pasan a "Equipos de vacío y succión"; flushby y wireline, a "Equipos de pozo" (sin la palabra "intervención": en RATEOS es la activación de los servicios permanentes, D8).
+  - Por qué: se cotizan como servicios especiales (con su operador y su consumo), no como transporte. Mezclados con los camiones, no se ve la flota.
+  - Cada fila sigue diciendo su familia ("Vactor", "Flushby").
+  - Los nombres y el reparto (D-R8) quedan para el dueño. Un test garantiza que cada familia esté en un solo grupo, así que cambiarlo es una línea.
+- **Conteos:** "unidades propias" (fichas `owned`; una ficha = una unidad) y, aparte, "alquiladas o tercerizadas (no suman)".
+- **Monto del grupo:** costo de **tener** las propias por mes, sin usarlas.
+  - Es la Σ de la posesión de la ficha: amortización, costo de capital, seguro, patente, certificaciones, otros y mantenimiento fijo.
+  - Las alquiladas y tercerizadas **nunca** suman.
+  - Una propia valuada en otra moneda sin tipo de cambio no se suma (no se mezclan monedas): el monto es "Subtotal parcial" y lo dice.
+  - Sin propias en el grupo, no hay monto.
+- **Filas:** equipo (con familia, interno, capacidad o modelo), tenencia, "Tenerlo por mes" (con "Ver cálculo" que termina en ese número), "Usarlo" ($/h sin combustible + L/h, porque el combustible se valúa en cada cotización; o "No usa combustible"; alquilados y tercerizados: la tarifa neta), base, "Usado en" y acciones.
+- **Búsqueda y filtro en la dirección** (`?q=&tenencia=`):
+  - búsqueda por nombre, interno, dominio, familia, capacidad y modelo;
+  - tenencia: todas, propias, o alquiladas y tercerizadas;
+  - "Plegar todo" / "Desplegar todo".
+- **Celular:** resumen en una línea; el primer grupo en la primera pantalla.
+
+#### 3. Impacto en fórmulas
+Ninguno. Los montos salen de la ficha del equipo (`equipmentCard`); golden y candado sin cambios.
+
+#### 4. Impacto en datos
+Ninguno: no hay campos nuevos y las familias de las fichas no cambian.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Dominio con tests: cada familia en un solo grupo, agrupar, contar, monto de tenencia, filtros.
+- [x] 3. Vista "Por familia", búsqueda y filtro en la dirección, traza de tenencia, celular.
+- [x] 4. E2E (escritorio y celular) que fallan sin este cambio, validación completa, capturas antes y después, PR apilado sin merge y evidencia en RATEOS-AUDIT.
+
+#### 6. Fuera de alcance (documentado)
+- Cantidad en el maestro (cada ficha sigue siendo una unidad).
+- Servicios externos (otra pestaña) y el catálogo de modelos.
+- Cambiar el catálogo de familias o la familia de las fichas existentes.
+
+#### 7. Rollback
+Revert del PR. No deja datos.
+
+#### Bitácora
+- 2026-10-20: base `claude/res-02-personal-por-convenio` `ed43a43` (PR #33). Primero este plan; después los tests y la implementación.
+- 2026-10-20: implementado.
+  - Dominio: `js/domain/equipment-groups.js`, con 13 tests.
+  - Vista: `js/ui/views/library.js` y `css/views.css`. Personal y Equipos comparten el grupo plegable (`resourceGroupNode`, clases `resource-group*`); las clases `labor-group*` y `equipment-group*` quedan como ganchos de las pruebas.
+  - `ui-lab`: 20 controles RES-02-EQ por modo.
+  - Decisiones técnicas:
+    - el grupo de flushby y wireline se llama "Equipos de pozo": el auditor de terminología del Test Lab no deja usar "intervención" fuera de la activación de los servicios permanentes (D8);
+    - "Ver cálculo" de la posesión es una traza propia (`holdingTrace`) que termina en el número de la fila; la del equipo completo termina en el costo a la utilización esperada;
+    - la operación se muestra sin combustible y con los litros por hora: el combustible se valúa en cada cotización;
+    - en el celular, la explicación de posesión y operación se pliega y la cantidad de la barra se oculta en las vistas agrupadas (el resumen la dice), para que el primer grupo aparezca en la primera pantalla;
+    - la nota "Valor en USD…" de una unidad sin tipo de cambio ensanchaba la página en el celular (ya pasaba en "Lista"): ahora se parte.
+
+### PLAN-2026-025 — DESIGN-02 (1/2): DESIGN.md propio y leer bien montos, unidades, riesgo y estado de guardado
+
+- Estado: En curso — rama `claude/design-02-ingenieria-clara`, desde `main` `d6540b7`. PR sin merge ni deploy
+- Tipo: UX y accesibilidad; **ninguna fórmula ni dato cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (20/10: "Apruebo como dirección general «Ingeniería clara» […] Prepará las mejoras prioritarias de UX y un DESIGN.md propio […] El logo concepto C queda como propuesta: todavía NO lo reemplaces. Priorizá la experiencia real de cotizar y entender resultados"), sobre la auditoría DESIGN-01 de RATEOS-AUDIT (`tasks/DESIGN-01/`: AUDITORIA, DESIGN.md propuesto y PLAN)
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Verificado en el código de `main` (RATEOS-AUDIT `tasks/DESIGN-01/AUDITORIA.md`, con `archivo:línea`):
+- **No hay un sistema de diseño escrito.** Los tokens existen (`css/styles.css`, `:root`), pero sin nombres por función: hay 135 colores sueltos y 87 tamaños de letra.
+- **Texto chico donde se lee el riesgo y la plata:**
+  - la etiqueta ILUSTRATIVO mide unos 10 px;
+  - los subtítulos de columna del Resultado, 9,9 px;
+  - los textos del gráfico, 10 y 11 px;
+  - en total hay 91 tamaños de letra por debajo de 12 px.
+- **La raíz está fija en 15 px:** ignora el tamaño de letra que elige la persona en su navegador (WCAG 1.4.4).
+- **Montos clave sin cifras tabulares** (`font-variant-numeric: normal` en las cifras del Resultado): los dígitos "bailan" al cambiar.
+- **"Ver cálculo" mide unos 18 px de alto en escritorio.** Es la puerta para entender cada número; WCAG 2.5.8 pide 24 px.
+- **En el gráfico del Resultado, la tarifa piso y el precio objetivo** son dos líneas llenas que sólo se distinguen por el tono de azul (WCAG 1.4.1).
+- **Los campos dentro de tablas** tienen un borde de 1,3:1: no se ve dónde se escribe (WCAG 1.4.11 pide 3:1).
+- **Estado de guardado:**
+  - en el riel (761 a 1100 px), "Sin conexión", "Conflicto" o "Guardado" quedan como un punto de color sin texto;
+  - en el celular, el estado queda dentro del menú cerrado.
+- **Precio de referencia:** VAL-01 (condición VAL-G4 de la beta) pide decir que RATEOS calcula con los datos de la empresa y que **no es un precio de mercado**. Hoy no lo dice en ningún lado.
+- **El PDF imprime la fecha de impresión, no la de la oferta** (`offerDate`; AUD-T1 C-E2-11).
+
+#### 2. Decisiones (las del dueño; para lo técnico, lo más seguro y sencillo)
+- **Dirección "Ingeniería clara" (DD-1, aprobada):** evolución, no rediseño. Misma paleta, sin efectos ni animaciones nuevas.
+- **Logo (DD-2):** el concepto C queda como propuesta. **No se toca la marca.**
+- **Tipografía (DD-3, sin decisión):** no se carga ninguna fuente. `DESIGN.md` documenta la pila actual y deja Inter autoalojada como propuesta.
+- **Prioridades del Issue #5:** legibilidad de montos y unidades, estado guardado, precios de referencia frente a resultado no confiable, y datos ilustrativos. "Nunca romper claridad de cotización por embellecer".
+- **Alcance de este PR (1/2), cada punto con su control automático:**
+  1. **`DESIGN.md` en la raíz:** principios, tokens por función, tipografía y números, estados de riesgo, componentes, celular, impresión, voz, checklist de accesibilidad por PR, estados de pantalla y guía para agentes. Un test verifica que sus colores coincidan con los de `css/styles.css`.
+  2. **Alias por función** (`--color-text`, `--color-status-critical`…) en `:root`, que apuntan a los tokens actuales. Sin cambio visual. Se usan en las reglas que toca este PR.
+  3. **Raíz en %:** `93.75 %` (15 px) en escritorio y `100 %` (16 px) en el celular. Con el tamaño de fábrica del navegador se ve igual; si la persona agranda la letra, la app la sigue.
+  4. **Mínimo de 12 px:**
+     - `--fs-xs` pasa de 0,78 rem a 0,8 rem (12 px);
+     - todo tamaño menor en `styles.css`, `quote.css`, `result.css` y `views.css` pasa a `var(--fs-xs)`;
+     - los textos del gráfico pasan a 12 px.
+     - `public.css` (landing y registro) queda para D7, después del merge de HD-03 (#28), salvo la etiqueta ILUSTRATIVO.
+  5. **Cifras tabulares** en las cifras clave del Resultado.
+  6. **"Ver cálculo" de al menos 24 px de alto** en escritorio (en el celular ya mide 44 px).
+  7. **Gráfico:** la tarifa piso pasa a línea de trazos (con su muestra igual en la leyenda); el objetivo queda lleno. Ya no se distinguen sólo por el color.
+  8. **Campos en tablas** con el borde de los campos (`--field-border`, 3,3:1).
+  9. **Estado de guardado con palabra:**
+     - en el riel, ícono + palabra corta;
+     - en el celular, el estado en la barra de arriba, sin abrir el menú.
+     - El texto completo sigue igual; los avisos de error no cambian.
+  10. **"No es un precio de mercado" (VAL-G4):** junto a "Montos sin IVA" en el Resultado y en el encabezado del PDF: "Calculado con tus costos y tus supuestos: no es un precio de mercado."
+  11. **PDF:** la fecha de la oferta y, aparte, la de impresión.
+- **Para después** (DESIGN-02 2/2 y siguientes):
+  - Resumen en vivo con el resultado y el margen esperados siempre a la vista; tablas de estructura y de tramos apiladas en el celular; barra compacta que destaca la sugerida; avisos arriba en el celular; `aria-required` y ayudas asociadas; montos con separadores al salir del campo.
+  - Configuración con los mismos textos de sincronización que el editor: después de UX-01 (#32), que cambia ese código.
+  - Primer uso (D2), Inter (DD-3), logo (DD-2) y landing y registro (D7, después de #28).
+
+#### 3. Impacto en fórmulas
+Ninguno. No se toca `js/engines/**` ni `js/domain/**`. Golden 39/39 y candado sin cambios.
+
+#### 4. Impacto en datos
+Ninguno: ni campos nuevos ni esquema (sigue en 10). El PDF sólo lee `offerDate`, que ya existe.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests que fallan en `main`: el estático de `DESIGN.md` y los tokens (`tests/ui/design-system.test.js`) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+- [x] 3. `DESIGN.md`, tokens, CSS, estado de guardado, nota de precio de referencia y fecha de la oferta.
+- [x] 4. Validación completa:
+  - suite, Test Lab, gate, `ui-lab` y `auth-lab`;
+  - capturas antes y después a 1440 y 390 px;
+  - Code Review (skill) del diff;
+  - PR sin merge, evidencia en RATEOS-AUDIT y verificación combinada con los PR #28 a #34.
+
+#### 6. Rollback
+Revert del PR. No deja datos.
+
+#### Bitácora
+- 2026-10-20: base `main` `d6540b7`. Primero este plan; después los tests y la implementación.
+- 2026-10-20: tests escritos antes del código: los 15 estáticos fallan en `main` (`tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js`); el bloque DESIGN-02 del `ui-lab` se corre contra `main` con acciones "suaves".
+- 2026-10-20: implementado.
+  - CSS: 75 tamaños por debajo de 12 px pasan a `var(--fs-xs)` (0,8 rem), salvo los textos del gráfico, que van en `12px` porque el SVG se dibuja en px reales. Con texto de 12 px, los rótulos al final de las líneas del gráfico piden 14 px de separación (antes 13).
+  - Decisiones técnicas:
+    - la tarifa piso va **punteada** (no con guiones), porque los guiones ya son de la tarifa cotizada;
+    - en el riel, el texto completo del estado queda para los lectores de pantalla y se ve la palabra corta (`SYNC_SHORT_LABELS` en `js/app.js`);
+    - en el celular, la barra lleva su propio `role="status"`: con el menú cerrado, el del menú no se ve ni se anuncia;
+    - los textos nuevos están en `js/ui/reference-text.js` (puro, con tests): la nota de mercado y las fechas del PDF, que leen `offerDate` como fecha sin hora (no se corre un día por la zona horaria).
+- 2026-10-20: el control de 12 px del `ui-lab` encontró, en escritorio, tamaños en `em` que dentro de un texto de 12 px quedaban en 10,7 a 11 px (`.mono`, `.unit-suffix`, `.qr-unit`, `.qr-cuadre-detail`). Pasan a `max(…em, var(--fs-xs))`, con un test estático que lo exige (`32ba256`). Contra `main`, el detalle de ese control copiaba el email sintético de la cuenta y el lab, con razón, no escribía el reporte: ahora cuenta por pantalla, clase y tamaño, sin copiar el texto.
+- 2026-10-20: revisión de código (skill Code Review, nivel medio, sobre `d6540b7..32ba256`): 8 observaciones, ninguna sobre un cálculo. Siete se corrigieron en `2607790`:
+  - margen izquierdo y separación del eje X del gráfico según el ancho de los rótulos de 12 px;
+  - en el celular, el estado del menú se oculta (con el menú abierto se anunciaba dos veces) y la palabra de la barra se acorta antes que apretar "Menú";
+  - un solo validador de fechas (`dayFromDate`);
+  - en el `ui-lab`, la fecha de impresión sale del navegador, la cotización ilustrativa sintética entra en el control de fugas de sesión y hay dos controles nuevos en el celular (un solo estado con el menú abierto; la barra a 320 px).
+  - Queda a propósito el mínimo de 24 px de "Ver cálculo" también en los botones compactos: son controles sueltos (WCAG 2.5.8).
+- 2026-10-20: validación en `2607790` (SIMULADA):
+  - `npm test` en verde, Test Lab OK (golden 39/39), gate PASA;
+  - `ui-lab` 395/395 (escritorio) y 397/397 (celular), con 15 y 17 controles DESIGN-02;
+  - contra `main` fallan 12 de 15 y 10 de 17 (fuera del bloque, 0);
+  - combinado con los PR #28 a #34: `npm test` 1918/1918, `ui-lab` 606/606 y 608/608, `auth-lab` 136/136.
+  - Al combinarse con ECO-02 (#29), su pastilla "No confiable" (0,75 rem) queda por debajo de 12 px: el test de DESIGN-02 la marca y la pasa a `var(--fs-xs)`.
+
+### PLAN-2026-026 — DESIGN-02 (2/2): cotizar sin fricción
+
+- Estado: En curso — rama `claude/design-02-cotizar-sin-friccion`, apilada sobre `claude/design-02-ingenieria-clara` (PLAN-2026-025, `6a310e2`). PR sin merge ni deploy
+- Tipo: UX y accesibilidad del editor y de los formularios; **ninguna fórmula ni dato cambia**
+- Responsable: agente de desarrollo (Claude) · decisiones: el dueño (20/10: "Priorizá la experiencia real de cotizar y entender resultados"), sobre la auditoría DESIGN-01 de RATEOS-AUDIT (`tasks/DESIGN-01/AUDITORIA.md`) y lo que PLAN-2026-025 dejó "para después"
+- Fecha de inicio: 2026-10-20
+
+#### 1. Contexto y problema
+Verificado en el código (`6a310e2`; las mismas líneas que en `main` `d6540b7`):
+- **Resumen en vivo** (`js/ui/views/quote-editor.js`, `buildSummary`):
+  - "Resultado esperado del mes" y "Margen esperado" quedan detrás de "Ver más";
+  - en la barra compacta (1180 px o menos) no se ven sin abrir el detalle.
+- **Barra compacta:** la tarifa cobrada pierde su fondo (`css/quote.css`, `.qe-sum-main .qe-sum-item[data-kpi="commercialRate"] { background: transparent; }`). La sugerida se ve igual que la tarifa piso, al lado.
+- **Avisos (toasts) en el celular:** salen abajo a la derecha (`css/styles.css`, `.toast-region`) y tapan la barra fija del resumen.
+- **Tablas del editor en el celular:** la de rubros de estructura (`quote-steps/indirect.js`) y la de tramos (`quote-steps/margin.js`) no se apilan como las de materiales y vehículos (`qe-stack-table`). Hay scroll horizontal con campos de 96 a 150 px.
+- **Campos:**
+  - "Obligatorio" es sólo un asterisco visual: el control no lleva `aria-required` (`js/ui/components.js`, `fieldShell`; ni el `requiredMark` del editor);
+  - los campos de texto, fecha y selector no asocian su ayuda con `aria-describedby` (el numérico sí);
+  - los avisos del motor junto a un campo (`decorateFieldIssues`) no se asocian al campo: un lector de pantalla no los lee al entrar.
+- **Montos:**
+  - el eco "$ 2.600.000" debajo de los montos grandes existe sólo en el editor de cotizaciones (`attachMoneyEcho`);
+  - en Recursos, Configuración y Productos, un sueldo se carga como "2600000" sin ninguna lectura con separadores.
+
+#### 2. Decisiones (lo técnico: lo más seguro y sencillo)
+1. **Resumen en vivo:**
+   - **Panel (más de 1180 px):** el margen y el resultado esperados pasan a la lista principal, sin abrir "Ver más": costo, piso, tarifa cobrada, margen, "Para no perder" y resultado. "Ver más" queda con el precio para tu margen y la completitud.
+   - **Barra compacta (1180 px o menos):** los cuatro números pasan a ser costo del mes, tarifa piso, tarifa cobrada y **margen esperado**.
+     - El margen lleva una palabra, no sólo un color (WCAG 1.4.1): "cumple", "debajo", "pierde" o "no confiable".
+     - Con un resultado NO CONFIABLE, dice "no confiable" en rojo (ECO-01).
+     - "Para no perder" y el resultado en pesos siguen en "Ver detalle".
+2. **Barra compacta:** la tarifa cobrada (sugerida, ofrecida o forzada) se destaca con fondo y una cifra más fuerte. La piso queda sobria.
+3. **Avisos en el celular (760 px o menos):** arriba, debajo de la barra de la app y a lo ancho. Nunca tapan el resumen fijo ni "Menú".
+4. **Tablas apiladas:** las tablas de estructura y de tramos pasan a tarjetas cuando el paso mide 680 px o menos (`qe-stack-narrow`, las mismas reglas que `qe-stack-table`). En escritorio siguen como tabla. En el celular no queda scroll horizontal (control a 320, 360 y 390 px).
+5. **Campos accesibles:**
+   - `aria-required="true"` en todo campo obligatorio, también en los que marca el editor;
+   - `aria-describedby` con la ayuda y el error en los campos de texto, fecha, selector y buscador;
+   - los avisos del motor se asocian a su campo con un id. No se anuncian en vivo: se repetirían en cada recálculo.
+6. **Montos:**
+   - el eco con separadores ("$ 2.600.000", desde $ 10.000) pasa al componente `numberField` y aparece en **todo** campo de plata: Recursos, Configuración, Productos y el editor;
+   - **no se reformatea el texto del campo** al entrar o salir. Reemplazar el valor al tomar el foco borra la selección: con Tab, lo que se tipea se agregaría al número anterior en vez de reemplazarlo ("2600000" seguido de "3500000"). El eco da la misma lectura sin ese riesgo.
+   - Queda escrito en `DESIGN.md`.
+7. **Fuera de alcance:**
+   - "$ 850 mil" junto a "$ 8,5 M" en la barra (P3: hay que decidir las unidades);
+   - Configuración con los textos de sincronización del editor (después de UX-01, #32);
+   - primer uso (D2), Inter (DD-3), logo (DD-2), y landing y registro (D7).
+
+#### 3. Impacto en fórmulas
+Ninguno. No se toca `js/engines/**` ni `js/domain/**`. Golden 39/39 y candado sin cambios.
+
+#### 4. Impacto en datos
+Ninguno: ni campos nuevos ni esquema (sigue en 10). El eco sólo lee el texto del campo con el mismo intérprete que el campo (`parseDecimalInput`); nunca cambia lo que se guarda.
+
+#### 5. Pasos
+- [x] 1. Este plan, antes del código.
+- [x] 2. Tests que fallan en la base (`6a310e2`):
+  - unitarios de las funciones puras nuevas (texto del eco y palabra del margen);
+  - estáticos de CSS y de las tablas;
+  - un bloque DESIGN-02B del `ui-lab` en escritorio y en el celular, con una prueba sólo con teclado.
+- [x] 3. Implementación.
+- [x] 4. Validación completa:
+  - suite, Test Lab, gate y `ui-lab`;
+  - capturas antes y después a 1440 y 390 px, más 360 y 320 px para las tablas;
+  - Code Review (skill) del diff;
+  - PR sin merge, evidencia en RATEOS-AUDIT y verificación combinada con los PR #28 a #35.
+
+#### 6. Rollback
+Revert del PR. No deja datos.
+
+#### Bitácora
+- 2026-10-20: base `claude/design-02-ingenieria-clara` `6a310e2` (PR #35). Primero este plan; después los tests y la implementación.
+- 2026-10-20: tests antes del código (`f88230f`):
+  - los 15 unitarios y estáticos fallan en la base (los dos módulos nuevos no existen);
+  - el bloque DESIGN-02B del `ui-lab` se corre contra la base con acciones "suaves".
+  - El control del panel de escritorio usa `checkVisibility()`: lo que está dentro de "Ver más" cerrado tiene tamaño para el navegador aunque no se vea.
+  - Ninguna cotización sembrada trae la estructura desglosada: el bloque agrega una copia sintética con dos rubros y tramos, también en el control de fugas de sesión.
+- 2026-10-20: implementado (`bd90a37`).
+  - Eco de montos: pasa de `quote-editor.js` (`attachMoneyEcho`) a `numberField`, con el texto en `js/ui/money-echo.js` (puro). Muestra los centavos si los hay (antes redondeaba al peso).
+  - Palabra del margen: `js/ui/live-summary-text.js` (puro), con el mismo criterio que el tono del resumen.
+  - `fieldShell` pone `aria-required` y, si el control no trae uno, `aria-describedby` con la ayuda y el error. Los avisos del motor llevan un id que se suma al `aria-describedby` del control y se saca al recalcular.
+  - Decisiones técnicas:
+    - el texto del campo no se reformatea (con Tab, lo tipeado se sumaría al número anterior);
+    - las tablas de estructura y de tramos usan `qe-stack-table`, la misma regla que "Otros costos": también pasan a tarjetas en escritorio cuando el paso mide 940 px o menos. En los tramos, "desde" y "hasta" van juntos.
+- 2026-10-20: ajustes después de las capturas:
+  - **Tablas:** con `qe-stack-table`, la de estructura pasaba a tarjetas también en escritorio (el paso mide unos 720 a 800 px), donde entraba bien como tabla. Ahora usa `qe-stack-narrow`: tarjetas sólo con el paso de 680 px o menos (celular y tablet). Un control nuevo del `ui-lab` verifica que en escritorio sigan como tabla.
+  - **Orden del panel:** a 1440 × 900, con seis números, el último queda debajo del borde del panel (que se desplaza). Va primero el margen, después "Para no perder" y al final el resultado en pesos: así se ven costo, piso, tarifa, margen y días sin desplazar.
+- 2026-10-20: revisión de código (skill Code Review, nivel medio, sobre `6a310e2..1af8e4e`): 9 observaciones. Ocho se corrigieron:
+  - **el eco usaba siempre pesos:** un precio en dólares de Recursos ("Precio neto", unidad USD) se leía "$ 15.000". Ahora sale en la moneda del campo ("US$ 15.000", "€ 15.000"); con una unidad que no dice una moneda, sin eco. Ya pasaba en el editor con las líneas en dólares;
+  - **margen con objetivo inválido:** se pintaba de verde con la palabra "sin objetivo" y la ayuda decía "cumple el objetivo". El tono sale ahora de la misma función que la palabra, y la ayuda dice que se revise el margen;
+  - **NO CONFIABLE sin tarifa:** la palabra decía "no confiable" y la ayuda, "sin tarifa todavía". NO CONFIABLE va primero en las dos (también en el resultado);
+  - **avisos entre 761 y 1180 px:** seguían abajo, sobre el resumen fijo. Ahora salen arriba en todo ese rango; control nuevo del `ui-lab` a 1000 px;
+  - **avisos con el menú del celular abierto:** lo tapaban. Con el menú abierto van abajo;
+  - **ids de los avisos del motor:** se regeneraban en cada recálculo. Ahora son estables (el id del control y el número de aviso);
+  - **CSS de las tarjetas duplicado:** `qe-stack-narrow` es copia exacta de `qe-stack-table` y un test estático avisa si se separan;
+  - **tramos en tarjeta:** el tramo y su evaluación van a lo ancho.
+  - **Queda a propósito:** `aria-required` en los campos con asterisco del editor, aunque el campo acepte quedar vacío. El asterisco ya dice "obligatorio" a la vista y lo que falta lo marcan los avisos del motor y la completitud, ahora asociados al campo.
+- 2026-10-20: validación en `5adca99` (SIMULADA):
+  - `npm test` 1750/1750, Test Lab OK (golden 39/39, candado OK), gate PASA (347/347);
+  - `ui-lab` 413/413 (escritorio) y 414/414 (celular), con 18 y 17 controles DESIGN-02B;
+  - contra la base (`6a310e2`) fallan 12 de 18 y 12 de 17 controles (fuera del bloque, 0); los 9 estáticos fallan y los dos módulos nuevos no existen;
+  - combinado con los PR #28 a #35: `npm test` 1936/1936, Test Lab OK, gate 349/349, `ui-lab` 624/624 y 625/625, `auth-lab` 136/136. Los conflictos son de imports y de funciones agregadas en el mismo lugar de `components.js` (UX-01): se resolvieron sumando los dos lados.
+  - **Límite conocido:** en escritorio (más de 1180 px) el aviso sigue abajo a la derecha y por unos segundos puede tapar el pie del panel del resumen (antes tapaba "Ver más").
+- 2026-10-21: después de abrir el PR (#36), al armar la evidencia: en el celular, la captura de Recursos salió **igual antes y después**. El eco existía, pero quedaba debajo del borde visible del diálogo: el sueldo estaba justo en el borde de abajo, como al tocarlo sin desplazar.
+  - **Corrección:** si el eco aparece mientras se escribe (pasa de oculto a visible con el foco en el campo), se desplaza lo justo para verse (`scrollIntoView`, `block: 'nearest'`); no se mueve en cada tecla. `.field-echo` lleva `scroll-margin-bottom`. Con la barra del resumen del editor vale lo mismo: ya reserva su lugar con `scroll-padding-bottom`.
+  - **Control nuevo del `ui-lab`, en el celular a 360 × 640 px** (con esa altura el sueldo queda debajo del borde al abrir el diálogo): primero verifica que el campo quedó en el borde, después escribe con el teclado y mide el eco. Falla en `d3b7cb1` (el eco en y=550 a 570, con el borde en 546) y pasa con la corrección. En escritorio el sueldo queda en la mitad de arriba del diálogo: el caso no se da.
+  - La herramienta de capturas de la evidencia reproduce el mismo caso (el sueldo en el borde de abajo, escrito con el teclado).
+  - El CHANGELOG corrige la cuenta de tests nuevos: 18 en DESIGN-02 (2/2) y 16 en DESIGN-02 (1/2), no 15.
+- 2026-10-21: validación en `0cfe9ea` (SIMULADA):
+  - `npm test` 1750/1750, Test Lab OK (golden 39/39, candado OK), gate PASA (347/347), build OK;
+  - `ui-lab` 413/413 (escritorio) y 415/415 (celular), con 18 controles DESIGN-02B en cada uno;
+  - contra la base (`6a310e2`) fallan 12 de 18 en escritorio y 13 de 18 en el celular (fuera del bloque, 0); contra `d3b7cb1`, sólo el control nuevo del eco;
+  - combinado con los PR #28 a #35: `npm test` 1936/1936, Test Lab OK, gate 349/349, `ui-lab` 624/624 y 626/626, `auth-lab` 136/136. La corrección se combinó sin conflictos.
+
+### PLAN-2026-027 — BETA-RC1: candidato de beta integrado (PR #28 a #36)
+
+- Estado: En curso — rama `claude/beta-candidato-1` desde `main` `d6540b7`. PR candidato en borrador, sin merge ni deploy
+- Tipo: integración y release. **Sin funcionalidades nuevas**; ninguna fórmula ni dato cambia respecto de los PR integrados
+- Responsable: agente de desarrollo (Claude) · coordinación y criterios: ChatGPT (RATEOS-AUDIT, Issue #5, comentarios del 21/10) · decisiones y autorizaciones: el dueño
+- Fecha de inicio: 2026-10-21
+
+#### 1. Contexto
+- **Producción:** v0.8.1 con ECO-01, `main` `d6540b7`.
+- **Abiertos:** los PR #28 a #36. Cada uno se verificó por separado y combinado con los anteriores en árboles locales; ninguno está en `main`. #34 está apilado sobre #33 y #36 sobre #35.
+- **Pedido del dueño (21/10):** dejar de abrir funcionalidades y cerrar la beta, con registro público y autoservicio.
+- **Fase 1 autorizada:** rama candidata aislada, verificación en el árbol final e informe. **No** autoriza merge, deploy, cuentas reales ni cambios de Supabase, Auth, DNS o SMTP.
+- **Por qué un candidato único:** cada push a `main` despliega. Mergear los 9 PR uno por uno publicaría 9 estados intermedios; el candidato es un merge y un deploy.
+
+#### 2. Decisiones
+1. **Integración:** `git merge --no-ff` de los **heads exactos** de cada PR, en orden #28 → #36 (#34 después de #33; #36 después de #35).
+   - Ningún commit se copia ni se reescribe: los heads quedan como ancestros del candidato.
+   - Cuando el candidato llegue a `main`, GitHub marca como integrados los PR con base `main`. #34 y #36 apuntan a otra rama: hay que cambiarles la base a `main` o cerrarlos.
+2. **Conflictos:** sólo de texto (índice de planes, CHANGELOG, imports y bloques agregados en el mismo lugar). Se resuelven igual que en las verificaciones combinadas ya probadas, y **cada paso se compara contra ese árbol**:
+   - #28 a #34: idénticos;
+   - #35 y #36: la única diferencia es la documentación que esos PR sumaron después de su verificación combinada (`6a310e2` y `baf8b56`) y el ajuste del punto 3.
+3. **Un ajuste de integración, en commit propio:** la pastilla "No confiable" de #29 usa 0,75 rem, y el test de DESIGN-02 (#35) pide el mínimo `var(--fs-xs)`.
+4. **Versión 0.9.0** (minor: registro público y regla nueva de redondeo para lo nuevo). Lo que estaba en [Unreleased] pasa a [0.9.0], sin fecha hasta publicarse. Esquema 10, sin migraciones.
+5. **Alcance congelado:**
+   - si la verificación encuentra un P0 o P1 causado por la integración, se corrige acá, con test;
+   - lo que no viene de la integración se informa como bloqueo y no se amplía el alcance.
+
+#### 3. Impacto en fórmulas
+Ninguno propio. Lo que traen los PR:
+- ECO-03 cambia la regla de redondeo **sólo para cotizaciones nuevas**; lo guardado no cambia;
+- el resto no cambia cifras.
+
+Se verifica en el árbol final con el A/B contra `main` (las cotizaciones guardadas dan las mismas cifras) y con el oráculo independiente de VAL-01.
+
+#### 4. Impacto en datos
+Ninguno propio: esquema 10, sin migraciones. Los PR agregan campos opcionales (por ejemplo `pricing.roundingMode` de ECO-03 y `laborProfiles[].peopleCount` de RES-02). Se verifica que `main` (el rollback) abra datos guardados con el candidato.
+
+#### 5. Pasos
+- [x] 1. Rama y merges de #28 a #36, comparados paso a paso con los árboles ya verificados.
+- [ ] 2. Este plan; después, el ajuste de integración y la versión.
+- [ ] 3. Verificación en el árbol final:
+  - `npm test`, `npm run test:lab`, `npm run test:security` y `npm run build`;
+  - `ui-lab` (escritorio y celular) y `auth-lab`;
+  - economía (#29 a #31): A/B contra `main`, cotización nueva en las 18 unidades y VAL-01 contra el oráculo;
+  - registro público (#28);
+  - compatibilidad hacia atrás (rollback).
+- [ ] 4. PR candidato en borrador (sin merge) y CI del candidato.
+- [ ] 5. Informe único en RATEOS-AUDIT:
+  - GO/NO-GO por requisito;
+  - pruebas hechas y pruebas reales pendientes;
+  - checklist del dueño y smoke test real propuesto;
+  - rollback y puerta final.
+
+#### 6. Rollback
+- **Antes del merge:** nada que deshacer (rama aparte).
+- **Después del merge y el deploy:**
+  - `git revert` del merge del candidato (DEPLOYMENT.md §5), o
+  - el workflow de deploy a mano con `ref` = `d6540b7`.
+- Esquema 10 en los dos lados: `main` abre lo guardado con el candidato (se verifica en el paso 3).
+- **Antes del merge (puerta final):** respaldo de DOVA exportado y verificado.
+
+#### Bitácora
+- 2026-10-21: rama `claude/beta-candidato-1` desde `main` `d6540b7`. Merges de los heads exactos: #28 `38f6c24`, #29 `d5d46d1`, #30 `7b164e3`, #31 `fb5dbd9`, #32 `d74fbf3`, #33 `ed43a43`, #34 `3cba29b`, #35 `6a310e2` y #36 `baf8b56`.
+  - Conflictos sólo de texto. Se resolvieron con las mismas soluciones de las verificaciones combinadas; cada paso quedó **idéntico** a ese árbol (#28 a #34), o distinto sólo en la documentación posterior de #35 y #36 y en el ajuste de la pastilla.
+  - Los merges van antes de este plan porque cada PR agrega su sección al final de este archivo: con el plan antes, habría chocado nueve veces. **Ningún cambio propio va antes del plan.**
+
+### PLAN-2026-028 — P1 CIERRE: señales engañosas antes del autoservicio (Gate A)
+
+- Estado: En curso — commits sobre el candidato `claude/beta-candidato-1` (PR #37, en borrador). Sin merge ni deploy
+- Tipo: correcciones de interfaz, validación y confirmaciones. **Ninguna fórmula cambia**, no hay migraciones y lo guardado conserva sus cifras
+- Responsable: agente de desarrollo (Claude) · criterios: ChatGPT (RATEOS-AUDIT, Issue #5, "Dirección técnica de beta" del 21/10) · decisiones y autorizaciones: el dueño
+- Fecha de inicio: 2026-10-21
+
+#### 1. Contexto
+- El dueño eligió **registro público y autoservicio**. La revisión independiente del 21/10 separó los P1 abiertos de AUD-T1 en dos grupos:
+  - **Gate A**, obligatorio antes del autoservicio: H-14, H-12, H-13, H-09 y H-10. Son señales que pueden llevar a confiar en un precio equivocado;
+  - **Gate B**, aceptable con advertencia y onboarding: H-05, H-06, H-07, H-11 y H-15.
+- Pedido: el parche mínimo del Gate A, con tests que fallen antes y pasen después, sin funcionalidades nuevas.
+
+#### 2. Decisiones
+1. **H-14 (Productos, veredicto del precio de hoy).** Nunca verde sin un resultado válido:
+   - con datos faltantes (errores), sin precio sugerido o sin margen real: "No se puede evaluar tu precio de hoy", con la razón;
+   - con datos para revisar (avisos): amarillo, "con los datos cargados…, pero hay datos para revisar";
+   - verde sólo sin errores ni avisos;
+   - los avisos rojos de "no cubre ni lo que cuesta hacerla" y "debajo del piso" siguen primero (son conservadores).
+2. **H-12 (Productos, estado en la lista).**
+   - "Completo" sólo sin errores ni avisos;
+   - con avisos: "Revisar (n)";
+   - el producto de ejemplo: "Ejemplo";
+   - con errores o avisos, un enlace "Ver avisos" al Resultado.
+3. **H-13 (Productos, supuestos ILUSTRATIVOS).** Sin cambiar ningún valor ni lo guardado:
+   - **margen heredado:** un producto **nuevo** creado con la configuración de ejemplo guarda `pricing.marginFromExample: true` (campo opcional). Mientras siga así, el margen lleva la marca ILUSTRATIVO y un aviso para revisar; desaparece al cambiar el margen o al tocar "Es mi margen". Los productos guardados antes no tienen el campo: no se reinterpretan;
+   - **cargas genéricas:** un puesto sin convenio con los cinco parámetros genéricos de ejemplo (`ILLUSTRATIVE_AGREEMENT_PARAMS`) da un aviso para revisar y el desplegable "Cargas sociales y horas del mes" se abre solo.
+4. **H-09 (externo por km o por tramo con cantidad mayor que 1).**
+   - El costo sigue igual: cada unidad cuenta los km o los viajes de la ruta.
+   - Hay un pendiente **crítico** (no vuelve NO CONFIABLE el resultado) que pregunta si cada unidad hace todo el recorrido o si se reparten los viajes, con los números.
+   - "Cada unidad hace todo el recorrido" guarda el supuesto (`equipment[].externalQuantityConfirmed`: unidad, base del viaje y cantidad) y vale mientras siga igual.
+5. **H-10 (avisos de personal).**
+   - Los textos aclaran que es una revisión y que sumar personal no es la única salida.
+   - "Relevos" dice de dónde viene la cobertura continua (disponibilidad 24/7 o servicio permanente) y no habla de 24/7 si no lo es.
+   - Cada puesto marcado ofrece "La cobertura está prevista", que guarda el supuesto (`labor[].coverageConfirmed`: días, horas por día, personas por posición, horas normales, horas extra y continuidad) y saca el puesto de "Horas del personal" y de "Relevos" mientras siga igual.
+
+#### 3. Impacto en fórmulas
+Ninguno. Cambian textos, la completitud y el estado de la lista de productos. Se verifica con el A/B contra `main` (las cifras de lo guardado no cambian) y con el oráculo de VAL-01.
+
+#### 4. Impacto en datos
+- Tres campos opcionales: `pricing.marginFromExample` en productos, `equipment[].externalQuantityConfirmed` y `labor[].coverageConfirmed` en cotizaciones.
+- Esquema 10 y sin migración. `main` los ignora (vuelta atrás) y no cambian costos.
+
+#### 5. Pasos
+- [x] 1. Este plan y los tests que fallan en `f7e8a29`.
+- [x] 2. Implementación y tests en verde.
+- [x] 3. Revisión de frontend y correcciones de usabilidad relevantes para la beta (aparte, documentadas).
+- [ ] 4. Verificación completa del candidato y revisión de código del diff.
+- [ ] 5. Evidencia "P1 CIERRE" en RATEOS-AUDIT y GO/NO-GO actualizado.
+
+#### 5 bis. Revisión de frontend (paso 3)
+- Auditoría de landing, registro, inicio, cotizaciones, resultado, recursos, productos, navegación y celular (1440, 1000, 390, 360 y 320 px), con `DESIGN.md` y las guías de interfaz web de Vercel. Sin P1. 5 P2 y 14 P3.
+- **Corregidos:** UI-01, UI-02 (en parte, ver abajo), UI-04 y UI-05 (P2) y UI-06, UI-11, UI-12 y UI-19 (P3 de una línea). **Atenuado:** UI-03 (el aviso BORRADOR del celular pasa de hasta 680 px a unos 230 px; con otro aviso de página arriba, el primer monto sigue debajo de la primera pantalla). Ver CHANGELOG.
+- **DECISIÓN DEL DUEÑO (UI-02, segunda parte):** el aviso BORRADOR con un pendiente crítico usa el mismo rojo que RESULTADO NO CONFIABLE. Pasarlo a naranja deshace la decisión de PLAN-2026-010 (`tests/engines/audit-cot0009.test.js` espera `danger`), así que no se cambia sin el dueño. Lo que sí se corrigió: "Costos cargados" ya no queda en verde debajo.
+- **Para después de la beta:**
+  - UI-07: "(break-even)" en inglés en la ayuda de "Días para no perder" y en 21 textos;
+  - UI-08: una etapa con un crítico todavía no abierta dice "Pendiente" en gris;
+  - UI-09: la pastilla del modo de cálculo parece un botón;
+  - UI-10: "Costo del mes $ 0" grande y en azul en una cotización vacía;
+  - UI-13: columnas que no se alinean entre grupos de Recursos;
+  - UI-14: dos tipografías numéricas y decimales mezclados;
+  - UI-15: dos títulos "Productos" y otro componente de pasos;
+  - UI-16: el botón "Reenviar…" desactivado se sale de su caja;
+  - UI-17: 3 textos de menos de 12 px en la landing (D7);
+  - UI-18: "Margen promedio" en verde aunque promedie una cotización que pierde;
+  - UI-03 (resto): encabezado compacto del Resultado en el celular (título, acciones y etapas) para que un monto entre siempre en la primera pantalla;
+  - y la lista de estética secundaria del informe (avisos más cortos, íconos de plegado, `theme-color`, `overscroll-behavior`, "(minimum call)", orden de KPI del producto).
+
+#### 6. Rollback
+- Los commits van sobre el candidato: revertirlos devuelve `f7e8a29`.
+- Después de un deploy, vale lo de PLAN-2026-027 §6.
+
+#### Bitácora
+- 2026-10-21: plan antes del código.
+- 2026-10-21: Gate A implementado. En `f7e8a29` fallan 24 de los 30 tests nuevos (los otros 6 fijan lo que no cambia) y 10 de los 13 controles del bloque P1-CIERRE del `ui-lab`, en escritorio y en celular. Con el cambio: `npm test` 1966/1966, Test Lab 97 PASS con golden 39/39, gate PASA y `ui-lab` 648/648 y 650/650.
+- 2026-10-21: revisión de frontend (`3ce88e8`): `ui-lab` 656/656 y 660/660, `auth-lab` 136/136.
+- 2026-10-21: revisión de código del diff `f7e8a29..3ce88e8`: 10 observaciones: 5 corregidas (3 con tests que fallan en `3ce88e8`; las viñetas, verificadas en captura; el margen vacío, en el código), 2 en parte y 3 documentadas (CHANGELOG).
+
+---
+
+### PLAN-2026-029 — BETA: beta gratuita, feedback de las empresas y última revisión de UX
+
+- Estado: En curso
+- Tipo: backend, seguridad, UX
+- Responsable: agente (Claude Code), revisión de ChatGPT y decisión del dueño
+- Fecha de inicio: 2026-10-21 (alcance reemplazado el 2026-10-22)
+- Rama / PR: `claude/beta-creditos-reportes` (PR #38, en borrador), apilada sobre `claude/beta-candidato-1` (`bc31190`, PR #37). Sin merge ni deploy. La migración **no** se aplica al Supabase real sin autorización.
+
+#### 1. Contexto y problema
+La beta se abre a proveedores de Neuquén y Vaca Muerta. El 21/10 se implementó un esquema de **créditos de prueba**:
+- 10 cálculos por empresa, cobrados por un trigger de Postgres;
+- +2 por reporte aprobado.
+
+Nunca se aplicó ni se publicó. El 22/10 el dueño decidió:
+- **Beta gratuita y sin límites:**
+  - sin saldos, cupos, contadores, premios ni bloqueos;
+  - también fuera de la base: no alcanza con ocultar el contador.
+- **Registro autoservicio** con confirmación de email obligatoria, sin aprobación manual. Ya está en el candidato (HD-03).
+- **Feedback:** reportar un problema y sugerir una mejora, con el panel de RATEOS ADMIN para clasificar y responder. Comunicación que agradece y genera pertenencia, sin prometer beneficios.
+- **Última revisión de UX y frontend** antes de dar acceso a proveedores. Sólo se corrige lo que impide entender o usar.
+
+#### 2. Objetivo y no-objetivos
+- **Objetivo:**
+  - quitar todo el esquema de créditos (frontend, base, tests y documentación);
+  - dejar el canal de feedback más simple posible y seguro;
+  - corregir los P0/P1 de UX (y los P2 que afectan tareas) del recorrido de una empresa nueva.
+- **Fuera de alcance:**
+  - pagos, planes y monetización;
+  - terceros, IA y correos de respuesta;
+  - adjuntos y capturas;
+  - rediseño visual y funciones nuevas fuera del feedback.
+
+#### 3. Impacto en fórmulas
+Ninguno. Los dos pendientes de completitud de la auditoría PyME (consumo en ruta en 0 y cargas genéricas sin convenio) no cambian cifras. Lo verifican el A/B, golden 39/39 y VAL-01 87/87.
+
+#### 4. Impacto en datos
+**Workspace:** el esquema sigue en 10, sin migración de datos. La migración nueva **no toca** `workspace_states` ni las empresas existentes (DOVA incluida): no tiene triggers.
+
+**Base:** migración `20261022120000_rateos_beta_feedback.sql`, con tablas en `private`, RLS y sin grants:
+- `private.feedback`: tipo, categoría, mensaje, detalles, qué esperaba, pantalla, versión, estado, duplicado de, respuesta y revisión.
+- `private.feedback_events`: el historial.
+
+Reemplaza a `20261021120000_rateos_beta_credits_reports.sql`, que se borra. Nunca se aplicó.
+
+**Lo que se descartó de la versión de créditos** (queda en la rama `claude/beta-creditos-reportes-v1`, head `1cbea0c`):
+- trigger de cobro, ledger, saldos y políticas;
+- reserva del código COT en la misma escritura;
+- id fijo del ejemplo;
+- vista previa de créditos al restaurar;
+- manejo de `credits_exhausted` en la sincronización;
+- tope de ids en el respaldo.
+
+Todo eso existía sólo para la cuota; sin cuota, el comportamiento vuelve exactamente al del candidato `bc31190`, que ya estaba auditado.
+
+#### 5. Diseño
+- **Pantalla `#/mejorar`:**
+  - se elige "Encontré un problema" o "Tengo una sugerencia";
+  - un solo campo obligatorio; los detalles van plegados y son opcionales;
+  - aviso de privacidad;
+  - agradecimiento;
+  - "Comentarios de tu empresa" con estado y respuesta;
+  - "Acerca de la beta".
+- **Accesos:**
+  - el menú de la cuenta ("Reportar un problema" y "Sugerir una mejora");
+  - el distintivo "Beta gratuita";
+  - una invitación discreta después de exportar el PDF (no modal; 14 días entre invitaciones y 60 con "Ahora no").
+- **RATEOS ADMIN:** "Feedback de la beta" con filtros, clasificación, respuesta, duplicados e historial.
+- **Estados:**
+  - Recibido, En revisión, Confirmado, Resuelto, No corresponde y Duplicado;
+  - en una sugerencia: "La tenemos en cuenta" y "Ya está disponible".
+- **Seguridad:**
+  - patrón de RATEOS ADMIN (`public` invoker → `private` definer con `search_path = ''`);
+  - membresía para enviar y leer;
+  - `is_platform_admin()` para clasificar;
+  - límites contra el spam con advisory lock;
+  - nunca se lee el workspace.
+
+#### 6. Amenazas y respuesta
+| Amenaza | Respuesta |
+|---|---|
+| Leer o escribir las tablas por la API | `private` sin grants: `permission denied` (test SQL y E2E) |
+| Leer el feedback de otra empresa (A↔B) | `is_member` primero, `forbidden` uniforme |
+| Clasificar sin ser RATEOS ADMIN | `is_platform_admin()` (test SQL, E2E y SEC-19) |
+| Spam o cola inundada (registro abierto) | Límites por persona, por empresa, abiertos y repetidos, con advisory lock (concurrencia C1 y C2). Límites de Auth y confirmación obligatoria |
+| Texto engañoso ante el admin | Se quitan controles, invisibles y marcas de dirección (SQL y cliente); se muestra como texto |
+| Datos económicos en el comentario | No se envían; el aviso pide no escribirlos; el admin nunca lee el workspace |
+| Que quede una cuota escondida | SEC-19 falla si la migración tiene triggers, `workspace_states`, créditos o saldos, o si el cliente nombra `credits_exhausted` o "cálculos de prueba". El E2E crea 12 cotizaciones |
+
+#### 7. Tests (todo SIMULADO salvo el CI)
+- SQL en el Postgres local: `feedback_test.sql` (67) y los existentes con la migración (40 + 32 + 132).
+- Concurrencia real: `feedback_concurrency.sh` (4).
+- JS: `tests/services/feedback-service.test.js`, `tests/engines/beta-pyme.test.js` y `tests/ui/draft-recover.test.js`.
+- E2E: `beta-lab` en escritorio y celular, más `ui-lab` y `auth-lab`.
+- Gate: SEC-19.
+- Economía: golden, VAL-01 y A/B.
+
+#### 8. Riesgos y mitigación
+- **Registro abierto:** cuentas basura y spam. Mitigación:
+  - confirmación obligatoria y límites de Supabase Auth;
+  - límites del feedback;
+  - CAPTCHA como decisión aparte;
+  - primera ronda controlada de 3 a 5 proveedores.
+- **Avisos nuevos de completitud en lo guardado:** cotizaciones con cargas genéricas sin convenio abren como BORRADOR. Es aceptado: avisa de un costo que puede faltar.
+
+#### 9. Rollback
+- **Frontend:** revertir el PR.
+- **Base:** `supabase/rollback/20261022120000_rateos_beta_feedback_down.sql`, que no toca `workspace_states`. Antes, exportar el feedback (docs/BETA_FEEDBACK.md §6).
+
+#### 10. Review multidisciplinario
+- **Economía:** sin cambios de fórmulas.
+- **Seguridad:** SEC-19, test SQL, concurrencia y revisión del diff.
+- **UX:** recorrido completo de una empresa nueva en escritorio y celular, y auditoría final BETA-LANZ (1440, 1024, 390, 360 y 320) con verificación de cada corrección en el navegador simulado.
+- **QA:** E2E de la beta.
+
+#### 11. Documentación
+- [x] `docs/BETA_FEEDBACK.md`, que reemplaza a `docs/BETA_CREDITS.md`
+- [x] `supabase/README.md`
+- [x] CHANGELOG
+- [x] PLANS (bitácora)
+
+#### 12. Criterio de terminación
+- Tests en verde (SQL simulado, JS, E2E, gate y Test Lab).
+- CI en verde.
+- Informe GO/NO-GO en RATEOS-AUDIT.
+- El merge, el deploy y la migración real esperan la autorización del dueño.
+
+#### Bitácora
+- 2026-10-21: versión con créditos de prueba.
+  - 102 controles SQL, 6 casos de concurrencia y `beta-lab` 86/86.
+  - Auditoría PyME: 0 P0 y 2 P1 (corregidos).
+  - CI en verde en `1cbea0c`.
+- 2026-10-22: decisión del dueño, beta gratuita y sin límites.
+  - Se quitan los créditos del frontend y de la base: se vuelve a `bc31190` en todo lo que existía por la cuota.
+  - El feedback queda con una migración nueva y mínima: SQL 64/64, concurrencia 4/4 y los existentes 40 + 32 + 132.
+  - Problema y sugerencia separados; distintivo "Beta gratuita"; invitación después de exportar.
+  - `npm test` 1996/1996 y `beta-lab` 68/68.
+- 2026-10-22: auditoría UX final (BETA-LANZ), SIMULADA, en escritorio y celular.
+  - Resultado: 0 P0, 1 P1 (CEL-01/ESC-08: el aviso de obligatorios de los diálogos de Recursos quedaba detrás del fondo del modal), 8 P2 en escritorio y 6 en celular (4 venían de la auditoría PyME).
+  - Corregidos: el P1 y los P2 que afectan tareas (ver CHANGELOG, "Corregido"). Quedan como limitaciones conocidas P2-5 (personas por puesto), P2-6 (segunda fecha base, mitigada con "Usar el mes de la oferta") y los P3.
+  - Cargas genéricas: el aviso sigue yéndose al cambiar uno de los cinco valores. Con "alguno sigue igual" sería imposible de sacar (SAC 8,33 % es el legal).
+  - Historial de la rama reconstruido desde `bc31190` en 5 commits; la versión con créditos queda en `claude/beta-creditos-reportes-v1`.
+  - Revisión de código del diff `bc31190..HEAD` (skill code-review): 10 hallazgos.
+    - Corregidos 9 (CHANGELOG, "Revisión de código del candidato"), con tests: SQL 67 (rojo con la migración anterior), SEC-19 con el lock por persona, validación y E2E.
+    - Queda 1 como deuda: helpers de RPC y de filas repetidos entre `feedback-gateway`/`admin-gateway` y entre los dos servicios.
+    - Limitación aceptada: una respuesta no se borra, se reemplaza por otra.
+  - Evidencia, regresión final y GO/NO-GO: RATEOS-AUDIT `tasks/BETA-LANZ/`.
+- 2026-10-22: K0, último pase de UX antes del ensayo real (SIMULADO), con los criterios de Impeccable, Taste Skill y Emil Kowalski leídos como guías. No se instaló ni se ejecutó nada de esos repositorios: Impeccable descarga y corre un binario, y Taste y Emil traen scripts.
+  - Hallazgos nuevos: 0 P0, 1 P1 (K0C-01: montos de 9 o más dígitos partidos en el celular) y 4 P2 (K0C-02 email largo en el admin, K0E-01 columna fija sobre montos, K0E-02 aviso de "Editar sueldo" fuera de la vista, K0E-03 falso "Error al guardar" al reconectar). Corregidos todos, con el antes y después medidos en el navegador.
+  - Un solo release 0.9.0 (#37 + #38) en un solo merge y un solo deploy: el CHANGELOG ya no separa lo de #38 como "sin versión".
+  - Evidencia, regresión y GO/NO-GO final: RATEOS-AUDIT `tasks/BETA-K0/`.

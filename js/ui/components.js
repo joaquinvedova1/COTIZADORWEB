@@ -7,6 +7,7 @@ import { h, s, uniqueId, mount } from './dom.js';
 import { formatValue, formatPeriod, EMPTY } from '../core/format.js';
 import { validateNumber, numberToInputText } from '../core/validation.js';
 import { track } from '../core/events.js';
+import { moneyEchoText } from './money-echo.js';
 
 // ------------------------------------------------------------------ íconos
 
@@ -28,6 +29,7 @@ const ICONS = {
   chevronLeft: 'M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z',
   info: 'M11 7h2v2h-2V7zm0 4h2v6h-2v-6zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z',
   alert: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+  idea: 'M9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9v1zm3-19a7 7 0 0 0-4 12.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26A7 7 0 0 0 12 2zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6A5 5 0 1 1 14.85 13.1z',
   check: 'M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z',
   calc: 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-6.5 4.5h5V9h-5V7.5zm0 7h5V16h-5v-1.5zm0-2.5h5v1.5h-5V12zM6 8.25h1.75V6.5h1.5v1.75H11v1.5H9.25V11.5h-1.5V9.75H6v-1.5zm.6 9.3L8 16.1l-1.4-1.4 1.06-1.06 1.4 1.4 1.4-1.4 1.06 1.06-1.4 1.4 1.4 1.4-1.06 1.06-1.4-1.4-1.4 1.4-1.06-1.06z',
   close: 'M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z',
@@ -261,6 +263,10 @@ export function table({ columns, rows, footer = null, className = '', emptyText 
 
 function fieldShell({ id, label, hint, unit, error, required, illustrative }, control) {
   const errorEl = h('div', { class: 'field-error', id: `${id}-error`, role: 'alert', hidden: !error }, error || '');
+  // Lectores de pantalla (DESIGN-02 2/2): "obligatorio" no es sólo el asterisco, y la ayuda y el error se leen
+  // al entrar al campo. Un control que ya trae su aria-describedby (numérico, período, buscador) lo conserva.
+  if (required) control.setAttribute('aria-required', 'true');
+  if (!control.hasAttribute('aria-describedby')) control.setAttribute('aria-describedby', hint ? `${id}-hint ${id}-error` : `${id}-error`);
   return {
     el: h('div', { class: ['field', illustrative ? 'field-illustrative' : null] },
       h('label', { class: 'field-label', for: id }, label, required ? h('span', { class: 'req', 'aria-hidden': 'true' }, ' *') : null,
@@ -278,9 +284,14 @@ function fieldShell({ id, label, hint, unit, error, required, illustrative }, co
  * - Si al confirmar (salir del campo / Enter) el valor es inválido, se
  *   restaura el valor que tenía al entrar al campo: nunca queda guardado un
  *   prefijo intermedio (p. ej. "15" al tipear "150" en un margen).
- * @param {{ label: string, value: number|null, rule?: string, onChange: Function, hint?: string, unit?: string, required?: boolean, step?: string|number, placeholder?: string, disabled?: boolean, illustrative?: boolean, name?: string }} opts
+ * - Montos (rule 'money', DESIGN-02 2/2): debajo, el eco con separadores
+ *   ("$ 2.600.000", en la moneda de la unidad del campo: "US$ 15.000"). El
+ *   texto del campo no se reformatea: cambiarlo al tomar el
+ *   foco borraría la selección y, con Tab, lo tipeado se sumaría al número
+ *   anterior en vez de reemplazarlo.
+ * @param {{ label: string, value: number|null, rule?: string, onChange: Function, hint?: string, unit?: string, required?: boolean, step?: string|number, placeholder?: string, disabled?: boolean, illustrative?: boolean, name?: string, echo?: boolean }} opts
  */
-export function numberField({ label, value, rule = 'money', onChange, hint = null, unit = null, required = false, placeholder = '', disabled = false, illustrative = false, name = null }) {
+export function numberField({ label, value, rule = 'money', onChange, hint = null, unit = null, required = false, placeholder = '', disabled = false, illustrative = false, name = null, echo = true }) {
   const id = uniqueId('num');
   const input = h('input', {
     id,
@@ -335,14 +346,112 @@ export function numberField({ label, value, rule = 'money', onChange, hint = nul
     // Valor inválido al confirmar: se vuelve al valor previo al foco. El
     // campo vuelve a ser válido (sin aria-invalid) y se avisa qué pasó.
     const message = r.error;
+    const typed = input.value;
     input.value = focusText;
     if (committedValue !== focusValue) emit(focusValue);
     clearError();
     errorEl.textContent = `${message} Se restauró el valor anterior.`;
     errorEl.hidden = false;
     input.dataset.restored = 'true';
+    // Si el campo se va con la pantalla (se salió del paso o de la vista), el
+    // aviso de abajo no se llega a ver: lo avisa installRestoreNotices (UX-01).
+    // Vacío: el aviso ya dice "no puede quedar vacío" (sin el motivo).
+    announceRestored(input, { label, typed, restored: focusText, reason: typed.trim() ? message : '' });
   });
+  if (echo && rule === 'money') attachMoneyEcho(el, input, typeof unit === 'string' ? unit : unit && unit.textContent ? unit.textContent : null);
   return el;
+}
+
+/**
+ * Eco del monto debajo del campo ("$ 2.600.000"; "US$ 15.000" si la unidad
+ * del campo es otra moneda), con el mismo intérprete que el campo
+ * (moneyEchoText). Visual: el valor se anuncia desde el campo.
+ */
+function attachMoneyEcho(fieldEl, input, unit) {
+  const control = fieldEl.querySelector('.field-control');
+  if (!control) return;
+  const echoEl = h('div', { class: 'field-echo', 'aria-hidden': 'true' });
+  const sync = () => {
+    const wasHidden = echoEl.hidden;
+    echoEl.textContent = moneyEchoText(input.value, { unit });
+    echoEl.hidden = !echoEl.textContent;
+    // Si aparece mientras se escribe con el campo en el borde de abajo (el pie de un diálogo, la barra del
+    // resumen), se desplaza lo justo para que se vea.
+    if (wasHidden && !echoEl.hidden && document.activeElement === input) echoEl.scrollIntoView({ block: 'nearest' });
+  };
+  input.addEventListener('input', sync);
+  // También cuando el campo restaura el valor anterior (valor inválido confirmado).
+  input.addEventListener('change', sync);
+  sync();
+  control.after(echoEl);
+}
+
+/** Evento que emite un campo cuando un valor que no se pudo guardar vuelve al anterior (UX-01). */
+export const RESTORED_EVENT = 'rateos:restored';
+
+/** Avisa que un campo volvió a su valor anterior (ver installRestoreNotices). */
+export function announceRestored(field, { label, typed = '', restored = '', reason = '' }) {
+  const text = typeof label === 'string' ? label : label && label.textContent ? label.textContent : '';
+  field.dispatchEvent(new CustomEvent(RESTORED_EVENT, { bubbles: true, detail: { label: text.trim(), typed: String(typed), restored: String(restored), reason: String(reason || '') } }));
+}
+
+const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+
+/**
+ * Texto del aviso cuando un valor no se guardó y volvió al anterior fuera de
+ * la vista (UX-01): la pantalla, el campo, lo que se escribió, por qué no se
+ * guardó (`reason`, si hace falta) y qué valor quedó.
+ */
+export function restoredNoticeText({ screen = '', label = '', typed = '', restored = '', reason = '' } = {}) {
+  const field = `"${clip(String(label).trim() || 'un campo', 80)}"`;
+  const where = String(screen).trim() ? ` (${clip(String(screen).trim(), 60)})` : '';
+  const value = String(typed).trim();
+  const first = value ? `No se guardó "${clip(value, 40)}" en ${field}${where}.` : `${field}${where} no puede quedar vacío.`;
+  const why = String(reason).trim();
+  const before = String(restored).trim();
+  const kept = before ? `Quedó el valor anterior: ${clip(before, 40)}.` : 'Quedó como estaba, vacío.';
+  return [first, why || null, kept].filter(Boolean).join(' ');
+}
+
+let restoreNoticesInstalled = false;
+const pendingRestores = new Set();
+
+/**
+ * Valores que vuelven al anterior cuando la pantalla se va (UX-01). Si el campo
+ * sigue a la vista, alcanza con su aviso; si la vista se destruyó (otro paso,
+ * otra pantalla, Atrás), `notify` recibe el texto de restoredNoticeText. Se
+ * instala una vez, al arrancar la aplicación.
+ */
+export function installRestoreNotices({ notify }) {
+  if (restoreNoticesInstalled || typeof document === 'undefined') return;
+  restoreNoticesInstalled = true;
+  const flush = () => {
+    pendingRestores.forEach((p) => {
+      if (p.field.isConnected) return;
+      pendingRestores.delete(p);
+      notify(restoredNoticeText(p));
+    });
+  };
+  document.addEventListener(RESTORED_EVENT, (event) => {
+    const title = document.querySelector('.page-title');
+    const field = event.target;
+    // En un diálogo: si se cierra sin guardar, el aviso se descarta (dropRestoreNotices).
+    const dialog = field instanceof Element ? field.closest('dialog') : null;
+    const p = { field, dialog, ...(event.detail || {}), screen: title ? title.textContent : '' };
+    pendingRestores.add(p);
+    setTimeout(() => {
+      flush();
+      pendingRestores.delete(p);
+    }, 1500);
+  });
+  window.addEventListener('hashchange', () => setTimeout(flush, 0));
+}
+
+/** Se cerró sin guardar el diálogo de esos campos: no hace falta avisar (openDialog). */
+function dropRestoreNotices(dialog) {
+  pendingRestores.forEach((p) => {
+    if (p.dialog === dialog) pendingRestores.delete(p);
+  });
 }
 
 /** Campo de texto. onChange(texto) en cada cambio. */
@@ -373,29 +482,45 @@ export function periodField({ label, value = null, onChange, hint = null, name =
     control.classList.add('has-unit');
     control.appendChild(echo);
   }
-  const commit = () => {
-    const raw = input.value.trim();
-    if (raw === '') {
-      input.removeAttribute('aria-invalid');
-      errorEl.hidden = true;
-      echo.textContent = 'sin base';
-      if (typeof onChange === 'function') onChange(null);
-      return;
-    }
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) {
-      input.setAttribute('aria-invalid', 'true');
-      errorEl.textContent = 'Usá el formato año-mes, por ejemplo 2026-09.';
-      errorEl.hidden = false;
-      return;
-    }
+  const formatError = 'Usá el formato año-mes, por ejemplo 2026-09.';
+  const isMonth = (raw) => raw === '' || /^\d{4}-(0[1-9]|1[0-2])$/.test(raw);
+  // Último mes que llegó a onChange: es el que está guardado.
+  let lastValid = input.value;
+  const commit = (raw) => {
     input.removeAttribute('aria-invalid');
     errorEl.hidden = true;
-    echo.textContent = formatPeriod(raw);
-    if (typeof onChange === 'function') onChange(raw);
+    echo.textContent = raw ? formatPeriod(raw) : 'sin base';
+    lastValid = raw;
+    if (typeof onChange === 'function') onChange(raw || null);
   };
-  input.addEventListener('change', commit);
   input.addEventListener('input', () => {
-    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(input.value.trim()) || input.value.trim() === '') commit();
+    const raw = input.value.trim();
+    if (isMonth(raw)) {
+      commit(raw);
+      return;
+    }
+    // Sin selector de mes (el navegador lo muestra como texto): inválido
+    // mientras no tenga la forma año-mes, como numberField. Así, si se sale de
+    // la pantalla sin confirmar, vuelve al anterior con aviso (UX-01).
+    input.setAttribute('aria-invalid', 'true');
+    errorEl.textContent = formatError;
+    errorEl.hidden = false;
+  });
+  input.addEventListener('change', () => {
+    const raw = input.value.trim();
+    if (isMonth(raw)) {
+      commit(raw);
+      return;
+    }
+    // Texto inválido al confirmar: como en numberField, vuelve al último mes
+    // guardado y se avisa (UX-01). Antes quedaba marcado como inválido y, en
+    // Configuración, frenaba el guardado de toda la sección.
+    input.value = lastValid;
+    input.removeAttribute('aria-invalid');
+    echo.textContent = lastValid ? formatPeriod(lastValid) : 'sin base';
+    errorEl.textContent = `${formatError} Se restauró el valor anterior.`;
+    errorEl.hidden = false;
+    announceRestored(input, { label, typed: raw, restored: lastValid, reason: formatError });
   });
   return el;
 }
@@ -588,31 +713,104 @@ function ensureDialogRoot() {
   return root;
 }
 
-/** Abre un diálogo modal accesible. Devuelve { dialog, close }. */
-export function openDialog({ title, content, actions = [], wide = false, onClose = null }) {
+/**
+ * Abre un diálogo modal accesible. Devuelve { dialog, close, requestClose }.
+ *
+ * Con `isDirty` (un formulario, UX-01): un clic en el fondo no lo cierra, y Esc,
+ * la X o `requestClose()` (el "Cancelar" del formulario) preguntan "¿Descartar
+ * los cambios?" si `isDirty()` es verdadero. `close()` cierra sin preguntar
+ * (después de guardar).
+ */
+export function openDialog({ title, content, actions = [], wide = false, onClose = null, isDirty = null }) {
   const root = ensureDialogRoot();
   const titleId = uniqueId('dlg');
   const dialog = h('dialog', { class: ['dialog', wide ? 'dialog-wide' : null], 'aria-labelledby': titleId });
+  const isForm = typeof isDirty === 'function';
+  const dirty = () => isForm && Boolean(isDirty());
+  let closing = false;
+  // Se cerró sin guardar (Cancelar, Esc, X, Descartar).
+  let discarded = false;
+  // La pregunta "¿Descartar los cambios?" abierta, si hay una.
+  let confirmRef = null;
   const close = () => {
+    closing = true;
     if (dialog.open) dialog.close();
   };
+  const discard = () => {
+    discarded = true;
+    close();
+  };
+  /** Pregunta encima del formulario; si ya había una, la reemplaza (queda arriba). */
+  const askDiscard = () => {
+    if (confirmRef) confirmRef.close();
+    let confirmed = false;
+    const ref = openDialog({
+      title: '¿Descartar los cambios?',
+      content: h('div', {}, h('p', {}, 'Hay datos cargados que todavía no se guardaron. Si cerrás, se pierden.')),
+      actions: [
+        button('Seguir editando', { variant: 'secondary', onClick: () => ref.close() }),
+        button('Descartar', { variant: 'danger', onClick: () => { confirmed = true; ref.close(); } }),
+      ],
+      onClose: () => {
+        if (confirmRef === ref) confirmRef = null;
+        if (confirmed) discard();
+      },
+    });
+    confirmRef = ref;
+  };
+  const requestClose = () => {
+    if (!dirty()) {
+      discard();
+      return;
+    }
+    if (!confirmRef) askDiscard();
+  };
+  // Esc con cambios: se pregunta antes de que el navegador procese el cierre.
+  // (Chrome cierra sin `cancel` cancelable un segundo Esc seguido, sin un clic
+  // en el medio.) Un control que usa Esc para lo suyo lo marca con preventDefault.
+  dialog.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented || !dirty()) return;
+    e.preventDefault();
+    requestClose();
+  });
+  // Otros pedidos de cierre (p. ej. el botón Atrás de Android): igual.
+  dialog.addEventListener('cancel', (e) => {
+    if (!dirty()) return;
+    e.preventDefault();
+    requestClose();
+  });
   dialog.addEventListener('close', () => {
+    // Si el navegador lo cerró igual, se vuelve a abrir con la pregunta
+    // encima: lo cargado no se pierde sin avisar.
+    if (!closing && dirty() && dialog.isConnected && typeof dialog.showModal === 'function') {
+      dialog.showModal();
+      askDiscard();
+      return;
+    }
+    if (confirmRef) confirmRef.close();
+    // Cerrado sin guardar: un valor que volvió al anterior en el formulario no
+    // necesita aviso (no se iba a guardar nada).
+    if (discarded || !closing) dropRestoreNotices(dialog);
+    // Los avisos que se mostraron adentro (p. ej. "Guardado") siguen a la vista afuera.
+    const inner = dialog.querySelector(':scope > .toast-region');
+    if (inner) inner.querySelectorAll('.toast').forEach((t) => ensureToastRegion().appendChild(t));
     dialog.remove();
     if (typeof onClose === 'function') onClose();
   });
   dialog.addEventListener('click', (e) => {
-    if (e.target === dialog) close();
+    // En un formulario, un clic fuera de la caja no cierra (se perdería lo cargado).
+    if (e.target === dialog && !isForm) close();
   });
   mount(dialog,
     h('div', { class: 'dialog-header' },
       h('h2', { id: titleId, class: 'dialog-title' }, title),
-      button('', { variant: 'ghost', icon: 'close', onClick: close, attrs: { 'aria-label': 'Cerrar' } })),
+      button('', { variant: 'ghost', icon: 'close', onClick: () => requestClose(), attrs: { 'aria-label': 'Cerrar' } })),
     h('div', { class: 'dialog-body' }, content),
     actions.length ? h('div', { class: 'dialog-actions' }, ...actions) : null);
   root.appendChild(dialog);
   if (typeof dialog.showModal === 'function') dialog.showModal();
   else dialog.setAttribute('open', '');
-  return { dialog, close };
+  return { dialog, close, requestClose };
 }
 
 /** Confirmación. Devuelve Promise<boolean>. */
@@ -675,16 +873,80 @@ export function ensureToastRegion() {
   return region;
 }
 
-/** Notificación breve. tone: info | success | warning | danger */
+/**
+ * Con un diálogo modal abierto, los avisos van ADENTRO del de arriba: afuera
+ * quedan detrás del fondo del modal y fuera del alcance de los lectores de
+ * pantalla (ESC-08, CEL-01). Al cerrarse el diálogo pasan a la región general.
+ */
+function modalToastRegion() {
+  let open;
+  try {
+    open = [...document.querySelectorAll('dialog:modal')];
+  } catch {
+    open = [...document.querySelectorAll('dialog[open]')];
+  }
+  const top = open[open.length - 1];
+  if (!top) return null;
+  let region = top.querySelector(':scope > .toast-region');
+  const existed = Boolean(region);
+  if (!region) {
+    region = h('div', { class: 'toast-region', role: 'status', 'aria-live': 'polite' });
+    top.appendChild(region);
+  }
+  return { region, existed };
+}
+
+/** Avisos a la vista como máximo: con más, se van los más viejos (primero los que se van solos). */
+const MAX_TOASTS = 4;
+/** Cambia con clearToasts: un aviso que todavía no entró (región recién creada) ya no entra. */
+let toastGeneration = 0;
+
+/**
+ * Notificación breve. tone: info | success | warning | danger. Todas se pueden
+ * cerrar; las de error (y las de `timeout: 0`) quedan hasta cerrarlas, para
+ * que un "No se pudo guardar" no pase sin leerse (UX-01). Un aviso igual a uno
+ * que ya está a la vista lo reemplaza.
+ */
 export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
-  const existed = Boolean(document.getElementById('toast-region'));
-  const region = ensureToastRegion();
-  const el = h('div', { class: ['toast', `toast-${tone}`] }, message);
+  const modal = modalToastRegion();
+  const existed = modal ? modal.existed : Boolean(document.getElementById('toast-region'));
+  const region = modal ? modal.region : ensureToastRegion();
+  const text = String(message instanceof Node ? message.textContent : message);
+  const closeBtn = h('button', { type: 'button', class: 'toast-close', 'aria-label': 'Cerrar aviso' }, icon('close', { size: 16 }));
+  const el = h('div', { class: ['toast', `toast-${tone}`] }, h('div', { class: 'toast-text' }, message), closeBtn);
+  const persistent = tone === 'danger' || !(timeout > 0);
+  el.dataset.text = text;
+  if (persistent) el.dataset.persistent = 'true';
+  closeBtn.addEventListener('click', () => el.remove());
+  const generation = toastGeneration;
+  const add = () => {
+    if (generation !== toastGeneration) return;
+    // "Guardado" y enseguida close(): el diálogo (y su región) ya no está; el aviso va a la general.
+    const target = region.isConnected ? region : ensureToastRegion();
+    [...target.querySelectorAll('.toast')].filter((t) => t.dataset.text === text).forEach((t) => t.remove());
+    target.appendChild(el);
+    // Más de MAX_TOASTS: se van los más viejos, primero los que igual se iban
+    // solos; un error sólo se va si no queda otra (llegaron más errores).
+    const shown = [...target.querySelectorAll('.toast')];
+    const extra = shown.length - MAX_TOASTS;
+    if (extra > 0) {
+      const passing = shown.filter((t) => t !== el && t.dataset.persistent !== 'true');
+      const kept = shown.filter((t) => t !== el && t.dataset.persistent === 'true');
+      [...passing, ...kept].slice(0, extra).forEach((t) => t.remove());
+    }
+  };
   // Región recién creada: el mensaje entra un instante después para que se anuncie.
-  if (existed) region.appendChild(el);
-  else setTimeout(() => region.appendChild(el), 60);
-  setTimeout(() => el.remove(), timeout);
+  if (existed) add();
+  else setTimeout(add, 60);
+  if (!persistent) setTimeout(() => el.remove(), timeout);
   return el;
+}
+
+/** Saca todos los avisos y los pendientes (al cerrar la cuenta: no queda nada de la empresa a la vista). */
+export function clearToasts() {
+  toastGeneration += 1;
+  pendingRestores.clear();
+  if (typeof document !== 'undefined') document.querySelectorAll('.toast-region .toast').forEach((t) => t.remove());
 }
 
 // ----------------------------------------------------------- gráfico barras

@@ -162,7 +162,12 @@ export function createFakeServer() {
 }
 
 /** Puerta de Auth falsa: usuarios en memoria, sin guardar contraseñas en ningún storage. */
-export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) {
+/**
+ * `mailFailure` (opcional) simula que el proveedor de correo rechaza el envío (por ejemplo
+ * 'email_not_authorized' con el SMTP por defecto). Como Supabase, el reenvío sólo intenta
+ * enviar si hay una cuenta sin confirmar: sin cuenta o ya confirmada responde ok sin enviar.
+ */
+export function createFakeAuthGateway({ users = [], confirmEmail = true, mailFailure = null } = {}) {
   let session = null;
   let listener = null;
   const registry = new Map(users.map((u) => [u.email, { ...u }]));
@@ -189,6 +194,14 @@ export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) 
       session = { id: user.id, email, fullName, emailConfirmed: true };
       return { ok: true, needsConfirmation: false, user: { ...session } };
     },
+    /** Reenvío de la confirmación: sólo "sale" si la cuenta existe y no está confirmada. */
+    async resendSignupConfirmation(email, redirectTo) {
+      const u = registry.get(email);
+      const pending = Boolean(u && !u.emailConfirmed);
+      gw.lastResend = { email, redirectTo, sent: pending && !mailFailure };
+      if (pending && mailFailure) return { ok: false, code: mailFailure };
+      return { ok: true };
+    },
     async signIn({ email, password }) {
       const u = registry.get(email);
       if (!u || u.password !== password) return { ok: false, code: 'invalid_credentials' };
@@ -205,9 +218,21 @@ export function createFakeAuthGateway({ users = [], confirmEmail = true } = {}) 
       if (gw.refreshFails) return { ok: false, code: gw.refreshFails };
       return session ? { ok: true, user: { ...session } } : { ok: false, code: 'session_missing' };
     },
+    /** Como Supabase: sólo si la cuenta existe "sale" un correo (con enlace y código). */
     async requestPasswordReset(email, redirectTo) {
       gw.lastReset = { email, redirectTo };
+      if (registry.has(email)) gw.codes.set(email, '123456');
       return { ok: true };
+    },
+    codes: new Map(),
+    /** Código del correo de recuperación (verifyOtp type: 'recovery'). */
+    async verifyRecoveryCode(email, code) {
+      gw.lastCode = { email, length: String(code).length };
+      const u = registry.get(email);
+      if (!u || gw.codes.get(email) !== code) return { ok: false, code: 'link_invalid', user: null };
+      gw.codes.delete(email);
+      session = { id: u.id, email: u.email, fullName: u.fullName, emailConfirmed: true };
+      return { ok: true, code: null, user: { ...session } };
     },
     async updatePassword(password) {
       if (!session) return { ok: false, code: 'session_missing' };

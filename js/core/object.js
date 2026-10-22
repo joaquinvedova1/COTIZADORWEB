@@ -69,3 +69,35 @@ export function isPlainObject(value) {
 export function objectList(value) {
   return Array.isArray(value) ? value.map((item) => (isPlainObject(item) ? item : {})) : [];
 }
+
+/**
+ * Huella del contenido de un borrador de formulario (UX-01): JSON con las
+ * claves ordenadas y sin los valores vacíos (null, undefined, textos en blanco
+ * y listas u objetos vacíos). Así, no tocar un campo y escribir y borrar dan
+ * lo mismo. `false` y `0` cuentan: son respuestas.
+ */
+export function contentSnapshot(value) {
+  const clean = (v) => {
+    if (v === null || v === undefined || typeof v === 'function') return undefined;
+    if (typeof v === 'string') return v.trim() === '' ? undefined : v;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+    if (Array.isArray(v)) {
+      const items = v.map((item) => {
+        const c = clean(item);
+        return c === undefined ? null : c;
+      });
+      return items.some((item) => item !== null) ? items : undefined;
+    }
+    if (isPlainObject(v)) {
+      const out = {};
+      Object.keys(v).sort().forEach((key) => {
+        const c = clean(v[key]);
+        if (c !== undefined) out[key] = c;
+      });
+      return Object.keys(out).length ? out : undefined;
+    }
+    return v;
+  };
+  const cleaned = clean(value);
+  return JSON.stringify(cleaned === undefined ? null : cleaned);
+}

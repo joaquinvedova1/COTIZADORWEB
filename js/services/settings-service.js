@@ -3,12 +3,23 @@
  */
 
 import { defaultSettings } from '../domain/quote-factory.js';
+import { LEGACY_DEFAULT_ROUNDING_STEP } from '../domain/rounding.js';
 
 export function createSettingsService({ repository }) {
   return {
     async get() {
       const org = await repository.getOrganization();
-      return { ...defaultSettings(org.id), ...(await repository.getSettings()) };
+      const stored = (await repository.getSettings()) || {};
+      const merged = { ...defaultSettings(org.id), ...stored };
+      // ECO-03: una configuración guardada antes del redondeo automático no trae `roundingMode`. No se
+      // completa con el de fábrica (sería pasarla a automático sin que nadie lo elija): se interpreta en
+      // settingsRounding (PLAN-2026-020 §2), con el múltiplo de fábrica de entonces si tampoco lo trae.
+      if (stored.roundingMode === undefined) {
+        delete merged.roundingMode;
+        delete merged.roundingMaxPct;
+        if (stored.roundingStep === undefined) merged.roundingStep = LEGACY_DEFAULT_ROUNDING_STEP;
+      }
+      return merged;
     },
     async save(patch) {
       return repository.saveSettings(patch);

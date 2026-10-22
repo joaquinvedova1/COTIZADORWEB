@@ -6,8 +6,9 @@
 import { createId } from '../core/ids.js';
 import { deepClone, isPlainObject } from '../core/object.js';
 import { LOCALE, CURRENCY, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
-import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY } from './catalogs.js';
+import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY, OWNERSHIP_COSTS_PER_KM } from './catalogs.js';
 import { emptyBillingTaxes, copyBillingTaxes, billingTaxesDecided } from './billing-taxes.js';
+import { DEFAULT_ROUNDING_MAX_PCT, isFactoryLegacyStep, settingsRounding } from './rounding.js';
 import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate } from './economic-base.js';
 import { familyIdOf } from './equipment-catalog.js';
 import { createSnapshot } from './resource-snapshot.js';
@@ -23,7 +24,11 @@ export function defaultSettings(organizationId = null) {
     defaultTargetMarginPct: 10,
     defaultContingencyPct: 5,
     defaultPaymentTermDays: 60,
-    roundingStep: 1000,
+    // Redondeo de la tarifa sugerida (ECO-03): automático, a lo sumo 1 % sobre la objetivo. El múltiplo
+    // fijo (`roundingStep`) sólo rige con `roundingMode: 'step'`; en 0 una versión anterior no redondea.
+    roundingMode: 'auto',
+    roundingMaxPct: DEFAULT_ROUNDING_MAX_PCT,
+    roundingStep: 0,
     matrixDays: [...DEFAULT_MATRIX_DAYS],
     marginLadder: [...DEFAULT_MARGIN_LADDER],
     // Impuestos sobre la facturación de la empresa: sin definir (RATEOS no
@@ -278,7 +283,9 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
       knownRate: 0,
       offeredRateOverride: null,
       commercialDiscountPct: 0,
-      roundingStep: settings.roundingStep ?? 0,
+      // Regla de redondeo de la empresa (ECO-03): automático o múltiplo fijo; lo guardado antes de
+      // ECO-03 se interpreta en settingsRounding (PLAN-2026-020 §2).
+      ...settingsRounding(settings),
     },
     // Impuestos sobre lo que se factura (Ingresos Brutos, débitos y créditos,
     // sellos…): gross-up junto con el margen. Ver js/domain/billing-taxes.js.
@@ -465,6 +472,22 @@ export function createOtherCost({ id = createId(), description = 'Otro costo', c
 }
 
 /**
+ * Precio de una plantilla (ECO-03, PLAN-2026-020 §2). Una plantilla guardada antes de ECO-03 trae su
+ * múltiplo fijo de redondeo sin `roundingMode`: se conserva como múltiplo fijo (es una configuración
+ * guardada), salvo el $ 1.000 de fábrica en una plantilla ILUSTRATIVA, que sigue la regla de la empresa
+ * (igual que la configuración de fábrica sin confirmar).
+ */
+function templatePricing(pricing, illustrative) {
+  if (!isPlainObject(pricing)) return {};
+  if (pricing.roundingMode !== undefined || pricing.roundingStep === undefined) return pricing;
+  if (isFactoryLegacyStep(illustrative, pricing.roundingStep)) {
+    const { roundingStep, ...rest } = pricing;
+    return rest;
+  }
+  return { ...pricing, roundingMode: 'step', roundingMaxPct: null };
+}
+
+/**
  * Crea una cotización desde una plantilla de servicio (biblioteca).
  * La plantilla aporta valores parciales que pisan los de una cotización vacía.
  */
@@ -481,7 +504,7 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
     indirect: { ...base.indirect, ...(defaults.indirect || {}) },
     finance: { ...base.finance, ...(defaults.finance || {}), payDays: { ...base.finance.payDays, ...((defaults.finance || {}).payDays || {}) } },
     risk: { ...base.risk, ...(defaults.risk || {}) },
-    pricing: { ...base.pricing, ...(defaults.pricing || {}) },
+    pricing: { ...base.pricing, ...templatePricing(defaults.pricing, template.illustrative === true) },
     // La plantilla sólo pisa los impuestos de la empresa si trae una decisión propia.
     billingTaxes: billingTaxesDecided(defaults.billingTaxes) ? copyBillingTaxes(defaults.billingTaxes) : base.billingTaxes,
     rules: { ...base.rules, ...(defaults.rules || {}) },
@@ -520,10 +543,18 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
   merged.equipment = merged.equipment.map((e) => ({
     ...e,
     operatorLaborId: remap(e.operatorLaborId),
+    // ECO-04 (F2): "ningún puesto de Personal lo opera" vale para los puestos de la cotización nueva.
+    ...(isPlainObject(e.operatorBySupplier) && Array.isArray(e.operatorBySupplier.labor)
+      ? { operatorBySupplier: { labor: e.operatorBySupplier.labor.filter(isPlainObject).map((x) => ({ ...x, id: remap(x.id) })).filter((x) => x.id) } }
+      : {}),
     mobilization: isPlainObject(e.mobilization)
       ? { ...e.mobilization, carrierLineId: remap(e.mobilization.carrierLineId), supportVehicleId: remap(e.mobilization.supportVehicleId) }
       : e.mobilization,
   }));
+  // ECO-04 (H-08): el vehículo de apoyo apunta a la línea de Equipos nueva con su costo de tenerlo.
+  merged.logistics.vehicles = merged.logistics.vehicles.map((v) => (typeof v.ownershipCostsIn === 'string' && v.ownershipCostsIn !== OWNERSHIP_COSTS_PER_KM
+    ? { ...v, ownershipCostsIn: remap(v.ownershipCostsIn) }
+    : v));
   if (fromIllustrative && isPlainObject(defaults.fuel) && defaults.fuel.pricePerLiter !== undefined) {
     merged.fuel = { ...merged.fuel, illustrative: true, requiresConfirmation: true };
   }

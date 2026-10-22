@@ -13,6 +13,8 @@
  *   borran al cerrar la cuenta.
  */
 
+import { contentSnapshot } from '../core/object.js';
+
 /** Dueño de la memoria: usuario + empresa de la cuenta, o el modo (demo / local). */
 export function sessionOwner(ctx) {
   if (!ctx) return 'none';
@@ -21,6 +23,13 @@ export function sessionOwner(ctx) {
     return `account:${account.user.id}:${account.organization.id}`;
   }
   return typeof ctx.mode === 'string' && ctx.mode ? ctx.mode : 'local';
+}
+
+/** ¿La nube está al día? Sin nube (demo, modo local), lo guardado en el navegador es lo guardado. */
+function syncSettled(ctx) {
+  const sync = ctx && ctx.sync && typeof ctx.sync.getState === 'function' ? ctx.sync.getState() : null;
+  if (!sync) return true;
+  return ['saved', 'idle'].includes(sync.status) && !sync.dirty && !sync.conflict;
 }
 
 /** Borradores por cuenta: get/set/delete(ctx, id). */
@@ -33,6 +42,22 @@ export function createDraftStore() {
       drafts.set(keyOf(ctx, id), value);
     },
     delete: (ctx, id) => drafts.delete(keyOf(ctx, id)),
+    /**
+     * El borrador a recuperar al abrir, o null si ya dice lo mismo que lo guardado y la nube
+     * está al día (p. ej. la sincronización lo subió al volver la red): ahí se descarta y no
+     * se muestra un "Error al guardar" que ya no existe (CEL-02). Con cambios sin subir o un
+     * conflicto, se recupera como antes. La fecha de guardado la pone el repositorio: no cuenta.
+     */
+    recover: (ctx, id, saved) => {
+      const draft = drafts.get(keyOf(ctx, id));
+      if (!draft) return null;
+      const content = (x) => contentSnapshot({ ...x, updatedAt: null });
+      if (saved && syncSettled(ctx) && content(draft) === content(saved)) {
+        drafts.delete(keyOf(ctx, id));
+        return null;
+      }
+      return draft;
+    },
     get size() {
       return drafts.size;
     },

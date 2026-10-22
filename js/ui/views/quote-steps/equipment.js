@@ -28,7 +28,7 @@ import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { lineIncrementalImpact } from '../../../engines/impact-engine.js';
-import { externalUnitAssumption } from '../../../engines/completeness-engine.js';
+import { externalUnitAssumption, externalQuantityAssumption, externalQuantityHolds, operatorSupplierSnapshot } from '../../../engines/completeness-engine.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -425,6 +425,10 @@ export function render(container, ctx) {
             e.mobilization.carrierLineId = null;
           }
         });
+        // ECO-04 (H-08): el vehículo de apoyo que tenía ahí su costo de tenerlo vuelve a preguntar.
+        ((q.logistics && q.logistics.vehicles) || []).forEach((v) => {
+          if (v && v.ownershipCostsIn === removed.id) v.ownershipCostsIn = null;
+        });
       }
     });
   };
@@ -457,22 +461,26 @@ export function render(container, ctx) {
   const toolbar = h(
     'div',
     { class: 'qe-toolbar' },
-    h(
-      'div',
-      { class: 'qe-toolbar-pick' },
-      selectField({
-        label: 'Agregar desde tus recursos (Mis equipos y Externos)',
-        value: null,
-        includeEmpty: true,
-        emptyLabel: pickerOptions.length ? 'Elegí un equipo o servicio…' : 'Todavía no cargaste equipos ni servicios externos',
-        options: pickerOptions,
-        onChange: (v) => {
-          selectedId = v;
-        },
-      }),
-      kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
-    ),
-    kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md' }),
+    // UI-05 (revisión de frontend de la beta): con Recursos vacío se dice dónde cargarlos (la cotización se
+    // guarda sola) en vez de ofrecer una lista sin nada; el equipo en blanco pasa a ser la acción principal.
+    pickerOptions.length
+      ? h(
+        'div',
+        { class: 'qe-toolbar-pick' },
+        selectField({
+          label: 'Agregar desde tus recursos (Mis equipos y Externos)',
+          value: null,
+          includeEmpty: true,
+          emptyLabel: 'Elegí un equipo o servicio…',
+          options: pickerOptions,
+          onChange: (v) => {
+            selectedId = v;
+          },
+        }),
+        kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
+      )
+      : h('p', { class: 'qe-toolbar-empty small' }, 'Todavía no cargaste equipos ni servicios externos en Recursos. ', h('a', { href: '#/recursos/equipos' }, 'Cargar equipos en Recursos'), ' (esta cotización se guarda sola) o agregá uno en blanco.'),
+    kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md', ...(pickerOptions.length ? {} : { variant: 'primary' }) }),
     kit.action('Agregar alquilado o tercerizado', () => addBlank('rented'), { icon: 'plus', size: 'md' }),
   );
 
@@ -894,6 +902,83 @@ export function render(container, ctx) {
     return h('div', { class: 'qe-unit-confirm-wrap' }, pendingBanner, confirmedBanner);
   };
 
+  /** Pendiente "Cantidad del proveedor" de esta línea (P1 CIERRE, H-09), o null. */
+  const quantityPendingOf = (r, index) => ((r && r.completeness && r.completeness.pending) || [])
+    .find((x) => x.id === 'external_quantity' && (x.targets || []).some((t) => t.index === index)) || null;
+  /**
+   * Externo por km o por tramo con cantidad mayor que 1 (P1 CIERRE, AUD-T1 H-09): cada unidad cuenta
+   * todo el recorrido. "Poner cantidad 1" si se reparten los viajes; "Cada unidad hace todo el
+   * recorrido" guarda el supuesto (`externalQuantityAssumption`): si cambian la cantidad o la unidad, se
+   * vuelve a pedir. La fórmula no cambia.
+   */
+  const quantityConfirmBanner = (index) => {
+    const pendingBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-warning qe-quantity-confirm', role: 'status' },
+      kit.out((r) => {
+        const item = quantityPendingOf(r, index);
+        return item ? h('div', {}, h('strong', {}, '¿Cada unidad hace todo el recorrido? '), item.message) : '';
+      }, { tag: 'div', allowEmpty: true }),
+      ctx.readOnly
+        ? null
+        : h('div', { class: 'qe-toolbar' },
+          kit.action('Poner cantidad 1', () => ctx.mutate((q) => { q.equipment[index].quantity = 1; delete q.equipment[index].externalQuantityConfirmed; }, { focus: `equipment.${index}.quantity` }), { variant: 'primary' }),
+          kit.action('Cada unidad hace todo el recorrido', () => ctx.mutate((q) => { q.equipment[index].externalQuantityConfirmed = externalQuantityAssumption(q, q.equipment[index]); }), { icon: 'check' })),
+    ), (r) => Boolean(quantityPendingOf(r, index)));
+    const line = quote.equipment[index] || {};
+    const c = line.externalQuantityConfirmed;
+    if (!c || typeof c !== 'object') return pendingBanner;
+    // Confirmación vigente: se muestra lo que se confirmó (desaparece si el motor la da por vencida).
+    const confirmedBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-info qe-quantity-confirm is-confirmed', role: 'status' },
+      h('div', {}, h('strong', {}, 'Confirmado: cada unidad hace todo el recorrido. '),
+        `Con cantidad ${formatNumber(Number(c.quantity) || 0, { decimals: 2 })}, la tarifa se paga por el recorrido completo de cada unidad. Si cambian la cantidad o la unidad de la tarifa, se vuelve a pedir.`),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar la cantidad', () => ctx.mutate((q) => { delete q.equipment[index].externalQuantityConfirmed; }, { focus: `equipment.${index}.quantity` }), { icon: 'edit' })),
+    // Además tiene que coincidir con la cantidad y la unidad de ahora, aunque la regla no se aplique (p. ej., tarifa en 0).
+    ), (r) => !quantityPendingOf(r, index) && (Number((quote.equipment[index] || {}).quantity) || 0) > 1 && externalQuantityHolds(quote, quote.equipment[index]));
+    return h('div', { class: 'qe-quantity-confirm-wrap' }, pendingBanner, confirmedBanner);
+  };
+
+  /** ¿Esta línea pregunta "¿lo opera alguien de tu Personal?" (ECO-04, VAL-01-F2)? Cada línea, no sólo la primera. */
+  const operatorScopeOf = (r, index) => ((r && r.completeness && r.completeness.operatorScope) || []).some((x) => x.index === index);
+  /** Pregunta de la línea con los puestos candidatos de ahora. */
+  const operatorScopeText = (index) => {
+    const line = quote.equipment[index] || {};
+    const names = operatorSupplierSnapshot(quote).labor.map((x) => `"${x.role}"`);
+    const who = names.length === 1 ? `${names[0]} no opera ningún equipo` : `${names.slice(0, 3).join(', ')} no operan ningún equipo`;
+    return `La tarifa de "${line.name || 'Externo'}" ya incluye operador y ${who}: si es el mismo, se paga dos veces. Si es el mismo, sacalo de Personal (o dejalo en 0 posiciones); si la tarifa no lo incluye, marcá el operador como "No, lo pago aparte". Si es otra persona, confirmalo acá.`;
+  };
+  /**
+   * Externo que trae operador y un puesto de Personal que suena a operador o chofer sin equipo (ECO-04,
+   * VAL-01-F2): asignarlo o confirmar "Ningún puesto de Personal lo opera", que guarda esos puestos
+   * (`operatorSupplierSnapshot`). Si aparece otro o se renombra, el motor vuelve a preguntar.
+   */
+  const operatorScopeBanner = (index) => {
+    const pendingBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-warning qe-operator-scope', role: 'status' },
+      kit.out((r) => (operatorScopeOf(r, index) ? h('div', {}, h('strong', {}, '¿Lo opera alguien de tu Personal? '), operatorScopeText(index)) : ''), { tag: 'div', allowEmpty: true }),
+      ctx.readOnly
+        ? null
+        : h('div', { class: 'qe-toolbar' },
+          kit.action('Ningún puesto de Personal lo opera', () => ctx.mutate((q) => { q.equipment[index].operatorBySupplier = operatorSupplierSnapshot(q); }), { icon: 'check' })),
+    ), (r) => operatorScopeOf(r, index));
+    const line = quote.equipment[index] || {};
+    // "Asignado" como lo cuenta el motor: un puesto que existe (un id viejo no cuenta).
+    const assigned = typeof line.operatorLaborId === 'string' && (quote.labor || []).some((l) => l && l.id === line.operatorLaborId);
+    const confirmed = line.operatorBySupplier && typeof line.operatorBySupplier === 'object' && line.external && line.external.operatorIncluded === true && !assigned;
+    if (!confirmed) return pendingBanner;
+    // Confirmación vigente: se muestra (desaparece si el motor la da por vencida).
+    const confirmedBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-info qe-operator-scope is-confirmed', role: 'status' },
+      h('div', {}, h('strong', {}, 'Confirmado: el operador lo pone el proveedor. '), 'Ningún puesto de Personal opera este equipo. Si agregás o renombrás un puesto de chofer u operador, se vuelve a preguntar.'),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar', () => ctx.mutate((q) => { delete q.equipment[index].operatorBySupplier; }, { focus: `equipment.${index}.operatorLaborId` }), { icon: 'edit' })),
+    ), (r) => !operatorScopeOf(r, index));
+    return h('div', { class: 'qe-operator-scope-wrap' }, pendingBanner, confirmedBanner);
+  };
+
   const externalCard = (line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
@@ -953,6 +1038,8 @@ export function render(container, ctx) {
         : null,
       // "Por salida" con varios viajes por salida (ECO-01, H-01): elegir la unidad o confirmarla.
       unit === 'activation' ? unitConfirmBanner(i) : null,
+      // Por km o por tramo con cantidad mayor que 1 (P1 CIERRE, H-09): ¿cada unidad hace todo el recorrido?
+      unit === 'km' || unit === 'trip' ? quantityConfirmBanner(i) : null,
       // Asistente de completitud del externo.
       kit.out(() => {
         const items = externalChecklist(quote.equipment[i] || {});
@@ -965,6 +1052,8 @@ export function render(container, ctx) {
         );
       }, { tag: 'div' }),
       formGrid(3, acquisitionField(i), operatorField(i)),
+      // ECO-04 (VAL-01-F2): la tarifa trae operador y en Personal hay un chofer u operador sin equipo.
+      ext.operatorIncluded === true ? operatorScopeBanner(i) : null,
       formGrid(
         3,
         kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }),
@@ -1123,7 +1212,7 @@ export function render(container, ctx) {
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({
         title: 'Todavía no agregaste equipos.',
-        text: 'Agregá uno desde tus recursos o en blanco (propio, alquilado o tercerizado). Si el servicio no usa equipos, seguí al próximo paso.',
+        text: h('span', {}, 'Agregá uno desde ', h('a', { href: '#/recursos/equipos' }, 'tus recursos'), ' o en blanco (propio, alquilado o tercerizado). Si el servicio no usa equipos, seguí al próximo paso.'),
         icon: 'resources',
       }),
     lineCards.length ? totals : null,

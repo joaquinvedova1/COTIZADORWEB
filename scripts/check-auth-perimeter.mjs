@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * RATEOS — verificación del perímetro de Supabase Auth (HD-03, PLAN-2026-016).
+ * RATEOS — verificación del perímetro de Supabase Auth (HD-03, PLAN-2026-016/018).
  *
  *   node scripts/check-auth-perimeter.mjs
  *
  * Lee la configuración PÚBLICA de Auth (GET /auth/v1/settings con la
  * publishable key de js/config.js: lo mismo que puede ver cualquier navegador)
- * y verifica que la beta esté cerrada sin romper el ingreso:
- * - disable_signup = true      registro cerrado: sólo altas por el Dashboard o invitación;
+ * y verifica que coincida con lo que ofrece la app (FEATURES.publicSignup):
+ * - registro público (publicSignup = true, decisión del dueño del 2026-10-20):
+ *   disable_signup = false, con la confirmación de email obligatoria;
+ *   beta por invitación (publicSignup = false): disable_signup = true;
  * - external.email = true      el proveedor Email sigue activo (ingreso y recuperación);
  * - mailer_autoconfirm = false se mantiene la confirmación de email;
  * - sin proveedores sociales, teléfono, SAML ni usuarios anónimos (no previstos).
@@ -22,23 +24,24 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { SUPABASE } from '../js/config.js';
+import { FEATURES, SUPABASE } from '../js/config.js';
 
 /** Requisitos de la beta que la configuración pública no muestra: se verifican a mano. */
 export const MANUAL_CHECKS = Object.freeze([
   Object.freeze({
     id: 'smtp',
     label: 'SMTP propio (Authentication → Emails → SMTP Settings)',
-    detail: 'con el SMTP por defecto, Supabase sólo envía correos al equipo del proyecto: las personas invitadas no reciben el enlace para elegir su contraseña. Probar «¿Olvidaste tu contraseña?» con un email que no sea del equipo.',
+    detail: 'con el SMTP por defecto, Supabase sólo envía correos al equipo del proyecto: nadie de afuera recibe la confirmación del registro ni el correo para elegir la contraseña (y el registro falla). Probar «Crear cuenta» y «¿Olvidaste tu contraseña?» con un email que no sea del equipo.',
   }),
 ]);
 
 /**
  * Evalúa la configuración pública de Auth.
  * @param {any} settings respuesta de /auth/v1/settings
+ * @param {{ publicSignup?: boolean }} [opts] lo que ofrece la app (por defecto, FEATURES.publicSignup)
  * @returns {{ ok: boolean, checks: { id: string, label: string, ok: boolean, detail: string }[] }}
  */
-export function evaluateAuthSettings(settings) {
+export function evaluateAuthSettings(settings, { publicSignup = FEATURES.publicSignup } = {}) {
   const s = settings && typeof settings === 'object' ? settings : {};
   const external = s.external && typeof s.external === 'object' ? s.external : {};
   const enabledOthers = Object.entries(external)
@@ -46,12 +49,19 @@ export function evaluateAuthSettings(settings) {
     .map(([name]) => name)
     .sort();
   const checks = [
-    {
-      id: 'signup',
-      label: 'Registro cerrado ("Allow new users to sign up" apagado)',
-      ok: s.disable_signup === true,
-      detail: s.disable_signup === true ? 'disable_signup = true' : 'el registro sigue abierto: cualquiera puede crear una cuenta',
-    },
+    publicSignup
+      ? {
+        id: 'signup',
+        label: 'Registro público abierto ("Allow new users to sign up" encendido)',
+        ok: s.disable_signup === false,
+        detail: s.disable_signup === false ? 'disable_signup = false' : 'el registro está cerrado: la app ofrece "Crear cuenta" pero Supabase lo rechaza',
+      }
+      : {
+        id: 'signup',
+        label: 'Registro cerrado ("Allow new users to sign up" apagado)',
+        ok: s.disable_signup === true,
+        detail: s.disable_signup === true ? 'disable_signup = true' : 'el registro sigue abierto: cualquiera puede crear una cuenta',
+      },
     {
       id: 'email',
       label: 'Proveedor Email activo (ingreso y recuperación de contraseña)',
@@ -60,9 +70,9 @@ export function evaluateAuthSettings(settings) {
     },
     {
       id: 'confirm',
-      label: 'Confirmación de email activa',
+      label: 'Confirmación de email activa (obligatoria con el registro público)',
       ok: s.mailer_autoconfirm === false,
-      detail: s.mailer_autoconfirm === false ? 'mailer_autoconfirm = false' : 'los emails se confirman solos',
+      detail: s.mailer_autoconfirm === false ? 'mailer_autoconfirm = false' : 'los emails se confirman solos: cualquiera entraría con un email ajeno',
     },
     {
       id: 'others',
@@ -88,7 +98,7 @@ async function main() {
   const result = evaluateAuthSettings(settings);
   for (const c of result.checks) console.log(`${c.ok ? 'OK   ' : 'FALLA'} ${c.label} — ${c.detail}`);
   for (const c of MANUAL_CHECKS) console.log(`A MANO ${c.label} — ${c.detail}`);
-  console.log(result.ok ? 'PERÍMETRO DE AUTH: OK (beta por invitación)' : 'PERÍMETRO DE AUTH: PENDIENTE');
+  console.log(result.ok ? `PERÍMETRO DE AUTH: OK (${FEATURES.publicSignup ? 'registro público con confirmación' : 'beta por invitación'})` : 'PERÍMETRO DE AUTH: PENDIENTE');
   process.exitCode = result.ok ? 0 : 1;
 }
 

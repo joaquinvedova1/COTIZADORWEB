@@ -20,6 +20,22 @@ export function unitMoney(value) {
   return formatMoney(value, { decimals: Math.abs(value) < 1000 ? 2 : 0 });
 }
 
+/**
+ * Estado de un producto en la lista (P1 CIERRE, AUD-T1 H-12): "Completo" sólo sin datos faltantes NI
+ * avisos para revisar. Antes miraba sólo los errores y decía "Completo" con impuestos, financiación o
+ * tenencia sin definir. El precio de hoy debajo del costo va primero (rojo); el ejemplo dice "Ejemplo".
+ * @returns {{ kind: 'errors'|'below_floor'|'review'|'example'|'complete', label: string, tone: string, count: number }}
+ */
+export function productListStatus(product = {}, summary = {}) {
+  const errors = Number(summary.errors) || 0;
+  const warnings = Number(summary.warnings) || 0;
+  if (summary.currentBelowFloor) return { kind: 'below_floor', label: 'Precio actual bajo el costo', tone: 'red', count: errors + warnings };
+  if (errors) return { kind: 'errors', label: `Faltan datos (${errors})`, tone: 'orange', count: errors };
+  if (warnings) return { kind: 'review', label: `Revisar (${warnings})`, tone: 'orange', count: warnings };
+  if (product && product.illustrative === true) return { kind: 'example', label: 'Ejemplo', tone: 'gray', count: 0 };
+  return { kind: 'complete', label: 'Completo', tone: 'green', count: 0 };
+}
+
 export function productHref(product, step = null) {
   const id = encodeURIComponent(product && product.id ? product.id : '');
   return step ? `#/productos/${id}/${step}` : `#/productos/${id}`;
@@ -123,7 +139,15 @@ export async function render(root, app) {
     {
       key: 'state',
       label: 'Estado',
-      render: ({ summary }) => (summary.errors ? badge(`Faltan datos (${summary.errors})`, 'orange') : summary.currentBelowFloor ? badge('Precio actual bajo el costo', 'red') : badge('Completo', 'green')),
+      render: ({ product, summary }) => {
+        const status = productListStatus(product, summary);
+        // Con datos faltantes o para revisar, el aviso concreto está a un clic (Resultado del producto).
+        return h('div', { class: 'pe-state-cell' },
+          badge(status.label, status.tone),
+          status.count > 0
+            ? h('a', { href: productHref(product, 'resultado'), class: 'pe-state-link small', 'aria-label': `Ver los avisos de ${product.name || 'este producto'}` }, 'Ver avisos')
+            : null);
+      },
     },
     { key: 'updated', label: 'Actualizado', render: ({ product }) => h('span', { class: 'muted small' }, formatDateTime(product.updatedAt)) },
     {

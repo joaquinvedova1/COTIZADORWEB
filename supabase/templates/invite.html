@@ -1,0 +1,11 @@
+<!--
+  RATEOS · plantilla "Invite user" de Supabase Auth (HD-03, PLAN-2026-018).
+  Asunto sugerido: Te invitaron a RATEOS (se pega desde <h2> hasta el final)
+  RATEOS NO usa el enlace de invitación de Supabase (no es PKCE y la app lo rechaza).
+  Esta plantilla es una red de seguridad por si alguien toca "Send invitation": en vez
+  del enlace, lleva a "Elegir mi contraseña". El alta recomendada es "Create new user"
+  con Auto Confirm (docs/BETA_PERIMETER.md §2).
+-->
+<h2>Te invitaron a RATEOS</h2>
+<p>Ya tenés acceso a RATEOS con <strong>{{ .Email }}</strong>.</p>
+<p>Para entrar por primera vez, abrí <a href="{{ .SiteURL }}#/recuperar-contrasena">Elegir mi contraseña</a>, escribí este mismo email y seguí el correo que te llega.</p>

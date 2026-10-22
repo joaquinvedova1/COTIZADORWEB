@@ -17,7 +17,7 @@
  */
 
 import { h, mount, uniqueId, downloadText, readFileAsText } from '../dom.js';
-import { badge, banner, button, card, checkboxField, confirmDialog, formGrid, numberField, periodField, searchSelectField, selectField, textField } from '../components.js';
+import { announceRestored, badge, banner, button, card, checkboxField, confirmDialog, formGrid, numberField, periodField, searchSelectField, selectField, textField } from '../components.js';
 import { APP_NAME, CURRENCY, FEATURES, MAX_BACKUP_BYTES, SCHEMA_VERSION, STORAGE_MODE, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { formatBuildLabel, formatDateTime, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
@@ -27,6 +27,7 @@ import { BASE_SOURCES, CURRENCIES } from '../../domain/catalogs.js';
 import { INDUSTRY_SECTORS, MAX_ACTIVITY_LENGTH, activitySuggestions, industryOf, searchSectors } from '../../domain/industry-catalog.js';
 import { emptyBase, normalizeBase } from '../../domain/economic-base.js';
 import { normalizeExchangeRates } from '../../domain/quote-factory.js';
+import { settingsRounding } from '../../domain/rounding.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, invalidTaxesText } from '../billing-taxes-form.js';
 import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -178,10 +179,12 @@ function listField({ label, value, hint, parse, onValid, illustrative = false })
   input.addEventListener('change', () => {
     const r = parse(input.value);
     if (r.ok) return;
+    const typed = input.value;
     input.value = lastValidText;
     const restored = parse(lastValidText);
     if (restored.ok) onValid(restored.value);
     showError(`${r.error} Se restauró el valor anterior.`);
+    announceRestored(input, { label, typed, restored: lastValidText, reason: typed.trim() ? r.error : '' });
   });
   const el = h(
     'div',
@@ -211,12 +214,17 @@ function saveChip({ ephemeral = false } = {}) {
 /**
  * Guardado automático con debounce. Sólo guarda si `isValid()`; si no,
  * muestra "Revisá los campos marcados". Nunca navega.
+ *
+ * UX-01: recuerda que hay cambios sin guardar aunque en ese momento la sección
+ * esté inválida. `flush()` (al salir) los guarda si ya se corrigió o el campo
+ * volvió a su valor anterior; si no, `hasUnsaved()` lo dice para avisarlo.
  */
-function createAutosave({ chip, isValid, save, onError, readOnly = false, delay = SETTINGS_AUTOSAVE_DELAY_MS }) {
+function createAutosave({ label = '', chip, isValid, save, onError, readOnly = false, delay = SETTINGS_AUTOSAVE_DELAY_MS }) {
   let timer = null;
   let inFlight = null;
   let again = false;
   let disposed = false;
+  let unsaved = false;
 
   async function run() {
     timer = null;
@@ -230,6 +238,7 @@ function createAutosave({ chip, isValid, save, onError, readOnly = false, delay 
       chip.set('invalid');
       return;
     }
+    unsaved = false;
     chip.set('saving');
     inFlight = (async () => {
       try {
@@ -257,6 +266,7 @@ function createAutosave({ chip, isValid, save, onError, readOnly = false, delay 
     /** Programa un guardado (o marca el formulario como inválido). */
     schedule() {
       if (disposed || readOnly) return;
+      unsaved = true;
       clearTimeout(timer);
       timer = null;
       if (!isValid()) {
@@ -267,13 +277,17 @@ function createAutosave({ chip, isValid, save, onError, readOnly = false, delay 
       timer = setTimeout(run, delay);
     },
     /** Guarda ya lo pendiente (al salir de la pantalla o antes de importar). */
-    flush() {
-      if (timer !== null) {
+    flush({ unsavedToo = true } = {}) {
+      if (timer !== null || (unsavedToo && unsaved)) {
         clearTimeout(timer);
         return run();
       }
       return inFlight ? inFlight.then(() => undefined) : Promise.resolve();
     },
+    /** Nombre de la sección (para el aviso de lo que no se guardó). */
+    label,
+    /** Quedaron cambios sin guardar porque la sección sigue inválida. */
+    hasUnsaved: () => unsaved && !disposed && !readOnly,
     /** Deja de guardar (después de reemplazar los datos: importar o restaurar la demo). */
     dispose() {
       disposed = true;
@@ -343,6 +357,8 @@ function sectionTabs(active) {
 export async function render(root, app, params = {}) {
   const { ctx } = app;
   const section = SETTINGS_SECTIONS.some((s) => s.id === params.tab) ? params.tab : 'empresa';
+  // Para saber, al limpiar, si se salió de la pantalla o se redibuja la misma.
+  const renderedHash = typeof window !== 'undefined' ? window.location.hash : '';
   app.setHeader({ title: 'Configuración', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }] });
 
   const readOnly = Boolean(ctx.init && ctx.init.readOnly);
@@ -356,9 +372,21 @@ export async function render(root, app, params = {}) {
 
   const savers = [];
   /** Guarda lo pendiente de la pestaña (empresa o parámetros). */
-  const flushAll = () => Promise.all(savers.map((saver) => saver.flush()));
+  const flushAll = (options) => Promise.all(savers.map((saver) => saver.flush(options)));
   /** Después de reemplazar los datos, lo que quedó en pantalla no se guarda. */
   const disposeAll = () => savers.forEach((saver) => saver.dispose());
+  /**
+   * Al salir (UX-01): un campo con un valor inválido vuelve a su valor anterior
+   * (con su aviso) para que el resto de la sección se guarde igual; antes, un
+   * solo campo inválido dejaba sin guardar toda la sección.
+   */
+  const revertInvalid = () => {
+    root.querySelectorAll('[aria-invalid="true"]').forEach((el) => {
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  };
+  /** Avisos de lo que quedó sin guardar al salir (p. ej. el nombre de "Mi cuenta"). */
+  const leaveChecks = [];
 
   const panel = h('div', { class: 'settings-panel' });
   mount(root, sectionTabs(section), panel);
@@ -452,6 +480,7 @@ export async function render(root, app, params = {}) {
     let lastValidOrgName = sanitizeText(orgDraft.name, 120);
     const orgChip = saveChip({ ephemeral });
     const orgSaver = createAutosave({
+      label: 'Tu empresa',
       chip: orgChip,
       readOnly,
       isValid: () => sanitizeText(orgDraft.name, 120) !== '',
@@ -502,6 +531,7 @@ export async function render(root, app, params = {}) {
         nameInput.value = lastValidOrgName;
         orgDraft.name = lastValidOrgName;
         setNameError('El nombre es obligatorio. Se restauró el nombre anterior.');
+        announceRestored(nameInput, { label: 'Nombre de la empresa', typed: '', restored: lastValidOrgName });
       });
     }
 
@@ -618,18 +648,24 @@ export async function render(root, app, params = {}) {
 
   async function buildParams() {
     const settings = await app.getSettings();
+    const rounding = settingsRounding(settings);
     const params = {
       fuelPricePerLiter: settings.fuelPricePerLiter,
       financeMonthlyRatePct: settings.financeMonthlyRatePct,
       defaultTargetMarginPct: settings.defaultTargetMarginPct,
       defaultContingencyPct: settings.defaultContingencyPct,
       defaultPaymentTermDays: settings.defaultPaymentTermDays,
-      roundingStep: settings.roundingStep,
+      // Redondeo de la tarifa sugerida (ECO-03): automático o múltiplo fijo; lo guardado antes de ECO-03
+      // se interpreta en settingsRounding (PLAN-2026-020 §2). En automático se guarda el múltiplo en 0 (una
+      // versión anterior no infla): al volver a "Múltiplo fijo" después de recargar hay que cargarlo de nuevo.
+      roundingMode: rounding.roundingMode,
+      roundingMaxPct: rounding.roundingMode === 'auto' ? rounding.roundingMaxPct : 1,
+      roundingStep: isFiniteNumber(Number(settings.roundingStep)) && settings.roundingStep !== null ? Number(settings.roundingStep) : 0,
       matrixDays: Array.isArray(settings.matrixDays) && settings.matrixDays.length ? [...settings.matrixDays] : [...DEFAULT_MATRIX_DAYS],
       marginLadder: Array.isArray(settings.marginLadder) && settings.marginLadder.length ? [...settings.marginLadder] : [...DEFAULT_MARGIN_LADDER],
       ownValues: settings.illustrative !== true,
     };
-    const REQUIRED_PARAMS = ['fuelPricePerLiter', 'financeMonthlyRatePct', 'defaultTargetMarginPct', 'defaultContingencyPct', 'defaultPaymentTermDays', 'roundingStep'];
+    const REQUIRED_PARAMS = ['fuelPricePerLiter', 'financeMonthlyRatePct', 'defaultTargetMarginPct', 'defaultContingencyPct', 'defaultPaymentTermDays'];
 
     // Los campos se crean con la etiqueta ILUSTRATIVO y se muestra u oculta
     // según lo guardado (sin volver a dibujar la pantalla).
@@ -657,6 +693,29 @@ export async function render(root, app, params = {}) {
       illustrative: true,
     });
 
+    // Redondeo de las tarifas sugeridas (ECO-03): el campo que no aplica queda oculto (y no se valida).
+    const roundingMaxBox = h('div', {}, num('roundingMaxPct', 'Tope del redondeo automático', 'roundingMaxPct', '%', 'La tarifa sugerida se redondea hacia arriba a 1, 10, 100, 1.000… sin subir más que esto sobre el precio objetivo (1 % de fábrica).'));
+    const roundingStepBox = h('div', {}, num('roundingStep', 'Múltiplo del redondeo', 'money', '$', 'La tarifa sugerida se redondea hacia arriba a este múltiplo. 0 = sin redondeo. En unidades de valor bajo ($/ton-km, $/kg, $/km) un múltiplo grande la aleja mucho del precio objetivo.'));
+    const syncRounding = () => {
+      roundingMaxBox.hidden = params.roundingMode !== 'auto';
+      roundingStepBox.hidden = params.roundingMode === 'auto';
+    };
+    const roundingModeField = selectField({
+      label: 'Redondeo de las tarifas sugeridas',
+      name: 'roundingMode',
+      value: params.roundingMode,
+      options: [
+        { value: 'auto', label: 'Automático' },
+        { value: 'step', label: 'Múltiplo fijo' },
+      ],
+      hint: 'Para las cotizaciones nuevas (las guardadas no cambian). Automático: proporcional a la tarifa, a lo sumo el tope sobre el precio objetivo. Siempre hacia arriba: nunca baja el margen.',
+      onChange: (v) => {
+        params.roundingMode = v === 'step' ? 'step' : 'auto';
+        syncRounding();
+      },
+    });
+    syncRounding();
+
     const paramsFields = h(
       'div',
       { class: 'stack params-groups' },
@@ -679,7 +738,9 @@ export async function render(root, app, params = {}) {
         formGrid(
           2,
           num('defaultTargetMarginPct', 'Margen objetivo', 'margin', '%', 'Sobre el precio de venta (no es markup).'),
-          num('roundingStep', 'Redondeo de tarifas', 'money', '$', 'Las tarifas sugeridas se redondean hacia arriba a este múltiplo. 0 = sin redondeo.'),
+          roundingModeField,
+          roundingMaxBox,
+          roundingStepBox,
           matrixField.el,
           ladderField.el,
         ),
@@ -689,7 +750,8 @@ export async function render(root, app, params = {}) {
     /** Válido = todos los parámetros cargados y el texto de cada campo pasa su regla. */
     const paramsValid = () =>
       REQUIRED_PARAMS.every((k) => isFiniteNumber(params[k])) &&
-      numericInputs.every(({ input, rule }) => validateNumber(input.value, rule, { required: true }).ok) &&
+      (params.roundingMode === 'auto' ? isFiniteNumber(params.roundingMaxPct) : isFiniteNumber(params.roundingStep)) &&
+      numericInputs.every(({ input, rule }) => Boolean(input.closest('[hidden]')) || validateNumber(input.value, rule, { required: true }).ok) &&
       matrixField.isValid() &&
       ladderField.isValid();
 
@@ -705,12 +767,15 @@ export async function render(root, app, params = {}) {
 
     const paramsChip = saveChip({ ephemeral });
     const paramsSaver = createAutosave({
+      label: 'Parámetros económicos',
       chip: paramsChip,
       readOnly,
       isValid: paramsValid,
       save: async () => {
         const { ownValues, ...rest } = params;
-        const snapshot = { ...rest, matrixDays: [...rest.matrixDays], marginLadder: [...rest.marginLadder], illustrative: !ownValues };
+        const auto = rest.roundingMode === 'auto';
+        // En automático se guarda el múltiplo en 0: una versión anterior abierta no redondea (nunca infla).
+        const snapshot = { ...rest, roundingMaxPct: auto ? rest.roundingMaxPct : null, roundingStep: auto ? 0 : rest.roundingStep, matrixDays: [...rest.matrixDays], marginLadder: [...rest.marginLadder], illustrative: !ownValues };
         await ctx.settings.save(snapshot);
         applyIllustrative(snapshot.illustrative);
       },
@@ -742,6 +807,7 @@ export async function render(root, app, params = {}) {
     const taxesChip = saveChip({ ephemeral });
     const taxesValid = () => !billingTaxConfigInfo(taxes).invalid && taxesHolder.querySelectorAll('[aria-invalid="true"]').length === 0;
     const taxesSaver = createAutosave({
+      label: 'Impuestos sobre lo que facturás',
       chip: taxesChip,
       readOnly,
       isValid: taxesValid,
@@ -805,6 +871,7 @@ export async function render(root, app, params = {}) {
     const ratesHolder = h('div', { class: 'stack' });
     const ratesValid = () => ratesHolder.querySelectorAll('[aria-invalid="true"]').length === 0 && rates.every((r) => r.rate === null || (isFiniteNumber(r.rate) && r.rate > 0));
     const ratesSaver = createAutosave({
+      label: 'Fecha base y tipos de cambio',
       chip: ratesChip,
       readOnly,
       isValid: ratesValid,
@@ -1228,6 +1295,16 @@ export async function render(root, app, params = {}) {
       return;
     }
     let nameValue = account.user.fullName || '';
+    let savedName = sanitizeText(nameValue, 120);
+    // El que se está guardando (si se sale antes de la respuesta, no se avisa:
+    // si falla, lo dice el aviso de error).
+    let sendingName = null;
+    // Al salir sin "Guardar nombre", se avisa que el nombre escrito no se guardó (UX-01).
+    leaveChecks.push(() => {
+      const typed = sanitizeText(nameValue, 120);
+      if (typed === savedName || typed === sendingName) return null;
+      return `No se guardó tu nombre: escribiste "${typed || 'vacío'}" y no tocaste "Guardar nombre". Sigue "${savedName || 'sin nombre'}".`;
+    });
     const nameField = textField({
       label: 'Tu nombre',
       value: nameValue,
@@ -1241,15 +1318,20 @@ export async function render(root, app, params = {}) {
       size: 'sm',
       onClick: async () => {
         saveName.disabled = true;
+        const raw = nameValue;
+        sendingName = sanitizeText(raw, 120);
         try {
-          const res = await ctx.updateProfileName(nameValue);
+          const res = await ctx.updateProfileName(raw);
           if (res.ok) {
+            // Lo que se mandó (no lo que se haya escrito mientras tanto).
+            savedName = sanitizeText(raw, 120);
             app.toast('Nombre guardado.', 'success');
             await app.refreshChrome();
           } else {
             app.toast('No pudimos guardar el nombre. Probá de nuevo.', 'danger');
           }
         } finally {
+          sendingName = null;
           saveName.disabled = false;
         }
       },
@@ -1261,7 +1343,7 @@ export async function render(root, app, params = {}) {
         resetPassword.disabled = true;
         const res = await app.auth.requestPasswordReset(account.user.email);
         resetPassword.disabled = false;
-        app.toast(res.ok ? 'Te enviamos un enlace a tu email para elegir una contraseña nueva.' : res.message, res.ok ? 'success' : 'warning');
+        app.toast(res.message, res.ok ? 'success' : 'warning');
       },
     });
     const accountCard = card(
@@ -1284,8 +1366,10 @@ export async function render(root, app, params = {}) {
   const builders = { empresa: buildCompany, parametros: buildParams, convenios: buildAgreements, datos: buildData, cuenta: buildAccount, acerca: buildAbout };
   await builders[section]();
 
-  // Si se cierra o se oculta la pestaña, se guarda lo pendiente.
+  // Si se cierra o se oculta la pestaña, se guarda lo pendiente. Al cerrarla,
+  // los campos inválidos vuelven a su valor anterior y se guarda el resto.
   const onPageHide = () => {
+    revertInvalid();
     flushAll();
   };
   const onVisibility = () => {
@@ -1298,9 +1382,26 @@ export async function render(root, app, params = {}) {
   // después la pantalla deja de guardar: un evento tardío (p. ej. el "change"
   // de un campo enfocado que se quita al cambiar de pantalla con Atrás) no
   // puede pisar datos más nuevos, como los de "Empezar en limpio".
+  //
+  // UX-01: al salir, lo inválido vuelve a su valor anterior (con aviso), se
+  // guarda el resto y se avisa lo que ni así se pudo guardar. Si la misma
+  // pantalla se redibuja sin navegar (después de recargar la versión de la
+  // nube o de importar), no: esos datos ya cambiaron y lo que quedó en
+  // pantalla no los pisa.
   return () => {
     window.removeEventListener('pagehide', onPageHide);
     document.removeEventListener('visibilitychange', onVisibility);
-    flushAll().then(disposeAll, disposeAll);
+    const leaving = window.location.hash !== renderedHash;
+    if (leaving) revertInvalid();
+    leaveChecks.map((fn) => fn()).filter(Boolean).forEach((text) => app.notice(text));
+    flushAll({ unsavedToo: leaving }).then(() => {
+      if (leaving) {
+        // P. ej. impuestos que suman 100 % o más: la sección no se puede guardar así.
+        savers.filter((saver) => saver.hasUnsaved()).forEach((saver) => {
+          app.notice(`No se guardaron los cambios de "${saver.label}" (Configuración): hay valores para revisar. Volvé a esa sección y corregilos.`);
+        });
+      }
+      disposeAll();
+    }, disposeAll);
   };
 }

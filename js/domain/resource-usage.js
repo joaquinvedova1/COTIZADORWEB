@@ -24,7 +24,7 @@ const COMMITTED_STATUSES = Object.freeze(['won']);
 const LIST_OF_TYPE = Object.freeze({ laborProfiles: 'labor', equipment: 'equipment', externalServices: 'equipment' });
 
 /** Recurso maestro de una línea (snapshot o el vínculo anterior `sourceId`). */
-function linkedResourceId(line) {
+export function linkedResourceId(line) {
   if (isPlainObject(line.snapshot) && typeof line.snapshot.resourceId === 'string' && line.snapshot.resourceId) return line.snapshot.resourceId;
   return typeof line.sourceId === 'string' && line.sourceId ? line.sourceId : null;
 }
