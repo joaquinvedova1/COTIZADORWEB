@@ -12,7 +12,7 @@
 - Migración `supabase/migrations/20261022120000_rateos_beta_feedback.sql`: **no aplicada**. Se aplica sólo con autorización del dueño (§5).
 - Vuelta atrás: [`supabase/rollback/20261022120000_rateos_beta_feedback_down.sql`](../supabase/rollback/20261022120000_rateos_beta_feedback_down.sql).
 - Tests:
-  - [`supabase/tests/feedback_test.sql`](../supabase/tests/feedback_test.sql) (`FEEDBACK_TESTS_PASSED: 64 controles`);
+  - [`supabase/tests/feedback_test.sql`](../supabase/tests/feedback_test.sql) (`FEEDBACK_TESTS_PASSED: 67 controles`);
   - [`supabase/tests/local/feedback_concurrency.sh`](../supabase/tests/local/feedback_concurrency.sh) (4 casos, sólo en el Postgres local).
 
 ## 1. Qué ve cada persona
@@ -89,13 +89,15 @@ Cada cambio queda en `private.feedback_events` con quién, cuándo, de qué esta
 | `submit_feedback(org, kind, category, message, details, expected, screen, app_version)` | Miembros de esa empresa | Valida, limpia el texto (sin controles, invisibles ni marcas de dirección) y aplica los límites |
 | `my_feedback(org)` | Miembros de esa empresa | Los de su empresa (nunca de otra), con estado y respuesta, sin quién revisó |
 | `admin_feedback(status, kind)` | `private.platform_admins` | Cola con empresa, email de quien lo envió, texto, parecidos e historial. **Nunca lee `workspace_states`** |
-| `admin_review_feedback(id, status, response, duplicate_of)` | `private.platform_admins` | Cambia el estado y deja la respuesta. Bloquea la fila mientras escribe |
+| `admin_review_feedback(id, status, response, duplicate_of)` | `private.platform_admins` | Cambia el estado y deja la respuesta (con el mismo estado, sólo la respuesta: "Guardar respuesta"). Bloquea la fila mientras escribe. Una respuesta no se borra: se reemplaza por otra |
 
 **Límites técnicos contra el spam (no son cuotas de negocio):**
 - 5 por persona y 10 por empresa cada 24 h.
 - 20 sin revisar por empresa.
 - El mismo texto, del mismo tipo, se rechaza durante 7 días.
-- Un advisory lock por empresa evita carreras entre envíos simultáneos.
+- Dos advisory locks, primero el de la persona y después el de la empresa, evitan carreras entre envíos simultáneos (también los de una persona en dos empresas).
+- El texto se limpia igual que en el navegador: sin controles ni invisibles, y sin espacios, saltos de línea ni tabulaciones en los extremos. Un mensaje de puros saltos de línea no entra, y un salto al final no esquiva el control de repetidos.
+- Un duplicado sólo puede apuntar a un original que no sea a su vez un duplicado (sin ciclos).
 
 **La migración no cambia el guardado ni las empresas:**
 - No tiene triggers.
@@ -116,7 +118,7 @@ Lo verifican el test SQL y el control SEC-19 del Beta Security Gate.
    | `rls_test.sql` | 40 |
    | `rls_admin_test.sql` | 32 |
    | `beta_security_test.sql` | 132 |
-   | `feedback_test.sql` | 64 |
+   | `feedback_test.sql` | 67 |
 
    Después, un conteo de 0 filas sintéticas.
 5. **Prueba real:** un problema y una sugerencia desde una cuenta de prueba, la respuesta desde RATEOS ADMIN y que otra empresa no los vea.

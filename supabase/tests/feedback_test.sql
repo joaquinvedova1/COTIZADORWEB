@@ -207,17 +207,30 @@ begin
   exception when others then
     if sqlerrm = 'rateos_feedback_invalid' then passed := passed + 1; else failed := failed || ('invisibles, otro error: ' || sqlerrm); end if;
   end;
+  -- Saltos de línea, tabulaciones y espacios Unicode en los extremos también se quitan (como .trim()).
+  begin
+    perform public.submit_feedback(org_a, 'problem', 'otro', E'\n\t\n  \u00a0\u3000', null, null, 'inicio', '0.9.0');
+    failed := failed || text 'aceptó un mensaje de puros saltos de línea y tabulaciones';
+  exception when others then
+    if sqlerrm = 'rateos_feedback_invalid' then passed := passed + 1; else failed := failed || ('saltos de línea, otro error: ' || sqlerrm); end if;
+  end;
   begin
     perform public.submit_feedback(org_a, 'problem', 'calculo', 'El costo del mes no cambió', 'Cambié los días a 20', 'Que subiera el costo', 'resultado', '0.9.0');
     failed := failed || text 'aceptó el mismo problema dos veces';
   exception when others then
     if sqlerrm = 'rateos_feedback_duplicate' then passed := passed + 1; else failed := failed || ('repetido, otro error: ' || sqlerrm); end if;
   end;
+  begin
+    perform public.submit_feedback(org_a, 'problem', 'calculo', E'El costo del mes no cambió\n', E'Cambié los días a 20\t', E'\nQue subiera el costo', 'resultado', '0.9.0');
+    failed := failed || text 'un salto de línea o una tabulación en un extremo esquivó el control de repetidos';
+  exception when others then
+    if sqlerrm = 'rateos_feedback_duplicate' then passed := passed + 1; else failed := failed || ('repetido con salto de línea, otro error: ' || sqlerrm); end if;
+  end;
   -- Caracteres de dirección y de ancho cero se quitan (no disfrazan el texto ante el admin).
-  j := public.submit_feedback(org_a, 'problem', 'pantalla', E'Bot​ón ‮oculto‬', null, null, 'inicio', '0.9.0');
+  j := public.submit_feedback(org_a, 'problem', 'pantalla', E'Bot​ón ‮oculto‬', E'\t\n ', E'\n', 'inicio', '0.9.0');
   perform pg_temp.act_postgres();
-  select count(*) into n from private.feedback where id = (j ->> 'id')::uuid and message = 'Botón oculto';
-  if n = 1 then passed := passed + 1; else failed := failed || text 'no se quitaron los caracteres invisibles o de dirección'; end if;
+  select count(*) into n from private.feedback where id = (j ->> 'id')::uuid and message = 'Botón oculto' and details is null and expected is null;
+  if n = 1 then passed := passed + 1; else failed := failed || text 'no se quitaron los invisibles o de dirección, o un detalle de puros saltos de línea no quedó vacío'; end if;
 
   -- --------------------------------------------- límites contra el spam
   -- a1 ya envió 4: el 5.º entra y el 6.º no (5 por persona cada 24 h).
@@ -360,6 +373,13 @@ begin
   j := public.admin_review_feedback(f2, 'duplicate', null, f3);
   select count(*) into n from public.admin_feedback(null, null) x where x.id = f2 and x.status = 'duplicate' and x.duplicate_of = f3;
   if n = 1 then passed := passed + 1; else failed := failed || text 'no quedó marcado como duplicado del original'; end if;
+  -- Sin ciclos: el original no puede pasar a ser duplicado de su duplicado.
+  begin
+    perform public.admin_review_feedback(f3, 'duplicate', null, f2);
+    failed := failed || text 'aceptó un ciclo de duplicados (A de B y B de A)';
+  exception when others then
+    if sqlerrm = 'rateos_feedback_invalid' then passed := passed + 1; else failed := failed || ('ciclo de duplicados, otro error: ' || sqlerrm); end if;
+  end;
   j := public.admin_review_feedback(f2, 'in_review', null, null);
   select count(*) into n from public.admin_feedback(null, null) x where x.id = f2 and x.status = 'in_review' and x.duplicate_of is null;
   if n = 1 then passed := passed + 1; else failed := failed || text 'al dejar de ser duplicado no se limpió el original'; end if;

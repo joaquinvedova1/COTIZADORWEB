@@ -117,7 +117,9 @@ describe('Beta Security Gate: los detectores detectan', () => {
     assert.ok(has({ ...real, migration: `${real.migration}\ncreate trigger workspace_states_quota before update of state on public.workspace_states for each row execute function private.x();` }, /crea un trigger/));
     assert.ok(has({ ...real, migration: `${real.migration}\ncreate table private.credit_ledger (id int);` }, /créditos, saldos o premios/));
     assert.ok(has({ ...real, migration: `${real.migration}\ngrant execute on function public.my_feedback(uuid) to anon;` }, /sin sesión/));
-    assert.ok(has({ ...real, migration: real.migration.replace(/perform pg_advisory_xact_lock[^;]*;/, '') }, /límites contra el spam/));
+    assert.ok(has({ ...real, migration: real.migration.replace(/perform pg_advisory_xact_lock[^;]*;/g, '') }, /límites contra el spam/));
+    // Sin el lock por persona (sólo el de la empresa), tampoco: el límite por persona vale en todas sus empresas.
+    assert.ok(has({ ...real, migration: real.migration.replace(/perform pg_advisory_xact_lock\(hashtextextended\('rateos_feedback_author:[^;]*;/, '') }, /límites contra el spam/));
     assert.ok(has({ ...real, clientFiles: [{ rel: 'js/x.js', text: "client.from('feedback').update({ status: 'resolved' })" }] }, /js\/x\.js: nombra una tabla/));
     assert.ok(has({ ...real, clientFiles: [{ rel: 'js/y.js', text: "if (error.code === 'credits_exhausted') block();" }] }, /restos de los créditos/));
     assert.ok(has({ ...real, sqlTest: real.sqlTest.replace(/raise exception 'FEEDBACK_TESTS_FAILED[^;]*;/, '') }, /RAISE EXCEPTION/));

@@ -71,9 +71,9 @@ export function vehicleOwnershipAnswered(vehicle = {}, equipment = []) {
   return typeof at === 'string' && at !== '' && objectList(equipment).some((e) => e.id === at);
 }
 
-/** Nombre de un puesto ("Personal" si no tiene). */
 /** Parámetros de convenio que, todos iguales a los genéricos y sin convenio, son de ejemplo (como productos, H-13). */
 const GENERIC_LABOR_KEYS = Object.freeze(['normalHoursPerMonth', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
+/** Nombre de un puesto ("Personal" si no tiene). */
 const roleOf = (l) => (typeof l.role === 'string' && l.role.trim()) || 'Personal';
 
 /**
@@ -552,10 +552,11 @@ export function evaluateCompleteness(quote = {}) {
       }
     } else if (routeKmPerActivation > 0 && fuelUsers.some((u) => u.route && !u.consumes)) {
       // Auditoría PyME (BETA-CR, P1-1): el equipo consume trabajando, pero viaja por sus propios
-      // medios con "Consumo trasladándose" en 0: la ruta no suma combustible. La fórmula no cambia.
+      // medios con "Consumo en ruta" en 0: la ruta no suma combustible. La fórmula no cambia.
+      // No sugiere "No usa combustible": eso también saca lo que consume trabajando (revisión BETA-LANZ).
       const routeUser = fuelUsers.find((u) => u.route && !u.consumes);
       status = 'missing';
-      message = `Falta el consumo trasladándose de "${routeUser.name}": va por sus propios medios y la ruta no suma combustible. Cargá los litros cada 100 km; si no usa combustible, marcá "No usa combustible".`;
+      message = `Falta el consumo en ruta de "${routeUser.name}": va por sus propios medios y la ruta no suma combustible. Cargá los litros cada 100 km o, si no viaja por sus propios medios, cambiá cómo llega al servicio.`;
       focus = routeUser.path;
     } else if (fuel.illustrative === true) {
       // PLAN-2026-014 (LAB-D7): en una cotización real nueva el precio de ejemplo no cuenta como

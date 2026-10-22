@@ -2178,7 +2178,7 @@ Todo eso existía sólo para la cuota; sin cuota, el comportamiento vuelve exact
 | Que quede una cuota escondida | SEC-19 falla si la migración tiene triggers, `workspace_states`, créditos o saldos, o si el cliente nombra `credits_exhausted` o "cálculos de prueba". El E2E crea 12 cotizaciones |
 
 #### 7. Tests (todo SIMULADO salvo el CI)
-- SQL en el Postgres local: `feedback_test.sql` (64) y los existentes con la migración (40 + 32 + 132).
+- SQL en el Postgres local: `feedback_test.sql` (67) y los existentes con la migración (40 + 32 + 132).
 - Concurrencia real: `feedback_concurrency.sh` (4).
 - JS: `tests/services/feedback-service.test.js`, `tests/engines/beta-pyme.test.js` y `tests/ui/draft-recover.test.js`.
 - E2E: `beta-lab` en escritorio y celular, más `ui-lab` y `auth-lab`.
@@ -2230,4 +2230,8 @@ Todo eso existía sólo para la cuota; sin cuota, el comportamiento vuelve exact
   - Corregidos: el P1 y los P2 que afectan tareas (ver CHANGELOG, "Corregido"). Quedan como limitaciones conocidas P2-5 (personas por puesto), P2-6 (segunda fecha base, mitigada con "Usar el mes de la oferta") y los P3.
   - Cargas genéricas: el aviso sigue yéndose al cambiar uno de los cinco valores. Con "alguno sigue igual" sería imposible de sacar (SAC 8,33 % es el legal).
   - Historial de la rama reconstruido desde `bc31190` en 5 commits; la versión con créditos queda en `claude/beta-creditos-reportes-v1`.
+  - Revisión de código del diff `bc31190..HEAD` (skill code-review): 10 hallazgos.
+    - Corregidos 9 (CHANGELOG, "Revisión de código del candidato"), con tests: SQL 67 (rojo con la migración anterior), SEC-19 con el lock por persona, validación y E2E.
+    - Queda 1 como deuda: helpers de RPC y de filas repetidos entre `feedback-gateway`/`admin-gateway` y entre los dos servicios.
+    - Limitación aceptada: una respuesta no se borra, se reemplaza por otra.
   - Evidencia, regresión final y GO/NO-GO: RATEOS-AUDIT `tasks/BETA-LANZ/`.

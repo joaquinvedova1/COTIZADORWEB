@@ -921,11 +921,13 @@ export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
   const generation = toastGeneration;
   const add = () => {
     if (generation !== toastGeneration) return;
-    [...region.querySelectorAll('.toast')].filter((t) => t.dataset.text === text).forEach((t) => t.remove());
-    region.appendChild(el);
+    // "Guardado" y enseguida close(): el diálogo (y su región) ya no está; el aviso va a la general.
+    const target = region.isConnected ? region : ensureToastRegion();
+    [...target.querySelectorAll('.toast')].filter((t) => t.dataset.text === text).forEach((t) => t.remove());
+    target.appendChild(el);
     // Más de MAX_TOASTS: se van los más viejos, primero los que igual se iban
     // solos; un error sólo se va si no queda otra (llegaron más errores).
-    const shown = [...region.querySelectorAll('.toast')];
+    const shown = [...target.querySelectorAll('.toast')];
     const extra = shown.length - MAX_TOASTS;
     if (extra > 0) {
       const passing = shown.filter((t) => t !== el && t.dataset.persistent !== 'true');

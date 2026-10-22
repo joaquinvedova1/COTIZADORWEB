@@ -212,7 +212,8 @@ export function feedbackFindings({ migration = '', sqlTest = '', concurrency = '
   const review = (sql.match(/create or replace function private\.admin_review_feedback\([\s\S]*?\$\$;/) || [''])[0];
   if (review && !/for update/.test(review)) out.push('la revisión no bloquea el comentario');
   const submit = (sql.match(/create or replace function private\.submit_feedback\([\s\S]*?\$\$;/) || [''])[0];
-  if (submit && (!/rateos_feedback_rate_limited/.test(submit) || !/pg_advisory_xact_lock/.test(submit))) out.push('el envío no tiene límites contra el spam a prueba de envíos simultáneos');
+  // Un lock por persona (su límite vale en todas sus empresas) y otro por empresa (revisión BETA-LANZ).
+  if (submit && (!/rateos_feedback_rate_limited/.test(submit) || !/pg_advisory_xact_lock\([^;]*rateos_feedback_author:[^;]*v_uid/.test(submit) || !/pg_advisory_xact_lock\([^;]*rateos_feedback:[^;]*p_org/.test(submit))) out.push('el envío no tiene límites contra el spam a prueba de envíos simultáneos');
   // El navegador nunca toca las tablas (sólo las RPC) y no quedan cuotas ni créditos en la app.
   clientFiles.forEach(({ rel, text }) => {
     if (/\.from\(\s*['"`](?:feedback|feedback_events)['"`]/.test(text)) out.push(`${rel}: nombra una tabla del feedback`);

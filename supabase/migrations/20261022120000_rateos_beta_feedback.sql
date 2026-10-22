@@ -79,14 +79,17 @@ revoke all on table private.feedback, private.feedback_events from public, anon,
 
 -- Texto de una persona: sin caracteres de control (C0 salvo salto de línea y
 -- tabulación, DEL y C1), sin los invisibles que disfrazan un texto (ancho cero,
--- marcas y controles de dirección, BOM) y sin espacios en los extremos.
+-- marcas y controles de dirección, BOM) y sin espacios en los extremos: también
+-- saltos de línea, tabulaciones y espacios Unicode, como .trim() en el cliente
+-- (btrim sólo quitaba el espacio común).
 create or replace function private.clean_feedback_text(p_text text)
 returns text
 language sql
 immutable
 set search_path = ''
 as $$
-  select btrim(regexp_replace(coalesce(p_text, ''), '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F​-‏‪-‮⁠-⁩﻿]', '', 'g'));
+  select regexp_replace(regexp_replace(coalesce(p_text, ''), '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F​-‏‪-‮⁠-⁩﻿]', '', 'g'),
+                        '^[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$', '', 'g');
 $$;
 
 revoke all on function private.clean_feedback_text(text) from public, anon, authenticated;
@@ -132,6 +135,9 @@ begin
   end if;
 
   -- Límites contra el spam, por persona y por empresa, sin carreras entre envíos simultáneos.
+  -- Primero la persona (su límite vale en todas sus empresas) y después la empresa: siempre en
+  -- ese orden, así dos envíos nunca se esperan en cruz.
+  perform pg_advisory_xact_lock(hashtextextended('rateos_feedback_author:' || v_uid::text, 0));
   perform pg_advisory_xact_lock(hashtextextended('rateos_feedback:' || p_org::text, 0));
   if (select count(*) from private.feedback f where f.author = v_uid and f.created_at > now() - interval '24 hours') >= 5
      or (select count(*) from private.feedback f where f.organization_id = p_org and f.created_at > now() - interval '24 hours') >= 10 then
@@ -287,8 +293,9 @@ begin
     raise exception 'rateos_feedback_not_found' using errcode = 'P0001';
   end if;
   if p_status = 'duplicate' then
+    -- El original existe, es otro y no es a su vez un duplicado: sin ciclos (A de B y B de A).
     if p_duplicate_of is null or p_duplicate_of = p_feedback
-       or not exists (select 1 from private.feedback d where d.id = p_duplicate_of) then
+       or not exists (select 1 from private.feedback d where d.id = p_duplicate_of and d.status <> 'duplicate') then
       raise exception 'rateos_feedback_invalid' using errcode = 'P0001';
     end if;
   end if;

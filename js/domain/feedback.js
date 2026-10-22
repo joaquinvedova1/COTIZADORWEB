@@ -134,11 +134,13 @@ export function validateFeedback(input = {}) {
     screen: FEEDBACK_SCREENS.some((s) => s.id === input.screen) ? input.screen : 'otra',
   };
   const errors = {};
-  const n = feedback.message.length;
+  // Como char_length en la base: un emoji es 1 (en JS, .length cuenta 2).
+  const count = (text) => [...text].length;
+  const n = count(feedback.message);
   if (n < FEEDBACK_TEXT_MIN) errors.message = kind === 'suggestion' ? `Contanos tu idea (al menos ${FEEDBACK_TEXT_MIN} letras).` : `Contanos qué pasó (al menos ${FEEDBACK_TEXT_MIN} letras).`;
   else if (n > FEEDBACK_TEXT_MAX) errors.message = `Hasta ${FEEDBACK_TEXT_MAX} caracteres (tiene ${n}).`;
   ['details', 'expected'].forEach((field) => {
-    const len = feedback[field] ? feedback[field].length : 0;
+    const len = feedback[field] ? count(feedback[field]) : 0;
     if (len > FEEDBACK_TEXT_MAX) errors[field] = `Hasta ${FEEDBACK_TEXT_MAX} caracteres (tiene ${len}).`;
   });
   return { ok: Object.keys(errors).length === 0, errors, feedback };

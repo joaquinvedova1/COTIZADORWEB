@@ -31,7 +31,9 @@ describe('P1-1 · Equipo que se traslada por sus propios medios sin consumo en r
     assert.equal(fuel.focus, 'equipment.0.mobilization.travelLitersPer100Km');
     assert.equal(fuel.step, 'logistics');
     assert.match(fuel.message, /"Hidrogrúa"/);
-    assert.match(fuel.message, /trasladándose/);
+    // El rótulo del campo en Movilización, y sin sugerir "No usa combustible" (sacaría también lo que consume trabajando).
+    assert.match(fuel.message, /consumo en ruta/);
+    assert.doesNotMatch(fuel.message, /No usa combustible/);
     // Es un pendiente "para revisar": el resultado sale como BORRADOR (pantalla y PDF).
     assert.equal(pending(quote(), 'fuel').severity, 'review');
   });

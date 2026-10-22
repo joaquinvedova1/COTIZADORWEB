@@ -88,6 +88,9 @@ export async function render(root, app) {
   return undefined;
 }
 
+/** Última carga pedida por cada lista: con clics rápidos en los filtros, gana el último (no el que llega último). */
+const feedbackRenders = new WeakMap();
+
 /**
  * Feedback de la beta (PLAN-2026-029): problemas y sugerencias de las
  * empresas. Se clasifican y se responden; ningún estado suma ni descuenta
@@ -97,6 +100,9 @@ export async function renderFeedback(host, app, filters = { status: 'open', kind
   const ctx = app.ctx;
   if (!ctx.admin || typeof ctx.admin.loadFeedback !== 'function') return;
   const { status = 'open', kind = null } = filters;
+  const seq = (feedbackRenders.get(host) || 0) + 1;
+  feedbackRenders.set(host, seq);
+  const stale = () => feedbackRenders.get(host) !== seq;
   mount(host, h('p', { class: 'muted', role: 'status' }, 'Cargando el feedback…'));
   let res;
   try {
@@ -105,19 +111,21 @@ export async function renderFeedback(host, app, filters = { status: 'open', kind
     logger.warn('No se pudo cargar el feedback', { name: error && error.name });
     res = { ok: false, message: 'No pudimos cargar el feedback. Reintentá en unos minutos.' };
   }
+  if (stale()) return;
   if (!res.ok) {
     mount(host, card({ title: 'Feedback de la beta', level: 3 }, banner(res.message, res.code === 'unsupported' ? 'info' : 'warning')));
     return;
   }
   const reload = (next = {}) => renderFeedback(host, app, { status, kind, ...next });
 
-  async function review(row, nextStatus, { response = null, duplicateOf = null } = {}) {
+  async function review(row, nextStatus, { response = null, duplicateOf = null, responseOnly = false } = {}) {
     const out = await ctx.admin.reviewFeedback(row.id, { status: nextStatus, response, duplicateOf });
     if (!out.ok) {
       app.toast(out.message, 'danger');
       return;
     }
-    app.toast(out.changed ? `Quedó como "${feedbackStatus(nextStatus, row.kind).label}".` : 'Ya estaba en ese estado.', 'success');
+    if (responseOnly) app.toast('Respuesta guardada: la empresa la ve en "Comentarios de tu empresa".', 'success');
+    else app.toast(out.changed ? `Quedó como "${feedbackStatus(nextStatus, row.kind).label}".` : 'Ya estaba en ese estado.', 'success');
     await reload();
   }
 
@@ -125,13 +133,14 @@ export async function renderFeedback(host, app, filters = { status: 'open', kind
   // duplicado más común es el de algo ya resuelto (ESC-05).
   const all = res.rows;
   let candidates = all;
-  if (status !== null || kind !== null) {
+  if (all.length && (status !== null || kind !== null)) {
     try {
       const every = await ctx.admin.loadFeedback({ status: null, kind: null });
       if (every.ok) candidates = every.rows;
     } catch (error) {
       logger.warn('No se pudieron cargar los originales posibles', { name: error && error.name });
     }
+    if (stale()) return;
   }
   const excerpt = (text) => {
     const t = String(text || '').replace(/\s+/g, ' ').trim();
@@ -143,6 +152,15 @@ export async function renderFeedback(host, app, filters = { status: 'open', kind
     const draft = { response: '', duplicateOf: null };
     const choice = (to, label, variant = 'secondary') => (row.status === to ? null
       : button(label, { size: 'sm', variant, onClick: () => review(row, to, { response: draft.response || null }) }));
+    // Responder sin reclasificar (la base acepta el mismo estado con una respuesta nueva). En "Recibido" se
+    // responde al pasarlo a "En revisión"; un duplicado, con "Marcar duplicado".
+    const replyOnly = ['in_review', 'confirmed', 'resolved', 'not_applicable'].includes(row.status)
+      ? button('Guardar respuesta', {
+        size: 'sm',
+        variant: 'ghost',
+        onClick: () => (draft.response.trim() ? review(row, row.status, { response: draft.response, responseOnly: true }) : app.toast('Escribí la respuesta.', 'warning')),
+      })
+      : null;
     return h(
       'div',
       { class: 'admin-report-actions stack' },
@@ -151,7 +169,8 @@ export async function renderFeedback(host, app, filters = { status: 'open', kind
         choice('in_review', 'En revisión'),
         choice('confirmed', row.kind === 'suggestion' ? 'La tenemos en cuenta' : 'Confirmado'),
         choice('resolved', row.kind === 'suggestion' ? 'Ya está disponible' : 'Resuelto', 'primary'),
-        choice('not_applicable', 'No corresponde', 'ghost')),
+        choice('not_applicable', 'No corresponde', 'ghost'),
+        replyOnly),
       originals.length
         ? h('div', { class: 'row admin-report-duplicate' },
           selectField({

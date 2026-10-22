@@ -113,6 +113,11 @@ describe('feedback: validación', () => {
     assert.equal(suggestion.feedback.expected, null, 'una sugerencia no lleva "qué esperabas"');
     assert.equal(suggestion.feedback.details, null);
     assert.match(validateFeedback({ kind: 'suggestion', message: '' }).errors.message, /idea/);
+    // Las letras se cuentan como en la base (char_length): dos emojis son 2, no 4 (revisión BETA-LANZ).
+    assert.ok(validateFeedback({ kind: 'problem', message: '👍👍' }).errors.message, 'dos emojis pasaron el mínimo de 3');
+    assert.equal(validateFeedback({ kind: 'problem', message: '👍👍👍' }).ok, true);
+    // Saltos de línea y tabulaciones en los extremos se quitan, como en la base.
+    assert.equal(validateFeedback({ kind: 'problem', message: '\n\tHola\t\n' }).feedback.message, 'Hola');
   });
 });
 

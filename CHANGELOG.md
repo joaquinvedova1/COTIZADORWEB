@@ -32,7 +32,7 @@ Reglas para este archivo:
   - sin triggers ni lecturas del workspace;
   - vuelta atrás en `supabase/rollback/`.
 - **Pruebas:**
-  - `supabase/tests/feedback_test.sql` (64 controles) y concurrencia real en un Postgres local SIMULADO (4 casos);
+  - `supabase/tests/feedback_test.sql` (67 controles) y concurrencia real en un Postgres local SIMULADO (4 casos);
   - `tests/services/feedback-service.test.js`;
   - `tests/lab/e2e/beta-lab.mjs`, en escritorio y celular, incluye crear más de 10 cotizaciones sin ningún límite;
   - control SEC-19 del Beta Security Gate, que además detecta restos de cuotas o créditos.
@@ -59,6 +59,21 @@ Reglas para este archivo:
 - **RATEOS ADMIN:** "Duplicado de" ofrece los originales de todos los estados, también los resueltos, con el estado y un extracto del texto.
 - **Comentarios:** el error aparece junto al campo, el título ya no se repite y "Acerca de la beta" queda a la vista.
 - **Tablas a partir de 761 px:** la columna Acciones queda fija a la derecha, así Editar y Eliminar se ven aunque la tabla se desplace.
+
+**Revisión de código del candidato (BETA-LANZ).** No cambia ninguna fórmula.
+- **Avisos:** uno que se crea justo antes de cerrar un diálogo ("Plantilla actualizada.") ya no se pierde.
+- **Feedback en la base:**
+  - la limpieza quita espacios, saltos de línea y tabulaciones de los extremos, como el navegador: ya no entra un mensaje vacío ni se esquiva el control de repetidos con un salto al final;
+  - los límites contra el spam toman primero un lock por persona y después uno por empresa;
+  - un duplicado no puede apuntar a otro duplicado (sin ciclos).
+
+  La migración sigue sin aplicar; `feedback_test.sql` pasa a 67 controles.
+- **Feedback en el navegador:** las letras se cuentan como en la base (un emoji es 1).
+- **RATEOS ADMIN:**
+  - "Guardar respuesta" responde sin reclasificar;
+  - con clics rápidos en los filtros gana el último;
+  - los originales posibles se buscan sólo si hay comentarios.
+- **Consumo en ruta en 0:** el aviso usa el rótulo del campo ("Consumo en ruta") y ya no sugiere "No usa combustible", que también sacaría lo que el equipo consume trabajando.
 
 ## [0.9.0] - sin publicar (candidato a beta, PLAN-2026-027)
 

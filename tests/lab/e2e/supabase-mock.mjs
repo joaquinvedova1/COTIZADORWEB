@@ -189,7 +189,7 @@ function platformRpc(db, route, name, args, uid, memberOrgs) {
     const r = db.feedback.find((x) => x.id === args.p_feedback);
     if (!REVIEW.includes(args.p_status)) return fail('rateos_feedback_invalid');
     if (!r) return fail('rateos_feedback_not_found');
-    if (args.p_status === 'duplicate' && (!args.p_duplicate_of || args.p_duplicate_of === r.id || !db.feedback.some((x) => x.id === args.p_duplicate_of))) return fail('rateos_feedback_invalid');
+    if (args.p_status === 'duplicate' && (!args.p_duplicate_of || args.p_duplicate_of === r.id || !db.feedback.some((x) => x.id === args.p_duplicate_of && x.status !== 'duplicate'))) return fail('rateos_feedback_invalid');
     const response = cleanText(args.p_response).slice(0, 1000) || null;
     if (r.status === args.p_status && !response && (args.p_status !== 'duplicate' || r.duplicate_of === args.p_duplicate_of)) return reply(route, 200, { status: r.status, changed: false });
     const from = r.status;

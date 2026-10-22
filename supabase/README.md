@@ -17,7 +17,7 @@ Proyecto: **RATEOS** (`dltlnizvnvnefgbzfftu`, us-east-1). URL pública: `https:/
   - sin cupos ni créditos en el guardado;
   - catálogo.
 
-  Mismo mecanismo (todo se deshace). Resultado esperado: `FEEDBACK_TESTS_PASSED: 64 controles`.
+  Mismo mecanismo (todo se deshace). Resultado esperado: `FEEDBACK_TESTS_PASSED: 67 controles`.
 - `tests/local/` — Postgres local **SIMULADO**:
   - `scaffold.sql`: andamiaje mínimo de Supabase.
   - `reset.sh`: recrea la base `rateos_synth` con todas las migraciones.
