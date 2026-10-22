@@ -2235,3 +2235,7 @@ Todo eso existía sólo para la cuota; sin cuota, el comportamiento vuelve exact
     - Queda 1 como deuda: helpers de RPC y de filas repetidos entre `feedback-gateway`/`admin-gateway` y entre los dos servicios.
     - Limitación aceptada: una respuesta no se borra, se reemplaza por otra.
   - Evidencia, regresión final y GO/NO-GO: RATEOS-AUDIT `tasks/BETA-LANZ/`.
+- 2026-10-22: K0, último pase de UX antes del ensayo real (SIMULADO), con los criterios de Impeccable, Taste Skill y Emil Kowalski leídos como guías. No se instaló ni se ejecutó nada de esos repositorios: Impeccable descarga y corre un binario, y Taste y Emil traen scripts.
+  - Hallazgos nuevos: 0 P0, 1 P1 (K0C-01: montos de 9 o más dígitos partidos en el celular) y 4 P2 (K0C-02 email largo en el admin, K0E-01 columna fija sobre montos, K0E-02 aviso de "Editar sueldo" fuera de la vista, K0E-03 falso "Error al guardar" al reconectar). Corregidos todos, con el antes y después medidos en el navegador.
+  - Un solo release 0.9.0 (#37 + #38) en un solo merge y un solo deploy: el CHANGELOG ya no separa lo de #38 como "sin versión".
+  - Evidencia, regresión y GO/NO-GO final: RATEOS-AUDIT `tasks/BETA-K0/`.

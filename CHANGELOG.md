@@ -12,6 +12,10 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.9.0] - sin publicar (beta gratuita: PLAN-2026-027, PLAN-2026-028 y PLAN-2026-029)
+
+**RATEOS v0.9.0, beta gratuita.** Sale en **un solo merge y un solo deploy** (PR #38, que contiene todo el PR #37): ningún estado intermedio llega a producción. La fecha se pone al publicarse.
+
 **Beta gratuita y feedback: problemas y sugerencias de las empresas (PLAN-2026-029, [docs/BETA_FEEDBACK.md](docs/BETA_FEEDBACK.md)).**
 - Decisión del dueño del 22/10: beta **gratuita y sin límites**. Reemplaza el esquema de créditos de prueba del 21/10, que nunca se aplicó ni se publicó.
 - Ninguna fórmula cambia: golden 39/39 y esquema del workspace 10.
@@ -60,6 +64,14 @@ Reglas para este archivo:
 - **Comentarios:** el error aparece junto al campo, el título ya no se repite y "Acerca de la beta" queda a la vista.
 - **Tablas a partir de 761 px:** la columna Acciones queda fija a la derecha, así Editar y Eliminar se ven aunque la tabla se desplace.
 
+**Último pase de UX antes del ensayo real (K0, SIMULADO):** dos revisiones independientes con los criterios de Impeccable, Taste Skill y Emil Kowalski (leídos como guías; no se instaló ni se ejecutó nada de esos repositorios) y datos extremos (empresas y emails largos, montos de miles de millones). Ninguna fórmula ni dato cambia.
+- **Montos (P1):** en el celular un monto de $ 100 millones o más se partía a mitad de la cifra ("$ 229.000.00" arriba y "0 / mes" abajo se leía mil veces menor). Ahora una cifra nunca se parte: en el Resultado, la escalera de precios, las tarjetas destacadas, el reparto de la tarifa y el resumen en vivo. Con montos largos, los números pasan a una columna o a tarjetas más anchas.
+- **RATEOS ADMIN en el celular:** un email largo en el historial de un comentario sacaba de la pantalla el texto y los botones. Se corta dentro de la tarjeta.
+- **Recursos → Personal a 1024–1439 px:** la columna fija "Acciones" tapaba montos ("$ 4.16…"). Los botones van apilados y lo que quede debajo se desvanece. "Adjudicado · en curso" puede ir en dos renglones.
+- **"Editar sueldo":** sin mes base, el aviso quedaba fuera de la vista y "Guardar sueldo" parecía no responder. Ahora va junto al botón, el mes queda marcado y con el foco (como en el formulario de recursos).
+- **Reconexión:** una cotización o un producto reabierto sin red seguía diciendo "Error al guardar" después de que la sincronización lo subió. Ahora se guarda solo al volver la red y el aviso de error se va.
+- **Pruebas:** bloque K0 del `ui-lab` (montos a 320, 360, 390, 1024, 1152 y 1440 px; reconexión; columna fija) y control de "Editar sueldo". `beta-lab` y `auth-lab` miden el scroll horizontal como `ui-lab` (en el celular `innerWidth` crece con el contenido y lo escondía); `beta-lab` usa un email largo.
+
 **Revisión de código del candidato (BETA-LANZ).** No cambia ninguna fórmula.
 - **Avisos:** uno que se crea justo antes de cerrar un diálogo ("Plantilla actualizada.") ya no se pierde.
 - **Feedback en la base:**
@@ -75,9 +87,7 @@ Reglas para este archivo:
   - los originales posibles se buscan sólo si hay comentarios.
 - **Consumo en ruta en 0:** el aviso usa el rótulo del campo ("Consumo en ruta") y ya no sugiere "No usa combustible", que también sacaría lo que el equipo consume trabajando.
 
-## [0.9.0] - sin publicar (candidato a beta, PLAN-2026-027)
-
-**RATEOS v0.9.0, candidato a beta.** Reúne todo lo que estaba sin versión:
+**BETA-RC1, candidato a beta (PLAN-2026-027).** Reúne todo lo que estaba sin versión:
 - ya publicado en `main`: Beta Perimeter v1 (PLAN-2026-016) y ECO-01 (PLAN-2026-017);
 - los PR #28 a #36:
   - registro público con confirmación de email (HD-03);
@@ -90,7 +100,7 @@ Reglas para este archivo:
 
 **Esquema 10, sin migraciones.** Lo guardado conserva sus cifras; cambia el redondeo de la sugerida en las cotizaciones nuevas (ECO-03).
 
-Antes de abrir el registro a terceros hace falta el SMTP propio ([docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2). La fecha se pone al publicarse.
+Antes de abrir el registro a terceros hace falta el SMTP propio ([docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2).
 
 **P1 CIERRE, señales engañosas antes del autoservicio (PLAN-2026-028, Gate A de la revisión del 21/10).** Ninguna fórmula cambia (lo guardado conserva sus cifras, golden 39/39, esquema 10). Cambian la completitud, los avisos y los textos:
 - **Productos (AUD-T1 H-14):** "Tu precio de hoy cubre tus costos y el margen que querés" ya no sale en verde sin un resultado válido. Con datos faltantes dice "No se puede evaluar tu precio de hoy", y con datos para revisar queda en amarillo.
