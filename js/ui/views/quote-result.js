@@ -76,6 +76,7 @@ import { isFiniteNumber } from '../../core/money.js';
 import { createTrace } from '../../core/trace.js';
 import { track } from '../../core/events.js';
 import { logger } from '../../core/logger.js';
+import { feedbackInvite } from '../feedback-invite.js';
 import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { QUOTE_STEPS, QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
@@ -1445,7 +1446,9 @@ function illustrativeBadge(v) {
     const parts = [];
     if (info.lines > 0) parts.push(`${formatNumber(info.lines)} ${info.lines === 1 ? 'ítem copiado' : 'ítems copiados'} de plantillas o bibliotecas de demostración`);
     if (info.fuel) parts.push('precio de combustible ilustrativo');
-    title = `Incluye valores ILUSTRATIVOS: ${parts.join(' y ')}. Reemplazalos por valores propios vigentes.`;
+    // Auditoría PyME (BETA-CR, P2): la tasa de financiación de ejemplo también cuenta (antes quedaba "…: .").
+    if (info.finance) parts.push('tasa de financiación ilustrativa');
+    title = `Incluye valores ILUSTRATIVOS: ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}` : parts[0]}. Reemplazalos por valores propios vigentes.`;
   }
   return badge('ILUSTRATIVO', 'orange', { title });
 }
@@ -3777,11 +3780,17 @@ function renderActions(v) {
       }
     },
   });
+  // Después de exportar (tarea completa), una invitación discreta a dejar un comentario (PLAN-2026-029).
+  const inviteHost = h('div', { class: 'qr-invite-host' });
   const print = button('Imprimir / guardar PDF', {
     variant: 'secondary',
     icon: 'print',
     onClick: () => {
       if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
+      if (v.feedbackSupported && !inviteHost.firstChild) {
+        const invite = feedbackInvite({ screen: 'resultado' });
+        if (invite) inviteHost.appendChild(invite);
+      }
     },
   });
   const own = example
@@ -3798,7 +3807,8 @@ function renderActions(v) {
         : null,
       blockedNote || sentUnreliable ? h('div', { class: 'qr-send-review' }, review()) : null,
       h('p', { class: 'qr-actions-note' }, printNote)),
-    h('div', { class: 'qr-actions' }, print, sent, own));
+    h('div', { class: 'qr-actions' }, print, sent, own),
+    inviteHost);
 }
 
 // ------------------------------------------------------------- composición
@@ -3904,6 +3914,8 @@ function createView(container, app, { quote, result, settings, onQuoteChange } =
     unitLabel: r.unitLabel || 'día',
     onQuoteChange,
     notify,
+    // Feedback de la beta: sólo desde una cuenta (en la demo y el modo local no hay).
+    feedbackSupported: Boolean(app && app.ctx && app.ctx.feedback && app.ctx.feedback.supported),
     cleanups,
     ids,
     observeRegion,

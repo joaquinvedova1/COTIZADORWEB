@@ -41,6 +41,11 @@ export function createDb() {
     /** Códigos PKCE emitidos por /verify, a canjear con el code_verifier. */
     flows: new Map(),
     smtp: { mode: 'custom', team: [] },
+    // ---- Feedback de la beta (PLAN-2026-029), como la migración 20261022120000.
+    /** private.feedback (+ historial de private.feedback_events). */
+    feedback: [],
+    /** RATEOS_ADMIN (private.platform_admins). */
+    admins: new Set(),
   };
   db.createUser = ({ email, password, fullName, company, confirmed = true }) => {
     const id = randomUUID();
@@ -123,6 +128,78 @@ function pick(row, select) {
 }
 
 /** Intercepta Supabase en un contexto de Playwright. */
+const CATEGORIES = ['calculo', 'guardado', 'pdf', 'cuenta', 'pantalla', 'otro'];
+const SCREENS = ['inicio', 'nuevo', 'cotizacion', 'resultado', 'escenarios', 'cotizaciones', 'productos', 'producto', 'recursos', 'plantillas', 'configuracion', 'cuenta', 'registro', 'pdf', 'otra'];
+const REVIEW = ['in_review', 'confirmed', 'resolved', 'not_applicable', 'duplicate'];
+const cleanText = (v) => String(v ?? '').replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, '').trim();
+const optional = (v) => cleanText(v) || null;
+
+/** RPC del feedback y de RATEOS ADMIN, con las mismas reglas que las funciones de las migraciones. */
+function platformRpc(db, route, name, args, uid, memberOrgs) {
+  const forbidden = () => reply(route, 403, { code: '42501', message: 'forbidden' });
+  const fail = (message) => reply(route, 400, { code: 'P0001', message, details: null, hint: null });
+  const isAdmin = db.admins.has(uid);
+  const email = (id) => (db.userById(id) || {}).email || null;
+  const member = (org) => typeof org === 'string' && memberOrgs.has(org);
+  if (name === 'am_i_platform_admin') return reply(route, 200, isAdmin);
+  if (name === 'submit_feedback') {
+    if (!member(args.p_org)) return forbidden();
+    const kind = args.p_kind;
+    const category = args.p_category || 'otro';
+    const f = { message: cleanText(args.p_message), details: optional(args.p_details), expected: kind === 'problem' ? optional(args.p_expected) : null };
+    const within = (t) => !t || t.length <= 2000;
+    if (!['problem', 'suggestion'].includes(kind) || !CATEGORIES.includes(category) || !SCREENS.includes(args.p_screen) || !/^[0-9A-Za-z.+-]{1,40}$/.test(String(args.p_app_version || ''))
+      || f.message.length < 3 || f.message.length > 2000 || !within(f.details) || !within(f.expected)) return fail('rateos_feedback_invalid');
+    const day = Date.now() - 86400000;
+    if (db.feedback.filter((x) => x.author === uid && x.at > day).length >= 5 || db.feedback.filter((x) => x.organization_id === args.p_org && x.at > day).length >= 10) return fail('rateos_feedback_rate_limited');
+    if (db.feedback.filter((x) => x.organization_id === args.p_org && ['received', 'in_review'].includes(x.status)).length >= 20) return fail('rateos_feedback_too_many_open');
+    if (db.feedback.some((x) => x.organization_id === args.p_org && x.kind === kind && x.message === f.message && x.details === f.details && x.expected === f.expected)) return fail('rateos_feedback_duplicate');
+    const now = new Date().toISOString();
+    const item = { id: randomUUID(), organization_id: args.p_org, author: uid, kind, category, screen: args.p_screen, app_version: args.p_app_version, ...f, status: 'received', created_at: now, at: Date.now(), response: null, reviewed_at: null, reviewed_by: null, duplicate_of: null, history: [{ at: now, actor: uid, from: null, to: 'received', response: null }] };
+    db.feedback.push(item);
+    return reply(route, 200, { id: item.id, kind, status: 'received', created_at: now });
+  }
+  if (name === 'my_feedback') {
+    if (!member(args.p_org)) return forbidden();
+    return reply(route, 200, db.feedback.filter((r) => r.organization_id === args.p_org).slice().reverse().map((r) => ({
+      id: r.id, created_at: r.created_at, kind: r.kind, category: r.category, screen: r.screen, app_version: r.app_version, message: r.message, details: r.details, expected: r.expected,
+      status: r.status, response: r.response, reviewed_at: r.reviewed_at, mine: r.author === uid,
+    })));
+  }
+  // ---- RATEOS ADMIN: sólo metadata y el texto del feedback; nunca el workspace.
+  if (['admin_overview', 'admin_users', 'admin_feedback', 'admin_review_feedback'].includes(name) && !isAdmin) return forbidden();
+  if (name === 'admin_overview') {
+    return reply(route, 200, { users_total: db.users.size, users_confirmed: db.users.size, users_7d: db.users.size, users_30d: db.users.size, organizations_total: db.orgs.size, workspaces_total: db.workspaces.size, workspaces_active_30d: [...db.workspaces.values()].filter((w) => w.revision > 0).length, generated_at: new Date().toISOString() });
+  }
+  if (name === 'admin_users') {
+    return reply(route, 200, db.members.map((m) => ({ full_name: (db.profiles.get(m.user_id) || {}).full_name || '', email: email(m.user_id), email_confirmed: true, organization_name: db.orgs.get(m.organization_id).name, organization_role: m.role, organization_members: db.members.filter((x) => x.organization_id === m.organization_id).length, workspace_revision: db.workspaces.get(m.organization_id).revision, is_platform_admin: db.admins.has(m.user_id) })));
+  }
+  if (name === 'admin_feedback') {
+    const st = args.p_status ?? null;
+    const kind = args.p_kind ?? null;
+    const rows = db.feedback.filter((r) => (kind === null || r.kind === kind) && (st === null || (st === 'open' ? ['received', 'in_review', 'confirmed'].includes(r.status) : r.status === st)));
+    return reply(route, 200, rows.slice().reverse().map((r) => ({
+      id: r.id, created_at: r.created_at, organization_name: db.orgs.get(r.organization_id).name, author_email: email(r.author), kind: r.kind, category: r.category, screen: r.screen, app_version: r.app_version,
+      message: r.message, details: r.details, expected: r.expected, status: r.status, duplicate_of: r.duplicate_of, response: r.response, reviewed_at: r.reviewed_at, reviewer_email: email(r.reviewed_by),
+      similar_count: db.feedback.filter((s) => s.id !== r.id && s.kind === r.kind && s.category === r.category && s.screen === r.screen && s.status !== 'not_applicable').length,
+      history: r.history.map((e) => ({ ...e, actor: email(e.actor) })),
+    })));
+  }
+  if (name === 'admin_review_feedback') {
+    const r = db.feedback.find((x) => x.id === args.p_feedback);
+    if (!REVIEW.includes(args.p_status)) return fail('rateos_feedback_invalid');
+    if (!r) return fail('rateos_feedback_not_found');
+    if (args.p_status === 'duplicate' && (!args.p_duplicate_of || args.p_duplicate_of === r.id || !db.feedback.some((x) => x.id === args.p_duplicate_of))) return fail('rateos_feedback_invalid');
+    const response = cleanText(args.p_response).slice(0, 1000) || null;
+    if (r.status === args.p_status && !response && (args.p_status !== 'duplicate' || r.duplicate_of === args.p_duplicate_of)) return reply(route, 200, { status: r.status, changed: false });
+    const from = r.status;
+    Object.assign(r, { status: args.p_status, duplicate_of: args.p_status === 'duplicate' ? args.p_duplicate_of : null, response: response || r.response, reviewed_by: uid, reviewed_at: new Date().toISOString() });
+    r.history.push({ at: new Date().toISOString(), actor: uid, from, to: args.p_status, response });
+    return reply(route, 200, { status: args.p_status, changed: true });
+  }
+  return reply(route, 404, { code: 'PGRST202', message: `Could not find the function public.${name}` });
+}
+
 export async function installSupabaseMock(context, db) {
   await context.route(`${SUPA}/**`, async (route) => {
     const req = route.request();
@@ -281,10 +358,7 @@ export async function installSupabaseMock(context, db) {
         if (single) return rows.length === 1 ? reply(route, 200, rows[0]) : reply(route, 406, { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' });
         return reply(route, 200, rows);
       };
-      if (method === 'POST' && table.startsWith('rpc/')) {
-        // Sólo la consulta de rol de plataforma: en el lab nadie es RATEOS ADMIN.
-        return table === 'rpc/am_i_platform_admin' ? reply(route, 200, false) : reply(route, 403, { code: '42501', message: 'forbidden' });
-      }
+      if (method === 'POST' && table.startsWith('rpc/')) return platformRpc(db, route, table.slice('rpc/'.length), body || {}, uid, memberOrgs);
       if (method === 'GET') {
         if (table === 'organization_members') {
           const rows = db.members.filter((m) => memberOrgs.has(m.organization_id) && matches(m, f)).map((m) => ({ ...pick(m, select), organizations: { id: m.organization_id, name: db.orgs.get(m.organization_id).name } }));

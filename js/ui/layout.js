@@ -26,6 +26,7 @@ import { APP_NAME } from '../config.js';
 import { formatBuildLabel } from '../core/format.js';
 import { h, mount } from './dom.js';
 import { icon } from './components.js';
+import { feedbackKindParam, feedbackScreenFromHash } from '../domain/feedback.js';
 
 /**
  * Navegación principal de la aplicación. `key` lo usa el router para marcar
@@ -139,12 +140,30 @@ export function createLayout(container, { version = {} } = {}) {
   const platformBadgeEl = h('div', { class: 'account-platform', hidden: true }, 'RATEOS ADMIN');
   let adminLink = null;
   const signOutBtn = h('button', { type: 'button', class: 'account-action', on: { click: () => signOutHandler && signOutHandler() } }, icon('logout', { size: 16 }), h('span', {}, 'Cerrar sesión'));
+  // Feedback de la beta (PLAN-2026-029): cada enlace lleva la pantalla actual de una lista fija, sin ids.
+  const feedbackLink = (kind, label, iconName) => {
+    const link = h('a', { class: 'account-action account-feedback', href: `#/mejorar?tipo=${feedbackKindParam(kind)}`, dataset: { feedback: kind } }, icon(iconName, { size: 16 }), h('span', {}, label));
+    link.addEventListener('click', (event) => {
+      // Ya en el formulario: se cambia el tipo sin perder lo escrito (lo maneja la pantalla).
+      if (/^#\/mejorar(\?|$)/.test(window.location.hash)) {
+        event.preventDefault();
+        window.dispatchEvent(new CustomEvent('rateos:feedback-kind', { detail: { kind } }));
+        return;
+      }
+      link.href = `#/mejorar?tipo=${feedbackKindParam(kind)}&desde=${feedbackScreenFromHash(window.location.hash)}`;
+    });
+    return link;
+  };
+  const problemLink = feedbackLink('problem', 'Reportar un problema', 'alert');
+  const suggestionLink = feedbackLink('suggestion', 'Sugerir una mejora', 'idea');
   const accountEl = h(
     'div',
     { class: 'account-card', hidden: true },
     h('div', { class: 'account-text' }, userNameEl, platformBadgeEl, userEmailEl),
     h('div', { class: 'account-actions' },
       h('a', { class: 'account-action', href: '#/configuracion/cuenta' }, icon('user', { size: 16 }), h('span', {}, 'Mi cuenta')),
+      problemLink,
+      suggestionLink,
       signOutBtn),
   );
   const syncDotEl = h('span', { class: 'sync-dot', 'aria-hidden': 'true' });
@@ -162,7 +181,10 @@ export function createLayout(container, { version = {} } = {}) {
     buildEl,
   );
 
-  const sidebar = h('aside', { class: 'sidebar', id: 'app-sidebar', 'aria-label': 'Menú de RATEOS' }, brandLink('brand-sidebar'), newQuoteLink, nav, sidebarFooter);
+  // Distintivo discreto de la beta (PLAN-2026-029): lleva a "Acerca de la beta". Sin promesas.
+  const betaPill = h('a', { class: 'beta-pill', href: '#/mejorar?acerca=1', title: 'RATEOS está en beta gratuita: acerca de la beta' },
+    h('span', { class: 'beta-pill-long' }, 'Beta gratuita'), h('span', { class: 'beta-pill-short', 'aria-hidden': 'true' }, 'Beta'));
+  const sidebar = h('aside', { class: 'sidebar', id: 'app-sidebar', 'aria-label': 'Menú de RATEOS' }, brandLink('brand-sidebar'), betaPill, newQuoteLink, nav, sidebarFooter);
 
   // ------------------------------------------------- barra compacta (mobile)
 

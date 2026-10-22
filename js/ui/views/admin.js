@@ -10,10 +10,25 @@
  */
 
 import { h, mount } from '../dom.js';
-import { banner, button, card, kpi, pageIntro, table } from '../components.js';
+import { badge, banner, button, card, kpi, pageIntro, selectField, table, textField } from '../components.js';
 import { formatDate, formatDateTime } from '../../core/format.js';
 import { logger } from '../../core/logger.js';
 import { ADMIN_NO_ACCESS, PLATFORM_ADMIN_LABEL } from '../../services/admin-service.js';
+import { feedbackStatus } from '../../domain/feedback.js';
+
+/** Filtros de la cola de feedback (PLAN-2026-029). */
+export const FEEDBACK_FILTERS = Object.freeze([
+  { id: 'open', label: 'Sin resolver' },
+  { id: 'received', label: 'Recibidos' },
+  { id: 'confirmed', label: 'Confirmados' },
+  { id: 'resolved', label: 'Resueltos' },
+  { id: null, label: 'Todos' },
+]);
+export const FEEDBACK_KIND_FILTERS = Object.freeze([
+  { id: null, label: 'Problemas y sugerencias' },
+  { id: 'problem', label: 'Problemas' },
+  { id: 'suggestion', label: 'Sugerencias' },
+]);
 
 /** ¿Se puede intentar abrir el panel? (sólo UX: la autoridad es Postgres). */
 export function canOpenAdmin(ctx) {
@@ -56,6 +71,7 @@ export async function render(root, app) {
     { key: 'updatedAt', label: 'Última actualización', render: (r) => h('span', { title: r.revision !== null ? `Revisión ${r.revision} · esquema ${r.schemaVersion ?? '—'} · ${r.workspaceBytes ?? '—'} bytes` : '' }, dateOr(r.updatedAt, formatDateTime)) },
   ];
 
+  const feedbackHost = h('div', { class: 'admin-reports-host' });
   mount(
     root,
     h(
@@ -63,9 +79,109 @@ export async function render(root, app) {
       { class: 'admin' },
       pageIntro({ eyebrow: 'Plataforma', title: 'Usuarios y empresas de RATEOS', text: 'Metadata de usuarios y empresas. No incluye cotizaciones, costos, márgenes ni tarifas de ninguna empresa.', level: 2 }),
       h('div', { class: 'kpi-grid admin-kpis' }, ...res.summary.map((s) => kpi({ label: s.label, value: s.value === null ? '—' : String(s.value), hint: s.hint }))),
+      feedbackHost,
       card({ title: 'Usuarios', subtitle: res.generatedAt ? `Actualizado: ${formatDateTime(res.generatedAt)}` : null, level: 3 },
         table({ columns, rows: res.rows, emptyText: 'Todavía no hay usuarios.', className: 'admin-table table-cards' })),
     ),
   );
+  await renderFeedback(feedbackHost, app, { status: 'open', kind: null });
   return undefined;
+}
+
+/**
+ * Feedback de la beta (PLAN-2026-029): problemas y sugerencias de las
+ * empresas. Se clasifican y se responden; ningún estado suma ni descuenta
+ * nada. Sólo se muestra lo que escribió la persona: nunca datos del workspace.
+ */
+export async function renderFeedback(host, app, filters = { status: 'open', kind: null }) {
+  const ctx = app.ctx;
+  if (!ctx.admin || typeof ctx.admin.loadFeedback !== 'function') return;
+  const { status = 'open', kind = null } = filters;
+  mount(host, h('p', { class: 'muted', role: 'status' }, 'Cargando el feedback…'));
+  let res;
+  try {
+    res = await ctx.admin.loadFeedback({ status, kind });
+  } catch (error) {
+    logger.warn('No se pudo cargar el feedback', { name: error && error.name });
+    res = { ok: false, message: 'No pudimos cargar el feedback. Reintentá en unos minutos.' };
+  }
+  if (!res.ok) {
+    mount(host, card({ title: 'Feedback de la beta', level: 3 }, banner(res.message, res.code === 'unsupported' ? 'info' : 'warning')));
+    return;
+  }
+  const reload = (next = {}) => renderFeedback(host, app, { status, kind, ...next });
+
+  async function review(row, nextStatus, { response = null, duplicateOf = null } = {}) {
+    const out = await ctx.admin.reviewFeedback(row.id, { status: nextStatus, response, duplicateOf });
+    if (!out.ok) {
+      app.toast(out.message, 'danger');
+      return;
+    }
+    app.toast(out.changed ? `Quedó como "${feedbackStatus(nextStatus, row.kind).label}".` : 'Ya estaba en ese estado.', 'success');
+    await reload();
+  }
+
+  const all = res.rows;
+  const actionsFor = (row) => {
+    const draft = { response: '', duplicateOf: null };
+    const choice = (to, label, variant = 'secondary') => (row.status === to ? null
+      : button(label, { size: 'sm', variant, onClick: () => review(row, to, { response: draft.response || null }) }));
+    return h(
+      'div',
+      { class: 'admin-report-actions stack' },
+      textField({ label: 'Respuesta para la empresa (opcional; la ven en "Comentarios de tu empresa")', multiline: true, maxLength: 1000, onChange: (v) => { draft.response = v; } }),
+      h('div', { class: 'row admin-report-buttons' },
+        choice('in_review', 'En revisión'),
+        choice('confirmed', row.kind === 'suggestion' ? 'La tenemos en cuenta' : 'Confirmado'),
+        choice('resolved', row.kind === 'suggestion' ? 'Ya está disponible' : 'Resuelto', 'primary'),
+        choice('not_applicable', 'No corresponde', 'ghost')),
+      all.length > 1
+        ? h('div', { class: 'row admin-report-duplicate' },
+          selectField({
+            label: 'Duplicado de',
+            includeEmpty: true,
+            emptyLabel: 'Elegí el original…',
+            options: all.filter((o) => o.id !== row.id).map((o) => ({ value: o.id, label: `#${o.ref} · ${o.kindLabel} · ${o.organization}` })),
+            onChange: (v) => { draft.duplicateOf = v; },
+          }),
+          button('Marcar duplicado', { size: 'sm', variant: 'ghost', onClick: () => (draft.duplicateOf ? review(row, 'duplicate', { response: draft.response || null, duplicateOf: draft.duplicateOf }) : app.toast('Elegí el original.', 'warning')) }))
+        : null,
+    );
+  };
+  const itemCard = (row) => {
+    const extra = [
+      row.details ? [row.kind === 'suggestion' ? 'Para qué le serviría' : 'Qué estaba haciendo', row.details] : null,
+      row.expected ? ['Qué esperaba', row.expected] : null,
+    ].filter(Boolean);
+    return h(
+      'li',
+      { class: 'admin-report', dataset: { status: row.status, kind: row.kind } },
+      h('div', { class: 'admin-report-head' },
+        badge(row.kindLabel, row.kind === 'suggestion' ? 'blue' : 'orange'),
+        badge(row.statusLabel, row.tone),
+        h('strong', {}, row.organization),
+        h('span', { class: 'admin-muted' }, ` · ${row.author} · ${row.createdAt ? formatDateTime(row.createdAt) : '—'} · #${row.ref}`)),
+      h('p', { class: 'admin-muted small' }, `${row.category} · ${row.screen} · versión ${row.appVersion}${row.similar ? ` · ${row.similar} parecido(s)` : ''}${row.duplicateOf ? ` · duplicado de #${row.duplicateOf}` : ''}`),
+      h('p', { class: 'report-item-text' }, row.message),
+      extra.length ? h('dl', { class: 'admin-report-text' }, ...extra.flatMap(([dt, dd]) => [h('dt', {}, dt), h('dd', {}, dd)])) : null,
+      row.response ? h('p', { class: 'small' }, h('strong', {}, 'Respuesta: '), row.response) : null,
+      row.history.length
+        ? h('ol', { class: 'admin-report-history small' }, ...row.history.map((e) => h('li', {}, `${e.at ? formatDateTime(e.at) : '—'} · ${e.actor}: ${e.from ? `${e.from} → ` : ''}${e.to}${e.response ? ` — ${e.response}` : ''}`)))
+        : null,
+      actionsFor(row),
+    );
+  };
+
+  const filterRow = (label, list, current, key) => h('div', { class: 'row admin-report-filters', role: 'group', 'aria-label': label },
+    ...list.map((f) => button(f.label, { size: 'sm', variant: f.id === current ? 'primary' : 'ghost', attrs: { 'aria-pressed': f.id === current ? 'true' : 'false' }, onClick: () => reload({ [key]: f.id }) })));
+
+  mount(
+    host,
+    card(
+      { title: 'Feedback de la beta', subtitle: 'Problemas y sugerencias de las empresas. Clasificalos y respondé: la empresa ve el estado y tu respuesta.', level: 3 },
+      filterRow('Filtrar por estado', FEEDBACK_FILTERS, status, 'status'),
+      filterRow('Filtrar por tipo', FEEDBACK_KIND_FILTERS, kind, 'kind'),
+      all.length ? h('ul', { class: 'admin-report-list' }, ...all.map(itemCard)) : h('p', { class: 'muted' }, 'No hay comentarios con este filtro.'),
+    ),
+  );
 }

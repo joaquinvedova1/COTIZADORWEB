@@ -24,6 +24,7 @@ import { createBackupService } from './backup-service.js';
 import { createSettingsService } from './settings-service.js';
 import { createAdminService } from './admin-service.js';
 import { createLocalImportService } from './local-import-service.js';
+import { createFeedbackService } from './feedback-service.js';
 import { logger } from '../core/logger.js';
 import { STORAGE_KEYS } from '../config.js';
 import { track } from '../core/events.js';
@@ -42,6 +43,8 @@ function services(repository) {
     resources: createResourceService({ repository }),
     backup: createBackupService({ repository }),
     settings: createSettingsService({ repository }),
+    // Feedback de la beta (PLAN-2026-029): sólo se envía desde una cuenta.
+    feedback: createFeedbackService(),
   };
 }
 
@@ -114,7 +117,7 @@ const ACCOUNT_OPEN_MESSAGES = Object.freeze({
  *   appVersion?: string,
  * }} options
  */
-export async function createAccountContext({ user, workspaceGateway, adminGateway = null, cacheStorage, appVersion = 'dev', confirmSchemaUpgrade = null }) {
+export async function createAccountContext({ user, workspaceGateway, adminGateway = null, feedbackGateway = null, cacheStorage, appVersion = 'dev', confirmSchemaUpgrade = null }) {
   if (!user || typeof user.id !== 'string') throw new RepositoryError('No hay una sesión válida.', 'session_expired');
   const membership = await workspaceGateway.loadMembership(user.id);
   if (!membership.ok) {
@@ -158,6 +161,7 @@ export async function createAccountContext({ user, workspaceGateway, adminGatewa
     init,
     account,
     ...services(repository),
+    feedback: createFeedbackService({ gateway: feedbackGateway, organizationId: membership.organization.id, appVersion }),
     localImport: createLocalImportService({ repository, userId: user.id, storage }),
     /** Panel RATEOS ADMIN (la base verifica el rol en cada llamada). */
     admin: adminGateway ? createAdminService(adminGateway) : null,

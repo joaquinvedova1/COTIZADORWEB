@@ -523,6 +523,7 @@ async function boot(root) {
         user,
         workspaceGateway: cloud.workspaceGateway,
         adminGateway: cloud.adminGateway,
+        feedbackGateway: cloud.feedbackGateway,
         appVersion: version.version,
         // En una versión de prueba (servidor local) los datos de la nube son
         // los de producción: actualizar su formato haría que la versión
