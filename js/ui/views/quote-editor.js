@@ -1290,6 +1290,10 @@ function buildSummary({ getResult, stepHref }) {
         if (row.traceBtn) row.traceBtn.setAttribute('aria-label', `Ver cálculo: ${row.labelEl.textContent}`);
         const value = resolve(row.value, r) || EMPTY;
         row.numberEl.textContent = value;
+        // K0C-01: un monto nunca se parte; con $ 100 millones o más, el detalle del celular va en una columna.
+        const amount = /\d/.test(value);
+        row.numberEl.classList.toggle('nowrap', amount);
+        row.el.classList.toggle('is-long', amount && value.length > 12);
         const unit = value === EMPTY ? '' : resolve(row.unit, r) || '';
         row.unitEl.textContent = unit && unit !== EMPTY ? ` ${unit}` : '';
         if (row.compactEl) {
@@ -1689,9 +1693,15 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     confirmedLines: new Set(),
   };
 
-  const notify = (message, tone = 'info') => {
-    if (app && typeof app.toast === 'function') app.toast(message, tone);
-    else componentToast(message, tone);
+  const notify = (message, tone = 'info') => (app && typeof app.toast === 'function' ? app.toast(message, tone) : componentToast(message, tone));
+  // El aviso de "Error al guardar" es persistente: se va solo cuando la cotización queda guardada,
+  // también el que dejó una apertura anterior de esta misma cotización (K0E-03).
+  const saveErrorKey = `quote:${quoteId}`;
+  const clearSaveErrorToasts = () => {
+    if (typeof document === 'undefined') return;
+    document.querySelectorAll('.toast[data-save-error]').forEach((t) => {
+      if (t.dataset.saveError === saveErrorKey) t.remove();
+    });
   };
   const navigate = (hash) => {
     if (app && typeof app.navigate === 'function') app.navigate(hash);
@@ -1774,9 +1784,13 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       saveEl.title = message;
       // El conflicto y la sesión vencida ya tienen su aviso (banner con
       // acciones / pantalla de ingreso): sin toast repetido.
-      if (previous !== 'error' && code !== 'conflict' && code !== 'session_expired') notify(cloud ? message : `Error al guardar. ${message}`, cloud && code === 'sync_failed' ? 'warning' : 'danger');
+      if (previous !== 'error' && code !== 'conflict' && code !== 'session_expired') {
+        const shown = notify(cloud ? message : `Error al guardar. ${message}`, cloud && code === 'sync_failed' ? 'warning' : 'danger');
+        if (shown && shown.dataset) shown.dataset.saveError = saveErrorKey;
+      }
     } else {
       state.saveErrorCode = null;
+      if (status === 'saved' || status === 'idle') clearSaveErrorToasts();
       delete saveEl.dataset.sync;
       saveTextEl.textContent = texts[status] || '';
       saveEl.title = status === 'invalid' ? 'Hay valores fuera de rango: no se guardan cambios hasta corregirlos.' : '';
@@ -2759,6 +2773,12 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
             unsavedDrafts.delete(app.ctx, quoteId);
             scheduleSave.cancel();
             setSaveStatus('saved');
+            return;
+          }
+          // Borrador recuperado sin red (K0E-03, residual de CEL-02): cuando la nube queda al día,
+          // se guarda como con "Reintentar" y el indicador vuelve a "Guardado".
+          if (state.saveErrorCode === 'restored_draft') {
+            if (sync.status === 'saved' && !sync.dirty && !sync.conflict) save();
             return;
           }
           if (!['sync_failed', 'session_expired'].includes(state.saveErrorCode)) return;

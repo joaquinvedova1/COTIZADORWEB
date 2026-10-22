@@ -141,7 +141,8 @@ async function runMode(mode) {
     if (mode === 'mobile') await loc.tap();
     else await loc.click();
   };
-  const overflow = (page) => page.evaluate(() => Math.max(document.documentElement.scrollWidth - window.innerWidth, 0));
+  // Como ui-lab: con isMobile, innerWidth crece con el contenido; clientWidth no (K0C-02).
+  const overflow = (page) => page.evaluate(() => Math.max(document.documentElement.scrollWidth - window.innerWidth, document.documentElement.scrollWidth - document.documentElement.clientWidth, 0));
   const requestReset = async (page, email) => {
     // Volver a la pantalla desde otra (el mismo hash no vuelve a dibujarla).
     if (/#\/recuperar-contrasena/.test(page.url())) await go(page, '#/login', 300);

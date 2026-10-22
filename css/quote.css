@@ -674,6 +674,11 @@
   .qe-summary-inner.is-expanded .qe-sum-main .qe-sum-value { font-size: 1.05rem; }
 }
 
+/* K0C-01: un monto de $ 100 millones o más no entra entero en media fila del detalle: una columna. */
+@media (max-width: 400px) {
+  .qe-summary-inner.is-expanded .qe-sum-main:has(.qe-sum-item.is-long) { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 360px) {
   .qe-summary-inner:not(.is-expanded) .qe-sum-compact { font-size: 0.875rem; }
   .qe-sum-main .qe-sum-item { padding-left: 0.5rem; padding-right: 0.3rem; }
@@ -752,6 +757,8 @@
 @media print {
   .qe, .qe.qe-no-summary { display: block; }
   .qe-stages, .qe-substeps, .qe-step-nav, .qe-save, .qe-toolbar, .qe-line-actions, .qe-sum-toggle, [data-edit] { display: none !important; }
+  /* K0E-P3-2: el aviso de valores de ejemplo es de pantalla ("Ir al combustible"): el encabezado del PDF ya los nombra. */
+  .qe-illustrative { display: none !important; }
   .qe-summary { position: static; max-height: none; overflow: visible; box-shadow: none; margin-top: 1rem; break-inside: avoid; }
   .qe-sum-compact { display: none !important; }
   .qe-line, .qe-stat { break-inside: avoid; box-shadow: none; }

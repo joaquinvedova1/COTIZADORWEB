@@ -1515,7 +1515,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         const withPct = usage.rows.some((r) => r.assignedPct !== null);
         return h('div', { class: 'cell-stack' },
           button(count, { variant: 'link', size: 'sm', onClick: () => openUsage(item, type, usage), attrs: { 'aria-label': `Usado en: ${count} (${item.role || item.name || 'recurso'})` } }),
-          withPct ? h('span', { class: 'cell-sub nowrap' }, `Adjudicado ${formatPercent(usage.committedPct)} · en curso ${formatPercent(usage.potentialPct)}`) : null,
+          // Puede ir en dos renglones (entre las dos partes): de un solo renglón ensanchaba la tabla (K0E-01, K0C P3).
+          withPct ? h('span', { class: 'cell-sub' }, h('span', { class: 'nowrap' }, `Adjudicado ${formatPercent(usage.committedPct)}`), ' · ', h('span', { class: 'nowrap' }, `en curso ${formatPercent(usage.potentialPct)}`)) : null,
           usage.overCommitted ? badge('Más del 100 % adjudicado', 'orange') : null);
       },
     };

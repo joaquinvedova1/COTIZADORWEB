@@ -139,7 +139,9 @@ async function runMode(mode) {
     text: () => page.evaluate(() => document.body.innerText),
     toasts: () => page.evaluate(() => [...document.querySelectorAll('.toast-text')].map((t) => t.textContent).join(' | ')),
     clearToasts: () => page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => t.remove())),
-    overflow: () => page.evaluate(() => Math.max(document.documentElement.scrollWidth - window.innerWidth, 0)),
+    // Como ui-lab: en un contexto isMobile, Chromium agranda innerWidth hasta el contenido y
+    // scrollWidth - innerWidth da 0 aunque la página se desplace de costado (K0C-02).
+    overflow: () => page.evaluate(() => Math.max(document.documentElement.scrollWidth - window.innerWidth, document.documentElement.scrollWidth - document.documentElement.clientWidth, 0)),
     /** En el celular, los enlaces de la cuenta están en el menú. */
     menu: async () => {
       if (mode !== 'mobile') return;
@@ -156,7 +158,8 @@ async function runMode(mode) {
   const admin = { email: `beta.admin.${mode}@rateos.test`, password: pw() };
   db.createUser({ ...admin, fullName: 'Admin sintético', company: 'Plataforma sintética' });
   db.admins.add(db.users.get(admin.email).id);
-  const tester = { email: `beta.tester.${mode}@rateos.test`, password: pw() };
+  // Email largo pero plausible (break-ui): el panel admin lo muestra como autor (K0C-02).
+  const tester = { email: `bartolome.fitzgerald.administracion.${mode}@serviciospetrolerosintegrales-altovalle.rateos.test`, password: pw() };
   db.createUser({ ...tester, fullName: 'Tester sintético', company: 'Tester Sintética SRL' });
   const colleague = { email: `beta.colega.${mode}@rateos.test`, password: pw() };
   db.createUser({ ...colleague, fullName: 'Colega sintético', company: 'Propia del colega' });

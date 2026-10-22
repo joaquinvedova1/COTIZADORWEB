@@ -436,6 +436,13 @@ html { scroll-padding-top: 7rem; }
   .table td[data-label="Acciones"]:last-child { background: var(--white); }
   .table tbody tr:hover td[data-label="Acciones"]:last-child { background: #FAFCFE; }
 }
+/* K0E-01: hasta 1439 px la columna fija tapaba montos ("$ 4.16…"): los botones van apilados, así ocupa
+   el ancho de uno solo. */
+@media screen and (min-width: 761px) and (max-width: 1439.98px) {
+  .table td[data-label="Acciones"]:last-child .table-actions { flex-direction: column; align-items: stretch; justify-content: flex-start; }
+  /* Si igual queda algo debajo, se desvanece: se ve que la fila sigue (no un "$ 4.16" cortado en seco). */
+  .table td[data-label="Acciones"]:last-child::before { content: ""; position: absolute; top: 0; bottom: 0; left: -1.5rem; width: 1.5rem; pointer-events: none; background: linear-gradient(to right, rgba(255, 255, 255, 0), var(--white)); }
+}
 .table tfoot td { font-weight: 700; border-top: 2px solid var(--line); border-bottom: 0; background: #F8FBFD; }
 .table td.ta-right, .table th.ta-right { font-variant-numeric: tabular-nums; }
 .table-compact th, .table-compact td { padding: 0.35rem 0.5rem; }

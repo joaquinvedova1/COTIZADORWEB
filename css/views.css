@@ -699,8 +699,11 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 
 /* ------------------------------------------------ beta: feedback (PLAN-2026-029) */
 .report-list, .admin-report-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3, 0.75rem); }
-.report-item, .admin-report { border: 1px solid var(--line); border-radius: 10px; padding: 0.75rem 1rem; background: var(--white); display: grid; gap: 0.4rem; min-width: 0; }
+/* K0C-02: un email largo (de quien lo envió o de quien lo revisó, en el historial) se corta adentro de la
+   tarjeta: no la ensancha ni saca la página de la pantalla del celular. */
+.report-item, .admin-report { border: 1px solid var(--line); border-radius: 10px; padding: 0.75rem 1rem; background: var(--white); display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.4rem; min-width: 0; overflow-wrap: anywhere; }
 .report-item-head, .admin-report-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.report-item-head > *, .admin-report-head > * { min-width: 0; }
 .report-item-text, .report-item-note { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .report-item-note { color: var(--ink-2); }
 .report-item-detail, .admin-report-text { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.25rem 0.75rem; }

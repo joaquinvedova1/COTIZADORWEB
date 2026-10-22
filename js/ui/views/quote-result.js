@@ -252,7 +252,8 @@ function rate(value, unitLabel) {
 function rateNode(value, unitLabel) {
   if (!hasValue(value)) return EMPTY;
   const decimals = Math.abs(value) > 0 && Math.abs(value) < 100 ? 2 : 0;
-  return h('span', { class: 'qr-rate' }, formatMoney(value, { decimals }), h('span', { class: 'qr-unit' }, ` / ${unitLabel}`));
+  // K0C-01: la cifra nunca se parte; la unidad puede pasar al renglón de abajo (el espacio va afuera).
+  return h('span', { class: 'qr-rate' }, h('span', { class: 'nowrap' }, formatMoney(value, { decimals })), ' ', h('span', { class: 'qr-unit' }, `/ ${unitLabel}`));
 }
 
 /**
@@ -272,7 +273,7 @@ function minRate(value, unitLabel) {
 
 function minRateNode(value, unitLabel) {
   if (!hasValue(value)) return EMPTY;
-  return h('span', { class: 'qr-rate' }, ceilMoney(value), h('span', { class: 'qr-unit' }, ` / ${unitLabel}`));
+  return h('span', { class: 'qr-rate' }, h('span', { class: 'nowrap' }, ceilMoney(value)), ' ', h('span', { class: 'qr-unit' }, `/ ${unitLabel}`));
 }
 
 /** Tarifa comercial: si es la sugerida (mínima), se muestra hacia arriba. */
@@ -830,6 +831,13 @@ function traceCompleteness(v) {
 
 // ------------------------------------------------------------ A. decisión
 
+/** K0C-01: con un monto de más de 12 caracteres ($ 100 millones o más), tarjetas más anchas para que la cifra entre entera. */
+function heroGrid(...items) {
+  const long = items.some((el) => el && typeof el.querySelector === 'function'
+    && (String((el.querySelector('.qr-hero-value') || {}).textContent || '').match(/\$\s?[\d.,]+/) || [''])[0].length > LONG_AMOUNT_CHARS);
+  return h('div', { class: ['qr-hero', long ? 'qr-hero-long' : null] }, ...items);
+}
+
 function heroItem({ label, value, hint = null, trace = null, lazyTrace = null, lazyTitle = null, tone = null, big = false }) {
   return h('div', { class: ['qr-hero-item', tone ? `qr-tone-${tone}` : null, big ? 'qr-hero-main' : null] },
     h('div', { class: 'qr-hero-label' }, label),
@@ -1169,7 +1177,7 @@ function heroKnownRate(v) {
     const c1 = capView(v, capTarget);
     return h('div', { class: 'qr-decision' },
       sentence,
-      h('div', { class: 'qr-hero' },
+      heroGrid(
         heroItem({ label: capTitle(cap), value: c0.value, hint: c0.hint, lazyTrace: cap ? () => traceMonthlyCap(v, cap) : null, lazyTitle: capTitle(cap), tone: c0.tone, big: true }),
         heroItem({ label: capTitle(capTarget || { marginPct: k.targetMarginPct }), value: c1.value, hint: c1.hint, lazyTrace: capTarget ? () => traceMonthlyCap(v, capTarget) : null, lazyTitle: capTitle(capTarget), tone: c1.tone }),
         resultItem,
@@ -1182,7 +1190,7 @@ function heroKnownRate(v) {
 
   return h('div', { class: 'qr-decision' },
     sentence,
-    h('div', { class: 'qr-hero' },
+    heroGrid(
       byQty(v) ? heroItem({
         label: unitTextsOf(r).breakEvenLabel,
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
@@ -1292,7 +1300,7 @@ function heroKnownActivity(v) {
 
   return h('div', { class: 'qr-decision' },
     sentence,
-    h('div', { class: 'qr-hero' },
+    heroGrid(
       heroItem({
         label: floorLabel(mr),
         value: minRateNode(mr.floorMain, v.unitLabel),
@@ -1519,6 +1527,18 @@ function statItem({ label, value, unit = null, hint = null, trace = null, tone =
     h('dd', { class: 'big-stat-value' }, h('span', { class: 'big-stat-number' }, value ?? EMPTY), unit ? h('span', { class: 'big-stat-unit' }, unit) : null),
     hint ? h('dd', { class: 'big-stat-hint' }, hint) : null,
     trace ? h('dd', { class: 'qr-stat-trace' }, traceBtn(trace)) : null);
+}
+
+/**
+ * K0C-01: una cifra nunca se parte en dos renglones (en el celular "$ 229.000.00" arriba y "0 / mes" abajo
+ * se leía mil veces menor). Con algún monto de más de 12 caracteres ($ 100 millones o más) la lista lleva
+ * `qr-stats-long`: los números van en una columna en el celular y más chicos en la fila de cuatro.
+ */
+const LONG_AMOUNT_CHARS = 12;
+function statsList(className, ...items) {
+  const long = items.some((el) => el && typeof el.querySelector === 'function'
+    && String((el.querySelector('.big-stat-number') || {}).textContent || '').trim().length > LONG_AMOUNT_CHARS);
+  return h('dl', { class: [className, long ? 'qr-stats-long' : null] }, ...items);
 }
 
 /** true si el resultado es NO CONFIABLE (ECO-01): los números se muestran pero no son reales. */
@@ -1853,7 +1873,7 @@ function renderSummary(v) {
     roundingBanner(v),
     // UI-01: la alerta de la tarifa va arriba de los números que afecta (DESIGN.md §1.2).
     price ? h('div', { class: ['qr-alerts', 'qr-alerts-price'] }, price) : null,
-    h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
+    statsList('qr-stats', costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado. Se imprime.
     h('p', { class: 'qr-note qr-reference-note' }, REFERENCE_PRICE_NOTE),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
@@ -3581,7 +3601,7 @@ function renderEconomicBase(v) {
     external.length
       ? h('div', { class: 'stack' },
         h('h4', { class: 'qr-sub-title' }, 'Equipos y servicios externos en el mes'),
-        h('dl', { class: 'qr-stats qr-stats-3' },
+        statsList('qr-stats qr-stats-3',
           statItem({ label: 'Costo económico (en el costo)', value: formatMoney(k.externalMonthly), hint: 'Neto + IVA que no recuperás + cargos no recuperables.' }),
           statItem({ label: 'Salida de caja con impuestos', value: formatMoney(k.externalCashMonthly), hint: 'Lo que pagás al proveedor (neto + IVA + percepciones): es lo que se financia hasta cobrar.' }),
           statItem({ label: 'Crédito fiscal (no es costo)', value: formatMoney(k.externalTaxCreditMonthly), hint: 'IVA que recuperás + percepciones: caja que adelantás.' })),

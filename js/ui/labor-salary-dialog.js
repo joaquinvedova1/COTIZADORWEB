@@ -54,11 +54,16 @@ export function openSalaryDialog({ profile, quotes = [], quotesUsing = 0, costOf
   const basicHint = h('p', { class: 'small muted salary-basic-hint', hidden: true });
   const periodHint = h('p', { class: 'small muted', hidden: true });
   const previewHost = h('div', { class: 'salary-preview', 'aria-live': 'polite' });
-  const errorEl = h('p', { class: 'field-error salary-error', role: 'alert', hidden: true });
+  // Junto a "Guardar sueldo", como en el formulario de recursos (ESC-08): al final del cuerpo quedaba
+  // fuera de la vista y el botón parecía no responder (K0E-02).
+  const errorEl = h('p', { class: 'dialog-form-alert salary-error', role: 'alert' });
 
-  const showError = (message) => {
-    errorEl.textContent = message;
-    errorEl.hidden = !message;
+  /** El aviso junto a "Guardar sueldo" y, si es de un campo, ese campo a la vista y con el foco. */
+  const showError = (message, control = null) => {
+    errorEl.textContent = message || '';
+    if (!message || !control) return;
+    if (typeof control.scrollIntoView === 'function') control.scrollIntoView({ block: 'center' });
+    control.focus({ preventScroll: true });
   };
 
   const overtimeWhere = () => {
@@ -200,8 +205,7 @@ export function openSalaryDialog({ profile, quotes = [], quotesUsing = 0, costOf
     periodHint,
     previewHost,
     paramsLine,
-    quotesNote,
-    errorEl);
+    quotesNote);
 
   const saveBtn = button('Guardar sueldo', { variant: 'primary', icon: 'check' });
   // Con UX-01 (openDialog con isDirty) cerrar con cambios pregunta; sin él, cierra como siempre.
@@ -211,7 +215,7 @@ export function openSalaryDialog({ profile, quotes = [], quotesUsing = 0, costOf
     content: body,
     wide: true,
     isDirty,
-    actions: [button('Cancelar', { variant: 'secondary', onClick: () => (typeof dialogRef.requestClose === 'function' ? dialogRef.requestClose() : dialogRef.close()) }), saveBtn],
+    actions: [errorEl, button('Cancelar', { variant: 'secondary', onClick: () => (typeof dialogRef.requestClose === 'function' ? dialogRef.requestClose() : dialogRef.close()) }), saveBtn],
   });
   // Los parámetros se cambian en el formulario completo; antes, se guarda o se cancela el sueldo.
   function goEditProfile() {
@@ -224,8 +228,10 @@ export function openSalaryDialog({ profile, quotes = [], quotesUsing = 0, costOf
   }
 
   saveBtn.addEventListener('click', async () => {
-    if (body.querySelector('[aria-invalid="true"]')) {
-      showError('Revisá los campos marcados en rojo.');
+    showError('');
+    const invalid = body.querySelector('[aria-invalid="true"]');
+    if (invalid) {
+      showError('Revisá los campos marcados en rojo.', invalid);
       return;
     }
     const salary = salaryChanged();
@@ -245,7 +251,10 @@ export function openSalaryDialog({ profile, quotes = [], quotesUsing = 0, costOf
         return;
       }
       if (!PERIOD_RE.test(draft.period || '')) {
-        showError('Cargá el mes base del sueldo nuevo (año y mes).');
+        // El campo queda marcado hasta que se cargue un mes válido (periodField lo desmarca).
+        const monthInput = periodInput.querySelector('input');
+        if (monthInput) monthInput.setAttribute('aria-invalid', 'true');
+        showError('Cargá el mes base del sueldo nuevo (año y mes).', monthInput);
         return;
       }
       next = { ...next, basicMonthly: split.basicMonthly, additionalsMonthly: split.additionalsMonthly };

@@ -1352,6 +1352,14 @@ async function runMode(mode) {
     await page.waitForTimeout(500);
     const periodError = await dlg.evaluate((d) => (d.querySelector('.salary-error') || {}).textContent || '', null, T).catch(() => '');
     check(R, 'sueldo cambiado sin mes base: no guarda y pide el mes', /Cargá el mes base del sueldo nuevo/.test(periodError) && stored('res-ch').basicMonthly === 2300000, `${periodError} · básico guardado ${stored('res-ch').basicMonthly}`);
+    // K0E-02: el aviso queda a la vista, junto a "Guardar sueldo", y el foco va al mes marcado (antes quedaba al final del cuerpo).
+    const periodAlert = await dlg.evaluate((d) => {
+      const e = d.querySelector('.salary-error');
+      const r = e ? e.getBoundingClientRect() : null;
+      const a = document.activeElement;
+      return { inActions: Boolean(e && e.closest('.dialog-actions')), visible: Boolean(r && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight), focus: a && a.getAttribute('name'), invalid: a && a.getAttribute('aria-invalid') };
+    }, null, T).catch(() => ({}));
+    check(R, 'K0E-02: sin mes base, el aviso está junto a "Guardar sueldo" y a la vista, y el foco va al mes marcado', periodAlert.inActions && periodAlert.visible && periodAlert.focus === 'salary.period' && periodAlert.invalid === 'true', JSON.stringify(periodAlert));
     await soft(() => dlg.locator('[name="salary.period"]').fill('2026-10', T));
     await press(dlg.getByRole('button', { name: 'Guardar sueldo', exact: true }));
     await page.waitForTimeout(1200);
@@ -2350,6 +2358,135 @@ async function runMode(mode) {
       check(P, 'UI-12: "Mi cuenta", "Cerrar sesión" y los desplegables de Recursos tienen 44 px en el celular', small.length === 0, JSON.stringify(small));
     }
     await scan(P, 'resultado');
+  }
+
+  // ---- K0 (último pase de UX antes del ensayo real): montos de cientos y miles de millones que nunca se parten
+  // (K0C-01), "Error al guardar" que se va solo al reconectar (K0E-03) y la columna fija de Recursos que no tapa
+  // montos a 1024 y 1280 px (K0E-01). Cotizaciones SINTÉTICAS con montos de 9 y 10 dígitos.
+  {
+    const P = 'K0';
+    const meta = (q, id, name) => Object.assign(q, { id: randomUUID(), organizationId: orgId, code: `LAB-${id}`, name, offerDate: '2026-10-16', createdAt: now, updatedAt: now });
+    const km = (id, price) => meta(service({ id: `k0-${id}`, serviceType: 'transport', unit: 'km', activity: { billableQuantityPerMonth: 8000, unitsPerActiveDay: 400, daysPerActivation: 1 }, labor: [person({ role: 'Coordinador', basicMonthly: 2000000 })], equipment: [external({ name: 'Camión tercerizado' }, { price, unit: 'km' })], logistics: route({ distanceKm: 100, tripsPerActivation: 1 }) }), id, `K0 transporte ${id}`);
+    const month = (id, value) => meta(service({ id: `k0-${id}`, serviceType: 'permanent', unit: 'month', contractMonths: 12, activity: { activeDaysPerMonth: 22 }, labor: [person({ role: 'Operador', basicMonthly: 3850000 })], equipment: [owned({ name: 'Hidrogrúa', replacementValue: value, usefulLifeYears: 10, quantity: 2 })] }), id, `K0 abono ${id}`);
+    const big = [km('KM10', 150000), km('KM11', 1500000), month('MES10', 12000000000), month('MES11', 120000000000)];
+    check(P, 'los casos tienen montos de 9 y 10 dígitos', big.some((q) => computeQuote(structuredClone(q)).kpis.totalCost >= 1e9) && big.every((q) => computeQuote(structuredClone(q)).kpis.totalCost >= 1e8), big.map((q) => Math.round(computeQuote(structuredClone(q)).kpis.totalCost)).join(', '));
+    const live = db.workspaces.get(orgId);
+    live.state.quotes = [...live.state.quotes, ...big];
+    live.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+
+    // Un monto partido en dos renglones, o que se sale de su tarjeta, se mide sobre el texto (no sobre la caja).
+    const amounts = () => page.evaluate(() => {
+      const root = document.querySelector('main') || document.body;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const re = /(US\$|\$)\s?-?\d{1,3}(\.\d{3})+(,\d+)?/g;
+      const split = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const el = n.parentElement;
+        if (!el || !el.getClientRects().length || el.closest('[hidden], .sr-only')) continue;
+        re.lastIndex = 0;
+        for (let m = re.exec(n.textContent); m; m = re.exec(n.textContent)) {
+          const r = document.createRange();
+          r.setStart(n, m.index);
+          r.setEnd(n, m.index + m[0].length);
+          if (new Set([...r.getClientRects()].filter((x) => x.width > 0.5).map((x) => Math.round(x.top))).size > 1) split.push(m[0]);
+        }
+      }
+      const outside = [];
+      for (const num of document.querySelectorAll('main .qr-stat .big-stat-number, main .qr-base-item dd, main .qe-sum-number, main .qr-hero-value')) {
+        if (!num.getClientRects().length) continue;
+        const range = document.createRange();
+        range.selectNodeContents(num);
+        const a = range.getBoundingClientRect();
+        const b = num.closest('.qr-stat, .qr-base-item, .qe-sum-item, .qr-hero-item').getBoundingClientRect();
+        if (a.right > b.right + 1.5 || a.left < b.left - 1.5) outside.push(`${num.textContent.trim()} (${Math.round(a.right - b.right)} px)`);
+      }
+      const d = document.documentElement;
+      return { split, outside, overflow: Math.max(d.scrollWidth - d.clientWidth, 0) };
+    });
+    const widths = mode === 'mobile' ? [320, 360, 390] : [1024, 1152, 1440];
+    for (const w of widths) {
+      await page.setViewportSize({ width: w, height: mode === 'mobile' ? 800 : 900 });
+      const bad = [];
+      for (const q of big) {
+        await go(`#/cotizaciones/${encodeURIComponent(q.id)}/result`, 1200);
+        await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+        await page.evaluate(() => document.querySelectorAll('main details').forEach((x) => { x.open = true; }));
+        await page.waitForTimeout(200);
+        const r = await amounts();
+        if (r.split.length || r.outside.length || r.overflow > 1) bad.push(`${q.code}: ${JSON.stringify(r)}`);
+      }
+      check(P, `K0C-01 a ${w} px: ningún monto partido ni fuera de su tarjeta en el Resultado (4 cotizaciones)`, bad.length === 0, bad.join(' | '));
+    }
+    if (mode === 'mobile') {
+      // El detalle del resumen en vivo ("Ver detalle") a 320 px: los montos van de a uno por fila y enteros.
+      await page.setViewportSize({ width: 320, height: 640 });
+      await go(`#/cotizaciones/${encodeURIComponent(big[3].id)}/service`, 1200);
+      const toggle = page.locator('.qe-sum-toggle').first();
+      if (await toggle.count()) await tap(toggle).catch(() => {});
+      await page.waitForTimeout(300);
+      const s = await amounts();
+      check(P, 'K0C-01: el detalle del resumen en vivo a 320 px no parte ningún monto', s.split.length === 0 && s.outside.length === 0, JSON.stringify(s));
+    }
+    await page.setViewportSize(viewport);
+
+    // K0E-03: sin red se cambia un dato, se sale y se vuelve (borrador recuperado); vuelve la red y "Reintentar":
+    // el editor queda en "Guardado" y no queda ningún "Error al guardar" (ni en el editor ni como aviso).
+    const offline = (r) => r.abort('internetdisconnected');
+    const isSupa = (u) => u.href.startsWith(SUPA);
+    const state = () => page.evaluate(() => ({
+      save: (document.querySelector('.qe-save') || { dataset: {} }).dataset.status || null,
+      errors: [...document.querySelectorAll('.toast')].map((t) => t.innerText.replace(/\s+/g, ' ')).filter((t) => /Error al guardar/.test(t)),
+    }));
+    await go(`#/cotizaciones/${encodeURIComponent(big[0].id)}/logistics`, 1500);
+    const errorsBeforeOffline = errors.length;
+    await context.route(isSupa, offline);
+    const fuelInput = page.locator('input[name="fuel.pricePerLiter"]').first();
+    await fuelInput.fill('1750').catch(() => {});
+    await fuelInput.press('Tab').catch(() => {});
+    await page.waitForTimeout(3500);
+    await go('#/cotizaciones', 1200);
+    await go(`#/cotizaciones/${encodeURIComponent(big[0].id)}/logistics`, 1800);
+    const offlineState = await state();
+    await context.unroute(isSupa, offline);
+    await page.waitForTimeout(500);
+    const retry = page.getByRole('button', { name: 'Reintentar' }).first();
+    if (await retry.count()) await tap(retry).catch(() => {});
+    await page.waitForTimeout(4000);
+    const back = await state();
+    await go('#/inicio', 1200);
+    const home = await state();
+    // El navegador anota en la consola cada pedido cortado por el corte de red simulado: es del test, no de la
+    // app. Se descartan sólo esos; cualquier otro error del corte sigue contando.
+    for (let i = errors.length - 1; i >= errorsBeforeOffline; i -= 1) {
+      if (/net::ERR_INTERNET_DISCONNECTED/.test(errors[i])) errors.splice(i, 1);
+    }
+    const savedFuel = ((db.workspaces.get(orgId).state.quotes || []).find((q) => q.id === big[0].id) || { fuel: {} }).fuel.pricePerLiter;
+    check(P, 'K0E-03: sin red, el borrador recuperado se ve como error (punto de partida del caso)', offlineState.save === 'error', JSON.stringify(offlineState));
+    check(P, 'K0E-03: al volver la red queda "Guardado", el cambio está en la nube y no queda ningún "Error al guardar"', back.save === 'saved' && back.errors.length === 0 && home.errors.length === 0 && savedFuel === 1750, JSON.stringify({ back, home, savedFuel }));
+
+    // K0E-01: a 1024 y 1280 px la columna fija "Acciones" no tapa montos de Personal ("Por convenio", la vista de entrada).
+    if (mode === 'desktop') {
+      for (const w of [1024, 1280]) {
+        await page.setViewportSize({ width: w, height: 800 });
+        await go('#/recursos/personal', 1000);
+        const covered = await page.evaluate(() => [...document.querySelectorAll('main .table-wrap')].flatMap((wrap) => {
+          const t = wrap.querySelector('table');
+          const act = t && t.querySelector('td[data-label="Acciones"]:last-child');
+          if (!act || getComputedStyle(act).position !== 'sticky') return [];
+          const ar = act.getBoundingClientRect();
+          // La propia celda fija también es ta-right: se compara sólo con las celdas de montos.
+          return [...t.querySelectorAll('tbody td.ta-right, tbody td[data-label*="Costo"], tbody td[data-label*="Bruto"]')]
+            .filter((td) => td.dataset.label !== 'Acciones')
+            .map((td) => ({ label: td.dataset.label, px: Math.round(Math.max(0, Math.min(td.getBoundingClientRect().right, ar.right) - Math.max(td.getBoundingClientRect().left, ar.left))) }))
+            .filter((x) => x.px > 8);
+        }));
+        check(P, `K0E-01 a ${w} px: la columna fija de Personal no tapa montos`, covered.length === 0, JSON.stringify(covered));
+      }
+      await page.setViewportSize(viewport);
+    }
+    await scan(P, 'después de K0');
   }
 
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en

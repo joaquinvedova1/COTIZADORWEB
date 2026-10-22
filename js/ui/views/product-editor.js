@@ -230,9 +230,15 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
   };
   const agreements = syncResources.agreements;
 
-  const notify = (message, tone = 'info') => {
-    if (app && typeof app.toast === 'function') app.toast(message, tone);
-    else componentToast(message, tone);
+  const notify = (message, tone = 'info') => (app && typeof app.toast === 'function' ? app.toast(message, tone) : componentToast(message, tone));
+  // El aviso de "Error al guardar" es persistente: se va solo cuando el producto queda guardado,
+  // también el que dejó una apertura anterior de este mismo producto (K0E-03).
+  const saveErrorKey = `product:${productId}`;
+  const clearSaveErrorToasts = () => {
+    if (typeof document === 'undefined') return;
+    document.querySelectorAll('.toast[data-save-error]').forEach((t) => {
+      if (t.dataset.saveError === saveErrorKey) t.remove();
+    });
   };
   const currency = () => (typeof state.product.currency === 'string' && state.product.currency ? state.product.currency : CURRENCY);
   const saleUnit = () => (typeof state.product.saleUnit === 'string' && state.product.saleUnit.trim() ? state.product.saleUnit.trim() : 'unidad');
@@ -329,9 +335,13 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
       if (code === 'sync_failed' || code === 'session_expired') saveEl.dataset.sync = 'pending';
       else delete saveEl.dataset.sync;
       saveEl.title = message;
-      if (previous !== 'error' && code !== 'conflict' && code !== 'session_expired') notify(cloud ? message : `Error al guardar. ${message}`, code === 'sync_failed' ? 'warning' : 'danger');
+      if (previous !== 'error' && code !== 'conflict' && code !== 'session_expired') {
+        const shown = notify(cloud ? message : `Error al guardar. ${message}`, code === 'sync_failed' ? 'warning' : 'danger');
+        if (shown && shown.dataset) shown.dataset.saveError = saveErrorKey;
+      }
     } else {
       state.saveErrorCode = null;
+      if (status === 'saved' || status === 'idle') clearSaveErrorToasts();
       delete saveEl.dataset.sync;
       saveTextEl.textContent = texts[status] || '';
       saveEl.title = status === 'invalid' ? 'Hay valores fuera de rango: no se guardan cambios hasta corregirlos.' : '';
@@ -1657,6 +1667,11 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
             unsavedDrafts.delete(app.ctx, productId);
             scheduleSave.cancel();
             setSaveStatus('saved');
+            return;
+          }
+          // Borrador recuperado sin red (K0E-03): con la nube al día se guarda como con "Reintentar".
+          if (state.saveErrorCode === 'restored_draft') {
+            if (sync.status === 'saved' && !sync.dirty && !sync.conflict) save();
             return;
           }
           if (!['sync_failed', 'session_expired'].includes(state.saveErrorCode)) return;
