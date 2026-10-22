@@ -71,6 +71,9 @@ const FIX_VALUES = {
   operatorLaborId: (quote) => (list(quote.labor).find((l) => Number(l.positions) > 0) || {}).id,
   // BETA-CR (P1-2): elegir un convenio del puesto (las cargas genéricas dejan de ser "de ejemplo").
   agreementId: 'cct-lab',
+  // BETA-LANZ (ESC-03): el aviso de cargas genéricas lleva a las cargas patronales del puesto; un valor
+  // propio (distinto del genérico de 24 %) lo resuelve.
+  employerContributionsPct: 26.4,
 };
 /** Efectos de la interfaz al editar un campo (editar el precio del combustible lo confirma, etc.). */
 const UI_SIDE_EFFECTS = {
