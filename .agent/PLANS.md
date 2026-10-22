@@ -128,6 +128,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-026 | DESIGN-02 (2/2) — Cotizar sin fricción: resumen en vivo con margen y resultado, barra compacta, avisos y tablas en el celular, campos accesibles y eco de montos | UX, accesibilidad (sin fórmulas ni datos) | En curso (rama `claude/design-02-cotizar-sin-friccion`, apilada sobre PLAN-2026-025; PR sin merge) |
 | PLAN-2026-027 | BETA-RC1 — Candidato de beta integrado: los PR #28 a #36 sobre `main` `d6540b7`, verificados en el árbol final, versión 0.9.0 e informe GO/NO-GO | integración y release (sin funcionalidades nuevas) | En curso (rama `claude/beta-candidato-1`; PR candidato en borrador, sin merge ni deploy) |
 | PLAN-2026-028 | P1 CIERRE — Señales engañosas antes del autoservicio (Gate A de la revisión del 21/10): H-14, H-12 y H-13 en Productos, H-09 en externos y H-10 en los avisos de personal | corrección de UI, validación y confirmaciones (sin fórmulas) | En curso (sobre el candidato `claude/beta-candidato-1`, sin merge ni deploy) |
+| PLAN-2026-029 | BETA — beta gratuita y sin límites, feedback de las empresas (problemas y sugerencias) clasificado por RATEOS ADMIN y última revisión de UX antes del lanzamiento. Reemplaza los créditos de prueba del 21/10 (decisión del dueño del 22/10) | backend, seguridad, UX (sin fórmulas ni cambios del workspace) | En curso (rama `claude/beta-creditos-reportes`, PR #38 apilado sobre #37; sin merge, deploy ni migración real) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -2085,3 +2086,148 @@ Ninguno. Cambian textos, la completitud y el estado de la lista de productos. Se
 - 2026-10-21: Gate A implementado. En `f7e8a29` fallan 24 de los 30 tests nuevos (los otros 6 fijan lo que no cambia) y 10 de los 13 controles del bloque P1-CIERRE del `ui-lab`, en escritorio y en celular. Con el cambio: `npm test` 1966/1966, Test Lab 97 PASS con golden 39/39, gate PASA y `ui-lab` 648/648 y 650/650.
 - 2026-10-21: revisión de frontend (`3ce88e8`): `ui-lab` 656/656 y 660/660, `auth-lab` 136/136.
 - 2026-10-21: revisión de código del diff `f7e8a29..3ce88e8`: 10 observaciones: 5 corregidas (3 con tests que fallan en `3ce88e8`; las viñetas, verificadas en captura; el margen vacío, en el código), 2 en parte y 3 documentadas (CHANGELOG).
+
+---
+
+### PLAN-2026-029 — BETA: beta gratuita, feedback de las empresas y última revisión de UX
+
+- Estado: En curso
+- Tipo: backend, seguridad, UX
+- Responsable: agente (Claude Code), revisión de ChatGPT y decisión del dueño
+- Fecha de inicio: 2026-10-21 (alcance reemplazado el 2026-10-22)
+- Rama / PR: `claude/beta-creditos-reportes` (PR #38, en borrador), apilada sobre `claude/beta-candidato-1` (`bc31190`, PR #37). Sin merge ni deploy. La migración **no** se aplica al Supabase real sin autorización.
+
+#### 1. Contexto y problema
+La beta se abre a proveedores de Neuquén y Vaca Muerta. El 21/10 se implementó un esquema de **créditos de prueba**:
+- 10 cálculos por empresa, cobrados por un trigger de Postgres;
+- +2 por reporte aprobado.
+
+Nunca se aplicó ni se publicó. El 22/10 el dueño decidió:
+- **Beta gratuita y sin límites:**
+  - sin saldos, cupos, contadores, premios ni bloqueos;
+  - también fuera de la base: no alcanza con ocultar el contador.
+- **Registro autoservicio** con confirmación de email obligatoria, sin aprobación manual. Ya está en el candidato (HD-03).
+- **Feedback:** reportar un problema y sugerir una mejora, con el panel de RATEOS ADMIN para clasificar y responder. Comunicación que agradece y genera pertenencia, sin prometer beneficios.
+- **Última revisión de UX y frontend** antes de dar acceso a proveedores. Sólo se corrige lo que impide entender o usar.
+
+#### 2. Objetivo y no-objetivos
+- **Objetivo:**
+  - quitar todo el esquema de créditos (frontend, base, tests y documentación);
+  - dejar el canal de feedback más simple posible y seguro;
+  - corregir los P0/P1 de UX (y los P2 que afectan tareas) del recorrido de una empresa nueva.
+- **Fuera de alcance:**
+  - pagos, planes y monetización;
+  - terceros, IA y correos de respuesta;
+  - adjuntos y capturas;
+  - rediseño visual y funciones nuevas fuera del feedback.
+
+#### 3. Impacto en fórmulas
+Ninguno. Los dos pendientes de completitud de la auditoría PyME (consumo en ruta en 0 y cargas genéricas sin convenio) no cambian cifras. Lo verifican el A/B, golden 39/39 y VAL-01 87/87.
+
+#### 4. Impacto en datos
+**Workspace:** el esquema sigue en 10, sin migración de datos. La migración nueva **no toca** `workspace_states` ni las empresas existentes (DOVA incluida): no tiene triggers.
+
+**Base:** migración `20261022120000_rateos_beta_feedback.sql`, con tablas en `private`, RLS y sin grants:
+- `private.feedback`: tipo, categoría, mensaje, detalles, qué esperaba, pantalla, versión, estado, duplicado de, respuesta y revisión.
+- `private.feedback_events`: el historial.
+
+Reemplaza a `20261021120000_rateos_beta_credits_reports.sql`, que se borra. Nunca se aplicó.
+
+**Lo que se descartó de la versión de créditos** (queda en la rama `claude/beta-creditos-reportes-v1`, head `1cbea0c`):
+- trigger de cobro, ledger, saldos y políticas;
+- reserva del código COT en la misma escritura;
+- id fijo del ejemplo;
+- vista previa de créditos al restaurar;
+- manejo de `credits_exhausted` en la sincronización;
+- tope de ids en el respaldo.
+
+Todo eso existía sólo para la cuota; sin cuota, el comportamiento vuelve exactamente al del candidato `bc31190`, que ya estaba auditado.
+
+#### 5. Diseño
+- **Pantalla `#/mejorar`:**
+  - se elige "Encontré un problema" o "Tengo una sugerencia";
+  - un solo campo obligatorio; los detalles van plegados y son opcionales;
+  - aviso de privacidad;
+  - agradecimiento;
+  - "Comentarios de tu empresa" con estado y respuesta;
+  - "Acerca de la beta".
+- **Accesos:**
+  - el menú de la cuenta ("Reportar un problema" y "Sugerir una mejora");
+  - el distintivo "Beta gratuita";
+  - una invitación discreta después de exportar el PDF (no modal; 14 días entre invitaciones y 60 con "Ahora no").
+- **RATEOS ADMIN:** "Feedback de la beta" con filtros, clasificación, respuesta, duplicados e historial.
+- **Estados:**
+  - Recibido, En revisión, Confirmado, Resuelto, No corresponde y Duplicado;
+  - en una sugerencia: "La tenemos en cuenta" y "Ya está disponible".
+- **Seguridad:**
+  - patrón de RATEOS ADMIN (`public` invoker → `private` definer con `search_path = ''`);
+  - membresía para enviar y leer;
+  - `is_platform_admin()` para clasificar;
+  - límites contra el spam con advisory lock;
+  - nunca se lee el workspace.
+
+#### 6. Amenazas y respuesta
+| Amenaza | Respuesta |
+|---|---|
+| Leer o escribir las tablas por la API | `private` sin grants: `permission denied` (test SQL y E2E) |
+| Leer el feedback de otra empresa (A↔B) | `is_member` primero, `forbidden` uniforme |
+| Clasificar sin ser RATEOS ADMIN | `is_platform_admin()` (test SQL, E2E y SEC-19) |
+| Spam o cola inundada (registro abierto) | Límites por persona, por empresa, abiertos y repetidos, con advisory lock (concurrencia C1 y C2). Límites de Auth y confirmación obligatoria |
+| Texto engañoso ante el admin | Se quitan controles, invisibles y marcas de dirección (SQL y cliente); se muestra como texto |
+| Datos económicos en el comentario | No se envían; el aviso pide no escribirlos; el admin nunca lee el workspace |
+| Que quede una cuota escondida | SEC-19 falla si la migración tiene triggers, `workspace_states`, créditos o saldos, o si el cliente nombra `credits_exhausted` o "cálculos de prueba". El E2E crea 12 cotizaciones |
+
+#### 7. Tests (todo SIMULADO salvo el CI)
+- SQL en el Postgres local: `feedback_test.sql` (64) y los existentes con la migración (40 + 32 + 132).
+- Concurrencia real: `feedback_concurrency.sh` (4).
+- JS: `tests/services/feedback-service.test.js`, `tests/engines/beta-pyme.test.js` y `tests/ui/draft-recover.test.js`.
+- E2E: `beta-lab` en escritorio y celular, más `ui-lab` y `auth-lab`.
+- Gate: SEC-19.
+- Economía: golden, VAL-01 y A/B.
+
+#### 8. Riesgos y mitigación
+- **Registro abierto:** cuentas basura y spam. Mitigación:
+  - confirmación obligatoria y límites de Supabase Auth;
+  - límites del feedback;
+  - CAPTCHA como decisión aparte;
+  - primera ronda controlada de 3 a 5 proveedores.
+- **Avisos nuevos de completitud en lo guardado:** cotizaciones con cargas genéricas sin convenio abren como BORRADOR. Es aceptado: avisa de un costo que puede faltar.
+
+#### 9. Rollback
+- **Frontend:** revertir el PR.
+- **Base:** `supabase/rollback/20261022120000_rateos_beta_feedback_down.sql`, que no toca `workspace_states`. Antes, exportar el feedback (docs/BETA_FEEDBACK.md §6).
+
+#### 10. Review multidisciplinario
+- **Economía:** sin cambios de fórmulas.
+- **Seguridad:** SEC-19, test SQL, concurrencia y revisión del diff.
+- **UX:** recorrido completo de una empresa nueva en escritorio y celular, y auditoría final BETA-LANZ (1440, 1024, 390, 360 y 320) con verificación de cada corrección en el navegador simulado.
+- **QA:** E2E de la beta.
+
+#### 11. Documentación
+- [x] `docs/BETA_FEEDBACK.md`, que reemplaza a `docs/BETA_CREDITS.md`
+- [x] `supabase/README.md`
+- [x] CHANGELOG
+- [x] PLANS (bitácora)
+
+#### 12. Criterio de terminación
+- Tests en verde (SQL simulado, JS, E2E, gate y Test Lab).
+- CI en verde.
+- Informe GO/NO-GO en RATEOS-AUDIT.
+- El merge, el deploy y la migración real esperan la autorización del dueño.
+
+#### Bitácora
+- 2026-10-21: versión con créditos de prueba.
+  - 102 controles SQL, 6 casos de concurrencia y `beta-lab` 86/86.
+  - Auditoría PyME: 0 P0 y 2 P1 (corregidos).
+  - CI en verde en `1cbea0c`.
+- 2026-10-22: decisión del dueño, beta gratuita y sin límites.
+  - Se quitan los créditos del frontend y de la base: se vuelve a `bc31190` en todo lo que existía por la cuota.
+  - El feedback queda con una migración nueva y mínima: SQL 64/64, concurrencia 4/4 y los existentes 40 + 32 + 132.
+  - Problema y sugerencia separados; distintivo "Beta gratuita"; invitación después de exportar.
+  - `npm test` 1996/1996 y `beta-lab` 68/68.
+- 2026-10-22: auditoría UX final (BETA-LANZ), SIMULADA, en escritorio y celular.
+  - Resultado: 0 P0, 1 P1 (CEL-01/ESC-08: el aviso de obligatorios de los diálogos de Recursos quedaba detrás del fondo del modal), 8 P2 en escritorio y 6 en celular (4 venían de la auditoría PyME).
+  - Corregidos: el P1 y los P2 que afectan tareas (ver CHANGELOG, "Corregido"). Quedan como limitaciones conocidas P2-5 (personas por puesto), P2-6 (segunda fecha base, mitigada con "Usar el mes de la oferta") y los P3.
+  - Cargas genéricas: el aviso sigue yéndose al cambiar uno de los cinco valores. Con "alguno sigue igual" sería imposible de sacar (SAC 8,33 % es el legal).
+  - Historial de la rama reconstruido desde `bc31190` en 5 commits; la versión con créditos queda en `claude/beta-creditos-reportes-v1`.
+  - Evidencia, regresión final y GO/NO-GO: RATEOS-AUDIT `tasks/BETA-LANZ/`.

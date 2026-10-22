@@ -12,6 +12,54 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Beta gratuita y feedback: problemas y sugerencias de las empresas (PLAN-2026-029, [docs/BETA_FEEDBACK.md](docs/BETA_FEEDBACK.md)).**
+- Decisión del dueño del 22/10: beta **gratuita y sin límites**. Reemplaza el esquema de créditos de prueba del 21/10, que nunca se aplicó ni se publicó.
+- Ninguna fórmula cambia: golden 39/39 y esquema del workspace 10.
+- La migración `20261022120000` **no está aplicada** en Supabase.
+
+### Agregado
+- **"Ayudanos a mejorar RATEOS"** (`#/mejorar`), desde el menú de la cuenta: **"Reportar un problema"** y **"Sugerir una mejora"**.
+  - Un solo campo obligatorio por tipo; los detalles son opcionales y van plegados.
+  - Lleva la pantalla de una lista fija, sin ids, y la versión. Nunca datos económicos, ids ni capturas.
+  - "Comentarios de tu empresa" muestra el estado y la respuesta de RATEOS.
+  - Estados: Recibido, En revisión, Confirmado, Resuelto, No corresponde y Duplicado. En una sugerencia: "La tenemos en cuenta" y "Ya está disponible". Ninguno suma ni descuenta nada.
+- **Distintivo "Beta gratuita"** en el menú, que lleva a **"Acerca de la beta"**: agradece y explica, sin prometer beneficios.
+- **Invitación discreta después de imprimir o guardar el PDF** de una cotización. No es modal, aparece a lo sumo una vez cada 14 días y "Ahora no" la esconde 60.
+- **RATEOS ADMIN:** cola "Feedback de la beta" con filtros por estado y por tipo, clasificación, respuesta para la empresa, duplicados e historial (quién y cuándo).
+- **Base:**
+  - migración `20261022120000_rateos_beta_feedback.sql`, con tablas en `private`, RLS y sin grants;
+  - 4 RPC, con límites técnicos contra el spam;
+  - sin triggers ni lecturas del workspace;
+  - vuelta atrás en `supabase/rollback/`.
+- **Pruebas:**
+  - `supabase/tests/feedback_test.sql` (64 controles) y concurrencia real en un Postgres local SIMULADO (4 casos);
+  - `tests/services/feedback-service.test.js`;
+  - `tests/lab/e2e/beta-lab.mjs`, en escritorio y celular, incluye crear más de 10 cotizaciones sin ningún límite;
+  - control SEC-19 del Beta Security Gate, que además detecta restos de cuotas o créditos.
+
+### Cambiado
+- **Completitud (auditoría PyME de la beta, P1-1 y P1-2).** Ninguna fórmula cambia. En el A/B, las cifras son iguales en 2196 cotizaciones.
+  - **Consumo en ruta en 0:** un equipo que va por sus propios medios, con km y "Consumo trasladándose" en 0, deja "Combustible" pendiente aunque consuma trabajando. Antes quedaba ✓ y la ruta no sumaba combustible.
+  - **Cargas sociales de ejemplo:** un puesto usado, sin convenio y con las cargas y horas genéricas, suma "Cargas sociales del personal" como pendiente para revisar (BORRADOR), igual que en productos (H-13).
+- **Insignia ILUSTRATIVO:** nombra la tasa de financiación de ejemplo. Antes decía "Incluye valores ILUSTRATIVOS: .".
+
+### Corregido
+**Auditoría UX final antes del piloto (BETA-LANZ, SIMULADA):** recorrido de una empresa nueva en escritorio (1440 y 1024) y en celular (390, 360 y 320). Ninguna fórmula cambia.
+- **Recursos (P1):** guardar con un dato obligatorio vacío no parecía hacer nada, porque el aviso quedaba detrás del fondo del diálogo. Ahora el aviso aparece dentro del diálogo, junto a "Guardar", y el foco va al primer campo que falta. Cualquier aviso que aparezca con un diálogo abierto se muestra adentro.
+- **Valores de ejemplo en el Resultado:**
+  - un solo aviso nombra el combustible y la tasa de financiación de ejemplo, cada uno con su "Ir al campo" (antes la tasa sólo figuraba en el `title` de la insignia);
+  - el encabezado del PDF los nombra;
+  - el Inicio ya no los atribuye a plantillas.
+- **Invitación a comentar:** también aparece después del "Imprimir" de la cabecera. "Ahora no" devuelve el foco al Resultado.
+- **PDF:** la "Escalera de precios" ya no queda debajo del ejemplo de $ 100.
+- **Celular:** en el Resultado, los montos suben a la primera pantalla. Se ocultan el "Guardado" repetido y el nombre de la cotización en el subtítulo; un guardado con error sigue a la vista.
+- **Resumen en vivo:** sin costos cargados muestra "—" y dice qué falta, en vez de "$ 0" y "Cargá los días por mes". En productos, igual.
+- **Reconexión:** un borrador que la sincronización ya subió no reaparece como "Error al guardar" al reabrir la cotización o el producto. Con cambios sin subir o en conflicto, se recupera igual que antes.
+- **Cargas genéricas:** "Ir al campo" lleva a las cargas del puesto. Sin convenios cargados, el selector de convenio no tenía salida.
+- **RATEOS ADMIN:** "Duplicado de" ofrece los originales de todos los estados, también los resueltos, con el estado y un extracto del texto.
+- **Comentarios:** el error aparece junto al campo, el título ya no se repite y "Acerca de la beta" queda a la vista.
+- **Tablas a partir de 761 px:** la columna Acciones queda fija a la derecha, así Editar y Eliminar se ven aunque la tabla se desplace.
+
 ## [0.9.0] - sin publicar (candidato a beta, PLAN-2026-027)
 
 **RATEOS v0.9.0, candidato a beta.** Reúne todo lo que estaba sin versión:
