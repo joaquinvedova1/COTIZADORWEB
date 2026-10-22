@@ -27,7 +27,7 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
-import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS, OWNERSHIP_COSTS_PER_KM } from '../domain/catalogs.js';
+import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS, OWNERSHIP_COSTS_PER_KM, ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent, formatNumber, formatMoney } from '../core/format.js';
@@ -72,6 +72,8 @@ export function vehicleOwnershipAnswered(vehicle = {}, equipment = []) {
 }
 
 /** Nombre de un puesto ("Personal" si no tiene). */
+/** Parámetros de convenio que, todos iguales a los genéricos y sin convenio, son de ejemplo (como productos, H-13). */
+const GENERIC_LABOR_KEYS = Object.freeze(['normalHoursPerMonth', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
 const roleOf = (l) => (typeof l.role === 'string' && l.role.trim()) || 'Personal';
 
 /**
@@ -360,6 +362,22 @@ export function evaluateCompleteness(quote = {}) {
     const ok = labor.some((l) => nonNegative(l.basicMonthly) > 0 && nonNegative(l.positions) > 0);
     items.push(rule('labor', 'Personal', 'labor', 2, ok ? 'ok' : 'missing', ok ? 'Personal cargado.' : 'No hay personal con salario cargado.'));
   }
+  // 4 bis. Auditoría PyME (BETA-CR, P1-2; igual que productos, H-13): un puesto usado, sin convenio y
+  // con las cargas y horas genéricas de ejemplo calcula con valores ILUSTRATIVOS que no son de su CCT.
+  // Pendiente "para revisar" (BORRADOR); el costo no cambia. La demo ya se muestra como ILUSTRATIVA.
+  if (quote.illustrative !== true) {
+    const generic = labor.map((l, index) => ({ l, index })).filter(({ l }) => nonNegative(l.positions) > 0 && !l.agreementId
+      && GENERIC_LABOR_KEYS.every((k) => l[k] === ILLUSTRATIVE_AGREEMENT_PARAMS[k]));
+    if (generic.length) {
+      const names = generic.slice(0, 3).map(({ l }) => `"${roleOf(l)}"`).join(', ');
+      const more = generic.length > 3 ? ` y ${generic.length - 3} más` : '';
+      const item = rule('labor_generic_params', 'Cargas sociales del personal', 'labor', 1, 'warning',
+        `${names}${more}: sin convenio, las cargas sociales y las horas del mes son las GENÉRICAS de ejemplo (ILUSTRATIVAS), no las de tu CCT. Elegí tu convenio o cargá tus valores en "Opciones avanzadas" del puesto.`);
+      item.focus = `labor.${generic[0].index}.agreementId`;
+      item.targets = generic.map(({ l, index }) => ({ list: 'labor', index, name: roleOf(l) }));
+      items.push(item);
+    }
+  }
 
   // 5. Relevos (cobertura continua)
   const continuous = CONTINUOUS_SERVICE_TYPES.includes(serviceType) && (serviceType === 'permanent' || activity.availability === '24/7');
@@ -486,7 +504,7 @@ export function evaluateCompleteness(quote = {}) {
     const includedByProvider = isExt(e) && extOf(e).mobilizationIncluded === true;
     const paysRouteFuel = !isExt(e) || (extOf(e).fuelIncluded === false && externalFuelMode(extOf(e)) === 'per_hour');
     if (!logistics.notApplicable && m.mode === 'self' && !includedByProvider && paysRouteFuel && !noFuel) {
-      fuelUsers.push({ name: lineName(e), consumes: nonNegative(m.travelLitersPer100Km) > 0, path: `equipment.${i}.mobilization.travelLitersPer100Km` });
+      fuelUsers.push({ name: lineName(e), consumes: nonNegative(m.travelLitersPer100Km) > 0, route: true, path: `equipment.${i}.mobilization.travelLitersPer100Km` });
     }
   });
   if (!logistics.notApplicable) {
@@ -528,6 +546,13 @@ export function evaluateCompleteness(quote = {}) {
         message = `Falta el consumo de combustible de ${names}: lo pagás vos y sin consumo no suma costo.`;
         focus = fuelUsers[0].path;
       }
+    } else if (routeKmPerActivation > 0 && fuelUsers.some((u) => u.route && !u.consumes)) {
+      // Auditoría PyME (BETA-CR, P1-1): el equipo consume trabajando, pero viaja por sus propios
+      // medios con "Consumo trasladándose" en 0: la ruta no suma combustible. La fórmula no cambia.
+      const routeUser = fuelUsers.find((u) => u.route && !u.consumes);
+      status = 'missing';
+      message = `Falta el consumo trasladándose de "${routeUser.name}": va por sus propios medios y la ruta no suma combustible. Cargá los litros cada 100 km; si no usa combustible, marcá "No usa combustible".`;
+      focus = routeUser.path;
     } else if (fuel.illustrative === true) {
       // PLAN-2026-014 (LAB-D7): en una cotización real nueva el precio de ejemplo no cuenta como
       // definido hasta que se confirma o se reemplaza. Las anteriores y la demo: el aviso de siempre.

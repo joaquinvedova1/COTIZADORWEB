@@ -69,6 +69,8 @@ const FIX_VALUES = {
   // operador de Personal a un externo que ya lo trae (F2: el aviso pasa a "operador duplicado").
   ownershipCostsIn: 'per_km',
   operatorLaborId: (quote) => (list(quote.labor).find((l) => Number(l.positions) > 0) || {}).id,
+  // BETA-CR (P1-2): elegir un convenio del puesto (las cargas genéricas dejan de ser "de ejemplo").
+  agreementId: 'cct-lab',
 };
 /** Efectos de la interfaz al editar un campo (editar el precio del combustible lo confirma, etc.). */
 const UI_SIDE_EFFECTS = {
