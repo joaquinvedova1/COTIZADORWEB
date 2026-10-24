@@ -45,9 +45,9 @@
 .qr-stat .trace-btn { align-self: flex-start; padding-left: 0; }
 .qr-stat-price .big-stat-value { color: var(--blue-text); }
 /* UX-UNITS: la tarifa es la cifra principal del resumen (fondo suave, mismo orden y tamaño de grilla). */
-.qr-stat.qr-stat-primary { background: var(--navy-50); border-radius: var(--radius-sm); padding-left: 0.85rem; padding-right: 0.85rem; }
+/* El fondo sobresale a los costados (margen negativo): la cifra conserva todo su ancho (K0C-01, montos de 10 dígitos a 320 px). */
+.qr-stat.qr-stat-primary { background: var(--navy-50); border-radius: var(--radius-sm); padding-left: 0.85rem; padding-right: 0.85rem; margin-inline: -0.85rem; }
 .qr-stat-primary .big-stat-label { color: var(--blue-text); }
-.qr-stat-primary .big-stat-number { font-weight: 780; }
 
 /* UX-UNITS: "La cuenta del mes": cantidad × tarifa = facturación − impuestos − costo = ganancia. */
 .qr-account { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
@@ -506,7 +506,7 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-stat:first-child { border-left: 0; padding-left: 0; }
   .qr-stat:last-child { padding-right: 0; }
   /* La tarifa destacada no corre la fila: el fondo sobresale arriba y abajo, y sin línea a los costados. */
-  .qr-stat.qr-stat-primary { padding: 0.85rem 1.25rem; margin-block: -0.85rem; border-left-color: transparent; }
+  .qr-stat.qr-stat-primary { padding: 0.85rem 1.25rem; margin: -0.85rem 0; border-left-color: transparent; }
   .qr-stat-primary + .qr-stat { border-left-color: transparent; }
   .qr-stat .big-stat-number { font-size: clamp(1.4rem, 2.3cqi, 2.1rem); }
   .qr-stats-long .qr-stat .big-stat-number { font-size: clamp(1.1rem, 2.05cqi, 2.1rem); }
@@ -605,6 +605,8 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-stat { border-top: 0; padding: 0 0.6rem; border-left: 1px solid var(--line); }
   .qr-stat:first-child { border-left: 0; padding-left: 0; }
   .qr-stat .big-stat-number { font-size: 1.2rem; }
+  /* UX-UNITS: en el PDF la tarifa destacada va como las otras (sin fondo ni márgenes negativos). */
+  .qr-stat.qr-stat-primary { background: none; margin: 0; padding: 0 0.6rem; border-left: 1px solid var(--line); }
   .qr-work { background: var(--white); border: 1px solid var(--line); border-left-width: 4px; }
   .qr-work-text { font-size: 0.95rem; }
   .qr-deep-item { box-shadow: none; border: 0; border-top: 2px solid var(--navy-900); border-radius: 0; break-before: auto; }

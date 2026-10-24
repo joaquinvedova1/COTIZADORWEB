@@ -517,6 +517,9 @@ export function render(container, ctx) {
         writeRate(rateIn);
       },
     }));
+    // El lector de pantalla no lee los selectores de al lado al entrar al número: la unidad va en el rótulo (GOV.UK).
+    const label = field.querySelector('.field-label');
+    if (label) label.insertBefore(h('span', { class: 'sr-only' }, ` (${rateFormText(numeratorOf(rateIn.numerator).plural, rateIn.denominator)})`), label.querySelector('.req'));
     withUnitControls(
       field,
       numerators.length > 1
