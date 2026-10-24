@@ -457,7 +457,9 @@ function decorateFieldIssues(container, issues) {
     field.classList.add('qe-has-issue');
     // Id estable (el del control + su número de aviso): al recalcular, el aria-describedby queda igual.
     const noteId = `${controls[0].id || uniqueId('qe-campo')}-aviso-${field.querySelectorAll('.qe-issue-note').length + 1}`;
-    const note = h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`], id: noteId }, issue.message);
+    // Un campo puede decir el aviso en la forma en que se cargó (UX-UNITS: rendimiento "por hora" o en otra unidad).
+    const message = issue.severity === 'error' && field.dataset.issueMessage ? field.dataset.issueMessage : issue.message;
+    const note = h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`], id: noteId }, message);
     field.appendChild(note);
     // Todos los controles del campo con esa ruta (p. ej. cada opción de un grupo).
     controls.filter((c) => field.contains(c)).forEach((c) => {

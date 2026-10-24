@@ -100,6 +100,7 @@ import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import { onSessionReset } from '../session-memory.js';
 import { REFERENCE_PRICE_NOTE, documentDatesText } from '../reference-text.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
+import { quantityBasisOf } from '../../domain/unit-pairs.js';
 import {
   dayDecimals,
   resultDays,
@@ -1806,13 +1807,21 @@ function billableText(v, units) {
   return `${formatNumber(units, { decimals: 2 })} ${Math.abs(units - 1) < 1e-9 ? 'día' : 'días'}`;
 }
 
-/** De dónde sale la cantidad: "20 m³ por día × 10 días de trabajo", "20 días × 9 h por día". */
+/**
+ * De dónde sale la cantidad, en el sentido en que se cargó: con días de trabajo cargados, "20 m³ por día × 10 días
+ * de trabajo"; con la cantidad cargada, "en 10 días de trabajo, a 20 m³ por día" (los días se derivan). Por hora,
+ * "20 días × 9 h por día".
+ */
 function billableSource(v, rev) {
   const { r } = v;
   const a = r.activity || {};
   const D = rev.activeDays;
   let text = '';
-  if (r.unit === 'quantity' && hasValue(a.unitsPerActiveDay) && a.unitsPerActiveDay > 0 && hasValue(D)) text = `${quantityText(a.unitsPerActiveDay, r)} por día × ${workDaysText(D)}`;
+  if (r.unit === 'quantity' && hasValue(a.unitsPerActiveDay) && a.unitsPerActiveDay > 0 && hasValue(D)) {
+    text = quantityBasisOf(v.q.activity) === 'workdays'
+      ? `${quantityText(a.unitsPerActiveDay, r)} por día × ${workDaysText(D)}`
+      : `en ${workDaysText(D)}, a ${quantityText(a.unitsPerActiveDay, r)} por día`;
+  }
   else if (r.unit === 'hour' && hasValue(a.hoursPerActiveDay) && hasValue(D)) text = `${formatDays(D, { decimals: 2 })} × ${formatNumber(a.hoursPerActiveDay, { decimals: 2 })} h por día`;
   const T = activationTerms(v.q);
   const min = rev.minimumCallApplied ? `incluye el mínimo ${T.per}` : '';

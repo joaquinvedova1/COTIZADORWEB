@@ -17,15 +17,16 @@ Reglas para este archivo:
 Pedido del dueño del 24/10 y del Issue #5 de RATEOS-AUDIT. **Ninguna fórmula cambia**: golden 39/39, VAL-01 y los cinco casos del encargo dan lo mismo que K0 (`c5eca19`). Esquema del workspace 10, sin migración.
 
 #### Agregado
-- **Unidad de cobro "ARS / [unidad ▾]"** en "Cómo se cobra": la moneda de la empresa a la vista y las mismas unidades habituales de cada tipo de servicio, en un selector en vez de 7 a 11 tarjetas.
+- **Unidad de cobro "ARS / [unidad]"** en "Cómo se cobra": la moneda de la empresa a la vista y las mismas unidades habituales de cada tipo de servicio. Hasta 6 opciones van a la vista como botones de opción compactos; con más, en un selector, en vez de 7 a 11 tarjetas.
 - **Rendimiento compuesto**: `[número] [m³ | viajes | t… ▾] / [día de trabajo | hora ▾]`, sólo con pares válidos (`js/domain/unit-pairs.js`):
-  - por hora, × las horas productivas por día (en km, las horas de marcha: la velocidad no se factura);
+  - por hora, × las horas productivas por día (en km, las horas de marcha: la velocidad no se factura). **Las horas no se suponen**: se piden, y en km se avisa si son todas las del día de trabajo;
   - viaje ↔ m³ o t con la carga por viaje; kg ↔ t y metro ↔ km exactos.
   - Cambiar el numerador o el denominador pide el número de nuevo: 20 m³ por día nunca pasan a ser 20 m³ por hora.
 - **Cantidad del mes en días de trabajo** (opcional): días × rendimiento = cantidad facturable.
 - **La cadena a la vista**: "200 m³ ÷ 20 m³ por día = 10 días de trabajo" y "200 m³ × $ 45.000 por m³ = $ 9.000.000 por mes", con los números del motor.
 - **"La cuenta del mes"** en el Resultado (y en el PDF): cantidad facturable × tarifa = facturación; menos impuestos sobre lo que facturás y el costo = ganancia. Con un resultado NO CONFIABLE lo dice en el título.
-- **Ayuda (i)** (`infoTip`, `addInfoTip`) para lo secundario: se abre con el mouse, un toque o el teclado, se anuncia (`role="status"`), se cierra con Esc o tocando afuera, no sale de la pantalla y no se imprime. Nunca para avisos críticos.
+- **Ayuda (i)** (`infoTip`, `addInfoTip`) para lo secundario: se abre con el mouse, un toque o el teclado, se anuncia (`role="status"`), se cierra con Esc o tocando afuera, no sale de la pantalla (en el celular se abre hacia arriba si la taparía el resumen) y no se imprime. Nunca para avisos críticos.
+- El aviso de un campo puede decirse en la forma en que se cargó (`data-issue-message`): "Cargá el rendimiento en km por hora", no "por día de trabajo".
 
 #### Cambiado
 - Una frase de ayuda por campo en "Cómo se cobra"; las explicaciones largas pasan a (i). 45 % menos palabras de ayuda a la vista en los cinco casos (1.069 → 593).

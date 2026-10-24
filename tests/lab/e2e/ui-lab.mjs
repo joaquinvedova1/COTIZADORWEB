@@ -2505,8 +2505,9 @@ async function runMode(mode) {
     const kg = meta(service({ id: 'uxu-kg', serviceType: 'per_unit', unit: 'kg', pricingMode: 'known_rate', pricing: { knownRate: 50 }, activity: { billableQuantityPerMonth: 5000, unitsPerActiveDay: 500, daysPerActivation: 1 }, labor: [driver()] }), 'UXU-KG', 'UXU por kg');
     const call = meta(service({ id: 'uxu-call', serviceType: 'on_call', unit: 'call', activity: { billableQuantityPerMonth: 6, daysPerActivation: 1 }, labor: [driver()] }), 'UXU-CALL', 'UXU por llamado');
     const stale = meta(service({ id: 'uxu-stale', serviceType: 'configurable', unit: 'day', activity: { activeDaysPerMonth: 8, billableQuantityPerMonth: 300, unitsPerActiveDay: 30 }, labor: [driver()] }), 'UXU-STALE', 'UXU por día con una cantidad vieja');
+    const kmq = meta(service({ id: 'uxu-km', serviceType: 'transport', unit: 'km', activity: { billableQuantityPerMonth: 6000, unitsPerActiveDay: 400, daysPerActivation: 1, hoursPerActiveDay: 8 }, labor: [driver()], equipment: [truck()], logistics: route({ distanceKm: 100, tripsPerActivation: 2 }) }), 'UXU-KM', 'UXU traslado por km');
     const live = db.workspaces.get(orgId);
-    live.state.quotes = [...live.state.quotes, m3, res, kg, call, stale];
+    live.state.quotes = [...live.state.quotes, m3, res, kg, call, stale, kmq];
     live.revision += 1;
     await page.reload();
     await page.waitForTimeout(2500);
@@ -2529,6 +2530,12 @@ async function runMode(mode) {
       const btn = page.locator('dialog[open] button', { hasText: name }).first();
       if (await btn.count()) await tap(btn);
       await page.waitForTimeout(700);
+    };
+    /** Elige la unidad de cobro: selector (muchas unidades) o botón de opción (pocas). */
+    const chooseUnit = async (value) => {
+      const sel = page.locator('select[name="unit"]').first();
+      if (await sel.count()) await sel.selectOption(value);
+      else await tap(page.locator(`input[type="radio"][name="unit"][value="${value}"]`).first());
     };
     const setNumber = async (name, value) => {
       const input = page.locator(`input[name="${name}"]`).first();
@@ -2613,7 +2620,8 @@ async function runMode(mode) {
       await denominator.selectOption('hour');
       await page.waitForTimeout(900);
       const hourUi = await page.evaluate(() => ({ value: (document.querySelector('input[name="activity.unitsPerActiveDay"]') || {}).value, hours: (document.querySelector('input[name="activity.rateInput.hours"]') || {}).value }));
-      check(P, 'por hora: 20 por día no se lee como 20 por hora (el número se pide de nuevo) y las horas arrancan en 10', hourUi.value === '' && hourUi.hours === '10', JSON.stringify(hourUi));
+      check(P, 'por hora: 20 por día no se lee como 20 por hora y las horas no se suponen (las dos cosas se piden)', hourUi.value === '' && hourUi.hours === '', JSON.stringify(hourUi));
+      await setNumber('activity.rateInput.hours', 10);
       await setNumber('activity.unitsPerActiveDay', 2);
       const savedHour = await waitStored(m3.id, (q) => q.activity && q.activity.unitsPerActiveDay === 20);
       const a = savedHour && savedHour.activity;
@@ -2672,7 +2680,9 @@ async function runMode(mode) {
 
     // 8. Llamado → día: 6 llamados por mes no pasan a ser 6 días; una cantidad vieja tampoco se reusa.
     await go(`#/cotizaciones/${encodeURIComponent(call.id)}/modality`, 1200);
-    await page.locator('select[name="unit"]').first().selectOption('day');
+    const chips = await page.evaluate(() => ({ radios: [...document.querySelectorAll('input[type="radio"][name="unit"]')].map((r) => r.value), select: Boolean(document.querySelector('select[name="unit"]')), prefix: (document.querySelector('.qe-unit-chips .qe-compound-fixed') || {}).textContent }));
+    check(P, 'con pocas unidades (on-call: 5) van a la vista como botones de opción, con "ARS /"', !chips.select && JSON.stringify(chips.radios) === JSON.stringify(unitChoicesFor('on_call', 'call').map((u) => u.id)) && norm(chips.prefix) === 'ARS /', JSON.stringify(chips));
+    await chooseUnit('day');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     dlg = await dialog();
     check(P, 'llamado → día: la cantidad de llamados se borra, no se convierte', Boolean(dlg) && /Cantidad del mes: 6 llamados por mes/.test(norm(dlg.text)) && !dlg.buttons.some((b) => /^Convertir/.test(b)), JSON.stringify(dlg));
@@ -2687,6 +2697,28 @@ async function runMode(mode) {
     await press('Borrar y cargar de nuevo');
     const staleSaved = await waitStored(stale.id, (q) => q.unit === 'm3');
     check(P, 'día → m³: la cantidad vieja (300) no aparece como 300 m³', Boolean(staleSaved) && staleSaved.activity.billableQuantityPerMonth === null && staleSaved.activity.unitsPerActiveDay === null, JSON.stringify(staleSaved && staleSaved.activity));
+
+    // 8 bis. km por hora (revisión UX-UNITS, H2): la velocidad no se factura; las horas de marcha se piden y,
+    // si son todas las horas del día de trabajo, se avisa. El aviso del motor habla en la forma elegida.
+    await go(`#/cotizaciones/${encodeURIComponent(kmq.id)}/modality`, 1200);
+    await page.locator('select[name="activity.rateInput.denominator"]').first().selectOption('hour');
+    await page.waitForTimeout(1200);
+    const kmUi = await page.evaluate(() => {
+      const field = (document.querySelector('input[name="activity.unitsPerActiveDay"]') || document.body).closest('.field');
+      return {
+        hours: (document.querySelector('input[name="activity.rateInput.hours"]') || {}).value,
+        hint: field ? (field.querySelector('.field-hint') || {}).textContent : '',
+        issue: field ? [...field.querySelectorAll('.qe-issue-note')].map((n) => n.textContent).join(' | ') : '',
+      };
+    });
+    check(P, 'km por hora: dice "velocidad promedio con paradas", no supone las horas de marcha', /Velocidad promedio con paradas/.test(kmUi.hint) && kmUi.hours === '', JSON.stringify(kmUi));
+    check(P, 'km por hora sin número: el aviso pide el rendimiento "en km por hora" (no "por día de trabajo")', /Cargá el rendimiento en km por hora/.test(kmUi.issue), kmUi.issue || 'sin aviso');
+    await setNumber('activity.rateInput.hours', 8);
+    await setNumber('activity.unitsPerActiveDay', 50);
+    const kmSaved = await waitStored(kmq.id, (q) => q.activity.unitsPerActiveDay === 400);
+    await page.waitForTimeout(500);
+    const kmEquiv = norm(await page.locator('.qe-rate-equiv').first().textContent().catch(() => ''));
+    check(P, '50 km/h × 8 h de marcha = 400 km por día; con todas las horas del día de trabajo, avisa', Boolean(kmSaved) && /^= 400 km por día de trabajo\. Ojo: son todas las horas del día de trabajo/.test(kmEquiv), `${kmEquiv} · ${JSON.stringify(kmSaved && kmSaved.activity.rateInput)}`);
 
     // 9. Una cotización de K0 (sin la forma nueva) abre en su forma nativa y, sin editarla, no se le agrega nada.
     await go(`#/cotizaciones/${encodeURIComponent(res.id)}/modality`, 1200);

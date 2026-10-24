@@ -44,6 +44,9 @@ const MODE_LABELS = Object.freeze({
   known_activity: 'No: calculá cuánto cobrar',
 });
 
+/** Hasta cuántas unidades de cobro se muestran a la vista (botones de opción); con más, un selector. */
+const UNIT_CHIPS_MAX = 6;
+
 /** Una frase por opción (UX-UNITS): qué calcula RATEOS en cada caso. */
 const MODE_HINTS = Object.freeze({
   known_rate: 'Cargás tu tarifa: RATEOS calcula cuánto facturar para no perder y cuánto ganás.',
@@ -332,30 +335,51 @@ export function render(container, ctx) {
   const currency = quoteCurrencyOf(quote);
 
   /**
-   * Unidad de cobro como "ARS / [unidad ▾]" (UX-UNITS): la moneda es la de la
+   * Unidad de cobro como "ARS / [unidad]" (UX-UNITS): la moneda es la de la
    * empresa (fija en la cotización) y la unidad se elige de las habituales del
-   * tipo de servicio. Al cambiarla, changeUnit pide qué hacer con los datos.
+   * tipo de servicio. Con pocas opciones (hasta UNIT_CHIPS_MAX) van a la vista
+   * como botones de opción; con más, en un selector (GOV.UK: las opciones
+   * cortas se muestran). Al cambiarla, changeUnit pide qué hacer con los datos.
    */
   function unitField() {
     const id = uniqueId('unit');
-    const select = h(
-      'select',
-      { id, name: 'unit', disabled: kit.readOnly, 'aria-describedby': `${id}-hint` },
-      ...unitOptions.map((u) => h('option', { value: u.id, selected: u.id === info.id }, unitOptionLabel(u))),
-    );
-    select.addEventListener('change', () => changeUnit(select.value));
-    const el = h(
-      'div',
-      { class: 'field qe-unit-field' },
-      h('label', { class: 'field-label', for: id }, 'Unidad de cobro', h('span', { class: 'sr-only' }, ` (${currency} por unidad)`)),
-      h(
+    const hint = h('div', { class: 'field-hint', id: `${id}-hint` }, selectedDef && selectedDef.hint ? selectedDef.hint : '');
+    const prefix = h('span', { class: 'qe-compound-fixed', 'aria-hidden': 'true' }, `${currency} /`);
+    let el;
+    if (unitOptions.length <= UNIT_CHIPS_MAX) {
+      el = h(
+        'fieldset',
+        { class: 'choice-group qe-unit-field qe-unit-chips', 'aria-describedby': `${id}-hint` },
+        h('legend', { class: 'field-label' }, 'Unidad de cobro', h('span', { class: 'sr-only' }, ` (${currency} por unidad)`)),
+        h(
+          'div',
+          { class: 'qe-compound' },
+          prefix,
+          h('div', { class: 'qe-chips' }, ...unitOptions.map((u) => {
+            const input = h('input', { type: 'radio', name: 'unit', value: u.id, checked: u.id === info.id, disabled: kit.readOnly });
+            input.addEventListener('change', () => {
+              if (input.checked) changeUnit(u.id);
+            });
+            return h('label', { class: 'qe-chip' }, input, h('span', {}, unitOptionLabel(u)));
+          })),
+        ),
+        hint,
+      );
+    } else {
+      const select = h(
+        'select',
+        { id, name: 'unit', disabled: kit.readOnly, 'aria-describedby': `${id}-hint` },
+        ...unitOptions.map((u) => h('option', { value: u.id, selected: u.id === info.id }, unitOptionLabel(u))),
+      );
+      select.addEventListener('change', () => changeUnit(select.value));
+      el = h(
         'div',
-        { class: 'qe-compound' },
-        h('span', { class: 'qe-compound-fixed', 'aria-hidden': 'true' }, `${currency} /`),
-        h('div', { class: 'field-control' }, select),
-      ),
-      h('div', { class: 'field-hint', id: `${id}-hint` }, selectedDef && selectedDef.hint ? selectedDef.hint : ''),
-    );
+        { class: 'field qe-unit-field' },
+        h('label', { class: 'field-label', for: id }, 'Unidad de cobro', h('span', { class: 'sr-only' }, ` (${currency} por unidad)`)),
+        h('div', { class: 'qe-compound' }, prefix, h('div', { class: 'field-control' }, select)),
+        hint,
+      );
+    }
     const tip = `La tarifa va en ${currency}, la moneda de tu empresa (Configuración); los insumos en otra moneda se pasan con el tipo de cambio de la cotización.`;
     return addInfoTip(el, byQuantity
       ? `${tip} Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); la tarifa y el resultado, ${perText(info)}.`
@@ -485,8 +509,9 @@ export function render(container, ctx) {
     const next = { ...rateIn, ...patch, value: null };
     if (next.numerator === rateIn.numerator && next.denominator === rateIn.denominator) return;
     if (loadUnitOf(info, next.numerator) !== loadUnitOf(info, rateIn.numerator)) next.load = null;
-    if (next.denominator === 'hour') next.hours = next.hours || positiveOrNull(Number(quote.activity && quote.activity.hoursPerActiveDay));
-    else next.hours = null;
+    // Las horas por día no se suponen (revisión UX-UNITS, H2): con todas las horas trabajadas, una velocidad en
+    // km/h daría más km de los que se recorren. Se piden, como el número.
+    if (next.denominator !== 'hour') next.hours = null;
     const before = rateIn.value !== null ? ` Antes: ${num(rateIn.value)} ${rateFormText(numeratorOf(rateIn.numerator).plural, rateIn.denominator)}.` : '';
     ctx.mutate((q) => {
       if (!q.activity) q.activity = {};
@@ -504,13 +529,18 @@ export function render(container, ctx) {
   /** Rendimiento: [número] [m³ | viajes ▾] / [día de trabajo | hora ▾] (+ carga por viaje u horas, si hacen falta). */
   function rateFields() {
     const loadUnit = loadUnitOf(info, rateIn.numerator);
+    const hourly = rateIn.denominator === 'hour';
+    const form = rateFormText(numeratorOf(rateIn.numerator).plural, rateIn.denominator);
+    let rateHint = `Lo que hacés en ${hourly ? 'una hora' : 'un día de trabajo'}. Con esto se calculan los días de trabajo.`;
+    if (info.id === 'km' && hourly) rateHint = 'Velocidad promedio con paradas, no la máxima. Con esto se calculan los días de trabajo.';
+    else if (tripUnit && rateIn.numerator === 'trip' && !hourly) rateHint = 'Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo.';
     const field = markRequired(numberField({
       label: 'Rendimiento',
       name: 'activity.unitsPerActiveDay',
       rule: 'quantity',
       value: rateIn.value,
-      placeholder: tripUnit ? 'Ej.: 2' : 'Ej.: 500',
-      hint: tripUnit ? 'Viajes que hacés en un día de trabajo.' : 'Lo que hacés en un día de trabajo (o en una hora).',
+      placeholder: hourly ? (info.id === 'km' ? 'Ej.: 50' : 'Ej.: 2') : rateIn.numerator === 'trip' ? 'Ej.: 2' : 'Ej.: 500',
+      hint: rateHint,
       disabled: kit.readOnly,
       onChange: (v) => {
         rateIn.value = v;
@@ -519,7 +549,9 @@ export function render(container, ctx) {
     }));
     // El lector de pantalla no lee los selectores de al lado al entrar al número: la unidad va en el rótulo (GOV.UK).
     const label = field.querySelector('.field-label');
-    if (label) label.insertBefore(h('span', { class: 'sr-only' }, ` (${rateFormText(numeratorOf(rateIn.numerator).plural, rateIn.denominator)})`), label.querySelector('.req'));
+    if (label) label.insertBefore(h('span', { class: 'sr-only' }, ` (${form})`), label.querySelector('.req'));
+    // El aviso del motor ("Cargá cuántos m³ hacés por día de trabajo") habla de la forma nativa: con otra, se pide en la elegida.
+    if (!isNativeRate(rateIn, info)) field.dataset.issueMessage = `Cargá el rendimiento en ${form}: sin eso no se pueden calcular los días de trabajo ni los costos.`;
     withUnitControls(
       field,
       numerators.length > 1
@@ -529,8 +561,8 @@ export function render(container, ctx) {
       miniSelect({ name: 'activity.rateInput.denominator', label: 'Rendimiento por', value: rateIn.denominator, options: [{ value: 'day', label: 'día de trabajo' }, { value: 'hour', label: 'hora' }], onChange: (v) => changeRateForm({ denominator: v }) }),
     );
     addInfoTip(field, tripUnit
-      ? `Con esto se calculan los días de trabajo (personal, equipos) y los viajes ${T.per}; los km del mes salen de los viajes que facturás.`
-      : 'Con el rendimiento se calculan los días de trabajo: lo que consume personal, equipos y combustible.');
+      ? `Los días de trabajo son lo que consume personal, equipos y combustible; con el rendimiento también salen los viajes ${T.per}, y los km del mes salen de los viajes que facturás.`
+      : 'Los días de trabajo son lo que consume personal, equipos y combustible. Podés cargarlo por día o por hora; el resultado se calcula por día de trabajo.');
     const loadField = loadUnit
       ? markRequired(numberField({
         label: 'Carga por viaje',
@@ -554,7 +586,8 @@ export function render(container, ctx) {
         rule: 'hoursPerDay',
         unit: 'h/día',
         value: rateIn.hours,
-        hint: info.id === 'km' ? 'Velocidad × horas de marcha = km por día.' : 'Las horas del día de trabajo en que rendís eso.',
+        placeholder: 'Ej.: 6',
+        hint: info.id === 'km' ? 'Sólo las horas manejando: sin carga, espera ni descarga.' : 'Las horas del día de trabajo en que rendís eso.',
         disabled: kit.readOnly,
         onChange: (v) => {
           rateIn.hours = v;
@@ -568,7 +601,11 @@ export function render(container, ctx) {
       const current = rateInputOf(quote.activity, info);
       if (isNativeRate(current, info)) return '';
       const perDay = unitsPerActiveDayFrom(current, info);
-      if (perDay !== null) return `= ${num(perDay)} ${rateFormText(info.plural, 'day')}`;
+      if (perDay !== null) {
+        // km por hora con TODAS las horas trabajadas: casi nunca se maneja el día entero (H2).
+        const allDay = info.id === 'km' && current.denominator === 'hour' && current.hours !== null && Math.abs(current.hours - Number(quote.activity && quote.activity.hoursPerActiveDay)) < 1e-9;
+        return `= ${num(perDay)} ${rateFormText(info.plural, 'day')}${allDay ? '. Ojo: son todas las horas del día de trabajo; si hay carga, espera o descarga, las horas de marcha son menos.' : ''}`;
+      }
       if (current.value === null) return '';
       if (loadUnit && current.load === null) return 'Falta la carga por viaje para pasarlo a la unidad de cobro.';
       return 'Faltan las horas por día para pasarlo a días de trabajo.';
@@ -585,7 +622,7 @@ export function render(container, ctx) {
       rule: workdays ? 'days' : 'quantity',
       value: workdays ? workdaysValue() : quote.activity && quote.activity.billableQuantityPerMonth,
       placeholder: workdays ? 'Ej.: 10' : 'Ej.: 10.000',
-      hint: workdays ? `Se facturan días de trabajo × rendimiento.` : 'Una estimación alcanza: en el Resultado ves otras cantidades.',
+      hint: workdays ? `La cantidad del mes es días de trabajo × rendimiento (en ${info.plural}).` : 'Una estimación alcanza: en el Resultado ves otras cantidades.',
       disabled: kit.readOnly,
       onChange: (v) => {
         if (workdays) {

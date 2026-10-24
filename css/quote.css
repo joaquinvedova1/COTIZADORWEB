@@ -180,6 +180,16 @@
 /* El número, del ancho de lo que se carga (GOV.UK: el ancho del campo sugiere el dato); la unidad, al lado. */
 .qe-compound > .field-control:first-child { flex: 0 1 10rem; min-width: 6rem; }
 .qe-unit-field .qe-compound > .field-control { flex: 1 1 9rem; min-width: 8rem; }
+/* Pocas unidades: botones de opción compactos a la vista ("ARS / ( ) hora ( ) día ( ) llamado…"). */
+.qe-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
+.qe-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 40px; padding: 0.35rem 0.8rem;
+  border: 1px solid var(--field-border); border-radius: 999px; background: var(--white); cursor: pointer; font-size: 0.92rem;
+}
+.qe-chip input { width: 16px; height: 16px; margin: 0; accent-color: var(--blue-600); }
+.qe-chip:has(input:checked) { border-color: var(--blue-600); background: var(--navy-50); font-weight: 650; color: var(--navy-900); }
+.qe-chip:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 760px) { .qe-chip { min-height: 44px; } }
 .qe-compound-fixed { font-size: 0.92rem; font-weight: 650; color: var(--ink-2); white-space: nowrap; }
 .qe-compound-sep { color: var(--ink-3); font-weight: 600; }
 /* La unidad del número ("m³ ▾ / día de trabajo ▾") pasa de renglón entera, nunca partida en el "/". */

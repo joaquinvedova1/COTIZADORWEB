@@ -724,15 +724,21 @@ export function infoTip(text, { label = 'Más información' } = {}) {
     if (timer) clearTimeout(timer);
     timer = null;
   };
-  // La burbuja nunca sale de la pantalla (sin scroll horizontal en 320 px).
+  // La burbuja nunca sale de la pantalla (sin scroll horizontal en 320 px) ni queda debajo de la barra fija
+  // del resumen en el celular (--qe-sum-h, la publica el editor): si no entra abajo, se abre hacia arriba.
   const place = () => {
     bubble.style.left = '0px';
+    bubble.classList.remove('is-above');
     const vw = document.documentElement.clientWidth || window.innerWidth || 0;
-    const w = bubble.getBoundingClientRect().width;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const r = bubble.getBoundingClientRect();
     const b = btn.getBoundingClientRect();
     const origin = wrap.getBoundingClientRect().left;
-    const wanted = Math.min(Math.max(b.left + b.width / 2 - w / 2, TIP_EDGE), Math.max(vw - TIP_EDGE - w, TIP_EDGE));
+    const wanted = Math.min(Math.max(b.left + b.width / 2 - r.width / 2, TIP_EDGE), Math.max(vw - TIP_EDGE - r.width, TIP_EDGE));
     bubble.style.left = `${Math.round(wanted - origin)}px`;
+    const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--qe-sum-h')) || 0;
+    const bottomLimit = vh - (window.matchMedia && window.matchMedia('(max-width: 1180px)').matches ? bar : 0) - TIP_EDGE;
+    if (r.bottom > bottomLimit && b.top - r.height - TIP_EDGE > 0) bubble.classList.add('is-above');
   };
   const onOutside = (event) => {
     if (!wrap.isConnected || !wrap.contains(event.target)) close();
