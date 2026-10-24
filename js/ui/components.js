@@ -697,6 +697,121 @@ export function choiceGroup({ label, value, options, onChange, name = uniqueId('
     })));
 }
 
+/** Margen mínimo entre la burbuja de ayuda y el borde de la pantalla (px). */
+const TIP_EDGE = 12;
+/** Demora para abrir con el mouse (no se abre al pasar de largo) y para cerrar al salir. */
+const TIP_HOVER_OPEN_MS = 120;
+const TIP_HOVER_CLOSE_MS = 150;
+
+/**
+ * Ayuda (i) para lo SECUNDARIO (UX-UNITS): se abre al pasar el mouse, al
+ * tocarla o con el teclado (Enter / Espacio), y se cierra con Esc, al tocar
+ * afuera o con otro clic. El texto se anuncia al abrirse (role="status").
+ * Nunca para un aviso crítico (NO CONFIABLE, ILUSTRATIVO, pérdida, unidad o
+ * guardado): esos van a la vista. No se imprime.
+ * @param {string} text  una o dos frases
+ * @param {{ label?: string }} [opts] nombre accesible del botón ("Más información sobre …")
+ */
+export function infoTip(text, { label = 'Más información' } = {}) {
+  const id = uniqueId('tip');
+  const bubble = h('span', { class: 'info-tip-bubble', id, role: 'status', hidden: true });
+  const btn = h('button', { type: 'button', class: 'info-tip-btn', 'aria-label': label, 'aria-expanded': 'false', 'aria-controls': id }, icon('info', { size: 16 }));
+  const wrap = h('span', { class: 'info-tip' }, btn, bubble);
+  let open = false;
+  let pinned = false;
+  let timer = null;
+  const clearTimer = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  // La burbuja nunca sale de la pantalla (sin scroll horizontal en 320 px).
+  const place = () => {
+    bubble.style.left = '0px';
+    const vw = document.documentElement.clientWidth || window.innerWidth || 0;
+    const w = bubble.getBoundingClientRect().width;
+    const b = btn.getBoundingClientRect();
+    const origin = wrap.getBoundingClientRect().left;
+    const wanted = Math.min(Math.max(b.left + b.width / 2 - w / 2, TIP_EDGE), Math.max(vw - TIP_EDGE - w, TIP_EDGE));
+    bubble.style.left = `${Math.round(wanted - origin)}px`;
+  };
+  const onOutside = (event) => {
+    if (!wrap.isConnected || !wrap.contains(event.target)) close();
+  };
+  const onKey = (event) => {
+    if (event.key !== 'Escape' || !open) return;
+    const hadFocus = wrap.contains(document.activeElement);
+    close();
+    if (hadFocus) btn.focus();
+    event.stopPropagation();
+  };
+  function show(pin) {
+    clearTimer();
+    pinned = pinned || pin;
+    if (open) return;
+    open = true;
+    bubble.textContent = text;
+    bubble.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    wrap.classList.add('is-open');
+    place();
+    document.addEventListener('pointerdown', onOutside, true);
+    document.addEventListener('keydown', onKey, true);
+  }
+  function close() {
+    clearTimer();
+    open = false;
+    pinned = false;
+    bubble.hidden = true;
+    bubble.textContent = '';
+    btn.setAttribute('aria-expanded', 'false');
+    wrap.classList.remove('is-open');
+    document.removeEventListener('pointerdown', onOutside, true);
+    document.removeEventListener('keydown', onKey, true);
+  }
+  btn.addEventListener('click', () => {
+    // Abierta con el mouse: el clic la deja fija; fija: el clic la cierra.
+    if (open && pinned) close();
+    else show(true);
+  });
+  wrap.addEventListener('pointerenter', (event) => {
+    if (event.pointerType !== 'mouse' || open) return;
+    clearTimer();
+    timer = setTimeout(() => show(false), TIP_HOVER_OPEN_MS);
+  });
+  wrap.addEventListener('pointerleave', (event) => {
+    if (event.pointerType !== 'mouse') return;
+    clearTimer();
+    if (open && !pinned) timer = setTimeout(close, TIP_HOVER_CLOSE_MS);
+  });
+  return wrap;
+}
+
+/**
+ * Suma una ayuda (i) al rótulo de un campo (fieldShell, casilla o grupo): va
+ * AL LADO del rótulo, no adentro, así no se suma al nombre del control.
+ * @param {HTMLElement} fieldEl
+ * @param {string} text
+ * @param {{ label?: string }} [opts]
+ */
+export function addInfoTip(fieldEl, text, { label = null } = {}) {
+  if (!fieldEl || !text) return fieldEl;
+  const labelEl = fieldEl.querySelector('.field-label, label.check');
+  const name = label || `Más información: ${String((labelEl && labelEl.textContent) || '').replace(/\s*\*\s*$/, '').trim()}`;
+  const tip = infoTip(text, { label: name });
+  if (labelEl && labelEl.tagName === 'LEGEND') {
+    // El rótulo de un grupo es su <legend>: la ayuda va al lado, en la misma fila.
+    labelEl.classList.add('has-tip');
+    labelEl.after(h('div', { class: 'field-tip-row' }, tip));
+  } else if (labelEl) {
+    const row = h('div', { class: 'field-label-row' });
+    labelEl.replaceWith(row);
+    row.append(labelEl, tip);
+  } else {
+    fieldEl.prepend(tip);
+  }
+  return fieldEl;
+}
+
 /** Grilla de campos. cols: 2 | 3 | 4 */
 export function formGrid(cols = 3, ...fields) {
   return h('div', { class: ['form-grid', `cols-${cols}`] }, ...fields);

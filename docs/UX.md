@@ -116,7 +116,7 @@ Resumen en vivo con el costo del mes, la tarifa piso, la tarifa cobrada, el marg
 
 ### Resultado
 
-La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Calculado con tus costos y tus supuestos: no es un precio de mercado.", la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
+La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", con la tarifa destacada; la nota "Calculado con tus costos y tus supuestos: no es un precio de mercado." junto a "Montos sin IVA…" en una línea; **"La cuenta del mes"** (UX-UNITS): cantidad facturable × tarifa = facturación − impuestos − costo = ganancia, con las cifras del motor; la frase de los días y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
 
 Todo lo demás está en **"Profundizá"**, cerrado por defecto y dibujado al abrirlo: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), **"¿En qué se va el costo?"** (4 rubros + otros, y la estructura de costos completa; 100 % del costo), **reparto de la tarifa (apropiación) y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, **base económica de la oferta** (bases por rubro, tipos de cambio y externos: costo económico vs salida de caja vs crédito fiscal), completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
 
@@ -153,6 +153,7 @@ Reglas que no cambian: margen ≠ markup ([AGENTS.md §9](../AGENTS.md)); valore
 - Foco visible siempre; al cambiar de pantalla se enfoca el título (h1).
 - Campos: los obligatorios con `aria-required` además del asterisco; la ayuda, el error y los avisos del motor junto al campo, asociados con `aria-describedby`. Los montos llevan debajo su eco con separadores ("$ 2.600.000"); el texto del campo no se reformatea.
 - Un `h1` por pantalla, jerarquía de headings sin saltos, labels reales en formularios, `aria-expanded` en menús, `<details>/<summary>` nativo para las secciones colapsables.
+- Ayuda (i) (UX-UNITS): botón con nombre ("Más información: …") al lado del rótulo, nunca adentro; abre con mouse, toque, Enter o Espacio; se anuncia con `role="status"`; Esc la cierra y devuelve el foco. Sólo para lo secundario: un aviso crítico (NO CONFIABLE, ILUSTRATIVO, pérdida, unidad, guardado) va siempre a la vista.
 
 ## 8. Checklist por pantalla (test de carga cognitiva)
 
@@ -183,6 +184,7 @@ Y verificá: un CTA principal, contexto antes de cada input, estados vacíos con
 | `linkButton(label, href, opts)` | Navegación con aspecto de botón (enlace real). |
 | `stepIndicator({ current, total })` | "Paso 2 de 4" con barra. |
 | `openDialog({ title, content, actions, isDirty })` | Diálogo modal. Con `isDirty` (un formulario): un clic en el fondo no lo cierra; Esc (también dos veces seguidas), la X y `requestClose()` (el "Cancelar") preguntan "¿Descartar los cambios?" si hay cambios. `close()` cierra sin preguntar (después de guardar). |
+| `infoTip(text, { label })` + `addInfoTip(field, text)` | Ayuda (i) de lo secundario junto al rótulo de un campo (UX-UNITS). Una frase de ayuda visible por campo; lo demás, acá. Nunca un aviso crítico. |
 | `toast(message, tone, { timeout })` | Aviso abajo a la derecha, con "Cerrar". Los de error (y `timeout: 0`) quedan hasta cerrarlos; como máximo 4 (se van primero los que se iban solos), y uno igual a otro a la vista no se repite. |
 | `announceRestored(field, …)` + `installRestoreNotices({ notify })` | Un valor que no se guardó y volvió al anterior cuando su pantalla se fue se avisa en la siguiente (`app.notice`, sólo con la cuenta abierta). Si era de un diálogo que se cerró sin guardar, no. |
 

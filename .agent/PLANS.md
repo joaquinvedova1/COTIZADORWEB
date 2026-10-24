@@ -129,6 +129,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-027 | BETA-RC1 — Candidato de beta integrado: los PR #28 a #36 sobre `main` `d6540b7`, verificados en el árbol final, versión 0.9.0 e informe GO/NO-GO | integración y release (sin funcionalidades nuevas) | En curso (rama `claude/beta-candidato-1`; PR candidato en borrador, sin merge ni deploy) |
 | PLAN-2026-028 | P1 CIERRE — Señales engañosas antes del autoservicio (Gate A de la revisión del 21/10): H-14, H-12 y H-13 en Productos, H-09 en externos y H-10 en los avisos de personal | corrección de UI, validación y confirmaciones (sin fórmulas) | En curso (sobre el candidato `claude/beta-candidato-1`, sin merge ni deploy) |
 | PLAN-2026-029 | BETA — beta gratuita y sin límites, feedback de las empresas (problemas y sugerencias) clasificado por RATEOS ADMIN y última revisión de UX antes del lanzamiento. Reemplaza los créditos de prueba del 21/10 (decisión del dueño del 22/10) | backend, seguridad, UX (sin fórmulas ni cambios del workspace) | En curso (rama `claude/beta-creditos-reportes`, PR #38 apilado sobre #37; sin merge, deploy ni migración real) |
+| PLAN-2026-030 | UX-UNITS — Unidades compuestas, formularios más claros y un Resultado que se lee solo: "ARS / [unidad]", rendimiento "[número] [unidad] / [día \| hora]", cantidad en días de trabajo, cambio de unidad sin reinterpretar cantidades (F4) y "La cuenta del mes" | UX e interfaz (sin fórmulas; dos campos opcionales sin migración) | En curso (rama `claude/ux-unidades-cotizacion-v1`, desde `c5eca19`; candidato alternativo a K0, PR en borrador, sin merge ni deploy) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -2239,3 +2240,68 @@ Todo eso existía sólo para la cuota; sin cuota, el comportamiento vuelve exact
   - Hallazgos nuevos: 0 P0, 1 P1 (K0C-01: montos de 9 o más dígitos partidos en el celular) y 4 P2 (K0C-02 email largo en el admin, K0E-01 columna fija sobre montos, K0E-02 aviso de "Editar sueldo" fuera de la vista, K0E-03 falso "Error al guardar" al reconectar). Corregidos todos, con el antes y después medidos en el navegador.
   - Un solo release 0.9.0 (#37 + #38) en un solo merge y un solo deploy: el CHANGELOG ya no separa lo de #38 como "sin versión".
   - Evidencia, regresión y GO/NO-GO final: RATEOS-AUDIT `tasks/BETA-K0/`.
+
+### PLAN-2026-030 — UX-UNITS: unidades compuestas, formularios más claros y Resultado legible
+
+- Estado: En curso — rama `claude/ux-unidades-cotizacion-v1`, desde `c5eca19` (el candidato K0). PR en borrador contra `archive/beta-k0-c5eca19`. Sin merge ni deploy
+- Tipo: interfaz y textos. **Ninguna fórmula cambia**; dos campos opcionales de la actividad, sin migración (esquema 10)
+- Responsable: agente de desarrollo (Claude) · criterios: ChatGPT (RATEOS-AUDIT, Issue #5, 24/10) · decisión entre K0 y UX-UNITS: el dueño
+- Fecha de inicio: 2026-10-24
+
+#### 1. Contexto
+- El dueño pidió una versión alternativa, enfocada en tres cosas:
+  - elegir unidades compuestas;
+  - formularios más claros;
+  - un Resultado que se entienda.
+- Sin rediseño, conservando todas las funciones y para probar lado a lado con K0.
+- Medido en K0 con 5 cotizaciones sintéticas:
+  - "Cómo se cobra" tenía 7 a 11 tarjetas para elegir la unidad y 214 palabras de ayuda por pantalla;
+  - el Resultado no mostraba cantidad × tarifa = facturación → ganancia;
+  - **F4:** al cambiar entre unidades por cantidad, la cantidad y el rendimiento cargados se leían en la unidad nueva sin aviso (200 m³ pasaban a ser 200 viajes).
+
+#### 2. Decisiones
+1. **Cuatro roles, sin motor de unidades genérico** (`js/domain/unit-pairs.js`):
+   - rendimiento (`unitsPerActiveDay`, unidad de cobro por día de trabajo);
+   - cantidad del mes (`billableQuantityPerMonth`);
+   - tarifa (moneda de la empresa / unidad de cobro);
+   - consumos y costos unitarios, que no se tocan.
+2. **Unidad de cobro "ARS / [unidad ▾]"**, con las mismas unidades habituales del tipo de servicio que antes. La moneda es la de la empresa y no se ofrece otra.
+3. **Rendimiento compuesto, sólo con pares válidos:**
+   - por hora, × las horas productivas (en km, de marcha: la velocidad no se factura);
+   - viaje ↔ m³ o t, con la carga por viaje;
+   - kg ↔ t y metro ↔ km, exactos.
+   - Cambiar el numerador o el denominador pide el número de nuevo.
+4. **Cantidad del mes en la unidad de cobro o en días de trabajo** (días × rendimiento).
+5. **Cambio de unidad de cobro.** Tarifas, cantidades y mínimo se convierten sólo con un factor conocido:
+   - día ↔ hora, con las horas por día;
+   - kg ↔ t y metro ↔ km, exactos.
+   - Si no hay factor, se borran y se piden de nuevo (F4). Una cantidad guardada de una unidad anterior no se reusa.
+6. **Una frase de ayuda por campo** y lo secundario en (i) (`infoTip`: mouse, toque y teclado). Nunca un aviso crítico.
+7. **Resultado:**
+   - la tarifa destacada;
+   - "La cuenta del mes" con las cifras del motor;
+   - la unidad como etiqueta;
+   - las dos notas en una línea.
+
+#### 3. Impacto en fórmulas
+Ninguno:
+- A/B del motor contra `c5eca19`: igual en todas las cotizaciones del lab (servicios, sondas y 2.000 generadas) y en los 5 casos;
+- golden 39/39.
+
+#### 4. Impacto en datos
+- `activity.rateInput` y `activity.quantityInput` son opcionales y dicen cómo se cargaron los datos; el motor no los lee.
+- La interfaz los descarta si ya no dan el dato del motor (por ejemplo, si se editó en una versión anterior).
+- K0 y `main` los ignoran y leen los mismos números. Sin migración.
+
+#### 5. Pasos
+- [x] 1. Diagnóstico y modelo dimensional antes del código (fuera del repo).
+- [x] 2. Implementación, tests de unidad (`tests/domain/unit-pairs.test.js`) y bloque UXU del `ui-lab`.
+- [ ] 3. Regresión completa en el SHA final, capturas antes/después y revisión heurística independiente.
+- [ ] 4. PR en borrador y decisión del dueño (K0 o UX-UNITS).
+
+#### 6. Rollback
+- Es una rama aparte: no elegirla deja K0 tal cual.
+- Si se elige y después se vuelve atrás, lo guardado sigue abriendo con las mismas cifras en K0 (campos opcionales ignorados).
+
+#### Bitácora
+- 2026-10-24: diagnóstico, modelo dimensional e implementación.

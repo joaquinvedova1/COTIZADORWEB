@@ -44,6 +44,29 @@
 .qr-stat-line + .qr-stat-line { color: var(--ink-3); }
 .qr-stat .trace-btn { align-self: flex-start; padding-left: 0; }
 .qr-stat-price .big-stat-value { color: var(--blue-text); }
+/* UX-UNITS: la tarifa es la cifra principal del resumen (fondo suave, mismo orden y tamaño de grilla). */
+.qr-stat.qr-stat-primary { background: var(--navy-50); border-radius: var(--radius-sm); padding-left: 0.85rem; padding-right: 0.85rem; }
+.qr-stat-primary .big-stat-label { color: var(--blue-text); }
+.qr-stat-primary .big-stat-number { font-weight: 780; }
+
+/* UX-UNITS: "La cuenta del mes": cantidad × tarifa = facturación − impuestos − costo = ganancia. */
+.qr-account { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.qr-account-title {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0;
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3);
+}
+.qr-account-list { display: flex; flex-direction: column; margin: 0; max-width: 46rem; border-top: 1px solid var(--line-2); }
+.qr-account-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.1rem 1rem; align-items: baseline; padding: 0.45rem 0; border-bottom: 1px solid var(--line-2); }
+.qr-account-row dt { min-width: 0; font-size: 0.92rem; color: var(--ink-2); }
+.qr-account-row dd { margin: 0; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink); }
+.qr-account-sub { display: block; font-size: var(--fs-xs); color: var(--ink-3); }
+.qr-account-row.is-subtotal dt, .qr-account-row.is-subtotal dd { font-weight: 650; color: var(--ink); }
+.qr-account-row.is-total { border-bottom: 0; padding-top: 0.6rem; }
+.qr-account-row.is-total dt, .qr-account-row.is-total dd { font-size: 1rem; font-weight: 750; color: var(--ink); }
+.qr-account-row.is-total .qr-account-sub { font-weight: 500; }
+.qr-account-row.is-gain dd { color: var(--green-text); }
+.qr-account-row.is-loss dd { color: var(--red-text); }
+.qr-account.is-unreliable dd { color: var(--ink-3); }
 /* ECO-02: con un resultado NO CONFIABLE, costo, piso y tarifa se apagan (no se leen como cifras para usar). */
 .qr-stat.big-stat-unreliable:not(.big-stat-red) .big-stat-value { color: var(--ink-3); }
 
@@ -482,6 +505,9 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-stat, .qr-stat:nth-child(2) { border-top: 0; padding: 0 1.25rem; border-left: 1px solid var(--line-2); }
   .qr-stat:first-child { border-left: 0; padding-left: 0; }
   .qr-stat:last-child { padding-right: 0; }
+  /* La tarifa destacada no corre la fila: el fondo sobresale arriba y abajo, y sin línea a los costados. */
+  .qr-stat.qr-stat-primary { padding: 0.85rem 1.25rem; margin-block: -0.85rem; border-left-color: transparent; }
+  .qr-stat-primary + .qr-stat { border-left-color: transparent; }
   .qr-stat .big-stat-number { font-size: clamp(1.4rem, 2.3cqi, 2.1rem); }
   .qr-stats-long .qr-stat .big-stat-number { font-size: clamp(1.1rem, 2.05cqi, 2.1rem); }
   .qr-base-list { grid-template-columns: repeat(5, minmax(0, 1fr)); }

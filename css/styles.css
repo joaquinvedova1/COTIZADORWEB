@@ -407,6 +407,37 @@ html { scroll-padding-top: 7rem; }
 .check { display: inline-flex; gap: 0.5rem; align-items: center; font-size: 0.9rem; cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--blue-600); }
 
+/* Ayuda (i) de lo secundario (UX-UNITS): al lado del rótulo, nunca adentro (no se suma al nombre del campo).
+   La burbuja se abre con el mouse, un toque o el teclado y no sale de la pantalla (components.js, infoTip). */
+.field-label-row { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
+/* El botón (24 px) no agranda el renglón del rótulo: los campos vecinos quedan alineados. */
+.field-label-row .info-tip-btn { margin-block: -4px; }
+.field-label-row > .field-label, .field-label-row > .check { min-width: 0; }
+.info-tip { position: relative; display: inline-flex; flex: 0 0 auto; vertical-align: middle; }
+.info-tip-btn {
+  position: relative; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: var(--ink-3); cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+/* Área de toque más grande que el ícono, sin mover el renglón. */
+.info-tip-btn::before { content: ''; position: absolute; inset: -6px; }
+.info-tip-btn:hover, .info-tip.is-open .info-tip-btn { color: var(--blue-text); background: var(--navy-50); }
+.info-tip-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.info-tip-bubble {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: max-content; max-width: min(20rem, calc(100vw - 24px));
+  padding: 0.55rem 0.7rem; border-radius: var(--radius-sm); background: var(--ink); color: var(--white); box-shadow: var(--shadow);
+  font-size: var(--fs-xs); font-weight: 450; line-height: 1.45; letter-spacing: normal; text-transform: none; text-align: left; white-space: normal;
+  transform-origin: top left; animation: info-tip-in 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.info-tip-bubble[hidden] { display: none; }
+@keyframes info-tip-in { from { opacity: 0; transform: translateY(-2px) scale(0.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .info-tip-bubble { animation: none; } .info-tip-btn { transition: none; } }
+@media (pointer: coarse) { .info-tip-btn::before { inset: -10px; } }
+/* En un grupo de opciones el rótulo es un <legend>: la ayuda va en la misma fila. */
+.choice-group > legend.has-tip { float: left; margin-right: 0.25rem; }
+.choice-group > .field-tip-row { display: inline-flex; }
+.choice-group > legend.has-tip ~ .choice-grid { clear: both; }
+
 .choice-group { border: 0; padding: 0; margin: 0; min-width: 0; }
 .choice-grid { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin-top: 0.4rem; }
 .choice { display: flex; gap: 0.6rem; align-items: flex-start; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 0.85rem; cursor: pointer; background: var(--white); }
@@ -741,7 +772,7 @@ h3.page-intro-title { font-size: var(--fs-xl); }
   body { background: var(--white); }
   /* ECO-02: las marcas de riesgo conservan su color en el PDF. */
   .tag-unreliable, .tag-illustrative, .banner, .qr-print-flag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .sidebar, .mobile-bar, .nav-backdrop, .topbar-actions, .no-print, .trace-btn, .toast-region { display: none !important; }
+  .sidebar, .mobile-bar, .nav-backdrop, .topbar-actions, .no-print, .trace-btn, .toast-region, .info-tip { display: none !important; }
   .topbar { position: static; padding: 0 0 0.5rem; background: none; backdrop-filter: none; }
   .app-shell { display: block; }
   .content { padding: 0; max-width: none; }
