@@ -2305,3 +2305,5 @@ Ninguno:
 
 #### Bitácora
 - 2026-10-24: diagnóstico, modelo dimensional e implementación.
+- 2026-10-24: tres vueltas de revisión heurística independiente; corregidos H2 (no se suponen las horas), H5–H9, H12, N1 y N3. Quedan documentados H3, H4 (decisión del dueño), H10, H11, H14–H16 y N2.
+- 2026-10-24: A/B del motor contra `c5eca19` (2.092/2.092 iguales; 601/601 con forma), cinco casos económicos con la cuenta cerrada y regresión completa (unit, ui-lab, beta-lab, auth-lab, Test Lab, gate). La prueba de toque afuera de la ayuda (i) tocaba sobre la propia burbuja; ahora toca un punto que se verifica afuera.

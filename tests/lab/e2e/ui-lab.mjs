@@ -2597,9 +2597,21 @@ async function runMode(mode) {
       await tipBtn.tap();
       await page.waitForTimeout(250);
       const tapped = await tipState();
-      // Un toque en un texto de la página, fuera de la ayuda (la ayuda de la unidad de cobro).
-      const away = await page.locator('.qe-unit-field .field-hint').first().boundingBox();
-      if (away) await page.touchscreen.tap(away.x + 4, away.y + away.height / 2);
+      // Un toque en un texto de la página que quede fuera de la burbuja abierta (que tapa lo que tiene debajo)
+      // y fuera de cualquier control.
+      const away = await page.evaluate(() => {
+        const b = document.querySelector('.qe-unit-field .info-tip-btn');
+        const r = document.getElementById(b.getAttribute('aria-controls')).getBoundingClientRect();
+        for (const y of [r.bottom + 16, r.bottom + 40, r.bottom + 72, r.top - 16, r.top - 40]) {
+          for (const x of [16, 40, document.documentElement.clientWidth / 2]) {
+            if (y <= 0 || y >= window.innerHeight) continue;
+            const el = document.elementFromPoint(x, y);
+            if (el && !el.closest('.info-tip, input, select, textarea, button, label, a, [role="radio"]')) return { x, y };
+          }
+        }
+        return null;
+      });
+      if (away) await page.touchscreen.tap(away.x, away.y);
       await page.waitForTimeout(250);
       const outside = await tipState();
       check(P, '(i) con un toque se abre y al tocar afuera se cierra', tapped && tapped.expanded === 'true' && tapped.inside && outside && outside.expanded === 'false', JSON.stringify({ tapped, outside }));
