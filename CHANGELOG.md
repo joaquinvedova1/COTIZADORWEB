@@ -28,7 +28,7 @@ Pedido del dueño del 24/10 y del Issue #5 de RATEOS-AUDIT. **Ninguna fórmula c
 - **Ayuda (i)** (`infoTip`, `addInfoTip`) para lo secundario: se abre con el mouse, un toque o el teclado, se anuncia (`role="status"`), se cierra con Esc o tocando afuera, no sale de la pantalla y no se imprime. Nunca para avisos críticos.
 
 #### Cambiado
-- Una frase de ayuda por campo en "Cómo se cobra"; las explicaciones largas pasan a (i). Unas 46 % menos palabras de ayuda a la vista en los cinco casos.
+- Una frase de ayuda por campo en "Cómo se cobra"; las explicaciones largas pasan a (i). 45 % menos palabras de ayuda a la vista en los cinco casos (1.069 → 593).
 - Resultado: la tarifa (sugerida o la tuya) es la cifra destacada, en el mismo orden. Las notas "no es un precio de mercado" y "Montos sin IVA" van en una sola línea.
 
 #### Corregido

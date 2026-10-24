@@ -654,8 +654,9 @@ export function render(container, ctx) {
           : null,
       );
     }
+    // Cada campo compuesto en su fila: "[200] [m³ por mes ▾]" y "[20] [m³ ▾] / [día de trabajo ▾]" no se parten.
     const [rate, equivalence, extra] = rateFields();
-    return h('div', { class: 'qe-quantity-fields' }, formGrid(2, quantityField(), rate), equivalence, extra);
+    return h('div', { class: 'qe-quantity-fields' }, quantityField(), rate, equivalence, extra);
   }
 
   /** "200 m³ × $ 45.000 por m³ = $ 9.000.000 por mes" (la cantidad × la tarifa, con los números del motor). */

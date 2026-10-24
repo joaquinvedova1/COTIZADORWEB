@@ -177,7 +177,8 @@
 /* UX-UNITS: unidad de cobro "ARS / [unidad ▾]" y unidades compuestas "[número] [unidad ▾] / [por ▾]".
    La fila se parte en dos en pantallas angostas; el número nunca se achica debajo de 6rem. */
 .qe-compound { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; min-width: 0; }
-.qe-compound > .field-control:first-child { flex: 1 1 7rem; min-width: 6rem; }
+/* El número, del ancho de lo que se carga (GOV.UK: el ancho del campo sugiere el dato); la unidad, al lado. */
+.qe-compound > .field-control:first-child { flex: 0 1 10rem; min-width: 6rem; }
 .qe-unit-field .qe-compound > .field-control { flex: 1 1 9rem; min-width: 8rem; }
 .qe-compound-fixed { font-size: 0.92rem; font-weight: 650; color: var(--ink-2); white-space: nowrap; }
 .qe-compound-sep { color: var(--ink-3); font-weight: 600; }
@@ -188,7 +189,8 @@
 .qe-mini-select select { width: auto; max-width: 100%; }
 .qe-rate-equiv { margin: 0.4rem 0 0; font-family: var(--mono); color: var(--navy-900); }
 .qe-rate-equiv:empty { display: none; }
-.qe-quantity-fields > * + * { margin-top: 0.6rem; }
+.qe-quantity-fields > * + * { margin-top: 0.9rem; }
+.qe-quantity-fields > .field { max-width: 40rem; }
 
 
 .qe-static {
