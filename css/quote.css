@@ -174,10 +174,35 @@
 .qe-step-body { container-type: inline-size; container-name: qestep; display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
 .qe-step-body > .card .card-body > * + * { margin-top: 0.9rem; }
 .qe-step-body .choice-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
-/* Unidad de cobro con muchas opciones (PLAN-2026-009): grilla compacta, la ayuda de la elegida va debajo. */
-.qe-step-body .qe-unit-choice.is-compact .choice-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
-.qe-step-body .qe-unit-choice.is-compact .choice { padding: 0.55rem 0.7rem; }
-.qe-unit-hint { margin-top: 0.4rem; }
+/* UX-UNITS: unidad de cobro "ARS / [unidad ▾]" y unidades compuestas "[número] [unidad ▾] / [por ▾]".
+   La fila se parte en dos en pantallas angostas; el número nunca se achica debajo de 6rem. */
+.qe-compound { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; min-width: 0; }
+/* El número, del ancho de lo que se carga (GOV.UK: el ancho del campo sugiere el dato); la unidad, al lado. */
+.qe-compound > .field-control:first-child { flex: 0 1 10rem; min-width: 6rem; }
+.qe-unit-field .qe-compound > .field-control { flex: 1 1 9rem; min-width: 8rem; }
+/* Pocas unidades: botones de opción compactos a la vista ("ARS / ( ) hora ( ) día ( ) llamado…"). */
+.qe-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
+.qe-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 40px; padding: 0.35rem 0.8rem;
+  border: 1px solid var(--field-border); border-radius: 999px; background: var(--white); cursor: pointer; font-size: 0.92rem;
+}
+.qe-chip input { width: 16px; height: 16px; margin: 0; accent-color: var(--blue-600); }
+.qe-chip:has(input:checked) { border-color: var(--blue-600); background: var(--navy-50); font-weight: 650; color: var(--navy-900); }
+.qe-chip:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 760px) { .qe-chip { min-height: 44px; } }
+.qe-compound-fixed { font-size: 0.92rem; font-weight: 650; color: var(--ink-2); white-space: nowrap; }
+.qe-compound-sep { color: var(--ink-3); font-weight: 600; }
+/* La unidad del número ("m³ ▾ / día de trabajo ▾") pasa de renglón entera, nunca partida en el "/". */
+.qe-compound-unit { display: flex; align-items: center; gap: 0.4rem; flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.qe-keyline-lines { display: flex; flex-direction: column; gap: 0.1rem; }
+.qe-mini-select { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.qe-mini-select select { width: auto; max-width: 100%; }
+.qe-rate-equiv { margin: 0.4rem 0 0; font-family: var(--mono); color: var(--navy-900); }
+.qe-rate-equiv:empty { display: none; }
+/* El "Ojo" de km por hora se lee como aviso, no como parte de la cuenta. */
+.qe-rate-equiv .qe-warn-inline { font-family: var(--font); font-weight: 650; color: var(--orange-text); }
+.qe-quantity-fields > * + * { margin-top: 0.9rem; }
+.qe-quantity-fields > .field { max-width: 40rem; }
 
 
 .qe-static {

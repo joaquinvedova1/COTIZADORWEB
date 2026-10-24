@@ -34,7 +34,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../../../scripts/serve.mjs';
 import { computeQuote } from '../../../js/engines/quote-engine.js';
-import { formatMoney, formatMoneyCeil, formatNumber } from '../../../js/core/format.js';
+import { formatMoney, formatMoneyCeil, formatNumber, formatPercent } from '../../../js/core/format.js';
+import { unitChoicesFor } from '../../../js/domain/billing-units.js';
 import { fieldHref } from '../../../js/ui/field-links.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
 import { service, person, owned, external, material, product, ingredient, worker, fixedCost } from '../lib/build.js';
@@ -2487,6 +2488,321 @@ async function runMode(mode) {
       await page.setViewportSize(viewport);
     }
     await scan(P, 'después de K0');
+  }
+
+  // ---- UX-UNITS (Issue #5 de RATEOS-AUDIT): unidad de cobro "ARS / [unidad]", rendimiento compuesto, cantidad en
+  // días de trabajo, cambio de unidad sin leer un número en otra unidad (F4), ayudas (i) con mouse, toque y teclado,
+  // y "La cuenta del mes" con las cifras del motor. Cotizaciones SINTÉTICAS.
+  {
+    const P = 'UXU';
+    await page.setViewportSize(viewport);
+    const meta = (q, id, name) => Object.assign(q, { id: randomUUID(), organizationId: orgId, code: `LAB-${id}`, name, offerDate: '2026-10-16', createdAt: now, updatedAt: now });
+    const driver = () => person({ role: 'Chofer', basicMonthly: 2100000 });
+    const truck = () => owned({ name: 'Camión cisterna 20 m³', replacementValue: 180000000, usefulLifeYears: 10, fuelLitersPerHour: 12, hoursPerActiveDay: 10 });
+    const water = (id) => meta(service({ id: `uxu-${id}`, serviceType: 'per_unit', unit: 'm3', activity: { billableQuantityPerMonth: 200, unitsPerActiveDay: 20, daysPerActivation: 1, availableDaysPerMonth: 30, hoursPerActiveDay: 10 }, labor: [driver()], equipment: [truck()] }), id, `UXU agua por m³ ${id}`);
+    const m3 = water('M3');
+    const res = water('RES');
+    const kg = meta(service({ id: 'uxu-kg', serviceType: 'per_unit', unit: 'kg', pricingMode: 'known_rate', pricing: { knownRate: 50 }, activity: { billableQuantityPerMonth: 5000, unitsPerActiveDay: 500, daysPerActivation: 1 }, labor: [driver()] }), 'UXU-KG', 'UXU por kg');
+    const call = meta(service({ id: 'uxu-call', serviceType: 'on_call', unit: 'call', activity: { billableQuantityPerMonth: 6, daysPerActivation: 1 }, labor: [driver()] }), 'UXU-CALL', 'UXU por llamado');
+    const stale = meta(service({ id: 'uxu-stale', serviceType: 'configurable', unit: 'day', activity: { activeDaysPerMonth: 8, billableQuantityPerMonth: 300, unitsPerActiveDay: 30 }, labor: [driver()] }), 'UXU-STALE', 'UXU por día con una cantidad vieja');
+    const kmq = meta(service({ id: 'uxu-km', serviceType: 'transport', unit: 'km', activity: { billableQuantityPerMonth: 6000, unitsPerActiveDay: 400, daysPerActivation: 1, hoursPerActiveDay: 8 }, labor: [driver()], equipment: [truck()], logistics: route({ distanceKm: 100, tripsPerActivation: 2 }) }), 'UXU-KM', 'UXU traslado por km');
+    const live = db.workspaces.get(orgId);
+    live.state.quotes = [...live.state.quotes, m3, res, kg, call, stale, kmq];
+    live.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+    const stored = (id) => (db.workspaces.get(orgId).state.quotes || []).find((x) => x.id === id) || null;
+    const waitStored = async (id, test) => {
+      let q = null;
+      for (let i = 0; i < 25; i += 1) {
+        q = stored(id);
+        if (q && test(q)) break;
+        await page.waitForTimeout(150);
+      }
+      return q;
+    };
+    const mainText = async () => norm(await page.evaluate(() => (document.querySelector('main') || document.body).innerText));
+    const dialog = () => page.evaluate(() => {
+      const d = document.querySelector('dialog[open]');
+      return d ? { text: d.innerText, buttons: [...d.querySelectorAll('button')].map((b) => b.textContent.trim()) } : null;
+    });
+    const press = async (name) => {
+      const btn = page.locator('dialog[open] button', { hasText: name }).first();
+      if (await btn.count()) await tap(btn);
+      await page.waitForTimeout(700);
+    };
+    /** Elige la unidad de cobro: selector (muchas unidades) o botón de opción (pocas). */
+    const chooseUnit = async (value) => {
+      const sel = page.locator('select[name="unit"]').first();
+      if (await sel.count()) await sel.selectOption(value);
+      else await tap(page.locator(`input[type="radio"][name="unit"][value="${value}"]`).first());
+    };
+    const setNumber = async (name, value) => {
+      const input = page.locator(`input[name="${name}"]`).first();
+      await input.fill(String(value));
+      await input.press('Tab');
+      await page.waitForTimeout(500);
+    };
+
+    // 1. "ARS / [m³ ▾]", las mismas unidades habituales que K0, y menos texto de ayuda.
+    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/modality`, 1200);
+    await page.waitForSelector('select[name="unit"]', { timeout: 8000 }).catch(() => {});
+    const unitUi = await page.evaluate(() => {
+      const sel = document.querySelector('select[name="unit"]');
+      const field = sel && sel.closest('.field');
+      return {
+        value: sel && sel.value,
+        radios: document.querySelectorAll('input[type="radio"][name="unit"]').length,
+        prefix: field && field.querySelector('.qe-compound-fixed') ? field.querySelector('.qe-compound-fixed').textContent : null,
+        label: field && field.querySelector('label.field-label') ? field.querySelector('label.field-label').textContent : null,
+        options: sel ? [...sel.options].map((o) => o.value) : [],
+      };
+    });
+    check(P, 'la unidad de cobro es "ARS / [m³ ▾]": un selector con la moneda a la vista, sin tarjetas de radio', unitUi.value === 'm3' && unitUi.radios === 0 && norm(unitUi.prefix) === 'ARS /' && /Unidad de cobro/.test(unitUi.label || ''), JSON.stringify(unitUi));
+    check(P, 'el selector ofrece las mismas unidades que K0 (las habituales del tipo de servicio + otra)', JSON.stringify(unitUi.options) === JSON.stringify(unitChoicesFor('per_unit', 'm3').map((u) => u.id)), unitUi.options.join(', '));
+    const help = await page.evaluate(() => {
+      const vis = (el) => el.getClientRects().length > 0 && !el.closest('details:not([open]) > :not(summary)');
+      const sel = '.field-hint, .qe-note, .qe-question-why, .choice-hint, .qe-keyline-hint, .qe-term';
+      return [...(document.querySelector('main') || document.body).querySelectorAll(sel)].filter(vis).reduce((n, el) => n + (el.innerText.trim().match(/\S+/g) || []).length, 0);
+    });
+    check(P, 'texto de ayuda a la vista en "Cómo se cobra": al menos 30 % menos que K0 (218 palabras en este caso)', help <= 152, `${help} palabras`);
+
+    // 2. La cadena con las cifras del motor: cantidad ÷ rendimiento = días; cantidad × tarifa = facturación.
+    const r0 = computeQuote(structuredClone(m3));
+    const rev0 = r0.estimate.revenue;
+    let t = await mainText();
+    check(P, 'a la vista: "200 m³ ÷ 20 m³ por día = 10 días de trabajo"', t.includes('200 m³ ÷ 20 m³ por día = 10 días de trabajo'), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
+    const revenueText = norm(`200 m³ × ${formatMoney(rev0.netRate)} por m³ = ${formatMoney(rev0.components.base)} por mes`);
+    check(P, `a la vista: "${revenueText}" (motor)`, t.includes(revenueText), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
+
+    // 3. Ayuda (i): teclado (Enter abre y anuncia, Esc cierra y devuelve el foco), mouse o toque.
+    const tipBtn = page.locator('.qe-unit-field .info-tip-btn').first();
+    const tipState = () => page.evaluate(() => {
+      const b = document.querySelector('.qe-unit-field .info-tip-btn');
+      const bub = b && document.getElementById(b.getAttribute('aria-controls'));
+      if (!bub) return null;
+      const r = bub.getBoundingClientRect();
+      return { expanded: b.getAttribute('aria-expanded'), hidden: bub.hidden, role: bub.parentElement && bub.parentElement.getAttribute('role'), text: bub.textContent, inside: bub.hidden || (r.left >= 0 && r.right <= document.documentElement.clientWidth), focus: document.activeElement === b };
+    });
+    await tipBtn.focus();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(250);
+    const opened = await tipState();
+    check(P, '(i) con el teclado: Enter la abre, se anuncia (role="status") y la burbuja entra en la pantalla', Boolean(opened) && opened.expanded === 'true' && !opened.hidden && opened.role === 'status' && /moneda de tu empresa/.test(opened.text) && opened.inside, JSON.stringify(opened));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const closed = await tipState();
+    check(P, '(i) Esc la cierra y el foco vuelve al botón', Boolean(closed) && closed.expanded === 'false' && closed.hidden && closed.focus, JSON.stringify(closed));
+    if (mode === 'mobile') {
+      await tipBtn.tap();
+      await page.waitForTimeout(250);
+      const tapped = await tipState();
+      // Un toque en un texto de la página que quede fuera de la burbuja abierta (que tapa lo que tiene debajo)
+      // y fuera de cualquier control.
+      const away = await page.evaluate(() => {
+        const b = document.querySelector('.qe-unit-field .info-tip-btn');
+        const r = document.getElementById(b.getAttribute('aria-controls')).getBoundingClientRect();
+        for (const y of [r.bottom + 16, r.bottom + 40, r.bottom + 72, r.top - 16, r.top - 40]) {
+          for (const x of [16, 40, document.documentElement.clientWidth / 2]) {
+            if (y <= 0 || y >= window.innerHeight) continue;
+            const el = document.elementFromPoint(x, y);
+            if (el && !el.closest('.info-tip, input, select, textarea, button, label, a, [role="radio"]')) return { x, y };
+          }
+        }
+        return null;
+      });
+      if (away) await page.touchscreen.tap(away.x, away.y);
+      await page.waitForTimeout(250);
+      const outside = await tipState();
+      check(P, '(i) con un toque se abre y al tocar afuera se cierra', tapped && tapped.expanded === 'true' && tapped.inside && outside && outside.expanded === 'false', JSON.stringify({ tapped, outside }));
+      // H9: con el botón justo arriba de la barra del resumen, la burbuja se abre hacia arriba (no queda tapada).
+      const lowBtn = page.locator('.qe-full-activations .info-tip-btn').first();
+      const bar = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--qe-sum-h')) || 0);
+      await lowBtn.evaluate((el, barH) => { window.scrollBy(0, el.getBoundingClientRect().bottom - (window.innerHeight - barH - 20)); }, bar);
+      await page.waitForTimeout(300);
+      await lowBtn.tap();
+      await page.waitForTimeout(300);
+      const low = await page.evaluate((barH) => {
+        const b = document.querySelector('.qe-full-activations .info-tip-btn');
+        const bub = document.getElementById(b.getAttribute('aria-controls'));
+        const r = bub.getBoundingClientRect();
+        return { open: b.getAttribute('aria-expanded'), top: Math.round(r.top), bottom: Math.round(r.bottom), limit: Math.round(window.innerHeight - barH), above: bub.classList.contains('is-above') };
+      }, bar);
+      check(P, 'H9: en el celular la ayuda (i) no queda debajo del resumen fijo (se abre hacia arriba)', low.open === 'true' && low.top >= 0 && low.bottom <= low.limit + 1, JSON.stringify(low));
+      await page.keyboard.press('Escape').catch(() => {});
+    } else {
+      await tipBtn.hover();
+      await page.waitForTimeout(450);
+      const hovered = await tipState();
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(450);
+      const left = await tipState();
+      check(P, '(i) con el mouse se abre al pasar y se cierra al salir', hovered && hovered.expanded === 'true' && left && left.expanded === 'false', JSON.stringify({ hovered: hovered && hovered.expanded, left: left && left.expanded }));
+    }
+    const critical = await page.evaluate(() => [...document.querySelectorAll('.info-tip')].filter((x) => x.closest('.banner, .qr-draft, .qe-notices, .qe-illustrative')).length);
+    check(P, 'ningún aviso crítico (borrador, NO CONFIABLE, ILUSTRATIVO) lleva su texto en una ayuda (i)', critical === 0, `${critical} ayudas dentro de avisos`);
+
+    // 4. Rendimiento por hora: el número se pide de nuevo; 2 m³ por hora × 10 h = 20 m³ por día de trabajo.
+    const denominator = page.locator('select[name="activity.rateInput.denominator"]').first();
+    check(P, 'el rendimiento es "[número] [m³] / [día de trabajo ▾]"', (await denominator.count()) > 0 && await denominator.inputValue() === 'day', 'sin el selector del denominador');
+    if (await denominator.count()) {
+      await denominator.selectOption('hour');
+      await page.waitForTimeout(900);
+      const hourUi = await page.evaluate(() => ({ value: (document.querySelector('input[name="activity.unitsPerActiveDay"]') || {}).value, hours: (document.querySelector('input[name="activity.rateInput.hours"]') || {}).value }));
+      check(P, 'por hora: 20 por día no se lee como 20 por hora y las horas no se suponen (las dos cosas se piden)', hourUi.value === '' && hourUi.hours === '', JSON.stringify(hourUi));
+      await setNumber('activity.rateInput.hours', 10);
+      await setNumber('activity.unitsPerActiveDay', 2);
+      const savedHour = await waitStored(m3.id, (q) => q.activity && q.activity.unitsPerActiveDay === 20);
+      const a = savedHour && savedHour.activity;
+      check(P, '2 m³ por hora × 10 h = 20 m³ por día de trabajo: se guardan la forma y el dato del motor', Boolean(a) && a.unitsPerActiveDay === 20 && a.rateInput && a.rateInput.value === 2 && a.rateInput.denominator === 'hour' && a.rateInput.hours === 10, JSON.stringify(a));
+      await page.waitForTimeout(500);
+      const equiv = norm(await page.locator('.qe-rate-equiv').first().textContent().catch(() => ''));
+      check(P, 'a la vista: "= 20 m³ por día de trabajo"', equiv === '= 20 m³ por día de trabajo', equiv);
+    }
+
+    // 5. Cantidad en días de trabajo: 200 m³ ÷ 20 = 10 días; 12 días × 20 m³ por día = 240 m³ por mes.
+    const basis = page.locator('select[name="activity.quantityInput.basis"]').first();
+    if (await basis.count()) {
+      await basis.selectOption('workdays');
+      await page.waitForTimeout(900);
+      const days = await page.locator('input[name="activity.billableQuantityPerMonth"]').first().inputValue();
+      check(P, 'cantidad en días de trabajo: pasa con el rendimiento cargado (200 m³ ÷ 20 m³ por día = 10 días)', days === '10', days);
+      await setNumber('activity.billableQuantityPerMonth', 12);
+      const savedDays = await waitStored(m3.id, (q) => q.activity.billableQuantityPerMonth === 240);
+      check(P, '12 días × 20 m³ por día = 240 m³ por mes: se guarda la cantidad del motor', Boolean(savedDays) && savedDays.activity.billableQuantityPerMonth === 240 && savedDays.activity.quantityInput && savedDays.activity.quantityInput.value === 12, JSON.stringify(savedDays && savedDays.activity));
+      await page.waitForTimeout(600);
+      t = await mainText();
+      check(P, 'a la vista: "20 m³ por día × 12 días de trabajo = 240 m³ por mes"', t.includes('20 m³ por día × 12 días de trabajo = 240 m³ por mes'), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 200));
+    } else {
+      check(P, 'la cantidad del mes se puede cargar en días de trabajo', false, 'sin el selector');
+    }
+
+    // 6. F4: m³ → t sin un factor (densidad): pide qué hacer y nunca convierte; Cancelar no cambia nada.
+    await page.locator('select[name="unit"]').first().selectOption('ton');
+    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+    let dlg = await dialog();
+    check(P, 'F4: m³ → t con cantidad y rendimiento cargados pregunta y no ofrece convertir (no hay factor)', Boolean(dlg) && /Cantidad del mes: 240 m³ por mes/.test(norm(dlg.text)) && /Rendimiento:/.test(dlg.text) && !dlg.buttons.some((b) => /^Convertir/.test(b)), JSON.stringify(dlg));
+    await press('Cancelar');
+    const kept = stored(m3.id);
+    check(P, 'Cancelar deja la unidad y los datos como estaban', await page.locator('select[name="unit"]').first().inputValue() === 'm3' && kept.unit === 'm3' && kept.activity.billableQuantityPerMonth === 240, JSON.stringify({ unit: kept.unit, q: kept.activity.billableQuantityPerMonth }));
+    await page.locator('select[name="unit"]').first().selectOption('ton');
+    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+    await press('Borrar y cargar de nuevo');
+    const cleared = await waitStored(m3.id, (q) => q.unit === 'ton');
+    const ca = cleared && cleared.activity;
+    check(P, 'F4: "Borrar y cargar de nuevo": la cantidad, el rendimiento y su forma quedan vacíos (240 m³ nunca pasan a ser 240 t)', Boolean(ca) && cleared.unit === 'ton' && ca.billableQuantityPerMonth === null && ca.unitsPerActiveDay === null && !ca.rateInput && !ca.quantityInput, JSON.stringify(ca));
+
+    // 7. kg → t con el factor exacto: 5.000 kg = 5 t; 500 kg por día = 0,5 t; $ 50 por kg = $ 50.000 por t.
+    await go(`#/cotizaciones/${encodeURIComponent(kg.id)}/modality`, 1200);
+    await page.locator('select[name="unit"]').first().selectOption('ton');
+    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+    dlg = await dialog();
+    check(P, 'kg → t ofrece convertir con el factor exacto (1 t = 1.000 kg) y muestra antes y después', Boolean(dlg) && dlg.buttons.some((b) => /^Convertir a/.test(b)) && /1 t = 1\.000 kg/.test(dlg.text) && /5\.000 kg por mes → 5 t por mes/.test(norm(dlg.text)), JSON.stringify(dlg));
+    await press('Convertir a');
+    const conv = await waitStored(kg.id, (q) => q.unit === 'ton');
+    check(P, 'convertido: 5 t por mes, 0,5 t por día de trabajo y $ 50.000 por t (mismos números del motor)', Boolean(conv) && conv.activity.billableQuantityPerMonth === 5 && conv.activity.unitsPerActiveDay === 0.5 && conv.pricing.knownRate === 50000, JSON.stringify(conv && { a: conv.activity, rate: conv.pricing.knownRate }));
+    if (conv) {
+      const before = computeQuote(structuredClone(kg));
+      const after = computeQuote(structuredClone(conv));
+      check(P, 'con kg → t el costo y la facturación del mes no cambian', Math.abs(before.kpis.totalCost - after.kpis.totalCost) < 0.01 && Math.abs(before.kpis.revenue - after.kpis.revenue) < 0.01, `${before.kpis.revenue} → ${after.kpis.revenue}`);
+    }
+
+    // 8. Llamado → día: 6 llamados por mes no pasan a ser 6 días; una cantidad vieja tampoco se reusa.
+    await go(`#/cotizaciones/${encodeURIComponent(call.id)}/modality`, 1200);
+    const chips = await page.evaluate(() => ({ radios: [...document.querySelectorAll('input[type="radio"][name="unit"]')].map((r) => r.value), select: Boolean(document.querySelector('select[name="unit"]')), prefix: (document.querySelector('.qe-unit-chips .qe-compound-fixed') || {}).textContent }));
+    check(P, 'con pocas unidades (on-call: 5) van a la vista como botones de opción, con "ARS /"', !chips.select && JSON.stringify(chips.radios) === JSON.stringify(unitChoicesFor('on_call', 'call').map((u) => u.id)) && norm(chips.prefix) === 'ARS /', JSON.stringify(chips));
+    await chooseUnit('day');
+    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+    dlg = await dialog();
+    check(P, 'llamado → día: la cantidad de llamados se borra, no se convierte', Boolean(dlg) && /Cantidad del mes: 6 llamados por mes/.test(norm(dlg.text)) && !dlg.buttons.some((b) => /^Convertir/.test(b)), JSON.stringify(dlg));
+    await press('Borrar y cargar de nuevo');
+    const callSaved = await waitStored(call.id, (q) => q.unit === 'day');
+    check(P, 'llamado → día guardado sin la cantidad de llamados', Boolean(callSaved) && callSaved.activity.billableQuantityPerMonth === null, JSON.stringify(callSaved && callSaved.activity));
+    await go(`#/cotizaciones/${encodeURIComponent(stale.id)}/modality`, 1200);
+    await page.locator('select[name="unit"]').first().selectOption('m3');
+    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
+    dlg = await dialog();
+    check(P, 'día → m³ con una cantidad guardada de una unidad anterior: lo dice y no la reusa', Boolean(dlg) && /de una unidad anterior/.test(dlg.text) && !dlg.buttons.some((b) => /^Convertir/.test(b)), JSON.stringify(dlg));
+    await press('Borrar y cargar de nuevo');
+    const staleSaved = await waitStored(stale.id, (q) => q.unit === 'm3');
+    check(P, 'día → m³: la cantidad vieja (300) no aparece como 300 m³', Boolean(staleSaved) && staleSaved.activity.billableQuantityPerMonth === null && staleSaved.activity.unitsPerActiveDay === null, JSON.stringify(staleSaved && staleSaved.activity));
+
+    // 8 bis. km por hora (revisión UX-UNITS, H2): la velocidad no se factura; las horas de marcha se piden y,
+    // si son todas las horas del día de trabajo, se avisa. El aviso del motor habla en la forma elegida.
+    await go(`#/cotizaciones/${encodeURIComponent(kmq.id)}/modality`, 1200);
+    await page.locator('select[name="activity.rateInput.denominator"]').first().selectOption('hour');
+    await page.waitForTimeout(1200);
+    const kmUi = await page.evaluate(() => {
+      const field = (document.querySelector('input[name="activity.unitsPerActiveDay"]') || document.body).closest('.field');
+      return {
+        hours: (document.querySelector('input[name="activity.rateInput.hours"]') || {}).value,
+        hint: field ? (field.querySelector('.field-hint') || {}).textContent : '',
+        issue: field ? [...field.querySelectorAll('.qe-issue-note')].map((n) => n.textContent).join(' | ') : '',
+      };
+    });
+    check(P, 'km por hora: dice "velocidad promedio con paradas", no supone las horas de marcha', /Velocidad promedio con paradas/.test(kmUi.hint) && kmUi.hours === '', JSON.stringify(kmUi));
+    check(P, 'km por hora sin número: el aviso pide el rendimiento "en km por hora" (no "por día de trabajo")', /Cargá el rendimiento en km por hora/.test(kmUi.issue), kmUi.issue || 'sin aviso');
+    await setNumber('activity.rateInput.hours', 8);
+    await setNumber('activity.unitsPerActiveDay', 50);
+    const kmSaved = await waitStored(kmq.id, (q) => q.activity.unitsPerActiveDay === 400);
+    await page.waitForTimeout(500);
+    const kmEquiv = norm(await page.locator('.qe-rate-equiv').first().textContent().catch(() => ''));
+    check(P, '50 km/h × 8 h de marcha = 400 km por día; con todas las horas del día de trabajo, avisa', Boolean(kmSaved) && /^= 400 km por día de trabajo\. Ojo: son todas las horas del día de trabajo/.test(kmEquiv), `${kmEquiv} · ${JSON.stringify(kmSaved && kmSaved.activity.rateInput)}`);
+
+    // 9. Una cotización de K0 (sin la forma nueva) abre en su forma nativa y, sin editarla, no se le agrega nada.
+    await go(`#/cotizaciones/${encodeURIComponent(res.id)}/modality`, 1200);
+    const native = await page.evaluate(() => ({
+      value: (document.querySelector('input[name="activity.unitsPerActiveDay"]') || {}).value,
+      numerator: (document.querySelector('select[name="activity.rateInput.numerator"]') || { value: null }).value,
+      fixed: (document.querySelector('.qe-compound-unit .qe-compound-fixed') || { textContent: null }).textContent,
+      denominator: (document.querySelector('select[name="activity.rateInput.denominator"]') || {}).value,
+      quantity: (document.querySelector('input[name="activity.billableQuantityPerMonth"]') || {}).value,
+    }));
+    check(P, 'compatibilidad K0: abre como "200 m³ por mes" y "20 m³ / día de trabajo"', native.value === '20' && native.quantity === '200' && native.denominator === 'day' && (native.numerator === 'm3' || norm(native.fixed) === 'm³'), JSON.stringify(native));
+    await scan(P, 'Cómo se cobra (UX-UNITS)');
+
+    // 10. Resultado: la tarifa es la cifra principal y "La cuenta del mes" cierra con el motor.
+    await go(`#/cotizaciones/${encodeURIComponent(res.id)}/result`, 1500);
+    await page.waitForSelector('.qr-account', { timeout: 8000 }).catch(() => {});
+    const rr = computeQuote(structuredClone(res));
+    const acc = await page.evaluate(() => {
+      const s = document.querySelector('.qr-account');
+      return s ? [...s.querySelectorAll('.qr-account-row')].map((row) => [row.querySelector('dt').firstChild.textContent, row.querySelector('dd').textContent]) : null;
+    });
+    const want = [
+      ['Cantidad facturable', '200 m³'],
+      ['× Tarifa sugerida', `${formatMoney(rr.estimate.revenue.netRate)} / m³`],
+      ['= Facturación del mes', formatMoney(rr.kpis.revenue)],
+      [`− Impuestos sobre lo que facturás (${formatPercent(rr.kpis.billingTaxPct)})`, `− ${formatMoney(rr.estimate.billingTaxes)}`],
+      ['− Costo del mes', `− ${formatMoney(rr.kpis.totalCost)}`],
+      ['= Ganancia del mes', formatMoney(rr.estimate.profit)],
+    ].map(([a, b]) => [norm(a), norm(b)]);
+    const got = (acc || []).map(([a, b]) => [norm(a), norm(b)]);
+    check(P, '"La cuenta del mes": cantidad × tarifa = facturación − impuestos − costo = ganancia, con las cifras del motor', JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));
+    check(P, 'y cierra: facturación − impuestos − costo = ganancia (motor, al centavo)', Math.abs(rr.kpis.revenue - rr.estimate.billingTaxes - rr.kpis.totalCost - rr.estimate.profit) < 0.005 && rr.estimate.revenue.billableUnits * rr.estimate.revenue.netRate === rr.estimate.revenue.components.base, `${rr.kpis.revenue} − ${rr.estimate.billingTaxes} − ${rr.kpis.totalCost} vs ${rr.estimate.profit}`);
+    const prim = await page.evaluate(() => Boolean(document.querySelector('.qr-stat-price.qr-stat-primary')) && document.querySelectorAll('.qr-summary .info-tip').length === 0);
+    check(P, 'la tarifa es la cifra destacada y el resumen no esconde nada en ayudas (i)', prim, 'sin la tarifa destacada o con ayudas en el resumen');
+    await scan(P, 'Resultado (UX-UNITS)');
+    await page.emulateMedia({ media: 'print' });
+    const printed = await page.evaluate(() => ({ account: Boolean(document.querySelector('.qr-account')) && document.querySelector('.qr-account').getClientRects().length > 0, tips: [...document.querySelectorAll('.info-tip')].filter((x) => x.getClientRects().length > 0).length }));
+    await page.emulateMedia({ media: 'screen' });
+    check(P, 'PDF: imprime "La cuenta del mes" y ninguna ayuda (i)', printed.account && printed.tips === 0, JSON.stringify(printed));
+    const stillK0 = stored(res.id);
+    check(P, 'compatibilidad K0: abrirla sin editar no le agrega campos nuevos', Boolean(stillK0) && !('rateInput' in stillK0.activity) && !('quantityInput' in stillK0.activity), JSON.stringify(stillK0 && Object.keys(stillK0.activity)));
+
+    // 11. NO CONFIABLE (ECO-01): "La cuenta del mes" lo dice en su título; no se lee como una cifra para usar.
+    const unreliable = seeded.find((x) => (x.r.completeness.pending || []).some((p) => p.unreliable === true) && x.r.kpis.commercialListRate > 0 && x.r.estimate.revenue.total > 0);
+    check(P, 'hay un escenario NO CONFIABLE con tarifa para probarlo', Boolean(unreliable), 'ninguno');
+    if (unreliable) {
+      await go(`#/cotizaciones/${encodeURIComponent(unreliable.q.id)}/result`, 1500);
+      await page.waitForSelector('.qr-account', { timeout: 8000 }).catch(() => {});
+      const tag = await page.evaluate(() => {
+        const s = document.querySelector('.qr-account');
+        const t = s && s.querySelector('.qr-account-title .tag-unreliable');
+        return { block: Boolean(s), tag: t ? t.textContent.trim() : null, visible: Boolean(t && t.getClientRects().length) };
+      });
+      check(P, `${unreliable.s.id}: "La cuenta del mes" dice "No confiable" a la vista`, tag.block && tag.tag === 'No confiable' && tag.visible, JSON.stringify(tag));
+    }
   }
 
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en

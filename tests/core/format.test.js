@@ -165,7 +165,16 @@ describe('formatMoneyCompact', () => {
   test('pasa a la unidad siguiente al redondear (999.600 → $ 1 M)', () => {
     assert.equal(nb(formatMoneyCompact(999600)), '$ 1 M');
     assert.equal(nb(formatMoneyCompact(999996)), '$ 1 M');
-    assert.equal(nb(formatMoneyCompact(999.6)), '$ 1 mil');
+    assert.equal(nb(formatMoneyCompact(999.6)), '$ 1.000');
+    assert.equal(nb(formatMoneyCompact(9999.6)), '$ 10 mil');
+  });
+
+  test('UX-UNITS: debajo de $ 10 mil, la cifra completa; hasta $ 100 mil, 1 decimal (una tarifa piso no se lee mucho más alta)', () => {
+    assert.equal(nb(formatMoneyCompact(1519, { ceil: true })), '$ 1.519');
+    assert.equal(nb(formatMoneyCompact(1518.2, { ceil: true })), '$ 1.519');
+    assert.equal(nb(formatMoneyCompact(39802, { ceil: true })), '$ 39,9 mil');
+    assert.equal(nb(formatMoneyCompact(45000, { ceil: true })), '$ 45 mil');
+    assert.equal(nb(formatMoneyCompact(199005, { ceil: true })), '$ 200 mil');
   });
 
   test('usa espacios no separables (no se corta en dos líneas)', () => {

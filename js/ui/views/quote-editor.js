@@ -457,7 +457,9 @@ function decorateFieldIssues(container, issues) {
     field.classList.add('qe-has-issue');
     // Id estable (el del control + su número de aviso): al recalcular, el aria-describedby queda igual.
     const noteId = `${controls[0].id || uniqueId('qe-campo')}-aviso-${field.querySelectorAll('.qe-issue-note').length + 1}`;
-    const note = h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`], id: noteId }, issue.message);
+    // Un campo puede decir el aviso en la forma en que se cargó (UX-UNITS: rendimiento "por hora" o en otra unidad).
+    const message = issue.severity === 'error' && field.dataset.issueMessage ? field.dataset.issueMessage : issue.message;
+    const note = h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`], id: noteId }, message);
     field.appendChild(note);
     // Todos los controles del campo con esa ruta (p. ej. cada opción de un grupo).
     controls.filter((c) => field.contains(c)).forEach((c) => {
@@ -987,6 +989,21 @@ function breakEvenText(r, { decimals = 1 } = {}) {
 const hasCost = (r) => isFiniteNumber(r.kpis.totalCost) && r.kpis.totalCost > 0;
 const NO_COST_HINT = 'Aparece cuando cargues costos: personal, equipos u otros gastos.';
 
+/**
+ * Qué falta cargar en "Cómo se cobra" para calcular (UX-UNITS, N3): con la cantidad del mes cargada y sin el
+ * rendimiento, falta el rendimiento (no "los m³ por mes", que ya están).
+ */
+function rateMissing(r) {
+  const a = r.activity || {};
+  return Boolean(r.unitInfo && r.unitInfo.kind === 'quantity' && Number(a.billableQuantityPerMonth) > 0 && !(Number(a.unitsPerActiveDay) > 0));
+}
+
+function activityMissingHint(r) {
+  if (!isQuantityUnit(r)) return 'Cargá los días por mes para calcularla.';
+  if (rateMissing(r)) return `Falta completar el rendimiento en "${stepName('modality')}" para calcularla.`;
+  return `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.`;
+}
+
 function rateHint(r) {
   const k = r.kpis;
   let text;
@@ -1013,7 +1030,7 @@ function rateHint(r) {
           ? `Sin tarifa sugerida: con ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - k.billingTaxPct)}. Bajalo en "El precio".`
           : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".';
       } else if (!hasCost(r)) text = NO_COST_HINT;
-      else text = isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
+      else text = activityMissingHint(r);
   }
   const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
     ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
@@ -1082,7 +1099,9 @@ function buildSummary({ getResult, stepHref }) {
       value: (r) => formatMoney(r.kpis.totalCost),
       compact: (r) => formatMoneyCompact(r.kpis.totalCost),
       hint: (r) => (isQuantityUnit(r)
-        ? `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`
+        ? (rateMissing(r)
+          ? `Falta completar el rendimiento en "${stepName('modality')}": sin él no hay días de trabajo.`
+          : `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`)
         : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`),
       trace: (r) => r.traces.totalCost,
     }),
@@ -1097,7 +1116,7 @@ function buildSummary({ getResult, stepHref }) {
       hint: (r) => {
         const floor = floorDisplay(r);
         if (!hasCost(r)) return NO_COST_HINT;
-        if (!isFiniteNumber(floor.value)) return isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
+        if (!isFiniteNumber(floor.value)) return activityMissingHint(r);
         const net = floor.base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
         return `Precio mínimo para no perder (margen 0 %), sin IVA. ${floorTaxesText(r)}${net ? ` ${net}` : ''}`;
       },

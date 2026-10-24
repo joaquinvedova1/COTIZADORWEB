@@ -77,7 +77,7 @@ import { createTrace } from '../../core/trace.js';
 import { track } from '../../core/events.js';
 import { logger } from '../../core/logger.js';
 import { feedbackInvite } from '../feedback-invite.js';
-import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER } from '../../config.js';
+import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER, CURRENCY } from '../../config.js';
 import { QUOTE_STEPS, QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { roundingModeChange } from '../../domain/rounding.js';
@@ -100,6 +100,7 @@ import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import { onSessionReset } from '../session-memory.js';
 import { REFERENCE_PRICE_NOTE, documentDatesText } from '../reference-text.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
+import { quantityBasisOf } from '../../domain/unit-pairs.js';
 import {
   dayDecimals,
   resultDays,
@@ -1791,6 +1792,87 @@ function workBlock(v) {
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
 
+/** UX-UNITS: la tarifa (sugerida o la tuya) es la cifra principal del resumen. */
+function primary(node) {
+  if (node) node.classList.add('qr-stat-primary');
+  return node;
+}
+
+/** Cantidad facturable del mes en la unidad de cobro: "200 m³", "180 horas", "8 días", "6 llamados". */
+function billableText(v, units) {
+  const { r } = v;
+  if (!hasValue(units)) return EMPTY;
+  if (r.unit === 'quantity' || r.unit === 'event') return quantityText(units, r);
+  if (r.unit === 'hour') return `${formatNumber(units, { decimals: 2 })} ${Math.abs(units - 1) < 1e-9 ? 'hora' : 'horas'}`;
+  return `${formatNumber(units, { decimals: 2 })} ${Math.abs(units - 1) < 1e-9 ? 'día' : 'días'}`;
+}
+
+/**
+ * De dónde sale la cantidad, en el sentido en que se cargó: con días de trabajo cargados, "20 m³ por día × 10 días
+ * de trabajo"; con la cantidad cargada, "en 10 días de trabajo, a 20 m³ por día" (los días se derivan). Por hora,
+ * "20 días × 9 h por día".
+ */
+function billableSource(v, rev) {
+  const { r } = v;
+  const a = r.activity || {};
+  const D = rev.activeDays;
+  let text = '';
+  if (r.unit === 'quantity' && hasValue(a.unitsPerActiveDay) && a.unitsPerActiveDay > 0 && hasValue(D)) {
+    text = quantityBasisOf(v.q.activity) === 'workdays'
+      ? `${quantityText(a.unitsPerActiveDay, r)} por día × ${workDaysText(D)}`
+      : `en ${workDaysText(D)}, a ${quantityText(a.unitsPerActiveDay, r)} por día`;
+  }
+  else if (r.unit === 'hour' && hasValue(a.hoursPerActiveDay) && hasValue(D)) text = `${formatDays(D, { decimals: 2 })} × ${formatNumber(a.hoursPerActiveDay, { decimals: 2 })} h por día`;
+  const T = activationTerms(v.q);
+  const min = rev.minimumCallApplied ? `incluye el mínimo ${T.per}` : '';
+  return [text, min].filter(Boolean).join(' · ');
+}
+
+/**
+ * "La cuenta del mes" (UX-UNITS): cantidad facturable × tarifa = facturación;
+ * menos impuestos sobre lo que facturás y el costo = ganancia. Son los números
+ * del motor (r.estimate): no se recalcula nada, se muestra en el orden en que
+ * se lee. Los ingresos que no son cantidad × tarifa van en su propio renglón.
+ * Con un resultado NO CONFIABLE (ECO-01) lo dice en el título y se apaga.
+ */
+function monthAccountBlock(v) {
+  const { r, k } = v;
+  const e = r.estimate;
+  const rev = e && e.revenue;
+  if (!hasRate(k) || !rev || !(rev.total > 0) || !hasValue(k.totalCost) || !hasValue(e.profit)) return null;
+  const T = activationTerms(v.q);
+  const comp = revenueComposition(rev);
+  const labels = revenueRowLabels(r, T, null);
+  const others = comp.rows.filter((row) => row.id !== 'base');
+  const unreliable = isUnreliable(v);
+  const net = listDiffers(rev.listRate, rev.netRate);
+  const row = (label, value, { sub = null, className = null } = {}) => h('div', { class: ['qr-account-row', className] },
+    h('dt', {}, label, sub ? h('span', { class: 'qr-account-sub' }, sub) : null),
+    h('dd', { class: 'mono' }, value));
+  const rows = [];
+  if (r.unit === 'month') {
+    rows.push(row(others.length ? 'Abono mensual' : 'Facturación del mes (abono)', money(rev.components.base)));
+  } else {
+    rows.push(row('Cantidad facturable', billableText(v, rev.billableUnits), { sub: billableSource(v, rev) || null }));
+    rows.push(row(`× ${net ? 'Tarifa neta' : commercialName(k)}`, rate(rev.netRate, v.unitLabel), { sub: net ? `De lista ${rate(rev.listRate, v.unitLabel)}, con descuentos` : null }));
+    rows.push(row(others.length ? `= Facturación por ${r.unitInfo.singular || v.unitLabel}` : '= Facturación del mes', money(rev.components.base), { className: others.length ? null : 'is-subtotal' }));
+  }
+  others.forEach((x) => rows.push(row(`+ ${labels[x.id] || x.id}`, money(x.amount))));
+  if (others.length) rows.push(row('= Facturación del mes', money(rev.total), { className: 'is-subtotal' }));
+  const taxesLabel = k.billingTaxesDefined && !k.billingTaxesInvalid ? `− Impuestos sobre lo que facturás (${pct(k.billingTaxPct)})` : '− Impuestos sobre lo que facturás (sin definir)';
+  rows.push(row(taxesLabel, `− ${money(e.billingTaxes)}`));
+  rows.push(row('− Costo del mes', `− ${money(k.totalCost)}`));
+  const loss = e.profit < -1e-6;
+  rows.push(row(loss ? '= Pérdida del mes' : '= Ganancia del mes', loss ? `− ${money(-e.profit)}` : money(e.profit), {
+    sub: hasValue(k.marginPct) ? `Margen ${pct(k.marginPct)}` : null,
+    className: ['is-total', unreliable ? null : loss ? 'is-loss' : 'is-gain'].filter(Boolean).join(' '),
+  }));
+  const titleId = uniqueId('qr-account-title');
+  return h('section', { class: ['qr-account', unreliable ? 'is-unreliable' : null], 'aria-labelledby': titleId },
+    h('h3', { class: 'qr-account-title', id: titleId }, 'La cuenta del mes', unreliable ? h('span', { class: 'tag-unreliable' }, 'No confiable') : null),
+    h('dl', { class: 'qr-account-list' }, ...rows));
+}
+
 /**
  * "Nombre · Cliente". El nombre va en su propio span: en el celular se oculta
  * (ya es el título de la página) y los montos suben (CEL-03). El PDF imprime todo.
@@ -1868,15 +1950,21 @@ function renderSummary(v) {
         sub ? h('p', { class: ['qr-summary-sub', typeof q.client === 'string' && q.client.trim() ? null : 'qr-summary-sub-name-only'] }, ...[].concat(sub)) : null),
       h('div', { class: 'qr-summary-badges' },
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
+        // UX-UNITS: la unidad de cobro como etiqueta ("ARS / m³").
+        badge(`${(typeof q.currency === 'string' && q.currency) || CURRENCY} / ${v.unitLabel}`, 'gray', { title: 'Unidad de cobro' }),
         illustrativeBadge(v))),
     draft,
     roundingBanner(v),
     // UI-01: la alerta de la tarifa va arriba de los números que afecta (DESIGN.md §1.2).
     price ? h('div', { class: ['qr-alerts', 'qr-alerts-price'] }, price) : null,
-    statsList('qr-stats', costStat(v), floorStat(v), priceStat(v), marginStat(v)),
+    statsList('qr-stats', costStat(v), floorStat(v), primary(priceStat(v)), marginStat(v)),
     // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado. Se imprime.
-    h('p', { class: 'qr-note qr-reference-note' }, REFERENCE_PRICE_NOTE),
-    h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
+    // UX-UNITS: las dos notas en una sola línea (mismos textos).
+    h('p', { class: 'qr-note qr-notes' },
+      h('span', { class: 'qr-reference-note' }, REFERENCE_PRICE_NOTE),
+      ' ',
+      h('span', { class: 'qr-tax-note' }, 'Montos sin IVA; el margen es después de costos e impuestos sobre la facturación y antes de Ganancias.')),
+    monthAccountBlock(v),
     workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
@@ -3419,17 +3507,9 @@ function rulesSummary(v) {
     h('p', { class: 'qr-rules-edit no-print' }, stepLink(q, 'margin', 'Editar reglas comerciales')));
 }
 
-/**
- * Cómo se compone la facturación del mes (ECO-01, H-02): cada componente que suma, el ajuste
- * por mínimo garantizado y el total, con los valores del motor (revenueComposition). Con
- * abono mensual + abono de disponibilidad, el aviso crítico va acá también.
- */
-function revenueCompositionBlock(v, revenue, T) {
-  const { r } = v;
-  const c = revenueComposition(revenue);
-  if (!(c.total > 0) || !c.rows.length) return null;
-  const units = hasValue(revenue.billableUnits) ? (r.unit === 'quantity' ? quantityText(revenue.billableUnits, r) : `${formatNumber(revenue.billableUnits, { decimals: 2 })} ${r.unitInfo.plural || 'unidades'}`) : null;
-  const labels = {
+/** Rótulos de los componentes de la facturación del mes (revenueComposition), en la unidad de la cotización. */
+function revenueRowLabels(r, T, units) {
+  return {
     base: r.unit === 'month' ? 'Abono mensual (la tarifa)' : `Tarifa${units ? ` × ${units}` : ''}`,
     availabilityFee: 'Abono de disponibilidad',
     callout: `Cargos ${T.per}`,
@@ -3440,6 +3520,19 @@ function revenueCompositionBlock(v, revenue, T) {
     overtime: 'Horas extra facturadas aparte',
     guaranteeTopUp: 'Ajuste al mínimo mensual garantizado',
   };
+}
+
+/**
+ * Cómo se compone la facturación del mes (ECO-01, H-02): cada componente que suma, el ajuste
+ * por mínimo garantizado y el total, con los valores del motor (revenueComposition). Con
+ * abono mensual + abono de disponibilidad, el aviso crítico va acá también.
+ */
+function revenueCompositionBlock(v, revenue, T) {
+  const { r } = v;
+  const c = revenueComposition(revenue);
+  if (!(c.total > 0) || !c.rows.length) return null;
+  const units = hasValue(revenue.billableUnits) ? (r.unit === 'quantity' ? quantityText(revenue.billableUnits, r) : `${formatNumber(revenue.billableUnits, { decimals: 2 })} ${r.unitInfo.plural || 'unidades'}`) : null;
+  const labels = revenueRowLabels(r, T, units);
   const overlap = ((r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap');
   return h('div', { class: 'qr-revenue-composition' },
     h('h4', { class: 'qr-subhead' }, 'Cómo se compone la facturación del mes'),
