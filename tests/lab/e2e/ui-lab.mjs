@@ -2582,7 +2582,7 @@ async function runMode(mode) {
       const bub = b && document.getElementById(b.getAttribute('aria-controls'));
       if (!bub) return null;
       const r = bub.getBoundingClientRect();
-      return { expanded: b.getAttribute('aria-expanded'), hidden: bub.hidden, role: bub.getAttribute('role'), text: bub.textContent, inside: bub.hidden || (r.left >= 0 && r.right <= document.documentElement.clientWidth), focus: document.activeElement === b };
+      return { expanded: b.getAttribute('aria-expanded'), hidden: bub.hidden, role: bub.parentElement && bub.parentElement.getAttribute('role'), text: bub.textContent, inside: bub.hidden || (r.left >= 0 && r.right <= document.documentElement.clientWidth), focus: document.activeElement === b };
     });
     await tipBtn.focus();
     await page.keyboard.press('Enter');
@@ -2597,10 +2597,27 @@ async function runMode(mode) {
       await tipBtn.tap();
       await page.waitForTimeout(250);
       const tapped = await tipState();
-      await page.locator('main h1').first().tap().catch(() => {});
+      // Un toque en un texto de la página, fuera de la ayuda (la ayuda de la unidad de cobro).
+      const away = await page.locator('.qe-unit-field .field-hint').first().boundingBox();
+      if (away) await page.touchscreen.tap(away.x + 4, away.y + away.height / 2);
       await page.waitForTimeout(250);
       const outside = await tipState();
       check(P, '(i) con un toque se abre y al tocar afuera se cierra', tapped && tapped.expanded === 'true' && tapped.inside && outside && outside.expanded === 'false', JSON.stringify({ tapped, outside }));
+      // H9: con el botón justo arriba de la barra del resumen, la burbuja se abre hacia arriba (no queda tapada).
+      const lowBtn = page.locator('.qe-full-activations .info-tip-btn').first();
+      const bar = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--qe-sum-h')) || 0);
+      await lowBtn.evaluate((el, barH) => { window.scrollBy(0, el.getBoundingClientRect().bottom - (window.innerHeight - barH - 20)); }, bar);
+      await page.waitForTimeout(300);
+      await lowBtn.tap();
+      await page.waitForTimeout(300);
+      const low = await page.evaluate((barH) => {
+        const b = document.querySelector('.qe-full-activations .info-tip-btn');
+        const bub = document.getElementById(b.getAttribute('aria-controls'));
+        const r = bub.getBoundingClientRect();
+        return { open: b.getAttribute('aria-expanded'), top: Math.round(r.top), bottom: Math.round(r.bottom), limit: Math.round(window.innerHeight - barH), above: bub.classList.contains('is-above') };
+      }, bar);
+      check(P, 'H9: en el celular la ayuda (i) no queda debajo del resumen fijo (se abre hacia arriba)', low.open === 'true' && low.top >= 0 && low.bottom <= low.limit + 1, JSON.stringify(low));
+      await page.keyboard.press('Escape').catch(() => {});
     } else {
       await tipBtn.hover();
       await page.waitForTimeout(450);

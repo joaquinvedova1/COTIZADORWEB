@@ -706,7 +706,7 @@ const TIP_HOVER_CLOSE_MS = 150;
 /**
  * Ayuda (i) para lo SECUNDARIO (UX-UNITS): se abre al pasar el mouse, al
  * tocarla o con el teclado (Enter / Espacio), y se cierra con Esc, al tocar
- * afuera o con otro clic. El texto se anuncia al abrirse (role="status").
+ * afuera o con otro clic. El texto se anuncia al abrirse (región role="status").
  * Nunca para un aviso crítico (NO CONFIABLE, ILUSTRATIVO, pérdida, unidad o
  * guardado): esos van a la vista. No se imprime.
  * @param {string} text  una o dos frases
@@ -714,9 +714,12 @@ const TIP_HOVER_CLOSE_MS = 150;
  */
 export function infoTip(text, { label = 'Más información' } = {}) {
   const id = uniqueId('tip');
-  const bubble = h('span', { class: 'info-tip-bubble', id, role: 'status', hidden: true });
+  const bubble = h('span', { class: 'info-tip-bubble', id, hidden: true });
+  // La región que se anuncia está siempre en la página (vacía y sin tamaño mientras está cerrada): así el
+  // texto que aparece al abrir se lee (patrón "toggletip").
+  const live = h('span', { class: 'info-tip-live', role: 'status' }, bubble);
   const btn = h('button', { type: 'button', class: 'info-tip-btn', 'aria-label': label, 'aria-expanded': 'false', 'aria-controls': id }, icon('info', { size: 16 }));
-  const wrap = h('span', { class: 'info-tip' }, btn, bubble);
+  const wrap = h('span', { class: 'info-tip' }, btn, live);
   let open = false;
   let pinned = false;
   let timer = null;
@@ -727,13 +730,17 @@ export function infoTip(text, { label = 'Más información' } = {}) {
   // La burbuja nunca sale de la pantalla (sin scroll horizontal en 320 px) ni queda debajo de la barra fija
   // del resumen en el celular (--qe-sum-h, la publica el editor): si no entra abajo, se abre hacia arriba.
   const place = () => {
-    bubble.style.left = '0px';
-    bubble.classList.remove('is-above');
+    // La pantalla se mide ANTES de mover la burbuja: en el celular, una burbuja que se sale un instante por la
+    // derecha agranda la pantalla de layout (innerHeight crece) y la cuenta de abajo daría siempre "entra".
     const vw = document.documentElement.clientWidth || window.innerWidth || 0;
     const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const origin = wrap.getBoundingClientRect().left;
+    // Se muestra desde el borde izquierdo de la pantalla: así nunca se sale, ni siquiera mientras se mide.
+    bubble.style.left = `${Math.round(TIP_EDGE - origin)}px`;
+    bubble.classList.remove('is-above');
+    bubble.hidden = false;
     const r = bubble.getBoundingClientRect();
     const b = btn.getBoundingClientRect();
-    const origin = wrap.getBoundingClientRect().left;
     const wanted = Math.min(Math.max(b.left + b.width / 2 - r.width / 2, TIP_EDGE), Math.max(vw - TIP_EDGE - r.width, TIP_EDGE));
     bubble.style.left = `${Math.round(wanted - origin)}px`;
     const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--qe-sum-h')) || 0;
@@ -756,7 +763,6 @@ export function infoTip(text, { label = 'Más información' } = {}) {
     if (open) return;
     open = true;
     bubble.textContent = text;
-    bubble.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
     wrap.classList.add('is-open');
     place();

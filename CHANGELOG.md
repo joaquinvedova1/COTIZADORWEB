@@ -29,10 +29,11 @@ Pedido del dueño del 24/10 y del Issue #5 de RATEOS-AUDIT. **Ninguna fórmula c
 - El aviso de un campo puede decirse en la forma en que se cargó (`data-issue-message`): "Cargá el rendimiento en km por hora", no "por día de trabajo".
 
 #### Cambiado
-- Una frase de ayuda por campo en "Cómo se cobra"; las explicaciones largas pasan a (i). 45 % menos palabras de ayuda a la vista en los cinco casos (1.069 → 593).
+- Una frase de ayuda por campo en "Cómo se cobra"; las explicaciones largas pasan a (i). 43 % menos palabras de ayuda a la vista en los cinco casos (1.069 → 609).
 - Resultado: la tarifa (sugerida o la tuya) es la cifra destacada, en el mismo orden. Las notas "no es un precio de mercado" y "Montos sin IVA" van en una sola línea.
 
 #### Corregido
+- El resumen en vivo dice «Falta el rendimiento (m³ por día de trabajo)» cuando la cantidad del mes está cargada y el rendimiento no. Antes decía «Cargá los m³ por mes» aunque ya estuvieran.
 - **F4: al cambiar la unidad de cobro, la cantidad del mes y el rendimiento ya no se leen en la unidad nueva** (200 m³ por mes pasaban a ser 200 viajes). El diálogo de cambio de unidad, que ya cubría las tarifas, ahora también cubre las cantidades: convierte sólo con un factor exacto (kg ↔ t, metro ↔ km; día ↔ hora con las horas por día para las tarifas) o borra y pide cargar de nuevo. Una cantidad guardada de una unidad anterior tampoco se reusa.
 
 ## [0.9.0] - sin publicar (beta gratuita: PLAN-2026-027, PLAN-2026-028 y PLAN-2026-029)

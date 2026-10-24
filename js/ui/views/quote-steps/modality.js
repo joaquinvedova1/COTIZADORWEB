@@ -451,6 +451,28 @@ export function render(container, ctx) {
     return qi && typeof qi === 'object' ? positiveOrNull(Number(qi.value)) : null;
   };
 
+  /**
+   * Qué falta para tener el rendimiento, en la forma elegida (revisión UX-UNITS, H6 y N1): el número, la carga
+   * por viaje o las horas por día. null si no falta nada o si es la forma de siempre (el aviso del motor vale).
+   */
+  function rateMissingText() {
+    const current = rateInputOf(quote.activity, info);
+    if (isNativeRate(current, info)) return null;
+    const form = rateFormText(numeratorOf(current.numerator).plural, current.denominator);
+    if (current.value === null) return `Cargá el rendimiento en ${form}`;
+    const loadUnit = loadUnitOf(info, current.numerator);
+    if (loadUnit && current.load === null) return `Cargá la carga por viaje (${numeratorOf(loadUnit).short} por viaje) para pasar el rendimiento a ${info.plural}`;
+    if (current.denominator === 'hour' && current.hours === null) return `Cargá las horas ${info.id === 'km' ? 'de marcha' : 'productivas'} por día para pasar el rendimiento a días de trabajo`;
+    return null;
+  }
+  let rateFieldEl = null;
+  const syncRateIssue = () => {
+    if (!rateFieldEl) return;
+    const missing = rateMissingText();
+    if (missing) rateFieldEl.dataset.issueMessage = `${missing}: sin eso no se pueden calcular los días de trabajo ni los costos.`;
+    else delete rateFieldEl.dataset.issueMessage;
+  };
+
   /** Marca de obligatorio (como kit.num con requiredMark). */
   const markRequired = (el) => {
     const label = el.querySelector('.field-label');
@@ -498,6 +520,7 @@ export function render(container, ctx) {
     // La forma de la cantidad es la de este dibujo (se cambia sólo con changeBasis, que redibuja).
     if (basis === 'workdays') ctx.update('activity.billableQuantityPerMonth', quantityFromWorkdays(workdaysValue(), perDay));
     syncRouteTrips();
+    syncRateIssue();
   }
 
   /**
@@ -531,9 +554,10 @@ export function render(container, ctx) {
     const loadUnit = loadUnitOf(info, rateIn.numerator);
     const hourly = rateIn.denominator === 'hour';
     const form = rateFormText(numeratorOf(rateIn.numerator).plural, rateIn.denominator);
-    let rateHint = `Lo que hacés en ${hourly ? 'una hora' : 'un día de trabajo'}. Con esto se calculan los días de trabajo.`;
-    if (info.id === 'km' && hourly) rateHint = 'Velocidad promedio con paradas, no la máxima. Con esto se calculan los días de trabajo.';
-    else if (tripUnit && rateIn.numerator === 'trip' && !hourly) rateHint = 'Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo.';
+    const why = 'Con esto se calculan los días de trabajo, que mueven los costos.';
+    let rateHint = `Lo que hacés en ${hourly ? 'una hora' : 'un día de trabajo'}. ${why}`;
+    if (info.id === 'km' && hourly) rateHint = `Velocidad promedio con paradas, no la máxima. ${why}`;
+    else if (tripUnit && rateIn.numerator === 'trip' && !hourly) rateHint = `Viajes que hacés en un día de trabajo. ${why}`;
     const field = markRequired(numberField({
       label: 'Rendimiento',
       name: 'activity.unitsPerActiveDay',
@@ -550,8 +574,10 @@ export function render(container, ctx) {
     // El lector de pantalla no lee los selectores de al lado al entrar al número: la unidad va en el rótulo (GOV.UK).
     const label = field.querySelector('.field-label');
     if (label) label.insertBefore(h('span', { class: 'sr-only' }, ` (${form})`), label.querySelector('.req'));
-    // El aviso del motor ("Cargá cuántos m³ hacés por día de trabajo") habla de la forma nativa: con otra, se pide en la elegida.
-    if (!isNativeRate(rateIn, info)) field.dataset.issueMessage = `Cargá el rendimiento en ${form}: sin eso no se pueden calcular los días de trabajo ni los costos.`;
+    // El aviso del motor ("Cargá cuántos m³ hacés por día de trabajo") habla de la forma nativa: con otra, dice
+    // lo que falta en la elegida (el número, la carga por viaje o las horas) y se actualiza al cargar.
+    rateFieldEl = field;
+    syncRateIssue();
     withUnitControls(
       field,
       numerators.length > 1
@@ -604,11 +630,13 @@ export function render(container, ctx) {
       if (perDay !== null) {
         // km por hora con TODAS las horas trabajadas: casi nunca se maneja el día entero (H2).
         const allDay = info.id === 'km' && current.denominator === 'hour' && current.hours !== null && Math.abs(current.hours - Number(quote.activity && quote.activity.hoursPerActiveDay)) < 1e-9;
-        return `= ${num(perDay)} ${rateFormText(info.plural, 'day')}${allDay ? '. Ojo: son todas las horas del día de trabajo; si hay carga, espera o descarga, las horas de marcha son menos.' : ''}`;
+        const equal = `= ${num(perDay)} ${rateFormText(info.plural, 'day')}`;
+        return allDay
+          ? [equal, '. ', h('strong', { class: 'qe-warn-inline' }, 'Ojo: son todas las horas del día de trabajo; si hay carga, espera o descarga, las horas de marcha son menos.')]
+          : equal;
       }
       if (current.value === null) return '';
-      if (loadUnit && current.load === null) return 'Falta la carga por viaje para pasarlo a la unidad de cobro.';
-      return 'Faltan las horas por día para pasarlo a días de trabajo.';
+      return `${rateMissingText() || 'Falta un dato para pasarlo a días de trabajo'}.`;
     }, { tag: 'p', className: 'qe-note qe-rate-equiv', allowEmpty: true });
     return [field, equivalence, loadField || hoursInput ? formGrid(2, loadField, hoursInput) : null];
   }
@@ -746,7 +774,9 @@ export function render(container, ctx) {
         return basis === 'workdays' ? 'Cargá los días de trabajo y el rendimiento para ver la cantidad del mes.' : `Cargá ${texts.los} ${info.plural} por mes para ver cuántos días de trabajo lleva.`;
       }
       if (!(r.activity.activeDaysPerMonth > 0)) {
-        return kind === 'quantity' ? `Cargá ${texts.cuantos} ${info.plural} hacés por día de trabajo para calcular los días de trabajo.` : 'Cargá cuántos días de trabajo lleva cada uno.';
+        if (kind !== 'quantity') return 'Cargá cuántos días de trabajo lleva cada uno.';
+        const missing = rateMissingText();
+        return missing ? `${missing} para calcular los días de trabajo.` : `Cargá ${texts.cuantos} ${info.plural} hacés por día de trabajo para calcular los días de trabajo.`;
       }
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';

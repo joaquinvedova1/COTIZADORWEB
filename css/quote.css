@@ -199,6 +199,8 @@
 .qe-mini-select select { width: auto; max-width: 100%; }
 .qe-rate-equiv { margin: 0.4rem 0 0; font-family: var(--mono); color: var(--navy-900); }
 .qe-rate-equiv:empty { display: none; }
+/* El "Ojo" de km por hora se lee como aviso, no como parte de la cuenta. */
+.qe-rate-equiv .qe-warn-inline { font-family: var(--font); font-weight: 650; color: var(--orange-text); }
 .qe-quantity-fields > * + * { margin-top: 0.9rem; }
 .qe-quantity-fields > .field { max-width: 40rem; }
 
