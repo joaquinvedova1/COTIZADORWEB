@@ -776,7 +776,9 @@ export function render(container, ctx) {
       if (!(r.activity.activeDaysPerMonth > 0)) {
         if (kind !== 'quantity') return 'Cargá cuántos días de trabajo lleva cada uno.';
         const missing = rateMissingText();
-        return missing ? `${missing} para calcular los días de trabajo.` : `Cargá ${texts.cuantos} ${info.plural} hacés por día de trabajo para calcular los días de trabajo.`;
+        // "Cargá la carga por viaje … para pasar el rendimiento a viajes" ya dice para qué: no se agrega otro "para".
+        if (missing) return / para /.test(missing) ? `${missing}.` : `${missing} para calcular los días de trabajo.`;
+        return `Cargá ${texts.cuantos} ${info.plural} hacés por día de trabajo para calcular los días de trabajo.`;
       }
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';

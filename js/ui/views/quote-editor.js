@@ -1000,7 +1000,7 @@ function rateMissing(r) {
 
 function activityMissingHint(r) {
   if (!isQuantityUnit(r)) return 'Cargá los días por mes para calcularla.';
-  if (rateMissing(r)) return `Falta el rendimiento (${r.unitInfo.plural} por día de trabajo) para calcularla.`;
+  if (rateMissing(r)) return `Falta completar el rendimiento en "${stepName('modality')}" para calcularla.`;
   return `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.`;
 }
 
@@ -1100,7 +1100,7 @@ function buildSummary({ getResult, stepHref }) {
       compact: (r) => formatMoneyCompact(r.kpis.totalCost),
       hint: (r) => (isQuantityUnit(r)
         ? (rateMissing(r)
-          ? `Falta el rendimiento (${r.unitInfo.plural} por día de trabajo): sin él no hay días de trabajo.`
+          ? `Falta completar el rendimiento en "${stepName('modality')}": sin él no hay días de trabajo.`
           : `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`)
         : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`),
       trace: (r) => r.traces.totalCost,
