@@ -18,10 +18,18 @@ import { CURRENCY } from '../config.js';
 
 const isForeign = (currency) => typeof currency === 'string' && currency && currency !== CURRENCY;
 
+/**
+ * "Base no definida"; con otro rótulo ("Valor", "Costos"), "Valor: sin fecha base" (SIM A2: "Valor no
+ * definida" no concordaba).
+ */
+function undefinedText(prefix) {
+  return prefix === 'Base' ? 'Base no definida' : `${prefix}: sin fecha base`;
+}
+
 /** Etiqueta compacta de una base: "Base: sep-26 · USD" o "Base no definida". */
 export function baseTag(base, { prefix = 'Base', showCurrency = true } = {}) {
   const defined = baseDefined(base);
-  const text = defined ? `${prefix}: ${formatPeriod(base.period)}` : `${prefix} no definida`;
+  const text = defined ? `${prefix}: ${formatPeriod(base.period)}` : undefinedText(prefix);
   const currency = showCurrency && base && isForeign(base.currency) ? ` · ${base.currency}` : '';
   const source = defined && base.source ? labelOf(BASE_SOURCES, base.source, '') : '';
   return h('span', {
@@ -32,7 +40,7 @@ export function baseTag(base, { prefix = 'Base', showCurrency = true } = {}) {
 
 /** Texto plano de una base (para resúmenes y trazas). */
 export function baseText(base, { prefix = 'Base' } = {}) {
-  if (!baseDefined(base)) return `${prefix} no definida`;
+  if (!baseDefined(base)) return undefinedText(prefix);
   const currency = isForeign(base.currency) ? ` · ${base.currency}` : '';
   return `${prefix}: ${formatPeriod(base.period)}${currency}`;
 }

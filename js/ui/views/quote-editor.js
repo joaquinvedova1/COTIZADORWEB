@@ -433,6 +433,15 @@ function cssEscape(value) {
 }
 
 /**
+ * Controles de un dato: por su `name` o, si la pantalla lo carga de otra forma (UXR: las horas del mes en
+ * lugar de los días, los llamados a demanda), por `data-field-alias` (rutas separadas por espacios).
+ */
+function fieldSelector(path) {
+  const p = cssEscape(path);
+  return `[name="${p}"], [data-field-alias~="${p}"]`;
+}
+
+/**
  * Avisos de validación junto al campo correspondiente (por atributo name = ruta).
  * Cada aviso se asocia a su control (aria-describedby, DESIGN-02 2/2): un lector
  * de pantalla lo lee al entrar al campo. No se anuncia en vivo: se repetiría en
@@ -451,7 +460,7 @@ function decorateFieldIssues(container, issues) {
   container.querySelectorAll('.qe-has-issue').forEach((n) => n.classList.remove('qe-has-issue'));
   issues.forEach((issue) => {
     if (!issue.path) return;
-    const controls = [...container.querySelectorAll(`[name="${cssEscape(issue.path)}"]`)];
+    const controls = [...container.querySelectorAll(fieldSelector(issue.path))];
     const field = controls.length ? controls[0].closest('.field, .choice-group') : null;
     if (!field) return;
     field.classList.add('qe-has-issue');
@@ -2009,7 +2018,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   }
 
   function focusField(path) {
-    const controls = [...stepBody.querySelectorAll(`[name="${cssEscape(path)}"]`)];
+    const controls = [...stepBody.querySelectorAll(fieldSelector(path))];
     // En un grupo de opciones, la elegida (así el teclado sigue en el mismo lugar).
     const control = controls.find((c) => c.type === 'radio' && c.checked) || controls[0];
     if (!control) return;
@@ -2105,7 +2114,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     getQuote: () => state.quote,
     onReveal: (key) => revealAdvanced(key),
     onFocusField: (path) => focusField(path),
-    hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
+    hasField: (path) => Boolean(stepBody.querySelector(fieldSelector(path))),
     stepHref,
     didactic: state.quote.illustrative === true,
   });

@@ -6,7 +6,7 @@
  */
 
 import { h, uniqueId } from '../../dom.js';
-import { icon } from '../../components.js';
+import { icon, addInfoTip } from '../../components.js';
 import {
   SUGGESTED_UNIT_KEYS, unitEntry, unitKeyOf, unitDisplayName, searchUnits, exactUnitMatch, customUnitApply,
 } from '../../../domain/unit-catalog.js';
@@ -163,7 +163,7 @@ export function unitPicker({ quote, currency, readOnly, onSelect }) {
         ? `Unidad propia: tu tarifa va en ${currency} por ${customName}.`
         : '';
 
-  return h(
+  const fieldset = h(
     'fieldset',
     { class: 'choice-group qe-unit-field qe-unit-picker', 'aria-describedby': `${id}-hint` },
     h('legend', { class: 'field-label qe-unit-legend' }, '¿Cómo le cobrás al cliente?'),
@@ -176,4 +176,5 @@ export function unitPicker({ quote, currency, readOnly, onSelect }) {
       h('div', { class: 'qe-unit-search-box' }, icon('search', { size: 16 }), input, list)),
     h('div', { class: 'field-hint', id: `${id}-hint` }, hintText ? `${currency} / ${unitDisplayName(quote)}: ${hintText}` : ''),
   );
+  return addInfoTip(fieldset, `La tarifa va en ${currency}, la moneda de tu empresa (Configuración); los insumos en otra moneda se pasan con el tipo de cambio de la cotización.`, { label: 'Más información: moneda de la tarifa' });
 }

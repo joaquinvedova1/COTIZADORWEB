@@ -26,6 +26,10 @@ describe('Catálogo de unidades', () => {
     assert.ok(keys('obra').includes('job'));
     assert.ok(keys('m3').includes('m3'));
     assert.ok(keys('valvula')[0] === 'own:válvula');
+    // La coincidencia exacta va primero aunque su grupo esté después (Enter elige la primera).
+    assert.equal(keys('tonelada')[0], 'ton');
+    assert.equal(keys('m3')[0], 'm3');
+    assert.equal(keys('jornal')[0], 'person_day');
     assert.equal(keys('zzz').length, 0);
     assert.equal(exactUnitMatch('Hora hombre').key, 'person_hour');
     assert.equal(exactUnitMatch('pieza rara'), null);

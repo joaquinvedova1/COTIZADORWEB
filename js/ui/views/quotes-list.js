@@ -749,7 +749,10 @@ export async function renderNewQuote(root, app) {
       { class: 'view-narrow stack-lg' },
       pageIntro({
         title: '¿Qué servicio vas a cotizar?',
-        text: 'Elegí un servicio parecido al tuyo: arrancás con cómo se cobra y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.',
+        // SIM A2: sin plantillas no hay "servicio parecido" para elegir.
+        text: services.length
+          ? 'Empezá en blanco o desde un servicio parecido al tuyo: la plantilla trae cómo se cobra y su actividad típica (y sus recursos, si los tiene). Después podés cambiar todo.'
+          : 'Empezá en blanco: primero elegís cómo le cobrás al cliente y después cargás la actividad y los recursos. Las cotizaciones que guardes como plantilla aparecen acá para la próxima.',
       }),
       h('div', { class: 'quote-choice-grid' }, blank, ...first),
       rest.length

@@ -113,8 +113,8 @@ export function billingUnitOf(quote = {}) {
  * `activity.billedResources` (commercial-rules-engine). `activity.billedResourceKind` = 'person' | 'equipment'.
  */
 const RESOURCE_VARIANTS = deepFreeze({
-  'hour:person': { singular: 'hora-hombre', plural: 'horas-hombre', short: 'hh', feminine: true },
-  'hour:equipment': { singular: 'hora-equipo', plural: 'horas-equipo', short: 'h-equipo', feminine: true },
+  'hour:person': { singular: 'hora-hombre', plural: 'horas-hombre', short: 'hora-hombre', feminine: true },
+  'hour:equipment': { singular: 'hora-equipo', plural: 'horas-equipo', short: 'hora-equipo', feminine: true },
   'day:person': { singular: 'jornal', plural: 'jornales', short: 'jornal', feminine: false },
   'day:equipment': { singular: 'día-equipo', plural: 'días-equipo', short: 'día-equipo', feminine: false },
   'month:person': { singular: 'persona-mes', plural: 'personas-mes', short: 'persona-mes', feminine: true },

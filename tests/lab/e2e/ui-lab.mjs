@@ -35,7 +35,6 @@ import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../../../scripts/serve.mjs';
 import { computeQuote } from '../../../js/engines/quote-engine.js';
 import { formatMoney, formatMoneyCeil, formatNumber, formatPercent } from '../../../js/core/format.js';
-import { unitChoicesFor } from '../../../js/domain/billing-units.js';
 import { fieldHref } from '../../../js/ui/field-links.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
 import { service, person, owned, external, material, product, ingredient, worker, fixedCost } from '../lib/build.js';
@@ -482,7 +481,7 @@ async function runMode(mode) {
   }
   {
     const t = await screenText('E2E-16', 'modality');
-    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuántos días dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
+    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuánto dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
   }
   // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): lo que se ve en pantalla y los botones de cada aviso.
   {
@@ -2529,12 +2528,22 @@ async function runMode(mode) {
       if (await btn.count()) await tap(btn);
       await page.waitForTimeout(700);
     };
-    /** Elige la unidad de cobro: selector (muchas unidades) o botón de opción (pocas). */
-    const chooseUnit = async (value) => {
-      const sel = page.locator('select[name="unit"]').first();
-      if (await sel.count()) await sel.selectOption(value);
-      else await tap(page.locator(`input[type="radio"][name="unit"][value="${value}"]`).first());
+    /**
+     * Elige la unidad de cobro en "Qué cotizás" (UXR): el botón de opción si está a la vista; si no, el buscador
+     * (texto + Enter elige la primera coincidencia).
+     */
+    const chooseUnit = async (key, search = null) => {
+      const chip = page.locator(`input[name="unitChoice"][value="${key}"]`).first();
+      if (await chip.count()) {
+        await chip.check({ force: true });
+        return;
+      }
+      const box = page.locator('.qe-unit-picker [role="combobox"]').first();
+      await box.fill(search || key);
+      await page.waitForTimeout(300);
+      await box.press('Enter');
     };
+    const checkedUnit = () => page.evaluate(() => (document.querySelector('input[name="unitChoice"]:checked') || {}).value || null);
     const setNumber = async (name, value) => {
       const input = page.locator(`input[name="${name}"]`).first();
       await input.fill(String(value));
@@ -2542,37 +2551,35 @@ async function runMode(mode) {
       await page.waitForTimeout(500);
     };
 
-    // 1. "ARS / [m³ ▾]", las mismas unidades habituales que K0, y menos texto de ayuda.
-    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/modality`, 1200);
-    await page.waitForSelector('select[name="unit"]', { timeout: 8000 }).catch(() => {});
+    // 1. UXR: "ARS / [unidad]" en "Qué cotizás": las comunes a la vista (más la actual) y TODO el catálogo en un
+    // buscador. No depende del tipo de servicio (los 11 tipos excluyentes se quitaron).
+    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/service`, 1200);
+    await page.waitForSelector('.qe-unit-picker', { timeout: 8000 }).catch(() => {});
     const unitUi = await page.evaluate(() => {
-      const sel = document.querySelector('select[name="unit"]');
-      const field = sel && sel.closest('.field');
+      const box = document.querySelector('.qe-unit-picker');
+      const checked = document.querySelector('input[name="unitChoice"]:checked');
       return {
-        value: sel && sel.value,
-        radios: document.querySelectorAll('input[type="radio"][name="unit"]').length,
-        prefix: field && field.querySelector('.qe-compound-fixed') ? field.querySelector('.qe-compound-fixed').textContent : null,
-        label: field && field.querySelector('label.field-label') ? field.querySelector('label.field-label').textContent : null,
-        options: sel ? [...sel.options].map((o) => o.value) : [],
+        checked: checked ? checked.value : null,
+        oldSelect: Boolean(document.querySelector('select[name="unit"]')),
+        oldTypes: document.querySelectorAll('input[name="serviceType"]').length,
+        prefix: box && box.querySelector('.qe-compound-fixed') ? box.querySelector('.qe-compound-fixed').textContent : null,
+        legend: box && box.querySelector('legend') ? box.querySelector('legend').textContent : null,
+        combobox: Boolean(box && box.querySelector('[role="combobox"][aria-controls]')),
+        chips: [...document.querySelectorAll('input[name="unitChoice"]')].map((r) => r.value),
       };
     });
-    check(P, 'la unidad de cobro es "ARS / [m³ ▾]": un selector con la moneda a la vista, sin tarjetas de radio', unitUi.value === 'm3' && unitUi.radios === 0 && norm(unitUi.prefix) === 'ARS /' && /Unidad de cobro/.test(unitUi.label || ''), JSON.stringify(unitUi));
-    check(P, 'el selector ofrece las mismas unidades que K0 (las habituales del tipo de servicio + otra)', JSON.stringify(unitUi.options) === JSON.stringify(unitChoicesFor('per_unit', 'm3').map((u) => u.id)), unitUi.options.join(', '));
-    const help = await page.evaluate(() => {
-      const vis = (el) => el.getClientRects().length > 0 && !el.closest('details:not([open]) > :not(summary)');
-      const sel = '.field-hint, .qe-note, .qe-question-why, .choice-hint, .qe-keyline-hint, .qe-term';
-      return [...(document.querySelector('main') || document.body).querySelectorAll(sel)].filter(vis).reduce((n, el) => n + (el.innerText.trim().match(/\S+/g) || []).length, 0);
-    });
-    check(P, 'texto de ayuda a la vista en "Cómo se cobra": al menos 30 % menos que K0 (218 palabras en este caso)', help <= 152, `${help} palabras`);
-
-    // 2. La cadena con las cifras del motor: cantidad ÷ rendimiento = días; cantidad × tarifa = facturación.
-    const r0 = computeQuote(structuredClone(m3));
-    const rev0 = r0.estimate.revenue;
-    let t = await mainText();
-    check(P, 'a la vista: "200 m³ ÷ 20 m³ por día = 10 días de trabajo"', t.includes('200 m³ ÷ 20 m³ por día = 10 días de trabajo'), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
-    const revenueText = norm(`200 m³ × ${formatMoney(rev0.netRate)} por m³ = ${formatMoney(rev0.components.base)} por mes`);
-    check(P, `a la vista: "${revenueText}" (motor)`, t.includes(revenueText), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
-
+    check(P, 'UXR: "ARS / [unidad]" en "Qué cotizás", sin tipo de servicio: las comunes a la vista (y la actual, m³) más un buscador', unitUi.checked === 'm3' && !unitUi.oldSelect && unitUi.oldTypes === 0 && norm(unitUi.prefix) === 'ARS /' && /¿Cómo le cobrás al cliente\?/.test(unitUi.legend || '') && unitUi.combobox && ['hour', 'day', 'month', 'trip', 'km', 'job'].every((k) => unitUi.chips.includes(k)), JSON.stringify(unitUi));
+    const unitBox = page.locator('.qe-unit-picker [role="combobox"]').first();
+    const optionNames = () => page.evaluate(() => [...document.querySelectorAll('.qe-unit-list [role="option"] .qe-unit-option-name')].map((x) => x.textContent));
+    await unitBox.fill('hh');
+    await page.waitForTimeout(300);
+    const foundHh = await optionNames();
+    await unitBox.fill('valvula');
+    await page.waitForTimeout(300);
+    const foundValve = await optionNames();
+    await unitBox.press('Escape');
+    await unitBox.fill('');
+    check(P, 'UXR: el buscador encuentra "hora-hombre" (hh) y "válvula" (sin acento) en un servicio por m³ (no depende del tipo)', foundHh.includes('hora-hombre') && foundValve[0] === 'válvula', JSON.stringify({ foundHh, foundValve }));
     // 3. Ayuda (i): teclado (Enter abre y anuncia, Esc cierra y devuelve el foco), mouse o toque.
     const tipBtn = page.locator('.qe-unit-field .info-tip-btn').first();
     const tipState = () => page.evaluate(() => {
@@ -2613,6 +2620,39 @@ async function runMode(mode) {
       await page.waitForTimeout(250);
       const outside = await tipState();
       check(P, '(i) con un toque se abre y al tocar afuera se cierra', tapped && tapped.expanded === 'true' && tapped.inside && outside && outside.expanded === 'false', JSON.stringify({ tapped, outside }));
+    } else {
+      await tipBtn.hover();
+      await page.waitForTimeout(450);
+      const hovered = await tipState();
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(450);
+      const left = await tipState();
+      check(P, '(i) con el mouse se abre al pasar y se cierra al salir', hovered && hovered.expanded === 'true' && left && left.expanded === 'false', JSON.stringify({ hovered: hovered && hovered.expanded, left: left && left.expanded }));
+    }
+    const critical = await page.evaluate(() => [...document.querySelectorAll('.info-tip')].filter((x) => x.closest('.banner, .qr-draft, .qe-notices, .qe-illustrative')).length);
+    check(P, 'ningún aviso crítico (borrador, NO CONFIABLE, ILUSTRATIVO) lleva su texto en una ayuda (i)', critical === 0, `${critical} ayudas dentro de avisos`);
+
+    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/modality`, 1200);
+    const help = await page.evaluate(() => {
+      const vis = (el) => el.getClientRects().length > 0 && !el.closest('details:not([open]) > :not(summary)');
+      const sel = '.field-hint, .qe-note, .qe-question-why, .choice-hint, .qe-keyline-hint, .qe-term';
+      return [...(document.querySelector('main') || document.body).querySelectorAll(sel)].filter(vis).reduce((n, el) => n + (el.innerText.trim().match(/\S+/g) || []).length, 0);
+    });
+    check(P, 'texto de ayuda a la vista en "Cuánto vas a hacer": al menos 30 % menos que K0 (218 palabras en "Cómo se cobra")', help <= 152, `${help} palabras`);
+
+
+    // 2. La cadena con las cifras del motor: cantidad ÷ rendimiento = días; cantidad × tarifa = facturación.
+    const r0 = computeQuote(structuredClone(m3));
+    const rev0 = r0.estimate.revenue;
+    let t = await mainText();
+    check(P, 'a la vista: "200 m³ ÷ 20 m³ por día = 10 días de trabajo"', t.includes('200 m³ ÷ 20 m³ por día = 10 días de trabajo'), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
+    const revenueText = norm(`200 m³ × ${formatMoney(rev0.netRate)} por m³ = ${formatMoney(rev0.components.base)} por mes`);
+    check(P, `a la vista: "${revenueText}" (motor)`, t.includes(revenueText), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
+
+    if (mode === 'mobile') {
+      // "Cada salida se cuenta completa" está en "Cada cuánto salís de la base" (plegada si no cambia nada).
+      await page.evaluate(() => { const d = document.querySelector('details[data-adv-key="modality-departures"]'); if (d) d.open = true; });
+      await page.waitForTimeout(200);
       // H9: con el botón justo arriba de la barra del resumen, la burbuja se abre hacia arriba (no queda tapada).
       const lowBtn = page.locator('.qe-full-activations .info-tip-btn').first();
       const bar = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--qe-sum-h')) || 0);
@@ -2628,17 +2668,7 @@ async function runMode(mode) {
       }, bar);
       check(P, 'H9: en el celular la ayuda (i) no queda debajo del resumen fijo (se abre hacia arriba)', low.open === 'true' && low.top >= 0 && low.bottom <= low.limit + 1, JSON.stringify(low));
       await page.keyboard.press('Escape').catch(() => {});
-    } else {
-      await tipBtn.hover();
-      await page.waitForTimeout(450);
-      const hovered = await tipState();
-      await page.mouse.move(2, 2);
-      await page.waitForTimeout(450);
-      const left = await tipState();
-      check(P, '(i) con el mouse se abre al pasar y se cierra al salir', hovered && hovered.expanded === 'true' && left && left.expanded === 'false', JSON.stringify({ hovered: hovered && hovered.expanded, left: left && left.expanded }));
     }
-    const critical = await page.evaluate(() => [...document.querySelectorAll('.info-tip')].filter((x) => x.closest('.banner, .qr-draft, .qe-notices, .qe-illustrative')).length);
-    check(P, 'ningún aviso crítico (borrador, NO CONFIABLE, ILUSTRATIVO) lleva su texto en una ayuda (i)', critical === 0, `${critical} ayudas dentro de avisos`);
 
     // 4. Rendimiento por hora: el número se pide de nuevo; 2 m³ por hora × 10 h = 20 m³ por día de trabajo.
     const denominator = page.locator('select[name="activity.rateInput.denominator"]').first();
@@ -2676,14 +2706,16 @@ async function runMode(mode) {
     }
 
     // 6. F4: m³ → t sin un factor (densidad): pide qué hacer y nunca convierte; Cancelar no cambia nada.
-    await page.locator('select[name="unit"]').first().selectOption('ton');
+    // UXR: la unidad se cambia en "Qué cotizás" (buscador: "tonelada" + Enter elige tonelada, no ton-km).
+    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/service`, 1200);
+    await chooseUnit('ton', 'tonelada');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     let dlg = await dialog();
     check(P, 'F4: m³ → t con cantidad y rendimiento cargados pregunta y no ofrece convertir (no hay factor)', Boolean(dlg) && /Cantidad del mes: 240 m³ por mes/.test(norm(dlg.text)) && /Rendimiento:/.test(dlg.text) && !dlg.buttons.some((b) => /^Convertir/.test(b)), JSON.stringify(dlg));
     await press('Cancelar');
     const kept = stored(m3.id);
-    check(P, 'Cancelar deja la unidad y los datos como estaban', await page.locator('select[name="unit"]').first().inputValue() === 'm3' && kept.unit === 'm3' && kept.activity.billableQuantityPerMonth === 240, JSON.stringify({ unit: kept.unit, q: kept.activity.billableQuantityPerMonth }));
-    await page.locator('select[name="unit"]').first().selectOption('ton');
+    check(P, 'Cancelar deja la unidad y los datos como estaban', await checkedUnit() === 'm3' && kept.unit === 'm3' && kept.activity.billableQuantityPerMonth === 240, JSON.stringify({ checked: await checkedUnit(), unit: kept.unit, q: kept.activity.billableQuantityPerMonth }));
+    await chooseUnit('ton', 'tonelada');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     await press('Borrar y cargar de nuevo');
     const cleared = await waitStored(m3.id, (q) => q.unit === 'ton');
@@ -2691,8 +2723,8 @@ async function runMode(mode) {
     check(P, 'F4: "Borrar y cargar de nuevo": la cantidad, el rendimiento y su forma quedan vacíos (240 m³ nunca pasan a ser 240 t)', Boolean(ca) && cleared.unit === 'ton' && ca.billableQuantityPerMonth === null && ca.unitsPerActiveDay === null && !ca.rateInput && !ca.quantityInput, JSON.stringify(ca));
 
     // 7. kg → t con el factor exacto: 5.000 kg = 5 t; 500 kg por día = 0,5 t; $ 50 por kg = $ 50.000 por t.
-    await go(`#/cotizaciones/${encodeURIComponent(kg.id)}/modality`, 1200);
-    await page.locator('select[name="unit"]').first().selectOption('ton');
+    await go(`#/cotizaciones/${encodeURIComponent(kg.id)}/service`, 1200);
+    await chooseUnit('ton', 'tonelada');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     dlg = await dialog();
     check(P, 'kg → t ofrece convertir con el factor exacto (1 t = 1.000 kg) y muestra antes y después', Boolean(dlg) && dlg.buttons.some((b) => /^Convertir a/.test(b)) && /1 t = 1\.000 kg/.test(dlg.text) && /5\.000 kg por mes → 5 t por mes/.test(norm(dlg.text)), JSON.stringify(dlg));
@@ -2706,9 +2738,9 @@ async function runMode(mode) {
     }
 
     // 8. Llamado → día: 6 llamados por mes no pasan a ser 6 días; una cantidad vieja tampoco se reusa.
-    await go(`#/cotizaciones/${encodeURIComponent(call.id)}/modality`, 1200);
-    const chips = await page.evaluate(() => ({ radios: [...document.querySelectorAll('input[type="radio"][name="unit"]')].map((r) => r.value), select: Boolean(document.querySelector('select[name="unit"]')), prefix: (document.querySelector('.qe-unit-chips .qe-compound-fixed') || {}).textContent }));
-    check(P, 'con pocas unidades (on-call: 5) van a la vista como botones de opción, con "ARS /"', !chips.select && JSON.stringify(chips.radios) === JSON.stringify(unitChoicesFor('on_call', 'call').map((u) => u.id)) && norm(chips.prefix) === 'ARS /', JSON.stringify(chips));
+    await go(`#/cotizaciones/${encodeURIComponent(call.id)}/service`, 1200);
+    const chips = await page.evaluate(() => ({ checked: (document.querySelector('input[name="unitChoice"]:checked') || {}).value, prefix: (document.querySelector('.qe-unit-picker .qe-compound-fixed') || {}).textContent }));
+    check(P, 'UXR: una unidad que no está entre las comunes (llamado) aparece a la vista, elegida, con "ARS /"', chips.checked === 'call' && norm(chips.prefix) === 'ARS /', JSON.stringify(chips));
     await chooseUnit('day');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     dlg = await dialog();
@@ -2716,8 +2748,8 @@ async function runMode(mode) {
     await press('Borrar y cargar de nuevo');
     const callSaved = await waitStored(call.id, (q) => q.unit === 'day');
     check(P, 'llamado → día guardado sin la cantidad de llamados', Boolean(callSaved) && callSaved.activity.billableQuantityPerMonth === null, JSON.stringify(callSaved && callSaved.activity));
-    await go(`#/cotizaciones/${encodeURIComponent(stale.id)}/modality`, 1200);
-    await page.locator('select[name="unit"]').first().selectOption('m3');
+    await go(`#/cotizaciones/${encodeURIComponent(stale.id)}/service`, 1200);
+    await chooseUnit('m3', 'm3');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     dlg = await dialog();
     check(P, 'día → m³ con una cantidad guardada de una unidad anterior: lo dice y no la reusa', Boolean(dlg) && /de una unidad anterior/.test(dlg.text) && !dlg.buttons.some((b) => /^Convertir/.test(b)), JSON.stringify(dlg));

@@ -45,6 +45,16 @@ function rateFormText(plural, denominator) {
 }
 
 /** Número positivo o null (para leer datos de la cotización). */
+/**
+ * El dato del motor que este campo carga de otra forma (las horas del mes en lugar de los días, los llamados
+ * a demanda): "Ir al campo" y los avisos en el campo lo encuentran igual.
+ */
+function aliasFor(field, ...paths) {
+  const control = field && field.querySelector('input, select, textarea');
+  if (control) control.dataset.fieldAlias = paths.join(' ');
+  return field;
+}
+
 function positiveOrNull(v) {
   return isFiniteNumber(v) && v > 0 ? v : null;
 }
@@ -593,7 +603,22 @@ export function render(container, ctx) {
       control.replaceWith(row);
       row.append(control, h('div', { class: 'qe-compound-unit' }, h('div', { class: 'field-control qe-mini-select' }, select)));
     }
+    if (byHours) aliasFor(field, 'activity.activeDaysPerMonth');
     return field;
+  }
+
+  /** "Cada llamado se cuenta completo" (PLAN-2026-011): con salidas de la base o a demanda. */
+  function fullActivationsBlock() {
+    return h('div', { class: 'qe-full-activations' },
+      addInfoTip(kit.check('activity.fullActivations', {
+        label: `${T.Each} se cuenta ${T.whole}`,
+        hint: 'Para costos que no se dividen: movilización, peajes, viáticos.',
+      }), `Apagada, ${T.theMany} ${T.many} por mes son un promedio (por ejemplo 10,42) y los costos ${T.per} se cuentan en proporción. Encendida, esos costos se costean con ${T.many} ${T.wholeMany} (11). Sueldos, tenencia de equipos, producción, facturación y estructura mensual no cambian.`),
+      kit.out((r) => {
+        const note = activationRoundingText(r.activationRounding, T);
+        if (!note) return '';
+        return h('p', { class: ['qe-note', note.tone === 'warning' ? 'is-warning' : null] }, note.text);
+      }, { tag: 'div', allowEmpty: true }));
   }
 
   // ---- A demanda (guardia / on-call): llamados, su duración (o distinta por llamado), mínimo, abono y
@@ -641,7 +666,7 @@ export function render(container, ctx) {
     }, { tag: 'p', className: 'qe-note' });
     const draw = () => {
       rows.replaceChildren(...form.profile.map((item, i) => h('div', { class: 'qe-profile-row' },
-        numberField({ label: T.Many, name: `activity.activationProfile.${i}.count`, rule: 'positive', value: item.count, unit: 'por mes', disabled: kit.readOnly, onChange: (v) => { form.profile[i].count = v; syncDemand(); } }),
+        (i === 0 ? (f) => aliasFor(f, 'activity.activeDaysPerMonth', 'activity.daysPerActivation') : (f) => f)(numberField({ label: T.Many, name: `activity.activationProfile.${i}.count`, rule: 'positive', value: item.count, unit: 'por mes', disabled: kit.readOnly, onChange: (v) => { form.profile[i].count = v; syncDemand(); } })),
         numberField({ label: `De cuántas ${callUnits}`, name: `activity.activationProfile.${i}.units`, rule: 'positive', value: item.units, unit: hourly ? 'h' : 'días', disabled: kit.readOnly, onChange: (v) => { form.profile[i].units = v; syncDemand(); } }),
         kit.readOnly || form.profile.length <= 1 ? null : button('Quitar', { variant: 'link', size: 'sm', onClick: () => { form.profile.splice(i, 1); draw(); syncDemand(); } }),
       )));
@@ -669,7 +694,7 @@ export function render(container, ctx) {
         disabled: kit.readOnly,
         onChange: (v) => { form.calls = v; syncDemand(); },
       });
-      parts.push(callsField);
+      parts.push(aliasFor(callsField, 'activity.activeDaysPerMonth'));
     }
     if (kind === 'hour' || kind === 'day' || kind === 'month') {
       const durationChoice = choiceGroup({
@@ -696,7 +721,7 @@ export function render(container, ctx) {
       if (form.distinct) {
         parts.push(profileEditor());
       } else {
-        parts.push(numberField({
+        parts.push(aliasFor(numberField({
           label: `${hourly ? 'Horas' : 'Días'} ${T.per} (promedio)`,
           name: 'activity.perCall',
           rule: 'positive',
@@ -706,7 +731,7 @@ export function render(container, ctx) {
           hint: `Lo que se trabaja en ${T.each}, en promedio.`,
           disabled: kit.readOnly,
           onChange: (v) => { form.perCall = v; syncDemand(); },
-        }));
+        }), 'activity.daysPerActivation'));
       }
     }
     if (minimumCallApplies(kind)) {
@@ -723,8 +748,12 @@ export function render(container, ctx) {
       unit: '$/mes',
       hint: 'Lo que cobrás por estar disponible, además de lo que se trabaja.',
     }));
+    // A demanda también hay costos por llamado (movilización, peajes): si cambian algo, se puede contar cada
+    // llamado completo (antes estaba en "Cómo se cobra" para todos los on-call).
+    const perCallCostsMatter = activity.fullActivations === true || activationsMatter(quote, settings);
     return h('div', { class: 'qe-demand-body' },
       formGrid(2, ...parts.filter(Boolean)),
+      perCallCostsMatter ? fullActivationsBlock() : null,
       kit.group('Disponibilidad',
         kit.choice('activity.availability', {
           label: 'Disponibilidad requerida',
@@ -789,16 +818,7 @@ export function render(container, ctx) {
         }), tripUnit
           ? `Viajes ${T.per} = viajes por día × estos días. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`
           : `Cuenta las movilizaciones, los viajes y los viáticos ${T.per}. No es la unidad que cobrás.`)),
-      h('div', { class: 'qe-full-activations' },
-        addInfoTip(kit.check('activity.fullActivations', {
-          label: `${T.Each} se cuenta ${T.whole}`,
-          hint: 'Para costos que no se dividen: movilización, peajes, viáticos.',
-        }), `Apagada, ${T.theMany} ${T.many} por mes son un promedio (por ejemplo 10,42) y los costos ${T.per} se cuentan en proporción. Encendida, esos costos se costean con ${T.many} ${T.wholeMany} (11). Sueldos, tenencia de equipos, producción, facturación y estructura mensual no cambian.`),
-        kit.out((r) => {
-          const note = activationRoundingText(r.activationRounding, T);
-          if (!note) return '';
-          return h('p', { class: ['qe-note', note.tone === 'warning' ? 'is-warning' : null] }, note.text);
-        }, { tag: 'div', allowEmpty: true })),
+      fullActivationsBlock(),
     );
 
   // ---- Precio total del trabajo: días de trabajo de todo el trabajo (no un mes).

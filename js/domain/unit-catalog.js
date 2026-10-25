@@ -141,15 +141,18 @@ export function searchUnits(query = '') {
     if (words.some((w) => w.includes(q))) return 1;
     return 0;
   };
-  return UNIT_GROUPS.map((g) => ({
-    group: g.id,
-    label: g.label,
-    items: UNIT_CATALOG.filter((e) => e.group === g.id)
+  // El grupo con la mejor coincidencia va primero ("tonelada" → tonelada antes que ton-km): Enter elige la
+  // primera opción de la lista. Con empates (o sin texto) se mantiene el orden de UNIT_GROUPS.
+  return UNIT_GROUPS.map((g, order) => {
+    const scored = UNIT_CATALOG.filter((e) => e.group === g.id)
       .map((e) => ({ e, s: score(e) }))
       .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s)
-      .map((x) => x.e),
-  })).filter((g) => g.items.length > 0);
+      .sort((a, b) => b.s - a.s);
+    return { group: g.id, label: g.label, items: scored.map((x) => x.e), best: scored.length ? scored[0].s : 0, order };
+  })
+    .filter((g) => g.items.length > 0)
+    .sort((a, b) => b.best - a.best || a.order - b.order)
+    .map(({ group, label, items }) => ({ group, label, items }));
 }
 
 /** ¿El texto buscado coincide exactamente con una opción? (si no, se ofrece "Usar «…» como unidad"). */
