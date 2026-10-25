@@ -115,10 +115,18 @@ export function createAuthGateway(client, { clearLocalSession = () => {} } = {})
       if (!res.ok) return { ok: false, code: res.code };
       const user = res.data && res.data.user;
       // Con confirmación activada, un email ya registrado devuelve un usuario
-      // sin identidades (Supabase no revela si existe): se avisa igual.
+      // sin identidades y no se le envía nada. La puerta lo traduce a
+      // email_taken; el servicio responde igual que a un registro nuevo (no
+      // revela quién usa RATEOS).
       if (user && Array.isArray(user.identities) && user.identities.length === 0) return { ok: false, code: AUTH_ERRORS.emailTaken };
       const session = res.data && res.data.session;
       return { ok: true, code: null, needsConfirmation: !session, user: session ? publicUser(session.user) : null };
+    },
+
+    /** Reenvía el correo de confirmación del registro (enlace PKCE de vuelta a redirectTo). */
+    async resendSignupConfirmation(email, redirectTo) {
+      const res = await call(() => auth.resend({ type: 'signup', email, options: { emailRedirectTo: redirectTo } }));
+      return res.ok ? { ok: true, code: null } : { ok: false, code: res.code };
     },
 
     async signIn({ email, password }) {
@@ -154,6 +162,23 @@ export function createAuthGateway(client, { clearLocalSession = () => {} } = {})
     async requestPasswordReset(email, redirectTo) {
       const res = await call(() => auth.resetPasswordForEmail(email, { redirectTo }));
       return res.ok ? { ok: true, code: null } : { ok: false, code: res.code };
+    },
+
+    /**
+     * Código de un solo uso del correo de recuperación ({{ .Token }} en la
+     * plantilla, HD-03). A diferencia del enlace PKCE, sirve en cualquier
+     * navegador (se tipea junto con el email). Es la misma credencial que el
+     * enlace: si el enlace ya se abrió, el código tampoco sirve. Con éxito hay
+     * sesión en modo recuperación.
+     */
+    async verifyRecoveryCode(email, code) {
+      const res = await call(() => auth.verifyOtp({ email, token: code, type: 'recovery' }));
+      if (!res.ok) return { ok: false, code: res.code, user: null };
+      // Sin sesión o sin usuario válido la respuesta está incompleta: no se da por verificado.
+      const session = res.data && res.data.session;
+      const user = publicUser((res.data && res.data.user) || (session && session.user));
+      if (!session || !session.access_token || !user) return { ok: false, code: AUTH_ERRORS.unknown, user: null };
+      return { ok: true, code: null, user };
     },
 
     async updatePassword(password) {

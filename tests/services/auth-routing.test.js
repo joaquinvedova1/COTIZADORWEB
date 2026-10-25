@@ -45,11 +45,11 @@ describe('auth-routing', () => {
 });
 
 describe('auth-routing: entrada sin cuenta (HD-03)', () => {
-  test('beta por invitación: "Ingresar" conservando el destino; con registro abierto, "Crear cuenta"', () => {
+  test('registro público: "Crear cuenta" conservando el destino; con la beta por invitación, "Ingresar"', () => {
     assert.deepEqual(accountEntry('/nuevo', { publicSignup: false }), { label: 'Ingresar', hash: '#/login?next=%2Fnuevo', signup: false });
     assert.deepEqual(accountEntry(null, { publicSignup: false }), { label: 'Ingresar', hash: '#/login', signup: false });
     assert.deepEqual(accountEntry('/cotizaciones/nueva', { publicSignup: true }), { label: 'Crear cuenta', hash: '#/registro?next=%2Fcotizaciones%2Fnueva', signup: true });
     assert.equal(accountEntry('https://evil.example/', { publicSignup: false }).hash, '#/login', 'un destino externo nunca se conserva');
-    assert.equal(accountEntry().signup, false, 'lo publicado es beta por invitación');
+    assert.deepEqual(accountEntry(), { label: 'Crear cuenta', hash: '#/registro', signup: true }, 'lo publicado es registro público');
   });
 });

@@ -151,7 +151,9 @@ export function supabaseSurface(files) {
   for (const { rel, text } of files) {
     for (const m of text.matchAll(/\.rpc\(\s*'([a-z_]+)'/g)) rpcNames.add(m[1]);
     for (const m of text.matchAll(/\brpc\(\s*client\s*,\s*'([a-z_]+)'/g)) rpcNames.add(m[1]);
-    if (/\.rpc\(\s*(?!['"`])/.test(text) && rel !== 'js/data/admin-gateway.js') dynamicRpc.push(rel);
+    // Los gateways de admin y del feedback llaman a sus RPC con rpc(client, '<nombre literal>'): el
+    // .rpc(name) de su ayuda no es dinámico (los nombres se toman de esas llamadas).
+    if (/\.rpc\(\s*(?!['"`])/.test(text) && rel !== 'js/data/admin-gateway.js' && rel !== 'js/data/feedback-gateway.js') dynamicRpc.push(rel);
     for (const m of text.matchAll(/\.from\(\s*'([a-z_]+)'/g)) tables.add(m[1]);
     if (/\.from\(\s*'[a-z_]+'/.test(text) && /\.(?:insert|upsert|delete)\(/.test(text)) mutations.push(rel);
     if (/\.channel\(|\.functions\.invoke\(|\bauth\.admin\b|\.storage\.from\(/.test(text)) features.push(rel);
@@ -161,7 +163,78 @@ export function supabaseSurface(files) {
   return { rpcNames: [...rpcNames].sort(), tables: [...tables].sort(), mutations, features, dynamicRpc, sdkImports, clientImports };
 }
 
-const ALLOWED_RPC = Object.freeze(['admin_overview', 'admin_users', 'am_i_platform_admin']);
+const ALLOWED_RPC = Object.freeze([
+  'admin_overview', 'admin_users', 'am_i_platform_admin',
+  // PLAN-2026-029 (feedback de la beta: problemas y sugerencias): revisadas en SEC-19.
+  'admin_feedback', 'admin_review_feedback', 'my_feedback', 'submit_feedback',
+]);
+
+/** Funciones del feedback que llama el navegador (PLAN-2026-029). */
+const FEEDBACK_RPC = Object.freeze(['submit_feedback', 'my_feedback', 'admin_feedback', 'admin_review_feedback']);
+
+/**
+ * SEC-19 — feedback de la beta (PLAN-2026-029): la autoridad está en Postgres, sin cuotas ni premios.
+ * @param {{ migration: string, sqlTest: string, concurrency: string, clientFiles: { rel: string, text: string }[] }} input
+ * @returns {string[]} hallazgos
+ */
+export function feedbackFindings({ migration = '', sqlTest = '', concurrency = '', clientFiles = [] } = {}) {
+  const out = [];
+  const sql = String(migration);
+  if (!sql) return ['falta la migración del feedback'];
+  ['feedback', 'feedback_events'].forEach((t) => {
+    if (!new RegExp(`create table private\\.${t}\\b`).test(sql)) out.push(`la tabla ${t} no está en private`);
+    if (!new RegExp(`alter table private\\.${t} enable row level security`).test(sql)) out.push(`la tabla ${t} no tiene RLS`);
+  });
+  if (!/revoke all on table private\.feedback, private\.feedback_events from public, anon, authenticated/.test(sql)) out.push('las tablas del feedback no revocan los grants');
+  if (/create table public\./.test(sql)) out.push('la migración crea tablas en public');
+  // Sin cuotas ni premios: el feedback no toca el guardado ni las empresas.
+  if (/create trigger/i.test(sql)) out.push('la migración del feedback crea un trigger (no debe tocar el guardado ni las empresas)');
+  if (/workspace_states/.test(sql.replace(/^\s*--.*$/gm, ''))) out.push('la migración del feedback usa workspace_states');
+  if (/credit|ledger|balance|reward/i.test(sql.replace(/^\s*--.*$/gm, ''))) out.push('la migración del feedback tiene créditos, saldos o premios');
+  FEEDBACK_RPC.forEach((name) => {
+    const body = (sql.match(new RegExp(`create or replace function private\\.${name}\\([\\s\\S]*?\\$\\$;`)) || [''])[0];
+    if (!body) out.push(`falta private.${name}`);
+    else {
+      if (!/security definer/.test(body) || !/set search_path = ''/.test(body)) out.push(`private.${name} no es security definer con search_path vacío`);
+      if (!/raise exception 'forbidden'/.test(body)) out.push(`private.${name} no verifica quién llama`);
+    }
+    if (!new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?security invoker`).test(sql)) out.push(`public.${name} no es un wrapper security invoker`);
+    if (new RegExp(`grant execute on function (?:public|private)\\.${name}\\([^;]*to (?:anon|public)`).test(sql)) out.push(`${name} se puede ejecutar sin sesión`);
+  });
+  ['admin_feedback', 'admin_review_feedback'].forEach((name) => {
+    const body = (sql.match(new RegExp(`create or replace function private\\.${name}\\([\\s\\S]*?\\$\\$;`)) || [''])[0];
+    if (body && !/is_platform_admin\(\)/.test(body)) out.push(`private.${name} no exige RATEOS ADMIN`);
+  });
+  ['submit_feedback', 'my_feedback'].forEach((name) => {
+    const body = (sql.match(new RegExp(`create or replace function private\\.${name}\\([\\s\\S]*?\\$\\$;`)) || [''])[0];
+    if (body && !/is_member\(p_org\)/.test(body)) out.push(`private.${name} no exige ser miembro de la empresa`);
+  });
+  const review = (sql.match(/create or replace function private\.admin_review_feedback\([\s\S]*?\$\$;/) || [''])[0];
+  if (review && !/for update/.test(review)) out.push('la revisión no bloquea el comentario');
+  const submit = (sql.match(/create or replace function private\.submit_feedback\([\s\S]*?\$\$;/) || [''])[0];
+  // Un lock por persona (su límite vale en todas sus empresas) y otro por empresa (revisión BETA-LANZ).
+  if (submit && (!/rateos_feedback_rate_limited/.test(submit) || !/pg_advisory_xact_lock\([^;]*rateos_feedback_author:[^;]*v_uid/.test(submit) || !/pg_advisory_xact_lock\([^;]*rateos_feedback:[^;]*p_org/.test(submit))) out.push('el envío no tiene límites contra el spam a prueba de envíos simultáneos');
+  // El navegador nunca toca las tablas (sólo las RPC) y no quedan cuotas ni créditos en la app.
+  clientFiles.forEach(({ rel, text }) => {
+    if (/\.from\(\s*['"`](?:feedback|feedback_events)['"`]/.test(text)) out.push(`${rel}: nombra una tabla del feedback`);
+    if (/credits_exhausted|cálculos de prueba|get_my_credits|credit_preview/.test(text)) out.push(`${rel}: quedan restos de los créditos de prueba`);
+  });
+  const t = String(sqlTest);
+  if (!t) out.push('falta supabase/tests/feedback_test.sql');
+  else {
+    [
+      ['act_anon', 'anon'], ['insufficient_privilege', 'acceso directo a las tablas'], ['B leyó el feedback de A', 'A↔B'],
+      ['una persona sin rol', 'admin sin rol'], ['rateos_feedback_rate_limited', 'límites contra el spam'], ['rateos_feedback_duplicate', 'repetidos'],
+      ['invisibles', 'caracteres invisibles'], ['15 cotizaciones', 'sin cupos en el guardado'], ['catálogo', 'catálogo'],
+    ].forEach(([needle, what]) => {
+      if (!t.includes(needle)) out.push(`el test SQL no cubre: ${what}`);
+    });
+    unguardedDeletes(t).forEach((d) => out.push(`feedback_test.sql: DELETE sin protección: ${d}`));
+    if (!/raise exception 'FEEDBACK_TESTS_PASSED[\s\S]*raise exception 'FEEDBACK_TESTS_FAILED[\s\S]*end;\s*\$test\$;\s*$/.test(t)) out.push('el test SQL no termina siempre con RAISE EXCEPTION (debe deshacer todo)');
+  }
+  if (!/current_database\(\)/.test(String(concurrency)) || !/Se niega a correr/.test(String(concurrency))) out.push('la prueba de concurrencia no se niega a correr fuera de la base local');
+  return out;
+}
 const ALLOWED_TABLES = Object.freeze(['organization_members', 'organizations', 'profiles', 'workspace_states']);
 
 // ------------------------------------------------------- controles estáticos
@@ -214,7 +287,7 @@ function staticChecks() {
   surface.dynamicRpc.forEach((f) => surfaceHits.push(`${f}: RPC con nombre no literal`));
   surface.sdkImports.forEach((f) => surfaceHits.push(`${f}: importa el SDK fuera de js/data/supabase-client.js`));
   surface.clientImports.forEach((f) => surfaceHits.push(`${f}: usa el cliente de Supabase fuera de js/services/cloud.js`));
-  results.push(check('SEC-02', `El navegador sólo usa ${ALLOWED_TABLES.length} tablas (select + update del workspace propio) y ${ALLOWED_RPC.length} RPC de admin; sin Storage, Realtime ni auth.admin`, 'P0', 'SECURITY', surfaceHits, { pass: `tablas: ${surface.tables.join(', ')} · RPC: ${surface.rpcNames.join(', ')}` }));
+  results.push(check('SEC-02', `El navegador sólo usa ${ALLOWED_TABLES.length} tablas (select + update del workspace propio) y ${ALLOWED_RPC.length} RPC revisadas (admin y feedback); sin Storage, Realtime ni auth.admin`, 'P0', 'SECURITY', surfaceHits, { pass: `tablas: ${surface.tables.join(', ')} · RPC: ${surface.rpcNames.join(', ')}` }));
 
   // SEC-03 — migraciones: RLS, grants, políticas y security definer.
   const migrationFiles = walk('supabase/migrations').filter((f) => f.endsWith('.sql')).sort();
@@ -299,11 +372,26 @@ function staticChecks() {
   const adminGw = read('js/data/admin-gateway.js');
   const fields = (adminGw.match(/const USER_FIELDS = Object\.freeze\(\[([\s\S]*?)\]\)/) || [])[1] || '';
   if (/'state'/.test(fields)) adminHits.push('admin-gateway deja pasar el state');
+  ['FEEDBACK_FIELDS'].forEach((name) => {
+    const list = (adminGw.match(new RegExp(`const ${name} = Object\\.freeze\\(\\[([\\s\\S]*?)\\]\\)`)) || [])[1];
+    if (list === undefined) adminHits.push(`admin-gateway sin la lista ${name}`);
+    else if (/'state'/.test(list)) adminHits.push(`admin-gateway: ${name} deja pasar el state`);
+  });
   const adminSql = migrationFiles.filter((f) => /platform_admin/.test(f)).map(read).join('\n');
   const usersFn = (adminSql.match(/create or replace function private\.admin_users\(\)[\s\S]*?\$\$;/) || [''])[0];
   if (!usersFn) adminHits.push('no se encontró private.admin_users');
   else if (/\bw\.state\b/.test(usersFn.replace(/pg_column_size\(w\.state\)/g, ''))) adminHits.push('admin_users devuelve w.state');
   results.push(check('SEC-14', 'RATEOS ADMIN ≠ lector de datos: las funciones de admin sólo devuelven metadata (nunca workspace_states.state)', 'P0', 'SECURITY', adminHits));
+
+  // SEC-19 — feedback de la beta (PLAN-2026-029).
+  const feedbackMigration = migrationFiles.filter((f) => /beta_feedback/.test(f)).map(read).join('\n');
+  const feedbackHits = feedbackFindings({
+    migration: feedbackMigration,
+    sqlTest: exists('supabase/tests/feedback_test.sql') ? read('supabase/tests/feedback_test.sql') : '',
+    concurrency: exists('supabase/tests/local/feedback_concurrency.sh') ? read('supabase/tests/local/feedback_concurrency.sh') : '',
+    clientFiles: clientCodeFiles(),
+  });
+  results.push(check('SEC-19', 'Feedback de la beta: tablas en private con RLS y sin grants, envío sólo de miembros con límites contra el spam, clasificación sólo de RATEOS ADMIN, sin leer el workspace y sin cuotas, créditos ni premios; test SQL completo que se deshace', 'P0', 'SECURITY', feedbackHits, { pass: 'migración 20261022120000 + feedback_test.sql (correrlo en vivo con los otros tests SQL)' }));
 
   // SEC-15 — cero dependencias npm.
   const pkg = JSON.parse(read('package.json'));
@@ -499,6 +587,50 @@ async function dynamicChecks() {
       if (backup.includes('u-gate')) backupHits.push('el backup incluye el id del usuario');
     }
     results.push(check('SEC-12', 'Backup exportado: sólo datos de la empresa (sin sesión, tokens ni id de usuario)', 'P1', 'PRIVACY', backupHits));
+
+    // SEC-18 — registro público (HD-03, decisión del dueño del 2026-10-20): ni el
+    // registro ni los correos de Auth revelan qué emails tienen cuenta.
+    const enumHits = [];
+    {
+      const { createAuthService } = await import('../../../js/services/auth-service.js');
+      const { createFakeAuthGateway } = await import('../../helpers/fake-supabase.js');
+      const site = 'https://joaquinvedova1.github.io/COTIZADORWEB/';
+      const users = [
+        { id: 'u-conf', email: 'confirmada@example.com', password: 'clave-sintetica-1', emailConfirmed: true },
+        { id: 'u-pend', email: 'pendiente@example.com', password: 'clave-sintetica-2', emailConfirmed: false },
+      ];
+      const svc = () => {
+        const location = { href: `${site}#/registro` };
+        return createAuthService({ gateway: createFakeAuthGateway({ users }), siteUrl: site, location, history: { replaceState() {} }, publicSignup: true });
+      };
+      const emails = ['nueva@example.com', 'confirmada@example.com', 'pendiente@example.com'];
+      const same = async (label, run) => {
+        const outs = [];
+        for (const email of emails) outs.push(JSON.stringify(await run(svc(), email)));
+        if (new Set(outs).size !== 1) enumHits.push(`${label}: la respuesta cambia según el email tenga cuenta o no`);
+      };
+      await same('registro', (a, email) => a.signUp({ fullName: 'Persona', company: 'Empresa sintética', email, password: 'clave-sintetica-9' }));
+      await same('reenvío de la confirmación', (a, email) => a.resendConfirmation(email));
+      await same('"¿Olvidaste tu contraseña?"', (a, email) => a.requestPasswordReset(email));
+      // HD-03 R3: si el proveedor rechaza el correo, el reenvío dice que no salió (nunca "enviado"). Como Supabase
+      // sólo intenta enviar con una cuenta sin confirmar, la excepción se limita a eso: sin cuenta y confirmada
+      // siguen respondiendo igual entre sí, y el mensaje no lleva el email.
+      {
+        const broken = () => createAuthService({ gateway: createFakeAuthGateway({ users, mailFailure: 'email_not_authorized' }), siteUrl: site, location: { href: `${site}#/login` }, history: { replaceState() {} }, publicSignup: true });
+        const nueva = JSON.stringify(await broken().resendConfirmation('nueva@example.com'));
+        const confirmada = JSON.stringify(await broken().resendConfirmation('confirmada@example.com'));
+        const pendiente = await broken().resendConfirmation('pendiente@example.com');
+        if (nueva !== confirmada) enumHits.push('reenvío con el envío roto: una cuenta confirmada responde distinto que un email sin cuenta');
+        if (pendiente.ok !== false || /enviado|te llega/i.test(pendiente.message || '')) enumHits.push('reenvío con el envío roto: dice que el correo salió (o no avisa que falló)');
+        if (/pendiente@example\.com/.test(JSON.stringify(pendiente))) enumHits.push('reenvío con el envío roto: la respuesta lleva el email');
+      }
+      const a = svc();
+      const wrong = await a.signIn({ email: 'pendiente@example.com', password: 'otra-clave-sintetica' });
+      const unknown = await a.signIn({ email: 'nadie@example.com', password: 'otra-clave-sintetica' });
+      if (JSON.stringify(wrong) !== JSON.stringify(unknown)) enumHits.push('ingreso: con la contraseña equivocada, una cuenta sin confirmar responde distinto que un email sin cuenta');
+      if (!FEATURES.publicSignup) enumHits.push('FEATURES.publicSignup no coincide con la decisión del dueño (beta abierta con registro público, 2026-10-25)');
+    }
+    results.push(check('SEC-18', 'Registro público sin enumeración de cuentas: registro, reenvío de la confirmación y "¿Olvidaste tu contraseña?" responden igual haya o no cuenta; "sin confirmar" sólo con la contraseña correcta; con el envío roto el reenvío dice que no salió (excepción documentada, sólo con una cuenta sin confirmar)', 'P1', 'PRIVACY', enumHits));
   } finally {
     configureLogger({ consoleImpl: globalThis.console });
   }
@@ -535,8 +667,8 @@ export const HUMAN_DECISIONS = Object.freeze([
     severity: 'P1',
     category: 'SECURITY',
     requiredBeforeRealUsers: true,
-    title: 'El registro está abierto: cualquiera puede crear una cuenta en una beta "cerrada" (no expone datos de otras empresas: cada cuenta nace con su propia empresa)',
-    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): registro cerrado o por invitación. Estado: la app ya no ofrece ni llama al registro (FEATURES.publicSignup = false, PLAN-2026-016); se cumple cuando el dueño apaga "Allow new users to sign up" en Supabase Auth (verificar con node scripts/check-auth-perimeter.mjs).',
+    title: 'Registro público (decisión del dueño, 2026-10-20; beta abierta confirmada el 2026-10-25): cualquiera crea su cuenta y su propia empresa (aislada por RLS). Sin SMTP propio nadie de afuera recibe la confirmación, así que todavía no funciona para terceros',
+    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-20: registro público con confirmación de email): "Allow new users to sign up" y "Confirm email" encendidos (node scripts/check-auth-perimeter.mjs), SMTP propio con remitente verificado y seguimiento de clics apagado, y las pruebas reales de docs/BETA_PERIMETER.md §2.4. Sin enumeración de cuentas: SEC-18. Antiabuso: límites de Supabase Auth (Rate Limits) y, si aparece abuso, CAPTCHA (decisión aparte: suma un tercero a la CSP).',
   },
   {
     id: 'HD-04',
@@ -565,13 +697,6 @@ export const HUMAN_DECISIONS = Object.freeze([
     category: 'PRIVACY',
     title: 'La auditoría registra ADMIN_PANEL_OPEN (admin_overview) pero no cada lectura de admin_users (emails y nombres de todos los usuarios)',
     recommendation: 'Decidir si se audita también admin_users (migración nueva).',
-  },
-  {
-    id: 'HD-08',
-    severity: 'P2',
-    category: 'UX SECURITY',
-    title: 'El registro avisa "Ese email ya está registrado": permite saber si un email tiene cuenta',
-    recommendation: 'Decidir entre la ayuda a la persona y un mensaje uniforme antes de reabrir el registro. Con la beta por invitación (FEATURES.publicSignup = false) la app no llama al registro: hoy ese aviso no aparece.',
   },
   {
     id: 'HD-09',

@@ -2,7 +2,7 @@
 
 Plan: [PLAN-2026-015](../.agent/PLANS.md). Base: `main` `0c213a3` (v0.8.0, esquema 10). Publicado como **v0.8.1** (esquema 10). Fecha: 2026-10-17.
 
-> **Estado (decisión del dueño, 2026-10-17): todavía NO hay beta con empresas externas.** Antes de habilitar usuarios reales son **requisitos obligatorios** HD-01 (dominio propio para producción), HD-02 (staging separado de producción en origen y en base de datos, o `/preview/` deshabilitado temporalmente) y HD-03 (registro cerrado o por invitación): ver §6. El Beta Security Gate los informa como REQUISITO pendiente en cada corrida.
+> **Estado (decisión del dueño, 2026-10-17): todavía NO hay beta con empresas externas.** Antes de habilitar usuarios reales son **requisitos obligatorios** HD-01 (dominio propio para producción), HD-02 (staging separado de producción en origen y en base de datos, o `/preview/` deshabilitado temporalmente) y HD-03 (desde el 2026-10-20, por decisión del dueño: **registro público con confirmación de email obligatoria y SMTP propio**, en lugar de registro cerrado o por invitación): ver §6. El Beta Security Gate los informa como REQUISITO pendiente en cada corrida.
 
 Objetivo: que una empresa **nunca** pueda leer, modificar ni inferir datos económicos de otra, que el admin de plataforma no lea contenido de clientes, que no queden datos de una sesión anterior a la vista y que nunca se pierda en silencio el último dato válido. Esta tarea no agrega fórmulas ni toca los motores de costos y precios.
 
@@ -47,8 +47,8 @@ Qué se prueba dónde (y qué **no** corre solo):
 | **Base real de Supabase** (el proyecto de producción), con usuarios y empresas sintéticos; todo se deshace | `supabase/tests/beta_security_test.sql`, `rls_test.sql`, `rls_admin_test.sql` | **204 controles** (132 + 40 + 32) | **A mano**, con el plugin/MCP de Supabase (`execute_sql` como `postgres`) o `psql`: después de cada migración y antes de cada release. **No corren en CI** (CI no tiene credenciales de la base, a propósito). Es la única prueba de RLS real. |
 | **Supabase real con usuarios autenticados** (dos cuentas y dos organizaciones sintéticas, `@rateos.invalid`) | `tests/live/perimeter-ab.mjs` + `supabase/tests/live_ab.sql` (PLAN-2026-016): navegador y API con JWT reales, A↔B con IDs conocidos, guardado, logout y cambio de usuario | ver [BETA_PERIMETER.md §4](BETA_PERIMETER.md#4-prueba-ab-real-contra-supabase) | **A mano**, nunca en CI. Deja datos sintéticos hasta la limpieza (bloque 4, con autorización). **Preparada, no ejecutada todavía** (la red del entorno de desarrollo no llega a Supabase). |
 | Node, con un **Supabase simulado** que imita RLS (`tests/helpers/fake-supabase.js`) | `tests/data/beta-security.test.js` (23) y el resto de los tests de datos, sesión y recuperación | dentro de `npm test` | `npm test`, local y en CI ("Tests y build"). Prueban el navegador (repositorio, pestañas, sesión), **no** la base. |
-| **Navegador real** (Chromium, escritorio y celular) con Supabase simulado | E2E `tests/lab/e2e/ui-lab.mjs`, incluidos `SESION-01/02` y `REGISTRO-01` (beta por invitación) | 584 controles | A mano y en CI (Test Lab → "PR gate", en cada PR). |
-| **Estático** (código, migraciones y archivos SQL) | Beta Security Gate SEC-01…SEC-17 + SEC-10b. SEC-03 revisa las migraciones; **SEC-04 revisa que los 3 archivos SQL existan, cubran lo previsto, no tengan DELETE sin protección y siempre deshagan, pero no los ejecuta** | 18 controles + 17 archivos de tests | `npm test`, `npm run test:security` y el paso "Beta Security Gate" de CI. |
+| **Navegador real** (Chromium, escritorio y celular) con Supabase simulado | E2E `tests/lab/e2e/ui-lab.mjs`, incluidos `SESION-01/02` y `REGISTRO-01` (registro público; el alta completa con confirmación está en `tests/lab/e2e/auth-lab.mjs`) | 584 controles | A mano y en CI (Test Lab → "PR gate", en cada PR). |
+| **Estático** (código, migraciones y archivos SQL) | Beta Security Gate SEC-01…SEC-18 + SEC-10b. SEC-03 revisa las migraciones; **SEC-04 revisa que los 3 archivos SQL existan, cubran lo previsto, no tengan DELETE sin protección y siempre deshagan, pero no los ejecuta** | 19 controles + 17 archivos de tests | `npm test`, `npm run test:security` y el paso "Beta Security Gate" de CI. |
 
 ### 3.1 En la base real, con datos sintéticos (todo se deshace)
 
@@ -91,7 +91,7 @@ Nota de ejecución: el plugin de Supabase pide confirmación para sentencias des
 
 ### 3.3 Beta Security Gate
 
-`npm run test:security` (también corre dentro de `npm test` y como paso de CI): 18 controles estáticos y dinámicos (desde PLAN-2026-016, SEC-17) + 17 archivos de tests de seguridad, tenancy, sesión, privacidad y recuperación. Escribe `reports/security/latest/beta-security-gate.{json,md}`. Falla si cualquier control P0/P1 o algún test falla; las decisiones del dueño (HD-…) se informan siempre y no bloquean.
+`npm run test:security` (también corre dentro de `npm test` y como paso de CI): 19 controles estáticos y dinámicos (SEC-17 desde PLAN-2026-016, SEC-18 desde PLAN-2026-018) + 17 archivos de tests de seguridad, tenancy, sesión, privacidad y recuperación. Escribe `reports/security/latest/beta-security-gate.{json,md}`. Falla si cualquier control P0/P1 o algún test falla; las decisiones del dueño (HD-…) se informan siempre y no bloquean.
 
 | Control | Severidad | Qué verifica |
 |---|---|---|
@@ -112,6 +112,7 @@ Nota de ejecución: el plugin de Supabase pide confirmación para sentencias des
 | SEC-15 | P1 SECURITY | Cero dependencias npm. |
 | SEC-16 | P2 PRIVACY | Reportes y builds fuera de git. |
 | SEC-17 | P1 SECURITY | Sin staging en el origen de producción (HD-02, PLAN-2026-016): el deploy publica sólo `main`, el artefacto nunca trae `/preview/` y después de publicar se verifica `/preview/` → 404. |
+| SEC-18 | P1 PRIVACY | Registro público sin enumeración de cuentas (HD-03, PLAN-2026-018): registro, reenvío de la confirmación y "¿Olvidaste tu contraseña?" responden igual haya o no cuenta; "sin confirmar" sólo con la contraseña correcta. Excepción documentada (R3): con el envío roto, el reenvío dice que no salió; sólo puede pasar con una cuenta sin confirmar, y sin cuenta o confirmada siguen respondiendo igual entre sí. |
 
 Contra `main` (v0.8.0) el gate **falla** en SEC-05, SEC-06, SEC-07 (P0) y SEC-08 (P1); con esta rama pasa.
 
@@ -150,18 +151,18 @@ Sin cambios en la base (ninguna migración), en el esquema de datos (sigue en 10
 
 Ninguna se "arregló" sola: cambian el modelo de permisos, la infraestructura o el costo.
 
-**HD-01, HD-02 y HD-03 son requisitos obligatorios antes de habilitar usuarios reales** (decisión del dueño, 2026-10-17). Avance, procedimientos y checklist del dueño: [BETA_PERIMETER.md](BETA_PERIMETER.md) (PLAN-2026-016): HD-02 cerrado en el código (falta el deploy), HD-03 preparado en la app (falta apagar el registro en Supabase), HD-01 preparado (falta el dominio). Hasta que estén cumplidos los tres no se habilitan usuarios reales ni se abre la beta a empresas externas. No son controles del código: se cumplen en la infraestructura (dominio, Supabase, Auth), y el Beta Security Gate los lista como REQUISITO pendiente en cada corrida, sin bloquear el CI del código.
+**HD-01, HD-02 y HD-03 son requisitos obligatorios antes de habilitar usuarios reales** (decisión del dueño, 2026-10-17). Avance, procedimientos y checklist del dueño: [BETA_PERIMETER.md](BETA_PERIMETER.md) (PLAN-2026-016): HD-02 cerrado en el código (falta el deploy), HD-03 preparado en la app como registro público (PLAN-2026-018: falta el SMTP propio y las pruebas reales), HD-01 preparado (falta el dominio). Hasta que estén cumplidos los tres no se habilitan usuarios reales ni se abre la beta a empresas externas. No son controles del código: se cumplen en la infraestructura (dominio, Supabase, Auth), y el Beta Security Gate los lista como REQUISITO pendiente en cada corrida, sin bloquear el CI del código.
 
 | ID | Sev. | Riesgo | Requisito o recomendación |
 |---|---|---|---|
 | HD-01 | P1 | **Origen compartido** `joaquinvedova1.github.io`: todo sitio de Pages de esa cuenta comparte `localStorage` con RATEOS, incluida la sesión de Supabase (refresh token). | **Requisito obligatorio:** dominio propio para producción. Mientras tanto, ningún otro sitio de Pages en esa cuenta. |
 | HD-02 | P1 | **Staging comparte origen y base** con producción: el código de cualquier rama con CI verde corre junto a sesiones y datos reales. | **Requisito obligatorio:** staging separado de producción en origen **y** en base de datos (proyecto o branch de Supabase propio), o `/preview/` deshabilitado temporalmente. |
-| HD-03 | P1 | **Registro abierto** en una beta "cerrada" (no expone datos de otras empresas: cada cuenta nace con su empresa). | **Requisito obligatorio:** registro cerrado o por invitación (signups desactivados en Supabase Auth y alta a mano, o lista de emails permitidos). |
+| HD-03 | P1 | **Registro público** (decisión del dueño, 2026-10-20; **beta abierta** en 0.9.0, confirmada el 2026-10-25, `FEATURES.publicSignup = true`). Sin SMTP propio nadie de afuera recibe la confirmación: el SMTP es condición del lanzamiento. | **Requisito obligatorio:** "Allow new users to sign up" y "Confirm email" encendidos (`scripts/check-auth-perimeter.mjs`), SMTP propio verificado con el seguimiento de clics apagado y las pruebas reales de BETA_PERIMETER.md §2.4. Sin enumeración: SEC-18. Antiabuso: límites de Supabase Auth; CAPTCHA si aparece abuso (decisión aparte: suma un tercero a la CSP). |
 | HD-04 | P2 | Protección de contraseñas filtradas apagada (advisor). | Requiere plan Pro de Supabase. |
 | HD-05 | P2 | Al cerrar sesión quedan en el navegador las copias pendientes y de recuperación de la cuenta (no se muestran a otra cuenta; con DevTools se leen en una computadora compartida). | Ofrecer "Cerrar sesión y borrar las copias de este navegador" sólo cuando no hay cambios sin subir. |
 | HD-06 | P2 | El email de la cuenta master está en una migración del repo público. | Aceptarlo o cargar el bootstrap fuera del repo en una próxima migración (hoy AGENTS.md pide el alta por migración). |
 | HD-07 | P2 | La auditoría registra la apertura del panel (`admin_overview`) pero no cada `admin_users`. | Auditar también `admin_users` (migración nueva). |
-| HD-08 | P2 | "Ese email ya está registrado" permite saber si un email tiene cuenta. | Elegir entre ayuda a la persona y mensaje uniforme antes de reabrir el registro (con la beta por invitación la app no llama al registro: hoy el aviso no aparece). |
+| ~~HD-08~~ | — | **Resuelto (PLAN-2026-018):** el registro ya no dice "Ese email ya está registrado": responde igual sea el email nuevo o no, y dice qué hacer en cada caso. Lo controla SEC-18. | — |
 | HD-09 | P2 | Un miembro quitado sigue viendo lo que ya tenía en pantalla hasta que la app vuelve a hablar con la nube (Realtime apagado a propósito). | Hoy no se pueden quitar miembros desde la app; revisarlo cuando haya invitaciones. |
 
 ## 7. Riesgos que quedan y límites de esta auditoría

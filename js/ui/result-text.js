@@ -13,13 +13,15 @@
  * se lee y lo que se resta (colchón, diferencias) siempre cierran.
  */
 
-import { formatDays, formatNumber, formatPercent, formatMoney, EMPTY } from '../core/format.js';
+import { formatDays, formatNumber, formatPercent, formatMoney, formatMoneyCeil, EMPTY } from '../core/format.js';
 import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
 import { isQuantityUnit, quantityCeilText } from './unit-text.js';
 import { unitTexts } from '../domain/billing-units.js';
 import { activationTerms } from '../domain/activation-terms.js';
+import { unreliablePending } from '../domain/quote-risk.js';
+import { DEFAULT_ROUNDING_MAX_PCT } from '../domain/rounding.js';
 
 const EPS = 1e-9;
 
@@ -118,6 +120,58 @@ export function targetGoalHint(marginPct) {
 export function targetGoalPrefix(marginPct) {
   if (!isFiniteNumber(marginPct)) return 'Con un margen objetivo válido';
   return isZeroMargin(marginPct) ? 'Para cubrir tus costos' : `Para ganar el ${formatPercent(marginPct)}`;
+}
+
+// ------------------------------------------- redondeo de la sugerida (ECO-03)
+
+/**
+ * Cómo se redondeó la tarifa sugerida, para el medio de una frase:
+ * "redondeada hacia arriba a múltiplos de $ 10 (automático: hasta 1 % sobre el
+ * precio objetivo)", "redondeada hacia arriba a múltiplos de $ 1.000" o "sin redondeo".
+ * @param {object} kpis  computeQuote().kpis
+ */
+export function roundingText(kpis) {
+  const k = kpis || {};
+  const step = isFiniteNumber(k.roundingStep) && k.roundingStep > 0 ? k.roundingStep : 0;
+  if (k.roundingMode === 'auto') {
+    const maxPct = isFiniteNumber(k.roundingMaxPct) ? k.roundingMaxPct : DEFAULT_ROUNDING_MAX_PCT;
+    const limit = formatPercent(maxPct);
+    if (step) return `redondeada hacia arriba a múltiplos de ${formatMoney(step)} (automático: hasta ${limit} sobre el precio objetivo)`;
+    return maxPct > 0 ? `sin redondeo (automático: el ${limit} de esta tarifa no llega a $ 1)` : 'sin redondeo (automático con tope 0 %)';
+  }
+  return step ? `redondeada hacia arriba a múltiplos de ${formatMoney(step)}` : 'sin redondeo';
+}
+
+/**
+ * Margen objetivo y margen real con una tarifa: "Objetivo: 10 % de margen · con
+ * esta tarifa: 10,06 %" (por defecto, el real con la tarifa sugerida). null si
+ * falta alguno de los dos.
+ */
+export function marginPairText(kpis, { realPct } = {}) {
+  const k = kpis || {};
+  const real = realPct === undefined ? k.suggestedMarginPct : realPct;
+  if (!isFiniteNumber(k.targetMarginPct) || !isFiniteNumber(real)) return null;
+  return `Objetivo: ${formatPercent(k.targetMarginPct)} de margen · con esta tarifa: ${formatPercent(real)}`;
+}
+
+/**
+ * Aviso de un múltiplo fijo que sube la tarifa sugerida más de ROUNDING_WARN_PCT
+ * (1 %) sobre el precio objetivo (ECO-03, VAL-01-F1); null si no hace falta. El
+ * automático nunca lo dispara.
+ * @param {object} kpis  computeQuote().kpis
+ * @param {string} [unitShort]  "ton-km", "día"…
+ */
+export function roundingWarning(kpis, unitShort = '') {
+  const k = kpis || {};
+  if (k.roundingExceedsLimit !== true) return null;
+  const per = unitShort ? ` / ${unitShort}` : '';
+  const margin = isFiniteNumber(k.targetMarginPct) && isFiniteNumber(k.suggestedMarginPct)
+    ? `: el margen pasa de ${formatPercent(k.targetMarginPct)} a ${formatPercent(k.suggestedMarginPct)}`
+    : '';
+  return {
+    title: `La tarifa sugerida quedó ${formatPercent(k.suggestedRoundUpPct, { decimals: 1 })} arriba de tu precio objetivo por el redondeo`,
+    message: `Tu precio objetivo es ${formatMoneyCeil(k.targetListRate)}${per}, pero el múltiplo fijo de ${formatMoney(k.roundingStep)} la lleva a ${formatMoney(k.suggestedListRate)}${per}${margin}. El redondeo automático la deja a lo sumo ${formatPercent(DEFAULT_ROUNDING_MAX_PCT)} arriba.`,
+  };
 }
 
 // ------------------------------------------------- tramos de descuento
@@ -320,10 +374,9 @@ export function draftBannerText({ critical = 0, review = 0, unreliable = 0 } = {
   };
 }
 
-/** Pendientes que vuelven NO CONFIABLE el resultado (ECO-01): `unreliable` del motor de completitud. */
+/** Pendientes que vuelven NO CONFIABLE el resultado (ECO-01): `unreliable` del motor de completitud (única definición en js/domain/quote-risk.js). */
 export function unreliableItems(completeness) {
-  const pending = completeness && Array.isArray(completeness.pending) ? completeness.pending : [];
-  return pending.filter((i) => i && i.unreliable === true);
+  return unreliablePending(completeness);
 }
 
 /** "NO CONFIABLE (Dos abonos por mes): no uses este número." o null (para el margen y el resultado). */
@@ -364,6 +417,11 @@ export function activationRoundingText(r, terms = activationTerms()) {
     };
   }
   if (whole || !hasDiscrete) return null;
+  // V-7 (VALIDACIONES-01): cada activación dura más que el mes (obra de varios meses): no sugerir la opción,
+  // que contaría dos veces los costos de la obra.
+  if (r.longerThanMonth) {
+    return { tone: 'warning', text: `${head(r.estimated)}: cada ${T.one} dura más que el mes y se muestra la parte de un mes. No marques esta opción: contaría dos veces los costos ${T.per}.` };
+  }
   return {
     tone: 'info',
     text: `${head(r.estimated)} (promedio: los costos por ${T.one} se cuentan en proporción). Si ${T.each} se paga ${T.whole}, activá la opción: se costearía${preview.wholeActivations === 1 ? '' : 'n'} ${n(preview.wholeActivations)} (efecto del redondeo: +${formatMoney(preview.total)} por mes).`,

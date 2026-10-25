@@ -81,6 +81,8 @@ export const ROUTES = Object.freeze([
   // Panel de la PLATAFORMA (RATEOS ADMIN). Requiere sesión; el permiso real lo
   // verifica Postgres en cada consulta (la vista no muestra nada sin él).
   { name: 'admin', segments: ['admin'], shell: 'app', access: 'auth', nav: 'admin', title: 'RATEOS Admin', load: () => import('./views/admin.js'), view: 'render' },
+  // Feedback de la beta (PLAN-2026-029): problemas y sugerencias, sólo texto, sin datos económicos.
+  { name: 'feedback', segments: ['mejorar'], shell: 'app', access: 'auth', nav: null, title: 'Ayudanos a mejorar RATEOS', load: () => import('./views/feedback.js'), view: 'render' },
   // ------------------------------------------------- enlaces viejos (redirigen)
   { name: 'legacy-dashboard', segments: ['dashboard'], shell: 'app', access: 'auth', nav: 'home', title: 'Inicio', redirect: () => APP_HOME },
   { name: 'legacy-library', segments: ['biblioteca'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', redirect: () => '#/recursos/personal' },

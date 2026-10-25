@@ -71,17 +71,21 @@ import {
   toast as componentToast,
   barList,
 } from '../components.js';
-import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { createTrace } from '../../core/trace.js';
 import { track } from '../../core/events.js';
 import { logger } from '../../core/logger.js';
-import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER } from '../../config.js';
+import { feedbackInvite } from '../feedback-invite.js';
+import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER, CURRENCY } from '../../config.js';
 import { QUOTE_STEPS, QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
+import { roundingModeChange } from '../../domain/rounding.js';
 import { computeQuote, monthlyFeeCap, billableQuantityAt } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
+import { impliesSending, riskSummary, sendCheck } from '../../domain/quote-risk.js';
+import { guardSending, sendBlockedNote } from '../send-guard.js';
 import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
@@ -94,7 +98,9 @@ import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
 import { onSessionReset } from '../session-memory.js';
+import { REFERENCE_PRICE_NOTE, documentDatesText } from '../reference-text.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
+import { quantityBasisOf } from '../../domain/unit-pairs.js';
 import {
   dayDecimals,
   resultDays,
@@ -114,6 +120,9 @@ import {
   unreliableText,
   breakEvenZeroText,
   termsOfResult,
+  roundingText,
+  marginPairText,
+  roundingWarning,
 } from '../result-text.js';
 
 // ------------------------------------------------------------------ constantes
@@ -244,7 +253,8 @@ function rate(value, unitLabel) {
 function rateNode(value, unitLabel) {
   if (!hasValue(value)) return EMPTY;
   const decimals = Math.abs(value) > 0 && Math.abs(value) < 100 ? 2 : 0;
-  return h('span', { class: 'qr-rate' }, formatMoney(value, { decimals }), h('span', { class: 'qr-unit' }, ` / ${unitLabel}`));
+  // K0C-01: la cifra nunca se parte; la unidad puede pasar al renglón de abajo (el espacio va afuera).
+  return h('span', { class: 'qr-rate' }, h('span', { class: 'nowrap' }, formatMoney(value, { decimals })), ' ', h('span', { class: 'qr-unit' }, `/ ${unitLabel}`));
 }
 
 /**
@@ -264,7 +274,7 @@ function minRate(value, unitLabel) {
 
 function minRateNode(value, unitLabel) {
   if (!hasValue(value)) return EMPTY;
-  return h('span', { class: 'qr-rate' }, ceilMoney(value), h('span', { class: 'qr-unit' }, ` / ${unitLabel}`));
+  return h('span', { class: 'qr-rate' }, h('span', { class: 'nowrap' }, ceilMoney(value)), ' ', h('span', { class: 'qr-unit' }, `/ ${unitLabel}`));
 }
 
 /** Tarifa comercial: si es la sugerida (mínima), se muestra hacia arriba. */
@@ -602,7 +612,7 @@ function traceCommercial(v) {
       { label: 'Tarifa de lista', value: k.commercialListRate, format: 'money' },
       { label: 'Factor de descuentos con la actividad estimada', value: rules.discountFactor, format: 'number' },
       { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
-      { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(v.q.pricing && v.q.pricing.roundingStep), format: 'money' },
+      { label: 'Redondeo comercial', value: roundingText(k), format: 'text' },
     ],
     steps: [{ label: 'Tarifa sugerida (precio objetivo redondeado hacia arriba)', value: k.suggestedListRate, format: 'moneyCeil' }],
     result: { label: 'Tarifa neta cobrada', value: k.commercialNetRate, format: 'money' },
@@ -612,11 +622,6 @@ function traceCommercial(v) {
       'En el detalle técnico a esta tarifa también se la llama "tarifa comercial": es el precio finalmente ofrecido.',
     ],
   });
-}
-
-function nonNegativeOrNull(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function traceMargin(v) {
@@ -675,18 +680,27 @@ function traceContribution(v) {
 const SUGGESTED_TITLE = 'Tarifa sugerida';
 
 function traceSuggested(v) {
-  const { k, q } = v;
+  const { k } = v;
   return createTrace({
     id: 'suggested_rate',
     title: SUGGESTED_TITLE,
-    formula: 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
+    formula: k.roundingMode === 'auto'
+      ? 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo de 1, 10, 100, 1.000… más grande que no lo suba más del tope'
+      : 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
     inputs: [
       { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
-      { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(q.pricing && q.pricing.roundingStep), format: 'money' },
+      { label: 'Redondeo comercial', value: roundingText(k), format: 'text' },
+      { label: 'Múltiplo aplicado', value: k.roundingStep, format: 'money' },
+      { label: 'Margen objetivo', value: k.targetMarginPct, format: 'percent' },
+    ],
+    steps: [
+      { label: 'Cuánto sube la sugerida sobre el precio objetivo', value: k.suggestedRoundUpPct, format: 'percent' },
+      { label: 'Margen con la tarifa sugerida', value: k.suggestedMarginPct, format: 'percent' },
     ],
     result: { label: SUGGESTED_TITLE, value: k.suggestedListRate, format: 'moneyCeil' },
     notes: [
       'Si no hay redondeo configurado, el sugerido es igual al precio objetivo.',
+      'El redondeo automático (el de fábrica) nunca sube la sugerida más del tope (1 % si no se cambió); un múltiplo fijo puede subirla más: en ese caso se avisa arriba del Resultado.',
       'Se muestra redondeado hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo del objetivo.',
     ],
   });
@@ -817,6 +831,13 @@ function traceCompleteness(v) {
 }
 
 // ------------------------------------------------------------ A. decisión
+
+/** K0C-01: con un monto de más de 12 caracteres ($ 100 millones o más), tarjetas más anchas para que la cifra entre entera. */
+function heroGrid(...items) {
+  const long = items.some((el) => el && typeof el.querySelector === 'function'
+    && (String((el.querySelector('.qr-hero-value') || {}).textContent || '').match(/\$\s?[\d.,]+/) || [''])[0].length > LONG_AMOUNT_CHARS);
+  return h('div', { class: ['qr-hero', long ? 'qr-hero-long' : null] }, ...items);
+}
 
 function heroItem({ label, value, hint = null, trace = null, lazyTrace = null, lazyTitle = null, tone = null, big = false }) {
   return h('div', { class: ['qr-hero-item', tone ? `qr-tone-${tone}` : null, big ? 'qr-hero-main' : null] },
@@ -1021,21 +1042,26 @@ function alertLine(tone, title, text, action = null) {
 }
 
 /**
- * Alertas que hacen perder plata (o que pueden esconder costos): siempre
- * visibles arriba, nunca dentro de un desplegable.
+ * La alerta de la tarifa (perdés plata, debajo del piso o del margen objetivo). UI-01 (revisión de frontend
+ * de la beta): va arriba de los números que afecta; las demás alertas siguen al final del resumen.
+ */
+function priceAlert(v) {
+  const { k } = v;
+  const subject = theRate(k);
+  const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
+  if (k.belowFloor) return alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`);
+  if (k.belowFloorRate) return alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v));
+  if (k.belowTarget) return alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`);
+  return null;
+}
+
+/**
+ * Las demás alertas que hacen perder plata (o que pueden esconder costos):
+ * siempre visibles, nunca dentro de un desplegable.
  */
 function criticalAlerts(v) {
   const { k, r } = v;
   const out = [];
-  const subject = theRate(k);
-  const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
-  if (k.belowFloor) {
-    out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
-  } else if (k.belowFloorRate) {
-    out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
-  } else if (k.belowTarget) {
-    out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
-  }
   // Margen objetivo inválido (incluido margen + impuestos ≥ 100): no hay precio objetivo.
   if (k.targetMarginInvalid) {
     out.push(alertLine('danger', 'El margen objetivo no es válido.', hasValue(k.billingTaxPct) && k.billingTaxPct > 0
@@ -1061,15 +1087,32 @@ function criticalAlerts(v) {
     out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
       stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`)));
   }
-  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i);
+  // Abono con más días que disponibles (ECO-04, H-04): ya lo dice "RESULTADO NO CONFIABLE" arriba.
+  const monthDays = (r.completeness.pending || []).some((p) => p.id === 'month_days_overflow');
+  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i)
+    || (monthDays && i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning');
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
-  if (issues.length) {
+  // Sólo los datos INVÁLIDOS se reemplazan por 0 o por un valor por defecto; los avisos (ECO-04: días
+  // de más, valor residual…) se calculan con lo cargado y no se presentan como reemplazados.
+  const issueList = (list) => [
+    h('ul', {}, ...list.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
+    list.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(list.length - 6)} más.`) : null,
+  ];
+  const invalid = issues.filter((i) => i.severity === 'error');
+  const warnings = issues.filter((i) => i.severity !== 'error');
+  if (invalid.length) {
+    out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
+      h('div', {},
+        h('strong', {}, 'Hay datos inválidos. '),
+        'El cálculo no los toma como están: usa 0 o un valor por defecto, salvo que el aviso diga otra cosa:',
+        ...issueList(invalid))));
+  }
+  if (warnings.length) {
     out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
       h('div', {},
         h('strong', {}, 'Hay datos para revisar. '),
-        'Los cálculos reemplazan los valores inválidos por 0 o por un valor por defecto:',
-        h('ul', {}, ...issues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
-        issues.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(issues.length - 6)} más.`) : null)));
+        'Se calculan con lo que cargaste:',
+        ...issueList(warnings))));
   }
   return out;
 }
@@ -1115,9 +1158,13 @@ function heroKnownRate(v) {
     sentence = h('p', { class: 'qr-lead' }, breakEvenZeroText(r, { rateText: atRateText(v) }));
   } else if (be.reachable) {
     // Colchón con los valores mostrados: el break-even exacto va con 2 decimales ("Break-even exacto: 6,35 días").
-    const tail = cushionFor(v, be, { beDecimals: 2 });
+    // V-5: con críticos el colchón es provisorio y no se muestra.
+    const tail = provisionalCount(r) ? ` ${provisionalText(provisionalCount(r))}` : cushionFor(v, be, { beDecimals: 2 });
     const minimum = byQty(v) ? `${quantityCeilText(be.quantity, r)} por mes (${workDaysText(be.days)})` : `${activeDaysText(be.wholeDays, 0)} por mes`;
     sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) necesitás ${byQty(v) ? 'facturar al menos' : 'al menos'} ${minimum} para no perder plata.${tail}`);
+  } else if (byQty(v) && !(k.billableQuantity > 0)) {
+    // V-2: sin cantidad la facturación es $ 0; lo que falta es la cantidad.
+    sentence = h('p', { class: 'qr-lead' }, `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes vas a facturar: sin esa cantidad la facturación es $ 0. `, stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), '.');
   } else {
     sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) no se cubren los costos dentro del mes. Revisá la tarifa o los costos.`);
   }
@@ -1135,7 +1182,7 @@ function heroKnownRate(v) {
     const c1 = capView(v, capTarget);
     return h('div', { class: 'qr-decision' },
       sentence,
-      h('div', { class: 'qr-hero' },
+      heroGrid(
         heroItem({ label: capTitle(cap), value: c0.value, hint: c0.hint, lazyTrace: cap ? () => traceMonthlyCap(v, cap) : null, lazyTitle: capTitle(cap), tone: c0.tone, big: true }),
         heroItem({ label: capTitle(capTarget || { marginPct: k.targetMarginPct }), value: c1.value, hint: c1.hint, lazyTrace: capTarget ? () => traceMonthlyCap(v, capTarget) : null, lazyTitle: capTitle(capTarget), tone: c1.tone }),
         resultItem,
@@ -1148,7 +1195,7 @@ function heroKnownRate(v) {
 
   return h('div', { class: 'qr-decision' },
     sentence,
-    h('div', { class: 'qr-hero' },
+    heroGrid(
       byQty(v) ? heroItem({
         label: unitTextsOf(r).breakEvenLabel,
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
@@ -1247,18 +1294,18 @@ function heroKnownActivity(v) {
   } else if (!(k.totalCost > 0)) {
     sentence = h('p', { class: 'qr-lead' }, 'Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.');
   } else {
-    const roundingStep = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
+    const rounded = hasValue(suggested) && roundedAway(k);
     const subject = k.commercialSource === 'suggested' ? 'Con el abono sugerido' : 'Con el abono cotizado';
     sentence = h('p', { class: 'qr-lead' },
       `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
       hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
-      hasValue(suggested) ? `Tarifa sugerida${roundingStep ? ` (redondeada a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
+      hasValue(suggested) ? `Tarifa sugerida${rounded ? ` (${roundingText(k)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
       isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject)}` : '');
   }
 
   return h('div', { class: 'qr-decision' },
     sentence,
-    h('div', { class: 'qr-hero' },
+    heroGrid(
       heroItem({
         label: floorLabel(mr),
         value: minRateNode(mr.floorMain, v.unitLabel),
@@ -1385,7 +1432,7 @@ function kpiGrid(v) {
     }
   }
 
-  items.push(kpiItem({ label: 'Costos cargados', value: pct(score, 0), hint: 'Completitud: lo que suele olvidarse', tone: completenessTone(score), trace: traceCompleteness(v) }));
+  items.push(kpiItem({ label: 'Costos cargados', value: pct(score, 0), hint: 'Completitud: lo que suele olvidarse', tone: completenessTone(score, (v.r.completeness && v.r.completeness.critical) || 0), trace: traceCompleteness(v) }));
 
   return h('div', { class: 'kpi-grid qr-kpis', style: { '--qr-kpi-cols': String(items.length) } }, ...items);
 }
@@ -1403,19 +1450,34 @@ function equivalentsBlock(v) {
     lazyTraceButton(() => traceEquivalents(v), byQty(v) ? `Equivalencias operativas de ${theRate(v.k)}` : `Equivalencias de ${theRate(v.k)}`));
 }
 
+/**
+ * Qué valores de una cotización propia son ILUSTRATIVOS (para la insignia y el
+ * encabezado del PDF; en pantalla los nombra el aviso del editor, con su campo).
+ * La tasa de financiación de ejemplo también cuenta (auditoría PyME, BETA-CR P2).
+ */
+function illustrativeParts(info) {
+  if (!info || !info.any || info.quote) return [];
+  return [
+    info.lines > 0 ? { text: `${formatNumber(info.lines)} ${info.lines === 1 ? 'ítem copiado' : 'ítems copiados'} de plantillas o bibliotecas de demostración` } : null,
+    info.fuel ? { text: 'el precio del combustible' } : null,
+    info.finance ? { text: 'la tasa de financiación' } : null,
+  ].filter(Boolean);
+}
+
+const listText = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}` : items[0] || '');
+
 /** Insignia ILUSTRATIVO: la cotización entera o algunos de sus valores son de demostración. */
 function illustrativeBadge(v) {
   const info = v.ill;
   if (!info || !info.any) return null;
-  let title = 'Cotización con valores de demostración';
-  if (!info.quote) {
-    const parts = [];
-    if (info.lines > 0) parts.push(`${formatNumber(info.lines)} ${info.lines === 1 ? 'ítem copiado' : 'ítems copiados'} de plantillas o bibliotecas de demostración`);
-    if (info.fuel) parts.push('precio de combustible ilustrativo');
-    title = `Incluye valores ILUSTRATIVOS: ${parts.join(' y ')}. Reemplazalos por valores propios vigentes.`;
-  }
+  const parts = illustrativeParts(info);
+  const title = info.quote || !parts.length
+    ? 'Cotización con valores de demostración'
+    : `Incluye valores ILUSTRATIVOS: ${listText(parts.map((p) => p.text))}. Reemplazalos por valores propios vigentes.`;
   return badge('ILUSTRATIVO', 'orange', { title });
 }
+
+
 
 /**
  * Todos los indicadores de la decisión (según la modalidad): días mínimos y
@@ -1461,13 +1523,32 @@ function statHint(...lines) {
  * Uno de los cuatro números del resumen como par término / descripción de
  * una lista <dl> (los lectores de pantalla anuncian "Tarifa piso: $ …").
  * Mismas clases que bigStat() de components.js, para el mismo aspecto.
+ * `unreliable` (ECO-02): resultado NO CONFIABLE → el número se apaga y el
+ * rótulo lleva "No confiable" (también en el PDF), para que no se copie.
  */
-function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '' }) {
-  return h('div', { class: ['big-stat', 'big-stat-md', tone ? `big-stat-${tone}` : null, className] },
-    h('dt', { class: 'big-stat-label' }, label),
+function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '', unreliable = false }) {
+  return h('div', { class: ['big-stat', 'big-stat-md', tone ? `big-stat-${tone}` : null, unreliable ? 'big-stat-unreliable' : null, className] },
+    h('dt', { class: 'big-stat-label' }, label, unreliable ? h('span', { class: 'tag-unreliable' }, 'No confiable') : null),
     h('dd', { class: 'big-stat-value' }, h('span', { class: 'big-stat-number' }, value ?? EMPTY), unit ? h('span', { class: 'big-stat-unit' }, unit) : null),
     hint ? h('dd', { class: 'big-stat-hint' }, hint) : null,
     trace ? h('dd', { class: 'qr-stat-trace' }, traceBtn(trace)) : null);
+}
+
+/**
+ * K0C-01: una cifra nunca se parte en dos renglones (en el celular "$ 229.000.00" arriba y "0 / mes" abajo
+ * se leía mil veces menor). Con algún monto de más de 12 caracteres ($ 100 millones o más) la lista lleva
+ * `qr-stats-long`: los números van en una columna en el celular y más chicos en la fila de cuatro.
+ */
+const LONG_AMOUNT_CHARS = 12;
+function statsList(className, ...items) {
+  const long = items.some((el) => el && typeof el.querySelector === 'function'
+    && String((el.querySelector('.big-stat-number') || {}).textContent || '').trim().length > LONG_AMOUNT_CHARS);
+  return h('dl', { class: [className, long ? 'qr-stats-long' : null] }, ...items);
+}
+
+/** true si el resultado es NO CONFIABLE (ECO-01): los números se muestran pero no son reales. */
+function isUnreliable(v) {
+  return unreliableItems(v.r.completeness).length > 0;
 }
 
 /** ¿Cuánto me cuesta? */
@@ -1478,6 +1559,7 @@ function costStat(v) {
     label: 'Costo del mes',
     value: money(k.totalCost),
     unit: hasValue(k.totalCost) ? '/ mes' : null,
+    unreliable: isUnreliable(v) && hasValue(k.totalCost),
     hint: statHint(hasValue(D) && D > 0
       ? `Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
       : byQty(v) ? `Lo que te cuesta prestar el servicio. Todavía no estimaste ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días activos.'),
@@ -1500,6 +1582,7 @@ function floorStat(v) {
     label: 'Tarifa piso',
     value: ceilMoney(value),
     unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
+    unreliable: isUnreliable(v) && hasValue(value),
     hint,
     // Sin impuestos sobre la facturación definidos, la "piso" no es piso: se marca.
     tone: hasValue(value) && (!k.billingTaxesDefined || k.billingTaxesInvalid) ? 'orange' : null,
@@ -1508,32 +1591,48 @@ function floorStat(v) {
   });
 }
 
+/** true si el redondeo comercial movió la sugerida de la cifra que se ve del precio objetivo (ECO-03). */
+function roundedAway(k) {
+  return hasValue(k.targetListRate) && hasValue(k.suggestedListRate) && ceilMoney(k.suggestedListRate) !== ceilMoney(k.targetListRate);
+}
+
 /** ¿Cuánto tengo que cobrar? (para ganar) — o la tarifa que ya cotizás. */
 function priceStat(v) {
   const { k, r, q } = v;
   const unit = `/ ${v.unitLabel}`;
   const suggested = hasValue(k.suggestedListRate) && k.suggestedListRate > 0 ? k.suggestedListRate : null;
   if (k.commercialSource === 'suggested' && hasRate(k)) {
+    // ECO-03: margen objetivo y margen real con la sugerida, siempre; y el precio objetivo exacto si el redondeo lo movió.
+    const pair = marginPairText(k, { realPct: k.marginPct });
+    const exact = roundedAway(k) ? ` Precio objetivo exacto: ${ceilMoney(k.targetListRate)} (la sugerida está ${roundingText(k)}).` : '';
     return statItem({
       label: 'Tarifa sugerida',
       value: ceilMoney(k.commercialListRate),
       unit,
-      hint: statHint(targetGoalHint(k.targetMarginPct)),
+      unreliable: isUnreliable(v),
+      hint: statHint(pair ? `${pair}.${exact}` : `${targetGoalHint(k.targetMarginPct)}${exact}`),
+      tone: k.roundingExceedsLimit ? 'orange' : null,
       trace: traceSuggested(v),
       className: 'qr-stat qr-stat-price',
     });
   }
   if (hasRate(k)) {
     let hint;
-    if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(suggested, v.unitLabel)}.`;
+    // Con un múltiplo fijo que la aleja más de 1 % del objetivo, la referencia es el precio objetivo exacto.
+    if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(k.roundingExceedsLimit && hasValue(k.targetListRate) ? k.targetListRate : suggested, v.unitLabel)}.`;
     else if (k.commercialSource === 'known_rate') hint = 'La tarifa que vas a ofrecer.';
     else if (k.commercialSource === 'offered') hint = 'La tarifa que ofrecés (cargada a mano).';
     else hint = `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
+    // UI-01 (revisión de frontend de la beta): bajo el piso la tarifa no se ve como una sana; mismo
+    // nombre que en el editor según su origen. Con un resultado NO CONFIABLE la cifra queda apagada.
+    const unreliable = isUnreliable(v);
     return statItem({
-      label: 'Tu tarifa',
+      label: { offered: 'Tarifa ofrecida', override: 'Tarifa forzada' }[k.commercialSource] || 'Tu tarifa',
       value: rateValue(k.commercialListRate),
       unit,
+      unreliable,
       hint: statHint(hint),
+      tone: unreliable ? null : k.belowFloor ? 'red' : k.belowTarget ? 'orange' : null,
       trace: traceCommercial(v),
       className: 'qr-stat qr-stat-price',
     });
@@ -1570,13 +1669,15 @@ function marginStat(v) {
   else if (!ok) hint = statHint('Sin facturación no hay margen.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
-  else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
+  else if (provisionalCount(v.r)) hint = statHint(h('strong', { class: 'qr-provisional-note' }, `${provisionalText(provisionalCount(v.r))} Con estos datos, ${money(k.profit)} por mes.`));
+  else if (hasValue(k.targetMarginPct)) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
   else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
-  const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
+  const tone = unreliable ? 'red' : ok && provisionalCount(v.r) && hasValue(k.profit) && k.profit >= 0 ? 'orange' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
   return statItem({
     label: 'Margen',
     value: ok ? pct(k.marginPct) : EMPTY,
+    unreliable: Boolean(unreliable),
     hint,
     tone,
     trace: traceMargin(v),
@@ -1603,6 +1704,20 @@ function noRateContent(v) {
       : 'Sin tarifa sugerida: el margen objetivo no es válido. ', stepLink(q, 'margin', 'Corregilo en "El precio"'), ` para saber ${need}.`];
   }
   return [`Definí una tarifa para saber ${need}. `, stepLink(q, 'margin'), '.'];
+}
+
+/**
+ * Pendientes críticos que no vuelven NO CONFIABLE el resultado (VALIDACIONES-01, V-5): con ellos el
+ * colchón y la ganancia son provisorios (cambian el costo o el precio) y no se leen en verde.
+ */
+function provisionalCount(r) {
+  const c = r && r.completeness;
+  return c && Array.isArray(c.pending) ? c.pending.filter((i) => i && i.severity === 'critical' && i.unreliable !== true).length : 0;
+}
+
+/** "Provisorio: hay 2 pendientes críticos (cambian el costo o el precio)." */
+function provisionalText(n) {
+  return `Provisorio: hay ${n === 1 ? 'un pendiente crítico' : `${n} pendientes críticos`} (cambian el costo o el precio).`;
 }
 
 /**
@@ -1656,6 +1771,10 @@ function workBlock(v) {
         ` (${workDaysText(be.days)}) para cubrir todos tus costos.`,
         cushionFor(v, be),
       ];
+    } else if (!(k.billableQuantity > 0)) {
+      // V-2 (VALIDACIONES-01; SIM-01, RFQ-11): sin cantidad la facturación es $ 0; lo que falta es la cantidad, no otra tarifa.
+      content = [`Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes vas a facturar: sin esa cantidad la facturación es $ 0 y no se puede saber si ${theRate(k)} cubre tus costos. `, stepLink(v.q, 'modality', `Cargala en ${stepLabel('modality')}`), '.'];
+      tone = 'red';
     } else {
       content = [`${subject} no llegás a cubrir todos tus costos dentro del mes. `, be.reason ? `${be.reason} ` : '', 'Revisá la tarifa o los costos.'];
       tone = 'red';
@@ -1689,15 +1808,127 @@ function workBlock(v) {
   // ECO-01: con un dato que vuelve no confiable el resultado, este cálculo tampoco se lee en verde.
   const unreliable = rateOk ? unreliableText(r.completeness, 'este cálculo') : null;
   if (unreliable) tone = 'red';
+  // V-5 (VALIDACIONES-01): con críticos, sin "colchón" (es provisorio) y nunca en verde.
+  const provisional = !unreliable && rateOk ? provisionalCount(r) : 0;
+  if (provisional) {
+    content = content.filter((part) => !(typeof part === 'string' && /colchón|justo en el mínimo|apenas debajo del mínimo|te faltan .* para no perder plata/.test(part)));
+    if (tone === 'green') tone = 'orange';
+  }
   return h('div', { class: ['qr-work', tone ? `qr-work-${tone}` : null] },
     h('p', { class: 'qr-work-question' }, question),
     unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
+    provisional ? h('p', { class: 'qr-work-text qr-provisional-note' }, h('strong', {}, provisionalText(provisional))) : null,
     h('p', { class: 'qr-work-text' }, ...content),
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
 
+/** UX-UNITS: la tarifa (sugerida o la tuya) es la cifra principal del resumen. */
+function primary(node) {
+  if (node) node.classList.add('qr-stat-primary');
+  return node;
+}
+
+/** Cantidad facturable del mes en la unidad de cobro: "200 m³", "180 horas", "8 días", "6 llamados". */
+function billableText(v, units) {
+  const { r } = v;
+  if (!hasValue(units)) return EMPTY;
+  if (r.unit === 'quantity' || r.unit === 'event') return quantityText(units, r);
+  if (r.unit === 'hour') return `${formatNumber(units, { decimals: 2 })} ${Math.abs(units - 1) < 1e-9 ? 'hora' : 'horas'}`;
+  return `${formatNumber(units, { decimals: 2 })} ${Math.abs(units - 1) < 1e-9 ? 'día' : 'días'}`;
+}
+
+/**
+ * De dónde sale la cantidad, en el sentido en que se cargó: con días de trabajo cargados, "20 m³ por día × 10 días
+ * de trabajo"; con la cantidad cargada, "en 10 días de trabajo, a 20 m³ por día" (los días se derivan). Por hora,
+ * "20 días × 9 h por día".
+ */
+function billableSource(v, rev) {
+  const { r } = v;
+  const a = r.activity || {};
+  const D = rev.activeDays;
+  let text = '';
+  if (r.unit === 'quantity' && hasValue(a.unitsPerActiveDay) && a.unitsPerActiveDay > 0 && hasValue(D)) {
+    text = quantityBasisOf(v.q.activity) === 'workdays'
+      ? `${quantityText(a.unitsPerActiveDay, r)} por día × ${workDaysText(D)}`
+      : `en ${workDaysText(D)}, a ${quantityText(a.unitsPerActiveDay, r)} por día`;
+  }
+  else if (r.unit === 'hour' && hasValue(a.hoursPerActiveDay) && hasValue(D)) {
+    text = `${formatDays(D, { decimals: 2 })} × ${formatNumber(a.hoursPerActiveDay, { decimals: 2 })} h por día`;
+    // Con mínimo: primero lo trabajado, después lo que suma el mínimo (si no, "10 días × 5 h = 80 horas" no cierra).
+    if (rev.minimumCallApplied) text += ` = ${formatNumber(D * a.hoursPerActiveDay, { decimals: 2 })} h trabajadas`;
+  } else if (r.unit === 'day' && rev.minimumCallApplied && hasValue(D)) text = `${formatDays(D, { decimals: 2 })} trabajados`;
+  const T = activationTerms(v.q);
+  const min = rev.minimumCallApplied ? (text ? `el mínimo ${T.per} lleva la cantidad facturable a ${billableText(v, rev.billableUnits)}` : `incluye el mínimo ${T.per}`) : '';
+  return [text, min].filter(Boolean).join(' · ');
+}
+
+/**
+ * "La cuenta del mes" (UX-UNITS): cantidad facturable × tarifa = facturación;
+ * menos impuestos sobre lo que facturás y el costo = ganancia. Son los números
+ * del motor (r.estimate): no se recalcula nada, se muestra en el orden en que
+ * se lee. Los ingresos que no son cantidad × tarifa van en su propio renglón.
+ * Con un resultado NO CONFIABLE (ECO-01) lo dice en el título y se apaga.
+ */
+function monthAccountBlock(v) {
+  const { r, k } = v;
+  const e = r.estimate;
+  const rev = e && e.revenue;
+  if (!hasRate(k) || !rev || !(rev.total > 0) || !hasValue(k.totalCost) || !hasValue(e.profit)) return null;
+  const T = activationTerms(v.q);
+  const comp = revenueComposition(rev);
+  const labels = revenueRowLabels(r, T, null);
+  const others = comp.rows.filter((row) => row.id !== 'base');
+  const unreliable = isUnreliable(v);
+  const net = listDiffers(rev.listRate, rev.netRate);
+  const row = (label, value, { sub = null, className = null } = {}) => h('div', { class: ['qr-account-row', className] },
+    h('dt', {}, label, sub ? h('span', { class: 'qr-account-sub' }, sub) : null),
+    h('dd', { class: 'mono' }, value));
+  const rows = [];
+  if (r.unit === 'month') {
+    rows.push(row(others.length ? 'Abono mensual' : 'Facturación del mes (abono)', money(rev.components.base)));
+  } else {
+    rows.push(row('Cantidad facturable', billableText(v, rev.billableUnits), { sub: billableSource(v, rev) || null }));
+    rows.push(row(`× ${net ? 'Tarifa neta' : commercialName(k)}`, rate(rev.netRate, v.unitLabel), { sub: net ? `De lista ${rate(rev.listRate, v.unitLabel)}, con descuentos` : null }));
+    rows.push(row(others.length ? '= Subtotal (cantidad × tarifa)' : '= Facturación del mes', money(rev.components.base), { className: others.length ? null : 'is-subtotal' }));
+  }
+  others.forEach((x) => rows.push(row(`+ ${labels[x.id] || x.id}`, money(x.amount))));
+  if (others.length) rows.push(row('= Facturación del mes', money(rev.total), { className: 'is-subtotal' }));
+  const taxesLabel = k.billingTaxesDefined && !k.billingTaxesInvalid ? `− Impuestos sobre lo que facturás (${pct(k.billingTaxPct)})` : '− Impuestos sobre lo que facturás (sin definir)';
+  rows.push(row(taxesLabel, `− ${money(e.billingTaxes)}`));
+  rows.push(row('− Costo del mes', `− ${money(k.totalCost)}`));
+  const loss = e.profit < -1e-6;
+  rows.push(row(loss ? '= Pérdida del mes' : '= Ganancia del mes', loss ? `− ${money(-e.profit)}` : money(e.profit), {
+    sub: hasValue(k.marginPct) ? `Margen ${pct(k.marginPct)}` : null,
+    className: ['is-total', unreliable ? null : loss ? 'is-loss' : 'is-gain'].filter(Boolean).join(' '),
+  }));
+  // Límites del modelo, a la vista de la cuenta (VALIDACIONES-01, V-6 a V-8): sin cambiar ningún número.
+  const notes = [];
+  const minCall = Number(r.ctx && r.ctx.rules ? r.ctx.rules.minimumCallUnits : (v.q.rules || {}).minimumCallUnits);
+  if (r.unit !== 'month' && r.unit !== 'event' && minCall > 0) {
+    notes.push(`El mínimo ${T.per} se aplica ${T.a === 'una' ? 'a la' : 'al'} ${T.one} promedio: si ${T.theMany} ${T.many} duran distinto, los más cortos que el mínimo se facturan completos y la facturación real es mayor.`);
+  }
+  if (r.activationRounding && r.activationRounding.longerThanMonth) {
+    notes.push(`Cada ${T.one} dura más que el mes: esta es la cuenta de UN MES de trabajo. El precio ${T.g('de la', 'del')} ${T.one} ${T.g('completa', 'completo')} es la tarifa por ${T.one}; los hitos, anticipos y retenciones no se modelan.`);
+  }
+  notes.push('La tarifa incluye todos los costos de esta cotización. Lo que el cliente pida en renglones aparte (horas adicionales, espera, costo financiero) va en otra cotización: no lo cargues dos veces.');
+  const titleId = uniqueId('qr-account-title');
+  return h('section', { class: ['qr-account', unreliable ? 'is-unreliable' : null], 'aria-labelledby': titleId },
+    h('h3', { class: 'qr-account-title', id: titleId }, 'La cuenta del mes', unreliable ? h('span', { class: 'tag-unreliable' }, 'No confiable') : null),
+    h('dl', { class: 'qr-account-list' }, ...rows),
+    h('ul', { class: 'qr-account-notes' }, ...notes.map((text) => h('li', {}, text))));
+}
+
+/**
+ * "Nombre · Cliente". El nombre va en su propio span: en el celular se oculta
+ * (ya es el título de la página) y los montos suben (CEL-03). El PDF imprime todo.
+ */
 function quoteSubtitle(q) {
-  return [q.name, q.client].filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()).join(' · ');
+  const text = (x) => (typeof x === 'string' && x.trim() ? x.trim() : null);
+  const name = text(q.name);
+  const client = text(q.client);
+  if (!name && !client) return null;
+  if (!name || !client) return name || client;
+  return [h('span', { class: 'qr-sub-name' }, `${name} · `), client];
 }
 
 /**
@@ -1705,7 +1936,7 @@ function quoteSubtitle(q) {
  * avisa ARRIBA de los números (no abajo, donde se pierde). Los informativos
  * no cuentan. Se imprime: un PDF con pendientes sale marcado como borrador.
  */
-function draftBanner(v) {
+function draftBanner(v, { action } = {}) {
   const { r, q } = v;
   const c = r.completeness || {};
   const info = draftBannerText({ critical: c.critical, review: c.review, unreliable: c.unreliable });
@@ -1713,7 +1944,8 @@ function draftBanner(v) {
   const pending = Array.isArray(c.pending) ? c.pending.filter((i) => i.severity === 'critical' || i.severity === 'review') : [];
   const example = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount: pending.length });
   const node = alertLine(info.tone, info.title, `${info.text} Costos cargados: ${pct(c.scorePct, 0)}.${example ? ` ${example}` : ''}`,
-    button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
+    // `action`: sin pasar → "Ver qué falta" abre la lista de pendientes; null → sin acción.
+    action === undefined ? button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }) : action);
   node.classList.add('qr-draft');
   // RESULTADO NO CONFIABLE (ECO-01): lo que lo causa va primero en la lista.
   if (info.unreliable) node.classList.add('qr-unreliable');
@@ -1722,8 +1954,27 @@ function draftBanner(v) {
   // La lista va dentro del texto del aviso (no como otra columna del banner).
   const body = node.querySelector(':scope > div:not(.qr-alert-action)');
   if (critical.length && body) {
-    body.appendChild(h('ul', { class: 'qr-draft-list' }, ...critical.slice(0, 4).map((i) => h('li', {}, h('strong', {}, `${i.label}: `), String(i.message || '')))));
+    // El texto va en un span: en el celular se recorta el span (el li conserva su viñeta).
+    body.appendChild(h('ul', { class: 'qr-draft-list' }, ...critical.slice(0, 4).map((i) => h('li', {}, h('span', { class: 'qr-draft-item' }, h('strong', {}, `${i.label}: `), String(i.message || ''))))));
   }
+  return node;
+}
+
+/**
+ * ECO-03 (VAL-01-F1): con un múltiplo fijo que sube la sugerida más de 1 % sobre el precio objetivo, aviso
+ * arriba de los números (también en el PDF) y [Usar redondeo automático]. Sólo si se cotiza la sugerida.
+ */
+function roundingBanner(v) {
+  const { k, q } = v;
+  if (k.commercialSource !== 'suggested') return null;
+  const w = roundingWarning(k, v.unitLabel);
+  if (!w) return null;
+  const canChange = typeof v.onQuoteChange === 'function' && !(v.ill && v.ill.quote);
+  const action = canChange
+    ? button('Usar redondeo automático', { variant: 'secondary', size: 'sm', attrs: { 'data-action': 'rounding-auto' }, onClick: () => v.onQuoteChange(Object.fromEntries(Object.entries(roundingModeChange('auto', q.pricing)).map(([key, value]) => [`pricing.${key}`, value]))) })
+    : stepLink(q, 'margin', `Cambialo en ${stepLabel('margin')}`);
+  const node = alertLine('warning', w.title, w.message, action);
+  node.classList.add('qr-rounding');
   return node;
 }
 
@@ -1733,19 +1984,32 @@ function renderSummary(v) {
   const mode = r.pricingMode === 'known_rate' ? 'known_rate' : 'known_activity';
   const titleId = uniqueId('qr-summary-title');
   const sub = quoteSubtitle(q);
+  const price = priceAlert(v);
   const alerts = criticalAlerts(v);
   const draft = draftBanner(v);
   return h('section', { class: 'qr-summary', id: v.ids.summary, 'aria-labelledby': titleId },
     h('div', { class: 'qr-summary-head' },
       h('div', { class: 'qr-summary-titles' },
         h('h2', { class: 'qr-summary-title', id: titleId }, 'Resultado'),
-        sub ? h('p', { class: 'qr-summary-sub' }, sub) : null),
+        // UI-03: sin cliente, el subtítulo repite el título de la página; en el celular se oculta (el PDF lo imprime).
+        sub ? h('p', { class: ['qr-summary-sub', typeof q.client === 'string' && q.client.trim() ? null : 'qr-summary-sub-name-only'] }, ...[].concat(sub)) : null),
       h('div', { class: 'qr-summary-badges' },
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
+        // UX-UNITS: la unidad de cobro como etiqueta ("ARS / m³").
+        badge(`${(typeof q.currency === 'string' && q.currency) || CURRENCY} / ${v.unitLabel}`, 'gray', { title: 'Unidad de cobro' }),
         illustrativeBadge(v))),
     draft,
-    h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
-    h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
+    roundingBanner(v),
+    // UI-01: la alerta de la tarifa va arriba de los números que afecta (DESIGN.md §1.2).
+    price ? h('div', { class: ['qr-alerts', 'qr-alerts-price'] }, price) : null,
+    statsList('qr-stats', costStat(v), floorStat(v), primary(priceStat(v)), marginStat(v)),
+    // VAL-G4 (DESIGN-02): el precio sale de los datos de la empresa; no es un precio de mercado. Se imprime.
+    // UX-UNITS: las dos notas en una sola línea (mismos textos).
+    h('p', { class: 'qr-note qr-notes' },
+      h('span', { class: 'qr-reference-note' }, REFERENCE_PRICE_NOTE),
+      ' ',
+      h('span', { class: 'qr-tax-note' }, 'Montos sin IVA; el margen es después de costos e impuestos sobre la facturación y antes de Ganancias.')),
+    monthAccountBlock(v),
     workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
@@ -2132,14 +2396,18 @@ function chartSvg(v, data, width) {
   const W = Math.max(280, Math.round(width));
   const narrow = W < 560;
   const H = narrow ? 260 : 300;
-  const L = narrow ? 62 : 78;
+  const step = niceStep(maxVal);
+  const yMax = Math.ceil(maxVal / step - 1e-9) * step || step;
+  // Rótulos de 12 px (DESIGN-02): unos 7 px por carácter. El margen izquierdo deja entrar el más ancho del eje Y.
+  const CHAR_PX = 7;
+  let widestY = 0;
+  for (let y = 0; y <= yMax + step * 1e-6; y += step) widestY = Math.max(widestY, compactMoney(y).length);
+  const L = Math.max(narrow ? 62 : 78, 12 + widestY * CHAR_PX);
   const R = narrow ? 14 : 132;
   const T = 18;
   const B = 42;
   const PW = W - L - R;
   const PH = H - T - B;
-  const step = niceStep(maxVal);
-  const yMax = Math.ceil(maxVal / step - 1e-9) * step || step;
   const px = (d) => L + ((d - x0) / (x1 - x0)) * PW;
   const py = (y) => T + PH - (Math.min(Math.max(y, 0), yMax) / yMax) * PH;
 
@@ -2149,17 +2417,18 @@ function chartSvg(v, data, width) {
     grid.push(s('text', { x: L - 8, y: (py(y) + 4).toFixed(1), class: 'qr-chart-tick', 'text-anchor': 'end' }, compactMoney(y)));
   }
 
-  // Rótulos del eje X sin superponerse (el día estimado siempre se rotula).
-  const minGap = 26;
+  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
+  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
+  // Rótulos del eje X sin superponerse (el día estimado siempre se rotula): dos vecinos necesitan la mitad
+  // del ancho de cada uno y un respiro.
+  const halfTick = (m) => (tickOf(m).length * CHAR_PX) / 2 + 4;
   const kept = [];
   markers.forEach((m) => {
     const x = px(m.d);
     const prev = kept[kept.length - 1];
-    if (!prev || x - prev.x >= minGap) kept.push({ m, x });
+    if (!prev || x - prev.x >= Math.max(26, halfTick(prev.m) + halfTick(m))) kept.push({ m, x });
     else if (m.isEstimate) kept[kept.length - 1] = { m, x };
   });
-  // Por cantidad (m³, viajes…) el eje se rotula en esa unidad; por día, en días.
-  const tickOf = (m) => (byQty(v) && hasValue(m.q) ? formatNumber(m.q, { decimals: quantityDecimals(m.q) }) : formatNumber(m.d, { decimals: 2 }));
   const xTicks = kept.map(({ m, x }) => s('text', { x: x.toFixed(1), y: T + PH + 18, class: ['qr-chart-tick', m.isEstimate ? 'is-estimate' : null].filter(Boolean).join(' '), 'text-anchor': 'middle' }, tickOf(m)));
 
   const estimate = hasValue(k.activeDays) && k.activeDays >= x0 && k.activeDays <= x1
@@ -2194,7 +2463,8 @@ function chartSvg(v, data, width) {
   const labelNodes = endLabels.filter((lbl, i) => {
     const prev = endLabels[i - 1];
     const next = endLabels[i + 1];
-    return (!prev || lbl.y - prev.y >= 13) && (!next || next.y - lbl.y >= 13);
+    // Con texto de 12 px (DESIGN-02), dos rótulos necesitan 14 px de separación para no pisarse.
+    return (!prev || lbl.y - prev.y >= 14) && (!next || next.y - lbl.y >= 14);
   }).map((lbl) => s('text', { x: L + PW + 8, y: (lbl.y + 4).toFixed(1), class: 'qr-chart-label' }, lbl.text));
 
   // Zonas de hover (tooltip nativo) por cada día de la matriz.
@@ -3142,7 +3412,7 @@ function renderComparator(v) {
     className: 'qr-models',
   });
   // Por qué el break-even de los modelos difiere del de la cotización (la causa según el caso; sin nota si coincide).
-  const beText = comparatorNote(v.r, cmp.models, { roundingStep: nonNegativeOrNull(q.pricing && q.pricing.roundingStep) });
+  const beText = comparatorNote(v.r, cmp.models, { roundingStep: v.k.roundingStep });
   const beNote = beText ? ` ${beText}` : '';
   return card({ ...header, actions: [traceBtn(trace)] },
     tbl,
@@ -3156,7 +3426,7 @@ function renderComparator(v) {
 function renderCompleteness(v) {
   const { r, q } = v;
   const c = r.completeness || { scorePct: 0, items: [] };
-  const tone = completenessTone(c.scorePct);
+  const tone = completenessTone(c.scorePct, c.critical || 0);
   const order = { missing: 0, warning: 1, ok: 2 };
   // Críticos primero (cambian el costo o el precio), después "para revisar" (PLAN-2026-010).
   const rank = (i) => (i.severity === 'critical' ? 0 : 1);
@@ -3282,17 +3552,9 @@ function rulesSummary(v) {
     h('p', { class: 'qr-rules-edit no-print' }, stepLink(q, 'margin', 'Editar reglas comerciales')));
 }
 
-/**
- * Cómo se compone la facturación del mes (ECO-01, H-02): cada componente que suma, el ajuste
- * por mínimo garantizado y el total, con los valores del motor (revenueComposition). Con
- * abono mensual + abono de disponibilidad, el aviso crítico va acá también.
- */
-function revenueCompositionBlock(v, revenue, T) {
-  const { r } = v;
-  const c = revenueComposition(revenue);
-  if (!(c.total > 0) || !c.rows.length) return null;
-  const units = hasValue(revenue.billableUnits) ? (r.unit === 'quantity' ? quantityText(revenue.billableUnits, r) : `${formatNumber(revenue.billableUnits, { decimals: 2 })} ${r.unitInfo.plural || 'unidades'}`) : null;
-  const labels = {
+/** Rótulos de los componentes de la facturación del mes (revenueComposition), en la unidad de la cotización. */
+function revenueRowLabels(r, T, units) {
+  return {
     base: r.unit === 'month' ? 'Abono mensual (la tarifa)' : `Tarifa${units ? ` × ${units}` : ''}`,
     availabilityFee: 'Abono de disponibilidad',
     callout: `Cargos ${T.per}`,
@@ -3303,6 +3565,19 @@ function revenueCompositionBlock(v, revenue, T) {
     overtime: 'Horas extra facturadas aparte',
     guaranteeTopUp: 'Ajuste al mínimo mensual garantizado',
   };
+}
+
+/**
+ * Cómo se compone la facturación del mes (ECO-01, H-02): cada componente que suma, el ajuste
+ * por mínimo garantizado y el total, con los valores del motor (revenueComposition). Con
+ * abono mensual + abono de disponibilidad, el aviso crítico va acá también.
+ */
+function revenueCompositionBlock(v, revenue, T) {
+  const { r } = v;
+  const c = revenueComposition(revenue);
+  if (!(c.total > 0) || !c.rows.length) return null;
+  const units = hasValue(revenue.billableUnits) ? (r.unit === 'quantity' ? quantityText(revenue.billableUnits, r) : `${formatNumber(revenue.billableUnits, { decimals: 2 })} ${r.unitInfo.plural || 'unidades'}`) : null;
+  const labels = revenueRowLabels(r, T, units);
   const overlap = ((r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap');
   return h('div', { class: 'qr-revenue-composition' },
     h('h4', { class: 'qr-subhead' }, 'Cómo se compone la facturación del mes'),
@@ -3464,7 +3739,7 @@ function renderEconomicBase(v) {
     external.length
       ? h('div', { class: 'stack' },
         h('h4', { class: 'qr-sub-title' }, 'Equipos y servicios externos en el mes'),
-        h('dl', { class: 'qr-stats qr-stats-3' },
+        statsList('qr-stats qr-stats-3',
           statItem({ label: 'Costo económico (en el costo)', value: formatMoney(k.externalMonthly), hint: 'Neto + IVA que no recuperás + cargos no recuperables.' }),
           statItem({ label: 'Salida de caja con impuestos', value: formatMoney(k.externalCashMonthly), hint: 'Lo que pagás al proveedor (neto + IVA + percepciones): es lo que se financia hasta cobrar.' }),
           statItem({ label: 'Crédito fiscal (no es costo)', value: formatMoney(k.externalTaxCreditMonthly), hint: 'IVA que recuperás + percepciones: caja que adelantás.' })),
@@ -3651,19 +3926,29 @@ function printAllSections(v, getItems) {
  * principal es "Crear mi propia cotización".
  */
 function renderActions(v) {
-  const { q, onQuoteChange } = v;
+  const { q, r, onQuoteChange } = v;
   const status = q.status || 'draft';
   const isDraft = status === 'draft';
   const canChange = typeof onQuoteChange === 'function';
   const example = Boolean(v.ill && v.ill.quote);
+  // ECO-02: con un resultado NO CONFIABLE no se puede marcar como enviada (se dice por qué, a la
+  // vista); con pendientes críticos se confirma nombrándolos. Misma regla que la lista y el editor.
+  const check = sendCheck(riskSummary(r.completeness));
+  const blockedNote = isDraft ? sendBlockedNote(check) : null;
+  const noteId = uniqueId('qr-send-note');
+  const sentUnreliable = !isDraft && impliesSending('draft', status) && check.reason === 'unreliable';
   const sent = button(isDraft ? 'Marcar como enviada al cliente' : `Estado: ${labelOf(QUOTE_STATUSES, status, 'Borrador')}`, {
     variant: 'secondary',
     icon: 'check',
-    disabled: !isDraft || !canChange,
-    attrs: { 'data-edit': 'status' },
-    onClick: () => {
-      if (!isDraft || !canChange) return;
+    disabled: !isDraft || !canChange || !check.allowed,
+    attrs: { 'data-edit': 'status', 'aria-describedby': blockedNote ? noteId : null },
+    onClick: async () => {
+      if (!isDraft || !canChange || !check.allowed) return;
       sent.disabled = true;
+      if (!(await guardSending(check, { status: 'sent' }))) {
+        sent.disabled = false;
+        return;
+      }
       try {
         onQuoteChange('status', 'sent');
         track('quote_completed', { completed: true });
@@ -3675,22 +3960,51 @@ function renderActions(v) {
       }
     },
   });
+  // Después de exportar (tarea completa), una invitación discreta a dejar un comentario (PLAN-2026-029).
+  const inviteHost = h('div', { class: 'qr-invite-host', 'aria-live': 'polite', dataset: v.feedbackSupported ? { feedback: 'on' } : {} });
   const print = button('Imprimir / guardar PDF', {
     variant: 'secondary',
     icon: 'print',
     onClick: () => {
       if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
+      showFeedbackInvite(inviteHost.parentNode);
     },
   });
   const own = example
     ? linkButton('Crear mi propia cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus', attrs: { 'data-action': 'new-quote' } })
     : null;
   const printNote = 'Al imprimir se abren todas las secciones y se ocultan los controles. Para obtener el archivo, elegí "Guardar como PDF".';
+  const review = () => button('Ver qué falta', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } });
   return h('section', { class: 'qr-actions-bar no-print', id: v.ids.actions, 'aria-label': 'Acciones' },
     h('div', { class: 'qr-actions-notes' },
       example ? h('p', { class: 'qr-actions-note qr-actions-note-main' }, 'Este es un ejemplo con valores ILUSTRATIVOS. Para cotizar tu servicio, creá tu propia cotización con tus costos.') : null,
+      blockedNote ? h('p', { class: 'qr-actions-note qr-send-blocked', id: noteId }, blockedNote) : null,
+      sentUnreliable
+        ? h('p', { class: 'qr-actions-note qr-send-blocked' }, `Figura como ${labelOf(QUOTE_STATUSES, status, 'enviada').toLowerCase()}, pero hoy su resultado NO ES CONFIABLE: resolvé lo pendiente antes de volver a mandarla.`)
+        : null,
+      blockedNote || sentUnreliable ? h('div', { class: 'qr-send-review' }, review()) : null,
       h('p', { class: 'qr-actions-note' }, printNote)),
-    h('div', { class: 'qr-actions' }, print, sent, own));
+    h('div', { class: 'qr-actions' }, print, sent, own),
+    inviteHost);
+}
+
+/**
+ * La invitación a comentar después de imprimir, también desde el "Imprimir"
+ * de la cabecera del editor (ESC-01). Una sola vez por Resultado dibujado.
+ * @param {ParentNode|null} scope donde está el Resultado
+ */
+export function showFeedbackInvite(scope) {
+  const host = scope && scope.querySelector('.qr-invite-host');
+  if (!host || host.firstChild || host.dataset.feedback !== 'on') return;
+  const invite = feedbackInvite({
+    screen: 'resultado',
+    // "Ahora no" no deja el foco en <body>: vuelve a la primera acción del Resultado.
+    onDismiss: () => {
+      const first = host.parentNode && host.parentNode.querySelector('.qr-actions button, .qr-actions a');
+      if (first) first.focus();
+    },
+  });
+  if (invite) host.appendChild(invite);
 }
 
 // ------------------------------------------------------------- composición
@@ -3708,6 +4022,12 @@ function safeSection(title, build) {
   }
 }
 
+/** En el encabezado del PDF: qué valores son de ejemplo (ESC-02). */
+function printIllustrativeText(info) {
+  const parts = illustrativeParts(info).map((p) => p.text);
+  return parts.length ? ` · Incluye valores ILUSTRATIVOS: ${listText(parts)}` : ' · Incluye valores ILUSTRATIVOS';
+}
+
 function printHeader(v, heading = 'Análisis económico de la cotización') {
   const { q } = v;
   const parts = [q.code, q.name].filter((x) => typeof x === 'string' && x.trim()).join(' — ');
@@ -3716,8 +4036,11 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
     h('div', { class: 'qr-print-title' }, parts || 'Cotización'),
     h('div', { class: 'qr-print-meta' },
       q.client ? `Cliente: ${String(q.client)} · ` : '',
-      `Fecha: ${formatDate(new Date())} · Montos sin IVA`,
-      v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : ' · Incluye valores ILUSTRATIVOS') : ''));
+      // AUD-T1 C-E2-11 (DESIGN-02): la fecha de la oferta y, aparte, la de impresión.
+      `${documentDatesText({ offerDate: q.offerDate })} · Montos sin IVA`,
+      v.ill && v.ill.any ? (v.ill.quote ? ' · Valores ILUSTRATIVOS' : printIllustrativeText(v.ill)) : ''),
+    // ECO-02: un PDF con un resultado NO CONFIABLE lo dice arriba de todo, antes del primer número.
+    isUnreliable(v) ? h('div', { class: 'qr-print-flag' }, 'RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA') : null);
 }
 
 const SECTION_KEYS = Object.freeze([
@@ -3793,6 +4116,8 @@ function createView(container, app, { quote, result, settings, onQuoteChange } =
     unitLabel: r.unitLabel || 'día',
     onQuoteChange,
     notify,
+    // Feedback de la beta: sólo desde una cuenta (en la demo y el modo local no hay).
+    feedbackSupported: Boolean(app && app.ctx && app.ctx.feedback && app.ctx.feedback.supported),
     cleanups,
     ids,
     observeRegion,
@@ -3904,8 +4229,14 @@ function analysisBase(v) {
 export function renderScenarioAnalysis(container, app, { quote, result, settings } = {}) {
   const v = createView(container, app, { quote, result, settings, onQuoteChange: null });
   if (!v) return () => {};
+  // ECO-02: los "¿Qué pasa si…?" parten de los mismos números: si el resultado es BORRADOR o NO
+  // CONFIABLE, se avisa arriba (con "Ver qué falta" en el Resultado de la cotización).
+  const risk = safeSection('Pendientes', () => draftBanner(v, {
+    action: v.q.id ? linkButton('Ver qué falta', `#/cotizaciones/${encodeURIComponent(String(v.q.id))}/result`, { variant: 'link', size: 'sm' }) : null,
+  }));
   mount(container, h('div', { class: 'qr qr-analysis' },
     printHeader(v, 'Análisis de escenarios'),
+    risk,
     safeSection('Punto de partida', () => analysisBase(v)),
     ...analysisSections(v)));
   return cleanupOf(v);

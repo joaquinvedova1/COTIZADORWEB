@@ -52,7 +52,8 @@ import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText, unreliableText } from '../result-text.js';
+import { breakEvenZeroText, unreliableText, marginPairText } from '../result-text.js';
+import { marginStateWord } from '../live-summary-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -61,7 +62,6 @@ import { completenessTone } from '../../engines/completeness-engine.js';
 import { getPath, setPath, deepClone, isPlainObject } from '../../core/object.js';
 import { formatMoney, formatMoneyCeil, formatMoneyCompact, formatPercent, formatDays, formatNumber, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { parseDecimalInput } from '../../core/validation.js';
 import { createId } from '../../core/ids.js';
 import { createTrace } from '../../core/trace.js';
 import { logger } from '../../core/logger.js';
@@ -78,6 +78,7 @@ import * as financeStep from './quote-steps/finance.js';
 import * as riskStep from './quote-steps/risk.js';
 import * as marginStep from './quote-steps/margin.js';
 import { createDraftStore, onSessionReset } from '../session-memory.js';
+import { sendBlockedNote } from '../send-guard.js';
 
 const STEP_MODULES = Object.freeze({
   service: serviceStep,
@@ -421,31 +422,6 @@ function lockInputs(container) {
   });
 }
 
-/**
- * Muestra el monto con separadores debajo de un input de dinero grande
- * (250000000 → $ 250.000.000) para evitar errores de magnitud.
- */
-const MONEY_ECHO_FROM = 10000;
-function attachMoneyEcho(fieldEl) {
-  const input = fieldEl.querySelector('input');
-  const control = fieldEl.querySelector('.field-control');
-  if (!input || !control) return;
-  const echoEl = h('div', { class: 'qe-num-echo', 'aria-hidden': 'true' });
-  const sync = () => {
-    const raw = String(input.value || '').trim();
-    // Mismo intérprete que el campo (formato argentino: "1.800.000,50").
-    const n = parseDecimalInput(raw);
-    const show = raw !== '' && Number.isFinite(n) && Math.abs(n) >= MONEY_ECHO_FROM;
-    echoEl.textContent = show ? formatMoney(n) : '';
-    echoEl.hidden = !show;
-  };
-  input.addEventListener('input', sync);
-  // Si el campo restaura el valor anterior (valor inválido confirmado).
-  input.addEventListener('change', sync);
-  sync();
-  control.after(echoEl);
-}
-
 function setContent(el, content) {
   if (content instanceof Node) mount(el, content);
   else if (Array.isArray(content)) mount(el, ...content);
@@ -456,17 +432,41 @@ function cssEscape(value) {
   return globalThis.CSS && typeof globalThis.CSS.escape === 'function' ? globalThis.CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&');
 }
 
-/** Avisos de validación junto al campo correspondiente (por atributo name = ruta). */
+/**
+ * Avisos de validación junto al campo correspondiente (por atributo name = ruta).
+ * Cada aviso se asocia a su control (aria-describedby, DESIGN-02 2/2): un lector
+ * de pantalla lo lee al entrar al campo. No se anuncia en vivo: se repetiría en
+ * cada recálculo.
+ */
 function decorateFieldIssues(container, issues) {
+  // Los avisos anteriores se van, y también sus ids del aria-describedby de cada control.
+  container.querySelectorAll('[data-issue-notes]').forEach((control) => {
+    const stale = control.dataset.issueNotes.split(' ');
+    const kept = (control.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && !stale.includes(id));
+    if (kept.length) control.setAttribute('aria-describedby', kept.join(' '));
+    else control.removeAttribute('aria-describedby');
+    delete control.dataset.issueNotes;
+  });
   container.querySelectorAll('.qe-issue-note').forEach((n) => n.remove());
   container.querySelectorAll('.qe-has-issue').forEach((n) => n.classList.remove('qe-has-issue'));
   issues.forEach((issue) => {
     if (!issue.path) return;
-    const control = container.querySelector(`[name="${cssEscape(issue.path)}"]`);
-    const field = control && control.closest('.field, .choice-group');
+    const controls = [...container.querySelectorAll(`[name="${cssEscape(issue.path)}"]`)];
+    const field = controls.length ? controls[0].closest('.field, .choice-group') : null;
     if (!field) return;
     field.classList.add('qe-has-issue');
-    field.appendChild(h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`] }, issue.message));
+    // Id estable (el del control + su número de aviso): al recalcular, el aria-describedby queda igual.
+    const noteId = `${controls[0].id || uniqueId('qe-campo')}-aviso-${field.querySelectorAll('.qe-issue-note').length + 1}`;
+    // Un campo puede decir el aviso en la forma en que se cargó (UX-UNITS: rendimiento "por hora" o en otra unidad).
+    const message = issue.severity === 'error' && field.dataset.issueMessage ? field.dataset.issueMessage : issue.message;
+    const note = h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`], id: noteId }, message);
+    field.appendChild(note);
+    // Todos los controles del campo con esa ruta (p. ej. cada opción de un grupo).
+    controls.filter((c) => field.contains(c)).forEach((c) => {
+      const ids = (c.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+      c.setAttribute('aria-describedby', [...ids, note.id].join(' '));
+      c.dataset.issueNotes = [c.dataset.issueNotes, note.id].filter(Boolean).join(' ');
+    });
   });
 }
 
@@ -540,6 +540,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       el = numberField({
         rule: 'money',
         ...opts,
+        echo,
         name: path,
         value: inputNumber(kit.get(path)),
         disabled: readOnly || Boolean(disabled),
@@ -558,8 +559,9 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       if (requiredMark) {
         const label = el.querySelector('.field-label');
         if (label) label.insertBefore(h('span', { class: 'req', 'aria-hidden': 'true' }, ' *'), label.querySelector('.tag-illustrative'));
+        const input = el.querySelector('input');
+        if (input) input.setAttribute('aria-required', 'true');
       }
-      if (echo && (opts.rule || 'money') === 'money') attachMoneyEcho(el);
       return el;
     },
 
@@ -575,16 +577,44 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       });
     },
 
-    select(path, { structural = false, ...opts } = {}) {
-      return selectField({
+    /**
+     * Selector conectado a una ruta. `guard(next, previous)` (opcional, puede
+     * ser async): si devuelve false, el valor no cambia y el selector vuelve
+     * al anterior (p. ej. "Enviada" con un resultado NO CONFIABLE, ECO-02).
+     */
+    select(path, { structural = false, guard = null, ...opts } = {}) {
+      let el = null;
+      el = selectField({
         ...opts,
         name: path,
         value: kit.get(path),
-        onChange: (value) => {
+        onChange: async (value) => {
+          if (typeof guard === 'function') {
+            const previous = kit.get(path);
+            const control = el && el.querySelector('select');
+            const previousText = previous === null || previous === undefined ? '' : String(previous);
+            // Mientras se confirma, el selector muestra el valor vigente y no acepta otro cambio (el diálogo es modal, pero el teclado no).
+            const wasDisabled = control ? control.disabled : false;
+            if (control) {
+              control.value = previousText;
+              control.disabled = true;
+            }
+            let ok = false;
+            try {
+              ok = Boolean(await guard(value, previous));
+            } catch (error) {
+              logger.warn('No se pudo confirmar el cambio', { message: error && error.message });
+            } finally {
+              if (control) control.disabled = wasDisabled;
+            }
+            if (!ok) return;
+            if (control) control.value = value === null || value === undefined ? '' : String(value);
+          }
           update(path, value);
           if (structural) rerender();
         },
       });
+      return el;
     },
 
     check(path, { structural = false, ...opts } = {}) {
@@ -907,8 +937,8 @@ function breakEvenTone(r) {
 }
 
 /** Semáforo del Cost Completeness Score: mismos umbrales que el motor y el Resultado. */
-function completenessColor(pct) {
-  return isFiniteNumber(pct) ? completenessTone(pct) : 'gray';
+function completenessColor(pct, criticalCount = 0) {
+  return isFiniteNumber(pct) ? completenessTone(pct, criticalCount) : 'gray';
 }
 
 /**
@@ -955,6 +985,25 @@ function breakEvenText(r, { decimals = 1 } = {}) {
   return formatDays(be.days, { decimals });
 }
 
+/** Sin costos cargados el piso es $ 0 y no hay sugerida: se dice qué falta, como en el Resultado. */
+const hasCost = (r) => isFiniteNumber(r.kpis.totalCost) && r.kpis.totalCost > 0;
+const NO_COST_HINT = 'Aparece cuando cargues costos: personal, equipos u otros gastos.';
+
+/**
+ * Qué falta cargar en "Cómo se cobra" para calcular (UX-UNITS, N3): con la cantidad del mes cargada y sin el
+ * rendimiento, falta el rendimiento (no "los m³ por mes", que ya están).
+ */
+function rateMissing(r) {
+  const a = r.activity || {};
+  return Boolean(r.unitInfo && r.unitInfo.kind === 'quantity' && Number(a.billableQuantityPerMonth) > 0 && !(Number(a.unitsPerActiveDay) > 0));
+}
+
+function activityMissingHint(r) {
+  if (!isQuantityUnit(r)) return 'Cargá los días por mes para calcularla.';
+  if (rateMissing(r)) return `Falta completar el rendimiento en "${stepName('modality')}" para calcularla.`;
+  return `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.`;
+}
+
 function rateHint(r) {
   const k = r.kpis;
   let text;
@@ -968,16 +1017,20 @@ function rateHint(r) {
     case 'override':
       text = 'Tarifa forzada.';
       break;
-    case 'suggested':
-      text = `Para ganar ${formatPercent(r.kpis.targetMarginPct)} de margen, redondeada hacia arriba.`;
+    case 'suggested': {
+      // ECO-03: el margen objetivo y el real con la sugerida (el redondeo puede alejarlos).
+      const pair = marginPairText(r.kpis, { realPct: r.kpis.marginPct });
+      text = pair ? `${pair}.` : `Para ganar ${formatPercent(r.kpis.targetMarginPct)} de margen, redondeada hacia arriba.`;
       break;
+    }
     default:
       if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('modality')}".`;
       else if (k.targetMarginInvalid) {
         text = k.billingTaxPct > 0
           ? `Sin tarifa sugerida: con ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - k.billingTaxPct)}. Bajalo en "El precio".`
           : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".';
-      } else text = isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
+      } else if (!hasCost(r)) text = NO_COST_HINT;
+      else text = activityMissingHint(r);
   }
   const net = isFiniteNumber(k.commercialNetRate) && isFiniteNumber(k.commercialListRate) && Math.abs(k.commercialNetRate - k.commercialListRate) > 0.005
     ? ` Neta: ${formatMoney(k.commercialNetRate)} (después de descuentos).`
@@ -985,16 +1038,23 @@ function rateHint(r) {
   return `${text}${net}`;
 }
 
+/** Margen esperado: "10,0 %", o "—" sin tarifa comercial (el motor no informa margen). */
+function expectedMarginText(r) {
+  return isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY;
+}
+
 /**
- * Resumen en vivo: 4 números (costo del mes, tarifa piso, tarifa que se
- * cobra y días para no perder), cada uno con "Ver cálculo", y "Ver más" con
- * el resto (precio para el margen, resultado, margen esperado, completitud).
- * En pantallas chicas es una barra compacta fija abajo que se expande.
+ * Resumen en vivo: costo del mes, tarifa piso, tarifa que se cobra, margen
+ * esperado, días para no perder y resultado esperado, cada uno con "Ver
+ * cálculo", y "Ver más" con el precio para el margen y la completitud
+ * (DESIGN-02 2/2).
+ * En pantallas chicas es una barra compacta fija abajo (costo, piso, tarifa
+ * cobrada y margen con su palabra) que se expande con "Ver detalle".
  */
 function buildSummary({ getResult, stepHref }) {
   const rows = [];
 
-  const item = ({ key, label, short = null, value, unit = null, compact = null, hint, tone = null, trace = null }) => {
+  const item = ({ key, label, short = null, value, unit = null, compact = null, state = null, hint, tone = null, trace = null }) => {
     const labelEl = h('span', { class: 'qe-sum-label' });
     // Rótulo corto para la barra compacta (pantallas chicas); el completo queda para lectores de pantalla.
     const shortEl = short ? h('span', { class: 'qe-sum-short', 'aria-hidden': 'true' }) : null;
@@ -1004,6 +1064,9 @@ function buildSummary({ getResult, stepHref }) {
     const compactUnit = h('span', { class: 'qe-sum-compact-unit' });
     const compactEl = compact ? h('span', { class: 'qe-sum-compact', 'aria-hidden': 'true' }, compactNum, compactUnit) : null;
     const valueEl = h('div', { class: 'qe-sum-value' }, h('span', { class: 'qe-sum-full' }, numberEl, unitEl), compactEl);
+    // Estado en una palabra ("cumple", "no confiable"…) en la barra compacta plegada, donde la ayuda no se ve:
+    // el estado no se lee sólo por el color (WCAG 1.4.1). Visual: plegada, la ayuda completa está en "Ver detalle".
+    const stateEl = state ? h('span', { class: 'qe-sum-state', 'aria-hidden': 'true' }) : null;
     const hintEl = h('div', { class: 'qe-sum-hint' });
     const traceBtn = trace
       ? button('Ver cálculo', {
@@ -1021,8 +1084,8 @@ function buildSummary({ getResult, stepHref }) {
         },
       })
       : null;
-    const el = h('div', { class: 'qe-sum-item', dataset: { kpi: key } }, h('div', { class: 'qe-sum-labels' }, labelEl, shortEl), valueEl, hintEl, traceBtn);
-    rows.push({ el, labelEl, shortEl, numberEl, unitEl, compactEl, compactNum, compactUnit, hintEl, traceBtn, label, short, value, unit, compact, hint, tone });
+    const el = h('div', { class: 'qe-sum-item', dataset: { kpi: key } }, h('div', { class: 'qe-sum-labels' }, labelEl, shortEl), valueEl, stateEl, hintEl, traceBtn);
+    rows.push({ el, labelEl, shortEl, numberEl, unitEl, compactEl, compactNum, compactUnit, stateEl, hintEl, traceBtn, label, short, value, unit, compact, state, hint, tone });
     return el;
   };
 
@@ -1036,7 +1099,9 @@ function buildSummary({ getResult, stepHref }) {
       value: (r) => formatMoney(r.kpis.totalCost),
       compact: (r) => formatMoneyCompact(r.kpis.totalCost),
       hint: (r) => (isQuantityUnit(r)
-        ? `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`
+        ? (rateMissing(r)
+          ? `Falta completar el rendimiento en "${stepName('modality')}": sin él no hay días de trabajo.`
+          : `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`)
         : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`),
       trace: (r) => r.traces.totalCost,
     }),
@@ -1045,16 +1110,17 @@ function buildSummary({ getResult, stepHref }) {
       // Base de LISTA: es la que se escribe en la cotización (UX-01).
       label: (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso (neta)' : 'Tarifa piso'),
       short: 'Tarifa piso',
-      value: (r) => formatMoneyCeil(floorDisplay(r).value),
+      value: (r) => (hasCost(r) ? formatMoneyCeil(floorDisplay(r).value) : EMPTY),
       unit: (r) => `/ ${unitShort(r)}`,
-      compact: (r) => formatMoneyCompact(floorDisplay(r).value, { ceil: true }),
+      compact: (r) => (hasCost(r) ? formatMoneyCompact(floorDisplay(r).value, { ceil: true }) : EMPTY),
       hint: (r) => {
         const floor = floorDisplay(r);
-        if (!isFiniteNumber(floor.value)) return isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
+        if (!hasCost(r)) return NO_COST_HINT;
+        if (!isFiniteNumber(floor.value)) return activityMissingHint(r);
         const net = floor.base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
         return `Precio mínimo para no perder (margen 0 %), sin IVA. ${floorTaxesText(r)}${net ? ` ${net}` : ''}`;
       },
-      tone: (r) => (r.kpis.billingTaxesDefined || !isFiniteNumber(floorDisplay(r).value) ? null : 'orange'),
+      tone: (r) => (r.kpis.billingTaxesDefined || !hasCost(r) || !isFiniteNumber(floorDisplay(r).value) ? null : 'orange'),
       trace: floorRateTrace,
     }),
     item({
@@ -1067,6 +1133,29 @@ function buildSummary({ getResult, stepHref }) {
       hint: rateHint,
       tone: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? resultTone(r) : null),
       trace: commercialRateTrace,
+    }),
+    item({
+      key: 'expectedMargin',
+      label: 'Margen esperado',
+      short: 'Margen',
+      // Sin tarifa comercial el motor no informa margen (null) → "—".
+      value: expectedMarginText,
+      compact: expectedMarginText,
+      state: (r) => marginStateWord(r).word,
+      hint: (r) => {
+        const k = r.kpis;
+        // ECO-01: NO CONFIABLE va primero, como en la palabra de la barra compacta.
+        const unreliable = unreliableText(r.completeness, 'este margen');
+        if (unreliable) return unreliable;
+        const base = k.targetMarginInvalid ? 'Objetivo inválido' : `Objetivo ${formatPercent(k.targetMarginPct)}`;
+        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
+        const state = k.profit < 0 ? 'perdés plata' : k.targetMarginInvalid ? 'revisá el margen en "El precio"' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
+        const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
+        return `${base} · ${state}${markup}.`;
+      },
+      // El mismo criterio que la palabra: sin tarifa o sin objetivo válido, sin color.
+      tone: (r) => marginStateWord(r).tone,
+      trace: (r) => r.traces.expectedResult,
     }),
     item({
       key: 'breakEven',
@@ -1083,6 +1172,15 @@ function buildSummary({ getResult, stepHref }) {
       },
       tone: breakEvenTone,
       trace: (r) => r.traces.breakEven,
+    }),
+    item({
+      key: 'expectedResult',
+      label: 'Resultado esperado del mes',
+      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
+      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que todo (también sin tarifa).
+      hint: (r) => unreliableText(r.completeness, 'este resultado') || (isFiniteNumber(r.kpis.commercialListRate) ? `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
+      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
+      trace: (r) => r.traces.expectedResult,
     }),
   );
 
@@ -1106,33 +1204,6 @@ function buildSummary({ getResult, stepHref }) {
         return [`Tarifa de lista sin redondear, sin IVA.`, net, markup].filter(Boolean).join(' ');
       },
       trace: targetRateTrace,
-    }),
-    item({
-      key: 'expectedResult',
-      label: 'Resultado esperado del mes',
-      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
-      // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
-      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
-      trace: (r) => r.traces.expectedResult,
-    }),
-    item({
-      key: 'expectedMargin',
-      label: 'Margen esperado',
-      // Sin tarifa comercial el motor no informa margen (null) → "—".
-      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY),
-      hint: (r) => {
-        const k = r.kpis;
-        const base = k.targetMarginInvalid ? 'Objetivo inválido' : `Objetivo ${formatPercent(k.targetMarginPct)}`;
-        if (!isFiniteNumber(k.commercialListRate) || !isFiniteNumber(k.marginPct)) return `${base} · sin tarifa todavía.`;
-        const unreliable = unreliableText(r.completeness, 'este margen');
-        if (unreliable) return unreliable;
-        const state = k.profit < 0 ? 'perdés plata' : k.belowTarget ? 'debajo del objetivo' : 'cumple el objetivo';
-        const markup = isFiniteNumber(k.markupPct) ? ` · markup ${formatPercent(k.markupPct)}` : '';
-        return `${base} · ${state}${markup}.`;
-      },
-      tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
-      trace: (r) => r.traces.expectedResult,
     }),
   );
 
@@ -1238,6 +1309,10 @@ function buildSummary({ getResult, stepHref }) {
         if (row.traceBtn) row.traceBtn.setAttribute('aria-label', `Ver cálculo: ${row.labelEl.textContent}`);
         const value = resolve(row.value, r) || EMPTY;
         row.numberEl.textContent = value;
+        // K0C-01: un monto nunca se parte; con $ 100 millones o más, el detalle del celular va en una columna.
+        const amount = /\d/.test(value);
+        row.numberEl.classList.toggle('nowrap', amount);
+        row.el.classList.toggle('is-long', amount && value.length > 12);
         const unit = value === EMPTY ? '' : resolve(row.unit, r) || '';
         row.unitEl.textContent = unit && unit !== EMPTY ? ` ${unit}` : '';
         if (row.compactEl) {
@@ -1245,6 +1320,10 @@ function buildSummary({ getResult, stepHref }) {
           // Un número abreviado no se corta ("$ 15,8 M"); un texto ("No se alcanza") puede ocupar dos renglones.
           row.compactNum.textContent = /\d/.test(compact) ? compact.replace(/ /g, '\u00a0') : compact;
           row.compactUnit.textContent = compact !== EMPTY && unit && unit !== EMPTY ? unit.replace('/ ', '/') : '';
+        }
+        if (row.stateEl) {
+          const state = resolve(row.state, r);
+          row.stateEl.textContent = state && state !== EMPTY ? state : '';
         }
         const hint = resolve(row.hint, r);
         row.hintEl.textContent = hint && hint !== EMPTY ? hint : '';
@@ -1257,13 +1336,13 @@ function buildSummary({ getResult, stepHref }) {
       const v = isFiniteNumber(pct) ? Math.max(0, Math.min(100, pct)) : 0;
       pctEl.textContent = isFiniteNumber(pct) ? `${formatNumber(pct, { decimals: 0 })} % completo` : EMPTY;
       barFill.style.setProperty('width', `${v}%`);
-      bar.className = `progress progress-${completenessColor(pct)}`;
-      bar.setAttribute('aria-valuenow', String(Math.round(v)));
       const pending = (r.completeness && r.completeness.pending) || [];
       const critical = pending.filter((p) => p.severity === 'critical').length;
+      bar.className = `progress progress-${completenessColor(pct, critical)}`;
+      bar.setAttribute('aria-valuenow', String(Math.round(v)));
       moreHint.textContent = pending.length === 0
-        ? 'Precio para tu margen, resultado y margen esperados.'
-        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · resultado y margen esperados.`;
+        ? 'Precio para tu margen y costos completos.'
+        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · precio para tu margen.`;
       if (pending.length === 0) {
         mount(pendingEl, h('li', { class: 'qe-pending-ok' }, h('span', { class: 'dot dot-green', 'aria-hidden': 'true' }), 'No hay pendientes de costos.'));
       } else {
@@ -1633,9 +1712,15 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     confirmedLines: new Set(),
   };
 
-  const notify = (message, tone = 'info') => {
-    if (app && typeof app.toast === 'function') app.toast(message, tone);
-    else componentToast(message, tone);
+  const notify = (message, tone = 'info') => (app && typeof app.toast === 'function' ? app.toast(message, tone) : componentToast(message, tone));
+  // El aviso de "Error al guardar" es persistente: se va solo cuando la cotización queda guardada,
+  // también el que dejó una apertura anterior de esta misma cotización (K0E-03).
+  const saveErrorKey = `quote:${quoteId}`;
+  const clearSaveErrorToasts = () => {
+    if (typeof document === 'undefined') return;
+    document.querySelectorAll('.toast[data-save-error]').forEach((t) => {
+      if (t.dataset.saveError === saveErrorKey) t.remove();
+    });
   };
   const navigate = (hash) => {
     if (app && typeof app.navigate === 'function') app.navigate(hash);
@@ -1718,9 +1803,13 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       saveEl.title = message;
       // El conflicto y la sesión vencida ya tienen su aviso (banner con
       // acciones / pantalla de ingreso): sin toast repetido.
-      if (previous !== 'error' && code !== 'conflict' && code !== 'session_expired') notify(cloud ? message : `Error al guardar. ${message}`, cloud && code === 'sync_failed' ? 'warning' : 'danger');
+      if (previous !== 'error' && code !== 'conflict' && code !== 'session_expired') {
+        const shown = notify(cloud ? message : `Error al guardar. ${message}`, cloud && code === 'sync_failed' ? 'warning' : 'danger');
+        if (shown && shown.dataset) shown.dataset.saveError = saveErrorKey;
+      }
     } else {
       state.saveErrorCode = null;
+      if (status === 'saved' || status === 'idle') clearSaveErrorToasts();
       delete saveEl.dataset.sync;
       saveTextEl.textContent = texts[status] || '';
       saveEl.title = status === 'invalid' ? 'Hay valores fuera de rango: no se guardan cambios hasta corregirlos.' : '';
@@ -1853,6 +1942,21 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       unsavedDrafts.delete(app.ctx, quoteId);
       if (!state.dirty) setSaveStatus('saved');
     } catch (error) {
+      if (error && error.code === 'send_blocked' && state.quote.status === snapshot.status) {
+        // ECO-02 R1: el servicio no la deja pasar a Enviada (resultado NO CONFIABLE o sin calcular), p. ej.
+        // si se eligió "Enviada" y enseguida otro cambio la volvió NO CONFIABLE: vuelve al estado guardado,
+        // a la vista (aviso y selector), y el resto de los cambios se guarda igual.
+        state.quote.status = error.previousStatus;
+        notify(sendBlockedNote(error.check, { status: snapshot.status }) || 'No se pudo cambiar el estado de la cotización.', 'danger');
+        if (!state.disposed) {
+          const statusSelect = stepBody.querySelector('select[name="status"]');
+          if (statusSelect) statusSelect.value = String(error.previousStatus);
+          if (stepId === 'result') rerenderStep();
+          else refreshAll();
+        }
+        state.dirty = true;
+        return save();
+      }
       state.dirty = true;
       unsavedDrafts.set(app.ctx, quoteId, deepClone(state.quote));
       logger.warn('No se pudo guardar la cotización', { code: error && error.code });
@@ -2093,7 +2197,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     const isResult = stepId === 'result';
     const shownGroups = isResult ? groups : groups.filter((g) => g.step === stepId);
     const fuelHere = info.fuel && (stepId === 'logistics' || isResult);
-    const key = JSON.stringify([info.quote, fuelHere, shownGroups.map((g) => [g.label, g.n])]);
+    // ESC-02 / CEL-07: en el Resultado también la tasa de financiación de ejemplo (antes sólo la decía el
+    // title de la insignia, que no se ve en el celular). En Financiación la marca su propio campo.
+    const financeHere = info.finance && isResult;
+    const key = JSON.stringify([info.quote, fuelHere, financeHere, shownGroups.map((g) => [g.label, g.n])]);
     if (key === illustrativeKey) return;
     illustrativeKey = key;
     const hide = () => {
@@ -2116,7 +2223,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       mount(illustrativeHolder, el);
       return;
     }
-    if (shownGroups.length === 0 && !fuelHere) {
+    if (shownGroups.length === 0 && !fuelHere && !financeHere) {
       hide();
       return;
     }
@@ -2133,15 +2240,23 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       }
       notices.push(el);
     }
-    if (fuelHere) {
+    if (isResult && (fuelHere || financeHere)) {
+      // Un solo aviso para los valores sueltos de ejemplo, cada uno con "Ir al campo".
+      const values = [
+        fuelHere ? { text: 'el precio del combustible', go: 'Ir al combustible', step: 'logistics', field: 'fuel.pricePerLiter' } : null,
+        financeHere ? { text: 'la tasa de financiación', go: 'Ir a la tasa', step: 'finance', field: 'finance.monthlyRatePct' } : null,
+      ].filter(Boolean);
+      const what = values.length > 1 ? `${values[0].text} y ${values[1].text}` : values[0].text;
+      const el = banner(h('span', {}, `Valores de ejemplo: ${what}. Reemplazalos por los tuyos o confirmá que están vigentes.`, illustrativeTag('Valores por defecto: reemplazalos por los tuyos vigentes')), 'warning');
+      el.classList.add('qe-illustrative-line');
+      const body = el.lastElementChild || el;
+      body.appendChild(h('span', { class: 'qe-illustrative-links' }, ...values.map((v) => h('a', { class: 'qe-illustrative-go', href: stepHref(v.step, v.field) }, v.go))));
+      notices.push(el);
+    } else if (fuelHere) {
       const el = banner(h('span', {}, 'El precio del combustible es de ejemplo: cargá el tuyo o confirmá que es tu precio vigente.', illustrativeTag('Precio del combustible por defecto: reemplazalo por tu precio actual')), 'warning');
       el.classList.add('qe-illustrative-line');
       const body = el.lastElementChild || el;
-      body.appendChild(
-        isResult
-          ? h('a', { class: 'qe-illustrative-go', href: stepHref('logistics') }, `Ir a ${stepName('logistics')}`)
-          : button('Ir al precio', { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-illustrative-go' }, onClick: () => focusField('fuel.pricePerLiter') }),
-      );
+      body.appendChild(button('Ir al precio', { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-illustrative-go' }, onClick: () => focusField('fuel.pricePerLiter') }));
       notices.push(el);
     }
     illustrativeHolder.hidden = false;
@@ -2288,6 +2403,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     const info = illustrativeInfo(state.quote);
     let name = String(state.quote.name || '').trim().slice(0, 120) || 'Plantilla sin nombre';
     let description = state.quote.code ? `Creada desde ${state.quote.code}.` : '';
+    // Lo escrito se pregunta antes de descartarlo (UX-01).
+    const initialName = name;
+    const initialDescription = description;
     const nameField = textField({
       label: 'Nombre de la plantilla',
       value: name,
@@ -2351,6 +2469,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     });
     const dialog = openDialog({
       title: 'Guardar como plantilla',
+      isDirty: () => String(name || '').trim() !== initialName.trim() || String(description || '').trim() !== initialDescription.trim(),
       content: h(
         'div',
         { class: 'stack' },
@@ -2359,13 +2478,14 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         nameField,
         descField,
       ),
-      actions: [button('Cancelar', { variant: 'secondary', onClick: () => dialog.close() }), confirmBtn],
+      actions: [button('Cancelar', { variant: 'secondary', onClick: () => dialog.requestClose() }), confirmBtn],
     });
   }
 
   function print() {
     if (stepId === 'result') {
       window.print();
+      if (resultModule && typeof resultModule.showFeedbackInvite === 'function') resultModule.showFeedbackInvite(stepBody);
       return;
     }
     printRequested = true;
@@ -2429,12 +2549,14 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         quote: deepClone(state.quote),
         result: state.result,
         settings: state.settings,
+        // (path, value), o un objeto { ruta: valor } para cambiar varios campos de una vez (ECO-03).
         onQuoteChange: (path, value) => {
           if (readOnly) {
             notify('Modo sólo lectura: no se guardan cambios.', 'warning');
             return;
           }
-          update(path, value);
+          if (isPlainObject(path)) Object.entries(path).forEach(([p, v]) => update(p, v));
+          else update(path, value);
           scheduleRecalc.cancel();
           recompute();
           refreshAll();
@@ -2472,7 +2594,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     if (!printRequested) return;
     printRequested = false;
     setTimeout(() => {
-      if (!state.disposed) window.print();
+      if (state.disposed) return;
+      window.print();
+      if (resultModule && typeof resultModule.showFeedbackInvite === 'function') resultModule.showFeedbackInvite(stepBody);
     }, 300);
   }
 
@@ -2670,6 +2794,12 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
             setSaveStatus('saved');
             return;
           }
+          // Borrador recuperado sin red (K0E-03, residual de CEL-02): cuando la nube queda al día,
+          // se guarda como con "Reintentar" y el indicador vuelve a "Guardado".
+          if (state.saveErrorCode === 'restored_draft') {
+            if (sync.status === 'saved' && !sync.dirty && !sync.conflict) save();
+            return;
+          }
           if (!['sync_failed', 'session_expired'].includes(state.saveErrorCode)) return;
           if (sync.status === 'saved' && !sync.dirty) {
             state.dirty = false;
@@ -2812,7 +2942,7 @@ export async function render(root, app, params = {}) {
   }
 
   // Cambios que no se pudieron guardar antes (p. ej. almacenamiento lleno).
-  const draft = unsavedDrafts.get(app.ctx, id);
+  const draft = unsavedDrafts.recover(app.ctx, id, quote);
   const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft), revealStep, focusPath });
   activeEditor = editor;
   editor.mount();
