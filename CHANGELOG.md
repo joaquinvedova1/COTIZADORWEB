@@ -12,6 +12,21 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+### Resultado y PDF (UXR)
+
+#### Cambiado
+- **Ficha de siete renglones arriba del Resultado** (Vendés, Tarifa con la piso, Facturás, Te cuesta, Ganás, Actividad y Para no perder) en lugar de los cuatro números y "¿Cuánto tengo que trabajar?". El margen usa la misma palabra y el mismo color que el resumen en vivo ("cumple tu objetivo" con margen ≥ objetivo). "Para no perder" va en la unidad de cobro (horas, horas-hombre, m³…), no en días. **Ninguna cifra cambia.**
+- **Precio total del trabajo:** "del trabajo" (≈ N meses) en la ficha, la cuenta, las trazas y el detalle, sin "total del contrato" ni matriz por trabajos del mes.
+- **Hora-hombre, jornal, equipo-mes:** la unidad con su nombre y la dotación a la vista ("880 horas-hombre = 4 personas × 22 días × 10 h").
+- **Impresión:** "Imprimir resumen (1 hoja)" y "Imprimir análisis completo" (la primera hoja es la ficha y la cuenta); A4 con márgenes de 12 mm y "Uso interno" en el encabezado.
+- "Profundizá" pasa a "Detalle del cálculo".
+
+#### Corregido
+- La nota de renglones aparte de "La cuenta del mes" decía que la espera iba en otra cotización aunque estaba incluida en la misma cuenta.
+- La nota del mínimo por llamado "promedio" ya no aparece cuando están cargadas las duraciones de cada llamado (el mínimo se aplica a cada uno).
+- La tabla "Descuentos por cantidad de días" se mostraba sin descuentos cargados y marcaba en rojo "Pocos días: pierde plata" el tramo de la actividad estimada.
+- Las equivalencias ($ por hora, $ por día) dicen con qué horas por día (o qué cantidad) se calculan.
+
 ## [0.9.0] - sin publicar (beta gratuita y UX-UNITS: PLAN-2026-027 a PLAN-2026-030)
 
 **RATEOS v0.9.0: beta abierta y gratuita.** Decisiones del dueño del 25/10: **una sola aplicación en la URL actual** (`https://joaquinvedova1.github.io/COTIZADORWEB/`), sin otro sitio ni otro enlace, y **cualquiera puede crear su cuenta** con email y contraseña, confirmar el correo y usar RATEOS con su propia empresa (aislada por RLS). Sale en **un solo merge y un solo deploy**: el PR #39 con base `main`, que contiene todo el PR #38 (beta gratuita), UX-UNITS y las validaciones críticas de la simulación SIM-01 (VALIDACIONES-01). El dominio de la app no cambia. La fecha se pone al publicarse.

@@ -1660,9 +1660,9 @@ function hoursText(value) {
   return `${formatNumber(value, { decimals: 2 })} h`;
 }
 
-/** Lo que va después de una tarifa en la ficha: "/ hora-hombre" o, con precio total, "por el trabajo completo". */
+/** Lo que va después de una tarifa en la ficha: "/ hora-hombre" o, con precio total, "por el trabajo completo" (por hito, "/ hito"). */
 function rateSuffix(v) {
-  return periodOf(v).job ? 'por el trabajo completo' : `/ ${v.unitLabel}`;
+  return periodOf(v).job && v.r.unitInfo && v.r.unitInfo.id === 'job' ? 'por el trabajo completo' : `/ ${v.unitLabel}`;
 }
 
 /** Monto de la ficha: la cifra nunca se parte (K0C-01); la unidad puede pasar al renglón de abajo. */
@@ -1906,7 +1906,7 @@ function activityFact(v) {
     if (r.unitInfo.id === 'milestone' && rev) notes.push(`${unitsText(v, rev.billableUnits)} en el trabajo.`);
   } else if (r.unit === 'month') {
     value = [h('span', { class: 'qr-fact-eq' }, workDaysText(D, { decimals: 2 })), ' por mes'];
-    if (resourcesOf(v) && rev) notes.push(`${unitsText(v, rev.billableUnits)} por mes.`);
+    if (resourcesOf(v) && rev) notes.push(`Se facturan ${unitsText(v, rev.billableUnits, { decimals: 2 })} (${resourcesOf(v).text}).`);
   } else if (r.unit === 'hour' || r.unit === 'day') {
     // Lo trabajado con la dotación: "880 horas-hombre por mes = 4 personas × 22 días × 10 h".
     const res = resourcesOf(v);
@@ -1971,10 +1971,10 @@ function breakEvenFact(v) {
     if (cap) {
       trace = traceMonthlyCap(v, cap);
       if (cap.status === 'all') {
-        value = `Cualquier actividad del mes (hasta ${formatDays(cap.available)})`;
+        value = h('span', { class: 'qr-fact-eq' }, `Cualquier actividad del mes (hasta ${formatDays(cap.available)})`);
         tone = 'green';
       } else if (cap.status === 'none') {
-        value = 'El abono no cubre ni los costos fijos';
+        value = h('span', { class: 'qr-fact-eq' }, 'El abono no cubre ni los costos fijos');
         tone = 'red';
       } else {
         value = [h('span', { class: 'qr-fact-eq' }, `hasta ${workDaysText(cap.wholeDays, { decimals: 0 })}`), ' por mes'];
@@ -2029,9 +2029,8 @@ function breakEvenFact(v) {
     label: 'Para no perder',
     hook: 'qr-work',
     tone,
-    value,
+    value: [...[].concat(value), spare ? h('span', { class: ['qr-fact-spare', tone ? `is-${tone}` : null] }, spare) : null],
     notes: [
-      spare ? h('span', { class: ['qr-fact-spare', tone ? `is-${tone}` : null] }, spare) : null,
       unreliable ? h('strong', { class: 'qr-unreliable-note' }, unreliable) : null,
       provisional ? h('strong', { class: 'qr-provisional-note' }, provisionalText(provisional)) : null,
       ...notes,
@@ -2046,7 +2045,7 @@ function breakEvenFact(v) {
  * perder). Montos del motor, sin recalcular; cada uno con su "Ver cálculo". El detalle va abajo.
  */
 function renderFacts(v) {
-  return h('dl', { class: 'qr-facts', 'aria-label': 'Resumen de la cotización' },
+  return h('dl', { class: 'qr-facts' },
     safeFact('Vendés', () => soldFact(v)),
     safeFact('Tarifa', () => rateFact(v)),
     safeFact('Facturás', () => revenueFact(v)),
@@ -2188,8 +2187,8 @@ function accountNotes(v, rev, others) {
   const inside = [ids.has('overtime') ? 'las horas extra' : null, ids.has('standby') ? 'la espera del equipo' : null].filter(Boolean);
   const apart = [ids.has('overtime') ? null : 'horas adicionales', ids.has('standby') ? null : 'espera', 'costo financiero'].filter(Boolean);
   notes.push(inside.length
-    ? `${joinList(inside).replace(/^./, (c) => c.toUpperCase())} ya ${inside.length === 1 ? 'está' : 'están'} en esta cuenta. Lo que el cliente pida en otros renglones aparte (${joinList(apart)}) va en otra cotización: no lo cargues dos veces.`
-    : `Lo que el cliente pida en renglones aparte (${joinList(apart)}) va en otra cotización: esta tarifa ya incluye todos tus costos; no los cargues dos veces.`);
+    ? `${joinList(inside).replace(/^./, (c) => c.toUpperCase())} ya ${inside.length === 1 ? 'está' : 'están'} en esta cuenta. Si el cliente pide otros renglones aparte (${joinList(apart)}), van en otra cotización: no cargues dos veces sus costos.`
+    : `Si el cliente pide renglones aparte (${joinList(apart)}), van en otra cotización: no cargues dos veces sus costos.`);
   return notes;
 }
 
@@ -3055,8 +3054,8 @@ function renderMatrix(v) {
 // -------------------------------------------------- D. margen vs markup
 
 /** Nota de la escalera de precios (valores del motor: markup efectivo con impuestos). */
-function ladderNote(k, cost) {
-  const base = `Calculado sobre el costo del mes (${money(cost)}).`;
+function ladderNote(k, cost, of = 'del mes') {
+  const base = `Calculado sobre el costo ${of} (${money(cost)}).`;
   if (k.targetMarginInvalid) return `${base} El margen objetivo no es válido: no hay precio objetivo.`;
   const taxes = hasValue(k.billingTaxPct) && k.billingTaxPct > 0
     ? ` Con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, cada precio cubre costo + impuestos + ganancia.`
@@ -3073,14 +3072,15 @@ function renderMarginMarkup(v) {
   const ladder = priceLadder(k.totalCost, margins, r.customMarginPct, k.billingTaxPct);
   const cost = k.totalCost;
   const taxed = hasValue(k.billingTaxPct) && k.billingTaxPct > 0;
+  const per = periodOf(v);
   const columns = [
     { key: 'label', label: 'Nivel', render: (row) => (row.key === 'floor' ? 'Tarifa piso (margen 0)' : marginLabel(v, row.marginPct)) },
     { key: 'marginPct', label: 'Margen (sobre precio)', align: 'right', render: (row) => pct(row.marginPct) },
     { key: 'markupPct', label: 'Markup (recargo sobre el costo)', align: 'right', render: (row) => pct(row.markupPct) },
     ...(taxed ? [{ key: 'profitOnCostPct', label: 'Ganancia sobre el costo', align: 'right', render: (row) => pct(row.profitOnCostPct) }] : []),
-    { key: 'price', label: 'Facturación mensual necesaria', align: 'right', render: (row) => money(row.price) },
+    { key: 'price', label: per.job ? 'Facturación necesaria del trabajo' : 'Facturación mensual necesaria', align: 'right', render: (row) => money(row.price) },
     ...(taxed ? [{ key: 'billingTaxes', label: 'Impuestos sobre lo que facturás', align: 'right', render: (row) => money(row.billingTaxes) }] : []),
-    { key: 'gain', label: 'Ganancia del mes', align: 'right', render: (row) => money(row.gain) },
+    { key: 'gain', label: `Ganancia ${per.of}`, align: 'right', render: (row) => money(row.gain) },
   ];
   const exampleTrace = traceMarginVsMarkup(100, 10);
   // Ejemplo educativo (costo 100, 10 %): los números salen del motor.
@@ -3099,13 +3099,13 @@ function renderMarginMarkup(v) {
       id: v.ids.markup,
     },
     ratesByMarginBlock(v),
-    h('h4', { class: 'qr-subhead' }, 'Escalera de precios del mes por margen'),
+    h('h4', { class: 'qr-subhead' }, `Escalera de precios ${per.of} por margen`),
     h('div', { class: 'qr-split' },
       h('div', { class: 'qr-split-main' },
         cost > 0
           ? regionTable(v, { columns, rows: ladder, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Escalera de precios por margen', className: 'qr-ladder' })
           : emptyState('Cargá costos para ver la escalera de precios.'),
-        cost > 0 ? note(ladderNote(k, cost)) : null),
+        cost > 0 ? note(ladderNote(k, cost, per.of)) : null),
       h('aside', { class: 'qr-example' },
         h('div', { class: 'qr-example-title' }, 'Ejemplo con costo $ 100'),
         h('ul', { class: 'qr-example-list' },
@@ -4065,7 +4065,7 @@ function renderEconomicBase(v) {
       : null,
     external.length
       ? h('div', { class: 'stack' },
-        h('h4', { class: 'qr-sub-title' }, 'Equipos y servicios externos en el mes'),
+        h('h4', { class: 'qr-sub-title' }, periodOf(v).job ? 'Equipos y servicios externos del trabajo' : 'Equipos y servicios externos en el mes'),
         statsList('qr-stats qr-stats-3',
           statItem({ label: 'Costo económico (en el costo)', value: formatMoney(k.externalMonthly), hint: 'Neto + IVA que no recuperás + cargos no recuperables.' }),
           statItem({ label: 'Salida de caja con impuestos', value: formatMoney(k.externalCashMonthly), hint: 'Lo que pagás al proveedor (neto + IVA + percepciones): es lo que se financia hasta cobrar.' }),
@@ -4560,13 +4560,13 @@ function analysisBase(v) {
       h('p', { class: 'qr-base-title' }, 'Punto de partida: tu cotización tal como está'),
       illustrativeBadge(v)),
     h('dl', { class: 'qr-base-list' },
-      item('Costo del mes', money(k.totalCost)),
+      item(`Costo ${periodOf(v).of}`, money(k.totalCost)),
       item(rateOk ? commercialName(k) : 'Tu tarifa', rateOk ? commercialRate(k, v.unitLabel) : 'Sin tarifa'),
       byQty(v)
         ? item(`${capitalizeUnitPhrase(v.r.unitInfo.plural)} por mes`, `${quantityText(k.billableQuantity, v.r)} (${workDaysText(k.activeDays)})`)
         : item('Días activos por mes', formatDays(k.activeDays)),
       item('Margen', rateOk && hasValue(k.marginPct) ? pct(k.marginPct) : EMPTY, marginTone(k)),
-      item('Resultado del mes', rateOk ? money(k.profit) : EMPTY, profitTone(k))));
+      item(`Resultado ${periodOf(v).of}`, rateOk ? money(k.profit) : EMPTY, profitTone(k))));
 }
 
 /**

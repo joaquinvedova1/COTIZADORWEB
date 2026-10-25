@@ -60,7 +60,7 @@
 .qr-fact-floor-amount { font-weight: 700; color: var(--color-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .qr-fact-floor .tag-unreliable { margin: 0 0.3rem; }
 .qr-fact-floor .trace-btn { display: inline-flex; vertical-align: baseline; }
-.qr-fact-spare { font-weight: 600; color: var(--color-text-secondary); }
+.qr-fact-spare { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--color-text-secondary); }
 .qr-fact-spare.is-green { color: var(--color-status-ok); }
 .qr-fact-spare.is-orange { color: var(--color-status-review); }
 .qr-fact-spare.is-red { color: var(--color-status-critical); }
