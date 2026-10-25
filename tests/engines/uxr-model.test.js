@@ -172,3 +172,81 @@ describe('Precio total del trabajo (obra de 3 meses)', () => {
     assert.deepEqual(run(withHorizon).kpis, run(q).kpis);
   });
 });
+
+describe('Materiales "por unidad facturada" (por camión reparado, por válvula, por hora-hombre)', () => {
+  const monthlyOf = (r, i = 0) => {
+    const l = r.model.materials.lines[i];
+    return l.fixedMonthly + l.variablePerActiveDay * r.activity.activeDaysPerMonth;
+  };
+  const base = (o) => {
+    resetIds();
+    return service({ serviceType: 'configurable', pricingMode: 'known_activity', labor: [person()], ...o });
+  };
+
+  test('60 válvulas por mes a 6 por día: 2 juntas de $ 5.000 por válvula = $ 600.000 por mes (no por día ni por salida)', () => {
+    const q = base({
+      unit: 'custom', unitName: 'válvula',
+      activity: { billableQuantityPerMonth: 60, unitsPerActiveDay: 6, daysPerActivation: 2 },
+      materials: [material({ basis: 'per_billed_unit', quantity: 2, unitCost: 5000 })],
+    });
+    const r = run(q);
+    close(r.activity.activeDaysPerMonth, 10);
+    close(monthlyOf(r), 60 * 2 * 5000);
+    // Por salida (cada 2 días) habría sido 5 salidas × $ 10.000: la diferencia que encontró la simulación.
+    q.materials[0].basis = 'per_activation';
+    close(monthlyOf(run(q)), 5 * 2 * 5000);
+  });
+
+  test('hora-hombre: 4 personas × 10 h × 22 días = 880 horas-hombre × $ 100 de consumibles', () => {
+    const q = base({
+      unit: 'hour',
+      activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, billedResourceKind: 'person', billedResources: 4 },
+      materials: [material({ basis: 'per_billed_unit', quantity: 1, unitCost: 100 })],
+    });
+    close(monthlyOf(run(q)), 880 * 100);
+  });
+
+  test('abono por equipo: 3 equipos por mes → el consumo por equipo es fijo × 3', () => {
+    const q = base({
+      unit: 'month',
+      activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 9, billedResourceKind: 'equipment', billedResources: 3 },
+      materials: [material({ basis: 'per_billed_unit', quantity: 1, unitCost: 40000 })],
+    });
+    const r = run(q);
+    close(r.model.materials.lines[0].fixedMonthly, 3 * 40000);
+    close(monthlyOf(r), 120000);
+  });
+
+  test('precio total del trabajo: "por trabajo" se consume una sola vez en toda la obra (66 días)', () => {
+    const q = base({
+      unit: 'job',
+      activity: { daysPerActivation: 66, availableDaysPerMonth: 22, hoursPerActiveDay: 9 },
+      materials: [material({ basis: 'per_billed_unit', quantity: 1, unitCost: 500000 })],
+    });
+    q.billingHorizon = 'job';
+    const r = run(q);
+    close(r.activity.activeDaysPerMonth, 66);
+    close(monthlyOf(r), 500000);
+  });
+});
+
+describe('Combustible duplicado en transporte (SIM A2)', () => {
+  test('camión que cobra por viaje con L/h trabajando y L/100 km en ruta: el control de duplicados avisa', () => {
+    resetIds();
+    const truck = owned({ name: 'Tractor con semirremolque', fuelLitersPerHour: 20, mobilization: { mode: 'self', travelLitersPer100Km: 35 } });
+    const q = service({
+      serviceType: 'configurable', unit: 'trip',
+      activity: { billableQuantityPerMonth: 20, unitsPerActiveDay: 1, hoursPerActiveDay: 5 },
+      labor: [person()], equipment: [truck],
+      logistics: { notApplicable: false, baseName: 'Neuquén', destinationName: 'Añelo', distanceKm: 100, roundTrip: true, tripsPerActivation: 1, vehicles: [] },
+    });
+    const dup = (r) => r.completeness.items.find((i) => i.id === 'duplicates');
+    const r = run(q);
+    assert.equal(dup(r).status, 'warning');
+    assert.match(dup(r).message, /Combustible posiblemente duplicado/);
+    // Con $/día (no es transporte) no se presume: el equipo puede trabajar detenido.
+    q.unit = 'day';
+    q.activity = { activeDaysPerMonth: 20, hoursPerActiveDay: 5 };
+    assert.equal(dup(run(q)).status, 'ok');
+  });
+});

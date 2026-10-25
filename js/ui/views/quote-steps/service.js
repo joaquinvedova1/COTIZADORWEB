@@ -1,13 +1,15 @@
 /**
- * Etapa 1 · El servicio — Tipo de servicio.
- * Básico: nombre, cliente y tipo de servicio.
- * Opciones avanzadas: código, estado, duración del contrato y notas.
+ * Etapa 1 · El servicio — Qué cotizás (UXR).
+ * Básico: nombre, cliente, cómo le cobrás al cliente (unidad de cobro, sin "tipo de servicio": la elección
+ * de 11 tipos excluyentes se quitó porque no cambiaba ninguna cifra y encerraba las unidades) y si ya tenés
+ * una tarifa. Opciones avanzadas: código, estado, duración del contrato y notas.
+ * La actividad (cuánto vas a hacer, llamados, salidas) va en el paso siguiente.
  */
 
 import { h, mount } from '../../dom.js';
-import { card, choiceGroup, dateField, formGrid, icon, confirmDialog } from '../../components.js';
-import { SERVICE_TYPES, QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
-import { billingUnitOf, defaultUnitFor, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../../../domain/billing-units.js';
+import { card, dateField, formGrid, confirmDialog, addInfoTip } from '../../components.js';
+import { QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../../domain/catalogs.js';
+import { billingUnitOf, cleanUnitName } from '../../../domain/billing-units.js';
 import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
@@ -17,6 +19,8 @@ import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
 import { impliesSending, riskSummary, sendCheck } from '../../../domain/quote-risk.js';
 import { computeQuote } from '../../../engines/quote-engine.js';
 import { guardSending } from '../../send-guard.js';
+import { unitPicker } from './unit-picker.js';
+import { changeUnitTo } from './unit-change.js';
 
 /**
  * Regla de "Enviada" (ECO-02) con la cotización tal como está AHORA en el editor (no con el último
@@ -32,21 +36,6 @@ function currentSendCheck(ctx) {
 
 /** Nombre de un paso entre comillas ("Viajes"): siempre el de QUOTE_STEPS. */
 const step = (id) => `"${stepName(id)}"`;
-
-/** Qué conviene revisar según el tipo de servicio (orientativo, sin normativa). */
-const TYPE_TIPS = Object.freeze({
-  on_call: `En ${step('modality')} contá cuántos días por mes esperás trabajar (y la disponibilidad 24/7 o por franja). En ${step('margin')} podés definir cuánto cobrar en espera (standby), por llamado (call-out) y el mínimo por llamado.`,
-  permanent: `Pensá en POSICIONES CUBIERTAS, no en personas: en ${step('labor')} cargá cuántas personas necesitás por posición para cubrir francos, vacaciones y relevos.`,
-  crew: `Cargá cada puesto en ${step('labor')} y los traslados de la cuadrilla en ${step('logistics')}.`,
-  equipment_with_operator: `Cargá el equipo en ${step('equipment')} (lo que cuesta tenerlo y usarlo) y el operador en ${step('labor')}.`,
-  equipment_only: `Alquiler sin operador: el costo principal está en ${step('equipment')}. No hace falta cargar personal.`,
-  per_unit: `En ${step('modality')} elegí la unidad que cobrás (unidad, m³, tonelada, metro… u otra propia) y cargá cuánto facturás por mes y cuánto hacés por día de trabajo: los costos se calculan con los días de trabajo y la tarifa sale por unidad.`,
-  transport: `Cargá los vehículos en ${step('equipment')} (tenerlos y usarlos) y los recorridos en ${step('logistics')}. En ${step('modality')} elegí si cobrás por viaje, km, tonelada, ton-km, m³, hora o día.`,
-  turnkey: `Revisá todo el alcance: personal, supervisión, materiales menores, HSE, QA/QC, dossier, seguros, garantías e imprevistos. En ${step('modality')} cobrás un precio global por trabajo (o por hito).`,
-  time_materials: `Cargá las horas en ${step('labor')}. La tarifa (por hora o por día) cubre la mano de obra y los equipos; en ${step('materials')} podés facturar los materiales aparte, al costo más un recargo.`,
-  lump_sum: `Precio cerrado por todo el alcance: usá ${step('risk')} (contingencia) para cubrir la incertidumbre.`,
-  configurable: `Armá la estructura a medida con "Otros costos directos" en el paso ${step('materials')}.`,
-});
 
 /**
  * Valores sin fecha base o con base vieja, uno por uno (PLAN-2026-010), y la
@@ -102,52 +91,59 @@ export function render(container, ctx) {
     ),
   );
 
-  /**
-   * Cambio de tipo de servicio (PLAN-2026-009): la unidad de cobro sigue al
-   * tipo ("Por unidad producida" → $/unidad, "Transporte" → $/viaje). Si ya
-   * hay una tarifa o un mínimo por llamado cargados, NO se cambia la unidad
-   * (el número se leería en otra unidad): se avisa y la persona decide en
-   * "Cómo se cobra".
-   */
-  function changeServiceType(next) {
-    if (next === quote.serviceType) return;
-    const current = quote.unit || 'day';
-    const fits = unitFitsServiceType(next, current);
-    const pricing = quote.pricing || {};
-    const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
-    const locked = positive(pricing.knownRate) || positive(pricing.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
-    const nextUnit = fits || locked ? current : defaultUnitFor(next);
-    // Horas y materiales: por defecto, los materiales se facturan aparte (si nunca se decidió).
-    const materialsApart = next === 'time_materials' && Boolean(quote.pricing) && quote.pricing.materialsBilledSeparately === undefined && !quote.materialsNotApplicable;
-    ctx.mutate((q) => {
-      q.serviceType = next;
-      q.unit = nextUnit;
-      if (materialsApart) q.pricing.materialsBilledSeparately = true;
+  // ---- Cómo le cobrás (UXR): la unidad no depende de ningún tipo; al cambiarla con datos cargados se
+  // convierten o se borran (unit-change.js), nunca se leen en otra unidad.
+  const info = billingUnitOf(quote);
+  const currency = quoteCurrencyOf(quote);
+  const jobHorizon = quote.unit === 'job' && quote.billingHorizon === 'job';
+  const picker = unitPicker({ quote, currency, readOnly: kit.readOnly, onSelect: (apply) => changeUnitTo(ctx, apply) });
+
+  // Nombre de la unidad propia ("válvula", "camión reparado"): al salir del campo se redibujan los rótulos.
+  let unitNameField = null;
+  if (info.custom) {
+    unitNameField = kit.text('unitName', {
+      label: '¿Cómo se llama tu unidad?',
+      maxLength: 30,
+      placeholder: 'Ej.: válvula, camión reparado, tráiler',
+      hint: `En singular: vas a cobrar "${currency} por ${info.singular || 'válvula'}".`,
     });
-    const typeLabel = labelOf(SERVICE_TYPES, next, 'Este servicio');
-    const materialsNote = materialsApart ? ` Los materiales se facturan aparte, al costo más un recargo (podés cambiarlo en ${step('materials')}).` : '';
-    if (nextUnit !== current) {
-      ctx.toast(`"${typeLabel}" se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiar la unidad en ${step('modality')}.${materialsNote}`, 'info');
-    } else if (materialsNote && fits) {
-      ctx.toast(materialsNote.trim(), 'info');
-    } else if (!fits) {
-      const usual = (SERVICE_TYPE_UNITS[next] || []).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
-      ctx.toast(`"${typeLabel}" se suele cobrar en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
+    const input = unitNameField.querySelector('input');
+    if (input) {
+      input.addEventListener('change', () => {
+        const clean = cleanUnitName(input.value);
+        ctx.mutate((q) => {
+          q.unitName = clean;
+        });
+      });
     }
   }
 
-  const tip = TYPE_TIPS[quote.serviceType];
-  const type = card(
-    {},
-    choiceGroup({
-      label: '¿Qué tipo de servicio es?',
-      name: 'serviceType',
-      value: quote.serviceType,
-      disabled: kit.readOnly,
-      options: SERVICE_TYPES.map((t) => ({ value: t.id, label: t.label, hint: t.hint })),
-      onChange: (value) => changeServiceType(value),
+  const per = jobHorizon ? 'el precio total del trabajo' : `una tarifa por ${info.singular || 'unidad'}`;
+  const modeOptions = PRICING_MODES.map((m) => (m.id === 'known_rate'
+    ? { value: m.id, label: jobHorizon ? 'Sí, ya tengo el precio' : 'Sí, ya tengo la tarifa', hint: jobHorizon ? 'RATEOS calcula cuánto ganás con ese precio.' : 'RATEOS calcula cuánto tenés que facturar para no perder y cuánto ganás.' }
+    : { value: m.id, label: jobHorizon ? 'No, calculá el precio' : 'No, calculá cuánto cobrar', hint: 'RATEOS calcula la tarifa piso y la tarifa con tu margen.' }));
+  const rateLabel = info.legacy ? info.label : `$/${info.singular || 'unidad'}`;
+  const rateSuffix = info.legacy ? info.label.replace(/\s*\(.*\)$/, '') : `$/${info.short || info.singular || 'u.'}`;
+  const knownRateField = quote.pricingMode === 'known_rate'
+    ? addInfoTip(kit.num('pricing.knownRate', {
+      label: jobHorizon ? 'Tu precio total del trabajo (sin IVA)' : `Tu tarifa (${rateLabel}, sin IVA)`,
+      rule: 'money',
+      unit: jobHorizon ? '$' : rateSuffix,
+      requiredMark: true,
+      hint: 'De lista, sin IVA, antes de descuentos.',
+    }), `Los descuentos y otros cargos (espera, movilización, abono de disponibilidad) se cargan en "${stepName('margin')}".`)
+    : null;
+
+  const charge = card(
+    { className: 'qe-charge-card' },
+    picker,
+    unitNameField ? formGrid(2, unitNameField) : null,
+    kit.choice('pricingMode', {
+      label: `¿Ya tenés ${per}?`,
+      options: modeOptions,
+      structural: true,
     }),
-    tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip)) : null,
+    knownRateField ? formGrid(2, knownRateField) : null,
   );
 
   const more = kit.advanced(
@@ -158,9 +154,6 @@ export function render(container, ctx) {
       summary: () => {
         const parts = [
           `Estado: ${labelOf(QUOTE_STATUSES, quote.status, 'sin estado').toLowerCase()}`,
-          isFiniteNumber(Number(quote.contractMonths)) && quote.contractMonths !== null && quote.contractMonths !== ''
-            ? `contrato de ${formatNumber(Number(quote.contractMonths))} meses`
-            : 'sin duración de contrato',
           quote.code ? `código ${quote.code}` : null,
           String(quote.notes || '').trim() ? 'con notas' : null,
         ].filter(Boolean);
@@ -168,7 +161,7 @@ export function render(container, ctx) {
       },
     },
     formGrid(
-      3,
+      2,
       kit.staticField('Código', quote.code, 'Se asigna automáticamente y no se puede cambiar.'),
       // ECO-02: pasar a Enviada (o a Ganada sin haber estado enviada) sigue la misma regla que el Resultado y la lista.
       kit.select('status', {
@@ -177,12 +170,6 @@ export function render(container, ctx) {
         guard: (next, previous) => (impliesSending(previous, next)
           ? guardSending(currentSendCheck(ctx), { status: next, reviewHref: quote.id ? `#/cotizaciones/${encodeURIComponent(String(quote.id))}/result` : null })
           : true),
-      }),
-      kit.num('contractMonths', {
-        label: 'Duración del contrato',
-        rule: 'months',
-        unit: 'meses',
-        hint: `Se usa para el descuento por continuidad (en ${step('margin')}).`,
       }),
     ),
     kit.text('notes', {
@@ -195,11 +182,26 @@ export function render(container, ctx) {
 
   // Base económica de la oferta (PLAN-2026-005): con qué fecha base, moneda
   // y tipo de cambio se calculó. Se compara contra la fecha de la OFERTA.
-  const economicBase = card(
+  // UXR: secundaria en este paso (no cambia cómo se cobra): plegada, con un resumen a la vista. Se abre sola
+  // si hay un aviso (valores sin fecha base o viejos).
+  const economicBase = kit.advanced(
     {
-      title: 'Base económica de la oferta',
-      subtitle: `De qué mes son los valores con los que calculás esta oferta. La cotización guarda sus valores: si después cambian en Recursos, te avisa y vos decidís si actualizarlos. Moneda: ${quoteCurrencyOf(quote)}.`,
+      key: 'service-base',
+      title: 'Fecha de la oferta, base económica y tipos de cambio',
+      boxed: true,
+      summary: (r) => {
+        const info = r && r.economicBase;
+        const date = quote.offerDate ? `Oferta del ${String(quote.offerDate).split('-').reverse().join('/')}` : 'Sin fecha de la oferta';
+        const pending = info ? (info.undefinedEntries || []).length + (info.stale || []).length : 0;
+        return pending ? `${date} · ${pending === 1 ? 'un valor para revisar' : `${formatNumber(pending)} valores para revisar`}` : `${date} · moneda ${quoteCurrencyOf(quote)}`;
+      },
+      flag: (r) => {
+        const info = r && r.economicBase;
+        const pending = info ? (info.undefinedEntries || []).length + (info.stale || []).length : 0;
+        return pending ? { tone: 'orange', text: 'Revisar' } : null;
+      },
     },
+    h('p', { class: 'qe-note' }, `De qué mes son los valores con los que calculás esta oferta. La cotización guarda sus valores: si después cambian en Recursos, te avisa y vos decidís si actualizarlos. Moneda: ${quoteCurrencyOf(quote)}.`),
     formGrid(
       2,
       dateField({
@@ -217,6 +219,6 @@ export function render(container, ctx) {
     exchangeRatesEditor(ctx),
   );
 
-  mount(container, identity, type, economicBase, more);
+  mount(container, identity, charge, economicBase, more);
   return { update() {} };
 }

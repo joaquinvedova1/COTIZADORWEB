@@ -58,6 +58,7 @@ export const UNIT_CATALOG = deepFreeze([
   { key: 'own:válvula', group: 'own', name: 'válvula', apply: { unit: 'custom', unitName: 'válvula' }, aliases: ['válvulas', 'valvula', 'válvula inspeccionada'], hint: 'Unidad propia: se factura cada válvula.' },
   { key: 'own:camión reparado', group: 'own', name: 'camión reparado', apply: { unit: 'custom', unitName: 'camión reparado' }, aliases: ['camión', 'camion', 'camiones', 'reparación'], hint: 'Unidad propia: se factura cada camión.' },
   { key: 'own:tráiler', group: 'own', name: 'tráiler', apply: { unit: 'custom', unitName: 'tráiler' }, aliases: ['trailer', 'tráileres', 'semirremolque', 'carga y descarga'], hint: 'Unidad propia: se factura cada tráiler atendido.' },
+  { key: 'own:operación', group: 'own', name: 'operación', apply: { unit: 'custom', unitName: 'operación' }, aliases: ['operaciones', 'maniobra', 'maniobras', 'operación de carga', 'carga', 'descarga'], hint: 'Unidad propia: se factura cada operación (no cada viaje ni cada salida).' },
   { key: 'own:ensayo', group: 'own', name: 'ensayo', apply: { unit: 'custom', unitName: 'ensayo' }, aliases: ['ensayos', 'prueba', 'test'], hint: 'Unidad propia: se factura cada ensayo.' },
   { key: 'own:muestra', group: 'own', name: 'muestra', apply: { unit: 'custom', unitName: 'muestra' }, aliases: ['muestras', 'análisis'], hint: 'Unidad propia: se factura cada muestra.' },
   { key: 'own:pozo', group: 'own', name: 'pozo', apply: { unit: 'custom', unitName: 'pozo' }, aliases: ['pozos', 'locación'], hint: 'Unidad propia: se factura cada pozo.' },
@@ -108,6 +109,22 @@ export function unitDisplayName(quote = {}) {
   const entry = key ? unitEntry(key) : null;
   if (entry) return entry.name;
   return billingUnitOf(quote).singular || 'unidad';
+}
+
+/**
+ * Cómo se cobra una cotización o plantilla, para listas y tarjetas (en lugar del tipo de servicio):
+ * "Por hora-hombre", "Precio total del trabajo", "Abono mensual · a demanda".
+ */
+export function chargeSummary(quote = {}) {
+  const key = unitKeyOf(quote);
+  const base = key === 'job'
+    ? 'Precio total del trabajo'
+    : key === 'job_monthly'
+      ? 'Por trabajo (trabajos por mes)'
+      : key === 'month'
+        ? 'Abono mensual'
+        : `Por ${unitDisplayName(quote)}`;
+  return quote.serviceType === 'on_call' ? `${base} · a demanda` : base;
 }
 
 /**

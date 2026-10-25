@@ -344,7 +344,7 @@ export function render(container, ctx) {
             : hasNumber(pr.roundingStep) && Number(pr.roundingStep) > 0 ? `redondeo hacia arriba a ${formatMoney(Number(pr.roundingStep))}` : 'sin redondeo',
           isModeB
             ? (hasNumber(pr.offeredRateOverride) && Number(pr.offeredRateOverride) > 0 ? `tarifa ofrecida a mano ${formatMoney(Number(pr.offeredRateOverride))}` : 'se ofrece la tarifa sugerida')
-            : `tu tarifa (en "${stepName('modality')}")`,
+            : `tu tarifa (en "${stepName('service')}")`,
         ];
         const text = parts.join(' · ');
         return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
@@ -400,7 +400,7 @@ export function render(container, ctx) {
           unit: unit.label,
           hint: 'Tarifa de lista, sin IVA, antes de descuentos. Si la dejás vacía, se ofrece la tarifa sugerida.',
         })
-        : kit.staticField(`Tu tarifa (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', `Elegiste "Sí, ya tengo la tarifa": se edita en "${stepName('modality')}".`),
+        : kit.staticField(`Tu tarifa (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', `Elegiste "Sí, ya tengo la tarifa": se edita en "${stepName('service')}".`),
     ),
     kit.stat((r) => `${{ known_rate: 'Tu tarifa', offered: 'Tarifa ofrecida', override: 'Tarifa forzada' }[r.kpis.commercialSource] || 'Tarifa sugerida'} (de lista)`, (r) => (r.kpis.commercialSource === 'suggested' ? perUnitCeil(r.kpis.commercialListRate, r) : perUnitMoney(r.kpis.commercialListRate, r)), {
       emphasis: true,

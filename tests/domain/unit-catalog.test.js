@@ -6,7 +6,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  UNIT_CATALOG, SUGGESTED_UNIT_KEYS, searchUnits, exactUnitMatch, unitKeyOf, unitDisplayName, applyUnit, currentApply, sameApply, customUnitApply, normalizeText,
+  UNIT_CATALOG, SUGGESTED_UNIT_KEYS, searchUnits, exactUnitMatch, unitKeyOf, unitDisplayName, applyUnit, currentApply, sameApply, customUnitApply, normalizeText, chargeSummary,
 } from '../../js/domain/unit-catalog.js';
 import { billingUnitOf, BILLING_UNIT_IDS } from '../../js/domain/billing-units.js';
 
@@ -73,5 +73,15 @@ describe('Catálogo de unidades', () => {
     assert.ok(!sameApply(currentApply(q), { unit: 'hour' }));
     assert.ok(sameApply(currentApply({ unit: 'custom', unitName: 'Válvula' }), { unit: 'custom', unitName: 'valvula' }));
     assert.ok(!sameApply(currentApply({ unit: 'job' }), { unit: 'job', billingHorizon: 'job' }));
+  });
+
+  test('chargeSummary: listas y tarjetas dicen cómo se cobra (no el tipo de servicio)', () => {
+    assert.equal(chargeSummary({ unit: 'hour', activity: { billedResourceKind: 'person' } }), 'Por hora-hombre');
+    assert.equal(chargeSummary({ unit: 'job', billingHorizon: 'job' }), 'Precio total del trabajo');
+    assert.equal(chargeSummary({ unit: 'job' }), 'Por trabajo (trabajos por mes)');
+    assert.equal(chargeSummary({ unit: 'month', serviceType: 'on_call' }), 'Abono mensual · a demanda');
+    assert.equal(chargeSummary({ unit: 'custom', unitName: 'junta' }), 'Por junta');
+    assert.equal(chargeSummary({ serviceType: 'equipment_with_operator' }), 'Por día');
+    assert.ok(searchUnits('maniobra').flatMap((g) => g.items.map((e) => e.key)).includes('own:operación'));
   });
 });

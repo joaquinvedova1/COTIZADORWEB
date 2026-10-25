@@ -36,14 +36,18 @@ export function fieldHref(quoteId, path) {
 export function stepOfPath(path) {
   const p = String(path || '');
   const head = p.split('.')[0];
-  if (p === 'pricing.knownRate') return 'modality';
+  // UXR: la unidad de cobro y la tarifa conocida se eligen en "Qué cotizás".
+  if (p === 'pricing.knownRate') return 'service';
   // Cómo llega cada equipo al servicio se define en Movilización y viajes.
   if (/^equipment\.\d+\.mobilization(\.|$)/.test(p)) return 'logistics';
   switch (head) {
     case 'activity':
+    case 'contractMonths':
+      return 'modality';
     case 'pricingMode':
     case 'unit':
-      return 'modality';
+    case 'unitName':
+      return 'service';
     case 'labor':
       return 'labor';
     case 'equipment':

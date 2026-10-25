@@ -27,7 +27,7 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
-import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS, OWNERSHIP_COSTS_PER_KM, ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
+import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, stepLabelOf, MATERIAL_PROVIDERS, OWNERSHIP_COSTS_PER_KM, ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent, formatNumber, formatMoney } from '../core/format.js';
@@ -48,7 +48,7 @@ import { isPlainObject } from '../core/object.js';
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
-const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips', 'payment_term']);
+const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips', 'payment_term', 'billed_resources']);
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 
@@ -312,14 +312,14 @@ export function evaluateCompleteness(quote = {}) {
   // 1. Modalidad / tipo de servicio
   const validType = SERVICE_TYPES.some((t) => t.id === serviceType);
   const validMode = PRICING_MODES.some((m) => m.id === quote.pricingMode);
-  items.push(rule('modality', 'Cómo se cobra', 'modality', 2,
+  items.push(rule('modality', 'Cómo se cobra', 'service', 2,
     validType && validMode ? 'ok' : 'missing',
-    validType && validMode ? 'Tipo de servicio y modalidad definidos.' : 'Falta definir el tipo de servicio o cómo se cobra (ya tengo la tarifa / calcular la tarifa).'));
+    validType && validMode ? 'Cómo se cobra definido.' : `Falta definir cómo se cobra (ya tengo la tarifa / calcular la tarifa) en "${stepLabelOf('service')}".`));
 
   // 2. Tarifa o actividad según modalidad
   if (quote.pricingMode === 'known_rate') {
     const ok = nonNegative(pricing.knownRate) > 0;
-    const item = rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Ya tengo la tarifa" pero falta ingresarla.');
+    const item = rule('rate', 'Tarifa ingresada', 'service', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Ya tengo la tarifa" pero falta ingresarla.');
     if (!ok) item.focus = 'pricing.knownRate';
     items.push(item);
   }
@@ -327,6 +327,18 @@ export function evaluateCompleteness(quote = {}) {
   // 3. Actividad: por cantidad o evento (m³, viajes, llamados…; PLAN-2026-009) en la unidad comercial.
   // Cada pendiente lleva al campo que falta (Test Lab, PLAN-2026-013).
   const unit = billingUnitOf(quote);
+  // 1 bis (UXR). Por persona o por equipo (hora-hombre, jornal, día-equipo, equipo-mes): cuántos se facturan
+  // en paralelo multiplica la facturación; sin el dato se factura uno solo. Crítico hasta cargarlo.
+  if (unit.resource) {
+    const n = Number(activity.billedResources);
+    if (!(Number.isFinite(n) && n > 0)) {
+      const item = rule('billed_resources', unit.resource === 'person' ? 'Cuántas personas facturás' : 'Cuántos equipos facturás', 'modality', 2, 'missing',
+        `Cobrás ${unit.label}: falta cuántas ${unit.resource === 'person' ? 'personas' : 'unidades de equipo'} facturan en paralelo. Sin ese dato se factura como si fuera ${unit.resource === 'person' ? 'una sola persona' : 'un solo equipo'}.`);
+      item.focus = 'activity.billedResources';
+      items.push(item);
+    }
+  }
+
   // Cobro por hora: sin horas por día no hay unidades facturables (la tarifa queda "—").
   const hoursMissing = unit.kind === 'hour' && !(Math.min(nonNegative(activity.hoursPerActiveDay), 24) > 0);
   // Los avisos citan el rótulo del campo tal como se ve en "Cómo se cobra".
@@ -384,9 +396,9 @@ export function evaluateCompleteness(quote = {}) {
   if (unit.kind !== 'month' && !normalizeActivity(quote).jobHorizon && span.availableDaysPerMonth > 0 && span.activeDaysPerMonth > span.availableDaysPerMonth + 1e-9 && !multiMonthHolds(quote)) {
     const n = (v) => formatNumber(v, { decimals: 2 });
     const item = rule('multi_month', 'Trabajo de más de un mes', 'modality', 2, 'missing',
-      `${n(span.activeDaysPerMonth)} días de trabajo en un mes de ${n(span.availableDaysPerMonth)} disponibles se calculan como un trabajo de más de un mes. Si lo es, confirmalo en "Cómo se cobra"; si es un solo mes, corregí el dato (un mes no tiene más de 31 días).`);
+      `${n(span.activeDaysPerMonth)} días de trabajo en un mes de ${n(span.availableDaysPerMonth)} disponibles se calculan como un trabajo de más de un mes. Si lo es, confirmalo en "${stepLabelOf('modality')}"; si es un solo mes, corregí el dato (un mes no tiene más de 31 días).`);
     item.critical = true;
-    // Al dato que suele estar mal; la confirmación está en "Cómo se cobra", junto a la cuenta de los días.
+    // Al dato que suele estar mal; la confirmación está en el paso de la actividad, junto a la cuenta de los días.
     item.focus = unit.kind === 'quantity' || unit.kind === 'event' ? 'activity.billableQuantityPerMonth' : 'activity.activeDaysPerMonth';
     items.push(item);
   }
@@ -875,7 +887,7 @@ export function evaluateCompleteness(quote = {}) {
     const inherits = isBlank(first.hoursPerActiveDay);
     const names = hourless.slice(0, 3).map((x) => `"${lineName(x, 'Externo')}"`).join(', ');
     const item = rule('external_hours', 'Horas del proveedor', inherits ? 'modality' : 'equipment', 2, 'missing',
-      `Falta cuántas horas por día trabaja ${names} (tarifa por hora): sin horas no suma costo. ${inherits ? `Cargá "${activityHoursLabel}" en "Cómo se cobra" o sus "Horas de uso por día activo" en "Equipos".` : 'Cargá sus "Horas de uso por día activo" en "Equipos".'}`);
+      `Falta cuántas horas por día trabaja ${names} (tarifa por hora): sin horas no suma costo. ${inherits ? `Cargá "${activityHoursLabel}" en "${stepLabelOf('modality')}" o sus "Horas de uso por día activo" en "Equipos".` : 'Cargá sus "Horas de uso por día activo" en "Equipos".'}`);
     item.focus = inherits ? 'activity.hoursPerActiveDay' : `equipment.${equipment.indexOf(first)}.hoursPerActiveDay`;
     item.targets = hourless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
     items.push(item);
@@ -929,7 +941,12 @@ export function evaluateCompleteness(quote = {}) {
     });
     // Un externo cuya movilización cobra el proveedor aparte y que además "va por sus propios medios".
     const mobilizationTwice = logistics.notApplicable ? [] : selfMoving.filter((e) => isExt(e) && extOf(e).mobilizationIncluded === false && nonNegative(extOf(e).mobilizationAmount) > 0);
-    const ok = operatorTwice.length === 0 && operatorScope.length === 0 && vehicleTwice.length === 0 && mobilizationTwice.length === 0;
+    // UXR (SIM A2): un camión que cobra por viaje o km, con consumo trabajando (L/h) y que además "se traslada
+    // por sus propios medios" con consumo en ruta (L/100 km): si su trabajo es andar, el combustible va dos veces.
+    const transportUnit = ['trip', 'km', 'tonkm'].includes(billingUnitOf(quote).id);
+    const workingLph = (e) => (e.fuelNotApplicable === true ? 0 : isExt(e) ? (extOf(e).fuelIncluded === false ? nonNegative(extOf(e).fuelLitersPerHour) : 0) : nonNegative(e.fuelLitersPerHour));
+    const fuelTwice = logistics.notApplicable || !transportUnit ? [] : selfMoving.filter((e) => workingLph(e) > 0 && nonNegative(e.mobilization.travelLitersPer100Km) > 0);
+    const ok = operatorTwice.length === 0 && operatorScope.length === 0 && vehicleTwice.length === 0 && mobilizationTwice.length === 0 && fuelTwice.length === 0;
     const candidateNames = `${candidates.slice(0, 3).map((x) => `"${x.role}"`).join(', ')}${candidates.length > 3 ? ` y ${candidates.length - 3} más` : ''}`;
     const oneCandidate = candidates.length === 1;
     const item = rule('duplicates', 'Costos posiblemente duplicados', 'logistics', 1, ok ? 'ok' : 'warning',
@@ -943,10 +960,13 @@ export function evaluateCompleteness(quote = {}) {
               ? (linkedVehicle(vehicleTwice[0]) >= 0
                 ? `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" tiene el costo de tenerlo de un vehículo de apoyo y además "Se traslada por sus propios medios": los km del traslado se cuentan dos veces. Si sólo traslada como vehículo de apoyo, elegí "No requiere movilización" en esa línea.`
                 : `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está como vehículo de la logística auxiliar.`)
-              : `Movilización posiblemente duplicada: el proveedor de "${mobilizationTwice[0].name || 'Externo'}" cobra la movilización aparte y además lo marcaste "por sus propios medios" (se suman km, combustible y desgaste).`);
+              : fuelTwice.length
+                ? `Combustible posiblemente duplicado: "${fuelTwice[0].name || 'Equipo'}" tiene consumo trabajando (L/h) y además consumo en ruta (L/100 km) al trasladarse por sus propios medios. Si su trabajo es andar (cobrás por ${billingUnitOf(quote).singular}), el combustible se cuenta dos veces: dejá el consumo por hora sólo para lo que hace detenido (bomba, hidrogrúa) o en 0.`
+                : `Movilización posiblemente duplicada: el proveedor de "${mobilizationTwice[0].name || 'Externo'}" cobra la movilización aparte y además lo marcaste "por sus propios medios" (se suman km, combustible y desgaste).`);
     if (operatorScope.length) item.targets = operatorScope.map(({ index, name }) => ({ list: 'equipment', index, name }));
     if (!ok && !operatorTwice.length && operatorScope.length) item.focus = `equipment.${operatorScope[0].index}.operatorLaborId`;
     else if (!ok && !operatorTwice.length && vehicleTwice.length && linkedVehicle(vehicleTwice[0]) >= 0) item.focus = `logistics.vehicles.${linkedVehicle(vehicleTwice[0])}.ownershipCostsIn`;
+    else if (!ok && !operatorTwice.length && !operatorScope.length && !vehicleTwice.length && fuelTwice.length && !isExt(fuelTwice[0])) item.focus = `equipment.${equipment.indexOf(fuelTwice[0])}.fuelLitersPerHour`;
     items.push(item);
   }
 
@@ -958,7 +978,7 @@ export function evaluateCompleteness(quote = {}) {
         ? 'Todos los valores tienen fecha base.'
         : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha base (${baseInfo.undefinedEntries.slice(0, 3).map((e) => e.label).join(', ')}${baseInfo.undefinedCount > 3 ? '…' : ''}): no se sabe de cuándo son.`));
     if (baseInfo.defined > 0 && !baseInfo.offerPeriod) {
-      items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', 'Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "Tipo de servicio".'));
+      items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', `Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "${stepLabelOf('service')}".`));
     } else if (baseInfo.defined > 0) {
       const old = baseInfo.stale.length > 0;
       items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, old || baseInfo.mixed ? 'warning' : 'ok',

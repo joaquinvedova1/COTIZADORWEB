@@ -10,19 +10,30 @@
  *   por mes        → fijo mensual
  *   por día activo → variable por día
  *   por activación → variable por día = costo / díasPorActivación
+ *   por unidad facturada (UXR: "por camión reparado", "por válvula", "por hora") → costo × unidades de la
+ *                    tarifa por día de trabajo (o × unidades por mes, con abono). Las unidades por día las
+ *                    calcula el motor de costos (billedUnitsRate): rendimiento, horas × personas, eventos…
  */
 
 import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide } from '../core/money.js';
 import { MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 
-function splitByBasis(amount, basis, daysPerActivation) {
+export const MATERIAL_BASIS_IDS = Object.freeze(['per_month', 'per_active_day', 'per_activation', 'per_billed_unit']);
+
+function splitByBasis(amount, basis, daysPerActivation, billed = {}) {
   if (basis === 'per_active_day') return { fixedMonthly: 0, variablePerActiveDay: amount };
+  if (basis === 'per_billed_unit') {
+    const perMonth = nonNegative(billed.perMonth);
+    return perMonth > 0
+      ? { fixedMonthly: amount * perMonth, variablePerActiveDay: 0 }
+      : { fixedMonthly: 0, variablePerActiveDay: amount * nonNegative(billed.perActiveDay) };
+  }
   if (basis === 'per_activation') return { fixedMonthly: 0, variablePerActiveDay: safeDivide(amount, daysPerActivation, 0) };
   return { fixedMonthly: amount, variablePerActiveDay: 0 };
 }
 
-export function computeMaterialLine(line = {}, { daysPerActivation = 1 } = {}) {
+export function computeMaterialLine(line = {}, { daysPerActivation = 1, billedUnits = null } = {}) {
   const quantity = nonNegative(line.quantity);
   const unitCost = nonNegative(line.unitCost);
   const wastePct = nonNegative(line.wastePct);
@@ -31,8 +42,8 @@ export function computeMaterialLine(line = {}, { daysPerActivation = 1 } = {}) {
   const provider = MATERIAL_PROVIDERS.find((p) => p.id === line.providedBy) || null;
   const grossCost = quantity * unitCost * (1 + pct(wastePct)) * (1 + pct(logisticsPct));
   const costForUs = provider && !provider.costForUs ? 0 : grossCost;
-  const basis = ['per_month', 'per_active_day', 'per_activation'].includes(line.basis) ? line.basis : 'per_month';
-  const split = splitByBasis(costForUs, basis, nonNegative(daysPerActivation));
+  const basis = MATERIAL_BASIS_IDS.includes(line.basis) ? line.basis : 'per_month';
+  const split = splitByBasis(costForUs, basis, nonNegative(daysPerActivation), billedUnits || {});
   return {
     id: line.id ?? null,
     description: line.description ?? '',

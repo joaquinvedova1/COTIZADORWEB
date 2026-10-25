@@ -17,7 +17,8 @@ import { bigStat, button, card, disclosure, icon, linkButton, progressBar, table
 import { createTrace } from '../../core/trace.js';
 import { formatDateTime, formatMoney, formatNumber, formatPercent, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { ACTIVE_QUOTE_STATUSES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { ACTIVE_QUOTE_STATUSES, QUOTE_STATUSES, QUOTE_STEPS, labelOf } from '../../domain/catalogs.js';
+import { chargeSummary } from '../../domain/unit-catalog.js';
 import { DEMO_IDS } from '../../domain/demo-data.js';
 import { summaryCriticalCount } from '../../domain/quote-risk.js';
 import { COMPLETENESS_RISK_THRESHOLD } from '../../engines/completeness-engine.js';
@@ -238,7 +239,7 @@ function continueSection(draft) {
         'p',
         { class: 'continue-meta' },
         statusBadge(quote.status),
-        h('span', {}, [client, labelOf(SERVICE_TYPES, quote.serviceType), `Modificada: ${formatDateTime(quote.updatedAt)}`].filter(Boolean).join(' · ')),
+        h('span', {}, [client, chargeSummary(quote), `Modificada: ${formatDateTime(quote.updatedAt)}`].filter(Boolean).join(' · ')),
       ),
       // ECO-02: el riesgo se ve antes de abrirla, no sólo dentro del Resultado.
       summaryUnreliable(summary)

@@ -158,12 +158,12 @@ export function stepShortLabel(stepId) {
  */
 export const STEP_COPY = Object.freeze({
   service: {
-    question: '¿Qué servicio vas a prestar?',
-    why: 'El tipo de servicio define cómo se cobra y qué costos aparecen.',
+    question: '¿Qué le vas a cotizar al cliente?',
+    why: 'Elegí cómo le cobrás: con eso RATEOS te pregunta sólo lo que hace falta.',
   },
   modality: {
-    question: '¿Cómo lo vas a cobrar?',
-    why: 'Contanos en qué unidad cobrás, si ya tenés una tarifa o si querés que RATEOS calcule cuánto cobrar, y cuánto esperás trabajar o facturar por mes.',
+    question: '¿Cuánto vas a hacer?',
+    why: 'Lo que esperás facturar y cómo trabajás: con eso se calculan los costos y la tarifa.',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
@@ -898,7 +898,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
 function commercialRateTrace(r) {
   const k = r.kpis;
   const sourceLabel = {
-    known_rate: `Tu tarifa (la cargaste en "${stepName('modality')}")`,
+    known_rate: `Tu tarifa (la cargaste en "${stepName('service')}")`,
     offered: `Tarifa ofrecida a mano (en "${stepName('margin')}")`,
     suggested: 'Sugerida: precio objetivo redondeado hacia arriba',
     override: 'Tarifa forzada',
@@ -1009,7 +1009,7 @@ function rateHint(r) {
   let text;
   switch (k.commercialSource) {
     case 'known_rate':
-      text = `La ingresaste en "${stepName('modality')}".`;
+      text = `La ingresaste en "${stepName('service')}".`;
       break;
     case 'offered':
       text = `La cargaste a mano en "${stepName('margin')}".`;
@@ -1024,7 +1024,7 @@ function rateHint(r) {
       break;
     }
     default:
-      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('modality')}".`;
+      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('service')}".`;
       else if (k.targetMarginInvalid) {
         text = k.billingTaxPct > 0
           ? `Sin tarifa sugerida: con ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - k.billingTaxPct)}. Bajalo en "El precio".`
@@ -2120,7 +2120,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   const meta = h(
     'div',
     { class: 'qe-step-meta' },
-    stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel),
+    // En "Qué cotizás" la unidad se elige a la vista (y cambia sin redibujar el encabezado): no se repite.
+    stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel),
     stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-gray', title: 'Convención de esta cotización: costos, precios y tarifas se cargan sin IVA.' }, 'Montos sin IVA'),
     saveEl,
   );
@@ -2336,7 +2337,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         'div',
         { class: 'stack' },
         row('Duplicar', 'copy', 'Crea una copia de esta cotización para cotizar una variante.', () => duplicate(), readOnly),
-        row('Guardar como plantilla', 'services', 'Reutilizá el tipo de servicio, la actividad y los recursos en cotizaciones nuevas.', () => saveAsTemplate(), readOnly),
+        row('Guardar como plantilla', 'services', 'Reutilizá cómo se cobra, la actividad y los recursos en cotizaciones nuevas.', () => saveAsTemplate(), readOnly),
         row('Imprimir', 'print', 'Abre el Resultado listo para imprimir o guardar como PDF.', () => print()),
       ),
       actions: [button('Cerrar', { variant: 'secondary', onClick: () => ref.close() })],
@@ -2473,7 +2474,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       content: h(
         'div',
         { class: 'stack' },
-        h('p', {}, 'La plantilla copia el tipo de servicio, la actividad, el personal, los equipos, los materiales, la logística y las reglas comerciales de esta cotización. No copia el cliente, el código ni el estado. Después la usás desde "Nueva cotización".'),
+        h('p', {}, 'La plantilla copia cómo se cobra, la actividad, el personal, los equipos, los materiales, la logística y las reglas comerciales de esta cotización. No copia el cliente, el código ni el estado. Después la usás desde "Nueva cotización".'),
         info.any ? banner('Esta cotización tiene valores ILUSTRATIVOS: la plantilla también va a quedar marcada como ILUSTRATIVA.', 'warning') : null,
         nameField,
         descField,
