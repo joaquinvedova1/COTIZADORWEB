@@ -18,6 +18,8 @@
  */
 
 import { createHash, randomInt, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { SUPABASE } from '../../../js/config.js';
 
 export const SUPA = SUPABASE.url;
@@ -198,6 +200,27 @@ function platformRpc(db, route, name, args, uid, memberOrgs) {
     return reply(route, 200, { status: args.p_status, changed: true });
   }
   return reply(route, 404, { code: 'PGRST202', message: `Could not find the function public.${name}` });
+}
+
+/**
+ * Sólo para pruebas (2026-10-25): la versión publicada sale con la beta por
+ * invitación (FEATURES.publicSignup = false) hasta tener SMTP propio. Para seguir
+ * probando el alta completa "para cuando se reabra", sirve el config.js del build
+ * con el registro público encendido. Lee el archivo del disco (dist/) y cambia
+ * sólo esa bandera; si no la encuentra, lo sirve igual y la prueba de registro
+ * falla a la vista (nunca prueba en silencio otra cosa).
+ * @param {import('playwright').BrowserContext} context
+ * @param {{ base: string, distRoot: string }} options
+ */
+export async function enablePublicSignupForTests(context, { base, distRoot }) {
+  const prefix = new URL(base).pathname;
+  await context.route((u) => u.href.startsWith(base) && /\/js\/config\.js$/.test(u.pathname), async (route) => {
+    const rel = new URL(route.request().url()).pathname.slice(prefix.length);
+    const file = path.join(distRoot, rel);
+    if (!file.startsWith(distRoot)) return route.abort();
+    const body = readFileSync(file, 'utf8');
+    return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: body.replace('publicSignup: false,', 'publicSignup: true,') });
+  });
 }
 
 export async function installSupabaseMock(context, db) {

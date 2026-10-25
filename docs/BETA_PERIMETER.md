@@ -9,7 +9,7 @@ Objetivo: cerrar los tres requisitos obligatorios antes de habilitar usuarios re
 | Requisito | Qué hace este cambio | Qué falta (dueño) |
 |---|---|---|
 | **HD-02** Staging separado o `/preview/` deshabilitado | El deploy publica **sólo producción**; el artefacto nunca trae `preview/`; después de publicar se verifica `/preview/` → 404 (SEC-17). | Autorizar el merge y el deploy. |
-| **HD-03** Registro público con confirmación (decisión del dueño, 2026-10-20; antes: registro cerrado o por invitación) | Registro público (`FEATURES.publicSignup = true`) con confirmación obligatoria, sin enumeración de cuentas (SEC-18) y reenvío de la confirmación (PLAN-2026-018). | "Allow new users to sign up" y "Confirm email" **encendidos** (hecho, según el dueño; verificar con el script), **SMTP propio** con plantillas y pruebas reales (§2.3–2.4). |
+| **HD-03** Registro público con confirmación (decisión del dueño, 2026-10-20; **apagado en 0.9.0** el 2026-10-25: sin dominio no hay SMTP propio) | Listo en la app y apagado (`FEATURES.publicSignup = false`: beta por invitación, como 0.8.1). Encendido sería: registro público con confirmación obligatoria, sin enumeración de cuentas (SEC-18) y reenvío de la confirmación (PLAN-2026-018). | "Allow new users to sign up" y "Confirm email" **encendidos** (hecho, según el dueño; verificar con el script), **SMTP propio** con plantillas y pruebas reales (§2.3–2.4). |
 | **HD-01** Dominio propio | La app soporta un segundo origen (enlaces de email por origen) y una mudanza desde github.io, apagada hasta verificar. | Darme el dominio; DNS, Pages, HTTPS y URLs de Supabase. |
 
 ## 1. Staging (HD-02)
@@ -41,6 +41,8 @@ Un staging tiene que estar aislado en **origen** y en **base**:
 6. Volver a armar `/preview/` dentro de producción está **prohibido** (HD-02, AGENTS.md §16). El script viejo queda en el historial de git (`998b932`) por si sirve su franja "STAGING", nunca su ubicación.
 
 ## 2. Registro público con confirmación de email (HD-03)
+
+> **Estado en 0.9.0 (2026-10-25):** el dueño decidió publicar en la URL actual y postergar el dominio. Sin dominio no hay SMTP propio, y con el correo por defecto de Supabase nadie de afuera recibe la confirmación. Por eso la versión sale con `FEATURES.publicSignup = false` (beta por invitación, como 0.8.1) y `node scripts/check-auth-perimeter.mjs` espera el registro **cerrado** («OK (beta por invitación)»). Para reabrirlo: SMTP propio (§2.3), `publicSignup = true`, "Allow new users to sign up" encendido y las pruebas reales (§2.4). Lo que sigue describe el registro público para cuando se reabra.
 
 > **Decisión del dueño (2026-10-20):** registro **público y autoservicio**. Cualquiera crea su cuenta (nombre, empresa, email y contraseña), confirma su email y entra con **su propia empresa**. Reemplaza a la beta por invitación de PLAN-2026-016 (que queda como alternativa: `FEATURES.publicSignup = false`). Lo que sigue de "Configuración actual" y "Diagnóstico" es el relevamiento original.
 

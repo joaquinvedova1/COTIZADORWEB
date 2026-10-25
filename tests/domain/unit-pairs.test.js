@@ -217,3 +217,25 @@ describe('UX-UNITS · los cinco casos económicos (motor sin cambios, aritmétic
     assert.deepEqual(b.estimate, a.estimate);
   });
 });
+
+describe('UX-UNITS · H3: por cantidad, más días de trabajo que disponibles dice qué se calcula', () => {
+  test('1.500 m³ a 20 m³ por día = 75 días en un mes de 30: el aviso dice "más de un mes" y × 2,5, y los fijos son × 2,5', () => {
+    const mk = (q) => service({
+      id: 'uxu-h3', serviceType: 'per_unit', unit: 'm3',
+      activity: { billableQuantityPerMonth: q, unitsPerActiveDay: 20, daysPerActivation: 1, availableDaysPerMonth: 30, hoursPerActiveDay: 10 },
+      labor: [person({ role: 'Chofer', basicMonthly: 2100000 })],
+      equipment: [owned({ name: 'Camión cisterna', replacementValue: 180000000, usefulLifeYears: 10, fuelLitersPerHour: 12, hoursPerActiveDay: 10 })],
+    });
+    const month = computeQuote(mk(600), { settings: LAB_SETTINGS });
+    const over = computeQuote(mk(1500), { settings: LAB_SETTINGS });
+    assert.equal(over.kpis.activeDays, 75);
+    const issue = over.issues.find((i) => i.path === 'activity.billableQuantityPerMonth' && i.severity === 'warning');
+    assert.ok(issue, 'sin aviso');
+    assert.match(issue.message, /75 días de trabajo: más que los 30 días disponibles del mes/);
+    assert.match(issue.message, /Se calcula como un trabajo de más de un mes \(los costos fijos y los cargos mensuales × 2,5\)/);
+    // El texto dice lo que hace el motor (que no cambia): los fijos de 75 días son 2,5 veces los de un mes.
+    assert.ok(Math.abs(over.kpis.fixedCosts - month.kpis.fixedCosts * 2.5) < 0.01, `${over.kpis.fixedCosts} vs ${month.kpis.fixedCosts} × 2,5`);
+    // Dentro del mes, ningún aviso.
+    assert.equal(month.issues.some((i) => i.path === 'activity.billableQuantityPerMonth' && i.severity === 'warning'), false);
+  });
+});

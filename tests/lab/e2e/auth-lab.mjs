@@ -38,7 +38,7 @@ import { createStaticServer } from '../../../scripts/serve.mjs';
 import { assertSafeReport } from '../lib/report.js';
 import { PUBLIC_SITE_URL, SUPABASE } from '../../../js/config.js';
 import { CONFIRMATION_RESEND_FAILED_MESSAGE, CONFIRMATION_RESENT_MESSAGE, INVITE_LINK_MESSAGE, RECOVER_REQUEST_SUBTITLE, RECOVERY_LINK_INVALID_MESSAGE, RESET_REQUESTED_MESSAGE, RESET_SENT_OWN_MESSAGE, SIGNUP_MAIL_FAILED_MESSAGE, SIGNUP_REQUESTED_MESSAGE } from '../../../js/services/auth-service.js';
-import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
+import { createDb, installSupabaseMock, enablePublicSignupForTests, SUPA } from './supabase-mock.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const require = createRequire(import.meta.url);
@@ -114,6 +114,8 @@ async function runMode(mode) {
     const context = await browser.newContext({ viewport, ...(mode === 'mobile' ? { hasTouch: true, isMobile: true } : {}) });
     contexts.push(context);
     await installSupabaseMock(context, db);
+    // La versión publicada sale con la beta por invitación; acá se prueba el alta pública para cuando se reabra.
+    await enablePublicSignupForTests(context, { base, distRoot: dist });
     await context.route((u) => !u.href.startsWith(base) && !u.href.startsWith(SUPA), (r) => {
       blocked.push(r.request().url());
       return r.abort();

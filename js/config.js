@@ -66,12 +66,15 @@ export const STORAGE_KEYS = Object.freeze({
 export const FEATURES = Object.freeze({
   historicalComparison: false, // Estimado vs real (diseñado en docs/DATA_MODEL.md)
   supabase: true, // Cuentas reales (Supabase Auth) y datos en la nube con RLS.
-  // Registro público con confirmación de email (decisión del dueño del
-  // 2026-10-20, HD-03 / PLAN-2026-018): cualquiera crea su cuenta y su propia
-  // empresa. Requiere en Supabase Auth "Allow new users to sign up" encendido,
-  // "Confirm email" encendido y un SMTP propio (docs/BETA_PERIMETER.md §2).
-  // false = beta por invitación: la app no ofrece "Crear cuenta" ni llama al registro.
-  publicSignup: true,
+  // Registro público con confirmación de email (HD-03 / PLAN-2026-018): está
+  // listo, pero queda APAGADO en esta versión. El dueño decidió el 2026-10-20
+  // abrir el registro y el 2026-10-25 publicar en la URL actual postergando el
+  // dominio; sin dominio no hay SMTP propio, y con el SMTP por defecto de
+  // Supabase nadie de afuera recibe la confirmación. Hasta tener SMTP propio:
+  // beta por invitación, como la versión publicada (la app no ofrece "Crear
+  // cuenta" ni llama al registro). Para abrirlo: true, "Allow new users to sign
+  // up" encendido, "Confirm email" encendido y SMTP propio (docs/BETA_PERIMETER.md §2).
+  publicSignup: false,
   multiOrganization: false,
   analytics: false, // Eventos internos desacoplados; sin envío a terceros.
   commercialModelComparator: true,

@@ -310,8 +310,8 @@ describe('auth-gateway: errores del SDK → códigos propios', () => {
 });
 
 describe('AuthService: registro público y, como alternativa, beta por invitación (HD-03)', () => {
-  test('lo publicado es registro público con confirmación de email (decisión del dueño, 2026-10-20)', () => {
-    assert.equal(FEATURES.publicSignup, true);
+  test('lo publicado es la beta por invitación hasta tener SMTP propio (el registro público queda listo, apagado)', () => {
+    assert.equal(FEATURES.publicSignup, false);
   });
 
   test('si se vuelve a la beta por invitación (publicSignup = false), signUp no llama a Supabase y explica cómo entrar', async () => {

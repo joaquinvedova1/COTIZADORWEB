@@ -345,15 +345,15 @@ describe('HD-03: plantillas de correo (supabase/templates/)', () => {
   });
 });
 
-describe('HD-03: registro público con confirmación de email (decisión del dueño, 2026-10-20)', () => {
+describe('HD-03: registro público con confirmación de email (listo y apagado en esta versión: se prueba explícito)', () => {
   const NEW = { fullName: 'Ana Pérez', company: 'Grúas del Sur', email: 'ana@example.com', password: 'clave-segura-1' };
   const CONFIRMED = { id: 'u-ok', email: 'ya@example.com', password: 'clave-larga-1', emailConfirmed: true };
   const PENDING = { id: 'u-nc', email: 'pendiente@example.com', password: 'clave-larga-2', emailConfirmed: false };
 
-  test('lo publicado ofrece el registro (sin invitación) y exige confirmar el email', async () => {
-    assert.equal(FEATURES.publicSignup, true);
+  test('con el registro público (cuando se reabra) se crea la cuenta sin invitación y se exige confirmar el email', async () => {
+    assert.equal(FEATURES.publicSignup, false, 'lo publicado sigue siendo la beta por invitación');
     const gw = createFakeAuthGateway({ confirmEmail: true });
-    const { auth } = service(gw, `${SITE}#/registro`);
+    const { auth } = service(gw, `${SITE}#/registro`, { publicSignup: true });
     await auth.init();
     const res = await auth.signUp(NEW);
     assert.equal(res.ok, true);
@@ -365,7 +365,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     const outcomes = [];
     for (const email of [NEW.email, CONFIRMED.email, PENDING.email]) {
       const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING] });
-      const { auth } = service(gw, `${SITE}#/registro`);
+      const { auth } = service(gw, `${SITE}#/registro`, { publicSignup: true });
       await auth.init();
       outcomes.push(await auth.signUp({ ...NEW, email }));
     }
@@ -390,7 +390,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     const gateway = createAuthGateway(client);
     const results = [];
     for (const email of ['ya@example.com', 'nueva@example.com']) {
-      const { auth } = service(gateway, `${SITE}#/registro`);
+      const { auth } = service(gateway, `${SITE}#/registro`, { publicSignup: true });
       results.push(await auth.signUp({ ...NEW, email }));
     }
     assert.deepEqual(results[0], results[1]);
@@ -400,7 +400,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
 
   test('el enlace de confirmación vuelve al sitio con ?auth=confirm y sólo conserva un destino interno', async () => {
     const gw = createFakeAuthGateway();
-    const { auth } = service(gw, `${SITE}#/registro`);
+    const { auth } = service(gw, `${SITE}#/registro`, { publicSignup: true });
     await auth.signUp({ ...NEW, next: '/cotizaciones/nueva' });
     assert.equal(gw.lastSignUp.redirectTo, `${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva`);
     await auth.signUp({ ...NEW, email: 'otra@example.com', next: 'https://evil.example/' });
@@ -412,7 +412,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     try {
       const gw = createFakeAuthGateway();
       gw.signUp = async () => ({ ok: false, code: AUTH_ERRORS.emailNotAuthorized });
-      const { auth } = service(gw, `${SITE}#/registro`);
+      const { auth } = service(gw, `${SITE}#/registro`, { publicSignup: true });
       const res = await auth.signUp(NEW);
       assert.equal(res.ok, false);
       assert.equal(res.message, SIGNUP_MAIL_FAILED_MESSAGE);
@@ -427,7 +427,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     for (const code of [AUTH_ERRORS.network, AUTH_ERRORS.rateLimited, AUTH_ERRORS.weakPassword, AUTH_ERRORS.signupClosed, AUTH_ERRORS.unknown]) {
       const gw = createFakeAuthGateway();
       gw.signUp = async () => ({ ok: false, code });
-      const { auth } = service(gw, `${SITE}#/registro`);
+      const { auth } = service(gw, `${SITE}#/registro`, { publicSignup: true });
       const res = await auth.signUp(NEW);
       assert.equal(res.ok, false, code);
       assert.equal(res.message, messageFor(code), code);
@@ -436,7 +436,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
 
   test('valida antes de la red: nombre, empresa, email y contraseña de 8 o más', async () => {
     const gw = createFakeAuthGateway();
-    const { auth } = service(gw, `${SITE}#/registro`);
+    const { auth } = service(gw, `${SITE}#/registro`, { publicSignup: true });
     const res = await auth.signUp({ fullName: ' ', company: '', email: 'no-es-email', password: '1234567' });
     assert.deepEqual(Object.keys(res.errors).sort(), ['company', 'email', 'fullName', 'password']);
     assert.equal(gw.lastSignUp, undefined);
@@ -446,7 +446,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     const outcomes = [];
     for (const email of [PENDING.email, CONFIRMED.email, 'nadie@example.com']) {
       const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING] });
-      const { auth } = service(gw, `${SITE}#/login`);
+      const { auth } = service(gw, `${SITE}#/login`, { publicSignup: true });
       outcomes.push(await auth.resendConfirmation(email, '/cotizaciones/nueva'));
       assert.equal(gw.lastResend.redirectTo, `${SITE}?auth=confirm&next=%2Fcotizaciones%2Fnueva`);
     }
@@ -459,7 +459,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     for (const failure of failures) {
       const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING] });
       gw.resendSignupConfirmation = async () => ({ ok: false, code: failure });
-      const { auth } = service(gw, `${SITE}#/login`);
+      const { auth } = service(gw, `${SITE}#/login`, { publicSignup: true });
       outcomes.push(await auth.resendConfirmation(PENDING.email));
     }
     for (const res of outcomes) {
@@ -474,7 +474,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
   test('HD-03 R3: con el envío roto, sólo una cuenta sin confirmar recibe el error; sin cuenta y confirmada siguen respondiendo igual entre sí (excepción documentada)', async () => {
     const run = async (email) => {
       const gw = createFakeAuthGateway({ users: [CONFIRMED, PENDING], mailFailure: AUTH_ERRORS.emailNotAuthorized });
-      const { auth } = service(gw, `${SITE}#/login`);
+      const { auth } = service(gw, `${SITE}#/login`, { publicSignup: true });
       return { res: await auth.resendConfirmation(email), sent: gw.lastResend.sent };
     };
     const nueva = await run('nadie@example.com');
@@ -492,7 +492,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     try {
       for (const failure of [AUTH_ERRORS.emailNotAuthorized, AUTH_ERRORS.unknown]) {
         const gw = createFakeAuthGateway({ users: [PENDING], mailFailure: failure });
-        const { auth } = service(gw, `${SITE}#/login`);
+        const { auth } = service(gw, `${SITE}#/login`, { publicSignup: true });
         await auth.resendConfirmation(PENDING.email);
       }
       assert.ok(logs.entries.some((e) => /SMTP propio/.test(e.message)));
@@ -507,13 +507,13 @@ describe('HD-03: registro público con confirmación de email (decisión del due
     for (const code of [AUTH_ERRORS.network, AUTH_ERRORS.rateLimited]) {
       const gw = createFakeAuthGateway({ users: [PENDING] });
       gw.resendSignupConfirmation = async () => ({ ok: false, code });
-      const { auth } = service(gw, `${SITE}#/login`);
+      const { auth } = service(gw, `${SITE}#/login`, { publicSignup: true });
       const res = await auth.resendConfirmation(PENDING.email);
       assert.equal(res.ok, false);
       assert.equal(res.message, messageFor(code));
     }
     const gw = createFakeAuthGateway();
-    const { auth } = service(gw, `${SITE}#/login`);
+    const { auth } = service(gw, `${SITE}#/login`, { publicSignup: true });
     const bad = await auth.resendConfirmation('no-es-email');
     assert.ok(bad.errors.email);
     assert.equal(gw.lastResend, undefined, 'no se llamó a Supabase');
@@ -529,7 +529,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
 
   test('ingreso sin confirmar: lo explica y marca la cuenta para ofrecer el reenvío (sólo con la contraseña correcta)', async () => {
     const gw = createFakeAuthGateway({ users: [PENDING] });
-    const { auth } = service(gw, `${SITE}#/login`);
+    const { auth } = service(gw, `${SITE}#/login`, { publicSignup: true });
     await auth.init();
     const res = await auth.signIn({ email: PENDING.email, password: PENDING.password });
     assert.equal(res.ok, false);
@@ -542,7 +542,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
 
   test('confirmación: el enlace PKCE canjea el código, abre la sesión y limpia la URL', async () => {
     const gw = createFakeAuthGateway({ users: [PENDING] });
-    const { auth, location } = service(gw, `${SITE}?code=codigo-pkce&auth=confirm#/`);
+    const { auth, location } = service(gw, `${SITE}?code=codigo-pkce&auth=confirm#/`, { publicSignup: true });
     const redirect = await auth.handleRedirect();
     assert.equal(redirect.ok, true);
     assert.equal(redirect.kind, 'confirm');
@@ -552,7 +552,7 @@ describe('HD-03: registro público con confirmación de email (decisión del due
 
   test('confirmación abierta en otro navegador: el email igual quedó confirmado y se explica que hay que ingresar', async () => {
     const gw = createFakeAuthGateway({ users: [PENDING] });
-    const { auth } = service(gw, `${SITE}?code=bad&auth=confirm#/`);
+    const { auth } = service(gw, `${SITE}?code=bad&auth=confirm#/`, { publicSignup: true });
     const redirect = await auth.handleRedirect();
     assert.equal(redirect.ok, false);
     assert.match(redirect.message, /Tu email ya puede estar confirmado\. Ingresá con tu email y contraseña/);

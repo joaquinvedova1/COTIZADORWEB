@@ -113,7 +113,8 @@ function unitIssues(quote, ctx) {
     if (a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
       issues.push({
         path: 'activity.billableQuantityPerMonth',
-        message: `Para facturar ${formatNumber(a.billableQuantityPerMonth, { decimals: 2 })} ${u.plural} por mes necesitás ${formatDays(a.activeDaysPerMonth, { decimals: 1 })} de trabajo: más que los ${formatNumber(a.availableDaysPerMonth)} días disponibles del mes.`,
+        // H3 (UX-UNITS): dice también qué se calcula (como en día y hora), sin cambiar ningún número.
+        message: `Para facturar ${formatNumber(a.billableQuantityPerMonth, { decimals: 2 })} ${u.plural} por mes necesitás ${formatDays(a.activeDaysPerMonth, { decimals: 1 })} de trabajo: más que los ${formatNumber(a.availableDaysPerMonth)} días disponibles del mes. Se calcula como un trabajo de más de un mes (los costos fijos y los cargos mensuales × ${formatNumber(a.activeDaysPerMonth / a.availableDaysPerMonth, { decimals: 2 })}). Si es un trabajo mensual, revisá la cantidad, el rendimiento o los días disponibles.`,
         severity: 'warning',
       });
     }

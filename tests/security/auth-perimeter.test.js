@@ -22,21 +22,26 @@ const settings = (over = {}, external = {}) => ({
 });
 
 describe('perímetro de Auth (HD-03)', () => {
-  test('registro público (lo que ofrece la app): registro abierto, Email activo, confirmación obligatoria y nada más', () => {
-    assert.equal(FEATURES.publicSignup, true);
-    const r = evaluateAuthSettings(settings());
+  test('lo publicado es la beta por invitación: exige el registro cerrado en Supabase', () => {
+    assert.equal(FEATURES.publicSignup, false);
+    assert.equal(evaluateAuthSettings(settings({ disable_signup: true })).ok, true);
+    assert.equal(evaluateAuthSettings(settings()).ok, false);
+  });
+
+  test('registro público (cuando se reabra): registro abierto, Email activo, confirmación obligatoria y nada más', () => {
+    const r = evaluateAuthSettings(settings(), { publicSignup: true });
     assert.equal(r.ok, true);
     assert.deepEqual(r.checks.map((c) => [c.id, c.ok]), [['signup', true], ['email', true], ['confirm', true], ['others', true]]);
   });
 
   test('registro público con el registro cerrado en Supabase: la app ofrecería algo que falla (se detecta)', () => {
-    const r = evaluateAuthSettings(settings({ disable_signup: true }));
+    const r = evaluateAuthSettings(settings({ disable_signup: true }), { publicSignup: true });
     assert.equal(r.ok, false);
     assert.match(r.checks.find((c) => c.id === 'signup').detail, /está cerrado/);
   });
 
   test('registro público sin confirmación de email: nunca se da por bueno (cualquiera entraría con un email ajeno)', () => {
-    const r = evaluateAuthSettings(settings({ mailer_autoconfirm: true }));
+    const r = evaluateAuthSettings(settings({ mailer_autoconfirm: true }), { publicSignup: true });
     assert.equal(r.ok, false);
     assert.match(r.checks.find((c) => c.id === 'confirm').detail, /email ajeno/);
   });
