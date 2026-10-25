@@ -135,6 +135,19 @@ function unitIssues(quote, ctx) {
       severity: 'warning',
     });
   }
+  // Días de trabajo + días de espera (standby) que no entran en el mes (SIM-01, RFQ-12): un mismo día no
+  // puede ser de trabajo y de espera. Sólo avisa: no cambia ningún número. Si los días de trabajo solos ya
+  // superan los disponibles, lo dice el aviso de arriba.
+  const standbyDays = normalizeRules(ctx.rules).standbyDaysPerMonth;
+  if (standbyDays > 0 && a.availableDaysPerMonth > 0 && a.activeDaysPerMonth <= a.availableDaysPerMonth + 1e-9
+    && a.activeDaysPerMonth + standbyDays > a.availableDaysPerMonth + 1e-9) {
+    const n = (v) => formatNumber(v, { decimals: 2 });
+    issues.push({
+      path: 'rules.standbyDaysPerMonth',
+      message: `Los días de trabajo (${n(a.activeDaysPerMonth)}) más los de espera (${n(standbyDays)}) suman ${n(a.activeDaysPerMonth + standbyDays)}: más que los ${n(a.availableDaysPerMonth)} días disponibles del mes. Un mismo día no puede ser de trabajo y de espera: revisá los días de espera o los disponibles.`,
+      severity: 'warning',
+    });
+  }
   if (quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
     const usual = SERVICE_TYPE_UNITS[quote.serviceType].map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
     issues.push({

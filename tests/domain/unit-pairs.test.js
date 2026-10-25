@@ -239,3 +239,28 @@ describe('UX-UNITS · H3: por cantidad, más días de trabajo que disponibles di
     assert.equal(month.issues.some((i) => i.path === 'activity.billableQuantityPerMonth' && i.severity === 'warning'), false);
   });
 });
+
+describe('SIM-01 (RFQ-12): días de trabajo + días de espera que no entran en el mes', () => {
+  const mk = (worked, standby, available = 31) => service({
+    id: 'sim-standby', serviceType: 'on_call', unit: 'day',
+    activity: { activeDaysPerMonth: worked, daysPerActivation: 1, availableDaysPerMonth: available, hoursPerActiveDay: 8 },
+    labor: [person({ role: 'Operador', basicMonthly: 2000000 })],
+    rules: { standbyNotApplicable: false, standbyDaysPerMonth: standby, standbyRatePerDay: 300000 },
+  });
+  const warn = (r) => r.issues.find((i) => i.path === 'rules.standbyDaysPerMonth');
+  test('25 de trabajo + 10 de espera = 35 en un mes de 31: avisa, sin cambiar ningún número', () => {
+    const over = computeQuote(mk(25, 10), { settings: LAB_SETTINGS });
+    assert.match(warn(over).message, /suman 35: más que los 31 días disponibles del mes/);
+    assert.equal(warn(over).severity, 'warning');
+    // Sólo avisa: con el aviso o sin él, el cálculo es el mismo (los días de espera ya se costeaban y facturaban así).
+    const sameNumbers = computeQuote(mk(25, 10), { settings: LAB_SETTINGS });
+    assert.deepEqual(over.kpis, sameNumbers.kpis);
+    assert.equal(warn(computeQuote(mk(20, 10), { settings: LAB_SETTINGS })), undefined, '20 + 10 = 30 entra en 31');
+  });
+  test('dentro del mes (25 + 6 = 31) no avisa; si el trabajo solo ya supera el mes, avisa el otro aviso', () => {
+    assert.equal(warn(computeQuote(mk(25, 6), { settings: LAB_SETTINGS })), undefined);
+    const r = computeQuote(mk(32, 4, 30), { settings: LAB_SETTINGS });
+    assert.equal(warn(r), undefined);
+    assert.ok(r.issues.some((i) => i.path === 'activity.activeDaysPerMonth'));
+  });
+});

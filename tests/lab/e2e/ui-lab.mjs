@@ -2506,8 +2506,11 @@ async function runMode(mode) {
     const call = meta(service({ id: 'uxu-call', serviceType: 'on_call', unit: 'call', activity: { billableQuantityPerMonth: 6, daysPerActivation: 1 }, labor: [driver()] }), 'UXU-CALL', 'UXU por llamado');
     const stale = meta(service({ id: 'uxu-stale', serviceType: 'configurable', unit: 'day', activity: { activeDaysPerMonth: 8, billableQuantityPerMonth: 300, unitsPerActiveDay: 30 }, labor: [driver()] }), 'UXU-STALE', 'UXU por día con una cantidad vieja');
     const kmq = meta(service({ id: 'uxu-km', serviceType: 'transport', unit: 'km', activity: { billableQuantityPerMonth: 6000, unitsPerActiveDay: 400, daysPerActivation: 1, hoursPerActiveDay: 8 }, labor: [driver()], equipment: [truck()], logistics: route({ distanceKm: 100, tripsPerActivation: 2 }) }), 'UXU-KM', 'UXU traslado por km');
+    // SIM-01 (simulación multiagente): con standby la cantidad × tarifa es un subtotal; con mínimo por intervención, la cuenta muestra lo trabajado.
+    const standby = meta(service({ id: 'uxu-standby', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 4, daysPerActivation: 1, availableDaysPerMonth: 30, hoursPerActiveDay: 10 }, labor: [driver()], equipment: [truck()], rules: { standbyNotApplicable: false, standbyDaysPerMonth: 6, standbyRatePerDay: 370000 } }), 'UXU-STANDBY', 'UXU día con standby');
+    const minHour = meta(service({ id: 'uxu-minh', serviceType: 'on_call', unit: 'hour', activity: { activeDaysPerMonth: 10, daysPerActivation: 1, availableDaysPerMonth: 30, hoursPerActiveDay: 5 }, labor: [driver()], equipment: [truck()], rules: { minimumCallUnits: 8, standbyNotApplicable: true } }), 'UXU-MINH', 'UXU por hora con mínimo');
     const live = db.workspaces.get(orgId);
-    live.state.quotes = [...live.state.quotes, m3, res, kg, call, stale, kmq];
+    live.state.quotes = [...live.state.quotes, m3, res, kg, call, stale, kmq, standby, minHour];
     live.revision += 1;
     await page.reload();
     await page.waitForTimeout(2500);
@@ -2787,6 +2790,21 @@ async function runMode(mode) {
     const printed = await page.evaluate(() => ({ account: Boolean(document.querySelector('.qr-account')) && document.querySelector('.qr-account').getClientRects().length > 0, tips: [...document.querySelectorAll('.info-tip')].filter((x) => x.getClientRects().length > 0).length }));
     await page.emulateMedia({ media: 'screen' });
     check(P, 'PDF: imprime "La cuenta del mes" y ninguna ayuda (i)', printed.account && printed.tips === 0, JSON.stringify(printed));
+
+    // SIM-01: renglones que tienen que cerrar a la vista.
+    const accountRows = () => page.evaluate(() => [...document.querySelectorAll('.qr-account .qr-account-row')].map((row) => [row.querySelector('dt').firstChild.textContent.trim(), (row.querySelector('.qr-account-sub') || {}).textContent || '', row.querySelector('dd').textContent.trim()]));
+    await go(`#/cotizaciones/${encodeURIComponent(standby.id)}/result`, 1500);
+    const sbRows = await accountRows();
+    const sbR = computeQuote(structuredClone(standby));
+    const sbLabels = sbRows.map((x) => x[0]);
+    check(P, 'con standby, cantidad × tarifa es "= Subtotal (cantidad × tarifa)" y la facturación del mes es el total del motor', sbLabels.includes('= Subtotal (cantidad × tarifa)') && !sbLabels.some((l) => /Facturación por /.test(l)) && sbRows.some((x) => x[0] === '= Facturación del mes' && norm(x[2]) === norm(formatMoney(sbR.estimate.revenue.total))), JSON.stringify(sbRows));
+    await go(`#/cotizaciones/${encodeURIComponent(standby.id)}/modality`, 1500);
+    const sbKey = await mainText();
+    check(P, '"Cómo se cobra" con standby dice también la facturación total del mes (la misma del resumen)', sbKey.includes(norm(`la facturación total es ${formatMoney(sbR.estimate.revenue.total)}`)), sbKey.slice(sbKey.indexOf('Con estos datos'), sbKey.indexOf('Con estos datos') + 300));
+    await go(`#/cotizaciones/${encodeURIComponent(minHour.id)}/result`, 1500);
+    const mhRows = await accountRows();
+    const qtyRow = mhRows.find((x) => x[0] === 'Cantidad facturable') || [];
+    check(P, 'con mínimo por intervención: "10 días × 5 h por día = 50 h trabajadas · el mínimo … lleva la cantidad facturable a 80 horas"', /= 50 h trabajadas/.test(qtyRow[1] || '') && /lleva la cantidad facturable a 80 horas/.test(qtyRow[1] || '') && norm(qtyRow[2] || '') === '80 horas', JSON.stringify(qtyRow));
     const stillK0 = stored(res.id);
     check(P, 'compatibilidad K0: abrirla sin editar no le agrega campos nuevos', Boolean(stillK0) && !('rateInput' in stillK0.activity) && !('quantityInput' in stillK0.activity), JSON.stringify(stillK0 && Object.keys(stillK0.activity)));
 

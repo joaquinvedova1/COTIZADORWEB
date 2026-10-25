@@ -22,6 +22,14 @@ Reglas para este archivo:
 - **Registro: beta por invitación, como la versión publicada** (`FEATURES.publicSignup = false`). El registro público con confirmación de email (HD-03, PLAN-2026-018) queda **listo y apagado**: sin dominio no hay SMTP propio y, con el correo por defecto de Supabase, nadie de afuera recibiría la confirmación. Se reabre con una línea, el SMTP propio y "Allow new users to sign up" encendido (`docs/BETA_PERIMETER.md` §2). Las pruebas del alta pública siguen corriendo (`auth-lab`, con el registro encendido sólo en la prueba).
 - **Por cantidad, con más días de trabajo que disponibles** (por ejemplo 1.500 m³ a 20 m³ por día = 75 días en un mes de 30), el aviso dice también qué se calcula: «Se calcula como un trabajo de más de un mes (los costos fijos y los cargos mensuales × 2,5)», como ya decía por día y por hora. Sólo cambia el texto: el cálculo es el mismo.
 
+#### Corregido (simulación multiagente SIM-01, 25/10)
+- **«La cuenta del mes» con otros cargos** (espera, abono de disponibilidad, km…): cantidad × tarifa decía «= Facturación por día $ 5.920.000» y era el subtotal. Ahora dice «= Subtotal (cantidad × tarifa)» y la facturación del mes es el total del motor.
+- **Con mínimo por intervención**, la cuenta muestra lo trabajado antes del mínimo: «10 días × 5 h por día = 50 h trabajadas · el mínimo por intervención lleva la cantidad facturable a 80 horas». Antes «10 días × 5 h = 80 horas» no cerraba a la vista.
+- **«Cómo se cobra» con otros cargos** dice también la facturación total del mes, la misma del resumen en vivo. Antes mostraba sólo cantidad × tarifa y el resumen otro número.
+
+#### Agregado (simulación multiagente SIM-01, 25/10)
+- **Aviso de días de trabajo + días de espera que no entran en el mes** (por ejemplo 25 + 10 = 35 en un mes de 31): «Un mismo día no puede ser de trabajo y de espera». Sólo avisa: ningún número cambia.
+
 ### UX-UNITS: unidades compuestas, formularios más claros y un Resultado que se lee solo (PLAN-2026-030)
 
 Pedido del dueño del 24/10 y del Issue #5 de RATEOS-AUDIT. **Ninguna fórmula cambia**: golden 39/39, VAL-01 y los cinco casos del encargo dan lo mismo que K0 (`c5eca19`). Esquema del workspace 10, sin migración.

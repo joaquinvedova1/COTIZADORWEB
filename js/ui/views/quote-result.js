@@ -1822,9 +1822,13 @@ function billableSource(v, rev) {
       ? `${quantityText(a.unitsPerActiveDay, r)} por día × ${workDaysText(D)}`
       : `en ${workDaysText(D)}, a ${quantityText(a.unitsPerActiveDay, r)} por día`;
   }
-  else if (r.unit === 'hour' && hasValue(a.hoursPerActiveDay) && hasValue(D)) text = `${formatDays(D, { decimals: 2 })} × ${formatNumber(a.hoursPerActiveDay, { decimals: 2 })} h por día`;
+  else if (r.unit === 'hour' && hasValue(a.hoursPerActiveDay) && hasValue(D)) {
+    text = `${formatDays(D, { decimals: 2 })} × ${formatNumber(a.hoursPerActiveDay, { decimals: 2 })} h por día`;
+    // Con mínimo: primero lo trabajado, después lo que suma el mínimo (si no, "10 días × 5 h = 80 horas" no cierra).
+    if (rev.minimumCallApplied) text += ` = ${formatNumber(D * a.hoursPerActiveDay, { decimals: 2 })} h trabajadas`;
+  } else if (r.unit === 'day' && rev.minimumCallApplied && hasValue(D)) text = `${formatDays(D, { decimals: 2 })} trabajados`;
   const T = activationTerms(v.q);
-  const min = rev.minimumCallApplied ? `incluye el mínimo ${T.per}` : '';
+  const min = rev.minimumCallApplied ? (text ? `el mínimo ${T.per} lleva la cantidad facturable a ${billableText(v, rev.billableUnits)}` : `incluye el mínimo ${T.per}`) : '';
   return [text, min].filter(Boolean).join(' · ');
 }
 
@@ -1855,7 +1859,7 @@ function monthAccountBlock(v) {
   } else {
     rows.push(row('Cantidad facturable', billableText(v, rev.billableUnits), { sub: billableSource(v, rev) || null }));
     rows.push(row(`× ${net ? 'Tarifa neta' : commercialName(k)}`, rate(rev.netRate, v.unitLabel), { sub: net ? `De lista ${rate(rev.listRate, v.unitLabel)}, con descuentos` : null }));
-    rows.push(row(others.length ? `= Facturación por ${r.unitInfo.singular || v.unitLabel}` : '= Facturación del mes', money(rev.components.base), { className: others.length ? null : 'is-subtotal' }));
+    rows.push(row(others.length ? '= Subtotal (cantidad × tarifa)' : '= Facturación del mes', money(rev.components.base), { className: others.length ? null : 'is-subtotal' }));
   }
   others.forEach((x) => rows.push(row(`+ ${labels[x.id] || x.id}`, money(x.amount))));
   if (others.length) rows.push(row('= Facturación del mes', money(rev.total), { className: 'is-subtotal' }));

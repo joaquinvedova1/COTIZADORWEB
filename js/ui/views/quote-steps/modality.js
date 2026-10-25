@@ -732,7 +732,8 @@ export function render(container, ctx) {
     const rev = r.estimate && r.estimate.revenue;
     if (!rev || !isFiniteNumber(r.kpis.commercialListRate) || !(rev.billableUnits > 0)) return '';
     const net = Math.abs((rev.discountFactor ?? 1) - 1) > 1e-9;
-    return `${unitsLabel(r, rev.billableUnits)} × ${formatMoney(rev.netRate, { decimals: rev.netRate < 100 ? 2 : 0 })} ${perText(info)}${net ? ' (neta)' : ''} = ${formatMoney(rev.components.base)} por mes.`;
+    const total = isFiniteNumber(rev.total) && rev.total > rev.components.base + 0.5 ? ` Con los otros cargos del mes (espera, abono, km, movilización…), la facturación total es ${formatMoney(rev.total)}.` : '';
+    return `${unitsLabel(r, rev.billableUnits)} × ${formatMoney(rev.netRate, { decimals: rev.netRate < 100 ? 2 : 0 })} ${perText(info)}${net ? ' (neta)' : ''} = ${formatMoney(rev.components.base)} por mes.${total}`;
   };
 
   /** La explicación de la línea clave en renglones: actividad, facturación y uso de los días. */
