@@ -28,33 +28,68 @@
 .qr-summary-sub { margin: 0; color: var(--ink-3); font-size: var(--fs-base); overflow-wrap: anywhere; }
 .qr-summary-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 
-/* Los 4 números (una lista <dl>: término = etiqueta, descripción = valor, ayuda y "Ver cálculo"):
-   1 columna en pantallas muy angostas, 2×2 en móvil/tablet, 4 en escritorio. */
+/* Lista de cifras (bigStat) de "Base económica de la oferta": costo, caja y crédito fiscal de los externos. */
 .qr-stats { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin: 0; }
 .qr-stats dd { margin: 0; }
-.qr-stat-trace { align-self: flex-start; }
-.qr-stat { padding: 1rem 0; border-top: 1px solid var(--line-2); gap: 0.35rem; }
-.qr-stat:first-child { border-top: 0; padding-top: 0; }
-.qr-stat .big-stat-label { font-size: 0.82rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
-/* K0C-01: una cifra nunca se parte; con montos largos la lista pasa a una columna (ver qr-stats-long). */
-.qr-stat .big-stat-number { font-size: 1.75rem; white-space: nowrap; }
-.qr-stat .big-stat-unit { font-size: 0.95rem; white-space: nowrap; }
-.qr-stat .big-stat-hint { font-size: 0.82rem; line-height: 1.4; }
-.qr-stat-lines { display: flex; flex-direction: column; gap: 0.1rem; }
-.qr-stat-line + .qr-stat-line { color: var(--ink-3); }
-.qr-stat .trace-btn { align-self: flex-start; padding-left: 0; }
-.qr-stat-price .big-stat-value { color: var(--blue-text); }
-/* UX-UNITS: la tarifa es la cifra principal del resumen (fondo suave, mismo orden y tamaño de grilla). */
-/* El fondo sobresale a los costados (margen negativo): la cifra conserva todo su ancho (K0C-01, montos de 10 dígitos a 320 px). */
-.qr-stat.qr-stat-primary { background: var(--navy-50); border-radius: var(--radius-sm); padding-left: 0.85rem; padding-right: 0.85rem; margin-inline: -0.85rem; }
-.qr-stat-primary .big-stat-label { color: var(--blue-text); }
 
-/* UX-UNITS: "La cuenta del mes": cantidad × tarifa = facturación − impuestos − costo = ganancia. */
-.qr-account { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
-.qr-account-title {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0;
-  font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3);
+/* ------------------------------------- 1. la ficha del resumen (7 renglones) */
+/* Una lista <dl> de clave y valor: el rótulo a la izquierda en una columna fija (arriba del valor en el
+   celular), el valor con su unidad, notas cortas debajo y "Ver cálculo" al final. Los montos no se parten
+   (K0C-01). La tarifa es la cifra principal: fondo suave y el número más grande de la pantalla. */
+.qr-facts { margin: 0; display: flex; flex-direction: column; border-top: 1px solid var(--color-border); min-width: 0; }
+.qr-fact {
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "label" "value" "trace" "notes";
+  gap: 0.15rem 1.25rem; padding: 0.75rem 0; border-bottom: 1px solid var(--color-border); min-width: 0;
 }
+.qr-fact-label { grid-area: label; margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--color-text-secondary); }
+.qr-fact-label .tag-unreliable { margin-left: 0.4rem; }
+.qr-fact-value { grid-area: value; margin: 0; min-width: 0; font-size: var(--fs-base); line-height: 1.4; color: var(--color-text); }
+.qr-fact-notes { grid-area: notes; margin: 0; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--color-text-muted); }
+.qr-fact-trace { grid-area: trace; margin: 0; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 0.75rem; }
+.qr-fact .trace-btn { padding-left: 0; }
+.qr-fact-amount { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; color: var(--color-brand); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qr-fact-unit { font-size: var(--fs-sm); font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
+.qr-fact-name { font-weight: 600; }
+.qr-fact-sep { color: var(--color-text-muted); }
+.qr-fact-pct { font-weight: 700; color: var(--color-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* La línea con "=" (actividad y mínimo): cifras tabulares, como en una planilla. */
+.qr-fact-eq { font-weight: 700; color: var(--color-brand); font-variant-numeric: tabular-nums; }
+.qr-fact-eq-tail { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+/* El piso, debajo de la tarifa: segundo en importancia, en tamaño normal. */
+.qr-fact-notes .qr-fact-floor { font-size: var(--fs-base); color: var(--color-text-secondary); }
+.qr-fact-floor-amount { font-weight: 700; color: var(--color-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qr-fact-floor .tag-unreliable { margin: 0 0.3rem; }
+.qr-fact-floor .trace-btn { display: inline-flex; vertical-align: baseline; }
+.qr-fact-spare { font-weight: 600; color: var(--color-text-secondary); }
+.qr-fact-spare.is-green { color: var(--color-status-ok); }
+.qr-fact-spare.is-orange { color: var(--color-status-review); }
+.qr-fact-spare.is-red { color: var(--color-status-critical); }
+
+/* La tarifa: la cifra principal (el fondo sobresale a los costados para que el monto conserve todo su ancho). */
+.qr-fact-rate { background: var(--navy-50); border-radius: var(--radius-sm); padding-inline: 0.85rem; margin-inline: -0.85rem; border-bottom-color: transparent; }
+.qr-fact-rate .qr-fact-label { color: var(--color-link); }
+.qr-fact-rate .qr-fact-amount { font-size: var(--fs-2xl); letter-spacing: -0.02em; }
+.qr-fact-profit .qr-fact-amount { font-size: var(--fs-xl); }
+
+/* Estado en palabras (nunca sólo con color): "cumple tu objetivo (10 %)", "debajo del piso"… */
+.qr-state {
+  display: inline-block; max-width: 100%; padding: 0 0.5rem; border-radius: 999px; font-size: var(--fs-sm); font-weight: 600; line-height: 1.6;
+  background: var(--color-surface-2); color: var(--color-text-secondary); vertical-align: baseline;
+}
+.qr-state-green { background: var(--color-status-ok-bg); color: var(--color-status-ok); }
+.qr-state-orange { background: var(--color-status-review-bg); color: var(--color-status-review); }
+.qr-state-red { background: var(--color-status-critical-bg); color: var(--color-status-critical); }
+
+/* El tono de la cifra acompaña la palabra (verde cumple, naranja revisar, rojo pierde). */
+.qr-fact.is-green .qr-fact-amount, .qr-fact.is-green .qr-fact-eq { color: var(--color-status-ok); }
+.qr-fact.is-orange .qr-fact-amount, .qr-fact.is-orange .qr-fact-eq { color: var(--color-status-review); }
+.qr-fact.is-red .qr-fact-amount, .qr-fact.is-red .qr-fact-eq { color: var(--color-status-critical); }
+/* ECO-02: con un resultado NO CONFIABLE las cifras se apagan (no se leen como cifras para usar). */
+.qr-fact.is-unreliable .qr-fact-amount, .qr-fact.is-unreliable .qr-fact-pct { color: var(--color-text-muted); }
+
+/* UX-UNITS: "La cuenta del mes" (o del trabajo): cantidad × tarifa = facturación − impuestos − costo = ganancia. */
+.qr-account { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.qr-account-title { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0; font-size: var(--fs-base); font-weight: 700; color: var(--color-text); }
 .qr-account-list { display: flex; flex-direction: column; margin: 0; max-width: 46rem; border-top: 1px solid var(--line-2); }
 .qr-account-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.1rem 1rem; align-items: baseline; padding: 0.45rem 0; border-bottom: 1px solid var(--line-2); }
 .qr-account-row dt { min-width: 0; font-size: 0.92rem; color: var(--ink-2); }
@@ -70,25 +105,9 @@
 /* VALIDACIONES-01 (V-6 a V-8): límites del modelo debajo de la cuenta, en letra chica. */
 .qr-account-notes { margin: 0.2rem 0 0; padding-left: 1.1rem; max-width: 46rem; font-size: var(--fs-xs); line-height: 1.45; color: var(--ink-3); }
 .qr-account-notes li + li { margin-top: 0.2rem; }
-/* V-5: con pendientes críticos, colchón y ganancia son provisorios. */
-.qr-provisional-note { color: var(--orange-text, var(--ink-2)); }
-/* ECO-02: con un resultado NO CONFIABLE, costo, piso y tarifa se apagan (no se leen como cifras para usar). */
-.qr-stat.big-stat-unreliable:not(.big-stat-red) .big-stat-value { color: var(--ink-3); }
-
-/* ¿Cuánto tengo que trabajar? */
-.qr-work {
-  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.2rem 1rem; align-items: center;
-  padding: 0.9rem 1.1rem; border-radius: var(--radius); background: var(--navy-50); border-left: 4px solid var(--blue-600);
-}
-.qr-work-question { margin: 0; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
-.qr-work-text { margin: 0; font-size: var(--fs-lg); line-height: 1.45; color: var(--ink); max-width: 72ch; }
-.qr-work-days { color: var(--navy-900); font-weight: 750; white-space: nowrap; }
-.qr-work-trace .trace-btn { padding-left: 0; }
-.qr-work-green { background: var(--green-50); border-left-color: var(--green); }
-.qr-work-green .qr-work-days { color: var(--green-text); }
-.qr-work-red { background: var(--red-50); border-left-color: var(--red); }
-.qr-work-red .qr-work-days { color: var(--red-text); }
-.qr-work-orange { background: var(--orange-50); border-left-color: var(--orange); }
+/* V-5: con pendientes críticos, el mínimo y la ganancia son provisorios. */
+.qr-provisional-note { color: var(--color-status-review); }
+.qr-unreliable-note { color: var(--color-status-critical); }
 
 /* Nota clave de una tabla de detalle (p. ej. tarifa de lista vs neta en la matriz). */
 .qr-note-key { padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: var(--navy-50); color: var(--ink-2); border-left: 3px solid var(--blue-600); }
@@ -265,7 +284,8 @@
 .qr-equiv-items { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; flex: 1; }
 .qr-equiv-item { display: flex; flex-direction: column; }
 .qr-equiv-label { font-size: var(--fs-xs); color: var(--ink-3); }
-.qr-equiv-value { font-size: 1.05rem; color: var(--navy-900); }
+.qr-equiv-value { font-size: 1.05rem; color: var(--navy-900); font-variant-numeric: tabular-nums; }
+.qr-equiv-basis { font-size: var(--fs-xs); color: var(--ink-3); }
 
 /* Viajes y km del mes (PLAN-2026-012): facturables, físicos, días, km y proveedores. */
 .qr-transport { margin-top: 1rem; padding: 0.85rem 1rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
@@ -461,22 +481,9 @@ th.ta-right .qr-th { align-items: flex-end; }
 /* -------------------------------------------------------------- responsive */
 /* Se adapta al ancho REAL disponible (la vista vive dentro del editor o de Escenarios). */
 
-@container qr (min-width: 340px) {
-  /* 2×2: los cuatro números entran en una pantalla de celular. */
-  .qr-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.1rem; }
-  .qr-stat:nth-child(2) { border-top: 0; padding-top: 0; }
-  .qr-stat .big-stat-number { font-size: clamp(1.15rem, 5.4cqi, 1.75rem); }
-}
-
-/* K0C-01: con algún monto de $ 100 millones o más, los números entran enteros: más chicos en la pantalla
-   más angosta y en una columna mientras el 2×2 no les da lugar. */
+/* K0C-01: en la pantalla más angosta la tarifa se achica lo justo para entrar entera (10 dígitos a 320 px). */
 @container qr (max-width: 339.98px) {
-  .qr-stats-long .qr-stat .big-stat-number { font-size: min(1.75rem, 9.5cqi); }
-}
-@container qr (min-width: 340px) and (max-width: 559.98px) {
-  .qr-stats.qr-stats-long { grid-template-columns: minmax(0, 1fr); }
-  .qr-stats-long .qr-stat:nth-child(2) { border-top: 1px solid var(--line-2); padding-top: 1rem; }
-  .qr-stats-long .qr-stat .big-stat-number { font-size: 1.75rem; }
+  .qr-fact-rate .qr-fact-amount { font-size: min(var(--fs-2xl), 9cqi); }
 }
 
 @container qr (min-width: 560px) {
@@ -487,6 +494,10 @@ th.ta-right .qr-th { align-items: flex-end; }
 }
 
 @container qr (min-width: 620px) {
+  /* La ficha en dos columnas: rótulo (9,5 rem) | valor y notas | "Ver cálculo". */
+  .qr-fact { grid-template-columns: 9.5rem minmax(0, 1fr) auto; grid-template-areas: "label value trace" ". notes trace"; align-items: baseline; }
+  .qr-fact-label { padding-top: 0.15rem; }
+  .qr-fact-trace { flex-direction: column; align-items: flex-end; align-self: start; }
   .qr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .qr-costbar { grid-template-columns: minmax(130px, 210px) minmax(0, 1fr) 4.75rem 7.25rem; grid-template-areas: "label track pct amount"; }
   .qr-rules-item { grid-template-columns: minmax(170px, 250px) minmax(0, 1fr); }
@@ -497,8 +508,6 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-hero { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
   .qr-hero.qr-hero-long { grid-template-columns: repeat(auto-fit, minmax(min(100%, 15.5rem), 1fr)); }
   .qr-split { grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); }
-  .qr-work { grid-template-columns: minmax(0, 1fr) auto; }
-  .qr-work-question { grid-column: 1 / -1; }
   .qr-trace-row { grid-template-columns: minmax(0, 1fr) minmax(150px, auto) auto; grid-template-areas: "title value btn"; }
   .qr-trace-value { text-align: right; }
 }
@@ -506,16 +515,6 @@ th.ta-right .qr-th { align-items: flex-end; }
 @container qr (min-width: 900px) {
   .qr-eecc { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
   .qr-eecc-bars { padding-top: 2.1rem; }
-  /* Una fila: costo · tarifa piso · tarifa sugerida · margen. */
-  .qr-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 0; }
-  .qr-stat, .qr-stat:nth-child(2) { border-top: 0; padding: 0 1.25rem; border-left: 1px solid var(--line-2); }
-  .qr-stat:first-child { border-left: 0; padding-left: 0; }
-  .qr-stat:last-child { padding-right: 0; }
-  /* La tarifa destacada no corre la fila: el fondo sobresale arriba y abajo, y sin línea a los costados. */
-  .qr-stat.qr-stat-primary { padding: 0.85rem 1.25rem; margin: -0.85rem 0; border-left-color: transparent; }
-  .qr-stat-primary + .qr-stat { border-left-color: transparent; }
-  .qr-stat .big-stat-number { font-size: clamp(1.4rem, 2.3cqi, 2.1rem); }
-  .qr-stats-long .qr-stat .big-stat-number { font-size: clamp(1.1rem, 2.05cqi, 2.1rem); }
   .qr-base-list { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
@@ -544,9 +543,6 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-check { flex-direction: column; align-items: flex-start; }
   .qr-eecc-bars .bar-row { grid-template-columns: 96px 1fr 58px; }
   .qr-summary-title { font-size: var(--fs-xl); }
-  .qr-work-text { font-size: var(--fs-base); }
-  /* En pantallas angostas sólo la primera línea de cada pista (el resto está en "Ver cálculo" y en el detalle). */
-  .qr-stat .qr-stat-line + .qr-stat-line { display: none; }
   .qr-alert { flex-wrap: wrap; }
   /* El texto de la alerta usa todo el ancho y el enlace va abajo (nunca una palabra por línea). */
   .qr-alert > div:not(.qr-alert-action) { flex: 1 1 100%; }
@@ -558,7 +554,6 @@ th.ta-right .qr-th { align-items: flex-end; }
 /* Celular: el texto del resumen (y la ayuda de una línea de cada número, que es LA explicación)
    no baja de 14 px; mismo piso que la base (hints y labels ≥ 0.875rem en ≤ 760 px). */
 @media (max-width: 760px) {
-  .qr-stat .big-stat-label, .qr-stat .big-stat-hint, .qr-work-question,
   .qr-actions-note, .qr-costbar-amount { font-size: 0.875rem; }
   .qr-costbar-parts { font-size: 0.8125rem; }
 }
@@ -571,16 +566,27 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-days-line { gap: 0; }
 }
 
+/* DESIGN.md §7: el PDF del Resultado es A4 vertical, con márgenes de 12 mm. */
+@page { size: A4 portrait; margin: 12mm; }
+
 @media print {
-  .qr { gap: 0.6rem; }
-  .qr-print-head { display: block; border-bottom: 2px solid var(--navy-900); padding-bottom: 0.4rem; margin-bottom: 0.2rem; }
+  .qr { gap: 0.45rem; }
+  .qr-print-head { display: block; border-bottom: 2px solid var(--navy-900); padding-bottom: 0.3rem; margin-bottom: 0; }
   .qr-print-brand { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
   .qr-print-title { font-size: 1.2rem; font-weight: 700; color: var(--navy-900); }
   .qr-print-meta { font-size: 0.8rem; color: var(--ink-2); }
   .qr-print-flag { display: inline-block; margin-top: 0.35rem; padding: 0.15rem 0.45rem; border: 2px solid var(--red-text); color: var(--red-text); font-weight: 800; font-size: 0.85rem; }
-  /* En columnas angostas la marca va debajo del rótulo y puede partirse (nunca se sale de la hoja). */
-  .qr-stat .big-stat-label .tag-unreliable { display: inline-block; margin: 0.1rem 0 0; white-space: normal; letter-spacing: 0; }
-  .qr-step-link, .qr-chart-hit { display: none !important; }
+  .qr-print-internal { font-size: var(--fs-xs); color: var(--ink-2); }
+  /* El nombre y el cliente ya están en el encabezado del PDF: ni la barra de la app ni el subtítulo los repiten. */
+  .app-shell:has(.qr-print-head) .topbar, .qr-summary-sub { display: none !important; }
+  /* Dos salidas (DESIGN.md §7): "resumen" (1 hoja: la ficha y la cuenta) y "análisis completo" (la primera hoja
+     es la misma; el detalle empieza en la segunda). */
+  .qr-print-mode-summary { display: none; }
+  .qr.is-print-summary .qr-print-mode-summary { display: inline; }
+  .qr.is-print-summary .qr-print-mode-full { display: none; }
+  .qr.is-print-summary .qr-deep, .qr.is-print-summary .qr-actions-bar { display: none !important; }
+  .qr-deep { break-before: page; }
+  .qr-step-link, .qr-chart-hit, .qr-deep .qr-section-sub { display: none !important; }
   .qr-th { cursor: auto; }
   .qr-matrix .table th.qr-sticky-col, .qr-matrix .table td.qr-sticky-col,
   .qr-discounts .table th:first-child, .qr-discounts .table td:first-child,
@@ -605,16 +611,30 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr .kpi-emphasis .kpi-hint { color: var(--ink-2); }
   .table tr.qr-row-exceeds td { background: none; }
   /* Resumen y desplegables: sin sombras; cada desplegable se imprime abierto como una sección. */
-  .qr-summary, .qr-costs, .qr-base { box-shadow: none; padding: 0.75rem 0.9rem; break-inside: avoid; }
-  .qr-summary { gap: 0.75rem; }
-  .qr-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 0; }
-  .qr-stat { border-top: 0; padding: 0 0.6rem; border-left: 1px solid var(--line); }
-  .qr-stat:first-child { border-left: 0; padding-left: 0; }
-  .qr-stat .big-stat-number { font-size: 1.2rem; }
-  /* UX-UNITS: en el PDF la tarifa destacada va como las otras (sin fondo ni márgenes negativos). */
-  .qr-stat.qr-stat-primary { background: none; margin: 0; padding: 0 0.6rem; border-left: 1px solid var(--line); }
-  .qr-work { background: var(--white); border: 1px solid var(--line); border-left-width: 4px; }
-  .qr-work-text { font-size: 0.95rem; }
+  .qr-costs, .qr-base { box-shadow: none; padding: 0.75rem 0.9rem; break-inside: avoid; }
+  /* La primera hoja: la ficha y la cuenta, compactas y sin caja (A4 con márgenes de 12 mm). */
+  .qr-summary { box-shadow: none; border: 0; padding: 0; gap: 0.45rem; }
+  .qr-summary .qr-draft { margin: 0; }
+  .qr-summary-title { font-size: var(--fs-lg); }
+  .qr-summary .qr-alert { padding: 0.35rem 0.6rem; font-size: 0.8rem; }
+  .qr-fact { grid-template-columns: 8.5rem minmax(0, 1fr); grid-template-areas: "label value" ". notes"; padding: 0.22rem 0; row-gap: 0.05rem; break-inside: avoid; }
+  .qr-fact-trace { display: none; }
+  .qr-fact-label { font-size: 0.8rem; }
+  .qr-fact-value { font-size: 0.9rem; }
+  .qr-fact-notes, .qr-fact-notes .qr-fact-floor { font-size: 0.8rem; }
+  .qr-fact-amount { font-size: 1rem; }
+  /* UX-UNITS: en el PDF la tarifa destacada va sin fondo, con la cifra más grande y un filete. */
+  .qr-fact-rate { background: none; margin-inline: 0; padding-inline: 0; border-bottom-color: var(--line); }
+  .qr-fact-rate .qr-fact-amount { font-size: 1.3rem; }
+  .qr-fact-profit .qr-fact-amount { font-size: 1.1rem; }
+  .qr-state { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .qr-notes { margin: 0; font-size: var(--fs-xs); }
+  .qr-account { gap: 0.25rem; }
+  .qr-account-title { break-after: avoid; }
+  .qr-account-list { max-width: none; }
+  .qr-account-row { padding: 0.1rem 0; break-inside: avoid; }
+  .qr-account-row dt, .qr-account-row dd { font-size: 0.85rem; }
+  .qr-account-notes { max-width: none; }
   .qr-deep-item { box-shadow: none; border: 0; border-top: 2px solid var(--navy-900); border-radius: 0; break-before: auto; }
   .qr-deep-item > .disclosure-summary { padding: 0.5rem 0 0.25rem; }
   .qr-deep-item > .disclosure-summary .disclosure-title { font-size: 1.05rem; color: var(--navy-900); }
