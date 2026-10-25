@@ -344,7 +344,16 @@ export function evaluateCompleteness(quote = {}) {
   // Los avisos citan el rótulo del campo tal como se ve en "Cómo se cobra".
   const activityHoursLabel = unit.kind === 'quantity' || unit.kind === 'event' ? 'Horas trabajadas por día de trabajo' : 'Horas trabajadas por día activo';
   const hoursMessage = `Cobrás por hora y falta "${activityHoursLabel}": sin horas no hay unidades facturables ni tarifa.`;
-  if (unit.kind === 'quantity' || unit.kind === 'event') {
+  // UXR: con precio total del trabajo se vende un solo trabajo (el motor usa 1): falta sólo cuánto dura.
+  const jobTotal = unit.id === 'job' && quote.billingHorizon === 'job';
+  if (jobTotal) {
+    const ok = nonNegative(activity.daysPerActivation) > 0;
+    const item = rule('utilization', 'Días de trabajo de todo el trabajo', 'modality', 2,
+      ok ? 'ok' : 'missing',
+      ok ? 'Días de trabajo de todo el trabajo definidos.' : `Falta cuántos días de trabajo lleva todo el trabajo (en "${stepLabelOf('modality')}"): sin ese dato no hay costo del trabajo.`);
+    if (!ok) item.focus = 'activity.daysPerActivation';
+    items.push(item);
+  } else if (unit.kind === 'quantity' || unit.kind === 'event') {
     const qOk = nonNegative(activity.billableQuantityPerMonth) > 0;
     const yieldOk = unit.kind !== 'quantity' || nonNegative(activity.unitsPerActiveDay) > 0;
     const ok = qOk && yieldOk;

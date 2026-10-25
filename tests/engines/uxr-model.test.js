@@ -250,3 +250,16 @@ describe('Combustible duplicado en transporte (SIM A2)', () => {
     assert.equal(dup(run(q)).status, 'ok');
   });
 });
+
+describe('Precio total del trabajo: completitud', () => {
+  test('no pide "trabajos por mes" (se vende uno); sí pide los días de todo el trabajo', () => {
+    resetIds();
+    const q = service({ serviceType: 'configurable', unit: 'job', activity: { daysPerActivation: 66, availableDaysPerMonth: 22, hoursPerActiveDay: 9 }, labor: [person()] });
+    q.billingHorizon = 'job';
+    const util = (r) => r.completeness.items.find((i) => i.id === 'utilization');
+    assert.equal(util(run(q)).status, 'ok');
+    q.activity.daysPerActivation = null;
+    assert.equal(util(run(q)).status, 'missing');
+    assert.equal(util(run(q)).focus, 'activity.daysPerActivation');
+  });
+});

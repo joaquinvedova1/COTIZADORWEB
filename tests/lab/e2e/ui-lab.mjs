@@ -285,6 +285,8 @@ async function runMode(mode) {
     const own = (n) => Boolean(n) && (n === el || el.contains(n) || [...(el.labels || [])].some((l) => l.contains(n)) || (n.closest && n.closest('label') && n.closest('label').contains(el)));
     return {
       name: el.getAttribute('name'),
+      // UXR: un campo que carga el dato de otra forma (horas del mes, llamados) lo declara en data-field-alias.
+      aliases: (el.dataset && el.dataset.fieldAlias ? el.dataset.fieldAlias.split(/\s+/) : []),
       inView: r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth,
       covered: !own(top),
       over: top ? `${top.tagName.toLowerCase()}${top.className && typeof top.className === 'string' ? `.${top.className.split(' ').filter(Boolean).slice(0, 2).join('.')}` : ''}` : null,
@@ -293,7 +295,7 @@ async function runMode(mode) {
   const waitFocus = async (name) => {
     for (let i = 0; i < 20; i += 1) {
       const f = await focused();
-      if (f.name === name) return f;
+      if (f.name === name || (f.aliases || []).includes(name)) return f;
       await page.waitForTimeout(150);
     }
     return focused();
@@ -413,8 +415,9 @@ async function runMode(mode) {
       if (present) await tap(link);
       else await go(href.replace(/^.*#/, '#'), 300);
       const f = await waitFocus(p.focus);
-      check(s.id, `"${p.label}": el foco queda en ${p.focus}`, f.name === p.focus, `foco en ${f.name || 'ningún campo'}`);
-      if (f.name === p.focus) {
+      const onField = f.name === p.focus || (f.aliases || []).includes(p.focus);
+      check(s.id, `"${p.label}": el foco queda en ${p.focus}`, onField, `foco en ${f.name || 'ningún campo'}`);
+      if (onField) {
         check(s.id, `"${p.label}": el campo se ve y nada lo tapa`, f.inView && !f.covered, f.inView ? `lo tapa ${f.over}` : 'fuera de la pantalla');
       }
     }

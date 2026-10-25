@@ -172,10 +172,21 @@ export async function changeUnitTo(ctx, apply) {
     if (!keepWorkdays && q.activity.quantityInput) q.activity.quantityInput = null;
   };
   // Precio total del trabajo: la actividad es UN trabajo (la cantidad por mes vale 1 para versiones anteriores).
+  // "Días por llamado" y "días de todo el trabajo" se guardan en el mismo dato: al entrar o salir del precio total
+  // no se reinterpreta (1 día por salida no pasa a ser una obra de 1 día, ni 66 días de obra 66 días por salida).
+  // Entre "trabajo (por mes)" y precio total el dato significa lo mismo (días de cada trabajo) y se conserva.
+  const wasJobTotal = quote.unit === 'job' && quote.billingHorizon === 'job';
+  const toJobTotal = apply.unit === 'job' && apply.billingHorizon === 'job';
   const applyHorizon = (q) => {
-    if (apply.billingHorizon === 'job') {
-      q.activity = q.activity || {};
+    q.activity = q.activity || {};
+    if (toJobTotal) {
       q.activity.billableQuantityPerMonth = 1;
+      if (quote.unit !== 'job') {
+        q.activity.daysPerActivation = null;
+        q.activity.activationProfile = null;
+      }
+    } else if (wasJobTotal && apply.unit !== 'job') {
+      q.activity.daysPerActivation = 1;
     }
   };
   if (items.length === 0) {
