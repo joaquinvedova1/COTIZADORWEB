@@ -186,9 +186,10 @@ describe('QuoteService.createQuote', () => {
       remove();
     }
     const created = events.filter((e) => e.name === 'quote_created');
+    // UXR: una cotización en blanco ya no nace on-call (el primer paso no pide un tipo): "configurable".
     assert.deepEqual(created.map((e) => e.props), [
       { serviceType: 'on_call', source: 'template' },
-      { serviceType: 'on_call', source: 'blank' },
+      { serviceType: 'configurable', source: 'blank' },
     ]);
   });
 });

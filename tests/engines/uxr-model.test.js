@@ -1,0 +1,174 @@
+/**
+ * UXR (rediseño de la cotización, 2026-10-25): tres modalidades nuevas del motor, opcionales. Sin sus campos
+ * todo calcula como siempre (prueba de compatibilidad abajo y foto del motor en regression-baseline). Cada
+ * cifra esperada sale de una cuenta a mano (oráculo), no del motor:
+ *   - `activity.activationProfile`: llamados de distinta duración; el mínimo por llamado se aplica a CADA uno.
+ *   - `activity.billedResources`: personas o equipos facturados en paralelo (hora-hombre, jornal, abono por equipo).
+ *   - `quote.billingHorizon = 'job'`: precio total del trabajo (una obra de varios meses, no una mensualidad).
+ */
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { computeQuote } from '../../js/engines/quote-engine.js';
+import { priceComposition } from '../../js/engines/price-composition-engine.js';
+import { service, person, owned, external, material, vehicle, taxes, LAB_SETTINGS, resetIds } from '../lab/lib/build.js';
+
+const run = (q) => computeQuote(structuredClone(q), { settings: LAB_SETTINGS });
+const close = (got, want, tol = 1e-6) => assert.ok(Math.abs(got - want) <= tol * Math.max(1, Math.abs(want)), `${got} ≠ ${want}`);
+const profileOf = (list) => Object.entries(list.reduce((m, h) => ({ ...m, [h]: (m[h] || 0) + 1 }), {})).map(([u, c]) => ({ count: c, units: Number(u) }));
+const billedWithMinimum = (list, min) => list.reduce((a, h) => a + Math.max(h, min), 0);
+const mean = (list) => list.reduce((a, h) => a + h, 0) / list.length;
+
+describe('Llamados de distinta duración: el mínimo por llamado se aplica a cada uno', () => {
+  const CALLS = [2, 2, 3, 3, 5, 5, 8, 8]; // 8 llamados de una hidrogrúa; mínimo 4 h por llamado
+  const crane = () => owned({ name: 'Hidrogrúa', replacementValue: 250000000, maintenancePerHour: 12000, fuelLitersPerHour: 12 });
+  const quote = (profile) => {
+    resetIds();
+    const q = service({
+      serviceType: 'on_call', unit: 'hour', pricingMode: 'known_rate',
+      activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: mean(CALLS) },
+      labor: [person({ peoplePerPosition: 2 })], equipment: [crane()],
+      rules: { availabilityFeeMonthly: 3000000, mobilizationFeePerActivation: 250000, minimumCallUnits: 4 },
+      pricing: { knownRate: 150000 },
+    });
+    if (profile) q.activity.activationProfile = profileOf(CALLS);
+    return q;
+  };
+
+  test('8 llamados de 2, 3, 5 y 8 h con mínimo 4 h: 42 h facturadas (al promedio daban 36)', () => {
+    const avg = run(quote(false));
+    const each = run(quote(true));
+    close(avg.kpis.billableQuantity, 8 * Math.max(mean(CALLS), 4)); // 36
+    close(each.kpis.billableQuantity, billedWithMinimum(CALLS, 4)); // 42
+    close(each.kpis.revenue, 3000000 + 250000 * 8 + 150000 * 42);
+    close(each.kpis.totalCost, avg.kpis.totalCost); // las horas trabajadas no cambian: el costo propio tampoco
+    assert.ok(!(each.completeness.notices || []).some((n) => n.id === 'minimum_on_average'), 'con la duración de cada llamado, el aviso V-6 no corresponde');
+    assert.ok((avg.completeness.notices || []).some((n) => n.id === 'minimum_on_average'));
+  });
+
+  test('si los datos ya no coinciden con la lista (otras horas por día), rige el promedio como siempre', () => {
+    const q = quote(true);
+    q.activity.hoursPerActiveDay = 5;
+    close(run(q).kpis.billableQuantity, 8 * Math.max(5, 4)); // 40
+  });
+
+  test('la matriz de días escala por llamado (10 llamados → 52,5 h)', () => {
+    const row = run(quote(true)).matrix.find((x) => x.activeDays === 10);
+    close(row.billableUnits, (10 * billedWithMinimum(CALLS, 4)) / 8);
+  });
+
+  test('el mínimo del proveedor (por hora, con las horas de la actividad) también va por llamado', () => {
+    const q = quote(true);
+    q.equipment = [external({ name: 'Hidrogrúa tercerizada' }, { price: 120000, unit: 'hour', minimumUnits: 4 })];
+    const line = run(q).model.external[0];
+    close(line.billedUnitsPerActivation * 8, billedWithMinimum(CALLS, 4));
+  });
+
+  test('técnico: 6 visitas de 2 h y 4 de 8 h, mínimo 3 h → 50 h', () => {
+    const VIS = [...Array(6).fill(2), ...Array(4).fill(8)];
+    resetIds();
+    const q = service({
+      serviceType: 'configurable', unit: 'hour',
+      activity: { activeDaysPerMonth: 10, daysPerActivation: 1, hoursPerActiveDay: mean(VIS), activationProfile: profileOf(VIS) },
+      labor: [person({ role: 'Técnico' })], logistics: { notApplicable: false, distanceKm: 50, vehicles: [vehicle()] }, rules: { minimumCallUnits: 3 },
+    });
+    close(run(q).kpis.billableQuantity, billedWithMinimum(VIS, 3)); // 6 × 3 + 4 × 8 = 50
+  });
+});
+
+describe('Personas o equipos facturados en paralelo (hora-hombre, abono por equipo)', () => {
+  test('4 operarios × 22 días × 10 h por hora-hombre: 880 hh; los tramos por días siguen en 22', () => {
+    resetIds();
+    const q = service({
+      serviceType: 'configurable', unit: 'hour',
+      activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, daysPerActivation: 22, availableDaysPerMonth: 22, billedResources: 4 },
+      labor: [person({ positions: 4 })],
+    });
+    const r = run(q);
+    close(r.kpis.billableQuantity, 4 * 22 * 10);
+    close(r.ratesAtEstimate.billableDays, 22);
+    // Tarifa piso por hora-hombre × horas-hombre = el costo más los impuestos sobre la facturación (5 % en el lab).
+    close(r.kpis.floorNetRate * 880, r.kpis.totalCost / 0.95);
+  });
+
+  test('sin el campo calcula exactamente igual (la misma cotización con 1 recurso)', () => {
+    resetIds();
+    const base = service({ serviceType: 'crew', unit: 'hour', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 4 })] });
+    const one = structuredClone(base);
+    one.activity.billedResources = 1;
+    assert.deepEqual(run(one).kpis, run(base).kpis);
+  });
+
+  test('abono mensual por equipo con 3 generadores: 3 abonos', () => {
+    resetIds();
+    const q = service({
+      serviceType: 'equipment_only', unit: 'month',
+      activity: { activeDaysPerMonth: 30, availableDaysPerMonth: 30, hoursPerActiveDay: 24, billedResources: 3 },
+      equipment: [owned({ name: 'Generador', quantity: 3, replacementValue: 60000000, fuelNotApplicable: true })],
+    });
+    const r = run(q);
+    close(r.kpis.billableQuantity, 3);
+    close(r.kpis.floorNetRate * 3, r.kpis.totalCost / 0.95);
+  });
+
+  test('2 hidrogrúas con mínimo 4 h por llamado y por equipo', () => {
+    resetIds();
+    const CALLS = [2, 2, 3, 3, 5, 5, 8, 8];
+    const q = service({
+      serviceType: 'on_call', unit: 'hour',
+      activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: mean(CALLS), activationProfile: profileOf(CALLS), billedResources: 2 },
+      labor: [person({ peoplePerPosition: 2 })], equipment: [owned({ name: 'Hidrogrúa', quantity: 2 })], rules: { minimumCallUnits: 4 },
+    });
+    close(run(q).kpis.billableQuantity, 2 * billedWithMinimum(CALLS, 4)); // 84
+  });
+});
+
+describe('Precio total del trabajo (obra de 3 meses)', () => {
+  const plain = () => person({ positions: 1, basicMonthly: 1000000, sacPct: 0, vacationPct: 0, employerContributionsPct: 0, artPct: 0 });
+  const job = ({ contractMonths, horizon, perMonth }) => {
+    resetIds();
+    const q = service({
+      serviceType: 'lump_sum', unit: 'job', contractMonths,
+      labor: [plain()],
+      equipment: [external({ name: 'Subcontrato global' }, { price: 30000000, unit: 'global' })],
+      materials: [material({ basis: 'per_activation', unitCost: 45000000 })],
+      indirect: { method: 'percent_direct', pct: 0 }, finance: { monthlyRatePct: 0 }, risk: { generalPct: 0, items: [] }, billingTaxes: taxes('na'),
+      pricing: { targetMarginPct: 10 },
+      activity: { availableDaysPerMonth: 22, hoursPerActiveDay: 8, daysPerActivation: 66, billableQuantityPerMonth: perMonth },
+    });
+    if (horizon) q.billingHorizon = horizon;
+    return q;
+  };
+  // Oráculo: 3 meses de sueldo + el subcontrato una vez + los materiales una vez; precio con 10 % de margen.
+  const jobCost = 3 * 1000000 + 30000000 + 45000000;
+  const jobPrice = jobCost / 0.9;
+
+  for (const contractMonths of [3, 12]) {
+    test(`con contrato de ${contractMonths} meses: el costo y el precio son los del trabajo completo`, () => {
+      const r = run(job({ contractMonths, horizon: 'job', perMonth: 1 }));
+      close(r.kpis.totalCost, jobCost);
+      close(r.kpis.targetListRate, jobPrice);
+      close(priceComposition(r).contract.revenue, r.kpis.revenue); // el "total del contrato" es UN trabajo
+      assert.equal(r.activity.jobHorizon, true);
+      close(r.activity.jobMonths, 3);
+      const ids = r.completeness.pending.map((p) => p.id);
+      assert.ok(!ids.includes('multi_month') && !ids.includes('labor_hours'), ids.join(', '));
+      assert.equal(r.breakEven.notApplicable, true);
+    });
+  }
+
+  test('sin el horizonte, una cotización "por trabajo" calcula como siempre', () => {
+    const a = run(job({ contractMonths: 12, perMonth: 1 / 3 }));
+    const b = structuredClone(job({ contractMonths: 12, perMonth: 1 / 3 }));
+    b.billingHorizon = 'month';
+    assert.deepEqual(run(b).kpis, a.kpis);
+  });
+
+  test('el horizonte sólo rige con precio global (con otra unidad se ignora)', () => {
+    resetIds();
+    const q = service({ serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()] });
+    const withHorizon = structuredClone(q);
+    withHorizon.billingHorizon = 'job';
+    assert.deepEqual(run(withHorizon).kpis, run(q).kpis);
+  });
+});

@@ -38,7 +38,7 @@ import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { contingencyPctOf, normalizeActivity } from './cost-engine.js';
-import { normalizeRules } from './commercial-rules-engine.js';
+import { normalizeRules, activationProfileOf } from './commercial-rules-engine.js';
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
@@ -51,6 +51,19 @@ const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips', 'payment_term']);
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
+
+/**
+ * ¿Rige la duración de cada llamado (UXR, `activity.activationProfile`)? Sólo si su promedio coincide con el
+ * de la actividad: entonces el mínimo por llamado se aplica a cada uno y el aviso V-6 no corresponde.
+ */
+function profileApplies(quote, unit) {
+  const a = normalizeActivity(quote);
+  if (!a.activationProfile) return false;
+  const worked = unit.kind === 'hour' ? a.daysPerActivation * a.hoursPerActiveDay
+    : unit.kind === 'quantity' ? a.daysPerActivation * nonNegative(a.unitsPerActiveDay)
+      : a.daysPerActivation;
+  return activationProfileOf(a.activationProfile, worked) !== null;
+}
 export const COMPLETENESS_RISK_THRESHOLD = 60;
 
 /** Colores del puntaje en toda la interfaz: verde ≥ 85, naranja ≥ 60, rojo < 60. */
@@ -368,7 +381,7 @@ export function evaluateCompleteness(quote = {}) {
   // (una obra de varios meses expresada por mes) o un error de carga (32 días en un mes de 30). La fórmula
   // no cambia: es crítico hasta que se confirme, y la confirmación queda atada a esos días.
   const span = multiMonthAssumption(quote);
-  if (unit.kind !== 'month' && span.availableDaysPerMonth > 0 && span.activeDaysPerMonth > span.availableDaysPerMonth + 1e-9 && !multiMonthHolds(quote)) {
+  if (unit.kind !== 'month' && !normalizeActivity(quote).jobHorizon && span.availableDaysPerMonth > 0 && span.activeDaysPerMonth > span.availableDaysPerMonth + 1e-9 && !multiMonthHolds(quote)) {
     const n = (v) => formatNumber(v, { decimals: 2 });
     const item = rule('multi_month', 'Trabajo de más de un mes', 'modality', 2, 'missing',
       `${n(span.activeDaysPerMonth)} días de trabajo en un mes de ${n(span.availableDaysPerMonth)} disponibles se calculan como un trabajo de más de un mes. Si lo es, confirmalo en "Cómo se cobra"; si es un solo mes, corregí el dato (un mes no tiene más de 31 días).`);
@@ -475,7 +488,9 @@ export function evaluateCompleteness(quote = {}) {
       const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
       const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
       const required = D * H;
-      const covered = ppp * normal + perDay * D + perMonth * ppp;
+      // Precio total del trabajo (UXR): las horas normales cubren los meses que dura el trabajo.
+      const jm = act.jobHorizon ? act.jobMonths : 1;
+      const covered = (ppp * normal + perMonth * ppp) * jm + perDay * D;
       // P1 CIERRE (H-10): un puesto con "La cobertura está prevista" vigente no se vuelve a marcar.
       if (laborCoverageHolds(quote, l)) return null;
       return required > covered + 1e-6 ? { l, index, ppp, normal, extra: perDay * D + perMonth * ppp, required, covered } : null;
@@ -501,7 +516,9 @@ export function evaluateCompleteness(quote = {}) {
   // 6. Costo de equipos (propios: reposición y vida útil; externos: tarifa)
   const isExt = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
   const extOf = (e) => (isPlainObject(e.external) ? e.external : {});
-  const needsEquipment = EQUIPMENT_SERVICE_TYPES.includes(serviceType);
+  // UXR: "a demanda" (on-call) no implica equipos (un técnico de guardia no los tiene): se piden si hay
+  // líneas cargadas o si el servicio es de equipos o transporte.
+  const needsEquipment = EQUIPMENT_SERVICE_TYPES.includes(serviceType) && serviceType !== 'on_call';
   if (needsEquipment || equipment.length > 0) {
     // Cuáles líneas están incompletas (PLAN-2026-010): se nombran, nunca se ocultan.
     const ownMissing = equipment.map((e, index) => ({ e, index })).filter(({ e }) => !isExt(e) && !(nonNegative(e.replacementValue) > 0 && nonNegative(e.usefulLifeYears) > 0));
@@ -1047,8 +1064,8 @@ export function evaluateCompleteness(quote = {}) {
     items.push(item);
   }
 
-  // 14. Standby (on-call)
-  if (isOnCall) {
+  // 14. Standby (on-call con equipos: lo que se cobra si el equipo queda en locación sin operar)
+  if (isOnCall && equipment.length > 0) {
     const ok = nonNegative(rules.standbyRatePerDay) > 0 || rules.standbyNotApplicable === true;
     items.push(rule('standby', 'Equipo en espera (standby)', 'margin', 1, ok ? 'ok' : 'warning',
       ok ? 'Standby definido.' : '¿Qué cobrás si el equipo queda en locación sin operar? Definilo o marcá que no aplica.'));
@@ -1136,7 +1153,7 @@ export function evaluateCompleteness(quote = {}) {
   // de distinta duración, los más cortos que el mínimo se facturan completos y la facturación real es mayor que
   // la calculada (la tarifa sugerida queda alta). Informativo: la fórmula no cambia.
   const minCall = nonNegative(rules.minimumCallUnits);
-  if (minCall > 0 && (unit.kind === 'hour' || unit.kind === 'quantity' || unit.kind === 'day')) {
+  if (minCall > 0 && (unit.kind === 'hour' || unit.kind === 'quantity' || unit.kind === 'day') && !profileApplies(quote, unit)) {
     const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
     const what = unit.kind === 'hour' ? `${n(minCall)} h` : unit.kind === 'day' ? `${n(minCall)} ${Math.abs(minCall - 1) < 1e-9 ? 'día' : 'días'}` : `${n(minCall)} ${unit.plural}`;
     notices.push({

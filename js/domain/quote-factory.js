@@ -218,7 +218,9 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     client: '',
     status: 'draft',
     illustrative: false,
-    serviceType: 'on_call',
+    // UXR: el primer paso ya no pide un tipo; una cotización nueva es "configurable" (neutro) y pasa a
+    // on-call sólo si la persona dice que trabaja a demanda.
+    serviceType: 'configurable',
     templateId: null,
     pricingMode: 'known_activity',
     unit: 'day',

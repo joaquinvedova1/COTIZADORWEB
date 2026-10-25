@@ -1,0 +1,77 @@
+/**
+ * UXR: catálogo de unidades de cobro para elegir (sin depender del tipo de servicio), búsqueda con
+ * sinónimos y cómo se guarda cada opción con los campos de siempre.
+ */
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  UNIT_CATALOG, SUGGESTED_UNIT_KEYS, searchUnits, exactUnitMatch, unitKeyOf, unitDisplayName, applyUnit, currentApply, sameApply, customUnitApply, normalizeText,
+} from '../../js/domain/unit-catalog.js';
+import { billingUnitOf, BILLING_UNIT_IDS } from '../../js/domain/billing-units.js';
+
+describe('Catálogo de unidades', () => {
+  test('cada opción se guarda con unidades que el motor ya conoce (sin ids nuevos: una versión anterior calcula igual)', () => {
+    UNIT_CATALOG.forEach((e) => {
+      assert.ok(BILLING_UNIT_IDS.includes(e.apply.unit), `${e.key}: ${e.apply.unit}`);
+      if (e.apply.unit === 'custom') assert.ok(e.apply.unitName, e.key);
+    });
+    SUGGESTED_UNIT_KEYS.forEach((k) => assert.ok(UNIT_CATALOG.some((e) => e.key === k), k));
+  });
+
+  test('la búsqueda encuentra por sinónimos y sin acentos', () => {
+    const keys = (q) => searchUnits(q).flatMap((g) => g.items.map((e) => e.key));
+    assert.ok(keys('hh').includes('person_hour'));
+    assert.ok(keys('camion').includes('own:camión reparado'));
+    assert.ok(keys('obra').includes('job'));
+    assert.ok(keys('m3').includes('m3'));
+    assert.ok(keys('valvula')[0] === 'own:válvula');
+    assert.equal(keys('zzz').length, 0);
+    assert.equal(exactUnitMatch('Hora hombre').key, 'person_hour');
+    assert.equal(exactUnitMatch('pieza rara'), null);
+    assert.equal(normalizeText('  Camión  Reparado '), 'camion reparado');
+  });
+
+  test('hora-hombre: unidad hora + personas facturadas en paralelo; el rótulo dice $/hora-hombre', () => {
+    const q = applyUnit({ unit: 'day', activity: {} }, UNIT_CATALOG.find((e) => e.key === 'person_hour').apply);
+    assert.equal(q.unit, 'hour');
+    assert.equal(q.activity.billedResourceKind, 'person');
+    assert.equal(unitKeyOf(q), 'person_hour');
+    const info = billingUnitOf(q);
+    assert.equal(info.kind, 'hour');
+    assert.equal(info.label, '$/hora-hombre');
+    assert.equal(info.plural, 'horas-hombre');
+    // Volver a "hora" quita la variante y la cantidad de personas.
+    q.activity.billedResources = 4;
+    applyUnit(q, { unit: 'hour' });
+    assert.equal(q.activity.billedResourceKind, undefined);
+    assert.equal(q.activity.billedResources, undefined);
+    assert.equal(billingUnitOf(q).label, '$/hora');
+  });
+
+  test('precio total del trabajo: unidad job con horizonte; un "job" viejo (por mes) se distingue', () => {
+    const q = applyUnit({ unit: 'day', activity: {} }, { unit: 'job', billingHorizon: 'job' });
+    assert.equal(unitKeyOf(q), 'job');
+    assert.equal(unitDisplayName(q), 'precio total del trabajo');
+    assert.equal(unitKeyOf({ unit: 'job' }), 'job_monthly');
+    applyUnit(q, { unit: 'hour' });
+    assert.equal(q.billingHorizon, undefined);
+  });
+
+  test('unidades propias: las del catálogo se reconocen; una escrita a mano se usa tal cual', () => {
+    assert.equal(unitKeyOf({ unit: 'custom', unitName: 'válvula' }), 'own:válvula');
+    assert.equal(unitKeyOf({ unit: 'custom', unitName: 'litro' }), 'liter');
+    assert.equal(unitKeyOf({ unit: 'custom', unitName: 'junta' }), null);
+    assert.equal(unitDisplayName({ unit: 'custom', unitName: 'junta' }), 'junta');
+    assert.deepEqual(customUnitApply('  $/junta  '), { unit: 'custom', unitName: 'junta' });
+    assert.equal(customUnitApply('   '), null);
+  });
+
+  test('sameApply compara la unidad completa (variante, nombre propio y horizonte)', () => {
+    const q = { unit: 'hour', activity: { billedResourceKind: 'person' } };
+    assert.ok(sameApply(currentApply(q), { unit: 'hour', billedResourceKind: 'person' }));
+    assert.ok(!sameApply(currentApply(q), { unit: 'hour' }));
+    assert.ok(sameApply(currentApply({ unit: 'custom', unitName: 'Válvula' }), { unit: 'custom', unitName: 'valvula' }));
+    assert.ok(!sameApply(currentApply({ unit: 'job' }), { unit: 'job', billingHorizon: 'job' }));
+  });
+});

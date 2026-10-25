@@ -41,6 +41,7 @@
 import { nonNegative, pct, safeDivide, clamp } from '../core/money.js';
 import { isPlainObject } from '../core/object.js';
 import { equipmentHoursPerDay } from './equipment-engine.js';
+import { minimumPerActivation } from './commercial-rules-engine.js';
 
 export const EXTERNAL_UNIT_IDS = Object.freeze(['hour', 'day', 'month', 'trip', 'km', 'activation', 'global']);
 
@@ -139,14 +140,18 @@ export function computeExternalLine(line = {}, ctx = {}) {
   } else if (unit === 'global') {
     netFixedMonthly = (price * quantity) / contractMonths;
   } else {
-    billedUnitsPerActivation = unit === 'activation' ? 1 : Math.max(unitsPerActivation, minimum);
+    // Llamados de distinta duración (UXR): si la línea usa las horas o los días de la actividad, el mínimo
+    // del proveedor también se aplica a cada llamado.
+    const inherits = line.hoursPerActiveDay === null || line.hoursPerActiveDay === undefined || line.hoursPerActiveDay === '';
+    const profileApplies = (unit === 'hour' && ctx.activationProfileKind === 'hour' && inherits) || (unit === 'day' && ctx.activationProfileKind === 'day');
+    billedUnitsPerActivation = unit === 'activation' ? 1 : profileApplies ? minimumPerActivation(unitsPerActivation, minimum, ctx.activationProfile) : Math.max(unitsPerActivation, minimum);
     netPerActivation = billedUnitsPerActivation * price * quantity;
   }
   const netPerActiveDay = safeDivide(netPerActivation, dpa, 0);
   // Costo POR SALIDA (PLAN-2026-011, "cada salida se cuenta completa"): la
   // tarifa por llamado, por viaje o por km, y la de hora o día cuando rige el
   // mínimo por llamado. Sin mínimo, la hora o el día siguen al tiempo trabajado.
-  const minimumApplied = (unit === 'hour' || unit === 'day') && unitsPerActivation !== null && minimum > unitsPerActivation + 1e-9;
+  const minimumApplied = (unit === 'hour' || unit === 'day') && unitsPerActivation !== null && billedUnitsPerActivation > unitsPerActivation + 1e-9;
   const discreteNetPerActivation = unit === 'activation' || unit === 'trip' || unit === 'km' || minimumApplied ? netPerActivation : 0;
 
   const fiscal = externalFiscal(ext.fiscal);

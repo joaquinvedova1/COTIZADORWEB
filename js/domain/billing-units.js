@@ -100,7 +100,41 @@ export function billingUnitOf(quote = {}) {
     const plural = name === 'unidad' ? 'unidades' : pluralizeUnit(name);
     return { id, kind: def.kind, singular: name, plural, short: name, label: `$/${name}`, custom: true, legacy: false };
   }
+  const variant = resourceVariantOf(quote, id);
+  if (variant) {
+    return { id, kind: def.kind, singular: variant.singular, plural: variant.plural, short: variant.short, label: `$/${variant.singular}`, custom: false, legacy: false, resource: variant.resource, feminine: variant.feminine };
+  }
   return { id, kind: def.kind, singular: def.singular, plural: def.plural, short: def.short, label: def.label, custom: false, legacy: LEGACY_BILLING_UNITS.includes(id) };
+}
+
+/**
+ * Personas o equipos que se facturan en paralelo (UXR): con hora, día o mes la unidad pasa a ser
+ * "hora-hombre", "jornal", "hora-equipo", "día-equipo", "equipo-mes"… y el motor multiplica las unidades por
+ * `activity.billedResources` (commercial-rules-engine). `activity.billedResourceKind` = 'person' | 'equipment'.
+ */
+const RESOURCE_VARIANTS = deepFreeze({
+  'hour:person': { singular: 'hora-hombre', plural: 'horas-hombre', short: 'hh', feminine: true },
+  'hour:equipment': { singular: 'hora-equipo', plural: 'horas-equipo', short: 'h-equipo', feminine: true },
+  'day:person': { singular: 'jornal', plural: 'jornales', short: 'jornal', feminine: false },
+  'day:equipment': { singular: 'día-equipo', plural: 'días-equipo', short: 'día-equipo', feminine: false },
+  'month:person': { singular: 'persona-mes', plural: 'personas-mes', short: 'persona-mes', feminine: true },
+  'month:equipment': { singular: 'equipo-mes', plural: 'equipos-mes', short: 'equipo-mes', feminine: false },
+});
+
+/** Variante por persona o por equipo de una unidad de tiempo, o null. */
+export function resourceVariantOf(quote = {}, unitId = null) {
+  const id = unitId || (quote && quote.unit) || 'day';
+  const a = quote && quote.activity;
+  const kind = a && (a.billedResourceKind === 'person' || a.billedResourceKind === 'equipment') ? a.billedResourceKind : null;
+  if (!kind || !['hour', 'day', 'month'].includes(id)) return null;
+  const v = RESOURCE_VARIANTS[`${id}:${kind}`];
+  return v ? { ...v, resource: kind } : null;
+}
+
+/** Personas o equipos facturados en paralelo (1 si no se cargó). */
+export function billedResourcesOf(quote = {}) {
+  const n = Number(quote && quote.activity && quote.activity.billedResources);
+  return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
 /** Unidades para elegir según el tipo de servicio (+ la actual, si no está, + "Otra"). */
@@ -135,7 +169,7 @@ export function isFeminineUnit(singular) {
 export function unitTexts(info) {
   const u = info || billingUnitOf({});
   const plural = u.plural || 'unidades';
-  const fem = isFeminineUnit(u.singular);
+  const fem = typeof u.feminine === 'boolean' ? u.feminine : isFeminineUnit(u.singular);
   const cuantos = fem ? 'Cuántas' : 'Cuántos';
   return {
     // Concordancia ("las unidades", "cuántas toneladas", "ningún viaje").
