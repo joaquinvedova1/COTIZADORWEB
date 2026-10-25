@@ -2825,7 +2825,10 @@ async function runMode(mode) {
     await page.waitForTimeout(600);
     check('VAL', 'V-1: después de confirmar dice "Confirmado"', /Confirmado: es un trabajo de más de un mes/.test(await mainText()), 'sin el aviso de confirmado');
     const after = computeQuote(structuredClone(stored(multi.id))).kpis;
-    check('VAL', 'V-1: confirmar no cambia ningún número', JSON.stringify(after) === JSON.stringify(before), 'cambiaron los indicadores');
+    // La completitud sí sube (se resolvió un pendiente): se comparan las cifras económicas.
+    const economic = (k) => JSON.stringify(Object.fromEntries(Object.entries(k).filter(([key]) => key !== 'completenessPct')));
+    const changedKpis = Object.keys(after).filter((key) => key !== 'completenessPct' && JSON.stringify(after[key]) !== JSON.stringify(before[key]));
+    check('VAL', 'V-1: confirmar no cambia ningún número (sólo sube la completitud)', economic(after) === economic(before) && after.completenessPct > before.completenessPct, `cambiaron: ${changedKpis.join(', ') || 'ninguno'} · completitud ${before.completenessPct} → ${after.completenessPct}`);
     const stillK0 = stored(res.id);
     check(P, 'compatibilidad K0: abrirla sin editar no le agrega campos nuevos', Boolean(stillK0) && !('rateInput' in stillK0.activity) && !('quantityInput' in stillK0.activity), JSON.stringify(stillK0 && Object.keys(stillK0.activity)));
 
