@@ -109,6 +109,7 @@ import { REFERENCE_PRICE_NOTE, documentDatesText } from '../reference-text.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase, unitWord } from '../unit-text.js';
 import { marginStateWord } from '../live-summary-text.js';
 import { quantityBasisOf } from '../../domain/unit-pairs.js';
+import { demandFormOf, profileStats, cleanProfile } from '../../domain/activity-forms.js';
 import {
   dayDecimals,
   resultDays,
@@ -1884,6 +1885,53 @@ function profitFact(v) {
   });
 }
 
+/**
+ * A demanda (UXR, $/hora o $/día): para quien cotiza llamados los días son un derivado, así que la actividad se
+ * lee en llamados. Lee los mismos datos del motor (días de trabajo, días por llamado, horas por día y el perfil
+ * de duraciones) con demandFormOf (js/domain/activity-forms.js). null si la cotización no es a demanda.
+ * @returns {null | { calls: number, perCall: number, profile: Array<{count:number, units:number}>, counted: boolean, T: object }}
+ */
+function demandOf(v) {
+  const { q, r } = v;
+  if ((r.unit !== 'hour' && r.unit !== 'day') || periodOf(v).job) return null;
+  const qa = (q && q.activity) || {};
+  const onDemand = q.serviceType === 'on_call' || Number(qa.callsPerMonth) > 0 || cleanProfile(qa.activationProfile).length > 0;
+  if (!onDemand) return null;
+  const a = r.activity || {};
+  const form = demandFormOf({ ...qa, activeDaysPerMonth: a.activeDaysPerMonth, daysPerActivation: a.daysPerActivation, hoursPerActiveDay: a.hoursPerActiveDay }, r.unit);
+  if (!(form.calls > 0) || !(form.perCall > 0)) return null;
+  // Las cantidades del perfil se leen como llamados del mes sólo si suman los llamados del mes.
+  const stats = profileStats(form.profile);
+  const counted = form.profile.length > 0 && Math.abs(stats.calls - form.calls) <= 1e-6 * Math.max(1, form.calls);
+  return { ...form, counted, T: activationTerms(q) };
+}
+
+/** Duración de un llamado en la unidad de cobro: "4,75 h" o "2 días". */
+function callUnitsText(v, units) {
+  return v.r.unit === 'hour' ? hoursText(units) : formatDays(units, { decimals: 2 });
+}
+
+/** "8 llamados" · "1 llamado". */
+function callsText(d) {
+  return `${formatNumber(d.calls, { decimals: 2 })} ${Math.abs(d.calls - 1) < 1e-9 ? d.T.one : d.T.many}`;
+}
+
+/** "(4 de 2 h, 3 de 6 h y 1 de 12 h)" o, sin perfil, "× 4,75 h en promedio". */
+function callsMixText(v, d) {
+  if (!d.profile.length) return `× ${callUnitsText(v, d.perCall)} en promedio`;
+  const sorted = d.profile.slice().sort((x, y) => x.units - y.units);
+  if (d.counted) return `(${joinList(sorted.map((x) => `${formatNumber(x.count, { decimals: 2 })} de ${callUnitsText(v, x.units)}`))})`;
+  return `(de ${joinList(sorted.map((x) => callUnitsText(v, x.units)))})`;
+}
+
+/** "el mínimo de 4 h por llamado". */
+function minimumCallText(v) {
+  const r = v.r;
+  const min = Number(r.ctx && r.ctx.rules ? r.ctx.rules.minimumCallUnits : (v.q.rules || {}).minimumCallUnits);
+  const T = activationTerms(v.q);
+  return hasValue(min) && min > 0 ? `el mínimo de ${callUnitsText(v, min)} ${T.per}` : `el mínimo ${T.per}`;
+}
+
 /** Actividad: días, horas o cantidad del mes (o la duración del trabajo) y cuánto del mes ocupa. */
 function activityFact(v) {
   const { k, r, q } = v;
@@ -1907,6 +1955,18 @@ function activityFact(v) {
   } else if (r.unit === 'month') {
     value = [h('span', { class: 'qr-fact-eq' }, workDaysText(D, { decimals: 2 })), ' por mes'];
     if (resourcesOf(v) && rev) notes.push(`Se facturan ${unitsText(v, rev.billableUnits, { decimals: 2 })} (${resourcesOf(v).text}).`);
+  } else if (demandOf(v)) {
+    // A demanda: "8 llamados por mes (4 de 2 h, 3 de 6 h y 1 de 12 h) = 38 horas trabajadas".
+    const d = demandOf(v);
+    const res = resourcesOf(v);
+    const hours = r.unit === 'hour' && hasValue(a.hoursPerActiveDay) ? a.hoursPerActiveDay : null;
+    const worked = r.unit === 'hour' ? (hours !== null ? D * hours * (res ? res.n : 1) : null) : D * (res ? res.n : 1);
+    const workedText = r.unit === 'day' && !res ? workDaysText(D, { decimals: 2 }) : `${unitsText(v, worked, { decimals: 2 })} trabajad${r.unitInfo.feminine === false ? 'os' : 'as'}`;
+    value = [
+      h('span', { class: 'qr-fact-eq' }, callsText(d)), ' por mes ',
+      h('span', { class: 'qr-fact-eq-tail' }, `${callsMixText(v, d)}${res ? ` × ${res.text}` : ''} = ${workedText}`),
+    ];
+    if (rev && rev.minimumCallApplied && hasValue(rev.billableUnits)) notes.push(`Se facturan ${billableText(v, rev.billableUnits)} por ${minimumCallText(v)}.`);
   } else if (r.unit === 'hour' || r.unit === 'day') {
     // Lo trabajado con la dotación: "880 horas-hombre por mes = 4 personas × 22 días × 10 h".
     const res = resourcesOf(v);
@@ -1923,7 +1983,9 @@ function activityFact(v) {
     value = [h('span', { class: 'qr-fact-eq' }, unitsText(v, k.billableQuantity)), ' por mes'];
     if (rev) notes.push(billableSource(v, rev) || workDaysText(D, { decimals: 2 }));
   }
-  if (!per.job && hasValue(a.availableDaysPerMonth) && a.availableDaysPerMonth > 0) {
+  // A demanda los días son un derivado: no se muestra cuánto del mes ocupan (salvo que no entren en el mes).
+  const demand = demandOf(v);
+  if (!per.job && hasValue(a.availableDaysPerMonth) && a.availableDaysPerMonth > 0 && (!demand || D > a.availableDaysPerMonth + 1e-9)) {
     notes.push(D > a.availableDaysPerMonth + 1e-9
       ? `Más días de trabajo que los disponibles del mes (${formatNumber(D, { decimals: 2 })} de ${formatNumber(a.availableDaysPerMonth, { decimals: 2 })}).`
       : `Ocupás ${formatNumber(D, { decimals: 2 })} de ${formatNumber(a.availableDaysPerMonth, { decimals: 2 })} días disponibles del mes (${pct(k.utilizationPct, 0)}).`);
@@ -1997,11 +2059,20 @@ function breakEvenFact(v) {
       const est = k.billableQuantity;
       const dMin = quantityDecimals(be.quantity);
       const dEst = quantityDecimals(est);
-      value = [h('span', { class: 'qr-fact-eq' }, unitsCeilText(v, be.quantity)), ' por mes', h('span', { class: 'qr-fact-eq-tail' }, ` (${workDaysText(be.days)})`)];
+      const d = demandOf(v);
+      // A demanda, en llamados (con la mezcla de duraciones cargada); si no, en días de trabajo.
+      const tail = d && hasValue(r.activity.daysPerActivation) && r.activity.daysPerActivation > 0
+        ? `≈ ${formatNumber(be.days / r.activity.daysPerActivation, { decimals: 1 })} ${d.T.many}`
+        : workDaysText(be.days);
+      value = [h('span', { class: 'qr-fact-eq' }, unitsCeilText(v, be.quantity)), ' por mes', h('span', { class: 'qr-fact-eq-tail' }, ` (${tail})`)];
       spare = spareText({ est, min: be.quantity, estShown: hasValue(est) ? roundTo(est, dEst) : null, minShown: ceilTo(be.quantity, dMin), decimals: Math.max(dMin, dEst), fmt: (x, d) => unitsText(v, x, { decimals: d }) });
     } else {
       const dMin = dayDecimals(be.days);
-      value = [h('span', { class: 'qr-fact-eq' }, workDaysText(ceilTo(be.days, dMin), { decimals: dMin })), ' por mes'];
+      const d = demandOf(v);
+      value = [
+        h('span', { class: 'qr-fact-eq' }, workDaysText(ceilTo(be.days, dMin), { decimals: dMin })), ' por mes',
+        d && hasValue(r.activity.daysPerActivation) && r.activity.daysPerActivation > 0 ? h('span', { class: 'qr-fact-eq-tail' }, ` (≈ ${formatNumber(be.days / r.activity.daysPerActivation, { decimals: 1 })} ${d.T.many})`) : null,
+      ];
       spare = spareText({ est: D, min: be.days, estShown: hasValue(D) ? roundTo(D, 2) : null, minShown: ceilTo(be.days, dMin), decimals: 2, fmt: (x, d) => formatDays(x, { decimals: d }) });
     }
   } else if (byQty(v) && !(k.billableQuantity > 0)) {
@@ -2143,7 +2214,15 @@ function billableSource(v, rev) {
   const res = resourcesOf(v);
   const resPart = res ? `${res.text} × ` : '';
   let text = '';
-  if (r.unit === 'quantity' && hasValue(a.unitsPerActiveDay) && a.unitsPerActiveDay > 0 && hasValue(D)) {
+  const demand = demandOf(v);
+  if (demand && hasValue(D)) {
+    // A demanda: en llamados (los días son un derivado).
+    text = `${callsText(demand)} ${callsMixText(v, demand)}${res ? ` × ${res.text}` : ''}`;
+    if (rev.minimumCallApplied) {
+      const worked = r.unit === 'hour' && hasValue(a.hoursPerActiveDay) ? D * a.hoursPerActiveDay * (res ? res.n : 1) : D * (res ? res.n : 1);
+      text += r.unit === 'hour' ? ` = ${formatNumber(worked, { decimals: 2 })} h trabajadas` : ` = ${formatDays(worked, { decimals: 2 })} trabajados`;
+    }
+  } else if (r.unit === 'quantity' && hasValue(a.unitsPerActiveDay) && a.unitsPerActiveDay > 0 && hasValue(D)) {
     text = quantityBasisOf(v.q.activity) === 'workdays'
       ? `${quantityText(a.unitsPerActiveDay, r)} por día × ${workDaysText(D)}`
       : `en ${workDaysText(D)}, a ${quantityText(a.unitsPerActiveDay, r)} por día`;
@@ -2158,8 +2237,8 @@ function billableSource(v, rev) {
   let min = '';
   if (rev.minimumCallApplied) {
     // UXR: con las duraciones de cada llamado cargadas, el mínimo se aplica a cada uno (no al promedio).
-    const each = profileApplies(v, rev) ? ` (aplicado a ${T.each}: ${profileDurations(v)})` : '';
-    min = text ? `el mínimo ${T.per}${each} lleva la cantidad facturable a ${billableText(v, rev.billableUnits)}` : `incluye el mínimo ${T.per}`;
+    const each = profileApplies(v, rev) ? (demand ? `, aplicado a ${T.each},` : ` (aplicado a ${T.each}: ${profileDurations(v)})`) : '';
+    min = text ? `${demand ? minimumCallText(v) : `el mínimo ${T.per}`}${each} lleva la cantidad facturable a ${billableText(v, rev.billableUnits)}` : `incluye el mínimo ${T.per}`;
   }
   return [text, min].filter(Boolean).join(' · ');
 }

@@ -2801,7 +2801,7 @@ async function runMode(mode) {
     await go(`#/cotizaciones/${encodeURIComponent(minHour.id)}/result`, 1500);
     const mhRows = await accountRows();
     const qtyRow = mhRows.find((x) => x[0] === 'Cantidad facturable') || [];
-    check(P, 'con mínimo por intervención: "10 días × 5 h por día = 50 h trabajadas · el mínimo … lleva la cantidad facturable a 80 horas"', /= 50 h trabajadas/.test(qtyRow[1] || '') && /lleva la cantidad facturable a 80 horas/.test(qtyRow[1] || '') && norm(qtyRow[2] || '') === '80 horas', JSON.stringify(qtyRow));
+    check(P, 'a demanda con mínimo por llamado: "10 llamados × 5 h en promedio = 50 h trabajadas · el mínimo de 8 h por llamado lleva la cantidad facturable a 80 horas"', /^10 llamados × 5 h en promedio = 50 h trabajadas/.test(qtyRow[1] || '') && /el mínimo de 8 h por llamado lleva la cantidad facturable a 80 horas/.test(qtyRow[1] || '') && norm(qtyRow[2] || '') === '80 horas', JSON.stringify(qtyRow));
     const notesOf = () => page.evaluate(() => [...document.querySelectorAll('.qr-account-notes li')].map((li) => li.textContent.trim()));
     const mhNotes = await notesOf();
     check('VAL', 'V-6: con mínimo por llamado, "La cuenta del mes" avisa que se aplica al llamado promedio', mhNotes.some((t) => /se aplica al llamado promedio/.test(t)), JSON.stringify(mhNotes));
