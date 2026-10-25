@@ -67,6 +67,11 @@
 .qr-account-row.is-gain dd { color: var(--green-text); }
 .qr-account-row.is-loss dd { color: var(--red-text); }
 .qr-account.is-unreliable dd { color: var(--ink-3); }
+/* VALIDACIONES-01 (V-6 a V-8): límites del modelo debajo de la cuenta, en letra chica. */
+.qr-account-notes { margin: 0.2rem 0 0; padding-left: 1.1rem; max-width: 46rem; font-size: var(--fs-xs); line-height: 1.45; color: var(--ink-3); }
+.qr-account-notes li + li { margin-top: 0.2rem; }
+/* V-5: con pendientes críticos, colchón y ganancia son provisorios. */
+.qr-provisional-note { color: var(--orange-text, var(--ink-2)); }
 /* ECO-02: con un resultado NO CONFIABLE, costo, piso y tarifa se apagan (no se leen como cifras para usar). */
 .qr-stat.big-stat-unreliable:not(.big-stat-red) .big-stat-value { color: var(--ink-3); }
 
@@ -83,6 +88,7 @@
 .qr-work-green .qr-work-days { color: var(--green-text); }
 .qr-work-red { background: var(--red-50); border-left-color: var(--red); }
 .qr-work-red .qr-work-days { color: var(--red-text); }
+.qr-work-orange { background: var(--orange-50); border-left-color: var(--orange); }
 
 /* Nota clave de una tabla de detalle (p. ej. tarifa de lista vs neta en la matriz). */
 .qr-note-key { padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: var(--navy-50); color: var(--ink-2); border-left: 3px solid var(--blue-600); }

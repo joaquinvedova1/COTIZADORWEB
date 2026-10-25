@@ -5,7 +5,7 @@
  *
  *   - resultado NO CONFIABLE o que no se pudo calcular → no se puede (se dice
  *     por qué y se ofrece "Ver qué falta");
- *   - pendientes críticos → se puede, confirmando (se nombran);
+ *   - pendientes críticos → tampoco se puede (VALIDACIONES-01, V-5, beta abierta): se nombran;
  *   - sin nada de eso → se marca directo.
  */
 
@@ -36,6 +36,13 @@ export function sendGuardText(check, { status = 'sent' } = {}) {
         kind: 'blocked',
         title: `No se puede marcar como ${word}`,
         message: `El resultado de esta cotización NO ES CONFIABLE${what}. Los números se calculan, pero no son reales: resolvé lo pendiente antes de mandarla al cliente.`,
+      };
+    }
+    if (check.reason === 'critical') {
+      return {
+        kind: 'blocked',
+        title: `No se puede marcar como ${word}`,
+        message: `Faltan datos que cambian el costo o el precio: ${joinList(check.items)}. Con esos pendientes la tarifa puede no cubrir tus costos: resolvelos antes de mandarla al cliente.`,
       };
     }
     return {

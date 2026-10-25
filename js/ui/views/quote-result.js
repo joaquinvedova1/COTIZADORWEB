@@ -1158,9 +1158,13 @@ function heroKnownRate(v) {
     sentence = h('p', { class: 'qr-lead' }, breakEvenZeroText(r, { rateText: atRateText(v) }));
   } else if (be.reachable) {
     // Colchón con los valores mostrados: el break-even exacto va con 2 decimales ("Break-even exacto: 6,35 días").
-    const tail = cushionFor(v, be, { beDecimals: 2 });
+    // V-5: con críticos el colchón es provisorio y no se muestra.
+    const tail = provisionalCount(r) ? ` ${provisionalText(provisionalCount(r))}` : cushionFor(v, be, { beDecimals: 2 });
     const minimum = byQty(v) ? `${quantityCeilText(be.quantity, r)} por mes (${workDaysText(be.days)})` : `${activeDaysText(be.wholeDays, 0)} por mes`;
     sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) necesitás ${byQty(v) ? 'facturar al menos' : 'al menos'} ${minimum} para no perder plata.${tail}`);
+  } else if (byQty(v) && !(k.billableQuantity > 0)) {
+    // V-2: sin cantidad la facturación es $ 0; lo que falta es la cantidad.
+    sentence = h('p', { class: 'qr-lead' }, `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes vas a facturar: sin esa cantidad la facturación es $ 0. `, stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), '.');
   } else {
     sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) no se cubren los costos dentro del mes. Revisá la tarifa o los costos.`);
   }
@@ -1665,10 +1669,11 @@ function marginStat(v) {
   else if (!ok) hint = statHint('Sin facturación no hay margen.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
+  else if (provisionalCount(v.r)) hint = statHint(h('strong', { class: 'qr-provisional-note' }, `${provisionalText(provisionalCount(v.r))} Con estos datos, ${money(k.profit)} por mes.`));
   else if (hasValue(k.targetMarginPct)) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
   else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
-  const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
+  const tone = unreliable ? 'red' : ok && provisionalCount(v.r) && hasValue(k.profit) && k.profit >= 0 ? 'orange' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
   return statItem({
     label: 'Margen',
     value: ok ? pct(k.marginPct) : EMPTY,
@@ -1699,6 +1704,20 @@ function noRateContent(v) {
       : 'Sin tarifa sugerida: el margen objetivo no es válido. ', stepLink(q, 'margin', 'Corregilo en "El precio"'), ` para saber ${need}.`];
   }
   return [`Definí una tarifa para saber ${need}. `, stepLink(q, 'margin'), '.'];
+}
+
+/**
+ * Pendientes críticos que no vuelven NO CONFIABLE el resultado (VALIDACIONES-01, V-5): con ellos el
+ * colchón y la ganancia son provisorios (cambian el costo o el precio) y no se leen en verde.
+ */
+function provisionalCount(r) {
+  const c = r && r.completeness;
+  return c && Array.isArray(c.pending) ? c.pending.filter((i) => i && i.severity === 'critical' && i.unreliable !== true).length : 0;
+}
+
+/** "Provisorio: hay 2 pendientes críticos (cambian el costo o el precio)." */
+function provisionalText(n) {
+  return `Provisorio: hay ${n === 1 ? 'un pendiente crítico' : `${n} pendientes críticos`} (cambian el costo o el precio).`;
 }
 
 /**
@@ -1752,6 +1771,10 @@ function workBlock(v) {
         ` (${workDaysText(be.days)}) para cubrir todos tus costos.`,
         cushionFor(v, be),
       ];
+    } else if (!(k.billableQuantity > 0)) {
+      // V-2 (VALIDACIONES-01; SIM-01, RFQ-11): sin cantidad la facturación es $ 0; lo que falta es la cantidad, no otra tarifa.
+      content = [`Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes vas a facturar: sin esa cantidad la facturación es $ 0 y no se puede saber si ${theRate(k)} cubre tus costos. `, stepLink(v.q, 'modality', `Cargala en ${stepLabel('modality')}`), '.'];
+      tone = 'red';
     } else {
       content = [`${subject} no llegás a cubrir todos tus costos dentro del mes. `, be.reason ? `${be.reason} ` : '', 'Revisá la tarifa o los costos.'];
       tone = 'red';
@@ -1785,9 +1808,16 @@ function workBlock(v) {
   // ECO-01: con un dato que vuelve no confiable el resultado, este cálculo tampoco se lee en verde.
   const unreliable = rateOk ? unreliableText(r.completeness, 'este cálculo') : null;
   if (unreliable) tone = 'red';
+  // V-5 (VALIDACIONES-01): con críticos, sin "colchón" (es provisorio) y nunca en verde.
+  const provisional = !unreliable && rateOk ? provisionalCount(r) : 0;
+  if (provisional) {
+    content = content.filter((part) => !(typeof part === 'string' && /colchón|justo en el mínimo|apenas debajo del mínimo|te faltan .* para no perder plata/.test(part)));
+    if (tone === 'green') tone = 'orange';
+  }
   return h('div', { class: ['qr-work', tone ? `qr-work-${tone}` : null] },
     h('p', { class: 'qr-work-question' }, question),
     unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
+    provisional ? h('p', { class: 'qr-work-text qr-provisional-note' }, h('strong', {}, provisionalText(provisional))) : null,
     h('p', { class: 'qr-work-text' }, ...content),
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
@@ -1871,10 +1901,21 @@ function monthAccountBlock(v) {
     sub: hasValue(k.marginPct) ? `Margen ${pct(k.marginPct)}` : null,
     className: ['is-total', unreliable ? null : loss ? 'is-loss' : 'is-gain'].filter(Boolean).join(' '),
   }));
+  // Límites del modelo, a la vista de la cuenta (VALIDACIONES-01, V-6 a V-8): sin cambiar ningún número.
+  const notes = [];
+  const minCall = Number(r.ctx && r.ctx.rules ? r.ctx.rules.minimumCallUnits : (v.q.rules || {}).minimumCallUnits);
+  if (r.unit !== 'month' && r.unit !== 'event' && minCall > 0) {
+    notes.push(`El mínimo ${T.per} se aplica ${T.a === 'una' ? 'a la' : 'al'} ${T.one} promedio: si ${T.theMany} ${T.many} duran distinto, los más cortos que el mínimo se facturan completos y la facturación real es mayor.`);
+  }
+  if (r.activationRounding && r.activationRounding.longerThanMonth) {
+    notes.push(`Cada ${T.one} dura más que el mes: esta es la cuenta de UN MES de trabajo. El precio ${T.g('de la', 'del')} ${T.one} ${T.g('completa', 'completo')} es la tarifa por ${T.one}; los hitos, anticipos y retenciones no se modelan.`);
+  }
+  notes.push('La tarifa incluye todos los costos de esta cotización. Lo que el cliente pida en renglones aparte (horas adicionales, espera, costo financiero) va en otra cotización: no lo cargues dos veces.');
   const titleId = uniqueId('qr-account-title');
   return h('section', { class: ['qr-account', unreliable ? 'is-unreliable' : null], 'aria-labelledby': titleId },
     h('h3', { class: 'qr-account-title', id: titleId }, 'La cuenta del mes', unreliable ? h('span', { class: 'tag-unreliable' }, 'No confiable') : null),
-    h('dl', { class: 'qr-account-list' }, ...rows));
+    h('dl', { class: 'qr-account-list' }, ...rows),
+    h('ul', { class: 'qr-account-notes' }, ...notes.map((text) => h('li', {}, text))));
 }
 
 /**

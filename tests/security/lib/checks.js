@@ -628,8 +628,7 @@ async function dynamicChecks() {
       const wrong = await a.signIn({ email: 'pendiente@example.com', password: 'otra-clave-sintetica' });
       const unknown = await a.signIn({ email: 'nadie@example.com', password: 'otra-clave-sintetica' });
       if (JSON.stringify(wrong) !== JSON.stringify(unknown)) enumHits.push('ingreso: con la contraseña equivocada, una cuenta sin confirmar responde distinto que un email sin cuenta');
-      // Decisión vigente (2026-10-25): la versión sale con la beta por invitación hasta tener SMTP propio.
-      if (FEATURES.publicSignup) enumHits.push('FEATURES.publicSignup = true sin SMTP propio: nadie de afuera recibiría la confirmación (decisión del dueño del 2026-10-25)');
+      if (!FEATURES.publicSignup) enumHits.push('FEATURES.publicSignup no coincide con la decisión del dueño (beta abierta con registro público, 2026-10-25)');
     }
     results.push(check('SEC-18', 'Registro público sin enumeración de cuentas: registro, reenvío de la confirmación y "¿Olvidaste tu contraseña?" responden igual haya o no cuenta; "sin confirmar" sólo con la contraseña correcta; con el envío roto el reenvío dice que no salió (excepción documentada, sólo con una cuenta sin confirmar)', 'P1', 'PRIVACY', enumHits));
   } finally {
@@ -668,7 +667,7 @@ export const HUMAN_DECISIONS = Object.freeze([
     severity: 'P1',
     category: 'SECURITY',
     requiredBeforeRealUsers: true,
-    title: 'Registro público (decisión del dueño, 2026-10-20) listo pero APAGADO en esta versión (FEATURES.publicSignup = false, 2026-10-25): sin dominio no hay SMTP propio y nadie de afuera recibiría la confirmación',
+    title: 'Registro público (decisión del dueño, 2026-10-20; beta abierta confirmada el 2026-10-25): cualquiera crea su cuenta y su propia empresa (aislada por RLS). Sin SMTP propio nadie de afuera recibe la confirmación, así que todavía no funciona para terceros',
     recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-20: registro público con confirmación de email): "Allow new users to sign up" y "Confirm email" encendidos (node scripts/check-auth-perimeter.mjs), SMTP propio con remitente verificado y seguimiento de clics apagado, y las pruebas reales de docs/BETA_PERIMETER.md §2.4. Sin enumeración de cuentas: SEC-18. Antiabuso: límites de Supabase Auth (Rate Limits) y, si aparece abuso, CAPTCHA (decisión aparte: suma un tercero a la CSP).',
   },
   {

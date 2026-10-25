@@ -115,12 +115,16 @@ describe('sendCheck: la regla de "Enviada"', () => {
     assert.equal(sendCheck({ unreliable: true }).allowed, false, 'sin rótulos también bloquea');
   });
 
-  test('sólo críticos: se puede confirmando, nombrándolos', () => {
+  test('sólo críticos: tampoco se puede (V-5, beta abierta), nombrándolos', () => {
     const c = sendCheck(summarizeQuote(criticalOnly()));
-    assert.equal(c.allowed, true);
-    assert.equal(c.confirm, true);
+    assert.equal(c.allowed, false);
+    assert.equal(c.confirm, false);
     assert.equal(c.reason, 'critical');
     assert.ok(c.items.includes('Ruta del proveedor'));
+    const t = sendGuardText(c);
+    assert.equal(t.kind, 'blocked');
+    assert.match(t.message, /Ruta del proveedor/);
+    assert.match(sendBlockedNote(c), /^No se puede marcar como enviada: faltan datos que cambian el costo o el precio/);
   });
 
   test('sin pendientes críticos: se marca directo', () => {

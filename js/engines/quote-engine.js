@@ -110,44 +110,20 @@ function unitIssues(quote, ctx) {
     if (u.kind === 'quantity' && a.billableQuantityPerMonth > 0 && !(a.unitsPerActiveDay > 0) && !(normalizeRules(ctx.rules).minimumCallUnits > 0)) {
       issues.push({ path: 'activity.unitsPerActiveDay', message: `Cargá ${unitTexts(u).cuantos} ${u.plural} hacés por día de trabajo: sin eso no se pueden calcular los días de trabajo ni los costos.`, severity: 'error' });
     }
-    if (a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
-      issues.push({
-        path: 'activity.billableQuantityPerMonth',
-        // H3 (UX-UNITS): dice también qué se calcula (como en día y hora), sin cambiar ningún número.
-        message: `Para facturar ${formatNumber(a.billableQuantityPerMonth, { decimals: 2 })} ${u.plural} por mes necesitás ${formatDays(a.activeDaysPerMonth, { decimals: 1 })} de trabajo: más que los ${formatNumber(a.availableDaysPerMonth)} días disponibles del mes. Se calcula como un trabajo de más de un mes (los costos fijos y los cargos mensuales × ${formatNumber(a.activeDaysPerMonth / a.availableDaysPerMonth, { decimals: 2 })}). Si es un trabajo mensual, revisá la cantidad, el rendimiento o los días disponibles.`,
-        severity: 'warning',
-      });
-    }
+    // Más días de trabajo que los del mes: lo pide confirmar la completitud (`multi_month`, V-1).
   }
-  // Más días que disponibles con la actividad en días (día, hora, mes; ECO-04, AUD-T1 H-04): con los días
-  // del motor (los disponibles con su tope) y diciendo lo que se calcula, sin decir que se reemplaza
-  // algo. Con abono ($/mes) además es NO CONFIABLE (completitud, `month_days_overflow`). Por cantidad o
-  // evento lo avisa la cantidad del mes (arriba).
-  if ((u.kind === 'day' || u.kind === 'hour' || u.kind === 'month') && a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
+  // Abono ($/mes) con más días trabajados que disponibles (ECO-04, AUD-T1 H-04): además es NO CONFIABLE
+  // (completitud, `month_days_overflow`). En las otras unidades lo pide confirmar la completitud
+  // (`multi_month`, V-1): el aviso de acá repetía lo mismo.
+  if (u.kind === 'month' && a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
     const n = (v) => formatNumber(v, { decimals: 2 });
-    const worked = a.activeDaysPerMonth;
-    const available = a.availableDaysPerMonth;
     issues.push({
       path: 'activity.activeDaysPerMonth',
-      message: u.kind === 'month'
-        ? `Los días trabajados (${n(worked)}) superan los disponibles del mes (${n(available)}): un abono mensual se cobra una vez por mes. Subí los días disponibles (30 si trabajás todo el mes) o bajá los trabajados.`
-        : `Los días de trabajo (${n(worked)}) superan los disponibles del mes (${n(available)}): se calcula como un trabajo de más de un mes (los costos fijos y los cargos mensuales × ${n(worked / available)}). Si es un trabajo mensual, revisá los días disponibles (30 si trabajás todo el mes).`,
+      message: `Los días trabajados (${n(a.activeDaysPerMonth)}) superan los disponibles del mes (${n(a.availableDaysPerMonth)}): un abono mensual se cobra una vez por mes. Subí los días disponibles (30 si trabajás todo el mes) o bajá los trabajados.`,
       severity: 'warning',
     });
   }
-  // Días de trabajo + días de espera (standby) que no entran en el mes (SIM-01, RFQ-12): un mismo día no
-  // puede ser de trabajo y de espera. Sólo avisa: no cambia ningún número. Si los días de trabajo solos ya
-  // superan los disponibles, lo dice el aviso de arriba.
-  const standbyDays = normalizeRules(ctx.rules).standbyDaysPerMonth;
-  if (standbyDays > 0 && a.availableDaysPerMonth > 0 && a.activeDaysPerMonth <= a.availableDaysPerMonth + 1e-9
-    && a.activeDaysPerMonth + standbyDays > a.availableDaysPerMonth + 1e-9) {
-    const n = (v) => formatNumber(v, { decimals: 2 });
-    issues.push({
-      path: 'rules.standbyDaysPerMonth',
-      message: `Los días de trabajo (${n(a.activeDaysPerMonth)}) más los de espera (${n(standbyDays)}) suman ${n(a.activeDaysPerMonth + standbyDays)}: más que los ${n(a.availableDaysPerMonth)} días disponibles del mes. Un mismo día no puede ser de trabajo y de espera: revisá los días de espera o los disponibles.`,
-      severity: 'warning',
-    });
-  }
+  // Días de trabajo + días de espera que no entran en el mes: crítico de la completitud (`standby_overflow`, V-1).
   if (quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
     const usual = SERVICE_TYPE_UNITS[quote.serviceType].map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
     issues.push({
@@ -699,7 +675,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   return {
     issues,
     // Salidas estimadas vs costeadas y ajuste (PLAN-2026-011); `preview` = cuánto sumaría si se activa.
-    activationRounding: { ...rounding, active: roundingOn, preview: roundingPreview },
+    // V-7 (VALIDACIONES-01): cada activación dura más que el mes (una obra de varios meses expresada por mes).
+    activationRounding: { ...rounding, active: roundingOn, preview: roundingPreview, longerThanMonth: activity.availableDaysPerMonth > 0 && activity.daysPerActivation > activity.availableDaysPerMonth + 1e-9 },
     unit: ctx.unit,
     unitLabel,
     unitInfo,

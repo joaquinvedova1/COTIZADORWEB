@@ -130,6 +130,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-028 | P1 CIERRE — Señales engañosas antes del autoservicio (Gate A de la revisión del 21/10): H-14, H-12 y H-13 en Productos, H-09 en externos y H-10 en los avisos de personal | corrección de UI, validación y confirmaciones (sin fórmulas) | En curso (sobre el candidato `claude/beta-candidato-1`, sin merge ni deploy) |
 | PLAN-2026-029 | BETA — beta gratuita y sin límites, feedback de las empresas (problemas y sugerencias) clasificado por RATEOS ADMIN y última revisión de UX antes del lanzamiento. Reemplaza los créditos de prueba del 21/10 (decisión del dueño del 22/10) | backend, seguridad, UX (sin fórmulas ni cambios del workspace) | En curso (rama `claude/beta-creditos-reportes`, PR #38 apilado sobre #37; sin merge, deploy ni migración real) |
 | PLAN-2026-030 | UX-UNITS — Unidades compuestas, formularios más claros y un Resultado que se lee solo: "ARS / [unidad]", rendimiento "[número] [unidad] / [día \| hora]", cantidad en días de trabajo, cambio de unidad sin reinterpretar cantidades (F4) y "La cuenta del mes" | UX e interfaz (sin fórmulas; dos campos opcionales sin migración) | Listo para publicar con autorización (PR #39 con base `main`: una sola versión 0.9.0 en la URL actual, con la beta gratuita; sin merge ni deploy) |
+| PLAN-2026-031 | Beta abierta 0.9.0 y VALIDACIONES-01: registro público con confirmación (cualquiera crea su cuenta y su empresa) y validaciones de datos imposibles de la simulación SIM-01 (V-1 a V-8), sin cambiar fórmulas | autenticación, completitud, UX (sin fórmulas; un campo opcional sin migración) | Implementado en el PR #39 (sin merge ni deploy); falta la configuración del dueño (SMTP, Auth) y las pruebas reales con dos correos |
 
 ### Pendientes registrados (sin implementar)
 
@@ -2308,3 +2309,39 @@ Ninguno:
 - 2026-10-24: tres vueltas de revisión heurística independiente; corregidos H2 (no se suponen las horas), H5–H9, H12, N1 y N3. Quedan documentados H3, H4 (decisión del dueño), H10, H11, H14–H16 y N2.
 - 2026-10-24: A/B del motor contra `c5eca19` (2.092/2.092 iguales; 601/601 con forma), cinco casos económicos con la cuenta cerrada y regresión completa (unit, ui-lab, beta-lab, auth-lab, Test Lab, gate). La prueba de toque afuera de la ayuda (i) tocaba sobre la propia burbuja; ahora toca un punto que se verifica afuera.
 - 2026-10-25: decisión del dueño: una sola aplicación en la URL actual. El PR #39 pasa a base `main` (contiene #38) para un solo merge y un solo deploy; el dominio se posterga. Ajustes de la integración: registro público apagado (`publicSignup = false`, beta por invitación como 0.8.1, hasta tener SMTP propio; el alta pública se sigue probando en `auth-lab`) y, por cantidad, el aviso de más días que disponibles dice qué se calcula (texto, sin cambio de cálculo). Preflight y simulación multiagente local en RATEOS-AUDIT.
+
+### PLAN-2026-031 — Beta abierta 0.9.0 y VALIDACIONES-01
+
+#### 1. Objetivo
+Decisión del dueño del 2026-10-25: RATEOS 0.9.0 es una **beta abierta y gratuita** en la URL actual. Cualquiera crea su cuenta con email y contraseña, confirma el correo y usa RATEOS con su propia empresa; cada usuario ve sólo los datos de su empresa y DOVA queda protegida. Antes de admitir usuarios externos se resuelven las validaciones críticas de la simulación SIM-01, sin cambiar fórmulas. Un solo lanzamiento (el PR #39).
+
+#### 2. Alcance
+- `FEATURES.publicSignup = true` (vuelve el registro público de HD-03, ya probado; se revierte sólo esa parte de `f6daa53`). Con el registro cerrado en Supabase la app dice "no se pueden crear cuentas" y el ingreso sigue.
+- Validaciones (completitud, estado y textos; ninguna fórmula):
+  - V-1: más días de trabajo que disponibles fuera del abono → crítico hasta confirmar "Es un trabajo de más de un mes" (`activity.multiMonthConfirmed`, atado a los días); trabajo + espera > días del mes → crítico; espera sin tarifa fuera de on-call → para revisar.
+  - V-2: tarifa conocida sin cantidad → NO CONFIABLE; equilibrio "falta la cantidad".
+  - V-3: plazo de cobro vacío → crítico (0 = contado).
+  - V-4: cobertura de personal < 50 % → crítico ("La cobertura está prevista" lo sigue resolviendo).
+  - V-5: con críticos no se marca como enviada (como NO CONFIABLE); colchón y ganancia "provisorios".
+  - V-6 a V-8: avisos (mínimo por llamado promedio, intervención de más de un mes, renglones aparte).
+- Descartado en la implementación: "24/7 con menos de 24 h por día" como crítico (falso positivo: la plantilla "Cuadrilla 24/7" usa 12 h por día y la disponibilidad no se edita en servicios permanentes).
+
+#### 3. Impacto en fórmulas
+Ninguno: golden 39/39; las 43 cotizaciones de SIM-01 y las de un workspace real (en memoria) dan las mismas cifras.
+
+#### 4. Impacto en datos
+Un campo opcional (`activity.multiMonthConfirmed`); esquema 10, sin migración. Cotizaciones guardadas con el plazo de cobro vacío suman el crítico "Plazo de pago" (sin cambiar cifras).
+
+#### 5. Pasos
+- [x] 1. Registro público encendido, tests y gate (SEC-18) al día.
+- [x] 2. V-1 a V-8 con tests (`tests/engines/validaciones-01.test.js`) y controles en el `ui-lab` (VAL).
+- [x] 3. SIM-01 otra vez: los 3 casos inválidos quedan bloqueados (11B NO CONFIABLE; 12A y 12B con críticos); las otras 40 sin cambios.
+- [x] 4. RLS: tests SQL locales y huella del perímetro de la base real (sólo lectura) idéntica a la probada.
+- [ ] 5. Configuración del dueño: SMTP propio, Auth (Site URL, redirects, confirmación) y pruebas reales con dos correos.
+- [ ] 6. Merge y deploy únicos con autorización expresa.
+
+#### 6. Rollback
+El de 0.9.0 (deploy de `d6540b7`). Para cerrar el registro sin redeploy: "Allow new users to sign up" apagado en Supabase.
+
+#### Bitácora
+- 2026-10-25: decisión del dueño (beta abierta) y requisitos de ChatGPT (Issue #5 de RATEOS-AUDIT). Implementación, tests, SIM-01 otra vez, impacto en DOVA (en memoria) y huella de RLS en la base real (sólo lectura).

@@ -18,7 +18,7 @@
  *   - sin NaN / Infinity, sin scroll horizontal y sin errores de consola
  *   - ECO-02: "No confiable" fuera del Resultado (lista, Inicio, Escenarios), en los
  *     cuatro números y en el PDF; "Enviada" bloqueada con un resultado NO CONFIABLE
- *     (Resultado, lista y editor) y confirmada con pendientes críticos
+ *     (Resultado, lista y editor), tampoco con pendientes críticos (V-5, beta abierta)
  *   - ECO-03: el múltiplo fijo guardado se conserva y avisa, margen objetivo y real, pasar a automático
  * Escribe reports/lab/e2e/ui-lab-report.{json,md} (artefacto de CI).
  *
@@ -647,7 +647,7 @@ async function runMode(mode) {
 
   // ---- ECO-02: el riesgo se ve FUERA del Resultado (lista, Inicio, Escenarios), en los cuatro números y en
   // el PDF; una cotización NO CONFIABLE no se marca como enviada por ningún camino (Resultado, lista, editor)
-  // y con pendientes críticos se confirma. Lo esperado sale del motor sobre lo GUARDADO en la cuenta.
+  // ni con pendientes críticos (V-5). Lo esperado sale del motor sobre lo GUARDADO en la cuenta.
   {
     const storedQuotes = () => (db.workspaces.get(orgId).state.quotes || []);
     const storedStatus = async (id, expected) => {
@@ -770,23 +770,16 @@ async function runMode(mode) {
       check('ECO-02', 'Editor: el selector de estado existe', false, 'sin select[name="status"]');
     }
 
-    // Pendientes críticos sin NO CONFIABLE (E2E-02, "Ruta del proveedor"): se confirma nombrándolos; cancelar no cambia nada.
+    // Pendientes críticos sin NO CONFIABLE (E2E-02, "Ruta del proveedor"): con la beta abierta (VALIDACIONES-01, V-5)
+    // tampoco se puede marcar como enviada; el aviso junto al botón nombra lo que falta y el estado no cambia.
     const c = byId['E2E-02'];
     await go(`#/cotizaciones/${encodeURIComponent(c.q.id)}/result`, 300);
     await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
     const sentBtn = page.locator('button[data-edit="status"]').first();
-    check('ECO-02', 'Con pendientes críticos (no NO CONFIABLE) "Marcar como enviada" está habilitado y sin aviso de bloqueo', (await sentBtn.isEnabled().catch(() => false)) && (await page.locator('.qr-send-blocked').count()) === 0, 'deshabilitado o con aviso');
-    await tap(sentBtn);
-    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
-    const conf = norm(await page.evaluate(() => (document.querySelector('dialog[open]') || {}).textContent || ''));
-    check('ECO-02', 'Con pendientes críticos se pide confirmar y se nombran', /¿Marcarla como enviada con pendientes críticos\?/.test(conf) && /Ruta del proveedor/.test(conf), conf.slice(0, 200));
-    await tap(page.locator('dialog[open]').getByRole('button', { name: 'Revisar primero' }));
-    await page.waitForTimeout(500);
-    check('ECO-02', '"Revisar primero" no cambia el estado', (await storedStatus(c.q.id, 'draft')) === 'draft', 'cambió');
-    await tap(sentBtn);
-    await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
-    await tap(page.locator('dialog[open]').getByRole('button', { name: 'Marcar como enviada igual' }));
-    check('ECO-02', '"Marcar como enviada igual" la marca como enviada (y se guarda)', (await storedStatus(c.q.id, 'sent')) === 'sent', 'no se guardó');
+    const critNote = norm(await page.locator('.qr-send-blocked').first().textContent().catch(() => ''));
+    check('ECO-02', 'V-5: con pendientes críticos "Marcar como enviada" está deshabilitado', !(await sentBtn.isEnabled().catch(() => true)), 'habilitado');
+    check('ECO-02', 'V-5: el aviso junto al botón nombra los críticos', /No se puede marcar como enviada/.test(critNote) && /Ruta del proveedor/.test(critNote), critNote.slice(0, 200));
+    check('ECO-02', 'V-5: el estado sigue en Borrador', (await storedStatus(c.q.id, 'draft')) === 'draft', 'cambió');
 
     // ECO-02 R1: Perdida → Ganada registra un hecho (no se controla), pero no autoriza a mandarla: el
     // Resultado sigue diciendo que hoy NO ES CONFIABLE y que se resuelve antes de volver a mandarla.
@@ -2509,8 +2502,10 @@ async function runMode(mode) {
     // SIM-01 (simulación multiagente): con standby la cantidad × tarifa es un subtotal; con mínimo por intervención, la cuenta muestra lo trabajado.
     const standby = meta(service({ id: 'uxu-standby', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 4, daysPerActivation: 1, availableDaysPerMonth: 30, hoursPerActiveDay: 10 }, labor: [driver()], equipment: [truck()], rules: { standbyNotApplicable: false, standbyDaysPerMonth: 6, standbyRatePerDay: 370000 } }), 'UXU-STANDBY', 'UXU día con standby');
     const minHour = meta(service({ id: 'uxu-minh', serviceType: 'on_call', unit: 'hour', activity: { activeDaysPerMonth: 10, daysPerActivation: 1, availableDaysPerMonth: 30, hoursPerActiveDay: 5 }, labor: [driver()], equipment: [truck()], rules: { minimumCallUnits: 8, standbyNotApplicable: true } }), 'UXU-MINH', 'UXU por hora con mínimo');
+    // VALIDACIONES-01 (V-1): 32 días de trabajo con 30 disponibles, por hora.
+    const multi = meta(service({ id: 'val-multi', serviceType: 'on_call', unit: 'hour', activity: { activeDaysPerMonth: 32, daysPerActivation: 1, availableDaysPerMonth: 30, hoursPerActiveDay: 8 }, labor: [driver()], equipment: [truck()], rules: { standbyNotApplicable: true } }), 'VAL-MULTI', 'VAL trabajo de más de un mes');
     const live = db.workspaces.get(orgId);
-    live.state.quotes = [...live.state.quotes, m3, res, kg, call, stale, kmq, standby, minHour];
+    live.state.quotes = [...live.state.quotes, m3, res, kg, call, stale, kmq, standby, minHour, multi];
     live.revision += 1;
     await page.reload();
     await page.waitForTimeout(2500);
@@ -2805,6 +2800,32 @@ async function runMode(mode) {
     const mhRows = await accountRows();
     const qtyRow = mhRows.find((x) => x[0] === 'Cantidad facturable') || [];
     check(P, 'con mínimo por intervención: "10 días × 5 h por día = 50 h trabajadas · el mínimo … lleva la cantidad facturable a 80 horas"', /= 50 h trabajadas/.test(qtyRow[1] || '') && /lleva la cantidad facturable a 80 horas/.test(qtyRow[1] || '') && norm(qtyRow[2] || '') === '80 horas', JSON.stringify(qtyRow));
+    const notesOf = () => page.evaluate(() => [...document.querySelectorAll('.qr-account-notes li')].map((li) => li.textContent.trim()));
+    const mhNotes = await notesOf();
+    check('VAL', 'V-6: con mínimo por llamado, "La cuenta del mes" avisa que se aplica al llamado promedio', mhNotes.some((t) => /se aplica al llamado promedio/.test(t)), JSON.stringify(mhNotes));
+    check('VAL', 'V-8: "La cuenta del mes" dice que los renglones aparte van en otra cotización', mhNotes.some((t) => /renglones aparte/.test(t)), JSON.stringify(mhNotes));
+
+    // V-1 y V-5: 32 días en un mes de 30 es crítico hasta confirmarlo; con el crítico no se marca como enviada
+    // y el colchón es provisorio. Confirmar en "Cómo se cobra" lo resuelve y se guarda, sin cambiar números.
+    await go(`#/cotizaciones/${encodeURIComponent(multi.id)}/result`, 1500);
+    const mBlocked = norm(await page.locator('.qr-send-blocked').first().textContent().catch(() => ''));
+    const mSendOn = await page.locator('button[data-edit="status"]').first().isEnabled().catch(() => true);
+    check('VAL', 'V-5: con "Trabajo de más de un mes" sin confirmar, "Marcar como enviada" está deshabilitado y lo nombra', !mSendOn && /Trabajo de más de un mes/.test(mBlocked), mBlocked.slice(0, 200));
+    const mWork = norm(await page.evaluate(() => (document.querySelector('.qr-work') || {}).innerText || ''));
+    check('VAL', 'V-5: el colchón no se muestra y el cálculo dice que es provisorio', /Provisorio: hay/.test(mWork) && !/colchón/.test(mWork), mWork.slice(0, 240));
+    const before = computeQuote(structuredClone(stored(multi.id))).kpis;
+    await go(`#/cotizaciones/${encodeURIComponent(multi.id)}/modality`, 1500);
+    const mText = await mainText();
+    check('VAL', 'V-1: "Cómo se cobra" pregunta si es un trabajo de más de un mes', /¿Es un trabajo de más de un mes\?/.test(mText), mText.slice(0, 200));
+    const confirmBtn = page.getByRole('button', { name: 'Es un trabajo de más de un mes' }).first();
+    if (await confirmBtn.count()) await tap(confirmBtn);
+    const mStored = await waitStored(multi.id, (q) => q.activity && q.activity.multiMonthConfirmed);
+    const conf = mStored && mStored.activity.multiMonthConfirmed;
+    check('VAL', 'V-1: la confirmación se guarda atada a los días (32 de 30)', Boolean(conf) && Math.abs(conf.activeDaysPerMonth - 32) < 1e-9 && Math.abs(conf.availableDaysPerMonth - 30) < 1e-9, JSON.stringify(conf));
+    await page.waitForTimeout(600);
+    check('VAL', 'V-1: después de confirmar dice "Confirmado"', /Confirmado: es un trabajo de más de un mes/.test(await mainText()), 'sin el aviso de confirmado');
+    const after = computeQuote(structuredClone(stored(multi.id))).kpis;
+    check('VAL', 'V-1: confirmar no cambia ningún número', JSON.stringify(after) === JSON.stringify(before), 'cambiaron los indicadores');
     const stillK0 = stored(res.id);
     check(P, 'compatibilidad K0: abrirla sin editar no le agrega campos nuevos', Boolean(stillK0) && !('rateInput' in stillK0.activity) && !('quantityInput' in stillK0.activity), JSON.stringify(stillK0 && Object.keys(stillK0.activity)));
 
@@ -2844,29 +2865,30 @@ async function runMode(mode) {
     check('SESION-01', 'tampoco en el menú y la barra ocultos (DOM)', leaks(after.all).length === 0, leaks(after.all).join(', '));
     check('SESION-01', 'la sesión se borró del navegador', after.session === null, 'quedó rateos.auth');
 
-    // Lo publicado (2026-10-25): beta por invitación hasta tener SMTP propio (el registro público de HD-03
-    // está listo y apagado: FEATURES.publicSignup = false). Sin sesión, #/registro no tiene formulario y
-    // nada ofrece "Crear cuenta". El alta pública completa (para cuando se reabra) la recorre auth-lab.
+    // Registro público (HD-03, decisión del dueño del 2026-10-20): sin sesión,
+    // #/registro tiene el formulario y la landing y el ingreso ofrecen crear cuenta.
+    // El alta completa (confirmación por correo) la recorre tests/lab/e2e/auth-lab.mjs.
     await go('#/registro', 800);
     const reg = await page.evaluate(() => ({
       text: document.body.innerText,
       forms: document.querySelectorAll('form').length,
       passwords: document.querySelectorAll('input[type="password"]').length,
+      fields: [...document.querySelectorAll('form input')].map((i) => i.getAttribute('autocomplete')),
     }));
-    check('REGISTRO-01', '#/registro: "Acceso por invitación", sin formulario ni contraseña nueva', reg.forms === 0 && reg.passwords === 0 && /invitación/i.test(reg.text), `${reg.forms} formularios, ${reg.passwords} contraseñas`);
+    check('REGISTRO-01', '#/registro: nombre, empresa, email y contraseña nueva', reg.forms === 1 && reg.passwords === 1 && ['name', 'organization', 'email', 'new-password'].every((f) => reg.fields.includes(f)), reg.fields.join(', '));
+    check('REGISTRO-01', '#/registro ya no habla de una beta cerrada por invitación', !/beta cerrada|por invitación/i.test(reg.text), 'texto de la invitación');
     await go('#/', 1000);
     const landing = await page.evaluate(() => {
       const cta = document.querySelector('.pub-header-cta');
       return {
         ctaText: cta ? cta.textContent.trim() : '',
         ctaHref: cta ? cta.getAttribute('href') : '',
-        offersSignup: /Crear cuenta/.test(document.body.innerText),
       };
     });
-    check('REGISTRO-01', 'la landing ofrece "Ingresar" y no "Crear cuenta"', landing.ctaText === 'Ingresar' && /^#\/login/.test(landing.ctaHref) && !landing.offersSignup, `${landing.ctaText} → ${landing.ctaHref}`);
+    check('REGISTRO-01', 'el botón principal de la landing es "Crear cuenta"', landing.ctaText === 'Crear cuenta' && landing.ctaHref === '#/registro', `${landing.ctaText} → ${landing.ctaHref}`);
     await go('#/login', 800);
     const loginText = await page.evaluate(() => document.body.innerText);
-    check('REGISTRO-01', 'el ingreso no ofrece "Crear cuenta", sí "¿Olvidaste tu contraseña?", y dice que la beta es por invitación', !/Crear cuenta/.test(loginText) && /¿Olvidaste tu contraseña\?/.test(loginText) && /por invitación/i.test(loginText), 'texto inesperado en el ingreso');
+    check('REGISTRO-01', 'el ingreso ofrece "Crear cuenta" y "¿Olvidaste tu contraseña?"', /Crear cuenta/.test(loginText) && /¿Olvidaste tu contraseña\?/.test(loginText), 'texto inesperado en el ingreso');
 
     const emailB = `lab.${mode}.b@rateos.test`;
     const passwordB = `lab-${randomUUID()}`;

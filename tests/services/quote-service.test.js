@@ -297,11 +297,13 @@ describe('QuoteService.saveQuote: la regla de "Enviada" también en el servicio 
     }
   });
 
-  test('con pendientes críticos sí se guarda (la confirmación es de la pantalla)', async () => {
+  test('con pendientes críticos tampoco pasa a Enviada (V-5, beta abierta); el borrador se sigue guardando', async () => {
     const { service, repository } = await setup({ empty: true });
     await repository.saveQuote(criticalOnly('draft'));
-    await service.saveQuote({ ...(await repository.getQuote('r1-crit')), status: 'sent' });
-    assert.equal((await repository.getQuote('r1-crit')).status, 'sent');
+    await assert.rejects(service.saveQuote({ ...(await repository.getQuote('r1-crit')), status: 'sent' }), (e) => e.code === 'send_blocked' && e.check.reason === 'critical');
+    assert.equal((await repository.getQuote('r1-crit')).status, 'draft');
+    await service.saveQuote({ ...(await repository.getQuote('r1-crit')), name: 'Editada' });
+    assert.equal((await repository.getQuote('r1-crit')).name, 'Editada');
   });
 
   test('una cotización que no se puede calcular no pasa a Enviada; las demás se guardan sin calcularse', async () => {
@@ -516,7 +518,8 @@ describe('ensureDemoQuote / latestDraft', () => {
     const latest = await service.latestDraft();
     assert.equal(latest.quote.id, a.id);
     clock.advance(5000);
-    await service.saveQuote({ ...(await service.getQuote(a.id)), status: 'won' });
+    // Una cotización vacía tiene críticos y no puede pasar a Ganada (V-5): sale de los borradores como Perdida.
+    await service.saveQuote({ ...(await service.getQuote(a.id)), status: 'lost' });
     assert.equal((await service.latestDraft()).quote.id, b.id);
   });
 });

@@ -8,9 +8,11 @@
  * un número.
  *
  * Regla de "Enviada": una cotización pasa a Enviada (o a Ganada sin haber
- * estado enviada) sólo con un resultado confiable. Con un resultado NO
- * CONFIABLE, o si no se pudo calcular, no se puede: primero hay que resolver lo
- * que lo causa. Con pendientes críticos se puede, confirmando y nombrándolos.
+ * estado enviada) sólo con un resultado confiable y sin pendientes críticos.
+ * Con un resultado NO CONFIABLE, con pendientes críticos (cambian el costo o el
+ * precio) o si no se pudo calcular, no se puede: primero hay que resolver lo que
+ * lo causa (VALIDACIONES-01, V-5: beta abierta, decisión del dueño del
+ * 2026-10-25; antes los críticos se podían mandar confirmando).
  * La aplican las pantallas (con su aviso) y QuoteService.saveQuote (ECO-02 R1);
  * es una regla de esta app, no del servidor: ver docs/CALCULATION_RULES.md.
  */
@@ -86,6 +88,6 @@ export function sendCheck(summary) {
   const unreliable = Array.isArray(summary.unreliableLabels) ? summary.unreliableLabels.filter((x) => typeof x === 'string') : [];
   if (summary.unreliable === true || unreliable.length) return { allowed: false, confirm: false, reason: 'unreliable', items: unreliable };
   const critical = Array.isArray(summary.criticalLabels) ? summary.criticalLabels.filter((x) => typeof x === 'string') : [];
-  if (critical.length) return { allowed: true, confirm: true, reason: 'critical', items: critical };
+  if (critical.length) return { allowed: false, confirm: false, reason: 'critical', items: critical };
   return { allowed: true, confirm: false, reason: null, items: [] };
 }

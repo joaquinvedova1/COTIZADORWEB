@@ -71,18 +71,20 @@ describe('ECO-04 · H-04: abono con más días trabajados que disponibles', () =
     assert.equal(computeQuote(fixture('e1-cotizacion')).completeness.unreliable, 0);
   });
 
-  test('en otras unidades sigue siendo trabajo de más de un mes: sin NO CONFIABLE, con el aviso que dice qué se calcula', () => {
+  test('en otras unidades sigue siendo trabajo de más de un mes: sin NO CONFIABLE, crítico hasta confirmarlo (V-1) y sin un aviso repetido', () => {
     const q = fixture('e2-cotizacion');
     q.activity.activeDaysPerMonth = 36;
     q.activity.availableDaysPerMonth = 30;
     const r = computeQuote(q);
     assert.equal(pendingOf(r, 'month_days_overflow'), null);
-    const issue = r.issues.find((i) => i.path === 'activity.activeDaysPerMonth');
-    assert.ok(issue, 'falta el aviso de días');
-    assert.equal(issue.severity, 'warning');
-    assert.match(issue.message, /más de un mes/);
-    assert.match(issue.message, /1,2/);
-    assert.doesNotMatch(issue.message, /reemplaz/);
+    const p = pendingOf(r, 'multi_month');
+    assert.ok(p, 'falta el pendiente de días');
+    assert.equal(p.severity, 'critical');
+    assert.equal(p.unreliable, undefined);
+    assert.match(p.message, /36 días de trabajo en un mes de 30/);
+    assert.match(p.message, /más de un mes/);
+    assert.doesNotMatch(p.message, /reemplaz/);
+    assert.equal(r.issues.some((i) => i.path === 'activity.activeDaysPerMonth'), false, 'el pendiente ya lo dice: sin un aviso suelto que lo repita');
   });
 
   test('en $/mes el aviso del campo dice que un abono no se cobra más de una vez por mes', () => {

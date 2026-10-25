@@ -40,9 +40,10 @@ export const PROBES = [
   },
   {
     id: 'PRB-02', dimension: 'A', title: 'Días de trabajo (35) mayores que los días disponibles del mes (30)',
-    expect: 'warn', onSilent: { severity: 'P1', category: 'P1 UX' },
+    // V-1 (beta abierta): crítico hasta confirmar que es un trabajo de más de un mes.
+    expect: 'critical', onSilent: { severity: 'P1', category: 'P1 UX' },
     build: () => service({ id: 'prb-02', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 35, availableDaysPerMonth: 30 }, labor: [person()] }),
-    respond: (q, r) => responseOf(q, r, { paths: ['activity.activeDaysPerMonth'] }),
+    respond: (q, r) => responseOf(q, r, { items: ['multi_month'], paths: ['activity.activeDaysPerMonth'] }),
   },
   {
     id: 'PRB-03', dimension: 'A', title: 'Unidad "km": km facturados (8.000) ≠ km físicos de la ruta (20 salidas × 1 viaje × 200 km = 4.000)',

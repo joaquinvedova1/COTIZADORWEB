@@ -38,6 +38,7 @@ import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { contingencyPctOf, normalizeActivity } from './cost-engine.js';
+import { normalizeRules } from './commercial-rules-engine.js';
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
@@ -47,7 +48,7 @@ import { isPlainObject } from '../core/object.js';
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
-const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips']);
+const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips', 'payment_term']);
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
@@ -242,6 +243,24 @@ export function laborCoverageHolds(quote = {}, line = {}) {
   return Object.keys(now).every((k) => (typeof now[k] === 'boolean' ? c[k] === now[k] : Math.abs(Number(c[k]) - now[k]) < 1e-9));
 }
 
+/**
+ * Trabajo de más de un mes (VALIDACIONES-01, V-1): los días con los que se confirmó. Con más días de
+ * trabajo que disponibles (fuera del abono mensual) el motor calcula varios meses; la confirmación vale
+ * mientras esos días no cambien. Nunca cambia el costo.
+ */
+export function multiMonthAssumption(quote = {}) {
+  const a = normalizeActivity(quote);
+  return { activeDaysPerMonth: nonNegative(a.activeDaysPerMonth), availableDaysPerMonth: nonNegative(a.availableDaysPerMonth) };
+}
+
+/** ¿La confirmación de "trabajo de más de un mes" sigue valiendo para la cotización tal como está? */
+export function multiMonthHolds(quote = {}) {
+  const c = isPlainObject(quote.activity) ? quote.activity.multiMonthConfirmed : null;
+  if (!isPlainObject(c)) return false;
+  const now = multiMonthAssumption(quote);
+  return Object.keys(now).every((k) => Math.abs(Number(c[k]) - now[k]) < 1e-9);
+}
+
 /** Qué cambió desde la confirmación (vacío = sigue valiendo). Sin confirmación válida: null. */
 function assumptionChanges(confirmed, current) {
   if (!isPlainObject(confirmed) || confirmed.unit !== 'activation') return null;
@@ -344,6 +363,35 @@ export function evaluateCompleteness(quote = {}) {
     }
   }
 
+  // 3 ter. Trabajo de más de un mes en las otras unidades (VALIDACIONES-01, V-1; SIM-01, RFQ-12): el motor
+  // lo calcula como varios meses (los fijos y los cargos mensuales × días ÷ disponibles). Puede ser legítimo
+  // (una obra de varios meses expresada por mes) o un error de carga (32 días en un mes de 30). La fórmula
+  // no cambia: es crítico hasta que se confirme, y la confirmación queda atada a esos días.
+  const span = multiMonthAssumption(quote);
+  if (unit.kind !== 'month' && span.availableDaysPerMonth > 0 && span.activeDaysPerMonth > span.availableDaysPerMonth + 1e-9 && !multiMonthHolds(quote)) {
+    const n = (v) => formatNumber(v, { decimals: 2 });
+    const item = rule('multi_month', 'Trabajo de más de un mes', 'modality', 2, 'missing',
+      `${n(span.activeDaysPerMonth)} días de trabajo en un mes de ${n(span.availableDaysPerMonth)} disponibles se calculan como un trabajo de más de un mes. Si lo es, confirmalo en "Cómo se cobra"; si es un solo mes, corregí el dato (un mes no tiene más de 31 días).`);
+    item.critical = true;
+    // Al dato que suele estar mal; la confirmación está en "Cómo se cobra", junto a la cuenta de los días.
+    item.focus = unit.kind === 'quantity' || unit.kind === 'event' ? 'activity.billableQuantityPerMonth' : 'activity.activeDaysPerMonth';
+    items.push(item);
+  }
+
+  // 3 quater. Días de trabajo + días de espera que no entran en el mes (V-1; SIM-01, RFQ-12): un mismo día
+  // no puede ser de trabajo y de espera. Crítico (cambia el costo y la facturación); la fórmula no cambia.
+  // Si los días de trabajo solos ya superan los disponibles, lo dice el punto anterior.
+  const standbyDays = normalizeRules(rules).standbyDaysPerMonth;
+  if (standbyDays > 0 && span.availableDaysPerMonth > 0 && span.activeDaysPerMonth <= span.availableDaysPerMonth + 1e-9
+    && span.activeDaysPerMonth + standbyDays > span.availableDaysPerMonth + 1e-9) {
+    const n = (v) => formatNumber(v, { decimals: 2 });
+    const item = rule('standby_overflow', 'Días de trabajo y de espera', 'margin', 2, 'missing',
+      `Los días de trabajo (${n(span.activeDaysPerMonth)}) más los de espera (${n(standbyDays)}) suman ${n(span.activeDaysPerMonth + standbyDays)}: más que los ${n(span.availableDaysPerMonth)} días disponibles del mes. Un mismo día no puede ser de trabajo y de espera: revisá los días de espera o los disponibles.`);
+    item.critical = true;
+    item.focus = 'rules.standbyDaysPerMonth';
+    items.push(item);
+  }
+
   // 4. Personal. Un puesto USADO (posiciones > 0) sin sueldo básico es CRÍTICO (ECO-01, H-03):
   // su costo laboral sería $ 0 y la cotización no está completa. No se inventa ningún sueldo.
   // Vale también para "sólo equipo": si se cargó un puesto con posiciones, se usa.
@@ -433,12 +481,17 @@ export function evaluateCompleteness(quote = {}) {
       return required > covered + 1e-6 ? { l, index, ppp, normal, extra: perDay * D + perMonth * ppp, required, covered } : null;
     }).filter(Boolean);
     if (short.length) {
-      const first = short[0];
+      // VALIDACIONES-01 (V-4; SIM-01, RFQ-12): si lo cargado cubre menos de la mitad de las horas que pide la
+      // operación, el costo de personal queda muy por debajo: crítico (la fórmula no cambia). Se resuelve
+      // igual: personas, turnos u horas extra, o "La cobertura está prevista" en el puesto.
+      const severe = short.filter((x) => x.covered < 0.5 * x.required - 1e-9);
+      const first = severe[0] || short[0];
       const name = (typeof first.l.role === 'string' && first.l.role.trim()) || 'Personal';
       const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
-      const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
-        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo. Puede estar bien: si el puesto no acompaña todas las horas de la operación (por ejemplo, está compartido o supervisa) o esas horas ya están en el sueldo, tocá "La cobertura está prevista" en el puesto: no hace falta sumar personas.${others}`);
+      const item = rule('labor_hours', 'Horas del personal', 'labor', severe.length ? 2 : 1, severe.length ? 'missing' : 'warning',
+        `${severe.length ? 'Lo cargado cubre menos de la mitad de las horas que pide la operación. ' : ''}${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo. Puede estar bien: si el puesto no acompaña todas las horas de la operación (por ejemplo, está compartido o supervisa) o esas horas ya están en el sueldo, tocá "La cobertura está prevista" en el puesto: no hace falta sumar personas.${others}`);
+      if (severe.length) item.critical = true;
       item.focus = `labor.${first.index}.peoplePerPosition`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal', required: x.required, covered: x.covered }));
       items.push(item);
@@ -933,7 +986,7 @@ export function evaluateCompleteness(quote = {}) {
   // 11. Plazo de pago
   const termOk = !isBlank(finance.paymentTermDays) && Number.isFinite(toNumber(finance.paymentTermDays, NaN));
   const termItem = rule('payment_term', 'Plazo de pago', 'finance', 2, termOk ? 'ok' : 'missing',
-    termOk ? 'Plazo de cobro definido.' : 'Falta el plazo de cobro para completar el costo financiero: mientras tanto sólo se considera el desfase hasta facturar.');
+    termOk ? 'Plazo de cobro definido.' : 'Falta el plazo de cobro: cambia el costo financiero (sin él se calcula como si cobraras el día que facturás, y el costo queda bajo). Cargá en cuántos días te paga el cliente; si cobrás al contado, cargá 0.');
   if (!termOk) termItem.focus = 'finance.paymentTermDays';
   items.push(termItem);
 
@@ -999,6 +1052,23 @@ export function evaluateCompleteness(quote = {}) {
     const ok = nonNegative(rules.standbyRatePerDay) > 0 || rules.standbyNotApplicable === true;
     items.push(rule('standby', 'Equipo en espera (standby)', 'margin', 1, ok ? 'ok' : 'warning',
       ok ? 'Standby definido.' : '¿Qué cobrás si el equipo queda en locación sin operar? Definilo o marcá que no aplica.'));
+  } else if (standbyDays > 0 && !(normalizeRules(rules).standbyRatePerDay > 0)) {
+    // Fuera de on-call (SIM-01, RFQ-12): días de espera cargados sin tarifa cuestan y no se cobran.
+    const item = rule('standby', 'Equipo en espera (standby)', 'margin', 1, 'warning',
+      `Cargaste ${formatNumber(standbyDays, { decimals: 2 })} días de espera por mes sin tarifa de espera: cuestan y no se cobran. Cargá la tarifa de espera o, si no aplica, marcá que no aplica.`);
+    item.focus = 'rules.standbyRatePerDay';
+    items.push(item);
+  }
+
+  // V-2 (VALIDACIONES-01; SIM-01, RFQ-11): con una tarifa conocida y sin cantidad facturable, la
+  // facturación es 0 y la tarifa no se puede ofrecer en esa unidad. NO CONFIABLE hasta cargar la cantidad
+  // (la fórmula no cambia). Suele pasar al cargar una tarifa de otra unidad (por viaje como si fuera por m³).
+  if (quote.pricingMode === 'known_rate' && nonNegative(pricing.knownRate) > 0) {
+    const util = items.find((i) => i.id === 'utilization' && i.status === 'missing');
+    if (util) {
+      util.unreliable = true;
+      util.message = `${util.message} Con tu tarifa y sin esa cantidad, la facturación del mes es $ 0: el resultado no es confiable. Revisá también que tu tarifa sea ${unit.singular ? `por ${unit.singular}` : 'de esta unidad'} y no de otra (por ejemplo, por viaje).`;
+    }
   }
 
   let earned = 0;
@@ -1062,6 +1132,22 @@ export function evaluateCompleteness(quote = {}) {
       });
     }
   });
+  // V-6 (VALIDACIONES-01; SIM-01, RFQ-10): el mínimo por llamado se aplica al llamado PROMEDIO. Con llamados
+  // de distinta duración, los más cortos que el mínimo se facturan completos y la facturación real es mayor que
+  // la calculada (la tarifa sugerida queda alta). Informativo: la fórmula no cambia.
+  const minCall = nonNegative(rules.minimumCallUnits);
+  if (minCall > 0 && (unit.kind === 'hour' || unit.kind === 'quantity' || unit.kind === 'day')) {
+    const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+    const what = unit.kind === 'hour' ? `${n(minCall)} h` : unit.kind === 'day' ? `${n(minCall)} ${Math.abs(minCall - 1) < 1e-9 ? 'día' : 'días'}` : `${n(minCall)} ${unit.plural}`;
+    notices.push({
+      id: 'minimum_on_average',
+      step: 'margin',
+      severity: 'info',
+      label: `Mínimo ${T.per}`,
+      message: `El mínimo de ${what} se aplica ${T.a === 'una' ? 'a la' : 'al'} ${T.one} promedio, no a cada ${T.one}. Si ${T.theMany} ${T.many} duran distinto, los más cortos que el mínimo se facturan completos y la facturación real es mayor que la que calcula RATEOS (la tarifa sugerida queda más alta de lo necesario). Para acercarlo, cargá la duración promedio FACTURABLE: con el mínimo ya aplicado a cada ${T.one}.`,
+      focus: 'rules.minimumCallUnits',
+    });
+  }
   // "El servicio no usa materiales" con materiales cargados: esas líneas no se suman.
   if (quote.materialsNotApplicable && materials.length > 0) {
     notices.push({
@@ -1111,9 +1197,24 @@ export function evaluateCompleteness(quote = {}) {
 export function activationRoundingNotice(quote, rounding, preview) {
   if (!rounding || rounding.enabled) return null;
   const A = rounding.estimated;
-  if (!(A > 1e-9 && A < 1 - 1e-9) || !preview || !(preview.perActivationDiscrete > 0) || !(preview.total > 0)) return null;
+  if (!(A > 1e-9 && A < 1 - 1e-9)) return null;
   const T = activationTerms(quote);
   const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+  // V-7 (VALIDACIONES-01; SIM-01, RFQ-06): cada activación dura más que el mes (una obra de varios meses).
+  // RATEOS muestra la facturación de un MES de obra (la fracción de la obra que entra en el mes), no el total;
+  // "cada una completa" contaría dos veces los costos de la obra. Informativo: la fórmula no cambia.
+  const act = normalizeActivity(quote);
+  if (act.availableDaysPerMonth > 0 && act.daysPerActivation > act.availableDaysPerMonth + 1e-9) {
+    return {
+      id: 'activation_longer_than_month',
+      step: 'modality',
+      severity: 'info',
+      label: `${T.One} de más de un mes`,
+      message: `Cada ${T.one} dura ${n(act.daysPerActivation)} días, más que el mes: la facturación, el costo y la ganancia que se muestran son los de UN MES de trabajo (${n(A)} ${T.many} por mes). El precio ${T.g('de la', 'del')} ${T.one} ${T.g('completa', 'completo')} es la tarifa por ${T.one}. No marques "${activationFieldLabels(T).fullActivations}": contaría dos veces los costos. Los hitos, anticipos o retenciones del contrato no se modelan.`,
+      focus: 'activity.daysPerActivation',
+    };
+  }
+  if (!preview || !(preview.perActivationDiscrete > 0) || !(preview.total > 0)) return null;
   return {
     id: 'activations_below_one',
     step: 'modality',

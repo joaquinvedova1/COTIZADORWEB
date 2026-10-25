@@ -38,6 +38,7 @@ import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase } fr
 import { activationRoundingText } from '../../result-text.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
+import { multiMonthAssumption, multiMonthHolds } from '../../../engines/completeness-engine.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -763,6 +764,27 @@ export function render(container, ctx) {
     },
   });
 
+  // V-1 (VALIDACIONES-01; SIM-01, RFQ-12): más días de trabajo que disponibles (fuera del abono). Se
+  // revisa el dato o se confirma que es un trabajo de más de un mes; la confirmación queda atada a esos
+  // días (multiMonthAssumption) y no cambia el costo.
+  const multiMonthPending = (r) => ((r && r.completeness && r.completeness.pending) || []).some((x) => x.id === 'multi_month');
+  const multiMonthBanner = kind === 'month' ? null : h('div', { class: 'qe-coverage-confirm-wrap qe-multi-month' },
+    kit.toggle(h('div', { class: 'banner banner-warning qe-coverage-confirm', role: 'status' },
+      kit.out((r) => {
+        if (!multiMonthPending(r)) return '';
+        const a = r.activity;
+        return h('div', {}, h('strong', {}, '¿Es un trabajo de más de un mes? '),
+          `${num(a.activeDaysPerMonth)} días de trabajo no entran en un mes de ${num(a.availableDaysPerMonth)}. Confirmalo para usar esta tarifa, o revisá ${byQuantity ? 'la cantidad o el rendimiento' : 'los días de trabajo'}.`);
+      }, { tag: 'div', allowEmpty: true }),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' },
+        kit.action('Revisar el dato', () => ctx.focusField(byQuantity ? 'activity.billableQuantityPerMonth' : 'activity.activeDaysPerMonth'), { icon: 'edit' }),
+        kit.action('Es un trabajo de más de un mes', () => ctx.mutate((q) => { q.activity = q.activity || {}; q.activity.multiMonthConfirmed = multiMonthAssumption(q); }), { icon: 'check' }))),
+    multiMonthPending),
+    kit.toggle(h('div', { class: 'banner banner-info qe-coverage-confirm is-confirmed', role: 'status' },
+      h('div', {}, h('strong', {}, 'Confirmado: es un trabajo de más de un mes. '), 'Si cambian los días de trabajo o los disponibles, se vuelve a preguntar.'),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Revisar', () => ctx.mutate((q) => { if (q.activity) delete q.activity.multiMonthConfirmed; }), { icon: 'edit' }))),
+    (r) => !multiMonthPending(r) && Boolean(r && r.activity) && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && multiMonthHolds(ctx.quote || quote)));
+
   const quantityKeyline = kit.keyline({
     label: 'Con estos datos',
     value: (r) => {
@@ -830,6 +852,7 @@ export function render(container, ctx) {
         hourly ? hoursField() : null,
       ),
     byQuantity ? quantityKeyline : daysKeyline,
+    multiMonthBanner,
     // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
     tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,
     // Cobro por km (PLAN-2026-014, LAB-D4): km facturables y km de ruta, por separado.

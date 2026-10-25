@@ -207,16 +207,19 @@ describe('validateQuote', () => {
     assert.ok(validateQuote(quote).some((i) => i.path === 'pricing.targetMarginPct' && i.severity === 'error'));
   });
 
-  test('días activos mayores que los disponibles: lo avisa el motor con sus días (ECO-04), no validateQuote', () => {
+  test('días activos mayores que los disponibles: lo marca el motor con sus días (ECO-04, V-1), no validateQuote', () => {
     const quote = deepClone(createDemoState(1).quotes[0]);
     quote.activity.activeDaysPerMonth = 31;
     quote.activity.availableDaysPerMonth = 30;
     assert.equal(validateQuote(quote).some((i) => i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning'), false);
-    const issue = computeQuote(quote).issues.find((i) => i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning');
-    assert.ok(issue);
-    // ECO-04 (H-04): el aviso dice lo que se calcula (no que se reemplaza algo por 0).
-    assert.match(issue.message, /superan los disponibles del mes \(30\)/);
-    assert.match(issue.message, quote.unit === 'month' ? /abono mensual se cobra una vez por mes/ : /trabajo de más de un mes/);
+    const r = computeQuote(quote);
+    // ECO-04 (H-04): dice lo que se calcula (no que se reemplaza algo por 0). Con abono es un aviso del
+    // campo + NO CONFIABLE; en las otras unidades, un pendiente crítico hasta confirmar (V-1).
+    const text = quote.unit === 'month'
+      ? r.issues.find((i) => i.path === 'activity.activeDaysPerMonth' && i.severity === 'warning').message
+      : r.completeness.items.find((i) => i.id === 'multi_month').message;
+    assert.match(text, quote.unit === 'month' ? /superan los disponibles del mes \(30\)/ : /31 días de trabajo en un mes de 30/);
+    assert.match(text, quote.unit === 'month' ? /abono mensual se cobra una vez por mes/ : /trabajo de más de un mes/);
   });
 
   test('advierte valor residual mayor que el de reposición', () => {

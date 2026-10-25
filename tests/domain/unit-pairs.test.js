@@ -218,8 +218,8 @@ describe('UX-UNITS · los cinco casos económicos (motor sin cambios, aritmétic
   });
 });
 
-describe('UX-UNITS · H3: por cantidad, más días de trabajo que disponibles dice qué se calcula', () => {
-  test('1.500 m³ a 20 m³ por día = 75 días en un mes de 30: el aviso dice "más de un mes" y × 2,5, y los fijos son × 2,5', () => {
+describe('UX-UNITS · H3 (V-1): por cantidad, más días de trabajo que disponibles dice qué se calcula', () => {
+  test('1.500 m³ a 20 m³ por día = 75 días en un mes de 30: el pendiente dice "más de un mes", lleva a la cantidad y los fijos son × 2,5', () => {
     const mk = (q) => service({
       id: 'uxu-h3', serviceType: 'per_unit', unit: 'm3',
       activity: { billableQuantityPerMonth: q, unitsPerActiveDay: 20, daysPerActivation: 1, availableDaysPerMonth: 30, hoursPerActiveDay: 10 },
@@ -229,14 +229,15 @@ describe('UX-UNITS · H3: por cantidad, más días de trabajo que disponibles di
     const month = computeQuote(mk(600), { settings: LAB_SETTINGS });
     const over = computeQuote(mk(1500), { settings: LAB_SETTINGS });
     assert.equal(over.kpis.activeDays, 75);
-    const issue = over.issues.find((i) => i.path === 'activity.billableQuantityPerMonth' && i.severity === 'warning');
-    assert.ok(issue, 'sin aviso');
-    assert.match(issue.message, /75 días de trabajo: más que los 30 días disponibles del mes/);
-    assert.match(issue.message, /Se calcula como un trabajo de más de un mes \(los costos fijos y los cargos mensuales × 2,5\)/);
+    const multi = (r) => r.completeness.items.find((i) => i.id === 'multi_month');
+    assert.equal(multi(over).severity, 'critical');
+    assert.equal(multi(over).focus, 'activity.billableQuantityPerMonth');
+    assert.match(multi(over).message, /75 días de trabajo en un mes de 30 disponibles se calculan como un trabajo de más de un mes/);
     // El texto dice lo que hace el motor (que no cambia): los fijos de 75 días son 2,5 veces los de un mes.
     assert.ok(Math.abs(over.kpis.fixedCosts - month.kpis.fixedCosts * 2.5) < 0.01, `${over.kpis.fixedCosts} vs ${month.kpis.fixedCosts} × 2,5`);
-    // Dentro del mes, ningún aviso.
-    assert.equal(month.issues.some((i) => i.path === 'activity.billableQuantityPerMonth' && i.severity === 'warning'), false);
+    // Sin un aviso suelto que repita el pendiente; dentro del mes, nada.
+    assert.equal(over.issues.some((i) => i.path === 'activity.billableQuantityPerMonth' && i.severity === 'warning'), false);
+    assert.equal(multi(month), undefined);
   });
 });
 
@@ -247,20 +248,21 @@ describe('SIM-01 (RFQ-12): días de trabajo + días de espera que no entran en e
     labor: [person({ role: 'Operador', basicMonthly: 2000000 })],
     rules: { standbyNotApplicable: false, standbyDaysPerMonth: standby, standbyRatePerDay: 300000 },
   });
-  const warn = (r) => r.issues.find((i) => i.path === 'rules.standbyDaysPerMonth');
-  test('25 de trabajo + 10 de espera = 35 en un mes de 31: avisa, sin cambiar ningún número', () => {
+  const item = (r) => r.completeness.items.find((i) => i.id === 'standby_overflow');
+  test('25 de trabajo + 10 de espera = 35 en un mes de 31: crítico (V-1), sin cambiar ningún número', () => {
     const over = computeQuote(mk(25, 10), { settings: LAB_SETTINGS });
-    assert.match(warn(over).message, /suman 35: más que los 31 días disponibles del mes/);
-    assert.equal(warn(over).severity, 'warning');
-    // Sólo avisa: con el aviso o sin él, el cálculo es el mismo (los días de espera ya se costeaban y facturaban así).
-    const sameNumbers = computeQuote(mk(25, 10), { settings: LAB_SETTINGS });
-    assert.deepEqual(over.kpis, sameNumbers.kpis);
-    assert.equal(warn(computeQuote(mk(20, 10), { settings: LAB_SETTINGS })), undefined, '20 + 10 = 30 entra en 31');
+    assert.match(item(over).message, /suman 35: más que los 31 días disponibles del mes/);
+    assert.equal(item(over).severity, 'critical');
+    assert.equal(item(over).focus, 'rules.standbyDaysPerMonth');
+    // El cálculo es el mismo que con 31 días disponibles + 4 de espera más: sólo cambia la completitud.
+    const fits = computeQuote(mk(20, 10), { settings: LAB_SETTINGS });
+    assert.equal(item(fits), undefined, '20 + 10 = 30 entra en 31');
+    assert.equal(over.issues.some((i) => i.path === 'rules.standbyDaysPerMonth'), false, 'ya no es un aviso suelto: es un pendiente crítico');
   });
-  test('dentro del mes (25 + 6 = 31) no avisa; si el trabajo solo ya supera el mes, avisa el otro aviso', () => {
-    assert.equal(warn(computeQuote(mk(25, 6), { settings: LAB_SETTINGS })), undefined);
+  test('dentro del mes (25 + 6 = 31) no marca; si el trabajo solo ya supera el mes, lo dice "Trabajo de más de un mes"', () => {
+    assert.equal(item(computeQuote(mk(25, 6), { settings: LAB_SETTINGS })), undefined);
     const r = computeQuote(mk(32, 4, 30), { settings: LAB_SETTINGS });
-    assert.equal(warn(r), undefined);
-    assert.ok(r.issues.some((i) => i.path === 'activity.activeDaysPerMonth'));
+    assert.equal(item(r), undefined);
+    assert.equal(r.completeness.items.find((i) => i.id === 'multi_month').severity, 'critical');
   });
 });

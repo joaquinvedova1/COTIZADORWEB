@@ -14,21 +14,35 @@ Reglas para este archivo:
 
 ## [0.9.0] - sin publicar (beta gratuita y UX-UNITS: PLAN-2026-027 a PLAN-2026-030)
 
-**RATEOS v0.9.0.** Decisión del dueño del 25/10: **una sola aplicación en la URL actual** (`https://joaquinvedova1.github.io/COTIZADORWEB/`), sin otro sitio ni otro enlace. Sale en **un solo merge y un solo deploy**: el PR #39 con base `main`, que contiene todo el PR #38 (beta gratuita) y UX-UNITS. El dominio propio queda para más adelante. La fecha se pone al publicarse.
+**RATEOS v0.9.0: beta abierta y gratuita.** Decisiones del dueño del 25/10: **una sola aplicación en la URL actual** (`https://joaquinvedova1.github.io/COTIZADORWEB/`), sin otro sitio ni otro enlace, y **cualquiera puede crear su cuenta** con email y contraseña, confirmar el correo y usar RATEOS con su propia empresa (aislada por RLS). Sale en **un solo merge y un solo deploy**: el PR #39 con base `main`, que contiene todo el PR #38 (beta gratuita), UX-UNITS y las validaciones críticas de la simulación SIM-01 (VALIDACIONES-01). El dominio de la app no cambia. La fecha se pone al publicarse.
 
 ### Integración en la URL actual (PLAN-2026-030, 25/10)
 
 #### Cambiado
-- **Registro: beta por invitación, como la versión publicada** (`FEATURES.publicSignup = false`). El registro público con confirmación de email (HD-03, PLAN-2026-018) queda **listo y apagado**: sin dominio no hay SMTP propio y, con el correo por defecto de Supabase, nadie de afuera recibiría la confirmación. Se reabre con una línea, el SMTP propio y "Allow new users to sign up" encendido (`docs/BETA_PERIMETER.md` §2). Las pruebas del alta pública siguen corriendo (`auth-lab`, con el registro encendido sólo en la prueba).
-- **Por cantidad, con más días de trabajo que disponibles** (por ejemplo 1.500 m³ a 20 m³ por día = 75 días en un mes de 30), el aviso dice también qué se calcula: «Se calcula como un trabajo de más de un mes (los costos fijos y los cargos mensuales × 2,5)», como ya decía por día y por hora. Sólo cambia el texto: el cálculo es el mismo.
+- **Registro público con confirmación de email (beta abierta, decisión del dueño del 25/10)** (`FEATURES.publicSignup = true`, HD-03 / PLAN-2026-018). Necesita en Supabase un SMTP propio, "Confirm email" y "Allow new users to sign up" encendidos (`docs/BETA_PERIMETER.md` §2). Si el registro se cierra en Supabase, la app dice "En este momento no se pueden crear cuentas nuevas" y el ingreso sigue. (Durante la integración del 25/10 estuvo apagado unas horas; el dueño lo reabrió el mismo día.)
+- **Por cantidad, con más días de trabajo que disponibles** (por ejemplo 1.500 m³ a 20 m³ por día = 75 días en un mes de 30) se dice qué se calcula (un trabajo de más de un mes), como por día y por hora. Desde VALIDACIONES-01 lo dice el pendiente crítico «Trabajo de más de un mes» (V-1, abajo). El cálculo es el mismo.
 
 #### Corregido (simulación multiagente SIM-01, 25/10)
 - **«La cuenta del mes» con otros cargos** (espera, abono de disponibilidad, km…): cantidad × tarifa decía «= Facturación por día $ 5.920.000» y era el subtotal. Ahora dice «= Subtotal (cantidad × tarifa)» y la facturación del mes es el total del motor.
 - **Con mínimo por intervención**, la cuenta muestra lo trabajado antes del mínimo: «10 días × 5 h por día = 50 h trabajadas · el mínimo por intervención lleva la cantidad facturable a 80 horas». Antes «10 días × 5 h = 80 horas» no cerraba a la vista.
 - **«Cómo se cobra» con otros cargos** dice también la facturación total del mes, la misma del resumen en vivo. Antes mostraba sólo cantidad × tarifa y el resumen otro número.
 
-#### Agregado (simulación multiagente SIM-01, 25/10)
-- **Aviso de días de trabajo + días de espera que no entran en el mes** (por ejemplo 25 + 10 = 35 en un mes de 31): «Un mismo día no puede ser de trabajo y de espera». Sólo avisa: ningún número cambia.
+### Validaciones críticas antes de la beta abierta (VALIDACIONES-01, 25/10)
+
+Las 15 cotizaciones FAIL de la simulación SIM-01 tenían cifras correctas (un auditor independiente coincidió en las 43) pero dejaban pasar datos imposibles. **Ninguna fórmula cambia**: golden 39/39, las cifras de las 43 cotizaciones de SIM-01 y de un workspace real (en memoria) son las mismas; cambian la completitud, el estado y los textos.
+
+#### Cambiado
+- **V-1 · Trabajo de más de un mes:** con más días de trabajo que disponibles (fuera del abono mensual, que ya era NO CONFIABLE) es un pendiente **crítico** hasta que se confirme en "Cómo se cobra" ("Es un trabajo de más de un mes"). La confirmación queda atada a esos días (`activity.multiMonthConfirmed`, opcional): si cambian, se vuelve a preguntar. El aviso suelto del campo que decía lo mismo se quitó (fuera del abono), para no repetirlo cuatro veces en la pantalla.
+- **V-1 · Días de trabajo + días de espera que no entran en el mes** (por ejemplo 25 + 10 = 35 en un mes de 31): pendiente **crítico** «Días de trabajo y de espera» (antes, un aviso suelto). Días de espera sin tarifa fuera de on-call: «para revisar» (cuestan y no se cobran).
+- **V-2 · Tarifa conocida sin cantidad facturable** (por ejemplo, una tarifa por viaje cargada «por m³» sin m³): **NO CONFIABLE**. El equilibrio dice «falta la cantidad», no «revisá la tarifa».
+- **V-3 · Plazo de cobro vacío:** pendiente **crítico** (cambia el costo financiero; antes, «para revisar»). Si se cobra al contado, se carga 0.
+- **V-4 · Cobertura de personal:** si lo cargado cubre menos de la mitad de las horas que pide la operación, «Horas del personal» es **crítico**. "La cobertura está prevista" lo sigue resolviendo.
+- **V-5 · Estados:** con pendientes críticos **no se puede marcar como enviada** (antes se podía confirmando), igual que con un resultado NO CONFIABLE: en el Resultado, la lista, el editor y el servicio. El colchón del equilibrio no se muestra y la ganancia dice «Provisorio: hay N pendientes críticos».
+
+#### Agregado
+- **V-6 · Mínimo por llamado:** aviso de que se aplica al llamado promedio (con llamados más cortos que el mínimo, la facturación real es mayor), en «¿Te falta cargar algo?» y en «La cuenta del mes».
+- **V-7 · Una intervención o trabajo que dura más que el mes:** aviso de que se muestra la cuenta de UN MES; "Cómo se cobra" ya no sugiere contarla completa (contaría dos veces los costos).
+- **V-8 · Renglones aparte:** «La cuenta del mes» dice que la tarifa incluye todos los costos de la cotización y que los renglones que el cliente pida aparte van en otra cotización.
 
 ### UX-UNITS: unidades compuestas, formularios más claros y un Resultado que se lee solo (PLAN-2026-030)
 

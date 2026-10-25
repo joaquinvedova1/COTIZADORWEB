@@ -417,6 +417,11 @@ export function activationRoundingText(r, terms = activationTerms()) {
     };
   }
   if (whole || !hasDiscrete) return null;
+  // V-7 (VALIDACIONES-01): cada activación dura más que el mes (obra de varios meses): no sugerir la opción,
+  // que contaría dos veces los costos de la obra.
+  if (r.longerThanMonth) {
+    return { tone: 'warning', text: `${head(r.estimated)}: cada ${T.one} dura más que el mes y se muestra la parte de un mes. No marques esta opción: contaría dos veces los costos ${T.per}.` };
+  }
   return {
     tone: 'info',
     text: `${head(r.estimated)} (promedio: los costos por ${T.one} se cuentan en proporción). Si ${T.each} se paga ${T.whole}, activá la opción: se costearía${preview.wholeActivations === 1 ? '' : 'n'} ${n(preview.wholeActivations)} (efecto del redondeo: +${formatMoney(preview.total)} por mes).`,

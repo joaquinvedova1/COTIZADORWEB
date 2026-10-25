@@ -278,7 +278,9 @@ describe('motor: cantidad facturable × precio por unidad', () => {
     assert.equal(negative.kpis.activeDays, 0);
     const tooMuch = computeQuote(cases[4]);
     close(tooMuch.kpis.activeDays, 200);
-    assert.ok(tooMuch.issues.some((x) => x.path === 'activity.billableQuantityPerMonth' && x.severity === 'warning'));
+    const multi = tooMuch.completeness.items.find((x) => x.id === 'multi_month');
+    assert.equal(multi.severity, 'critical');
+    assert.equal(multi.focus, 'activity.billableQuantityPerMonth');
   });
 
   test('avisos de la unidad: unidad propia sin nombre y unidad no habitual para el tipo de servicio', () => {
