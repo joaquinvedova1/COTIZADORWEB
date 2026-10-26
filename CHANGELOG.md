@@ -18,11 +18,13 @@ Reglas para este archivo:
 - **Ficha de siete renglones arriba del Resultado** (Vendés, Tarifa con la piso, Facturás, Te cuesta, Ganás, Actividad y Para no perder) en lugar de los cuatro números y "¿Cuánto tengo que trabajar?". El margen usa la misma palabra y el mismo color que el resumen en vivo ("cumple tu objetivo" con margen ≥ objetivo). "Para no perder" va en la unidad de cobro (horas, horas-hombre, m³…), no en días. **Ninguna cifra cambia.**
 - **Precio total del trabajo:** "del trabajo" (≈ N meses) en la ficha, la cuenta, las trazas y el detalle, sin "total del contrato" ni matriz por trabajos del mes.
 - **Hora-hombre, jornal, equipo-mes:** la unidad con su nombre y la dotación a la vista ("880 horas-hombre = 4 personas × 22 días × 10 h").
-- **A demanda ($/hora o $/día):** la actividad y la cuenta se leen en llamados ("8 llamados por mes (4 de 2 h, 3 de 6 h y 1 de 12 h) = 38 horas trabajadas · se facturan 46 horas por el mínimo de 4 h por llamado"; sin duraciones distintas, "N llamados × X h en promedio"); el mínimo para no perder dice también cuántos llamados son.
+- **Precio total del trabajo en el análisis (SIM-02 S3 P2-2):** sin el comparador de modelos mensuales (abono, mínimo mensual, paquete), sin "actividad ± 20 %" ni equilibrio, utilización o trabajos por mes en la sensibilidad y los escenarios (mueven costos y condiciones); montos "del trabajo".
+- **A demanda ($/hora o $/día):** la actividad y la cuenta se leen en llamados ("8 llamados por mes (4 de 2 h, 3 de 6 h y 1 de 12 h) = 38 horas trabajadas · se facturan 46 horas por el mínimo de 4 h por llamado"; sin duraciones distintas, "N llamados × X h en promedio"); el mínimo para no perder va en llamados enteros (cada llamado factura al menos el mínimo) y la matriz, la sensibilidad y los escenarios también hablan de llamados. "Dotación: 5 personas para 4 puestos (con relevo)" cuando hay relevo.
 - **Impresión:** "Imprimir resumen (1 hoja)" y "Imprimir análisis completo" (la primera hoja es la ficha y la cuenta); A4 con márgenes de 12 mm y "Uso interno" en el encabezado.
 - "Profundizá" pasa a "Detalle del cálculo".
 
 #### Corregido
+- Doble paréntesis en "(la sugerida está redondeada … (automático: …))".
 - La nota de renglones aparte de "La cuenta del mes" decía que la espera iba en otra cotización aunque estaba incluida en la misma cuenta. Ahora aparece sólo si la cuenta ya cobra la espera o horas extra ("La espera del equipo ya está en esta cuenta: no la cotices de nuevo como renglón aparte"), sin "costo financiero" (SIM-02).
 - La nota del mínimo por llamado "promedio" ya no aparece cuando están cargadas las duraciones de cada llamado (el mínimo se aplica a cada uno).
 - La tabla "Descuentos por cantidad de días" se mostraba sin descuentos cargados y marcaba en rojo "Pocos días: pierde plata" el tramo de la actividad estimada.
