@@ -688,7 +688,8 @@
   .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-item { justify-content: flex-start; }
   .qe-summary-inner:not(.is-expanded) .qe-sum-labels { min-height: 1.8rem; align-items: flex-end; }
   .qe-summary-inner:not(.is-expanded) .qe-sum-compact { display: inline-flex; flex-direction: column; font-size: 0.95rem; line-height: 1.15; white-space: nowrap; }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-compact-unit { margin-left: 0; line-height: 1.2; }
+  /* "/hora-hombre" en un renglón, sin cortarse en el guion (SIM-02, S1 P3-5). */
+  .qe-summary-inner:not(.is-expanded) .qe-sum-compact-unit { margin-left: 0; line-height: 1.2; font-size: max(0.8em, var(--fs-xs)); white-space: nowrap; }
   /* Un texto ("No se alcanza") puede ocupar dos renglones: nunca se sale de la pantalla. */
   .qe-summary-inner:not(.is-expanded) .qe-sum-compact { max-width: 100%; white-space: normal; }
   /* La barra fija ocupa lo menos posible (A11Y-1): el botón mantiene 44 px de

@@ -980,7 +980,8 @@ export function evaluateCompleteness(quote = {}) {
     // UXR (SIM A2): un camión que cobra por viaje o km, con consumo trabajando (L/h) y que además "se traslada
     // por sus propios medios" con consumo en ruta (L/100 km): si su trabajo es andar, el combustible va dos veces.
     const transportUnit = ['trip', 'km', 'tonkm'].includes(billingUnitOf(quote).id);
-    const workingLph = (e) => (e.fuelNotApplicable === true ? 0 : isExt(e) ? (extOf(e).fuelIncluded === false ? nonNegative(extOf(e).fuelLitersPerHour) : 0) : nonNegative(e.fuelLitersPerHour));
+    // "Consume detenido" confirmado en Equipos (bomba, hidrogrúa): el L/h no es el de andar (SIM-02, S3).
+    const workingLph = (e) => (e.fuelNotApplicable === true || e.fuelWhileStopped === true ? 0 : isExt(e) ? (extOf(e).fuelIncluded === false ? nonNegative(extOf(e).fuelLitersPerHour) : 0) : nonNegative(e.fuelLitersPerHour));
     const fuelTwice = logistics.notApplicable || !transportUnit ? [] : selfMoving.filter((e) => workingLph(e) > 0 && nonNegative(e.mobilization.travelLitersPer100Km) > 0);
     const ok = operatorTwice.length === 0 && operatorScope.length === 0 && vehicleTwice.length === 0 && mobilizationTwice.length === 0 && fuelTwice.length === 0;
     const candidateNames = `${candidates.slice(0, 3).map((x) => `"${x.role}"`).join(', ')}${candidates.length > 3 ? ` y ${candidates.length - 3} más` : ''}`;
@@ -997,7 +998,7 @@ export function evaluateCompleteness(quote = {}) {
                 ? `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" tiene el costo de tenerlo de un vehículo de apoyo y además "Se traslada por sus propios medios": los km del traslado se cuentan dos veces. Si sólo traslada como vehículo de apoyo, elegí "No requiere movilización" en esa línea.`
                 : `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está como vehículo de la logística auxiliar.`)
               : fuelTwice.length
-                ? `Combustible posiblemente duplicado: "${fuelTwice[0].name || 'Equipo'}" tiene consumo trabajando (L/h) y además consumo en ruta (L/100 km) al trasladarse por sus propios medios. Si su trabajo es andar (cobrás por ${billingUnitOf(quote).singular}), el combustible se cuenta dos veces: dejá el consumo por hora sólo para lo que hace detenido (bomba, hidrogrúa) o en 0.`
+                ? `Combustible posiblemente duplicado: "${fuelTwice[0].name || 'Equipo'}" tiene consumo trabajando (L/h) y además consumo en ruta (L/100 km) al trasladarse por sus propios medios. Si su trabajo es andar (cobrás por ${billingUnitOf(quote).singular}), el combustible se cuenta dos veces: dejá el consumo por hora sólo para lo que hace detenido (bomba, hidrogrúa) o en 0. Si ya es eso, marcá "El consumo por hora es detenido" en el equipo.`
                 : `Movilización posiblemente duplicada: el proveedor de "${mobilizationTwice[0].name || 'Externo'}" cobra la movilización aparte y además lo marcaste "por sus propios medios" (se suman km, combustible y desgaste).`);
     if (operatorScope.length) item.targets = operatorScope.map(({ index, name }) => ({ list: 'equipment', index, name }));
     if (!ok && !operatorTwice.length && operatorScope.length) item.focus = `equipment.${operatorScope[0].index}.operatorLaborId`;

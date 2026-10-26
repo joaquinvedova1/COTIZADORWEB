@@ -244,6 +244,13 @@ describe('Combustible duplicado en transporte (SIM A2)', () => {
     const r = run(q);
     assert.equal(dup(r).status, 'warning');
     assert.match(dup(r).message, /Combustible posiblemente duplicado/);
+    // Confirmado "consumo detenido" (bomba, hidrogrúa): deja de avisar sin cambiar ninguna cifra.
+    const before = r.kpis.suggestedListRate;
+    q.equipment[0].fuelWhileStopped = true;
+    const confirmed = run(q);
+    assert.equal(dup(confirmed).status, 'ok');
+    assert.equal(confirmed.kpis.suggestedListRate, before);
+    delete q.equipment[0].fuelWhileStopped;
     // Con $/día (no es transporte) no se presume: el equipo puede trabajar detenido.
     q.unit = 'day';
     q.activity = { activeDaysPerMonth: 20, hoursPerActiveDay: 5 };

@@ -269,6 +269,8 @@ export { stepOfPath, fieldFromHash, fieldHref };
 export function stepOfItem(item) {
   if (!item) return 'service';
   if (item.id === 'utilization') return 'modality';
+  // Un duplicado se corrige donde está el campo (operador o combustible en Equipos, vehículo en Viajes; SIM-02).
+  if (item.id === 'duplicates' && typeof item.focus === 'string' && QUOTE_STEPS.some((s) => s.id === stepOfPath(item.focus))) return stepOfPath(item.focus);
   return QUOTE_STEPS.some((s) => s.id === item.step) ? item.step : 'service';
 }
 

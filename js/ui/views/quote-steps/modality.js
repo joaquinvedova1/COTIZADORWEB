@@ -328,7 +328,12 @@ export function render(container, ctx) {
         unit: 'h/día',
         value: rateIn.hours,
         placeholder: 'Ej.: 6',
-        hint: info.id === 'km' ? 'Sólo las horas manejando: sin carga, espera ni descarga.' : 'Las horas del día de trabajo en que rendís eso.',
+        // SIM-02 (S2 P3-3): no se copia sola (productivas ≤ trabajadas), pero se dice cuántas tiene el día.
+        hint: info.id === 'km'
+          ? 'Sólo las horas manejando: sin carga, espera ni descarga.'
+          : Number(quote.activity.hoursPerActiveDay) > 0
+            ? `Las horas del día de trabajo en que rendís eso. Si rendís todas, son ${numberToInputText(quote.activity.hoursPerActiveDay)} (las del día de trabajo).`
+            : 'Las horas del día de trabajo en que rendís eso.',
         disabled: kit.readOnly,
         onChange: (v) => {
           rateIn.hours = v;
