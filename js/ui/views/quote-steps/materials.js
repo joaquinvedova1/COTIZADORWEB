@@ -36,7 +36,9 @@ function materialGrid(...fields) {
  * "por mes", "por día activo", "por llamado" / "por salida"… (la activación con el nombre de la cotización,
  * PLAN-2026-014) y "por camión reparado" (por unidad de la tarifa, UXR).
  */
-const basisShort = (basis, T, unit = null) => ({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: T.per, per_billed_unit: `por ${unitSingular(unit)}` }[basis] || basis);
+// Por hora o por día se cuenta lo trabajado (sin el mínimo por llamado): "hora trabajada", "jornal trabajado" (SIM-02 ronda 2).
+const billedUnitWord = (unit) => (unit && unit.kind === 'hour' ? `${unitSingular(unit)} trabajada` : unit && unit.kind === 'day' ? `${unitSingular(unit)} trabajado` : unitSingular(unit));
+const basisShort = (basis, T, unit = null) => ({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: T.per, per_billed_unit: `por ${billedUnitWord(unit)}` }[basis] || basis);
 /** "/día", "/mes", "/salida", "/válvula" (cada cuánto se consume la cantidad). */
 const basisPer = (basis, T, unit = null) => ({ per_month: 'mes', per_active_day: 'día', per_activation: T.one, per_billed_unit: unitSingular(unit) }[basis] || 'mes');
 function unitSingular(unit) {
@@ -44,7 +46,8 @@ function unitSingular(unit) {
 }
 /** Se puede consumir "por unidad de la tarifa" salvo con un abono mensual simple (sería lo mismo que "por mes"). */
 // Llamado y trabajo facturan 1 unidad por salida: "Por llamado"/"Por trabajo" repetiría la opción por salida.
-const billedUnitBasisApplies = (unit) => Boolean(unit) && (unit.kind === 'event' ? unit.id === 'milestone' : unit.kind !== 'month' || Boolean(unit.resource));
+// Por día sin personas ni equipos facturados sería "por día trabajado" = "por día activo": tampoco se repite.
+const billedUnitBasisApplies = (unit) => Boolean(unit) && (unit.kind === 'event' ? unit.id === 'milestone' : (unit.kind !== 'month' && unit.kind !== 'day') || Boolean(unit.resource));
 /** Valor del selector de unidad para "Otra / personalizada". */
 const CUSTOM_UNIT = '__custom';
 /** Líneas en las que la persona eligió "Otra…" y todavía no escribió la unidad (sólo en pantalla). */
@@ -210,7 +213,7 @@ export function render(container, ctx) {
           kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: [
             ...withActivationOptions(MATERIAL_BASES, T),
             // UXR: por unidad de la tarifa (camión reparado, válvula, hora-hombre): no por salida ni por día.
-            ...(billedUnitBasisApplies(billingUnit) || line.basis === 'per_billed_unit' ? [{ id: 'per_billed_unit', label: `Por ${unitSingular(billingUnit)}` }] : []),
+            ...(billedUnitBasisApplies(billingUnit) || line.basis === 'per_billed_unit' ? [{ id: 'per_billed_unit', label: `Por ${billedUnitWord(billingUnit)}` }] : []),
           ].map((b) => ({ value: b.id, label: b.label })), structural: true }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',

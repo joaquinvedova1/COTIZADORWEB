@@ -30,6 +30,7 @@ import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { numberToInputText } from '../../../core/validation.js';
+import { isPlainObject } from '../../../core/object.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
@@ -550,7 +551,10 @@ export function render(container, ctx) {
   // ---- $/hora: horas a facturar por mes (o días de trabajo) + horas por día (+ personas o equipos).
   const hoursIn = hourly ? hoursInputOf(activity) : null;
   // Sin datos de días todavía, se carga en horas (lo natural cobrando por hora).
-  const hoursBasis = hourly && !onDemand && (hoursIn !== null || !hasNumber(activity.activeDaysPerMonth)) ? 'hours' : 'days';
+  // La forma elegida en el selector se recuerda (`activity.hoursBasis`, sólo de pantalla): con el campo vacío,
+  // "días de trabajo por mes" no vuelve a "horas" y un 22 no se lee como 22 horas (SIM-02 ronda 2).
+  const chosenBasis = activity.hoursBasis === 'hours' || activity.hoursBasis === 'days' ? activity.hoursBasis : null;
+  const hoursBasis = hourly && !onDemand && (chosenBasis ? chosenBasis === 'hours' : (hoursIn !== null || !hasNumber(activity.activeDaysPerMonth))) ? 'hours' : 'days';
   const count = () => billedCountOf(ctx.quote ? ctx.quote.activity || {} : activity);
   const resourceWord = resource === 'person' ? 'personas' : 'equipos';
 
@@ -617,6 +621,7 @@ export function render(container, ctx) {
         ctx.mutate((q) => {
           q.activity = q.activity || {};
           const a = q.activity;
+          a.hoursBasis = select.value;
           if (select.value === 'hours') {
             const D = Number(a.activeDaysPerMonth);
             const H = Number(a.hoursPerActiveDay);
@@ -808,22 +813,51 @@ export function render(container, ctx) {
           { value: 'yes', label: 'Sí, el cliente llama y salís', hint: 'Guardia u on-call: el cliente pide el servicio cuando lo necesita.' },
         ],
         onChange: (v) => {
-          const minBefore = Number(ctx.quote.rules && ctx.quote.rules.minimumCallUnits);
+          let note = null;
           ctx.mutate((q) => {
+            q.activity = q.activity || {};
+            const a = q.activity;
             if (v === 'yes') {
               q.serviceType = 'on_call';
+              // Volver a "Sí" devuelve lo que se apartó al contestar "No" (SIM-02 ronda 2: antes se perdía).
+              const kept = isPlainObject(a.demandStash) ? a.demandStash : null;
+              if (kept) {
+                if (Array.isArray(kept.activationProfile)) a.activationProfile = kept.activationProfile;
+                if (kept.callDurationForm) a.callDurationForm = kept.callDurationForm;
+                if (kept.callsPerMonth) a.callsPerMonth = kept.callsPerMonth;
+                if (Number(kept.minimumCallUnits) > 0) {
+                  q.rules = q.rules || {};
+                  q.rules.minimumCallUnits = kept.minimumCallUnits;
+                }
+                note = { text: `Volvieron ${T.theMany} ${T.many} y el mínimo ${T.per} que tenías cargados.`, tone: 'success' };
+              }
+              delete a.demandStash;
               return;
             }
             if (q.serviceType === 'on_call') q.serviceType = 'configurable';
             // SIM-02 S1: sin trabajo a demanda no quedan reglas de llamados ocultas que sigan sumando (el mínimo
-            // por llamado y las duraciones distintas). Los días de trabajo y las salidas quedan como estaban.
-            q.activity = q.activity || {};
-            q.activity.activationProfile = null;
-            delete q.activity.callDurationForm;
-            delete q.activity.callsPerMonth;
+            // por llamado y las duraciones distintas). Se apartan (`activity.demandStash`, sólo de pantalla) para
+            // devolverlos si se vuelve a "Sí". Los días de trabajo y las salidas quedan como estaban.
+            const minimum = Number(q.rules && q.rules.minimumCallUnits);
+            const stash = {
+              activationProfile: Array.isArray(a.activationProfile) && a.activationProfile.length ? a.activationProfile : null,
+              callDurationForm: a.callDurationForm || null,
+              callsPerMonth: a.callsPerMonth || null,
+              minimumCallUnits: minimum > 0 ? minimum : null,
+            };
+            if (stash.activationProfile || stash.callDurationForm || stash.callsPerMonth || stash.minimumCallUnits) {
+              a.demandStash = stash;
+              note = {
+                text: `Sin trabajo a demanda no se usan ${stash.activationProfile ? `las duraciones de ${T.theMany} ${T.many}` : ''}${stash.activationProfile && stash.minimumCallUnits ? ' ni ' : ''}${stash.minimumCallUnits ? `el mínimo ${T.per}` : ''}${!stash.activationProfile && !stash.minimumCallUnits ? `${T.theMany} ${T.many}` : ''}: quedan guardados aparte y vuelven si contestás "Sí".`,
+                tone: 'warning',
+              };
+            }
+            a.activationProfile = null;
+            delete a.callDurationForm;
+            delete a.callsPerMonth;
             if (q.rules && Number(q.rules.minimumCallUnits) > 0) q.rules.minimumCallUnits = null;
           }, { focus: 'serviceOnDemand' });
-          if (v !== 'yes' && minBefore > 0) ctx.toast(`Se quitó el mínimo ${T.per}: sin trabajo a demanda no se aplica.`, 'warning');
+          if (note) ctx.toast(note.text, note.tone);
         },
       }),
       demandBody(),
