@@ -2794,6 +2794,8 @@ async function runMode(mode) {
     const sbRows = await accountRows();
     const sbR = computeQuote(structuredClone(standby));
     const sbLabels = sbRows.map((x) => x[0]);
+    const sbNotes = await page.evaluate(() => [...document.querySelectorAll('.qr-account-notes li')].map((li) => li.textContent.trim()));
+    check('VAL', 'V-8: con equipo en espera en la cuenta, la nota dice que la espera ya está (no la cotices de nuevo aparte)', sbNotes.some((t) => /La espera del equipo ya está en esta cuenta/.test(t) && /renglón aparte/.test(t)), JSON.stringify(sbNotes));
     check(P, 'con standby, cantidad × tarifa es "= Subtotal (cantidad × tarifa)" y la facturación del mes es el total del motor', sbLabels.includes('= Subtotal (cantidad × tarifa)') && !sbLabels.some((l) => /Facturación por /.test(l)) && sbRows.some((x) => x[0] === '= Facturación del mes' && norm(x[2]) === norm(formatMoney(sbR.estimate.revenue.total))), JSON.stringify(sbRows));
     await go(`#/cotizaciones/${encodeURIComponent(standby.id)}/modality`, 1500);
     const sbKey = await mainText();
@@ -2805,7 +2807,8 @@ async function runMode(mode) {
     const notesOf = () => page.evaluate(() => [...document.querySelectorAll('.qr-account-notes li')].map((li) => li.textContent.trim()));
     const mhNotes = await notesOf();
     check('VAL', 'V-6: con mínimo por llamado, "La cuenta del mes" avisa que se aplica al llamado promedio', mhNotes.some((t) => /se aplica al llamado promedio/.test(t)), JSON.stringify(mhNotes));
-    check('VAL', 'V-8: "La cuenta del mes" dice que los renglones aparte van en otra cotización', mhNotes.some((t) => /renglones aparte/.test(t)), JSON.stringify(mhNotes));
+    // SIM-02: la nota de renglones aparte sólo cuando la cuenta ya cobra algo que se suele pedir aparte (espera, horas extra).
+    check('VAL', 'V-8: sin espera ni horas extra en la cuenta, no hay nota de renglones aparte', !mhNotes.some((t) => /renglón aparte|renglones aparte/.test(t)), JSON.stringify(mhNotes));
 
     // V-1 y V-5: 32 días en un mes de 30 es crítico hasta confirmarlo; con el crítico no se marca como enviada
     // y el colchón es provisorio. Confirmar en "Cómo se cobra" lo resuelve y se guarda, sin cambiar números.

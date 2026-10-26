@@ -23,10 +23,10 @@ Reglas para este archivo:
 - "Profundizá" pasa a "Detalle del cálculo".
 
 #### Corregido
-- La nota de renglones aparte de "La cuenta del mes" decía que la espera iba en otra cotización aunque estaba incluida en la misma cuenta.
+- La nota de renglones aparte de "La cuenta del mes" decía que la espera iba en otra cotización aunque estaba incluida en la misma cuenta. Ahora aparece sólo si la cuenta ya cobra la espera o horas extra ("La espera del equipo ya está en esta cuenta: no la cotices de nuevo como renglón aparte"), sin "costo financiero" (SIM-02).
 - La nota del mínimo por llamado "promedio" ya no aparece cuando están cargadas las duraciones de cada llamado (el mínimo se aplica a cada uno).
 - La tabla "Descuentos por cantidad de días" se mostraba sin descuentos cargados y marcaba en rojo "Pocos días: pierde plata" el tramo de la actividad estimada.
-- Las equivalencias ($ por hora, $ por día) dicen con qué horas por día (o qué cantidad) se calculan.
+- Las equivalencias ($ por hora, $ por día) dicen con qué horas por día (o qué cantidad) se calculan; con más de una persona, "$ por hora del equipo (2 personas)" y también "$ por hora-hombre" (SIM-02).
 
 ## [0.9.0] - sin publicar (beta gratuita y UX-UNITS: PLAN-2026-027 a PLAN-2026-030)
 

@@ -1503,7 +1503,14 @@ function equivalentsBlock(v) {
   const D = k.activeDays;
   const items = [];
   const isRate = (unit) => r.unit === unit;
-  if (hasValue(e.perHour)) items.push([`$ por hora${whose}`, e.perHour, isRate('hour') ? 'tu tarifa' : withHours]);
+  // SIM-02: con más de una persona (y la tarifa no es por persona), la hora es la de TODO el equipo: se dice, y
+  // se agrega la hora-hombre para compararla con cotizaciones por hora-hombre.
+  const crew = !res && v.r.model && v.r.model.labor && v.r.model.labor.headcount > 1 ? v.r.model.labor.headcount : null;
+  const crewText = crew ? `${formatNumber(crew, { decimals: 2 })} personas` : null;
+  if (hasValue(e.perHour)) {
+    items.push([`$ por hora${whose}${crew ? ` del equipo (${crewText})` : ''}`, e.perHour, isRate('hour') ? 'tu tarifa' : withHours]);
+    if (crew) items.push(['$ por hora-hombre', e.perHour / crew, `÷ ${crewText}`]);
+  }
   if (hasValue(e.perDay)) {
     let basis = null;
     if (isRate('day')) basis = 'tu tarifa';
@@ -2261,13 +2268,15 @@ function accountNotes(v, rev, others) {
   } else if (r.activationRounding && r.activationRounding.longerThanMonth) {
     notes.push(`Cada ${T.one} dura más que el mes: esta es la cuenta de UN MES de trabajo. El precio ${T.g('de la', 'del')} ${T.one} ${T.g('completa', 'completo')} es la tarifa por ${T.one}; los hitos, anticipos y retenciones no se modelan.`);
   }
-  // V-8: lo que el cliente pida en renglones aparte va en otra cotización; lo que ya está en esta cuenta, se dice.
+  // V-8 (SIM-02): sólo cuando esta cuenta ya cobra algo que el cliente suele pedir como renglón aparte (horas
+  // extra facturadas, equipo en espera): se dice que ya está, para no cotizarlo dos veces.
   const ids = new Set(others.map((x) => x.id));
   const inside = [ids.has('overtime') ? 'las horas extra' : null, ids.has('standby') ? 'la espera del equipo' : null].filter(Boolean);
-  const apart = [ids.has('overtime') ? null : 'horas adicionales', ids.has('standby') ? null : 'espera', 'costo financiero'].filter(Boolean);
-  notes.push(inside.length
-    ? `${joinList(inside).replace(/^./, (c) => c.toUpperCase())} ya ${inside.length === 1 ? 'está' : 'están'} en esta cuenta. Si el cliente pide otros renglones aparte (${joinList(apart)}), van en otra cotización: no cargues dos veces sus costos.`
-    : `Si el cliente pide renglones aparte (${joinList(apart)}), van en otra cotización: no cargues dos veces sus costos.`);
+  if (inside.length) {
+    const one = inside.length === 1;
+    const pronoun = one && inside[0] === 'la espera del equipo' ? 'la' : 'las';
+    notes.push(`${joinList(inside).replace(/^./, (c) => c.toUpperCase())} ya ${one ? 'está' : 'están'} en esta cuenta: no ${pronoun} cotices de nuevo como renglón aparte.`);
+  }
   return notes;
 }
 
@@ -2324,7 +2333,7 @@ function monthAccountBlock(v) {
   return h('section', { class: ['qr-account', unreliable ? 'is-unreliable' : null], 'aria-labelledby': titleId },
     h('h3', { class: 'qr-account-title', id: titleId }, per.job ? 'La cuenta del trabajo' : 'La cuenta del mes', unreliable ? h('span', { class: 'tag-unreliable' }, 'No confiable') : null),
     h('dl', { class: 'qr-account-list' }, ...rows),
-    h('ul', { class: 'qr-account-notes' }, ...notes.map((text) => h('li', {}, text))));
+    notes.length ? h('ul', { class: 'qr-account-notes' }, ...notes.map((text) => h('li', {}, text))) : null);
 }
 
 /**
