@@ -299,10 +299,10 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   // Continuidad: efecto del descuento por permanencia con la actividad estimada
   const continuity = {
-    applies: continuityApplies(quote.rules || {}, quote.contractMonths),
+    applies: continuityApplies(quote.rules || {}, ctx.contractMonths),
     discountPct: normalizeRules(quote.rules || {}).continuityDiscountPct,
     minMonths: normalizeRules(quote.rules || {}).continuityMinMonths,
-    contractMonths: nonNegative(quote.contractMonths),
+    contractMonths: ctx.contractMonths,
   };
   if (continuity.applies && hasRate) {
     continuity.status = classifyDiscount({

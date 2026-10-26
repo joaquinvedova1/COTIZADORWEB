@@ -567,11 +567,6 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
 }
 
 /**
- * ¿La cotización tiene valores ILUSTRATIVOS? (demo, plantillas o recursos de
- * biblioteca de demostración). Se usa para badges y avisos en la interfaz.
- * @returns {{ any: boolean, quote: boolean, lines: number, fuel: boolean, finance: boolean }}
- */
-/**
  * ¿Alguien consume combustible a cargo del prestador? Un equipo propio que no está marcado "No usa
  * combustible" (aunque falte su consumo), un externo con el combustible aparte o un vehículo con traslados.
  * Sin ninguno, el precio del combustible no se usa (SIM-02: no se marca ILUSTRATIVO lo que no cuenta).
@@ -587,6 +582,11 @@ export function fuelInUse(quote = {}) {
   return byEquipment || vehicles;
 }
 
+/**
+ * ¿La cotización tiene valores ILUSTRATIVOS? (demo, plantillas o recursos de
+ * biblioteca de demostración). Se usa para badges y avisos en la interfaz.
+ * @returns {{ any: boolean, quote: boolean, lines: number, fuel: boolean, finance: boolean }}
+ */
 export function illustrativeInfo(quote = {}) {
   const lists = ['labor', 'equipment', 'materials', 'otherCosts'].map((k) => (Array.isArray(quote[k]) ? quote[k] : []));
   const vehicles = quote.logistics && Array.isArray(quote.logistics.vehicles) ? quote.logistics.vehicles : [];

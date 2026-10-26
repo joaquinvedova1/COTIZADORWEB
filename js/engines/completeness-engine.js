@@ -50,8 +50,6 @@ const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
 const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips', 'payment_term', 'billed_resources', 'billed_resources_crew']);
 
-/** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
-
 /**
  * ¿Rige la duración de cada llamado (UXR, `activity.activationProfile`)? Sólo si su promedio coincide con el
  * de la actividad: entonces el mínimo por llamado se aplica a cada uno y el aviso V-6 no corresponde.
@@ -64,6 +62,8 @@ function profileApplies(quote, unit) {
       : a.daysPerActivation;
   return activationProfileOf(a.activationProfile, worked) !== null;
 }
+
+/** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
 
 /** Colores del puntaje en toda la interfaz: verde ≥ 85, naranja ≥ 60, rojo < 60. */
@@ -228,6 +228,24 @@ export function externalQuantityHolds(quote, line) {
 }
 
 /**
+ * Cobertura continua (relevos): servicio permanente o disponibilidad 24/7 a demanda, como siempre. Sin
+ * tipo de servicio (UXR, cotizaciones nuevas), la da la actividad: 24 h por día de trabajo.
+ */
+function continuousCoverage(quote) {
+  const st = quote.serviceType;
+  const activity = isPlainObject(quote.activity) ? quote.activity : {};
+  if (CONTINUOUS_SERVICE_TYPES.includes(st) && (st === 'permanent' || activity.availability === '24/7')) return true;
+  return st === 'configurable' && nonNegative(activity.hoursPerActiveDay) >= 24;
+}
+
+/** UXR: lo que antes decía el tipo "equipo" o "transporte" sale de la unidad (viaje, km, ton-km, hora-equipo…). */
+function equipmentBilling(quote) {
+  const unit = billingUnitOf(quote);
+  const activity = isPlainObject(quote.activity) ? quote.activity : {};
+  return ['trip', 'km', 'tonkm'].includes(unit.id) || unit.resource === 'equipment' || activity.billedResourceKind === 'equipment';
+}
+
+/**
  * Supuesto de "La cobertura está prevista" (P1 CIERRE, AUD-T1 H-10) para un puesto: días y horas de
  * la operación, personas por posición, horas normales, horas extra y si el servicio es continuo, TAL
  * COMO ESTÁN. Se guarda en `line.coverageConfirmed`: mientras siga igual, el puesto no cuenta para
@@ -244,7 +262,7 @@ export function laborCoverageAssumption(quote = {}, line = {}) {
     normalHoursPerMonth: nonNegative(line.normalHoursPerMonth),
     overtimePerActiveDay: items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0),
     overtimePerMonth: items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0),
-    continuous: CONTINUOUS_SERVICE_TYPES.includes(quote.serviceType) && (quote.serviceType === 'permanent' || activity.availability === '24/7'),
+    continuous: continuousCoverage(quote),
   };
 }
 
@@ -467,7 +485,7 @@ export function evaluateCompleteness(quote = {}) {
     item.focus = `labor.${unpaid[0].index}.basicMonthly`;
     item.targets = unpaid.map(({ l, index }) => ({ list: 'labor', index, name: roleOf(l) }));
     items.push(item);
-  } else if (serviceType !== 'equipment_only') {
+  } else if (serviceType !== 'equipment_only' && !(billingUnitOf(quote).resource === 'equipment' || activity.billedResourceKind === 'equipment')) {
     const ok = labor.some((l) => nonNegative(l.basicMonthly) > 0 && nonNegative(l.positions) > 0);
     items.push(rule('labor', 'Personal', 'labor', 2, ok ? 'ok' : 'missing', ok ? 'Personal cargado.' : 'No hay personal con salario cargado.'));
   }
@@ -493,7 +511,7 @@ export function evaluateCompleteness(quote = {}) {
   }
 
   // 5. Relevos (cobertura continua)
-  const continuous = CONTINUOUS_SERVICE_TYPES.includes(serviceType) && (serviceType === 'permanent' || activity.availability === '24/7');
+  const continuous = continuousCoverage(quote);
   if (continuous && labor.length > 0) {
     // P1 CIERRE (AUD-T1 H-10): es una revisión, no una orden de sumar personal. Dice de dónde sale la
     // cobertura continua (disponibilidad 24/7 o servicio permanente) y cada puesto puede confirmarla.
@@ -503,7 +521,7 @@ export function evaluateCompleteness(quote = {}) {
     const names = open.slice(0, 3).map(({ l }) => `"${roleName(l)}"`).join(', ') + (open.length > 3 ? ` y ${open.length - 3} más` : '');
     const source = activity.availability === '24/7'
       ? `Disponibilidad 24/7 (en la modalidad del servicio)${serviceType === 'permanent' ? ' en un servicio permanente' : ''}`
-      : 'Servicio permanente';
+      : serviceType === 'permanent' ? 'Servicio permanente' : 'Operación de 24 h por día';
     const fix = activity.availability === '24/7' ? ' Si el servicio no es 24/7, cambiá la disponibilidad en la modalidad.' : '';
     const item = rule('relief', 'Relevos', 'labor', 1, open.length ? 'warning' : 'ok',
       open.length
@@ -565,8 +583,9 @@ export function evaluateCompleteness(quote = {}) {
   const isExt = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
   const extOf = (e) => (isPlainObject(e.external) ? e.external : {});
   // UXR: "a demanda" (on-call) no implica equipos (un técnico de guardia no los tiene): se piden si hay
-  // líneas cargadas o si el servicio es de equipos o transporte.
-  const needsEquipment = EQUIPMENT_SERVICE_TYPES.includes(serviceType) && serviceType !== 'on_call';
+  // líneas cargadas o si el servicio es de equipos o transporte (por el tipo en las cotizaciones viejas;
+  // por la unidad en las nuevas: viaje, km, ton-km, hora-equipo…).
+  const needsEquipment = (EQUIPMENT_SERVICE_TYPES.includes(serviceType) && serviceType !== 'on_call') || equipmentBilling(quote);
   if (needsEquipment || equipment.length > 0) {
     // Cuáles líneas están incompletas (PLAN-2026-010): se nombran, nunca se ocultan.
     const ownMissing = equipment.map((e, index) => ({ e, index })).filter(({ e }) => !isExt(e) && !(nonNegative(e.replacementValue) > 0 && nonNegative(e.usefulLifeYears) > 0));
@@ -791,7 +810,8 @@ export function evaluateCompleteness(quote = {}) {
     // Qué incluye la tarifa: sin definir el combustible o el operador no se suma nada (puede faltar costo).
     const inclusionsUndefined = externals.filter((e) => typeof extOf(e).fuelIncluded !== 'boolean' || typeof extOf(e).operatorIncluded !== 'boolean');
     // Global: se reparte en los meses de contrato (sin dato se toma 1 mes).
-    const globalNoContract = externals.filter((e) => extOf(e).unit === 'global' && !(nonNegative(quote.contractMonths) >= 1));
+    // Con precio total del trabajo se reparte en los meses del trabajo (siempre ≥ 1).
+    const globalNoContract = normalizeActivity(quote).jobHorizon ? [] : externals.filter((e) => extOf(e).unit === 'global' && !(nonNegative(quote.contractMonths) >= 1));
     const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Externo'}"`).join(', ');
     let status = 'ok';
     let message = 'Recursos externos con tratamiento fiscal y vigencia definidos.';
@@ -981,7 +1001,7 @@ export function evaluateCompleteness(quote = {}) {
     // por sus propios medios" con consumo en ruta (L/100 km): si su trabajo es andar, el combustible va dos veces.
     const transportUnit = ['trip', 'km', 'tonkm'].includes(billingUnitOf(quote).id);
     // "Consume detenido" confirmado en Equipos (bomba, hidrogrúa): el L/h no es el de andar (SIM-02, S3).
-    const workingLph = (e) => (e.fuelNotApplicable === true || e.fuelWhileStopped === true ? 0 : isExt(e) ? (extOf(e).fuelIncluded === false ? nonNegative(extOf(e).fuelLitersPerHour) : 0) : nonNegative(e.fuelLitersPerHour));
+    const workingLph = (e) => (e.fuelNotApplicable === true || e.fuelWhileStopped === true ? 0 : isExt(e) ? (extOf(e).fuelIncluded === false && !['per_100km', 'km_per_liter'].includes(extOf(e).fuelMode) ? nonNegative(extOf(e).fuelLitersPerHour) : 0) : nonNegative(e.fuelLitersPerHour));
     const fuelTwice = logistics.notApplicable || !transportUnit ? [] : selfMoving.filter((e) => workingLph(e) > 0 && nonNegative(e.mobilization.travelLitersPer100Km) > 0);
     const ok = operatorTwice.length === 0 && operatorScope.length === 0 && vehicleTwice.length === 0 && mobilizationTwice.length === 0 && fuelTwice.length === 0;
     const candidateNames = `${candidates.slice(0, 3).map((x) => `"${x.role}"`).join(', ')}${candidates.length > 3 ? ` y ${candidates.length - 3} más` : ''}`;
@@ -1003,7 +1023,7 @@ export function evaluateCompleteness(quote = {}) {
     if (operatorScope.length) item.targets = operatorScope.map(({ index, name }) => ({ list: 'equipment', index, name }));
     if (!ok && !operatorTwice.length && operatorScope.length) item.focus = `equipment.${operatorScope[0].index}.operatorLaborId`;
     else if (!ok && !operatorTwice.length && vehicleTwice.length && linkedVehicle(vehicleTwice[0]) >= 0) item.focus = `logistics.vehicles.${linkedVehicle(vehicleTwice[0])}.ownershipCostsIn`;
-    else if (!ok && !operatorTwice.length && !operatorScope.length && !vehicleTwice.length && fuelTwice.length && !isExt(fuelTwice[0])) item.focus = `equipment.${equipment.indexOf(fuelTwice[0])}.fuelLitersPerHour`;
+    else if (!ok && !operatorTwice.length && !operatorScope.length && !vehicleTwice.length && fuelTwice.length) item.focus = `equipment.${equipment.indexOf(fuelTwice[0])}.${isExt(fuelTwice[0]) ? 'external.' : ''}fuelLitersPerHour`;
     items.push(item);
   }
 

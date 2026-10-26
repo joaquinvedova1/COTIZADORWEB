@@ -41,7 +41,8 @@ export function createEconomicsContext(quote, model) {
     // Horas extra facturadas aparte (PLAN-2026-010): siguen siendo costo.
     overtimeBilling: overtimeBillingOf(model),
     rules: quote.rules || {},
-    contractMonths: nonNegative(quote.contractMonths),
+    // Precio total del trabajo (UXR): la duración es la del trabajo (no los meses de contrato, que no se ven).
+    contractMonths: model.activity && model.activity.jobHorizon ? model.activity.jobMonths : nonNegative(quote.contractMonths),
     commercialDiscountPct: nonNegative(pricing.commercialDiscountPct),
     routeKmPerActivation: model.logistics.routeKmPerActivation,
   };

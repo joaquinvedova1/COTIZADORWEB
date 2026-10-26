@@ -124,15 +124,17 @@ export function render(container, ctx) {
     kit.check('logistics.notApplicable', { label: 'Sin traslados', structural: true, hint: 'Marcalo si el servicio se presta en tu base o el cliente traslada todo.' }),
   );
 
-  // Km facturados por mes contra los que recorre la ruta (mismo criterio que el aviso route_consistency).
+  // Km facturados por mes contra los que recorre la ruta: se muestra sólo con el aviso route_consistency
+  // del motor (mismo criterio y mismos datos; revisión de código).
   const kmRouteGap = (r) => {
+    const flagged = r && r.completeness && (r.completeness.items || []).some((i) => i.id === 'route_consistency' && i.focus === 'logistics.tripsPerActivation');
+    if (!flagged) return null;
     const billed = nonNegative(quote.activity && quote.activity.billableQuantityPerMonth);
     const kmPerTrip = nonNegative(lg.distanceKm) * (lg.roundTrip === false ? 1 : 2);
-    const activations = r && r.activity ? nonNegative(r.activity.activationsPerMonth) : 0;
-    const trips = nonNegative(lg.tripsPerActivation) || 1;
-    const routeKm = activations * trips * kmPerTrip;
-    if (!(billed > 0 && kmPerTrip > 0 && activations > 0) || !(billed - routeKm > Math.max(1, billed * 0.01))) return null;
-    return { billed, kmPerTrip, activations, trips, routeKm, needed: Math.round((billed / (activations * kmPerTrip)) * 100) / 100 };
+    const activations = r.activity ? nonNegative(r.activity.activationsPerMonth) : 0;
+    const trips = nonNegative(lg.tripsPerActivation);
+    if (!(billed > 0 && kmPerTrip > 0 && activations > 0)) return null;
+    return { billed, kmPerTrip, activations, trips, routeKm: activations * trips * kmPerTrip, needed: Math.round((billed / (activations * kmPerTrip)) * 100) / 100 };
   };
   const routeCard = notApplicable
     ? null

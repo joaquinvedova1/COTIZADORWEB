@@ -21,6 +21,7 @@ import { computeQuote } from '../../../engines/quote-engine.js';
 import { guardSending } from '../../send-guard.js';
 import { unitPicker } from './unit-picker.js';
 import { changeUnitTo } from './unit-change.js';
+import { currentApply, sameApply } from '../../../domain/unit-catalog.js';
 
 /**
  * Regla de "Enviada" (ECO-02) con la cotización tal como está AHORA en el editor (no con el último
@@ -118,6 +119,11 @@ export function render(container, ctx) {
         const clean = cleanUnitName(input.value);
         if (!clean) {
           input.value = quote.unitName || '';
+          return;
+        }
+        // Corregir sólo tildes o mayúsculas ("valvula" → "válvula") es la misma unidad: se guarda sin preguntar.
+        if (quote.unit === 'custom' && clean !== quote.unitName && sameApply(currentApply(quote), { unit: 'custom', unitName: clean })) {
+          ctx.mutate((q) => { q.unitName = clean; });
           return;
         }
         const changed = await changeUnitTo(ctx, { unit: 'custom', unitName: clean });

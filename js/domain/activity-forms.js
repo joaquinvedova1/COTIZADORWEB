@@ -48,7 +48,9 @@ export function hoursInputOf(activity = {}) {
   if (input === null) return null;
   const D = positive(activity.activeDaysPerMonth);
   const H = positive(activity.hoursPerActiveDay);
-  if (D === null || H === null) return null;
+  // Sin horas por día todavía, las horas cargadas siguen siendo el dato (los días se calculan después).
+  if (H === null) return input;
+  if (D === null) return null;
   return near(D * H * billedCountOf(activity), input) ? input : null;
 }
 

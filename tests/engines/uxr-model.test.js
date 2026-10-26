@@ -299,3 +299,36 @@ describe('Personas facturadas vs personal cargado (SIM-02 S1, P0)', () => {
     assert.ok(!(r4.completeness.notices || []).some((n) => n.id === 'billed_resources_fewer'));
   });
 });
+
+describe('Sin tipo de servicio: lo que decía el tipo sale de la unidad (revisión de código)', () => {
+  const item = (r, id) => r.completeness.items.find((i) => i.id === id);
+  test('por viaje sin equipos cargados: pide el costo de los equipos', () => {
+    resetIds();
+    const q = service({ serviceType: 'configurable', unit: 'trip', activity: { billableQuantityPerMonth: 20, unitsPerActiveDay: 2, hoursPerActiveDay: 8 }, labor: [person()] });
+    assert.equal(item(run(q), 'equipment_cost').status, 'missing');
+  });
+  test('por hora-equipo sin personal: no pide personal', () => {
+    resetIds();
+    const q = service({ serviceType: 'configurable', unit: 'hour', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8, billedResourceKind: 'equipment', billedResources: 1 }, equipment: [owned({ name: 'Generador', fuelNotApplicable: true })] });
+    const labor = item(run(q), 'labor');
+    assert.ok(!labor || labor.status !== 'missing');
+  });
+  test('24 h por día con una persona por puesto: revisa relevos', () => {
+    resetIds();
+    const q = service({ serviceType: 'configurable', unit: 'day', activity: { activeDaysPerMonth: 30, availableDaysPerMonth: 30, hoursPerActiveDay: 24 }, labor: [person({ role: 'Vigilador', peoplePerPosition: 1 })] });
+    assert.equal(item(run(q), 'relief').status, 'warning');
+  });
+});
+
+describe('Precio total del trabajo: el descuento por continuidad usa la duración del trabajo (revisión de código)', () => {
+  test('obra de 20 días con descuento desde 6 meses: no se aplica por los 12 meses de contrato ocultos', () => {
+    resetIds();
+    const q = service({ serviceType: 'configurable', unit: 'job', contractMonths: 12, activity: { daysPerActivation: 20, availableDaysPerMonth: 22, hoursPerActiveDay: 9 }, labor: [person()], rules: { continuityDiscountPct: 5, continuityMinMonths: 6 } });
+    q.billingHorizon = 'job';
+    const r = run(q);
+    assert.equal(r.continuity.applies, false);
+    const plain = structuredClone(q);
+    plain.rules.continuityDiscountPct = 0;
+    assert.equal(r.kpis.suggestedListRate, run(plain).kpis.suggestedListRate);
+  });
+});

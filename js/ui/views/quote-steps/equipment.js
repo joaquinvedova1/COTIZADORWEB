@@ -1106,6 +1106,10 @@ export function render(container, ctx) {
                 ? kit.num(`${p}.external.fuelLitersPerHour`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/h', hint: 'Se suma como combustible con el precio de la cotización.' })
                 : null,
           ext.fuelIncluded === false ? kit.out((r) => (at(r) ? externalFuelText(r, at(r)) : ''), { tag: 'p', className: 'small qe-fuel-calc', allowEmpty: true }) : null,
+          // Como en los propios (SIM-02 S3): un consumo por hora que pagás vos puede ser el de andar.
+          ext.fuelIncluded === false && !['per_100km', 'km_per_liter'].includes(ext.fuelMode) && fuelTwiceRisk(line)
+            ? kit.check(`${p}.fuelWhileStopped`, { label: 'El consumo por hora es detenido (bomba, hidrogrúa)', hint: 'Se traslada por sus propios medios con consumo en ruta. Si el L/h es de andar, el combustible va dos veces: dejalo en 0.' })
+            : null,
           triField(`${p}.external.mobilizationIncluded`, 'Movilización (llevarlo y traerlo)'),
           ext.mobilizationIncluded === false ? kit.num(`${p}.external.mobilizationAmount`, { label: `Movilización del proveedor ${T.per} (neta)`, rule: 'money', unit: sym, hint: `Lo que te cobra por llevarlo y traerlo en ${T.each}.` }) : null,
           triField(`${p}.external.insuranceIncluded`, 'Seguro'),

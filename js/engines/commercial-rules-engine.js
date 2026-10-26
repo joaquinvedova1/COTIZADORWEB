@@ -106,11 +106,13 @@ export function unitHasDayTiers(unit) {
  */
 export function activationProfileOf(profile, worked) {
   if (!Array.isArray(profile)) return null;
-  const items = profile.filter(isPlainObject).map((x) => ({ count: nonNegative(x.count), units: nonNegative(x.units) })).filter((x) => x.count > 0);
+  // Mismo criterio que la pantalla (activity-forms `cleanProfile` y `near`): filas con llamados y duración
+  // positivos, y el promedio igual a lo trabajado con tolerancia 1e-6 (revisión de código).
+  const items = profile.filter(isPlainObject).map((x) => ({ count: nonNegative(x.count), units: nonNegative(x.units) })).filter((x) => x.count > 0 && x.units > 0);
   const total = items.reduce((a, x) => a + x.count, 0);
   if (!(total > 0)) return null;
   const mean = items.reduce((a, x) => a + x.count * x.units, 0) / total;
-  if (!(Math.abs(mean - worked) <= 1e-9 * Math.max(1, Math.abs(worked)))) return null;
+  if (!(Math.abs(mean - worked) <= 1e-6 * Math.max(1, Math.abs(worked)))) return null;
   return items.map((x) => ({ weight: x.count / total, units: x.units }));
 }
 

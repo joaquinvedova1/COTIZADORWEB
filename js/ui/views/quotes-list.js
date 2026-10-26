@@ -261,7 +261,12 @@ export function quoteColumns({ statusCell = null } = {}) {
       key: 'totalCost',
       label: 'Costo del mes',
       align: 'right',
-      render: ({ summary }) => (summaryFailed(summary) ? muted() : h('span', { class: 'nowrap' }, formatMoney(summary.totalCost))),
+      // Precio total del trabajo (UXR): el costo del mes es el del trabajo ÷ sus meses (como en Inicio).
+      render: ({ summary }) => (summaryFailed(summary)
+        ? muted()
+        : summary.jobMonths > 0
+          ? h('div', {}, h('div', { class: 'nowrap' }, formatMoney(summary.totalCost / summary.jobMonths)), h('div', { class: 'cell-sub nowrap' }, `Todo el trabajo: ${formatMoney(summary.totalCost)}`))
+          : h('span', { class: 'nowrap' }, formatMoney(summary.totalCost))),
     },
     { key: 'rate', label: 'Tarifa', align: 'right', render: ({ quote, summary }) => quoteRateNode(quote, summary) },
     {
@@ -286,6 +291,7 @@ function breakEvenNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
   const unit = billingUnitOf(quote || {});
   if (unit.kind === 'month') return h('span', { class: 'muted', title: 'Con abono mensual la facturación no depende de los días: no hay break-even en días.' }, 'No aplica');
+  if (summary.jobMonths > 0) return h('span', { class: 'muted', title: 'Precio total de un solo trabajo: no hay una cantidad por mes para no perder.' }, 'No aplica');
   // Equilibrio en 0 (PLAN-2026-012): "Desde el primer viaje", nunca "0 viajes".
   const zero = summary.breakEvenZeroReason
     ? breakEvenZeroText({ breakEven: { reachable: true, zeroReason: summary.breakEvenZeroReason }, unitInfo: unit }, { compact: true })
@@ -545,10 +551,10 @@ export async function render(root, app) {
         ['Código', h('span', { class: 'mono' }, textOf(quote.code, EMPTY))],
         ['Cómo se cobra', chargeSummary(quote)],
         [PRICING_STEP_LABEL, labelOf(PRICING_MODES, quote.pricingMode)],
-        ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
+        summary.jobMonths > 0 ? ['Costo del trabajo', failed ? EMPTY : formatMoney(summary.totalCost)] : ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
         ['Tarifa', quoteRateNode(quote, summary)],
         ['Margen esperado', quoteMarginNode(summary)],
-        ['Para no perder (por mes)', breakEvenNode(quote, summary)],
+        [summary.jobMonths > 0 ? 'Para no perder' : 'Para no perder (por mes)', breakEvenNode(quote, summary)],
         ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct, summaryCriticalCount(summary))],
         ['Última modificación', formatDateTime(quote.updatedAt)],
       ]),

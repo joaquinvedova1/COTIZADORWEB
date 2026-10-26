@@ -45,7 +45,6 @@ function rateFormText(plural, denominator) {
   return `${plural} por ${denominator === 'hour' ? 'hora' : 'día de trabajo'}`;
 }
 
-/** Número positivo o null (para leer datos de la cotización). */
 /**
  * El dato del motor que este campo carga de otra forma (las horas del mes en lugar de los días, los llamados
  * a demanda): "Ir al campo" y los avisos en el campo lo encuentran igual.
@@ -84,11 +83,26 @@ function rateRowFor(result, marginPct) {
   return (result.ratesAtEstimate.byMargin || []).find((m) => m.marginPct === marginPct) || null;
 }
 
+let activationsMemo = { key: null, settings: null, value: false };
 /**
  * ¿Las salidas de la base (días por salida) cambian algún costo o ingreso de esta cotización? Se prueba con
  * otro valor (D, costo, facturación): así cubre cualquier costo "por salida" sin una lista de reglas.
  */
 function activationsMatter(quote, settings) {
+  // Dos cálculos completos: se recuerda el último resultado para la misma cotización (revisión de código).
+  let key = null;
+  try {
+    key = JSON.stringify(quote);
+  } catch {
+    key = null;
+  }
+  if (key !== null && activationsMemo.key === key && activationsMemo.settings === settings) return activationsMemo.value;
+  const value = activationsDiffer(quote, settings);
+  activationsMemo = { key, settings, value };
+  return value;
+}
+
+function activationsDiffer(quote, settings) {
   try {
     const base = computeQuote(quote, { settings });
     const alt = structuredClone(quote);
@@ -597,7 +611,9 @@ export function render(container, ctx) {
         if (byHours) {
           ctx.update('activity.hoursInput', v === null ? null : { value: v });
           const a = ctx.quote.activity || {};
-          ctx.update('activity.activeDaysPerMonth', v === null ? null : daysFromHours(v, a.hoursPerActiveDay, billedCountOf(a)));
+          // Sin horas por día no se pueden calcular los días: se conservan hasta que se carguen (revisión de código).
+          const D = v === null ? null : daysFromHours(v, a.hoursPerActiveDay, billedCountOf(a));
+          if (v === null || D !== null) ctx.update('activity.activeDaysPerMonth', D);
         } else {
           ctx.update('activity.activeDaysPerMonth', v);
         }
