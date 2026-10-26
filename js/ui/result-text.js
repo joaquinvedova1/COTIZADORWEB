@@ -92,6 +92,24 @@ export function cushionText(D, beDays, { beDecimals = dayDecimals(beDays) } = {}
     : `${estimate} te faltan ${formatDays(-shownGap)} para no perder plata.`;
 }
 
+/**
+ * Cuánto sobra o falta sobre el mínimo para no perder, en cualquier unidad (horas, horas-hombre, m³, días…),
+ * con los valores que SE MUESTRAN: el mínimo redondeado hacia arriba y lo estimado, así la resta cierra con lo
+ * que se lee ("Estimás 880 horas-hombre: te sobran 153 horas-hombre."). Si al redondear el signo no coincide
+ * con el real (o da 0), dice "justo en el mínimo" o "apenas debajo". '' si falta un dato.
+ * @param {{ est: number, min: number, estShown: number, minShown: number, decimals?: number, fmt: (value: number, decimals: number) => string }} p
+ */
+export function spareText({ est, min, estShown, minShown, decimals = 2, fmt } = {}) {
+  if (![est, min, estShown, minShown].every(isFiniteNumber) || typeof fmt !== 'function') return '';
+  const real = est - min;
+  const gap = roundTo(estShown - minShown, decimals);
+  const head = `Estimás ${fmt(estShown, decimals)}`;
+  if (Math.abs(gap) < EPS || (real >= -EPS) !== (gap > 0)) {
+    return real >= -EPS ? `${head}: estás justo en el mínimo.` : `${head}: estás apenas debajo del mínimo.`;
+  }
+  return real >= -EPS ? `${head}: te sobran ${fmt(gap, decimals)}.` : `${head}: te faltan ${fmt(-gap, decimals)}.`;
+}
+
 // ------------------------------------------------------- textos generales
 
 /** "a", "a y b", "a, b y c". */

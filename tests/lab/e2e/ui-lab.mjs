@@ -709,12 +709,13 @@ async function runMode(mode) {
     await go(`#/cotizaciones/${encodeURIComponent(u.q.id)}/result`, 300);
     await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
     const res = await page.evaluate(() => {
-      const tagged = (sel) => Boolean(document.querySelector(`${sel} .big-stat-label .tag-unreliable`));
+      // La ficha del Resumen: la marca va en el rótulo de cada renglón (y en el del piso, dentro del de la tarifa).
+      const tagged = (sel) => Boolean(document.querySelector(`${sel} > dt .tag-unreliable, ${sel}.qr-fact-floor > .tag-unreliable`));
       const sent = document.querySelector('button[data-edit="status"]');
       const note = document.querySelector('.qr-send-blocked');
       return {
         cost: tagged('.qr-stat-cost'), price: tagged('.qr-stat-price'), margin: tagged('.qr-stat-margin'),
-        floor: tagged('.qr-stat-floor') || !/\$/.test((document.querySelector('.qr-stat-floor .big-stat-number') || {}).textContent || ''),
+        floor: tagged('.qr-stat-floor') || !/\$/.test((document.querySelector('.qr-stat-floor .qr-fact-floor-amount') || {}).textContent || ''),
         sentDisabled: Boolean(sent && sent.disabled),
         note: note ? note.innerText : '',
         noteVisible: Boolean(note && note.offsetParent !== null),
@@ -725,12 +726,12 @@ async function runMode(mode) {
     await page.emulateMedia({ media: 'print' });
     const pdf = await page.evaluate(() => {
       const flag = document.querySelector('.qr-print-flag');
-      const stat = document.querySelector('.qr-stat');
+      const stat = document.querySelector('.qr-fact');
       return {
         flag: flag && flag.offsetParent !== null ? flag.innerText : '',
         first: Boolean(flag && stat && (flag.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING)),
-        tags: document.querySelectorAll('.qr-stat .tag-unreliable').length,
-        tagsShown: [...document.querySelectorAll('.qr-stat .tag-unreliable')].filter((t) => t.offsetParent !== null).length,
+        tags: document.querySelectorAll('.qr-fact .tag-unreliable').length,
+        tagsShown: [...document.querySelectorAll('.qr-fact .tag-unreliable')].filter((t) => t.offsetParent !== null).length,
       };
     });
     await page.emulateMedia({ media: 'screen' });
@@ -817,13 +818,14 @@ async function runMode(mode) {
     const t = byId['E2E-21'];
     const k0 = t.r.kpis;
     await go(`#/cotizaciones/${encodeURIComponent(t.q.id)}/result`, 300);
-    await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+    await page.waitForSelector('.qr-facts', { timeout: 8000 }).catch(() => {});
     const readPrice = () => page.evaluate(() => {
       const stat = document.querySelector('.qr-stat-price');
       const banner = document.querySelector('.qr-rounding');
       return {
-        value: stat ? (stat.querySelector('.big-stat-number') || {}).textContent : null,
-        hint: stat ? (stat.querySelector('.big-stat-hint') || {}).textContent : null,
+        value: stat ? (stat.querySelector('.qr-fact-amount') || {}).textContent : null,
+        // La ficha: el margen real y el objetivo van en "Ganás" (el mismo criterio que el editor).
+        hint: (document.querySelector('.qr-stat-margin') || {}).textContent || null,
         banner: banner ? banner.textContent : null,
         bannerBefore: Boolean(banner && stat && (banner.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING)),
       };
@@ -831,7 +833,7 @@ async function runMode(mode) {
     const before = await readPrice();
     check('E2E-21', 'ECO-03: lo guardado no cambia: la sugerida es la del múltiplo fijo de $ 1.000 (la del motor)', norm(before.value) === norm(shownCeil(k0.suggestedListRate)) && k0.roundingMode === 'step', `pantalla ${norm(before.value)} · motor ${shownCeil(k0.suggestedListRate)}`);
     check('E2E-21', 'ECO-03: aviso arriba de los números: "quedó X % arriba de tu precio objetivo por el redondeo"', /La tarifa sugerida quedó .* arriba de tu precio objetivo por el redondeo/.test(norm(before.banner)) && before.bannerBefore, norm(before.banner).slice(0, 200));
-    check('E2E-21', 'ECO-03: la sugerida muestra el margen objetivo y el real', /Objetivo: 10 % de margen · con esta tarifa: [\d.,]+ %/.test(norm(before.hint)) && /Precio objetivo exacto/.test(norm(before.hint)), norm(before.hint).slice(0, 200));
+    check('E2E-21', 'ECO-03: el margen real con la sugerida y el objetivo a la vista; el precio objetivo exacto, en el aviso', /margen [\d.,]+ %/.test(norm(before.hint)) && /tu objetivo \(10 %\)/.test(norm(before.hint)) && /Tu precio objetivo es \$ [\d.]+/.test(norm(before.banner)), `${norm(before.hint).slice(0, 160)} · ${norm(before.banner).slice(0, 120)}`);
     await page.emulateMedia({ media: 'print' });
     const printed = await page.evaluate(() => {
       const b = document.querySelector('.qr-rounding');
@@ -1656,7 +1658,7 @@ async function runMode(mode) {
     await go(resultHash(q0), 900);
     await openAll();
     await page.waitForTimeout(150);
-    const nums = await page.evaluate(() => [...document.querySelectorAll('.big-stat-number, .qr-hero-value, .qr-score-value')]
+    const nums = await page.evaluate(() => [...document.querySelectorAll('.qr-fact-amount, .big-stat-number, .qr-hero-value, .qr-score-value')]
       .filter((n) => n.getBoundingClientRect().width > 0)
       .map((n) => ({ cls: n.className.split(' ')[0], v: getComputedStyle(n).fontVariantNumeric })));
     const notTabular = nums.filter((n) => !/tabular-nums/.test(n.v));
@@ -1689,7 +1691,7 @@ async function runMode(mode) {
       await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); window.scrollTo(0, 0); });
       for (; kb.presses < 90 && !kb.reached; kb.presses += 1) {
         await page.keyboard.press('Tab');
-        kb.reached = await page.evaluate(() => Boolean(document.activeElement && document.activeElement.classList.contains('trace-btn') && document.activeElement.closest('.qr-stats')));
+        kb.reached = await page.evaluate(() => Boolean(document.activeElement && document.activeElement.classList.contains('trace-btn') && document.activeElement.closest('.qr-facts')));
       }
       if (!kb.reached) return;
       const label = await page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent);
@@ -2296,10 +2298,10 @@ async function runMode(mode) {
     await page.waitForTimeout(2500);
 
     await go(`#/cotizaciones/${encodeURIComponent(ui.id)}/result`, 300);
-    await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+    await page.waitForSelector('.qr-facts', { timeout: 8000 }).catch(() => {});
     const res = await page.evaluate(() => {
       const alerts = document.querySelector('.qr-alerts-price');
-      const stats = document.querySelector('.qr-stats');
+      const stats = document.querySelector('.qr-facts');
       const price = document.querySelector('.qr-stat-price');
       const kpi = [...document.querySelectorAll('.qr-kpis .kpi')].find((k) => /Costos cargados/.test(k.innerText));
       const top = (el) => (el ? Math.round(el.getBoundingClientRect().top + window.scrollY) : null);
@@ -2320,7 +2322,7 @@ async function runMode(mode) {
     // alerta de la tarifa entra en la primera pantalla. En el celular, con otro aviso de página arriba, todavía no: ver el informe.
     if (mode === 'mobile') check(P, 'UI-03: en el celular el aviso BORRADOR ocupa menos de un tercio de la pantalla', res.draftHeight !== null && res.draftHeight < res.screen / 3, JSON.stringify({ draftHeight: res.draftHeight, screen: res.screen }));
     else check(P, 'UI-03: con BORRADOR, la alerta de la tarifa entra en la primera pantalla', res.alertTop !== null && res.alertTop < res.screen, JSON.stringify({ alertTop: res.alertTop, statsTop: res.statsTop, screen: res.screen }));
-    check(P, 'UI-01: la tarifa ofrecida bajo el piso se llama "Tarifa ofrecida" y va en rojo', /big-stat-red/.test(res.priceCls) && /Tarifa ofrecida/i.test(res.priceLabel), JSON.stringify({ cls: res.priceCls, label: res.priceLabel }));
+    check(P, 'UI-01: la tarifa ofrecida bajo el piso se llama "Tarifa ofrecida" y va en rojo', /\bis-red\b/.test(res.priceCls) && /Tarifa ofrecida/i.test(res.priceLabel), JSON.stringify({ cls: res.priceCls, label: res.priceLabel }));
     check(P, 'UI-02: con un pendiente crítico, el KPI "Costos cargados" no es verde', !/kpi-green/.test(res.kpiCls), res.kpiCls);
     await go('#/cotizaciones', 800);
     // "Costos cargados" está en la vista Detallada de la lista.
@@ -2390,12 +2392,12 @@ async function runMode(mode) {
         }
       }
       const outside = [];
-      for (const num of document.querySelectorAll('main .qr-stat .big-stat-number, main .qr-base-item dd, main .qe-sum-number, main .qr-hero-value')) {
+      for (const num of document.querySelectorAll('main .qr-fact .qr-fact-amount, main .qr-base-item dd, main .qe-sum-number, main .qr-hero-value')) {
         if (!num.getClientRects().length) continue;
         const range = document.createRange();
         range.selectNodeContents(num);
         const a = range.getBoundingClientRect();
-        const b = num.closest('.qr-stat, .qr-base-item, .qe-sum-item, .qr-hero-item').getBoundingClientRect();
+        const b = num.closest('.qr-fact, .qr-base-item, .qe-sum-item, .qr-hero-item').getBoundingClientRect();
         if (a.right > b.right + 1.5 || a.left < b.left - 1.5) outside.push(`${num.textContent.trim()} (${Math.round(a.right - b.right)} px)`);
       }
       const d = document.documentElement;
@@ -2407,7 +2409,7 @@ async function runMode(mode) {
       const bad = [];
       for (const q of big) {
         await go(`#/cotizaciones/${encodeURIComponent(q.id)}/result`, 1200);
-        await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+        await page.waitForSelector('.qr-facts', { timeout: 8000 }).catch(() => {});
         await page.evaluate(() => document.querySelectorAll('main details').forEach((x) => { x.open = true; }));
         await page.waitForTimeout(200);
         const r = await amounts();
@@ -2827,6 +2829,8 @@ async function runMode(mode) {
     const sbRows = await accountRows();
     const sbR = computeQuote(structuredClone(standby));
     const sbLabels = sbRows.map((x) => x[0]);
+    const sbNotes = await page.evaluate(() => [...document.querySelectorAll('.qr-account-notes li')].map((li) => li.textContent.trim()));
+    check('VAL', 'V-8: con equipo en espera en la cuenta, la nota dice que la espera ya está (no la cotices de nuevo aparte)', sbNotes.some((t) => /La espera del equipo ya está en esta cuenta/.test(t) && /renglón aparte/.test(t)), JSON.stringify(sbNotes));
     check(P, 'con standby, cantidad × tarifa es "= Subtotal (cantidad × tarifa)" y la facturación del mes es el total del motor', sbLabels.includes('= Subtotal (cantidad × tarifa)') && !sbLabels.some((l) => /Facturación por /.test(l)) && sbRows.some((x) => x[0] === '= Facturación del mes' && norm(x[2]) === norm(formatMoney(sbR.estimate.revenue.total))), JSON.stringify(sbRows));
     await go(`#/cotizaciones/${encodeURIComponent(standby.id)}/modality`, 1500);
     const sbKey = await mainText();
@@ -2834,11 +2838,12 @@ async function runMode(mode) {
     await go(`#/cotizaciones/${encodeURIComponent(minHour.id)}/result`, 1500);
     const mhRows = await accountRows();
     const qtyRow = mhRows.find((x) => x[0] === 'Cantidad facturable') || [];
-    check(P, 'con mínimo por intervención: "10 días × 5 h por día = 50 h trabajadas · el mínimo … lleva la cantidad facturable a 80 horas"', /= 50 h trabajadas/.test(qtyRow[1] || '') && /lleva la cantidad facturable a 80 horas/.test(qtyRow[1] || '') && norm(qtyRow[2] || '') === '80 horas', JSON.stringify(qtyRow));
+    check(P, 'a demanda con mínimo por llamado: "10 llamados × 5 h en promedio = 50 h trabajadas · el mínimo de 8 h por llamado lleva la cantidad facturable a 80 horas"', /^10 llamados × 5 h en promedio = 50 h trabajadas/.test(qtyRow[1] || '') && /el mínimo de 8 h por llamado lleva la cantidad facturable a 80 horas/.test(qtyRow[1] || '') && norm(qtyRow[2] || '') === '80 horas', JSON.stringify(qtyRow));
     const notesOf = () => page.evaluate(() => [...document.querySelectorAll('.qr-account-notes li')].map((li) => li.textContent.trim()));
     const mhNotes = await notesOf();
     check('VAL', 'V-6: con mínimo por llamado, "La cuenta del mes" avisa que se aplica al llamado promedio', mhNotes.some((t) => /se aplica al llamado promedio/.test(t)), JSON.stringify(mhNotes));
-    check('VAL', 'V-8: "La cuenta del mes" dice que los renglones aparte van en otra cotización', mhNotes.some((t) => /renglones aparte/.test(t)), JSON.stringify(mhNotes));
+    // SIM-02: la nota de renglones aparte sólo cuando la cuenta ya cobra algo que se suele pedir aparte (espera, horas extra).
+    check('VAL', 'V-8: sin espera ni horas extra en la cuenta, no hay nota de renglones aparte', !mhNotes.some((t) => /renglón aparte|renglones aparte/.test(t)), JSON.stringify(mhNotes));
 
     // V-1 y V-5: 32 días en un mes de 30 es crítico hasta confirmarlo; con el crítico no se marca como enviada
     // y el colchón es provisorio. Confirmar en "Cómo se cobra" lo resuelve y se guarda, sin cambiar números.

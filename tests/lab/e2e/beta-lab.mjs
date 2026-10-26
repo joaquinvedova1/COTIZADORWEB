@@ -225,7 +225,7 @@ async function runMode(mode) {
   const quote = quotesT()[0];
   await t.go(`#/cotizaciones/${encodeURIComponent(quote.id)}/result`, 1800);
   check('invitación', 'antes de exportar no hay ninguna invitación', (await page.locator('.feedback-invite').count()) === 0, 'apareció antes de terminar la tarea');
-  await t.tap(page.getByRole('button', { name: 'Imprimir / guardar PDF' }));
+  await t.tap(page.getByRole('button', { name: 'Imprimir resumen (1 hoja)' }));
   await page.waitForTimeout(600);
   const invite = await page.evaluate(() => {
     const el = document.querySelector('.feedback-invite');
@@ -234,7 +234,7 @@ async function runMode(mode) {
   check('invitación', 'después de exportar aparece una invitación discreta, no modal, con las dos opciones', invite.text && !invite.modal && invite.printed === 1 && /Sugerir una mejora/.test(invite.text) && /Reportar un problema/.test(invite.text), JSON.stringify(invite).slice(0, 300));
   await t.tap(page.locator('.feedback-invite').getByRole('button', { name: 'Ahora no' }));
   await page.waitForTimeout(400);
-  await t.tap(page.getByRole('button', { name: 'Imprimir / guardar PDF' }));
+  await t.tap(page.getByRole('button', { name: 'Imprimir resumen (1 hoja)' }));
   await page.waitForTimeout(600);
   check('invitación', '"Ahora no" la cierra y no vuelve a aparecer al exportar otra vez', (await page.locator('.feedback-invite').count()) === 0, 'volvió a aparecer');
 
