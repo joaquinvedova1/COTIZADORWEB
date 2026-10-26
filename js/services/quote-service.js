@@ -65,7 +65,11 @@ export function indicatorsFor(items) {
   return {
     totalCount: list.length,
     activeCount: active.length,
-    totalQuotedMonthly: reliable.reduce((s, i) => s + (i.summary && isFiniteNumber(i.summary.revenue) ? i.summary.revenue : 0), 0),
+    // Precio total del trabajo: su promedio por mes (monthlyRevenue), no el total de la obra (SIM-02 S3).
+    totalQuotedMonthly: reliable.reduce((s, i) => {
+      const v = i.summary && (isFiniteNumber(i.summary.monthlyRevenue) ? i.summary.monthlyRevenue : i.summary.revenue);
+      return s + (isFiniteNumber(v) ? v : 0);
+    }, 0),
     averageMarginPct: margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : null,
     atRiskCount: active.filter((i) => i.summary && (i.summary.atRisk || isUnreliable(i))).length,
     belowFloorCount: reliable.filter((i) => i.summary && i.summary.belowFloor).length,

@@ -713,5 +713,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
  */
 export function summarizeQuote(quote, options = {}) {
   const r = computeQuote(quote, options);
-  return { ...r.kpis, issuesCount: r.issues.length, ...riskSummary(r.completeness) };
+  // UXR: con precio total del trabajo la facturación es la del trabajo completo; para sumar meses (Inicio) se
+  // usa el promedio por mes de la obra (facturación ÷ meses del trabajo).
+  const jobMonths = r.activity && r.activity.jobHorizon ? r.activity.jobMonths : null;
+  const monthlyRevenue = jobMonths > 0 && isFiniteNumber(r.kpis.revenue) ? r.kpis.revenue / jobMonths : r.kpis.revenue;
+  return { ...r.kpis, monthlyRevenue, jobMonths, issuesCount: r.issues.length, ...riskSummary(r.completeness) };
 }

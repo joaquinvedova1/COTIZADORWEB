@@ -121,10 +121,38 @@ export function normalizeActivity(quote = {}) {
     // UXR (opcionales; ausentes = como siempre): llamados de distinta duración, recursos facturados en
     // paralelo y precio total del trabajo.
     activationProfile: Array.isArray(a.activationProfile) ? a.activationProfile : null,
-    billedResources: nonNegative(a.billedResources) > 0 ? nonNegative(a.billedResources) : 1,
+    // Sólo con una unidad por persona o por equipo (SIM-02: al volver a "hora" el número queda guardado, sin efecto).
+    billedResources: (a.billedResourceKind === 'person' || a.billedResourceKind === 'equipment') && nonNegative(a.billedResources) > 0 ? nonNegative(a.billedResources) : 1,
     jobHorizon,
     jobMonths: jobHorizon ? Math.max(1, activeDaysPerMonth / availableDaysPerMonth) : null,
   };
+}
+
+/**
+ * Unidades de la tarifa por día de trabajo (o por mes, con abono) para los consumos "por unidad facturada"
+ * (UXR: un material por camión reparado, por válvula, por hora-hombre):
+ *   cantidad  rendimiento (unidades por día de trabajo; sin rendimiento, cantidad ÷ días)
+ *   hora      horas por día × personas o equipos facturados
+ *   día       personas o equipos facturados
+ *   evento    unidades por llamado ÷ días por llamado (1 trabajo o llamado en sus días)
+ *   mes       personas o equipos facturados, por mes (un consumo fijo por abono)
+ * Son unidades trabajadas (sin el mínimo por llamado: el mínimo se cobra, no se consume).
+ * @returns {{ perActiveDay: number, perMonth: number }}
+ */
+export function billedUnitsRate(activity = {}) {
+  const n = nonNegative(activity.billedResources) > 0 ? nonNegative(activity.billedResources) : 1;
+  switch (activity.unitKind) {
+    case 'quantity': {
+      const r = nonNegative(activity.unitsPerActiveDay);
+      const D = nonNegative(activity.activeDaysPerMonth);
+      return { perActiveDay: r > 0 ? r : D > 0 ? nonNegative(activity.billableQuantityPerMonth) / D : 0, perMonth: 0 };
+    }
+    case 'hour': return { perActiveDay: nonNegative(activity.hoursPerActiveDay) * n, perMonth: 0 };
+    case 'day': return { perActiveDay: n, perMonth: 0 };
+    case 'month': return { perActiveDay: 0, perMonth: n };
+    case 'event': return { perActiveDay: safeDivide(nonNegative(activity.unitsPerActivation) || 1, nonNegative(activity.daysPerActivation), 0), perMonth: 0 };
+    default: return { perActiveDay: 0, perMonth: 0 };
+  }
 }
 
 /** Porcentaje total de contingencia (general + ítems de riesgo habilitados). */
@@ -443,6 +471,7 @@ export function buildCostModel(quote = {}) {
   });
   const materials = computeMaterials(materialInput, {
     daysPerActivation: activity.daysPerActivation,
+    billedUnits: billedUnitsRate(activity),
   });
   materials.lines.forEach((m, i) => {
     lines.push({

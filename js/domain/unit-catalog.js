@@ -30,11 +30,11 @@ export const UNIT_GROUPS = deepFreeze([
  * `apply`: lo que se guarda. `aliases`: palabras para encontrarla. `hint`: una frase.
  */
 export const UNIT_CATALOG = deepFreeze([
-  { key: 'hour', group: 'time', name: 'hora', apply: { unit: 'hour' }, aliases: ['horas', 'h', 'hora de servicio', 'hora de la cuadrilla', 'hora técnica', 'hora de equipo con operador'], hint: 'Se facturan las horas de trabajo del servicio (de toda la cuadrilla o el equipo).' },
+  { key: 'hour', group: 'time', name: 'hora', apply: { unit: 'hour' }, aliases: ['horas', 'h', 'hora de servicio', 'hora de la cuadrilla', 'hora de equipo con operador'], hint: 'Se facturan las horas de trabajo del servicio (de toda la cuadrilla o el equipo).' },
   { key: 'day', group: 'time', name: 'día', apply: { unit: 'day' }, aliases: ['días', 'dia', 'diario', 'por día'], hint: 'Se factura cada día de trabajo.' },
   { key: 'shift', group: 'time', name: 'turno', apply: { unit: 'shift' }, aliases: ['turnos', 'guardia de 12 h', 'guardia'], hint: 'Se factura cada turno cubierto.' },
   { key: 'month', group: 'time', name: 'mes (abono)', apply: { unit: 'month' }, aliases: ['mes', 'mensual', 'abono', 'alquiler mensual', 'fijo mensual', 'canon'], hint: 'Un abono fijo por mes: la facturación no depende de cuánto se trabaje.' },
-  { key: 'person_hour', group: 'resource', name: 'hora-hombre', apply: { unit: 'hour', billedResourceKind: 'person' }, aliases: ['hh', 'hora hombre', 'horas hombre', 'hora persona', 'hora-persona', 'hora por operario', 'hora técnica por persona'], hint: 'Cada persona factura sus horas: 4 personas × 10 h = 40 horas-hombre por día.' },
+  { key: 'person_hour', group: 'resource', name: 'hora-hombre', apply: { unit: 'hour', billedResourceKind: 'person' }, aliases: ['hh', 'hora hombre', 'horas hombre', 'hora persona', 'hora-persona', 'hora por operario', 'hora técnica', 'hora por técnico', 'hora técnica por persona'], hint: 'Cada persona factura sus horas: 4 personas × 10 h = 40 horas-hombre por día.' },
   { key: 'person_day', group: 'resource', name: 'jornal (día por persona)', apply: { unit: 'day', billedResourceKind: 'person' }, aliases: ['jornal', 'jornales', 'día hombre', 'día-hombre', 'día por persona', 'día persona'], hint: 'Cada persona factura sus días: 4 personas × 22 días = 88 jornales.' },
   { key: 'person_month', group: 'resource', name: 'persona por mes', apply: { unit: 'month', billedResourceKind: 'person' }, aliases: ['persona-mes', 'mes por persona', 'abono por persona', 'operario por mes'], hint: 'Un abono mensual por cada persona.' },
   { key: 'equipment_hour', group: 'resource', name: 'hora-equipo', apply: { unit: 'hour', billedResourceKind: 'equipment' }, aliases: ['hora equipo', 'hora máquina', 'hora de máquina', 'hora por equipo'], hint: 'Cada equipo factura sus horas.' },
@@ -58,6 +58,7 @@ export const UNIT_CATALOG = deepFreeze([
   { key: 'own:válvula', group: 'own', name: 'válvula', apply: { unit: 'custom', unitName: 'válvula' }, aliases: ['válvulas', 'valvula', 'válvula inspeccionada'], hint: 'Unidad propia: se factura cada válvula.' },
   { key: 'own:camión reparado', group: 'own', name: 'camión reparado', apply: { unit: 'custom', unitName: 'camión reparado' }, aliases: ['camión', 'camion', 'camiones', 'reparación'], hint: 'Unidad propia: se factura cada camión.' },
   { key: 'own:tráiler', group: 'own', name: 'tráiler', apply: { unit: 'custom', unitName: 'tráiler' }, aliases: ['trailer', 'tráileres', 'semirremolque', 'carga y descarga'], hint: 'Unidad propia: se factura cada tráiler atendido.' },
+  { key: 'own:operación', group: 'own', name: 'operación', apply: { unit: 'custom', unitName: 'operación' }, aliases: ['operaciones', 'maniobra', 'maniobras', 'operación de carga', 'carga', 'descarga'], hint: 'Unidad propia: se factura cada operación (no cada viaje ni cada salida).' },
   { key: 'own:ensayo', group: 'own', name: 'ensayo', apply: { unit: 'custom', unitName: 'ensayo' }, aliases: ['ensayos', 'prueba', 'test'], hint: 'Unidad propia: se factura cada ensayo.' },
   { key: 'own:muestra', group: 'own', name: 'muestra', apply: { unit: 'custom', unitName: 'muestra' }, aliases: ['muestras', 'análisis'], hint: 'Unidad propia: se factura cada muestra.' },
   { key: 'own:pozo', group: 'own', name: 'pozo', apply: { unit: 'custom', unitName: 'pozo' }, aliases: ['pozos', 'locación'], hint: 'Unidad propia: se factura cada pozo.' },
@@ -111,6 +112,22 @@ export function unitDisplayName(quote = {}) {
 }
 
 /**
+ * Cómo se cobra una cotización o plantilla, para listas y tarjetas (en lugar del tipo de servicio):
+ * "Por hora-hombre", "Precio total del trabajo", "Abono mensual · a demanda".
+ */
+export function chargeSummary(quote = {}) {
+  const key = unitKeyOf(quote);
+  const base = key === 'job'
+    ? 'Precio total del trabajo'
+    : key === 'job_monthly'
+      ? 'Por trabajo (trabajos por mes)'
+      : key === 'month'
+        ? 'Abono mensual'
+        : `Por ${unitDisplayName(quote)}`;
+  return quote.serviceType === 'on_call' ? `${base} · a demanda` : base;
+}
+
+/**
  * Busca en el catálogo. Devuelve [{ group, label, items: [entry] }] en el orden de UNIT_GROUPS, con las que
  * empiezan con el texto primero. Sin texto: todo el catálogo.
  */
@@ -124,15 +141,18 @@ export function searchUnits(query = '') {
     if (words.some((w) => w.includes(q))) return 1;
     return 0;
   };
-  return UNIT_GROUPS.map((g) => ({
-    group: g.id,
-    label: g.label,
-    items: UNIT_CATALOG.filter((e) => e.group === g.id)
+  // El grupo con la mejor coincidencia va primero ("tonelada" → tonelada antes que ton-km): Enter elige la
+  // primera opción de la lista. Con empates (o sin texto) se mantiene el orden de UNIT_GROUPS.
+  return UNIT_GROUPS.map((g, order) => {
+    const scored = UNIT_CATALOG.filter((e) => e.group === g.id)
       .map((e) => ({ e, s: score(e) }))
       .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s)
-      .map((x) => x.e),
-  })).filter((g) => g.items.length > 0);
+      .sort((a, b) => b.s - a.s);
+    return { group: g.id, label: g.label, items: scored.map((x) => x.e), best: scored.length ? scored[0].s : 0, order };
+  })
+    .filter((g) => g.items.length > 0)
+    .sort((a, b) => b.best - a.best || a.order - b.order)
+    .map(({ group, label, items }) => ({ group, label, items }));
 }
 
 /** ¿El texto buscado coincide exactamente con una opción? (si no, se ofrece "Usar «…» como unidad"). */
@@ -159,8 +179,9 @@ export function applyUnit(q, apply) {
   if (apply.billedResourceKind) {
     q.activity.billedResourceKind = apply.billedResourceKind;
   } else if (q.activity.billedResourceKind !== undefined) {
+    // La cantidad de personas o equipos queda guardada (sin efecto: el motor la lee sólo con la variante), así
+    // hora-hombre → hora → hora-hombre no la pierde (SIM-02 S1).
     delete q.activity.billedResourceKind;
-    delete q.activity.billedResources;
   }
   if (apply.billingHorizon) {
     q.billingHorizon = apply.billingHorizon;

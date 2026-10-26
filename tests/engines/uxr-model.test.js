@@ -81,7 +81,7 @@ describe('Personas o equipos facturados en paralelo (hora-hombre, abono por equi
     resetIds();
     const q = service({
       serviceType: 'configurable', unit: 'hour',
-      activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, daysPerActivation: 22, availableDaysPerMonth: 22, billedResources: 4 },
+      activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, daysPerActivation: 22, availableDaysPerMonth: 22, billedResourceKind: 'person', billedResources: 4 },
       labor: [person({ positions: 4 })],
     });
     const r = run(q);
@@ -103,7 +103,7 @@ describe('Personas o equipos facturados en paralelo (hora-hombre, abono por equi
     resetIds();
     const q = service({
       serviceType: 'equipment_only', unit: 'month',
-      activity: { activeDaysPerMonth: 30, availableDaysPerMonth: 30, hoursPerActiveDay: 24, billedResources: 3 },
+      activity: { activeDaysPerMonth: 30, availableDaysPerMonth: 30, hoursPerActiveDay: 24, billedResourceKind: 'equipment', billedResources: 3 },
       equipment: [owned({ name: 'Generador', quantity: 3, replacementValue: 60000000, fuelNotApplicable: true })],
     });
     const r = run(q);
@@ -116,7 +116,7 @@ describe('Personas o equipos facturados en paralelo (hora-hombre, abono por equi
     const CALLS = [2, 2, 3, 3, 5, 5, 8, 8];
     const q = service({
       serviceType: 'on_call', unit: 'hour',
-      activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: mean(CALLS), activationProfile: profileOf(CALLS), billedResources: 2 },
+      activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: mean(CALLS), activationProfile: profileOf(CALLS), billedResourceKind: 'equipment', billedResources: 2 },
       labor: [person({ peoplePerPosition: 2 })], equipment: [owned({ name: 'Hidrogrúa', quantity: 2 })], rules: { minimumCallUnits: 4 },
     });
     close(run(q).kpis.billableQuantity, 2 * billedWithMinimum(CALLS, 4)); // 84
@@ -170,5 +170,125 @@ describe('Precio total del trabajo (obra de 3 meses)', () => {
     const withHorizon = structuredClone(q);
     withHorizon.billingHorizon = 'job';
     assert.deepEqual(run(withHorizon).kpis, run(q).kpis);
+  });
+});
+
+describe('Materiales "por unidad facturada" (por camión reparado, por válvula, por hora-hombre)', () => {
+  const monthlyOf = (r, i = 0) => {
+    const l = r.model.materials.lines[i];
+    return l.fixedMonthly + l.variablePerActiveDay * r.activity.activeDaysPerMonth;
+  };
+  const base = (o) => {
+    resetIds();
+    return service({ serviceType: 'configurable', pricingMode: 'known_activity', labor: [person()], ...o });
+  };
+
+  test('60 válvulas por mes a 6 por día: 2 juntas de $ 5.000 por válvula = $ 600.000 por mes (no por día ni por salida)', () => {
+    const q = base({
+      unit: 'custom', unitName: 'válvula',
+      activity: { billableQuantityPerMonth: 60, unitsPerActiveDay: 6, daysPerActivation: 2 },
+      materials: [material({ basis: 'per_billed_unit', quantity: 2, unitCost: 5000 })],
+    });
+    const r = run(q);
+    close(r.activity.activeDaysPerMonth, 10);
+    close(monthlyOf(r), 60 * 2 * 5000);
+    // Por salida (cada 2 días) habría sido 5 salidas × $ 10.000: la diferencia que encontró la simulación.
+    q.materials[0].basis = 'per_activation';
+    close(monthlyOf(run(q)), 5 * 2 * 5000);
+  });
+
+  test('hora-hombre: 4 personas × 10 h × 22 días = 880 horas-hombre × $ 100 de consumibles', () => {
+    const q = base({
+      unit: 'hour',
+      activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, billedResourceKind: 'person', billedResources: 4 },
+      materials: [material({ basis: 'per_billed_unit', quantity: 1, unitCost: 100 })],
+    });
+    close(monthlyOf(run(q)), 880 * 100);
+  });
+
+  test('abono por equipo: 3 equipos por mes → el consumo por equipo es fijo × 3', () => {
+    const q = base({
+      unit: 'month',
+      activity: { activeDaysPerMonth: 20, hoursPerActiveDay: 9, billedResourceKind: 'equipment', billedResources: 3 },
+      materials: [material({ basis: 'per_billed_unit', quantity: 1, unitCost: 40000 })],
+    });
+    const r = run(q);
+    close(r.model.materials.lines[0].fixedMonthly, 3 * 40000);
+    close(monthlyOf(r), 120000);
+  });
+
+  test('precio total del trabajo: "por trabajo" se consume una sola vez en toda la obra (66 días)', () => {
+    const q = base({
+      unit: 'job',
+      activity: { daysPerActivation: 66, availableDaysPerMonth: 22, hoursPerActiveDay: 9 },
+      materials: [material({ basis: 'per_billed_unit', quantity: 1, unitCost: 500000 })],
+    });
+    q.billingHorizon = 'job';
+    const r = run(q);
+    close(r.activity.activeDaysPerMonth, 66);
+    close(monthlyOf(r), 500000);
+  });
+});
+
+describe('Combustible duplicado en transporte (SIM A2)', () => {
+  test('camión que cobra por viaje con L/h trabajando y L/100 km en ruta: el control de duplicados avisa', () => {
+    resetIds();
+    const truck = owned({ name: 'Tractor con semirremolque', fuelLitersPerHour: 20, mobilization: { mode: 'self', travelLitersPer100Km: 35 } });
+    const q = service({
+      serviceType: 'configurable', unit: 'trip',
+      activity: { billableQuantityPerMonth: 20, unitsPerActiveDay: 1, hoursPerActiveDay: 5 },
+      labor: [person()], equipment: [truck],
+      logistics: { notApplicable: false, baseName: 'Neuquén', destinationName: 'Añelo', distanceKm: 100, roundTrip: true, tripsPerActivation: 1, vehicles: [] },
+    });
+    const dup = (r) => r.completeness.items.find((i) => i.id === 'duplicates');
+    const r = run(q);
+    assert.equal(dup(r).status, 'warning');
+    assert.match(dup(r).message, /Combustible posiblemente duplicado/);
+    // Con $/día (no es transporte) no se presume: el equipo puede trabajar detenido.
+    q.unit = 'day';
+    q.activity = { activeDaysPerMonth: 20, hoursPerActiveDay: 5 };
+    assert.equal(dup(run(q)).status, 'ok');
+  });
+});
+
+describe('Precio total del trabajo: completitud', () => {
+  test('no pide "trabajos por mes" (se vende uno); sí pide los días de todo el trabajo', () => {
+    resetIds();
+    const q = service({ serviceType: 'configurable', unit: 'job', activity: { daysPerActivation: 66, availableDaysPerMonth: 22, hoursPerActiveDay: 9 }, labor: [person()] });
+    q.billingHorizon = 'job';
+    const util = (r) => r.completeness.items.find((i) => i.id === 'utilization');
+    assert.equal(util(run(q)).status, 'ok');
+    q.activity.daysPerActivation = null;
+    assert.equal(util(run(q)).status, 'missing');
+    assert.equal(util(run(q)).focus, 'activity.daysPerActivation');
+  });
+});
+
+describe('Personas facturadas sin variante (SIM-02 S1)', () => {
+  test('un número de personas guardado sin la unidad por persona no multiplica nada', () => {
+    resetIds();
+    const q = service({ serviceType: 'configurable', unit: 'hour', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, billedResources: 4 }, labor: [person()] });
+    close(run(q).kpis.billableQuantity, 220);
+    q.activity.billedResourceKind = 'person';
+    close(run(q).kpis.billableQuantity, 880);
+  });
+});
+
+describe('Personas facturadas vs personal cargado (SIM-02 S1, P0)', () => {
+  const hh = (billed, positions) => {
+    resetIds();
+    return service({ serviceType: 'configurable', unit: 'hour', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, billedResourceKind: 'person', billedResources: billed }, labor: [person({ positions })] });
+  };
+  test('facturar 5 personas con 4 puestos es crítico (la tarifa sale baja); con 3, un aviso', () => {
+    const crit = (r) => r.completeness.items.find((i) => i.id === 'billed_resources_crew');
+    const r5 = run(hh(5, 4));
+    assert.equal(crit(r5).status, 'missing');
+    assert.ok((r5.completeness.pending || []).some((p) => p.id === 'billed_resources_crew'));
+    const r3 = run(hh(3, 4));
+    assert.equal(crit(r3), undefined);
+    assert.ok((r3.completeness.notices || []).some((n) => n.id === 'billed_resources_fewer'));
+    const r4 = run(hh(4, 4));
+    assert.equal(crit(r4), undefined);
+    assert.ok(!(r4.completeness.notices || []).some((n) => n.id === 'billed_resources_fewer'));
   });
 });

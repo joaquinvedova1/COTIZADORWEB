@@ -1,7 +1,7 @@
 /**
  * Servicios: plantillas de servicio reutilizables.
  *
- * Cada plantilla precarga tipo de servicio, actividad y (en algunos casos)
+ * Cada plantilla precarga cómo se cobra, actividad y (en algunos casos)
  * personal, equipos, materiales, otros costos y vehículos; las guardadas
  * desde una cotización copian también sus condiciones (gastos de estructura,
  * financiación, imprevistos, margen y precio). Desde acá se crea una cotización a partir
@@ -11,7 +11,8 @@
 import { h, mount } from '../dom.js';
 import { badge, button, confirmDialog, emptyState, linkButton, openDialog, pageIntro, textField } from '../components.js';
 import { sanitizeText } from '../../core/validation.js';
-import { QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { QUOTE_STEPS, labelOf } from '../../domain/catalogs.js';
+import { chargeSummary } from '../../domain/unit-catalog.js';
 import { isPlainObject } from '../../core/object.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 
@@ -35,7 +36,7 @@ const TEMPLATE_CONDITIONS = Object.freeze([
  * Resumen legible del contenido precargado de una plantilla: qué líneas trae
  * ("Incluye 1 puesto · 2 equipos · 3 materiales · 2 vehículos"), qué
  * condiciones copia (gastos de estructura, financiación, imprevistos, margen
- * y precio) y la actividad sugerida. "Sólo tipo de servicio y actividad"
+ * y precio) y la actividad sugerida. "Sólo cómo se cobra y la actividad"
  * únicamente si no trae nada de eso.
  * @returns {{ resources: string, conditions: string|null, activity: string|null, hasContent: boolean }}
  */
@@ -53,7 +54,7 @@ export function templateContents(service) {
     .map(([n, one, many]) => plural(n, one, many));
   const steps = [...new Set(TEMPLATE_CONDITIONS.filter((c) => isPlainObject(d[c.key])).map((c) => labelOf(QUOTE_STEPS, c.step).toLowerCase()))];
   const days = isPlainObject(d.activity) && Number.isFinite(d.activity.activeDaysPerMonth) ? d.activity.activeDaysPerMonth : null;
-  let resources = 'Sólo tipo de servicio y actividad';
+  let resources = 'Sólo cómo se cobra y la actividad';
   let conditions = null;
   if (lines.length) {
     resources = `Incluye ${lines.join(' · ')}`;
@@ -69,6 +70,12 @@ export function templateContents(service) {
   };
 }
 
+/** Cómo cobra una plantilla ("Por hora", "Precio total del trabajo · a demanda"), en lugar del tipo de servicio. */
+export function templateCharge(service) {
+  const d = service && isPlainObject(service.defaults) ? service.defaults : {};
+  return chargeSummary({ ...d, serviceType: (service && service.serviceType) || d.serviceType });
+}
+
 /** Tarjeta de plantilla (se reutiliza en "Nueva cotización"). */
 export function serviceTemplateCard(service, actions = []) {
   const contents = templateContents(service);
@@ -79,7 +86,7 @@ export function serviceTemplateCard(service, actions = []) {
       'div',
       { class: 'template-card-head' },
       h('h3', { class: 'template-card-title' }, service.name || 'Plantilla sin nombre'),
-      h('div', { class: 'row template-card-tags' }, badge(labelOf(SERVICE_TYPES, service.serviceType, 'Servicio configurable'), 'navy'), service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null),
+      h('div', { class: 'row template-card-tags' }, badge(templateCharge(service), 'navy'), service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null),
     ),
     service.description ? h('p', { class: 'template-card-desc' }, service.description) : null,
     h('ul', { class: 'template-card-meta' }, h('li', {}, contents.resources), contents.conditions ? h('li', {}, contents.conditions) : null, contents.activity ? h('li', {}, contents.activity) : null),
@@ -173,7 +180,7 @@ export async function render(root, app) {
         emptyState({
           icon: 'services',
           title: 'Todavía no tenés plantillas de servicio.',
-          text: 'Una plantilla guarda un servicio que cotizás seguido (tipo de servicio, actividad típica, personal y equipos) para empezar más rápido. Se crea desde el resultado de una cotización con "Guardar como plantilla".',
+          text: 'Una plantilla guarda un servicio que cotizás seguido (cómo se cobra, actividad típica, personal y equipos) para empezar más rápido. Se crea desde el resultado de una cotización con "Guardar como plantilla".',
           action: linkButton('Crear una cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus' }),
           secondary: linkButton('Restaurar los datos de ejemplo', '#/configuracion/datos', { variant: 'secondary' }),
         }),
