@@ -134,7 +134,9 @@ export function priceComposition(result) {
   }
   const groups = groupDefs.map((g, i) => ({ ...g, pctOfPrice: (g.amount / R) * 100, displayPct: g2[i], displayPct1: g1[i] }));
 
-  const months = isFiniteNumber(r.ctx && r.ctx.contractMonths) && r.ctx.contractMonths > 0 ? r.ctx.contractMonths : null;
+  // Precio total del trabajo (UXR): la facturación ya es la del trabajo completo (no × meses de contrato).
+  const jobHorizon = Boolean(r.activity && r.activity.jobHorizon);
+  const months = jobHorizon ? 1 : isFiniteNumber(r.ctx && r.ctx.contractMonths) && r.ctx.contractMonths > 0 ? r.ctx.contractMonths : null;
   const contract = {
     months,
     revenue: months !== null ? R * months : null,

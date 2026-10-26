@@ -283,16 +283,14 @@ describe('motor: cantidad facturable × precio por unidad', () => {
     assert.equal(multi.focus, 'activity.billableQuantityPerMonth');
   });
 
-  test('avisos de la unidad: unidad propia sin nombre y unidad no habitual para el tipo de servicio', () => {
+  test('avisos de la unidad: unidad propia sin nombre; la unidad ya no depende del tipo de servicio (UXR)', () => {
     const custom = computeQuote(byQuantity({ unit: 'custom' }, { quantity: 10, perDay: 1 }));
     assert.ok(custom.issues.some((x) => x.path === 'unitName'));
     const legacy = base({ unit: 'day', serviceType: 'per_unit', rate: 4000000 });
     legacy.activity.activeDaysPerMonth = 10;
     const r = computeQuote(legacy);
-    const warn = r.issues.find((x) => x.path === 'unit');
-    assert.ok(warn, 'por unidad producida cobrando $/día avisa');
-    assert.match(warn.message, /\$\/unidad/);
-    // …pero calcula igual que siempre.
+    assert.equal(r.issues.some((x) => x.path === 'unit'), false, 'cualquier unidad del catálogo se puede elegir: sin "se suele cobrar en…"');
+    // …y calcula igual que siempre.
     close(r.kpis.breakEvenDays, 10, 1e-4);
   });
 

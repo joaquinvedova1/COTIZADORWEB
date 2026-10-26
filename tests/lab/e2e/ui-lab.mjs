@@ -35,7 +35,6 @@ import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../../../scripts/serve.mjs';
 import { computeQuote } from '../../../js/engines/quote-engine.js';
 import { formatMoney, formatMoneyCeil, formatNumber, formatPercent } from '../../../js/core/format.js';
-import { unitChoicesFor } from '../../../js/domain/billing-units.js';
 import { fieldHref } from '../../../js/ui/field-links.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
 import { service, person, owned, external, material, product, ingredient, worker, fixedCost } from '../lib/build.js';
@@ -286,6 +285,8 @@ async function runMode(mode) {
     const own = (n) => Boolean(n) && (n === el || el.contains(n) || [...(el.labels || [])].some((l) => l.contains(n)) || (n.closest && n.closest('label') && n.closest('label').contains(el)));
     return {
       name: el.getAttribute('name'),
+      // UXR: un campo que carga el dato de otra forma (horas del mes, llamados) lo declara en data-field-alias.
+      aliases: (el.dataset && el.dataset.fieldAlias ? el.dataset.fieldAlias.split(/\s+/) : []),
       inView: r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth,
       covered: !own(top),
       over: top ? `${top.tagName.toLowerCase()}${top.className && typeof top.className === 'string' ? `.${top.className.split(' ').filter(Boolean).slice(0, 2).join('.')}` : ''}` : null,
@@ -294,7 +295,7 @@ async function runMode(mode) {
   const waitFocus = async (name) => {
     for (let i = 0; i < 20; i += 1) {
       const f = await focused();
-      if (f.name === name) return f;
+      if (f.name === name || (f.aliases || []).includes(name)) return f;
       await page.waitForTimeout(150);
     }
     return focused();
@@ -414,8 +415,9 @@ async function runMode(mode) {
       if (present) await tap(link);
       else await go(href.replace(/^.*#/, '#'), 300);
       const f = await waitFocus(p.focus);
-      check(s.id, `"${p.label}": el foco queda en ${p.focus}`, f.name === p.focus, `foco en ${f.name || 'ningún campo'}`);
-      if (f.name === p.focus) {
+      const onField = f.name === p.focus || (f.aliases || []).includes(p.focus);
+      check(s.id, `"${p.label}": el foco queda en ${p.focus}`, onField, `foco en ${f.name || 'ningún campo'}`);
+      if (onField) {
         check(s.id, `"${p.label}": el campo se ve y nada lo tapa`, f.inView && !f.covered, f.inView ? `lo tapa ${f.over}` : 'fuera de la pantalla');
       }
     }
@@ -482,7 +484,7 @@ async function runMode(mode) {
   }
   {
     const t = await screenText('E2E-16', 'modality');
-    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuántos días dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
+    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuánto dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
   }
   // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): lo que se ve en pantalla y los botones de cada aviso.
   {
@@ -707,12 +709,13 @@ async function runMode(mode) {
     await go(`#/cotizaciones/${encodeURIComponent(u.q.id)}/result`, 300);
     await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
     const res = await page.evaluate(() => {
-      const tagged = (sel) => Boolean(document.querySelector(`${sel} .big-stat-label .tag-unreliable`));
+      // La ficha del Resumen: la marca va en el rótulo de cada renglón (y en el del piso, dentro del de la tarifa).
+      const tagged = (sel) => Boolean(document.querySelector(`${sel} > dt .tag-unreliable, ${sel}.qr-fact-floor > .tag-unreliable`));
       const sent = document.querySelector('button[data-edit="status"]');
       const note = document.querySelector('.qr-send-blocked');
       return {
         cost: tagged('.qr-stat-cost'), price: tagged('.qr-stat-price'), margin: tagged('.qr-stat-margin'),
-        floor: tagged('.qr-stat-floor') || !/\$/.test((document.querySelector('.qr-stat-floor .big-stat-number') || {}).textContent || ''),
+        floor: tagged('.qr-stat-floor') || !/\$/.test((document.querySelector('.qr-stat-floor .qr-fact-floor-amount') || {}).textContent || ''),
         sentDisabled: Boolean(sent && sent.disabled),
         note: note ? note.innerText : '',
         noteVisible: Boolean(note && note.offsetParent !== null),
@@ -723,12 +726,12 @@ async function runMode(mode) {
     await page.emulateMedia({ media: 'print' });
     const pdf = await page.evaluate(() => {
       const flag = document.querySelector('.qr-print-flag');
-      const stat = document.querySelector('.qr-stat');
+      const stat = document.querySelector('.qr-fact');
       return {
         flag: flag && flag.offsetParent !== null ? flag.innerText : '',
         first: Boolean(flag && stat && (flag.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING)),
-        tags: document.querySelectorAll('.qr-stat .tag-unreliable').length,
-        tagsShown: [...document.querySelectorAll('.qr-stat .tag-unreliable')].filter((t) => t.offsetParent !== null).length,
+        tags: document.querySelectorAll('.qr-fact .tag-unreliable').length,
+        tagsShown: [...document.querySelectorAll('.qr-fact .tag-unreliable')].filter((t) => t.offsetParent !== null).length,
       };
     });
     await page.emulateMedia({ media: 'screen' });
@@ -815,13 +818,14 @@ async function runMode(mode) {
     const t = byId['E2E-21'];
     const k0 = t.r.kpis;
     await go(`#/cotizaciones/${encodeURIComponent(t.q.id)}/result`, 300);
-    await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+    await page.waitForSelector('.qr-facts', { timeout: 8000 }).catch(() => {});
     const readPrice = () => page.evaluate(() => {
       const stat = document.querySelector('.qr-stat-price');
       const banner = document.querySelector('.qr-rounding');
       return {
-        value: stat ? (stat.querySelector('.big-stat-number') || {}).textContent : null,
-        hint: stat ? (stat.querySelector('.big-stat-hint') || {}).textContent : null,
+        value: stat ? (stat.querySelector('.qr-fact-amount') || {}).textContent : null,
+        // La ficha: el margen real y el objetivo van en "Ganás" (el mismo criterio que el editor).
+        hint: (document.querySelector('.qr-stat-margin') || {}).textContent || null,
         banner: banner ? banner.textContent : null,
         bannerBefore: Boolean(banner && stat && (banner.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING)),
       };
@@ -829,7 +833,7 @@ async function runMode(mode) {
     const before = await readPrice();
     check('E2E-21', 'ECO-03: lo guardado no cambia: la sugerida es la del múltiplo fijo de $ 1.000 (la del motor)', norm(before.value) === norm(shownCeil(k0.suggestedListRate)) && k0.roundingMode === 'step', `pantalla ${norm(before.value)} · motor ${shownCeil(k0.suggestedListRate)}`);
     check('E2E-21', 'ECO-03: aviso arriba de los números: "quedó X % arriba de tu precio objetivo por el redondeo"', /La tarifa sugerida quedó .* arriba de tu precio objetivo por el redondeo/.test(norm(before.banner)) && before.bannerBefore, norm(before.banner).slice(0, 200));
-    check('E2E-21', 'ECO-03: la sugerida muestra el margen objetivo y el real', /Objetivo: 10 % de margen · con esta tarifa: [\d.,]+ %/.test(norm(before.hint)) && /Precio objetivo exacto/.test(norm(before.hint)), norm(before.hint).slice(0, 200));
+    check('E2E-21', 'ECO-03: el margen real con la sugerida y el objetivo a la vista; el precio objetivo exacto, en el aviso', /margen [\d.,]+ %/.test(norm(before.hint)) && /tu objetivo \(10 %\)/.test(norm(before.hint)) && /Tu precio objetivo es \$ [\d.]+/.test(norm(before.banner)), `${norm(before.hint).slice(0, 160)} · ${norm(before.banner).slice(0, 120)}`);
     await page.emulateMedia({ media: 'print' });
     const printed = await page.evaluate(() => {
       const b = document.querySelector('.qr-rounding');
@@ -1654,7 +1658,7 @@ async function runMode(mode) {
     await go(resultHash(q0), 900);
     await openAll();
     await page.waitForTimeout(150);
-    const nums = await page.evaluate(() => [...document.querySelectorAll('.big-stat-number, .qr-hero-value, .qr-score-value')]
+    const nums = await page.evaluate(() => [...document.querySelectorAll('.qr-fact-amount, .big-stat-number, .qr-hero-value, .qr-score-value')]
       .filter((n) => n.getBoundingClientRect().width > 0)
       .map((n) => ({ cls: n.className.split(' ')[0], v: getComputedStyle(n).fontVariantNumeric })));
     const notTabular = nums.filter((n) => !/tabular-nums/.test(n.v));
@@ -1687,7 +1691,7 @@ async function runMode(mode) {
       await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); window.scrollTo(0, 0); });
       for (; kb.presses < 90 && !kb.reached; kb.presses += 1) {
         await page.keyboard.press('Tab');
-        kb.reached = await page.evaluate(() => Boolean(document.activeElement && document.activeElement.classList.contains('trace-btn') && document.activeElement.closest('.qr-stats')));
+        kb.reached = await page.evaluate(() => Boolean(document.activeElement && document.activeElement.classList.contains('trace-btn') && document.activeElement.closest('.qr-facts')));
       }
       if (!kb.reached) return;
       const label = await page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent);
@@ -1721,8 +1725,10 @@ async function runMode(mode) {
 
     // Campos dentro de tablas del editor: borde de 3:1 o más contra su fondo (WCAG 1.4.11).
     const borders = [];
+    // UXR: los tramos por días sólo se muestran con $/día u $/hora; "El precio" se mira en una cotización por día.
+    const dayQ = (seeded.find((x) => x.s.id === 'E2E-12') || seeded[0]).q;
     for (const st of ['labor', 'equipment', 'indirect', 'margin']) {
-      await go(`#/cotizaciones/${encodeURIComponent(q0.id)}/${st}`, 700);
+      await go(`#/cotizaciones/${encodeURIComponent((st === 'margin' ? dayQ : q0).id)}/${st}`, 700);
       await openAll();
       borders.push(...await page.evaluate((stepId) => {
         const lum = (rgb) => {
@@ -1831,7 +1837,9 @@ async function runMode(mode) {
           { id: 'str-d02b-2', label: 'Alquiler de base', method: 'manual', pct: 0, amount: 850000 },
         ],
       },
-      rules: { ...structuredClone(q0.rules || {}), volumeTiers: defaultVolumeTiers() },
+      // UXR: con una unidad que no es día ni hora (q0 cobra por viaje), la tarjeta de tramos sólo se muestra si
+      // algún tramo tiene descuento (para ver que no se aplica): uno con 3 % mantiene la tabla en pantalla.
+      rules: { ...structuredClone(q0.rules || {}), volumeTiers: defaultVolumeTiers().map((t, i) => (i === 2 ? { ...t, discountPct: 3 } : t)) },
     };
     const liveWs = db.workspaces.get(orgId);
     liveWs.state.quotes = [...liveWs.state.quotes, stackQ];
@@ -2294,10 +2302,10 @@ async function runMode(mode) {
     await page.waitForTimeout(2500);
 
     await go(`#/cotizaciones/${encodeURIComponent(ui.id)}/result`, 300);
-    await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+    await page.waitForSelector('.qr-facts', { timeout: 8000 }).catch(() => {});
     const res = await page.evaluate(() => {
       const alerts = document.querySelector('.qr-alerts-price');
-      const stats = document.querySelector('.qr-stats');
+      const stats = document.querySelector('.qr-facts');
       const price = document.querySelector('.qr-stat-price');
       const kpi = [...document.querySelectorAll('.qr-kpis .kpi')].find((k) => /Costos cargados/.test(k.innerText));
       const top = (el) => (el ? Math.round(el.getBoundingClientRect().top + window.scrollY) : null);
@@ -2318,7 +2326,7 @@ async function runMode(mode) {
     // alerta de la tarifa entra en la primera pantalla. En el celular, con otro aviso de página arriba, todavía no: ver el informe.
     if (mode === 'mobile') check(P, 'UI-03: en el celular el aviso BORRADOR ocupa menos de un tercio de la pantalla', res.draftHeight !== null && res.draftHeight < res.screen / 3, JSON.stringify({ draftHeight: res.draftHeight, screen: res.screen }));
     else check(P, 'UI-03: con BORRADOR, la alerta de la tarifa entra en la primera pantalla', res.alertTop !== null && res.alertTop < res.screen, JSON.stringify({ alertTop: res.alertTop, statsTop: res.statsTop, screen: res.screen }));
-    check(P, 'UI-01: la tarifa ofrecida bajo el piso se llama "Tarifa ofrecida" y va en rojo', /big-stat-red/.test(res.priceCls) && /Tarifa ofrecida/i.test(res.priceLabel), JSON.stringify({ cls: res.priceCls, label: res.priceLabel }));
+    check(P, 'UI-01: la tarifa ofrecida bajo el piso se llama "Tarifa ofrecida" y va en rojo', /\bis-red\b/.test(res.priceCls) && /Tarifa ofrecida/i.test(res.priceLabel), JSON.stringify({ cls: res.priceCls, label: res.priceLabel }));
     check(P, 'UI-02: con un pendiente crítico, el KPI "Costos cargados" no es verde', !/kpi-green/.test(res.kpiCls), res.kpiCls);
     await go('#/cotizaciones', 800);
     // "Costos cargados" está en la vista Detallada de la lista.
@@ -2388,12 +2396,12 @@ async function runMode(mode) {
         }
       }
       const outside = [];
-      for (const num of document.querySelectorAll('main .qr-stat .big-stat-number, main .qr-base-item dd, main .qe-sum-number, main .qr-hero-value')) {
+      for (const num of document.querySelectorAll('main .qr-fact .qr-fact-amount, main .qr-base-item dd, main .qe-sum-number, main .qr-hero-value')) {
         if (!num.getClientRects().length) continue;
         const range = document.createRange();
         range.selectNodeContents(num);
         const a = range.getBoundingClientRect();
-        const b = num.closest('.qr-stat, .qr-base-item, .qe-sum-item, .qr-hero-item').getBoundingClientRect();
+        const b = num.closest('.qr-fact, .qr-base-item, .qe-sum-item, .qr-hero-item').getBoundingClientRect();
         if (a.right > b.right + 1.5 || a.left < b.left - 1.5) outside.push(`${num.textContent.trim()} (${Math.round(a.right - b.right)} px)`);
       }
       const d = document.documentElement;
@@ -2405,7 +2413,7 @@ async function runMode(mode) {
       const bad = [];
       for (const q of big) {
         await go(`#/cotizaciones/${encodeURIComponent(q.id)}/result`, 1200);
-        await page.waitForSelector('.qr-stats', { timeout: 8000 }).catch(() => {});
+        await page.waitForSelector('.qr-facts', { timeout: 8000 }).catch(() => {});
         await page.evaluate(() => document.querySelectorAll('main details').forEach((x) => { x.open = true; }));
         await page.waitForTimeout(200);
         const r = await amounts();
@@ -2529,12 +2537,22 @@ async function runMode(mode) {
       if (await btn.count()) await tap(btn);
       await page.waitForTimeout(700);
     };
-    /** Elige la unidad de cobro: selector (muchas unidades) o botón de opción (pocas). */
-    const chooseUnit = async (value) => {
-      const sel = page.locator('select[name="unit"]').first();
-      if (await sel.count()) await sel.selectOption(value);
-      else await tap(page.locator(`input[type="radio"][name="unit"][value="${value}"]`).first());
+    /**
+     * Elige la unidad de cobro en "Qué cotizás" (UXR): el botón de opción si está a la vista; si no, el buscador
+     * (texto + Enter elige la primera coincidencia).
+     */
+    const chooseUnit = async (key, search = null) => {
+      const chip = page.locator(`input[name="unitChoice"][value="${key}"]`).first();
+      if (await chip.count()) {
+        await chip.check({ force: true });
+        return;
+      }
+      const box = page.locator('.qe-unit-picker [role="combobox"]').first();
+      await box.fill(search || key);
+      await page.waitForTimeout(300);
+      await box.press('Enter');
     };
+    const checkedUnit = () => page.evaluate(() => (document.querySelector('input[name="unitChoice"]:checked') || {}).value || null);
     const setNumber = async (name, value) => {
       const input = page.locator(`input[name="${name}"]`).first();
       await input.fill(String(value));
@@ -2542,37 +2560,35 @@ async function runMode(mode) {
       await page.waitForTimeout(500);
     };
 
-    // 1. "ARS / [m³ ▾]", las mismas unidades habituales que K0, y menos texto de ayuda.
-    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/modality`, 1200);
-    await page.waitForSelector('select[name="unit"]', { timeout: 8000 }).catch(() => {});
+    // 1. UXR: "ARS / [unidad]" en "Qué cotizás": las comunes a la vista (más la actual) y TODO el catálogo en un
+    // buscador. No depende del tipo de servicio (los 11 tipos excluyentes se quitaron).
+    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/service`, 1200);
+    await page.waitForSelector('.qe-unit-picker', { timeout: 8000 }).catch(() => {});
     const unitUi = await page.evaluate(() => {
-      const sel = document.querySelector('select[name="unit"]');
-      const field = sel && sel.closest('.field');
+      const box = document.querySelector('.qe-unit-picker');
+      const checked = document.querySelector('input[name="unitChoice"]:checked');
       return {
-        value: sel && sel.value,
-        radios: document.querySelectorAll('input[type="radio"][name="unit"]').length,
-        prefix: field && field.querySelector('.qe-compound-fixed') ? field.querySelector('.qe-compound-fixed').textContent : null,
-        label: field && field.querySelector('label.field-label') ? field.querySelector('label.field-label').textContent : null,
-        options: sel ? [...sel.options].map((o) => o.value) : [],
+        checked: checked ? checked.value : null,
+        oldSelect: Boolean(document.querySelector('select[name="unit"]')),
+        oldTypes: document.querySelectorAll('input[name="serviceType"]').length,
+        prefix: box && box.querySelector('.qe-compound-fixed') ? box.querySelector('.qe-compound-fixed').textContent : null,
+        legend: box && box.querySelector('legend') ? box.querySelector('legend').textContent : null,
+        combobox: Boolean(box && box.querySelector('[role="combobox"][aria-controls]')),
+        chips: [...document.querySelectorAll('input[name="unitChoice"]')].map((r) => r.value),
       };
     });
-    check(P, 'la unidad de cobro es "ARS / [m³ ▾]": un selector con la moneda a la vista, sin tarjetas de radio', unitUi.value === 'm3' && unitUi.radios === 0 && norm(unitUi.prefix) === 'ARS /' && /Unidad de cobro/.test(unitUi.label || ''), JSON.stringify(unitUi));
-    check(P, 'el selector ofrece las mismas unidades que K0 (las habituales del tipo de servicio + otra)', JSON.stringify(unitUi.options) === JSON.stringify(unitChoicesFor('per_unit', 'm3').map((u) => u.id)), unitUi.options.join(', '));
-    const help = await page.evaluate(() => {
-      const vis = (el) => el.getClientRects().length > 0 && !el.closest('details:not([open]) > :not(summary)');
-      const sel = '.field-hint, .qe-note, .qe-question-why, .choice-hint, .qe-keyline-hint, .qe-term';
-      return [...(document.querySelector('main') || document.body).querySelectorAll(sel)].filter(vis).reduce((n, el) => n + (el.innerText.trim().match(/\S+/g) || []).length, 0);
-    });
-    check(P, 'texto de ayuda a la vista en "Cómo se cobra": al menos 30 % menos que K0 (218 palabras en este caso)', help <= 152, `${help} palabras`);
-
-    // 2. La cadena con las cifras del motor: cantidad ÷ rendimiento = días; cantidad × tarifa = facturación.
-    const r0 = computeQuote(structuredClone(m3));
-    const rev0 = r0.estimate.revenue;
-    let t = await mainText();
-    check(P, 'a la vista: "200 m³ ÷ 20 m³ por día = 10 días de trabajo"', t.includes('200 m³ ÷ 20 m³ por día = 10 días de trabajo'), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
-    const revenueText = norm(`200 m³ × ${formatMoney(rev0.netRate)} por m³ = ${formatMoney(rev0.components.base)} por mes`);
-    check(P, `a la vista: "${revenueText}" (motor)`, t.includes(revenueText), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
-
+    check(P, 'UXR: "ARS / [unidad]" en "Qué cotizás", sin tipo de servicio: las comunes a la vista (y la actual, m³) más un buscador', unitUi.checked === 'm3' && !unitUi.oldSelect && unitUi.oldTypes === 0 && norm(unitUi.prefix) === 'ARS /' && /¿Cómo le cobrás al cliente\?/.test(unitUi.legend || '') && unitUi.combobox && ['hour', 'day', 'month', 'trip', 'km', 'job'].every((k) => unitUi.chips.includes(k)), JSON.stringify(unitUi));
+    const unitBox = page.locator('.qe-unit-picker [role="combobox"]').first();
+    const optionNames = () => page.evaluate(() => [...document.querySelectorAll('.qe-unit-list [role="option"] .qe-unit-option-name')].map((x) => x.textContent));
+    await unitBox.fill('hh');
+    await page.waitForTimeout(300);
+    const foundHh = await optionNames();
+    await unitBox.fill('valvula');
+    await page.waitForTimeout(300);
+    const foundValve = await optionNames();
+    await unitBox.press('Escape');
+    await unitBox.fill('');
+    check(P, 'UXR: el buscador encuentra "hora-hombre" (hh) y "válvula" (sin acento) en un servicio por m³ (no depende del tipo)', foundHh.includes('hora-hombre') && foundValve[0] === 'válvula', JSON.stringify({ foundHh, foundValve }));
     // 3. Ayuda (i): teclado (Enter abre y anuncia, Esc cierra y devuelve el foco), mouse o toque.
     const tipBtn = page.locator('.qe-unit-field .info-tip-btn').first();
     const tipState = () => page.evaluate(() => {
@@ -2613,6 +2629,39 @@ async function runMode(mode) {
       await page.waitForTimeout(250);
       const outside = await tipState();
       check(P, '(i) con un toque se abre y al tocar afuera se cierra', tapped && tapped.expanded === 'true' && tapped.inside && outside && outside.expanded === 'false', JSON.stringify({ tapped, outside }));
+    } else {
+      await tipBtn.hover();
+      await page.waitForTimeout(450);
+      const hovered = await tipState();
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(450);
+      const left = await tipState();
+      check(P, '(i) con el mouse se abre al pasar y se cierra al salir', hovered && hovered.expanded === 'true' && left && left.expanded === 'false', JSON.stringify({ hovered: hovered && hovered.expanded, left: left && left.expanded }));
+    }
+    const critical = await page.evaluate(() => [...document.querySelectorAll('.info-tip')].filter((x) => x.closest('.banner, .qr-draft, .qe-notices, .qe-illustrative')).length);
+    check(P, 'ningún aviso crítico (borrador, NO CONFIABLE, ILUSTRATIVO) lleva su texto en una ayuda (i)', critical === 0, `${critical} ayudas dentro de avisos`);
+
+    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/modality`, 1200);
+    const help = await page.evaluate(() => {
+      const vis = (el) => el.getClientRects().length > 0 && !el.closest('details:not([open]) > :not(summary)');
+      const sel = '.field-hint, .qe-note, .qe-question-why, .choice-hint, .qe-keyline-hint, .qe-term';
+      return [...(document.querySelector('main') || document.body).querySelectorAll(sel)].filter(vis).reduce((n, el) => n + (el.innerText.trim().match(/\S+/g) || []).length, 0);
+    });
+    check(P, 'texto de ayuda a la vista en "Cuánto vas a hacer": al menos 30 % menos que K0 (218 palabras en "Cómo se cobra")', help <= 152, `${help} palabras`);
+
+
+    // 2. La cadena con las cifras del motor: cantidad ÷ rendimiento = días; cantidad × tarifa = facturación.
+    const r0 = computeQuote(structuredClone(m3));
+    const rev0 = r0.estimate.revenue;
+    let t = await mainText();
+    check(P, 'a la vista: "200 m³ ÷ 20 m³ por día = 10 días de trabajo"', t.includes('200 m³ ÷ 20 m³ por día = 10 días de trabajo'), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
+    const revenueText = norm(`200 m³ × ${formatMoney(rev0.netRate)} por m³ = ${formatMoney(rev0.components.base)} por mes`);
+    check(P, `a la vista: "${revenueText}" (motor)`, t.includes(revenueText), t.slice(t.indexOf('Con estos datos'), t.indexOf('Con estos datos') + 240));
+
+    if (mode === 'mobile') {
+      // "Cada salida se cuenta completa" está en "Cada cuánto salís de la base" (plegada si no cambia nada).
+      await page.evaluate(() => { const d = document.querySelector('details[data-adv-key="modality-departures"]'); if (d) d.open = true; });
+      await page.waitForTimeout(200);
       // H9: con el botón justo arriba de la barra del resumen, la burbuja se abre hacia arriba (no queda tapada).
       const lowBtn = page.locator('.qe-full-activations .info-tip-btn').first();
       const bar = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--qe-sum-h')) || 0);
@@ -2628,17 +2677,7 @@ async function runMode(mode) {
       }, bar);
       check(P, 'H9: en el celular la ayuda (i) no queda debajo del resumen fijo (se abre hacia arriba)', low.open === 'true' && low.top >= 0 && low.bottom <= low.limit + 1, JSON.stringify(low));
       await page.keyboard.press('Escape').catch(() => {});
-    } else {
-      await tipBtn.hover();
-      await page.waitForTimeout(450);
-      const hovered = await tipState();
-      await page.mouse.move(2, 2);
-      await page.waitForTimeout(450);
-      const left = await tipState();
-      check(P, '(i) con el mouse se abre al pasar y se cierra al salir', hovered && hovered.expanded === 'true' && left && left.expanded === 'false', JSON.stringify({ hovered: hovered && hovered.expanded, left: left && left.expanded }));
     }
-    const critical = await page.evaluate(() => [...document.querySelectorAll('.info-tip')].filter((x) => x.closest('.banner, .qr-draft, .qe-notices, .qe-illustrative')).length);
-    check(P, 'ningún aviso crítico (borrador, NO CONFIABLE, ILUSTRATIVO) lleva su texto en una ayuda (i)', critical === 0, `${critical} ayudas dentro de avisos`);
 
     // 4. Rendimiento por hora: el número se pide de nuevo; 2 m³ por hora × 10 h = 20 m³ por día de trabajo.
     const denominator = page.locator('select[name="activity.rateInput.denominator"]').first();
@@ -2676,14 +2715,16 @@ async function runMode(mode) {
     }
 
     // 6. F4: m³ → t sin un factor (densidad): pide qué hacer y nunca convierte; Cancelar no cambia nada.
-    await page.locator('select[name="unit"]').first().selectOption('ton');
+    // UXR: la unidad se cambia en "Qué cotizás" (buscador: "tonelada" + Enter elige tonelada, no ton-km).
+    await go(`#/cotizaciones/${encodeURIComponent(m3.id)}/service`, 1200);
+    await chooseUnit('ton', 'tonelada');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     let dlg = await dialog();
     check(P, 'F4: m³ → t con cantidad y rendimiento cargados pregunta y no ofrece convertir (no hay factor)', Boolean(dlg) && /Cantidad del mes: 240 m³ por mes/.test(norm(dlg.text)) && /Rendimiento:/.test(dlg.text) && !dlg.buttons.some((b) => /^Convertir/.test(b)), JSON.stringify(dlg));
     await press('Cancelar');
     const kept = stored(m3.id);
-    check(P, 'Cancelar deja la unidad y los datos como estaban', await page.locator('select[name="unit"]').first().inputValue() === 'm3' && kept.unit === 'm3' && kept.activity.billableQuantityPerMonth === 240, JSON.stringify({ unit: kept.unit, q: kept.activity.billableQuantityPerMonth }));
-    await page.locator('select[name="unit"]').first().selectOption('ton');
+    check(P, 'Cancelar deja la unidad y los datos como estaban', await checkedUnit() === 'm3' && kept.unit === 'm3' && kept.activity.billableQuantityPerMonth === 240, JSON.stringify({ checked: await checkedUnit(), unit: kept.unit, q: kept.activity.billableQuantityPerMonth }));
+    await chooseUnit('ton', 'tonelada');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     await press('Borrar y cargar de nuevo');
     const cleared = await waitStored(m3.id, (q) => q.unit === 'ton');
@@ -2691,8 +2732,8 @@ async function runMode(mode) {
     check(P, 'F4: "Borrar y cargar de nuevo": la cantidad, el rendimiento y su forma quedan vacíos (240 m³ nunca pasan a ser 240 t)', Boolean(ca) && cleared.unit === 'ton' && ca.billableQuantityPerMonth === null && ca.unitsPerActiveDay === null && !ca.rateInput && !ca.quantityInput, JSON.stringify(ca));
 
     // 7. kg → t con el factor exacto: 5.000 kg = 5 t; 500 kg por día = 0,5 t; $ 50 por kg = $ 50.000 por t.
-    await go(`#/cotizaciones/${encodeURIComponent(kg.id)}/modality`, 1200);
-    await page.locator('select[name="unit"]').first().selectOption('ton');
+    await go(`#/cotizaciones/${encodeURIComponent(kg.id)}/service`, 1200);
+    await chooseUnit('ton', 'tonelada');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     dlg = await dialog();
     check(P, 'kg → t ofrece convertir con el factor exacto (1 t = 1.000 kg) y muestra antes y después', Boolean(dlg) && dlg.buttons.some((b) => /^Convertir a/.test(b)) && /1 t = 1\.000 kg/.test(dlg.text) && /5\.000 kg por mes → 5 t por mes/.test(norm(dlg.text)), JSON.stringify(dlg));
@@ -2706,9 +2747,9 @@ async function runMode(mode) {
     }
 
     // 8. Llamado → día: 6 llamados por mes no pasan a ser 6 días; una cantidad vieja tampoco se reusa.
-    await go(`#/cotizaciones/${encodeURIComponent(call.id)}/modality`, 1200);
-    const chips = await page.evaluate(() => ({ radios: [...document.querySelectorAll('input[type="radio"][name="unit"]')].map((r) => r.value), select: Boolean(document.querySelector('select[name="unit"]')), prefix: (document.querySelector('.qe-unit-chips .qe-compound-fixed') || {}).textContent }));
-    check(P, 'con pocas unidades (on-call: 5) van a la vista como botones de opción, con "ARS /"', !chips.select && JSON.stringify(chips.radios) === JSON.stringify(unitChoicesFor('on_call', 'call').map((u) => u.id)) && norm(chips.prefix) === 'ARS /', JSON.stringify(chips));
+    await go(`#/cotizaciones/${encodeURIComponent(call.id)}/service`, 1200);
+    const chips = await page.evaluate(() => ({ checked: (document.querySelector('input[name="unitChoice"]:checked') || {}).value, prefix: (document.querySelector('.qe-unit-picker .qe-compound-fixed') || {}).textContent }));
+    check(P, 'UXR: una unidad que no está entre las comunes (llamado) aparece a la vista, elegida, con "ARS /"', chips.checked === 'call' && norm(chips.prefix) === 'ARS /', JSON.stringify(chips));
     await chooseUnit('day');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     dlg = await dialog();
@@ -2716,8 +2757,8 @@ async function runMode(mode) {
     await press('Borrar y cargar de nuevo');
     const callSaved = await waitStored(call.id, (q) => q.unit === 'day');
     check(P, 'llamado → día guardado sin la cantidad de llamados', Boolean(callSaved) && callSaved.activity.billableQuantityPerMonth === null, JSON.stringify(callSaved && callSaved.activity));
-    await go(`#/cotizaciones/${encodeURIComponent(stale.id)}/modality`, 1200);
-    await page.locator('select[name="unit"]').first().selectOption('m3');
+    await go(`#/cotizaciones/${encodeURIComponent(stale.id)}/service`, 1200);
+    await chooseUnit('m3', 'm3');
     await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
     dlg = await dialog();
     check(P, 'día → m³ con una cantidad guardada de una unidad anterior: lo dice y no la reusa', Boolean(dlg) && /de una unidad anterior/.test(dlg.text) && !dlg.buttons.some((b) => /^Convertir/.test(b)), JSON.stringify(dlg));
@@ -2792,6 +2833,8 @@ async function runMode(mode) {
     const sbRows = await accountRows();
     const sbR = computeQuote(structuredClone(standby));
     const sbLabels = sbRows.map((x) => x[0]);
+    const sbNotes = await page.evaluate(() => [...document.querySelectorAll('.qr-account-notes li')].map((li) => li.textContent.trim()));
+    check('VAL', 'V-8: con equipo en espera en la cuenta, la nota dice que la espera ya está (no la cotices de nuevo aparte)', sbNotes.some((t) => /La espera del equipo ya está en esta cuenta/.test(t) && /renglón aparte/.test(t)), JSON.stringify(sbNotes));
     check(P, 'con standby, cantidad × tarifa es "= Subtotal (cantidad × tarifa)" y la facturación del mes es el total del motor', sbLabels.includes('= Subtotal (cantidad × tarifa)') && !sbLabels.some((l) => /Facturación por /.test(l)) && sbRows.some((x) => x[0] === '= Facturación del mes' && norm(x[2]) === norm(formatMoney(sbR.estimate.revenue.total))), JSON.stringify(sbRows));
     await go(`#/cotizaciones/${encodeURIComponent(standby.id)}/modality`, 1500);
     const sbKey = await mainText();
@@ -2799,11 +2842,12 @@ async function runMode(mode) {
     await go(`#/cotizaciones/${encodeURIComponent(minHour.id)}/result`, 1500);
     const mhRows = await accountRows();
     const qtyRow = mhRows.find((x) => x[0] === 'Cantidad facturable') || [];
-    check(P, 'con mínimo por intervención: "10 días × 5 h por día = 50 h trabajadas · el mínimo … lleva la cantidad facturable a 80 horas"', /= 50 h trabajadas/.test(qtyRow[1] || '') && /lleva la cantidad facturable a 80 horas/.test(qtyRow[1] || '') && norm(qtyRow[2] || '') === '80 horas', JSON.stringify(qtyRow));
+    check(P, 'a demanda con mínimo por llamado: "10 llamados × 5 h en promedio = 50 h trabajadas · el mínimo de 8 h por llamado lleva la cantidad facturable a 80 horas"', /^10 llamados × 5 h en promedio = 50 h trabajadas/.test(qtyRow[1] || '') && /el mínimo de 8 h por llamado lleva la cantidad facturable a 80 horas/.test(qtyRow[1] || '') && norm(qtyRow[2] || '') === '80 horas', JSON.stringify(qtyRow));
     const notesOf = () => page.evaluate(() => [...document.querySelectorAll('.qr-account-notes li')].map((li) => li.textContent.trim()));
     const mhNotes = await notesOf();
     check('VAL', 'V-6: con mínimo por llamado, "La cuenta del mes" avisa que se aplica al llamado promedio', mhNotes.some((t) => /se aplica al llamado promedio/.test(t)), JSON.stringify(mhNotes));
-    check('VAL', 'V-8: "La cuenta del mes" dice que los renglones aparte van en otra cotización', mhNotes.some((t) => /renglones aparte/.test(t)), JSON.stringify(mhNotes));
+    // SIM-02: la nota de renglones aparte sólo cuando la cuenta ya cobra algo que se suele pedir aparte (espera, horas extra).
+    check('VAL', 'V-8: sin espera ni horas extra en la cuenta, no hay nota de renglones aparte', !mhNotes.some((t) => /renglón aparte|renglones aparte/.test(t)), JSON.stringify(mhNotes));
 
     // V-1 y V-5: 32 días en un mes de 30 es crítico hasta confirmarlo; con el crítico no se marca como enviada
     // y el colchón es provisorio. Confirmar en "Cómo se cobra" lo resuelve y se guarda, sin cambiar números.

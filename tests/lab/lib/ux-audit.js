@@ -309,6 +309,9 @@ const CASH_OUT = /salidas? de caja/gi;
 export const ACTIVATION_WORDS_ALLOWED = Object.freeze({
   // La definición de los nombres.
   'domain/activation-terms.js': '*',
+  // UXR: el catálogo para ELEGIR la unidad de cobro: "llamado" es el nombre de una unidad (que ES la
+  // activación) y los sinónimos de búsqueda ("salida", "visita", "intervención") llevan a esa unidad.
+  'domain/unit-catalog.js': '*',
   // La unidad de facturación "llamado" ES la activación (en esa cotización se nombra "llamado").
   'domain/billing-units.js': ["'llamado'", "'llamados'", "'$/llamado'", "'Se factura cada llamado, dure lo que dure.'"],
   // Recursos (sin tipo de servicio): etiqueta genérica; en la cotización se nombra como su activación.

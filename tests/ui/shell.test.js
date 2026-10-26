@@ -235,7 +235,7 @@ describe('Nueva cotización: plantillas', () => {
     assert.match(c.resources, /puesto/);
     assert.equal(c.hasContent, true);
     const empty = templateContents({ id: 'x', name: 'Vacía', defaults: {} });
-    assert.equal(empty.resources, 'Sólo tipo de servicio y actividad');
+    assert.equal(empty.resources, 'Sólo cómo se cobra y la actividad');
     assert.equal(empty.hasContent, false);
     // Una plantilla guardada desde una cotización también cuenta otros costos y vehículos.
     const saved = templateContents({ defaults: { otherCosts: [{}], logistics: { vehicles: [{}, {}] } } });

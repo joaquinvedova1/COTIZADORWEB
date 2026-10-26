@@ -2345,3 +2345,57 @@ El de 0.9.0 (deploy de `d6540b7`). Para cerrar el registro sin redeploy: "Allow 
 
 #### Bitácora
 - 2026-10-25: decisión del dueño (beta abierta) y requisitos de ChatGPT (Issue #5 de RATEOS-AUDIT). Implementación, tests, SIM-01 otra vez, impacto en DOVA (en memoria) y huella de RLS en la base real (sólo lectura).
+
+### PLAN-2026-032 — UXR: cotizar sin tipo de servicio, con la unidad, la actividad y el Resultado claros
+
+- Estado: En curso
+- Tipo: otro (UX del cotizador) + motor de costos (modalidades opcionales)
+- Responsable: Claude (agentes de investigación, de implementación del Resultado y de simulación por rubro)
+- Fecha de inicio: 2026-10-25
+- Rama / PR: `claude/wonderful-brown-g2ehd6` · PR borrador
+
+#### 1. Contexto y problema
+El dueño (Issue #5 de RATEOS-AUDIT) y la simulación A2 encontraron que el primer paso obligaba a elegir entre 11 tipos de servicio excluyentes que no cambiaban ninguna fórmula pero encerraban las unidades (on-call preseleccionado, transporte que llegaba en "día", taller y estiba sin unidad propia), que las preguntas de llamados aparecían aunque no aplicaran, que no había hora-hombre ni precio total de una obra de varios meses, que el mínimo por llamado se aplicaba al promedio y que un material "por intervención" se contaba por día. El Resultado repetía cifras y mezclaba "del mes" con trabajos únicos.
+
+#### 2. Objetivo y no-objetivos
+- Objetivo: elegir cómo se cobra (unidad comercial) de un catálogo buscable sin tipo de servicio; cargar la actividad en esa unidad, con preguntas de llamados sólo a demanda; soportar hora-hombre y otras unidades por persona o equipo, llamados de distinta duración con mínimo por llamado, precio total del trabajo y materiales por unidad facturada; un Resultado que diga en siete renglones qué vendés, la tarifa, lo que facturás, lo que te cuesta, lo que ganás, la actividad y para no perder.
+- Fuera de alcance: cotizaciones con varias unidades a la vez (un renglón por camión y otro por hora en la misma oferta), propuesta comercial para el cliente, cambios de base de datos.
+
+#### 3. Impacto en fórmulas
+- Ninguna fórmula existente cambia: golden 39/39, Test Lab y la foto de regresión idénticos; el mismo caso da las mismas cifras en la versión anterior y en la nueva.
+- Modalidades nuevas, opcionales (CALCULATION_RULES §12.2): personas o equipos facturados en paralelo; perfil de llamados (mínimo por llamado a cada uno: 8 llamados de 2, 2, 3, 3, 5, 5, 8 y 8 h con mínimo 4 h → 42 h, no 36); precio total del trabajo (un trabajo de D días; fijos × max(1, D ÷ disponibles)); materiales por unidad facturada (60 válvulas × 2 juntas × $ 5.000 = $ 600.000 por mes).
+- Margen y markup siguen diferenciados.
+
+#### 4. Impacto en datos
+Sin cambio de esquema (sigue en 10) ni migración, como ECO-01: campos opcionales que el motor lee (`activity.activationProfile`, `billedResourceKind`, `billedResources`, `quote.billingHorizon`, base `per_billed_unit`) y otros que sólo guardan la forma de carga (`hoursInput`, `hoursBasis`, `callsPerMonth`, `callDurationForm`). Ningún dato se pierde. Compatibilidad hacia atrás y decisión pendiente del dueño (subir a v11 o no): DATA_MODEL §5.
+
+#### 5. Diseño
+- Dominio: `js/domain/unit-catalog.js` (catálogo y búsqueda), `js/domain/activity-forms.js` (forma de carga), variantes por persona o equipo en `billing-units.js`.
+- UI: `quote-steps/service.js` ("Qué cotizás": unidad + tarifa propia o calculada), `unit-picker.js` (combobox APG), `unit-change.js` (cambio de unidad sin reinterpretar valores), `modality.js` ("Cuánto vas a hacer"), `quote-result.js` (ficha de siete renglones e impresión en dos salidas).
+- Motores: los citados en §3; la completitud ya no pide equipo por tipo ni standby fuera de on-call.
+
+#### 6. Pasos
+- [x] 1. Investigación con agentes (prestadores A1/A2, UX B2B, costos, arquitectura) y síntesis.
+- [x] 2. Motor y catálogo con tests de oráculo (`tests/engines/uxr-model.test.js`, `tests/domain/unit-catalog.test.js`).
+- [x] 3. Pasos "Qué cotizás" y "Cuánto vas a hacer"; listas, Inicio y plantillas dicen cómo se cobra.
+- [x] 4. Resultado y PDF (agente de implementación) integrados.
+- [x] 5. SIM-02: agentes prestadores por rubro sobre la versión nueva; corrección de lo que encuentren (5 P0, 7 P1, P2/P3) y revisión de código (10 hallazgos corregidos).
+- [ ] 6. Regresión completa, PR borrador, evidencia en RATEOS-AUDIT y demo para el dueño.
+- [ ] 7. Merge y deploy únicos con autorización expresa.
+
+#### 7. Tests
+Unitarios (2.064+), golden 39/39, Test Lab, gate de seguridad, ui-lab (selector nuevo, F4, foco con alias), beta-lab y auth-lab.
+
+#### 8. Riesgos y mitigación
+| Riesgo | Mitigación |
+|---|---|
+| Una pestaña con la versión anterior durante el deploy calcula sin los campos nuevos | Documentado (DATA_MODEL §5); decisión del dueño sobre v11 antes del deploy |
+| Cambiar de unidad reinterpreta un número | `unit-change.js`: sólo convierte con factor exacto; si no, pregunta y borra; días de obra ↔ días por salida nunca se reinterpretan |
+| El perfil de llamados queda desfasado si cambian las horas | El motor lo ignora si su promedio no coincide; la pantalla lo vuelve a escribir al cambiar las horas |
+
+#### 9. Rollback
+Revert del PR (no hay migración). Las cotizaciones guardadas con campos nuevos siguen abriendo en la versión anterior (los ignora).
+
+#### Bitácora
+- 2026-10-25: autorización del dueño para investigar, rediseñar e implementar en la rama de desarrollo (sin merge, deploy, Supabase ni DOVA). Investigación, motor, pasos 1 y 2, Resultado, documentación; SIM-02 en curso.
+- 2026-10-26: SIM-02 (3 agentes prestadores) y correcciones; revisión de código con la skill Code Review (continuidad en precio total, controles derivados de la unidad, combustible en externos, perfil de llamados); Resultado integrado; regresión y PR borrador.

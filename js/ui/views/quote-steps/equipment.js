@@ -39,6 +39,7 @@ import { MOBILIZATION_MODES } from '../../../domain/catalogs.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock } from './assignment.js';
+import { billingUnitOf } from '../../../domain/billing-units.js';
 
 const isExternalLine = (line) => acquisitionOf(line) !== 'owned';
 
@@ -640,6 +641,8 @@ export function render(container, ctx) {
     ];
   };
 
+  const transportUnit = ['trip', 'km', 'tonkm'].includes(billingUnitOf(quote).id);
+  const fuelTwiceRisk = (line) => transportUnit && line.mobilization && line.mobilization.mode === 'self' && Number(line.mobilization.travelLitersPer100Km) > 0;
   const ownedCard = (line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
@@ -687,6 +690,13 @@ export function render(container, ctx) {
             ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
             : 'Eléctrico, manual o estacionario: marcalo en vez de dejar el consumo en 0.',
         }),
+        // SIM-02 (S3): cobra por viaje/km y se traslada con consumo en ruta → el L/h puede ser el de andar (dos veces).
+        line.fuelNotApplicable !== true && fuelTwiceRisk(line)
+          ? kit.check(`${p}.fuelWhileStopped`, {
+            label: 'El consumo por hora es detenido (bomba, hidrogrúa)',
+            hint: 'Se traslada por sus propios medios con consumo en ruta (L/100 km). Si el L/h es de andar, el combustible va dos veces: dejalo en 0. Marcalo sólo si consume trabajando detenido.',
+          })
+          : null,
       ),
       kit.region((r) => wearWarningsRegion(r, i)),
       // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
@@ -1047,7 +1057,7 @@ export function render(container, ctx) {
         return h(
           'div',
           { class: ['qe-ext-checklist', pending.length ? 'has-pending' : 'is-complete'] },
-          h('p', { class: 'small' }, pending.length ? `Para que el costo del proveedor quede completo faltan ${pending.length} ${pending.length === 1 ? 'dato' : 'datos'}:` : 'Datos del proveedor completos.'),
+          h('p', { class: 'small' }, pending.length ? `Para que el costo del proveedor quede completo ${pending.length === 1 ? 'falta 1 dato' : `faltan ${pending.length} datos`}:` : 'Datos del proveedor completos.'),
           h('ul', { class: 'qe-chips' }, ...items.map((x) => h('li', { class: ['qe-chip', x.ok ? 'is-ok' : 'is-pending'] }, `${x.ok ? '✓' : '•'} ${x.label}${x.value ? `: ${x.value}` : ''}`))),
         );
       }, { tag: 'div' }),
@@ -1096,6 +1106,10 @@ export function render(container, ctx) {
                 ? kit.num(`${p}.external.fuelLitersPerHour`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/h', hint: 'Se suma como combustible con el precio de la cotización.' })
                 : null,
           ext.fuelIncluded === false ? kit.out((r) => (at(r) ? externalFuelText(r, at(r)) : ''), { tag: 'p', className: 'small qe-fuel-calc', allowEmpty: true }) : null,
+          // Como en los propios (SIM-02 S3): un consumo por hora que pagás vos puede ser el de andar.
+          ext.fuelIncluded === false && !['per_100km', 'km_per_liter'].includes(ext.fuelMode) && fuelTwiceRisk(line)
+            ? kit.check(`${p}.fuelWhileStopped`, { label: 'El consumo por hora es detenido (bomba, hidrogrúa)', hint: 'Se traslada por sus propios medios con consumo en ruta. Si el L/h es de andar, el combustible va dos veces: dejalo en 0.' })
+            : null,
           triField(`${p}.external.mobilizationIncluded`, 'Movilización (llevarlo y traerlo)'),
           ext.mobilizationIncluded === false ? kit.num(`${p}.external.mobilizationAmount`, { label: `Movilización del proveedor ${T.per} (neta)`, rule: 'money', unit: sym, hint: `Lo que te cobra por llevarlo y traerlo en ${T.each}.` }) : null,
           triField(`${p}.external.insuranceIncluded`, 'Seguro'),

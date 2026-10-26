@@ -16,6 +16,7 @@ import {
   signedDays,
   resultDaysDelta,
   cushionText,
+  spareText,
   joinList,
   targetGoalHint,
   targetGoalPrefix,
@@ -160,6 +161,44 @@ describe('colchón sobre el mínimo (REG-6)', () => {
   test('sin datos no hay frase', () => {
     assert.equal(cushionText(null, 6), '');
     assert.equal(cushionText(8, NaN), '');
+  });
+});
+
+describe('cuánto sobra o falta sobre el mínimo, en la unidad de cobro (ficha del Resumen)', () => {
+  const hh = (x, d) => `${new Intl.NumberFormat('es-AR', { maximumFractionDigits: d }).format(x)} horas-hombre`;
+  const ceil0 = (x) => Math.ceil(x - 1e-7);
+
+  test('880 horas-hombre estimadas, mínimo 726,19 (se muestra 727): sobran 153, no 154', () => {
+    assert.equal(spareText({ est: 880, min: 726.19, estShown: 880, minShown: ceil0(726.19), decimals: 0, fmt: hh }), 'Estimás 880 horas-hombre: te sobran 153 horas-hombre.');
+  });
+
+  test('debajo del mínimo: te faltan', () => {
+    assert.equal(spareText({ est: 600, min: 726.19, estShown: 600, minShown: 727, decimals: 0, fmt: hh }), 'Estimás 600 horas-hombre: te faltan 127 horas-hombre.');
+  });
+
+  test('si el redondeo cambia el signo, dice "justo" o "apenas debajo" (nunca "te faltan" estando arriba)', () => {
+    assert.equal(spareText({ est: 726.3, min: 726.19, estShown: 726, minShown: 727, decimals: 0, fmt: hh }), 'Estimás 726 horas-hombre: estás justo en el mínimo.');
+    assert.equal(spareText({ est: 726.6, min: 726.9, estShown: 727, minShown: 727, decimals: 0, fmt: hh }), 'Estimás 727 horas-hombre: estás apenas debajo del mínimo.');
+  });
+
+  test('con 1 de diferencia, en singular ("te sobra 1 llamado")', () => {
+    const calls = (x) => `${x} ${x === 1 ? 'llamado' : 'llamados'}`;
+    assert.equal(spareText({ est: 8, min: 6.4, estShown: 8, minShown: 7, decimals: 0, fmt: calls }), 'Estimás 8 llamados: te sobra 1 llamado.');
+    assert.equal(spareText({ est: 6, min: 6.4, estShown: 6, minShown: 7, decimals: 0, fmt: calls }), 'Estimás 6 llamados: te falta 1 llamado.');
+  });
+
+  test('en días, con 1 día de diferencia: "te falta 1 día"', () => {
+    assert.match(cushionText(9, 10, { beDecimals: 0 }), /te falta 1 día para no perder plata\.$/);
+  });
+
+  test('en días: lo estimado − el mínimo mostrado (hacia arriba) = lo que sobra', () => {
+    const days = (x, d) => formatDays(x, { decimals: d });
+    assert.equal(spareText({ est: 22, min: 18.15, estShown: 22, minShown: 18.2, decimals: 2, fmt: days }), 'Estimás 22 días: te sobran 3,8 días.');
+  });
+
+  test('sin datos no hay frase', () => {
+    assert.equal(spareText({ est: null, min: 1, estShown: null, minShown: 1, fmt: hh }), '');
+    assert.equal(spareText({ est: 1, min: 1, estShown: 1, minShown: 1 }), '');
   });
 });
 

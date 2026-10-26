@@ -158,12 +158,12 @@ export function stepShortLabel(stepId) {
  */
 export const STEP_COPY = Object.freeze({
   service: {
-    question: '¿Qué servicio vas a prestar?',
-    why: 'El tipo de servicio define cómo se cobra y qué costos aparecen.',
+    question: '¿Qué le vas a cotizar al cliente?',
+    why: 'Elegí cómo le cobrás: con eso RATEOS te pregunta sólo lo que hace falta.',
   },
   modality: {
-    question: '¿Cómo lo vas a cobrar?',
-    why: 'Contanos en qué unidad cobrás, si ya tenés una tarifa o si querés que RATEOS calcule cuánto cobrar, y cuánto esperás trabajar o facturar por mes.',
+    question: '¿Cuánto vas a hacer?',
+    why: 'Lo que esperás facturar y cómo trabajás: con eso se calculan los costos y la tarifa.',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
@@ -269,6 +269,8 @@ export { stepOfPath, fieldFromHash, fieldHref };
 export function stepOfItem(item) {
   if (!item) return 'service';
   if (item.id === 'utilization') return 'modality';
+  // Un duplicado se corrige donde está el campo (operador o combustible en Equipos, vehículo en Viajes; SIM-02).
+  if (item.id === 'duplicates' && typeof item.focus === 'string' && QUOTE_STEPS.some((s) => s.id === stepOfPath(item.focus))) return stepOfPath(item.focus);
   return QUOTE_STEPS.some((s) => s.id === item.step) ? item.step : 'service';
 }
 
@@ -428,8 +430,22 @@ function setContent(el, content) {
   else el.textContent = content === null || content === undefined || content === '' ? EMPTY : String(content);
 }
 
+/** ¿Precio total del trabajo? (las cifras son del trabajo completo, no de un mes). */
+function jobTotalOf(r) {
+  return Boolean(r && r.activity && r.activity.jobHorizon);
+}
+
 function cssEscape(value) {
   return globalThis.CSS && typeof globalThis.CSS.escape === 'function' ? globalThis.CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&');
+}
+
+/**
+ * Controles de un dato: por su `name` o, si la pantalla lo carga de otra forma (UXR: las horas del mes en
+ * lugar de los días, los llamados a demanda), por `data-field-alias` (rutas separadas por espacios).
+ */
+function fieldSelector(path) {
+  const p = cssEscape(path);
+  return `[name="${p}"], [data-field-alias~="${p}"]`;
 }
 
 /**
@@ -451,7 +467,7 @@ function decorateFieldIssues(container, issues) {
   container.querySelectorAll('.qe-has-issue').forEach((n) => n.classList.remove('qe-has-issue'));
   issues.forEach((issue) => {
     if (!issue.path) return;
-    const controls = [...container.querySelectorAll(`[name="${cssEscape(issue.path)}"]`)];
+    const controls = [...container.querySelectorAll(fieldSelector(issue.path))];
     const field = controls.length ? controls[0].closest('.field, .choice-group') : null;
     if (!field) return;
     field.classList.add('qe-has-issue');
@@ -898,7 +914,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
 function commercialRateTrace(r) {
   const k = r.kpis;
   const sourceLabel = {
-    known_rate: `Tu tarifa (la cargaste en "${stepName('modality')}")`,
+    known_rate: `Tu tarifa (la cargaste en "${stepName('service')}")`,
     offered: `Tarifa ofrecida a mano (en "${stepName('margin')}")`,
     suggested: 'Sugerida: precio objetivo redondeado hacia arriba',
     override: 'Tarifa forzada',
@@ -1009,7 +1025,7 @@ function rateHint(r) {
   let text;
   switch (k.commercialSource) {
     case 'known_rate':
-      text = `La ingresaste en "${stepName('modality')}".`;
+      text = `La ingresaste en "${stepName('service')}".`;
       break;
     case 'offered':
       text = `La cargaste a mano en "${stepName('margin')}".`;
@@ -1024,7 +1040,7 @@ function rateHint(r) {
       break;
     }
     default:
-      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('modality')}".`;
+      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('service')}".`;
       else if (k.targetMarginInvalid) {
         text = k.billingTaxPct > 0
           ? `Sin tarifa sugerida: con ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - k.billingTaxPct)}. Bajalo en "El precio".`
@@ -1094,11 +1110,14 @@ function buildSummary({ getResult, stepHref }) {
     { class: 'qe-sum-list qe-sum-main' },
     item({
       key: 'totalCost',
-      label: 'Costo del mes',
-      short: 'Costo del mes',
+      // UXR (SIM-02 S3): con precio total del trabajo las cifras son del trabajo completo, no de un mes.
+      label: (r) => (jobTotalOf(r) ? 'Costo del trabajo' : 'Costo del mes'),
+      short: (r) => (jobTotalOf(r) ? 'Costo del trabajo' : 'Costo del mes'),
       value: (r) => formatMoney(r.kpis.totalCost),
       compact: (r) => formatMoneyCompact(r.kpis.totalCost),
-      hint: (r) => (isQuantityUnit(r)
+      hint: (r) => (jobTotalOf(r)
+        ? `Todo el trabajo: ${workDaysText(r.activity.activeDaysPerMonth, { decimals: 2 })} en ≈ ${formatNumber(r.activity.jobMonths, { decimals: 2 })} ${Math.abs(r.activity.jobMonths - 1) < 1e-9 ? 'mes' : 'meses'}.`
+        : isQuantityUnit(r)
         ? (rateMissing(r)
           ? `Falta completar el rendimiento en "${stepName('modality')}": sin él no hay días de trabajo.`
           : `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`)
@@ -1175,10 +1194,10 @@ function buildSummary({ getResult, stepHref }) {
     }),
     item({
       key: 'expectedResult',
-      label: 'Resultado esperado del mes',
+      label: (r) => (jobTotalOf(r) ? 'Resultado esperado del trabajo' : 'Resultado esperado del mes'),
       value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
       // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que todo (también sin tarifa).
-      hint: (r) => unreliableText(r.completeness, 'este resultado') || (isFiniteNumber(r.kpis.commercialListRate) ? `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
+      hint: (r) => unreliableText(r.completeness, 'este resultado') || (isFiniteNumber(r.kpis.commercialListRate) ? `Facturás ${formatMoney(r.kpis.revenue)} ${jobTotalOf(r) ? 'en todo el trabajo' : 'por mes'}.` : 'Sin tarifa todavía.'),
       tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
       trace: (r) => r.traces.expectedResult,
     }),
@@ -2009,7 +2028,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   }
 
   function focusField(path) {
-    const controls = [...stepBody.querySelectorAll(`[name="${cssEscape(path)}"]`)];
+    const controls = [...stepBody.querySelectorAll(fieldSelector(path))];
     // En un grupo de opciones, la elegida (así el teclado sigue en el mismo lugar).
     const control = controls.find((c) => c.type === 'radio' && c.checked) || controls[0];
     if (!control) return;
@@ -2105,7 +2124,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     getQuote: () => state.quote,
     onReveal: (key) => revealAdvanced(key),
     onFocusField: (path) => focusField(path),
-    hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
+    hasField: (path) => Boolean(stepBody.querySelector(fieldSelector(path))),
     stepHref,
     didactic: state.quote.illustrative === true,
   });
@@ -2120,7 +2139,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   const meta = h(
     'div',
     { class: 'qe-step-meta' },
-    stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel),
+    // En "Qué cotizás" la unidad se elige a la vista (y cambia sin redibujar el encabezado): no se repite.
+    stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel),
     stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-gray', title: 'Convención de esta cotización: costos, precios y tarifas se cargan sin IVA.' }, 'Montos sin IVA'),
     saveEl,
   );
@@ -2336,7 +2356,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         'div',
         { class: 'stack' },
         row('Duplicar', 'copy', 'Crea una copia de esta cotización para cotizar una variante.', () => duplicate(), readOnly),
-        row('Guardar como plantilla', 'services', 'Reutilizá el tipo de servicio, la actividad y los recursos en cotizaciones nuevas.', () => saveAsTemplate(), readOnly),
+        row('Guardar como plantilla', 'services', 'Reutilizá cómo se cobra, la actividad y los recursos en cotizaciones nuevas.', () => saveAsTemplate(), readOnly),
         row('Imprimir', 'print', 'Abre el Resultado listo para imprimir o guardar como PDF.', () => print()),
       ),
       actions: [button('Cerrar', { variant: 'secondary', onClick: () => ref.close() })],
@@ -2473,7 +2493,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       content: h(
         'div',
         { class: 'stack' },
-        h('p', {}, 'La plantilla copia el tipo de servicio, la actividad, el personal, los equipos, los materiales, la logística y las reglas comerciales de esta cotización. No copia el cliente, el código ni el estado. Después la usás desde "Nueva cotización".'),
+        h('p', {}, 'La plantilla copia cómo se cobra, la actividad, el personal, los equipos, los materiales, la logística y las reglas comerciales de esta cotización. No copia el cliente, el código ni el estado. Después la usás desde "Nueva cotización".'),
         info.any ? banner('Esta cotización tiene valores ILUSTRATIVOS: la plantilla también va a quedar marcada como ILUSTRATIVA.', 'warning') : null,
         nameField,
         descField,

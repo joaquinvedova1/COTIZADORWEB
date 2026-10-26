@@ -100,6 +100,34 @@ export function unitHasDayTiers(unit) {
 }
 
 /**
+ * Llamados de distinta duración (UXR, `activity.activationProfile` = [{ count, units }]): cuántos llamados
+ * duran cuánto, en la unidad de cobro (horas con $/hora). Sólo vale si su promedio coincide con el de la
+ * actividad (si alguien cambió los días o las horas, rige el promedio, como siempre). null = sin perfil.
+ */
+export function activationProfileOf(profile, worked) {
+  if (!Array.isArray(profile)) return null;
+  // Mismo criterio que la pantalla (activity-forms `cleanProfile` y `near`): filas con llamados y duración
+  // positivos, y el promedio igual a lo trabajado con tolerancia 1e-6 (revisión de código).
+  const items = profile.filter(isPlainObject).map((x) => ({ count: nonNegative(x.count), units: nonNegative(x.units) })).filter((x) => x.count > 0 && x.units > 0);
+  const total = items.reduce((a, x) => a + x.count, 0);
+  if (!(total > 0)) return null;
+  const mean = items.reduce((a, x) => a + x.count * x.units, 0) / total;
+  if (!(Math.abs(mean - worked) <= 1e-6 * Math.max(1, Math.abs(worked)))) return null;
+  return items.map((x) => ({ weight: x.count / total, units: x.units }));
+}
+
+/**
+ * Unidades facturables POR llamado con el mínimo por llamado: con perfil, el mínimo se aplica a CADA
+ * llamado (2 h con mínimo 4 h facturan 4 h; 8 h facturan 8 h); sin perfil, al llamado promedio.
+ */
+export function minimumPerActivation(worked, minimum, profile = null) {
+  const m = nonNegative(minimum);
+  const p = m > 0 ? activationProfileOf(profile, worked) : null;
+  if (!p) return Math.max(worked, m);
+  return p.reduce((acc, x) => acc + x.weight * Math.max(x.units, m), 0);
+}
+
+/**
  * Unidades facturables con D días activos (en la unidad comercial).
  *   día       D días (con mínimo por llamado)
  *   hora      D × horas por día (con mínimo por llamado)
@@ -108,7 +136,10 @@ export function unitHasDayTiers(unit) {
  *   cantidad  llamados × max(días por llamado × cantidad por día, mínimo) (PLAN-2026-009)
  * @param {{ activeDays:number, daysPerActivation:number, hoursPerActiveDay:number, availableDaysPerMonth:number, unit:'day'|'hour'|'month'|'event'|'quantity', minimumCallUnits:number, unitsPerActiveDay?:number, unitsPerActivation?:number }} p
  */
-export function billableUnits({ activeDays, daysPerActivation, hoursPerActiveDay, availableDaysPerMonth, unit = 'day', minimumCallUnits = 0, unitsPerActiveDay = 0, unitsPerActivation = 1 }) {
+export function billableUnits({ activeDays, daysPerActivation, hoursPerActiveDay, availableDaysPerMonth, unit = 'day', minimumCallUnits = 0, unitsPerActiveDay = 0, unitsPerActivation = 1, activationProfile = null, billedResources = 1 }) {
+  // Personas o equipos que se facturan en paralelo (UXR, hora-hombre, jornal, día-equipo, abono por
+  // equipo): con día, hora y mes las unidades se multiplican; 1 = como siempre. Los días físicos (tramos) no.
+  const nRes = nonNegative(billedResources) > 0 ? nonNegative(billedResources) : 1;
   const D = nonNegative(activeDays);
   const dpa = nonNegative(daysPerActivation) > 0 ? nonNegative(daysPerActivation) : 1;
   const hours = nonNegative(hoursPerActiveDay);
@@ -118,7 +149,7 @@ export function billableUnits({ activeDays, daysPerActivation, hoursPerActiveDay
   if (unit === 'month') {
     const available = nonNegative(availableDaysPerMonth);
     const months = available > 0 && D > available ? D / available : 1;
-    return { activations, unitsPerActivation: null, billableUnitsPerActivation: null, billableUnits: months, billableDays: D, minimumCallApplied: false };
+    return { activations, unitsPerActivation: null, billableUnitsPerActivation: null, billableUnits: months * nRes, billableDays: D, minimumCallApplied: false };
   }
   if (unit === 'event') {
     // Cada llamado / trabajo factura sus hitos (1 si no es por hito); el mínimo por llamado no aplica.
@@ -126,16 +157,17 @@ export function billableUnits({ activeDays, daysPerActivation, hoursPerActiveDay
     return { activations, unitsPerActivation: perEvent, billableUnitsPerActivation: perEvent, billableUnits: activations * perEvent, billableDays: D, minimumCallApplied: false };
   }
   const workedPerActivation = unit === 'hour' ? dpa * hours : unit === 'quantity' ? dpa * nonNegative(unitsPerActiveDay) : dpa;
-  const billableUnitsPerActivation = Math.max(workedPerActivation, minCall);
-  const units = activations * billableUnitsPerActivation;
-  const billableDays = unit === 'hour' ? (hours > 0 ? units / hours : D) : unit === 'quantity' ? D : units;
+  const billableUnitsPerActivation = minimumPerActivation(workedPerActivation, minCall, activationProfile);
+  const physicalUnits = activations * billableUnitsPerActivation;
+  const units = unit === 'quantity' ? physicalUnits : physicalUnits * nRes;
+  const billableDays = unit === 'hour' ? (hours > 0 ? physicalUnits / hours : D) : unit === 'quantity' ? D : physicalUnits;
   return {
     activations,
     unitsPerActivation: workedPerActivation,
     billableUnitsPerActivation,
     billableUnits: units,
     billableDays,
-    minimumCallApplied: minCall > workedPerActivation + NUMERIC_EPSILON && activations > 0,
+    minimumCallApplied: billableUnitsPerActivation > workedPerActivation + NUMERIC_EPSILON && activations > 0,
   };
 }
 
@@ -171,6 +203,8 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
     minimumCallUnits: r.minimumCallUnits,
     unitsPerActiveDay: activity.unitsPerActiveDay,
     unitsPerActivation: activity.unitsPerActivation,
+    activationProfile: activity.activationProfile || null,
+    billedResources: activity.billedResources || 1,
   });
   const available = nonNegative(activity.availableDaysPerMonth);
   const months = available > 0 && D > available ? D / available : 1;

@@ -19,14 +19,13 @@ import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFa
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
 import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
-import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
+import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers, minimumPerActivation } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, commercialRound, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
 import { evaluateCompleteness, activationRoundingNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
-import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../domain/billing-units.js';
-import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
+import { unitTexts } from '../domain/billing-units.js';
 import { riskSummary } from '../domain/quote-risk.js';
 import { quoteRounding, roundingStepFor, ROUNDING_WARN_PCT } from '../domain/rounding.js';
 
@@ -54,10 +53,10 @@ export function minActiveDaysForBillableDays(ctx, billableDays) {
   if (ctx.unit === 'hour') {
     const h = a.hoursPerActiveDay;
     if (!(h > 0)) return bd;
-    const perActivation = Math.max(dpa * h, minCall);
+    const perActivation = minimumPerActivation(dpa * h, minCall, a.activationProfile);
     return perActivation > 0 ? (bd * dpa * h) / perActivation : bd;
   }
-  const perActivation = Math.max(dpa, minCall);
+  const perActivation = minimumPerActivation(dpa, minCall, a.activationProfile);
   return perActivation > 0 ? (bd * dpa) / perActivation : bd;
 }
 
@@ -124,14 +123,8 @@ function unitIssues(quote, ctx) {
     });
   }
   // Días de trabajo + días de espera que no entran en el mes: crítico de la completitud (`standby_overflow`, V-1).
-  if (quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
-    const usual = SERVICE_TYPE_UNITS[quote.serviceType].map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
-    issues.push({
-      path: 'unit',
-      message: `"${labelOf(SERVICE_TYPES, quote.serviceType, 'Este servicio')}" se suele cobrar en ${usual}. Estás cobrando en ${u.label}: revisá que sea la unidad correcta.`,
-      severity: 'warning',
-    });
-  }
+  // UXR: la unidad ya no depende del tipo de servicio (cualquier unidad del catálogo se puede elegir): no
+  // hay aviso de "se suele cobrar en…".
   return issues;
 }
 
@@ -252,6 +245,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     const reason = 'Con abono mensual la facturación no depende de los días activos: no hay break-even en días.';
     breakEven = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
     targetMarginDays = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
+  } else if (activity.jobHorizon) {
+    // Precio total del trabajo (UXR): se vende UN trabajo; el piso ya es el precio mínimo para no perder.
+    const reason = 'Con precio total del trabajo se vende un solo trabajo: el mínimo para no perder es la tarifa piso.';
+    breakEven = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
+    targetMarginDays = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
   } else if (!hasRate) {
     const reason = 'Sin tarifa definida no se puede calcular el break-even.';
     breakEven = { reachable: false, days: null, wholeDays: null, reason };
@@ -301,10 +299,10 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   // Continuidad: efecto del descuento por permanencia con la actividad estimada
   const continuity = {
-    applies: continuityApplies(quote.rules || {}, quote.contractMonths),
+    applies: continuityApplies(quote.rules || {}, ctx.contractMonths),
     discountPct: normalizeRules(quote.rules || {}).continuityDiscountPct,
     minMonths: normalizeRules(quote.rules || {}).continuityMinMonths,
-    contractMonths: nonNegative(quote.contractMonths),
+    contractMonths: ctx.contractMonths,
   };
   if (continuity.applies && hasRate) {
     continuity.status = classifyDiscount({
@@ -329,6 +327,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const num = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
   let workingCapital = model.finance.workingCapitalFixed * factor + model.finance.workingCapitalPerActiveDay * D;
   if (roundingOn) workingCapital += rounding.workingCapital;
+  // Precio total del trabajo (UXR, SIM-02 ronda 2): la caja del modelo es la de todo el trabajo; lo que se adelanta
+  // a la vez es la de un mes (el costo financiero, que suma todos los meses, no cambia).
+  if (model.activity && model.activity.jobHorizon && model.activity.jobMonths > 1) workingCapital /= model.activity.jobMonths;
   const financialCost = costAt.byCategory.financial;
   // Viajes = movilización de los equipos + logística auxiliar (vehículos, peajes, viáticos).
   let logisticsMonthly = (model.logistics.perActiveDay + model.mobilization.perActiveDay) * D;
@@ -715,5 +716,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
  */
 export function summarizeQuote(quote, options = {}) {
   const r = computeQuote(quote, options);
-  return { ...r.kpis, issuesCount: r.issues.length, ...riskSummary(r.completeness) };
+  // UXR: con precio total del trabajo la facturación es la del trabajo completo; para sumar meses (Inicio) se
+  // usa el promedio por mes de la obra (facturación ÷ meses del trabajo).
+  const jobMonths = r.activity && r.activity.jobHorizon ? r.activity.jobMonths : null;
+  const monthlyRevenue = jobMonths > 0 && isFiniteNumber(r.kpis.revenue) ? r.kpis.revenue / jobMonths : r.kpis.revenue;
+  return { ...r.kpis, monthlyRevenue, jobMonths, issuesCount: r.issues.length, ...riskSummary(r.completeness) };
 }

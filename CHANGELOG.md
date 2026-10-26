@@ -12,6 +12,48 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+### Cotizar sin «tipo de servicio» (UXR, PLAN-2026-032)
+
+Pedido del dueño (Issue #5 de RATEOS-AUDIT): las 11 categorías confundían, filtraban unidades y hacían preguntas de llamados que no aplicaban. **Ninguna fórmula existente cambia** (golden 39/39, Test Lab y el mismo caso da las mismas cifras en la versión anterior); se agregan modalidades opcionales (CALCULATION_RULES §12.2). **Esquema 10, sin migración**: los campos nuevos son opcionales y, sin ellos, todo calcula igual (DATA_MODEL §5).
+
+#### Cambiado
+- **Primer paso: «¿Cómo lo cobrás?» en lugar de «¿Qué tipo de servicio es?».** Buscador agrupado (Tiempo · Por persona o equipo · Transporte · Cantidad · Llamados y trabajos · Unidades propias), con sinónimos («hora técnica» → hora-hombre) y sin filtros por categoría; unidad propia con cualquier nombre y plural correcto («camiones reparados»). Las cotizaciones viejas conservan su tipo.
+- **«Cuánto vas a hacer»:** la actividad se carga en la unidad del servicio (válvulas, horas-hombre, viajes); el rendimiento por día de trabajo o por hora (con horas productivas); los días se calculan y se muestran.
+- **Llamados sólo a demanda:** «¿Trabajás a demanda?» abre llamados por mes, duración igual o distinta y mínimo por llamado. Al contestar «No», el perfil, los llamados y el mínimo dejan de contar y se apartan (vuelven con «Sí»), con aviso.
+- **Cambiar la unidad** muestra cada valor antes y después (tarifa, cantidades, materiales con su monto, costos por salida) y sólo convierte con factor exacto.
+- **Listas, Inicio y plantillas** dicen cómo se cobra cada cotización («Por hora-hombre · a demanda», «Precio total del trabajo»).
+
+#### Agregado
+- **Personas o equipos facturados en paralelo** (hora-hombre, jornal, hora-equipo, equipo por mes): `activity.billedResourceKind` y `activity.billedResources`. Crítico si se facturan más personas o equipos que los cargados.
+- **Llamados de distinta duración** (`activity.activationProfile`): el mínimo se aplica a cada llamado (8 llamados de 2 a 8 h con mínimo 4 h: 42 h, no 36).
+- **Precio total del trabajo** (`quote.billingHorizon = 'job'`): días de todo el trabajo, fijos por los meses reales, textos «en todo el trabajo»; Inicio divide por los meses del trabajo. El descuento por continuidad usa la duración del trabajo.
+- **Materiales por unidad facturada** (`basis: 'per_billed_unit'`): 2 juntas por válvula, repuestos por camión.
+- **Combustible duplicado confirmable** («El consumo por hora es detenido», `equipment[].fuelWhileStopped`) y aviso en el paso del campo; por km, botón «Usar N viajes por salida» cuando la ruta recorre menos km que los facturados.
+
+#### Corregido (SIM-02 y revisión de código)
+- Materiales «por unidad facturada» y costos «por trabajo» ya no se reinterpretan al cambiar la unidad (P0).
+- Sin tipo de servicio, los controles de equipos, personal y relevos salen de la unidad (viaje, km, ton-km, hora-equipo) y de 24 h por día.
+- «No usa combustible» deshabilita el consumo en ruta; «equipo en espera sin definir» sólo si la espera aplica; sin «Por trabajo» duplicado en Materiales ni tramos por días con otra unidad; textos y plurales («te sobra 1 llamado», «falta 1 dato»).
+- Con precio total, el aviso de horas del personal habla de todo el trabajo («594 h de cobertura por posición en todo el trabajo; lo cargado cubre 528 h (1 persona × 176 h normales por mes × 3 meses del trabajo)») y no «en el mes».
+
+### Resultado y PDF (UXR)
+
+#### Cambiado
+- **Ficha de siete renglones arriba del Resultado** (Vendés, Tarifa con la piso, Facturás, Te cuesta, Ganás, Actividad y Para no perder) en lugar de los cuatro números y "¿Cuánto tengo que trabajar?". El margen usa la misma palabra y el mismo color que el resumen en vivo ("cumple tu objetivo" con margen ≥ objetivo). "Para no perder" va en la unidad de cobro (horas, horas-hombre, m³…), no en días. **Ninguna cifra cambia.**
+- **Precio total del trabajo:** "del trabajo" (≈ N meses) en la ficha, la cuenta, las trazas y el detalle, sin "total del contrato" ni matriz por trabajos del mes.
+- **Hora-hombre, jornal, equipo-mes:** la unidad con su nombre y la dotación a la vista ("880 horas-hombre = 4 personas × 22 días × 10 h").
+- **Precio total del trabajo en el análisis (SIM-02 S3 P2-2):** sin el comparador de modelos mensuales (abono, mínimo mensual, paquete), sin "actividad ± 20 %" ni equilibrio, utilización o trabajos por mes en la sensibilidad y los escenarios (mueven costos y condiciones); montos "del trabajo".
+- **A demanda ($/hora o $/día):** la actividad y la cuenta se leen en llamados ("8 llamados por mes (4 de 2 h, 3 de 6 h y 1 de 12 h) = 38 horas trabajadas · se facturan 46 horas por el mínimo de 4 h por llamado"; sin duraciones distintas, "N llamados × X h en promedio"); el mínimo para no perder va en llamados enteros (cada llamado factura al menos el mínimo) y la matriz, la sensibilidad y los escenarios también hablan de llamados. "Dotación: 5 personas para 4 puestos (con relevo)" cuando hay relevo.
+- **Impresión:** "Imprimir resumen (1 hoja)" y "Imprimir análisis completo" (la primera hoja es la ficha y la cuenta); A4 con márgenes de 12 mm y "Uso interno" en el encabezado.
+- "Profundizá" pasa a "Detalle del cálculo".
+
+#### Corregido
+- Doble paréntesis en "(la sugerida está redondeada … (automático: …))".
+- La nota de renglones aparte de "La cuenta del mes" decía que la espera iba en otra cotización aunque estaba incluida en la misma cuenta. Ahora aparece sólo si la cuenta ya cobra la espera o horas extra ("La espera del equipo ya está en esta cuenta: no la cotices de nuevo como renglón aparte"), sin "costo financiero" (SIM-02).
+- La nota del mínimo por llamado "promedio" ya no aparece cuando están cargadas las duraciones de cada llamado (el mínimo se aplica a cada uno).
+- La tabla "Descuentos por cantidad de días" se mostraba sin descuentos cargados y marcaba en rojo "Pocos días: pierde plata" el tramo de la actividad estimada.
+- Las equivalencias ($ por hora, $ por día) dicen con qué horas por día (o qué cantidad) se calculan; con más de una persona, "$ por hora del equipo (2 personas)" y también "$ por hora-hombre" (SIM-02).
+
 ## [0.9.0] - sin publicar (beta gratuita y UX-UNITS: PLAN-2026-027 a PLAN-2026-030)
 
 **RATEOS v0.9.0: beta abierta y gratuita.** Decisiones del dueño del 25/10: **una sola aplicación en la URL actual** (`https://joaquinvedova1.github.io/COTIZADORWEB/`), sin otro sitio ni otro enlace, y **cualquiera puede crear su cuenta** con email y contraseña, confirmar el correo y usar RATEOS con su propia empresa (aislada por RLS). Sale en **un solo merge y un solo deploy**: el PR #39 con base `main`, que contiene todo el PR #38 (beta gratuita), UX-UNITS y las validaciones críticas de la simulación SIM-01 (VALIDACIONES-01). El dominio de la app no cambia. La fecha se pone al publicarse.

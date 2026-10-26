@@ -105,7 +105,8 @@ La paleta no cambia (`--navy-900`, `--blue-600`, `--ink`, verdes, naranjas y roj
 
 | Componente | Reglas |
 |---|---|
-| **KPI de resultado** | Rótulo chico, monto grande tabular con su unidad, una línea de explicación y "Ver cálculo". Orden fijo: costo del mes → tarifa piso → tarifa sugerida u ofrecida → margen |
+| **Ficha del Resultado** | Lista de clave y valor (`<dl>`) de siete renglones, en este orden: Vendés (qué y en qué unidad) → Tarifa (sugerida u ofrecida, la cifra más grande, con la piso debajo) → Facturás → Te cuesta → Ganás (con el margen y su palabra: "cumple tu objetivo", "debajo de tu objetivo", el mismo criterio que el resumen en vivo) → Actividad (con la dotación: "880 horas-hombre = 4 personas × 22 días × 10 h") → Para no perder (en la unidad de cobro). Cada monto con su unidad y "Ver cálculo". Con precio total del trabajo, "en todo el trabajo" en vez de "por mes" |
+| **KPI de resultado** | Rótulo chico, monto grande tabular con su unidad, una línea de explicación y "Ver cálculo". Va en el detalle ("Ver cálculo completo"): costo → tarifa piso → tarifa sugerida u ofrecida → margen |
 | **Resumen en vivo del editor** | Panel (más de 1180 px): costo, piso, tarifa cobrada, margen esperado, "Para no perder" y resultado esperado, en la lista principal; "Ver más" deja el precio para tu margen y la completitud. Si no entra en la altura de la pantalla, el panel se desplaza. Barra compacta (1180 px o menos): costo, piso, **tarifa cobrada destacada** (fondo y cifra más fuerte) y margen con su palabra ("cumple", "debajo", "pierde", "no confiable"); el resto, en "Ver detalle" |
 | **"Ver cálculo"** | Botón con nombre accesible "Ver cálculo: <rótulo>". La traza **termina en el mismo número** que se ve. Mide 24 px de alto o más en escritorio y 44 px en el celular (WCAG 2.5.8) |
 | **Aviso** | Tres niveles: info, revisar y crítico. Título, causa y acción ("Ir al campo"). El crítico va antes de los KPI y se imprime |
@@ -132,7 +133,7 @@ La paleta no cambia (`--navy-900`, `--blue-600`, `--ink`, verdes, naranjas y roj
 
 ## 7. Impresión
 
-- El Resultado se imprime con todas sus secciones abiertas y sin controles.
+- Dos salidas, A4 vertical con márgenes de 12 mm: **"Imprimir resumen (1 hoja)"** (la ficha y la cuenta del mes o del trabajo) e **"Imprimir análisis completo"** (la misma primera hoja y, desde la segunda, todas las secciones abiertas). Sin controles. Las dos dicen "Uso interno": no son la oferta para el cliente.
 - **NO CONFIABLE, BORRADOR e ILUSTRATIVO salen impresos, con su color, antes de los números.**
 - **Encabezado:** empresa y cotización; cliente; "Oferta del dd/mm/aaaa · impreso el dd/mm/aaaa"; "Montos sin IVA". Si la cotización no tiene fecha de oferta, sólo la de impresión: nunca se inventa una.
 - La nota de precio de referencia sale junto a los montos.

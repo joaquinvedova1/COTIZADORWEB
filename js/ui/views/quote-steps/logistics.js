@@ -124,6 +124,18 @@ export function render(container, ctx) {
     kit.check('logistics.notApplicable', { label: 'Sin traslados', structural: true, hint: 'Marcalo si el servicio se presta en tu base o el cliente traslada todo.' }),
   );
 
+  // Km facturados por mes contra los que recorre la ruta: se muestra sólo con el aviso route_consistency
+  // del motor (mismo criterio y mismos datos; revisión de código).
+  const kmRouteGap = (r) => {
+    const flagged = r && r.completeness && (r.completeness.items || []).some((i) => i.id === 'route_consistency' && i.focus === 'logistics.tripsPerActivation');
+    if (!flagged) return null;
+    const billed = nonNegative(quote.activity && quote.activity.billableQuantityPerMonth);
+    const kmPerTrip = nonNegative(lg.distanceKm) * (lg.roundTrip === false ? 1 : 2);
+    const activations = r.activity ? nonNegative(r.activity.activationsPerMonth) : 0;
+    const trips = nonNegative(lg.tripsPerActivation);
+    if (!(billed > 0 && kmPerTrip > 0 && activations > 0)) return null;
+    return { billed, kmPerTrip, activations, trips, routeKm: activations * trips * kmPerTrip, needed: Math.round((billed / (activations * kmPerTrip)) * 100) / 100 };
+  };
   const routeCard = notApplicable
     ? null
     : card(
@@ -153,6 +165,19 @@ export function render(container, ctx) {
         kit.num('logistics.distanceKm', { label: 'Distancia (una vía)', rule: 'distance', unit: 'km' }),
       ),
       kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
+      // SIM-02 (S3): por km, la ruta del mes puede quedar corta frente a los km que se facturan; se ofrece el
+      // ajuste explícito de los viajes por salida (no se deriva solo: PLAN-2026-013).
+      unitInfo.id === 'km'
+        ? kit.toggle(h('div', { class: 'qe-note is-warning' },
+          kit.out((r) => {
+            const g = kmRouteGap(r);
+            return g ? `Facturás ${formatNumber(g.billed, { decimals: 0 })} km por mes y la ruta recorre ${formatNumber(g.routeKm, { decimals: 0 })} km (${formatNumber(g.activations, { decimals: 2 })} ${T.word(g.activations)} × ${tripsText(g.trips)} × ${formatNumber(g.kmPerTrip, { decimals: 0 })} km). Los costos por km se calculan con la ruta.` : '';
+          }, { tag: 'p', allowEmpty: true }),
+          kit.out((r) => {
+            const g = kmRouteGap(r);
+            return g ? kit.action(`Usar ${tripsText(g.needed)} ${T.per}`, () => ctx.mutate((q) => { q.logistics.tripsPerActivation = g.needed; }), { icon: 'check' }) : '';
+          }, { allowEmpty: true })), (r) => Boolean(kmRouteGap(r)))
+        : null,
       // Viajes facturables, físicos, días y km (PLAN-2026-012).
       kit.toggle(kit.group('Viajes y km del mes', transportStats(kit, { billable: tripUnit, km: unitInfo.id === 'km' })), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
     );
@@ -200,7 +225,10 @@ export function render(container, ctx) {
         { class: 'stack' },
         formGrid(
           3,
-          kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'En ruta, no el consumo trabajando (L/h).' }),
+          // SIM-02 (S3): "No usa combustible" en Equipos también anula el consumo en ruta; que no parezca que cuenta.
+          !external && line.fuelNotApplicable === true
+            ? kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', disabled: true, hint: `No se usa: en "${stepName('equipment')}" marcaste "No usa combustible" (tampoco al trasladarse).` })
+            : kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'En ruta, no el consumo trabajando (L/h).' }),
           kit.num(`${p}.travelCostPerKm`, {
             label: 'Desgaste por km',
             rule: 'money',

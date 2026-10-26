@@ -688,7 +688,9 @@
   .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-item { justify-content: flex-start; }
   .qe-summary-inner:not(.is-expanded) .qe-sum-labels { min-height: 1.8rem; align-items: flex-end; }
   .qe-summary-inner:not(.is-expanded) .qe-sum-compact { display: inline-flex; flex-direction: column; font-size: 0.95rem; line-height: 1.15; white-space: nowrap; }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-compact-unit { margin-left: 0; line-height: 1.2; }
+  /* Unidad más chica: "/hora-hombre" entra en un renglón si hay lugar y, si no, pasa al siguiente en el guion
+     (nunca se recorta contra la columna de al lado; SIM-02, S1 P3-5 y ronda 2). */
+  .qe-summary-inner:not(.is-expanded) .qe-sum-compact-unit { margin-left: 0; line-height: 1.2; font-size: max(0.8em, var(--fs-xs)); white-space: normal; overflow-wrap: break-word; }
   /* Un texto ("No se alcanza") puede ocupar dos renglones: nunca se sale de la pantalla. */
   .qe-summary-inner:not(.is-expanded) .qe-sum-compact { max-width: 100%; white-space: normal; }
   /* La barra fija ocupa lo menos posible (A11Y-1): el botón mantiene 44 px de
@@ -814,3 +816,44 @@
 .qe-provider-activity li.is-missing, .qe-warn-text { color: var(--red-text); }
 .qe-provider-route { display: block; }
 .qe-fuel-calc { margin: 0.2rem 0 0; grid-column: 1 / -1; overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------- UXR: cómo le cobrás y cuánto vas a hacer */
+/* La pregunta de la unidad es la principal del paso: se lee como pregunta, no como rótulo de campo. */
+.qe-unit-picker { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+.qe-unit-legend { padding: 0; margin: 0 0 var(--sp-1); font-size: var(--fs-lg); font-weight: 700; color: var(--navy-900); }
+.qe-unit-lead { margin: 0; color: var(--ink-2); font-size: var(--fs-sm); }
+.qe-unit-search { display: flex; flex-direction: column; gap: var(--sp-1); max-width: 34rem; }
+.qe-unit-search-label { font-size: var(--fs-sm); font-weight: 650; color: var(--ink-2); }
+.qe-unit-search-box { position: relative; display: flex; align-items: center; }
+.qe-unit-search-box > .icon { position: absolute; left: 0.75rem; color: var(--ink-3); pointer-events: none; }
+.qe-unit-search-input {
+  width: 100%; font: inherit; color: var(--ink); background: var(--white); border: 1px solid var(--field-border);
+  border-radius: 10px; padding: 0.55rem 0.7rem 0.55rem 2.3rem; min-height: 44px;
+}
+.qe-unit-search-input:focus { border-color: var(--focus); outline: 2px solid transparent; box-shadow: 0 0 0 3px rgba(8, 126, 164, 0.25); }
+.qe-unit-search-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.qe-unit-list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30; max-height: min(24rem, 60vh); overflow-y: auto;
+  background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: var(--sp-1);
+}
+.qe-unit-group + .qe-unit-group { border-top: 1px solid var(--line-2); margin-top: var(--sp-1); padding-top: var(--sp-1); }
+.qe-unit-group-label { font-size: var(--fs-xs); font-weight: 700; color: var(--ink-3); padding: var(--sp-2) 0.6rem var(--sp-1); }
+.qe-unit-option { display: flex; flex-direction: column; gap: 0.05rem; padding: 0.45rem 0.6rem; border-radius: var(--radius-sm); cursor: pointer; }
+.qe-unit-option:hover, .qe-unit-option.is-active { background: var(--navy-50); }
+.qe-unit-option.is-active { box-shadow: inset 3px 0 0 var(--blue-600); }
+.qe-unit-option-name { font-weight: 650; color: var(--navy-900); }
+.qe-unit-option.is-current .qe-unit-option-name::after { content: ' (la actual)'; font-weight: 400; color: var(--ink-3); }
+.qe-unit-option-hint { font-size: var(--fs-xs); color: var(--ink-3); }
+.qe-unit-own { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 0.4rem; border-top: 1px solid var(--line-2); margin-top: var(--sp-1); }
+.qe-unit-own .qe-unit-option-hint { flex-basis: 100%; }
+.qe-unit-empty { padding: 0.6rem; color: var(--ink-3); font-size: var(--fs-sm); }
+.qe-charge-card .card-body { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+/* A demanda: el detalle aparece debajo de la respuesta, separado. */
+.qe-demand-body { display: flex; flex-direction: column; gap: var(--sp-4); margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line-2); }
+/* Llamados de distinta duración: [cantidad] llamados de [horas]. */
+.qe-profile { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--radius-sm); }
+.qe-profile-rows { display: flex; flex-direction: column; gap: var(--sp-2); }
+.qe-profile-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3); }
+.qe-profile-row > .field { flex: 1 1 9rem; min-width: 0; }
+.qe-profile > .btn { align-self: flex-start; }

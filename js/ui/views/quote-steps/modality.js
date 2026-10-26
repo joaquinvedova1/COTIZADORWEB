@@ -1,73 +1,61 @@
 /**
- * Etapa 1 · El servicio — Cómo se cobra (modalidad).
- * Básico: modo (conozco la tarifa / conozco la actividad), unidad (las
- * habituales del tipo de servicio + "Otra / personalizada", PLAN-2026-009),
- * tarifa conocida y la actividad EN LA UNIDAD COMERCIAL:
- *   $/día, $/hora, $/mes      días trabajados por mes y días por llamado (como siempre)
- *   $/m³, $/viaje, $/turno…   cantidad a facturar por mes + cantidad por día de trabajo
- *   $/llamado, $/trabajo, $/hito  llamados o trabajos por mes + días de trabajo de cada uno
- * Los días de trabajo (lo que consume personal, equipos y combustible) se
- * derivan en el motor: UNIDAD DE COSTO ≠ UNIDAD DE VENTA.
- * Opciones avanzadas: días disponibles, horas por día, disponibilidad on-call
- * y tiempo de respuesta (con un resumen visible de lo aplicado).
+ * Etapa 1 · El servicio — Cuánto vas a hacer (actividad; UXR).
  *
- * UX-UNITS: la unidad de cobro se elige como "ARS / [unidad]"; el rendimiento
- * se carga como "[número] [m³ | viajes…] / [día de trabajo | hora]" y la
- * cantidad del mes en la unidad de cobro o en días de trabajo (unit-pairs.js).
- * Al cambiar la unidad, tarifas, cantidades y mínimo se convierten sólo con un
- * factor exacto; si no lo hay, se borran y se piden de nuevo. Una frase de
- * ayuda por campo y lo secundario en (i).
+ * La unidad de cobro y la tarifa se eligen en "Qué cotizás". Acá se carga la actividad EN LA UNIDAD QUE SE
+ * COBRA y sólo se pregunta lo que aplica:
+ *   $/hora (o hora-hombre/hora-equipo)  horas a facturar por mes (o días de trabajo) + horas por día
+ *   $/día, jornal, día-equipo           días de trabajo por mes
+ *   $/mes (abono)                       días de trabajo por mes (mueven los costos; el abono es fijo)
+ *   $/m³, $/viaje, una unidad propia    cantidad a facturar por mes + rendimiento (UX-UNITS)
+ *   $/llamado, $/hito                   llamados o hitos por mes + días de cada uno
+ *   precio total del trabajo            días de trabajo de todo el trabajo (no se presenta como mensual)
+ * "¿Trabajás a demanda?" (guardia/on-call) muestra los llamados, su duración (también distinta por llamado:
+ * el mínimo se aplica a cada uno), el mínimo, el abono de disponibilidad y la disponibilidad. Sin demanda,
+ * las salidas de la base sólo se preguntan si cambian algún costo (o si ya se cargaron).
+ * Los días de trabajo (lo que consume personal, equipos y combustible) se derivan en el motor.
  */
 
-import { h, mount, uniqueId } from '../../dom.js';
-import { card, formGrid, openDialog, button, numberField, addInfoTip } from '../../components.js';
-import { PRICING_MODES, AVAILABILITY_OPTIONS } from '../../../domain/catalogs.js';
-import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName } from '../../../domain/billing-units.js';
+import { h, mount } from '../../dom.js';
+import { card, formGrid, numberField, addInfoTip, button, choiceGroup } from '../../components.js';
+import { AVAILABILITY_OPTIONS } from '../../../domain/catalogs.js';
+import { billingUnitOf, unitTexts } from '../../../domain/billing-units.js';
 import {
   rateNumeratorsFor, loadUnitOf, rateInputOf, isNativeRate, unitsPerActiveDayFrom, quantityFromWorkdays,
-  workdaysFromQuantity, quantityBasisOf, quantityFactorBetween, convertExact,
+  workdaysFromQuantity, quantityBasisOf,
 } from '../../../domain/unit-pairs.js';
-import { quoteCurrencyOf } from './resource-line.js';
-import { convertRateUnit } from '../../../engines/pricing-engine.js';
-import { convertMinimumCallUnits } from '../../../engines/commercial-rules-engine.js';
+import {
+  hoursInputOf, daysFromHours, demandFormOf, demandActivity, daysPerCallForQuantity, profileStats, billedCountOf,
+} from '../../../domain/activity-forms.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
+import { numberToInputText } from '../../../core/validation.js';
+import { isPlainObject } from '../../../core/object.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { multiMonthAssumption, multiMonthHolds } from '../../../engines/completeness-engine.js';
-
-const MODE_LABELS = Object.freeze({
-  known_rate: 'Sí, ya tengo la tarifa',
-  known_activity: 'No: calculá cuánto cobrar',
-});
-
-/** Hasta cuántas unidades de cobro se muestran a la vista (botones de opción); con más, un selector. */
-const UNIT_CHIPS_MAX = 6;
-
-/** Una frase por opción (UX-UNITS): qué calcula RATEOS en cada caso. */
-const MODE_HINTS = Object.freeze({
-  known_rate: 'Cargás tu tarifa: RATEOS calcula cuánto facturar para no perder y cuánto ganás.',
-  known_activity: 'Cargás la actividad: RATEOS calcula la tarifa piso y la tarifa con margen.',
-});
-
-/** Nombre de la unidad en el selector "ARS / [unidad]": "m³", "hora", "mes (abono)", "trabajo (precio global)". */
-function unitOptionLabel(def) {
-  if (def.custom) return 'otra (la escribís vos)';
-  if (def.id === 'job') return 'trabajo (precio global)';
-  if (def.id === 'month') return 'mes (abono)';
-  return def.singular;
-}
+import { computeQuote } from '../../../engines/quote-engine.js';
+import { priceComposition } from '../../../engines/price-composition-engine.js';
+import { minimumCallApplies } from './unit-change.js';
 
 /** "m³ por día de trabajo", "viajes por hora". */
 function rateFormText(plural, denominator) {
   return `${plural} por ${denominator === 'hour' ? 'hora' : 'día de trabajo'}`;
 }
 
-/** Número positivo o null (para leer datos de la cotización). */
+/**
+ * El dato del motor que este campo carga de otra forma (las horas del mes en lugar de los días, los llamados
+ * a demanda): "Ir al campo" y los avisos en el campo lo encuentran igual.
+ */
+function aliasFor(field, ...paths) {
+  const control = field && field.querySelector('input, select, textarea');
+  if (control) control.dataset.fieldAlias = paths.join(' ');
+  return field;
+}
+
 function positiveOrNull(v) {
   return isFiniteNumber(v) && v > 0 ? v : null;
 }
@@ -77,88 +65,71 @@ const AVAILABILITY_HINTS = Object.freeze({
   window: 'Disponible sólo en una franja horaria acordada.',
 });
 
-/**
- * Rótulo de los días por activación con el nombre de la cotización (PLAN-2026-014, LAB-D8).
- * En un servicio permanente es un intervalo (cada cuántos días), no una duración.
- */
-function daysPerActivationLabel(T, serviceType) {
-  if (serviceType === 'permanent') return `¿Cada cuántos días hay ${T.a} ${T.one}?`;
-  return `¿Cuántos días dura ${T.each}?`;
-}
-
-/** Unidades facturables en la unidad comercial ("8 días", "160 horas", "1 abono", "10.000 m³"). */
+/** Unidades facturables en la unidad comercial ("8 días", "160 horas", "880 horas-hombre", "10.000 m³"). */
 function unitsLabel(r, value) {
-  const unit = r.unit;
-  if (unit === 'hour') return `${formatNumber(value, { decimals: 2 })} horas`;
-  if (unit === 'month') return `${formatNumber(value, { decimals: 2 })} ${Math.abs(value - 1) < 1e-9 ? 'abono' : 'abonos'}`;
-  if (unit === 'quantity' || unit === 'event') return quantityText(value, r);
+  const u = r.unitInfo || {};
+  if (u.resource) return quantityText(value, r);
+  if (r.unit === 'hour') return `${formatNumber(value, { decimals: 2 })} horas`;
+  if (r.unit === 'month') return `${formatNumber(value, { decimals: 2 })} ${Math.abs(value - 1) < 1e-9 ? 'abono' : 'abonos'}`;
+  if (r.unit === 'quantity' || r.unit === 'event') return quantityText(value, r);
   return `${formatNumber(value, { decimals: 2 })} días`;
 }
 
-/** Rótulo de la tarifa: "$/día", "$/mes (abono)" (como siempre) o "$/m³", "$/viaje", "$/pozo". */
-function rateLabelOf(info) {
-  return info.legacy ? info.label : `$/${info.singular}`;
-}
-
-/** Sufijo del campo de tarifa: "$/día", "$/m³", "$/u.". */
-function rateSuffixOf(info) {
-  return info.legacy ? info.label.replace(/\s*\(.*\)$/, '') : `$/${info.short}`;
-}
-
-/** "Por llamado", "por m³"… (diálogo de cambio de unidad). */
+/** "por llamado", "por m³"… */
 function perText(info) {
   return `por ${info.singular || 'unidad'}`;
-}
-
-/** ¿El mínimo por llamado se aplica con esta unidad? (no con abono ni por llamado/trabajo). */
-function minimumCallApplies(kind) {
-  return kind === 'day' || kind === 'hour' || kind === 'quantity';
 }
 
 function rateRowFor(result, marginPct) {
   return (result.ratesAtEstimate.byMargin || []).find((m) => m.marginPct === marginPct) || null;
 }
 
+let activationsMemo = { key: null, settings: null, value: false };
 /**
- * Diálogo al cambiar la unidad con datos cargados (QA-E2E-08, UX-UNITS):
- * tarifas, cantidad del mes y rendimiento. Cada renglón dice cómo queda: se
- * convierte con un factor conocido o se borra para cargarlo de nuevo. Nunca se
- * lee el mismo número en la unidad nueva. → 'convert' | 'clear' | null.
+ * ¿Las salidas de la base (días por salida) cambian algún costo o ingreso de esta cotización? Se prueba con
+ * otro valor (D, costo, facturación): así cubre cualquier costo "por salida" sin una lista de reglas.
  */
-function askUnitChange({ from, to, items, convertible, explanation }) {
-  return new Promise((resolve) => {
-    let choice = null;
-    const list = h(
-      'ul',
-      {},
-      ...items.map((it) => h('li', {}, `${it.label}: ${it.before}${convertible && it.after ? ` → ${it.after}` : ''}`)),
-    );
-    const { close } = openDialog({
-      title: `Cambiar la unidad a ${to.label}`,
-      content: h(
-        'div',
-        {},
-        h('p', {}, `Hay datos cargados en ${from.label}. Si cambiás la unidad sin convertirlos, el mismo número se leería ${perText(to)} y el resultado sería engañoso.`),
-        list,
-        h('p', {}, explanation),
-      ),
-      actions: [
-        button('Cancelar', { variant: 'secondary', onClick: () => close() }),
-        button(convertible ? 'Borrar y cambiar' : 'Borrar y cargar de nuevo', { variant: convertible ? 'secondary' : 'primary', onClick: () => { choice = 'clear'; close(); } }),
-        convertible ? button(`Convertir a ${to.label}`, { variant: 'primary', onClick: () => { choice = 'convert'; close(); } }) : null,
-      ].filter(Boolean),
-      onClose: () => resolve(choice),
-    });
-  });
+function activationsMatter(quote, settings) {
+  // Dos cálculos completos: se recuerda el último resultado para la misma cotización (revisión de código).
+  let key = null;
+  try {
+    key = JSON.stringify(quote);
+  } catch {
+    key = null;
+  }
+  if (key !== null && activationsMemo.key === key && activationsMemo.settings === settings) return activationsMemo.value;
+  const value = activationsDiffer(quote, settings);
+  activationsMemo = { key, settings, value };
+  return value;
+}
+
+function activationsDiffer(quote, settings) {
+  try {
+    const base = computeQuote(quote, { settings });
+    const alt = structuredClone(quote);
+    alt.activity = alt.activity || {};
+    const dpa = Number(alt.activity.daysPerActivation) > 0 ? Number(alt.activity.daysPerActivation) : 1;
+    alt.activity.daysPerActivation = dpa * 2;
+    const other = computeQuote(alt, { settings });
+    const diff = (a, b) => Math.abs((a || 0) - (b || 0)) > 0.5;
+    return diff(base.kpis.totalCost, other.kpis.totalCost) || diff(base.kpis.revenue, other.kpis.revenue) || diff(base.kpis.floorNetRate, other.kpis.floorNetRate);
+  } catch {
+    return false;
+  }
 }
 
 export function render(container, ctx) {
   const { quote, kit, settings } = ctx;
   const info = billingUnitOf(quote);
-  // Unidad "viaje" (PLAN-2026-012): los viajes físicos por intervención se
-  // derivan de los viajes por día × días por intervención. Al editar esos
-  // datos se deja el mismo número en "Viajes por llamado" (que con esta unidad
-  // no rige), así nunca queda un dato viejo distinto.
+  const texts = unitTexts(info);
+  const kind = info.kind;
+  // Precio total del trabajo (UXR): la actividad es UN trabajo; los resultados son del trabajo completo.
+  const jobHorizon = info.id === 'job' && quote.billingHorizon === 'job';
+  // Por cantidad (m³, viajes, turnos…) o por evento (llamados, hitos): se carga en la unidad comercial.
+  const byQuantity = !jobHorizon && (kind === 'quantity' || kind === 'event');
+  const onDemand = quote.serviceType === 'on_call';
+  const resource = info.resource || null;
+  // Unidad "viaje" (PLAN-2026-012): los viajes físicos por salida = viajes por día × días por salida.
   const tripUnit = info.id === 'trip' && info.kind === 'quantity';
   const syncRouteTrips = () => {
     if (!tripUnit) return;
@@ -168,278 +139,36 @@ export function render(container, ctx) {
     if (!(Number.isFinite(perDay) && perDay > 0) || !(Number.isFinite(dpa) && dpa > 0)) return;
     ctx.update('logistics.tripsPerActivation', perDay * dpa);
   };
-  const texts = unitTexts(info);
-  const kind = info.kind;
-  // Por cantidad (m³, viajes, turnos…) o por evento (llamados, trabajos, hitos):
-  // la actividad se carga en la unidad comercial y los días de trabajo se derivan.
-  const byQuantity = kind === 'quantity' || kind === 'event';
-  const isOnCall = quote.serviceType === 'on_call';
-  // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
+  // Una magnitud, un nombre por cotización: llamado / salida / trabajo… (PLAN-2026-014, LAB-D8).
   const T = activationTerms(quote);
   const num = (v) => formatNumber(v, { decimals: 2 });
   const knownRate = quote.pricingMode === 'known_rate';
   const Plural = capitalizeUnitPhrase(info.plural);
+  const activity = quote.activity || {};
 
-  /**
-   * Cambio de unidad (QA-E2E-08, UX-UNITS): las tarifas (conocida y ofrecida),
-   * la cantidad del mes y el rendimiento cargados se convierten sólo con un
-   * factor conocido (día ↔ hora con las horas por día; kg ↔ t y metro ↔ km,
-   * exactos) o se borran y se piden de nuevo. Nunca se reinterpreta el mismo
-   * número en otra unidad (200 m³ no pasan a ser 200 viajes). El mínimo por
-   * llamado (en la unidad de la tarifa) se convierte igual; si no se puede, se avisa.
-   */
-  async function changeUnit(nextUnit) {
-    const fromUnit = quote.unit || 'day';
-    if (nextUnit === fromUnit) return;
-    const from = billingUnitOf(quote);
-    const to = billingUnitOf({ ...quote, unit: nextUnit });
-    const pricing = quote.pricing || {};
-    const activity = quote.activity || {};
-    const hours = activity.hoursPerActiveDay;
-    const timeToTime = ['day', 'hour'].includes(from.kind) && ['day', 'hour'].includes(to.kind);
-    // kg ↔ t, metro ↔ km: cantidad nueva = cantidad × factor; tarifa nueva = tarifa ÷ factor.
-    const exactFactor = from.kind === 'quantity' && to.kind === 'quantity' ? quantityFactorBetween(from.id, to.id) : null;
-    const factorNote = exactFactor === null ? '' : ['kg', 'ton'].includes(from.id) ? '1 t = 1.000 kg' : '1 km = 1.000 m';
-    const minCall = Number(quote.rules && quote.rules.minimumCallUnits);
-    const hasMinCall = Number.isFinite(minCall) && minCall > 0 && minimumCallApplies(from.kind) && minimumCallApplies(to.kind) && from.id !== to.id;
-    let minCallConverted = null;
-    if (hasMinCall && timeToTime) minCallConverted = convertMinimumCallUnits(minCall, fromUnit, nextUnit, hours);
-    else if (hasMinCall && exactFactor !== null) minCallConverted = convertExact(minCall, exactFactor);
-    const applyMinCall = (q) => {
-      if (hasMinCall && isFiniteNumber(minCallConverted) && q.rules) q.rules.minimumCallUnits = minCallConverted;
-    };
-    const minCallUnitText = (n, u) => {
-      if (u.kind === 'hour') return `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'hora' : 'horas'}`;
-      if (u.kind === 'day') return formatDays(n);
-      return quantityText(n, { unitInfo: u });
-    };
-    let minCallNote = '';
-    if (hasMinCall) {
-      if (isFiniteNumber(minCallConverted)) {
-        minCallNote = ` Mínimo ${T.per}: ${minCallUnitText(minCall, from)} → ${minCallUnitText(minCallConverted, to)}.`;
-      } else if (timeToTime) {
-        minCallNote = ` Revisá el mínimo ${T.per} en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir (faltan las horas por día activo).`;
-      } else {
-        minCallNote = ` Revisá el mínimo ${T.per} en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir y ahora se lee en ${to.plural || 'la unidad nueva'}.`;
-      }
-    }
-    const rates = [
-      { path: 'knownRate', label: 'Tarifa conocida', value: Number(pricing.knownRate) },
-      { path: 'offeredRateOverride', label: `Tarifa ofrecida a mano (en "${stepName('margin')}")`, value: Number(pricing.offeredRateOverride) },
-    ].filter((r) => pricing[r.path] !== null && pricing[r.path] !== '' && Number.isFinite(r.value) && r.value > 0);
-    rates.forEach((r) => {
-      if (timeToTime) r.converted = convertRateUnit(r.value, fromUnit, nextUnit, hours);
-      else if (exactFactor !== null) r.converted = convertExact(r.value, 1 / exactFactor);
-      else r.converted = null;
-      r.before = `${formatMoney(r.value)} ${perText(from)}`;
-      r.after = isFiniteNumber(r.converted) ? `${formatMoney(r.converted)} ${perText(to)}` : null;
-    });
-    // Cantidad del mes y rendimiento (UX-UNITS, F4): están en la unidad de cobro. Entre día y hora no se
-    // usan; en cualquier otro cambio se convierten con un factor exacto o se borran (un dato guardado de
-    // una unidad anterior tampoco se reusa: no se sabe en qué unidad está).
-    const quantityKinds = ['quantity', 'event'];
-    const touchesQuantities = quantityKinds.includes(from.kind) || quantityKinds.includes(to.kind);
-    const inFrom = quantityKinds.includes(from.kind);
-    const qty = touchesQuantities ? positiveOrNull(Number(activity.billableQuantityPerMonth)) : null;
-    const perDay = touchesQuantities ? positiveOrNull(Number(activity.unitsPerActiveDay)) : null;
-    const quantities = [];
-    if (qty !== null) {
-      const converted = exactFactor !== null ? convertExact(qty, exactFactor) : null;
-      quantities.push({
-        path: 'billableQuantityPerMonth',
-        label: 'Cantidad del mes',
-        value: qty,
-        converted,
-        before: inFrom ? `${quantityText(qty, { unitInfo: from })} por mes` : `${formatNumber(qty, { decimals: 2 })} (de una unidad anterior)`,
-        after: converted !== null ? `${quantityText(converted, { unitInfo: to })} por mes` : null,
-      });
-    }
-    if (perDay !== null) {
-      const converted = exactFactor !== null ? convertExact(perDay, exactFactor) : null;
-      const input = from.kind === 'quantity' ? rateInputOf(activity, from) : null;
-      const shownBefore = input && input.value !== null && !isNativeRate(input, from)
-        ? `${num(input.value)} ${rateFormText(rateNumeratorsFor(from).find((n) => n.id === input.numerator).plural, input.denominator)}`
-        : `${formatNumber(perDay, { decimals: 2 })} ${from.kind === 'quantity' ? rateFormText(from.plural, 'day') : '(de una unidad anterior)'}`;
-      quantities.push({
-        path: 'unitsPerActiveDay',
-        label: 'Rendimiento',
-        value: perDay,
-        converted,
-        before: shownBefore,
-        after: converted !== null ? `${num(converted)} ${rateFormText(to.plural, 'day')}` : null,
-      });
-    }
-    const minCallTone = minCallNote && !isFiniteNumber(minCallConverted) ? 'warning' : 'success';
-    const items = [...rates, ...quantities];
-    if (items.length === 0) {
-      ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
-      });
-      if (minCallNote) ctx.toast(`Unidad cambiada a ${to.label}.${minCallNote}`, minCallTone);
-      return;
-    }
-    const convertible = items.every((it) => isFiniteNumber(it.converted));
-    let explanation;
-    if (convertible && timeToTime) {
-      explanation = `Podés convertirla con las ${formatNumber(Number(hours), { decimals: 2 })} horas trabajadas por día activo (${fromUnit === 'day' ? '÷' : '×'} ${formatNumber(Number(hours), { decimals: 2 })}, redondeado hacia arriba) o borrarla y cargarla de nuevo.`;
-    } else if (convertible) {
-      explanation = `Podés convertirlos con el factor exacto (${factorNote}) o borrarlos y cargarlos de nuevo.`;
-    } else {
-      explanation = `Entre estas unidades no hay una conversión segura: se borran y los cargás de nuevo en ${to.plural || 'la unidad nueva'}.`;
-    }
-    const choice = await askUnitChange({ from, to, items, convertible, explanation });
-    // Lo que queda de la forma de carga (UX-UNITS): se quita si los datos cambian de unidad o se borran.
-    const resetInputs = (q, { keepWorkdays }) => {
-      if (!q.activity) return;
-      if (q.activity.rateInput) q.activity.rateInput = null;
-      if (!keepWorkdays && q.activity.quantityInput) q.activity.quantityInput = null;
-    };
-    if (choice === 'convert' && convertible) {
-      ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
-        rates.forEach((r) => {
-          q.pricing[r.path] = r.converted;
-        });
-        quantities.forEach((it) => {
-          q.activity[it.path] = it.converted;
-        });
-        // Con un factor exacto los días de trabajo no cambian: "10 días de trabajo por mes" sigue valiendo.
-        if (quantities.length) resetInputs(q, { keepWorkdays: true });
-      });
-      ctx.toast(`Unidad cambiada a ${to.label}. ${items.map((it) => `${it.label}: ${it.after}`).join(' · ')}.${minCallNote}`, minCallTone);
-    } else if (choice === 'clear') {
-      ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
-        rates.forEach((r) => {
-          q.pricing[r.path] = r.path === 'knownRate' ? 0 : null;
-        });
-        quantities.forEach((it) => {
-          q.activity[it.path] = null;
-        });
-        if (quantities.length) resetInputs(q, { keepWorkdays: false });
-      });
-      const cleared = [rates.length ? 'la tarifa' : null, ...quantities.map((it) => (it.path === 'unitsPerActiveDay' ? 'el rendimiento' : 'la cantidad del mes'))].filter(Boolean);
-      const what = cleared.length > 1 ? `Se borraron ${cleared.slice(0, -1).join(', ')} y ${cleared[cleared.length - 1]}` : `Se borró ${cleared[0]}`;
-      ctx.toast(`Unidad cambiada a ${to.label}. ${what}: cargá los datos de nuevo en ${to.label}.${minCallNote}`, 'warning');
-    } else {
-      // Cancelado: vuelve a mostrar la unidad anterior.
-      ctx.rerender();
-    }
-  }
-
-  // Unidades habituales del tipo de servicio (+ la actual si no está, + "Otra / personalizada").
-  const unitOptions = unitChoicesFor(quote.serviceType, info.id);
-  const selectedDef = unitOptions.find((u) => u.id === info.id);
-  const currency = quoteCurrencyOf(quote);
-
-  /**
-   * Unidad de cobro como "ARS / [unidad]" (UX-UNITS): la moneda es la de la
-   * empresa (fija en la cotización) y la unidad se elige de las habituales del
-   * tipo de servicio. Con pocas opciones (hasta UNIT_CHIPS_MAX) van a la vista
-   * como botones de opción; con más, en un selector (GOV.UK: las opciones
-   * cortas se muestran). Al cambiarla, changeUnit pide qué hacer con los datos.
-   */
-  function unitField() {
-    const id = uniqueId('unit');
-    const hint = h('div', { class: 'field-hint', id: `${id}-hint` }, selectedDef && selectedDef.hint ? selectedDef.hint : '');
-    const prefix = h('span', { class: 'qe-compound-fixed', 'aria-hidden': 'true' }, `${currency} /`);
-    let el;
-    if (unitOptions.length <= UNIT_CHIPS_MAX) {
-      el = h(
-        'fieldset',
-        { class: 'choice-group qe-unit-field qe-unit-chips', 'aria-describedby': `${id}-hint` },
-        h('legend', { class: 'field-label' }, 'Unidad de cobro', h('span', { class: 'sr-only' }, ` (${currency} por unidad)`)),
-        h(
-          'div',
-          { class: 'qe-compound' },
-          prefix,
-          h('div', { class: 'qe-chips' }, ...unitOptions.map((u) => {
-            const input = h('input', { type: 'radio', name: 'unit', value: u.id, checked: u.id === info.id, disabled: kit.readOnly });
-            input.addEventListener('change', () => {
-              if (input.checked) changeUnit(u.id);
-            });
-            return h('label', { class: 'qe-chip' }, input, h('span', {}, unitOptionLabel(u)));
-          })),
-        ),
-        hint,
-      );
-    } else {
-      const select = h(
-        'select',
-        { id, name: 'unit', disabled: kit.readOnly, 'aria-describedby': `${id}-hint` },
-        ...unitOptions.map((u) => h('option', { value: u.id, selected: u.id === info.id }, unitOptionLabel(u))),
-      );
-      select.addEventListener('change', () => changeUnit(select.value));
-      el = h(
-        'div',
-        { class: 'field qe-unit-field' },
-        h('label', { class: 'field-label', for: id }, 'Unidad de cobro', h('span', { class: 'sr-only' }, ` (${currency} por unidad)`)),
-        h('div', { class: 'qe-compound' }, prefix, h('div', { class: 'field-control' }, select)),
-        hint,
-      );
-    }
-    const tip = `La tarifa va en ${currency}, la moneda de tu empresa (Configuración); los insumos en otra moneda se pasan con el tipo de cambio de la cotización.`;
-    return addInfoTip(el, byQuantity
-      ? `${tip} Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); la tarifa y el resultado, ${perText(info)}.`
-      : tip, { label: 'Más información: unidad de cobro' });
-  }
-
-  // Nombre de la unidad propia ("pozo", "muestra"): al salir del campo se
-  // vuelven a dibujar los rótulos ("Pozos a facturar por mes").
-  let unitNameField = null;
-  if (info.custom) {
-    unitNameField = kit.text('unitName', {
-      label: '¿Cómo se llama tu unidad?',
-      maxLength: 30,
-      placeholder: 'Ej.: pozo, muestra, ensayo',
-      hint: 'En singular: vas a cobrar "$/pozo".',
-    });
-    const input = unitNameField.querySelector('input');
-    if (input) {
-      input.addEventListener('change', () => {
-        const clean = cleanUnitName(input.value);
-        ctx.mutate((q) => {
-          q.unitName = clean;
-        });
-      });
-    }
-  }
-
-  const knownRateField = knownRate
-    ? addInfoTip(kit.num('pricing.knownRate', {
-      label: `Tu tarifa (${rateLabelOf(info)}, sin IVA)`,
-      rule: 'money',
-      unit: rateSuffixOf(info),
-      requiredMark: true,
-      hint: 'De lista, sin IVA, antes de descuentos.',
-    }), kind === 'day' || kind === 'hour'
-      ? `Los descuentos por días, por continuidad y comerciales se cargan en "${stepName('margin')}" y se aplican sobre esta tarifa.`
-      : `Los descuentos por continuidad y comerciales se cargan en "${stepName('margin')}" y se aplican sobre esta tarifa.`)
-    : null;
-
-  const modeCard = card(
-    {},
-    kit.choice('pricingMode', {
-      label: '¿Ya tenés una tarifa?',
-      options: PRICING_MODES.map((m) => ({ value: m.id, label: MODE_LABELS[m.id] || m.label, hint: MODE_HINTS[m.id] || m.hint })),
-      structural: true,
-    }),
-    formGrid(2, unitField(), unitNameField, knownRateField),
-  );
-
-  // Horas por día activo: dato básico si cobrás por hora (define las horas facturables).
-  const hoursField = () => kit.num('activity.hoursPerActiveDay', {
-    label: byQuantity ? 'Horas trabajadas por día de trabajo' : 'Horas trabajadas por día activo',
+  // Horas de trabajo por día: dato básico con $/hora (define las horas facturables) y para el uso de equipos.
+  const hoursField = ({ onValue = null } = {}) => kit.num('activity.hoursPerActiveDay', {
+    label: 'Horas de trabajo por día',
     rule: 'hoursPerDay',
     unit: 'h/día',
-    hint: quote.unit === 'hour' ? 'Se facturan días activos × horas por día.' : 'Para el uso de equipos, la tarifa por hora y la estructura por hora.',
+    requiredMark: kind === 'hour',
+    hint: kind === 'hour' ? 'Las horas de un día de trabajo (por persona o equipo).' : 'Para el uso de equipos y la estructura por hora.',
+    onValue,
   });
-  const hourly = quote.unit === 'hour';
+  const hourly = kind === 'hour';
   // Se evalúa en cada recálculo (la persona carga la cantidad sin redibujar el paso).
   const hasQuantity = () => hasNumber(quote.activity && quote.activity.billableQuantityPerMonth);
+
+
+  // ---- UXR: salidas de la base. Se preguntan sólo si cambian algo (o si ya se cargaron), a demanda o por
+  // llamado (ahí son los llamados). Si no, cada día de trabajo cuenta como una salida (el motor usa 1).
+  const dpaStored = Number(activity.daysPerActivation);
+  // Un mínimo por salida guardado en una cotización que no trabaja a demanda (cargado con la versión anterior):
+  // sigue sumando, así que se muestra y se puede editar o poner en 0 (SIM-02 S1: nada oculto que sume).
+  const legacyMinimum = !onDemand && Number(quote.rules && quote.rules.minimumCallUnits) > 0;
+  const salidasMatter = !jobHorizon && kind !== 'event' && !onDemand
+    && ((Number.isFinite(dpaStored) && dpaStored > 0 && Math.abs(dpaStored - 1) > 1e-9) || activity.fullActivations === true || legacyMinimum || activationsMatter(quote, settings));
+  const showActivations = onDemand || salidasMatter || kind === 'event';
 
   // ---- UX-UNITS: rendimiento y cantidad del mes como unidades compuestas (sólo por cantidad).
   const composite = kind === 'quantity';
@@ -614,7 +343,12 @@ export function render(container, ctx) {
         unit: 'h/día',
         value: rateIn.hours,
         placeholder: 'Ej.: 6',
-        hint: info.id === 'km' ? 'Sólo las horas manejando: sin carga, espera ni descarga.' : 'Las horas del día de trabajo en que rendís eso.',
+        // SIM-02 (S2 P3-3): no se copia sola (productivas ≤ trabajadas), pero se dice cuántas tiene el día.
+        hint: info.id === 'km'
+          ? 'Sólo las horas manejando: sin carga, espera ni descarga.'
+          : Number(quote.activity.hoursPerActiveDay) > 0
+            ? `Las horas del día de trabajo en que rendís eso. Si rendís todas, son ${numberToInputText(quote.activity.hoursPerActiveDay)} (las del día de trabajo).`
+            : 'Las horas del día de trabajo en que rendís eso.',
         disabled: kit.readOnly,
         onChange: (v) => {
           rateIn.hours = v;
@@ -727,7 +461,6 @@ export function render(container, ctx) {
     const [rate, equivalence, extra] = rateFields();
     return h('div', { class: 'qe-quantity-fields' }, quantityField(), rate, equivalence, extra);
   }
-
   /** "200 m³ × $ 45.000 por m³ = $ 9.000.000 por mes" (la cantidad × la tarifa, con los números del motor). */
   const revenueLine = (r) => {
     const rev = r.estimate && r.estimate.revenue;
@@ -748,21 +481,6 @@ export function render(container, ctx) {
       ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
       : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`;
   };
-
-  const daysKeyline = kit.keyline({
-    label: 'Con estos datos',
-    value: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) ? `${num(r.activity.activationsPerMonth)} ${T.word(r.activity.activationsPerMonth)} por mes` : EMPTY),
-    hint: (r) => {
-      if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return `Cargá los días por mes para ver cuántos ${T.many} y días facturás.`;
-      const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
-      const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
-      const hoursPerDay = r.activity.hoursPerActiveDay;
-      const chain = r.unit === 'hour' && isFiniteNumber(hoursPerDay)
-        ? `${formatDays(r.activity.activeDaysPerMonth, { decimals: 2 })} × ${num(hoursPerDay)} h por día = ${billable} por mes${extra}.`
-        : `Facturás ${billable} por mes${extra}.`;
-      return lines(chain, r.unit === 'month' ? null : revenueLine(r), `Utilización: ${formatPercent(r.activity.utilizationPct)} de los días disponibles.${fractionalText(r)}`);
-    },
-  });
 
   // V-1 (VALIDACIONES-01; SIM-01, RFQ-12): más días de trabajo que disponibles (fuera del abono). Se
   // revisa el dato o se confirma que es un trabajo de más de un mes; la confirmación queda atada a esos
@@ -821,131 +539,525 @@ export function render(container, ctx) {
       }
       // Por intervención (PLAN-2026-010): volumen ↔ días ↔ movilización.
       const acts = r.activity.activationsPerMonth;
-      const perIntervention = kind === 'quantity' && acts > 0
+      // UXR: las salidas sólo se nombran si importan (a demanda, o si cambian algún costo).
+      const perIntervention = kind === 'quantity' && acts > 0 && showActivations
         ? ` ${quantityText(r.estimate.revenue.billableUnits / acts, r)} ${T.per} · ${num(acts)} ${T.word(acts)} por mes.`
         : '';
-      return lines(chain, revenueLine(r), `Utilización: ${formatPercent(r.activity.utilizationPct)} de los días disponibles.${perIntervention}${fractionalText(r)}${over}`);
+      return lines(chain, revenueLine(r), `Ocupás ${formatDays(r.activity.activeDaysPerMonth, { decimals: 1 })} de ${num(r.activity.availableDaysPerMonth)} disponibles (${formatPercent(r.activity.utilizationPct)}).${perIntervention}${showActivations ? fractionalText(r) : ''}${over}`);
     },
     tone: (r) => (hasQuantity() && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
   });
 
-  const activityCard = card(
-    {},
-    byQuantity
-      ? quantityFields()
-      : formGrid(
-        hourly ? 3 : 2,
-        kit.num('activity.activeDaysPerMonth', {
-          label: 'Días trabajados y facturados por mes',
-          rule: 'days',
-          unit: 'días/mes',
-          requiredMark: true,
-          placeholder: 'Ej.: 8',
-          hint: 'Una estimación alcanza: en el Resultado ves otras cantidades de días.',
+  // ---- $/hora: horas a facturar por mes (o días de trabajo) + horas por día (+ personas o equipos).
+  const hoursIn = hourly ? hoursInputOf(activity) : null;
+  // Sin datos de días todavía, se carga en horas (lo natural cobrando por hora).
+  // La forma elegida en el selector se recuerda (`activity.hoursBasis`, sólo de pantalla): con el campo vacío,
+  // "días de trabajo por mes" no vuelve a "horas" y un 22 no se lee como 22 horas (SIM-02 ronda 2).
+  const chosenBasis = activity.hoursBasis === 'hours' || activity.hoursBasis === 'days' ? activity.hoursBasis : null;
+  const hoursBasis = hourly && !onDemand && (chosenBasis ? chosenBasis === 'hours' : (hoursIn !== null || !hasNumber(activity.activeDaysPerMonth))) ? 'hours' : 'days';
+  const count = () => billedCountOf(ctx.quote ? ctx.quote.activity || {} : activity);
+  const resourceWord = resource === 'person' ? 'personas' : 'equipos';
+
+  /** Recalcula los días con las horas cargadas (al cambiar las horas, las horas por día o las personas). */
+  function syncDaysFromHours() {
+    const a = (ctx.quote && ctx.quote.activity) || activity;
+    const input = a.hoursInput && Number(a.hoursInput.value);
+    if (!(input > 0)) return;
+    const D = daysFromHours(input, a.hoursPerActiveDay, billedCountOf(a));
+    if (D !== null) ctx.update('activity.activeDaysPerMonth', D);
+  }
+
+  /** Personas o equipos que se facturan en paralelo (hora-hombre, jornal, día-equipo, equipo-mes). */
+  const resourceField = resource
+    ? addInfoTip(kit.num('activity.billedResources', {
+      label: resource === 'person' ? 'Personas que facturan en paralelo' : 'Equipos que facturan en paralelo',
+      rule: 'positive',
+      unit: resourceWord,
+      requiredMark: true,
+      placeholder: 'Ej.: 4',
+      hint: resource === 'person'
+        ? `Cada una factura sus ${info.plural}: 4 personas × 10 h = 40 ${info.plural} por día.`
+        : `Cada uno factura sus ${info.plural}.`,
+      // Se conserva el número que escribió la persona y cambia el que se calcula (SIM-02 ronda 2, P0): cargando
+      // en horas-hombre del mes, cambian los días; cargando en días, cambian las horas-hombre.
+      onValue: () => {
+        if (hoursBasis === 'hours') syncDaysFromHours();
+        syncDemand();
+      },
+    }), `No es la cantidad de personal cargado en "${stepName('labor')}": es cuántos ${resourceWord} le cobrás al cliente al mismo tiempo. Si el personal cargado es otro número, revisalo.`)
+    : null;
+
+  /** [número] [horas por mes ▾ | días de trabajo por mes]. */
+  function hoursActivityField() {
+    const byHours = hoursBasis === 'hours';
+    const field = numberField({
+      label: byHours ? `${Plural} a facturar por mes` : 'Días de trabajo por mes',
+      name: byHours ? 'activity.hoursInput.value' : 'activity.activeDaysPerMonth',
+      rule: byHours ? 'quantity' : 'days',
+      value: byHours ? hoursIn : activity.activeDaysPerMonth,
+      placeholder: byHours ? 'Ej.: 160' : 'Ej.: 20',
+      hint: byHours ? 'Una estimación alcanza: en el Resultado ves otras cantidades.' : `Los días se multiplican por las horas por día${resource ? ` y por ${resourceWord}` : ''}.`,
+      disabled: kit.readOnly,
+      onChange: (v) => {
+        if (byHours) {
+          ctx.update('activity.hoursInput', v === null ? null : { value: v });
+          const a = ctx.quote.activity || {};
+          // Sin horas por día no se pueden calcular los días: se conservan hasta que se carguen (revisión de código).
+          const D = v === null ? null : daysFromHours(v, a.hoursPerActiveDay, billedCountOf(a));
+          if (v === null || D !== null) ctx.update('activity.activeDaysPerMonth', D);
+        } else {
+          ctx.update('activity.activeDaysPerMonth', v);
+        }
+      },
+    });
+    const label = field.querySelector('.field-label');
+    if (label) label.appendChild(h('span', { class: 'req', 'aria-hidden': 'true' }, ' *'));
+    const control = field.querySelector('.field-control');
+    if (control) {
+      const select = h('select', { name: 'activity.hoursBasis', 'aria-label': 'Cargás la actividad en', disabled: kit.readOnly },
+        h('option', { value: 'hours', selected: byHours }, `${info.plural} por mes`),
+        h('option', { value: 'days', selected: !byHours }, 'días de trabajo por mes'));
+      select.addEventListener('change', () => {
+        ctx.mutate((q) => {
+          q.activity = q.activity || {};
+          const a = q.activity;
+          a.hoursBasis = select.value;
+          if (select.value === 'hours') {
+            const D = Number(a.activeDaysPerMonth);
+            const H = Number(a.hoursPerActiveDay);
+            a.hoursInput = D > 0 && H > 0 ? { value: Number((D * H * billedCountOf(a)).toPrecision(12)) } : null;
+          } else {
+            a.hoursInput = null;
+          }
+        }, { focus: select.value === 'hours' ? 'activity.hoursInput.value' : 'activity.activeDaysPerMonth' });
+      });
+      const row = h('div', { class: 'qe-compound' });
+      control.replaceWith(row);
+      row.append(control, h('div', { class: 'qe-compound-unit' }, h('div', { class: 'field-control qe-mini-select' }, select)));
+    }
+    if (byHours) aliasFor(field, 'activity.activeDaysPerMonth');
+    return field;
+  }
+
+  /** "Cada llamado se cuenta completo" (PLAN-2026-011): con salidas de la base o a demanda. */
+  function fullActivationsBlock() {
+    return h('div', { class: 'qe-full-activations' },
+      addInfoTip(kit.check('activity.fullActivations', {
+        label: `${T.Each} se cuenta ${T.whole}`,
+        hint: 'Para costos que no se dividen: movilización, peajes, viáticos.',
+      }), `Apagada, ${T.theMany} ${T.many} por mes son un promedio (por ejemplo 10,42) y los costos ${T.per} se cuentan en proporción. Encendida, esos costos se costean con ${T.many} ${T.wholeMany} (11). Sueldos, tenencia de equipos, producción, facturación y estructura mensual no cambian.`),
+      kit.out((r) => {
+        const note = activationRoundingText(r.activationRounding, T);
+        if (!note) return '';
+        return h('p', { class: ['qe-note', note.tone === 'warning' ? 'is-warning' : null] }, note.text);
+      }, { tag: 'div', allowEmpty: true }));
+  }
+
+  // ---- A demanda (guardia / on-call): llamados, su duración (o distinta por llamado), mínimo, abono y
+  // disponibilidad. Con $/hora, $/día o $/mes los días de trabajo salen de los llamados.
+  const demand = onDemand ? demandFormOf(activity, kind) : null;
+  const callUnits = hourly ? 'horas' : 'días';
+  const demandByProfile = Boolean(demand && demand.distinct);
+  // Lo que se cargó en esta pantalla (llamados, duración, perfil): se escribe todo junto en los datos del motor.
+  const form = {
+    calls: demand ? demand.calls : null,
+    perCall: demand ? demand.perCall : null,
+    // Duraciones distintas elegidas pero sin lista válida todavía: arranca con una fila (los llamados y la
+    // duración promedio, si ya estaban).
+    profile: demand && demand.profile.length ? demand.profile.map((x) => ({ ...x })) : demandByProfile ? [{ count: demand.calls, units: demand.perCall }] : [],
+    distinct: demandByProfile,
+  };
+  function syncDemand() {
+    if (!onDemand) return;
+    const a = ctx.quote.activity || {};
+    if (kind === 'quantity') {
+      const dpa = daysPerCallForQuantity({ quantity: a.billableQuantityPerMonth, unitsPerActiveDay: a.unitsPerActiveDay, calls: form.calls });
+      ctx.update('activity.callsPerMonth', form.calls);
+      if (dpa !== null) {
+        ctx.update('activity.daysPerActivation', dpa);
+        syncRouteTrips();
+      }
+      return;
+    }
+    if (kind === 'event') return;
+    const next = demandActivity({ kind: hourly ? 'hour' : 'day', calls: form.calls, perCall: form.perCall, profile: form.distinct ? form.profile : null, hoursPerDay: a.hoursPerActiveDay });
+    ctx.update('activity.callsPerMonth', form.distinct ? profileStats(form.profile).calls : form.calls);
+    if (!next) return;
+    ctx.update('activity.activeDaysPerMonth', next.activeDaysPerMonth);
+    ctx.update('activity.daysPerActivation', next.daysPerActivation);
+    ctx.update('activity.activationProfile', next.activationProfile);
+  }
+
+  /** Llamados de distinta duración: [cantidad] llamados de [horas] h, con agregar y quitar. */
+  function profileEditor() {
+    const rows = h('div', { class: 'qe-profile-rows' });
+    const total = kit.out(() => {
+      const s = profileStats(form.profile);
+      if (!(s.calls > 0)) return `Cargá cuántos ${T.many} duran cuánto.`;
+      return `${num(s.calls)} ${T.many} por mes · ${num(s.mean)} ${callUnits} en promedio.`;
+    }, { tag: 'p', className: 'qe-note' });
+    const draw = () => {
+      rows.replaceChildren(...form.profile.map((item, i) => h('div', { class: 'qe-profile-row' },
+        (i === 0 ? (f) => aliasFor(f, 'activity.activeDaysPerMonth', 'activity.daysPerActivation') : (f) => f)(numberField({ label: T.Many, name: `activity.activationProfile.${i}.count`, rule: 'positive', value: item.count, unit: 'por mes', disabled: kit.readOnly, onChange: (v) => { form.profile[i].count = v; syncDemand(); } })),
+        numberField({ label: hourly ? "De cuántas horas" : "De cuántos días", name: `activity.activationProfile.${i}.units`, rule: 'positive', value: item.units, unit: hourly ? 'h' : 'días', disabled: kit.readOnly, onChange: (v) => { form.profile[i].units = v; syncDemand(); } }),
+        kit.readOnly || form.profile.length <= 1 ? null : button('Quitar', { variant: 'link', size: 'sm', onClick: () => { form.profile.splice(i, 1); draw(); syncDemand(); } }),
+      )));
+    };
+    draw();
+    return h('div', { class: 'qe-profile' },
+      rows,
+      kit.readOnly ? null : button('Agregar otra duración', { variant: 'secondary', size: 'sm', icon: 'plus', onClick: () => { form.profile.push({ count: null, units: null }); draw(); } }),
+      total);
+  }
+
+  function demandBody() {
+    if (!onDemand) return null;
+    const parts = [];
+    // Con duraciones distintas los llamados del mes salen de la lista (se ven en su total).
+    if (kind !== 'event' && !form.distinct) {
+      const callsField = numberField({
+        label: `${T.Many} por mes`,
+        name: 'activity.callsPerMonth',
+        rule: 'positive',
+        value: form.calls,
+        unit: `${T.many}/mes`,
+        placeholder: 'Ej.: 8',
+        hint: `Una estimación alcanza: en el Resultado ves qué pasa con más o menos ${T.many}.`,
+        disabled: kit.readOnly,
+        onChange: (v) => { form.calls = v; syncDemand(); },
+      });
+      parts.push(aliasFor(callsField, 'activity.activeDaysPerMonth'));
+    }
+    if (kind === 'hour' || kind === 'day' || kind === 'month') {
+      const durationChoice = choiceGroup({
+        label: `¿Cuánto dura ${T.each}?`,
+        name: 'activity.callDurationForm',
+        value: form.distinct ? 'distinct' : 'same',
+        disabled: kit.readOnly,
+        options: [
+          { value: 'same', label: 'Todos duran parecido', hint: `Cargás la duración promedio en ${callUnits}.` },
+          { value: 'distinct', label: 'Duran distinto', hint: `Cargás cuántos ${T.many} duran cuánto: el mínimo se aplica a ${T.each}.` },
+        ],
+        onChange: (v) => {
+          ctx.mutate((q) => {
+            q.activity = q.activity || {};
+            q.activity.callDurationForm = v;
+            // Una sola fila con los llamados y la duración de antes: el mismo promedio (no cambia ninguna cifra).
+            const n = form.calls > 0 ? form.calls : null;
+            const u = form.perCall > 0 ? form.perCall : null;
+            q.activity.activationProfile = v === 'distinct' && n !== null && u !== null ? [{ count: n, units: u }] : null;
+          }, { focus: 'activity.callDurationForm' });
+        },
+      });
+      parts.push(durationChoice);
+      if (form.distinct) {
+        parts.push(profileEditor());
+      } else {
+        parts.push(aliasFor(numberField({
+          label: `${hourly ? 'Horas' : 'Días'} ${T.per} (promedio)`,
+          name: 'activity.perCall',
+          rule: 'positive',
+          value: form.perCall,
+          unit: hourly ? 'h' : 'días',
+          placeholder: hourly ? 'Ej.: 4' : 'Ej.: 2',
+          hint: `Lo que se trabaja en ${T.each}, en promedio.`,
+          disabled: kit.readOnly,
+          onChange: (v) => { form.perCall = v; syncDemand(); },
+        }), 'activity.daysPerActivation'));
+      }
+    }
+    if (minimumCallApplies(kind)) {
+      parts.push(addInfoTip(kit.num('rules.minimumCallUnits', {
+        label: `Mínimo ${T.per} (opcional)`,
+        rule: 'quantity',
+        unit: hourly ? 'h' : kind === 'day' ? 'días' : info.plural,
+        hint: 'Se factura aunque se trabaje menos.',
+      }), form.distinct ? `Se aplica a ${T.each} de la lista.` : `Se aplica ${T.a === 'una' ? 'a la' : 'al'} ${T.one} promedio. Si ${T.theMany} ${T.many} duran distinto, elegí "Duran distinto": así el mínimo se aplica a ${T.each}.`));
+    }
+    parts.push(kit.num('rules.availabilityFeeMonthly', {
+      label: 'Abono de disponibilidad por mes (opcional)',
+      rule: 'money',
+      unit: '$/mes',
+      hint: 'Lo que cobrás por estar disponible, además de lo que se trabaja.',
+    }));
+    // A demanda también hay costos por llamado (movilización, peajes): si cambian algo, se puede contar cada
+    // llamado completo (antes estaba en "Cómo se cobra" para todos los on-call).
+    const perCallCostsMatter = activity.fullActivations === true || activationsMatter(quote, settings);
+    return h('div', { class: 'qe-demand-body' },
+      formGrid(2, ...parts.filter(Boolean)),
+      perCallCostsMatter ? fullActivationsBlock() : null,
+      kit.group('Disponibilidad',
+        kit.choice('activity.availability', {
+          label: 'Disponibilidad requerida',
+          options: AVAILABILITY_OPTIONS.map((o) => ({ value: o.id, label: o.label, hint: AVAILABILITY_HINTS[o.id] })),
+          structural: true,
         }),
-        kit.num('activity.daysPerActivation', {
-          label: daysPerActivationLabel(T, quote.serviceType),
+        formGrid(2,
+          activity.availability === 'window'
+            ? kit.text('activity.availabilityWindow', { label: 'Franja horaria', maxLength: 120, placeholder: 'Ej.: lunes a sábado de 7 a 19 h' })
+            : null,
+          kit.num('activity.responseTimeHours', { label: 'Tiempo máximo de respuesta', rule: 'hours', unit: 'h', hint: 'Desde que te llaman hasta estar operativo en la locación.' }))));
+  }
+
+  const demandCard = jobHorizon
+    ? null
+    : card(
+      { className: 'qe-demand-card' },
+      choiceGroup({
+        label: '¿Trabajás a demanda?',
+        name: 'serviceOnDemand',
+        value: onDemand ? 'yes' : 'no',
+        disabled: kit.readOnly,
+        options: [
+          { value: 'no', label: 'No', hint: 'Trabajo planificado o continuo.' },
+          { value: 'yes', label: 'Sí, el cliente llama y salís', hint: 'Guardia u on-call: el cliente pide el servicio cuando lo necesita.' },
+        ],
+        onChange: (v) => {
+          let note = null;
+          ctx.mutate((q) => {
+            q.activity = q.activity || {};
+            const a = q.activity;
+            if (v === 'yes') {
+              q.serviceType = 'on_call';
+              // Volver a "Sí" devuelve lo que se apartó al contestar "No" (SIM-02 ronda 2: antes se perdía).
+              const kept = isPlainObject(a.demandStash) ? a.demandStash : null;
+              if (kept) {
+                if (Array.isArray(kept.activationProfile)) a.activationProfile = kept.activationProfile;
+                if (kept.callDurationForm) a.callDurationForm = kept.callDurationForm;
+                if (kept.callsPerMonth) a.callsPerMonth = kept.callsPerMonth;
+                if (Number(kept.minimumCallUnits) > 0) {
+                  q.rules = q.rules || {};
+                  q.rules.minimumCallUnits = kept.minimumCallUnits;
+                }
+                note = { text: `Volvieron ${T.theMany} ${T.many} y el mínimo ${T.per} que tenías cargados.`, tone: 'success' };
+              }
+              delete a.demandStash;
+              return;
+            }
+            if (q.serviceType === 'on_call') q.serviceType = 'configurable';
+            // SIM-02 S1: sin trabajo a demanda no quedan reglas de llamados ocultas que sigan sumando (el mínimo
+            // por llamado y las duraciones distintas). Se apartan (`activity.demandStash`, sólo de pantalla) para
+            // devolverlos si se vuelve a "Sí". Los días de trabajo y las salidas quedan como estaban.
+            const minimum = Number(q.rules && q.rules.minimumCallUnits);
+            const stash = {
+              activationProfile: Array.isArray(a.activationProfile) && a.activationProfile.length ? a.activationProfile : null,
+              callDurationForm: a.callDurationForm || null,
+              callsPerMonth: a.callsPerMonth || null,
+              minimumCallUnits: minimum > 0 ? minimum : null,
+            };
+            if (stash.activationProfile || stash.callDurationForm || stash.callsPerMonth || stash.minimumCallUnits) {
+              a.demandStash = stash;
+              note = {
+                text: `Sin trabajo a demanda no se usan ${stash.activationProfile ? `las duraciones de ${T.theMany} ${T.many}` : ''}${stash.activationProfile && stash.minimumCallUnits ? ' ni ' : ''}${stash.minimumCallUnits ? `el mínimo ${T.per}` : ''}${!stash.activationProfile && !stash.minimumCallUnits ? `${T.theMany} ${T.many}` : ''}: quedan guardados aparte y vuelven si contestás "Sí".`,
+                tone: 'warning',
+              };
+            }
+            a.activationProfile = null;
+            delete a.callDurationForm;
+            delete a.callsPerMonth;
+            if (q.rules && Number(q.rules.minimumCallUnits) > 0) q.rules.minimumCallUnits = null;
+          }, { focus: 'serviceOnDemand' });
+          if (note) ctx.toast(note.text, note.tone);
+        },
+      }),
+      demandBody(),
+    );
+
+  // ---- Salidas de la base (sin demanda): sólo si cambian algo; si no, un renglón que dice qué se supone.
+  const salidasCard = jobHorizon || onDemand || kind === 'event'
+    ? null
+    : kit.advanced(
+      {
+        key: 'modality-departures',
+        title: 'Cada cuánto salís de la base',
+        variant: 'options',
+        boxed: true,
+        defaultOpen: salidasMatter,
+        summary: () => {
+          const dpa = Number(kit.get('activity.daysPerActivation')) > 0 ? Number(kit.get('activity.daysPerActivation')) : 1;
+          return Math.abs(dpa - 1) < 1e-9
+            ? `Cada día de trabajo cuenta como ${T.a} ${T.one} (movilización, viajes, viáticos).`
+            : `${T.a === 'una' ? 'Una' : 'Un'} ${T.one} cada ${formatDays(dpa, { decimals: 2 })} de trabajo.`;
+        },
+      },
+      salidasMatter ? null : h('p', { class: 'qe-note' }, `Hoy no cambia ningún costo: sirve si cargás movilización, viajes o viáticos ${T.per}.`),
+      formGrid(2,
+        addInfoTip(kit.num('activity.daysPerActivation', {
+          label: '¿Cada cuántos días de trabajo salís de la base?',
           rule: 'positiveDays',
           unit: 'días',
-          hint: `Sirve para saber cuántos ${T.many} hay por mes.`,
+          hint: '1 = salís y volvés cada día. Si te quedás en el lugar todo el trabajo, poné los días que dura.',
+          onValue: () => syncRouteTrips(),
+        }), tripUnit
+          ? `Viajes ${T.per} = viajes por día × estos días. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`
+          : `Cuenta las movilizaciones, los viajes y los viáticos ${T.per}. No es la unidad que cobrás.`)),
+      legacyMinimum && minimumCallApplies(kind)
+        ? formGrid(2, kit.num('rules.minimumCallUnits', {
+          label: `Mínimo ${T.per}`,
+          rule: 'quantity',
+          unit: hourly ? 'h' : kind === 'day' ? 'días' : info.plural,
+          hint: `Se factura aunque se trabaje menos. Si no cobrás un mínimo ${T.per}, ponelo en 0.`,
+        }))
+        : null,
+      fullActivationsBlock(),
+    );
+
+  // ---- Precio total del trabajo: días de trabajo de todo el trabajo (no un mes).
+  const jobKeyline = jobHorizon ? kit.keyline({
+    label: 'El trabajo completo',
+    value: (r) => (r.activity && r.activity.jobHorizon && r.activity.activeDaysPerMonth > 0 ? `≈ ${num(r.activity.jobMonths)} ${Math.abs(r.activity.jobMonths - 1) < 1e-9 ? 'mes' : 'meses'}` : EMPTY),
+    hint: (r) => {
+      const a = r.activity || {};
+      if (!(a.activeDaysPerMonth > 0)) return 'Cargá los días de trabajo de todo el trabajo.';
+      // SIM A2: con 30 disponibles (todos los días) una obra de 66 días hábiles daba 2,2 meses en vez de 3.
+      const allDays = Number(a.availableDaysPerMonth) >= 30;
+      return `${workDaysText(a.activeDaysPerMonth)} con ${num(a.availableDaysPerMonth)} días disponibles por mes: los costos fijos del mes (sueldos, estructura) se cuentan ${num(a.jobMonths)} ${Math.abs(a.jobMonths - 1) < 1e-9 ? 'vez' : 'veces'}.${allDays ? ' Si no se trabaja todos los días, poné los días hábiles (por ejemplo 22).' : ''} El costo, el precio y la ganancia son los del trabajo completo, no de un mes.`;
+    },
+  }) : null;
+
+  // ---- Línea clave con día, hora o mes: lo que se factura y cómo se llega.
+  const daysKeyline = kit.keyline({
+    label: 'Con estos datos',
+    value: (r) => (r.activity && r.activity.activeDaysPerMonth > 0 ? `${unitsLabel(r, r.estimate.revenue.billableUnits)} por mes` : EMPTY),
+    hint: (r) => {
+      const a = r.activity || {};
+      if (!(a.activeDaysPerMonth > 0)) return onDemand ? `Cargá ${T.theMany} ${T.many} y su duración para ver qué facturás.` : 'Cargá la actividad para ver qué facturás.';
+      const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
+      // La actividad normalizada del motor trae `billedResources` (ya vale 1 sin personas o equipos facturados).
+      const n = Number(a.billedResources) > 0 ? Number(a.billedResources) : 1;
+      const H = a.hoursPerActiveDay;
+      let chain;
+      if (onDemand && kind !== 'month') {
+        const perCall = hourly ? a.daysPerActivation * H : a.daysPerActivation;
+        chain = `${num(a.activationsPerMonth)} ${T.many} × ${num(perCall)} ${callUnits} = ${num(hourly ? a.activeDaysPerMonth * H : a.activeDaysPerMonth)} ${callUnits} trabajadas${n > 1 ? ` × ${num(n)} ${resourceWord}` : ''} → ${unitsLabel(r, r.estimate.revenue.billableUnits)} por mes${extra}.`;
+      } else if (hourly && isFiniteNumber(H)) {
+        chain = `${formatDays(a.activeDaysPerMonth, { decimals: 2 })} × ${num(H)} h por día${n > 1 ? ` × ${num(n)} ${resourceWord}` : ''} = ${unitsLabel(r, r.estimate.revenue.billableUnits)} por mes${extra}.`;
+      } else if (kind === 'month') {
+        chain = `${n > 1 ? `${num(n)} ${info.plural}` : 'Un abono'} por mes, con ${workDaysText(a.activeDaysPerMonth)}.`;
+      } else {
+        chain = `${formatDays(a.activeDaysPerMonth, { decimals: 2 })}${n > 1 ? ` × ${num(n)} ${resourceWord}` : ''} = ${unitsLabel(r, r.estimate.revenue.billableUnits)} por mes${extra}.`;
+      }
+      const used = `Ocupás ${formatDays(a.activeDaysPerMonth, { decimals: 1 })} de ${num(a.availableDaysPerMonth)} disponibles (${formatPercent(a.utilizationPct)}).`;
+      return lines(chain, kind === 'month' ? null : revenueLine(r), `${used}${showActivations ? fractionalText(r) : ''}`);
+    },
+  });
+
+  const question = jobHorizon
+    ? kit.question('¿Cuánto lleva el trabajo completo?', 'Con los días de trabajo de toda la obra se calculan el costo y el precio del trabajo completo (no de un mes).')
+    : hourly
+      ? kit.question(onDemand ? `¿Cuántos ${T.many} esperás y cuánto duran?` : `¿Cuántas ${info.plural} vas a facturar por mes?`, `Cuanto menos factures, más alta tiene que ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
+      : kind === 'month'
+        ? kit.question('¿Cuántos días por mes vas a trabajar?', 'El abono es fijo: los días mueven los costos (personal, equipos, combustible).')
+        : kind === 'day'
+          ? kit.question(onDemand ? `¿Cuántos ${T.many} esperás y cuánto duran?` : `¿Cuántos ${resource ? info.plural : 'días'} vas a facturar por mes?`, `Cuanto menos factures, más alta tiene que ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
+          : kit.question(texts.quantityQuestion, `Cuanto menos factures, más alta tiene que ser la tarifa ${perText(info)} para cubrir los costos fijos.`);
+
+  let activityFields;
+  if (jobHorizon) {
+    activityFields = formGrid(3,
+      kit.num('activity.daysPerActivation', {
+        label: 'Días de trabajo de todo el trabajo',
+        rule: 'positiveDays',
+        unit: 'días',
+        requiredMark: true,
+        placeholder: 'Ej.: 66',
+        hint: 'Los días en que se trabaja, sumando todos los meses.',
+      }),
+      kit.num('activity.availableDaysPerMonth', {
+        label: 'Días de trabajo disponibles por mes',
+        rule: 'daysInMonth',
+        unit: 'días',
+        placeholder: '22',
+        hint: 'Con esto sale cuántos meses dura (22 si son días hábiles).',
+      }),
+      hoursField());
+  } else if (byQuantity) {
+    activityFields = quantityFields();
+  } else if (onDemand) {
+    activityFields = formGrid(2, hourly ? hoursField({ onValue: () => syncDemand() }) : null, resourceField);
+  } else if (hourly) {
+    activityFields = formGrid(3, hoursActivityField(), hoursField({ onValue: () => { if (hoursBasis === 'hours') syncDaysFromHours(); } }), resourceField);
+  } else {
+    activityFields = formGrid(2,
+      kit.num('activity.activeDaysPerMonth', {
+        label: 'Días de trabajo por mes',
+        rule: 'days',
+        unit: 'días/mes',
+        requiredMark: true,
+        placeholder: 'Ej.: 20',
+        hint: kind === 'month' ? 'Mueven los costos; el abono es fijo.' : 'Una estimación alcanza: en el Resultado ves otras cantidades de días.',
+      }),
+      resourceField);
+  }
+
+  // UXR (SIM A2): la duración del contrato estaba escondida en "Más datos" con 12 meses por defecto y el
+  // Resultado mostraba el total de 12 meses aun para un trabajo puntual. Va a la vista, junto a la actividad.
+  // Con precio total del trabajo no se pregunta: el contrato es ese trabajo.
+  const contractCard = jobHorizon
+    ? null
+    : card(
+      { className: 'qe-contract-card' },
+      formGrid(2,
+        kit.num('contractMonths', {
+          label: '¿Cuántos meses dura el contrato?',
+          rule: 'months',
+          unit: 'meses',
+          hint: 'Poné 1 si es un trabajo puntual. Con esto se calcula el total del contrato, se reparte un precio global de un proveedor y se ve si aplica el descuento por continuidad.',
         }),
-        hourly ? hoursField() : null,
-      ),
-    byQuantity ? quantityKeyline : daysKeyline,
-    multiMonthBanner,
+        kit.out((r) => {
+          // La misma cuenta que el Resultado y el PDF (priceComposition).
+          let c = null;
+          try { c = priceComposition(r).contract; } catch { c = null; }
+          if (!c || !isFiniteNumber(c.revenue) || !(c.revenue > 0) || !(c.months > 0)) return '';
+          return `Total del contrato: ${formatMoney(c.revenue)} (${formatMoney(c.revenue / c.months)} por mes × ${num(c.months)} ${c.months === 1 ? 'mes' : 'meses'}).`;
+        }, { tag: 'p', className: 'qe-note', allowEmpty: true })));
+
+  const activityCard = card(
+    { className: 'qe-activity-card' },
+    activityFields,
+    jobHorizon ? jobKeyline : byQuantity ? quantityKeyline : daysKeyline,
+    jobHorizon ? null : multiMonthBanner,
     // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
     tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,
     // Cobro por km (PLAN-2026-014, LAB-D4): km facturables y km de ruta, por separado.
     info.id === 'km' ? kit.group('Viajes y km del mes', transportStats(kit, { billable: false, km: true })) : null,
-    // PLAN-2026-011: cada salida completa (apagado por defecto). Sólo los costos
-    // físicamente indivisibles por salida; producción y facturación no cambian.
-    h('div', { class: 'qe-full-activations' },
-      addInfoTip(kit.check('activity.fullActivations', {
-        label: `${T.Each} se cuenta ${T.whole}`,
-        hint: `Para costos que no se dividen: movilización, peajes, viáticos.`,
-      }), `Apagada, ${T.theMany} ${T.many} por mes son un promedio (por ejemplo 10,42) y los costos ${T.per} se cuentan en proporción. Encendida, esos costos —movilización, peajes, viáticos, cargos del proveedor ${T.per} y mínimos ${T.per}— se costean con ${T.many} ${T.wholeMany} (11). Sueldos, tenencia de equipos, producción, facturación y estructura mensual no cambian.`),
-      kit.out((r) => {
-        const info = activationRoundingText(r.activationRounding, T);
-        if (!info) return '';
-        return h('p', { class: ['qe-note', info.tone === 'warning' ? 'is-warning' : null] }, info.text);
-      }, { tag: 'div', allowEmpty: true })),
     kit.advanced(
       {
         key: 'modality',
         summary: () => {
           const a = quote.activity || {};
-          const parts = [
+          return [
             isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días disponibles por mes` : 'días disponibles sin cargar',
-            hourly ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
-            kind === 'quantity' && hasNumber(a.daysPerActivation) ? `${formatDays(Number(a.daysPerActivation))} ${T.per}` : null,
-            isOnCall ? `disponibilidad ${a.availability === 'window' ? 'por franja horaria' : '24/7'}` : null,
-            isOnCall && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
-          ].filter(Boolean);
-          return parts.join(' · ');
+            hourly || jobHorizon ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día` : 'horas por día sin cargar',
+          ].filter(Boolean).join(' · ');
         },
       },
-      formGrid(
-        2,
-        kit.num('activity.availableDaysPerMonth', {
+      formGrid(2,
+        jobHorizon ? null : kit.num('activity.availableDaysPerMonth', {
           label: 'Días disponibles en el mes',
           rule: 'daysInMonth',
           unit: 'días',
           placeholder: '30',
           hint: 'Normalmente 30 para servicios 24/7; 22 si sólo trabajás días hábiles.',
         }),
-        hourly ? null : hoursField(),
-        // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
-        kind === 'quantity'
-          ? addInfoTip(kit.num('activity.daysPerActivation', {
-            label: `Duración promedio de ${T.each}`,
-            rule: 'positiveDays',
-            unit: 'días',
-            hint: `Dato OPERATIVO: cuántos días de trabajo seguidos dura ${T.each}.`,
-            onValue: () => syncRouteTrips(),
-          }), tripUnit
-            ? `Viajes ${T.per} = viajes por día × estos días. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`
-            : `No es la unidad que cobrás: cuenta las movilizaciones y el mínimo ${T.per}. Ej.: 20 días de trabajo ÷ 2 días ${T.per} = 10 ${T.many} por mes. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`)
-          : null,
-      ),
-      isOnCall
-        ? kit.group(
-          'Disponibilidad on-call',
-          kit.choice('activity.availability', {
-            label: 'Disponibilidad requerida',
-            options: AVAILABILITY_OPTIONS.map((o) => ({ value: o.id, label: o.label, hint: AVAILABILITY_HINTS[o.id] })),
-            structural: true,
-          }),
-          formGrid(
-            2,
-            quote.activity && quote.activity.availability === 'window'
-              ? kit.text('activity.availabilityWindow', { label: 'Franja horaria', maxLength: 120, placeholder: 'Ej.: lunes a sábado de 7 a 19 h' })
-              : null,
-            kit.num('activity.responseTimeHours', {
-              label: 'Tiempo máximo de respuesta',
-              rule: 'hours',
-              unit: 'h',
-              hint: 'Desde el llamado hasta estar operativo en locación.',
-            }),
-          ),
-        )
-        : null,
+        hourly || jobHorizon ? null : hoursField()),
       kit.stats(
-        kit.stat('Utilización', (r) => formatPercent(r.activity.utilizationPct), { hint: byQuantity ? 'Días de trabajo ÷ días disponibles.' : 'Días activos ÷ días disponibles.' }),
+        jobHorizon ? null : kit.stat('Ocupación del mes (utilización)', (r) => formatPercent(r.activity.utilizationPct), { hint: 'Días de trabajo ÷ días disponibles.' }),
         byQuantity
           ? kit.stat('Días de trabajo por mes', (r) => (r.activity.activeDaysPerMonth > 0 ? formatDays(r.activity.activeDaysPerMonth, { decimals: 2 }) : EMPTY), {
             hint: kind === 'quantity' ? `${Plural} por mes ÷ ${info.plural} por día de trabajo.` : `${Plural} por mes × días de trabajo de cada uno.`,
           })
           : null,
-        kit.stat(`${T.Many} por mes`, (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: byQuantity ? `Días de trabajo ÷ duración de ${T.each}. Es un promedio (puede tener decimales).` : `Días activos ÷ días ${T.per}. Es un promedio (puede tener decimales).` }),
-        kit.stat(byQuantity ? `${Plural} facturables por mes` : 'Unidades facturables por mes', (r) => unitsLabel(r, r.estimate.revenue.billableUnits), {
+        showActivations ? kit.stat(`${T.Many} por mes`, (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: 'Es un promedio (puede tener decimales).' }) : null,
+        jobHorizon ? null : kit.stat(`${Plural} facturables por mes`, (r) => unitsLabel(r, r.estimate.revenue.billableUnits), {
           hint: (r) => (r.estimate.revenue.minimumCallApplied ? `Incluye el mínimo ${T.per}.` : `En la unidad elegida (${info.label}).`),
         }),
       ),
     ),
   );
-
   const ladder = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [...DEFAULT_MARGIN_LADDER];
-  const breakEvenStat = byQuantity
+  // UXR: con $/hora (o por persona o equipo) el mínimo para no perder va en la unidad de cobro, no en días.
+  const breakEvenStat = byQuantity || hourly || resource
     ? kit.stat(`${texts.breakEvenLabel} (break-even)`, (r) => {
       const be = r.breakEven || {};
       if (be.notApplicable) return 'No aplica';
@@ -998,9 +1110,11 @@ export function render(container, ctx) {
         boxed: true,
         summary: (r) => {
           const floor = floorDisplay(r);
+          // Sin costos cargados la tarifa piso da $ 0: no se muestra como si fuera una tarifa.
+          if (isFiniteNumber(floor.value) && !(r.kpis.totalCost > 0)) return 'Cargá los costos (personal, equipos u otros gastos) para ver las tarifas.';
           return isFiniteNumber(floor.value)
             ? `Tarifa piso ${perUnitCeil(floor.value, r)} y las tarifas para ganar ${ladder.map((m) => formatPercent(m)).join(', ')} sobre el precio.`
-            : byQuantity ? `Cargá ${texts.los} ${info.plural} por mes para ver las tarifas.` : 'Cargá los días por mes para ver las tarifas.';
+            : byQuantity ? `Cargá ${texts.los} ${info.plural} por mes para ver las tarifas.` : 'Cargá la actividad para ver las tarifas.';
         },
       },
       h('p', { class: 'qe-note' }, 'Son tarifas DE LISTA (antes de descuentos), redondeadas hacia arriba: las que escribís en la cotización.'),
@@ -1029,15 +1143,14 @@ export function render(container, ctx) {
       ),
     );
 
-  const question = byQuantity
-    ? kit.question(texts.quantityQuestion, `Cuanto menos factures, más alta tiene que ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
-    : kit.question('¿Cuántos días por mes esperás trabajar?', 'Cuantos menos días trabajes, más alta tiene que ser la tarifa para cubrir los costos fijos.', { term: 'utilización (días trabajados ÷ días disponibles)' });
 
   mount(
     container,
-    modeCard,
     question,
     activityCard,
+    demandCard,
+    contractCard,
+    salidasCard,
     calcCard,
   );
   return { update() {} };

@@ -263,7 +263,7 @@ export function render(container, ctx) {
       kit.stat('Tarifa sugerida', (r) => perUnitCeil(r.kpis.suggestedListRate, r), {
         hint: (r) => {
           const pair = marginPairText(r.kpis);
-          return `El precio anterior ${roundingText(r.kpis)} (nunca baja el margen).${pair ? ` ${pair}.` : ''}`;
+          return `La tarifa anterior, ${roundingText(r.kpis)} (nunca baja el margen).${pair ? ` ${pair}.` : ''}`;
         },
         tone: (r) => (r.kpis.roundingExceedsLimit ? 'orange' : null),
         emphasis: true,
@@ -344,7 +344,7 @@ export function render(container, ctx) {
             : hasNumber(pr.roundingStep) && Number(pr.roundingStep) > 0 ? `redondeo hacia arriba a ${formatMoney(Number(pr.roundingStep))}` : 'sin redondeo',
           isModeB
             ? (hasNumber(pr.offeredRateOverride) && Number(pr.offeredRateOverride) > 0 ? `tarifa ofrecida a mano ${formatMoney(Number(pr.offeredRateOverride))}` : 'se ofrece la tarifa sugerida')
-            : `tu tarifa (en "${stepName('modality')}")`,
+            : `tu tarifa (en "${stepName('service')}")`,
         ];
         const text = parts.join(' · ');
         return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
@@ -400,7 +400,7 @@ export function render(container, ctx) {
           unit: unit.label,
           hint: 'Tarifa de lista, sin IVA, antes de descuentos. Si la dejás vacía, se ofrece la tarifa sugerida.',
         })
-        : kit.staticField(`Tu tarifa (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', `Elegiste "Sí, ya tengo la tarifa": se edita en "${stepName('modality')}".`),
+        : kit.staticField(`Tu tarifa (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', `Elegiste "Sí, ya tengo la tarifa": se edita en "${stepName('service')}".`),
     ),
     kit.stat((r) => `${{ known_rate: 'Tu tarifa', offered: 'Tarifa ofrecida', override: 'Tarifa forzada' }[r.kpis.commercialSource] || 'Tarifa sugerida'} (de lista)`, (r) => (r.kpis.commercialSource === 'suggested' ? perUnitCeil(r.kpis.commercialListRate, r) : perUnitMoney(r.kpis.commercialListRate, r)), {
       emphasis: true,
@@ -425,13 +425,19 @@ export function render(container, ctx) {
   ];
   /** Pendiente crítico "Dos abonos por mes" (completitud, ECO-01), o null. */
   const feeOverlapOf = (r) => ((r && r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap') || null;
-  const rulesSummary = () => {
+  const rulesSummary = (r) => {
     const rules = quote.rules || {};
-    const active = RULE_NAMES.filter(([key]) => hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
+    // El descuento por continuidad cargado que no llega al mínimo de meses no se cuenta como aplicado (SIM-02 ronda 2).
+    const continuityOff = Boolean(r && r.continuity && !r.continuity.applies);
+    const active = RULE_NAMES.filter(([key]) => hasNumber(rules[key]) && Number(rules[key]) > 0)
+      .map(([key, label]) => (key === 'continuityDiscountPct' && continuityOff ? `${label} (no aplica: ${formatNumber(r.continuity.contractMonths, { decimals: 2 })} meses)` : label));
     if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
     else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
-    else active.push('equipo en espera sin definir');
-    return `Abono, cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
+    else if ((quote.serviceType === 'on_call' && Array.isArray(quote.equipment) && quote.equipment.length > 0) || Number(rules.standbyDaysPerMonth) > 0) {
+      // Sólo cuando la espera aplica (on-call con equipos o días de espera cargados), como en completitud.
+      active.push('equipo en espera sin definir');
+    }
+    return `Abono, cargos ${T.per}, mínimos, equipo en espera y continuidad. ${active.length ? `Aplicadas: ${active.join(', ')}.` : 'Ninguna aplicada.'}`;
   };
   const rulesCard = kit.advanced(
     {
@@ -599,7 +605,8 @@ export function render(container, ctx) {
       key: 'margin-tiers',
       title: 'Descuentos por cantidad de días',
       boxed: true,
-      summary: tiersSummary,
+      // SIM-02 (S3): con otra unidad no se aplican; el resumen lo dice en vez de contar tramos.
+      summary: dayTiers ? tiersSummary : () => `No se aplican: cobrás ${unit.label}.`,
       flag: (r) => {
         const f = tierFindings(r);
         if (f.red > 0) return { tone: 'red', text: f.red === 1 ? 'Un descuento pierde plata' : `${f.red} descuentos pierden plata` };
@@ -640,6 +647,6 @@ export function render(container, ctx) {
     h('div', { class: 'qe-toolbar' }, kit.action('Agregar tramo', addTier, { icon: 'plus' })),
   );
 
-  mount(container, marginCard, taxesCard, priceCard, educational, kit.question('¿Querés ajustar cómo se cobra?', 'Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian la tarifa sugerida.', { level: 3 }), pricingOptions, rulesCard, tiersCard);
+  mount(container, marginCard, taxesCard, priceCard, educational, kit.question('¿Querés ajustar cómo se cobra?', 'Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian la tarifa sugerida.', { level: 3 }), pricingOptions, rulesCard, dayTiers || tiers.some((t) => hasNumber(t.discountPct) && Number(t.discountPct) > 0) ? tiersCard : null);
   return { update() {} };
 }

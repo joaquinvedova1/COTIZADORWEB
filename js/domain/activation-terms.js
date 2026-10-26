@@ -12,6 +12,8 @@
  *   on-call                     llamado        el cliente llama y el equipo sale
  *   transporte                  salida         una salida agrupa uno o más viajes
  *   llave en mano / cerrado     trabajo
+ *   configurable (cotizaciones  salida         (UXR: sin tipo de servicio; cada salida de la base)
+ *   nuevas, sin tipo)
  *   el resto                    intervención   (servicios técnicos, cuadrillas, equipos…)
  *
  * Un servicio permanente usa "intervención": RATEOS no sabe si cada activación
@@ -31,7 +33,7 @@ const INTERVENCION = Object.freeze({ id: 'intervencion', one: 'intervención', m
 
 /** La unidad que se factura ES la activación: manda su nombre. */
 const BY_UNIT = Object.freeze({ call: LLAMADO, job: TRABAJO, milestone: TRABAJO });
-const BY_SERVICE = Object.freeze({ on_call: LLAMADO, transport: SALIDA, turnkey: TRABAJO, lump_sum: TRABAJO });
+const BY_SERVICE = Object.freeze({ on_call: LLAMADO, transport: SALIDA, turnkey: TRABAJO, lump_sum: TRABAJO, configurable: SALIDA });
 
 /** Nombres posibles de una activación (para la auditoría de terminología de Test Lab). */
 export const ACTIVATION_TERMS = Object.freeze([LLAMADO, SALIDA, TRABAJO, INTERVENCION]);

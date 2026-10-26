@@ -35,6 +35,7 @@ Convenciones:
 11. [Margen vs markup](#11-margen-vs-markup)
 12. [Unidades, reglas comerciales y facturación](#12-unidades-reglas-comerciales-y-facturación)
     - [12.0 Cómo se compone la facturación del mes (ECO-01)](#120-cómo-se-compone-la-facturación-del-mes-eco-01-aud-t1-h-02)
+    - [12.2 Unidad de cobro sin tipo de servicio (UXR)](#122-unidad-de-cobro-sin-tipo-de-servicio-uxr-2026-10-25-opcional)
 13. [Tarifa piso, precio objetivo y precio comercial](#13-tarifa-piso-precio-objetivo-y-precio-comercial)
     - [13.1 Impuestos sobre la facturación (gross-up)](#131-impuestos-sobre-la-facturación-gross-up)
     - [13.2 Composición del precio, apropiación y total del contrato](#132-composición-del-precio-apropiación-y-total-del-contrato)
@@ -832,7 +833,7 @@ facturación base = cantidad facturable × tarifa neta por unidad
 - Tarifa piso, objetivo y sugerida: las mismas fórmulas de §13 con las unidades facturables de esta tabla ("$ 8.450 / m³"). Nunca "/ día" si no se cobra por día.
 - **Descuentos por cantidad de días (§14) sólo con `day` u `hour`.** Con `month`, `quantity` o `event` no se aplican (los tramos quedan guardados, no se borran).
 - Sin rendimiento (`r` vacío o 0, sin minimum call) no hay días de trabajo: los costos variables quedan en 0 y la cotización muestra un error ("Cargá cuántos m³ hacés por día de trabajo"). Una cantidad negativa es un error y se toma como 0. Si los días derivados superan los disponibles del mes, es el pendiente crítico «Trabajo de más de un mes» hasta confirmarlo (V-1; como en §16, se interpreta como trabajo de más de un mes).
-- Una unidad que no es habitual para el tipo de servicio (por ejemplo, $/día en "Servicio por unidad producida") **calcula igual** y muestra un aviso.
+- Una unidad que no es habitual para el tipo de servicio **calcula igual**. UXR: el aviso "se suele cobrar en…" se quitó (el tipo ya no se pregunta y no cambia ninguna fórmula; §12.2).
 - Sensibilidad y escenarios (§17): la variación de actividad cambia la cantidad del mes; los días se derivan (tope: los días disponibles).
 
 **Horas y materiales** (`pricing.materialsBilledSeparately = true`): los materiales se facturan aparte. Siguen siendo costo (no cambia el costo del mes) y lo que se cobra por ellos suma a los otros ingresos:
@@ -855,6 +856,40 @@ Casos de referencia (golden):
 | C — movimiento de suelo $/m³ | 5.000 m³/mes, 250 m³/día, fijos 20.000.000, variable 1.500.000/día, margen 15 % | costo 50.000.000; piso **10.000/m³**; objetivo **11.764,71/m³**; equilibrio **2.500 m³** |
 | D — inspección $/unidad | 300 u/mes, 15 por día, fijos 3.000.000, variable 150.000/día, margen 10 % | costo 6.000.000; piso **20.000/u**; objetivo **22.222,22/u**; equilibrio **200 u** |
 | E — on-call $/día | 15 días/mes, fijos 30.000.000, variable 1.000.000/día, tarifa 4.000.000 | piso **3.000.000/día**; equilibrio **10 días** (igual que siempre) |
+
+### 12.2 Unidad de cobro sin tipo de servicio (UXR, 2026-10-25, opcional)
+
+Archivos: `js/domain/unit-catalog.js` (catálogo para elegir), `js/domain/billing-units.js` (`RESOURCE_VARIANTS`, `billedResourcesOf`), `js/engines/commercial-rules-engine.js` (`activationProfileOf`, `minimumPerActivation`, `billableUnits`), `js/engines/cost-engine.js` (`normalizeActivity`, `billedUnitsRate`), `js/engines/materials-engine.js`, `js/engines/external-engine.js`, `js/engines/price-composition-engine.js`, `js/engines/quote-engine.js`, `js/engines/completeness-engine.js`. Tests con cuentas a mano: `tests/engines/uxr-model.test.js`.
+
+El tipo de servicio no cambia ninguna fórmula (sólo nombra la activación). La unidad se elige de un catálogo (tiempo, por persona o equipo, transporte, cantidad, trabajo y propias) y se guarda con los campos de siempre (`unit`, `unitName`) más los opcionales de abajo. **Sin esos campos, todo calcula igual.**
+
+1. **Personas o equipos facturados en paralelo** (`activity.billedResourceKind` + `billedResources = n`): hora-hombre, jornal, hora-equipo, día-equipo, persona-mes, equipo-mes.
+   ```
+   hora:  unidades facturables = días × horas por día × n      (4 personas × 10 h × 22 días = 880 horas-hombre)
+   día:   unidades facturables = días × n                      (con mínimo por llamado, por persona)
+   mes:   unidades facturables = abonos × n
+   ```
+   Los días físicos (los que mueven sueldos, equipos, combustible y los tramos de descuento) no cambian.
+2. **Llamados de distinta duración** (`activity.activationProfile = [{ count, units }]`): el mínimo por llamado se aplica a **cada** llamado, no al promedio.
+   ```
+   facturable por llamado = Σ (count × max(units, mínimo)) ÷ Σ count
+   ```
+   Ejemplo: 8 llamados de 2, 2, 3, 3, 5, 5, 8 y 8 h con mínimo 4 h → 42 h (al promedio, 4,5 h, daban 36 h). Sólo rige si el promedio del perfil coincide con lo trabajado por llamado (`días por llamado × horas por día` con $/hora); si no coincide (otra versión cambió las horas), se ignora y rige el promedio. El mínimo del proveedor externo, cuando la línea hereda las horas de la actividad, también va por llamado. Con perfil, el aviso V-6 ("el mínimo se aplica al promedio") no corresponde.
+3. **Precio total del trabajo** (`unit = 'job'` + `quote.billingHorizon = 'job'`): un solo trabajo aunque dure varios meses.
+   ```
+   cantidad facturable = 1 trabajo (o sus hitos); D = días de trabajo de todo el trabajo (activity.daysPerActivation)
+   meses del trabajo   = max(1, D ÷ días disponibles por mes)
+   ```
+   Los costos fijos del mes (sueldos, estructura) se cuentan "meses del trabajo" veces; un precio global de proveedor se reparte en esos meses; el total del contrato es el del trabajo (no × `contractMonths`); no hay pendiente «Trabajo de más de un mes» (las horas del personal se cubren × meses) y el equilibrio no aplica ("se vende un solo trabajo: el mínimo para no perder es la tarifa piso"). Ejemplo (test): costo 78.000.000 y precio 86.666.666,67 con 3 o 12 meses de contrato.
+4. **Materiales por unidad facturada** (`materials[].basis = 'per_billed_unit'`): se consumen por cada unidad de la tarifa, no por día ni por salida.
+   ```
+   costo del mes = costo por unidad × unidades por día de trabajo × D      (con abono: × abonos, fijo)
+   unidades por día: cantidad → rendimiento (o Q ÷ D); hora → horas por día × n; día → n; evento → unidades por llamado ÷ días por llamado
+   ```
+   Ejemplos (tests): 60 válvulas a 6 por día con 2 juntas de $ 5.000 por válvula → $ 600.000 por mes (por salida cada 2 días daba $ 50.000); 880 horas-hombre × $ 100 → $ 88.000; "por trabajo" con precio total → una sola vez.
+5. **Combustible duplicado en transporte** (completitud, "Costos posiblemente duplicados"): con $/viaje, $/km o $/ton-km, un equipo con consumo trabajando (L/h) que además "se traslada por sus propios medios" con consumo en ruta (L/100 km) se avisa (no cambia el cálculo).
+
+Compatibilidad: ver [DATA_MODEL.md §5](DATA_MODEL.md#5-versionado-de-esquema-y-migraciones) (sin migración; qué hace una versión anterior con estos campos).
 
 ## 13. Tarifa piso, precio objetivo y precio comercial
 

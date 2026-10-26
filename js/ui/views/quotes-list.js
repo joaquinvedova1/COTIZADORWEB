@@ -16,7 +16,8 @@ import { h, s, mount, debounce, uniqueId } from '../dom.js';
 import { badge, banner, button, card, confirmDialog, disclosure, emptyState, icon, linkButton, openDialog, pageIntro, progressBar, table } from '../components.js';
 import { formatDateTime, formatDays, formatMoney, formatPercent, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { PRICING_MODES, QUOTE_STATUSES, labelOf } from '../../domain/catalogs.js';
+import { chargeSummary } from '../../domain/unit-catalog.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { quantityCeilText } from '../unit-text.js';
@@ -25,7 +26,7 @@ import { completenessTone } from '../../engines/completeness-engine.js';
 import { impliesSending, isUnreliableSummary, riskSummary, sendCheck, summaryCriticalCount } from '../../domain/quote-risk.js';
 import { guardSending, sendBlockedNote } from '../send-guard.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
-import { templateContents } from './services.js';
+import { templateContents, templateCharge } from './services.js';
 
 export { completenessTone };
 
@@ -102,8 +103,9 @@ export function unreliableTag(summary) {
   return h('span', { class: 'tag-unreliable', title: unreliableTitle(summary) }, 'No confiable');
 }
 
-/** Nombre del paso "Cómo se cobra" (única fuente: QUOTE_STEPS). */
-const PRICING_STEP_LABEL = labelOf(QUOTE_STEPS, 'modality');
+
+// La tarifa propia o calculada se elige en "Qué cotizás" (UXR): el rótulo dice qué es, no en qué paso está.
+const PRICING_STEP_LABEL = 'Tarifa propia o calculada';
 
 /** Marca ILUSTRATIVO de una cotización (nunca lanza, aun con datos raros). */
 export function quoteIllustrative(quote) {
@@ -198,7 +200,7 @@ function serviceCell({ quote, summary }, href) {
     'div',
     { class: 'cell-main' },
     h('a', { href, class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
-    h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
+    h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${chargeSummary(quote)}`),
     summaryFailed(summary) ? failedBadge(quote) : null,
     unreliableTag(summary),
     illustrativeQuoteTag(quote),
@@ -246,7 +248,7 @@ export function quoteColumns({ statusCell = null } = {}) {
           'div',
           { class: 'cell-main' },
           h('a', { href: quoteHref(quote), class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
-          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
+          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${chargeSummary(quote)}`),
           h('span', { class: 'cell-sub' }, `${PRICING_STEP_LABEL}: ${labelOf(PRICING_MODES, quote.pricingMode)}`),
           failed ? failedBadge(quote) : null,
           unreliableTag(summary),
@@ -259,7 +261,12 @@ export function quoteColumns({ statusCell = null } = {}) {
       key: 'totalCost',
       label: 'Costo del mes',
       align: 'right',
-      render: ({ summary }) => (summaryFailed(summary) ? muted() : h('span', { class: 'nowrap' }, formatMoney(summary.totalCost))),
+      // Precio total del trabajo (UXR): el costo del mes es el del trabajo ÷ sus meses (como en Inicio).
+      render: ({ summary }) => (summaryFailed(summary)
+        ? muted()
+        : summary.jobMonths > 0
+          ? h('div', {}, h('div', { class: 'nowrap' }, formatMoney(summary.totalCost / summary.jobMonths)), h('div', { class: 'cell-sub nowrap' }, `Todo el trabajo: ${formatMoney(summary.totalCost)}`))
+          : h('span', { class: 'nowrap' }, formatMoney(summary.totalCost))),
     },
     { key: 'rate', label: 'Tarifa', align: 'right', render: ({ quote, summary }) => quoteRateNode(quote, summary) },
     {
@@ -284,6 +291,7 @@ function breakEvenNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
   const unit = billingUnitOf(quote || {});
   if (unit.kind === 'month') return h('span', { class: 'muted', title: 'Con abono mensual la facturación no depende de los días: no hay break-even en días.' }, 'No aplica');
+  if (summary.jobMonths > 0) return h('span', { class: 'muted', title: 'Precio total de un solo trabajo: no hay una cantidad por mes para no perder.' }, 'No aplica');
   // Equilibrio en 0 (PLAN-2026-012): "Desde el primer viaje", nunca "0 viajes".
   const zero = summary.breakEvenZeroReason
     ? breakEvenZeroText({ breakEven: { reachable: true, zeroReason: summary.breakEvenZeroReason }, unitInfo: unit }, { compact: true })
@@ -541,12 +549,12 @@ export async function render(root, app) {
       { class: 'stack quote-options' },
       kvList([
         ['Código', h('span', { class: 'mono' }, textOf(quote.code, EMPTY))],
-        ['Servicio', labelOf(SERVICE_TYPES, quote.serviceType)],
+        ['Cómo se cobra', chargeSummary(quote)],
         [PRICING_STEP_LABEL, labelOf(PRICING_MODES, quote.pricingMode)],
-        ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
+        summary.jobMonths > 0 ? ['Costo del trabajo', failed ? EMPTY : formatMoney(summary.totalCost)] : ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
         ['Tarifa', quoteRateNode(quote, summary)],
         ['Margen esperado', quoteMarginNode(summary)],
-        ['Para no perder (por mes)', breakEvenNode(quote, summary)],
+        [summary.jobMonths > 0 ? 'Para no perder' : 'Para no perder (por mes)', breakEvenNode(quote, summary)],
         ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct, summaryCriticalCount(summary))],
         ['Última modificación', formatDateTime(quote.updatedAt)],
       ]),
@@ -665,7 +673,7 @@ function choiceCard({ title, text = null, meta = null, metaStrong = false, tags 
   return btn;
 }
 
-/** true si la plantilla trae algo más que tipo de servicio y actividad (recursos, costos o condiciones). */
+/** true si la plantilla trae algo más que cómo se cobra y la actividad (recursos, costos o condiciones). */
 function templateHasContent(service) {
   return templateContents(service).hasContent;
 }
@@ -729,7 +737,7 @@ export async function renderNewQuote(root, app) {
       meta: [contents.resources, contents.conditions].filter(Boolean),
       metaStrong: contents.hasContent,
       tags: [
-        badge(labelOf(SERVICE_TYPES, service.serviceType, 'Servicio configurable'), 'navy'),
+        badge(templateCharge(service), 'navy'),
         service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null,
       ].filter(Boolean),
       onChoose: () => create(service.id),
@@ -747,12 +755,15 @@ export async function renderNewQuote(root, app) {
       { class: 'view-narrow stack-lg' },
       pageIntro({
         title: '¿Qué servicio vas a cotizar?',
-        text: 'Elegí un servicio parecido al tuyo: arrancás con su tipo de servicio y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.',
+        // SIM A2: sin plantillas no hay "servicio parecido" para elegir.
+        text: services.length
+          ? 'Empezá en blanco o desde un servicio parecido al tuyo: la plantilla trae cómo se cobra y su actividad típica (y sus recursos, si los tiene). Después podés cambiar todo.'
+          : 'Empezá en blanco: primero elegís cómo le cobrás al cliente y después cargás la actividad y los recursos. Las cotizaciones que guardes como plantilla aparecen acá para la próxima.',
       }),
       h('div', { class: 'quote-choice-grid' }, blank, ...first),
       rest.length
         ? disclosure(
-            { summary: `Ver todas las plantillas (${services.length})`, hint: `${rest.length === 1 ? 'Una plantilla más' : `${rest.length} plantillas más`}, con su tipo de servicio y actividad.`, className: 'disclosure-plain quote-choice-more' },
+            { summary: `Ver todas las plantillas (${services.length})`, hint: `${rest.length === 1 ? 'Una plantilla más' : `${rest.length} plantillas más`}, con cómo se cobra y su actividad.`, className: 'disclosure-plain quote-choice-more' },
             h('div', { class: 'quote-choice-grid' }, ...rest),
           )
         : null,
