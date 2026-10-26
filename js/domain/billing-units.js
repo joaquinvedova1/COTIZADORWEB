@@ -70,15 +70,34 @@ export const SERVICE_TYPE_UNITS = deepFreeze({
   configurable: BILLING_UNIT_IDS.filter((id) => id !== 'custom'),
 });
 
-/** Plural simple de una unidad escrita por la persona ("pozo" → "pozos"). */
-export function pluralizeUnit(word) {
-  const w = typeof word === 'string' ? word.trim() : '';
-  if (!w) return 'unidades';
-  if (/[²³]|^[a-z]{1,2}$/i.test(w) || /-/.test(w)) return w;
+function pluralizeWord(w) {
+  if (/[²³\d]|^[a-z]{1,2}$/i.test(w) || /-/.test(w)) return w;
   if (/ón$/i.test(w)) return `${w.slice(0, -2)}ones`;
   if (/[aeiouáéíóú]$/i.test(w)) return `${w}s`;
   if (/s$/i.test(w)) return w;
   return `${w}es`;
+}
+
+/** Palabras que cortan el plural: "litro de gasoil" → "litros de gasoil". */
+const PLURAL_STOP = new Set(['de', 'del', 'por', 'con', 'a', 'al', 'en', 'para', 'sin', 'y']);
+
+/**
+ * Plural simple de una unidad escrita por la persona ("pozo" → "pozos"). Con varias palabras se pluralizan
+ * todas hasta la primera preposición (SIM-02: "camión reparado" → "camiones reparados", no "camión reparados").
+ */
+export function pluralizeUnit(word) {
+  const w = typeof word === 'string' ? word.trim() : '';
+  if (!w) return 'unidades';
+  const parts = w.split(/\s+/);
+  if (parts.length === 1) return pluralizeWord(w);
+  let stopped = false;
+  return parts.map((p) => {
+    if (stopped || PLURAL_STOP.has(p.toLowerCase())) {
+      stopped = true;
+      return p;
+    }
+    return pluralizeWord(p);
+  }).join(' ');
 }
 
 /** Nombre de unidad propia saneado (sin caracteres de control, máx. 30). */

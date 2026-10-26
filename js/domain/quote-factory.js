@@ -571,11 +571,27 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
  * biblioteca de demostración). Se usa para badges y avisos en la interfaz.
  * @returns {{ any: boolean, quote: boolean, lines: number, fuel: boolean, finance: boolean }}
  */
+/**
+ * ¿Alguien consume combustible a cargo del prestador? Un equipo propio que no está marcado "No usa
+ * combustible" (aunque falte su consumo), un externo con el combustible aparte o un vehículo con traslados.
+ * Sin ninguno, el precio del combustible no se usa (SIM-02: no se marca ILUSTRATIVO lo que no cuenta).
+ */
+export function fuelInUse(quote = {}) {
+  const equipment = (Array.isArray(quote.equipment) ? quote.equipment : []).filter(isPlainObject);
+  const external = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
+  const byEquipment = equipment.some((e) => (external(e)
+    ? isPlainObject(e.external) && e.external.fuelIncluded === false
+    : e.fuelNotApplicable !== true));
+  const logistics = isPlainObject(quote.logistics) ? quote.logistics : {};
+  const vehicles = logistics.notApplicable !== true && Array.isArray(logistics.vehicles) && logistics.vehicles.some(isPlainObject);
+  return byEquipment || vehicles;
+}
+
 export function illustrativeInfo(quote = {}) {
   const lists = ['labor', 'equipment', 'materials', 'otherCosts'].map((k) => (Array.isArray(quote[k]) ? quote[k] : []));
   const vehicles = quote.logistics && Array.isArray(quote.logistics.vehicles) ? quote.logistics.vehicles : [];
   const lines = [...lists.flat(), ...vehicles].filter((l) => isPlainObject(l) && l.illustrative === true).length;
-  const fuel = Boolean(quote.fuel && quote.fuel.illustrative === true);
+  const fuel = Boolean(quote.fuel && quote.fuel.illustrative === true) && fuelInUse(quote);
   const finance = Boolean(quote.finance && quote.finance.illustrative === true);
   const whole = quote.illustrative === true;
   return { any: whole || lines > 0 || fuel || finance, quote: whole, lines, fuel, finance };

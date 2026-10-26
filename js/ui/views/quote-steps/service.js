@@ -7,7 +7,7 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, dateField, formGrid, confirmDialog, addInfoTip } from '../../components.js';
+import { card, dateField, formGrid, confirmDialog, addInfoTip, textField } from '../../components.js';
 import { QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf, cleanUnitName } from '../../../domain/billing-units.js';
 import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
@@ -101,19 +101,27 @@ export function render(container, ctx) {
   // Nombre de la unidad propia ("válvula", "camión reparado"): al salir del campo se redibujan los rótulos.
   let unitNameField = null;
   if (info.custom) {
-    unitNameField = kit.text('unitName', {
+    // Renombrar la unidad propia es cambiar de unidad: con datos cargados pregunta como el buscador (SIM-02:
+    // 60 válvulas no pasan a ser 60 juntas sin avisar). Se guarda al salir del campo, no con cada letra.
+    unitNameField = textField({
       label: '¿Cómo se llama tu unidad?',
+      name: 'unitName',
+      value: quote.unitName || '',
       maxLength: 30,
       placeholder: 'Ej.: válvula, camión reparado, tráiler',
       hint: `En singular: vas a cobrar "${currency} por ${info.singular || 'válvula'}".`,
+      disabled: ctx.readOnly,
     });
     const input = unitNameField.querySelector('input');
     if (input) {
-      input.addEventListener('change', () => {
+      input.addEventListener('change', async () => {
         const clean = cleanUnitName(input.value);
-        ctx.mutate((q) => {
-          q.unitName = clean;
-        });
+        if (!clean) {
+          input.value = quote.unitName || '';
+          return;
+        }
+        const changed = await changeUnitTo(ctx, { unit: 'custom', unitName: clean });
+        if (!changed) input.value = quote.unitName || '';
       });
     }
   }

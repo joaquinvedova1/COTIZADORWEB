@@ -30,6 +30,8 @@ describe('Catálogo de unidades', () => {
     assert.equal(keys('tonelada')[0], 'ton');
     assert.equal(keys('m3')[0], 'm3');
     assert.equal(keys('jornal')[0], 'person_day');
+    // SIM-02: "hora técnica" es la hora de cada técnico (hora-hombre), no la de toda la cuadrilla.
+    assert.equal(keys('hora técnica')[0], 'person_hour');
     assert.equal(keys('zzz').length, 0);
     assert.equal(exactUnitMatch('Hora hombre').key, 'person_hour');
     assert.equal(exactUnitMatch('pieza rara'), null);
@@ -85,7 +87,22 @@ describe('Catálogo de unidades', () => {
     assert.equal(chargeSummary({ unit: 'job' }), 'Por trabajo (trabajos por mes)');
     assert.equal(chargeSummary({ unit: 'month', serviceType: 'on_call' }), 'Abono mensual · a demanda');
     assert.equal(chargeSummary({ unit: 'custom', unitName: 'junta' }), 'Por junta');
+    assert.equal(billingUnitOf({ unit: 'custom', unitName: 'camión reparado' }).plural, 'camiones reparados');
     assert.equal(chargeSummary({ serviceType: 'equipment_with_operator' }), 'Por día');
     assert.ok(searchUnits('maniobra').flatMap((g) => g.items.map((e) => e.key)).includes('own:operación'));
+  });
+});
+
+describe('Combustible en uso (marca ILUSTRATIVO)', async () => {
+  const { fuelInUse, illustrativeInfo } = await import('../../js/domain/quote-factory.js');
+  test('sin equipos que consuman ni traslados, el precio de ejemplo del combustible no se marca', () => {
+    const base = { fuel: { illustrative: true }, logistics: { notApplicable: true, vehicles: [{ id: 'v' }] } };
+    assert.equal(fuelInUse({ ...base, equipment: [{ acquisition: 'owned', fuelNotApplicable: true }] }), false);
+    assert.equal(illustrativeInfo({ ...base, equipment: [{ acquisition: 'owned', fuelNotApplicable: true }] }).fuel, false);
+    assert.equal(fuelInUse({ ...base, equipment: [{ acquisition: 'rented', external: { fuelIncluded: true } }] }), false);
+    // Un equipo propio sin la marca (aunque falte su consumo) sí lo usa; un externo con el combustible aparte, también.
+    assert.equal(illustrativeInfo({ ...base, equipment: [{ acquisition: 'owned' }] }).fuel, true);
+    assert.equal(fuelInUse({ ...base, equipment: [{ acquisition: 'outsourced', external: { fuelIncluded: false } }] }), true);
+    assert.equal(fuelInUse({ ...base, logistics: { notApplicable: false, vehicles: [{ id: 'v' }] } }), true);
   });
 });

@@ -10,13 +10,14 @@
 
 import { h } from '../../dom.js';
 import { openDialog, button } from '../../components.js';
-import { billingUnitOf } from '../../../domain/billing-units.js';
+import { billingUnitOf, pluralizeUnit } from '../../../domain/billing-units.js';
 import { applyUnit, currentApply, sameApply } from '../../../domain/unit-catalog.js';
 import {
   rateNumeratorsFor, rateInputOf, isNativeRate, quantityFactorBetween, convertExact,
 } from '../../../domain/unit-pairs.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
 import { convertMinimumCallUnits } from '../../../engines/commercial-rules-engine.js';
+import { normalizeActivity, billedUnitsRate } from '../../../engines/cost-engine.js';
 import { formatMoney, formatNumber, formatDays } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { quantityText } from '../../unit-text.js';
@@ -46,10 +47,11 @@ function rateFormText(plural, denominator) {
  * Diálogo: cada renglón dice cómo queda (se convierte con un factor conocido o se borra para cargarlo de
  * nuevo). → 'convert' | 'clear' | null.
  */
-function askUnitChange({ from, to, items, convertible, explanation }) {
+function askUnitChange({ from, to, items, convertible, explanation, materialsOnly = false }) {
   return new Promise((resolve) => {
     let choice = null;
-    const list = h('ul', {}, ...items.map((it) => h('li', {}, `${it.label}: ${it.before}${convertible && it.after ? ` → ${it.after}` : ''}`)));
+    // Los materiales "por unidad facturada" siempre dicen cómo quedan (pasan a otra base, no se borran).
+    const list = h('ul', {}, ...items.map((it) => h('li', {}, `${it.label}: ${it.before}${(convertible || it.material) && it.after ? ` → ${it.after}` : ''}`)));
     const { close } = openDialog({
       title: `Cambiar la unidad a ${to.label}`,
       content: h(
@@ -59,11 +61,16 @@ function askUnitChange({ from, to, items, convertible, explanation }) {
         list,
         h('p', {}, explanation),
       ),
-      actions: [
-        button('Cancelar', { variant: 'secondary', onClick: () => close() }),
-        button(convertible ? 'Borrar y cambiar' : 'Borrar y cargar de nuevo', { variant: convertible ? 'secondary' : 'primary', onClick: () => { choice = 'clear'; close(); } }),
-        convertible ? button(`Convertir a ${to.label}`, { variant: 'primary', onClick: () => { choice = 'convert'; close(); } }) : null,
-      ].filter(Boolean),
+      actions: materialsOnly
+        ? [
+          button('Cancelar', { variant: 'secondary', onClick: () => close() }),
+          button(`Cambiar a ${to.label}`, { variant: 'primary', onClick: () => { choice = 'convert'; close(); } }),
+        ]
+        : [
+          button('Cancelar', { variant: 'secondary', onClick: () => close() }),
+          button(convertible ? 'Borrar y cambiar' : 'Borrar y cargar de nuevo', { variant: convertible ? 'secondary' : 'primary', onClick: () => { choice = 'clear'; close(); } }),
+          convertible ? button(`Convertir a ${to.label}`, { variant: 'primary', onClick: () => { choice = 'convert'; close(); } }) : null,
+        ].filter(Boolean),
       onClose: () => resolve(choice),
     });
   });
@@ -163,8 +170,46 @@ export async function changeUnitTo(ctx, apply) {
       after: converted !== null ? `${formatNumber(converted, { decimals: 2 })} ${rateFormText(to.plural, 'day')}` : null,
     });
   }
+  // UXR (SIM-02, P0): los materiales "por unidad facturada" (por camión reparado, por hora-hombre) están en la
+  // unidad de cobro: con otra unidad se leerían por la nueva ($ 60.000 por camión → $ 60.000 por hora). Pasan a
+  // "por día de trabajo" (o "por mes", con abono) con el mismo costo de hoy, y el diálogo lo dice.
+  const rateNow = horizonOnly ? null : billedUnitsRate(normalizeActivity(quote));
+  const materialItems = horizonOnly ? [] : (Array.isArray(quote.materials) ? quote.materials : [])
+    .map((m, index) => ({ m, index }))
+    .filter(({ m }) => m && m.basis === 'per_billed_unit')
+    .map(({ m, index }) => {
+      const qty = Number(m.quantity) > 0 ? Number(m.quantity) : 0;
+      const monthly = rateNow.perMonth > 0;
+      const factor = monthly ? rateNow.perMonth : rateNow.perActiveDay;
+      const known = factor > 0;
+      const newQty = known ? Number((qty * factor).toPrecision(12)) : null;
+      const unitWord = String(m.unit || '').trim() || 'u.';
+      const unitTxt = (n) => (Math.abs(n - 1) < 1e-9 || unitWord === 'u.' ? unitWord : pluralizeUnit(unitWord));
+      return {
+        material: true,
+        index,
+        basis: monthly ? 'per_month' : 'per_active_day',
+        quantity: newQty,
+        label: `Material "${m.description || 'sin descripción'}"`,
+        before: `${formatNumber(qty, { decimals: 2 })} ${unitTxt(qty)} ${perText(from)}`,
+        after: known
+          ? `${formatNumber(newQty, { decimals: 2 })} ${unitTxt(newQty)} ${monthly ? 'por mes' : 'por día de trabajo'} (el mismo costo de hoy)`
+          : 'por día de trabajo: cargá la cantidad de nuevo',
+      };
+    });
+  const applyMaterials = (q) => {
+    materialItems.forEach((it) => {
+      const line = Array.isArray(q.materials) ? q.materials[it.index] : null;
+      if (!line) return;
+      line.basis = it.basis;
+      line.quantity = it.quantity;
+    });
+  };
+  const materialsNote = materialItems.length
+    ? ` ${materialItems.length === 1 ? 'El material cargado' : 'Los materiales cargados'} ${perText(from)} ${materialItems.length === 1 ? 'pasa' : 'pasan'} a "por día de trabajo" con el mismo costo de hoy: revisalo en "${stepName('materials')}".`
+    : '';
   const tone = minCallLost ? 'warning' : 'success';
-  const items = [...rates, ...quantities];
+  const items = [...rates, ...quantities, ...materialItems];
   // Lo que queda de la forma de carga (UX-UNITS): se quita si los datos cambian de unidad o se borran.
   const resetInputs = (q, { keepWorkdays }) => {
     if (!q.activity) return;
@@ -198,9 +243,13 @@ export async function changeUnitTo(ctx, apply) {
     if (minCallNote) ctx.toast(`Unidad cambiada a ${to.label}.${minCallNote}`, tone);
     return true;
   }
-  const convertible = items.every((it) => isFiniteNumber(it.converted));
+  const otherItems = items.filter((it) => !it.material);
+  const materialsOnly = otherItems.length === 0;
+  const convertible = !materialsOnly && otherItems.every((it) => isFiniteNumber(it.converted));
   let explanation;
-  if (convertible && timeToTime) {
+  if (materialsOnly) {
+    explanation = materialsNote.trim();
+  } else if (convertible && timeToTime) {
     explanation = `Podés convertirla con las ${formatNumber(Number(hours), { decimals: 2 })} horas trabajadas por día (${quote.unit === 'day' ? '÷' : '×'} ${formatNumber(Number(hours), { decimals: 2 })}, redondeado hacia arriba) o borrarla y cargarla de nuevo.`;
   } else if (convertible) {
     explanation = `Podés convertirlos con el factor exacto (${factorNote}) o borrarlos y cargarlos de nuevo.`;
@@ -209,12 +258,24 @@ export async function changeUnitTo(ctx, apply) {
   } else {
     explanation = `Entre estas unidades no hay una conversión segura: se borran y los cargás de nuevo en ${to.plural || 'la unidad nueva'}.`;
   }
-  const choice = await askUnitChange({ from, to, items, convertible, explanation });
+  if (!materialsOnly && materialsNote) explanation = `${explanation}${materialsNote}`;
+  const choice = await askUnitChange({ from, to, items, convertible, explanation, materialsOnly });
+  if (choice === 'convert' && materialsOnly) {
+    ctx.mutate((q) => {
+      applyUnit(q, apply);
+      applyMinCall(q);
+      applyHorizon(q);
+      applyMaterials(q);
+    });
+    ctx.toast(`Unidad cambiada a ${to.label}.${materialsNote}${minCallNote}`, 'warning');
+    return true;
+  }
   if (choice === 'convert' && convertible) {
     ctx.mutate((q) => {
       applyUnit(q, apply);
       applyMinCall(q);
       applyHorizon(q);
+      applyMaterials(q);
       rates.forEach((r) => {
         q.pricing[r.path] = r.converted;
       });
@@ -224,7 +285,7 @@ export async function changeUnitTo(ctx, apply) {
       // Con un factor exacto los días de trabajo no cambian.
       if (quantities.length) resetInputs(q, { keepWorkdays: true });
     });
-    ctx.toast(`Unidad cambiada a ${to.label}. ${items.map((it) => `${it.label}: ${it.after}`).join(' · ')}.${minCallNote}`, tone);
+    ctx.toast(`Unidad cambiada a ${to.label}. ${otherItems.map((it) => `${it.label}: ${it.after}`).join(' · ')}.${materialsNote}${minCallNote}`, materialItems.length ? 'warning' : tone);
     return true;
   }
   if (choice === 'clear') {
@@ -232,6 +293,7 @@ export async function changeUnitTo(ctx, apply) {
       applyUnit(q, apply);
       applyMinCall(q);
       applyHorizon(q);
+      applyMaterials(q);
       rates.forEach((r) => {
         q.pricing[r.path] = r.path === 'knownRate' ? 0 : null;
       });
@@ -242,7 +304,7 @@ export async function changeUnitTo(ctx, apply) {
     });
     const cleared = [rates.length ? 'la tarifa' : null, ...quantities.map((it) => (it.path === 'unitsPerActiveDay' ? 'el rendimiento' : 'la cantidad del mes'))].filter(Boolean);
     const what = cleared.length > 1 ? `Se borraron ${cleared.slice(0, -1).join(', ')} y ${cleared[cleared.length - 1]}` : `Se borró ${cleared[0]}`;
-    ctx.toast(`Unidad cambiada a ${to.label}. ${what}: cargá los datos de nuevo en ${to.label}.${minCallNote}`, 'warning');
+    ctx.toast(`Unidad cambiada a ${to.label}. ${what}: cargá los datos de nuevo en ${to.label}.${materialsNote}${minCallNote}`, 'warning');
     return true;
   }
   // Cancelado: vuelve a mostrar la unidad anterior.

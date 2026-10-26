@@ -209,7 +209,7 @@ export function render(container, ctx) {
           kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: [
             ...withActivationOptions(MATERIAL_BASES, T),
             // UXR: por unidad de la tarifa (camión reparado, válvula, hora-hombre): no por salida ni por día.
-            ...(billedUnitBasisApplies(billingUnit) || line.basis === 'per_billed_unit' ? [{ id: 'per_billed_unit', label: `Por ${unitSingular(billingUnit)} (cada unidad que facturás)` }] : []),
+            ...(billedUnitBasisApplies(billingUnit) || line.basis === 'per_billed_unit' ? [{ id: 'per_billed_unit', label: `Por ${unitSingular(billingUnit)}` }] : []),
           ].map((b) => ({ value: b.id, label: b.label })), structural: true }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
