@@ -124,6 +124,16 @@ export function render(container, ctx) {
     kit.check('logistics.notApplicable', { label: 'Sin traslados', structural: true, hint: 'Marcalo si el servicio se presta en tu base o el cliente traslada todo.' }),
   );
 
+  // Km facturados por mes contra los que recorre la ruta (mismo criterio que el aviso route_consistency).
+  const kmRouteGap = (r) => {
+    const billed = nonNegative(quote.activity && quote.activity.billableQuantityPerMonth);
+    const kmPerTrip = nonNegative(lg.distanceKm) * (lg.roundTrip === false ? 1 : 2);
+    const activations = r && r.activity ? nonNegative(r.activity.activationsPerMonth) : 0;
+    const trips = nonNegative(lg.tripsPerActivation) || 1;
+    const routeKm = activations * trips * kmPerTrip;
+    if (!(billed > 0 && kmPerTrip > 0 && activations > 0) || !(billed - routeKm > Math.max(1, billed * 0.01))) return null;
+    return { billed, kmPerTrip, activations, trips, routeKm, needed: Math.round((billed / (activations * kmPerTrip)) * 100) / 100 };
+  };
   const routeCard = notApplicable
     ? null
     : card(
@@ -153,6 +163,19 @@ export function render(container, ctx) {
         kit.num('logistics.distanceKm', { label: 'Distancia (una vía)', rule: 'distance', unit: 'km' }),
       ),
       kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
+      // SIM-02 (S3): por km, la ruta del mes puede quedar corta frente a los km que se facturan; se ofrece el
+      // ajuste explícito de los viajes por salida (no se deriva solo: PLAN-2026-013).
+      unitInfo.id === 'km'
+        ? kit.toggle(h('div', { class: 'qe-note is-warning' },
+          kit.out((r) => {
+            const g = kmRouteGap(r);
+            return g ? `Facturás ${formatNumber(g.billed, { decimals: 0 })} km por mes y la ruta recorre ${formatNumber(g.routeKm, { decimals: 0 })} km (${formatNumber(g.activations, { decimals: 2 })} ${T.word(g.activations)} × ${tripsText(g.trips)} × ${formatNumber(g.kmPerTrip, { decimals: 0 })} km). Los costos por km se calculan con la ruta.` : '';
+          }, { tag: 'p', allowEmpty: true }),
+          kit.out((r) => {
+            const g = kmRouteGap(r);
+            return g ? kit.action(`Usar ${tripsText(g.needed)} ${T.per}`, () => ctx.mutate((q) => { q.logistics.tripsPerActivation = g.needed; }), { icon: 'check' }) : '';
+          }, { allowEmpty: true })), (r) => Boolean(kmRouteGap(r)))
+        : null,
       // Viajes facturables, físicos, días y km (PLAN-2026-012).
       kit.toggle(kit.group('Viajes y km del mes', transportStats(kit, { billable: tripUnit, km: unitInfo.id === 'km' })), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
     );
