@@ -200,7 +200,10 @@ export function render(container, ctx) {
         { class: 'stack' },
         formGrid(
           3,
-          kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'En ruta, no el consumo trabajando (L/h).' }),
+          // SIM-02 (S3): "No usa combustible" en Equipos también anula el consumo en ruta; que no parezca que cuenta.
+          !external && line.fuelNotApplicable === true
+            ? kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', disabled: true, hint: `No se usa: en "${stepName('equipment')}" marcaste "No usa combustible" (tampoco al trasladarse).` })
+            : kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'En ruta, no el consumo trabajando (L/h).' }),
           kit.num(`${p}.travelCostPerKm`, {
             label: 'Desgaste por km',
             rule: 'money',

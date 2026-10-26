@@ -602,7 +602,8 @@ export function render(container, ctx) {
       key: 'margin-tiers',
       title: 'Descuentos por cantidad de días',
       boxed: true,
-      summary: tiersSummary,
+      // SIM-02 (S3): con otra unidad no se aplican; el resumen lo dice en vez de contar tramos.
+      summary: dayTiers ? tiersSummary : () => `No se aplican: cobrás ${unit.label}.`,
       flag: (r) => {
         const f = tierFindings(r);
         if (f.red > 0) return { tone: 'red', text: f.red === 1 ? 'Un descuento pierde plata' : `${f.red} descuentos pierden plata` };
@@ -643,6 +644,6 @@ export function render(container, ctx) {
     h('div', { class: 'qe-toolbar' }, kit.action('Agregar tramo', addTier, { icon: 'plus' })),
   );
 
-  mount(container, marginCard, taxesCard, priceCard, educational, kit.question('¿Querés ajustar cómo se cobra?', 'Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian la tarifa sugerida.', { level: 3 }), pricingOptions, rulesCard, tiersCard);
+  mount(container, marginCard, taxesCard, priceCard, educational, kit.question('¿Querés ajustar cómo se cobra?', 'Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian la tarifa sugerida.', { level: 3 }), pricingOptions, rulesCard, dayTiers || tiers.some((t) => hasNumber(t.discountPct) && Number(t.discountPct) > 0) ? tiersCard : null);
   return { update() {} };
 }

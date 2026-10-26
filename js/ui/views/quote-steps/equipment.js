@@ -39,6 +39,7 @@ import { MOBILIZATION_MODES } from '../../../domain/catalogs.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock } from './assignment.js';
+import { billingUnitOf } from '../../../domain/billing-units.js';
 
 const isExternalLine = (line) => acquisitionOf(line) !== 'owned';
 
@@ -640,6 +641,8 @@ export function render(container, ctx) {
     ];
   };
 
+  const transportUnit = ['trip', 'km', 'tonkm'].includes(billingUnitOf(quote).id);
+  const fuelTwiceRisk = (line) => transportUnit && line.mobilization && line.mobilization.mode === 'self' && Number(line.mobilization.travelLitersPer100Km) > 0;
   const ownedCard = (line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
@@ -687,6 +690,13 @@ export function render(container, ctx) {
             ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
             : 'Eléctrico, manual o estacionario: marcalo en vez de dejar el consumo en 0.',
         }),
+        // SIM-02 (S3): cobra por viaje/km y se traslada con consumo en ruta → el L/h puede ser el de andar (dos veces).
+        line.fuelNotApplicable !== true && fuelTwiceRisk(line)
+          ? kit.check(`${p}.fuelWhileStopped`, {
+            label: 'El consumo por hora es detenido (bomba, hidrogrúa)',
+            hint: 'Se traslada por sus propios medios con consumo en ruta (L/100 km). Si el L/h es de andar, el combustible va dos veces: dejalo en 0. Marcalo sólo si consume trabajando detenido.',
+          })
+          : null,
       ),
       kit.region((r) => wearWarningsRegion(r, i)),
       // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
