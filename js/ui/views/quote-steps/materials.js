@@ -43,7 +43,8 @@ function unitSingular(unit) {
   return (unit && unit.singular) || 'unidad facturada';
 }
 /** Se puede consumir "por unidad de la tarifa" salvo con un abono mensual simple (sería lo mismo que "por mes"). */
-const billedUnitBasisApplies = (unit) => Boolean(unit) && (unit.kind !== 'month' || Boolean(unit.resource));
+// Llamado y trabajo facturan 1 unidad por salida: "Por llamado"/"Por trabajo" repetiría la opción por salida.
+const billedUnitBasisApplies = (unit) => Boolean(unit) && (unit.kind === 'event' ? unit.id === 'milestone' : unit.kind !== 'month' || Boolean(unit.resource));
 /** Valor del selector de unidad para "Otra / personalizada". */
 const CUSTOM_UNIT = '__custom';
 /** Líneas en las que la persona eligió "Otra…" y todavía no escribió la unidad (sólo en pantalla). */

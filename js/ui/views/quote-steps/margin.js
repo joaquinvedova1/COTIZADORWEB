@@ -263,7 +263,7 @@ export function render(container, ctx) {
       kit.stat('Tarifa sugerida', (r) => perUnitCeil(r.kpis.suggestedListRate, r), {
         hint: (r) => {
           const pair = marginPairText(r.kpis);
-          return `El precio anterior ${roundingText(r.kpis)} (nunca baja el margen).${pair ? ` ${pair}.` : ''}`;
+          return `La tarifa anterior, ${roundingText(r.kpis)} (nunca baja el margen).${pair ? ` ${pair}.` : ''}`;
         },
         tone: (r) => (r.kpis.roundingExceedsLimit ? 'orange' : null),
         emphasis: true,
@@ -430,7 +430,10 @@ export function render(container, ctx) {
     const active = RULE_NAMES.filter(([key]) => hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
     if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
     else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
-    else active.push('equipo en espera sin definir');
+    else if ((quote.serviceType === 'on_call' && Array.isArray(quote.equipment) && quote.equipment.length > 0) || Number(rules.standbyDaysPerMonth) > 0) {
+      // Sólo cuando la espera aplica (on-call con equipos o días de espera cargados), como en completitud.
+      active.push('equipo en espera sin definir');
+    }
     return `Abono, cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
   };
   const rulesCard = kit.advanced(
