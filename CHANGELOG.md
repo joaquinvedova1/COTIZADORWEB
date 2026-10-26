@@ -12,6 +12,29 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+### Cotizar sin «tipo de servicio» (UXR, PLAN-2026-032)
+
+Pedido del dueño (Issue #5 de RATEOS-AUDIT): las 11 categorías confundían, filtraban unidades y hacían preguntas de llamados que no aplicaban. **Ninguna fórmula existente cambia** (golden 39/39, Test Lab y el mismo caso da las mismas cifras en la versión anterior); se agregan modalidades opcionales (CALCULATION_RULES §12.2). **Esquema 10, sin migración**: los campos nuevos son opcionales y, sin ellos, todo calcula igual (DATA_MODEL §5).
+
+#### Cambiado
+- **Primer paso: «¿Cómo lo cobrás?» en lugar de «¿Qué tipo de servicio es?».** Buscador agrupado (Tiempo · Por persona o equipo · Transporte · Cantidad · Llamados y trabajos · Unidades propias), con sinónimos («hora técnica» → hora-hombre) y sin filtros por categoría; unidad propia con cualquier nombre y plural correcto («camiones reparados»). Las cotizaciones viejas conservan su tipo.
+- **«Cuánto vas a hacer»:** la actividad se carga en la unidad del servicio (válvulas, horas-hombre, viajes); el rendimiento por día de trabajo o por hora (con horas productivas); los días se calculan y se muestran.
+- **Llamados sólo a demanda:** «¿Trabajás a demanda?» abre llamados por mes, duración igual o distinta y mínimo por llamado. Al contestar «No», se borran el perfil, los llamados y el mínimo, con aviso.
+- **Cambiar la unidad** muestra cada valor antes y después (tarifa, cantidades, materiales con su monto, costos por salida) y sólo convierte con factor exacto.
+- **Listas, Inicio y plantillas** dicen cómo se cobra cada cotización («Por hora-hombre · a demanda», «Precio total del trabajo»).
+
+#### Agregado
+- **Personas o equipos facturados en paralelo** (hora-hombre, jornal, hora-equipo, equipo por mes): `activity.billedResourceKind` y `activity.billedResources`. Crítico si se facturan más personas o equipos que los cargados.
+- **Llamados de distinta duración** (`activity.activationProfile`): el mínimo se aplica a cada llamado (8 llamados de 2 a 8 h con mínimo 4 h: 42 h, no 36).
+- **Precio total del trabajo** (`quote.billingHorizon = 'job'`): días de todo el trabajo, fijos por los meses reales, textos «en todo el trabajo»; Inicio divide por los meses del trabajo. El descuento por continuidad usa la duración del trabajo.
+- **Materiales por unidad facturada** (`basis: 'per_billed_unit'`): 2 juntas por válvula, repuestos por camión.
+- **Combustible duplicado confirmable** («El consumo por hora es detenido», `equipment[].fuelWhileStopped`) y aviso en el paso del campo; por km, botón «Usar N viajes por salida» cuando la ruta recorre menos km que los facturados.
+
+#### Corregido (SIM-02 y revisión de código)
+- Materiales «por unidad facturada» y costos «por trabajo» ya no se reinterpretan al cambiar la unidad (P0).
+- Sin tipo de servicio, los controles de equipos, personal y relevos salen de la unidad (viaje, km, ton-km, hora-equipo) y de 24 h por día.
+- «No usa combustible» deshabilita el consumo en ruta; «equipo en espera sin definir» sólo si la espera aplica; sin «Por trabajo» duplicado en Materiales ni tramos por días con otra unidad; textos y plurales.
+
 ### Resultado y PDF (UXR)
 
 #### Cambiado

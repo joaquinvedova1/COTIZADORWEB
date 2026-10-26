@@ -1835,7 +1835,9 @@ async function runMode(mode) {
           { id: 'str-d02b-2', label: 'Alquiler de base', method: 'manual', pct: 0, amount: 850000 },
         ],
       },
-      rules: { ...structuredClone(q0.rules || {}), volumeTiers: defaultVolumeTiers() },
+      // UXR: con una unidad que no es día ni hora (q0 cobra por viaje), la tarjeta de tramos sólo se muestra si
+      // algún tramo tiene descuento (para ver que no se aplica): uno con 3 % mantiene la tabla en pantalla.
+      rules: { ...structuredClone(q0.rules || {}), volumeTiers: defaultVolumeTiers().map((t, i) => (i === 2 ? { ...t, discountPct: 3 } : t)) },
     };
     const liveWs = db.workspaces.get(orgId);
     liveWs.state.quotes = [...liveWs.state.quotes, stackQ];

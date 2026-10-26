@@ -2379,7 +2379,7 @@ Sin cambio de esquema (sigue en 10) ni migración, como ECO-01: campos opcionale
 - [x] 2. Motor y catálogo con tests de oráculo (`tests/engines/uxr-model.test.js`, `tests/domain/unit-catalog.test.js`).
 - [x] 3. Pasos "Qué cotizás" y "Cuánto vas a hacer"; listas, Inicio y plantillas dicen cómo se cobra.
 - [x] 4. Resultado y PDF (agente de implementación) integrados.
-- [ ] 5. SIM-02: agentes prestadores por rubro sobre la versión nueva; corrección de lo que encuentren.
+- [x] 5. SIM-02: agentes prestadores por rubro sobre la versión nueva; corrección de lo que encuentren (5 P0, 7 P1, P2/P3) y revisión de código (10 hallazgos corregidos).
 - [ ] 6. Regresión completa, PR borrador, evidencia en RATEOS-AUDIT y demo para el dueño.
 - [ ] 7. Merge y deploy únicos con autorización expresa.
 
@@ -2398,3 +2398,4 @@ Revert del PR (no hay migración). Las cotizaciones guardadas con campos nuevos 
 
 #### Bitácora
 - 2026-10-25: autorización del dueño para investigar, rediseñar e implementar en la rama de desarrollo (sin merge, deploy, Supabase ni DOVA). Investigación, motor, pasos 1 y 2, Resultado, documentación; SIM-02 en curso.
+- 2026-10-26: SIM-02 (3 agentes prestadores) y correcciones; revisión de código con la skill Code Review (continuidad en precio total, controles derivados de la unidad, combustible en externos, perfil de llamados); Resultado integrado; regresión y PR borrador.
