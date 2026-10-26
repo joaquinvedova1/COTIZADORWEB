@@ -22,6 +22,8 @@ function groupsAtEstimate(result) {
   // Salidas completas (PLAN-2026-011): la caja de las salidas de más, en su grupo.
   const r = result.activationRounding;
   const extra = (key) => (r && r.active ? r.cashByKey[key] || 0 : 0);
+  // Precio total del trabajo: el capital de trabajo es el de un mes (como en el motor).
+  const months = result.activity.jobHorizon && result.activity.jobMonths > 1 ? result.activity.jobMonths : 1;
   // Proveedores con plazo propio (PLAN-2026-011): una fila cada uno.
   return [...fin.groups, ...(fin.suppliers || [])].map((g) => ({
     id: g.id,
@@ -29,7 +31,7 @@ function groupsAtEstimate(result) {
     payDays: g.payDays,
     financingDays: g.financingDays,
     cash: g.cashFixedMonthly * factor + g.cashVariablePerActiveDay * D + extra(g.id),
-    workingCapital: g.workingCapitalFixed * factor + g.workingCapitalPerActiveDay * D + extra(g.id) * (g.financingDays / 30),
+    workingCapital: (g.workingCapitalFixed * factor + g.workingCapitalPerActiveDay * D + extra(g.id) * (g.financingDays / 30)) / months,
     financial: g.financialFixedMonthly * factor + g.financialPerActiveDay * D + extra(g.id) * rate * (g.financingDays / 30),
   }));
 }

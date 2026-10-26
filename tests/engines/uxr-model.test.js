@@ -332,3 +332,19 @@ describe('Precio total del trabajo: el descuento por continuidad usa la duració
     assert.equal(r.kpis.suggestedListRate, run(plain).kpis.suggestedListRate);
   });
 });
+
+describe('Precio total del trabajo: capital de trabajo de un mes (SIM-02 ronda 2)', () => {
+  test('una obra de 66 días adelanta lo mismo por vez que una de 22 días (no 3 veces más)', () => {
+    const job = (days) => {
+      resetIds();
+      const q = service({ serviceType: 'configurable', unit: 'job', activity: { daysPerActivation: days, availableDaysPerMonth: 22, hoursPerActiveDay: 9 }, labor: [person({ positions: 3 })] });
+      q.billingHorizon = 'job';
+      return run(q);
+    };
+    const one = job(22);
+    const three = job(66);
+    close(three.kpis.workingCapital, one.kpis.workingCapital);
+    // El costo financiero sí es el de los tres meses.
+    close(three.kpis.financialCost, 3 * one.kpis.financialCost);
+  });
+});

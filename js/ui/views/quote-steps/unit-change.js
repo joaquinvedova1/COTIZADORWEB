@@ -275,22 +275,31 @@ export async function changeUnitTo(ctx, apply) {
   // Entre "trabajo (por mes)" y precio total el dato significa lo mismo (días de cada trabajo) y se conserva.
   const wasJobTotal = quote.unit === 'job' && quote.billingHorizon === 'job';
   const toJobTotal = apply.unit === 'job' && apply.billingHorizon === 'job';
+  const dpaNow = Number(activity.daysPerActivation);
+  const jobMonthsNow = wasJobTotal ? normalizeActivity(quote).jobMonths : null;
+  const contractFromJob = wasJobTotal && Number.isFinite(jobMonthsNow) && jobMonthsNow > 0 && Math.abs(Number(quote.contractMonths) - jobMonthsNow) > 0.005
+    ? Math.round(jobMonthsNow * 100) / 100
+    : null;
   const applyHorizon = (q) => {
     q.activity = q.activity || {};
     if (toJobTotal) {
       q.activity.billableQuantityPerMonth = 1;
       if (fromUnit !== 'job') {
-        q.activity.daysPerActivation = null;
+        // Varios días por salida (por ejemplo, la obra que volvió de "día") pasan a ser los días del trabajo, con
+        // aviso; 1 día por salida no es una obra de 1 día: se borra y se pide (SIM-02 ronda 2).
+        if (!(dpaNow > 1)) q.activity.daysPerActivation = null;
         q.activity.activationProfile = null;
       }
     }
+    // Al salir del precio total, el contrato es lo que dura el trabajo (no los 12 meses ocultos por defecto,
+    // que encendían el descuento por continuidad y el "total del contrato"; SIM-02 ronda 2).
+    if (wasJobTotal && apply.unit !== 'job' && contractFromJob !== null) q.contractMonths = contractFromJob;
     // Al salir del precio total los días de la obra quedan como días de cada salida (los costos por salida siguen
     // contando una vez por obra); el diálogo lo dice para que se ajuste en "Cada cuánto salís de la base".
   };
   // SIM-02 S3: los costos por salida (flete, peajes, viajes de la ruta, externos por salida) cambian de
   // significado al entrar o salir del precio total: el diálogo lo dice (no se borran).
   const perActivation = perActivationCosts(quote, T);
-  const dpaNow = Number(activity.daysPerActivation);
   const horizonItems = [];
   if (toJobTotal && fromUnit !== 'job' && perActivation.length) {
     horizonItems.push({
@@ -298,6 +307,24 @@ export async function changeUnitTo(ctx, apply) {
       label: `Costos ${T.per}`,
       before: `${perActivation.slice(0, 3).join(', ')}${perActivation.length > 3 ? ' y más' : ''}`,
       after: 'con precio total cuentan una vez por todo el trabajo; si hay viajes todos los días, cargá los viajes del trabajo en Movilización y viajes',
+    });
+  }
+  if (toJobTotal && fromUnit !== 'job') {
+    horizonItems.push({
+      info: true,
+      label: 'Días de todo el trabajo',
+      before: dpaNow > 0 ? `${formatDays(dpaNow)} ${T.per}` : 'sin cargar',
+      after: dpaNow > 1
+        ? `${formatDays(dpaNow)} de todo el trabajo: revisalo en "${stepName('modality')}"`
+        : `se borran: cargá los días de todo el trabajo en "${stepName('modality')}"`,
+    });
+  }
+  if (contractFromJob !== null) {
+    horizonItems.push({
+      info: true,
+      label: 'Duración del contrato',
+      before: `${formatNumber(Number(quote.contractMonths) || 0, { decimals: 2 })} meses (no se usaba con precio total)`,
+      after: `${formatNumber(contractFromJob, { decimals: 2 })} meses, lo que dura el trabajo (cambialo si el contrato es más largo)`,
     });
   }
   if (wasJobTotal && apply.unit !== 'job' && dpaNow > 1) {
@@ -341,7 +368,7 @@ export async function changeUnitTo(ctx, apply) {
   const convertible = !materialsOnly && otherItems.every((it) => isFiniteNumber(it.converted));
   let explanation;
   if (materialsOnly) {
-    explanation = materialsNote.trim() || 'No se borra nada: revisá cómo quedan estos datos con la unidad nueva.';
+    explanation = materialsNote.trim() || 'Revisá cómo quedan estos datos con la unidad nueva.';
   } else if (convertible && timeToTime) {
     explanation = `Podés convertirla con las ${formatNumber(Number(hours), { decimals: 2 })} horas trabajadas por día (${quote.unit === 'day' ? '÷' : '×'} ${formatNumber(Number(hours), { decimals: 2 })}, redondeado hacia arriba) o borrarla y cargarla de nuevo.`;
   } else if (convertible) {

@@ -327,6 +327,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const num = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
   let workingCapital = model.finance.workingCapitalFixed * factor + model.finance.workingCapitalPerActiveDay * D;
   if (roundingOn) workingCapital += rounding.workingCapital;
+  // Precio total del trabajo (UXR, SIM-02 ronda 2): la caja del modelo es la de todo el trabajo; lo que se adelanta
+  // a la vez es la de un mes (el costo financiero, que suma todos los meses, no cambia).
+  if (model.activity && model.activity.jobHorizon && model.activity.jobMonths > 1) workingCapital /= model.activity.jobMonths;
   const financialCost = costAt.byCategory.financial;
   // Viajes = movilización de los equipos + logística auxiliar (vehículos, peajes, viáticos).
   let logisticsMonthly = (model.logistics.perActiveDay + model.mobilization.perActiveDay) * D;

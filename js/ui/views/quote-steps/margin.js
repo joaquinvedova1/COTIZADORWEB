@@ -425,9 +425,12 @@ export function render(container, ctx) {
   ];
   /** Pendiente crítico "Dos abonos por mes" (completitud, ECO-01), o null. */
   const feeOverlapOf = (r) => ((r && r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap') || null;
-  const rulesSummary = () => {
+  const rulesSummary = (r) => {
     const rules = quote.rules || {};
-    const active = RULE_NAMES.filter(([key]) => hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
+    // El descuento por continuidad cargado que no llega al mínimo de meses no se cuenta como aplicado (SIM-02 ronda 2).
+    const continuityOff = Boolean(r && r.continuity && !r.continuity.applies);
+    const active = RULE_NAMES.filter(([key]) => hasNumber(rules[key]) && Number(rules[key]) > 0)
+      .map(([key, label]) => (key === 'continuityDiscountPct' && continuityOff ? `${label} (no aplica: ${formatNumber(r.continuity.contractMonths, { decimals: 2 })} meses)` : label));
     if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
     else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
     else if ((quote.serviceType === 'on_call' && Array.isArray(quote.equipment) && quote.equipment.length > 0) || Number(rules.standbyDaysPerMonth) > 0) {
