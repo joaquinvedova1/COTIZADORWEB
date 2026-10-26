@@ -9,7 +9,7 @@
  */
 
 import { h } from '../../dom.js';
-import { openDialog, button } from '../../components.js';
+import { openDialog, button, confirmDialog } from '../../components.js';
 import { billingUnitOf, pluralizeUnit } from '../../../domain/billing-units.js';
 import { applyUnit, currentApply, sameApply } from '../../../domain/unit-catalog.js';
 import {
@@ -23,6 +23,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { quantityText } from '../../unit-text.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
 import { stepName } from './shared.js';
+import { billedCountOf } from '../../../domain/activity-forms.js';
 
 /** "por llamado", "por m³"… */
 function perText(info) {
@@ -109,6 +110,20 @@ export async function changeUnitTo(ctx, apply) {
   const quote = ctx.quote;
   const before = currentApply(quote);
   if (sameApply(before, apply)) return false;
+  // Unidad propia con otro nombre (SIM-02 ronda 2): casi siempre es la misma unidad ("válvula" → "válvulas",
+  // "válvula inspeccionada"): se pregunta antes de revisar los datos como si fuera otra unidad.
+  if (quote.unit === 'custom' && apply.unit === 'custom' && !apply.billingHorizon && !apply.billedResourceKind) {
+    const sameUnit = await confirmDialog({
+      title: '¿Es la misma unidad con otro nombre?',
+      message: `Pasás de "${quote.unitName}" a "${apply.unitName}". Si es la misma unidad (sólo cambia cómo la llamás), se conservan la tarifa, las cantidades y los materiales. Si es otra unidad, revisamos qué datos cambian.`,
+      confirmLabel: 'Sí, sólo el nombre',
+      cancelLabel: 'Es otra unidad',
+    });
+    if (sameUnit) {
+      ctx.mutate((q) => { q.unitName = apply.unitName; });
+      return true;
+    }
+  }
   // La unidad de antes (ctx.mutate cambia la misma cotización: dentro de los cambios ya es la nueva).
   const fromUnit = quote.unit;
   const from = billingUnitOf(quote);
@@ -294,6 +309,23 @@ export async function changeUnitTo(ctx, apply) {
     });
   }
   items.push(...horizonItems);
+  // SIM-02 ronda 2: hora ↔ hora-hombre (o día ↔ jornal) con varias personas cambia la cantidad que se factura
+  // con los mismos días (128 horas-hombre son 64 horas de la cuadrilla de 2): se dice, no se cambia en silencio.
+  if (variantOnly && ['hour', 'day'].includes(from.kind)) {
+    const D = Number(activity.activeDaysPerMonth);
+    const perDay = from.kind === 'hour' ? Number(hours) : 1;
+    const nFrom = billedCountOf(activity);
+    const nTo = billedCountOf(withApply(quote, apply).activity || {});
+    if (D > 0 && perDay > 0 && nFrom !== nTo) {
+      const qty = (n) => formatNumber(D * perDay * n, { decimals: 2 });
+      items.push({
+        info: true,
+        label: from.kind === 'hour' ? 'Horas que se facturan por mes' : 'Días que se facturan por mes',
+        before: `${qty(nFrom)} ${from.plural}`,
+        after: `${qty(nTo)} ${to.plural}${nTo === 1 && nFrom > 1 ? ` (las de ${from.resource === 'equipment' ? `los ${formatNumber(nFrom, { decimals: 0 })} equipos juntos` : `las ${formatNumber(nFrom, { decimals: 0 })} personas juntas`})` : ''}, con los mismos días de trabajo`,
+      });
+    }
+  }
   if (items.length === 0) {
     ctx.mutate((q) => {
       applyUnit(q, apply);

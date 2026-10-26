@@ -1762,7 +1762,11 @@ function rateFact(v) {
   const common = { key: 'rate', hook: 'qr-stat-price qr-stat-primary' };
   if (hasRate(k)) {
     const suggested = k.commercialSource === 'suggested';
-    const label = suggested ? 'Tarifa sugerida' : ({ offered: 'Tarifa ofrecida', override: 'Tarifa forzada' }[k.commercialSource] || 'Tu tarifa');
+    // Precio total del trabajo (UXR): es un precio, no una tarifa por unidad.
+    const job = Boolean(r.activity && r.activity.jobHorizon);
+    const label = suggested
+      ? (job ? 'Precio sugerido' : 'Tarifa sugerida')
+      : ({ offered: job ? 'Precio ofrecido' : 'Tarifa ofrecida', override: job ? 'Precio forzado' : 'Tarifa forzada' }[k.commercialSource] || (job ? 'Tu precio' : 'Tu tarifa'));
     // UI-01: bajo el piso la tarifa no se ve como una sana; con un resultado NO CONFIABLE la cifra se apaga.
     const tone = unreliable ? null : k.belowFloor ? 'red' : k.belowTarget ? 'orange' : null;
     const notes = [floorLine(v)];

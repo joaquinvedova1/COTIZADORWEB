@@ -563,21 +563,6 @@ export function render(container, ctx) {
     if (D !== null) ctx.update('activity.activeDaysPerMonth', D);
   }
 
-  /**
-   * SIM-02 S1: con otra cantidad de personas se mantienen los días de trabajo (el calendario) y cambian las
-   * horas-hombre del mes (22 días × 10 h × 5 personas = 1.100), no al revés.
-   */
-  function syncHoursFromDays() {
-    const a = (ctx.quote && ctx.quote.activity) || activity;
-    const D = Number(a.activeDaysPerMonth);
-    const H = Number(a.hoursPerActiveDay);
-    if (!(D > 0) || !(H > 0)) return;
-    const v = Number((D * H * billedCountOf(a)).toPrecision(12));
-    ctx.update('activity.hoursInput', { value: v });
-    const el = container.querySelector('[name="activity.hoursInput.value"]');
-    if (el && document.activeElement !== el) el.value = numberToInputText(v);
-  }
-
   /** Personas o equipos que se facturan en paralelo (hora-hombre, jornal, día-equipo, equipo-mes). */
   const resourceField = resource
     ? addInfoTip(kit.num('activity.billedResources', {
@@ -589,8 +574,10 @@ export function render(container, ctx) {
       hint: resource === 'person'
         ? `Cada una factura sus ${info.plural}: 4 personas × 10 h = 40 ${info.plural} por día.`
         : `Cada uno factura sus ${info.plural}.`,
+      // Se conserva el número que escribió la persona y cambia el que se calcula (SIM-02 ronda 2, P0): cargando
+      // en horas-hombre del mes, cambian los días; cargando en días, cambian las horas-hombre.
       onValue: () => {
-        if (hoursBasis === 'hours') syncHoursFromDays();
+        if (hoursBasis === 'hours') syncDaysFromHours();
         syncDemand();
       },
     }), `No es la cantidad de personal cargado en "${stepName('labor')}": es cuántos ${resourceWord} le cobrás al cliente al mismo tiempo. Si el personal cargado es otro número, revisalo.`)
@@ -902,7 +889,8 @@ export function render(container, ctx) {
       const a = r.activity || {};
       if (!(a.activeDaysPerMonth > 0)) return onDemand ? `Cargá ${T.theMany} ${T.many} y su duración para ver qué facturás.` : 'Cargá la actividad para ver qué facturás.';
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
-      const n = billedCountOf(a);
+      // La actividad normalizada del motor trae `billedResources` (ya vale 1 sin personas o equipos facturados).
+      const n = Number(a.billedResources) > 0 ? Number(a.billedResources) : 1;
       const H = a.hoursPerActiveDay;
       let chain;
       if (onDemand && kind !== 'month') {

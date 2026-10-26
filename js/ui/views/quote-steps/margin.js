@@ -434,7 +434,7 @@ export function render(container, ctx) {
       // Sólo cuando la espera aplica (on-call con equipos o días de espera cargados), como en completitud.
       active.push('equipo en espera sin definir');
     }
-    return `Abono, cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
+    return `Abono, cargos ${T.per}, mínimos, equipo en espera y continuidad. ${active.length ? `Aplicadas: ${active.join(', ')}.` : 'Ninguna aplicada.'}`;
   };
   const rulesCard = kit.advanced(
     {

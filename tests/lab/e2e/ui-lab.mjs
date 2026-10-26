@@ -1725,8 +1725,10 @@ async function runMode(mode) {
 
     // Campos dentro de tablas del editor: borde de 3:1 o más contra su fondo (WCAG 1.4.11).
     const borders = [];
+    // UXR: los tramos por días sólo se muestran con $/día u $/hora; "El precio" se mira en una cotización por día.
+    const dayQ = (seeded.find((x) => x.s.id === 'E2E-12') || seeded[0]).q;
     for (const st of ['labor', 'equipment', 'indirect', 'margin']) {
-      await go(`#/cotizaciones/${encodeURIComponent(q0.id)}/${st}`, 700);
+      await go(`#/cotizaciones/${encodeURIComponent((st === 'margin' ? dayQ : q0).id)}/${st}`, 700);
       await openAll();
       borders.push(...await page.evaluate((stepId) => {
         const lum = (rgb) => {
