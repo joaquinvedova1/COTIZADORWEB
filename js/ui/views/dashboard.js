@@ -105,7 +105,7 @@ function totalQuotedTrace(active, total, scope) {
     id: 'dashboard_total_quoted',
     title: 'Valor total cotizado (mensual)',
     formula: 'Valor total = Σ facturación mensual esperada de cada cotización activa con resultado confiable',
-    inputs: reliable.map(({ quote, summary }) => ({ label: quoteLabel(quote), value: isFiniteNumber(summary.revenue) ? summary.revenue : 0, format: 'money' })),
+    inputs: reliable.map(({ quote, summary }) => ({ label: summary.jobMonths > 0 ? `${quoteLabel(quote)} (precio total ÷ ${formatNumber(summary.jobMonths, { decimals: 2 })} meses)` : quoteLabel(quote), value: isFiniteNumber(summary.monthlyRevenue) ? summary.monthlyRevenue : isFiniteNumber(summary.revenue) ? summary.revenue : 0, format: 'money' })),
     result: { label: 'Valor total cotizado por mes', value: total, format: 'money' },
     notes: [
       `Cotizaciones activas: estados ${activeStatusesText()}.`,

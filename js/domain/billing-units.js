@@ -152,7 +152,9 @@ export function resourceVariantOf(quote = {}, unitId = null) {
 
 /** Personas o equipos facturados en paralelo (1 si no se cargó). */
 export function billedResourcesOf(quote = {}) {
-  const n = Number(quote && quote.activity && quote.activity.billedResources);
+  const a = (quote && quote.activity) || {};
+  if (a.billedResourceKind !== 'person' && a.billedResourceKind !== 'equipment') return 1;
+  const n = Number(a.billedResources);
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 

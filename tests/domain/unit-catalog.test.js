@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {
   UNIT_CATALOG, SUGGESTED_UNIT_KEYS, searchUnits, exactUnitMatch, unitKeyOf, unitDisplayName, applyUnit, currentApply, sameApply, customUnitApply, normalizeText, chargeSummary,
 } from '../../js/domain/unit-catalog.js';
-import { billingUnitOf, BILLING_UNIT_IDS } from '../../js/domain/billing-units.js';
+import { billingUnitOf, billedResourcesOf, BILLING_UNIT_IDS } from '../../js/domain/billing-units.js';
 
 describe('Catálogo de unidades', () => {
   test('cada opción se guarda con unidades que el motor ya conoce (sin ids nuevos: una versión anterior calcula igual)', () => {
@@ -47,12 +47,14 @@ describe('Catálogo de unidades', () => {
     assert.equal(info.kind, 'hour');
     assert.equal(info.label, '$/hora-hombre');
     assert.equal(info.plural, 'horas-hombre');
-    // Volver a "hora" quita la variante y la cantidad de personas.
+    // Volver a "hora" quita la variante; la cantidad de personas queda guardada sin efecto y vuelve con hora-hombre.
     q.activity.billedResources = 4;
     applyUnit(q, { unit: 'hour' });
     assert.equal(q.activity.billedResourceKind, undefined);
-    assert.equal(q.activity.billedResources, undefined);
+    assert.equal(billedResourcesOf(q), 1);
     assert.equal(billingUnitOf(q).label, '$/hora');
+    applyUnit(q, UNIT_CATALOG.find((e) => e.key === 'person_hour').apply);
+    assert.equal(billedResourcesOf(q), 4);
   });
 
   test('precio total del trabajo: unidad job con horizonte; un "job" viejo (por mes) se distingue', () => {

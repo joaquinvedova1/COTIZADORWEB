@@ -48,7 +48,7 @@ import { isPlainObject } from '../core/object.js';
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
-const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips', 'payment_term', 'billed_resources']);
+const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips', 'payment_term', 'billed_resources', 'billed_resources_crew']);
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 
@@ -327,6 +327,7 @@ export function evaluateCompleteness(quote = {}) {
   // 3. Actividad: por cantidad o evento (m³, viajes, llamados…; PLAN-2026-009) en la unidad comercial.
   // Cada pendiente lleva al campo que falta (Test Lab, PLAN-2026-013).
   const unit = billingUnitOf(quote);
+  let crewNotice = null; // se suma a los avisos (abajo)
   // 1 bis (UXR). Por persona o por equipo (hora-hombre, jornal, día-equipo, equipo-mes): cuántos se facturan
   // en paralelo multiplica la facturación; sin el dato se factura uno solo. Crítico hasta cargarlo.
   if (unit.resource) {
@@ -336,6 +337,32 @@ export function evaluateCompleteness(quote = {}) {
         `Cobrás ${unit.label}: falta cuántas ${unit.resource === 'person' ? 'personas' : 'unidades de equipo'} facturan en paralelo. Sin ese dato se factura como si fuera ${unit.resource === 'person' ? 'una sola persona' : 'un solo equipo'}.`);
       item.focus = 'activity.billedResources';
       items.push(item);
+    } else {
+      // SIM-02 S1 (P0): facturar más personas o equipos de los que se pagan reparte el costo entre más horas y la
+      // tarifa sale baja sin aviso (5 personas facturadas con 4 puestos en Personal: −$ 868.871 por mes). Crítico.
+      // Con menos (un supervisor que no factura) puede estar bien: sólo se avisa.
+      const person = unit.resource === 'person';
+      const crew = person
+        ? labor.reduce((s, l) => s + nonNegative(l.positions), 0)
+        : equipment.reduce((s, e) => s + (nonNegative(e.quantity) > 0 ? nonNegative(e.quantity) : 1), 0);
+      const who = person ? (n === 1 ? 'persona' : 'personas') : (n === 1 ? 'equipo' : 'equipos');
+      const fmtN = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+      const where = person ? `${fmtN(crew)} ${crew === 1 ? 'puesto' : 'puestos'} en "${stepLabelOf('labor')}"` : `${fmtN(crew)} ${crew === 1 ? 'equipo' : 'equipos'} en "${stepLabelOf('equipment')}"`;
+      if (crew > 0 && n > crew + 1e-9) {
+        const item = rule('billed_resources_crew', person ? 'Personas facturadas y personal' : 'Equipos facturados y equipos', 'modality', 2, 'missing',
+          `Facturás ${fmtN(n)} ${who} en paralelo y hay ${where}: la tarifa se reparte entre más ${person ? 'personas' : 'equipos'} de los que pagás y sale baja. Si son ${fmtN(n)}, cargalos; si no, corregí cuántos facturás.`);
+        item.focus = 'activity.billedResources';
+        items.push(item);
+      } else if (crew > 0 && n < crew - 1e-9) {
+        crewNotice = ({
+          id: 'billed_resources_fewer',
+          step: 'modality',
+          severity: 'info',
+          label: person ? 'Personas facturadas y personal' : 'Equipos facturados y equipos',
+          message: `Facturás ${fmtN(n)} ${who} en paralelo y hay ${where}. Si ${person ? 'alguien' : 'alguno'} no factura (por ejemplo un supervisor), está bien; si no, la tarifa sale más alta de lo necesario.`,
+          focus: 'activity.billedResources',
+        });
+      }
     }
   }
 
@@ -1135,6 +1162,7 @@ export function evaluateCompleteness(quote = {}) {
   const pending = items.filter((i) => i.status !== 'ok').sort((a, b) => (a.severity === 'critical' ? 0 : 1) - (b.severity === 'critical' ? 0 : 1) || order[a.status] - order[b.status]);
   // Informativos: no participan del puntaje ni de los pendientes.
   const notices = [];
+  if (crewNotice) notices.push(crewNotice);
   // Unidad "viaje" con un "Viajes por llamado" anterior distinto (PLAN-2026-012).
   if (route.storedDiffers) {
     const fmt = (n) => formatNumber(n, { decimals: 2 });
@@ -1190,7 +1218,7 @@ export function evaluateCompleteness(quote = {}) {
       step: 'margin',
       severity: 'info',
       label: `Mínimo ${T.per}`,
-      message: `El mínimo de ${what} se aplica ${T.a === 'una' ? 'a la' : 'al'} ${T.one} promedio, no a cada ${T.one}. Si ${T.theMany} ${T.many} duran distinto, los más cortos que el mínimo se facturan completos y la facturación real es mayor que la que calcula RATEOS (la tarifa sugerida queda más alta de lo necesario). Para acercarlo, cargá la duración promedio FACTURABLE: con el mínimo ya aplicado a cada ${T.one}.`,
+      message: `El mínimo de ${what} se aplica ${T.a === 'una' ? 'a la' : 'al'} ${T.one} promedio, no a cada ${T.one}. Si ${T.theMany} ${T.many} duran distinto, los más cortos que el mínimo se facturan completos y la facturación real es mayor que la que calcula RATEOS (la tarifa sugerida queda más alta de lo necesario). Cargá cuánto dura cada ${T.one} en "${stepLabelOf('modality')}" ("Duran distinto"): así el mínimo se aplica a cada ${T.one}.`,
       focus: 'rules.minimumCallUnits',
     });
   }

@@ -29,6 +29,7 @@ import {
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
+import { numberToInputText } from '../../../core/validation.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
@@ -147,8 +148,11 @@ export function render(container, ctx) {
   // ---- UXR: salidas de la base. Se preguntan sólo si cambian algo (o si ya se cargaron), a demanda o por
   // llamado (ahí son los llamados). Si no, cada día de trabajo cuenta como una salida (el motor usa 1).
   const dpaStored = Number(activity.daysPerActivation);
+  // Un mínimo por salida guardado en una cotización que no trabaja a demanda (cargado con la versión anterior):
+  // sigue sumando, así que se muestra y se puede editar o poner en 0 (SIM-02 S1: nada oculto que sume).
+  const legacyMinimum = !onDemand && Number(quote.rules && quote.rules.minimumCallUnits) > 0;
   const salidasMatter = !jobHorizon && kind !== 'event' && !onDemand
-    && ((Number.isFinite(dpaStored) && dpaStored > 0 && Math.abs(dpaStored - 1) > 1e-9) || activity.fullActivations === true || activationsMatter(quote, settings));
+    && ((Number.isFinite(dpaStored) && dpaStored > 0 && Math.abs(dpaStored - 1) > 1e-9) || activity.fullActivations === true || legacyMinimum || activationsMatter(quote, settings));
   const showActivations = onDemand || salidasMatter || kind === 'event';
 
   // ---- UX-UNITS: rendimiento y cantidad del mes como unidades compuestas (sólo por cantidad).
@@ -540,6 +544,21 @@ export function render(container, ctx) {
     if (D !== null) ctx.update('activity.activeDaysPerMonth', D);
   }
 
+  /**
+   * SIM-02 S1: con otra cantidad de personas se mantienen los días de trabajo (el calendario) y cambian las
+   * horas-hombre del mes (22 días × 10 h × 5 personas = 1.100), no al revés.
+   */
+  function syncHoursFromDays() {
+    const a = (ctx.quote && ctx.quote.activity) || activity;
+    const D = Number(a.activeDaysPerMonth);
+    const H = Number(a.hoursPerActiveDay);
+    if (!(D > 0) || !(H > 0)) return;
+    const v = Number((D * H * billedCountOf(a)).toPrecision(12));
+    ctx.update('activity.hoursInput', { value: v });
+    const el = container.querySelector('[name="activity.hoursInput.value"]');
+    if (el && document.activeElement !== el) el.value = numberToInputText(v);
+  }
+
   /** Personas o equipos que se facturan en paralelo (hora-hombre, jornal, día-equipo, equipo-mes). */
   const resourceField = resource
     ? addInfoTip(kit.num('activity.billedResources', {
@@ -552,7 +571,7 @@ export function render(container, ctx) {
         ? `Cada una factura sus ${info.plural}: 4 personas × 10 h = 40 ${info.plural} por día.`
         : `Cada uno factura sus ${info.plural}.`,
       onValue: () => {
-        if (hoursBasis === 'hours') syncDaysFromHours();
+        if (hoursBasis === 'hours') syncHoursFromDays();
         syncDemand();
       },
     }), `No es la cantidad de personal cargado en "${stepName('labor')}": es cuántos ${resourceWord} le cobrás al cliente al mismo tiempo. Si el personal cargado es otro número, revisalo.`)
@@ -667,7 +686,7 @@ export function render(container, ctx) {
     const draw = () => {
       rows.replaceChildren(...form.profile.map((item, i) => h('div', { class: 'qe-profile-row' },
         (i === 0 ? (f) => aliasFor(f, 'activity.activeDaysPerMonth', 'activity.daysPerActivation') : (f) => f)(numberField({ label: T.Many, name: `activity.activationProfile.${i}.count`, rule: 'positive', value: item.count, unit: 'por mes', disabled: kit.readOnly, onChange: (v) => { form.profile[i].count = v; syncDemand(); } })),
-        numberField({ label: `De cuántas ${callUnits}`, name: `activity.activationProfile.${i}.units`, rule: 'positive', value: item.units, unit: hourly ? 'h' : 'días', disabled: kit.readOnly, onChange: (v) => { form.profile[i].units = v; syncDemand(); } }),
+        numberField({ label: hourly ? "De cuántas horas" : "De cuántos días", name: `activity.activationProfile.${i}.units`, rule: 'positive', value: item.units, unit: hourly ? 'h' : 'días', disabled: kit.readOnly, onChange: (v) => { form.profile[i].units = v; syncDemand(); } }),
         kit.readOnly || form.profile.length <= 1 ? null : button('Quitar', { variant: 'link', size: 'sm', onClick: () => { form.profile.splice(i, 1); draw(); syncDemand(); } }),
       )));
     };
@@ -781,10 +800,22 @@ export function render(container, ctx) {
           { value: 'yes', label: 'Sí, el cliente llama y salís', hint: 'Guardia u on-call: el cliente pide el servicio cuando lo necesita.' },
         ],
         onChange: (v) => {
+          const minBefore = Number(ctx.quote.rules && ctx.quote.rules.minimumCallUnits);
           ctx.mutate((q) => {
-            if (v === 'yes') q.serviceType = 'on_call';
-            else if (q.serviceType === 'on_call') q.serviceType = 'configurable';
+            if (v === 'yes') {
+              q.serviceType = 'on_call';
+              return;
+            }
+            if (q.serviceType === 'on_call') q.serviceType = 'configurable';
+            // SIM-02 S1: sin trabajo a demanda no quedan reglas de llamados ocultas que sigan sumando (el mínimo
+            // por llamado y las duraciones distintas). Los días de trabajo y las salidas quedan como estaban.
+            q.activity = q.activity || {};
+            q.activity.activationProfile = null;
+            delete q.activity.callDurationForm;
+            delete q.activity.callsPerMonth;
+            if (q.rules && Number(q.rules.minimumCallUnits) > 0) q.rules.minimumCallUnits = null;
           }, { focus: 'serviceOnDemand' });
+          if (v !== 'yes' && minBefore > 0) ctx.toast(`Se quitó el mínimo ${T.per}: sin trabajo a demanda no se aplica.`, 'warning');
         },
       }),
       demandBody(),
@@ -818,6 +849,14 @@ export function render(container, ctx) {
         }), tripUnit
           ? `Viajes ${T.per} = viajes por día × estos días. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`
           : `Cuenta las movilizaciones, los viajes y los viáticos ${T.per}. No es la unidad que cobrás.`)),
+      legacyMinimum && minimumCallApplies(kind)
+        ? formGrid(2, kit.num('rules.minimumCallUnits', {
+          label: `Mínimo ${T.per}`,
+          rule: 'quantity',
+          unit: hourly ? 'h' : kind === 'day' ? 'días' : info.plural,
+          hint: `Se factura aunque se trabaje menos. Si no cobrás un mínimo ${T.per}, ponelo en 0.`,
+        }))
+        : null,
       fullActivationsBlock(),
     );
 

@@ -428,6 +428,11 @@ function setContent(el, content) {
   else el.textContent = content === null || content === undefined || content === '' ? EMPTY : String(content);
 }
 
+/** ¿Precio total del trabajo? (las cifras son del trabajo completo, no de un mes). */
+function jobTotalOf(r) {
+  return Boolean(r && r.activity && r.activity.jobHorizon);
+}
+
 function cssEscape(value) {
   return globalThis.CSS && typeof globalThis.CSS.escape === 'function' ? globalThis.CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&');
 }
@@ -1103,11 +1108,14 @@ function buildSummary({ getResult, stepHref }) {
     { class: 'qe-sum-list qe-sum-main' },
     item({
       key: 'totalCost',
-      label: 'Costo del mes',
-      short: 'Costo del mes',
+      // UXR (SIM-02 S3): con precio total del trabajo las cifras son del trabajo completo, no de un mes.
+      label: (r) => (jobTotalOf(r) ? 'Costo del trabajo' : 'Costo del mes'),
+      short: (r) => (jobTotalOf(r) ? 'Costo del trabajo' : 'Costo del mes'),
       value: (r) => formatMoney(r.kpis.totalCost),
       compact: (r) => formatMoneyCompact(r.kpis.totalCost),
-      hint: (r) => (isQuantityUnit(r)
+      hint: (r) => (jobTotalOf(r)
+        ? `Todo el trabajo: ${workDaysText(r.activity.activeDaysPerMonth, { decimals: 2 })} en ≈ ${formatNumber(r.activity.jobMonths, { decimals: 2 })} ${Math.abs(r.activity.jobMonths - 1) < 1e-9 ? 'mes' : 'meses'}.`
+        : isQuantityUnit(r)
         ? (rateMissing(r)
           ? `Falta completar el rendimiento en "${stepName('modality')}": sin él no hay días de trabajo.`
           : `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`)
@@ -1184,10 +1192,10 @@ function buildSummary({ getResult, stepHref }) {
     }),
     item({
       key: 'expectedResult',
-      label: 'Resultado esperado del mes',
+      label: (r) => (jobTotalOf(r) ? 'Resultado esperado del trabajo' : 'Resultado esperado del mes'),
       value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
       // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que todo (también sin tarifa).
-      hint: (r) => unreliableText(r.completeness, 'este resultado') || (isFiniteNumber(r.kpis.commercialListRate) ? `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
+      hint: (r) => unreliableText(r.completeness, 'este resultado') || (isFiniteNumber(r.kpis.commercialListRate) ? `Facturás ${formatMoney(r.kpis.revenue)} ${jobTotalOf(r) ? 'en todo el trabajo' : 'por mes'}.` : 'Sin tarifa todavía.'),
       tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
       trace: (r) => r.traces.expectedResult,
     }),

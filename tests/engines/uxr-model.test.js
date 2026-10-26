@@ -81,7 +81,7 @@ describe('Personas o equipos facturados en paralelo (hora-hombre, abono por equi
     resetIds();
     const q = service({
       serviceType: 'configurable', unit: 'hour',
-      activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, daysPerActivation: 22, availableDaysPerMonth: 22, billedResources: 4 },
+      activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, daysPerActivation: 22, availableDaysPerMonth: 22, billedResourceKind: 'person', billedResources: 4 },
       labor: [person({ positions: 4 })],
     });
     const r = run(q);
@@ -103,7 +103,7 @@ describe('Personas o equipos facturados en paralelo (hora-hombre, abono por equi
     resetIds();
     const q = service({
       serviceType: 'equipment_only', unit: 'month',
-      activity: { activeDaysPerMonth: 30, availableDaysPerMonth: 30, hoursPerActiveDay: 24, billedResources: 3 },
+      activity: { activeDaysPerMonth: 30, availableDaysPerMonth: 30, hoursPerActiveDay: 24, billedResourceKind: 'equipment', billedResources: 3 },
       equipment: [owned({ name: 'Generador', quantity: 3, replacementValue: 60000000, fuelNotApplicable: true })],
     });
     const r = run(q);
@@ -116,7 +116,7 @@ describe('Personas o equipos facturados en paralelo (hora-hombre, abono por equi
     const CALLS = [2, 2, 3, 3, 5, 5, 8, 8];
     const q = service({
       serviceType: 'on_call', unit: 'hour',
-      activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: mean(CALLS), activationProfile: profileOf(CALLS), billedResources: 2 },
+      activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: mean(CALLS), activationProfile: profileOf(CALLS), billedResourceKind: 'equipment', billedResources: 2 },
       labor: [person({ peoplePerPosition: 2 })], equipment: [owned({ name: 'Hidrogrúa', quantity: 2 })], rules: { minimumCallUnits: 4 },
     });
     close(run(q).kpis.billableQuantity, 2 * billedWithMinimum(CALLS, 4)); // 84
@@ -261,5 +261,34 @@ describe('Precio total del trabajo: completitud', () => {
     q.activity.daysPerActivation = null;
     assert.equal(util(run(q)).status, 'missing');
     assert.equal(util(run(q)).focus, 'activity.daysPerActivation');
+  });
+});
+
+describe('Personas facturadas sin variante (SIM-02 S1)', () => {
+  test('un número de personas guardado sin la unidad por persona no multiplica nada', () => {
+    resetIds();
+    const q = service({ serviceType: 'configurable', unit: 'hour', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, billedResources: 4 }, labor: [person()] });
+    close(run(q).kpis.billableQuantity, 220);
+    q.activity.billedResourceKind = 'person';
+    close(run(q).kpis.billableQuantity, 880);
+  });
+});
+
+describe('Personas facturadas vs personal cargado (SIM-02 S1, P0)', () => {
+  const hh = (billed, positions) => {
+    resetIds();
+    return service({ serviceType: 'configurable', unit: 'hour', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10, billedResourceKind: 'person', billedResources: billed }, labor: [person({ positions })] });
+  };
+  test('facturar 5 personas con 4 puestos es crítico (la tarifa sale baja); con 3, un aviso', () => {
+    const crit = (r) => r.completeness.items.find((i) => i.id === 'billed_resources_crew');
+    const r5 = run(hh(5, 4));
+    assert.equal(crit(r5).status, 'missing');
+    assert.ok((r5.completeness.pending || []).some((p) => p.id === 'billed_resources_crew'));
+    const r3 = run(hh(3, 4));
+    assert.equal(crit(r3), undefined);
+    assert.ok((r3.completeness.notices || []).some((n) => n.id === 'billed_resources_fewer'));
+    const r4 = run(hh(4, 4));
+    assert.equal(crit(r4), undefined);
+    assert.ok(!(r4.completeness.notices || []).some((n) => n.id === 'billed_resources_fewer'));
   });
 });

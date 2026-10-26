@@ -121,7 +121,8 @@ export function normalizeActivity(quote = {}) {
     // UXR (opcionales; ausentes = como siempre): llamados de distinta duración, recursos facturados en
     // paralelo y precio total del trabajo.
     activationProfile: Array.isArray(a.activationProfile) ? a.activationProfile : null,
-    billedResources: nonNegative(a.billedResources) > 0 ? nonNegative(a.billedResources) : 1,
+    // Sólo con una unidad por persona o por equipo (SIM-02: al volver a "hora" el número queda guardado, sin efecto).
+    billedResources: (a.billedResourceKind === 'person' || a.billedResourceKind === 'equipment') && nonNegative(a.billedResources) > 0 ? nonNegative(a.billedResources) : 1,
     jobHorizon,
     jobMonths: jobHorizon ? Math.max(1, activeDaysPerMonth / availableDaysPerMonth) : null,
   };

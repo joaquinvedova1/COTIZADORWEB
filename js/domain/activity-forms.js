@@ -35,6 +35,7 @@ function near(a, b) {
 
 /** Personas o equipos facturados en paralelo (1 si no se cargó). */
 export function billedCountOf(activity = {}) {
+  if (activity.billedResourceKind !== 'person' && activity.billedResourceKind !== 'equipment') return 1;
   return positive(activity.billedResources) || 1;
 }
 

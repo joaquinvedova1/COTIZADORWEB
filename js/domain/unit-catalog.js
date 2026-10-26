@@ -179,8 +179,9 @@ export function applyUnit(q, apply) {
   if (apply.billedResourceKind) {
     q.activity.billedResourceKind = apply.billedResourceKind;
   } else if (q.activity.billedResourceKind !== undefined) {
+    // La cantidad de personas o equipos queda guardada (sin efecto: el motor la lee sólo con la variante), así
+    // hora-hombre → hora → hora-hombre no la pierde (SIM-02 S1).
     delete q.activity.billedResourceKind;
-    delete q.activity.billedResources;
   }
   if (apply.billingHorizon) {
     q.billingHorizon = apply.billingHorizon;

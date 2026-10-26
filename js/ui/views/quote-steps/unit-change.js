@@ -51,7 +51,7 @@ function askUnitChange({ from, to, items, convertible, explanation, materialsOnl
   return new Promise((resolve) => {
     let choice = null;
     // Los materiales "por unidad facturada" siempre dicen cómo quedan (pasan a otra base, no se borran).
-    const list = h('ul', {}, ...items.map((it) => h('li', {}, `${it.label}: ${it.before}${(convertible || it.material) && it.after ? ` → ${it.after}` : ''}`)));
+    const list = h('ul', {}, ...items.map((it) => h('li', {}, `${it.label}: ${it.before}${(convertible || it.info) && it.after ? ` → ${it.after}` : ''}`)));
     const { close } = openDialog({
       title: `Cambiar la unidad a ${to.label}`,
       content: h(
@@ -76,6 +76,26 @@ function askUnitChange({ from, to, items, convertible, explanation, materialsOnl
   });
 }
 
+/** Nombres de los costos que se cuentan por salida (flete, peajes, viajes de la ruta, externos por salida). */
+function perActivationCosts(quote, T) {
+  const list = [];
+  (Array.isArray(quote.otherCosts) ? quote.otherCosts : []).forEach((o) => {
+    if (o && o.behavior === 'per_activation' && Number(o.amount) > 0) list.push(o.description || 'otro costo');
+  });
+  (Array.isArray(quote.materials) ? quote.materials : []).forEach((m) => {
+    if (m && m.basis === 'per_activation' && Number(m.quantity) * Number(m.unitCost) > 0) list.push(m.description || 'material');
+  });
+  const lg = quote.logistics || {};
+  if (lg.notApplicable !== true && Number(lg.distanceKm) > 0) list.push('viajes de la ruta');
+  if (lg.notApplicable !== true && (Number(lg.tollsPerActivation) > 0 || Number(lg.lodgingPerActivation) > 0)) list.push('peajes y viáticos');
+  const r = quote.rules || {};
+  if (Number(r.mobilizationFeePerActivation) > 0 || Number(r.calloutFeePerActivation) > 0) list.push(`cargos ${T.per} al cliente`);
+  (Array.isArray(quote.equipment) ? quote.equipment : []).forEach((e) => {
+    if (e && e.external && e.external.unit === 'activation' && Number(e.external.price) > 0) list.push(e.name || 'externo');
+  });
+  return list;
+}
+
 /** La cotización como quedaría con otra unidad (sólo para leer rótulos). */
 function withApply(quote, apply) {
   return applyUnit(structuredClone({ unit: quote.unit, unitName: quote.unitName, billingHorizon: quote.billingHorizon, activity: { ...(quote.activity || {}) } }), apply);
@@ -89,9 +109,13 @@ export async function changeUnitTo(ctx, apply) {
   const quote = ctx.quote;
   const before = currentApply(quote);
   if (sameApply(before, apply)) return false;
+  // La unidad de antes (ctx.mutate cambia la misma cotización: dentro de los cambios ya es la nueva).
+  const fromUnit = quote.unit;
   const from = billingUnitOf(quote);
   const to = billingUnitOf(withApply(quote, apply));
   const T = activationTerms(quote);
+  // La palabra de la activación con la unidad nueva ("salida" al salir del precio total, no "trabajo").
+  const Tto = activationTerms({ ...quote, unit: apply.unit, billingHorizon: apply.billingHorizon });
   const pricing = quote.pricing || {};
   const activity = quote.activity || {};
   const hours = activity.hoursPerActiveDay;
@@ -186,14 +210,14 @@ export async function changeUnitTo(ctx, apply) {
       const unitWord = String(m.unit || '').trim() || 'u.';
       const unitTxt = (n) => (Math.abs(n - 1) < 1e-9 || unitWord === 'u.' ? unitWord : pluralizeUnit(unitWord));
       return {
-        material: true,
+        info: true,
         index,
         basis: monthly ? 'per_month' : 'per_active_day',
         quantity: newQty,
         label: `Material "${m.description || 'sin descripción'}"`,
         before: `${formatNumber(qty, { decimals: 2 })} ${unitTxt(qty)} ${perText(from)}`,
         after: known
-          ? `${formatNumber(newQty, { decimals: 2 })} ${unitTxt(newQty)} ${monthly ? 'por mes' : 'por día de trabajo'} (el mismo costo de hoy)`
+          ? `${formatNumber(newQty, { decimals: newQty < 1 ? 4 : 2 })} ${unitTxt(newQty)} ${monthly ? 'por mes' : 'por día de trabajo'} (${formatMoney(newQty * (Number(m.unitCost) || 0) * (1 + (Number(m.wastePct) || 0) / 100) * (1 + (Number(m.logisticsPct) || 0) / 100))} ${monthly ? 'por mes' : 'por día'}: el mismo costo de hoy)`
           : 'por día de trabajo: cargá la cantidad de nuevo',
       };
     });
@@ -204,6 +228,20 @@ export async function changeUnitTo(ctx, apply) {
       line.basis = it.basis;
       line.quantity = it.quantity;
     });
+  };
+  // SIM-02 S1 (P1-4): las duraciones de los llamados están en la unidad de cobro (horas con $/hora, días con
+  // $/día). Entre hora y día se convierten con las horas por día; con otra unidad dejan de aplicar.
+  const profile = Array.isArray(activity.activationProfile) ? activity.activationProfile : null;
+  const H = Number(hours);
+  const applyProfile = (q) => {
+    if (!profile || !q.activity) return;
+    if (timeToTime && H > 0) {
+      const toDays = fromUnit === 'hour' && apply.unit === 'day';
+      q.activity.activationProfile = profile.map((x) => ({ ...x, units: Number((Number(x.units) * (toDays ? 1 / H : H)).toPrecision(12)) }));
+    } else if (!['hour', 'day', 'month'].includes(to.kind) || to.kind !== from.kind) {
+      q.activity.activationProfile = null;
+      delete q.activity.callDurationForm;
+    }
   };
   const materialsNote = materialItems.length
     ? ` ${materialItems.length === 1 ? 'El material cargado' : 'Los materiales cargados'} ${perText(from)} ${materialItems.length === 1 ? 'pasa' : 'pasan'} a "por día de trabajo" con el mismo costo de hoy: revisalo en "${stepName('materials')}".`
@@ -226,29 +264,52 @@ export async function changeUnitTo(ctx, apply) {
     q.activity = q.activity || {};
     if (toJobTotal) {
       q.activity.billableQuantityPerMonth = 1;
-      if (quote.unit !== 'job') {
+      if (fromUnit !== 'job') {
         q.activity.daysPerActivation = null;
         q.activity.activationProfile = null;
       }
-    } else if (wasJobTotal && apply.unit !== 'job') {
-      q.activity.daysPerActivation = 1;
     }
+    // Al salir del precio total los días de la obra quedan como días de cada salida (los costos por salida siguen
+    // contando una vez por obra); el diálogo lo dice para que se ajuste en "Cada cuánto salís de la base".
   };
+  // SIM-02 S3: los costos por salida (flete, peajes, viajes de la ruta, externos por salida) cambian de
+  // significado al entrar o salir del precio total: el diálogo lo dice (no se borran).
+  const perActivation = perActivationCosts(quote, T);
+  const dpaNow = Number(activity.daysPerActivation);
+  const horizonItems = [];
+  if (toJobTotal && fromUnit !== 'job' && perActivation.length) {
+    horizonItems.push({
+      info: true,
+      label: `Costos ${T.per}`,
+      before: `${perActivation.slice(0, 3).join(', ')}${perActivation.length > 3 ? ' y más' : ''}`,
+      after: 'con precio total cuentan una vez por todo el trabajo; si hay viajes todos los días, cargá los viajes del trabajo en Movilización y viajes',
+    });
+  }
+  if (wasJobTotal && apply.unit !== 'job' && dpaNow > 1) {
+    horizonItems.push({
+      info: true,
+      label: 'Cada cuánto salís de la base',
+      before: `${Tto.a} ${Tto.one} para todo el trabajo (${formatDays(dpaNow)})`,
+      after: `${Tto.a} ${Tto.one} cada ${formatDays(dpaNow)} de trabajo: ajustalo en "Cada cuánto salís de la base" (${stepName('modality')})`,
+    });
+  }
+  items.push(...horizonItems);
   if (items.length === 0) {
     ctx.mutate((q) => {
       applyUnit(q, apply);
       applyMinCall(q);
       applyHorizon(q);
+      applyProfile(q);
     });
     if (minCallNote) ctx.toast(`Unidad cambiada a ${to.label}.${minCallNote}`, tone);
     return true;
   }
-  const otherItems = items.filter((it) => !it.material);
+  const otherItems = items.filter((it) => !it.info);
   const materialsOnly = otherItems.length === 0;
   const convertible = !materialsOnly && otherItems.every((it) => isFiniteNumber(it.converted));
   let explanation;
   if (materialsOnly) {
-    explanation = materialsNote.trim();
+    explanation = materialsNote.trim() || 'No se borra nada: revisá cómo quedan estos datos con la unidad nueva.';
   } else if (convertible && timeToTime) {
     explanation = `Podés convertirla con las ${formatNumber(Number(hours), { decimals: 2 })} horas trabajadas por día (${quote.unit === 'day' ? '÷' : '×'} ${formatNumber(Number(hours), { decimals: 2 })}, redondeado hacia arriba) o borrarla y cargarla de nuevo.`;
   } else if (convertible) {
@@ -265,6 +326,7 @@ export async function changeUnitTo(ctx, apply) {
       applyUnit(q, apply);
       applyMinCall(q);
       applyHorizon(q);
+      applyProfile(q);
       applyMaterials(q);
     });
     ctx.toast(`Unidad cambiada a ${to.label}.${materialsNote}${minCallNote}`, 'warning');
@@ -275,6 +337,7 @@ export async function changeUnitTo(ctx, apply) {
       applyUnit(q, apply);
       applyMinCall(q);
       applyHorizon(q);
+      applyProfile(q);
       applyMaterials(q);
       rates.forEach((r) => {
         q.pricing[r.path] = r.converted;
@@ -293,6 +356,7 @@ export async function changeUnitTo(ctx, apply) {
       applyUnit(q, apply);
       applyMinCall(q);
       applyHorizon(q);
+      applyProfile(q);
       applyMaterials(q);
       rates.forEach((r) => {
         q.pricing[r.path] = r.path === 'knownRate' ? 0 : null;
@@ -301,6 +365,8 @@ export async function changeUnitTo(ctx, apply) {
         q.activity[it.path] = null;
       });
       if (quantities.length) resetInputs(q, { keepWorkdays: false });
+      // Con precio total la cantidad vale 1 trabajo (para versiones anteriores), aunque se haya borrado la de antes.
+      if (toJobTotal) q.activity.billableQuantityPerMonth = 1;
     });
     const cleared = [rates.length ? 'la tarifa' : null, ...quantities.map((it) => (it.path === 'unitsPerActiveDay' ? 'el rendimiento' : 'la cantidad del mes'))].filter(Boolean);
     const what = cleared.length > 1 ? `Se borraron ${cleared.slice(0, -1).join(', ')} y ${cleared[cleared.length - 1]}` : `Se borró ${cleared[0]}`;
