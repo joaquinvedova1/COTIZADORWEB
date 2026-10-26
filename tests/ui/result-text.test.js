@@ -181,6 +181,16 @@ describe('cuánto sobra o falta sobre el mínimo, en la unidad de cobro (ficha d
     assert.equal(spareText({ est: 726.6, min: 726.9, estShown: 727, minShown: 727, decimals: 0, fmt: hh }), 'Estimás 727 horas-hombre: estás apenas debajo del mínimo.');
   });
 
+  test('con 1 de diferencia, en singular ("te sobra 1 llamado")', () => {
+    const calls = (x) => `${x} ${x === 1 ? 'llamado' : 'llamados'}`;
+    assert.equal(spareText({ est: 8, min: 6.4, estShown: 8, minShown: 7, decimals: 0, fmt: calls }), 'Estimás 8 llamados: te sobra 1 llamado.');
+    assert.equal(spareText({ est: 6, min: 6.4, estShown: 6, minShown: 7, decimals: 0, fmt: calls }), 'Estimás 6 llamados: te falta 1 llamado.');
+  });
+
+  test('en días, con 1 día de diferencia: "te falta 1 día"', () => {
+    assert.match(cushionText(9, 10, { beDecimals: 0 }), /te falta 1 día para no perder plata\.$/);
+  });
+
   test('en días: lo estimado − el mínimo mostrado (hacia arriba) = lo que sobra', () => {
     const days = (x, d) => formatDays(x, { decimals: d });
     assert.equal(spareText({ est: 22, min: 18.15, estShown: 22, minShown: 18.2, decimals: 2, fmt: days }), 'Estimás 22 días: te sobran 3,8 días.');

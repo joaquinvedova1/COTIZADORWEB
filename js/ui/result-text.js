@@ -89,7 +89,7 @@ export function cushionText(D, beDays, { beDecimals = dayDecimals(beDays) } = {}
   }
   return gap >= -EPS
     ? `${estimate} tenés un colchón de ${formatDays(shownGap)} sobre el mínimo.`
-    : `${estimate} te faltan ${formatDays(-shownGap)} para no perder plata.`;
+    : `${estimate} ${spareVerb(shownGap, false)} ${formatDays(-shownGap)} para no perder plata.`;
 }
 
 /**
@@ -107,7 +107,13 @@ export function spareText({ est, min, estShown, minShown, decimals = 2, fmt } = 
   if (Math.abs(gap) < EPS || (real >= -EPS) !== (gap > 0)) {
     return real >= -EPS ? `${head}: estás justo en el mínimo.` : `${head}: estás apenas debajo del mínimo.`;
   }
-  return real >= -EPS ? `${head}: te sobran ${fmt(gap, decimals)}.` : `${head}: te faltan ${fmt(-gap, decimals)}.`;
+  return real >= -EPS ? `${head}: ${spareVerb(gap, true)} ${fmt(gap, decimals)}.` : `${head}: ${spareVerb(gap, false)} ${fmt(-gap, decimals)}.`;
+}
+
+/** "te sobra" / "te falta" con 1 ("te falta 1 día", "te sobra 1 llamado"); "te sobran" / "te faltan" con el resto. */
+export function spareVerb(gap, surplus) {
+  const one = Math.abs(Math.abs(gap) - 1) < 0.005;
+  return surplus ? (one ? 'te sobra' : 'te sobran') : one ? 'te falta' : 'te faltan';
 }
 
 // ------------------------------------------------------- textos generales

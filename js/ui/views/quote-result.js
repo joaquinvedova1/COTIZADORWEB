@@ -131,6 +131,7 @@ import {
   roundingText,
   roundingWarning,
   spareText,
+  spareVerb,
   joinList,
 } from '../result-text.js';
 
@@ -360,7 +361,7 @@ function cushionFor(v, be, opts = {}) {
   if (Math.abs(gap) < 1e-6) return `${estimate} estás justo en el mínimo.`;
   return gap > 0
     ? `${estimate} tenés un colchón de ${quantityText(gap, v.r)} sobre el mínimo.`
-    : `${estimate} te faltan ${quantityText(-gap, v.r)} para no perder plata.`;
+    : `${estimate} ${spareVerb(gap, false)} ${quantityText(-gap, v.r)} para no perder plata.`;
 }
 
 // Días en superficie (dayDecimals, resultDays, activeDaysText, signedDays,
@@ -2594,7 +2595,7 @@ function renderPriceComposition(v) {
 /** Apropiación por unidad (suma la tarifa neta) y total del contrato. */
 function renderAppropriation(v) {
   const c = v.composition;
-  const header = { title: 'Reparto de la tarifa (apropiación)', subtitle: `Cuánto de cada ${v.unitLabel} cobrado va a cada rubro, a impuestos y a ganancia.`, className: 'qr-card', id: v.ids.appropriation, actions: c.trace ? [traceBtn(c.trace)] : [] };
+  const header = { title: 'Reparto de la tarifa (apropiación)', subtitle: `Cuánto de lo que cobrás por cada ${v.unitLabel} va a cada rubro, a impuestos y a ganancia.`, className: 'qr-card', id: v.ids.appropriation, actions: c.trace ? [traceBtn(c.trace)] : [] };
   if (!c.available) return card(header, emptyState(c.reason));
   const pu = c.perUnit;
   const showList = hasValue(pu.discountFactor) && Math.abs(pu.discountFactor - 1) > 1e-9 && hasValue(pu.listRate);

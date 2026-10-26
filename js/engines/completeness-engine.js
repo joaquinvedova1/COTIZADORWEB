@@ -368,7 +368,7 @@ export function evaluateCompleteness(quote = {}) {
       const where = person ? `${fmtN(crew)} ${crew === 1 ? 'puesto' : 'puestos'} en "${stepLabelOf('labor')}"` : `${fmtN(crew)} ${crew === 1 ? 'equipo' : 'equipos'} en "${stepLabelOf('equipment')}"`;
       if (crew > 0 && n > crew + 1e-9) {
         const item = rule('billed_resources_crew', person ? 'Personas facturadas y personal' : 'Equipos facturados y equipos', 'modality', 2, 'missing',
-          `Facturás ${fmtN(n)} ${who} en paralelo y hay ${where}: la tarifa se reparte entre más ${person ? 'personas' : 'equipos'} de los que pagás y sale baja. Si son ${fmtN(n)}, cargalos; si no, corregí cuántos facturás.`);
+          `Facturás ${fmtN(n)} ${who} en paralelo y hay ${where}: la tarifa se reparte entre más ${person ? 'personas de las' : 'equipos de los'} que pagás y sale baja. Si son ${fmtN(n)}, cargalos; si no, corregí cuántos facturás.`);
         item.focus = 'activity.billedResources';
         items.push(item);
       } else if (crew > 0 && n < crew - 1e-9) {
@@ -559,7 +559,7 @@ export function evaluateCompleteness(quote = {}) {
       const covered = (ppp * normal + perMonth * ppp) * jm + perDay * D;
       // P1 CIERRE (H-10): un puesto con "La cobertura está prevista" vigente no se vuelve a marcar.
       if (laborCoverageHolds(quote, l)) return null;
-      return required > covered + 1e-6 ? { l, index, ppp, normal, extra: perDay * D + perMonth * ppp, required, covered } : null;
+      return required > covered + 1e-6 ? { l, index, ppp, normal, jm, extra: perDay * D + perMonth * ppp * jm, required, covered } : null;
     }).filter(Boolean);
     if (short.length) {
       // VALIDACIONES-01 (V-4; SIM-01, RFQ-12): si lo cargado cubre menos de la mitad de las horas que pide la
@@ -568,10 +568,11 @@ export function evaluateCompleteness(quote = {}) {
       const severe = short.filter((x) => x.covered < 0.5 * x.required - 1e-9);
       const first = severe[0] || short[0];
       const name = (typeof first.l.role === 'string' && first.l.role.trim()) || 'Personal';
-      const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
+      const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${act.jobHorizon ? ` × ${fmt(first.jm)} ${Math.abs(first.jm - 1) < 1e-9 ? 'mes' : 'meses'} del trabajo` : ''}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
+      const period = act.jobHorizon ? 'en todo el trabajo' : 'en el mes';
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const item = rule('labor_hours', 'Horas del personal', 'labor', severe.length ? 2 : 1, severe.length ? 'missing' : 'warning',
-        `${severe.length ? 'Lo cargado cubre menos de la mitad de las horas que pide la operación. ' : ''}${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo. Puede estar bien: si el puesto no acompaña todas las horas de la operación (por ejemplo, está compartido o supervisa) o esas horas ya están en el sueldo, tocá "La cobertura está prevista" en el puesto: no hace falta sumar personas.${others}`);
+        `${severe.length ? 'Lo cargado cubre menos de la mitad de las horas que pide la operación. ' : ''}${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición ${period}; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo. Puede estar bien: si el puesto no acompaña todas las horas de la operación (por ejemplo, está compartido o supervisa) o esas horas ya están en el sueldo, tocá "La cobertura está prevista" en el puesto: no hace falta sumar personas.${others}`);
       if (severe.length) item.critical = true;
       item.focus = `labor.${first.index}.peoplePerPosition`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal', required: x.required, covered: x.covered }));

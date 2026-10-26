@@ -19,7 +19,7 @@ Pedido del dueño (Issue #5 de RATEOS-AUDIT): las 11 categorías confundían, fi
 #### Cambiado
 - **Primer paso: «¿Cómo lo cobrás?» en lugar de «¿Qué tipo de servicio es?».** Buscador agrupado (Tiempo · Por persona o equipo · Transporte · Cantidad · Llamados y trabajos · Unidades propias), con sinónimos («hora técnica» → hora-hombre) y sin filtros por categoría; unidad propia con cualquier nombre y plural correcto («camiones reparados»). Las cotizaciones viejas conservan su tipo.
 - **«Cuánto vas a hacer»:** la actividad se carga en la unidad del servicio (válvulas, horas-hombre, viajes); el rendimiento por día de trabajo o por hora (con horas productivas); los días se calculan y se muestran.
-- **Llamados sólo a demanda:** «¿Trabajás a demanda?» abre llamados por mes, duración igual o distinta y mínimo por llamado. Al contestar «No», se borran el perfil, los llamados y el mínimo, con aviso.
+- **Llamados sólo a demanda:** «¿Trabajás a demanda?» abre llamados por mes, duración igual o distinta y mínimo por llamado. Al contestar «No», el perfil, los llamados y el mínimo dejan de contar y se apartan (vuelven con «Sí»), con aviso.
 - **Cambiar la unidad** muestra cada valor antes y después (tarifa, cantidades, materiales con su monto, costos por salida) y sólo convierte con factor exacto.
 - **Listas, Inicio y plantillas** dicen cómo se cobra cada cotización («Por hora-hombre · a demanda», «Precio total del trabajo»).
 
@@ -33,7 +33,8 @@ Pedido del dueño (Issue #5 de RATEOS-AUDIT): las 11 categorías confundían, fi
 #### Corregido (SIM-02 y revisión de código)
 - Materiales «por unidad facturada» y costos «por trabajo» ya no se reinterpretan al cambiar la unidad (P0).
 - Sin tipo de servicio, los controles de equipos, personal y relevos salen de la unidad (viaje, km, ton-km, hora-equipo) y de 24 h por día.
-- «No usa combustible» deshabilita el consumo en ruta; «equipo en espera sin definir» sólo si la espera aplica; sin «Por trabajo» duplicado en Materiales ni tramos por días con otra unidad; textos y plurales.
+- «No usa combustible» deshabilita el consumo en ruta; «equipo en espera sin definir» sólo si la espera aplica; sin «Por trabajo» duplicado en Materiales ni tramos por días con otra unidad; textos y plurales («te sobra 1 llamado», «falta 1 dato»).
+- Con precio total, el aviso de horas del personal habla de todo el trabajo («594 h de cobertura por posición en todo el trabajo; lo cargado cubre 528 h (1 persona × 176 h normales por mes × 3 meses del trabajo)») y no «en el mes».
 
 ### Resultado y PDF (UXR)
 

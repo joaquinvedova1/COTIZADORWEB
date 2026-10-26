@@ -1057,7 +1057,7 @@ export function render(container, ctx) {
         return h(
           'div',
           { class: ['qe-ext-checklist', pending.length ? 'has-pending' : 'is-complete'] },
-          h('p', { class: 'small' }, pending.length ? `Para que el costo del proveedor quede completo faltan ${pending.length} ${pending.length === 1 ? 'dato' : 'datos'}:` : 'Datos del proveedor completos.'),
+          h('p', { class: 'small' }, pending.length ? `Para que el costo del proveedor quede completo ${pending.length === 1 ? 'falta 1 dato' : `faltan ${pending.length} datos`}:` : 'Datos del proveedor completos.'),
           h('ul', { class: 'qe-chips' }, ...items.map((x) => h('li', { class: ['qe-chip', x.ok ? 'is-ok' : 'is-pending'] }, `${x.ok ? '✓' : '•'} ${x.label}${x.value ? `: ${x.value}` : ''}`))),
         );
       }, { tag: 'div' }),

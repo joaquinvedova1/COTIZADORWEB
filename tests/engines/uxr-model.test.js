@@ -157,6 +157,14 @@ describe('Precio total del trabajo (obra de 3 meses)', () => {
     });
   }
 
+  test('horas del personal: el aviso cuenta y dice las horas de todo el trabajo (no "en el mes")', () => {
+    const q = job({ contractMonths: 3, horizon: 'job', perMonth: 1 });
+    q.activity.hoursPerActiveDay = 9; // 66 días × 9 h = 594 h; 1 persona × 176 h × 3 meses = 528 h
+    const item = run(q).completeness.pending.find((p) => p.id === 'labor_hours');
+    assert.ok(item, 'falta el aviso de horas');
+    assert.match(item.message, /594 h de cobertura por posición en todo el trabajo; lo cargado cubre 528 h \(1 persona × 176 h normales por mes × 3 meses del trabajo\)/);
+  });
+
   test('sin el horizonte, una cotización "por trabajo" calcula como siempre', () => {
     const a = run(job({ contractMonths: 12, perMonth: 1 / 3 }));
     const b = structuredClone(job({ contractMonths: 12, perMonth: 1 / 3 }));
