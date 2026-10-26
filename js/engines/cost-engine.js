@@ -48,6 +48,7 @@ import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engi
 import { billingUnitOf } from '../domain/billing-units.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { formatMoney, formatNumber } from '../core/format.js';
+import { minimumPerActivation } from './commercial-rules-engine.js';
 
 /**
  * Días de trabajo que lleva facturar una cantidad (PLAN-2026-009). UNIDAD DE
@@ -59,14 +60,14 @@ import { formatMoney, formatNumber } from '../core/format.js';
  *   por evento (llamado, trabajo, hito): llamados = cantidad / hitos por trabajo (1 si no es por hito)
  *                              días     = llamados × días por llamado (o por trabajo)
  */
-export function activeDaysForQuantity({ kind, quantity, unitsPerActiveDay, unitsPerActivation, daysPerActivation, minimumCallUnits = 0 }) {
+export function activeDaysForQuantity({ kind, quantity, unitsPerActiveDay, unitsPerActivation, daysPerActivation, minimumCallUnits = 0, activationProfile = null }) {
   const Q = nonNegative(quantity);
   const dpa = nonNegative(daysPerActivation) > 0 ? nonNegative(daysPerActivation) : 1;
   if (kind === 'event') {
     const upa = nonNegative(unitsPerActivation) > 0 ? nonNegative(unitsPerActivation) : 1;
     return (Q / upa) * dpa;
   }
-  const perActivation = Math.max(dpa * nonNegative(unitsPerActiveDay), nonNegative(minimumCallUnits));
+  const perActivation = minimumPerActivation(dpa * nonNegative(unitsPerActiveDay), nonNegative(minimumCallUnits), activationProfile);
   return perActivation > 0 ? (Q / perActivation) * dpa : 0;
 }
 
@@ -84,7 +85,10 @@ export function normalizeActivity(quote = {}) {
   // trabajo se derivan (PLAN-2026-009).
   const unit = billingUnitOf(quote);
   const byQuantity = unit.kind === 'quantity' || unit.kind === 'event';
-  const billableQuantityPerMonth = byQuantity ? nonNegative(a.billableQuantityPerMonth) : null;
+  // Precio total del trabajo (UXR, `billingHorizon: 'job'`, sólo $ global o por hito): la actividad es UN
+  // trabajo completo, no un mes (los fijos se cuentan por los meses que dura, como siempre con D > disponibles).
+  const jobHorizon = quote.billingHorizon === 'job' && (unit.id === 'job' || unit.id === 'milestone');
+  const billableQuantityPerMonth = byQuantity ? (jobHorizon ? (unit.id === 'milestone' && nonNegative(a.unitsPerActivation) > 0 ? nonNegative(a.unitsPerActivation) : 1) : nonNegative(a.billableQuantityPerMonth)) : null;
   const unitsPerActiveDay = unit.kind === 'quantity' ? nonNegative(a.unitsPerActiveDay) : null;
   const unitsPerActivation = unit.kind === 'event' ? (unit.id === 'milestone' && nonNegative(a.unitsPerActivation) > 0 ? nonNegative(a.unitsPerActivation) : 1) : null;
   const activeDaysPerMonth = byQuantity
@@ -95,6 +99,7 @@ export function normalizeActivity(quote = {}) {
       unitsPerActivation,
       daysPerActivation,
       minimumCallUnits: quote.rules ? quote.rules.minimumCallUnits : 0,
+      activationProfile: Array.isArray(a.activationProfile) ? a.activationProfile : null,
     })
     : nonNegative(a.activeDaysPerMonth);
   return {
@@ -113,7 +118,41 @@ export function normalizeActivity(quote = {}) {
     utilizationPct: availableDaysPerMonth > 0 ? (activeDaysPerMonth / availableDaysPerMonth) * 100 : null,
     // PLAN-2026-011: cada salida se cuenta completa (sólo los costos por salida).
     fullActivations: a.fullActivations === true,
+    // UXR (opcionales; ausentes = como siempre): llamados de distinta duración, recursos facturados en
+    // paralelo y precio total del trabajo.
+    activationProfile: Array.isArray(a.activationProfile) ? a.activationProfile : null,
+    // Sólo con una unidad por persona o por equipo (SIM-02: al volver a "hora" el número queda guardado, sin efecto).
+    billedResources: (a.billedResourceKind === 'person' || a.billedResourceKind === 'equipment') && nonNegative(a.billedResources) > 0 ? nonNegative(a.billedResources) : 1,
+    jobHorizon,
+    jobMonths: jobHorizon ? Math.max(1, activeDaysPerMonth / availableDaysPerMonth) : null,
   };
+}
+
+/**
+ * Unidades de la tarifa por día de trabajo (o por mes, con abono) para los consumos "por unidad facturada"
+ * (UXR: un material por camión reparado, por válvula, por hora-hombre):
+ *   cantidad  rendimiento (unidades por día de trabajo; sin rendimiento, cantidad ÷ días)
+ *   hora      horas por día × personas o equipos facturados
+ *   día       personas o equipos facturados
+ *   evento    unidades por llamado ÷ días por llamado (1 trabajo o llamado en sus días)
+ *   mes       personas o equipos facturados, por mes (un consumo fijo por abono)
+ * Son unidades trabajadas (sin el mínimo por llamado: el mínimo se cobra, no se consume).
+ * @returns {{ perActiveDay: number, perMonth: number }}
+ */
+export function billedUnitsRate(activity = {}) {
+  const n = nonNegative(activity.billedResources) > 0 ? nonNegative(activity.billedResources) : 1;
+  switch (activity.unitKind) {
+    case 'quantity': {
+      const r = nonNegative(activity.unitsPerActiveDay);
+      const D = nonNegative(activity.activeDaysPerMonth);
+      return { perActiveDay: r > 0 ? r : D > 0 ? nonNegative(activity.billableQuantityPerMonth) / D : 0, perMonth: 0 };
+    }
+    case 'hour': return { perActiveDay: nonNegative(activity.hoursPerActiveDay) * n, perMonth: 0 };
+    case 'day': return { perActiveDay: n, perMonth: 0 };
+    case 'month': return { perActiveDay: 0, perMonth: n };
+    case 'event': return { perActiveDay: safeDivide(nonNegative(activity.unitsPerActivation) || 1, nonNegative(activity.daysPerActivation), 0), perMonth: 0 };
+    default: return { perActiveDay: 0, perMonth: 0 };
+  }
 }
 
 /** Porcentaje total de contingencia (general + ítems de riesgo habilitados). */
@@ -233,7 +272,9 @@ export function buildCostModel(quote = {}) {
       tripsPerActivation: oneWayTripsPerActivation,
       // Viajes completos de la ruta (ECO-01): para un proveedor que cobra por viaje ida y vuelta.
       fullTripsPerActivation: logistics.notApplicable ? 0 : logistics.tripsPerActivation,
-      contractMonths: quote.contractMonths,
+      contractMonths: activity.jobHorizon ? activity.jobMonths : quote.contractMonths,
+      activationProfile: activity.activationProfile,
+      activationProfileKind: activity.unitKind,
       fuelPricePerLiter,
       fuelPaidByUs,
       conversion: f,
@@ -430,6 +471,7 @@ export function buildCostModel(quote = {}) {
   });
   const materials = computeMaterials(materialInput, {
     daysPerActivation: activity.daysPerActivation,
+    billedUnits: billedUnitsRate(activity),
   });
   materials.lines.forEach((m, i) => {
     lines.push({

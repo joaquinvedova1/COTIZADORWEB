@@ -43,7 +43,7 @@ function base({ F = 30000000, v = 1000000, unit = 'day', serviceType = 'configur
   q.activity.availableDaysPerMonth = 30;
   q.activity.daysPerActivation = 1;
   q.pricingMode = rate === null ? 'known_activity' : 'known_rate';
-  q.pricing = { ...q.pricing, knownRate: rate === null ? 0 : rate, targetMarginPct: margin, roundingStep: 0, offeredRateOverride: null };
+  q.pricing = { ...q.pricing, knownRate: rate === null ? 0 : rate, targetMarginPct: margin, roundingMode: 'step', roundingStep: 0, offeredRateOverride: null };
   return q;
 }
 
@@ -278,19 +278,19 @@ describe('motor: cantidad facturable × precio por unidad', () => {
     assert.equal(negative.kpis.activeDays, 0);
     const tooMuch = computeQuote(cases[4]);
     close(tooMuch.kpis.activeDays, 200);
-    assert.ok(tooMuch.issues.some((x) => x.path === 'activity.billableQuantityPerMonth' && x.severity === 'warning'));
+    const multi = tooMuch.completeness.items.find((x) => x.id === 'multi_month');
+    assert.equal(multi.severity, 'critical');
+    assert.equal(multi.focus, 'activity.billableQuantityPerMonth');
   });
 
-  test('avisos de la unidad: unidad propia sin nombre y unidad no habitual para el tipo de servicio', () => {
+  test('avisos de la unidad: unidad propia sin nombre; la unidad ya no depende del tipo de servicio (UXR)', () => {
     const custom = computeQuote(byQuantity({ unit: 'custom' }, { quantity: 10, perDay: 1 }));
     assert.ok(custom.issues.some((x) => x.path === 'unitName'));
     const legacy = base({ unit: 'day', serviceType: 'per_unit', rate: 4000000 });
     legacy.activity.activeDaysPerMonth = 10;
     const r = computeQuote(legacy);
-    const warn = r.issues.find((x) => x.path === 'unit');
-    assert.ok(warn, 'por unidad producida cobrando $/día avisa');
-    assert.match(warn.message, /\$\/unidad/);
-    // …pero calcula igual que siempre.
+    assert.equal(r.issues.some((x) => x.path === 'unit'), false, 'cualquier unidad del catálogo se puede elegir: sin "se suele cobrar en…"');
+    // …y calcula igual que siempre.
     close(r.kpis.breakEvenDays, 10, 1e-4);
   });
 

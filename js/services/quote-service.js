@@ -10,6 +10,7 @@ import { computeQuote, summarizeQuote } from '../engines/quote-engine.js';
 import { createEmptyQuote, createQuoteFromTemplate } from '../domain/quote-factory.js';
 import { DEMO_IDS, demoHydroCraneQuote } from '../domain/demo-data.js';
 import { ACTIVE_QUOTE_STATUSES, SERVICE_TYPES } from '../domain/catalogs.js';
+import { impliesSending, isSendingStatus, isUnreliableSummary, riskSummary, sendCheck } from '../domain/quote-risk.js';
 import { logger } from '../core/logger.js';
 import { isFiniteNumber } from '../core/money.js';
 
@@ -22,8 +23,20 @@ function safeSummary(quote, settings) {
     return summarizeQuote(quote, { settings });
   } catch (error) {
     logger.warn('No se pudo calcular una cotización', { name: error && error.name });
-    return { error: true, atRisk: true, belowFloor: false, incomplete: true, revenue: null, totalCost: null, marginPct: null, completenessPct: 0, issuesCount: 1 };
+    return { error: true, atRisk: true, belowFloor: false, incomplete: true, revenue: null, totalCost: null, marginPct: null, completenessPct: 0, issuesCount: 1, unreliable: false, unreliableLabels: [], criticalLabels: [] };
   }
+}
+
+/**
+ * Error de un guardado que la marcaría como enviada con un resultado NO CONFIABLE o que no se puede
+ * calcular (ECO-02 R1). Lleva el `sendCheck()` (para el aviso) y el estado guardado (para volver a él).
+ */
+function sendBlockedError(check, previousStatus) {
+  const error = new Error('send_blocked');
+  error.code = 'send_blocked';
+  error.check = check;
+  error.previousStatus = typeof previousStatus === 'string' && previousStatus ? previousStatus : 'draft';
+  return error;
 }
 
 /** serviceType seguro para eventos internos (sólo valores del catálogo). */
@@ -31,24 +44,36 @@ function eventServiceType(serviceType) {
   return SERVICE_TYPES.some((t) => t.id === serviceType) ? serviceType : 'unknown';
 }
 
+/** true si el resumen dice que el resultado NO ES CONFIABLE (ECO-01/02): sus números no son reales. */
+const isUnreliable = (i) => isUnreliableSummary(i.summary);
+
 /**
  * Indicadores de un conjunto de cotizaciones ({ quote, summary } de
  * listQuotes()). Única regla para Inicio: activas = borrador, enviada o
  * ganada; margen promedio sólo sobre márgenes finitos (sin márgenes → null,
  * nunca NaN); riesgo y bajo piso según el resumen del motor.
+ * Una cotización con resultado NO CONFIABLE (ECO-02) cuenta como activa y en
+ * riesgo, pero sus montos no entran en el valor cotizado, el margen promedio
+ * ni "bajo piso": no son reales (`unreliableCount` dice cuántas quedan afuera).
  * @param {{ quote: object, summary: object }[]} items
  */
 export function indicatorsFor(items) {
   const list = Array.isArray(items) ? items : [];
   const active = list.filter((i) => i && i.quote && ACTIVE_QUOTE_STATUSES.includes(i.quote.status));
-  const margins = active.map((i) => i.summary && i.summary.marginPct).filter(isFiniteNumber);
+  const reliable = active.filter((i) => !isUnreliable(i));
+  const margins = reliable.map((i) => i.summary && i.summary.marginPct).filter(isFiniteNumber);
   return {
     totalCount: list.length,
     activeCount: active.length,
-    totalQuotedMonthly: active.reduce((s, i) => s + (i.summary && isFiniteNumber(i.summary.revenue) ? i.summary.revenue : 0), 0),
+    // Precio total del trabajo: su promedio por mes (monthlyRevenue), no el total de la obra (SIM-02 S3).
+    totalQuotedMonthly: reliable.reduce((s, i) => {
+      const v = i.summary && (isFiniteNumber(i.summary.monthlyRevenue) ? i.summary.monthlyRevenue : i.summary.revenue);
+      return s + (isFiniteNumber(v) ? v : 0);
+    }, 0),
     averageMarginPct: margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : null,
-    atRiskCount: active.filter((i) => i.summary && i.summary.atRisk).length,
-    belowFloorCount: active.filter((i) => i.summary && i.summary.belowFloor).length,
+    atRiskCount: active.filter((i) => i.summary && (i.summary.atRisk || isUnreliable(i))).length,
+    belowFloorCount: reliable.filter((i) => i.summary && i.summary.belowFloor).length,
+    unreliableCount: active.filter(isUnreliable).length,
     items: list,
   };
 }
@@ -114,8 +139,28 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       return saved;
     },
 
-    /** Guarda la cotización completa (reemplazo). */
+    /**
+     * Guarda la cotización completa (reemplazo).
+     * ECO-02 R1: la regla de "Enviada" también vale acá, no sólo en las pantallas. Si el guardado la pasa
+     * a Enviada (o a Ganada sin haber estado enviada) respecto de lo GUARDADO y su resultado NO ES
+     * CONFIABLE o no se puede calcular, se rechaza con `send_blocked` y no se guarda nada. Los demás
+     * cambios de estado, y los guardados de una cotización ya enviada, ganada o perdida, pasan igual. Los
+     * pendientes críticos los confirma la pantalla. El respaldo importado no pasa por acá (es historia).
+     */
     async saveQuote(quote) {
+      if (quote && isSendingStatus(quote.status)) {
+        const stored = quote.id ? await repository.getQuote(quote.id) : null;
+        const from = stored ? stored.status : undefined;
+        if (impliesSending(from, quote.status)) {
+          let check;
+          try {
+            check = sendCheck(riskSummary(computeQuote(quote, { settings: await settings() }).completeness));
+          } catch {
+            check = sendCheck(null);
+          }
+          if (!check.allowed) throw sendBlockedError(check, from);
+        }
+      }
       return repository.saveQuote(quote);
     },
 

@@ -38,6 +38,9 @@ export function emptyProductFinance() {
 export function createEmptyProduct({ organizationId = null, settings = {}, now = new Date().toISOString(), id = createId() } = {}) {
   const currency = companyCurrency(settings);
   const margin = Number.isFinite(settings.defaultTargetMarginPct) ? settings.defaultTargetMarginPct : null;
+  // P1 CIERRE (AUD-T1 H-13): el margen de una configuración de EJEMPLO queda marcado hasta que la
+  // persona lo cambie o lo confirme. El valor no cambia; los productos guardados antes no tienen la marca.
+  const marginFromExample = settings.illustrative === true && margin !== null;
   return {
     id,
     organizationId,
@@ -54,7 +57,7 @@ export function createEmptyProduct({ organizationId = null, settings = {}, now =
     labor: [],
     equipment: [],
     fixedCosts: [],
-    pricing: { targetMarginPct: margin, roundingStep: 0, vatPct: null, currentPrice: null },
+    pricing: { targetMarginPct: margin, roundingStep: 0, vatPct: null, currentPrice: null, ...(marginFromExample ? { marginFromExample: true } : {}) },
     // Financiación (PLAN-2026-014, LAB-D3): sin plazos ni tasa hasta que la empresa los cargue.
     finance: emptyProductFinance(),
     billingTaxes: billingTaxesForNewQuote(settings),
@@ -191,6 +194,8 @@ export function exampleProduct({ organizationId = null, settings = {}, now = new
     ...extra,
   });
   p.name = 'Chipá (ejemplo)';
+  // El ejemplo ya está marcado entero (ILUSTRATIVO): su margen no lleva una marca aparte.
+  delete p.pricing.marginFromExample;
   p.saleUnit = 'unidad';
   p.unitsPerBatch = 60;
   p.lossPct = 5;

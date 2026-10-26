@@ -154,7 +154,11 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
     assert.equal(item(evaluateCompleteness(noLife), 'equipment_cost').status, 'missing');
     const none = completeQuote();
     none.equipment = [];
+    none.serviceType = 'equipment_with_operator';
     assert.equal(item(evaluateCompleteness(none), 'equipment_cost').status, 'missing');
+    // UXR: "a demanda" (on-call) no implica equipos: un técnico de guardia sin equipos no tiene ese pendiente.
+    none.serviceType = 'on_call';
+    assert.equal(item(evaluateCompleteness(none), 'equipment_cost'), undefined);
   });
 
   test('detecta falta de logística (distancia o cómo se llega); "sin traslados" la da por buena', () => {

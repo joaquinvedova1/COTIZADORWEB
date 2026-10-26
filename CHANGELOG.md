@@ -12,9 +12,402 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+### Cotizar sin «tipo de servicio» (UXR, PLAN-2026-032)
+
+Pedido del dueño (Issue #5 de RATEOS-AUDIT): las 11 categorías confundían, filtraban unidades y hacían preguntas de llamados que no aplicaban. **Ninguna fórmula existente cambia** (golden 39/39, Test Lab y el mismo caso da las mismas cifras en la versión anterior); se agregan modalidades opcionales (CALCULATION_RULES §12.2). **Esquema 10, sin migración**: los campos nuevos son opcionales y, sin ellos, todo calcula igual (DATA_MODEL §5).
+
+#### Cambiado
+- **Primer paso: «¿Cómo lo cobrás?» en lugar de «¿Qué tipo de servicio es?».** Buscador agrupado (Tiempo · Por persona o equipo · Transporte · Cantidad · Llamados y trabajos · Unidades propias), con sinónimos («hora técnica» → hora-hombre) y sin filtros por categoría; unidad propia con cualquier nombre y plural correcto («camiones reparados»). Las cotizaciones viejas conservan su tipo.
+- **«Cuánto vas a hacer»:** la actividad se carga en la unidad del servicio (válvulas, horas-hombre, viajes); el rendimiento por día de trabajo o por hora (con horas productivas); los días se calculan y se muestran.
+- **Llamados sólo a demanda:** «¿Trabajás a demanda?» abre llamados por mes, duración igual o distinta y mínimo por llamado. Al contestar «No», el perfil, los llamados y el mínimo dejan de contar y se apartan (vuelven con «Sí»), con aviso.
+- **Cambiar la unidad** muestra cada valor antes y después (tarifa, cantidades, materiales con su monto, costos por salida) y sólo convierte con factor exacto.
+- **Listas, Inicio y plantillas** dicen cómo se cobra cada cotización («Por hora-hombre · a demanda», «Precio total del trabajo»).
+
+#### Agregado
+- **Personas o equipos facturados en paralelo** (hora-hombre, jornal, hora-equipo, equipo por mes): `activity.billedResourceKind` y `activity.billedResources`. Crítico si se facturan más personas o equipos que los cargados.
+- **Llamados de distinta duración** (`activity.activationProfile`): el mínimo se aplica a cada llamado (8 llamados de 2 a 8 h con mínimo 4 h: 42 h, no 36).
+- **Precio total del trabajo** (`quote.billingHorizon = 'job'`): días de todo el trabajo, fijos por los meses reales, textos «en todo el trabajo»; Inicio divide por los meses del trabajo. El descuento por continuidad usa la duración del trabajo.
+- **Materiales por unidad facturada** (`basis: 'per_billed_unit'`): 2 juntas por válvula, repuestos por camión.
+- **Combustible duplicado confirmable** («El consumo por hora es detenido», `equipment[].fuelWhileStopped`) y aviso en el paso del campo; por km, botón «Usar N viajes por salida» cuando la ruta recorre menos km que los facturados.
+
+#### Corregido (SIM-02 y revisión de código)
+- Materiales «por unidad facturada» y costos «por trabajo» ya no se reinterpretan al cambiar la unidad (P0).
+- Sin tipo de servicio, los controles de equipos, personal y relevos salen de la unidad (viaje, km, ton-km, hora-equipo) y de 24 h por día.
+- «No usa combustible» deshabilita el consumo en ruta; «equipo en espera sin definir» sólo si la espera aplica; sin «Por trabajo» duplicado en Materiales ni tramos por días con otra unidad; textos y plurales («te sobra 1 llamado», «falta 1 dato»).
+- Con precio total, el aviso de horas del personal habla de todo el trabajo («594 h de cobertura por posición en todo el trabajo; lo cargado cubre 528 h (1 persona × 176 h normales por mes × 3 meses del trabajo)») y no «en el mes».
+
+### Resultado y PDF (UXR)
+
+#### Cambiado
+- **Ficha de siete renglones arriba del Resultado** (Vendés, Tarifa con la piso, Facturás, Te cuesta, Ganás, Actividad y Para no perder) en lugar de los cuatro números y "¿Cuánto tengo que trabajar?". El margen usa la misma palabra y el mismo color que el resumen en vivo ("cumple tu objetivo" con margen ≥ objetivo). "Para no perder" va en la unidad de cobro (horas, horas-hombre, m³…), no en días. **Ninguna cifra cambia.**
+- **Precio total del trabajo:** "del trabajo" (≈ N meses) en la ficha, la cuenta, las trazas y el detalle, sin "total del contrato" ni matriz por trabajos del mes.
+- **Hora-hombre, jornal, equipo-mes:** la unidad con su nombre y la dotación a la vista ("880 horas-hombre = 4 personas × 22 días × 10 h").
+- **Precio total del trabajo en el análisis (SIM-02 S3 P2-2):** sin el comparador de modelos mensuales (abono, mínimo mensual, paquete), sin "actividad ± 20 %" ni equilibrio, utilización o trabajos por mes en la sensibilidad y los escenarios (mueven costos y condiciones); montos "del trabajo".
+- **A demanda ($/hora o $/día):** la actividad y la cuenta se leen en llamados ("8 llamados por mes (4 de 2 h, 3 de 6 h y 1 de 12 h) = 38 horas trabajadas · se facturan 46 horas por el mínimo de 4 h por llamado"; sin duraciones distintas, "N llamados × X h en promedio"); el mínimo para no perder va en llamados enteros (cada llamado factura al menos el mínimo) y la matriz, la sensibilidad y los escenarios también hablan de llamados. "Dotación: 5 personas para 4 puestos (con relevo)" cuando hay relevo.
+- **Impresión:** "Imprimir resumen (1 hoja)" y "Imprimir análisis completo" (la primera hoja es la ficha y la cuenta); A4 con márgenes de 12 mm y "Uso interno" en el encabezado.
+- "Profundizá" pasa a "Detalle del cálculo".
+
+#### Corregido
+- Doble paréntesis en "(la sugerida está redondeada … (automático: …))".
+- La nota de renglones aparte de "La cuenta del mes" decía que la espera iba en otra cotización aunque estaba incluida en la misma cuenta. Ahora aparece sólo si la cuenta ya cobra la espera o horas extra ("La espera del equipo ya está en esta cuenta: no la cotices de nuevo como renglón aparte"), sin "costo financiero" (SIM-02).
+- La nota del mínimo por llamado "promedio" ya no aparece cuando están cargadas las duraciones de cada llamado (el mínimo se aplica a cada uno).
+- La tabla "Descuentos por cantidad de días" se mostraba sin descuentos cargados y marcaba en rojo "Pocos días: pierde plata" el tramo de la actividad estimada.
+- Las equivalencias ($ por hora, $ por día) dicen con qué horas por día (o qué cantidad) se calculan; con más de una persona, "$ por hora del equipo (2 personas)" y también "$ por hora-hombre" (SIM-02).
+
+## [0.9.0] - sin publicar (beta gratuita y UX-UNITS: PLAN-2026-027 a PLAN-2026-030)
+
+**RATEOS v0.9.0: beta abierta y gratuita.** Decisiones del dueño del 25/10: **una sola aplicación en la URL actual** (`https://joaquinvedova1.github.io/COTIZADORWEB/`), sin otro sitio ni otro enlace, y **cualquiera puede crear su cuenta** con email y contraseña, confirmar el correo y usar RATEOS con su propia empresa (aislada por RLS). Sale en **un solo merge y un solo deploy**: el PR #39 con base `main`, que contiene todo el PR #38 (beta gratuita), UX-UNITS y las validaciones críticas de la simulación SIM-01 (VALIDACIONES-01). El dominio de la app no cambia. La fecha se pone al publicarse.
+
+### Integración en la URL actual (PLAN-2026-030, 25/10)
+
+#### Cambiado
+- **Registro público con confirmación de email (beta abierta, decisión del dueño del 25/10)** (`FEATURES.publicSignup = true`, HD-03 / PLAN-2026-018). Necesita en Supabase un SMTP propio, "Confirm email" y "Allow new users to sign up" encendidos (`docs/BETA_PERIMETER.md` §2). Si el registro se cierra en Supabase, la app dice "En este momento no se pueden crear cuentas nuevas" y el ingreso sigue. (Durante la integración del 25/10 estuvo apagado unas horas; el dueño lo reabrió el mismo día.)
+- **Por cantidad, con más días de trabajo que disponibles** (por ejemplo 1.500 m³ a 20 m³ por día = 75 días en un mes de 30) se dice qué se calcula (un trabajo de más de un mes), como por día y por hora. Desde VALIDACIONES-01 lo dice el pendiente crítico «Trabajo de más de un mes» (V-1, abajo). El cálculo es el mismo.
+
+#### Corregido (simulación multiagente SIM-01, 25/10)
+- **«La cuenta del mes» con otros cargos** (espera, abono de disponibilidad, km…): cantidad × tarifa decía «= Facturación por día $ 5.920.000» y era el subtotal. Ahora dice «= Subtotal (cantidad × tarifa)» y la facturación del mes es el total del motor.
+- **Con mínimo por intervención**, la cuenta muestra lo trabajado antes del mínimo: «10 días × 5 h por día = 50 h trabajadas · el mínimo por intervención lleva la cantidad facturable a 80 horas». Antes «10 días × 5 h = 80 horas» no cerraba a la vista.
+- **«Cómo se cobra» con otros cargos** dice también la facturación total del mes, la misma del resumen en vivo. Antes mostraba sólo cantidad × tarifa y el resumen otro número.
+
+### Validaciones críticas antes de la beta abierta (VALIDACIONES-01, 25/10)
+
+Las 15 cotizaciones FAIL de la simulación SIM-01 tenían cifras correctas (un auditor independiente coincidió en las 43) pero dejaban pasar datos imposibles. **Ninguna fórmula cambia**: golden 39/39, las cifras de las 43 cotizaciones de SIM-01 y de un workspace real (en memoria) son las mismas; cambian la completitud, el estado y los textos.
+
+#### Cambiado
+- **V-1 · Trabajo de más de un mes:** con más días de trabajo que disponibles (fuera del abono mensual, que ya era NO CONFIABLE) es un pendiente **crítico** hasta que se confirme en "Cómo se cobra" ("Es un trabajo de más de un mes"). La confirmación queda atada a esos días (`activity.multiMonthConfirmed`, opcional): si cambian, se vuelve a preguntar. El aviso suelto del campo que decía lo mismo se quitó (fuera del abono), para no repetirlo cuatro veces en la pantalla.
+- **V-1 · Días de trabajo + días de espera que no entran en el mes** (por ejemplo 25 + 10 = 35 en un mes de 31): pendiente **crítico** «Días de trabajo y de espera» (antes, un aviso suelto). Días de espera sin tarifa fuera de on-call: «para revisar» (cuestan y no se cobran).
+- **V-2 · Tarifa conocida sin cantidad facturable** (por ejemplo, una tarifa por viaje cargada «por m³» sin m³): **NO CONFIABLE**. El equilibrio dice «falta la cantidad», no «revisá la tarifa».
+- **V-3 · Plazo de cobro vacío:** pendiente **crítico** (cambia el costo financiero; antes, «para revisar»). Si se cobra al contado, se carga 0.
+- **V-4 · Cobertura de personal:** si lo cargado cubre menos de la mitad de las horas que pide la operación, «Horas del personal» es **crítico**. "La cobertura está prevista" lo sigue resolviendo.
+- **V-5 · Estados:** con pendientes críticos **no se puede marcar como enviada** (antes se podía confirmando), igual que con un resultado NO CONFIABLE: en el Resultado, la lista, el editor y el servicio. El colchón del equilibrio no se muestra y la ganancia dice «Provisorio: hay N pendientes críticos».
+
+#### Agregado
+- **V-6 · Mínimo por llamado:** aviso de que se aplica al llamado promedio (con llamados más cortos que el mínimo, la facturación real es mayor), en «¿Te falta cargar algo?» y en «La cuenta del mes».
+- **V-7 · Una intervención o trabajo que dura más que el mes:** aviso de que se muestra la cuenta de UN MES; "Cómo se cobra" ya no sugiere contarla completa (contaría dos veces los costos).
+- **V-8 · Renglones aparte:** «La cuenta del mes» dice que la tarifa incluye todos los costos de la cotización y que los renglones que el cliente pida aparte van en otra cotización.
+
+### UX-UNITS: unidades compuestas, formularios más claros y un Resultado que se lee solo (PLAN-2026-030)
+
+Pedido del dueño del 24/10 y del Issue #5 de RATEOS-AUDIT. **Ninguna fórmula cambia**: golden 39/39, VAL-01 y los cinco casos del encargo dan lo mismo que K0 (`c5eca19`). Esquema del workspace 10, sin migración.
+
+#### Agregado
+- **Unidad de cobro "ARS / [unidad]"** en "Cómo se cobra": la moneda de la empresa a la vista y las mismas unidades habituales de cada tipo de servicio. Hasta 6 opciones van a la vista como botones de opción compactos; con más, en un selector, en vez de 7 a 11 tarjetas.
+- **Rendimiento compuesto**: `[número] [m³ | viajes | t… ▾] / [día de trabajo | hora ▾]`, sólo con pares válidos (`js/domain/unit-pairs.js`):
+  - por hora, × las horas productivas por día (en km, las horas de marcha: la velocidad no se factura). **Las horas no se suponen**: se piden, y en km se avisa si son todas las del día de trabajo;
+  - viaje ↔ m³ o t con la carga por viaje; kg ↔ t y metro ↔ km exactos.
+  - Cambiar el numerador o el denominador pide el número de nuevo: 20 m³ por día nunca pasan a ser 20 m³ por hora.
+- **Cantidad del mes en días de trabajo** (opcional): días × rendimiento = cantidad facturable.
+- **La cadena a la vista**: "200 m³ ÷ 20 m³ por día = 10 días de trabajo" y "200 m³ × $ 45.000 por m³ = $ 9.000.000 por mes", con los números del motor.
+- **"La cuenta del mes"** en el Resultado (y en el PDF): cantidad facturable × tarifa = facturación; menos impuestos sobre lo que facturás y el costo = ganancia. Con un resultado NO CONFIABLE lo dice en el título.
+- **Ayuda (i)** (`infoTip`, `addInfoTip`) para lo secundario: se abre con el mouse, un toque o el teclado, se anuncia (`role="status"`), se cierra con Esc o tocando afuera, no sale de la pantalla (en el celular se abre hacia arriba si la taparía el resumen) y no se imprime. Nunca para avisos críticos.
+- El aviso de un campo puede decirse en la forma en que se cargó (`data-issue-message`): "Cargá el rendimiento en km por hora", no "por día de trabajo".
+
+#### Cambiado
+- Una frase de ayuda por campo en "Cómo se cobra"; las explicaciones largas pasan a (i). 42 % menos palabras de ayuda a la vista en los cinco casos (1.069 → 621).
+- Resultado: la tarifa (sugerida o la tuya) es la cifra destacada, en el mismo orden. Las notas "no es un precio de mercado" y "Montos sin IVA" van en una sola línea.
+
+#### Corregido
+- El resumen en vivo dice «Falta completar el rendimiento en "Cómo se cobra"» cuando la cantidad del mes está cargada y el rendimiento no. Antes decía «Cargá los m³ por mes» aunque ya estuvieran.
+- Montos abreviados (resumen en vivo del celular, landing): debajo de $ 10 mil va la cifra completa («$ 1.519») y hasta $ 100 mil, con 1 decimal («$ 39,9 mil»). Antes una tarifa piso de $ 1.519 se leía «$ 2 mil», un 32 % más alta. Ya pasaba en K0.
+- **F4: al cambiar la unidad de cobro, la cantidad del mes y el rendimiento ya no se leen en la unidad nueva** (200 m³ por mes pasaban a ser 200 viajes). El diálogo de cambio de unidad, que ya cubría las tarifas, ahora también cubre las cantidades: convierte sólo con un factor exacto (kg ↔ t, metro ↔ km; día ↔ hora con las horas por día para las tarifas) o borra y pide cargar de nuevo. Una cantidad guardada de una unidad anterior tampoco se reusa.
+
+### Beta gratuita (PLAN-2026-027, PLAN-2026-028 y PLAN-2026-029)
+
+Lo que traía el PR #38 (que contiene todo el PR #37); llega a producción dentro del mismo deploy de 0.9.0.
+
+**Beta gratuita y feedback: problemas y sugerencias de las empresas (PLAN-2026-029, [docs/BETA_FEEDBACK.md](docs/BETA_FEEDBACK.md)).**
+- Decisión del dueño del 22/10: beta **gratuita y sin límites**. Reemplaza el esquema de créditos de prueba del 21/10, que nunca se aplicó ni se publicó.
+- Ninguna fórmula cambia: golden 39/39 y esquema del workspace 10.
+- La migración `20261022120000` **no está aplicada** en Supabase.
+
+#### Agregado
+- **"Ayudanos a mejorar RATEOS"** (`#/mejorar`), desde el menú de la cuenta: **"Reportar un problema"** y **"Sugerir una mejora"**.
+  - Un solo campo obligatorio por tipo; los detalles son opcionales y van plegados.
+  - Lleva la pantalla de una lista fija, sin ids, y la versión. Nunca datos económicos, ids ni capturas.
+  - "Comentarios de tu empresa" muestra el estado y la respuesta de RATEOS.
+  - Estados: Recibido, En revisión, Confirmado, Resuelto, No corresponde y Duplicado. En una sugerencia: "La tenemos en cuenta" y "Ya está disponible". Ninguno suma ni descuenta nada.
+- **Distintivo "Beta gratuita"** en el menú, que lleva a **"Acerca de la beta"**: agradece y explica, sin prometer beneficios.
+- **Invitación discreta después de imprimir o guardar el PDF** de una cotización. No es modal, aparece a lo sumo una vez cada 14 días y "Ahora no" la esconde 60.
+- **RATEOS ADMIN:** cola "Feedback de la beta" con filtros por estado y por tipo, clasificación, respuesta para la empresa, duplicados e historial (quién y cuándo).
+- **Base:**
+  - migración `20261022120000_rateos_beta_feedback.sql`, con tablas en `private`, RLS y sin grants;
+  - 4 RPC, con límites técnicos contra el spam;
+  - sin triggers ni lecturas del workspace;
+  - vuelta atrás en `supabase/rollback/`.
+- **Pruebas:**
+  - `supabase/tests/feedback_test.sql` (67 controles) y concurrencia real en un Postgres local SIMULADO (4 casos);
+  - `tests/services/feedback-service.test.js`;
+  - `tests/lab/e2e/beta-lab.mjs`, en escritorio y celular, incluye crear más de 10 cotizaciones sin ningún límite;
+  - control SEC-19 del Beta Security Gate, que además detecta restos de cuotas o créditos.
+
+#### Cambiado
+- **Completitud (auditoría PyME de la beta, P1-1 y P1-2).** Ninguna fórmula cambia. En el A/B, las cifras son iguales en 2196 cotizaciones.
+  - **Consumo en ruta en 0:** un equipo que va por sus propios medios, con km y "Consumo trasladándose" en 0, deja "Combustible" pendiente aunque consuma trabajando. Antes quedaba ✓ y la ruta no sumaba combustible.
+  - **Cargas sociales de ejemplo:** un puesto usado, sin convenio y con las cargas y horas genéricas, suma "Cargas sociales del personal" como pendiente para revisar (BORRADOR), igual que en productos (H-13).
+- **Insignia ILUSTRATIVO:** nombra la tasa de financiación de ejemplo. Antes decía "Incluye valores ILUSTRATIVOS: .".
+
+#### Corregido
+**Auditoría UX final antes del piloto (BETA-LANZ, SIMULADA):** recorrido de una empresa nueva en escritorio (1440 y 1024) y en celular (390, 360 y 320). Ninguna fórmula cambia.
+- **Recursos (P1):** guardar con un dato obligatorio vacío no parecía hacer nada, porque el aviso quedaba detrás del fondo del diálogo. Ahora el aviso aparece dentro del diálogo, junto a "Guardar", y el foco va al primer campo que falta. Cualquier aviso que aparezca con un diálogo abierto se muestra adentro.
+- **Valores de ejemplo en el Resultado:**
+  - un solo aviso nombra el combustible y la tasa de financiación de ejemplo, cada uno con su "Ir al campo" (antes la tasa sólo figuraba en el `title` de la insignia);
+  - el encabezado del PDF los nombra;
+  - el Inicio ya no los atribuye a plantillas.
+- **Invitación a comentar:** también aparece después del "Imprimir" de la cabecera. "Ahora no" devuelve el foco al Resultado.
+- **PDF:** la "Escalera de precios" ya no queda debajo del ejemplo de $ 100.
+- **Celular:** en el Resultado, los montos suben a la primera pantalla. Se ocultan el "Guardado" repetido y el nombre de la cotización en el subtítulo; un guardado con error sigue a la vista.
+- **Resumen en vivo:** sin costos cargados muestra "—" y dice qué falta, en vez de "$ 0" y "Cargá los días por mes". En productos, igual.
+- **Reconexión:** un borrador que la sincronización ya subió no reaparece como "Error al guardar" al reabrir la cotización o el producto. Con cambios sin subir o en conflicto, se recupera igual que antes.
+- **Cargas genéricas:** "Ir al campo" lleva a las cargas del puesto. Sin convenios cargados, el selector de convenio no tenía salida.
+- **RATEOS ADMIN:** "Duplicado de" ofrece los originales de todos los estados, también los resueltos, con el estado y un extracto del texto.
+- **Comentarios:** el error aparece junto al campo, el título ya no se repite y "Acerca de la beta" queda a la vista.
+- **Tablas a partir de 761 px:** la columna Acciones queda fija a la derecha, así Editar y Eliminar se ven aunque la tabla se desplace.
+
+**Último pase de UX antes del ensayo real (K0, SIMULADO):** dos revisiones independientes con los criterios de Impeccable, Taste Skill y Emil Kowalski (leídos como guías; no se instaló ni se ejecutó nada de esos repositorios) y datos extremos (empresas y emails largos, montos de miles de millones). Ninguna fórmula ni dato cambia.
+- **Montos (P1):** en el celular un monto de $ 100 millones o más se partía a mitad de la cifra ("$ 229.000.00" arriba y "0 / mes" abajo se leía mil veces menor). Ahora una cifra nunca se parte: en el Resultado, la escalera de precios, las tarjetas destacadas, el reparto de la tarifa y el resumen en vivo. Con montos largos, los números pasan a una columna o a tarjetas más anchas.
+- **RATEOS ADMIN en el celular:** un email largo en el historial de un comentario sacaba de la pantalla el texto y los botones. Se corta dentro de la tarjeta.
+- **Recursos → Personal a 1024–1439 px:** la columna fija "Acciones" tapaba montos ("$ 4.16…"). Los botones van apilados y lo que quede debajo se desvanece. "Adjudicado · en curso" puede ir en dos renglones.
+- **"Editar sueldo":** sin mes base, el aviso quedaba fuera de la vista y "Guardar sueldo" parecía no responder. Ahora va junto al botón, el mes queda marcado y con el foco (como en el formulario de recursos).
+- **Reconexión:** una cotización o un producto reabierto sin red seguía diciendo "Error al guardar" después de que la sincronización lo subió. Ahora se guarda solo al volver la red y el aviso de error se va.
+- **Pruebas:** bloque K0 del `ui-lab` (montos a 320, 360, 390, 1024, 1152 y 1440 px; reconexión; columna fija) y control de "Editar sueldo". `beta-lab` y `auth-lab` miden el scroll horizontal como `ui-lab` (en el celular `innerWidth` crece con el contenido y lo escondía); `beta-lab` usa un email largo.
+
+**Revisión de código del candidato (BETA-LANZ).** No cambia ninguna fórmula.
+- **Avisos:** uno que se crea justo antes de cerrar un diálogo ("Plantilla actualizada.") ya no se pierde.
+- **Feedback en la base:**
+  - la limpieza quita espacios, saltos de línea y tabulaciones de los extremos, como el navegador: ya no entra un mensaje vacío ni se esquiva el control de repetidos con un salto al final;
+  - los límites contra el spam toman primero un lock por persona y después uno por empresa;
+  - un duplicado no puede apuntar a otro duplicado (sin ciclos).
+
+  La migración sigue sin aplicar; `feedback_test.sql` pasa a 67 controles.
+- **Feedback en el navegador:** las letras se cuentan como en la base (un emoji es 1).
+- **RATEOS ADMIN:**
+  - "Guardar respuesta" responde sin reclasificar;
+  - con clics rápidos en los filtros gana el último;
+  - los originales posibles se buscan sólo si hay comentarios.
+- **Consumo en ruta en 0:** el aviso usa el rótulo del campo ("Consumo en ruta") y ya no sugiere "No usa combustible", que también sacaría lo que el equipo consume trabajando.
+
+**BETA-RC1, candidato a beta (PLAN-2026-027).** Reúne todo lo que estaba sin versión:
+- ya publicado en `main`: Beta Perimeter v1 (PLAN-2026-016) y ECO-01 (PLAN-2026-017);
+- los PR #28 a #36:
+  - registro público con confirmación de email (HD-03);
+  - riesgo a la vista y regla de "Enviada" (ECO-02);
+  - redondeo proporcional a la tarifa para lo nuevo (ECO-03);
+  - avisos H-04, H-08 y F2 (ECO-04);
+  - formularios que no pierden cambios (UX-01);
+  - Recursos por convenio y por familia (RES-02);
+  - DESIGN-02.
+
+**Esquema 10, sin migraciones.** Lo guardado conserva sus cifras; cambia el redondeo de la sugerida en las cotizaciones nuevas (ECO-03).
+
+Antes de abrir el registro a terceros hace falta el SMTP propio ([docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2).
+
+**P1 CIERRE, señales engañosas antes del autoservicio (PLAN-2026-028, Gate A de la revisión del 21/10).** Ninguna fórmula cambia (lo guardado conserva sus cifras, golden 39/39, esquema 10). Cambian la completitud, los avisos y los textos:
+- **Productos (AUD-T1 H-14):** "Tu precio de hoy cubre tus costos y el margen que querés" ya no sale en verde sin un resultado válido. Con datos faltantes dice "No se puede evaluar tu precio de hoy", y con datos para revisar queda en amarillo.
+- **Productos (H-12):** la lista dice "Completo" sólo sin datos faltantes ni avisos. Con avisos dice "Revisar (n)", y el ejemplo dice "Ejemplo". Hay un enlace "Ver avisos".
+- **Productos (H-13):** el margen de la configuración de ejemplo se marca ILUSTRATIVO en un producto nuevo hasta cambiarlo o tocar "Es mi margen". Un puesto sin convenio con las cargas genéricas de ejemplo queda para revisar y su desplegable se abre solo.
+- **Externos por km o por tramo con cantidad mayor que 1 (H-09):** pendiente crítico "¿Cada unidad hace todo el recorrido?", con los km o tramos del mes y los facturados. Se resuelve con "Poner cantidad 1" o con "Cada unidad hace todo el recorrido". Sin ruta no pregunta: lo pide "Ruta del proveedor".
+- **Avisos de personal (H-10):** "Horas del personal" y "Relevos" aclaran que son una revisión y que no hace falta sumar personas; "Relevos" ya no dice 24/7 si el servicio no lo es. Cada puesto marcado ofrece "La cobertura está prevista", que vale mientras sigan iguales los días, las horas, las personas y las horas normales y extra.
+- Pruebas: `tests/engines/p1-cierre.test.js` y `tests/ui/p1-cierre-ui.test.js` (30 tests) y el bloque P1-CIERRE del `ui-lab` (escritorio y celular). En el candidato anterior (`f7e8a29`) fallan 24 de los 30 tests nuevos (los otros 6 fijan lo que no debe cambiar) y 10 de los 13 controles del bloque.
+
+**Revisión de frontend de la beta (PLAN-2026-028, paso 3).** Ninguna fórmula ni dato cambia. De los 5 hallazgos P2 se corrigieron 4 y se atenuó 1 (UI-03), más 4 P3 de una línea; el resto queda para después de la beta:
+- **Resultado (UI-01):** una tarifa bajo el piso se ve en rojo y con el nombre del editor ("Tarifa ofrecida", "Tarifa forzada"); "Con tu tarifa perdés plata" va arriba de los cuatro números y no al final. Las demás alertas siguen donde estaban.
+- **"Costos cargados" (UI-02):** con un pendiente crítico nunca va en verde, aunque el porcentaje pase el umbral (Resultado, editor, lista de cotizaciones e Inicio). El color del aviso BORRADOR no cambia (decisión del dueño, ver PLAN-2026-028).
+- **Resultado en el celular (UI-03, atenuado):** cada pendiente del aviso BORRADOR muestra 2 renglones (el detalle sigue en "Ver qué falta" y en el PDF) y, sin cliente, no se repite el nombre debajo del título. El aviso pasa de hasta 680 px a unos 230 px. Con otro aviso de página arriba (por ejemplo, el combustible ILUSTRATIVO), el primer monto todavía queda debajo de la primera pantalla: un encabezado compacto en el celular queda para después de la beta.
+- **Barra del celular (UI-04):** a menos de 400 px la marca queda en su "R" y la palabra del estado de guardado entra entera.
+- **Cuenta nueva (UI-05):** en Personal y Equipos, sin recursos cargados, el paso dice "Todavía no cargaste…" con un enlace a Recursos (la cotización se guarda sola) y "Agregar puesto en blanco" pasa a ser el botón principal. Inicio también menciona Recursos.
+- **P3:** "Resultado" no se corta en las etapas entre 761 y 1280 px (UI-06); los filtros de Recursos se leen enteros en el celular ("Todos los convenios", "Todas las tenencias", UI-11); "Mi cuenta", "Cerrar sesión" y los desplegables de ayuda tienen 44 px en el celular (UI-12); el mínimo de un servicio externo dice su unidad ("Mínimo 8 h", "Mínimo 3 días", UI-19).
+- **Revisión de código del diff `f7e8a29..3ce88e8`** (10 observaciones: 5 corregidas, 2 en parte y 3 documentadas):
+  - la lista de cotizaciones e Inicio cuentan también los críticos que vuelven NO CONFIABLE el resultado (`summaryCriticalCount`): "Costos cargados" tampoco va en verde ahí;
+  - "¿Cada unidad hace todo el recorrido?" no se pregunta sin ruta;
+  - el aviso "Confirmado: cada unidad hace todo el recorrido" desaparece si la cantidad o la unidad ya no son las confirmadas (`externalQuantityHolds`);
+  - la lista de pendientes del BORRADOR conserva sus viñetas en el celular;
+  - vaciar el margen o escribir uno inválido ya no lo da por propio.
+  Quedan documentadas: las confirmaciones viajan con las plantillas, como las de ECO-01 y ECO-04; el aviso de cargas genéricas no se puede dar por revisado sin elegir un convenio; y tres de orden interno (helpers repetidos, recálculo y dónde vive el tono).
+- Pruebas: `tests/ui/beta-ui-review.test.js` (9 tests; en `c736abd` fallan 7, los otros 2 fijan los umbrales de siempre), 2 tests más en `tests/engines/p1-cierre.test.js` y el bloque BETA-RC2-UI del `ui-lab` (escritorio y celular).
+
+**DESIGN-02 (2/2), cotizar sin fricción (PLAN-2026-026).** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10).
+
+#### Agregado
+
+- **Eco de montos en todo campo de plata** (Recursos, Configuración, Productos y el editor): debajo del campo, "$ 2.600.000" desde 10.000, con centavos si los hay y en la moneda del campo ("US$ 15.000"; antes, en el editor, un precio en dólares se leía como "$ 15.000"). Antes existía sólo en el editor de cotizaciones. Si aparece mientras se escribe con el campo en el borde de abajo de un diálogo, se desplaza lo justo para verse. El texto del campo no se reformatea: cambiarlo al entrar borraría la selección y, con Tab, lo tipeado se sumaría al número anterior (`DESIGN.md` §5).
+- **Margen con su palabra** en la barra compacta del resumen en vivo: "cumple", "debajo", "pierde" o "no confiable" (no sólo el color, WCAG 1.4.1).
+- Pruebas: `tests/ui/money-echo.test.js`, `tests/ui/live-summary-text.test.js` y `tests/ui/editor-friction.test.js` (18 tests) y el bloque DESIGN-02B del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+
+#### Cambiado
+
+- **Resumen en vivo:** el margen y el resultado esperados pasan a la lista principal del panel (costo, piso, tarifa cobrada, margen, "Para no perder" y resultado); "Ver más" deja el precio para tu margen y la completitud. La barra compacta muestra costo, piso, tarifa cobrada y margen; "Para no perder" y el resultado en pesos quedan en "Ver detalle".
+- **La tarifa cobrada se destaca** en la barra compacta (fondo y cifra más fuerte): ya no se ve igual que la piso.
+- **Avisos arriba** cuando el resumen del editor está fijo abajo (1180 px o menos; en el celular, debajo de la barra de la app): ya no lo tapan. Con el menú del celular abierto van abajo.
+- **Tablas de estructura y de tramos en tarjetas** cuando el paso mide 680 px o menos (celular y tablet): sin scroll horizontal en el celular. En escritorio siguen como tabla.
+
+#### Corregido
+
+- **Accesibilidad de los campos:** los obligatorios llevan `aria-required` (también los que marca el editor); la ayuda y el error de los campos de texto, fecha, selector y buscador se asocian con `aria-describedby` (antes sólo el numérico), y también los avisos del motor junto a un campo.
+- El eco de un monto con centavos los muestra ("$ 1.800.000,50"); antes redondeaba al peso.
+- **Margen esperado del resumen:** con un objetivo inválido ya no se pinta de verde ni dice "cumple el objetivo"; y NO CONFIABLE se dice primero también sin tarifa (resultado y margen).
+
+**DESIGN-02 (1/2), "Ingeniería clara" (PLAN-2026-025): `DESIGN.md` propio y leer bien montos, unidades, riesgo y estado de guardado.** Ninguna fórmula ni dato cambia (golden 39/39, esquema 10). El logo no cambia y no se carga ninguna fuente.
+
+#### Agregado
+
+- **`DESIGN.md`** en la raíz: principios, tokens por función, tipografía y números, marcas de riesgo, componentes, celular, impresión, voz, checklist de accesibilidad por PR, estados de pantalla, guía para agentes y decisiones pendientes (logo C, Inter). `tests/ui/design-system.test.js` verifica que sus colores sean los de `css/styles.css`.
+- **Alias de color por función** (`--color-text`, `--color-status-critical`…) en `:root`, que apuntan a la paleta de siempre.
+- **"Calculado con tus costos y tus supuestos: no es un precio de mercado."** junto a los montos del Resultado (servicios y productos), también impreso (VAL-G4).
+- **Estado de guardado con palabra:** en el riel (761 a 1100 px), "Guardado", "Sin conexión", "Conflicto"… debajo del punto de color; en el celular, en la barra de arriba sin abrir el menú.
+- Pruebas: `tests/ui/design-system.test.js` y `tests/ui/reference-text.test.js` (16 tests) y el bloque DESIGN-02 del `ui-lab` (escritorio y celular, con una prueba sólo con teclado).
+
+#### Cambiado
+
+- **Raíz en %** (`93.75 %` en escritorio, `100 %` en el celular): con la letra de fábrica se ve igual, y si la persona agranda la letra del navegador, la app la sigue (WCAG 1.4.4).
+- **Mínimo de 12 px:** `--fs-xs` pasa a 0,8 rem y los 75 tamaños menores de la app (ILUSTRATIVO, subtítulos de tablas, rótulos del resumen, textos del gráfico…) pasan a 12 px. Los tamaños en `em` (códigos, unidades) llevan piso: `max(…em, var(--fs-xs))`.
+- **Cifras tabulares** también en las cifras clave del Resultado.
+- **"Ver cálculo"** mide 24 px de alto o más en escritorio (WCAG 2.5.8).
+- **Gráfico del Resultado:** la tarifa piso va punteada, el objetivo lleno y la tarifa cotizada con guiones, igual en la leyenda: ya no se distinguen sólo por el tono (WCAG 1.4.1). El margen izquierdo y la separación de los rótulos del eje X se calculan con el ancho de los rótulos.
+- **Campos dentro de tablas** con el borde de los campos (3,3:1 en lugar de 1,3:1; WCAG 1.4.11).
+
+#### Corregido
+
+- **El PDF imprimía la fecha de impresión como si fuera la de la oferta:** ahora dice "Oferta del dd/mm/aaaa · impreso el dd/mm/aaaa" (AUD-T1 C-E2-11). Sin fecha de oferta válida, sólo la de impresión.
+
+**RES-02 (2/2) (PLAN-2026-024): Equipos agrupados por familia.** Ninguna fórmula ni dato cambia: golden 39/39 sin tocar, esquema 10 y ningún campo nuevo.
+
+#### Agregado
+
+- **Recursos → Equipos "Por familia"** (la vista de entrada), en grupos fijos: grúas, camiones, equipos de vacío y succión, equipos de pozo, remolques y tanques, camionetas y vehículos livianos, movimiento de suelo, equipos de apoyo y "Otros / sin familia". Vactor, camión atmosférico, flushby y wireline van aparte de los camiones (revisión de ChatGPT del Issue #4, punto 6). Cada familia del catálogo está en un solo grupo (test).
+- Cada encabezado cuenta las **unidades propias** y, aparte, las **alquiladas o tercerizadas, que no suman**; el monto es la **posesión de las propias por mes** (lo que cuestan aunque no trabajen). Una propia valuada en otra moneda sin tipo de cambio no se suma: el monto queda como subtotal parcial y lo dice.
+- Filas con la posesión por mes (con "Ver cálculo" que termina en ese número), la operación ($/h sin combustible + L/h), la tarifa de las alquiladas, "Usado en" y Editar. Búsqueda (nombre, interno, dominio, familia, capacidad o modelo) y filtro por tenencia en la dirección (`?q=&tenencia=`), "Plegar todo" / "Desplegar todo". "Lista" y "Detallada" siguen.
+- Regresiones: `tests/domain/equipment-groups.test.js` (13 tests) y 20 controles RES-02-EQ por modo en el `ui-lab`.
+
+#### Cambiado
+
+- En el celular, la explicación de posesión y operación de Equipos queda plegada en una línea, y en las vistas agrupadas la cantidad de la barra se oculta (el resumen ya la dice): los grupos aparecen en la primera pantalla.
+- Personal y Equipos comparten el mismo grupo plegable (`resource-group*`).
+
+#### Corregido
+
+- En el celular, la nota "Valor en … : se calcula en cada cotización con su tipo de cambio" de una unidad sin tipo de cambio no se partía y ensanchaba la página (también en "Lista").
+
+**RES-02 (1/2) (PLAN-2026-023): Personal agrupado por convenio y sueldo bruto sin doble conteo.** Ninguna fórmula cambia: golden 39/39 sin tocar. Un campo opcional e informativo (`laborProfiles[].peopleCount`), sin migración: el esquema sigue en 10. Las cotizaciones guardadas no cambian.
+
+#### Agregado
+
+- **Recursos → Personal "Por convenio"** (la vista de entrada): un grupo por convenio, "Fuera de convenio" y "Sin convenio indicado" (siempre abierto, con la salida a Configuración → Convenios). Cada encabezado dice perfiles y personas por separado ("2 perfiles · 5 personas" o "4 personas en 1 de 2 perfiles") y el costo empresa de las personas cargadas; si falta una cantidad, **"Subtotal parcial"**. Búsqueda y filtro por convenio en la dirección (`?q=&convenio=`), "Plegar todo" / "Desplegar todo". "Lista" y "Detallada" siguen.
+- **"Personas en este puesto (opcional)"** en el perfil (`peopleCount`): sólo agrupa y cuenta; no se copia a las cotizaciones ni cambia costos.
+- **"Editar sueldo"** en cada fila: bruto mensual remunerativo que se guarda como básico + adicionales (no se puede sumar dos veces), básico opcional, mes base obligatorio si cambia el sueldo, vista previa del costo empresa por persona antes → después con "Ver cálculo", y el aviso de que las cotizaciones hechas no cambian.
+- **Horas extra sin básico:** si el perfil o una cotización que lo usa tiene horas extra, guardar un sueldo sin básico exige confirmar "Valuar las horas extra sobre el bruto completo" (o cargar el básico).
+- Regresiones: `tests/domain/labor-groups.test.js` (23 tests) y 32 controles RES-02 por modo en el `ui-lab` (fallan en `main`).
+
+#### Cambiado
+
+- Formulario completo del perfil: "Sueldo básico mensual (sin adicionales)" y "Adicionales mensuales (remunerativos)", con ayudas y la línea "Bruto mensual remunerativo = básico + adicionales". "Sin convenio" → "Sin convenio indicado". La barra de Personal cuenta "perfiles", no "ítems".
+
+#### Corregido
+
+- **(RES-02-G1)** Borrar un convenio deja a sus perfiles sin convenio (`agreementId: null`) en la misma operación, como decía el aviso; antes quedaba el id del convenio borrado.
+
+**UX-01 (PLAN-2026-022): formularios que no pierden cambios sin avisar y valores que no se corrigen en silencio.** Ninguna fórmula ni dato cambia (esquema 10, golden 39/39 sin tocar).
+
+#### Corregido
+
+- **Diálogos con formulario** (la ficha de cada recurso, "Renombrar plantilla" y "Guardar como plantilla"):
+  - un clic en el fondo ya no los cierra;
+  - Esc (también dos veces seguidas), la X o "Cancelar" con cambios sin guardar preguntan "¿Descartar los cambios?" ([Seguir editando] / [Descartar]);
+  - sin cambios, cierran como siempre; marcar y desmarcar una casilla no cuenta como cambio (RES-02-G4, DESIGN-01 D1b).
+- **Un valor inválido que vuelve al anterior al salir de la pantalla** (otro paso, el menú o Atrás):
+  - aparece un aviso que queda hasta cerrarlo, con la pantalla, el campo, lo que se escribió, por qué no se guardó y qué valor quedó;
+  - antes, el aviso quedaba en la vista que se cerraba;
+  - vale para el editor de cotizaciones, el de productos y Configuración (también para el nombre de la empresa borrado);
+  - en un diálogo que se cierra sin guardar no hay aviso: se descartó a propósito.
+- **Campos de mes** (en navegadores sin selector de mes se ven como texto): un texto inválido vuelve al último mes guardado y lo dice, como los números. Antes quedaba marcado como inválido y, en Configuración, frenaba el guardado de su sección.
+- **Configuración:**
+  - al salir con un campo inválido, ese campo vuelve a su valor anterior (con el aviso) y el resto de la sección se guarda. Antes no se guardaba nada de esa sección;
+  - un cambio que no se guardó porque en ese momento la sección estaba inválida se guarda al salir, si ya se puede;
+  - si una sección ni así se puede guardar (p. ej. impuestos que suman 100 % o más), un aviso lo dice.
+- **"Mi cuenta":** si se sale con un nombre escrito sin tocar "Guardar nombre", un aviso lo dice (no, si el nombre se está guardando).
+- **Avisos:**
+  - los de error quedan hasta cerrarlos;
+  - todos tienen "Cerrar";
+  - como máximo 4 a la vez: se van primero los que igual se iban solos; uno igual a otro que ya está a la vista no se repite;
+  - al cerrar la cuenta se borran todos (no queda nada de la empresa en pantalla).
+- Tests: `tests/ui/ux-01-forms.test.js` y el bloque UX-01 de `ui-lab` (28 controles por modo; 20 fallan en `main`).
+
+**ECO-04 (PLAN-2026-021): avisos verificables para AUD-T1 H-04, H-08 y VAL-01-F2.** Ninguna fórmula cambia: golden 39/39 y candado sin tocar, y las mismas cifras que `main` (A/B). Cambian la completitud (pendientes nuevos que aparecen sólo cuando se disparan) y los textos. Esquema sin cambios (sigue en 10), sin migraciones.
+
+#### Agregado
+
+- **Abono con más días trabajados que disponibles (H-04):** con la tarifa en $/mes, el resultado queda **NO CONFIABLE** (`month_days_overflow`, crítico) hasta corregir los días.
+  - **Por qué:** el motor facturaba días ÷ disponibles abonos (26 con 22: 1,18) y los fijos × 1,18, y un abono se cobra una vez por mes.
+  - **Qué dice el aviso:** los números y cómo corregirlos. "Ir al campo" lleva a los días disponibles.
+- **Costo de tenerlo de los vehículos de apoyo (H-08):** cada vehículo dice dónde está su amortización, seguro, patente o alquiler.
+  - **Dónde:** Logística → "Costo de tenerlo".
+  - **Opciones:** "Ya está en el costo por km" o "En Equipos: …".
+  - **Sin respuesta:** pendiente **crítico** (`vehicle_ownership_costs`).
+  - **Desgaste:** con el vehículo ligado a Equipos, la ayuda del desgaste dice que no repita la amortización.
+  - **Duplicados:** si esa línea va por sus propios medios, el control de duplicados lo marca.
+- **Operador de Personal que el externo ya trae (VAL-01-F2):** si un externo incluye operador, no tiene uno asignado y en Personal hay un chofer u operador que no opera ningún equipo, se pregunta (para revisar).
+  - **Cómo se confirma:** en Equipos, "Ningún puesto de Personal lo opera", ligado a esos puestos.
+  - **Sin falsos positivos:** un coordinador, un ayudante o un supervisor no disparan la pregunta.
+
+#### Cambiado
+
+- **Aviso de "más días que disponibles":** dice lo que se calcula (trabajo de más de un mes, o que un abono se cobra una vez por mes).
+- **Resultado:** separa los datos inválidos (que sí se reemplazan por 0 o por un valor por defecto) de los avisos, que se calculan con lo cargado. Antes todos decían "los cálculos reemplazan los valores inválidos por 0".
+- **Test Lab:** sabe completar los campos nuevos (`ownershipCostsIn`, el operador).
+**ECO-03 (PLAN-2026-020): redondeo comercial proporcional a la tarifa (VAL-01-F1).** **Cambio de regla de negocio** para las cotizaciones nuevas: la sugerida se redondea en automático, a lo sumo 1 % sobre el precio objetivo, en lugar de un múltiplo fijo de $ 1.000 para cualquier unidad. **Lo guardado no cambia:** las cotizaciones, las plantillas y las empresas con su múltiplo elegido o confirmado siguen igual (golden 39/39 sin tocar). Esquema sin cambios (sigue en 10), sin migraciones.
+
+#### Cambiado
+
+- **Redondeo automático** (`js/domain/rounding.js`), el de fábrica en empresas y cotizaciones nuevas: la tarifa objetivo sube al múltiplo de 1, 10, 100, 1.000… más grande que no la suba más del tope (1 %, configurable de 0 a 10 %). Con $ 1.000 fijo, una tarifa de $ 277,80 / ton-km pasaba a $ 1.000 (+260 %, margen 71 %); en automático queda en $ 278. El múltiplo fijo sigue disponible ("Múltiplo fijo" en "El precio" y en Configuración).
+- **Compatibilidad:** una cotización o plantilla sin `roundingMode` usa su múltiplo guardado; una empresa con los parámetros confirmados lo conserva para las nuevas; con los parámetros de fábrica sin confirmar y $ 1.000 (empresa o plantilla ILUSTRATIVA), las nuevas pasan a automático. Lo que pasa a automático guarda el múltiplo en 0: una versión anterior nunca lo infla. Ambigüedad y decisiones pendientes documentadas en PLAN-2026-020 §2.
+
+#### Agregado
+
+- **Margen objetivo y margen real, siempre a la vista** en el Resultado (y el PDF), "El precio" y el resumen en vivo: "Objetivo: 10 % de margen · con esta tarifa: 10,06 %", y el precio objetivo exacto cuando el redondeo lo movió. El margen del Resultado dice siempre su objetivo.
+- **Aviso** cuando un múltiplo fijo sube la sugerida más de 1 % sobre la objetivo ("La tarifa sugerida quedó X % arriba de tu precio objetivo por el redondeo"), con [Usar redondeo automático].
+- Indicadores `roundingMode`, `roundingStep`, `roundingMaxPct`, `suggestedRoundUpPct`, `suggestedMarginPct` y `roundingExceedsLimit`; el oráculo del Test Lab implementa el automático por su cuenta.
+- Tests: `tests/engines/eco-03-rounding.test.js` (las 18 unidades con 0/1/10/1.000 y automático, compatibilidad, plantillas, vuelta atrás y textos).
+**ECO-02 (PLAN-2026-019): riesgo a la vista.** Un resultado NO CONFIABLE (ECO-01) se marca también fuera del Resultado y no se puede marcar como enviado. Ninguna fórmula ni indicador del motor cambia (golden sin tocar); esquema sin cambios (sigue en 10), sin migraciones.
+
+#### Agregado
+
+- **"No confiable" en las listas:** Cotizaciones (simple y detallada), Inicio ("Tus cotizaciones" y "Continuar cotización", con la causa) y Escenarios marcan la fila y muestran "No confiable" en lugar del margen; la tarifa se ve apagada.
+- **Resultado:** costo del mes, tarifa piso, tarifa y margen llevan "No confiable" (apagados) y el **PDF** dice "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" en el encabezado, antes del primer número; las marcas de riesgo conservan su color al imprimir. El análisis de Escenarios lleva el aviso arriba.
+- **Regla de "Enviada"** (`js/domain/quote-risk.js`), igual en el Resultado, la lista y el editor: con un resultado NO CONFIABLE (o que no se pudo calcular) no se puede pasar a Enviada, ni a Ganada sin haber estado enviada; se dice por qué, a la vista, con "Ver qué falta". Con pendientes críticos se pide confirmar, nombrándolos. Una cotización ya enviada (o ganada) que hoy es NO CONFIABLE lo avisa en el Resultado. Perdida → Ganada no se controla (registra un hecho) y no autoriza a mandarla de nuevo.
+- **La misma regla en `QuoteService.saveQuote`** (revisión R1): un guardado que la pasaría a Enviada o Ganada con un resultado NO CONFIABLE se rechaza (`send_blocked`) sin guardar nada; el editor vuelve al estado guardado, a la vista, y guarda el resto. Sigue siendo una regla de la app en el navegador, no del servidor (`docs/CALCULATION_RULES.md`); el respaldo importado conserva sus estados.
+- Tests: `tests/domain/quote-risk.test.js`, la regla en el servicio (`tests/services/quote-service.test.js`) y el bloque ECO-02 del lab en navegador (escritorio y celular).
+
+#### Cambiado
+
+- **Inicio:** una cotización activa NO CONFIABLE cuenta como activa y en riesgo, pero ya no entra en el valor total cotizado, el margen promedio ni "Servicios bajo piso" (sus números no son reales); los rótulos y "Ver cálculo" lo aclaran.
+
+**HD-03 (PLAN-2026-018): registro público con confirmación de email y correos de Auth.** Por decisión del dueño (2026-10-20), cualquiera puede crear su cuenta y su propia empresa, sin invitación, confirmando su email. Además: sin cuenta, "¿Olvidaste tu contraseña?" no envía nada, pero la pantalla decía "te enviamos un enlace"; y el SMTP por defecto de Supabase sólo entrega al equipo del proyecto (requiere un SMTP propio). Sin cambios de fórmulas, esquema ni datos.
+
+#### Agregado
+
+- **Registro público** (`FEATURES.publicSignup = true`): "Crear cuenta" en la landing y el ingreso; nombre, empresa, email y contraseña; confirmación de email obligatoria (enlace PKCE). Cada cuenta nace con su propia empresa (trigger + RLS).
+- **Sin enumeración de cuentas:** el registro responde igual a un email nuevo, a uno ya registrado y a uno sin confirmar (antes decía "Ese email ya está registrado": HD-08 resuelto). Lo controla el Beta Security Gate (SEC-18, nuevo).
+- **Reenviar el correo de confirmación** (respuesta neutra) después del registro y desde el ingreso cuando la cuenta todavía no está confirmada (sólo con la contraseña correcta).
+- Si el correo de confirmación no sale (SMTP por defecto o roto), el registro lo dice: Supabase no crea la cuenta y la persona no queda esperando. Lo mismo el reenvío: si el proveedor lo rechaza, dice "No pudimos enviar el correo de confirmación" y nunca "Pedido enviado" (R3).
+
+- **Código del correo de recuperación:** "¿Olvidaste tu contraseña?" → "Ya tengo un código" (email + código de 6 a 10 dígitos, `verifyOtp` tipo `recovery`). Sirve en cualquier navegador mientras nadie haya abierto el enlace de ese correo (enlace y código son la misma credencial). Requiere la plantilla `supabase/templates/recovery.html` en Supabase; si un escáner de correo consume los enlaces, `recovery-solo-codigo.html`.
+- Plantillas de correo en español (`supabase/templates/`): confirmación del registro (obligatoria), recuperación (enlace + código, o sólo código si un escáner consume los enlaces) e invitación (lleva a "Elegir mi contraseña").
+- Pruebas simuladas de Auth: `tests/services/auth-email.test.js` y `npm run test:auth:e2e` (navegador, escritorio y celular; en el PR gate). El Supabase simulado del Test Lab suma registro con confirmación, reenvío, recuperación, `/verify`, canje PKCE y un buzón en memoria.
+- `scripts/check-auth-perimeter.mjs` verifica que la configuración de Auth coincida con la app: hoy, registro abierto con confirmación obligatoria.
+
+#### Cambiado
+
+- Requisito HD-03 (AGENTS.md §13, BETA_SECURITY.md §6): de "registro cerrado o por invitación" a **registro público con confirmación de email obligatoria y SMTP propio** (decisión del dueño, 2026-10-20). Con `publicSignup = false`, `#/registro` vuelve a explicar la beta por invitación.
+- La respuesta de "¿Olvidaste tu contraseña?" sin sesión sigue siendo la misma haya o no cuenta, pero ya no dice "te enviamos": dice qué hacer si no llega en 10 minutos (y que, si no hay cuenta, se crea en "Crear cuenta"). Antes de pedir, la pantalla no promete un correo. Pide esperar 60 s antes de reenviar (ayuda de UX: los límites reales son de Supabase). Con la sesión iniciada, "Cambiar contraseña" confirma el envío o avisa que no salió.
+- Un enlace de recuperación que no se puede canjear (otro navegador, vencido, usado) pide un correo nuevo y explica que, en otro dispositivo, se escribe el código sin tocar el enlace (abrir el enlace usa también el código de ese correo).
+- Una verificación del código que vuelve sin sesión o sin usuario válido no abre la recuperación.
+
+#### Seguridad
+
+- Los enlaces con tokens o errores en el `#` (p. ej. "Send invitation" de Supabase) nunca abren sesión y se borran de la URL al arrancar (los tokens no quedan en la barra ni en el historial).
+
 **ECO-01 (PLAN-2026-017): bloqueantes económicos de la beta (H-01, H-02, H-03).** Ninguna fórmula cambia y ningún dato guardado se reinterpreta: golden 39/39 sin tocar y las mismas cifras que `main` en 2.097 cotizaciones y 13 productos sintéticos. Cambia qué se puede cargar (una unidad nueva) y qué se marca como pendiente. Esquema sin cambios (sigue en 10), sin migraciones.
 
-### Agregado
+#### Agregado
 
 - **(H-01) Unidad "Por viaje completo (ida y vuelta)"** para equipos y servicios externos: un viaje ida y vuelta es 1 unidad (`external.tripBasis = 'round_trip'`, opcional). En la cotización (Equipos) y en Recursos ("¿Qué cobra?"). La línea y "Ver cálculo" muestran viajes completos, tramos y el equivalente por km.
 - **(H-01) Pendiente crítico "Unidad del proveedor"**: un externo "Por salida" en una ruta con más de un viaje por salida, con salidas, viajes y el equivalente por viaje; [Por viaje completo (ida y vuelta)] o [Sí, cobra por salida]. La confirmación guarda el supuesto (tarifa, viajes por salida y ruta, `equipment[].externalUnitConfirmed`) y deja de valer si cambia.
@@ -24,20 +417,20 @@ Reglas para este archivo:
 - **(H-03) Puesto usado sin sueldo básico:** "Personal" pasa a **crítico**, nombra el puesto y lleva a su básico (también en "Equipo sin operador" si se cargó un puesto con posiciones); la línea muestra el aviso. En productos, un puesto con minutos por tanda y sin básico es un error.
 - Regresiones: `tests/engines/eco-01.test.js` (20 tests; 12 fallan en `main`) y E2E-17 a E2E-20.
 
-### Cambiado
+#### Cambiado
 
 - Rótulos de las unidades de externos: "Por viaje (cada ida o vuelta)" → **"Por tramo (cada ida o cada vuelta)"** (mismo significado y mismos números) y "Por km" → "Por km recorrido".
 - El puntaje de completitud cambia sólo en las cotizaciones donde aparece uno de los avisos nuevos.
 
 **Beta Perimeter v1 (PLAN-2026-016).** Prepara el perímetro de la beta cerrada con 3–5 empresas: HD-02 queda resuelto en el código, HD-03 del lado de la app y HD-01 preparado. Sin cambios en motores ni fórmulas (golden 39/39), **ni en la base** (ninguna migración) **ni en el esquema de datos** (sigue en 10). **Todavía no hay beta:** falta lo que configura el dueño (registro apagado en Supabase, SMTP propio y dominio: [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §5).
 
-### Seguridad
+#### Seguridad
 
 - **(HD-02) Sin staging en el origen de producción.** El deploy publica sólo producción (`push` a `main` y rollback manual): sin `workflow_run`, sin job de preview y sin `scripts/stage-preview.mjs`. El build falla si `dist/` trae `preview/`; después de publicar, el workflow verifica que `version.json` tenga el commit desplegado y que `/preview/` y `/preview/version.json` respondan 404 (si no, el deploy queda en rojo). Pages reemplaza el sitio entero en cada deploy: el primer deploy con este cambio borra también los archivos del preview viejo. Nuevo control SEC-17 del Beta Security Gate.
 - **(HD-03) Beta por invitación en la app.** `FEATURES.publicSignup = false`: la app no ofrece "Crear cuenta" (las llamadas a la acción llevan a Ingresar), `#/registro` explica el acceso por invitación sin formulario y `signUp` no llama a Supabase; `signup_disabled` / `email_provider_disabled` muestran el mensaje de la invitación. La barrera real es apagar "Allow new users to sign up" en Supabase Auth: paso del dueño (la configuración de Auth no se tocó).
 - El Beta Security Gate rotula HD-01, HD-02 y HD-03 como REQUISITO pendiente antes de habilitar usuarios reales (18 controles y 17 archivos de tests).
 
-### Agregado
+#### Agregado
 
 - `docs/BETA_PERIMETER.md`: estado de HD-01/02/03, cómo reactivar más adelante un staging aislado (otro origen y otra base), alta por invitación, procedimiento del dominio propio (dato que falta, DNS, Pages, HTTPS, URLs de Supabase, rollback), prueba A/B real, checklist del dueño y riesgos.
 - `scripts/check-auth-perimeter.mjs`: lee la configuración pública de Auth y verifica registro cerrado, proveedor Email activo, confirmación de email activa y ningún otro método de ingreso; el SMTP propio (no es público) queda como verificación manual.
@@ -45,11 +438,11 @@ Reglas para este archivo:
 - (HD-01) Soporte para un segundo origen: `PUBLIC_SITE_URLS` (cada sitio usa sus propios enlaces de email, porque el enlace PKCE vuelve al origen donde se pidió) y `MOVED_TO_SITE_URL` (mudanza desde github.io antes de iniciar sesión, apagada hasta verificar el dominio).
 - E2E `REGISTRO-01` (escritorio y celular): `#/registro` sin formulario ni campo de contraseña, ningún enlace a "Crear cuenta", y siguen Ingresar y "¿Olvidaste tu contraseña?".
 
-### Corregido
+#### Corregido
 
 - Con el SMTP por defecto de Supabase (sólo envía correos al equipo del proyecto) la recuperación respondía "te enviamos un enlace" aunque el correo no saliera: con la beta por invitación, nadie de afuera habría podido elegir su contraseña, sin ningún aviso. `email_address_not_authorized` tiene código propio: fuera de sesión la respuesta sigue neutra (no revela qué emails tienen cuenta) y queda un aviso técnico sin el email; con la sesión iniciada, "Cambiar contraseña" avisa que el correo no se pudo enviar (también ante cualquier otra falla). El SMTP propio pasa a ser paso obligatorio del dueño antes de la primera alta.
 
-### Eliminado
+#### Eliminado
 
 - El staging público `/preview/` dentro del sitio de producción y `scripts/stage-preview.mjs` (queda en el historial de git, `998b932`). Un staging futuro tiene que estar aislado en origen y en base.
 

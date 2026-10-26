@@ -16,6 +16,7 @@ import { isUuid } from '../../js/core/ids.js';
 import { isFiniteNumber } from '../../js/core/money.js';
 import { configureLogger } from '../../js/core/logger.js';
 import { addEventSink } from '../../js/core/events.js';
+import { service as labQuote, person, external } from '../lab/lib/build.js';
 
 configureLogger({ consoleImpl: null });
 
@@ -138,7 +139,11 @@ describe('QuoteService.createQuote', () => {
       const oldIndex = template.defaults.labor.findIndex((l) => l.id === e.operatorLaborId);
       assert.equal(quote.equipment[i].operatorLaborId, oldIndex >= 0 ? quote.labor[oldIndex].id : null);
     });
-    assert.deepEqual(quote.pricing, template.defaults.pricing);
+    // ECO-03: una plantilla ILUSTRATIVA con el $ 1.000 de fábrica (sin roundingMode) sigue la regla de la
+    // empresa (la demo, en automático); el resto del precio es el de la plantilla.
+    const { roundingStep, ...templatePricing } = template.defaults.pricing;
+    assert.equal(roundingStep, 1000);
+    assert.deepEqual(quote.pricing, { ...templatePricing, roundingMode: 'auto', roundingMaxPct: 1, roundingStep: 0 });
 
     // Ids nuevos, únicos y distintos de los de la plantilla.
     const templateIds = new Set(
@@ -181,9 +186,10 @@ describe('QuoteService.createQuote', () => {
       remove();
     }
     const created = events.filter((e) => e.name === 'quote_created');
+    // UXR: una cotización en blanco ya no nace on-call (el primer paso no pide un tipo): "configurable".
     assert.deepEqual(created.map((e) => e.props), [
       { serviceType: 'on_call', source: 'template' },
-      { serviceType: 'on_call', source: 'blank' },
+      { serviceType: 'configurable', source: 'blank' },
     ]);
   });
 });
@@ -235,6 +241,93 @@ describe('QuoteService.duplicateQuote / deleteQuote / saveQuote', () => {
     const again = await service.getQuote(DEMO_IDS.quoteHydroCrane);
     assert.equal(again.client, 'Cliente nuevo');
     assert.equal(again.pricing.customMarginPct, 15);
+  });
+});
+
+// ================================== saveQuote: regla de "Enviada" (ECO-02 R1)
+
+/** Abono mensual + abono de disponibilidad (ECO-01 H-02): resultado NO CONFIABLE. */
+const doubleFee = (status = 'draft') => ({ ...labQuote({ id: 'r1-h02', serviceType: 'permanent', unit: 'month', pricingMode: 'known_rate', activity: { activeDaysPerMonth: 22 }, labor: [person({ role: 'Técnico' })], pricing: { knownRate: 25000000 }, rules: { availabilityFeeMonthly: 25000000 } }), status });
+/** Proveedor por km sin ruta: crítico, pero no NO CONFIABLE. */
+const criticalOnly = (status = 'draft') => ({ ...labQuote({ id: 'r1-crit', serviceType: 'transport', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Chofer' })], equipment: [external({ name: 'Camión' }, { price: 3250, unit: 'km', fuelIncluded: true })] }), status });
+
+describe('QuoteService.saveQuote: la regla de "Enviada" también en el servicio (ECO-02 R1)', () => {
+  async function stored(status) {
+    const ctx = await setup({ empty: true });
+    await ctx.repository.saveQuote(doubleFee(status));
+    return ctx;
+  }
+
+  test('Borrador → Enviada o Ganada con un resultado NO CONFIABLE: se rechaza (send_blocked) y no se guarda nada', async () => {
+    for (const to of ['sent', 'won']) {
+      const { service, repository } = await stored('draft');
+      const before = await repository.getQuote('r1-h02');
+      await assert.rejects(service.saveQuote({ ...before, status: to, client: 'Otro cambio' }), (error) => {
+        assert.equal(error.code, 'send_blocked');
+        assert.equal(error.previousStatus, 'draft');
+        assert.equal(error.check.reason, 'unreliable');
+        assert.deepEqual(error.check.items, ['Dos abonos por mes']);
+        return true;
+      });
+      assert.deepEqual(await repository.getQuote('r1-h02'), before, `${to}: ni el estado ni el otro cambio`);
+    }
+  });
+
+  test('Archivada → Ganada también (no sabemos si se mandó); una nueva guardada directo como Enviada, también', async () => {
+    const { service, repository } = await stored('archived');
+    await assert.rejects(service.saveQuote({ ...(await repository.getQuote('r1-h02')), status: 'won' }), { code: 'send_blocked' });
+    assert.equal((await repository.getQuote('r1-h02')).status, 'archived');
+    const fresh = await setup({ empty: true });
+    await assert.rejects(fresh.service.saveQuote(doubleFee('sent')), (error) => error.code === 'send_blocked' && error.previousStatus === 'draft');
+    assert.equal(await fresh.repository.getQuote('r1-h02'), null);
+  });
+
+  test('registro legítimo de estados: Perdida → Ganada, una ya enviada que se edita, y Perdida o Archivada pasan', async () => {
+    const lost = await stored('lost');
+    await lost.service.saveQuote({ ...(await lost.repository.getQuote('r1-h02')), status: 'won' });
+    assert.equal((await lost.repository.getQuote('r1-h02')).status, 'won', 'Perdida → Ganada registra un hecho');
+    for (const status of ['sent', 'won']) {
+      const ctx = await stored(status);
+      await ctx.service.saveQuote({ ...(await ctx.repository.getQuote('r1-h02')), client: 'Editada después' });
+      assert.equal((await ctx.repository.getQuote('r1-h02')).client, 'Editada después', `${status}: se sigue editando`);
+    }
+    for (const to of ['lost', 'archived', 'draft']) {
+      const ctx = await stored('draft');
+      await ctx.service.saveQuote({ ...(await ctx.repository.getQuote('r1-h02')), status: to });
+      assert.equal((await ctx.repository.getQuote('r1-h02')).status, to);
+    }
+  });
+
+  test('con pendientes críticos tampoco pasa a Enviada (V-5, beta abierta); el borrador se sigue guardando', async () => {
+    const { service, repository } = await setup({ empty: true });
+    await repository.saveQuote(criticalOnly('draft'));
+    await assert.rejects(service.saveQuote({ ...(await repository.getQuote('r1-crit')), status: 'sent' }), (e) => e.code === 'send_blocked' && e.check.reason === 'critical');
+    assert.equal((await repository.getQuote('r1-crit')).status, 'draft');
+    await service.saveQuote({ ...(await repository.getQuote('r1-crit')), name: 'Editada' });
+    assert.equal((await repository.getQuote('r1-crit')).name, 'Editada');
+  });
+
+  test('una cotización que no se puede calcular no pasa a Enviada; las demás se guardan sin calcularse', async () => {
+    const saved = [];
+    const bad = (status) => ({ id: 'bad', name: 'Mala', status, get activity() { throw new Error('boom'); } });
+    const repository = {
+      getQuote: async () => ({ id: 'bad', status: 'draft' }),
+      getSettings: async () => ({}),
+      saveQuote: async (q) => { saved.push(q.status); return q; },
+    };
+    const service = createQuoteService({ repository });
+    await assert.rejects(service.saveQuote(bad('sent')), (error) => error.code === 'send_blocked' && error.check.reason === 'failed');
+    await service.saveQuote(bad('draft'));
+    await service.saveQuote(bad('lost'));
+    assert.deepEqual(saved, ['draft', 'lost']);
+  });
+
+  test('un respaldo importado no pasa por la regla: conserva sus estados', async () => {
+    const { repository } = await setup({ empty: true });
+    const state = createEmptyState({ ...EMPTY_ORG });
+    state.quotes = [{ ...doubleFee('sent'), organizationId: EMPTY_ORG.id }];
+    await repository.importBackup(state);
+    assert.equal((await repository.getQuote('r1-h02')).status, 'sent');
   });
 });
 
@@ -320,7 +413,7 @@ describe('QuoteService.dashboardStats', () => {
     const stats = await service.dashboardStats();
     assert.deepEqual(
       { ...stats, items: undefined },
-      { totalCount: 0, activeCount: 0, totalQuotedMonthly: 0, averageMarginPct: null, atRiskCount: 0, belowFloorCount: 0, items: undefined },
+      { totalCount: 0, activeCount: 0, totalQuotedMonthly: 0, averageMarginPct: null, atRiskCount: 0, belowFloorCount: 0, unreliableCount: 0, items: undefined },
     );
   });
 });
@@ -426,7 +519,8 @@ describe('ensureDemoQuote / latestDraft', () => {
     const latest = await service.latestDraft();
     assert.equal(latest.quote.id, a.id);
     clock.advance(5000);
-    await service.saveQuote({ ...(await service.getQuote(a.id)), status: 'won' });
+    // Una cotización vacía tiene críticos y no puede pasar a Ganada (V-5): sale de los borradores como Perdida.
+    await service.saveQuote({ ...(await service.getQuote(a.id)), status: 'lost' });
     assert.equal((await service.latestDraft()).quote.id, b.id);
   });
 });
@@ -475,6 +569,22 @@ describe('indicatorsFor: una sola regla para los indicadores de Inicio', () => {
     assert.equal(r.belowFloorCount, 1);
   });
 
+  test('ECO-02: una cotización NO CONFIABLE cuenta como activa y en riesgo, pero no entra en los montos', () => {
+    const r = indicatorsFor([
+      item('draft', { marginPct: 10, revenue: 100 }),
+      item('sent', { marginPct: 90, revenue: 5000, belowFloor: true, unreliable: true, unreliableLabels: ['Dos abonos por mes'] }),
+      item('won', { marginPct: 20, revenue: 200, unreliable: false }),
+      item('lost', { marginPct: 99, revenue: 9000, unreliable: true }),
+      item('draft', { error: true, atRisk: true, unreliable: true }),
+    ]);
+    assert.equal(r.activeCount, 4);
+    assert.equal(r.unreliableCount, 1, 'sólo las activas y calculadas; un error de cálculo no es "no confiable"');
+    assert.equal(r.averageMarginPct, 15, 'el 90 % no real no entra en el promedio');
+    assert.equal(r.totalQuotedMonthly, 300, 'su facturación tampoco');
+    assert.equal(r.belowFloorCount, 0, 'ni su "bajo piso" (calculado con números que no son reales)');
+    assert.equal(r.atRiskCount, 2, 'en riesgo: la NO CONFIABLE y la que no se pudo calcular');
+  });
+
   test('sin cotizaciones activas o sin márgenes: promedio null (nunca NaN); tolera entradas inválidas', () => {
     assert.equal(indicatorsFor([]).averageMarginPct, null);
     assert.equal(indicatorsFor(null).totalCount, 0);
@@ -488,7 +598,7 @@ describe('indicatorsFor: una sola regla para los indicadores de Inicio', () => {
     const { service } = await setup();
     const stats = await service.dashboardStats();
     const again = indicatorsFor(await service.listQuotes());
-    for (const key of ['totalCount', 'activeCount', 'totalQuotedMonthly', 'averageMarginPct', 'atRiskCount', 'belowFloorCount']) {
+    for (const key of ['totalCount', 'activeCount', 'totalQuotedMonthly', 'averageMarginPct', 'atRiskCount', 'belowFloorCount', 'unreliableCount']) {
       assert.deepEqual(stats[key], again[key], key);
     }
   });

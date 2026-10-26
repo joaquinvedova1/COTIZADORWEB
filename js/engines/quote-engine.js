@@ -19,14 +19,15 @@ import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFa
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
 import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
-import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
+import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers, minimumPerActivation } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, commercialRound, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
 import { evaluateCompleteness, activationRoundingNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
-import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../domain/billing-units.js';
-import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
+import { unitTexts } from '../domain/billing-units.js';
+import { riskSummary } from '../domain/quote-risk.js';
+import { quoteRounding, roundingStepFor, ROUNDING_WARN_PCT } from '../domain/rounding.js';
 
 /** Margen leído como lo valida validateQuote (texto es-AR incluido); `fallback` si está vacío o es inválido. */
 function readMargin(value, fallback) {
@@ -52,10 +53,10 @@ export function minActiveDaysForBillableDays(ctx, billableDays) {
   if (ctx.unit === 'hour') {
     const h = a.hoursPerActiveDay;
     if (!(h > 0)) return bd;
-    const perActivation = Math.max(dpa * h, minCall);
+    const perActivation = minimumPerActivation(dpa * h, minCall, a.activationProfile);
     return perActivation > 0 ? (bd * dpa * h) / perActivation : bd;
   }
-  const perActivation = Math.max(dpa, minCall);
+  const perActivation = minimumPerActivation(dpa, minCall, a.activationProfile);
   return perActivation > 0 ? (bd * dpa) / perActivation : bd;
 }
 
@@ -108,22 +109,22 @@ function unitIssues(quote, ctx) {
     if (u.kind === 'quantity' && a.billableQuantityPerMonth > 0 && !(a.unitsPerActiveDay > 0) && !(normalizeRules(ctx.rules).minimumCallUnits > 0)) {
       issues.push({ path: 'activity.unitsPerActiveDay', message: `Cargá ${unitTexts(u).cuantos} ${u.plural} hacés por día de trabajo: sin eso no se pueden calcular los días de trabajo ni los costos.`, severity: 'error' });
     }
-    if (a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
-      issues.push({
-        path: 'activity.billableQuantityPerMonth',
-        message: `Para facturar ${formatNumber(a.billableQuantityPerMonth, { decimals: 2 })} ${u.plural} por mes necesitás ${formatDays(a.activeDaysPerMonth, { decimals: 1 })} de trabajo: más que los ${formatNumber(a.availableDaysPerMonth)} días disponibles del mes.`,
-        severity: 'warning',
-      });
-    }
+    // Más días de trabajo que los del mes: lo pide confirmar la completitud (`multi_month`, V-1).
   }
-  if (quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
-    const usual = SERVICE_TYPE_UNITS[quote.serviceType].map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
+  // Abono ($/mes) con más días trabajados que disponibles (ECO-04, AUD-T1 H-04): además es NO CONFIABLE
+  // (completitud, `month_days_overflow`). En las otras unidades lo pide confirmar la completitud
+  // (`multi_month`, V-1): el aviso de acá repetía lo mismo.
+  if (u.kind === 'month' && a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
+    const n = (v) => formatNumber(v, { decimals: 2 });
     issues.push({
-      path: 'unit',
-      message: `"${labelOf(SERVICE_TYPES, quote.serviceType, 'Este servicio')}" se suele cobrar en ${usual}. Estás cobrando en ${u.label}: revisá que sea la unidad correcta.`,
+      path: 'activity.activeDaysPerMonth',
+      message: `Los días trabajados (${n(a.activeDaysPerMonth)}) superan los disponibles del mes (${n(a.availableDaysPerMonth)}): un abono mensual se cobra una vez por mes. Subí los días disponibles (30 si trabajás todo el mes) o bajá los trabajados.`,
       severity: 'warning',
     });
   }
+  // Días de trabajo + días de espera que no entran en el mes: crítico de la completitud (`standby_overflow`, V-1).
+  // UXR: la unidad ya no depende del tipo de servicio (cualquier unidad del catálogo se puede elegir): no
+  // hay aviso de "se suele cobrar en…".
   return issues;
 }
 
@@ -201,8 +202,14 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const ratesAtEstimate = requiredRatesAt(ctx, D, margins);
   const byMargin = (m) => ratesAtEstimate.byMargin.find((r) => r.marginPct === m) || { netRate: null, listRate: null, requiredRevenue: null };
   const targetRates = targetMarginInvalid ? { netRate: null, listRate: null, requiredRevenue: null } : byMargin(targetMarginPct);
-  const roundingStep = nonNegative(pricing.roundingStep);
+  // Redondeo comercial (ECO-03): automático (múltiplo que no sube la objetivo más del tope) o múltiplo
+  // fijo; sin `roundingMode` (cotizaciones de antes) rige el múltiplo guardado, como siempre.
+  const priceRounding = quoteRounding(pricing);
+  const roundingStep = roundingStepFor(priceRounding, targetRates.listRate);
   const suggestedListRate = commercialRound(targetRates.listRate, roundingStep);
+  const suggestedRoundUpPct = isFiniteNumber(suggestedListRate) && isFiniteNumber(targetRates.listRate) && targetRates.listRate > 0
+    ? (suggestedListRate / targetRates.listRate - 1) * 100
+    : null;
 
   // Tarifa comercial (de lista) ofrecida
   let commercialListRate = null;
@@ -223,6 +230,12 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   const hasRate = isFiniteNumber(commercialListRate) && commercialListRate > 0;
   const estimate = evaluateAt(ctx, D, hasRate ? commercialListRate : 0);
+  // Margen con la tarifa sugerida (ECO-03): se muestra junto al objetivo aunque se ofrezca otra tarifa.
+  // Con una tarifa forzada (matriz, escenarios) no se calcula: nadie lo muestra y evita otra evaluación.
+  const forced = listRateOverride !== null && listRateOverride !== undefined;
+  const suggestedEstimate = isFiniteNumber(suggestedListRate) && suggestedListRate > 0 && !forced
+    ? (commercialSource === 'suggested' ? estimate : evaluateAt(ctx, D, suggestedListRate))
+    : null;
   const maxDays = activity.availableDaysPerMonth;
 
   // Break-even y días para margen objetivo
@@ -230,6 +243,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   let targetMarginDays;
   if (ctx.unit === 'month') {
     const reason = 'Con abono mensual la facturación no depende de los días activos: no hay break-even en días.';
+    breakEven = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
+    targetMarginDays = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
+  } else if (activity.jobHorizon) {
+    // Precio total del trabajo (UXR): se vende UN trabajo; el piso ya es el precio mínimo para no perder.
+    const reason = 'Con precio total del trabajo se vende un solo trabajo: el mínimo para no perder es la tarifa piso.';
     breakEven = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
     targetMarginDays = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
   } else if (!hasRate) {
@@ -281,10 +299,10 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   // Continuidad: efecto del descuento por permanencia con la actividad estimada
   const continuity = {
-    applies: continuityApplies(quote.rules || {}, quote.contractMonths),
+    applies: continuityApplies(quote.rules || {}, ctx.contractMonths),
     discountPct: normalizeRules(quote.rules || {}).continuityDiscountPct,
     minMonths: normalizeRules(quote.rules || {}).continuityMinMonths,
-    contractMonths: nonNegative(quote.contractMonths),
+    contractMonths: ctx.contractMonths,
   };
   if (continuity.applies && hasRate) {
     continuity.status = classifyDiscount({
@@ -309,6 +327,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const num = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
   let workingCapital = model.finance.workingCapitalFixed * factor + model.finance.workingCapitalPerActiveDay * D;
   if (roundingOn) workingCapital += rounding.workingCapital;
+  // Precio total del trabajo (UXR, SIM-02 ronda 2): la caja del modelo es la de todo el trabajo; lo que se adelanta
+  // a la vez es la de un mes (el costo financiero, que suma todos los meses, no cambia).
+  if (model.activity && model.activity.jobHorizon && model.activity.jobMonths > 1) workingCapital /= model.activity.jobMonths;
   const financialCost = costAt.byCategory.financial;
   // Viajes = movilización de los equipos + logística auxiliar (vehículos, peajes, viáticos).
   let logisticsMonthly = (model.logistics.perActiveDay + model.mobilization.perActiveDay) * D;
@@ -356,6 +377,14 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     targetNetRate: targetRates.netRate,
     targetListRate: targetRates.listRate,
     suggestedListRate,
+    // Redondeo comercial (ECO-03): regla, múltiplo aplicado, cuánto sube la sugerida sobre la objetivo
+    // y su margen; con un múltiplo fijo que la sube más de 1 % se avisa (el automático nunca llega).
+    roundingMode: priceRounding.mode,
+    roundingStep,
+    roundingMaxPct: priceRounding.mode === 'auto' ? priceRounding.maxPct : null,
+    suggestedRoundUpPct,
+    suggestedMarginPct: suggestedEstimate && isFiniteNumber(suggestedEstimate.marginPct) ? suggestedEstimate.marginPct : null,
+    roundingExceedsLimit: priceRounding.mode === 'step' && isFiniteNumber(suggestedRoundUpPct) && suggestedRoundUpPct > ROUNDING_WARN_PCT + 1e-9,
     commercialListRate: hasRate ? commercialListRate : null,
     commercialNetRate: hasRate ? commercialNetRate : null,
     commercialSource: hasRate ? commercialSource : 'none',
@@ -519,7 +548,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       result: { label: 'Precio objetivo de lista', value: targetRates.listRate, format: 'moneyCeil' },
       notes: [
-        roundingStep > 0 ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null,
+        roundingStep > 0
+          ? (priceRounding.mode === 'auto'
+            ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${formatMoney(roundingStep)} (redondeo automático: sube a lo sumo ${formatPercent(priceRounding.maxPct)} sobre el precio objetivo).`
+            : `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.`)
+          : null,
         targetMarginInvalid ? 'El margen objetivo tiene que ser mayor o igual a 0 y, sumado a los impuestos sobre la facturación, menor a 100 %.' : null,
       ],
     }),
@@ -643,7 +676,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   return {
     issues,
     // Salidas estimadas vs costeadas y ajuste (PLAN-2026-011); `preview` = cuánto sumaría si se activa.
-    activationRounding: { ...rounding, active: roundingOn, preview: roundingPreview },
+    // V-7 (VALIDACIONES-01): cada activación dura más que el mes (una obra de varios meses expresada por mes).
+    activationRounding: { ...rounding, active: roundingOn, preview: roundingPreview, longerThanMonth: activity.availableDaysPerMonth > 0 && activity.daysPerActivation > activity.availableDaysPerMonth + 1e-9 },
     unit: ctx.unit,
     unitLabel,
     unitInfo,
@@ -675,8 +709,16 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   };
 }
 
-/** Indicadores compactos para dashboard y listados (sin trazas). */
+/**
+ * Indicadores compactos para dashboard y listados (sin trazas). Suma el riesgo
+ * del resultado (ECO-02: NO CONFIABLE y pendientes críticos, con sus rótulos)
+ * para que las listas lo muestren; los indicadores (`kpis`) no cambian.
+ */
 export function summarizeQuote(quote, options = {}) {
   const r = computeQuote(quote, options);
-  return { ...r.kpis, issuesCount: r.issues.length };
+  // UXR: con precio total del trabajo la facturación es la del trabajo completo; para sumar meses (Inicio) se
+  // usa el promedio por mes de la obra (facturación ÷ meses del trabajo).
+  const jobMonths = r.activity && r.activity.jobHorizon ? r.activity.jobMonths : null;
+  const monthlyRevenue = jobMonths > 0 && isFiniteNumber(r.kpis.revenue) ? r.kpis.revenue / jobMonths : r.kpis.revenue;
+  return { ...r.kpis, monthlyRevenue, jobMonths, issuesCount: r.issues.length, ...riskSummary(r.completeness) };
 }

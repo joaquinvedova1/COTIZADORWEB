@@ -26,6 +26,7 @@ import { APP_NAME } from '../config.js';
 import { formatBuildLabel } from '../core/format.js';
 import { h, mount } from './dom.js';
 import { icon } from './components.js';
+import { feedbackKindParam, feedbackScreenFromHash } from '../domain/feedback.js';
 
 /**
  * Navegación principal de la aplicación. `key` lo usa el router para marcar
@@ -139,17 +140,38 @@ export function createLayout(container, { version = {} } = {}) {
   const platformBadgeEl = h('div', { class: 'account-platform', hidden: true }, 'RATEOS ADMIN');
   let adminLink = null;
   const signOutBtn = h('button', { type: 'button', class: 'account-action', on: { click: () => signOutHandler && signOutHandler() } }, icon('logout', { size: 16 }), h('span', {}, 'Cerrar sesión'));
+  // Feedback de la beta (PLAN-2026-029): cada enlace lleva la pantalla actual de una lista fija, sin ids.
+  const feedbackLink = (kind, label, iconName) => {
+    const link = h('a', { class: 'account-action account-feedback', href: `#/mejorar?tipo=${feedbackKindParam(kind)}`, dataset: { feedback: kind } }, icon(iconName, { size: 16 }), h('span', {}, label));
+    link.addEventListener('click', (event) => {
+      // Ya en el formulario: se cambia el tipo sin perder lo escrito (lo maneja la pantalla).
+      if (/^#\/mejorar(\?|$)/.test(window.location.hash)) {
+        event.preventDefault();
+        window.dispatchEvent(new CustomEvent('rateos:feedback-kind', { detail: { kind } }));
+        return;
+      }
+      link.href = `#/mejorar?tipo=${feedbackKindParam(kind)}&desde=${feedbackScreenFromHash(window.location.hash)}`;
+    });
+    return link;
+  };
+  const problemLink = feedbackLink('problem', 'Reportar un problema', 'alert');
+  const suggestionLink = feedbackLink('suggestion', 'Sugerir una mejora', 'idea');
   const accountEl = h(
     'div',
     { class: 'account-card', hidden: true },
     h('div', { class: 'account-text' }, userNameEl, platformBadgeEl, userEmailEl),
     h('div', { class: 'account-actions' },
       h('a', { class: 'account-action', href: '#/configuracion/cuenta' }, icon('user', { size: 16 }), h('span', {}, 'Mi cuenta')),
+      problemLink,
+      suggestionLink,
       signOutBtn),
   );
   const syncDotEl = h('span', { class: 'sync-dot', 'aria-hidden': 'true' });
   const syncTextEl = h('span', { class: 'sync-text' });
-  const syncEl = h('div', { class: 'sync-status', role: 'status', hidden: true }, syncDotEl, syncTextEl);
+  // En el riel (761 a 1100 px) el texto completo no entra: se ve una palabra corta y los lectores de
+  // pantalla leen el completo (DESIGN-02). Así el estado nunca queda como un punto de color solo.
+  const syncShortEl = h('span', { class: 'sync-short', 'aria-hidden': 'true' });
+  const syncEl = h('div', { class: 'sync-status', role: 'status', hidden: true }, syncDotEl, syncTextEl, syncShortEl);
   const sidebarFooter = h(
     'div',
     { class: 'sidebar-footer' },
@@ -159,7 +181,10 @@ export function createLayout(container, { version = {} } = {}) {
     buildEl,
   );
 
-  const sidebar = h('aside', { class: 'sidebar', id: 'app-sidebar', 'aria-label': 'Menú de RATEOS' }, brandLink('brand-sidebar'), newQuoteLink, nav, sidebarFooter);
+  // Distintivo discreto de la beta (PLAN-2026-029): lleva a "Acerca de la beta". Sin promesas.
+  const betaPill = h('a', { class: 'beta-pill', href: '#/mejorar?acerca=1', title: 'RATEOS está en beta gratuita: acerca de la beta' },
+    h('span', { class: 'beta-pill-long' }, 'Beta gratuita'), h('span', { class: 'beta-pill-short', 'aria-hidden': 'true' }, 'Beta'));
+  const sidebar = h('aside', { class: 'sidebar', id: 'app-sidebar', 'aria-label': 'Menú de RATEOS' }, brandLink('brand-sidebar'), betaPill, newQuoteLink, nav, sidebarFooter);
 
   // ------------------------------------------------- barra compacta (mobile)
 
@@ -170,7 +195,12 @@ export function createLayout(container, { version = {} } = {}) {
     menuIconHost,
     h('span', {}, 'Menú'),
   );
-  const mobileBar = h('div', { class: 'mobile-bar' }, brandLink('brand-compact'), menuToggle);
+  // Celular: el estado de la nube también en la barra de arriba (con el menú cerrado, el del menú no se ve).
+  const mobileSyncTextEl = h('span', { class: 'sr-only' });
+  const mobileSyncShortEl = h('span', { class: 'sync-short', 'aria-hidden': 'true' });
+  const mobileSyncEl = h('div', { class: 'sync-status sync-status-bar', role: 'status', hidden: true },
+    h('span', { class: 'sync-dot', 'aria-hidden': 'true' }), mobileSyncTextEl, mobileSyncShortEl);
+  const mobileBar = h('div', { class: 'mobile-bar' }, brandLink('brand-compact'), mobileSyncEl, menuToggle);
   const backdrop = h('div', { class: 'nav-backdrop', 'aria-hidden': 'true' });
 
   function setNavOpen(open, { returnFocus = false } = {}) {
@@ -391,6 +421,7 @@ export function createLayout(container, { version = {} } = {}) {
         userEmailEl.textContent = '';
         accountEl.hidden = true;
         syncEl.hidden = true;
+        mobileSyncEl.hidden = true;
         return;
       }
       const name = typeof info.name === 'string' && info.name.trim() ? info.name.trim() : '';
@@ -419,11 +450,19 @@ export function createLayout(container, { version = {} } = {}) {
     onSignOut(handler) {
       signOutHandler = typeof handler === 'function' ? handler : null;
     },
-    /** Estado de sincronización con la nube (texto + punto de color). */
-    setSyncStatus({ status, label } = {}) {
-      syncEl.hidden = !label;
-      syncTextEl.textContent = label || '';
-      syncEl.dataset.status = status || '';
+    /**
+     * Estado de sincronización con la nube: punto de color + texto completo y
+     * una palabra corta para el riel y la barra del celular ("Guardado",
+     * "Sin conexión"…). Sin `short`, la palabra es el texto completo.
+     */
+    setSyncStatus({ status, label, short } = {}) {
+      const word = label ? short || label : '';
+      for (const [el, textEl, shortEl] of [[syncEl, syncTextEl, syncShortEl], [mobileSyncEl, mobileSyncTextEl, mobileSyncShortEl]]) {
+        el.hidden = !label;
+        textEl.textContent = label || '';
+        shortEl.textContent = word;
+        el.dataset.status = status || '';
+      }
     },
     /**
      * Al cerrar la cuenta (PLAN-2026-015): el menú y la barra de la app (ocultos

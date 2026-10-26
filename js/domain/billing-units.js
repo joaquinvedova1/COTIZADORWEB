@@ -70,15 +70,34 @@ export const SERVICE_TYPE_UNITS = deepFreeze({
   configurable: BILLING_UNIT_IDS.filter((id) => id !== 'custom'),
 });
 
-/** Plural simple de una unidad escrita por la persona ("pozo" → "pozos"). */
-export function pluralizeUnit(word) {
-  const w = typeof word === 'string' ? word.trim() : '';
-  if (!w) return 'unidades';
-  if (/[²³]|^[a-z]{1,2}$/i.test(w) || /-/.test(w)) return w;
+function pluralizeWord(w) {
+  if (/[²³\d]|^[a-z]{1,2}$/i.test(w) || /-/.test(w)) return w;
   if (/ón$/i.test(w)) return `${w.slice(0, -2)}ones`;
   if (/[aeiouáéíóú]$/i.test(w)) return `${w}s`;
   if (/s$/i.test(w)) return w;
   return `${w}es`;
+}
+
+/** Palabras que cortan el plural: "litro de gasoil" → "litros de gasoil". */
+const PLURAL_STOP = new Set(['de', 'del', 'por', 'con', 'a', 'al', 'en', 'para', 'sin', 'y']);
+
+/**
+ * Plural simple de una unidad escrita por la persona ("pozo" → "pozos"). Con varias palabras se pluralizan
+ * todas hasta la primera preposición (SIM-02: "camión reparado" → "camiones reparados", no "camión reparados").
+ */
+export function pluralizeUnit(word) {
+  const w = typeof word === 'string' ? word.trim() : '';
+  if (!w) return 'unidades';
+  const parts = w.split(/\s+/);
+  if (parts.length === 1) return pluralizeWord(w);
+  let stopped = false;
+  return parts.map((p) => {
+    if (stopped || PLURAL_STOP.has(p.toLowerCase())) {
+      stopped = true;
+      return p;
+    }
+    return pluralizeWord(p);
+  }).join(' ');
 }
 
 /** Nombre de unidad propia saneado (sin caracteres de control, máx. 30). */
@@ -100,7 +119,43 @@ export function billingUnitOf(quote = {}) {
     const plural = name === 'unidad' ? 'unidades' : pluralizeUnit(name);
     return { id, kind: def.kind, singular: name, plural, short: name, label: `$/${name}`, custom: true, legacy: false };
   }
+  const variant = resourceVariantOf(quote, id);
+  if (variant) {
+    return { id, kind: def.kind, singular: variant.singular, plural: variant.plural, short: variant.short, label: `$/${variant.singular}`, custom: false, legacy: false, resource: variant.resource, feminine: variant.feminine };
+  }
   return { id, kind: def.kind, singular: def.singular, plural: def.plural, short: def.short, label: def.label, custom: false, legacy: LEGACY_BILLING_UNITS.includes(id) };
+}
+
+/**
+ * Personas o equipos que se facturan en paralelo (UXR): con hora, día o mes la unidad pasa a ser
+ * "hora-hombre", "jornal", "hora-equipo", "día-equipo", "equipo-mes"… y el motor multiplica las unidades por
+ * `activity.billedResources` (commercial-rules-engine). `activity.billedResourceKind` = 'person' | 'equipment'.
+ */
+const RESOURCE_VARIANTS = deepFreeze({
+  'hour:person': { singular: 'hora-hombre', plural: 'horas-hombre', short: 'hora-hombre', feminine: true },
+  'hour:equipment': { singular: 'hora-equipo', plural: 'horas-equipo', short: 'hora-equipo', feminine: true },
+  'day:person': { singular: 'jornal', plural: 'jornales', short: 'jornal', feminine: false },
+  'day:equipment': { singular: 'día-equipo', plural: 'días-equipo', short: 'día-equipo', feminine: false },
+  'month:person': { singular: 'persona-mes', plural: 'personas-mes', short: 'persona-mes', feminine: true },
+  'month:equipment': { singular: 'equipo-mes', plural: 'equipos-mes', short: 'equipo-mes', feminine: false },
+});
+
+/** Variante por persona o por equipo de una unidad de tiempo, o null. */
+export function resourceVariantOf(quote = {}, unitId = null) {
+  const id = unitId || (quote && quote.unit) || 'day';
+  const a = quote && quote.activity;
+  const kind = a && (a.billedResourceKind === 'person' || a.billedResourceKind === 'equipment') ? a.billedResourceKind : null;
+  if (!kind || !['hour', 'day', 'month'].includes(id)) return null;
+  const v = RESOURCE_VARIANTS[`${id}:${kind}`];
+  return v ? { ...v, resource: kind } : null;
+}
+
+/** Personas o equipos facturados en paralelo (1 si no se cargó). */
+export function billedResourcesOf(quote = {}) {
+  const a = (quote && quote.activity) || {};
+  if (a.billedResourceKind !== 'person' && a.billedResourceKind !== 'equipment') return 1;
+  const n = Number(a.billedResources);
+  return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
 /** Unidades para elegir según el tipo de servicio (+ la actual, si no está, + "Otra"). */
@@ -135,7 +190,7 @@ export function isFeminineUnit(singular) {
 export function unitTexts(info) {
   const u = info || billingUnitOf({});
   const plural = u.plural || 'unidades';
-  const fem = isFeminineUnit(u.singular);
+  const fem = typeof u.feminine === 'boolean' ? u.feminine : isFeminineUnit(u.singular);
   const cuantos = fem ? 'Cuántas' : 'Cuántos';
   return {
     // Concordancia ("las unidades", "cuántas toneladas", "ningún viaje").

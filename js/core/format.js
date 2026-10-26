@@ -42,7 +42,8 @@ export function formatMoneyCeil(value) {
 
 /**
  * Monto abreviado para resúmenes y vistas previas: "$ 15,8 M", "$ 2,04 M",
- * "$ 850 mil", "$ 950" (2 decimales debajo de $ 10 M, 1 hasta $ 100 M). Con `ceil: true` redondea HACIA ARRIBA al dígito mostrado (para
+ * "$ 850 mil", "$ 39,9 mil", "$ 1.519" (2 decimales debajo de $ 10 M, 1 hasta $ 100 M; 1 decimal entre $ 10 mil y
+ * $ 100 mil; la cifra completa debajo de $ 10 mil). Con `ceil: true` redondea HACIA ARRIBA al dígito mostrado (para
  * tarifas: la cifra visible nunca queda debajo del valor calculado).
  * No reemplaza al monto completo en el detalle: es sólo presentación.
  */
@@ -62,27 +63,30 @@ export function formatMoneyCompact(value, { ceil = false } = {}) {
     // redondeo hacia arriba de una tarifa podía mostrar hasta un 5 % más.
     decimals = Math.abs(scaled) >= 100 ? 0 : Math.abs(scaled) >= 10 ? 1 : 2;
     suffix = 'M';
-  } else if (abs >= 1e3) {
+  } else if (abs >= 1e4) {
+    // UX-UNITS: entre $ 10 mil y $ 100 mil, 1 decimal ("$ 39,9 mil"); sin decimales una tarifa piso de
+    // $ 39.802 se leía "$ 40 mil".
     scaled = value / 1e3;
-    decimals = 0;
+    decimals = abs >= 1e5 ? 0 : 1;
     suffix = 'mil';
   } else {
+    // Debajo de $ 10 mil, la cifra completa ("$ 1.519"): "$ 2 mil" era un 32 % más (revisión UX-UNITS).
     scaled = value;
     decimals = 0;
     suffix = '';
   }
   let rounded = roundTo(scaled, decimals);
-  // 999.999 → "1.000 mil" no: se pasa a la unidad siguiente.
-  if (suffix === '' && Math.abs(rounded) >= 1000) {
+  // 9.999,6 → "10.000" no: se pasa a la unidad siguiente; 999.999 → "1.000 mil" tampoco.
+  if (suffix === '' && Math.abs(rounded) >= 1e4) {
     suffix = 'mil';
-    rounded = roundTo(value / 1e3, 0);
+    rounded = roundTo(value / 1e3, 1);
   }
   if (suffix === 'mil' && Math.abs(rounded) >= 1000) {
     suffix = 'M';
     rounded = roundTo(value / 1e6, 2);
   }
   if (Object.is(rounded, -0)) rounded = 0;
-  const number = numberFormat({ minimumFractionDigits: 0, maximumFractionDigits: suffix === 'M' ? 2 : 0 }).format(Math.abs(rounded));
+  const number = numberFormat({ minimumFractionDigits: 0, maximumFractionDigits: suffix === 'M' ? 2 : suffix === 'mil' ? 1 : 0 }).format(Math.abs(rounded));
   const sign = rounded < 0 ? '-' : '';
   return `${sign}$\u00A0${number}${suffix ? `\u00A0${suffix}` : ''}`;
 }

@@ -112,6 +112,14 @@ export const EXTERNAL_TRIP_BASES = deepFreeze([
   { id: 'round_trip', label: 'Por viaje completo (ida y vuelta)', short: '/viaje' },
 ]);
 
+/**
+ * Dónde está el costo de tenerlo de un vehículo de apoyo (ECO-04, AUD-T1 H-08), en
+ * `logistics.vehicles[].ownershipCostsIn`: el id de una línea de Equipos (la camioneta
+ * cargada también como equipo) o este valor: ya está en el costo por km (un tercero que
+ * cobra por km, o la amortización, el seguro y la patente incluidos en el desgaste).
+ */
+export const OWNERSHIP_COSTS_PER_KM = 'per_km';
+
 /** Abreviatura de la unidad de una tarifa externa: "/tramo", "/viaje" (viaje completo), "/km"… */
 export function externalUnitShort(ext) {
   const x = ext && typeof ext === 'object' ? ext : {};
@@ -259,8 +267,9 @@ export const CATEGORY_PAY_GROUP = deepFreeze({
  * avisos "Ir a…"): no repetirlos a mano en las vistas.
  */
 export const QUOTE_STEPS = deepFreeze([
-  { id: 'service', label: 'Tipo de servicio' },
-  { id: 'modality', label: 'Cómo se cobra' },
+  // UXR: el primer paso ya no pide un tipo de servicio: qué cotizás y cómo le cobrás; el segundo, la actividad.
+  { id: 'service', label: 'Qué cotizás' },
+  { id: 'modality', label: 'Cuánto vas a hacer' },
   { id: 'labor', label: 'Personal' },
   { id: 'equipment', label: 'Equipos' },
   { id: 'materials', label: 'Materiales' },
@@ -271,6 +280,12 @@ export const QUOTE_STEPS = deepFreeze([
   { id: 'margin', label: 'Margen y precio' },
   { id: 'result', label: 'Resultado' },
 ]);
+
+/** Nombre visible de un paso del editor (única fuente para los textos de los motores). */
+export function stepLabelOf(id) {
+  const step = QUOTE_STEPS.find((x) => x.id === id);
+  return step ? step.label : id;
+}
 
 // ------------------------------------------------ base económica (PLAN-2026-005)
 
