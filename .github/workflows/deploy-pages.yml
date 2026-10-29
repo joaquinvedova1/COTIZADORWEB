@@ -259,7 +259,7 @@ jobs:
       - name: Desplegar en GitHub Pages
         id: deployment
         if: steps.main_guard.outputs.publish == 'true'
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
       # Prueba de que quedó publicado lo que se construyó y de que no queda
       # ningún staging viejo (HD-02): version.json con el commit desplegado y
