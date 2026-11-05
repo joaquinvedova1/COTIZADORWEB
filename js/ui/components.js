@@ -279,8 +279,10 @@ function fieldShell({ id, label, hint, unit, error, required, illustrative }, co
       h('div', { class: 'field-label-row' },
         h('label', { class: 'field-label', for: id }, label, required ? h('span', { class: 'req', 'aria-hidden': 'true' }, ' *') : null,
           illustrative ? h('span', { class: 'tag-illustrative', title: 'Valor ilustrativo' }, 'ILUSTRATIVO') : null),
-        hint ? infoTip(hint, { id: `${id}-hint` }) : null),
+        hint && !illustrative ? infoTip(hint, { id: `${id}-hint` }) : null),
       h('div', { class: ['field-control', unit ? 'has-unit' : null] }, control, unit ? h('span', { class: 'field-unit' }, unit) : null),
+      // Un valor ILUSTRATIVO es un aviso: su explicación queda siempre a la vista.
+      hint && illustrative ? h('div', { class: 'field-hint', id: `${id}-hint` }, hint) : null,
       errorEl),
     errorEl,
   };

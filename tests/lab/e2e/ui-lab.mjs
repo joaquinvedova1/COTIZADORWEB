@@ -348,7 +348,8 @@ async function runMode(mode) {
       await go(`#/cotizaciones/${encodeURIComponent(q.id)}/modality`, 300);
       await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
       await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
-      const t = norm(await page.evaluate(() => document.body.textContent));
+      // Sin las ayudas (i) (se leen al pasar el cursor): rótulo y valor quedan vecinos.
+      const t = norm(await page.evaluate(() => (() => { const c = document.body.cloneNode(true); c.querySelectorAll('.info-tip-bubble').forEach((n) => n.remove()); return c.textContent; })()));
       const tr = r.model.transport;
       const expectText = [
         ['Viajes facturables', `${formatNumber(k.billableQuantity, { decimals: 2 })} viajes`],
@@ -404,12 +405,13 @@ async function runMode(mode) {
   }
   // ---- Decisiones LAB-D1…D8 (PLAN-2026-014): lo que se ve en pantalla.
   const byId = Object.fromEntries(seeded.map((x) => [x.s.id, x]));
-  const screenText = async (id, step) => {
+  const screenText = async (id, step, { withTips = false } = {}) => {
     await go(`#/cotizaciones/${encodeURIComponent(byId[id].q.id)}/${step}`, 300);
     await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
     // textContent (como los demás rótulos): innerText aplica las mayúsculas del CSS.
-    return norm(await page.evaluate(() => document.body.textContent));
+    // Sin las ayudas (i): rótulo y valor quedan vecinos (withTips: con ellas).
+    return norm(await page.evaluate((tips) => { const c = document.body.cloneNode(true); if (!tips) c.querySelectorAll('.info-tip-bubble').forEach((n) => n.remove()); return c.textContent; }, withTips));
   };
   /**
    * ECO-01: en el Resultado (ya abierto), "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" está a la
@@ -453,7 +455,7 @@ async function runMode(mode) {
     check('E2E-13', 'D5: "No usa combustible" marcado y sin campo de consumo', ui.flag && !ui.consumption, JSON.stringify(ui));
   }
   {
-    const t = await screenText('E2E-14', 'logistics');
+    const t = await screenText('E2E-14', 'logistics', { withTips: true });
     const confirm = await page.evaluate(() => Boolean(document.querySelector('input[name="fuel.illustrative"]')));
     check('E2E-14', 'D7: el precio de ejemplo se ve ILUSTRATIVO, con su base, y se puede confirmar', confirm && /ILUSTRATIVO de ejemplo/.test(t) && /Base no definida/.test(t), `confirmar: ${confirm}`);
   }
