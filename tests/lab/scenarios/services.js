@@ -423,6 +423,31 @@ export const SERVICE_SCENARIOS = [
     }),
     expect: { 'kpis.activeDays': 16 },
   },
+  {
+    id: 'SRV-19J-M3-CAPACITY-PER-TRIP',
+    title: 'Agua $/m³ con cisterna de 30 m³: 100 m³ por día → ⌈3,33⌉ = 4 viajes por salida',
+    family: 'transport',
+    build: () => service({
+      id: 'srv-19j', serviceType: 'transport', unit: 'm3',
+      activity: { billableQuantityPerMonth: 2000, unitsPerActiveDay: 100, daysPerActivation: 1, hoursPerActiveDay: 10, unitsPerTrip: 30 },
+      labor: [person({ role: 'Chofer', basicMonthly: 1900000 })],
+      logistics: { ...route({ distanceKm: 50, tollsPerActivation: 5000 }), vehicles: [vehicle({ name: 'Cisterna', consumptionLPer100Km: 40, costPerKm: 400 })] },
+    }),
+    expect: { 'kpis.activeDays': 20, 'model.transport.physicalTripsPerActivation': 4, 'model.transport.routeKmPerMonth': 8000 },
+  },
+  {
+    id: 'SRV-19K-HOUR-TIER-WORKED-DAYS',
+    title: 'Cuadrilla $/hora con mínimo 4 h y 4 llamados por día: tramo por días TRABAJADOS (20), no facturados (32)',
+    family: 'crew',
+    build: () => service({
+      id: 'srv-19k', serviceType: 'crew', unit: 'hour', pricingMode: 'known_rate',
+      activity: { activeDaysPerMonth: 20, daysPerActivation: 0.25, hoursPerActiveDay: 10 },
+      labor: [person({ positions: 3 })],
+      rules: { minimumCallUnits: 4, volumeTierBasis: 'worked', volumeTiers: [{ id: 't1', fromDays: 1, toDays: 24.99, discountPct: 0 }, { id: 't2', fromDays: 25, toDays: null, discountPct: 10 }] },
+      pricing: { knownRate: 48000 },
+    }),
+    expect: { 'kpis.activeDays': 20 },
+  },
   // -------------------------------------------------------------------- transporte
   {
     id: 'SRV-20-TRANS-KM-CONSISTENT',

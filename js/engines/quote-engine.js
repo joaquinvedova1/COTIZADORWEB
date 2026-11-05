@@ -50,6 +50,8 @@ export function minActiveDaysForBillableDays(ctx, billableDays) {
   const dpa = a.daysPerActivation > 0 ? a.daysPerActivation : 1;
   const minCall = normalizeRules(ctx.rules).minimumCallUnits;
   const bd = nonNegative(billableDays);
+  // Tramo por días trabajados: el peor caso del tramo es su primer día trabajado.
+  if (normalizeRules(ctx.rules).volumeTierBasis === 'worked') return bd;
   if (ctx.unit === 'hour') {
     const h = a.hoursPerActiveDay;
     if (!(h > 0)) return bd;

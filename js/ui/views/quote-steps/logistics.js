@@ -26,6 +26,7 @@ import { nonNegative, isFiniteNumber } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, moneyText, numberText, stepName } from './shared.js';
+import { capacityPerTripOf } from '../../../engines/transport-engine.js';
 import { baseFields } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
@@ -83,6 +84,8 @@ export function render(container, ctx) {
   // Unidad "viaje" (PLAN-2026-012): los viajes por intervención se derivan.
   const unitInfo = billingUnitOf(quote);
   const tripUnit = unitInfo.id === 'trip' && unitInfo.kind === 'quantity';
+  // Por m³ / t…: con capacidad por viaje los viajes se calculan solos (auditoría 2026-11).
+  const capacityTrips = capacityPerTripOf(quote) !== null;
   const illustrative = Boolean(quote.illustrative);
   // Marca ILUSTRATIVO por vehículo (copiados de una plantilla de demostración).
   const vehicleIll = lg.vehicles.map((v, i) => kit.lineIllustrative(`logistics.vehicles.${i}`, { what: 'este vehículo' }));
@@ -334,6 +337,8 @@ export function render(container, ctx) {
             lg.roundTrip === false ? 'Sólo ida' : 'Ida y vuelta',
             tripUnit
               ? `viajes ${T.per} según los viajes por día`
+              : capacityTrips
+              ? `viajes ${T.per} según la capacidad por viaje`
               : `${numberText(lg.tripsPerActivation, { decimals: 2 }) || '0'} ${Number(lg.tripsPerActivation) === 1 ? 'viaje' : 'viajes'} ${T.per}`,
             wear ? `desgaste: ${wear}` : null,
             `peajes ${moneyText(lg.tollsPerActivation) || '$ 0'}`,
@@ -345,7 +350,19 @@ export function render(container, ctx) {
       formGrid(
         2,
         kit.check('logistics.roundTrip', { label: 'Ida y vuelta', hint: 'Duplica los km de cada viaje.' }),
-        tripUnit
+        capacityTrips
+          ? h('div', { class: 'field' },
+            h('span', { class: 'field-label' }, L.tripsPerActivation),
+            kit.out((r) => {
+              const t = transportOf(r);
+              return t ? tripsText(t.physicalTripsPerActivation) : EMPTY;
+            }, { tag: 'div', className: 'qe-static' }),
+            kit.out((r) => {
+              const t = transportOf(r);
+              if (!t || !t.byCapacity) return '';
+              return `Se calcula solo: ${formatNumber(t.unitsPerTripActivation, { decimals: 2 })} ${T.per} ÷ ${formatNumber(t.capacityPerTrip, { decimals: 2 })} por viaje, redondeado hacia arriba (capacidad en "${stepName('modality')}").`;
+            }, { tag: 'div', className: 'field-hint', allowEmpty: true }))
+          : tripUnit
           ? h('div', { class: 'field' },
             h('span', { class: 'field-label' }, L.tripsPerActivation),
             kit.out((r) => {

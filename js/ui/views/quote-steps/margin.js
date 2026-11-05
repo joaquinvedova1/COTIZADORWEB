@@ -570,7 +570,18 @@ export function render(container, ctx) {
         return null;
       },
     },
-    h('p', { class: 'qe-note' }, 'Tramos según los días facturables del mes. Semáforo: verde mantiene el margen, naranja queda debajo del objetivo, rojo pierde plata.'),
+    h('p', { class: 'qe-note' }, 'Semáforo: verde mantiene el margen, naranja queda debajo del objetivo, rojo pierde plata.'),
+    // Lo decide quien cotiza (auditoría 2026-11): con mínimo por llamado, los días facturados superan a los trabajados.
+    dayTiers
+      ? formGrid(2, kit.select('rules.volumeTierBasis', {
+        label: '¿Con qué días se elige el tramo?',
+        options: [
+          { value: 'billed', label: `Días facturados (incluye el mínimo ${T.per})` },
+          { value: 'worked', label: 'Días trabajados' },
+        ],
+        hint: `Sólo cambia algo si hay mínimo ${T.per}: con 20 días trabajados y ${T.many} cortos podés facturar 32 días de mínimos. "Facturados" da el tramo de 32 días; "trabajados", el de 20. Si dudás, dejá "facturados".`,
+      }))
+      : null,
     unitKind === 'month' ? h('p', { class: 'qe-explain' }, 'Con abono mensual los tramos por cantidad de días no se aplican.') : null,
     !dayTiers && unitKind !== 'month' ? h('p', { class: 'qe-explain' }, `Cobrás ${unit.label}: los tramos por cantidad de días no se aplican (sólo con tarifa por día u hora).`) : null,
     activityNote,

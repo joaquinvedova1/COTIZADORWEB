@@ -487,6 +487,8 @@ días de trabajo               = viajes facturables ÷ viajes por día        (�
 intervenciones (salidas)      = días de trabajo ÷ días por intervención
 viajes físicos por intervención:
   unidad "viaje"              = viajes por día × días por intervención     (se DERIVA)
+  m³, t, litro, barril o kg con "Capacidad por viaje" (opcional, 2026-11)
+                              = ⌈cantidad por día × días por intervención ÷ capacidad⌉  (un viaje a medio cargar es un viaje)
   otras unidades              = "Viajes por llamado" de Movilización y viajes (como siempre)
 viajes físicos por mes        = intervenciones × viajes físicos por intervención
 km por viaje                  = distancia de ida × (ida y vuelta ? 2 : 1)
@@ -993,6 +995,8 @@ Archivos: `js/engines/commercial-rules-engine.js` (`DEFAULT_VOLUME_TIERS` —def
 **Tramos por defecto** (0 % de descuento): 1 día · 2–7 días · 8–15 días · 16–30 días · +30 días (`fromDays` 31, `toDays` vacío).
 
 **Búsqueda del tramo** (`findVolumeTier`): los tramos se ordenan por "desde"; aplica **el último tramo cuyo "desde" sea ≤ días facturables** (tolerancia 1e-9). Con 0 días no hay tramo. El "hasta" sólo se usa para la etiqueta: 7,5 días cae en el tramo 2–7. Con unidad `month`, por cantidad (m³, viaje…) o por evento (llamado, trabajo, hito) no se aplican tramos (§12.1). Los tramos que no son objetos se ignoran; si no queda ninguno se usan los tramos por defecto.
+
+**Con qué días se elige el tramo** (`rules.volumeTierBasis`, lo elige quien cotiza en "Descuentos por cantidad de días", 2026-11): `billed` (por defecto, como siempre) = días **facturados**, incluido el mínimo por llamado; `worked` = días **trabajados**. Sólo difiere con mínimo por llamado. Ejemplo: $/hora, 10 h por día, 4 llamados por día de 2,5 h con mínimo 4 h, 20 días → 320 h = 32 días facturados; con tramos 1–24 (0 %) y +25 (10 %), "facturados" aplica 10 % y "trabajados" 0 %. Con `worked` el peor caso de cada tramo es su primer día trabajado.
 
 **Evaluación de cada tramo** (`evaluateDiscountTiers`): cada tramo se evalúa en su **peor caso**: la **menor cantidad de días activos** con la que ya se alcanza el "desde" del tramo en días **facturables**. Con menos días activos los fijos se reparten entre menos unidades. Como el tramo se elige por días facturables y, con minimum call, cada activación factura más días de los que se trabajan, el peor caso puede tener menos días activos que el "desde" del tramo (`minActiveDaysForBillableDays`):
 

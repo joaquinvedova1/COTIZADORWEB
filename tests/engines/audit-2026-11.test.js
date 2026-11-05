@@ -129,3 +129,42 @@ describe('textos', () => {
     close(r.equivalents.perDay, 16 * 48000);
   });
 });
+
+describe('decisiones que elige quien cotiza (2026-11)', () => {
+  const hourly = (basis) => {
+    resetIds();
+    return service({
+      serviceType: 'crew', unit: 'hour', pricingMode: 'known_rate',
+      activity: { activeDaysPerMonth: 20, daysPerActivation: 0.25, hoursPerActiveDay: 10, availableDaysPerMonth: 30 },
+      labor: [person({ positions: 3 })],
+      // 4 llamados por día de 2,5 h, mínimo 4 h → 320 h facturadas = 32 días facturados, 20 trabajados.
+      rules: { minimumCallUnits: 4, volumeTierBasis: basis, volumeTiers: [{ id: 't1', fromDays: 1, toDays: 24.99, discountPct: 0 }, { id: 't2', fromDays: 25, toDays: null, discountPct: 10 }] },
+      pricing: { knownRate: 48000 },
+    });
+  };
+  test('tramo de descuento por días facturados (por defecto) o trabajados', () => {
+    const billed = computeQuote(hourly(undefined), { settings: {} });
+    const worked = computeQuote(hourly('worked'), { settings: {} });
+    assert.equal(billed.estimate.revenue.tierDiscountPct, 10);
+    assert.equal(worked.estimate.revenue.tierDiscountPct, 0);
+    close(billed.estimate.revenue.components.base, 320 * 48000 * 0.9);
+    close(worked.estimate.revenue.components.base, 320 * 48000);
+  });
+
+  test('capacidad por viaje: los viajes por salida se calculan solos (⌈cantidad ÷ capacidad⌉)', () => {
+    resetIds();
+    const q = service({
+      serviceType: 'transport', unit: 'm3',
+      activity: { billableQuantityPerMonth: 2000, unitsPerActiveDay: 100, daysPerActivation: 1, hoursPerActiveDay: 10, unitsPerTrip: 30 },
+      labor: [person({ role: 'Chofer' })],
+      logistics: { notApplicable: false, distanceKm: 50, roundTrip: true, tripsPerActivation: 1, vehicles: [vehicle()] },
+    });
+    const r = computeQuote(q, { settings: {} });
+    // 100 m³ por salida ÷ 30 m³ = 3,33 → 4 viajes; 20 salidas → 80 viajes × 100 km = 8.000 km.
+    assert.equal(r.model.transport.physicalTripsPerActivation, 4);
+    close(r.model.transport.routeKmPerMonth, 8000);
+    q.activity.unitsPerTrip = null;
+    const manual = computeQuote(q, { settings: {} });
+    assert.equal(manual.model.transport.physicalTripsPerActivation, 1);
+  });
+});

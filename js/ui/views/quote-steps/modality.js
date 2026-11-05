@@ -26,6 +26,7 @@ import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, act
 import { activationRoundingText } from '../../result-text.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
+import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -342,8 +343,10 @@ export function render(container, ctx) {
           : null,
       );
     }
+    // Por m³ / t / litro / barril / kg: con la capacidad del equipo, RATEOS calcula los viajes.
+    const byCapacityUnit = CAPACITY_UNITS.includes(info.id);
     return formGrid(
-      2,
+      byCapacityUnit ? 3 : 2,
       kit.num('activity.billableQuantityPerMonth', {
         label: `${Plural} a facturar por mes`,
         rule: 'quantity',
@@ -363,6 +366,15 @@ export function render(container, ctx) {
           : 'Lo que hacés en un día de trabajo (rendimiento). Con esto se calculan los días de trabajo: lo que consume personal, equipos y combustible.',
         onValue: () => syncRouteTrips(),
       }),
+      byCapacityUnit
+        ? kit.num('activity.unitsPerTrip', {
+          label: 'Capacidad por viaje (opcional)',
+          rule: 'quantity',
+          unit: `${info.short}/viaje`,
+          placeholder: 'Ej.: 30',
+          hint: `Lo que lleva el equipo en un viaje (cisterna, batea…). Si la cargás, los viajes ${T.per} se calculan solos: ${info.plural} ${T.per} ÷ capacidad, redondeado hacia arriba. Vacío = los cargás a mano en "${stepName('logistics')}".`,
+        })
+        : null,
     );
   }
 

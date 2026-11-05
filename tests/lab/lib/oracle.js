@@ -246,7 +246,10 @@ export function oracleRoute(q, act) {
   const roundTrip = lg.roundTrip !== false;
   // Unidad "viaje": viajes por intervención = viajes por día × días por intervención (se derivan).
   const derived = act.unitId === 'trip';
-  const tripsPerActivation = notApplicable ? 0 : derived ? act.r * act.dpa : n(lg.tripsPerActivation, 1);
+  // Por volumen o peso con capacidad por viaje: ⌈cantidad por salida ÷ capacidad⌉ viajes.
+  const capacity = ['m3', 'ton', 'liter', 'barrel', 'kg'].includes(act.unitId) ? n(obj(q.activity).unitsPerTrip) : 0;
+  const byCapacity = !derived && capacity > 0 && act.r * act.dpa > 0;
+  const tripsPerActivation = notApplicable ? 0 : derived ? act.r * act.dpa : byCapacity ? Math.ceil((act.r * act.dpa) / capacity - 1e-9) : n(lg.tripsPerActivation, 1);
   const kmPerTrip = distance * (roundTrip ? 2 : 1);
   const routeKmPerActivation = kmPerTrip * tripsPerActivation;
   return {
@@ -579,7 +582,8 @@ export function revenueAt(q, model, D, listRate) {
   const rules = obj(q.rules);
   const u = billableAt(act, D);
   const months = monthsFactor(D, act.available);
-  const disc = discountAt(q, act, u.billableDays);
+  // Tramo por días facturados (con el mínimo, por defecto) o trabajados (§14, lo elige quien cotiza).
+  const disc = discountAt(q, act, rules.volumeTierBasis === 'worked' ? D : u.billableDays);
   const net = n(listRate) * disc.factor;
   const standbyOff = rules.standbyNotApplicable === true;
   const extraKmPerActivation = Math.max(0, model.route.routeKmPerActivation - n(rules.includedKmPerActivation));

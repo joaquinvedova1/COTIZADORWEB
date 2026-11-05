@@ -31,6 +31,23 @@ import { formatNumber } from '../core/format.js';
 import { billingUnitOf } from '../domain/billing-units.js';
 import { activationTerms } from '../domain/activation-terms.js';
 
+/**
+ * Unidades de VOLUMEN o PESO con las que los viajes se pueden calcular con la
+ * capacidad del equipo (auditoría 2026-11, lo carga quien cotiza):
+ *   viajes por salida = ⌈cantidad por salida ÷ capacidad por viaje⌉
+ *   cantidad por salida = cantidad por día de trabajo × días por salida
+ * (un viaje a medio cargar es un viaje entero).
+ */
+export const CAPACITY_UNITS = Object.freeze(['m3', 'ton', 'liter', 'barrel', 'kg']);
+
+/** Capacidad por viaje cargada (null si no aplica o no se cargó). */
+export function capacityPerTripOf(quote = {}) {
+  if (!CAPACITY_UNITS.includes(billingUnitOf(quote).id)) return null;
+  const a = isPlainObject(quote.activity) ? quote.activity : {};
+  const c = nonNegative(a.unitsPerTrip);
+  return c > 0 ? c : null;
+}
+
 /** ¿Los viajes físicos se derivan de la actividad? (unidad comercial "viaje"). */
 export function tripsAreDerived(quote = {}) {
   const unit = billingUnitOf(quote);
@@ -52,10 +69,17 @@ export function routeTrips(quote = {}, activity = {}) {
   const daysPerActivation = dpaRaw > 0 ? dpaRaw : 1;
   const stored = nonNegative(logistics.tripsPerActivation, 1);
   const tripsPerActiveDay = derived ? nonNegative(activity.unitsPerActiveDay) : null;
-  const physical = derived ? tripsPerActiveDay * daysPerActivation : stored;
+  // Por m³ / t / litro…: con capacidad por viaje, los viajes salen de la cantidad por salida.
+  const capacityPerTrip = derived ? null : capacityPerTripOf(quote);
+  const unitsPerActivation = nonNegative(activity.unitsPerActiveDay) * daysPerActivation;
+  const byCapacity = capacityPerTrip !== null && unitsPerActivation > 0;
+  const physical = derived ? tripsPerActiveDay * daysPerActivation : byCapacity ? Math.ceil(unitsPerActivation / capacityPerTrip - 1e-9) : stored;
   const tripsPerActivation = notApplicable ? 0 : physical;
   return {
     derived,
+    byCapacity,
+    capacityPerTrip,
+    unitsPerActivation: byCapacity ? unitsPerActivation : null,
     notApplicable,
     tripsPerActiveDay,
     daysPerActivation,
@@ -150,6 +174,9 @@ export function transportSummary({ quote = {}, activity = {}, route = {}, logist
   return {
     applicable: Boolean(route.derived) || billableKmPerMonth !== null || (!route.notApplicable && oneWayKm > 0) || providers.length > 0,
     derived: Boolean(route.derived),
+    byCapacity: Boolean(route.byCapacity),
+    capacityPerTrip: route.byCapacity ? route.capacityPerTrip : null,
+    unitsPerTripActivation: route.byCapacity ? route.unitsPerActivation : null,
     notApplicable: Boolean(route.notApplicable),
     origin: typeof lg.baseName === 'string' ? lg.baseName.trim() : '',
     destination: typeof lg.destinationName === 'string' ? lg.destinationName.trim() : '',
@@ -198,7 +225,9 @@ export function traceTransport(transport) {
       ? { label: `Días de trabajo = viajes facturables ÷ viajes por día${t.minimumPadding ? ` (con el mínimo ${T.per})` : ''}`, value: t.workDaysPerMonth, format: 'days' }
       : { label: 'Días de trabajo por mes', value: t.workDaysPerMonth, format: 'days' },
     { label: `${T.Many} por mes = días de trabajo ÷ días ${T.per}`, value: t.activationsPerMonth, format: 'number' },
-    { label: derived ? `Viajes físicos ${T.per} = viajes por día × días ${T.per}` : `Viajes físicos ${T.per} ("Viajes ${T.per}")`, value: t.physicalTripsPerActivation, format: 'number' },
+    t.byCapacity ? { label: `Cantidad ${T.per} = cantidad por día × días ${T.per}`, value: t.unitsPerTripActivation, format: 'number' } : null,
+    t.byCapacity ? { label: 'Capacidad por viaje', value: t.capacityPerTrip, format: 'number' } : null,
+    { label: derived ? `Viajes físicos ${T.per} = viajes por día × días ${T.per}` : t.byCapacity ? `Viajes físicos ${T.per} = ⌈cantidad ${T.per} ÷ capacidad⌉` : `Viajes físicos ${T.per} ("Viajes ${T.per}")`, value: t.physicalTripsPerActivation, format: 'number' },
     { label: `Viajes físicos por mes = ${T.many} × viajes ${T.per}`, value: t.physicalTripsPerMonth, format: 'number' },
     { label: 'Km por viaje = distancia × (ida y vuelta ? 2 : 1)', value: t.kmPerTrip, format: 'km' },
     { label: 'Km de ruta por mes (lo que se recorre y se costea) = viajes físicos × km por viaje', value: t.routeKmPerMonth, format: 'km' },

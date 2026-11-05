@@ -202,7 +202,7 @@ export function buildCostModel(quote = {}) {
   // viaje. Con la unidad "viaje" los viajes físicos por intervención se derivan
   // de los viajes por día (PLAN-2026-012): "Viajes por llamado" no rige.
   const route = routeTrips(quote, activity);
-  const logisticsInput = route.derived ? { ...(quote.logistics || {}), tripsPerActivation: route.tripsPerActivation } : quote.logistics || {};
+  const logisticsInput = route.derived || route.byCapacity ? { ...(quote.logistics || {}), tripsPerActivation: route.tripsPerActivation } : quote.logistics || {};
   const logistics = computeLogistics(logisticsInput, {
     activationsPerMonth: activity.activationsPerMonth,
     daysPerActivation: activity.daysPerActivation,

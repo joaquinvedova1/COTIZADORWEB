@@ -137,6 +137,7 @@ export function validateQuote(quote) {
   check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'days');
   check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');
   check('activity.daysPerActivation', a.daysPerActivation, 'positiveDays');
+  check('activity.unitsPerTrip', a.unitsPerTrip, 'quantity');
   check('activity.hoursPerActiveDay', a.hoursPerActiveDay, 'hoursPerDay');
   if (toNumber(a.activeDaysPerMonth) > toNumber(a.availableDaysPerMonth) && toNumber(a.availableDaysPerMonth) > 0) {
     issues.push({

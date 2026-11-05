@@ -19,7 +19,8 @@ Reglas para este archivo:
 - **Varias intervenciones por día:** "¿Cuánto dura cada intervención?" ofrece [Cada una dura uno o más días] o [Hago varias por día] (N por día; se guarda `daysPerActivation = 1 / N`). Antes había que escribir "0,333 días". Los textos dicen "3 intervenciones por día".
 - **Unidades de medida en español (UN/ECE Rec. 20):** $/pieza (válvula, instrumento…), $/pozo, $/ensayo, $/hora-hombre, $/litro, $/barril, $/hectárea y $/juego o kit. Con muchas unidades la elección es una lista desplegable.
 - Avisos: menos de una unidad por intervención (p. ej. medio pozo: la movilización se contaría dos veces), menos de un viaje por salida, y mínimo diario/horario de un externo cobrado en cada una de varias intervenciones por día.
-- Test Lab: 8 escenarios nuevos (SRV-19B…19I) y `tests/engines/audit-2026-11.test.js`.
+- **Lo elige quien cotiza** (decisión del dueño): "¿Con qué días se elige el tramo?" de descuento (facturados, por defecto, o trabajados; `rules.volumeTierBasis`) y "Capacidad por viaje" (opcional) para transporte por m³, t, litro, barril o kg: los viajes por salida se calculan solos (⌈cantidad por salida ÷ capacidad⌉; `activity.unitsPerTrip`). Sin cargarlos, todo calcula igual que antes.
+- Test Lab: 10 escenarios nuevos (SRV-19B…19K) y `tests/engines/audit-2026-11.test.js`.
 
 ### Cambiado
 
