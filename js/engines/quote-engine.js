@@ -225,6 +225,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   });
   const ctx = createEconomicsContext(quote, model);
   issues.push(...unitIssues(quote, ctx));
+  // Adicionales (PLAN-2026-018): sin precio o con precio a mano bajo el costo.
+  if (ctx.extras && ctx.extras.missingPrice > 0) {
+    const i = ctx.extras.lines.findIndex((l) => l.quantity > 0 && l.price === null);
+    issues.push({ path: `extras.${i}.price`, message: `"${ctx.extras.lines[i].label}" no tiene precio: cargalo a mano o revisá el margen objetivo y los impuestos (con un margen inválido no se sugiere). Mientras tanto no suma facturación.`, severity: 'warning' });
+  }
+  if (ctx.extras && ctx.extras.belowCost > 0) {
+    const i = ctx.extras.lines.findIndex((l) => l.belowCost);
+    issues.push({ path: `extras.${i}.price`, message: `"${ctx.extras.lines[i].label}" se cobra por debajo de su costo (con estructura, imprevistos e impuestos): cada ${ctx.extras.lines[i].unitName} pierde plata.`, severity: 'warning' });
+  }
   const unitInfo = ctx.unitInfo;
   const texts = unitTexts(unitInfo);
   const byQuantity = ctx.unit === 'quantity' || ctx.unit === 'event';
@@ -502,7 +511,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         : 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
       inputs: [
         { label: 'Costos fijos mensuales', value: linearTarget.fixedCosts, format: 'money' },
-        { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera)', value: linearTarget.fixedRevenue, format: 'money' },
+        { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera, adicionales)', value: linearTarget.fixedRevenue, format: 'money' },
         { label: 'Ingreso por día activo', value: linearTarget.revenuePerActiveDay, format: 'money' },
         { label: 'Costo variable por día activo', value: linearTarget.variableCostPerDay, format: 'money' },
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),

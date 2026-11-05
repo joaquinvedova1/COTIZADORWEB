@@ -32,9 +32,9 @@ import { deepFreeze, isPlainObject } from '../core/object.js';
 import { BILLING_UNITS, BILLING_UNIT_IDS } from './billing-units.js';
 
 export const CONTRACT_MODES = deepFreeze([
-  { id: 'monthly', label: 'Fijo mensual (mensualizado)', hint: 'Un monto por mes que cubre un horario o cupo, se trabaje o no. Lo que exceda se cobra como adicional.' },
-  { id: 'on_demand', label: 'Por servicio prestado (on call)', hint: 'Sólo lo trabajado: por hora, día, llamado, viaje, m³… Puede tener un mínimo mensual.' },
-  { id: 'closed', label: 'Precio cerrado (por trabajo u obra)', hint: 'Un precio global por el alcance, de una vez o por hitos.' },
+  { id: 'monthly', label: 'Fijo mensual', hint: 'Monto fijo por mes, se trabaje o no.' },
+  { id: 'on_demand', label: 'Por servicio prestado (on call)', hint: 'Sólo lo trabajado (hora, día, viaje…).' },
+  { id: 'closed', label: 'Precio cerrado', hint: 'Un precio por todo el trabajo u obra.' },
 ]);
 
 export const CONTRACT_MODE_IDS = deepFreeze(CONTRACT_MODES.map((m) => m.id));
@@ -44,9 +44,9 @@ export const CONTRACT_MODE_IDS = deepFreeze(CONTRACT_MODES.map((m) => m.id));
  * chofer (no una categoría aparte).
  */
 export const CONTRACT_RESOURCES = deepFreeze([
-  { id: 'labor', label: 'Sólo personal', hint: 'Cuadrilla, técnicos, operarios. Sin equipos propios.', labor: true, equipment: false },
-  { id: 'both', label: 'Equipo o vehículo con operador o chofer', hint: 'Hidrogrúa, camión, colectivo, pick-up con chofer… También transporte de cargas o personas.', labor: true, equipment: true },
-  { id: 'equipment', label: 'Equipo o vehículo sin operador', hint: 'Alquiler: lo opera el cliente (pick-up, generador, trailer…).', labor: false, equipment: true },
+  { id: 'labor', label: 'Sólo personal', hint: 'Cuadrilla, técnicos, operarios.', labor: true, equipment: false },
+  { id: 'both', label: 'Equipo o vehículo con operador o chofer', hint: 'Hidrogrúa, camión, colectivo… (incluye transporte).', labor: true, equipment: true },
+  { id: 'equipment', label: 'Equipo o vehículo sin operador', hint: 'Alquiler: lo opera el cliente.', labor: false, equipment: true },
 ]);
 
 /** Elección de recursos de un contrato: 'labor' | 'both' | 'equipment'. */

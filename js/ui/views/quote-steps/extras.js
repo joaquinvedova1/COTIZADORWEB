@@ -24,9 +24,9 @@ const PRESETS = Object.freeze([
 ]);
 
 const MODE_INTRO = Object.freeze({
-  monthly: 'Lo que el fijo no cubre y se cobra aparte: horas fuera de horario, feriados, llamados extra, km excedentes…',
-  on_demand: 'Ítems que se cobran aparte de la tarifa principal: horas fuera de horario, feriados, km excedentes…',
-  closed: 'Trabajos fuera del alcance con precio unitario.',
+  monthly: 'Lo que el fijo no cubre.',
+  on_demand: 'Ítems aparte de la tarifa principal.',
+  closed: 'Trabajos fuera del alcance.',
 });
 
 /**
@@ -39,12 +39,12 @@ export function extrasSection(ctx, contract) {
   const extras = Array.isArray(quote.extras) ? quote.extras : [];
   const categoryOptions = COST_CATEGORIES.filter((c) => DIRECT_CATEGORY_IDS.includes(c.id) && c.id !== 'structure').map((c) => ({ value: c.id, label: c.label }));
 
-  const add = (preset = {}) => {
+  const add = (preset = {}, focusField = 'quantityPerMonth') => {
     const index = extras.length;
     ctx.mutate((q) => {
       if (!Array.isArray(q.extras)) q.extras = [];
       q.extras.push(createExtra(preset));
-    }, { focus: `extras.${index}.quantityPerMonth` });
+    }, { focus: `extras.${index}.${focusField}` });
   };
   const remove = async (index) => {
     const line = extras[index];
@@ -59,7 +59,7 @@ export function extrasSection(ctx, contract) {
       className: 'qe-edit-table qe-stack-table',
       caption: 'Adicionales',
       columns: [
-        { key: 'label', label: 'Concepto', render: (row, i) => kit.text(`extras.${i}.label`, { label: 'Concepto', maxLength: 80 }) },
+        { key: 'label', label: 'Concepto', render: (row, i) => kit.text(`extras.${i}.label`, { label: 'Concepto', maxLength: 80, placeholder: 'Ej.: Hora de espera' }) },
         { key: 'unitName', label: 'Unidad', render: (row, i) => kit.text(`extras.${i}.unitName`, { label: 'Unidad', maxLength: 30, placeholder: 'hora' }) },
         { key: 'qty', label: 'Por mes', render: (row, i) => kit.num(`extras.${i}.quantityPerMonth`, { label: 'Cantidad estimada por mes', rule: 'quantity', placeholder: 'Ej.: 20' }) },
         {
@@ -76,7 +76,8 @@ export function extrasSection(ctx, contract) {
             kit.num(`extras.${i}.price`, { label: 'Precio al cliente por unidad (sin IVA)', rule: 'money', unit: '$', placeholder: 'Sugerido' }),
             kit.out((r) => {
               const l = lineOf(r, i);
-              if (!l || l.suggestedPrice === null) return 'Cargá tu costo para ver el precio sugerido.';
+              if (!l || (l.suggestedPrice === null && !(l.costPerUnit > 0))) return 'Cargá tu costo para ver el precio sugerido.';
+              if (l.suggestedPrice === null) return 'Sin sugerido: revisá el margen objetivo.';
               return l.priceSource === 'manual'
                 ? `Sugerido con tu margen: ${formatMoney(l.suggestedPrice)}`
                 : `Se usa el sugerido: ${formatMoney(l.suggestedPrice)}`;
@@ -84,12 +85,12 @@ export function extrasSection(ctx, contract) {
         },
         {
           key: 'month',
-          label: 'Del mes',
+          label: 'Por mes',
           align: 'right',
           className: 'qe-col-calc',
           render: (row, i) => kit.out((r) => {
             const l = lineOf(r, i);
-            return l && l.quantity > 0 ? `${formatMoney(l.revenue)} (costo ${formatMoney(l.cost)})` : EMPTY;
+            return l && l.quantity > 0 ? formatMoney(l.revenue) : EMPTY;
           }, { className: 'mono nowrap' }),
         },
         { key: 'remove', label: '', className: 'qe-col-remove', render: (row, i) => kit.action('', () => remove(i), { variant: 'ghost', icon: 'trash', title: 'Quitar este adicional' }) },
@@ -116,8 +117,8 @@ export function extrasSection(ctx, contract) {
     h('p', { class: 'qe-note' },
       MODE_INTRO[contract.mode] || MODE_INTRO.on_demand,
       ' ',
-      infoTip('Cada adicional suma su ingreso y su costo al mes, aparte del precio principal y sin cambiar los días de trabajo. Cargá el costo directo de una unidad (horas extra del personal, combustible…): si dejás el precio vacío, RATEOS lo sugiere con tu margen objetivo y los impuestos sobre la facturación. La estructura y los imprevistos los cubre el precio principal.')),
+      infoTip('Suma ingreso y costo al mes, aparte del precio principal. Cargá el costo directo de una unidad; si dejás el precio vacío, RATEOS lo sugiere con tu margen.')),
     rows,
-    h('div', { class: 'qe-toolbar' }, ...presetButtons, kit.action('Otro adicional', () => add({ label: 'Otro adicional', unitName: 'unidad' }), { icon: 'plus' })),
+    h('div', { class: 'qe-toolbar' }, ...presetButtons, kit.action('Otro adicional', () => add({ label: '', unitName: 'unidad' }, 'label'), { icon: 'plus' })),
   );
 }

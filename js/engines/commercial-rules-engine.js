@@ -214,7 +214,9 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
   const otherRevenue = components.availabilityFee + components.callout + components.mobilization + components.extraKm + components.standby + components.materialsFixed + components.materialsVariable + components.overtimeFixed + components.overtimeVariable + components.extras;
   const subtotal = components.base + otherRevenue;
   const guarantee = r.minimumMonthlyGuarantee * months;
-  const guaranteeTopUp = Math.max(0, guarantee - subtotal);
+  // Los adicionales se cobran ENCIMA del mínimo garantizado (lo habitual: fuera de
+  // horario y feriados no completan el mínimo).
+  const guaranteeTopUp = Math.max(0, guarantee - (subtotal - components.extras));
   return {
     activeDays: D,
     unit,

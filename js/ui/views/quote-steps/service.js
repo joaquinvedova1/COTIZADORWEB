@@ -7,7 +7,7 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, choiceGroup, dateField, formGrid, icon, confirmDialog } from '../../components.js';
+import { card, choiceGroup, dateField, formGrid, icon, confirmDialog, infoTip } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf, BILLING_UNITS } from '../../../domain/billing-units.js';
 import { CONTRACT_MODES, CONTRACT_RESOURCES, contractOf, contractUnits, defaultUnitForContract, resourceChoiceOf, serviceTypeForContract, unitFitsContract } from '../../../domain/contract.js';
@@ -23,10 +23,10 @@ const step = (id) => `"${stepName(id)}"`;
 
 /** Qué sigue según la modalidad del contrato (PLAN-2026-018). */
 const MODE_TIPS = Object.freeze({
-  monthly: `En ${step('modality')} cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Lo que se trabaje fuera de eso (fuera de horario, feriados, trabajos extra) va en "Adicionales", con su propio precio, en la misma cotización.`,
-  on_demand: `En ${step('modality')} elegí en qué unidad cobrás (hora, día, viaje, m³…) y cuánto esperás trabajar por mes. Si el cliente garantiza un mínimo mensual, se carga ahí mismo.`,
-  closed: `Cargá todo el alcance (personal, equipos, materiales, HSE, seguros) y usá ${step('risk')} para cubrir la incertidumbre. Si hay trabajos fuera del alcance con precio unitario, van en "Adicionales".`,
-});
+  monthly: { short: `Lo que exceda el fijo se cobra en "Adicionales" (${step('modality')}).`, more: 'Cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Fuera de horario, feriados y trabajos extra van como adicionales, con su propio precio, en la misma cotización.' },
+  on_demand: { short: `Unidad y mínimo mensual: en ${step('modality')}.`, more: 'Elegí en qué unidad cobrás (hora, día, viaje, m³…) y cuánto esperás trabajar por mes. Si el cliente garantiza un mínimo mensual, se carga ahí mismo.' },
+  closed: { short: `Incertidumbre: en ${step('risk')}. Fuera de alcance: "Adicionales".`, more: 'Cargá todo el alcance (personal, equipos, materiales, HSE, seguros). Los trabajos fuera del alcance con precio unitario van en "Adicionales".' },
+})
 
 /**
  * Valores sin fecha base o con base vieja, uno por uno (PLAN-2026-010), y la
@@ -132,7 +132,7 @@ export function render(container, ctx) {
         if (r) applyContract({ ...contract, labor: r.labor, equipment: r.equipment });
       },
     }),
-    tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip)) : null,
+    tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip.short, ' ', infoTip(tip.more))) : null,
   );
 
   const more = kit.advanced(

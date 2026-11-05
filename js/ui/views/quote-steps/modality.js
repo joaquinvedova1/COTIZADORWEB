@@ -332,7 +332,7 @@ export function render(container, ctx) {
               : 'Trabajos que esperás terminar y facturar en el mes. Si cada trabajo lleva más de un mes, poné la fracción (0,5 = uno cada dos meses).',
         }),
         kit.num('activity.daysPerActivation', {
-          label: `Días de trabajo ${T.per}`,
+          label: info.id === 'job' ? 'Días que lleva cada trabajo' : `Días de trabajo ${T.per}`,
           rule: 'positiveDays',
           unit: 'días',
           requiredMark: true,
@@ -665,7 +665,6 @@ export function render(container, ctx) {
     modeCard,
     question,
     activityCard,
-    calcCard,
     // Por servicio prestado con mínimo mensual garantizado (PLAN-2026-018).
     !contract.legacy && contract.mode === 'on_demand'
       ? card(
@@ -674,11 +673,13 @@ export function render(container, ctx) {
           label: 'Mínimo mensual garantizado (opcional)',
           rule: 'money',
           unit: '$/mes',
+          placeholder: 'Ej.: 3.000.000',
           hint: 'Si el cliente garantiza un piso por mes: se factura lo trabajado o el mínimo, lo que sea mayor. Vacío o 0 = sin mínimo.',
         })),
         kit.out((r) => (r.estimate.revenue.guaranteeTopUp > 0 ? `Con la actividad estimada, el mínimo suma ${formatMoney(r.estimate.revenue.guaranteeTopUp)} al mes.` : ''), { tag: 'p', className: 'qe-note', allowEmpty: true }),
       )
       : null,
+    calcCard,
     extrasSection(ctx, contract),
   );
   return { update() {} };

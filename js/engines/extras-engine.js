@@ -38,16 +38,24 @@ function optional(value) {
  * @param {{ targetMarginPct?: number, billingTaxPct?: number }} [opts]
  * @returns {{ lines: object[], cost: number, revenue: number, missingPrice: number }}
  */
-export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0 } = {}) {
+export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, loadFactor = 1 } = {}) {
+  // Carga del costo directo (estructura %, financiero, contingencia): el precio
+  // sugerido cubre el costo CARGADO, así el adicional no baja el margen total.
+  // Margen objetivo inválido (null) → no se sugiere precio (como la tarifa principal).
+  const load = isFiniteNumber(loadFactor) && loadFactor > 0 ? loadFactor : 1;
+  const marginOk = isFiniteNumber(targetMarginPct);
   const list = Array.isArray(extras) ? extras.filter(isPlainObject) : [];
   const lines = list.map((e, i) => {
     const quantity = nonNegative(optional(e.quantityPerMonth) ?? 0);
     const costPerUnit = optional(e.costPerUnit);
     const manual = optional(e.price);
-    const suggested = costPerUnit !== null && costPerUnit > 0 ? priceFromMarginAndTaxes(costPerUnit, nonNegative(targetMarginPct), nonNegative(billingTaxPct)) : null;
-    const price = manual !== null && manual > 0 ? manual : isFiniteNumber(suggested) ? suggested : null;
-    const priceSource = manual !== null && manual > 0 ? 'manual' : isFiniteNumber(suggested) ? 'suggested' : null;
+    const suggested = marginOk && costPerUnit !== null && costPerUnit > 0 ? priceFromMarginAndTaxes(costPerUnit * load, nonNegative(targetMarginPct), nonNegative(billingTaxPct)) : null;
+    // Precio a mano (también 0, para bonificarlo); vacío → sugerido.
+    const price = manual !== null ? manual : isFiniteNumber(suggested) ? suggested : null;
+    const priceSource = manual !== null ? 'manual' : isFiniteNumber(suggested) ? 'suggested' : null;
     const cost = quantity * (costPerUnit ?? 0);
+    const loadedCost = cost * load;
+    const keep = 1 - nonNegative(billingTaxPct) / 100;
     const revenue = price !== null ? quantity * price : 0;
     return {
       id: e.id ?? `extra-${i + 1}`,
@@ -60,8 +68,12 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0 }
       price,
       priceSource,
       cost,
+      loadedCost,
       revenue,
-      profit: revenue - cost,
+      // Resultado después de impuestos sobre la facturación y de la carga del costo.
+      profit: revenue * keep - loadedCost,
+      // Precio a mano que no cubre el costo cargado ni los impuestos.
+      belowCost: priceSource === 'manual' && quantity > 0 && costPerUnit !== null && costPerUnit > 0 && price * keep < costPerUnit * load - 1e-9,
     };
   });
   return {
@@ -70,5 +82,7 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0 }
     revenue: lines.reduce((s, l) => s + l.revenue, 0),
     // Adicionales con cantidad pero sin precio (ni a mano ni sugerido): no suman ingreso.
     missingPrice: lines.filter((l) => l.quantity > 0 && l.price === null).length,
+    belowCost: lines.filter((l) => l.belowCost).length,
+    loadFactor: load,
   };
 }

@@ -177,7 +177,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
       : `Break-even = Costos fijos / (Tarifa por día${keep} − Costo variable por día)`,
     inputs: [
       { label: 'Costos fijos mensuales', value: fixedCosts, format: 'money' },
-      ...(fixedRevenue > 0 ? [{ label: 'Ingresos fijos (abono de disponibilidad, equipo en espera)', value: fixedRevenue, format: 'money' }] : []),
+      ...(fixedRevenue > 0 ? [{ label: 'Ingresos fijos (abono de disponibilidad, equipo en espera, adicionales)', value: fixedRevenue, format: 'money' }] : []),
       { label: `Ingreso por tarifa por día activo (tarifa neta por ${unitLabel} × unidades del día)`, value: ratePerDay, format: 'money' },
       ...(otherRevenuePerDay > 0 ? [{ label: 'Otros ingresos por día activo (call-out, movilización, km)', value: otherRevenuePerDay, format: 'money' }] : []),
       ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),

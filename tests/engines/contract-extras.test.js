@@ -162,3 +162,57 @@ describe('Adicionales cobrados aparte (PLAN-2026-018)', () => {
     assert.ok(r.issues.some((i) => i.path === 'unit' && i.severity === 'warning'));
   });
 });
+
+describe('Adicionales — revisión económica (PLAN-2026-018)', () => {
+  const loaded = () => {
+    const q = baseQuote({
+      contract: { mode: 'on_demand', labor: true, equipment: true },
+      unit: 'day',
+      knownRate: 600000,
+      activity: { activeDaysPerMonth: 20 },
+      fixed: 5000000,
+      perDay: 300000,
+      extras: [createExtra({ id: 'x', label: 'Hora fuera de horario', unitName: 'hora', quantityPerMonth: 18, costPerUnit: 40000 })],
+    });
+    q.indirect = { ...q.indirect, method: 'percent_direct', pct: 20 };
+    q.risk.generalPct = 5;
+    return q;
+  };
+
+  test('el precio sugerido cubre el costo cargado: el adicional no baja el margen', () => {
+    const q = loaded();
+    const withExtra = computeQuote(q);
+    const line = withExtra.extras.lines[0];
+    assert.ok(withExtra.extras.loadFactor > 1, 'estructura y contingencia cargan el costo');
+    // La ganancia que suma el adicional es exactamente su margen objetivo sobre lo que factura.
+    const without = computeQuote({ ...q, extras: [] });
+    const addedProfit = withExtra.kpis.profit - without.kpis.profit;
+    approx(addedProfit, line.revenue * 0.15, 'margen del adicional');
+    approx(line.profit, line.revenue * 0.15, 'ganancia de la línea');
+  });
+
+  test('margen inválido: sin precio sugerido y con aviso', () => {
+    const q = loaded();
+    q.pricing.targetMarginPct = 150;
+    const r = computeQuote(q);
+    assert.equal(r.extras.lines[0].price, null);
+    assert.ok(r.issues.some((i) => i.path === 'extras.0.price'));
+    assert.equal(r.completeness.items.find((i) => i.id === 'extras').status, 'warning');
+  });
+
+  test('precio a mano bajo el costo: aviso; 0 a mano es 0 (bonificado)', () => {
+    const q = loaded();
+    q.extras[0].price = 30000;
+    assert.ok(computeQuote(q).issues.some((i) => i.path === 'extras.0.price' && /debajo de su costo/.test(i.message)));
+    q.extras[0].price = 0;
+    assert.equal(computeQuote(q).estimate.revenue.components.extras, 0);
+  });
+
+  test('los adicionales se cobran encima del mínimo garantizado', () => {
+    const q = loaded();
+    q.rules.minimumMonthlyGuarantee = 20000000;
+    q.extras[0].price = 60000;
+    const rev = computeQuote(q).estimate.revenue;
+    approx(rev.total, 20000000 + 18 * 60000);
+  });
+});

@@ -720,7 +720,8 @@ export function evaluateCompleteness(quote = {}) {
   }
 
   // 15. Adicionales (PLAN-2026-018): cada uno con cantidad necesita costo y precio.
-  const extras = computeExtras(quote.extras);
+  const extrasMargin = readMarginInput((quote.pricing || {}).targetMarginPct);
+  const extras = computeExtras(quote.extras, { targetMarginPct: extrasMargin.state === 'invalid' ? null : (extrasMargin.value ?? 0) });
   const extrasIncomplete = extras.lines.map((x, index) => ({ x, index })).filter(({ x }) => x.quantity > 0 && !(x.costPerUnit > 0));
   if (extras.lines.some((x) => x.quantity > 0)) {
     const ok = extrasIncomplete.length === 0 && extras.missingPrice === 0;

@@ -13,7 +13,7 @@
  */
 
 import { nonNegative } from '../core/money.js';
-import { costAtActivity } from './cost-engine.js';
+import { costAtActivity, buildCostModel } from './cost-engine.js';
 import { computeRevenue, requiredNetRate, listRateFromNet, discountFactor, findVolumeTier, continuityApplies, normalizeRules, unitHasDayTiers } from './commercial-rules-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
 import { marginFromPrice, markupFromPrice, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
@@ -30,8 +30,16 @@ export function createEconomicsContext(quote, model) {
   const taxes = billingTaxInfo(quote);
   const unitInfo = billingUnitOf(quote);
   // Adicionales (PLAN-2026-018): sin precio a mano se sugiere con el margen objetivo.
+  // El precio sugerido cubre el costo CARGADO del adicional: cuánto sube el costo
+  // fijo del mes por cada $ de costo directo (estructura %, financiero, contingencia).
   const margin = readMarginInput(pricing.targetMarginPct);
-  const extras = computeExtras(quote.extras, { targetMarginPct: margin.state === 'ok' ? margin.value : 0, billingTaxPct: taxes.pct });
+  const direct = computeExtras(quote.extras).cost;
+  const loadFactor = direct > 0 ? (model.fixedMonthly - buildCostModel({ ...quote, extras: [] }).fixedMonthly) / direct : 1;
+  const extras = computeExtras(quote.extras, {
+    targetMarginPct: margin.state === 'invalid' ? null : margin.state === 'ok' ? margin.value : 0,
+    billingTaxPct: taxes.pct,
+    loadFactor,
+  });
   return {
     billingTaxPct: taxes.pct,
     billingTaxInfo: taxes,

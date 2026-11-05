@@ -862,12 +862,14 @@ La cotización empieza por el **contrato**: cómo paga el cliente (`contract.mod
 
 ```
 costo del adicional (mes)   = cantidad estimada por mes × costo por unidad      → costo directo fijo del mes (categoría elegida)
-precio sugerido por unidad  = costo por unidad × 100 / (100 − margen objetivo − t)
-precio usado                = el cargado a mano o, si está vacío, el sugerido
+carga                       = (costo fijo del mes con adicionales − sin adicionales) / costo directo de los adicionales
+                              (estructura %, financiero y contingencia sobre ese costo; 1 si no hay)
+precio sugerido por unidad  = costo por unidad × carga × 100 / (100 − margen objetivo − t)   (margen inválido → sin sugerido)
+precio usado                = el cargado a mano (0 = bonificado) o, si está vacío, el sugerido
 ingreso del adicional (mes) = cantidad × precio usado                            → componente "extras" de la facturación
 ```
 
-Los adicionales no cambian los días de trabajo del precio principal. Su ingreso es un "otro ingreso" fijo del mes (× meses si D supera los días disponibles), así que al **calcular la tarifa** el precio principal sugerido cubre el costo total menos lo que ya cubren los adicionales: `tarifaNeta = (Costo / (1 − m − t) − otrosIngresos) / unidades`. Su costo entra a la base directa (estructura % sobre directos, financiero y contingencia).
+Así cada adicional al precio sugerido deja exactamente el margen objetivo sobre lo que factura. Un precio a mano que no cubre el costo cargado ni los impuestos da un aviso. Los adicionales se cobran **encima** del mínimo mensual garantizado: `ajuste al mínimo = max(0, mínimo − (subtotal − adicionales))`. Los adicionales no cambian los días de trabajo del precio principal (en el equilibrio cuentan como ingreso y costo fijos estimados). Su ingreso es un "otro ingreso" fijo del mes (× meses si D supera los días disponibles), así que al **calcular la tarifa** el precio principal sugerido cubre el costo total menos lo que ya cubren los adicionales: `tarifaNeta = (Costo / (1 − m − t) − otrosIngresos) / unidades`. Su costo entra a la base directa (estructura % sobre directos, financiero y contingencia).
 
 Ejemplo (colectivo con chofer, fijo mensual, sin impuestos ni estructura): costos fijos 9.000.000 + 26 días × 200.000 + 18 h × 40.000 = 14.920.000. Fijo de 14.000.000 + 18 h fuera de horario × 60.000 = 1.080.000 → facturación 15.080.000. Con margen 15 % el fijo sugerido es 14.920.000 / 0,85 − 1.080.000 = 16.472.941,18.
 
