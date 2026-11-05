@@ -175,6 +175,15 @@ export const E2E_SCENARIOS = [
     id: 'E2E-20', title: 'ECO-01 H-03: puesto usado sin sueldo básico: crítico, nombra el puesto y lleva al campo',
     build: () => service({ id: 'lab-e20', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Operador de hidrogrúa', basicMonthly: null }), person({ role: 'Rigger' })] }),
   },
+  {
+    id: 'E2E-21', title: 'Auditoría 2026-11: diagnóstico de válvulas $/pieza, 3 intervenciones por día',
+    build: () => service({
+      id: 'lab-e21', serviceType: 'per_unit', unit: 'piece',
+      activity: { billableQuantityPerMonth: 160, unitsPerActiveDay: 8, daysPerActivation: 1 / 3, hoursPerActiveDay: 9 },
+      labor: [person({ role: 'Operario', positions: 2 }), person({ role: 'Técnico HSE', basicMonthly: 2200000 })],
+      logistics: route({ distanceKm: 40, tollsPerActivation: 0 }),
+    }),
+  },
 ];
 
 /** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
@@ -361,6 +370,11 @@ async function runMode(mode) {
     if (rate) check(s.id, 'resultado: tarifa = motor', resultText.includes(norm(rate)), `no aparece ${rate}`);
     await scan(s.id, 'resultado');
     if (args.shots) await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-resultado.png`), fullPage: true });
+    if (args.shots) {
+      await go(`#/cotizaciones/${encodeURIComponent(q.id)}/modality`, 600);
+      await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+      await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-cobro.png`), fullPage: true });
+    }
 
     // PDF: el Resultado se exporta con "Imprimir / Guardar como PDF" (estilos de impresión).
     await page.emulateMedia({ media: 'print' });
@@ -450,7 +464,7 @@ async function runMode(mode) {
   }
   {
     const t = await screenText('E2E-16', 'modality');
-    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuántos días dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
+    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuánto dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
   }
   // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): lo que se ve en pantalla y los botones de cada aviso.
   {

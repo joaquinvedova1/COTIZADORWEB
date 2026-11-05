@@ -324,6 +324,105 @@ export const SERVICE_SCENARIOS = [
       exchangeRates: [{ currency: 'USD', rate: 1000, base: base('ARS') }],
     }),
   },
+  // ------------------------------------------- unidades de cuenta y medida (UN/ECE Rec. 20)
+  {
+    id: 'SRV-19B-PIECE-VALVES-3-PER-DAY',
+    title: 'Diagnóstico de válvulas $/pieza: 2 operarios + HSE, 3 intervenciones por día (0,333 días cada una), consumible por intervención',
+    family: 'per_unit',
+    build: () => service({
+      id: 'srv-19b', serviceType: 'per_unit', unit: 'piece',
+      activity: { billableQuantityPerMonth: 160, unitsPerActiveDay: 8, daysPerActivation: 1 / 3, hoursPerActiveDay: 9 },
+      labor: [person({ role: 'Operario', positions: 2, basicMonthly: 1700000 }), person({ role: 'Técnico HSE', basicMonthly: 2200000 })],
+      materials: [
+        material({ description: 'Kit de juntas', basis: 'per_active_day', quantity: 8, unitCost: 15000 }),
+        material({ description: 'Precintos y rótulos', basis: 'per_activation', quantity: 1, unitCost: 20000 }),
+      ],
+    }),
+    expect: { 'kpis.activeDays': 20, 'activity.activationsPerMonth': 60 },
+  },
+  {
+    id: 'SRV-19C-WELL-HYDRO-TEST',
+    title: 'Prueba hidráulica $/pozo: un pozo cada 2 días, bomba propia',
+    family: 'per_unit',
+    build: () => service({
+      id: 'srv-19c', serviceType: 'per_unit', unit: 'well',
+      activity: { billableQuantityPerMonth: 10, unitsPerActiveDay: 0.5, daysPerActivation: 2, hoursPerActiveDay: 10 },
+      labor: [person({ role: 'Operador de bomba', basicMonthly: 2000000 }), person({ role: 'Ayudante', basicMonthly: 1400000 })],
+      equipment: [owned({ name: 'Bomba de prueba', replacementValue: 60000000, usefulLifeYears: 10, maintenancePerHour: 5000, fuelLitersPerHour: 6 })],
+    }),
+    expect: { 'kpis.activeDays': 20 },
+  },
+  {
+    id: 'SRV-19D-TEST-NDT-MIN-CALL',
+    title: 'Ensayos no destructivos $/ensayo: mínimo 10 ensayos por intervención y 6 por día',
+    family: 'per_unit',
+    build: () => service({
+      id: 'srv-19d', serviceType: 'per_unit', unit: 'test',
+      activity: { billableQuantityPerMonth: 120, unitsPerActiveDay: 6, daysPerActivation: 1, hoursPerActiveDay: 8 },
+      labor: [person({ role: 'Inspector END nivel II', basicMonthly: 2400000 })],
+      rules: { minimumCallUnits: 10 },
+    }),
+    expect: { 'kpis.activeDays': 12, 'kpis.billableQuantity': 120 },
+  },
+  {
+    id: 'SRV-19E-MANHOUR-CREW',
+    title: 'Cuadrilla $/hora-hombre: 3 personas × 10 h = 30 HH por día',
+    family: 'per_unit',
+    build: () => service({
+      id: 'srv-19e', serviceType: 'crew', unit: 'manhour',
+      activity: { billableQuantityPerMonth: 600, unitsPerActiveDay: 30, daysPerActivation: 1, hoursPerActiveDay: 10 },
+      labor: [person({ role: 'Oficial', positions: 3, basicMonthly: 1600000 })],
+    }),
+    expect: { 'kpis.activeDays': 20 },
+  },
+  {
+    id: 'SRV-19F-LITER-FUEL-DISPATCH',
+    title: 'Despacho de combustible $/litro con cisterna propia',
+    family: 'transport',
+    build: () => service({
+      id: 'srv-19f', serviceType: 'transport', unit: 'liter',
+      activity: { billableQuantityPerMonth: 300000, unitsPerActiveDay: 15000, daysPerActivation: 1, hoursPerActiveDay: 10 },
+      labor: [person({ role: 'Chofer', basicMonthly: 1900000 })],
+      equipment: [owned({ name: 'Cisterna 30 m³', replacementValue: 120000000, usefulLifeYears: 10, maintenancePerHour: 4000, fuelLitersPerHour: 12 })],
+    }),
+    expect: { 'kpis.activeDays': 20 },
+  },
+  {
+    id: 'SRV-19G-BARREL-FLOWBACK',
+    title: 'Tratamiento de flowback $/barril',
+    family: 'per_unit',
+    build: () => service({
+      id: 'srv-19g', serviceType: 'per_unit', unit: 'barrel',
+      activity: { billableQuantityPerMonth: 30000, unitsPerActiveDay: 2000, daysPerActivation: 5, hoursPerActiveDay: 12 },
+      labor: [person({ role: 'Operador', positions: 2, basicMonthly: 2000000 })],
+      materials: [material({ description: 'Químicos', basis: 'per_active_day', quantity: 1, unitCost: 250000 })],
+    }),
+    expect: { 'kpis.activeDays': 15 },
+  },
+  {
+    id: 'SRV-19H-HECTARE-CLEARING',
+    title: 'Desmonte de locación $/hectárea',
+    family: 'per_unit',
+    build: () => service({
+      id: 'srv-19h', serviceType: 'per_unit', unit: 'ha',
+      activity: { billableQuantityPerMonth: 12, unitsPerActiveDay: 1.5, daysPerActivation: 4, hoursPerActiveDay: 9 },
+      labor: [person({ role: 'Maquinista', basicMonthly: 2100000 })],
+      equipment: [owned({ name: 'Topadora', replacementValue: 250000000, usefulLifeYears: 12, maintenancePerHour: 15000, fuelLitersPerHour: 25 })],
+    }),
+    expect: { 'kpis.activeDays': 8 },
+  },
+  {
+    id: 'SRV-19I-SET-KITS',
+    title: 'Armado de kits de seguridad $/juego',
+    family: 'per_unit',
+    build: () => service({
+      id: 'srv-19i', serviceType: 'per_unit', unit: 'set',
+      activity: { billableQuantityPerMonth: 400, unitsPerActiveDay: 25, daysPerActivation: 1, hoursPerActiveDay: 8 },
+      labor: [person({ role: 'Armador', positions: 2, basicMonthly: 1300000 })],
+      materials: [material({ description: 'Componentes', basis: 'per_active_day', quantity: 25, unitCost: 30000 })],
+    }),
+    expect: { 'kpis.activeDays': 16 },
+  },
   // -------------------------------------------------------------------- transporte
   {
     id: 'SRV-20-TRANS-KM-CONSISTENT',

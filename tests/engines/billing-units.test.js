@@ -64,14 +64,14 @@ describe('unidades por tipo de servicio (dominio)', () => {
     const ids = (type) => unitChoicesFor(type).map((u) => u.id);
     assert.deepEqual(ids('on_call'), ['day', 'hour', 'call', 'month', 'custom']);
     assert.deepEqual(ids('permanent'), ['month', 'day', 'hour', 'shift', 'custom']);
-    assert.deepEqual(ids('crew'), ['day', 'hour', 'shift', 'month', 'custom']);
+    assert.deepEqual(ids('crew'), ['day', 'hour', 'manhour', 'shift', 'month', 'custom']);
     assert.deepEqual(ids('equipment_with_operator'), ['day', 'hour', 'month', 'trip', 'custom']);
     assert.deepEqual(ids('equipment_only'), ['day', 'hour', 'month', 'trip', 'custom']);
-    assert.deepEqual(ids('per_unit'), ['unit', 'm3', 'ton', 'kg', 'meter', 'm2', 'km', 'lot', 'custom']);
-    assert.deepEqual(ids('transport'), ['trip', 'km', 'ton', 'tonkm', 'm3', 'hour', 'day', 'custom']);
+    assert.deepEqual(ids('per_unit'), ['unit', 'piece', 'well', 'test', 'manhour', 'm3', 'ton', 'kg', 'meter', 'm2', 'ha', 'liter', 'barrel', 'km', 'lot', 'set', 'custom']);
+    assert.deepEqual(ids('transport'), ['trip', 'km', 'ton', 'tonkm', 'm3', 'liter', 'barrel', 'hour', 'day', 'custom']);
     assert.deepEqual(ids('turnkey'), ['job', 'milestone', 'custom']);
     assert.deepEqual(ids('lump_sum'), ['job', 'milestone', 'custom']);
-    assert.deepEqual(ids('time_materials'), ['hour', 'day', 'custom']);
+    assert.deepEqual(ids('time_materials'), ['hour', 'manhour', 'day', 'custom']);
     // Configurable: todas.
     assert.equal(ids('configurable').length, BILLING_UNITS.length);
   });
@@ -328,5 +328,20 @@ describe('escenarios por cantidad', () => {
     close(res.scenario.billableQuantity, 11000);
     close(res.base.billableQuantity, 10000);
     assert.ok(Number.isFinite(res.scenario.breakEvenQuantity));
+  });
+});
+
+describe('unidades UN/ECE en español y plurales (2026-11)', () => {
+  test('una unidad propia en mayúsculas pluraliza en mayúsculas ("UNIDADES", nunca "UNIDADes")', () => {
+    assert.equal(pluralizeUnit('UNIDAD'), 'UNIDADES');
+    assert.equal(billingUnitOf({ unit: 'custom', unitName: 'UNIDAD' }).plural, 'UNIDADES');
+    assert.equal(pluralizeUnit('válvula'), 'válvulas');
+    assert.equal(pluralizeUnit('luz'), 'luces');
+  });
+  test('las unidades nuevas son por cantidad y concuerdan en género', () => {
+    ['piece', 'well', 'test', 'manhour', 'liter', 'barrel', 'ha', 'set'].forEach((id) => assert.equal(billingUnitOf({ unit: id }).kind, 'quantity', id));
+    assert.equal(unitTexts(billingUnitOf({ unit: 'manhour' })).cuantos, 'cuántas');
+    assert.equal(unitTexts(billingUnitOf({ unit: 'ha' })).cuantos, 'cuántas');
+    assert.equal(unitTexts(billingUnitOf({ unit: 'well' })).cuantos, 'cuántos');
   });
 });

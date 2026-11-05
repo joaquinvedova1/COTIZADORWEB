@@ -47,6 +47,7 @@ import {
   table,
   disclosure,
   badge,
+  infoTip,
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
@@ -563,6 +564,81 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       return el;
     },
 
+    /**
+     * Ritmo de las activaciones (llamados / salidas / intervenciones):
+     *   "Dura días"     → días por activación (1, 2, 14…)
+     *   "Varias por día" → N por día; se guarda daysPerActivation = 1 / N.
+     * Una sola magnitud en el motor (daysPerActivation), dos formas de cargarla:
+     * así 3 intervenciones en un día no obligan a escribir "0,3333 días".
+     */
+    activationPace({ T, label, hint = null, onValue = null } = {}) {
+      const path = 'activity.daysPerActivation';
+      const current = () => {
+        const raw = Number(kit.get(path));
+        return Number.isFinite(raw) && raw > 0 ? raw : 1;
+      };
+      let mode = current() < 1 - 1e-9 ? 'perDay' : 'days';
+      const wrap = h('div', { class: 'qe-pace' });
+      const commit = (dpa) => {
+        update(path, dpa);
+        if (typeof onValue === 'function') {
+          try {
+            onValue(dpa);
+          } catch (error) {
+            logger.warn('No se pudo aplicar un efecto del campo', { message: error && error.message });
+          }
+        }
+      };
+      const draw = () => {
+        const modeSelect = selectField({
+          label,
+          name: `${path}.mode`,
+          value: mode,
+          disabled: readOnly,
+          options: [
+            { value: 'days', label: `${T.Each} dura uno o más días` },
+            { value: 'perDay', label: `Hago ${T.g('varias', 'varios')} ${T.many} por día` },
+          ],
+          hint,
+          onChange: (value) => {
+            mode = value === 'perDay' ? 'perDay' : 'days';
+            if (mode === 'perDay' && current() >= 1 - 1e-9) commit(1 / 2);
+            if (mode === 'days' && current() < 1 - 1e-9) commit(1);
+            draw();
+          },
+        });
+        const dpa = current();
+        const amount = mode === 'perDay'
+          ? numberField({
+            label: `${T.Many} por día de trabajo`,
+            rule: 'positive',
+            unit: `por día`,
+            name: path,
+            value: Math.round((1 / dpa) * 100) / 100,
+            disabled: readOnly,
+            hint: `Ej.: 3 locaciones distintas en un día = 3 ${T.many} por día. Cada ${T.one} suma su movilización y sus costos ${T.per}.`,
+            onChange: (n) => {
+              if (Number.isFinite(n) && n > 0) commit(1 / n);
+            },
+          })
+          : numberField({
+            label: `Días de trabajo ${T.per}`,
+            rule: 'positiveDays',
+            unit: 'días',
+            name: path,
+            value: dpa,
+            disabled: readOnly,
+            hint: `Si es 1, cada día de trabajo es ${T.a} ${T.one}. Ej.: 20 días ÷ 2 días ${T.per} = 10 ${T.many} por mes.`,
+            onChange: (n) => {
+              if (Number.isFinite(n) && n > 0) commit(n);
+            },
+          });
+        mount(wrap, h('div', { class: 'form-grid cols-2' }, modeSelect, amount));
+      };
+      draw();
+      return wrap;
+    },
+
     text(path, { maxLength = 200, multiline = false, ...opts } = {}) {
       const current = kit.get(path);
       return textField({
@@ -702,10 +778,11 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       const el = h(
         'div',
         { class: ['qe-stat', emphasis ? 'is-emphasis' : null, className] },
-        h('div', { class: 'qe-stat-label' }, typeof label === 'function' ? kit.out(label) : label),
+        // La ayuda va en un (i) al lado del rótulo: se lee al pasar el cursor.
+        // Una ayuda calculada vacía oculta el (i) (CSS).
+        h('div', { class: 'qe-stat-label' }, typeof label === 'function' ? kit.out(label) : label,
+          hint ? infoTip(typeof hint === 'function' ? kit.out(hint, { allowEmpty: true }) : hint, { className: 'qe-stat-hint' }) : null),
         kit.out(fn, { className: 'qe-stat-value mono' }),
-        // Una ayuda calculada vacía no muestra "—": el renglón se oculta (CSS).
-        hint ? h('div', { class: 'qe-stat-hint' }, typeof hint === 'function' ? kit.out(hint, { allowEmpty: true }) : hint) : null,
         // "Ver cálculo" con nombre accesible que dice QUÉ cálculo abre.
         trace ? kit.trace(trace, { ariaLabel: traceLabel || (typeof label === 'string' ? `Ver cálculo: ${label}` : null) }) : null,
       );
@@ -829,8 +906,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
       return h(
         'div',
         { class: 'qe-question' },
-        h(`h${level}`, { class: 'qe-question-title' }, title),
-        why ? h('p', { class: 'qe-question-why' }, why) : null,
+        h(`h${level}`, { class: 'qe-question-title' }, title, why ? infoTip(why, { className: 'qe-question-why' }) : null),
         term ? h('p', { class: 'qe-term' }, h('span', { class: 'qe-term-label' }, 'Término técnico:'), ` ${term}`) : null,
       );
     },
@@ -1021,7 +1097,8 @@ function buildSummary({ getResult, stepHref }) {
         },
       })
       : null;
-    const el = h('div', { class: 'qe-sum-item', dataset: { kpi: key } }, h('div', { class: 'qe-sum-labels' }, labelEl, shortEl), valueEl, hintEl, traceBtn);
+    // La explicación de cada número va en un (i): el resumen muestra sólo números.
+    const el = h('div', { class: 'qe-sum-item', dataset: { kpi: key } }, h('div', { class: 'qe-sum-labels' }, labelEl, shortEl, infoTip(hintEl, { className: 'qe-sum-tip' })), valueEl, traceBtn);
     rows.push({ el, labelEl, shortEl, numberEl, unitEl, compactEl, compactNum, compactUnit, hintEl, traceBtn, label, short, value, unit, compact, hint, tone });
     return el;
   };

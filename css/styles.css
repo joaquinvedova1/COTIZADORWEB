@@ -789,3 +789,41 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 .base-detail-list { margin: 0.5rem 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.875rem; }
 .base-detail-list .is-undefined, .base-detail-list .is-stale { color: var(--orange-text); }
 .base-assign-list { margin: 0.5rem 0 0; padding-left: 1.1rem; max-height: 240px; overflow: auto; }
+
+/* ------------------------------------------------------------------
+ * Ayuda "pasá el cursor" (i) — menos texto en pantalla.
+ * La explicación vive en una burbuja que aparece al pasar el cursor, al
+ * tocar el (i) o al enfocarlo con el teclado. Los avisos (errores, rojos y
+ * naranjas) NO van acá: siguen siempre visibles.
+ * ------------------------------------------------------------------ */
+.field-label-row { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.field-label-row .field-label { min-width: 0; }
+.info-tip { position: relative; display: inline-flex; align-items: center; vertical-align: middle; margin-left: 0.3rem; text-transform: none; letter-spacing: normal; font-weight: 400; }
+.field-label-row .info-tip { margin-left: 0; }
+.info-tip-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 16px; height: 16px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line, #C9D3DC); background: var(--white, #fff); color: var(--ink-3);
+  font: italic 700 10px/1 Georgia, 'Times New Roman', serif; cursor: help;
+}
+/* La "i" se dibuja con CSS: no se mezcla con el texto del rótulo (innerText, lectores de pantalla). */
+.info-tip-btn::before { content: 'i'; }
+.info-tip-btn:hover, .info-tip-btn:focus-visible { color: var(--navy-900); border-color: var(--navy-900); outline: none; box-shadow: 0 0 0 3px rgba(8, 126, 164, 0.2); }
+.info-tip-bubble {
+  position: absolute; left: -8px; top: calc(100% + 8px); z-index: 60;
+  width: max-content; max-width: min(320px, 80vw);
+  padding: 0.55rem 0.7rem; border-radius: 8px;
+  background: var(--navy-900, #003B73); color: #fff !important;
+  font-size: 0.8rem !important; line-height: 1.45; font-weight: 400; text-align: left; white-space: normal;
+  box-shadow: 0 8px 24px rgba(0, 30, 60, 0.18);
+  display: none; pointer-events: none;
+}
+.info-tip-bubble * { color: inherit !important; }
+.info-tip-bubble::before { content: ''; position: absolute; left: 12px; top: -5px; width: 10px; height: 10px; background: inherit; transform: rotate(45deg); }
+.info-tip:hover .info-tip-bubble, .info-tip:focus-within .info-tip-bubble { display: block; }
+/* Ayuda calculada vacía: no hay (i). */
+.info-tip:has(> .info-tip-bubble:empty), .info-tip:has(.qe-out:empty), .info-tip:has(.qe-sum-hint:empty) { display: none; }
+/* En columnas angostas de la derecha, la burbuja abre hacia la izquierda. */
+.qe-summary .info-tip-bubble, .form-grid > :last-child:not(:first-child) .info-tip-bubble { left: auto; right: -8px; }
+.qe-summary .info-tip-bubble::before, .form-grid > :last-child:not(:first-child) .info-tip-bubble::before { left: auto; right: 12px; }
+@media print { .info-tip { display: none !important; } }

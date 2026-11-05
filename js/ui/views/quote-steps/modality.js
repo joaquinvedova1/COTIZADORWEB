@@ -13,7 +13,7 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, choiceGroup, openDialog, button } from '../../components.js';
+import { card, formGrid, choiceGroup, selectField, openDialog, button } from '../../components.js';
 import { PRICING_MODES, AVAILABILITY_OPTIONS } from '../../../domain/catalogs.js';
 import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName } from '../../../domain/billing-units.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
@@ -22,7 +22,7 @@ import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
-import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase } from '../../unit-text.js';
+import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
@@ -219,6 +219,7 @@ export function render(container, ctx) {
   // Unidades habituales del tipo de servicio (+ la actual si no está, + "Otra / personalizada").
   const unitOptions = unitChoicesFor(quote.serviceType, info.id);
   const compactUnits = unitOptions.length > 5;
+  const manyUnits = unitOptions.length > 8;
   const selectedDef = unitOptions.find((u) => u.id === info.id);
 
   // Nombre de la unidad propia ("pozo", "muestra"): al salir del campo se
@@ -228,8 +229,8 @@ export function render(container, ctx) {
     unitNameField = kit.text('unitName', {
       label: '¿Cómo se llama tu unidad?',
       maxLength: 30,
-      placeholder: 'Ej.: pozo, muestra, ensayo',
-      hint: 'En singular. Vas a cobrar "$/pozo" y cargar cuántos pozos facturás por mes.',
+      placeholder: 'Ej.: válvula, muestra, junta',
+      hint: 'En singular. Vas a cobrar "$/válvula" y cargar cuántas válvulas facturás por mes.',
     });
     const input = unitNameField.querySelector('input');
     if (input) {
@@ -252,18 +253,29 @@ export function render(container, ctx) {
     h(
       'div',
       { class: ['qe-unit-choice', compactUnits ? 'is-compact' : null] },
-      choiceGroup({
-        label: '¿En qué unidad cobrás?',
-        name: 'unit',
-        value: info.id,
-        disabled: kit.readOnly,
-        options: unitOptions.map((u) => ({ value: u.id, label: u.label, hint: compactUnits ? null : u.hint })),
-        onChange: (value) => changeUnit(value),
-      }),
-      compactUnits && selectedDef && selectedDef.hint ? h('p', { class: 'qe-note qe-unit-hint' }, `${selectedDef.label}: ${selectedDef.hint}`) : null,
+      // Muchas unidades: una lista desplegable (menos ruido que 16 tarjetas).
+      manyUnits
+        ? formGrid(2, selectField({
+          label: '¿En qué unidad cobrás?',
+          name: 'unit',
+          value: info.id,
+          disabled: kit.readOnly,
+          options: unitOptions.map((u) => ({ value: u.id, label: u.label })),
+          hint: [selectedDef && selectedDef.hint ? `${selectedDef.label}: ${selectedDef.hint}` : null, byQuantity ? `Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); la tarifa y el resultado, ${perText(info)}.` : null].filter(Boolean).join(' '),
+          onChange: (value) => changeUnit(value),
+        }), unitNameField)
+        : choiceGroup({
+          label: '¿En qué unidad cobrás?',
+          name: 'unit',
+          value: info.id,
+          disabled: kit.readOnly,
+          options: unitOptions.map((u) => ({ value: u.id, label: u.label, hint: compactUnits ? null : u.hint })),
+          onChange: (value) => changeUnit(value),
+        }),
+      !manyUnits && compactUnits && selectedDef && selectedDef.hint ? h('p', { class: 'qe-note qe-unit-hint' }, `${selectedDef.label}: ${selectedDef.hint}`) : null,
     ),
-    unitNameField ? formGrid(2, unitNameField) : null,
-    byQuantity
+    unitNameField && !manyUnits ? formGrid(2, unitNameField) : null,
+    byQuantity && !manyUnits
       ? h('p', { class: 'qe-note' }, `Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); la tarifa y el resultado, ${perText(info)}.`)
       : null,
     knownRate
@@ -313,11 +325,11 @@ export function render(container, ctx) {
               : 'Trabajos que esperás terminar y facturar en el mes. Si cada trabajo lleva más de un mes, poné la fracción (0,5 = uno cada dos meses).',
         }),
         kit.num('activity.daysPerActivation', {
-          label: `¿Cuántos días de trabajo lleva ${T.each}?`,
+          label: `Días de trabajo ${T.per}`,
           rule: 'positiveDays',
           unit: 'días',
           requiredMark: true,
-          hint: 'Con esto se calculan los días de trabajo del mes: lo que consume personal, equipos y combustible.',
+          hint: `Puede ser menos de 1 (0,5 = medio día). Con esto se calculan los días de trabajo del mes: lo que consume personal, equipos y combustible.`,
         }),
         isMilestone
           ? kit.num('activity.unitsPerActivation', {
@@ -388,7 +400,7 @@ export function render(container, ctx) {
       const acts = r.activity.activationsPerMonth;
       const perAct = acts > 0 ? r.estimate.revenue.billableUnits / acts : null;
       const perIntervention = kind === 'quantity' && acts > 0
-        ? ` ${quantityText(perAct, r)} ${T.per} · ${num(acts)} ${T.word(acts)} por mes de ${formatDays(r.activity.daysPerActivation, { decimals: 2 })} ${T.g('cada una', 'cada uno')}.`
+        ? ` ${quantityText(perAct, r)} ${T.per} · ${num(acts)} ${T.word(acts)} por mes (${activationPaceText(r.activity.daysPerActivation, T)}).`
         : '';
       // Salidas fraccionarias: el costo por salida (movilización…) es un PROMEDIO.
       const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
@@ -415,14 +427,23 @@ export function render(container, ctx) {
           placeholder: 'Ej.: 8',
           hint: 'Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.',
         }),
-        kit.num('activity.daysPerActivation', {
-          label: daysPerActivationLabel(T, quote.serviceType),
-          rule: 'positiveDays',
-          unit: 'días',
-          hint: `Sirve para saber cuántos ${T.many} hay por mes.`,
-        }),
+        quote.serviceType === 'permanent'
+          ? kit.num('activity.daysPerActivation', {
+            label: daysPerActivationLabel(T, quote.serviceType),
+            rule: 'positiveDays',
+            unit: 'días',
+            hint: `Sirve para saber cuántos ${T.many} hay por mes.`,
+          })
+          : null,
         hourly ? hoursField() : null,
       ),
+    !byQuantity && quote.serviceType !== 'permanent'
+      ? kit.activationPace({
+        T,
+        label: `¿Cuánto dura ${T.each}?`,
+        hint: `Sirve para saber cuántos ${T.many} hay por mes (movilizaciones, mínimos ${T.per}).`,
+      })
+      : null,
     byQuantity ? quantityKeyline : daysKeyline,
     // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
     tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,
@@ -448,7 +469,7 @@ export function render(container, ctx) {
           const parts = [
             isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días disponibles por mes` : 'días disponibles sin cargar',
             hourly ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
-            kind === 'quantity' && hasNumber(a.daysPerActivation) ? `${formatDays(Number(a.daysPerActivation))} ${T.per}` : null,
+            kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
             isOnCall ? `disponibilidad ${a.availability === 'window' ? 'por franja horaria' : '24/7'}` : null,
             isOnCall && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
           ].filter(Boolean);
@@ -466,18 +487,19 @@ export function render(container, ctx) {
         }),
         hourly ? null : hoursField(),
         // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
-        kind === 'quantity'
-          ? kit.num('activity.daysPerActivation', {
-            label: `Duración promedio de ${T.each}`,
-            rule: 'positiveDays',
-            unit: 'días',
-            hint: tripUnit
-              ? `Dato OPERATIVO: cuántos días de trabajo seguidos dura ${T.each}. Viajes ${T.per} = viajes por día × estos días. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`
-              : `Dato OPERATIVO (no es la unidad que cobrás): cuántos días de trabajo seguidos dura ${T.each}. Cuenta las movilizaciones y el mínimo ${T.per}. Ej.: 20 días de trabajo ÷ 2 días ${T.per} = 10 ${T.many} por mes. Si es 1, cada día de trabajo es ${T.a} ${T.one}.`,
-            onValue: () => syncRouteTrips(),
-          })
-          : null,
       ),
+      // Por cantidad: cuántas intervenciones (movilizaciones, mínimos) hay.
+      // Puede durar varios días o haber varias en un día (se guarda 1 / N).
+      kind === 'quantity'
+        ? kit.activationPace({
+          T,
+          label: `¿Cuánto dura ${T.each}?`,
+          hint: tripUnit
+            ? `Viajes ${T.per} = viajes por día × días ${T.per}.`
+            : `No es la unidad que cobrás: define cuántas ${T.many} (movilizaciones, mínimos ${T.per}) hay en el mes.`,
+          onValue: () => syncRouteTrips(),
+        })
+        : null,
       isOnCall
         ? kit.group(
           'Disponibilidad on-call',

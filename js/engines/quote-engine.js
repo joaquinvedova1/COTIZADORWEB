@@ -20,12 +20,13 @@ import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecompositio
 import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
-import { isValidMarginPct, isValidMarginAndTaxes, commercialRound, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
+import { isValidMarginPct, isValidMarginAndTaxes, suggestedRateRound, effectiveRoundingStep, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
 import { evaluateCompleteness, activationRoundingNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 import { activationTerms } from '../domain/activation-terms.js';
+import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
-import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../domain/billing-units.js';
+import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS, capitalizeUnitWord } from '../domain/billing-units.js';
 import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
 
 /** Margen leído como lo valida validateQuote (texto es-AR incluido); `fallback` si está vacío o es inválido. */
@@ -111,7 +112,7 @@ function unitIssues(quote, ctx) {
     if (a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
       issues.push({
         path: 'activity.billableQuantityPerMonth',
-        message: `Para facturar ${formatNumber(a.billableQuantityPerMonth, { decimals: 2 })} ${u.plural} por mes necesitás ${formatDays(a.activeDaysPerMonth, { decimals: 1 })} de trabajo: más que los ${formatNumber(a.availableDaysPerMonth)} días disponibles del mes.`,
+        message: `Para facturar ${formatNumber(a.billableQuantityPerMonth, { decimals: 2 })} ${Math.abs(a.billableQuantityPerMonth - 1) < 1e-9 ? u.singular : u.plural} por mes necesitás ${formatDays(a.activeDaysPerMonth, { decimals: 1 })} de trabajo: más que los ${formatNumber(a.availableDaysPerMonth)} días disponibles del mes.`,
         severity: 'warning',
       });
     }
@@ -122,6 +123,40 @@ function unitIssues(quote, ctx) {
       path: 'unit',
       message: `"${labelOf(SERVICE_TYPES, quote.serviceType, 'Este servicio')}" se suele cobrar en ${usual}. Estás cobrando en ${u.label}: revisá que sea la unidad correcta.`,
       severity: 'warning',
+    });
+  }
+  // Auditoría 2026-11: datos que describen una realidad incoherente (no cambian números).
+  const T = activationTerms(quote);
+  const fmt = (n) => formatNumber(n, { decimals: 2 });
+  const minCall = normalizeRules(ctx.rules).minimumCallUnits;
+  if (u.kind === 'quantity' && a.unitsPerActiveDay > 0 && !(minCall > 0) && u.id !== 'trip') {
+    const perActivation = a.unitsPerActiveDay * a.daysPerActivation;
+    if (perActivation < 1 - 1e-9) {
+      issues.push({
+        path: 'activity.daysPerActivation',
+        message: `Cada ${T.one} hace sólo ${fmt(perActivation)} ${u.singular} (${fmt(a.unitsPerActiveDay)} por día × ${fmt(a.daysPerActivation)} días): la movilización y los costos ${T.per} se cuentan más de una vez por ${u.singular}. Si cada ${u.singular} es ${T.a} ${T.one}, cargá ${fmt(1 / a.unitsPerActiveDay)} días ${T.per}.`,
+        severity: 'warning',
+      });
+    }
+  }
+  const route = routeTrips(quote, a);
+  if (route && route.derived && !route.notApplicable && route.tripsPerActivation > 0 && route.tripsPerActivation < 1 - 1e-9) {
+    issues.push({
+      path: 'activity.daysPerActivation',
+      message: `Hay ${fmt(route.tripsPerActivation)} viajes ${T.per}: menos de un viaje en cada ${T.one}. Los peajes y viáticos ${T.per} se cuentan de más; revisá cuántas ${T.many} hacés por día.`,
+      severity: 'warning',
+    });
+  }
+  if (a.daysPerActivation < 1 - 1e-9) {
+    (Array.isArray(quote.equipment) ? quote.equipment : []).forEach((e, i) => {
+      const x = e && e.acquisition !== 'owned' ? e.external || {} : null;
+      if (x && ['day', 'hour'].includes(x.unit) && Number(x.minimumUnits) > 0) {
+        issues.push({
+          path: `equipment.${i}.external.minimumUnits`,
+          message: `"${e.name || 'Equipo externo'}": el mínimo de ${fmt(Number(x.minimumUnits))} ${x.unit === 'day' ? 'días' : 'horas'} se cobra en CADA ${T.one} y hay ${fmt(1 / a.daysPerActivation)} ${T.many} por día. Si el proveedor lo cobra por día de trabajo (y no por ${T.one}), bajá el mínimo para no costearlo de más.`,
+          severity: 'warning',
+        });
+      }
     });
   }
   return issues;
@@ -202,7 +237,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const byMargin = (m) => ratesAtEstimate.byMargin.find((r) => r.marginPct === m) || { netRate: null, listRate: null, requiredRevenue: null };
   const targetRates = targetMarginInvalid ? { netRate: null, listRate: null, requiredRevenue: null } : byMargin(targetMarginPct);
   const roundingStep = nonNegative(pricing.roundingStep);
-  const suggestedListRate = commercialRound(targetRates.listRate, roundingStep);
+  const suggestedListRate = suggestedRateRound(targetRates.listRate, roundingStep);
+  const effectiveStep = isFiniteNumber(targetRates.listRate) ? effectiveRoundingStep(targetRates.listRate, roundingStep) : roundingStep;
 
   // Tarifa comercial (de lista) ofrecida
   let commercialListRate = null;
@@ -416,7 +452,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   const equivalents = hasRate
     ? {
         perHour: ctx.unit === 'day' ? safeDivide(commercialListRate, hoursPerDay, null) : ctx.unit === 'hour' ? commercialListRate : byQuantity ? (isFiniteNumber(perWorkDay) ? safeDivide(perWorkDay, hoursPerDay, null) : null) : null,
-        perDay: ctx.unit === 'day' ? commercialListRate : ctx.unit === 'hour' ? commercialListRate * hoursPerDay : byQuantity ? perWorkDay : safeDivide(commercialListRate, D, null),
+        // Por día u hora con mínimo por llamado, lo facturado por día de trabajo incluye el mínimo.
+        perDay: (ctx.unit === 'day' || ctx.unit === 'hour') && estimate.revenue.minimumCallApplied && D > 0 ? safeDivide(estimate.revenue.components.base, D, null) : ctx.unit === 'day' ? commercialListRate : ctx.unit === 'hour' ? commercialListRate * hoursPerDay : byQuantity ? perWorkDay : safeDivide(commercialListRate, D, null),
         perMonth: estimate.revenue.total,
       }
     : { perHour: null, perDay: null, perMonth: null };
@@ -445,8 +482,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     targetMarginDays: createTrace({
       id: 'target_margin_days',
       title: targetMarginInvalid
-        ? `${byQuantity ? `${unitInfo.plural} para lograr` : 'Días para lograr'} el margen objetivo (margen inválido)`
-        : `${byQuantity ? `${unitInfo.plural} para lograr` : 'Días para lograr'} el margen objetivo (${formatPercent(targetMarginPct)})`,
+        ? `${byQuantity ? `${capitalizeUnitWord(unitInfo.plural)} para lograr` : 'Días para lograr'} el margen objetivo (margen inválido)`
+        : `${byQuantity ? `${capitalizeUnitWord(unitInfo.plural)} para lograr` : 'Días para lograr'} el margen objetivo (${formatPercent(targetMarginPct)})`,
       formula: t > 0
         ? 'Días = (Costos fijos − Ingresos fijos × (1 − impuestos − margen)) / (Ingreso por día × (1 − impuestos − margen) − Costo variable por día)'
         : 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
@@ -464,7 +501,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         format: 'money',
       }],
       result: byQuantity
-        ? { label: `${unitInfo.plural} por mes para lograr el margen`, value: targetMarginDays.reachable ? targetMarginDays.quantity : null, format: 'number' }
+        ? { label: `${capitalizeUnitWord(unitInfo.plural)} por mes para lograr el margen`, value: targetMarginDays.reachable ? targetMarginDays.quantity : null, format: 'number' }
         : { label: 'Días activos para lograr el margen', value: targetMarginDays.reachable ? targetMarginDays.days : null, format: 'days' },
       notes: [
         byQuantity && targetMarginDays.reachable ? `Son ${formatDays(targetMarginDays.days, { decimals: 1 })} de trabajo: los costos se calculan con esos días y la facturación, con ${texts.los} ${unitInfo.plural}.` : null,
@@ -491,7 +528,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       result: { label: 'Tarifa piso de lista (la que escribís en la cotización)', value: ratesAtEstimate.floorListRate, format: 'moneyCeil' },
       notes: [
-        D <= 0 ? (byQuantity ? `Sin ${unitInfo.plural} por mes no hay tarifa por ${unitInfo.singular} posible: cargá la actividad estimada.` : 'Sin días activos no hay tarifa por día posible: cargá la actividad estimada.') : null,
+        D <= 0 ? (byQuantity ? `Sin ${unitInfo.plural} por mes no hay tarifa por ${unitInfo.singular} posible: cargá la actividad estimada.` : `Sin días activos no hay tarifa por ${unitInfo.singular || 'día'} posible: cargá la actividad estimada.`) : null,
         ratesAtEstimate.floorCoveredByOtherRevenue ? 'Los otros ingresos ya cubren el costo.' : null,
         !ctx.billingTaxInfo.defined && !ctx.billingTaxInfo.notApplicable && !ctx.billingTaxInfo.invalid ? 'No incluye impuestos sobre lo que facturás (sin definir): cargalos en "El precio".' : null,
         ctx.billingTaxInfo.invalid ? 'No incluye impuestos sobre lo que facturás: hay un porcentaje inválido. Corregilo en "El precio".' : null,
@@ -519,7 +556,11 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       result: { label: 'Precio objetivo de lista', value: targetRates.listRate, format: 'moneyCeil' },
       notes: [
-        roundingStep > 0 ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${roundingStep}.` : null,
+        roundingStep > 0 && isFiniteNumber(suggestedListRate)
+          ? (effectiveStep < roundingStep - 1e-9
+            ? `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${formatMoney(effectiveStep)} (el paso configurado de ${formatMoney(roundingStep)} sería más del 1 % de la tarifa).`
+            : `Tarifa sugerida: redondeada hacia arriba a múltiplos de ${formatMoney(roundingStep)}.`)
+          : null,
         targetMarginInvalid ? 'El margen objetivo tiene que ser mayor o igual a 0 y, sumado a los impuestos sobre la facturación, menor a 100 %.' : null,
       ],
     }),

@@ -354,7 +354,7 @@ export function render(container, ctx) {
         label: 'Redondeo comercial',
         rule: 'money',
         unit: '$',
-        hint: 'La tarifa sugerida se redondea HACIA ARRIBA a múltiplos de este valor (nunca baja el margen). 0 = sin redondeo.',
+        hint: 'La tarifa sugerida se redondea HACIA ARRIBA a múltiplos de este valor (nunca baja el margen). Si el paso es más del 1 % de la tarifa (p. ej. $ 1.000 sobre 100 $/kg), se usa un paso menor. 0 = sin redondeo.',
       }),
       isModeB
         ? kit.num('pricing.offeredRateOverride', {

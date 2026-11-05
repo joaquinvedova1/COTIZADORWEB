@@ -19,6 +19,8 @@
  * con una grilla de 0,1 día y refinamiento por bisección.
  */
 
+import { capitalizeUnitWord } from '../domain/billing-units.js';
+
 import { nonNegative, safeDivide, ceilTolerant, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
 import { activationTerms } from '../domain/activation-terms.js';
@@ -151,7 +153,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
         { label: `Tarifa neta por ${u.singular}`, value: per(ratePerDay), format: 'money' },
         ...(otherRevenuePerDay > 0 ? [{ label: `Otros ingresos por ${u.singular} (call-out, movilización, km, materiales)`, value: per(otherRevenuePerDay), format: 'money' }] : []),
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
-        { label: `${u.plural} por día de trabajo`, value: u.perDay, format: 'number' },
+        { label: `${capitalizeUnitWord(u.plural)} por día de trabajo`, value: u.perDay, format: 'number' },
         { label: 'Costo variable por día de trabajo', value: variableCostPerDay, format: 'money' },
       ],
       steps: [

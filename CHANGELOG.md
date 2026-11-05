@@ -12,6 +12,28 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Auditoría de unidades y simplificación visual (2026-11).** Tres auditorías con servicios reales simulados (diagnóstico de válvulas, END por soldadura, prueba hidráulica por pozo, movilización por km, agua por m³, carga por viaje / tonelada / ton-km, cuadrillas por hora, pintura por m², cañería por metro, residuos por tonelada, llave en mano) con ~380 valores calculados a mano. Esquema sin cambios.
+
+### Agregado
+
+- **Varias intervenciones por día:** "¿Cuánto dura cada intervención?" ofrece [Cada una dura uno o más días] o [Hago varias por día] (N por día; se guarda `daysPerActivation = 1 / N`). Antes había que escribir "0,333 días". Los textos dicen "3 intervenciones por día".
+- **Unidades de medida en español (UN/ECE Rec. 20):** $/pieza (válvula, instrumento…), $/pozo, $/ensayo, $/hora-hombre, $/litro, $/barril, $/hectárea y $/juego o kit. Con muchas unidades la elección es una lista desplegable.
+- Avisos: menos de una unidad por intervención (p. ej. medio pozo: la movilización se contaría dos veces), menos de un viaje por salida, y mínimo diario/horario de un externo cobrado en cada una de varias intervenciones por día.
+- Test Lab: 8 escenarios nuevos (SRV-19B…19I) y `tests/engines/audit-2026-11.test.js`.
+
+### Cambiado
+
+- **Menos texto en pantalla:** las ayudas de campos, indicadores, preguntas y del resumen en vivo pasan a un ícono (i) que se lee al pasar el cursor, tocar o enfocar con el teclado. Los avisos y errores siguen siempre visibles.
+- **Tarifa sugerida (servicios):** el paso de redondeo nunca supera el 1 % de la tarifa (ver CALCULATION_RULES §18). Cambian sólo las sugeridas de unidades baratas (kg, km, m, m², m³, ton-km…): p. ej. 100,23 $/kg ya no se sugiere a 1.000 $/kg sino a 101 $/kg.
+- **"Cada salida se cuenta completa" con la unidad "viaje":** el ajuste ya no redondea km ni viajes (siguen a los viajes facturados), sólo peajes, viáticos y cargos por salida (CALCULATION_RULES §2.1).
+
+### Corregido
+
+- Plural de unidades propias en mayúsculas ("UNIDADES", no "UNIDADes") y de varias palabras ("pruebas hidráulicas", "puntos de inspección").
+- Por hora o día con mínimo por llamado, el equivalente "por día" incluye el mínimo.
+- Textos: "1 trabajo" (no "1 trabajos"), mayúscula en "Válvulas para lograr el margen", nota de redondeo con formato de moneda y sólo si hay tarifa, "Sin días activos no hay tarifa por hora" con la unidad real.
+- Equilibrio con "cada salida completa" y muchas salidas por día: se evalúan todos los saltos del mes (antes se cortaba en 500).
+
 **ECO-01 (PLAN-2026-017): bloqueantes económicos de la beta (H-01, H-02, H-03).** Ninguna fórmula cambia y ningún dato guardado se reinterpreta: golden 39/39 sin tocar y las mismas cifras que `main` en 2.097 cotizaciones y 13 productos sintéticos. Cambia qué se puede cargar (una unidad nueva) y qué se marca como pendiente. Esquema sin cambios (sigue en 10), sin migraciones.
 
 ### Agregado
