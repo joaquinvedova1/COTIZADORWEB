@@ -25,6 +25,13 @@ Reglas para este archivo:
 
 - Una cuadrilla on call sin equipos ya no queda con el pendiente crítico "Costo de equipos" ni pide "equipo en espera" (sólo con contrato nuevo; las cotizaciones anteriores se evalúan igual que antes).
 
+### Revisión de especialistas (UX y estructura de costos)
+
+- El precio sugerido de cada adicional cubre su costo **cargado** (estructura %, financiero y contingencia): al sugerido deja exactamente el margen objetivo y no baja el margen total.
+- Con margen objetivo inválido no se sugiere precio de adicionales (aviso), igual que la tarifa principal. Precio a mano bajo el costo: aviso. Precio 0 a mano = bonificado.
+- Los adicionales se cobran encima del mínimo mensual garantizado (no lo completan).
+- Textos más cortos en las tarjetas del contrato y los adicionales (detalle en (i)); "Otro adicional" abre con el concepto vacío y enfocado.
+
 **Auditoría de unidades y simplificación visual (2026-11).** Tres auditorías con servicios reales simulados (diagnóstico de válvulas, END por soldadura, prueba hidráulica por pozo, movilización por km, agua por m³, carga por viaje / tonelada / ton-km, cuadrillas por hora, pintura por m², cañería por metro, residuos por tonelada, llave en mano) con ~380 valores calculados a mano. Esquema sin cambios.
 
 ### Agregado
