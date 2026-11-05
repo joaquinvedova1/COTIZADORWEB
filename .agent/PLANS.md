@@ -1174,3 +1174,16 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 - 2026-10-19: base `main` `d580d9f` (v0.8.1, esquema 10). Regresiones escritas primero: 12 de 20 fallan en `main`.
 - 2026-10-19: implementación sin subir el esquema (flag opcional `tripBasis`). Validación: `npm test` en verde, Test Lab igual a `main` (golden 39/39, candado OK), E2E escritorio y celular, comparación con `main` y regresión en navegador con E1, E2 y E3. PR #27.
 - 2026-10-19: revisión independiente (ChatGPT, publicada por el dueño): "no aprobado todavía". Cambios: (1) `external_unit_trips` crítico hasta confirmar; (2) la confirmación guarda el supuesto (tarifa, viajes por salida, distancia, ida y vuelta) y vuelve el crítico si cambia; (3) "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" arriba del margen en pantalla y PDF, y el margen / cálculo de días / resumen del editor dicen "NO CONFIABLE"; (4) compatibilidad con 0.8.1 probada en navegador (ver DATA_MODEL §5): sin cambio de esquema, la decisión queda para el dueño. Corrección de una afirmación anterior: en producción una migración de esquema corre sola (la confirmación es sólo de las versiones de prueba).
+
+### PLAN-2026-018 — Contrato primero (cómo paga el cliente + qué incluye) y adicionales cobrados aparte
+
+**Pedido del dueño (2026-11-05):** "¿Qué tipo de servicio es?" mezclaba la modalidad de contrato con el recurso (equipo con operador vs transporte; colectivo mensual con fijo por 12 h + llamados fuera de horario; cuadrilla mensual + feriados). Primero mensualizado u on call; contemplar fijo o mínimo mensual + variable; poder cotizar el fijo y los adicionales en la misma cotización. "No te enrosques".
+
+**Investigación:** modalidades reales (mensualizado/abono, on call, day rate, por unidad producida, precio global, costo + %, fijo + variable, mínimo garantizado) y planillas de licitación (ítem · unidad · cantidad estimada · precio unitario; un ítem fijo mensual conviven con ítems unitarios). Simulación de 6 escenarios contra el motor: el fijo + adicional no se podía expresar salvo con horas extra facturadas del personal; un call-out "fuera de horario" se cobraba por cada día trabajado; una cuadrilla on call quedaba con un crítico de equipos.
+
+**Decisión:**
+1. Paso "Contrato": modo (`monthly` · `on_demand` · `closed`) + recursos (sólo personal · equipo/vehículo con operador o chofer · sin operador). `serviceType` se deriva; las cotizaciones sin `contract` se leen como antes (mismos números).
+2. Adicionales (`quote.extras`): concepto, unidad, cantidad por mes, costo y precio por unidad (vacío = sugerido con el margen objetivo). Costo directo fijo del mes + componente de facturación "extras". No tocan los días de trabajo.
+3. Mínimo mensual garantizado visible en "Cómo se cobra" con modo por servicio (la regla ya existía).
+
+**Fuera de alcance (anotado):** el buscador de equilibrio con mínimo garantizado (resultado no monótono), el mínimo por llamado sobre la duración promedio y las horas extra facturadas "por mes" multiplicadas por la dotación.

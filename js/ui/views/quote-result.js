@@ -3263,6 +3263,11 @@ function rulesSummary(v) {
   if (r.ctx && r.ctx.materialsResale) {
     items.push(['Materiales facturados aparte', `A su costo más el markup de reventa de cada material.${adds(materialsBilled)}`]);
   }
+  // Adicionales cobrados aparte (PLAN-2026-018): uno por fila, como en la planilla.
+  ((r.extras && r.extras.lines) || []).filter((x) => x.quantity > 0).forEach((x) => {
+    const price = x.price !== null ? `${formatMoney(x.price)} por ${x.unitName}${x.priceSource === 'suggested' ? ' (sugerido)' : ''}` : 'sin precio';
+    items.push([`Adicional: ${x.label}`, `${formatNumber(x.quantity, { decimals: 2 })} por mes × ${price}.${adds(x.revenue)}`]);
+  });
   const commercialDiscount = r.ctx && hasValue(r.ctx.commercialDiscountPct) ? Math.min(r.ctx.commercialDiscountPct, 100) : 0;
   if (commercialDiscount > 0) {
     items.push(['Descuento comercial', `${pct(commercialDiscount)} sobre la tarifa de lista.`]);
@@ -3303,6 +3308,7 @@ function revenueCompositionBlock(v, revenue, T) {
     standby: 'Equipo en espera',
     materials: 'Materiales facturados aparte',
     overtime: 'Horas extra facturadas aparte',
+    extras: 'Adicionales cobrados aparte',
     guaranteeTopUp: 'Ajuste al mínimo mensual garantizado',
   };
   const overlap = ((r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap');

@@ -43,6 +43,7 @@ import { computeMaterials, computeOtherCostLine } from './materials-engine.js';
 import { computeFinance, financingDaysOf } from './finance-engine.js';
 import { computeExternalLine } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
+import { computeExtras } from './extras-engine.js';
 import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
@@ -471,6 +472,28 @@ export function buildCostModel(quote = {}) {
       cashVariablePerActiveDay: o.variablePerActiveDay,
       discretePerActivation: o.behavior === 'per_activation' ? o.amount : 0,
       cashDiscretePerActivation: o.behavior === 'per_activation' ? o.amount : 0,
+    });
+  });
+
+  // 5 bis. Adicionales que se cobran aparte (PLAN-2026-018): su costo directo
+  // estimado del mes (cantidad × costo por unidad), fijo: no depende de los
+  // días de trabajo del precio principal.
+  // Cada adicional va a la categoría de costo que eligió la persona (personal por defecto).
+  computeExtras(quote.extras).lines.forEach((x, i) => {
+    if (!(x.cost > 0)) return;
+    const category = DIRECT_CATEGORY_IDS.includes(x.category) && x.category !== 'structure' ? x.category : 'labor';
+    lines.push({
+      key: `extra:${x.id ?? i}`,
+      source: 'extra',
+      label: x.label,
+      category,
+      payGroup: CATEGORY_PAY_GROUP[category] || 'suppliers',
+      fixedMonthly: x.cost,
+      variablePerActiveDay: 0,
+      cashFixedMonthly: x.cost,
+      cashVariablePerActiveDay: 0,
+      discretePerActivation: 0,
+      cashDiscretePerActivation: 0,
     });
   });
 

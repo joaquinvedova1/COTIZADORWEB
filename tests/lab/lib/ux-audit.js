@@ -308,6 +308,12 @@ export const ACTIVATION_WORDS_ALLOWED = Object.freeze({
   'ui/views/quote-steps/modality.js': ["'Llamados que esperás facturar en el mes. Si no estás seguro, cargá una estimación.'", "'Desde el llamado hasta estar operativo en locación.'"],
   // Consejo sólo del tipo on-call.
   'ui/views/quote-steps/service.js': ['on_call'],
+  // Modalidades de contrato (PLAN-2026-018): describen formas de pago genéricas ("on call", "llamados
+  // extra") antes de que exista la activación de la cotización.
+  'domain/contract.js': '*',
+  // Adicionales (PLAN-2026-018): cada adicional es un ítem propio con su unidad ("llamado fuera de
+  // horario"), aparte de la activación del precio principal.
+  'ui/views/quote-steps/extras.js': '*',
 });
 
 /** Literales de texto del código (js/, sin vendor ni comentarios), por archivo (ruta relativa a js/). */

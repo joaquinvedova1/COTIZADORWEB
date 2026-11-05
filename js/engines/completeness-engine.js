@@ -27,6 +27,8 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
+import { contractOf } from '../domain/contract.js';
+import { computeExtras } from './extras-engine.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
@@ -120,7 +122,10 @@ export function evaluateCompleteness(quote = {}) {
   const T = activationTerms(quote);
   const L = activationFieldLabels(T);
   const serviceType = quote.serviceType;
-  const isOnCall = serviceType === 'on_call';
+  // Contrato (PLAN-2026-018): modalidad y recursos. Las cotizaciones anteriores
+  // (sin contrato guardado) se evalúan exactamente como siempre.
+  const contract = contractOf(quote);
+  const isOnCall = contract.legacy ? serviceType === 'on_call' : contract.mode === 'on_demand';
   const activity = quote.activity || {};
   const labor = objectList(quote.labor);
   const equipment = objectList(quote.equipment);
@@ -133,11 +138,11 @@ export function evaluateCompleteness(quote = {}) {
   const fuel = quote.fuel || {};
 
   // 1. Modalidad / tipo de servicio
-  const validType = SERVICE_TYPES.some((t) => t.id === serviceType);
+  const validType = contract.legacy ? SERVICE_TYPES.some((t) => t.id === serviceType) : true;
   const validMode = PRICING_MODES.some((m) => m.id === quote.pricingMode);
   items.push(rule('modality', 'Cómo se cobra', 'modality', 2,
     validType && validMode ? 'ok' : 'missing',
-    validType && validMode ? 'Tipo de servicio y modalidad definidos.' : 'Falta definir el tipo de servicio o cómo se cobra (ya tengo la tarifa / calcular la tarifa).'));
+    validType && validMode ? 'Contrato y modalidad definidos.' : 'Falta definir el contrato o cómo se cobra (ya tengo la tarifa / calcular la tarifa).'));
 
   // 2. Tarifa o actividad según modalidad
   if (quote.pricingMode === 'known_rate') {
@@ -194,7 +199,7 @@ export function evaluateCompleteness(quote = {}) {
     item.focus = `labor.${unpaid[0].index}.basicMonthly`;
     item.targets = unpaid.map(({ l, index }) => ({ list: 'labor', index, name: roleOf(l) }));
     items.push(item);
-  } else if (serviceType !== 'equipment_only') {
+  } else if (contract.legacy ? serviceType !== 'equipment_only' : contract.labor) {
     const ok = labor.some((l) => nonNegative(l.basicMonthly) > 0 && nonNegative(l.positions) > 0);
     items.push(rule('labor', 'Personal', 'labor', 2, ok ? 'ok' : 'missing', ok ? 'Personal cargado.' : 'No hay personal con salario cargado.'));
   }
@@ -246,7 +251,7 @@ export function evaluateCompleteness(quote = {}) {
   // 6. Costo de equipos (propios: reposición y vida útil; externos: tarifa)
   const isExt = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
   const extOf = (e) => (isPlainObject(e.external) ? e.external : {});
-  const needsEquipment = EQUIPMENT_SERVICE_TYPES.includes(serviceType);
+  const needsEquipment = contract.legacy ? EQUIPMENT_SERVICE_TYPES.includes(serviceType) : contract.equipment;
   if (needsEquipment || equipment.length > 0) {
     // Cuáles líneas están incompletas (PLAN-2026-010): se nombran, nunca se ocultan.
     const ownMissing = equipment.map((e, index) => ({ e, index })).filter(({ e }) => !isExt(e) && !(nonNegative(e.replacementValue) > 0 && nonNegative(e.usefulLifeYears) > 0));
@@ -601,7 +606,7 @@ export function evaluateCompleteness(quote = {}) {
         ? 'Todos los valores tienen fecha base.'
         : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha base (${baseInfo.undefinedEntries.slice(0, 3).map((e) => e.label).join(', ')}${baseInfo.undefinedCount > 3 ? '…' : ''}): no se sabe de cuándo son.`));
     if (baseInfo.defined > 0 && !baseInfo.offerPeriod) {
-      items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', 'Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "Tipo de servicio".'));
+      items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', 'Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "Contrato".'));
     } else if (baseInfo.defined > 0) {
       const old = baseInfo.stale.length > 0;
       items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, old || baseInfo.mixed ? 'warning' : 'ok',
@@ -707,11 +712,24 @@ export function evaluateCompleteness(quote = {}) {
     items.push(item);
   }
 
-  // 14. Standby (on-call)
-  if (isOnCall) {
+  // 14. Standby (on-call; con contrato, sólo si hay equipos)
+  if (isOnCall && (contract.legacy || contract.equipment)) {
     const ok = nonNegative(rules.standbyRatePerDay) > 0 || rules.standbyNotApplicable === true;
     items.push(rule('standby', 'Equipo en espera (standby)', 'margin', 1, ok ? 'ok' : 'warning',
       ok ? 'Standby definido.' : '¿Qué cobrás si el equipo queda en locación sin operar? Definilo o marcá que no aplica.'));
+  }
+
+  // 15. Adicionales (PLAN-2026-018): cada uno con cantidad necesita costo y precio.
+  const extras = computeExtras(quote.extras);
+  const extrasIncomplete = extras.lines.map((x, index) => ({ x, index })).filter(({ x }) => x.quantity > 0 && !(x.costPerUnit > 0));
+  if (extras.lines.some((x) => x.quantity > 0)) {
+    const ok = extrasIncomplete.length === 0 && extras.missingPrice === 0;
+    const item = rule('extras', 'Adicionales', 'modality', 1, ok ? 'ok' : 'warning',
+      ok
+        ? 'Adicionales con costo y precio.'
+        : `Hay adicionales sin costo por unidad${extras.missingPrice ? ' o sin precio' : ''}: ${extrasIncomplete.slice(0, 3).map(({ x }) => `"${x.label}"`).join(', ') || 'revisalos'}. Sin el costo, RATEOS no puede sugerir el precio ni saber si ganás con ellos.`);
+    if (!ok && extrasIncomplete.length) item.focus = `extras.${extrasIncomplete[0].index}.costPerUnit`;
+    items.push(item);
   }
 
   let earned = 0;

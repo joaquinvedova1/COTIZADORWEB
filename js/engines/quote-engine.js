@@ -26,6 +26,7 @@ import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
+import { contractOf, contractUnits, unitFitsContract, CONTRACT_MODES } from '../domain/contract.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS, capitalizeUnitWord } from '../domain/billing-units.js';
 import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
 
@@ -119,7 +120,17 @@ function unitIssues(quote, ctx) {
       });
     }
   }
-  if (quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
+  // Unidad que no corresponde a la modalidad del contrato (PLAN-2026-018): sólo avisa.
+  const contract = contractOf(quote);
+  if (!contract.legacy && !unitFitsContract(contract, u.id)) {
+    const usual = contractUnits(contract).map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
+    const mode = (CONTRACT_MODES.find((m) => m.id === contract.mode) || {}).label || 'Este contrato';
+    issues.push({
+      path: 'unit',
+      message: `"${mode}" se cobra en ${usual}. Estás cobrando en ${u.label}: revisá la unidad en "Cómo se cobra".`,
+      severity: 'warning',
+    });
+  } else if (contract.legacy && quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
     const usual = SERVICE_TYPE_UNITS[quote.serviceType].map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
     issues.push({
       path: 'unit',
@@ -695,6 +706,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     activity,
     model,
     ctx,
+    // Contrato y adicionales (PLAN-2026-018).
+    contract: contractOf(quote),
+    extras: ctx.extras,
     estimate,
     ratesAtEstimate,
     targetMarginPct: targetMarginInvalid ? null : targetMarginPct,

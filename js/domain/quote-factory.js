@@ -466,6 +466,15 @@ export function createOtherCost({ id = createId(), description = 'Otro costo', c
 }
 
 /**
+ * Adicional que se cobra aparte del precio principal (PLAN-2026-018):
+ * concepto, unidad, cantidad estimada por mes, costo y precio por unidad
+ * (precio vacío = sugerido con el margen objetivo).
+ */
+export function createExtra({ id = createId(), label = 'Adicional', unitName = 'hora', category = 'labor', quantityPerMonth = null, costPerUnit = null, price = null } = {}) {
+  return { id, label, unitName, category, quantityPerMonth, costPerUnit, price };
+}
+
+/**
  * Crea una cotización desde una plantilla de servicio (biblioteca).
  * La plantilla aporta valores parciales que pisan los de una cotización vacía.
  */

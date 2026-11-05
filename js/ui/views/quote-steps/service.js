@@ -1,13 +1,16 @@
 /**
- * Etapa 1 · El servicio — Tipo de servicio.
- * Básico: nombre, cliente y tipo de servicio.
+ * Etapa 1 · El contrato (PLAN-2026-018).
+ * Básico: nombre, cliente, cómo paga el cliente (fijo mensual / por servicio
+ * prestado / precio cerrado) y qué incluye (personal / equipo con operador /
+ * equipo sin operador).
  * Opciones avanzadas: código, estado, duración del contrato y notas.
  */
 
 import { h, mount } from '../../dom.js';
 import { card, choiceGroup, dateField, formGrid, icon, confirmDialog } from '../../components.js';
-import { SERVICE_TYPES, QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
-import { billingUnitOf, defaultUnitFor, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS } from '../../../domain/billing-units.js';
+import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
+import { billingUnitOf, BILLING_UNITS } from '../../../domain/billing-units.js';
+import { CONTRACT_MODES, CONTRACT_RESOURCES, contractOf, contractUnits, defaultUnitForContract, resourceChoiceOf, serviceTypeForContract, unitFitsContract } from '../../../domain/contract.js';
 import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
@@ -18,19 +21,11 @@ import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
 /** Nombre de un paso entre comillas ("Viajes"): siempre el de QUOTE_STEPS. */
 const step = (id) => `"${stepName(id)}"`;
 
-/** Qué conviene revisar según el tipo de servicio (orientativo, sin normativa). */
-const TYPE_TIPS = Object.freeze({
-  on_call: `En ${step('modality')} contá cuántos días por mes esperás trabajar (y la disponibilidad 24/7 o por franja). En ${step('margin')} podés definir cuánto cobrar en espera (standby), por llamado (call-out) y el mínimo por llamado.`,
-  permanent: `Pensá en POSICIONES CUBIERTAS, no en personas: en ${step('labor')} cargá cuántas personas necesitás por posición para cubrir francos, vacaciones y relevos.`,
-  crew: `Cargá cada puesto en ${step('labor')} y los traslados de la cuadrilla en ${step('logistics')}.`,
-  equipment_with_operator: `Cargá el equipo en ${step('equipment')} (lo que cuesta tenerlo y usarlo) y el operador en ${step('labor')}.`,
-  equipment_only: `Alquiler sin operador: el costo principal está en ${step('equipment')}. No hace falta cargar personal.`,
-  per_unit: `En ${step('modality')} elegí la unidad que cobrás (unidad, m³, tonelada, metro… u otra propia) y cargá cuánto facturás por mes y cuánto hacés por día de trabajo: los costos se calculan con los días de trabajo y la tarifa sale por unidad.`,
-  transport: `Cargá los vehículos en ${step('equipment')} (tenerlos y usarlos) y los recorridos en ${step('logistics')}. En ${step('modality')} elegí si cobrás por viaje, km, tonelada, ton-km, m³, hora o día.`,
-  turnkey: `Revisá todo el alcance: personal, supervisión, materiales menores, HSE, QA/QC, dossier, seguros, garantías e imprevistos. En ${step('modality')} cobrás un precio global por trabajo (o por hito).`,
-  time_materials: `Cargá las horas en ${step('labor')}. La tarifa (por hora o por día) cubre la mano de obra y los equipos; en ${step('materials')} podés facturar los materiales aparte, al costo más un recargo.`,
-  lump_sum: `Precio cerrado por todo el alcance: usá ${step('risk')} (contingencia) para cubrir la incertidumbre.`,
-  configurable: `Armá la estructura a medida con "Otros costos directos" en el paso ${step('materials')}.`,
+/** Qué sigue según la modalidad del contrato (PLAN-2026-018). */
+const MODE_TIPS = Object.freeze({
+  monthly: `En ${step('modality')} cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Lo que se trabaje fuera de eso (fuera de horario, feriados, trabajos extra) va en "Adicionales", con su propio precio, en la misma cotización.`,
+  on_demand: `En ${step('modality')} elegí en qué unidad cobrás (hora, día, viaje, m³…) y cuánto esperás trabajar por mes. Si el cliente garantiza un mínimo mensual, se carga ahí mismo.`,
+  closed: `Cargá todo el alcance (personal, equipos, materiales, HSE, seguros) y usá ${step('risk')} para cubrir la incertidumbre. Si hay trabajos fuera del alcance con precio unitario, van en "Adicionales".`,
 });
 
 /**
@@ -88,49 +83,54 @@ export function render(container, ctx) {
   );
 
   /**
-   * Cambio de tipo de servicio (PLAN-2026-009): la unidad de cobro sigue al
-   * tipo ("Por unidad producida" → $/unidad, "Transporte" → $/viaje). Si ya
-   * hay una tarifa o un mínimo por llamado cargados, NO se cambia la unidad
-   * (el número se leería en otra unidad): se avisa y la persona decide en
-   * "Cómo se cobra".
+   * Contrato (PLAN-2026-018): primero cómo paga el cliente, después qué
+   * incluye. El tipo de servicio guardado se deriva del contrato. La unidad de
+   * cobro sigue a la modalidad (fijo mensual → $/mes, precio cerrado → $ global);
+   * si ya hay una tarifa o un mínimo por llamado cargados, NO se cambia la
+   * unidad (el número se leería en otra unidad): se avisa.
    */
-  function changeServiceType(next) {
-    if (next === quote.serviceType) return;
+  const contract = contractOf(quote);
+  function applyContract(next) {
     const current = quote.unit || 'day';
-    const fits = unitFitsServiceType(next, current);
+    const fits = unitFitsContract(next, current);
     const pricing = quote.pricing || {};
     const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
     const locked = positive(pricing.knownRate) || positive(pricing.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
-    const nextUnit = fits || locked ? current : defaultUnitFor(next);
-    // Horas y materiales: por defecto, los materiales se facturan aparte (si nunca se decidió).
-    const materialsApart = next === 'time_materials' && Boolean(quote.pricing) && quote.pricing.materialsBilledSeparately === undefined && !quote.materialsNotApplicable;
+    const nextUnit = fits || locked ? current : defaultUnitForContract(next);
     ctx.mutate((q) => {
-      q.serviceType = next;
+      q.contract = { mode: next.mode, labor: next.labor, equipment: next.equipment };
+      q.serviceType = serviceTypeForContract(next);
       q.unit = nextUnit;
-      if (materialsApart) q.pricing.materialsBilledSeparately = true;
     });
-    const typeLabel = labelOf(SERVICE_TYPES, next, 'Este servicio');
-    const materialsNote = materialsApart ? ` Los materiales se facturan aparte, al costo más un recargo (podés cambiarlo en ${step('materials')}).` : '';
     if (nextUnit !== current) {
-      ctx.toast(`"${typeLabel}" se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiar la unidad en ${step('modality')}.${materialsNote}`, 'info');
-    } else if (materialsNote && fits) {
-      ctx.toast(materialsNote.trim(), 'info');
+      ctx.toast(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.`, 'info');
     } else if (!fits) {
-      const usual = (SERVICE_TYPE_UNITS[next] || []).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
-      ctx.toast(`"${typeLabel}" se suele cobrar en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
+      const usual = contractUnits(next).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
+      ctx.toast(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
     }
   }
 
-  const tip = TYPE_TIPS[quote.serviceType];
+  const tip = MODE_TIPS[contract.mode];
   const type = card(
     {},
     choiceGroup({
-      label: '¿Qué tipo de servicio es?',
-      name: 'serviceType',
-      value: quote.serviceType,
+      label: '¿Cómo te paga el cliente?',
+      name: 'contractMode',
+      value: contract.mode,
       disabled: kit.readOnly,
-      options: SERVICE_TYPES.map((t) => ({ value: t.id, label: t.label, hint: t.hint })),
-      onChange: (value) => changeServiceType(value),
+      options: CONTRACT_MODES.map((m) => ({ value: m.id, label: m.label, hint: m.hint })),
+      onChange: (mode) => applyContract({ ...contract, mode }),
+    }),
+    choiceGroup({
+      label: '¿Qué incluye?',
+      name: 'contractResources',
+      value: resourceChoiceOf(contract),
+      disabled: kit.readOnly,
+      options: CONTRACT_RESOURCES.map((r) => ({ value: r.id, label: r.label, hint: r.hint })),
+      onChange: (id) => {
+        const r = CONTRACT_RESOURCES.find((x) => x.id === id);
+        if (r) applyContract({ ...contract, labor: r.labor, equipment: r.equipment });
+      },
     }),
     tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip)) : null,
   );
