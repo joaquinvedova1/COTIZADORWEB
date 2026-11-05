@@ -158,8 +158,8 @@ export function stepShortLabel(stepId) {
  */
 export const STEP_COPY = Object.freeze({
   service: {
-    question: '¿Qué servicio vas a prestar?',
-    why: 'El tipo de servicio define cómo se cobra y qué costos aparecen.',
+    question: '¿Cómo es el contrato?',
+    why: 'Define cómo se cobra y qué costos aparecen.',
   },
   modality: {
     question: '¿Cómo lo vas a cobrar?',

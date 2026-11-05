@@ -397,6 +397,6 @@ export function breakEvenZeroText(result, { compact = false, rateText = '' } = {
   }
   if (compact) return 'Cubierto con ingresos fijos';
   return byQuantity
-    ? `Cubrís todos tus costos aunque no factures ${t.ningun} ${singular}${rate}: los ingresos fijos (abono, equipo en espera) ya cubren los costos fijos.`
-    : `Cubrís todos tus costos aunque no trabajes ningún día${rate}: los ingresos fijos (abono, equipo en espera) ya cubren los costos fijos.`;
+    ? `Cubrís todos tus costos aunque no factures ${t.ningun} ${singular}${rate}: los ingresos fijos (abono, equipo en espera, adicionales estimados) ya cubren los costos fijos.`
+    : `Cubrís todos tus costos aunque no trabajes ningún día${rate}: los ingresos fijos (abono, equipo en espera, adicionales estimados) ya cubren los costos fijos.`;
 }

@@ -106,8 +106,9 @@ function checkEntityList(list, path, errors, { requireName = null } = {}) {
   });
 }
 
-const QUOTE_OBJECT_FIELDS = Object.freeze(['activity', 'pricing', 'finance', 'logistics', 'rules', 'fuel', 'indirect', 'risk', 'billingTaxes']);
-const QUOTE_LIST_FIELDS = Object.freeze(['labor', 'equipment', 'materials', 'otherCosts', 'exchangeRates']);
+// PLAN-2026-018: contrato (modalidad + recursos) y adicionales cobrados aparte; opcionales.
+const QUOTE_OBJECT_FIELDS = Object.freeze(['activity', 'pricing', 'finance', 'logistics', 'rules', 'fuel', 'indirect', 'risk', 'billingTaxes', 'contract']);
+const QUOTE_LIST_FIELDS = Object.freeze(['labor', 'equipment', 'materials', 'otherCosts', 'exchangeRates', 'extras']);
 /** Sub-objetos de cada línea (v3): si están, deben ser objetos. */
 const LINE_OBJECT_FIELDS = Object.freeze(['base', 'costsBase', 'snapshot', 'external', 'mobilization']);
 const NESTED_LIST_FIELDS = Object.freeze([

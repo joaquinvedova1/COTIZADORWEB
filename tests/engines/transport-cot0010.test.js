@@ -401,7 +401,7 @@ describe('equilibrio sin costos fijos (P1)', () => {
     approx(r.breakEven.days, 0);
     assert.equal(r.breakEven.zeroReason, 'fixed_revenue');
     assert.equal(breakEvenZeroText(r, { compact: true }), 'Cubierto con ingresos fijos');
-    assert.match(breakEvenZeroText(r), /los ingresos fijos \(abono, equipo en espera\) ya cubren los costos fijos/);
+    assert.match(breakEvenZeroText(r), /los ingresos fijos \(abono, equipo en espera, adicionales estimados\) ya cubren los costos fijos/);
   });
 
   test('con fijos y sin ingresos fijos: el equilibrio de siempre (sin motivo de cero)', () => {

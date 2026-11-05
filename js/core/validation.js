@@ -217,6 +217,14 @@ export function validateQuote(quote) {
     if (isPlainObject(c)) check(`otherCosts.${i}.amount`, c.amount, 'money');
   });
 
+  // Adicionales cobrados aparte (PLAN-2026-018).
+  (Array.isArray(quote.extras) ? quote.extras : []).forEach((x, i) => {
+    if (!isPlainObject(x)) return;
+    check(`extras.${i}.quantityPerMonth`, x.quantityPerMonth, 'quantity');
+    check(`extras.${i}.costPerUnit`, x.costPerUnit, 'money');
+    check(`extras.${i}.price`, x.price, 'money');
+  });
+
   (Array.isArray(quote.exchangeRates) ? quote.exchangeRates : []).forEach((r, i) => {
     if (isPlainObject(r)) check(`exchangeRates.${i}.rate`, r.rate, 'money');
   });

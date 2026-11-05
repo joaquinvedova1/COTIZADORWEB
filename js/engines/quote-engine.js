@@ -26,6 +26,7 @@ import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
+import { contractOf, contractUnits, unitFitsContract, CONTRACT_MODES } from '../domain/contract.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS, capitalizeUnitWord } from '../domain/billing-units.js';
 import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
 
@@ -119,7 +120,17 @@ function unitIssues(quote, ctx) {
       });
     }
   }
-  if (quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
+  // Unidad que no corresponde a la modalidad del contrato (PLAN-2026-018): sólo avisa.
+  const contract = contractOf(quote);
+  if (!contract.legacy && !unitFitsContract(contract, u.id)) {
+    const usual = contractUnits(contract).map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
+    const mode = (CONTRACT_MODES.find((m) => m.id === contract.mode) || {}).label || 'Este contrato';
+    issues.push({
+      path: 'unit',
+      message: `"${mode}" se cobra en ${usual}. Estás cobrando en ${u.label}: revisá la unidad en "Cómo se cobra".`,
+      severity: 'warning',
+    });
+  } else if (contract.legacy && quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
     const usual = SERVICE_TYPE_UNITS[quote.serviceType].map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
     issues.push({
       path: 'unit',
@@ -214,6 +225,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   });
   const ctx = createEconomicsContext(quote, model);
   issues.push(...unitIssues(quote, ctx));
+  // Adicionales (PLAN-2026-018): sin precio o con precio a mano bajo el costo.
+  if (ctx.extras && ctx.extras.missingPrice > 0) {
+    const i = ctx.extras.lines.findIndex((l) => l.quantity > 0 && l.price === null);
+    issues.push({ path: `extras.${i}.price`, message: `"${ctx.extras.lines[i].label}" no tiene precio: cargalo a mano o revisá el margen objetivo y los impuestos (con un margen inválido no se sugiere). Mientras tanto no suma facturación.`, severity: 'warning' });
+  }
+  if (ctx.extras && ctx.extras.belowCost > 0) {
+    const i = ctx.extras.lines.findIndex((l) => l.belowCost);
+    issues.push({ path: `extras.${i}.price`, message: `"${ctx.extras.lines[i].label}" se cobra por debajo de su costo (con estructura, imprevistos e impuestos): cada ${ctx.extras.lines[i].unitName} pierde plata.`, severity: 'warning' });
+  }
   const unitInfo = ctx.unitInfo;
   const texts = unitTexts(unitInfo);
   const byQuantity = ctx.unit === 'quantity' || ctx.unit === 'event';
@@ -491,7 +511,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         : 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
       inputs: [
         { label: 'Costos fijos mensuales', value: linearTarget.fixedCosts, format: 'money' },
-        { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera)', value: linearTarget.fixedRevenue, format: 'money' },
+        { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera, adicionales)', value: linearTarget.fixedRevenue, format: 'money' },
         { label: 'Ingreso por día activo', value: linearTarget.revenuePerActiveDay, format: 'money' },
         { label: 'Costo variable por día activo', value: linearTarget.variableCostPerDay, format: 'money' },
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
@@ -695,6 +715,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     activity,
     model,
     ctx,
+    // Contrato y adicionales (PLAN-2026-018).
+    contract: contractOf(quote),
+    extras: ctx.extras,
     estimate,
     ratesAtEstimate,
     targetMarginPct: targetMarginInvalid ? null : targetMarginPct,

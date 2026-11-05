@@ -13,10 +13,11 @@
  */
 
 import { nonNegative } from '../core/money.js';
-import { costAtActivity } from './cost-engine.js';
+import { costAtActivity, buildCostModel } from './cost-engine.js';
 import { computeRevenue, requiredNetRate, listRateFromNet, discountFactor, findVolumeTier, continuityApplies, normalizeRules, unitHasDayTiers } from './commercial-rules-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
-import { marginFromPrice, markupFromPrice, markupWithTaxesPct, profitOnCostPct } from './pricing-engine.js';
+import { marginFromPrice, markupFromPrice, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
+import { computeExtras } from './extras-engine.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
 
 /**
@@ -28,6 +29,17 @@ export function createEconomicsContext(quote, model) {
   const pricing = quote.pricing || {};
   const taxes = billingTaxInfo(quote);
   const unitInfo = billingUnitOf(quote);
+  // Adicionales (PLAN-2026-018): sin precio a mano se sugiere con el margen objetivo.
+  // El precio sugerido cubre el costo CARGADO del adicional: cuánto sube el costo
+  // fijo del mes por cada $ de costo directo (estructura %, financiero, contingencia).
+  const margin = readMarginInput(pricing.targetMarginPct);
+  const direct = computeExtras(quote.extras).cost;
+  const loadFactor = direct > 0 ? (model.fixedMonthly - buildCostModel({ ...quote, extras: [] }).fixedMonthly) / direct : 1;
+  const extras = computeExtras(quote.extras, {
+    targetMarginPct: margin.state === 'invalid' ? null : margin.state === 'ok' ? margin.value : 0,
+    billingTaxPct: taxes.pct,
+    loadFactor,
+  });
   return {
     billingTaxPct: taxes.pct,
     billingTaxInfo: taxes,
@@ -40,6 +52,7 @@ export function createEconomicsContext(quote, model) {
     materialsResale: materialsResaleOf(quote, model),
     // Horas extra facturadas aparte (PLAN-2026-010): siguen siendo costo.
     overtimeBilling: overtimeBillingOf(model),
+    extras,
     rules: quote.rules || {},
     contractMonths: nonNegative(quote.contractMonths),
     commercialDiscountPct: nonNegative(pricing.commercialDiscountPct),
@@ -90,6 +103,7 @@ export function revenueAt(ctx, activeDays, listRate, { tierOverride = null } = {
     tierOverride,
     materialsResale: ctx.materialsResale || null,
     overtimeBilling: ctx.overtimeBilling || null,
+    extrasMonthly: ctx.extras ? ctx.extras.revenue : 0,
   });
 }
 
@@ -186,7 +200,7 @@ export function linearDecomposition(ctx, listRate, referenceDays) {
   const D = Math.max(nonNegative(referenceDays), 1);
   const r1 = revenueAt(ctx, D, listRate);
   const keep = 1 - nonNegative(ctx.billingTaxPct) / 100;
-  const fixedRevenue = r1.components.availabilityFee + r1.components.standby + r1.components.materialsFixed + r1.components.overtimeFixed;
+  const fixedRevenue = r1.components.availabilityFee + r1.components.standby + r1.components.materialsFixed + r1.components.overtimeFixed + (r1.components.extras || 0);
   const variableRevenue = r1.components.base + r1.components.callout + r1.components.mobilization + r1.components.extraKm + r1.components.materialsVariable + r1.components.overtimeVariable;
   const revenuePerActiveDay = variableRevenue / D;
   const fixedCosts = ctx.model.fixedMonthly;

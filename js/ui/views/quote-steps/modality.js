@@ -27,6 +27,8 @@ import { activationRoundingText } from '../../result-text.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
+import { contractOf, unitChoicesForContract } from '../../../domain/contract.js';
+import { extrasSection } from './extras.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -132,7 +134,10 @@ export function render(container, ctx) {
   // Por cantidad (m³, viajes, turnos…) o por evento (llamados, trabajos, hitos):
   // la actividad se carga en la unidad comercial y los días de trabajo se derivan.
   const byQuantity = kind === 'quantity' || kind === 'event';
-  const isOnCall = quote.serviceType === 'on_call';
+  // Contrato (PLAN-2026-018): fijo mensual / por servicio prestado / precio cerrado.
+  const contract = contractOf(quote);
+  const monthlyContract = !contract.legacy && contract.mode === 'monthly';
+  const isOnCall = contract.legacy ? quote.serviceType === 'on_call' : contract.mode === 'on_demand' && contract.equipment;
   // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
   const T = activationTerms(quote);
   const num = (v) => formatNumber(v, { decimals: 2 });
@@ -218,7 +223,7 @@ export function render(container, ctx) {
   }
 
   // Unidades habituales del tipo de servicio (+ la actual si no está, + "Otra / personalizada").
-  const unitOptions = unitChoicesFor(quote.serviceType, info.id);
+  const unitOptions = contract.legacy ? unitChoicesFor(quote.serviceType, info.id) : unitChoicesForContract(contract, info.id);
   const compactUnits = unitOptions.length > 5;
   const manyUnits = unitOptions.length > 8;
   const selectedDef = unitOptions.find((u) => u.id === info.id);
@@ -251,7 +256,8 @@ export function render(container, ctx) {
       options: PRICING_MODES.map((m) => ({ value: m.id, label: MODE_LABELS[m.id] || m.label, hint: m.hint })),
       structural: true,
     }),
-    h(
+    // Con una sola unidad posible (fijo mensual → $/mes) no se pregunta.
+    unitOptions.length === 1 && unitOptions[0].id === info.id ? null : h(
       'div',
       { class: ['qe-unit-choice', compactUnits ? 'is-compact' : null] },
       // Muchas unidades: una lista desplegable (menos ruido que 16 tarjetas).
@@ -297,7 +303,7 @@ export function render(container, ctx) {
 
   // Horas por día activo: dato básico si cobrás por hora (define las horas facturables).
   const hoursField = () => kit.num('activity.hoursPerActiveDay', {
-    label: byQuantity ? 'Horas trabajadas por día de trabajo' : 'Horas trabajadas por día activo',
+    label: monthlyContract ? 'Horas por día que cubre el fijo' : byQuantity ? 'Horas trabajadas por día de trabajo' : 'Horas trabajadas por día activo',
     rule: 'hoursPerDay',
     unit: 'h/día',
     hint: quote.unit === 'hour' ? 'Cobrás por hora: se facturan días activos × horas por día.' : 'Se usa para el uso de equipos, la tarifa por hora y la estructura por hora.',
@@ -326,7 +332,7 @@ export function render(container, ctx) {
               : 'Trabajos que esperás terminar y facturar en el mes. Si cada trabajo lleva más de un mes, poné la fracción (0,5 = uno cada dos meses).',
         }),
         kit.num('activity.daysPerActivation', {
-          label: `Días de trabajo ${T.per}`,
+          label: info.id === 'job' ? 'Días que lleva cada trabajo' : `Días de trabajo ${T.per}`,
           rule: 'positiveDays',
           unit: 'días',
           requiredMark: true,
@@ -380,7 +386,12 @@ export function render(container, ctx) {
 
   const daysKeyline = kit.keyline({
     label: 'Con estos datos',
-    value: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) ? `${num(r.activity.activationsPerMonth)} ${T.word(r.activity.activationsPerMonth)} por mes` : EMPTY),
+    value: (r) => {
+      if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return EMPTY;
+      // Fijo mensual (PLAN-2026-018): lo que cubre el abono, no las activaciones.
+      if (monthlyContract) return `${num(r.activity.activeDaysPerMonth)} días × ${num(r.activity.hoursPerActiveDay)} h incluidos`;
+      return `${num(r.activity.activationsPerMonth)} ${T.word(r.activity.activationsPerMonth)} por mes`;
+    },
     hint: (r) => {
       if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return `Cargá los días por mes para ver cuántos ${T.many} y días facturás.`;
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
@@ -430,15 +441,24 @@ export function render(container, ctx) {
     byQuantity
       ? quantityFields()
       : formGrid(
-        hourly ? 3 : 2,
-        kit.num('activity.activeDaysPerMonth', {
-          label: 'Días trabajados y facturados por mes',
-          rule: 'days',
-          unit: 'días/mes',
-          requiredMark: true,
-          placeholder: 'Ej.: 8',
-          hint: 'Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.',
-        }),
+        hourly || monthlyContract ? 3 : 2,
+        monthlyContract
+          ? kit.num('activity.activeDaysPerMonth', {
+            label: 'Días de trabajo por mes que cubre el fijo',
+            rule: 'days',
+            unit: 'días/mes',
+            requiredMark: true,
+            placeholder: 'Ej.: 26',
+            hint: 'Lo incluido en el abono (por ejemplo lunes a sábado = 26). Lo que se trabaje fuera de eso va en "Adicionales".',
+          })
+          : kit.num('activity.activeDaysPerMonth', {
+            label: 'Días trabajados y facturados por mes',
+            rule: 'days',
+            unit: 'días/mes',
+            requiredMark: true,
+            placeholder: 'Ej.: 8',
+            hint: 'Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.',
+          }),
         quote.serviceType === 'permanent'
           ? kit.num('activity.daysPerActivation', {
             label: daysPerActivationLabel(T, quote.serviceType),
@@ -447,9 +467,9 @@ export function render(container, ctx) {
             hint: `Sirve para saber cuántos ${T.many} hay por mes.`,
           })
           : null,
-        hourly ? hoursField() : null,
+        hourly || monthlyContract ? hoursField() : null,
       ),
-    !byQuantity && quote.serviceType !== 'permanent'
+    !byQuantity && quote.serviceType !== 'permanent' && !monthlyContract
       ? kit.activationPace({
         T,
         label: `¿Cuánto dura ${T.each}?`,
@@ -497,7 +517,7 @@ export function render(container, ctx) {
           placeholder: '30',
           hint: 'Normalmente 30 para servicios 24/7; 22 si sólo trabajás días hábiles.',
         }),
-        hourly ? null : hoursField(),
+        hourly || monthlyContract ? null : hoursField(),
         // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
       ),
       // Por cantidad: cuántas intervenciones (movilizaciones, mínimos) hay.
@@ -634,7 +654,9 @@ export function render(container, ctx) {
       ),
     );
 
-  const question = byQuantity
+  const question = monthlyContract
+    ? kit.question('¿Qué cubre el fijo mensual?', 'Cargá los días y horas incluidos en el abono: con eso se calculan los costos del mes. Lo que exceda se cobra en "Adicionales".')
+    : byQuantity
     ? kit.question(texts.quantityQuestion, `Los costos se calculan con los días de trabajo que lleva hacerlo; la facturación, con ${texts.los} ${info.plural}. Cuanto menos factures, mayor deberá ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
     : kit.question('¿Cuántos días por mes esperás trabajar?', 'En servicios on-call, cuantos menos días trabajes, mayor deberá ser la tarifa para cubrir los costos fijos.', { term: 'utilización (días trabajados ÷ días disponibles)' });
 
@@ -643,7 +665,22 @@ export function render(container, ctx) {
     modeCard,
     question,
     activityCard,
+    // Por servicio prestado con mínimo mensual garantizado (PLAN-2026-018).
+    !contract.legacy && contract.mode === 'on_demand'
+      ? card(
+        {},
+        formGrid(2, kit.num('rules.minimumMonthlyGuarantee', {
+          label: 'Mínimo mensual garantizado (opcional)',
+          rule: 'money',
+          unit: '$/mes',
+          placeholder: 'Ej.: 3.000.000',
+          hint: 'Si el cliente garantiza un piso por mes: se factura lo trabajado o el mínimo, lo que sea mayor. Vacío o 0 = sin mínimo.',
+        })),
+        kit.out((r) => (r.estimate.revenue.guaranteeTopUp > 0 ? `Con la actividad estimada, el mínimo suma ${formatMoney(r.estimate.revenue.guaranteeTopUp)} al mes.` : ''), { tag: 'p', className: 'qe-note', allowEmpty: true }),
+      )
+      : null,
     calcCard,
+    extrasSection(ctx, contract),
   );
   return { update() {} };
 }

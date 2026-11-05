@@ -852,6 +852,27 @@ Casos de referencia (golden):
 | D — inspección $/unidad | 300 u/mes, 15 por día, fijos 3.000.000, variable 150.000/día, margen 10 % | costo 6.000.000; piso **20.000/u**; objetivo **22.222,22/u**; equilibrio **200 u** |
 | E — on-call $/día | 15 días/mes, fijos 30.000.000, variable 1.000.000/día, tarifa 4.000.000 | piso **3.000.000/día**; equilibrio **10 días** (igual que siempre) |
 
+### 12.x Contrato y adicionales (PLAN-2026-018)
+
+Archivos: `js/domain/contract.js`, `js/engines/extras-engine.js`.
+
+La cotización empieza por el **contrato**: cómo paga el cliente (`contract.mode`: `monthly` fijo mensual · `on_demand` por servicio prestado · `closed` precio cerrado) y qué incluye (`contract.labor`, `contract.equipment`). El contrato no cambia ninguna fórmula: define la unidad sugerida (fijo mensual → `month`; precio cerrado → `job`/`milestone`; por servicio → hora, día, llamado, viaje, m³…), qué pide la completitud (equipos sólo si hay equipos; personal sólo si hay personal; equipo en espera sólo por servicio con equipos) y deriva `serviceType`. Las cotizaciones sin `contract` se leen desde `serviceType` y `unit`, con los mismos números y avisos de siempre.
+
+**Adicionales** (`quote.extras`): ítems con precio unitario que se cobran aparte del precio principal, en la misma cotización (hora fuera de horario, feriado, llamado fuera de horario, km excedente…).
+
+```
+costo del adicional (mes)   = cantidad estimada por mes × costo por unidad      → costo directo fijo del mes (categoría elegida)
+carga                       = (costo fijo del mes con adicionales − sin adicionales) / costo directo de los adicionales
+                              (estructura %, financiero y contingencia sobre ese costo; 1 si no hay)
+precio sugerido por unidad  = costo por unidad × carga × 100 / (100 − margen objetivo − t)   (margen inválido → sin sugerido)
+precio usado                = el cargado a mano (0 = bonificado) o, si está vacío, el sugerido
+ingreso del adicional (mes) = cantidad × precio usado                            → componente "extras" de la facturación
+```
+
+Así cada adicional al precio sugerido deja exactamente el margen objetivo sobre lo que factura. Un precio a mano que no cubre el costo cargado ni los impuestos da un aviso. Los adicionales se cobran **encima** del mínimo mensual garantizado: `ajuste al mínimo = max(0, mínimo − (subtotal − adicionales))`. Los adicionales no cambian los días de trabajo del precio principal (en el equilibrio cuentan como ingreso y costo fijos estimados). Su ingreso es un "otro ingreso" fijo del mes (× meses si D supera los días disponibles), así que al **calcular la tarifa** el precio principal sugerido cubre el costo total menos lo que ya cubren los adicionales: `tarifaNeta = (Costo / (1 − m − t) − otrosIngresos) / unidades`. Su costo entra a la base directa (estructura % sobre directos, financiero y contingencia).
+
+Ejemplo (colectivo con chofer, fijo mensual, sin impuestos ni estructura): costos fijos 9.000.000 + 26 días × 200.000 + 18 h × 40.000 = 14.920.000. Fijo de 14.000.000 + 18 h fuera de horario × 60.000 = 1.080.000 → facturación 15.080.000. Con margen 15 % el fijo sugerido es 14.920.000 / 0,85 − 1.080.000 = 16.472.941,18.
+
 ## 13. Tarifa piso, precio objetivo y precio comercial
 
 Archivos: `js/engines/commercial-rules-engine.js` (`requiredNetRate`, `listRateFromNet`), `js/engines/economics-engine.js` (`requiredRatesAt`, `evaluateAt`), `js/engines/quote-engine.js` (`computeQuote`).

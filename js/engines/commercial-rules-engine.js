@@ -167,8 +167,9 @@ export function discountFactor({ tierPct = 0, continuityPct = 0, commercialPct =
  * @param {object|null} [p.tierOverride] forzar un tramo de descuento (evaluación de tramos)
  * @param {{ fixedMonthly:number, perActiveDay:number }|null} [p.materialsResale] materiales facturados aparte
  * @param {{ fixedMonthly:number, perActiveDay:number }|null} [p.overtimeBilling] horas extra facturadas aparte (PLAN-2026-010)
+ * @param {number} [p.extrasMonthly] adicionales cobrados aparte, ingreso estimado del mes (PLAN-2026-018)
  */
-export function computeRevenue({ listRate, activeDays, activity, unit = 'day', rules = {}, contractMonths = 0, commercialDiscountPct = 0, routeKmPerActivation = 0, tierOverride = null, materialsResale = null, overtimeBilling = null }) {
+export function computeRevenue({ listRate, activeDays, activity, unit = 'day', rules = {}, contractMonths = 0, commercialDiscountPct = 0, routeKmPerActivation = 0, tierOverride = null, materialsResale = null, overtimeBilling = null, extrasMonthly = 0 }) {
   const r = normalizeRules(rules);
   const D = nonNegative(activeDays);
   const units = billableUnits({
@@ -207,11 +208,15 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
     // Horas extra facturadas aparte (PLAN-2026-010): horas × precio por hora de cada tramo.
     overtimeFixed: overtimeBilling ? nonNegative(overtimeBilling.fixedMonthly) * months : 0,
     overtimeVariable: overtimeBilling ? nonNegative(overtimeBilling.perActiveDay) * D : 0,
+    // Adicionales cobrados aparte (PLAN-2026-018): fuera de horario, feriados, llamados extra…
+    extras: nonNegative(extrasMonthly) * months,
   };
-  const otherRevenue = components.availabilityFee + components.callout + components.mobilization + components.extraKm + components.standby + components.materialsFixed + components.materialsVariable + components.overtimeFixed + components.overtimeVariable;
+  const otherRevenue = components.availabilityFee + components.callout + components.mobilization + components.extraKm + components.standby + components.materialsFixed + components.materialsVariable + components.overtimeFixed + components.overtimeVariable + components.extras;
   const subtotal = components.base + otherRevenue;
   const guarantee = r.minimumMonthlyGuarantee * months;
-  const guaranteeTopUp = Math.max(0, guarantee - subtotal);
+  // Los adicionales se cobran ENCIMA del mínimo garantizado (lo habitual: fuera de
+  // horario y feriados no completan el mínimo).
+  const guaranteeTopUp = Math.max(0, guarantee - (subtotal - components.extras));
   return {
     activeDays: D,
     unit,
@@ -234,7 +239,7 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
 }
 
 /** Orden de los componentes de la facturación del mes (ECO-01, H-02). */
-export const REVENUE_COMPONENTS = Object.freeze(['base', 'availabilityFee', 'callout', 'mobilization', 'extraKm', 'standby', 'materials', 'overtime', 'guaranteeTopUp']);
+export const REVENUE_COMPONENTS = Object.freeze(['base', 'availabilityFee', 'callout', 'mobilization', 'extraKm', 'standby', 'materials', 'overtime', 'extras', 'guaranteeTopUp']);
 
 /**
  * Cómo se compone la facturación del mes (ECO-01, H-02): los componentes de
@@ -256,6 +261,7 @@ export function revenueComposition(revenue) {
     standby: nonNegative(c.standby),
     materials: nonNegative(c.materialsFixed) + nonNegative(c.materialsVariable),
     overtime: nonNegative(c.overtimeFixed) + nonNegative(c.overtimeVariable),
+    extras: nonNegative(c.extras),
     guaranteeTopUp: nonNegative(r.guaranteeTopUp),
   };
   return {

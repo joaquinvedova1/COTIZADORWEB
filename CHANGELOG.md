@@ -12,6 +12,26 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Contrato primero y adicionales (2026-11, PLAN-2026-018).** Pedido del dueño: el "tipo de servicio" mezclaba cómo paga el cliente con qué recurso se ofrece. Se investigaron modalidades reales (mensualizado, on call, day rate, por unidad, precio cerrado, fijo + variable, mínimo garantizado) y se simularon 6 cotizaciones reales contra el motor. Esquema sin cambio de versión: `contract` y `extras` son opcionales.
+
+### Agregado
+
+- **Paso "Contrato":** primero "¿Cómo te paga el cliente?" (Fijo mensual · Por servicio prestado (on call) · Precio cerrado) y después "¿Qué incluye?" (Sólo personal · Equipo o vehículo con operador o chofer · Equipo o vehículo sin operador). El transporte es un vehículo con chofer, no una categoría aparte.
+- **Adicionales cobrados aparte** en "Cómo se cobra", en la misma cotización: concepto, unidad, cantidad por mes, tu costo y precio (vacío = sugerido con el margen objetivo). Atajos: hora fuera de horario, feriado o fin de semana, llamado fuera de horario, km excedente. Suman ingreso y costo al mes y aparecen en "Cómo se factura el servicio".
+- **Mínimo mensual garantizado** a la vista en "Cómo se cobra" cuando se cobra por servicio prestado.
+- Con fijo mensual, "Cómo se cobra" pregunta qué cubre el fijo (días y horas incluidos) y no pregunta la unidad.
+
+### Corregido
+
+- Una cuadrilla on call sin equipos ya no queda con el pendiente crítico "Costo de equipos" ni pide "equipo en espera" (sólo con contrato nuevo; las cotizaciones anteriores se evalúan igual que antes).
+
+### Revisión de especialistas (UX y estructura de costos)
+
+- El precio sugerido de cada adicional cubre su costo **cargado** (estructura %, financiero y contingencia): al sugerido deja exactamente el margen objetivo y no baja el margen total.
+- Con margen objetivo inválido no se sugiere precio de adicionales (aviso), igual que la tarifa principal. Precio a mano bajo el costo: aviso. Precio 0 a mano = bonificado.
+- Los adicionales se cobran encima del mínimo mensual garantizado (no lo completan).
+- Textos más cortos en las tarjetas del contrato y los adicionales (detalle en (i)); "Otro adicional" abre con el concepto vacío y enfocado.
+
 **Auditoría de unidades y simplificación visual (2026-11).** Tres auditorías con servicios reales simulados (diagnóstico de válvulas, END por soldadura, prueba hidráulica por pozo, movilización por km, agua por m³, carga por viaje / tonelada / ton-km, cuadrillas por hora, pintura por m², cañería por metro, residuos por tonelada, llave en mano) con ~380 valores calculados a mano. Esquema sin cambios.
 
 ### Agregado
