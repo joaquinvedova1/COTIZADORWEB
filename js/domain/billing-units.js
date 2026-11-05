@@ -42,9 +42,20 @@ export const BILLING_UNITS = deepFreeze([
   { id: 'meter', kind: 'quantity', singular: 'metro', plural: 'metros', short: 'm', label: '$/metro', hint: 'Se factura cada metro lineal.' },
   { id: 'm2', kind: 'quantity', singular: 'm²', plural: 'm²', short: 'm²', label: '$/m²', hint: 'Se factura cada metro cuadrado.' },
   { id: 'lot', kind: 'quantity', singular: 'lote', plural: 'lotes', short: 'lote', label: '$/lote', hint: 'Se factura cada lote.' },
+  // Unidades de cuenta y medida habituales (UN/ECE Rec. 20, en español):
+  // pieza (H87), pozo (E56), ensayo (E53), hora-hombre, litro (LTR),
+  // barril (BLL), hectárea (HAR) y juego (SET).
+  { id: 'piece', kind: 'quantity', singular: 'pieza', plural: 'piezas', short: 'pieza', label: '$/pieza', hint: 'Se factura cada pieza o equipo atendido (válvula, instrumento, motor…).' },
+  { id: 'well', kind: 'quantity', singular: 'pozo', plural: 'pozos', short: 'pozo', label: '$/pozo', hint: 'Se factura cada pozo intervenido.' },
+  { id: 'test', kind: 'quantity', singular: 'ensayo', plural: 'ensayos', short: 'ensayo', label: '$/ensayo', hint: 'Se factura cada ensayo o prueba (hidráulica, END, laboratorio…).' },
+  { id: 'manhour', kind: 'quantity', singular: 'hora-hombre', plural: 'horas-hombre', short: 'HH', label: '$/hora-hombre', hint: 'Se factura cada hora de cada persona (personas × horas).' },
+  { id: 'liter', kind: 'quantity', singular: 'litro', plural: 'litros', short: 'l', label: '$/litro', hint: 'Se factura cada litro.' },
+  { id: 'barrel', kind: 'quantity', singular: 'barril', plural: 'barriles', short: 'bbl', label: '$/barril', hint: 'Se factura cada barril (159 litros).' },
+  { id: 'ha', kind: 'quantity', singular: 'hectárea', plural: 'hectáreas', short: 'ha', label: '$/hectárea', hint: 'Se factura cada hectárea (10.000 m²).' },
+  { id: 'set', kind: 'quantity', singular: 'juego', plural: 'juegos', short: 'juego', label: '$/juego o kit', hint: 'Se factura cada juego o kit completo.' },
   { id: 'job', kind: 'event', singular: 'trabajo', plural: 'trabajos', short: 'trabajo', label: '$ global (por trabajo)', hint: 'Un único precio por todo el trabajo.' },
   { id: 'milestone', kind: 'event', singular: 'hito', plural: 'hitos', short: 'hito', label: '$/hito', hint: 'El precio del trabajo se factura en partes, por hito.', perActivation: true },
-  { id: 'custom', kind: 'quantity', singular: '', plural: '', short: '', label: 'Otra / personalizada', hint: 'Escribí tu unidad: pozo, muestra, ensayo…', custom: true },
+  { id: 'custom', kind: 'quantity', singular: '', plural: '', short: '', label: 'Otra / personalizada', hint: 'Escribí tu unidad: válvula, muestra, junta…', custom: true },
 ]);
 
 export const BILLING_UNIT_IDS = deepFreeze(BILLING_UNITS.map((u) => u.id));
@@ -59,14 +70,14 @@ export const LEGACY_BILLING_UNITS = deepFreeze(['day', 'hour', 'month']);
 export const SERVICE_TYPE_UNITS = deepFreeze({
   on_call: ['day', 'hour', 'call', 'month'],
   permanent: ['month', 'day', 'hour', 'shift'],
-  crew: ['day', 'hour', 'shift', 'month'],
+  crew: ['day', 'hour', 'manhour', 'shift', 'month'],
   equipment_with_operator: ['day', 'hour', 'month', 'trip'],
   equipment_only: ['day', 'hour', 'month', 'trip'],
-  per_unit: ['unit', 'm3', 'ton', 'kg', 'meter', 'm2', 'km', 'lot'],
-  transport: ['trip', 'km', 'ton', 'tonkm', 'm3', 'hour', 'day'],
+  per_unit: ['unit', 'piece', 'well', 'test', 'manhour', 'm3', 'ton', 'kg', 'meter', 'm2', 'ha', 'liter', 'barrel', 'km', 'lot', 'set'],
+  transport: ['trip', 'km', 'ton', 'tonkm', 'm3', 'liter', 'barrel', 'hour', 'day'],
   turnkey: ['job', 'milestone'],
   lump_sum: ['job', 'milestone'],
-  time_materials: ['hour', 'day'],
+  time_materials: ['hour', 'manhour', 'day'],
   configurable: BILLING_UNIT_IDS.filter((id) => id !== 'custom'),
 });
 
@@ -74,11 +85,25 @@ export const SERVICE_TYPE_UNITS = deepFreeze({
 export function pluralizeUnit(word) {
   const w = typeof word === 'string' ? word.trim() : '';
   if (!w) return 'unidades';
+  // Varias palabras: "prueba hidráulica" → "pruebas hidráulicas", "metro lineal" → "metros lineales";
+  // con "de" sólo la primera: "punto de inspección" → "puntos de inspección".
+  if (/\s/.test(w)) {
+    const parts = w.split(/\s+/);
+    const cut = parts.findIndex((p, i) => i > 0 && /^(de|del|para|por|con|a)$/i.test(p));
+    const head = cut === -1 ? parts : parts.slice(0, cut);
+    const tail = cut === -1 ? [] : parts.slice(cut);
+    return [...head.map((p) => pluralizeUnit(p)), ...tail].join(' ');
+  }
   if (/[²³]|^[a-z]{1,2}$/i.test(w) || /-/.test(w)) return w;
-  if (/ón$/i.test(w)) return `${w.slice(0, -2)}ones`;
-  if (/[aeiouáéíóú]$/i.test(w)) return `${w}s`;
-  if (/s$/i.test(w)) return w;
-  return `${w}es`;
+  // En mayúsculas ("UNIDAD") el plural también va en mayúsculas ("UNIDADES", no "UNIDADes").
+  const upper = w === w.toUpperCase() && w !== w.toLowerCase();
+  let out;
+  if (/ón$/i.test(w)) out = `${w.slice(0, -2)}ones`;
+  else if (/[aeiouáéíóú]$/i.test(w)) out = `${w}s`;
+  else if (/s$/i.test(w)) out = w;
+  else if (/z$/i.test(w)) out = `${w.slice(0, -1)}ces`;
+  else out = `${w}es`;
+  return upper ? out.toUpperCase() : out;
 }
 
 /** Nombre de unidad propia saneado (sin caracteres de control, máx. 30). */
@@ -128,7 +153,15 @@ export function unitFitsServiceType(serviceType, unit) {
 export function isFeminineUnit(singular) {
   const w = typeof singular === 'string' ? singular.trim().toLowerCase() : '';
   if (!w || ['día', 'dia', 'mapa', 'problema', 'sistema', 'programa'].includes(w)) return false;
+  if (/^hora-/.test(w)) return true; // hora-hombre, hora-equipo
+  if (w === 'bbl') return false;
   return /(a|ción|sión|dad|tud)$/.test(w);
+}
+
+/** Mayúscula inicial para palabras ("Válvulas"), nunca para símbolos (m³, kg, t). */
+export function capitalizeUnitWord(text) {
+  const t = typeof text === 'string' ? text : '';
+  return /^[a-zñáéíóú]{4,}/i.test(t) ? `${t.charAt(0).toUpperCase()}${t.slice(1)}` : t;
 }
 
 /** Textos de la actividad y del equilibrio en la unidad comercial. */
@@ -149,7 +182,7 @@ export function unitTexts(info) {
     quantityQuestion: `¿${cuantos} ${plural} esperás facturar por mes?`,
     perDayQuestion: `¿${cuantos} ${plural} hacés por día de trabajo?`,
     // Los símbolos (m³, km, kg, t) no se escriben con mayúscula.
-    breakEvenLabel: `${/^[a-zñáéíóú]{4,}/i.test(plural) ? `${plural.charAt(0).toUpperCase()}${plural.slice(1)}` : plural} para no perder`,
+    breakEvenLabel: `${capitalizeUnitWord(plural)} para no perder`,
     perMonth: `${plural}/mes`,
     perDay: `${plural}/día`,
   };

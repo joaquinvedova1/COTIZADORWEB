@@ -177,10 +177,47 @@ export function priceLadder(cost, marginsPct = DEFAULT_MARGIN_LADDER, customMarg
   return rows;
 }
 
-/** Redondeo comercial hacia arriba (nunca baja el margen). */
+/** Tope del redondeo comercial: el paso nunca supera el 1 % del precio. */
+export const MAX_ROUNDING_SHARE = 0.01;
+
+/**
+ * Paso de redondeo EFECTIVO para un precio: el configurado, salvo que sea más
+ * del 1 % del precio; en ese caso, la mayor potencia de 10 que no lo supera.
+ *   precio 4.444.444 $/día, paso 1.000 → 1.000 (sin cambios)
+ *   precio 100,23 $/kg,     paso 1.000 → 1     (antes: 1.000 $/kg, +898 %)
+ *   precio 8.474 $/m,       paso 1.000 → 10
+ * Unidades baratas (kg, litro, m) ya no reciben un precio sugerido inflado.
+ */
+export function effectiveRoundingStep(price, step) {
+  const s = nonNegative(step);
+  const p = Math.abs(Number(price));
+  if (!(s > 0) || !isFiniteNumber(p) || p <= 0) return s;
+  const cap = p * MAX_ROUNDING_SHARE;
+  if (s <= cap) return s;
+  const pow = 10 ** Math.floor(Math.log10(cap));
+  return Math.max(pow, 0.01);
+}
+
+/** Redondeo comercial hacia arriba (nunca baja el margen) con el paso indicado. */
 export function commercialRound(price, step) {
   if (!isFiniteNumber(price)) return null;
-  return roundUpToStep(price, nonNegative(step));
+  const s = nonNegative(step);
+  const rounded = roundUpToStep(price, s);
+  if (!(s > 0) || s >= 1) return rounded;
+  // Pasos decimales: sin restos de coma flotante (100,23 → 100,3, no 100,30000000000001).
+  const decimals = Math.min(2, Math.max(0, -Math.floor(Math.log10(s))));
+  const fixed = Number(rounded.toFixed(decimals));
+  return fixed >= price ? fixed : rounded;
+}
+
+/**
+ * Redondeo de la tarifa SUGERIDA de un servicio: hacia arriba, con el paso
+ * acotado al 1 % de la tarifa (effectiveRoundingStep). Así un paso de $ 1.000
+ * pensado para tarifas por día no convierte 100 $/kg en 1.000 $/kg.
+ */
+export function suggestedRateRound(price, step) {
+  if (!isFiniteNumber(price)) return null;
+  return commercialRound(price, effectiveRoundingStep(price, step));
 }
 
 /**

@@ -85,7 +85,16 @@ export function normalizeRules(rules = {}) {
     continuityMinMonths: nonNegative(rules.continuityMinMonths),
     continuityDiscountPct: Math.min(nonNegative(rules.continuityDiscountPct), 100),
     minimumMonthlyGuarantee: nonNegative(rules.minimumMonthlyGuarantee),
+    // Días con los que se elige el tramo de descuento (lo decide quien cotiza):
+    // 'billed' = días facturados, incluido el mínimo por llamado (por defecto, como siempre);
+    // 'worked' = días trabajados.
+    volumeTierBasis: rules.volumeTierBasis === 'worked' ? 'worked' : 'billed',
   };
+}
+
+/** Días con los que se busca el tramo de descuento: facturados (con el mínimo) o trabajados. */
+export function tierDaysOf(rules, units, activeDays) {
+  return normalizeRules(rules).volumeTierBasis === 'worked' ? nonNegative(activeDays) : units.billableDays;
 }
 
 /** ¿Aplica el descuento por continuidad para esta duración de contrato? */
@@ -176,7 +185,7 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
   const months = available > 0 && D > available ? D / available : 1;
 
   // Los tramos son por cantidad de DÍAS: sólo aplican si se cobra por día u hora.
-  const tier = unitHasDayTiers(unit) ? tierOverride || findVolumeTier(r.volumeTiers, units.billableDays) : null;
+  const tier = unitHasDayTiers(unit) ? tierOverride || findVolumeTier(r.volumeTiers, tierDaysOf(rules, units, D)) : null;
   const tierPct = tier ? tier.discountPct : 0;
   const continuityPct = continuityApplies(rules, contractMonths) ? r.continuityDiscountPct : 0;
   const commercialPct = Math.min(nonNegative(commercialDiscountPct), 100);

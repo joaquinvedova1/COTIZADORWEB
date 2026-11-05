@@ -66,6 +66,7 @@ export const ORACLE_UNIT_KINDS = Object.freeze({
   call: 'event', job: 'event', milestone: 'event',
   shift: 'quantity', trip: 'quantity', km: 'quantity', ton: 'quantity', tonkm: 'quantity', m3: 'quantity',
   unit: 'quantity', kg: 'quantity', meter: 'quantity', m2: 'quantity', lot: 'quantity', custom: 'quantity',
+  piece: 'quantity', well: 'quantity', test: 'quantity', manhour: 'quantity', liter: 'quantity', barrel: 'quantity', ha: 'quantity', set: 'quantity',
 });
 /** Unidades de la tarifa de un externo (§4.1). */
 export const ORACLE_EXTERNAL_UNITS = Object.freeze(['hour', 'day', 'month', 'trip', 'km', 'activation', 'global']);
@@ -245,7 +246,10 @@ export function oracleRoute(q, act) {
   const roundTrip = lg.roundTrip !== false;
   // Unidad "viaje": viajes por intervención = viajes por día × días por intervención (se derivan).
   const derived = act.unitId === 'trip';
-  const tripsPerActivation = notApplicable ? 0 : derived ? act.r * act.dpa : n(lg.tripsPerActivation, 1);
+  // Por volumen o peso con capacidad por viaje: ⌈cantidad por salida ÷ capacidad⌉ viajes.
+  const capacity = ['m3', 'ton', 'liter', 'barrel', 'kg'].includes(act.unitId) ? n(obj(q.activity).unitsPerTrip) : 0;
+  const byCapacity = !derived && capacity > 0 && act.r * act.dpa > 0;
+  const tripsPerActivation = notApplicable ? 0 : derived ? act.r * act.dpa : byCapacity ? Math.ceil((act.r * act.dpa) / capacity - 1e-9) : n(lg.tripsPerActivation, 1);
   const kmPerTrip = distance * (roundTrip ? 2 : 1);
   const routeKmPerActivation = kmPerTrip * tripsPerActivation;
   return {
@@ -317,7 +321,8 @@ export function oracleModel(q) {
       netPerActivation = billedPerActivation * price * qty;
     }
     const minimumApplied = (unit === 'hour' || unit === 'day') && minimum > unitsPerActivation + 1e-9;
-    const discreteNet = unit === 'activation' || unit === 'trip' || unit === 'km' || minimumApplied ? netPerActivation : 0;
+    // Unidad "viaje" (viajes derivados): km y viajes siguen a los viajes facturados, no son indivisibles por salida.
+    const discreteNet = route.derived && (unit === 'trip' || unit === 'km') ? 0 : unit === 'activation' || unit === 'trip' || unit === 'km' || minimumApplied ? netPerActivation : 0;
     const ownTerm = blank(e.supplierPayDays) || !Number.isFinite(Number(e.supplierPayDays)) || Number(e.supplierPayDays) < 0 ? null : Number(e.supplierPayDays);
     const supplierKey = ownTerm === null ? null : `supplier:${i}`;
     add({
@@ -350,7 +355,7 @@ export function oracleModel(q) {
         fuelPerDay = fuelRoutePerActivation / act.dpa;
       }
     }
-    if (fuelPerDay > 0) add({ key: `external:fuel:${i}`, category: 'fuel', group: 'fuel', variable: fuelPerDay, discrete: fuelRoutePerActivation });
+    if (fuelPerDay > 0) add({ key: `external:fuel:${i}`, category: 'fuel', group: 'fuel', variable: fuelPerDay, discrete: route.derived ? 0 : fuelRoutePerActivation });
     externals.push({ index: i, unit, price, qty, billedPerActivation, netPerActivation, netFixed, unitsPerActivation, minimumApplied });
   });
 
@@ -369,8 +374,8 @@ export function oracleModel(q) {
     mobFuelPerActivation += paysFuel ? liters * fuelPrice : 0;
     mobWearPerActivation += km * (n(m.travelCostPerKm) + tires(e).perKm); // sin amortización
   });
-  add({ key: 'mobilization:fuel', category: 'fuel', group: 'fuel', variable: mobFuelPerActivation / act.dpa, discrete: mobFuelPerActivation });
-  add({ key: 'mobilization:wear', category: 'logistics', group: 'suppliers', variable: mobWearPerActivation / act.dpa, discrete: mobWearPerActivation });
+  add({ key: 'mobilization:fuel', category: 'fuel', group: 'fuel', variable: mobFuelPerActivation / act.dpa, discrete: route.derived ? 0 : mobFuelPerActivation });
+  add({ key: 'mobilization:wear', category: 'logistics', group: 'suppliers', variable: mobWearPerActivation / act.dpa, discrete: route.derived ? 0 : mobWearPerActivation });
 
   // 4. Logística auxiliar (§5): vehículos (combustible y desgaste), peajes y viáticos por activación.
   let auxFuel = 0;
@@ -380,8 +385,8 @@ export function oracleModel(q) {
     auxFuel += ((km * n(v.consumptionLPer100Km)) / 100) * fuelPrice;
     auxOther += km * n(v.costPerKm);
   }
-  add({ key: 'logistics:fuel', category: 'fuel', group: 'fuel', variable: auxFuel / act.dpa, discrete: auxFuel });
-  add({ key: 'logistics:other', category: 'logistics', group: 'suppliers', variable: auxOther / act.dpa, discrete: auxOther });
+  add({ key: 'logistics:fuel', category: 'fuel', group: 'fuel', variable: auxFuel / act.dpa, discrete: route.derived ? 0 : auxFuel });
+  add({ key: 'logistics:other', category: 'logistics', group: 'suppliers', variable: auxOther / act.dpa, discrete: route.derived ? route.tolls + route.lodging : auxOther });
 
   // 5. Materiales (§6): cantidad × costo × (1 + merma) × (1 + logística); el cliente → 0.
   const materials = q.materialsNotApplicable ? [] : list(q.materials);
@@ -577,7 +582,8 @@ export function revenueAt(q, model, D, listRate) {
   const rules = obj(q.rules);
   const u = billableAt(act, D);
   const months = monthsFactor(D, act.available);
-  const disc = discountAt(q, act, u.billableDays);
+  // Tramo por días facturados (con el mínimo, por defecto) o trabajados (§14, lo elige quien cotiza).
+  const disc = discountAt(q, act, rules.volumeTierBasis === 'worked' ? D : u.billableDays);
   const net = n(listRate) * disc.factor;
   const standbyOff = rules.standbyNotApplicable === true;
   const extraKmPerActivation = Math.max(0, model.route.routeKmPerActivation - n(rules.includedKmPerActivation));
@@ -619,7 +625,11 @@ export function requiredNetRate(q, model, D, marginPct, t) {
 }
 
 /** Redondeo comercial hacia arriba al múltiplo del paso (§13): nunca baja el margen. */
+// El paso nunca supera el 1 % del precio (CALCULATION_RULES §redondeo): si lo supera, se usa la mayor potencia de 10 ≤ 1 %.
+const capStep = (price, step) => (step > price * 0.01 && price > 0 ? Math.max(10 ** Math.floor(Math.log10(price * 0.01)), 0.01) : step);
 export const commercialRound = (price, step) => (price === null || !Number.isFinite(price) ? null : n(step) > 0 ? Math.ceil(price / n(step) - 1e-9) * n(step) : price);
+/** Servicios: el paso se acota al 1 % del precio. */
+export const serviceRound = (price, step) => (price === null || !Number.isFinite(price) ? null : commercialRound(price, capStep(price, n(step))));
 
 /** Resultado con D días y una tarifa de lista (§13): facturación − impuestos − costo. */
 export function evaluate(q, model, D, listRate, t) {
@@ -674,7 +684,7 @@ export function oracleQuote(q, { listRateOverride = null } = {}) {
 
   const floor = requiredNetRate(q, model, D, 0, t);
   const target = targetMarginInvalid ? null : requiredNetRate(q, model, D, m, t);
-  const suggested = commercialRound(target ? target.list : null, pricing.roundingStep);
+  const suggested = serviceRound(target ? target.list : null, pricing.roundingStep);
 
   let commercial = null;
   let source = 'none';

@@ -128,9 +128,8 @@ export function card({ title = null, subtitle = null, actions = [], className = 
  */
 export function kpi({ label, value, hint = null, tone = null, trace = null, emphasis = false }) {
   return h('div', { class: ['kpi', tone ? `kpi-${tone}` : null, emphasis ? 'kpi-emphasis' : null] },
-    h('div', { class: 'kpi-label' }, label),
+    h('div', { class: 'kpi-label' }, label, hint ? infoTip(hint, { className: 'kpi-hint' }) : null),
     h('div', { class: 'kpi-value' }, value ?? EMPTY),
-    hint ? h('div', { class: 'kpi-hint' }, hint) : null,
     trace ? traceButton(trace, { compact: true }) : null);
 }
 
@@ -186,9 +185,8 @@ export function pageIntro({ eyebrow = null, title, text = null, actions = [], le
  */
 export function bigStat({ label, value, unit = null, hint = null, tone = null, trace = null, size = 'md', className = '' }) {
   return h('div', { class: ['big-stat', `big-stat-${size}`, tone ? `big-stat-${tone}` : null, className] },
-    h('div', { class: 'big-stat-label' }, label),
+    h('div', { class: 'big-stat-label' }, label, hint ? infoTip(hint, { className: 'big-stat-hint' }) : null),
     h('div', { class: 'big-stat-value' }, h('span', { class: 'big-stat-number' }, value ?? EMPTY), unit ? h('span', { class: 'big-stat-unit' }, unit) : null),
-    hint ? h('div', { class: 'big-stat-hint' }, hint) : null,
     trace ? traceButton(trace) : null);
 }
 
@@ -259,14 +257,32 @@ export function table({ columns, rows, footer = null, className = '', emptyText 
 
 // -------------------------------------------------------------- formulario
 
+/**
+ * Ayuda "pasá el cursor" (i): la explicación ya no ocupa la pantalla, se ve
+ * al pasar el cursor, al tocar o al enfocar con el teclado. El texto queda en
+ * el DOM (lectores de pantalla y aria-describedby lo siguen leyendo).
+ *   infoTip(contenido, { id, className })  → <span class="info-tip">
+ * La burbuja conserva la clase de la ayuda original (field-hint, qe-stat-hint…).
+ */
+export function infoTip(content, { id = null, className = 'field-hint', label = 'Más información' } = {}) {
+  if (content === null || content === undefined || content === '') return null;
+  const bubbleId = id || uniqueId('tip');
+  return h('span', { class: 'info-tip' },
+    h('button', { type: 'button', class: 'info-tip-btn', 'aria-label': label, 'aria-describedby': bubbleId }),
+    h('span', { class: ['info-tip-bubble', className], id: bubbleId, role: 'tooltip' }, content));
+}
+
 function fieldShell({ id, label, hint, unit, error, required, illustrative }, control) {
   const errorEl = h('div', { class: 'field-error', id: `${id}-error`, role: 'alert', hidden: !error }, error || '');
   return {
     el: h('div', { class: ['field', illustrative ? 'field-illustrative' : null] },
-      h('label', { class: 'field-label', for: id }, label, required ? h('span', { class: 'req', 'aria-hidden': 'true' }, ' *') : null,
-        illustrative ? h('span', { class: 'tag-illustrative', title: 'Valor ilustrativo' }, 'ILUSTRATIVO') : null),
+      h('div', { class: 'field-label-row' },
+        h('label', { class: 'field-label', for: id }, label, required ? h('span', { class: 'req', 'aria-hidden': 'true' }, ' *') : null,
+          illustrative ? h('span', { class: 'tag-illustrative', title: 'Valor ilustrativo' }, 'ILUSTRATIVO') : null),
+        hint && !illustrative ? infoTip(hint, { id: `${id}-hint` }) : null),
       h('div', { class: ['field-control', unit ? 'has-unit' : null] }, control, unit ? h('span', { class: 'field-unit' }, unit) : null),
-      hint ? h('div', { class: 'field-hint', id: `${id}-hint` }, hint) : null,
+      // Un valor ILUSTRATIVO es un aviso: su explicación queda siempre a la vista.
+      hint && illustrative ? h('div', { class: 'field-hint', id: `${id}-hint` }, hint) : null,
       errorEl),
     errorEl,
   };
@@ -554,8 +570,9 @@ export function checkboxField({ label, checked = false, onChange, hint = null, n
     if (typeof onChange === 'function') onChange(input.checked);
   });
   return h('div', { class: 'field field-check' },
-    h('label', { class: 'check', for: id }, input, h('span', {}, label)),
-    hint ? h('div', { class: 'field-hint', id: `${id}-hint` }, hint) : null);
+    h('div', { class: 'field-label-row' },
+      h('label', { class: 'check', for: id }, input, h('span', {}, label)),
+      hint ? infoTip(hint, { id: `${id}-hint` }) : null));
 }
 
 /** Grupo de opciones tipo "tarjeta" (radio). options: [{ value, label, hint }] */

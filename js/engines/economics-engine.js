@@ -132,7 +132,7 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
   const units = rev0.billableUnits;
   const other = rev0.otherRevenue;
   const rules = normalizeRules(ctx.rules);
-  const tier = unitHasDayTiers(ctx.unit) ? tierOverride || findVolumeTier(rules.volumeTiers, rev0.billableDays) : null;
+  const tier = unitHasDayTiers(ctx.unit) ? tierOverride || findVolumeTier(rules.volumeTiers, rules.volumeTierBasis === 'worked' ? D : rev0.billableDays) : null;
   const factor = discountFactor({
     tierPct: tier ? tier.discountPct : 0,
     continuityPct: continuityApplies(ctx.rules, ctx.contractMonths) ? rules.continuityDiscountPct : 0,

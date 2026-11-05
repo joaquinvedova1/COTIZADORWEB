@@ -202,7 +202,7 @@ export function buildCostModel(quote = {}) {
   // viaje. Con la unidad "viaje" los viajes físicos por intervención se derivan
   // de los viajes por día (PLAN-2026-012): "Viajes por llamado" no rige.
   const route = routeTrips(quote, activity);
-  const logisticsInput = route.derived ? { ...(quote.logistics || {}), tripsPerActivation: route.tripsPerActivation } : quote.logistics || {};
+  const logisticsInput = route.derived || route.byCapacity ? { ...(quote.logistics || {}), tripsPerActivation: route.tripsPerActivation } : quote.logistics || {};
   const logistics = computeLogistics(logisticsInput, {
     activationsPerMonth: activity.activationsPerMonth,
     daysPerActivation: activity.daysPerActivation,
@@ -257,6 +257,9 @@ export function buildCostModel(quote = {}) {
       variablePerActiveDay: x.variablePerActiveDay + x.mobilizationPerActiveDay + x.fuelPerActiveDay,
     };
   });
+  // PLAN-2026-011 + unidad "viaje": con viajes derivados, lo que depende de
+  // km o viajes no es indivisible por salida (sigue a los viajes facturados).
+  const kmDriven = (x) => route.derived && x && ['km', 'trip'].includes(x.unit);
   equipment.forEach((e, i) => {
     const name = e.name || 'Equipo';
     if (e.acquisition !== 'owned') {
@@ -279,8 +282,10 @@ export function buildCostModel(quote = {}) {
         // definido, caja = costo (como siempre).
         cashFixedMonthly: x.cashFixedMonthly,
         cashVariablePerActiveDay: x.cashVariablePerActiveDay,
-        discretePerActivation: x.discretePerActivation,
-        cashDiscretePerActivation: x.cashDiscretePerActivation,
+        // Unidad "viaje" (viajes derivados): los km y viajes siguen a los viajes
+        // facturados, no a las salidas; redondear salidas no agrega viajes.
+        discretePerActivation: kmDriven(x) ? 0 : x.discretePerActivation,
+        cashDiscretePerActivation: kmDriven(x) ? 0 : x.cashDiscretePerActivation,
         finance,
       });
       if (x.mobilizationPerActiveDay > 0) {
@@ -311,8 +316,8 @@ export function buildCostModel(quote = {}) {
           cashFixedMonthly: 0,
           cashVariablePerActiveDay: x.fuelPerActiveDay,
           // Por km de ruta (PLAN-2026-012) es un costo por salida; por hora, no.
-          discretePerActivation: x.fuelPerActivationRoute,
-          cashDiscretePerActivation: x.fuelPerActivationRoute,
+          discretePerActivation: route.derived ? 0 : x.fuelPerActivationRoute,
+          cashDiscretePerActivation: route.derived ? 0 : x.fuelPerActivationRoute,
         });
       }
       return;
@@ -375,8 +380,8 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: mobilization.fuelPerActiveDay,
     cashFixedMonthly: 0,
     cashVariablePerActiveDay: mobilization.fuelPerActiveDay,
-    discretePerActivation: mobilization.fuelPerActivation,
-    cashDiscretePerActivation: mobilization.fuelPerActivation,
+    discretePerActivation: route.derived ? 0 : mobilization.fuelPerActivation,
+    cashDiscretePerActivation: route.derived ? 0 : mobilization.fuelPerActivation,
   });
   lines.push({
     key: 'mobilization:other',
@@ -388,8 +393,8 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: mobilization.wearPerActiveDay,
     cashFixedMonthly: 0,
     cashVariablePerActiveDay: mobilization.wearPerActiveDay,
-    discretePerActivation: mobilization.wearPerActivation,
-    cashDiscretePerActivation: mobilization.wearPerActivation,
+    discretePerActivation: route.derived ? 0 : mobilization.wearPerActivation,
+    cashDiscretePerActivation: route.derived ? 0 : mobilization.wearPerActivation,
   });
 
   // 3. Logística AUXILIAR (vehículos de apoyo y de personal): combustible →
@@ -404,8 +409,8 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: logistics.fuelPerActiveDay,
     cashFixedMonthly: 0,
     cashVariablePerActiveDay: logistics.fuelPerActiveDay,
-    discretePerActivation: logistics.fuelPerActivation,
-    cashDiscretePerActivation: logistics.fuelPerActivation,
+    discretePerActivation: route.derived ? 0 : logistics.fuelPerActivation,
+    cashDiscretePerActivation: route.derived ? 0 : logistics.fuelPerActivation,
   });
   lines.push({
     key: 'logistics:other',
@@ -417,8 +422,9 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: logistics.nonFuelPerActiveDay,
     cashFixedMonthly: 0,
     cashVariablePerActiveDay: logistics.nonFuelPerActiveDay,
-    discretePerActivation: logistics.nonFuelPerActivation,
-    cashDiscretePerActivation: logistics.nonFuelPerActivation,
+    // Con viajes derivados sólo peajes y viáticos son indivisibles por salida.
+    discretePerActivation: route.derived ? logistics.tollsPerActivation + logistics.lodgingPerActivation : logistics.nonFuelPerActivation,
+    cashDiscretePerActivation: route.derived ? logistics.tollsPerActivation + logistics.lodgingPerActivation : logistics.nonFuelPerActivation,
   });
 
   // 4. Materiales
@@ -684,7 +690,8 @@ export function activationBreakpoints(model, maxDays) {
   const dpa = r.daysPerActivation > 0 ? r.daysPerActivation : 1;
   const limit = nonNegative(maxDays);
   const out = [];
-  for (let k = 1; k * dpa <= limit + 1e-9 && out.length < 500; k += 1) out.push(k * dpa);
+  // Tope alto: con muchas salidas por día (dpa chico) hay que cubrir todo el mes.
+  for (let k = 1; k * dpa <= limit + 1e-9 && out.length < 20000; k += 1) out.push(k * dpa);
   return out;
 }
 

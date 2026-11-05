@@ -175,6 +175,15 @@ export const E2E_SCENARIOS = [
     id: 'E2E-20', title: 'ECO-01 H-03: puesto usado sin sueldo básico: crítico, nombra el puesto y lleva al campo',
     build: () => service({ id: 'lab-e20', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Operador de hidrogrúa', basicMonthly: null }), person({ role: 'Rigger' })] }),
   },
+  {
+    id: 'E2E-21', title: 'Auditoría 2026-11: diagnóstico de válvulas $/pieza, 3 intervenciones por día',
+    build: () => service({
+      id: 'lab-e21', serviceType: 'per_unit', unit: 'piece',
+      activity: { billableQuantityPerMonth: 160, unitsPerActiveDay: 8, daysPerActivation: 1 / 3, hoursPerActiveDay: 9 },
+      labor: [person({ role: 'Operario', positions: 2 }), person({ role: 'Técnico HSE', basicMonthly: 2200000 })],
+      logistics: route({ distanceKm: 40, tollsPerActivation: 0 }),
+    }),
+  },
 ];
 
 /** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
@@ -339,7 +348,8 @@ async function runMode(mode) {
       await go(`#/cotizaciones/${encodeURIComponent(q.id)}/modality`, 300);
       await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
       await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
-      const t = norm(await page.evaluate(() => document.body.textContent));
+      // Sin las ayudas (i) (se leen al pasar el cursor): rótulo y valor quedan vecinos.
+      const t = norm(await page.evaluate(() => (() => { const c = document.body.cloneNode(true); c.querySelectorAll('.info-tip-bubble').forEach((n) => n.remove()); return c.textContent; })()));
       const tr = r.model.transport;
       const expectText = [
         ['Viajes facturables', `${formatNumber(k.billableQuantity, { decimals: 2 })} viajes`],
@@ -361,6 +371,11 @@ async function runMode(mode) {
     if (rate) check(s.id, 'resultado: tarifa = motor', resultText.includes(norm(rate)), `no aparece ${rate}`);
     await scan(s.id, 'resultado');
     if (args.shots) await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-resultado.png`), fullPage: true });
+    if (args.shots) {
+      await go(`#/cotizaciones/${encodeURIComponent(q.id)}/modality`, 600);
+      await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+      await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-cobro.png`), fullPage: true });
+    }
 
     // PDF: el Resultado se exporta con "Imprimir / Guardar como PDF" (estilos de impresión).
     await page.emulateMedia({ media: 'print' });
@@ -390,12 +405,13 @@ async function runMode(mode) {
   }
   // ---- Decisiones LAB-D1…D8 (PLAN-2026-014): lo que se ve en pantalla.
   const byId = Object.fromEntries(seeded.map((x) => [x.s.id, x]));
-  const screenText = async (id, step) => {
+  const screenText = async (id, step, { withTips = false } = {}) => {
     await go(`#/cotizaciones/${encodeURIComponent(byId[id].q.id)}/${step}`, 300);
     await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
     // textContent (como los demás rótulos): innerText aplica las mayúsculas del CSS.
-    return norm(await page.evaluate(() => document.body.textContent));
+    // Sin las ayudas (i): rótulo y valor quedan vecinos (withTips: con ellas).
+    return norm(await page.evaluate((tips) => { const c = document.body.cloneNode(true); if (!tips) c.querySelectorAll('.info-tip-bubble').forEach((n) => n.remove()); return c.textContent; }, withTips));
   };
   /**
    * ECO-01: en el Resultado (ya abierto), "RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA" está a la
@@ -439,7 +455,7 @@ async function runMode(mode) {
     check('E2E-13', 'D5: "No usa combustible" marcado y sin campo de consumo', ui.flag && !ui.consumption, JSON.stringify(ui));
   }
   {
-    const t = await screenText('E2E-14', 'logistics');
+    const t = await screenText('E2E-14', 'logistics', { withTips: true });
     const confirm = await page.evaluate(() => Boolean(document.querySelector('input[name="fuel.illustrative"]')));
     check('E2E-14', 'D7: el precio de ejemplo se ve ILUSTRATIVO, con su base, y se puede confirmar', confirm && /ILUSTRATIVO de ejemplo/.test(t) && /Base no definida/.test(t), `confirmar: ${confirm}`);
   }
@@ -450,7 +466,7 @@ async function runMode(mode) {
   }
   {
     const t = await screenText('E2E-16', 'modality');
-    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuántos días dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
+    check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cuánto dura cada llamado?') && t.includes('Cada llamado se cuenta completo') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
   }
   // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): lo que se ve en pantalla y los botones de cada aviso.
   {

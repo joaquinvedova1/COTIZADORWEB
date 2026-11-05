@@ -80,3 +80,19 @@ export function capitalizeUnitPhrase(text) {
   if (typeof text !== 'string' || !text) return '';
   return /^[a-zñáéíóú]{4,}/i.test(text) ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
 }
+
+/**
+ * Ritmo de las activaciones en palabras: "2 días por intervención" o, si hay
+ * varias en un día (días por activación < 1), "3 intervenciones por día".
+ * @param {number} daysPerActivation
+ * @param {{ one: string, many: string, per: string }} T nombres de la activación (activationTerms)
+ */
+export function activationPaceText(daysPerActivation, T) {
+  const dpa = Number(daysPerActivation);
+  if (!isFiniteNumber(dpa) || dpa <= 0) return EMPTY;
+  if (dpa < 1 - 1e-9) {
+    const n = 1 / dpa;
+    return `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? T.one : T.many} por día`;
+  }
+  return `${formatDays(dpa, { decimals: 2 })} ${T.per}`;
+}

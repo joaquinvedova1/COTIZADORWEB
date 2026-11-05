@@ -87,7 +87,7 @@ import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
 import { normalizeRules, revenueComposition } from '../../engines/commercial-rules-engine.js';
-import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct } from '../../engines/pricing-engine.js';
+import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct, effectiveRoundingStep } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
 import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
@@ -1247,7 +1247,9 @@ function heroKnownActivity(v) {
   } else if (!(k.totalCost > 0)) {
     sentence = h('p', { class: 'qr-lead' }, 'Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.');
   } else {
-    const roundingStep = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
+    const configuredStep = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
+    // El paso real nunca supera el 1 % de la tarifa (pricing-engine.effectiveRoundingStep).
+    const roundingStep = configuredStep && hasValue(k.targetListRate) ? effectiveRoundingStep(k.targetListRate, configuredStep) : configuredStep;
     const subject = k.commercialSource === 'suggested' ? 'Con el abono sugerido' : 'Con el abono cotizado';
     sentence = h('p', { class: 'qr-lead' },
       `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
