@@ -47,7 +47,8 @@ jobs:
   pr-gate:
     name: PR gate (lab estable + navegador + build)
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    # ubuntu-latest ya es 26.04 y Playwright 1.56.1 no instala Chromium ahí: se fija 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -89,7 +90,7 @@ jobs:
   extended:
     name: Extended Lab (manual)
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
