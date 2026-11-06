@@ -194,19 +194,23 @@ export function render(container, ctx) {
     const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
     const locked = positive(pricing.knownRate) || positive(pricing.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
     const nextUnit = fits || locked ? current : defaultUnitForContract(next);
+    let reopenedLogistics = false;
     ctx.mutate((q) => {
       q.contract = contractWithComponents(next, next.components, next.customComponents);
       q.serviceType = serviceTypeForContract(q.contract);
       q.unit = nextUnit;
-      // Sin componentes de materiales (y sin materiales cargados) el paso queda
-      // como "no usa materiales"; al sumar uno, se vuelve a pedir.
-      const usesMaterials = contractUsesMaterials(q.contract);
+      if (!next.touchedComponents) return;
+      // Al sumar un componente de materiales, si estaba "no usa materiales" se
+      // vuelve a pedir (nunca se marca solo: es una confirmación de la persona).
       const noMaterials = !Array.isArray(q.materials) || q.materials.length === 0;
-      if (usesMaterials === false && noMaterials) q.materialsNotApplicable = true;
-      else if (usesMaterials === true && q.materialsNotApplicable === true && noMaterials) q.materialsNotApplicable = false;
-      // Viáticos se cargan en "Movilización y viajes": si estaba "Sin traslados", se vuelve a pedir.
-      if (q.contract.components.includes('travel') && q.logistics && q.logistics.notApplicable === true) q.logistics.notApplicable = false;
+      if (contractUsesMaterials(q.contract) === true && q.materialsNotApplicable === true && noMaterials) q.materialsNotApplicable = false;
+      // Viáticos se cargan en "Movilización y viajes": si estaba "Sin traslados", se vuelve a pedir (con aviso).
+      if (q.contract.components.includes('travel') && q.logistics && q.logistics.notApplicable === true) {
+        q.logistics.notApplicable = false;
+        reopenedLogistics = true;
+      }
     });
+    if (reopenedLogistics) ctx.toast(`Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, 'info');
     if (nextUnit !== current) {
       ctx.toast(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.`, 'info');
     } else if (!fits) {
@@ -236,7 +240,7 @@ export function render(container, ctx) {
       ctx.rerender();
       return;
     }
-    applyContract({ mode: contract.mode, components: list, customComponents: extra });
+    applyContract({ mode: contract.mode, components: list, customComponents: extra, touchedComponents: true });
   } }));
 
   const more = kit.advanced(

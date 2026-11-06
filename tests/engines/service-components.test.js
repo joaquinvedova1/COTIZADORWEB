@@ -71,6 +71,7 @@ describe('Componentes del servicio (PLAN-2026-019)', () => {
 
   test('sin personal ni equipos (sólo insumos u otros costos): no exige ninguno de los dos', () => {
     const c = contractWithComponents({ mode: 'on_demand' }, ['supplies', 'other']);
+    assert.equal(contractUsesMaterials(contractWithComponents({ mode: 'on_demand' }, ['labor', 'other'])), false, '"Otros costos" no son materiales');
     assert.deepEqual(contractOf({ contract: c }), { mode: 'on_demand', labor: false, equipment: false, legacy: false });
     assert.equal(serviceTypeForContract(c), 'configurable');
     const r = computeQuote(quoteWith(c));
@@ -114,10 +115,17 @@ describe('Componentes del servicio (PLAN-2026-019)', () => {
     const c = contractWithComponents({ mode: 'monthly' }, ['labor', 'nope'], ['  Baño químico ', 'baño químico', '', 42, 'Laboratorio']);
     assert.deepEqual(c.components, ['labor']);
     assert.deepEqual(c.customComponents, ['Baño químico', 'Laboratorio']);
-    assert.equal(contractUsesMaterials(c), true);
+    assert.equal(contractUsesMaterials(c), false, 'los propios van a otros costos, no a materiales');
     assert.equal(contractLabel({ contract: c }), 'Fijo mensual · personal + baño químico + laboratorio');
     assert.equal(componentsServiceLabel({ contract: c }), 'Fijo mensual · personal + baño químico + laboratorio');
     assert.equal(templateOf(['labor', 'vehicle']).id, 'vehicle_driver');
+    // Sólo componentes propios: no se exigen personal ni equipos.
+    const only = contractWithComponents({ mode: 'on_demand' }, [], ['Baño químico']);
+    assert.deepEqual(contractOf({ contract: only }), { mode: 'on_demand', labor: false, equipment: false, legacy: false });
+    assert.deepEqual(componentsOf(only), []);
+    assert.equal(serviceTypeForContract(only), 'configurable');
+    const ids = computeQuote(quoteWith(only)).completeness.items.filter((i) => i.status === 'missing').map((i) => i.id);
+    assert.ok(!ids.includes('equipment_cost') && !ids.includes('labor'), ids.join(','));
     assert.equal(templateOf(['labor', 'chemicals']), null);
   });
 });

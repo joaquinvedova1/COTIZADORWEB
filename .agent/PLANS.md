@@ -1198,6 +1198,6 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 1. `contract.components` (lista del catálogo `SERVICE_COMPONENTS`: personal, vehículo, equipo o maquinaria, servicio de terceros, herramientas, insumos, químicos, materiales que quedan en obra, EPP especial, residuos, viáticos, otros costos) + `contract.customComponents` (nombres libres, se cargan como otros costos). `labor` = incluye personal; `equipment` = vehículo, equipo o terceros. Se siguen guardando las dos marcas.
 2. Sin personal ni equipos (sólo insumos u otros costos): `serviceType = 'configurable'` y no se exige ninguno de los dos.
 3. Plantillas rápidas (`SERVICE_TEMPLATES`) sólo marcan componentes. La pantalla dice en qué paso se carga cada uno y cuántas líneas tiene.
-4. Sin componentes de materiales y sin materiales cargados, "no usa materiales" se marca solo (y se desmarca al sumar uno); "Viáticos" vuelve a pedir "Movilización y viajes".
+4. Sumar un componente de materiales desmarca "no usa materiales" (nunca se marca solo: es una confirmación); sumar "Viáticos" con "Sin traslados" reabre "Movilización y viajes" con un aviso. Sólo componentes propios = ni personal ni equipos ('configurable'). "Otros costos" y los propios no cuentan como materiales.
 
 **Compatibilidad:** ninguna fórmula cambia. Contratos con marcas y sin lista se leen igual (`componentsOf` los traduce a personal / equipo); cotizaciones sin `contract` siguen por la ruta anterior. Esquema sin cambio de versión. Tests: `tests/engines/service-components.test.js`.

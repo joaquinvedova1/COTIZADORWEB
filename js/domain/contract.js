@@ -58,11 +58,12 @@ export const CONTRACT_RESOURCES = deepFreeze([
  * subcontrato…). Cada componente dice en qué paso se carga su costo: el motor
  * no cambia, los componentes sólo ordenan qué se pide y qué se controla.
  *   equipment: true  → el servicio usa equipos o vehículos (se exige su costo).
- *   materials: true  → el servicio usa materiales u otros costos directos.
+ *   materials: true  → el servicio usa materiales (insumos, químicos, EPP…).
+ * "Otros costos" y los componentes propios se cargan como otros costos directos.
  */
 export const SERVICE_COMPONENTS = deepFreeze([
   { id: 'labor', label: 'Personal', hint: 'Operarios, técnicos, choferes, supervisión.', step: 'labor' },
-  { id: 'vehicle', label: 'Vehículo', hint: 'Camioneta, utilitario, camión, colectivo.', step: 'equipment', equipment: true },
+  { id: 'vehicle', label: 'Vehículo', hint: 'Camioneta, utilitario, camión, colectivo (se carga una sola vez, en Equipos).', step: 'equipment', equipment: true },
   { id: 'machinery', label: 'Equipo o maquinaria', hint: 'Hidrogrúa, hidrolavadora, retro, generador, equipo de soldadura o END.', step: 'equipment', equipment: true },
   { id: 'subcontract', label: 'Servicio de terceros', hint: 'Subcontrato, alquiler o laboratorio: pagás la tarifa de un proveedor.', step: 'equipment', equipment: true },
   { id: 'tools', label: 'Herramientas', hint: 'Herramientas menores y su reposición.', step: 'materials', materials: true },
@@ -72,7 +73,7 @@ export const SERVICE_COMPONENTS = deepFreeze([
   { id: 'ppe', label: 'EPP especial', hint: 'Trajes, respiradores, arneses (el básico va en cada puesto).', step: 'materials', materials: true },
   { id: 'waste', label: 'Residuos y disposición', hint: 'Transporte habilitado, disposición final, certificados.', step: 'materials', materials: true },
   { id: 'travel', label: 'Viáticos y alojamiento', hint: 'Desarraigo, hotel, comidas, peajes.', step: 'logistics' },
-  { id: 'other', label: 'Otros costos', hint: 'Permisos, seguros especiales, ingeniería, informes.', step: 'materials', materials: true },
+  { id: 'other', label: 'Otros costos', hint: 'Permisos, seguros especiales, ingeniería, informes.', step: 'materials' },
 ]);
 
 export const SERVICE_COMPONENT_IDS = deepFreeze(SERVICE_COMPONENTS.map((c) => c.id));
@@ -143,12 +144,12 @@ export function componentsOf(contract) {
   return componentsFromFlags(n.labor, n.equipment);
 }
 
-/** ¿El servicio usa materiales u otros costos directos? (null si el contrato no tiene componentes). */
+/** ¿El servicio usa materiales? (null si el contrato no tiene componentes). */
 export function contractUsesMaterials(contract) {
   const c = isPlainObject(contract) ? contract : {};
   const list = cleanComponents(c.components);
   if (!list) return null;
-  return list.some((id) => (SERVICE_COMPONENTS.find((x) => x.id === id) || {}).materials) || cleanCustom(c.customComponents).length > 0;
+  return list.some((id) => (SERVICE_COMPONENTS.find((x) => x.id === id) || {}).materials);
 }
 
 /** Plantilla cuyos componentes son exactamente los elegidos (o null). */
@@ -189,7 +190,7 @@ function normalize(contract) {
   // Con componentes (PLAN-2026-019) las marcas salen de ellos: puede no haber
   // personal ni equipos (p. ej. sólo insumos u otros costos).
   const list = cleanComponents(contract.components);
-  if (list && list.length) {
+  if (list && (list.length || cleanCustom(contract.customComponents).length)) {
     return {
       mode,
       labor: list.includes('labor'),

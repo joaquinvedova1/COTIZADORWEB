@@ -24,7 +24,7 @@ Reglas para este archivo:
 ### Cambiado
 
 - Sin personal ni equipos (sólo insumos u otros costos) ya no se exige ninguno de los dos. Un equipo o vehículo sin personal sigue siendo alquiler sin operador.
-- Sin componentes de materiales (y sin materiales cargados) el paso Materiales queda como "no usa materiales"; al sumar uno, se vuelve a pedir.
+- Al sumar un componente de materiales, si el paso estaba como "no usa materiales" se vuelve a pedir (nunca se marca solo). Al sumar "Viáticos" con "Sin traslados", se reabre "Movilización y viajes" con aviso.
 
 **Contrato primero y adicionales (2026-11, PLAN-2026-018).** Pedido del dueño: el "tipo de servicio" mezclaba cómo paga el cliente con qué recurso se ofrece. Se investigaron modalidades reales (mensualizado, on call, day rate, por unidad, precio cerrado, fijo + variable, mínimo garantizado) y se simularon 6 cotizaciones reales contra el motor. Esquema sin cambio de versión: `contract` y `extras` son opcionales.
 
