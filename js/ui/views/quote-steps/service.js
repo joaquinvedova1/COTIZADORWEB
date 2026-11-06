@@ -17,6 +17,7 @@ import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
+import { onSessionReset } from '../../session-memory.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
 import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
 
@@ -85,44 +86,95 @@ function loadedIn(quote, stepId) {
   return 0;
 }
 
+/** Lo escrito en "Otro componente" y todavía no agregado (sobrevive a los redibujos del paso). */
+let customDraft = '';
+onSessionReset(() => { customDraft = ''; });
+
+/**
+ * Redibuja sin perder el lugar: el control con `id` queda a la misma altura
+ * de la pantalla y con el foco (el paso entero se vuelve a dibujar al cambiar).
+ */
+function keepPlace(id, run) {
+  const el = id ? document.getElementById(id) : null;
+  const top = el ? el.getBoundingClientRect().top : null;
+  run();
+  const again = id ? document.getElementById(id) : null;
+  if (!again) return;
+  if (top !== null) window.scrollBy(0, again.getBoundingClientRect().top - top);
+  try {
+    again.focus({ preventScroll: true });
+  } catch {
+    again.focus();
+  }
+}
+
+/** Grupos de componentes, en el orden de los pasos donde se cargan. */
+const COMPONENT_GROUPS = Object.freeze([
+  { title: 'Personas y equipos', steps: ['labor', 'equipment'], ids: ['labor', 'vehicle', 'machinery', 'subcontract'] },
+  { title: 'Materiales e insumos', steps: ['materials'], ids: ['tools', 'supplies', 'chemicals', 'materials', 'ppe', 'waste', 'other'] },
+  { title: 'Viajes', steps: ['logistics'], ids: ['travel'] },
+]);
+
 /**
  * "¿Qué incluye el servicio?" (PLAN-2026-019): plantillas rápidas, componentes
- * que se suman en cualquier combinación, componentes propios ("Otro…") y
- * dónde se carga el costo de cada uno.
+ * que se suman en cualquier combinación (agrupados por el paso donde se
+ * cargan, con link y cuántas líneas tiene) y componentes propios ("Otro").
  */
 function componentsComposer({ quote, components, custom, readOnly, ctx, apply }) {
   const selected = new Set(components);
-  const current = custom.length ? null : templateOf(components);
+  const current = templateOf(components);
 
-  const templates = h('div', { class: 'variant-suggest qe-templates' },
+  const templates = h('div', { class: 'variant-suggest qe-templates', role: 'group', 'aria-label': 'Plantillas rápidas' },
     h('span', { class: 'variant-suggest-label' }, 'Plantillas rápidas'),
     h('div', { class: 'variant-suggest-list' }, ...SERVICE_TEMPLATES.map((t) => h('button', {
       type: 'button',
+      id: `tpl-${t.id}`,
       class: ['chip-suggest', current && current.id === t.id ? 'is-selected' : null],
       'aria-pressed': current && current.id === t.id ? 'true' : 'false',
       disabled: readOnly,
-      on: { click: () => apply([...t.components], []) },
+      on: {
+        click: () => {
+          apply([...t.components], custom, `tpl-${t.id}`);
+          ctx.toast(`«${t.label}»: ${formatNumber(t.components.length)} componentes marcados. Sumá o quitá lo que haga falta.`, 'info');
+        },
+      },
     }, t.label))));
 
-  const toggles = h('div', { class: 'choice-grid qe-components' }, ...SERVICE_COMPONENTS.map((c) => {
+  const toggle = (c) => {
     const id = `cmp-${c.id}`;
     const input = h('input', { type: 'checkbox', id, name: 'contractComponents', value: c.id, checked: selected.has(c.id), disabled: readOnly });
     input.addEventListener('change', () => {
       const next = SERVICE_COMPONENTS.map((x) => x.id).filter((x) => (x === c.id ? input.checked : selected.has(x)));
-      apply(next);
+      apply(next, custom, id);
     });
-    return h('label', { class: 'choice', for: id }, input, h('span', { class: 'choice-body' }, h('span', { class: 'choice-title' }, c.label), h('span', { class: 'choice-hint' }, c.hint)));
-  }));
-
-  // Componentes propios: un nombre libre que se carga como otro costo directo.
-  let draft = '';
-  const addCustom = () => {
-    const name = draft.trim();
-    if (!name) return;
-    apply(components, [...custom, name]);
+    return h('label', { class: 'choice', for: id, title: c.hint }, input, h('span', { class: 'choice-body' }, h('span', { class: 'choice-title' }, c.label), h('span', { class: 'choice-hint' }, c.hint)));
   };
-  const customInput = h('input', { type: 'text', maxlength: '60', placeholder: 'Ej.: Baño químico, Laboratorio, Andamio', 'aria-label': 'Otro componente', disabled: readOnly });
-  customInput.addEventListener('input', () => { draft = customInput.value; });
+
+  const loadedText = (steps) => steps.map((s) => {
+    const n = loadedIn(quote, s);
+    return h('span', { class: 'qe-components-step' },
+      h('a', { href: ctx.href(s) }, stepName(s)),
+      h('span', { class: ['qe-components-count', n ? 'is-loaded' : 'is-empty'] }, n ? ` · ${formatNumber(n)} ${n === 1 ? 'cargado' : 'cargados'}` : ' · sin cargar'));
+  });
+
+  const groups = COMPONENT_GROUPS.map((g) => {
+    const used = g.ids.some((id) => selected.has(id)) || (g.steps.includes('materials') && custom.length > 0);
+    return h('div', { class: 'qe-component-group' },
+      h('div', { class: 'qe-component-group-head' },
+        h('span', { class: 'qe-component-group-title' }, g.title),
+        used ? h('span', { class: 'qe-component-group-where small' }, 'Se carga en ', ...loadedText(g.steps.filter((s) => SERVICE_COMPONENTS.some((c) => c.step === s && selected.has(c.id)) || (s === 'materials' && custom.length)))) : null),
+      h('div', { class: 'choice-grid qe-components' }, ...g.ids.map((id) => toggle(SERVICE_COMPONENTS.find((c) => c.id === id)))));
+  });
+
+  // Componentes propios: un nombre libre que se carga como otro costo directo (paso Materiales).
+  const customInput = h('input', { type: 'text', id: 'cmp-custom', maxlength: '60', placeholder: 'Ej.: Baño químico', 'aria-label': 'Otro componente', value: customDraft, disabled: readOnly });
+  const addCustom = () => {
+    const name = customInput.value.trim();
+    if (!name) return;
+    customDraft = '';
+    apply(components, [...custom, name], 'cmp-custom');
+  };
+  customInput.addEventListener('input', () => { customDraft = customInput.value; });
   customInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -130,37 +182,15 @@ function componentsComposer({ quote, components, custom, readOnly, ctx, apply })
     }
   });
   const customRow = h('div', { class: 'qe-custom-components' },
-    custom.length ? h('div', { class: 'variant-suggest-list' }, ...custom.map((name) => h('span', { class: 'chip-suggest is-selected qe-custom-chip' }, name,
-      readOnly ? null : h('button', { type: 'button', class: 'qe-chip-remove', 'aria-label': `Quitar ${name}`, on: { click: () => apply(components, custom.filter((x) => x !== name)) } }, '×')))) : null,
+    custom.length ? h('div', { class: 'variant-suggest-list' }, ...custom.map((name) => h('span', { class: 'qe-custom-chip' }, name,
+      readOnly ? null : h('button', { type: 'button', class: 'qe-chip-remove', 'aria-label': `Quitar ${name}`, on: { click: () => apply(components, custom.filter((x) => x !== name), 'cmp-custom') } }, '×')))) : null,
     readOnly ? null : h('div', { class: 'qe-custom-add' }, h('div', { class: 'field-control' }, customInput), button('Agregar', { icon: 'plus', onClick: addCustom })));
 
-  // Dónde se carga cada componente (el costo vive en su paso: no se carga dos veces).
-  const byStep = new Map();
-  SERVICE_COMPONENTS.filter((c) => selected.has(c.id)).forEach((c) => {
-    if (!byStep.has(c.step)) byStep.set(c.step, []);
-    byStep.get(c.step).push(c.label);
-  });
-  if (custom.length) {
-    if (!byStep.has('materials')) byStep.set('materials', []);
-    byStep.get('materials').push(...custom);
-  }
-  const order = ['labor', 'equipment', 'materials', 'logistics'];
-  const where = byStep.size
-    ? h('ul', { class: 'qe-components-where' }, ...order.filter((s) => byStep.has(s)).map((s) => {
-      const n = loadedIn(quote, s);
-      return h('li', {},
-        h('a', { href: ctx.href(s) }, stepName(s)),
-        ': ', byStep.get(s).join(', '),
-        h('span', { class: ['qe-components-count', n ? 'is-loaded' : 'is-empty'] }, n ? ` · ${formatNumber(n)} ${n === 1 ? 'cargado' : 'cargados'}` : ' · sin cargar'));
-    }))
-    : null;
-
-  return h('fieldset', { class: 'choice-group' },
-    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Sumá todo lo que lleva el servicio, en cualquier combinación: por ejemplo una persona con camioneta e insumos, o una cuadrilla con químicos. Sin personal, un equipo o vehículo es alquiler sin operador. Cada componente se costea en su paso; si falta algo, agregalo en "Otro".')),
+  return h('fieldset', { class: 'choice-group qe-includes' },
+    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Sumá todo lo que lleva el servicio, en cualquier combinación: por ejemplo una persona con camioneta e insumos, o una cuadrilla con químicos. Sin personal, un equipo o vehículo es alquiler sin operador. Cada componente se costea una sola vez, en el paso que se indica. Si falta algo, agregalo en "Otro componente" (se carga como otro costo en Materiales).')),
     templates,
-    toggles,
-    h('div', { class: 'variant-suggest' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow),
-    where ? h('div', { class: 'qe-tip' }, icon('info'), h('div', {}, h('p', {}, 'Dónde se carga cada uno:'), where)) : null,
+    ...groups,
+    h('div', { class: 'variant-suggest qe-custom-block' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow),
   );
 }
 
@@ -234,13 +264,15 @@ export function render(container, ctx) {
     tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip.short, ' ', infoTip(tip.more))) : null,
   );
 
-  const includes = card({}, componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, apply: (list, extra = custom) => {
-    if (!list.length && !extra.length) {
-      ctx.toast('El servicio tiene que incluir algo: dejá al menos un componente.', 'warning');
-      ctx.rerender();
-      return;
-    }
-    applyContract({ mode: contract.mode, components: list, customComponents: extra, touchedComponents: true });
+  const includes = card({}, componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, apply: (list, extra = custom, focusId = null) => {
+    keepPlace(focusId, () => {
+      if (!list.length && !extra.length) {
+        ctx.toast('El servicio tiene que incluir algo: dejá al menos un componente.', 'warning');
+        ctx.rerender();
+        return;
+      }
+      applyContract({ mode: contract.mode, components: list, customComponents: extra, touchedComponents: true });
+    });
   } }));
 
   const more = kit.advanced(
