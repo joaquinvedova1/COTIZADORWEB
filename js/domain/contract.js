@@ -12,7 +12,9 @@
  *                   hora, día, llamado, viaje, m³… (puede tener mínimo mensual).
  *        closed     Precio cerrado: un precio global por trabajo u obra (o hitos).
  *
- *   2. ¿Qué incluye?  (recursos; uno o los dos)
+ *   2. ¿Qué incluye?  (componentes combinables desde PLAN-2026-019:
+ *        personal, vehículo, equipo, terceros, insumos, químicos… en
+ *        cualquier combinación; labor / equipment se derivan de ellos)
  *        labor      Personal (cuadrilla, operador, chofer, técnicos).
  *        equipment  Equipos o vehículos (hidrogrúa, camión, colectivo, pick-up…).
  *
@@ -49,6 +51,119 @@ export const CONTRACT_RESOURCES = deepFreeze([
   { id: 'equipment', label: 'Equipo o vehículo sin operador', hint: 'Alquiler: lo opera el cliente.', labor: false, equipment: true },
 ]);
 
+/**
+ * Componentes del servicio (PLAN-2026-019): el servicio se ARMA sumando
+ * componentes, en cualquier combinación (una persona con camioneta e
+ * insumos, una cuadrilla con químicos, un equipo sin operador, un
+ * subcontrato…). Cada componente dice en qué paso se carga su costo: el motor
+ * no cambia, los componentes sólo ordenan qué se pide y qué se controla.
+ *   equipment: true  → el servicio usa equipos o vehículos (se exige su costo).
+ *   materials: true  → el servicio usa materiales u otros costos directos.
+ */
+export const SERVICE_COMPONENTS = deepFreeze([
+  { id: 'labor', label: 'Personal', hint: 'Operarios, técnicos, choferes, supervisión.', step: 'labor' },
+  { id: 'vehicle', label: 'Vehículo', hint: 'Camioneta, utilitario, camión, colectivo.', step: 'equipment', equipment: true },
+  { id: 'machinery', label: 'Equipo o maquinaria', hint: 'Hidrogrúa, hidrolavadora, retro, generador, equipo de soldadura o END.', step: 'equipment', equipment: true },
+  { id: 'subcontract', label: 'Servicio de terceros', hint: 'Subcontrato, alquiler o laboratorio: pagás la tarifa de un proveedor.', step: 'equipment', equipment: true },
+  { id: 'tools', label: 'Herramientas', hint: 'Herramientas menores y su reposición.', step: 'materials', materials: true },
+  { id: 'supplies', label: 'Insumos y consumibles', hint: 'Electrodos, discos, gas, filtros, trapos.', step: 'materials', materials: true },
+  { id: 'chemicals', label: 'Químicos', hint: 'Desengrasantes, sanitizantes, herbicidas, inhibidores.', step: 'materials', materials: true },
+  { id: 'materials', label: 'Materiales que quedan en obra', hint: 'Pintura, caños, cables (se pueden facturar aparte).', step: 'materials', materials: true },
+  { id: 'ppe', label: 'EPP especial', hint: 'Trajes, respiradores, arneses (el básico va en cada puesto).', step: 'materials', materials: true },
+  { id: 'waste', label: 'Residuos y disposición', hint: 'Transporte habilitado, disposición final, certificados.', step: 'materials', materials: true },
+  { id: 'travel', label: 'Viáticos y alojamiento', hint: 'Desarraigo, hotel, comidas, peajes.', step: 'logistics' },
+  { id: 'other', label: 'Otros costos', hint: 'Permisos, seguros especiales, ingeniería, informes.', step: 'materials', materials: true },
+]);
+
+export const SERVICE_COMPONENT_IDS = deepFreeze(SERVICE_COMPONENTS.map((c) => c.id));
+const EQUIPMENT_COMPONENTS = SERVICE_COMPONENTS.filter((c) => c.equipment).map((c) => c.id);
+
+/**
+ * Plantillas rápidas: combinaciones comunes para arrancar. Sólo marcan los
+ * componentes (no cargan montos): después se suma o se quita lo que haga falta.
+ */
+export const SERVICE_TEMPLATES = deepFreeze([
+  { id: 'tech_pickup', label: 'Técnico con camioneta e insumos', components: ['labor', 'vehicle', 'tools', 'supplies'] },
+  { id: 'crew_chemicals', label: 'Cuadrilla con químicos', components: ['labor', 'vehicle', 'chemicals', 'ppe', 'waste'] },
+  { id: 'equipment_operator', label: 'Equipo con operador', components: ['labor', 'machinery'] },
+  { id: 'vehicle_driver', label: 'Vehículo con chofer', components: ['labor', 'vehicle'] },
+  { id: 'dry_rental', label: 'Alquiler sin operador', components: ['machinery'] },
+  { id: 'cleaning', label: 'Limpieza industrial', components: ['labor', 'machinery', 'vehicle', 'chemicals', 'waste'] },
+  { id: 'building', label: 'Mantenimiento edilicio', components: ['labor', 'vehicle', 'tools', 'supplies', 'materials'] },
+  { id: 'crew', label: 'Sólo personal', components: ['labor'] },
+  { id: 'third_party', label: 'Servicio de un tercero', components: ['subcontract'] },
+]);
+
+/** Componentes guardados, saneados (orden del catálogo, sin repetidos ni desconocidos); null si no hay lista. */
+function cleanComponents(list) {
+  if (!Array.isArray(list)) return null;
+  const set = new Set(list.filter((id) => typeof id === 'string'));
+  return SERVICE_COMPONENT_IDS.filter((id) => set.has(id));
+}
+
+/** Componentes nuevos personalizados ("Otro…": un nombre libre que se carga como otro costo directo). */
+function cleanCustom(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  return list
+    .map((v) => (typeof v === 'string' ? v.trim().slice(0, 60) : ''))
+    .filter((v) => v && !seen.has(v.toLowerCase()) && seen.add(v.toLowerCase()))
+    .slice(0, 20);
+}
+
+/** Componentes que equivalen a las marcas viejas personal / equipos. */
+function componentsFromFlags(labor, equipment) {
+  return [...(labor ? ['labor'] : []), ...(equipment ? ['machinery'] : [])];
+}
+
+/**
+ * Contrato con los componentes elegidos (lo que se guarda). Las marcas
+ * labor / equipment se derivan de los componentes y se siguen guardando.
+ */
+export function contractWithComponents(contract, components, custom = undefined) {
+  const c = isPlainObject(contract) ? contract : {};
+  const list = cleanComponents(components) || [];
+  const out = {
+    mode: CONTRACT_MODE_IDS.includes(c.mode) ? c.mode : 'on_demand',
+    labor: list.includes('labor'),
+    equipment: list.some((id) => EQUIPMENT_COMPONENTS.includes(id)),
+    components: list,
+  };
+  const extra = cleanCustom(custom === undefined ? c.customComponents : custom);
+  if (extra.length) out.customComponents = extra;
+  return out;
+}
+
+/** Componentes de un contrato (los guardados o, si no hay lista, los que equivalen a sus marcas). */
+export function componentsOf(contract) {
+  const c = isPlainObject(contract) ? contract : {};
+  const list = cleanComponents(c.components);
+  if (list) return list;
+  const n = normalize(c);
+  return componentsFromFlags(n.labor, n.equipment);
+}
+
+/** ¿El servicio usa materiales u otros costos directos? (null si el contrato no tiene componentes). */
+export function contractUsesMaterials(contract) {
+  const c = isPlainObject(contract) ? contract : {};
+  const list = cleanComponents(c.components);
+  if (!list) return null;
+  return list.some((id) => (SERVICE_COMPONENTS.find((x) => x.id === id) || {}).materials) || cleanCustom(c.customComponents).length > 0;
+}
+
+/** Plantilla cuyos componentes son exactamente los elegidos (o null). */
+export function templateOf(components) {
+  const list = cleanComponents(components) || [];
+  return SERVICE_TEMPLATES.find((t) => t.components.length === list.length && t.components.every((id) => list.includes(id))) || null;
+}
+
+/** "Personal + Vehículo + Químicos" (nombre corto de lo que incluye). */
+export function componentsLabel(contract) {
+  const c = isPlainObject(contract) ? contract : {};
+  const names = componentsOf(c).map((id) => (SERVICE_COMPONENTS.find((x) => x.id === id) || {}).label).filter(Boolean);
+  return [...names, ...cleanCustom(c.customComponents)].join(' + ');
+}
+
 /** Elección de recursos de un contrato: 'labor' | 'both' | 'equipment'. */
 export function resourceChoiceOf(contract) {
   const c = normalize(isPlainObject(contract) ? contract : {});
@@ -71,6 +186,17 @@ export const CONTRACT_UNITS = deepFreeze({
 /** Contrato saneado { mode, labor, equipment } (sin recursos marcados = los dos). */
 function normalize(contract) {
   const mode = CONTRACT_MODE_IDS.includes(contract.mode) ? contract.mode : 'on_demand';
+  // Con componentes (PLAN-2026-019) las marcas salen de ellos: puede no haber
+  // personal ni equipos (p. ej. sólo insumos u otros costos).
+  const list = cleanComponents(contract.components);
+  if (list && list.length) {
+    return {
+      mode,
+      labor: list.includes('labor'),
+      equipment: list.some((id) => EQUIPMENT_COMPONENTS.includes(id)),
+      legacy: false,
+    };
+  }
   let labor = contract.labor === true;
   let equipment = contract.equipment === true;
   if (!labor && !equipment) {
@@ -110,6 +236,7 @@ export function contractOf(quote = {}) {
 export function serviceTypeForContract(contract) {
   const c = normalize(isPlainObject(contract) ? contract : {});
   if (c.mode === 'closed') return 'lump_sum';
+  if (!c.labor && !c.equipment) return 'configurable';
   if (!c.labor) return 'equipment_only';
   if (c.mode === 'on_demand') return 'on_call';
   return c.equipment ? 'equipment_with_operator' : 'crew';
@@ -138,7 +265,10 @@ export function defaultUnitForContract(contract) {
 export function contractLabel(quote = {}) {
   const c = contractOf(quote);
   const mode = { monthly: 'Fijo mensual', on_demand: 'Por servicio (on call)', closed: 'Precio cerrado' }[c.mode];
-  const res = c.labor && c.equipment ? 'personal y equipos' : c.labor ? 'personal' : 'equipos';
+  const q = isPlainObject(quote) ? quote : {};
+  const res = !c.legacy && isPlainObject(q.contract) && Array.isArray(q.contract.components)
+    ? componentsLabel(q.contract).toLowerCase() || 'sin componentes'
+    : c.labor && c.equipment ? 'personal y equipos' : c.labor ? 'personal' : 'equipos';
   return `${mode} · ${res}`;
 }
 
@@ -149,4 +279,15 @@ export function unitChoicesForContract(contract, currentUnit = null) {
   if (currentUnit && BILLING_UNIT_IDS.includes(currentUnit) && currentUnit !== 'custom' && !list.includes(currentUnit)) list.push(currentUnit);
   if (c.mode === 'on_demand' || currentUnit === 'custom') list.push('custom');
   return list.map((id) => BILLING_UNITS.find((u) => u.id === id));
+}
+
+/**
+ * Nombre del servicio para listados: con componentes (PLAN-2026-019), el
+ * contrato y lo que incluye ("Por servicio (on call) · personal + vehículo");
+ * si no, null (se usa el tipo de servicio de siempre).
+ */
+export function componentsServiceLabel(quote = {}) {
+  const q = isPlainObject(quote) ? quote : {};
+  if (!isPlainObject(q.contract) || !Array.isArray(q.contract.components) || !q.contract.components.length) return null;
+  return contractLabel(q);
 }

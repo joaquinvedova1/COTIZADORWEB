@@ -1,16 +1,18 @@
 /**
  * Etapa 1 · El contrato (PLAN-2026-018).
  * Básico: nombre, cliente, cómo paga el cliente (fijo mensual / por servicio
- * prestado / precio cerrado) y qué incluye (personal / equipo con operador /
- * equipo sin operador).
+ * prestado / precio cerrado) y qué incluye: componentes combinables
+ * (personal, vehículo, equipo, terceros, insumos, químicos…; PLAN-2026-019),
+ * con plantillas rápidas para los casos comunes.
  * Opciones avanzadas: código, estado, duración del contrato y notas.
  */
 
 import { h, mount } from '../../dom.js';
-import { card, choiceGroup, dateField, formGrid, icon, confirmDialog, infoTip } from '../../components.js';
+import { button, card, choiceGroup, dateField, formGrid, icon, confirmDialog, infoTip } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf, BILLING_UNITS } from '../../../domain/billing-units.js';
-import { CONTRACT_MODES, CONTRACT_RESOURCES, contractOf, contractUnits, defaultUnitForContract, resourceChoiceOf, serviceTypeForContract, unitFitsContract } from '../../../domain/contract.js';
+import { CONTRACT_MODES, SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUnits, contractUsesMaterials, contractWithComponents, defaultUnitForContract, serviceTypeForContract, templateOf, unitFitsContract } from '../../../domain/contract.js';
+import { isPlainObject } from '../../../core/object.js';
 import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
@@ -70,6 +72,98 @@ function baseDetail(info, ctx) {
   );
 }
 
+/** Cuántas líneas hay cargadas en el paso donde va cada componente. */
+function loadedIn(quote, stepId) {
+  const len = (v) => (Array.isArray(v) ? v.length : 0);
+  if (stepId === 'labor') return len(quote.labor);
+  if (stepId === 'equipment') return len(quote.equipment);
+  if (stepId === 'materials') return len(quote.materials) + len(quote.otherCosts);
+  if (stepId === 'logistics') {
+    const l = quote.logistics || {};
+    return len(l.vehicles) + (Number(l.lodgingPerActivation) > 0 ? 1 : 0) + (Number(l.tollsPerActivation) > 0 ? 1 : 0);
+  }
+  return 0;
+}
+
+/**
+ * "¿Qué incluye el servicio?" (PLAN-2026-019): plantillas rápidas, componentes
+ * que se suman en cualquier combinación, componentes propios ("Otro…") y
+ * dónde se carga el costo de cada uno.
+ */
+function componentsComposer({ quote, components, custom, readOnly, ctx, apply }) {
+  const selected = new Set(components);
+  const current = custom.length ? null : templateOf(components);
+
+  const templates = h('div', { class: 'variant-suggest qe-templates' },
+    h('span', { class: 'variant-suggest-label' }, 'Plantillas rápidas'),
+    h('div', { class: 'variant-suggest-list' }, ...SERVICE_TEMPLATES.map((t) => h('button', {
+      type: 'button',
+      class: ['chip-suggest', current && current.id === t.id ? 'is-selected' : null],
+      'aria-pressed': current && current.id === t.id ? 'true' : 'false',
+      disabled: readOnly,
+      on: { click: () => apply([...t.components], []) },
+    }, t.label))));
+
+  const toggles = h('div', { class: 'choice-grid qe-components' }, ...SERVICE_COMPONENTS.map((c) => {
+    const id = `cmp-${c.id}`;
+    const input = h('input', { type: 'checkbox', id, name: 'contractComponents', value: c.id, checked: selected.has(c.id), disabled: readOnly });
+    input.addEventListener('change', () => {
+      const next = SERVICE_COMPONENTS.map((x) => x.id).filter((x) => (x === c.id ? input.checked : selected.has(x)));
+      apply(next);
+    });
+    return h('label', { class: 'choice', for: id }, input, h('span', { class: 'choice-body' }, h('span', { class: 'choice-title' }, c.label), h('span', { class: 'choice-hint' }, c.hint)));
+  }));
+
+  // Componentes propios: un nombre libre que se carga como otro costo directo.
+  let draft = '';
+  const addCustom = () => {
+    const name = draft.trim();
+    if (!name) return;
+    apply(components, [...custom, name]);
+  };
+  const customInput = h('input', { type: 'text', maxlength: '60', placeholder: 'Ej.: Baño químico, Laboratorio, Andamio', 'aria-label': 'Otro componente', disabled: readOnly });
+  customInput.addEventListener('input', () => { draft = customInput.value; });
+  customInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addCustom();
+    }
+  });
+  const customRow = h('div', { class: 'qe-custom-components' },
+    custom.length ? h('div', { class: 'variant-suggest-list' }, ...custom.map((name) => h('span', { class: 'chip-suggest is-selected qe-custom-chip' }, name,
+      readOnly ? null : h('button', { type: 'button', class: 'qe-chip-remove', 'aria-label': `Quitar ${name}`, on: { click: () => apply(components, custom.filter((x) => x !== name)) } }, '×')))) : null,
+    readOnly ? null : h('div', { class: 'qe-custom-add' }, h('div', { class: 'field-control' }, customInput), button('Agregar', { icon: 'plus', onClick: addCustom })));
+
+  // Dónde se carga cada componente (el costo vive en su paso: no se carga dos veces).
+  const byStep = new Map();
+  SERVICE_COMPONENTS.filter((c) => selected.has(c.id)).forEach((c) => {
+    if (!byStep.has(c.step)) byStep.set(c.step, []);
+    byStep.get(c.step).push(c.label);
+  });
+  if (custom.length) {
+    if (!byStep.has('materials')) byStep.set('materials', []);
+    byStep.get('materials').push(...custom);
+  }
+  const order = ['labor', 'equipment', 'materials', 'logistics'];
+  const where = byStep.size
+    ? h('ul', { class: 'qe-components-where' }, ...order.filter((s) => byStep.has(s)).map((s) => {
+      const n = loadedIn(quote, s);
+      return h('li', {},
+        h('a', { href: ctx.href(s) }, stepName(s)),
+        ': ', byStep.get(s).join(', '),
+        h('span', { class: ['qe-components-count', n ? 'is-loaded' : 'is-empty'] }, n ? ` · ${formatNumber(n)} ${n === 1 ? 'cargado' : 'cargados'}` : ' · sin cargar'));
+    }))
+    : null;
+
+  return h('fieldset', { class: 'choice-group' },
+    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Sumá todo lo que lleva el servicio, en cualquier combinación: por ejemplo una persona con camioneta e insumos, o una cuadrilla con químicos. Sin personal, un equipo o vehículo es alquiler sin operador. Cada componente se costea en su paso; si falta algo, agregalo en "Otro".')),
+    templates,
+    toggles,
+    h('div', { class: 'variant-suggest' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow),
+    where ? h('div', { class: 'qe-tip' }, icon('info'), h('div', {}, h('p', {}, 'Dónde se carga cada uno:'), where)) : null,
+  );
+}
+
 export function render(container, ctx) {
   const { quote, kit } = ctx;
 
@@ -90,6 +184,9 @@ export function render(container, ctx) {
    * unidad (el número se leería en otra unidad): se avisa.
    */
   const contract = contractOf(quote);
+  const saved = isPlainObject(quote.contract) ? quote.contract : null;
+  const components = componentsOf(saved || contract);
+  const custom = saved && Array.isArray(saved.customComponents) ? saved.customComponents : [];
   function applyContract(next) {
     const current = quote.unit || 'day';
     const fits = unitFitsContract(next, current);
@@ -98,9 +195,17 @@ export function render(container, ctx) {
     const locked = positive(pricing.knownRate) || positive(pricing.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
     const nextUnit = fits || locked ? current : defaultUnitForContract(next);
     ctx.mutate((q) => {
-      q.contract = { mode: next.mode, labor: next.labor, equipment: next.equipment };
-      q.serviceType = serviceTypeForContract(next);
+      q.contract = contractWithComponents(next, next.components, next.customComponents);
+      q.serviceType = serviceTypeForContract(q.contract);
       q.unit = nextUnit;
+      // Sin componentes de materiales (y sin materiales cargados) el paso queda
+      // como "no usa materiales"; al sumar uno, se vuelve a pedir.
+      const usesMaterials = contractUsesMaterials(q.contract);
+      const noMaterials = !Array.isArray(q.materials) || q.materials.length === 0;
+      if (usesMaterials === false && noMaterials) q.materialsNotApplicable = true;
+      else if (usesMaterials === true && q.materialsNotApplicable === true && noMaterials) q.materialsNotApplicable = false;
+      // Viáticos se cargan en "Movilización y viajes": si estaba "Sin traslados", se vuelve a pedir.
+      if (q.contract.components.includes('travel') && q.logistics && q.logistics.notApplicable === true) q.logistics.notApplicable = false;
     });
     if (nextUnit !== current) {
       ctx.toast(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.`, 'info');
@@ -111,6 +216,7 @@ export function render(container, ctx) {
   }
 
   const tip = MODE_TIPS[contract.mode];
+  const withMode = (mode) => ({ mode, components, customComponents: custom });
   const type = card(
     {},
     choiceGroup({
@@ -119,21 +225,19 @@ export function render(container, ctx) {
       value: contract.mode,
       disabled: kit.readOnly,
       options: CONTRACT_MODES.map((m) => ({ value: m.id, label: m.label, hint: m.hint })),
-      onChange: (mode) => applyContract({ ...contract, mode }),
-    }),
-    choiceGroup({
-      label: '¿Qué incluye?',
-      name: 'contractResources',
-      value: resourceChoiceOf(contract),
-      disabled: kit.readOnly,
-      options: CONTRACT_RESOURCES.map((r) => ({ value: r.id, label: r.label, hint: r.hint })),
-      onChange: (id) => {
-        const r = CONTRACT_RESOURCES.find((x) => x.id === id);
-        if (r) applyContract({ ...contract, labor: r.labor, equipment: r.equipment });
-      },
+      onChange: (mode) => applyContract(withMode(mode)),
     }),
     tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip.short, ' ', infoTip(tip.more))) : null,
   );
+
+  const includes = card({}, componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, apply: (list, extra = custom) => {
+    if (!list.length && !extra.length) {
+      ctx.toast('El servicio tiene que incluir algo: dejá al menos un componente.', 'warning');
+      ctx.rerender();
+      return;
+    }
+    applyContract({ mode: contract.mode, components: list, customComponents: extra });
+  } }));
 
   const more = kit.advanced(
     {
@@ -195,6 +299,6 @@ export function render(container, ctx) {
     exchangeRatesEditor(ctx),
   );
 
-  mount(container, identity, type, economicBase, more);
+  mount(container, identity, type, includes, economicBase, more);
   return { update() {} };
 }

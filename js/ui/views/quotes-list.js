@@ -17,6 +17,7 @@ import { badge, banner, button, card, confirmDialog, disclosure, emptyState, ico
 import { formatDateTime, formatDays, formatMoney, formatPercent, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { componentsServiceLabel } from '../../domain/contract.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { quantityCeilText } from '../unit-text.js';
@@ -170,7 +171,7 @@ function serviceCell({ quote, summary }, href) {
     'div',
     { class: 'cell-main' },
     h('a', { href, class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
-    h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
+    h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${componentsServiceLabel(quote) || labelOf(SERVICE_TYPES, quote.serviceType)}`),
     summaryFailed(summary) ? failedBadge(quote) : null,
     illustrativeQuoteTag(quote),
   );
@@ -217,7 +218,7 @@ export function quoteColumns({ statusCell = null } = {}) {
           'div',
           { class: 'cell-main' },
           h('a', { href: quoteHref(quote), class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
-          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${labelOf(SERVICE_TYPES, quote.serviceType)}`),
+          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${componentsServiceLabel(quote) || labelOf(SERVICE_TYPES, quote.serviceType)}`),
           h('span', { class: 'cell-sub' }, `${PRICING_STEP_LABEL}: ${labelOf(PRICING_MODES, quote.pricingMode)}`),
           failed ? failedBadge(quote) : null,
           illustrativeQuoteTag(quote),
@@ -486,7 +487,7 @@ export async function render(root, app) {
       { class: 'stack quote-options' },
       kvList([
         ['Código', h('span', { class: 'mono' }, textOf(quote.code, EMPTY))],
-        ['Servicio', labelOf(SERVICE_TYPES, quote.serviceType)],
+        ['Servicio', componentsServiceLabel(quote) || labelOf(SERVICE_TYPES, quote.serviceType)],
         [PRICING_STEP_LABEL, labelOf(PRICING_MODES, quote.pricingMode)],
         ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
         ['Tarifa', quoteRateNode(quote, summary)],

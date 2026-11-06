@@ -728,3 +728,20 @@
 .qe-provider-activity li.is-missing, .qe-warn-text { color: var(--red-text); }
 .qe-provider-route { display: block; }
 .qe-fuel-calc { margin: 0.2rem 0 0; grid-column: 1 / -1; overflow-wrap: anywhere; }
+
+/* ¿Qué incluye el servicio? — componentes combinables (PLAN-2026-019) */
+.qe-templates { margin: var(--sp-2) 0 var(--sp-3); }
+.qe-step-body .qe-components { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.qe-step-body .qe-components .choice { padding: 0.55rem 0.7rem; }
+.qe-custom-components { display: flex; flex-direction: column; gap: var(--sp-2); }
+.qe-custom-add { display: flex; gap: var(--sp-2); align-items: center; max-width: 520px; }
+.qe-custom-add .field-control { flex: 1; min-width: 0; }
+.qe-custom-add .field-control input { width: 100%; }
+.qe-custom-chip { display: inline-flex; align-items: center; gap: 0.35rem; cursor: default; }
+.qe-chip-remove { border: 0; background: transparent; font: inherit; font-size: 1.05rem; line-height: 1; cursor: pointer; color: var(--ink-3); padding: 0 0.15rem; min-width: 24px; min-height: 24px; }
+.qe-chip-remove:hover { color: var(--red-600, #b42318); }
+.qe-chip-remove:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.qe-components-where { margin: var(--sp-1) 0 0; padding-left: 1.1rem; }
+.qe-components-where li { margin: 0.15rem 0; }
+.qe-components-count.is-empty { color: var(--ink-3); }
+.qe-components-count.is-loaded { color: var(--green-700, #15803d); }
