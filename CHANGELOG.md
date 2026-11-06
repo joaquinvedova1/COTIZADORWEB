@@ -12,6 +12,20 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Servicio moldeable por componentes (2026-11, PLAN-2026-019).** Pedido del dueño: "¿Qué incluye?" limitaba a tres opciones. Se relevaron con agentes 26 tipos de recurso y 22 servicios reales. Ninguna fórmula cambia; esquema sin cambio de versión (`contract.components` es opcional).
+
+### Agregado
+
+- **"¿Qué incluye el servicio?" por componentes**, en cualquier combinación: Personal, Vehículo, Equipo o maquinaria, Servicio de terceros, Herramientas, Insumos y consumibles, Químicos, Materiales que quedan en obra, EPP especial, Residuos y disposición, Viáticos y alojamiento, Otros costos, y componentes propios con nombre libre ("Otro componente").
+- **Plantillas rápidas:** Técnico con camioneta e insumos, Cuadrilla con químicos, Equipo con operador, Vehículo con chofer, Alquiler sin operador, Limpieza industrial, Mantenimiento edilicio, Sólo personal, Servicio de un tercero.
+- "Dónde se carga cada uno": link al paso de cada componente y cuántas líneas tiene cargadas.
+- El listado de cotizaciones muestra el contrato y lo que incluye ("Por servicio (on call) · personal + vehículo + químicos").
+
+### Cambiado
+
+- Sin personal ni equipos (sólo insumos u otros costos) ya no se exige ninguno de los dos. Un equipo o vehículo sin personal sigue siendo alquiler sin operador.
+- Sin componentes de materiales (y sin materiales cargados) el paso Materiales queda como "no usa materiales"; al sumar uno, se vuelve a pedir.
+
 **Contrato primero y adicionales (2026-11, PLAN-2026-018).** Pedido del dueño: el "tipo de servicio" mezclaba cómo paga el cliente con qué recurso se ofrece. Se investigaron modalidades reales (mensualizado, on call, day rate, por unidad, precio cerrado, fijo + variable, mínimo garantizado) y se simularon 6 cotizaciones reales contra el motor. Esquema sin cambio de versión: `contract` y `extras` son opcionales.
 
 ### Agregado
