@@ -728,3 +728,32 @@
 .qe-provider-activity li.is-missing, .qe-warn-text { color: var(--red-text); }
 .qe-provider-route { display: block; }
 .qe-fuel-calc { margin: 0.2rem 0 0; grid-column: 1 / -1; overflow-wrap: anywhere; }
+
+/* ¿Qué incluye el servicio? — componentes combinables (PLAN-2026-019) */
+.qe-templates { margin: var(--sp-2) 0 var(--sp-3); }
+.qe-component-group { margin-top: var(--sp-3); }
+.qe-component-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
+.qe-component-group-title { font-size: var(--fs-sm); font-weight: 650; color: var(--ink-2); }
+.qe-component-group-where { color: var(--ink-3); }
+.qe-components-step + .qe-components-step::before { content: ' · '; }
+.qe-step-body .qe-components { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); margin-top: 0.35rem; }
+.qe-step-body .qe-components .choice { padding: 0.55rem 0.7rem; }
+.qe-custom-block { margin-top: var(--sp-4); }
+.qe-custom-components { display: flex; flex-direction: column; gap: var(--sp-2); }
+.qe-custom-add { display: flex; gap: var(--sp-2); align-items: center; max-width: 520px; }
+.qe-custom-add .field-control { flex: 1; min-width: 0; }
+.qe-custom-add .field-control input { width: 100%; }
+.qe-custom-chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: var(--fs-sm); font-weight: 600; padding: 0.2rem 0.3rem 0.2rem 0.75rem; border-radius: var(--radius); border: 1px solid var(--blue-600); background: var(--blue-50); color: var(--ink); }
+.qe-chip-remove { border: 0; background: transparent; font: inherit; font-size: 1.1rem; line-height: 1; cursor: pointer; color: var(--ink-3); padding: 0 0.2rem; min-width: 28px; min-height: 28px; border-radius: 6px; }
+.qe-chip-remove:hover { color: var(--red-text); }
+.qe-chip-remove:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.qe-components-count.is-empty { color: var(--ink-3); }
+.qe-components-count.is-loaded { color: var(--green-text); }
+
+@media (max-width: 760px) {
+  .qe-step-body .qe-components { grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .qe-components .choice-hint { display: none; }
+  .qe-components .choice { min-height: 48px; align-items: center; }
+  .qe-templates .chip-suggest { min-height: 44px; }
+  .qe-chip-remove { min-width: 44px; min-height: 44px; }
+}

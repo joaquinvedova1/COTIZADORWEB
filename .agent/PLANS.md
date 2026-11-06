@@ -1187,3 +1187,17 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 3. Mínimo mensual garantizado visible en "Cómo se cobra" con modo por servicio (la regla ya existía).
 
 **Fuera de alcance (anotado):** el buscador de equilibrio con mínimo garantizado (resultado no monótono), el mínimo por llamado sobre la duración promedio y las horas extra facturadas "por mes" multiplicadas por la dotación.
+
+### PLAN-2026-019 — Servicio moldeable: "¿Qué incluye?" por componentes combinables
+
+**Pedido del dueño (2026-11-06):** "Seguís limitando mucho": "¿Qué incluye?" sólo ofrecía personal / equipo con operador / equipo sin operador, cuando un servicio puede ser cualquier combinación (una persona con camioneta e insumos, una cuadrilla con químicos…). Debe ser moldeable; investigar con agentes todas las alternativas.
+
+**Investigación (agentes):** 26 tipos de recurso combinables (personal operativo/técnico/supervisión, vehículos livianos y pesados, maquinaria, equipos de servicio, herramientas, insumos, químicos, materiales que quedan en obra, EPP, subcontratos, alquileres, viáticos, combustible, campamento, movilización, residuos, permisos, seguros, ingeniería, laboratorio, comunicaciones, guardia) y 22 servicios reales como combinaciones. Mapeo al motor: todo se puede costear con las estructuras existentes (`labor`, `equipment` propio/alquilado/tercerizado, `materials`, `otherCosts`, `logistics`); `contract.labor` / `contract.equipment` no tocan fórmulas, sólo pendientes, unidades sugeridas y `serviceType`.
+
+**Decisión:**
+1. `contract.components` (lista del catálogo `SERVICE_COMPONENTS`: personal, vehículo, equipo o maquinaria, servicio de terceros, herramientas, insumos, químicos, materiales que quedan en obra, EPP especial, residuos, viáticos, otros costos) + `contract.customComponents` (nombres libres, se cargan como otros costos). `labor` = incluye personal; `equipment` = vehículo, equipo o terceros. Se siguen guardando las dos marcas.
+2. Sin personal ni equipos (sólo insumos u otros costos): `serviceType = 'configurable'` y no se exige ninguno de los dos.
+3. Plantillas rápidas (`SERVICE_TEMPLATES`) sólo marcan componentes. La pantalla dice en qué paso se carga cada uno y cuántas líneas tiene.
+4. Sumar un componente de materiales desmarca "no usa materiales" (nunca se marca solo: es una confirmación); sumar "Viáticos" con "Sin traslados" reabre "Movilización y viajes" con un aviso. Sólo componentes propios = ni personal ni equipos ('configurable'). "Otros costos" y los propios no cuentan como materiales.
+
+**Compatibilidad:** ninguna fórmula cambia. Contratos con marcas y sin lista se leen igual (`componentsOf` los traduce a personal / equipo); cotizaciones sin `contract` siguen por la ruta anterior. Esquema sin cambio de versión. Tests: `tests/engines/service-components.test.js`.
