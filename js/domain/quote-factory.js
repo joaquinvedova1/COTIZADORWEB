@@ -11,6 +11,7 @@ import { emptyBillingTaxes, copyBillingTaxes, billingTaxesDecided } from './bill
 import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate } from './economic-base.js';
 import { familyIdOf } from './equipment-catalog.js';
 import { createSnapshot } from './resource-snapshot.js';
+import { contractWithComponents, serviceTypeForContract } from './contract.js';
 
 /** Configuración por defecto de la organización (valores ILUSTRATIVOS). */
 export function defaultSettings(organizationId = null) {
@@ -475,6 +476,25 @@ export function createExtra({ id = createId(), label = 'Adicional', unitName = '
 }
 
 /**
+ * Cotización EN BLANCO que crea la aplicación ("Nueva cotización" sin plantilla).
+ * Testeo con especialistas (A-2 / H-03 y A-16 / H-26), sólo para cotizaciones nuevas:
+ *   - Contrato guardado: por servicio prestado con sólo Personal. Antes no se guardaba
+ *     y se leía como "personal y equipos" (aparecía "Equipo o maquinaria" marcado y
+ *     faltaban $/viaje y $/km al sumar un vehículo). Al sumar Vehículo o Equipo en
+ *     "¿Qué incluye?" aparecen sus unidades.
+ *   - Disponibilidad sin definir (no 24/7 escondida): se elige en "Cómo se cobra",
+ *     junto a los días. No mueve ningún número (sólo el aviso de relevos, que pide 24/7).
+ * Las cotizaciones guardadas sin contrato siguen leyéndose como antes (legacy).
+ */
+export function createBlankQuote(options = {}) {
+  const quote = createEmptyQuote(options);
+  quote.contract = contractWithComponents({ mode: 'on_demand' }, ['labor']);
+  quote.serviceType = serviceTypeForContract(quote.contract);
+  quote.activity.availability = null;
+  return quote;
+}
+
+/**
  * Crea una cotización desde una plantilla de servicio (biblioteca).
  * La plantilla aporta valores parciales que pisan los de una cotización vacía.
  */
@@ -485,7 +505,8 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
   const merged = {
     ...base,
     ...defaults,
-    activity: { ...base.activity, ...(defaults.activity || {}) },
+    // Disponibilidad: la de la plantilla o sin definir (A-16): nunca 24/7 escondida.
+    activity: { ...base.activity, availability: null, ...(defaults.activity || {}) },
     fuel: { ...base.fuel, ...(defaults.fuel || {}) },
     logistics: { ...base.logistics, ...(defaults.logistics || {}) },
     indirect: { ...base.indirect, ...(defaults.indirect || {}) },

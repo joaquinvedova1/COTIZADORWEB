@@ -10,6 +10,11 @@
  *   por mes        → fijo mensual
  *   por día activo → variable por día
  *   por activación → variable por día = costo / díasPorActivación
+ *
+ * Facturar aparte por línea (tanda A 2026-11, A-8): `line.billedSeparately`
+ * true (se factura aparte) / false (lo cubre la tarifa) / sin definir (sigue
+ * el tilde global "Facturo los materiales aparte", como siempre). El motor
+ * sólo lo expone; la facturación la arma economics-engine (materialsResaleOf).
  */
 
 import { objectList } from '../core/object.js';
@@ -45,6 +50,8 @@ export function computeMaterialLine(line = {}, { daysPerActivation = 1 } = {}) {
     resalePrice: costForUs * (1 + pct(resaleMarkupPct)),
     // Para facturar los materiales aparte (PLAN-2026-009): costo × (1 + recargo de reventa).
     resaleFactor: 1 + pct(resaleMarkupPct),
+    // true / false / null (= sigue el tilde global de la cotización).
+    billedSeparately: line.billedSeparately === true ? true : line.billedSeparately === false ? false : null,
     ...split,
   };
 }

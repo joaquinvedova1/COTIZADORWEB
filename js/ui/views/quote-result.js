@@ -70,6 +70,7 @@ import {
   openTraceDialog,
   toast as componentToast,
   barList,
+  infoTip,
 } from '../components.js';
 import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
@@ -86,7 +87,7 @@ import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
-import { normalizeRules, revenueComposition } from '../../engines/commercial-rules-engine.js';
+import { normalizeRules, revenueComposition, floorWithoutOtherRevenue } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct, effectiveRoundingStep } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
 import { priceComposition } from '../../engines/price-composition-engine.js';
@@ -114,6 +115,9 @@ import {
   unreliableText,
   breakEvenZeroText,
   termsOfResult,
+  illustrativeTitle,
+  floorWithoutExtrasText,
+  capAllDaysNote,
 } from '../result-text.js';
 
 // ------------------------------------------------------------------ constantes
@@ -410,6 +414,38 @@ function profitTone(k) {
 /** Color del margen: sin margen calculable (null) no hay semáforo. */
 function marginTone(k) {
   return hasValue(k.marginPct) ? profitTone(k) : null;
+}
+
+/** ¿La cotización tiene personal? (para aclarar que las horas extra no entran en una cuenta). */
+function hasStaff(v) {
+  return Array.isArray(v.q && v.q.labor) && v.q.labor.some((l) => l && Number(l.positions) > 0);
+}
+
+/**
+ * Precio cerrado (testeo con especialistas, A-12, H-24): con un trabajo por mes, los
+ * números del mes son los del trabajo y se rotulan así ("Costo del trabajo").
+ */
+function closedOf(v) {
+  const closed = Boolean(v.r && v.r.contract && v.r.contract.mode === 'closed');
+  const q = v.k ? v.k.billableQuantity : null;
+  return { closed, single: closed && hasValue(q) && Math.abs(q - 1) < 1e-9 };
+}
+
+/** Tarifa piso sin contar adicionales (A-7): { text, tip } o null (lo calcula el motor). */
+function floorExtras(v) {
+  try {
+    return floorWithoutExtrasText(floorWithoutOtherRevenue(v.r.ratesAtEstimate), v.unitLabel);
+  } catch (error) {
+    logger.warn('No se pudo calcular la tarifa piso sin adicionales', { message: error && error.message });
+    return null;
+  }
+}
+
+/** Línea visible "Sin contar adicionales: $ X" con su explicación en (i). */
+function floorExtrasLine(v) {
+  const fx = floorExtras(v);
+  // "$ 153.603 / hora" no se corta al final de una línea angosta.
+  return fx ? h('span', { class: 'qr-floor-extras' }, fx.text.replace(/ \/ /g, '\u00a0/\u00a0'), '\u00a0', infoTip(fx.tip)) : null;
 }
 
 function hasRate(k) {
@@ -953,7 +989,7 @@ function traceMonthlyCap(v, cap) {
     result: { label: cap.status === 'all' ? 'Días máximos (todos los disponibles)' : 'Días máximos', value: resultValue, format: 'days' },
     notes: [
       'Con abono mensual la facturación no depende de los días: cada día activo suma costo variable. Por eso hay un máximo de días, no un mínimo.',
-      cap.status === 'all' ? 'El abono alcanza aun trabajando todos los días disponibles del mes.' : null,
+      cap.status === 'all' ? `El abono alcanza aun trabajando todos los días disponibles del mes${capAllDaysNote(hasStaff(v))}.` : null,
       cap.status === 'none' ? 'El abono no alcanza ni sin días activos: no cubre los costos fijos del mes.' : null,
       'Se evalúa día a día (grilla de 0,1 día y bisección), igual que el break-even.',
     ],
@@ -987,9 +1023,9 @@ function capView(v, cap) {
   };
 }
 
-function capSentence(cap, D, subject) {
+function capSentence(cap, D, subject, { staff = false } = {}) {
   if (!cap) return '';
-  if (cap.status === 'all') return `${subject} no perdés plata aun trabajando los ${formatDays(cap.available)} disponibles del mes.`;
+  if (cap.status === 'all') return `${subject} no perdés plata aun trabajando los ${formatDays(cap.available)} disponibles del mes${capAllDaysNote(staff)}.`;
   if (cap.status === 'none') return `${subject} perdés plata aunque no se trabaje: no cubre ni los costos fijos del mes.`;
   const tail = hasValue(D)
     ? D <= cap.days + 1e-9
@@ -1109,15 +1145,18 @@ function heroKnownRate(v) {
   } else if (isMonth) {
     sentence = h('p', { class: 'qr-lead' },
       `Cotizás un abono mensual de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día activo suma costo variable. `,
-      capSentence(cap, D, 'Con este abono'));
+      capSentence(cap, D, 'Con este abono', { staff: hasStaff(v) }));
   } else if (be.reachable && breakEvenZeroText(r)) {
     // Equilibrio en 0 (PLAN-2026-012): sin costos fijos, o los cubren los ingresos fijos.
     sentence = h('p', { class: 'qr-lead' }, breakEvenZeroText(r, { rateText: atRateText(v) }));
   } else if (be.reachable) {
     // Colchón con los valores mostrados: el break-even exacto va con 2 decimales ("Break-even exacto: 6,35 días").
     const tail = cushionFor(v, be, { beDecimals: 2 });
+    const closedText = closedBreakEvenText(v, be);
     const minimum = byQty(v) ? `${quantityCeilText(be.quantity, r)} por mes (${workDaysText(be.days)})` : `${activeDaysText(be.wholeDays, 0)} por mes`;
-    sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) necesitás ${byQty(v) ? 'facturar al menos' : 'al menos'} ${minimum} para no perder plata.${tail}`);
+    sentence = h('p', { class: 'qr-lead' }, closedText
+      ? `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}), ${closedText}.`
+      : `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) necesitás ${byQty(v) ? 'facturar al menos' : 'al menos'} ${minimum} para no perder plata.${tail}`);
   } else {
     sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) no se cubren los costos dentro del mes. Revisá la tarifa o los costos.`);
   }
@@ -1255,16 +1294,17 @@ function heroKnownActivity(v) {
       `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
       hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
       hasValue(suggested) ? `Tarifa sugerida${roundingStep ? ` (redondeada a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
-      isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject)}` : '');
+      isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject, { staff: hasStaff(v) })}` : '');
   }
 
+  const fxLine = floorExtrasLine(v);
   return h('div', { class: 'qr-decision' },
     sentence,
     h('div', { class: 'qr-hero' },
       heroItem({
         label: floorLabel(mr),
         value: minRateNode(mr.floorMain, v.unitLabel),
-        hint: `${mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Iguala el costo del mes (margen 0).'} ${floorTaxesNote(k)}`,
+        hint: h('span', {}, `${mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Iguala el costo del mes (margen 0).'} ${floorTaxesNote(k)}`, ...(fxLine ? [h('br'), fxLine] : [])),
         trace: ceilTrace(r.traces && r.traces.floorRate),
       }),
       heroItem({
@@ -1313,15 +1353,16 @@ function kpiGrid(v) {
   const score = r.completeness ? r.completeness.scorePct : null;
   const items = [];
 
-  items.push(kpiItem({ label: 'Costo del mes', value: money(k.totalCost), hint: `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: costTrace(v) }));
+  items.push(kpiItem({ label: closedOf(v).single ? 'Costo del trabajo' : 'Costo del mes', value: money(k.totalCost), hint: `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: costTrace(v) }));
 
   // "Calcular la tarifa" ya muestra piso y objetivo en el bloque principal;
   // "Ya tengo la tarifa" no, así que van acá (en base de lista).
   if (knownRate) {
+    const fx = floorExtras(v);
     items.push(kpiItem({
       label: floorLabel(mr),
       value: minRateNode(mr.floorMain, v.unitLabel),
-      hint: `${mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Para no perder plata (margen 0).'} ${floorTaxesNote(k)}`,
+      hint: `${mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Para no perder plata (margen 0).'} ${floorTaxesNote(k)}${fx ? ` ${fx.text}. ${fx.tip}` : ''}`,
       trace: ceilTrace(traces.floorRate),
     }));
     items.push(kpiItem({
@@ -1371,7 +1412,7 @@ function kpiGrid(v) {
       }));
     } else {
       let beValue = EMPTY;
-      if (be.reachable) beValue = breakEvenZeroText(r, { compact: true }) || (byQty(v) ? quantityCeilText(be.quantity, r) : formatDays(be.days));
+      if (be.reachable) beValue = breakEvenZeroText(r, { compact: true }) || (closedBreakEvenText(v, be) ? quantityText(be.wholeQuantity, r) : byQty(v) ? quantityCeilText(be.quantity, r) : formatDays(be.days));
       else if (be.notApplicable) beValue = 'No aplica';
       else if (rateOk) beValue = 'No se alcanza';
       const beHint = byQty(v)
@@ -1407,15 +1448,8 @@ function equivalentsBlock(v) {
 
 /** Insignia ILUSTRATIVO: la cotización entera o algunos de sus valores son de demostración. */
 function illustrativeBadge(v) {
-  const info = v.ill;
-  if (!info || !info.any) return null;
-  let title = 'Cotización con valores de demostración';
-  if (!info.quote) {
-    const parts = [];
-    if (info.lines > 0) parts.push(`${formatNumber(info.lines)} ${info.lines === 1 ? 'ítem copiado' : 'ítems copiados'} de plantillas o bibliotecas de demostración`);
-    if (info.fuel) parts.push('precio de combustible ilustrativo');
-    title = `Incluye valores ILUSTRATIVOS: ${parts.join(' y ')}. Reemplazalos por valores propios vigentes.`;
-  }
+  const title = illustrativeTitle(v.ill);
+  if (!title) return null;
   return badge('ILUSTRATIVO', 'orange', { title });
 }
 
@@ -1476,10 +1510,11 @@ function statItem({ label, value, unit = null, hint = null, trace = null, tone =
 function costStat(v) {
   const { k } = v;
   const D = k.activeDays;
+  const single = closedOf(v).single;
   return statItem({
-    label: 'Costo del mes',
+    label: single ? 'Costo del trabajo' : 'Costo del mes',
     value: money(k.totalCost),
-    unit: hasValue(k.totalCost) ? '/ mes' : null,
+    unit: hasValue(k.totalCost) ? (single ? '/ trabajo' : '/ mes') : null,
     hint: statHint(hasValue(D) && D > 0
       ? `Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
       : byQty(v) ? `Lo que te cuesta prestar el servicio. Todavía no estimaste ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días activos.'),
@@ -1497,7 +1532,7 @@ function floorStat(v) {
   let hint;
   if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
   else if (!hasValue(value)) hint = statHint(byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes.` : 'Falta estimar los días activos del mes.');
-  else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`);
+  else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`, floorExtrasLine(v));
   return statItem({
     label: 'Tarifa piso',
     value: ceilMoney(value),
@@ -1571,9 +1606,12 @@ function marginStat(v) {
   if (!rateOk) hint = statHint('Sin tarifa no hay margen.');
   else if (!ok) hint = statHint('Sin facturación no hay margen.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
-  else if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} por mes.`);
-  else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} por mes (tu objetivo: ${pct(k.targetMarginPct)}).`);
-  else hint = statHint(`Ganás ${money(k.profit)} por mes.`);
+  else {
+    const per = closedOf(v).single ? 'por trabajo' : 'por mes';
+    if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} ${per}.`);
+    else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} ${per} (tu objetivo: ${pct(k.targetMarginPct)}).`);
+    else hint = statHint(`Ganás ${money(k.profit)} ${per}.`);
+  }
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
   return statItem({
@@ -1612,6 +1650,18 @@ function noRateContent(v) {
  * costos (break-even, 1 decimal), adaptada a la unidad: por hora suma las
  * horas; con abono mensual habla de días MÁXIMOS; si no se alcanza, lo dice.
  */
+/**
+ * Equilibrio en precio cerrado sin "0,6 trabajos por mes" (A-12, H-24): con un trabajo
+ * alcanza → "1 trabajo ya cubre todos tus costos"; si no, trabajos enteros.
+ * null si no es precio cerrado o no hay equilibrio.
+ */
+function closedBreakEvenText(v, be) {
+  if (!closedOf(v).closed || !be || !be.reachable || !hasValue(be.quantity) || !hasValue(be.wholeQuantity) || be.quantity <= 1e-9) return null;
+  // Va después de "Con la tarifa … ($ X / trabajo),": sin repetir el "con".
+  if (be.wholeQuantity <= 1) return `1 ${(v.r.unitInfo && v.r.unitInfo.singular) || 'trabajo'} ya cubre todos tus costos`;
+  return `necesitás al menos ${quantityText(be.wholeQuantity, v.r)} por mes para no perder plata (${workDaysText(be.days)})`;
+}
+
 function workBlock(v) {
   const { r, k } = v;
   const be = r.breakEven || {};
@@ -1629,7 +1679,7 @@ function workBlock(v) {
       content = noRateContent(v);
     } else {
       const cap = monthlyCap(v, k.commercialListRate, 0);
-      content = ['Con abono mensual la facturación no depende de los días trabajados, pero cada día activo suma costo variable. ', capSentence(cap, D, 'Con este abono')];
+      content = ['Con abono mensual la facturación no depende de los días trabajados, pero cada día activo suma costo variable. ', capSentence(cap, D, 'Con este abono', { staff: hasStaff(v) })];
       if (cap) {
         if (cap.status === 'none') tone = 'red';
         else if (cap.status === 'all') tone = 'green';
@@ -1650,6 +1700,9 @@ function workBlock(v) {
       // PLAN-2026-012: sin costos fijos ≠ ingresos fijos que alcanzan.
       content = [breakEvenZeroText(r, { rateText: atRateText(v) }) || `${subject} cubrís todos tus costos desde el inicio.`];
       tone = 'green';
+    } else if (be.reachable && hasValue(be.quantity) && closedBreakEvenText(v, be)) {
+      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      content = [`${subject}, ${closedBreakEvenText(v, be)}.`];
     } else if (be.reachable && hasValue(be.quantity)) {
       if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
       content = [
@@ -1939,17 +1992,39 @@ function renderAppropriation(v) {
     className: 'qr-appropriation',
   });
   const months = c.contract.months;
-  const contract = months
-    ? h('div', { class: 'qr-contract' },
+  const offerBase = v.r.economicBase && v.r.economicBase.offerPeriod ? formatPeriodLong(v.r.economicBase.offerPeriod) : 'de la oferta (sin fecha de la oferta)';
+  const totals = (x) => h('dl', { class: 'qr-base-list' },
+    h('div', { class: 'qr-base-item' }, h('dt', {}, 'Facturación (sin IVA)'), h('dd', {}, money(x.revenue))),
+    h('div', { class: 'qr-base-item' }, h('dt', {}, 'Costo'), h('dd', {}, money(x.cost))),
+    h('div', { class: 'qr-base-item' }, h('dt', {}, 'Impuestos sobre lo que facturás'), h('dd', {}, money(x.billingTaxes))),
+    h('div', { class: ['qr-base-item', c.loss ? 'qr-tone-red' : taxesLabel ? 'qr-tone-orange' : 'qr-tone-green'] }, h('dt', {}, c.loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)'), h('dd', {}, money(x.profit))));
+  let contract = null;
+  if (c.contract.mode === 'closed') {
+    // Precio cerrado (tanda A 2026-11, A-1): el total es por trabajo, nunca × meses de contrato.
+    const x = c.contract;
+    const jobs = hasValue(x.jobs) && x.jobs > 0 ? x.jobs : 1;
+    const perMonth = hasValue(x.jobsPerMonth) ? x.jobsPerMonth : null;
+    const one = Math.abs(jobs - 1) < 1e-9;
+    const milestones = v.r.unit === 'event' && v.r.unitInfo && v.r.unitInfo.id === 'milestone' && hasValue(x.unitsPerJob) ? x.unitsPerJob : null;
+    const how = [
+      perMonth !== null && Math.abs(perMonth - 1) > 1e-9 ? `Los valores del mes ÷ ${formatNumber(perMonth, { decimals: 2 })} trabajos por mes = un trabajo.` : null,
+      milestones !== null ? `Cada trabajo factura ${formatNumber(milestones, { decimals: 2 })} ${Math.abs(milestones - 1) < 1e-9 ? 'hito' : 'hitos'}.` : null,
+      !one ? `Total = un trabajo × ${formatNumber(jobs, { decimals: 2 })} trabajos (se cambia en "Contrato", Más datos de la cotización).` : null,
+    ].filter(Boolean).join(' ');
+    contract = perMonth === null
+      ? null
+      : h('div', { class: 'qr-contract' },
+        h('h4', { class: 'qr-subhead' }, one ? 'Total del trabajo' : `Total de la obra (${formatNumber(jobs, { decimals: 2 })} trabajos)`),
+        totals(x),
+        how ? note(how) : null,
+        banner(`Valores constantes a base ${offerBase}. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }));
+  } else if (months) {
+    contract = h('div', { class: 'qr-contract' },
       h('h4', { class: 'qr-subhead' }, `Total del contrato (${formatNumber(months)} ${months === 1 ? 'mes' : 'meses'})`),
-      h('dl', { class: 'qr-base-list' },
-        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Facturación (sin IVA)'), h('dd', {}, money(c.contract.revenue))),
-        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Costo'), h('dd', {}, money(c.contract.cost))),
-        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Impuestos sobre lo que facturás'), h('dd', {}, money(c.contract.billingTaxes))),
-        h('div', { class: ['qr-base-item', c.loss ? 'qr-tone-red' : taxesLabel ? 'qr-tone-orange' : 'qr-tone-green'] }, h('dt', {}, c.loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)'), h('dd', {}, money(c.contract.profit)))),
+      totals(c.contract),
       // Valores constantes (PLAN-2026-010): sin escalación ni índices; muy visible.
-      banner(`Valores constantes a base ${v.r.economicBase && v.r.economicBase.offerPeriod ? formatPeriodLong(v.r.economicBase.offerPeriod) : 'de la oferta (sin fecha de la oferta)'}: el total multiplica el mes por ${formatNumber(months)} con la misma actividad todos los meses. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }))
-    : null;
+      banner(`Valores constantes a base ${offerBase}: el total multiplica el mes por ${formatNumber(months)} con la misma actividad todos los meses. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }));
+  }
   return card(header,
     tbl,
     taxesLabel ? note('La ganancia no descuenta los impuestos sobre lo que facturás: cargalos en "El precio" para verla completa.') : null,
@@ -3517,8 +3592,10 @@ function deepDefinitions(v) {
     },
     {
       key: 'appropriation',
-      summary: 'Ver reparto de la tarifa y total del contrato',
-      hint: v.r.ctx && v.r.ctx.contractMonths > 0
+      summary: v.composition && v.composition.contract && v.composition.contract.mode === 'closed' ? 'Ver reparto de la tarifa y total del trabajo' : 'Ver reparto de la tarifa y total del contrato',
+      hint: v.composition && v.composition.contract && v.composition.contract.mode === 'closed'
+        ? 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del trabajo.'
+        : v.r.ctx && v.r.ctx.contractMonths > 0
         ? `Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total de los ${formatNumber(v.r.ctx.contractMonths)} meses de contrato.`
         : 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del contrato.',
       build: () => [safeSection('Apropiación', () => renderAppropriation(v))],

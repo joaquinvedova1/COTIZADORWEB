@@ -81,6 +81,25 @@ export const ILLUSTRATIVE_AGREEMENT_PARAMS = deepFreeze({
   artPct: 6,
 });
 
+/**
+ * ¿Un parámetro de convenio de una línea de personal se marca ILUSTRATIVO? (testeo con
+ * especialistas, A-10, H-20). Por la marca: cotización o producto de demostración, línea
+ * copiada de una plantilla o biblioteca de demostración, o convenio ilustrativo. Si la
+ * línea viene de un convenio o un perfil PROPIO, sólo por la marca: una carga real que
+ * coincide con el valor de ejemplo (SAC 8,33 %, 176 h, 50 %) no es ilustrativa. Sólo
+ * una línea suelta, sin origen, se compara por valor con el ejemplo.
+ * @param {object} line  línea de personal
+ * @param {string} key   parámetro (sacPct, normalHoursPerMonth…)
+ * @param {{ agreement?: object|null, wholeIllustrative?: boolean }} [options]
+ */
+export function isIllustrativeAgreementParam(line, key, { agreement = null, wholeIllustrative = false } = {}) {
+  const l = line && typeof line === 'object' ? line : {};
+  if (wholeIllustrative || l.illustrative === true || Boolean(agreement && agreement.illustrative)) return true;
+  const hasOrigin = Boolean(agreement) || (typeof l.sourceId === 'string' && l.sourceId !== '');
+  if (hasOrigin) return false;
+  return l[key] === ILLUSTRATIVE_AGREEMENT_PARAMS[key];
+}
+
 /** Tipos de equipo de la biblioteca. */
 export const EQUIPMENT_TYPES = deepFreeze([
   { id: 'vehicle', label: 'Vehículo liviano / pickup' },

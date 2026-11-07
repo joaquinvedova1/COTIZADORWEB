@@ -31,7 +31,7 @@ import { computeProduct, PRODUCT_FINANCE_NET_NOTE } from '../../engines/product-
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import {
   PRODUCT_STEPS, MEASURE_UNITS, PRODUCT_PRICE_MODES, PRODUCT_MATERIAL_PER, SALE_UNIT_SUGGESTIONS, MAINTENANCE_MODES,
-  BUDGET_PERIODS, ILLUSTRATIVE_AGREEMENT_PARAMS, CURRENCIES,
+  BUDGET_PERIODS, ILLUSTRATIVE_AGREEMENT_PARAMS, CURRENCIES, isIllustrativeAgreementParam,
 } from '../../domain/catalogs.js';
 import {
   normalizeProductShape, productMaterialLine, blankProductMaterialLine, productLaborLine, blankProductLaborLine,
@@ -768,7 +768,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
     const line = state.product.labor[i];
     const base = `labor.${i}`;
     const agreement = agreements.find((a) => a.id === line.agreementId) || null;
-    const ill = (key) => line.illustrative === true || Boolean(agreement && agreement.illustrative) || line[key] === ILLUSTRATIVE_AGREEMENT_PARAMS[key];
+    const ill = (key) => isIllustrativeAgreementParam(line, key, { agreement });
     const anyIll = ['normalHoursPerMonth', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct'].some(ill);
     return lineCard({
       listKey: 'labor',

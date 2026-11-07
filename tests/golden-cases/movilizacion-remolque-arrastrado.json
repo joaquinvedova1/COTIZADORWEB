@@ -1,0 +1,33 @@
+{
+  "id": "movilizacion-remolque-arrastrado",
+  "title": "Tractor 6x4 + carretón cama baja enganchado: 640 km ida + 640 km vuelta; neumáticos del carretón $ 8.400.000 cada 120.000 km",
+  "rule": "Un equipo que lo transporta otro y va enganchado y rueda (towed) suma km de ruta × cantidad × (desgaste por km + neumáticos por km), sin combustible ni conductor (los pone el tractor). El tractor sigue igual: km × consumo × precio + km × (desgaste + neumáticos por km). Tanda A 2026-11 (A-3).",
+  "engine": "mobilization.towed",
+  "inputs": {
+    "distanceKm": 640,
+    "roundTrip": true,
+    "tractorLitersPer100Km": 45,
+    "tractorCostPerKm": 220,
+    "tractorTiresSetCost": 9500000,
+    "tractorTiresLifeKm": 100000,
+    "trailerCostPerKm": 0,
+    "trailerTiresSetCost": 8400000,
+    "trailerTiresLifeKm": 120000,
+    "fuelPricePerLiter": 1500
+  },
+  "expected": {
+    "lines.0.km": 1280,
+    "lines.0.liters": 576,
+    "lines.0.fuelPerActivation": 864000,
+    "lines.0.wearPerActivation": 403200,
+    "lines.1.towed": true,
+    "lines.1.km": 1280,
+    "lines.1.liters": 0,
+    "lines.1.fuelPerActivation": 0,
+    "lines.1.wearPerActivation": 89600,
+    "lines.1.perActivation": 89600,
+    "wearPerActivation": 492800,
+    "perActivation": 1356800
+  },
+  "tolerance": 1e-06
+}

@@ -17,7 +17,14 @@
  *     conductor    = su operador ya incluido en Personal → NO se suma mano de
  *                    obra (el tiempo de manejo está dentro de su costo)
  *   transported (lo transporta otro equipo) → 0 acá: el costo está en la línea
- *                    del equipo que lo transporta (propio, alquilado o tercerizado)
+ *                    del equipo que lo transporta (propio, alquilado o tercerizado).
+ *                    Con towed: true ("va enganchado y rueda": un remolque, carretón
+ *                    o batea arrastrada por un tractor; tanda A 2026-11, A-3):
+ *     km           = km de ruta por llamado × cantidad de unidades
+ *     desgaste     = km × (mantenimiento por km + neumáticos por km si se cargaron
+ *                    como juego / vida útil en km)
+ *     sin combustible ni conductor: los pone el equipo que lo arrastra.
+ *                    Sin towed (o false, "va cargado arriba", el default) → 0, como siempre.
  *   support (con un vehículo de apoyo) → 0 acá: el costo está en ese vehículo
  *                    de la logística auxiliar
  *   none (no requiere) / sin definir → 0
@@ -82,6 +89,11 @@ export function computeMobilization(equipment = [], ctx = {}) {
       if (routeKm > 0 && !noFuel && nonNegative(m.travelLitersPer100Km) <= 0) warnings.push('travel_consumption');
       if (!driver) warnings.push('driver');
     } else if (mode === 'transported') {
+      // Remolque arrastrado (A-3): rueda la ruta y gasta sus neumáticos y su mantenimiento.
+      if (m.towed === true && !includedByProvider) {
+        km = routeKm * quantity;
+        wear = km * (nonNegative(m.travelCostPerKm) + tiresOf(line).perKm);
+      }
       const target = items.find((e, i) => i !== index && e && e.id && e.id === m.carrierLineId) || null;
       if (!target) warnings.push('carrier_missing');
       else {
@@ -101,6 +113,9 @@ export function computeMobilization(equipment = [], ctx = {}) {
       id: line.id ?? null,
       name: line.name ?? '',
       mode,
+      towed: mode === 'transported' && m.towed === true,
+      /** La persona eligió explícitamente cómo viaja (enganchado o cargado arriba): el aviso de neumáticos por km queda resuelto. */
+      towedChosen: mode === 'transported' && (m.towed === true || m.towed === false),
       external,
       includedByProvider,
       quantity,

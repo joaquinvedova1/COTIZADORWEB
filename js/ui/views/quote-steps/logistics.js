@@ -74,6 +74,34 @@ function mobilizationTrace(result, index, T) {
   });
 }
 
+/** "Ver cálculo" de un remolque arrastrado (A-3): rueda la ruta, sin combustible ni conductor. */
+function towedTrace(result, index, T) {
+  const m = result && result.model.mobilization && result.model.mobilization.lines[index];
+  if (!m || !m.towed) return null;
+  return createTrace({
+    id: 'mobilization_towed',
+    title: `Movilización — ${m.name || 'Equipo'} (enganchado)`,
+    formula: `km ${T.per} = km de ruta ${T.per} × cantidad · desgaste = km × ($/km + neumáticos $/km si se cargaron por km) · sin combustible ni conductor (los pone el equipo que lo arrastra) · por día activo = ${T.per} / días ${T.per}`,
+    inputs: [
+      { label: `Km de ruta ${T.per}`, value: result.model.mobilization.routeKmPerActivation, format: 'km' },
+      { label: 'Cantidad', value: m.quantity, format: 'number' },
+      { label: 'Desgaste por km', value: m.travelCostPerKm, format: 'rate' },
+      { label: 'Neumáticos por km (juego ÷ vida útil en km)', value: m.tiresPerKm, format: 'rate' },
+      { label: `Días ${T.per}`, value: result.activity.daysPerActivation, format: 'days' },
+    ],
+    steps: [
+      { label: `Km ${T.per}`, value: m.km, format: 'km' },
+      { label: `Desgaste ${T.per}`, value: m.wearPerActivation, format: 'money' },
+      { label: 'Por día activo', value: m.perActiveDay, format: 'money' },
+    ],
+    result: { label: `Movilización ${T.per}`, value: m.perActivation, format: 'money' },
+    notes: [
+      m.carrier ? `Lo arrastra "${m.carrier.name}": su combustible y su conductor están en esa línea.` : null,
+      'La amortización del equipo ya está en su costo de tenerlo: no se vuelve a sumar por km.',
+    ],
+  });
+}
+
 export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
   const lg = quote.logistics;
@@ -228,16 +256,71 @@ export function render(container, ctx) {
       );
     } else if (m.mode === 'transported') {
       const carriers = equipmentLines.filter((e, j) => j !== i && e && e.id).map((e) => ({ value: e.id, label: `${e.name || 'Equipo'} (${labelOf(ACQUISITION_MODES, acquisitionOf(e), 'Propio').toLowerCase()})` }));
-      detail = formGrid(
-        2,
-        kit.select(`${p}.carrierLineId`, {
-          label: '¿Qué equipo lo transporta?',
-          options: carriers,
-          includeEmpty: true,
-          emptyLabel: carriers.length ? 'Elegí el equipo…' : 'Primero cargá en Equipos el carretón, batea o camión',
-          structural: true,
-          hint: 'El costo del traslado está en ese equipo (por ejemplo, un carretón tercerizado por viaje). Acá no se suma nada.',
-        }),
+      const towed = m.towed === true;
+      const tiresByKm = (quote.equipment[i] && quote.equipment[i].tiresMode) === 'set_km';
+      detail = h(
+        'div',
+        { class: 'stack' },
+        formGrid(
+          2,
+          kit.select(`${p}.carrierLineId`, {
+            label: '¿Qué equipo lo transporta?',
+            options: carriers,
+            includeEmpty: true,
+            emptyLabel: carriers.length ? 'Elegí el equipo…' : 'Primero cargá en Equipos el carretón, batea o camión',
+            structural: true,
+            hint: towed
+              ? 'El combustible y el conductor están en ese equipo (el que lo arrastra). Acá se suma sólo el desgaste de este equipo por los km que rueda.'
+              : 'El costo del traslado está en ese equipo (por ejemplo, un carretón tercerizado por viaje). Acá no se suma nada.',
+          }),
+          // Remolque arrastrado (A-3): elección explícita; sin elegir = va cargado arriba (como siempre),
+          // pero el aviso de neumáticos por km pide elegir una de las dos.
+          selectField({
+            label: '¿Cómo viaja?',
+            name: `${p}.towed`,
+            value: m.towed === true ? 'towed' : m.towed === false ? 'loaded' : '',
+            includeEmpty: true,
+            emptyLabel: 'Elegí…',
+            options: [{ value: 'loaded', label: 'Va cargado arriba' }, { value: 'towed', label: 'Va enganchado y rueda' }],
+            disabled: kit.readOnly,
+            hint: 'Va enganchado y rueda: remolque, carretón o batea arrastrada que recorre la ruta sobre sus propias ruedas; suma su desgaste por km (mantenimiento y neumáticos), sin combustible ni conductor. Va cargado arriba: viaja sobre el otro equipo y acá no se suma nada. Sin elegir, se toma como cargado arriba.',
+            onChange: (value) => {
+              ctx.mutate((q) => {
+                const line = q.equipment[i];
+                if (!line || !line.mobilization) return;
+                if (value === 'towed') line.mobilization.towed = true;
+                else if (value === 'loaded') line.mobilization.towed = false;
+                else delete line.mobilization.towed;
+              });
+            },
+          }),
+        ),
+        towed
+          ? formGrid(
+            2,
+            kit.num(`${p}.travelCostPerKm`, {
+              label: 'Desgaste por km',
+              rule: 'money',
+              unit: '$/km',
+              hint: tiresByKm
+                ? 'Mantenimiento en ruta, SIN neumáticos: los neumáticos de este equipo se suman aparte por km (juego ÷ vida útil). Sin combustible ni amortización.'
+                : 'Mantenimiento y neumáticos en ruta. Sin combustible ni amortización (ya está en el costo de tenerlo).',
+            }),
+          )
+          : null,
+        towed
+          ? kit.region((r) => {
+            const ml = r.model.mobilization && r.model.mobilization.lines[i];
+            if (!ml) return EMPTY;
+            return h(
+              'div',
+              { class: 'mob-calc' },
+              h('span', { class: 'mono' }, `${formatValue(ml.km, 'km')} ${T.per}`),
+              h('span', {}, 'Desgaste = ', h('strong', { class: 'mono' }, formatMoney(ml.wearPerActivation)), ` ${T.per} (sin combustible ni conductor)`),
+            );
+          })
+          : null,
+        towed ? kit.trace((r) => towedTrace(r, i, T)) : null,
       );
     } else if (m.mode === 'support') {
       const supports = lg.vehicles.filter((v) => v && v.id).map((v) => ({ value: v.id, label: v.name || 'Vehículo' }));

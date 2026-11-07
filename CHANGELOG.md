@@ -12,6 +12,45 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Testeo con especialistas — UI (2026-11, tanda A del informe auditado `docs/informes/2026-11-especialistas-auditado.md`).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (`contract` ya era opcional y `activity.availability` puede quedar sin definir).
+
+### Agregado
+
+- **Fijo mensual: "¿Cada cuántos días hay un viaje o relevo a la locación?"** (A-6, H-06). El intervalo, que el motor ya usaba, ahora se ve también en un contrato fijo mensual (1 = un viaje por día, como antes). Ej.: diagrama 14x14 con relevo cada 14 días → 30 ÷ 14 = 2,1 relevos por mes; los costos por intervención se cuentan esas veces y no 30.
+- **"Sin contar adicionales: $ X"** debajo de la tarifa piso (A-7, H-09) cuando hay adicionales, reventa u otros ingresos: el piso los supone facturados; el (i) dice cuánto y cuál es el mínimo si no llegan. Lo calcula el motor (`floorWithoutOtherRevenue`); la tarifa piso no cambia.
+
+### Cambiado
+
+- **Cotización en blanco** (A-2, H-03): nace con el contrato "Por servicio prestado" y sólo **Personal** marcado (antes se leía como "personal y equipos" y aparecía "Equipo o maquinaria"). Al sumar Vehículo o Equipo aparecen $/viaje, $/km, $/m³… Las cotizaciones guardadas sin contrato se siguen leyendo como antes.
+- **Disponibilidad** (A-16, H-26): una cotización nueva (en blanco o de una plantilla que no la define) la trae **sin definir**, y el selector 24/7 / franja horaria sale de Opciones avanzadas y queda junto a los días. El aviso de relevos sólo aparece si elegís 24/7. No cambia ningún número (las guardadas conservan su 24/7).
+- **Aviso "Unidad del proveedor"** (A-4, H-04): "Por viaje completo" y "Sí, cobra por…" tienen el mismo peso (ninguna es la sugerida), con la aclaración "Si los viajes son de tus vehículos y el proveedor va una sola vez, confirmá «cobra por…»".
+- **Precio cerrado con un trabajo por mes** (A-12, H-24): "Costo del trabajo", "Ganás $ X por trabajo" y el equilibrio en trabajos enteros ("con 1 trabajo ya cubrís todos tus costos") en lugar de "0,6 trabajos por mes".
+- Abono que alcanza aun trabajando todos los días: con personal aclara "(sin contar horas extra)" (A-12, H-18).
+
+### Corregido
+
+- Insignia ILUSTRATIVO vacía ("Incluye valores ILUSTRATIVOS: .") cuando la causa es la tasa de financiamiento de ejemplo: ahora la nombra (A-9, H-19).
+- Parámetros de convenio reales marcados ILUSTRATIVO por coincidir con el valor de ejemplo (SAC 8,33 %, 176 h, 50 %): si la línea viene de un convenio o perfil propio, sólo cuenta la marca (A-10, H-20; personal de cotizaciones y de productos).
+- Plurales de unidades propias: siglas de hasta 4 letras en mayúsculas sin cambio (PSV, END) y "+s" en terminaciones de otro idioma (kit → kits) (A-11, H-21).
+- Concordancias: "cuántas intervenciones", "Valor: sin fecha base" / "Costos: sin fecha base" en lugar de "Valor no definida" (A-12, H-25).
+
+**Revisión UX y de costos de la tanda A:** los avisos informativos nuevos se ven también en su paso ("Para tener en cuenta" con "Ir al campo"); resumen en vivo con "Costo del trabajo" y trabajos enteros en precio cerrado; "¿Cómo viaja?" (Va cargado arriba / Va enganchado y rueda) en lugar de una casilla, así la pregunta de neumáticos por km queda respondida con cualquiera de las dos; "Días entre viajes o relevos"; el aviso de costos fijos absorbidos ya no incluye al personal contratado para este servicio y sí a lo compartido sin % válido; "Ver cálculo" de movilización muestra el remolque enganchado.
+
+**Tanda A de correcciones, motor y avisos (2026-11, informe auditado de 5 especialistas: `docs/informes/2026-11-especialistas-auditado.md` §5, A-1, A-3, A-5, A-8, A-13, A-14 y A-15).** Ningún número de una cotización existente cambia, salvo el total del contrato en precio cerrado (estaba mal). Todo lo nuevo es opcional y su default reproduce el comportamiento anterior. Esquema sin cambio de versión (campos opcionales: `quote.contractJobs`, `equipment[i].mobilization.towed`, `labor[i].coverageHoursPerDay`, `materials[i].billedSeparately`).
+
+### Corregido
+
+- **Total del contrato en precio cerrado (A-1, H-01).** Multiplicaba el precio por los 12 meses de contrato (2x1 de 45 días: 2.426.664.000 en lugar de 202.222.000). Ahora el Resultado muestra **"Total del trabajo"** (facturación, costo, impuestos y ganancia de un trabajo = valores del mes ÷ trabajos por mes; por hito, tarifa × hitos del trabajo). Campo opcional **"Trabajos que cubre el total"** (en Contrato, Más datos de la cotización; vacío = 1). Fijo mensual y on call siguen igual.
+- **Aviso "Horas del personal" (A-5, H-07/H-08).** Con un trabajo más largo que los días disponibles, las horas por mes ahora se prorratean como los costos fijos (el 2x1 de 45 días ya no da un aviso falso). Nuevo campo opcional **"Horas por día que cubre este puesto"** (opciones del puesto, grupo Horas) que **sólo usa el aviso**: un turno de 12 h en una operación de 24 h. El mensaje sugiere también "o sumá posiciones (turno día / turno noche)".
+- **Fecha base (A-13, H-23):** el aviso lleva al paso y al mes del primer valor sin fecha (antes, siempre a Contrato).
+- **Consumo en ruta (A-14, H-22):** un equipo por sus propios medios sin L/100 km en ruta ahora es un pendiente de "Movilización de equipos" (antes sólo se veía en el paso).
+
+### Agregado
+
+- **Remolque arrastrado (A-3, H-02).** En "Lo transporta otro equipo", la casilla **"Va enganchado y rueda (remolque, carretón o batea arrastrada)"**: suma km de ruta × (desgaste por km + neumáticos por km) del remolque, sin combustible ni conductor. Sin marcar = cargado arriba (como siempre). Aviso si un equipo transportado tiene neumáticos por km y no está marcado. Golden nuevo `movilizacion-remolque-arrastrado` (+89.600 por trabajo).
+- **Facturar aparte por material (A-8, H-10/H-36).** "¿Se factura aparte?" en las opciones de cada material: sí / no / como el resto (sigue el tilde global). Sólo las líneas que se facturan aparte suman a la reventa; en el reparto de la tarifa su costo va en la fila "Materiales facturados aparte".
+- **Avisos informativos (A-15; no bajan el puntaje):** costos fijos del mes que absorbe un precio cerrado o un mes con menos días que los disponibles ("asignales un % compartido"; nunca se aplica solo); personas no enteras ("Cargaste 4,5 personas; ¿cuántas hay en nómina?"); precio cerrado de varios días con 1 viaje ("¿La cuadrilla vuelve a la base cada día?").
+
 **Reportar un problema desde la app (2026-11, PLAN-2026-020).** Pedido del dueño: "una sección donde los usuarios puedan reportar errores… vinculado a GitHub". Ninguna fórmula cambia; esquema de datos de la app sin cambios.
 
 ### Agregado
