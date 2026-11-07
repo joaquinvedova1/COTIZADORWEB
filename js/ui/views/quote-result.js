@@ -118,7 +118,24 @@ import {
   illustrativeTitle,
   floorWithoutExtrasText,
   capAllDaysNote,
+  lossWindowText,
 } from '../result-text.js';
+
+/**
+ * Tono del equilibrio con los días estimados: verde si se llega al break-even. Con un mínimo
+ * garantizado que protege los primeros días (B-3, H-29) también se gana ANTES del break-even:
+ * el tono sigue al resultado del mes estimado (lo calculó el motor).
+ */
+function beTone(r, D, be) {
+  if (be && be.guaranteeProtects && r && r.kpis && hasValue(r.kpis.profit)) return r.kpis.profit >= -1e-6 ? 'green' : 'red';
+  return D + 1e-9 >= be.days ? 'green' : 'red';
+}
+
+/** Párrafo con la ventana de pérdida del mínimo garantizado (B-3), o null. */
+function lossWindowNote(r, D) {
+  const text = lossWindowText(r, { estimateDays: hasValue(D) ? D : null });
+  return text ? h('p', { class: 'qr-work-text qr-loss-window' }, text) : null;
+}
 
 // ------------------------------------------------------------------ constantes
 
@@ -1187,13 +1204,14 @@ function heroKnownRate(v) {
 
   return h('div', { class: 'qr-decision' },
     sentence,
+    rateOk ? lossWindowNote(r, D) : null,
     h('div', { class: 'qr-hero' },
       byQty(v) ? heroItem({
         label: unitTextsOf(r).breakEvenLabel,
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? (breakEvenZeroText(r) || `Por mes, ${atRateText(v)} (${workDaysText(be.days, { decimals: 2 })}).`) : be.reason || null,
         trace: r.traces && r.traces.breakEven,
-        tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
+        tone: be.reachable && hasValue(D) ? beTone(r, D, be) : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
       }) : null,
       byQty(v) ? null : heroItem({
@@ -1201,7 +1219,7 @@ function heroKnownRate(v) {
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? (breakEvenZeroText(r) || `Break-even exacto: ${formatDays(be.days)} por mes, ${atRateText(v)}.`) : be.reason || null,
         trace: r.traces && r.traces.breakEven,
-        tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
+        tone: be.reachable && hasValue(D) ? beTone(r, D, be) : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
       }),
       heroItem({
@@ -1422,7 +1440,7 @@ function kpiGrid(v) {
         label: 'Break-even',
         value: beValue,
         hint: beHint,
-        tone: be.reachable && hasValue(k.activeDays) ? (k.activeDays + 1e-9 >= be.days ? 'green' : 'red') : null,
+        tone: be.reachable && hasValue(k.activeDays) ? beTone(r, k.activeDays, be) : null,
         trace: traces.breakEven,
       }));
     }
@@ -1701,10 +1719,10 @@ function workBlock(v) {
       content = [breakEvenZeroText(r, { rateText: atRateText(v) }) || `${subject} cubrís todos tus costos desde el inicio.`];
       tone = 'green';
     } else if (be.reachable && hasValue(be.quantity) && closedBreakEvenText(v, be)) {
-      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      if (hasValue(D)) tone = beTone(r, D, be);
       content = [`${subject}, ${closedBreakEvenText(v, be)}.`];
     } else if (be.reachable && hasValue(be.quantity)) {
-      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      if (hasValue(D)) tone = beTone(r, D, be);
       content = [
         `${subject} necesitás facturar al menos `,
         h('strong', { class: 'qr-work-days' }, `${quantityCeilText(be.quantity, r)} por mes`),
@@ -1727,7 +1745,7 @@ function workBlock(v) {
       const hours = r.unit === 'hour' && hasValue(hoursPerDay) && hoursPerDay > 0
         ? ` (unas ${formatNumber(be.days * hoursPerDay, { decimals: 0 })} horas)`
         : '';
-      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      if (hasValue(D)) tone = beTone(r, D, be);
       content = [
         `${subject} necesitás aproximadamente `,
         h('strong', { class: 'qr-work-days' }, `${activeDaysText(be.days, dayDecimals(be.days))} por mes`),
@@ -1748,6 +1766,7 @@ function workBlock(v) {
     h('p', { class: 'qr-work-question' }, question),
     unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
     h('p', { class: 'qr-work-text' }, ...content),
+    rateOk && !isMonth ? lossWindowNote(r, D) : null,
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
 
@@ -3314,6 +3333,13 @@ function rulesSummary(v) {
   if (rules.minimumMonthlyGuarantee > 0) {
     const topUp = revenue.guaranteeTopUp;
     items.push(['Mínimo mensual garantizado', `${money(rules.minimumMonthlyGuarantee)} por mes.${hasValue(topUp) && topUp > 0 ? ` Con la actividad estimada completa ${money(topUp)}.` : ''}`]);
+  } else if (rules.minimumGuaranteeUnits > 0) {
+    // Mínimo en unidades (B-3): N unidades por mes a la tarifa neta (el motor ya lo valorizó).
+    const topUp = revenue.guaranteeTopUp;
+    const n = rules.minimumGuaranteeUnits;
+    const u = r.unitInfo || {};
+    const word = Math.abs(n - 1) < 1e-9 ? u.singular || 'unidad' : u.plural || 'unidades';
+    items.push(['Mínimo mensual garantizado', `${formatNumber(n, { decimals: 2 })} ${word} por mes a la tarifa (${money(revenue.guarantee)} con la tarifa de esta cotización).${hasValue(topUp) && topUp > 0 ? ` Con la actividad estimada completa ${money(topUp)}.` : ''}`]);
   }
   if (!isMonth && r.unit !== 'event' && rules.minimumCallUnits > 0) {
     let units;

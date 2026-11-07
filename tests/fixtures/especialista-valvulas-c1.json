@@ -1,0 +1,448 @@
+{
+  "settings": {
+    "organizationId": "6b0c2442-2c0b-4cef-b50a-e6d8c9dcfdf1",
+    "locale": "es-AR",
+    "currency": "ARS",
+    "fuelPricePerLiter": 1500,
+    "financeMonthlyRatePct": 3,
+    "defaultTargetMarginPct": 10,
+    "defaultContingencyPct": 5,
+    "defaultPaymentTermDays": 60,
+    "roundingStep": 1000,
+    "matrixDays": [
+      5,
+      8,
+      10,
+      15,
+      20
+    ],
+    "marginLadder": [
+      5,
+      10,
+      15
+    ],
+    "defaultBillingTaxes": null,
+    "fuelPriceBase": {
+      "period": null,
+      "currency": "ARS",
+      "source": null,
+      "note": ""
+    },
+    "exchangeRates": [],
+    "illustrative": true,
+    "lastQuoteNumber": 1
+  },
+  "quote": {
+    "id": "518c9a18-4158-473b-9d8a-6c5ed7216a9d",
+    "organizationId": "6b0c2442-2c0b-4cef-b50a-e6d8c9dcfdf1",
+    "createdAt": "2026-11-07T00:02:46.618Z",
+    "updatedAt": "2026-11-07T00:10:30.884Z",
+    "createdBy": null,
+    "updatedBy": null,
+    "code": "COT-0001",
+    "name": "C1 Diagnóstico de válvulas en campo, por válvula",
+    "client": "Operadora X",
+    "status": "draft",
+    "illustrative": false,
+    "serviceType": "on_call",
+    "templateId": null,
+    "pricingMode": "known_activity",
+    "unit": "custom",
+    "unitName": "válvula",
+    "contractMonths": 12,
+    "activity": {
+      "availability": "window",
+      "availabilityWindow": "",
+      "responseTimeHours": 4,
+      "activeDaysPerMonth": null,
+      "daysPerActivation": 1,
+      "availableDaysPerMonth": 22,
+      "hoursPerActiveDay": 10,
+      "billableQuantityPerMonth": 120,
+      "unitsPerActiveDay": 8,
+      "unitsPerActivation": null
+    },
+    "labor": [
+      {
+        "id": "7684aeb6-8ca8-47ce-8200-98b6c23b5162",
+        "sourceId": null,
+        "role": "Técnico de válvulas (CCT 644)",
+        "agreementId": null,
+        "category": "",
+        "positions": 2,
+        "peoplePerPosition": 1,
+        "basicMonthly": 3000000,
+        "additionalsMonthly": 1200000,
+        "normalHoursPerMonth": 176,
+        "overtimeHoursPerActiveDay": 2,
+        "overtimePremiumPct": 50,
+        "mealPerActiveDay": 25000,
+        "sacPct": 8.33,
+        "vacationPct": 4,
+        "employerContributionsPct": 24,
+        "artPct": 8,
+        "insuranceMonthly": 40000,
+        "ppeMonthly": 60000,
+        "trainingMonthly": 30000,
+        "transferMonthly": 0,
+        "base": {
+          "period": null,
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "snapshot": null,
+        "illustrative": false
+      }
+    ],
+    "equipment": [
+      {
+        "id": "29dbda51-7411-46a2-9bea-51dd2080b274",
+        "sourceId": null,
+        "name": "Banco de pruebas portátil (hidráulico/neumático) + kit diagnóstico",
+        "internalCode": "",
+        "familyId": null,
+        "acquisition": "owned",
+        "quantity": 1,
+        "hoursPerActiveDay": 7,
+        "replacementValue": 45000,
+        "usefulLifeYears": 8,
+        "residualValue": 4500,
+        "insuranceAnnual": 1300000,
+        "licenseAnnual": 0,
+        "certificationsAnnual": 1500000,
+        "otherAnnual": 0,
+        "capitalRatePctAnnual": 0,
+        "maintenancePerHour": 3000,
+        "tiresPerHour": 0,
+        "fuelLitersPerHour": 0,
+        "maintenanceMode": null,
+        "maintenanceServiceCost": null,
+        "maintenanceServiceHours": null,
+        "maintenanceBudget": null,
+        "maintenanceBudgetPeriod": null,
+        "tiresMode": null,
+        "tiresSetCost": null,
+        "tiresLifeHours": null,
+        "tiresLifeKm": null,
+        "external": null,
+        "base": {
+          "period": null,
+          "currency": "USD",
+          "source": null,
+          "note": ""
+        },
+        "costsBase": {
+          "period": null,
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "mobilization": {
+          "mode": "transported",
+          "travelLitersPer100Km": 0,
+          "travelCostPerKm": 0,
+          "driver": null,
+          "carrierLineId": "b514adc9-94c4-4bcd-b410-a8387ddc4ef3",
+          "supportVehicleId": null
+        },
+        "operatorLaborId": null,
+        "snapshot": null,
+        "illustrative": false,
+        "fuelNotApplicable": true
+      },
+      {
+        "id": "b514adc9-94c4-4bcd-b410-a8387ddc4ef3",
+        "sourceId": null,
+        "name": "Pickup 4x4 doble cabina (traslado técnicos y banco)",
+        "internalCode": "",
+        "familyId": null,
+        "acquisition": "owned",
+        "quantity": 1,
+        "hoursPerActiveDay": 0,
+        "replacementValue": 62000000,
+        "usefulLifeYears": 5,
+        "residualValue": 20000000,
+        "insuranceAnnual": 2400000,
+        "licenseAnnual": 1300000,
+        "certificationsAnnual": 0,
+        "otherAnnual": 600000,
+        "capitalRatePctAnnual": 0,
+        "maintenancePerHour": 0,
+        "tiresPerHour": 0,
+        "fuelLitersPerHour": 0,
+        "maintenanceMode": null,
+        "maintenanceServiceCost": null,
+        "maintenanceServiceHours": null,
+        "maintenanceBudget": null,
+        "maintenanceBudgetPeriod": null,
+        "tiresMode": null,
+        "tiresSetCost": null,
+        "tiresLifeHours": null,
+        "tiresLifeKm": null,
+        "external": null,
+        "base": {
+          "period": null,
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "costsBase": {
+          "period": null,
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "mobilization": {
+          "mode": "self",
+          "travelLitersPer100Km": 13,
+          "travelCostPerKm": 140,
+          "driver": "operator",
+          "carrierLineId": null,
+          "supportVehicleId": null
+        },
+        "operatorLaborId": null,
+        "snapshot": null,
+        "illustrative": false
+      }
+    ],
+    "materials": [
+      {
+        "id": "eeeaece2-8380-450a-8cec-0b2ceabaca6e",
+        "sourceId": null,
+        "description": "Consumibles por válvula (juntas, grasa, precinto, etiqueta) — 8 válv/día",
+        "unit": "unidad",
+        "basis": "per_active_day",
+        "quantity": 8,
+        "unitCost": 18000,
+        "wastePct": 0,
+        "logisticsPct": 0,
+        "resaleMarkupPct": 0,
+        "providedBy": "contractor",
+        "base": {
+          "period": "2026-11",
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "snapshot": null,
+        "illustrative": false
+      }
+    ],
+    "materialsNotApplicable": false,
+    "otherCosts": [
+      {
+        "id": "4b645a9e-183c-420d-9e74-4dc46e956c3f",
+        "description": "Inducciones, permisos de ingreso y exámenes",
+        "category": "labor",
+        "behavior": "fixed_monthly",
+        "amount": 180000
+      }
+    ],
+    "fuel": {
+      "pricePerLiter": 1550,
+      "providedBy": "contractor",
+      "illustrative": false,
+      "requiresConfirmation": true,
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      }
+    },
+    "logistics": {
+      "notApplicable": false,
+      "baseName": "Base Neuquén Capital (Parque Industrial)",
+      "destinationName": "Loma Campana (Añelo)",
+      "distanceKm": 120,
+      "roundTrip": true,
+      "tripsPerActivation": 1,
+      "vehicles": [],
+      "tollsPerActivation": 0,
+      "lodgingPerActivation": 0
+    },
+    "indirect": {
+      "method": "percent_direct",
+      "pct": 12,
+      "amount": 0
+    },
+    "finance": {
+      "paymentTermDays": 60,
+      "invoiceLagDays": 10,
+      "monthlyRatePct": 3,
+      "illustrative": true,
+      "payDays": {
+        "salaries": 20,
+        "fuel": 0,
+        "suppliers": 30,
+        "materials": 30,
+        "structure": 20
+      }
+    },
+    "risk": {
+      "generalPct": 3,
+      "items": [
+        {
+          "id": "activity_variation",
+          "label": "Variación de actividad",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "unproductive",
+          "label": "Improductivos",
+          "pct": 5,
+          "enabled": true
+        },
+        {
+          "id": "weather",
+          "label": "Clima",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "rework",
+          "label": "Retrabajos",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "equipment_failure",
+          "label": "Rotura de equipos",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "prices",
+          "label": "Variación de precios",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "inflation",
+          "label": "Inflación",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "logistics",
+          "label": "Logística",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "penalties",
+          "label": "Penalidades",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "warranty",
+          "label": "Garantía",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "accidents",
+          "label": "Accidentes",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "scope_uncertainty",
+          "label": "Incertidumbre del alcance",
+          "pct": 0,
+          "enabled": false
+        }
+      ]
+    },
+    "pricing": {
+      "targetMarginPct": 15,
+      "customMarginPct": null,
+      "knownRate": 0,
+      "offeredRateOverride": null,
+      "commercialDiscountPct": 0,
+      "roundingStep": 1000
+    },
+    "billingTaxes": {
+      "mode": "combined",
+      "notApplicable": false,
+      "combinedPct": 4.2,
+      "items": []
+    },
+    "vatTreatment": "excluded",
+    "rules": {
+      "availabilityFeeMonthly": 0,
+      "calloutFeePerActivation": 0,
+      "mobilizationFeePerActivation": 0,
+      "includedKmPerActivation": 0,
+      "extraKmRate": 0,
+      "minimumCallUnits": 0,
+      "standbyDaysPerMonth": 0,
+      "standbyRatePerDay": 0,
+      "standbyNotApplicable": true,
+      "volumeTiers": [
+        {
+          "id": "tier-1",
+          "fromDays": 1,
+          "toDays": 1,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-2",
+          "fromDays": 2,
+          "toDays": 7,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-3",
+          "fromDays": 8,
+          "toDays": 15,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-4",
+          "fromDays": 16,
+          "toDays": 30,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-5",
+          "fromDays": 31,
+          "toDays": null,
+          "discountPct": 0
+        }
+      ],
+      "volumeTierBasis": "billed",
+      "continuityMinMonths": 6,
+      "continuityDiscountPct": 0,
+      "minimumMonthlyGuarantee": 0
+    },
+    "notes": "",
+    "currency": "ARS",
+    "offerDate": "2026-11-07",
+    "exchangeRates": [
+      {
+        "currency": "USD",
+        "rate": 1450,
+        "base": {
+          "period": "2026-11",
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        }
+      }
+    ],
+    "contract": {
+      "mode": "on_demand",
+      "labor": true,
+      "equipment": true,
+      "components": [
+        "labor",
+        "vehicle",
+        "machinery"
+      ]
+    }
+  }
+}

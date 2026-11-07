@@ -22,7 +22,7 @@ import { formatMoney, formatPercent, formatNumber, formatValue, formatDays, EMPT
 import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
 import { isPlainObject } from '../../../core/object.js';
-import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove, hasNumber, stepName, plural } from './shared.js';
+import { perUnitCeil, perUnitMoney, netRateHint, targetRateTrace, confirmRemove, hasNumber, stepName, plural, minimumGuaranteeFields } from './shared.js';
 import { minActivityNotice } from '../../result-text.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillingTaxes, sameBillingTaxes, invalidTaxesText } from '../../billing-taxes-form.js';
 import { userErrorMessage } from '../../layout.js';
@@ -377,6 +377,8 @@ export function render(container, ctx) {
   const T = activationTerms(quote);
   const L = activationFieldLabels(T);
   const minimumCallUnit = unitKind === 'hour' ? 'horas' : unitKind === 'quantity' ? unitInfo.plural : 'días';
+  // Mínimo garantizado en $ o en unidades (tanda B 2026-11, B-3).
+  const guarantee = minimumGuaranteeFields(kit, quote, unitInfo);
   const RULE_NAMES = [
     ['availabilityFeeMonthly', 'abono de disponibilidad'],
     ['calloutFeePerActivation', `cargo ${T.per}`],
@@ -384,13 +386,16 @@ export function render(container, ctx) {
     ['extraKmRate', 'km adicional'],
     ['minimumCallUnits', `mínimo ${T.per}`],
     ['minimumMonthlyGuarantee', 'mínimo mensual'],
+    ['minimumGuaranteeUnits', 'mínimo mensual'],
     ['continuityDiscountPct', 'descuento por continuidad'],
   ];
   /** Pendiente crítico "Dos abonos por mes" (completitud, ECO-01), o null. */
   const feeOverlapOf = (r) => ((r && r.completeness && r.completeness.pending) || []).find((x) => x.id === 'monthly_fee_overlap') || null;
   const rulesSummary = () => {
     const rules = quote.rules || {};
-    const active = RULE_NAMES.filter(([key]) => hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
+    // Del mínimo garantizado cuenta sólo el dato del modo elegido ($ o unidades, B-3).
+    const skip = rules.minimumGuaranteeBasis === 'units' ? 'minimumMonthlyGuarantee' : 'minimumGuaranteeUnits';
+    const active = RULE_NAMES.filter(([key]) => key !== skip && hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
     if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
     else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
     else active.push('equipo en espera sin definir');
@@ -488,9 +493,9 @@ export function render(container, ctx) {
     ),
     ruleRow(
       'Mínimo mensual garantizado',
-      'La facturación del mes nunca es menor a este monto.',
-      [kit.num('rules.minimumMonthlyGuarantee', { label: 'Mínimo mensual', rule: 'money', unit: '$/mes' })],
-      kit.out((r) => (r.estimate.revenue.guaranteeTopUp > 0 ? `Con la actividad estimada suma ${formatMoney(r.estimate.revenue.guaranteeTopUp)} para llegar al mínimo.` : 'Con la actividad estimada no hace falta completar el mínimo.')),
+      'La facturación del mes nunca es menor a este mínimo: un monto en $ o una cantidad de unidades a la tarifa.',
+      guarantee.fields,
+      h('div', {}, guarantee.note, kit.out((r) => (r.estimate.revenue.guaranteeTopUp > 0 ? '' : 'Con la actividad estimada no hace falta completar el mínimo.'), { allowEmpty: true })),
     ),
     ruleRow(
       'Descuento por continuidad',

@@ -23,6 +23,7 @@ import { capitalizeUnitWord } from '../domain/billing-units.js';
 
 import { nonNegative, safeDivide, ceilTolerant, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
+import { formatDays } from '../core/format.js';
 import { activationTerms } from '../domain/activation-terms.js';
 
 /** Tolerancia absoluta de resultado ($) para considerar equilibrio. */
@@ -130,6 +131,65 @@ export function findBreakEvenDays(profitAt, { maxDays, tolerance = PROFIT_TOLERA
 }
 
 /**
+ * Tramos de días en los que se PIERDE plata (tanda B 2026-11, B-3, H-29). Con un mínimo
+ * garantizado el resultado no es monótono: con pocos días el mínimo cubre los costos, más
+ * adelante el mínimo ya no alcanza y lo trabajado todavía no cubre, y desde el break-even se
+ * gana. `findBreakEvenDays` da el último cruce; esto da todos los tramos con resultado < 0.
+ *
+ * Mismo método determinístico: grilla de `step` días (más los saltos de costo) y bisección en
+ * cada borde.
+ *
+ * @param {(days:number) => number} profitAt
+ * @param {{ maxDays: number, tolerance?: number, step?: number, breakpoints?: number[] }} options
+ * @returns {{ fromDays: number, toDays: number, open: boolean }[]} open = la pérdida sigue hasta maxDays
+ */
+export function findLossWindows(profitAt, { maxDays, tolerance = PROFIT_TOLERANCE, step = 0.1, breakpoints = [] } = {}) {
+  const limit = nonNegative(maxDays);
+  const ok = (d) => {
+    const p = profitAt(d);
+    return isFiniteNumber(p) && p >= -tolerance;
+  };
+  const divisions = Math.max(1, Math.round(1 / (step > 0 ? step : 0.1)));
+  const lastIndex = Math.floor(limit * divisions + 1e-9);
+  let grid = [];
+  for (let i = 0; i <= lastIndex; i += 1) grid.push(i / divisions);
+  if (grid[grid.length - 1] < limit - 1e-12) grid.push(limit);
+  if (Array.isArray(breakpoints) && breakpoints.length) {
+    const extra = [];
+    breakpoints.forEach((b) => {
+      if (isFiniteNumber(b) && b > 0 && b < limit) extra.push(b, Math.min(limit, b + 1e-7));
+    });
+    grid = [...new Set([...grid, ...extra])].sort((a, b) => a - b);
+  }
+  const flags = grid.map(ok);
+  // Borde entre un punto que cumple (okSide) y otro que no, por bisección; devuelve el punto que cumple.
+  const edge = (good, bad) => {
+    let g = good;
+    let b = bad;
+    for (let i = 0; i < 80 && Math.abs(g - b) > 1e-10; i += 1) {
+      const mid = (g + b) / 2;
+      if (ok(mid)) g = mid;
+      else b = mid;
+    }
+    const rounded = Math.round(g);
+    return Math.abs(g - rounded) < 1e-7 ? rounded : g;
+  };
+  const windows = [];
+  let i = 0;
+  while (i < grid.length) {
+    if (flags[i]) { i += 1; continue; }
+    const start = i;
+    while (i < grid.length && !flags[i]) i += 1;
+    const end = i - 1;
+    const fromDays = start === 0 ? grid[0] : edge(grid[start - 1], grid[start]);
+    const open = end === grid.length - 1;
+    const toDays = open ? limit : edge(grid[end + 1], grid[end]);
+    windows.push({ fromDays, toDays, open });
+  }
+  return windows;
+}
+
+/**
  * Traza del break-even (formato "Ver cálculo"). Con `quantityUnit` (cobro por
  * m³, viaje, llamado…; PLAN-2026-009) el equilibrio se expresa en esa unidad:
  *   cantidad = (costos fijos − ingresos fijos) / (tarifa por unidad × (1 − t) + otros ingresos por unidad − costo variable por unidad)
@@ -138,6 +198,10 @@ export function findBreakEvenDays(profitAt, { maxDays, tolerance = PROFIT_TOLERA
 export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, otherRevenuePerDay = 0, variableCostPerDay, contributionPerDay, result, unitLabel = 'día', nonLinear = false, billingTaxPct = 0, quantityUnit = null, terms = activationTerms() }) {
   // La activación con el nombre de la cotización (llamado / salida / intervención…, PLAN-2026-014).
   const T = terms;
+  // Mínimo garantizado (B-3, H-29): los tramos de días en los que se pierde, si el mínimo protege los primeros días.
+  const windowsNote = result && result.guaranteeProtects && Array.isArray(result.lossWindows)
+    ? `Con el mínimo garantizado el resultado no sube parejo: se pierde plata ${result.lossWindows.map((w) => (w.open ? `desde ${formatDays(w.fromDays)}` : `entre ${formatDays(w.fromDays)} y ${formatDays(w.toDays)}`)).join(' y ')} de trabajo; con menos días el mínimo cubre los costos. El break-even es desde dónde se gana siempre.`
+    : null;
   const t = nonNegative(billingTaxPct);
   const keep = t > 0 ? ' × (1 − impuestos sobre la facturación)' : '';
   if (quantityUnit && quantityUnit.perDay > 0) {
@@ -166,6 +230,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
         result && !result.reachable ? result.reason : null,
         'Los costos se calculan con los días de trabajo (personal, equipos, combustible, viajes) y la facturación, con la unidad que cobrás.',
         nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per} o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula paso a paso, no sólo con la fórmula.` : null,
+        windowsNote,
       ],
     });
   }
@@ -188,6 +253,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
     notes: [
       result && !result.reachable ? result.reason : null,
       nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula día a día, no sólo con la fórmula.` : null,
+      windowsNote,
     ],
   });
 }
