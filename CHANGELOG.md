@@ -34,6 +34,8 @@ Reglas para este archivo:
 - Plurales de unidades propias: siglas de hasta 4 letras en mayúsculas sin cambio (PSV, END) y "+s" en terminaciones de otro idioma (kit → kits) (A-11, H-21).
 - Concordancias: "cuántas intervenciones", "Valor: sin fecha base" / "Costos: sin fecha base" en lugar de "Valor no definida" (A-12, H-25).
 
+**Revisión UX y de costos de la tanda A:** los avisos informativos nuevos se ven también en su paso ("Para tener en cuenta" con "Ir al campo"); resumen en vivo con "Costo del trabajo" y trabajos enteros en precio cerrado; "¿Cómo viaja?" (Va cargado arriba / Va enganchado y rueda) en lugar de una casilla, así la pregunta de neumáticos por km queda respondida con cualquiera de las dos; "Días entre viajes o relevos"; el aviso de costos fijos absorbidos ya no incluye al personal contratado para este servicio y sí a lo compartido sin % válido; "Ver cálculo" de movilización muestra el remolque enganchado.
+
 **Tanda A de correcciones, motor y avisos (2026-11, informe auditado de 5 especialistas: `docs/informes/2026-11-especialistas-auditado.md` §5, A-1, A-3, A-5, A-8, A-13, A-14 y A-15).** Ningún número de una cotización existente cambia, salvo el total del contrato en precio cerrado (estaba mal). Todo lo nuevo es opcional y su default reproduce el comportamiento anterior. Esquema sin cambio de versión (campos opcionales: `quote.contractJobs`, `equipment[i].mobilization.towed`, `labor[i].coverageHoursPerDay`, `materials[i].billedSeparately`).
 
 ### Corregido

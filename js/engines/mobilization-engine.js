@@ -114,6 +114,8 @@ export function computeMobilization(equipment = [], ctx = {}) {
       name: line.name ?? '',
       mode,
       towed: mode === 'transported' && m.towed === true,
+      /** La persona eligió explícitamente cómo viaja (enganchado o cargado arriba): el aviso de neumáticos por km queda resuelto. */
+      towedChosen: mode === 'transported' && (m.towed === true || m.towed === false),
       external,
       includedByProvider,
       quantity,

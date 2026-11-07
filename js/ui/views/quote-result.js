@@ -444,7 +444,8 @@ function floorExtras(v) {
 /** Línea visible "Sin contar adicionales: $ X" con su explicación en (i). */
 function floorExtrasLine(v) {
   const fx = floorExtras(v);
-  return fx ? h('span', { class: 'qr-floor-extras' }, fx.text, ' ', infoTip(fx.tip)) : null;
+  // "$ 153.603 / hora" no se corta al final de una línea angosta.
+  return fx ? h('span', { class: 'qr-floor-extras' }, fx.text.replace(/ \/ /g, '\u00a0/\u00a0'), '\u00a0', infoTip(fx.tip)) : null;
 }
 
 function hasRate(k) {
@@ -1154,7 +1155,7 @@ function heroKnownRate(v) {
     const closedText = closedBreakEvenText(v, be);
     const minimum = byQty(v) ? `${quantityCeilText(be.quantity, r)} por mes (${workDaysText(be.days)})` : `${activeDaysText(be.wholeDays, 0)} por mes`;
     sentence = h('p', { class: 'qr-lead' }, closedText
-      ? `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) ${closedText}.`
+      ? `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}), ${closedText}.`
       : `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) necesitás ${byQty(v) ? 'facturar al menos' : 'al menos'} ${minimum} para no perder plata.${tail}`);
   } else {
     sentence = h('p', { class: 'qr-lead' }, `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)}) no se cubren los costos dentro del mes. Revisá la tarifa o los costos.`);
@@ -1651,12 +1652,13 @@ function noRateContent(v) {
  */
 /**
  * Equilibrio en precio cerrado sin "0,6 trabajos por mes" (A-12, H-24): con un trabajo
- * alcanza → "con 1 trabajo ya cubrís todos tus costos"; si no, trabajos enteros.
+ * alcanza → "1 trabajo ya cubre todos tus costos"; si no, trabajos enteros.
  * null si no es precio cerrado o no hay equilibrio.
  */
 function closedBreakEvenText(v, be) {
   if (!closedOf(v).closed || !be || !be.reachable || !hasValue(be.quantity) || !hasValue(be.wholeQuantity) || be.quantity <= 1e-9) return null;
-  if (be.wholeQuantity <= 1) return `con 1 ${(v.r.unitInfo && v.r.unitInfo.singular) || 'trabajo'} ya cubrís todos tus costos`;
+  // Va después de "Con la tarifa … ($ X / trabajo),": sin repetir el "con".
+  if (be.wholeQuantity <= 1) return `1 ${(v.r.unitInfo && v.r.unitInfo.singular) || 'trabajo'} ya cubre todos tus costos`;
   return `necesitás al menos ${quantityText(be.wholeQuantity, v.r)} por mes para no perder plata (${workDaysText(be.days)})`;
 }
 
@@ -1700,7 +1702,7 @@ function workBlock(v) {
       tone = 'green';
     } else if (be.reachable && hasValue(be.quantity) && closedBreakEvenText(v, be)) {
       if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
-      content = [`${subject} ${closedBreakEvenText(v, be)}.`];
+      content = [`${subject}, ${closedBreakEvenText(v, be)}.`];
     } else if (be.reachable && hasValue(be.quantity)) {
       if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
       content = [

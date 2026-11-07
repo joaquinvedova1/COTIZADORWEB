@@ -512,11 +512,11 @@ export function render(container, ctx) {
         // intervenciones por mes = días que cubre el fijo ÷ este intervalo.
         monthlyContract && quote.serviceType !== 'permanent'
           ? kit.num('activity.daysPerActivation', {
-            label: '¿Cada cuántos días hay un viaje o relevo a la locación?',
+            label: 'Días entre viajes o relevos',
             rule: 'positiveDays',
             unit: 'días',
             placeholder: '1',
-            hint: `Cada viaje o relevo suma la movilización y los costos ${T.per}. 1 = un viaje por día. Ej.: diagrama 14x14 con relevo cada 14 días → 14 (30 días ÷ 14 = 2,1 relevos por mes).`,
+            hint: `¿Cada cuántos días hay un viaje o relevo a la locación? Cada uno suma la movilización y los costos ${T.per}. 1 = un viaje por día. Ej.: diagrama 14x14 con relevo cada 14 días → 14 (30 días ÷ 14 = 2,1 relevos por mes).`,
           })
           : null,
         availableInMain ? availableField() : null,

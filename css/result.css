@@ -594,3 +594,8 @@ th.ta-right .qr-th { align-items: flex-end; }
 .qr-revenue-composition { margin-top: 1rem; }
 .qr-revenue-composition .banner { margin: 0.5rem 0; }
 .qr-revenue-composition .qr-rules-item.is-total dt { font-weight: 750; }
+
+/* Tarifa piso sin contar adicionales (A-7): aviso a la vista, en su propio renglón y
+   con el monto sin cortar; la explicación queda en el (i). */
+.qr-floor-extras { display: block; margin-top: 0.3rem; font-weight: 600; color: var(--ink); }
+.qr-floor-extras .info-tip { vertical-align: middle; }

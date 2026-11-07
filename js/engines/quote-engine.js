@@ -674,7 +674,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         { label: `${T.Many} promedio por mes`, value: activity.activationsPerMonth, format: 'number' },
       ],
       steps: [
-        ...model.mobilization.lines.filter((l) => l.mode === 'self' && l.perActivation > 0).map((l) => ({ label: `Movilización de ${l.name || 'equipo'}: ${l.km.toFixed(0)} km`, value: l.perActivation, format: 'money' })),
+        ...model.mobilization.lines.filter((l) => (l.mode === 'self' || l.towed) && l.perActivation > 0).map((l) => ({ label: `Movilización de ${l.name || 'equipo'}${l.towed ? ' (enganchado, sólo desgaste)' : ''}: ${l.km.toFixed(0)} km`, value: l.perActivation, format: 'money' })),
         { label: `Movilización de equipos ${T.per}`, value: model.mobilization.perActivation, format: 'money' },
         { label: `Logística auxiliar: combustible ${T.per}`, value: model.logistics.fuelPerActivation, format: 'money' },
         { label: `Logística auxiliar: desgaste, peajes y viáticos ${T.per}`, value: model.logistics.nonFuelPerActivation, format: 'money' },

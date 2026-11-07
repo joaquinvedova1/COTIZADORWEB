@@ -273,11 +273,26 @@ export function render(container, ctx) {
               ? 'El combustible y el conductor están en ese equipo (el que lo arrastra). Acá se suma sólo el desgaste de este equipo por los km que rueda.'
               : 'El costo del traslado está en ese equipo (por ejemplo, un carretón tercerizado por viaje). Acá no se suma nada.',
           }),
-          // Remolque arrastrado (A-3): opcional; sin marcar = va cargado arriba (como siempre).
-          kit.check(`${p}.towed`, {
-            label: 'Va enganchado y rueda (remolque, carretón o batea arrastrada)',
-            structural: true,
-            hint: 'Marcalo si este equipo recorre la ruta sobre sus propias ruedas: suma su desgaste por km (mantenimiento y neumáticos), sin combustible ni conductor. Sin marcar, va cargado arriba del otro equipo y no se suma nada acá.',
+          // Remolque arrastrado (A-3): elección explícita; sin elegir = va cargado arriba (como siempre),
+          // pero el aviso de neumáticos por km pide elegir una de las dos.
+          selectField({
+            label: '¿Cómo viaja?',
+            name: `${p}.towed`,
+            value: m.towed === true ? 'towed' : m.towed === false ? 'loaded' : '',
+            includeEmpty: true,
+            emptyLabel: 'Elegí…',
+            options: [{ value: 'loaded', label: 'Va cargado arriba' }, { value: 'towed', label: 'Va enganchado y rueda' }],
+            disabled: kit.readOnly,
+            hint: 'Va enganchado y rueda: remolque, carretón o batea arrastrada que recorre la ruta sobre sus propias ruedas; suma su desgaste por km (mantenimiento y neumáticos), sin combustible ni conductor. Va cargado arriba: viaja sobre el otro equipo y acá no se suma nada. Sin elegir, se toma como cargado arriba.',
+            onChange: (value) => {
+              ctx.mutate((q) => {
+                const line = q.equipment[i];
+                if (!line || !line.mobilization) return;
+                if (value === 'towed') line.mobilization.towed = true;
+                else if (value === 'loaded') line.mobilization.towed = false;
+                else delete line.mobilization.towed;
+              });
+            },
           }),
         ),
         towed

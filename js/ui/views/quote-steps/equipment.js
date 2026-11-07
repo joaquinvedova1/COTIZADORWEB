@@ -19,7 +19,7 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { badge, card, dateField, formGrid, selectField, triStateField, confirmDialog, emptyState, icon } from '../../components.js';
+import { badge, card, dateField, formGrid, selectField, triStateField, confirmDialog, emptyState, icon, infoTip } from '../../components.js';
 import { equipmentLineFromLibrary, externalLineFromService, blankEquipmentLine, createExternalTerms, createMobilization, acquisitionOf } from '../../../domain/quote-factory.js';
 import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
 import { activationTerms, withActivationOptions } from '../../../domain/activation-terms.js';
@@ -880,7 +880,8 @@ export function render(container, ctx) {
         : h('div', { class: 'qe-toolbar' },
           kit.action('Por viaje completo (ida y vuelta)', () => setExternalUnit(index, ROUND_TRIP)),
           kit.action(`Sí, cobra ${T.per}`, () => ctx.mutate((q) => { q.equipment[index].externalUnitConfirmed = externalUnitAssumption(q, q.equipment[index]); })),
-          h('span', { class: 'small muted' }, `Si los viajes son de tus vehículos y el proveedor va una sola vez, confirmá «cobra ${T.per}».`)),
+          // La pista para elegir va en el (i): el aviso ya tiene mucho texto.
+          infoTip(`Si los viajes son de tus vehículos y el proveedor va una sola vez, confirmá «cobra ${T.per}».`, { label: '¿Cuál elijo?' })),
     ), (r) => Boolean(unitPendingOf(r, index)));
     const line = quote.equipment[index] || {};
     const c = line.externalUnitConfirmed;

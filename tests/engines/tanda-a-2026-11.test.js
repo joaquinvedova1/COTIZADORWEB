@@ -106,6 +106,30 @@ describe('A-1 · Precio cerrado: el total es por trabajo, nunca × meses de cont
     close(c.contract.revenue, 2_500_000 * 4);
   });
 
+  test('1,5 trabajos por mes con cobro de movilización por trabajo: total = tarifa + movilización (× trabajos de la obra)', () => {
+    const q = closedQuote({ activity: { billableQuantityPerMonth: 1.5, daysPerActivation: 10 }, contractJobs: 2 });
+    q.pricingMode = 'known_rate';
+    q.pricing.knownRate = 10_000_000;
+    q.rules = { ...(q.rules || {}), mobilizationFeePerActivation: 1_000_000 };
+    const r = computeQuote(q, { settings: {} });
+    const c = priceComposition(r);
+    close(r.kpis.revenue, 1.5 * 11_000_000);
+    close(c.contract.jobsPerMonth, 1.5);
+    close(c.contract.revenue, 2 * 11_000_000);
+    close(c.contract.cost, (r.estimate.cost.total / 1.5) * 2);
+    close(c.contract.revenue, c.contract.cost + c.contract.billingTaxes + c.contract.profit);
+  });
+
+  test('trabajo más largo que los días disponibles: 1 trabajo, sin × meses (fijos × monthsFactor en el costo)', () => {
+    const q = closedQuote({ activity: { billableQuantityPerMonth: 1, daysPerActivation: 45 } });
+    const r = computeQuote(q, { settings: {} });
+    const c = priceComposition(r);
+    close(r.estimate.cost.monthsFactor, 1.5);
+    close(c.contract.jobsPerMonth, 1);
+    close(c.contract.revenue, r.kpis.revenue);
+    close(c.contract.cost, r.estimate.cost.total);
+  });
+
   test('cotización anterior sin contrato (lump_sum): también es precio cerrado', () => {
     const q = closedQuote();
     delete q.contract;
@@ -175,9 +199,28 @@ describe('A-3 · Remolque arrastrado ("va enganchado y rueda")', () => {
     assert.equal(it.focus, 'equipment.1.mobilization.towed');
     q.equipment[1].mobilization.towed = true;
     assert.equal(item(q, 'mobility').status, 'ok');
-    // Marcado como "cargado arriba" (false explícito) se sigue preguntando: no es un dato distinto del default.
+    // Elegido explícitamente "Va cargado arriba" (false): la pregunta queda respondida y no se suma desgaste.
     q.equipment[1].mobilization.towed = false;
+    assert.equal(item(q, 'mobility').status, 'ok');
+    delete q.equipment[1].mobilization.towed;
     assert.equal(item(q, 'mobility').status, 'warning');
+  });
+
+  test('Ver cálculo de movilización: el remolque enganchado aparece con su desgaste (sin combustible)', () => {
+    resetIds();
+    const q = service({
+      serviceType: 'equipment_with_operator', unit: 'job', activity: { billableQuantityPerMonth: 1, daysPerActivation: 2, hoursPerActiveDay: 8 },
+      labor: [person({ id: 'op' })],
+      equipment: [owned({ ...tractor, operatorLaborId: 'op', fuelLitersPerHour: 10 }), owned({ ...trailer({ towed: true }), fuelNotApplicable: true })],
+      logistics: { notApplicable: false, distanceKm: 640, roundTrip: true, tripsPerActivation: 1, vehicles: [] },
+    });
+    const r = computeQuote(q, { settings: {} });
+    const step = r.traces.logistics.steps.find((s) => /Carretón/.test(s.label));
+    assert.ok(step, 'el carretón enganchado figura en los pasos');
+    assert.match(step.label, /enganchado/);
+    close(step.value, 89_600);
+    // Neumáticos por km del carretón sólo en la movilización: su operación en Equipos no los cuenta por hora.
+    assert.equal(r.model.equipment[1].operation.tiresPerHour, 0);
   });
 
   test('en la cotización: +89.600 por trabajo de desgaste del carretón', () => {
@@ -367,13 +410,43 @@ describe('A-15 · Avisos informativos nuevos (no bajan el puntaje)', () => {
     assert.match(n.message, /este precio absorbe \$\s?[\d.]+ de costos fijos de 1,5 meses/);
     assert.match(n.message, /asignales un % compartido/);
     assert.match(n.message, /RATEOS no lo aplica solo/);
-    assert.equal(n.focus, 'labor.0.assignment');
-    close(n.amount, (r.model.labor.lines[0].fixedMonthly + r.model.equipment.filter((e) => e.acquisition === 'owned').reduce((s, e) => s + e.fixedMonthly, 0)) * 1.5);
+    // El personal del 2x1 C3 está "contratado para este servicio": no se comparte con otras obras,
+    // así que no entra en el aviso (revisión de costos). Sólo la tenencia de los equipos propios.
+    assert.equal(q.labor[0].assignment, 'hired');
+    assert.equal(n.focus, 'equipment.0.assignment');
+    close(n.laborFixed, 0);
+    close(n.amount, r.model.equipment.filter((e) => e.acquisition === 'owned').reduce((s, e) => s + e.fixedMonthly, 0) * 1.5);
+    close(n.amount, 2_390_000);
+    // Dedicado: el sueldo del mes también se informa.
+    const dedicated = c3();
+    dedicated.labor.forEach((l) => { l.assignment = 'dedicated'; });
+    const rd = run(dedicated);
+    const nd = notice(rd, 'fixed_costs_absorbed');
+    assert.equal(nd.focus, 'labor.0.assignment');
+    close(nd.amount, (rd.model.labor.lines[0].fixedMonthly + rd.model.equipment.filter((e) => e.acquisition === 'owned').reduce((s, e) => s + e.fixedMonthly, 0)) * 1.5);
     // Con todos compartidos no hay nada que informar.
     const shared = c3();
     shared.labor.forEach((l) => { l.assignment = 'shared'; l.fixedCostSharePct = 40; });
     shared.equipment.forEach((e) => { e.assignment = 'shared'; e.fixedCostSharePct = 40; });
     assert.equal(notice(run(shared), 'fixed_costs_absorbed'), undefined);
+  });
+
+  test('(a) "contratada para este servicio" no entra; "compartida" sin % válido (cargada al 100 %) sí', () => {
+    resetIds();
+    const q = service({ serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 8, hoursPerActiveDay: 8 }, labor: [person({ role: 'A' }), person({ role: 'B' })] });
+    q.contract = { mode: 'on_demand', components: ['labor'] };
+    q.labor[0].assignment = 'hired';
+    q.labor[1].assignment = 'shared';
+    q.labor[1].fixedCostSharePct = null;
+    const r = computeQuote(q, { settings: {} });
+    const n = notice(r, 'fixed_costs_absorbed');
+    assert.ok(n);
+    close(n.amount, r.model.labor.lines[1].fixedMonthly);
+    assert.deepEqual(n.targets.map((t) => t.index), [1]);
+    assert.equal(n.focus, 'labor.1.assignment');
+    // Con un % válido ya está compartida: sólo queda la contratada, que no se informa.
+    q.labor[1].fixedCostSharePct = 50;
+    assert.equal(notice(computeQuote(q, { settings: {} }), 'fixed_costs_absorbed'), undefined);
   });
 
   test('(a) on call con menos días que los disponibles también; fijo mensual no (el abono cubre el mes)', () => {

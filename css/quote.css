@@ -158,6 +158,7 @@
 .qe-notice { display: flex; gap: 0.5rem; align-items: baseline; }
 .qe-notice .dot { transform: translateY(1px); }
 .qe-notices.has-red { border-left-color: var(--red); }
+.qe-notices.is-info-only { border-left-color: var(--blue-400); }
 
 .qe-issue-note { font-size: 0.78rem; font-weight: 600; }
 .qe-issue-error { color: var(--red-text); }

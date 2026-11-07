@@ -1027,6 +1027,16 @@ function chargedRateLabel(r) {
  * 1 decimal ("6,4 días", igual que el Resultado); los 2 decimales quedan
  * para "Ver cálculo".
  */
+/**
+ * Precio cerrado (tanda A 2026-11, A-12): con un trabajo por mes, los números del mes
+ * son los del trabajo y el resumen los rotula igual que el Resultado.
+ */
+function closedOf(r) {
+  const closed = Boolean(r && r.contract && r.contract.mode === 'closed');
+  const q = r && r.kpis ? r.kpis.billableQuantity : null;
+  return { closed, single: closed && isFiniteNumber(q) && Math.abs(q - 1) < 1e-9 };
+}
+
 function breakEvenText(r, { decimals = 1 } = {}) {
   const be = r.breakEven || {};
   if (be.notApplicable) return 'No aplica';
@@ -1035,6 +1045,8 @@ function breakEvenText(r, { decimals = 1 } = {}) {
   const zero = breakEvenZeroText(r, { compact: true });
   if (zero) return zero;
   // Por cantidad (m³, viajes…; PLAN-2026-009): en la unidad comercial.
+  // Precio cerrado: trabajos enteros, como el Resultado (nunca "0,5 trabajos").
+  if (closedOf(r).closed && isFiniteNumber(be.wholeQuantity) && be.wholeQuantity > 0) return quantityText(be.wholeQuantity, r);
   if (isQuantityUnit(r)) return quantityCeilText(be.quantity, r);
   return formatDays(be.days, { decimals });
 }
@@ -1116,8 +1128,8 @@ function buildSummary({ getResult, stepHref }) {
     { class: 'qe-sum-list qe-sum-main' },
     item({
       key: 'totalCost',
-      label: 'Costo del mes',
-      short: 'Costo del mes',
+      label: (r) => (closedOf(r).single ? 'Costo del trabajo' : 'Costo del mes'),
+      short: (r) => (closedOf(r).single ? 'Costo del trabajo' : 'Costo del mes'),
       value: (r) => formatMoney(r.kpis.totalCost),
       compact: (r) => formatMoneyCompact(r.kpis.totalCost),
       hint: (r) => (isQuantityUnit(r)
@@ -1194,10 +1206,10 @@ function buildSummary({ getResult, stepHref }) {
     }),
     item({
       key: 'expectedResult',
-      label: 'Resultado esperado del mes',
+      label: (r) => (closedOf(r).single ? 'Resultado esperado del trabajo' : 'Resultado esperado del mes'),
       value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
       // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} por mes.` : 'Sin tarifa todavía.'),
+      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} ${closedOf(r).single ? 'por trabajo' : 'por mes'}.` : 'Sin tarifa todavía.'),
       tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
       trace: (r) => r.traces.expectedResult,
     }),
@@ -1328,8 +1340,16 @@ function buildSummary({ getResult, stepHref }) {
         if (row.compactEl) {
           const compact = resolve(row.compact, r) || EMPTY;
           // Un número abreviado no se corta ("$ 15,8 M"); un texto ("No se alcanza") puede ocupar dos renglones.
-          row.compactNum.textContent = /\d/.test(compact) ? compact.replace(/ /g, '\u00a0') : compact;
-          row.compactUnit.textContent = compact !== EMPTY && unit && unit !== EMPTY ? unit.replace('/ ', '/') : '';
+          // "0,69 trabajos" / "21 días" (sin unidad aparte): el número arriba y la palabra
+          // debajo, como "$ 87 M" y "/mes"; si no, en 390 px la palabra se partía ("trabaj os").
+          const split = !(unit && unit !== EMPTY) ? /^([\d.,]+) (\S.*)$/.exec(compact) : null;
+          if (split) {
+            row.compactNum.textContent = split[1];
+            row.compactUnit.textContent = split[2];
+          } else {
+            row.compactNum.textContent = /\d/.test(compact) ? compact.replace(/ /g, '\u00a0') : compact;
+            row.compactUnit.textContent = compact !== EMPTY && unit && unit !== EMPTY ? unit.replace('/ ', '/') : '';
+          }
         }
         const hint = resolve(row.hint, r);
         row.hintEl.textContent = hint && hint !== EMPTY ? hint : '';
@@ -1614,11 +1634,15 @@ export function pendingFieldPath(item, quote) {
  * @param {string} stepId
  * @param {{ getQuote?: Function, onReveal?: Function, onFocusField?: Function, hasField?: Function, stepHref?: Function, didactic?: boolean }} options
  */
+/** Avisos informativos (completeness.notices) que también se muestran en su paso. */
+const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip']);
+
 function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
   // En la cotización de ejemplo, los puntos para revisar están a propósito (UX-3).
   const title = didactic ? 'Para revisar: el ejemplo lo deja a propósito' : 'Para revisar en este paso';
-  const el = h('section', { class: 'qe-notices', 'aria-label': 'Pendientes y avisos de este paso', hidden: true }, h('h3', { class: 'qe-notices-title' }, title), list);
+  const titleEl = h('h3', { class: 'qe-notices-title' }, title);
+  const el = h('section', { class: 'qe-notices', 'aria-label': 'Pendientes y avisos de este paso', hidden: true }, titleEl, list);
   const goButton = (label, onClick) => button(label, { variant: 'link', size: 'sm', attrs: { class: 'btn btn-link btn-sm qe-notice-go' }, onClick });
   /** "Ir al campo" (opciones avanzadas o campo de una línea) o, si el dato es de otro paso, un enlace a ese paso. */
   const actionFor = (item, quote) => {
@@ -1642,13 +1666,19 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
       const quote = getQuote();
       const items = ((result.completeness && result.completeness.items) || []).filter((i) => stepOfItem(i) === stepId && i.status !== 'ok' && i.status !== 'n/a' && !askedOnScreen(i, quote));
       const issues = (result.issues || []).filter((i) => stepOfPath(i.path) === stepId);
-      if (items.length === 0 && issues.length === 0) {
+      // Avisos informativos de la tanda A 2026-11 (A-15): no restan puntaje, pero cambian
+      // la decisión de precio; se ven en su paso (y en el Resultado), en azul.
+      const infos = ((result.completeness && result.completeness.notices) || []).filter((n) => STEP_NOTICE_IDS.has(n.id) && (n.step === stepId || (Array.isArray(n.targets) && n.targets.some((t) => t && t.list === stepId))));
+      if (items.length === 0 && issues.length === 0 && infos.length === 0) {
         el.hidden = true;
         clear(list);
         return;
       }
       el.hidden = false;
       el.classList.toggle('has-red', items.some((i) => i.status === 'missing') || issues.some((i) => i.severity === 'error'));
+      const infoOnly = items.length === 0 && issues.length === 0;
+      el.classList.toggle('is-info-only', infoOnly);
+      titleEl.textContent = infoOnly ? 'Para tener en cuenta' : title;
       mount(
         list,
         ...items.map((i) => h(
@@ -1658,6 +1688,12 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
           h('span', {}, h('strong', {}, `${i.label}: `), i.message, ' ', actionFor(i, quote)),
         )),
         ...issues.map((i) => h('li', { class: ['qe-notice', `is-${i.severity === 'error' ? 'red' : 'orange'}`] }, h('span', { class: ['dot', `dot-${i.severity === 'error' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }), h('span', {}, i.message))),
+        ...infos.map((n) => h(
+          'li',
+          { class: ['qe-notice', 'is-info'] },
+          h('span', { class: ['dot', 'dot-blue'], 'aria-hidden': 'true' }),
+          h('span', {}, h('strong', {}, `${n.label}: `), n.message, ' ', actionFor(n, quote)),
+        )),
       );
     },
   };

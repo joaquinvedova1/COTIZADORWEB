@@ -445,7 +445,7 @@ export function evaluateCompleteness(quote = {}) {
     const noConsumption = fuel.providedBy === 'client' ? [] : mob.lines.map((l, idx) => ({ l, idx })).filter(({ l, idx }) => l.warnings.includes('travel_consumption') && paysRouteFuelAt(idx));
     // Remolque con neumáticos por km que "lo transporta otro equipo" y no está marcado como
     // enganchado (A-3): su desgaste por km queda afuera. Nunca se marca solo.
-    const untowed = mob.lines.map((l, idx) => ({ l, idx })).filter(({ l }) => l.mode === 'transported' && !l.towed && !l.includedByProvider && l.tiresPerKm > 0);
+    const untowed = mob.lines.map((l, idx) => ({ l, idx })).filter(({ l }) => l.mode === 'transported' && !l.towedChosen && !l.includedByProvider && l.tiresPerKm > 0);
     const ok = pending.length === 0 && broken.length === 0 && noDriver.length === 0 && noConsumption.length === 0 && untowed.length === 0;
     const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Equipo'}"`).join(', ');
     const item = rule('mobility', 'Movilización de equipos', 'logistics', 1, ok ? 'ok' : 'warning',
@@ -459,7 +459,7 @@ export function evaluateCompleteness(quote = {}) {
               ? `Falta definir quién maneja ${names(noDriver)} en el traslado.`
               : noConsumption.length
                 ? `Falta el consumo en ruta de ${names(noConsumption.map(({ l }) => l))}: el combustible del traslado queda en 0. Cargá los L/100 km en ruta o, si no usa combustible, marcalo en Equipos.`
-                : `${names(untowed.map(({ l }) => l))} ${untowed.length === 1 ? 'tiene' : 'tienen'} neumáticos por km y lo transporta otro equipo: si va enganchado y rueda (remolque, carretón o batea), marcá "Va enganchado y rueda" para sumar su desgaste por km. Si va cargado arriba, está bien así.`);
+                : `${names(untowed.map(({ l }) => l))} ${untowed.length === 1 ? 'tiene' : 'tienen'} neumáticos por km y lo transporta otro equipo: si va enganchado y rueda (remolque, carretón o batea), elegí "Va enganchado y rueda" para sumar su desgaste por km; si va cargado arriba, elegí "Va cargado arriba".`);
     if (!ok && !pending.length && !broken.length && !noDriver.length) {
       if (noConsumption.length) {
         item.focus = `equipment.${noConsumption[0].idx}.mobilization.travelLitersPer100Km`;
@@ -909,7 +909,8 @@ export function evaluateCompleteness(quote = {}) {
  * Costos fijos absorbidos (tanda A 2026-11, A-15 a; informativo, no resta puntaje). En precio
  * cerrado, o con menos días de trabajo que los disponibles (salvo fijo mensual, donde el abono
  * cubre el mes por definición), el precio carga el costo fijo del mes completo de las personas y
- * los equipos propios al 100 % (dedicados, contratados, reservados o sin dato). Se informa el
+ * los equipos propios al 100 % (dedicados, reservados, sin dato o compartidos sin % válido; no los
+ * "contratados para este servicio", que no se comparten). Se informa el
  * monto; NUNCA se aplica un % compartido solo (AGENTS §5.1: no se infiere del uso).
  *
  *   X = Σ costo fijo del mes de esas líneas × meses de costo fijo (monthsFactor)
@@ -927,9 +928,13 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
   if (!(D > 0)) return null;
   const closed = contract.mode === 'closed';
   if (!closed && !(contract.mode !== 'monthly' && D < available - 1e-9)) return null;
+  // Al 100 % y que podría compartirse: dedicada / reservado / sin dato, o "compartida" sin un %
+  // válido (se carga al 100 %). Se excluye "contratada para este servicio": no trabaja en otras
+  // obras, así que el aviso ("asignales un % compartido") no le aplica (revisión de costos de la tanda A).
   const full = (line) => {
     const share = fixedCostShareOf(line);
-    return !share.shared;
+    if (share.assignment === 'hired') return false;
+    return !share.shared || share.missing;
   };
   const labor = objectList(quote.labor);
   const laborModel = model.labor && Array.isArray(model.labor.lines) ? model.labor.lines : [];

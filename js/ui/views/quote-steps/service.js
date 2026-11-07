@@ -283,9 +283,14 @@ export function render(container, ctx) {
       summary: () => {
         const parts = [
           `Estado: ${labelOf(QUOTE_STATUSES, quote.status, 'sin estado').toLowerCase()}`,
-          isFiniteNumber(Number(quote.contractMonths)) && quote.contractMonths !== null && quote.contractMonths !== ''
-            ? `contrato de ${formatNumber(Number(quote.contractMonths))} meses`
-            : 'sin duración de contrato',
+          // Precio cerrado (A-1): lo que muestra el Resultado es el total por trabajo(s), no por meses.
+          contract.mode === 'closed'
+            ? (isFiniteNumber(Number(quote.contractJobs)) && Number(quote.contractJobs) > 0 && quote.contractJobs !== null && quote.contractJobs !== ''
+              ? `total de ${formatNumber(Number(quote.contractJobs), { decimals: 2 })} trabajos`
+              : 'total de 1 trabajo')
+            : isFiniteNumber(Number(quote.contractMonths)) && quote.contractMonths !== null && quote.contractMonths !== ''
+              ? `contrato de ${formatNumber(Number(quote.contractMonths))} meses`
+              : 'sin duración de contrato',
           quote.code ? `código ${quote.code}` : null,
           String(quote.notes || '').trim() ? 'con notas' : null,
         ].filter(Boolean);
@@ -296,21 +301,25 @@ export function render(container, ctx) {
       3,
       kit.staticField('Código', quote.code, 'Se asigna automáticamente y no se puede cambiar.'),
       kit.select('status', { label: 'Estado', options: QUOTE_STATUSES.map((s) => ({ value: s.id, label: s.label })) }),
-      kit.num('contractMonths', {
-        label: 'Duración del contrato',
-        rule: 'months',
-        unit: 'meses',
-        hint: `Se usa para el descuento por continuidad (en ${step('margin')}).`,
-      }),
-      // Precio cerrado (tanda A 2026-11, A-1): el total del Resultado es por trabajo, no por meses.
+      // Precio cerrado (tanda A 2026-11, A-1): el total del Resultado es por trabajo, no por
+      // meses; por eso va antes que la duración del contrato.
       contract.mode === 'closed'
         ? kit.num('contractJobs', {
           label: 'Trabajos que cubre el total',
           rule: 'quantity',
           unit: 'trabajos',
-          hint: 'Con precio cerrado, el Resultado muestra el total de un trabajo. Si la obra son varios trabajos iguales, cargá cuántos. Vacío = 1.',
+          placeholder: '1',
+          hint: 'El Resultado muestra el total de un trabajo. Si la obra son varios trabajos iguales, cargá cuántos. Vacío = 1.',
         })
         : null,
+      kit.num('contractMonths', {
+        label: 'Duración del contrato',
+        rule: 'months',
+        unit: 'meses',
+        hint: contract.mode === 'closed'
+          ? `Se usa para el descuento por continuidad (en ${step('margin')}). Con precio cerrado no multiplica el total del trabajo.`
+          : `Se usa para el descuento por continuidad (en ${step('margin')}).`,
+      }),
     ),
     kit.text('notes', {
       label: 'Notas internas',
