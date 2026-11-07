@@ -26,20 +26,41 @@
  *   personas por relevo = en sitio ÷ grupos
  *   persona-días en sitio por mes = en sitio × días del mes        (base para campamento)
  * Sin franco (daysOff = 0) no hay relevos: nómina = en sitio y 0 relevos.
+ *
+ * Esquema fijo o rotativo y cobertura vendida (PLAN-2026-024):
+ *   pattern 'rotating' (default, como siempre): el servicio sigue mientras unos descansan
+ *           (7x7, 14x7, 14x14…). Con la cobertura vendida del mes (días de servicio):
+ *             nómina exacta = en sitio × ciclo ÷ días en sitio × mín(1, cobertura ÷ días del mes)
+ *           Sin cobertura (o cobertura = el mes) → la fórmula de siempre. Nunca menos que en sitio.
+ *   pattern 'fixed': la cuadrilla trabaja cuando trabaja el servicio y descansa cuando el
+ *           servicio para (5x2 de lunes a viernes, 6x1). Nómina = en sitio, sin relevos.
+ *           Si la cobertura pide más días que los que da el esquema, lo avisa (`coverageShort`).
+ * Horas (sólo informa, nunca cambia el costo):
+ *   días trabajados por persona por mes = en sitio × cobertura ÷ nómina   (promedio real)
+ *   horas trabajadas por persona por mes = esos días × horas por turno (jornada)
+ *   horas por encima de las normales = máx(0, trabajadas − horas normales por mes del puesto)
+ *   promedio semanal en 3 semanas = días trabajados en la peor ventana de 21 días × horas por
+ *                   turno ÷ 3 (Ley 11.544 art. 3 b: trabajo por equipos, promedio de 3 semanas)
+ *   Cómo se pagan esas horas (HE 50 / 100 %, adicional por diagrama, régimen especial) lo dice
+ *   el convenio: RATEOS no lo infiere. Quien cotiza puede cargarlas como horas extra por mes.
  */
 
 import { isPlainObject } from '../core/object.js';
 import { nonNegative, safeDivide } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
+import { contractOf } from '../domain/contract.js';
 
 /** Atajos de diagrama (plantillas rápidas editables: sólo llenan días en sitio y de franco). */
 export const ROTATION_TEMPLATES = Object.freeze([
-  Object.freeze({ id: '7x7', daysOn: 7, daysOff: 7 }),
-  Object.freeze({ id: '14x14', daysOn: 14, daysOff: 14 }),
-  Object.freeze({ id: '14x7', daysOn: 14, daysOff: 7 }),
-  Object.freeze({ id: '20x10', daysOn: 20, daysOff: 10 }),
-  Object.freeze({ id: '5x2', daysOn: 5, daysOff: 2 }),
+  Object.freeze({ id: '5x2', daysOn: 5, daysOff: 2, pattern: 'fixed', label: '5x2 (lunes a viernes)' }),
+  Object.freeze({ id: '6x1', daysOn: 6, daysOff: 1, pattern: 'fixed', label: '6x1 (lunes a sábado)' }),
+  Object.freeze({ id: '7x7', daysOn: 7, daysOff: 7, pattern: 'rotating', label: '7x7 (1x1)' }),
+  Object.freeze({ id: '14x7', daysOn: 14, daysOff: 7, pattern: 'rotating', label: '14x7 (2x1)' }),
+  Object.freeze({ id: '14x14', daysOn: 14, daysOff: 14, pattern: 'rotating', label: '14x14' }),
+  Object.freeze({ id: '20x10', daysOn: 20, daysOff: 10, pattern: 'rotating', label: '20x10' }),
 ]);
+
+export const ROTATION_PATTERNS = Object.freeze(['rotating', 'fixed']);
 
 export const ROTATION_ROUNDINGS = Object.freeze(['up', 'exact']);
 
@@ -58,7 +79,7 @@ export function hasRotation(line) {
  * @param {object|null} rotation `labor[i].rotation`
  * @param {{ positions?: number }} ctx posiciones actuales del puesto (default de "en sitio")
  */
-export function computeRotation(rotation, { positions = 0 } = {}) {
+export function computeRotation(rotation, { positions = 0, coverageDaysPerMonth = null, normalHoursPerMonth = null } = {}) {
   const r = isPlainObject(rotation) ? rotation : {};
   const daysOn = nonNegative(r.daysOn);
   const daysOff = nonNegative(r.daysOff);
@@ -73,22 +94,59 @@ export function computeRotation(rotation, { positions = 0 } = {}) {
   const dpmRaw = nonNegative(r.daysPerMonth);
   const daysPerMonth = dpmRaw > 0 ? dpmRaw : ROTATION_DEFAULT_DAYS_PER_MONTH;
 
+  const pattern = ROTATION_PATTERNS.includes(r.pattern) ? r.pattern : 'rotating';
+  const fixed = pattern === 'fixed';
+  // Cobertura vendida (días de servicio del mes): vacía = el mes entero (como siempre).
+  const coverageRaw = nonNegative(coverageDaysPerMonth);
+  const coverageDays = coverageRaw > 0 ? Math.min(coverageRaw, daysPerMonth) : daysPerMonth;
+  const coverageShare = safeDivide(coverageDays, daysPerMonth, 1);
+
   const ready = daysOn > 0 && onSite > 0;
   const cycleDays = daysOn + daysOff;
   const onSiteShare = ready ? safeDivide(daysOn, cycleDays, 0) : null;
-  const payrollExact = ready ? onSite * cycleDays / daysOn : null;
+  const payrollExact = !ready ? null : fixed ? onSite : Math.max(onSite, onSite * cycleDays / daysOn * coverageShare);
   const fractional = ready && Math.abs(payrollExact - Math.round(payrollExact)) > 1e-6;
   const payroll = ready ? (rounding === 'exact' ? payrollExact : Math.ceil(payrollExact - 1e-6)) : null;
-  const averageOnSite = ready ? payroll * onSiteShare : null;
-  const rotates = ready && daysOff > 0;
+  const averageOnSite = ready ? (fixed ? onSite * coverageShare : payroll * onSiteShare) : null;
+  const rotates = ready && daysOff > 0 && !fixed;
   const relievesPerMonth = rotates ? daysPerMonth / daysOn * groups : ready ? 0 : null;
   const daysBetweenRelieves = rotates ? daysOn / groups : null;
   const peoplePerRelief = rotates ? onSite / groups : null;
   const shiftHoursPerDay = shiftsPerDay > 0 && hoursPerShift ? shiftsPerDay * hoursPerShift : null;
+  // Días que da el esquema por persona en el mes (5x2 → 21,4) y los que pide la cobertura.
+  const schemeDaysPerPerson = ready ? daysPerMonth * onSiteShare : null;
+  const coverageFromQuote = coverageRaw > 0;
+  const coverageShort = ready && fixed && coverageFromQuote && coverageDays > schemeDaysPerPerson + 1 + EPS;
+  // Horas (sólo informa): promedio real por persona con la nómina propuesta. Un esquema fijo
+  // nunca trabaja más días que los que da (lo que falta lo dice coverageShort); sin cobertura
+  // cargada, los días del esquema.
+  const fixedDays = ready && fixed ? (coverageFromQuote && !coverageShort ? coverageDays : schemeDaysPerPerson) : null;
+  const workedDaysPerPerson = !(ready && payroll > 0) ? null : fixed ? fixedDays : onSite * coverageDays / payroll;
+  const workedHoursPerPerson = workedDaysPerPerson !== null && hoursPerShift ? workedDaysPerPerson * hoursPerShift : null;
+  const normalHours = nonNegative(normalHoursPerMonth) > 0 ? nonNegative(normalHoursPerMonth) : null;
+  const hoursAboveNormal = workedHoursPerPerson !== null && normalHours ? Math.max(0, workedHoursPerPerson - normalHours) : null;
+  // Ley 11.544 (art. 3 b): en trabajo por equipos el límite se promedia en 3 semanas. Peor
+  // ventana de 21 días seguidos del ciclo → horas por semana en promedio.
+  const window21 = ready && cycleDays > 0
+    ? (fixed ? 3 * Math.min(daysOn, 7) : Math.floor(21 / cycleDays) * daysOn + Math.min(daysOn, 21 % cycleDays))
+    : null;
+  const threeWeekHours = window21 !== null && hoursPerShift ? window21 * hoursPerShift / 3 : null;
 
   return {
     ready,
     templateId: (ROTATION_TEMPLATES.find((t) => Math.abs(t.daysOn - daysOn) < EPS && Math.abs(t.daysOff - daysOff) < EPS) || {}).id || null,
+    pattern,
+    fixed,
+    coverageDays,
+    coverageFromQuote,
+    coverageShare,
+    schemeDaysPerPerson,
+    coverageShort,
+    workedDaysPerPerson,
+    workedHoursPerPerson,
+    normalHoursPerMonth: normalHours,
+    hoursAboveNormal,
+    threeWeekHours,
     label: daysOn > 0 ? `${fmtPlain(daysOn)}x${fmtPlain(daysOff)}` : null,
     daysOn,
     daysOff,
@@ -112,7 +170,7 @@ export function computeRotation(rotation, { positions = 0 } = {}) {
     daysBetweenRelieves,
     peoplePerRelief,
     onSitePerDay: ready ? onSite : null,
-    personDaysOnSitePerMonth: ready ? onSite * daysPerMonth : null,
+    personDaysOnSitePerMonth: ready ? onSite * coverageDays : null,
     coverageHoursPerDay: hoursPerShift,
   };
 }
@@ -128,13 +186,17 @@ export function rotationTrace(rot, { role = '' } = {}) {
   return createTrace({
     id: 'labor_rotation',
     title: `Diagrama de rotación — ${role || 'Puesto'}`,
-    formula: 'Nómina = personas en sitio × (días en sitio + días de franco) ÷ días en sitio · Relevos por mes = días del mes ÷ días en sitio × grupos que entran escalonados · Días entre relevos = días en sitio ÷ grupos',
+    formula: rot.fixed
+      ? 'Esquema fijo (la cuadrilla descansa cuando el servicio para): nómina = personas en sitio, sin relevos · Horas por persona = días de servicio × horas por turno'
+      : 'Nómina = personas en sitio × (días en sitio + días de franco) ÷ días en sitio × mín(1, días de servicio ÷ días del mes) · Relevos por mes = días del mes ÷ días en sitio × grupos que entran escalonados · Días entre relevos = días en sitio ÷ grupos',
     inputs: [
       { label: 'Días en sitio', value: rot.daysOn, format: 'days' },
       { label: 'Días de franco', value: rot.daysOff, format: 'days' },
       { label: 'Personas en sitio a la vez', value: rot.onSite, format: 'number' },
       { label: 'Grupos que entran escalonados', value: rot.groups, format: 'number' },
       { label: 'Días del mes', value: rot.daysPerMonth, format: 'days' },
+      { label: rot.coverageFromQuote ? 'Días de servicio por mes (cobertura vendida)' : 'Días de servicio por mes (todo el mes)', value: rot.coverageDays, format: 'days' },
+      ...(rot.normalHoursPerMonth ? [{ label: 'Horas normales por mes del puesto', value: rot.normalHoursPerMonth, format: 'hours' }] : []),
       ...(rot.shiftsPerDay ? [{ label: 'Turnos por día', value: rot.shiftsPerDay, format: 'number' }] : []),
       ...(rot.hoursPerShift ? [{ label: 'Horas por turno', value: rot.hoursPerShift, format: 'hours' }] : []),
     ],
@@ -146,11 +208,71 @@ export function rotationTrace(rot, { role = '' } = {}) {
       { label: 'Relevos por mes', value: rot.relievesPerMonth, format: 'number' },
       ...(rot.daysBetweenRelieves ? [{ label: 'Días entre relevos', value: rot.daysBetweenRelieves, format: 'days' }] : []),
       { label: 'Persona-días en sitio por mes', value: rot.personDaysOnSitePerMonth, format: 'number' },
+      ...(rot.workedDaysPerPerson !== null ? [{ label: 'Días trabajados por persona por mes (promedio)', value: rot.workedDaysPerPerson, format: 'days' }] : []),
+      ...(rot.workedHoursPerPerson !== null ? [{ label: 'Horas trabajadas por persona por mes (promedio)', value: rot.workedHoursPerPerson, format: 'hours' }] : []),
+      ...(rot.hoursAboveNormal !== null ? [{ label: 'Horas por encima de las normales del puesto', value: rot.hoursAboveNormal, format: 'hours' }] : []),
+      ...(rot.threeWeekHours !== null ? [{ label: 'Horas por semana en promedio (peor ventana de 3 semanas)', value: rot.threeWeekHours, format: 'hours' }] : []),
     ],
     result: { label: 'Personas en nómina propuestas', value: rot.payroll, format: 'number' },
     notes: [
       'Es una propuesta: el costo no cambia hasta que tocás "Aplicar al puesto". Después podés editar todo a mano.',
       'RATEOS no infiere el diagrama, los turnos ni el convenio: los cargás vos.',
+      'Las horas por encima de las normales sólo se informan: cómo se pagan (horas extra, adicional por diagrama o un régimen especial) lo define tu convenio.',
     ],
   });
+}
+
+/** Cómo viaja el personal a la locación en un fijo mensual (PLAN-2026-024). */
+export const TRAVEL_PATTERNS = Object.freeze(['daily', 'rotation', 'custom']);
+
+/**
+ * Relevo que dicta el diagrama de Personal (PLAN-2026-024): el más frecuente entre los puestos
+ * con diagrama ROTATIVO completo (días en sitio y de franco > 0). Así el diagrama se carga una
+ * sola vez (en el puesto) y los viajes de relevo lo siguen.
+ * @returns {{ daysBetweenRelieves: number, index: number, role: string, label: string }|null}
+ */
+export function reliefFromLabor(labor = []) {
+  const list = Array.isArray(labor) ? labor : [];
+  let best = null;
+  list.forEach((l, index) => {
+    if (!hasRotation(l) || !(nonNegative(l.positions) > 0)) return;
+    const rot = computeRotation(l.rotation, { positions: nonNegative(l.positions) });
+    if (!rot.ready || !(rot.daysBetweenRelieves > 0)) return;
+    if (!best || rot.daysBetweenRelieves < best.daysBetweenRelieves - EPS) {
+      best = { daysBetweenRelieves: rot.daysBetweenRelieves, index, role: typeof l.role === 'string' ? l.role.trim() : '', label: rot.label };
+    }
+  });
+  return best;
+}
+
+/**
+ * Días entre viajes de una cotización según cómo viaja el personal (PLAN-2026-024):
+ *   'daily'    va y vuelve cada día de servicio → 1
+ *   'rotation' viaja con cada relevo del diagrama de Personal → días entre relevos (si no hay
+ *              diagrama rotativo completo, el número guardado, como siempre)
+ *   'custom' o sin dato → el número guardado (`activity.daysPerActivation`, como siempre)
+ * @returns {{ pattern: string|null, days: number|null, relief: object|null }} days null = usar el guardado
+ */
+export function travelDaysOf(quote = {}) {
+  const a = quote && isPlainObject(quote.activity) ? quote.activity : {};
+  // Sólo en fijo mensual (donde se pregunta): en otra modalidad el dato guardado no rige.
+  const applies = contractOf(quote).mode === 'monthly' && quote.serviceType !== 'permanent';
+  const pattern = applies && TRAVEL_PATTERNS.includes(a.travelPattern) ? a.travelPattern : null;
+  if (pattern === 'daily') return { pattern, days: 1, relief: null };
+  if (pattern === 'rotation') {
+    const relief = reliefFromLabor(quote.labor);
+    return { pattern, days: relief ? relief.daysBetweenRelieves : null, relief };
+  }
+  return { pattern, days: null, relief: null };
+}
+
+/**
+ * Días de servicio que usa la propuesta del esquema (PLAN-2026-024): la cobertura vendida sólo
+ * en fijo mensual o servicio permanente; en el resto (los días son facturados o con llamado)
+ * null = el mes entero, como siempre.
+ */
+export function rotationCoverageOf(quote = {}, activeDaysPerMonth = null) {
+  const q = isPlainObject(quote) ? quote : {};
+  const monthly = contractOf(q).mode === 'monthly' || q.serviceType === 'permanent';
+  return monthly && nonNegative(activeDaysPerMonth) > 0 ? nonNegative(activeDaysPerMonth) : null;
 }

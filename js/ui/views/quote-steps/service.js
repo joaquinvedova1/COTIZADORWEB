@@ -8,10 +8,10 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { button, card, choiceGroup, dateField, formGrid, icon, confirmDialog, infoTip } from '../../components.js';
+import { button, card, choiceGroup, dateField, formGrid, icon, confirmDialog, infoTip, searchSelectField } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf, BILLING_UNITS } from '../../../domain/billing-units.js';
-import { CONTRACT_MODES, SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUnits, contractUsesMaterials, contractWithComponents, defaultUnitForContract, serviceTypeForContract, templateOf, unitFitsContract } from '../../../domain/contract.js';
+import { CONTRACT_MODES, SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUnits, contractUsesMaterials, contractWithComponents, defaultUnitForContract, serviceTypeForContract, templateOf, unitFitsContract, searchTemplates, templateGroupLabel, templateById } from '../../../domain/contract.js';
 import { isPlainObject } from '../../../core/object.js';
 import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
@@ -120,25 +120,56 @@ const COMPONENT_GROUPS = Object.freeze([
  * que se suman en cualquier combinación (agrupados por el paso donde se
  * cargan, con link y cuántas líneas tiene) y componentes propios ("Otro").
  */
-function componentsComposer({ quote, components, custom, readOnly, ctx, apply }) {
+function componentsComposer({ quote, contract, components, custom, readOnly, ctx, apply, applyTemplate, applySuggestion, pricingLoaded }) {
   const selected = new Set(components);
-  const current = templateOf(components);
+  const saved = isPlainObject(quote.contract) ? quote.contract : {};
+  // Sólo la plantilla elegida (guardada): en cotizaciones anteriores no se adivina por componentes
+  // (no se muestra "Partiste de…" ni una sugerencia de cobro que nunca eligieron).
+  const current = saved.templateId ? templateOf({ ...saved, components }) : null;
 
-  const templates = h('div', { class: 'variant-suggest qe-templates', role: 'group', 'aria-label': 'Plantillas rápidas' },
-    h('span', { class: 'variant-suggest-label' }, 'Plantillas rápidas'),
-    h('div', { class: 'variant-suggest-list' }, ...SERVICE_TEMPLATES.map((t) => h('button', {
-      type: 'button',
-      id: `tpl-${t.id}`,
-      class: ['chip-suggest', current && current.id === t.id ? 'is-selected' : null],
-      'aria-pressed': current && current.id === t.id ? 'true' : 'false',
+  // Plantillas (PLAN-2026-024): un selector buscable y agrupado en vez de una fila de botones.
+  // Es un punto de partida: marca componentes y sugiere modalidad y unidad; todo queda editable.
+  const toOption = (t) => ({ value: t.id, label: t.label, hint: `${templateGroupLabel(t)} · ${t.hint}` });
+  const modeText = (t) => {
+    const parts = [];
+    if (t.mode) parts.push((CONTRACT_MODES.find((m) => m.id === t.mode) || {}).label);
+    if (t.unit) parts.push(billingUnitOf({ unit: t.unit }).label);
+    return parts.filter(Boolean).join(', ');
+  };
+  // ¿La modalidad o la unidad de hoy difieren de lo que sugiere la plantilla? (no se pisan solas).
+  const unitNow = quote.unit || 'day';
+  const differs = current && ((current.mode && current.mode !== contract.mode) || (current.unit && current.unit !== unitNow));
+  const summary = current
+    ? h('div', { class: 'qe-template-summary' },
+      h('p', { class: 'qe-note' },
+        h('strong', {}, current.edited ? `Partiste de «${current.label}» y lo ajustaste. ` : `Partiste de «${current.label}». `),
+        current.edited ? 'Los componentes de abajo son los que valen.' : `Marcó ${current.components.map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label).filter(Boolean).join(', ')}.`,
+        ' Todo se puede cambiar: componentes, recursos y condiciones de cobro.'),
+      differs && !readOnly
+        ? h('p', { class: 'qe-note qe-template-suggest' },
+          `La plantilla sugiere cobrar ${modeText(current)}. Hoy: ${(CONTRACT_MODES.find((m) => m.id === contract.mode) || {}).label}, ${billingUnitOf(quote).label}. `,
+          pricingLoaded
+            ? `Como ya cargaste una tarifa, no se cambia sola: si querés cobrar así, cambiá la modalidad arriba y la unidad en "${stepName('modality')}".`
+            : button('Usar la sugerencia', { variant: 'secondary', size: 'sm', onClick: () => applySuggestion(current) }))
+        : null)
+    : null;
+  const templates = h('div', { class: 'qe-templates' },
+    formGrid(2, searchSelectField({
+      label: '¿Qué querés cotizar? (opcional)',
+      name: 'serviceTemplate',
+      value: current ? current.id : null,
       disabled: readOnly,
-      on: {
-        click: () => {
-          apply([...t.components], custom, `tpl-${t.id}`);
-          ctx.toast(`«${t.label}»: ${formatNumber(t.components.length)} componentes marcados. Sumá o quitá lo que haga falta.`, 'info');
-        },
+      allowEmpty: false,
+      placeholder: 'Buscá: cuadrilla, hora-hombre, grúa, limpieza…',
+      options: SERVICE_TEMPLATES.map(toOption),
+      search: (query) => searchTemplates(query).map(toOption),
+      hint: 'Plantillas: un punto de partida. Marcan lo que suele llevar ese servicio y, si todavía no cargaste una tarifa, cómo se cobra. Después cambiás lo que quieras.',
+      onChange: (id) => {
+        const t = templateById(id);
+        if (t) applyTemplate(t);
       },
-    }, t.label))));
+    })),
+    summary);
 
   const toggle = (c) => {
     const id = `cmp-${c.id}`;
@@ -186,12 +217,11 @@ function componentsComposer({ quote, components, custom, readOnly, ctx, apply })
       readOnly ? null : h('button', { type: 'button', class: 'qe-chip-remove', 'aria-label': `Quitar ${name}`, on: { click: () => apply(components, custom.filter((x) => x !== name), 'cmp-custom') } }, '×')))) : null,
     readOnly ? null : h('div', { class: 'qe-custom-add' }, h('div', { class: 'field-control' }, customInput), button('Agregar', { icon: 'plus', onClick: addCustom })));
 
-  return h('fieldset', { class: 'choice-group qe-includes' },
+  return { templates, fieldset: h('fieldset', { class: 'choice-group qe-includes' },
     h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Sumá todo lo que lleva el servicio, en cualquier combinación: por ejemplo una persona con camioneta e insumos, o una cuadrilla con químicos. Sin personal, un equipo o vehículo es alquiler sin operador. Cada componente se costea una sola vez, en el paso que se indica. Si falta algo, agregalo en "Otro componente" (se carga como otro costo en Materiales).')),
-    templates,
     ...groups,
     h('div', { class: 'variant-suggest qe-custom-block' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow),
-  );
+  ) };
 }
 
 export function render(container, ctx) {
@@ -223,10 +253,12 @@ export function render(container, ctx) {
     const pricing = quote.pricing || {};
     const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
     const locked = positive(pricing.knownRate) || positive(pricing.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
-    const nextUnit = fits || locked ? current : defaultUnitForContract(next);
+    // Unidad sugerida por una plantilla (PLAN-2026-024): sólo sin tarifa ni mínimo cargados.
+    const preferred = next.unit && unitFitsContract(next, next.unit) ? next.unit : null;
+    const nextUnit = locked ? current : preferred || (fits ? current : defaultUnitForContract(next));
     let reopenedLogistics = false;
     ctx.mutate((q) => {
-      q.contract = contractWithComponents(next, next.components, next.customComponents);
+      q.contract = contractWithComponents({ ...next, templateId: next.templateId || undefined }, next.components, next.customComponents);
       q.serviceType = serviceTypeForContract(q.contract);
       q.unit = nextUnit;
       if (!next.touchedComponents) return;
@@ -243,14 +275,14 @@ export function render(container, ctx) {
     if (reopenedLogistics) ctx.toast(`Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, 'info');
     if (nextUnit !== current) {
       ctx.toast(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.`, 'info');
-    } else if (!fits) {
+    } else if (!fits || (next.unit && next.unit !== current && locked)) {
       const usual = contractUnits(next).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
       ctx.toast(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
     }
   }
 
   const tip = MODE_TIPS[contract.mode];
-  const withMode = (mode) => ({ mode, components, customComponents: custom });
+  const withMode = (mode) => ({ mode, components, customComponents: custom, templateId: saved && saved.templateId });
   const type = card(
     {},
     choiceGroup({
@@ -264,16 +296,39 @@ export function render(container, ctx) {
     tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip.short, ' ', infoTip(tip.more))) : null,
   );
 
-  const includes = card({}, componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, apply: (list, extra = custom, focusId = null) => {
+  /**
+   * Plantilla elegida (PLAN-2026-024): componentes + modalidad y unidad sugeridas. Los
+   * componentes propios ("Otro") se conservan. Si ya hay una tarifa o un mínimo cargados, la
+   * unidad no cambia (applyContract avisa). No carga montos ni recursos.
+   */
+  const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+  const pricingNow = quote.pricing || {};
+  // Con tarifa o mínimo cargados, la plantilla no cambia cómo se cobra (se ofrece aparte).
+  const pricingLoaded = positive(pricingNow.knownRate) || positive(pricingNow.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
+  const applyTemplate = (t) => {
+    // Nunca se quita un componente que ya tiene líneas cargadas en su paso.
+    const kept = components.filter((id) => !t.components.includes(id) && loadedIn(quote, (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).step) > 0);
+    const list = [...t.components, ...kept];
+    const useSuggestion = !pricingLoaded;
+    const mode = useSuggestion && t.mode ? t.mode : contract.mode;
+    keepPlace(null, () => applyContract({ mode, components: list, customComponents: custom, templateId: t.id, unit: useSuggestion ? t.unit || null : null, touchedComponents: true }));
+    const keptText = kept.length ? ` Se mantuvo ${kept.map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label).join(', ')} porque ya tiene líneas cargadas.` : '';
+    const how = !useSuggestion && (t.mode || t.unit) ? ' Como ya cargaste una tarifa, no se cambió cómo se cobra.' : '';
+    ctx.toast(`«${t.label}»: ${formatNumber(list.length)} componentes marcados.${keptText}${how} Es un punto de partida: cambiá lo que haga falta.`, 'info');
+  };
+  const applySuggestion = (t) => applyContract({ mode: t.mode || contract.mode, components, customComponents: custom, templateId: t.id, unit: t.unit || null });
+  const composer = componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, applyTemplate, applySuggestion, pricingLoaded, apply: (list, extra = custom, focusId = null) => {
     keepPlace(focusId, () => {
       if (!list.length && !extra.length) {
         ctx.toast('El servicio tiene que incluir algo: dejá al menos un componente.', 'warning');
         ctx.rerender();
         return;
       }
-      applyContract({ mode: contract.mode, components: list, customComponents: extra, touchedComponents: true });
+      applyContract({ mode: contract.mode, components: list, customComponents: extra, templateId: saved && saved.templateId, touchedComponents: true });
     });
-  } }));
+  } });
+  const templatesCard = card({ className: 'qe-templates-card' }, composer.templates);
+  const includes = card({}, composer.fieldset);
 
   const more = kit.advanced(
     {
@@ -353,6 +408,6 @@ export function render(container, ctx) {
     exchangeRatesEditor(ctx),
   );
 
-  mount(container, identity, type, includes, economicBase, more);
+  mount(container, identity, templatesCard, type, includes, economicBase, more);
   return { update() {} };
 }

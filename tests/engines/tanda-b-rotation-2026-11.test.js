@@ -114,7 +114,7 @@ describe('B-1 · computeRotation: propuesta del diagrama', () => {
   });
 
   test('las plantillas son atajos editables (no una lista cerrada) y la traza explica la cuenta', () => {
-    assert.deepEqual(ROTATION_TEMPLATES.map((t) => t.id), ['7x7', '14x14', '14x7', '20x10', '5x2']);
+    assert.deepEqual(ROTATION_TEMPLATES.map((t) => t.id), ['5x2', '6x1', '7x7', '14x7', '14x14', '20x10']);
     const trace = rotationTrace(computeRotation({ daysOn: 14, daysOff: 7, onSite: 3, groups: 2 }), { role: 'Operario' });
     assert.match(trace.formula, /Nómina = personas en sitio × \(días en sitio \+ días de franco\) ÷ días en sitio/);
     assert.equal(trace.result.value, 5);

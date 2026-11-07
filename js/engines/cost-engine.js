@@ -37,6 +37,7 @@ import { nonNegative, pct, safeDivide, roundPercentagesToTotal, roundPercentage,
 import { createTrace } from '../core/trace.js';
 import { COST_CATEGORIES, CATEGORY_PAY_GROUP, DIRECT_CATEGORY_IDS, PAY_GROUPS, MATERIAL_PROVIDERS, AVAILABILITY_WINDOW } from '../domain/catalogs.js';
 import { computeLabor } from './labor-engine.js';
+import { travelDaysOf, rotationCoverageOf } from './rotation-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
 import { computeLogistics } from './logistics-engine.js';
 import { computeMaterials, computeOtherCostLine } from './materials-engine.js';
@@ -111,7 +112,10 @@ export function normalizeActivity(quote = {}) {
   const availableRaw = Math.min(nonNegative(a.availableDaysPerMonth, 30), 31);
   // 0 o inválido no tiene sentido económico: se usa 30 (y validateQuote lo informa).
   const availableDaysPerMonth = availableRaw > 0 ? availableRaw : 30;
-  const dpaRaw = nonNegative(a.daysPerActivation, 1);
+  // Cómo viaja el personal (PLAN-2026-024): todos los días = 1; con los relevos = los del
+  // diagrama de Personal. Sin elegir, el número guardado (como siempre).
+  const travel = travelDaysOf(quote);
+  const dpaRaw = travel.days !== null ? travel.days : nonNegative(a.daysPerActivation, 1);
   const daysPerActivation = dpaRaw > 0 ? dpaRaw : 1;
   const hoursPerActiveDay = Math.min(nonNegative(a.hoursPerActiveDay), 24);
   // Por día, hora o mes la actividad se carga en días (como siempre). Por
@@ -146,6 +150,8 @@ export function normalizeActivity(quote = {}) {
     availableDaysPerMonth,
     activeDaysPerMonth,
     daysPerActivation,
+    travelPattern: travel.pattern,
+    travelRelief: travel.relief,
     hoursPerActiveDay,
     activationsPerMonth: activeDaysPerMonth / daysPerActivation,
     utilizationPct: availableDaysPerMonth > 0 ? (activeDaysPerMonth / availableDaysPerMonth) * 100 : null,
@@ -199,7 +205,11 @@ export function buildCostModel(quote = {}) {
   const lines = [];
 
   // 1. Personal
-  const labor = computeLabor(quote.labor);
+  // Cobertura vendida para la propuesta del esquema de trabajo (PLAN-2026-024): los días de
+  // servicio del fijo mensual (o servicio permanente); en el resto, todo el mes, como siempre.
+  // Sólo cambia la PROPUESTA del diagrama, nunca el costo.
+  const coverageDaysPerMonth = rotationCoverageOf(quote, activity.activeDaysPerMonth);
+  const labor = computeLabor(quote.labor, { coverageDaysPerMonth });
   labor.lines.forEach((l, i) => {
     lines.push({
       key: `labor:${l.id ?? i}`,

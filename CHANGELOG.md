@@ -12,6 +12,23 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Plantillas como puntos de partida y esquemas de trabajo del personal (2026-11-07, pedido del dueño, PLAN-2026-024).** Ningún número de una cotización existente cambia (golden y baseline de regresión sin re-aprobar): los campos nuevos (`contract.templateId`, `activity.travelPattern`, `labor[i].rotation.pattern`) son opcionales y sin ellos todo se calcula como antes. Esquema sin cambio de versión.
+
+### Cambiado
+
+- **Plantillas rápidas → selector buscable y agrupado "¿Qué querés cotizar?"**, primero en el paso Contrato. Un solo catálogo (`SERVICE_TEMPLATES`), 11 plantillas en 5 grupos (Personal, Equipos y vehículos, Servicio integral, Por resultado o precio global, Terceros): nuevas cuadrilla por hora-hombre, cuadrilla por día de trabajo, servicio técnico por hora, personal en campo con diagrama (abono), servicio integral, servicio por unidad ejecutada y precio global. Limpieza industrial, mantenimiento edilicio y cuadrilla con químicos pasan a ser palabras de búsqueda. Además de marcar componentes, una plantilla sugiere modalidad y unidad **sólo si no hay tarifa ni mínimo cargados** (si no, ofrece "Usar la sugerencia"); nunca quita un componente que ya tiene líneas cargadas. Se recuerda de cuál se partió ("Partiste de … y lo ajustaste"). No cambia ningún número.
+- **Fijo mensual: "¿Qué cobertura vendés en el abono?"** con "Días de servicio por mes" y "Horas de servicio por día" (antes "Días de trabajo por mes que cubre el fijo" / "Horas por día que cubre el fijo"), atajos Lun a vie (22) / Lun a sáb (26) / Todos los días (30) y 8 / 9 / 12 / 24 h, y "Personal para esta cobertura" (en sitio, nómina, esquema y horas por persona). Sin la frase de utilización ni "días para no perder" (se factura 1 abono).
+- **"Días entre viajes o relevos" sale de la cobertura** y pasa a "¿Cómo viaja el personal a la locación?": va y vuelve cada día (1 viaje por día) / se queda en campo y viaja con cada relevo (**toma los relevos del diagrama del puesto: el diagrama se carga una sola vez**) / otro intervalo. Sin elegir, el número guardado (como siempre) y un aviso si un puesto rota. Se quitó el botón "Usar como días entre relevos".
+- **Diagrama de rotación → "Esquema de trabajo"** con "¿Cómo cubre el servicio?": *trabaja los días del servicio* (5x2, 6x1: nómina = en sitio, sin relevos) o *rota en campo* (7x7 = 1x1, 14x7 = 2x1, 14x14, 20x10). **Corrige el 5x2**, que proponía 4 × 7 ÷ 5 = 6 personas y 6 relevos por mes para una cuadrilla de lunes a viernes (al aplicarlo, +50 % de costo): ahora 4. La nómina rotativa usa la cobertura vendida (días de servicio ÷ días del mes). Sólo cambia la PROPUESTA; el costo cambia al tocar "Aplicar al puesto", como siempre.
+
+### Agregado
+
+- **Horas por persona del esquema** (días trabajados × horas por turno) frente a las horas normales del puesto y horas por semana en la peor ventana de 3 semanas (14x7 con 12 h → 56 h), con la referencia legal general (Ley 11.544, art. 201 LCT, tope de 30 h extra por mes del Decreto 484/2000) y "tu convenio puede fijar otro régimen". Botón explícito **"Cargar N h como horas extra por mes"** (un tramo editable "HE esquema … (verificar convenio)" con el recargo de referencia del puesto). Nunca se carga solo.
+- **"Qué revisar en tu convenio para este esquema"**: diagrama y turnos habilitados, adicionales de campo, vianda, traslado, feriados y francos trabajados. Sin valores inventados.
+- **Aviso "Mismo costo en dos lugares"** (`double_cost_hints`): vianda del puesto + comidas de los viáticos, traslado del puesto + vehículos de la logística, EPP del puesto + EPP en materiales. Sólo avisa; aparece sólo con una señal.
+
+### Anterior sin publicar
+
 **Franja horaria en horas (2026-11-07, pedido del dueño).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (campo opcional `activity.availabilityHoursPerDay`).
 
 ### Cambiado
