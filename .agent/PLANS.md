@@ -1216,3 +1216,14 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 **Seguridad:** `public.submit_bug_report` (invoker) → `private.submit_bug_report` (definer, `search_path` vacío): sólo con sesión, valida largos, 5 reportes cada 10 minutos y 30 por día por persona. `claim`/`set` del puente sólo para `service_role` y sólo el reporte de quien llama, una vez (reserva de 10 min). `admin_bug_reports` sólo RATEOS_ADMIN. Beta Security Gate: dos RPC nuevas y una sola Edge Function permitidas, con nombre literal y sólo desde `js/data/feedback-gateway.js`.
 
 **Rollback:** redeploy del backup de main; la tabla y las funciones quedan sin uso (no tocan datos de clientes).
+
+### PLAN-2026-021 — Pendientes de componentes: insumos por unidad producida, viáticos por personas y noches, vehículo en Viajes
+
+**Pedido del dueño (2026-11-07):** "Corré todo vos": avanzar los pendientes de PLAN-2026-019 sin esperar.
+
+**Decisión:**
+1. Base de material `per_output` (sólo en cotizaciones): costo por día = costo por unidad × producción por día (`outputPerActiveDay` de la línea o, si se cobra por cantidad/hora, la de la cotización). Pendiente `materials_output` si falta.
+2. Viáticos: calculadora en la UI que llena `logistics.lodgingPerActivation` y guarda `logistics.lodgingDetail` para rehacerla. El motor no cambia.
+3. `equipment_cost`: con componentes y "Vehículo" como único equipo, sin líneas en Equipos y con un vehículo en Viajes con costo por km → aviso, no crítico.
+
+**Compatibilidad:** las bases existentes no cambian; tests en `tests/engines/component-followups.test.js`.
