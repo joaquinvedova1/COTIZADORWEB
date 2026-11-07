@@ -114,7 +114,7 @@ export function overtimeItemsOf(line = {}) {
  * Calcula el costo de una línea de personal.
  * @param {object} line
  */
-export function computeLaborLine(line = {}) {
+export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}) {
   const positions = nonNegative(line.positions);
   const payrollMode = hasPayrollHeadcount(line);
   const peoplePerPosition = laborPeoplePerPositionOf(line);
@@ -183,7 +183,7 @@ export function computeLaborLine(line = {}) {
     headcount,
     // Nómina cargada como total (B-1) y propuesta del diagrama de rotación (no cambia el costo).
     payrollMode,
-    rotation: hasRotation(line) ? computeRotation(line.rotation, { positions }) : null,
+    rotation: hasRotation(line) ? computeRotation(line.rotation, { positions, coverageDaysPerMonth, normalHoursPerMonth: normalHours }) : null,
     assignment: allocation.assignment,
     shared: allocation.shared,
     fixedCostSharePct: allocation.sharePct,
@@ -235,8 +235,8 @@ export function computeLaborLine(line = {}) {
 }
 
 /** Suma un conjunto de líneas de personal. */
-export function computeLabor(lines = []) {
-  const results = objectList(lines).map((l) => computeLaborLine(l));
+export function computeLabor(lines = [], ctx = {}) {
+  const results = objectList(lines).map((l) => computeLaborLine(l, ctx));
   return {
     lines: results,
     headcount: results.reduce((s, r) => s + r.headcount, 0),

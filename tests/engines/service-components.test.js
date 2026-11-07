@@ -82,7 +82,7 @@ describe('Componentes del servicio (PLAN-2026-019)', () => {
   });
 
   test('cuadrilla con químicos sin equipos cargados: el vehículo pide su costo', () => {
-    const c = contractWithComponents({ mode: 'on_demand' }, SERVICE_TEMPLATES.find((t) => t.id === 'crew_chemicals').components);
+    const c = contractWithComponents({ mode: 'on_demand' }, ['labor', 'vehicle', 'chemicals', 'ppe', 'waste']);
     const r = computeQuote(quoteWith(c));
     const item = r.completeness.items.find((i) => i.id === 'equipment_cost');
     assert.ok(item && item.status === 'missing', 'pide cargar el vehículo');

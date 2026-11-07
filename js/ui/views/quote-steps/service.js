@@ -8,10 +8,10 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { button, card, choiceGroup, dateField, formGrid, icon, confirmDialog, infoTip } from '../../components.js';
+import { button, card, choiceGroup, dateField, formGrid, icon, confirmDialog, infoTip, searchSelectField } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf, BILLING_UNITS } from '../../../domain/billing-units.js';
-import { CONTRACT_MODES, SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUnits, contractUsesMaterials, contractWithComponents, defaultUnitForContract, serviceTypeForContract, templateOf, unitFitsContract } from '../../../domain/contract.js';
+import { CONTRACT_MODES, SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUnits, contractUsesMaterials, contractWithComponents, defaultUnitForContract, serviceTypeForContract, templateOf, unitFitsContract, searchTemplates, templateGroupLabel, templateById } from '../../../domain/contract.js';
 import { isPlainObject } from '../../../core/object.js';
 import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
@@ -120,25 +120,43 @@ const COMPONENT_GROUPS = Object.freeze([
  * que se suman en cualquier combinación (agrupados por el paso donde se
  * cargan, con link y cuántas líneas tiene) y componentes propios ("Otro").
  */
-function componentsComposer({ quote, components, custom, readOnly, ctx, apply }) {
+function componentsComposer({ quote, contract, components, custom, readOnly, ctx, apply, applyTemplate }) {
   const selected = new Set(components);
-  const current = templateOf(components);
+  const saved = isPlainObject(quote.contract) ? quote.contract : {};
+  const current = templateOf({ ...saved, components });
 
-  const templates = h('div', { class: 'variant-suggest qe-templates', role: 'group', 'aria-label': 'Plantillas rápidas' },
-    h('span', { class: 'variant-suggest-label' }, 'Plantillas rápidas'),
-    h('div', { class: 'variant-suggest-list' }, ...SERVICE_TEMPLATES.map((t) => h('button', {
-      type: 'button',
-      id: `tpl-${t.id}`,
-      class: ['chip-suggest', current && current.id === t.id ? 'is-selected' : null],
-      'aria-pressed': current && current.id === t.id ? 'true' : 'false',
+  // Plantillas (PLAN-2026-024): un selector buscable y agrupado en vez de una fila de botones.
+  // Es un punto de partida: marca componentes y sugiere modalidad y unidad; todo queda editable.
+  const toOption = (t) => ({ value: t.id, label: t.label, hint: `${templateGroupLabel(t)} · ${t.hint}` });
+  const modeText = (t) => {
+    const parts = [];
+    if (t.mode) parts.push((CONTRACT_MODES.find((m) => m.id === t.mode) || {}).label);
+    if (t.unit) parts.push(billingUnitOf({ unit: t.unit }).label);
+    return parts.filter(Boolean).join(', ');
+  };
+  const summary = current
+    ? h('p', { class: 'qe-note qe-template-summary' },
+      h('strong', {}, current.edited ? `Partiste de «${current.label}» y lo ajustaste. ` : `Partiste de «${current.label}». `),
+      current.edited ? 'Los componentes de abajo son los que valen.' : `Marcó ${current.components.map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label).filter(Boolean).join(', ')}${modeText(current) ? `; sugirió ${modeText(current)}` : ''}.`,
+      ' Todo se puede cambiar: sumá o quitá componentes, recursos y condiciones de cobro.')
+    : null;
+  const templates = h('div', { class: 'qe-templates' },
+    formGrid(2, searchSelectField({
+      label: 'Empezar desde una plantilla (opcional)',
+      name: 'serviceTemplate',
+      value: current ? current.id : null,
       disabled: readOnly,
-      on: {
-        click: () => {
-          apply([...t.components], custom, `tpl-${t.id}`);
-          ctx.toast(`«${t.label}»: ${formatNumber(t.components.length)} componentes marcados. Sumá o quitá lo que haga falta.`, 'info');
-        },
+      allowEmpty: false,
+      placeholder: 'Escribí: cuadrilla, hora-hombre, equipo, integral…',
+      options: SERVICE_TEMPLATES.map(toOption),
+      search: (query) => searchTemplates(query).map(toOption),
+      hint: 'Es un punto de partida: marca lo que suele llevar ese servicio y, si no cargaste una tarifa, cómo se cobra. Después cambiás lo que quieras.',
+      onChange: (id) => {
+        const t = templateById(id);
+        if (t) applyTemplate(t);
       },
-    }, t.label))));
+    })),
+    summary);
 
   const toggle = (c) => {
     const id = `cmp-${c.id}`;
@@ -223,10 +241,12 @@ export function render(container, ctx) {
     const pricing = quote.pricing || {};
     const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
     const locked = positive(pricing.knownRate) || positive(pricing.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
-    const nextUnit = fits || locked ? current : defaultUnitForContract(next);
+    // Unidad sugerida por una plantilla (PLAN-2026-024): sólo sin tarifa ni mínimo cargados.
+    const preferred = next.unit && unitFitsContract(next, next.unit) ? next.unit : null;
+    const nextUnit = locked ? current : preferred || (fits ? current : defaultUnitForContract(next));
     let reopenedLogistics = false;
     ctx.mutate((q) => {
-      q.contract = contractWithComponents(next, next.components, next.customComponents);
+      q.contract = contractWithComponents({ ...next, templateId: next.templateId || undefined }, next.components, next.customComponents);
       q.serviceType = serviceTypeForContract(q.contract);
       q.unit = nextUnit;
       if (!next.touchedComponents) return;
@@ -243,14 +263,14 @@ export function render(container, ctx) {
     if (reopenedLogistics) ctx.toast(`Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, 'info');
     if (nextUnit !== current) {
       ctx.toast(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.`, 'info');
-    } else if (!fits) {
+    } else if (!fits || (next.unit && next.unit !== current && locked)) {
       const usual = contractUnits(next).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
       ctx.toast(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
     }
   }
 
   const tip = MODE_TIPS[contract.mode];
-  const withMode = (mode) => ({ mode, components, customComponents: custom });
+  const withMode = (mode) => ({ mode, components, customComponents: custom, templateId: saved && saved.templateId });
   const type = card(
     {},
     choiceGroup({
@@ -264,14 +284,28 @@ export function render(container, ctx) {
     tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip.short, ' ', infoTip(tip.more))) : null,
   );
 
-  const includes = card({}, componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, apply: (list, extra = custom, focusId = null) => {
+  /**
+   * Plantilla elegida (PLAN-2026-024): componentes + modalidad y unidad sugeridas. Los
+   * componentes propios ("Otro") se conservan. Si ya hay una tarifa o un mínimo cargados, la
+   * unidad no cambia (applyContract avisa). No carga montos ni recursos.
+   */
+  const applyTemplate = (t) => {
+    const mode = t.mode || contract.mode;
+    keepPlace(null, () => applyContract({ mode, components: [...t.components], customComponents: custom, templateId: t.id, unit: t.unit || null, touchedComponents: true }));
+    const changes = [
+      `${formatNumber(t.components.length)} componentes marcados`,
+      t.mode && t.mode !== contract.mode ? `cobro: ${(CONTRACT_MODES.find((m) => m.id === t.mode) || {}).label}` : null,
+    ].filter(Boolean).join(' · ');
+    ctx.toast(`«${t.label}»: ${changes}. Es un punto de partida: cambiá lo que haga falta.`, 'info');
+  };
+  const includes = card({}, componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, applyTemplate, apply: (list, extra = custom, focusId = null) => {
     keepPlace(focusId, () => {
       if (!list.length && !extra.length) {
         ctx.toast('El servicio tiene que incluir algo: dejá al menos un componente.', 'warning');
         ctx.rerender();
         return;
       }
-      applyContract({ mode: contract.mode, components: list, customComponents: extra, touchedComponents: true });
+      applyContract({ mode: contract.mode, components: list, customComponents: extra, templateId: saved && saved.templateId, touchedComponents: true });
     });
   } }));
 

@@ -80,20 +80,66 @@ export const SERVICE_COMPONENT_IDS = deepFreeze(SERVICE_COMPONENTS.map((c) => c.
 const EQUIPMENT_COMPONENTS = SERVICE_COMPONENTS.filter((c) => c.equipment).map((c) => c.id);
 
 /**
- * Plantillas rápidas: combinaciones comunes para arrancar. Sólo marcan los
- * componentes (no cargan montos): después se suma o se quita lo que haga falta.
+ * Plantillas rápidas: PUNTOS DE PARTIDA editables, nunca categorías (PLAN-2026-019, ampliadas
+ * en PLAN-2026-024). Marcan componentes y, cuando la plantilla lo dice, sugieren cómo paga el
+ * cliente (`mode`) y en qué unidad (`unit`). No cargan montos ni recursos: después se suma o se
+ * quita lo que haga falta (una "Cuadrilla por hora-hombre" con camioneta e insumos sigue siendo
+ * la misma cotización). La unidad sugerida no se aplica si ya hay una tarifa o un mínimo
+ * cargados (el número se leería en otra unidad). Un único catálogo: no hay otro sistema de
+ * plantillas.
+ *   group  grupo del selector (TEMPLATE_GROUPS)
+ *   hint   qué arma, en una línea
  */
-export const SERVICE_TEMPLATES = deepFreeze([
-  { id: 'tech_pickup', label: 'Técnico con camioneta e insumos', components: ['labor', 'vehicle', 'tools', 'supplies'] },
-  { id: 'crew_chemicals', label: 'Cuadrilla con químicos', components: ['labor', 'vehicle', 'chemicals', 'ppe', 'waste'] },
-  { id: 'equipment_operator', label: 'Equipo con operador', components: ['labor', 'machinery'] },
-  { id: 'vehicle_driver', label: 'Vehículo con chofer', components: ['labor', 'vehicle'] },
-  { id: 'dry_rental', label: 'Alquiler sin operador', components: ['machinery'] },
-  { id: 'cleaning', label: 'Limpieza industrial', components: ['labor', 'machinery', 'vehicle', 'chemicals', 'waste'] },
-  { id: 'building', label: 'Mantenimiento edilicio', components: ['labor', 'vehicle', 'tools', 'supplies', 'materials'] },
-  { id: 'crew', label: 'Sólo personal', components: ['labor'] },
-  { id: 'third_party', label: 'Servicio de un tercero', components: ['subcontract'] },
+export const TEMPLATE_GROUPS = deepFreeze([
+  { id: 'people', label: 'Personal' },
+  { id: 'equipment', label: 'Equipos y vehículos' },
+  { id: 'integral', label: 'Servicio integral' },
+  { id: 'result', label: 'Por resultado o precio global' },
+  { id: 'third', label: 'Terceros' },
 ]);
+
+export const SERVICE_TEMPLATES = deepFreeze([
+  { id: 'crew_manhour', group: 'people', label: 'Cuadrilla por hora-hombre', hint: 'Personal y herramientas; se cobra cada hora de cada persona.', components: ['labor', 'tools'], mode: 'on_demand', unit: 'manhour', keywords: 'hh hora hombre operarios solo personal' },
+  { id: 'crew_day', group: 'people', label: 'Cuadrilla por día de trabajo', hint: 'Personal y herramientas; se cobra el día de la cuadrilla.', components: ['labor', 'tools'], mode: 'on_demand', unit: 'day', keywords: 'dia diario equipo de trabajo solo personal jornal' },
+  { id: 'tech_pickup', group: 'people', label: 'Servicio técnico por hora', hint: 'Técnico con camioneta, herramientas e insumos; por hora.', components: ['labor', 'vehicle', 'tools', 'supplies'], mode: 'on_demand', unit: 'hour', keywords: 'tecnico camioneta insumos mantenimiento' },
+  { id: 'field_crew', group: 'people', label: 'Personal en campo con diagrama (abono)', hint: 'Cuadrilla en locación con rotación (7x7, 14x7…) y viáticos; abono mensual.', components: ['labor', 'vehicle', 'travel'], mode: 'monthly', unit: 'month', keywords: 'campo diagrama rotacion 1x1 2x1 14x7 7x7 campamento relevo mensual' },
+  { id: 'equipment_operator', group: 'equipment', label: 'Equipo con operador', hint: 'Equipo o maquinaria con su operador.', components: ['labor', 'machinery'], mode: 'on_demand', unit: 'hour', keywords: 'hidrogrua grua retro maquina' },
+  { id: 'dry_rental', group: 'equipment', label: 'Equipo sin operador (alquiler)', hint: 'Sólo el equipo: lo opera el cliente.', components: ['machinery'], mode: 'on_demand', unit: 'day', keywords: 'alquiler seco' },
+  { id: 'vehicle_driver', group: 'equipment', label: 'Vehículo con chofer', hint: 'Camión, colectivo o utilitario con su chofer.', components: ['labor', 'vehicle'], mode: 'on_demand', unit: 'trip', keywords: 'transporte camion colectivo flete' },
+  { id: 'integral', group: 'integral', label: 'Servicio integral (personal, equipos y consumibles)', hint: 'Personal, vehículo, equipo, insumos y EPP especial. Sumá químicos o residuos si hacen falta.', components: ['labor', 'vehicle', 'machinery', 'supplies', 'ppe'], keywords: 'integral completo limpieza industrial quimicos residuos mantenimiento edilicio' },
+  { id: 'per_unit', group: 'result', label: 'Servicio por unidad ejecutada', hint: 'Mano de obra y materiales; se cobra por unidad terminada (después elegís: válvula, junta, metro…).', components: ['labor', 'tools', 'supplies', 'materials'], mode: 'on_demand', unit: 'unit', keywords: 'unidad ejecutada valvula junta metro pieza produccion edilicio' },
+  { id: 'lump_sum', group: 'result', label: 'Precio global por un trabajo definido', hint: 'Todo el alcance de un trabajo u obra, a precio cerrado.', components: ['labor', 'vehicle', 'tools', 'supplies', 'other'], mode: 'closed', unit: 'job', keywords: 'precio cerrado global obra llave en mano' },
+  { id: 'third_party', group: 'third', label: 'Servicio de un tercero', hint: 'Subcontrato, alquiler o laboratorio de un proveedor.', components: ['subcontract'], keywords: 'subcontrato proveedor laboratorio' },
+]);
+
+/** Plantilla por id (o null). */
+export function templateById(id) {
+  return SERVICE_TEMPLATES.find((t) => t.id === id) || null;
+}
+
+/** "Personal" (nombre del grupo de una plantilla). */
+export function templateGroupLabel(t) {
+  return ((t && TEMPLATE_GROUPS.find((g) => g.id === t.group)) || {}).label || '';
+}
+
+/** Texto plano sin tildes y en minúsculas (buscador de plantillas). */
+function plain(s) {
+  // "jornad…" se busca como "día" (la cuadrilla por día de trabajo).
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/jornad[a-z]*/g, 'dia');
+}
+
+/**
+ * Plantillas que coinciden con lo escrito (todas las palabras, en el nombre, la descripción,
+ * el grupo o las palabras clave), en el orden del catálogo (agrupadas).
+ */
+export function searchTemplates(query) {
+  const words = plain(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return [...SERVICE_TEMPLATES];
+  return SERVICE_TEMPLATES.filter((t) => {
+    const text = plain(`${t.label} ${t.hint} ${templateGroupLabel(t)} ${t.keywords || ''}`);
+    return words.every((w) => text.includes(w));
+  });
+}
 
 /** Componentes guardados, saneados (orden del catálogo, sin repetidos ni desconocidos); null si no hay lista. */
 function cleanComponents(list) {
@@ -132,6 +178,8 @@ export function contractWithComponents(contract, components, custom = undefined)
   };
   const extra = cleanCustom(custom === undefined ? c.customComponents : custom);
   if (extra.length) out.customComponents = extra;
+  // Plantilla de partida (PLAN-2026-024): sólo informativa, nunca cambia un número.
+  if (templateById(c.templateId)) out.templateId = c.templateId;
   return out;
 }
 
@@ -152,10 +200,20 @@ export function contractUsesMaterials(contract) {
   return list.some((id) => (SERVICE_COMPONENTS.find((x) => x.id === id) || {}).materials);
 }
 
-/** Plantilla cuyos componentes son exactamente los elegidos (o null). */
-export function templateOf(components) {
-  const list = cleanComponents(components) || [];
-  return SERVICE_TEMPLATES.find((t) => t.components.length === list.length && t.components.every((id) => list.includes(id))) || null;
+/**
+ * Plantilla de la que partió el servicio: la elegida (`contract.templateId`) o, si no hay, la
+ * primera cuyos componentes son exactamente los elegidos (o null). `edited` = se cambiaron los
+ * componentes después de elegirla (sigue siendo un punto de partida, no una categoría).
+ * Se acepta la lista de componentes (forma de siempre) o el contrato guardado.
+ */
+export function templateOf(componentsOrContract) {
+  const isContract = isPlainObject(componentsOrContract);
+  const list = cleanComponents(isContract ? componentsOrContract.components : componentsOrContract) || [];
+  const same = (t) => t.components.length === list.length && t.components.every((id) => list.includes(id));
+  const chosen = isContract ? templateById(componentsOrContract.templateId) : null;
+  if (chosen) return { ...chosen, edited: !same(chosen) };
+  const found = SERVICE_TEMPLATES.find(same);
+  return found ? { ...found, edited: false } : null;
 }
 
 /** "Personal + Vehículo + Químicos" (nombre corto de lo que incluye). */
