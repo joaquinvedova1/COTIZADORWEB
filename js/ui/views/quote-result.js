@@ -120,6 +120,7 @@ import {
   floorWithoutExtrasText,
   capAllDaysNote,
   lossWindowText,
+  lossWindowSegments,
 } from '../result-text.js';
 
 /**
@@ -132,10 +133,24 @@ function beTone(r, D, be) {
   return D + 1e-9 >= be.days ? 'green' : 'red';
 }
 
-/** Párrafo con la ventana de pérdida del mínimo garantizado (B-3), o null. */
+/**
+ * Ventana de pérdida del mínimo garantizado (B-3), o null: una franja de tramos (cubre el mínimo ·
+ * perdés · ganás) con tu estimación marcada; la frase completa queda en el (i).
+ */
 function lossWindowNote(r, D) {
-  const text = lossWindowText(r, { estimateDays: hasValue(D) ? D : null });
-  return text ? h('p', { class: 'qr-work-text qr-loss-window' }, text) : null;
+  const estimateDays = hasValue(D) ? D : null;
+  const text = lossWindowText(r, { estimateDays });
+  const segs = lossWindowSegments(r, { estimateDays });
+  if (!text || !segs) return null;
+  const LABEL = { covered: 'cubre el mínimo', loss: 'perdés plata', gain: 'ganás' };
+  const range = (sg) => (sg.from === null ? `Hasta ${sg.to}` : sg.to === null ? `Desde ${sg.from}` : `${sg.from} a ${sg.to}`);
+  const inLoss = segs.some((sg) => sg.here && sg.kind === 'loss');
+  return h('div', { class: ['qr-loss-window', inLoss ? 'is-in-loss' : null] },
+    h('p', { class: 'qr-loss-title' }, h('strong', {}, 'Con el mínimo garantizado'), infoTip(text, { label: 'Ventana de pérdida' })),
+    h('ol', { class: 'qr-loss-band' }, ...segs.map((sg) => h('li', { class: ['qr-loss-seg', `is-${sg.kind}`, sg.here ? 'is-here' : null] },
+      h('span', { class: 'qr-loss-range' }, range(sg)),
+      h('span', { class: 'qr-loss-label' }, LABEL[sg.kind]),
+      sg.here ? h('span', { class: 'qr-loss-here' }, 'Tu estimación') : null))));
 }
 
 // ------------------------------------------------------------------ constantes
@@ -1090,6 +1105,18 @@ function criticalAlerts(v) {
   } else if (k.belowTarget) {
     out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
   }
+  // Mínimo garantizado en unidades por encima de la estimación (revisión de costos de la tanda B):
+  // el margen del mes no es el objetivo. Los números vienen del motor; el detalle, en el (i).
+  const above = ((r.completeness && r.completeness.notices) || []).find((n) => n && n.id === 'guarantee_above_estimate');
+  if (above) {
+    const lead = hasValue(above.marginAtEstimatePct) && hasValue(above.listRateWithMinimum)
+      ? `Con la tarifa sugerida el mes factura el mínimo y el margen da ${pct(above.marginAtEstimatePct)}, no ${pct(k.targetMarginPct)}. Si el cliente paga el mínimo, con ${formatMoney(above.listRateWithMinimum)} ya llegás al objetivo.`
+      : above.message;
+    const node = alertLine('info', `${above.label}.`, lead, stepLink(v.q, 'margin', 'Elegir la tarifa en "El precio"'));
+    const textHolder = node.querySelector('.banner-body, div') || node;
+    if (lead !== above.message) textHolder.appendChild(infoTip(above.message, { label: 'Detalle del mínimo garantizado' }));
+    out.push(node);
+  }
   // Margen objetivo inválido (incluido margen + impuestos ≥ 100): no hay precio objetivo.
   if (k.targetMarginInvalid) {
     out.push(alertLine('danger', 'El margen objetivo no es válido.', hasValue(k.billingTaxPct) && k.billingTaxPct > 0
@@ -1763,11 +1790,13 @@ function workBlock(v) {
   // ECO-01: con un dato que vuelve no confiable el resultado, este cálculo tampoco se lee en verde.
   const unreliable = rateOk ? unreliableText(r.completeness, 'este cálculo') : null;
   if (unreliable) tone = 'red';
+  // Los textos van en una sola columna (la de "Ver cálculo" queda a la derecha en escritorio).
   return h('div', { class: ['qr-work', tone ? `qr-work-${tone}` : null] },
     h('p', { class: 'qr-work-question' }, question),
-    unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
-    h('p', { class: 'qr-work-text' }, ...content),
-    rateOk && !isMonth ? lossWindowNote(r, D) : null,
+    h('div', { class: 'qr-work-body' },
+      unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
+      h('p', { class: 'qr-work-text' }, ...content),
+      rateOk && !isMonth ? lossWindowNote(r, D) : null),
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
 

@@ -826,6 +826,15 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 /* En columnas angostas de la derecha, la burbuja abre hacia la izquierda. */
 .qe-summary .info-tip-bubble, .form-grid > :last-child:not(:first-child) .info-tip-bubble { left: auto; right: -8px; }
 .qe-summary .info-tip-bubble::before, .form-grid > :last-child:not(:first-child) .info-tip-bubble::before { left: auto; right: 12px; }
+/* Celular: la burbuja no puede salirse de la pantalla (scroll horizontal). Se muestra fija,
+   con los márgenes de la página, abajo del todo; sin la flechita. */
+@media (max-width: 640px) {
+  .info-tip-bubble, .qe-summary .info-tip-bubble, .form-grid > :last-child:not(:first-child) .info-tip-bubble {
+    position: fixed; left: 16px; right: 16px; top: auto; bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: auto; max-width: none; z-index: 1000; font-size: 0.9rem !important;
+  }
+  .info-tip-bubble::before { display: none; }
+}
 @media print { .info-tip { display: none !important; } }
 
 /* ------------------------------------------- "Reportar un problema" (PLAN-2026-020) */

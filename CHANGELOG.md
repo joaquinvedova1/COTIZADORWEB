@@ -12,6 +12,8 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Revisión UX y de costos de la tanda B (2026-11):** asistente de diagrama más corto (atajos y 3 campos a la vista, el resto en "Grupos, turnos y redondeo"), marca "aplicado al puesto" y foco que no se pierde; ventana de pérdida como franja "cubre el mínimo · perdés · ganás" con tu estimación marcada; burbujas (i) fijas abajo en celular; aviso del proveedor en rojo o amarillo según su gravedad. Avisos nuevos: nómina menor que los que están en sitio, y tarifa sugerida que no cuenta el mínimo garantizado (con botón "Usar $ X como tarifa ofrecida"). El aviso del proveedor sólo baja a amarillo por vehículos propios si se eligió cómo llega el externo.
+
 **Tanda B — materiales por unidad, mínimo en unidades y aviso del proveedor (2026-11, B-2 y B-3 del informe auditado `docs/informes/2026-11-especialistas-auditado.md`, PLAN-2026-022).** Ninguna cifra de una cotización existente cambia (golden 42/42 y baseline de regresión sin re-aprobar; 118 cotizaciones de los especialistas comparadas con `main`: mismos costos, tarifas, márgenes y equilibrios). Esquema sin cambio de versión: los campos nuevos son opcionales.
 
 ### Agregado

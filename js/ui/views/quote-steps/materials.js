@@ -391,6 +391,7 @@ export function render(container, ctx) {
         {
           key: 'behavior',
           label: 'Comportamiento',
+          className: 'qe-col-behavior',
           render: (row, i) => h(
             'div',
             { class: 'qe-cell-stack' },

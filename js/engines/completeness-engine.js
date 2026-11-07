@@ -204,6 +204,22 @@ export function evaluateCompleteness(quote = {}) {
     items.push(rule('labor', 'Personal', 'labor', 2, ok ? 'ok' : 'missing', ok ? 'Personal cargado.' : 'No hay personal con salario cargado.'));
   }
 
+  // 4c. Nómina total menor que las personas en sitio (revisión de costos de la tanda B, B-1):
+  // nadie puede estar en sitio sin estar en nómina; el costo fijo queda corto. Sólo con nómina cargada.
+  const payrollShort = labor.map((l, index) => ({ l, index }))
+    .filter(({ l }) => hasPayrollHeadcount(l) && nonNegative(l.positions) > 0 && nonNegative(l.payrollHeadcount) < nonNegative(l.positions) - 1e-9);
+  if (payrollShort.length) {
+    const { l, index } = payrollShort[0];
+    const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+    const fmtN = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+    const others = payrollShort.length > 1 ? ` También: ${payrollShort.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
+    const item = rule('labor_payroll_below_positions', 'Nómina menor que en sitio', 'labor', 1, 'warning',
+      `"${name}" tiene ${fmtN(nonNegative(l.positions))} en sitio a la vez y ${fmtN(nonNegative(l.payrollHeadcount))} en nómina: la nómina no puede ser menor que los que están en sitio. Los sueldos y cargas se calculan con ${fmtN(nonNegative(l.payrollHeadcount))} ${Math.abs(nonNegative(l.payrollHeadcount) - 1) < 1e-9 ? 'persona' : 'personas'} y el costo queda corto. Revisá "Personas en nómina" (o usá el diagrama de rotación). RATEOS no lo corrige solo.${others}`);
+    item.focus = `labor.${index}.payrollHeadcount`;
+    item.targets = payrollShort.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
+    items.push(item);
+  }
+
   // 5. Relevos (cobertura continua)
   const continuous = CONTINUOUS_SERVICE_TYPES.includes(serviceType) && (serviceType === 'permanent' || activity.availability === '24/7');
   if (continuous && labor.length > 0) {
@@ -546,7 +562,8 @@ export function evaluateCompleteness(quote = {}) {
     // confiable") cuando lo habitual es que el proveedor vaya UNA vez y los viajes sean de otros:
     //   (a) su movilización está incluida en la tarifa por salida, o
     //   (b) los viajes de la ruta los hacen vehículos propios (logística auxiliar o un equipo
-    //       propio que va por sus medios) y el externo no va por sus propios medios.
+    //       propio que va por sus medios) y el externo no va por sus propios medios (dicho:
+    //       transportado, en vehículo de apoyo o sin movilización; sin dato, crítico).
     // Si alguna línea no cumple (a) ni (b), queda crítico como siempre.
     const tripsPerActivation = logistics.notApplicable ? 0 : route.tripsPerActivation;
     const perActivation = tripsPerActivation > 1 + 1e-9
@@ -557,8 +574,12 @@ export function evaluateCompleteness(quote = {}) {
       : [];
     const ownRouteVehicles = (objectList(logistics.vehicles).some((v) => nonNegative(v.count) > 0))
       || equipment.some((e) => !isExt(e) && nonNegative(e.quantity) > 0 && isPlainObject(e.mobilization) && e.mobilization.mode === 'self');
+    // (b) exige que se haya dicho cómo llega el externo y que NO sea por sus medios (transportado,
+    // en un vehículo de apoyo o sin movilización). Sin dato no se supone: un flete o una grúa
+    // tercerizada suele ir por sus medios y es justo el caso de ECO-01 (revisión de costos de la tanda B).
+    const notSelf = (e) => isPlainObject(e.mobilization) && ['transported', 'support', 'none'].includes(e.mobilization.mode);
     const goesOnce = ({ e }) => extOf(e).mobilizationIncluded === true
-      || (ownRouteVehicles && !(isPlainObject(e.mobilization) && e.mobilization.mode === 'self'));
+      || (ownRouteVehicles && notSelf(e));
     const soft = perActivation.length > 0 && perActivation.every(goesOnce);
     if (perActivation.length) {
       const { e: first, changes } = perActivation[0];

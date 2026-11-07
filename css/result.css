@@ -53,6 +53,30 @@
 .qr-work-text { margin: 0; font-size: var(--fs-lg); line-height: 1.45; color: var(--ink); max-width: 72ch; }
 .qr-work-days { color: var(--navy-900); font-weight: 750; white-space: nowrap; }
 .qr-work-trace .trace-btn { padding-left: 0; }
+.qr-work-body { display: flex; flex-direction: column; gap: 0.55rem; min-width: 0; }
+/* Ventana de pérdida con mínimo garantizado (B-3): franja cubre · perdés · ganás. */
+.qr-loss-window { display: flex; flex-direction: column; gap: 0.35rem; max-width: 72ch; }
+.qr-loss-title { margin: 0; font-size: var(--fs-sm, 0.9rem); color: var(--ink-2); display: flex; align-items: center; }
+.qr-loss-band { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; }
+.qr-loss-seg { display: flex; flex-direction: column; gap: 0.05rem; padding: 0.4rem 0.6rem; background: var(--white); border-top: 4px solid var(--line); font-size: 0.85rem; line-height: 1.3; min-width: 0; }
+.qr-loss-seg:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.qr-loss-seg:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.qr-loss-seg.is-covered { border-top-color: var(--blue-600); }
+.qr-loss-seg.is-loss { border-top-color: var(--red); background: var(--red-50); }
+.qr-loss-seg.is-gain { border-top-color: var(--green); }
+.qr-loss-range { font-weight: 700; color: var(--ink); white-space: nowrap; }
+.qr-loss-label { color: var(--ink-2); }
+.qr-loss-seg.is-loss .qr-loss-label { color: var(--red-text); font-weight: 600; }
+.qr-loss-seg.is-here { box-shadow: inset 0 0 0 2px var(--navy-900); }
+.qr-loss-here { margin-top: 0.15rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--navy-900); }
+@container qr (max-width: 520px) {
+  .qr-loss-band { grid-auto-flow: row; }
+  .qr-loss-seg, .qr-loss-seg:first-child, .qr-loss-seg:last-child { border-radius: var(--radius-sm); border-top: 0; border-left: 4px solid var(--line); }
+  .qr-loss-seg.is-covered { border-left-color: var(--blue-600); }
+  .qr-loss-seg.is-loss { border-left-color: var(--red); }
+  .qr-loss-seg.is-gain { border-left-color: var(--green); }
+}
+@media print { .qr-loss-seg.is-here { box-shadow: none; outline: 2px solid #000; } }
 .qr-work-green { background: var(--green-50); border-left-color: var(--green); }
 .qr-work-green .qr-work-days { color: var(--green-text); }
 .qr-work-red { background: var(--red-50); border-left-color: var(--red); }

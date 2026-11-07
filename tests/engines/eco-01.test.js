@@ -194,6 +194,11 @@ describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', ()
   test('decisión del dueño (tanda B, H-04): con los viajes de la ruta en vehículos propios también es aviso común; si el externo va por sus medios, crítico', () => {
     const q = perActivationE3();
     q.logistics.vehicles = [{ id: 'v1', name: 'Camioneta propia', count: 1, consumptionLPer100Km: 12, costPerKm: 100 }];
+    // Revisión de costos (tanda B): sin decir cómo llega el externo NO se supone que va una vez.
+    const unknown = pendingOf(computeQuote(q), 'external_unit_trips');
+    assert.equal(unknown.severity, 'critical', 'externo sin "cómo llega" + vehículos propios: sigue crítico');
+    assert.equal(unknown.unreliable, true);
+    carrier(q).mobilization = { ...(carrier(q).mobilization || {}), mode: 'support' };
     const p = pendingOf(computeQuote(q), 'external_unit_trips');
     assert.equal(p.status, 'warning');
     assert.notEqual(p.unreliable, true);
@@ -201,6 +206,8 @@ describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', ()
     // Un equipo propio que va por sus medios cuenta igual que un vehículo de la logística.
     const q2 = perActivationE3();
     q2.equipment.push({ id: 'own-1', name: 'Camioneta', acquisition: 'owned', quantity: 1, mobilization: { mode: 'self' } });
+    assert.equal(pendingOf(computeQuote(q2), 'external_unit_trips').severity, 'critical', 'sin dato del externo: crítico');
+    carrier(q2).mobilization = { ...(carrier(q2).mobilization || {}), mode: 'transported' };
     assert.equal(pendingOf(computeQuote(q2), 'external_unit_trips').status, 'warning');
     // El externo que va por sus propios medios hace él los viajes: sigue crítico.
     const q3 = perActivationE3();

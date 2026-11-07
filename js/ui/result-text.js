@@ -396,9 +396,17 @@ export function breakEvenZeroText(result, { compact = false, rateText = '' } = {
     return `Sin costos fijos: ${each} cubre su costo variable. Desde ${first} hay contribución positiva${rate}.`;
   }
   if (compact) return 'Cubierto con ingresos fijos';
+  // Con mínimo garantizado (B-3) se nombra: es lo que más suele cubrir los fijos.
+  let guarantee = false;
+  try {
+    guarantee = Boolean(normalizeRules((r.ctx && r.ctx.rules) || {}).hasMinimumGuarantee);
+  } catch {
+    guarantee = false;
+  }
+  const sources = `${guarantee ? 'mínimo garantizado, ' : ''}abono, equipo en espera, adicionales estimados`;
   return byQuantity
-    ? `Cubrís todos tus costos aunque no factures ${t.ningun} ${singular}${rate}: los ingresos fijos (abono, equipo en espera, adicionales estimados) ya cubren los costos fijos.`
-    : `Cubrís todos tus costos aunque no trabajes ningún día${rate}: los ingresos fijos (abono, equipo en espera, adicionales estimados) ya cubren los costos fijos.`;
+    ? `Cubrís todos tus costos aunque no factures ${t.ningun} ${singular}${rate}: los ingresos fijos (${sources}) ya cubren los costos fijos.`
+    : `Cubrís todos tus costos aunque no trabajes ningún día${rate}: los ingresos fijos (${sources}) ya cubren los costos fijos.`;
 }
 
 // ------------------------------------------------- testeo con especialistas (2026-11)
@@ -432,6 +440,32 @@ export function lossWindowText(result, { estimateDays = null } = {}) {
     where = inside ? ' Tu estimación cae en el tramo en que perdés.' : '';
   }
   return `Con el mínimo garantizado, hasta ${at(first.fromDays, first.fromQuantity)} el mínimo cubre tus costos; ${parts.join('; ')} (el mínimo ya no alcanza y lo trabajado todavía no cubre)${gains}.${where}`;
+}
+
+/**
+ * Tramos de la ventana de pérdida para dibujarlos (B-3): cubre el mínimo → perdés → ganás…, con
+ * los textos de los bordes ("15,85 días" / "95,7 válvulas"). Sólo escribe lo que dio el motor.
+ * @returns {{ kind: 'covered'|'loss'|'gain', from: string|null, to: string|null, fromDays: number, toDays: number|null, here: boolean }[]|null}
+ */
+export function lossWindowSegments(result, { estimateDays = null } = {}) {
+  const r = result || {};
+  const be = r.breakEven || {};
+  const windows = Array.isArray(be.lossWindows) ? be.lossWindows : [];
+  if (!be.guaranteeProtects || !windows.length) return null;
+  const byQuantity = isQuantityUnit(r);
+  const u = r.unitInfo || {};
+  const at = (days, quantity) => (byQuantity && isFiniteNumber(quantity)
+    ? `${formatNumber(quantity, { decimals: Math.abs(quantity - Math.round(quantity)) < 1e-9 ? 0 : 2 })} ${Math.abs(quantity - 1) < 1e-9 ? u.singular || 'unidad' : u.plural || 'unidades'}`
+    : formatDays(days));
+  const segs = [{ kind: 'covered', from: null, to: at(windows[0].fromDays, windows[0].fromQuantity), fromDays: 0, toDays: windows[0].fromDays }];
+  windows.forEach((w, i) => {
+    segs.push({ kind: 'loss', from: at(w.fromDays, w.fromQuantity), to: w.open ? null : at(w.toDays, w.toQuantity), fromDays: w.fromDays, toDays: w.open ? null : w.toDays });
+    if (w.open) return;
+    const next = windows[i + 1];
+    segs.push({ kind: 'gain', from: at(w.toDays, w.toQuantity), to: next ? at(next.fromDays, next.fromQuantity) : null, fromDays: w.toDays, toDays: next ? next.fromDays : null });
+  });
+  const D = isFiniteNumber(estimateDays) ? estimateDays : null;
+  return segs.map((sg) => ({ ...sg, here: D !== null && D > sg.fromDays - 1e-9 && (sg.toDays === null || D < sg.toDays - 1e-9) }));
 }
 
 /**

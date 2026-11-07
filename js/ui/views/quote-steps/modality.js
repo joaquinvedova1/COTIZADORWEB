@@ -715,11 +715,12 @@ export function render(container, ctx) {
     !contract.legacy && contract.mode === 'on_demand'
       ? (() => {
         const g = minimumGuaranteeFields(kit, quote, info, {
-          amountLabel: 'Mínimo mensual garantizado (opcional)',
+          amountLabel: 'Mínimo por mes',
           amountPlaceholder: 'Ej.: 3.000.000',
           amountHint: 'Si el cliente garantiza un piso por mes: se factura lo trabajado o el mínimo, lo que sea mayor. Vacío o 0 = sin mínimo.',
         });
-        return card({}, formGrid(2, ...g.fields), g.note);
+        // Con título: "¿Cómo se expresa el mínimo?" sola no dice de qué mínimo se trata.
+        return card({ title: 'Mínimo mensual garantizado (opcional)', className: 'qe-guarantee-card' }, formGrid(2, ...g.fields), g.note);
       })()
       : null,
     calcCard,

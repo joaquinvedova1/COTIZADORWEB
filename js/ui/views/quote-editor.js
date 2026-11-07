@@ -1635,9 +1635,9 @@ export function pendingFieldPath(item, quote) {
  * @param {{ getQuote?: Function, onReveal?: Function, onFocusField?: Function, hasField?: Function, stepHref?: Function, didactic?: boolean }} options
  */
 /** Avisos informativos (completeness.notices) que también se muestran en su paso. */
-const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip']);
+const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate']);
 
-function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false } = {}) {
+function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
   // En la cotización de ejemplo, los puntos para revisar están a propósito (UX-3).
   const title = didactic ? 'Para revisar: el ejemplo lo deja a propósito' : 'Para revisar en este paso';
@@ -1655,6 +1655,15 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
       return h('a', { class: 'qe-notice-go', href: stepHref(stepOfPath(item.focus), item.focus) }, `Ir al campo (${stepName(stepOfPath(item.focus))})`);
     }
     return null;
+  };
+  /**
+   * Mínimo garantizado por encima de la estimación (revisión de costos de la tanda B): un toque
+   * carga en "Tarifa ofrecida" la tarifa que el motor calculó (`listRateWithMinimum`). Sin cuentas acá.
+   */
+  const offeredRateAction = (n) => {
+    if (n.id !== 'guarantee_above_estimate' || !(Number.isFinite(n.listRateWithMinimum) && n.listRateWithMinimum > 0)) return null;
+    if (typeof onUseOfferedRate !== 'function' || !hasField('pricing.offeredRateOverride')) return null;
+    return goButton(`Usar ${formatMoney(n.listRateWithMinimum)} como tarifa ofrecida`, () => onUseOfferedRate(n.listRateWithMinimum));
   };
   return {
     el,
@@ -1692,7 +1701,7 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
           'li',
           { class: ['qe-notice', 'is-info'] },
           h('span', { class: ['dot', 'dot-blue'], 'aria-hidden': 'true' }),
-          h('span', {}, h('strong', {}, `${n.label}: `), n.message, ' ', actionFor(n, quote)),
+          h('span', {}, h('strong', {}, `${n.label}: `), n.message, ' ', offeredRateAction(n) || actionFor(n, quote)),
         )),
       );
     },
@@ -2122,6 +2131,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     getQuote: () => state.quote,
     onReveal: (key) => revealAdvanced(key),
     onFocusField: (path) => focusField(path),
+    onUseOfferedRate: (value) => mutate((q) => {
+      if (!isPlainObject(q.pricing)) q.pricing = {};
+      q.pricing.offeredRateOverride = value;
+    }, { focus: 'pricing.offeredRateOverride' }),
     hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
     stepHref,
     didactic: state.quote.illustrative === true,
