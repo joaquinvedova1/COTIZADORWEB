@@ -7,6 +7,7 @@
 
 import { toNumber } from './money.js';
 import { isPlainObject } from './object.js';
+import { formatNumber } from './format.js';
 
 export const RULES = Object.freeze({
   money: { min: 0, max: 1e15, message: 'Ingresá un monto mayor o igual a 0 (hasta 1.000 billones).' },
@@ -142,7 +143,8 @@ export function validateQuote(quote) {
   if (toNumber(a.activeDaysPerMonth) > toNumber(a.availableDaysPerMonth) && toNumber(a.availableDaysPerMonth) > 0) {
     issues.push({
       path: 'activity.activeDaysPerMonth',
-      message: 'Los días activos superan los días disponibles del mes (utilización mayor a 100 %).',
+      // Con los números y cómo corregirlo, sin citar un rótulo (cambia según el contrato).
+      message: `Cargaste ${formatNumber(toNumber(a.activeDaysPerMonth), { decimals: 2 })} días de trabajo y hay ${formatNumber(toNumber(a.availableDaysPerMonth), { decimals: 2 })} disponibles: la utilización pasa del 100 %. Bajá los días de trabajo o subí los disponibles.`,
       severity: 'warning',
     });
   }

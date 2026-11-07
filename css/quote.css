@@ -757,3 +757,11 @@
   .qe-templates .chip-suggest { min-height: 44px; }
   .qe-chip-remove { min-width: 44px; min-height: 44px; }
 }
+
+/* Ritmo de llamados / salidas (tres opciones cortas en una fila, también en el celular). */
+.qe-step-body .qe-pace .qe-unit-choice.is-compact .choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 560px) {
+  .qe-step-body .qe-pace .qe-unit-choice.is-compact .choice-grid { grid-template-columns: 1fr; gap: 0.4rem; }
+  .qe-step-body .qe-pace .choice { min-height: 44px; align-items: center; }
+}
+.qe-pace .form-grid { margin-top: 0.75rem; }
