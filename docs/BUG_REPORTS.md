@@ -47,11 +47,13 @@ El token **nunca** va al repositorio, al frontend ni a un chat: sólo a los secr
 
 ## 5. Piezas
 
-- `supabase/migrations/20261107020000_rateos_bug_reports.sql` — tabla, RPC y permisos.
+- `supabase/migrations/20261107021710_rateos_bug_reports.sql` — tabla, RPC y permisos.
 - `supabase/functions/bug-report-github/index.ts` — Edge Function (se despliega con el plugin/MCP de Supabase o `supabase functions deploy bug-report-github --no-verify-jwt`; verifica la sesión adentro).
 - `js/data/feedback-gateway.js`, `js/services/feedback-service.js`, `js/ui/report-problem.js` — app.
 - `.github/ISSUE_TEMPLATE/reporte-app.yml` — formulario para quien reporte directo en GitHub.
 
 ## 6. Encendido
 
-`FEATURES.bugReportsCloud` (`js/config.js`) arranca en `false`: mientras la migración y la Edge Function no estén aplicadas en el proyecto de Supabase, todos (con o sin sesión) reportan por GitHub con el issue ya escrito. Después de aplicarlas (y probar un envío), se pasa a `true`.
+`FEATURES.bugReportsCloud` (`js/config.js`) está en `true` desde el 2026-11-07: migración `20261107021710_rateos_bug_reports` aplicada (9 controles de permisos y límites en verde, todo deshecho) y Edge Function `bug-report-github` desplegada (sin `verify_jwt`; verifica la sesión adentro). Con `false`, todos (con o sin sesión) reportan por GitHub con el issue ya escrito.
+
+Reportes enviados antes de cargar `GITHUB_ISSUES_TOKEN` quedan sólo en la base (`github_issue_number is null`).

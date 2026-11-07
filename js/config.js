@@ -75,10 +75,10 @@ export const FEATURES = Object.freeze({
   commercialModelComparator: true,
   scenarios: true,
   // "Reportar un problema" con sesión se envía por Supabase (private.bug_reports
-  // + Edge Function → issue en GitHub). Se enciende cuando la migración
-  // 20261107020000_rateos_bug_reports y la función están aplicadas en el
-  // proyecto; mientras tanto el reporte se abre ya escrito en GitHub.
-  bugReportsCloud: false,
+  // + Edge Function bug-report-github → issue en GitHub). Encendido el
+  // 2026-11-07 tras aplicar la migración 20261107021710_rateos_bug_reports y
+  // desplegar la función. false = todos reportan por GitHub (issue ya escrito).
+  bugReportsCloud: true,
 });
 
 export const LOCALE = 'es-AR';
