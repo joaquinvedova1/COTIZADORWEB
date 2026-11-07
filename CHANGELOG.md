@@ -12,6 +12,17 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Pendientes de componentes (2026-11, PLAN-2026-021).** Ninguna cifra de una cotización existente cambia; esquema sin cambio de versión (campos opcionales).
+
+### Agregado
+
+- **Insumos por unidad producida:** en Materiales, "¿Cada cuánto se consume?" ofrece "Por unidad producida (m², m³, pieza…)": químicos por m³ tratado, pintura por m², consumibles por pieza. La producción por día sale de "Cómo se cobra" (si cobrás por cantidad u hora) o se carga en la línea. Sin ese dato, pendiente "Producción por día". Ver CALCULATION_RULES §6.
+- **Viáticos por personas y noches:** en Movilización y viajes, "Calcular viáticos por personas y noches" llena el monto por salida (personas × noches × alojamiento + personas × días × comidas).
+
+### Cambiado
+
+- Con "Vehículo" como único equipo del servicio y la camioneta cargada en Viajes con costo por km, "Costo de equipos" pasa de pendiente crítico a aviso (ese costo no cubre amortización, seguro ni patente).
+
 **Reportes por Supabase encendidos (2026-11-07).** Con autorización del dueño se aplicó la migración `20261107021710_rateos_bug_reports` y se desplegó la Edge Function `bug-report-github`; `FEATURES.bugReportsCloud = true`: con sesión, "Reportar un problema" se envía desde la app sin cuenta de GitHub.
 
 **Testeo con especialistas — UI (2026-11, tanda A del informe auditado `docs/informes/2026-11-especialistas-auditado.md`).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (`contract` ya era opcional y `activity.availability` puede quedar sin definir).
