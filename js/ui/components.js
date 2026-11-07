@@ -519,7 +519,12 @@ export function searchSelectField({ label, value = null, options, search = null,
     // Los formularios con guardado automático escuchan "change".
     input.dispatchEvent(new CustomEvent('change', { bubbles: true, detail: { combo: true } }));
   }
-  input.addEventListener('focus', () => { if (!disabled) open(''); });
+  input.addEventListener('focus', () => {
+    if (disabled) return;
+    open('');
+    // Lo elegido queda seleccionado: lo que se escribe lo reemplaza y busca (no se agrega al rótulo).
+    if (typeof input.select === 'function') input.select();
+  });
   // El "change" nativo del texto buscado no es una elección: sólo sale el de choose().
   input.addEventListener('change', (e) => {
     if (!(e instanceof CustomEvent)) e.stopPropagation();

@@ -181,7 +181,7 @@ const ON_DEMAND_EQUIPMENT_UNITS = ['hour', 'day', 'call', 'trip', 'km', 'm3', 't
   'equipment_hour', 'equipment_day', 'manday', 'guard', 'kwh', 'mwh', 'mj', 'gj', 'mmbtu', 'kw_day', 'kva_day', 'hp_hour', 'gas_m3',
   'stage', 'drilled_meter', 'connection', 'inch_dia', 'joint', 'point', 'pallet', 'container', 'drum', 'bag', 'sample', 'analysis'];
 const ON_DEMAND_LABOR_UNITS = ['hour', 'day', 'call', 'manhour', 'shift', 'unit', 'piece', 'well', 'test', 'meter', 'm2', 'ha', 'lot', 'set',
-  'manday', 'guard', 'stage', 'connection', 'inch_dia', 'joint', 'point', 'sample', 'analysis', 'kwh', 'mwh'];
+  'manday', 'guard', 'stage', 'connection', 'inch_dia', 'joint', 'point', 'sample', 'analysis', 'm3', 'ton', 'drum', 'bag', 'kwh', 'mwh'];
 
 export const CONTRACT_UNITS = deepFreeze({
   monthly: ['month'],

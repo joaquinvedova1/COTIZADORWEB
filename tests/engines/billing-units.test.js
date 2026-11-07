@@ -62,11 +62,11 @@ const finiteOrNull = (x) => x === null || Number.isFinite(x);
 describe('unidades por tipo de servicio (dominio)', () => {
   test('cada tipo de servicio ofrece sus unidades habituales + "Otra / personalizada"', () => {
     const ids = (type) => unitChoicesFor(type).map((u) => u.id);
-    assert.deepEqual(ids('on_call'), ['day', 'hour', 'call', 'month', 'custom']);
-    assert.deepEqual(ids('permanent'), ['month', 'day', 'hour', 'shift', 'custom']);
+    assert.deepEqual(ids('on_call'), ['day', 'hour', 'call', 'month', 'guard', 'custom']);
+    assert.deepEqual(ids('permanent'), ['month', 'day', 'hour', 'shift', 'guard', 'custom']);
     assert.deepEqual(ids('crew'), ['day', 'hour', 'manhour', 'shift', 'month', 'manday', 'guard', 'custom']);
-    assert.deepEqual(ids('equipment_with_operator'), ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh', 'custom']);
-    assert.deepEqual(ids('equipment_only'), ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh', 'custom']);
+    assert.deepEqual(ids('equipment_with_operator'), ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh', 'stage', 'drilled_meter', 'well', 'm3', 'barrel', 'gas_m3', 'custom']);
+    assert.deepEqual(ids('equipment_only'), ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh', 'stage', 'drilled_meter', 'well', 'm3', 'barrel', 'gas_m3', 'custom']);
     assert.deepEqual(ids('per_unit'), ['unit', 'piece', 'well', 'test', 'manhour', 'm3', 'ton', 'kg', 'meter', 'm2', 'ha', 'liter', 'barrel', 'km', 'lot', 'set',
       'stage', 'drilled_meter', 'connection', 'inch_dia', 'joint', 'point', 'sample', 'analysis', 'kwh', 'mwh', 'mj', 'gj', 'mmbtu', 'gas_m3', 'pallet', 'drum', 'bag', 'custom']);
     assert.deepEqual(ids('transport'), ['trip', 'km', 'ton', 'tonkm', 'm3', 'liter', 'barrel', 'hour', 'day', 'pallet', 'container', 'drum', 'bag', 'gas_m3', 'custom']);

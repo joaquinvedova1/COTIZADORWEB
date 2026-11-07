@@ -277,8 +277,13 @@ export function render(container, ctx) {
           allowEmpty: false,
           placeholder: 'Escribí: hora, m³, kWh, potencia, junta…',
           options: unitOptionsByGroup,
-          search: (query) => searchUnits(sortedUnits, query).map(toUnitOption),
-          hint: [selectedDef && selectedDef.hint ? `${selectedDef.label}: ${selectedDef.hint}` : null, byQuantity ? `Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); la tarifa y el resultado, ${perText(info)}.` : null].filter(Boolean).join(' '),
+          // Sin resultados: "Otra / personalizada" (la escribís vos), si se ofrece.
+          search: (query) => {
+            const found = searchUnits(sortedUnits, query);
+            const custom = sortedUnits.find((u) => u.custom);
+            return (found.length ? found : custom ? [custom] : []).map((u) => (found.length ? toUnitOption(u) : { ...toUnitOption(u), hint: 'No está en la lista: escribila vos' }));
+          },
+          hint: [selectedDef && selectedDef.hint ? selectedDef.hint : null, byQuantity ? `Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); la tarifa y el resultado, ${perText(info)}.` : null].filter(Boolean).join(' '),
           onChange: (value) => changeUnit(value),
         }), unitNameField)
         : choiceGroup({

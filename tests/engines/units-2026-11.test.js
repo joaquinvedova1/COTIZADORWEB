@@ -11,6 +11,7 @@ import { BILLING_UNITS, BILLING_UNIT_IDS, billingUnitOf, unitTexts, searchUnits,
 import { contractUnits, unitChoicesForContract } from '../../js/domain/contract.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { demoReferenceQuote } from '../../js/domain/demo-data.js';
+import { person, owned } from '../lab/lib/build.js';
 
 const NEW = ['kwh', 'mwh', 'mj', 'gj', 'mmbtu', 'kw_day', 'kva_day', 'hp_hour', 'gas_m3', 'equipment_hour', 'equipment_day', 'manday', 'guard',
   'stage', 'drilled_meter', 'connection', 'inch_dia', 'joint', 'point', 'pallet', 'container', 'drum', 'bag', 'sample', 'analysis'];
@@ -58,6 +59,10 @@ describe('unidades 2026-11', () => {
     assert.ok(ids('potencia').includes('kva_day') && ids('potencia').includes('hp_hour'));
     assert.ok(ids('kw').includes('kw_day') && ids('kw').includes('kwh'));
     assert.ok(ids('energia').includes('kwh'));
+    // "potencia" no trae las de energía (MMBTU, GJ) por compartir grupo.
+    assert.ok(!ids('potencia').includes('mmbtu') && !ids('potencia').includes('gj'));
+    // Si ningún nombre coincide, busca por grupo.
+    assert.ok(ids('logistica').includes('container') && ids('logistica').includes('pallet'));
     assert.ok(ids('soldadura').includes('joint') && ids('soldadura').includes('inch_dia'));
     assert.deepEqual(ids('m³ de gas'), ['gas_m3']);
     assert.equal(ids('').length, BILLING_UNITS.length);
@@ -80,6 +85,29 @@ describe('unidades 2026-11', () => {
     assert.equal(a.ratesAtEstimate.billableUnits, 10000);
     assert.equal(a.ratesAtEstimate.floorListRate, b.ratesAtEstimate.floorListRate);
     assert.equal(a.ratesAtEstimate.totalCost, b.ratesAtEstimate.totalCost);
+  });
+
+  test('jornal, día-equipo y hora de equipo avisan si lo facturado no coincide con lo cargado', () => {
+    const issuesFor = (unit, perDay, mutate = () => {}) => {
+      const q = demoReferenceQuote();
+      q.serviceType = 'configurable';
+      q.unit = unit;
+      q.activity.billableQuantityPerMonth = perDay * 20;
+      q.activity.unitsPerActiveDay = perDay;
+      q.activity.daysPerActivation = 1;
+      mutate(q);
+      return computeQuote(q).issues.filter((i) => i.path === 'activity.unitsPerActiveDay' && /lo cargado da/.test(i.message));
+    };
+    const crew = (q) => { q.labor = [person({ positions: 3 })]; };
+    assert.equal(issuesFor('manday', 6, crew).length, 1);
+    assert.equal(issuesFor('manday', 3, crew).length, 0);
+    const rigs = (q) => { q.equipment = [owned({ name: 'Equipo', quantity: 2, hoursPerActiveDay: 10 })]; };
+    assert.equal(issuesFor('equipment_hour', 20, rigs).length, 0);
+    assert.equal(issuesFor('equipment_hour', 40, rigs).length, 1);
+    assert.equal(issuesFor('equipment_day', 2, rigs).length, 0);
+    assert.equal(issuesFor('equipment_day', 3, rigs).length, 1);
+    // Las unidades de siempre no reciben este aviso nuevo.
+    assert.equal(issuesFor('unit', 40, rigs).length, 0);
   });
 
   test('una cotización guardada con una unidad que no existe sigue siendo $/día', () => {

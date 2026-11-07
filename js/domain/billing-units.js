@@ -62,30 +62,30 @@ export const BILLING_UNITS = deepFreeze([
   { id: 'mj', kind: 'quantity', group: 'energy', singular: 'MJ', plural: 'MJ', short: 'MJ', label: '$/MJ (megajoule)', hint: 'Se factura cada megajoule de energía (1 kWh = 3,6 MJ).', keywords: 'joule julio megajulio energia calor' },
   { id: 'gj', kind: 'quantity', group: 'energy', singular: 'GJ', plural: 'GJ', short: 'GJ', label: '$/GJ (gigajoule)', hint: 'Se factura cada gigajoule (≈ 25,7 m³ de gas de 9.300 kcal; ≈ 0,95 MMBTU).', keywords: 'joule julio gigajulio energia gas' },
   { id: 'mmbtu', kind: 'quantity', group: 'energy', singular: 'MMBTU', plural: 'MMBTU', short: 'MMBTU', label: '$/MMBTU (millón de BTU)', hint: 'Se factura cada millón de BTU, como el gas en boca de pozo (1 MMBTU ≈ 27 m³ de gas de 9.300 kcal).', keywords: 'btu gas energia millon' },
-  { id: 'kw_day', kind: 'quantity', group: 'energy', singular: 'kW-día', plural: 'kW-día', short: 'kW-día', label: '$/kW-día (potencia)', hint: 'Potencia puesta a disposición por día: kW × días (cargo por potencia, generación en alquiler).', perDayQuestion: '¿Cuántos kW ponés a disposición por día de trabajo?', perDayLabel: 'kW disponibles por día de trabajo', perDayUnit: 'kW', feminine: false, keywords: 'kw kilovatio kilowatt potencia generador' },
-  { id: 'kva_day', kind: 'quantity', group: 'energy', singular: 'kVA-día', plural: 'kVA-día', short: 'kVA-día', label: '$/kVA-día (grupo electrógeno)', hint: 'Alquiler de grupos electrógenos por tamaño: kVA × días (1 kVA ≈ 0,8 kW).', perDayQuestion: '¿Cuántos kVA ponés a disposición por día de trabajo?', perDayLabel: 'kVA disponibles por día de trabajo', perDayUnit: 'kVA', feminine: false, keywords: 'kva potencia generador grupo electrogeno transformador' },
-  { id: 'hp_hour', kind: 'quantity', group: 'energy', singular: 'HP-hora', plural: 'HP-hora', short: 'HP-hora', label: '$/HP-hora (potencia de máquina)', hint: 'Potencia de bombas o compresores por hora de uso: HP × horas (1 HP = 0,746 kW; 1 CV = 0,736 kW).', perDayQuestion: '¿Cuántos HP-hora hacés por día de trabajo? (HP × horas)', feminine: false, keywords: 'hp hhp cv caballo fuerza vapor potencia maquina bomba compresor fractura' },
-  { id: 'gas_m3', kind: 'quantity', group: 'volume', singular: 'm³ de gas', plural: 'm³ de gas', short: 'm³ gas', label: '$/m³ de gas', hint: 'Se factura cada metro cúbico de gas en condiciones estándar (9.300 kcal/m³): compresión, transporte, venta.', keywords: 'gas natural sm3 nm3 metro cubico estandar compresion' },
+  { id: 'kw_day', kind: 'quantity', group: 'energy', singular: 'kW-día', plural: 'kW-día', short: 'kW-día', label: '$/kW-día (potencia)', hint: 'Potencia puesta a disposición por día: kW × días (cargo por potencia, generación en alquiler). El costo sale de los equipos cargados.', perDayQuestion: '¿Cuántos kW ponés a disposición por día de trabajo?', perDayLabel: 'kW disponibles por día de trabajo', perDayUnit: 'kW', feminine: false, keywords: 'kw kilovatio kilowatt potencia generador' },
+  { id: 'kva_day', kind: 'quantity', group: 'energy', singular: 'kVA-día', plural: 'kVA-día', short: 'kVA-día', label: '$/kVA-día (grupo electrógeno)', hint: 'Alquiler de grupos electrógenos por tamaño: kVA × días (1 kVA ≈ 0,8 kW con factor de potencia 0,8). El costo sale de los grupos cargados en Equipos.', perDayQuestion: '¿Cuántos kVA ponés a disposición por día de trabajo?', perDayLabel: 'kVA disponibles por día de trabajo', perDayUnit: 'kVA', feminine: false, keywords: 'kva potencia generador grupo electrogeno transformador' },
+  { id: 'hp_hour', kind: 'quantity', group: 'energy', singular: 'HP-hora', plural: 'HP-hora', short: 'HP-hora', label: '$/HP-hora (bombas, compresores)', hint: 'Potencia de bombas o compresores por hora de uso: HP × horas (en fractura, HHP hidráulicos). 1 HP = 0,746 kW; 1 CV = 0,736 kW. El costo sale de los equipos cargados.', perDayQuestion: '¿Cuántos HP-hora usás por día de trabajo?', perDayLabel: 'HP-hora por día de trabajo', feminine: false, keywords: 'hp hhp cv caballo fuerza vapor potencia maquina bomba compresor fractura' },
+  { id: 'gas_m3', kind: 'quantity', group: 'volume', singular: 'm³ de gas', plural: 'm³ de gas', short: 'm³ gas', label: '$/m³ de gas', hint: 'Se factura cada m³ de gas estándar (15 °C y 1 atm, 9.300 kcal/m³): compresión, transporte, venta. La capacidad por viaje sólo aplica a GNC en módulos.', keywords: 'gas natural sm3 nm3 metro cubico estandar compresion' },
   // Equipos y personal por tiempo.
-  { id: 'equipment_hour', kind: 'quantity', group: 'time', singular: 'hora de equipo', plural: 'horas de equipo', short: 'h-equipo', label: '$/hora de equipo', hint: 'Se factura cada hora de cada equipo (equipos × horas): pulling, grúas, bombeo, compresores.', perDayQuestion: '¿Cuántas horas de equipo hacés por día de trabajo? (equipos × horas)', feminine: true, keywords: 'hora maquina equipo pulling workover grua' },
+  { id: 'equipment_hour', kind: 'quantity', group: 'time', singular: 'hora de equipo', plural: 'horas de equipo', short: 'h-equipo', label: '$/hora de equipo', hint: 'Se factura cada hora de cada equipo (equipos × horas): pulling, grúas, bombeo, compresores.', perDayQuestion: '¿Cuántas horas de equipo hacés por día de trabajo?', feminine: true, keywords: 'hora maquina equipo pulling workover grua' },
   { id: 'equipment_day', kind: 'quantity', group: 'time', singular: 'día-equipo', plural: 'días-equipo', short: 'día-equipo', label: '$/día-equipo', hint: 'Se factura cada día de cada equipo (equipos × días): tarifa diaria de perforación, workover, herramientas.', perDayQuestion: '¿Cuántos equipos facturás por día de trabajo?', perDayLabel: 'Equipos por día de trabajo', perDayUnit: 'equipos', feminine: false, keywords: 'day rate tarifa diaria equipo perforador workover' },
-  { id: 'manday', kind: 'quantity', group: 'time', singular: 'jornal', plural: 'jornales', short: 'jornal', label: '$/jornal (día-hombre)', hint: 'Se factura cada día de cada persona (personas × días), como las cuadrillas por convenio.', perDayQuestion: '¿Cuántos jornales hacés por día de trabajo? (personas)', perDayLabel: 'Personas por día de trabajo', perDayUnit: 'personas', keywords: 'dia hombre cuadrilla convenio uocra petroleros' },
+  { id: 'manday', kind: 'quantity', group: 'time', singular: 'jornal', plural: 'jornales', short: 'jornal', label: '$/jornal (día-hombre)', hint: 'Se factura cada día de cada persona (personas × días), como las cuadrillas por convenio.', perDayQuestion: '¿Cuántas personas trabajan por día?', perDayLabel: 'Personas por día de trabajo', perDayUnit: 'personas', keywords: 'dia hombre cuadrilla convenio uocra petroleros' },
   { id: 'guard', kind: 'quantity', group: 'time', singular: 'guardia', plural: 'guardias', short: 'guardia', label: '$/guardia', hint: 'Se factura cada guardia cubierta (mantenimiento, seguridad e higiene, ambulancia, standby).', keywords: 'guardia standby disponibilidad' },
   // Pozo, montaje y obra.
   { id: 'stage', kind: 'quantity', group: 'oilfield', singular: 'etapa', plural: 'etapas', short: 'etapa', label: '$/etapa', hint: 'Se factura cada etapa (fractura, punzado, wireline, coiled tubing, tapones).', keywords: 'fractura punzado wireline coiled tubing tapon' },
   { id: 'drilled_meter', kind: 'quantity', group: 'oilfield', singular: 'metro perforado', plural: 'metros perforados', short: 'm perf.', label: '$/metro perforado', hint: 'Se factura cada metro perforado (pozos, pozos de agua, pilotes).', keywords: 'perforacion pozo agua pilote metro' },
   { id: 'connection', kind: 'quantity', group: 'oilfield', singular: 'conexión', plural: 'conexiones', short: 'conexión', label: '$/conexión', hint: 'Se factura cada conexión (tie-in, armado de cabezal, conexiones de pozo).', keywords: 'conexion tie-in cabezal' },
-  { id: 'inch_dia', kind: 'quantity', group: 'assembly', singular: 'pulgada-diámetro', plural: 'pulgadas-diámetro', short: 'pulg-Ø', label: '$/pulgada-diámetro', hint: 'Montaje de cañerías: juntas × diámetro nominal en pulgadas (una junta de 6" = 6 pulgadas-diámetro).', feminine: true, keywords: 'pulgada soldadura diametro cañeria inch dia montaje' },
+  { id: 'inch_dia', kind: 'quantity', group: 'assembly', singular: 'pulgada-diámetro', plural: 'pulgadas-diámetro', short: 'pulg. Ø', label: '$/pulgada-diámetro (soldadura)', hint: 'Montaje de cañerías: juntas × diámetro nominal en pulgadas (una junta de 6" = 6 pulgadas-diámetro).', feminine: true, keywords: 'pulgada soldada soldadura diametro cañeria inch dia montaje' },
   { id: 'joint', kind: 'quantity', group: 'assembly', singular: 'junta', plural: 'juntas', short: 'junta', label: '$/junta soldada', hint: 'Se factura cada junta o unión soldada (ductos, radiografiado y END por junta).', keywords: 'junta soldadura union radiografia end ducto' },
   { id: 'point', kind: 'quantity', group: 'assembly', singular: 'boca', plural: 'bocas', short: 'boca', label: '$/boca o punto', hint: 'Se factura cada boca o punto de instalación (eléctrica, sanitaria, de inspección).', keywords: 'boca punto instalacion electrica sanitaria tablero' },
   // Logística y residuos.
-  { id: 'pallet', kind: 'quantity', group: 'logistics', singular: 'pallet', plural: 'pallets', short: 'pallet', label: '$/pallet', hint: 'Se factura cada pallet movido o almacenado.', keywords: 'pallet palet deposito almacenaje' },
-  { id: 'container', kind: 'quantity', group: 'logistics', singular: 'contenedor', plural: 'contenedores', short: 'contenedor', label: '$/contenedor', hint: 'Se factura cada contenedor (20\' o 40\') transportado o almacenado.', keywords: 'contenedor container teu' },
+  { id: 'pallet', kind: 'quantity', group: 'logistics', singular: 'pallet', plural: 'pallets', short: 'pallet', label: '$/pallet', hint: 'Se factura cada pallet transportado o movido (24 a 28 por semi).', keywords: 'pallet palet deposito almacenaje' },
+  { id: 'container', kind: 'quantity', group: 'logistics', singular: 'contenedor', plural: 'contenedores', short: 'contenedor', label: '$/contenedor', hint: 'Se factura cada contenedor (20\' o 40\') transportado.', keywords: 'contenedor container teu' },
   { id: 'drum', kind: 'quantity', group: 'logistics', singular: 'tambor', plural: 'tambores', short: 'tambor', label: '$/tambor', hint: 'Se factura cada tambor (residuos peligrosos, lubricantes).', keywords: 'tambor residuo peligroso lubricante' },
   { id: 'bag', kind: 'quantity', group: 'logistics', singular: 'bolsa', plural: 'bolsas', short: 'bolsa', label: '$/bolsa o big bag', hint: 'Se factura cada bolsa o big bag (arena, cemento, residuos).', keywords: 'bolsa big bag arena cemento' },
   // Laboratorio.
-  { id: 'sample', kind: 'quantity', group: 'count', singular: 'muestra', plural: 'muestras', short: 'muestra', label: '$/muestra', hint: 'Se factura cada muestra tomada o analizada (aguas, suelos, hidrocarburos).', keywords: 'muestra laboratorio agua suelo' },
-  { id: 'analysis', kind: 'quantity', group: 'count', singular: 'análisis', plural: 'análisis', short: 'análisis', label: '$/análisis o determinación', hint: 'Se factura cada análisis o determinación de laboratorio (por parámetro).', feminine: false, keywords: 'analisis determinacion laboratorio parametro' },
+  { id: 'sample', kind: 'quantity', group: 'lab', singular: 'muestra', plural: 'muestras', short: 'muestra', label: '$/muestra', hint: 'Se factura cada muestra tomada o analizada (aguas, suelos, hidrocarburos).', keywords: 'muestra laboratorio agua suelo' },
+  { id: 'analysis', kind: 'quantity', group: 'lab', singular: 'análisis', plural: 'análisis', short: 'análisis', label: '$/análisis', hint: 'Se factura cada análisis o determinación de laboratorio (por parámetro).', feminine: false, keywords: 'analisis determinacion laboratorio parametro' },
   { id: 'job', kind: 'event', singular: 'trabajo', plural: 'trabajos', short: 'trabajo', label: '$ global (por trabajo)', hint: 'Un único precio por todo el trabajo.' },
   { id: 'milestone', kind: 'event', singular: 'hito', plural: 'hitos', short: 'hito', label: '$/hito', hint: 'El precio del trabajo se factura en partes, por hito.', perActivation: true },
   { id: 'custom', kind: 'quantity', singular: '', plural: '', short: '', label: 'Otra / personalizada', hint: 'Escribí tu unidad: válvula, muestra, junta…', custom: true },
@@ -101,10 +101,11 @@ export const BILLING_UNIT_GROUPS = deepFreeze([
   { id: 'length', label: 'Longitud y superficie' },
   { id: 'volume', label: 'Volumen' },
   { id: 'mass', label: 'Peso y transporte' },
-  { id: 'energy', label: 'Energía y potencia' },
-  { id: 'oilfield', label: 'Pozo' },
-  { id: 'assembly', label: 'Montaje e instalaciones' },
   { id: 'logistics', label: 'Logística y residuos' },
+  { id: 'assembly', label: 'Montaje e instalaciones' },
+  { id: 'oilfield', label: 'Pozos y petróleo' },
+  { id: 'energy', label: 'Energía y potencia' },
+  { id: 'lab', label: 'Laboratorio y ensayos' },
   { id: 'other', label: 'Otra' },
 ]);
 
@@ -112,7 +113,7 @@ export const BILLING_UNIT_GROUPS = deepFreeze([
 const LEGACY_GROUPS = {
   hour: 'time', day: 'time', month: 'time', shift: 'time', manhour: 'time',
   call: 'event', job: 'event', milestone: 'event',
-  unit: 'count', piece: 'count', set: 'count', lot: 'count', well: 'oilfield', test: 'count',
+  unit: 'count', piece: 'count', set: 'count', lot: 'count', well: 'oilfield', test: 'lab',
   meter: 'length', m2: 'length', ha: 'length', km: 'mass', trip: 'mass',
   m3: 'volume', liter: 'volume', barrel: 'volume',
   kg: 'mass', ton: 'mass', tonkm: 'mass',
@@ -135,10 +136,10 @@ const fold = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0
 export function searchUnits(units, query) {
   const words = fold(query).split(/[\s/$]+/).filter(Boolean);
   if (!words.length) return [...units];
-  return units.filter((u) => {
-    const hay = fold([u.label, u.singular, u.plural, u.short, u.keywords, unitGroupOf(u).label].join(' '));
-    return words.every((w) => hay.includes(w));
-  });
+  const match = (text) => (u) => words.every((w) => fold(text(u)).includes(w));
+  // Primero por nombre y sinónimos; sólo si nada coincide, por grupo ("logística", "pozos").
+  const byName = units.filter(match((u) => [u.label, u.singular, u.plural, u.short, u.keywords].join(' ')));
+  return byName.length ? byName : units.filter(match((u) => unitGroupOf(u).label));
 }
 
 /** Unidades que existían antes de PLAN-2026-009 (calculan exactamente igual). */
@@ -149,11 +150,11 @@ export const LEGACY_BILLING_UNITS = deepFreeze(['day', 'hour', 'month']);
  * "Otra / personalizada" se ofrece siempre; "Servicio configurable", todas.
  */
 export const SERVICE_TYPE_UNITS = deepFreeze({
-  on_call: ['day', 'hour', 'call', 'month'],
-  permanent: ['month', 'day', 'hour', 'shift'],
+  on_call: ['day', 'hour', 'call', 'month', 'guard'],
+  permanent: ['month', 'day', 'hour', 'shift', 'guard'],
   crew: ['day', 'hour', 'manhour', 'shift', 'month', 'manday', 'guard'],
-  equipment_with_operator: ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh'],
-  equipment_only: ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh'],
+  equipment_with_operator: ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh', 'stage', 'drilled_meter', 'well', 'm3', 'barrel', 'gas_m3'],
+  equipment_only: ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh', 'stage', 'drilled_meter', 'well', 'm3', 'barrel', 'gas_m3'],
   per_unit: ['unit', 'piece', 'well', 'test', 'manhour', 'm3', 'ton', 'kg', 'meter', 'm2', 'ha', 'liter', 'barrel', 'km', 'lot', 'set',
     'stage', 'drilled_meter', 'connection', 'inch_dia', 'joint', 'point', 'sample', 'analysis', 'kwh', 'mwh', 'mj', 'gj', 'mmbtu', 'gas_m3', 'pallet', 'drum', 'bag'],
   transport: ['trip', 'km', 'ton', 'tonkm', 'm3', 'liter', 'barrel', 'hour', 'day', 'pallet', 'container', 'drum', 'bag', 'gas_m3'],
