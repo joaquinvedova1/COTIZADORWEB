@@ -125,15 +125,26 @@ export function activeGuardCoverage(quote = {}) {
 /**
  * Personas por posición que pide la guardia activa para una línea de personal: horas a cubrir
  * ÷ horas normales por persona, contra las cargadas (nómina o personas por posición, más las
- * horas extra por mes). Sin horas normales o sin posiciones → null. Nunca cambia el costo.
+ * horas extra). Un puesto que cubre sólo un turno ("Horas por día que cubre este puesto" o las
+ * horas por turno del diagrama) cubre esas horas de la guardia, no las 24. Sin horas normales
+ * o sin posiciones → null. Nunca cambia el costo.
+ * @param {number} [activeDays] días con trabajo (para las horas extra por día activo)
  */
-export function activeGuardLineCheck(guard, l = {}) {
+export function activeGuardLineCheck(guard, l = {}, activeDays = 0) {
   const normal = nonNegative(l.normalHoursPerMonth);
   if (!guard || !(nonNegative(l.positions) > 0) || !(normal > 0)) return null;
+  const own = Math.min(nonNegative(l.coverageHoursPerDay), 24);
+  const shift = isPlainObject(l.rotation) ? Math.min(nonNegative(l.rotation.hoursPerShift), 24) : 0;
+  const lineHours = own > 0 ? own : shift > 0 ? shift : guard.hours;
+  const hours = Math.min(guard.hours, lineHours);
+  const required = guard.days * hours;
   const ppp = laborPeoplePerPositionOf(l);
-  const perMonth = overtimeItemsOf(l).filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
-  const covered = ppp * (normal + perMonth);
-  return { ppp, normal, extra: ppp * perMonth, covered, needed: guard.required / normal, short: guard.required > covered + 1e-6 };
+  const items = overtimeItemsOf(l);
+  const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
+  const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
+  const extra = ppp * perMonth + perDay * nonNegative(activeDays);
+  const covered = ppp * normal + extra;
+  return { ppp, normal, hours, required, extra, covered, needed: required / normal, short: required > covered + 1e-6 };
 }
 
 function rule(id, label, step, weight, status, message) {
@@ -289,23 +300,23 @@ export function evaluateCompleteness(quote = {}) {
   const continuous = CONTINUOUS_SERVICE_TYPES.includes(serviceType) && (serviceType === 'permanent' || activity.availability === '24/7');
   // Guardia activa (2026-11): relevos con números (horas de guardia del mes vs horas normales).
   const activeGuard = labor.length > 0 ? activeGuardCoverage(quote) : null;
+  const D0 = normalizeActivity(quote).activeDaysPerMonth;
   const passiveGuard = serviceType === 'on_call' && activity.guardType === 'passive';
   if (activeGuard) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
-    const checks = labor.map((l, index) => ({ l, index, c: activeGuardLineCheck(activeGuard, l) })).filter((x) => x.c);
+    const checks = labor.map((l, index) => ({ l, index, c: activeGuardLineCheck(activeGuard, l, D0) })).filter((x) => x.c);
     const short = checks.filter((x) => x.c.short);
-    const head = `Guardia activa: ${fmt(activeGuard.days)} días × ${fmt(activeGuard.hours)} h = ${fmt(activeGuard.required)} h por posición en el mes`;
     if (short.length) {
       const { l, index, c } = short[0];
       const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const item = rule('relief', 'Relevos', 'labor', 1, 'warning',
-        `${head}. "${name}" cubre ${fmt(c.covered)} h (${fmt(c.ppp)} ${Math.abs(c.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(c.normal)} h normales${c.extra > 0 ? ` + ${fmt(c.extra)} h extra` : ''}): hacen falta unas ${fmt(c.needed)} personas por posición, más francos, vacaciones y ausencias. Sumá personas en nómina (o usá el diagrama de rotación del puesto) o cargá horas extra. RATEOS no las agrega solo.${others}`);
+        `Guardia activa: ${fmt(activeGuard.days)} días × ${fmt(c.hours)} h = ${fmt(c.required)} h por posición. "${name}" cubre ${fmt(c.covered)} h: hacen falta unas ${fmt(c.needed)} personas por posición (más francos y vacaciones). Sumá personas en nómina o horas extra.${others}`);
       item.focus = `labor.${index}.${hasPayrollHeadcount(l) ? 'payrollHeadcount' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
     } else if (checks.length) {
-      items.push(rule('relief', 'Relevos', 'labor', 1, 'ok', `${head}: el personal cargado las cubre.`));
+      items.push(rule('relief', 'Relevos', 'labor', 1, 'ok', `Guardia activa: el personal cargado cubre las horas de guardia del mes.`));
     }
   } else if (continuous && passiveGuard && labor.length > 0) {
     items.push(rule('relief', 'Relevos', 'labor', 1, 'ok', 'Guardia pasiva (localizable): no se cubre hora por hora; alcanza con rotar quién está de guardia.'));
@@ -1024,14 +1035,14 @@ export function evaluateCompleteness(quote = {}) {
   }
   // Disponibilidad que no se cobra aparte (2026-11): 24/7 o guardia activa, cobrando sólo lo
   // trabajado. Informativo: muchas tarifas ya la incluyen.
-  const guardIsCostly = activity.availability === '24/7' || activeGuard;
+  const guardIsCostly = activity.availability === '24/7' || Boolean(activeGuardCoverage(quote));
   if (serviceType === 'on_call' && guardIsCostly && unit.kind !== 'month' && !(nonNegative(rules.availabilityFeeMonthly) > 0) && !normalizeRules(rules).hasMinimumGuarantee) {
     notices.push({
       id: 'availability_unpaid',
       step: 'margin',
       severity: 'info',
       label: 'Disponibilidad sin cobrar',
-      message: `${activity.availability === '24/7' ? 'Estás disponible 24/7' : 'Tenés guardia activa'} y sólo facturás lo trabajado: la guardia no se cobra aparte. Si tiene costo (relevos, adicional de guardia), cubrilo en la tarifa, con un "Abono de disponibilidad" o con un mínimo mensual garantizado.`,
+      message: 'La guardia no se cobra aparte: cubrila en la tarifa, con un "Abono de disponibilidad" o con un mínimo mensual garantizado.',
       focus: 'rules.availabilityFeeMonthly',
     });
   }

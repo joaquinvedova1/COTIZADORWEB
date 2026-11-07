@@ -95,6 +95,7 @@ describe('guardia activa / pasiva (2026-11)', () => {
     const r = relief(q);
     assert.equal(r.status, 'warning');
     assert.match(r.message, /30 días × 24 h = 720 h por posición/);
+    assert.match(r.message, /cubre 200 h/);
     assert.match(r.message, /unas 3,6 personas por posición/);
     assert.equal(r.focus, 'labor.0.peoplePerPosition');
     assert.ok(!computeQuote(q).completeness.items.some((x) => x.id === 'labor_hours'));
@@ -104,12 +105,32 @@ describe('guardia activa / pasiva (2026-11)', () => {
     const q = withLabor({ availability: 'window', availabilityHoursPerDay: 8, guardType: 'active', availableDaysPerMonth: 22, hoursPerActiveDay: 8 });
     const r = relief(q);
     assert.equal(r.status, 'ok');
-    assert.match(r.message, /176 h/);
+    assert.match(r.message, /cubre las horas de guardia/);
   });
 
   test('activa con nómina suficiente (5 personas por posición) → ok', () => {
     const q = withLabor({ availability: '24/7', guardType: 'active' }, [op({ peoplePerPosition: 4 })]);
     assert.equal(relief(q).status, 'ok');
+  });
+
+  test('activa 24/7 con turnos día/noche de 12 h y 2 personas cada uno: alcanza (cada puesto cubre su turno)', () => {
+    const q = withLabor({ availability: '24/7', guardType: 'active' }, [
+      op({ id: 'd', role: 'Turno día', peoplePerPosition: 2, coverageHoursPerDay: 12 }),
+      op({ id: 'n', role: 'Turno noche', peoplePerPosition: 2, coverageHoursPerDay: 12 }),
+    ]);
+    assert.equal(relief(q).status, 'ok');
+  });
+
+  test('activa: las horas extra por día activo también cubren', () => {
+    // 8 días × 6 h extra = 48 h; 200 + 48 = 248 ≥ 22 × 11 = 242.
+    const q = withLabor({ availability: 'window', availabilityHoursPerDay: 11, guardType: 'active', availableDaysPerMonth: 22, hoursPerActiveDay: 10 }, [op({ overtimeHoursPerActiveDay: 6 })]);
+    assert.equal(relief(q).status, 'ok');
+  });
+
+  test('disponibilidad sin cobrar también con guardia activa en franja y sin personal', () => {
+    const q = onCall({ availability: 'window', availabilityHoursPerDay: 8, guardType: 'active' }, 'day');
+    q.labor = [];
+    assert.ok(computeQuote(q).completeness.notices.some((x) => x.id === 'availability_unpaid'));
   });
 
   test('pasiva 24/7 con una persona: no pide relevos hora por hora; sugiere el adicional de guardia', () => {
