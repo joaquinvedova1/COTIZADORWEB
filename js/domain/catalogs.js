@@ -257,6 +257,9 @@ export const QUOTE_STATUSES = deepFreeze([
 /** Estados de cotización considerados "activos" para el dashboard. */
 export const ACTIVE_QUOTE_STATUSES = deepFreeze(['draft', 'sent', 'won']);
 
+/** Disponibilidad en una franja (horas de guardia por día), no 24/7. */
+export const AVAILABILITY_WINDOW = 'window';
+
 export const AVAILABILITY_OPTIONS = deepFreeze([
   { id: '24/7', label: '24/7' },
   { id: 'window', label: 'Franja horaria' },

@@ -12,6 +12,17 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Franja horaria en horas (2026-11-07, pedido del dueño).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (campo opcional `activity.availabilityHoursPerDay`).
+
+### Cambiado
+
+- **"Franja horaria" pasa de texto libre a número: "Horas de guardia por día"** (on call, disponibilidad "Franja horaria"). El texto anterior no lo leía ningún cálculo ni se imprimía; si una cotización lo tenía, se muestra en el (i) del campo nuevo.
+- **"Horas trabajadas por día con llamado" a la vista** en on call, al lado de los días (antes escondida en Opciones avanzadas como "10 h por día activo"). Es la que mueve números: horas facturables si cobrás por hora, uso y combustible de equipos y $/hora. Las horas de guardia NO se facturan ni cambian el costo.
+- Tooltip de "Disponibilidad requerida": ya no dice "No cambia los números"; explica que es cuándo te pueden convocar, no lo que facturás.
+
+### Agregado
+
+- **Aviso de fuera de horario** (`availability_window`): si cada día con llamado se trabajan más horas que la franja de guardia, dice cuántas quedan fuera de horario y que se cobran en "Adicionales". Sólo avisa.
 **Revisión UX y de costos de la tanda B (2026-11):** asistente de diagrama más corto (atajos y 3 campos a la vista, el resto en "Grupos, turnos y redondeo"), marca "aplicado al puesto" y foco que no se pierde; ventana de pérdida como franja "cubre el mínimo · perdés · ganás" con tu estimación marcada; burbujas (i) fijas abajo en celular; aviso del proveedor en rojo o amarillo según su gravedad. Avisos nuevos: nómina menor que los que están en sitio, y tarifa sugerida que no cuenta el mínimo garantizado (con botón "Usar $ X como tarifa ofrecida"). El aviso del proveedor sólo baja a amarillo por vehículos propios si se eligió cómo llega el externo.
 
 **Tanda B — materiales por unidad, mínimo en unidades y aviso del proveedor (2026-11, B-2 y B-3 del informe auditado `docs/informes/2026-11-especialistas-auditado.md`, PLAN-2026-022).** Ninguna cifra de una cotización existente cambia (golden 42/42 y baseline de regresión sin re-aprobar; 118 cotizaciones de los especialistas comparadas con `main`: mismos costos, tarifas, márgenes y equilibrios). Esquema sin cambio de versión: los campos nuevos son opcionales.

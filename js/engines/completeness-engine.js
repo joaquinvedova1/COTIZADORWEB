@@ -29,7 +29,7 @@ import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
 import { contractOf } from '../domain/contract.js';
 import { computeExtras } from './extras-engine.js';
-import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
+import { AVAILABILITY_WINDOW, EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent, formatNumber, formatMoney } from '../core/format.js';
@@ -39,7 +39,7 @@ import { billingTaxInfo } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
-import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay } from './cost-engine.js';
+import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay, availabilityHoursOf } from './cost-engine.js';
 import { outputPerActiveDayOf, normalizeBasisId } from './materials-engine.js';
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
@@ -70,6 +70,20 @@ export function completenessTone(scorePct) {
   if (scorePct >= COMPLETENESS_GREEN_THRESHOLD) return 'green';
   if (scorePct >= COMPLETENESS_RISK_THRESHOLD) return 'orange';
   return 'red';
+}
+
+/**
+ * Horas trabajadas por día con llamado que quedan fuera de la franja de guardia (2026-11).
+ * Sólo con franja horaria y ambos datos cargados; null si no hay excedente.
+ * @returns {{ worked:number, guard:number, outside:number }|null}
+ */
+export function outsideWindowHours(quote = {}) {
+  const a = quote.activity || {};
+  if (a.availability !== AVAILABILITY_WINDOW) return null;
+  const guard = availabilityHoursOf(a);
+  const worked = Math.min(nonNegative(a.hoursPerActiveDay), 24);
+  if (!(guard > 0) || !(worked > guard + 1e-9)) return null;
+  return { worked, guard, outside: worked - guard };
 }
 
 function rule(id, label, step, weight, status, message) {
@@ -228,6 +242,17 @@ export function evaluateCompleteness(quote = {}) {
     const ok = labor.every((l) => laborPeoplePerPositionOf(l) > 1);
     items.push(rule('relief', 'Relevos', 'labor', 1, ok ? 'ok' : 'warning',
       ok ? 'Relevos configurados.' : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.'));
+  }
+
+  // 5 ter. Franja de guardia (2026-11): si cada día con llamado se trabajan más horas que la
+  // franja, el excedente es fuera de horario. Sólo avisa: no cambia costo ni facturación.
+  const overrun = serviceType === 'on_call' ? outsideWindowHours(quote) : null;
+  if (overrun) {
+    const f = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+    const item = rule('availability_window', 'Franja de guardia', 'modality', 1, 'warning',
+      `Trabajás ${f(overrun.worked)} h por día con ${activationTerms(quote).one} y la franja de guardia es de ${f(overrun.guard)} h: ${f(overrun.outside)} h por día quedan fuera de horario. Si el cliente las paga aparte, cargalas en "Adicionales" (hora fuera de horario); si no, revisá las horas.`);
+    item.focus = 'activity.hoursPerActiveDay';
+    items.push(item);
   }
 
   // 5 bis. Horas de cobertura de la operación vs horas cargadas del puesto (PLAN-2026-014,
