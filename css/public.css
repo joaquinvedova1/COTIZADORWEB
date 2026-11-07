@@ -618,3 +618,18 @@ body.is-public .skip-link:not(:focus) { box-shadow: none; }
 @media (max-width: 640px) {
   .pub-industry-fields { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* "Reportar un problema" en el sitio público (PLAN-2026-020). */
+.pub-report-link { gap: 0.4rem; background: none; border: 0; font: inherit; cursor: pointer; }
+.pub-report-link .icon { flex-shrink: 0; }
+.pub-report-short { display: none; }
+@media (max-width: 640px) {
+  .pub-flow-header .pub-report-long { display: none; }
+  .pub-flow-header .pub-report-short { display: inline; }
+}
+.pub-report-link { white-space: nowrap; }
+.pub-footer-meta { flex-wrap: wrap; }
+@media (max-width: 360px) {
+  .pub-flow-header .pub-report-short { display: none; }
+  .pub-flow-header .pub-report-link { min-width: 44px; justify-content: center; }
+}

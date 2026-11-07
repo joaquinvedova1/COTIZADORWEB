@@ -306,6 +306,10 @@ docs/                      documentación técnica
 | [.agent/PLANS.md](.agent/PLANS.md) | Plantilla y registro de planes de ejecución |
 | [CHANGELOG.md](CHANGELOG.md) | Historial de versiones |
 
+## Reportes de problemas
+
+Los usuarios reportan errores desde **Reportar un problema** (pie del menú lateral, demo y pie del sitio). Cada reporte se guarda en Supabase y se publica como issue con el label [`reporte-app`](https://github.com/joaquinvedova1/COTIZADORWEB/issues?q=label%3Areporte-app), sin datos de la persona. Configuración y revisión: [docs/BUG_REPORTS.md](docs/BUG_REPORTS.md).
+
 ## Seguridad y privacidad
 
 - **Sin servidor propio, sin analytics, sin IA:** todo se calcula en tu navegador. Los datos de una cuenta se guardan en Supabase y la base sólo se los muestra a las personas de esa empresa (**Row Level Security**, probado con usuarios A/B); la demo no guarda nada.

@@ -1,0 +1,37 @@
+name: Reportar un problema en RATEOS
+description: Algo no funcionó, dio un número raro o te confundió.
+title: "[Reporte] "
+labels: ["reporte-app"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por avisarnos. **Este repositorio es público:** no escribas nombres de clientes, precios, costos ni datos confidenciales.
+        Si tenés cuenta de RATEOS, es más fácil desde la app: menú lateral → **Reportar un problema** (no necesitás GitHub).
+  - type: textarea
+    id: que-paso
+    attributes:
+      label: ¿Qué pasó?
+      placeholder: "Ej.: en Equipos toco «Siguiente» y no pasa nada."
+    validations:
+      required: true
+  - type: textarea
+    id: que-esperabas
+    attributes:
+      label: ¿Qué esperabas que pasara?
+      placeholder: "Ej.: que me lleve al paso Materiales."
+  - type: input
+    id: donde
+    attributes:
+      label: ¿Dónde pasó?
+      description: Pantalla y paso (por ejemplo, Cotización › Equipos).
+  - type: input
+    id: version
+    attributes:
+      label: Versión
+      description: Aparece abajo del menú lateral o en el pie de la página (por ejemplo, v0.8.1 · build abc1234).
+  - type: input
+    id: navegador
+    attributes:
+      label: Navegador y dispositivo
+      placeholder: "Ej.: Chrome en Android"

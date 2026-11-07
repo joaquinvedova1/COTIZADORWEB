@@ -1201,3 +1201,18 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 4. Sumar un componente de materiales desmarca "no usa materiales" (nunca se marca solo: es una confirmación); sumar "Viáticos" con "Sin traslados" reabre "Movilización y viajes" con un aviso. Sólo componentes propios = ni personal ni equipos ('configurable'). "Otros costos" y los propios no cuentan como materiales.
 
 **Compatibilidad:** ninguna fórmula cambia. Contratos con marcas y sin lista se leen igual (`componentsOf` los traduce a personal / equipo); cotizaciones sin `contract` siguen por la ruta anterior. Esquema sin cambio de versión. Tests: `tests/engines/service-components.test.js`.
+
+### PLAN-2026-020 — "Reportar un problema" desde la app, con informe en GitHub
+
+**Pedido del dueño (2026-11-07):** "una sección donde los usuarios puedan reportar errores en la app y eso nos genere un informe que podamos evaluar… vinculado a GitHub en el repo".
+
+**Opciones evaluadas:**
+1. *Issue prellenado en GitHub* (`/issues/new?title=&body=`): cero infraestructura, pero exige cuenta de GitHub: no sirve para usuarios no técnicos.
+2. *Formulario externo / Worker*: otra cuenta, otro proveedor y relajar la CSP (`connect-src`): descartado (AGENTS.md §13–14).
+3. **Supabase (ya en la CSP) + Edge Function → GitHub (elegida):** la persona con sesión envía desde la app sin cuenta de GitHub; el reporte queda en `private.bug_reports` (fuente de verdad, RLS, sin grants) y la Edge Function `bug-report-github` crea un issue con label `reporte-app`. El token de GitHub vive sólo como secreto de Supabase. Sin sesión (sitio público, demo) se usa la opción 1 como respaldo.
+
+**Privacidad:** el repo es público. El reporte lleva sólo lo escrito y contexto técnico (pantalla y paso, ruta como patrón sin ids, versión, build, navegador, ventana, idioma, modo cuenta/demo). El issue no lleva nombre, email, empresa ni id de quien reporta; el formulario lo avisa y pide no escribir clientes ni precios. Menciones `@` neutralizadas.
+
+**Seguridad:** `public.submit_bug_report` (invoker) → `private.submit_bug_report` (definer, `search_path` vacío): sólo con sesión, valida largos, 5 reportes cada 10 minutos y 30 por día por persona. `claim`/`set` del puente sólo para `service_role` y sólo el reporte de quien llama, una vez (reserva de 10 min). `admin_bug_reports` sólo RATEOS_ADMIN. Beta Security Gate: dos RPC nuevas y una sola Edge Function permitidas, con nombre literal y sólo desde `js/data/feedback-gateway.js`.
+
+**Rollback:** redeploy del backup de main; la tabla y las funciones quedan sin uso (no tocan datos de clientes).

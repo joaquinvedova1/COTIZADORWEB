@@ -150,13 +150,16 @@ export function createLayout(container, { version = {} } = {}) {
   const syncDotEl = h('span', { class: 'sync-dot', 'aria-hidden': 'true' });
   const syncTextEl = h('span', { class: 'sync-text' });
   const syncEl = h('div', { class: 'sync-status', role: 'status', hidden: true }, syncDotEl, syncTextEl);
+  // "Reportar un problema": siempre a mano, junto a la versión que se reporta.
+  let reportHandler = null;
+  const reportBtn = h('button', { type: 'button', class: ['account-action', 'report-action'], on: { click: () => reportHandler && reportHandler() } }, icon('flag', { size: 16 }), h('span', {}, 'Reportar un problema'));
   const sidebarFooter = h(
     'div',
     { class: 'sidebar-footer' },
     h('div', { class: 'org-card' }, orgAvatarEl, h('div', { class: 'org-text' }, orgNameEl, orgBaseEl)),
     accountEl,
     syncEl,
-    buildEl,
+    h('div', { class: 'sidebar-meta' }, reportBtn, buildEl),
   );
 
   const sidebar = h('aside', { class: 'sidebar', id: 'app-sidebar', 'aria-label': 'Menú de RATEOS' }, brandLink('brand-sidebar'), newQuoteLink, nav, sidebarFooter);
@@ -418,6 +421,10 @@ export function createLayout(container, { version = {} } = {}) {
     /** Acción de "Cerrar sesión". */
     onSignOut(handler) {
       signOutHandler = typeof handler === 'function' ? handler : null;
+    },
+    /** Acción de "Reportar un problema". */
+    onReportProblem(handler) {
+      reportHandler = typeof handler === 'function' ? handler : null;
     },
     /** Estado de sincronización con la nube (texto + punto de color). */
     setSyncStatus({ status, label } = {}) {

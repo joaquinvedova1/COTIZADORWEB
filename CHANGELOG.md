@@ -12,6 +12,17 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Reportar un problema desde la app (2026-11, PLAN-2026-020).** Pedido del dueño: "una sección donde los usuarios puedan reportar errores… vinculado a GitHub". Ninguna fórmula cambia; esquema de datos de la app sin cambios.
+
+### Agregado
+
+- **Reportar un problema**: al pie del menú lateral (y en la demo y el pie del sitio). Dos preguntas (qué pasó / qué esperabas), contexto técnico automático y "Ver exactamente lo que se envía". Con sesión se envía sin cuenta de GitHub y devuelve una referencia `R-XXXXXX`; sin sesión abre el issue ya escrito en GitHub.
+- Supabase: `private.bug_reports` + `public.submit_bug_report` (sólo con sesión, con límite por persona) y `public.admin_bug_reports` (RATEOS_ADMIN). Edge Function `bug-report-github` que crea el issue con label `reporte-app` sin datos de la persona. Plantilla `.github/ISSUE_TEMPLATE/reporte-app.yml`. Cómo revisarlos: [docs/BUG_REPORTS.md](docs/BUG_REPORTS.md).
+
+### Seguridad
+
+- Beta Security Gate: se permiten las RPC `submit_bug_report` y `admin_bug_reports` y una sola Edge Function (`bug-report-github`, nombre literal, sólo desde `js/data/feedback-gateway.js`). El test de migraciones acepta grants al rol `service_role` (nunca claves).
+
 **Llamados más claros en on call (2026-11).** Pedido del dueño: "¿qué es llamado? es re confuso… si me llaman una vez por día, ¿qué hago?". Ninguna fórmula cambia; esquema sin cambios (se sigue guardando `activity.daysPerActivation`).
 
 ### Cambiado
