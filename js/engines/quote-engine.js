@@ -21,7 +21,7 @@ import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, suggestedRateRound, effectiveRoundingStep, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
-import { evaluateCompleteness, activationRoundingNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
+import { evaluateCompleteness, activationRoundingNotice, fixedCostsAbsorbedNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
@@ -362,6 +362,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   // Menos de una salida por mes (PLAN-2026-014, LAB-D1): aviso informativo, la fórmula no cambia.
   const belowOne = activationRoundingNotice(quote, rounding, roundingPreview);
   if (belowOne) completeness.notices.push(belowOne);
+  // Costos fijos del mes que absorbe el precio (tanda A 2026-11, A-15 a): informativo, nunca se aplica un % solo.
+  const absorbed = fixedCostsAbsorbedNotice(quote, model, D);
+  if (absorbed) completeness.notices.push(absorbed);
   // Nombre de la activación en los textos: llamado / salida / intervención (PLAN-2026-014, LAB-D8).
   const T = activationTerms(quote);
   const num = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
@@ -664,7 +667,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       inputs: [
         { label: 'Distancia base → locación', value: model.logistics.distanceKm, format: 'km' },
         { label: `Km de ruta ${T.per}`, value: model.logistics.routeKmPerActivation, format: 'km' },
-        { label: `Km de equipos que van por sus medios, ${T.per}`, value: model.mobilization.kmPerActivation, format: 'km' },
+        { label: `Km de equipos en ruta (por sus medios o enganchados), ${T.per}`, value: model.mobilization.kmPerActivation, format: 'km' },
         { label: `Km de vehículos auxiliares ${T.per}`, value: model.logistics.vehicleKmPerActivation, format: 'km' },
         { label: `Litros ${T.per} (equipos + auxiliares)`, value: model.mobilization.litersPerActivation + model.logistics.litersPerActivation, format: 'liters' },
         { label: 'Precio combustible', value: model.fuel.paidByUs ? model.fuel.pricePerLiter : 0, format: 'rate' },

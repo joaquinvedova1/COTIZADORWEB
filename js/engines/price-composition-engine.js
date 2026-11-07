@@ -17,6 +17,17 @@
  * Total del contrato = mes × meses de contrato (misma actividad todos los
  * meses; sin ajustes por índices).
  *
+ * Precio cerrado (tanda A 2026-11, A-1): no hay "meses de contrato". El total
+ * es el de UN trabajo y no se multiplica por contractMonths:
+ *   trabajos por mes   = días de trabajo ÷ días por trabajo (activaciones del mes)
+ *   total del trabajo  = valores del mes ÷ trabajos por mes
+ *                        (con hitos: tarifa × hitos por trabajo + otros ingresos del trabajo)
+ *   total de la obra   = total del trabajo × trabajos de la obra (quote.contractJobs, opcional, default 1)
+ *
+ * Materiales facturados aparte (A-8): su costo se muestra en una fila propia
+ * ("Materiales facturados aparte") separada del resto de los materiales; la
+ * suma de las filas no cambia.
+ *
  * Controles de cuadre ("Los números cierran"): invariantes que deben dar
  * siempre; si alguno falla hay un error de cálculo, no un dato del usuario.
  *
@@ -47,7 +58,7 @@ function check(id, label, ok, detail = null) {
  *   rows: { key: string, group: 'cost'|'taxes'|'result', label: string, amount: number, pctOfPrice: number, displayPct: number, perUnit: number|null }[],
  *   groups: { key: string, label: string, amount: number, pctOfPrice: number, displayPct: number, displayPct1: number }[],
  *   perUnit: { unit: string, units: number|null, netRate: number|null, listRate: number|null, discountFactor: number|null, otherRevenue: number },
- *   contract: { months: number|null, revenue: number|null, cost: number|null, billingTaxes: number|null, profit: number|null },
+ *   contract: { mode: 'months'|'closed', months: number|null, jobs: number|null, jobsPerMonth: number|null, unitsPerJob: number|null, revenue: number|null, cost: number|null, billingTaxes: number|null, profit: number|null },
  *   checks: { id: string, label: string, ok: boolean|null, detail: string|null }[],
  *   allChecksOk: boolean,
  *   trace: object,
@@ -72,7 +83,7 @@ export function priceComposition(result) {
     rows: [],
     groups: [],
     perUnit: { unit: r.unit || 'day', units: null, netRate: null, listRate: null, discountFactor: null, otherRevenue: 0 },
-    contract: { months: null, revenue: null, cost: null, billingTaxes: null, profit: null },
+    contract: { mode: r.contract && r.contract.mode === 'closed' ? 'closed' : 'months', months: null, jobs: null, jobsPerMonth: null, unitsPerJob: null, revenue: null, cost: null, billingTaxes: null, profit: null },
     checks: [],
     allChecksOk: true,
     trace: null,
@@ -95,8 +106,24 @@ export function priceComposition(result) {
   const loss = G < -moneyTolerance(R);
 
   const eeccRows = Array.isArray(r.eecc && r.eecc.rows) ? r.eecc.rows : [];
+  // Costo de los materiales que se facturan aparte (A-8) con la actividad estimada: fila propia.
+  const resale = r.ctx && r.ctx.materialsResale ? r.ctx.materialsResale : null;
+  const estDays = isFiniteNumber(e.activeDays) ? e.activeDays : 0;
+  const estFactor = isFiniteNumber(e.cost && e.cost.monthsFactor) ? e.cost.monthsFactor : 1;
+  const billedMaterialsCost = resale ? nonNegative(resale.costFixedMonthly) * estFactor + nonNegative(resale.costPerActiveDay) * estDays : 0;
+  const costRows = [];
+  eeccRows.forEach((row) => {
+    const amount = isFiniteNumber(row.amount) ? row.amount : 0;
+    if (row.category === 'materials' && billedMaterialsCost > 0) {
+      const billed = Math.min(billedMaterialsCost, amount);
+      costRows.push({ key: row.category, group: 'cost', label: row.label, amount: amount - billed, eeccCategory: 'materials' });
+      costRows.push({ key: 'materials_billed', group: 'cost', label: 'Materiales facturados aparte', amount: billed, eeccCategory: 'materials' });
+      return;
+    }
+    costRows.push({ key: row.category, group: 'cost', label: row.label, amount });
+  });
   const base = [
-    ...eeccRows.map((row) => ({ key: row.category, group: 'cost', label: row.label, amount: isFiniteNumber(row.amount) ? row.amount : 0 })),
+    ...costRows,
     { key: TAX_KEY, group: 'taxes', label: 'Impuestos sobre lo que facturás', amount: T },
     { key: RESULT_KEY, group: 'result', label: loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)', amount: G },
   ];
@@ -134,14 +161,41 @@ export function priceComposition(result) {
   }
   const groups = groupDefs.map((g, i) => ({ ...g, pctOfPrice: (g.amount / R) * 100, displayPct: g2[i], displayPct1: g1[i] }));
 
-  const months = isFiniteNumber(r.ctx && r.ctx.contractMonths) && r.ctx.contractMonths > 0 ? r.ctx.contractMonths : null;
-  const contract = {
-    months,
-    revenue: months !== null ? R * months : null,
-    cost: months !== null ? C * months : null,
-    billingTaxes: months !== null ? T * months : null,
-    profit: months !== null ? G * months : null,
-  };
+  // Precio cerrado (A-1): el total es por trabajo, nunca × meses de contrato.
+  const closed = Boolean(r.contract && r.contract.mode === 'closed');
+  let contract;
+  if (closed) {
+    const jobsPerMonth = isFiniteNumber(revenue.activations) && revenue.activations > 0 ? revenue.activations : null;
+    const rawJobs = r.ctx ? r.ctx.contractJobs : null;
+    const jobs = isFiniteNumber(rawJobs) && rawJobs > 0 ? rawJobs : 1;
+    const per = (v) => (jobsPerMonth !== null ? (v / jobsPerMonth) * jobs : null);
+    const unitsPerJob = isFiniteNumber(revenue.billableUnitsPerActivation) ? revenue.billableUnitsPerActivation : null;
+    contract = {
+      mode: 'closed',
+      months: null,
+      jobs,
+      jobsPerMonth,
+      // Hitos (o unidades) que factura cada trabajo: 1 con "$ global".
+      unitsPerJob,
+      revenue: per(R),
+      cost: per(C),
+      billingTaxes: per(T),
+      profit: per(G),
+    };
+  } else {
+    const months = isFiniteNumber(r.ctx && r.ctx.contractMonths) && r.ctx.contractMonths > 0 ? r.ctx.contractMonths : null;
+    contract = {
+      mode: 'months',
+      months,
+      jobs: null,
+      jobsPerMonth: null,
+      unitsPerJob: null,
+      revenue: months !== null ? R * months : null,
+      cost: months !== null ? C * months : null,
+      billingTaxes: months !== null ? T * months : null,
+      profit: months !== null ? G * months : null,
+    };
+  }
 
   // ------------------------------------------------ controles de cuadre
   const tol = moneyTolerance(R);

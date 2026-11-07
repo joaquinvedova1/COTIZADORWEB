@@ -366,7 +366,13 @@ export function oracleModel(q) {
     const m = obj(e.mobilization);
     const external = isExternal(e);
     const x = obj(e.external);
-    if (m.mode !== 'self' || (external && x.mobilizationIncluded === true)) return;
+    if (external && x.mobilizationIncluded === true) return;
+    // Remolque arrastrado (§5.1, A-3): rueda la ruta; sólo desgaste (sin combustible ni conductor).
+    if (m.mode === 'transported' && m.towed === true) {
+      mobWearPerActivation += route.routeKmPerActivation * n(e.quantity) * (n(m.travelCostPerKm) + tires(e).perKm);
+      return;
+    }
+    if (m.mode !== 'self') return;
     const km = route.routeKmPerActivation * n(e.quantity);
     const liters = !external && e.fuelNotApplicable === true ? 0 : (km * n(m.travelLitersPer100Km)) / 100;
     const perKmFuelMode = external && ['per_100km', 'km_per_liter'].includes(x.fuelMode);
@@ -392,6 +398,10 @@ export function oracleModel(q) {
   const materials = q.materialsNotApplicable ? [] : list(q.materials);
   let resaleFixed = 0;
   let resalePerDay = 0;
+  // Facturar aparte por línea (§6, A-8): true / false / sin definir (= el tilde global).
+  const globalBilled = obj(q.pricing).materialsBilledSeparately === true;
+  const billedLine = (m) => (m.billedSeparately === true || m.billedSeparately === false ? m.billedSeparately : globalBilled);
+  const anyBilled = globalBilled || materials.some((m) => m.billedSeparately === true);
   materials.forEach((m, i) => {
     const factor = currencyFactor(m.base, q) ?? 0;
     const gross = n(m.quantity) * n(m.unitCost) * factor * (1 + frac(m.wastePct)) * (1 + frac(m.logisticsPct));
@@ -400,8 +410,10 @@ export function oracleModel(q) {
     const fixed = basis === 'per_month' ? cost : 0;
     const variable = basis === 'per_active_day' ? cost : basis === 'per_activation' ? cost / act.dpa : 0;
     add({ key: `materials:${i}`, category: 'materials', group: 'materials', fixed, variable, discrete: basis === 'per_activation' ? cost : 0 });
-    resaleFixed += fixed * (1 + frac(m.resaleMarkupPct));
-    resalePerDay += variable * (1 + frac(m.resaleMarkupPct));
+    if (billedLine(m)) {
+      resaleFixed += fixed * (1 + frac(m.resaleMarkupPct));
+      resalePerDay += variable * (1 + frac(m.resaleMarkupPct));
+    }
   });
 
   // 6. Otros costos (§6).
@@ -513,7 +525,7 @@ export function oracleModel(q) {
     act, route, fuelPrice, labor, lines, externals, byCategory, F, v, finance, financing, contingencyPct, structure, direct,
     mobilization: { fuelPerActivation: mobFuelPerActivation, wearPerActivation: mobWearPerActivation },
     auxiliary: { fuelPerActivation: auxFuel, otherPerActivation: auxOther },
-    materialsResale: q.pricing && q.pricing.materialsBilledSeparately === true && !q.materialsNotApplicable ? { fixed: resaleFixed, perDay: resalePerDay } : null,
+    materialsResale: anyBilled && !q.materialsNotApplicable ? { fixed: resaleFixed, perDay: resalePerDay } : null,
     overtimeRevenue: labor.some((l) => l.overtimeRevenueFixed > 0 || l.overtimeRevenuePerDay > 0) ? { fixed: labor.reduce((s, l) => s + l.overtimeRevenueFixed, 0), perDay: labor.reduce((s, l) => s + l.overtimeRevenuePerDay, 0) } : null,
     perActivation,
   };

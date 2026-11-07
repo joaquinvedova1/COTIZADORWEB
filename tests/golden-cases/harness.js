@@ -116,6 +116,16 @@ export const ENGINES = {
       [{ id: 'eq', name: 'Equipo', acquisition: 'owned', quantity, mobilization: { mode: 'self', travelLitersPer100Km: litersPer100Km, travelCostPerKm: costPerKm, driver: 'operator' } }],
       { routeKmPerActivation: distanceKm * (roundTrip ? 2 : 1), daysPerActivation, fuelPricePerLiter, fuelPaidByUs: true },
     ),
+  // Tanda A 2026-11 (A-3): remolque "lo transporta otro equipo" que "va enganchado y rueda" detrás de un tractor.
+  // lines[0] = tractor (por sus propios medios), lines[1] = remolque arrastrado.
+  'mobilization.towed': ({ distanceKm, roundTrip = true, tractorLitersPer100Km, tractorCostPerKm, tractorTiresSetCost, tractorTiresLifeKm, trailerCostPerKm = 0, trailerTiresSetCost, trailerTiresLifeKm, fuelPricePerLiter, towed = true }) =>
+    computeMobilization(
+      [
+        { id: 'tractor', name: 'Tractor', acquisition: 'owned', quantity: 1, tiresMode: 'set_km', tiresSetCost: tractorTiresSetCost, tiresLifeKm: tractorTiresLifeKm, mobilization: { mode: 'self', travelLitersPer100Km: tractorLitersPer100Km, travelCostPerKm: tractorCostPerKm, driver: 'operator' } },
+        { id: 'trailer', name: 'Carretón', acquisition: 'owned', quantity: 1, tiresMode: 'set_km', tiresSetCost: trailerTiresSetCost, tiresLifeKm: trailerTiresLifeKm, mobilization: { mode: 'transported', carrierLineId: 'tractor', towed, travelCostPerKm: trailerCostPerKm } },
+      ],
+      { routeKmPerActivation: distanceKm * (roundTrip ? 2 : 1), daysPerActivation: 1, fuelPricePerLiter, fuelPaidByUs: true },
+    ),
 };
 
 export function loadCases() {

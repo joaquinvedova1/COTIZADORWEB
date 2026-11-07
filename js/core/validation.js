@@ -134,6 +134,7 @@ export function validateQuote(quote) {
   };
 
   check('contractMonths', quote.contractMonths, 'months');
+  check('contractJobs', quote.contractJobs, 'quantity');
   const a = isPlainObject(quote.activity) ? quote.activity : {};
   check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'days');
   check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');

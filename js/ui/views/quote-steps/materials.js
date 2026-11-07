@@ -117,6 +117,9 @@ export function render(container, ctx) {
   // aparte, al costo más el markup de reventa de cada uno. Siguen siendo
   // costo; lo que se cobra por ellos suma a la facturación.
   const billedSeparately = !notApplicable && Boolean(quote.pricing && quote.pricing.materialsBilledSeparately === true);
+  // Por línea (tanda A 2026-11, A-8): true / false / sin definir (= sigue la opción de arriba).
+  const lineBilled = (m) => (m && (m.billedSeparately === true || m.billedSeparately === false) ? m.billedSeparately : billedSeparately);
+  const anyBilled = !notApplicable && (quote.materials || []).some((m) => lineBilled(m));
   const toggleCard = card(
     {},
     kit.check('materialsNotApplicable', { label: 'El servicio no usa materiales', structural: true, hint: 'Marcalo para confirmar que no te olvidaste de cargarlos.' }),
@@ -129,11 +132,13 @@ export function render(container, ctx) {
           ? 'Horas y materiales: la tarifa cubre la mano de obra y los equipos; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno).'
           : 'La tarifa cubre el resto del servicio; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno).',
       }),
-    billedSeparately
+    anyBilled
       ? kit.out((r) => {
         const c = r.estimate.revenue.components;
         const billed = (c.materialsFixed || 0) + (c.materialsVariable || 0);
-        return `Se facturan aparte ${formatMoney(billed)} por mes de materiales (con la actividad estimada). Siguen siendo costo: lo que cobrás por ellos suma a la facturación y baja la tarifa que necesitás.`;
+        const n = (quote.materials || []).filter((m) => lineBilled(m)).length;
+        const which = billedSeparately && n === (quote.materials || []).length ? '' : ` (${n} ${n === 1 ? 'material' : 'materiales'}: se elige en cada uno, en "¿Se factura aparte?")`;
+        return `Se facturan aparte ${formatMoney(billed)} por mes de materiales${which} (con la actividad estimada). Siguen siendo costo: lo que cobrás por ellos suma a la facturación y baja la tarifa que necesitás.`;
       }, { tag: 'p', className: 'qe-note' })
       : null,
   );
@@ -232,15 +237,35 @@ export function render(container, ctx) {
                 `merma ${hasNumber(m.wastePct) ? formatPercent(Number(m.wastePct)) : '0 %'}`,
                 `logística ${hasNumber(m.logisticsPct) ? formatPercent(Number(m.logisticsPct)) : '0 %'}`,
                 hasNumber(m.resaleMarkupPct) && Number(m.resaleMarkupPct) > 0 ? `markup de reventa ${formatPercent(Number(m.resaleMarkupPct))}` : null,
+                m.billedSeparately === true ? 'se factura aparte' : m.billedSeparately === false ? 'lo cubre la tarifa' : null,
               ].filter(Boolean).join(' · ');
               return `${parts.charAt(0).toUpperCase()}${parts.slice(1)}.`;
             },
           },
           formGrid(
-            3,
+            4,
             kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', illustrative, hint: 'Lo que se pierde o desperdicia.' }),
             kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
-            kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: billedSeparately ? 'Recargo sobre el costo del material (no es margen): es lo que cobrás de más al facturarlo aparte.' : 'Recargo sobre el costo del material (no es margen). Se usa si facturás los materiales aparte (opción de arriba).' }),
+            kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: lineBilled(line) ? 'Recargo sobre el costo del material (no es margen): es lo que cobrás de más al facturarlo aparte.' : 'Recargo sobre el costo del material (no es margen). Se usa si facturás los materiales aparte (opción de arriba).' }),
+            selectField({
+              label: '¿Se factura aparte?',
+              name: `${p}.billedSeparately`,
+              value: line.billedSeparately === true ? 'yes' : line.billedSeparately === false ? 'no' : '',
+              includeEmpty: true,
+              emptyLabel: billedSeparately ? 'Como el resto (sí, aparte)' : 'Como el resto (no, en la tarifa)',
+              options: [{ value: 'yes', label: 'Sí, lo facturo aparte' }, { value: 'no', label: 'No, lo cubre la tarifa' }],
+              disabled: kit.readOnly,
+              hint: 'Sólo para este material. Sin elegir, sigue la opción "Facturo los materiales aparte" de arriba. Aparte se cobra su costo × (1 + markup de reventa); siempre sigue siendo costo.',
+              onChange: (value) => {
+                ctx.mutate((q) => {
+                  const m = q.materials[i];
+                  if (!m) return;
+                  if (value === 'yes') m.billedSeparately = true;
+                  else if (value === 'no') m.billedSeparately = false;
+                  else delete m.billedSeparately;
+                });
+              },
+            }),
           ),
           kit.stats(
             kit.stat('Fijo mensual / variable por día', (r) => splitLabel(at(r))),

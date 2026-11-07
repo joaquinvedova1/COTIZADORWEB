@@ -39,7 +39,7 @@ import { billingTaxInfo } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
-import { contingencyPctOf, normalizeActivity } from './cost-engine.js';
+import { contingencyPctOf, normalizeActivity, monthsFactor } from './cost-engine.js';
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
@@ -222,26 +222,39 @@ export function evaluateCompleteness(quote = {}) {
   const act = normalizeActivity(quote);
   const D = act.activeDaysPerMonth;
   const H = act.hoursPerActiveDay;
-  if (labor.length > 0 && D > 0 && H > 0) {
+  // Trabajo de más de un mes (D > días disponibles, tanda A 2026-11, A-5): las horas normales y
+  // las extra por mes cubren tantos meses como el prorrateo de los fijos (monthsFactor).
+  const mf = monthsFactor(D, act.availableDaysPerMonth);
+  // "Horas por día que cubre este puesto" (opcional, A-5): un turno de 12 h en una actividad de
+  // 24 h. Sólo lo usa este aviso; vacío = las horas por día de la actividad.
+  const coverageOf = (l) => {
+    const c = Math.min(nonNegative(l.coverageHoursPerDay), 24);
+    return c > 0 ? c : H;
+  };
+  if (labor.length > 0 && D > 0) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
     const short = labor.map((l, index) => {
       const normal = nonNegative(l.normalHoursPerMonth);
-      if (!(nonNegative(l.positions) > 0) || !(normal > 0)) return null;
+      const hours = coverageOf(l);
+      if (!(nonNegative(l.positions) > 0) || !(normal > 0) || !(hours > 0)) return null;
       const ppp = nonNegative(l.peoplePerPosition, 1);
       const items = overtimeItemsOf(l);
       const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
       const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
-      const required = D * H;
-      const covered = ppp * normal + perDay * D + perMonth * ppp;
-      return required > covered + 1e-6 ? { l, index, ppp, normal, extra: perDay * D + perMonth * ppp, required, covered } : null;
+      const required = D * hours;
+      const covered = (ppp * normal + perMonth * ppp) * mf + perDay * D;
+      return required > covered + 1e-6 ? { l, index, ppp, normal, hours, own: hours !== H, extra: perMonth * ppp * mf + perDay * D, required, covered } : null;
     }).filter(Boolean);
     if (short.length) {
       const first = short[0];
       const name = (typeof first.l.role === 'string' && first.l.role.trim()) || 'Personal';
-      const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
+      const months = mf > 1 + 1e-9 ? ` × ${fmt(mf)} meses` : '';
+      const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
+      const span = mf > 1 + 1e-9 ? ` (el trabajo dura más que los ${fmt(act.availableDaysPerMonth)} días disponibles del mes: las horas por mes cuentan ${fmt(mf)} meses)` : '';
+      const own = first.own ? ' (horas por día que cubre este puesto)' : '';
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
-        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(H)} h = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people}). Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos), cargá las horas extra o revisá las horas normales del puesto. RATEOS no las agrega solo.${others}`);
+        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), cargá las horas extra o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día que cubre este puesto". RATEOS no las agrega solo.${others}`);
       item.focus = `labor.${first.index}.peoplePerPosition`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
@@ -423,16 +436,40 @@ export function evaluateCompleteness(quote = {}) {
     const pending = equipment.filter((e) => !(isExt(e) && extOf(e).mobilizationIncluded === true) && !(isPlainObject(e.mobilization) && e.mobilization.mode));
     const broken = mob.lines.filter((l) => l.warnings.some((w) => ['carrier_missing', 'carrier_cycle', 'support_missing'].includes(w)));
     const noDriver = mob.lines.filter((l) => l.warnings.includes('driver'));
-    const ok = pending.length === 0 && broken.length === 0 && noDriver.length === 0;
+    // Consumo en ruta faltante (A-14): sólo si ese combustible lo pagás vos (igual que la regla de
+    // combustible); el motor ya lo marca en la línea, acá se suma a la completitud.
+    const paysRouteFuelAt = (idx) => {
+      const e = equipment[idx];
+      return !isExt(e) || (extOf(e).fuelIncluded === false && externalFuelMode(extOf(e)) === 'per_hour');
+    };
+    const noConsumption = fuel.providedBy === 'client' ? [] : mob.lines.map((l, idx) => ({ l, idx })).filter(({ l, idx }) => l.warnings.includes('travel_consumption') && paysRouteFuelAt(idx));
+    // Remolque con neumáticos por km que "lo transporta otro equipo" y no está marcado como
+    // enganchado (A-3): su desgaste por km queda afuera. Nunca se marca solo.
+    const untowed = mob.lines.map((l, idx) => ({ l, idx })).filter(({ l }) => l.mode === 'transported' && !l.towed && !l.includedByProvider && l.tiresPerKm > 0);
+    const ok = pending.length === 0 && broken.length === 0 && noDriver.length === 0 && noConsumption.length === 0 && untowed.length === 0;
     const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Equipo'}"`).join(', ');
-    items.push(rule('mobility', 'Movilización de equipos', 'logistics', 1, ok ? 'ok' : 'warning',
+    const item = rule('mobility', 'Movilización de equipos', 'logistics', 1, ok ? 'ok' : 'warning',
       ok
         ? 'Cada equipo tiene definido cómo llega al lugar del servicio.'
         : pending.length
           ? `Falta definir cómo llega al lugar del servicio: ${names(pending)}.`
           : broken.length
             ? `Revisá qué equipo o vehículo transporta a ${names(broken)}.`
-            : `Falta definir quién maneja ${names(noDriver)} en el traslado.`));
+            : noDriver.length
+              ? `Falta definir quién maneja ${names(noDriver)} en el traslado.`
+              : noConsumption.length
+                ? `Falta el consumo en ruta de ${names(noConsumption.map(({ l }) => l))}: el combustible del traslado queda en 0. Cargá los L/100 km en ruta o, si no usa combustible, marcalo en Equipos.`
+                : `${names(untowed.map(({ l }) => l))} ${untowed.length === 1 ? 'tiene' : 'tienen'} neumáticos por km y lo transporta otro equipo: si va enganchado y rueda (remolque, carretón o batea), marcá "Va enganchado y rueda" para sumar su desgaste por km. Si va cargado arriba, está bien así.`);
+    if (!ok && !pending.length && !broken.length && !noDriver.length) {
+      if (noConsumption.length) {
+        item.focus = `equipment.${noConsumption[0].idx}.mobilization.travelLitersPer100Km`;
+        item.targets = noConsumption.map(({ l, idx }) => ({ list: 'equipment', index: idx, name: l.name || 'Equipo' }));
+      } else {
+        item.focus = `equipment.${untowed[0].idx}.mobilization.towed`;
+        item.targets = untowed.map(({ l, idx }) => ({ list: 'equipment', index: idx, name: l.name || 'Equipo' }));
+      }
+    }
+    items.push(item);
   }
 
   // 9c. Equipos y servicios externos: tratamiento fiscal y vigencia de la oferta
@@ -601,10 +638,15 @@ export function evaluateCompleteness(quote = {}) {
   // 9e. Base económica (fecha base de los valores) y su antigüedad
   const baseInfo = summarizeEconomicBase(quote);
   if (baseInfo.entries.length > 0) {
-    items.push(rule('economic_base', 'Fecha base de los valores', 'service', 1, baseInfo.undefinedCount === 0 ? 'ok' : 'warning',
+    // El pendiente lleva al mes del primer valor sin fecha, en su paso (A-13).
+    const firstUndated = baseInfo.undefinedEntries.find((e) => typeof e.path === 'string' && e.path) || null;
+    const baseStep = firstUndated ? ({ labor: 'labor', equipment: 'equipment', materials: 'materials', fuel: 'logistics' }[firstUndated.path.split('.')[0]] || 'service') : 'service';
+    const baseItem = rule('economic_base', 'Fecha base de los valores', baseInfo.undefinedCount === 0 ? 'service' : baseStep, 1, baseInfo.undefinedCount === 0 ? 'ok' : 'warning',
       baseInfo.undefinedCount === 0
         ? 'Todos los valores tienen fecha base.'
-        : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha base (${baseInfo.undefinedEntries.slice(0, 3).map((e) => e.label).join(', ')}${baseInfo.undefinedCount > 3 ? '…' : ''}): no se sabe de cuándo son.`));
+        : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha base (${baseInfo.undefinedEntries.slice(0, 3).map((e) => e.label).join(', ')}${baseInfo.undefinedCount > 3 ? '…' : ''}): no se sabe de cuándo son.`);
+    if (baseInfo.undefinedCount > 0 && firstUndated) baseItem.focus = `${firstUndated.path}.period`;
+    items.push(baseItem);
     if (baseInfo.defined > 0 && !baseInfo.offerPeriod) {
       items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', 'Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "Contrato".'));
     } else if (baseInfo.defined > 0) {
@@ -817,6 +859,39 @@ export function evaluateCompleteness(quote = {}) {
       });
     }
   });
+  // Dotación fraccionaria (A-15 b): posiciones × personas por posición no entero. El costo se
+  // calcula con lo cargado; sólo se pregunta cuántas personas hay de verdad en nómina.
+  labor.forEach((l, index) => {
+    const positions = nonNegative(l.positions);
+    if (!(positions > 0)) return;
+    const people = positions * nonNegative(l.peoplePerPosition, 1);
+    // Tolerancia de 0,01 persona: 3 × 1,6667 (5 ÷ 3 cargado con decimales) son 5 personas.
+    if (!(people > 0) || Math.abs(people - Math.round(people)) < 0.01) return;
+    const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+    notices.push({
+      id: 'labor_fractional_headcount',
+      step: 'labor',
+      severity: 'info',
+      label: 'Personas no enteras',
+      message: `Cargaste ${formatNumber(people, { decimals: 2 })} personas en "${name}" (${formatNumber(positions, { decimals: 2 })} ${Math.abs(positions - 1) < 1e-9 ? 'posición' : 'posiciones'} × ${formatNumber(nonNegative(l.peoplePerPosition, 1), { decimals: 2 })} por posición); ¿cuántas hay en nómina? El costo se calcula con ${formatNumber(people, { decimals: 2 })}: si en nómina son ${formatNumber(Math.ceil(people - 1e-9))}, cargalo así. RATEOS no redondea solo.`,
+      focus: `labor.${index}.peoplePerPosition`,
+      targets: [{ list: 'labor', index, name }],
+    });
+  });
+  // Precio cerrado de varios días con 1 viaje por trabajo (A-15 c): ¿vuelven a la base cada día?
+  if (contract.mode === 'closed' && !logistics.notApplicable && oneWayKm > 0 && !route.derived && !route.byCapacity
+    && act.daysPerActivation > 1 + 1e-9 && Math.abs(route.tripsPerActivation - 1) < 1e-9) {
+    const who = labor.length > 0 ? 'la cuadrilla' : 'el equipo';
+    const days = formatNumber(act.daysPerActivation, { decimals: Math.abs(act.daysPerActivation - Math.round(act.daysPerActivation)) < 1e-9 ? 0 : 2 });
+    notices.push({
+      id: 'closed_single_trip',
+      step: 'logistics',
+      severity: 'info',
+      label: 'Un viaje en un trabajo de varios días',
+      message: `¿${who.charAt(0).toUpperCase()}${who.slice(1)} vuelve a la base cada día? El trabajo dura ${days} días y cargaste 1 viaje por trabajo: si vuelven cada día (o cada tanto), cargá los viajes que correspondan; si se quedan en la locación, está bien así (y sumá el alojamiento en los viáticos).`,
+      focus: 'logistics.tripsPerActivation',
+    });
+  }
   return {
     scorePct,
     items,
@@ -827,6 +902,75 @@ export function evaluateCompleteness(quote = {}) {
     review: pending.filter((i) => i.severity === 'review').length,
     // Con estos pendientes el resultado NO es confiable (ECO-01): cuántos hay.
     unreliable: pending.filter((i) => i.unreliable === true).length,
+  };
+}
+
+/**
+ * Costos fijos absorbidos (tanda A 2026-11, A-15 a; informativo, no resta puntaje). En precio
+ * cerrado, o con menos días de trabajo que los disponibles (salvo fijo mensual, donde el abono
+ * cubre el mes por definición), el precio carga el costo fijo del mes completo de las personas y
+ * los equipos propios al 100 % (dedicados, contratados, reservados o sin dato). Se informa el
+ * monto; NUNCA se aplica un % compartido solo (AGENTS §5.1: no se infiere del uso).
+ *
+ *   X = Σ costo fijo del mes de esas líneas × meses de costo fijo (monthsFactor)
+ *
+ * @param {object} quote
+ * @param {object} model buildCostModel(quote)
+ * @param {number} activeDays D con la actividad estimada
+ * @returns {object|null}
+ */
+export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 0) {
+  if (!model || !model.activity) return null;
+  const contract = contractOf(quote);
+  const D = nonNegative(activeDays);
+  const available = model.activity.availableDaysPerMonth;
+  if (!(D > 0)) return null;
+  const closed = contract.mode === 'closed';
+  if (!closed && !(contract.mode !== 'monthly' && D < available - 1e-9)) return null;
+  const full = (line) => {
+    const share = fixedCostShareOf(line);
+    return !share.shared;
+  };
+  const labor = objectList(quote.labor);
+  const laborModel = model.labor && Array.isArray(model.labor.lines) ? model.labor.lines : [];
+  let laborFixed = 0;
+  const targets = [];
+  labor.forEach((l, i) => {
+    if (nonNegative(l.positions) > 0 && full(l) && laborModel[i] && nonNegative(laborModel[i].fixedMonthly) > 0) {
+      laborFixed += nonNegative(laborModel[i].fixedMonthly);
+      targets.push({ list: 'labor', index: i, name: (typeof l.role === 'string' && l.role.trim()) || 'Personal' });
+    }
+  });
+  const equipment = objectList(quote.equipment);
+  const eqModel = Array.isArray(model.equipment) ? model.equipment : [];
+  let equipmentFixed = 0;
+  equipment.forEach((e, i) => {
+    const owned = !(e.acquisition === 'rented' || e.acquisition === 'outsourced');
+    if (owned && full(e) && eqModel[i] && eqModel[i].acquisition === 'owned' && nonNegative(eqModel[i].fixedMonthly) > 0) {
+      equipmentFixed += nonNegative(eqModel[i].fixedMonthly);
+      targets.push({ list: 'equipment', index: i, name: (typeof e.name === 'string' && e.name.trim()) || 'Equipo' });
+    }
+  });
+  const mf = monthsFactor(D, available);
+  const amount = (laborFixed + equipmentFixed) * mf;
+  if (!(amount > 0)) return null;
+  const days = formatNumber(D, { decimals: Math.abs(D - Math.round(D)) < 1e-9 ? 0 : 1 });
+  const why = closed
+    ? `Precio cerrado (${days} días de trabajo)`
+    : `Trabajás ${days} de ${formatNumber(available)} días disponibles`;
+  const period = mf > 1 + 1e-9 ? `de ${formatNumber(mf, { decimals: 2 })} meses (el trabajo dura más que los días disponibles)` : 'del mes';
+  const parts = [laborFixed > 0 ? `sueldos ${formatMoney(laborFixed * mf)}` : null, equipmentFixed > 0 ? `tenencia de equipos propios ${formatMoney(equipmentFixed * mf)}` : null].filter(Boolean).join(' + ');
+  return {
+    id: 'fixed_costs_absorbed',
+    step: targets[0].list,
+    severity: 'info',
+    label: 'Costos fijos del mes en el precio',
+    message: `${why}: este precio absorbe ${formatMoney(amount)} de costos fijos ${period} (${parts}) del personal y los equipos asignados al 100 %. Si esta gente o estos equipos trabajan en otras obras, asignales un % compartido. RATEOS no lo aplica solo.`,
+    focus: `${targets[0].list}.${targets[0].index}.assignment`,
+    targets,
+    amount,
+    laborFixed: laborFixed * mf,
+    equipmentFixed: equipmentFixed * mf,
   };
 }
 
