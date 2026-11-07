@@ -17,10 +17,10 @@ Reglas para este archivo:
 ### Cambiado
 
 - "¿Cuánto dura cada llamado?" (un desplegable con dos opciones) pasa a **"¿Cómo son los llamados?"** con tres opciones: **Uno por día** (por defecto, sin otro dato), **Uno dura varios días** (pide días por llamado) y **Varios en un día** (pide llamados por día). El (i) define el llamado: cada vez que el cliente te convoca y salís a trabajar. Lo mismo para salidas e intervenciones.
-- Los **días disponibles** (en on call, "Días de guardia por mes") salen de Opciones avanzadas y quedan al lado de los días con trabajo cuando la actividad se carga en días: el aviso de utilización mayor a 100 % compara dos números a la vista.
+- Los **días disponibles** (en on call, "Días disponibles (de guardia)") salen de Opciones avanzadas y quedan al lado de los días con trabajo cuando la actividad se carga en días: el aviso de utilización mayor a 100 % compara dos números a la vista.
 - El aviso de utilización dice los números y cómo corregirlo ("Cargaste 21 días de trabajo y hay 20 disponibles…"); el recuadro "Con estos datos" se pone naranja y lo explica.
 - "Cada llamado se cuenta completo" sólo aparece cuando cambia algo (llamados por mes no enteros) o si ya está encendida.
-- "Horas trabajadas por día activo" → "por día de trabajo".
+- "Horas trabajadas por día activo" → "Horas por día de trabajo".
 
 **Servicio moldeable por componentes (2026-11, PLAN-2026-019).** Pedido del dueño: "¿Qué incluye?" limitaba a tres opciones. Se relevaron con agentes 26 tipos de recurso y 22 servicios reales. Ninguna fórmula cambia; esquema sin cambio de versión (`contract.components` es opcional).
 

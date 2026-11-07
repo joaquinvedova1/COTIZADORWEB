@@ -342,6 +342,6 @@ describe('aviso de días de trabajo por encima de los disponibles', () => {
     assert.ok(issue, 'falta el aviso');
     assert.equal(issue.severity, 'warning');
     assert.match(issue.message, /Cargaste 21 días de trabajo y hay 20 disponibles/);
-    assert.match(issue.message, /subí los disponibles/);
+    assert.match(issue.message, /subí los días disponibles/);
   });
 });

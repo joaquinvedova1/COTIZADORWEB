@@ -303,7 +303,7 @@ export function render(container, ctx) {
 
   // Horas por día activo: dato básico si cobrás por hora (define las horas facturables).
   const hoursField = () => kit.num('activity.hoursPerActiveDay', {
-    label: monthlyContract ? 'Horas por día que cubre el fijo' : 'Horas trabajadas por día de trabajo',
+    label: monthlyContract ? 'Horas por día que cubre el fijo' : 'Horas por día de trabajo',
     rule: 'hoursPerDay',
     unit: 'h/día',
     hint: quote.unit === 'hour' ? 'Cobrás por hora: se facturan días activos × horas por día.' : 'Se usa para el uso de equipos, la tarifa por hora y la estructura por hora.',
@@ -404,7 +404,7 @@ export function render(container, ctx) {
         : '';
       const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9;
       const usage = over
-        ? `Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles: más días de los ${formatNumber(r.activity.availableDaysPerMonth)} que tiene el mes.`
+        ? `Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles: más días que los ${formatNumber(r.activity.availableDaysPerMonth)} disponibles.`
         : `Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).`;
       return `Facturás ${billable} por mes${extra}. ${usage}${fractional}`;
     },
@@ -446,7 +446,7 @@ export function render(container, ctx) {
   // de comparar esos dos números y ninguno debe quedar escondido.
   const availableInMain = !byQuantity && !monthlyContract;
   const availableField = () => kit.num('activity.availableDaysPerMonth', {
-    label: isOnCall ? 'Días de guardia por mes' : 'Días disponibles en el mes',
+    label: isOnCall ? 'Días disponibles (de guardia)' : 'Días disponibles en el mes',
     rule: 'daysInMonth',
     unit: 'días',
     placeholder: '30',
@@ -459,7 +459,7 @@ export function render(container, ctx) {
     byQuantity
       ? quantityFields()
       : formGrid(
-        hourly || monthlyContract || availableInMain ? 3 : 2,
+        [hourly || monthlyContract, availableInMain, quote.serviceType === 'permanent'].filter(Boolean).length === 1 ? 3 : 2,
         monthlyContract
           ? kit.num('activity.activeDaysPerMonth', {
             label: 'Días de trabajo por mes que cubre el fijo',

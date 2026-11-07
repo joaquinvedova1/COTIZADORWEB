@@ -158,7 +158,7 @@ export function evaluateCompleteness(quote = {}) {
   // Cobro por hora: sin horas por día no hay unidades facturables (la tarifa queda "—").
   const hoursMissing = unit.kind === 'hour' && !(Math.min(nonNegative(activity.hoursPerActiveDay), 24) > 0);
   // Los avisos citan el rótulo del campo tal como se ve en "Cómo se cobra".
-  const activityHoursLabel = unit.kind === 'quantity' || unit.kind === 'event' ? 'Horas trabajadas por día de trabajo' : 'Horas trabajadas por día activo';
+  const activityHoursLabel = 'Horas por día de trabajo';
   const hoursMessage = `Cobrás por hora y falta "${activityHoursLabel}": sin horas no hay unidades facturables ni tarifa.`;
   if (unit.kind === 'quantity' || unit.kind === 'event') {
     const qOk = nonNegative(activity.billableQuantityPerMonth) > 0;

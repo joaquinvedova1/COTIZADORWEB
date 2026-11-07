@@ -144,7 +144,7 @@ export function validateQuote(quote) {
     issues.push({
       path: 'activity.activeDaysPerMonth',
       // Con los números y cómo corregirlo, sin citar un rótulo (cambia según el contrato).
-      message: `Cargaste ${formatNumber(toNumber(a.activeDaysPerMonth), { decimals: 2 })} días de trabajo y hay ${formatNumber(toNumber(a.availableDaysPerMonth), { decimals: 2 })} disponibles: la utilización pasa del 100 %. Bajá los días de trabajo o subí los disponibles.`,
+      message: `Cargaste ${formatNumber(toNumber(a.activeDaysPerMonth), { decimals: 2 })} días de trabajo y hay ${formatNumber(toNumber(a.availableDaysPerMonth), { decimals: 2 })} disponibles: la utilización pasa del 100 %. Bajá los días con trabajo o subí los días disponibles.`,
       severity: 'warning',
     });
   }
