@@ -64,14 +64,15 @@ describe('unidades por tipo de servicio (dominio)', () => {
     const ids = (type) => unitChoicesFor(type).map((u) => u.id);
     assert.deepEqual(ids('on_call'), ['day', 'hour', 'call', 'month', 'custom']);
     assert.deepEqual(ids('permanent'), ['month', 'day', 'hour', 'shift', 'custom']);
-    assert.deepEqual(ids('crew'), ['day', 'hour', 'manhour', 'shift', 'month', 'custom']);
-    assert.deepEqual(ids('equipment_with_operator'), ['day', 'hour', 'month', 'trip', 'custom']);
-    assert.deepEqual(ids('equipment_only'), ['day', 'hour', 'month', 'trip', 'custom']);
-    assert.deepEqual(ids('per_unit'), ['unit', 'piece', 'well', 'test', 'manhour', 'm3', 'ton', 'kg', 'meter', 'm2', 'ha', 'liter', 'barrel', 'km', 'lot', 'set', 'custom']);
-    assert.deepEqual(ids('transport'), ['trip', 'km', 'ton', 'tonkm', 'm3', 'liter', 'barrel', 'hour', 'day', 'custom']);
+    assert.deepEqual(ids('crew'), ['day', 'hour', 'manhour', 'shift', 'month', 'manday', 'guard', 'custom']);
+    assert.deepEqual(ids('equipment_with_operator'), ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh', 'custom']);
+    assert.deepEqual(ids('equipment_only'), ['day', 'hour', 'month', 'trip', 'equipment_hour', 'equipment_day', 'kva_day', 'kw_day', 'hp_hour', 'kwh', 'custom']);
+    assert.deepEqual(ids('per_unit'), ['unit', 'piece', 'well', 'test', 'manhour', 'm3', 'ton', 'kg', 'meter', 'm2', 'ha', 'liter', 'barrel', 'km', 'lot', 'set',
+      'stage', 'drilled_meter', 'connection', 'inch_dia', 'joint', 'point', 'sample', 'analysis', 'kwh', 'mwh', 'mj', 'gj', 'mmbtu', 'gas_m3', 'pallet', 'drum', 'bag', 'custom']);
+    assert.deepEqual(ids('transport'), ['trip', 'km', 'ton', 'tonkm', 'm3', 'liter', 'barrel', 'hour', 'day', 'pallet', 'container', 'drum', 'bag', 'gas_m3', 'custom']);
     assert.deepEqual(ids('turnkey'), ['job', 'milestone', 'custom']);
     assert.deepEqual(ids('lump_sum'), ['job', 'milestone', 'custom']);
-    assert.deepEqual(ids('time_materials'), ['hour', 'manhour', 'day', 'custom']);
+    assert.deepEqual(ids('time_materials'), ['hour', 'manhour', 'day', 'manday', 'equipment_hour', 'custom']);
     // Configurable: todas.
     assert.equal(ids('configurable').length, BILLING_UNITS.length);
   });

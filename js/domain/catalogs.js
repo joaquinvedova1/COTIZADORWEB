@@ -158,7 +158,7 @@ export const MATERIAL_BASES = deepFreeze([
 ]);
 
 /** Unidades habituales de un material (PLAN-2026-010): sólo para mostrar y cargar; no cambian el cálculo. */
-export const MATERIAL_UNIT_PRESETS = deepFreeze(['unidad', 'L', 'kg', 'g', 't', 'm', 'm²', 'm³', 'paquete', 'bolsa', 'tambor']);
+export const MATERIAL_UNIT_PRESETS = deepFreeze(['unidad', 'L', 'kg', 'g', 't', 'm', 'm²', 'm³', 'paquete', 'bolsa', 'tambor', 'bidón', 'caja', 'rollo', 'par', 'juego', 'pallet', 'big bag', 'bbl', 'm³ de gas', 'kWh']);
 
 export const INDIRECT_METHODS = deepFreeze([
   { id: 'percent_direct', label: '% sobre costo directo', uses: 'pct' },

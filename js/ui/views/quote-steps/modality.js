@@ -13,9 +13,9 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, choiceGroup, selectField, openDialog, button, infoTip } from '../../components.js';
+import { card, formGrid, choiceGroup, searchSelectField, openDialog, button, infoTip } from '../../components.js';
 import { PRICING_MODES, AVAILABILITY_OPTIONS } from '../../../domain/catalogs.js';
-import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName } from '../../../domain/billing-units.js';
+import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName, unitGroupOf, searchUnits, BILLING_UNIT_GROUPS } from '../../../domain/billing-units.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
 import { convertMinimumCallUnits } from '../../../engines/commercial-rules-engine.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
@@ -227,6 +227,11 @@ export function render(container, ctx) {
   const compactUnits = unitOptions.length > 5;
   const manyUnits = unitOptions.length > 8;
   const selectedDef = unitOptions.find((u) => u.id === info.id);
+  // Para el buscador: ordenadas por grupo (Tiempo, Cantidad, Volumen, Energía…), cada una con su grupo.
+  const groupRank = (u) => BILLING_UNIT_GROUPS.findIndex((g) => g.id === unitGroupOf(u).id);
+  const sortedUnits = unitOptions.map((u, i) => ({ u, i })).sort((a, b) => groupRank(a.u) - groupRank(b.u) || a.i - b.i).map((x) => x.u);
+  const toUnitOption = (u) => ({ value: u.id, label: u.label, hint: unitGroupOf(u).label });
+  const unitOptionsByGroup = sortedUnits.map(toUnitOption);
 
   // Nombre de la unidad propia ("pozo", "muestra"): al salir del campo se
   // vuelven a dibujar los rótulos ("Pozos a facturar por mes").
@@ -262,12 +267,17 @@ export function render(container, ctx) {
       { class: ['qe-unit-choice', compactUnits ? 'is-compact' : null] },
       // Muchas unidades: una lista desplegable (menos ruido que 16 tarjetas).
       manyUnits
-        ? formGrid(2, selectField({
+        // Con decenas de unidades (energía, pozo, montaje, logística…): un buscador
+        // ("joule", "potencia", "kva") con el grupo de cada una al lado.
+        ? formGrid(2, searchSelectField({
           label: '¿En qué unidad cobrás?',
           name: 'unit',
           value: info.id,
           disabled: kit.readOnly,
-          options: unitOptions.map((u) => ({ value: u.id, label: u.label })),
+          allowEmpty: false,
+          placeholder: 'Escribí: hora, m³, kWh, potencia, junta…',
+          options: unitOptionsByGroup,
+          search: (query) => searchUnits(sortedUnits, query).map(toUnitOption),
           hint: [selectedDef && selectedDef.hint ? `${selectedDef.label}: ${selectedDef.hint}` : null, byQuantity ? `Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); la tarifa y el resultado, ${perText(info)}.` : null].filter(Boolean).join(' '),
           onChange: (value) => changeUnit(value),
         }), unitNameField)
@@ -362,7 +372,7 @@ export function render(container, ctx) {
         hint: `Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades.`,
       }),
       kit.num('activity.unitsPerActiveDay', {
-        label: `${Plural} por día de trabajo`,
+        label: texts.perDayLabel,
         rule: 'quantity',
         unit: texts.perDay,
         requiredMark: true,
