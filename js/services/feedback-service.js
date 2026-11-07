@@ -141,8 +141,8 @@ const MESSAGES = Object.freeze({
   [FEEDBACK_ERRORS.rateLimited]: 'Ya mandaste varios reportes seguidos. Esperá unos minutos y probá de nuevo.',
   [FEEDBACK_ERRORS.invalid]: 'Contanos en pocas palabras qué pasó (al menos 5 letras).',
   [FEEDBACK_ERRORS.network]: 'No pudimos conectarnos. Revisá tu conexión y probá de nuevo: lo que escribiste sigue acá.',
-  [FEEDBACK_ERRORS.sessionExpired]: 'Tu sesión terminó. Volvé a ingresar para enviar el reporte.',
-  [FEEDBACK_ERRORS.forbidden]: 'Tu sesión terminó. Volvé a ingresar para enviar el reporte.',
+  [FEEDBACK_ERRORS.sessionExpired]: 'Tu sesión terminó. Podés enviarlo por GitHub acá abajo, o copiar lo que escribiste antes de volver a ingresar.',
+  [FEEDBACK_ERRORS.forbidden]: 'Tu sesión terminó. Podés enviarlo por GitHub acá abajo, o copiar lo que escribiste antes de volver a ingresar.',
 });
 
 export function feedbackErrorMessage(code) {

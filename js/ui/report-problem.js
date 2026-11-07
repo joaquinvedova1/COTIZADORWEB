@@ -9,7 +9,7 @@
  */
 
 import { h, mount } from './dom.js';
-import { button, disclosure, icon, openDialog, textField } from './components.js';
+import { button, disclosure, icon, openDialog, textField, toast } from './components.js';
 import { onSessionReset } from './session-memory.js';
 import {
   MAX_EXPECTED_LENGTH,
@@ -60,6 +60,7 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', sub
     onChange: (v) => {
       draft.whatHappened = v;
       if (!errorEl.hidden) showError(null);
+      clearInvalid();
       refreshPreview();
     },
   });
@@ -82,16 +83,16 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', sub
   const privacy = h('p', { class: 'report-privacy' },
     icon('lock', { size: 16 }),
     h('span', {}, canSend
-      ? 'Se publica en el registro de errores de RATEOS en GitHub, que es público, sin tu nombre, email ni empresa. No escribas nombres de clientes, precios ni datos confidenciales.'
-      : 'Se abre GitHub con el reporte ya escrito (necesitás una cuenta gratuita). Es público: no escribas nombres de clientes, precios ni datos confidenciales. Si tenés cuenta de RATEOS, ingresá y envialo desde adentro, sin GitHub.'));
+      ? 'Ojo: el reporte queda publicado en GitHub, en una lista pública de errores de RATEOS. No lleva tu nombre, email ni empresa. No escribas nombres de clientes, precios ni otros datos confidenciales.'
+      : 'Te llevamos a GitHub (un sitio público que pide una cuenta gratuita) con el reporte ya escrito. No escribas nombres de clientes ni precios. Si tenés cuenta de RATEOS, ingresá y mandalo desde ahí, sin GitHub.'));
 
   const form = h('form', { class: 'report-form', novalidate: true },
     h('p', { class: 'report-intro' }, 'Contanos qué no funcionó o qué te confundió. Lo revisamos para corregir RATEOS.'),
+    privacy,
     whatField,
     expectedField,
     auto,
-    disclosure({ summary: 'Ver exactamente lo que se envía', className: 'report-preview-box' }, previewEl),
-    privacy,
+    disclosure({ summary: 'Ver lo que se envía', className: 'report-preview-box' }, previewEl),
     errorEl);
 
   const body = h('div', { class: 'report-problem' }, form);
@@ -101,21 +102,47 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', sub
     variant: 'primary',
     icon: canSend ? 'flag' : 'arrowRight',
     onClick: () => send(),
+    attrs: canSend ? {} : { 'aria-label': 'Continuar en GitHub (se abre en otra pestaña)' },
   });
-  const { dialog, close } = openDialog({ title: 'Reportar un problema', content: body, actions: [cancelBtn, sendBtn] });
+  let closed = false;
+  const { dialog, close } = openDialog({ title: 'Reportar un problema', content: body, actions: [cancelBtn, sendBtn], onClose: () => { closed = true; } });
   dialog.classList.add('dialog-report');
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     send();
   });
   const firstInput = whatField.querySelector('textarea');
-  if (firstInput) firstInput.focus();
+  const fieldError = whatField.querySelector('.field-error');
+  if (firstInput) {
+    firstInput.setAttribute('aria-required', 'true');
+    firstInput.focus();
+  }
 
+  // Error de validación: debajo del campo y ligado a él (se ve aunque la pantalla sea chica).
   function invalid(message) {
-    showError(message);
+    if (fieldError) {
+      fieldError.textContent = message;
+      fieldError.hidden = false;
+    } else showError(message);
     if (firstInput) {
       firstInput.setAttribute('aria-invalid', 'true');
+      if (fieldError && fieldError.id) firstInput.setAttribute('aria-describedby', fieldError.id);
       firstInput.focus();
+    }
+    try {
+      (fieldError || errorEl).scrollIntoView({ block: 'nearest' });
+    } catch {
+      /* sin scroll */
+    }
+  }
+  function clearInvalid() {
+    if (fieldError && !fieldError.hidden) {
+      fieldError.hidden = true;
+      fieldError.textContent = '';
+    }
+    if (firstInput) {
+      firstInput.removeAttribute('aria-invalid');
+      firstInput.removeAttribute('aria-describedby');
     }
   }
 
@@ -126,14 +153,15 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', sub
       invalid(check.message);
       return;
     }
-    if (firstInput) firstInput.removeAttribute('aria-invalid');
+    clearInvalid();
     if (!canSend) {
       openUrl(githubIssueUrl(payload()));
       close();
       return;
     }
     sending = true;
-    sendBtn.disabled = true;
+    // aria-disabled (no disabled): el foco se queda en el botón mientras se envía.
+    sendBtn.setAttribute('aria-disabled', 'true');
     sendBtn.setAttribute('aria-busy', 'true');
     const label = sendBtn.querySelector('span:last-child');
     const previous = label ? label.textContent : '';
@@ -146,37 +174,61 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', sub
       res = { ok: false, message: 'No pudimos enviar el reporte. Probá de nuevo en unos minutos.' };
     }
     sending = false;
-    sendBtn.disabled = false;
+    sendBtn.removeAttribute('aria-disabled');
     sendBtn.removeAttribute('aria-busy');
     if (label) label.textContent = previous;
-    if (!res || !res.ok) {
+    const ok = Boolean(res && res.ok);
+    if (ok) draft = { whatHappened: '', expected: '' };
+    // Si cerraron el diálogo mientras se enviaba, el resultado llega como aviso.
+    if (closed) {
+      toast(ok ? `¡Gracias! Recibimos tu reporte${res.reference ? ` (${res.reference})` : ''}.` : 'No pudimos enviar el reporte. Lo que escribiste sigue guardado: abrí «Reportar un problema» y probá de nuevo.', ok ? 'success' : 'warning', { timeout: 6000 });
+      return;
+    }
+    if (!ok) {
       showError((res && res.message) || 'No pudimos enviar el reporte.');
       // Plan B: si la base no lo recibió (salvo por el límite), se puede mandar por GitHub.
       if (!res || !res.rateLimited) showFallback();
+      try {
+        (form.querySelector('.report-fallback') || errorEl).scrollIntoView({ block: 'nearest' });
+      } catch {
+        /* sin scroll */
+      }
       return;
     }
-    draft = { whatHappened: '', expected: '' };
     showThanks(res.reference);
   }
 
   function showFallback() {
     if (form.querySelector('.report-fallback')) return;
     form.appendChild(h('p', { class: 'report-fallback' },
-      'También podés enviarlo por GitHub (necesitás una cuenta gratuita): ',
-      button('Enviar por GitHub', { variant: 'link', size: 'sm', onClick: () => { openUrl(githubIssueUrl(payload())); close(); } })));
+      'También podés enviarlo por GitHub (necesitás una cuenta gratuita) o copiar lo que escribiste: ',
+      button('Enviar por GitHub', { variant: 'link', size: 'sm', onClick: () => { openUrl(githubIssueUrl(payload())); close(); }, attrs: { 'aria-label': 'Enviar por GitHub (se abre en otra pestaña)' } }),
+      ' · ',
+      button('Copiar texto', { variant: 'link', size: 'sm', onClick: () => copyText() })));
+  }
+
+  async function copyText() {
+    try {
+      await navigator.clipboard.writeText(reportText(payload()));
+      toast('Copiado. Pegalo donde quieras enviarlo.', 'success');
+    } catch {
+      toast('No se pudo copiar. Abrí «Ver lo que se envía» y copialo a mano.', 'warning');
+    }
   }
 
   function showThanks(reference) {
     const done = button('Listo', { variant: 'primary', onClick: () => close() });
     mount(body, h('div', { class: 'report-thanks', role: 'status' },
       h('span', { class: 'report-thanks-icon', 'aria-hidden': 'true' }, icon('check', { size: 28 })),
-      h('p', { class: 'report-thanks-title' }, '¡Gracias! Recibimos tu reporte.'),
+      h('p', { class: 'report-thanks-title', tabindex: '-1' }, '¡Gracias! Recibimos tu reporte.'),
       reference
-        ? h('p', {}, 'Referencia ', h('strong', { class: 'mono' }, reference), '. Si nos escribís por este problema, mencioná ese código.')
+        ? h('p', {}, 'Referencia ', h('strong', { class: 'mono' }, reference), '. Guardala por si nos consultás por este problema.')
         : h('p', {}, 'Lo vamos a revisar pronto.')));
     const actions = dialog.querySelector('.dialog-actions');
     if (actions) mount(actions, done);
-    done.focus();
+    const title = body.querySelector('.report-thanks-title');
+    if (title) title.focus();
+    else done.focus();
   }
 
   return { dialog, close };

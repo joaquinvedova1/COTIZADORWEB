@@ -627,3 +627,9 @@ body.is-public .skip-link:not(:focus) { box-shadow: none; }
   .pub-flow-header .pub-report-long { display: none; }
   .pub-flow-header .pub-report-short { display: inline; }
 }
+.pub-report-link { white-space: nowrap; }
+.pub-footer-meta { flex-wrap: wrap; }
+@media (max-width: 360px) {
+  .pub-flow-header .pub-report-short { display: none; }
+  .pub-flow-header .pub-report-link { min-width: 44px; justify-content: center; }
+}
