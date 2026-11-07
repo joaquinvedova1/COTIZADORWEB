@@ -133,6 +133,19 @@ export function billingUnitOf(quote = {}) {
   return { id, kind: def.kind, singular: def.singular, plural: def.plural, short: def.short, label: def.label, custom: false, legacy: LEGACY_BILLING_UNITS.includes(id) };
 }
 
+/**
+ * Base "por unidad facturada" de materiales y otros costos (tanda B 2026-11, B-2), rotulada con
+ * la unidad de la cotización: "Por válvula", "Por PSV", "Por m³", "Por hora"… Sólo texto.
+ * @param {ReturnType<typeof billingUnitOf>} info
+ * @returns {{ id: 'per_billable_unit', label: string, short: string, per: string }}
+ *   label para el selector, short para un resumen ("por válvula") y per para "u./válvula"
+ */
+export function perBillableUnitBasis(info) {
+  const u = info || billingUnitOf({});
+  const word = (typeof u.singular === 'string' && u.singular.trim()) || 'unidad';
+  return { id: 'per_billable_unit', label: `Por ${word} (la unidad que cobrás)`, short: `por ${word}`, per: word };
+}
+
 /** Unidades para elegir según el tipo de servicio (+ la actual, si no está, + "Otra"). */
 export function unitChoicesFor(serviceType, currentUnit = null) {
   const list = [...(SERVICE_TYPE_UNITS[serviceType] || SERVICE_TYPE_UNITS.configurable)];

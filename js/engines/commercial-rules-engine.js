@@ -9,7 +9,9 @@
  *   - Km adicional: (km de ruta por activación − km incluidos) × $/km.
  *   - Descuento por cantidad de días (tramos: 1, 2–7, 8–15, 16–30, +30).
  *   - Descuento por continuidad: si el contrato dura ≥ N meses.
- *   - Mínimo mensual garantizado: la facturación del mes nunca es menor.
+ *   - Mínimo mensual garantizado: la facturación del mes nunca es menor. En $ (como siempre)
+ *     o, desde la tanda B 2026-11 (B-3), en UNIDADES de cobro ("mínimo 20 días por mes"):
+ *     se facturan al menos N unidades a la tarifa neta del mes.
  *   - Fee de disponibilidad: monto mensual fijo por estar disponible.
  *
  * Facturación del mes con D días activos:
@@ -19,7 +21,13 @@
  *   base             = tarifaNeta × unidades
  *   otros ingresos   = feeDisponibilidad + (callOut + movilización + kmAdicional) × activaciones + standby
  *   subtotal         = base + otros
- *   total            = max(subtotal, mínimoGarantizado)
+ *   total            = max(subtotal, mínimoGarantizado)                      (mínimo en $)
+ *   total            = subtotal + max(0, N × meses − unidades) × tarifaNeta  (mínimo en unidades, B-3)
+ *
+ * Orden de cálculo del mínimo en unidades (sin circularidad): la tarifa sugerida se calcula
+ * SIN el mínimo (criterio conservador, igual que con el mínimo en $); después se elige la
+ * tarifa comercial (ofrecida, conocida o sugerida) y recién ahí el mínimo vale
+ * N × esa tarifa neta. El mínimo nunca entra en el cálculo de la tarifa que lo valoriza.
  */
 
 import { isPlainObject } from '../core/object.js';
@@ -84,7 +92,12 @@ export function normalizeRules(rules = {}) {
     volumeTiers: normalizeTiers(rules.volumeTiers),
     continuityMinMonths: nonNegative(rules.continuityMinMonths),
     continuityDiscountPct: Math.min(nonNegative(rules.continuityDiscountPct), 100),
-    minimumMonthlyGuarantee: nonNegative(rules.minimumMonthlyGuarantee),
+    // Mínimo garantizado (B-3): 'amount' = en $ por mes (como siempre); 'units' = N unidades de
+    // cobro por mes (días, horas, válvulas…) a la tarifa neta. Sólo vale el dato del modo elegido.
+    minimumGuaranteeBasis: rules.minimumGuaranteeBasis === 'units' ? 'units' : 'amount',
+    minimumMonthlyGuarantee: rules.minimumGuaranteeBasis === 'units' ? 0 : nonNegative(rules.minimumMonthlyGuarantee),
+    minimumGuaranteeUnits: rules.minimumGuaranteeBasis === 'units' ? nonNegative(rules.minimumGuaranteeUnits) : 0,
+    hasMinimumGuarantee: rules.minimumGuaranteeBasis === 'units' ? nonNegative(rules.minimumGuaranteeUnits) > 0 : nonNegative(rules.minimumMonthlyGuarantee) > 0,
     // Días con los que se elige el tramo de descuento (lo decide quien cotiza):
     // 'billed' = días facturados, incluido el mínimo por llamado (por defecto, como siempre);
     // 'worked' = días trabajados.
@@ -213,10 +226,23 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
   };
   const otherRevenue = components.availabilityFee + components.callout + components.mobilization + components.extraKm + components.standby + components.materialsFixed + components.materialsVariable + components.overtimeFixed + components.overtimeVariable + components.extras;
   const subtotal = components.base + otherRevenue;
-  const guarantee = r.minimumMonthlyGuarantee * months;
-  // Los adicionales se cobran ENCIMA del mínimo garantizado (lo habitual: fuera de
-  // horario y feriados no completan el mínimo).
-  const guaranteeTopUp = Math.max(0, guarantee - (subtotal - components.extras));
+  let guarantee;
+  let guaranteeTopUp;
+  let guaranteedUnits = null;
+  let guaranteeUnitsShortfall = 0;
+  if (r.minimumGuaranteeBasis === 'units') {
+    // Mínimo en unidades (B-3): se facturan al menos N unidades por mes a la tarifa neta del mes.
+    // Se compara con las unidades facturadas (no con los otros ingresos).
+    guaranteedUnits = r.minimumGuaranteeUnits * months;
+    guaranteeUnitsShortfall = Math.max(0, guaranteedUnits - units.billableUnits);
+    guarantee = guaranteedUnits * netRate;
+    guaranteeTopUp = guaranteeUnitsShortfall * netRate;
+  } else {
+    guarantee = r.minimumMonthlyGuarantee * months;
+    // Los adicionales se cobran ENCIMA del mínimo garantizado (lo habitual: fuera de
+    // horario y feriados no completan el mínimo).
+    guaranteeTopUp = Math.max(0, guarantee - (subtotal - components.extras));
+  }
   return {
     activeDays: D,
     unit,
@@ -234,6 +260,10 @@ export function computeRevenue({ listRate, activeDays, activity, unit = 'day', r
     subtotal,
     guarantee,
     guaranteeTopUp,
+    // Mínimo en unidades (B-3): unidades garantizadas del mes y las que faltan para llegar (null en $).
+    guaranteeBasis: r.minimumGuaranteeBasis,
+    guaranteedUnits,
+    guaranteeUnitsShortfall,
     total: subtotal + guaranteeTopUp,
   };
 }

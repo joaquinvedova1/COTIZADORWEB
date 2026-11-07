@@ -117,6 +117,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
+| PLAN-2026-022 | Tanda B (especialistas 2026-11): materiales y otros costos por unidad facturada (B-2), mínimo garantizado en unidades con ventana de pérdida (B-3) y aviso "Unidad del proveedor" (H-04) | motor de costos, utilización, completitud, UX | Implementado en rama (sin push; espera review) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1239,3 +1240,30 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 **Review (AGENTS §18):** Economía: la nómina sólo cambia el fijo; el variable sigue en las posiciones (los que trabajan en sitio). QA: 0 días en sitio, franco 0, campos vacíos o negativos, 0 posiciones con nómina → sin NaN y sin propuesta. Seguridad: validación de rangos (`validateQuote`). UX: todo editable, acción explícita, traza "Ver cálculo".
 
 **Fuera de alcance (siguiente paso):** Otros costos por persona en sitio por día y por persona por relevo (B-6); driver propio de relevos para on call / por servicio / precio cerrado (personas, medio, km, peajes, horas de viaje); horas extra por día en sitio derivadas del turno (no hay dato de jornada diaria); control de días seguidos sin franco.
+
+### PLAN-2026-022 — Tanda B: materiales por unidad, mínimo en unidades y aviso del proveedor
+
+- Estado: implementado en rama (sin push), desde `main` `2131bef`. B-1 (diagrama de rotación) va en paralelo, en otra rama: no se tocan Personal ni su motor.
+- Origen: informe auditado `docs/informes/2026-11-especialistas-auditado.md` §5 (B-2: H-11; B-3: H-13, H-29) y decisión del dueño sobre H-04 (ECO-01).
+- Principio del dueño: nunca limitar a opciones fijas; ante ambigüedad, una opción que elige quien cotiza con un default sensato. Cotizaciones existentes: **exactamente** los mismos números.
+
+#### 1. Impacto en fórmulas
+- **B-2** (`materials-engine.js`, `cost-engine.js`): base nueva `per_billable_unit` en materiales y en otros costos. `variable por día = costo × % que lo usa × unidades trabajadas por día` (`billingUnitsPerActiveDay`: día 1, hora H, cantidad q, hito h ÷ días por trabajo; mes = fijo). Sin relleno del mínimo por llamado. Sin costo discreto por salida. Antes → después (válvulas C1, $ 18.000 por válvula, 6 por día): cargado por día 24.000 por válvula y sugerida 311.000 → "Por válvula" 18.000 y 301.000. Las bases existentes no cambian.
+- **B-3** (`commercial-rules-engine.js`): `rules.minimumGuaranteeBasis` ('amount' por defecto | 'units') y `rules.minimumGuaranteeUnits`. En unidades: `ajuste = max(0, N × meses − unidades facturables) × tarifa neta`. Orden de cálculo documentado (CALCULATION_RULES §12): la sugerida sin el mínimo, después la tarifa comercial, después el mínimo. Antes → después (24 h C2, tarifa 3.233.000, mínimo 20 días, 15 días): no se podía cargar → facturación 64.660.000, ajuste 16.165.000 (igual que el monto en $ cargado a mano).
+- **H-29** (`break-even-engine.js`, `quote-engine.js`): `findLossWindows` y `breakEven.lossWindows` / `guaranteeProtects` (sólo con mínimo). El break-even no cambia. C2: se pierde entre 15,85 y 20,97 días.
+- **H-04** (`completeness-engine.js`): `external_unit_trips` pasa a `warning` (no crítico, no `unreliable`) si todas las líneas "por salida" ambiguas tienen la movilización incluida o los viajes de la ruta son de vehículos propios y el externo no va por sus medios. Ninguna fórmula cambia; sí el puntaje de completitud de esas cotizaciones (crítico → amarillo).
+
+#### 2. Impacto en datos
+Esquema sin cambio. Campos opcionales: `materials[].usagePct`, `otherCosts[].usagePct`, `materials[].basis = 'per_billable_unit'`, `otherCosts[].behavior = 'per_billable_unit'`, `rules.minimumGuaranteeBasis`, `rules.minimumGuaranteeUnits`. `usagePct` se conserva al actualizar una línea desde Recursos. Una versión anterior lee `per_billable_unit` como "por mes" (de más o de menos según el caso): riesgo aceptado, igual que otras bases nuevas; la opción sólo aparece si la persona la elige.
+
+#### 3. Pasos
+- [x] Motores (B-2, B-3, H-29, H-04) y validación (`usagePct` 0–100, `minimumGuaranteeUnits` ≥ 0).
+- [x] UI: "¿Cada cuánto se consume?" / "Comportamiento" con "Por <unidad> (la unidad que cobrás)" (cobrando por hora, cantidad o hito) y "% de <unidades> que lo usan"; "¿Cómo se expresa el mínimo?" en "Cómo se cobra" y en Reglas comerciales; ventana de pérdida en el Resultado.
+- [x] Tests: `tests/engines/tanda-b-2026-11.test.js` (fixtures `especialista-valvulas-c1.json`, `especialista-24h-c2.json`), ECO-01 actualizado con justificación.
+- [x] Docs: CALCULATION_RULES §4.1, §6, §12, §13, §15, §19; CHANGELOG.
+
+#### 4. Review multidisciplinario
+- Economía: el costo por unidad sigue a la producción, no al calendario; con el rendimiento de siempre da lo mismo que la carga por día. El mínimo en unidades no es circular (la sugerida no lo cuenta).
+- QA: golden y baseline sin re-aprobar; 118 cotizaciones de los especialistas idénticas en cifras (sólo cambia `external_unit_trips` crítico → amarillo en una parada de válvulas con movilización incluida); 0 días, mínimo 0, más días que los disponibles (× meses), por hora con mínimo por llamado.
+- Seguridad: inputs validados; sin cambios de base, Auth ni CSP.
+- UX: rótulos con el nombre de la unidad; la ventana de pérdida se dice con números; el aviso del proveedor sigue a la vista pero ya no bloquea cuando lo habitual es que vaya una vez.

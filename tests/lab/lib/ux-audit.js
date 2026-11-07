@@ -26,6 +26,7 @@ import { QUOTE_STEPS } from '../../../js/domain/catalogs.js';
 import { fieldFromHash, stepOfPath } from '../../../js/ui/field-links.js';
 import { activationTerms, activationFieldLabels, EVERY_ACTIVATION_TERMS } from '../../../js/domain/activation-terms.js';
 import { activationRoundingText } from '../../../js/ui/result-text.js';
+import { billingUnitOf, perBillableUnitBasis } from '../../../js/domain/billing-units.js';
 
 const JS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../js');
 let uiSourceCache = null;
@@ -214,6 +215,8 @@ export function auditQuoteUx(quote, result, { scenario = null } = {}) {
     ...list(quote.otherCosts).map((o) => o.description),
     ...list(quote.logistics && quote.logistics.vehicles).map((v) => v.name),
     quote.unitName,
+    // Opción "Por <unidad que cobrás>" de materiales y otros costos (B-2): se arma con la unidad de la cotización.
+    perBillableUnitBasis(billingUnitOf(quote)).label,
   ].filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().toLowerCase()));
   for (const item of [...comp.items, ...(comp.notices || [])]) {
     for (const m of String(item.message || '').matchAll(/"([^"]{3,80})"/g)) {

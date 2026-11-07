@@ -17,7 +17,7 @@ import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/fo
 import { validateQuote } from '../core/validation.js';
 import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
-import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
+import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, suggestedRateRound, effectiveRoundingStep, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
@@ -312,6 +312,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     // cubre su costo variable; con fijos, los cubren los ingresos fijos.
     if (breakEven.reachable && isFiniteNumber(breakEven.days) && breakEven.days <= 1e-9) {
       breakEven = { ...breakEven, zeroReason: model.fixedMonthly > 0.005 ? 'fixed_revenue' : 'no_fixed_costs' };
+    }
+    // Mínimo garantizado (B-3, H-29): con pocos días el mínimo puede cubrir los costos, más
+    // adelante se pierde y desde el break-even se gana. El break-even no cambia (es desde
+    // dónde se gana siempre); se agrega la ventana de pérdida con la tarifa comercial.
+    if (normalizeRules(ctx.rules).hasMinimumGuarantee) {
+      const windows = findLossWindows((d) => evaluateAt(ctx, d, commercialListRate).profit, { maxDays, breakpoints })
+        .map((w) => ({ ...w, fromQuantity: billableQuantityAt(ctx, w.fromDays), toQuantity: billableQuantityAt(ctx, w.toDays) }));
+      // Sólo hay algo que informar si el mínimo protege los primeros días (la pérdida no empieza en 0).
+      breakEven = { ...breakEven, lossWindows: windows, guaranteeProtects: windows.length > 0 && windows[0].fromDays > 1e-9 };
     }
   }
   // La traza del break-even se arma en el punto de equilibrio (allí rige el

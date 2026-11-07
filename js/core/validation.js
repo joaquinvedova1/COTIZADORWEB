@@ -227,9 +227,12 @@ export function validateQuote(quote) {
     check(`materials.${i}.unitCost`, m.unitCost, 'money');
     ['wastePct', 'logisticsPct'].forEach((k) => check(`materials.${i}.${k}`, m[k], 'percent'));
     check(`materials.${i}.resaleMarkupPct`, m.resaleMarkupPct, 'percentOpen');
+    // % de las unidades que lo usan (B-2, por unidad facturada): 0–100, vacío = 100 %.
+    check(`materials.${i}.usagePct`, m.usagePct, 'percent');
   });
   (Array.isArray(quote.otherCosts) ? quote.otherCosts : []).forEach((c, i) => {
     if (isPlainObject(c)) check(`otherCosts.${i}.amount`, c.amount, 'money');
+    if (isPlainObject(c)) check(`otherCosts.${i}.usagePct`, c.usagePct, 'percent');
   });
 
   // Adicionales cobrados aparte (PLAN-2026-018).
@@ -305,5 +308,7 @@ export function validateQuote(quote) {
     if (isPlainObject(t)) check(`rules.volumeTiers.${i}.discountPct`, t.discountPct, 'percent');
   });
   check('rules.continuityDiscountPct', rules.continuityDiscountPct, 'percent');
+  // Mínimo garantizado en unidades (B-3): cantidad ≥ 0 (sólo cuenta si se eligió "en unidades").
+  if (rules.minimumGuaranteeBasis === 'units') check('rules.minimumGuaranteeUnits', rules.minimumGuaranteeUnits, 'quantity');
   return issues;
 }

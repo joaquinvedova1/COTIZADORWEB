@@ -30,7 +30,7 @@ import { nonNegative, toNumber } from '../core/money.js';
 import { contractOf } from '../domain/contract.js';
 import { computeExtras } from './extras-engine.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
-import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
+import { billingUnitOf, unitTexts, perBillableUnitBasis } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent, formatNumber, formatMoney } from '../core/format.js';
 import { baseLabel } from '../domain/economic-base.js';
@@ -542,6 +542,12 @@ export function evaluateCompleteness(quote = {}) {
     // CRÍTICO (no confiable) hasta elegir la unidad o confirmarla; la confirmación vale sólo para
     // el supuesto confirmado (`externalUnitAssumption`). No cambia la fórmula. Con un viaje por
     // salida no hay ambigüedad.
+    // Decisión del dueño (tanda B 2026-11, H-04): baja a aviso común (warning: ni crítico ni "no
+    // confiable") cuando lo habitual es que el proveedor vaya UNA vez y los viajes sean de otros:
+    //   (a) su movilización está incluida en la tarifa por salida, o
+    //   (b) los viajes de la ruta los hacen vehículos propios (logística auxiliar o un equipo
+    //       propio que va por sus medios) y el externo no va por sus propios medios.
+    // Si alguna línea no cumple (a) ni (b), queda crítico como siempre.
     const tripsPerActivation = logistics.notApplicable ? 0 : route.tripsPerActivation;
     const perActivation = tripsPerActivation > 1 + 1e-9
       ? externals
@@ -549,6 +555,11 @@ export function evaluateCompleteness(quote = {}) {
         .map((e) => ({ e, changes: assumptionChanges(e.externalUnitConfirmed, externalUnitAssumption(quote, e)) }))
         .filter(({ changes }) => changes === null || changes.length > 0)
       : [];
+    const ownRouteVehicles = (objectList(logistics.vehicles).some((v) => nonNegative(v.count) > 0))
+      || equipment.some((e) => !isExt(e) && nonNegative(e.quantity) > 0 && isPlainObject(e.mobilization) && e.mobilization.mode === 'self');
+    const goesOnce = ({ e }) => extOf(e).mobilizationIncluded === true
+      || (ownRouteVehicles && !(isPlainObject(e.mobilization) && e.mobilization.mode === 'self'));
+    const soft = perActivation.length > 0 && perActivation.every(goesOnce);
     if (perActivation.length) {
       const { e: first, changes } = perActivation[0];
       const price = nonNegative(extOf(first).price);
@@ -560,9 +571,12 @@ export function evaluateCompleteness(quote = {}) {
       const changed = { price: 'la tarifa', trips: `los viajes ${T.per}`, distance: 'la distancia', roundTrip: 'ida y vuelta / sólo ida' };
       const stale = changes && changes.length ? `La confirmación anterior ("cobra ${T.per}") ya no vale: cambió ${changes.map((c) => changed[c]).join(', ')}. ` : '';
       const others = perActivation.length > 1 ? ` También: ${perActivation.slice(1, 4).map(({ e }) => `"${lineName(e, 'Externo')}"`).join(', ')}.` : '';
-      const item = rule('external_unit_trips', 'Unidad del proveedor', 'equipment', 2, 'missing',
-        `${stale}"${lineName(first, 'Externo')}" cobra ${formatMoney(price)} ${T.per} y cada ${T.one} tiene ${n(tripsPerActivation)} ${tripWord(tripsPerActivation)}${legs}.${month} Equivale a ${formatMoney(price / tripsPerActivation)} por viaje. Si el proveedor cobra ${formatMoney(price)} por cada viaje, elegí "Por viaje completo (ida y vuelta)" (o "Por tramo" si cobra cada ida o cada vuelta); si cobra ${T.per}, confirmalo. Hasta entonces el resultado no es confiable.${others}`);
-      item.unreliable = true;
+      const why = !soft ? '' : extOf(first).mobilizationIncluded === true
+        ? ` Su movilización está incluida: lo habitual es que vaya una sola vez ${T.per} y que los otros viajes sean de tus vehículos.`
+        : ` Los viajes de la ruta los hacen tus vehículos: lo habitual es que el proveedor vaya una sola vez ${T.per}.`;
+      const item = rule('external_unit_trips', 'Unidad del proveedor', 'equipment', 2, soft ? 'warning' : 'missing',
+        `${stale}"${lineName(first, 'Externo')}" cobra ${formatMoney(price)} ${T.per} y cada ${T.one} tiene ${n(tripsPerActivation)} ${tripWord(tripsPerActivation)}${legs}.${month} Equivale a ${formatMoney(price / tripsPerActivation)} por viaje.${why} Si el proveedor cobra ${formatMoney(price)} por cada viaje, elegí "Por viaje completo (ida y vuelta)" (o "Por tramo" si cobra cada ida o cada vuelta); si cobra ${T.per}, confirmalo.${soft ? ' Revisalo: si cobra por viaje, el costo queda corto.' : ' Hasta entonces el resultado no es confiable.'}${others}`);
+      if (!soft) item.unreliable = true;
       item.focus = `equipment.${equipment.indexOf(first)}.external.unit`;
       item.targets = perActivation.map(({ e }) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
       items.push(item);
@@ -886,6 +900,28 @@ export function evaluateCompleteness(quote = {}) {
       targets: [{ list: 'labor', index, name }],
     });
   });
+  // Material "por día" que parece "por unidad" (tanda B 2026-11, B-2): cobrás por cantidad y la
+  // cantidad por día del material es igual a las unidades por día. Si cambia el rendimiento, el
+  // costo por unidad se desajusta en silencio; con "Por <unidad>" se mueve solo. Nunca se convierte solo.
+  if (act.unitKind === 'quantity' && act.unitsPerActiveDay > 0 && quote.materialsNotApplicable !== true) {
+    const unit = billingUnitOf(quote);
+    (Array.isArray(quote.materials) ? quote.materials : []).forEach((m, index) => {
+      if (!isPlainObject(m) || m.basis !== 'per_active_day' || !(nonNegative(m.unitCost) > 0)) return;
+      const qty = nonNegative(m.quantity);
+      if (!(qty > 1) || Math.abs(qty - act.unitsPerActiveDay) > 1e-9) return;
+      const name = (typeof m.description === 'string' && m.description.trim()) || 'Material';
+      const n = formatNumber(qty, { decimals: 2 });
+      notices.push({
+        id: 'materials_per_unit_hint',
+        step: 'materials',
+        severity: 'info',
+        label: `¿Es por ${unit.singular}?`,
+        message: `"${name}" está cargado por día (${n} por día) y hacés ${n} ${unit.plural} por día. Si se consume por ${unit.singular}, elegí "${perBillableUnitBasis(unit).label}" en "¿Cada cuánto se consume?" con la cantidad de cada ${unit.singular}: así el costo por ${unit.singular} no cambia si cambia el rendimiento. RATEOS no lo cambia solo.`,
+        focus: `materials.${index}.basis`,
+        targets: [{ list: 'materials', index, name }],
+      });
+    });
+  }
   // Precio cerrado de varios días con 1 viaje por trabajo (A-15 c): ¿vuelven a la base cada día?
   if (contract.mode === 'closed' && !logistics.notApplicable && oneWayKm > 0 && !route.derived && !route.byCapacity
     && act.daysPerActivation > 1 + 1e-9 && Math.abs(route.tripsPerActivation - 1) < 1e-9) {

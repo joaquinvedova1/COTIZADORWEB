@@ -108,7 +108,7 @@ const KEEP_ON_UPDATE = Object.freeze({
   laborProfiles: ['id', 'positions', 'peoplePerPosition', 'overtimeHoursPerActiveDay', 'overtime', 'overtimeBilled', 'people', 'minutesPerBatch', 'assignment', 'fixedCostSharePct', 'coverageHoursPerDay', 'payrollHeadcount', 'rotation'],
   equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode', 'supplierPayDays', 'assignment', 'fixedCostSharePct'],
   externalServices: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'supplierPayDays'],
-  materials: ['id', 'quantity', 'basis', 'providedBy', 'per', 'useUnit', 'billedSeparately'],
+  materials: ['id', 'quantity', 'basis', 'providedBy', 'per', 'useUnit', 'billedSeparately', 'usagePct'],
 });
 
 /**

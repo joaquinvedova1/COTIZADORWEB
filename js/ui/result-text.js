@@ -238,7 +238,7 @@ function hasOtherCharges(result) {
   const estimate = (result.estimate && result.estimate.revenue) || {};
   if (estimate.minimumCallApplied) return true;
   try {
-    return normalizeRules((result.ctx && result.ctx.rules) || {}).minimumMonthlyGuarantee > 0;
+    return normalizeRules((result.ctx && result.ctx.rules) || {}).hasMinimumGuarantee;
   } catch {
     return false;
   }
@@ -402,6 +402,37 @@ export function breakEvenZeroText(result, { compact = false, rateText = '' } = {
 }
 
 // ------------------------------------------------- testeo con especialistas (2026-11)
+
+/**
+ * Ventana de pérdida con mínimo garantizado (tanda B 2026-11, B-3, H-29). El motor da los tramos
+ * (`breakEven.lossWindows`); acá sólo se escriben. null si el mínimo no protege los primeros días
+ * (entonces el break-even de siempre ya lo dice todo).
+ *   "Con el mínimo garantizado, hasta 15,85 días el mínimo cubre tus costos; entre 15,85 y 20,97 días
+ *    perdés plata (el mínimo ya no alcanza y lo trabajado todavía no cubre); desde 20,97 días ganás."
+ * @param {object} result computeQuote(...)
+ * @param {{ estimateDays?: number|null }} [options] con los días estimados agrega dónde caen
+ */
+export function lossWindowText(result, { estimateDays = null } = {}) {
+  const r = result || {};
+  const be = r.breakEven || {};
+  const windows = Array.isArray(be.lossWindows) ? be.lossWindows : [];
+  if (!be.guaranteeProtects || !windows.length) return null;
+  const byQuantity = isQuantityUnit(r);
+  const u = r.unitInfo || {};
+  const at = (days, quantity) => (byQuantity && isFiniteNumber(quantity)
+    ? `${formatNumber(quantity, { decimals: Math.abs(quantity - Math.round(quantity)) < 1e-9 ? 0 : 2 })} ${Math.abs(quantity - 1) < 1e-9 ? u.singular || 'unidad' : u.plural || 'unidades'}`
+    : formatDays(days));
+  const first = windows[0];
+  const parts = windows.map((w) => (w.open ? `desde ${at(w.fromDays, w.fromQuantity)} perdés plata` : `entre ${at(w.fromDays, w.fromQuantity)} y ${at(w.toDays, w.toQuantity)} perdés plata`));
+  const last = windows[windows.length - 1];
+  const gains = last.open ? '' : `; desde ${at(last.toDays, last.toQuantity)} ganás`;
+  let where = '';
+  if (isFiniteNumber(estimateDays)) {
+    const inside = windows.some((w) => estimateDays > w.fromDays + 1e-9 && (w.open || estimateDays < w.toDays - 1e-9));
+    where = inside ? ' Tu estimación cae en el tramo en que perdés.' : '';
+  }
+  return `Con el mínimo garantizado, hasta ${at(first.fromDays, first.fromQuantity)} el mínimo cubre tus costos; ${parts.join('; ')} (el mínimo ya no alcanza y lo trabajado todavía no cubre)${gains}.${where}`;
+}
 
 /**
  * Título de la insignia ILUSTRATIVO (A-9, H-19): nombra cada causa, también la
