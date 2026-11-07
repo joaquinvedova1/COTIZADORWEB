@@ -12,6 +12,21 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Tanda A de correcciones, motor y avisos (2026-11, informe auditado de 5 especialistas: `docs/informes/2026-11-especialistas-auditado.md` §5, A-1, A-3, A-5, A-8, A-13, A-14 y A-15).** Ningún número de una cotización existente cambia, salvo el total del contrato en precio cerrado (estaba mal). Todo lo nuevo es opcional y su default reproduce el comportamiento anterior. Esquema sin cambio de versión (campos opcionales: `quote.contractJobs`, `equipment[i].mobilization.towed`, `labor[i].coverageHoursPerDay`, `materials[i].billedSeparately`).
+
+### Corregido
+
+- **Total del contrato en precio cerrado (A-1, H-01).** Multiplicaba el precio por los 12 meses de contrato (2x1 de 45 días: 2.426.664.000 en lugar de 202.222.000). Ahora el Resultado muestra **"Total del trabajo"** (facturación, costo, impuestos y ganancia de un trabajo = valores del mes ÷ trabajos por mes; por hito, tarifa × hitos del trabajo). Campo opcional **"Trabajos que cubre el total"** (en Contrato, Más datos de la cotización; vacío = 1). Fijo mensual y on call siguen igual.
+- **Aviso "Horas del personal" (A-5, H-07/H-08).** Con un trabajo más largo que los días disponibles, las horas por mes ahora se prorratean como los costos fijos (el 2x1 de 45 días ya no da un aviso falso). Nuevo campo opcional **"Horas por día que cubre este puesto"** (opciones del puesto, grupo Horas) que **sólo usa el aviso**: un turno de 12 h en una operación de 24 h. El mensaje sugiere también "o sumá posiciones (turno día / turno noche)".
+- **Fecha base (A-13, H-23):** el aviso lleva al paso y al mes del primer valor sin fecha (antes, siempre a Contrato).
+- **Consumo en ruta (A-14, H-22):** un equipo por sus propios medios sin L/100 km en ruta ahora es un pendiente de "Movilización de equipos" (antes sólo se veía en el paso).
+
+### Agregado
+
+- **Remolque arrastrado (A-3, H-02).** En "Lo transporta otro equipo", la casilla **"Va enganchado y rueda (remolque, carretón o batea arrastrada)"**: suma km de ruta × (desgaste por km + neumáticos por km) del remolque, sin combustible ni conductor. Sin marcar = cargado arriba (como siempre). Aviso si un equipo transportado tiene neumáticos por km y no está marcado. Golden nuevo `movilizacion-remolque-arrastrado` (+89.600 por trabajo).
+- **Facturar aparte por material (A-8, H-10/H-36).** "¿Se factura aparte?" en las opciones de cada material: sí / no / como el resto (sigue el tilde global). Sólo las líneas que se facturan aparte suman a la reventa; en el reparto de la tarifa su costo va en la fila "Materiales facturados aparte".
+- **Avisos informativos (A-15; no bajan el puntaje):** costos fijos del mes que absorbe un precio cerrado o un mes con menos días que los disponibles ("asignales un % compartido"; nunca se aplica solo); personas no enteras ("Cargaste 4,5 personas; ¿cuántas hay en nómina?"); precio cerrado de varios días con 1 viaje ("¿La cuadrilla vuelve a la base cada día?").
+
 **Llamados más claros en on call (2026-11).** Pedido del dueño: "¿qué es llamado? es re confuso… si me llaman una vez por día, ¿qué hago?". Ninguna fórmula cambia; esquema sin cambios (se sigue guardando `activity.daysPerActivation`).
 
 ### Cambiado
