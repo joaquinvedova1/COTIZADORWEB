@@ -12,6 +12,23 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Tanda B — materiales por unidad, mínimo en unidades y aviso del proveedor (2026-11, B-2 y B-3 del informe auditado `docs/informes/2026-11-especialistas-auditado.md`, PLAN-2026-022).** Ninguna cifra de una cotización existente cambia (golden 42/42 y baseline de regresión sin re-aprobar; 118 cotizaciones de los especialistas comparadas con `main`: mismos costos, tarifas, márgenes y equilibrios). Esquema sin cambio de versión: los campos nuevos son opcionales.
+
+### Agregado
+
+- **Materiales y otros costos "por unidad facturada"** (B-2, H-11): base nueva `per_billable_unit`, rotulada con la unidad de la cotización ("Por válvula", "Por PSV", "Por m³", "Por hora"). Costo del mes = monto × unidades trabajadas del mes (con merma y logística como siempre), opcionalmente × "% de las unidades que lo usan" (por ejemplo 30 % de las PSV llevan repuesto; vacío = 100 %). Válvulas C1: $ 18.000 por válvula con 8, 6 o 10 válvulas por día (antes, cargado por día, pasar a 6 por día lo subía a $ 24.000, +33 %). Funciona con "¿Se factura aparte?" por línea y con la reventa. Se ofrece cobrando por hora, por cantidad o por hito.
+- **Mínimo garantizado en unidades** (B-3, H-13): "¿Cómo se expresa el mínimo?" En $ por mes (default, como siempre) o en días / horas / válvulas por mes, que el motor valoriza con la tarifa ofrecida o sugerida (sin circularidad: la sugerida se calcula sin el mínimo). 24 h C2: mínimo 20 días = $ 64.660.000 con la tarifa de $ 3.233.000.
+- **Ventana de pérdida con mínimo garantizado** (B-3, H-29): el Resultado y "Ver cálculo" dicen "hasta 15,85 días el mínimo cubre tus costos; entre 15,85 y 20,97 días perdés plata; desde 20,97 días ganás" (antes decía siempre "21 días" aunque con 10 se ganaba). El tono del equilibrio sigue al resultado del mes estimado. El break-even no cambia.
+- Aviso informativo: cobrando por cantidad, un material "por día" con la misma cantidad que las unidades por día pregunta si es por unidad (nunca se convierte solo).
+
+### Cambiado
+
+- **Aviso "Unidad del proveedor"** (decisión del dueño, H-04, ECO-01): baja de crítico a **aviso común** (amarillo: no dice "RESULTADO NO CONFIABLE") cuando el externo cobra por trabajo / salida con la movilización incluida, o cuando los viajes de la ruta los hacen vehículos propios y el externo no va por sus medios. En los demás casos sigue crítico como siempre. Los tests de ECO-01 que usaban la movilización incluida del fixture E3 ahora la dejan sin definir para seguir protegiendo el caso crítico.
+
+### Corregido
+
+- La unidad junto a "Cantidad" de un material mostraba "—" por una referencia rota (`BASIS_PER`); ahora dice "u./día", "u./mes", "u./llamado" o "u./válvula".
+
 **Reportes por Supabase encendidos (2026-11-07).** Con autorización del dueño se aplicó la migración `20261107021710_rateos_bug_reports` y se desplegó la Edge Function `bug-report-github`; `FEATURES.bugReportsCloud = true`: con sesión, "Reportar un problema" se envía desde la app sin cuenta de GitHub.
 
 **Testeo con especialistas — UI (2026-11, tanda A del informe auditado `docs/informes/2026-11-especialistas-auditado.md`).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (`contract` ya era opcional y `activity.availability` puede quedar sin definir).
