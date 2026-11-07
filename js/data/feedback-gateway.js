@@ -1,6 +1,6 @@
 /**
  * "Reportar un problema" — única puerta a Supabase para los reportes
- * (supabase/migrations/20261107020000_rateos_bug_reports.sql).
+ * (supabase/migrations/20261107021710_rateos_bug_reports.sql).
  *
  * - submit(): public.submit_bug_report (sólo con sesión; la base valida
  *   largos y limita la cantidad por persona). Es la fuente de verdad.

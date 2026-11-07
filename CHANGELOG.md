@@ -12,6 +12,8 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Reportes por Supabase encendidos (2026-11-07).** Con autorización del dueño se aplicó la migración `20261107021710_rateos_bug_reports` y se desplegó la Edge Function `bug-report-github`; `FEATURES.bugReportsCloud = true`: con sesión, "Reportar un problema" se envía desde la app sin cuenta de GitHub.
+
 **Testeo con especialistas — UI (2026-11, tanda A del informe auditado `docs/informes/2026-11-especialistas-auditado.md`).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (`contract` ya era opcional y `activity.availability` puede quedar sin definir).
 
 ### Agregado
