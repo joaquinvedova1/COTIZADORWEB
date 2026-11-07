@@ -38,12 +38,45 @@
  * Las horas extra y las viandas siguen el uso real: no se reducen. Dedicada o
  * contratada para el servicio (o sin dato) = 100 %, como siempre.
  *
+ * Nómina total (tanda B 2026-11, B-1, opcional): `line.payrollHeadcount` > 0 reemplaza
+ * posiciones × personas por posición en la dotación (lo que cobra sueldo):
+ *   dotación = nómina (si hay posiciones > 0; con 0 posiciones el puesto no trabaja)
+ *   personas por posición = nómina ÷ posiciones (sólo informativo)
+ * Así 3 en sitio con 5 en nómina (14x7) no obliga a cargar 1,6667. Las horas extra por día
+ * activo y las viandas siguen a las posiciones (los que están en sitio). Sin el campo: igual
+ * que siempre. Lo carga quien cotiza (o el asistente de diagrama con "Aplicar").
+ * `line.rotation` (asistente de diagrama) NO cambia el costo: sólo propone
+ * (rotation-engine.js); el resultado lo devuelve en `rotation` para la UI.
+ *
  * Todos los porcentajes son parámetros. Los valores demo son ILUSTRATIVOS.
  */
 
 import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide } from '../core/money.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
+import { computeRotation, hasRotation } from './rotation-engine.js';
+
+/** ¿La línea carga la nómina total (`payrollHeadcount` > 0) en vez de personas por posición? */
+export function hasPayrollHeadcount(line = {}) {
+  return Boolean(line) && nonNegative(line.payrollHeadcount) > 0;
+}
+
+/**
+ * Personas en nómina de una línea (dotación): la nómina cargada o, si no hay,
+ * posiciones × personas por posición (lo de siempre).
+ */
+export function laborHeadcountOf(line = {}) {
+  const positions = nonNegative(line && line.positions);
+  if (!(positions > 0)) return 0;
+  return hasPayrollHeadcount(line) ? nonNegative(line.payrollHeadcount) : positions * nonNegative(line.peoplePerPosition, 1);
+}
+
+/** Personas por posición efectivas (con nómina cargada: nómina ÷ posiciones). */
+export function laborPeoplePerPositionOf(line = {}) {
+  const positions = nonNegative(line && line.positions);
+  if (hasPayrollHeadcount(line) && positions > 0) return nonNegative(line.payrollHeadcount) / positions;
+  return nonNegative(line && line.peoplePerPosition, 1);
+}
 
 /** Factor de cargas aplicado a conceptos remunerativos. */
 export function laborLoadFactor({ sacPct = 0, vacationPct = 0, employerContributionsPct = 0, artPct = 0 } = {}) {
@@ -83,8 +116,9 @@ export function overtimeItemsOf(line = {}) {
  */
 export function computeLaborLine(line = {}) {
   const positions = nonNegative(line.positions);
-  const peoplePerPosition = nonNegative(line.peoplePerPosition, 1);
-  const headcount = positions * peoplePerPosition;
+  const payrollMode = hasPayrollHeadcount(line);
+  const peoplePerPosition = laborPeoplePerPositionOf(line);
+  const headcount = payrollMode ? laborHeadcountOf(line) : positions * peoplePerPosition;
 
   const basic = nonNegative(line.basicMonthly);
   const additionals = nonNegative(line.additionalsMonthly);
@@ -147,6 +181,9 @@ export function computeLaborLine(line = {}) {
     positions,
     peoplePerPosition,
     headcount,
+    // Nómina cargada como total (B-1) y propuesta del diagrama de rotación (no cambia el costo).
+    payrollMode,
+    rotation: hasRotation(line) ? computeRotation(line.rotation, { positions }) : null,
     assignment: allocation.assignment,
     shared: allocation.shared,
     fixedCostSharePct: allocation.sharePct,

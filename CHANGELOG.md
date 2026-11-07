@@ -12,6 +12,25 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Revisión UX y de costos de la tanda B (2026-11):** asistente de diagrama más corto (atajos y 3 campos a la vista, el resto en "Grupos, turnos y redondeo"), marca "aplicado al puesto" y foco que no se pierde; ventana de pérdida como franja "cubre el mínimo · perdés · ganás" con tu estimación marcada; burbujas (i) fijas abajo en celular; aviso del proveedor en rojo o amarillo según su gravedad. Avisos nuevos: nómina menor que los que están en sitio, y tarifa sugerida que no cuenta el mínimo garantizado (con botón "Usar $ X como tarifa ofrecida"). El aviso del proveedor sólo baja a amarillo por vehículos propios si se eligió cómo llega el externo.
+
+**Tanda B — materiales por unidad, mínimo en unidades y aviso del proveedor (2026-11, B-2 y B-3 del informe auditado `docs/informes/2026-11-especialistas-auditado.md`, PLAN-2026-022).** Ninguna cifra de una cotización existente cambia (golden 42/42 y baseline de regresión sin re-aprobar; 118 cotizaciones de los especialistas comparadas con `main`: mismos costos, tarifas, márgenes y equilibrios). Esquema sin cambio de versión: los campos nuevos son opcionales.
+
+### Agregado
+
+- **Materiales y otros costos "Por unidad producida" con % de unidades que lo usan** (B-2, H-11; unificado con PLAN-2026-021 al integrar con `main`): una sola base, `per_output`. Costo del mes = monto × unidades producidas del mes (con merma y logística como siempre), opcionalmente × "% de las unidades que lo usan" (por ejemplo 30 % de las PSV llevan repuesto; vacío = 100 %). Sin producción propia en la línea, las unidades salen de "Cómo se cobra": cantidad o horas por día (como en PLAN-2026-021) y ahora también 1 por día cobrando por día y hitos ÷ días por trabajo cobrando por llamado, trabajo o hito (sin el relleno del mínimo por llamado). Válvulas C1: $ 18.000 por válvula con 8, 6 o 10 válvulas por día (antes, cargado por día, pasar a 6 por día lo subía a $ 24.000, +33 %); con 30 % de las válvulas, $ 648.000 por mes. Funciona con "¿Se factura aparte?" por línea, con la reventa y en Otros costos (salvo con abono mensual). La base `per_billable_unit` de la rama de la tanda B nunca se publicó: se lee como `per_output`.
+- **Mínimo garantizado en unidades** (B-3, H-13): "¿Cómo se expresa el mínimo?" En $ por mes (default, como siempre) o en días / horas / válvulas por mes, que el motor valoriza con la tarifa ofrecida o sugerida (sin circularidad: la sugerida se calcula sin el mínimo). 24 h C2: mínimo 20 días = $ 64.660.000 con la tarifa de $ 3.233.000.
+- **Ventana de pérdida con mínimo garantizado** (B-3, H-29): el Resultado y "Ver cálculo" dicen "hasta 15,85 días el mínimo cubre tus costos; entre 15,85 y 20,97 días perdés plata; desde 20,97 días ganás" (antes decía siempre "21 días" aunque con 10 se ganaba). El tono del equilibrio sigue al resultado del mes estimado. El break-even no cambia.
+- Aviso informativo: cobrando por cantidad, un material "por día" con la misma cantidad que las unidades por día pregunta si es por unidad (nunca se convierte solo).
+
+### Cambiado
+
+- **Aviso "Unidad del proveedor"** (decisión del dueño, H-04, ECO-01): baja de crítico a **aviso común** (amarillo: no dice "RESULTADO NO CONFIABLE") cuando el externo cobra por trabajo / salida con la movilización incluida, o cuando los viajes de la ruta los hacen vehículos propios y el externo no va por sus medios. En los demás casos sigue crítico como siempre. Los tests de ECO-01 que usaban la movilización incluida del fixture E3 ahora la dejan sin definir para seguir protegiendo el caso crítico.
+
+### Corregido
+
+- La unidad junto a "Cantidad" de un material mostraba "—" por una referencia rota (`BASIS_PER`); ahora dice "u./día", "u./mes", "u./llamado" o "u./válvula".
+
 **Más unidades de medida (2026-11-07, pedido del dueño).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (las unidades se guardan por id, como siempre).
 
 ### Agregado
@@ -33,6 +52,21 @@ Reglas para este archivo:
 - Con "Vehículo" como único equipo del servicio y la camioneta cargada en Viajes con costo por km, "Costo de equipos" pasa de pendiente crítico a aviso (ese costo no cubre amortización, seguro ni patente).
 
 **Reportes por Supabase encendidos (2026-11-07).** Con autorización del dueño se aplicó la migración `20261107021710_rateos_bug_reports` y se desplegó la Edge Function `bug-report-github`; `FEATURES.bugReportsCloud = true`: con sesión, "Reportar un problema" se envía desde la app sin cuenta de GitHub.
+
+**Tanda B — diagrama de rotación (2026-11, B-1 del informe auditado, PLAN-2026-023).** Ningún número de una cotización existente cambia (golden cases y foto de regresión iguales); esquema sin cambio de versión (campos opcionales).
+
+### Agregado
+
+- **Diagrama de rotación (opcional) en cada puesto de Personal** (H-12, H-07, H-06, H-14): días en sitio, días de franco, personas en sitio a la vez, grupos que entran escalonados, turnos por día y horas por turno, todos libres (7x7, 14x14, 14x7, 20x10 y 5x2 son atajos editables). Propone la nómina (`en sitio × ciclo ÷ días en sitio`, hacia arriba o exacta con el decimal a la vista), los relevos por mes (`días del mes ÷ días en sitio × grupos`), los días entre relevos y las personas en sitio por día (base para campamento). Sólo propone: el costo cambia al tocar **"Aplicar al puesto"**. Motor puro `js/engines/rotation-engine.js` con "Ver cálculo".
+- **Personas en nómina (total del puesto)** (`labor[i].payrollHeadcount`): el costo fijo usa la nómina; las horas extra por día y las viandas siguen a las posiciones. 3 en sitio con 5 en nómina sin cargar 1,6667 ("5,0001 personas"). Botones "Cargar la nómina total" / "Cargar personas por posición" (mismo costo al cambiar). Sin el campo, igual que siempre.
+- **"Usar como días entre relevos"** (fijo mensual y servicio permanente): carga "Días entre viajes o relevos" con los días entre relevos del diagrama, así el relevo se costea con 1 viaje entero por relevo y sin el truco de viajes con decimales.
+- **"N en sitio · M en nómina"** en el puesto y en el Resultado ("Personal: 2 en sitio · 4 en nómina · diagrama 14x14, 2,14 relevos por mes").
+
+### Cambiado
+
+- **Aviso "Horas del personal"**: si el puesto no tiene "Horas por día que cubre este puesto", usa las horas por turno del diagrama (24h C1 con turnos de 12 h ya no da el aviso falso); cuenta la nómina total como personas por posición. Los avisos de relevos 24/7 y de personas no enteras también usan la nómina total. Sólo avisos: el costo no cambia.
+
+Casos reales: 24h C1 (14x14, 2 en sitio) → 4 en nómina; con 14 días entre relevos y 1 viaje por relevo, $ 70.247.973 (con el truco eran $ 70.247.873; sugerida $ 86.941.000 en los dos). 2x1 C1 (14x7, 3 en sitio) → 4,5 → 5 en nómina: costo $ 84.542.140 → $ 89.810.129 y sugerida $ 105.022.000 → $ 111.566.000 al aplicar (con redondeo exacto, sin cambios). Fuera de alcance: costo por persona en sitio por día en Otros costos (B-6) y un driver propio de relevos para otros contratos.
 
 **Testeo con especialistas — UI (2026-11, tanda A del informe auditado `docs/informes/2026-11-especialistas-auditado.md`).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (`contract` ya era opcional y `activity.availability` puede quedar sin definir).
 

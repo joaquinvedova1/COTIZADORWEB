@@ -102,6 +102,52 @@ export function confirmRemove({ title, name, extra = 'Esto no modifica la biblio
   });
 }
 
+/**
+ * Campos del mínimo mensual garantizado (tanda B 2026-11, B-3): en $ por mes (como siempre) o en
+ * unidades de cobro ("mínimo 20 días por mes"), que el motor valoriza con la tarifa de la
+ * cotización. Lo usan "Cómo se cobra" y "Reglas comerciales". Sin cuentas: los montos vienen del motor.
+ * @returns {{ fields: Node[], note: Node }}
+ */
+export function minimumGuaranteeFields(kit, quote, unitInfo, { amountLabel = 'Mínimo mensual', amountPlaceholder = null, amountHint = null } = {}) {
+  const rules = (quote && quote.rules) || {};
+  const units = rules.minimumGuaranteeBasis === 'units';
+  const u = unitInfo || {};
+  const plural = u.plural || 'unidades';
+  // Con abono mensual la unidad es el mes: el mínimo en unidades no agrega nada (salvo que ya esté elegido).
+  const offersUnits = u.kind !== 'month' || units;
+  const basis = offersUnits
+    ? kit.select('rules.minimumGuaranteeBasis', {
+      label: '¿Cómo se expresa el mínimo?',
+      options: [{ value: 'amount', label: 'En $ por mes' }, { value: 'units', label: `En ${plural} por mes` }],
+      structural: true,
+    })
+    : null;
+  const amount = units
+    ? kit.num('rules.minimumGuaranteeUnits', {
+      label: `Mínimo de ${plural} por mes`,
+      rule: 'quantity',
+      unit: `${plural}/mes`,
+      placeholder: 'Ej.: 20',
+      hint: `Se facturan al menos esas ${plural} por mes a la tarifa (la que ofrecés o, si no cargaste una, la sugerida). La tarifa sugerida se calcula sin contar el mínimo. Vacío o 0 = sin mínimo.`,
+    })
+    : kit.num('rules.minimumMonthlyGuarantee', {
+      label: amountLabel,
+      rule: 'money',
+      unit: '$/mes',
+      ...(amountPlaceholder ? { placeholder: amountPlaceholder } : {}),
+      ...(amountHint ? { hint: amountHint } : {}),
+    });
+  const note = kit.out((r) => {
+    const rev = (r && r.estimate && r.estimate.revenue) || {};
+    const equals = units && Number(rules.minimumGuaranteeUnits) > 0 && Number.isFinite(rev.guarantee) && rev.guarantee > 0
+      ? `Con la tarifa de esta cotización, el mínimo equivale a ${formatMoney(rev.guarantee)} por mes. `
+      : '';
+    const topUp = rev.guaranteeTopUp > 0 ? `Con la actividad estimada, el mínimo suma ${formatMoney(rev.guaranteeTopUp)} al mes.` : '';
+    return `${equals}${topUp}`.trim();
+  }, { tag: 'p', className: 'qe-note', allowEmpty: true });
+  return { fields: [basis, amount].filter(Boolean), note };
+}
+
 /** ¿El valor cargado es un número? (vacío, null o texto → no). */
 export function hasNumber(value) {
   return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));

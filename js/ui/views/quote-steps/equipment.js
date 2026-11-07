@@ -872,7 +872,17 @@ export function render(container, ctx) {
       { class: 'banner banner-warning qe-unit-confirm', role: 'status' },
       kit.out((r) => {
         const item = unitPendingOf(r, index);
-        return item ? h('div', {}, h('strong', {}, `¿Cobra ${T.per} o por viaje? `), item.message) : '';
+        if (!item) return '';
+        // Tanda B (H-04): a la vista, la cuenta ("cobra X por salida… equivale a Y por viaje") y la
+        // consecuencia; el resto del mensaje del motor (por qué suele ir una vez, cómo elegir) en el (i).
+        const msg = String(item.message || '');
+        const m = /^([\s\S]*?Equivale a [\s\S]*? por viaje\.)([\s\S]*)$/.exec(msg);
+        if (!m) return h('div', {}, h('strong', {}, `¿Cobra ${T.per} o por viaje? `), msg);
+        const tail = m[2].trim();
+        const ending = /(Revisalo: si cobra por viaje, el costo queda corto\.|Hasta entonces el resultado no es confiable\.)/.exec(tail);
+        const rest = (ending ? tail.replace(ending[1], '') : tail).trim();
+        return h('div', {}, h('strong', {}, `¿Cobra ${T.per} o por viaje? `), m[1], ending ? h('strong', {}, ` ${ending[1]}`) : null,
+          rest ? infoTip(rest, { label: 'Más detalle del aviso' }) : null);
       }, { tag: 'div', allowEmpty: true }),
       ctx.readOnly
         ? null
@@ -883,6 +893,14 @@ export function render(container, ctx) {
           // La pista para elegir va en el (i): el aviso ya tiene mucho texto.
           infoTip(`Si los viajes son de tus vehículos y el proveedor va una sola vez, confirmá «cobra ${T.per}».`, { label: '¿Cuál elijo?' })),
     ), (r) => Boolean(unitPendingOf(r, index)));
+    // Crítico (resultado no confiable) en rojo; aviso común (tanda B, H-04) en amarillo.
+    kit.effect((r) => {
+      const item = unitPendingOf(r, index);
+      const critical = Boolean(item && item.unreliable);
+      pendingBanner.classList.toggle('banner-danger', critical);
+      pendingBanner.classList.toggle('banner-warning', !critical);
+      pendingBanner.setAttribute('role', critical ? 'alert' : 'status');
+    });
     const line = quote.equipment[index] || {};
     const c = line.externalUnitConfirmed;
     if (!c || typeof c !== 'object') return pendingBanner;

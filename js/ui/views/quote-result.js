@@ -87,6 +87,7 @@ import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
+import { staffText } from './quote-steps/labor.js';
 import { normalizeRules, revenueComposition, floorWithoutOtherRevenue } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct, effectiveRoundingStep } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
@@ -118,7 +119,39 @@ import {
   illustrativeTitle,
   floorWithoutExtrasText,
   capAllDaysNote,
+  lossWindowText,
+  lossWindowSegments,
 } from '../result-text.js';
+
+/**
+ * Tono del equilibrio con los días estimados: verde si se llega al break-even. Con un mínimo
+ * garantizado que protege los primeros días (B-3, H-29) también se gana ANTES del break-even:
+ * el tono sigue al resultado del mes estimado (lo calculó el motor).
+ */
+function beTone(r, D, be) {
+  if (be && be.guaranteeProtects && r && r.kpis && hasValue(r.kpis.profit)) return r.kpis.profit >= -1e-6 ? 'green' : 'red';
+  return D + 1e-9 >= be.days ? 'green' : 'red';
+}
+
+/**
+ * Ventana de pérdida del mínimo garantizado (B-3), o null: una franja de tramos (cubre el mínimo ·
+ * perdés · ganás) con tu estimación marcada; la frase completa queda en el (i).
+ */
+function lossWindowNote(r, D) {
+  const estimateDays = hasValue(D) ? D : null;
+  const text = lossWindowText(r, { estimateDays });
+  const segs = lossWindowSegments(r, { estimateDays });
+  if (!text || !segs) return null;
+  const LABEL = { covered: 'cubre el mínimo', loss: 'perdés plata', gain: 'ganás' };
+  const range = (sg) => (sg.from === null ? `Hasta ${sg.to}` : sg.to === null ? `Desde ${sg.from}` : `${sg.from} a ${sg.to}`);
+  const inLoss = segs.some((sg) => sg.here && sg.kind === 'loss');
+  return h('div', { class: ['qr-loss-window', inLoss ? 'is-in-loss' : null] },
+    h('p', { class: 'qr-loss-title' }, h('strong', {}, 'Con el mínimo garantizado'), infoTip(text, { label: 'Ventana de pérdida' })),
+    h('ol', { class: 'qr-loss-band' }, ...segs.map((sg) => h('li', { class: ['qr-loss-seg', `is-${sg.kind}`, sg.here ? 'is-here' : null] },
+      h('span', { class: 'qr-loss-range' }, range(sg)),
+      h('span', { class: 'qr-loss-label' }, LABEL[sg.kind]),
+      sg.here ? h('span', { class: 'qr-loss-here' }, 'Tu estimación') : null))));
+}
 
 // ------------------------------------------------------------------ constantes
 
@@ -1072,6 +1105,18 @@ function criticalAlerts(v) {
   } else if (k.belowTarget) {
     out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
   }
+  // Mínimo garantizado en unidades por encima de la estimación (revisión de costos de la tanda B):
+  // el margen del mes no es el objetivo. Los números vienen del motor; el detalle, en el (i).
+  const above = ((r.completeness && r.completeness.notices) || []).find((n) => n && n.id === 'guarantee_above_estimate');
+  if (above) {
+    const lead = hasValue(above.marginAtEstimatePct) && hasValue(above.listRateWithMinimum)
+      ? `Con la tarifa sugerida el mes factura el mínimo y el margen da ${pct(above.marginAtEstimatePct)}, no ${pct(k.targetMarginPct)}. Si el cliente paga el mínimo, con ${formatMoney(above.listRateWithMinimum)} ya llegás al objetivo.`
+      : above.message;
+    const node = alertLine('info', `${above.label}.`, lead, stepLink(v.q, 'margin', 'Elegir la tarifa en "El precio"'));
+    const textHolder = node.querySelector('.banner-body, div') || node;
+    if (lead !== above.message) textHolder.appendChild(infoTip(above.message, { label: 'Detalle del mínimo garantizado' }));
+    out.push(node);
+  }
   // Margen objetivo inválido (incluido margen + impuestos ≥ 100): no hay precio objetivo.
   if (k.targetMarginInvalid) {
     out.push(alertLine('danger', 'El margen objetivo no es válido.', hasValue(k.billingTaxPct) && k.billingTaxPct > 0
@@ -1187,13 +1232,14 @@ function heroKnownRate(v) {
 
   return h('div', { class: 'qr-decision' },
     sentence,
+    rateOk ? lossWindowNote(r, D) : null,
     h('div', { class: 'qr-hero' },
       byQty(v) ? heroItem({
         label: unitTextsOf(r).breakEvenLabel,
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? (breakEvenZeroText(r) || `Por mes, ${atRateText(v)} (${workDaysText(be.days, { decimals: 2 })}).`) : be.reason || null,
         trace: r.traces && r.traces.breakEven,
-        tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
+        tone: be.reachable && hasValue(D) ? beTone(r, D, be) : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
       }) : null,
       byQty(v) ? null : heroItem({
@@ -1201,7 +1247,7 @@ function heroKnownRate(v) {
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? (breakEvenZeroText(r) || `Break-even exacto: ${formatDays(be.days)} por mes, ${atRateText(v)}.`) : be.reason || null,
         trace: r.traces && r.traces.breakEven,
-        tone: be.reachable && hasValue(D) ? (D + 1e-9 >= be.days ? 'green' : 'red') : rateOk && !be.notApplicable ? 'red' : null,
+        tone: be.reachable && hasValue(D) ? beTone(r, D, be) : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
       }),
       heroItem({
@@ -1422,7 +1468,7 @@ function kpiGrid(v) {
         label: 'Break-even',
         value: beValue,
         hint: beHint,
-        tone: be.reachable && hasValue(k.activeDays) ? (k.activeDays + 1e-9 >= be.days ? 'green' : 'red') : null,
+        tone: be.reachable && hasValue(k.activeDays) ? beTone(r, k.activeDays, be) : null,
         trace: traces.breakEven,
       }));
     }
@@ -1701,10 +1747,10 @@ function workBlock(v) {
       content = [breakEvenZeroText(r, { rateText: atRateText(v) }) || `${subject} cubrís todos tus costos desde el inicio.`];
       tone = 'green';
     } else if (be.reachable && hasValue(be.quantity) && closedBreakEvenText(v, be)) {
-      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      if (hasValue(D)) tone = beTone(r, D, be);
       content = [`${subject}, ${closedBreakEvenText(v, be)}.`];
     } else if (be.reachable && hasValue(be.quantity)) {
-      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      if (hasValue(D)) tone = beTone(r, D, be);
       content = [
         `${subject} necesitás facturar al menos `,
         h('strong', { class: 'qr-work-days' }, `${quantityCeilText(be.quantity, r)} por mes`),
@@ -1727,7 +1773,7 @@ function workBlock(v) {
       const hours = r.unit === 'hour' && hasValue(hoursPerDay) && hoursPerDay > 0
         ? ` (unas ${formatNumber(be.days * hoursPerDay, { decimals: 0 })} horas)`
         : '';
-      if (hasValue(D)) tone = D - be.days >= -1e-9 ? 'green' : 'red';
+      if (hasValue(D)) tone = beTone(r, D, be);
       content = [
         `${subject} necesitás aproximadamente `,
         h('strong', { class: 'qr-work-days' }, `${activeDaysText(be.days, dayDecimals(be.days))} por mes`),
@@ -1744,10 +1790,13 @@ function workBlock(v) {
   // ECO-01: con un dato que vuelve no confiable el resultado, este cálculo tampoco se lee en verde.
   const unreliable = rateOk ? unreliableText(r.completeness, 'este cálculo') : null;
   if (unreliable) tone = 'red';
+  // Los textos van en una sola columna (la de "Ver cálculo" queda a la derecha en escritorio).
   return h('div', { class: ['qr-work', tone ? `qr-work-${tone}` : null] },
     h('p', { class: 'qr-work-question' }, question),
-    unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
-    h('p', { class: 'qr-work-text' }, ...content),
+    h('div', { class: 'qr-work-body' },
+      unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
+      h('p', { class: 'qr-work-text' }, ...content),
+      rateOk && !isMonth ? lossWindowNote(r, D) : null),
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
 
@@ -1782,6 +1831,24 @@ function draftBanner(v) {
   return node;
 }
 
+/**
+ * Dotación (tanda B 2026-11, B-1): "N en sitio · M en nómina" del personal, con el diagrama
+ * de rotación si se cargó. En sitio = posiciones; en nómina = dotación que cobra sueldo.
+ */
+function staffBlock(v) {
+  const labor = v.r.model && v.r.model.labor;
+  const lines = ((labor && labor.lines) || []).filter((l) => l && l.positions > 0);
+  if (!lines.length) return null;
+  const total = { positions: labor.positions, headcount: labor.headcount };
+  const rotationText = (rot) => (rot && rot.ready
+    ? `diagrama ${rot.label}${rot.daysBetweenRelieves ? `, ${formatNumber(rot.relievesPerMonth, { decimals: 2 })} relevos por mes` : ''}`
+    : null);
+  const detail = lines.length > 1
+    ? ` (${lines.map((l) => [`${l.role || 'Puesto'}: ${staffText(l)}`, rotationText(l.rotation)].filter(Boolean).join(', ')).join('; ')})`
+    : rotationText(lines[0].rotation) ? ` · ${rotationText(lines[0].rotation)}` : '';
+  return h('p', { class: 'qr-note qr-staff' }, h('strong', {}, 'Personal: '), `${staffText(total)}${detail}.`);
+}
+
 /** 1. Resultado: las cuatro respuestas, la frase de los días y las alertas críticas. */
 function renderSummary(v) {
   const { q, r } = v;
@@ -1801,6 +1868,7 @@ function renderSummary(v) {
     draft,
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
+    staffBlock(v),
     workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
@@ -3314,6 +3382,13 @@ function rulesSummary(v) {
   if (rules.minimumMonthlyGuarantee > 0) {
     const topUp = revenue.guaranteeTopUp;
     items.push(['Mínimo mensual garantizado', `${money(rules.minimumMonthlyGuarantee)} por mes.${hasValue(topUp) && topUp > 0 ? ` Con la actividad estimada completa ${money(topUp)}.` : ''}`]);
+  } else if (rules.minimumGuaranteeUnits > 0) {
+    // Mínimo en unidades (B-3): N unidades por mes a la tarifa neta (el motor ya lo valorizó).
+    const topUp = revenue.guaranteeTopUp;
+    const n = rules.minimumGuaranteeUnits;
+    const u = r.unitInfo || {};
+    const word = Math.abs(n - 1) < 1e-9 ? u.singular || 'unidad' : u.plural || 'unidades';
+    items.push(['Mínimo mensual garantizado', `${formatNumber(n, { decimals: 2 })} ${word} por mes a la tarifa (${money(revenue.guarantee)} con la tarifa de esta cotización).${hasValue(topUp) && topUp > 0 ? ` Con la actividad estimada completa ${money(topUp)}.` : ''}`]);
   }
   if (!isMonth && r.unit !== 'event' && rules.minimumCallUnits > 0) {
     let units;

@@ -19,6 +19,7 @@ Convenciones:
     - [2.1 "Cada salida se cuenta completa"](#21-cada-salida-se-cuenta-completa-plan-2026-011-opcional)
 3. [Personal](#3-personal)
     - [3.1 Horas extra por tramos (PLAN-2026-010)](#31-horas-extra-por-tramos-plan-2026-010)
+    - [3.2 Nómina total y diagrama de rotación (B-1)](#32-nómina-total-y-diagrama-de-rotación-tanda-b-2026-11-b-1-plan-2026-023-opcional)
 4. [Equipos](#4-equipos)
     - [4.1 Equipos y servicios externos (alquilados y tercerizados)](#41-equipos-y-servicios-externos-alquilados-y-tercerizados)
     - [4.2 Recursos compartidos: % de los costos fijos](#42-recursos-compartidos--de-los-costos-fijos-plan-2026-012-opcional)
@@ -219,6 +220,45 @@ Sin lista `overtime`, se usa el campo único de siempre (horas extra por día ac
 
 **Horas extra facturadas aparte** (`line.overtimeBilled = true`): siguen siendo costo y además generan ingreso `horas × precio por hora del tramo` (por día activo × posiciones, o por mes × dotación), que entra en "otros ingresos" igual que los materiales facturados aparte (§12) y por eso baja la tarifa piso. Ejemplo COT-0009: 2 h/día al 50 % facturadas a $ 30.000/h × 20 días = $ 1.200.000 de ingreso por mes; el costo no cambia.
 
+### 3.2 Nómina total y diagrama de rotación (tanda B 2026-11, B-1, PLAN-2026-023, opcional)
+
+**Nómina total del puesto** (`labor[i].payrollHeadcount`, "Personas en nómina (total del puesto)"; el puesto lo activa con "Cargar la nómina total" o el asistente). Si es > 0 reemplaza a posiciones × personas por posición en la dotación:
+
+```
+dotación                 = nómina                    (si posiciones > 0; con 0 posiciones = 0)
+personas por posición    = nómina ÷ posiciones      (informativo: aviso de horas y de relevos)
+fijo mensual de la línea = fijo mensual/persona × nómina
+variable por día activo  = variable/día/posición × posiciones   (sin cambio: los que están en sitio)
+```
+
+Vacío, 0 o sin el campo = posiciones × personas por posición, **igual que siempre** (ningún número existente cambia). Sirve para 3 en sitio con 5 en nómina sin cargar 1,6667 ("5,0001 personas"). "Cargar la nómina total" copia la dotación de ese momento (mismo costo); "Cargar personas por posición" vuelve con nómina ÷ posiciones a 4 decimales.
+
+**Asistente de diagrama de rotación** (`labor[i].rotation`, `js/engines/rotation-engine.js`, `computeRotation`). Campos libres: días en sitio, días de franco, personas en sitio a la vez (vacío = las posiciones), grupos que entran escalonados (vacío = 1), turnos por día y horas por turno (opcionales), redondeo de la nómina (`'up'` hacia arriba, default, o `'exact'`) y días del mes para contar relevos (vacío = 30). Los atajos 7x7, 14x14, 14x7, 20x10 y 5x2 sólo llenan días en sitio y de franco (editables). **El diagrama sólo propone: no cambia el costo.**
+
+```
+ciclo                  = días en sitio + días de franco
+fracción en sitio      = días en sitio ÷ ciclo
+nómina exacta          = en sitio × ciclo ÷ días en sitio
+nómina                 = ⌈nómina exacta⌉ (hacia arriba)  o  nómina exacta (con decimales)
+en sitio en promedio   = nómina × fracción en sitio
+relevos por mes        = días del mes ÷ días en sitio × grupos     (0 si no hay franco)
+días entre relevos     = días en sitio ÷ grupos
+personas por relevo    = en sitio ÷ grupos
+persona-días en sitio  = en sitio × días del mes                   (base para campamento)
+```
+
+Ejemplos de los especialistas: 24h C1, 14x14 con 2 en sitio → 2 × 28 ÷ 14 = **4 en nómina**, 30 ÷ 14 = 2,14 relevos por mes (uno cada 14 días). 2x1 C1, 14x7 con 3 en sitio → 3 × 21 ÷ 14 = **4,5 → 5** (3,33 en sitio en promedio), con 2 grupos 30 ÷ 14 × 2 = 4,29 relevos (uno cada 7 días).
+
+Lo que cambia números es siempre una acción explícita de quien cotiza:
+- **"Aplicar al puesto"**: posiciones = en sitio, `payrollHeadcount` = nómina propuesta (y personas por posición = nómina ÷ en sitio a 4 decimales, por si se vuelve a ese modo). 2x1 C1: de 4,5 a 5 personas → costo $ 84.542.140 → **$ 89.810.129**, sugerida $ 105.022.000 → **$ 111.566.000** (lo que calculó el especialista con 5). Con redondeo exacto queda 4,5: mismos números.
+- **"Usar como días entre relevos"** (sólo fijo mensual o servicio permanente, donde existe el campo): `activity.daysPerActivation` = días entre relevos, así los viajes y costos por intervención se cuentan por relevo (intervenciones por mes = días del fijo ÷ intervalo, §2) **sin viajes con decimales**. 24h C1: 4 en nómina, intervalo 14, 1 viaje por relevo y $ 30.000 de viáticos por relevo → **$ 70.247.973** (antes, con el truco de 0,0714 viajes por intervención, $ 70.247.873; sugerida $ 86.941.000 en los dos). Cuidado: si se cargó como "por intervención" algo que es por día (campamento), hay que pasarlo a un costo por día: la UI lo dice.
+
+**Aviso de horas con turnos** (§3.1, sólo aviso): las horas por día que tiene que cubrir cada posición son, en orden, "Horas por día que cubre este puesto" (`coverageHoursPerDay`), si no las **horas por turno del diagrama** (`rotation.hoursPerShift`), y si no las de la actividad. Las personas por posición del control son las efectivas (nómina ÷ posiciones si hay nómina total). 24h C1 con turnos de 12 h: 30 × 12 = 360 h contra 2 × 176 + 4 × 30 = 472 h → el aviso falso desaparece sin cambiar el costo. El aviso de relevos 24/7 y el de personas no enteras (A-15 b) también usan la nómina total (con nómina 4,5 sigue preguntando cuántas hay de verdad y lleva a "Personas en nómina").
+
+**Dónde se ve:** el puesto muestra "N en sitio · M en nómina · diagrama 14x14" y el Resultado "Personal: N en sitio · M en nómina" (con el diagrama y los relevos por mes). En sitio = posiciones; en nómina = dotación.
+
+**Fuera de alcance (siguiente paso):** un costo de "Otros costos" **por persona en sitio por día** (campamento, vianda) que tome `onSitePerDay` / persona-días del asistente (B-6; hoy el asistente muestra el dato para cargarlo como $ por día × personas); un driver propio de "Relevos" (personas, medio, km, peajes, horas de viaje) para contratos que no son fijo mensual; y horas extra por día en sitio derivadas del turno (RATEOS no tiene dato de jornada diaria).
+
 ## 4. Equipos
 
 Archivo: `js/engines/equipment-engine.js` (`computeOwnership`, `computeOperation`, `computeEquipmentUnit`, `computeEquipmentLine`).
@@ -383,6 +423,7 @@ Categoría EECC: **Equipos y servicios externos** (`external`). Grupo de pago: p
 - **"Por viaje completo"** es la misma unidad `trip` con `external.tripBasis = 'round_trip'` (dato opcional; sin él es por tramo). El motor cuenta los viajes de la ruta (`fullTripsPerActivation` = viajes por llamado), no los tramos; el mínimo, la cantidad, el IVA y la financiación se aplican igual. Con la ruta "sólo ida" un viaje completo es un viaje de ida.
 - Con los datos de E3: 928.000 por viaje completo = 2.900 $/km = 464.000 por tramo → costo del mes **$ 41.281.757,11** y sugerida **$ 1.377.000** (los tres dan lo mismo, test `tests/engines/eco-01.test.js`). Cargado "Por salida" da 18 × 928.000 (costo $ 21.875.213,61, sugerida $ 730.000); cargado "Por tramo" da 72 × 928.000 (costo $ 80.094.844,11, sugerida $ 2.671.000). **Las fórmulas de "Por salida" y "Por tramo" no cambian**: lo que cambia es que ahora existe la unidad correcta y que la combinación ambigua se avisa.
 - **"Por salida" con varios viajes por salida** (ruta con más de 1 viaje por llamado): pendiente **crítico** y resultado **no confiable** hasta elegir la unidad o confirmarla (`external_unit_trips`, §19), nombrando salidas por mes, viajes por salida, viajes del mes y el equivalente por viaje. "Sí, cobra por salida" guarda en la línea **el supuesto confirmado** (`line.externalUnitConfirmed = { unit: 'activation', price, tripsPerActivation, distanceKm, roundTrip }`, `externalUnitAssumption`) y el crítico se va sin cambiar el costo. La confirmación **sólo vale mientras ese supuesto siga igual**: si cambian la tarifa, los viajes por salida (también los que se derivan de la unidad "viaje"), la distancia o ida y vuelta, vuelve el crítico diciendo qué cambió; cambiar la unidad la borra. Con 1 viaje por salida (el on-call de siempre) no hay ambigüedad y no se avisa.
+- **Aviso común en vez de crítico** (decisión del dueño, tanda B 2026-11, H-04): si lo habitual es que el proveedor vaya **una sola vez** por salida y los viajes sean de otros, el pendiente baja a **amarillo** (`warning`, severidad `review`): ni crítico ni "no confiable", y el mensaje dice por qué. Pasa cuando (a) la línea tiene la **movilización incluida** (`external.mobilizationIncluded = true`) o (b) los viajes de la ruta los hacen **vehículos propios** (algún vehículo de la logística auxiliar con cantidad > 0, o un equipo propio que va por sus medios) y el externo **no** va por sus propios medios. Si alguna línea "por salida" con varios viajes no cumple (a) ni (b), el pendiente sigue crítico y no confiable como siempre (el riesgo de ECO-01: un proveedor que cobra cada viaje cargado como una vez por salida). La confirmación funciona igual en los dos casos. Ninguna cifra cambia.
 
 ### 4.2 Recursos compartidos: % de los costos fijos (PLAN-2026-012, opcional)
 
@@ -532,11 +573,17 @@ Base de cálculo:
 | `per_month` (por mes, valor por defecto) | fijo mensual |
 | `per_active_day` | variable por día activo |
 | `per_activation` | variable por día = costo / días por activación |
-| `per_output` (por unidad producida, PLAN-2026-021; sólo en cotizaciones) | variable por día = costo por unidad producida × unidades producidas por día |
+| `per_output` (**por unidad producida**, PLAN-2026-021, ampliada en PLAN-2026-022; sólo en cotizaciones) | costo por unidad = costo × % de las unidades que lo usan (`usagePct`, vacío = 100 %, 0–100); variable por día = costo por unidad × unidades producidas por día |
 
-- Unidades producidas por día (`per_output`): las de la línea (`outputPerActiveDay`) o, si no hay, las de la cotización: unidades por día de trabajo si se cobra por cantidad (m³, m², t, pieza…), horas por día si se cobra por hora. Con otra unidad y sin dato de la línea, la línea suma $ 0 y la completitud marca "Producción por día" como pendiente. Ejemplo: pintura 0,25 L/m² × 8.000 $/L = 2.000 $/m²; 120 m²/día → **240.000 por día activo**.
+- Una sola base para "por unidad": al integrar la tanda B con `main` se unificaron `per_output` (PLAN-2026-021, publicada) y `per_billable_unit` ("por unidad facturada", nunca publicada). Queda `per_output`, rotulada "Por unidad producida"; `per_billable_unit` se acepta como alias al leer una línea (`normalizeBasisId`, `materials-engine.js`). Vale también en Otros costos (`otherCosts[].behavior = 'per_output'`, con `usagePct`).
+- Unidades producidas por día (`per_output`): las de la línea (`outputPerActiveDay`) o, si no hay, las de la cotización (`autoOutputPerActiveDay`, `cost-engine.js`): cantidad (m³, m², válvula, viaje…) → cantidad por día de trabajo; hora → horas por día; día → 1; llamado / trabajo / hito → hitos por trabajo ÷ días por trabajo; mes → 0. Si la línea tiene una unidad producida propia (`outputUnit`) distinta de la de cobro (m² cobrando por viaje), no se usa la de la cotización. Sin dato, la línea suma $ 0 y la completitud marca "Producción por día" como pendiente (`materials_output`). Ejemplo: pintura 0,25 L/m² × 8.000 $/L = 2.000 $/m²; 120 m²/día → **240.000 por día activo**.
+- Son las unidades que se **trabajan**, sin el relleno del mínimo por llamado (un consumible se gasta en la válvula que se atiende, no en la que se factura de mínimo). Como el costo queda variable por día, sigue a la actividad en el break-even, la matriz y los escenarios igual que cualquier variable: el costo del mes es monto × % × unidades producidas del mes. No hay costo discreto por salida (no cambia con "cada salida se cuenta completa"). Facturar aparte (`billedSeparately`, A-8) y la reventa funcionan igual que con las demás bases: se factura costo × (1 + recargo) de esas unidades.
+- Antes → después de la unificación: por cantidad y por hora, `per_output` da lo mismo que antes (sin `usagePct` = 100 %). Por día, llamado, trabajo o hito, una línea `per_output` sin producción propia sumaba $ 0 con el pendiente "Producción por día"; ahora toma 1 por día o hitos ÷ días por trabajo. Por mes, sigue en $ 0 con el pendiente.
 - Viáticos (PLAN-2026-021): la calculadora de "Movilización y viajes" llena `logistics.lodgingPerActivation` = personas × noches × alojamiento por noche + personas × días × comidas por día. No es una fórmula del motor (el motor usa el monto por salida, como siempre).
 
+
+- Ejemplo (válvulas C1 de los especialistas, consumibles $ 18.000 por válvula, 120 válvulas por mes): cargado "por día" con 8 × 18.000 = 144.000 por día, al pasar a 6 válvulas por día el material queda en 144.000 × 20 días = 2,88 M = **24.000 por válvula** (+33 %) y la sugerida sube a 311.000. Cargado "Por unidad producida" (1 × 18.000 por válvula) da **18.000 por válvula** con 8, 6 o 10 por día (2,16 M por mes) y la sugerida es 282.000 / 301.000 / 270.000. Con 8 por día da exactamente lo mismo que la carga por día. Con "% de las válvulas que lo usan" = 30 %: 5.400 por válvula, 648.000 por mes.
+- Aviso informativo `materials_per_unit_hint` (§19): cobrando por cantidad, un material "por día" cuya cantidad es igual a las unidades por día pregunta si es por unidad. Nunca se convierte solo.
 - Material sin responsable: se costea igual (criterio conservador) y el Cost Completeness Score lo marca en rojo.
 - "El servicio no usa materiales" (`materialsNotApplicable`) → se ignoran las líneas.
 - Ejemplo: electrodos 10 kg × 18.000 × 1,10 (merma) × 1,05 (logística) = **207.900 por día activo**; con markup de reventa 20 % el precio de reventa informativo sería 249.480.
@@ -548,6 +595,7 @@ Base de cálculo:
 | `fixed_monthly` | fijo mensual = monto |
 | `per_active_day` | variable por día = monto |
 | `per_activation` | variable por día = monto / días por activación |
+| `per_output` (por unidad producida, B-2 / PLAN-2026-022) | variable por día = monto × % de las unidades que lo usan × unidades producidas por día de la cotización (abono mensual: 0, no se ofrece) — igual que en materiales |
 
 La categoría debe ser una de `labor`, `equipment`, `external`, `fuel`, `materials`, `logistics`, `structure` (`DIRECT_CATEGORY_IDS`; si no, se usa `materials`). El grupo de pago sale de `CATEGORY_PAY_GROUP` (`js/domain/catalogs.js`). `external` ("Equipos y servicios externos", por ejemplo un subcontrato) es un costo **directo** del grupo de pago **Proveedores** (regla real documentada en PLAN-2026-014, LAB-D6).
 
@@ -795,6 +843,20 @@ ajuste por mínimo  = max(0, mínimo garantizado − subtotal)
 facturación total  = subtotal + ajuste por mínimo
 ```
 
+**Mínimo garantizado en unidades** (tanda B 2026-11, B-3; `rules.minimumGuaranteeBasis = 'units'`, `rules.minimumGuaranteeUnits = N`): "mínimo 20 días por mes", "mínimo 40 horas", "mínimo 100 válvulas".
+
+```
+unidades garantizadas = N × meses
+faltan                = max(0, unidades garantizadas − unidades facturables)
+mínimo garantizado    = unidades garantizadas × tarifa neta        (lo que vale el mínimo con esta tarifa)
+ajuste por mínimo     = faltan × tarifa neta
+```
+
+- Default = en $ (`minimumGuaranteeBasis` vacío o `'amount'`), como siempre. Sólo vale el dato del modo elegido: en unidades el monto en $ no se usa (y al revés).
+- Se compara con las **unidades facturadas** (con el mínimo por llamado), no con los otros ingresos: los cargos por llamado o la movilización no completan "20 días".
+- **Orden de cálculo (sin circularidad):** (1) costos; (2) tarifa sugerida **sin** el mínimo (§13, criterio conservador, igual que con el mínimo en $); (3) tarifa comercial = la ofrecida, la conocida o la sugerida; (4) recién ahí el mínimo vale N × tarifa neta del mes. El mínimo nunca entra en el cálculo de la tarifa que lo valoriza.
+- Ejemplo (24 h C2 de los especialistas, tarifa fija 3.233.000 por día): mínimo 20 días = **64.660.000** por mes; con 15 días faltan 5 días y el ajuste es 16.165.000. Da exactamente lo mismo que cargar $ 64.660.000 a mano, pero sigue a la tarifa si cambia.
+
 - Los descuentos se **multiplican**, no se suman: 5 % de tramo, 3 % de continuidad y 2 % comercial dan un factor 0,90307 (no 0,90).
 - El km adicional usa los km **de ruta** (no se multiplica por la cantidad de vehículos).
 - Todas las reglas son opcionales: 0 = no aplica. Valores negativos o vacíos se toman como 0; los descuentos se limitan a 0–100 %.
@@ -810,7 +872,7 @@ facturación total  = subtotal + ajuste por mínimo
 | Km adicional | `includedKmPerActivation`, `extraKmRate` | (km de ruta − km incluidos) × $/km × activaciones |
 | Descuento por cantidad de días | `volumeTiers` | ver §14 |
 | Descuento por continuidad | `continuityMinMonths`, `continuityDiscountPct` | ver §14 |
-| Mínimo mensual garantizado | `minimumMonthlyGuarantee` | la facturación del mes nunca es menor (× meses) |
+| Mínimo mensual garantizado | `minimumMonthlyGuarantee` (en $) o `minimumGuaranteeBasis = 'units'` + `minimumGuaranteeUnits` (B-3) | la facturación del mes nunca es menor (× meses); en unidades, se facturan al menos N unidades a la tarifa neta |
 | Fee de disponibilidad | `availabilityFeeMonthly` | monto mensual fijo (× meses). Con la tarifa en **$/mes (abono)** se sumarían dos abonos por mes: pendiente **crítico** `monthly_fee_overlap` (ECO-01, §19 y §12.2); la fórmula no cambia |
 | Descuento comercial | `pricing.commercialDiscountPct` | multiplica el factor de descuentos |
 
@@ -912,7 +974,7 @@ Los otros ingresos también tributan: se restan de la facturación necesaria ya 
 - Si las unidades facturables son 0 (por ejemplo, 0 días), la tarifa es `null` ("—").
 - Si los otros ingresos ya cubren la facturación necesaria, la tarifa es 0 y se marca `coveredByOtherRevenue`.
 - Si el factor de descuentos es 0 (descuento 100 %), la tarifa de lista es `null`.
-- El **mínimo garantizado NO se usa** para calcular tarifas necesarias (criterio conservador: no se cuenta con un ingreso que sólo aparece si la actividad es baja). Sí se usa al evaluar el resultado y el break-even con una tarifa dada; por eso la alerta `belowFloor` exige además que el mes dé pérdida (§20).
+- El **mínimo garantizado NO se usa** para calcular tarifas necesarias (criterio conservador: no se cuenta con un ingreso que sólo aparece si la actividad es baja). Vale también para el mínimo en unidades (B-3): la sugerida se calcula sin él y después el mínimo se valoriza con la tarifa comercial (§12). Sí se usa al evaluar el resultado y el break-even con una tarifa dada; por eso la alerta `belowFloor` exige además que el mes dé pérdida (§20).
 - Margen objetivo **vacío** → se calcula con 0 y el Cost Completeness Score lo marca en rojo. Margen objetivo **inválido** (≥ 100, < 0 o no numérico) **o margen + t ≥ 100** → no hay precio objetivo ni tarifa sugerida (`null`), `kpis.targetMarginInvalid = true`, la cotización queda `atRisk` y las trazas lo explican. Antes se usaba 0 % en silencio y la "sugerida" quedaba igual a la piso (PLAN-2026-002, PN3). Margen personalizado inválido, 0 o con margen + t ≥ 100 → no se muestra.
 
 **Tarifa comercial sugerida** = tarifa objetivo de lista redondeada **hacia arriba** al múltiplo de `pricing.roundingStep` (`commercialRound`; paso 0 = sin redondeo). Nunca baja el margen. Ejemplo demo: 2.258.948,79 → **2.259.000** con paso 1.000.
@@ -1130,6 +1192,10 @@ Con reglas comerciales (mínimo garantizado, tramos, minimum call, fees) el resu
 - Fee de disponibilidad 6.000.000/mes sobre el caso básico: break-even = (30.000.000 − 6.000.000) / (4.000.000 − 1.000.000) = **8 días**.
 - Mínimo garantizado 35.000.000/mes sobre el caso básico: facturación = max(35.000.000, 4.000.000 × D). Con menos de 5 días se gana (el mínimo cubre los costos), entre 5 y 10 días se pierde y desde 10 días ya no se pierde → break-even robusto **10 días** (no 0). Con 8 días se facturan 35.000.000 y se pierden 3.000.000.
 
+**Ventana de pérdida con mínimo garantizado** (tanda B 2026-11, B-3, H-29): con un mínimo (en $ o en unidades) el resultado no es monótono y el break-even —desde dónde ya no se pierde— no dice que con pocos días se gana. `findLossWindows(resultado(D), { maxDays })` (mismo método: grilla de 0,1 día + saltos de costo, bisección en cada borde) devuelve todos los tramos con resultado < 0: `breakEven.lossWindows = [{ fromDays, toDays, open, fromQuantity, toQuantity }]` y `breakEven.guaranteeProtects = true` si el primer tramo no empieza en 0 (el mínimo cubre los primeros días). Sólo se calcula con mínimo y tarifa; el break-even no cambia. El Resultado lo informa: "Con el mínimo garantizado, hasta 15,85 días el mínimo cubre tus costos; entre 15,85 y 20,97 días perdés plata …; desde 20,97 días ganás", la traza lo anota y el tono del equilibrio sigue al resultado del mes estimado (con 10 días es verde aunque el break-even sea 21).
+
+- Ejemplo (24 h C2, tarifa fija 3.233.000, mínimo 20 días): con 10 días gana (+3,1 M, margen 5,31 %), con 20 días pierde (margen −3,77 %); se pierde entre **15,85 y 20,97 días**. Golden de siempre (mínimo 35 M sobre el caso básico): se pierde entre 5 y 10 días.
+
 **Días para margen objetivo** (`kpis.targetMarginDays`): misma búsqueda sobre `resultado(D) − margen objetivo × facturación(D) ≥ 0` (el resultado ya descuenta los impuestos sobre la facturación). Caso básico con margen 10 %: 2,6 × D − 30 ≥ 0 (en millones) → ≈ 11,54 días (12 enteros). Con margen objetivo inválido o margen + t ≥ 100 no se calcula (motivo explícito).
 
 **Traza "Ver cálculo"** (`traceBreakEven` + `linearDecomposition`): muestra costos fijos, ingresos fijos (fee de disponibilidad + standby), ingreso por tarifa por día activo (tarifa neta por unidad × unidades del día; con unidad hora es un valor **por día**, no por hora), otros ingresos por día activo, costo variable por día y contribución:
@@ -1281,7 +1347,7 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 9c | `external_terms` (v3) | hay equipos externos | 1 | rojo si falta la alícuota de IVA cuando no es recuperable (o la parte recuperable si es parcial); naranja si no se definió si el IVA es recuperable, si no se definió si la tarifa incluye combustible u operador, si una tarifa global no tiene meses de contrato (se toma 1 mes), si la oferta del proveedor venció antes de la fecha de la oferta o no tiene vigencia; si no, ok |
 | 9c' | `external_route` (PLAN-2026-012) | un externo por km o por viaje, con tarifa y sin mínimo, en una cotización sin km / viajes ("Sin traslados", sin distancia o sin viajes) | 2 | **rojo y crítico**: "Falta definir la ruta/distancia para calcular este proveedor." (antes era parte de 9c, peso 1, sólo "revisar"); `focus` al campo de la ruta; la línea dice "Falta la ruta" en lugar de $ 0 |
 | 9c'' | `external_hours` (Test Lab, PLAN-2026-013) | un externo por hora, con tarifa, cantidad > 0 y sin mínimo, con 0 horas por día (las de su línea, o las de la actividad si la línea las hereda) | 2 | **rojo y crítico**: su tarifa no se puede calcular (nunca es un $ 0 válido); `focus` a las horas de la línea o de la actividad |
-| 9c'''' | `external_unit_trips` (ECO-01, AUD-T1 H-01) | un externo "Por salida" (unidad `activation`) con tarifa y cantidad > 0, en una ruta con **más de 1 viaje por llamado**, sin una confirmación vigente (`externalUnitConfirmed` igual al supuesto actual, §4.1) | 2 | **sólo aparece en ese caso** (las demás cotizaciones no cambian de puntaje): rojo, **crítico** y **no confiable** "Unidad del proveedor": la tarifa se paga una vez por salida; el mensaje nombra salidas por mes, viajes por salida, viajes del mes y el equivalente por viaje, y ofrece "Por viaje completo (ida y vuelta)" / "Por tramo" o confirmar "Sí, cobra por salida". Con una confirmación vencida empieza con "La confirmación anterior … ya no vale: cambió …". `focus` a la unidad de la línea, `targets` a cada línea. No cambia la fórmula |
+| 9c'''' | `external_unit_trips` (ECO-01, AUD-T1 H-01) | un externo "Por salida" (unidad `activation`) con tarifa y cantidad > 0, en una ruta con **más de 1 viaje por llamado**, sin una confirmación vigente (`externalUnitConfirmed` igual al supuesto actual, §4.1) | 2 | **sólo aparece en ese caso** (las demás cotizaciones no cambian de puntaje): rojo, **crítico** y **no confiable** "Unidad del proveedor": la tarifa se paga una vez por salida; el mensaje nombra salidas por mes, viajes por salida, viajes del mes y el equivalente por viaje, y ofrece "Por viaje completo (ida y vuelta)" / "Por tramo" o confirmar "Sí, cobra por salida". **Amarillo** (`warning`, ni crítico ni no confiable; tanda B 2026-11, H-04) si todas esas líneas tienen la movilización incluida o los viajes de la ruta son de vehículos propios y para el externo se eligió explícitamente cómo llega (transportado, vehículo de apoyo o sin movilización; sin ese dato o yendo por sus medios sigue crítico) (§4.1). Con una confirmación vencida empieza con "La confirmación anterior … ya no vale: cambió …". `focus` a la unidad de la línea, `targets` a cada línea. No cambia la fórmula |
 | 9c''' | `route_consistency` (Test Lab) | unidad "viaje" o "km" | 1 | naranja si se cobran viajes o km con "Sin traslados" (`focus` a esa opción), o si con la unidad "km" se facturan **más** km que los que recorre la ruta (llamados × viajes por llamado × km por viaje): los costos por km quedarían cortos (`focus` a "Viajes por …", el rótulo con el nombre de la activación de la cotización: "Viajes por salida" en transporte). Una ruta con más km que los facturados (vuelta vacía) no se avisa. No se deriva (decisión del dueño) |
 | 9d | `duplicates` (v3) | hay equipos | 1 | naranja si un externo incluye operador y además tiene uno de Personal asignado, si un equipo que va por sus propios medios también figura como vehículo de la logística auxiliar, o si un externo cuya movilización cobra el proveedor aparte además va "por sus propios medios"; si no, ok |
 | 9e | `economic_base` (v3) | hay valores con costo | 1 | naranja si algún valor no tiene fecha base; si no, ok. Desde la tanda A 2026-11 (A-13) el pendiente va al paso del primer valor sin fecha (Personal, Equipos, Materiales, Movilización y viajes para el combustible, o Contrato para un tipo de cambio) con `focus` a su mes (`<ruta>.period`) |
@@ -1302,6 +1368,7 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 **Avisos informativos de la tanda A 2026-11 (A-15; no restan puntaje ni son pendientes, nunca cambian un número):**
 - `fixed_costs_absorbed` (lo arma `fixedCostsAbsorbedNotice` en `computeQuote`, porque necesita el modelo de costos): en **precio cerrado**, o con **menos días de trabajo que los disponibles** fuera de fijo mensual (el abono cubre el mes por definición), "Este precio absorbe $ X de costos fijos del mes (sueldos … + tenencia de equipos propios …) del personal y los equipos asignados al 100 % (o compartidos sin un % válido). Si esta gente o estos equipos trabajan en otras obras, asignales un % compartido. RATEOS no lo aplica solo." `X = Σ fijo del mes de las líneas de personal con posiciones y equipos propios no compartidos (dedicada, reservado, compartida sin % válido o sin dato; el personal "contratado para este servicio" queda afuera porque no trabaja en otras obras) × monthsFactor`. **Nunca se aplica un % solo** (AGENTS §5.1). `focus` a la asignación de la primera línea.
 - `labor_fractional_headcount`: posiciones × personas por posición no entero (tolerancia 0,01: 3 × 1,6667 son 5): "Cargaste 4,5 personas en …; ¿cuántas hay en nómina?". El costo se calcula con lo cargado; `focus` a "Personas por posición".
+- `materials_per_unit_hint` (tanda B 2026-11, B-2): cobrando por cantidad, un material "por día" (con costo) cuya cantidad (> 1) es igual a las unidades por día: "¿Es por válvula? … elegí «Por unidad producida»". Nunca se convierte solo; `focus` a "¿Cada cuánto se consume?".
 - `closed_single_trip`: precio cerrado con más de 1 día por trabajo, ruta con distancia y 1 viaje por trabajo: "¿La cuadrilla vuelve a la base cada día?". `focus` a los viajes por trabajo.
 
 **Test Lab (PLAN-2026-013).** La tarifa conocida, la actividad, el plazo de cobro, el margen y el costo de equipos también traen `focus`, y dentro de cada paso "Ir al campo" usa el campo que indica el motor. Los avisos citan el rótulo del campo tal como se ve ("Horas trabajadas por día activo", "Viajes por salida", "Sin traslados"); desde PLAN-2026-014 los rótulos que nombran la activación salen de la misma función que arma el campo (`activationFieldLabels`). Dos avisos informativos nuevos (no restan puntaje): **puesto con sueldo y 0 posiciones** (`labor_no_positions`, "no suma costo", `focus` a sus posiciones) y **"el servicio no usa materiales" con materiales cargados** (`materials_ignored`, "no se suman al costo"). `validateQuote` valida además los materiales (cantidad ≥ 0, costo ≥ 0, merma y logística 0–100 %, markup de reventa 0–1000 %; salvo con "El servicio no usa materiales", donde las líneas no se ven ni se suman) y el monto de otros costos (≥ 0), con las mismas reglas que sus campos. Nada de esto cambia un costo ni un precio: cambia qué se marca como pendiente (y por lo tanto el puntaje de las cotizaciones afectadas).
@@ -1498,3 +1565,8 @@ efecto en el precio  = precio con tu margen − precio con tu margen sin la fina
 - El costo por unidad, los precios (piso, con margen, sugerido), el equilibrio y el resultado del mes incluyen la financiación; el desglose agrega la fila "Financiación (capital de trabajo)" sólo si es > 0, y "Ver cálculo" (`traces.finance`) muestra los días y la caja de cada grupo.
 
 **Ejemplo (chipá del golden + 10 días de stock, cobro a 20 días, todo pagado al producir, 3 % mensual → 30 días financiados):** caja variable 286,67 por unidad × 3 % = **8,60**; caja fija 175.000 (seguro del horno 25.000 + alquiler 150.000) × 3 % = 5.250 por mes ÷ 3.000 u = **1,75**; financiación **10,35** por unidad → costo **355,35** (antes 345), precio con margen 30 % **507,64** (+14,79). Capital de trabajo 1.035.000; costo financiero 31.050 por mes. Invariantes de Test Lab PINV-08/09/10.
+
+**Avisos de la revisión de costos de la tanda B (2026-11):**
+- `labor_payroll_below_positions` (pendiente, paso Personal): la nómina total cargada (`payrollHeadcount`) es menor que las personas en sitio (posiciones): el costo se calcula con lo cargado, pero no alcanza para cubrir el puesto.
+- `guarantee_above_estimate` (informativo, paso Margen): con mínimo garantizado en unidades y los días estimados por debajo del mínimo, la tarifa sugerida no cuenta el mínimo pero el mínimo se valoriza con esa tarifa, así que el margen real sale más alto que el objetivo. El aviso informa `listRateWithMinimum` (la tarifa que da el margen objetivo si el cliente paga el mínimo) y el margen si se trabaja todo el mínimo. La sugerida no cambia.
+

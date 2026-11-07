@@ -21,7 +21,7 @@ import { convertMinimumCallUnits } from '../../../engines/commercial-rules-engin
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber } from '../../../core/money.js';
-import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName } from './shared.js';
+import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
@@ -726,18 +726,17 @@ export function render(container, ctx) {
     question,
     activityCard,
     // Por servicio prestado con mínimo mensual garantizado (PLAN-2026-018).
+    // En $ o en unidades de cobro ("mínimo 20 días por mes", tanda B 2026-11, B-3).
     !contract.legacy && contract.mode === 'on_demand'
-      ? card(
-        {},
-        formGrid(2, kit.num('rules.minimumMonthlyGuarantee', {
-          label: 'Mínimo mensual garantizado (opcional)',
-          rule: 'money',
-          unit: '$/mes',
-          placeholder: 'Ej.: 3.000.000',
-          hint: 'Si el cliente garantiza un piso por mes: se factura lo trabajado o el mínimo, lo que sea mayor. Vacío o 0 = sin mínimo.',
-        })),
-        kit.out((r) => (r.estimate.revenue.guaranteeTopUp > 0 ? `Con la actividad estimada, el mínimo suma ${formatMoney(r.estimate.revenue.guaranteeTopUp)} al mes.` : ''), { tag: 'p', className: 'qe-note', allowEmpty: true }),
-      )
+      ? (() => {
+        const g = minimumGuaranteeFields(kit, quote, info, {
+          amountLabel: 'Mínimo por mes',
+          amountPlaceholder: 'Ej.: 3.000.000',
+          amountHint: 'Si el cliente garantiza un piso por mes: se factura lo trabajado o el mínimo, lo que sea mayor. Vacío o 0 = sin mínimo.',
+        });
+        // Con título: "¿Cómo se expresa el mínimo?" sola no dice de qué mínimo se trata.
+        return card({ title: 'Mínimo mensual garantizado (opcional)', className: 'qe-guarantee-card' }, formGrid(2, ...g.fields), g.note);
+      })()
       : null,
     calcCard,
     extrasSection(ctx, contract),

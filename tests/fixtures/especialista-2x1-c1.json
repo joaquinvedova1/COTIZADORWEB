@@ -1,0 +1,450 @@
+{
+  "settings": {
+    "organizationId": "org-especialistas-2026-11",
+    "locale": "es-AR",
+    "currency": "ARS",
+    "fuelPricePerLiter": 1500,
+    "financeMonthlyRatePct": 3,
+    "defaultTargetMarginPct": 10,
+    "defaultContingencyPct": 5,
+    "defaultPaymentTermDays": 60,
+    "roundingStep": 1000,
+    "matrixDays": [
+      5,
+      8,
+      10,
+      15,
+      20
+    ],
+    "marginLadder": [
+      5,
+      10,
+      15
+    ],
+    "defaultBillingTaxes": null,
+    "fuelPriceBase": {
+      "period": null,
+      "currency": "ARS",
+      "source": null,
+      "note": ""
+    },
+    "exchangeRates": [],
+    "illustrative": true,
+    "lastQuoteNumber": 4
+  },
+  "quote": {
+    "id": "58c57db5-d0c8-4414-a409-2198808a1ba9",
+    "organizationId": "org-especialistas-2026-11",
+    "createdAt": "2026-11-07T00:02:12.353Z",
+    "updatedAt": "2026-11-07T00:15:26.359Z",
+    "createdBy": null,
+    "updatedBy": null,
+    "code": "COT-0001",
+    "name": "C1 Cuadrilla 3p 2x1 fijo mensual",
+    "client": "Operadora X - Loma Campana",
+    "status": "draft",
+    "illustrative": false,
+    "serviceType": "equipment_with_operator",
+    "templateId": null,
+    "pricingMode": "known_activity",
+    "unit": "month",
+    "unitName": "",
+    "contractMonths": 12,
+    "activity": {
+      "availability": "24/7",
+      "availabilityWindow": "",
+      "responseTimeHours": 4,
+      "activeDaysPerMonth": 30,
+      "daysPerActivation": 1,
+      "availableDaysPerMonth": 30,
+      "hoursPerActiveDay": 12,
+      "billableQuantityPerMonth": null,
+      "unitsPerActiveDay": null,
+      "unitsPerActivation": null
+    },
+    "labor": [
+      {
+        "id": "bdd7b00a-2128-43ea-b642-747bb4f120df",
+        "sourceId": "68277a99-bd3c-4f9f-bdad-4bd3559a7fde",
+        "role": "Operario de cuadrilla 2x1 (CCT 644/12)",
+        "agreementId": "a57d0f78-3060-4a63-9f4d-9460f6d73200",
+        "category": "Operario",
+        "positions": 3,
+        "peoplePerPosition": 1.5,
+        "basicMonthly": 4130864,
+        "additionalsMonthly": 1300000,
+        "normalHoursPerMonth": 176,
+        "overtimeHoursPerActiveDay": 4,
+        "overtimePremiumPct": 50,
+        "mealPerActiveDay": 0,
+        "sacPct": 8.33,
+        "vacationPct": 5.8,
+        "employerContributionsPct": 26.4,
+        "artPct": 9,
+        "insuranceMonthly": 60000,
+        "ppeMonthly": 90000,
+        "trainingMonthly": 40000,
+        "transferMonthly": 0,
+        "base": {
+          "period": "2026-07",
+          "currency": "ARS",
+          "source": "agreement",
+          "note": "Acta paritaria jul-26 mínimo 8 h"
+        },
+        "snapshot": {
+          "resourceType": "laborProfiles",
+          "resourceId": "68277a99-bd3c-4f9f-bdad-4bd3559a7fde",
+          "resourceName": "Operario de cuadrilla 2x1 (CCT 644/12)",
+          "takenAt": "2026-11-07T00:09:15.000Z",
+          "legacy": false,
+          "values": {
+            "basicMonthly": 4130864,
+            "additionalsMonthly": 1300000,
+            "normalHoursPerMonth": 176,
+            "overtimePremiumPct": 50,
+            "mealPerActiveDay": 0,
+            "sacPct": 8.33,
+            "vacationPct": 5.8,
+            "employerContributionsPct": 26.4,
+            "artPct": 9,
+            "insuranceMonthly": 60000,
+            "ppeMonthly": 90000,
+            "trainingMonthly": 40000,
+            "transferMonthly": 0,
+            "base": {
+              "period": "2026-07",
+              "currency": "ARS",
+              "source": "agreement",
+              "note": "Acta paritaria jul-26 mínimo 8 h"
+            }
+          },
+          "dismissed": null
+        },
+        "illustrative": false
+      }
+    ],
+    "equipment": [
+      {
+        "id": "7d52e180-717d-40aa-bafc-fff840fc60c5",
+        "sourceId": "22f987b5-3a5d-4af8-8f1f-2a45651f486b",
+        "name": "Camioneta 4x4 doble cabina cuadrilla",
+        "internalCode": "",
+        "familyId": "pickup",
+        "acquisition": "owned",
+        "quantity": 1,
+        "hoursPerActiveDay": 3,
+        "replacementValue": 62000000,
+        "usefulLifeYears": 5,
+        "residualValue": 25000000,
+        "insuranceAnnual": 3600000,
+        "licenseAnnual": 1900000,
+        "certificationsAnnual": 400000,
+        "otherAnnual": 600000,
+        "capitalRatePctAnnual": 12,
+        "maintenancePerHour": 4000,
+        "tiresPerHour": 0,
+        "fuelLitersPerHour": 8,
+        "maintenanceMode": "per_hour",
+        "maintenanceServiceCost": null,
+        "maintenanceServiceHours": null,
+        "maintenanceBudget": null,
+        "maintenanceBudgetPeriod": null,
+        "tiresMode": "per_hour",
+        "tiresSetCost": null,
+        "tiresLifeHours": null,
+        "tiresLifeKm": null,
+        "external": null,
+        "base": {
+          "period": "2026-11",
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "costsBase": {
+          "period": null,
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "mobilization": {
+          "mode": "self",
+          "travelLitersPer100Km": 12,
+          "travelCostPerKm": 150,
+          "driver": "operator",
+          "carrierLineId": null,
+          "supportVehicleId": null
+        },
+        "operatorLaborId": "bdd7b00a-2128-43ea-b642-747bb4f120df",
+        "snapshot": {
+          "resourceType": "equipment",
+          "resourceId": "22f987b5-3a5d-4af8-8f1f-2a45651f486b",
+          "resourceName": "Camioneta 4x4 doble cabina cuadrilla",
+          "takenAt": "2026-11-07T00:09:59.699Z",
+          "legacy": false,
+          "values": {
+            "replacementValue": 62000000,
+            "usefulLifeYears": 5,
+            "residualValue": 25000000,
+            "insuranceAnnual": 3600000,
+            "licenseAnnual": 1900000,
+            "certificationsAnnual": 400000,
+            "otherAnnual": 600000,
+            "capitalRatePctAnnual": 12,
+            "maintenancePerHour": 4000,
+            "tiresPerHour": 0,
+            "fuelLitersPerHour": 8,
+            "base": {
+              "period": "2026-11",
+              "currency": "ARS",
+              "source": null,
+              "note": ""
+            },
+            "acquisition": "owned",
+            "external": null,
+            "costsBase": {
+              "period": null,
+              "currency": "ARS",
+              "source": null,
+              "note": ""
+            },
+            "travel": {
+              "litersPer100Km": 12,
+              "costPerKm": 150
+            }
+          },
+          "dismissed": null
+        },
+        "illustrative": false
+      }
+    ],
+    "materials": [
+      {
+        "id": "deeaec0c-f6eb-47ca-96b0-227443cf5c89",
+        "sourceId": null,
+        "description": "Herramientas menores, consumibles y reposición",
+        "unit": "unidad",
+        "basis": "per_month",
+        "quantity": 1,
+        "unitCost": 650000,
+        "wastePct": 0,
+        "logisticsPct": 0,
+        "resaleMarkupPct": 0,
+        "providedBy": "contractor",
+        "base": {
+          "period": null,
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "snapshot": null,
+        "illustrative": false
+      }
+    ],
+    "materialsNotApplicable": false,
+    "otherCosts": [
+      {
+        "id": "5d073cd3-ee4f-48c6-afbd-282cd28954ee",
+        "description": "Exámenes médicos, inducciones y habilitaciones de operadora",
+        "category": "labor",
+        "behavior": "fixed_monthly",
+        "amount": 450000
+      }
+    ],
+    "fuel": {
+      "pricePerLiter": 1530,
+      "providedBy": "contractor",
+      "illustrative": false,
+      "requiresConfirmation": true,
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      }
+    },
+    "logistics": {
+      "notApplicable": false,
+      "baseName": "Base Neuquén Capital",
+      "destinationName": "Campamento/locación Loma Campana (Añelo)",
+      "distanceKm": 110,
+      "roundTrip": true,
+      "tripsPerActivation": 0.143,
+      "vehicles": [],
+      "tollsPerActivation": 0,
+      "lodgingPerActivation": 210000
+    },
+    "indirect": {
+      "method": "percent_direct",
+      "pct": 12,
+      "amount": 0
+    },
+    "finance": {
+      "paymentTermDays": 60,
+      "invoiceLagDays": 15,
+      "monthlyRatePct": 3.5,
+      "illustrative": false,
+      "payDays": {
+        "salaries": 20,
+        "fuel": 0,
+        "suppliers": 30,
+        "materials": 30,
+        "structure": 20
+      }
+    },
+    "risk": {
+      "generalPct": 3,
+      "items": [
+        {
+          "id": "activity_variation",
+          "label": "Variación de actividad",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "unproductive",
+          "label": "Improductivos",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "weather",
+          "label": "Clima",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "rework",
+          "label": "Retrabajos",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "equipment_failure",
+          "label": "Rotura de equipos",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "prices",
+          "label": "Variación de precios",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "inflation",
+          "label": "Inflación",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "logistics",
+          "label": "Logística",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "penalties",
+          "label": "Penalidades",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "warranty",
+          "label": "Garantía",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "accidents",
+          "label": "Accidentes",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "scope_uncertainty",
+          "label": "Incertidumbre del alcance",
+          "pct": 0,
+          "enabled": false
+        }
+      ]
+    },
+    "pricing": {
+      "targetMarginPct": 15,
+      "customMarginPct": null,
+      "knownRate": 0,
+      "offeredRateOverride": null,
+      "commercialDiscountPct": 0,
+      "roundingStep": 1000
+    },
+    "billingTaxes": {
+      "mode": "combined",
+      "notApplicable": false,
+      "combinedPct": 4.5,
+      "items": []
+    },
+    "vatTreatment": "excluded",
+    "rules": {
+      "availabilityFeeMonthly": 0,
+      "calloutFeePerActivation": 0,
+      "mobilizationFeePerActivation": 0,
+      "includedKmPerActivation": 0,
+      "extraKmRate": 0,
+      "minimumCallUnits": 0,
+      "standbyDaysPerMonth": 0,
+      "standbyRatePerDay": 0,
+      "standbyNotApplicable": true,
+      "volumeTiers": [
+        {
+          "id": "tier-1",
+          "fromDays": 1,
+          "toDays": 1,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-2",
+          "fromDays": 2,
+          "toDays": 7,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-3",
+          "fromDays": 8,
+          "toDays": 15,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-4",
+          "fromDays": 16,
+          "toDays": 30,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-5",
+          "fromDays": 31,
+          "toDays": null,
+          "discountPct": 0
+        }
+      ],
+      "volumeTierBasis": "billed",
+      "continuityMinMonths": 6,
+      "continuityDiscountPct": 0,
+      "minimumMonthlyGuarantee": 0
+    },
+    "notes": "",
+    "currency": "ARS",
+    "offerDate": "2026-11-07",
+    "exchangeRates": [],
+    "contract": {
+      "mode": "monthly",
+      "labor": true,
+      "equipment": true,
+      "components": [
+        "labor",
+        "vehicle",
+        "machinery",
+        "tools",
+        "travel"
+      ]
+    }
+  }
+}

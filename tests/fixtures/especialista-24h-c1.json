@@ -1,0 +1,421 @@
+{
+  "settings": {
+    "organizationId": "org-especialistas-2026-11",
+    "locale": "es-AR",
+    "currency": "ARS",
+    "fuelPricePerLiter": 1500,
+    "financeMonthlyRatePct": 3,
+    "defaultTargetMarginPct": 10,
+    "defaultContingencyPct": 5,
+    "defaultPaymentTermDays": 60,
+    "roundingStep": 1000,
+    "matrixDays": [
+      5,
+      8,
+      10,
+      15,
+      20
+    ],
+    "marginLadder": [
+      5,
+      10,
+      15
+    ],
+    "defaultBillingTaxes": null,
+    "fuelPriceBase": {
+      "period": null,
+      "currency": "ARS",
+      "source": null,
+      "note": ""
+    },
+    "exchangeRates": [],
+    "illustrative": true,
+    "lastQuoteNumber": 4
+  },
+  "quote": {
+    "id": "668cfd1b-53a9-4d11-9d72-29130f40ec77",
+    "organizationId": "org-especialistas-2026-11",
+    "createdAt": "2026-11-07T00:01:31.121Z",
+    "updatedAt": "2026-11-07T00:15:30.115Z",
+    "createdBy": null,
+    "updatedBy": null,
+    "code": "COT-0001",
+    "name": "C1 Cuadrilla 24h 1x1 fijo mensual",
+    "client": "Operadora VM (ficticia)",
+    "status": "draft",
+    "illustrative": false,
+    "serviceType": "equipment_with_operator",
+    "templateId": null,
+    "pricingMode": "known_activity",
+    "unit": "month",
+    "unitName": "",
+    "contractMonths": 12,
+    "activity": {
+      "availability": "24/7",
+      "availabilityWindow": "",
+      "responseTimeHours": 4,
+      "activeDaysPerMonth": 30,
+      "daysPerActivation": 1,
+      "availableDaysPerMonth": 30,
+      "hoursPerActiveDay": 24,
+      "billableQuantityPerMonth": null,
+      "unitsPerActiveDay": null,
+      "unitsPerActivation": null
+    },
+    "labor": [
+      {
+        "id": "b6b03870-2097-41a2-8b56-afdcf67689ad",
+        "sourceId": "984561e4-3e73-4ecc-9af0-3d84c66170a9",
+        "role": "Operador de guardia 24 h (CCT 644/12)",
+        "agreementId": null,
+        "category": "Operario especializado",
+        "positions": 2,
+        "peoplePerPosition": 2,
+        "basicMonthly": 4300000,
+        "additionalsMonthly": 1600000,
+        "normalHoursPerMonth": 176,
+        "overtimeHoursPerActiveDay": 0,
+        "overtimePremiumPct": 50,
+        "mealPerActiveDay": 0,
+        "sacPct": 8.33,
+        "vacationPct": 5,
+        "employerContributionsPct": 24,
+        "artPct": 7,
+        "insuranceMonthly": 30000,
+        "ppeMonthly": 60000,
+        "trainingMonthly": 40000,
+        "transferMonthly": 0,
+        "base": {
+          "period": "2026-11",
+          "currency": "ARS",
+          "source": "agreement",
+          "note": ""
+        },
+        "snapshot": {
+          "resourceType": "laborProfiles",
+          "resourceId": "984561e4-3e73-4ecc-9af0-3d84c66170a9",
+          "resourceName": "Operador de guardia 24 h (CCT 644/12)",
+          "takenAt": "2026-11-07T00:07:14.123Z",
+          "legacy": false,
+          "values": {
+            "basicMonthly": 4300000,
+            "additionalsMonthly": 1600000,
+            "normalHoursPerMonth": 176,
+            "overtimePremiumPct": 50,
+            "mealPerActiveDay": 0,
+            "sacPct": 8.33,
+            "vacationPct": 5,
+            "employerContributionsPct": 24,
+            "artPct": 7,
+            "insuranceMonthly": 30000,
+            "ppeMonthly": 60000,
+            "trainingMonthly": 40000,
+            "transferMonthly": 0,
+            "base": {
+              "period": "2026-11",
+              "currency": "ARS",
+              "source": "agreement",
+              "note": ""
+            }
+          },
+          "dismissed": null
+        },
+        "illustrative": false,
+        "overtime": [
+          {
+            "id": "ot-3d847d8a",
+            "label": "HE 50 %",
+            "premiumPct": 50,
+            "hours": 4,
+            "basis": "per_active_day",
+            "billRatePerHour": null
+          },
+          {
+            "id": "ot-21580c12",
+            "label": "Feriados trabajados (100 %)",
+            "premiumPct": 100,
+            "hours": 7.5,
+            "basis": "per_month",
+            "billRatePerHour": null
+          }
+        ]
+      }
+    ],
+    "equipment": [
+      {
+        "id": "255226b4-731f-49d1-815b-685274ef97cc",
+        "sourceId": null,
+        "name": "Camioneta 4x4 de guardia (en locación)",
+        "internalCode": "",
+        "familyId": null,
+        "acquisition": "owned",
+        "quantity": 1,
+        "hoursPerActiveDay": 4,
+        "replacementValue": 55000000,
+        "usefulLifeYears": 5,
+        "residualValue": 16500000,
+        "insuranceAnnual": 3600000,
+        "licenseAnnual": 1400000,
+        "certificationsAnnual": 600000,
+        "otherAnnual": 0,
+        "capitalRatePctAnnual": 0,
+        "maintenancePerHour": 4000,
+        "tiresPerHour": 1000,
+        "fuelLitersPerHour": 3,
+        "maintenanceMode": null,
+        "maintenanceServiceCost": null,
+        "maintenanceServiceHours": null,
+        "maintenanceBudget": null,
+        "maintenanceBudgetPeriod": null,
+        "tiresMode": null,
+        "tiresSetCost": null,
+        "tiresLifeHours": null,
+        "tiresLifeKm": null,
+        "external": null,
+        "base": {
+          "period": "2026-11",
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "costsBase": {
+          "period": "2026-11",
+          "currency": "ARS",
+          "source": null,
+          "note": ""
+        },
+        "mobilization": {
+          "mode": "none",
+          "travelLitersPer100Km": 0,
+          "travelCostPerKm": 0,
+          "driver": null,
+          "carrierLineId": null,
+          "supportVehicleId": null
+        },
+        "operatorLaborId": null,
+        "snapshot": null,
+        "illustrative": false
+      }
+    ],
+    "materials": [],
+    "materialsNotApplicable": true,
+    "otherCosts": [
+      {
+        "id": "b443e699-5148-4d81-81a6-1c12a492a4a3",
+        "description": "Campamento: alojamiento + comidas (2 en sitio × $ 75.000/día)",
+        "category": "logistics",
+        "behavior": "per_active_day",
+        "amount": 150000
+      },
+      {
+        "id": "6d90091b-3bc3-45bf-a42f-61f75f982593",
+        "description": "Exámenes médicos, inducciones y habilitaciones (4 en nómina)",
+        "category": "labor",
+        "behavior": "fixed_monthly",
+        "amount": 180000
+      }
+    ],
+    "fuel": {
+      "pricePerLiter": 1650,
+      "providedBy": "contractor",
+      "illustrative": false,
+      "requiresConfirmation": true,
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      }
+    },
+    "logistics": {
+      "notApplicable": false,
+      "baseName": "Base Neuquén capital",
+      "destinationName": "Locación Añelo (Loma Campana)",
+      "distanceKm": 120,
+      "roundTrip": true,
+      "tripsPerActivation": 0.0714,
+      "vehicles": [
+        {
+          "id": "20b15e39-de9f-4cb3-8c49-61e11279c13b",
+          "name": "Camioneta de relevo (cambio de turno)",
+          "count": 1,
+          "consumptionLPer100Km": 12,
+          "costPerKm": 220
+        }
+      ],
+      "tollsPerActivation": 0,
+      "lodgingPerActivation": 2143
+    },
+    "indirect": {
+      "method": "percent_direct",
+      "pct": 12,
+      "amount": 0
+    },
+    "finance": {
+      "paymentTermDays": 60,
+      "invoiceLagDays": 20,
+      "monthlyRatePct": 2.5,
+      "illustrative": false,
+      "payDays": {
+        "salaries": 20,
+        "fuel": 0,
+        "suppliers": 30,
+        "materials": 30,
+        "structure": 20
+      }
+    },
+    "risk": {
+      "generalPct": 3,
+      "items": [
+        {
+          "id": "activity_variation",
+          "label": "Variación de actividad",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "unproductive",
+          "label": "Improductivos",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "weather",
+          "label": "Clima",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "rework",
+          "label": "Retrabajos",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "equipment_failure",
+          "label": "Rotura de equipos",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "prices",
+          "label": "Variación de precios",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "inflation",
+          "label": "Inflación",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "logistics",
+          "label": "Logística",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "penalties",
+          "label": "Penalidades",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "warranty",
+          "label": "Garantía",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "accidents",
+          "label": "Accidentes",
+          "pct": 0,
+          "enabled": false
+        },
+        {
+          "id": "scope_uncertainty",
+          "label": "Incertidumbre del alcance",
+          "pct": 0,
+          "enabled": false
+        }
+      ]
+    },
+    "pricing": {
+      "targetMarginPct": 15,
+      "customMarginPct": null,
+      "knownRate": 0,
+      "offeredRateOverride": null,
+      "commercialDiscountPct": 0,
+      "roundingStep": 1000
+    },
+    "billingTaxes": {
+      "mode": "combined",
+      "notApplicable": false,
+      "combinedPct": 4.2,
+      "items": []
+    },
+    "vatTreatment": "excluded",
+    "rules": {
+      "availabilityFeeMonthly": 0,
+      "calloutFeePerActivation": 0,
+      "mobilizationFeePerActivation": 0,
+      "includedKmPerActivation": 0,
+      "extraKmRate": 0,
+      "minimumCallUnits": 0,
+      "standbyDaysPerMonth": 0,
+      "standbyRatePerDay": 0,
+      "standbyNotApplicable": true,
+      "volumeTiers": [
+        {
+          "id": "tier-1",
+          "fromDays": 1,
+          "toDays": 1,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-2",
+          "fromDays": 2,
+          "toDays": 7,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-3",
+          "fromDays": 8,
+          "toDays": 15,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-4",
+          "fromDays": 16,
+          "toDays": 30,
+          "discountPct": 0
+        },
+        {
+          "id": "tier-5",
+          "fromDays": 31,
+          "toDays": null,
+          "discountPct": 0
+        }
+      ],
+      "volumeTierBasis": "billed",
+      "continuityMinMonths": 6,
+      "continuityDiscountPct": 0,
+      "minimumMonthlyGuarantee": 0
+    },
+    "notes": "",
+    "currency": "ARS",
+    "offerDate": "2026-11-07",
+    "exchangeRates": [],
+    "contract": {
+      "mode": "monthly",
+      "labor": true,
+      "equipment": true,
+      "components": [
+        "labor",
+        "vehicle",
+        "travel"
+      ]
+    }
+  }
+}

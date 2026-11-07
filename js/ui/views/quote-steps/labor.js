@@ -9,18 +9,31 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, selectField, confirmDialog, emptyState, badge } from '../../components.js';
+import { card, formGrid, selectField, confirmDialog, emptyState, badge, choiceGroup, infoTip } from '../../components.js';
 import { illustrativeTag } from '../../layout.js';
 import { hasNumber, plural, stepName } from './shared.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS, CONTINUOUS_SERVICE_TYPES, isIllustrativeAgreementParam } from '../../../domain/catalogs.js';
 import { laborLineFromProfile } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
-import { nonNegative, isFiniteNumber } from '../../../core/money.js';
+import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { createId } from '../../../core/ids.js';
 import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { assignmentBlock } from './assignment.js';
+import { computeRotation, rotationTrace, ROTATION_TEMPLATES } from '../../../engines/rotation-engine.js';
+import { laborHeadcountOf, laborPeoplePerPositionOf } from '../../../engines/labor-engine.js';
+import { contractOf } from '../../../domain/contract.js';
+import { activationTerms } from '../../../domain/activation-terms.js';
+
+/** "4,5" / "5" (hasta 2 decimales). */
+const n2 = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+
+/** "2 en sitio · 4 en nómina" de una línea calculada (B-1). */
+export function staffText(l) {
+  if (!l) return '';
+  return `${n2(l.positions)} en sitio · ${n2(l.headcount)} en nómina`;
+}
 
 /** Bases de las horas extra (PLAN-2026-010). */
 const OVERTIME_BASIS_OPTIONS = Object.freeze([
@@ -256,6 +269,213 @@ export function render(container, ctx) {
     );
   }
 
+  // ------------------------------------------- nómina y diagrama (B-1)
+  const payrollMode = (line) => Boolean(line) && Number(line.payrollHeadcount) > 0;
+  /** Pasa a "nómina total" con la dotación de hoy (el costo no cambia). */
+  const usePayroll = (i) => {
+    const current = laborHeadcountOf(quote.labor[i] || {});
+    ctx.mutate((q) => {
+      q.labor[i].payrollHeadcount = current > 0 ? current : null;
+    }, { focus: `labor.${i}.payrollHeadcount` });
+  };
+  /** Vuelve a personas por posición = nómina ÷ posiciones (el costo no cambia salvo el redondeo a 4 decimales). */
+  const usePeoplePerPosition = (i) => ctx.mutate((q) => {
+    const l = q.labor[i];
+    if (nonNegative(l.positions) > 0 && Number(l.payrollHeadcount) > 0) l.peoplePerPosition = roundRate(laborPeoplePerPositionOf(l));
+    l.payrollHeadcount = null;
+  }, { focus: `labor.${i}.peoplePerPosition` });
+  const contract = contractOf(quote);
+  const T = activationTerms(quote);
+  // Dónde se carga "cada cuántos días hay un relevo" (fijo mensual o servicio permanente).
+  const reliefFieldHere = (!contract.legacy && contract.mode === 'monthly') || quote.serviceType === 'permanent';
+  const proposalOf = (i) => computeRotation(quote.labor[i] && quote.labor[i].rotation, { positions: nonNegative(quote.labor[i] && quote.labor[i].positions) });
+  const setTemplate = (i, t) => ctx.mutate((q) => {
+    const l = q.labor[i];
+    l.rotation = { ...(l.rotation && typeof l.rotation === 'object' ? l.rotation : {}), daysOn: t.daysOn, daysOff: t.daysOff };
+  }, { focus: `labor.${i}.rotation.onSite` });
+  const startRotation = (i) => ctx.mutate((q) => {
+    q.labor[i].rotation = { daysOn: null, daysOff: null };
+  }, { focus: `labor.${i}.rotation.daysOn` });
+  /** Después de un cambio estructural, el foco vuelve a un botón del diagrama (no se pierde al redibujar). */
+  const focusRotationAction = (i, action) => {
+    const el = typeof document !== 'undefined' ? document.querySelector(`[data-rotation-action="${action}-${i}"]`) : null;
+    if (el && typeof el.focus === 'function') el.focus();
+  };
+  const removeRotation = (i) => {
+    ctx.mutate((q) => {
+      delete q.labor[i].rotation;
+    });
+    focusRotationAction(i, 'free');
+  };
+  /** "Aplicar al puesto": en sitio → posiciones, nómina → personas en nómina. Explícito. */
+  const applyRotation = (i) => {
+    const rot = proposalOf(i);
+    if (!rot.ready) {
+      ctx.toast('Completá los días en sitio y las personas en sitio a la vez.', 'warning');
+      return;
+    }
+    // El foco va a la nómina del puesto: se ve qué cambió (y se puede corregir a mano).
+    ctx.mutate((q) => {
+      const l = q.labor[i];
+      l.positions = rot.onSite;
+      l.payrollHeadcount = rot.payroll;
+      l.peoplePerPosition = roundRate(rot.peoplePerPosition);
+    }, { focus: `labor.${i}.payrollHeadcount` });
+    ctx.toast(`Se aplicó al puesto: ${n2(rot.onSite)} en sitio · ${n2(rot.payroll)} en nómina. Podés editarlo a mano.`, 'success');
+  };
+  /** "Usar como días entre relevos" (fijo mensual): activity.daysPerActivation. Explícito. */
+  const applyRelief = (i) => {
+    const rot = proposalOf(i);
+    if (!rot.ready || !(rot.daysBetweenRelieves > 0)) {
+      ctx.toast('El diagrama no tiene relevos (cargá los días de franco).', 'warning');
+      return;
+    }
+    ctx.mutate((q) => {
+      if (!q.activity || typeof q.activity !== 'object') q.activity = {};
+      q.activity.daysPerActivation = roundRate(rot.daysBetweenRelieves);
+    });
+    focusRotationAction(i, 'relief');
+    ctx.toast(`"Días entre viajes o relevos" = ${n2(rot.daysBetweenRelieves)} (en "${stepName('modality')}"). Cada relevo suma la movilización y los costos ${T.per}.`, 'success');
+  };
+  /** ¿El puesto ya tiene lo que propone el diagrama? (en sitio y nómina iguales). */
+  const isApplied = (rot, l) => Boolean(rot && rot.ready && l)
+    && Math.abs(nonNegative(l.positions) - rot.onSite) < 1e-6
+    && Math.abs(nonNegative(l.headcount) - rot.payroll) < 1e-6;
+  /** Botón del diagrama con una marca estable para devolverle el foco. */
+  const rotationAction = (i, action, ...args) => {
+    const el = kit.action(...args);
+    el.dataset.rotationAction = `${action}-${i}`;
+    return el;
+  };
+
+  function rotationBlock(i, line) {
+    const p = `labor.${i}`;
+    const rotationOf = (r) => {
+      const l = r && r.model.labor.lines[i];
+      return l ? l.rotation : null;
+    };
+    const has = Boolean(line && line.rotation && typeof line.rotation === 'object');
+    const templates = h('div', { class: 'qe-toolbar qe-rotation-templates' },
+      h('span', { class: 'small' }, 'Atajos:'),
+      ...ROTATION_TEMPLATES.map((t) => kit.action(t.id, () => setTemplate(i, t), { title: `${t.daysOn} días en sitio y ${t.daysOff} de franco` })),
+      has ? null : rotationAction(i, 'free', 'Otro diagrama (2x1, 21x7…)', () => startRotation(i), { icon: 'plus' }));
+    if (!has) {
+      return kit.advanced(
+        { key: `labor-rotation:${line.id || i}`, title: 'Diagrama de rotación (opcional)', summary: 'Si el puesto rota (14x14, 2x1…), te propone la nómina y los relevos.' },
+        h('p', { class: 'qe-note' }, 'Elegí un diagrama. No cambia el puesto hasta que tocás «Aplicar al puesto».',
+          infoTip('Cargás los días en sitio y de franco, y cuántas personas tienen que estar en sitio a la vez. RATEOS propone cuántas hacen falta en nómina y cuántos relevos hay por mes.', { label: '¿Cómo funciona el diagrama?' })),
+        ctx.readOnly ? null : templates,
+      );
+    }
+    const rounding = (line.rotation && line.rotation.rounding) === 'exact' ? 'exact' : 'up';
+    const proposal = kit.region((r) => {
+      const rot = rotationOf(r);
+      const l = r.model.labor.lines[i];
+      if (!rot || !rot.ready) return h('p', { class: 'qe-note' }, 'Completá los días en sitio y las personas en sitio a la vez para ver la propuesta.');
+      const H = r.activity ? r.activity.hoursPerActiveDay : null;
+      const applied = isApplied(rot, l);
+      const rows = [
+        ['Nómina', h('span', {}, h('strong', {}, `${n2(rot.payroll)} ${plural(rot.payroll, 'persona', 'personas')}`),
+          ` · ${n2(rot.onSite)} en sitio × ${n2(rot.cycleDays)} ÷ ${n2(rot.daysOn)} = ${formatNumber(rot.payrollExact, { decimals: 2 })}${rot.rounding === 'up' && rot.fractional ? ' (hacia arriba)' : ''}`,
+          rot.fractional && rot.rounding === 'up'
+            ? infoTip(`En sitio en promedio: ${formatNumber(rot.averageOnSite, { decimals: 2 })} personas con ${n2(rot.payroll)} en nómina. La diferencia cubre francos, vacaciones o licencias.`, { label: 'Promedio en sitio' })
+            : null)],
+        ['Relevos', rot.daysBetweenRelieves
+          ? h('span', {}, `${formatNumber(rot.relievesPerMonth, { decimals: 2 })} por mes, uno cada ${n2(rot.daysBetweenRelieves)} días (${n2(rot.peoplePerRelief)} ${plural(rot.peoplePerRelief, 'persona', 'personas')} por relevo)`,
+            infoTip(`${n2(rot.daysPerMonth)} días ÷ ${n2(rot.daysOn)} × ${n2(rot.groups)} ${plural(rot.groups, 'grupo', 'grupos')} = ${formatNumber(rot.relievesPerMonth, { decimals: 2 })} relevos por mes.`, { label: 'Cuenta de los relevos' }))
+          : 'Sin franco no hay relevos.'],
+        ['En sitio por día', h('span', {}, `${n2(rot.onSitePerDay)} ${plural(rot.onSitePerDay, 'persona', 'personas')} · ${n2(rot.personDaysOnSitePerMonth)} persona-días por mes`,
+          infoTip(`Base para campamento o vianda: en "${stepName('materials')}" cargalo como $ por día × ${n2(rot.onSitePerDay)}.`, { label: 'Campamento y vianda' }))],
+        rot.shiftHoursPerDay ? ['Turnos', `${n2(rot.shiftsPerDay)} × ${n2(rot.hoursPerShift)} h = ${n2(rot.shiftHoursPerDay)} h por día${hasNumber(H) && H > 0 ? ` (la actividad tiene ${n2(H)} h)` : ''}`] : null,
+        rot.hoursPerShift && !(nonNegative(quote.labor[i] && quote.labor[i].coverageHoursPerDay) > 0) ? ['Aviso de horas', `usa ${n2(rot.hoursPerShift)} h por día por posición (horas por turno)`] : null,
+        ['Hoy el puesto tiene', l ? `${staffText(l)}${applied ? ' (aplicado ✓)' : ' (sin aplicar)'}` : EMPTY],
+      ].filter(Boolean);
+      return kit.breakdown(rows);
+    }, { className: 'qe-rotation-proposal' });
+    // Datos que casi nunca cambian: cerrados, con su resumen a la vista.
+    const more = kit.advanced(
+      {
+        key: `labor-rotation-more:${line.id || i}`,
+        title: 'Grupos, turnos y redondeo',
+        summary: (r) => {
+          const rot = rotationOf(r);
+          const parts = [
+            rot && rot.groups > 1 ? `${n2(rot.groups)} grupos escalonados` : 'Todos cambian juntos',
+            rot && rot.shiftHoursPerDay ? `${n2(rot.shiftsPerDay)} turnos de ${n2(rot.hoursPerShift)} h` : null,
+            rot && rot.hoursPerShift && !rot.shiftHoursPerDay ? `turnos de ${n2(rot.hoursPerShift)} h` : null,
+            `mes de ${n2(rot && rot.daysPerMonth ? rot.daysPerMonth : 30)} días`,
+            rounding === 'exact' ? 'nómina exacta' : 'nómina redondeada hacia arriba',
+          ];
+          return parts.filter(Boolean).join(' · ');
+        },
+      },
+      formGrid(
+        4,
+        kit.num(`${p}.rotation.groups`, { label: 'Grupos escalonados', rule: 'quantity', placeholder: '1', hint: '1 = todos cambian juntos. Ej.: 3 en sitio en 14x7 con ingresos cada 7 días → 2 grupos.' }),
+        kit.num(`${p}.rotation.shiftsPerDay`, { label: 'Turnos por día', rule: 'quantity', placeholder: 'Ej.: 2' }),
+        kit.num(`${p}.rotation.hoursPerShift`, { label: 'Horas por turno', rule: 'hoursPerDay', unit: 'h', hint: 'Si "Horas por día que cubre este puesto" está vacío, el aviso de horas del personal usa este dato.' }),
+        kit.num(`${p}.rotation.daysPerMonth`, { label: 'Días del mes', rule: 'daysInMonth', unit: 'días', placeholder: '30', hint: 'Para contar los relevos del mes. Vacío = 30.' }),
+      ),
+      choiceGroup({
+        label: '¿Cómo redondear la nómina?',
+        name: `${p}.rotation.rounding`,
+        value: rounding,
+        disabled: ctx.readOnly,
+        options: [
+          { value: 'up', label: 'Hacia arriba (personas enteras)', hint: '4,5 → 5.' },
+          { value: 'exact', label: 'Exacto, con decimales', hint: 'Si un relevista se comparte con otro servicio.' },
+        ],
+        onChange: (v) => ctx.mutate((q) => {
+          q.labor[i].rotation.rounding = v === 'exact' ? 'exact' : 'up';
+        }, { focus: `${p}.rotation.rounding` }),
+      }),
+    );
+    return kit.advanced(
+      {
+        key: `labor-rotation:${line.id || i}`,
+        title: 'Diagrama de rotación (opcional)',
+        defaultOpen: true,
+        summary: (r) => {
+          const rot = rotationOf(r);
+          if (!rot || !rot.ready) return 'Diagrama sin completar.';
+          const l = r && r.model.labor.lines[i];
+          const state = isApplied(rot, l) ? 'aplicado al puesto' : 'sin aplicar, propone';
+          return `Diagrama ${rot.label} ${state}: ${n2(rot.onSite)} en sitio · ${n2(rot.payroll)} en nómina · ${formatNumber(rot.relievesPerMonth, { decimals: 2 })} relevos por mes.`;
+        },
+      },
+      h('p', { class: 'qe-note' }, 'Es una propuesta: no cambia el costo hasta que tocás «Aplicar al puesto».'),
+      ctx.readOnly ? null : templates,
+      formGrid(
+        3,
+        kit.num(`${p}.rotation.daysOn`, { label: 'Días en sitio', rule: 'days', unit: 'días' }),
+        kit.num(`${p}.rotation.daysOff`, { label: 'Días de franco', rule: 'days', unit: 'días' }),
+        kit.num(`${p}.rotation.onSite`, { label: 'Personas en sitio a la vez', rule: 'quantity', placeholder: n2(nonNegative(line.positions)), hint: 'Las que tienen que estar en la locación al mismo tiempo (turno día + turno noche cuentan las dos). Vacío = las posiciones del puesto.' }),
+      ),
+      more,
+      proposal,
+      kit.trace((r) => rotationTrace(rotationOf(r), { role: quote.labor[i] && quote.labor[i].role })),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar qe-rotation-actions' },
+        rotationAction(i, 'apply', 'Aplicar al puesto', () => applyRotation(i), { variant: 'primary', icon: 'check', title: 'Personas en sitio → posiciones a cubrir; nómina → personas en nómina del puesto.' }),
+        reliefFieldHere ? rotationAction(i, 'relief', 'Usar como días entre relevos', () => applyRelief(i), { icon: 'check', title: `Carga "Días entre viajes o relevos" en "${stepName('modality')}" con los días entre relevos de este diagrama.` }) : null,
+        rotationAction(i, 'remove', 'Quitar diagrama', () => removeRotation(i), { variant: 'ghost', icon: 'trash', title: 'Quita el diagrama. Lo que ya aplicaste al puesto queda como está.' })),
+      reliefFieldHere
+        ? kit.out((r) => {
+          const rot = rotationOf(r);
+          if (!rot || !rot.daysBetweenRelieves) return '';
+          const dpa = r.activity ? r.activity.daysPerActivation : null;
+          const now = hasNumber(dpa) ? Number(dpa) : 1;
+          const same = Math.abs(now - rot.daysBetweenRelieves) < 0.01;
+          return h('span', {},
+            same
+              ? `Relevos en el costo: uno cada ${n2(rot.daysBetweenRelieves)} días (en "${stepName('modality')}"), como el diagrama.`
+              : `Relevos en el costo: hoy uno cada ${n2(now)} ${plural(now, 'día', 'días')} (en "${stepName('modality')}"); el diagrama propone ${n2(rot.daysBetweenRelieves)}.`,
+            infoTip(`Cada relevo suma la movilización y los costos ${T.per}: con el relevo cargado, 1 viaje ${T.per} (sin viajes con decimales). Si cargaste como "${T.per}" algo que es por día (campamento, vianda), pasalo a un costo por día.`, { label: 'Relevos en el costo' }));
+        }, { tag: 'p', className: 'qe-note', allowEmpty: true })
+        : h('p', { class: 'qe-note' }, `Los relevos no tienen un campo propio en este tipo de contrato.`,
+          infoTip(`Cargá sus viajes en la logística (viajes ${T.per}).`, { label: 'Relevos' })),
+    );
+  }
+
   // -------------------------------------------------------------- líneas
   const lineCards = lines.map((line, i) => {
     const p = `labor.${i}`;
@@ -270,9 +490,12 @@ export function render(container, ctx) {
         title: kit.out(() => (quote.labor[i] && quote.labor[i].role) || 'Puesto sin nombre'),
         subtitle: kit.out((r) => {
           const l = at(r);
-          return l
-            ? `${formatNumber(l.positions, { decimals: 2 })} ${plural(l.positions, 'posición', 'posiciones')} × ${formatNumber(l.peoplePerPosition, { decimals: 2 })} ${plural(l.peoplePerPosition, 'persona', 'personas')} = ${formatNumber(l.headcount, { decimals: 2 })} ${plural(l.headcount, 'persona', 'personas')}`
-            : '';
+          if (!l) return '';
+          // Con nómina total o diagrama (B-1): "2 en sitio · 4 en nómina · diagrama 14x14".
+          if (l.payrollMode || l.rotation) {
+            return `${staffText(l)}${l.rotation && l.rotation.label ? ` · diagrama ${l.rotation.label}` : ''}`;
+          }
+          return `${formatNumber(l.positions, { decimals: 2 })} ${plural(l.positions, 'posición', 'posiciones')} × ${formatNumber(l.peoplePerPosition, { decimals: 2 })} ${plural(l.peoplePerPosition, 'persona', 'personas')} = ${formatNumber(l.headcount, { decimals: 2 })} ${plural(l.headcount, 'persona', 'personas')}`;
         }),
         badges: [ill.tag, agreement && agreement.illustrative ? badge('Convenio ilustrativo', 'orange') : null].filter(Boolean),
         actions: [
@@ -300,10 +523,19 @@ export function render(container, ctx) {
         kit.select(`${p}.agreementId`, { label: 'Convenio', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio' }),
         kit.num(`${p}.positions`, { label: 'Posiciones a cubrir', rule: 'quantity', hint: 'Puestos que tienen que estar cubiertos a la vez.' }),
         // Mayor a 0: con 0 personas el puesto no tendría costo (QA-E2E-12).
-        kit.num(`${p}.peoplePerPosition`, { label: 'Personas por posición (relevos)', rule: 'positive', hint: reliefHint }),
+        // Tanda B (B-1): o la nómina total del puesto (3 en sitio, 5 en nómina sin cargar 1,6667).
+        payrollMode(line)
+          ? kit.num(`${p}.payrollHeadcount`, { label: 'Personas en nómina (total del puesto)', rule: 'quantity', hint: 'Todas las personas que cobran sueldo en este puesto (las que están en sitio y las de franco). Las horas extra por día y las viandas siguen a las posiciones (las que están en sitio).' })
+          : kit.num(`${p}.peoplePerPosition`, { label: 'Personas por posición (relevos)', rule: 'positive', hint: reliefHint }),
         kit.num(`${p}.basicMonthly`, { label: 'Sueldo básico', rule: 'money', unit: '$/mes', illustrative }),
         kit.num(`${p}.additionalsMonthly`, { label: 'Adicionales', rule: 'money', unit: '$/mes', illustrative, hint: 'Zona, diagrama, nocturnidad, etc.' }),
       ),
+      ctx.readOnly ? null : h('div', { class: 'qe-toolbar qe-payroll-toggle' },
+        payrollMode(line)
+          ? kit.action('Cargar personas por posición', () => usePeoplePerPosition(i), { variant: 'ghost', title: 'Vuelve a "Personas por posición": posiciones × personas por posición = nómina.' })
+          : kit.action('Cargar la nómina total', () => usePayroll(i), { variant: 'ghost', title: 'En vez de personas por posición, cargás cuántas personas hay en nómina en total (mismo costo al cambiar).' })),
+      // Tanda B (B-1): asistente opcional de diagrama de rotación (sólo propone; "Aplicar" cambia el puesto).
+      rotationBlock(i, line),
       // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.
       assignmentBlock(kit, { path: p, line, kind: 'labor', at }),
       kit.keyline({

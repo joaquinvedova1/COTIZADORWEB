@@ -72,13 +72,23 @@ export function activeDaysForQuantity({ kind, quantity, unitsPerActiveDay, units
 }
 
 /**
- * Unidades producidas por día de trabajo según cómo se cobra (PLAN-2026-021):
- * por cantidad (m³, t, m², pieza…) las unidades por día; por hora, las horas
- * por día. Con otra unidad no hay dato: cada línea carga el suyo.
+ * Unidades producidas por día de trabajo según cómo se cobra (PLAN-2026-021, ampliado por
+ * PLAN-2026-022): la base de los materiales y otros costos "por unidad producida" cuando la
+ * línea no carga su propia producción. Son las unidades que se TRABAJAN (sin el relleno del
+ * mínimo por llamado: un consumible se gasta en la válvula que se atiende, no en la que se
+ * factura de mínimo).
+ *   cantidad (m³, válvula…) q por día · hora H · día 1 · llamado / trabajo / hito: hitos ÷ días por trabajo
+ *   mes: 0 (cada línea carga lo suyo)
  */
 export function autoOutputPerActiveDay(activity = {}) {
-  if (activity.unitKind === 'quantity') return nonNegative(activity.unitsPerActiveDay);
-  if (activity.unitKind === 'hour') return nonNegative(activity.hoursPerActiveDay);
+  const a = activity || {};
+  if (a.unitKind === 'quantity') return nonNegative(a.unitsPerActiveDay);
+  if (a.unitKind === 'hour') return nonNegative(a.hoursPerActiveDay);
+  if (a.unitKind === 'day') return 1;
+  if (a.unitKind === 'event') {
+    const dpa = nonNegative(a.daysPerActivation) > 0 ? nonNegative(a.daysPerActivation) : 1;
+    return (nonNegative(a.unitsPerActivation) > 0 ? nonNegative(a.unitsPerActivation) : 1) / dpa;
+  }
   return 0;
 }
 
@@ -125,6 +135,21 @@ export function normalizeActivity(quote = {}) {
     utilizationPct: availableDaysPerMonth > 0 ? (activeDaysPerMonth / availableDaysPerMonth) * 100 : null,
     // PLAN-2026-011: cada salida se cuenta completa (sólo los costos por salida).
     fullActivations: a.fullActivations === true,
+  };
+}
+
+/**
+ * Costo del mes de una línea de materiales u otros costos con la actividad estimada (para
+ * mostrar al lado de la línea; no entra en ningún cálculo): fijo + variable × D, y las unidades
+ * producidas del mes si es "por unidad producida" (PLAN-2026-022).
+ */
+function withEstimate(line, activity) {
+  const D = nonNegative(activity.activeDaysPerMonth);
+  const perUnit = line.basis === 'per_output' || line.behavior === 'per_output';
+  return {
+    ...line,
+    monthlyAtEstimate: line.fixedMonthly + line.variablePerActiveDay * D,
+    outputUnitsAtEstimate: perUnit ? nonNegative(line.outputPerActiveDay) * D : null,
   };
 }
 
@@ -446,12 +471,13 @@ export function buildCostModel(quote = {}) {
     const f = factorFor(m.base, { list: 'materials', index, field: 'base', label: m.description || 'Material' }, costsUs);
     return f === 1 ? m : { ...m, unitCost: nonNegative(m.unitCost) * f };
   });
-  const materials = computeMaterials(materialInput, {
+  // Por unidad producida (PLAN-2026-021 / PLAN-2026-022): lo producido por día de la cotización.
+  const outputCtx = { outputPerActiveDay: autoOutputPerActiveDay(activity), billingUnit: billingUnitOf(quote) };
+  const materialsRaw = computeMaterials(materialInput, {
     daysPerActivation: activity.daysPerActivation,
-    // Por unidad producida (PLAN-2026-021): lo producido por día de la cotización.
-    outputPerActiveDay: autoOutputPerActiveDay(activity),
-    billingUnit: billingUnitOf(quote),
+    ...outputCtx,
   });
+  const materials = { ...materialsRaw, lines: materialsRaw.lines.map((m) => withEstimate(m, activity)) };
   materials.lines.forEach((m, i) => {
     lines.push({
       key: `materials:${m.id ?? i}`,
@@ -470,7 +496,7 @@ export function buildCostModel(quote = {}) {
 
   // 5. Otros costos (terceros, subcontratos, manuales)
   const otherCosts = objectList(quote.otherCosts).map((o) =>
-    computeOtherCostLine(o, { daysPerActivation: activity.daysPerActivation }),
+    withEstimate(computeOtherCostLine(o, { daysPerActivation: activity.daysPerActivation, ...outputCtx }), activity),
   );
   otherCosts.forEach((o, i) => {
     const category = DIRECT_CATEGORY_IDS.includes(o.category) ? o.category : 'materials';

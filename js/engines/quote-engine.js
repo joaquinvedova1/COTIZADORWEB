@@ -17,7 +17,7 @@ import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/fo
 import { validateQuote } from '../core/validation.js';
 import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
-import { findBreakEvenDays, traceBreakEven } from './break-even-engine.js';
+import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, suggestedRateRound, effectiveRoundingStep, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
@@ -38,6 +38,59 @@ function readMargin(value, fallback) {
 
 function unique(values) {
   return [...new Set(values)];
+}
+
+/**
+ * Aviso del mínimo garantizado en UNIDADES por encima de la estimación cuando la tarifa es la
+ * sugerida (revisión de costos de la tanda B, B-3). La sugerida se calcula SIN el mínimo
+ * (criterio conservador, §13), pero el mínimo en unidades se valoriza con esa misma tarifa:
+ * con menos unidades estimadas que las garantizadas el margen del mes queda muy por encima del
+ * objetivo (24 h C2 con 10 días y mínimo 20: sugerida 7.242.000 por día y margen 55 % en vez de
+ * 15 %). No cambia ningún número: informa el margen con el mínimo, la tarifa que da el margen
+ * objetivo si el cliente paga el mínimo (requerido − otros ingresos) ÷ unidades garantizadas, y
+ * el margen con esa tarifa si se trabajan todas las unidades garantizadas.
+ * @returns {object|null} aviso informativo (`guarantee_above_estimate`) o null
+ */
+export function guaranteeAboveEstimateNotice({ ctx, D, estimate, commercialSource, targetRates, targetMarginPct, roundingStep, maxDays }) {
+  const rev = estimate && estimate.revenue;
+  if (commercialSource !== 'suggested' || !rev || rev.guaranteeBasis !== 'units') return null;
+  if (!(rev.guaranteeUnitsShortfall > 1e-9) || !(rev.guaranteedUnits > 0) || !(D > 0)) return null;
+  if (!targetRates || !isFiniteNumber(targetRates.requiredRevenue) || !isFiniteNumber(targetRates.listRate)) return null;
+  const factor = rev.listRate > 0 ? safeDivide(rev.netRate, rev.listRate, null) : null;
+  if (!(factor > 0)) return null;
+  const remaining = targetRates.requiredRevenue - nonNegative(rev.otherRevenue);
+  if (!(remaining > 0)) return null;
+  const listWithMinimum = suggestedRateRound(remaining / rev.guaranteedUnits / factor, roundingStep);
+  if (!isFiniteNumber(listWithMinimum)) return null;
+  // Días con los que se trabajan todas las unidades garantizadas (desde ahí el mínimo ya no completa nada).
+  let lo = D;
+  let hi = nonNegative(maxDays);
+  let coverDays = null;
+  if (hi > lo && revenueAt(ctx, hi, 0).guaranteeUnitsShortfall <= 1e-9) {
+    for (let i = 0; i < 80 && hi - lo > 1e-9; i += 1) {
+      const mid = (lo + hi) / 2;
+      if (revenueAt(ctx, mid, 0).guaranteeUnitsShortfall <= 1e-9) hi = mid;
+      else lo = mid;
+    }
+    coverDays = hi;
+  }
+  const atCover = coverDays !== null ? evaluateAt(ctx, coverDays, listWithMinimum) : null;
+  const u = ctx.unitInfo || {};
+  const plural = u.plural || 'unidades';
+  const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+  const estUnits = nonNegative(rev.billableUnits);
+  return {
+    id: 'guarantee_above_estimate',
+    step: 'margin',
+    severity: 'info',
+    label: 'El mínimo supera tu estimación',
+    message: `Estimaste ${n(estUnits)} ${plural} y el mínimo garantizado es de ${n(rev.guaranteedUnits)} ${plural}: a la tarifa sugerida (${formatMoney(rev.listRate)}, calculada sin el mínimo) el mes factura el mínimo y el margen estimado da ${formatPercent(estimate.marginPct)}, no el ${formatPercent(targetMarginPct)} objetivo. Si el cliente paga el mínimo, con ${formatMoney(listWithMinimum)} ya llegás al ${formatPercent(targetMarginPct)}${atCover ? `; pero con esa tarifa, si trabajás todo el mínimo (${n(rev.guaranteedUnits)} ${plural}${ctx.unit === 'day' ? '' : ` en ${formatDays(coverDays)} de trabajo`}), el margen baja a ${formatPercent(atCover.marginPct)}` : ''}. RATEOS no cambia la sugerida: elegí la tarifa en "Tarifa ofrecida".`,
+    focus: 'pricing.offeredRateOverride',
+    listRateWithMinimum: listWithMinimum,
+    marginAtEstimatePct: estimate.marginPct,
+    marginAtGuaranteeWorkedPct: atCover ? atCover.marginPct : null,
+    guaranteeWorkedDays: coverDays,
+  };
 }
 
 /**
@@ -341,6 +394,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     if (breakEven.reachable && isFiniteNumber(breakEven.days) && breakEven.days <= 1e-9) {
       breakEven = { ...breakEven, zeroReason: model.fixedMonthly > 0.005 ? 'fixed_revenue' : 'no_fixed_costs' };
     }
+    // Mínimo garantizado (B-3, H-29): con pocos días el mínimo puede cubrir los costos, más
+    // adelante se pierde y desde el break-even se gana. El break-even no cambia (es desde
+    // dónde se gana siempre); se agrega la ventana de pérdida con la tarifa comercial.
+    if (normalizeRules(ctx.rules).hasMinimumGuarantee) {
+      const windows = findLossWindows((d) => evaluateAt(ctx, d, commercialListRate).profit, { maxDays, breakpoints })
+        .map((w) => ({ ...w, fromQuantity: billableQuantityAt(ctx, w.fromDays), toQuantity: billableQuantityAt(ctx, w.toDays) }));
+      // Sólo hay algo que informar si el mínimo protege los primeros días (la pérdida no empieza en 0).
+      breakEven = { ...breakEven, lossWindows: windows, guaranteeProtects: windows.length > 0 && windows[0].fromDays > 1e-9 };
+    }
   }
   // La traza del break-even se arma en el punto de equilibrio (allí rige el
   // tramo de descuento que realmente aplica); si no se alcanza, con la
@@ -393,6 +455,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   // Costos fijos del mes que absorbe el precio (tanda A 2026-11, A-15 a): informativo, nunca se aplica un % solo.
   const absorbed = fixedCostsAbsorbedNotice(quote, model, D);
   if (absorbed) completeness.notices.push(absorbed);
+  // Mínimo en unidades por encima de la estimación con la sugerida (revisión de costos tanda B, B-3).
+  const aboveEstimate = guaranteeAboveEstimateNotice({ ctx, D, estimate, commercialSource, targetRates, targetMarginPct, roundingStep, maxDays });
+  if (aboveEstimate) completeness.notices.push(aboveEstimate);
   // Nombre de la activación en los textos: llamado / salida / intervención (PLAN-2026-014, LAB-D8).
   const T = activationTerms(quote);
   const num = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });

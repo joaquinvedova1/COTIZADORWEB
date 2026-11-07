@@ -40,9 +40,9 @@ import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay } from './cost-engine.js';
-import { outputPerActiveDayOf } from './materials-engine.js';
+import { outputPerActiveDayOf, normalizeBasisId } from './materials-engine.js';
 import { routeTrips } from './transport-engine.js';
-import { overtimeItemsOf } from './labor-engine.js';
+import { overtimeItemsOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
@@ -205,10 +205,27 @@ export function evaluateCompleteness(quote = {}) {
     items.push(rule('labor', 'Personal', 'labor', 2, ok ? 'ok' : 'missing', ok ? 'Personal cargado.' : 'No hay personal con salario cargado.'));
   }
 
+  // 4c. Nómina total menor que las personas en sitio (revisión de costos de la tanda B, B-1):
+  // nadie puede estar en sitio sin estar en nómina; el costo fijo queda corto. Sólo con nómina cargada.
+  const payrollShort = labor.map((l, index) => ({ l, index }))
+    .filter(({ l }) => hasPayrollHeadcount(l) && nonNegative(l.positions) > 0 && nonNegative(l.payrollHeadcount) < nonNegative(l.positions) - 1e-9);
+  if (payrollShort.length) {
+    const { l, index } = payrollShort[0];
+    const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+    const fmtN = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+    const others = payrollShort.length > 1 ? ` También: ${payrollShort.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
+    const item = rule('labor_payroll_below_positions', 'Nómina menor que en sitio', 'labor', 1, 'warning',
+      `"${name}" tiene ${fmtN(nonNegative(l.positions))} en sitio a la vez y ${fmtN(nonNegative(l.payrollHeadcount))} en nómina: la nómina no puede ser menor que los que están en sitio. Los sueldos y cargas se calculan con ${fmtN(nonNegative(l.payrollHeadcount))} ${Math.abs(nonNegative(l.payrollHeadcount) - 1) < 1e-9 ? 'persona' : 'personas'} y el costo queda corto. Revisá "Personas en nómina" (o usá el diagrama de rotación). RATEOS no lo corrige solo.${others}`);
+    item.focus = `labor.${index}.payrollHeadcount`;
+    item.targets = payrollShort.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
+    items.push(item);
+  }
+
   // 5. Relevos (cobertura continua)
   const continuous = CONTINUOUS_SERVICE_TYPES.includes(serviceType) && (serviceType === 'permanent' || activity.availability === '24/7');
   if (continuous && labor.length > 0) {
-    const ok = labor.every((l) => nonNegative(l.peoplePerPosition, 1) > 1);
+    // Con la nómina cargada como total (B-1), personas por posición = nómina ÷ posiciones.
+    const ok = labor.every((l) => laborPeoplePerPositionOf(l) > 1);
     items.push(rule('relief', 'Relevos', 'labor', 1, ok ? 'ok' : 'warning',
       ok ? 'Relevos configurados.' : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.'));
   }
@@ -228,9 +245,13 @@ export function evaluateCompleteness(quote = {}) {
   const mf = monthsFactor(D, act.availableDaysPerMonth);
   // "Horas por día que cubre este puesto" (opcional, A-5): un turno de 12 h en una actividad de
   // 24 h. Sólo lo usa este aviso; vacío = las horas por día de la actividad.
+  // Tanda B (B-1): si el puesto tiene diagrama de rotación con "horas por turno" y este campo
+  // está vacío, el aviso usa las horas por turno (entiende turnos sin otro dato).
   const coverageOf = (l) => {
     const c = Math.min(nonNegative(l.coverageHoursPerDay), 24);
-    return c > 0 ? c : H;
+    if (c > 0) return c;
+    const shift = isPlainObject(l.rotation) ? Math.min(nonNegative(l.rotation.hoursPerShift), 24) : 0;
+    return shift > 0 ? shift : H;
   };
   if (labor.length > 0 && D > 0) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
@@ -238,7 +259,7 @@ export function evaluateCompleteness(quote = {}) {
       const normal = nonNegative(l.normalHoursPerMonth);
       const hours = coverageOf(l);
       if (!(nonNegative(l.positions) > 0) || !(normal > 0) || !(hours > 0)) return null;
-      const ppp = nonNegative(l.peoplePerPosition, 1);
+      const ppp = laborPeoplePerPositionOf(l);
       const items = overtimeItemsOf(l);
       const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
       const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
@@ -252,11 +273,11 @@ export function evaluateCompleteness(quote = {}) {
       const months = mf > 1 + 1e-9 ? ` × ${fmt(mf)} meses` : '';
       const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
       const span = mf > 1 + 1e-9 ? ` (el trabajo dura más que los ${fmt(act.availableDaysPerMonth)} días disponibles del mes: las horas por mes cuentan ${fmt(mf)} meses)` : '';
-      const own = first.own ? ' (horas por día que cubre este puesto)' : '';
+      const own = first.own ? (nonNegative(first.l.coverageHoursPerDay) > 0 ? ' (horas por día que cubre este puesto)' : ' (horas por turno del diagrama)') : '';
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
         `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), cargá las horas extra o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día que cubre este puesto". RATEOS no las agrega solo.${others}`);
-      item.focus = `labor.${first.index}.peoplePerPosition`;
+      item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
     }
@@ -421,7 +442,7 @@ export function evaluateCompleteness(quote = {}) {
     items.push(item);
     // Por unidad producida (PLAN-2026-021): sin producción por día el consumo suma $ 0.
     const autoOut = autoOutputPerActiveDay(normalizeActivity(quote));
-    const noOutput = materials.map((m, index) => ({ m, index })).filter(({ m }) => m.basis === 'per_output' && paidByUs(m)
+    const noOutput = materials.map((m, index) => ({ m, index })).filter(({ m }) => normalizeBasisId(m.basis) === 'per_output' && paidByUs(m)
       && nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0 && !(outputPerActiveDayOf(m, autoOut, unit) > 0));
     if (noOutput.length) {
       const first = noOutput[0];
@@ -564,6 +585,13 @@ export function evaluateCompleteness(quote = {}) {
     // CRÍTICO (no confiable) hasta elegir la unidad o confirmarla; la confirmación vale sólo para
     // el supuesto confirmado (`externalUnitAssumption`). No cambia la fórmula. Con un viaje por
     // salida no hay ambigüedad.
+    // Decisión del dueño (tanda B 2026-11, H-04): baja a aviso común (warning: ni crítico ni "no
+    // confiable") cuando lo habitual es que el proveedor vaya UNA vez y los viajes sean de otros:
+    //   (a) su movilización está incluida en la tarifa por salida, o
+    //   (b) los viajes de la ruta los hacen vehículos propios (logística auxiliar o un equipo
+    //       propio que va por sus medios) y el externo no va por sus propios medios (dicho:
+    //       transportado, en vehículo de apoyo o sin movilización; sin dato, crítico).
+    // Si alguna línea no cumple (a) ni (b), queda crítico como siempre.
     const tripsPerActivation = logistics.notApplicable ? 0 : route.tripsPerActivation;
     const perActivation = tripsPerActivation > 1 + 1e-9
       ? externals
@@ -571,6 +599,15 @@ export function evaluateCompleteness(quote = {}) {
         .map((e) => ({ e, changes: assumptionChanges(e.externalUnitConfirmed, externalUnitAssumption(quote, e)) }))
         .filter(({ changes }) => changes === null || changes.length > 0)
       : [];
+    const ownRouteVehicles = (objectList(logistics.vehicles).some((v) => nonNegative(v.count) > 0))
+      || equipment.some((e) => !isExt(e) && nonNegative(e.quantity) > 0 && isPlainObject(e.mobilization) && e.mobilization.mode === 'self');
+    // (b) exige que se haya dicho cómo llega el externo y que NO sea por sus medios (transportado,
+    // en un vehículo de apoyo o sin movilización). Sin dato no se supone: un flete o una grúa
+    // tercerizada suele ir por sus medios y es justo el caso de ECO-01 (revisión de costos de la tanda B).
+    const notSelf = (e) => isPlainObject(e.mobilization) && ['transported', 'support', 'none'].includes(e.mobilization.mode);
+    const goesOnce = ({ e }) => extOf(e).mobilizationIncluded === true
+      || (ownRouteVehicles && notSelf(e));
+    const soft = perActivation.length > 0 && perActivation.every(goesOnce);
     if (perActivation.length) {
       const { e: first, changes } = perActivation[0];
       const price = nonNegative(extOf(first).price);
@@ -582,9 +619,12 @@ export function evaluateCompleteness(quote = {}) {
       const changed = { price: 'la tarifa', trips: `los viajes ${T.per}`, distance: 'la distancia', roundTrip: 'ida y vuelta / sólo ida' };
       const stale = changes && changes.length ? `La confirmación anterior ("cobra ${T.per}") ya no vale: cambió ${changes.map((c) => changed[c]).join(', ')}. ` : '';
       const others = perActivation.length > 1 ? ` También: ${perActivation.slice(1, 4).map(({ e }) => `"${lineName(e, 'Externo')}"`).join(', ')}.` : '';
-      const item = rule('external_unit_trips', 'Unidad del proveedor', 'equipment', 2, 'missing',
-        `${stale}"${lineName(first, 'Externo')}" cobra ${formatMoney(price)} ${T.per} y cada ${T.one} tiene ${n(tripsPerActivation)} ${tripWord(tripsPerActivation)}${legs}.${month} Equivale a ${formatMoney(price / tripsPerActivation)} por viaje. Si el proveedor cobra ${formatMoney(price)} por cada viaje, elegí "Por viaje completo (ida y vuelta)" (o "Por tramo" si cobra cada ida o cada vuelta); si cobra ${T.per}, confirmalo. Hasta entonces el resultado no es confiable.${others}`);
-      item.unreliable = true;
+      const why = !soft ? '' : extOf(first).mobilizationIncluded === true
+        ? ` Su movilización está incluida: lo habitual es que vaya una sola vez ${T.per} y que los otros viajes sean de tus vehículos.`
+        : ` Los viajes de la ruta los hacen tus vehículos: lo habitual es que el proveedor vaya una sola vez ${T.per}.`;
+      const item = rule('external_unit_trips', 'Unidad del proveedor', 'equipment', 2, soft ? 'warning' : 'missing',
+        `${stale}"${lineName(first, 'Externo')}" cobra ${formatMoney(price)} ${T.per} y cada ${T.one} tiene ${n(tripsPerActivation)} ${tripWord(tripsPerActivation)}${legs}.${month} Equivale a ${formatMoney(price / tripsPerActivation)} por viaje.${why} Si el proveedor cobra ${formatMoney(price)} por cada viaje, elegí "Por viaje completo (ida y vuelta)" (o "Por tramo" si cobra cada ida o cada vuelta); si cobra ${T.per}, confirmalo.${soft ? ' Revisalo: si cobra por viaje, el costo queda corto.' : ' Hasta entonces el resultado no es confiable.'}${others}`);
+      if (!soft) item.unreliable = true;
       item.focus = `equipment.${equipment.indexOf(first)}.external.unit`;
       item.targets = perActivation.map(({ e }) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
       items.push(item);
@@ -891,7 +931,8 @@ export function evaluateCompleteness(quote = {}) {
   labor.forEach((l, index) => {
     const positions = nonNegative(l.positions);
     if (!(positions > 0)) return;
-    const people = positions * nonNegative(l.peoplePerPosition, 1);
+    const payroll = hasPayrollHeadcount(l);
+    const people = payroll ? laborHeadcountOf(l) : positions * nonNegative(l.peoplePerPosition, 1);
     // Tolerancia de 0,01 persona: 3 × 1,6667 (5 ÷ 3 cargado con decimales) son 5 personas.
     if (!(people > 0) || Math.abs(people - Math.round(people)) < 0.01) return;
     const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
@@ -900,11 +941,35 @@ export function evaluateCompleteness(quote = {}) {
       step: 'labor',
       severity: 'info',
       label: 'Personas no enteras',
-      message: `Cargaste ${formatNumber(people, { decimals: 2 })} personas en "${name}" (${formatNumber(positions, { decimals: 2 })} ${Math.abs(positions - 1) < 1e-9 ? 'posición' : 'posiciones'} × ${formatNumber(nonNegative(l.peoplePerPosition, 1), { decimals: 2 })} por posición); ¿cuántas hay en nómina? El costo se calcula con ${formatNumber(people, { decimals: 2 })}: si en nómina son ${formatNumber(Math.ceil(people - 1e-9))}, cargalo así. RATEOS no redondea solo.`,
-      focus: `labor.${index}.peoplePerPosition`,
+      message: payroll
+        ? `Cargaste ${formatNumber(people, { decimals: 2 })} personas en nómina en "${name}" (con decimales); ¿cuántas hay de verdad? El costo se calcula con ${formatNumber(people, { decimals: 2 })}: si en nómina son ${formatNumber(Math.ceil(people - 1e-9))}, cargalo así. RATEOS no redondea solo.`
+        : `Cargaste ${formatNumber(people, { decimals: 2 })} personas en "${name}" (${formatNumber(positions, { decimals: 2 })} ${Math.abs(positions - 1) < 1e-9 ? 'posición' : 'posiciones'} × ${formatNumber(nonNegative(l.peoplePerPosition, 1), { decimals: 2 })} por posición); ¿cuántas hay en nómina? El costo se calcula con ${formatNumber(people, { decimals: 2 })}: si en nómina son ${formatNumber(Math.ceil(people - 1e-9))}, cargalo así. RATEOS no redondea solo.`,
+      focus: `labor.${index}.${payroll ? 'payrollHeadcount' : 'peoplePerPosition'}`,
       targets: [{ list: 'labor', index, name }],
     });
   });
+  // Material "por día" que parece "por unidad" (tanda B 2026-11, B-2, PLAN-2026-022): cobrás por
+  // cantidad y la cantidad por día del material es igual a las unidades por día. Si cambia el
+  // rendimiento, el costo por unidad se desajusta en silencio; con "Por unidad producida" se mueve solo. Nunca se convierte solo.
+  if (act.unitKind === 'quantity' && act.unitsPerActiveDay > 0 && quote.materialsNotApplicable !== true) {
+    const unit = billingUnitOf(quote);
+    (Array.isArray(quote.materials) ? quote.materials : []).forEach((m, index) => {
+      if (!isPlainObject(m) || m.basis !== 'per_active_day' || !(nonNegative(m.unitCost) > 0)) return;
+      const qty = nonNegative(m.quantity);
+      if (!(qty > 1) || Math.abs(qty - act.unitsPerActiveDay) > 1e-9) return;
+      const name = (typeof m.description === 'string' && m.description.trim()) || 'Material';
+      const n = formatNumber(qty, { decimals: 2 });
+      notices.push({
+        id: 'materials_per_unit_hint',
+        step: 'materials',
+        severity: 'info',
+        label: `¿Es por ${unit.singular}?`,
+        message: `"${name}" está cargado por día (${n} por día) y hacés ${n} ${unit.plural} por día. Si se consume por ${unit.singular}, elegí "Por unidad producida" en "¿Cada cuánto se consume?" con la cantidad de cada ${unit.singular}: así el costo por ${unit.singular} no cambia si cambia el rendimiento. RATEOS no lo cambia solo.`,
+        focus: `materials.${index}.basis`,
+        targets: [{ list: 'materials', index, name }],
+      });
+    });
+  }
   // Precio cerrado de varios días con 1 viaje por trabajo (A-15 c): ¿vuelven a la base cada día?
   if (contract.mode === 'closed' && !logistics.notApplicable && oneWayKm > 0 && !route.derived && !route.byCapacity
     && act.daysPerActivation > 1 + 1e-9 && Math.abs(route.tripsPerActivation - 1) < 1e-9) {

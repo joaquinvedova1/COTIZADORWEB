@@ -41,6 +41,19 @@ const approx = (actual, expected, label = '', tol = 0.01) => {
 };
 const pendingOf = (r, id) => (r.completeness.pending || []).find((p) => p.id === id) || null;
 const carrier = (q) => q.equipment.find((e) => e.acquisition !== 'owned');
+/**
+ * E3 con el transportista "por salida" y SIN saber si su movilización está incluida (tanda B
+ * 2026-11, H-04). El fixture trae `mobilizationIncluded: true`, y desde la decisión del dueño un
+ * externo por salida con la movilización incluida es un aviso común, no un crítico: para seguir
+ * protegiendo el caso crítico de ECO-01 (el proveedor ES el que hace los viajes y no se sabe si va
+ * una vez) se deja sin definir. Ningún número cambia: con movilización incluida o sin definir no
+ * se suma un monto de movilización.
+ */
+const perActivationE3 = () => {
+  const q = fixture('e3-cotizacion');
+  Object.assign(carrier(q).external, { unit: 'activation', price: 928000, mobilizationIncluded: null });
+  return q;
+};
 
 // ------------------------------------------------------------------ H-01
 describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', () => {
@@ -88,8 +101,7 @@ describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', ()
   });
 
   test('"Por salida" con varios viajes por salida es CRÍTICO (no confiable) hasta confirmar, nombrando salidas, viajes y el equivalente por viaje', () => {
-    const q = fixture('e3-cotizacion');
-    Object.assign(carrier(q).external, { unit: 'activation', price: 928000 });
+    const q = perActivationE3();
     const r = computeQuote(q);
     approx(r.kpis.totalCost, 21875213.61, 'la fórmula no cambia: 18 salidas × 928.000');
     const p = pendingOf(r, 'external_unit_trips');
@@ -109,9 +121,8 @@ describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', ()
   });
 
   test('confirmado "sí, cobra por salida": el crítico se va (uno menos) y el costo queda igual', () => {
-    const q = fixture('e3-cotizacion');
+    const q = perActivationE3();
     const c = carrier(q);
-    Object.assign(c.external, { unit: 'activation', price: 928000 });
     const before = computeQuote(q);
     assert.equal(pendingOf(before, 'external_unit_trips').severity, 'critical');
     assert.equal(typeof completenessEngine.externalUnitAssumption, 'function', 'falta externalUnitAssumption');
@@ -132,9 +143,8 @@ describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', ()
 
   test('confirmación vencida: si cambian la tarifa, los viajes por salida o la ruta, vuelve el crítico; otros cambios no la tocan', () => {
     const confirmed = () => {
-      const q = fixture('e3-cotizacion');
+      const q = perActivationE3();
       const c = carrier(q);
-      Object.assign(c.external, { unit: 'activation', price: 928000 });
       c.externalUnitConfirmed = completenessEngine.externalUnitAssumption(q, c);
       return { q, c };
     };
@@ -156,6 +166,58 @@ describe('ECO-01 · H-01: tramo, viaje completo, salida y km (E3 de AUD-T1)', ()
     q.pricing.targetMarginPct = 25;
     q.labor[0].basicMonthly = Number(q.labor[0].basicMonthly) + 1;
     assert.equal(pendingOf(computeQuote(q), 'external_unit_trips'), null);
+  });
+
+  test('decisión del dueño (tanda B, H-04): con la movilización incluida baja a aviso común (ni crítico ni "no confiable")', () => {
+    const q = fixture('e3-cotizacion');
+    Object.assign(carrier(q).external, { unit: 'activation', price: 928000 });
+    assert.equal(carrier(q).external.mobilizationIncluded, true, 'el fixture trae la movilización incluida');
+    const r = computeQuote(q);
+    approx(r.kpis.totalCost, 21875213.61, 'la fórmula no cambia');
+    const p = pendingOf(r, 'external_unit_trips');
+    assert.ok(p, 'el aviso sigue (la pregunta por viaje / por salida no se pierde)');
+    assert.equal(p.status, 'warning');
+    assert.equal(p.severity, 'review');
+    assert.notEqual(p.unreliable, true);
+    assert.equal(r.completeness.unreliable, 0);
+    assert.doesNotMatch(p.message, /no es confiable/);
+    assert.match(p.message, /movilización está incluida/);
+    assert.match(p.message, /Por viaje completo/);
+    // Comparado con el crítico (sin definir): un crítico menos.
+    const hard = computeQuote(perActivationE3());
+    assert.equal(r.completeness.critical, hard.completeness.critical - 1);
+    // Confirmarlo lo saca igual que al crítico.
+    carrier(q).externalUnitConfirmed = completenessEngine.externalUnitAssumption(q, carrier(q));
+    assert.equal(pendingOf(computeQuote(q), 'external_unit_trips'), null);
+  });
+
+  test('decisión del dueño (tanda B, H-04): con los viajes de la ruta en vehículos propios también es aviso común; si el externo va por sus medios, crítico', () => {
+    const q = perActivationE3();
+    q.logistics.vehicles = [{ id: 'v1', name: 'Camioneta propia', count: 1, consumptionLPer100Km: 12, costPerKm: 100 }];
+    // Revisión de costos (tanda B): sin decir cómo llega el externo NO se supone que va una vez.
+    const unknown = pendingOf(computeQuote(q), 'external_unit_trips');
+    assert.equal(unknown.severity, 'critical', 'externo sin "cómo llega" + vehículos propios: sigue crítico');
+    assert.equal(unknown.unreliable, true);
+    carrier(q).mobilization = { ...(carrier(q).mobilization || {}), mode: 'support' };
+    const p = pendingOf(computeQuote(q), 'external_unit_trips');
+    assert.equal(p.status, 'warning');
+    assert.notEqual(p.unreliable, true);
+    assert.match(p.message, /los hacen tus vehículos/);
+    // Un equipo propio que va por sus medios cuenta igual que un vehículo de la logística.
+    const q2 = perActivationE3();
+    q2.equipment.push({ id: 'own-1', name: 'Camioneta', acquisition: 'owned', quantity: 1, mobilization: { mode: 'self' } });
+    assert.equal(pendingOf(computeQuote(q2), 'external_unit_trips').severity, 'critical', 'sin dato del externo: crítico');
+    carrier(q2).mobilization = { ...(carrier(q2).mobilization || {}), mode: 'transported' };
+    assert.equal(pendingOf(computeQuote(q2), 'external_unit_trips').status, 'warning');
+    // El externo que va por sus propios medios hace él los viajes: sigue crítico.
+    const q3 = perActivationE3();
+    q3.logistics.vehicles = [{ id: 'v1', name: 'Camioneta propia', count: 1 }];
+    carrier(q3).mobilization = { ...carrier(q3).mobilization, mode: 'self' };
+    const p3 = pendingOf(computeQuote(q3), 'external_unit_trips');
+    assert.equal(p3.severity, 'critical');
+    assert.equal(p3.unreliable, true);
+    // Sin vehículos propios ni movilización incluida: crítico como siempre.
+    assert.equal(pendingOf(computeQuote(perActivationE3()), 'external_unit_trips').severity, 'critical');
   });
 
   test('"Por salida" con UN viaje por salida (on-call de siempre) no avisa: nada cambia en las cotizaciones anteriores', () => {
