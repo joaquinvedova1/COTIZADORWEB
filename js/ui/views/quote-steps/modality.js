@@ -14,7 +14,7 @@
 
 import { h, mount } from '../../dom.js';
 import { card, formGrid, choiceGroup, searchSelectField, openDialog, button, infoTip } from '../../components.js';
-import { PRICING_MODES, AVAILABILITY_OPTIONS } from '../../../domain/catalogs.js';
+import { PRICING_MODES, AVAILABILITY_OPTIONS, AVAILABILITY_WINDOW } from '../../../domain/catalogs.js';
 import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName, unitGroupOf, searchUnits, BILLING_UNIT_GROUPS } from '../../../domain/billing-units.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
 import { convertMinimumCallUnits } from '../../../engines/commercial-rules-engine.js';
@@ -29,6 +29,7 @@ import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
 import { contractOf, unitChoicesForContract } from '../../../domain/contract.js';
 import { extrasSection } from './extras.js';
+import { outsideWindowHours, outsideWindowMessage } from '../../../engines/completeness-engine.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -37,7 +38,7 @@ const MODE_LABELS = Object.freeze({
 
 const AVAILABILITY_HINTS = Object.freeze({
   '24/7': 'Disponible todos los días, a toda hora. Normalmente exige relevos.',
-  window: 'Disponible sólo en una franja horaria acordada.',
+  window: 'Disponible sólo unas horas por día acordadas.',
 });
 
 /**
@@ -317,13 +318,19 @@ export function render(container, ctx) {
   );
 
   // Horas por día activo: dato básico si cobrás por hora (define las horas facturables).
+  // On call (franja horaria, 2026-11): a la vista, al lado de los días, para no confundirlas
+  // con las horas de guardia (cuándo te pueden llamar): éstas son las que se trabajan.
+  const asksAvailability = quote.serviceType === 'on_call';
   const hoursField = () => kit.num('activity.hoursPerActiveDay', {
-    label: monthlyContract ? 'Horas por día que cubre el fijo' : 'Horas por día de trabajo',
+    label: monthlyContract ? 'Horas por día que cubre el fijo' : asksAvailability ? `Horas trabajadas por día con ${T.one}` : 'Horas por día de trabajo',
     rule: 'hoursPerDay',
     unit: 'h/día',
-    hint: quote.unit === 'hour' ? 'Cobrás por hora: se facturan días activos × horas por día.' : 'Se usa para el uso de equipos, la tarifa por hora y la estructura por hora.',
+    hint: quote.unit === 'hour'
+      ? `Cobrás por hora: se facturan días ${asksAvailability ? 'con trabajo' : 'activos'} × estas horas${asksAvailability ? ' (no las horas de guardia)' : ''}.`
+      : 'Se usa para el uso de equipos, la tarifa por hora y la estructura por hora.',
   });
   const hourly = quote.unit === 'hour';
+  const hoursInMain = hourly || monthlyContract || asksAvailability;
   // Se evalúa en cada recálculo (la persona carga la cantidad sin redibujar el paso).
   const hasQuantity = () => hasNumber(quote.activity && quote.activity.billableQuantityPerMonth);
 
@@ -475,18 +482,35 @@ export function render(container, ctx) {
   });
   // Disponibilidad (A-16, H-26): a la vista, junto a los días, donde cambia algo (el aviso
   // de relevos de un servicio on call). Una cotización nueva la trae sin definir: nunca
-  // 24/7 escondida. No mueve ningún número.
-  const asksAvailability = quote.serviceType === 'on_call';
+  // 24/7 escondida. Con franja (2026-11) se cargan las horas de guardia por día como número
+  // (antes era texto libre que la app no leía): avisa si se trabajan más horas que la franja.
+  // No mueve costo ni facturación.
   const availability = quote.activity ? quote.activity.availability : null;
+  const oldWindowText = quote.activity && typeof quote.activity.availabilityWindow === 'string' ? quote.activity.availabilityWindow.trim() : '';
   const availabilityRow = asksAvailability
     ? h('div', { class: 'qe-availability' },
       kit.choice('activity.availability', {
-        label: h('span', {}, 'Disponibilidad requerida', infoTip('No cambia los números: sirve para revisar los relevos del personal. 24/7 normalmente exige relevos; franja horaria es un horario acordado (por ejemplo, de día).')),
+        label: h('span', {}, 'Disponibilidad requerida', infoTip(`Cuándo el cliente te puede convocar. No son las horas que facturás: ésas son las horas trabajadas por día con ${T.one}. 24/7 normalmente exige relevos del personal.`)),
         options: AVAILABILITY_OPTIONS.map((o) => ({ value: o.id, label: o.label, hint: AVAILABILITY_HINTS[o.id] })),
         structural: true,
       }),
-      availability === 'window'
-        ? formGrid(2, kit.text('activity.availabilityWindow', { label: 'Franja horaria', maxLength: 120, placeholder: 'Ej.: lunes a sábado de 7 a 19 h' }))
+      availability === AVAILABILITY_WINDOW
+        ? formGrid(2, kit.num('activity.availabilityHoursPerDay', {
+          label: 'Horas de guardia por día',
+          rule: 'hoursPerDay',
+          unit: 'h/día',
+          placeholder: 'Ej.: 12',
+          hint: `Las horas del día en que el cliente puede convocarte (por ejemplo 12 h, de 7 a 19). Si trabajás más horas que éstas, el excedente es fuera de horario.`,
+        }))
+        : null,
+      availability === AVAILABILITY_WINDOW
+        ? kit.out(() => {
+          const o = outsideWindowHours(quote);
+          if (o) return h('p', { class: ['qe-note', 'is-warning'] }, outsideWindowMessage(quote, o, { short: true }));
+          // Cotización con la franja escrita a mano: a la vista hasta cargar el número.
+          const empty = !hasNumber(quote.activity && quote.activity.availabilityHoursPerDay);
+          return empty && oldWindowText ? h('p', { class: 'qe-note' }, `Antes cargaste: "${oldWindowText}". Pasalo a horas por día.`) : '';
+        }, { tag: 'div', allowEmpty: true })
         : null)
     : null;
   const activityCard = card(
@@ -494,7 +518,11 @@ export function render(container, ctx) {
     byQuantity
       ? quantityFields()
       : formGrid(
-        monthlyContract ? 3 : [hourly, availableInMain, quote.serviceType === 'permanent'].filter(Boolean).length === 1 ? 3 : 2,
+        monthlyContract ? 3 : (() => {
+          // Días + los campos que acompañan: 2 o 3 campos van en una fila de 3; 1 o 4, de a 2.
+          const fields = 1 + [hoursInMain, availableInMain, quote.serviceType === 'permanent'].filter(Boolean).length;
+          return fields === 2 || fields === 3 ? 3 : 2;
+        })(),
         monthlyContract
           ? kit.num('activity.activeDaysPerMonth', {
             label: 'Días de trabajo por mes que cubre el fijo',
@@ -535,8 +563,9 @@ export function render(container, ctx) {
           })
           : null,
         availableInMain ? availableField() : null,
-        hourly || monthlyContract ? hoursField() : null,
+        hoursInMain ? hoursField() : null,
       ),
+    availabilityRow,
     !byQuantity && quote.serviceType !== 'permanent' && !monthlyContract
       ? kit.activationPace({
         T,
@@ -544,7 +573,6 @@ export function render(container, ctx) {
         hint: `${T.g('Una', 'Un')} ${T.one} es cada vez que ${isOnCall ? 'el cliente te convoca y salís a trabajar' : 'salís de la base a hacer un trabajo'}. ${T.Each} suma su movilización, el mínimo ${T.per} y los costos ${T.per}.`,
       })
       : null,
-    availabilityRow,
     byQuantity ? quantityKeyline : daysKeyline,
     // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
     tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,
@@ -575,7 +603,7 @@ export function render(container, ctx) {
           const a = quote.activity || {};
           const parts = [
             availableInMain ? null : isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días disponibles por mes` : 'días disponibles sin cargar',
-            hourly ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
+            hoursInMain ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
             kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
             isOnCall && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
           ].filter(Boolean);
@@ -585,7 +613,7 @@ export function render(container, ctx) {
       formGrid(
         2,
         availableInMain ? null : availableField(),
-        hourly || monthlyContract ? null : hoursField(),
+        hoursInMain ? null : hoursField(),
         // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
       ),
       // Por cantidad: cuántas intervenciones (movilizaciones, mínimos) hay.

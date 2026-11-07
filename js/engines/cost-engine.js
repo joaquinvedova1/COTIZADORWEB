@@ -35,7 +35,7 @@
 import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide, roundPercentagesToTotal, roundPercentage, toNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
-import { COST_CATEGORIES, CATEGORY_PAY_GROUP, DIRECT_CATEGORY_IDS, PAY_GROUPS, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
+import { COST_CATEGORIES, CATEGORY_PAY_GROUP, DIRECT_CATEGORY_IDS, PAY_GROUPS, MATERIAL_PROVIDERS, AVAILABILITY_WINDOW } from '../domain/catalogs.js';
 import { computeLabor } from './labor-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
 import { computeLogistics } from './logistics-engine.js';
@@ -92,6 +92,19 @@ export function autoOutputPerActiveDay(activity = {}) {
   return 0;
 }
 
+/**
+ * Horas de guardia por día: 24 con 24/7; con franja, las cargadas (máx. 24) o null si faltan.
+ * Disponibilidad sin elegir → null. No mueve costos ni facturación: sólo avisos.
+ */
+export function availabilityHoursOf(a = {}) {
+  if (a.availability === '24/7') return 24;
+  if (a.availability !== AVAILABILITY_WINDOW) return null;
+  const v = a.availabilityHoursPerDay;
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 24) : null;
+}
+
 /** Normaliza los parámetros de actividad de una cotización. */
 export function normalizeActivity(quote = {}) {
   const a = quote.activity || {};
@@ -126,6 +139,9 @@ export function normalizeActivity(quote = {}) {
     unitsPerActivation,
     availability: a.availability || '24/7',
     availabilityWindow: a.availabilityWindow || '',
+    // Horas de guardia por día (franja, 2026-11): cuándo el cliente puede llamar. No son las
+    // horas que se facturan (ésas son hoursPerActiveDay). 24/7 = 24 h; franja sin cargar = null.
+    availabilityHoursPerDay: availabilityHoursOf(a),
     responseTimeHours: nonNegative(a.responseTimeHours),
     availableDaysPerMonth,
     activeDaysPerMonth,
