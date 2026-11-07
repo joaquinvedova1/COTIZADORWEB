@@ -303,7 +303,7 @@ export function render(container, ctx) {
 
   // Horas por día activo: dato básico si cobrás por hora (define las horas facturables).
   const hoursField = () => kit.num('activity.hoursPerActiveDay', {
-    label: monthlyContract ? 'Horas por día que cubre el fijo' : byQuantity ? 'Horas trabajadas por día de trabajo' : 'Horas trabajadas por día activo',
+    label: monthlyContract ? 'Horas por día que cubre el fijo' : 'Horas por día de trabajo',
     rule: 'hoursPerDay',
     unit: 'h/día',
     hint: quote.unit === 'hour' ? 'Cobrás por hora: se facturan días activos × horas por día.' : 'Se usa para el uso de equipos, la tarifa por hora y la estructura por hora.',
@@ -402,8 +402,13 @@ export function render(container, ctx) {
           ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
           : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`)
         : '';
-      return `Facturás ${billable} por mes${extra}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${fractional}`;
+      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9;
+      const usage = over
+        ? `Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles: más días que los ${formatNumber(r.activity.availableDaysPerMonth)} disponibles.`
+        : `Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).`;
+      return `Facturás ${billable} por mes${extra}. ${usage}${fractional}`;
     },
+    tone: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
   });
 
   const quantityKeyline = kit.keyline({
@@ -436,12 +441,25 @@ export function render(container, ctx) {
     tone: (r) => (hasQuantity() && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
   });
 
+  // Días disponibles: el techo de la utilización. Por días (on call, por día…)
+  // va a la vista, al lado de los días trabajados: el aviso de más de 100 % sale
+  // de comparar esos dos números y ninguno debe quedar escondido.
+  const availableInMain = !byQuantity && !monthlyContract;
+  const availableField = () => kit.num('activity.availableDaysPerMonth', {
+    label: isOnCall ? 'Días disponibles (de guardia)' : 'Días disponibles en el mes',
+    rule: 'daysInMonth',
+    unit: 'días',
+    placeholder: '30',
+    hint: isOnCall
+      ? `Días en que podés recibir ${T.many} (el máximo que podrías trabajar): 30 si estás de guardia todo el mes; 22 si sólo días hábiles.`
+      : 'El máximo que podrías trabajar en el mes: normalmente 30 para servicios 24/7; 22 si sólo trabajás días hábiles.',
+  });
   const activityCard = card(
     {},
     byQuantity
       ? quantityFields()
       : formGrid(
-        hourly || monthlyContract ? 3 : 2,
+        [hourly || monthlyContract, availableInMain, quote.serviceType === 'permanent'].filter(Boolean).length === 1 ? 3 : 2,
         monthlyContract
           ? kit.num('activity.activeDaysPerMonth', {
             label: 'Días de trabajo por mes que cubre el fijo',
@@ -452,12 +470,14 @@ export function render(container, ctx) {
             hint: 'Lo incluido en el abono (por ejemplo lunes a sábado = 26). Lo que se trabaje fuera de eso va en "Adicionales".',
           })
           : kit.num('activity.activeDaysPerMonth', {
-            label: 'Días trabajados y facturados por mes',
+            label: isOnCall ? 'Días con trabajo por mes' : 'Días trabajados y facturados por mes',
             rule: 'days',
             unit: 'días/mes',
             requiredMark: true,
             placeholder: 'Ej.: 8',
-            hint: 'Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.',
+            hint: isOnCall
+              ? `Días en que salís a atender ${T.many}. Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.`
+              : 'Si no estás seguro, cargá una estimación: en el Resultado ves la tarifa para otras cantidades de días.',
           }),
         quote.serviceType === 'permanent'
           ? kit.num('activity.daysPerActivation', {
@@ -467,13 +487,14 @@ export function render(container, ctx) {
             hint: `Sirve para saber cuántos ${T.many} hay por mes.`,
           })
           : null,
+        availableInMain ? availableField() : null,
         hourly || monthlyContract ? hoursField() : null,
       ),
     !byQuantity && quote.serviceType !== 'permanent' && !monthlyContract
       ? kit.activationPace({
         T,
-        label: `¿Cuánto dura ${T.each}?`,
-        hint: `Sirve para saber cuántos ${T.many} hay por mes (movilizaciones, mínimos ${T.per}).`,
+        label: `¿Cómo son ${T.theMany} ${T.many}?`,
+        hint: `${T.g('Una', 'Un')} ${T.one} es cada vez que ${isOnCall ? 'el cliente te convoca y salís a trabajar' : 'salís de la base a hacer un trabajo'}. ${T.Each} suma su movilización, el mínimo ${T.per} y los costos ${T.per}.`,
       })
       : null,
     byQuantity ? quantityKeyline : daysKeyline,
@@ -483,7 +504,9 @@ export function render(container, ctx) {
     info.id === 'km' ? kit.group('Viajes y km del mes', transportStats(kit, { billable: false, km: true })) : null,
     // PLAN-2026-011: cada salida completa (apagado por defecto). Sólo los costos
     // físicamente indivisibles por salida; producción y facturación no cambian.
-    h('div', { class: 'qe-full-activations' },
+    // Sólo aparece cuando cambia algo: con un promedio no entero de activaciones
+    // por mes (o si ya está encendida, para no dejar un estado oculto).
+    kit.toggle(h('div', { class: 'qe-full-activations' },
       kit.check('activity.fullActivations', {
         label: `${T.Each} se cuenta ${T.whole}`,
         hint: `Apagada, ${T.theMany} ${T.many} por mes son un promedio (por ejemplo 10,42) y los costos ${T.per} se cuentan en proporción. Encendida, esos costos —movilización, peajes, viáticos, cargos del proveedor ${T.per} y mínimos ${T.per}— se costean con ${T.many} ${T.wholeMany} (11). Sueldos, tenencia de equipos, producción, facturación y estructura mensual no cambian.`,
@@ -492,14 +515,18 @@ export function render(container, ctx) {
         const info = activationRoundingText(r.activationRounding, T);
         if (!info) return '';
         return h('p', { class: ['qe-note', info.tone === 'warning' ? 'is-warning' : null] }, info.text);
-      }, { tag: 'div', allowEmpty: true })),
+      }, { tag: 'div', allowEmpty: true })), (r) => {
+      if (quote.activity && quote.activity.fullActivations === true) return true;
+      const acts = r.activity.activationsPerMonth;
+      return acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6;
+    }),
     kit.advanced(
       {
         key: 'modality',
         summary: () => {
           const a = quote.activity || {};
           const parts = [
-            isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días disponibles por mes` : 'días disponibles sin cargar',
+            availableInMain ? null : isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días disponibles por mes` : 'días disponibles sin cargar',
             hourly ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
             kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
             isOnCall ? `disponibilidad ${a.availability === 'window' ? 'por franja horaria' : '24/7'}` : null,
@@ -510,13 +537,7 @@ export function render(container, ctx) {
       },
       formGrid(
         2,
-        kit.num('activity.availableDaysPerMonth', {
-          label: 'Días disponibles en el mes',
-          rule: 'daysInMonth',
-          unit: 'días',
-          placeholder: '30',
-          hint: 'Normalmente 30 para servicios 24/7; 22 si sólo trabajás días hábiles.',
-        }),
+        availableInMain ? null : availableField(),
         hourly || monthlyContract ? null : hoursField(),
         // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
       ),
@@ -525,7 +546,7 @@ export function render(container, ctx) {
       kind === 'quantity'
         ? kit.activationPace({
           T,
-          label: `¿Cuánto dura ${T.each}?`,
+          label: `¿Cómo son ${T.theMany} ${T.many}?`,
           hint: tripUnit
             ? `Viajes ${T.per} = viajes por día × días ${T.per}.`
             : `No es la unidad que cobrás: define cuántas ${T.many} (movilizaciones, mínimos ${T.per}) hay en el mes.`,

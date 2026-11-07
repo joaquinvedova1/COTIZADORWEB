@@ -332,3 +332,16 @@ describe('parseDecimalInput — números como se escriben en Argentina (regresi�
     assert.equal(numberToInputText(null), '');
   });
 });
+
+describe('aviso de días de trabajo por encima de los disponibles', () => {
+  test('dice los números y cómo corregirlo (21 días con 20 disponibles)', () => {
+    const q = createEmptyQuote();
+    q.activity.activeDaysPerMonth = 21;
+    q.activity.availableDaysPerMonth = 20;
+    const issue = validateQuote(q).find((i) => i.path === 'activity.activeDaysPerMonth');
+    assert.ok(issue, 'falta el aviso');
+    assert.equal(issue.severity, 'warning');
+    assert.match(issue.message, /Cargaste 21 días de trabajo y hay 20 disponibles/);
+    assert.match(issue.message, /subí los días disponibles/);
+  });
+});

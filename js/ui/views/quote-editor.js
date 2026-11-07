@@ -565,11 +565,13 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
     },
 
     /**
-     * Ritmo de las activaciones (llamados / salidas / intervenciones):
-     *   "Dura días"     → días por activación (1, 2, 14…)
-     *   "Varias por día" → N por día; se guarda daysPerActivation = 1 / N.
-     * Una sola magnitud en el motor (daysPerActivation), dos formas de cargarla:
-     * así 3 intervenciones en un día no obligan a escribir "0,3333 días".
+     * Ritmo de las activaciones (llamados / salidas / intervenciones), tres opciones:
+     *   "Uno por día"          → daysPerActivation = 1 (el caso común, sin otro campo)
+     *   "Uno dura varios días" → días por activación (2, 14…)
+     *   "Varios en un día"     → N por día; se guarda daysPerActivation = 1 / N.
+     * Una sola magnitud en el motor (daysPerActivation), tres formas de cargarla:
+     * así 3 intervenciones en un día no obligan a escribir "0,3333 días" y
+     * "1 por día" no obliga a elegir entre "dura días" y "varios por día".
      */
     activationPace({ T, label, hint = null, onValue = null } = {}) {
       const path = 'activity.daysPerActivation';
@@ -577,7 +579,8 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
         const raw = Number(kit.get(path));
         return Number.isFinite(raw) && raw > 0 ? raw : 1;
       };
-      let mode = current() < 1 - 1e-9 ? 'perDay' : 'days';
+      const modeOf = (dpa) => (dpa < 1 - 1e-9 ? 'perDay' : dpa > 1 + 1e-9 ? 'days' : 'one');
+      let mode = modeOf(current());
       const wrap = h('div', { class: 'qe-pace' });
       const commit = (dpa) => {
         update(path, dpa);
@@ -590,50 +593,55 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
         }
       };
       const draw = () => {
-        const modeSelect = selectField({
-          label,
+        const modeChoice = choiceGroup({
+          label: hint ? h('span', {}, label, infoTip(hint)) : label,
           name: `${path}.mode`,
           value: mode,
           disabled: readOnly,
           options: [
-            { value: 'days', label: `${T.Each} dura uno o más días` },
-            { value: 'perDay', label: `Hago ${T.g('varias', 'varios')} ${T.many} por día` },
+            { value: 'one', label: T.g('Una por día', 'Uno por día') },
+            { value: 'days', label: T.g('Una dura varios días', 'Uno dura varios días') },
+            { value: 'perDay', label: T.g('Varias en un día', 'Varios en un día') },
           ],
-          hint,
           onChange: (value) => {
-            mode = value === 'perDay' ? 'perDay' : 'days';
-            if (mode === 'perDay' && current() >= 1 - 1e-9) commit(1 / 2);
-            if (mode === 'days' && current() < 1 - 1e-9) commit(1);
+            mode = ['one', 'days', 'perDay'].includes(value) ? value : 'one';
+            const dpa = current();
+            if (mode === 'one' && Math.abs(dpa - 1) > 1e-9) commit(1);
+            if (mode === 'days' && dpa <= 1 + 1e-9) commit(2);
+            if (mode === 'perDay' && dpa >= 1 - 1e-9) commit(1 / 2);
             draw();
           },
         });
         const dpa = current();
-        const amount = mode === 'perDay'
-          ? numberField({
-            label: `${T.Many} por día de trabajo`,
+        let amount = null;
+        if (mode === 'perDay') {
+          amount = numberField({
+            label: `${T.Many} por día`,
             rule: 'positive',
-            unit: `por día`,
+            unit: 'por día',
             name: path,
             value: Math.round((1 / dpa) * 100) / 100,
             disabled: readOnly,
-            hint: `Ej.: 3 locaciones distintas en un día = 3 ${T.many} por día. Cada ${T.one} suma su movilización y sus costos ${T.per}.`,
+            hint: `Ej.: 3 locaciones distintas en un día = 3. ${T.Each} suma su movilización y sus costos ${T.per}.`,
             onChange: (n) => {
               if (Number.isFinite(n) && n > 0) commit(1 / n);
             },
-          })
-          : numberField({
-            label: `Días de trabajo ${T.per}`,
+          });
+        } else if (mode === 'days') {
+          amount = numberField({
+            label: `Días ${T.per}`,
             rule: 'positiveDays',
             unit: 'días',
             name: path,
             value: dpa,
             disabled: readOnly,
-            hint: `Si es 1, cada día de trabajo es ${T.a} ${T.one}. Ej.: 20 días ÷ 2 días ${T.per} = 10 ${T.many} por mes.`,
+            hint: `Ej.: 20 días de trabajo ÷ 2 días ${T.per} = 10 ${T.many} por mes.`,
             onChange: (n) => {
               if (Number.isFinite(n) && n > 0) commit(n);
             },
           });
-        mount(wrap, h('div', { class: 'form-grid cols-2' }, modeSelect, amount));
+        }
+        mount(wrap, h('div', { class: 'qe-pace-row' }, h('div', { class: 'qe-unit-choice is-compact' }, modeChoice), amount ? h('div', { class: 'form-grid cols-2' }, amount) : null));
       };
       draw();
       return wrap;
