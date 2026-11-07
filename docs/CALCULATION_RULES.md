@@ -233,7 +233,7 @@ variable por día activo  = variable/día/posición × posiciones   (sin cambio:
 
 Vacío, 0 o sin el campo = posiciones × personas por posición, **igual que siempre** (ningún número existente cambia). Sirve para 3 en sitio con 5 en nómina sin cargar 1,6667 ("5,0001 personas"). "Cargar la nómina total" copia la dotación de ese momento (mismo costo); "Cargar personas por posición" vuelve con nómina ÷ posiciones a 4 decimales.
 
-**Asistente de diagrama de rotación** (`labor[i].rotation`, `js/engines/rotation-engine.js`, `computeRotation`). Campos libres: días en sitio, días de franco, personas en sitio a la vez (vacío = las posiciones), grupos que entran escalonados (vacío = 1), turnos por día y horas por turno (opcionales), redondeo de la nómina (`'up'` hacia arriba, default, o `'exact'`) y días del mes para contar relevos (vacío = 30). Los atajos 7x7, 14x14, 14x7, 20x10 y 5x2 sólo llenan días en sitio y de franco (editables). **El diagrama sólo propone: no cambia el costo.**
+**Asistente de diagrama de rotación** (`labor[i].rotation`, `js/engines/rotation-engine.js`, `computeRotation`). Campos libres: días en sitio, días de franco, personas en sitio a la vez (vacío = las posiciones), grupos que entran escalonados (vacío = 1), turnos por día y horas por turno (opcionales), redondeo de la nómina (`'up'` hacia arriba, default, o `'exact'`) y días del mes para contar relevos (vacío = 30). Los atajos (5x2 y 6x1 fijos; 7x7, 14x7, 14x14 y 20x10 rotativos, PLAN-2026-024) sólo llenan días en sitio, de franco y el esquema (editables). **El diagrama sólo propone: no cambia el costo.**
 
 ```
 ciclo                  = días en sitio + días de franco
@@ -252,6 +252,22 @@ Ejemplos de los especialistas: 24h C1, 14x14 con 2 en sitio → 2 × 28 ÷ 14 = 
 Lo que cambia números es siempre una acción explícita de quien cotiza:
 - **"Aplicar al puesto"**: posiciones = en sitio, `payrollHeadcount` = nómina propuesta (y personas por posición = nómina ÷ en sitio a 4 decimales, por si se vuelve a ese modo). 2x1 C1: de 4,5 a 5 personas → costo $ 84.542.140 → **$ 89.810.129**, sugerida $ 105.022.000 → **$ 111.566.000** (lo que calculó el especialista con 5). Con redondeo exacto queda 4,5: mismos números.
 - **"Usar como días entre relevos"** (sólo fijo mensual o servicio permanente, donde existe el campo): `activity.daysPerActivation` = días entre relevos, así los viajes y costos por intervención se cuentan por relevo (intervenciones por mes = días del fijo ÷ intervalo, §2) **sin viajes con decimales**. 24h C1: 4 en nómina, intervalo 14, 1 viaje por relevo y $ 30.000 de viáticos por relevo → **$ 70.247.973** (antes, con el truco de 0,0714 viajes por intervención, $ 70.247.873; sugerida $ 86.941.000 en los dos). Cuidado: si se cargó como "por intervención" algo que es por día (campamento), hay que pasarlo a un costo por día: la UI lo dice.
+
+**Esquema fijo o rotativo, cobertura vendida y horas por persona (PLAN-2026-024, sólo propuesta).** `rotation.pattern`: `'rotating'` (default, también para los diagramas guardados antes) o `'fixed'` (la cuadrilla trabaja cuando trabaja el servicio: 5x2, 6x1). La cobertura es `activity.activeDaysPerMonth` (días de servicio), salvo on call (todo el mes, como siempre).
+
+```
+cobertura (fracción)   = mín(1, días de servicio ÷ días del mes)      (vacía = 1)
+nómina exacta rotativo = máx(en sitio, en sitio × ciclo ÷ días en sitio × cobertura)
+nómina fijo            = en sitio; sin relevos
+días por persona       = en sitio × días de servicio ÷ nómina           (promedio real)
+horas por persona      = días por persona × horas por turno
+por encima de normales = máx(0, horas por persona − horas normales por mes del puesto)
+promedio semanal ciclo = días en sitio × horas por turno ÷ (ciclo ÷ 7)   (rotativo)
+```
+
+Caso A (5x2 fijo, 4 en sitio, 22 días, 8 h): nómina 4, 176 h por persona, 0 por encima (antes el atajo proponía 6). Caso B (7x7, 1 en sitio, 30 días, 12 h): nómina 2, 15 días y 180 h por persona, 42 h por semana. Caso C (14x7, 12 h): exacta 1,5 → 240 h, 64 por encima, 56 h por semana; hacia arriba 2 → 180 h. Fijo con más días de servicio que los que da el esquema (5x2 con 26 días) → aviso "faltan días" (horas extra, otra persona o esquema rotativo). Las horas por encima se cargan sólo con "Cargar N h como horas extra por mes" (tramo `per_month` por persona, recargo = el de referencia del puesto, 50 si falta). Cómo se pagan lo dice el convenio: RATEOS no lo infiere.
+
+**Cómo viaja el personal** (`activity.travelPattern`, `travelDaysOf` en `rotation-engine.js`, leído por `normalizeActivity`): `'daily'` → días por intervención = 1; `'rotation'` → el relevo más frecuente entre los puestos con esquema rotativo completo (días en sitio ÷ grupos; sin ninguno, el número guardado); `'custom'` o sin dato → `activity.daysPerActivation` como siempre. Reemplaza a "Usar como días entre relevos": 2x1 C1 con "con cada relevo" da exactamente los mismos números que cargar a mano el intervalo 7.
 
 **Aviso de horas con turnos** (§3.1, sólo aviso): las horas por día que tiene que cubrir cada posición son, en orden, "Horas por día que cubre este puesto" (`coverageHoursPerDay`), si no las **horas por turno del diagrama** (`rotation.hoursPerShift`), y si no las de la actividad. Las personas por posición del control son las efectivas (nómina ÷ posiciones si hay nómina total). 24h C1 con turnos de 12 h: 30 × 12 = 360 h contra 2 × 176 + 4 × 30 = 472 h → el aviso falso desaparece sin cambiar el costo. El aviso de relevos 24/7 y el de personas no enteras (A-15 b) también usan la nómina total (con nómina 4,5 sigue preguntando cuántas hay de verdad y lleva a "Personas en nómina").
 

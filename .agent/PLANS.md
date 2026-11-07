@@ -120,6 +120,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-021 | Pendientes de componentes: insumos por unidad producida, viáticos por personas y noches, vehículo en Viajes | motor de costos, completitud, UX | Implementado (#48) |
 | PLAN-2026-022 | Tanda B (especialistas 2026-11): materiales y otros costos por unidad producida, unificada con PLAN-2026-021 (B-2), mínimo garantizado en unidades con ventana de pérdida (B-3) y aviso "Unidad del proveedor" (H-04) | motor de costos, utilización, completitud, UX | Implementado |
 | PLAN-2026-023 | Tanda B (especialistas 2026-11, B-1): diagrama de rotación por puesto → nómina, personas en sitio, relevos y turnos | motor de personal, completitud, UX | Implementado |
+| PLAN-2026-024 | Plantillas como puntos de partida y esquemas de trabajo: cobertura vendida ≠ organización del personal ≠ costos ≠ facturación | contrato, personal, actividad, completitud, UX | En rama (a probar con el dueño) |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1283,3 +1284,22 @@ Esquema sin cambio. Campos opcionales: `materials[].usagePct`, `otherCosts[].usa
 **Review (AGENTS §18):** Economía: la nómina sólo cambia el fijo; el variable sigue en las posiciones (los que trabajan en sitio). QA: 0 días en sitio, franco 0, campos vacíos o negativos, 0 posiciones con nómina → sin NaN y sin propuesta. Seguridad: validación de rangos (`validateQuote`). UX: todo editable, acción explícita, traza "Ver cálculo".
 
 **Fuera de alcance (siguiente paso):** Otros costos por persona en sitio por día y por persona por relevo (B-6); driver propio de relevos para on call / por servicio / precio cerrado (personas, medio, km, peajes, horas de viaje); horas extra por día en sitio derivadas del turno (no hay dato de jornada diaria); control de días seguidos sin franco.
+
+
+### PLAN-2026-024 — Plantillas como puntos de partida y esquemas de trabajo del personal
+
+**Origen:** pedido del dueño (2026-11-07). Plantillas: conservarlas, que ocupen menos (desplegable buscable o agrupado), sumar servicios habituales y que sean puntos de partida editables con un solo mecanismo. Fijo mensual: la pantalla "¿Qué cubre el fijo mensual?" mezclaba la cobertura vendida con el diagrama del personal ("Días entre viajes o relevos"). Distinguir A) cobertura vendida, B) organización del personal, C) costos laborales y operativos, D) cantidad y unidad facturada; no cargar el diagrama en tres lugares ni que un dato de facturación mueva sueldo o dotación.
+
+**Revisión con especialistas (agentes):** UX B2B (capturas 1360 / 390), costos industriales (casos A–D con el motor), legislación laboral argentina (LCT, Ley 11.544, Dec. 484/2000, CCT petroleros; las fuentes oficiales no se pudieron leer desde el entorno: todo lo dependiente de CCT queda como parámetro o "verificar").
+
+**Decisiones:**
+1. Un solo catálogo de plantillas con `group`, `mode` y `unit` opcionales; selector `searchSelectField` (el mismo de las unidades). Modalidad y unidad sólo se aplican sin tarifa ni mínimo cargados; nunca se quitan componentes con líneas cargadas; `contract.templateId` es informativo.
+2. A (cobertura): días y horas de servicio, con atajos. B (organización): el esquema de cada puesto, en Personal, fijo o rotativo, con la cobertura de A. C (costos): horas por persona vs normales a la vista; las horas extra sólo con acción explícita; avisos de mismo costo en dos lugares. D (facturación): 1 abono + Adicionales (sin cambios).
+3. Los viajes de relevo se LEEN del esquema (`activity.travelPattern = 'rotation'`) en lugar de copiarse con un botón: un solo lugar. Se descartó derivar la dotación automáticamente desde la cobertura: un dato comercial nunca cambia el costo laboral sin "Aplicar al puesto".
+4. Nada de normativa inventada: los 50 % / 100 % y las 8 h / 48 h se citan como referencia general con "tu convenio puede fijar otro régimen".
+
+**Compatibilidad:** sin `SCHEMA_VERSION` nueva; sin los campos nuevos todo da igual (golden y baseline sin re-aprobar). La propuesta del diagrama puede cambiar en cotizaciones con fijo mensual de menos de 30 días (usa la cobertura), pero nunca el costo hasta aplicar.
+
+**Pruebas:** `tests/engines/plan-2026-024-esquemas.test.js` (casos A–D, viajes, plantillas, avisos) y recorrido Playwright de los casos A y C en escritorio y celular (plantilla, atajos, esquema 5x2, 14x7, carga de HE, viajes con el relevo, Resultado y PDF, guardado).
+
+**Fuera de alcance:** banco de horas / promedios de la Ley 27.802 (vigencia en discusión), régimen de feriados y domingos dentro del diagrama, costo por persona en sitio por día, movilización única de equipos al inicio del abono, $/HH vendida en el abono, conductor de un vehículo ligado a un puesto.
