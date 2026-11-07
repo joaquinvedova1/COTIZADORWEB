@@ -782,3 +782,4 @@
   .qe-step-body .qe-pace .choice { min-height: 44px; align-items: center; }
 }
 .qe-pace .form-grid { margin-top: 0.75rem; }
+.qe-availability > .form-grid { margin-top: 0.75rem; }

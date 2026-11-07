@@ -86,6 +86,24 @@ export function outsideWindowHours(quote = {}) {
   return { worked, guard, outside: worked - guard };
 }
 
+/**
+ * Texto del aviso de fuera de horario (pendiente y nota del paso), según la unidad:
+ * por hora esas horas YA se facturan como horas normales (sumarlas en Adicionales las
+ * cobraría dos veces); por día, el día cubre la franja y el excedente va en Adicionales.
+ * @param {{ worked:number, guard:number, outside:number }} o
+ */
+export function outsideWindowMessage(quote = {}, o, { short = false } = {}) {
+  const f = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+  const D = normalizeActivity(quote).activeDaysPerMonth;
+  const month = D > 0 ? ` (${f(o.outside * D)} h por mes)` : '';
+  const head = short
+    ? `${f(o.outside)} h por día fuera de la franja${month}`
+    : `Trabajás ${f(o.worked)} h por día con ${activationTerms(quote).one} y la franja de guardia es de ${f(o.guard)} h: ${f(o.outside)} h por día quedan fuera de horario${month}`;
+  return billingUnitOf(quote).kind === 'hour'
+    ? `${head}. Ya se facturan como horas normales: si fuera de horario llevan recargo, cargá en "Adicionales" sólo el recargo (no la hora entera, se cobraría dos veces).`
+    : `${head}: si el cliente las paga aparte, cobralas en "Adicionales".`;
+}
+
 function rule(id, label, step, weight, status, message) {
   return { id, label, step, weight, status, color: status === 'ok' ? 'green' : status === 'warning' ? 'orange' : status === 'missing' ? 'red' : 'gray', message };
 }
@@ -248,9 +266,7 @@ export function evaluateCompleteness(quote = {}) {
   // franja, el excedente es fuera de horario. Sólo avisa: no cambia costo ni facturación.
   const overrun = serviceType === 'on_call' ? outsideWindowHours(quote) : null;
   if (overrun) {
-    const f = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
-    const item = rule('availability_window', 'Franja de guardia', 'modality', 1, 'warning',
-      `Trabajás ${f(overrun.worked)} h por día con ${activationTerms(quote).one} y la franja de guardia es de ${f(overrun.guard)} h: ${f(overrun.outside)} h por día quedan fuera de horario. Si el cliente las paga aparte, cargalas en "Adicionales" (hora fuera de horario); si no, revisá las horas.`);
+    const item = rule('availability_window', 'Franja de guardia', 'modality', 1, 'warning', outsideWindowMessage(quote, overrun));
     item.focus = 'activity.hoursPerActiveDay';
     items.push(item);
   }

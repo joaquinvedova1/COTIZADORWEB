@@ -29,7 +29,7 @@ import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
 import { contractOf, unitChoicesForContract } from '../../../domain/contract.js';
 import { extrasSection } from './extras.js';
-import { outsideWindowHours } from '../../../engines/completeness-engine.js';
+import { outsideWindowHours, outsideWindowMessage } from '../../../engines/completeness-engine.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -500,15 +500,16 @@ export function render(container, ctx) {
           rule: 'hoursPerDay',
           unit: 'h/día',
           placeholder: 'Ej.: 12',
-          hint: `Las horas del día en que el cliente puede convocarte (por ejemplo 12 h, de 7 a 19). Si trabajás más horas que éstas, el excedente es fuera de horario y se cobra en "Adicionales".${oldWindowText ? ` Antes cargaste: "${oldWindowText}".` : ''}`,
+          hint: `Las horas del día en que el cliente puede convocarte (por ejemplo 12 h, de 7 a 19). Si trabajás más horas que éstas, el excedente es fuera de horario.`,
         }))
         : null,
       availability === AVAILABILITY_WINDOW
         ? kit.out(() => {
           const o = outsideWindowHours(quote);
-          if (!o) return '';
-          const f = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
-          return h('p', { class: ['qe-note', 'is-warning'] }, `Trabajás ${f(o.worked)} h por día con ${T.one} y la franja es de ${f(o.guard)} h: ${f(o.outside)} h quedan fuera de horario. Si las cobrás aparte, cargalas en "Adicionales".`);
+          if (o) return h('p', { class: ['qe-note', 'is-warning'] }, outsideWindowMessage(quote, o, { short: true }));
+          // Cotización con la franja escrita a mano: a la vista hasta cargar el número.
+          const empty = !hasNumber(quote.activity && quote.activity.availabilityHoursPerDay);
+          return empty && oldWindowText ? h('p', { class: 'qe-note' }, `Antes cargaste: "${oldWindowText}". Pasalo a horas por día.`) : '';
         }, { tag: 'div', allowEmpty: true })
         : null)
     : null;
@@ -564,6 +565,7 @@ export function render(container, ctx) {
         availableInMain ? availableField() : null,
         hoursInMain ? hoursField() : null,
       ),
+    availabilityRow,
     !byQuantity && quote.serviceType !== 'permanent' && !monthlyContract
       ? kit.activationPace({
         T,
@@ -571,7 +573,6 @@ export function render(container, ctx) {
         hint: `${T.g('Una', 'Un')} ${T.one} es cada vez que ${isOnCall ? 'el cliente te convoca y salís a trabajar' : 'salís de la base a hacer un trabajo'}. ${T.Each} suma su movilización, el mínimo ${T.per} y los costos ${T.per}.`,
       })
       : null,
-    availabilityRow,
     byQuantity ? quantityKeyline : daysKeyline,
     // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
     tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,

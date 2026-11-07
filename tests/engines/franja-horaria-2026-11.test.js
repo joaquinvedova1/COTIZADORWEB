@@ -10,6 +10,7 @@ import { computeQuote } from '../../js/engines/quote-engine.js';
 import { availabilityHoursOf, normalizeActivity } from '../../js/engines/cost-engine.js';
 import { outsideWindowHours } from '../../js/engines/completeness-engine.js';
 import { createEmptyQuote, defaultSettings } from '../../js/domain/quote-factory.js';
+import { validateQuote } from '../../js/core/validation.js';
 
 function onCall(activity = {}, unit = 'hour') {
   const settings = { ...defaultSettings('org'), illustrative: false, defaultBillingTaxes: null };
@@ -49,8 +50,17 @@ describe('franja horaria: horas de guardia por día', () => {
     const item = computeQuote(over).completeness.items.find((x) => x.id === 'availability_window');
     assert.ok(item, 'aparece el aviso');
     assert.match(item.message, /10 h por día con llamado/);
-    assert.match(item.message, /2 h por día quedan fuera de horario/);
+    assert.match(item.message, /2 h por día quedan fuera de horario \(16 h por mes\)/);
+    // Por hora esas horas ya se facturan: el aviso no manda a cobrarlas de nuevo enteras.
+    assert.match(item.message, /Ya se facturan como horas normales/);
+    assert.match(item.message, /sólo el recargo/);
     assert.equal(item.focus, 'activity.hoursPerActiveDay');
+
+    // Por día: el día cubre la franja; el excedente va a Adicionales.
+    const byDay = computeQuote(onCall({ availability: 'window', availabilityHoursPerDay: 8, hoursPerActiveDay: 10 }, 'day')).completeness.items.find((x) => x.id === 'availability_window');
+    assert.ok(byDay);
+    assert.match(byDay.message, /si el cliente las paga aparte, cobralas en "Adicionales"/);
+    assert.doesNotMatch(byDay.message, /Ya se facturan/);
 
     for (const activity of [
       { availability: 'window', availabilityHoursPerDay: 12, hoursPerActiveDay: 10 },
@@ -61,4 +71,10 @@ describe('franja horaria: horas de guardia por día', () => {
       assert.ok(!computeQuote(onCall(activity)).completeness.items.some((x) => x.id === 'availability_window'), JSON.stringify(activity));
     }
   });
+});
+
+test('horas de guardia fuera de rango: la validación lo marca', () => {
+  const q = onCall({ availability: 'window', availabilityHoursPerDay: 30 });
+  assert.ok(validateQuote(q).some((i) => i.path === 'activity.availabilityHoursPerDay'));
+  assert.ok(!validateQuote(onCall({ availability: 'window', availabilityHoursPerDay: 12 })).some((i) => i.path === 'activity.availabilityHoursPerDay'));
 });
