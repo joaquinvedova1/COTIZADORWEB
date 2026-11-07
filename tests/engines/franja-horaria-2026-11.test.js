@@ -8,7 +8,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { availabilityHoursOf, normalizeActivity } from '../../js/engines/cost-engine.js';
-import { outsideWindowHours } from '../../js/engines/completeness-engine.js';
+import { outsideWindowHours, activeGuardCoverage } from '../../js/engines/completeness-engine.js';
 import { createEmptyQuote, defaultSettings } from '../../js/domain/quote-factory.js';
 import { validateQuote } from '../../js/core/validation.js';
 
@@ -77,4 +77,73 @@ test('horas de guardia fuera de rango: la validación lo marca', () => {
   const q = onCall({ availability: 'window', availabilityHoursPerDay: 30 });
   assert.ok(validateQuote(q).some((i) => i.path === 'activity.availabilityHoursPerDay'));
   assert.ok(!validateQuote(onCall({ availability: 'window', availabilityHoursPerDay: 12 })).some((i) => i.path === 'activity.availabilityHoursPerDay'));
+});
+
+describe('guardia activa / pasiva (2026-11)', () => {
+  const op = (o = {}) => ({ id: 'l1', role: 'Operador', positions: 1, peoplePerPosition: 1, basicMonthly: 1000000, normalHoursPerMonth: 200, ...o });
+  const withLabor = (activity, labor = [op()], unit = 'day') => {
+    const q = onCall(activity, unit);
+    q.labor = labor;
+    return q;
+  };
+  const relief = (q) => computeQuote(q).completeness.items.find((x) => x.id === 'relief');
+  const notice = (q, id) => computeQuote(q).completeness.notices.find((x) => x.id === id);
+
+  test('activa 24/7: relevos con números (720 h, 3,6 personas) y sin el aviso de horas repetido', () => {
+    const q = withLabor({ availability: '24/7', guardType: 'active', availableDaysPerMonth: 30 });
+    assert.deepEqual(activeGuardCoverage(q), { days: 30, hours: 24, required: 720 });
+    const r = relief(q);
+    assert.equal(r.status, 'warning');
+    assert.match(r.message, /30 días × 24 h = 720 h por posición/);
+    assert.match(r.message, /unas 3,6 personas por posición/);
+    assert.equal(r.focus, 'labor.0.peoplePerPosition');
+    assert.ok(!computeQuote(q).completeness.items.some((x) => x.id === 'labor_hours'));
+  });
+
+  test('activa con franja de 8 h y 22 días: 176 h, una persona alcanza', () => {
+    const q = withLabor({ availability: 'window', availabilityHoursPerDay: 8, guardType: 'active', availableDaysPerMonth: 22, hoursPerActiveDay: 8 });
+    const r = relief(q);
+    assert.equal(r.status, 'ok');
+    assert.match(r.message, /176 h/);
+  });
+
+  test('activa con nómina suficiente (5 personas por posición) → ok', () => {
+    const q = withLabor({ availability: '24/7', guardType: 'active' }, [op({ peoplePerPosition: 4 })]);
+    assert.equal(relief(q).status, 'ok');
+  });
+
+  test('pasiva 24/7 con una persona: no pide relevos hora por hora; sugiere el adicional de guardia', () => {
+    const q = withLabor({ availability: '24/7', guardType: 'passive' });
+    assert.equal(relief(q).status, 'ok');
+    const n = notice(q, 'guard_allowance');
+    assert.ok(n);
+    assert.equal(n.focus, 'labor.0.additionalsMonthly');
+    assert.equal(notice(withLabor({ availability: '24/7', guardType: 'passive' }, [op({ additionalsMonthly: 50000 })]), 'guard_allowance'), undefined);
+  });
+
+  test('sin tipo de guardia: el aviso de relevos de siempre', () => {
+    const r = relief(withLabor({ availability: '24/7' }));
+    assert.equal(r.status, 'warning');
+    assert.match(r.message, /una sola persona por posición/);
+  });
+
+  test('disponibilidad sin cobrar: informativo, se va con abono o mínimo garantizado', () => {
+    const q = withLabor({ availability: '24/7', guardType: 'passive' });
+    assert.ok(notice(q, 'availability_unpaid'));
+    q.rules = { ...q.rules, availabilityFeeMonthly: 1000000 };
+    assert.equal(notice(q, 'availability_unpaid'), undefined);
+    const g = withLabor({ availability: '24/7' });
+    g.rules = { ...g.rules, minimumMonthlyGuarantee: 3000000 };
+    assert.equal(notice(g, 'availability_unpaid'), undefined);
+    assert.equal(notice(withLabor({ availability: 'window', availabilityHoursPerDay: 8, guardType: 'passive' }), 'availability_unpaid'), undefined);
+  });
+
+  test('el tipo de guardia no cambia costo ni facturación', () => {
+    const base = computeQuote(withLabor({ availability: '24/7' }, [op()], 'hour'));
+    for (const guardType of ['active', 'passive']) {
+      const r = computeQuote(withLabor({ availability: '24/7', guardType }, [op()], 'hour'));
+      assert.equal(r.estimate.cost.total, base.estimate.cost.total);
+      assert.equal(r.estimate.revenue.total, base.estimate.revenue.total);
+    }
+  });
 });

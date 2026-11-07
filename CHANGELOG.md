@@ -12,6 +12,15 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Guardia activa o pasiva y relevos con números (2026-11-07).** Ningún costo ni facturación cambia; esquema sin cambio de versión (campo opcional `activity.guardType`).
+
+### Agregado
+
+- **"Tipo de guardia"** en on call: **Activa (en el lugar)** o **Pasiva (localizable)**.
+- **Guardia activa → relevos con números** (pendiente `relief`): días disponibles × horas de guardia = horas por posición en el mes, contra personas por posición × horas normales (+ extra). Dice cuántas personas por posición hacen falta (más francos y vacaciones), con foco en la nómina. RATEOS no las agrega solo. Con guardia activa no se repite el aviso de horas del personal (`labor_hours`), que queda incluido.
+- **Guardia pasiva**: el aviso de "una sola persona por posición" ya no aplica (se rota quién está de guardia); informativo `guard_allowance` para cargar el adicional de guardia en "Adicionales" del puesto si no hay ninguno.
+- Informativo **`availability_unpaid`**: on call 24/7 o con guardia activa cobrando sólo lo trabajado, sin abono de disponibilidad ni mínimo mensual garantizado.
+
 **Plantillas como puntos de partida y esquemas de trabajo del personal (2026-11-07, pedido del dueño, PLAN-2026-024).** Ningún número de una cotización existente cambia (golden y baseline de regresión sin re-aprobar): los campos nuevos (`contract.templateId`, `activity.travelPattern`, `labor[i].rotation.pattern`) son opcionales y sin ellos todo se calcula como antes. Esquema sin cambio de versión.
 
 ### Cambiado
