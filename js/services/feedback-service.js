@@ -133,7 +133,17 @@ export function reportTitle(payload) {
  * Se recorta para no pasar el límite de largo de una URL.
  */
 export function githubIssueUrl(payload, { repoUrl = REPORT_REPO_URL } = {}) {
-  const params = new URLSearchParams({ title: reportTitle(payload), labels: REPORT_LABEL, body: reportText(payload).slice(0, 6000) });
+  // Con la plantilla (formulario) el label "reporte-app" se aplica aunque quien
+  // reporta no tenga permisos en el repo; cada campo se completa por su id.
+  const params = new URLSearchParams({
+    template: REPORT_TEMPLATE,
+    title: reportTitle(payload),
+    'que-paso': String(payload.what_happened || '').slice(0, 3000),
+    'que-esperabas': String(payload.expected || '').slice(0, 1500),
+    donde: `${payload.where_label || '—'} (${payload.route || '—'})`,
+    version: `${payload.app_version || '—'} · build ${payload.app_commit || '—'} · ${payload.context && payload.context.mode ? payload.context.mode : '—'}`,
+    navegador: `${payload.browser || '—'} · ${payload.viewport || '—'}`.slice(0, 450),
+  });
   return `${repoUrl}/issues/new?${params.toString()}`;
 }
 

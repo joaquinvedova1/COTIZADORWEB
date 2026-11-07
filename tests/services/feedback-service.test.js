@@ -65,9 +65,11 @@ describe('buildReportPayload / reportText / githubIssueUrl', () => {
     const p = buildReportPayload({ whatHappened: 'No avanza al tocar Siguiente' }, { location, version, mode: 'publico', tech });
     const url = new URL(githubIssueUrl(p));
     assert.equal(url.origin + url.pathname, 'https://github.com/joaquinvedova1/COTIZADORWEB/issues/new');
-    assert.equal(url.searchParams.get('labels'), 'reporte-app');
+    assert.equal(url.searchParams.get('template'), 'reporte-app.yml');
     assert.equal(url.searchParams.get('title'), '[Reporte] No avanza al tocar Siguiente');
-    assert.match(url.searchParams.get('body'), /No avanza/);
+    assert.equal(url.searchParams.get('que-paso'), 'No avanza al tocar Siguiente');
+    assert.match(url.searchParams.get('donde'), /Cotización › Equipos/);
+    assert.match(url.searchParams.get('version'), /0\.8\.1 · build abc1234 · publico/);
   });
 
   test('validación: al menos 5 letras', () => {
