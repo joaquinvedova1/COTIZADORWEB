@@ -55,6 +55,8 @@ export function createEconomicsContext(quote, model) {
     extras,
     rules: quote.rules || {},
     contractMonths: nonNegative(quote.contractMonths),
+    // Precio cerrado (A-1): trabajos que cubre el total del Resultado (vacío = 1). No cambia ningún cálculo del mes.
+    contractJobs: nonNegative(quote.contractJobs) > 0 ? nonNegative(quote.contractJobs) : null,
     commercialDiscountPct: nonNegative(pricing.commercialDiscountPct),
     routeKmPerActivation: model.logistics.routeKmPerActivation,
   };
@@ -63,18 +65,29 @@ export function createEconomicsContext(quote, model) {
 /**
  * Materiales facturados aparte (PLAN-2026-009): lo que se cobra por ellos,
  * fijo del mes y por día activo, con el recargo de reventa de cada línea.
- * null si la cotización no los factura aparte (la tarifa los cubre, como siempre).
+ * Por línea (tanda A 2026-11, A-8): `billedSeparately` true / false / sin
+ * definir (= el tilde global `pricing.materialsBilledSeparately`). Sólo suman
+ * las líneas que se facturan aparte. También devuelve su COSTO (fijo y por
+ * día), para mostrarlo en una fila propia del reparto de la tarifa.
+ * null si ninguna línea se factura aparte y el tilde global está apagado (la
+ * tarifa los cubre, como siempre).
  */
 export function materialsResaleOf(quote = {}, model = null) {
   const pricing = quote.pricing || {};
-  if (pricing.materialsBilledSeparately !== true || quote.materialsNotApplicable || !model || !model.materials) return null;
+  if (quote.materialsNotApplicable || !model || !model.materials) return null;
+  const global = pricing.materialsBilledSeparately === true;
   const lines = Array.isArray(model.materials.lines) ? model.materials.lines : [];
-  return lines.reduce((acc, l) => {
+  const billed = (l) => (l.billedSeparately === true || l.billedSeparately === false ? l.billedSeparately : global);
+  if (!global && !lines.some((l) => l.billedSeparately === true)) return null;
+  return lines.filter(billed).reduce((acc, l) => {
     const f = Number.isFinite(l.resaleFactor) ? l.resaleFactor : 1;
     acc.fixedMonthly += nonNegative(l.fixedMonthly) * f;
     acc.perActiveDay += nonNegative(l.variablePerActiveDay) * f;
+    acc.costFixedMonthly += nonNegative(l.fixedMonthly);
+    acc.costPerActiveDay += nonNegative(l.variablePerActiveDay);
+    acc.lines += 1;
     return acc;
-  }, { fixedMonthly: 0, perActiveDay: 0 });
+  }, { fixedMonthly: 0, perActiveDay: 0, costFixedMonthly: 0, costPerActiveDay: 0, lines: 0 });
 }
 
 /** Horas extra facturadas aparte (PLAN-2026-010): fijo del mes y por día activo; null si ninguna línea las factura. */

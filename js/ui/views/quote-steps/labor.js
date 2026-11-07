@@ -359,11 +359,13 @@ export function render(container, ctx) {
         kit.group(
           'Horas',
           formGrid(
-            3,
+            Array.isArray(line.overtime) ? 3 : 4,
             kit.num(`${p}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h/mes', illustrative: illustrativeParam(line, 'normalHoursPerMonth') }),
             // Sin tramos: el campo único de siempre (horas por día + un recargo).
             Array.isArray(line.overtime) ? null : kit.num(`${p}.overtimeHoursPerActiveDay`, { label: 'Horas extra por día activo', rule: 'hoursPerDay', unit: 'h/día', illustrative }),
             kit.num(`${p}.overtimePremiumPct`, { label: Array.isArray(line.overtime) ? 'Recargo de convenio (referencia)' : 'Recargo de horas extra', rule: 'percentOpen', unit: '%', illustrative: illustrativeParam(line, 'overtimePremiumPct'), hint: Array.isArray(line.overtime) ? 'Se usa al aplicar el convenio; cada tramo tiene su recargo.' : null }),
+            // Tanda A 2026-11 (A-5): opcional y SÓLO para el aviso de horas (no cambia el costo).
+            kit.num(`${p}.coverageHoursPerDay`, { label: 'Horas por día que cubre este puesto', rule: 'hoursPerDay', unit: 'h/día', hint: 'Opcional, sólo para el aviso de horas del personal: por ejemplo, 12 h si este puesto es el turno día de una operación de 24 h (el turno noche va en otra línea o posición). Vacío = las horas por día de trabajo de la actividad. No cambia el costo.' }),
           ),
           overtimeEditor(i, line),
         ),

@@ -1990,17 +1990,39 @@ function renderAppropriation(v) {
     className: 'qr-appropriation',
   });
   const months = c.contract.months;
-  const contract = months
-    ? h('div', { class: 'qr-contract' },
+  const offerBase = v.r.economicBase && v.r.economicBase.offerPeriod ? formatPeriodLong(v.r.economicBase.offerPeriod) : 'de la oferta (sin fecha de la oferta)';
+  const totals = (x) => h('dl', { class: 'qr-base-list' },
+    h('div', { class: 'qr-base-item' }, h('dt', {}, 'Facturación (sin IVA)'), h('dd', {}, money(x.revenue))),
+    h('div', { class: 'qr-base-item' }, h('dt', {}, 'Costo'), h('dd', {}, money(x.cost))),
+    h('div', { class: 'qr-base-item' }, h('dt', {}, 'Impuestos sobre lo que facturás'), h('dd', {}, money(x.billingTaxes))),
+    h('div', { class: ['qr-base-item', c.loss ? 'qr-tone-red' : taxesLabel ? 'qr-tone-orange' : 'qr-tone-green'] }, h('dt', {}, c.loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)'), h('dd', {}, money(x.profit))));
+  let contract = null;
+  if (c.contract.mode === 'closed') {
+    // Precio cerrado (tanda A 2026-11, A-1): el total es por trabajo, nunca × meses de contrato.
+    const x = c.contract;
+    const jobs = hasValue(x.jobs) && x.jobs > 0 ? x.jobs : 1;
+    const perMonth = hasValue(x.jobsPerMonth) ? x.jobsPerMonth : null;
+    const one = Math.abs(jobs - 1) < 1e-9;
+    const milestones = v.r.unit === 'event' && v.r.unitInfo && v.r.unitInfo.id === 'milestone' && hasValue(x.unitsPerJob) ? x.unitsPerJob : null;
+    const how = [
+      perMonth !== null && Math.abs(perMonth - 1) > 1e-9 ? `Los valores del mes ÷ ${formatNumber(perMonth, { decimals: 2 })} trabajos por mes = un trabajo.` : null,
+      milestones !== null ? `Cada trabajo factura ${formatNumber(milestones, { decimals: 2 })} ${Math.abs(milestones - 1) < 1e-9 ? 'hito' : 'hitos'}.` : null,
+      !one ? `Total = un trabajo × ${formatNumber(jobs, { decimals: 2 })} trabajos (se cambia en "Contrato", Más datos de la cotización).` : null,
+    ].filter(Boolean).join(' ');
+    contract = perMonth === null
+      ? null
+      : h('div', { class: 'qr-contract' },
+        h('h4', { class: 'qr-subhead' }, one ? 'Total del trabajo' : `Total de la obra (${formatNumber(jobs, { decimals: 2 })} trabajos)`),
+        totals(x),
+        how ? note(how) : null,
+        banner(`Valores constantes a base ${offerBase}. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }));
+  } else if (months) {
+    contract = h('div', { class: 'qr-contract' },
       h('h4', { class: 'qr-subhead' }, `Total del contrato (${formatNumber(months)} ${months === 1 ? 'mes' : 'meses'})`),
-      h('dl', { class: 'qr-base-list' },
-        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Facturación (sin IVA)'), h('dd', {}, money(c.contract.revenue))),
-        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Costo'), h('dd', {}, money(c.contract.cost))),
-        h('div', { class: 'qr-base-item' }, h('dt', {}, 'Impuestos sobre lo que facturás'), h('dd', {}, money(c.contract.billingTaxes))),
-        h('div', { class: ['qr-base-item', c.loss ? 'qr-tone-red' : taxesLabel ? 'qr-tone-orange' : 'qr-tone-green'] }, h('dt', {}, c.loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)'), h('dd', {}, money(c.contract.profit)))),
+      totals(c.contract),
       // Valores constantes (PLAN-2026-010): sin escalación ni índices; muy visible.
-      banner(`Valores constantes a base ${v.r.economicBase && v.r.economicBase.offerPeriod ? formatPeriodLong(v.r.economicBase.offerPeriod) : 'de la oferta (sin fecha de la oferta)'}: el total multiplica el mes por ${formatNumber(months)} con la misma actividad todos los meses. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }))
-    : null;
+      banner(`Valores constantes a base ${offerBase}: el total multiplica el mes por ${formatNumber(months)} con la misma actividad todos los meses. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }));
+  }
   return card(header,
     tbl,
     taxesLabel ? note('La ganancia no descuenta los impuestos sobre lo que facturás: cargalos en "El precio" para verla completa.') : null,
@@ -3568,8 +3590,10 @@ function deepDefinitions(v) {
     },
     {
       key: 'appropriation',
-      summary: 'Ver reparto de la tarifa y total del contrato',
-      hint: v.r.ctx && v.r.ctx.contractMonths > 0
+      summary: v.composition && v.composition.contract && v.composition.contract.mode === 'closed' ? 'Ver reparto de la tarifa y total del trabajo' : 'Ver reparto de la tarifa y total del contrato',
+      hint: v.composition && v.composition.contract && v.composition.contract.mode === 'closed'
+        ? 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del trabajo.'
+        : v.r.ctx && v.r.ctx.contractMonths > 0
         ? `Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total de los ${formatNumber(v.r.ctx.contractMonths)} meses de contrato.`
         : 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del contrato.',
       build: () => [safeSection('Apropiación', () => renderAppropriation(v))],

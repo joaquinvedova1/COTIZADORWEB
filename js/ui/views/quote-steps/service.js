@@ -302,6 +302,15 @@ export function render(container, ctx) {
         unit: 'meses',
         hint: `Se usa para el descuento por continuidad (en ${step('margin')}).`,
       }),
+      // Precio cerrado (tanda A 2026-11, A-1): el total del Resultado es por trabajo, no por meses.
+      contract.mode === 'closed'
+        ? kit.num('contractJobs', {
+          label: 'Trabajos que cubre el total',
+          rule: 'quantity',
+          unit: 'trabajos',
+          hint: 'Con precio cerrado, el Resultado muestra el total de un trabajo. Si la obra son varios trabajos iguales, cargá cuántos. Vacío = 1.',
+        })
+        : null,
     ),
     kit.text('notes', {
       label: 'Notas internas',

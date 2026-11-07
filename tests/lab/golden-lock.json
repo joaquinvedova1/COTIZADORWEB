@@ -157,6 +157,10 @@
     "unidad-transporte-viaje": {
       "sha256": "1a185a8ae73d9d736281c10b4129cbca839a43c43ae42873db159344f1d0988d",
       "approved": "aprobado antes de PLAN-2026-013"
+    },
+    "movilizacion-remolque-arrastrado": {
+      "sha256": "536341e2b8f396b797a8a6c78f68696bc92359edf296386822b06e2f12a0798a",
+      "approved": "Tanda A 2026-11 (A-3): golden nuevo del plan del informe auditado docs/informes/2026-11-especialistas-auditado.md (remolque arrastrado: +89.600 por trabajo)"
     }
   }
 }
