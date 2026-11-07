@@ -743,6 +743,31 @@ export function evaluateCompleteness(quote = {}) {
             : `Movilización posiblemente duplicada: el proveedor de "${mobilizationTwice[0].name || 'Externo'}" cobra la movilización aparte y además lo marcaste "por sus propios medios" (se suman km, combustible y desgaste).`));
   }
 
+  // 9d bis. Personal ↔ logística / materiales: el mismo costo en dos lugares (PLAN-2026-024).
+  // Sólo señales con datos de los dos lados (nunca se descuenta nada): comidas en el puesto y en
+  // los viáticos, traslado del puesto y vehículos de la logística, EPP del puesto y EPP en
+  // materiales. Aparece sólo si hay una señal (sin ítem "ok": no cambia otras cotizaciones).
+  {
+    const normTxt = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const staffed = labor.filter((l) => nonNegative(l.positions) > 0);
+    const roleOf = (l) => (typeof l.role === 'string' && l.role.trim()) || 'Puesto';
+    const hints = [];
+    const lodgingDetail = isPlainObject(logistics.lodgingDetail) ? logistics.lodgingDetail : null;
+    const mealsInTravel = !logistics.notApplicable && lodgingDetail && nonNegative(lodgingDetail.perDay) > 0 && nonNegative(lodgingDetail.days) > 0 && nonNegative(logistics.lodgingPerActivation) > 0;
+    const mealLine = staffed.find((l) => nonNegative(l.mealPerActiveDay) > 0);
+    if (mealsInTravel && mealLine) hints.push({ focus: `labor.${labor.indexOf(mealLine)}.mealPerActiveDay`, text: `"${roleOf(mealLine)}" tiene vianda por día y los viáticos de "Viajes" también suman comidas por día: si son las mismas, dejá una sola.` });
+    const transferLine = staffed.find((l) => nonNegative(l.transferMonthly) > 0);
+    if (transferLine && !logistics.notApplicable && vehicles.length > 0) hints.push({ focus: `labor.${labor.indexOf(transferLine)}.transferMonthly`, text: `"${roleOf(transferLine)}" tiene traslado por mes y además hay vehículos en "Viajes": si el vehículo es el que lleva al personal, el traslado del puesto se cuenta dos veces.` });
+    const ppeLine = staffed.find((l) => nonNegative(l.ppeMonthly) > 0);
+    const ppeMaterial = materials.find((m) => /\b(epp|proteccion personal|ropa de trabajo)\b/.test(normTxt(m.description)));
+    if (ppeLine && ppeMaterial) hints.push({ focus: `labor.${labor.indexOf(ppeLine)}.ppeMonthly`, text: `"${roleOf(ppeLine)}" tiene EPP por mes y en materiales está "${ppeMaterial.description}": si es el mismo EPP, cargalo en un solo lugar (el básico en el puesto, el especial en materiales).` });
+    if (hints.length) {
+      const item = rule('double_cost_hints', 'Mismo costo en dos lugares', 'labor', 1, 'warning', `Revisá: ${hints.map((x) => x.text).join(' ')}`);
+      item.focus = hints[0].focus;
+      items.push(item);
+    }
+  }
+
   // 9e. Base económica (fecha base de los valores) y su antigüedad
   const baseInfo = summarizeEconomicBase(quote);
   if (baseInfo.entries.length > 0) {
