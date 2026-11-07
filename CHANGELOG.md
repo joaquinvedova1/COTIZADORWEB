@@ -12,6 +12,15 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Más unidades de medida (2026-11-07, pedido del dueño).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (las unidades se guardan por id, como siempre).
+
+### Agregado
+
+- **25 unidades de facturación nuevas, en español**: energía y potencia ($/kWh, $/MWh, $/MJ, $/GJ, $/MMBTU, $/kW-día, $/kVA-día para grupos electrógenos, $/HP-hora para bombas y compresores), $/m³ de gas, $/hora de equipo, $/día-equipo, $/jornal, $/guardia, $/etapa, $/metro perforado, $/conexión, $/pulgada-diámetro, $/junta soldada, $/boca, $/pallet, $/contenedor, $/tambor, $/bolsa, $/muestra y $/análisis. Todas se calculan como las de cantidad (cantidad ÷ rendimiento = días de trabajo). Volt, amper, psi o caudal no se agregan como unidad de cobro: describen el equipo.
+- **"¿En qué unidad cobrás?" con buscador** (por nombre o sinónimo: "joule", "potencia", "soldadura") y el grupo de cada unidad; sin resultados ofrece "Otra / personalizada".
+- **Aviso** si con $/jornal, $/día-equipo o $/hora de equipo lo facturado por día no coincide con las personas o equipos cargados (los costos salen de lo cargado).
+- Capacidad por viaje también para m³ de gas (GNC), pallets, contenedores, tambores y bolsas. Más unidades de materiales: bidón, caja, rollo, par, juego, pallet, big bag, barril, m³ de gas, kWh.
+
 **Reportes por Supabase encendidos (2026-11-07).** Con autorización del dueño se aplicó la migración `20261107021710_rateos_bug_reports` y se desplegó la Edge Function `bug-report-github`; `FEATURES.bugReportsCloud = true`: con sesión, "Reportar un problema" se envía desde la app sin cuenta de GitHub.
 
 **Testeo con especialistas — UI (2026-11, tanda A del informe auditado `docs/informes/2026-11-especialistas-auditado.md`).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (`contract` ya era opcional y `activity.availability` puede quedar sin definir).
