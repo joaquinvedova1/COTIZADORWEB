@@ -30,7 +30,7 @@ import { nonNegative, toNumber } from '../core/money.js';
 import { contractOf } from '../domain/contract.js';
 import { computeExtras } from './extras-engine.js';
 import { EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
-import { billingUnitOf, unitTexts, perBillableUnitBasis } from '../domain/billing-units.js';
+import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent, formatNumber, formatMoney } from '../core/format.js';
 import { baseLabel } from '../domain/economic-base.js';
@@ -39,7 +39,8 @@ import { billingTaxInfo } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
-import { contingencyPctOf, normalizeActivity, monthsFactor } from './cost-engine.js';
+import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay } from './cost-engine.js';
+import { outputPerActiveDayOf, normalizeBasisId } from './materials-engine.js';
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
@@ -294,23 +295,37 @@ export function evaluateCompleteness(quote = {}) {
     const extOk = extMissing.length === 0;
     const ok = equipment.length > 0 && ownOk && extOk;
     const names = (list, fallback) => list.map(({ e }) => `"${(typeof e.name === 'string' && e.name.trim()) || fallback}"`).join(', ');
-    const item = rule('equipment_cost', 'Costo de equipos', 'equipment', 2, ok ? 'ok' : 'missing',
-      ok
-        ? 'Equipos propios con valor de reposición y vida útil; externos con tarifa.'
-        : equipment.length === 0
-          ? 'El servicio usa equipos pero no hay equipos cargados.'
-          : !ownOk
-            ? `Hay equipos propios sin valor de reposición o sin vida útil (falta su amortización): ${names(ownMissing, 'Equipo')}.`
-            : `Hay equipos alquilados o tercerizados sin tarifa del proveedor: ${names(extMissing, 'Recurso externo')}. Completá la tarifa o quitá la línea.`);
-    item.targets = [...ownMissing, ...extMissing].map(({ e, index }) => ({ list: 'equipment', index, name: (typeof e.name === 'string' && e.name.trim()) || 'Equipo' }));
-    // El botón lleva al dato que falta de la primera línea que nombra el mensaje (Test Lab, PLAN-2026-013).
-    if (!ownOk) {
-      const { e, index } = ownMissing[0];
-      item.focus = `equipment.${index}.${nonNegative(e.replacementValue) > 0 ? 'usefulLifeYears' : 'replacementValue'}`;
-    } else if (!extOk) {
-      item.focus = `equipment.${extMissing[0].index}.external.price`;
+    // Componentes (PLAN-2026-021): si el único equipo del servicio es un vehículo y ya
+    // está en "Movilización y viajes" con su costo por km, no falta: se avisa que ese
+    // costo no incluye lo fijo del mes (amortización, seguro, patente).
+    const comps = !contract.legacy && isPlainObject(quote.contract) && Array.isArray(quote.contract.components) ? quote.contract.components : null;
+    const onlyVehicle = comps && comps.includes('vehicle') && !comps.includes('machinery') && !comps.includes('subcontract');
+    const routeVehicleIndex = logistics.notApplicable || !(nonNegative(logistics.distanceKm) > 0) ? -1 : vehicles.findIndex((v) => nonNegative(v.count) > 0 && nonNegative(v.costPerKm) > 0);
+    const routeVehicle = routeVehicleIndex >= 0 ? vehicles[routeVehicleIndex] : null;
+    if (equipment.length === 0 && onlyVehicle && routeVehicle) {
+      const item = rule('equipment_cost', 'Costo de equipos', 'equipment', 2, 'warning',
+        `El vehículo está en "Movilización y viajes" (${(typeof routeVehicle.name === 'string' && routeVehicle.name.trim()) || 'Vehículo'}, costo por km): ese costo cubre los km, no lo fijo del mes (amortización, seguro, patente). Si el vehículo está afectado a este servicio, cargalo en Equipos y sacalo de Viajes para no contarlo dos veces.`);
+      item.focus = `logistics.vehicles.${routeVehicleIndex}.costPerKm`;
+      items.push(item);
+    } else {
+      const item = rule('equipment_cost', 'Costo de equipos', 'equipment', 2, ok ? 'ok' : 'missing',
+        ok
+          ? 'Equipos propios con valor de reposición y vida útil; externos con tarifa.'
+          : equipment.length === 0
+            ? 'El servicio usa equipos pero no hay equipos cargados.'
+            : !ownOk
+              ? `Hay equipos propios sin valor de reposición o sin vida útil (falta su amortización): ${names(ownMissing, 'Equipo')}.`
+              : `Hay equipos alquilados o tercerizados sin tarifa del proveedor: ${names(extMissing, 'Recurso externo')}. Completá la tarifa o quitá la línea.`);
+      item.targets = [...ownMissing, ...extMissing].map(({ e, index }) => ({ list: 'equipment', index, name: (typeof e.name === 'string' && e.name.trim()) || 'Equipo' }));
+      // El botón lleva al dato que falta de la primera línea que nombra el mensaje (Test Lab, PLAN-2026-013).
+      if (!ownOk) {
+        const { e, index } = ownMissing[0];
+        item.focus = `equipment.${index}.${nonNegative(e.replacementValue) > 0 ? 'usefulLifeYears' : 'replacementValue'}`;
+      } else if (!extOk) {
+        item.focus = `equipment.${extMissing[0].index}.external.price`;
+      }
+      items.push(item);
     }
-    items.push(item);
   }
 
   // Ruta física (PLAN-2026-012): con la unidad "viaje" los viajes por
@@ -425,6 +440,18 @@ export function evaluateCompleteness(quote = {}) {
       item.targets = [{ list: 'materials', index: incomplete.index, name: incomplete.m.description || 'Material' }];
     }
     items.push(item);
+    // Por unidad producida (PLAN-2026-021): sin producción por día el consumo suma $ 0.
+    const autoOut = autoOutputPerActiveDay(normalizeActivity(quote));
+    const noOutput = materials.map((m, index) => ({ m, index })).filter(({ m }) => normalizeBasisId(m.basis) === 'per_output' && paidByUs(m)
+      && nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0 && !(outputPerActiveDayOf(m, autoOut, unit) > 0));
+    if (noOutput.length) {
+      const first = noOutput[0];
+      const out = rule('materials_output', 'Producción por día', 'materials', 2, 'missing',
+        `"${(typeof first.m.description === 'string' && first.m.description.trim()) || 'Material'}" se consume por unidad producida y falta cuántas se producen por día de trabajo: hasta cargarlo no suma costo.`);
+      out.focus = `materials.${first.index}.outputPerActiveDay`;
+      out.targets = noOutput.map(({ m, index }) => ({ list: 'materials', index, name: m.description || 'Material' }));
+      items.push(out);
+    }
   }
 
   // 9. Logística: ruta + cómo se llega (equipos que se movilizan o vehículos auxiliares)
@@ -921,9 +948,9 @@ export function evaluateCompleteness(quote = {}) {
       targets: [{ list: 'labor', index, name }],
     });
   });
-  // Material "por día" que parece "por unidad" (tanda B 2026-11, B-2): cobrás por cantidad y la
-  // cantidad por día del material es igual a las unidades por día. Si cambia el rendimiento, el
-  // costo por unidad se desajusta en silencio; con "Por <unidad>" se mueve solo. Nunca se convierte solo.
+  // Material "por día" que parece "por unidad" (tanda B 2026-11, B-2, PLAN-2026-022): cobrás por
+  // cantidad y la cantidad por día del material es igual a las unidades por día. Si cambia el
+  // rendimiento, el costo por unidad se desajusta en silencio; con "Por unidad producida" se mueve solo. Nunca se convierte solo.
   if (act.unitKind === 'quantity' && act.unitsPerActiveDay > 0 && quote.materialsNotApplicable !== true) {
     const unit = billingUnitOf(quote);
     (Array.isArray(quote.materials) ? quote.materials : []).forEach((m, index) => {
@@ -937,7 +964,7 @@ export function evaluateCompleteness(quote = {}) {
         step: 'materials',
         severity: 'info',
         label: `¿Es por ${unit.singular}?`,
-        message: `"${name}" está cargado por día (${n} por día) y hacés ${n} ${unit.plural} por día. Si se consume por ${unit.singular}, elegí "${perBillableUnitBasis(unit).label}" en "¿Cada cuánto se consume?" con la cantidad de cada ${unit.singular}: así el costo por ${unit.singular} no cambia si cambia el rendimiento. RATEOS no lo cambia solo.`,
+        message: `"${name}" está cargado por día (${n} por día) y hacés ${n} ${unit.plural} por día. Si se consume por ${unit.singular}, elegí "Por unidad producida" en "¿Cada cuánto se consume?" con la cantidad de cada ${unit.singular}: así el costo por ${unit.singular} no cambia si cambia el rendimiento. RATEOS no lo cambia solo.`,
         focus: `materials.${index}.basis`,
         targets: [{ list: 'materials', index, name }],
       });

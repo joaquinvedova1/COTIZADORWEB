@@ -117,8 +117,9 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
-| PLAN-2026-021 | Tanda B (especialistas 2026-11, B-1): diagrama de rotación por puesto → nómina, personas en sitio, relevos y turnos | motor de personal, completitud, UX | Implementado |
-| PLAN-2026-022 | Tanda B (especialistas 2026-11): materiales y otros costos por unidad facturada (B-2), mínimo garantizado en unidades con ventana de pérdida (B-3) y aviso "Unidad del proveedor" (H-04) | motor de costos, utilización, completitud, UX | Implementado |
+| PLAN-2026-021 | Pendientes de componentes: insumos por unidad producida, viáticos por personas y noches, vehículo en Viajes | motor de costos, completitud, UX | Implementado (#48) |
+| PLAN-2026-022 | Tanda B (especialistas 2026-11): materiales y otros costos por unidad producida, unificada con PLAN-2026-021 (B-2), mínimo garantizado en unidades con ventana de pérdida (B-3) y aviso "Unidad del proveedor" (H-04) | motor de costos, utilización, completitud, UX | Implementado |
+| PLAN-2026-023 | Tanda B (especialistas 2026-11, B-1): diagrama de rotación por puesto → nómina, personas en sitio, relevos y turnos | motor de personal, completitud, UX | Implementado |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1219,7 +1220,46 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 
 **Rollback:** redeploy del backup de main; la tabla y las funciones quedan sin uso (no tocan datos de clientes).
 
-### PLAN-2026-021 — Tanda B (B-1): diagrama de rotación por puesto → nómina, relevos y turnos
+### PLAN-2026-021 — Pendientes de componentes: insumos por unidad producida, viáticos por personas y noches, vehículo en Viajes
+
+**Pedido del dueño (2026-11-07):** "Corré todo vos": avanzar los pendientes de PLAN-2026-019 sin esperar.
+
+**Decisión:**
+1. Base de material `per_output` (sólo en cotizaciones): costo por día = costo por unidad × producción por día (`outputPerActiveDay` de la línea o, si se cobra por cantidad/hora, la de la cotización). Pendiente `materials_output` si falta.
+2. Viáticos: calculadora en la UI que llena `logistics.lodgingPerActivation` y guarda `logistics.lodgingDetail` para rehacerla. El motor no cambia.
+3. `equipment_cost`: con componentes y "Vehículo" como único equipo, sin líneas en Equipos y con un vehículo en Viajes con costo por km → aviso, no crítico.
+
+**Compatibilidad:** las bases existentes no cambian; tests en `tests/engines/component-followups.test.js`.
+
+### PLAN-2026-022 — Tanda B: materiales por unidad, mínimo en unidades y aviso del proveedor
+
+- Estado: implementado en rama, desde `main` `2131bef`; integrado con `main` después del #48 (PLAN-2026-021). B-1 (diagrama de rotación) es PLAN-2026-023.
+- **Unificación con PLAN-2026-021 (al integrar):** las dos ramas agregaron casi la misma base (`per_output` "por unidad producida" en `main`, `per_billable_unit` "por unidad facturada" acá). Queda **una sola**: `per_output`, rotulada "Por unidad producida" (sirve también cuando lo producido no es lo que se cobra: m² cobrando por viaje). `per_output` ya estaba publicada y sus números no cambian por cantidad ni por hora; se le suma lo de esta rama: `usagePct` (% de las unidades que lo usan), la producción automática también por día (1), llamado, trabajo e hito (hitos ÷ días por trabajo) y la base en Otros costos. Por mes sigue en 0 (la línea carga su producción; pendiente `materials_output`), no como fijo del mes. `per_billable_unit` nunca se publicó: deja de existir como id y se acepta como alias de `per_output` (`normalizeBasisId`).
+- Origen: informe auditado `docs/informes/2026-11-especialistas-auditado.md` §5 (B-2: H-11; B-3: H-13, H-29) y decisión del dueño sobre H-04 (ECO-01).
+- Principio del dueño: nunca limitar a opciones fijas; ante ambigüedad, una opción que elige quien cotiza con un default sensato. Cotizaciones existentes: **exactamente** los mismos números.
+
+#### 1. Impacto en fórmulas
+- **B-2** (`materials-engine.js`, `cost-engine.js`): base `per_output` (PLAN-2026-021) ampliada, en materiales y en otros costos. `variable por día = costo × % que lo usa × unidades producidas por día` (las de la línea o `autoOutputPerActiveDay`: cantidad q, hora H, día 1, llamado / trabajo / hito h ÷ días por trabajo; mes 0). Sin relleno del mínimo por llamado. Sin costo discreto por salida. Antes → después (válvulas C1, $ 18.000 por válvula, 6 por día): cargado por día 24.000 por válvula y sugerida 311.000 → "Por unidad producida" 18.000 y 301.000. Las bases existentes no cambian.
+- **B-3** (`commercial-rules-engine.js`): `rules.minimumGuaranteeBasis` ('amount' por defecto | 'units') y `rules.minimumGuaranteeUnits`. En unidades: `ajuste = max(0, N × meses − unidades facturables) × tarifa neta`. Orden de cálculo documentado (CALCULATION_RULES §12): la sugerida sin el mínimo, después la tarifa comercial, después el mínimo. Antes → después (24 h C2, tarifa 3.233.000, mínimo 20 días, 15 días): no se podía cargar → facturación 64.660.000, ajuste 16.165.000 (igual que el monto en $ cargado a mano).
+- **H-29** (`break-even-engine.js`, `quote-engine.js`): `findLossWindows` y `breakEven.lossWindows` / `guaranteeProtects` (sólo con mínimo). El break-even no cambia. C2: se pierde entre 15,85 y 20,97 días.
+- **H-04** (`completeness-engine.js`): `external_unit_trips` pasa a `warning` (no crítico, no `unreliable`) si todas las líneas "por salida" ambiguas tienen la movilización incluida o los viajes de la ruta son de vehículos propios y el externo no va por sus medios. Ninguna fórmula cambia; sí el puntaje de completitud de esas cotizaciones (crítico → amarillo).
+
+#### 2. Impacto en datos
+Esquema sin cambio. Campos opcionales: `materials[].usagePct`, `otherCosts[].usagePct`, `otherCosts[].behavior = 'per_output'` (en materiales `per_output`, `outputUnit` y `outputPerActiveDay` vienen de PLAN-2026-021), `rules.minimumGuaranteeBasis`, `rules.minimumGuaranteeUnits`. `usagePct`, `outputUnit` y `outputPerActiveDay` se conservan al actualizar una línea desde Recursos. Una versión anterior lee `per_output` en Otros costos como "fijo mensual" (de más o de menos según el caso): riesgo aceptado, igual que otras bases nuevas; la opción sólo aparece si la persona la elige.
+
+#### 3. Pasos
+- [x] Motores (B-2, B-3, H-29, H-04) y validación (`usagePct` 0–100, `minimumGuaranteeUnits` ≥ 0).
+- [x] UI: "¿Cada cuánto se consume?" / "Comportamiento" con "Por unidad producida" (en Otros costos, salvo con abono mensual) y "% de <unidades> que lo usan"; "¿Cómo se expresa el mínimo?" en "Cómo se cobra" y en Reglas comerciales; ventana de pérdida en el Resultado.
+- [x] Tests: `tests/engines/tanda-b-2026-11.test.js` (fixtures `especialista-valvulas-c1.json`, `especialista-24h-c2.json`), ECO-01 actualizado con justificación.
+- [x] Docs: CALCULATION_RULES §4.1, §6, §12, §13, §15, §19; CHANGELOG.
+
+#### 4. Review multidisciplinario
+- Economía: el costo por unidad sigue a la producción, no al calendario; con el rendimiento de siempre da lo mismo que la carga por día. El mínimo en unidades no es circular (la sugerida no lo cuenta).
+- QA: golden y baseline sin re-aprobar; 118 cotizaciones de los especialistas idénticas en cifras (sólo cambia `external_unit_trips` crítico → amarillo en una parada de válvulas con movilización incluida); 0 días, mínimo 0, más días que los disponibles (× meses), por hora con mínimo por llamado.
+- Seguridad: inputs validados; sin cambios de base, Auth ni CSP.
+- UX: un solo rótulo ("Por unidad producida") y la unidad en la cuenta ("1 u./válvula", "% de válvulas que lo usan"); la ventana de pérdida se dice con números; el aviso del proveedor sigue a la vista pero ya no bloquea cuando lo habitual es que vaya una vez.
+
+### PLAN-2026-023 — Tanda B (B-1): diagrama de rotación por puesto → nómina, relevos y turnos
 
 **Origen:** informe auditado de los 5 especialistas (`docs/informes/2026-11-especialistas-auditado.md` §5, B-1; hallazgos H-12, H-07, H-06, H-14). Los especialistas 24h (14x14) y 2x1 (14x7) tuvieron que convertir el diagrama a mano, cargar 1,5 o 1,6667 personas por posición ("5,0001 personas"), saltear el aviso de horas y cargar 0,0714 / 0,143 viajes por intervención para no costear 30 relevos por mes. Principio del dueño: nada de listas cerradas, todo moldeable; lo ambiguo es una opción con default sensato.
 
@@ -1230,7 +1270,9 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 4. **Relevos sin driver nuevo:** en fijo mensual (y servicio permanente) el botón "Usar como días entre relevos" carga `activity.daysPerActivation` = días en sitio ÷ grupos, el campo que la tanda A ya mostró y que el motor ya usa (intervenciones por mes = días ÷ intervalo). Ventajas: cero fórmulas nuevas, los viajes, viáticos y costos por intervención ya existentes pasan a contarse por relevo con 1 viaje entero; el especialista ya validó el número (variante G). Se descartó por ahora un driver propio de "Relevos" (personas × costo por relevo × relevos por mes): duplicaba logística (vehículo, km, peajes, viáticos) y obligaba a decidir dónde vive cada costo (AGENTS §5.1, "cada costo en un solo lugar"). Costo de la elección: si alguien cargó como "por intervención" algo que es por día (campamento), al cambiar el intervalo eso se cuenta por relevo; la UI lo avisa junto al botón.
 5. **Aviso de horas con turnos:** si el puesto no tiene "Horas por día que cubre este puesto", el aviso usa las horas por turno del diagrama; personas por posición = nómina ÷ posiciones. Sólo aviso.
 6. **"N en sitio · M en nómina"** en el subtítulo del puesto (con nómina o diagrama) y en el Resultado ("Personal: …", con diagrama y relevos por mes).
-7. **Campamento por persona en sitio:** el asistente muestra personas en sitio por día y persona-días por mes. El costo "por persona en sitio por día" en Otros costos queda para B-6 (vive en `materials-engine.js`, que en esta ronda toca otra tanda).
+7. **Campamento por persona en sitio:** el asistente muestra personas en sitio por día y persona-días por mes. El costo "por persona en sitio por día" en Otros costos queda para B-6 (vive en `materials-engine.js`, que en esta ronda toca otra tanda)
+
+**Numeración:** se escribió como PLAN-2026-021 en su rama; al integrarse con `main` (#48 ya usaba PLAN-2026-021) pasó a PLAN-2026-023.
 
 **Compatibilidad:** sin cambio de `SCHEMA_VERSION` (campos opcionales). Ningún número existente cambia: golden cases y la foto de regresión siguen iguales sin re-aprobar huellas. "Actualizar desde Recursos" conserva `payrollHeadcount` y `rotation` (son de la cotización).
 
@@ -1241,30 +1283,3 @@ Revert del PR. Los datos con `tripBasis` quedan válidos en la versión anterior
 **Review (AGENTS §18):** Economía: la nómina sólo cambia el fijo; el variable sigue en las posiciones (los que trabajan en sitio). QA: 0 días en sitio, franco 0, campos vacíos o negativos, 0 posiciones con nómina → sin NaN y sin propuesta. Seguridad: validación de rangos (`validateQuote`). UX: todo editable, acción explícita, traza "Ver cálculo".
 
 **Fuera de alcance (siguiente paso):** Otros costos por persona en sitio por día y por persona por relevo (B-6); driver propio de relevos para on call / por servicio / precio cerrado (personas, medio, km, peajes, horas de viaje); horas extra por día en sitio derivadas del turno (no hay dato de jornada diaria); control de días seguidos sin franco.
-
-### PLAN-2026-022 — Tanda B: materiales por unidad, mínimo en unidades y aviso del proveedor
-
-- Estado: implementado en rama (sin push), desde `main` `2131bef`. B-1 (diagrama de rotación) va en paralelo, en otra rama: no se tocan Personal ni su motor.
-- Origen: informe auditado `docs/informes/2026-11-especialistas-auditado.md` §5 (B-2: H-11; B-3: H-13, H-29) y decisión del dueño sobre H-04 (ECO-01).
-- Principio del dueño: nunca limitar a opciones fijas; ante ambigüedad, una opción que elige quien cotiza con un default sensato. Cotizaciones existentes: **exactamente** los mismos números.
-
-#### 1. Impacto en fórmulas
-- **B-2** (`materials-engine.js`, `cost-engine.js`): base nueva `per_billable_unit` en materiales y en otros costos. `variable por día = costo × % que lo usa × unidades trabajadas por día` (`billingUnitsPerActiveDay`: día 1, hora H, cantidad q, hito h ÷ días por trabajo; mes = fijo). Sin relleno del mínimo por llamado. Sin costo discreto por salida. Antes → después (válvulas C1, $ 18.000 por válvula, 6 por día): cargado por día 24.000 por válvula y sugerida 311.000 → "Por válvula" 18.000 y 301.000. Las bases existentes no cambian.
-- **B-3** (`commercial-rules-engine.js`): `rules.minimumGuaranteeBasis` ('amount' por defecto | 'units') y `rules.minimumGuaranteeUnits`. En unidades: `ajuste = max(0, N × meses − unidades facturables) × tarifa neta`. Orden de cálculo documentado (CALCULATION_RULES §12): la sugerida sin el mínimo, después la tarifa comercial, después el mínimo. Antes → después (24 h C2, tarifa 3.233.000, mínimo 20 días, 15 días): no se podía cargar → facturación 64.660.000, ajuste 16.165.000 (igual que el monto en $ cargado a mano).
-- **H-29** (`break-even-engine.js`, `quote-engine.js`): `findLossWindows` y `breakEven.lossWindows` / `guaranteeProtects` (sólo con mínimo). El break-even no cambia. C2: se pierde entre 15,85 y 20,97 días.
-- **H-04** (`completeness-engine.js`): `external_unit_trips` pasa a `warning` (no crítico, no `unreliable`) si todas las líneas "por salida" ambiguas tienen la movilización incluida o los viajes de la ruta son de vehículos propios y el externo no va por sus medios. Ninguna fórmula cambia; sí el puntaje de completitud de esas cotizaciones (crítico → amarillo).
-
-#### 2. Impacto en datos
-Esquema sin cambio. Campos opcionales: `materials[].usagePct`, `otherCosts[].usagePct`, `materials[].basis = 'per_billable_unit'`, `otherCosts[].behavior = 'per_billable_unit'`, `rules.minimumGuaranteeBasis`, `rules.minimumGuaranteeUnits`. `usagePct` se conserva al actualizar una línea desde Recursos. Una versión anterior lee `per_billable_unit` como "por mes" (de más o de menos según el caso): riesgo aceptado, igual que otras bases nuevas; la opción sólo aparece si la persona la elige.
-
-#### 3. Pasos
-- [x] Motores (B-2, B-3, H-29, H-04) y validación (`usagePct` 0–100, `minimumGuaranteeUnits` ≥ 0).
-- [x] UI: "¿Cada cuánto se consume?" / "Comportamiento" con "Por <unidad> (la unidad que cobrás)" (cobrando por hora, cantidad o hito) y "% de <unidades> que lo usan"; "¿Cómo se expresa el mínimo?" en "Cómo se cobra" y en Reglas comerciales; ventana de pérdida en el Resultado.
-- [x] Tests: `tests/engines/tanda-b-2026-11.test.js` (fixtures `especialista-valvulas-c1.json`, `especialista-24h-c2.json`), ECO-01 actualizado con justificación.
-- [x] Docs: CALCULATION_RULES §4.1, §6, §12, §13, §15, §19; CHANGELOG.
-
-#### 4. Review multidisciplinario
-- Economía: el costo por unidad sigue a la producción, no al calendario; con el rendimiento de siempre da lo mismo que la carga por día. El mínimo en unidades no es circular (la sugerida no lo cuenta).
-- QA: golden y baseline sin re-aprobar; 118 cotizaciones de los especialistas idénticas en cifras (sólo cambia `external_unit_trips` crítico → amarillo en una parada de válvulas con movilización incluida); 0 días, mínimo 0, más días que los disponibles (× meses), por hora con mínimo por llamado.
-- Seguridad: inputs validados; sin cambios de base, Auth ni CSP.
-- UX: rótulos con el nombre de la unidad; la ventana de pérdida se dice con números; el aviso del proveedor sigue a la vista pero ya no bloquea cuando lo habitual es que vaya una vez.

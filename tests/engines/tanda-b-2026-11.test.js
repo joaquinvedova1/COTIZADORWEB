@@ -1,7 +1,8 @@
 /**
  * Tanda B de correcciones (informe auditado de 5 especialistas, 2026-11,
  * docs/informes/2026-11-especialistas-auditado.md §5): B-2 (materiales y otros
- * costos por unidad facturada), B-3 (mínimo garantizado en unidades y ventana
+ * costos por unidad producida: la base `per_output` de PLAN-2026-021 con el % de
+ * unidades que lo usan, unificada en PLAN-2026-022), B-3 (mínimo garantizado en unidades y ventana
  * de pérdida) y el aviso "Unidad del proveedor" (H-04; los tests de la regla
  * están en eco-01.test.js).
  *
@@ -16,11 +17,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { computeMaterialLine, computeOtherCostLine, usageShareOf } from '../../js/engines/materials-engine.js';
-import { billingUnitsPerActiveDay, normalizeActivity } from '../../js/engines/cost-engine.js';
+import { autoOutputPerActiveDay, normalizeActivity } from '../../js/engines/cost-engine.js';
 import { computeRevenue, normalizeRules } from '../../js/engines/commercial-rules-engine.js';
 import { findLossWindows, findBreakEvenDays } from '../../js/engines/break-even-engine.js';
 import { materialsResaleOf } from '../../js/engines/economics-engine.js';
-import { perBillableUnitBasis, billingUnitOf } from '../../js/domain/billing-units.js';
 import { validateQuote } from '../../js/core/validation.js';
 import { lossWindowText } from '../../js/ui/result-text.js';
 
@@ -34,10 +34,10 @@ const v1 = () => structuredClone(valves.quote);
 const c2 = () => structuredClone(crew24.quote);
 /** Costo de materiales del mes con la actividad estimada (fijo + variable × D), del modelo. */
 const materialsMonthly = (r) => r.model.lines.filter((l) => l.category === 'materials').reduce((a, l) => a + l.fixedMonthly + l.variablePerActiveDay * r.kpis.activeDays, 0);
-const perValve = (q) => { Object.assign(q.materials[0], { basis: 'per_billable_unit', quantity: 1 }); return q; };
+const perValve = (q) => { Object.assign(q.materials[0], { basis: 'per_output', quantity: 1 }); return q; };
 
 // ------------------------------------------------------------------ B-2
-describe('B-2: materiales y otros costos por unidad facturada (H-11)', () => {
+describe('B-2: materiales y otros costos por unidad producida (H-11)', () => {
   test('válvulas C1 tal cual (por día, 8 × 18.000): los números de siempre', () => {
     const r = runV(v1());
     close(r.kpis.totalCost, 27248070.099132, 1e-9);
@@ -75,8 +75,8 @@ describe('B-2: materiales y otros costos por unidad facturada (H-11)', () => {
     close(materialsMonthly(r), 120 * 18000 * 0.3);
     const line = r.model.materials.lines[0];
     close(line.usageShare, 0.3);
-    close(line.costPerBillableUnit, 5400);
-    close(line.billableUnitsAtEstimate, 120);
+    close(line.costPerOutputUnit, 5400);
+    close(line.outputUnitsAtEstimate, 120);
     close(line.monthlyAtEstimate, 648000);
     assert.equal(usageShareOf(''), 1);
     assert.equal(usageShareOf(null), 1);
@@ -86,36 +86,37 @@ describe('B-2: materiales y otros costos por unidad facturada (H-11)', () => {
   });
 
   test('merma y logística se aplican como siempre; si lo provee el cliente no es costo', () => {
-    const ctx = { daysPerActivation: 1, billingUnits: { unitsPerActiveDay: 8, monthly: false } };
-    const m = computeMaterialLine({ basis: 'per_billable_unit', quantity: 2, unitCost: 1000, wastePct: 10, logisticsPct: 5, usagePct: 50, providedBy: 'contractor' }, ctx);
+    const ctx = { daysPerActivation: 1, outputPerActiveDay: 8 };
+    const m = computeMaterialLine({ basis: 'per_output', quantity: 2, unitCost: 1000, wastePct: 10, logisticsPct: 5, usagePct: 50, providedBy: 'contractor' }, ctx);
     close(m.grossCost, 2 * 1000 * 1.1 * 1.05);
-    close(m.costPerBillableUnit, 2310 * 0.5);
+    close(m.costPerOutputUnit, 2310 * 0.5);
     close(m.variablePerActiveDay, 1155 * 8);
     assert.equal(m.fixedMonthly, 0);
-    const client = computeMaterialLine({ basis: 'per_billable_unit', quantity: 1, unitCost: 1000, providedBy: 'client' }, ctx);
+    const client = computeMaterialLine({ basis: 'per_output', quantity: 1, unitCost: 1000, providedBy: 'client' }, ctx);
     assert.equal(client.variablePerActiveDay, 0);
   });
 
   test('unidades por día de trabajo según la unidad de cobro (sin el relleno del mínimo por llamado)', () => {
-    assert.deepEqual(billingUnitsPerActiveDay({ unitKind: 'day', daysPerActivation: 1 }), { unitsPerActiveDay: 1, monthly: false });
-    assert.deepEqual(billingUnitsPerActiveDay({ unitKind: 'hour', hoursPerActiveDay: 10 }), { unitsPerActiveDay: 10, monthly: false });
-    assert.deepEqual(billingUnitsPerActiveDay({ unitKind: 'quantity', unitsPerActiveDay: 8 }), { unitsPerActiveDay: 8, monthly: false });
-    assert.deepEqual(billingUnitsPerActiveDay({ unitKind: 'event', unitsPerActivation: 3, daysPerActivation: 15 }), { unitsPerActiveDay: 0.2, monthly: false });
-    assert.deepEqual(billingUnitsPerActiveDay({ unitKind: 'month' }), { unitsPerActiveDay: 0, monthly: true });
-    // Con abono mensual la unidad es el mes: el costo es fijo del mes.
-    const m = computeMaterialLine({ basis: 'per_billable_unit', quantity: 1, unitCost: 500, providedBy: 'contractor' }, { billingUnits: { unitsPerActiveDay: 0, monthly: true } });
-    assert.equal(m.fixedMonthly, 500);
+    assert.equal(autoOutputPerActiveDay({ unitKind: 'day', daysPerActivation: 1 }), 1);
+    assert.equal(autoOutputPerActiveDay({ unitKind: 'hour', hoursPerActiveDay: 10 }), 10);
+    assert.equal(autoOutputPerActiveDay({ unitKind: 'quantity', unitsPerActiveDay: 8 }), 8);
+    close(autoOutputPerActiveDay({ unitKind: 'event', unitsPerActivation: 3, daysPerActivation: 15 }), 0.2);
+    close(autoOutputPerActiveDay({ unitKind: 'event', unitsPerActivation: 1, daysPerActivation: 2 }), 0.5);
+    // Con abono mensual no hay unidades por día: cada línea carga su producción (PLAN-2026-021, materials_output).
+    assert.equal(autoOutputPerActiveDay({ unitKind: 'month' }), 0);
+    const m = computeMaterialLine({ basis: 'per_output', quantity: 1, unitCost: 500, providedBy: 'contractor' }, { outputPerActiveDay: 0 });
+    assert.equal(m.fixedMonthly, 0);
     assert.equal(m.variablePerActiveDay, 0);
     // Por hora con mínimo de 4 h por llamado: el material sigue a las horas TRABAJADAS (2 h), no a las facturadas.
     const q = v1();
     Object.assign(q, { unit: 'hour' });
     Object.assign(q.activity, { activeDaysPerMonth: 10, hoursPerActiveDay: 2, daysPerActivation: 1 });
     q.rules.minimumCallUnits = 4;
-    Object.assign(q.materials[0], { basis: 'per_billable_unit', quantity: 1, unitCost: 1000 });
+    Object.assign(q.materials[0], { basis: 'per_output', quantity: 1, unitCost: 1000 });
     const r = runV(q);
     close(r.model.materials.lines[0].variablePerActiveDay, 2000);
     assert.ok(r.estimate.revenue.billableUnits > 20, 'se facturan las horas del mínimo');
-    assert.deepEqual(billingUnitsPerActiveDay(normalizeActivity(q)), { unitsPerActiveDay: 2, monthly: false });
+    assert.equal(autoOutputPerActiveDay(normalizeActivity(q)), 2);
   });
 
   test('"¿Se factura aparte?" y la reventa: una línea por válvula facturada aparte se cobra a costo × (1 + recargo) por las unidades del mes', () => {
@@ -136,24 +137,42 @@ describe('B-2: materiales y otros costos por unidad facturada (H-11)', () => {
     assert.equal(materialsResaleOf(q, runV(q).model), null);
   });
 
-  test('otros costos por unidad facturada: monto × % que lo usa × unidades del mes', () => {
-    const o = computeOtherCostLine({ behavior: 'per_billable_unit', amount: 10000, usagePct: 40, category: 'materials' }, { billingUnits: { unitsPerActiveDay: 8, monthly: false } });
+  test('otros costos por unidad producida: monto × % que lo usa × unidades del mes', () => {
+    const o = computeOtherCostLine({ behavior: 'per_output', amount: 10000, usagePct: 40, category: 'materials' }, { outputPerActiveDay: 8 });
     close(o.variablePerActiveDay, 10000 * 0.4 * 8);
-    close(o.costPerBillableUnit, 4000);
+    close(o.costPerOutputUnit, 4000);
     const q = v1();
-    q.otherCosts.push({ id: 'oc-b2', description: 'Certificado por válvula', category: 'materials', behavior: 'per_billable_unit', amount: 5000 });
+    q.otherCosts.push({ id: 'oc-b2', description: 'Certificado por válvula', category: 'materials', behavior: 'per_output', amount: 5000 });
     const before = runV(v1());
     const r = runV(q);
     close(r.model.otherCosts.at(-1).monthlyAtEstimate, 120 * 5000);
     assert.ok(r.kpis.totalCost > before.kpis.totalCost + 120 * 5000, 'suma al costo (con estructura, financiero y contingencia)');
-    close(r.model.otherCosts.at(-1).billableUnitsAtEstimate, 120);
+    close(r.model.otherCosts.at(-1).outputUnitsAtEstimate, 120);
   });
 
-  test('rótulo con el nombre de la unidad: "Por válvula", "Por PSV", "Por m³"', () => {
-    assert.equal(perBillableUnitBasis(billingUnitOf(v1())).label, 'Por válvula (la unidad que cobrás)');
-    assert.equal(perBillableUnitBasis(billingUnitOf({ unit: 'custom', unitName: 'PSV' })).short, 'por PSV');
-    assert.equal(perBillableUnitBasis(billingUnitOf({ unit: 'm3' })).per, 'm³');
-    assert.equal(perBillableUnitBasis(billingUnitOf({ unit: 'custom', unitName: '' })).per, 'unidad');
+  test('un solo id: per_billable_unit (nunca publicado) se lee como per_output', () => {
+    const ctx = { outputPerActiveDay: 8 };
+    const alias = computeMaterialLine({ basis: 'per_billable_unit', quantity: 1, unitCost: 1000, usagePct: 30, providedBy: 'contractor' }, ctx);
+    assert.equal(alias.basis, 'per_output');
+    close(alias.variablePerActiveDay, 1000 * 0.3 * 8);
+    const o = computeOtherCostLine({ behavior: 'per_billable_unit', amount: 1000 }, ctx);
+    assert.equal(o.behavior, 'per_output');
+    close(o.variablePerActiveDay, 8000);
+    const r = runV(perValve(v1()));
+    const q = v1();
+    Object.assign(q.materials[0], { basis: 'per_billable_unit', quantity: 1 });
+    close(runV(q).kpis.totalCost, r.kpis.totalCost, 1e-12);
+  });
+
+  test('por día y por llamado: la base cuenta los días y los llamados trabajados', () => {
+    const q = v1();
+    Object.assign(q, { unit: 'day' });
+    Object.assign(q.activity, { activeDaysPerMonth: 10 });
+    Object.assign(q.materials[0], { basis: 'per_output', quantity: 1, unitCost: 1000 });
+    const r = runV(q);
+    close(r.model.materials.lines[0].variablePerActiveDay, 1000);
+    close(r.model.materials.lines[0].outputUnitsAtEstimate, 10);
+    assert.ok(!r.completeness.items.some((i) => i.id === 'materials_output'), 'por día ya no falta la producción');
   });
 
   test('aviso informativo (no cambia nada): un material por día con la misma cantidad que las válvulas por día pregunta si es por válvula', () => {
@@ -162,7 +181,7 @@ describe('B-2: materiales y otros costos por unidad facturada (H-11)', () => {
     assert.ok(n, 'falta el aviso');
     assert.equal(n.severity, 'info');
     assert.equal(n.focus, 'materials.0.basis');
-    assert.match(n.message, /Por válvula \(la unidad que cobrás\)/);
+    assert.match(n.message, /"Por unidad producida"/);
     assert.equal(runV(perValve(v1())).completeness.notices.find((x) => x.id === 'materials_per_unit_hint'), undefined, 'por válvula ya no pregunta');
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Tanda B 2026-11, B-1 (PLAN-2026-021): asistente opcional de diagrama de rotación por
+ * Tanda B 2026-11, B-1 (PLAN-2026-023): asistente opcional de diagrama de rotación por
  * puesto y nómina total del puesto (`labor[i].payrollHeadcount`). Informe auditado de los
  * especialistas (docs/informes/2026-11-especialistas-auditado.md): H-12, H-07, H-06, H-14.
  *

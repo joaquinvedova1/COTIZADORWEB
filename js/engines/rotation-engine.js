@@ -1,6 +1,6 @@
 /**
  * RotationEngine — asistente de diagrama de rotación de un puesto (tanda B 2026-11, B-1,
- * PLAN-2026-021). OPCIONAL y sólo PROPONE: nunca cambia el costo por sí mismo. El costo
+ * PLAN-2026-023). OPCIONAL y sólo PROPONE: nunca cambia el costo por sí mismo. El costo
  * cambia sólo cuando quien cotiza aplica la propuesta (personas en sitio → posiciones,
  * nómina → `labor[i].payrollHeadcount`, días entre relevos → `activity.daysPerActivation`).
  *

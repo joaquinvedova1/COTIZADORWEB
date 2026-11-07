@@ -18,7 +18,7 @@ Reglas para este archivo:
 
 ### Agregado
 
-- **Materiales y otros costos "por unidad facturada"** (B-2, H-11): base nueva `per_billable_unit`, rotulada con la unidad de la cotización ("Por válvula", "Por PSV", "Por m³", "Por hora"). Costo del mes = monto × unidades trabajadas del mes (con merma y logística como siempre), opcionalmente × "% de las unidades que lo usan" (por ejemplo 30 % de las PSV llevan repuesto; vacío = 100 %). Válvulas C1: $ 18.000 por válvula con 8, 6 o 10 válvulas por día (antes, cargado por día, pasar a 6 por día lo subía a $ 24.000, +33 %). Funciona con "¿Se factura aparte?" por línea y con la reventa. Se ofrece cobrando por hora, por cantidad o por hito.
+- **Materiales y otros costos "Por unidad producida" con % de unidades que lo usan** (B-2, H-11; unificado con PLAN-2026-021 al integrar con `main`): una sola base, `per_output`. Costo del mes = monto × unidades producidas del mes (con merma y logística como siempre), opcionalmente × "% de las unidades que lo usan" (por ejemplo 30 % de las PSV llevan repuesto; vacío = 100 %). Sin producción propia en la línea, las unidades salen de "Cómo se cobra": cantidad o horas por día (como en PLAN-2026-021) y ahora también 1 por día cobrando por día y hitos ÷ días por trabajo cobrando por llamado, trabajo o hito (sin el relleno del mínimo por llamado). Válvulas C1: $ 18.000 por válvula con 8, 6 o 10 válvulas por día (antes, cargado por día, pasar a 6 por día lo subía a $ 24.000, +33 %); con 30 % de las válvulas, $ 648.000 por mes. Funciona con "¿Se factura aparte?" por línea, con la reventa y en Otros costos (salvo con abono mensual). La base `per_billable_unit` de la rama de la tanda B nunca se publicó: se lee como `per_output`.
 - **Mínimo garantizado en unidades** (B-3, H-13): "¿Cómo se expresa el mínimo?" En $ por mes (default, como siempre) o en días / horas / válvulas por mes, que el motor valoriza con la tarifa ofrecida o sugerida (sin circularidad: la sugerida se calcula sin el mínimo). 24 h C2: mínimo 20 días = $ 64.660.000 con la tarifa de $ 3.233.000.
 - **Ventana de pérdida con mínimo garantizado** (B-3, H-29): el Resultado y "Ver cálculo" dicen "hasta 15,85 días el mínimo cubre tus costos; entre 15,85 y 20,97 días perdés plata; desde 20,97 días ganás" (antes decía siempre "21 días" aunque con 10 se ganaba). El tono del equilibrio sigue al resultado del mes estimado. El break-even no cambia.
 - Aviso informativo: cobrando por cantidad, un material "por día" con la misma cantidad que las unidades por día pregunta si es por unidad (nunca se convierte solo).
@@ -31,9 +31,20 @@ Reglas para este archivo:
 
 - La unidad junto a "Cantidad" de un material mostraba "—" por una referencia rota (`BASIS_PER`); ahora dice "u./día", "u./mes", "u./llamado" o "u./válvula".
 
+**Pendientes de componentes (2026-11, PLAN-2026-021).** Ninguna cifra de una cotización existente cambia; esquema sin cambio de versión (campos opcionales).
+
+### Agregado
+
+- **Insumos por unidad producida:** en Materiales, "¿Cada cuánto se consume?" ofrece "Por unidad producida (m², m³, pieza…)": químicos por m³ tratado, pintura por m², consumibles por pieza. La producción por día sale de "Cómo se cobra" (si cobrás por cantidad u hora) o se carga en la línea. Sin ese dato, pendiente "Producción por día". Ver CALCULATION_RULES §6.
+- **Viáticos por personas y noches:** en Movilización y viajes, "Calcular viáticos por personas y noches" llena el monto por salida (personas × noches × alojamiento + personas × días × comidas).
+
+### Cambiado
+
+- Con "Vehículo" como único equipo del servicio y la camioneta cargada en Viajes con costo por km, "Costo de equipos" pasa de pendiente crítico a aviso (ese costo no cubre amortización, seguro ni patente).
+
 **Reportes por Supabase encendidos (2026-11-07).** Con autorización del dueño se aplicó la migración `20261107021710_rateos_bug_reports` y se desplegó la Edge Function `bug-report-github`; `FEATURES.bugReportsCloud = true`: con sesión, "Reportar un problema" se envía desde la app sin cuenta de GitHub.
 
-**Tanda B — diagrama de rotación (2026-11, B-1 del informe auditado, PLAN-2026-021).** Ningún número de una cotización existente cambia (golden cases y foto de regresión iguales); esquema sin cambio de versión (campos opcionales).
+**Tanda B — diagrama de rotación (2026-11, B-1 del informe auditado, PLAN-2026-023).** Ningún número de una cotización existente cambia (golden cases y foto de regresión iguales); esquema sin cambio de versión (campos opcionales).
 
 ### Agregado
 

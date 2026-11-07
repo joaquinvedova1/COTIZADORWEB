@@ -71,6 +71,27 @@ export function activeDaysForQuantity({ kind, quantity, unitsPerActiveDay, units
   return perActivation > 0 ? (Q / perActivation) * dpa : 0;
 }
 
+/**
+ * Unidades producidas por día de trabajo según cómo se cobra (PLAN-2026-021, ampliado por
+ * PLAN-2026-022): la base de los materiales y otros costos "por unidad producida" cuando la
+ * línea no carga su propia producción. Son las unidades que se TRABAJAN (sin el relleno del
+ * mínimo por llamado: un consumible se gasta en la válvula que se atiende, no en la que se
+ * factura de mínimo).
+ *   cantidad (m³, válvula…) q por día · hora H · día 1 · llamado / trabajo / hito: hitos ÷ días por trabajo
+ *   mes: 0 (cada línea carga lo suyo)
+ */
+export function autoOutputPerActiveDay(activity = {}) {
+  const a = activity || {};
+  if (a.unitKind === 'quantity') return nonNegative(a.unitsPerActiveDay);
+  if (a.unitKind === 'hour') return nonNegative(a.hoursPerActiveDay);
+  if (a.unitKind === 'day') return 1;
+  if (a.unitKind === 'event') {
+    const dpa = nonNegative(a.daysPerActivation) > 0 ? nonNegative(a.daysPerActivation) : 1;
+    return (nonNegative(a.unitsPerActivation) > 0 ? nonNegative(a.unitsPerActivation) : 1) / dpa;
+  }
+  return 0;
+}
+
 /** Normaliza los parámetros de actividad de una cotización. */
 export function normalizeActivity(quote = {}) {
   const a = quote.activity || {};
@@ -118,36 +139,17 @@ export function normalizeActivity(quote = {}) {
 }
 
 /**
- * Unidades de la cotización que se TRABAJAN por día de trabajo (tanda B 2026-11, B-2): la base
- * de los materiales y otros costos "por unidad facturada". Sin el relleno del mínimo por llamado
- * (un consumible se gasta en la válvula que se atiende, no en la que se factura de mínimo).
- *   día 1 · hora H · cantidad (m³, válvula…) q por día · llamado / trabajo / hito: hitos ÷ días por trabajo
- *   mes: la unidad es el abono (`monthly`: el costo es fijo del mes)
- * @param {ReturnType<typeof normalizeActivity>} activity
- * @returns {{ unitsPerActiveDay: number, monthly: boolean }}
- */
-export function billingUnitsPerActiveDay(activity = {}) {
-  const a = activity || {};
-  const dpa = nonNegative(a.daysPerActivation) > 0 ? nonNegative(a.daysPerActivation) : 1;
-  if (a.unitKind === 'month') return { unitsPerActiveDay: 0, monthly: true };
-  if (a.unitKind === 'hour') return { unitsPerActiveDay: nonNegative(a.hoursPerActiveDay), monthly: false };
-  if (a.unitKind === 'quantity') return { unitsPerActiveDay: nonNegative(a.unitsPerActiveDay), monthly: false };
-  if (a.unitKind === 'event') return { unitsPerActiveDay: (nonNegative(a.unitsPerActivation) > 0 ? nonNegative(a.unitsPerActivation) : 1) / dpa, monthly: false };
-  return { unitsPerActiveDay: 1, monthly: false };
-}
-
-/**
  * Costo del mes de una línea de materiales u otros costos con la actividad estimada (para
  * mostrar al lado de la línea; no entra en ningún cálculo): fijo + variable × D, y las unidades
- * facturadas que usa si es "por unidad facturada" (B-2).
+ * producidas del mes si es "por unidad producida" (PLAN-2026-022).
  */
-function withEstimate(line, activity, billingUnits) {
+function withEstimate(line, activity) {
   const D = nonNegative(activity.activeDaysPerMonth);
-  const perUnit = line.basis === 'per_billable_unit' || line.behavior === 'per_billable_unit';
+  const perUnit = line.basis === 'per_output' || line.behavior === 'per_output';
   return {
     ...line,
     monthlyAtEstimate: line.fixedMonthly + line.variablePerActiveDay * D,
-    billableUnitsAtEstimate: perUnit ? (billingUnits.monthly ? 1 : billingUnits.unitsPerActiveDay * D) : null,
+    outputUnitsAtEstimate: perUnit ? nonNegative(line.outputPerActiveDay) * D : null,
   };
 }
 
@@ -469,13 +471,13 @@ export function buildCostModel(quote = {}) {
     const f = factorFor(m.base, { list: 'materials', index, field: 'base', label: m.description || 'Material' }, costsUs);
     return f === 1 ? m : { ...m, unitCost: nonNegative(m.unitCost) * f };
   });
-  // Por unidad facturada (B-2): unidades de la cotización por día de trabajo.
-  const billingUnits = billingUnitsPerActiveDay(activity);
+  // Por unidad producida (PLAN-2026-021 / PLAN-2026-022): lo producido por día de la cotización.
+  const outputCtx = { outputPerActiveDay: autoOutputPerActiveDay(activity), billingUnit: billingUnitOf(quote) };
   const materialsRaw = computeMaterials(materialInput, {
     daysPerActivation: activity.daysPerActivation,
-    billingUnits,
+    ...outputCtx,
   });
-  const materials = { ...materialsRaw, lines: materialsRaw.lines.map((m) => withEstimate(m, activity, billingUnits)) };
+  const materials = { ...materialsRaw, lines: materialsRaw.lines.map((m) => withEstimate(m, activity)) };
   materials.lines.forEach((m, i) => {
     lines.push({
       key: `materials:${m.id ?? i}`,
@@ -494,7 +496,7 @@ export function buildCostModel(quote = {}) {
 
   // 5. Otros costos (terceros, subcontratos, manuales)
   const otherCosts = objectList(quote.otherCosts).map((o) =>
-    withEstimate(computeOtherCostLine(o, { daysPerActivation: activity.daysPerActivation, billingUnits }), activity, billingUnits),
+    withEstimate(computeOtherCostLine(o, { daysPerActivation: activity.daysPerActivation, ...outputCtx }), activity),
   );
   otherCosts.forEach((o, i) => {
     const category = DIRECT_CATEGORY_IDS.includes(o.category) ? o.category : 'materials';
