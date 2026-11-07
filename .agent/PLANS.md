@@ -117,7 +117,8 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-015 | Beta Readiness v1: seguridad, tenancy, integridad y privacidad para una beta cerrada con empresas reales | backend, autenticación, otro (seguridad) | Completado (merge `998b932`, v0.8.1); beta con empresas externas **no iniciada**: HD-01/02/03 obligatorios antes de usuarios reales |
 | PLAN-2026-016 | Beta Perimeter v1: preview público deshabilitado (HD-02), registro por invitación (HD-03), dominio propio (HD-01) y prueba A/B real | backend, autenticación, otro (infraestructura y seguridad) | En curso (rama `claude/rateos-beta-perimeter-v1`, sin merge) |
 | PLAN-2026-017 | ECO-01 — Bloqueantes económicos de la beta (AUD-T1 H-01, H-02, H-03): tramo / viaje completo / salida / km, doble abono mensual y puesto sin sueldo | motor de costos, completitud, UX | En curso (rama `claude/wonderful-brown-g2ehd6`, PR sin merge; espera aprobación del dueño) |
-| PLAN-2026-022 | Tanda B (especialistas 2026-11): materiales y otros costos por unidad facturada (B-2), mínimo garantizado en unidades con ventana de pérdida (B-3) y aviso "Unidad del proveedor" (H-04) | motor de costos, utilización, completitud, UX | Implementado en rama (sin push; espera review) |
+| PLAN-2026-021 | Tanda B (especialistas 2026-11, B-1): diagrama de rotación por puesto → nómina, personas en sitio, relevos y turnos | motor de personal, completitud, UX | Implementado |
+| PLAN-2026-022 | Tanda B (especialistas 2026-11): materiales y otros costos por unidad facturada (B-2), mínimo garantizado en unidades con ventana de pérdida (B-3) y aviso "Unidad del proveedor" (H-04) | motor de costos, utilización, completitud, UX | Implementado |
 
 ### Pendientes registrados (sin implementar)
 
