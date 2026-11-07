@@ -929,6 +929,8 @@ Ejemplo demo (modo B, 8 días, ILUSTRATIVO): tarifa piso neta ≈ 1.972.062/día
 
 **Traza "Tarifa piso"** (`traces.floorRate`): entradas costo total, impuestos sobre la facturación (si t > 0), otros ingresos, unidades facturables y factor de descuentos (tramo × continuidad × comercial); pasos intermedios "Facturación necesaria" (si t > 0) y "Tarifa piso neta"; resultado "Tarifa piso de lista". Fórmula: `Tarifa piso neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos` (con t > 0, antes `Facturación necesaria = Costo total / (1 − impuestos sobre la facturación)`). Así el "Ver cálculo" termina en el mismo número que se muestra como tarifa piso de lista (2.033.054 en la demo). Con impuestos sin definir, una nota avisa que la tarifa piso **no** los incluye.
 
+**Tarifa piso sin contar adicionales** (testeo con especialistas 2026-11, A-7; `floorWithoutOtherRevenue` en `commercial-rules-engine.js`): si hay otros ingresos (adicionales, reventa, horas extra facturadas, abonos) > 0, el Resultado muestra al lado de la tarifa piso `Piso sin adicionales neto = Costo total / (1 − t) / Unidades facturables` (de lista: `÷ factor de descuentos`), porque la tarifa piso supone que esos ingresos llegan y puede quedar debajo del costo. **La tarifa piso no cambia**; es un dato más.
+
 ### 13.1 Impuestos sobre la facturación (gross-up)
 
 Archivos: `js/engines/billing-taxes-engine.js` (`billingTaxInfo`, `billingTaxConfigInfo`, `traceBillingTaxes`), `js/domain/billing-taxes.js` (forma de los datos), `js/engines/pricing-engine.js` (`priceFromMarginAndTaxes`, `markupWithTaxesPct`, `profitOnCostPct`). Plan: PLAN-2026-002 en [.agent/PLANS.md](../.agent/PLANS.md).

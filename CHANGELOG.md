@@ -12,6 +12,28 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Testeo con especialistas — UI (2026-11, tanda A del informe auditado `docs/informes/2026-11-especialistas-auditado.md`).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (`contract` ya era opcional y `activity.availability` puede quedar sin definir).
+
+### Agregado
+
+- **Fijo mensual: "¿Cada cuántos días hay un viaje o relevo a la locación?"** (A-6, H-06). El intervalo, que el motor ya usaba, ahora se ve también en un contrato fijo mensual (1 = un viaje por día, como antes). Ej.: diagrama 14x14 con relevo cada 14 días → 30 ÷ 14 = 2,1 relevos por mes; los costos por intervención se cuentan esas veces y no 30.
+- **"Sin contar adicionales: $ X"** debajo de la tarifa piso (A-7, H-09) cuando hay adicionales, reventa u otros ingresos: el piso los supone facturados; el (i) dice cuánto y cuál es el mínimo si no llegan. Lo calcula el motor (`floorWithoutOtherRevenue`); la tarifa piso no cambia.
+
+### Cambiado
+
+- **Cotización en blanco** (A-2, H-03): nace con el contrato "Por servicio prestado" y sólo **Personal** marcado (antes se leía como "personal y equipos" y aparecía "Equipo o maquinaria"). Al sumar Vehículo o Equipo aparecen $/viaje, $/km, $/m³… Las cotizaciones guardadas sin contrato se siguen leyendo como antes.
+- **Disponibilidad** (A-16, H-26): una cotización nueva (en blanco o de una plantilla que no la define) la trae **sin definir**, y el selector 24/7 / franja horaria sale de Opciones avanzadas y queda junto a los días. El aviso de relevos sólo aparece si elegís 24/7. No cambia ningún número (las guardadas conservan su 24/7).
+- **Aviso "Unidad del proveedor"** (A-4, H-04): "Por viaje completo" y "Sí, cobra por…" tienen el mismo peso (ninguna es la sugerida), con la aclaración "Si los viajes son de tus vehículos y el proveedor va una sola vez, confirmá «cobra por…»".
+- **Precio cerrado con un trabajo por mes** (A-12, H-24): "Costo del trabajo", "Ganás $ X por trabajo" y el equilibrio en trabajos enteros ("con 1 trabajo ya cubrís todos tus costos") en lugar de "0,6 trabajos por mes".
+- Abono que alcanza aun trabajando todos los días: con personal aclara "(sin contar horas extra)" (A-12, H-18).
+
+### Corregido
+
+- Insignia ILUSTRATIVO vacía ("Incluye valores ILUSTRATIVOS: .") cuando la causa es la tasa de financiamiento de ejemplo: ahora la nombra (A-9, H-19).
+- Parámetros de convenio reales marcados ILUSTRATIVO por coincidir con el valor de ejemplo (SAC 8,33 %, 176 h, 50 %): si la línea viene de un convenio o perfil propio, sólo cuenta la marca (A-10, H-20; personal de cotizaciones y de productos).
+- Plurales de unidades propias: siglas de hasta 4 letras en mayúsculas sin cambio (PSV, END) y "+s" en terminaciones de otro idioma (kit → kits) (A-11, H-21).
+- Concordancias: "cuántas intervenciones", "Valor: sin fecha base" / "Costos: sin fecha base" en lugar de "Valor no definida" (A-12, H-25).
+
 **Llamados más claros en on call (2026-11).** Pedido del dueño: "¿qué es llamado? es re confuso… si me llaman una vez por día, ¿qué hago?". Ninguna fórmula cambia; esquema sin cambios (se sigue guardando `activity.daysPerActivation`).
 
 ### Cambiado

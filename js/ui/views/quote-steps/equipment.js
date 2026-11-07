@@ -876,9 +876,11 @@ export function render(container, ctx) {
       }, { tag: 'div', allowEmpty: true }),
       ctx.readOnly
         ? null
+        // Testeo con especialistas (A-4): las dos respuestas pesan lo mismo (ninguna es la "sugerida").
         : h('div', { class: 'qe-toolbar' },
-          kit.action('Por viaje completo (ida y vuelta)', () => setExternalUnit(index, ROUND_TRIP), { variant: 'primary' }),
-          kit.action(`Sí, cobra ${T.per}`, () => ctx.mutate((q) => { q.equipment[index].externalUnitConfirmed = externalUnitAssumption(q, q.equipment[index]); }), { icon: 'check' })),
+          kit.action('Por viaje completo (ida y vuelta)', () => setExternalUnit(index, ROUND_TRIP)),
+          kit.action(`Sí, cobra ${T.per}`, () => ctx.mutate((q) => { q.equipment[index].externalUnitConfirmed = externalUnitAssumption(q, q.equipment[index]); })),
+          h('span', { class: 'small muted' }, `Si los viajes son de tus vehículos y el proveedor va una sola vez, confirmá «cobra ${T.per}».`)),
     ), (r) => Boolean(unitPendingOf(r, index)));
     const line = quote.equipment[index] || {};
     const c = line.externalUnitConfirmed;

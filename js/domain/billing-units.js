@@ -95,6 +95,8 @@ export function pluralizeUnit(word) {
     return [...head.map((p) => pluralizeUnit(p)), ...tail].join(' ');
   }
   if (/[²³]|^[a-z]{1,2}$/i.test(w) || /-/.test(w)) return w;
+  // Sigla en mayúsculas de hasta 4 letras (PSV, END, ROV): no se pluraliza ("3 PSV", no "3 PSVES").
+  if (/^[A-ZÁÉÍÓÚÑ]{1,4}$/.test(w)) return w;
   // En mayúsculas ("UNIDAD") el plural también va en mayúsculas ("UNIDADES", no "UNIDADes").
   const upper = w === w.toUpperCase() && w !== w.toLowerCase();
   let out;
@@ -102,7 +104,10 @@ export function pluralizeUnit(word) {
   else if (/[aeiouáéíóú]$/i.test(w)) out = `${w}s`;
   else if (/s$/i.test(w)) out = w;
   else if (/z$/i.test(w)) out = `${w.slice(0, -1)}ces`;
-  else out = `${w}es`;
+  // Consonantes del plural en "-es" (papel, camión, motor, unidad, reloj, fax, rey); con otra
+  // terminación (casi siempre palabras tomadas de otro idioma) va "+s": kit → kits, chip → chips.
+  else if (/[lnrdjxy]$/i.test(w)) out = `${w}es`;
+  else out = `${w}s`;
   return upper ? out.toUpperCase() : out;
 }
 

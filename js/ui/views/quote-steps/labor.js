@@ -12,7 +12,7 @@ import { h, mount } from '../../dom.js';
 import { card, formGrid, selectField, confirmDialog, emptyState, badge } from '../../components.js';
 import { illustrativeTag } from '../../layout.js';
 import { hasNumber, plural, stepName } from './shared.js';
-import { ILLUSTRATIVE_AGREEMENT_PARAMS, CONTINUOUS_SERVICE_TYPES } from '../../../domain/catalogs.js';
+import { ILLUSTRATIVE_AGREEMENT_PARAMS, CONTINUOUS_SERVICE_TYPES, isIllustrativeAgreementParam } from '../../../domain/catalogs.js';
 import { laborLineFromProfile } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { nonNegative, isFiniteNumber } from '../../../core/money.js';
@@ -115,10 +115,7 @@ export function render(container, ctx) {
   const agreementOf = (line) => agreements.find((a) => a.id === line.agreementId) || null;
 
   /** ¿Mostrar la etiqueta ILUSTRATIVO en un parámetro de convenio? */
-  const illustrativeParam = (line, key) => {
-    const agreement = agreementOf(line);
-    return Boolean(quote.illustrative) || line.illustrative === true || Boolean(agreement && agreement.illustrative) || line[key] === ILLUSTRATIVE_AGREEMENT_PARAMS[key];
-  };
+  const illustrativeParam = (line, key) => isIllustrativeAgreementParam(line, key, { agreement: agreementOf(line), wholeIllustrative: Boolean(quote.illustrative) });
 
   // ------------------------------------------------------------ acciones
   let selectedProfileId = null;

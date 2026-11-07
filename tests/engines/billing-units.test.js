@@ -109,6 +109,18 @@ describe('unidades por tipo de servicio (dominio)', () => {
     assert.equal(pluralizeUnit('inspección'), 'inspecciones');
     assert.equal(pluralizeUnit('ensayo'), 'ensayos');
     assert.equal(pluralizeUnit('m³'), 'm³');
+    // Testeo con especialistas (A-11, H-21): siglas sin cambio y "+s" en terminaciones de otro idioma.
+    assert.equal(pluralizeUnit('PSV'), 'PSV');
+    assert.equal(pluralizeUnit('END'), 'END');
+    assert.equal(pluralizeUnit('kit'), 'kits');
+    assert.equal(pluralizeUnit('chip'), 'chips');
+    assert.equal(pluralizeUnit('Kit'), 'Kits');
+    assert.equal(pluralizeUnit('kit de juntas'), 'kits de juntas');
+    assert.equal(pluralizeUnit('PSV de alivio'), 'PSV de alivio');
+    assert.equal(pluralizeUnit('motor'), 'motores');
+    assert.equal(pluralizeUnit('papel'), 'papeles');
+    assert.equal(pluralizeUnit('reloj'), 'relojes');
+    assert.equal(pluralizeUnit('VÁLVULA'), 'VÁLVULAS');
     assert.equal(cleanUnitName('$/pozo'), 'pozo');
     assert.equal(cleanUnitName('mues\u0000tra'), 'mues tra');
     assert.equal(cleanUnitName('x'.repeat(50)).length, 30);

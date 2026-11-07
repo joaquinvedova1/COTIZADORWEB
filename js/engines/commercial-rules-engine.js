@@ -315,6 +315,31 @@ export function listRateFromNet(netRate, factor) {
 }
 
 /**
+ * Tarifa piso SIN contar los otros ingresos (testeo con especialistas, A-7, H-09).
+ *
+ * La tarifa piso descuenta lo que se factura aparte de la tarifa (adicionales,
+ * reventa de materiales, horas extra facturadas, abono de disponibilidad…): por
+ * eso puede quedar por debajo del costo. Si esos ingresos no llegan, el piso real
+ * es éste. No cambia la tarifa piso: es un dato más para mostrar al lado.
+ *
+ *   pisoNeto = Costo / (1 − t) / unidades facturables · pisoLista = pisoNeto / factor de descuentos
+ *
+ * @param {{ totalCost: number, billingTaxPct?: number, billableUnits: number, otherRevenue?: number, discountFactor?: number }} rates
+ *   los de requiredRatesAt (r.ratesAtEstimate)
+ * @returns {{ otherRevenue: number, netRate: number, listRate: number|null } | null} null si no hay otros ingresos
+ *   o no hay tarifa posible (sin unidades facturables)
+ */
+export function floorWithoutOtherRevenue(rates) {
+  if (!isPlainObject(rates)) return null;
+  const other = nonNegative(rates.otherRevenue);
+  if (!(other > NUMERIC_EPSILON)) return null;
+  const floor = requiredNetRate({ totalCost: rates.totalCost, marginPct: 0, billingTaxPct: rates.billingTaxPct, billableUnits: rates.billableUnits, otherRevenue: 0 });
+  if (!isFiniteNumber(floor.rate)) return null;
+  const factor = isFiniteNumber(rates.discountFactor) && rates.discountFactor > 0 ? rates.discountFactor : 1;
+  return { otherRevenue: other, netRate: floor.rate, listRate: listRateFromNet(floor.rate, factor) };
+}
+
+/**
  * Semáforo de un descuento:
  *  green     = mantiene el margen objetivo
  *  orange    = debajo del margen objetivo pero sobre break-even

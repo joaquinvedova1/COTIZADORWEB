@@ -13,7 +13,7 @@
  * se lee y lo que se resta (colchón, diferencias) siempre cierran.
  */
 
-import { formatDays, formatNumber, formatPercent, formatMoney, EMPTY } from '../core/format.js';
+import { formatDays, formatNumber, formatPercent, formatMoney, formatMoneyCeil, EMPTY } from '../core/format.js';
 import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
@@ -399,4 +399,55 @@ export function breakEvenZeroText(result, { compact = false, rateText = '' } = {
   return byQuantity
     ? `Cubrís todos tus costos aunque no factures ${t.ningun} ${singular}${rate}: los ingresos fijos (abono, equipo en espera, adicionales estimados) ya cubren los costos fijos.`
     : `Cubrís todos tus costos aunque no trabajes ningún día${rate}: los ingresos fijos (abono, equipo en espera, adicionales estimados) ya cubren los costos fijos.`;
+}
+
+// ------------------------------------------------- testeo con especialistas (2026-11)
+
+/**
+ * Título de la insignia ILUSTRATIVO (A-9, H-19): nombra cada causa, también la
+ * tasa de financiamiento de ejemplo (antes quedaba "Incluye valores ILUSTRATIVOS: .").
+ * @param {{ any?: boolean, quote?: boolean, lines?: number, fuel?: boolean, finance?: boolean }} info  illustrativeInfo(quote)
+ * @returns {string|null}
+ */
+export function illustrativeTitle(info) {
+  if (!info || !info.any) return null;
+  if (info.quote) return 'Cotización con valores de demostración';
+  const parts = [];
+  if (info.lines > 0) parts.push(`${formatNumber(info.lines)} ${info.lines === 1 ? 'ítem copiado' : 'ítems copiados'} de plantillas o bibliotecas de demostración`);
+  if (info.fuel) parts.push('precio de combustible ilustrativo');
+  if (info.finance) parts.push('tasa de financiamiento de ejemplo (en Financiación)');
+  if (!parts.length) return 'Incluye valores ILUSTRATIVOS. Reemplazalos por valores propios vigentes.';
+  return `Incluye valores ILUSTRATIVOS: ${joinList(parts)}. Reemplazalos por valores propios vigentes.`;
+}
+
+/** Tarifa mínima hacia arriba, como la tarifa piso (nunca se lee de menos). */
+function ceilRateText(value, unitLabel) {
+  const money = Math.abs(value) > 0 && Math.abs(value) < 100 ? formatMoney(Math.ceil(value * 100 - 1e-6) / 100, { decimals: 2 }) : formatMoneyCeil(value);
+  return `${money} / ${unitLabel}`;
+}
+
+/**
+ * Tarifa piso sin contar adicionales (A-7, H-09): la línea visible y su explicación.
+ * `floor` es floorWithoutOtherRevenue(r.ratesAtEstimate) (motor); null → sin texto.
+ * Se muestra en la misma base que la tarifa piso (de lista si la hay; si no, neta).
+ * @param {{ otherRevenue: number, netRate: number, listRate: number|null } | null} floor
+ * @param {string} unitLabel  "día", "válvula"…
+ * @returns {{ text: string, tip: string } | null}
+ */
+export function floorWithoutExtrasText(floor, unitLabel = 'día') {
+  if (!floor || !isFiniteNumber(floor.netRate)) return null;
+  const rate = ceilRateText(isFiniteNumber(floor.listRate) ? floor.listRate : floor.netRate, unitLabel);
+  return {
+    text: `Sin contar adicionales: ${rate}`,
+    tip: `El piso supone que facturás ${formatMoney(floor.otherRevenue)} de adicionales por mes (adicionales, reventa, horas extra o abonos que se cobran aparte). Si no hay adicionales, cobrá al menos ${rate}.`,
+  };
+}
+
+/**
+ * Aclaración del abono que alcanza aun trabajando todos los días (A-12, H-18): con
+ * personal, las horas extra de días fuera de la jornada no entran en esa cuenta.
+ * @param {boolean} hasStaff  ¿la cotización tiene personal?
+ */
+export function capAllDaysNote(hasStaff) {
+  return hasStaff ? ' (sin contar horas extra)' : '';
 }
