@@ -93,6 +93,9 @@ describe('QuoteService.createQuote', () => {
     assert.equal(quote.createdAt, clock());
     assert.equal(quote.updatedAt, clock());
     assert.ok('createdBy' in quote && 'updatedBy' in quote);
+    // Testeo con especialistas (A-2, A-16): contrato con sólo Personal y disponibilidad sin definir.
+    assert.deepEqual(quote.contract.components, ['labor']);
+    assert.equal(quote.activity.availability, null);
     assert.deepEqual(await repository.getQuote(quote.id), quote);
   });
 

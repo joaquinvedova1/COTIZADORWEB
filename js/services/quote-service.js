@@ -7,7 +7,7 @@ import { createId } from '../core/ids.js';
 import { deepClone } from '../core/object.js';
 import { track } from '../core/events.js';
 import { computeQuote, summarizeQuote } from '../engines/quote-engine.js';
-import { createEmptyQuote, createQuoteFromTemplate } from '../domain/quote-factory.js';
+import { createBlankQuote, createQuoteFromTemplate } from '../domain/quote-factory.js';
 import { DEMO_IDS, demoHydroCraneQuote } from '../domain/demo-data.js';
 import { ACTIVE_QUOTE_STATUSES, SERVICE_TYPES } from '../domain/catalogs.js';
 import { logger } from '../core/logger.js';
@@ -108,7 +108,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       const [org, s, services] = await Promise.all([repository.getOrganization(), settings(), repository.getServices()]);
       const template = templateId ? services.find((t) => t.id === templateId) || null : null;
       const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode(), baseName: org.baseLocation };
-      const quote = template ? createQuoteFromTemplate(template, options) : createEmptyQuote(options);
+      const quote = template ? createQuoteFromTemplate(template, options) : createBlankQuote(options);
       const saved = await repository.saveQuote(quote);
       track('quote_created', { serviceType: eventServiceType(saved.serviceType), source: template ? 'template' : 'blank' });
       return saved;
