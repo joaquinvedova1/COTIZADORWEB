@@ -29,7 +29,7 @@ import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
 import { contractOf, unitChoicesForContract } from '../../../domain/contract.js';
 import { extrasSection } from './extras.js';
-import { outsideWindowHours, outsideWindowMessage } from '../../../engines/completeness-engine.js';
+import { outsideWindowHours, outsideWindowMessage, activeGuardCoverage, activeGuardLineCheck } from '../../../engines/completeness-engine.js';
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
 
 const MODE_LABELS = Object.freeze({
@@ -562,6 +562,29 @@ export function render(container, ctx) {
           // Cotización con la franja escrita a mano: a la vista hasta cargar el número.
           const empty = !hasNumber(quote.activity && quote.activity.availabilityHoursPerDay);
           return empty && oldWindowText ? h('p', { class: 'qe-note' }, `Antes cargaste: "${oldWindowText}". Pasalo a horas por día.`) : '';
+        }, { tag: 'div', allowEmpty: true })
+        : null,
+      // Guardia activa o pasiva (2026-11): define si las horas de guardia se cubren con
+      // personas (relevos con números, en Personal) o se rota quién está de guardia.
+      availability
+        ? kit.choice('activity.guardType', {
+          label: h('span', {}, 'Tipo de guardia', infoTip('Activa: el personal está en la base o en la locación; esas horas cuentan como trabajo y piden relevos (horas de guardia del mes ÷ horas normales por persona, más francos y vacaciones; se revisa en Personal). Pasiva: está localizable y sale si lo convocan; se suele pagar un adicional de guardia y alcanza con rotar quién está de guardia.')),
+          options: [
+            { value: 'active', label: 'Activa (en el lugar)', hint: 'Cuentan como horas de trabajo.' },
+            { value: 'passive', label: 'Pasiva (localizable)', hint: 'Sale sólo si lo convocan.' },
+          ],
+          structural: true,
+        })
+        : null,
+      availability && quote.activity && quote.activity.guardType === 'active'
+        ? kit.out((r) => {
+          const g = activeGuardCoverage(quote);
+          if (!g) return '';
+          const f = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+          const lines = (Array.isArray(quote.labor) ? quote.labor : []).map((l) => activeGuardLineCheck(g, l, r.activity.activeDaysPerMonth)).filter(Boolean);
+          const line = lines.find((c) => c.short) || lines[0];
+          const people = line ? ` ≈ ${f(line.needed)} personas por posición${line.short ? ' · faltan en Personal' : ''}` : '';
+          return h('p', { class: ['qe-note', line && line.short ? 'is-warning' : null] }, `${f(line ? line.required : g.required)} h de guardia por posición por mes${people}.`);
         }, { tag: 'div', allowEmpty: true })
         : null)
     : null;
