@@ -152,6 +152,24 @@ function withQuantity(ctx, res) {
 }
 
 /** Avisos de la unidad de facturación (PLAN-2026-009). No cambian ningún número. */
+/** Personas o equipos (u horas de equipo) por día que se costean, para comparar con lo facturado. */
+function resourcesPerDayCheck(quote, unitId, a) {
+  const num = (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : d);
+  if (unitId === 'manday') {
+    const people = (Array.isArray(quote.labor) ? quote.labor : []).reduce((t, l) => t + Math.max(0, num(l && l.positions, 1)), 0);
+    return people > 0 ? { loaded: people, detail: `${formatNumber(people, { decimals: 2 })} personas en Personal`, where: 'los puestos en Personal' } : null;
+  }
+  if (unitId === 'equipment_day' || unitId === 'equipment_hour') {
+    const lines = (Array.isArray(quote.equipment) ? quote.equipment : []).filter((e) => e && typeof e === 'object');
+    if (!lines.length) return null;
+    const count = lines.reduce((t, e) => t + Math.max(0, num(e.quantity, 1)), 0);
+    if (unitId === 'equipment_day') return { loaded: count, detail: `${formatNumber(count, { decimals: 2 })} equipos en Equipos`, where: 'los equipos cargados' };
+    const hours = lines.reduce((t, e) => t + Math.max(0, num(e.quantity, 1)) * Math.max(0, num(e.hoursPerActiveDay, a.hoursPerActiveDay)), 0);
+    return { loaded: hours, detail: 'equipos × horas por día en Equipos', where: 'los equipos y sus horas por día' };
+  }
+  return null;
+}
+
 function unitIssues(quote, ctx) {
   const issues = [];
   const u = ctx.unitInfo;
@@ -210,6 +228,16 @@ function unitIssues(quote, ctx) {
     issues.push({
       path: 'activity.daysPerActivation',
       message: `Hay ${fmt(route.tripsPerActivation)} viajes ${T.per}: menos de un viaje en cada ${T.one}. Los peajes y viáticos ${T.per} se cuentan de más; revisá cuántas ${T.many} hacés por día.`,
+      severity: 'warning',
+    });
+  }
+  // Unidades 2026-11 que cuentan personas o equipos: lo facturado por día tiene que
+  // coincidir con lo cargado (si no, se factura una cosa y se costea otra). Sólo avisa.
+  const resourceCheck = resourcesPerDayCheck(quote, u.id, a);
+  if (resourceCheck && a.unitsPerActiveDay > 0 && Math.abs(a.unitsPerActiveDay - resourceCheck.loaded) > 0.01 * Math.max(1, resourceCheck.loaded)) {
+    issues.push({
+      path: 'activity.unitsPerActiveDay',
+      message: `Facturás ${fmt(a.unitsPerActiveDay)} ${a.unitsPerActiveDay === 1 ? u.singular : u.plural} por día de trabajo, pero lo cargado da ${fmt(resourceCheck.loaded)} (${resourceCheck.detail}). Los costos se calculan con lo cargado: revisá el rendimiento o ${resourceCheck.where}.`,
       severity: 'warning',
     });
   }

@@ -176,8 +176,12 @@ export function resourceChoiceOf(contract) {
  * Unidades en que se cobra el precio principal según el modo (la primera es
  * la sugerida). Con "Por servicio prestado" el orden depende de si hay equipos.
  */
-const ON_DEMAND_EQUIPMENT_UNITS = ['hour', 'day', 'call', 'trip', 'km', 'm3', 'ton', 'tonkm', 'liter', 'barrel', 'shift', 'unit', 'piece', 'well', 'test', 'meter', 'm2', 'ha', 'kg', 'lot', 'set', 'manhour'];
-const ON_DEMAND_LABOR_UNITS = ['hour', 'day', 'call', 'manhour', 'shift', 'unit', 'piece', 'well', 'test', 'meter', 'm2', 'ha', 'lot', 'set'];
+const ON_DEMAND_EQUIPMENT_UNITS = ['hour', 'day', 'call', 'trip', 'km', 'm3', 'ton', 'tonkm', 'liter', 'barrel', 'shift', 'unit', 'piece', 'well', 'test', 'meter', 'm2', 'ha', 'kg', 'lot', 'set', 'manhour',
+  // Ampliación 2026-11 (al final: no cambia la unidad sugerida ni el orden de las de siempre).
+  'equipment_hour', 'equipment_day', 'manday', 'guard', 'kwh', 'mwh', 'mj', 'gj', 'mmbtu', 'kw_day', 'kva_day', 'hp_hour', 'gas_m3',
+  'stage', 'drilled_meter', 'connection', 'inch_dia', 'joint', 'point', 'pallet', 'container', 'drum', 'bag', 'sample', 'analysis'];
+const ON_DEMAND_LABOR_UNITS = ['hour', 'day', 'call', 'manhour', 'shift', 'unit', 'piece', 'well', 'test', 'meter', 'm2', 'ha', 'lot', 'set',
+  'manday', 'guard', 'stage', 'connection', 'inch_dia', 'joint', 'point', 'sample', 'analysis', 'm3', 'ton', 'drum', 'bag', 'kwh', 'mwh'];
 
 export const CONTRACT_UNITS = deepFreeze({
   monthly: ['month'],
