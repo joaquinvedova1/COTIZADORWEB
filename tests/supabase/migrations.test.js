@@ -63,7 +63,11 @@ describe('supabase/migrations', () => {
 
   test('sin secretos ni conexiones con password en las migraciones', () => {
     assert.doesNotMatch(SQL, /postgres(?:ql)?:\/\/[^\s:]+:[^@\s[]+@/);
-    assert.doesNotMatch(SQL, /service_role|sb_secret_/);
+    // El ROL service_role puede recibir grants de funciones puntuales (Edge
+    // Function del puente a GitHub); lo que nunca puede aparecer es una clave.
+    const withoutRoleGrants = SQL.replace(/grant (?:usage|execute) on (?:schema|function) [^;]* to service_role;/g, '');
+    assert.doesNotMatch(withoutRoleGrants, /service_role|sb_secret_/);
+    assert.doesNotMatch(SQL, /eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}/, 'sin JWT en las migraciones');
   });
 });
 
@@ -159,3 +163,38 @@ describe('supabase/migrations: RATEOS ADMIN (rol de plataforma)', () => {
   });
 });
 
+
+describe('supabase/migrations: reportes de problemas (PLAN-2026-020)', () => {
+  const FILE = FILES.find((f) => /_rateos_bug_reports\.sql$/.test(f));
+  const B = FILE ? readFileSync(path.join(DIR, FILE), 'utf8').replace(/--[^\n]*/g, '').toLowerCase() : '';
+
+  test('la tabla vive en private, con RLS y sin permisos para el cliente', () => {
+    assert.ok(FILE);
+    assert.match(B, /create table private\.bug_reports \(/);
+    assert.match(B, /alter table private\.bug_reports enable row level security/);
+    assert.match(B, /revoke all on table private\.bug_reports from public, anon, authenticated/);
+    assert.doesNotMatch(B, /create table public\.bug_reports/);
+  });
+
+  test('alta sólo con sesión, con límite por persona; lista sólo para RATEOS_ADMIN', () => {
+    assert.match(B, /if v_uid is null then\s+raise exception 'forbidden' using errcode = '42501'/);
+    assert.match(B, /rate_limited/);
+    assert.match(B, /not private\.is_platform_admin\(\)/);
+    assert.match(B, /grant execute on function public\.submit_bug_report\(jsonb\) to authenticated/);
+  });
+
+  test('el puente a GitHub (claim / set) sólo lo ejecuta service_role y sólo para el reporte de quien llama', () => {
+    assert.match(B, /revoke all on function public\.claim_bug_report_for_github\(uuid, uuid\) from public, anon, authenticated/);
+    assert.match(B, /revoke all on function public\.set_bug_report_github\(uuid, integer, text\) from public, anon, authenticated/);
+    assert.match(B, /b\.reporter_id = p_reporter/);
+    assert.match(B, /b\.github_issue_number is null/);
+  });
+
+  test('lo que va a GitHub y al admin no incluye quién reportó', () => {
+    const claim = B.match(/function private\.claim_bug_report_for_github[\s\S]*?\$\$([\s\S]*?)\$\$/)[1];
+    const adminList = B.match(/function private\.admin_bug_reports[\s\S]*?\$\$([\s\S]*?)\$\$/)[1];
+    for (const body of [claim.split('jsonb_build_object')[1], adminList]) {
+      assert.doesNotMatch(body, /'reporter_id'|email|full_name|organization/);
+    }
+  });
+});

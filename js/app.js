@@ -16,7 +16,7 @@
  * analytics, sin IA. Sólo URL + publishable key de Supabase en el frontend.
  */
 
-import { APP_NAME } from './config.js';
+import { APP_NAME, FEATURES } from './config.js';
 import { logger } from './core/logger.js';
 import { track } from './core/events.js';
 import { createAccountContext, createDemoContext } from './services/app-context.js';
@@ -25,11 +25,13 @@ import { loginHash } from './services/auth-routing.js';
 import { createCloud } from './services/cloud.js';
 import { loadVersionInfo } from './services/settings-service.js';
 import { createRecoveryService } from './services/recovery-service.js';
+import { createFeedbackService, describeLocation } from './services/feedback-service.js';
 import { h, mount, downloadText } from './ui/dom.js';
 import { banner, button, card, confirmDialog, ensureToastRegion, toast } from './ui/components.js';
 import { createLayout, userErrorMessage } from './ui/layout.js';
 import { createRouter } from './ui/router.js';
 import { resetSessionMemory } from './ui/session-memory.js';
+import { openReportProblem } from './ui/report-problem.js';
 
 const FALLBACK_VERSION = Object.freeze({ version: 'dev', commit: 'local', buildDate: null, ref: null });
 const ERROR_TOAST_INTERVAL_MS = 5000;
@@ -367,9 +369,11 @@ async function boot(root) {
 
   let cloud;
   let auth;
+  let feedback = null;
   try {
     cloud = createCloud();
     auth = createAuthService({ gateway: cloud.authGateway });
+    feedback = cloud.feedbackGateway ? createFeedbackService(cloud.feedbackGateway) : null;
   } catch (error) {
     logger.error('No se pudo iniciar RATEOS', { name: error && error.name });
     renderStartupError(root, error, version);
@@ -481,6 +485,18 @@ async function boot(root) {
       const res = await auth.signOut();
       if (!res.ok && res.message) toast(res.message, 'warning');
     },
+    /**
+     * "Reportar un problema": con sesión se envía (Supabase → issue de GitHub
+     * sin datos de la persona); sin sesión se abre el issue ya completo en GitHub.
+     */
+    reportProblem() {
+      const current = router ? router.current() : null;
+      const routeName = current && current.route ? String(current.route.name || '') : '';
+      const signedIn = auth.status === 'authenticated';
+      const canSend = FEATURES.bugReportsCloud === true && signedIn && Boolean(feedback);
+      const mode = routeName.startsWith('demo') ? 'demo' : signedIn ? 'cuenta' : 'publico';
+      openReportProblem({ location: describeLocation(current), version, mode, loginTip: !signedIn && FEATURES.bugReportsCloud === true, submit: canSend ? (payload) => feedback.submit(payload) : null });
+    },
     renderAccountError(container) {
       mount(container, h('div', { class: 'auth-loading auth-error', role: 'alert' },
         h('p', {}, userErrorMessage(accountError, 'No pudimos abrir tu cuenta.')),
@@ -491,6 +507,7 @@ async function boot(root) {
   };
 
   layout.onSignOut(() => app.signOut());
+  layout.onReportProblem(() => app.reportProblem());
 
   async function openAccount() {
     if (!auth.user) return;

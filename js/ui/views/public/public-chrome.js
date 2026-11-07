@@ -325,6 +325,17 @@ export function headerLink(label, href, { iconBefore = null } = {}) {
 
 // --------------------------------------------------------------------- pie
 
+/**
+ * "Reportar un problema" en las pantallas públicas (demo, landing). Abre el
+ * mismo diálogo que dentro de la app (app.reportProblem).
+ */
+export function reportLink(app, { className = 'pub-footer-link pub-report-link', short = false } = {}) {
+  if (!app || typeof app.reportProblem !== 'function') return null;
+  return h('button', { type: 'button', class: className, 'aria-label': short ? 'Reportar un problema' : null, on: { click: () => app.reportProblem() } },
+    publicIcon('flag', { size: 16 }),
+    short ? h('span', {}, h('span', { class: 'pub-report-long' }, 'Reportar un problema'), h('span', { class: 'pub-report-short', 'aria-hidden': 'true' }, 'Reportar')) : h('span', {}, 'Reportar un problema'));
+}
+
 /** ¿Hay una sesión iniciada? (sólo para mostrar los accesos correctos). */
 export function isSignedIn(app) {
   return Boolean(app && app.auth && app.auth.status === 'authenticated');
@@ -347,7 +358,7 @@ export function siteFooter(app) {
         h('div', { class: 'pub-footer-brand' }, brand({ className: 'pub-brand-sm' }), h('p', {}, 'Hecho en Neuquén, Patagonia argentina.')),
         h('p', { class: 'pub-footer-privacy' }, publicIcon('lock', { size: 16 }), h('span', {}, 'Tus datos quedan en tu cuenta, protegidos: nadie de otra empresa puede verlos. La demo no necesita cuenta y no guarda nada.')),
       ),
-      h('div', { class: 'pub-footer-meta' }, signedIn ? h('a', { href: '#/inicio', class: 'pub-footer-link' }, 'Abrir RATEOS') : h('a', { href: '#/login', class: 'pub-footer-link' }, 'Ingresar'), h('span', { class: 'pub-footer-version mono' }, versionText)),
+      h('div', { class: 'pub-footer-meta' }, reportLink(app), signedIn ? h('a', { href: '#/inicio', class: 'pub-footer-link' }, 'Abrir RATEOS') : h('a', { href: '#/login', class: 'pub-footer-link' }, 'Ingresar'), h('span', { class: 'pub-footer-version mono' }, versionText)),
     ),
   );
 }

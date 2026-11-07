@@ -41,6 +41,7 @@ const ICONS = {
   resources: 'M12 2 3 6.5v11L12 22l9-4.5v-11L12 2zm0 2.2 6.4 3.2L12 10.6 5.6 7.4 12 4.2zM5 9.1l6 3v7.6l-6-3V9.1zm8 10.6v-7.6l6-3v7.6l-6 3z',
   lock: 'M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-5 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm3-9H9V6a3 3 0 0 1 6 0v2z',
   play: 'M8 5v14l11-7L8 5z',
+  flag: 'M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6h-5.6z',
 };
 
 /** Ícono SVG inline (formas estáticas internas, nunca datos de usuario). */

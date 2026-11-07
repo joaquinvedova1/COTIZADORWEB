@@ -827,3 +827,28 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 .qe-summary .info-tip-bubble, .form-grid > :last-child:not(:first-child) .info-tip-bubble { left: auto; right: -8px; }
 .qe-summary .info-tip-bubble::before, .form-grid > :last-child:not(:first-child) .info-tip-bubble::before { left: auto; right: 12px; }
 @media print { .info-tip { display: none !important; } }
+
+/* ------------------------------------------- "Reportar un problema" (PLAN-2026-020) */
+.sidebar-meta { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.report-action { align-self: flex-start; }
+@media (max-width: 1100px) and (min-width: 761px) {
+  .report-action { align-self: center; flex-direction: column; text-align: center; line-height: 1.15; }
+}
+.report-problem { display: flex; flex-direction: column; gap: 0.9rem; }
+.report-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.report-form textarea { min-height: 5.5rem; resize: vertical; }
+.report-intro { color: var(--ink-2); }
+.report-auto, .report-privacy { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.85rem; color: var(--ink-2); line-height: 1.45; }
+.report-auto .icon, .report-privacy .icon { flex-shrink: 0; margin-top: 0.15rem; color: var(--ink-3); }
+.report-privacy { padding: 0.6rem 0.75rem; border-radius: 8px; background: var(--navy-50); }
+.report-preview { margin: 0; padding: 0.75rem; max-height: 14rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.78rem; background: var(--line-2); border-radius: 8px; }
+.report-error { color: var(--red-text); font-weight: 600; font-size: 0.9rem; }
+.report-error[hidden] { display: none; }
+.report-thanks { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; padding: 1rem 0; }
+.report-thanks-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: var(--green-50); color: var(--green-text); }
+.report-thanks-title { font-size: 1.1rem; font-weight: 700; color: var(--ink); }
+.report-fallback { font-size: 0.85rem; color: var(--ink-2); }
+.report-preview-box .disclosure-summary { padding-block: 0.45rem; }
+.report-preview-box .disclosure-title { font-weight: 550; font-size: 0.85rem; }
+.report-thanks-title:focus { outline: none; }
+.btn[aria-disabled="true"] { opacity: 0.7; cursor: progress; }

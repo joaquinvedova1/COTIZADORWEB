@@ -74,6 +74,11 @@ export const FEATURES = Object.freeze({
   analytics: false, // Eventos internos desacoplados; sin envío a terceros.
   commercialModelComparator: true,
   scenarios: true,
+  // "Reportar un problema" con sesión se envía por Supabase (private.bug_reports
+  // + Edge Function → issue en GitHub). Se enciende cuando la migración
+  // 20261107020000_rateos_bug_reports y la función están aplicadas en el
+  // proyecto; mientras tanto el reporte se abre ya escrito en GitHub.
+  bugReportsCloud: false,
 });
 
 export const LOCALE = 'es-AR';

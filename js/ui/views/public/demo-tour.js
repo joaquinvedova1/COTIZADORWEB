@@ -28,7 +28,7 @@ import { deepClone } from '../../../core/object.js';
 import { logger } from '../../../core/logger.js';
 import { costBreakdown } from '../../cost-breakdown.js';
 import { accountEntry } from '../../../services/auth-routing.js';
-import { costGroupLabel, flowHeader, focusHeading, hashParams, headerLink, illustrativeLabel, isSignedIn, pubLink, publicIcon } from './public-chrome.js';
+import { costGroupLabel, flowHeader, focusHeading, hashParams, headerLink, illustrativeLabel, isSignedIn, pubLink, publicIcon, reportLink } from './public-chrome.js';
 
 const STEPS = Object.freeze(['El servicio', 'Lo que cuesta prestarlo', 'El resultado', 'Probalo vos']);
 const NEXT_LABELS = Object.freeze({ 1: 'Ver lo que cuesta', 2: 'Ver el resultado', 3: 'Probalo vos' });
@@ -582,7 +582,7 @@ export async function render(root, app) {
       flowHeader({
         brandHref: origin ? origin.brandHref : '#/',
         brandLabel: origin ? origin.brandLabel : undefined,
-        actions: [origin ? headerLink(origin.exitLabel, origin.exitHref, { iconBefore: 'arrowLeft' }) : headerLink('Salir del ejemplo', '#/', { iconBefore: 'close' })],
+        actions: [reportLink(app, { className: 'pub-header-link pub-report-link', short: true }), origin ? headerLink(origin.exitLabel, origin.exitHref, { iconBefore: 'arrowLeft' }) : headerLink('Salir del ejemplo', '#/', { iconBefore: 'close' })],
       }),
       body,
     ),
