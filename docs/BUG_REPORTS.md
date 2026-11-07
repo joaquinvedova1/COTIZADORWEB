@@ -13,7 +13,7 @@ El formulario pregunta **¿Qué pasó?** (obligatorio) y **¿Qué esperabas que 
 
 | Quién | Qué pasa |
 | --- | --- |
-| Con sesión (cuenta de RATEOS) | Se guarda en Supabase (`private.bug_reports`) y la Edge Function `bug-report-github` crea un **issue en GitHub** con el label `reporte-app`. La persona ve "¡Gracias!" y una referencia `R-XXXXXX`. No necesita cuenta de GitHub. |
+| Con sesión (cuenta de RATEOS), con `FEATURES.bugReportsCloud = true` | Se guarda en Supabase (`private.bug_reports`) y la Edge Function `bug-report-github` crea un **issue en GitHub** con el label `reporte-app`. La persona ve "¡Gracias!" y una referencia `R-XXXXXX`. No necesita cuenta de GitHub. |
 | Sin sesión (landing, demo) | Se abre GitHub con el issue ya escrito; para enviarlo hace falta una cuenta de GitHub (gratis). |
 
 El issue **nunca** lleva nombre, email, empresa ni id de quien reporta (el repositorio es público). La ruta va como patrón (`/cotizaciones/:id/equipment`), sin ids. Límite: 5 reportes cada 10 minutos y 30 por día por persona.
@@ -51,3 +51,7 @@ El token **nunca** va al repositorio, al frontend ni a un chat: sólo a los secr
 - `supabase/functions/bug-report-github/index.ts` — Edge Function (se despliega con el plugin/MCP de Supabase o `supabase functions deploy bug-report-github --no-verify-jwt`; verifica la sesión adentro).
 - `js/data/feedback-gateway.js`, `js/services/feedback-service.js`, `js/ui/report-problem.js` — app.
 - `.github/ISSUE_TEMPLATE/reporte-app.yml` — formulario para quien reporte directo en GitHub.
+
+## 6. Encendido
+
+`FEATURES.bugReportsCloud` (`js/config.js`) arranca en `false`: mientras la migración y la Edge Function no estén aplicadas en el proyecto de Supabase, todos (con o sin sesión) reportan por GitHub con el issue ya escrito. Después de aplicarlas (y probar un envío), se pasa a `true`.

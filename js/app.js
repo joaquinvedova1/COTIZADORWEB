@@ -16,7 +16,7 @@
  * analytics, sin IA. Sólo URL + publishable key de Supabase en el frontend.
  */
 
-import { APP_NAME } from './config.js';
+import { APP_NAME, FEATURES } from './config.js';
 import { logger } from './core/logger.js';
 import { track } from './core/events.js';
 import { createAccountContext, createDemoContext } from './services/app-context.js';
@@ -492,9 +492,10 @@ async function boot(root) {
     reportProblem() {
       const current = router ? router.current() : null;
       const routeName = current && current.route ? String(current.route.name || '') : '';
-      const signedIn = auth.status === 'authenticated' && Boolean(feedback);
+      const signedIn = auth.status === 'authenticated';
+      const canSend = FEATURES.bugReportsCloud === true && signedIn && Boolean(feedback);
       const mode = routeName.startsWith('demo') ? 'demo' : signedIn ? 'cuenta' : 'publico';
-      openReportProblem({ location: describeLocation(current), version, mode, submit: signedIn ? (payload) => feedback.submit(payload) : null });
+      openReportProblem({ location: describeLocation(current), version, mode, loginTip: !signedIn && FEATURES.bugReportsCloud === true, submit: canSend ? (payload) => feedback.submit(payload) : null });
     },
     renderAccountError(container) {
       mount(container, h('div', { class: 'auth-loading auth-error', role: 'alert' },

@@ -31,11 +31,12 @@ onSessionReset(() => {
  *   location: { label: string, route: string },
  *   version?: object,
  *   mode: 'cuenta'|'demo'|'publico',
+ *   loginTip?: boolean,  sugerir ingresar para enviar sin GitHub
  *   submit?: ((payload: object) => Promise<{ ok: boolean, message: string|null, reference: string|null }>)|null,
  *   openUrl?: (url: string) => void,
  * }} options  submit null = sin sesión (se ofrece GitHub)
  */
-export function openReportProblem({ location, version = {}, mode = 'cuenta', submit = null, openUrl = (url) => window.open(url, '_blank', 'noopener') }) {
+export function openReportProblem({ location, version = {}, mode = 'cuenta', loginTip = false, submit = null, openUrl = (url) => window.open(url, '_blank', 'noopener') }) {
   const canSend = typeof submit === 'function';
   const tech = technicalContext();
   const payload = () => buildReportPayload(draft, { location, version, mode, tech });
@@ -84,7 +85,7 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', sub
     icon('lock', { size: 16 }),
     h('span', {}, canSend
       ? 'Ojo: el reporte queda publicado en GitHub, en una lista pública de errores de RATEOS. No lleva tu nombre, email ni empresa. No escribas nombres de clientes, precios ni otros datos confidenciales.'
-      : 'Te llevamos a GitHub (un sitio público que pide una cuenta gratuita) con el reporte ya escrito. No escribas nombres de clientes ni precios. Si tenés cuenta de RATEOS, ingresá y mandalo desde ahí, sin GitHub.'));
+      : `Te llevamos a GitHub (un sitio público que pide una cuenta gratuita) con el reporte ya escrito. No escribas nombres de clientes ni precios.${!loginTip ? '' : ' Si tenés cuenta de RATEOS, ingresá y mandalo desde ahí, sin GitHub.'}`));
 
   const form = h('form', { class: 'report-form', novalidate: true },
     h('p', { class: 'report-intro' }, 'Contanos qué no funcionó o qué te confundió. Lo revisamos para corregir RATEOS.'),
