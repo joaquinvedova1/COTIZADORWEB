@@ -12,6 +12,15 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Más unidades de medida (2026-11-07, pedido del dueño).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (las unidades se guardan por id, como siempre).
+
+### Agregado
+
+- **25 unidades de facturación nuevas, en español**: energía y potencia ($/kWh, $/MWh, $/MJ, $/GJ, $/MMBTU, $/kW-día, $/kVA-día para grupos electrógenos, $/HP-hora para bombas y compresores), $/m³ de gas, $/hora de equipo, $/día-equipo, $/jornal, $/guardia, $/etapa, $/metro perforado, $/conexión, $/pulgada-diámetro, $/junta soldada, $/boca, $/pallet, $/contenedor, $/tambor, $/bolsa, $/muestra y $/análisis. Todas se calculan como las de cantidad (cantidad ÷ rendimiento = días de trabajo). Volt, amper, psi o caudal no se agregan como unidad de cobro: describen el equipo.
+- **"¿En qué unidad cobrás?" con buscador** (por nombre o sinónimo: "joule", "potencia", "soldadura") y el grupo de cada unidad; sin resultados ofrece "Otra / personalizada".
+- **Aviso** si con $/jornal, $/día-equipo o $/hora de equipo lo facturado por día no coincide con las personas o equipos cargados (los costos salen de lo cargado).
+- Capacidad por viaje también para m³ de gas (GNC), pallets, contenedores, tambores y bolsas. Más unidades de materiales: bidón, caja, rollo, par, juego, pallet, big bag, barril, m³ de gas, kWh.
+
 **Pendientes de componentes (2026-11, PLAN-2026-021).** Ninguna cifra de una cotización existente cambia; esquema sin cambio de versión (campos opcionales).
 
 ### Agregado

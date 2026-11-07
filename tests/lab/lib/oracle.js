@@ -67,6 +67,8 @@ export const ORACLE_UNIT_KINDS = Object.freeze({
   shift: 'quantity', trip: 'quantity', km: 'quantity', ton: 'quantity', tonkm: 'quantity', m3: 'quantity',
   unit: 'quantity', kg: 'quantity', meter: 'quantity', m2: 'quantity', lot: 'quantity', custom: 'quantity',
   piece: 'quantity', well: 'quantity', test: 'quantity', manhour: 'quantity', liter: 'quantity', barrel: 'quantity', ha: 'quantity', set: 'quantity',
+  // Ampliación 2026-11: todas por cantidad.
+  kwh: 'quantity', mwh: 'quantity', mj: 'quantity', gj: 'quantity', mmbtu: 'quantity', kw_day: 'quantity', kva_day: 'quantity', hp_hour: 'quantity', gas_m3: 'quantity', equipment_hour: 'quantity', equipment_day: 'quantity', manday: 'quantity', guard: 'quantity', stage: 'quantity', drilled_meter: 'quantity', connection: 'quantity', inch_dia: 'quantity', joint: 'quantity', point: 'quantity', pallet: 'quantity', container: 'quantity', drum: 'quantity', bag: 'quantity', sample: 'quantity', analysis: 'quantity',
 });
 /** Unidades de la tarifa de un externo (§4.1). */
 export const ORACLE_EXTERNAL_UNITS = Object.freeze(['hour', 'day', 'month', 'trip', 'km', 'activation', 'global']);
@@ -247,7 +249,7 @@ export function oracleRoute(q, act) {
   // Unidad "viaje": viajes por intervención = viajes por día × días por intervención (se derivan).
   const derived = act.unitId === 'trip';
   // Por volumen o peso con capacidad por viaje: ⌈cantidad por salida ÷ capacidad⌉ viajes.
-  const capacity = ['m3', 'ton', 'liter', 'barrel', 'kg'].includes(act.unitId) ? n(obj(q.activity).unitsPerTrip) : 0;
+  const capacity = ['m3', 'ton', 'liter', 'barrel', 'kg', 'gas_m3', 'pallet', 'container', 'drum', 'bag'].includes(act.unitId) ? n(obj(q.activity).unitsPerTrip) : 0;
   const byCapacity = !derived && capacity > 0 && act.r * act.dpa > 0;
   const tripsPerActivation = notApplicable ? 0 : derived ? act.r * act.dpa : byCapacity ? Math.ceil((act.r * act.dpa) / capacity - 1e-9) : n(lg.tripsPerActivation, 1);
   const kmPerTrip = distance * (roundTrip ? 2 : 1);
