@@ -41,7 +41,7 @@ const notApplicable = { ok: true, na: true, detail: 'no aplica a este escenario'
 /** Cambia la actividad del mes (días, o cantidad en la unidad comercial). */
 function scaleActivity(q, factor) {
   const a = q.activity || {};
-  if (['m3', 'trip', 'km', 'ton', 'tonkm', 'unit', 'kg', 'meter', 'm2', 'lot', 'shift', 'custom', 'piece', 'well', 'test', 'manhour', 'liter', 'barrel', 'ha', 'set', 'call', 'job', 'milestone'].includes(q.unit)) a.billableQuantityPerMonth = Number(a.billableQuantityPerMonth || 0) * factor;
+  if (['m3', 'trip', 'km', 'ton', 'tonkm', 'unit', 'kg', 'meter', 'm2', 'lot', 'shift', 'custom', 'piece', 'well', 'test', 'manhour', 'liter', 'barrel', 'ha', 'set', 'call', 'job', 'milestone', 'kwh', 'mwh', 'mj', 'gj', 'mmbtu', 'kw_day', 'kva_day', 'hp_hour', 'gas_m3', 'equipment_hour', 'equipment_day', 'manday', 'guard', 'stage', 'drilled_meter', 'connection', 'inch_dia', 'joint', 'point', 'pallet', 'container', 'drum', 'bag', 'sample', 'analysis'].includes(q.unit)) a.billableQuantityPerMonth = Number(a.billableQuantityPerMonth || 0) * factor;
   else a.activeDaysPerMonth = Number(a.activeDaysPerMonth || 0) * factor;
   q.activity = a;
   return q;

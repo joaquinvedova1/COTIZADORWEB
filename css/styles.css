@@ -738,6 +738,12 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 
 /* Selector buscable (combobox): la lista se abre debajo del campo */
 .combo .field-control { position: relative; }
+/* Flecha como la de un <select>: se nota que se elige de una lista (y se puede escribir para buscar). */
+.combo input[role="combobox"] {
+  padding-right: 2.2rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%236b7280' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 0.85rem center; background-size: 12px 8px;
+}
 .combo-list {
   position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
   max-height: 18rem; overflow-y: auto; margin: 0; padding: 0.25rem; list-style: none;

@@ -38,7 +38,7 @@ import { activationTerms } from '../domain/activation-terms.js';
  *   cantidad por salida = cantidad por día de trabajo × días por salida
  * (un viaje a medio cargar es un viaje entero).
  */
-export const CAPACITY_UNITS = Object.freeze(['m3', 'ton', 'liter', 'barrel', 'kg']);
+export const CAPACITY_UNITS = Object.freeze(['m3', 'ton', 'liter', 'barrel', 'kg', 'gas_m3', 'pallet', 'container', 'drum', 'bag']);
 
 /** Capacidad por viaje cargada (null si no aplica o no se cargó). */
 export function capacityPerTripOf(quote = {}) {
