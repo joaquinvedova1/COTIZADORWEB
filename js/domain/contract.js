@@ -63,7 +63,7 @@ export const CONTRACT_RESOURCES = deepFreeze([
  */
 export const SERVICE_COMPONENTS = deepFreeze([
   { id: 'labor', label: 'Personal', hint: 'Operarios, técnicos, choferes, supervisión.', step: 'labor' },
-  { id: 'vehicle', label: 'Vehículo', hint: 'Camioneta, utilitario, camión, colectivo (se carga una sola vez, en Equipos).', step: 'equipment', equipment: true },
+  { id: 'vehicle', label: 'Vehículo', hint: 'Camioneta, utilitario, camión, colectivo (cargalo una sola vez).', step: 'equipment', equipment: true },
   { id: 'machinery', label: 'Equipo o maquinaria', hint: 'Hidrogrúa, hidrolavadora, retro, generador, equipo de soldadura o END.', step: 'equipment', equipment: true },
   { id: 'subcontract', label: 'Servicio de terceros', hint: 'Subcontrato, alquiler o laboratorio: pagás la tarifa de un proveedor.', step: 'equipment', equipment: true },
   { id: 'tools', label: 'Herramientas', hint: 'Herramientas menores y su reposición.', step: 'materials', materials: true },

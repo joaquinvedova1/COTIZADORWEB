@@ -71,6 +71,17 @@ export function activeDaysForQuantity({ kind, quantity, unitsPerActiveDay, units
   return perActivation > 0 ? (Q / perActivation) * dpa : 0;
 }
 
+/**
+ * Unidades producidas por día de trabajo según cómo se cobra (PLAN-2026-021):
+ * por cantidad (m³, t, m², pieza…) las unidades por día; por hora, las horas
+ * por día. Con otra unidad no hay dato: cada línea carga el suyo.
+ */
+export function autoOutputPerActiveDay(activity = {}) {
+  if (activity.unitKind === 'quantity') return nonNegative(activity.unitsPerActiveDay);
+  if (activity.unitKind === 'hour') return nonNegative(activity.hoursPerActiveDay);
+  return 0;
+}
+
 /** Normaliza los parámetros de actividad de una cotización. */
 export function normalizeActivity(quote = {}) {
   const a = quote.activity || {};
@@ -437,6 +448,8 @@ export function buildCostModel(quote = {}) {
   });
   const materials = computeMaterials(materialInput, {
     daysPerActivation: activity.daysPerActivation,
+    // Por unidad producida (PLAN-2026-021): lo producido por día de la cotización.
+    outputPerActiveDay: autoOutputPerActiveDay(activity),
   });
   materials.lines.forEach((m, i) => {
     lines.push({

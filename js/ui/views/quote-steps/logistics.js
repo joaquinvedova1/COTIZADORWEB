@@ -18,7 +18,8 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { badge, card, formGrid, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
+import { badge, button, card, disclosure, formGrid, numberField, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
+import { lodgingFromDetail } from '../../../domain/lodging.js';
 import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf } from '../../../domain/catalogs.js';
 import { createVehicle, acquisitionOf } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
@@ -100,6 +101,53 @@ function towedTrace(result, index, T) {
       'La amortización del equipo ya está en su costo de tenerlo: no se vuelve a sumar por km.',
     ],
   });
+}
+
+/**
+ * Viáticos por personas y noches (PLAN-2026-021): una cuenta de ayuda que
+ * llena "Alojamiento y viáticos" por salida. El motor sigue usando ese monto
+ * (no cambia ninguna fórmula); el detalle se guarda para poder rehacerla.
+ */
+function lodgingCalculator(ctx, T) {
+  const { quote } = ctx;
+  if (ctx.readOnly) return null;
+  const saved = quote.logistics && quote.logistics.lodgingDetail && typeof quote.logistics.lodgingDetail === 'object' ? quote.logistics.lodgingDetail : {};
+  const d = { people: saved.people ?? null, nights: saved.nights ?? null, perNight: saved.perNight ?? null, days: saved.days ?? null, perDay: saved.perDay ?? null };
+  const total = h('strong', {});
+  const useBtn = button('Usar este monto', { variant: 'primary', icon: 'check', onClick: () => {
+    const value = lodgingFromDetail(d);
+    ctx.mutate((q) => {
+      q.logistics.lodgingDetail = { ...d };
+      q.logistics.lodgingPerActivation = value;
+    }, { focus: 'logistics.lodgingPerActivation' });
+    ctx.toast(`Alojamiento y viáticos ${T.per}: ${formatMoney(value)}.`, 'success');
+  } });
+  const refresh = () => {
+    const v = lodgingFromDetail(d);
+    total.textContent = `${formatMoney(v)} ${T.per}`;
+    useBtn.disabled = !(v > 0);
+  };
+  const field = (key, label, rule, unit) => numberField({ label, value: d[key], rule, unit, onChange: (v) => { d[key] = v; refresh(); } });
+  refresh();
+  const current = nonNegative(quote.logistics && quote.logistics.lodgingPerActivation);
+  const matches = current > 0 && Math.abs(lodgingFromDetail(saved) - current) < 0.005;
+  return disclosure(
+    {
+      summary: 'Calcular viáticos por personas y noches',
+      hint: matches ? `Calculado: ${formatNumber(Number(saved.people) || 0)} personas × ${formatNumber(Number(saved.nights) || 0)} noches + comidas.` : null,
+      className: 'qe-lodging-calc',
+    },
+    formGrid(
+      3,
+      field('people', 'Personas que viajan', 'quantity', 'personas'),
+      field('nights', `Noches ${T.per}`, 'quantity', 'noches'),
+      field('perNight', 'Alojamiento por persona y noche', 'money', '$'),
+      field('days', `Días con comidas ${T.per}`, 'quantity', 'días'),
+      field('perDay', 'Comidas y desarraigo por persona y día', 'money', '$'),
+    ),
+    h('p', { class: 'small muted' }, 'Personas × noches × alojamiento + personas × días × comidas. Si las comidas ya están en cada puesto de Personal, dejalas en 0 acá para no contarlas dos veces.'),
+    h('div', { class: 'qe-toolbar' }, h('span', {}, 'Total: ', total), useBtn),
+  );
 }
 
 export function render(container, ctx) {
@@ -499,6 +547,7 @@ export function render(container, ctx) {
         kit.num('logistics.tollsPerActivation', { label: L.tollsPerActivation, rule: 'money', unit: '$', illustrative }),
         kit.num('logistics.lodgingPerActivation', { label: L.lodgingPerActivation, rule: 'money', unit: '$', illustrative }),
       ),
+      lodgingCalculator(ctx, T),
     );
 
   // Precio de combustible ILUSTRATIVO (default de una configuración de demo

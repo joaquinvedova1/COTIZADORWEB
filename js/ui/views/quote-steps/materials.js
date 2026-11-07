@@ -11,7 +11,7 @@
 
 import { h, mount } from '../../dom.js';
 import { card, formGrid, selectField, emptyState, table } from '../../components.js';
-import { MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
+import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
 import { materialLineFromLibrary, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
@@ -23,6 +23,7 @@ import { CURRENCIES } from '../../../domain/catalogs.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
 import { activationTerms, withActivationOptions } from '../../../domain/activation-terms.js';
 import { onSessionReset } from '../../session-memory.js';
+import { billingUnitOf } from '../../../domain/billing-units.js';
 
 /** Grilla de la línea de material: la descripción más ancha que los números. */
 function materialGrid(...fields) {
@@ -32,9 +33,24 @@ function materialGrid(...fields) {
 }
 
 /** "por mes", "por día activo", "por llamado" / "por salida"… (la activación con el nombre de la cotización, PLAN-2026-014). */
-const basisShort = (basis, T) => ({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: T.per }[basis] || basis);
+const basisShort = (basis, T, out = 'unidad') => ({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: T.per, per_output: `por ${out}` }[basis] || basis);
 /** "/día", "/mes", "/salida" (cada cuánto se consume la cantidad). */
-const basisPer = (basis, T) => ({ per_month: 'mes', per_active_day: 'día', per_activation: T.one }[basis] || 'mes');
+const basisPer = (basis, T, out = 'unidad') => ({ per_month: 'mes', per_active_day: 'día', per_activation: T.one, per_output: out }[basis] || 'mes');
+
+/**
+ * Unidad producida de una línea "por unidad producida" (PLAN-2026-021): la
+ * propia de la línea o, si no, la unidad en que se cobra (por cantidad u hora).
+ */
+export function outputUnitOf(line = {}, quote = {}) {
+  const own = String((line && line.outputUnit) || '').trim();
+  if (own) return own;
+  const u = billingUnitOf(quote);
+  if (u.kind === 'quantity' || u.kind === 'hour') return u.singular;
+  return 'unidad';
+}
+
+/** ¿La cotización ya sabe cuánto se produce por día? (se cobra por cantidad o por hora). */
+const autoOutputKnown = (quote) => ['quantity', 'hour'].includes(billingUnitOf(quote).kind);
 /** Valor del selector de unidad para "Otra / personalizada". */
 const CUSTOM_UNIT = '__custom';
 /** Líneas en las que la persona eligió "Otra…" y todavía no escribió la unidad (sólo en pantalla). */
@@ -45,14 +61,19 @@ onSessionReset(() => customUnitLines.clear());
  * La cuenta visible de una línea (PLAN-2026-010, no cambia el cálculo):
  *   "10 L/día × $ 5.000/L = $ 50.000/día · 20 días = $ 1.000.000/mes"
  */
-export function materialFormulaText(line, model, { activeDays = 0, activationsPerMonth = 0, terms = activationTerms() } = {}) {
+export function materialFormulaText(line, model, { activeDays = 0, activationsPerMonth = 0, terms = activationTerms(), outputUnit = 'unidad' } = {}) {
   if (!line || !model) return '';
   const unit = String(line.unit || '').trim() || 'u.';
-  const per = basisPer(model.basis, terms);
+  const per = basisPer(model.basis, terms, outputUnit);
   const factor = model.quantity * model.unitCost > 0 ? model.grossCost / (model.quantity * model.unitCost) : 1;
   const extras = Math.abs(factor - 1) > 1e-9 ? ' (con merma y logística)' : '';
   const head = `${formatNumber(model.quantity, { decimals: 2 })} ${unit}/${per} × ${formatMoney(model.unitCost, { decimals: model.unitCost < 100 ? 2 : 0 })}/${unit}${extras} = ${formatMoney(model.grossCost)}/${per}`;
   if (model.basis === 'per_active_day') return `${head} · ${formatNumber(activeDays, { decimals: 2 })} días = ${formatMoney(model.grossCost * activeDays)}/mes`;
+  if (model.basis === 'per_output') {
+    const perDay = model.outputPerActiveDay || 0;
+    if (!(perDay > 0)) return `${head} · falta cuántas ${outputUnit} por día`;
+    return `${head} · ${formatNumber(perDay, { decimals: 2 })} ${outputUnit}/día × ${formatNumber(activeDays, { decimals: 2 })} días = ${formatMoney(model.grossCost * perDay * activeDays)}/mes`;
+  }
   if (model.basis === 'per_activation') return `${head} · ${formatNumber(activationsPerMonth, { decimals: 2 })} ${terms.word(activationsPerMonth)} = ${formatMoney(model.grossCost * activationsPerMonth)}/mes`;
   return head;
 }
@@ -71,7 +92,7 @@ function materialsTrace(result, T) {
     id: 'materials',
     title: 'Materiales',
     formula: `Costo para nosotros = cantidad × costo unitario × (1 + merma%) × (1 + logística%) · Por mes → fijo; por día activo → variable; ${T.per} → variable ÷ días ${T.per} · Si lo provee el cliente, no es costo nuestro`,
-    inputs: lines.map((l) => ({ label: `${l.description || 'Material'} (${basisShort(l.basis, T)})`, value: l.costForUs, format: 'money' })),
+    inputs: lines.map((l, i) => ({ label: `${l.description || 'Material'} (${basisShort(l.basis, T, outputUnitOf((quote.materials || [])[i], quote))})`, value: l.costForUs, format: 'money' })),
     steps: [
       { label: 'Fijo mensual de materiales', value: result.model.materials.fixedMonthly, format: 'money' },
       { label: 'Variable por día activo', value: result.model.materials.variablePerActiveDay, format: 'money' },
@@ -195,7 +216,7 @@ export function render(container, ctx) {
         noRate ? h('p', { class: 'qe-warn' }, `Este costo está en ${cur} y la cotización no tiene ese tipo de cambio: no se suma hasta que lo cargues en "${stepName('service')}".`) : null,
         materialGrid(
           kit.text(`${p}.description`, { label: 'Descripción', maxLength: 160 }),
-          kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: withActivationOptions(MATERIAL_BASES, T).map((b) => ({ value: b.id, label: b.label })), structural: true }),
+          kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: withActivationOptions(QUOTE_MATERIAL_BASES, T).map((b) => ({ value: b.id, label: b.label })), structural: true }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
             options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),
@@ -205,18 +226,35 @@ export function render(container, ctx) {
         ),
         formGrid(
           showCustomUnit ? 4 : 3,
-          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: kit.out(() => `${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}/${BASIS_PER[quote.materials[i] && quote.materials[i].basis] || 'mes'}`) }),
+          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: kit.out(() => `${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}/${basisPer(quote.materials[i] && quote.materials[i].basis, T, outputUnitOf(quote.materials[i], quote))}`) }),
           unitSelect,
           showCustomUnit ? kit.text(`${p}.unit`, { label: 'Tu unidad', maxLength: 30, placeholder: 'Ej.: bidón, rollo, kit' }) : null,
           kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: kit.out(() => `${sym}/${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}`), illustrative }),
         ),
+        line.basis === 'per_output' ? formGrid(
+          2,
+          kit.text(`${p}.outputUnit`, {
+            label: '¿Por cada qué?',
+            maxLength: 30,
+            placeholder: autoOutputKnown(quote) ? `${billingUnitOf(quote).singular} (lo que cobrás)` : 'Ej.: m², m³, pozo, válvula',
+            hint: 'La unidad de lo que producís: m² pintado, m³ tratado, pieza inspeccionada… Vacío = la unidad en que cobrás.',
+          }),
+          kit.num(`${p}.outputPerActiveDay`, {
+            label: 'Producción por día de trabajo',
+            rule: 'quantity',
+            unit: kit.out(() => `${outputUnitOf(quote.materials[i], quote)}/día`),
+            hint: autoOutputKnown(quote)
+              ? 'Vacío = lo que cargaste en "Cómo se cobra". Cargalo si esta unidad es otra.'
+              : 'Cuántas producís en un día de trabajo: con eso se calcula el consumo del mes.',
+          }),
+        ) : null,
         kit.keyline({
           label: 'Costo para vos',
           value: (r) => {
             const l = at(r);
             if (!l) return EMPTY;
             const D = r.activity.activeDaysPerMonth;
-            const monthly = l.basis === 'per_active_day' ? l.costForUs * D : l.basis === 'per_activation' ? l.costForUs * r.activity.activationsPerMonth : l.costForUs;
+            const monthly = l.basis === 'per_active_day' || l.basis === 'per_output' ? l.variablePerActiveDay * D : l.basis === 'per_activation' ? l.costForUs * r.activity.activationsPerMonth : l.costForUs;
             return `${formatMoney(monthly)} por mes`;
           },
           hint: (r) => {
@@ -224,7 +262,7 @@ export function render(container, ctx) {
             if (!l) return '';
             if (!l.providedBy) return 'Falta definir quién lo provee.';
             if (l.costForUs === 0 && l.grossCost > 0) return 'Lo provee el cliente: no es costo tuyo.';
-            return materialFormulaText(quote.materials[i], l, { activeDays: r.activity.activeDaysPerMonth, activationsPerMonth: r.activity.activationsPerMonth, terms: T });
+            return materialFormulaText(quote.materials[i], l, { activeDays: r.activity.activeDaysPerMonth, activationsPerMonth: r.activity.activationsPerMonth, terms: T, outputUnit: outputUnitOf(quote.materials[i], quote) });
           },
           tone: (r) => (at(r) && !at(r).providedBy ? 'red' : null),
         }),
