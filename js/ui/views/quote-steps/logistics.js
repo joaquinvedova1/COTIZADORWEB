@@ -112,7 +112,12 @@ function lodgingCalculator(ctx, T) {
   const { quote } = ctx;
   if (ctx.readOnly) return null;
   const saved = quote.logistics && quote.logistics.lodgingDetail && typeof quote.logistics.lodgingDetail === 'object' ? quote.logistics.lodgingDetail : {};
-  const d = { people: saved.people ?? null, nights: saved.nights ?? null, perNight: saved.perNight ?? null, days: saved.days ?? null, perDay: saved.perDay ?? null };
+  // Días con comidas: si no se cargaron, los días de cada salida (redondeados hacia arriba).
+  const dpa = Number(quote.activity && quote.activity.daysPerActivation);
+  const defaultDays = Number.isFinite(dpa) && dpa >= 1 ? Math.ceil(dpa) : null;
+  const d = { people: saved.people ?? null, nights: saved.nights ?? null, perNight: saved.perNight ?? null, days: saved.days ?? defaultDays, perDay: saved.perDay ?? null };
+  // Comidas ya cargadas en Personal: se avisa a la vista para no contarlas dos veces.
+  const laborMeals = (Array.isArray(quote.labor) ? quote.labor : []).some((l) => l && nonNegative(l.mealPerActiveDay) > 0);
   const current = nonNegative(quote.logistics && quote.logistics.lodgingPerActivation);
   const matches = current > 0 && Math.abs(lodgingFromDetail(saved) - current) < 0.005;
   const total = h('strong', { 'aria-live': 'polite' });
@@ -149,6 +154,7 @@ function lodgingCalculator(ctx, T) {
       field('days', `Días con comidas ${T.per}`, 'quantity', 'días'),
       field('perDay', 'Comidas por persona y día', 'money', '$', 'Comidas y desarraigo. Si ya están en cada puesto de Personal, poné 0 para no contarlas dos veces.'),
     ),
+    laborMeals ? h('p', { class: 'qe-warn' }, 'Personal ya tiene comidas por día cargadas: si son las mismas, dejá las comidas en 0 acá.') : null,
     h('div', { class: 'qe-toolbar' },
       h('span', {}, 'Total: ', total, ' ', infoTip('Personas × noches × alojamiento + personas × días × comidas.')),
       useBtn, note),

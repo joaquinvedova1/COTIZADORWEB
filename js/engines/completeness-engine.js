@@ -40,6 +40,7 @@ import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay } from './cost-engine.js';
+import { outputPerActiveDayOf } from './materials-engine.js';
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
@@ -278,11 +279,12 @@ export function evaluateCompleteness(quote = {}) {
     // costo no incluye lo fijo del mes (amortización, seguro, patente).
     const comps = !contract.legacy && isPlainObject(quote.contract) && Array.isArray(quote.contract.components) ? quote.contract.components : null;
     const onlyVehicle = comps && comps.includes('vehicle') && !comps.includes('machinery') && !comps.includes('subcontract');
-    const routeVehicle = !logistics.notApplicable && vehicles.find((v) => nonNegative(v.count) > 0 && nonNegative(v.costPerKm) > 0);
+    const routeVehicleIndex = logistics.notApplicable || !(nonNegative(logistics.distanceKm) > 0) ? -1 : vehicles.findIndex((v) => nonNegative(v.count) > 0 && nonNegative(v.costPerKm) > 0);
+    const routeVehicle = routeVehicleIndex >= 0 ? vehicles[routeVehicleIndex] : null;
     if (equipment.length === 0 && onlyVehicle && routeVehicle) {
       const item = rule('equipment_cost', 'Costo de equipos', 'equipment', 2, 'warning',
         `El vehículo está en "Movilización y viajes" (${(typeof routeVehicle.name === 'string' && routeVehicle.name.trim()) || 'Vehículo'}, costo por km): ese costo cubre los km, no lo fijo del mes (amortización, seguro, patente). Si el vehículo está afectado a este servicio, cargalo en Equipos y sacalo de Viajes para no contarlo dos veces.`);
-      item.focus = 'logistics.vehicles.0.costPerKm';
+      item.focus = `logistics.vehicles.${routeVehicleIndex}.costPerKm`;
       items.push(item);
     } else {
       const item = rule('equipment_cost', 'Costo de equipos', 'equipment', 2, ok ? 'ok' : 'missing',
@@ -420,7 +422,7 @@ export function evaluateCompleteness(quote = {}) {
     // Por unidad producida (PLAN-2026-021): sin producción por día el consumo suma $ 0.
     const autoOut = autoOutputPerActiveDay(normalizeActivity(quote));
     const noOutput = materials.map((m, index) => ({ m, index })).filter(({ m }) => m.basis === 'per_output' && paidByUs(m)
-      && nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0 && !(nonNegative(m.outputPerActiveDay) > 0) && !(autoOut > 0));
+      && nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0 && !(outputPerActiveDayOf(m, autoOut, unit) > 0));
     if (noOutput.length) {
       const first = noOutput[0];
       const out = rule('materials_output', 'Producción por día', 'materials', 2, 'missing',

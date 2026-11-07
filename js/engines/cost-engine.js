@@ -450,6 +450,7 @@ export function buildCostModel(quote = {}) {
     daysPerActivation: activity.daysPerActivation,
     // Por unidad producida (PLAN-2026-021): lo producido por día de la cotización.
     outputPerActiveDay: autoOutputPerActiveDay(activity),
+    billingUnit: billingUnitOf(quote),
   });
   materials.lines.forEach((m, i) => {
     lines.push({

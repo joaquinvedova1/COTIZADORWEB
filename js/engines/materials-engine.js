@@ -26,10 +26,25 @@ import { MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 
 export const MATERIAL_BASIS_IDS = Object.freeze(['per_month', 'per_active_day', 'per_activation', 'per_output']);
 
+const norm = (v) => String(v || '').trim().toLowerCase();
+
+/**
+ * ¿La unidad producida de la línea es la misma en que se cobra? (vacía = sí).
+ * Si es otra (p. ej. m² cobrando por viaje), la producción de "Cómo se cobra"
+ * no sirve: la línea tiene que cargar la suya.
+ */
+export function outputMatchesBilling(line = {}, billingUnit = null) {
+  const own = norm(line && line.outputUnit);
+  if (!own) return true;
+  const u = billingUnit || {};
+  return [u.singular, u.plural, u.short, u.id].some((x) => x && norm(x) === own);
+}
+
 /** Unidades producidas por día de trabajo de una línea "por unidad producida" (0 si no hay dato). */
-export function outputPerActiveDayOf(line = {}, autoOutputPerActiveDay = 0) {
+export function outputPerActiveDayOf(line = {}, autoOutputPerActiveDay = 0, billingUnit = null) {
   const own = nonNegative(line.outputPerActiveDay);
-  return own > 0 ? own : nonNegative(autoOutputPerActiveDay);
+  if (own > 0) return own;
+  return outputMatchesBilling(line, billingUnit) ? nonNegative(autoOutputPerActiveDay) : 0;
 }
 
 function splitByBasis(amount, basis, daysPerActivation, outputPerDay = 0) {
@@ -39,7 +54,7 @@ function splitByBasis(amount, basis, daysPerActivation, outputPerDay = 0) {
   return { fixedMonthly: amount, variablePerActiveDay: 0 };
 }
 
-export function computeMaterialLine(line = {}, { daysPerActivation = 1, outputPerActiveDay = 0 } = {}) {
+export function computeMaterialLine(line = {}, { daysPerActivation = 1, outputPerActiveDay = 0, billingUnit = null } = {}) {
   const quantity = nonNegative(line.quantity);
   const unitCost = nonNegative(line.unitCost);
   const wastePct = nonNegative(line.wastePct);
@@ -49,7 +64,7 @@ export function computeMaterialLine(line = {}, { daysPerActivation = 1, outputPe
   const grossCost = quantity * unitCost * (1 + pct(wastePct)) * (1 + pct(logisticsPct));
   const costForUs = provider && !provider.costForUs ? 0 : grossCost;
   const basis = MATERIAL_BASIS_IDS.includes(line.basis) ? line.basis : 'per_month';
-  const outputPerDay = basis === 'per_output' ? outputPerActiveDayOf(line, outputPerActiveDay) : 0;
+  const outputPerDay = basis === 'per_output' ? outputPerActiveDayOf(line, outputPerActiveDay, billingUnit) : 0;
   const split = splitByBasis(costForUs, basis, nonNegative(daysPerActivation), outputPerDay);
   return {
     id: line.id ?? null,

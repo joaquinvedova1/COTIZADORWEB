@@ -81,6 +81,17 @@ describe('Insumos por unidad producida', () => {
   });
 });
 
+describe('Unidad producida distinta de la de cobro', () => {
+  test('m² cobrando por viaje: no usa los viajes por día como m²; pide la producción', () => {
+    const q = base({ unit: 'trip', activity: { billableQuantityPerMonth: 40, unitsPerActiveDay: 2 }, materials: [paint({ outputUnit: 'm²' })] });
+    const r = computeQuote(q);
+    assert.equal(r.model.materials.lines[0].variablePerActiveDay, 0);
+    assert.ok(r.completeness.items.some((i) => i.id === 'materials_output' && i.status === 'missing'));
+    const same = base({ activity: { billableQuantityPerMonth: 2400, unitsPerActiveDay: 120 }, materials: [paint({ outputUnit: 'm²' })] });
+    approx(computeQuote(same).model.materials.lines[0].variablePerActiveDay, 240000, 'misma unidad (m²)');
+  });
+});
+
 describe('Viáticos por personas y noches', () => {
   test('personas × noches × alojamiento + personas × días × comidas', () => {
     assert.equal(lodgingFromDetail({ people: 3, nights: 4, perNight: 30000, days: 5, perDay: 15000 }), 3 * 4 * 30000 + 3 * 5 * 15000);
@@ -94,10 +105,11 @@ describe('Vehículo cargado sólo en Viajes', () => {
   const crewVehicle = contractWithComponents({ mode: 'on_demand' }, ['labor', 'vehicle', 'supplies']);
   test('con costo por km en Viajes: aviso, no pendiente crítico', () => {
     const q = base({ unit: 'day', contract: crewVehicle, activity: { activeDaysPerMonth: 10 } });
-    q.logistics = { ...q.logistics, notApplicable: false, distanceKm: 50, vehicles: [{ ...createVehicle({ id: 'v', name: 'Camioneta' }), costPerKm: 120, consumptionLPer100Km: 12 }] };
+    q.logistics = { ...q.logistics, notApplicable: false, distanceKm: 50, vehicles: [createVehicle({ id: 'a', name: 'Sin costo' }), { ...createVehicle({ id: 'v', name: 'Camioneta' }), costPerKm: 120, consumptionLPer100Km: 12 }] };
     const r = computeQuote(q);
     const item = r.completeness.items.find((i) => i.id === 'equipment_cost');
     assert.equal(item.status, 'warning');
+    assert.equal(item.focus, 'logistics.vehicles.1.costPerKm', 'lleva al vehículo con costo');
     assert.notEqual(item.severity, 'critical');
   });
   test('sin vehículo en Viajes sigue faltando el costo del vehículo', () => {
