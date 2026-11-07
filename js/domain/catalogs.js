@@ -165,7 +165,7 @@ export const MATERIAL_BASES = deepFreeze([
  */
 export const QUOTE_MATERIAL_BASES = deepFreeze([
   ...MATERIAL_BASES,
-  { id: 'per_output', label: 'Por unidad producida (m², m³, pieza…)' },
+  { id: 'per_output', label: 'Por unidad producida' },
 ]);
 
 export const MATERIAL_UNIT_PRESETS = deepFreeze(['unidad', 'L', 'kg', 'g', 't', 'm', 'm²', 'm³', 'paquete', 'bolsa', 'tambor']);

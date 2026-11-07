@@ -71,7 +71,7 @@ export function materialFormulaText(line, model, { activeDays = 0, activationsPe
   if (model.basis === 'per_active_day') return `${head} · ${formatNumber(activeDays, { decimals: 2 })} días = ${formatMoney(model.grossCost * activeDays)}/mes`;
   if (model.basis === 'per_output') {
     const perDay = model.outputPerActiveDay || 0;
-    if (!(perDay > 0)) return `${head} · falta cuántas ${outputUnit} por día`;
+    if (!(perDay > 0)) return `${head} · falta la producción por día`;
     return `${head} · ${formatNumber(perDay, { decimals: 2 })} ${outputUnit}/día × ${formatNumber(activeDays, { decimals: 2 })} días = ${formatMoney(model.grossCost * perDay * activeDays)}/mes`;
   }
   if (model.basis === 'per_activation') return `${head} · ${formatNumber(activationsPerMonth, { decimals: 2 })} ${terms.word(activationsPerMonth)} = ${formatMoney(model.grossCost * activationsPerMonth)}/mes`;
@@ -224,23 +224,18 @@ export function render(container, ctx) {
             emptyLabel: 'Elegí quién lo provee…',
           }),
         ),
-        formGrid(
-          showCustomUnit ? 4 : 3,
-          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: kit.out(() => `${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}/${basisPer(quote.materials[i] && quote.materials[i].basis, T, outputUnitOf(quote.materials[i], quote))}`) }),
-          unitSelect,
-          showCustomUnit ? kit.text(`${p}.unit`, { label: 'Tu unidad', maxLength: 30, placeholder: 'Ej.: bidón, rollo, kit' }) : null,
-          kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: kit.out(() => `${sym}/${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}`), illustrative }),
-        ),
         line.basis === 'per_output' ? formGrid(
           2,
           kit.text(`${p}.outputUnit`, {
-            label: '¿Por cada qué?',
+            label: 'Unidad producida',
             maxLength: 30,
-            placeholder: autoOutputKnown(quote) ? `${billingUnitOf(quote).singular} (lo que cobrás)` : 'Ej.: m², m³, pozo, válvula',
-            hint: 'La unidad de lo que producís: m² pintado, m³ tratado, pieza inspeccionada… Vacío = la unidad en que cobrás.',
+            placeholder: autoOutputKnown(quote) ? '' : 'Ej.: m², m³, pozo',
+            hint: autoOutputKnown(quote)
+              ? `Lo que producís: m² pintado, m³ tratado, pieza inspeccionada… Vacío = ${billingUnitOf(quote).singular}, la unidad en que cobrás.`
+              : 'Lo que producís: m² pintado, m³ tratado, pieza inspeccionada…',
           }),
           kit.num(`${p}.outputPerActiveDay`, {
-            label: 'Producción por día de trabajo',
+            label: 'Producción por día',
             rule: 'quantity',
             unit: kit.out(() => `${outputUnitOf(quote.materials[i], quote)}/día`),
             hint: autoOutputKnown(quote)
@@ -248,6 +243,13 @@ export function render(container, ctx) {
               : 'Cuántas producís en un día de trabajo: con eso se calcula el consumo del mes.',
           }),
         ) : null,
+        formGrid(
+          showCustomUnit ? 4 : 3,
+          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: kit.out(() => `${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}/${basisPer(quote.materials[i] && quote.materials[i].basis, T, outputUnitOf(quote.materials[i], quote))}`) }),
+          unitSelect,
+          showCustomUnit ? kit.text(`${p}.unit`, { label: 'Tu unidad', maxLength: 30, placeholder: 'Ej.: bidón, rollo, kit' }) : null,
+          kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: kit.out(() => `${sym}/${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}`), illustrative }),
+        ),
         kit.keyline({
           label: 'Costo para vos',
           value: (r) => {

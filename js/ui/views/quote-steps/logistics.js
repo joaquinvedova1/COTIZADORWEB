@@ -18,7 +18,7 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { badge, button, card, disclosure, formGrid, numberField, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
+import { badge, button, card, disclosure, formGrid, infoTip, numberField, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
 import { lodgingFromDetail } from '../../../domain/lodging.js';
 import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf } from '../../../domain/catalogs.js';
 import { createVehicle, acquisitionOf } from '../../../domain/quote-factory.js';
@@ -113,28 +113,32 @@ function lodgingCalculator(ctx, T) {
   if (ctx.readOnly) return null;
   const saved = quote.logistics && quote.logistics.lodgingDetail && typeof quote.logistics.lodgingDetail === 'object' ? quote.logistics.lodgingDetail : {};
   const d = { people: saved.people ?? null, nights: saved.nights ?? null, perNight: saved.perNight ?? null, days: saved.days ?? null, perDay: saved.perDay ?? null };
-  const total = h('strong', {});
+  const current = nonNegative(quote.logistics && quote.logistics.lodgingPerActivation);
+  const matches = current > 0 && Math.abs(lodgingFromDetail(saved) - current) < 0.005;
+  const total = h('strong', { 'aria-live': 'polite' });
+  const note = h('span', { class: 'small muted' });
   const useBtn = button('Usar este monto', { variant: 'primary', icon: 'check', onClick: () => {
     const value = lodgingFromDetail(d);
     ctx.mutate((q) => {
       q.logistics.lodgingDetail = { ...d };
       q.logistics.lodgingPerActivation = value;
     }, { focus: 'logistics.lodgingPerActivation' });
-    ctx.toast(`Alojamiento y viáticos ${T.per}: ${formatMoney(value)}.`, 'success');
+    ctx.toast(`Viáticos ${T.per}: ${formatMoney(value)}.`, 'success');
   } });
   const refresh = () => {
     const v = lodgingFromDetail(d);
     total.textContent = `${formatMoney(v)} ${T.per}`;
     useBtn.disabled = !(v > 0);
+    note.textContent = !(v > 0)
+      ? 'Completá personas y noches o días.'
+      : current > 0 && !matches && Math.abs(v - current) >= 0.005 ? `Reemplaza los ${formatMoney(current)} cargados.` : '';
   };
-  const field = (key, label, rule, unit) => numberField({ label, value: d[key], rule, unit, onChange: (v) => { d[key] = v; refresh(); } });
+  const field = (key, label, rule, unit, hint = null) => numberField({ label, value: d[key], rule, unit, hint, onChange: (v) => { d[key] = v; refresh(); } });
   refresh();
-  const current = nonNegative(quote.logistics && quote.logistics.lodgingPerActivation);
-  const matches = current > 0 && Math.abs(lodgingFromDetail(saved) - current) < 0.005;
   return disclosure(
     {
-      summary: 'Calcular viáticos por personas y noches',
-      hint: matches ? `Calculado: ${formatNumber(Number(saved.people) || 0)} personas × ${formatNumber(Number(saved.nights) || 0)} noches + comidas.` : null,
+      summary: 'Calcular por personas y noches',
+      hint: matches ? `${formatNumber(Number(saved.people) || 0)} personas × ${formatNumber(Number(saved.nights) || 0)} noches + comidas.` : null,
       className: 'qe-lodging-calc',
     },
     formGrid(
@@ -143,10 +147,11 @@ function lodgingCalculator(ctx, T) {
       field('nights', `Noches ${T.per}`, 'quantity', 'noches'),
       field('perNight', 'Alojamiento por persona y noche', 'money', '$'),
       field('days', `Días con comidas ${T.per}`, 'quantity', 'días'),
-      field('perDay', 'Comidas y desarraigo por persona y día', 'money', '$'),
+      field('perDay', 'Comidas por persona y día', 'money', '$', 'Comidas y desarraigo. Si ya están en cada puesto de Personal, poné 0 para no contarlas dos veces.'),
     ),
-    h('p', { class: 'small muted' }, 'Personas × noches × alojamiento + personas × días × comidas. Si las comidas ya están en cada puesto de Personal, dejalas en 0 acá para no contarlas dos veces.'),
-    h('div', { class: 'qe-toolbar' }, h('span', {}, 'Total: ', total), useBtn),
+    h('div', { class: 'qe-toolbar' },
+      h('span', {}, 'Total: ', total, ' ', infoTip('Personas × noches × alojamiento + personas × días × comidas.')),
+      useBtn, note),
   );
 }
 
@@ -473,7 +478,6 @@ export function render(container, ctx) {
               : `${numberText(lg.tripsPerActivation, { decimals: 2 }) || '0'} ${Number(lg.tripsPerActivation) === 1 ? 'viaje' : 'viajes'} ${T.per}`,
             wear ? `desgaste: ${wear}` : null,
             `peajes ${moneyText(lg.tollsPerActivation) || '$ 0'}`,
-            `viáticos ${moneyText(lg.lodgingPerActivation) || '$ 0'} ${T.per}`,
           ].filter(Boolean);
           return `${parts.join(' · ')}.`;
         },
@@ -545,7 +549,17 @@ export function render(container, ctx) {
       formGrid(
         2,
         kit.num('logistics.tollsPerActivation', { label: L.tollsPerActivation, rule: 'money', unit: '$', illustrative }),
-        kit.num('logistics.lodgingPerActivation', { label: L.lodgingPerActivation, rule: 'money', unit: '$', illustrative }),
+      ),
+    );
+
+  // Viáticos a la vista (PLAN-2026-021): un costo frecuente, no un ajuste fino.
+  const lodgingCard = notApplicable
+    ? null
+    : card(
+      { title: 'Viáticos' },
+      formGrid(
+        2,
+        kit.num('logistics.lodgingPerActivation', { label: L.lodgingPerActivation, rule: 'money', unit: '$', illustrative, hint: 'Alojamiento, comidas y desarraigo de la gente que viaja. Abajo lo podés calcular por personas y noches.' }),
       ),
       lodgingCalculator(ctx, T),
     );
@@ -699,6 +713,6 @@ export function render(container, ctx) {
       h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de la movilización y de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística". Cada costo está en un solo lugar.')),
     );
 
-  mount(container, toggleCard, routeCard, mobilizationCard, vehiclesCard, fuelCard, advancedCard, keyline, resultsDetail);
+  mount(container, toggleCard, routeCard, mobilizationCard, vehiclesCard, lodgingCard, fuelCard, advancedCard, keyline, resultsDetail);
   return { update() {} };
 }
