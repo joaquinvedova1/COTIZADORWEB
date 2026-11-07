@@ -142,7 +142,7 @@ export function computeProductMaterialLine(line = {}, product = {}) {
 
 /** Personal: costo hora con cargas (LaborEngine) × tiempo por tanda. */
 export function computeProductLaborLine(line = {}) {
-  const labor = computeLaborLine({ ...line, positions: 1, peoplePerPosition: 1 });
+  const labor = computeLaborLine({ ...line, positions: 1, peoplePerPosition: 1, payrollHeadcount: null, rotation: null });
   const hourlyCost = labor.perPerson.loadedHourlyCost;
   const people = nonNegative(line.people, 1);
   const minutesPerBatch = nonNegative(line.minutesPerBatch);

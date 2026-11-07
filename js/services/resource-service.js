@@ -61,7 +61,7 @@ export function createResourceService({ repository }) {
 
     /** Costo mensual de un perfil de personal (1 persona). */
     laborProfileCost(profile) {
-      return computeLaborLine({ ...profile, positions: 1, peoplePerPosition: 1 });
+      return computeLaborLine({ ...profile, positions: 1, peoplePerPosition: 1, payrollHeadcount: null, rotation: null });
     },
   };
 }

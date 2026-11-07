@@ -14,6 +14,21 @@ Reglas para este archivo:
 
 **Reportes por Supabase encendidos (2026-11-07).** Con autorización del dueño se aplicó la migración `20261107021710_rateos_bug_reports` y se desplegó la Edge Function `bug-report-github`; `FEATURES.bugReportsCloud = true`: con sesión, "Reportar un problema" se envía desde la app sin cuenta de GitHub.
 
+**Tanda B — diagrama de rotación (2026-11, B-1 del informe auditado, PLAN-2026-021).** Ningún número de una cotización existente cambia (golden cases y foto de regresión iguales); esquema sin cambio de versión (campos opcionales).
+
+### Agregado
+
+- **Diagrama de rotación (opcional) en cada puesto de Personal** (H-12, H-07, H-06, H-14): días en sitio, días de franco, personas en sitio a la vez, grupos que entran escalonados, turnos por día y horas por turno, todos libres (7x7, 14x14, 14x7, 20x10 y 5x2 son atajos editables). Propone la nómina (`en sitio × ciclo ÷ días en sitio`, hacia arriba o exacta con el decimal a la vista), los relevos por mes (`días del mes ÷ días en sitio × grupos`), los días entre relevos y las personas en sitio por día (base para campamento). Sólo propone: el costo cambia al tocar **"Aplicar al puesto"**. Motor puro `js/engines/rotation-engine.js` con "Ver cálculo".
+- **Personas en nómina (total del puesto)** (`labor[i].payrollHeadcount`): el costo fijo usa la nómina; las horas extra por día y las viandas siguen a las posiciones. 3 en sitio con 5 en nómina sin cargar 1,6667 ("5,0001 personas"). Botones "Cargar la nómina total" / "Cargar personas por posición" (mismo costo al cambiar). Sin el campo, igual que siempre.
+- **"Usar como días entre relevos"** (fijo mensual y servicio permanente): carga "Días entre viajes o relevos" con los días entre relevos del diagrama, así el relevo se costea con 1 viaje entero por relevo y sin el truco de viajes con decimales.
+- **"N en sitio · M en nómina"** en el puesto y en el Resultado ("Personal: 2 en sitio · 4 en nómina · diagrama 14x14, 2,14 relevos por mes").
+
+### Cambiado
+
+- **Aviso "Horas del personal"**: si el puesto no tiene "Horas por día que cubre este puesto", usa las horas por turno del diagrama (24h C1 con turnos de 12 h ya no da el aviso falso); cuenta la nómina total como personas por posición. Los avisos de relevos 24/7 y de personas no enteras también usan la nómina total. Sólo avisos: el costo no cambia.
+
+Casos reales: 24h C1 (14x14, 2 en sitio) → 4 en nómina; con 14 días entre relevos y 1 viaje por relevo, $ 70.247.973 (con el truco eran $ 70.247.873; sugerida $ 86.941.000 en los dos). 2x1 C1 (14x7, 3 en sitio) → 4,5 → 5 en nómina: costo $ 84.542.140 → $ 89.810.129 y sugerida $ 105.022.000 → $ 111.566.000 al aplicar (con redondeo exacto, sin cambios). Fuera de alcance: costo por persona en sitio por día en Otros costos (B-6) y un driver propio de relevos para otros contratos.
+
 **Testeo con especialistas — UI (2026-11, tanda A del informe auditado `docs/informes/2026-11-especialistas-auditado.md`).** Ningún número de una cotización existente cambia; esquema sin cambio de versión (`contract` ya era opcional y `activity.availability` puede quedar sin definir).
 
 ### Agregado

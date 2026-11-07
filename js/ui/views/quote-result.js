@@ -87,6 +87,7 @@ import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
 import { activationTerms } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
+import { staffText } from './quote-steps/labor.js';
 import { normalizeRules, revenueComposition, floorWithoutOtherRevenue } from '../../engines/commercial-rules-engine.js';
 import { priceLadder, priceFromMargin, priceFromMarkup, markupToMargin, traceMarginVsMarkup, isValidMarginPct, effectiveRoundingStep } from '../../engines/pricing-engine.js';
 import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels, SENSITIVITY_VARIABLES } from '../../engines/scenario-engine.js';
@@ -1782,6 +1783,24 @@ function draftBanner(v) {
   return node;
 }
 
+/**
+ * Dotación (tanda B 2026-11, B-1): "N en sitio · M en nómina" del personal, con el diagrama
+ * de rotación si se cargó. En sitio = posiciones; en nómina = dotación que cobra sueldo.
+ */
+function staffBlock(v) {
+  const labor = v.r.model && v.r.model.labor;
+  const lines = ((labor && labor.lines) || []).filter((l) => l && l.positions > 0);
+  if (!lines.length) return null;
+  const total = { positions: labor.positions, headcount: labor.headcount };
+  const rotationText = (rot) => (rot && rot.ready
+    ? `diagrama ${rot.label}${rot.daysBetweenRelieves ? `, ${formatNumber(rot.relievesPerMonth, { decimals: 2 })} relevos por mes` : ''}`
+    : null);
+  const detail = lines.length > 1
+    ? ` (${lines.map((l) => [`${l.role || 'Puesto'}: ${staffText(l)}`, rotationText(l.rotation)].filter(Boolean).join(', ')).join('; ')})`
+    : rotationText(lines[0].rotation) ? ` · ${rotationText(lines[0].rotation)}` : '';
+  return h('p', { class: 'qr-note qr-staff' }, h('strong', {}, 'Personal: '), `${staffText(total)}${detail}.`);
+}
+
 /** 1. Resultado: las cuatro respuestas, la frase de los días y las alertas críticas. */
 function renderSummary(v) {
   const { q, r } = v;
@@ -1801,6 +1820,7 @@ function renderSummary(v) {
     draft,
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
+    staffBlock(v),
     workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);

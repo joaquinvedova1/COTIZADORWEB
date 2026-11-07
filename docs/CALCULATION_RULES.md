@@ -19,6 +19,7 @@ Convenciones:
     - [2.1 "Cada salida se cuenta completa"](#21-cada-salida-se-cuenta-completa-plan-2026-011-opcional)
 3. [Personal](#3-personal)
     - [3.1 Horas extra por tramos (PLAN-2026-010)](#31-horas-extra-por-tramos-plan-2026-010)
+    - [3.2 Nómina total y diagrama de rotación (B-1)](#32-nómina-total-y-diagrama-de-rotación-tanda-b-2026-11-b-1-plan-2026-021-opcional)
 4. [Equipos](#4-equipos)
     - [4.1 Equipos y servicios externos (alquilados y tercerizados)](#41-equipos-y-servicios-externos-alquilados-y-tercerizados)
     - [4.2 Recursos compartidos: % de los costos fijos](#42-recursos-compartidos--de-los-costos-fijos-plan-2026-012-opcional)
@@ -218,6 +219,45 @@ Sin lista `overtime`, se usa el campo único de siempre (horas extra por día ac
 **Horas de cobertura de la operación vs horas cargadas del puesto (PLAN-2026-014, decisión del dueño LAB-D2; no es una fórmula de costo).** Es un control **mensual de cobertura**: con días de trabajo D y horas por día H (de la actividad), cada posición tiene que cubrir `D × H` horas en el mes. Con lo cargado se cubren `personas por posición × horas normales por mes del puesto + horas extra por día activo × D + horas extra por mes × personas por posición`. Desde la tanda A 2026-11 (A-5): (a) si el trabajo dura más que los días disponibles (D > disponibles, el mismo `monthsFactor` que prorratea los fijos, §1), las horas normales y las horas extra por mes cuentan esos meses: `cubiertas = (personas × horas normales + horas extra por mes × personas) × monthsFactor + horas extra por día × D` (el 2x1 de 45 días ya no da un aviso falso); (b) campo opcional por línea **"Horas por día que cubre este puesto"** (`labor[i].coverageHoursPerDay`, en las opciones del puesto, grupo "Horas"): un turno de 12 h en una actividad de 24 h pide `D × 12`. Vacío o 0 = las horas por día de la actividad. **Sólo lo usa este aviso** (no cambia el costo); (c) el mensaje sugiere también "o sumá posiciones (turno día / turno noche)". Si falta cubrir horas, la completitud avisa (`labor_hours`, naranja, sólo aparece en ese caso): "La operación requiere más horas de cobertura que las horas cargadas para este puesto. Revisá dotación, turnos y/o horas extra.", con el cálculo del mes, las horas que faltan y `focus` a "Personas por posición". RATEOS **no tiene un dato de jornada diaria**: el control no dice cuántas horas por día trabaja cada persona y por eso ningún texto habla de "jornada" (Test Lab lo audita: `UX-TERM-JORNADA`). RATEOS **nunca** infiere horas extra, turnos, relevos ni convenio, ni cambia el costo: lo decide la empresa. Ejemplos: 8 h × 20 días = 160 h ≤ 176 h → sin aviso; 12 h × 20 = 240 h con 1 persona de 176 h → faltan 64 h; con 2 personas por posición (352 h) o 4 h extra por día (256 h) → sin aviso; 24 h × 20 = 480 h necesita 3 personas (2 cubren 352 h). Invariante INV-31.
 
 **Horas extra facturadas aparte** (`line.overtimeBilled = true`): siguen siendo costo y además generan ingreso `horas × precio por hora del tramo` (por día activo × posiciones, o por mes × dotación), que entra en "otros ingresos" igual que los materiales facturados aparte (§12) y por eso baja la tarifa piso. Ejemplo COT-0009: 2 h/día al 50 % facturadas a $ 30.000/h × 20 días = $ 1.200.000 de ingreso por mes; el costo no cambia.
+
+### 3.2 Nómina total y diagrama de rotación (tanda B 2026-11, B-1, PLAN-2026-021, opcional)
+
+**Nómina total del puesto** (`labor[i].payrollHeadcount`, "Personas en nómina (total del puesto)"; el puesto lo activa con "Cargar la nómina total" o el asistente). Si es > 0 reemplaza a posiciones × personas por posición en la dotación:
+
+```
+dotación                 = nómina                    (si posiciones > 0; con 0 posiciones = 0)
+personas por posición    = nómina ÷ posiciones      (informativo: aviso de horas y de relevos)
+fijo mensual de la línea = fijo mensual/persona × nómina
+variable por día activo  = variable/día/posición × posiciones   (sin cambio: los que están en sitio)
+```
+
+Vacío, 0 o sin el campo = posiciones × personas por posición, **igual que siempre** (ningún número existente cambia). Sirve para 3 en sitio con 5 en nómina sin cargar 1,6667 ("5,0001 personas"). "Cargar la nómina total" copia la dotación de ese momento (mismo costo); "Cargar personas por posición" vuelve con nómina ÷ posiciones a 4 decimales.
+
+**Asistente de diagrama de rotación** (`labor[i].rotation`, `js/engines/rotation-engine.js`, `computeRotation`). Campos libres: días en sitio, días de franco, personas en sitio a la vez (vacío = las posiciones), grupos que entran escalonados (vacío = 1), turnos por día y horas por turno (opcionales), redondeo de la nómina (`'up'` hacia arriba, default, o `'exact'`) y días del mes para contar relevos (vacío = 30). Los atajos 7x7, 14x14, 14x7, 20x10 y 5x2 sólo llenan días en sitio y de franco (editables). **El diagrama sólo propone: no cambia el costo.**
+
+```
+ciclo                  = días en sitio + días de franco
+fracción en sitio      = días en sitio ÷ ciclo
+nómina exacta          = en sitio × ciclo ÷ días en sitio
+nómina                 = ⌈nómina exacta⌉ (hacia arriba)  o  nómina exacta (con decimales)
+en sitio en promedio   = nómina × fracción en sitio
+relevos por mes        = días del mes ÷ días en sitio × grupos     (0 si no hay franco)
+días entre relevos     = días en sitio ÷ grupos
+personas por relevo    = en sitio ÷ grupos
+persona-días en sitio  = en sitio × días del mes                   (base para campamento)
+```
+
+Ejemplos de los especialistas: 24h C1, 14x14 con 2 en sitio → 2 × 28 ÷ 14 = **4 en nómina**, 30 ÷ 14 = 2,14 relevos por mes (uno cada 14 días). 2x1 C1, 14x7 con 3 en sitio → 3 × 21 ÷ 14 = **4,5 → 5** (3,33 en sitio en promedio), con 2 grupos 30 ÷ 14 × 2 = 4,29 relevos (uno cada 7 días).
+
+Lo que cambia números es siempre una acción explícita de quien cotiza:
+- **"Aplicar al puesto"**: posiciones = en sitio, `payrollHeadcount` = nómina propuesta (y personas por posición = nómina ÷ en sitio a 4 decimales, por si se vuelve a ese modo). 2x1 C1: de 4,5 a 5 personas → costo $ 84.542.140 → **$ 89.810.129**, sugerida $ 105.022.000 → **$ 111.566.000** (lo que calculó el especialista con 5). Con redondeo exacto queda 4,5: mismos números.
+- **"Usar como días entre relevos"** (sólo fijo mensual o servicio permanente, donde existe el campo): `activity.daysPerActivation` = días entre relevos, así los viajes y costos por intervención se cuentan por relevo (intervenciones por mes = días del fijo ÷ intervalo, §2) **sin viajes con decimales**. 24h C1: 4 en nómina, intervalo 14, 1 viaje por relevo y $ 30.000 de viáticos por relevo → **$ 70.247.973** (antes, con el truco de 0,0714 viajes por intervención, $ 70.247.873; sugerida $ 86.941.000 en los dos). Cuidado: si se cargó como "por intervención" algo que es por día (campamento), hay que pasarlo a un costo por día: la UI lo dice.
+
+**Aviso de horas con turnos** (§3.1, sólo aviso): las horas por día que tiene que cubrir cada posición son, en orden, "Horas por día que cubre este puesto" (`coverageHoursPerDay`), si no las **horas por turno del diagrama** (`rotation.hoursPerShift`), y si no las de la actividad. Las personas por posición del control son las efectivas (nómina ÷ posiciones si hay nómina total). 24h C1 con turnos de 12 h: 30 × 12 = 360 h contra 2 × 176 + 4 × 30 = 472 h → el aviso falso desaparece sin cambiar el costo. El aviso de relevos 24/7 y el de personas no enteras (A-15 b) también usan la nómina total (con nómina 4,5 sigue preguntando cuántas hay de verdad y lleva a "Personas en nómina").
+
+**Dónde se ve:** el puesto muestra "N en sitio · M en nómina · diagrama 14x14" y el Resultado "Personal: N en sitio · M en nómina" (con el diagrama y los relevos por mes). En sitio = posiciones; en nómina = dotación.
+
+**Fuera de alcance (siguiente paso):** un costo de "Otros costos" **por persona en sitio por día** (campamento, vianda) que tome `onSitePerDay` / persona-días del asistente (B-6; hoy el asistente muestra el dato para cargarlo como $ por día × personas); un driver propio de "Relevos" (personas, medio, km, peajes, horas de viaje) para contratos que no son fijo mensual; y horas extra por día en sitio derivadas del turno (RATEOS no tiene dato de jornada diaria).
 
 ## 4. Equipos
 

@@ -54,7 +54,10 @@ export function resourceUsage(type, resourceId, quotes = []) {
     (Array.isArray(q[listKey]) ? q[listKey] : []).forEach((line, index) => {
       if (!isPlainObject(line) || linkedResourceId(line) !== resourceId) return;
       const external = line.acquisition === 'rented' || line.acquisition === 'outsourced';
-      const units = listKey === 'labor' ? num(line.positions) * num(line.peoplePerPosition, 1) : num(line.quantity);
+      // Personal: nómina cargada (B-1) o posiciones × personas por posición.
+      const units = listKey === 'labor'
+        ? (num(line.payrollHeadcount) > 0 && num(line.positions) > 0 ? num(line.payrollHeadcount) : num(line.positions) * num(line.peoplePerPosition, 1))
+        : num(line.quantity);
       const share = external ? null : fixedCostShareOf(line);
       rows.push({
         quoteId: typeof q.id === 'string' ? q.id : null,

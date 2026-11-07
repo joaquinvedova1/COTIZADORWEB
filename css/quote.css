@@ -279,6 +279,14 @@
 .qe-breakdown-row dt { color: var(--ink-2); }
 .qe-breakdown-row dd { margin: 0; text-align: right; white-space: nowrap; }
 .qe-breakdown-row.is-total { border-top: 1px solid var(--line); border-bottom: 0; margin-top: 0.15rem; padding-top: 0.4rem; font-weight: 700; color: var(--navy-900); }
+/* Diagrama de rotación (B-1): textos largos, se cortan en líneas y en celular van apilados. */
+.qe-rotation-proposal .qe-breakdown-row dt { flex: 0 0 9.5rem; }
+.qe-rotation-proposal .qe-breakdown-row dd { white-space: normal; text-align: left; font-family: inherit; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.qe-rotation-templates { flex-wrap: wrap; align-items: center; }
+@media (max-width: 640px) {
+  .qe-rotation-proposal .qe-breakdown-row { flex-direction: column; gap: 0.1rem; }
+  .qe-rotation-proposal .qe-breakdown-row dt { flex: none; font-weight: 600; }
+}
 
 /* ---------------------------------------------------- tablas editables */
 
