@@ -37,7 +37,7 @@ import { nonNegative, pct, safeDivide, roundPercentagesToTotal, roundPercentage,
 import { createTrace } from '../core/trace.js';
 import { COST_CATEGORIES, CATEGORY_PAY_GROUP, DIRECT_CATEGORY_IDS, PAY_GROUPS, MATERIAL_PROVIDERS, AVAILABILITY_WINDOW } from '../domain/catalogs.js';
 import { computeLabor } from './labor-engine.js';
-import { travelDaysOf } from './rotation-engine.js';
+import { travelDaysOf, rotationCoverageOf } from './rotation-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
 import { computeLogistics } from './logistics-engine.js';
 import { computeMaterials, computeOtherCostLine } from './materials-engine.js';
@@ -205,10 +205,10 @@ export function buildCostModel(quote = {}) {
   const lines = [];
 
   // 1. Personal
-  // Cobertura vendida para la propuesta del diagrama de rotación (PLAN-2026-024): los días de
-  // servicio del mes. On call no la usa (la guardia es otra cosa): todo el mes, como siempre.
+  // Cobertura vendida para la propuesta del esquema de trabajo (PLAN-2026-024): los días de
+  // servicio del fijo mensual (o servicio permanente); en el resto, todo el mes, como siempre.
   // Sólo cambia la PROPUESTA del diagrama, nunca el costo.
-  const coverageDaysPerMonth = quote.serviceType === 'on_call' ? null : activity.activeDaysPerMonth;
+  const coverageDaysPerMonth = rotationCoverageOf(quote, activity.activeDaysPerMonth);
   const labor = computeLabor(quote.labor, { coverageDaysPerMonth });
   labor.lines.forEach((l, i) => {
     lines.push({

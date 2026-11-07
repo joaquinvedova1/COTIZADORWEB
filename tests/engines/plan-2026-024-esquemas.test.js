@@ -65,7 +65,7 @@ describe('PLAN-2026-024 · esquema fijo (5x2) o rotativo con la cobertura vendid
     assert.equal(rot.workedDaysPerPerson, 15);
     assert.equal(rot.workedHoursPerPerson, 180);
     assert.equal(rot.hoursAboveNormal, 4);
-    assert.equal(rot.cycleWeeklyHours, 42);
+    assert.equal(rot.threeWeekHours, 56, '7x7: 14 días en 3 semanas × 12 h ÷ 3');
   });
 
   test('Caso C: 14x7 con 12 h → 1,5 exacta (240 h, 64 por encima, 56 h por semana) o 2 hacia arriba (180 h)', () => {
@@ -73,10 +73,24 @@ describe('PLAN-2026-024 · esquema fijo (5x2) o rotativo con la cobertura vendid
     close(exact.payroll, 1.5);
     close(exact.workedHoursPerPerson, 240);
     close(exact.hoursAboveNormal, 64);
-    close(exact.cycleWeeklyHours, 56);
+    close(exact.threeWeekHours, 56);
     const up = computeRotation({ daysOn: 14, daysOff: 7, onSite: 1, hoursPerShift: 12 }, { coverageDaysPerMonth: 30, normalHoursPerMonth: 176 });
     assert.equal(up.payroll, 2);
     close(up.workedHoursPerPerson, 180);
+  });
+
+  test('esquema fijo sin cobertura cargada: los días del esquema (no inventa horas extra con 30 días)', () => {
+    const rot = computeRotation({ daysOn: 5, daysOff: 2, pattern: 'fixed', onSite: 1, hoursPerShift: 8 }, { normalHoursPerMonth: 176 });
+    close(rot.workedDaysPerPerson, 30 * 5 / 7);
+    assert.ok(rot.workedHoursPerPerson < 176);
+    assert.equal(rot.coverageShort, false);
+  });
+
+  test('la cobertura sólo cuenta en fijo mensual o servicio permanente', async () => {
+    const { rotationCoverageOf } = await import('../../js/engines/rotation-engine.js');
+    assert.equal(rotationCoverageOf({ contract: { mode: 'monthly', components: ['labor'] }, unit: 'month' }, 22), 22);
+    assert.equal(rotationCoverageOf({ contract: { mode: 'on_demand', components: ['labor'] }, unit: 'day' }, 22), null);
+    assert.equal(rotationCoverageOf({ serviceType: 'permanent', unit: 'day' }, 26), 26);
   });
 
   test('rotativo con cobertura parcial: 14x14 cubriendo 15 días → 1 persona; nunca menos que en sitio', () => {
@@ -102,7 +116,7 @@ describe('PLAN-2026-024 · esquema fijo (5x2) o rotativo con la cobertura vendid
 });
 
 describe('PLAN-2026-024 · cómo viaja el personal (días entre viajes, un solo lugar)', () => {
-  const quote = (activity, labor = []) => ({ activity: { activeDaysPerMonth: 30, daysPerActivation: 1, ...activity }, labor });
+  const quote = (activity, labor = [], mode = 'monthly') => ({ contract: { mode, components: ['labor'] }, unit: mode === 'monthly' ? 'month' : 'day', serviceType: 'crew', activity: { activeDaysPerMonth: 30, daysPerActivation: 1, ...activity }, labor });
   const field = [{ role: 'Operador', positions: 1, rotation: { daysOn: 14, daysOff: 7 } }];
 
   test('sin elegir (todas las cotizaciones guardadas): el número guardado, como siempre', () => {
@@ -121,6 +135,12 @@ describe('PLAN-2026-024 · cómo viaja el personal (días entre viajes, un solo 
     assert.equal(a.daysPerActivation, 14);
     close(a.activationsPerMonth, 30 / 14);
     assert.equal(a.travelRelief.role, 'Operador');
+  });
+
+  test('fuera del fijo mensual el patrón guardado no rige (se cambió de modalidad): el número guardado', () => {
+    const a = normalizeActivity(quote({ travelPattern: 'daily', daysPerActivation: 0.5 }, field, 'on_demand'));
+    assert.equal(a.daysPerActivation, 0.5);
+    assert.equal(a.travelPattern, null);
   });
 
   test('con varios puestos usa el relevo más frecuente; un esquema fijo no tiene relevos', () => {

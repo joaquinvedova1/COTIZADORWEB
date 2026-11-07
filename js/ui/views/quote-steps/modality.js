@@ -796,18 +796,22 @@ export function render(container, ctx) {
   // ¿Cómo viaja el personal? (PLAN-2026-024): reemplaza "Días entre viajes o relevos". Con
   // "según el diagrama" el motor toma los relevos del puesto (un solo lugar donde se carga).
   const hasPeople = contract.labor || (Array.isArray(quote.labor) && quote.labor.length > 0);
-  const travelPattern = quote.activity ? quote.activity.travelPattern : null;
+  const savedPattern = quote.activity ? quote.activity.travelPattern : null;
+  // Sin elegir (cotizaciones anteriores): se muestra lo que el motor ya usa, el número guardado:
+  // 1 = "va y vuelve cada día"; otro = "otro intervalo" con su número a la vista.
+  const storedDpa = quote.activity && hasNumber(quote.activity.daysPerActivation) ? Number(quote.activity.daysPerActivation) : 1;
+  const travelPattern = ['daily', 'rotation', 'custom'].includes(savedPattern) ? savedPattern : Math.abs(storedDpa - 1) < 1e-9 ? 'daily' : 'custom';
   const relief = reliefFromLabor(quote.labor);
-  const travelCard = monthlyContract && quote.serviceType !== 'permanent' && hasPeople
+  const travelCard = monthlyContract && quote.serviceType !== 'permanent'
     ? card(
-      { title: '¿Cómo viaja el personal a la locación?', subtitle: `Define cuántos viajes (movilización, viáticos y peajes ${T.per}) hay en el mes. No cambia sueldos ni dotación.` },
+      { title: hasPeople ? '¿Cómo viaja el personal a la locación?' : '¿Cada cuánto hay un viaje a la locación?', subtitle: `Define cuántos viajes (movilización, viáticos y peajes ${T.per}) hay en el mes. No cambia sueldos ni dotación.` },
       choiceGroup({
         label: 'Viajes del personal',
         name: 'activity.travelPattern',
         value: ['daily', 'rotation', 'custom'].includes(travelPattern) ? travelPattern : null,
         disabled: kit.readOnly,
         options: [
-          { value: 'daily', label: 'Va y vuelve cada día de servicio', hint: 'Un viaje por día (base cercana, trabajo de día).' },
+          { value: 'daily', label: hasPeople ? 'Va y vuelve cada día de servicio' : 'Un viaje por día de servicio', hint: 'Un viaje por día (base cercana, trabajo de día).' },
           { value: 'rotation', label: 'Se queda en campo y viaja con cada relevo', hint: relief ? `Según el diagrama ${relief.label} de «${relief.role || 'Puesto'}»: un viaje cada ${num(relief.daysBetweenRelieves)} días.` : 'Los relevos salen del diagrama rotativo del puesto (en Personal).' },
           { value: 'custom', label: 'Otro intervalo', hint: 'Cada cuántos días hay un viaje: lo cargás vos.' },
         ],
@@ -833,11 +837,10 @@ export function render(container, ctx) {
         if (travelPattern === 'rotation' && !relief) {
           return h('p', { class: ['qe-note', 'is-warning'] }, `Ningún puesto tiene un diagrama rotativo completo: cargalo en "${stepName('labor')}" (por ejemplo 14x7). Mientras tanto se usa un viaje cada ${num(a.daysPerActivation)} ${a.daysPerActivation === 1 ? 'día' : 'días'}.`);
         }
-        if (!travelPattern) {
-          const warn = relief && a.daysPerActivation < relief.daysBetweenRelieves - 1e-6;
-          return h('p', { class: ['qe-note', warn ? 'is-warning' : null] },
-            `Sin elegir: se cuenta un viaje cada ${num(a.daysPerActivation)} ${a.daysPerActivation === 1 ? 'día' : 'días'} (${num(a.activationsPerMonth)} por mes).`,
-            warn ? ` Ojo: «${relief.role || 'Puesto'}» rota ${relief.label}; si el personal se queda en campo, elegí "Se queda en campo".` : '');
+        const warn = travelPattern !== 'rotation' && relief && a.daysPerActivation < relief.daysBetweenRelieves - 1e-6;
+        if (warn) {
+          return h('p', { class: ['qe-note', 'is-warning'] },
+            `${num(a.activationsPerMonth)} viajes por mes (uno cada ${num(a.daysPerActivation)} ${a.daysPerActivation === 1 ? 'día' : 'días'}). Ojo: «${relief.role || 'Puesto'}» rota ${relief.label}; si el personal se queda en campo, elegí "Se queda en campo y viaja con cada relevo".`);
         }
         return h('p', { class: 'qe-note' }, `${num(a.activationsPerMonth)} ${a.activationsPerMonth === 1 ? 'viaje' : 'viajes'} por mes (uno cada ${num(a.daysPerActivation)} ${a.daysPerActivation === 1 ? 'día' : 'días'}).`);
       }, { tag: 'div', allowEmpty: true }),

@@ -23,7 +23,7 @@ Reglas para este archivo:
 
 ### Agregado
 
-- **Horas por persona del esquema** (días trabajados × horas por turno) frente a las horas normales del puesto y promedio semanal del ciclo (14x7 con 12 h → 56 h por semana), con la referencia legal general (Ley 11.544, art. 201 LCT) y "tu convenio puede fijar otro régimen". Botón explícito **"Cargar N h como horas extra por mes"** (un tramo editable "HE esquema … (verificar convenio)" con el recargo de referencia del puesto). Nunca se carga solo.
+- **Horas por persona del esquema** (días trabajados × horas por turno) frente a las horas normales del puesto y horas por semana en la peor ventana de 3 semanas (14x7 con 12 h → 56 h), con la referencia legal general (Ley 11.544, art. 201 LCT, tope de 30 h extra por mes del Decreto 484/2000) y "tu convenio puede fijar otro régimen". Botón explícito **"Cargar N h como horas extra por mes"** (un tramo editable "HE esquema … (verificar convenio)" con el recargo de referencia del puesto). Nunca se carga solo.
 - **"Qué revisar en tu convenio para este esquema"**: diagrama y turnos habilitados, adicionales de campo, vianda, traslado, feriados y francos trabajados. Sin valores inventados.
 - **Aviso "Mismo costo en dos lugares"** (`double_cost_hints`): vianda del puesto + comidas de los viáticos, traslado del puesto + vehículos de la logística, EPP del puesto + EPP en materiales. Sólo avisa; aparece sólo con una señal.
 

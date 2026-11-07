@@ -39,7 +39,8 @@
  *   días trabajados por persona por mes = en sitio × cobertura ÷ nómina   (promedio real)
  *   horas trabajadas por persona por mes = esos días × horas por turno (jornada)
  *   horas por encima de las normales = máx(0, trabajadas − horas normales por mes del puesto)
- *   promedio semanal del ciclo = días en sitio × horas por turno ÷ (ciclo ÷ 7)  (rotativo)
+ *   promedio semanal en 3 semanas = días trabajados en la peor ventana de 21 días × horas por
+ *                   turno ÷ 3 (Ley 11.544 art. 3 b: trabajo por equipos, promedio de 3 semanas)
  *   Cómo se pagan esas horas (HE 50 / 100 %, adicional por diagrama, régimen especial) lo dice
  *   el convenio: RATEOS no lo infiere. Quien cotiza puede cargarlas como horas extra por mes.
  */
@@ -47,6 +48,7 @@
 import { isPlainObject } from '../core/object.js';
 import { nonNegative, safeDivide } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
+import { contractOf } from '../domain/contract.js';
 
 /** Atajos de diagrama (plantillas rápidas editables: sólo llenan días en sitio y de franco). */
 export const ROTATION_TEMPLATES = Object.freeze([
@@ -113,14 +115,22 @@ export function computeRotation(rotation, { positions = 0, coverageDaysPerMonth 
   const shiftHoursPerDay = shiftsPerDay > 0 && hoursPerShift ? shiftsPerDay * hoursPerShift : null;
   // Días que da el esquema por persona en el mes (5x2 → 21,4) y los que pide la cobertura.
   const schemeDaysPerPerson = ready ? daysPerMonth * onSiteShare : null;
-  const coverageShort = ready && fixed && coverageDays > schemeDaysPerPerson + 1 + EPS;
-  // Horas (sólo informa): promedio real por persona con la nómina propuesta.
-  const workedDaysPerPerson = ready && payroll > 0 ? onSite * coverageDays / payroll : null;
+  const coverageFromQuote = coverageRaw > 0;
+  const coverageShort = ready && fixed && coverageFromQuote && coverageDays > schemeDaysPerPerson + 1 + EPS;
+  // Horas (sólo informa): promedio real por persona con la nómina propuesta. Un esquema fijo
+  // nunca trabaja más días que los que da (lo que falta lo dice coverageShort); sin cobertura
+  // cargada, los días del esquema.
+  const fixedDays = ready && fixed ? (coverageFromQuote && !coverageShort ? coverageDays : schemeDaysPerPerson) : null;
+  const workedDaysPerPerson = !(ready && payroll > 0) ? null : fixed ? fixedDays : onSite * coverageDays / payroll;
   const workedHoursPerPerson = workedDaysPerPerson !== null && hoursPerShift ? workedDaysPerPerson * hoursPerShift : null;
   const normalHours = nonNegative(normalHoursPerMonth) > 0 ? nonNegative(normalHoursPerMonth) : null;
   const hoursAboveNormal = workedHoursPerPerson !== null && normalHours ? Math.max(0, workedHoursPerPerson - normalHours) : null;
-  const cycleWeeklyHours = ready && hoursPerShift && !fixed && cycleDays > 0 ? daysOn * hoursPerShift / (cycleDays / 7) : null;
-  const weeklyHours = ready && hoursPerShift && fixed ? Math.min(daysOn, 7) * hoursPerShift * Math.min(1, coverageDays / Math.max(schemeDaysPerPerson, EPS)) : null;
+  // Ley 11.544 (art. 3 b): en trabajo por equipos el límite se promedia en 3 semanas. Peor
+  // ventana de 21 días seguidos del ciclo → horas por semana en promedio.
+  const window21 = ready && cycleDays > 0
+    ? (fixed ? 3 * Math.min(daysOn, 7) : Math.floor(21 / cycleDays) * daysOn + Math.min(daysOn, 21 % cycleDays))
+    : null;
+  const threeWeekHours = window21 !== null && hoursPerShift ? window21 * hoursPerShift / 3 : null;
 
   return {
     ready,
@@ -128,7 +138,7 @@ export function computeRotation(rotation, { positions = 0, coverageDaysPerMonth 
     pattern,
     fixed,
     coverageDays,
-    coverageFromQuote: coverageRaw > 0,
+    coverageFromQuote,
     coverageShare,
     schemeDaysPerPerson,
     coverageShort,
@@ -136,8 +146,7 @@ export function computeRotation(rotation, { positions = 0, coverageDaysPerMonth 
     workedHoursPerPerson,
     normalHoursPerMonth: normalHours,
     hoursAboveNormal,
-    cycleWeeklyHours,
-    weeklyHours,
+    threeWeekHours,
     label: daysOn > 0 ? `${fmtPlain(daysOn)}x${fmtPlain(daysOff)}` : null,
     daysOn,
     daysOff,
@@ -161,7 +170,7 @@ export function computeRotation(rotation, { positions = 0, coverageDaysPerMonth 
     daysBetweenRelieves,
     peoplePerRelief,
     onSitePerDay: ready ? onSite : null,
-    personDaysOnSitePerMonth: ready ? onSite * daysPerMonth : null,
+    personDaysOnSitePerMonth: ready ? onSite * coverageDays : null,
     coverageHoursPerDay: hoursPerShift,
   };
 }
@@ -202,7 +211,7 @@ export function rotationTrace(rot, { role = '' } = {}) {
       ...(rot.workedDaysPerPerson !== null ? [{ label: 'Días trabajados por persona por mes (promedio)', value: rot.workedDaysPerPerson, format: 'days' }] : []),
       ...(rot.workedHoursPerPerson !== null ? [{ label: 'Horas trabajadas por persona por mes (promedio)', value: rot.workedHoursPerPerson, format: 'hours' }] : []),
       ...(rot.hoursAboveNormal !== null ? [{ label: 'Horas por encima de las normales del puesto', value: rot.hoursAboveNormal, format: 'hours' }] : []),
-      ...(rot.cycleWeeklyHours !== null ? [{ label: 'Promedio semanal en el ciclo', value: rot.cycleWeeklyHours, format: 'hours' }] : []),
+      ...(rot.threeWeekHours !== null ? [{ label: 'Horas por semana en promedio (peor ventana de 3 semanas)', value: rot.threeWeekHours, format: 'hours' }] : []),
     ],
     result: { label: 'Personas en nómina propuestas', value: rot.payroll, format: 'number' },
     notes: [
@@ -246,11 +255,24 @@ export function reliefFromLabor(labor = []) {
  */
 export function travelDaysOf(quote = {}) {
   const a = quote && isPlainObject(quote.activity) ? quote.activity : {};
-  const pattern = TRAVEL_PATTERNS.includes(a.travelPattern) ? a.travelPattern : null;
+  // Sólo en fijo mensual (donde se pregunta): en otra modalidad el dato guardado no rige.
+  const applies = contractOf(quote).mode === 'monthly' && quote.serviceType !== 'permanent';
+  const pattern = applies && TRAVEL_PATTERNS.includes(a.travelPattern) ? a.travelPattern : null;
   if (pattern === 'daily') return { pattern, days: 1, relief: null };
   if (pattern === 'rotation') {
     const relief = reliefFromLabor(quote.labor);
     return { pattern, days: relief ? relief.daysBetweenRelieves : null, relief };
   }
   return { pattern, days: null, relief: null };
+}
+
+/**
+ * Días de servicio que usa la propuesta del esquema (PLAN-2026-024): la cobertura vendida sólo
+ * en fijo mensual o servicio permanente; en el resto (los días son facturados o con llamado)
+ * null = el mes entero, como siempre.
+ */
+export function rotationCoverageOf(quote = {}, activeDaysPerMonth = null) {
+  const q = isPlainObject(quote) ? quote : {};
+  const monthly = contractOf(q).mode === 'monthly' || q.serviceType === 'permanent';
+  return monthly && nonNegative(activeDaysPerMonth) > 0 ? nonNegative(activeDaysPerMonth) : null;
 }

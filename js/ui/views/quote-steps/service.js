@@ -120,10 +120,12 @@ const COMPONENT_GROUPS = Object.freeze([
  * que se suman en cualquier combinación (agrupados por el paso donde se
  * cargan, con link y cuántas líneas tiene) y componentes propios ("Otro").
  */
-function componentsComposer({ quote, contract, components, custom, readOnly, ctx, apply, applyTemplate, applySuggestion }) {
+function componentsComposer({ quote, contract, components, custom, readOnly, ctx, apply, applyTemplate, applySuggestion, pricingLoaded }) {
   const selected = new Set(components);
   const saved = isPlainObject(quote.contract) ? quote.contract : {};
-  const current = templateOf({ ...saved, components });
+  // Sólo la plantilla elegida (guardada): en cotizaciones anteriores no se adivina por componentes
+  // (no se muestra "Partiste de…" ni una sugerencia de cobro que nunca eligieron).
+  const current = saved.templateId ? templateOf({ ...saved, components }) : null;
 
   // Plantillas (PLAN-2026-024): un selector buscable y agrupado en vez de una fila de botones.
   // Es un punto de partida: marca componentes y sugiere modalidad y unidad; todo queda editable.
@@ -146,7 +148,9 @@ function componentsComposer({ quote, contract, components, custom, readOnly, ctx
       differs && !readOnly
         ? h('p', { class: 'qe-note qe-template-suggest' },
           `La plantilla sugiere cobrar ${modeText(current)}. Hoy: ${(CONTRACT_MODES.find((m) => m.id === contract.mode) || {}).label}, ${billingUnitOf(quote).label}. `,
-          button('Usar la sugerencia', { variant: 'secondary', size: 'sm', onClick: () => applySuggestion(current) }))
+          pricingLoaded
+            ? `Como ya cargaste una tarifa, no se cambia sola: si querés cobrar así, cambiá la modalidad arriba y la unidad en "${stepName('modality')}".`
+            : button('Usar la sugerencia', { variant: 'secondary', size: 'sm', onClick: () => applySuggestion(current) }))
         : null)
     : null;
   const templates = h('div', { class: 'qe-templates' },
@@ -313,7 +317,7 @@ export function render(container, ctx) {
     ctx.toast(`«${t.label}»: ${formatNumber(list.length)} componentes marcados.${keptText}${how} Es un punto de partida: cambiá lo que haga falta.`, 'info');
   };
   const applySuggestion = (t) => applyContract({ mode: t.mode || contract.mode, components, customComponents: custom, templateId: t.id, unit: t.unit || null });
-  const composer = componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, applyTemplate, applySuggestion, apply: (list, extra = custom, focusId = null) => {
+  const composer = componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, applyTemplate, applySuggestion, pricingLoaded, apply: (list, extra = custom, focusId = null) => {
     keepPlace(focusId, () => {
       if (!list.length && !extra.length) {
         ctx.toast('El servicio tiene que incluir algo: dejá al menos un componente.', 'warning');

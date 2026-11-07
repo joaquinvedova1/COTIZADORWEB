@@ -21,7 +21,8 @@ import { createId } from '../../../core/ids.js';
 import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { assignmentBlock } from './assignment.js';
-import { computeRotation, rotationTrace, ROTATION_TEMPLATES } from '../../../engines/rotation-engine.js';
+import { computeRotation, rotationTrace, rotationCoverageOf, ROTATION_TEMPLATES } from '../../../engines/rotation-engine.js';
+import { normalizeActivity } from '../../../engines/cost-engine.js';
 import { laborHeadcountOf, laborPeoplePerPositionOf } from '../../../engines/labor-engine.js';
 import { contractOf } from '../../../domain/contract.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
@@ -288,7 +289,12 @@ export function render(container, ctx) {
   const T = activationTerms(quote);
   // Dónde se carga "cada cuántos días hay un relevo" (fijo mensual o servicio permanente).
   const reliefFieldHere = (!contract.legacy && contract.mode === 'monthly') || quote.serviceType === 'permanent';
-  const proposalOf = (i) => computeRotation(quote.labor[i] && quote.labor[i].rotation, { positions: nonNegative(quote.labor[i] && quote.labor[i].positions) });
+  // La misma propuesta que se ve en pantalla (con la cobertura vendida del fijo mensual).
+  const proposalOf = (i) => computeRotation(quote.labor[i] && quote.labor[i].rotation, {
+    positions: nonNegative(quote.labor[i] && quote.labor[i].positions),
+    coverageDaysPerMonth: rotationCoverageOf(quote, normalizeActivity(quote).activeDaysPerMonth),
+    normalHoursPerMonth: quote.labor[i] && quote.labor[i].normalHoursPerMonth,
+  });
   const setTemplate = (i, t) => ctx.mutate((q) => {
     const l = q.labor[i];
     l.rotation = { ...(l.rotation && typeof l.rotation === 'object' ? l.rotation : {}), daysOn: t.daysOn, daysOff: t.daysOff, pattern: t.pattern || 'rotating' };
@@ -345,18 +351,25 @@ export function render(container, ctx) {
     const line = quote.labor[i] || {};
     const worked = formatNumber(rot.workedHoursPerPerson, { decimals: 0 });
     const days = formatNumber(rot.workedDaysPerPerson, { decimals: 1 });
-    const weekly = rot.cycleWeeklyHours ? ` · ${formatNumber(rot.cycleWeeklyHours, { decimals: 0 })} h por semana en promedio del ciclo` : '';
-    const legal = infoTip('La ley general fija 8 h por día o 48 h por semana (Ley 11.544); en trabajo por equipos se mide en promedio del ciclo, y los recargos de horas extra son 50 % y 100 % (art. 201 LCT). Tu convenio puede fijar otro régimen (diagramas 2x1 o turnos de 12 h, adicionales por diagrama): RATEOS no lo infiere. Verificalo.', { label: 'Qué dice la ley' });
+    const weekly = rot.threeWeekHours ? ` · hasta ${formatNumber(rot.threeWeekHours, { decimals: 0 })} h por semana en promedio de 3 semanas seguidas` : '';
+    const legal = infoTip('Referencia de la ley general: 8 h por día o 48 h por semana (Ley 11.544); en trabajo por equipos se promedia en 3 semanas. Horas extra con recargo de 50 % o 100 % (art. 201 LCT) y tope general de 30 h por mes y 200 h por año (Decreto 484/2000). Tu convenio puede fijar otro régimen (diagramas 2x1, turnos de 12 h, adicional por diagrama): RATEOS no lo infiere. Verificalo.', { label: 'Qué dice la ley' });
+    // Con la nómina que propone el esquema; si el puesto tiene otra, las horas por persona cambian.
+    const l = quote.labor[i] || {};
+    const appliedHere = Math.abs(nonNegative(l.positions) - rot.onSite) < 1e-6 && Math.abs(laborHeadcountOf(l) - rot.payroll) < 1e-6;
+    const basis = appliedHere || rot.fixed ? '' : ` (con la nómina propuesta de ${n2(rot.payroll)})`;
     if (!rot.normalHoursPerMonth) {
-      return ['Horas por persona', h('span', {}, `≈ ${worked} h por mes (${days} días × ${n2(rot.hoursPerShift)} h)${weekly}. Cargá las horas normales del puesto para compararlas.`, legal)];
+      return ['Horas por persona', h('span', {}, `≈ ${worked} h por mes${basis} (${days} días × ${n2(rot.hoursPerShift)} h)${weekly}. Cargá las horas normales del puesto para compararlas.`, legal)];
     }
     const above = rot.hoursAboveNormal || 0;
     const loaded = (Array.isArray(line.overtime) ? line.overtime : []).find((o) => o && o.id === 'ot-scheme');
+    const perDayOt = (Array.isArray(line.overtime) ? line.overtime.filter((o) => o && o.basis !== 'per_month' && o.id !== 'ot-scheme').reduce((a, o) => a + nonNegative(o.hours), 0) : 0) + nonNegative(line.overtimeHoursPerActiveDay);
     const canLoad = above > 0.5 && !ctx.readOnly;
     return ['Horas por persona', h('span', {},
-      `≈ ${worked} h por mes (${days} días × ${n2(rot.hoursPerShift)} h) contra ${n2(rot.normalHoursPerMonth)} h normales del puesto`,
+      `≈ ${worked} h por mes${basis} (${days} días × ${n2(rot.hoursPerShift)} h) contra ${n2(rot.normalHoursPerMonth)} h normales del puesto`,
       above > 0.5 ? h('strong', {}, `: ${formatNumber(above, { decimals: 0 })} h por encima`) : ': dentro de las normales',
       weekly, '. ', legal,
+      above > 30 ? h('span', { class: 'qe-warn-inline' }, ' Supera el tope general de 30 h extra por mes: revisá el régimen de tu convenio o sumá personas.') : null,
+      canLoad && perDayOt > 0 ? h('span', { class: 'qe-warn-inline' }, ` El puesto ya tiene ${formatNumber(perDayOt, { decimals: 1 })} h extra por día: si son las mismas del turno, no cargues las dos.`) : null,
       canLoad
         ? h('span', { class: 'qe-toolbar' }, kit.action(loaded ? `Actualizar a ${formatNumber(above, { decimals: 0 })} h extra por mes` : `Cargar ${formatNumber(above, { decimals: 0 })} h como horas extra por mes`, () => loadSchemeOvertime(i, above, rot), { icon: 'plus', title: 'Agrega un tramo de horas extra por mes por persona con el recargo de referencia del convenio del puesto. Lo podés editar o quitar.' }))
         : null)];
