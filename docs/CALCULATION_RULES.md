@@ -532,6 +532,10 @@ Base de cálculo:
 | `per_month` (por mes, valor por defecto) | fijo mensual |
 | `per_active_day` | variable por día activo |
 | `per_activation` | variable por día = costo / días por activación |
+| `per_output` (por unidad producida, PLAN-2026-021; sólo en cotizaciones) | variable por día = costo por unidad producida × unidades producidas por día |
+
+- Unidades producidas por día (`per_output`): las de la línea (`outputPerActiveDay`) o, si no hay, las de la cotización: unidades por día de trabajo si se cobra por cantidad (m³, m², t, pieza…), horas por día si se cobra por hora. Con otra unidad y sin dato de la línea, la línea suma $ 0 y la completitud marca "Producción por día" como pendiente. Ejemplo: pintura 0,25 L/m² × 8.000 $/L = 2.000 $/m²; 120 m²/día → **240.000 por día activo**.
+- Viáticos (PLAN-2026-021): la calculadora de "Movilización y viajes" llena `logistics.lodgingPerActivation` = personas × noches × alojamiento por noche + personas × días × comidas por día. No es una fórmula del motor (el motor usa el monto por salida, como siempre).
 
 - Material sin responsable: se costea igual (criterio conservador) y el Cost Completeness Score lo marca en rojo.
 - "El servicio no usa materiales" (`materialsNotApplicable`) → se ignoran las líneas.

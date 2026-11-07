@@ -157,6 +157,16 @@ export const MATERIAL_BASES = deepFreeze([
   { id: 'per_activation', label: 'Por intervención (llamado o salida)' },
 ]);
 
+/**
+ * Bases de un material DENTRO de una cotización: además, "Por unidad
+ * producida" (m² pintado, m³ tratado, pieza…; PLAN-2026-021). En Recursos no
+ * se ofrece: cuánto se produce por día depende de cada cotización.
+ */
+export const QUOTE_MATERIAL_BASES = deepFreeze([
+  ...MATERIAL_BASES,
+  { id: 'per_output', label: 'Por unidad producida' },
+]);
+
 /** Unidades habituales de un material (PLAN-2026-010): sólo para mostrar y cargar; no cambian el cálculo. */
 export const MATERIAL_UNIT_PRESETS = deepFreeze(['unidad', 'L', 'kg', 'g', 't', 'm', 'm²', 'm³', 'paquete', 'bolsa', 'tambor', 'bidón', 'caja', 'rollo', 'par', 'juego', 'pallet', 'big bag', 'barril', 'm³ de gas', 'kWh']);
 
