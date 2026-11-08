@@ -567,7 +567,7 @@ export function render(container, ctx) {
       // personas (relevos con números, en Personal) o se rota quién está de guardia.
       availability
         ? kit.choice('activity.guardType', {
-          label: h('span', {}, 'Tipo de guardia', infoTip('Activa: el personal está en la base o en la locación; esas horas cuentan como trabajo y piden relevos (horas de guardia del mes ÷ horas normales por persona, más francos y vacaciones; se revisa en Personal). Pasiva: está localizable y sale si lo convocan; se suele pagar un adicional de guardia y alcanza con rotar quién está de guardia.')),
+          label: h('span', {}, 'Tipo de guardia', infoTip('Activa: el personal está en la base o en la locación; esas horas cuentan como trabajo y piden más personas (horas de guardia del mes ÷ horas normales por persona, más francos y vacaciones; se revisa en Personal). Pasiva: está localizable y sale si lo convocan; se suele pagar un adicional de guardia y alcanza con rotar quién está de guardia.')),
           options: [
             { value: 'active', label: 'Activa (en el lugar)', hint: 'Cuentan como horas de trabajo.' },
             { value: 'passive', label: 'Pasiva (localizable)', hint: 'Sale sólo si lo convocan.' },

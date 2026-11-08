@@ -275,9 +275,27 @@ describe('A-5 · Aviso de horas del personal', () => {
   });
 
   test('el mensaje sugiere turnarse con las horas por día de cada persona (sin diagramas, 2026-11)', () => {
-    assert.match(item(quote({ H: 24 }), 'labor_hours').message, /Si las personas se turnan .* cargá sus "Horas por día de cada persona" y sumá personas/);
+    assert.match(item(quote({ H: 24 }), 'labor_hours').message, /Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona"/);
     // Con relevos cargados antes (personas por posición): el mensaje de siempre.
     assert.match(item(quote({ H: 24, ppp: 2 }), 'labor_hours').message, /o sumá posiciones \(turno día \/ turno noche\)/);
+  });
+
+  test('sin diagramas (2026-11): personas × horas de cada una contra las horas por día del servicio', () => {
+    // 2 personas de 8 h para 24 h: faltan 8 h por día → sumar 1 persona de 8 h.
+    const gap = item(quote({ H: 24, positions: 2, coverage: 8 }), 'labor_day_gap');
+    assert.ok(gap);
+    assert.match(gap.message, /2 personas × 8 h = 16 h por día, y el servicio pide 24 h por día/);
+    assert.match(gap.message, /faltan 8 h por día: sumá 1 persona de 8 h/);
+    assert.equal(gap.focus, 'labor.0.positions');
+    // 3 de 8 h cubren las 24 h: sin aviso; sin horas por persona tampoco (trabajan las del servicio).
+    assert.equal(item(quote({ H: 24, positions: 3, coverage: 8 }), 'labor_day_gap'), undefined);
+    assert.equal(item(quote({ H: 24, positions: 1 }), 'labor_day_gap'), undefined);
+    // Con relevos cargados antes (personas por posición) no aplica.
+    assert.equal(item(quote({ H: 24, positions: 1, ppp: 2, coverage: 12 }), 'labor_day_gap'), undefined);
+    // No cambia el costo.
+    const a = computeQuote(quote({ H: 24, positions: 2 }), { settings: {} });
+    const b = computeQuote(quote({ H: 24, positions: 2, coverage: 8 }), { settings: {} });
+    assert.equal(b.kpis.totalCost, a.kpis.totalCost);
   });
 
   test('el dato del puesto sólo lo usa el aviso: el costo no cambia', () => {

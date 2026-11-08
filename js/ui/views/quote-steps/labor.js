@@ -22,6 +22,7 @@ import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from
 import { baseText } from '../../economic-base-ui.js';
 import { assignmentBlock } from './assignment.js';
 import { laborHeadcountOf } from '../../../engines/labor-engine.js';
+import { reliefFromLabor } from '../../../engines/rotation-engine.js';
 
 /** "4,5" / "5" (hasta 2 decimales). */
 const n2 = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
@@ -77,7 +78,7 @@ function laborTrace(result, index, source) {
   return createTrace({
     id: 'labor_line',
     title: `Personal — ${line.role || 'Puesto'}`,
-    formula: 'Costo por persona = (Básico + Adicionales) × (1 + SAC% + Vacaciones%) × (1 + Cargas% + ART%) + Seguros + EPP + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × posiciones × personas por posición · Variable por día activo = (horas extra × valor hora extra × factor de cargas + vianda) × posiciones',
+    formula: 'Costo por persona = (Básico + Adicionales) × (1 + SAC% + Vacaciones%) × (1 + Cargas% + ART%) + Seguros + EPP + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día activo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
     inputs: [
       { label: 'Básico mensual', value: p.basic, format: 'money' },
       { label: 'Adicionales mensuales', value: p.additionals, format: 'money' },
@@ -274,16 +275,42 @@ export function render(container, ctx) {
   const payrollMode = (line) => Boolean(line) && Number(line.payrollHeadcount) > 0;
   const legacyStaff = (line) => payrollMode(line) || (hasNumber(line && line.peoplePerPosition) && Math.abs(Number(line.peoplePerPosition) - 1) > 1e-9);
   /** Vuelve a "N personas" (posiciones × 1): cambia el costo si había relevos; es explícito. */
-  const useSimplePeople = (i) => ctx.mutate((q) => {
-    const l = q.labor[i];
+  const useSimplePeople = async (i) => {
+    const l = quote.labor[i];
+    if (!l) return;
     const people = laborHeadcountOf(l);
-    l.positions = people > 0 ? roundRate(people) : l.positions;
-    l.peoplePerPosition = 1;
-    l.payrollHeadcount = null;
-  }, { focus: `labor.${i}.positions` });
+    const perDay = nonNegative(l.mealPerActiveDay) > 0 || nonNegative(l.overtimeHoursPerActiveDay) > 0
+      || (Array.isArray(l.overtime) && l.overtime.some((o) => o && o.basis !== 'per_month' && nonNegative(o.hours) > 0));
+    if (perDay) {
+      const ok = await confirmDialog({
+        title: 'Simplificar a cantidad de personas',
+        message: `Quedan ${n2(people)} personas trabajando. Los sueldos no cambian, pero la vianda y las horas extra por día se cuentan para las ${n2(people)} (hoy para ${n2(nonNegative(l.positions))}): el costo sube. ¿Seguir?`,
+        confirmLabel: 'Simplificar',
+      });
+      if (!ok) return;
+    }
+    ctx.mutate((q) => {
+      const x = q.labor[i];
+      x.positions = people > 0 ? roundRate(people) : x.positions;
+      x.peoplePerPosition = 1;
+      x.payrollHeadcount = null;
+    }, { focus: `labor.${i}.positions` });
+  };
   /** Diagrama guardado en una cotización anterior: ya no se edita; lo aplicado quedó en el puesto. */
   const removeRotation = (i) => ctx.mutate((q) => {
-    delete q.labor[i].rotation;
+    const l = q.labor[i];
+    const rot = l.rotation || {};
+    // Lo que el diagrama todavía movía queda a la vista (mismos números): sus horas por turno
+    // pasan a "Horas por día de cada persona" y, si los viajes seguían al diagrama, su
+    // intervalo pasa a "Se queda en campo" con los mismos días entre viajes.
+    const shift = Math.min(nonNegative(rot.hoursPerShift), 24);
+    if (shift > 0 && !(nonNegative(l.coverageHoursPerDay) > 0)) l.coverageHoursPerDay = shift;
+    const relief = reliefFromLabor(q.labor);
+    if (q.activity && q.activity.travelPattern === 'rotation' && relief && relief.index === i) {
+      q.activity.travelPattern = 'custom';
+      q.activity.daysPerActivation = roundRate(relief.daysBetweenRelieves);
+    }
+    delete l.rotation;
   });
   function legacyRotationNote(i, line) {
     if (!line || !line.rotation || typeof line.rotation !== 'object') return null;
@@ -353,7 +380,7 @@ export function render(container, ctx) {
               : kit.num(`${p}.peoplePerPosition`, { label: 'Personas por posición (relevos)', rule: 'positive', hint: 'Cargado antes: cada persona trabajando se cubre con esta cantidad en nómina.' }),
           ),
           ctx.readOnly ? null : h('div', { class: 'qe-toolbar' },
-            kit.action('Simplificar a cantidad de personas', () => useSimplePeople(i), { variant: 'ghost', title: 'Deja sólo "Cantidad de personas" con el total en nómina de hoy. Los sueldos no cambian; la vianda y las horas extra por día pasan a contarse para todas.' })))
+            kit.action('Simplificar a cantidad de personas', () => useSimplePeople(i), { variant: 'ghost', title: 'Deja sólo "Cantidad de personas" con el total en nómina de hoy. Los sueldos no cambian; si hay vianda u horas extra por día, pasan a contarse para todas (te lo pregunta antes).' })))
         : null,
       legacyRotationNote(i, line),
       // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.

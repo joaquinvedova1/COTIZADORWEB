@@ -147,6 +147,11 @@ export function activeGuardLineCheck(guard, l = {}, activeDays = 0) {
   return { ppp, normal, hours, required, extra, covered, needed: required / normal, short: required > covered + 1e-6 };
 }
 
+/** Personal cargado como "cantidad de personas" (sin relevos por posición ni nómina total). */
+function isSimpleStaff(l = {}) {
+  return !(Number(l.payrollHeadcount) > 0) && Math.abs(nonNegative(l.peoplePerPosition, 1) - 1) < 1e-9;
+}
+
 function rule(id, label, step, weight, status, message) {
   return { id, label, step, weight, status, color: status === 'ok' ? 'green' : status === 'warning' ? 'orange' : status === 'missing' ? 'red' : 'gray', message };
 }
@@ -312,22 +317,34 @@ export function evaluateCompleteness(quote = {}) {
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       // Sin diagramas (2026-11): con "cantidad de personas" (1 por posición) se habla de personas.
       const simple = !hasPayrollHeadcount(l) && Math.abs(c.ppp - 1) < 1e-9;
-      const item = rule('relief', 'Relevos', 'labor', 1, 'warning', simple
+      const item = rule('relief', 'Horas de guardia', 'labor', 1, 'warning', simple
         ? `Guardia activa: ${fmt(activeGuard.days)} días × ${fmt(c.hours)} h = ${fmt(c.required)} h por persona. "${name}" cubre ${fmt(c.covered)} h por persona: para cubrir ${fmt(c.required)} h hacen falta unas ${fmt(c.needed)} personas (más francos y vacaciones). Si las personas se turnan, cargá sus "Horas por día de cada persona" (por ejemplo 3 personas de 8 h para 24 h) y sumá personas; si no, cargá horas extra.${others}`
         : `Guardia activa: ${fmt(activeGuard.days)} días × ${fmt(c.hours)} h = ${fmt(c.required)} h por posición. "${name}" cubre ${fmt(c.covered)} h: hacen falta unas ${fmt(c.needed)} personas por posición (más francos y vacaciones). Sumá personas en nómina o horas extra.${others}`);
       item.focus = `labor.${index}.${hasPayrollHeadcount(l) ? 'payrollHeadcount' : simple ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
     } else if (checks.length) {
-      items.push(rule('relief', 'Relevos', 'labor', 1, 'ok', `Guardia activa: el personal cargado cubre las horas de guardia del mes.`));
+      items.push(rule('relief', 'Horas de guardia', 'labor', 1, 'ok', `Guardia activa: el personal cargado cubre las horas de guardia del mes.`));
     }
   } else if (continuous && passiveGuard && labor.length > 0) {
-    items.push(rule('relief', 'Relevos', 'labor', 1, 'ok', 'Guardia pasiva (localizable): no se cubre hora por hora; alcanza con rotar quién está de guardia.'));
+    items.push(rule('relief', 'Horas de guardia', 'labor', 1, 'ok', 'Guardia pasiva (localizable): no se cubre hora por hora; alcanza con rotar quién está de guardia.'));
   } else if (continuous && labor.length > 0) {
     // Con la nómina cargada como total (B-1), personas por posición = nómina ÷ posiciones.
-    const ok = labor.every((l) => laborPeoplePerPositionOf(l) > 1);
-    items.push(rule('relief', 'Relevos', 'labor', 1, ok ? 'ok' : 'warning',
-      ok ? 'Relevos configurados.' : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.'));
+    // Sin diagramas (2026-11): con "cantidad de personas" (1 por posición) se mira cuántas
+    // personas hay y sus horas por día, no relevos por posición.
+    const legacy = labor.filter((l) => !isSimpleStaff(l));
+    const simple = labor.filter(isSimpleStaff);
+    const legacyOk = legacy.every((l) => laborPeoplePerPositionOf(l) > 1);
+    const alone = simple.find((l) => !(nonNegative(l.positions) > 1) && !(nonNegative(l.coverageHoursPerDay) > 0));
+    const ok = legacyOk && !alone;
+    const name = alone && ((typeof alone.role === 'string' && alone.role.trim()) || 'Personal');
+    const item = rule('relief', 'Cobertura de todo el día', 'labor', 1, ok ? 'ok' : 'warning',
+      ok ? 'Hay más de una persona para cubrir el servicio de todo el día.'
+        : alone
+          ? `Servicio de todo el día y todos los días con una sola persona en "${name}": nadie la reemplaza en francos ni vacaciones. Sumá personas que se turnen (con sus horas por día de cada una) o cargá las horas extra.`
+          : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.');
+    if (alone) item.focus = `labor.${labor.indexOf(alone)}.positions`;
+    items.push(item);
   }
 
   // 5 ter. Franja de guardia (2026-11): si cada día con llamado se trabajan más horas que la
@@ -390,10 +407,34 @@ export function evaluateCompleteness(quote = {}) {
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const simple = !hasPayrollHeadcount(first.l) && Math.abs(first.ppp - 1) < 1e-9;
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning', simple
-        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: cargá las horas extra o revisá las horas normales del puesto. Si las personas se turnan (cada una trabaja menos horas por día que el servicio), cargá sus "Horas por día de cada persona" y sumá personas. RATEOS no las agrega solo.${others}`
+        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: cargá las horas extra o revisá las horas normales del puesto. Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}`
         : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), cargá las horas extra o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}`);
       item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : simple ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
+      items.push(item);
+    }
+  }
+
+  // 5 quater. Horas del día sin cubrir (2026-11, sin diagramas): con "Horas por día de cada
+  // persona", personas × horas de cada una tiene que alcanzar las horas por día del servicio.
+  // Sólo avisa (no cambia el costo). Con guardia activa lo mide su propio control.
+  if (labor.length > 0 && H > 0 && !activeGuard) {
+    const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+    const gaps = labor.map((l, index) => {
+      const c = Math.min(nonNegative(l.coverageHoursPerDay), 24);
+      const n = nonNegative(l.positions);
+      if (!isSimpleStaff(l) || !(c > 0) || !(n > 0) || n * c >= Math.min(H, 24) - 1e-6) return null;
+      return { l, index, c, n, covered: n * c };
+    }).filter(Boolean);
+    if (gaps.length) {
+      const g = gaps[0];
+      const name = (typeof g.l.role === 'string' && g.l.role.trim()) || 'Personal';
+      const missing = Math.min(H, 24) - g.covered;
+      const more = Math.ceil(missing / g.c - 1e-9);
+      const item = rule('labor_day_gap', 'Horas del día sin cubrir', 'labor', 1, 'warning',
+        `"${name}": ${fmt(g.n)} ${Math.abs(g.n - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(g.c)} h = ${fmt(g.covered)} h por día, y el servicio pide ${fmt(Math.min(H, 24))} h por día. Si el servicio necesita gente todas esas horas, faltan ${fmt(missing)} h por día: sumá ${fmt(more)} ${more === 1 ? 'persona' : 'personas'} de ${fmt(g.c)} h o subí sus horas por día. Si no hace falta cubrir todas las horas, está bien así. No cambia el costo.`);
+      item.focus = `labor.${g.index}.positions`;
+      item.targets = gaps.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
     }
   }
@@ -1061,7 +1102,7 @@ export function evaluateCompleteness(quote = {}) {
         id: 'labor_no_positions',
         step: 'labor',
         severity: 'info',
-        label: 'Puesto sin posiciones',
+        label: 'Puesto sin personas',
         message: `"${name}" tiene sueldo pero 0 personas: no suma costo. Si trabaja en el servicio, cargá cuántas personas; si no, quitá la línea.`,
         focus: `labor.${index}.positions`,
         targets: [{ list: 'labor', index, name }],
@@ -1108,8 +1149,10 @@ export function evaluateCompleteness(quote = {}) {
       label: 'Personas no enteras',
       message: payroll
         ? `Cargaste ${formatNumber(people, { decimals: 2 })} personas en nómina en "${name}" (con decimales); ¿cuántas hay de verdad? El costo se calcula con ${formatNumber(people, { decimals: 2 })}: si en nómina son ${formatNumber(Math.ceil(people - 1e-9))}, cargalo así. RATEOS no redondea solo.`
-        : `Cargaste ${formatNumber(people, { decimals: 2 })} personas en "${name}" (${formatNumber(positions, { decimals: 2 })} ${Math.abs(positions - 1) < 1e-9 ? 'posición' : 'posiciones'} × ${formatNumber(nonNegative(l.peoplePerPosition, 1), { decimals: 2 })} por posición); ¿cuántas hay en nómina? El costo se calcula con ${formatNumber(people, { decimals: 2 })}: si en nómina son ${formatNumber(Math.ceil(people - 1e-9))}, cargalo así. RATEOS no redondea solo.`,
-      focus: `labor.${index}.${payroll ? 'payrollHeadcount' : 'peoplePerPosition'}`,
+        : Math.abs(nonNegative(l.peoplePerPosition, 1) - 1) < 1e-9
+          ? `Cargaste ${formatNumber(people, { decimals: 2 })} personas en "${name}" (con decimales); ¿cuántas son de verdad? El costo se calcula con ${formatNumber(people, { decimals: 2 })}: si son ${formatNumber(Math.ceil(people - 1e-9))}, cargalo así. RATEOS no redondea solo.`
+          : `Cargaste ${formatNumber(people, { decimals: 2 })} personas en "${name}" (${formatNumber(positions, { decimals: 2 })} ${Math.abs(positions - 1) < 1e-9 ? 'posición' : 'posiciones'} × ${formatNumber(nonNegative(l.peoplePerPosition, 1), { decimals: 2 })} por posición); ¿cuántas hay en nómina? El costo se calcula con ${formatNumber(people, { decimals: 2 })}: si en nómina son ${formatNumber(Math.ceil(people - 1e-9))}, cargalo así. RATEOS no redondea solo.`,
+      focus: `labor.${index}.${payroll ? 'payrollHeadcount' : Math.abs(nonNegative(l.peoplePerPosition, 1) - 1) < 1e-9 ? 'positions' : 'peoplePerPosition'}`,
       targets: [{ list: 'labor', index, name }],
     });
   });

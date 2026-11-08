@@ -146,7 +146,7 @@ describe('guardia activa / pasiva (2026-11)', () => {
   test('sin tipo de guardia: el aviso de relevos de siempre', () => {
     const r = relief(withLabor({ availability: '24/7' }));
     assert.equal(r.status, 'warning');
-    assert.match(r.message, /una sola persona por posición/);
+    assert.match(r.message, /una sola persona en "Operador"/);
   });
 
   test('disponibilidad sin cobrar: informativo, se va con abono o mínimo garantizado', () => {
