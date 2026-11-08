@@ -167,7 +167,7 @@ export const STEP_COPY = Object.freeze({
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
-    why: 'El personal suele ser el costo más grande. Incluí relevos si el servicio es 24/7.',
+    why: 'El personal suele ser el costo más grande: cuántas personas de tu nómina van, su sueldo y cuántas horas trabaja cada una.',
   },
   equipment: {
     question: '¿Qué equipos usás?',
@@ -2719,8 +2719,48 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     if (state.disposed) return;
     scheduleRecalc.cancel();
     recompute();
+    // Sin saltos al redibujar (2026-11): al vaciar el paso la página se achica un instante y
+    // el navegador sube el scroll (tocar "Lun a sáb", "8 h" o una opción llevaba arriba de
+    // todo). Se sostiene la altura mientras se dibuja, se vuelve al mismo lugar y el foco
+    // vuelve al control equivalente (mismo botón u opción), sin mover la vista.
+    const y = typeof window !== 'undefined' ? window.scrollY : 0;
+    const anchor = focusAnchorOf(typeof document !== 'undefined' ? document.activeElement : null);
+    stepBody.style.minHeight = `${stepBody.offsetHeight}px`;
     renderStep();
     refreshAll();
+    if (typeof window !== 'undefined' && Math.abs(window.scrollY - y) > 1) window.scrollTo({ top: y, behavior: 'auto' });
+    restoreFocusAnchor(anchor);
+    stepBody.style.minHeight = '';
+  }
+
+  /** Cómo reencontrar el control enfocado después de redibujar (por nombre o por texto del botón). */
+  function focusAnchorOf(el) {
+    if (!el || !stepBody.contains(el)) return null;
+    if (el.name) return { name: el.name, value: el.type === 'radio' ? el.value : null };
+    if (el.tagName === 'BUTTON' || el.tagName === 'SUMMARY') {
+      const text = el.textContent.trim();
+      const same = [...stepBody.querySelectorAll(el.tagName)].filter((b) => b.textContent.trim() === text);
+      return { tag: el.tagName, text, index: same.indexOf(el) };
+    }
+    return null;
+  }
+
+  function restoreFocusAnchor(anchor) {
+    if (!anchor || typeof document === 'undefined' || (document.activeElement && stepBody.contains(document.activeElement))) return;
+    let el = null;
+    if (anchor.name) {
+      const all = [...stepBody.querySelectorAll(`[name="${cssEscape(anchor.name)}"]`)];
+      el = all.find((c) => anchor.value !== null && c.value === anchor.value) || all[0] || null;
+    } else {
+      const same = [...stepBody.querySelectorAll(anchor.tag)].filter((b) => b.textContent.trim() === anchor.text);
+      el = same[anchor.index] || same[0] || null;
+    }
+    if (!el) return;
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      /* foco opcional */
+    }
   }
 
   /**

@@ -1832,20 +1832,15 @@ function draftBanner(v) {
 }
 
 /**
- * Dotación (tanda B 2026-11, B-1): "N en sitio · M en nómina" del personal, con el diagrama
- * de rotación si se cargó. En sitio = posiciones; en nómina = dotación que cobra sueldo.
+ * Personal del servicio: "4 personas" (o "2 trabajando · 4 en nómina" en cotizaciones
+ * anteriores con relevos). Sin diagramas de rotación (2026-11).
  */
 function staffBlock(v) {
   const labor = v.r.model && v.r.model.labor;
   const lines = ((labor && labor.lines) || []).filter((l) => l && l.positions > 0);
   if (!lines.length) return null;
   const total = { positions: labor.positions, headcount: labor.headcount };
-  const rotationText = (rot) => (rot && rot.ready
-    ? `diagrama ${rot.label}${rot.daysBetweenRelieves ? `, ${formatNumber(rot.relievesPerMonth, { decimals: 2 })} relevos por mes` : ''}`
-    : null);
-  const detail = lines.length > 1
-    ? ` (${lines.map((l) => [`${l.role || 'Puesto'}: ${staffText(l)}`, rotationText(l.rotation)].filter(Boolean).join(', ')).join('; ')})`
-    : rotationText(lines[0].rotation) ? ` · ${rotationText(lines[0].rotation)}` : '';
+  const detail = lines.length > 1 ? ` (${lines.map((l) => `${l.role || 'Puesto'}: ${staffText(l)}`).join('; ')})` : '';
   return h('p', { class: 'qr-note qr-staff' }, h('strong', {}, 'Personal: '), `${staffText(total)}${detail}.`);
 }
 

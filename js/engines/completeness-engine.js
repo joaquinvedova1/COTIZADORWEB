@@ -269,7 +269,7 @@ export function evaluateCompleteness(quote = {}) {
     const names = unpaid.slice(0, 3).map(({ l }) => `"${roleOf(l)}"`).join(', ');
     const more = unpaid.length > 3 ? ` y ${unpaid.length - 3} más` : '';
     const item = rule('labor', 'Personal', 'labor', 2, 'missing',
-      `${unpaid.length === 1 ? 'Un puesto que se usa en la cotización no tiene' : 'Hay puestos que se usan en la cotización sin'} sueldo básico: ${names}${more}. Sin el básico faltan su sueldo, las cargas sociales sobre él y el valor de sus horas extra: la cotización no está completa. Cargá el básico mensual; si el puesto no trabaja en este servicio, poné 0 posiciones o quitá la línea.`);
+      `${unpaid.length === 1 ? 'Un puesto que se usa en la cotización no tiene' : 'Hay puestos que se usan en la cotización sin'} sueldo básico: ${names}${more}. Sin el básico faltan su sueldo, las cargas sociales sobre él y el valor de sus horas extra: la cotización no está completa. Cargá el básico mensual; si el puesto no trabaja en este servicio, poné 0 personas o quitá la línea.`);
     item.critical = true;
     item.unreliable = true;
     item.focus = `labor.${unpaid[0].index}.basicMonthly`;
@@ -290,7 +290,7 @@ export function evaluateCompleteness(quote = {}) {
     const fmtN = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
     const others = payrollShort.length > 1 ? ` También: ${payrollShort.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
     const item = rule('labor_payroll_below_positions', 'Nómina menor que en sitio', 'labor', 1, 'warning',
-      `"${name}" tiene ${fmtN(nonNegative(l.positions))} en sitio a la vez y ${fmtN(nonNegative(l.payrollHeadcount))} en nómina: la nómina no puede ser menor que los que están en sitio. Los sueldos y cargas se calculan con ${fmtN(nonNegative(l.payrollHeadcount))} ${Math.abs(nonNegative(l.payrollHeadcount) - 1) < 1e-9 ? 'persona' : 'personas'} y el costo queda corto. Revisá "Personas en nómina" (o usá el diagrama de rotación). RATEOS no lo corrige solo.${others}`);
+      `"${name}" tiene ${fmtN(nonNegative(l.positions))} en sitio a la vez y ${fmtN(nonNegative(l.payrollHeadcount))} en nómina: la nómina no puede ser menor que los que están en sitio. Los sueldos y cargas se calculan con ${fmtN(nonNegative(l.payrollHeadcount))} ${Math.abs(nonNegative(l.payrollHeadcount) - 1) < 1e-9 ? 'persona' : 'personas'} y el costo queda corto. Revisá "Personas en nómina". RATEOS no lo corrige solo.${others}`);
     item.focus = `labor.${index}.payrollHeadcount`;
     item.targets = payrollShort.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
     items.push(item);
@@ -310,9 +310,12 @@ export function evaluateCompleteness(quote = {}) {
       const { l, index, c } = short[0];
       const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
-      const item = rule('relief', 'Relevos', 'labor', 1, 'warning',
-        `Guardia activa: ${fmt(activeGuard.days)} días × ${fmt(c.hours)} h = ${fmt(c.required)} h por posición. "${name}" cubre ${fmt(c.covered)} h: hacen falta unas ${fmt(c.needed)} personas por posición (más francos y vacaciones). Sumá personas en nómina o horas extra.${others}`);
-      item.focus = `labor.${index}.${hasPayrollHeadcount(l) ? 'payrollHeadcount' : 'peoplePerPosition'}`;
+      // Sin diagramas (2026-11): con "cantidad de personas" (1 por posición) se habla de personas.
+      const simple = !hasPayrollHeadcount(l) && Math.abs(c.ppp - 1) < 1e-9;
+      const item = rule('relief', 'Relevos', 'labor', 1, 'warning', simple
+        ? `Guardia activa: ${fmt(activeGuard.days)} días × ${fmt(c.hours)} h = ${fmt(c.required)} h por persona. "${name}" cubre ${fmt(c.covered)} h por persona: para cubrir ${fmt(c.required)} h hacen falta unas ${fmt(c.needed)} personas (más francos y vacaciones). Si las personas se turnan, cargá sus "Horas por día de cada persona" (por ejemplo 3 personas de 8 h para 24 h) y sumá personas; si no, cargá horas extra.${others}`
+        : `Guardia activa: ${fmt(activeGuard.days)} días × ${fmt(c.hours)} h = ${fmt(c.required)} h por posición. "${name}" cubre ${fmt(c.covered)} h: hacen falta unas ${fmt(c.needed)} personas por posición (más francos y vacaciones). Sumá personas en nómina o horas extra.${others}`);
+      item.focus = `labor.${index}.${hasPayrollHeadcount(l) ? 'payrollHeadcount' : simple ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
     } else if (checks.length) {
@@ -381,11 +384,15 @@ export function evaluateCompleteness(quote = {}) {
       const months = mf > 1 + 1e-9 ? ` × ${fmt(mf)} meses` : '';
       const people = `${fmt(first.ppp)} ${Math.abs(first.ppp - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''}`;
       const span = mf > 1 + 1e-9 ? ` (el trabajo dura más que los ${fmt(act.availableDaysPerMonth)} días disponibles del mes: las horas por mes cuentan ${fmt(mf)} meses)` : '';
-      const own = first.own ? (nonNegative(first.l.coverageHoursPerDay) > 0 ? ' (horas por día que cubre este puesto)' : ' (horas por turno del diagrama)') : '';
+      // Sin diagramas (2026-11): un diagrama guardado antes sigue aportando sus horas por turno
+      // (no aparecen avisos nuevos en cotizaciones viejas); se nombra como dato anterior.
+      const own = first.own ? (nonNegative(first.l.coverageHoursPerDay) > 0 ? ' (horas por día de cada persona)' : ' (horas por turno cargadas antes)') : '';
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
-      const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
-        `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), cargá las horas extra o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día que cubre este puesto". RATEOS no las agrega solo.${others}`);
-      item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : 'peoplePerPosition'}`;
+      const simple = !hasPayrollHeadcount(first.l) && Math.abs(first.ppp - 1) < 1e-9;
+      const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning', simple
+        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: cargá las horas extra o revisá las horas normales del puesto. Si las personas se turnan (cada una trabaja menos horas por día que el servicio), cargá sus "Horas por día de cada persona" y sumá personas. RATEOS no las agrega solo.${others}`
+        : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), cargá las horas extra o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}`);
+      item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : simple ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
     }
@@ -1055,7 +1062,7 @@ export function evaluateCompleteness(quote = {}) {
         step: 'labor',
         severity: 'info',
         label: 'Puesto sin posiciones',
-        message: `"${name}" tiene sueldo pero 0 posiciones: no suma costo. Si trabaja en el servicio, cargá cuántas posiciones; si no, quitá la línea.`,
+        message: `"${name}" tiene sueldo pero 0 personas: no suma costo. Si trabaja en el servicio, cargá cuántas personas; si no, quitá la línea.`,
         focus: `labor.${index}.positions`,
         targets: [{ list: 'labor', index, name }],
       });
