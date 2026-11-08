@@ -235,14 +235,14 @@ describe('LAB-D2 · La operación pide más horas de cobertura que las cargadas 
     assert.match(it.message, /240 h/);
     assert.match(it.message, /176 h/);
     assert.match(it.message, /Faltan 64 h/);
-    assert.equal(it.focus, 'labor.0.peoplePerPosition');
+    assert.equal(it.focus, 'labor.0.coverageHoursPerDay');
     assert.deepEqual(it.targets.map((t) => t.index), [0]);
   });
 
   test('es un control MENSUAL de cobertura: muestra el cálculo del mes y nunca habla de "jornada" (no hay ese dato)', () => {
     const it = check(quote({ hours: 12 }));
-    assert.match(it.message, /20 días × 12 h = 240 h de cobertura por posición en el mes/);
-    assert.match(it.message, /lo cargado cubre 176 h \(1 persona × 176 h normales por mes\)/);
+    assert.match(it.message, /20 días × 12 h = 240 h por persona en el mes/);
+    assert.match(it.message, /cada persona cubre 176 h \(176 h normales por mes\)/);
     assert.doesNotMatch(it.message, /jornada/i);
     assert.doesNotMatch(check(quote({ hours: 24, ppp: 2 })).message, /jornada/i);
   });

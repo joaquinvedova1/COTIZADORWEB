@@ -255,10 +255,10 @@ describe('A-5 · Aviso de horas del personal', () => {
     const it = item(quote({ D: 45, H: 12 }), 'labor_hours');
     assert.ok(it);
     assert.match(it.message, /45 días × 12 h = 540 h/);
-    assert.match(it.message, /lo cargado cubre 264 h \(1 persona × 176 h normales por mes × 1,5 meses\)/);
+    assert.match(it.message, /cada persona cubre 264 h \(176 h normales por mes × 1,5 meses\)/);
     assert.match(it.message, /más que los 30 días disponibles/);
     // D ≤ disponibles: igual que siempre.
-    assert.match(item(quote({ D: 20, H: 12 }), 'labor_hours').message, /lo cargado cubre 176 h \(1 persona × 176 h normales por mes\)\./);
+    assert.match(item(quote({ D: 20, H: 12 }), 'labor_hours').message, /cada persona cubre 176 h \(176 h normales por mes\)\./);
   });
 
   test('"Horas por día que cubre este puesto": un turno de 12 h en una actividad de 24 h', () => {
@@ -268,14 +268,34 @@ describe('A-5 · Aviso de horas del personal', () => {
     assert.equal(item(quote({ H: 24, ppp: 2, coverage: 12 }), 'labor_hours'), undefined);
     // Con 1 persona y 12 h propias: 240 > 176 → aviso con el dato del puesto.
     const it = item(quote({ H: 24, ppp: 1, coverage: 12 }), 'labor_hours');
-    assert.match(it.message, /20 días × 12 h \(horas por día que cubre este puesto\) = 240 h/);
+    assert.match(it.message, /20 días × 12 h \(horas por día de cada persona\) = 240 h/);
     // Vacío o 0 = las horas de la actividad.
     assert.match(item(quote({ H: 24, ppp: 1, coverage: null }), 'labor_hours').message, /20 días × 24 h = 480 h/);
     assert.match(item(quote({ H: 24, ppp: 1, coverage: 0 }), 'labor_hours').message, /20 días × 24 h = 480 h/);
   });
 
-  test('el mensaje sugiere también sumar posiciones (turno día / turno noche)', () => {
-    assert.match(item(quote({ H: 24 }), 'labor_hours').message, /o sumá posiciones \(turno día \/ turno noche\)/);
+  test('el mensaje sugiere turnarse con las horas por día de cada persona (sin diagramas, 2026-11)', () => {
+    assert.match(item(quote({ H: 24 }), 'labor_hours').message, /Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona"/);
+    // Con relevos cargados antes (personas por posición): el mensaje de siempre.
+    assert.match(item(quote({ H: 24, ppp: 2 }), 'labor_hours').message, /o sumá posiciones \(turno día \/ turno noche\)/);
+  });
+
+  test('sin diagramas (2026-11): personas × horas de cada una contra las horas por día del servicio', () => {
+    // 2 personas de 8 h para 24 h: faltan 8 h por día → sumar 1 persona de 8 h.
+    const gap = item(quote({ H: 24, positions: 2, coverage: 8 }), 'labor_day_gap');
+    assert.ok(gap);
+    assert.match(gap.message, /2 personas × 8 h = 16 h por día, y el servicio pide 24 h por día/);
+    assert.match(gap.message, /faltan 8 h por día: sumá 1 persona de 8 h/);
+    assert.equal(gap.focus, 'labor.0.positions');
+    // 3 de 8 h cubren las 24 h: sin aviso; sin horas por persona tampoco (trabajan las del servicio).
+    assert.equal(item(quote({ H: 24, positions: 3, coverage: 8 }), 'labor_day_gap'), undefined);
+    assert.equal(item(quote({ H: 24, positions: 1 }), 'labor_day_gap'), undefined);
+    // Con relevos cargados antes (personas por posición) no aplica.
+    assert.equal(item(quote({ H: 24, positions: 1, ppp: 2, coverage: 12 }), 'labor_day_gap'), undefined);
+    // No cambia el costo.
+    const a = computeQuote(quote({ H: 24, positions: 2 }), { settings: {} });
+    const b = computeQuote(quote({ H: 24, positions: 2, coverage: 8 }), { settings: {} });
+    assert.equal(b.kpis.totalCost, a.kpis.totalCost);
   });
 
   test('el dato del puesto sólo lo usa el aviso: el costo no cambia', () => {

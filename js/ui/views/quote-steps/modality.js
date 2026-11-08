@@ -31,6 +31,7 @@ import { contractOf, unitChoicesForContract } from '../../../domain/contract.js'
 import { extrasSection } from './extras.js';
 import { outsideWindowHours, outsideWindowMessage, activeGuardCoverage, activeGuardLineCheck } from '../../../engines/completeness-engine.js';
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
+import { staffText } from './labor.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -167,23 +168,18 @@ export function render(container, ctx) {
   return coverageShortcuts;
   }
 
-  // Personal para esta cobertura (PLAN-2026-024): A (lo vendido) ↔ B (cómo se organiza la gente).
-  // Sólo muestra; la dotación y el esquema se cambian en Personal.
+  // Personal del servicio: sólo muestra (se carga en Personal). Sin diagramas (2026-11).
   function staffForCoverageSlot() {
   return monthlyContract && Array.isArray(quote.labor) && quote.labor.length
     ? kit.keyline({
-      label: 'Personal para esta cobertura',
+      label: 'Personal del servicio',
       value: (r) => {
         const lines = (r.model.labor.lines || []).filter((l) => l.positions > 0);
-        return lines.length ? `${num(lines.reduce((a, l) => a + l.positions, 0))} en sitio · ${num(lines.reduce((a, l) => a + l.headcount, 0))} en nómina` : EMPTY;
+        return lines.length ? staffText({ positions: lines.reduce((a, l) => a + l.positions, 0), headcount: lines.reduce((a, l) => a + l.headcount, 0) }) : EMPTY;
       },
       hint: (r) => {
         const lines = (r.model.labor.lines || []).filter((l) => l.positions > 0);
-        const parts = lines.slice(0, 4).map((l) => {
-          const rot = l.rotation && l.rotation.ready ? l.rotation : null;
-          const scheme = rot ? ` (${rot.fixed ? 'esquema fijo' : 'diagrama'} ${rot.label}${rot.workedHoursPerPerson ? `, ≈ ${formatNumber(rot.workedHoursPerPerson, { decimals: 0 })} h por persona por mes` : ''})` : '';
-          return `${l.role || 'Puesto'}: ${num(l.positions)} en sitio · ${num(l.headcount)} en nómina${scheme}`;
-        });
+        const parts = lines.slice(0, 4).map((l) => `${l.role || 'Puesto'}: ${staffText(l)}`);
         return `${parts.join(' · ')}. Se cambia en "${stepName('labor')}".`;
       },
     })
@@ -381,6 +377,9 @@ export function render(container, ctx) {
   });
   const hourly = quote.unit === 'hour';
   const hoursInMain = hourly || monthlyContract || asksAvailability;
+  const monthlyAvailableConflict = monthlyContract && hasNumber(quote.activity && quote.activity.availableDaysPerMonth)
+    && hasNumber(quote.activity && quote.activity.activeDaysPerMonth)
+    && Number(quote.activity.availableDaysPerMonth) < Number(quote.activity.activeDaysPerMonth) - 1e-9;
   // Se evalúa en cada recálculo (la persona carga la cantidad sin redibujar el paso).
   const hasQuantity = () => hasNumber(quote.activity && quote.activity.billableQuantityPerMonth);
 
@@ -568,7 +567,7 @@ export function render(container, ctx) {
       // personas (relevos con números, en Personal) o se rota quién está de guardia.
       availability
         ? kit.choice('activity.guardType', {
-          label: h('span', {}, 'Tipo de guardia', infoTip('Activa: el personal está en la base o en la locación; esas horas cuentan como trabajo y piden relevos (horas de guardia del mes ÷ horas normales por persona, más francos y vacaciones; se revisa en Personal). Pasiva: está localizable y sale si lo convocan; se suele pagar un adicional de guardia y alcanza con rotar quién está de guardia.')),
+          label: h('span', {}, 'Tipo de guardia', infoTip('Activa: el personal está en la base o en la locación; esas horas cuentan como trabajo y piden más personas (horas de guardia del mes ÷ horas normales por persona, más francos y vacaciones; se revisa en Personal). Pasiva: está localizable y sale si lo convocan; se suele pagar un adicional de guardia y alcanza con rotar quién está de guardia.')),
           options: [
             { value: 'active', label: 'Activa (en el lugar)', hint: 'Cuentan como horas de trabajo.' },
             { value: 'passive', label: 'Pasiva (localizable)', hint: 'Sale sólo si lo convocan.' },
@@ -605,7 +604,7 @@ export function render(container, ctx) {
             unit: 'días/mes',
             requiredMark: true,
             placeholder: 'Ej.: 22',
-            hint: 'Los días que cubre el abono (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal y su esquema se cargan en Personal. Lo que se trabaje fuera de eso va en "Adicionales".',
+            hint: 'Los días que cubre el abono (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Lo que se trabaje fuera de eso va en "Adicionales".',
           })
           : kit.num('activity.activeDaysPerMonth', {
             label: isOnCall ? 'Días con trabajo por mes' : 'Días trabajados y facturados por mes',
@@ -663,7 +662,11 @@ export function render(container, ctx) {
       const acts = r.activity.activationsPerMonth;
       return acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6;
     }),
-    kit.advanced(
+    // Fijo mensual (2026-11): "Días disponibles" repetía los días de servicio del abono (y la
+    // utilización y las intervenciones no dicen nada en un abono). Se esconde; sólo vuelve si
+    // una cotización anterior guardó menos días disponibles que días de servicio (ahí cambia
+    // el costo), para que se vea y se pueda corregir.
+    monthlyContract && !monthlyAvailableConflict ? null : kit.advanced(
       {
         key: 'modality',
         summary: () => {
@@ -816,8 +819,7 @@ export function render(container, ctx) {
     ? kit.question(texts.quantityQuestion, `Los costos se calculan con los días de trabajo que lleva hacerlo; la facturación, con ${texts.los} ${info.plural}. Cuanto menos factures, mayor deberá ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
     : kit.question('¿Cuántos días por mes esperás trabajar?', 'En servicios on-call, cuantos menos días trabajes, mayor deberá ser la tarifa para cubrir los costos fijos.', { term: 'utilización (días trabajados ÷ días disponibles)' });
 
-  // ¿Cómo viaja el personal? (PLAN-2026-024): reemplaza "Días entre viajes o relevos". Con
-  // "según el diagrama" el motor toma los relevos del puesto (un solo lugar donde se carga).
+  // ¿Cómo viaja el personal? (PLAN-2026-024): reemplaza "Días entre viajes o relevos".
   const hasPeople = contract.labor || (Array.isArray(quote.labor) && quote.labor.length > 0);
   const savedPattern = quote.activity ? quote.activity.travelPattern : null;
   // Sin elegir (cotizaciones anteriores): se muestra lo que el motor ya usa, el número guardado:
@@ -833,11 +835,15 @@ export function render(container, ctx) {
         name: 'activity.travelPattern',
         value: ['daily', 'rotation', 'custom'].includes(travelPattern) ? travelPattern : null,
         disabled: kit.readOnly,
+        // Sin diagramas (2026-11): "va y vuelve" o "se queda en campo" con los días entre viajes.
+        // "Según el diagrama" sólo aparece en cotizaciones anteriores que lo eligieron (mismos números).
         options: [
           { value: 'daily', label: hasPeople ? 'Va y vuelve cada día de servicio' : 'Un viaje por día de servicio', hint: 'Un viaje por día (base cercana, trabajo de día).' },
-          { value: 'rotation', label: 'Se queda en campo y viaja con cada relevo', hint: relief ? `Según el diagrama ${relief.label} de «${relief.role || 'Puesto'}»: un viaje cada ${num(relief.daysBetweenRelieves)} días.` : 'Los relevos salen del diagrama rotativo del puesto (en Personal).' },
-          { value: 'custom', label: 'Otro intervalo', hint: 'Cada cuántos días hay un viaje: lo cargás vos.' },
-        ],
+          { value: 'custom', label: hasPeople ? 'Se queda en campo' : 'Cada varios días', hint: 'Cargás cada cuántos días hay un viaje (ida y vuelta).' },
+          travelPattern === 'rotation'
+            ? { value: 'rotation', label: 'Según el diagrama del puesto (anterior)', hint: relief ? `Un viaje cada ${num(relief.daysBetweenRelieves)} días. Elegí "Se queda en campo" para cargarlo vos.` : 'Elegí "Se queda en campo" para cargar los días entre viajes.' }
+            : null,
+        ].filter(Boolean),
         onChange: (v) => ctx.mutate((q) => {
           if (!q.activity || typeof q.activity !== 'object') q.activity = {};
           q.activity.travelPattern = v;
@@ -851,19 +857,14 @@ export function render(container, ctx) {
           label: 'Días entre viajes',
           rule: 'positiveDays',
           unit: 'días',
-          placeholder: '1',
-          hint: `Cada cuántos días hay un viaje a la locación. Cada uno suma la movilización y los costos ${T.per}.`,
+          placeholder: 'Ej.: 14',
+          hint: `Cada cuántos días hay un viaje a la locación (por ejemplo 14 si el personal está 14 días en campo y vuelve). Cada viaje suma la movilización y los costos ${T.per}.`,
         }))
         : null,
       kit.out((r) => {
         const a = r.activity;
         if (travelPattern === 'rotation' && !relief) {
-          return h('p', { class: ['qe-note', 'is-warning'] }, `Ningún puesto tiene un diagrama rotativo completo: cargalo en "${stepName('labor')}" (por ejemplo 14x7). Mientras tanto se usa un viaje cada ${num(a.daysPerActivation)} ${a.daysPerActivation === 1 ? 'día' : 'días'}.`);
-        }
-        const warn = travelPattern !== 'rotation' && relief && a.daysPerActivation < relief.daysBetweenRelieves - 1e-6;
-        if (warn) {
-          return h('p', { class: ['qe-note', 'is-warning'] },
-            `${num(a.activationsPerMonth)} viajes por mes (uno cada ${num(a.daysPerActivation)} ${a.daysPerActivation === 1 ? 'día' : 'días'}). Ojo: «${relief.role || 'Puesto'}» rota ${relief.label}; si el personal se queda en campo, elegí "Se queda en campo y viaja con cada relevo".`);
+          return h('p', { class: ['qe-note', 'is-warning'] }, `Ningún puesto tiene un diagrama: elegí "Se queda en campo" y cargá los días entre viajes. Mientras tanto se usa un viaje cada ${num(a.daysPerActivation)} ${a.daysPerActivation === 1 ? 'día' : 'días'}.`);
         }
         return h('p', { class: 'qe-note' }, `${num(a.activationsPerMonth)} ${a.activationsPerMonth === 1 ? 'viaje' : 'viajes'} por mes (uno cada ${num(a.daysPerActivation)} ${a.daysPerActivation === 1 ? 'día' : 'días'}).`);
       }, { tag: 'div', allowEmpty: true }),

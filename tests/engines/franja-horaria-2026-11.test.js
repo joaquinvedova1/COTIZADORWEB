@@ -94,10 +94,11 @@ describe('guardia activa / pasiva (2026-11)', () => {
     assert.deepEqual(activeGuardCoverage(q), { days: 30, hours: 24, required: 720 });
     const r = relief(q);
     assert.equal(r.status, 'warning');
-    assert.match(r.message, /30 días × 24 h = 720 h por posición/);
+    assert.match(r.message, /30 días × 24 h = 720 h por persona/);
     assert.match(r.message, /cubre 200 h/);
-    assert.match(r.message, /unas 3,6 personas por posición/);
-    assert.equal(r.focus, 'labor.0.peoplePerPosition');
+    assert.match(r.message, /unas 3,6 personas/);
+    // Sin diagramas (2026-11): lleva a las horas por día de cada persona.
+    assert.equal(r.focus, 'labor.0.coverageHoursPerDay');
     assert.ok(!computeQuote(q).completeness.items.some((x) => x.id === 'labor_hours'));
   });
 
@@ -145,7 +146,7 @@ describe('guardia activa / pasiva (2026-11)', () => {
   test('sin tipo de guardia: el aviso de relevos de siempre', () => {
     const r = relief(withLabor({ availability: '24/7' }));
     assert.equal(r.status, 'warning');
-    assert.match(r.message, /una sola persona por posición/);
+    assert.match(r.message, /una sola persona en "Operador"/);
   });
 
   test('disponibilidad sin cobrar: informativo, se va con abono o mínimo garantizado', () => {
