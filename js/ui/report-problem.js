@@ -104,11 +104,11 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
 
   const form = h('form', { class: 'report-form', novalidate: true },
     h('p', { class: 'report-intro' }, 'Contanos qué no funcionó o qué te confundió. Lo revisamos para corregir RATEOS.'),
+    privacy,
     stepField,
     whatField,
     expectedField,
     auto,
-    privacy,
     disclosure({ summary: 'Ver lo que se envía', className: 'report-preview-box' }, previewEl),
     errorEl);
 

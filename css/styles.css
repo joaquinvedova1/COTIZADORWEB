@@ -870,7 +870,7 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 
 /* "Reportar un problema": pestaña fija al costado derecho, en todas las pantallas. */
 .report-tab {
-  position: fixed; right: 0; top: 50%; z-index: 45;
+  position: fixed; right: 0; top: 50%; z-index: 34; /* debajo del menú móvil (35/40), diálogos y avisos */
   display: inline-flex; align-items: center; gap: 0.4rem;
   writing-mode: vertical-rl; transform: translateY(-50%) rotate(180deg);
   padding: 0.75rem 0.45rem; min-width: 34px;
@@ -880,8 +880,9 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 }
 .report-tab .icon { transform: rotate(90deg); }
 .report-tab:hover { opacity: 1; padding-left: 0.6rem; }
-.report-tab:focus-visible { outline: 3px solid var(--navy-50); outline-offset: 2px; opacity: 1; }
+.report-tab:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 2px #fff; opacity: 1; }
 @media (max-width: 640px) {
-  .report-tab { font-size: 0.75rem; padding: 0.6rem 0.3rem; min-width: 28px; top: 62%; }
+  /* Más angosta: con 16px de margen lateral apenas roza el borde de botones y tarjetas. */
+  .report-tab { font-size: 0.72rem; padding: 0.55rem 0.2rem; min-width: 24px; gap: 0.3rem; top: 62%; }
 }
 @media print { .report-tab { display: none; } }

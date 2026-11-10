@@ -63,7 +63,7 @@ export function describeLocation(current) {
   return { label: step ? `${title} › ${step}` : title, route: `/${pattern}`, step };
 }
 
-export const STEP_OTHER = 'Fuera de una cotización (listas, recursos, configuración)';
+export const STEP_OTHER = 'Fuera de una cotización';
 export const STEP_GENERAL = 'En general / no sé';
 
 /**
