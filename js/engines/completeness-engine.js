@@ -568,8 +568,8 @@ export function evaluateCompleteness(quote = {}) {
         : 'El precio del combustible es un valor ILUSTRATIVO por defecto: confirmalo con tu precio actual.';
       focus = 'fuel.pricePerLiter';
     }
-    // El pendiente se muestra en el paso de su campo (el consumo de un equipo, en Equipos).
-    const step = focus && /^equipment\.\d+\.(?!mobilization)/.test(focus) ? 'equipment' : 'logistics';
+    // El pendiente se muestra en el paso de su campo (el consumo de un equipo, también el de ruta, en Equipos).
+    const step = focus && /^equipment\.\d+\./.test(focus) ? 'equipment' : 'logistics';
     const item = rule('fuel', 'Combustible', step, 2, status, message);
     if (focus) item.focus = focus;
     items.push(item);
@@ -619,7 +619,7 @@ export function evaluateCompleteness(quote = {}) {
       || equipment.some((e) => isExt(e) && extOf(e).mobilizationIncluded === true);
     const ok = nonNegative(logistics.distanceKm) > 0 && moves;
     items.push(rule('logistics', 'Viajes', 'logistics', 2, ok ? 'ok' : 'missing',
-      ok ? 'Distancia y movilización definidas.' : nonNegative(logistics.distanceKm) > 0 ? 'Falta definir cómo llegan los equipos o el personal a la locación.' : 'Falta la distancia a la locación.'));
+      ok ? 'Distancia y movilización definidas.' : nonNegative(logistics.distanceKm) > 0 ? 'Falta definir cómo llegan los equipos o el personal a la locación: en Equipos, cargá el vehículo o equipo y elegí cómo llega.' : 'Falta la distancia a la locación.'));
   }
 
   // 9b. Movilización de cada equipo (¿cómo llega al lugar del servicio?)
@@ -652,7 +652,8 @@ export function evaluateCompleteness(quote = {}) {
     const untowed = mob.lines.map((l, idx) => ({ l, idx })).filter(({ l }) => l.mode === 'transported' && !l.towedChosen && !l.includedByProvider && l.tiresPerKm > 0);
     const ok = pending.length === 0 && broken.length === 0 && noDriver.length === 0 && noConsumption.length === 0 && untowed.length === 0;
     const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Equipo'}"`).join(', ');
-    const item = rule('mobility', 'Movilización de equipos', 'logistics', 1, ok ? 'ok' : 'warning',
+    // Cómo llega cada equipo se carga en su tarjeta de Equipos (un equipo, un solo lugar).
+    const item = rule('mobility', 'Movilización de equipos', 'equipment', 1, ok ? 'ok' : 'warning',
       ok
         ? 'Cada equipo tiene definido cómo llega al lugar del servicio.'
         : pending.length
@@ -854,7 +855,7 @@ export function evaluateCompleteness(quote = {}) {
         : operatorTwice.length
           ? `Operador posiblemente duplicado: la tarifa de "${operatorTwice[0].name || 'Externo'}" ya incluye operador y además le asignaste uno de Personal.`
           : vehicleTwice.length
-            ? `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está como vehículo de la logística auxiliar.`
+            ? `Posible doble conteo: "${vehicleTwice[0].name || 'Equipo'}" se moviliza por sus propios medios y también está en "Vehículos por km (cargados antes)": quitalo de ahí.`
             : `Movilización posiblemente duplicada: el proveedor de "${mobilizationTwice[0].name || 'Externo'}" cobra la movilización aparte y además lo marcaste "por sus propios medios" (se suman km, combustible y desgaste).`));
   }
 
@@ -872,7 +873,7 @@ export function evaluateCompleteness(quote = {}) {
     const mealLine = staffed.find((l) => nonNegative(l.mealPerActiveDay) > 0);
     if (mealsInTravel && mealLine) hints.push({ focus: `labor.${labor.indexOf(mealLine)}.mealPerActiveDay`, text: `"${roleOf(mealLine)}" tiene vianda por día y los viáticos de "Viajes" también suman comidas por día: si son las mismas, dejá una sola.` });
     const transferLine = staffed.find((l) => nonNegative(l.transferMonthly) > 0);
-    if (transferLine && !logistics.notApplicable && vehicles.length > 0) hints.push({ focus: `labor.${labor.indexOf(transferLine)}.transferMonthly`, text: `"${roleOf(transferLine)}" tiene traslado por mes y además hay vehículos en "Viajes": si el vehículo es el que lleva al personal, el traslado del puesto se cuenta dos veces.` });
+    if (transferLine && !logistics.notApplicable && vehicles.length > 0) hints.push({ focus: `labor.${labor.indexOf(transferLine)}.transferMonthly`, text: `"${roleOf(transferLine)}" tiene pasajes o traslado por mes y además hay vehículos por km en "Viajes": si es el que lleva al personal, el traslado del puesto se cuenta dos veces.` });
     const ppeLine = staffed.find((l) => nonNegative(l.ppeMonthly) > 0);
     const ppeMaterial = materials.find((m) => /\b(epp|proteccion personal|ropa de trabajo)\b/.test(normTxt(m.description)));
     if (ppeLine && ppeMaterial) hints.push({ focus: `labor.${labor.indexOf(ppeLine)}.ppeMonthly`, text: `"${roleOf(ppeLine)}" tiene EPP por mes y en materiales está "${ppeMaterial.description}": si es el mismo EPP, cargalo en un solo lugar (el básico en el puesto, el especial en materiales).` });

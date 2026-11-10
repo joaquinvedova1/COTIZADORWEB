@@ -37,8 +37,6 @@ export function stepOfPath(path) {
   const p = String(path || '');
   const head = p.split('.')[0];
   if (p === 'pricing.knownRate') return 'modality';
-  // Cómo llega cada equipo al servicio se define en Movilización y viajes.
-  if (/^equipment\.\d+\.mobilization(\.|$)/.test(p)) return 'logistics';
   switch (head) {
     case 'activity':
     case 'pricingMode':

@@ -450,11 +450,13 @@ export function render(container, ctx) {
           'Otros costos por persona',
           formGrid(
             3,
-            kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda por día activo', rule: 'money', unit: '$/día', illustrative }),
+            // Comidas: un solo lugar (Viajes ya no las pide; ahí va sólo el alojamiento).
+            kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda o comidas por día activo', rule: 'money', unit: '$/día', illustrative, hint: 'Por persona. Es el único lugar donde se cargan las comidas.' }),
             kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.ppeMonthly`, { label: 'EPP (ropa y elementos de protección)', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
-            kit.num(`${p}.transferMonthly`, { label: 'Traslado', rule: 'money', unit: '$/mes', illustrative }),
+            // Pasajes de la persona (micro o avión de los relevos): no es el vehículo, que va en Equipos.
+            kit.num(`${p}.transferMonthly`, { label: 'Pasajes o traslado de la persona', rule: 'money', unit: '$/mes', illustrative, hint: `Por persona y mes: micro, avión o reintegro. Si viaja en un vehículo de "${stepName('equipment')}", ya está ahí: dejalo en 0.` }),
             kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120, hint: 'Sólo informativa (no cambia el costo).' }),
           ),
         ),

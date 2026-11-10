@@ -21,7 +21,8 @@ import { h, mount } from '../../dom.js';
 import { badge, button, card, disclosure, formGrid, infoTip, numberField, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
 import { lodgingFromDetail } from '../../../domain/lodging.js';
 import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf } from '../../../domain/catalogs.js';
-import { createVehicle, acquisitionOf } from '../../../domain/quote-factory.js';
+import { acquisitionOf } from '../../../domain/quote-factory.js';
+import { fieldHref } from '../../field-links.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
 import { nonNegative, isFiniteNumber } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
@@ -115,7 +116,7 @@ function lodgingCalculator(ctx, T) {
   // Días con comidas: si no se cargaron, los días de cada salida (redondeados hacia arriba).
   const dpa = Number(quote.activity && quote.activity.daysPerActivation);
   const defaultDays = Number.isFinite(dpa) && dpa >= 1 ? Math.ceil(dpa) : null;
-  const d = { people: saved.people ?? null, nights: saved.nights ?? null, perNight: saved.perNight ?? null, days: saved.days ?? defaultDays, perDay: saved.perDay ?? null };
+  const d = { people: saved.people ?? null, nights: saved.nights ?? null, perNight: saved.perNight ?? null, days: saved.days ?? defaultDays, perDay: nonNegative(saved.perDay) > 0 ? saved.perDay : null };
   // Comidas ya cargadas en Personal: se avisa a la vista para no contarlas dos veces.
   const laborMeals = (Array.isArray(quote.labor) ? quote.labor : []).some((l) => l && nonNegative(l.mealPerActiveDay) > 0);
   const current = nonNegative(quote.logistics && quote.logistics.lodgingPerActivation);
@@ -140,10 +141,13 @@ function lodgingCalculator(ctx, T) {
   };
   const field = (key, label, rule, unit, hint = null) => numberField({ label, value: d[key], rule, unit, hint, onChange: (v) => { d[key] = v; refresh(); } });
   refresh();
+  // Las comidas se cargan una sola vez, en Personal (vianda por día). Una cotización anterior
+  // que ya las calculó acá las sigue viendo (y sumando) hasta que las ponga en 0.
+  const legacyMeals = nonNegative(saved.perDay) > 0;
   return disclosure(
     {
       summary: 'Calcular por personas y noches',
-      hint: matches ? `${formatNumber(Number(saved.people) || 0)} personas × ${formatNumber(Number(saved.nights) || 0)} noches + comidas.` : null,
+      hint: matches ? `${formatNumber(Number(saved.people) || 0)} personas × ${formatNumber(Number(saved.nights) || 0)} noches${legacyMeals ? ' + comidas' : ''}.` : null,
       className: 'qe-lodging-calc',
     },
     formGrid(
@@ -151,103 +155,20 @@ function lodgingCalculator(ctx, T) {
       field('people', 'Personas que viajan', 'quantity', 'personas'),
       field('nights', `Noches ${T.per}`, 'quantity', 'noches'),
       field('perNight', 'Alojamiento por persona y noche', 'money', '$'),
-      field('days', `Días con comidas ${T.per}`, 'quantity', 'días'),
-      field('perDay', 'Comidas por persona y día', 'money', '$', 'Comidas y desarraigo. Si ya están en cada puesto de Personal, poné 0 para no contarlas dos veces.'),
+      legacyMeals ? field('days', `Días con comidas ${T.per}`, 'quantity', 'días') : null,
+      legacyMeals ? field('perDay', 'Comidas por persona y día', 'money', '$', `Las comidas van en "${stepName('labor')}" (vianda por día): poné 0 acá y cargalas ahí.`) : null,
     ),
-    laborMeals ? h('p', { class: 'qe-warn' }, 'Personal ya tiene comidas por día cargadas: si son las mismas, dejá las comidas en 0 acá.') : null,
+    legacyMeals && laborMeals ? h('p', { class: 'qe-warn' }, `"${stepName('labor')}" ya tiene vianda por día: si son las mismas comidas, dejá las comidas en 0 acá.`) : null,
     h('div', { class: 'qe-toolbar' },
-      h('span', {}, 'Total: ', total, ' ', infoTip('Personas × noches × alojamiento + personas × días × comidas.')),
+      h('span', {}, 'Total: ', total, ' ', infoTip(legacyMeals ? 'Personas × noches × alojamiento + personas × días × comidas.' : 'Personas × noches × alojamiento.')),
       useBtn, note),
   );
 }
 
-export function render(container, ctx) {
-  const { quote, kit, resources } = ctx;
-  const lg = quote.logistics;
-  const notApplicable = Boolean(lg.notApplicable);
-  // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
+export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
+  const { quote, kit } = ctx;
+  const lg = quote.logistics || {};
   const T = activationTerms(quote);
-  const L = activationFieldLabels(T);
-  // Unidad "viaje" (PLAN-2026-012): los viajes por intervención se derivan.
-  const unitInfo = billingUnitOf(quote);
-  const tripUnit = unitInfo.id === 'trip' && unitInfo.kind === 'quantity';
-  // Por m³ / t…: con capacidad por viaje los viajes se calculan solos (auditoría 2026-11).
-  const capacityTrips = capacityPerTripOf(quote) !== null;
-  const illustrative = Boolean(quote.illustrative);
-  // Marca ILUSTRATIVO por vehículo (copiados de una plantilla de demostración).
-  const vehicleIll = lg.vehicles.map((v, i) => kit.lineIllustrative(`logistics.vehicles.${i}`, { what: 'este vehículo' }));
-  const cellTag = (marked) => (marked ? h('span', { class: 'qe-cell-tag' }, illustrativeTag()) : null);
-  const locations = Array.isArray(resources.locations) ? resources.locations : [];
-  const bases = locations.filter((l) => l.type === 'base');
-  const destinations = locations.filter((l) => l.type !== 'base');
-
-  const pickBase = (id) => {
-    const loc = bases.find((l) => l.id === id);
-    if (!loc) return;
-    ctx.mutate((q) => {
-      q.logistics.baseName = String(loc.name || '');
-    });
-  };
-  const pickDestination = (id) => {
-    const loc = destinations.find((l) => l.id === id);
-    if (!loc) return;
-    ctx.mutate((q) => {
-      q.logistics.destinationName = String(loc.name || '');
-      q.logistics.distanceKm = nonNegative(loc.distanceFromBaseKm);
-    });
-    ctx.toast(`Destino "${loc.name}" a ${formatNumber(nonNegative(loc.distanceFromBaseKm), { decimals: 1 })} km de la base.`, 'success');
-  };
-
-  const addVehicle = () => {
-    const index = lg.vehicles.length;
-    ctx.mutate((q) => q.logistics.vehicles.push(createVehicle()), { focus: `logistics.vehicles.${index}.name` });
-  };
-  const removeVehicle = async (index) => {
-    const vehicle = lg.vehicles[index];
-    if (!vehicle) return;
-    const ok = await confirmRemove({ title: 'Quitar vehículo', name: vehicle.name || 'Vehículo', extra: '' });
-    if (ok) ctx.mutate((q) => q.logistics.vehicles.splice(index, 1));
-  };
-
-  const toggleCard = card(
-    {},
-    kit.check('logistics.notApplicable', { label: 'Sin traslados', structural: true, hint: 'Marcalo si el servicio se presta en tu base o el cliente traslada todo.' }),
-  );
-
-  const routeCard = notApplicable
-    ? null
-    : card(
-      { title: '¿Adónde vas?', subtitle: 'Distancia de UNA vía entre tu base y la locación del cliente.' },
-      locations.length
-        ? formGrid(
-          2,
-          bases.length
-            ? selectField({ label: 'Completar la base desde tus ubicaciones', value: null, includeEmpty: true, emptyLabel: 'Elegí una base…', options: bases.map((l) => ({ value: l.id, label: l.name })), onChange: pickBase })
-            : null,
-          destinations.length
-            ? selectField({
-              label: 'Completar destino y distancia desde tus ubicaciones',
-              value: null,
-              includeEmpty: true,
-              emptyLabel: 'Elegí un destino…',
-              options: destinations.map((l) => ({ value: l.id, label: `${l.name} (${formatNumber(nonNegative(l.distanceFromBaseKm), { decimals: 1 })} km)` })),
-              onChange: pickDestination,
-            })
-            : null,
-        )
-        : null,
-      formGrid(
-        3,
-        kit.text('logistics.baseName', { label: 'Base', maxLength: 120, placeholder: 'Ej.: Neuquén Capital' }),
-        kit.text('logistics.destinationName', { label: 'Destino / locación', maxLength: 120, placeholder: 'Ej.: Añelo' }),
-        kit.num('logistics.distanceKm', { label: 'Distancia (una vía)', rule: 'distance', unit: 'km' }),
-      ),
-      kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
-      // Viajes facturables, físicos, días y km (PLAN-2026-012).
-      kit.toggle(kit.group('Viajes y km del mes', transportStats(kit, { billable: tripUnit, km: unitInfo.id === 'km' })), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
-    );
-
-  // ---- Movilización del recurso principal: ¿cómo llega cada equipo?
   const equipmentLines = Array.isArray(quote.equipment) ? quote.equipment : [];
   const laborById = new Map((Array.isArray(quote.labor) ? quote.labor : []).filter((l) => l && l.id).map((l) => [l.id, l]));
   const mobilizationRow = (line, i) => {
@@ -264,12 +185,14 @@ export function render(container, ctx) {
       line.quantity !== undefined && Number(line.quantity) !== 1 ? h('span', { class: 'small' }, `${formatNumber(nonNegative(line.quantity), { decimals: 2 })} unidades`) : null,
     );
     if (included) {
-      return h('div', { class: 'mob-row' }, head, h('p', { class: 'small' }, 'La movilización está incluida en la tarifa del proveedor: no se suma nada acá (se cambia en Equipos).'));
+      return h('div', { class: 'mob-row mob-row-inline' }, withHead ? head : null, h('p', { class: 'small' }, 'La movilización está incluida en la tarifa del proveedor: no se suma nada aparte.'));
     }
     const providerFee = external && line.external && line.external.mobilizationIncluded === false && Number(line.external.mobilizationAmount) > 0;
     const modeField = kit.select(`${p}.mode`, {
-      label: '¿Cómo llega al lugar del servicio?',
-      options: MOBILIZATION_MODES.map((o) => ({ value: o.id, label: o.label })),
+      label: withHead ? '¿Cómo llega al lugar del servicio?' : 'Forma de llegar',
+      // "Vehículo de apoyo" usa los vehículos por km de la versión anterior: sólo si existen.
+      // Hoy un vehículo se carga una sola vez, en Equipos, y lleva al equipo con "Lo transporta otro equipo".
+      options: MOBILIZATION_MODES.filter((o) => o.id !== 'support' || m.mode === 'support' || (Array.isArray(lg.vehicles) && lg.vehicles.length > 0)).map((o) => ({ value: o.id, label: o.label })),
       includeEmpty: true,
       emptyLabel: 'Sin definir',
       structural: true,
@@ -290,7 +213,9 @@ export function render(container, ctx) {
         { class: 'stack' },
         formGrid(
           3,
-          kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'En ruta, no el consumo trabajando (L/h).' }),
+          line.fuelNotApplicable === true && !external
+            ? null
+            : kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'Lo que gasta manejando por la ruta. Es el único consumo de un vehículo que sólo lleva gente o carga.' }),
           kit.num(`${p}.travelCostPerKm`, {
             label: 'Desgaste por km',
             rule: 'money',
@@ -312,6 +237,17 @@ export function render(container, ctx) {
           );
         }),
         kit.trace((r) => mobilizationTrace(r, i, T)),
+        // Mismo vehículo, dos usos: la ruta (acá) y trabajar en la locación (L/h, mantenimiento y
+        // neumáticos por hora × horas de uso, arriba). Puede ser real (hidrogrúa, bomba), pero en una
+        // camioneta que sólo lleva gente o carga es combustible y desgaste de más: se avisa, no se cambia.
+        !withHead && !external
+          ? kit.out((r) => {
+            const eq = r.model.equipment && r.model.equipment[i];
+            if (!eq || !(eq.variablePerActiveDay > 0)) return '';
+            const liters = eq.fuelLitersPerActiveDay > 0 ? `${formatValue(eq.fuelLitersPerActiveDay, 'liters')} de combustible y ` : '';
+            return `Además, trabajando en la locación suma ${liters}${formatMoney(eq.variablePerActiveDay)} por día (${formatNumber(eq.hoursPerActiveDay, { decimals: 2 })} h de uso × combustible, mantenimiento y neumáticos por hora). Si sólo lleva gente o carga y queda parado, poné 0 en "Horas de uso por día activo".`;
+          }, { tag: 'p', className: 'qe-warn', allowEmpty: true })
+          : null,
       );
     } else if (m.mode === 'transported') {
       const carriers = equipmentLines.filter((e, j) => j !== i && e && e.id).map((e) => ({ value: e.id, label: `${e.name || 'Equipo'} (${labelOf(ACQUISITION_MODES, acquisitionOf(e), 'Propio').toLowerCase()})` }));
@@ -405,26 +341,148 @@ export function render(container, ctx) {
         ? 'El proveedor ya te cobra la movilización aparte (en Equipos). Si él lo lleva, elegí "No requiere movilización" para no sumar también km, combustible y desgaste.'
         : 'El proveedor te cobra la movilización aparte: ese monto ya está en Equipos.')
       : null;
-    return h('div', { class: 'mob-row' }, head, formGrid(2, modeField), feeNote, detail, warnings);
+    return h('div', { class: withHead ? 'mob-row' : 'mob-row mob-row-inline' }, withHead ? head : null, formGrid(2, modeField), feeNote, detail, warnings);
   };
 
-  const mobilizationCard = notApplicable || equipmentLines.length === 0
+  const line = equipmentLines[i];
+  return line ? mobilizationRow(line, i) : null;
+}
+
+export function render(container, ctx) {
+  const { quote, kit, resources } = ctx;
+  const lg = quote.logistics;
+  const notApplicable = Boolean(lg.notApplicable);
+  // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
+  const T = activationTerms(quote);
+  const L = activationFieldLabels(T);
+  // Unidad "viaje" (PLAN-2026-012): los viajes por intervención se derivan.
+  const unitInfo = billingUnitOf(quote);
+  const tripUnit = unitInfo.id === 'trip' && unitInfo.kind === 'quantity';
+  // Por m³ / t…: con capacidad por viaje los viajes se calculan solos (auditoría 2026-11).
+  const capacityTrips = capacityPerTripOf(quote) !== null;
+  const illustrative = Boolean(quote.illustrative);
+  // Marca ILUSTRATIVO por vehículo (copiados de una plantilla de demostración).
+  const vehicleIll = lg.vehicles.map((v, i) => kit.lineIllustrative(`logistics.vehicles.${i}`, { what: 'este vehículo' }));
+  const cellTag = (marked) => (marked ? h('span', { class: 'qe-cell-tag' }, illustrativeTag()) : null);
+  const locations = Array.isArray(resources.locations) ? resources.locations : [];
+  const bases = locations.filter((l) => l.type === 'base');
+  const destinations = locations.filter((l) => l.type !== 'base');
+
+  const pickBase = (id) => {
+    const loc = bases.find((l) => l.id === id);
+    if (!loc) return;
+    ctx.mutate((q) => {
+      q.logistics.baseName = String(loc.name || '');
+    });
+  };
+  const pickDestination = (id) => {
+    const loc = destinations.find((l) => l.id === id);
+    if (!loc) return;
+    ctx.mutate((q) => {
+      q.logistics.destinationName = String(loc.name || '');
+      q.logistics.distanceKm = nonNegative(loc.distanceFromBaseKm);
+    });
+    ctx.toast(`Destino "${loc.name}" a ${formatNumber(nonNegative(loc.distanceFromBaseKm), { decimals: 1 })} km de la base.`, 'success');
+  };
+
+  const removeVehicle = async (index) => {
+    const vehicle = lg.vehicles[index];
+    if (!vehicle) return;
+    const ok = await confirmRemove({ title: 'Quitar vehículo', name: vehicle.name || 'Vehículo', extra: '' });
+    if (ok) ctx.mutate((q) => q.logistics.vehicles.splice(index, 1));
+  };
+
+  const toggleCard = card(
+    {},
+    kit.check('logistics.notApplicable', { label: 'Sin traslados', structural: true, hint: 'Marcalo si el servicio se presta en tu base o el cliente traslada todo.' }),
+  );
+
+  const routeCard = notApplicable
     ? null
     : card(
-      {
-        title: '¿Cómo llega cada equipo al lugar del servicio?',
-        subtitle: 'La movilización del equipo principal. Cada costo va en un solo lugar: si lo transporta otro equipo o un vehículo de apoyo, el costo está en ese equipo o vehículo.',
-      },
-      h('div', { class: 'stack mob-list' }, ...equipmentLines.map((line, i) => (line ? mobilizationRow(line, i) : null))),
+      { title: '¿Adónde vas?', subtitle: 'Distancia de UNA vía entre tu base y la locación del cliente.' },
+      locations.length
+        ? formGrid(
+          2,
+          bases.length
+            ? selectField({ label: 'Completar la base desde tus ubicaciones', value: null, includeEmpty: true, emptyLabel: 'Elegí una base…', options: bases.map((l) => ({ value: l.id, label: l.name })), onChange: pickBase })
+            : null,
+          destinations.length
+            ? selectField({
+              label: 'Completar destino y distancia desde tus ubicaciones',
+              value: null,
+              includeEmpty: true,
+              emptyLabel: 'Elegí un destino…',
+              options: destinations.map((l) => ({ value: l.id, label: `${l.name} (${formatNumber(nonNegative(l.distanceFromBaseKm), { decimals: 1 })} km)` })),
+              onChange: pickDestination,
+            })
+            : null,
+        )
+        : null,
+      formGrid(
+        3,
+        kit.text('logistics.baseName', { label: 'Base', maxLength: 120, placeholder: 'Ej.: Neuquén Capital' }),
+        kit.text('logistics.destinationName', { label: 'Destino / locación', maxLength: 120, placeholder: 'Ej.: Añelo' }),
+        kit.num('logistics.distanceKm', { label: 'Distancia (una vía)', rule: 'distance', unit: 'km' }),
+      ),
+      kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
+      // Viajes facturables, físicos, días y km (PLAN-2026-012).
+      kit.toggle(kit.group('Viajes y km del mes', transportStats(kit, { billable: tripUnit, km: unitInfo.id === 'km' })), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
     );
 
-  const vehiclesCard = notApplicable
+  const equipmentLines = Array.isArray(quote.equipment) ? quote.equipment : [];
+  // Cómo llega cada equipo: se edita en su tarjeta de Equipos (un equipo, un solo lugar,
+  // con su consumo en ruta). Acá sólo se ve el resumen y el costo de cada uno.
+  const mobilizationSummaryRow = (line, i) => {
+    const m = line.mobilization || {};
+    const acq = acquisitionOf(line);
+    const external = acq !== 'owned';
+    const included = external && line.external && line.external.mobilizationIncluded === true;
+    const text = included
+      ? 'Movilización incluida en la tarifa del proveedor.'
+      : m.mode ? labelOf(MOBILIZATION_MODES, m.mode, '') : null;
+    return h(
+      'div',
+      { class: 'mob-row mob-summary-row' },
+      h('div', { class: 'mob-head' },
+        h('strong', {}, line.name || 'Equipo'),
+        badge(labelOf(ACQUISITION_MODES, acq, 'Propio'), external ? 'blue' : 'gray')),
+      text ? h('p', { class: 'small' }, text) : h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, 'Falta definir cómo llega al lugar del servicio.')),
+      kit.out((r) => {
+        const ml = r.model.mobilization && r.model.mobilization.lines[i];
+        if (!ml || !(ml.perActivation > 0)) return '';
+        const liters = ml.liters > 0 ? ` · ${formatValue(ml.liters, 'liters')}` : '';
+        return `${formatValue(ml.km, 'km')}${liters} · ${formatMoney(ml.perActivation)} ${T.per}`;
+      }, { tag: 'p', className: 'small mono', allowEmpty: true }),
+      ctx.readOnly ? null : h('a', { class: 'btn btn-link btn-sm', href: fieldHref(quote.id, `equipment.${i}.mobilization.mode`) }, text ? `Cambiar en "${stepName('equipment')}"` : `Definir en "${stepName('equipment')}"`),
+    );
+  };
+  const mobilizationCard = notApplicable
     ? null
     : card(
       {
-        title: 'Logística auxiliar: vehículos de apoyo y de personal',
-        subtitle: `Camionetas, traslado de personal o vehículos de apoyo, costeados por km recorrido. No cargues acá un equipo que ya se moviliza por sus propios medios (se contaría dos veces). Si el vehículo también trabaja en locación, sus horas de uso van en "${stepName('equipment')}".`,
-        actions: [kit.action('Agregar vehículo', addVehicle, { icon: 'plus' })],
+        title: 'Equipos y vehículos que viajan',
+        subtitle: equipmentLines.length
+          ? `Cada equipo o vehículo se carga una sola vez, en "${stepName('equipment')}": ahí se dice cómo llega y cuánto consume en ruta. Acá ves lo que suma cada uno.`
+          : null,
+      },
+      equipmentLines.length
+        ? h('div', { class: 'stack mob-list' }, ...equipmentLines.map((line, i) => (line ? mobilizationSummaryRow(line, i) : null)))
+        : h('div', { class: 'stack' },
+          emptyState(lg.vehicles.length
+            ? `Sin equipos cargados. Si el personal viaja en una camioneta, cargala en "${stepName('equipment')}" (una sola vez) y elegí "Se traslada por sus propios medios".`
+            : `¿El personal viaja en una camioneta o en un utilitario? Cargalo en "${stepName('equipment')}" (una sola vez) y elegí "Se traslada por sus propios medios": ahí se pide su consumo en ruta. Si nadie viaja, marcá "Sin traslados".`),
+          ctx.readOnly ? null : h('a', { class: 'btn btn-secondary btn-sm', href: `#/cotizaciones/${encodeURIComponent(String(quote.id || ''))}/equipment` }, `Ir a "${stepName('equipment')}"`)),
+    );
+
+  // Vehículos por km de la versión anterior: se siguen calculando igual y se pueden editar o
+  // quitar, pero ya no se agregan (un vehículo se carga una sola vez, en Equipos).
+  const vehiclesCard = notApplicable || lg.vehicles.length === 0
+    ? null
+    : card(
+      {
+        title: 'Vehículos por km (cargados antes)',
+        subtitle: `Estos vehículos se cargaron por km recorrido, aparte de "${stepName('equipment')}". Siguen sumando igual. Los vehículos nuevos se cargan una sola vez, en "${stepName('equipment')}"; si alguno de éstos ya está ahí, quitalo de acá para no contarlo dos veces. Su $/km incluía la amortización: en Equipos no la copies al desgaste por km.`,
       },
       lg.vehicles.length
         ? table({
@@ -558,16 +616,23 @@ export function render(container, ctx) {
       ),
     );
 
-  // Viáticos a la vista (PLAN-2026-021): un costo frecuente, no un ajuste fino.
+  // Comidas: se cargan una sola vez, en cada puesto de Personal (vianda por día). Acá sólo se avisa.
+  const mealLines = (Array.isArray(quote.labor) ? quote.labor : []).filter((l) => l && nonNegative(l.mealPerActiveDay) > 0);
+  const mealsNote = h('p', { class: 'small muted qe-meals-note' },
+    mealLines.length
+      ? `Comidas: ya están en "${stepName('labor')}" (vianda por día: ${mealLines.slice(0, 3).map((l) => `${l.role || 'Puesto'} ${formatMoney(nonNegative(l.mealPerActiveDay))}`).join(', ')}). No se vuelven a pedir acá.`
+      : `Comidas: se cargan una sola vez, en "${stepName('labor')}" (vianda por día de cada persona).`);
+  // Alojamiento a la vista (PLAN-2026-021): un costo frecuente, no un ajuste fino.
   const lodgingCard = notApplicable
     ? null
     : card(
-      { title: 'Viáticos' },
+      { title: 'Alojamiento' },
       formGrid(
         2,
-        kit.num('logistics.lodgingPerActivation', { label: L.lodgingPerActivation, rule: 'money', unit: '$', illustrative, hint: 'Alojamiento, comidas y desarraigo de la gente que viaja. Abajo lo podés calcular por personas y noches.' }),
+        kit.num('logistics.lodgingPerActivation', { label: L.lodgingPerActivation, rule: 'money', unit: '$', illustrative, hint: 'Hotel, campamento o desarraigo de la gente que viaja. Las comidas van en Personal. Abajo lo calculás por personas y noches.' }),
       ),
       lodgingCalculator(ctx, T),
+      mealsNote,
     );
 
   // Precio de combustible ILUSTRATIVO (default de una configuración de demo
@@ -646,7 +711,7 @@ export function render(container, ctx) {
         const share = isFiniteNumber(r.kpis.logisticsIncidencePct) ? `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ` : '';
         const mob = r.model.mobilization ? r.model.mobilization.perActivation : 0;
         const perActivation = r.model.logistics.costPerActivation + mob;
-        const split = mob > 0 ? ` (movilización de equipos ${formatMoney(mob)} + logística auxiliar ${formatMoney(r.model.logistics.costPerActivation)})` : '';
+        const split = mob > 0 ? ` (movilización de equipos ${formatMoney(mob)} + ${r.model.logistics.vehicles.length ? 'vehículos por km, peajes y alojamiento' : 'peajes y alojamiento'} ${formatMoney(r.model.logistics.costPerActivation)})` : '';
         // Los km que cobra un proveedor por km o por viaje están en Equipos (PLAN-2026-012).
         const providers = (transportOf(r) && transportOf(r).providers) || [];
         const providerNote = providers.length
@@ -677,7 +742,7 @@ export function render(container, ctx) {
           const m = mobOf(r);
           const km = perMonth(r, m.kmPerActivation) + r.model.logistics.kmPerMonth;
           const liters = perMonth(r, m.litersPerActivation) + r.model.logistics.litersPerMonth;
-          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} por mes (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos auxiliares ${formatValue(r.model.logistics.kmPerMonth, 'km')}) · ${activationsText(r)}.`;
+          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} por mes ${r.model.logistics.kmPerMonth > 0 ? ` (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos por km ${formatValue(r.model.logistics.kmPerMonth, 'km')})` : ''} · ${activationsText(r)}.`;
         },
       },
       // Distancia / actividad de los proveedores por km o por viaje (PLAN-2026-012):
@@ -699,12 +764,12 @@ export function render(container, ctx) {
         ),
       ),
       kit.group(
-        'B. Vehículos y logística auxiliar',
+        'B. Vehículos por km (cargados antes), peajes y alojamiento',
         kit.stats(
           kit.stat(`Km de vehículos ${T.per}`, (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
           kit.stat('Litros por mes', (r) => formatValue(r.model.logistics.litersPerMonth, 'liters'), { hint: (r) => `${formatValue(r.model.logistics.litersPerActivation, 'liters')} ${T.per}` }),
           kit.stat(`Costo ${T.per}`, (r) => formatMoney(r.model.logistics.costPerActivation), { hint: 'Combustible + desgaste + peajes + viáticos.' }),
-          kit.stat('Costo mensual auxiliar', (r) => formatMoney(r.model.logistics.monthlyCost), { emphasis: true }),
+          kit.stat('Costo mensual (vehículos por km, peajes y alojamiento)', (r) => formatMoney(r.model.logistics.monthlyCost), { emphasis: true }),
         ),
       ),
       kit.group(
@@ -713,7 +778,7 @@ export function render(container, ctx) {
           kit.stat('Km por mes', (r) => formatValue(perMonth(r, mobOf(r).kmPerActivation) + r.model.logistics.kmPerMonth, 'km')),
           kit.stat('Litros por mes', (r) => formatValue(perMonth(r, mobOf(r).litersPerActivation) + r.model.logistics.litersPerMonth, 'liters')),
           kit.stat('Costo mensual de movilización y viajes', (r) => formatMoney(r.kpis.logisticsMonthly), { emphasis: true, trace: (r) => r.traces.logistics }),
-          kit.stat('Incidencia sobre el costo total', (r) => formatPercent(r.kpis.logisticsIncidencePct), { hint: 'Movilización de equipos + logística auxiliar.' }),
+          kit.stat('Incidencia sobre el costo total', (r) => formatPercent(r.kpis.logisticsIncidencePct), { hint: 'Movilización de equipos + vehículos por km, peajes y alojamiento.' }),
         ),
       ),
       h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de la movilización y de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística". Cada costo está en un solo lugar.')),
