@@ -455,11 +455,8 @@ export function render(container, ctx) {
             kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.ppeMonthly`, { label: 'EPP (ropa y elementos de protección)', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
-            // Traslado por persona: sólo si no hay viajes (con viajes, el vehículo está en Equipos y la
-            // ruta en Viajes). Si ya tiene un monto cargado, se sigue mostrando para poder sacarlo.
-            quote.logistics && !quote.logistics.notApplicable && !(Number(line.transferMonthly) > 0)
-              ? null
-              : kit.num(`${p}.transferMonthly`, { label: 'Traslado', rule: 'money', unit: '$/mes', illustrative, hint: quote.logistics && !quote.logistics.notApplicable ? `Si la gente viaja en un vehículo de "${stepName('equipment')}", el traslado ya está ahí: dejalo en 0.` : 'Reintegro o pasaje de cada persona por mes.' }),
+            // Pasajes de la persona (micro o avión de los relevos): no es el vehículo, que va en Equipos.
+            kit.num(`${p}.transferMonthly`, { label: 'Pasajes o traslado de la persona', rule: 'money', unit: '$/mes', illustrative, hint: `Por persona y mes: micro, avión o reintegro. Si viaja en un vehículo de "${stepName('equipment')}", ya está ahí: dejalo en 0.` }),
             kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120, hint: 'Sólo informativa (no cambia el costo).' }),
           ),
         ),

@@ -237,13 +237,15 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
           );
         }),
         kit.trace((r) => mobilizationTrace(r, i, T)),
-        // Mismo vehículo, dos consumos: el de la ruta (acá) y el de trabajar en la locación (L/h, arriba).
-        // Puede ser real (hidrogrúa, bomba), pero en una camioneta que sólo lleva gente es combustible de más.
-        !withHead && !external && line.fuelNotApplicable !== true && Number(line.fuelLitersPerHour) > 0
+        // Mismo vehículo, dos usos: la ruta (acá) y trabajar en la locación (L/h, mantenimiento y
+        // neumáticos por hora × horas de uso, arriba). Puede ser real (hidrogrúa, bomba), pero en una
+        // camioneta que sólo lleva gente o carga es combustible y desgaste de más: se avisa, no se cambia.
+        !withHead && !external
           ? kit.out((r) => {
             const eq = r.model.equipment && r.model.equipment[i];
-            if (!eq || !(eq.fuelLitersPerActiveDay > 0)) return '';
-            return `Además suma ${formatValue(eq.fuelLitersPerActiveDay, 'liters')} por día trabajando en la locación (${formatNumber(Number(line.fuelLitersPerHour), { decimals: 2 })} L/h arriba). Si sólo lleva gente o carga y queda parado, poné 0 ahí.`;
+            if (!eq || !(eq.variablePerActiveDay > 0)) return '';
+            const liters = eq.fuelLitersPerActiveDay > 0 ? `${formatValue(eq.fuelLitersPerActiveDay, 'liters')} de combustible y ` : '';
+            return `Además, trabajando en la locación suma ${liters}${formatMoney(eq.variablePerActiveDay)} por día (${formatNumber(eq.hoursPerActiveDay, { decimals: 2 })} h de uso × combustible, mantenimiento y neumáticos por hora). Si sólo lleva gente o carga y queda parado, poné 0 en "Horas de uso por día activo".`;
           }, { tag: 'p', className: 'qe-warn', allowEmpty: true })
           : null,
       );
@@ -480,7 +482,7 @@ export function render(container, ctx) {
     : card(
       {
         title: 'Vehículos por km (cargados antes)',
-        subtitle: `Estos vehículos se cargaron por km recorrido, aparte de "${stepName('equipment')}". Siguen sumando igual. Los vehículos nuevos se cargan una sola vez, en "${stepName('equipment')}"; si alguno de éstos ya está ahí, quitalo de acá para no contarlo dos veces.`,
+        subtitle: `Estos vehículos se cargaron por km recorrido, aparte de "${stepName('equipment')}". Siguen sumando igual. Los vehículos nuevos se cargan una sola vez, en "${stepName('equipment')}"; si alguno de éstos ya está ahí, quitalo de acá para no contarlo dos veces. Su $/km incluía la amortización: en Equipos no la copies al desgaste por km.`,
       },
       lg.vehicles.length
         ? table({

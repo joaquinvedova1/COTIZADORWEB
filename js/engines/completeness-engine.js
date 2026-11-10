@@ -873,7 +873,7 @@ export function evaluateCompleteness(quote = {}) {
     const mealLine = staffed.find((l) => nonNegative(l.mealPerActiveDay) > 0);
     if (mealsInTravel && mealLine) hints.push({ focus: `labor.${labor.indexOf(mealLine)}.mealPerActiveDay`, text: `"${roleOf(mealLine)}" tiene vianda por día y los viáticos de "Viajes" también suman comidas por día: si son las mismas, dejá una sola.` });
     const transferLine = staffed.find((l) => nonNegative(l.transferMonthly) > 0);
-    if (transferLine && !logistics.notApplicable && vehicles.length > 0) hints.push({ focus: `labor.${labor.indexOf(transferLine)}.transferMonthly`, text: `"${roleOf(transferLine)}" tiene traslado por mes y además hay vehículos en "Viajes": si el vehículo es el que lleva al personal, el traslado del puesto se cuenta dos veces.` });
+    if (transferLine && !logistics.notApplicable && vehicles.length > 0) hints.push({ focus: `labor.${labor.indexOf(transferLine)}.transferMonthly`, text: `"${roleOf(transferLine)}" tiene pasajes o traslado por mes y además hay vehículos por km en "Viajes": si es el que lleva al personal, el traslado del puesto se cuenta dos veces.` });
     const ppeLine = staffed.find((l) => nonNegative(l.ppeMonthly) > 0);
     const ppeMaterial = materials.find((m) => /\b(epp|proteccion personal|ropa de trabajo)\b/.test(normTxt(m.description)));
     if (ppeLine && ppeMaterial) hints.push({ focus: `labor.${labor.indexOf(ppeLine)}.ppeMonthly`, text: `"${roleOf(ppeLine)}" tiene EPP por mes y en materiales está "${ppeMaterial.description}": si es el mismo EPP, cargalo en un solo lugar (el básico en el puesto, el especial en materiales).` });

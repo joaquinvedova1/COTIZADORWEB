@@ -67,3 +67,4 @@ describe('Cotizaciones guardadas: mismos números', () => {
     assert.equal(lodgingFromDetail({ people: 3, nights: 1, perNight: 20000, days: 1, perDay: 10000 }), 90000);
   });
 });
+
