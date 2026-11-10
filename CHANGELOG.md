@@ -12,6 +12,14 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**On call sin guardia y nombres más claros (2026-11-10).** Ningún costo ni facturación cambia; esquema sin cambio de versión (nuevo valor `activity.availability = 'none'`).
+
+### Cambiado
+
+- "Disponibilidad requerida" pasa a **"¿Tenés que estar de guardia?"** y va primero: **Sin guardia** (nuevo: sale cuando lo llaman, en su horario), Guardia 24/7 o Guardia en una franja. "Tipo de guardia" sólo aparece con guardia.
+- "Días disponibles (de guardia)" se muestra como **"Días de guardia por mes"** sólo con guardia; sin guardia (o sin elegir) queda en Opciones avanzadas como "Días del mes en que podés trabajar" (vuelve a la vista si los días con trabajo lo superan). Sin guardia no se muestra el tiempo de respuesta.
+- "Horas trabajadas por día con llamado" pasa a **"Horas de trabajo por día"** (de 8 a 17 = 9 h).
+
 **Guardia activa o pasiva y relevos con números (2026-11-07).** Ningún costo ni facturación cambia; esquema sin cambio de versión (campo opcional `activity.guardType`).
 
 ### Agregado

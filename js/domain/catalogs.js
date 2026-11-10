@@ -260,9 +260,13 @@ export const ACTIVE_QUOTE_STATUSES = deepFreeze(['draft', 'sent', 'won']);
 /** Disponibilidad en una franja (horas de guardia por día), no 24/7. */
 export const AVAILABILITY_WINDOW = 'window';
 
+/** Sin guardia (2026-11): sale cuando lo llaman, en su horario; no hay días ni horas de guardia. */
+export const AVAILABILITY_NONE = 'none';
+
 export const AVAILABILITY_OPTIONS = deepFreeze([
-  { id: '24/7', label: '24/7' },
-  { id: 'window', label: 'Franja horaria' },
+  { id: 'none', label: 'Sin guardia' },
+  { id: '24/7', label: 'Guardia 24/7' },
+  { id: 'window', label: 'Guardia en una franja' },
 ]);
 
 /** Agrupación de pagos para el cálculo de capital de trabajo. */
