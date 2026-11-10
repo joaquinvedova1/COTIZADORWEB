@@ -101,7 +101,7 @@ export function activationFieldLabels(T) {
     fullActivations: `${T.Each} se cuenta ${T.whole}`,
     tripsPerActivation: `Viajes ${T.per}`,
     tollsPerActivation: `Peajes ${T.per}`,
-    lodgingPerActivation: `Alojamiento y viáticos ${T.per}`,
+    lodgingPerActivation: `Alojamiento ${T.per}`,
     minimumCall: `Mínimo ${T.per}`,
     externalMinimum: `Mínimo ${T.per} (opcional)`,
     externalMobilization: `Movilización ${T.per}`,

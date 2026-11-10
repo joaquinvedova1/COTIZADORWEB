@@ -237,6 +237,15 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
           );
         }),
         kit.trace((r) => mobilizationTrace(r, i, T)),
+        // Mismo vehículo, dos consumos: el de la ruta (acá) y el de trabajar en la locación (L/h, arriba).
+        // Puede ser real (hidrogrúa, bomba), pero en una camioneta que sólo lleva gente es combustible de más.
+        !withHead && !external && line.fuelNotApplicable !== true && Number(line.fuelLitersPerHour) > 0
+          ? kit.out((r) => {
+            const eq = r.model.equipment && r.model.equipment[i];
+            if (!eq || !(eq.fuelLitersPerActiveDay > 0)) return '';
+            return `Además suma ${formatValue(eq.fuelLitersPerActiveDay, 'liters')} por día trabajando en la locación (${formatNumber(Number(line.fuelLitersPerHour), { decimals: 2 })} L/h arriba). Si sólo lleva gente o carga y queda parado, poné 0 ahí.`;
+          }, { tag: 'p', className: 'qe-warn', allowEmpty: true })
+          : null,
       );
     } else if (m.mode === 'transported') {
       const carriers = equipmentLines.filter((e, j) => j !== i && e && e.id).map((e) => ({ value: e.id, label: `${e.name || 'Equipo'} (${labelOf(ACQUISITION_MODES, acquisitionOf(e), 'Propio').toLowerCase()})` }));
@@ -618,7 +627,7 @@ export function render(container, ctx) {
       { title: 'Alojamiento' },
       formGrid(
         2,
-        kit.num('logistics.lodgingPerActivation', { label: L.lodgingPerActivation, rule: 'money', unit: '$', illustrative, hint: 'Hotel, campamento o desarraigo de la gente que viaja. Abajo lo calculás por personas y noches.' }),
+        kit.num('logistics.lodgingPerActivation', { label: L.lodgingPerActivation, rule: 'money', unit: '$', illustrative, hint: 'Hotel, campamento o desarraigo de la gente que viaja. Las comidas van en Personal. Abajo lo calculás por personas y noches.' }),
       ),
       lodgingCalculator(ctx, T),
       mealsNote,
@@ -700,7 +709,7 @@ export function render(container, ctx) {
         const share = isFiniteNumber(r.kpis.logisticsIncidencePct) ? `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ` : '';
         const mob = r.model.mobilization ? r.model.mobilization.perActivation : 0;
         const perActivation = r.model.logistics.costPerActivation + mob;
-        const split = mob > 0 ? ` (movilización de equipos ${formatMoney(mob)} + logística auxiliar ${formatMoney(r.model.logistics.costPerActivation)})` : '';
+        const split = mob > 0 ? ` (movilización de equipos ${formatMoney(mob)} + ${r.model.logistics.vehicles.length ? 'vehículos por km, peajes y alojamiento' : 'peajes y alojamiento'} ${formatMoney(r.model.logistics.costPerActivation)})` : '';
         // Los km que cobra un proveedor por km o por viaje están en Equipos (PLAN-2026-012).
         const providers = (transportOf(r) && transportOf(r).providers) || [];
         const providerNote = providers.length
@@ -731,7 +740,7 @@ export function render(container, ctx) {
           const m = mobOf(r);
           const km = perMonth(r, m.kmPerActivation) + r.model.logistics.kmPerMonth;
           const liters = perMonth(r, m.litersPerActivation) + r.model.logistics.litersPerMonth;
-          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} por mes (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos auxiliares ${formatValue(r.model.logistics.kmPerMonth, 'km')}) · ${activationsText(r)}.`;
+          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} por mes ${r.model.logistics.kmPerMonth > 0 ? ` (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos por km ${formatValue(r.model.logistics.kmPerMonth, 'km')})` : ''} · ${activationsText(r)}.`;
         },
       },
       // Distancia / actividad de los proveedores por km o por viaje (PLAN-2026-012):
@@ -753,12 +762,12 @@ export function render(container, ctx) {
         ),
       ),
       kit.group(
-        'B. Vehículos y logística auxiliar',
+        'B. Vehículos por km (cargados antes), peajes y alojamiento',
         kit.stats(
           kit.stat(`Km de vehículos ${T.per}`, (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
           kit.stat('Litros por mes', (r) => formatValue(r.model.logistics.litersPerMonth, 'liters'), { hint: (r) => `${formatValue(r.model.logistics.litersPerActivation, 'liters')} ${T.per}` }),
           kit.stat(`Costo ${T.per}`, (r) => formatMoney(r.model.logistics.costPerActivation), { hint: 'Combustible + desgaste + peajes + viáticos.' }),
-          kit.stat('Costo mensual auxiliar', (r) => formatMoney(r.model.logistics.monthlyCost), { emphasis: true }),
+          kit.stat('Costo mensual (vehículos por km, peajes y alojamiento)', (r) => formatMoney(r.model.logistics.monthlyCost), { emphasis: true }),
         ),
       ),
       kit.group(
@@ -767,7 +776,7 @@ export function render(container, ctx) {
           kit.stat('Km por mes', (r) => formatValue(perMonth(r, mobOf(r).kmPerActivation) + r.model.logistics.kmPerMonth, 'km')),
           kit.stat('Litros por mes', (r) => formatValue(perMonth(r, mobOf(r).litersPerActivation) + r.model.logistics.litersPerMonth, 'liters')),
           kit.stat('Costo mensual de movilización y viajes', (r) => formatMoney(r.kpis.logisticsMonthly), { emphasis: true, trace: (r) => r.traces.logistics }),
-          kit.stat('Incidencia sobre el costo total', (r) => formatPercent(r.kpis.logisticsIncidencePct), { hint: 'Movilización de equipos + logística auxiliar.' }),
+          kit.stat('Incidencia sobre el costo total', (r) => formatPercent(r.kpis.logisticsIncidencePct), { hint: 'Movilización de equipos + vehículos por km, peajes y alojamiento.' }),
         ),
       ),
       h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de la movilización y de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística". Cada costo está en un solo lugar.')),
