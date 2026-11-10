@@ -7,9 +7,11 @@
  * clientes, recursos, ids internos ni el contenido del workspace: la ruta se
  * manda como PATRÓN (p. ej. "cotizaciones/:id/equipment"), no con el id real.
  *
- * Con sesión: se guarda en Supabase (private.bug_reports) y se publica como
- * issue de GitHub sin nombre, email ni empresa. Sin sesión (sitio público y
- * demo): se ofrece abrir el issue ya completo en GitHub.
+ * Con sesión: se guarda en Supabase (private.bug_reports) y, si el puente
+ * está configurado, se publica como issue de GitHub sin nombre, email ni
+ * empresa. Sin sesión (sitio público y demo): se guarda igual en
+ * private.bug_reports por la Edge Function bug-report-submit (nunca va a
+ * GitHub). GitHub con el issue ya escrito queda sólo como plan B.
  */
 
 import { QUOTE_STEPS } from '../domain/catalogs.js';
@@ -58,7 +60,30 @@ export function describeLocation(current) {
     .join('/');
   const title = route.name === 'landing' ? 'Página principal' : String(route.title || '').trim() || 'Pantalla sin título';
   const step = params.step && SAFE_SEGMENT.test(String(params.step)) ? stepLabel(params.step) || null : null;
-  return { label: step ? `${title} › ${step}` : title, route: `/${pattern}` };
+  return { label: step ? `${title} › ${step}` : title, route: `/${pattern}`, step };
+}
+
+export const STEP_OTHER = 'Fuera de una cotización (listas, recursos, configuración)';
+export const STEP_GENERAL = 'En general / no sé';
+
+/**
+ * Opciones de "¿En qué paso fue?": los pasos de la cotización y dos más.
+ * @returns {{ value: string, label: string }[]}
+ */
+export function stepOptions() {
+  return [
+    ...QUOTE_STEPS.map((s, i) => ({ value: s.label, label: `${i + 1}. ${s.label}` })),
+    { value: STEP_OTHER, label: STEP_OTHER },
+    { value: STEP_GENERAL, label: STEP_GENERAL },
+  ];
+}
+
+/** Paso sugerido según dónde está la persona. */
+export function defaultStep(location) {
+  if (location && location.step && QUOTE_STEPS.some((s) => s.label === location.step)) return location.step;
+  const route = String((location && location.route) || '');
+  if (/^\/cotizaciones\/[^/]+$/.test(route) || route === '/cotizaciones/:id') return STEP_GENERAL;
+  return route && route !== '/' && !route.startsWith('/demo') ? STEP_OTHER : STEP_GENERAL;
 }
 
 /**
@@ -78,7 +103,7 @@ export function technicalContext(env = globalThis) {
 
 /**
  * Payload para public.submit_bug_report (y para el issue prellenado).
- * @param {{ whatHappened: string, expected?: string }} form
+ * @param {{ whatHappened: string, expected?: string, step?: string }} form
  * @param {{ location: { label: string, route: string }, version?: object, mode: 'cuenta'|'demo'|'publico', tech?: object }} ctx
  */
 export function buildReportPayload(form, { location, version = {}, mode = 'cuenta', tech = {} } = {}) {
@@ -86,6 +111,7 @@ export function buildReportPayload(form, { location, version = {}, mode = 'cuent
     what_happened: clean(form && form.whatHappened, MAX_WHAT_LENGTH),
     expected: clean(form && form.expected, MAX_EXPECTED_LENGTH),
     where_label: clean(location && location.label, 200),
+    step: clean(form && form.step, 80),
     route: clean(location && location.route, 200),
     app_version: clean(version.version, 40),
     app_commit: clean(version.commit, 64),
@@ -113,7 +139,8 @@ export function reportText(payload) {
     q(payload.expected),
     '',
     '### Contexto técnico (automático)',
-    `- Dónde: ${payload.where_label || '—'}`,
+    `- Paso que eligió: ${payload.step || '—'}`,
+    `- Dónde estaba: ${payload.where_label || '—'}`,
     `- Pantalla (ruta): ${payload.route || '—'}`,
     `- Versión: ${payload.app_version || '—'} · build ${payload.app_commit || '—'}`,
     `- Modo: ${payload.context && payload.context.mode ? payload.context.mode : '—'}`,
@@ -140,7 +167,7 @@ export function githubIssueUrl(payload, { repoUrl = REPORT_REPO_URL } = {}) {
     title: reportTitle(payload),
     'que-paso': String(payload.what_happened || '').slice(0, 3000),
     'que-esperabas': String(payload.expected || '').slice(0, 1500),
-    donde: `${payload.where_label || '—'} (${payload.route || '—'})`,
+    donde: `${payload.step ? `${payload.step} · ` : ''}${payload.where_label || '—'} (${payload.route || '—'})`,
     version: `${payload.app_version || '—'} · build ${payload.app_commit || '—'} · ${payload.context && payload.context.mode ? payload.context.mode : '—'}`,
     navegador: `${payload.browser || '—'} · ${payload.viewport || '—'}`.slice(0, 450),
   });
@@ -164,11 +191,15 @@ export function feedbackErrorMessage(code) {
  */
 export function createFeedbackService(gateway) {
   return {
-    /** Envía el reporte (con sesión). */
-    async submit(payload) {
+    /**
+     * Envía el reporte. Con sesión va por la base (y al puente a GitHub);
+     * sin sesión, por la Edge Function bug-report-submit. Ambos quedan en
+     * private.bug_reports.
+     */
+    async submit(payload, { signedIn = true } = {}) {
       const check = validateReport({ whatHappened: payload && payload.what_happened });
       if (!check.ok) return { ok: false, message: check.message, reference: null };
-      const res = await gateway.submit(payload);
+      const res = signedIn || typeof gateway.submitPublic !== 'function' ? await gateway.submit(payload) : await gateway.submitPublic(payload);
       if (!res.ok) return { ok: false, message: feedbackErrorMessage(res.code), reference: null, rateLimited: res.code === FEEDBACK_ERRORS.rateLimited };
       return { ok: true, message: null, reference: res.reference };
     },

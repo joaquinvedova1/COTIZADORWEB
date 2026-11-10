@@ -10,6 +10,10 @@ import {
   buildReportPayload,
   createFeedbackService,
   describeLocation,
+  defaultStep,
+  stepOptions,
+  STEP_OTHER,
+  STEP_GENERAL,
   feedbackErrorMessage,
   githubIssueUrl,
   reportText,
@@ -38,6 +42,23 @@ describe('describeLocation', () => {
   });
 });
 
+describe('¿En qué paso fue?', () => {
+  test('ofrece los 11 pasos y dos opciones generales; sugiere el paso actual', () => {
+    const opts = stepOptions();
+    assert.equal(opts.length, 13);
+    assert.equal(opts[2].value, 'Personal');
+    assert.equal(defaultStep(describeLocation(matchRoute('#/cotizaciones/q_1/labor'))), 'Personal');
+    assert.equal(defaultStep(describeLocation(matchRoute('#/configuracion/convenios'))), STEP_OTHER);
+    assert.equal(defaultStep(describeLocation(matchRoute('#/'))), STEP_GENERAL);
+  });
+
+  test('el paso elegido viaja en el reporte y en el texto', () => {
+    const p = buildReportPayload({ whatHappened: 'No entiendo días disponibles', step: 'Cómo se cobra' }, { location: { label: 'Cotización › Cómo se cobra', route: '/cotizaciones/:id/modality' } });
+    assert.equal(p.step, 'Cómo se cobra');
+    assert.match(reportText(p), /Paso que eligió: Cómo se cobra/);
+  });
+});
+
 describe('buildReportPayload / reportText / githubIssueUrl', () => {
   const location = { label: 'Cotización › Equipos', route: '/cotizaciones/:id/equipment' };
   const version = { version: '0.8.1', commit: 'abc1234', buildDate: '2026-11-07' };
@@ -47,7 +68,7 @@ describe('buildReportPayload / reportText / githubIssueUrl', () => {
     const p = buildReportPayload({ whatHappened: '  No avanza\u0007 al tocar Siguiente  ', expected: 'x'.repeat(5000) }, { location, version, mode: 'cuenta', tech });
     assert.equal(p.what_happened, 'No avanza al tocar Siguiente');
     assert.equal(p.expected.length, 2000);
-    assert.deepEqual(Object.keys(p).sort(), ['app_commit', 'app_version', 'browser', 'context', 'expected', 'route', 'viewport', 'what_happened', 'where_label'].sort());
+    assert.deepEqual(Object.keys(p).sort(), ['app_commit', 'app_version', 'browser', 'context', 'expected', 'route', 'step', 'viewport', 'what_happened', 'where_label'].sort());
     assert.deepEqual(p.context, { mode: 'cuenta', language: 'es-AR' });
     assert.equal(buildReportPayload({ whatHappened: 'abcde' }, { location, mode: 'otro' }).context.mode, 'cuenta');
   });
@@ -112,6 +133,27 @@ describe('gateway y servicio', () => {
     assert.equal(client.calls.rpc[0].name, 'submit_bug_report');
     assert.equal(client.calls.rpc[0].args.p_report.what_happened, 'No avanza');
     assert.deepEqual(client.calls.invoke, [{ name: 'bug-report-github', opts: { body: { id: ID } } }]);
+  });
+
+  test('sin sesión va por la Edge Function bug-report-submit (sin RPC ni puente a GitHub)', async () => {
+    const client = fakeClient({ invoke: () => ({ data: { ok: true, id: ID, reference: 'R-0B6F5C' }, error: null }) });
+    const res = await createFeedbackService(createFeedbackGateway(client)).submit({ what_happened: 'No avanza', step: 'Personal' }, { signedIn: false });
+    assert.deepEqual(res, { ok: true, message: null, reference: 'R-0B6F5C' });
+    assert.equal(client.calls.rpc.length, 0);
+    assert.equal(client.calls.invoke.length, 1);
+    assert.equal(client.calls.invoke[0].name, 'bug-report-submit');
+    assert.equal(client.calls.invoke[0].opts.body.report.step, 'Personal');
+  });
+
+  test('sin sesión: límite (429) y caída de red con mensajes claros', async () => {
+    const limited = fakeClient({ invoke: () => ({ data: null, error: { name: 'FunctionsHttpError', context: { status: 429 } } }) });
+    const r1 = await createFeedbackService(createFeedbackGateway(limited)).submit({ what_happened: 'No avanza' }, { signedIn: false });
+    assert.equal(r1.ok, false);
+    assert.equal(r1.rateLimited, true);
+    const down = fakeClient({ invoke: () => ({ data: null, error: { name: 'FunctionsFetchError' } }) });
+    const r2 = await createFeedbackService(createFeedbackGateway(down)).submit({ what_happened: 'No avanza' }, { signedIn: false });
+    assert.equal(r2.ok, false);
+    assert.match(r2.message, /conectarnos/);
   });
 
   test('si el puente a GitHub falla, el reporte igual figura como recibido', async () => {

@@ -154,8 +154,9 @@ export function supabaseSurface(files) {
     if (/\.rpc\(\s*(?!['"`])/.test(text) && rel !== 'js/data/admin-gateway.js') dynamicRpc.push(rel);
     for (const m of text.matchAll(/\.from\(\s*'([a-z_]+)'/g)) tables.add(m[1]);
     if (/\.from\(\s*'[a-z_]+'/.test(text) && /\.(?:insert|upsert|delete)\(/.test(text)) mutations.push(rel);
-    // Única Edge Function permitida: el puente de "Reportar un problema" a
-    // GitHub, sólo desde js/data/feedback-gateway.js y con nombre literal.
+    // Únicas Edge Functions permitidas: las de "Reportar un problema" (alta
+    // sin sesión y puente a GitHub), sólo desde js/data/feedback-gateway.js
+    // y con nombre literal.
     const invokes = [...text.matchAll(/\.functions\.invoke\(\s*([^,)]*)/g)].map((m) => m[1].trim());
     const allowedInvoke = rel === 'js/data/feedback-gateway.js' && invokes.every((arg) => ALLOWED_FUNCTIONS.includes(arg.replace(/^'|'$/g, '')) && /^'[a-z-]+'$/.test(arg));
     if (/\.channel\(|\bauth\.admin\b|\.storage\.from\(/.test(text) || (invokes.length && !allowedInvoke)) features.push(rel);
@@ -166,7 +167,7 @@ export function supabaseSurface(files) {
 }
 
 const ALLOWED_RPC = Object.freeze(['admin_bug_reports', 'admin_overview', 'admin_users', 'am_i_platform_admin', 'submit_bug_report']);
-const ALLOWED_FUNCTIONS = Object.freeze(['bug-report-github']);
+const ALLOWED_FUNCTIONS = Object.freeze(['bug-report-github', 'bug-report-submit']);
 const ALLOWED_TABLES = Object.freeze(['organization_members', 'organizations', 'profiles', 'workspace_states']);
 
 // ------------------------------------------------------- controles estáticos

@@ -1,29 +1,31 @@
 /**
  * Diálogo "Reportar un problema" (PLAN-2026-020).
  *
- * Dos preguntas en lenguaje simple (qué pasó / qué esperabas) y una línea que
- * dice qué se adjunta solo (pantalla, versión, navegador). Con sesión se
- * envía desde acá; sin sesión (sitio público o demo) se abre el reporte ya
- * completo en GitHub. Lo escrito sobrevive a cerrar el diálogo por error
+ * En qué paso fue (ya elegido según dónde está la persona), qué pasó y qué
+ * esperaba, y una línea que dice qué se adjunta solo (pantalla, versión,
+ * navegador). Se envía desde acá, con o sin sesión; GitHub queda como plan B
+ * si el envío falla. Lo escrito sobrevive a cerrar el diálogo por error
  * (sólo en la memoria de la pestaña, y se borra al cerrar la cuenta).
  */
 
 import { h, mount } from './dom.js';
-import { button, disclosure, icon, openDialog, textField, toast } from './components.js';
+import { button, disclosure, icon, openDialog, selectField, textField, toast } from './components.js';
 import { onSessionReset } from './session-memory.js';
 import {
   MAX_EXPECTED_LENGTH,
   MAX_WHAT_LENGTH,
   buildReportPayload,
+  defaultStep,
   githubIssueUrl,
   reportText,
+  stepOptions,
   technicalContext,
   validateReport,
 } from '../services/feedback-service.js';
 
-let draft = { whatHappened: '', expected: '' };
+let draft = { whatHappened: '', expected: '', step: '' };
 onSessionReset(() => {
-  draft = { whatHappened: '', expected: '' };
+  draft = { whatHappened: '', expected: '', step: '' };
 });
 
 /**
@@ -33,11 +35,14 @@ onSessionReset(() => {
  *   mode: 'cuenta'|'demo'|'publico',
  *   loginTip?: boolean,  sugerir ingresar para enviar sin GitHub
  *   submit?: ((payload: object) => Promise<{ ok: boolean, message: string|null, reference: string|null }>)|null,
+ *   publicList?: boolean,  con sesión el reporte puede publicarse como issue de GitHub
  *   openUrl?: (url: string) => void,
- * }} options  submit null = sin sesión (se ofrece GitHub)
+ * }} options  submit null = no se puede enviar desde acá (se ofrece GitHub)
  */
-export function openReportProblem({ location, version = {}, mode = 'cuenta', loginTip = false, submit = null, openUrl = (url) => window.open(url, '_blank', 'noopener') }) {
+export function openReportProblem({ location, version = {}, mode = 'cuenta', loginTip = false, submit = null, publicList = false, openUrl = (url) => window.open(url, '_blank', 'noopener') }) {
   const canSend = typeof submit === 'function';
+  // El paso se sugiere cada vez según dónde está la persona (se puede cambiar).
+  draft.step = defaultStep(location);
   const tech = technicalContext();
   const payload = () => buildReportPayload(draft, { location, version, mode, tech });
 
@@ -50,6 +55,16 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
   const refreshPreview = () => {
     previewEl.textContent = reportText(payload());
   };
+
+  const stepField = selectField({
+    label: '¿En qué paso fue?',
+    value: draft.step,
+    options: stepOptions(),
+    onChange: (v) => {
+      draft.step = v;
+      refreshPreview();
+    },
+  });
 
   const whatField = textField({
     label: '¿Qué pasó?',
@@ -80,19 +95,20 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
 
   const auto = h('p', { class: 'report-auto' },
     icon('info', { size: 16 }),
-    h('span', {}, 'Se agrega solo: dónde estabas (', h('strong', {}, location.label), `), la versión${version.version ? ` ${version.version}` : ''} y tu navegador.`));
+    h('span', {}, 'Se agrega solo: la pantalla (', h('strong', {}, location.label), `), la versión${version.version ? ` ${version.version}` : ''} y tu navegador.`));
   const privacy = h('p', { class: 'report-privacy' },
     icon('lock', { size: 16 }),
     h('span', {}, canSend
-      ? 'Ojo: el reporte queda publicado en GitHub, en una lista pública de errores de RATEOS. No lleva tu nombre, email ni empresa. No escribas nombres de clientes, precios ni otros datos confidenciales.'
+      ? `Lo recibe el equipo de RATEOS para revisarlo y corregirlo${publicList ? ' (puede quedar en una lista pública de errores)' : ''}. No lleva tu nombre, email ni empresa. No escribas nombres de clientes, precios ni otros datos confidenciales.`
       : `Te llevamos a GitHub (un sitio público que pide una cuenta gratuita) con el reporte ya escrito. No escribas nombres de clientes ni precios.${!loginTip ? '' : ' Si tenés cuenta de RATEOS, ingresá y mandalo desde ahí, sin GitHub.'}`));
 
   const form = h('form', { class: 'report-form', novalidate: true },
     h('p', { class: 'report-intro' }, 'Contanos qué no funcionó o qué te confundió. Lo revisamos para corregir RATEOS.'),
-    privacy,
+    stepField,
     whatField,
     expectedField,
     auto,
+    privacy,
     disclosure({ summary: 'Ver lo que se envía', className: 'report-preview-box' }, previewEl),
     errorEl);
 
@@ -179,7 +195,7 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
     sendBtn.removeAttribute('aria-busy');
     if (label) label.textContent = previous;
     const ok = Boolean(res && res.ok);
-    if (ok) draft = { whatHappened: '', expected: '' };
+    if (ok) draft = { whatHappened: '', expected: '', step: '' };
     // Si cerraron el diálogo mientras se enviaba, el resultado llega como aviso.
     if (closed) {
       toast(ok ? `¡Gracias! Recibimos tu reporte${res.reference ? ` (${res.reference})` : ''}.` : 'No pudimos enviar el reporte. Lo que escribiste sigue guardado: abrí «Reportar un problema» y probá de nuevo.', ok ? 'success' : 'warning', { timeout: 6000 });

@@ -867,3 +867,21 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 .report-preview-box .disclosure-title { font-weight: 550; font-size: 0.85rem; }
 .report-thanks-title:focus { outline: none; }
 .btn[aria-disabled="true"] { opacity: 0.7; cursor: progress; }
+
+/* "Reportar un problema": pestaña fija al costado derecho, en todas las pantallas. */
+.report-tab {
+  position: fixed; right: 0; top: 50%; z-index: 45;
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  writing-mode: vertical-rl; transform: translateY(-50%) rotate(180deg);
+  padding: 0.75rem 0.45rem; min-width: 34px;
+  border: 1px solid var(--navy-800); border-right: 0; border-radius: 0 8px 8px 0;
+  background: var(--navy-900); color: #fff; font: inherit; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.01em;
+  box-shadow: 0 2px 10px rgba(0, 30, 60, 0.22); cursor: pointer; opacity: 0.92;
+}
+.report-tab .icon { transform: rotate(90deg); }
+.report-tab:hover { opacity: 1; padding-left: 0.6rem; }
+.report-tab:focus-visible { outline: 3px solid var(--navy-50); outline-offset: 2px; opacity: 1; }
+@media (max-width: 640px) {
+  .report-tab { font-size: 0.75rem; padding: 0.6rem 0.3rem; min-width: 28px; top: 62%; }
+}
+@media print { .report-tab { display: none; } }
