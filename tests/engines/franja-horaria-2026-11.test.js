@@ -49,7 +49,7 @@ describe('franja horaria: horas de guardia por día', () => {
     assert.deepEqual(outsideWindowHours(over), { worked: 10, guard: 8, outside: 2 });
     const item = computeQuote(over).completeness.items.find((x) => x.id === 'availability_window');
     assert.ok(item, 'aparece el aviso');
-    assert.match(item.message, /10 h por día con llamado/);
+    assert.match(item.message, /Trabajás 10 h por día y la franja/);
     assert.match(item.message, /2 h por día quedan fuera de horario \(16 h por mes\)/);
     // Por hora esas horas ya se facturan: el aviso no manda a cobrarlas de nuevo enteras.
     assert.match(item.message, /Ya se facturan como horas normales/);
@@ -167,5 +167,21 @@ describe('guardia activa / pasiva (2026-11)', () => {
       assert.equal(r.estimate.cost.total, base.estimate.cost.total);
       assert.equal(r.estimate.revenue.total, base.estimate.revenue.total);
     }
+  });
+});
+
+describe('sin guardia (2026-11): cuadrilla on call que sale en su horario', () => {
+  test('no hay horas de guardia, ni guardia activa, ni avisos de guardia; el costo es el mismo', () => {
+    const none = onCall({ availability: 'none', guardType: 'active', availabilityHoursPerDay: 12 });
+    assert.equal(availabilityHoursOf(none.activity), null);
+    assert.equal(activeGuardCoverage(none), null);
+    assert.equal(outsideWindowHours(none), null);
+    const r = computeQuote(none);
+    const ids = [...r.completeness.items, ...r.completeness.notices].map((x) => x.id);
+    assert.ok(!ids.includes('availability_unpaid'));
+    assert.ok(!ids.includes('guard_allowance'));
+    const base = computeQuote(onCall({ availability: null }));
+    assert.equal(r.kpis.totalCost, base.kpis.totalCost);
+    assert.equal(r.kpis.commercialListRate, base.kpis.commercialListRate);
   });
 });
