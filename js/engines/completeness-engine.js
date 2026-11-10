@@ -99,7 +99,7 @@ export function outsideWindowMessage(quote = {}, o, { short = false } = {}) {
   const month = D > 0 ? ` (${f(o.outside * D)} h por mes)` : '';
   const head = short
     ? `${f(o.outside)} h por día fuera de la franja${month}`
-    : `Trabajás ${f(o.worked)} h por día con ${activationTerms(quote).one} y la franja de guardia es de ${f(o.guard)} h: ${f(o.outside)} h por día quedan fuera de horario${month}`;
+    : `Trabajás ${f(o.worked)} h por día y la franja de guardia es de ${f(o.guard)} h: ${f(o.outside)} h por día quedan fuera de horario${month}`;
   return billingUnitOf(quote).kind === 'hour'
     ? `${head}. Ya se facturan como horas normales: si fuera de horario llevan recargo, cargá en "Adicionales" sólo el recargo (no la hora entera, se cobraría dos veces).`
     : `${head}: si el cliente las paga aparte, cobralas en "Adicionales".`;
