@@ -450,11 +450,16 @@ export function render(container, ctx) {
           'Otros costos por persona',
           formGrid(
             3,
-            kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda por día activo', rule: 'money', unit: '$/día', illustrative }),
+            // Comidas: un solo lugar (Viajes ya no las pide; ahí va sólo el alojamiento).
+            kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda o comidas por día activo', rule: 'money', unit: '$/día', illustrative, hint: 'Por persona. Es el único lugar donde se cargan las comidas.' }),
             kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.ppeMonthly`, { label: 'EPP (ropa y elementos de protección)', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
-            kit.num(`${p}.transferMonthly`, { label: 'Traslado', rule: 'money', unit: '$/mes', illustrative }),
+            // Traslado por persona: sólo si no hay viajes (con viajes, el vehículo está en Equipos y la
+            // ruta en Viajes). Si ya tiene un monto cargado, se sigue mostrando para poder sacarlo.
+            quote.logistics && !quote.logistics.notApplicable && !(Number(line.transferMonthly) > 0)
+              ? null
+              : kit.num(`${p}.transferMonthly`, { label: 'Traslado', rule: 'money', unit: '$/mes', illustrative, hint: quote.logistics && !quote.logistics.notApplicable ? `Si la gente viaja en un vehículo de "${stepName('equipment')}", el traslado ya está ahí: dejalo en 0.` : 'Reintegro o pasaje de cada persona por mes.' }),
             kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120, hint: 'Sólo informativa (no cambia el costo).' }),
           ),
         ),
