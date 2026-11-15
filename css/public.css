@@ -66,12 +66,12 @@ body.is-public .skip-link:not(:focus) { box-shadow: none; }
   color: transparent; font-size: 0; user-select: none; -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 .pub-brand-name {
-  width: 125px; height: 19px; flex-shrink: 0; overflow: hidden;
-  background: url("../assets/brand/rateos-wordmark.svg") left center / contain no-repeat;
+  width: 94px; height: 32px; flex-shrink: 0; overflow: hidden;
+  background: url("../assets/brand/rateos-wordmark.svg") left bottom / auto 21px no-repeat;
   color: transparent; font-size: 0; user-select: none; -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 .pub-brand-sm .pub-brand-mark { width: 26px; height: 26px; }
-.pub-brand-sm .pub-brand-name { width: 99px; height: 15px; }
+.pub-brand-sm .pub-brand-name { width: 76px; height: 26px; background-size: auto 17px; }
 @media (forced-colors: active) {
   .pub-brand-mark, .pub-brand-name, .pub-brand-sm .pub-brand-mark, .pub-brand-sm .pub-brand-name { background: none; width: auto; height: auto; font-size: revert; font-weight: 800; color: CanvasText; }
 }

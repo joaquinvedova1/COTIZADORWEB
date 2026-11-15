@@ -32,7 +32,7 @@ Reglas para este archivo:
 
 ### Cambiado
 
-- Logo rediseñado: monograma R plano (azul marino con la pata en naranja) y logotipo en trazados SVG, en lugar del cuadrado con degradé. Ícono de pestaña nuevo. Guía en [docs/BRAND.md](docs/BRAND.md).
+- Logo rediseñado y elegido por el dueño: símbolo de dos barras (costo, y costo más margen en naranja) con el nombre "rateos" en minúsculas, en trazados SVG. Reemplaza al cuadrado con degradé y a un monograma R intermedio que se leía como P. Ícono de pestaña nuevo. Guía en [docs/BRAND.md](docs/BRAND.md).
 
 **On call sin guardia y nombres más claros (2026-11-10).** Ningún costo ni facturación cambia; esquema sin cambio de versión (nuevo valor `activity.availability = 'none'`).
 
