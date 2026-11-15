@@ -39,8 +39,9 @@ const MODE_LABELS = Object.freeze({
 });
 
 const AVAILABILITY_HINTS = Object.freeze({
-  '24/7': 'Disponible todos los días, a toda hora. Normalmente exige relevos.',
-  window: 'Disponible sólo unas horas por día acordadas.',
+  none: 'Salís cuando te llaman, en tu horario. Ej.: cuadrilla de 8 a 17.',
+  '24/7': 'Guardia todos los días, a toda hora. Normalmente exige relevos.',
+  window: 'Guardia sólo unas horas por día acordadas.',
 });
 
 /**
@@ -365,15 +366,23 @@ export function render(container, ctx) {
   // On call (franja horaria, 2026-11): a la vista, al lado de los días, para no confundirlas
   // con las horas de guardia (cuándo te pueden llamar): éstas son las que se trabajan.
   const asksAvailability = quote.serviceType === 'on_call';
+  // ¿Hay guardia? (2026-11): sin guardia (cuadrilla que sale en su horario cuando la llaman) no
+  // hay días ni horas de guardia que preguntar. Sin elegir (cotizaciones anteriores, nuevas) se
+  // muestra como siempre hasta que se elija.
+  const availabilityValue = quote.activity ? quote.activity.availability : null;
+  const guardChosen = asksAvailability && (availabilityValue === '24/7' || availabilityValue === AVAILABILITY_WINDOW);
+  const availableNoun = guardChosen ? 'días de guardia' : 'días del mes';
   const hoursField = () => kit.num('activity.hoursPerActiveDay', {
-    label: monthlyContract ? 'Horas de servicio por día' : asksAvailability ? `Horas trabajadas por día con ${T.one}` : 'Horas por día de trabajo',
+    // Un solo nombre (2026-11): "Horas trabajadas por día con llamado" no se entendía. Son las
+    // horas que se trabaja cada día que se sale (de 8 a 17 = 9 h), haya guardia o no.
+    label: monthlyContract ? 'Horas de servicio por día' : 'Horas de trabajo por día',
     rule: 'hoursPerDay',
     unit: 'h/día',
     hint: monthlyContract
       ? 'Las horas del día que el cliente tiene cubiertas (8, 12, 24…). No son las horas de cada persona: ésas salen del esquema de cada puesto en Personal. Se usan para el uso de equipos y la tarifa por hora.'
       : quote.unit === 'hour'
-      ? `Cobrás por hora: se facturan días ${asksAvailability ? 'con trabajo' : 'activos'} × estas horas${asksAvailability ? ' (no las horas de guardia)' : ''}.`
-      : 'Se usa para el uso de equipos, la tarifa por hora y la estructura por hora.',
+      ? `Las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}.`
+      : `Las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Se usan para el uso de equipos y combustible y la tarifa por hora${guardChosen ? '; no son las horas de guardia' : ''}.`,
   });
   const hourly = quote.unit === 'hour';
   const hoursInMain = hourly || monthlyContract || asksAvailability;
@@ -481,8 +490,8 @@ export function render(container, ctx) {
         : '';
       const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9;
       const usage = over
-        ? `Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles: más días que los ${formatNumber(r.activity.availableDaysPerMonth)} disponibles.`
-        : `Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).`;
+        ? `Son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun} (utilización ${formatPercent(r.activity.utilizationPct)}).`
+        : `Trabajás ${num(r.activity.activeDaysPerMonth)} de los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun} (utilización ${formatPercent(r.activity.utilizationPct)}).`;
       return `Facturás ${billable} por mes${extra}. ${usage}${fractional}`;
     },
     tone: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
@@ -499,7 +508,7 @@ export function render(container, ctx) {
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
       const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9
-        ? ` Ojo: son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} disponibles del mes.`
+        ? ` Ojo: son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`
         : '';
       // Por intervención (PLAN-2026-010): volumen ↔ días ↔ movilización.
       const acts = r.activity.activationsPerMonth;
@@ -513,23 +522,28 @@ export function render(container, ctx) {
           ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
           : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`)
         : '';
-      return `Facturás ${billable} por mes${extra} en ${workDaysText(r.activity.activeDaysPerMonth)}. Trabajás el ${formatPercent(r.activity.utilizationPct)} de los días disponibles (utilización).${perIntervention}${fractional}${over}`;
+      return `Facturás ${billable} por mes${extra} en ${workDaysText(r.activity.activeDaysPerMonth)}. Utilización: ${formatPercent(r.activity.utilizationPct)} de los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.${perIntervention}${fractional}${over}`;
     },
     tone: (r) => (hasQuantity() && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
   });
 
-  // Días disponibles: el techo de la utilización. Por días (on call, por día…)
-  // va a la vista, al lado de los días trabajados: el aviso de más de 100 % sale
-  // de comparar esos dos números y ninguno debe quedar escondido.
-  const availableInMain = !byQuantity && !monthlyContract;
+  // Días disponibles: el techo de la utilización (y, con guardia activa, los días de guardia que
+  // se cubren con personas). Sólo cambia el costo si los días con trabajo los superan (trabajo de
+  // más de un mes). 2026-11: con guardia elegida va a la vista como "Días de guardia por mes";
+  // sin guardia es sólo el tope del mes y va a Opciones avanzadas (vuelve a la vista si los días
+  // con trabajo lo superan, para que se vea y se corrija).
+  const availableConflict = hasNumber(quote.activity && quote.activity.availableDaysPerMonth)
+    && hasNumber(quote.activity && quote.activity.activeDaysPerMonth)
+    && Number(quote.activity.availableDaysPerMonth) < Number(quote.activity.activeDaysPerMonth) - 1e-9;
+  const availableInMain = !byQuantity && !monthlyContract && (guardChosen || !asksAvailability || availableConflict);
   const availableField = () => kit.num('activity.availableDaysPerMonth', {
-    label: isOnCall ? 'Días disponibles (de guardia)' : 'Días disponibles en el mes',
+    label: guardChosen ? 'Días de guardia por mes' : 'Días del mes en que podés trabajar',
     rule: 'daysInMonth',
     unit: 'días',
     placeholder: '30',
-    hint: isOnCall
-      ? `Días en que podés recibir ${T.many} (el máximo que podrías trabajar): 30 si estás de guardia todo el mes; 22 si sólo días hábiles.`
-      : 'El máximo que podrías trabajar en el mes: normalmente 30 para servicios 24/7; 22 si sólo trabajás días hábiles.',
+    hint: guardChosen
+      ? `Días del mes en que tenés que estar de guardia, esperando ${T.many}: 30 si es todo el mes; 22 si sólo días hábiles. Con guardia activa definen cuántas horas cubre el personal.`
+      : 'Máximo de días que podrías trabajar en el mes (30 corridos, 22 hábiles). Sólo cambia el costo si cargás más días con trabajo que éstos.',
   });
   // Disponibilidad (A-16, H-26): a la vista, junto a los días, donde cambia algo (el aviso
   // de relevos de un servicio on call). Una cotización nueva la trae sin definir: nunca
@@ -538,20 +552,25 @@ export function render(container, ctx) {
   // No mueve costo ni facturación.
   const availability = quote.activity ? quote.activity.availability : null;
   const oldWindowText = quote.activity && typeof quote.activity.availabilityWindow === 'string' ? quote.activity.availabilityWindow.trim() : '';
-  const availabilityRow = asksAvailability
+  // La pregunta de guardia va primero (revisión UX 2026-11): explica los días de guardia que
+  // aparecen debajo. El detalle (horas de la franja, tipo de guardia) va después de los días.
+  const availabilityChoice = asksAvailability
     ? h('div', { class: 'qe-availability' },
       kit.choice('activity.availability', {
-        label: h('span', {}, 'Disponibilidad requerida', infoTip(`Cuándo el cliente te puede convocar. No son las horas que facturás: ésas son las horas trabajadas por día con ${T.one}. 24/7 normalmente exige relevos del personal.`)),
+        label: h('span', {}, '¿Tenés que estar de guardia?', infoTip('Guardia es el tiempo en que esperás que el cliente te llame, aunque no trabajes. No son las horas que facturás: ésas son las horas de trabajo por día. Si salís sólo cuando te llaman, en tu horario (por ejemplo una cuadrilla de 8 a 17), elegí "Sin guardia". 24/7 normalmente exige relevos del personal.')),
         options: AVAILABILITY_OPTIONS.map((o) => ({ value: o.id, label: o.label, hint: AVAILABILITY_HINTS[o.id] })),
         structural: true,
-      }),
+      }))
+    : null;
+  const availabilityRow = asksAvailability
+    ? h('div', { class: 'qe-availability' },
       availability === AVAILABILITY_WINDOW
         ? formGrid(2, kit.num('activity.availabilityHoursPerDay', {
           label: 'Horas de guardia por día',
           rule: 'hoursPerDay',
           unit: 'h/día',
           placeholder: 'Ej.: 12',
-          hint: `Las horas del día en que el cliente puede convocarte (por ejemplo 12 h, de 7 a 19). Si trabajás más horas que éstas, el excedente es fuera de horario.`,
+          hint: `Las horas del día en que el cliente puede llamarte (por ejemplo 12 h, de 7 a 19). Si trabajás más horas que éstas, el excedente es fuera de horario.`,
         }))
         : null,
       availability === AVAILABILITY_WINDOW
@@ -565,17 +584,17 @@ export function render(container, ctx) {
         : null,
       // Guardia activa o pasiva (2026-11): define si las horas de guardia se cubren con
       // personas (relevos con números, en Personal) o se rota quién está de guardia.
-      availability
+      guardChosen
         ? kit.choice('activity.guardType', {
-          label: h('span', {}, 'Tipo de guardia', infoTip('Activa: el personal está en la base o en la locación; esas horas cuentan como trabajo y piden más personas (horas de guardia del mes ÷ horas normales por persona, más francos y vacaciones; se revisa en Personal). Pasiva: está localizable y sale si lo convocan; se suele pagar un adicional de guardia y alcanza con rotar quién está de guardia.')),
+          label: h('span', {}, 'Tipo de guardia', infoTip('Activa: el personal está en la base o en la locación; esas horas cuentan como trabajo y piden más personas (horas de guardia del mes ÷ horas normales por persona, más francos y vacaciones; se revisa en Personal). Pasiva: está localizable y sale si lo llaman; se suele pagar un adicional de guardia y alcanza con rotar quién está de guardia.')),
           options: [
             { value: 'active', label: 'Activa (en el lugar)', hint: 'Cuentan como horas de trabajo.' },
-            { value: 'passive', label: 'Pasiva (localizable)', hint: 'Sale sólo si lo convocan.' },
+            { value: 'passive', label: 'Pasiva (localizable)', hint: 'Sale sólo si lo llaman.' },
           ],
           structural: true,
         })
         : null,
-      availability && quote.activity && quote.activity.guardType === 'active'
+      guardChosen && quote.activity && quote.activity.guardType === 'active'
         ? kit.out((r) => {
           const g = activeGuardCoverage(quote);
           if (!g) return '';
@@ -589,6 +608,7 @@ export function render(container, ctx) {
     : null;
   const activityCard = card(
     {},
+    availabilityChoice,
     byQuantity
       ? quantityFields()
       : formGrid(
@@ -672,10 +692,10 @@ export function render(container, ctx) {
         summary: () => {
           const a = quote.activity || {};
           const parts = [
-            availableInMain ? null : isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días disponibles por mes` : 'días disponibles sin cargar',
+            availableInMain ? null : isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `hasta ${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días por mes` : 'días del mes sin cargar',
             hoursInMain ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
             kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
-            isOnCall && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
+            isOnCall && a.availability !== 'none' && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
           ].filter(Boolean);
           return parts.join(' · ');
         },
@@ -698,7 +718,7 @@ export function render(container, ctx) {
           onValue: () => syncRouteTrips(),
         })
         : null,
-      isOnCall
+      isOnCall && !(quote.activity && quote.activity.availability === 'none')
         ? kit.group(
           'Respuesta on-call',
           formGrid(
@@ -713,7 +733,7 @@ export function render(container, ctx) {
         )
         : null,
       kit.stats(
-        kit.stat('Utilización', (r) => formatPercent(r.activity.utilizationPct), { hint: byQuantity ? 'Días de trabajo ÷ días disponibles.' : 'Días activos ÷ días disponibles.' }),
+        kit.stat('Utilización', (r) => formatPercent(r.activity.utilizationPct), { hint: byQuantity ? `Días de trabajo ÷ ${availableNoun}.` : `Días con trabajo ÷ ${availableNoun}.` }),
         byQuantity
           ? kit.stat('Días de trabajo por mes', (r) => (r.activity.activeDaysPerMonth > 0 ? formatDays(r.activity.activeDaysPerMonth, { decimals: 2 }) : EMPTY), {
             hint: kind === 'quantity' ? `${Plural} por mes ÷ ${info.plural} por día de trabajo.` : `${Plural} por mes × días de trabajo de cada uno.`,
@@ -817,7 +837,7 @@ export function render(container, ctx) {
     ? kit.question('¿Qué cobertura vendés en el abono?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Lo que exceda se cobra en "Adicionales".')
     : byQuantity
     ? kit.question(texts.quantityQuestion, `Los costos se calculan con los días de trabajo que lleva hacerlo; la facturación, con ${texts.los} ${info.plural}. Cuanto menos factures, mayor deberá ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
-    : kit.question('¿Cuántos días por mes esperás trabajar?', 'En servicios on-call, cuantos menos días trabajes, mayor deberá ser la tarifa para cubrir los costos fijos.', { term: 'utilización (días trabajados ÷ días disponibles)' });
+    : kit.question('¿Cuántos días por mes esperás trabajar?', 'En servicios on-call, cuantos menos días trabajes, mayor deberá ser la tarifa para cubrir los costos fijos.', { term: `utilización (días con trabajo ÷ ${availableNoun})` });
 
   // ¿Cómo viaja el personal? (PLAN-2026-024): reemplaza "Días entre viajes o relevos".
   const hasPeople = contract.labor || (Array.isArray(quote.labor) && quote.labor.length > 0);

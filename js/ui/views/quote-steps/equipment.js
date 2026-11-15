@@ -35,10 +35,10 @@ import { illustrativeTag } from '../../layout.js';
 import { hasNumber, moneyText, plural, stepName } from './shared.js';
 import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
-import { MOBILIZATION_MODES } from '../../../domain/catalogs.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock } from './assignment.js';
+import { mobilizationEditor } from './logistics.js';
 
 const isExternalLine = (line) => acquisitionOf(line) !== 'owned';
 
@@ -538,14 +538,16 @@ export function render(container, ctx) {
       ? h('p', { class: 'qe-note' }, icon('info', { size: 14 }), ' Sin costo de capital: RATEOS no está imputando rendimiento ni costo del dinero invertido en este equipo. Es opcional; no lo confundas con la financiación del contrato.')
       : '';
   }, { tag: 'div', allowEmpty: true });
+  // ¿Cómo llega al lugar del servicio? Se carga acá, en la tarjeta del equipo (con su consumo
+  // en ruta): un equipo o vehículo se carga una sola vez. Viajes sólo muestra el resumen.
   const mobilityNote = (i) => {
     const line = quote.equipment[i] || {};
-    const mode = line.mobilization && line.mobilization.mode;
-    const included = isExternalLine(line) && line.external && line.external.mobilizationIncluded === true;
-    const text = included
-      ? 'la movilización está incluida en la tarifa del proveedor'
-      : mode ? labelOf(MOBILIZATION_MODES, mode, '').toLowerCase() : 'sin definir';
-    return h('p', { class: 'small line-mobility-note' }, `Cómo llega al lugar del servicio: ${text}. Se define en "${stepName('logistics')}".`);
+    const lgNA = Boolean(quote.logistics && quote.logistics.notApplicable);
+    if (lgNA) {
+      return kit.group('¿Cómo llega al lugar del servicio?',
+        h('p', { class: 'small line-mobility-note' }, `Marcaste "Sin traslados" en "${stepName('logistics')}": no se suma movilización.`));
+    }
+    return kit.group('¿Cómo llega al lugar del servicio?', line ? mobilizationEditor(ctx, i) : null);
   };
   const baseAdvanced = (i, line) => {
     const p = `equipment.${i}`;
@@ -632,6 +634,7 @@ export function render(container, ctx) {
     ];
   };
 
+  const selfMoving = (line) => Boolean(line && line.mobilization && line.mobilization.mode === 'self' && !(quote.logistics && quote.logistics.notApplicable));
   const ownedCard = (line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
@@ -671,7 +674,11 @@ export function render(container, ctx) {
         kit.num(`${p}.replacementValue`, { label: 'Valor de reposición', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que costaría comprarlo hoy.' }),
         kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative }),
         // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
-        line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
+        // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide abajo, en "¿Cómo llega?":
+        // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
+        line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, selfMoving(line)
+          ? { label: 'Consumo trabajando en la locación', rule: 'quantity', unit: 'L/h', illustrative, hint: 'Sólo con el motor trabajando en el lugar (bomba, hidrogrúa). Si sólo lleva gente o carga y queda parado: 0. Lo que gasta en la ruta va abajo.' }
+          : { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
         kit.check(`${p}.fuelNotApplicable`, {
           label: 'No usa combustible',
           structural: true,
@@ -1139,7 +1146,7 @@ export function render(container, ctx) {
 
   mount(
     container,
-    card({ title: 'Equipos', subtitle: `Cargá cada equipo afectado al servicio: propio, alquilado o tercerizado. Cómo llega cada uno al lugar del servicio y los vehículos de apoyo se definen en "${stepName('logistics')}".` }, toolbar, fuelNote),
+    card({ title: 'Equipos', subtitle: `Cargá cada equipo o vehículo una sola vez (camionetas incluidas): propio, alquilado o tercerizado. En cada uno decís también cómo llega al lugar del servicio; la distancia, el alojamiento y el precio del combustible van en "${stepName('logistics')}".` }, toolbar, fuelNote),
     lineCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({
