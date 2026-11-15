@@ -364,7 +364,7 @@ export function render(container, ctx) {
         kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Operador' }),
         kit.select(`${p}.agreementId`, { label: 'Convenio', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio' }),
         kit.num(`${p}.positions`, { label: legacyStaff(line) ? 'Personas trabajando a la vez' : 'Cantidad de personas', rule: 'quantity', hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cuántas personas de este rol trabajan en el servicio. Son de tu nómina: se cobra su sueldo con cargas.' }),
-        kit.num(`${p}.basicMonthly`, { label: 'Sueldo básico', rule: 'money', unit: '$/mes', illustrative }),
+        kit.num(`${p}.basicMonthly`, { label: 'Sueldo básico por mes', rule: 'money', unit: '$/mes', illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
         kit.num(`${p}.additionalsMonthly`, { label: 'Adicionales', rule: 'money', unit: '$/mes', illustrative, hint: 'Zona, nocturnidad, etc.' }),
         // Horas de trabajo de cada persona (2026-11, antes "Horas por día que cubre este puesto"):
         // sólo para el aviso de horas (no cambia el costo; las horas extra se cargan aparte).
@@ -385,6 +385,15 @@ export function render(container, ctx) {
       legacyRotationNote(i, line),
       // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.
       assignmentBlock(kit, { path: p, line, kind: 'labor', at }),
+      // Tarifas de la persona (PLAN-2026-025): lo que cuesta por mes y por hora (normal, 50 % y 100 %).
+      h('div', { class: 'qe-person-rates' },
+        h('p', { class: 'qe-person-rates-title' }, 'Lo que te cuesta cada persona de este rol'),
+        kit.stats(
+          kit.stat('Por mes con cargas', (r) => (at(r) && at(r).perPerson.fixedMonthly > 0 ? formatMoney(at(r).perPerson.fixedMonthly) : EMPTY), { emphasis: true, hint: 'Sueldo básico y adicionales con aguinaldo, vacaciones, cargas patronales y ART, más seguros, ropa y capacitación. Las cargas se cambian en "Opciones avanzadas".' }),
+          kit.stat('Hora normal', (r) => (at(r) && at(r).perPerson.loadedHourlyCost > 0 ? formatMoney(at(r).perPerson.loadedHourlyCost) : EMPTY), { hint: (r) => `Costo por mes ÷ ${formatNumber(nonNegative(quote.labor[i] && quote.labor[i].normalHoursPerMonth), { decimals: 2 })} horas normales por mes.` }),
+          kit.stat('Hora extra 50\u00a0%', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost50 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost50) : EMPTY), { hint: 'Lo que pagás de más por cada hora fuera del horario normal con recargo del 50 %: (básico ÷ horas normales) × 1,5, con cargas.' }),
+          kit.stat('Hora extra 100\u00a0%', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost100 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost100) : EMPTY), { hint: 'Lo mismo con recargo del 100 % (lo habitual en domingos y feriados; revisá tu convenio): (básico ÷ horas normales) × 2, con cargas.' }),
+        )),
       kit.keyline({
         label: 'Costo del puesto',
         value: (r) => (at(r) ? `${formatMoney(at(r).fixedMonthly)} por mes` : EMPTY),
@@ -396,7 +405,9 @@ export function render(container, ctx) {
           const D = r.activity.activeDaysPerMonth;
           const parts = laborBreakdown(l, { activeDays: D }).map((x) => `${x.label} ${formatMoney(x.amount)}`).join(' · ');
           const share = l.shared && !l.shareMissing ? ` Compartida: esta cotización carga el ${formatPercent(l.fixedCostSharePct)} de su costo fijo.` : '';
-          return `${formatMoney(l.perPerson.fixedMonthly)} por persona con cargas${variable}. En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.${share}`;
+          // Sin días cargados todavía (los recursos van antes que "Cómo se cobra"): sólo el fijo del mes.
+          const month = D > 0 ? ` En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.` : '';
+          return `${formatMoney(l.perPerson.fixedMonthly)} por persona con cargas${variable}.${month}${share}`;
         },
         trace: (r) => laborTrace(r, i, quote.labor[i]),
       }),

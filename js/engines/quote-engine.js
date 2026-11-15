@@ -16,6 +16,7 @@ import { createTrace } from '../core/trace.js';
 import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
 import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
+import { hasOutOfHours, isOutOfHoursExtra, normalHourEquivalent, resourceNormalHourCost } from './out-of-hours-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
 import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
@@ -304,12 +305,25 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       severity: 'error',
     });
   });
-  const ctx = createEconomicsContext(quote, model);
+  // Tarifas fuera de horario (PLAN-2026-025): su precio sugerido parte de la hora normal
+  // equivalente de la MISMA cotización sin esas tarifas (sin cuenta circular).
+  let referenceHourPrice = null;
+  const withOutOfHours = hasOutOfHours(quote.extras);
+  if (withOutOfHours) {
+    const base = computeQuote({ ...quote, extras: quote.extras.filter((e) => !isOutOfHoursExtra(e)) }, { settings, listRateOverride });
+    referenceHourPrice = base.outOfHours.rateHourPrice;
+  }
+  const ctx = createEconomicsContext(quote, model, { referenceHourPrice, referenceHourCost: resourceNormalHourCost(model.outOfHours) });
   issues.push(...unitIssues(quote, ctx));
   // Adicionales (PLAN-2026-018): sin precio o con precio a mano bajo el costo.
   if (ctx.extras && ctx.extras.missingPrice > 0) {
     const i = ctx.extras.lines.findIndex((l) => l.quantity > 0 && l.price === null);
     issues.push({ path: `extras.${i}.price`, message: `"${ctx.extras.lines[i].label}" no tiene precio: cargalo a mano o revisá el margen objetivo y los impuestos (con un margen inválido no se sugiere). Mientras tanto no suma facturación.`, severity: 'warning' });
+  }
+  // Tarifa fuera de horario sin recargo (dato importado o editado a mano): vale lo mismo que una hora normal.
+  if (ctx.extras) {
+    const i = ctx.extras.lines.findIndex((l) => l.derived && !(l.premiumPct > 0));
+    if (i >= 0) issues.push({ path: `extras.${i}.premiumPct`, message: `"${ctx.extras.lines[i].label}" no tiene recargo: una hora fuera de horario lleva el 50 % o el 100 % de horas extra.`, severity: 'warning' });
   }
   if (ctx.extras && ctx.extras.belowCost > 0) {
     const i = ctx.extras.lines.findIndex((l) => l.belowCost);
@@ -814,6 +828,25 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     // Contrato y adicionales (PLAN-2026-018).
     contract: contractOf(quote),
     extras: ctx.extras,
+    // Tarifas fuera de horario (PLAN-2026-025): base por hora de los recursos y la hora normal
+    // equivalente (la de referencia si hay tarifas cargadas; si no, la de esta cotización).
+    outOfHours: (() => {
+      const lines = ctx.extras.lines.filter((l) => l.derived);
+      // Hora normal leída de la tarifa (sólo cobrando por hora o por día).
+      const rateHourPrice = withOutOfHours
+        ? referenceHourPrice
+        : normalHourEquivalent({ unitKind: unitInfo.kind, listRate: commercialListRate, hoursPerActiveDay: activity.hoursPerActiveDay });
+      const used = lines.find((l) => isFiniteNumber(l.referenceHourPrice));
+      return {
+        basis: model.outOfHours,
+        active: withOutOfHours,
+        rateHourPrice,
+        // La que se usó de piso: la de la tarifa o, con abono / precio cerrado / por unidad, la de los recursos.
+        normalHourPrice: used ? used.referenceHourPrice : rateHourPrice,
+        normalHourSource: used ? used.referenceSource : rateHourPrice !== null ? 'rate' : null,
+        lines,
+      };
+    })(),
     estimate,
     ratesAtEstimate,
     targetMarginPct: targetMarginInvalid ? null : targetMarginPct,

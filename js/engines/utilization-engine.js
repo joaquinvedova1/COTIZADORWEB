@@ -14,6 +14,8 @@
 import { DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
 import { nonNegative, safeDivide, clamp } from '../core/money.js';
 import { evaluateAt, requiredRatesAt } from './economics-engine.js';
+import { objectList } from '../core/object.js';
+import { ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 
 /** Utilización (%) de D días sobre los disponibles. null si no hay disponibilidad. */
 export function utilizationPct(activeDays, availableDays) {
@@ -59,4 +61,44 @@ export function buildRateUtilizationMatrix(ctx, { days, marginsPct = DEFAULT_MAR
       tierDiscountPct: evaluation ? evaluation.revenue.tierDiscountPct : null,
     };
   });
+}
+
+/**
+ * Parte del mes que este servicio le ocupa a un recurso (PLAN-2026-025):
+ *
+ *   % = horas de trabajo del servicio por mes ÷ horas normales del mes × 100   (tope 100 %)
+ *   horas de trabajo del servicio = días con trabajo × horas por día
+ *
+ * Es una PROPUESTA para cuando la persona dice que su gente y sus equipos
+ * también hacen otros trabajos: se guarda como % EXPLÍCITO en cada línea
+ * (assignment 'shared'), queda a la vista y se puede cambiar. El motor nunca
+ * la aplica solo ni la recalcula cuando cambian los días.
+ * @returns {number|null} % con un decimal, o null si faltan los días o las horas
+ */
+export function serviceTimeSharePct({ activeDays, hoursPerActiveDay, normalHoursPerMonth } = {}) {
+  const hours = nonNegative(activeDays) * nonNegative(hoursPerActiveDay);
+  const ratio = safeDivide(hours, nonNegative(normalHoursPerMonth), null);
+  if (ratio === null || !(hours > 0)) return null;
+  return Math.min(100, Math.max(0.1, Math.round(ratio * 1000) / 10));
+}
+
+/**
+ * Propuesta de % para cada persona y cada equipo propio de la cotización.
+ * Los equipos usan las horas normales del mes de la cuadrilla (las mayores
+ * cargadas) o, sin personal, las del parámetro por defecto.
+ * @param {object} quote
+ * @param {{ activeDaysPerMonth: number, hoursPerActiveDay: number }} activity actividad normalizada del modelo
+ */
+export function proposeServiceShares(quote = {}, activity = {}) {
+  const labor = objectList(quote.labor);
+  const equipment = objectList(quote.equipment);
+  const base = { activeDays: activity.activeDaysPerMonth, hoursPerActiveDay: activity.hoursPerActiveDay };
+  const crewHours = labor.reduce((max, l) => Math.max(max, nonNegative(l.normalHoursPerMonth)), 0);
+  const equipmentHours = crewHours > 0 ? crewHours : ILLUSTRATIVE_AGREEMENT_PARAMS.normalHoursPerMonth;
+  return {
+    serviceHours: nonNegative(base.activeDays) * nonNegative(base.hoursPerActiveDay),
+    equipmentHours,
+    labor: labor.map((l) => serviceTimeSharePct({ ...base, normalHoursPerMonth: l.normalHoursPerMonth })),
+    equipment: equipment.map((e) => (e.acquisition === 'rented' || e.acquisition === 'outsourced' ? null : serviceTimeSharePct({ ...base, normalHoursPerMonth: equipmentHours }))),
+  };
 }

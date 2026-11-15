@@ -26,7 +26,7 @@
   padding: 0.5rem;
 }
 /* "Resultado" no lleva estado: su columna es más angosta y las demás entran en un renglón. */
-.qe-stage-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1.2fr)) minmax(0, 0.8fr); gap: 0.25rem; }
+.qe-stage-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.25rem; }
 .qe-stage { position: relative; min-width: 0; }
 /* Conector entre etapas. */
 .qe-stage + .qe-stage::before {
@@ -783,3 +783,18 @@
 }
 .qe-pace .form-grid { margin-top: 0.75rem; }
 .qe-availability > * + * { margin-top: 1rem; }
+
+/* PLAN-2026-025 · Cotización guiada por recursos */
+.qe-person-rates { margin: 0.85rem 0 0.35rem; padding: 0.85rem 0.9rem; border: 1px solid var(--line); border-radius: var(--radius-md, 12px); background: var(--surface-2); }
+.qe-person-rates-title { margin: 0 0 0.55rem; font-size: 0.86rem; font-weight: 650; color: var(--navy-900); }
+.qe-person-rates .qe-stat { background: var(--white); }
+.qe-ooh-rows { display: grid; gap: 0.85rem; margin-top: 0.85rem; }
+.qe-ooh-row { display: grid; gap: 0.7rem; padding: 0.9rem; border: 1px solid var(--line); border-radius: var(--radius-md, 12px); background: var(--surface-2); }
+.qe-ooh-row .qe-stat { background: var(--white); }
+.qe-ooh-head { display: flex; flex-direction: column; gap: 0.15rem; }
+.qe-dedication-detail { margin-top: 0.85rem; display: grid; gap: 0.6rem; }
+.qe-dedication-detail .qe-note .btn { margin: 0 0.25rem; vertical-align: baseline; }
+.qe-person-rates .qe-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 900px) { .qe-person-rates .qe-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.qe-stage-label { overflow-wrap: normal; }
+@media (max-width: 520px) { .qe-person-rates .qe-stat .qe-stat-value, .qe-ooh-row .qe-stat .qe-stat-value { font-size: 0.95rem; overflow-wrap: normal; white-space: nowrap; } .qe-person-rates { padding: 0.7rem 0.6rem; } }

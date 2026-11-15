@@ -1832,6 +1832,34 @@ function draftBanner(v) {
 }
 
 /**
+ * Tus tarifas (PLAN-2026-025): la tarifa del horario normal y, si se cotizaron, las horas fuera
+ * de horario (50 % y 100 %), la guardia pasiva y el plus por llamado. Todo con los valores del
+ * motor. Sólo aparece si hay algo más que la tarifa principal (que ya está arriba).
+ */
+function tariffsBlock(v) {
+  const { r } = v;
+  const lines = (r.outOfHours && r.outOfHours.lines) || [];
+  const rules = normalizeRules((r.ctx && r.ctx.rules) || {});
+  const guardFee = rules.availabilityFeeMonthly > 0 && r.unit !== 'month';
+  const callout = rules.calloutFeePerActivation > 0;
+  if (!lines.length && !guardFee && !callout) return null;
+  const T = termsOfResult(r);
+  const k = r.kpis || {};
+  const main = isFiniteNumber(k.commercialListRate)
+    ? `${k.commercialSource === 'suggested' ? formatMoneyCeil(k.commercialListRate) : formatMoney(k.commercialListRate)} / ${r.unitInfo.singular || r.unitLabel}`
+    : EMPTY;
+  const rows = [
+    ['Horario normal', main],
+    ...lines.map((l) => [l.label, l.price !== null ? `${formatMoney(l.price)} / hora${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
+    guardFee ? ['Guardia pasiva (fijo por estar disponible)', `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
+    callout ? [`Guardia activa (plus ${T.per})`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
+  ].filter(Boolean);
+  return h('div', { class: 'qr-tariffs' },
+    h('h4', { class: 'qr-subhead' }, 'Tus tarifas (sin IVA)'),
+    h('dl', { class: 'qr-rules-list' }, ...rows.map(([term, value]) => h('div', { class: 'qr-rules-item' }, h('dt', {}, term), h('dd', { class: 'mono' }, value)))));
+}
+
+/**
  * Personal del servicio: "4 personas" (o "2 trabajando · 4 en nómina" en cotizaciones
  * anteriores con relevos). Sin diagramas de rotación (2026-11).
  */
@@ -1864,6 +1892,7 @@ function renderSummary(v) {
     h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
     staffBlock(v),
+    tariffsBlock(v),
     workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);

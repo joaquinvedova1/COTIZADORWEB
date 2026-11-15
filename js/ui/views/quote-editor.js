@@ -117,8 +117,10 @@ function defineStage(id, label, short, stepIds) {
  * `short` es el rótulo para celulares, cuando el nombre completo no entra.
  */
 export const STAGES = Object.freeze([
-  defineStage('service', 'El servicio', 'Servicio', ['service', 'modality']),
+  defineStage('service', 'El servicio', 'Servicio', ['service']),
   defineStage('resources', 'Los recursos', 'Recursos', ['labor', 'equipment', 'materials', 'logistics']),
+  // Cómo se cobra va DESPUÉS de los recursos (PLAN-2026-025): primero cuánto cuestan, después la tarifa.
+  defineStage('charge', 'Cómo se cobra', 'Cobro', ['modality']),
   defineStage('conditions', 'Costos y condiciones', 'Costos', ['indirect', 'finance', 'risk']),
   defineStage('price', 'El precio', 'Precio', ['margin']),
   defineStage('result', 'Resultado', 'Resultado', ['result']),
@@ -158,16 +160,16 @@ export function stepShortLabel(stepId) {
  */
 export const STEP_COPY = Object.freeze({
   service: {
-    question: '¿Cómo es el contrato?',
-    why: 'Define cómo se cobra y qué costos aparecen.',
+    question: '¿Qué servicio vas a cotizar?',
+    why: 'Contanos cómo te paga el cliente y qué lleva el servicio. Después cargás tus recursos y RATEOS te dice cuánto cobrar.',
   },
   modality: {
     question: '¿Cómo lo vas a cobrar?',
-    why: 'Contanos en qué unidad cobrás, si ya tenés una tarifa o si querés que RATEOS calcule cuánto cobrar, y cuánto esperás trabajar o facturar por mes.',
+    why: 'Ya sabés cuánto cuestan tus recursos. Ahora elegí en qué unidad cobrás y cuánto esperás trabajar: con eso sale la tarifa. Lo demás es opcional.',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
-    why: 'El personal suele ser el costo más grande: cuántas personas de tu nómina van, su sueldo y cuántas horas trabaja cada una.',
+    why: 'Cargá cuánto le pagás por mes a cada uno. RATEOS te muestra cuánto te cuesta su hora normal y su hora extra al 50 % y al 100 %.',
   },
   equipment: {
     question: '¿Qué equipos usás?',
@@ -1399,7 +1401,7 @@ function shownStatus(status, { after, visited }) {
 }
 
 /**
- * Barra de las 5 etapas (navegable). Cada etapa muestra si está completa,
+ * Barra de las etapas (navegable). Cada etapa muestra si está completa,
  * si hay algo para revisar o si faltan datos (según completitud y validaciones).
  */
 function buildStageBar({ currentStep, stepHref, quoteId }) {

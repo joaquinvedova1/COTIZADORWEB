@@ -48,6 +48,11 @@
  * `line.rotation` (asistente de diagrama) NO cambia el costo: sólo propone
  * (rotation-engine.js); el resultado lo devuelve en `rotation` para la UI.
  *
+ * Tarifas de referencia por persona (PLAN-2026-025, sólo informativas: no cambian el costo):
+ *   hora normal      = costo mensual por persona ÷ horas normales del mes
+ *   hora extra 50 %  = valorHora × 1,5 × factorCargas
+ *   hora extra 100 % = valorHora × 2 × factorCargas
+ *
  * Todos los porcentajes son parámetros. Los valores demo son ILUSTRATIVOS.
  */
 
@@ -149,6 +154,7 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
 
   const hourlyBase = safeDivide(basic, normalHours, 0);
   const overtimeHourly = hourlyBase * (1 + otPremium);
+  const overtimeBaseHourly = safeDivide(remunerative, normalHours, 0);
   // Tramos de horas extra (con el campo único de siempre si no hay lista).
   const billed = line.overtimeBilled === true;
   const overtimeItems = overtimeItemsOf(line).map((o) => {
@@ -212,6 +218,13 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
       hourlyBase,
       overtimeHourly,
       loadedHourlyCost,
+      // Tarifas de referencia de la persona (PLAN-2026-025): lo que cuesta UNA hora extra con el
+      // recargo habitual (50 % y 100 %, valores de partida editables en los tramos) y con cargas.
+      // Base: básico + adicionales remunerativos (la hora extra se liquida sobre el sueldo habitual).
+      // Los tramos de horas extra ya cargados (`overtimeItems`) siguen con `hourlyBase` de siempre.
+      overtimeBaseHourly,
+      overtimeHourlyCost50: overtimeBaseHourly * 1.5 * loadFactor,
+      overtimeHourlyCost100: overtimeBaseHourly * 2 * loadFactor,
       // Horas extra por mes (tramos "horas promedio por mes"): fijo del mes.
       overtimeMonthly: overtimeMonthlyPerPerson,
     },

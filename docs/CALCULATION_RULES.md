@@ -1589,3 +1589,55 @@ efecto en el precio  = precio con tu margen − precio con tu margen sin la fina
 - `labor_payroll_below_positions` (pendiente, paso Personal): la nómina total cargada (`payrollHeadcount`) es menor que las personas en sitio (posiciones): el costo se calcula con lo cargado, pero no alcanza para cubrir el puesto.
 - `guarantee_above_estimate` (informativo, paso Margen): con mínimo garantizado en unidades y los días estimados por debajo del mínimo, la tarifa sugerida no cuenta el mínimo pero el mínimo se valoriza con esa tarifa, así que el margen real sale más alto que el objetivo. El aviso informa `listRateWithMinimum` (la tarifa que da el margen objetivo si el cliente paga el mínimo) y el margen si se trabaja todo el mínimo. La sugerida no cambia.
 
+## 24. Tarifas fuera de horario y dedicación propuesta (PLAN-2026-025)
+
+**Tarifas por persona** (`computeLabor`, `perPerson`):
+
+```
+hora normal        = costo fijo por mes con cargas ÷ horas normales del mes
+hora extra 50 %    = (básico + adicionales) ÷ horas normales × 1,5 × factor de cargas     (`overtimeBaseHourly`)
+hora extra 100 %   = (básico + adicionales) ÷ horas normales × 2   × factor de cargas
+```
+
+Los recargos del 50 % y del 100 % son los habituales; el convenio de cada empresa puede fijar otro régimen (no es normativa cargada por RATEOS).
+
+**Hora fuera de horario** (`out-of-hours-engine.js`; líneas `quote.extras[i]` con `kind: 'overtime'` y `premiumPct`):
+
+```
+horaBaseCuadrilla = Σ personas × ((básico + adicionales) ÷ horas normales) × factor de cargas
+usoEquiposHora    = Σ equipos PROPIOS con horas de uso × (combustible + mantenimiento + neumáticos por hora)
+
+costo de la hora (recargo r) = horaBaseCuadrilla × (1 + r) + usoEquiposHora
+recargo de la hora           = horaBaseCuadrilla × r
+
+precio sugerido = max(
+  costo de la hora × cargas indirectas ÷ (1 − margen − impuestos),
+  hora normal equivalente + recargo × cargas indirectas ÷ (1 − margen − impuestos)
+)
+
+hora normal equivalente
+  cobrando por hora            = la tarifa
+  cobrando por día             = tarifa ÷ horas por día
+  abono, cerrado, por unidad   = (Σ personas × costo del mes ÷ horas normales + usoEquiposHora) × cargas indirectas ÷ (1 − margen − impuestos)
+```
+
+- El costo es el **marginal** de esa hora: sueldos, amortización y seguros ya están en el mes. Por eso el precio sugerido tiene un piso: una hora fuera de horario nunca sale más barata que una normal (la normal también paga sueldos, amortización y estructura).
+- La hora normal leída de la tarifa se calcula con la misma cotización **sin** las tarifas fuera de horario (no hay cuenta circular). Con abono, precio cerrado o por unidad la tarifa incluye materiales, mínimos o guardia: ahí el piso es la hora normal de los recursos con margen (`normalHourSource: 'resources'`).
+- **Las horas estimadas no abaratan la tarifa principal**: al calcular la tarifa requerida, cada hora fuera de horario sugerida cuenta sólo por el precio que cubre su costo (`neutralRevenue`); lo que cobra de más por el piso es ganancia adicional si esas horas ocurren. El resultado del mes sí usa el ingreso completo.
+- Los tramos de horas extra cargados en el puesto (`overtimeItems`) siguen calculándose sobre el básico (sin cambio de números); las tarifas nuevas usan básico + adicionales.
+- Una línea sin recargo (`premiumPct` ≤ 0) genera un aviso.
+- Alquilados y tercerizados no suman uso por hora (su tarifa depende del proveedor): si cobran aparte fuera de horario, se carga como adicional a mano.
+- Con horas estimadas por mes > 0, la línea suma costo y facturación como cualquier adicional; con 0 sólo queda la tarifa publicada. Un precio escrito a mano reemplaza al sugerido.
+- La completitud no pide costo ni precio a estas líneas (se derivan).
+
+**Dedicación propuesta** (`serviceTimeSharePct`, `proposeServiceShares`):
+
+```
+% propuesto = horas del servicio en el mes ÷ horas normales del mes   (1 decimal, entre 0,1 % y 100 %)
+horas del servicio = días con trabajo × horas por día
+```
+
+Para los equipos propios se usan las horas normales de la cuadrilla (las mayores cargadas; sin personal, las del parámetro por defecto). Es una **propuesta**: sólo se aplica cuando el usuario elige "también hacen otros trabajos", se guarda como `fixedCostSharePct` explícito y **no se recalcula solo** al cambiar los días. La parte del sueldo que no cubre este servicio queda a cargo de los otros trabajos: la pantalla lo dice.
+
+**Guardia**: sin fórmulas nuevas. "Guardia pasiva: fijo por mes" es `rules.availabilityFeeMonthly` y "Guardia activa: plus por cada llamado" es `rules.calloutFeePerActivation` (§ reglas comerciales).
+

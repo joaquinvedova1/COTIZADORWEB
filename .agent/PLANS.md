@@ -121,6 +121,7 @@ Cómo se vuelve atrás (revert vía PR; redeploy de tag/SHA; qué pasa con datos
 | PLAN-2026-022 | Tanda B (especialistas 2026-11): materiales y otros costos por unidad producida, unificada con PLAN-2026-021 (B-2), mínimo garantizado en unidades con ventana de pérdida (B-3) y aviso "Unidad del proveedor" (H-04) | motor de costos, utilización, completitud, UX | Implementado |
 | PLAN-2026-023 | Tanda B (especialistas 2026-11, B-1): diagrama de rotación por puesto → nómina, personas en sitio, relevos y turnos | motor de personal, completitud, UX | Implementado |
 | PLAN-2026-024 | Plantillas como puntos de partida y esquemas de trabajo: cobertura vendida ≠ organización del personal ≠ costos ≠ facturación | contrato, personal, actividad, completitud, UX | En rama (a probar con el dueño) |
+| PLAN-2026-025 | Cotización guiada por recursos: recursos primero, tarifas por persona (hora normal / 50 % / 100 %), fuera de horario derivado, guardia opcional | personal, adicionales, utilización, pasos, UX | Publicado |
 
 ### Pendientes registrados (sin implementar)
 
@@ -1303,3 +1304,23 @@ Esquema sin cambio. Campos opcionales: `materials[].usagePct`, `otherCosts[].usa
 **Pruebas:** `tests/engines/plan-2026-024-esquemas.test.js` (casos A–D, viajes, plantillas, avisos) y recorrido Playwright de los casos A y C en escritorio y celular (plantilla, atajos, esquema 5x2, 14x7, carga de HE, viajes con el relevo, Resultado y PDF, guardado).
 
 **Fuera de alcance:** banco de horas / promedios de la Ley 27.802 (vigencia en discusión), régimen de feriados y domingos dentro del diagrama, costo por persona en sitio por día, movilización única de equipos al inicio del abono, $/HH vendida en el abono, conductor de un vehículo ligado a un puesto.
+
+### PLAN-2026-025 — Cotización guiada por recursos (recursos primero, fuera de horario y guardia opcional)
+
+**Origen:** pedido del dueño (2026-11-15), con el Anexo III de una operadora como referencia de desglose (inmuebles / equipos / rodados con amortización, mano de obra con cargas, materiales, combustibles y mantenimiento, resumen con impuestos, beneficio y costo financiero, apropiación a tarifas). La pantalla de guardia confundía: el cotizador "sabe cuánta gente tiene, cuánto le sale por mes y su horario normal"; quiere partir de ahí, que el sistema pregunte si cotiza fuera de horario (hora 50 % / 100 %) y dejar la guardia (pasiva fija + plus por llamado activo) sólo para quien la vende.
+
+**Evaluación:** la idea es correcta y coincide con el modelo del motor (costo de tener + costo de usar). Tres salvedades que se resolvieron en el diseño: (a) "horas × costo por hora" sólo vale si la gente también hace otros trabajos; si está sólo para este servicio, el servicio paga todo el mes → pregunta de dedicación; (b) el costo marginal de una hora extra puede ser menor que el precio de una hora normal → piso "hora normal + recargo"; (c) la guardia ya existía como abono de disponibilidad + cargo por llamado: se renombra y se vuelve opcional, sin fórmulas nuevas. Sin diagramas de rotación (decisión de alcance 2026-11-08).
+
+**Decisiones:**
+1. Orden de pasos: servicio → recursos → cómo se cobra → costos → precio → resultado (6 etapas). Mismas URLs.
+2. Personal muestra por persona: por mes con cargas, hora normal, hora extra 50 % y 100 %. Equipos: mantenimiento a la vista.
+3. Fuera de horario = líneas derivadas en `quote.extras` (`kind: 'overtime'`, `premiumPct`), costo de los recursos y precio sugerido con piso de hora normal (docs/CALCULATION_RULES.md §24). No aparecen en la tabla de adicionales a mano.
+4. Dedicación: % PROPUESTO por horas, aplicado sólo por elección explícita y guardado como % explícito (AGENTS.md, "Asignación a la cotización").
+5. Guardia: sí / no; pasiva = `rules.availabilityFeeMonthly`; activa = `rules.calloutFeePerActivation`; el detalle anterior queda en un desplegable.
+
+**Compatibilidad:** sin `SCHEMA_VERSION` nueva; cotizaciones guardadas sin cambios numéricos (golden y baseline sin re-aprobar). Una cotización con guardia cargada abre con "Sí, con guardia".
+
+**Pruebas:** `tests/engines/plan-2026-025-recursos-primero.test.js` y recorrido Playwright (semi on call, instalación a precio cerrado, cuadrilla con camión por jornada) en escritorio y celular.
+
+**Fuera de alcance:** régimen de feriados por convenio, tarifa fuera de horario de equipos alquilados, tarifa nocturna, repartir el % de dedicación entre varias cotizaciones a la vez.
+

@@ -641,6 +641,7 @@ export function render(container, ctx) {
     // Valores copiados de una plantilla o equipo de demostración (UX-02).
     const ill = kit.lineIllustrative(p, { what: 'este equipo' });
     const illustrative = ill.marked;
+    const wear = wearGroups(i, illustrative);
     return kit.lineCard(
       {
         title: kit.out(() => (quote.equipment[i] && quote.equipment[i].name) || 'Equipo sin nombre'),
@@ -687,6 +688,8 @@ export function render(container, ctx) {
             : 'Eléctrico, manual o estacionario: marcalo en vez de dejar el consumo en 0.',
         }),
       ),
+      // PLAN-2026-025: el mantenimiento a la vista (junto con la amortización es lo primero que se pregunta).
+      wear[0],
       kit.region((r) => wearWarningsRegion(r, i)),
       // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
       assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
@@ -734,7 +737,7 @@ export function render(container, ctx) {
           ),
           capitalCostNote(i),
         ),
-        ...wearGroups(i, illustrative),
+        wear[1],
       ),
       kit.advanced(
         {

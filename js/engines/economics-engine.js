@@ -12,7 +12,7 @@
  *   Ganancia sobre el costo = Resultado / Costo
  */
 
-import { nonNegative } from '../core/money.js';
+import { nonNegative, isFiniteNumber } from '../core/money.js';
 import { costAtActivity, buildCostModel } from './cost-engine.js';
 import { computeRevenue, requiredNetRate, listRateFromNet, discountFactor, findVolumeTier, continuityApplies, normalizeRules, unitHasDayTiers } from './commercial-rules-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
@@ -25,7 +25,7 @@ import { billingTaxInfo } from './billing-taxes-engine.js';
  * @param {object} quote
  * @param {object} model resultado de buildCostModel(quote)
  */
-export function createEconomicsContext(quote, model) {
+export function createEconomicsContext(quote, model, { referenceHourPrice = null, referenceHourCost = null } = {}) {
   const pricing = quote.pricing || {};
   const taxes = billingTaxInfo(quote);
   const unitInfo = billingUnitOf(quote);
@@ -33,12 +33,16 @@ export function createEconomicsContext(quote, model) {
   // El precio sugerido cubre el costo CARGADO del adicional: cuánto sube el costo
   // fijo del mes por cada $ de costo directo (estructura %, financiero, contingencia).
   const margin = readMarginInput(pricing.targetMarginPct);
-  const direct = computeExtras(quote.extras).cost;
+  // Con el costo de las tarifas fuera de horario ya derivado de los recursos (PLAN-2026-025).
+  const resolved = model.resolvedExtras !== undefined ? model.resolvedExtras : quote.extras;
+  const direct = computeExtras(resolved).cost;
   const loadFactor = direct > 0 ? (model.fixedMonthly - buildCostModel({ ...quote, extras: [] }).fixedMonthly) / direct : 1;
-  const extras = computeExtras(quote.extras, {
+  const extras = computeExtras(resolved, {
     targetMarginPct: margin.state === 'invalid' ? null : margin.state === 'ok' ? margin.value : 0,
     billingTaxPct: taxes.pct,
     loadFactor,
+    referenceHourPrice,
+    referenceHourCost,
   });
   return {
     billingTaxPct: taxes.pct,
@@ -103,7 +107,7 @@ export function overtimeBillingOf(model = null) {
 }
 
 /** Facturación con D días y una tarifa de lista dada. */
-export function revenueAt(ctx, activeDays, listRate, { tierOverride = null } = {}) {
+export function revenueAt(ctx, activeDays, listRate, { tierOverride = null, neutralExtras = false } = {}) {
   return computeRevenue({
     listRate,
     activeDays,
@@ -116,7 +120,9 @@ export function revenueAt(ctx, activeDays, listRate, { tierOverride = null } = {
     tierOverride,
     materialsResale: ctx.materialsResale || null,
     overtimeBilling: ctx.overtimeBilling || null,
-    extrasMonthly: ctx.extras ? ctx.extras.revenue : 0,
+    // neutralExtras (PLAN-2026-025): para calcular la tarifa principal, las horas fuera de horario
+    // cuentan sólo por el precio que cubre su costo (su piso de hora normal no abarata la tarifa).
+    extrasMonthly: ctx.extras ? (neutralExtras && isFiniteNumber(ctx.extras.neutralRevenue) ? ctx.extras.neutralRevenue : ctx.extras.revenue) : 0,
   });
 }
 
@@ -155,7 +161,7 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
   const D = nonNegative(activeDays);
   const cost = costAtActivity(ctx.model, D);
   // Unidades y otros ingresos no dependen de la tarifa: se evalúan con tarifa 0.
-  const rev0 = revenueAt(ctx, D, 0, { tierOverride });
+  const rev0 = revenueAt(ctx, D, 0, { tierOverride, neutralExtras: true });
   const units = rev0.billableUnits;
   const other = rev0.otherRevenue;
   const rules = normalizeRules(ctx.rules);

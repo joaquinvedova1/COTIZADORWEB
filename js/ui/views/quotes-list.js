@@ -41,8 +41,9 @@ const STATUS_TONES = Object.freeze({ draft: 'gray', sent: 'blue', won: 'green', 
 
 /** Etapas del editor (para explicar "cómo sigue" sin mostrar los 11 pasos). */
 const QUOTE_STAGES = Object.freeze([
-  { title: 'El servicio', text: 'Qué servicio vas a prestar y cómo lo vas a cobrar.' },
-  { title: 'Los recursos', text: 'Personal, equipos, materiales y viajes.' },
+  { title: 'El servicio', text: 'Qué servicio vas a prestar y cómo te paga el cliente.' },
+  { title: 'Los recursos', text: 'Tu gente (sueldo por mes y valor de su hora), equipos, materiales y viajes.' },
+  { title: 'Cómo se cobra', text: 'Unidad, horario normal, cuánto esperás trabajar y tarifas fuera de horario.' },
   { title: 'Costos y condiciones', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
   { title: 'El precio', text: 'Cuánto querés ganar y tus reglas comerciales.' },
   { title: 'Resultado', text: 'Costo, tarifa piso, tarifa sugerida y días para no perder plata.' },
@@ -707,7 +708,7 @@ export async function renderNewQuote(root, app) {
         : h('p', { class: 'muted small' }, 'Todavía no tenés plantillas de servicio. Podés guardar cualquier cotización como plantilla desde su resultado.'),
       h('p', { class: 'muted small' }, '¿Vendés unidades que hacés vos (por unidad, docena o kilo)? ', h('a', { href: '#/productos/nuevo' }, 'Calculá un producto'), ' en lugar de un servicio.'),
       disclosure(
-        { summary: '¿Cómo sigue?', hint: 'Cinco etapas, de la descripción del servicio a la tarifa.', className: 'disclosure-plain' },
+        { summary: '¿Cómo sigue?', hint: 'Seis etapas, de la descripción del servicio a la tarifa.', className: 'disclosure-plain' },
         h(
           'ol',
           { class: 'stage-list' },

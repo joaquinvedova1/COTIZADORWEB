@@ -74,15 +74,16 @@ Antes del resultado completo, cuatro pasos de una pregunta cada uno: el servicio
 
 ### Editor de cotización
 
-Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **5 etapas**:
+Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **6 etapas** con los recursos antes que la forma de cobro (PLAN-2026-025):
 
 | Etapa | Pasos internos |
 |---|---|
-| 1. El servicio | Tipo de servicio, modalidad |
-| 2. Los recursos | Personal, equipos (propios, alquilados o tercerizados), materiales, movilización y viajes |
-| 3. Costos y condiciones | Gastos de estructura, financiamiento, imprevistos |
-| 4. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
-| 5. Resultado | Resultado |
+| 1. El servicio | Qué servicio es y qué incluye |
+| 2. Los recursos | Personal (con su costo por mes, hora normal, hora extra 50 % y 100 %), equipos (amortización y mantenimiento a la vista), materiales, movilización y viajes |
+| 3. Cómo se cobra | Lo que cuestan los recursos, unidad y actividad en horario normal, dedicación, fuera de horario (opcional), guardia (opcional), adicionales |
+| 4. Costos y condiciones | Gastos de estructura, financiamiento, imprevistos |
+| 5. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
+| 6. Resultado | Resultado (con "Tus tarifas": horario normal, fuera de horario y guardia) |
 
 Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, días para no perder) y "Ver más". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
 
