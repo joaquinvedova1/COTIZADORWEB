@@ -59,16 +59,22 @@ body.is-public .skip-link:not(:focus) { box-shadow: none; }
 
 /* ----------------------------------------------------------------- marca */
 
-.pub-brand { display: inline-flex; align-items: center; gap: 0.6rem; min-height: 44px; color: var(--ink); text-decoration: none; border-radius: 8px; flex-shrink: 0; }
+.pub-brand { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; color: var(--ink); text-decoration: none; border-radius: 8px; flex-shrink: 0; }
 .pub-brand-mark {
-  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--navy-900) 0%, var(--blue-600) 100%);
-  color: var(--white); font-weight: 800; font-size: 1rem; letter-spacing: -0.02em;
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.14);
+  width: 32px; height: 32px; flex-shrink: 0; overflow: hidden;
+  background: url("../assets/brand/rateos-mark.svg") center / contain no-repeat;
+  color: transparent; font-size: 0; user-select: none; -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-.pub-brand-name { font-weight: 800; font-size: 1.06rem; letter-spacing: 0.09em; color: var(--navy-900); }
-.pub-brand-sm .pub-brand-mark { width: 26px; height: 26px; border-radius: 7px; font-size: 0.85rem; }
-.pub-brand-sm .pub-brand-name { font-size: 0.95rem; }
+.pub-brand-name {
+  width: 125px; height: 19px; flex-shrink: 0; overflow: hidden;
+  background: url("../assets/brand/rateos-wordmark.svg") left center / contain no-repeat;
+  color: transparent; font-size: 0; user-select: none; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.pub-brand-sm .pub-brand-mark { width: 26px; height: 26px; }
+.pub-brand-sm .pub-brand-name { width: 99px; height: 15px; }
+@media (forced-colors: active) {
+  .pub-brand-mark, .pub-brand-name, .pub-brand-sm .pub-brand-mark, .pub-brand-sm .pub-brand-name { background: none; width: auto; height: auto; font-size: revert; font-weight: 800; color: CanvasText; }
+}
 
 /* ------------------------------------------------------ encabezado landing */
 

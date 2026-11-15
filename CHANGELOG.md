@@ -28,6 +28,11 @@ Reglas para este archivo:
 - **Guardia opcional y al final**: "¿El cliente te paga por estar de guardia?" (No por defecto). Con guardia: **"Guardia pasiva: fijo por mes"** (el abono de disponibilidad de siempre, `rules.availabilityFeeMonthly`) y **"Guardia activa: plus por cada llamado"** (`rules.calloutFeePerActivation`). El detalle (24/7 o franja, días de guardia, tiempo de respuesta) queda en "Detalle de la guardia".
 - **Mantenimiento del equipo a la vista** en la tarjeta del equipo (antes dentro de "Opciones avanzadas").
 - El adicional predefinido "Hora fuera de horario" (costo a mano) se reemplaza por las tarifas derivadas; los adicionales ya cargados siguen igual.
+**Logo nuevo (2026-11-15).** Sólo imagen de marca: ningún cálculo, texto ni dato cambia.
+
+### Cambiado
+
+- Logo rediseñado: monograma R plano (azul marino con la pata en naranja) y logotipo en trazados SVG, en lugar del cuadrado con degradé. Ícono de pestaña nuevo. Guía en [docs/BRAND.md](docs/BRAND.md).
 
 **On call sin guardia y nombres más claros (2026-11-10).** Ningún costo ni facturación cambia; esquema sin cambio de versión (nuevo valor `activity.availability = 'none'`).
 
