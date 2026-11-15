@@ -13,7 +13,7 @@ import { logger } from '../../../core/logger.js';
 import { userErrorMessage } from '../../layout.js';
 import { accountEntry } from '../../../services/auth-routing.js';
 import { renderQuoteResult } from '../quote-result.js';
-import { flowHeader, headerLink, isSignedIn, pubLink, reportLink } from './public-chrome.js';
+import { flowHeader, headerLink, isSignedIn, pubLink } from './public-chrome.js';
 
 export async function render(root, app) {
   app.setHeader({ title: 'Ejemplo: análisis completo' });
@@ -21,7 +21,6 @@ export async function render(root, app) {
   const header = flowHeader({
     actions: [
       headerLink('Volver a la demo', '#/demo?paso=4', { iconBefore: 'arrowLeft' }),
-      reportLink(app, { className: 'pub-header-link pub-report-link', short: true }),
       signedIn
         ? pubLink('Abrir RATEOS', '#/inicio', { tone: 'primary', size: 'md' })
         : pubLink(accountEntry('/cotizaciones/nueva').label, accountEntry('/cotizaciones/nueva').hash, { tone: 'primary', size: 'md' }),

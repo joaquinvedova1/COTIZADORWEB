@@ -198,3 +198,26 @@ describe('supabase/migrations: reportes de problemas (PLAN-2026-020)', () => {
     }
   });
 });
+
+
+describe('supabase/migrations: reportes sin sesión (todos pueden reportar)', () => {
+  const FILE = FILES.find((f) => /_rateos_bug_reports_anon\.sql$/.test(f));
+  const C = FILE ? readFileSync(path.join(DIR, FILE), 'utf8').replace(/--[^\n]*/g, '').toLowerCase() : '';
+
+  test('anon no recibe nada: el alta sin sesión sólo la ejecuta service_role', () => {
+    assert.ok(FILE);
+    assert.doesNotMatch(C, /grant [^;]* to [^;]*\banon\b/);
+    assert.doesNotMatch(C, /grant usage on schema private to anon/);
+    assert.match(C, /revoke all on function private\.submit_public_bug_report\(jsonb, text\) from public, anon, authenticated/);
+    assert.match(C, /revoke all on function public\.submit_public_bug_report\(jsonb, text\) from public, anon, authenticated/);
+    assert.match(C, /grant execute on function public\.submit_public_bug_report\(jsonb, text\) to service_role/);
+    assert.match(C, /revoke all on function private\.insert_bug_report\(jsonb, uuid, text\) from public, anon, authenticated/);
+  });
+
+  test('con sesión sigue exigiendo auth.uid(); sin sesión hay límite por origen y tope global', () => {
+    assert.match(C, /if v_uid is null then\s+raise exception 'forbidden' using errcode = '42501'/);
+    assert.match(C, /b\.source_key = p_source_key/);
+    assert.match(C, />= 40/);
+    assert.match(C, />= 300/);
+  });
+});

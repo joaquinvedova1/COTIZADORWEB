@@ -2,6 +2,7 @@
  * "Reportar un problema" — única puerta a Supabase para los reportes
  * (supabase/migrations/20261107021710_rateos_bug_reports.sql).
  *
+ * - submitPublic(): sin sesión, Edge Function "bug-report-submit".
  * - submit(): public.submit_bug_report (sólo con sesión; la base valida
  *   largos y limita la cantidad por persona). Es la fuente de verdad.
  * - Después avisa a la Edge Function "bug-report-github", que crea el issue
@@ -62,6 +63,32 @@ export function createFeedbackGateway(client) {
         }
       }
       return { ok: true, code: null, reference };
+    },
+
+    /**
+     * Sin sesión: Edge Function "bug-report-submit" (service_role adentro;
+     * la base no le da nada a anon). Nunca crea un issue de GitHub.
+     * @returns {Promise<{ ok: boolean, code: string|null, reference: string|null }>}
+     */
+    async submitPublic(payload) {
+      if (!client.functions || typeof client.functions.invoke !== 'function') return { ok: false, code: FEEDBACK_ERRORS.unknown, reference: null };
+      try {
+        const res = await client.functions.invoke('bug-report-submit', { body: { report: payload } });
+        if (res && res.error) {
+          const status = Number(res.error.context && res.error.context.status);
+          if (status === 429) return { ok: false, code: FEEDBACK_ERRORS.rateLimited, reference: null };
+          if (status === 400 || status === 413) return { ok: false, code: FEEDBACK_ERRORS.invalid, reference: null };
+          const name = String(res.error.name || '');
+          if (name === 'FunctionsFetchError' || name === 'FunctionsRelayError') return { ok: false, code: FEEDBACK_ERRORS.network, reference: null };
+          return { ok: false, code: FEEDBACK_ERRORS.unknown, reference: null };
+        }
+        const data = res ? res.data : null;
+        if (!data || data.ok !== true) return { ok: false, code: FEEDBACK_ERRORS.unknown, reference: null };
+        const reference = typeof data.reference === 'string' && REFERENCE_RE.test(data.reference) ? data.reference : null;
+        return { ok: true, code: null, reference };
+      } catch (error) {
+        return { ok: false, code: feedbackErrorCode(error) || FEEDBACK_ERRORS.unknown, reference: null };
+      }
     },
 
     /** Reportes recibidos (RATEOS_ADMIN). */
