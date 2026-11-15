@@ -1,11 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="RATEOS">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#003B73"/>
-      <stop offset="1" stop-color="#087EA4"/>
-    </linearGradient>
-  </defs>
-  <rect width="32" height="32" rx="7" fill="url(#g)"/>
-  <path d="M11 23.5V8.5h6.25a4.25 4.25 0 0 1 0 8.5H11M16.75 17l5.25 6.5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="8" y="26" width="16" height="1.6" rx="0.8" fill="#3BA7D8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="RATEOS">
+  <title>RATEOS</title>
+  <rect width="64" height="64" rx="14" fill="#003B73"/>
+  <g transform="translate(-2 0)"><path fill="#FFFFFF" fill-rule="evenodd" d="M18 14h17.5a11 11 0 0 1 0 22H28v14H18zM28 21.5v7h7.5a3.5 3.5 0 0 0 0-7z"/><path fill="#E89B32" d="M30.5 36H41l9 14H39.5z"/></g>
 </svg>
