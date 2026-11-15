@@ -51,7 +51,7 @@ El token **nunca** va al repositorio, al frontend ni a un chat: sólo a los secr
 ## 5. Piezas
 
 - `supabase/migrations/20261107021710_rateos_bug_reports.sql` — tabla, RPC y permisos.
-- `supabase/migrations/20261110153000_rateos_bug_reports_anon.sql` — alta sin sesión (sólo service_role), paso, triage.
+- `supabase/migrations/20261115224947_rateos_bug_reports_anon.sql` — alta sin sesión (sólo service_role), paso, triage.
 - `supabase/functions/bug-report-submit/index.ts` — Edge Function del alta sin sesión (`verify_jwt` off; sin secretos propios).
 - `supabase/functions/bug-report-github/index.ts` — Edge Function (se despliega con el plugin/MCP de Supabase o `supabase functions deploy bug-report-github --no-verify-jwt`; verifica la sesión adentro).
 - `js/data/feedback-gateway.js`, `js/services/feedback-service.js`, `js/ui/report-problem.js` — app.
