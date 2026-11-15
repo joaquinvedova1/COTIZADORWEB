@@ -391,8 +391,8 @@ export function render(container, ctx) {
         kit.stats(
           kit.stat('Por mes con cargas', (r) => (at(r) && at(r).perPerson.fixedMonthly > 0 ? formatMoney(at(r).perPerson.fixedMonthly) : EMPTY), { emphasis: true, hint: 'Sueldo básico y adicionales con aguinaldo, vacaciones, cargas patronales y ART, más seguros, ropa y capacitación. Las cargas se cambian en "Opciones avanzadas".' }),
           kit.stat('Hora normal', (r) => (at(r) && at(r).perPerson.loadedHourlyCost > 0 ? formatMoney(at(r).perPerson.loadedHourlyCost) : EMPTY), { hint: (r) => `Costo por mes ÷ ${formatNumber(nonNegative(quote.labor[i] && quote.labor[i].normalHoursPerMonth), { decimals: 2 })} horas normales por mes.` }),
-          kit.stat('Hora extra 50 %', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost50 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost50) : EMPTY), { hint: 'Lo que pagás de más por cada hora fuera del horario normal con recargo del 50 %: (básico ÷ horas normales) × 1,5, con cargas.' }),
-          kit.stat('Hora extra 100 %', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost100 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost100) : EMPTY), { hint: 'Lo mismo con recargo del 100 % (lo habitual en domingos y feriados; revisá tu convenio): (básico ÷ horas normales) × 2, con cargas.' }),
+          kit.stat('Hora extra 50\u00a0%', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost50 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost50) : EMPTY), { hint: 'Lo que pagás de más por cada hora fuera del horario normal con recargo del 50 %: (básico ÷ horas normales) × 1,5, con cargas.' }),
+          kit.stat('Hora extra 100\u00a0%', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost100 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost100) : EMPTY), { hint: 'Lo mismo con recargo del 100 % (lo habitual en domingos y feriados; revisá tu convenio): (básico ÷ horas normales) × 2, con cargas.' }),
         )),
       kit.keyline({
         label: 'Costo del puesto',

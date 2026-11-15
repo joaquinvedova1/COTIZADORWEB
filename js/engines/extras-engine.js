@@ -82,7 +82,7 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
     const revenue = price !== null ? quantity * price : 0;
     return {
       id: e.id ?? `extra-${i + 1}`,
-      label: typeof e.label === 'string' && e.label.trim() ? e.label.trim() : derived ? `Hora fuera de horario (extra ${nonNegative(e.premiumPct)} %)` : 'Adicional',
+      label: typeof e.label === 'string' && e.label.trim() ? e.label.trim() : derived ? `Hora fuera de horario (extra ${nonNegative(e.premiumPct)}\u00a0%)` : 'Adicional',
       // Tarifa fuera de horario derivada de los recursos (PLAN-2026-025).
       derived,
       ...(derived ? {

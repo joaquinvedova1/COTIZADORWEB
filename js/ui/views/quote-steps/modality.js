@@ -786,7 +786,7 @@ export function render(container, ctx) {
     },
   });
   const resourcesCard = card(
-    { title: 'Lo que cuestan tus recursos', subtitle: 'Lo que cargaste en la etapa anterior. Con esto y con cuánto esperás trabajar sale la tarifa.', className: 'qe-resources-card' },
+    { title: 'Lo que cuestan tus recursos', subtitle: 'La parte de tus recursos que paga este servicio (cambia si también hacen otros trabajos). Con esto y con cuánto esperás trabajar sale la tarifa.', className: 'qe-resources-card' },
     kit.stats(
       resourceStat('Personal', isLabor, 'labor', 'Sin personal cargado.'),
       resourceStat('Equipos y vehículos', isEquipment, 'equipment', 'Sin equipos cargados.'),
@@ -840,7 +840,7 @@ export function render(container, ctx) {
     ? card(
       { title: '¿Tu gente y tus equipos trabajan sólo para este servicio?', subtitle: 'Define cuánto de sus sueldos y de la amortización tiene que pagar este servicio.', className: 'qe-dedication-card' },
       choiceGroup({
-        label: 'Dedicación',
+        label: 'Elegí una opción',
         name: 'resourcesDedication',
         value: dedicationValue,
         disabled: kit.readOnly,
@@ -869,9 +869,9 @@ export function render(container, ctx) {
               return p !== null && (!Number.isFinite(now) || Math.abs(now - p) > 0.05);
             });
             return h('p', { class: 'qe-note' },
-              `Con lo cargado, este servicio les ocupa ${num(proposal.serviceHours)} h por mes (${num(r.activity.activeDaysPerMonth)} días × ${num(r.activity.hoursPerActiveDay)} h): ${pctText(first)} de un mes normal. `,
+              `Hoy este servicio les ocupa ${num(proposal.serviceHours)} h por mes: el ${pctText(first)} de su mes. `,
               stale && !kit.readOnly ? button(`Usar ${pctText(first)}`, { variant: 'secondary', size: 'sm', onClick: () => applyShares(false) }) : null,
-              ' El % queda fijo: si cambiás los días, volvé a mirarlo. Si los otros trabajos no aparecen, esa parte del sueldo queda sin cubrir.');
+              ' Si cambiás los días, revisá este porcentaje. Si los otros trabajos no aparecen, esa parte del sueldo queda sin cubrir.');
           }, { tag: 'div', allowEmpty: true }))
         : null,
       dedicationValue === null && sharedCount > 0
@@ -900,7 +900,7 @@ export function render(container, ctx) {
       h('strong', {}, kit.out((r) => (oohLine(r, i) ? oohLine(r, i).label : x.label || 'Hora fuera de horario'))),
       h('span', { class: 'small muted' }, Number(x.premiumPct) >= 100 ? 'Lo habitual: sábados a la tarde, domingos y feriados (revisá tu convenio).' : 'Lo habitual: días de semana fuera del horario y sábados a la mañana (revisá tu convenio).')),
     kit.stats(
-      kit.stat('Te cuesta por hora', (r) => (oohLine(r, i) && oohLine(r, i).costPerUnit > 0 ? formatMoney(oohLine(r, i).costPerUnit) : EMPTY), {
+      kit.stat('Te cuesta por hora (gente + equipos)', (r) => (oohLine(r, i) && oohLine(r, i).costPerUnit > 0 ? formatMoney(oohLine(r, i).costPerUnit) : EMPTY), {
         hint: (r) => {
           const b = r.outOfHours && r.outOfHours.basis;
           if (!b) return '';
@@ -937,7 +937,7 @@ export function render(container, ctx) {
         const o = r.outOfHours || {};
         if (!o.basis || !(o.basis.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, `Falta el personal con su sueldo (en "${stepName('labor')}"): sin eso no se puede calcular la hora extra.`);
         return h('p', { class: 'qe-note' }, isFiniteNumber(o.normalHourPrice)
-          ? `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${o.normalHourSource === 'resources' ? 'lo que cuestan tu gente y tus equipos por hora, con tu margen' : 'sale de tu tarifa'}). El precio sugerido fuera de horario es esa hora más el recargo de las horas extra, y se cobra aparte.`
+          ? `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${o.normalHourSource === 'resources' ? 'lo que cuestan tu gente y tus equipos por hora, con tu margen' : 'sale de tu tarifa'}). El precio sugerido es esa hora más el recargo de las horas extra. Se cobra aparte de la tarifa.`
           : 'Cargá las horas de trabajo por día para comparar con tu hora normal.');
       }, { tag: 'div', allowEmpty: true })
       : null,

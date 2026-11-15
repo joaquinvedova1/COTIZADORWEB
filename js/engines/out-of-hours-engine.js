@@ -46,8 +46,8 @@ export const OUT_OF_HOURS_KIND = 'overtime';
 
 /** Recargos de partida (editables; los del 50 % y 100 % son los habituales, no normativa). */
 export const OUT_OF_HOURS_PRESETS = Object.freeze([
-  Object.freeze({ premiumPct: 50, label: 'Hora fuera de horario (extra 50 %)' }),
-  Object.freeze({ premiumPct: 100, label: 'Hora fuera de horario (extra 100 %)' }),
+  Object.freeze({ premiumPct: 50, label: 'Hora fuera de horario (extra 50\u00a0%)' }),
+  Object.freeze({ premiumPct: 100, label: 'Hora fuera de horario (extra 100\u00a0%)' }),
 ]);
 
 /** ¿El adicional es una tarifa fuera de horario derivada de los recursos? */

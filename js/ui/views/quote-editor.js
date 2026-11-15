@@ -165,7 +165,7 @@ export const STEP_COPY = Object.freeze({
   },
   modality: {
     question: '¿Cómo lo vas a cobrar?',
-    why: 'Ya sabés cuánto cuestan tus recursos. Ahora elegí en qué unidad cobrás y cuánto esperás trabajar: con eso sale la tarifa. Fuera de horario y guardia son opcionales.',
+    why: 'Ya sabés cuánto cuestan tus recursos. Ahora elegí en qué unidad cobrás y cuánto esperás trabajar: con eso sale la tarifa. Lo demás es opcional.',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
