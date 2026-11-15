@@ -145,14 +145,24 @@ html { scroll-padding-top: 7rem; }
   overflow-y: auto;
   padding: 1.1rem 0.85rem 1rem;
 }
-.brand { display: flex; align-items: center; gap: 0.6rem; color: var(--navy-900); text-decoration: none; border-radius: var(--radius-sm); min-width: 0; }
+.brand { display: flex; align-items: center; gap: 0.5rem; color: var(--navy-900); text-decoration: none; border-radius: var(--radius-sm); min-width: 0; }
 .brand-sidebar { padding: 0.2rem 0.45rem 1.1rem; }
+/* Marca: isotipo y logotipo son SVG (assets/brand/). El texto del HTML ("R", "RATEOS")
+   queda oculto a la vista; el nombre accesible lo da el aria-label del enlace. */
 .brand-mark {
-  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex-shrink: 0;
-  background: linear-gradient(135deg, var(--blue-400), var(--navy-900)); color: var(--white); font-weight: 800; letter-spacing: -0.02em;
-  box-shadow: 0 1px 2px rgba(0, 59, 115, 0.25);
+  width: 32px; height: 32px; flex-shrink: 0; overflow: hidden;
+  background: url("../assets/brand/rateos-mark.svg") center / contain no-repeat;
+  color: transparent; font-size: 0; user-select: none; -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-.brand-name { font-weight: 800; font-size: 1.08rem; letter-spacing: 0.08em; color: var(--navy-900); }
+.brand-name {
+  width: 119px; height: 18px; flex-shrink: 0; overflow: hidden;
+  background: url("../assets/brand/rateos-wordmark.svg") left center / contain no-repeat;
+  color: transparent; font-size: 0; user-select: none; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+/* Alto contraste: vuelve el texto ("R", "RATEOS") con el color del sistema. */
+@media (forced-colors: active) {
+  .brand-mark, .brand-name { background: none; width: auto; height: auto; font-size: revert; font-weight: 800; color: CanvasText; }
+}
 .brand-tag { font-size: 0.72rem; color: var(--ink-3); line-height: 1.2; }
 
 .sidebar-cta { width: 100%; gap: 0.5rem; margin: 0 0 1.1rem; min-height: 38px; padding: 0.45rem 0.7rem; font-size: 0.92rem; }

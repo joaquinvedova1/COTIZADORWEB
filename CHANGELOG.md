@@ -12,6 +12,12 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Logo nuevo (2026-11-15).** Sólo imagen de marca: ningún cálculo, texto ni dato cambia.
+
+### Cambiado
+
+- Logo rediseñado: monograma R plano (azul marino con la pata en naranja) y logotipo en trazados SVG, en lugar del cuadrado con degradé. Ícono de pestaña nuevo. Guía en [docs/BRAND.md](docs/BRAND.md).
+
 **On call sin guardia y nombres más claros (2026-11-10).** Ningún costo ni facturación cambia; esquema sin cambio de versión (nuevo valor `activity.availability = 'none'`).
 
 ### Cambiado
