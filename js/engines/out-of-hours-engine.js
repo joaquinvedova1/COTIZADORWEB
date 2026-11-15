@@ -23,9 +23,14 @@
  *     (b) evita que una hora fuera de horario salga más barata que una normal:
  *     la hora normal también paga sueldos, amortización y estructura.
  *
- *   hora normal equivalente = tarifa principal × unidades facturadas por mes
- *                             ÷ (días con trabajo × horas por día)
- *     calculada SIN las horas fuera de horario (así no hay cuenta circular).
+ *   hora normal equivalente
+ *       cobrando por hora: la tarifa · por día: tarifa ÷ horas por día
+ *         (calculada SIN las horas fuera de horario: no hay cuenta circular)
+ *       abono, precio cerrado o por unidad: hora normal de los recursos con margen
+ *         (Σ personas × costo del mes ÷ horas normales + uso de equipos)
+ *
+ *   Las horas estimadas no abaratan la tarifa principal: al calcularla, cada hora
+ *   fuera de horario cuenta sólo por el precio que cubre su costo.
  *
  * Las líneas viven en `quote.extras` con `kind: 'overtime'` y `premiumPct`
  * (50, 100 u otro): se cobran aparte, como cualquier adicional. Alquilados y
@@ -59,16 +64,20 @@ export function hasOutOfHours(extras) {
  * Base de costo por hora de los recursos de la cotización.
  * @param {object} labor resultado de computeLabor
  * @param {object[]} equipment líneas de equipos del modelo de costos
- * @returns {{ crewBasePerHour: number, equipmentPerHour: number, people: number, equipmentUnits: number }}
+ * @returns {{ crewBasePerHour: number, crewNormalPerHour: number, equipmentPerHour: number, people: number, equipmentUnits: number }}
  */
 export function outOfHoursBasis(labor = null, equipment = []) {
   const lines = labor && Array.isArray(labor.lines) ? labor.lines : [];
   let crewBasePerHour = 0;
+  let crewNormalPerHour = 0;
   let people = 0;
   lines.forEach((l) => {
     const positions = nonNegative(l && l.positions);
     if (!(positions > 0) || !l.perPerson) return;
-    crewBasePerHour += positions * nonNegative(l.perPerson.hourlyBase) * nonNegative(l.perPerson.loadFactor, 1);
+    const base = isFiniteNumber(l.perPerson.overtimeBaseHourly) ? l.perPerson.overtimeBaseHourly : l.perPerson.hourlyBase;
+    crewBasePerHour += positions * nonNegative(base) * nonNegative(l.perPerson.loadFactor, 1);
+    // Hora normal de la gente: todo su costo del mes ÷ horas normales.
+    crewNormalPerHour += positions * nonNegative(l.perPerson.loadedHourlyCost);
     people += positions;
   });
   let equipmentPerHour = 0;
@@ -81,7 +90,7 @@ export function outOfHoursBasis(labor = null, equipment = []) {
     equipmentPerHour += nonNegative(e.operation.totalPerHour) * quantity;
     equipmentUnits += quantity;
   });
-  return { crewBasePerHour, equipmentPerHour, people, equipmentUnits };
+  return { crewBasePerHour, crewNormalPerHour, equipmentPerHour, people, equipmentUnits };
 }
 
 /** Costo de UNA hora fuera de horario con recargo `premiumPct` (horas extra de la gente + uso de equipos). */
@@ -115,14 +124,27 @@ export function resolveExtras(extras, basis) {
   });
 }
 
+/** Costo de UNA hora normal de los recursos (gente con todo su costo del mes + uso de equipos). */
+export function resourceNormalHourCost(basis) {
+  const b = basis || {};
+  return nonNegative(b.crewNormalPerHour) + nonNegative(b.equipmentPerHour);
+}
+
 /**
- * Hora normal equivalente de una cotización ya calculada (SIN tarifas fuera de
- * horario): lo que el cliente paga por una hora de trabajo en horario normal.
- * @returns {number|null} null si falta la tarifa o las horas de trabajo
+ * Hora normal que paga el cliente, leída de la tarifa principal (cotización
+ * calculada SIN tarifas fuera de horario). Sólo tiene sentido cuando se cobra
+ * por hora (la tarifa misma) o por día (tarifa ÷ horas por día). Con abono,
+ * precio cerrado o por unidad producida la tarifa incluye otras cosas
+ * (materiales, mínimos, guardia): ahí la referencia es la hora normal de los
+ * recursos (`resourceNormalHourCost`, con margen).
+ * @returns {number|null}
  */
-export function normalHourEquivalent({ listRate, billableUnits, activeDays, hoursPerActiveDay } = {}) {
+export function normalHourEquivalent({ unitKind, listRate, hoursPerActiveDay } = {}) {
   if (!isFiniteNumber(listRate) || !(listRate > 0)) return null;
-  const hours = nonNegative(activeDays) * nonNegative(hoursPerActiveDay);
-  const value = safeDivide(listRate * nonNegative(billableUnits), hours, null);
-  return isFiniteNumber(value) && value > 0 ? value : null;
+  if (unitKind === 'hour') return listRate;
+  if (unitKind === 'day') {
+    const value = safeDivide(listRate, nonNegative(hoursPerActiveDay), null);
+    return isFiniteNumber(value) && value > 0 ? value : null;
+  }
+  return null;
 }

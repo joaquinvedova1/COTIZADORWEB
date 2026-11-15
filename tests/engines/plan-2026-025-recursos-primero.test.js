@@ -17,6 +17,7 @@ import {
   outOfHoursSurchargePerHour,
   resolveExtras,
   normalHourEquivalent,
+  resourceNormalHourCost,
 } from '../../js/engines/out-of-hours-engine.js';
 import { serviceTimeSharePct, proposeServiceShares } from '../../js/engines/utilization-engine.js';
 import { QUOTE_STEPS } from '../../js/domain/catalogs.js';
@@ -45,9 +46,19 @@ describe('PLAN-2026-025 — tarifas por persona', () => {
     const r = computeQuote(semiQuote());
     const p = r.model.labor.lines[0].perPerson;
     assert.ok(p.hourlyBase > 0 && p.loadFactor >= 1);
-    near(p.overtimeHourlyCost50, p.hourlyBase * 1.5 * p.loadFactor);
+    near(p.overtimeHourlyCost50, p.hourlyBase * 1.5 * p.loadFactor); // sin adicionales: básico por hora
     near(p.overtimeHourlyCost100, p.hourlyBase * 2 * p.loadFactor);
     assert.ok(p.overtimeHourlyCost100 > p.overtimeHourlyCost50);
+  });
+
+  test('los adicionales remunerativos entran en la base de la hora extra (sueldo habitual)', () => {
+    const q = semiQuote();
+    q.labor[0].additionalsMonthly = 600000;
+    const p = computeQuote(q).model.labor.lines[0].perPerson;
+    near(p.overtimeBaseHourly, (2000000 + 600000) / q.labor[0].normalHoursPerMonth);
+    near(p.overtimeHourlyCost50, p.overtimeBaseHourly * 1.5 * p.loadFactor);
+    // Los tramos de horas extra ya cargados siguen con el básico por hora de siempre.
+    near(p.hourlyBase, 2000000 / q.labor[0].normalHoursPerMonth);
   });
 });
 
@@ -63,14 +74,15 @@ describe('PLAN-2026-025 — motor de fuera de horario', () => {
   });
 
   test('base por hora: gente con cargas + uso de equipos propios en uso', () => {
-    const labor = { lines: [{ positions: 2, perPerson: { hourlyBase: 1000, loadFactor: 1.5 } }, { positions: 0, perPerson: { hourlyBase: 9999, loadFactor: 1 } }] };
+    const labor = { lines: [{ positions: 2, perPerson: { hourlyBase: 1000, loadFactor: 1.5, loadedHourlyCost: 2000 } }, { positions: 0, perPerson: { hourlyBase: 9999, loadFactor: 1, loadedHourlyCost: 9999 } }] };
     const equipment = [
       { acquisition: 'owned', quantity: 1, hoursPerActiveDay: 8, operation: { totalPerHour: 400 } },
       { acquisition: 'owned', quantity: 1, hoursPerActiveDay: 0, operation: { totalPerHour: 5000 } }, // sólo traslada
       { acquisition: 'rented', quantity: 1, hoursPerActiveDay: 8, operation: { totalPerHour: 5000 } }, // del proveedor
     ];
     const b = outOfHoursBasis(labor, equipment);
-    assert.deepEqual(b, { crewBasePerHour: 3000, equipmentPerHour: 400, people: 2, equipmentUnits: 1 });
+    assert.deepEqual(b, { crewBasePerHour: 3000, crewNormalPerHour: 4000, equipmentPerHour: 400, people: 2, equipmentUnits: 1 });
+    assert.equal(resourceNormalHourCost(b), 4400);
     assert.equal(outOfHoursCostPerHour(b, 50), 3000 * 1.5 + 400);
     assert.equal(outOfHoursCostPerHour(b, 100), 3000 * 2 + 400);
     assert.equal(outOfHoursSurchargePerHour(b, 50), 1500);
@@ -78,7 +90,7 @@ describe('PLAN-2026-025 — motor de fuera de horario', () => {
   });
 
   test('sin recursos la base es cero y no rompe', () => {
-    assert.deepEqual(outOfHoursBasis(null, null), { crewBasePerHour: 0, equipmentPerHour: 0, people: 0, equipmentUnits: 0 });
+    assert.deepEqual(outOfHoursBasis(null, null), { crewBasePerHour: 0, crewNormalPerHour: 0, equipmentPerHour: 0, people: 0, equipmentUnits: 0 });
     assert.equal(outOfHoursCostPerHour(null, 50), 0);
     assert.equal(outOfHoursSurchargePerHour(undefined, 50), 0);
   });
@@ -95,10 +107,13 @@ describe('PLAN-2026-025 — motor de fuera de horario', () => {
     assert.equal(resolveExtras(undefined, {}), undefined);
   });
 
-  test('hora normal equivalente: tarifa × unidades ÷ horas de trabajo', () => {
-    assert.equal(normalHourEquivalent({ listRate: 900, billableUnits: 10, activeDays: 10, hoursPerActiveDay: 9 }), 100);
-    assert.equal(normalHourEquivalent({ listRate: 0, billableUnits: 10, activeDays: 10, hoursPerActiveDay: 9 }), null);
-    assert.equal(normalHourEquivalent({ listRate: 900, billableUnits: 10, activeDays: 0, hoursPerActiveDay: 9 }), null);
+  test('hora normal de la tarifa: sólo cobrando por hora o por día', () => {
+    assert.equal(normalHourEquivalent({ unitKind: 'hour', listRate: 900, hoursPerActiveDay: 9 }), 900);
+    assert.equal(normalHourEquivalent({ unitKind: 'day', listRate: 900, hoursPerActiveDay: 9 }), 100);
+    assert.equal(normalHourEquivalent({ unitKind: 'day', listRate: 900, hoursPerActiveDay: 0 }), null);
+    assert.equal(normalHourEquivalent({ unitKind: 'month', listRate: 900, hoursPerActiveDay: 9 }), null);
+    assert.equal(normalHourEquivalent({ unitKind: 'quantity', listRate: 900, hoursPerActiveDay: 9 }), null);
+    assert.equal(normalHourEquivalent({ unitKind: 'hour', listRate: 0 }), null);
     assert.equal(normalHourEquivalent(), null);
   });
 });
@@ -131,9 +146,28 @@ describe('PLAN-2026-025 — precio sugerido de la hora fuera de horario', () => 
     assert.equal(l.price, 9000);
   });
 
+  test('sin hora de la tarifa (abono, precio cerrado) el piso es la hora normal de los recursos con margen', () => {
+    const l = computeExtras(resolveExtras([ooh(50)], basis), { ...opts, referenceHourCost: 2400 }).lines[0];
+    near(l.referenceHourPrice, 2400 / 0.8);
+    assert.equal(l.referenceSource, 'resources');
+    near(l.price, 2400 / 0.8 + 500 / 0.8);
+    // Con hora de la tarifa, manda la tarifa.
+    const r = computeExtras(resolveExtras([ooh(50)], basis), { ...opts, referenceHourPrice: 5000, referenceHourCost: 2400 }).lines[0];
+    assert.equal(r.referenceSource, 'rate');
+    near(r.price, 5000 + 500 / 0.8);
+  });
+
+  test('las horas estimadas cuentan para la tarifa principal sólo por el precio que cubre su costo', () => {
+    const { lines, revenue, neutralRevenue } = computeExtras(resolveExtras([ooh(50, { quantityPerMonth: 10 })], basis), { ...opts, referenceHourPrice: 5000 });
+    near(revenue, 10 * lines[0].price);
+    near(neutralRevenue, 10 * lines[0].priceByCost);
+    assert.ok(neutralRevenue < revenue);
+  });
+
   test('los adicionales comunes no cambian', () => {
     const manual = [{ id: 'm', label: 'Km excedente', unitName: 'km', costPerUnit: 100, quantityPerMonth: 10 }];
-    assert.deepEqual(computeExtras(manual, opts), computeExtras(manual, { ...opts, referenceHourPrice: 5000 }));
+    assert.deepEqual(computeExtras(manual, opts), computeExtras(manual, { ...opts, referenceHourPrice: 5000, referenceHourCost: 900 }));
+    assert.equal(computeExtras(manual, opts).neutralRevenue, computeExtras(manual, opts).revenue);
   });
 });
 
@@ -173,6 +207,9 @@ describe('PLAN-2026-025 — cotización completa (semi con chofer, on call)', ()
     assert.ok(r.kpis.totalCost > base.kpis.totalCost);
     near(r.kpis.totalCost - base.kpis.totalCost, l.costPerUnit * 10, 1e-3);
     assert.equal(r.extras.missingPrice, 0);
+    // Las horas estimadas no abaratan la tarifa principal (si no ocurren, el margen no cae).
+    near(r.kpis.commercialListRate, base.kpis.commercialListRate, 1e-3);
+    assert.ok(r.kpis.marginPct >= base.kpis.marginPct - 1e-6);
     assert.equal(r.issues.some((i) => /adicional/i.test(i.message || '') && /precio/i.test(i.message || '')), false);
   });
 
@@ -181,6 +218,29 @@ describe('PLAN-2026-025 — cotización completa (semi con chofer, on call)', ()
     const b = computeQuote(semiQuote({ extras: [{ id: 'm', label: 'Km excedente', unitName: 'km', costPerUnit: 100, quantityPerMonth: 0 }] }));
     near(a.kpis.commercialListRate, b.kpis.commercialListRate);
     assert.equal(b.outOfHours.active, false);
+  });
+});
+
+describe('PLAN-2026-025 — abono y precio cerrado: el piso no sale de la tarifa', () => {
+  for (const [mode, unit] of [['monthly', 'month'], ['closed', 'job']]) {
+    test(`${mode}: la hora fuera de horario queda cerca de la hora de los recursos, no de la tarifa total`, () => {
+      const q = semiQuote({ extras: [ooh(50)] });
+      q.contract = { mode, components: ['labor', 'vehicle'] };
+      q.unit = unit;
+      q.activity.activeDaysPerMonth = 2;
+      q.activity.hoursPerActiveDay = 4;
+      const r = computeQuote(q);
+      const l = r.outOfHours.lines[0];
+      assert.equal(r.outOfHours.rateHourPrice, null);
+      assert.equal(r.outOfHours.normalHourSource, 'resources');
+      assert.ok(l.price >= l.priceByCost - 1e-6);
+      assert.ok(l.price < l.priceByCost * 3, `${l.price} vs ${l.priceByCost}`);
+    });
+  }
+
+  test('una tarifa fuera de horario sin recargo se avisa', () => {
+    const r = computeQuote(semiQuote({ extras: [ooh(0)] }));
+    assert.ok(r.issues.some((i) => /no tiene recargo/.test(i.message)));
   });
 });
 

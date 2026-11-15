@@ -937,8 +937,8 @@ export function render(container, ctx) {
         const o = r.outOfHours || {};
         if (!o.basis || !(o.basis.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, `Falta el personal con su sueldo (en "${stepName('labor')}"): sin eso no se puede calcular la hora extra.`);
         return h('p', { class: 'qe-note' }, isFiniteNumber(o.normalHourPrice)
-          ? `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (lo que cobrás por mes ÷ las horas de trabajo). Las horas fuera de horario se cobran aparte, encima de eso.`
-          : 'Cargá los días con trabajo y las horas por día para comparar con tu hora normal.');
+          ? `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${o.normalHourSource === 'resources' ? 'lo que cuestan tu gente y tus equipos por hora, con tu margen' : 'sale de tu tarifa'}). El precio sugerido fuera de horario es esa hora más el recargo de las horas extra, y se cobra aparte.`
+          : 'Cargá las horas de trabajo por día para comparar con tu hora normal.');
       }, { tag: 'div', allowEmpty: true })
       : null,
   ) : null;

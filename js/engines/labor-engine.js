@@ -154,6 +154,7 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
 
   const hourlyBase = safeDivide(basic, normalHours, 0);
   const overtimeHourly = hourlyBase * (1 + otPremium);
+  const overtimeBaseHourly = safeDivide(remunerative, normalHours, 0);
   // Tramos de horas extra (con el campo único de siempre si no hay lista).
   const billed = line.overtimeBilled === true;
   const overtimeItems = overtimeItemsOf(line).map((o) => {
@@ -219,8 +220,11 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
       loadedHourlyCost,
       // Tarifas de referencia de la persona (PLAN-2026-025): lo que cuesta UNA hora extra con el
       // recargo habitual (50 % y 100 %, valores de partida editables en los tramos) y con cargas.
-      overtimeHourlyCost50: hourlyBase * 1.5 * loadFactor,
-      overtimeHourlyCost100: hourlyBase * 2 * loadFactor,
+      // Base: básico + adicionales remunerativos (la hora extra se liquida sobre el sueldo habitual).
+      // Los tramos de horas extra ya cargados (`overtimeItems`) siguen con `hourlyBase` de siempre.
+      overtimeBaseHourly,
+      overtimeHourlyCost50: overtimeBaseHourly * 1.5 * loadFactor,
+      overtimeHourlyCost100: overtimeBaseHourly * 2 * loadFactor,
       // Horas extra por mes (tramos "horas promedio por mes"): fijo del mes.
       overtimeMonthly: overtimeMonthlyPerPerson,
     },

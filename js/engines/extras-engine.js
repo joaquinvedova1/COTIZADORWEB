@@ -45,12 +45,19 @@ function optional(value) {
  * @param {{ targetMarginPct?: number, billingTaxPct?: number }} [opts]
  * @returns {{ lines: object[], cost: number, revenue: number, missingPrice: number }}
  */
-export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, loadFactor = 1, referenceHourPrice = null } = {}) {
+export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, loadFactor = 1, referenceHourPrice = null, referenceHourCost = null } = {}) {
   // Carga del costo directo (estructura %, financiero, contingencia): el precio
   // sugerido cubre el costo CARGADO, así el adicional no baja el margen total.
   // Margen objetivo inválido (null) → no se sugiere precio (como la tarifa principal).
   const load = isFiniteNumber(loadFactor) && loadFactor > 0 ? loadFactor : 1;
   const marginOk = isFiniteNumber(targetMarginPct);
+  // Hora normal de referencia: la de la tarifa (por hora o por día) o, si no hay, la de los recursos con margen.
+  const fromRate = isFiniteNumber(referenceHourPrice) && referenceHourPrice > 0;
+  const fromResources = !fromRate && marginOk && isFiniteNumber(referenceHourCost) && referenceHourCost > 0
+    ? priceFromMarginAndTaxes(referenceHourCost * load, nonNegative(targetMarginPct), nonNegative(billingTaxPct))
+    : null;
+  const reference = fromRate ? referenceHourPrice : isFiniteNumber(fromResources) && fromResources > 0 ? fromResources : null;
+  const referenceSource = fromRate ? 'rate' : reference !== null ? 'resources' : null;
   const list = Array.isArray(extras) ? extras.filter(isPlainObject) : [];
   const lines = list.map((e, i) => {
     const quantity = nonNegative(optional(e.quantityPerMonth) ?? 0);
@@ -61,8 +68,8 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
     const derived = e.kind === 'overtime';
     const surcharge = derived ? nonNegative(optional(e.surchargePerUnit) ?? 0) : 0;
     const surchargePrice = derived && marginOk && surcharge > 0 ? priceFromMarginAndTaxes(surcharge * load, nonNegative(targetMarginPct), nonNegative(billingTaxPct)) : null;
-    const byNormalHour = derived && marginOk && isFiniteNumber(referenceHourPrice) && referenceHourPrice > 0
-      ? referenceHourPrice + (isFiniteNumber(surchargePrice) ? surchargePrice : 0)
+    const byNormalHour = derived && marginOk && reference !== null
+      ? reference + (isFiniteNumber(surchargePrice) ? surchargePrice : 0)
       : null;
     const usesNormalHour = isFiniteNumber(byNormalHour) && (!isFiniteNumber(byCost) || byNormalHour > byCost);
     const suggested = usesNormalHour ? byNormalHour : byCost;
@@ -82,7 +89,8 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
         premiumPct: nonNegative(e.premiumPct),
         surchargePerUnit: surcharge,
         surchargePrice: isFiniteNumber(surchargePrice) ? surchargePrice : null,
-        referenceHourPrice: isFiniteNumber(referenceHourPrice) && referenceHourPrice > 0 ? referenceHourPrice : null,
+        referenceHourPrice: reference,
+        referenceSource,
         priceByCost: isFiniteNumber(byCost) ? byCost : null,
         priceBasis: isFiniteNumber(suggested) ? (usesNormalHour ? 'normal_hour' : 'cost') : null,
       } : {}),
@@ -96,6 +104,9 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
       cost,
       loadedCost,
       revenue,
+      // Ingreso que sólo cubre su costo con margen: es el que cuenta al calcular la tarifa principal
+      // (lo que una hora fuera de horario cobra de más por el piso de la hora normal no la abarata).
+      neutralRevenue: derived && priceSource === 'suggested' && isFiniteNumber(byCost) ? quantity * Math.min(price, byCost) : revenue,
       // Resultado después de impuestos sobre la facturación y de la carga del costo.
       profit: revenue * keep - loadedCost,
       // Precio a mano que no cubre el costo cargado ni los impuestos.
@@ -106,6 +117,7 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
     lines,
     cost: lines.reduce((s, l) => s + l.cost, 0),
     revenue: lines.reduce((s, l) => s + l.revenue, 0),
+    neutralRevenue: lines.reduce((s, l) => s + l.neutralRevenue, 0),
     // Adicionales con cantidad pero sin precio (ni a mano ni sugerido): no suman ingreso.
     missingPrice: lines.filter((l) => l.quantity > 0 && l.price === null).length,
     belowCost: lines.filter((l) => l.belowCost).length,
