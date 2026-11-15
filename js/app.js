@@ -27,7 +27,7 @@ import { loadVersionInfo } from './services/settings-service.js';
 import { createRecoveryService } from './services/recovery-service.js';
 import { createFeedbackService, describeLocation } from './services/feedback-service.js';
 import { h, mount, downloadText } from './ui/dom.js';
-import { banner, button, card, confirmDialog, ensureToastRegion, toast } from './ui/components.js';
+import { banner, button, card, confirmDialog, ensureToastRegion, icon, toast } from './ui/components.js';
 import { createLayout, userErrorMessage } from './ui/layout.js';
 import { createRouter } from './ui/router.js';
 import { resetSessionMemory } from './ui/session-memory.js';
@@ -486,16 +486,23 @@ async function boot(root) {
       if (!res.ok && res.message) toast(res.message, 'warning');
     },
     /**
-     * "Reportar un problema": con sesión se envía (Supabase → issue de GitHub
-     * sin datos de la persona); sin sesión se abre el issue ya completo en GitHub.
+     * "Reportar un problema": con o sin sesión se envía y queda guardado en
+     * private.bug_reports (con sesión además puede ir a GitHub). GitHub con
+     * el issue ya escrito queda sólo como plan B si el envío falla.
      */
     reportProblem() {
       const current = router ? router.current() : null;
       const routeName = current && current.route ? String(current.route.name || '') : '';
       const signedIn = auth.status === 'authenticated';
-      const canSend = FEATURES.bugReportsCloud === true && signedIn && Boolean(feedback);
+      const canSend = FEATURES.bugReportsCloud === true && Boolean(feedback);
       const mode = routeName.startsWith('demo') ? 'demo' : signedIn ? 'cuenta' : 'publico';
-      openReportProblem({ location: describeLocation(current), version, mode, loginTip: !signedIn && FEATURES.bugReportsCloud === true, submit: canSend ? (payload) => feedback.submit(payload) : null });
+      openReportProblem({
+        location: describeLocation(current),
+        version,
+        mode,
+        publicList: signedIn,
+        submit: canSend ? (payload) => feedback.submit(payload, { signedIn }) : null,
+      });
     },
     renderAccountError(container) {
       mount(container, h('div', { class: 'auth-loading auth-error', role: 'alert' },
@@ -508,6 +515,11 @@ async function boot(root) {
 
   layout.onSignOut(() => app.signOut());
   layout.onReportProblem(() => app.reportProblem());
+  // Pestaña fija al costado: "Reportar un problema" a mano en TODAS las pantallas y pasos.
+  if (!document.querySelector('.report-tab')) {
+    document.body.appendChild(h('button', { type: 'button', class: 'report-tab', title: 'Reportar un problema o algo que no se entiende', on: { click: () => app.reportProblem() } },
+      icon('flag', { size: 16 }), h('span', {}, 'Reportar un problema')));
+  }
 
   async function openAccount() {
     if (!auth.user) return;
