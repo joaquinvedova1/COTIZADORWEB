@@ -16,6 +16,7 @@ import { createTrace } from '../core/trace.js';
 import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
 import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
+import { hasOutOfHours, isOutOfHoursExtra, normalHourEquivalent } from './out-of-hours-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
 import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
@@ -304,7 +305,15 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       severity: 'error',
     });
   });
-  const ctx = createEconomicsContext(quote, model);
+  // Tarifas fuera de horario (PLAN-2026-025): su precio sugerido parte de la hora normal
+  // equivalente de la MISMA cotización sin esas tarifas (sin cuenta circular).
+  let referenceHourPrice = null;
+  const withOutOfHours = hasOutOfHours(quote.extras);
+  if (withOutOfHours) {
+    const base = computeQuote({ ...quote, extras: quote.extras.filter((e) => !isOutOfHoursExtra(e)) }, { settings, listRateOverride });
+    referenceHourPrice = base.outOfHours.normalHourPrice;
+  }
+  const ctx = createEconomicsContext(quote, model, { referenceHourPrice });
   issues.push(...unitIssues(quote, ctx));
   // Adicionales (PLAN-2026-018): sin precio o con precio a mano bajo el costo.
   if (ctx.extras && ctx.extras.missingPrice > 0) {
@@ -814,6 +823,16 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     // Contrato y adicionales (PLAN-2026-018).
     contract: contractOf(quote),
     extras: ctx.extras,
+    // Tarifas fuera de horario (PLAN-2026-025): base por hora de los recursos y la hora normal
+    // equivalente (la de referencia si hay tarifas cargadas; si no, la de esta cotización).
+    outOfHours: {
+      basis: model.outOfHours,
+      active: withOutOfHours,
+      normalHourPrice: withOutOfHours
+        ? referenceHourPrice
+        : normalHourEquivalent({ listRate: commercialListRate, billableUnits: estimate.revenue.billableUnits, activeDays: D, hoursPerActiveDay: activity.hoursPerActiveDay }),
+      lines: ctx.extras.lines.filter((l) => l.derived),
+    },
     estimate,
     ratesAtEstimate,
     targetMarginPct: targetMarginInvalid ? null : targetMarginPct,

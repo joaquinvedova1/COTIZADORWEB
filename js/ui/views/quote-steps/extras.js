@@ -14,10 +14,10 @@ import { COST_CATEGORIES, DIRECT_CATEGORY_IDS } from '../../../domain/catalogs.j
 import { createExtra } from '../../../domain/quote-factory.js';
 import { formatMoney, EMPTY } from '../../../core/format.js';
 import { confirmRemove } from './shared.js';
+import { isOutOfHoursExtra } from '../../../engines/out-of-hours-engine.js';
 
 /** Adicionales frecuentes (un clic los agrega; después se edita todo). */
 const PRESETS = Object.freeze([
-  { label: 'Hora fuera de horario', unitName: 'hora', category: 'labor' },
   { label: 'Feriado o fin de semana', unitName: 'día', category: 'labor' },
   { label: 'Llamado fuera de horario', unitName: 'llamado', category: 'labor' },
   { label: 'Km excedente', unitName: 'km', category: 'fuel' },
@@ -37,6 +37,9 @@ const MODE_INTRO = Object.freeze({
 export function extrasSection(ctx, contract) {
   const { quote, kit } = ctx;
   const extras = Array.isArray(quote.extras) ? quote.extras : [];
+  // Las tarifas fuera de horario (PLAN-2026-025) se cargan en su propia tarjeta: acá no se repiten.
+  // Cada fila recuerda su posición real en quote.extras (los campos usan ese índice).
+  const manual = extras.map((x, i) => ({ x, i })).filter(({ x }) => !isOutOfHoursExtra(x));
   const categoryOptions = COST_CATEGORIES.filter((c) => DIRECT_CATEGORY_IDS.includes(c.id) && c.id !== 'structure').map((c) => ({ value: c.id, label: c.label }));
 
   const add = (preset = {}, focusField = 'quantityPerMonth') => {
@@ -54,25 +57,25 @@ export function extrasSection(ctx, contract) {
   };
   const lineOf = (r, i) => (r.extras && r.extras.lines ? r.extras.lines[i] : null);
 
-  const rows = extras.length
+  const rows = manual.length
     ? table({
       className: 'qe-edit-table qe-stack-table',
       caption: 'Adicionales',
       columns: [
-        { key: 'label', label: 'Concepto', render: (row, i) => kit.text(`extras.${i}.label`, { label: 'Concepto', maxLength: 80, placeholder: 'Ej.: Hora de espera' }) },
-        { key: 'unitName', label: 'Unidad', render: (row, i) => kit.text(`extras.${i}.unitName`, { label: 'Unidad', maxLength: 30, placeholder: 'hora' }) },
-        { key: 'qty', label: 'Por mes', render: (row, i) => kit.num(`extras.${i}.quantityPerMonth`, { label: 'Cantidad estimada por mes', rule: 'quantity', placeholder: 'Ej.: 20' }) },
+        { key: 'label', label: 'Concepto', render: ({ i }) => kit.text(`extras.${i}.label`, { label: 'Concepto', maxLength: 80, placeholder: 'Ej.: Hora de espera' }) },
+        { key: 'unitName', label: 'Unidad', render: ({ i }) => kit.text(`extras.${i}.unitName`, { label: 'Unidad', maxLength: 30, placeholder: 'hora' }) },
+        { key: 'qty', label: 'Por mes', render: ({ i }) => kit.num(`extras.${i}.quantityPerMonth`, { label: 'Cantidad estimada por mes', rule: 'quantity', placeholder: 'Ej.: 20' }) },
         {
           key: 'cost',
           label: 'Tu costo',
-          render: (row, i) => h('div', { class: 'qe-cell-stack' },
+          render: ({ i }) => h('div', { class: 'qe-cell-stack' },
             kit.num(`extras.${i}.costPerUnit`, { label: 'Tu costo por unidad', rule: 'money', unit: '$' }),
             kit.select(`extras.${i}.category`, { label: 'Tipo de costo', options: categoryOptions })),
         },
         {
           key: 'price',
           label: 'Precio',
-          render: (row, i) => h('div', { class: 'qe-cell-stack' },
+          render: ({ i }) => h('div', { class: 'qe-cell-stack' },
             kit.num(`extras.${i}.price`, { label: 'Precio al cliente por unidad (sin IVA)', rule: 'money', unit: '$', placeholder: 'Sugerido' }),
             kit.out((r) => {
               const l = lineOf(r, i);
@@ -88,18 +91,18 @@ export function extrasSection(ctx, contract) {
           label: 'Por mes',
           align: 'right',
           className: 'qe-col-calc',
-          render: (row, i) => kit.out((r) => {
+          render: ({ i }) => kit.out((r) => {
             const l = lineOf(r, i);
             return l && l.quantity > 0 ? formatMoney(l.revenue) : EMPTY;
           }, { className: 'mono nowrap' }),
         },
-        { key: 'remove', label: '', className: 'qe-col-remove', render: (row, i) => kit.action('', () => remove(i), { variant: 'ghost', icon: 'trash', title: 'Quitar este adicional' }) },
+        { key: 'remove', label: '', className: 'qe-col-remove', render: ({ i }) => kit.action('', () => remove(i), { variant: 'ghost', icon: 'trash', title: 'Quitar este adicional' }) },
       ],
-      rows: extras,
+      rows: manual,
     })
     : null;
 
-  const used = new Set(extras.map((x) => x && x.label));
+  const used = new Set(manual.map(({ x }) => x && x.label));
   const presetButtons = PRESETS.filter((p) => !used.has(p.label)).map((p) => kit.action(p.label, () => add(p), { icon: 'plus', variant: 'secondary' }));
 
   return kit.advanced(
@@ -107,11 +110,12 @@ export function extrasSection(ctx, contract) {
       key: 'extras',
       title: 'Adicionales (se cobran aparte)',
       boxed: true,
-      defaultOpen: extras.length > 0 || contract.mode === 'monthly',
+      defaultOpen: manual.length > 0,
       summary: (r) => {
-        if (!extras.length) return 'Ninguno. Ej.: horas fuera de horario, feriados, llamados extra.';
-        const x = r.extras || { revenue: 0, cost: 0 };
-        return `${extras.length} ${extras.length === 1 ? 'adicional' : 'adicionales'}: ${formatMoney(x.revenue)} por mes facturados (costo ${formatMoney(x.cost)}).`;
+        if (!manual.length) return 'Ninguno. Ej.: km excedente, feriados, llamados extra.';
+        const lines = ((r.extras && r.extras.lines) || []).filter((l) => !l.derived);
+        const sum = (key) => lines.reduce((acc, l) => acc + (l[key] || 0), 0);
+        return `${manual.length} ${manual.length === 1 ? 'adicional' : 'adicionales'}: ${formatMoney(sum('revenue'))} por mes facturados (costo ${formatMoney(sum('cost'))}).`;
       },
     },
     h('p', { class: 'qe-note' },

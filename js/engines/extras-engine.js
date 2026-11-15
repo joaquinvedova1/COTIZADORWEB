@@ -18,6 +18,13 @@
  * un monto mensual estimado (costo e ingreso). Así el fijo mensual cubre lo
  * incluido y cada adicional se cotiza con su propio margen.
  *
+ * Tarifas fuera de horario (PLAN-2026-025, `kind: 'overtime'`): su costo por hora
+ * no se carga a mano, lo deriva out-of-hours-engine de los recursos (resolveExtras)
+ * y llega acá en `costPerUnit` y `surchargePerUnit`. Su precio sugerido es el
+ * mayor entre el que cubre su costo y la hora normal equivalente + el recargo
+ * (`referenceHourPrice`): una hora fuera de horario nunca se sugiere más barata
+ * que una normal.
+ *
  * Función pura: sin DOM, sin storage, sin fecha actual.
  */
 
@@ -38,7 +45,7 @@ function optional(value) {
  * @param {{ targetMarginPct?: number, billingTaxPct?: number }} [opts]
  * @returns {{ lines: object[], cost: number, revenue: number, missingPrice: number }}
  */
-export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, loadFactor = 1 } = {}) {
+export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, loadFactor = 1, referenceHourPrice = null } = {}) {
   // Carga del costo directo (estructura %, financiero, contingencia): el precio
   // sugerido cubre el costo CARGADO, así el adicional no baja el margen total.
   // Margen objetivo inválido (null) → no se sugiere precio (como la tarifa principal).
@@ -49,7 +56,16 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
     const quantity = nonNegative(optional(e.quantityPerMonth) ?? 0);
     const costPerUnit = optional(e.costPerUnit);
     const manual = optional(e.price);
-    const suggested = marginOk && costPerUnit !== null && costPerUnit > 0 ? priceFromMarginAndTaxes(costPerUnit * load, nonNegative(targetMarginPct), nonNegative(billingTaxPct)) : null;
+    const byCost = marginOk && costPerUnit !== null && costPerUnit > 0 ? priceFromMarginAndTaxes(costPerUnit * load, nonNegative(targetMarginPct), nonNegative(billingTaxPct)) : null;
+    // Tarifa fuera de horario: nunca más barata que la hora normal + el recargo de las horas extra.
+    const derived = e.kind === 'overtime';
+    const surcharge = derived ? nonNegative(optional(e.surchargePerUnit) ?? 0) : 0;
+    const surchargePrice = derived && marginOk && surcharge > 0 ? priceFromMarginAndTaxes(surcharge * load, nonNegative(targetMarginPct), nonNegative(billingTaxPct)) : null;
+    const byNormalHour = derived && marginOk && isFiniteNumber(referenceHourPrice) && referenceHourPrice > 0
+      ? referenceHourPrice + (isFiniteNumber(surchargePrice) ? surchargePrice : 0)
+      : null;
+    const usesNormalHour = isFiniteNumber(byNormalHour) && (!isFiniteNumber(byCost) || byNormalHour > byCost);
+    const suggested = usesNormalHour ? byNormalHour : byCost;
     // Precio a mano (también 0, para bonificarlo); vacío → sugerido.
     const price = manual !== null ? manual : isFiniteNumber(suggested) ? suggested : null;
     const priceSource = manual !== null ? 'manual' : isFiniteNumber(suggested) ? 'suggested' : null;
@@ -59,7 +75,17 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
     const revenue = price !== null ? quantity * price : 0;
     return {
       id: e.id ?? `extra-${i + 1}`,
-      label: typeof e.label === 'string' && e.label.trim() ? e.label.trim() : 'Adicional',
+      label: typeof e.label === 'string' && e.label.trim() ? e.label.trim() : derived ? `Hora fuera de horario (extra ${nonNegative(e.premiumPct)} %)` : 'Adicional',
+      // Tarifa fuera de horario derivada de los recursos (PLAN-2026-025).
+      derived,
+      ...(derived ? {
+        premiumPct: nonNegative(e.premiumPct),
+        surchargePerUnit: surcharge,
+        surchargePrice: isFiniteNumber(surchargePrice) ? surchargePrice : null,
+        referenceHourPrice: isFiniteNumber(referenceHourPrice) && referenceHourPrice > 0 ? referenceHourPrice : null,
+        priceByCost: isFiniteNumber(byCost) ? byCost : null,
+        priceBasis: isFiniteNumber(suggested) ? (usesNormalHour ? 'normal_hour' : 'cost') : null,
+      } : {}),
       category: typeof e.category === 'string' ? e.category : 'labor',
       unitName: typeof e.unitName === 'string' && e.unitName.trim() ? e.unitName.trim() : 'unidad',
       quantity,

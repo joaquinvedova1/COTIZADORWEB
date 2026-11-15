@@ -25,7 +25,7 @@ import { billingTaxInfo } from './billing-taxes-engine.js';
  * @param {object} quote
  * @param {object} model resultado de buildCostModel(quote)
  */
-export function createEconomicsContext(quote, model) {
+export function createEconomicsContext(quote, model, { referenceHourPrice = null } = {}) {
   const pricing = quote.pricing || {};
   const taxes = billingTaxInfo(quote);
   const unitInfo = billingUnitOf(quote);
@@ -33,12 +33,15 @@ export function createEconomicsContext(quote, model) {
   // El precio sugerido cubre el costo CARGADO del adicional: cuánto sube el costo
   // fijo del mes por cada $ de costo directo (estructura %, financiero, contingencia).
   const margin = readMarginInput(pricing.targetMarginPct);
-  const direct = computeExtras(quote.extras).cost;
+  // Con el costo de las tarifas fuera de horario ya derivado de los recursos (PLAN-2026-025).
+  const resolved = model.resolvedExtras !== undefined ? model.resolvedExtras : quote.extras;
+  const direct = computeExtras(resolved).cost;
   const loadFactor = direct > 0 ? (model.fixedMonthly - buildCostModel({ ...quote, extras: [] }).fixedMonthly) / direct : 1;
-  const extras = computeExtras(quote.extras, {
+  const extras = computeExtras(resolved, {
     targetMarginPct: margin.state === 'invalid' ? null : margin.state === 'ok' ? margin.value : 0,
     billingTaxPct: taxes.pct,
     loadFactor,
+    referenceHourPrice,
   });
   return {
     billingTaxPct: taxes.pct,

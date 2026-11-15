@@ -12,6 +12,23 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Cotización guiada por recursos: primero cuánto te cuesta, después cómo lo cobrás (2026-11-15, pedido del dueño, PLAN-2026-025).** Ningún número de una cotización existente cambia (golden y baseline de regresión sin re-aprobar): las tarifas fuera de horario son líneas nuevas y opcionales (`extras[i].kind = 'overtime'`), y el % de dedicación sólo se aplica cuando el usuario lo elige. Esquema sin cambio de versión.
+
+### Agregado
+
+- **Tarifas de cada persona** en Personal: costo por mes con cargas, **hora normal**, **hora extra 50 %** y **hora extra 100 %** (`perPerson.overtimeHourlyCost50` / `overtimeHourlyCost100` = básico por hora × 1,5 o × 2 × factor de cargas).
+- **"Trabajo fuera del horario normal (opcional)"** en "Cómo se cobra": RATEOS calcula la hora al 50 % y al 100 % con los recursos de la cotización (horas extra de la gente + uso de los equipos propios) y sugiere su precio: nunca menos que la hora normal más el recargo. Se cobran aparte, con precio propio y horas estimadas opcionales. Motor nuevo `out-of-hours-engine.js`; resultado `outOfHours` en `computeQuote`.
+- **"¿Tu gente y tus equipos trabajan sólo para este servicio?"** (on call y precio cerrado): si también hacen otros trabajos, RATEOS propone el % del mes que les ocupa este servicio (horas del servicio ÷ horas normales del mes) y lo aplica a personal y equipos propios como % explícito (`serviceTimeSharePct`, `proposeServiceShares`).
+- **"Lo que cuestan tus recursos"**: resumen de personal, equipos y materiales al entrar a "Cómo se cobra".
+- **"Tus tarifas (sin IVA)"** en Resultado: horario normal, cada hora fuera de horario, guardia pasiva y plus de guardia activa.
+
+### Cambiado
+
+- **Orden de pasos: los recursos primero.** El servicio → Personal, Equipos, Materiales, Viajes → **Cómo se cobra** (etapa nueva, antes "modalidad" dentro de la etapa 1) → Costos y condiciones → El precio → Resultado. Las URLs de cada paso no cambian.
+- **Guardia opcional y al final**: "¿El cliente te paga por estar de guardia?" (No por defecto). Con guardia: **"Guardia pasiva: fijo por mes"** (el abono de disponibilidad de siempre, `rules.availabilityFeeMonthly`) y **"Guardia activa: plus por cada llamado"** (`rules.calloutFeePerActivation`). El detalle (24/7 o franja, días de guardia, tiempo de respuesta) queda en "Detalle de la guardia".
+- **Mantenimiento del equipo a la vista** en la tarjeta del equipo (antes dentro de "Opciones avanzadas").
+- El adicional predefinido "Hora fuera de horario" (costo a mano) se reemplaza por las tarifas derivadas; los adicionales ya cargados siguen igual.
+
 **On call sin guardia y nombres más claros (2026-11-10).** Ningún costo ni facturación cambia; esquema sin cambio de versión (nuevo valor `activity.availability = 'none'`).
 
 ### Cambiado

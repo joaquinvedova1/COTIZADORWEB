@@ -296,11 +296,12 @@ export const CATEGORY_PAY_GROUP = deepFreeze({
  */
 export const QUOTE_STEPS = deepFreeze([
   { id: 'service', label: 'Contrato' },
-  { id: 'modality', label: 'Cómo se cobra' },
+  // Primero los recursos, después cómo se cobra (PLAN-2026-025): la tarifa sale de lo que cuestan.
   { id: 'labor', label: 'Personal' },
   { id: 'equipment', label: 'Equipos' },
   { id: 'materials', label: 'Materiales' },
   { id: 'logistics', label: 'Movilización y viajes' },
+  { id: 'modality', label: 'Cómo se cobra' },
   { id: 'indirect', label: 'Gastos de estructura' },
   { id: 'finance', label: 'Financiación' },
   { id: 'risk', label: 'Imprevistos' },

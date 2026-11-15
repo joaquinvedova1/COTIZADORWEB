@@ -623,3 +623,7 @@ th.ta-right .qr-th { align-items: flex-end; }
    con el monto sin cortar; la explicación queda en el (i). */
 .qr-floor-extras { display: block; margin-top: 0.3rem; font-weight: 600; color: var(--ink); }
 .qr-floor-extras .info-tip { vertical-align: middle; }
+
+/* PLAN-2026-025 · Tus tarifas */
+.qr-tariffs { margin-top: 1rem; }
+.qr-tariffs .qr-subhead { margin-bottom: 0.35rem; }

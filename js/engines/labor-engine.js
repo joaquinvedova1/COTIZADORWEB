@@ -48,6 +48,11 @@
  * `line.rotation` (asistente de diagrama) NO cambia el costo: sólo propone
  * (rotation-engine.js); el resultado lo devuelve en `rotation` para la UI.
  *
+ * Tarifas de referencia por persona (PLAN-2026-025, sólo informativas: no cambian el costo):
+ *   hora normal      = costo mensual por persona ÷ horas normales del mes
+ *   hora extra 50 %  = valorHora × 1,5 × factorCargas
+ *   hora extra 100 % = valorHora × 2 × factorCargas
+ *
  * Todos los porcentajes son parámetros. Los valores demo son ILUSTRATIVOS.
  */
 
@@ -212,6 +217,10 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
       hourlyBase,
       overtimeHourly,
       loadedHourlyCost,
+      // Tarifas de referencia de la persona (PLAN-2026-025): lo que cuesta UNA hora extra con el
+      // recargo habitual (50 % y 100 %, valores de partida editables en los tramos) y con cargas.
+      overtimeHourlyCost50: hourlyBase * 1.5 * loadFactor,
+      overtimeHourlyCost100: hourlyBase * 2 * loadFactor,
       // Horas extra por mes (tramos "horas promedio por mes"): fijo del mes.
       overtimeMonthly: overtimeMonthlyPerPerson,
     },

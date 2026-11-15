@@ -45,6 +45,7 @@ import { computeFinance, financingDaysOf } from './finance-engine.js';
 import { computeExternalLine } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { computeExtras } from './extras-engine.js';
+import { outOfHoursBasis, resolveExtras } from './out-of-hours-engine.js';
 import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
@@ -545,7 +546,10 @@ export function buildCostModel(quote = {}) {
   // estimado del mes (cantidad × costo por unidad), fijo: no depende de los
   // días de trabajo del precio principal.
   // Cada adicional va a la categoría de costo que eligió la persona (personal por defecto).
-  computeExtras(quote.extras).lines.forEach((x, i) => {
+  // Tarifas fuera de horario (PLAN-2026-025): su costo por hora sale de los recursos.
+  const outOfHours = outOfHoursBasis(labor, equipment);
+  const resolvedExtras = resolveExtras(quote.extras, outOfHours);
+  computeExtras(resolvedExtras).lines.forEach((x, i) => {
     if (!(x.cost > 0)) return;
     const category = DIRECT_CATEGORY_IDS.includes(x.category) && x.category !== 'structure' ? x.category : 'labor';
     lines.push({
@@ -711,6 +715,9 @@ export function buildCostModel(quote = {}) {
     logistics,
     materials,
     otherCosts,
+    // Base por hora de las tarifas fuera de horario y adicionales con ese costo ya derivado.
+    outOfHours,
+    resolvedExtras,
     currency: { code: currency, gaps: currencyGaps },
     lines,
     direct,

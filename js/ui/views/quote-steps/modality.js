@@ -32,6 +32,9 @@ import { extrasSection } from './extras.js';
 import { outsideWindowHours, outsideWindowMessage, activeGuardCoverage, activeGuardLineCheck } from '../../../engines/completeness-engine.js';
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
 import { staffText } from './labor.js';
+import { isOutOfHoursExtra, OUT_OF_HOURS_KIND, OUT_OF_HOURS_PRESETS } from '../../../engines/out-of-hours-engine.js';
+import { proposeServiceShares } from '../../../engines/utilization-engine.js';
+import { createId } from '../../../core/ids.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -375,14 +378,14 @@ export function render(container, ctx) {
   const hoursField = () => kit.num('activity.hoursPerActiveDay', {
     // Un solo nombre (2026-11): "Horas trabajadas por día con llamado" no se entendía. Son las
     // horas que se trabaja cada día que se sale (de 8 a 17 = 9 h), haya guardia o no.
-    label: monthlyContract ? 'Horas de servicio por día' : 'Horas de trabajo por día',
+    label: monthlyContract ? 'Horas de servicio por día' : 'Horas de trabajo por día (horario normal)',
     rule: 'hoursPerDay',
     unit: 'h/día',
     hint: monthlyContract
       ? 'Las horas del día que el cliente tiene cubiertas (8, 12, 24…). No son las horas de cada persona: ésas salen del esquema de cada puesto en Personal. Se usan para el uso de equipos y la tarifa por hora.'
       : quote.unit === 'hour'
-      ? `Las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}.`
-      : `Las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Se usan para el uso de equipos y combustible y la tarifa por hora${guardChosen ? '; no son las horas de guardia' : ''}.`,
+      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`
+      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`,
   });
   const hourly = quote.unit === 'hour';
   const hoursInMain = hourly || monthlyContract || asksAvailability;
@@ -535,7 +538,9 @@ export function render(container, ctx) {
   const availableConflict = hasNumber(quote.activity && quote.activity.availableDaysPerMonth)
     && hasNumber(quote.activity && quote.activity.activeDaysPerMonth)
     && Number(quote.activity.availableDaysPerMonth) < Number(quote.activity.activeDaysPerMonth) - 1e-9;
-  const availableInMain = !byQuantity && !monthlyContract && (guardChosen || !asksAvailability || availableConflict);
+  // PLAN-2026-025: con guardia, los días de guardia van en la tarjeta "Guardia" (opcional, al final).
+  const availableInGuard = guardChosen && !byQuantity && !monthlyContract;
+  const availableInMain = !byQuantity && !monthlyContract && !guardChosen && (!asksAvailability || availableConflict);
   const availableField = () => kit.num('activity.availableDaysPerMonth', {
     label: guardChosen ? 'Días de guardia por mes' : 'Días del mes en que podés trabajar',
     rule: 'daysInMonth',
@@ -554,11 +559,11 @@ export function render(container, ctx) {
   const oldWindowText = quote.activity && typeof quote.activity.availabilityWindow === 'string' ? quote.activity.availabilityWindow.trim() : '';
   // La pregunta de guardia va primero (revisión UX 2026-11): explica los días de guardia que
   // aparecen debajo. El detalle (horas de la franja, tipo de guardia) va después de los días.
-  const availabilityChoice = asksAvailability
+  const availabilityChoice = asksAvailability && guardChosen
     ? h('div', { class: 'qe-availability' },
       kit.choice('activity.availability', {
-        label: h('span', {}, '¿Tenés que estar de guardia?', infoTip('Guardia es el tiempo en que esperás que el cliente te llame, aunque no trabajes. No son las horas que facturás: ésas son las horas de trabajo por día. Si salís sólo cuando te llaman, en tu horario (por ejemplo una cuadrilla de 8 a 17), elegí "Sin guardia". 24/7 normalmente exige relevos del personal.')),
-        options: AVAILABILITY_OPTIONS.map((o) => ({ value: o.id, label: o.label, hint: AVAILABILITY_HINTS[o.id] })),
+        label: '¿Cuándo estás de guardia?',
+        options: AVAILABILITY_OPTIONS.filter((o) => o.id !== 'none').map((o) => ({ value: o.id, label: o.label, hint: AVAILABILITY_HINTS[o.id] })),
         structural: true,
       }))
     : null;
@@ -608,7 +613,6 @@ export function render(container, ctx) {
     : null;
   const activityCard = card(
     {},
-    availabilityChoice,
     byQuantity
       ? quantityFields()
       : formGrid(
@@ -650,7 +654,6 @@ export function render(container, ctx) {
         hoursInMain ? hoursField() : null,
       ),
     coverageShortcutsSlot(),
-    availabilityRow,
     !byQuantity && quote.serviceType !== 'permanent' && !monthlyContract
       ? kit.activationPace({
         T,
@@ -695,7 +698,7 @@ export function render(container, ctx) {
             availableInMain ? null : isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `hasta ${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días por mes` : 'días del mes sin cargar',
             hoursInMain ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día activo` : 'horas por día sin cargar',
             kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
-            isOnCall && a.availability !== 'none' && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
+            isOnCall && !asksAvailability && a.availability !== 'none' && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
           ].filter(Boolean);
           return parts.join(' · ');
         },
@@ -718,7 +721,7 @@ export function render(container, ctx) {
           onValue: () => syncRouteTrips(),
         })
         : null,
-      isOnCall && !(quote.activity && quote.activity.availability === 'none')
+      isOnCall && !asksAvailability && !(quote.activity && quote.activity.availability === 'none')
         ? kit.group(
           'Respuesta on-call',
           formGrid(
@@ -746,6 +749,264 @@ export function render(container, ctx) {
       ),
     ),
   );
+
+  // ------------------------------------------------------------------------------------
+  // PLAN-2026-025 · Cotización guiada por recursos
+  // ------------------------------------------------------------------------------------
+  const setActivityValue = (key, value) => ctx.mutate((q) => {
+    if (!q.activity || typeof q.activity !== 'object') q.activity = {};
+    q.activity[key] = value;
+  });
+  const yesNo = ({ label, name, value, onChange, yes, no }) => choiceGroup({
+    label,
+    name,
+    value,
+    disabled: kit.readOnly,
+    options: [
+      { value: 'no', label: no.label, hint: no.hint },
+      { value: 'yes', label: yes.label, hint: yes.hint },
+    ],
+    onChange,
+  });
+
+  // 1. Lo que cuestan tus recursos (lo cargado en la etapa anterior): de acá sale la tarifa.
+  const sumLines = (r, test, key) => (r.model.lines || []).filter(test).reduce((acc, l) => acc + (l[key] || 0), 0);
+  const isLabor = (l) => l.category === 'labor';
+  const isEquipment = (l) => l.category === 'equipment' || l.category === 'external';
+  const isOther = (l) => !isLabor(l) && !isEquipment(l) && l.category !== 'structure' && l.category !== 'financial' && l.category !== 'contingency';
+  const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => {
+    const fixed = sumLines(r, test, 'fixedMonthly');
+    return fixed > 0.005 ? `${formatMoney(fixed)} por mes` : sumLines(r, test, 'variablePerActiveDay') > 0.005 ? `${formatMoney(sumLines(r, test, 'variablePerActiveDay'))} por día` : EMPTY;
+  }, {
+    hint: (r) => {
+      const fixed = sumLines(r, test, 'fixedMonthly');
+      const variable = sumLines(r, test, 'variablePerActiveDay');
+      if (!(fixed > 0.005) && !(variable > 0.005)) return `${emptyText} Se carga en "${stepName(stepId)}".`;
+      return `${fixed > 0.005 && variable > 0.005 ? `Más ${formatMoney(variable)} por cada día de trabajo. ` : ''}Se cambia en "${stepName(stepId)}".`;
+    },
+  });
+  const resourcesCard = card(
+    { title: 'Lo que cuestan tus recursos', subtitle: 'Lo que cargaste en la etapa anterior. Con esto y con cuánto esperás trabajar sale la tarifa.', className: 'qe-resources-card' },
+    kit.stats(
+      resourceStat('Personal', isLabor, 'labor', 'Sin personal cargado.'),
+      resourceStat('Equipos y vehículos', isEquipment, 'equipment', 'Sin equipos cargados.'),
+      resourceStat('Materiales, combustible y viajes', isOther, 'materials', 'Sin materiales ni viajes cargados.'),
+    ),
+    kit.out((r) => {
+      const b = r.outOfHours && r.outOfHours.basis;
+      if (!b || !(b.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, 'Todavía no cargaste personal con sueldo: ', h('a', { href: ctx.href('labor') }, `cargalo en "${stepName('labor')}"`), ' para que RATEOS calcule tu tarifa.');
+      return '';
+    }, { tag: 'div', allowEmpty: true }),
+  );
+
+  // 2. ¿Trabajan sólo para este servicio? (asignación explícita de cada línea, con un % propuesto).
+  const laborList = Array.isArray(quote.labor) ? quote.labor : [];
+  const equipmentList = Array.isArray(quote.equipment) ? quote.equipment : [];
+  const ownedEquipment = equipmentList.map((e, i) => ({ e, i })).filter(({ e }) => e && e.acquisition !== 'rented' && e.acquisition !== 'outsourced');
+  const shareTargets = [
+    ...laborList.map((l, i) => ({ kind: 'labor', i, line: l, name: (l && l.role) || 'Puesto' })),
+    ...ownedEquipment.map(({ e, i }) => ({ kind: 'equipment', i, line: e, name: (e && e.name) || 'Equipo' })),
+  ].filter((t) => t.line && typeof t.line === 'object');
+  const sharedCount = shareTargets.filter((t) => t.line.assignment === 'shared').length;
+  const dedicationValue = !shareTargets.length ? null : sharedCount === 0 ? 'yes' : sharedCount === shareTargets.length ? 'no' : null;
+  const applyShares = (onlyMissing = false) => {
+    const result = ctx.result;
+    ctx.mutate((q) => {
+      const proposal = proposeServiceShares(q, result ? result.activity : (q.activity || {}));
+      (Array.isArray(q.labor) ? q.labor : []).forEach((l, i) => {
+        if (!l || typeof l !== 'object') return;
+        l.assignment = 'shared';
+        const has = l.fixedCostSharePct !== null && l.fixedCostSharePct !== undefined && l.fixedCostSharePct !== '';
+        if (proposal.labor[i] !== null && !(onlyMissing && has)) l.fixedCostSharePct = proposal.labor[i];
+      });
+      (Array.isArray(q.equipment) ? q.equipment : []).forEach((e, i) => {
+        if (!e || typeof e !== 'object' || e.acquisition === 'rented' || e.acquisition === 'outsourced') return;
+        e.assignment = 'shared';
+        const has = e.fixedCostSharePct !== null && e.fixedCostSharePct !== undefined && e.fixedCostSharePct !== '';
+        if (proposal.equipment[i] !== null && !(onlyMissing && has)) e.fixedCostSharePct = proposal.equipment[i];
+      });
+    });
+  };
+  const applyDedicated = () => ctx.mutate((q) => {
+    (Array.isArray(q.labor) ? q.labor : []).forEach((l) => {
+      if (l && typeof l === 'object' && l.assignment === 'shared') l.assignment = 'dedicated';
+    });
+    (Array.isArray(q.equipment) ? q.equipment : []).forEach((e) => {
+      if (e && typeof e === 'object' && e.assignment === 'shared') e.assignment = 'reserved';
+    });
+  });
+  const pctText = (v) => formatPercent(Number(v));
+  const dedicationCard = shareTargets.length && !monthlyContract
+    ? card(
+      { title: '¿Tu gente y tus equipos trabajan sólo para este servicio?', subtitle: 'Define cuánto de sus sueldos y de la amortización tiene que pagar este servicio.', className: 'qe-dedication-card' },
+      choiceGroup({
+        label: 'Dedicación',
+        name: 'resourcesDedication',
+        value: dedicationValue,
+        disabled: kit.readOnly,
+        options: [
+          { value: 'yes', label: 'Sí, sólo para este servicio', hint: 'Este servicio paga todo su mes, trabajen los días que trabajen. Elegilo si el resto del tiempo quedan esperando.' },
+          { value: 'no', label: 'No, también hacen otros trabajos', hint: 'Este servicio paga sólo la parte del mes que les ocupa. El resto lo pagan los otros trabajos.' },
+        ],
+        onChange: (v) => (v === 'no' ? applyShares(true) : applyDedicated()),
+      }),
+      sharedCount > 0
+        ? h('div', { class: 'qe-dedication-detail' },
+          formGrid(3, ...shareTargets.filter((t) => t.line.assignment === 'shared').map((t) => kit.num(`${t.kind}.${t.i}.fixedCostSharePct`, {
+            label: `${t.name}: % de su mes`,
+            rule: 'sharePct',
+            unit: '%',
+            hint: t.kind === 'labor' ? 'Qué parte de su sueldo con cargas paga este servicio.' : 'Qué parte de su amortización, seguro y patente paga este servicio.',
+          }))),
+          kit.out((r) => {
+            const proposal = proposeServiceShares(quote, r.activity);
+            const first = [...proposal.labor, ...proposal.equipment].find((v) => v !== null);
+            if (first === undefined || first === null) return h('p', { class: 'qe-note' }, 'Cargá arriba los días con trabajo y las horas por día: RATEOS te propone el % (horas de este servicio ÷ horas normales del mes).');
+            const stale = shareTargets.some((t) => {
+              if (t.line.assignment !== 'shared') return false;
+              const p = t.kind === 'labor' ? proposal.labor[t.i] : proposal.equipment[t.i];
+              const now = Number((kit.get(`${t.kind}.${t.i}`) || {}).fixedCostSharePct);
+              return p !== null && (!Number.isFinite(now) || Math.abs(now - p) > 0.05);
+            });
+            return h('p', { class: 'qe-note' },
+              `Con lo cargado, este servicio les ocupa ${num(proposal.serviceHours)} h por mes (${num(r.activity.activeDaysPerMonth)} días × ${num(r.activity.hoursPerActiveDay)} h): ${pctText(first)} de un mes normal. `,
+              stale && !kit.readOnly ? button(`Usar ${pctText(first)}`, { variant: 'secondary', size: 'sm', onClick: () => applyShares(false) }) : null,
+              ' El % queda fijo: si cambiás los días, volvé a mirarlo. Si los otros trabajos no aparecen, esa parte del sueldo queda sin cubrir.');
+          }, { tag: 'div', allowEmpty: true }))
+        : null,
+      dedicationValue === null && sharedCount > 0
+        ? h('p', { class: 'qe-note' }, 'Hoy algunos recursos están compartidos y otros no (se cambia en cada persona o equipo). Elegí una opción para dejarlos todos iguales.')
+        : null,
+    )
+    : null;
+
+  // 3. Fuera del horario normal: tarifas de hora extra derivadas de los recursos (extras 'overtime').
+  const allExtras = Array.isArray(quote.extras) ? quote.extras : [];
+  const oohEntries = allExtras.map((x, i) => ({ x, i })).filter(({ x }) => isOutOfHoursExtra(x));
+  const oohOn = oohEntries.length > 0;
+  const setOutOfHours = (on) => ctx.mutate((q) => {
+    if (!Array.isArray(q.extras)) q.extras = [];
+    if (on) {
+      if (!q.extras.some(isOutOfHoursExtra)) {
+        OUT_OF_HOURS_PRESETS.forEach((preset) => q.extras.push({ id: createId(), kind: OUT_OF_HOURS_KIND, premiumPct: preset.premiumPct, label: preset.label, unitName: 'hora', category: 'labor', quantityPerMonth: null, costPerUnit: null, price: null }));
+      }
+    } else {
+      q.extras = q.extras.filter((x) => !isOutOfHoursExtra(x));
+    }
+  });
+  const oohLine = (r, i) => (r.extras && r.extras.lines ? r.extras.lines[i] : null);
+  const oohRows = oohEntries.map(({ x, i }) => h('div', { class: 'qe-ooh-row' },
+    h('div', { class: 'qe-ooh-head' },
+      h('strong', {}, kit.out((r) => (oohLine(r, i) ? oohLine(r, i).label : x.label || 'Hora fuera de horario'))),
+      h('span', { class: 'small muted' }, Number(x.premiumPct) >= 100 ? 'Lo habitual: sábados a la tarde, domingos y feriados (revisá tu convenio).' : 'Lo habitual: días de semana fuera del horario y sábados a la mañana (revisá tu convenio).')),
+    kit.stats(
+      kit.stat('Te cuesta por hora', (r) => (oohLine(r, i) && oohLine(r, i).costPerUnit > 0 ? formatMoney(oohLine(r, i).costPerUnit) : EMPTY), {
+        hint: (r) => {
+          const b = r.outOfHours && r.outOfHours.basis;
+          if (!b) return '';
+          return `Lo que pagás de más por esa hora: las horas extra de ${num(b.people)} ${b.people === 1 ? 'persona' : 'personas'} con cargas${b.equipmentPerHour > 0 ? ` y el uso de los equipos (${formatMoney(b.equipmentPerHour)} por hora de combustible y mantenimiento)` : ''}. Sueldos y amortización ya están en el mes.`;
+        },
+      }),
+      kit.stat('Precio sugerido por hora', (r) => (oohLine(r, i) && isFiniteNumber(oohLine(r, i).suggestedPrice) ? formatMoney(oohLine(r, i).suggestedPrice) : EMPTY), {
+        emphasis: true,
+        hint: (r) => {
+          const l = oohLine(r, i);
+          if (!l || !isFiniteNumber(l.suggestedPrice)) return 'Cargá el personal, los días y las horas para ver el precio.';
+          return l.priceBasis === 'normal_hour'
+            ? `Tu hora normal (${formatMoney(l.referenceHourPrice)}) más el recargo de las horas extra con tu margen (${formatMoney(l.surchargePrice || 0)}). Así nunca queda más barata que una hora normal.`
+            : 'El costo de esa hora con tus gastos de estructura, tu margen y los impuestos.';
+        },
+      }),
+    ),
+    formGrid(2,
+      kit.num(`extras.${i}.price`, { label: 'Tu precio por hora (opcional)', rule: 'money', unit: '$/h', placeholder: 'Usar el sugerido', hint: 'Sin IVA. Vacío = se usa el sugerido.' }),
+      kit.num(`extras.${i}.quantityPerMonth`, { label: 'Horas estimadas por mes (opcional)', rule: 'quantity', unit: 'h/mes', placeholder: '0', hint: 'Si no sabés, dejalo vacío: el precio queda en la cotización como tarifa y no suma al mes.' }))));
+  const outOfHoursCard = monthlyContract || !byQuantity || kind === 'quantity' || kind === 'event' ? card(
+    { title: 'Trabajo fuera del horario normal (opcional)', subtitle: 'Si te piden trabajar fuera de tu horario, a tu gente le pagás horas extra: esa hora tiene otra tarifa.', className: 'qe-ooh-card' },
+    yesNo({
+      label: '¿Querés cotizar una tarifa fuera de horario?',
+      name: 'outOfHours',
+      value: oohOn ? 'yes' : 'no',
+      no: { label: 'No', hint: 'Sólo se trabaja en el horario normal.' },
+      yes: { label: 'Sí, con horas extra', hint: 'RATEOS calcula la hora al 50 % y al 100 % con tus recursos.' },
+      onChange: (v) => setOutOfHours(v === 'yes'),
+    }),
+    oohOn ? h('div', { class: 'qe-ooh-rows' }, ...oohRows) : null,
+    oohOn
+      ? kit.out((r) => {
+        const o = r.outOfHours || {};
+        if (!o.basis || !(o.basis.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, `Falta el personal con su sueldo (en "${stepName('labor')}"): sin eso no se puede calcular la hora extra.`);
+        return h('p', { class: 'qe-note' }, isFiniteNumber(o.normalHourPrice)
+          ? `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (lo que cobrás por mes ÷ las horas de trabajo). Las horas fuera de horario se cobran aparte, encima de eso.`
+          : 'Cargá los días con trabajo y las horas por día para comparar con tu hora normal.');
+      }, { tag: 'div', allowEmpty: true })
+      : null,
+  ) : null;
+
+  // 4. Guardia (opcional, al final): un fijo bajo por estar disponible + un plus por cada llamado.
+  const feeNow = Number(quote.rules && quote.rules.availabilityFeeMonthly) > 0;
+  const calloutNow = Number(quote.rules && quote.rules.calloutFeePerActivation) > 0;
+  const guardCard = asksAvailability
+    ? card(
+      { title: 'Guardia (opcional)', subtitle: 'Sólo si el cliente te pide estar disponible aunque no te llame. Si salís cuando te llaman, en tu horario, dejalo en "No".', className: 'qe-guard-card' },
+      yesNo({
+        label: '¿El cliente te paga por estar de guardia?',
+        name: 'guardOnOff',
+        value: guardChosen ? 'yes' : 'no',
+        no: { label: 'No, sin guardia', hint: 'Cobrás sólo lo que trabajás.' },
+        yes: { label: 'Sí, con guardia', hint: 'Un fijo por estar disponible y un plus cuando te llaman.' },
+        onChange: (v) => setActivityValue('availability', v === 'yes' ? '24/7' : 'none'),
+      }),
+      guardChosen || feeNow || calloutNow
+        ? formGrid(2,
+          kit.num('rules.availabilityFeeMonthly', {
+            label: 'Guardia pasiva: fijo por mes',
+            rule: 'money',
+            unit: '$/mes',
+            placeholder: 'Ej.: 500.000',
+            hint: `Lo que cobrás por estar disponible, haya ${T.many} o no. Se suma a lo trabajado y baja la tarifa que necesitás por cada ${T.one}.`,
+          }),
+          kit.num('rules.calloutFeePerActivation', {
+            label: `Guardia activa: plus por cada ${T.one}`,
+            rule: 'money',
+            unit: '$',
+            placeholder: 'Ej.: 150.000',
+            hint: `Un cargo fijo cada vez que te llaman y salís, además de las horas o los días trabajados.`,
+          }))
+        : null,
+      !guardChosen && (feeNow || calloutNow) ? h('p', { class: 'qe-note' }, 'Aunque no haya guardia, estos cargos se siguen cobrando. Poné 0 si no corresponden.') : null,
+      guardChosen
+        ? h('p', { class: 'qe-note' }, `Si a tu gente le pagás un adicional por estar de guardia, sumalo en "${stepName('labor')}" → Adicionales: es parte de tu costo.`)
+        : null,
+      guardChosen
+        ? kit.advanced(
+          {
+            key: 'guard-detail',
+            title: 'Detalle de la guardia',
+            summary: () => {
+              const a = quote.activity || {};
+              return [
+                a.availability === AVAILABILITY_WINDOW ? 'en una franja' : '24/7',
+                a.guardType === 'active' ? 'activa (en el lugar)' : a.guardType === 'passive' ? 'pasiva (localizable)' : null,
+                hasNumber(a.availableDaysPerMonth) ? `${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días de guardia por mes` : null,
+                hasNumber(a.responseTimeHours) ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
+              ].filter(Boolean).join(' · ');
+            },
+          },
+          availabilityChoice,
+          availabilityRow,
+          formGrid(2,
+            availableInGuard ? availableField() : null,
+            kit.num('activity.responseTimeHours', {
+              label: 'Tiempo máximo de respuesta',
+              rule: 'hours',
+              unit: 'h',
+              hint: 'Desde el llamado hasta estar operativo en locación.',
+            })),
+        )
+        : null,
+    )
+    : null;
 
   const ladder = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [...DEFAULT_MARGIN_LADDER];
   const breakEvenStat = byQuantity
@@ -837,7 +1098,7 @@ export function render(container, ctx) {
     ? kit.question('¿Qué cobertura vendés en el abono?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Lo que exceda se cobra en "Adicionales".')
     : byQuantity
     ? kit.question(texts.quantityQuestion, `Los costos se calculan con los días de trabajo que lleva hacerlo; la facturación, con ${texts.los} ${info.plural}. Cuanto menos factures, mayor deberá ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
-    : kit.question('¿Cuántos días por mes esperás trabajar?', 'En servicios on-call, cuantos menos días trabajes, mayor deberá ser la tarifa para cubrir los costos fijos.', { term: `utilización (días con trabajo ÷ ${availableNoun})` });
+    : kit.question('¿Cuánto esperás trabajar por mes?', 'Los días con trabajo y tu horario normal. Cuantos menos días trabajes, mayor tiene que ser la tarifa para pagar a tu gente y tus equipos.');
 
   // ¿Cómo viaja el personal? (PLAN-2026-024): reemplaza "Días entre viajes o relevos".
   const hasPeople = contract.labor || (Array.isArray(quote.labor) && quote.labor.length > 0);
@@ -893,10 +1154,14 @@ export function render(container, ctx) {
 
   mount(
     container,
+    resourcesCard,
     modeCard,
     question,
     activityCard,
     travelCard,
+    dedicationCard,
+    outOfHoursCard,
+    guardCard,
     // Por servicio prestado con mínimo mensual garantizado (PLAN-2026-018).
     // En $ o en unidades de cobro ("mínimo 20 días por mes", tanda B 2026-11, B-3).
     !contract.legacy && contract.mode === 'on_demand'

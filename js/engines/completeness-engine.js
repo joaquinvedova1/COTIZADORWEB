@@ -1013,13 +1013,15 @@ export function evaluateCompleteness(quote = {}) {
   // 15. Adicionales (PLAN-2026-018): cada uno con cantidad necesita costo y precio.
   const extrasMargin = readMarginInput((quote.pricing || {}).targetMarginPct);
   const extras = computeExtras(quote.extras, { targetMarginPct: extrasMargin.state === 'invalid' ? null : (extrasMargin.value ?? 0) });
-  const extrasIncomplete = extras.lines.map((x, index) => ({ x, index })).filter(({ x }) => x.quantity > 0 && !(x.costPerUnit > 0));
+  // Las tarifas fuera de horario (PLAN-2026-025) no llevan costo a mano: sale de los recursos.
+  const extrasIncomplete = extras.lines.map((x, index) => ({ x, index })).filter(({ x }) => !x.derived && x.quantity > 0 && !(x.costPerUnit > 0));
   if (extras.lines.some((x) => x.quantity > 0)) {
-    const ok = extrasIncomplete.length === 0 && extras.missingPrice === 0;
+    const missingPrice = extras.lines.filter((x) => !x.derived && x.quantity > 0 && x.price === null).length;
+    const ok = extrasIncomplete.length === 0 && missingPrice === 0;
     const item = rule('extras', 'Adicionales', 'modality', 1, ok ? 'ok' : 'warning',
       ok
         ? 'Adicionales con costo y precio.'
-        : `Hay adicionales sin costo por unidad${extras.missingPrice ? ' o sin precio' : ''}: ${extrasIncomplete.slice(0, 3).map(({ x }) => `"${x.label}"`).join(', ') || 'revisalos'}. Sin el costo, RATEOS no puede sugerir el precio ni saber si ganás con ellos.`);
+        : `Hay adicionales sin costo por unidad${missingPrice ? ' o sin precio' : ''}: ${extrasIncomplete.slice(0, 3).map(({ x }) => `"${x.label}"`).join(', ') || 'revisalos'}. Sin el costo, RATEOS no puede sugerir el precio ni saber si ganás con ellos.`);
     if (!ok && extrasIncomplete.length) item.focus = `extras.${extrasIncomplete[0].index}.costPerUnit`;
     items.push(item);
   }
