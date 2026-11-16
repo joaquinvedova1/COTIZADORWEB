@@ -34,7 +34,7 @@ export const AUTH_MESSAGES = Object.freeze({
   [AUTH_ERRORS.weakPassword]: 'La contraseña es muy débil. Usá al menos 8 caracteres combinando letras y números.',
   [AUTH_ERRORS.samePassword]: 'La contraseña nueva tiene que ser distinta de la anterior.',
   [AUTH_ERRORS.invalidEmail]: 'Revisá el email: no parece válido.',
-  [AUTH_ERRORS.emailNotAuthorized]: 'No pudimos enviarte el email: RATEOS todavía no tiene habilitado el envío de correos a tu dirección. Avisale a quien te dio acceso.',
+  [AUTH_ERRORS.emailNotAuthorized]: 'No pudimos enviarte el email. Probá de nuevo en un rato; si sigue igual, avisanos con «Reportar un problema».',
   [AUTH_ERRORS.rateLimited]: 'Hubo muchos intentos seguidos. Esperá unos minutos y probá de nuevo.',
   [AUTH_ERRORS.linkInvalid]: 'El enlace venció o ya se usó. Pedí uno nuevo.',
   [AUTH_ERRORS.sessionMissing]: 'Tu sesión terminó. Volvé a ingresar.',
@@ -305,6 +305,9 @@ export function createAuthService({ gateway, location = globalThis.location, his
         company: clean(company),
         redirectTo: authRedirectUrl('confirm', next, siteUrl),
       });
+      if (!res.ok && res.code === AUTH_ERRORS.emailNotAuthorized) {
+        logger.warn('Auth: Supabase no envió el correo de confirmación (usa su SMTP por defecto, que sólo envía al equipo del proyecto: configurar un SMTP propio).');
+      }
       if (!res.ok) return { ok: false, errors: res.code === AUTH_ERRORS.emailTaken ? { email: messageFor(res.code) } : {}, message: messageFor(res.code), code: res.code };
       if (res.needsConfirmation) {
         return { ok: true, needsConfirmation: true, message: 'Revisá tu email para confirmar tu cuenta. Te enviamos un enlace.' };

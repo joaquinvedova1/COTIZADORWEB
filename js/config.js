@@ -66,10 +66,12 @@ export const STORAGE_KEYS = Object.freeze({
 export const FEATURES = Object.freeze({
   historicalComparison: false, // Estimado vs real (diseñado en docs/DATA_MODEL.md)
   supabase: true, // Cuentas reales (Supabase Auth) y datos en la nube con RLS.
-  // Registro abierto. false = beta cerrada por invitación (HD-03, PLAN-2026-016):
-  // la app no ofrece "Crear cuenta" y no llama al registro. La barrera real es
-  // Supabase Auth ("Allow new users to sign up" apagado): ver docs/BETA_PERIMETER.md.
-  publicSignup: false,
+  // Registro abierto (decisión del dueño, 2026-11-16: "quiero que sea libre").
+  // false = beta cerrada por invitación (HD-03, PLAN-2026-016): la app no ofrece
+  // "Crear cuenta" y no llama al registro. Requiere en Supabase Auth "Allow new
+  // users to sign up" encendido y un SMTP propio (el de Supabase sólo envía al
+  // equipo del proyecto): ver docs/BETA_PERIMETER.md.
+  publicSignup: true,
   multiOrganization: false,
   analytics: false, // Eventos internos desacoplados; sin envío a terceros.
   commercialModelComparator: true,

@@ -12,6 +12,8 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Registro libre (2026-11-16, decisión del dueño).** `FEATURES.publicSignup = true`: la landing y el ingreso vuelven a ofrecer "Crear cuenta" y `#/registro` muestra el formulario. Requiere en Supabase "Allow new users to sign up" encendido y un SMTP propio (con el SMTP por defecto el correo de confirmación sólo llega al equipo del proyecto). El error `email_address_not_authorized` ya no habla de invitaciones. Sin cambios de cálculo ni de esquema.
+
 **PLAN-2026-026 — Recursos como dueños de los datos, cotización con cantidades y flujo más simple.** Las cotizaciones guardadas no cambian ningún número: los campos nuevos nacen vacíos y sin ellos el motor calcula igual que antes (golden, baseline de regresión y lab sin re-aprobar). Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §27](docs/CALCULATION_RULES.md).
 
 ### Agregado
