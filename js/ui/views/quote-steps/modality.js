@@ -1136,7 +1136,7 @@ export function render(container, ctx) {
       ? kit.out((r) => {
         const o = r.outOfHours || {};
         if (!o.basis || !(o.basis.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, `Falta el personal con su sueldo (en "${stepName('labor')}"): sin eso no se puede calcular la hora extra.`);
-        return h('div', {},
+        return h('div', { class: 'stack stack-tight' },
           h('p', { class: 'qe-note' }, outOfHoursHoursNote(r)),
           h('p', { class: 'qe-note' }, outOfHoursNoteText(r, info)));
       }, { tag: 'div', allowEmpty: true })

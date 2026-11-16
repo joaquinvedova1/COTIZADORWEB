@@ -12,6 +12,32 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Correcciones de la ronda de testeo 2026-11-15, tanda 3 (V-15 a V-33): limpieza y textos.** Ningún número cambia: costos, tarifas y facturación de las cotizaciones guardadas quedan iguales (golden y baseline de regresión sin re-aprobar). Sólo se mueve el puntaje de completitud de las cotizaciones que tenían el aviso "falta quién maneja" (V-22: sube). Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §26](docs/CALCULATION_RULES.md).
+
+### Cambiado
+
+- **Un solo nombre para los cargos de guardia (V-32):** "Fijo por mes por estar de guardia" y "Plus por cada llamado" (o salida, trabajo o intervención, según la cotización) en "Cómo se cobra", en las reglas comerciales de "El precio" y en el Resultado. Antes convivían "Guardia pasiva / activa", "Abono de disponibilidad" y "Cargo por llamado (call-out)". "Activa" y "pasiva" quedan sólo para el tipo de guardia.
+- **"¿Quién maneja?" es opcional (V-22):** ya no genera aviso ni pendiente; ningún cálculo usa el conductor elegido.
+- **La nota de la hora fuera de horario dice para qué sirve (V-26)** cuando se cobra por viaje, km, unidad, abono o precio cerrado: es el precio de cada hora fuera de horario además de lo cotizado, y si un viaje entero cae fuera de horario se cobra el viaje más el recargo por hora. El rótulo dice "Te cuesta por hora (gente)" si no hay equipos propios trabajando.
+- **Horas fuera de horario estimadas (V-27):** se aclara que son además de las horas normales del mes; en el Resultado, el margen y el equilibrio dicen cuánto viene de esas horas.
+- **Guardia que cubre todo (V-28):** si la guardia y los adicionales ya pagan el costo y el margen, el Resultado lo dice y muestra el margen del mes en vez de "aparece cuando haya costos y días activos cargados".
+- **Equipo en espera (V-29):** con días cargados se avisa que bajan la tarifa principal; en precio cerrado la fila no aparece vacía.
+- **"No usa combustible" en un vehículo que viaja (V-30):** ayuda nueva en la casilla, nota en "¿Cómo llega?" y aviso informativo (no resta puntaje) en Equipos y en el Resultado.
+- Textos (V-31 y V-33): peajes de todos los viajes de la salida, capital de trabajo, % de dedicación contra las horas normales, "de 8 a 17 con una hora de almuerzo = 8 h", alquiler por día, total del contrato de un trabajo único, "Otros por año (RTO, GPS, habilitaciones)" y "Vacío = 100 %".
+
+### Corregido
+
+- La base que se muestra para el % de estructura sobre el costo directo no incluía a los proveedores (V-15; el motor sí los incluía: el número no cambia).
+- "Lo que cuestan tus recursos" mostraba sólo la parte fija cuando había fija y variable (V-16).
+- Con fuera de horario activo se seguían ofreciendo "Feriado o fin de semana" y "Llamado fuera de horario" como adicionales (V-17).
+- La salida de caja de un alquiler mensual decía "$ 0 por día activo" (V-18).
+- El buscador de unidades no encontraba m³ ni m² escribiendo "m3" o "m2" (V-19).
+- El sello ILUSTRATIVO del combustible aparecía aunque nadie consumiera combustible (V-20).
+- El material nuevo nacía sin proveedor y dejaba un pendiente (V-21): ahora nace con "Nosotros".
+- Un alquilado con consumo por km pedía además "Consumo en ruta", que no se usaba (V-23).
+- Al pasar a "Por servicio prestado" la unidad quedaba en $/hora en vez de $/día (V-24).
+- Con la lista de recursos vacía se mostraba un selector vacío con su botón "Agregar" (V-25).
+
 **Correcciones de la ronda de testeo 2026-11-15, tanda 2 (V-07 a V-10, V-12 a V-14, V-34 y V-38).** V-34 y V-38 (decisiones del dueño) cambian el precio sugerido de las horas fuera de horario; el resto no cambia precios. La tarifa principal y los costos no cambian en ninguna cotización (golden y baseline de regresión sin re-aprobar). Las reglas de completitud nuevas mueven el puntaje de algunas cotizaciones guardadas. Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §24 y §25](docs/CALCULATION_RULES.md).
 
 ### Cambiado
