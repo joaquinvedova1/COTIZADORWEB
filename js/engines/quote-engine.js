@@ -171,6 +171,9 @@ function resourcesPerDayCheck(quote, unitId, a) {
   return null;
 }
 
+/** Código del aviso "cada llamado hace menos de una unidad" (V-08): la pantalla lo usa para mostrar el ritmo de los llamados. */
+export const SPARSE_ACTIVATIONS_ISSUE = 'sparse_activations';
+
 function unitIssues(quote, ctx) {
   const issues = [];
   const u = ctx.unitInfo;
@@ -217,9 +220,17 @@ function unitIssues(quote, ctx) {
   if (u.kind === 'quantity' && a.unitsPerActiveDay > 0 && !(minCall > 0) && u.id !== 'trip') {
     const perActivation = a.unitsPerActiveDay * a.daysPerActivation;
     if (perActivation < 1 - 1e-9) {
+      // V-08: los dos valores posibles salen de datos ya cargados. Una sola ida para toda la
+      // cantidad del mes (cantidad ÷ por día) o una salida por unidad (1 ÷ por día).
+      const quantity = nonNegative(a.billableQuantityPerMonth);
+      const perUnit = `Si cada ${u.singular} es una salida distinta, cargá ${fmt(1 / a.unitsPerActiveDay)}.`;
+      const fix = quantity > 0
+        ? `Si es una sola ida para ${fmt(quantity)} ${quantity === 1 ? u.singular : u.plural}, cargá ${fmt(quantity / a.unitsPerActiveDay)} días ${T.per}. ${perUnit}`
+        : `Si cada ${u.singular} es una salida distinta, cargá ${fmt(1 / a.unitsPerActiveDay)} días ${T.per}.`;
       issues.push({
         path: 'activity.daysPerActivation',
-        message: `Cada ${T.one} hace sólo ${fmt(perActivation)} ${u.singular} (${fmt(a.unitsPerActiveDay)} por día × ${fmt(a.daysPerActivation)} días): la movilización y los costos ${T.per} se cuentan más de una vez por ${u.singular}. Si cada ${u.singular} es ${T.a} ${T.one}, cargá ${fmt(1 / a.unitsPerActiveDay)} días ${T.per}.`,
+        code: SPARSE_ACTIVATIONS_ISSUE,
+        message: `Cada ${T.one} hace sólo ${fmt(perActivation)} ${u.singular} (${fmt(a.unitsPerActiveDay)} por día × ${fmt(a.daysPerActivation)} días): la movilización y los costos ${T.per} se cuentan más de una vez por ${u.singular}. ${fix}`,
         severity: 'warning',
       });
     }

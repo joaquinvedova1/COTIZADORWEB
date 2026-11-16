@@ -36,6 +36,7 @@ import { staffText } from './labor.js';
 import { isOutOfHoursExtra, OUT_OF_HOURS_KIND, OUT_OF_HOURS_PRESETS } from '../../../engines/out-of-hours-engine.js';
 import { proposeServiceShares, staleDedicationOf, staleDedicationMessage } from '../../../engines/utilization-engine.js';
 import { createId } from '../../../core/ids.js';
+import { SPARSE_ACTIVATIONS_ISSUE } from '../../../engines/quote-engine.js';
 import { dedicationChoiceOf } from '../../../domain/assignment.js';
 
 const MODE_LABELS = Object.freeze({
@@ -120,6 +121,11 @@ function askUnitChange({ from, to, fromUnit, rates, convertible, hours }) {
       onClose: () => resolve(choice),
     });
   });
+}
+
+/** ¿Salta el aviso "cada llamado hace menos de una unidad"? (V-08: ahí el ritmo de los llamados va a la vista). */
+export function sparseActivationsWarned(result) {
+  return Boolean(result && Array.isArray(result.issues) && result.issues.some((i) => i && i.code === SPARSE_ACTIVATIONS_ISSUE));
 }
 
 export function render(container, ctx) {
@@ -647,6 +653,28 @@ export function render(container, ctx) {
         }, { tag: 'div', allowEmpty: true })
         : null)
     : null;
+  // Por cantidad: "¿Cómo son los llamados?" vive en "Opciones avanzadas" (no es la unidad que se
+  // cobra). V-08: cuando salta el aviso "cada llamado hace menos de una unidad" pasa a la vista,
+  // debajo de la cantidad, y ahí se queda hasta que se vuelve a dibujar el paso (no se va
+  // mientras se corrige el dato).
+  const quantityPace = kind === 'quantity'
+    ? kit.activationPace({
+      T,
+      label: `¿Cómo son ${T.theMany} ${T.many}?`,
+      hint: tripUnit
+        ? `Viajes ${T.per} = viajes por día × días ${T.per}.`
+        : `No es la unidad que cobrás: define cuántas ${T.many} (movilizaciones, mínimos ${T.per}) hay en el mes.`,
+      onValue: () => syncRouteTrips(),
+    })
+    : null;
+  const quantityPaceSlot = quantityPace ? h('div', {}, quantityPace) : null;
+  const quantityPaceMain = quantityPace ? h('div', { class: 'qe-pace-main' }) : null;
+  if (quantityPace) {
+    kit.toggle(quantityPaceMain, (r) => {
+      if (quantityPace.parentNode !== quantityPaceMain && sparseActivationsWarned(r)) quantityPaceMain.appendChild(quantityPace);
+      return quantityPace.parentNode === quantityPaceMain;
+    });
+  }
   const activityCard = card(
     {},
     byQuantity
@@ -698,6 +726,7 @@ export function render(container, ctx) {
       })
       : null,
     byQuantity ? quantityKeyline : daysKeyline,
+    quantityPaceMain,
     staffForCoverageSlot(),
     // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
     tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,
@@ -747,16 +776,7 @@ export function render(container, ctx) {
       ),
       // Por cantidad: cuántas intervenciones (movilizaciones, mínimos) hay.
       // Puede durar varios días o haber varias en un día (se guarda 1 / N).
-      kind === 'quantity'
-        ? kit.activationPace({
-          T,
-          label: `¿Cómo son ${T.theMany} ${T.many}?`,
-          hint: tripUnit
-            ? `Viajes ${T.per} = viajes por día × días ${T.per}.`
-            : `No es la unidad que cobrás: define cuántas ${T.many} (movilizaciones, mínimos ${T.per}) hay en el mes.`,
-          onValue: () => syncRouteTrips(),
-        })
-        : null,
+      quantityPaceSlot,
       isOnCall && !asksAvailability && !(quote.activity && quote.activity.availability === 'none')
         ? kit.group(
           'Respuesta on-call',
