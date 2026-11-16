@@ -269,10 +269,12 @@ describe('V-29 · Equipo en espera con días', () => {
     assert.match(STANDBY_DAYS_NOTE, /dejá los días en 0/);
   });
 
-  test('el pendiente de standby dice qué hacer si la espera es eventual', () => {
-    const item = computeQuote(onCall({ standbyRatePerDay: 0 })).completeness.items.find((i) => i.id === 'standby');
+  test('standby: sin días de espera no es pendiente; con días y sin tarifa pide la tarifa (tanda novatos 2026-11)', () => {
+    const none = computeQuote(onCall({ standbyRatePerDay: 0 })).completeness.items.find((i) => i.id === 'standby');
+    assert.equal(none, undefined);
+    const item = computeQuote(onCall({ standbyRatePerDay: 0, standbyDaysPerMonth: 2 })).completeness.items.find((i) => i.id === 'standby');
     assert.equal(item.status, 'warning');
-    assert.match(item.message, /Si la espera es eventual, dejá los días en 0 y cargá sólo la tarifa\.$/);
+    assert.match(item.message, /días de espera por mes y no la tarifa/);
   });
 
   test('en precio cerrado "Equipo en espera" no se muestra vacío', () => {

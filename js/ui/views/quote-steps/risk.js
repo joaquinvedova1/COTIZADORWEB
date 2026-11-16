@@ -13,6 +13,7 @@ import { contingencyPctOf, monthsFactor } from '../../../engines/cost-engine.js'
 import { formatMoney, formatPercent, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { nonNegative } from '../../../core/money.js';
+import { contractOf } from '../../../domain/contract.js';
 import { illustrativeTag } from '../../layout.js';
 
 const RISK_HINTS = Object.freeze({
@@ -103,8 +104,13 @@ export function render(container, ctx) {
     h('div', { class: 'banner banner-warning', role: 'status' }, h('strong', {}, 'Sin contingencia. '), 'Cualquier desvío no contemplado (más días, roturas, demoras, precios) reduce tu margen.'),
     () => !(contingencyPctOf(quote.risk) > 0),
   );
+  // Precio cerrado (tanda novatos 2026-11): lo que sale mal lo paga la empresa. El default sigue en 0.
+  const closedNote = contractOf(quote).mode === 'closed'
+    ? h('p', { class: 'qe-note is-warning qe-risk-closed' }, 'En precio cerrado, si algo sale mal lo pagás vos: reservá un %.')
+    : null;
   const card1 = card(
     {},
+    closedNote,
     h('p', { class: 'qe-note' }, 'La contingencia cubre incertidumbres del alcance y del costo; no reemplaza al margen ni a la actualización de precios (escalación). RATEOS no impone un %: usá el que corresponda a este trabajo.'),
     formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
     zeroWarning,

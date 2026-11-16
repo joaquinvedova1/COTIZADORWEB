@@ -15,6 +15,16 @@ import { CURRENCY } from '../../../config.js';
 import { BASE_SOURCES, CURRENCIES } from '../../../domain/catalogs.js';
 import { lineSyncStatus, applyResourceUpdate, dismissResourceUpdate } from '../../../domain/resource-sync.js';
 import { syncNotice, lineOrigin, baseTag } from '../../economic-base-ui.js';
+import { periodFromDate } from '../../../domain/economic-base.js';
+
+/**
+ * Mes que se MUESTRA para un valor sin fecha base (tanda novatos 2026-11): el de la oferta
+ * (o, sin fecha de oferta, el mes en que se creó la cotización). No cambia ningún cálculo.
+ */
+export function offerPeriodOf(quote) {
+  const q = quote || {};
+  return periodFromDate(q.offerDate) || periodFromDate(q.createdAt) || null;
+}
 
 /** Moneda de la cotización (la de la empresa al crearla). */
 export function quoteCurrencyOf(quote) {
@@ -86,7 +96,7 @@ export function lineOriginBlock(ctx, listKey, index, bases) {
   if (!line) return null;
   const status = statusOfLine(ctx, listKey, index);
   const note = stateNote(status);
-  return h('div', { class: 'line-origin-wrap' }, lineOrigin(line, { bases }), note ? h('p', { class: 'line-origin-note small' }, note) : null);
+  return h('div', { class: 'line-origin-wrap' }, lineOrigin(line, { bases, fallbackPeriod: offerPeriodOf(ctx.quote) }), note ? h('p', { class: 'line-origin-note small' }, note) : null);
 }
 
 /** Etiqueta de base para encabezados de línea. */
@@ -105,7 +115,7 @@ export function baseFields(ctx, path, { currency = false, periodLabel = 'Mes del
   const get = (k) => ctx.kit.get(`${path}.${k}`);
   return formGrid(
     currency ? 4 : 3,
-    periodField({ label: periodLabel, value: get('period'), name: `${path}.period`, hint: 'Vacío = "Base no definida".', disabled: ctx.readOnly, onChange: (v) => ctx.update(`${path}.period`, v) }),
+    periodField({ label: periodLabel, value: get('period'), name: `${path}.period`, hint: 'Vacío = el mes de la oferta.', disabled: ctx.readOnly, onChange: (v) => ctx.update(`${path}.period`, v) }),
     currency
       ? selectField({ label: 'Moneda', name: `${path}.currency`, value: get('currency') || quoteCurrencyOf(ctx.quote), options: CURRENCIES.map((c) => ({ value: c.id, label: c.label })), disabled: ctx.readOnly, onChange: (v) => { ctx.update(`${path}.currency`, v); ctx.rerender(); } })
       : null,

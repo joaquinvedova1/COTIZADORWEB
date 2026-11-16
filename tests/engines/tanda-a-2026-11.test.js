@@ -430,21 +430,23 @@ describe('A-8 · Facturar materiales aparte por línea', () => {
   });
 });
 
-describe('A-13 · El aviso de fecha base lleva al campo del primer valor sin fecha', () => {
-  test('personal sin fecha: paso Personal y foco en el mes del sueldo', () => {
+// Tanda novatos 2026-11 (pedido del dueño): un valor sin fecha base ya no es un pendiente (se
+// muestra con el mes de la oferta); el ítem queda en verde, sin foco ni paso propio.
+describe('A-13 · Fecha base faltante: ya no es un pendiente', () => {
+  test('personal sin fecha: ok, se toma el mes de la oferta', () => {
     resetIds();
     const q = service({ serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person({ base: { period: null } })] });
     const it = item(q, 'economic_base');
-    assert.equal(it.status, 'warning');
-    assert.equal(it.step, 'labor');
-    assert.equal(it.focus, 'labor.0.base.period');
+    assert.equal(it.status, 'ok');
+    assert.equal(it.focus, undefined);
+    assert.match(it.message, /mes de la oferta/);
   });
-  test('equipo propio con los costos sin fecha: foco en costsBase.period', () => {
+  test('equipo propio con los costos sin fecha: ok, sin foco', () => {
     resetIds();
     const q = service({ serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()], equipment: [owned({ costsBase: { period: null } })] });
     const it = item(q, 'economic_base');
-    assert.equal(it.step, 'equipment');
-    assert.equal(it.focus, 'equipment.0.costsBase.period');
+    assert.equal(it.status, 'ok');
+    assert.equal(it.focus, undefined);
   });
   test('todo con fecha: sin foco, en Contrato (como siempre)', () => {
     resetIds();

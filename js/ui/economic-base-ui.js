@@ -24,9 +24,17 @@ const isForeign = (currency) => typeof currency === 'string' && currency && curr
  */
 const undefinedText = (prefix) => (prefix === 'Base' ? 'Base no definida' : `${prefix}: sin fecha base`);
 
-/** Etiqueta compacta de una base: "Base: sep-26 · USD" o "Base no definida". */
-export function baseTag(base, { prefix = 'Base', showCurrency = true } = {}) {
+/**
+ * Etiqueta compacta de una base: "Base: sep-26 · USD" o "Base no definida".
+ * Con `fallbackPeriod` (el mes de la oferta, tanda novatos 2026-11), un valor sin fecha se
+ * MUESTRA con ese mes ("Base: nov-26"): es sólo lo que se ve, el dato guardado no cambia.
+ */
+export function baseTag(base, { prefix = 'Base', showCurrency = true, fallbackPeriod = null } = {}) {
   const defined = baseDefined(base);
+  if (!defined && fallbackPeriod) {
+    const currency = showCurrency && base && isForeign(base.currency) ? ` · ${base.currency}` : '';
+    return h('span', { class: 'base-tag', title: `Sin fecha propia: se toma el mes de la oferta (${formatPeriod(fallbackPeriod)}).` }, `${prefix}: ${formatPeriod(fallbackPeriod)}${currency}`);
+  }
   const text = defined ? `${prefix}: ${formatPeriod(base.period)}` : undefinedText(prefix);
   const currency = showCurrency && base && isForeign(base.currency) ? ` · ${base.currency}` : '';
   const source = defined && base.source ? labelOf(BASE_SOURCES, base.source, '') : '';
@@ -37,8 +45,12 @@ export function baseTag(base, { prefix = 'Base', showCurrency = true } = {}) {
 }
 
 /** Texto plano de una base (para resúmenes y trazas). */
-export function baseText(base, { prefix = 'Base' } = {}) {
-  if (!baseDefined(base)) return undefinedText(prefix);
+export function baseText(base, { prefix = 'Base', fallbackPeriod = null } = {}) {
+  if (!baseDefined(base)) {
+    if (!fallbackPeriod) return undefinedText(prefix);
+    const cur = base && isForeign(base.currency) ? ` · ${base.currency}` : '';
+    return `${prefix}: ${formatPeriod(fallbackPeriod)} (mes de la oferta)${cur}`;
+  }
   const currency = isForeign(base.currency) ? ` · ${base.currency}` : '';
   return `${prefix}: ${formatPeriod(base.period)}${currency}`;
 }
@@ -136,12 +148,12 @@ export function syncNotice(status, { name, onUpdate, onKeep, readOnly = false, s
  * Origen de una línea: "De Recursos · copiado el 05/10/26 14:30" + base.
  * @param {object} line
  */
-export function lineOrigin(line, { bases = [] } = {}) {
+export function lineOrigin(line, { bases = [], fallbackPeriod = null } = {}) {
   const snap = line && line.snapshot;
   const from = snap && snap.resourceId
     ? `De Recursos${snap.takenAt ? ` · copiado el ${formatDateTime(snap.takenAt)}` : ''}`
     : 'Cargado en esta cotización';
-  return h('div', { class: 'line-origin' }, h('span', { class: 'line-origin-from' }, from), ...bases.map((b) => baseTag(b.base, { prefix: b.prefix || 'Base' })));
+  return h('div', { class: 'line-origin' }, h('span', { class: 'line-origin-from' }, from), ...bases.map((b) => baseTag(b.base, { prefix: b.prefix || 'Base', fallbackPeriod })));
 }
 
 /**

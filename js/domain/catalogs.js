@@ -305,7 +305,7 @@ export const QUOTE_STEPS = deepFreeze([
   { id: 'indirect', label: 'Gastos de estructura' },
   { id: 'finance', label: 'Financiación' },
   { id: 'risk', label: 'Imprevistos' },
-  { id: 'margin', label: 'Margen y precio' },
+  { id: 'margin', label: 'El precio' },
   { id: 'result', label: 'Resultado' },
 ]);
 

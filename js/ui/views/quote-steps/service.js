@@ -29,7 +29,8 @@ const step = (id) => `"${stepName(id)}"`;
 const MODE_TIPS = Object.freeze({
   monthly: { short: `Lo que exceda el fijo se cobra en "Adicionales" (${step('modality')}).`, more: 'Cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Fuera de horario, feriados y trabajos extra van como adicionales, con su propio precio, en la misma cotización.' },
   on_demand: { short: `Unidad y mínimo mensual: en ${step('modality')}.`, more: 'Elegí en qué unidad cobrás (hora, día, viaje, m³…) y cuánto esperás trabajar por mes. Si el cliente garantiza un mínimo mensual, se carga ahí mismo.' },
-  closed: { short: `Incertidumbre: en ${step('risk')}. Fuera de alcance: "Adicionales".`, more: 'Cargá todo el alcance (personal, equipos, materiales, HSE, seguros). Los trabajos fuera del alcance con precio unitario van en "Adicionales".' },
+  // Tanda novatos 2026-11: lo de imprevistos y adicionales pasa al (i).
+  closed: { short: 'Cargá todo el alcance del trabajo.', more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Los trabajos fuera del alcance con precio unitario van en "Adicionales".` },
 })
 
 /**
@@ -43,8 +44,10 @@ function baseDetail(info, ctx) {
   const missing = Array.isArray(info.undefinedEntries) ? info.undefinedEntries : [];
   const stale = Array.isArray(info.stale) ? info.stale : [];
   if (!missing.length && !stale.length) return null;
+  // Tanda novatos 2026-11: un valor sin fecha propia no es un pendiente: se muestra con el mes de la oferta.
+  const fallback = info.offerPeriod ? ` — sin fecha propia: se toma ${formatPeriod(info.offerPeriod)} (mes de la oferta)` : ' — sin fecha propia: se toma el mes de la oferta';
   const rows = [
-    ...missing.map((e) => h('li', { class: 'is-undefined' }, h('strong', {}, e.label), ' — Base no definida')),
+    ...missing.map((e) => h('li', { class: 'is-undefined' }, h('strong', {}, e.label), fallback)),
     ...stale.map((e) => h('li', { class: 'is-stale' }, h('strong', {}, e.label), ` — Base ${formatPeriod(e.period)} (${formatNumber(e.monthsBeforeOffer)} meses antes de la oferta)`)),
   ];
   const canAssign = missing.length > 0 && info.offerPeriod && !ctx.readOnly;
@@ -66,7 +69,7 @@ function baseDetail(info, ctx) {
   return h(
     'details',
     { class: 'base-detail' },
-    h('summary', {}, `Ver los valores para revisar (${formatNumber(rows.length)})`),
+    h('summary', {}, stale.length ? `Ver los valores para revisar (${formatNumber(stale.length)})` : `Ver los valores sin fecha propia (${formatNumber(missing.length)})`),
     h('ul', { class: 'base-detail-list' }, ...rows),
     h('p', { class: 'small muted' }, 'Las bases se cargan en cada recurso (en Recursos o en la línea de esta cotización). Si un valor es viejo, actualizalo o confirmá que sigue vigente.'),
     assign ? h('div', { class: 'qe-toolbar' }, assign) : null,
@@ -248,7 +251,16 @@ export function render(container, ctx) {
   const saved = isPlainObject(quote.contract) ? quote.contract : null;
   const components = componentsOf(saved || contract);
   const custom = saved && Array.isArray(saved.customComponents) ? saved.customComponents : [];
-  function applyContract(next) {
+  /**
+   * @param {object} next
+   * @param {{ quiet?: boolean }} options  quiet: no muestra avisos; los devuelve (para juntarlos en uno).
+   */
+  function applyContract(next, { quiet = false } = {}) {
+    const messages = [];
+    const say = (text, tone) => {
+      if (quiet) messages.push({ text, tone });
+      else ctx.toast(text, tone);
+    };
     const current = quote.unit || 'day';
     const fits = unitFitsContract(next, current);
     const pricing = quote.pricing || {};
@@ -266,6 +278,12 @@ export function render(container, ctx) {
       q.serviceType = serviceTypeForContract(q.contract);
       q.unit = nextUnit;
       if (nextUnit !== current) unitNotices = applyUnitChange(q, fromInfo, billingUnitOf(q));
+      // Precio cerrado por trabajo (tanda novatos 2026-11): sin cantidad cargada, arranca en 1 trabajo por mes.
+      if (nextUnit === 'job' && q.contract.mode === 'closed') {
+        if (!isPlainObject(q.activity)) q.activity = {};
+        const jobs = q.activity.billableQuantityPerMonth;
+        if (jobs === null || jobs === undefined || jobs === '') q.activity.billableQuantityPerMonth = 1;
+      }
       if (!next.touchedComponents) return;
       // Al sumar un componente de materiales, si estaba "no usa materiales" se
       // vuelve a pedir (nunca se marca solo: es una confirmación de la persona).
@@ -277,13 +295,14 @@ export function render(container, ctx) {
         reopenedLogistics = true;
       }
     });
-    if (reopenedLogistics) ctx.toast(`Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, 'info');
+    if (reopenedLogistics) say(`Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, 'info');
     if (nextUnit !== current) {
-      ctx.toast(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.${unitNotices.length ? ` ${unitNotices.join(' ')}` : ''}`, unitNotices.length ? 'warning' : 'info');
+      say(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.${unitNotices.length ? ` ${unitNotices.join(' ')}` : ''}`, unitNotices.length ? 'warning' : 'info');
     } else if (!fits || (next.unit && next.unit !== current && locked)) {
       const usual = contractUnits(next).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
-      ctx.toast(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
+      say(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
     }
+    return messages;
   }
 
   const tip = MODE_TIPS[contract.mode];
@@ -316,10 +335,16 @@ export function render(container, ctx) {
     const list = [...t.components, ...kept];
     const useSuggestion = !pricingLoaded;
     const mode = useSuggestion && t.mode ? t.mode : contract.mode;
-    keepPlace(null, () => applyContract({ mode, components: list, customComponents: custom, templateId: t.id, unit: useSuggestion ? t.unit || null : null, touchedComponents: true }));
+    let messages = [];
+    keepPlace(null, () => {
+      messages = applyContract({ mode, components: list, customComponents: custom, templateId: t.id, unit: useSuggestion ? t.unit || null : null, touchedComponents: true }, { quiet: true });
+    });
     const keptText = kept.length ? ` Se mantuvo ${kept.map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label).join(', ')} porque ya tiene líneas cargadas.` : '';
     const how = !useSuggestion && (t.mode || t.unit) ? ' Como ya cargaste una tarifa, no se cambió cómo se cobra.' : '';
-    ctx.toast(`«${t.label}»: ${formatNumber(list.length)} componentes marcados.${keptText}${how} Es un punto de partida: cambiá lo que haga falta.`, 'info');
+    // Un solo aviso (tanda novatos 2026-11): la plantilla y, si cambió, cómo se cobra.
+    const extra = messages.map((m) => ` ${m.text}`).join('');
+    const tone = messages.some((m) => m.tone === 'warning') ? 'warning' : 'info';
+    ctx.toast(`«${t.label}» aplicada.${extra}${keptText}${how}`, tone);
   };
   const applySuggestion = (t) => applyContract({ mode: t.mode || contract.mode, components, customComponents: custom, templateId: t.id, unit: t.unit || null });
   const composer = componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, applyTemplate, applySuggestion, pricingLoaded, apply: (list, extra = custom, focusId = null) => {

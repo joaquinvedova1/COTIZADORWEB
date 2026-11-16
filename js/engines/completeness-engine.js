@@ -27,7 +27,7 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
-import { contractOf } from '../domain/contract.js';
+import { contractOf, contractUsesMaterials } from '../domain/contract.js';
 import { computeExtras } from './extras-engine.js';
 import { AVAILABILITY_WINDOW, EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
@@ -590,6 +590,9 @@ export function evaluateCompleteness(quote = {}) {
   // 8. Materiales y responsable
   if (quote.materialsNotApplicable) {
     items.push(rule('materials', 'Materiales', 'materials', 1, 'ok', 'Marcado como "el servicio no usa materiales".'));
+  } else if (materials.length === 0 && contractUsesMaterials(quote.contract) === false) {
+    // Tanda novatos 2026-11: si en "¿Qué incluye?" no se marcó ningún material, no hay nada que confirmar.
+    items.push(rule('materials', 'Materiales', 'materials', 1, 'ok', 'El servicio no incluye materiales (no se marcaron en "¿Qué incluye?").'));
   } else if (materials.length === 0) {
     items.push(rule('materials', 'Materiales', 'materials', 1, 'warning', 'No hay materiales cargados: confirmá si el servicio no usa materiales.'));
   } else {
@@ -597,7 +600,9 @@ export function evaluateCompleteness(quote = {}) {
     // Un material que pagamos con precio y sin cantidad (o al revés) suma $ 0: se avisa (Test Lab, PLAN-2026-013).
     const paidByUs = (m) => MATERIAL_PROVIDERS.some((p) => p.id === m.providedBy && p.costForUs !== false);
     const incomplete = materials.map((m, index) => ({ m, index })).find(({ m }) => paidByUs(m) && (nonNegative(m.unitCost) > 0) !== (nonNegative(m.quantity) > 0));
-    const item = rule('materials', 'Responsable de materiales', 'materials', 2, !ok ? 'missing' : incomplete ? 'warning' : 'ok',
+    // Un material con cantidad y sin precio se nombra así (tanda novatos 2026-11): "Material sin precio".
+    const label = !ok ? 'Responsable de materiales' : incomplete ? (nonNegative(incomplete.m.unitCost) > 0 ? 'Material sin cantidad' : 'Material sin precio') : 'Responsable de materiales';
+    const item = rule('materials', label, 'materials', 2, !ok ? 'missing' : incomplete ? 'warning' : 'ok',
       !ok
         ? 'Hay materiales sin definir quién los provee (cliente, nosotros o tercero).'
         : incomplete
@@ -982,18 +987,16 @@ export function evaluateCompleteness(quote = {}) {
     }
   }
 
-  // 9e. Base económica (fecha base de los valores) y su antigüedad
+  // 9e. Base económica (fecha base de los valores) y su antigüedad.
+  // Tanda novatos 2026-11 (pedido del dueño): un valor SIN fecha base no es un pendiente: se
+  // muestra con el mes de la oferta (los cálculos no cambian). Sólo avisa una base que SÍ tiene
+  // fecha y es vieja o despareja respecto de la oferta.
   const baseInfo = summarizeEconomicBase(quote);
   if (baseInfo.entries.length > 0) {
-    // El pendiente lleva al mes del primer valor sin fecha, en su paso (A-13).
-    const firstUndated = baseInfo.undefinedEntries.find((e) => typeof e.path === 'string' && e.path) || null;
-    const baseStep = firstUndated ? ({ labor: 'labor', equipment: 'equipment', materials: 'materials', fuel: 'logistics' }[firstUndated.path.split('.')[0]] || 'service') : 'service';
-    const baseItem = rule('economic_base', 'Fecha base de los valores', baseInfo.undefinedCount === 0 ? 'service' : baseStep, 1, baseInfo.undefinedCount === 0 ? 'ok' : 'warning',
+    items.push(rule('economic_base', 'Fecha base de los valores', 'service', 1, 'ok',
       baseInfo.undefinedCount === 0
         ? 'Todos los valores tienen fecha base.'
-        : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha base (${baseInfo.undefinedEntries.slice(0, 3).map((e) => e.label).join(', ')}${baseInfo.undefinedCount > 3 ? '…' : ''}): no se sabe de cuándo son.`);
-    if (baseInfo.undefinedCount > 0 && firstUndated) baseItem.focus = `${firstUndated.path}.period`;
-    items.push(baseItem);
+        : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha propia: se toman del mes de la oferta.`));
     if (baseInfo.defined > 0 && !baseInfo.offerPeriod) {
       items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', 'Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "Contrato".'));
     } else if (baseInfo.defined > 0) {
@@ -1102,10 +1105,14 @@ export function evaluateCompleteness(quote = {}) {
   }
 
   // 14. Standby (on-call; con contrato, sólo si hay equipos)
-  if (isOnCall && (contract.legacy || contract.equipment)) {
-    const ok = nonNegative(rules.standbyRatePerDay) > 0 || rules.standbyNotApplicable === true;
-    items.push(rule('standby', 'Equipo en espera (standby)', 'margin', 1, ok ? 'ok' : 'warning',
-      ok ? 'Standby definido.' : '¿Qué cobrás si el equipo queda en locación sin operar? Definilo o marcá que no aplica. Si la espera es eventual, dejá los días en 0 y cargá sólo la tarifa.'));
+  // Tanda novatos 2026-11: sólo es pendiente si hay días de espera cargados y no hay tarifa.
+  if (isOnCall && (contract.legacy || contract.equipment) && rules.standbyNotApplicable !== true) {
+    const rated = nonNegative(rules.standbyRatePerDay) > 0;
+    const days = nonNegative(rules.standbyDaysPerMonth) > 0;
+    if (rated || days) {
+      items.push(rule('standby', 'Equipo en espera (standby)', 'margin', 1, rated ? 'ok' : 'warning',
+        rated ? 'Standby definido.' : 'Cargaste días de espera por mes y no la tarifa: ¿qué cobrás por cada día que el equipo queda en locación sin operar?'));
+    }
   }
 
   // 15. Adicionales (PLAN-2026-018): cada uno con cantidad necesita costo y precio.
