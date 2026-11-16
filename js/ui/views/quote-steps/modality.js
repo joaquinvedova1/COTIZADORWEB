@@ -169,6 +169,17 @@ export function cheaperThanNormalHourText(line) {
   return `Queda más barata que tu hora normal (${formatMoney(line.referenceHourPrice)}).`;
 }
 
+/**
+ * Costo de un grupo de recursos en "Lo que cuestan tus recursos" (V-16): con
+ * parte fija y parte variable se muestran las dos, no sólo la fija.
+ */
+export function resourceCostText(fixedMonthly, variablePerDay) {
+  const fixed = fixedMonthly > 0.005 ? `${formatMoney(fixedMonthly)} por mes` : '';
+  const variable = variablePerDay > 0.005 ? `${formatMoney(variablePerDay)} por día` : '';
+  if (fixed && variable) return `${fixed} + ${variable}`;
+  return fixed || variable || EMPTY;
+}
+
 export function render(container, ctx) {
   const { quote, kit, settings } = ctx;
   const info = billingUnitOf(quote);
@@ -872,14 +883,13 @@ export function render(container, ctx) {
   const isEquipment = (l) => l.category === 'equipment' || l.category === 'external';
   const isOther = (l) => !isLabor(l) && !isEquipment(l) && l.category !== 'structure' && l.category !== 'financial' && l.category !== 'contingency';
   const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => {
-    const fixed = sumLines(r, test, 'fixedMonthly');
-    return fixed > 0.005 ? `${formatMoney(fixed)} por mes` : sumLines(r, test, 'variablePerActiveDay') > 0.005 ? `${formatMoney(sumLines(r, test, 'variablePerActiveDay'))} por día` : EMPTY;
+    return resourceCostText(sumLines(r, test, 'fixedMonthly'), sumLines(r, test, 'variablePerActiveDay'));
   }, {
     hint: (r) => {
       const fixed = sumLines(r, test, 'fixedMonthly');
       const variable = sumLines(r, test, 'variablePerActiveDay');
       if (!(fixed > 0.005) && !(variable > 0.005)) return `${emptyText} Se carga en "${stepName(stepId)}".`;
-      return `${fixed > 0.005 && variable > 0.005 ? `Más ${formatMoney(variable)} por cada día de trabajo. ` : ''}Se cambia en "${stepName(stepId)}".`;
+      return `${fixed > 0.005 && variable > 0.005 ? 'Lo de por día se suma cada día de trabajo. ' : ''}Se cambia en "${stepName(stepId)}".`;
     },
   });
   const resourcesCard = card(
