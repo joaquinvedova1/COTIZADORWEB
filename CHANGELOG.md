@@ -12,6 +12,26 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Correcciones de la ronda de testeo 2026-11-15, tanda 2 (V-07 a V-10, V-12 a V-14, V-34 y V-38).** V-34 y V-38 (decisiones del dueño) cambian el precio sugerido de las horas fuera de horario; el resto no cambia precios. La tarifa principal y los costos no cambian en ninguna cotización (golden y baseline de regresión sin re-aprobar). Las reglas de completitud nuevas mueven el puntaje de algunas cotizaciones guardadas. Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §24 y §25](docs/CALCULATION_RULES.md).
+
+### Cambiado
+
+- **Hora-hombre: la hora fuera de horario parte de la tarifa (V-34; cambia números).** Cobrando por hora-hombre, la hora normal de referencia es `tarifa por HH × personas de la cuadrilla`, como cuando se cobra por hora (antes salía del costo de los recursos). **Cambian** las cotizaciones por hora-hombre con horas fuera de horario sugeridas: suben el precio de esas horas y, si tienen horas estimadas, la facturación del mes. Cuadrilla de 3 a $ 58.000 por HH: hora al 50 % de $ 192.834 a $ 227.858 y al 100 % de $ 246.692 a $ 281.717, igual que la misma cuadrilla cobrada por hora. La tarifa principal y los precios cargados a mano no cambian. En pantalla y en "Tus tarifas" esas horas dicen "por hora de toda la cuadrilla (3 personas)".
+- **Las horas fuera de horario sugeridas se redondean como la tarifa (V-38; cambia números).** Hacia arriba, con el paso de redondeo de la cotización (acotado al 1 % del precio). Se redondea en el motor, así el precio que se ve en "Cómo se cobra", en "Tus tarifas", en el PDF y el que se usa para la facturación estimada es el mismo. **Cambia** la cifra publicada de las cotizaciones guardadas con horas fuera de horario sugeridas (menos de un paso por hora: $ 227.858 → $ 228.000) y, con horas estimadas, la facturación y el margen del mes suben en esa diferencia × horas. No cambian el costo, la tarifa principal ni los precios cargados a mano.
+- **"Tus tarifas" lista todo lo que se cobra (V-12):** además de las horas fuera de horario y la guardia, el mínimo por llamado, el mínimo garantizado por mes y cada adicional con precio; aparece también cuando sólo hay mínimos o adicionales. El margen aclara cuánto viene del mínimo garantizado.
+
+### Corregido
+
+- **Insumos "por unidad producida" (V-07).** Avisos nuevos cuando el rendimiento está cargado dos veces con números distintos (en la línea y en "Cómo se cobra") y cuando, cobrando por día o por hora, la línea no dice qué se produce y cuenta 1 por día. El pendiente "Producción por día" lleva a "Cómo se cobra" si la línea sigue a la unidad de cobro, y el campo ya no dice "día/día".
+- **El aviso "cada llamado hace menos de una unidad" recomendaba un valor que daba mal (V-08).** Ahora da los dos posibles: una sola ida para toda la cantidad del mes o una salida por unidad (6 trailers a 0,75 por día: 8 días por llamado o 1,33). "¿Cómo son los llamados?" pasa a la vista cuando salta el aviso.
+- **Los avisos de adicionales aparecían en "El servicio" (V-09).** Ahora se ven en "Cómo se cobra", donde se corrigen; en el Resultado van en su propia lista ("Adicionales para revisar:") y la fila de la hora fuera de horario avisa si el precio a mano queda más barato que la hora normal.
+- **Mínimo por llamado cobrando por km (V-13):** el texto dice qué factura cada llamado y cuántos llamados son la cantidad del mes, y el pendiente "Viajes y km de la ruta" compara la ruta con los km trabajados (la cotización ya no queda en borrador para siempre).
+- **"Sin contar adicionales" podía dar más que la tarifa sugerida (V-14):** quitaba el ingreso de los adicionales pero dejaba su costo. Es un dato informativo; ninguna tarifa cambia.
+
+### Agregado
+
+- Completitud: `materials_output_mismatch` y `materials_output_unit` (V-07), y la regla de actividad pide los días que lleva cada llamado, trabajo o hito cuando están vacíos (V-10; se calculaba con 1 día sin aviso).
+
 **Correcciones de la ronda de testeo 2026-11-15, tanda 1 (V-01 a V-06 y V-11).** Sólo V-02 cambia números de cotizaciones guardadas (estaban mal). Las reglas nuevas de completitud bajan el puntaje de algunas cotizaciones guardadas, nunca el precio. Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §25](docs/CALCULATION_RULES.md) y en la tabla de externos (§4).
 
 ### Corregido

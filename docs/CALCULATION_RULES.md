@@ -1646,7 +1646,7 @@ Para los equipos propios se usan las horas normales de la cuadrilla (las mayores
 **Guardia**: sin fórmulas nuevas. "Guardia pasiva: fijo por mes" es `rules.availabilityFeeMonthly` y "Guardia activa: plus por cada llamado" es `rules.calloutFeePerActivation` (§ reglas comerciales).
 
 
-## 25. Correcciones del veredicto 2026-11 (tanda 1)
+## 25. Correcciones del veredicto 2026-11 (tandas 1 y 2)
 
 ### 25.1 Cambio de la unidad de cobro (V-03)
 
@@ -1685,3 +1685,31 @@ Ningún número cambia: sin dato de asignación el costo fijo ya era 100 %. Camb
 Ninguna fórmula cambia. "Seguro anual" y "Patente anual" del equipo propio y "Vianda o comidas por día" del puesto se cargan en la grilla principal (antes dentro de "Opciones avanzadas", donde en 0 dejaban el costo de menos sin aviso).
 
 **Completitud, regla `equipment_insurance`** (paso Equipos, naranja, peso 1; sólo aparece cuando falta): equipo propio que "se traslada por sus propios medios" (`mobilization.mode === 'self'`), con valor de reposición > 0 y con seguro **y** patente en 0. Sólo vehículos que circulan: un generador o una herramienta sin seguro es normal. La vianda no tiene regla (puede darla el cliente).
+
+### 25.6 Insumos "por unidad producida" (V-07)
+
+Ninguna fórmula cambia: la producción propia de la línea sigue ganando (`outputPerActiveDayOf`) y cobrando por día u hora una línea sin unidad sigue contando 1 por día (u horas por día). Se agregan avisos de completitud (paso Materiales, naranja, peso 1; sólo aparecen cuando hay algo que revisar) sobre líneas `per_output` a cargo propio con costo y cantidad:
+
+- **`materials_output_mismatch`**: la línea tiene `outputPerActiveDay` propio, su unidad es la de cobro (`outputMatchesBilling`), se cobra por cantidad y el valor difiere de `activity.unitsPerActiveDay`. Ejemplo: herbicida con 4 hectáreas por día en la línea y 6 en "Cómo se cobra" ($ 191.000 por hectárea contra $ 229.000 con un solo número). Foco en el campo de la línea.
+- **`materials_output_unit`**: sin `outputUnit` ni `outputPerActiveDay` y cobrando por día o por hora: "se cuenta 1 por día" (o las horas por día). Foco en `materials.N.outputUnit`.
+- **`materials_output`** (ya existía): si la línea produce en la unidad de cobro (por cantidad), el foco pasa a `activity.unitsPerActiveDay`: el rendimiento se carga una sola vez, en "Cómo se cobra".
+
+### 25.7 Aviso "cada llamado hace menos de una unidad" (V-08)
+
+Ningún número cambia. El aviso de `unitIssues` (`code: 'sparse_activations'`) proponía `1 ÷ por día` días por llamado, que sólo sirve si cada unidad es una salida distinta. Ahora da los dos valores, con datos ya cargados: una sola ida para toda la cantidad del mes (`cantidad ÷ por día`) o una salida por unidad (`1 ÷ por día`). Ejemplo: 6 trailers a 0,75 por día → 8 días por llamado o 1,33. Cuando salta, "¿Cómo son los llamados?" se muestra fuera de "Opciones avanzadas".
+
+### 25.8 Días que lleva cada trabajo (V-10)
+
+Sin cambio de fórmula: con `activity.daysPerActivation` vacío o en 0 el motor sigue usando 1 día. La regla de completitud `utilization` ahora lo pide en las unidades por evento (llamado, trabajo, hito; no en fijo mensual): rojo, foco en `activity.daysPerActivation`, "se está calculando con 1 día". Una cotización nueva nace con 1.
+
+### 25.9 Mínimo por llamado en km (V-13)
+
+Sin cambio de fórmula. `route_consistency` comparaba los km de la ruta con los km **facturados**; con el mínimo por llamado aplicado parte de esos km no se recorren (se cobran de mínimo) y el aviso quedaba para siempre. Ahora, cuando rige el mínimo (`minimumCallUnits > días por llamado × km por día`), compara con los km **trabajados**: `llamados × días por llamado × km por día`. Ejemplo: 240 km por día, mínimo 300 y 3.600 km por mes = 12 llamados × 240 = 2.880 km trabajados; con una ruta de 2.880 km no hay aviso.
+
+### 25.10 "Sin contar adicionales" (V-14)
+
+`floorWithoutOtherRevenue(rates, { extrasLoadedCost })` (`commercial-rules-engine.js`): el piso sin los otros ingresos también resta el costo cargado de los adicionales (`r.extras.loadedCost` = Σ costo × carga de estructura, financiero e imprevistos). Antes quitaba el ingreso y dejaba el costo, y el dato podía superar a la tarifa sugerida (piso $ 1.230.717, "sin contar adicionales" $ 1.791.777, sugerida $ 1.565.000; ahora $ 1.318.842, igual que la misma cotización sin esas líneas). Es un dato informativo: no entra en ninguna tarifa.
+
+### 25.11 "Tus tarifas" y avisos de adicionales (V-12, V-09)
+
+Sin fórmulas nuevas. `tariffRows(r)` (`js/ui/result-text.js`) arma el bloque con valores del motor: horario normal, cada hora fuera de horario, guardia pasiva y activa, mínimo por llamado, mínimo garantizado por mes y cada adicional cargado a mano con precio. El margen aclara cuánto viene del mínimo garantizado cuando completa el mes (`guaranteeMarginNote`, con `revenue.guaranteeTopUp`). Los avisos con ruta `extras.*` se corrigen en "Cómo se cobra" (`stepOfPath`) y en el Resultado van en su propia lista. La hora-hombre (V-34) y el redondeo de las horas fuera de horario (V-38) están en §24.
