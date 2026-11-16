@@ -34,14 +34,38 @@ import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '..
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { hasNumber, moneyText, plural, stepName } from './shared.js';
-import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
+import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
+import { isSingleClosedJob } from '../../result-text.js';
+import { workDaysText } from '../../unit-text.js';
+import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
 
 const isExternalLine = (line) => acquisitionOf(line) !== 'owned';
+
+const blankHours = (v) => v === null || v === undefined || v === '';
+/**
+ * ¿La línea es un VEHÍCULO propio (camioneta, camión, semi, colectivo: su función es trasladarse)?
+ * Por su familia, por su nombre (cargado en blanco) o porque ya se cargó con 0 h en la locación y
+ * viaja por sus medios. Sólo cambia el ORDEN de la ficha (consumo en ruta primero; trabajar parado
+ * en la locación, plegado): los números salen de los mismos datos.
+ */
+export function isVehicleLine(line) {
+  if (!line || isExternalLine(line)) return false;
+  if (isVehicleFamily(line.familyId)) return true;
+  if ((!line.familyId || line.familyId === 'other') && looksLikeVehicleName(line.name)) return true;
+  const m = line.mobilization || {};
+  return !blankHours(line.hoursPerActiveDay) && Number(line.hoursPerActiveDay) === 0 && m.mode === 'self';
+}
+
+/**
+ * Líneas en blanco creadas en esta sesión: si al ponerles nombre resultan ser un vehículo, arrancan
+ * con 0 h en la locación (sólo líneas NUEVAS: una cotización guardada nunca cambia sola).
+ */
+const freshBlankIds = new Set();
 
 /** Símbolo de la moneda de un valor ("$", "US$"). */
 function currencyUnit(base, quote) {
@@ -412,14 +436,43 @@ export function render(container, ctx) {
     }
     const opts = { hoursPerActiveDay: hoursDefault(), now: new Date().toISOString(), currency };
     const line = eq ? equipmentLineFromLibrary(eq, opts) : externalLineFromService(service, opts);
+    // Vehículo nuevo: 0 h trabajando en la locación (una camioneta estacionada no gasta combustible).
+    const vehicle = isVehicleLine(line);
+    if (vehicle) {
+      line.hoursPerActiveDay = 0;
+      // Un vehículo llega por sus medios (su consumo en ruta queda a la vista); se puede cambiar.
+      if (!line.mobilization || !line.mobilization.mode) line.mobilization = createMobilization({ ...(line.mobilization || {}), mode: 'self' });
+    }
     const index = lines.length;
     ctx.mutate((q) => q.equipment.push(line), { focus: `equipment.${index}.quantity` });
-    ctx.toast(`Se agregó "${line.name}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
+    // Una línea (revisión UX): el aviso largo tapaba "Continuar". Lo demás está en la ficha.
+    ctx.toast(`Se agregó "${line.name}" con sus valores de hoy en Recursos.`, 'success');
   };
-  const addBlank = (acquisition = 'owned') => {
+  const addBlank = (acquisition = 'owned', { vehicle = false } = {}) => {
     const line = blankEquipmentLine({ acquisition, hoursPerActiveDay: null, currency });
+    if (vehicle) {
+      // Vehículo nuevo: sólo viaja (0 h en la locación); el consumo se pide en ruta.
+      line.name = 'Nuevo vehículo';
+      line.hoursPerActiveDay = 0;
+      line.mobilization = createMobilization({ ...line.mobilization, mode: 'self' });
+    } else if (acquisition === 'owned') {
+      freshBlankIds.add(line.id);
+    }
     const index = lines.length;
     ctx.mutate((q) => q.equipment.push(line), { focus: `equipment.${index}.name` });
+  };
+  /** Equipo en blanco recién creado que se llama "Camioneta…", "Semi…": pasa a vehículo (0 h en la locación). */
+  const vehicleFromName = (i) => {
+    const line = quote.equipment[i];
+    if (!line || !freshBlankIds.has(line.id)) return;
+    if (!looksLikeVehicleName(line.name) || !blankHours(line.hoursPerActiveDay)) return;
+    freshBlankIds.delete(line.id);
+    ctx.mutate((q) => {
+      const l = q.equipment[i];
+      l.hoursPerActiveDay = 0;
+      if (!l.mobilization || !l.mobilization.mode) l.mobilization = createMobilization({ ...(l.mobilization || {}), mode: 'self' });
+    });
+    ctx.toast(`"${line.name}" es un vehículo: su consumo se pide en ruta (L/100 km).`, 'info');
   };
   const removeLine = async (index) => {
     const line = quote.equipment[index];
@@ -489,6 +542,7 @@ export function render(container, ctx) {
       kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
     ),
     kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md', ...(pickerOptions.length ? {} : { variant: 'primary' }) }),
+    kit.action('Agregar vehículo propio (camioneta, camión…)', () => addBlank('owned', { vehicle: true }), { icon: 'plus', size: 'md' }),
     kit.action('Agregar alquilado o tercerizado', () => addBlank('rented'), { icon: 'plus', size: 'md' }),
   );
 
@@ -574,9 +628,11 @@ export function render(container, ctx) {
         title: '¿De qué mes son estos valores? (fecha y moneda)',
         summary: () => {
           const e = quote.equipment[i] || {};
+          // Sin fecha propia, el mes de la oferta (igual que la etiqueta de arriba de la ficha).
+          const fallbackPeriod = offerPeriodOf(quote);
           return owned
-            ? `${baseText(e.base, { prefix: 'Valor' })} · ${baseText(e.costsBase, { prefix: 'Costos' })}`
-            : baseText(e.base, { prefix: 'Tarifa' });
+            ? `${baseText(e.base, { prefix: 'Valor', fallbackPeriod })} · ${baseText(e.costsBase, { prefix: 'Costos', fallbackPeriod })}`
+            : baseText(e.base, { prefix: 'Tarifa', fallbackPeriod });
         },
       },
       h('p', { class: 'small' }, 'De qué mes son estos valores. Cambiarlos acá sólo afecta esta cotización (Recursos no cambia).'),
@@ -662,17 +718,24 @@ export function render(container, ctx) {
     // consumo y mantenimiento: acá sólo se carga cuántos van y cuántas horas se usan. Esos datos
     // quedan plegados ("Cambiar sus datos sólo en esta cotización"). Uno cargado acá los pide.
     const fromResource = typeof line.sourceId === 'string' && line.sourceId !== '';
-    const dataFields = () => [
+    const vehicle = isVehicleLine(line);
+    // Datos del equipo, en tres partes: valor (a la vista), seguro y patente (en "Costos de
+    // tenerlo") y combustible trabajando (en un vehículo, plegado en "¿También trabaja parado…?").
+    const valueFields = () => [
       kit.num(`${p}.replacementValue`, { label: 'Cuánto cuesta comprarlo hoy', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, requiredMark: !fromResource, hint: 'Valor de reposición: lo que costaría comprar uno igual hoy. Con esto y la vida útil sale su desgaste por mes (amortización).' }),
       kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative, requiredMark: !fromResource, hint: 'En cuántos años lo vas a tener que cambiar.' }),
-      // V-06: seguro y patente a la vista (en 0 el costo quedaba de menos sin aviso).
+    ];
+    // V-06: seguro y patente se piden (en 0 el costo quedaba de menos sin aviso); plegados con su resumen.
+    const holdingFields = () => [
       kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
       kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
-      // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
-      // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide abajo, en "¿Cómo llega?":
-      // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
-      line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, selfMoving(line)
-        ? { label: 'Consumo trabajando en la locación', rule: 'quantity', unit: 'L/h', illustrative, hint: 'Sólo con el motor trabajando en el lugar (bomba, hidrogrúa). Si sólo lleva gente o carga y queda parado: 0. Lo que gasta en la ruta va abajo.' }
+    ];
+    // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
+    // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide en "¿Cómo llega?":
+    // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
+    const fuelFields = () => [
+      line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, selfMoving(line) || vehicle
+        ? { label: 'Consumo trabajando en la locación', rule: 'quantity', unit: 'L/h', illustrative, hint: 'Sólo con el motor trabajando en el lugar (bomba, hidrogrúa). Si sólo lleva gente o carga y queda parado: 0. Lo que gasta en la ruta va en "¿Cómo llega al lugar del servicio?".' }
         : { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
       kit.check(`${p}.fuelNotApplicable`, {
         label: 'No usa combustible',
@@ -682,12 +745,70 @@ export function render(container, ctx) {
           : 'Acoplado, eléctrico o herramienta. Si es un vehículo con motor, no lo marques: poné 0 en el consumo en la locación.',
       }),
     ];
+    const dataFields = () => [...valueFields(), ...holdingFields(), ...(vehicle ? [] : fuelFields())];
+    const hoursField = () => kit.num(`${p}.hoursPerActiveDay`, vehicle
+      ? {
+        label: 'Horas trabajando en la locación por día',
+        rule: 'hoursPerDay',
+        unit: 'h/día',
+        placeholder: activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
+        hint: 'Sólo las horas con el motor trabajando parado (bombeo, grúa, generador). Si sólo lleva gente o carga: 0. Con 0 h no suman el consumo ni el mantenimiento por hora: lo de la ruta va en "Desgaste por km".',
+      }
+      : {
+        label: 'Horas de uso por día de trabajo',
+        rule: 'hoursPerDay',
+        unit: 'h/día',
+        placeholder: activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
+        hint: 'Cuántas horas trabaja el equipo cada día. Vacío = las horas por día del servicio.',
+      });
+    // Nombre: un equipo en blanco que resulta ser un vehículo arranca con 0 h en la locación.
+    const nameField = () => {
+      const el = kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120, placeholder: 'Ej.: Camioneta 4x4' });
+      const input = el.querySelector('input');
+      if (input && !ctx.readOnly) input.addEventListener('change', () => vehicleFromName(i));
+      return el;
+    };
+    // Vehículo: ¿también trabaja parado en la locación? Plegado si arranca en 0 h; abierto si ya tiene horas.
+    const savedHours = line.hoursPerActiveDay;
+    const worksAtSite = blankHours(savedHours) || Number(savedHours) > 0;
+    const locationBlock = () => kit.advanced(
+      {
+        key: `equipment-location:${line.id || i}`,
+        title: '¿También trabaja parado en la locación? (bombeo, grúa, generador…)',
+        defaultOpen: worksAtSite,
+        summary: (r) => {
+          const l = at(r);
+          if (!l) return '';
+          if (!(l.hoursPerActiveDay > 0)) return 'No: sólo viaja (0 h en la locación).';
+          const e = quote.equipment[i] || {};
+          const fuel = e.fuelNotApplicable === true ? 'no usa combustible' : `${formatNumber(Number(e.fuelLitersPerHour) || 0, { decimals: 2 })} L/h`;
+          return `Sí: ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h por día · ${fuel} · ${formatMoney(l.variablePerActiveDay)} por día de trabajo.`;
+        },
+      },
+      formGrid(3, hoursField(), ...fuelFields()),
+    );
+    // Seguro, patente y mantenimiento: plegados, con su resumen en la línea del título (ficha corta en el celular).
+    const holdingBlock = () => kit.advanced(
+      {
+        key: `equipment-holding:${line.id || i}`,
+        title: h('span', {}, 'Costos de tenerlo',
+          kit.out(() => {
+            const e = quote.equipment[i] || {};
+            return ` · seguro ${moneyText(e.insuranceAnnual) || '$ 0'}/año · patente ${moneyText(e.licenseAnnual) || '$ 0'}/año · ${wearSummary(e).maintenance}`;
+          }, { className: 'qe-adv-inline' })),
+      },
+      formGrid(3, ...holdingFields()),
+      wear[0],
+    );
     return kit.lineCard(
       {
         title: kit.out(() => (quote.equipment[i] && quote.equipment[i].name) || 'Equipo sin nombre'),
         subtitle: kit.out((r) => {
           const l = at(r);
-          return l ? `${formatNumber(l.quantity, { decimals: 2 })} ${plural(l.quantity, 'unidad', 'unidades')} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día de trabajo` : '';
+          if (!l) return '';
+          const units = `${formatNumber(l.quantity, { decimals: 2 })} ${plural(l.quantity, 'unidad', 'unidades')}`;
+          if (vehicle) return l.hoursPerActiveDay > 0 ? `${units} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h por día trabajando en la locación` : `${units} · vehículo (sólo viaja)`;
+          return `${units} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día de trabajo`;
         }),
         badges: [badge('Propio', 'gray'), ill.tag].filter(Boolean),
         actions: [kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })],
@@ -698,34 +819,33 @@ export function render(container, ctx) {
       lineWarnings(i),
       formGrid(
         3,
-        fromResource ? null : kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120, placeholder: 'Ej.: Camioneta 4x4' }),
+        fromResource ? null : nameField(),
         kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true }),
-        kit.num(`${p}.hoursPerActiveDay`, {
-          label: 'Horas de uso por día de trabajo',
-          rule: 'hoursPerDay',
-          unit: 'h/día',
-          placeholder: activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
-          hint: 'Cuántas horas trabaja el equipo cada día. Vacío = las horas por día del servicio.',
-        }),
+        vehicle ? null : hoursField(),
         operatorField(i),
         fromResource ? null : acquisitionField(i),
-        ...(fromResource ? [] : dataFields()),
+        ...(fromResource ? [] : valueFields()),
+        ...(fromResource || vehicle ? [] : fuelFields()),
       ),
-      // El mantenimiento a la vista sólo si el equipo se carga acá (el de Recursos ya lo trae).
-      fromResource ? null : wear[0],
+      // Vehículo: primero cómo viaja (consumo en ruta); trabajar parado en la locación, plegado.
+      vehicle ? mobilityNote(i) : null,
+      vehicle ? locationBlock() : null,
+      // Seguro, patente y mantenimiento plegados sólo si el equipo se carga acá (el de Recursos ya los trae).
+      fromResource ? null : holdingBlock(),
       kit.out((r) => wearWarningsRegion(r, i) || '', { tag: 'div', allowEmpty: true }),
       kit.keyline({
-        label: 'Costo del equipo en el mes',
+        // Precio cerrado con un trabajo por mes: la cifra es la del trabajo (revisión UX tanda novatos).
+        label: (r) => (isSingleClosedJob(r) ? 'Costo del equipo en el trabajo' : 'Costo del equipo en el mes'),
         value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
           const share = l.shared && !l.shareMissing ? ` (${formatPercent(l.fixedCostSharePct)} asignado a esta cotización de ${formatMoney(l.fullFixedMonthly)})` : '';
-          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día de trabajo · con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días de trabajo.`;
+          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día de trabajo · con ${workDaysText(r.activity.activeDaysPerMonth)}.`;
         },
         trace: (r) => equipmentTrace(r, i, quote.equipment[i]),
       }),
-      mobilityNote(i),
+      vehicle ? null : mobilityNote(i),
       kit.advanced(
         {
           key: `equipment:${line.id || i}`,
@@ -737,7 +857,7 @@ export function render(container, ctx) {
               `residual ${moneyText(e.residualValue) || '$ 0'}`,
               hasNumber(e.otherAnnual) && Number(e.otherAnnual) > 0 ? `otros ${moneyText(e.otherAnnual)}/año` : null,
               `certificaciones ${moneyText(e.certificationsAnnual) || '$ 0'}/año`,
-              wearSummary(e).maintenance,
+              fromResource ? wearSummary(e).maintenance : null,
               wearSummary(e).tires,
               hasNumber(e.capitalRatePctAnnual) && Number(e.capitalRatePctAnnual) > 0 ? `costo de capital ${formatPercent(Number(e.capitalRatePctAnnual))} anual` : 'sin costo de capital',
             ];
@@ -753,7 +873,7 @@ export function render(container, ctx) {
           : null,
         fromResource ? wear[0] : null,
         kit.group(
-          'Costo de tenerlo (existe aunque no trabaje)',
+          'Otros costos de tenerlo (aunque no trabaje)',
           formGrid(
             3,
             kit.num(`${p}.residualValue`, { label: 'Valor residual', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que vale al final de su vida útil (en la misma moneda que el valor de reposición).' }),
@@ -1074,7 +1194,7 @@ export function render(container, ctx) {
       ),
       supplierTermGroup(i, line),
       kit.keyline({
-        label: `Costo del ${acq === 'rented' ? 'alquiler' : 'servicio'} en el mes`,
+        label: (r) => `Costo del ${acq === 'rented' ? 'alquiler' : 'servicio'} en el ${isSingleClosedJob(r) ? 'trabajo' : 'mes'}`,
         value: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'Falta la ruta' : at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
         tone: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'red' : null),
         hint: (r) => {
@@ -1170,7 +1290,7 @@ export function render(container, ctx) {
   const lineCards = lines.map((line, i) => (isExternalLine(line) ? externalCard(line, i) : ownedCard(line, i)));
 
   const totals = kit.keyline({
-    label: 'Equipos en el costo del mes',
+    label: (r) => (isSingleClosedJob(r) ? 'Equipos en el costo del trabajo' : 'Equipos en el costo del mes'),
     value: (r) => formatMoney(r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)),
     hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día de trabajo (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
     className: 'qe-keyline-total',

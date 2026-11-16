@@ -8,6 +8,7 @@
  * de una plantilla, se renombra o se elimina.
  */
 
+import { markFreshQuote } from '../session-memory.js';
 import { h, mount } from '../dom.js';
 import { badge, button, confirmDialog, emptyState, linkButton, openDialog, pageIntro, textField } from '../components.js';
 import { sanitizeText } from '../../core/validation.js';
@@ -100,6 +101,7 @@ export async function render(root, app) {
     btn.disabled = true;
     try {
       const quote = await ctx.quotes.createQuote({ templateId: service.id });
+      markFreshQuote(quote.id);
       app.toast(`Cotización ${quote.code || ''} creada desde "${service.name}".`, 'success');
       app.navigate(`#/cotizaciones/${encodeURIComponent(quote.id)}/service`);
     } catch (error) {

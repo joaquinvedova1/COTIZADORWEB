@@ -333,7 +333,9 @@ async function runMode(mode) {
       await page.waitForTimeout(300);
     }
     const traceVisible = await traceBtn.isVisible().catch(() => false);
-    check(s.id, '"Ver cálculo" del costo del mes a la vista', traceVisible, 'no se ve el botón');
+    // Tanda novatos 2026-11: con costo 0 el resumen queda plegado ("Los números aparecen cuando…").
+    const foldedEmpty = await page.locator('.qe-summary.is-empty .qe-sum-empty').first().isVisible().catch(() => false);
+    check(s.id, '"Ver cálculo" del costo del mes a la vista', traceVisible || foldedEmpty, 'no se ve el botón');
     if (traceVisible) {
       await tap(traceBtn);
       await page.waitForSelector('dialog[open]', { timeout: 3000 }).catch(() => {});
@@ -353,7 +355,7 @@ async function runMode(mode) {
       const tr = r.model.transport;
       const expectText = [
         ['Viajes facturables', `${formatNumber(k.billableQuantity, { decimals: 2 })} viajes`],
-        ['Viajes físicos costeados', `${formatNumber(tr.physicalTripsPerMonth, { decimals: 2 })} viajes`],
+        ['Viajes que hacés de verdad', `${formatNumber(tr.physicalTripsPerMonth, { decimals: 2 })} viajes`],
         ['Días de trabajo', `${formatNumber(k.activeDays, { decimals: 2 })} días`],
         ['Km de ruta por mes', `${formatNumber(tr.routeKmPerMonth, { decimals: 2 })} km`],
       ];
@@ -457,7 +459,7 @@ async function runMode(mode) {
   {
     const t = await screenText('E2E-14', 'logistics', { withTips: true });
     const confirm = await page.evaluate(() => Boolean(document.querySelector('input[name="fuel.illustrative"]')));
-    check('E2E-14', 'D7: el precio de ejemplo se ve ILUSTRATIVO, con su base, y se puede confirmar', confirm && /ILUSTRATIVO de ejemplo/.test(t) && /Base no definida/.test(t), `confirmar: ${confirm}`);
+    check('E2E-14', 'D7: el precio de ejemplo se ve ILUSTRATIVO, con su base, y se puede confirmar', confirm && /ILUSTRATIVO de ejemplo/.test(t) && /Base no definida|mes de la oferta/.test(t), `confirmar: ${confirm}`);
   }
   {
     const t = await screenText('E2E-15', 'modality');
@@ -526,7 +528,7 @@ async function runMode(mode) {
     await screenText('E2E-20', 'labor');
     // Sólo los avisos a la vista (el de cada línea existe oculto hasta que la completitud lo marca).
     const shown = await page.evaluate(() => [...document.querySelectorAll('.qe-salary-missing')].filter((b) => !b.hidden).map((b) => b.textContent));
-    check('E2E-20', 'H-03: la línea avisa el puesto sin sueldo básico, con su nombre (y sólo esa)', shown.length === 1 && /"Operador de hidrogrúa" no tiene sueldo básico/.test(shown[0]), JSON.stringify(shown));
+    check('E2E-20', 'H-03: la línea avisa el puesto sin sueldo básico, con su nombre (y sólo esa)', shown.length === 1 && /"Operador de hidrogrúa" no tiene sueldo/.test(shown[0]), JSON.stringify(shown));
     const critical = byId['E2E-20'].r.completeness.pending.find((p) => p.id === 'labor');
     check('E2E-20', 'H-03: es crítico en el motor', Boolean(critical && critical.severity === 'critical'), JSON.stringify(critical && critical.severity));
     await go(`#/cotizaciones/${encodeURIComponent(byId['E2E-20'].q.id)}/result`, 300);

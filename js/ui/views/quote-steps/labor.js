@@ -18,11 +18,19 @@ import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/f
 import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { createId } from '../../../core/ids.js';
-import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
+import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
+import { onSessionReset } from '../../session-memory.js';
 import { baseText } from '../../economic-base-ui.js';
 import { assignmentBlock } from './assignment.js';
 import { laborHeadcountOf } from '../../../engines/labor-engine.js';
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
+
+/**
+ * Puestos recién agregados en blanco que la persona todavía no tocó (sólo en memoria, tanda
+ * novatos 2026-11): no se les muestra el aviso de "falta el sueldo" hasta que sale de un campo.
+ */
+const untouchedLines = new Set();
+onSessionReset(() => untouchedLines.clear());
 
 /** "4,5" / "5" (hasta 2 decimales). */
 const n2 = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
@@ -62,7 +70,7 @@ export function laborBreakdown(line, { activeDays = 0, monthsFactor = 1 } = {}) 
     out.push({ label: o.label, amount });
   });
   out.push({ label: 'Viandas', amount: line.perPosition.mealPerActiveDay * line.positions * activeDays });
-  out.push({ label: 'Seguros, EPP, capacitación y traslado', amount: p.nonRemunerative * share * line.headcount * monthsFactor });
+  out.push({ label: 'Seguros, ropa y elementos de protección, capacitación y traslado', amount: p.nonRemunerative * share * line.headcount * monthsFactor });
   return out.filter((x) => x.amount > 0.005 || x.label === 'Sueldo + cargas');
 }
 
@@ -78,11 +86,11 @@ function laborTrace(result, index, source) {
   return createTrace({
     id: 'labor_line',
     title: `Personal — ${line.role || 'Puesto'}`,
-    formula: 'Costo por persona = (Básico + Adicionales) × (1 + SAC% + Vacaciones%) × (1 + Cargas% + ART%) + Seguros + EPP + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día de trabajo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
+    formula: 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa y elementos de protección + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día de trabajo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
     inputs: [
-      { label: 'Básico mensual', value: p.basic, format: 'money' },
-      { label: 'Adicionales mensuales', value: p.additionals, format: 'money' },
-      { label: 'SAC', value: nonNegative(src.sacPct), format: 'percent' },
+      { label: 'Sueldo bruto', value: p.basic, format: 'money' },
+      { label: 'Otros pagos fijos', value: p.additionals, format: 'money' },
+      { label: 'Aguinaldo (SAC)', value: nonNegative(src.sacPct), format: 'percent' },
       { label: 'Vacaciones', value: nonNegative(src.vacationPct), format: 'percent' },
       { label: 'Cargas patronales', value: nonNegative(src.employerContributionsPct), format: 'percent' },
       { label: 'ART', value: nonNegative(src.artPct), format: 'percent' },
@@ -95,7 +103,7 @@ function laborTrace(result, index, source) {
     steps: [
       { label: 'Factor de cargas', value: p.loadFactor, format: 'number' },
       { label: 'Remunerativo con cargas', value: p.loadedRemunerative, format: 'money' },
-      { label: 'Seguros + EPP + capacitación + traslado', value: p.nonRemunerative, format: 'money' },
+      { label: 'Seguros + ropa y elementos de protección + capacitación + traslado', value: p.nonRemunerative, format: 'money' },
       { label: 'Costo mensual por persona', value: p.fixedMonthly, format: 'money' },
       { label: 'Dotación (personas)', value: line.headcount, format: 'number' },
       ...(line.shared ? [
@@ -110,7 +118,7 @@ function laborTrace(result, index, source) {
     ],
     result: { label: 'Fijo mensual total del puesto', value: line.fixedMonthly, format: 'money' },
     notes: [
-      'Hora extra = (básico ÷ horas normales) × (1 + recargo) × factor de cargas. Las "Horas al 50 % / 100 % por mes" usan el valor de la hora del recurso (sueldo con adicionales, o el valor que cargaste). Las horas por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.',
+      'Hora extra = (sueldo bruto ÷ horas normales) × (1 + recargo) × factor de cargas. Las "Horas al 50 % / 100 % por mes" usan el valor de la hora del recurso (sueldo con adicionales, o el valor que cargaste). Las horas por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.',
       line.overtimeBilling ? 'Las horas extra que facturás aparte siguen siendo costo: además suman ingreso (horas × precio por hora).' : null,
       'Los porcentajes de convenio son parámetros que cargás vos: los de la demostración son ILUSTRATIVOS, no valores de ningún CCT.',
     ],
@@ -145,6 +153,9 @@ export function render(container, ctx) {
   };
   const addBlank = () => {
     const line = laborLineFromProfile({}, null, { currency: quoteCurrencyOf(quote) });
+    // El rol arranca vacío (con "Ej.: Chofer" de ejemplo): "Nuevo puesto" se veía como un dato cargado.
+    if (line.role === 'Nuevo puesto') line.role = '';
+    if (line.id) untouchedLines.add(line.id);
     const index = lines.length;
     ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.role` });
   };
@@ -201,7 +212,7 @@ export function render(container, ctx) {
   const loadsText = (line) => [
     ['SAC', line.sacPct],
     ['vacaciones', line.vacationPct],
-    ['contribuciones', line.employerContributionsPct],
+    ['cargas patronales', line.employerContributionsPct],
     ['ART', line.artPct],
   ].map(([label, v]) => `${label} ${hasNumber(v) ? formatPercent(Number(v)) : 'sin cargar'}`).join(' · ');
 
@@ -337,7 +348,35 @@ export function render(container, ctx) {
     const anyIllustrativeParam = AGREEMENT_PARAM_KEYS.some((key) => illustrativeParam(line, key));
     // ¿Viene de Recursos? Entonces sus datos ya están cargados allá: acá sólo cantidades.
     const fromResource = typeof line.sourceId === 'string' && line.sourceId !== '';
-    return kit.lineCard(
+    // Aviso de sueldo faltante: recién cuando la persona sale de un campo del puesto (no al agregarlo).
+    const lineKey = line.id || null;
+    let lastResult = null;
+    const salaryMissing = (r) => ((r && r.completeness && r.completeness.pending) || []).some((x) => x.id === 'labor' && (x.targets || []).some((t) => t.index === i));
+    const showSalaryBanner = (r) => {
+      lastResult = r;
+      return !(lineKey && untouchedLines.has(lineKey)) && salaryMissing(r);
+    };
+    const salaryBanner = kit.toggle(h(
+      'div',
+      { class: 'banner banner-warning qe-incomplete qe-salary-missing', role: 'status' },
+      h('div', {}, h('strong', {}, kit.out(() => `"${(quote.labor[i] && quote.labor[i].role) || 'Puesto'}" no tiene sueldo. `)), 'Sin el sueldo faltan sus cargas sociales y el valor de sus horas extra: la cotización no está completa. Si no trabaja en este servicio, poné 0 personas o quitá la línea.'),
+      ctx.readOnly
+        ? null
+        : h('div', { class: 'qe-toolbar' },
+          kit.action('Completar', () => ctx.focusField(`${p}.basicMonthly`), { variant: 'primary', icon: 'check' }),
+          kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })),
+    ), showSalaryBanner);
+    const salaryTag = h('span', { class: 'base-tag is-undefined qe-salary-tag' }, 'Falta el sueldo');
+    kit.toggle(salaryTag, () => {
+      const l = quote.labor[i];
+      return !(lineKey && untouchedLines.has(lineKey)) && Boolean(l) && !(nonNegative(l.basicMonthly) > 0);
+    });
+    const origin = lineOriginBlock(ctx, 'labor', i, nonNegative(line.basicMonthly) > 0 ? [{ prefix: 'Base', base: line.base }] : []);
+    if (origin) {
+      const row = origin.querySelector('.line-origin');
+      if (row) row.appendChild(salaryTag);
+    }
+    const card = kit.lineCard(
       {
         title: kit.out(() => (quote.labor[i] && quote.labor[i].role) || 'Puesto sin nombre'),
         subtitle: kit.out((r) => {
@@ -351,30 +390,21 @@ export function render(container, ctx) {
           kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' }),
         ],
       },
-      lineOriginBlock(ctx, 'labor', i, [{ prefix: 'Base', base: line.base }]),
+      origin,
       resourceSyncNotice(ctx, 'labor', i, { name: line.role || 'Puesto' }),
       ill.control,
-      // Puesto usado sin sueldo básico (ECO-01, H-03): crítico, se nombra y lleva al campo. No se inventa un sueldo.
-      kit.toggle(h(
-        'div',
-        { class: 'banner banner-warning qe-incomplete qe-salary-missing', role: 'status' },
-        h('div', {}, h('strong', {}, kit.out(() => `"${(quote.labor[i] && quote.labor[i].role) || 'Puesto'}" no tiene sueldo básico. `)), 'Sin el básico faltan su sueldo, las cargas sociales sobre él y el valor de sus horas extra: la cotización no está completa. Si no trabaja en este servicio, poné 0 personas o quitá la línea.'),
-        ctx.readOnly
-          ? null
-          : h('div', { class: 'qe-toolbar' },
-            kit.action('Completar', () => ctx.focusField(`${p}.basicMonthly`), { variant: 'primary', icon: 'check' }),
-            kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })),
-      ), (r) => ((r.completeness && r.completeness.pending) || []).some((x) => x.id === 'labor' && (x.targets || []).some((t) => t.index === i))),
+      // Puesto usado sin sueldo (ECO-01, H-03): crítico, se nombra y lleva al campo. No se inventa un sueldo.
+      salaryBanner,
       // PLAN-2026-026: lo NECESARIO a la vista. Un puesto que viene de Recursos trae su sueldo,
       // cargas y valor de la hora: acá sólo se carga cuántas personas van (y, si hacen, las horas
       // extra del mes). Un puesto en blanco pide además el rol y el sueldo.
       formGrid(
         3,
-        fromResource ? null : kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Operario' }),
+        fromResource ? null : kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Chofer' }),
         kit.num(`${p}.positions`, { label: legacyStaff(line) ? 'Personas trabajando a la vez' : 'Cantidad de personas', rule: 'quantity', requiredMark: true, hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cuántas personas de este puesto trabajan en el servicio.' }),
         fromResource ? null : kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', requiredMark: true, illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
-        kit.num(`${p}.overtime50HoursPerMonth`, { label: 'Horas al 50 % por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: 'Horas extra de CADA persona en un mes, si las hace siempre en este servicio. Ej.: sábados de 8 a 12 = 4 h × 4,33 semanas ≈ 17 h. Si no hace: vacío.' }),
-        kit.num(`${p}.overtime100HoursPerMonth`, { label: 'Horas al 100 % por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: 'Horas de CADA persona en un mes en sábados a la tarde, domingos o feriados, si las hace siempre en este servicio. Si no hace: vacío.' }),
+        kit.num(`${p}.overtime50HoursPerMonth`, { label: 'Horas extra al 50 % que le pagás por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: `Las horas extra que le PAGÁS a CADA persona en un mes, si las hace siempre en este servicio. Ej.: sábados de 8 a 12 = 4 h × 4,33 semanas ≈ 17 h. Si no hace: vacío. Lo que le COBRÁS al cliente fuera de horario va en "${stepName('modality')}".` }),
+        kit.num(`${p}.overtime100HoursPerMonth`, { label: 'Horas extra al 100 % que le pagás por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: `Las horas que le PAGÁS a CADA persona en un mes en sábados a la tarde, domingos o feriados, si las hace siempre en este servicio. Si no hace: vacío. Lo que le COBRÁS al cliente fuera de horario va en "${stepName('modality')}".` }),
       ),
       // Cotizaciones anteriores con relevos o nómina total: se ven y se editan igual (mismos números).
       legacyStaff(line)
@@ -431,7 +461,7 @@ export function render(container, ctx) {
                 ? legacyOt.map((o) => `${o.label} ${formatNumber(o.hours, { decimals: 2 })} h ${o.basis === 'per_month' ? 'por mes' : 'por día'}`).join(', ') + (current.overtimeBilled === true ? ' (se facturan aparte)' : '')
                 : null,
               nonNegative(current.mealPerActiveDay) > 0 ? `vianda ${formatMoney(nonNegative(current.mealPerActiveDay))} por día` : null,
-              baseText(current.base, { prefix: 'Sueldo de' }),
+              baseText(current.base, { prefix: 'Sueldo de', fallbackPeriod: offerPeriodOf(quote) }),
             ].filter(Boolean).join(' · ');
             return h(
               'span',
@@ -497,7 +527,7 @@ export function render(container, ctx) {
           formGrid(
             3,
             kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative }),
-            kit.num(`${p}.ppeMonthly`, { label: 'Ropa y elementos de protección (EPP)', rule: 'money', unit: '$/mes', illustrative }),
+            kit.num(`${p}.ppeMonthly`, { label: 'Ropa y elementos de protección', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
             // Pasajes de la persona (micro o avión de los relevos): no es el vehículo, que va en Equipos.
             kit.num(`${p}.transferMonthly`, { label: 'Pasajes o traslado de la persona', rule: 'money', unit: '$/mes', illustrative, hint: `Por persona y mes: micro, avión o reintegro. Si viaja en un vehículo de "${stepName('equipment')}", ya está ahí: dejalo en 0.` }),
@@ -510,7 +540,7 @@ export function render(container, ctx) {
           {
             key: `labor-base:${line.id || i}`,
             title: '¿De qué mes es el sueldo?',
-            summary: () => baseText(quote.labor[i] && quote.labor[i].base),
+            summary: () => baseText(quote.labor[i] && quote.labor[i].base, { fallbackPeriod: offerPeriodOf(quote) }),
           },
           h('p', { class: 'small' }, 'De qué mes son el sueldo y los otros pagos (por ejemplo, la escala de un convenio). Cambiarlo acá sólo afecta esta cotización.'),
           baseFields(ctx, `${p}.base`, { periodLabel: 'Mes del sueldo (escala)' }),
@@ -530,6 +560,19 @@ export function render(container, ctx) {
         ),
       ),
     );
+    // Validar recién al salir del campo (tanda novatos 2026-11): al dejar el campo del sueldo,
+    // el aviso de sueldo faltante pasa a mostrarse si corresponde.
+    if (lineKey && untouchedLines.has(lineKey)) {
+      card.addEventListener('focusout', (event) => {
+        const target = event.target;
+        if (!target || target.name !== `${p}.basicMonthly`) return;
+        if (!untouchedLines.delete(lineKey)) return;
+        salaryBanner.hidden = !showSalaryBanner(lastResult);
+        const l = quote.labor[i];
+        salaryTag.hidden = !(l && !(nonNegative(l.basicMonthly) > 0));
+      });
+    }
+    return card;
   });
 
   // -------------------------------------------------------------- totales

@@ -117,6 +117,10 @@ import {
   breakEvenZeroText,
   termsOfResult,
   illustrativeTitle,
+  illustrativeBadgeText,
+  suggestedRateTrace,
+  suggestedRateName,
+  floorRateName,
   floorWithoutExtrasText,
   capAllDaysNote,
   lossWindowText,
@@ -751,22 +755,22 @@ function traceContribution(v) {
 
 const SUGGESTED_TITLE = 'Tarifa sugerida';
 
+/** "Ver cálculo" de la sugerida: la cuenta en palabras (result-text.js, traza del motor). */
 function traceSuggested(v) {
-  const { k, q } = v;
-  return createTrace({
-    id: 'suggested_rate',
-    title: SUGGESTED_TITLE,
-    formula: 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
-    inputs: [
-      { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
-      { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(q.pricing && q.pricing.roundingStep), format: 'money' },
-    ],
-    result: { label: SUGGESTED_TITLE, value: k.suggestedListRate, format: 'moneyCeil' },
-    notes: [
-      'Si no hay redondeo configurado, el sugerido es igual al precio objetivo.',
-      'Se muestra redondeado hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo del objetivo.',
-    ],
-  });
+  const { k, q, r } = v;
+  return suggestedRateTrace(r, { roundingStep: nonNegativeOrNull(q.pricing && q.pricing.roundingStep), title: suggestedRateName(r) })
+    // Sin traza del motor: lo mínimo (precio objetivo y redondeo), como antes.
+    || createTrace({
+      id: 'suggested_rate',
+      title: SUGGESTED_TITLE,
+      formula: 'Tarifa sugerida = Precio objetivo de lista redondeado hacia arriba al múltiplo elegido',
+      inputs: [
+        { label: 'Precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' },
+        { label: 'Redondeo comercial (múltiplos de)', value: nonNegativeOrNull(q.pricing && q.pricing.roundingStep), format: 'money' },
+      ],
+      result: { label: SUGGESTED_TITLE, value: k.suggestedListRate, format: 'moneyCeil' },
+      notes: ['Si no hay redondeo configurado, el sugerido es igual al precio objetivo.'],
+    });
 }
 
 function traceSuggestedResult(v, suggested, ev) {
@@ -1518,7 +1522,8 @@ function equivalentsBlock(v) {
 function illustrativeBadge(v) {
   const title = illustrativeTitle(v.ill);
   if (!title) return null;
-  return badge('ILUSTRATIVO', 'orange', { title });
+  // Dice QUÉ es de ejemplo; "ILUSTRATIVO" a secas sólo si toda la cotización es demo (tanda novato).
+  return badge(illustrativeBadgeText(v.ill) || 'ILUSTRATIVO', 'orange', { title });
 }
 
 /**
@@ -1605,7 +1610,7 @@ function floorStat(v) {
   else if (!hasValue(value)) hint = statHint(byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes.` : 'Falta estimar los días de trabajo del mes.');
   else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`, floorExtrasLine(v));
   return statItem({
-    label: 'Tarifa mínima (para no perder)',
+    label: floorRateName(v.r),
     value: ceilMoney(value),
     unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
     hint,
@@ -1623,7 +1628,7 @@ function priceStat(v) {
   const suggested = hasValue(k.suggestedListRate) && k.suggestedListRate > 0 ? k.suggestedListRate : null;
   if (k.commercialSource === 'suggested' && hasRate(k)) {
     return statItem({
-      label: 'Tarifa sugerida',
+      label: suggestedRateName(r),
       value: ceilMoney(k.commercialListRate),
       unit,
       hint: statHint(targetGoalHint(k.targetMarginPct), rateBelowHourCostText(r) ? h('strong', { class: 'qr-unreliable-note' }, rateBelowHourCostText(r)) : null),
@@ -1638,7 +1643,7 @@ function priceStat(v) {
     else if (k.commercialSource === 'offered') hint = 'La tarifa que ofrecés (cargada a mano).';
     else hint = `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
     return statItem({
-      label: 'Tu tarifa',
+      label: closedOf(v).closed ? 'Tu precio' : 'Tu tarifa',
       value: rateValue(k.commercialListRate),
       unit,
       hint: statHint(hint),
@@ -1656,10 +1661,10 @@ function priceStat(v) {
   }
   // V-28: la guardia y los adicionales ya cubren costo y margen: no hace falta una tarifa por unidad.
   if (coveredByOtherRevenue(r)) {
-    return statItem({ label: 'Tarifa sugerida', value: EMPTY, hint: statHint(coveredRateText(r)), className: 'qr-stat qr-stat-price' });
+    return statItem({ label: suggestedRateName(r), value: EMPTY, hint: statHint(coveredRateText(r)), className: 'qr-stat qr-stat-price' });
   }
   return statItem({
-    label: 'Tarifa sugerida',
+    label: suggestedRateName(r),
     value: EMPTY,
     hint: statHint(k.targetMarginInvalid
       ? (k.billingTaxPct > 0
@@ -1892,7 +1897,7 @@ function quoteSubtitle(q) {
 function draftBanner(v) {
   const { r, q } = v;
   const c = r.completeness || {};
-  const info = draftBannerText({ critical: c.critical, review: c.review, unreliable: c.unreliable });
+  const info = draftBannerText({ critical: c.critical, review: c.review, unreliable: c.unreliable, closed: closedOf(v).closed });
   if (!info) return null;
   const pending = Array.isArray(c.pending) ? c.pending.filter((i) => i.severity === 'critical' || i.severity === 'review') : [];
   const example = completenessExampleNote({ quoteId: q.id, illustrative: Boolean(v.ill && v.ill.quote), pendingCount: pending.length });
@@ -1940,8 +1945,7 @@ function staffBlock(v) {
 
 /** 1. Resultado: las cuatro respuestas, la frase de los días y las alertas críticas. */
 function renderSummary(v) {
-  const { q, r } = v;
-  const mode = r.pricingMode === 'known_rate' ? 'known_rate' : 'known_activity';
+  const { q } = v;
   const titleId = uniqueId('qr-summary-title');
   const sub = quoteSubtitle(q);
   const alerts = criticalAlerts(v);
@@ -1951,17 +1955,15 @@ function renderSummary(v) {
       h('div', { class: 'qr-summary-titles' },
         h('h2', { class: 'qr-summary-title', id: titleId }, 'Resultado'),
         sub ? h('p', { class: 'qr-summary-sub' }, sub) : null),
-      h('div', { class: 'qr-summary-badges' },
-        badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
-        illustrativeBadge(v))),
+      h('div', { class: 'qr-summary-badges' }, illustrativeBadge(v))),
     draft,
     // PLAN-2026-026: la carilla. Qué cobro, cuánto me cuesta, cuánto gano (en $ y en %); abajo,
     // la tarifa mínima. El detalle sigue en "Ver el detalle".
     h('dl', { class: 'qr-stats' }, priceStat(v), costStat(v), profitStat(v), marginStat(v), floorStat(v)),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. La ganancia es antes del impuesto a las Ganancias.'),
     tariffsBlock(v),
-    staffBlock(v),
-    workBlock(v),
+    // Precio cerrado: "¿Cuántos trabajos tengo que facturar?" no aplica (un precio por el trabajo).
+    closedOf(v).closed ? null : workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
 }
@@ -1987,6 +1989,13 @@ function transportBlock(v) {
   const perKm = t.derived && hasRate(k) && t.kmPerTrip > 0 ? k.commercialListRate / t.kmPerTrip : null;
   const own = hasValue(k.logisticsMonthly) ? k.logisticsMonthly : 0;
   const providers = Array.isArray(t.providers) ? t.providers : [];
+  const sameTrips = hasValue(t.billableTripsPerMonth) && hasValue(t.physicalTripsPerMonth) && Math.abs(t.billableTripsPerMonth - t.physicalTripsPerMonth) < 1e-6;
+  // Qué suma ese monto (logisticsMonthly del motor): combustible y desgaste de los vehículos y de
+  // los equipos que se trasladan solos, más peajes y alojamiento si se cargaron.
+  const lg = (r.model && r.model.logistics) || {};
+  const extrasOwn = [hasValue(lg.tollsPerActivation) && lg.tollsPerActivation > 0 ? 'peajes' : null, hasValue(lg.lodgingPerActivation) && lg.lodgingPerActivation > 0 ? 'alojamiento' : null].filter(Boolean);
+  const ownLabel = extrasOwn.length ? `Costo de los viajes (combustible, desgaste, ${extrasOwn.join(' y ')})` : 'Combustible y desgaste de los viajes';
+  const ownPer = closedOf(v).single ? 'por trabajo' : 'por mes';
   return h('div', { class: 'qr-transport' },
     h('div', { class: 'qr-transport-head' },
       h('h3', { class: 'qr-subhead' }, 'Viajes y km del mes'),
@@ -1996,7 +2005,8 @@ function transportBlock(v) {
       : route ? h('p', { class: 'qr-transport-rate' }, route) : null,
     h('dl', { class: 'qr-transport-grid' },
       t.derived ? item('Viajes facturables', trips(t.billableTripsPerMonth)) : null,
-      item('Viajes físicos costeados', trips(t.physicalTripsPerMonth), t.notApplicable ? 'Sin traslados' : `${formatNumber(t.activationsPerMonth, { decimals: 2 })} ${activationTerms(t.terms).word(t.activationsPerMonth)} × ${trips(t.physicalTripsPerActivation)}`),
+      // "Viajes físicos" sólo si difieren de los facturables (tanda novato): con nombre llano.
+      t.derived && sameTrips ? null : item(t.derived ? 'Viajes que hacés de verdad' : 'Viajes que hacés', trips(t.physicalTripsPerMonth), t.notApplicable ? 'Sin traslados' : `${formatNumber(t.activationsPerMonth, { decimals: 2 })} ${activationTerms(t.terms).word(t.activationsPerMonth)} × ${trips(t.physicalTripsPerActivation)}`),
       item('Días de trabajo', workDaysText(t.workDaysPerMonth)),
       item('Km por viaje', t.kmPerTrip > 0 ? formatValue(t.kmPerTrip, 'km') : EMPTY),
       item('Km de ruta por mes', t.kmPerTrip > 0 ? formatValue(t.routeKmPerMonth, 'km') : EMPTY, 'Lo que se recorre y se costea'),
@@ -2008,7 +2018,7 @@ function transportBlock(v) {
           h('strong', {}, `${p.name}: `),
           providerActivityText(p, t)))))
       : null,
-    h('p', { class: 'qr-transport-own' }, `Movilización propia y vehículos de apoyo: ${money(own)} por mes${providers.length ? ' (los km del proveedor están en su tarifa, no acá).' : '.'}`));
+    h('p', { class: 'qr-transport-own' }, `${ownLabel}: ${money(own)} ${ownPer}${providers.length ? ' (los km del proveedor están en su tarifa, no acá).' : '.'}`));
 }
 
 // ------------------------------- Profundizá: ¿En qué se va el costo?
@@ -3744,16 +3754,19 @@ function deepDefinitions(v) {
     {
       key: 'eecc',
       summary: '¿En qué se va el costo?',
-      hint: 'Los rubros del costo del mes y la estructura de costos completa (EECC).',
+      hint: `Los rubros del costo ${closedOf(v).single ? 'del trabajo' : 'del mes'} y la estructura de costos completa (EECC).`,
       build: () => {
         const e = v.r.eecc || {};
         const breakdown = safeSection('¿En qué se va el costo?', () => renderCostBreakdown(v));
         // Sin costos, el aviso de la vista simple alcanza (la EECC repetiría el mismo vacío).
-        return hasValue(e.total) && e.total > 0 ? [breakdown, safeSection('Estructura de costos (EECC)', () => renderCostStructure(v))] : [breakdown];
+        // El personal del servicio ("3 personas…") vive acá, no suelto en la carilla (tanda novato).
+        const staff = safeSection('Personal', () => staffBlock(v));
+        return [breakdown, staff, hasValue(e.total) && e.total > 0 ? safeSection('Estructura de costos (EECC)', () => renderCostStructure(v)) : null].filter(Boolean);
       },
     },
     {
       key: 'base',
+      advanced: true,
       summary: '¿De qué fecha son los valores?',
       hint: '¿De qué mes son los valores? Bases por rubro, tipos de cambio y equipos externos (costo, caja y crédito fiscal).',
       badge: economicBaseBadge(v),
@@ -3761,9 +3774,10 @@ function deepDefinitions(v) {
     },
     {
       key: 'appropriation',
-      summary: v.composition && v.composition.contract && v.composition.contract.mode === 'closed' ? 'Ver reparto de la tarifa y total del trabajo' : 'Ver reparto de la tarifa y total del contrato',
+      advanced: true,
+      summary: v.composition && v.composition.contract && v.composition.contract.mode === 'closed' ? 'Ver reparto del precio y total del trabajo' : 'Ver reparto de la tarifa y total del contrato',
       hint: v.composition && v.composition.contract && v.composition.contract.mode === 'closed'
-        ? 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del trabajo.'
+        ? 'Cuánto de cada $ del precio va a cada rubro, a impuestos y a ganancia; y el total del trabajo.'
         : v.r.ctx && v.r.ctx.contractMonths > 0
         ? `Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total de los ${formatNumber(v.r.ctx.contractMonths)} meses de contrato.`
         : 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del contrato.',
@@ -3771,6 +3785,8 @@ function deepDefinitions(v) {
     },
     {
       key: 'matrix',
+      // En precio cerrado "según los trabajos del mes" es análisis, no la respuesta: va adentro.
+      advanced: closedOf(v).closed,
       summary: byQty(v) ? `Tarifa según ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes` : 'Tarifa según días trabajados',
       hint: byQty(v)
         ? `¿Qué tarifa necesitás si facturás más o menos ${v.r.unitInfo.plural}? Matriz y gráfico.`
@@ -3779,12 +3795,14 @@ function deepDefinitions(v) {
     },
     {
       key: 'scenarios',
+      advanced: true,
       summary: 'Analizar escenarios',
       hint: '¿Qué pasa si…? Sensibilidad, escenarios pesimista / base / optimista y modelos comerciales.',
       build: () => [scenarioIntro(v), ...analysisSections(v)],
     },
     {
       key: 'rules',
+      advanced: true,
       summary: 'Ver reglas comerciales',
       hint: byQty(v) ? 'Cómo se factura, equivalencias de la tarifa y descuentos por continuidad.' : 'Cómo se factura, equivalencias de la tarifa y descuentos por días o continuidad.',
       badge: rulesBadge(v),
@@ -3792,6 +3810,7 @@ function deepDefinitions(v) {
     },
     {
       key: 'markup',
+      advanced: true,
       summary: 'Margen y recargo',
       hint: 'Tarifas por nivel de margen y por qué el margen no es lo mismo que el markup.',
       build: () => [safeSection('Margen vs markup', () => renderMarginMarkup(v))],
@@ -3805,6 +3824,7 @@ function deepDefinitions(v) {
     },
     {
       key: 'traces',
+      advanced: true,
       summary: 'Ver cálculo completo',
       hint: byQty(v)
         ? `Todos los indicadores (${v.r.unitInfo.plural} para el margen objetivo, contribución, cantidad de equilibrio…) y cada fórmula.`
@@ -3819,8 +3839,17 @@ function deepDefinitions(v) {
  * dejó abiertos en esta pestaña) y dibujados recién al abrirlos.
  * @returns {{ node: HTMLElement, items: Array<{ key: string, el: HTMLDetailsElement, render: Function }> }}
  */
+/** Los desplegables que quedan a la vista, en este orden (tanda novato); el resto va en "Análisis avanzado". */
+const DEEP_VISIBLE_ORDER = Object.freeze(['compose', 'eecc', 'completeness', 'matrix']);
+
 function renderDeep(v, remembered) {
-  const items = deepDefinitions(v).map((def) => {
+  const defs = deepDefinitions(v);
+  const rank = (def) => {
+    const i = DEEP_VISIBLE_ORDER.indexOf(def.key);
+    return i < 0 ? DEEP_VISIBLE_ORDER.length : i;
+  };
+  const ordered = [...defs.filter((d) => !d.advanced).sort((a, b) => rank(a) - rank(b)), ...defs.filter((d) => d.advanced)];
+  const items = ordered.map((def) => {
     let rendered = false;
     let body = null;
     const render = () => {
@@ -3853,15 +3882,41 @@ function renderDeep(v, remembered) {
     el.dataset.section = def.key;
     body = el.querySelector('.disclosure-body');
     if (el.open) render();
-    return { key: def.key, el, render };
+    return { key: def.key, el, render, advanced: Boolean(def.advanced) };
   });
+  const visible = items.filter((it) => !it.advanced);
+  const inner = items.filter((it) => it.advanced);
+  // Un único plegable con el análisis avanzado (escenarios, reglas, margen, reparto, fechas, cálculo completo).
+  const advancedEl = inner.length
+    ? disclosure({
+      summary: 'Análisis avanzado',
+      hint: 'Escenarios, reglas comerciales, margen y recargo, reparto y total, fecha de los valores y el cálculo completo.',
+      badge: advancedBadge(inner),
+      open: remembered.has('advanced'),
+      id: v.ids.deep_advanced,
+      className: 'qr-deep-item qr-deep-advanced',
+      onToggle: (open) => {
+        if (open) remembered.add('advanced');
+        else remembered.delete('advanced');
+      },
+    }, h('div', { class: 'disclosure-list qr-deep-list' }, ...inner.map((it) => it.el)))
+    : null;
+  if (advancedEl) advancedEl.dataset.section = 'advanced';
   const titleId = uniqueId('qr-deep-title');
   const node = h('section', { class: 'qr-deep', 'aria-labelledby': titleId },
     h('div', { class: 'qr-section-head' },
       h('h3', { class: 'qr-section-title', id: titleId }, 'Ver el detalle'),
       h('p', { class: 'qr-section-sub' }, 'Arriba está lo importante. Acá queda todo el análisis: abrí sólo lo que necesites.')),
-    h('div', { class: 'disclosure-list qr-deep-list' }, ...items.map((it) => it.el)));
-  return { node, items };
+    h('div', { class: 'disclosure-list qr-deep-list' }, ...visible.map((it) => it.el), advancedEl));
+  // El plegable contenedor también se abre al imprimir (va primero: después se dibujan los de adentro).
+  const all = advancedEl ? [{ key: 'advanced', el: advancedEl, render: () => {}, advanced: false }, ...items] : items;
+  return { node, items: all };
+}
+
+/** Aviso en "Análisis avanzado": cuántos avisos hay adentro (las insignias de cada sección siguen ahí). */
+function advancedBadge(inner) {
+  const flagged = inner.filter((it) => it.el.querySelector(':scope > summary .badge')).length;
+  return flagged ? badge('Con avisos', 'orange', { title: flagged === 1 ? '1 sección con avisos' : `${flagged} secciones con avisos` }) : null;
 }
 
 /**
@@ -3976,7 +4031,7 @@ function printHeader(v, heading = 'Análisis económico de la cotización') {
 
 const SECTION_KEYS = Object.freeze([
   'summary', 'compose', 'costs', 'decision', 'eecc', 'appropriation', 'matrix', 'markup', 'discounts', 'rules', 'sensitivity', 'scenarios', 'models', 'completeness', 'traces', 'actions',
-  'deep_compose', 'deep_eecc', 'deep_base', 'deep_appropriation', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces',
+  'deep_compose', 'deep_eecc', 'deep_base', 'deep_appropriation', 'deep_matrix', 'deep_scenarios', 'deep_rules', 'deep_markup', 'deep_completeness', 'deep_traces', 'deep_advanced',
 ]);
 
 /**
@@ -4103,6 +4158,12 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
     const item = deepItems.find((it) => it.key === key);
     if (!item) return;
     item.render();
+    // Dentro de "Análisis avanzado": se abre también el contenedor.
+    const parent = item.el.parentElement ? item.el.parentElement.closest('details') : null;
+    if (parent && !parent.open) {
+      parent.open = true;
+      remembered.add('advanced');
+    }
     item.el.open = true;
     remembered.add(key);
     if (typeof item.el.scrollIntoView === 'function') item.el.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });

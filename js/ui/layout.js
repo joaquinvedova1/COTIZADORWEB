@@ -150,13 +150,16 @@ export function createLayout(container, { version = {} } = {}) {
   const syncDotEl = h('span', { class: 'sync-dot', 'aria-hidden': 'true' });
   const syncTextEl = h('span', { class: 'sync-text' });
   const syncEl = h('div', { class: 'sync-status', role: 'status', hidden: true }, syncDotEl, syncTextEl);
-  // "Reportar un problema" ahora es una pestaña fija al costado (js/app.js).
+  // "Reportar un problema" es una pestaña fija al costado (js/app.js). En el celular la pestaña
+  // tapaba texto: ahí va como botón dentro del menú (tanda novatos 2026-11; css/styles.css).
   let reportHandler = null;
+  const reportBtn = h('button', { type: 'button', class: 'account-action sidebar-report', on: { click: () => { setNavOpen(false); if (reportHandler) reportHandler(); } } }, icon('flag', { size: 16 }), h('span', {}, 'Reportar un problema'));
   const sidebarFooter = h(
     'div',
     { class: 'sidebar-footer' },
     h('div', { class: 'org-card' }, orgAvatarEl, h('div', { class: 'org-text' }, orgNameEl, orgBaseEl)),
     accountEl,
+    reportBtn,
     syncEl,
     h('div', { class: 'sidebar-meta' }, buildEl),
   );

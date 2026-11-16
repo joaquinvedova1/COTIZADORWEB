@@ -58,3 +58,19 @@ export function resetSessionMemory() {
     }
   });
 }
+
+/**
+ * Cotizaciones creadas en esta sesión (tanda novatos 2026-11). En una cotización recién creada
+ * una etapa posterior no visitada se muestra "Pendiente" aunque sus valores iniciales la den por
+ * completa; una cotización que ya existía y se reabre muestra su estado real.
+ */
+const freshQuotes = new Set();
+onSessionReset(() => freshQuotes.clear());
+
+export function markFreshQuote(id) {
+  if (id) freshQuotes.add(String(id));
+}
+
+export function isFreshQuote(id) {
+  return freshQuotes.has(String(id));
+}

@@ -388,13 +388,14 @@ describe('CASO F — base económica: material con base antigua, valores sin bas
     assert.match(mixed.warnings.find((w) => w.id === 'mixed').message, /diferentes fechas base/);
   });
 
-  test('sin fecha base → "Base no definida" (no se inventa) y la completitud lo advierte', () => {
+  test('sin fecha base → el dato queda vacío (no se inventa) y NO es un pendiente: se muestra con el mes de la oferta', () => {
     const q = baseQuote();
     q.labor.push(laborLineFromProfile(operatorProfile({ base: undefined }), null, { id: 'l', now: OCT }));
     assert.equal(q.labor[0].base.period, null);
     const it = evaluateCompleteness(q).items.find((i) => i.id === 'economic_base');
-    assert.equal(it.status, 'warning');
-    assert.match(it.message, /fecha base/);
+    // Tanda novatos 2026-11 (pedido del dueño): la fecha base faltante no cuenta como pendiente.
+    assert.equal(it.status, 'ok');
+    assert.match(it.message, /mes de la oferta/);
   });
 
   test('la base se compara contra la fecha de la OFERTA (determinístico, nunca "hoy")', () => {

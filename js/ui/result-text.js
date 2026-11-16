@@ -15,8 +15,10 @@
 
 import { formatDays, formatNumber, formatPercent, formatMoney, formatMoneyCeil, EMPTY } from '../core/format.js';
 import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
+import { createTrace } from '../core/trace.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { resourceNormalHourCost } from '../engines/out-of-hours-engine.js';
+import { effectiveRoundingStep } from '../engines/pricing-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
 import { isQuantityUnit, quantityCeilText, quantityText } from './unit-text.js';
 import { unitTexts } from '../domain/billing-units.js';
@@ -295,7 +297,9 @@ export function completenessExampleNote({ quoteId = null, illustrative = false, 
  * revisar, la tarifa no está lista para usar. Los informativos no cuentan.
  * Devuelve null si no hay nada material.
  */
-export function draftBannerText({ critical = 0, review = 0, unreliable = 0 } = {}) {
+export function draftBannerText({ critical = 0, review = 0, unreliable = 0, closed = false } = {}) {
+  // Precio cerrado: "este precio" (tanda novato).
+  const what = closed ? 'ESTE PRECIO' : 'ESTA TARIFA';
   const c = Number.isFinite(critical) && critical > 0 ? Math.floor(critical) : 0;
   const rv = Number.isFinite(review) && review > 0 ? Math.floor(review) : 0;
   const u = Number.isFinite(unreliable) && unreliable > 0 ? Math.floor(unreliable) : 0;
@@ -310,13 +314,13 @@ export function draftBannerText({ critical = 0, review = 0, unreliable = 0 } = {
     return {
       tone: 'danger',
       unreliable: true,
-      title: 'RESULTADO NO CONFIABLE — NO UTILIZAR ESTA TARIFA.',
+      title: `RESULTADO NO CONFIABLE — NO UTILIZAR ${what}.`,
       text: `${u === 1 ? 'Un dato hace' : `${u} datos hacen`} que el costo, la facturación o el margen de abajo no sean reales: resolvelo antes de cotizar. ${counts}`,
     };
   }
   return {
     tone: c > 0 ? 'danger' : 'warning',
-    title: `BORRADOR — revisar ${total} ${total === 1 ? 'punto' : 'puntos'} antes de usar esta tarifa.`,
+    title: `BORRADOR — revisar ${total} ${total === 1 ? 'punto' : 'puntos'} antes de usar ${what.toLowerCase()}.`,
     text: counts,
   };
 }
@@ -484,6 +488,111 @@ export function illustrativeTitle(info) {
   if (info.finance) parts.push('tasa de financiamiento de ejemplo (en Financiación)');
   if (!parts.length) return 'Incluye valores ILUSTRATIVOS. Reemplazalos por valores propios vigentes.';
   return `Incluye valores ILUSTRATIVOS: ${joinList(parts)}. Reemplazalos por valores propios vigentes.`;
+}
+
+/**
+ * Texto de la insignia de valores de ejemplo (tanda novato): dice QUÉ es de ejemplo
+ * ("Combustible de ejemplo", "Cargas de ejemplo (2)", "Valores de ejemplo (2)"); el
+ * detalle queda en el title (illustrativeTitle). "ILUSTRATIVO" a secas sólo si TODA la
+ * cotización es de demostración.
+ * @param {{ any?: boolean, quote?: boolean, lines?: number, fuel?: boolean, finance?: boolean }} info  illustrativeInfo(quote)
+ * @returns {string|null}
+ */
+export function illustrativeBadgeText(info) {
+  if (!info || !info.any) return null;
+  if (info.quote) return 'ILUSTRATIVO';
+  const lines = info.lines > 0 ? info.lines : 0;
+  const kinds = [lines > 0, Boolean(info.fuel), Boolean(info.finance)].filter(Boolean).length;
+  if (kinds > 1) return `Valores de ejemplo (${kinds})`;
+  if (info.fuel) return 'Combustible de ejemplo';
+  if (info.finance) return 'Tasa de financiación de ejemplo';
+  if (lines > 0) return lines === 1 ? 'Carga de ejemplo' : `Cargas de ejemplo (${formatNumber(lines)})`;
+  return 'Valores de ejemplo';
+}
+
+// ------------------------------------------------- precio cerrado: palabras
+
+/** ¿Precio cerrado? (contract.mode = 'closed'): se habla de "precio", no de "tarifa". */
+export function isClosedPrice(r) {
+  return Boolean(r && r.contract && r.contract.mode === 'closed');
+}
+
+/**
+ * Precio cerrado con UN trabajo por mes: las cifras "del mes" son las del trabajo y se rotulan
+ * así ("Costo del equipo en el trabajo"). Mismo criterio que el Resultado (closedOf).
+ */
+export function isSingleClosedJob(r) {
+  const q = r && r.kpis ? r.kpis.billableQuantity : null;
+  return isClosedPrice(r) && Number.isFinite(q) && Math.abs(q - 1) < 1e-9;
+}
+
+/** "Tarifa sugerida" o, en precio cerrado, "Precio sugerido". */
+export function suggestedRateName(r) {
+  return isClosedPrice(r) ? 'Precio sugerido' : 'Tarifa sugerida';
+}
+
+/** "Tarifa mínima (para no perder)" o, en precio cerrado, "Precio mínimo (para no perder)". */
+export function floorRateName(r, { short = false } = {}) {
+  const base = isClosedPrice(r) ? 'Precio mínimo' : 'Tarifa mínima';
+  return short ? base : `${base} (para no perder)`;
+}
+
+/**
+ * "Ver cálculo" de la tarifa sugerida (tanda novato): la cuenta en palabras, reutilizando la
+ * traza del precio objetivo del motor (r.traces.targetRate) y sus valores. No calcula nada:
+ * costo + impuestos + ganancia = facturación necesaria (motor) → − otros ingresos → ÷ cantidad
+ * = precio objetivo (motor) → redondeo hacia arriba = sugerida (motor).
+ * @param {object} r resultado de computeQuote
+ * @param {{ roundingStep?: number|null, effectiveStep?: number|null, title?: string }} [o]
+ */
+export function suggestedRateTrace(r, { roundingStep = null, effectiveStep = null, title = null } = {}) {
+  const base = r && r.traces ? r.traces.targetRate : null;
+  if (!base) return null;
+  const k = r.kpis || {};
+  const ra = r.ratesAtEstimate || {};
+  const name = title || suggestedRateName(r);
+  const t = isFiniteNumber(k.billingTaxPct) && k.billingTaxPct > 0 ? k.billingTaxPct : 0;
+  const m = isFiniteNumber(k.targetMarginPct) && !k.targetMarginInvalid ? k.targetMarginPct : null;
+  const stepOf = (label) => (base.steps || []).find((x) => x.label === label) || null;
+  const required = stepOf('Facturación necesaria');
+  const net = stepOf('Tarifa objetivo neta');
+  const other = isFiniteNumber(ra.otherRevenue) && ra.otherRevenue > 0 ? ra.otherRevenue : 0;
+  const factor = isFiniteNumber(ra.discountFactor) ? ra.discountFactor : 1;
+  const discounted = Math.abs(factor - 1) > EPS;
+  const unitsWord = r.unitInfo && r.unitInfo.plural ? r.unitInfo.plural : 'unidades';
+  const units = isFiniteNumber(ra.billableUnits) ? `${formatNumber(ra.billableUnits, { decimals: Math.abs(ra.billableUnits - Math.round(ra.billableUnits)) < EPS ? 0 : 2 })} ${Math.abs(ra.billableUnits - 1) < EPS && r.unitInfo && r.unitInfo.singular ? r.unitInfo.singular : unitsWord}` : `los ${unitsWord} del mes`;
+  const configured = isFiniteNumber(Number(roundingStep)) && Number(roundingStep) > 0 ? Number(roundingStep) : 0;
+  // El mismo paso que usó el motor (acotado al 1 % de la tarifa).
+  const step = isFiniteNumber(Number(effectiveStep)) && Number(effectiveStep) > 0
+    ? Number(effectiveStep)
+    : configured > 0 && isFiniteNumber(k.targetListRate) ? effectiveRoundingStep(k.targetListRate, configured) : configured;
+  const parts = ['costo', t > 0 ? 'impuestos sobre lo que facturás' : null, 'tu ganancia'].filter(Boolean).join(' + ');
+  const formula = `${name} = (${parts}${other > 0 ? ' − otros ingresos' : ''}) ÷ ${unitsWord}${discounted ? ', antes de descuentos' : ''}${step > 0 ? ', redondeado hacia arriba' : ''}`;
+  const share = m !== null
+    ? ` (de cada $ 100 facturados: $ ${formatNumber(100 - m - t, { decimals: 2 })} de costo${t > 0 ? `, $ ${formatNumber(t, { decimals: 2 })} de impuestos` : ''} y $ ${formatNumber(m, { decimals: 2 })} de ganancia)`
+    : '';
+  const steps = [
+    required ? { label: `1. Lo que tenés que facturar para cubrir ${parts}${share}`, value: required.value, format: 'moneyCeil' } : null,
+    other > 0 ? { label: '2. Menos lo que ya cobrás aparte (otros ingresos)', value: other, format: 'money' } : null,
+    net ? { label: `${other > 0 ? '3' : '2'}. Dividido ${units}: precio objetivo${discounted ? ' neto' : ''}`, value: net.value, format: 'moneyCeil' } : null,
+    discounted ? { label: 'Antes de descuentos (neto ÷ factor de descuentos): precio objetivo de lista', value: k.targetListRate, format: 'moneyCeil' } : null,
+    step > 0 ? { label: `Redondeo hacia arriba a múltiplos de ${formatMoney(step)} (nunca baja el margen)`, value: step, format: 'money' } : null,
+  ].filter(Boolean);
+  return createTrace({
+    id: 'suggested_rate',
+    title: name,
+    formula,
+    inputs: (base.inputs || []).filter((x) => !(x.label && x.label.startsWith('Factor de descuentos') && !discounted)),
+    steps,
+    result: { label: name, value: k.suggestedListRate, format: 'moneyCeil' },
+    notes: [
+      step > 0
+        ? `Precio objetivo sin redondear: ${formatMoneyCeil(k.targetListRate)}. ${name}: ${formatMoneyCeil(k.suggestedListRate)}.`
+        : 'Sin redondeo comercial: es igual al precio objetivo.',
+      'Se muestra redondeado hacia arriba al peso: cobrar la cifra que ves nunca te deja debajo del objetivo.',
+      ...(base.notes || []).filter((n) => !/^Tarifa sugerida: redondeada/.test(n)),
+    ],
+  });
 }
 
 /** Tarifa mínima hacia arriba, como la tarifa mínima (nunca se lee de menos). */
