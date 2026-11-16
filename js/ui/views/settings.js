@@ -643,7 +643,7 @@ export async function render(root, app, params = {}) {
     const matrixField = listField({
       label: 'Días a comparar en "Tarifa según días trabajados"',
       value: params.matrixDays.join(', '),
-      hint: 'Días activos por mes, separados por comas (enteros de 1 a 31). Es la matriz tarifa × utilización del resultado.',
+      hint: 'Días de trabajo por mes, separados por comas (enteros de 1 a 31). Es la matriz tarifa × utilización del resultado.',
       parse: parseMatrixDays,
       onValid: (v) => { params.matrixDays = v; },
       illustrative: true,

@@ -7,7 +7,7 @@
  *   por vehículo: km = km de ruta × cantidad; litros = km × consumo (L/100 km) / 100
  *   costo por activación = combustible + desgaste por km + peajes + viáticos
  *   costo mensual = costo por activación × activaciones por mes
- *   costo por día activo = costo por activación / días por activación
+ *   costo por día de trabajo = costo por activación / días por activación
  *
  * Caso demo ILUSTRATIVO: Neuquén Capital → Añelo, 110 km, ida y vuelta, 1 viaje por activación,
  * hidrogrúa (35 L/100 km, 150 $/km) + vehículo de apoyo (12 L/100 km, 80 $/km), gasoil 1.500 $/L,
@@ -99,14 +99,14 @@ describe('LogisticsEngine — costos', () => {
     approx(r.litersPerMonth, 103.4 * 4);
   });
 
-  test('costo por día activo = costo por activación / días por activación (205.700 / 2 = 102.850)', () => {
+  test('costo por día de trabajo = costo por activación / días por activación (205.700 / 2 = 102.850)', () => {
     const r = computeLogistics(anelo(), CTX);
     approx(r.perActiveDay, 102_850);
     approx(r.fuelPerActiveDay, 155_100 / 2);
     approx(r.nonFuelPerActiveDay, 50_600 / 2);
   });
 
-  test('costo por día activo × días activos coincide con el costo mensual (8 días = 4 activaciones × 2)', () => {
+  test('costo por día de trabajo × días de trabajo coincide con el costo mensual (8 días = 4 activaciones × 2)', () => {
     const r = computeLogistics(anelo(), CTX);
     approx(r.perActiveDay * 8, r.monthlyCost);
   });

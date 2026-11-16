@@ -48,11 +48,11 @@ export function resultDays(value) {
   return formatDays(shownDays(value, decimals), { decimals });
 }
 
-/** "6,4 días activos" / "1 día activo". */
+/** "6,4 días de trabajo" / "1 día de trabajo". */
 export function activeDaysText(value, decimals = 1) {
   if (!isFiniteNumber(value)) return EMPTY;
   const text = formatDays(shownDays(value, decimals), { decimals });
-  return `${text} ${/\bdía$/.test(text) ? 'activo' : 'activos'}`;
+  return `${text} de trabajo`;
 }
 
 /** "+1,5 días" / "-1 día" / "0 días" (diferencias; singular también en negativo). */
@@ -144,7 +144,7 @@ export function tierDiscountFindings(rows) {
 
 /**
  * Tramo en el que cae la actividad JUSTO DEBAJO de `days` (donde se pierde
- * plata antes del break-even): el último cuyo primer día (en días activos,
+ * plata antes del break-even): el último cuyo primer día (en días de trabajo,
  * `evaluatedDays`) es menor que `days`. null si `days` está antes del primero.
  */
 export function tierBelow(rows, days) {
@@ -230,7 +230,7 @@ export function discountWords(result) {
 
 /**
  * ¿La cotización cobra algo además de la tarifa? Abono o equipo en espera
- * (ingresos fijos), cargos por llamado / movilización / km (por día activo),
+ * (ingresos fijos), cargos por llamado / movilización / km (por día de trabajo),
  * mínimo mensual garantizado o un mínimo por llamado que de verdad se aplica.
  */
 function hasOtherCharges(result) {

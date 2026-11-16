@@ -173,7 +173,7 @@ describe('EquipmentEngine — $/hora, $/día y $/mes según utilización', () =>
 });
 
 describe('EquipmentEngine — línea de equipo en una cotización', () => {
-  test('posesión → fijo mensual; operación → variable por día activo (× horas/día × cantidad)', () => {
+  test('posesión → fijo mensual; operación → variable por día de trabajo (× horas/día × cantidad)', () => {
     const line = computeEquipmentLine(hydroCrane({ quantity: 2, hoursPerActiveDay: 10 }), { fuelPricePerLiter: 1500 });
     approx(line.fixedMonthly, 2 * OWNERSHIP);
     approx(line.fixedCashMonthly, 2 * CASH_OWNERSHIP);
@@ -185,7 +185,7 @@ describe('EquipmentEngine — línea de equipo en una cotización', () => {
     approx(line.variablePerActiveDay, 760_000);
   });
 
-  test('sin horas por día propias, la línea usa las horas por día activo de la cotización', () => {
+  test('sin horas por día propias, la línea usa las horas por día de trabajo de la cotización', () => {
     const line = computeEquipmentLine(hydroCrane({ hoursPerActiveDay: null }), { fuelPricePerLiter: 1500, defaultHoursPerActiveDay: 8 });
     assert.equal(line.hoursPerActiveDay, 8);
     approx(line.variablePerActiveDay, OPERATION_PER_HOUR * 8);

@@ -205,7 +205,7 @@ describe('validateQuote', () => {
     assert.ok(validateQuote(quote).some((i) => i.path === 'pricing.targetMarginPct' && i.severity === 'error'));
   });
 
-  test('advierte días activos mayores que los disponibles (utilización > 100 %)', () => {
+  test('advierte días de trabajo mayores que los disponibles (utilización > 100 %)', () => {
     const quote = deepClone(createDemoState(1).quotes[0]);
     quote.activity.activeDaysPerMonth = 31;
     quote.activity.availableDaysPerMonth = 30;

@@ -121,7 +121,7 @@ export const STAGES = Object.freeze([
   defineStage('resources', 'Los recursos', 'Recursos', ['labor', 'equipment', 'materials', 'logistics']),
   // Cómo se cobra va DESPUÉS de los recursos (PLAN-2026-025): primero cuánto cuestan, después la tarifa.
   defineStage('charge', 'Cómo se cobra', 'Cobro', ['modality']),
-  defineStage('conditions', 'Costos y condiciones', 'Costos', ['indirect', 'finance', 'risk']),
+  defineStage('conditions', 'Otros gastos', 'Gastos', ['indirect', 'finance', 'risk']),
   defineStage('price', 'El precio', 'Precio', ['margin']),
   defineStage('result', 'Resultado', 'Resultado', ['result']),
 ]);
@@ -882,7 +882,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
      * Si adentro hay un campo inválido o con un aviso del motor, el editor la
      * abre sola (ver syncAdvanced en createEditor).
      */
-    advanced({ key, title = 'Opciones avanzadas', summary = null, variant = 'options', boxed = false, defaultOpen = false, flag = null, className = null } = {}, ...children) {
+    advanced({ key, title = 'Más detalle (opcional)', summary = null, variant = 'options', boxed = false, defaultOpen = false, flag = null, className = null } = {}, ...children) {
       const hint = summary === null || summary === undefined
         ? null
         : typeof summary === 'function'

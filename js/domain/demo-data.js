@@ -397,7 +397,7 @@ export function demoReferenceQuote() {
     materialsNotApplicable: true,
     otherCosts: [
       { id: uid(7401), description: 'Costos fijos mensuales (referencia)', category: 'equipment', behavior: 'fixed_monthly', amount: 30000000 },
-      { id: uid(7402), description: 'Costo variable por día activo (referencia)', category: 'labor', behavior: 'per_active_day', amount: 1000000 },
+      { id: uid(7402), description: 'Costo variable por día de trabajo (referencia)', category: 'labor', behavior: 'per_active_day', amount: 1000000 },
     ],
     fuel: { pricePerLiter: 0, providedBy: 'client', base: { period: null, currency: 'ARS', source: null, note: '' } },
     logistics: { notApplicable: true, baseName: '', destinationName: '', distanceKm: 0, roundTrip: true, tripsPerActivation: 1, vehicles: [], tollsPerActivation: 0, lodgingPerActivation: 0 },

@@ -38,7 +38,7 @@ export function staffText(l) {
 
 /** Bases de las horas extra (PLAN-2026-010). */
 const OVERTIME_BASIS_OPTIONS = Object.freeze([
-  { value: 'per_active_day', label: 'Horas por día activo' },
+  { value: 'per_active_day', label: 'Horas por día de trabajo' },
   { value: 'per_month', label: 'Horas promedio por mes (por persona)' },
 ]);
 
@@ -78,7 +78,7 @@ function laborTrace(result, index, source) {
   return createTrace({
     id: 'labor_line',
     title: `Personal — ${line.role || 'Puesto'}`,
-    formula: 'Costo por persona = (Básico + Adicionales) × (1 + SAC% + Vacaciones%) × (1 + Cargas% + ART%) + Seguros + EPP + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día activo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
+    formula: 'Costo por persona = (Básico + Adicionales) × (1 + SAC% + Vacaciones%) × (1 + Cargas% + ART%) + Seguros + EPP + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día de trabajo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
     inputs: [
       { label: 'Básico mensual', value: p.basic, format: 'money' },
       { label: 'Adicionales mensuales', value: p.additionals, format: 'money' },
@@ -89,8 +89,8 @@ function laborTrace(result, index, source) {
       { label: 'Posiciones a cubrir', value: line.positions, format: 'number' },
       { label: 'Personas por posición (relevos)', value: line.peoplePerPosition, format: 'number' },
       { label: 'Horas normales por mes', value: nonNegative(src.normalHoursPerMonth), format: 'hours' },
-      ...(line.overtimeItems || []).map((o) => ({ label: `${o.label}: horas ${o.basis === 'per_month' ? 'por mes (por persona)' : 'por día activo'} con recargo ${formatPercent(o.premiumPct)}`, value: o.hours, format: 'hours' })),
-      { label: 'Vianda por día activo', value: line.perPosition.mealPerActiveDay, format: 'money' },
+      ...(line.overtimeItems || []).map((o) => ({ label: `${o.label}: horas ${o.basis === 'per_month' ? 'por mes (por persona)' : 'por día de trabajo'} con recargo ${formatPercent(o.premiumPct)}`, value: o.hours, format: 'hours' })),
+      { label: 'Vianda por día de trabajo', value: line.perPosition.mealPerActiveDay, format: 'money' },
     ],
     steps: [
       { label: 'Factor de cargas', value: p.loadFactor, format: 'number' },
@@ -105,12 +105,12 @@ function laborTrace(result, index, source) {
       ] : []),
       ...(line.overtimeItems || []).map((o) => ({ label: `${o.label}: valor hora con recargo y cargas`, value: o.hourlyCost, format: 'rate' })),
       ...(p.overtimeMonthly > 0 ? [{ label: 'Horas extra por mes (fijo, por persona)', value: p.overtimeMonthly, format: 'money' }] : []),
-      { label: 'Variable por día activo (todas las posiciones)', value: line.variablePerActiveDay, format: 'money' },
-      ...(line.overtimeBilling ? [{ label: 'Horas extra facturadas al cliente: ingreso por día activo', value: line.overtimeBilling.perActiveDay, format: 'money' }, { label: 'Horas extra facturadas al cliente: ingreso fijo del mes', value: line.overtimeBilling.fixedMonthly, format: 'money' }] : []),
+      { label: 'Variable por día de trabajo (todas las posiciones)', value: line.variablePerActiveDay, format: 'money' },
+      ...(line.overtimeBilling ? [{ label: 'Horas extra facturadas al cliente: ingreso por día de trabajo', value: line.overtimeBilling.perActiveDay, format: 'money' }, { label: 'Horas extra facturadas al cliente: ingreso fijo del mes', value: line.overtimeBilling.fixedMonthly, format: 'money' }] : []),
     ],
     result: { label: 'Fijo mensual total del puesto', value: line.fixedMonthly, format: 'money' },
     notes: [
-      'Hora extra = (básico ÷ horas normales) × (1 + recargo) × factor de cargas. Las horas por día activo son costo variable; las horas promedio por mes, fijo del mes.',
+      'Hora extra = (básico ÷ horas normales) × (1 + recargo) × factor de cargas. Las horas por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.',
       line.overtimeBilling ? 'Las horas extra que facturás aparte siguen siendo costo: además suman ingreso (horas × precio por hora).' : null,
       'Los porcentajes de convenio son parámetros que cargás vos: los de la demostración son ILUSTRATIVOS, no valores de ningún CCT.',
     ],
@@ -134,14 +134,14 @@ export function render(container, ctx) {
   const addFromLibrary = () => {
     const profile = profiles.find((p) => p.id === selectedProfileId);
     if (!profile) {
-      ctx.toast('Elegí un perfil de la biblioteca para agregarlo.', 'warning');
+      ctx.toast('Elegí un puesto de la lista para agregarlo.', 'warning');
       return;
     }
     const agreement = agreements.find((a) => a.id === profile.agreementId) || null;
     const line = laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
     const index = lines.length;
     ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.positions` });
-    ctx.toast(`Se agregó "${line.role}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
+    ctx.toast(`Se agregó "${line.role}" con su sueldo y valor de hora de Recursos. Poné cuántas personas van.`, 'success');
   };
   const addBlank = () => {
     const line = laborLineFromProfile({}, null, { currency: quoteCurrencyOf(quote) });
@@ -183,10 +183,10 @@ export function render(container, ctx) {
       'div',
       { class: 'qe-toolbar-pick' },
       selectField({
-        label: 'Agregar desde tus recursos de personal',
+        label: 'Agregar un puesto de tus Recursos',
         value: null,
         includeEmpty: true,
-        emptyLabel: profiles.length ? 'Elegí un perfil…' : 'Todavía no cargaste perfiles',
+        emptyLabel: profiles.length ? 'Elegí un puesto…' : 'Todavía no cargaste puestos',
         options: profiles.map((p) => ({ value: p.id, label: `${p.role}${p.category ? ` — ${p.category}` : ''}` })),
         onChange: (v) => {
           selectedProfileId = v;
@@ -194,7 +194,7 @@ export function render(container, ctx) {
       }),
       kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
     ),
-    kit.action('Agregar puesto en blanco', addBlank, { icon: 'plus', size: 'md', ...(profiles.length ? {} : { variant: 'primary' }) }),
+    kit.action(profiles.length ? 'Cargar uno que no está en Recursos' : 'Agregar un puesto', addBlank, { icon: 'plus', size: 'md', ...(profiles.length ? {} : { variant: 'primary' }) }),
   );
 
   /** "SAC 8,33 % · vacaciones 4 % · …" con lo cargado en la línea. */
@@ -207,7 +207,7 @@ export function render(container, ctx) {
 
   /**
    * Horas extra por tramos (PLAN-2026-010): HE 50 %, HE 100 % u otro recargo,
-   * por día activo o promedio por mes, y si se facturan aparte. Los recargos
+   * por día de trabajo o promedio por mes, y si se facturan aparte. Los recargos
    * son presets editables (no normativa). Agregar el primer tramo convierte el
    * campo único (mismas horas y recargo: mismo costo).
    */
@@ -249,7 +249,7 @@ export function render(container, ctx) {
     return h(
       'div',
       { class: 'qe-ot' },
-      h('p', { class: 'qe-note' }, 'Horas extra por tramo: cada una con su recargo (los 50 % y 100 % son valores de partida editables, no normativa). Por día activo son costo variable; las horas promedio por mes, fijo del mes.'),
+      h('p', { class: 'qe-note' }, 'Horas extra por tramo: cada una con su recargo (los 50 % y 100 % son valores de partida editables, no normativa). Por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.'),
       ...rows,
       h(
         'div',
@@ -323,6 +323,9 @@ export function render(container, ctx) {
       ctx.readOnly ? null : h('span', { class: 'qe-toolbar' }, kit.action('Quitar el diagrama', () => removeRotation(i), { variant: 'ghost', icon: 'trash', title: 'Quita el dato viejo. Las personas y el sueldo del puesto no cambian.' })));
   }
 
+  /** ¿La línea tiene horas extra cargadas con el método anterior (por día o por tramos)? */
+  const hasLegacyOvertime = (line) => Boolean(line) && (Array.isArray(line.overtime) || nonNegative(line.overtimeHoursPerActiveDay) > 0 || line.overtimeBilled === true);
+
   // -------------------------------------------------------------- líneas
   const lineCards = lines.map((line, i) => {
     const p = `labor.${i}`;
@@ -332,6 +335,8 @@ export function render(container, ctx) {
     const ill = kit.lineIllustrative(p, { what: 'este puesto' });
     const illustrative = ill.marked;
     const anyIllustrativeParam = AGREEMENT_PARAM_KEYS.some((key) => illustrativeParam(line, key));
+    // ¿Viene de Recursos? Entonces sus datos ya están cargados allá: acá sólo cantidades.
+    const fromResource = typeof line.sourceId === 'string' && line.sourceId !== '';
     return kit.lineCard(
       {
         title: kit.out(() => (quote.labor[i] && quote.labor[i].role) || 'Puesto sin nombre'),
@@ -342,7 +347,7 @@ export function render(container, ctx) {
         }),
         badges: [ill.tag, agreement && agreement.illustrative ? badge('Convenio ilustrativo', 'orange') : null].filter(Boolean),
         actions: [
-          kit.action('Aplicar parámetros del convenio', () => applyAgreement(i), { icon: 'check', title: 'Copia horas normales, recargo de horas extra, SAC, vacaciones, cargas y ART del convenio elegido' }),
+          line.agreementId ? kit.action('Usar las cargas del convenio', () => applyAgreement(i), { icon: 'check', title: 'Copia horas normales, recargo de horas extra, SAC, vacaciones, cargas y ART del convenio elegido' }) : null,
           kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' }),
         ],
       },
@@ -360,19 +365,16 @@ export function render(container, ctx) {
             kit.action('Completar', () => ctx.focusField(`${p}.basicMonthly`), { variant: 'primary', icon: 'check' }),
             kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })),
       ), (r) => ((r.completeness && r.completeness.pending) || []).some((x) => x.id === 'labor' && (x.targets || []).some((t) => t.index === i))),
+      // PLAN-2026-026: lo NECESARIO a la vista. Un puesto que viene de Recursos trae su sueldo,
+      // cargas y valor de la hora: acá sólo se carga cuántas personas van (y, si hacen, las horas
+      // extra del mes). Un puesto en blanco pide además el rol y el sueldo.
       formGrid(
         3,
-        kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Operador' }),
-        kit.select(`${p}.agreementId`, { label: 'Convenio', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio' }),
-        kit.num(`${p}.positions`, { label: legacyStaff(line) ? 'Personas trabajando a la vez' : 'Cantidad de personas', rule: 'quantity', hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cuántas personas de este rol trabajan en el servicio. Son de tu nómina: se cobra su sueldo con cargas.' }),
-        kit.num(`${p}.basicMonthly`, { label: 'Sueldo básico por mes', rule: 'money', unit: '$/mes', illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
-        kit.num(`${p}.additionalsMonthly`, { label: 'Adicionales', rule: 'money', unit: '$/mes', illustrative, hint: 'Zona, nocturnidad, etc.' }),
-        // Horas de trabajo de cada persona (2026-11, antes "Horas por día que cubre este puesto"):
-        // sólo para el aviso de horas (no cambia el costo; las horas extra se cargan aparte).
-        kit.num(`${p}.coverageHoursPerDay`, { label: 'Horas por día de cada persona', rule: 'hoursPerDay', unit: 'h/día', placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0 ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)` : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del servicio)` : 'Las del servicio', hint: 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sólo sirve para avisarte si faltan horas: no cambia el costo; las horas extra se cargan en "Opciones avanzadas".' }),
-        // V-06: la vianda a la vista (antes en "Opciones avanzadas"). Comidas: un solo lugar
-        // (Viajes ya no las pide; ahí va sólo el alojamiento).
-        kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda o comidas por día', rule: 'money', unit: '$/día', illustrative, hint: 'Por persona y por día de trabajo. Es el único lugar donde se cargan las comidas. Si las da el cliente: 0.' }),
+        fromResource ? null : kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Operario' }),
+        kit.num(`${p}.positions`, { label: legacyStaff(line) ? 'Personas trabajando a la vez' : 'Cantidad de personas', rule: 'quantity', requiredMark: true, hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cuántas personas de este puesto trabajan en el servicio.' }),
+        fromResource ? null : kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', requiredMark: true, illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
+        kit.num(`${p}.overtime50HoursPerMonth`, { label: 'Horas al 50 % por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: 'Horas extra de CADA persona en un mes, si las hace siempre en este servicio. Ej.: sábados de 8 a 12 = 4 h × 4,33 semanas ≈ 17 h. Si no hace: vacío.' }),
+        kit.num(`${p}.overtime100HoursPerMonth`, { label: 'Horas al 100 % por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: 'Horas de CADA persona en un mes en sábados a la tarde, domingos o feriados, si las hace siempre en este servicio. Si no hace: vacío.' }),
       ),
       // Cotizaciones anteriores con relevos o nómina total: se ven y se editan igual (mismos números).
       legacyStaff(line)
@@ -387,114 +389,144 @@ export function render(container, ctx) {
             kit.action('Simplificar a cantidad de personas', () => useSimplePeople(i), { variant: 'ghost', title: 'Deja sólo "Cantidad de personas" con el total en nómina de hoy. Los sueldos no cambian; si hay vianda u horas extra por día, pasan a contarse para todas (te lo pregunta antes).' })))
         : null,
       legacyRotationNote(i, line),
-      // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.
-      assignmentBlock(kit, { path: p, line, kind: 'labor', at }),
-      // Tarifas de la persona (PLAN-2026-025): lo que cuesta por mes y por hora (normal, 50 % y 100 %).
+      // Lo que cuesta cada persona (viene de Recursos): por mes y por hora (normal, 50 % y 100 %).
       h('div', { class: 'qe-person-rates' },
-        h('p', { class: 'qe-person-rates-title' }, 'Lo que te cuesta cada persona de este rol'),
+        h('p', { class: 'qe-person-rates-title' }, fromResource ? 'Lo que te cuesta cada persona (viene de Recursos)' : 'Lo que te cuesta cada persona'),
         kit.stats(
-          kit.stat('Por mes con cargas', (r) => (at(r) && at(r).perPerson.fixedMonthly > 0 ? formatMoney(at(r).perPerson.fixedMonthly) : EMPTY), { emphasis: true, hint: 'Sueldo básico y adicionales con aguinaldo, vacaciones, cargas patronales y ART, más seguros, ropa y capacitación. Las cargas se cambian en "Opciones avanzadas".' }),
+          kit.stat('Por mes con cargas', (r) => (at(r) && at(r).perPerson.fixedMonthly > 0 ? formatMoney(at(r).perPerson.fixedMonthly) : EMPTY), { emphasis: true, hint: 'Sueldo y otros pagos fijos con aguinaldo, vacaciones, cargas patronales y ART, más seguros, ropa y capacitación.' }),
           kit.stat('Hora normal', (r) => (at(r) && at(r).perPerson.loadedHourlyCost > 0 ? formatMoney(at(r).perPerson.loadedHourlyCost) : EMPTY), { hint: (r) => `Costo por mes ÷ ${formatNumber(nonNegative(quote.labor[i] && quote.labor[i].normalHoursPerMonth), { decimals: 2 })} horas normales por mes.` }),
-          kit.stat('Hora extra 50\u00a0%', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost50 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost50) : EMPTY), { hint: 'Lo que pagás de más por cada hora fuera del horario normal con recargo del 50 %: (básico ÷ horas normales) × 1,5, con cargas.' }),
-          kit.stat('Hora extra 100\u00a0%', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost100 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost100) : EMPTY), { hint: 'Lo mismo con recargo del 100 % (lo habitual en domingos y feriados; revisá tu convenio): (básico ÷ horas normales) × 2, con cargas.' }),
+          kit.stat('Hora al 50 %', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost50 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost50) : EMPTY), { hint: (r) => (at(r) && at(r).perPerson.overtimeRate50Own ? 'El valor que cargaste para este puesto (por su convenio).' : 'Lo que te cuesta cada hora con recargo del 50 %: hora de sueldo × 1,5, con cargas.') }),
+          kit.stat('Hora al 100 %', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost100 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost100) : EMPTY), { hint: (r) => (at(r) && at(r).perPerson.overtimeRate100Own ? 'El valor que cargaste para este puesto (por su convenio).' : 'Lo que te cuesta cada hora con recargo del 100 % (lo habitual en domingos y feriados; revisá tu convenio): hora de sueldo × 2, con cargas.') }),
         )),
       kit.keyline({
-        label: 'Costo del puesto',
+        label: 'Costo de este puesto',
         value: (r) => (at(r) ? `${formatMoney(at(r).fixedMonthly)} por mes` : EMPTY),
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
-          const variable = l.variablePerActiveDay > 0 ? ` + ${formatMoney(l.variablePerActiveDay)} por día activo (horas extra y vianda)` : '';
+          const variable = l.variablePerActiveDay > 0 ? ` + ${formatMoney(l.variablePerActiveDay)} por día de trabajo (${l.perPosition.overtimePerActiveDay > 0 ? 'horas extra y vianda' : 'vianda'})` : '';
           // Desglose del mes (PLAN-2026-010): sueldo + cargas, HE por tramo, viandas, seguros/EPP.
           const D = r.activity.activeDaysPerMonth;
           const parts = laborBreakdown(l, { activeDays: D }).map((x) => `${x.label} ${formatMoney(x.amount)}`).join(' · ');
-          const share = l.shared && !l.shareMissing ? ` Compartida: esta cotización carga el ${formatPercent(l.fixedCostSharePct)} de su costo fijo.` : '';
+          const share = l.shared && !l.shareMissing ? ` Este servicio paga el ${formatPercent(l.fixedCostSharePct)} de su mes.` : '';
           // Sin días cargados todavía (los recursos van antes que "Cómo se cobra"): sólo el fijo del mes.
           const month = D > 0 ? ` En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.` : '';
-          return `${formatMoney(l.perPerson.fixedMonthly)} por persona con cargas${variable}.${month}${share}`;
+          return `${staffText(l)} × ${formatMoney(l.perPerson.fixedMonthly)}${variable}.${month}${share}`;
         },
         trace: (r) => laborTrace(r, i, quote.labor[i]),
       }),
+      // Todo lo demás, en un solo lugar y plegado: sueldo y cargas (ya vienen de Recursos), si
+      // trabaja sólo para este servicio y de qué mes es el sueldo.
       kit.advanced(
         {
           key: `labor:${line.id || i}`,
+          title: fromResource ? 'Cambiar sus datos sólo en esta cotización (opcional)' : 'Más detalle (opcional)',
           summary: (r) => {
             const current = quote.labor[i] || {};
             const l = at(r);
-            const factor = l ? ` → factor × ${formatNumber(l.perPerson.loadFactor, { decimals: 4 })}` : '';
+            const legacyOt = l && l.overtimeItems ? l.overtimeItems.filter((o) => !o.resourceRate) : [];
             const extras = [
-              l && l.overtimeItems && l.overtimeItems.length
-                ? l.overtimeItems.map((o) => `${o.label} ${formatNumber(o.hours, { decimals: 2 })} h ${o.basis === 'per_month' ? 'por mes' : 'por día'}`).join(', ') + (current.overtimeBilled === true ? ' (se facturan aparte)' : '')
-                : 'sin horas extra',
-              l && l.perPerson.nonRemunerative > 0 ? `seguros, EPP, capacitación y traslado ${formatMoney(l.perPerson.nonRemunerative)}/mes` : null,
+              legacyOt.length
+                ? legacyOt.map((o) => `${o.label} ${formatNumber(o.hours, { decimals: 2 })} h ${o.basis === 'per_month' ? 'por mes' : 'por día'}`).join(', ') + (current.overtimeBilled === true ? ' (se facturan aparte)' : '')
+                : null,
+              nonNegative(current.mealPerActiveDay) > 0 ? `vianda ${formatMoney(nonNegative(current.mealPerActiveDay))} por día` : null,
+              baseText(current.base, { prefix: 'Sueldo de' }),
             ].filter(Boolean).join(' · ');
             return h(
               'span',
               {},
-              h('span', { class: 'qe-adv-line' }, `Cargas aplicadas: ${loadsText(current)}${factor}.`, anyIllustrativeParam ? illustrativeTag('Parámetros de convenio GENÉRICOS e ILUSTRATIVOS: cargá los vigentes de tu convenio') : null),
+              h('span', { class: 'qe-adv-line' }, fromResource
+                ? `Sueldo ${formatMoney(nonNegative(current.basicMonthly))} · cargas: ${loadsText(current)}.`
+                : `Cargas: ${loadsText(current)}.`, anyIllustrativeParam ? illustrativeTag('Parámetros de convenio GENÉRICOS e ILUSTRATIVOS: cargá los vigentes de tu convenio') : null),
               h('span', { class: 'qe-adv-line' }, `${extras.charAt(0).toUpperCase()}${extras.slice(1)}.`),
             );
           },
         },
+        fromResource
+          ? h('p', { class: 'qe-note' }, 'Estos datos se cargan una sola vez en ', h('a', { href: '#/recursos' }, 'Recursos'), '. Si los cambiás acá, cambian sólo en esta cotización.')
+          : null,
         anyIllustrativeParam
           ? h('p', { class: 'qe-note' }, 'Los parámetros de convenio (horas, recargo de horas extra, SAC, vacaciones, cargas patronales y ART) son GENÉRICOS e ILUSTRATIVOS: no son valores de ningún CCT. Cargá los vigentes de tu convenio o tocá "Aplicar parámetros del convenio".')
           : null,
         kit.group(
-          'Cargas sobre el sueldo',
+          'Puesto y sueldo',
+          formGrid(
+            3,
+            fromResource ? kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Operario' }) : null,
+            kit.select(`${p}.agreementId`, { label: 'Convenio', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio' }),
+            fromResource ? kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }) : null,
+            kit.num(`${p}.additionalsMonthly`, { label: 'Otros pagos fijos por mes', rule: 'money', unit: '$/mes', illustrative, hint: 'Zona, presentismo, nocturnidad, etc.' }),
+            // V-06: comidas en un solo lugar (Viajes no las pide; ahí va sólo el alojamiento).
+            kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda o comidas por día', rule: 'money', unit: '$/día', illustrative, hint: 'Por persona y por día de trabajo. Es el único lugar donde se cargan las comidas. Si las da el cliente: 0.' }),
+            // Horas de trabajo de cada persona: sólo para el aviso de horas (no cambia el costo).
+            kit.num(`${p}.coverageHoursPerDay`, { label: 'Horas por día de cada persona', rule: 'hoursPerDay', unit: 'h/día', placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0 ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)` : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del servicio)` : 'Las del servicio', hint: 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sólo sirve para avisarte si faltan horas: no cambia el costo.' }),
+          ),
+        ),
+        kit.group(
+          'Cargas sociales sobre el sueldo',
           formGrid(
             4,
-            kit.num(`${p}.sacPct`, { label: 'SAC (aguinaldo)', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'sacPct') }),
+            kit.num(`${p}.sacPct`, { label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'sacPct') }),
             kit.num(`${p}.vacationPct`, { label: 'Vacaciones', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'vacationPct') }),
             kit.num(`${p}.employerContributionsPct`, { label: 'Cargas patronales', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'employerContributionsPct') }),
             kit.num(`${p}.artPct`, { label: 'ART', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'artPct') }),
           ),
         ),
         kit.group(
-          'Horas',
+          'Valor de la hora',
           formGrid(
-            Array.isArray(line.overtime) ? 2 : 3,
+            3,
             kit.num(`${p}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h/mes', illustrative: illustrativeParam(line, 'normalHoursPerMonth') }),
-            // Sin tramos: el campo único de siempre (horas por día + un recargo).
-            Array.isArray(line.overtime) ? null : kit.num(`${p}.overtimeHoursPerActiveDay`, { label: 'Horas extra por día activo', rule: 'hoursPerDay', unit: 'h/día', illustrative }),
-            kit.num(`${p}.overtimePremiumPct`, { label: Array.isArray(line.overtime) ? 'Recargo de convenio (referencia)' : 'Recargo de horas extra', rule: 'percentOpen', unit: '%', illustrative: illustrativeParam(line, 'overtimePremiumPct'), hint: Array.isArray(line.overtime) ? 'Se usa al aplicar el convenio; cada tramo tiene su recargo.' : null }),
+            kit.num(`${p}.overtimeRate50`, { label: 'Hora al 50 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: 'Vacío = hora de sueldo × 1,5, con cargas.' }),
+            kit.num(`${p}.overtimeRate100`, { label: 'Hora al 100 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: 'Vacío = hora de sueldo × 2, con cargas.' }),
           ),
-          overtimeEditor(i, line),
+          // Horas extra cargadas con el método anterior (por día o por tramos): se siguen viendo y editando.
+          hasLegacyOvertime(line)
+            ? h('div', { class: 'qe-legacy-ot' },
+              formGrid(
+                2,
+                Array.isArray(line.overtime) ? null : kit.num(`${p}.overtimeHoursPerActiveDay`, { label: 'Horas extra por día de trabajo (cargado antes)', rule: 'hoursPerDay', unit: 'h/día', illustrative }),
+                kit.num(`${p}.overtimePremiumPct`, { label: Array.isArray(line.overtime) ? 'Recargo de convenio (referencia)' : 'Recargo de esas horas extra', rule: 'percentOpen', unit: '%', illustrative: illustrativeParam(line, 'overtimePremiumPct'), hint: Array.isArray(line.overtime) ? 'Se usa al aplicar el convenio; cada tramo tiene su recargo.' : null }),
+              ),
+              overtimeEditor(i, line))
+            : null,
         ),
         kit.group(
           'Otros costos por persona',
           formGrid(
             3,
             kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative }),
-            kit.num(`${p}.ppeMonthly`, { label: 'EPP (ropa y elementos de protección)', rule: 'money', unit: '$/mes', illustrative }),
+            kit.num(`${p}.ppeMonthly`, { label: 'Ropa y elementos de protección (EPP)', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
             // Pasajes de la persona (micro o avión de los relevos): no es el vehículo, que va en Equipos.
             kit.num(`${p}.transferMonthly`, { label: 'Pasajes o traslado de la persona', rule: 'money', unit: '$/mes', illustrative, hint: `Por persona y mes: micro, avión o reintegro. Si viaja en un vehículo de "${stepName('equipment')}", ya está ahí: dejalo en 0.` }),
             kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120, hint: 'Sólo informativa (no cambia el costo).' }),
           ),
         ),
+        // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.
+        assignmentBlock(kit, { path: p, line, kind: 'labor', at }),
+        kit.advanced(
+          {
+            key: `labor-base:${line.id || i}`,
+            title: '¿De qué mes es el sueldo?',
+            summary: () => baseText(quote.labor[i] && quote.labor[i].base),
+          },
+          h('p', { class: 'small' }, 'De qué mes son el sueldo y los otros pagos (por ejemplo, la escala de un convenio). Cambiarlo acá sólo afecta esta cotización.'),
+          baseFields(ctx, `${p}.base`, { periodLabel: 'Mes del sueldo (escala)' }),
+        ),
         kit.group(
           'Detalle del costo',
           kit.stats(
             kit.stat('Costo mensual por persona', (r) => formatMoney(at(r) && at(r).perPerson.fixedMonthly)),
-            kit.stat('Dotación (personas)', (r) => formatNumber(at(r) && at(r).headcount, { decimals: 2 })),
-            kit.stat('Fijo mensual total', (r) => formatMoney(at(r) && at(r).fixedMonthly), { emphasis: true, hint: (r) => (at(r) && at(r).shared && !at(r).shareMissing ? `${formatPercent(at(r).fixedCostSharePct)} asignado a esta cotización (persona compartida).` : '') }),
-            kit.stat('Variable por día activo', (r) => formatMoney(at(r) && at(r).variablePerActiveDay), { hint: 'Horas extra por día con cargas + vianda.' }),
-            kit.stat('Costo hora cargado', (r) => formatMoney(at(r) && at(r).perPerson.loadedHourlyCost), { hint: 'Costo por persona ÷ horas normales.' }),
+            kit.stat('Personas', (r) => formatNumber(at(r) && at(r).headcount, { decimals: 2 })),
+            kit.stat('Fijo por mes del puesto', (r) => formatMoney(at(r) && at(r).fixedMonthly), { emphasis: true, hint: (r) => (at(r) && at(r).shared && !at(r).shareMissing ? `${formatPercent(at(r).fixedCostSharePct)} asignado a esta cotización (persona compartida).` : '') }),
+            kit.stat('Por cada día de trabajo', (r) => formatMoney(at(r) && at(r).variablePerActiveDay), { hint: 'Vianda (y horas extra por día, si las hay).' }),
             kit.stat('Factor de cargas', (r) => {
               const l = at(r);
               return l ? `× ${formatNumber(l.perPerson.loadFactor, { decimals: 4 })}` : EMPTY;
             }, { hint: '(1 + SAC + vac.) × (1 + cargas + ART)' }),
           ),
         ),
-      ),
-      kit.advanced(
-        {
-          key: `labor-base:${line.id || i}`,
-          title: 'Fecha base',
-          summary: () => baseText(quote.labor[i] && quote.labor[i].base),
-        },
-        h('p', { class: 'small' }, 'De qué mes son el sueldo y los adicionales (por ejemplo, la escala de un convenio). Cambiarlo acá sólo afecta esta cotización.'),
-        baseFields(ctx, `${p}.base`, { periodLabel: 'Mes del sueldo (escala)' }),
       ),
     );
   });
@@ -524,7 +556,7 @@ export function render(container, ctx) {
           Math.abs(headcount - positions) > 1e-6
             ? `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')} en nómina, ${formatNumber(positions, { decimals: 2 })} trabajando a la vez`
             : `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')}`,
-          `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día activo`,
+          `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo`,
         ].filter(Boolean);
         return `${parts.join(' · ')}.${standby}`;
       },
@@ -535,7 +567,7 @@ export function render(container, ctx) {
 
   mount(
     container,
-    card({ title: '¿Cuántas personas lleva el servicio?', subtitle: 'Cargá cada rol (operario, chofer, supervisor) con cuántas personas van y su sueldo. Son personas de tu nómina asignadas a este servicio.' }, toolbar),
+    card({ title: '¿Quiénes trabajan en este servicio?', subtitle: 'Elegí cada puesto de tus Recursos (operario, chofer, supervisor) y poné cuántas personas van. El sueldo, las cargas y el valor de la hora ya vienen de Recursos: no se cargan de nuevo.' }, toolbar),
     lineCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({

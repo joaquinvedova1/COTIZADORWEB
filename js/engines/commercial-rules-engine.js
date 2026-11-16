@@ -14,7 +14,7 @@
  *     se facturan al menos N unidades a la tarifa neta del mes.
  *   - Fee de disponibilidad: monto mensual fijo por estar disponible.
  *
- * Facturación del mes con D días activos:
+ * Facturación del mes con D días de trabajo:
  *   activaciones     = D / díasPorActivación
  *   unidades         = activaciones × max(unidadesPorActivación, minimumCall)
  *   tarifaNeta       = tarifaLista × (1 − tramo%) × (1 − continuidad%) × (1 − descuentoComercial%)
@@ -122,7 +122,7 @@ export function unitHasDayTiers(unit) {
 }
 
 /**
- * Unidades facturables con D días activos (en la unidad comercial).
+ * Unidades facturables con D días de trabajo (en la unidad comercial).
  *   día       D días (con mínimo por llamado)
  *   hora      D × horas por día (con mínimo por llamado)
  *   mes       1 abono (o la parte de más de un mes)
@@ -167,7 +167,7 @@ export function discountFactor({ tierPct = 0, continuityPct = 0, commercialPct =
 }
 
 /**
- * Facturación mensual completa con D días activos.
+ * Facturación mensual completa con D días de trabajo.
  * @param {object} p
  * @param {number|null} p.listRate tarifa de lista por unidad (día, hora, mes, llamado, m³…)
  * @param {number} p.activeDays
@@ -323,7 +323,7 @@ export function requiredNetRate({ totalCost, marginPct = 0, billingTaxPct = 0, b
 
 /**
  * Mínimo por llamado al cambiar la unidad de la tarifa (mismo significado en
- * la otra unidad): día → hora × horas por día activo; hora → día ÷ horas.
+ * la otra unidad): día → hora × horas por día de trabajo; hora → día ÷ horas.
  * Con abono mensual no aplica (se conserva el número). null si no se puede
  * convertir (sin horas por día).
  */

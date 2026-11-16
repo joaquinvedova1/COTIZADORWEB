@@ -4,9 +4,9 @@
  * Reglas (Prompt 1 "Personal y convenios", "Servicio permanente"; Prompt 3 "Personal"):
  *   factor de cargas = (1 + SAC% + vacaciones%) × (1 + cargas patronales% + ART%)
  *   fijo mensual por PERSONA = (básico + adicionales) × factor + seguros + EPP + capacitación + traslado
- *   variable por día activo por POSICIÓN = horas extra × valor hora extra × factor + vianda
+ *   variable por día de trabajo por POSICIÓN = horas extra × valor hora extra × factor + vianda
  *   Pensar en POSICIONES CUBIERTAS: dotación = posiciones × personas por posición (relevos).
- *   Todos cobran sueldo (fijo × dotación), pero en un día activo trabaja una persona
+ *   Todos cobran sueldo (fijo × dotación), pero en un día de trabajo trabaja una persona
  *   por posición (variable × posiciones).
  *   Los porcentajes son parámetros (no se inventa normativa; valores ILUSTRATIVOS).
  */
@@ -99,7 +99,7 @@ describe('LaborEngine — costo de una posición', () => {
     approx(r.perPerson.art, base * 0.06);
   });
 
-  test('horas extra: valor hora = básico / horas normales; recargo 50 %; con cargas; más vianda por día activo', () => {
+  test('horas extra: valor hora = básico / horas normales; recargo 50 %; con cargas; más vianda por día de trabajo', () => {
     const r = computeLaborLine(operatorLine());
     approx(r.perPerson.hourlyBase, 1_800_000 / 176);
     approx(r.perPerson.overtimeHourly, (1_800_000 / 176) * 1.5);

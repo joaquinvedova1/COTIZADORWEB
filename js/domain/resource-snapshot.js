@@ -32,6 +32,8 @@ export const SNAPSHOT_FIELDS = Object.freeze({
     'basicMonthly', 'additionalsMonthly', 'normalHoursPerMonth', 'overtimePremiumPct', 'mealPerActiveDay',
     'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct',
     'insuranceMonthly', 'ppeMonthly', 'trainingMonthly', 'transferMonthly',
+    // Valor propio de la hora al 50 % y al 100 % (PLAN-2026-026; null = calculado).
+    'overtimeRate50', 'overtimeRate100',
   ]),
   equipment: Object.freeze([
     'replacementValue', 'usefulLifeYears', 'residualValue', 'insuranceAnnual', 'licenseAnnual', 'certificationsAnnual',
@@ -122,6 +124,12 @@ export function snapshotValuesFromLine(type, line = {}) {
   const l = isPlainObject(line) ? line : {};
   const fields = SNAPSHOT_FIELDS[type] || [];
   const values = Object.fromEntries(fields.map((f) => [f, num(l[f])]));
+  // Valor propio de la hora extra: sólo si está cargado (las huellas anteriores quedan iguales).
+  if (type === 'laborProfiles') {
+    ['overtimeRate50', 'overtimeRate100'].forEach((k) => {
+      if (!(values[k] > 0)) delete values[k];
+    });
+  }
   values.base = normalizeBase(l.base);
   if (type === 'equipment' || type === 'externalServices') {
     values.acquisition = typeof l.acquisition === 'string' ? l.acquisition : 'owned';

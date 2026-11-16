@@ -643,3 +643,21 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .lib-usage ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
 .lib-usage-row { margin: 0.35rem 0; overflow-wrap: anywhere; }
 .lib-usage h4 { margin: 0.5rem 0 0; }
+
+/* PLAN-2026-026 · valor de la hora por recurso (Recursos → perfil de personal) */
+.hour-rates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; margin-top: 0.75rem; }
+.hour-rate { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.6rem 0.75rem; border-radius: var(--radius); background: var(--bg); min-width: 0; }
+.hour-rate-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+.hour-rate-value { font-size: 1.15rem; color: var(--navy-900); font-variant-numeric: tabular-nums; }
+.hour-rate-note { font-size: 0.75rem; color: var(--ink-3); }
+@media (max-width: 640px) { .hour-rates { grid-template-columns: 1fr; } }
+
+/* PLAN-2026-026 · hora fuera de horario: detalle por puesto */
+.qe-ooh-roles { margin: 0.75rem 0 0.25rem; }
+.qe-ooh-roles-title { font-size: 0.85rem; font-weight: 650; color: var(--navy-900); margin: 0 0 0.35rem; }
+.qe-ooh-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.qe-ooh-table th { text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line); }
+.qe-ooh-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); }
+.qe-ooh-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qe-ooh-table tr.is-total td { font-weight: 700; border-bottom: 0; background: var(--bg); }
+.qe-ooh-how { margin-top: 0.5rem; }

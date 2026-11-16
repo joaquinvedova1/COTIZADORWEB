@@ -201,12 +201,12 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
     }
   });
 
-  test('detecta falta de utilización on-call (días activos estimados)', () => {
+  test('detecta falta de utilización on-call (días de trabajo estimados)', () => {
     for (const days of [0, '', null]) {
       const q = completeQuote();
       q.activity.activeDaysPerMonth = days;
       const it = item(evaluateCompleteness(q), 'utilization');
-      assert.equal(it.status, 'missing', `días activos ${String(days)}`);
+      assert.equal(it.status, 'missing', `días de trabajo ${String(days)}`);
     }
   });
 

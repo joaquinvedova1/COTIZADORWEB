@@ -244,11 +244,11 @@ describe('PricingEngine — trazabilidad', () => {
 });
 
 describe('convertRateUnit — cambio de unidad de la tarifa (regresión QA-E2E-08)', () => {
-  test('día → hora divide por las horas por día activo y redondea hacia arriba al centavo', () => {
+  test('día → hora divide por las horas por día de trabajo y redondea hacia arriba al centavo', () => {
     assert.equal(convertRateUnit(2_000_000, 'day', 'hour', 10), 200_000);
     assert.equal(convertRateUnit(1_000_000, 'day', 'hour', 3), 333_333.34);
   });
-  test('hora → día multiplica por las horas por día activo', () => {
+  test('hora → día multiplica por las horas por día de trabajo', () => {
     assert.equal(convertRateUnit(200_000, 'hour', 'day', 10), 2_000_000);
   });
   test('abono mensual o horas inválidas → null (no se convierte sin ambigüedad)', () => {

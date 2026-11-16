@@ -55,7 +55,7 @@ function mapNumbers(value, fn) {
 
 /**
  * Cotización on-call de referencia (demo "Caso de referencia"): fijos F (otros costos, categoría
- * equipos), variable v por día activo (categoría personal), sin financiero ni contingencia.
+ * equipos), variable v por día de trabajo (categoría personal), sin financiero ni contingencia.
  */
 function onCall({ fixed = 30_000_000, variable = 1_000_000, activeDays = 8, availableDays = 30, knownRate = 4_000_000, targetMarginPct = 10, pricingMode = 'known_rate', rules = {}, pricing = {}, unit = 'day', contractMonths = 12 } = {}) {
   const q = demoReferenceQuote();

@@ -8,7 +8,7 @@
  * No crea usuario, organización, cotizaciones ni recursos, y no escribe en
  * el navegador ni en la nube. "Ver el análisis completo" abre
  * #/demo/analisis, también público y en memoria. El paso 4 recalcula sobre
- * una COPIA de la cotización (días activos distintos).
+ * una COPIA de la cotización (días de trabajo distintos).
  *
  * #/demo?paso=2 abre directo en un paso (1 a 4). #/demo?desde=app (desde la
  * aplicación) cambia "Salir del ejemplo" por "Volver a RATEOS" (→ #/inicio) y
@@ -183,7 +183,7 @@ export async function render(root, app) {
   const simCache = new Map();
   let showToken = 0;
 
-  /** Recalcula sobre una COPIA con otros días activos (no se guarda). */
+  /** Recalcula sobre una COPIA con otros días de trabajo (no se guarda). */
   async function simulate(days) {
     if (simCache.has(days)) return simCache.get(days);
     const copy = deepClone(quote);
@@ -320,7 +320,7 @@ export async function render(root, app) {
         'p',
         { class: 'pub-sentence' },
         baseRate !== null ? `${rateLead} (${formatMoneyCeil(baseRate)}/${unit}) necesitás aproximadamente ` : 'Necesitás aproximadamente ',
-        h('strong', {}, `${formatNumber(k.breakEvenDays, { decimals: 1 })} días activos por mes`),
+        h('strong', {}, `${formatNumber(k.breakEvenDays, { decimals: 1 })} días de trabajo por mes`),
         ' para cubrir todos tus costos.',
       );
     } else if (baseRate === null) {

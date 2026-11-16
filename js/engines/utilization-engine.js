@@ -1,7 +1,7 @@
 /**
  * UtilizationEngine — relación tarifa × utilización.
  *
- *   utilización % = días activos / días disponibles × 100
+ *   utilización % = días de trabajo / días disponibles × 100
  *
  * A mayor utilización, menor tarifa unitaria necesaria (los costos fijos se
  * reparten entre más días). A menor utilización, mayor tarifa necesaria.
@@ -24,7 +24,7 @@ export function utilizationPct(activeDays, availableDays) {
   return r === null ? null : r * 100;
 }
 
-/** Días activos que corresponden a una utilización (%). */
+/** Días de trabajo que corresponden a una utilización (%). */
 export function activeDaysFromUtilization(utilization, availableDays) {
   return (clamp(utilization, 0, 100) / 100) * nonNegative(availableDays);
 }

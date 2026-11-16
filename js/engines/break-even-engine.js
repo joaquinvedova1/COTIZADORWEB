@@ -1,5 +1,5 @@
 /**
- * BreakEvenEngine — punto de equilibrio en días activos.
+ * BreakEvenEngine — punto de equilibrio en días de trabajo.
  *
  * Caso base (on-call, tarifa por día, sin reglas comerciales):
  *
@@ -70,7 +70,7 @@ export function minimumRateForDays({ fixedCosts, variableCostPerDay, activeDays,
 }
 
 /**
- * Días activos mínimos a partir de los cuales el resultado es ≥ 0 y se
+ * Días de trabajo mínimos a partir de los cuales el resultado es ≥ 0 y se
  * mantiene ≥ 0 hasta `maxDays` (definición robusta frente a reglas no
  * lineales como el mínimo garantizado o los tramos de descuento).
  *
@@ -236,20 +236,20 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
   }
   return createTrace({
     id: 'break_even',
-    title: 'Break-even (días activos mínimos)',
+    title: 'Break-even (días de trabajo mínimos)',
     formula: fixedRevenue > 0
       ? `Break-even = (Costos fijos − Ingresos fijos${keep}) / (Ingreso por día${keep} − Costo variable por día)`
       : `Break-even = Costos fijos / (Tarifa por día${keep} − Costo variable por día)`,
     inputs: [
       { label: 'Costos fijos mensuales', value: fixedCosts, format: 'money' },
       ...(fixedRevenue > 0 ? [{ label: 'Ingresos fijos (abono de disponibilidad, equipo en espera, adicionales)', value: fixedRevenue, format: 'money' }] : []),
-      { label: `Ingreso por tarifa por día activo (tarifa neta por ${unitLabel} × unidades del día)`, value: ratePerDay, format: 'money' },
-      ...(otherRevenuePerDay > 0 ? [{ label: 'Otros ingresos por día activo (call-out, movilización, km)', value: otherRevenuePerDay, format: 'money' }] : []),
+      { label: `Ingreso por tarifa por día de trabajo (tarifa neta por ${unitLabel} × unidades del día)`, value: ratePerDay, format: 'money' },
+      ...(otherRevenuePerDay > 0 ? [{ label: 'Otros ingresos por día de trabajo (call-out, movilización, km)', value: otherRevenuePerDay, format: 'money' }] : []),
       ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
-      { label: 'Costo variable por día activo', value: variableCostPerDay, format: 'money' },
+      { label: 'Costo variable por día de trabajo', value: variableCostPerDay, format: 'money' },
     ],
-    steps: [{ label: t > 0 ? 'Contribución por día activo (después de impuestos sobre la facturación)' : 'Contribución por día activo', value: contributionPerDay, format: 'money' }],
-    result: { label: 'Días activos para no perder plata', value: result && result.reachable ? result.days : null, format: 'days' },
+    steps: [{ label: t > 0 ? 'Contribución por día de trabajo (después de impuestos sobre la facturación)' : 'Contribución por día de trabajo', value: contributionPerDay, format: 'money' }],
+    result: { label: 'Días de trabajo para no perder plata', value: result && result.reachable ? result.days : null, format: 'days' },
     notes: [
       result && !result.reachable ? result.reason : null,
       nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula día a día, no sólo con la fórmula.` : null,

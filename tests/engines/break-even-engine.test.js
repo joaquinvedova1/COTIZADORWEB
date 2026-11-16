@@ -1,5 +1,5 @@
 /**
- * Contrato del negocio — BreakEvenEngine (días activos mínimos).
+ * Contrato del negocio — BreakEvenEngine (días de trabajo mínimos).
  *
  * Reglas (Prompt 1 "Servicio on-call", Prompt 2 "Tests económicos", Prompt 3 "Motor on-call"):
  *   contribución/día = tarifa/día − costo variable/día

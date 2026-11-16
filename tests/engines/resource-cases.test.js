@@ -27,7 +27,7 @@ const settings = { ...defaultSettings('org'), illustrative: false, fuelPricePerL
 
 const approx = (a, b, msg = '', tol = 1e-6) => assert.ok(Math.abs(a - b) <= tol, `${msg} esperado ${b}, obtenido ${a}`);
 
-/** Cotización mínima on-call: 1 día por llamado, 8 días activos, sin estructura, financiero ni contingencia. */
+/** Cotización mínima on-call: 1 día por llamado, 8 días de trabajo, sin estructura, financiero ni contingencia. */
 function baseQuote() {
   const q = createEmptyQuote({ organizationId: 'org', settings, now: OCT, id: 'q', code: 'COT-1' });
   q.activity.activeDaysPerMonth = 8;

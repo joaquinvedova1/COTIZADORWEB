@@ -23,7 +23,7 @@ export const SENSITIVITY_VARIABLES = Object.freeze([
   { id: 'salariesPct', label: 'Salarios', unit: '%' },
   { id: 'fuelPct', label: 'Combustible', unit: '%' },
   { id: 'materialsPct', label: 'Materiales', unit: '%' },
-  { id: 'activityPct', label: 'Utilización (días activos)', unit: '%' },
+  { id: 'activityPct', label: 'Utilización (días de trabajo)', unit: '%' },
   { id: 'paymentTermDays', label: 'Plazo de pago', unit: 'días' },
   { id: 'commercialDiscountPct', label: 'Descuento comercial', unit: 'puntos' },
 ]);
@@ -55,7 +55,7 @@ export function applySensitivity(quote, deltas = {}) {
   });
 
   q.activity = q.activity || {};
-  // Sólo se tocan los días activos si hay variación de actividad (con 0 el
+  // Sólo se tocan los días de trabajo si hay variación de actividad (con 0 el
   // escenario es idéntico a la base, aun si la base supera los disponibles).
   if (toNumber(deltas.activityPct, 0) !== 0) {
     // Mismos días disponibles que usa el motor (0 o inválido → 30); nunca se

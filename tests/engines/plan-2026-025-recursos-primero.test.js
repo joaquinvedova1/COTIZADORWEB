@@ -82,7 +82,11 @@ describe('PLAN-2026-025 — motor de fuera de horario', () => {
       { acquisition: 'rented', quantity: 1, hoursPerActiveDay: 8, operation: { totalPerHour: 5000 } }, // del proveedor
     ];
     const b = outOfHoursBasis(labor, equipment);
-    assert.deepEqual(b, { crewBasePerHour: 3000, crewNormalPerHour: 4000, equipmentPerHour: 400, people: 2, equipmentUnits: 1 });
+    // PLAN-2026-026: además trae el detalle por puesto (informativo) y, sin valores propios, null.
+    const { perRole, crewPerHourByPremium, ...core } = b;
+    assert.deepEqual(core, { crewBasePerHour: 3000, crewNormalPerHour: 4000, equipmentPerHour: 400, people: 2, equipmentUnits: 1 });
+    assert.equal(crewPerHourByPremium, null);
+    assert.deepEqual(perRole, [{ role: '', people: 2, normalPerHour: 2000, basePerHour: 1500, perHour50: 2250, perHour100: 3000 }]);
     assert.equal(resourceNormalHourCost(b), 4400);
     assert.equal(outOfHoursCostPerHour(b, 50), 3000 * 1.5 + 400);
     assert.equal(outOfHoursCostPerHour(b, 100), 3000 * 2 + 400);
@@ -91,7 +95,7 @@ describe('PLAN-2026-025 — motor de fuera de horario', () => {
   });
 
   test('sin recursos la base es cero y no rompe', () => {
-    assert.deepEqual(outOfHoursBasis(null, null), { crewBasePerHour: 0, crewNormalPerHour: 0, equipmentPerHour: 0, people: 0, equipmentUnits: 0 });
+    assert.deepEqual(outOfHoursBasis(null, null), { crewBasePerHour: 0, crewNormalPerHour: 0, equipmentPerHour: 0, people: 0, equipmentUnits: 0, crewPerHourByPremium: null, perRole: [] });
     assert.equal(outOfHoursCostPerHour(null, 50), 0);
     assert.equal(outOfHoursSurchargePerHour(undefined, 50), 0);
   });

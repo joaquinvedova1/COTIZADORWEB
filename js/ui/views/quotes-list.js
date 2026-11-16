@@ -44,7 +44,7 @@ const QUOTE_STAGES = Object.freeze([
   { title: 'El servicio', text: 'Qué servicio vas a prestar y cómo te paga el cliente.' },
   { title: 'Los recursos', text: 'Tu gente (sueldo por mes y valor de su hora), equipos, materiales y viajes.' },
   { title: 'Cómo se cobra', text: 'Unidad, horario normal, cuánto esperás trabajar y tarifas fuera de horario.' },
-  { title: 'Costos y condiciones', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
+  { title: 'Otros gastos', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
   { title: 'El precio', text: 'Cuánto querés ganar y tus reglas comerciales.' },
   { title: 'Resultado', text: 'Costo, tarifa piso, tarifa sugerida y días para no perder plata.' },
 ]);
@@ -265,7 +265,7 @@ function breakEvenNode(quote, summary) {
   if (unit.kind === 'quantity' || unit.kind === 'event') {
     return h('span', { class: 'nowrap', title: `Cantidad por mes para no perder plata, en ${unit.plural} (break-even)` }, quantityCeilText(summary.breakEvenQuantity, { unitInfo: unit }));
   }
-  return h('span', { class: 'nowrap', title: 'Días activos por mes necesarios para no perder plata (break-even)' }, surfaceDays(summary.breakEvenDays));
+  return h('span', { class: 'nowrap', title: 'Días de trabajo por mes necesarios para no perder plata (break-even)' }, surfaceDays(summary.breakEvenDays));
 }
 
 /**

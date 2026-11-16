@@ -118,7 +118,7 @@ export function minActiveDaysForBillableDays(ctx, billableDays) {
 }
 
 /**
- * Abono mensual (unidad mes): la facturación es fija y cada día activo suma
+ * Abono mensual (unidad mes): la facturación es fija y cada día de trabajo suma
  * costo variable, así que en vez de días MÍNIMOS hay días MÁXIMOS sin perder
  * (o conservando un margen sobre la facturación). Mismo buscador del
  * break-even sobre el resultado invertido; el resultado ya descuenta los
@@ -275,7 +275,7 @@ export function evaluateDiscountTiers(ctx, listRate, targetMarginPct) {
   const rules = normalizeRules(ctx.rules);
   return rules.volumeTiers.map((tier) => {
     // Peor caso: la menor actividad que ya cae en el tramo (con minimum call,
-    // menos días activos que los días facturables del tramo).
+    // menos días de trabajo que los días facturables del tramo).
     const days = Math.max(minActiveDaysForBillableDays(ctx, Math.max(tier.fromDays, 1)), 1e-6);
     const rates = requiredRatesAt(ctx, days, isFiniteNumber(targetMarginPct) ? [targetMarginPct] : [], { tierOverride: tier });
     const evaluation = evaluateAt(ctx, days, listRate, { tierOverride: tier });
@@ -393,7 +393,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   let breakEven;
   let targetMarginDays;
   if (ctx.unit === 'month') {
-    const reason = 'Con abono mensual la facturación no depende de los días activos: no hay break-even en días.';
+    const reason = 'Con abono mensual la facturación no depende de los días de trabajo: no hay break-even en días.';
     breakEven = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
     targetMarginDays = { reachable: false, days: null, wholeDays: null, notApplicable: true, reason };
   } else if (!hasRate) {
@@ -633,8 +633,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       inputs: [
         { label: 'Costos fijos mensuales', value: linearTarget.fixedCosts, format: 'money' },
         { label: 'Ingresos fijos (fijo por estar de guardia, equipo en espera, adicionales)', value: linearTarget.fixedRevenue, format: 'money' },
-        { label: 'Ingreso por día activo', value: linearTarget.revenuePerActiveDay, format: 'money' },
-        { label: 'Costo variable por día activo', value: linearTarget.variableCostPerDay, format: 'money' },
+        { label: 'Ingreso por día de trabajo', value: linearTarget.revenuePerActiveDay, format: 'money' },
+        { label: 'Costo variable por día de trabajo', value: linearTarget.variableCostPerDay, format: 'money' },
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
         { label: 'Margen objetivo', value: targetMarginInvalid ? null : targetMarginPct, format: 'percent' },
       ],
@@ -645,7 +645,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       }],
       result: byQuantity
         ? { label: `${capitalizeUnitWord(unitInfo.plural)} por mes para lograr el margen`, value: targetMarginDays.reachable ? targetMarginDays.quantity : null, format: 'number' }
-        : { label: 'Días activos para lograr el margen', value: targetMarginDays.reachable ? targetMarginDays.days : null, format: 'days' },
+        : { label: 'Días de trabajo para lograr el margen', value: targetMarginDays.reachable ? targetMarginDays.days : null, format: 'days' },
       notes: [
         byQuantity && targetMarginDays.reachable ? `Son ${formatDays(targetMarginDays.days, { decimals: 1 })} de trabajo: los costos se calculan con esos días y la facturación, con ${texts.los} ${unitInfo.plural}.` : null,
         !targetMarginDays.reachable ? targetMarginDays.reason : null,
@@ -671,7 +671,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       result: { label: 'Tarifa piso de lista (la que escribís en la cotización)', value: ratesAtEstimate.floorListRate, format: 'moneyCeil' },
       notes: [
-        D <= 0 ? (byQuantity ? `Sin ${unitInfo.plural} por mes no hay tarifa por ${unitInfo.singular} posible: cargá la actividad estimada.` : `Sin días activos no hay tarifa por ${unitInfo.singular || 'día'} posible: cargá la actividad estimada.`) : null,
+        D <= 0 ? (byQuantity ? `Sin ${unitInfo.plural} por mes no hay tarifa por ${unitInfo.singular} posible: cargá la actividad estimada.` : `Sin días de trabajo no hay tarifa por ${unitInfo.singular || 'día'} posible: cargá la actividad estimada.`) : null,
         ratesAtEstimate.floorCoveredByOtherRevenue ? 'Los otros ingresos ya cubren el costo.' : null,
         !ctx.billingTaxInfo.defined && !ctx.billingTaxInfo.notApplicable && !ctx.billingTaxInfo.invalid ? 'No incluye impuestos sobre lo que facturás (sin definir): cargalos en "El precio".' : null,
         ctx.billingTaxInfo.invalid ? 'No incluye impuestos sobre lo que facturás: hay un porcentaje inválido. Corregilo en "El precio".' : null,

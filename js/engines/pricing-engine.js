@@ -221,7 +221,7 @@ export function suggestedRateRound(price, step) {
 }
 
 /**
- * Convierte una tarifa entre $/día y $/hora (horas por día activo).
+ * Convierte una tarifa entre $/día y $/hora (horas por día de trabajo).
  * Redondea HACIA ARRIBA al centavo (nunca baja el margen). El abono mensual
  * no es convertible sin ambigüedad: devuelve null.
  */

@@ -342,6 +342,9 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
     ppeMonthly: profile.ppeMonthly ?? 0,
     trainingMonthly: profile.trainingMonthly ?? 0,
     transferMonthly: profile.transferMonthly ?? 0,
+    // Valor propio de la hora extra del recurso (por convenio); null = se calcula del sueldo.
+    overtimeRate50: profile.overtimeRate50 ?? null,
+    overtimeRate100: profile.overtimeRate100 ?? null,
     // Los sueldos se cargan en la moneda de la empresa.
     base: { ...normalizeBase(profile.base, { currency }), currency },
     snapshot: null,

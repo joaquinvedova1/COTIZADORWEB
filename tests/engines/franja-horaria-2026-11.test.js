@@ -122,7 +122,7 @@ describe('guardia activa / pasiva (2026-11)', () => {
     assert.equal(relief(q).status, 'ok');
   });
 
-  test('activa: las horas extra por día activo también cubren', () => {
+  test('activa: las horas extra por día de trabajo también cubren', () => {
     // 8 días × 6 h extra = 48 h; 200 + 48 = 248 ≥ 22 × 11 = 242.
     const q = withLabor({ availability: 'window', availabilityHoursPerDay: 11, guardType: 'active', availableDaysPerMonth: 22, hoursPerActiveDay: 10 }, [op({ overtimeHoursPerActiveDay: 6 })]);
     assert.equal(relief(q).status, 'ok');

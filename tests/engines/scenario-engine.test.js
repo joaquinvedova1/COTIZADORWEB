@@ -56,7 +56,7 @@ describe('ScenarioEngine — aplicar variaciones (sin mutar la cotización)', ()
     approx(q.otherCosts[2].amount, 110_000);
   });
 
-  test('utilización −25 %: 8 → 6 días activos; nunca supera los días disponibles', () => {
+  test('utilización −25 %: 8 → 6 días de trabajo; nunca supera los días disponibles', () => {
     approx(applySensitivity(demoReferenceQuote(), { activityPct: -25 }).activity.activeDaysPerMonth, 6);
     approx(applySensitivity(demoReferenceQuote(), { activityPct: 500 }).activity.activeDaysPerMonth, 30);
     approx(applySensitivity(demoReferenceQuote(), { activityPct: -200 }).activity.activeDaysPerMonth, 0);
@@ -67,7 +67,7 @@ describe('ScenarioEngine — aplicar variaciones (sin mutar la cotización)', ()
     base.activity.availableDaysPerMonth = 0;
     base.activity.activeDaysPerMonth = 28;
     const q = applySensitivity(base, { activityPct: 50 });
-    assert.ok(q.activity.activeDaysPerMonth <= 30, `días activos ${q.activity.activeDaysPerMonth}: el motor usa 30 días disponibles`);
+    assert.ok(q.activity.activeDaysPerMonth <= 30, `días de trabajo ${q.activity.activeDaysPerMonth}: el motor usa 30 días disponibles`);
   });
 
   test('plazo de pago +30 días: 90 → 120; nunca negativo', () => {

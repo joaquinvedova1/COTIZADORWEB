@@ -367,7 +367,7 @@ export function render(container, ctx) {
   const pricingOptions = kit.advanced(
     {
       key: 'margin-pricing',
-      title: 'Opciones avanzadas: descuento, redondeo y tarifa ofrecida',
+      title: 'Más detalle (opcional): descuento, redondeo y precio a mano',
       boxed: true,
       summary: () => {
         const pr = quote.pricing || {};
