@@ -125,6 +125,9 @@ import {
   guaranteeMarginNote,
   outOfHoursMarginNote,
   outOfHoursBreakEvenNote,
+  coveredByOtherRevenue,
+  coveredRateText,
+  rateBelowHourCostText,
 } from '../result-text.js';
 
 /**
@@ -1381,7 +1384,7 @@ function heroKnownActivity(v) {
       heroItem({
         label: SUGGESTED_TITLE,
         value: minRateNode(suggested, v.unitLabel),
-        hint: suggested !== null ? 'Precio objetivo redondeado hacia arriba (nunca baja el margen).' : byQty(v) ? `Aparece cuando haya costos y ${r.unitInfo.plural} por mes cargados.` : 'Aparece cuando haya costos y días activos cargados.',
+        hint: suggested !== null ? 'Precio objetivo redondeado hacia arriba (nunca baja el margen).' : coveredByOtherRevenue(r) ? coveredRateText(r) : byQty(v) ? `Aparece cuando haya costos y ${r.unitInfo.plural} por mes cargados.` : 'Aparece cuando haya costos y días activos cargados.',
         lazyTrace: () => traceSuggested(v),
         lazyTitle: SUGGESTED_TITLE,
         big: true,
@@ -1620,7 +1623,7 @@ function priceStat(v) {
       label: 'Tarifa sugerida',
       value: ceilMoney(k.commercialListRate),
       unit,
-      hint: statHint(targetGoalHint(k.targetMarginPct)),
+      hint: statHint(targetGoalHint(k.targetMarginPct), rateBelowHourCostText(r) ? h('strong', { class: 'qr-unreliable-note' }, rateBelowHourCostText(r)) : null),
       trace: traceSuggested(v),
       className: 'qr-stat qr-stat-price',
     });
@@ -1648,6 +1651,10 @@ function priceStat(v) {
       className: 'qr-stat qr-stat-price',
     });
   }
+  // V-28: la guardia y los adicionales ya cubren costo y margen: no hace falta una tarifa por unidad.
+  if (coveredByOtherRevenue(r)) {
+    return statItem({ label: 'Tarifa sugerida', value: EMPTY, hint: statHint(coveredRateText(r)), className: 'qr-stat qr-stat-price' });
+  }
   return statItem({
     label: 'Tarifa sugerida',
     value: EMPTY,
@@ -1663,6 +1670,17 @@ function priceStat(v) {
 /** ¿Cuánto gano? (margen sobre el precio; el markup va en "Ver cálculo" y en "Margen vs markup"). */
 function marginStat(v) {
   const { k } = v;
+  // V-28: sin tarifa por unidad porque la guardia ya cubre todo: el margen del mes sale de la estimación del motor.
+  const est = v.r.estimate || {};
+  if (coveredByOtherRevenue(v.r) && hasValue(est.marginPct)) {
+    return statItem({
+      label: 'Margen',
+      value: pct(est.marginPct),
+      hint: statHint(`Ganás ${money(est.profit)} por mes con la guardia y los adicionales, sin contar la tarifa por ${(v.r.unitInfo && v.r.unitInfo.singular) || 'unidad'}.`),
+      tone: unreliableText(v.r.completeness, 'este margen') ? 'red' : !k.billingTaxesDefined ? 'orange' : 'green',
+      className: 'qr-stat qr-stat-margin',
+    });
+  }
   const rateOk = hasRate(k);
   const ok = rateOk && hasValue(k.marginPct);
   let hint;
@@ -1707,6 +1725,8 @@ function noRateContent(v) {
       ? `Sin tarifa sugerida: con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${pct(100 - k.billingTaxPct)}. `
       : 'Sin tarifa sugerida: el margen objetivo no es válido. ', stepLink(q, 'margin', 'Corregilo en "El precio"'), ` para saber ${need}.`];
   }
+  // V-28: la guardia y los adicionales ya cubren todo.
+  if (coveredByOtherRevenue(r)) return [coveredRateText(r)];
   return [`Definí una tarifa para saber ${need}. `, stepLink(q, 'margin'), '.'];
 }
 

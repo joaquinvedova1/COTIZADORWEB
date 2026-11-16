@@ -14,7 +14,7 @@ import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
 import { routeConsumptionNote } from '../../js/ui/views/quote-steps/logistics.js';
 import { defaultUnitForContract } from '../../js/domain/contract.js';
 import { billingUnitOf } from '../../js/domain/billing-units.js';
-import { outOfHoursMarginNote, outOfHoursBreakEvenNote } from '../../js/ui/result-text.js';
+import { outOfHoursMarginNote, outOfHoursBreakEvenNote, coveredByOtherRevenue, coveredRateText, rateBelowHourCostText } from '../../js/ui/result-text.js';
 import { EMPTY, formatMoney } from '../../js/core/format.js';
 import { illustrativeInfo, usesOwnFuel, blankMaterialLine, materialLineFromLibrary } from '../../js/domain/quote-factory.js';
 import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
@@ -212,5 +212,36 @@ describe('V-27 · Horas fuera de horario estimadas en el Resultado', () => {
     assert.equal(outOfHoursMarginNote(r), '');
     assert.equal(outOfHoursBreakEvenNote(r), '');
     assert.equal(outOfHoursMarginNote({}), '');
+  });
+});
+
+describe('V-28 · Guardia que cubre todo', () => {
+  const guard = (fee) => {
+    resetIds();
+    return service({ serviceType: 'on_call', unit: 'hour', activity: { activeDaysPerMonth: 6, hoursPerActiveDay: 8, availability: '24/7' }, labor: [person(), person()], rules: { availabilityFeeMonthly: fee } });
+  };
+
+  test('guardia mayor que costo y margen: sin tarifa sugerida, se explica y el margen sale de la estimación', () => {
+    const r = computeQuote(guard(25_000_000));
+    assert.equal(r.ratesAtEstimate.floorCoveredByOtherRevenue, true);
+    assert.equal(r.kpis.marginPct, null);
+    assert.ok(r.estimate.marginPct > 0 && r.estimate.profit > 0);
+    assert.equal(coveredByOtherRevenue(r), true);
+    assert.equal(coveredRateText(r), 'La guardia y los adicionales ya cubren tu costo y tu margen: la tarifa por hora puede ser la que acuerdes.');
+  });
+
+  test('sin guardia o con una guardia chica no aplica', () => {
+    assert.equal(coveredByOtherRevenue(computeQuote(guard(0))), false);
+    assert.equal(coveredByOtherRevenue(computeQuote(guard(3_000_000))), false);
+    assert.equal(rateBelowHourCostText(computeQuote(guard(0))), '');
+  });
+
+  test('guardia que cubre casi todo: la sugerida queda bajo el costo por hora y se avisa', () => {
+    const r = computeQuote(guard(6_500_000));
+    assert.equal(coveredByOtherRevenue(r), false);
+    assert.ok(r.kpis.suggestedListRate > 0);
+    const hourCost = r.outOfHours.basis.crewNormalPerHour + r.outOfHours.basis.equipmentPerHour;
+    assert.ok(r.kpis.suggestedListRate < hourCost, `${r.kpis.suggestedListRate} vs ${hourCost}`);
+    assert.match(norm(rateBelowHourCostText(r)), /^La guardia y los adicionales ya cubren casi todo tu costo y tu margen: la tarifa por hora queda por debajo de lo que te cuesta una hora de tus recursos \(\$ [\d.]+\)\. Puede ser la que acuerdes\.$/);
   });
 });

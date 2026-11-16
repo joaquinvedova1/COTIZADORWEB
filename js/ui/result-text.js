@@ -16,6 +16,7 @@
 import { formatDays, formatNumber, formatPercent, formatMoney, formatMoneyCeil, EMPTY } from '../core/format.js';
 import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
+import { resourceNormalHourCost } from '../engines/out-of-hours-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
 import { isQuantityUnit, quantityCeilText, quantityText } from './unit-text.js';
 import { unitTexts } from '../domain/billing-units.js';
@@ -617,4 +618,40 @@ export function outOfHoursMarginNote(r) {
 export function outOfHoursBreakEvenNote(r) {
   const revenue = estimatedOutOfHours(r).reduce((acc, l) => acc + (isFiniteNumber(l.revenue) ? l.revenue : 0), 0);
   return revenue > 0.005 ? `Cuenta ${formatMoney(revenue)} de horas fuera de horario como si se facturaran aunque trabajes menos días.` : '';
+}
+
+/**
+ * Guardia que cubre todo (V-28): los otros ingresos del mes (guardia, adicionales) ya pagan el
+ * costo y el margen objetivo, así que el motor no necesita ninguna tarifa por unidad (piso 0 y
+ * sin sugerida). No aplica si ya hay una tarifa cargada o si se cotiza con tarifa conocida.
+ * @param {object} r resultado de computeQuote
+ */
+export function coveredByOtherRevenue(r) {
+  const k = (r && r.kpis) || {};
+  const covered = Boolean(r && r.ratesAtEstimate && r.ratesAtEstimate.floorCoveredByOtherRevenue);
+  const noRate = !(isFiniteNumber(k.commercialListRate) && k.commercialListRate > 0) && !(isFiniteNumber(k.suggestedListRate) && k.suggestedListRate > 0);
+  return covered && noRate && r.pricingMode !== 'known_rate' && !k.targetMarginInvalid && k.totalCost > 0;
+}
+
+/** Texto de "la guardia ya cubre todo" (V-28), con la unidad de cobro. */
+export function coveredRateText(r) {
+  const unit = (r && r.unitInfo && r.unitInfo.singular) || 'unidad';
+  return `La guardia y los adicionales ya cubren tu costo y tu margen: la tarifa por ${unit} puede ser la que acuerdes.`;
+}
+
+/**
+ * Advertencia (V-28): la guardia y los adicionales cubren casi todo y la tarifa sugerida queda
+ * por debajo de lo que cuesta una hora de los recursos. '' si no aplica (sólo cobrando por
+ * hora, por día o por hora-hombre, donde la tarifa se puede leer como hora normal).
+ * @param {object} r resultado de computeQuote
+ */
+export function rateBelowHourCostText(r) {
+  const k = (r && r.kpis) || {};
+  const o = (r && r.outOfHours) || {};
+  const other = r && r.ratesAtEstimate ? r.ratesAtEstimate.otherRevenue : 0;
+  if (k.commercialSource !== 'suggested' || !(other > 0) || !isFiniteNumber(o.rateHourPrice) || !(o.rateHourPrice > 0)) return '';
+  const hourCost = resourceNormalHourCost(o.basis);
+  if (!(hourCost > 0) || !(o.rateHourPrice < hourCost - 0.005)) return '';
+  const unit = (r.unitInfo && r.unitInfo.singular) || 'unidad';
+  return `La guardia y los adicionales ya cubren casi todo tu costo y tu margen: la tarifa por ${unit} queda por debajo de lo que te cuesta una hora de tus recursos (${formatMoney(hourCost)}). Puede ser la que acuerdes.`;
 }
