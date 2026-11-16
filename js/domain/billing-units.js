@@ -36,11 +36,11 @@ export const BILLING_UNITS = deepFreeze([
   { id: 'km', kind: 'quantity', singular: 'km', plural: 'km', short: 'km', label: '$/km', hint: 'Se factura cada km recorrido.' },
   { id: 'ton', kind: 'quantity', singular: 'tonelada', plural: 'toneladas', short: 't', label: '$/tonelada', hint: 'Se factura cada tonelada.' },
   { id: 'tonkm', kind: 'quantity', singular: 'ton-km', plural: 'ton-km', short: 'ton-km', label: '$/ton-km', hint: 'Toneladas × km transportados.' },
-  { id: 'm3', kind: 'quantity', singular: 'm³', plural: 'm³', short: 'm³', label: '$/m³', hint: 'Se factura cada metro cúbico.' },
+  { id: 'm3', kind: 'quantity', singular: 'm³', plural: 'm³', short: 'm³', label: '$/m³', hint: 'Se factura cada metro cúbico.', keywords: 'metro cubico volumen tanque' },
   { id: 'unit', kind: 'quantity', singular: 'unidad', plural: 'unidades', short: 'u.', label: '$/unidad', hint: 'Se factura cada unidad producida o realizada.' },
   { id: 'kg', kind: 'quantity', singular: 'kg', plural: 'kg', short: 'kg', label: '$/kg', hint: 'Se factura cada kilo.' },
   { id: 'meter', kind: 'quantity', singular: 'metro', plural: 'metros', short: 'm', label: '$/metro', hint: 'Se factura cada metro lineal.' },
-  { id: 'm2', kind: 'quantity', singular: 'm²', plural: 'm²', short: 'm²', label: '$/m²', hint: 'Se factura cada metro cuadrado.' },
+  { id: 'm2', kind: 'quantity', singular: 'm²', plural: 'm²', short: 'm²', label: '$/m²', hint: 'Se factura cada metro cuadrado.', keywords: 'metro cuadrado superficie' },
   { id: 'lot', kind: 'quantity', singular: 'lote', plural: 'lotes', short: 'lote', label: '$/lote', hint: 'Se factura cada lote.' },
   // Unidades de cuenta y medida habituales (UN/ECE Rec. 20, en español):
   // pieza (H87), pozo (E56), ensayo (E53), hora-hombre, litro (LTR),
@@ -127,7 +127,8 @@ export function unitGroupOf(unit) {
   return BILLING_UNIT_GROUPS.find((g) => g.id === id);
 }
 
-const fold = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+// Sin tildes y con ² y ³ como 2 y 3: "m3" encuentra "m³" (V-19).
+const fold = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/²/g, '2').replace(/³/g, '3');
 
 /**
  * Unidades que coinciden con lo que se escribe ("joule", "potencia", "kva"):
