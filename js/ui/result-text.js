@@ -17,7 +17,7 @@ import { formatDays, formatNumber, formatPercent, formatMoney, formatMoneyCeil, 
 import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
-import { isQuantityUnit, quantityCeilText } from './unit-text.js';
+import { isQuantityUnit, quantityCeilText, quantityText } from './unit-text.js';
 import { unitTexts } from '../domain/billing-units.js';
 import { activationTerms } from '../domain/activation-terms.js';
 
@@ -515,4 +515,67 @@ export function floorWithoutExtrasText(floor, unitLabel = 'día') {
  */
 export function capAllDaysNote(hasStaff) {
   return hasStaff ? ' (sin contar horas extra)' : '';
+}
+
+/**
+ * Filas de "Tus tarifas (sin IVA)" del Resultado (PLAN-2026-025, ampliado por V-12): todo lo que
+ * el cliente va a ver en la cotización además de la tarifa principal. Sólo lee valores del motor.
+ *   Horario normal · cada hora fuera de horario · guardia pasiva y plus de guardia activa ·
+ *   mínimo por llamado · mínimo garantizado por mes · cada adicional cargado a mano con precio.
+ * Devuelve [] si no hay nada más que la tarifa principal (que ya está arriba en el Resultado).
+ * @param {object} r resultado de computeQuote
+ * @returns {Array<[string, string]>} [rótulo, valor]
+ */
+export function tariffRows(r) {
+  if (!r) return [];
+  const T = termsOfResult(r);
+  const k = r.kpis || {};
+  const rules = normalizeRules((r.ctx && r.ctx.rules) || {});
+  const unitInfo = r.unitInfo || {};
+  const overtime = (r.outOfHours && Array.isArray(r.outOfHours.lines) ? r.outOfHours.lines : []);
+  const extras = (r.extras && Array.isArray(r.extras.lines) ? r.extras.lines : []).filter((l) => l && !l.derived && isFiniteNumber(l.price) && l.price > 0);
+  const guardFee = rules.availabilityFeeMonthly > 0 && r.unit !== 'month';
+  const callout = rules.calloutFeePerActivation > 0;
+  const minimumCall = rules.minimumCallUnits > 0 && r.unit !== 'month' && r.unit !== 'event';
+  const guarantee = rules.hasMinimumGuarantee;
+  if (!overtime.length && !extras.length && !guardFee && !callout && !minimumCall && !guarantee) return [];
+  const main = isFiniteNumber(k.commercialListRate)
+    ? `${k.commercialSource === 'suggested' ? formatMoneyCeil(k.commercialListRate) : formatMoney(k.commercialListRate)} / ${unitInfo.singular || r.unitLabel}`
+    : EMPTY;
+  const count = (n, one, many) => `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? one : many}`;
+  const minimumCallText = () => {
+    const n = rules.minimumCallUnits;
+    if (r.unit === 'hour') return count(n, 'hora', 'horas');
+    if (r.unit === 'quantity') return quantityText(n, r);
+    return count(n, 'día', 'días');
+  };
+  return [
+    ['Horario normal', main],
+    ...overtime.map((l) => [l.label, l.price !== null ? `${formatMoney(l.price)} / hora${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
+    guardFee ? ['Guardia pasiva (fijo por estar disponible)', `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
+    callout ? [`Guardia activa (plus ${T.per})`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
+    minimumCall ? [`Mínimo ${T.per}`, `${minimumCallText()} ${T.per}`] : null,
+    guarantee
+      ? ['Mínimo garantizado por mes', rules.minimumGuaranteeBasis === 'units'
+        ? count(rules.minimumGuaranteeUnits, unitInfo.singular || 'unidad', unitInfo.plural || 'unidades')
+        : formatMoney(rules.minimumMonthlyGuarantee)]
+      : null,
+    ...extras.map((l) => [l.label, `${formatMoney(l.price)} por ${l.unitName}`]),
+  ].filter(Boolean);
+}
+
+/**
+ * Aclaración del margen cuando el mes se completa con el mínimo garantizado (V-12): parte de
+ * la ganancia viene de lo que se factura sin trabajarlo. '' si el ajuste es 0.
+ * @param {object} r resultado de computeQuote
+ */
+export function guaranteeMarginNote(r) {
+  const rev = r && r.estimate && r.estimate.revenue;
+  if (!rev || !isFiniteNumber(rev.guaranteeTopUp) || !(rev.guaranteeTopUp > 0.005)) return '';
+  const unitInfo = r.unitInfo || {};
+  const units = (n) => `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? unitInfo.singular || 'unidad' : unitInfo.plural || 'unidades'}`;
+  const detail = rev.guaranteeBasis === 'units' && isFiniteNumber(rev.guaranteedUnits)
+    ? `estimás ${units(rev.billableUnits)}, se facturan ${units(rev.guaranteedUnits)}`
+    : `estimás ${formatMoney(rev.guarantee - rev.guaranteeTopUp)}, se facturan ${formatMoney(rev.guarantee)}`;
+  return `Incluye ${formatMoney(rev.guaranteeTopUp)} del mínimo garantizado (${detail}).`;
 }

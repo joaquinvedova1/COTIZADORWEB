@@ -121,6 +121,8 @@ import {
   capAllDaysNote,
   lossWindowText,
   lossWindowSegments,
+  tariffRows,
+  guaranteeMarginNote,
 } from '../result-text.js';
 
 /**
@@ -1670,8 +1672,8 @@ function marginStat(v) {
   else {
     const per = closedOf(v).single ? 'por trabajo' : 'por mes';
     if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} ${per}.`);
-    else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} ${per} (tu objetivo: ${pct(k.targetMarginPct)}).`);
-    else hint = statHint(`Ganás ${money(k.profit)} ${per}.`);
+    else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} ${per} (tu objetivo: ${pct(k.targetMarginPct)}).`, guaranteeMarginNote(v.r));
+    else hint = statHint(`Ganás ${money(k.profit)} ${per}.`, guaranteeMarginNote(v.r));
   }
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
@@ -1847,28 +1849,14 @@ function draftBanner(v) {
 }
 
 /**
- * Tus tarifas (PLAN-2026-025): la tarifa del horario normal y, si se cotizaron, las horas fuera
- * de horario (50 % y 100 %), la guardia pasiva y el plus por llamado. Todo con los valores del
- * motor. Sólo aparece si hay algo más que la tarifa principal (que ya está arriba).
+ * Tus tarifas (PLAN-2026-025, V-12): la tarifa del horario normal y todo lo demás que se le
+ * cobra al cliente (horas fuera de horario, guardia, mínimos, adicionales). Las filas las arma
+ * `tariffRows` (../result-text.js) con los valores del motor. Sólo aparece si hay algo más que
+ * la tarifa principal (que ya está arriba).
  */
 function tariffsBlock(v) {
-  const { r } = v;
-  const lines = (r.outOfHours && r.outOfHours.lines) || [];
-  const rules = normalizeRules((r.ctx && r.ctx.rules) || {});
-  const guardFee = rules.availabilityFeeMonthly > 0 && r.unit !== 'month';
-  const callout = rules.calloutFeePerActivation > 0;
-  if (!lines.length && !guardFee && !callout) return null;
-  const T = termsOfResult(r);
-  const k = r.kpis || {};
-  const main = isFiniteNumber(k.commercialListRate)
-    ? `${k.commercialSource === 'suggested' ? formatMoneyCeil(k.commercialListRate) : formatMoney(k.commercialListRate)} / ${r.unitInfo.singular || r.unitLabel}`
-    : EMPTY;
-  const rows = [
-    ['Horario normal', main],
-    ...lines.map((l) => [l.label, l.price !== null ? `${formatMoney(l.price)} / hora${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
-    guardFee ? ['Guardia pasiva (fijo por estar disponible)', `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
-    callout ? [`Guardia activa (plus ${T.per})`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
-  ].filter(Boolean);
+  const rows = tariffRows(v.r);
+  if (!rows.length) return null;
   return h('div', { class: 'qr-tariffs' },
     h('h4', { class: 'qr-subhead' }, 'Tus tarifas (sin IVA)'),
     h('dl', { class: 'qr-rules-list' }, ...rows.map(([term, value]) => h('div', { class: 'qr-rules-item' }, h('dt', {}, term), h('dd', { class: 'mono' }, value)))));
