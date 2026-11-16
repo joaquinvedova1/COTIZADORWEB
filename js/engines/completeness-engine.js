@@ -691,7 +691,7 @@ export function evaluateCompleteness(quote = {}) {
     // Qué incluye la tarifa: sin definir el combustible o el operador no se suma nada (puede faltar costo).
     const inclusionsUndefined = externals.filter((e) => typeof extOf(e).fuelIncluded !== 'boolean' || typeof extOf(e).operatorIncluded !== 'boolean');
     // Global: se reparte en los meses de contrato (sin dato se toma 1 mes).
-    const globalNoContract = externals.filter((e) => extOf(e).unit === 'global' && !(nonNegative(quote.contractMonths) >= 1));
+    const globalNoContract = contractOf(quote).mode === 'closed' ? [] : externals.filter((e) => extOf(e).unit === 'global' && !(nonNegative(quote.contractMonths) >= 1));
     const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Externo'}"`).join(', ');
     let status = 'ok';
     let message = 'Recursos externos con tratamiento fiscal y vigencia definidos.';

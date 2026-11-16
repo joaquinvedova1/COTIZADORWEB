@@ -49,6 +49,7 @@ import { outOfHoursBasis, resolveExtras } from './out-of-hours-engine.js';
 import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
+import { contractOf } from '../domain/contract.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { formatMoney, formatNumber } from '../core/format.js';
 
@@ -281,6 +282,7 @@ export function buildCostModel(quote = {}) {
   // quote.equipment (mismo índice).
   const equipmentInput = objectList(quote.equipment);
   const external = [];
+  const closedContract = contractOf(quote).mode === 'closed';
   const equipment = equipmentInput.map((e, index) => {
     const acquisition = e.acquisition === 'rented' || e.acquisition === 'outsourced' ? e.acquisition : 'owned';
     if (acquisition === 'owned') {
@@ -298,6 +300,8 @@ export function buildCostModel(quote = {}) {
       // Viajes completos de la ruta (ECO-01): para un proveedor que cobra por viaje ida y vuelta.
       fullTripsPerActivation: logistics.notApplicable ? 0 : logistics.tripsPerActivation,
       contractMonths: quote.contractMonths,
+      // Precio cerrado (V-02): "global" = toda la obra, repartida en sus trabajos.
+      globalJobs: closedContract ? (nonNegative(quote.contractJobs) > 0 ? nonNegative(quote.contractJobs) : 1) : null,
       fuelPricePerLiter,
       fuelPaidByUs,
       conversion: f,

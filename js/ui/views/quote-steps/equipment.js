@@ -23,6 +23,7 @@ import { badge, card, dateField, formGrid, selectField, triStateField, confirmDi
 import { equipmentLineFromLibrary, externalLineFromService, blankEquipmentLine, createExternalTerms, createMobilization, acquisitionOf } from '../../../domain/quote-factory.js';
 import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
 import { activationTerms, withActivationOptions } from '../../../domain/activation-terms.js';
+import { contractOf } from '../../../domain/contract.js';
 import { computeEquipmentUnit, maintenanceOf, tiresOf, MAX_EQUIPMENT_HOURS_PER_DAY } from '../../../engines/equipment-engine.js';
 import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
@@ -379,6 +380,7 @@ export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
   // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
   const T = activationTerms(quote);
+  const closedContract = contractOf(quote).mode === 'closed';
   const library = Array.isArray(resources.equipment) ? resources.equipment : [];
   const services = Array.isArray(resources.externalServices) ? resources.externalServices : [];
   const lines = quote.equipment;
@@ -863,8 +865,9 @@ export function render(container, ctx) {
     label: 'Unidad de la tarifa',
     name: `equipment.${index}.external.unit`,
     value,
-    options: unitsFor(T).map((u) => ({ value: u.id, label: u.label })),
-    hint: unitHints(T)[value],
+    // Precio cerrado (V-02): "global" es toda la obra, no los meses de contrato.
+    options: unitsFor(T).map((u) => ({ value: u.id, label: closedContract && u.id === 'global' ? 'Global (toda la obra)' : u.label })),
+    hint: closedContract && value === 'global' ? 'Monto por toda la obra.' : unitHints(T)[value],
     disabled: ctx.readOnly,
     onChange: (v) => setExternalUnit(index, v || 'day'),
   });

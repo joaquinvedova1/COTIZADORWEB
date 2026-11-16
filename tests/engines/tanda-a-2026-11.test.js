@@ -18,7 +18,7 @@ import { computeMobilization } from '../../js/engines/mobilization-engine.js';
 import { materialsResaleOf } from '../../js/engines/economics-engine.js';
 import { buildCostModel } from '../../js/engines/cost-engine.js';
 import { applyResourceUpdate } from '../../js/domain/resource-sync.js';
-import { service, person, owned, material, resetIds } from '../lab/lib/build.js';
+import { service, person, owned, external, material, resetIds } from '../lab/lib/build.js';
 
 const close = (a, b, tol = 1e-6) => assert.ok(Math.abs(a - b) <= tol * Math.max(1, Math.abs(b)), `${a} ≠ ${b}`);
 const item = (q, id) => evaluateCompleteness(q).items.find((x) => x.id === id);
@@ -151,6 +151,63 @@ describe('A-1 · Precio cerrado: el total es por trabajo, nunca × meses de cont
     close(c.contract.revenue, r.kpis.revenue * 12);
     q.contractJobs = 5; // no aplica fuera de precio cerrado
     close(priceComposition(computeQuote(q, { settings: {} })).contract.revenue, r.kpis.revenue * 12);
+  });
+});
+
+describe('V-02 · Proveedor "Global" en precio cerrado: toda la obra, no ÷ meses de contrato', () => {
+  const withCrane = (unit, extra = {}) => {
+    const q = closedQuote(extra);
+    q.contractMonths = 12;
+    q.equipment = [external({ name: 'Grúa' }, { price: 5_600_000, unit })];
+    return q;
+  };
+  const cost = (q) => computeQuote(q, { settings: {} }).estimate.cost.total;
+
+  test('global 5.600.000 con 12 meses de contrato cuesta lo mismo que cobrado por trabajo', () => {
+    const base = cost(closedQuote());
+    const g = cost(withCrane('global'));
+    close(g, cost(withCrane('activation')));
+    const x = computeQuote(withCrane('global'), { settings: {} }).model.external[0];
+    close(x.netPerActivation, 5_600_000);
+    assert.equal(x.netFixedMonthly, 0);
+    assert.equal(x.globalJobs, 1);
+    // Antes: 5.600.000 ÷ 12 = 466.667 por mes.
+    assert.ok(g - base >= 5_600_000);
+  });
+
+  test('con dos trabajos en la obra (contractJobs: 2), cada trabajo carga la mitad', () => {
+    const base = cost(closedQuote({ contractJobs: 2 }));
+    const one = cost(withCrane('global')) - cost(closedQuote());
+    close(cost(withCrane('global', { contractJobs: 2 })) - base, one / 2);
+    close(computeQuote(withCrane('global', { contractJobs: 2 }), { settings: {} }).model.external[0].netPerActivation, 2_800_000);
+  });
+
+  test('un trabajo de dos meses (0,5 por mes): el mes carga la mitad y la obra, todo', () => {
+    const activity = { billableQuantityPerMonth: 0.5, daysPerActivation: 10 };
+    const q = withCrane('global', { activity });
+    close(cost(q), cost(withCrane('activation', { activity })));
+    close(computeQuote(q, { settings: {} }).model.external[0].netPerActivation, 5_600_000);
+  });
+
+  test('fuera de precio cerrado sigue dividiendo por los meses de contrato', () => {
+    const mk = (ext) => {
+      resetIds();
+      const q = service({ serviceType: 'on_call', unit: 'day', pricingMode: 'known_activity', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()], equipment: [external({ name: 'Grúa' }, ext)] });
+      q.contract = { mode: 'on_demand', components: ['labor'] };
+      q.contractMonths = 12;
+      return q;
+    };
+    const r = computeQuote(mk({ price: 5_600_000, unit: 'global' }), { settings: {} });
+    close(r.model.external[0].netFixedMonthly, 5_600_000 / 12);
+    assert.equal(r.model.external[0].globalJobs, null);
+    close(r.estimate.cost.total, cost(mk({ price: 5_600_000 / 12, unit: 'month' })));
+  });
+
+  test('la completitud no pide meses de contrato para un global en precio cerrado', () => {
+    const q = withCrane('global');
+    q.contractMonths = null;
+    const it = item(q, 'external_terms');
+    assert.ok(!it || !/meses de contrato/.test(it.message));
   });
 });
 
