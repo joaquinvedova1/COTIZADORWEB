@@ -659,7 +659,7 @@ describe('V-08 · Aviso "cada llamado hace menos de una unidad": qué días por 
     const i = warning(trailers());
     assert.ok(i);
     assert.equal(i.path, 'activity.daysPerActivation');
-    assert.match(i.message, /Si es una sola ida para 6 traileres, cargá 8 días por llamado\. Si cada trailer es una salida distinta, cargá 1,33\.$/);
+    assert.match(i.message, /Si es una sola ida para 6 traileres, cargá 8 días por llamado\. Si cada trailer es un llamado distinto, cargá 1,33\.$/);
   });
 
   test('con 8 días por llamado no avisa', () => {
@@ -668,7 +668,7 @@ describe('V-08 · Aviso "cada llamado hace menos de una unidad": qué días por 
 
   test('sin la cantidad del mes sólo propone la salida por unidad', () => {
     const i = warning(trailers({ billableQuantityPerMonth: null }));
-    assert.match(i.message, /Si cada trailer es una salida distinta, cargá 1,33 días por llamado\.$/);
+    assert.match(i.message, /Si cada trailer es un llamado distinto, cargá 1,33 días por llamado\.$/);
     assert.doesNotMatch(i.message, /una sola ida/);
   });
 });

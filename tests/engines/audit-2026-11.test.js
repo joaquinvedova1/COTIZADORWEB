@@ -71,7 +71,7 @@ describe('varias intervenciones por día (días por intervención < 1)', () => {
       labor: [person()],
     });
     const r = computeQuote(q, { settings: {} });
-    assert.ok(r.issues.some((i) => i.path === 'activity.daysPerActivation' && /cargá 2 días/.test(i.message)), JSON.stringify(r.issues.map((i) => i.message)));
+    assert.ok(r.issues.some((i) => i.path === 'activity.daysPerActivation' && /cargá 20 días por intervención\. Si cada pozo es una intervención distinta, cargá 2\.$/.test(i.message)), JSON.stringify(r.issues.map((i) => i.message)));
     q.activity.daysPerActivation = 2;
     const ok = computeQuote(q, { settings: {} });
     assert.ok(!ok.issues.some((i) => i.path === 'activity.daysPerActivation'));

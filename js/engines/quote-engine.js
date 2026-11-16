@@ -223,10 +223,10 @@ function unitIssues(quote, ctx) {
       // V-08: los dos valores posibles salen de datos ya cargados. Una sola ida para toda la
       // cantidad del mes (cantidad ÷ por día) o una salida por unidad (1 ÷ por día).
       const quantity = nonNegative(a.billableQuantityPerMonth);
-      const perUnit = `Si cada ${u.singular} es una salida distinta, cargá ${fmt(1 / a.unitsPerActiveDay)}.`;
+      const each = `Si cada ${u.singular} es ${T.a} ${T.one} ${T.g('distinta', 'distinto')}, cargá ${fmt(1 / a.unitsPerActiveDay)}`;
       const fix = quantity > 0
-        ? `Si es una sola ida para ${fmt(quantity)} ${quantity === 1 ? u.singular : u.plural}, cargá ${fmt(quantity / a.unitsPerActiveDay)} días ${T.per}. ${perUnit}`
-        : `Si cada ${u.singular} es una salida distinta, cargá ${fmt(1 / a.unitsPerActiveDay)} días ${T.per}.`;
+        ? `Si es una sola ida para ${fmt(quantity)} ${quantity === 1 ? u.singular : u.plural}, cargá ${fmt(quantity / a.unitsPerActiveDay)} días ${T.per}. ${each}.`
+        : `${each} días ${T.per}.`;
       issues.push({
         path: 'activity.daysPerActivation',
         code: SPARSE_ACTIVATIONS_ISSUE,
