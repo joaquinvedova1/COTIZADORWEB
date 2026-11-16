@@ -12,6 +12,7 @@ import { resourceCostText } from '../../js/ui/views/quote-steps/modality.js';
 import { extraPresetsFor, OUT_OF_HOURS_PRESETS_NOTE } from '../../js/ui/views/quote-steps/extras.js';
 import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
 import { routeConsumptionNote } from '../../js/ui/views/quote-steps/logistics.js';
+import { defaultUnitForContract } from '../../js/domain/contract.js';
 import { EMPTY } from '../../js/core/format.js';
 import { illustrativeInfo, usesOwnFuel, blankMaterialLine, materialLineFromLibrary } from '../../js/domain/quote-factory.js';
 import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
@@ -111,5 +112,14 @@ describe('V-23 · "Consumo en ruta" de un alquilado con consumo por km', () => {
     assert.equal(routeConsumptionNote(rented({ fuelIncluded: false, fuelMode: 'per_hour', fuelLitersPerHour: 8 })), null);
     assert.equal(routeConsumptionNote(rented({ fuelIncluded: true })), null);
     assert.equal(routeConsumptionNote(owned({ mobilization: { mode: 'self' } })), null);
+  });
+});
+
+describe('V-24 · Unidad al pasar a "Por servicio prestado"', () => {
+  test('sin unidad que encaje arranca en $/día, como la cotización en blanco', () => {
+    assert.equal(defaultUnitForContract({ mode: 'on_demand', labor: true, equipment: true }), 'day');
+    assert.equal(defaultUnitForContract({ mode: 'on_demand', labor: true, equipment: false }), 'day');
+    assert.equal(defaultUnitForContract({ mode: 'monthly', labor: true, equipment: true }), 'month');
+    assert.equal(defaultUnitForContract({ mode: 'closed', labor: true, equipment: true }), 'job');
   });
 });
