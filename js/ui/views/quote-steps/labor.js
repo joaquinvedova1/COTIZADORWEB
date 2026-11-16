@@ -178,7 +178,8 @@ export function render(container, ctx) {
   const toolbar = h(
     'div',
     { class: 'qe-toolbar' },
-    h(
+    // V-25: sin perfiles cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
+    !profiles.length ? null : h(
       'div',
       { class: 'qe-toolbar-pick' },
       selectField({
@@ -193,7 +194,7 @@ export function render(container, ctx) {
       }),
       kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
     ),
-    kit.action('Agregar puesto en blanco', addBlank, { icon: 'plus', size: 'md' }),
+    kit.action('Agregar puesto en blanco', addBlank, { icon: 'plus', size: 'md', ...(profiles.length ? {} : { variant: 'primary' }) }),
   );
 
   /** "SAC 8,33 % · vacaciones 4 % · …" con lo cargado en la línea. */

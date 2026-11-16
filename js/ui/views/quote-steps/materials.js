@@ -378,7 +378,8 @@ export function render(container, ctx) {
         h(
           'div',
           { class: 'qe-toolbar' },
-          h(
+          // V-25: sin materiales cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
+          !library.length ? null : h(
             'div',
             { class: 'qe-toolbar-pick' },
             selectField({
@@ -393,7 +394,7 @@ export function render(container, ctx) {
             }),
             kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
           ),
-          kit.action('Agregar material en blanco', addBlank, { icon: 'plus', size: 'md' }),
+          kit.action('Agregar material en blanco', addBlank, { icon: 'plus', size: 'md', ...(library.length ? {} : { variant: 'primary' }) }),
         ),
       ),
       materialCards.length

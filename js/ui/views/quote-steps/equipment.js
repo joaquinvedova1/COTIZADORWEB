@@ -472,7 +472,8 @@ export function render(container, ctx) {
   const toolbar = h(
     'div',
     { class: 'qe-toolbar' },
-    h(
+    // V-25: sin equipos ni externos cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
+    !pickerOptions.length ? null : h(
       'div',
       { class: 'qe-toolbar-pick' },
       selectField({
@@ -487,7 +488,7 @@ export function render(container, ctx) {
       }),
       kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
     ),
-    kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md' }),
+    kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md', ...(pickerOptions.length ? {} : { variant: 'primary' }) }),
     kit.action('Agregar alquilado o tercerizado', () => addBlank('rented'), { icon: 'plus', size: 'md' }),
   );
 
