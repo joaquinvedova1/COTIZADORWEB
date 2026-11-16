@@ -277,3 +277,32 @@ describe('V-29 · Equipo en espera con días', () => {
     assert.equal(showStandbyRule({ serviceType: 'on_call', unit: 'day', rules: {} }), true);
   });
 });
+
+describe('V-30 · "No usa combustible" en un vehículo que viaja', () => {
+  const quote = (eq) => {
+    resetIds();
+    return service({
+      unit: 'day', activity: { activeDaysPerMonth: 10, daysPerActivation: 1 }, labor: [person()], equipment: [eq],
+      logistics: { notApplicable: false, distanceKm: 80, roundTrip: true, tripsPerActivation: 1, vehicles: [] },
+    });
+  };
+  const travels = { mobilization: { mode: 'self', travelLitersPer100Km: 12, travelCostPerKm: 80, driver: 'operator' } };
+
+  test('en "¿Cómo llega?" se dice en lugar del campo de consumo', () => {
+    assert.equal(routeConsumptionNote(owned({ ...travels, fuelNotApplicable: true })), 'Marcaste "No usa combustible": el viaje no suma gasoil. Si es un vehículo con motor, desmarcalo.');
+    assert.equal(routeConsumptionNote(owned(travels)), null);
+  });
+
+  test('aviso informativo en Equipos y en el Resultado, sin restar puntaje', () => {
+    const marked = computeQuote(quote(owned({ name: 'Camioneta', ...travels, fuelNotApplicable: true })));
+    const notice = marked.completeness.notices.find((n) => n.id === 'no_fuel_travels');
+    assert.ok(notice);
+    assert.equal(notice.step, 'equipment');
+    assert.equal(notice.message, 'Marcaste "No usa combustible" en "Camioneta": el viaje no suma gasoil. Si es un vehículo con motor, desmarcalo.');
+    assert.ok(!marked.completeness.pending.some((p) => p.id === 'no_fuel_travels'));
+    const still = computeQuote(quote(owned({ name: 'Generador', fuelNotApplicable: true, mobilization: { mode: 'none' } })));
+    assert.ok(!still.completeness.notices.some((n) => n.id === 'no_fuel_travels'));
+    const fueled = computeQuote(quote(owned({ name: 'Camioneta', ...travels, fuelLitersPerHour: 2 })));
+    assert.ok(!fueled.completeness.notices.some((n) => n.id === 'no_fuel_travels'));
+  });
+});

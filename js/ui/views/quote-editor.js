@@ -1637,7 +1637,7 @@ export function pendingFieldPath(item, quote) {
  * @param {{ getQuote?: Function, onReveal?: Function, onFocusField?: Function, hasField?: Function, stepHref?: Function, didactic?: boolean }} options
  */
 /** Avisos informativos (completeness.notices) que también se muestran en su paso. */
-const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate']);
+const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels']);
 
 function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });

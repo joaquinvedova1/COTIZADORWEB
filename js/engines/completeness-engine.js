@@ -1291,6 +1291,23 @@ export function evaluateCompleteness(quote = {}) {
       focus: 'logistics.tripsPerActivation',
     });
   }
+  // "No usa combustible" en un equipo propio que viaja por sus medios (V-30): el viaje no suma
+  // gasoil (regla LAB-D5). Si es un vehículo con motor, la marca está de más: se avisa, no se cambia.
+  if (!logistics.notApplicable) {
+    equipment.forEach((e, index) => {
+      const m = isPlainObject(e.mobilization) ? e.mobilization : {};
+      if (isExt(e) || e.fuelNotApplicable !== true || m.mode !== 'self') return;
+      notices.push({
+        id: 'no_fuel_travels',
+        step: 'equipment',
+        severity: 'info',
+        label: 'Viaja y no usa combustible',
+        message: `Marcaste "No usa combustible" en "${lineName(e)}": el viaje no suma gasoil. Si es un vehículo con motor, desmarcalo.`,
+        focus: `equipment.${index}.fuelNotApplicable`,
+        targets: [{ list: 'equipment', index, name: lineName(e) }],
+      });
+    });
+  }
   return {
     scorePct,
     items,

@@ -704,7 +704,7 @@ export function render(container, ctx) {
           structural: true,
           hint: line.fuelNotApplicable === true
             ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
-            : 'Eléctrico, manual o estacionario: marcalo en vez de dejar el consumo en 0.',
+            : 'Acoplado, eléctrico o herramienta. Si es un vehículo con motor, no lo marques: poné 0 en el consumo en la locación.',
         }),
       ),
       // PLAN-2026-025: el mantenimiento a la vista (junto con la amortización es lo primero que se pregunta).

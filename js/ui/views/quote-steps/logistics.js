@@ -41,12 +41,14 @@ import { activationTerms, activationFieldLabels } from '../../../domain/activati
  * sus medios (null = se muestra el campo).
  *   - V-23: externo con el combustible a tu cargo cargado por km: la ruta ya
  *     está en ese consumo (el motor no suma otro combustible de traslado).
+ *   - V-30: equipo propio con "No usa combustible": el viaje no suma gasoil.
  * @param {object} line línea de `quote.equipment`
  */
 export function routeConsumptionNote(line = {}) {
   const external = acquisitionOf(line) !== 'owned';
   const ext = line.external && typeof line.external === 'object' ? line.external : {};
   if (external && ext.fuelIncluded === false && externalFuelMode(ext) !== 'per_hour') return 'El combustible de la ruta ya está en el consumo del alquiler.';
+  if (!external && line.fuelNotApplicable === true) return 'Marcaste "No usa combustible": el viaje no suma gasoil. Si es un vehículo con motor, desmarcalo.';
   return null;
 }
 
@@ -230,9 +232,7 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
           3,
           routeNote
             ? h('p', { class: 'qe-note' }, routeNote)
-            : line.fuelNotApplicable === true && !external
-              ? null
-              : kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'Lo que gasta manejando por la ruta. Es el único consumo de un vehículo que sólo lleva gente o carga.' }),
+            : kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'Lo que gasta manejando por la ruta. Es el único consumo de un vehículo que sólo lleva gente o carga.' }),
           kit.num(`${p}.travelCostPerKm`, {
             label: 'Desgaste por km',
             rule: 'money',
