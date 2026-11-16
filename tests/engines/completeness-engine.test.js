@@ -487,3 +487,38 @@ describe('V-07 · Insumos "por unidad producida" (materials_output_mismatch, mat
     assert.match(other.message, /hasta cargarlo no suma costo\.$/);
   });
 });
+
+describe('V-10 · Días por trabajo vacíos en unidades por evento', () => {
+  const byJob = (unit, daysPerActivation, extra = {}) => {
+    resetIds();
+    return service({ unit, activity: { billableQuantityPerMonth: 4, daysPerActivation, hoursPerActiveDay: 8 }, labor: [person()], ...extra });
+  };
+  const util = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'utilization');
+
+  test('por llamado con los días vacíos o en 0: falta, lleva al campo y dice que se calcula con 1 día', () => {
+    [null, '', 0].forEach((empty) => {
+      const i = util(byJob('call', empty));
+      assert.equal(i.status, 'missing');
+      assert.equal(i.focus, 'activity.daysPerActivation');
+      assert.equal(i.message, 'Faltan los días que lleva cada llamado: se está calculando con 1 día.');
+    });
+  });
+
+  test('por trabajo dice "trabajo"', () => {
+    assert.equal(util(byJob('job', null)).message, 'Faltan los días que lleva cada trabajo: se está calculando con 1 día.');
+  });
+
+  test('con los días cargados está completo; sin la cantidad, primero se pide la cantidad', () => {
+    assert.equal(util(byJob('call', 3)).status, 'ok');
+    assert.equal(util(byJob('call', 0.5)).status, 'ok');
+    const noQty = byJob('call', null);
+    noQty.activity.billableQuantityPerMonth = null;
+    assert.equal(util(noQty).focus, 'activity.billableQuantityPerMonth');
+  });
+
+  test('no aplica a las unidades por cantidad', () => {
+    resetIds();
+    const q = service({ unit: 'custom', unitName: 'pozo', activity: { billableQuantityPerMonth: 4, unitsPerActiveDay: 1, daysPerActivation: null }, labor: [person()] });
+    assert.equal(util(q).status, 'ok');
+  });
+});

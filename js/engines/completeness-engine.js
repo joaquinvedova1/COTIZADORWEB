@@ -246,12 +246,18 @@ export function evaluateCompleteness(quote = {}) {
   if (unit.kind === 'quantity' || unit.kind === 'event') {
     const qOk = nonNegative(activity.billableQuantityPerMonth) > 0;
     const yieldOk = unit.kind !== 'quantity' || nonNegative(activity.unitsPerActiveDay) > 0;
-    const ok = qOk && yieldOk;
+    // V-10: por llamado, trabajo o hito, los días que lleva cada uno definen los días de trabajo
+    // (sueldos, equipos, combustible). Vacío o en 0 el motor usa 1 día: se pide el dato.
+    const eventDaysOk = unit.kind !== 'event' || contractOf(quote).mode === 'monthly' || nonNegative(activity.daysPerActivation) > 0;
+    const ok = qOk && yieldOk && eventDaysOk;
     const texts = unitTexts(unit);
     const item = rule('utilization', `${unit.plural.charAt(0).toUpperCase()}${unit.plural.slice(1)} por mes`, 'modality', 2,
       ok ? 'ok' : 'missing',
-      ok ? `Cantidad por mes definida (${unit.plural}).` : !qOk ? `${texts.quantityQuestion} Falta ese dato.` : `${texts.perDayQuestion} Falta ese dato para calcular los días de trabajo.`);
-    if (!ok) item.focus = !qOk ? 'activity.billableQuantityPerMonth' : 'activity.unitsPerActiveDay';
+      ok ? `Cantidad por mes definida (${unit.plural}).`
+        : !qOk ? `${texts.quantityQuestion} Falta ese dato.`
+          : !yieldOk ? `${texts.perDayQuestion} Falta ese dato para calcular los días de trabajo.`
+            : `Faltan los días que lleva cada ${T.one}: se está calculando con 1 día.`);
+    if (!ok) item.focus = !qOk ? 'activity.billableQuantityPerMonth' : !yieldOk ? 'activity.unitsPerActiveDay' : 'activity.daysPerActivation';
     items.push(item);
   } else if (isOnCall || quote.pricingMode === 'known_activity') {
     const daysOk = nonNegative(activity.activeDaysPerMonth) > 0;
