@@ -521,6 +521,11 @@ export function searchSelectField({ label, value = null, options, search = null,
   }
   input.addEventListener('focus', () => {
     if (disabled) return;
+    // Foco devuelto por la pantalla después de elegir (UX-B1): queda en el buscador sin reabrir la lista.
+    if (input.dataset.noAutoOpen === '1') {
+      delete input.dataset.noAutoOpen;
+      return;
+    }
     open('');
     // Lo elegido queda seleccionado: lo que se escribe lo reemplaza y busca (no se agrega al rótulo).
     if (typeof input.select === 'function') input.select();

@@ -2763,12 +2763,15 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     if (!el) return;
     // Un buscador desplegable abre su lista al recibir el foco (V-05): devolvérselo después
     // de elegir dejaba la lista abierta encima del campo siguiente, y un clic ahí cambiaba la unidad.
-    if (el.getAttribute('role') === 'combobox') return;
+    // Se le devuelve el foco con la lista cerrada (UX-B1), así Tab sigue al campo siguiente.
+    if (el.getAttribute('role') === 'combobox') el.dataset.noAutoOpen = '1';
     try {
       el.focus({ preventScroll: true });
     } catch {
       /* foco opcional */
     }
+    // Si el foco no llegó (sin evento "focus"), la marca no debe frenar el próximo foco real.
+    if (el.dataset && el.dataset.noAutoOpen) delete el.dataset.noAutoOpen;
   }
 
   /**
