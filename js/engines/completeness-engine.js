@@ -40,7 +40,7 @@ import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
-import { proposeServiceShares } from './utilization-engine.js';
+import { proposeServiceShares, staleDedicationOf, staleDedicationMessage } from './utilization-engine.js';
 import { normalizeRules } from './commercial-rules-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay, availabilityHoursOf } from './cost-engine.js';
 import { outputPerActiveDayOf, normalizeBasisId } from './materials-engine.js';
@@ -811,6 +811,17 @@ export function evaluateCompleteness(quote = {}) {
     item.focus = inherits ? 'activity.hoursPerActiveDay' : `equipment.${equipment.indexOf(first)}.hoursPerActiveDay`;
     item.targets = hourless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
     items.push(item);
+  }
+
+  // 9c''ter. % de dedicación viejo (V-11): el % cargado en una línea compartida ya no coincide
+  // con los días y las horas de ahora (más de 5 puntos). No se recalcula solo: se avisa.
+  if (contract.mode !== 'monthly') {
+    const stale = staleDedicationOf(quote, { activeDaysPerMonth: D, hoursPerActiveDay: H });
+    if (stale) {
+      const item = rule('dedication_stale', 'Dedicación de tu gente y tus equipos', 'modality', 1, 'warning', staleDedicationMessage(stale));
+      item.focus = `${stale.kind}.${stale.index}.fixedCostSharePct`;
+      items.push(item);
+    }
   }
 
   // 9c''bis. Horas de trabajo por día (V-04): con las horas vacías o en 0, un equipo propio con

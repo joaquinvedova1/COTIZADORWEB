@@ -1672,3 +1672,7 @@ Ningún número cambia: sin dato de asignación el costo fijo ya era 100 %. Camb
 - Elegir "Sí" escribe la respuesta en todas las líneas (`'dedicated'` en personal, salvo las `'hired'`; `'reserved'` en equipos propios).
 - Mientras no se elige, la tarjeta avisa cuánto paga el servicio con el monto de `fixed_costs_absorbed`.
 - `fixed_costs_absorbed`: fuera de precio cerrado no se emite si la dedicación propuesta da 100 % para todas las líneas al 100 % (el servicio ya les ocupa el mes: 22 días × 8 h con 176 h normales).
+
+### 25.4 % de dedicación que quedó viejo (V-11)
+
+`staleDedicationOf(quote, actividad)` (`js/engines/utilization-engine.js`): la primera línea compartida (personal o equipo propio) con un % válido cuyo valor difiere del propuesto con los días y horas de ahora en **más de 5 puntos**. El % **no se recalcula solo** (AGENTS §5.1): la nota de "Cómo se cobra" pasa a advertencia y la completitud suma la regla `dedication_stale` (paso "Cómo se cobra", naranja, peso 1, sólo cuando hay desajuste; no aplica en fijo mensual): "El % cargado (71,6 %) ya no coincide con los días y horas de ahora (100 %)."

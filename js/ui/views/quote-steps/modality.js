@@ -34,7 +34,7 @@ import { outsideWindowHours, outsideWindowMessage, activeGuardCoverage, activeGu
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
 import { staffText } from './labor.js';
 import { isOutOfHoursExtra, OUT_OF_HOURS_KIND, OUT_OF_HOURS_PRESETS } from '../../../engines/out-of-hours-engine.js';
-import { proposeServiceShares } from '../../../engines/utilization-engine.js';
+import { proposeServiceShares, staleDedicationOf, staleDedicationMessage } from '../../../engines/utilization-engine.js';
 import { createId } from '../../../core/ids.js';
 import { dedicationChoiceOf } from '../../../domain/assignment.js';
 
@@ -908,7 +908,10 @@ export function render(container, ctx) {
               const now = Number((kit.get(`${t.kind}.${t.i}`) || {}).fixedCostSharePct);
               return p !== null && (!Number.isFinite(now) || Math.abs(now - p) > 0.05);
             });
-            return h('p', { class: 'qe-note' },
+            // V-11: más de 5 puntos de diferencia ya no es un detalle: se avisa en naranja.
+            const old = staleDedicationOf(quote, r.activity);
+            return h('p', { class: ['qe-note', old ? 'is-warning' : null] },
+              old ? `${staleDedicationMessage(old)} ` : null,
               `Hoy este servicio les ocupa ${num(proposal.serviceHours)} h por mes: el ${pctText(first)} de su mes. `,
               stale && !kit.readOnly ? button(`Usar ${pctText(first)}`, { variant: 'secondary', size: 'sm', onClick: () => applyShares(false) }) : null,
               ' Si cambiás los días, revisá este porcentaje. Si los otros trabajos no aparecen, esa parte del sueldo queda sin cubrir.');

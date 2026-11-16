@@ -362,3 +362,39 @@ describe('V-04 · Horas de trabajo por día y equipos por hora (equipment_hours)
     assert.match(hours.message, /Si el servicio no pide 10 h por día, corregilo en "Cómo se cobra"\.$/);
   });
 });
+
+describe('V-11 · % de dedicación que quedó viejo (dedication_stale)', () => {
+  const sharedQuote = (days, hours, pct) => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: days, hoursPerActiveDay: hours }, labor: [person({ normalHoursPerMonth: 176, assignment: 'shared', fixedCostSharePct: pct })] });
+    q.contract = { mode: 'on_demand', components: ['labor'] };
+    return q;
+  };
+  const found = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'dedication_stale');
+
+  test('salta con 71,6 % cargado y 100 % propuesto (22 días × 8 h)', () => {
+    const i = found(sharedQuote(22, 8, 71.6));
+    assert.ok(i);
+    assert.equal(i.status, 'warning');
+    assert.equal(i.step, 'modality');
+    assert.equal(i.focus, 'labor.0.fixedCostSharePct');
+    assert.equal(i.message, 'El % cargado (71,6 %) ya no coincide con los días y horas de ahora (100 %).');
+  });
+
+  test('no salta con 71,6 cargado y 71,6 propuesto (14 días × 9 h), ni con una diferencia de hasta 5 puntos', () => {
+    assert.equal(found(sharedQuote(14, 9, 71.6)), undefined);
+    assert.equal(found(sharedQuote(14, 9, 75)), undefined);
+    assert.ok(found(sharedQuote(14, 9, 80)));
+  });
+
+  test('no salta sin líneas compartidas, sin días cargados ni en un fijo mensual', () => {
+    const dedicated = sharedQuote(22, 8, 71.6);
+    dedicated.labor[0].assignment = 'dedicated';
+    assert.equal(found(dedicated), undefined);
+    assert.equal(found(sharedQuote(null, 8, 71.6)), undefined);
+    const monthly = sharedQuote(22, 8, 71.6);
+    monthly.contract = { mode: 'monthly', components: ['labor'] };
+    monthly.unit = 'month';
+    assert.equal(found(monthly), undefined);
+  });
+});
