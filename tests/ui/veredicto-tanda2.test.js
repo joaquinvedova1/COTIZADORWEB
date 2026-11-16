@@ -10,6 +10,11 @@ import { stepOfPath } from '../../js/ui/field-links.js';
 import { isExtrasIssue } from '../../js/ui/views/quote-result.js';
 import { cheaperThanNormalHourText, sparseActivationsWarned } from '../../js/ui/views/quote-steps/modality.js';
 import { outputPerDayUnitLabel } from '../../js/ui/views/quote-steps/materials.js';
+import { minimumCallNote } from '../../js/ui/views/quote-steps/margin.js';
+import { computeQuote } from '../../js/engines/quote-engine.js';
+import { activationTerms } from '../../js/domain/activation-terms.js';
+import { billingUnitOf } from '../../js/domain/billing-units.js';
+import { service, person, external, resetIds } from '../lab/lib/build.js';
 
 const norm = (s) => String(s).replace(/ /g, ' ');
 
@@ -50,5 +55,34 @@ describe('V-07 · Rótulo de "Producción por día"', () => {
     assert.equal(outputPerDayUnitLabel({}, { unit: 'hour' }), 'unidades/día');
     assert.equal(outputPerDayUnitLabel({ outputUnit: 'hectárea' }, { unit: 'day' }), 'hectárea/día');
     assert.equal(outputPerDayUnitLabel({}, { unit: 'custom', unitName: 'hectárea' }), 'hectárea/día');
+  });
+});
+
+describe('V-13 · Nota del mínimo por llamado', () => {
+  const byKm = (rules) => {
+    resetIds();
+    return service({
+      serviceType: 'transport', unit: 'km',
+      activity: { billableQuantityPerMonth: 3600, unitsPerActiveDay: 240, daysPerActivation: 1 },
+      labor: [person()], equipment: [external({ name: 'Camión' }, { price: 1100, unit: 'km' })],
+      logistics: { notApplicable: false, distanceKm: 120, roundTrip: true, tripsPerActivation: 1, vehicles: [] },
+      rules,
+    });
+  };
+  const note = (q) => norm(minimumCallNote(computeQuote(q), activationTerms(q), billingUnitOf(q)));
+
+  test('por km con mínimo 300 y 240 km por día: dice qué factura cada salida y cuántas son', () => {
+    assert.equal(note(byKm({ minimumCallUnits: 300 })), 'Se está aplicando: cada salida factura 300 km aunque haga 240. Tus 3.600 km por mes son 12 salidas.');
+  });
+
+  test('sin mínimo, o con un mínimo que no llega a aplicarse, no cambia la facturación', () => {
+    assert.match(note(byKm({ minimumCallUnits: 0 })), /^Hoy no cambia la facturación/);
+    assert.match(note(byKm({ minimumCallUnits: 200 })), /^Hoy no cambia la facturación/);
+  });
+
+  test('por día conserva el texto de siempre', () => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: 8, daysPerActivation: 1 }, labor: [person()], rules: { minimumCallUnits: 2 } });
+    assert.equal(note(q), 'Se está aplicando: suma unidades facturables.');
   });
 });

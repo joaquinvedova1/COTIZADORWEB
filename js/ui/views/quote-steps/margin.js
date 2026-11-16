@@ -144,6 +144,24 @@ function companyTaxesActions(ctx) {
   );
 }
 
+/**
+ * Nota de la regla "Mínimo por llamado" (V-13). Con una unidad por cantidad dice qué factura
+ * cada llamado y cuántos llamados son la cantidad del mes (antes: "suma unidades facturables",
+ * que con el mínimo aplicado no es cierto: la cantidad del mes es la misma, repartida en menos llamados).
+ */
+export function minimumCallNote(r, T, unitInfo) {
+  const rev = (r && r.estimate && r.estimate.revenue) || {};
+  if (!rev.minimumCallApplied) return `Hoy no cambia la facturación (${T.each} ya supera el mínimo).`;
+  if (!unitInfo || unitInfo.kind !== 'quantity') return 'Se está aplicando: suma unidades facturables.';
+  const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+  const acts = rev.activations;
+  const quantity = r.activity ? r.activity.billableQuantityPerMonth : null;
+  const head = `Se está aplicando: cada ${T.one} factura ${n(rev.billableUnitsPerActivation)} ${unitInfo.plural} aunque haga ${n(rev.unitsPerActivation)}.`;
+  return isFiniteNumber(quantity) && isFiniteNumber(acts)
+    ? `${head} Tus ${n(quantity)} ${unitInfo.plural} por mes son ${n(acts)} ${T.word(acts)}.`
+    : head;
+}
+
 export function render(container, ctx) {
   const { quote, kit } = ctx;
   const unitInfo = billingUnitOf(quote);
@@ -461,7 +479,7 @@ export function render(container, ctx) {
           ? `Cobrás ${unit.label}: cada ${unitInfo.singular} ya se factura entero, el mínimo ${T.per} no aplica.`
           : `Mínimo de ${minimumCallUnit} facturables ${T.per}, aunque se trabaje menos.`,
       [kit.num('rules.minimumCallUnits', { label: `${L.minimumCall} (${minimumCallUnit})`, rule: 'quantity', unit: minimumCallUnit })],
-      kit.out((r) => (r.estimate.revenue.minimumCallApplied ? 'Se está aplicando: suma unidades facturables.' : `Hoy no cambia la facturación (${T.each} ya supera el mínimo).`)),
+      kit.out((r) => minimumCallNote(r, T, unitInfo)),
     ),
     ruleRow(
       'Equipo en espera (standby)',

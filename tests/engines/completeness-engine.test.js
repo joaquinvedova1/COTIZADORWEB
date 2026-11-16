@@ -522,3 +522,32 @@ describe('V-10 · Días por trabajo vacíos en unidades por evento', () => {
     assert.equal(util(q).status, 'ok');
   });
 });
+
+describe('V-13 · Mínimo por llamado en km: la ruta se compara con los km trabajados', () => {
+  const byKm = (quantity, minimumCallUnits, tripsPerActivation = 1) => {
+    resetIds();
+    return service({
+      serviceType: 'transport', unit: 'km',
+      activity: { billableQuantityPerMonth: quantity, unitsPerActiveDay: 240, daysPerActivation: 1 },
+      labor: [person()],
+      equipment: [external({ name: 'Camión' }, { price: 1100, unit: 'km' })],
+      logistics: { notApplicable: false, distanceKm: 120, roundTrip: true, tripsPerActivation, vehicles: [] },
+      rules: { minimumCallUnits },
+    });
+  };
+  const found = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'route_consistency');
+
+  test('240 km por día y mínimo 300: sin pendiente con 2.880 km y con 3.600 km', () => {
+    assert.equal(found(byKm(2880, 300)), undefined);
+    assert.equal(found(byKm(3600, 300)), undefined);
+    assert.equal(evaluateCompleteness(byKm(3600, 300)).scorePct, evaluateCompleteness(byKm(3600, 0)).scorePct);
+  });
+
+  test('sigue avisando si la ruta recorre menos km que los trabajados, con y sin mínimo', () => {
+    const withMin = found(byKm(3600, 300, 0.5));
+    assert.ok(withMin);
+    assert.match(withMin.message, /^Hacés 2\.880 km por mes pero la ruta recorre 1\.440 km/);
+    const noMin = found(byKm(3600, 0, 0.5));
+    assert.match(noMin.message, /^Facturás 3\.600 km por mes pero la ruta recorre 1\.800 km/);
+  });
+});

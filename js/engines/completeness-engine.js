@@ -908,16 +908,22 @@ export function evaluateCompleteness(quote = {}) {
   // ver PLANS.md). Una ruta con MÁS km que los facturados (vuelta vacía) no se avisa: es lo físico.
   if (unit.id === 'trip' || unit.id === 'km') {
     const billed = nonNegative(activity.billableQuantityPerMonth);
-    const activations = normalizeActivity(quote).activationsPerMonth;
+    const normalized = normalizeActivity(quote);
+    const activations = normalized.activationsPerMonth;
     const routeKmPerMonth = activations * routeKmPerActivation;
+    // V-13: cuando rige el mínimo por llamado, parte de los km facturados no se recorren (se
+    // cobran de mínimo). La ruta se compara con los km TRABAJADOS: llamados × días × km por día.
+    const workedPerActivation = normalized.daysPerActivation * nonNegative(normalized.unitsPerActiveDay);
+    const minimumRules = nonNegative(rules.minimumCallUnits) > workedPerActivation + 1e-9 && workedPerActivation > 0;
+    const traveled = unit.id === 'km' && minimumRules ? Math.min(billed, activations * workedPerActivation) : billed;
     const fmtN = (n) => formatNumber(n, { decimals: 2 });
     let message = null;
     let focus = null;
     if (logistics.notApplicable && billed > 0) {
       message = `Cobrás por ${unit.plural} pero marcaste "Sin traslados": los ${unit.plural} que vendés no tienen ${unit.id === 'km' ? '' : 'km ni '}costos de ruta (combustible, desgaste, peajes, proveedores por km). Si hay viajes, desmarcalo y cargá la ruta.`;
       focus = 'logistics.notApplicable';
-    } else if (unit.id === 'km' && billed > 0 && oneWayKm > 0 && billed - routeKmPerMonth > Math.max(1, billed * 0.01)) {
-      message = `Facturás ${fmtN(billed)} km por mes pero la ruta recorre ${fmtN(routeKmPerMonth)} km (${fmtN(activations)} ${T.word(activations)} × ${fmtN(route.tripsPerActivation)} ${route.tripsPerActivation === 1 ? 'viaje' : 'viajes'} × ${fmtN(oneWayKm * (logistics.roundTrip === false ? 1 : 2))} km por viaje): los costos por km (proveedor, combustible, desgaste) se calculan con los km de la ruta y quedan cortos si el equipo recorre los km que facturás. Ajustá "${L.tripsPerActivation}" o la distancia.`;
+    } else if (unit.id === 'km' && billed > 0 && oneWayKm > 0 && traveled - routeKmPerMonth > Math.max(1, traveled * 0.01)) {
+      message = `${minimumRules ? `Hacés ${fmtN(traveled)}` : `Facturás ${fmtN(billed)}`} km por mes pero la ruta recorre ${fmtN(routeKmPerMonth)} km (${fmtN(activations)} ${T.word(activations)} × ${fmtN(route.tripsPerActivation)} ${route.tripsPerActivation === 1 ? 'viaje' : 'viajes'} × ${fmtN(oneWayKm * (logistics.roundTrip === false ? 1 : 2))} km por viaje): los costos por km (proveedor, combustible, desgaste) se calculan con los km de la ruta y quedan cortos si el equipo recorre los km que facturás. Ajustá "${L.tripsPerActivation}" o la distancia.`;
       focus = 'logistics.tripsPerActivation';
     }
     if (message) {
