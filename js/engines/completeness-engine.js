@@ -680,7 +680,6 @@ export function evaluateCompleteness(quote = {}) {
     const mob = computeMobilization(equipment, { notApplicable: false, routeKmPerActivation: nonNegative(logistics.distanceKm), vehicles, labor });
     const pending = equipment.filter((e) => !(isExt(e) && extOf(e).mobilizationIncluded === true) && !(isPlainObject(e.mobilization) && e.mobilization.mode));
     const broken = mob.lines.filter((l) => l.warnings.some((w) => ['carrier_missing', 'carrier_cycle', 'support_missing'].includes(w)));
-    const noDriver = mob.lines.filter((l) => l.warnings.includes('driver'));
     // Consumo en ruta faltante (A-14): sólo si ese combustible lo pagás vos (igual que la regla de
     // combustible); el motor ya lo marca en la línea, acá se suma a la completitud.
     const paysRouteFuelAt = (idx) => {
@@ -691,7 +690,7 @@ export function evaluateCompleteness(quote = {}) {
     // Remolque con neumáticos por km que "lo transporta otro equipo" y no está marcado como
     // enganchado (A-3): su desgaste por km queda afuera. Nunca se marca solo.
     const untowed = mob.lines.map((l, idx) => ({ l, idx })).filter(({ l }) => l.mode === 'transported' && !l.towedChosen && !l.includedByProvider && l.tiresPerKm > 0);
-    const ok = pending.length === 0 && broken.length === 0 && noDriver.length === 0 && noConsumption.length === 0 && untowed.length === 0;
+    const ok = pending.length === 0 && broken.length === 0 && noConsumption.length === 0 && untowed.length === 0;
     const names = (list) => list.slice(0, 3).map((x) => `"${x.name || 'Equipo'}"`).join(', ');
     // Cómo llega cada equipo se carga en su tarjeta de Equipos (un equipo, un solo lugar).
     const item = rule('mobility', 'Movilización de equipos', 'equipment', 1, ok ? 'ok' : 'warning',
@@ -701,12 +700,10 @@ export function evaluateCompleteness(quote = {}) {
           ? `Falta definir cómo llega al lugar del servicio: ${names(pending)}.`
           : broken.length
             ? `Revisá qué equipo o vehículo transporta a ${names(broken)}.`
-            : noDriver.length
-              ? `Falta definir quién maneja ${names(noDriver)} en el traslado.`
-              : noConsumption.length
-                ? `Falta el consumo en ruta de ${names(noConsumption.map(({ l }) => l))}: el combustible del traslado queda en 0. Cargá los L/100 km en ruta o, si no usa combustible, marcalo en Equipos.`
-                : `${names(untowed.map(({ l }) => l))} ${untowed.length === 1 ? 'tiene' : 'tienen'} neumáticos por km y lo transporta otro equipo: si va enganchado y rueda (remolque, carretón o batea), elegí "Va enganchado y rueda" para sumar su desgaste por km; si va cargado arriba, elegí "Va cargado arriba".`);
-    if (!ok && !pending.length && !broken.length && !noDriver.length) {
+            : noConsumption.length
+              ? `Falta el consumo en ruta de ${names(noConsumption.map(({ l }) => l))}: el combustible del traslado queda en 0. Cargá los L/100 km en ruta o, si no usa combustible, marcalo en Equipos.`
+              : `${names(untowed.map(({ l }) => l))} ${untowed.length === 1 ? 'tiene' : 'tienen'} neumáticos por km y lo transporta otro equipo: si va enganchado y rueda (remolque, carretón o batea), elegí "Va enganchado y rueda" para sumar su desgaste por km; si va cargado arriba, elegí "Va cargado arriba".`);
+    if (!ok && !pending.length && !broken.length) {
       if (noConsumption.length) {
         item.focus = `equipment.${noConsumption[0].idx}.mobilization.travelLitersPer100Km`;
         item.targets = noConsumption.map(({ l, idx }) => ({ list: 'equipment', index: idx, name: l.name || 'Equipo' }));

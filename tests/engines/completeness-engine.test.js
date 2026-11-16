@@ -551,3 +551,17 @@ describe('V-13 · Mínimo por llamado en km: la ruta se compara con los km traba
     assert.match(noMin.message, /^Facturás 3\.600 km por mes pero la ruta recorre 1\.800 km/);
   });
 });
+
+describe('CompletenessEngine — "¿Quién maneja?" es opcional (V-22)', () => {
+  test('equipo que llega por sus medios sin conductor elegido: sin pendiente de movilización', () => {
+    resetIds();
+    const q = service({
+      unit: 'day', activity: { activeDaysPerMonth: 10, daysPerActivation: 1 }, labor: [person()],
+      equipment: [owned({ fuelLitersPerHour: 5, mobilization: { mode: 'self', travelLitersPer100Km: 12, travelCostPerKm: 80, driver: null } })],
+      logistics: { notApplicable: false, distanceKm: 80, roundTrip: true, tripsPerActivation: 1, vehicles: [] },
+    });
+    const r = evaluateCompleteness(q);
+    assert.equal(item(r, 'mobility').status, 'ok');
+    assert.ok(!r.items.some((i) => /quién maneja/i.test(i.message)));
+  });
+});

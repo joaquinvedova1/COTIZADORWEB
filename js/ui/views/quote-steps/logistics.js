@@ -37,7 +37,6 @@ import { activationTerms, activationFieldLabels } from '../../../domain/activati
 
 const WARNING_TEXT = Object.freeze({
   travel_consumption: 'Falta el consumo en ruta (L/100 km): el combustible del traslado queda en 0.',
-  driver: 'Falta definir quién maneja en el traslado.',
   carrier_missing: 'Elegí qué equipo lo transporta (de los cargados en Equipos).',
   carrier_cycle: 'Dos equipos se transportan entre sí: revisá cuál lleva a cuál.',
   support_missing: 'Elegí el vehículo de apoyo que lo lleva (de la logística auxiliar).',
@@ -224,7 +223,7 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
               ? 'Mantenimiento en ruta, SIN neumáticos: los neumáticos de este equipo se suman aparte por km (juego ÷ vida útil). Sin combustible ni amortización.'
               : 'Mantenimiento y neumáticos en ruta. Sin combustible ni amortización (ya está en el costo de tenerlo).',
           }),
-          kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint }),
+          kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint || 'Opcional: no cambia el costo.' }),
         ),
         kit.region((r) => {
           const ml = r.model.mobilization && r.model.mobilization.lines[i];
