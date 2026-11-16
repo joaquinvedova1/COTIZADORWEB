@@ -813,6 +813,25 @@ export function evaluateCompleteness(quote = {}) {
     items.push(item);
   }
 
+  // 6 bis. Seguro y patente de un vehículo propio (V-06): sólo los que circulan ("se traslada
+  // por sus propios medios"), con valor de reposición y los dos en 0. Un generador o una
+  // herramienta sin seguro es normal: no se pregunta.
+  {
+    const uninsured = equipment.map((e, index) => ({ e, index })).filter(({ e }) => !isExt(e)
+      && isPlainObject(e.mobilization) && e.mobilization.mode === 'self'
+      && nonNegative(e.quantity) > 0 && nonNegative(e.replacementValue) > 0
+      && !(nonNegative(e.insuranceAnnual) > 0) && !(nonNegative(e.licenseAnnual) > 0));
+    if (uninsured.length) {
+      const first = uninsured[0];
+      const others = uninsured.length > 1 ? ` También: ${uninsured.slice(1, 4).map(({ e }) => `"${lineName(e)}"`).join(', ')}.` : '';
+      const item = rule('equipment_insurance', 'Seguro y patente', 'equipment', 1, 'warning',
+        `"${lineName(first.e)}" no tiene seguro ni patente cargados. Si los pagás, cargalos: son costo aunque no trabaje.${others}`);
+      item.focus = `equipment.${first.index}.insuranceAnnual`;
+      item.targets = uninsured.map(({ e, index }) => ({ list: 'equipment', index, name: lineName(e) }));
+      items.push(item);
+    }
+  }
+
   // 9c''ter. % de dedicación viejo (V-11): el % cargado en una línea compartida ya no coincide
   // con los días y las horas de ahora (más de 5 puntos). No se recalcula solo: se avisa.
   if (contract.mode !== 'monthly') {

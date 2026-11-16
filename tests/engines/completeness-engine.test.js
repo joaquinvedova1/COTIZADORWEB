@@ -398,3 +398,36 @@ describe('V-11 · % de dedicación que quedó viejo (dedication_stale)', () => {
     assert.equal(found(monthly), undefined);
   });
 });
+
+describe('V-06 · Vehículo propio sin seguro ni patente (equipment_insurance)', () => {
+  const quoteWith = (equipment) => {
+    resetIds();
+    return service({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()], equipment });
+  };
+  const found = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'equipment_insurance');
+  const self = { mode: 'self', travelLitersPer100Km: 12, travelCostPerKm: 100, driver: 'operator' };
+
+  test('salta para un vehículo que se traslada por sus propios medios con seguro y patente en 0', () => {
+    const i = found(quoteWith([owned({ name: 'Generador' }), owned({ name: 'Pickup', mobilization: self })]));
+    assert.ok(i);
+    assert.equal(i.status, 'warning');
+    assert.equal(i.step, 'equipment');
+    assert.equal(i.focus, 'equipment.1.insuranceAnnual');
+    assert.equal(i.message, '"Pickup" no tiene seguro ni patente cargados. Si los pagás, cargalos: son costo aunque no trabaje.');
+  });
+
+  test('no salta con uno de los dos cargado, para un equipo que no circula, sin valor de reposición ni para un alquilado', () => {
+    assert.equal(found(quoteWith([owned({ name: 'Pickup', mobilization: self, insuranceAnnual: 900_000 })])), undefined);
+    assert.equal(found(quoteWith([owned({ name: 'Pickup', mobilization: self, licenseAnnual: 300_000 })])), undefined);
+    assert.equal(found(quoteWith([owned({ name: 'Generador' })])), undefined);
+    assert.equal(found(quoteWith([owned({ name: 'Trailer', mobilization: { mode: 'towed' } })])), undefined);
+    assert.equal(found(quoteWith([owned({ name: 'Pickup', mobilization: self, replacementValue: 0 })])), undefined);
+    assert.equal(found(quoteWith([external({ name: 'Camioneta alquilada', mobilization: self }, { price: 100_000, unit: 'day' })])), undefined);
+  });
+
+  test('no cambia el precio: sólo baja la completitud', () => {
+    const a = evaluateCompleteness(quoteWith([owned({ name: 'Pickup', mobilization: self })]));
+    const b = evaluateCompleteness(quoteWith([owned({ name: 'Pickup', mobilization: self, insuranceAnnual: 1 })]));
+    assert.ok(a.scorePct < b.scorePct);
+  });
+});

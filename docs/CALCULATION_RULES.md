@@ -1676,3 +1676,9 @@ Ningún número cambia: sin dato de asignación el costo fijo ya era 100 %. Camb
 ### 25.4 % de dedicación que quedó viejo (V-11)
 
 `staleDedicationOf(quote, actividad)` (`js/engines/utilization-engine.js`): la primera línea compartida (personal o equipo propio) con un % válido cuyo valor difiere del propuesto con los días y horas de ahora en **más de 5 puntos**. El % **no se recalcula solo** (AGENTS §5.1): la nota de "Cómo se cobra" pasa a advertencia y la completitud suma la regla `dedication_stale` (paso "Cómo se cobra", naranja, peso 1, sólo cuando hay desajuste; no aplica en fijo mensual): "El % cargado (71,6 %) ya no coincide con los días y horas de ahora (100 %)."
+
+### 25.5 Seguro, patente y vianda a la vista (V-06)
+
+Ninguna fórmula cambia. "Seguro anual" y "Patente anual" del equipo propio y "Vianda o comidas por día" del puesto se cargan en la grilla principal (antes dentro de "Opciones avanzadas", donde en 0 dejaban el costo de menos sin aviso).
+
+**Completitud, regla `equipment_insurance`** (paso Equipos, naranja, peso 1; sólo aparece cuando falta): equipo propio que "se traslada por sus propios medios" (`mobilization.mode === 'self'`), con valor de reposición > 0 y con seguro **y** patente en 0. Sólo vehículos que circulan: un generador o una herramienta sin seguro es normal. La vianda no tiene regla (puede darla el cliente).

@@ -676,6 +676,9 @@ export function render(container, ctx) {
         }),
         kit.num(`${p}.replacementValue`, { label: 'Valor de reposición', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que costaría comprarlo hoy.' }),
         kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative }),
+        // V-06: seguro y patente a la vista (antes en "Opciones avanzadas": en 0 el costo quedaba de menos sin aviso).
+        kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
+        kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
         // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
         // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide abajo, en "¿Cómo llega?":
         // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
@@ -714,8 +717,6 @@ export function render(container, ctx) {
             const e = quote.equipment[i] || {};
             const parts = [
               `residual ${moneyText(e.residualValue) || '$ 0'}`,
-              `seguro ${moneyText(e.insuranceAnnual) || '$ 0'}/año`,
-              `patente ${moneyText(e.licenseAnnual) || '$ 0'}/año`,
               hasNumber(e.otherAnnual) && Number(e.otherAnnual) > 0 ? `otros ${moneyText(e.otherAnnual)}/año` : null,
               `certificaciones ${moneyText(e.certificationsAnnual) || '$ 0'}/año`,
               wearSummary(e).maintenance,
@@ -731,8 +732,6 @@ export function render(container, ctx) {
           formGrid(
             3,
             kit.num(`${p}.residualValue`, { label: 'Valor residual', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que vale al final de su vida útil (en la misma moneda que el valor de reposición).' }),
-            kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
-            kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
             kit.num(`${p}.otherAnnual`, { label: 'Otros costos anuales de tenerlo', rule: 'money', unit: '$/año', hint: 'Habilitaciones, GPS, cocheras… lo que pagás aunque no trabaje.' }),
             kit.num(`${p}.certificationsAnnual`, { label: 'Certificaciones anual', rule: 'money', unit: '$/año', illustrative }),
             kit.num(`${p}.capitalRatePctAnnual`, { label: 'Costo de capital (opcional)', rule: 'percent', unit: '% anual', hint: 'Rendimiento que le pedís a la plata invertida en el equipo. No es la financiación del contrato (eso va en "Financiación").' }),
