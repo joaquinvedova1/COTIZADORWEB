@@ -78,7 +78,7 @@ function mobilizationTrace(result, index, T) {
   return createTrace({
     id: 'mobilization_line',
     title: `Movilización — ${m.name || 'Equipo'}`,
-    formula: `km ${T.per} = km de ruta ${T.per} × cantidad · litros = km × consumo en ruta / 100 · combustible = litros × precio · desgaste = km × ($/km + neumáticos $/km si se cargaron por km) (sin combustible ni amortización) · por día activo = ${T.per} / días ${T.per}`,
+    formula: `km ${T.per} = km de ruta ${T.per} × cantidad · litros = km × consumo en ruta / 100 · combustible = litros × precio · desgaste = km × ($/km + neumáticos $/km si se cargaron por km) (sin combustible ni amortización) · por día de trabajo = ${T.per} / días ${T.per}`,
     inputs: [
       { label: `Km de ruta ${T.per}`, value: result.model.mobilization.routeKmPerActivation, format: 'km' },
       { label: 'Cantidad', value: m.quantity, format: 'number' },
@@ -93,7 +93,7 @@ function mobilizationTrace(result, index, T) {
       { label: `Litros ${T.per}`, value: m.liters, format: 'liters' },
       { label: `Combustible en ruta ${T.per}`, value: m.fuelPerActivation, format: 'money' },
       { label: `Desgaste ${T.per}`, value: m.wearPerActivation, format: 'money' },
-      { label: 'Por día activo', value: m.perActiveDay, format: 'money' },
+      { label: 'Por día de trabajo', value: m.perActiveDay, format: 'money' },
     ],
     result: { label: `Movilización ${T.per}`, value: m.perActivation, format: 'money' },
     notes: [
@@ -111,7 +111,7 @@ function towedTrace(result, index, T) {
   return createTrace({
     id: 'mobilization_towed',
     title: `Movilización — ${m.name || 'Equipo'} (enganchado)`,
-    formula: `km ${T.per} = km de ruta ${T.per} × cantidad · desgaste = km × ($/km + neumáticos $/km si se cargaron por km) · sin combustible ni conductor (los pone el equipo que lo arrastra) · por día activo = ${T.per} / días ${T.per}`,
+    formula: `km ${T.per} = km de ruta ${T.per} × cantidad · desgaste = km × ($/km + neumáticos $/km si se cargaron por km) · sin combustible ni conductor (los pone el equipo que lo arrastra) · por día de trabajo = ${T.per} / días ${T.per}`,
     inputs: [
       { label: `Km de ruta ${T.per}`, value: result.model.mobilization.routeKmPerActivation, format: 'km' },
       { label: 'Cantidad', value: m.quantity, format: 'number' },
@@ -122,7 +122,7 @@ function towedTrace(result, index, T) {
     steps: [
       { label: `Km ${T.per}`, value: m.km, format: 'km' },
       { label: `Desgaste ${T.per}`, value: m.wearPerActivation, format: 'money' },
-      { label: 'Por día activo', value: m.perActiveDay, format: 'money' },
+      { label: 'Por día de trabajo', value: m.perActiveDay, format: 'money' },
     ],
     result: { label: `Movilización ${T.per}`, value: m.perActivation, format: 'money' },
     notes: [
@@ -274,7 +274,7 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
             const eq = r.model.equipment && r.model.equipment[i];
             if (!eq || !(eq.variablePerActiveDay > 0)) return '';
             const liters = eq.fuelLitersPerActiveDay > 0 ? `${formatValue(eq.fuelLitersPerActiveDay, 'liters')} de combustible y ` : '';
-            return `Además, trabajando en la locación suma ${liters}${formatMoney(eq.variablePerActiveDay)} por día (${formatNumber(eq.hoursPerActiveDay, { decimals: 2 })} h de uso × combustible, mantenimiento y neumáticos por hora). Si sólo lleva gente o carga y queda parado, poné 0 en "Horas de uso por día activo".`;
+            return `Además, trabajando en la locación suma ${liters}${formatMoney(eq.variablePerActiveDay)} por día (${formatNumber(eq.hoursPerActiveDay, { decimals: 2 })} h de uso × combustible, mantenimiento y neumáticos por hora). Si sólo lleva gente o carga y queda parado, poné 0 en "Horas de uso por día de trabajo".`;
           }, { tag: 'p', className: 'qe-warn', allowEmpty: true })
           : null,
       );

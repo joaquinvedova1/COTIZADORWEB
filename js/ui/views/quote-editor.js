@@ -13,7 +13,7 @@
  *   2. Panel central: sub-pasos de la etapa como segmentos, una pregunta con
  *      su "por qué importa", el formulario (básico + "Opciones avanzadas"
  *      colapsadas) y Atrás / Continuar.
- *   3. Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa
+ *   3. Resumen en vivo con 4 números (costo del mes, tarifa mínima, tarifa
  *      sugerida, días para no perder) + "Ver más". En pantallas chicas es una
  *      barra compacta fija abajo.
  *
@@ -121,7 +121,7 @@ export const STAGES = Object.freeze([
   defineStage('resources', 'Los recursos', 'Recursos', ['labor', 'equipment', 'materials', 'logistics']),
   // Cómo se cobra va DESPUÉS de los recursos (PLAN-2026-025): primero cuánto cuestan, después la tarifa.
   defineStage('charge', 'Cómo se cobra', 'Cobro', ['modality']),
-  defineStage('conditions', 'Costos y condiciones', 'Costos', ['indirect', 'finance', 'risk']),
+  defineStage('conditions', 'Otros gastos', 'Gastos', ['indirect', 'finance', 'risk']),
   defineStage('price', 'El precio', 'Precio', ['margin']),
   defineStage('result', 'Resultado', 'Resultado', ['result']),
 ]);
@@ -161,36 +161,36 @@ export function stepShortLabel(stepId) {
 export const STEP_COPY = Object.freeze({
   service: {
     question: '¿Qué servicio vas a cotizar?',
-    why: 'Contanos cómo te paga el cliente y qué lleva el servicio. Después cargás tus recursos y RATEOS te dice cuánto cobrar.',
+    why: 'Ponele un nombre y contanos cómo te paga el cliente. Después elegís tus recursos y RATEOS te dice cuánto cobrar.',
   },
   modality: {
     question: '¿Cómo lo vas a cobrar?',
-    why: 'Ya sabés cuánto cuestan tus recursos. Ahora elegí en qué unidad cobrás y cuánto esperás trabajar: con eso sale la tarifa. Lo demás es opcional.',
+    why: 'Elegí en qué unidad cobrás (hora, día, viaje…) y cuánto esperás trabajar por mes. Con eso sale tu tarifa.',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
-    why: 'Cargá cuánto le pagás por mes a cada uno. RATEOS te muestra cuánto te cuesta su hora normal y su hora extra al 50 % y al 100 %.',
+    why: 'Elegí cada puesto de tus Recursos y poné cuántas personas van. El sueldo, las cargas y el valor de la hora ya están en Recursos: no se cargan de nuevo.',
   },
   equipment: {
-    question: '¿Qué equipos usás?',
-    why: 'Un equipo cuesta aunque esté parado: amortización, seguro, patente. Por eso separamos lo que cuesta tenerlo de lo que cuesta usarlo.',
+    question: '¿Qué equipos y vehículos usás?',
+    why: 'Camionetas, camiones, trailers, máquinas. Elegí cada uno de tus Recursos (o cargalo en blanco) y poné cuántos van y cuántas horas se usan por día. Si el servicio no lleva equipos, seguí de largo.',
   },
   materials: {
     question: '¿Qué materiales o insumos consumís?',
-    why: 'Consumibles, repuestos menores y elementos que se gastan al prestar el servicio. Si los provee el cliente, no son costo tuyo.',
+    why: 'Lo que se gasta al hacer el trabajo: insumos, repuestos menores, herramientas. Si los pone el cliente o no usás, seguí de largo.',
   },
   logistics: {
     question: '¿Cómo llegan los equipos y la gente al lugar del servicio?',
     why: 'Combustible, kilómetros y viáticos se pagan aunque nadie los vea en la factura. Cada costo se cuenta una sola vez.',
   },
   indirect: {
-    question: '¿Cuánto de la estructura de tu empresa carga este servicio?',
-    why: 'Administración, base, seguridad e higiene, sistemas: cada servicio tiene que ayudar a pagar los gastos de estructura.',
+    question: '¿Cuánto suma este servicio para pagar los gastos de tu empresa?',
+    why: 'Oficina, administración, contador, sistemas: cada servicio tiene que ayudar a pagar esos gastos fijos.',
     term: 'Costos indirectos (overhead)',
   },
   finance: {
-    question: '¿Cuánto tiempo tenés que financiar el servicio?',
-    why: 'Si cobrás a 60 días, tenés que adelantar sueldos y combustible. Esa plata tiene un costo.',
+    question: '¿A cuántos días te paga el cliente?',
+    why: 'Si cobrás a 60 días, mientras tanto adelantás sueldos y combustible. Esa plata tiene un costo.',
     term: 'Capital de trabajo',
   },
   risk: {
@@ -200,8 +200,7 @@ export const STEP_COPY = Object.freeze({
   },
   margin: {
     question: '¿Cuánto querés ganar?',
-    why: 'El margen es lo que te queda de cada $ 100 que facturás. Con ese dato calculamos la tarifa sugerida.',
-    term: 'Margen sobre el precio (no es markup)',
+    why: 'El margen es lo que te queda de cada $ 100 que cobrás. Con ese dato calculamos tu tarifa.',
   },
   result: {
     question: 'Resultado',
@@ -882,7 +881,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
      * Si adentro hay un campo inválido o con un aviso del motor, el editor la
      * abre sola (ver syncAdvanced en createEditor).
      */
-    advanced({ key, title = 'Opciones avanzadas', summary = null, variant = 'options', boxed = false, defaultOpen = false, flag = null, className = null } = {}, ...children) {
+    advanced({ key, title = 'Más detalle (opcional)', summary = null, variant = 'options', boxed = false, defaultOpen = false, flag = null, className = null } = {}, ...children) {
       const hint = summary === null || summary === undefined
         ? null
         : typeof summary === 'function'
@@ -976,9 +975,9 @@ function commercialRateTrace(r) {
     steps: [{ label: 'Tarifa neta (después de descuentos)', value: k.commercialNetRate, format: 'money' }],
     result: { label: `Tarifa comercial de lista (por ${unitShort(r)})`, value: k.commercialListRate, format: 'money' },
     notes: [
-      k.belowFloor ? 'La tarifa neta queda DEBAJO de la tarifa piso: con la actividad estimada perdés plata.' : null,
+      k.belowFloor ? 'La tarifa neta queda DEBAJO de la tarifa mínima: con la actividad estimada perdés plata.' : null,
       !k.belowFloor && k.belowFloorRate
-        ? 'La tarifa neta queda debajo de la tarifa piso, pero con la actividad estimada el mínimo mensual garantizado cubre los costos. Si la actividad cambia, podés perder plata.'
+        ? 'La tarifa neta queda debajo de la tarifa mínima, pero con la actividad estimada el mínimo mensual garantizado cubre los costos. Si la actividad cambia, podés perder plata.'
         : null,
       'Margen y markup no son lo mismo: el margen se calcula sobre el precio; el markup, sobre el costo.',
     ],
@@ -998,7 +997,7 @@ function completenessColor(pct) {
 }
 
 /**
- * Qué incluye la tarifa piso respecto de los impuestos sobre lo que se
+ * Qué incluye la tarifa mínima respecto de los impuestos sobre lo que se
  * factura (PLAN-2026-002): el usuario tiene que saber si ya los cubre.
  */
 export function floorTaxesText(r) {
@@ -1084,7 +1083,7 @@ function rateHint(r) {
 }
 
 /**
- * Resumen en vivo: 4 números (costo del mes, tarifa piso, tarifa que se
+ * Resumen en vivo: 4 números (costo del mes, tarifa mínima, tarifa que se
  * cobra y días para no perder), cada uno con "Ver cálculo", y "Ver más" con
  * el resto (precio para el margen, resultado, margen esperado, completitud).
  * En pantallas chicas es una barra compacta fija abajo que se expande.
@@ -1142,8 +1141,8 @@ function buildSummary({ getResult, stepHref }) {
     item({
       key: 'floorRate',
       // Base de LISTA: es la que se escribe en la cotización (UX-01).
-      label: (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso (neta)' : 'Tarifa piso'),
-      short: 'Tarifa piso',
+      label: (r) => (floorDisplay(r).base === 'net' ? 'Tarifa mínima (neta)' : 'Tarifa mínima'),
+      short: 'Tarifa mínima',
       value: (r) => formatMoneyCeil(floorDisplay(r).value),
       unit: (r) => `/ ${unitShort(r)}`,
       compact: (r) => formatMoneyCompact(floorDisplay(r).value, { ceil: true }),
@@ -1724,7 +1723,7 @@ function resultFallback(result, error) {
     ),
     result
       ? card(
-        { title: 'Estructura de costos (EECC)', subtitle: 'Monto e incidencia % con la actividad estimada.' },
+        { title: 'Estructura de costos', subtitle: 'Monto e incidencia % con la actividad estimada.' },
         table({
           columns: [
             { key: 'label', label: 'Categoría' },

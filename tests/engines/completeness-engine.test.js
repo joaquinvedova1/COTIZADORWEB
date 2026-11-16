@@ -201,12 +201,12 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
     }
   });
 
-  test('detecta falta de utilización on-call (días activos estimados)', () => {
+  test('detecta falta de utilización on-call (días de trabajo estimados)', () => {
     for (const days of [0, '', null]) {
       const q = completeQuote();
       q.activity.activeDaysPerMonth = days;
       const it = item(evaluateCompleteness(q), 'utilization');
-      assert.equal(it.status, 'missing', `días activos ${String(days)}`);
+      assert.equal(it.status, 'missing', `días de trabajo ${String(days)}`);
     }
   });
 
@@ -259,7 +259,7 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
 });
 
 describe('CompletenessEngine — impuestos sobre lo que facturás (PLAN-2026-002)', () => {
-  test('sin definir → aviso naranja de peso 1 (la tarifa piso no los incluye)', () => {
+  test('sin definir → aviso naranja de peso 1 (la tarifa mínima no los incluye)', () => {
     const q = completeQuote();
     q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: null, items: [] };
     const r = evaluateCompleteness(q);
@@ -267,7 +267,7 @@ describe('CompletenessEngine — impuestos sobre lo que facturás (PLAN-2026-002
     assert.equal(i.status, 'warning');
     assert.equal(i.weight, 1);
     assert.equal(i.step, 'margin');
-    assert.match(i.message, /tarifa piso no incluye/);
+    assert.match(i.message, /tarifa mínima no incluye/);
     approx(r.scorePct, ((TOTAL_WEIGHT - 0.5) / TOTAL_WEIGHT) * 100);
   });
 
@@ -347,6 +347,16 @@ describe('V-04 · Horas de trabajo por día y equipos por hora (equipment_hours)
     const withMinimum = found(quoteWith(null, [external({ name: 'Minibús' }, { price: 50_000, unit: 'hour', minimumUnits: 4 })]));
     assert.ok(withMinimum);
     assert.match(withMinimum.message, /"Minibús"/);
+  });
+
+  test('PLAN-2026-026: las "Horas al 50 % / 100 % por mes" del puesto cuentan como horas cubiertas', () => {
+    resetIds();
+    const base = { unit: 'day', activity: { activeDaysPerMonth: 26, hoursPerActiveDay: 8 } };
+    const short = evaluateCompleteness(service({ ...base, labor: [person({ positions: 1, normalHoursPerMonth: 176 })] })).items.find((i) => i.id === 'labor_hours');
+    assert.ok(short, 'sin horas extra cargadas faltan 32 h');
+    resetIds();
+    const covered = evaluateCompleteness(service({ ...base, labor: [person({ positions: 1, normalHoursPerMonth: 176, overtime50HoursPerMonth: 20, overtime100HoursPerMonth: 12 })] })).items.find((i) => i.id === 'labor_hours');
+    assert.equal(covered, undefined);
   });
 
   test('los avisos de horas del personal dicen dónde corregir las horas por día del servicio', () => {

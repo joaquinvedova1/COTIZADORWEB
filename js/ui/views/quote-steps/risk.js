@@ -122,7 +122,7 @@ export function render(container, ctx) {
       trace: (r) => contingencyTrace(r, quote),
     }),
     kit.advanced(
-      { key: 'risk', title: 'Opciones avanzadas: riesgos puntuales', summary: riskSummary },
+      { key: 'risk', title: 'Más detalle (opcional): riesgos puntuales', summary: riskSummary },
       h('p', { class: 'qe-note' }, 'Marcá los riesgos que aplican y asignales un %. Sólo suman los marcados, sobre la contingencia general. Para no contar dos veces el mismo riesgo, no lo incluyas también en la contingencia general ni en otro rubro (por ejemplo, combustible extra ya cargado).'),
       h('div', { class: 'qe-risk-list' }, ...rows),
       kit.stats(

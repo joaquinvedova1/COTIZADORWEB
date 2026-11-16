@@ -33,8 +33,8 @@ function materialGrid(...fields) {
   return grid;
 }
 
-/** "por mes", "por día activo", "por llamado" / "por salida"… (la activación con el nombre de la cotización, PLAN-2026-014). */
-const basisShort = (basis, T, out = 'unidad') => ({ per_month: 'por mes', per_active_day: 'por día activo', per_activation: T.per, per_output: `por ${out}` }[basis] || basis);
+/** "por mes", "por día de trabajo", "por llamado" / "por salida"… (la activación con el nombre de la cotización, PLAN-2026-014). */
+const basisShort = (basis, T, out = 'unidad') => ({ per_month: 'por mes', per_active_day: 'por día de trabajo', per_activation: T.per, per_output: `por ${out}` }[basis] || basis);
 /** "/día", "/mes", "/salida", "/válvula" (cada cuánto se consume la cantidad). */
 const basisPer = (basis, T, out = 'unidad') => ({ per_month: 'mes', per_active_day: 'día', per_activation: T.one, per_output: out }[basis] || 'mes');
 
@@ -128,7 +128,7 @@ function splitLabel(line, perUnitText = null) {
   if (!line) return EMPTY;
   if (perUnitText && Number.isFinite(line.costPerOutputUnit)) return `${formatMoney(line.costPerOutputUnit)} ${perUnitText} · ${formatMoney(line.monthlyAtEstimate)} / mes`;
   if (line.fixedMonthly > 0) return `${formatMoney(line.fixedMonthly)} fijo / mes`;
-  if (line.variablePerActiveDay > 0) return `${formatMoney(line.variablePerActiveDay)} / día activo`;
+  if (line.variablePerActiveDay > 0) return `${formatMoney(line.variablePerActiveDay)} / día de trabajo`;
   return formatMoney(0);
 }
 
@@ -139,12 +139,12 @@ function materialsTrace(result, T, quote) {
   return createTrace({
     id: 'materials',
     title: 'Materiales',
-    formula: `Costo para nosotros = cantidad × costo unitario × (1 + merma%) × (1 + logística%) · Por mes → fijo; por día activo → variable; ${T.per} → variable ÷ días ${T.per}${perUnit ? ' · por unidad producida → costo × % de las unidades que lo usan × unidades producidas por día' : ''} · Si lo provee el cliente, no es costo nuestro`,
+    formula: `Costo para nosotros = cantidad × costo unitario × (1 + merma%) × (1 + logística%) · Por mes → fijo; por día de trabajo → variable; ${T.per} → variable ÷ días ${T.per}${perUnit ? ' · por unidad producida → costo × % de las unidades que lo usan × unidades producidas por día' : ''} · Si lo provee el cliente, no es costo nuestro`,
     inputs: lines.map((l, i) => ({ label: `${l.description || 'Material'} (${basisShort(l.basis, T, outputUnitOf((quote.materials || [])[i], quote))}${l.basis === 'per_output' && l.usageShare < 1 - 1e-9 ? `, ${formatPercent(l.usageShare * 100)} de las unidades` : ''})`, value: l.costForUs, format: 'money' })),
     steps: [
       { label: 'Fijo mensual de materiales', value: result.model.materials.fixedMonthly, format: 'money' },
-      { label: 'Variable por día activo', value: result.model.materials.variablePerActiveDay, format: 'money' },
-      { label: 'Días activos', value: result.activity.activeDaysPerMonth, format: 'days' },
+      { label: 'Variable por día de trabajo', value: result.model.materials.variablePerActiveDay, format: 'money' },
+      { label: 'Días de trabajo', value: result.activity.activeDaysPerMonth, format: 'days' },
     ],
     result: { label: 'Materiales en la estructura de costos (incluye otros costos de categoría Materiales)', value: row ? row.amount : null, format: 'money' },
     notes: ['El precio de reventa con markup es sólo informativo: sirve si facturás materiales aparte. No cambia el costo.'],
@@ -511,7 +511,7 @@ export function render(container, ctx) {
         if (otherCount === 0) return 'Para costos que no encajan en personal, equipos, materiales o viajes. No cargaste ninguno.';
         const fixed = r.model.otherCosts.reduce((acc, l) => acc + (l.fixedMonthly || 0), 0);
         const variable = r.model.otherCosts.reduce((acc, l) => acc + (l.variablePerActiveDay || 0), 0);
-        return `${otherCount} ${otherCount === 1 ? 'costo cargado' : 'costos cargados'}: ${formatMoney(fixed)} fijo por mes + ${formatMoney(variable)} por día activo.`;
+        return `${otherCount} ${otherCount === 1 ? 'costo cargado' : 'costos cargados'}: ${formatMoney(fixed)} fijo por mes + ${formatMoney(variable)} por día de trabajo.`;
       },
     },
     h('p', { class: 'qe-note' }, 'Elegí la categoría para que aparezcan bien en la estructura de costos.'),
@@ -528,7 +528,7 @@ export function render(container, ctx) {
     hint: (r) => {
       const row = r.eecc.rows.find((x) => x.category === 'materials');
       const share = row ? `${formatPercent(row.displayPct)} del costo total · ` : '';
-      return `${share}fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día activo (incluye otros costos de categoría Materiales).`;
+      return `${share}fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo (incluye otros costos de categoría Materiales).`;
     },
     trace: (r) => materialsTrace(r, T, quote),
     className: 'qe-keyline-total',

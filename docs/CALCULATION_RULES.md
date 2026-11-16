@@ -1745,3 +1745,45 @@ Sin fórmulas nuevas. `tariffRows(r)` (`js/ui/result-text.js`) arma el bloque co
 - **V-32.** Un solo nombre para cada cargo de guardia: "Fijo por mes por estar de guardia" (`rules.availabilityFeeMonthly`) y "Plus por cada {llamado}" (`rules.calloutFeePerActivation`, con el nombre de la activación de la cotización), en "Cómo se cobra", "El precio" y el Resultado. El comparador de modelos ("Abono de disponibilidad + tarifa por día") conserva su nombre: es un modelo de precio, no un cargo de la cotización.
 - **V-33.** Textos: capital de trabajo, % de dedicación contra las horas normales, "de 8 a 17 con una hora de almuerzo = 8 h", alquiler por día, total del contrato, "Otros por año (RTO, GPS, habilitaciones)", "Vacío = 100 %".
 
+## 27. Valor de la hora por recurso y horas extra como cantidad (PLAN-2026-026)
+
+**Principio:** los datos de un recurso (sueldo, cargas, valor de la hora) se cargan una vez en Recursos. La cotización elige recursos y carga cantidades. La línea sigue siendo un snapshot (§ RESOURCE_MODEL): cambiar el recurso no cambia una cotización hecha; avisa.
+
+### 27.1 Hora al 50 % y al 100 % de cada persona
+
+```
+hora de sueldo     = (básico + adicionales) ÷ horas normales del mes
+hora al 50 %       = overtimeRate50  si está cargado (> 0)   · si no: hora de sueldo × 1,5 × factor de cargas
+hora al 100 %      = overtimeRate100 si está cargado (> 0)   · si no: hora de sueldo × 2   × factor de cargas
+hora normal        = costo del mes por persona ÷ horas normales del mes   (sin cambios)
+```
+
+`overtimeRate50` / `overtimeRate100` son lo que le cuesta a la empresa UNA hora (con cargas), cargados en el perfil de Recursos porque dependen del convenio. No son normativa: RATEOS no trae valores de ningún CCT. Vacío o 0 = el calculado. Cargarlos NO cambia el costo del mes si no hay horas cargadas.
+
+### 27.2 Horas extra por mes (cantidad de la cotización)
+
+```
+horas extra del mes por persona = overtime50HoursPerMonth × hora al 50 % + overtime100HoursPerMonth × hora al 100 %
+fijo del mes del puesto        += horas extra del mes por persona × personas en nómina
+```
+
+Son costo fijo del mes (como los tramos "horas promedio por mes" de PLAN-2026-010). En una persona compartida no se reducen con el % asignado (siguen el uso real). Los tramos anteriores (`overtime`, `overtimeHoursPerActiveDay`) se siguen calculando igual, con la base de siempre (básico ÷ horas normales).
+
+Caso: técnico con hora al 50 % de $ 22.500, 3 personas, 10 h al 50 % por mes cada una → + $ 675.000 por mes.
+
+### 27.3 Hora fuera de horario de la cuadrilla (tarifa aparte, §24)
+
+Sin valores propios: igual que §24 (`base × (1 + r) + uso de equipos`). Si algún puesto trae valor propio:
+
+```
+gente al 50 % (o 100 %) = Σ personas × hora al 50 % (o 100 %) de su puesto
+costo de la hora        = gente al r % + uso de equipos por hora
+recargo de la hora      = máx(0, gente al r % − hora base de la cuadrilla)
+```
+
+Otros recargos (ni 50 ni 100) siguen con `base × (1 + r)`. El precio sugerido (§24) no cambia de fórmula: usa este costo y este recargo.
+
+### 27.4 Qué cambia en cotizaciones existentes
+
+Nada: sin los campos nuevos el resultado es idéntico (tests `plan-2026-026-hora-por-recurso.test.js`, golden y lab). La huella de snapshot sólo incluye `overtimeRate50/100` cuando están cargados, así las cotizaciones hechas no muestran avisos falsos de "cambió en Recursos". La pregunta de guardia se quitó de la pantalla; los cobros de guardia ya cargados (`rules.availabilityFeeMonthly`, `rules.calloutFeePerActivation`) se siguen calculando hasta que el usuario los quite.
+

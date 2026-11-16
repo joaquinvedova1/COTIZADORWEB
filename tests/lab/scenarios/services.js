@@ -736,7 +736,7 @@ export const SERVICE_SCENARIOS = [
   },
   {
     id: 'SRV-E09-OVER-AVAILABLE',
-    title: 'Extremo: 35 días activos con 30 disponibles (fijos prorrateados)',
+    title: 'Extremo: 35 días de trabajo con 30 disponibles (fijos prorrateados)',
     family: 'edge',
     build: () => service({ id: 'srv-e09', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 35, availableDaysPerMonth: 30 }, labor: [person({ positions: 2, basicMonthly: 1700000, mealPerActiveDay: 15000 })], rules: { availabilityFeeMonthly: 500000 } }),
   },

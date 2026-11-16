@@ -78,7 +78,7 @@ describe('V-34 · Hora-hombre: la hora normal sale de la tarifa × personas', ()
     const rows = tariffRows(r).map(([a, b]) => [nb(a), nb(b)]);
     assert.equal(rows[0][1], '$ 58.000 / hora-hombre');
     assert.match(rows[1][1], /^\$ 228\.000 por hora de toda la cuadrilla \(3 personas\) \(precio sugerido\)$/);
-    assert.match(nb(outOfHoursNoteText(r)), /^Tu hora normal equivale a \$ 174\.000 \(tu tarifa por hora-hombre × 3 personas\)\..*Estos precios son por hora de toda la cuadrilla \(3 personas\), no por hora-hombre\.$/);
+    assert.match(nb(outOfHoursNoteText(r)), /^Tu tarifa por hora normal es \$ 174\.000 \(tu tarifa por hora-hombre × 3 personas\)\..*Estos precios son por hora de toda la cuadrilla \(3 personas\), no por hora-hombre\.$/);
     // Cobrando por hora no cambia el rótulo.
     const hour = computeQuote(crewByHour());
     assert.equal(outOfHoursPer(hour), '/ hora');

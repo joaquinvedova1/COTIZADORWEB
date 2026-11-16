@@ -13,7 +13,7 @@
  * EXCLUYENTES, "Un % total" o "Detalle por impuesto", y "no aplica").
  *
  * Sin definir (ni % total, ni detalle, ni "no aplica") → t = 0 y `defined`
- * false: la tarifa piso NO incluye estos impuestos y la interfaz lo avisa.
+ * false: la tarifa mínima NO incluye estos impuestos y la interfaz lo avisa.
  * RATEOS nunca trae alícuotas cargadas (AGENTS.md §7).
  */
 
@@ -81,7 +81,7 @@ export function traceBillingTaxes(info, revenue) {
     result: { label: 'Impuestos sobre la facturación del mes', value: isFiniteNumber(revenue) ? (revenue * t) / 100 : null, format: 'money' },
     notes: [
       info.notApplicable ? 'Se eligió no incluir impuestos sobre la facturación en esta cotización.' : null,
-      !info.defined && !info.notApplicable && !info.invalid ? 'Sin definir: la tarifa piso NO incluye impuestos sobre lo que facturás. Cargalos en "El precio".' : null,
+      !info.defined && !info.notApplicable && !info.invalid ? 'Sin definir: la tarifa mínima NO incluye impuestos sobre lo que facturás. Cargalos en "El precio".' : null,
       info.invalid ? 'Hay un porcentaje inválido (negativo, no numérico o un total de 100 % o más): no se aplica hasta que lo corrijas.' : null,
       'Se pagan sobre lo que facturás, no sobre lo que te cuesta: por eso RATEOS divide en lugar de sumar. No incluyen IVA, Ganancias, retenciones ni costo financiero.',
       info.items.some((it) => it.kind === 'stamp' && isFiniteNumber(it.pct)) ? 'Sellos se reparte proporcional a la facturación: es exacto con la actividad estimada y una aproximación con otra actividad.' : null,

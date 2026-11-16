@@ -10,21 +10,21 @@
  *   noRemunerativo   = seguros + EPP + capacitación + traslado
  *   fijoMensual      = costoRemunerativo + noRemunerativo
  *
- * Por día activo (por posición en servicio):
+ * Por día de trabajo (por posición en servicio):
  *   horasExtraDía    = horasExtraPorDíaActivo × valorHoraExtra × factorCargas
  *   variableDía      = horasExtraDía + vianda
  *
  * Posiciones cubiertas:
  *   dotación = posiciones × personasPorPosición (relevos)
  *   fijo total = fijoMensual × dotación (todos cobran sueldo)
- *   variable total por día = variableDía × posiciones (en un día activo
+ *   variable total por día = variableDía × posiciones (en un día de trabajo
  *   trabaja una persona por posición)
  *
  * Horas extra por tramos (PLAN-2026-010, opcional): `line.overtime` es una
  * lista de { label, premiumPct, hours, basis } (HE 50 %, HE 100 %, otro
  * recargo). Cada tramo cuesta horas × valor hora × (1 + recargo) × factor de
  * cargas:
- *   basis 'per_active_day'  horas por día activo → variable × posiciones
+ *   basis 'per_active_day'  horas por día de trabajo → variable × posiciones
  *   basis 'per_month'       horas promedio por mes por persona → fijo del mes × dotación
  * Sin `overtime`, se usa el campo único de siempre (horas extra por día
  * activo + un recargo): mismo resultado que antes.
@@ -52,6 +52,16 @@
  *   hora normal      = costo mensual por persona ÷ horas normales del mes
  *   hora extra 50 %  = valorHora × 1,5 × factorCargas
  *   hora extra 100 % = valorHora × 2 × factorCargas
+ *
+ *
+ * Valor de la hora extra POR RECURSO (PLAN-2026-026): cada convenio paga distinto, así que el
+ * perfil de Recursos puede traer su propio valor de la hora al 50 % y al 100 %
+ * (`overtimeRate50`, `overtimeRate100`: lo que le cuesta a la empresa UNA hora, con cargas).
+ * Vacío o 0 = se usa el calculado de arriba. La cotización sólo carga CANTIDADES:
+ *   `overtime50HoursPerMonth`, `overtime100HoursPerMonth` = horas por mes de cada persona
+ *   costo del mes por persona += horas al 50 % × hora al 50 % + horas al 100 % × hora al 100 %
+ * (fijo del mes × personas en nómina, como los tramos "horas promedio por mes"). Sin esos
+ * campos: igual que siempre.
  *
  * Todos los porcentajes son parámetros. Los valores demo son ILUSTRATIVOS.
  */
@@ -89,11 +99,16 @@ export function laborLoadFactor({ sacPct = 0, vacationPct = 0, employerContribut
     (1 + pct(nonNegative(employerContributionsPct)) + pct(nonNegative(artPct)));
 }
 
+/** Horas extra por mes y por persona cargadas con el valor de la hora del recurso (PLAN-2026-026). */
+export function resourceOvertimeHoursOf(line = {}) {
+  return nonNegative(line.overtime50HoursPerMonth) + nonNegative(line.overtime100HoursPerMonth);
+}
+
 export const OVERTIME_BASES = Object.freeze(['per_active_day', 'per_month']);
 
 /**
  * Tramos de horas extra de una línea: los de `overtime` o, si no hay lista,
- * el campo único de siempre (horas por día activo + un recargo).
+ * el campo único de siempre (horas por día de trabajo + un recargo).
  */
 export function overtimeItemsOf(line = {}) {
   if (Array.isArray(line.overtime)) {
@@ -171,6 +186,19 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
       billedMonthlyPerPerson: billed && o.basis === 'per_month' ? o.hours * o.billRatePerHour : 0,
     };
   });
+  // Hora al 50 % y al 100 % de la persona: la de su recurso (convenio) o la calculada.
+  const rate50Override = nonNegative(line.overtimeRate50);
+  const rate100Override = nonNegative(line.overtimeRate100);
+  const overtimeHourlyCost50 = rate50Override > 0 ? rate50Override : overtimeBaseHourly * 1.5 * loadFactor;
+  const overtimeHourlyCost100 = rate100Override > 0 ? rate100Override : overtimeBaseHourly * 2 * loadFactor;
+  // Horas extra por mes de cada persona (PLAN-2026-026): la cotización carga sólo la cantidad.
+  [[50, nonNegative(line.overtime50HoursPerMonth), overtimeHourlyCost50], [100, nonNegative(line.overtime100HoursPerMonth), overtimeHourlyCost100]].forEach(([premiumPct, hours, hourlyCost]) => {
+    if (!(hours > 0)) return;
+    overtimeItems.push({
+      id: `ot-month-${premiumPct}`, label: `Horas al ${premiumPct}\u00a0%`, premiumPct, hours, basis: 'per_month', billRatePerHour: 0, legacy: false, resourceRate: true,
+      hourlyCost, perActiveDayPerPosition: 0, monthlyPerPerson: hours * hourlyCost, billedPerActiveDayPerPosition: 0, billedMonthlyPerPerson: 0,
+    });
+  });
   const overtimePerActiveDay = overtimeItems.reduce((acc, o) => acc + o.perActiveDayPerPosition, 0);
   const overtimeMonthlyPerPerson = overtimeItems.reduce((acc, o) => acc + o.monthlyPerPerson, 0);
   const mealPerActiveDay = nonNegative(line.mealPerActiveDay);
@@ -223,8 +251,11 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
       // Base: básico + adicionales remunerativos (la hora extra se liquida sobre el sueldo habitual).
       // Los tramos de horas extra ya cargados (`overtimeItems`) siguen con `hourlyBase` de siempre.
       overtimeBaseHourly,
-      overtimeHourlyCost50: overtimeBaseHourly * 1.5 * loadFactor,
-      overtimeHourlyCost100: overtimeBaseHourly * 2 * loadFactor,
+      overtimeHourlyCost50,
+      overtimeHourlyCost100,
+      // ¿El valor viene cargado en el recurso (convenio) en vez de calculado?
+      overtimeRate50Own: rate50Override > 0,
+      overtimeRate100Own: rate100Override > 0,
       // Horas extra por mes (tramos "horas promedio por mes"): fijo del mes.
       overtimeMonthly: overtimeMonthlyPerPerson,
     },

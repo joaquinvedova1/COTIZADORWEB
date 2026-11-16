@@ -629,3 +629,13 @@ th.ta-right .qr-th { align-items: flex-end; }
 /* PLAN-2026-025 · Tus tarifas */
 .qr-tariffs { margin-top: 1rem; }
 .qr-tariffs .qr-subhead { margin-bottom: 0.35rem; }
+
+/* PLAN-2026-026 · carilla del Resultado: precio, costo, ganancia y margen; la tarifa mínima abajo, a lo ancho */
+.qr-stat-profit.big-stat-green .big-stat-value { color: var(--green-text, #157347); }
+.qr-stat.qr-stat-wide { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.2rem 1rem; align-items: baseline; margin-top: 1rem; padding: 0.8rem 1rem; border: 0; border-radius: var(--radius); background: var(--bg); }
+.qr-stat.qr-stat-wide .big-stat-number { font-size: 1.2rem; }
+.qr-stat.qr-stat-wide .big-stat-label { font-size: 0.78rem; }
+@media (min-width: 720px) {
+  .qr-stat.qr-stat-wide { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+  .qr-stat.qr-stat-wide .qr-stat-trace { justify-self: end; }
+}

@@ -176,7 +176,7 @@ export function oracleLaborLine(l) {
     fixedPerPerson,
     // fijo = (costo fijo por persona × % asignado + horas extra por mes) × dotación
     fixed: (fixedPerPerson * share.f + otMonthlyPerPerson) * headcount,
-    // variable por día activo = (horas extra cargadas + vianda) × posiciones
+    // variable por día de trabajo = (horas extra cargadas + vianda) × posiciones
     variable: (otPerDayPerPosition + n(l.mealPerActiveDay)) * positions,
     overtimeRevenueFixed: billed ? billedMonthly * headcount : 0,
     overtimeRevenuePerDay: billed ? billedPerDay * positions : 0,
@@ -273,7 +273,7 @@ export function oracleRoute(q, act) {
 
 /**
  * Construye el modelo: líneas con categoría, grupo de pago, fijo mensual,
- * variable por día activo, parte en efectivo (para el financiero) y costo
+ * variable por día de trabajo, parte en efectivo (para el financiero) y costo
  * discreto por salida (para "cada salida se cuenta completa").
  */
 export function oracleModel(q) {

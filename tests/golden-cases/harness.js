@@ -27,7 +27,7 @@ export const REQUIRED_KEYS = ['id', 'title', 'rule', 'engine', 'inputs', 'expect
 /**
  * Cotización on-call mínima a partir de entradas de negocio, sobre la base de la demo de
  * referencia (sin personal, equipos, logística, financiero ni contingencia):
- *   fijos mensuales → otro costo fijo; variable por día → otro costo por día activo.
+ *   fijos mensuales → otro costo fijo; variable por día → otro costo por día de trabajo.
  * Con ratePerDay → modo A "conozco la tarifa"; sin ratePerDay → modo B "conozco la actividad".
  * Con billingTaxPct → impuestos sobre la facturación como "% total"; sin él quedan sin definir (t = 0).
  */
@@ -54,7 +54,7 @@ function onCallQuote(inputs) {
 /**
  * Cotización facturada en cualquier unidad (PLAN-2026-009) sobre la base de la
  * demo de referencia: fijos mensuales → otro costo fijo; variable por día de
- * trabajo → otro costo por día activo. Por cantidad (m³, viaje, unidad…) la
+ * trabajo → otro costo por día de trabajo. Por cantidad (m³, viaje, unidad…) la
  * actividad es la cantidad del mes y el rendimiento por día; por día, los días.
  */
 function unitQuote(inputs) {
@@ -70,7 +70,7 @@ function unitQuote(inputs) {
 
 /**
  * Cotización con un costo indivisible por salida (PLAN-2026-014, LAB-D1) sobre la base de la demo
- * de referencia: fijos → otro costo fijo; variable por día → otro costo por día activo; costo por
+ * de referencia: fijos → otro costo fijo; variable por día → otro costo por día de trabajo; costo por
  * salida → peajes por salida (logística, sin km). D días de trabajo y días por salida dan A = D ÷ días.
  */
 function activationsQuote(inputs) {

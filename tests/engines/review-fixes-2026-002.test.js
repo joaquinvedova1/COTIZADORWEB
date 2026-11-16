@@ -111,7 +111,7 @@ describe('BAJO — textos, redondeos y estados', () => {
       const tr = r.traces.targetMarginDays;
       const value = (label) => tr.inputs.find((i) => i.label.startsWith(label)).value;
       const keep = 1 - (t + 20) / 100;
-      const fromTrace = (value('Costos fijos') - value('Ingresos fijos') * keep) / (value('Ingreso por día activo') * keep - value('Costo variable por día activo'));
+      const fromTrace = (value('Costos fijos') - value('Ingresos fijos') * keep) / (value('Ingreso por día de trabajo') * keep - value('Costo variable por día de trabajo'));
       assert.equal(r.targetMarginDays.reachable, true);
       approx(fromTrace, r.targetMarginDays.days, `t ${t}`, 1e-6);
     }

@@ -643,7 +643,7 @@ export async function render(root, app, params = {}) {
     const matrixField = listField({
       label: 'Días a comparar en "Tarifa según días trabajados"',
       value: params.matrixDays.join(', '),
-      hint: 'Días activos por mes, separados por comas (enteros de 1 a 31). Es la matriz tarifa × utilización del resultado.',
+      hint: 'Días de trabajo por mes, separados por comas (enteros de 1 a 31). Es la matriz tarifa × utilización del resultado.',
       parse: parseMatrixDays,
       onValid: (v) => { params.matrixDays = v; },
       illustrative: true,
@@ -760,7 +760,7 @@ export async function render(root, app, params = {}) {
         ? `Revisá: ${invalidTaxesText(info)}. No se guarda hasta que lo corrijas.`
         : billingTaxesDecided(taxes)
           ? `Cotizaciones nuevas: ${describeBillingTaxes(taxes)}.`
-          : 'Sin definir: las cotizaciones nuevas arrancan sin impuestos sobre la facturación y RATEOS avisa que la tarifa piso no los incluye.';
+          : 'Sin definir: las cotizaciones nuevas arrancan sin impuestos sobre la facturación y RATEOS avisa que la tarifa mínima no los incluye.';
     };
     const drawTaxes = (focus = null) => {
       mount(taxesHolder, billingTaxesFields({

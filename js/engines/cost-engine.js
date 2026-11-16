@@ -6,8 +6,8 @@
  *   Costo(D) = F × factorMeses(D) + v × D
  *
  *   F = costos fijos mensuales (existen aunque no haya actividad)
- *   v = costos variables por día activo
- *   D = días activos (facturables) en el mes
+ *   v = costos variables por día de trabajo
+ *   D = días de trabajo (facturables) en el mes
  *   factorMeses(D) = max(1, D / díasDisponiblesMes)  (sólo > 1 si D supera
  *                    los días disponibles: se interpreta como trabajo de
  *                    varios meses y se prorratean los fijos)
@@ -803,7 +803,7 @@ export function monthsFactor(activeDays, availableDays) {
   return d / a;
 }
 
-/** Costo total y por categoría con D días activos. */
+/** Costo total y por categoría con D días de trabajo. */
 export function costAtActivity(model, activeDays) {
   const D = nonNegative(activeDays);
   const factor = monthsFactor(D, model.activity.availableDaysPerMonth);
@@ -886,11 +886,11 @@ export function traceTotalCost(model, activeDays) {
   return createTrace({
     id: 'total_cost',
     title: 'Costo total mensual',
-    formula: 'Costo = Fijos mensuales × meses de costo fijo + Variable por día activo × Días activos',
+    formula: 'Costo = Fijos mensuales × meses de costo fijo + Variable por día de trabajo × Días de trabajo',
     inputs: [
       { label: 'Costos fijos mensuales (incluye estructura, financiero y contingencia)', value: model.fixedMonthly, format: 'money' },
-      { label: 'Costo variable por día activo', value: model.variablePerActiveDay, format: 'money' },
-      { label: 'Días activos', value: at.activeDays, format: 'days' },
+      { label: 'Costo variable por día de trabajo', value: model.variablePerActiveDay, format: 'money' },
+      { label: 'Días de trabajo', value: at.activeDays, format: 'days' },
       { label: 'Meses de costo fijo (1 = un mes; más si los días superan los disponibles)', value: at.monthsFactor, format: 'number' },
     ],
     steps: [

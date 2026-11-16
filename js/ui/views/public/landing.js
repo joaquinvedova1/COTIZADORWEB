@@ -70,7 +70,7 @@ function productMockup(result) {
       'dl',
       { class: 'pub-mock-list' },
       mockRow('Costo del mes', formatMoneyCompact(k.totalCost), null, daysText ? `(con ${daysText} de trabajo)` : null),
-      mockRow('Tarifa piso', formatMoneyCompact(k.floorListRate, { ceil: true }), `/${unit}`),
+      mockRow('Tarifa mínima', formatMoneyCompact(k.floorListRate, { ceil: true }), `/${unit}`),
       mockRow('Margen objetivo', formatPercent(k.targetMarginPct)),
     ),
     h(
@@ -139,7 +139,7 @@ const AUDIENCES = Object.freeze(['Servicios', 'Contratos', 'Productos', 'Producc
 const CHAIN_INPUTS = Object.freeze(['Personal', 'Equipos', 'Materiales', 'Logística']);
 const CHAIN_STAGES = Object.freeze([
   { icon: 'calc', title: 'Costo real', text: 'Lo que te cuesta prestar el servicio o hacer cada unidad, con todo incluido.' },
-  { icon: 'tag', title: 'Tarifa piso', text: 'Lo mínimo que tenés que cobrar para no perder plata.' },
+  { icon: 'tag', title: 'Tarifa mínima', text: 'Lo mínimo que tenés que cobrar para no perder plata.' },
   { icon: 'chart', title: 'Margen', text: 'Lo que querés ganar sobre el precio de venta. Con él llegás a tu precio.' },
 ]);
 

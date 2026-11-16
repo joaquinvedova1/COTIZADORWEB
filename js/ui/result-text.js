@@ -48,11 +48,11 @@ export function resultDays(value) {
   return formatDays(shownDays(value, decimals), { decimals });
 }
 
-/** "6,4 días activos" / "1 día activo". */
+/** "6,4 días de trabajo" / "1 día de trabajo". */
 export function activeDaysText(value, decimals = 1) {
   if (!isFiniteNumber(value)) return EMPTY;
   const text = formatDays(shownDays(value, decimals), { decimals });
-  return `${text} ${/\bdía$/.test(text) ? 'activo' : 'activos'}`;
+  return `${text} de trabajo`;
 }
 
 /** "+1,5 días" / "-1 día" / "0 días" (diferencias; singular también en negativo). */
@@ -144,7 +144,7 @@ export function tierDiscountFindings(rows) {
 
 /**
  * Tramo en el que cae la actividad JUSTO DEBAJO de `days` (donde se pierde
- * plata antes del break-even): el último cuyo primer día (en días activos,
+ * plata antes del break-even): el último cuyo primer día (en días de trabajo,
  * `evaluatedDays`) es menor que `days`. null si `days` está antes del primero.
  */
 export function tierBelow(rows, days) {
@@ -203,7 +203,7 @@ export function discountAlert(result) {
   else if (c.applies && c.status === 'orange') orange += 1;
   if (red) {
     const text = red === 1 ? 'Un descuento pierde plata' : `${formatNumber(red)} descuentos pierden plata`;
-    return { tone: 'red', count: red, text, title: `${text}: con ese descuento la tarifa neta queda debajo de la tarifa piso` };
+    return { tone: 'red', count: red, text, title: `${text}: con ese descuento la tarifa neta queda debajo de la tarifa mínima` };
   }
   if (orange) {
     const text = orange === 1 ? 'Un descuento bajo el objetivo' : `${formatNumber(orange)} descuentos bajo el objetivo`;
@@ -230,7 +230,7 @@ export function discountWords(result) {
 
 /**
  * ¿La cotización cobra algo además de la tarifa? Abono o equipo en espera
- * (ingresos fijos), cargos por llamado / movilización / km (por día activo),
+ * (ingresos fijos), cargos por llamado / movilización / km (por día de trabajo),
  * mínimo mensual garantizado o un mínimo por llamado que de verdad se aplica.
  */
 function hasOtherCharges(result) {
@@ -486,16 +486,16 @@ export function illustrativeTitle(info) {
   return `Incluye valores ILUSTRATIVOS: ${joinList(parts)}. Reemplazalos por valores propios vigentes.`;
 }
 
-/** Tarifa mínima hacia arriba, como la tarifa piso (nunca se lee de menos). */
+/** Tarifa mínima hacia arriba, como la tarifa mínima (nunca se lee de menos). */
 function ceilRateText(value, unitLabel) {
   const money = Math.abs(value) > 0 && Math.abs(value) < 100 ? formatMoney(Math.ceil(value * 100 - 1e-6) / 100, { decimals: 2 }) : formatMoneyCeil(value);
   return `${money} / ${unitLabel}`;
 }
 
 /**
- * Tarifa piso sin contar adicionales (A-7, H-09): la línea visible y su explicación.
+ * Tarifa mínima sin contar adicionales (A-7, H-09): la línea visible y su explicación.
  * `floor` es floorWithoutOtherRevenue(r.ratesAtEstimate) (motor); null → sin texto.
- * Se muestra en la misma base que la tarifa piso (de lista si la hay; si no, neta).
+ * Se muestra en la misma base que la tarifa mínima (de lista si la hay; si no, neta).
  * @param {{ otherRevenue: number, netRate: number, listRate: number|null } | null} floor
  * @param {string} unitLabel  "día", "válvula"…
  * @returns {{ text: string, tip: string } | null}

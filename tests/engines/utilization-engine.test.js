@@ -2,7 +2,7 @@
  * Contrato del negocio — UtilizationEngine (matriz tarifa × utilización).
  *
  * Reglas (Prompt 1 "Matriz tarifa × utilización", Prompt 3):
- *   utilización % = días activos / días disponibles × 100
+ *   utilización % = días de trabajo / días disponibles × 100
  *   A mayor utilización, menor tarifa unitaria necesaria (los fijos se reparten
  *   entre más días). A menor utilización, mayor tarifa.
  *   tarifa necesaria(D, margen) = Costo(D) / (1 − margen) / D   (tarifa por día, sin otros ingresos)
@@ -43,11 +43,11 @@ function contextOf(quote) {
 }
 
 describe('UtilizationEngine — utilización', () => {
-  test('8 días activos sobre 30 disponibles → utilización 26,67 %', () => {
+  test('8 días de trabajo sobre 30 disponibles → utilización 26,67 %', () => {
     approx(utilizationPct(8, 30), (8 / 30) * 100);
   });
 
-  test('utilización 100 %: 30 días activos sobre 30 disponibles', () => {
+  test('utilización 100 %: 30 días de trabajo sobre 30 disponibles', () => {
     approx(utilizationPct(30, 30), 100);
   });
 
@@ -66,7 +66,7 @@ describe('UtilizationEngine — utilización', () => {
     approx(utilizationPct('', 30), 0);
   });
 
-  test('días activos desde utilización: 50 % de 30 días = 15 días; se limita a 0–100 %', () => {
+  test('días de trabajo desde utilización: 50 % de 30 días = 15 días; se limita a 0–100 %', () => {
     approx(activeDaysFromUtilization(50, 30), 15);
     approx(activeDaysFromUtilization(150, 30), 30);
     approx(activeDaysFromUtilization(-10, 30), 0);
@@ -122,7 +122,7 @@ describe('UtilizationEngine — matriz tarifa × utilización', () => {
     }
   });
 
-  test('para cada fila: tarifa piso < margen 5 % < margen 10 % < margen 15 %', () => {
+  test('para cada fila: tarifa mínima < margen 5 % < margen 10 % < margen 15 %', () => {
     for (const r of matrix) {
       const rates = [r.floorNetRate, ...r.byMargin.map((b) => b.netRate)];
       for (let i = 1; i < rates.length; i += 1) assert.ok(rates[i] > rates[i - 1]);
@@ -159,7 +159,7 @@ describe('UtilizationEngine — matriz tarifa × utilización', () => {
 describe('UtilizationEngine — casos extremos de utilización', () => {
   const ctx = contextOf(referenceQuote());
 
-  test('utilización 100 % (30 de 30 días): tarifa piso 2.000.000 y no excede la disponibilidad', () => {
+  test('utilización 100 % (30 de 30 días): tarifa mínima 2.000.000 y no excede la disponibilidad', () => {
     const [r] = buildRateUtilizationMatrix(ctx, { days: [30], marginsPct: [10], commercialListRate: null, estimatedDays: 8 });
     approx(r.floorNetRate, 60_000_000 / 30);
     approx(r.utilizationPct, 100);
@@ -174,7 +174,7 @@ describe('UtilizationEngine — casos extremos de utilización', () => {
     approx(r.floorNetRate, 2_000_000);
   });
 
-  test('utilización cercana a 0 (0,1 día): tarifa piso 301.000.000, finita', () => {
+  test('utilización cercana a 0 (0,1 día): tarifa mínima 301.000.000, finita', () => {
     const [r] = buildRateUtilizationMatrix(ctx, { days: [0.1], marginsPct: [10], commercialListRate: 4_000_000, estimatedDays: 8 });
     approx(r.floorNetRate, 30_100_000 / 0.1, '', 1e-3);
     assert.ok(Number.isFinite(r.profit));

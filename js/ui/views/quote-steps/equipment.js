@@ -199,15 +199,15 @@ function equipmentTrace(result, index, source) {
   return createTrace({
     id: 'equipment_line',
     title: `Equipo — ${line.name || 'Equipo'}`,
-    formula: 'Posesión/mes = (reposición − residual) / (vida útil × 12) + (seguro + patente + certificaciones + otros) / 12 + mantenimiento fijo (presupuesto) + inversión promedio × tasa de capital / 12 · Operación/h = mantenimiento/h + neumáticos/h + litros/h × precio combustible (service = costo / horas entre services; juego = costo / vida útil en horas) · Costo del mes = posesión × cantidad + operación/h × horas por día × días activos × cantidad',
+    formula: 'Posesión/mes = (reposición − residual) / (vida útil × 12) + (seguro + patente + certificaciones + otros) / 12 + mantenimiento fijo (presupuesto) + inversión promedio × tasa de capital / 12 · Operación/h = mantenimiento/h + neumáticos/h + litros/h × precio combustible (service = costo / horas entre services; juego = costo / vida útil en horas) · Costo del mes = posesión × cantidad + operación/h × horas por día × días de trabajo × cantidad',
     inputs: [
       line.conversion !== undefined && line.conversion !== 1 ? { label: `Tipo de cambio de la cotización (${(source && source.base && source.base.currency) || ''})`, value: line.conversion, format: 'number' } : null,
       { label: 'Valor de reposición (en la moneda de la cotización)', value: o.replacement, format: 'money' },
       { label: 'Valor residual', value: o.residual, format: 'money' },
       { label: 'Vida útil (años)', value: o.lifeYears, format: 'number' },
       { label: 'Cantidad', value: line.quantity, format: 'number' },
-      { label: 'Horas de uso por día activo', value: line.hoursPerActiveDay, format: 'hours' },
-      { label: 'Días activos por mes', value: result.activity.activeDaysPerMonth, format: 'days' },
+      { label: 'Horas de uso por día de trabajo', value: line.hoursPerActiveDay, format: 'hours' },
+      { label: 'Días de trabajo por mes', value: result.activity.activeDaysPerMonth, format: 'days' },
       op.fuelNotApplicable ? { label: 'Combustible', value: 'No usa combustible', format: 'text' } : { label: 'Precio combustible (si lo pagamos)', value: op.fuelPricePerLiter, format: 'rate' },
       op.fuelNotApplicable ? null : { label: 'Consumo', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
       { label: `Mantenimiento (${labelOf(MAINTENANCE_MODES, op.maintenanceMode, 'por hora').toLowerCase()})`, value: o.maintenanceFixedMonthly > 0 ? o.maintenanceFixedMonthly : op.maintenancePerHour, format: 'money', unit: o.maintenanceFixedMonthly > 0 ? 'por mes (fijo)' : 'por hora' },
@@ -226,14 +226,14 @@ function equipmentTrace(result, index, source) {
         ]
         : [{ label: 'Posesión mensual × cantidad', value: line.fixedMonthly, format: 'money' }]),
       { label: 'Operación por hora (por unidad)', value: op.totalPerHour, format: 'money' },
-      { label: 'Operación por día activo × cantidad', value: line.variablePerActiveDay, format: 'money' },
+      { label: 'Operación por día de trabajo × cantidad', value: line.variablePerActiveDay, format: 'money' },
     ],
     result: { label: 'Costo del equipo en el mes (actividad estimada)', value: monthlyAtEstimate(result, line), format: 'money' },
     notes: [
       'La amortización y el costo de capital no son salidas de caja: no se financian en el costo financiero.',
       line.shared ? 'Equipo compartido: el % asignado reparte sólo los costos fijos (lo cargás vos; no sale de los días que trabaje). La operación sigue el uso real.' : null,
       source && (source.hoursPerActiveDay === null || source.hoursPerActiveDay === undefined || source.hoursPerActiveDay === '')
-        ? 'Horas de uso vacías: se usan las horas por día activo de la cotización.'
+        ? 'Horas de uso vacías: se usan las horas por día de trabajo de la cotización.'
         : null,
       hoursCapNote(source),
     ],
@@ -311,7 +311,7 @@ function externalTrace(result, index, source, impact = null) {
   return createTrace({
     id: 'external_line',
     title: `${x.acquisition === 'rented' ? 'Alquiler' : 'Servicio tercerizado'} — ${x.name || 'Externo'}`,
-    formula: `Facturado ${T.per} = máx(unidades ${T.per}, mínimo) × tarifa neta × cantidad · Costo económico = neto × (1 + cargos no recuperables % + IVA % × (1 − parte recuperable)) · Por día activo = ${T.per} / días ${T.per}`,
+    formula: `Facturado ${T.per} = máx(unidades ${T.per}, mínimo) × tarifa neta × cantidad · Costo económico = neto × (1 + cargos no recuperables % + IVA % × (1 − parte recuperable)) · Por día de trabajo = ${T.per} / días ${T.per}`,
     inputs: [
       x.conversion !== 1
         ? { label: `Tarifa neta (sin IVA) ${unitShort(unitKeyOf(x), T)} en ${(source && source.base && source.base.currency) || 'otra moneda'}`, value: x.priceOriginal, format: 'number' }
@@ -330,11 +330,11 @@ function externalTrace(result, index, source, impact = null) {
       { label: `Unidades facturadas ${T.per}`, value: x.billedUnitsPerActivation, format: 'number' },
       { label: `Neto facturado ${T.per}`, value: x.netPerActivation, format: 'money' },
       { label: 'Fijo mensual neto (tarifas por mes o globales)', value: x.netFixedMonthly, format: 'money' },
-      { label: 'Costo económico por día activo', value: x.variablePerActiveDay, format: 'money' },
-      x.mobilizationPerActiveDay > 0 ? { label: 'Movilización del proveedor por día activo', value: x.mobilizationPerActiveDay, format: 'money' } : null,
-      x.fuelPerActiveDay > 0 ? { label: x.fuelMode === 'per_hour' ? 'Combustible no incluido por día activo (L/h × horas)' : 'Combustible no incluido por día activo (km de ruta × consumo por km)', value: x.fuelPerActiveDay, format: 'money' } : null,
-      { label: 'Salida de caja con impuestos por día activo (se financia hasta cobrar; no es costo)', value: x.cashPerActiveDay, format: 'money' },
-      { label: 'Crédito fiscal por día activo (no es costo)', value: x.creditPerActiveDay, format: 'money' },
+      { label: 'Costo económico por día de trabajo', value: x.variablePerActiveDay, format: 'money' },
+      x.mobilizationPerActiveDay > 0 ? { label: 'Movilización del proveedor por día de trabajo', value: x.mobilizationPerActiveDay, format: 'money' } : null,
+      x.fuelPerActiveDay > 0 ? { label: x.fuelMode === 'per_hour' ? 'Combustible no incluido por día de trabajo (L/h × horas)' : 'Combustible no incluido por día de trabajo (km de ruta × consumo por km)', value: x.fuelPerActiveDay, format: 'money' } : null,
+      { label: 'Salida de caja con impuestos por día de trabajo (se financia hasta cobrar; no es costo)', value: x.cashPerActiveDay, format: 'money' },
+      { label: 'Crédito fiscal por día de trabajo (no es costo)', value: x.creditPerActiveDay, format: 'money' },
       ...routeSteps,
       ...monthSteps,
       ...financeSteps,
@@ -356,13 +356,13 @@ function externalTrace(result, index, source, impact = null) {
 
 /**
  * Salida de caja de un externo (V-18): con tarifa fija mensual es un monto por
- * mes (antes decía "$ 0 por día activo"); con las dos partes, las dos.
+ * mes (antes decía "$ 0 por día de trabajo"); con las dos partes, las dos.
  * @param {object} x resultado del proveedor (`external-engine`)
  */
 export function externalCashText(x = {}) {
   const parts = (monthly, daily) => [
     monthly > 0.005 ? `${formatMoney(monthly)} por mes` : null,
-    daily > 0.005 || !(monthly > 0.005) ? `${formatMoney(daily || 0)} por día activo` : null,
+    daily > 0.005 || !(monthly > 0.005) ? `${formatMoney(daily || 0)} por día de trabajo` : null,
   ].filter(Boolean).join(' + ');
   return `Salida de caja con impuestos: ${parts(x.cashFixedMonthly, x.cashPerActiveDay)}; el crédito fiscal (${parts(x.creditFixedMonthly, x.creditPerActiveDay)}) no es costo.`;
 }
@@ -461,7 +461,7 @@ export function render(container, ctx) {
       if (line.acquisition !== 'owned') line.external = createExternalTerms(line.external);
       if (!line.mobilization) line.mobilization = createMobilization();
     });
-    if (reset) ctx.toast(`La fecha base y la moneda de esta línea se reiniciaron (${currency}, sin fecha): cargá las del nuevo valor en "Fecha base y moneda".`, 'info');
+    if (reset) ctx.toast(`La fecha base y la moneda de esta línea se reiniciaron (${currency}, sin fecha): cargá las del nuevo valor en "¿De qué mes son estos valores?".`, 'info');
   };
 
   const pickerOptions = [
@@ -571,7 +571,7 @@ export function render(container, ctx) {
     return kit.advanced(
       {
         key: `equipment-base:${line.id || i}`,
-        title: 'Fecha base y moneda',
+        title: '¿De qué mes son estos valores? (fecha y moneda)',
         summary: () => {
           const e = quote.equipment[i] || {};
           return owned
@@ -658,12 +658,36 @@ export function render(container, ctx) {
     const ill = kit.lineIllustrative(p, { what: 'este equipo' });
     const illustrative = ill.marked;
     const wear = wearGroups(i, illustrative);
+    // PLAN-2026-026: un equipo que viene de Recursos ya trae su valor, vida útil, seguro,
+    // consumo y mantenimiento: acá sólo se carga cuántos van y cuántas horas se usan. Esos datos
+    // quedan plegados ("Cambiar sus datos sólo en esta cotización"). Uno cargado acá los pide.
+    const fromResource = typeof line.sourceId === 'string' && line.sourceId !== '';
+    const dataFields = () => [
+      kit.num(`${p}.replacementValue`, { label: 'Cuánto cuesta comprarlo hoy', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, requiredMark: !fromResource, hint: 'Valor de reposición: lo que costaría comprar uno igual hoy. Con esto y la vida útil sale su desgaste por mes (amortización).' }),
+      kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative, requiredMark: !fromResource, hint: 'En cuántos años lo vas a tener que cambiar.' }),
+      // V-06: seguro y patente a la vista (en 0 el costo quedaba de menos sin aviso).
+      kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
+      kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
+      // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
+      // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide abajo, en "¿Cómo llega?":
+      // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
+      line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, selfMoving(line)
+        ? { label: 'Consumo trabajando en la locación', rule: 'quantity', unit: 'L/h', illustrative, hint: 'Sólo con el motor trabajando en el lugar (bomba, hidrogrúa). Si sólo lleva gente o carga y queda parado: 0. Lo que gasta en la ruta va abajo.' }
+        : { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
+      kit.check(`${p}.fuelNotApplicable`, {
+        label: 'No usa combustible',
+        structural: true,
+        hint: line.fuelNotApplicable === true
+          ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
+          : 'Acoplado, eléctrico o herramienta. Si es un vehículo con motor, no lo marques: poné 0 en el consumo en la locación.',
+      }),
+    ];
     return kit.lineCard(
       {
         title: kit.out(() => (quote.equipment[i] && quote.equipment[i].name) || 'Equipo sin nombre'),
         subtitle: kit.out((r) => {
           const l = at(r);
-          return l ? `${formatNumber(l.quantity, { decimals: 2 })} ${plural(l.quantity, 'unidad', 'unidades')} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día activo` : '';
+          return l ? `${formatNumber(l.quantity, { decimals: 2 })} ${plural(l.quantity, 'unidad', 'unidades')} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día de trabajo` : '';
         }),
         badges: [badge('Propio', 'gray'), ill.tag].filter(Boolean),
         actions: [kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' })],
@@ -674,44 +698,22 @@ export function render(container, ctx) {
       lineWarnings(i),
       formGrid(
         3,
-        acquisitionField(i),
-        operatorField(i),
-      ),
-      formGrid(
-        3,
-        kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }),
-        kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.' }),
+        fromResource ? null : kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120, placeholder: 'Ej.: Camioneta 4x4' }),
+        kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true }),
         kit.num(`${p}.hoursPerActiveDay`, {
-          label: 'Horas de uso por día activo',
+          label: 'Horas de uso por día de trabajo',
           rule: 'hoursPerDay',
           unit: 'h/día',
           placeholder: activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
-          hint: 'Vacío = usa las horas por día de la cotización.',
+          hint: 'Cuántas horas trabaja el equipo cada día. Vacío = las horas por día del servicio.',
         }),
-        kit.num(`${p}.replacementValue`, { label: 'Valor de reposición', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que costaría comprarlo hoy.' }),
-        kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative }),
-        // V-06: seguro y patente a la vista (antes en "Opciones avanzadas": en 0 el costo quedaba de menos sin aviso).
-        kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
-        kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
-        // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
-        // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide abajo, en "¿Cómo llega?":
-        // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
-        line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, selfMoving(line)
-          ? { label: 'Consumo trabajando en la locación', rule: 'quantity', unit: 'L/h', illustrative, hint: 'Sólo con el motor trabajando en el lugar (bomba, hidrogrúa). Si sólo lleva gente o carga y queda parado: 0. Lo que gasta en la ruta va abajo.' }
-          : { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
-        kit.check(`${p}.fuelNotApplicable`, {
-          label: 'No usa combustible',
-          structural: true,
-          hint: line.fuelNotApplicable === true
-            ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
-            : 'Acoplado, eléctrico o herramienta. Si es un vehículo con motor, no lo marques: poné 0 en el consumo en la locación.',
-        }),
+        operatorField(i),
+        fromResource ? null : acquisitionField(i),
+        ...(fromResource ? [] : dataFields()),
       ),
-      // PLAN-2026-025: el mantenimiento a la vista (junto con la amortización es lo primero que se pregunta).
-      wear[0],
-      kit.region((r) => wearWarningsRegion(r, i)),
-      // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
-      assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
+      // El mantenimiento a la vista sólo si el equipo se carga acá (el de Recursos ya lo trae).
+      fromResource ? null : wear[0],
+      kit.out((r) => wearWarningsRegion(r, i) || '', { tag: 'div', allowEmpty: true }),
       kit.keyline({
         label: 'Costo del equipo en el mes',
         value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
@@ -719,7 +721,7 @@ export function render(container, ctx) {
           const l = at(r);
           if (!l) return '';
           const share = l.shared && !l.shareMissing ? ` (${formatPercent(l.fixedCostSharePct)} asignado a esta cotización de ${formatMoney(l.fullFixedMonthly)})` : '';
-          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día activo · con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días activos.`;
+          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día de trabajo · con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días de trabajo.`;
         },
         trace: (r) => equipmentTrace(r, i, quote.equipment[i]),
       }),
@@ -727,9 +729,11 @@ export function render(container, ctx) {
       kit.advanced(
         {
           key: `equipment:${line.id || i}`,
+          title: fromResource ? 'Cambiar sus datos sólo en esta cotización (opcional)' : 'Más detalle (opcional)',
           summary: () => {
             const e = quote.equipment[i] || {};
             const parts = [
+              fromResource ? `vale ${moneyText(e.replacementValue) || '$ 0'} · ${formatNumber(Number(e.usefulLifeYears) || 0, { decimals: 1 })} años de vida útil` : null,
               `residual ${moneyText(e.residualValue) || '$ 0'}`,
               hasNumber(e.otherAnnual) && Number(e.otherAnnual) > 0 ? `otros ${moneyText(e.otherAnnual)}/año` : null,
               `certificaciones ${moneyText(e.certificationsAnnual) || '$ 0'}/año`,
@@ -741,6 +745,13 @@ export function render(container, ctx) {
             return illustrative ? h('span', {}, `${text.charAt(0).toUpperCase()}${text.slice(1)}.`, illustrativeTag()) : `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
           },
         },
+        fromResource
+          ? h('p', { class: 'qe-note' }, 'Estos datos se cargan una sola vez en ', h('a', { href: '#/recursos' }, 'Recursos'), '. Si los cambiás acá, cambian sólo en esta cotización.')
+          : null,
+        fromResource
+          ? kit.group('Datos del equipo', formGrid(3, kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }), acquisitionField(i), ...dataFields()))
+          : null,
+        fromResource ? wear[0] : null,
         kit.group(
           'Costo de tenerlo (existe aunque no trabaje)',
           formGrid(
@@ -753,6 +764,8 @@ export function render(container, ctx) {
           capitalCostNote(i),
         ),
         wear[1],
+        // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
+        assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
       ),
       kit.advanced(
         {
@@ -811,10 +824,10 @@ export function render(container, ctx) {
         h('h5', { class: 'qe-group-title' }, 'En esta cotización (todas las unidades)'),
         kit.stats(
           kit.stat('Tenerlo por mes (fijo)', (r) => formatMoney(at(r) && at(r).fixedMonthly)),
-          kit.stat('Usarlo por día activo', (r) => formatMoney(at(r) && at(r).variablePerActiveDay), { hint: (r) => (at(r) ? `${formatNumber(at(r).fuelLitersPerActiveDay, { decimals: 1 })} L de combustible por día` : '') }),
+          kit.stat('Usarlo por día de trabajo', (r) => formatMoney(at(r) && at(r).variablePerActiveDay), { hint: (r) => (at(r) ? `${formatNumber(at(r).fuelLitersPerActiveDay, { decimals: 1 })} L de combustible por día` : '') }),
           kit.stat('Costo mensual con la actividad estimada', (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY), {
             emphasis: true,
-            hint: (r) => `Con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días activos.`,
+            hint: (r) => `Con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días de trabajo.`,
             trace: (r) => equipmentTrace(r, i, quote.equipment[i]),
           }),
         ),
@@ -1022,7 +1035,7 @@ export function render(container, ctx) {
         kit.num(`${p}.external.minimumUnits`, { label: 'Mínimo facturable', rule: 'quantity', unit: unitShort(unitKey, T).replace('/', '').trim() || 'u.', hint: `Unidades mínimas ${T.per}. Vacío = sin mínimo.` }),
         unit === 'hour'
           ? kit.num(`${p}.hoursPerActiveDay`, {
-            label: 'Horas de uso por día activo',
+            label: 'Horas de uso por día de trabajo',
             rule: 'hoursPerDay',
             unit: 'h/día',
             placeholder: activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
@@ -1159,13 +1172,13 @@ export function render(container, ctx) {
   const totals = kit.keyline({
     label: 'Equipos en el costo del mes',
     value: (r) => formatMoney(r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)),
-    hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día activo (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
+    hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día de trabajo (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
     className: 'qe-keyline-total',
   });
 
   mount(
     container,
-    card({ title: 'Equipos', subtitle: `Cargá cada equipo o vehículo una sola vez (camionetas incluidas): propio, alquilado o tercerizado. En cada uno decís también cómo llega al lugar del servicio; la distancia, el alojamiento y el precio del combustible van en "${stepName('logistics')}".` }, toolbar, fuelNote),
+    card({ title: 'Agregá los equipos y vehículos', subtitle: `Cada uno una sola vez (camionetas incluidas): propio, alquilado o tercerizado. La distancia y el precio del combustible van en "${stepName('logistics')}".` }, toolbar, fuelNote),
     lineCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({

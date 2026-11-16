@@ -33,6 +33,10 @@
  *   Las horas estimadas no abaratan la tarifa principal: al calcularla, cada hora
  *   fuera de horario cuenta sólo por el precio que cubre su costo.
  *
+ *   Valor propio por recurso (PLAN-2026-026): si un perfil de Recursos trae su hora al 50 % o al
+ *   100 % (por convenio), la hora de la cuadrilla es la SUMA de la de cada persona (no base × (1 + r))
+ *   y el recargo es esa suma menos la hora base. Sin valores propios: el cálculo de siempre.
+ *
  * Las líneas viven en `quote.extras` con `kind: 'overtime'` y `premiumPct`
  * (50, 100 u otro): se cobran aparte, como cualquier adicional. Alquilados y
  * tercerizados no suman uso por hora (su tarifa depende de cada proveedor).
@@ -75,6 +79,12 @@ export function outOfHoursBasis(labor = null, equipment = []) {
   let crewBasePerHour = 0;
   let crewNormalPerHour = 0;
   let people = 0;
+  // Hora al 50 % y al 100 % de la cuadrilla, sumando la de CADA persona (PLAN-2026-026): con un
+  // valor propio cargado en el recurso (convenio) no alcanza con base × (1 + recargo).
+  let crewPerHour50 = 0;
+  let crewPerHour100 = 0;
+  let ownRates = false;
+  const perRole = [];
   lines.forEach((l) => {
     const positions = nonNegative(l && l.positions);
     if (!(positions > 0) || !l.perPerson) return;
@@ -83,6 +93,13 @@ export function outOfHoursBasis(labor = null, equipment = []) {
     // Hora normal de la gente: todo su costo del mes ÷ horas normales.
     crewNormalPerHour += positions * nonNegative(l.perPerson.loadedHourlyCost);
     people += positions;
+    const lineBase = nonNegative(base) * nonNegative(l.perPerson.loadFactor, 1);
+    const c50 = isFiniteNumber(l.perPerson.overtimeHourlyCost50) ? l.perPerson.overtimeHourlyCost50 : lineBase * 1.5;
+    const c100 = isFiniteNumber(l.perPerson.overtimeHourlyCost100) ? l.perPerson.overtimeHourlyCost100 : lineBase * 2;
+    crewPerHour50 += positions * c50;
+    crewPerHour100 += positions * c100;
+    if (l.perPerson.overtimeRate50Own || l.perPerson.overtimeRate100Own) ownRates = true;
+    perRole.push({ role: l.role || '', people: positions, normalPerHour: nonNegative(l.perPerson.loadedHourlyCost), basePerHour: lineBase, perHour50: c50, perHour100: c100 });
   });
   let equipmentPerHour = 0;
   let equipmentUnits = 0;
@@ -94,18 +111,34 @@ export function outOfHoursBasis(labor = null, equipment = []) {
     equipmentPerHour += nonNegative(e.operation.totalPerHour) * quantity;
     equipmentUnits += quantity;
   });
-  return { crewBasePerHour, crewNormalPerHour, equipmentPerHour, people, equipmentUnits };
+  return {
+    crewBasePerHour, crewNormalPerHour, equipmentPerHour, people, equipmentUnits,
+    // Sólo cuando algún recurso trae su propio valor de hora: si no, el cálculo es el de siempre.
+    crewPerHourByPremium: ownRates ? { 50: crewPerHour50, 100: crewPerHour100 } : null,
+    // Detalle por rol (para mostrar "cada uno acumulado"): no cambia el cálculo.
+    perRole,
+  };
+}
+
+/** Hora extra de la gente con recargo `premiumPct`: la suma de la de cada persona. */
+function crewOvertimePerHour(b, premiumPct) {
+  const own = b.crewPerHourByPremium;
+  if (own && (premiumPct === 50 || premiumPct === 100) && isFiniteNumber(own[premiumPct])) return nonNegative(own[premiumPct]);
+  return nonNegative(b.crewBasePerHour) * (1 + premiumPct / 100);
 }
 
 /** Costo de UNA hora fuera de horario con recargo `premiumPct` (horas extra de la gente + uso de equipos). */
 export function outOfHoursCostPerHour(basis, premiumPct) {
   const b = basis || {};
-  return nonNegative(b.crewBasePerHour) * (1 + nonNegative(premiumPct) / 100) + nonNegative(b.equipmentPerHour);
+  return crewOvertimePerHour(b, nonNegative(premiumPct)) + nonNegative(b.equipmentPerHour);
 }
 
 /** Recargo por hora: lo que la hora extra cuesta de más que una hora normal de la misma gente. */
 export function outOfHoursSurchargePerHour(basis, premiumPct) {
-  return nonNegative(basis && basis.crewBasePerHour) * (nonNegative(premiumPct) / 100);
+  const b = basis || {};
+  const p = nonNegative(premiumPct);
+  if (b.crewPerHourByPremium && (p === 50 || p === 100)) return Math.max(0, crewOvertimePerHour(b, p) - nonNegative(b.crewBasePerHour));
+  return nonNegative(b.crewBasePerHour) * (p / 100);
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "id": "caso-demo-referencia",
   "title": "Caso demo de referencia completo (computeQuote)",
-  "rule": "La cotización demo de referencia (fijos 30M, variable 1M/día, tarifa 4M/día, 8 días estimados) da break-even 10 días, tarifa piso 4.750.000, facturación 32.000.000, costo 38.000.000 y resultado −6.000.000.",
+  "rule": "La cotización demo de referencia (fijos 30M, variable 1M/día, tarifa 4M/día, 8 días estimados) da break-even 10 días, tarifa mínima 4.750.000, facturación 32.000.000, costo 38.000.000 y resultado −6.000.000.",
   "engine": "quote.demoReference",
   "inputs": {},
   "expected": {

@@ -64,7 +64,7 @@ export function templateContents(service) {
   return {
     resources,
     conditions,
-    activity: days !== null ? `Actividad sugerida: ${plural(days, 'día activo', 'días activos')} por mes` : null,
+    activity: days !== null ? `Actividad sugerida: ${plural(days, 'día de trabajo', 'días de trabajo')} por mes` : null,
     hasContent: lines.length > 0 || steps.length > 0,
   };
 }

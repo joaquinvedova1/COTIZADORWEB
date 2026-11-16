@@ -148,7 +148,7 @@ describe('V-26 · Hora fuera de horario cuando no se cobra por hora ni por día'
     const [s50, s100] = r.outOfHours.lines.map((l) => l.surchargePrice);
     assert.ok(s50 > 0 && s100 > s50);
     const text = note(q);
-    assert.match(text, /^Tu hora normal equivale a \$ [\d.]+ \(lo que cuestan tu gente y tus equipos por hora, con tu margen\)\./);
+    assert.match(text, /^Tu tarifa por hora normal es \$ [\d.]+ \(lo que cuestan tu gente y tus equipos por hora, con tu margen\)\./);
     assert.match(text, /Es el precio de cada hora que trabajás fuera de horario además de los viajes que cotizaste\. No reemplaza al viaje: si un viaje entero cae fuera de horario, cobrá el viaje más el recargo por hora \(\$ [\d.]+ al 50 % o \$ [\d.]+ al 100 %\)\.$/);
     assert.doesNotMatch(text, /Se cobra aparte de la tarifa/);
   });

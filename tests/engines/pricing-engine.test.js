@@ -1,5 +1,5 @@
 /**
- * Contrato del negocio — PricingEngine (margen, markup, tarifa piso).
+ * Contrato del negocio — PricingEngine (margen, markup, tarifa mínima).
  *
  * Reglas (Prompt 1 "Margen vs markup", Prompt 2 "Margen vs markup", Prompt 4 §21):
  *   - Margen se calcula SOBRE EL PRECIO:  precio = costo / (1 − margen)
@@ -7,7 +7,7 @@
  *   - NO son sinónimos: costo 100 con margen 10 % → 111,11 (NO 110); con markup 10 % → 110.
  *   - markup = margen / (1 − margen) · margen = markup / (1 + markup)
  *   - Margen válido: 0 ≤ margen < 100. Fuera de rango → null (nunca Infinity/NaN).
- *   - Tarifa piso = precio con margen 0 = costo.
+ *   - Tarifa mínima = precio con margen 0 = costo.
  *   - Redondeo comercial: siempre hacia arriba (nunca baja el margen).
  */
 
@@ -55,7 +55,7 @@ describe('PricingEngine — margen sobre precio', () => {
     approx(marginFromPrice(100, 100 / 0.9), 10);
   });
 
-  test('margen 0 → el precio es igual al costo (tarifa piso)', () => {
+  test('margen 0 → el precio es igual al costo (tarifa mínima)', () => {
     approx(priceFromMargin(38_000_000, 0), 38_000_000);
     approx(floorPrice(38_000_000), 38_000_000);
   });
@@ -172,7 +172,7 @@ describe('PricingEngine — precio inferior al costo y valores límite', () => {
     }
   });
 
-  test('tarifa piso unitaria = costo total / unidades; sin unidades no hay tarifa (null)', () => {
+  test('tarifa mínima unitaria = costo total / unidades; sin unidades no hay tarifa (null)', () => {
     // 38.000.000 / 8 días = 4.750.000 por día
     approx(floorRate(38_000_000, 8), 4_750_000);
     assert.equal(floorRate(38_000_000, 0), null);
@@ -244,11 +244,11 @@ describe('PricingEngine — trazabilidad', () => {
 });
 
 describe('convertRateUnit — cambio de unidad de la tarifa (regresión QA-E2E-08)', () => {
-  test('día → hora divide por las horas por día activo y redondea hacia arriba al centavo', () => {
+  test('día → hora divide por las horas por día de trabajo y redondea hacia arriba al centavo', () => {
     assert.equal(convertRateUnit(2_000_000, 'day', 'hour', 10), 200_000);
     assert.equal(convertRateUnit(1_000_000, 'day', 'hour', 3), 333_333.34);
   });
-  test('hora → día multiplica por las horas por día activo', () => {
+  test('hora → día multiplica por las horas por día de trabajo', () => {
     assert.equal(convertRateUnit(200_000, 'hour', 'day', 10), 2_000_000);
   });
   test('abono mensual o horas inválidas → null (no se convierte sin ambigüedad)', () => {

@@ -40,7 +40,7 @@ import { createDemoState, DEMO_IDS } from '../../js/domain/demo-data.js';
 /** "1,6 días" → 1.6 (sólo para leer en los tests lo que muestra la pantalla). */
 const num = (text) => Number(String(text).match(/-?\d+(?:,\d+)?/)[0].replace(',', '.'));
 
-/** Cotización mínima: un costo fijo mensual + un costo por día activo, sin financiación, riesgo ni combustible. */
+/** Cotización mínima: un costo fijo mensual + un costo por día de trabajo, sin financiación, riesgo ni combustible. */
 function quoteWith({ activeDays = 10, fixed = 0, perDay = 0, mode = 'known_rate', knownRate = null, margin, tiers, roundingStep } = {}) {
   const settings = defaultSettings('org');
   const q = createEmptyQuote({ organizationId: 'org', settings, id: '00000000-0000-4000-8000-000000009901', now: '2026-01-01T00:00:00.000Z' });
@@ -95,8 +95,8 @@ describe('días en superficie (1 decimal; 2 debajo de 1 día)', () => {
     assert.equal(resultDays(1.04), '1 día', 'singular aunque el valor de 2 decimales sea 1,04');
     assert.equal(resultDays(NaN), '—');
     assert.equal(resultDays(null), '—');
-    assert.equal(activeDaysText(1), '1 día activo');
-    assert.equal(activeDaysText(6.3496), '6,4 días activos');
+    assert.equal(activeDaysText(1), '1 día de trabajo');
+    assert.equal(activeDaysText(6.3496), '6,4 días de trabajo');
     assert.equal(activeDaysText(Infinity), '—');
   });
 

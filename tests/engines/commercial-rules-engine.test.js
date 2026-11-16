@@ -146,7 +146,7 @@ describe('CommercialRulesEngine — descuentos en cascada y continuidad (permane
 });
 
 describe('CommercialRulesEngine — unidades facturables y minimum call', () => {
-  test('tarifa por día: 8 días activos en activaciones de 2 días → 4 activaciones y 8 días facturables', () => {
+  test('tarifa por día: 8 días de trabajo en activaciones de 2 días → 4 activaciones y 8 días facturables', () => {
     const u = billableUnits({ activeDays: 8, daysPerActivation: 2, hoursPerActiveDay: 10, availableDaysPerMonth: 30, unit: 'day' });
     approx(u.activations, 4);
     approx(u.billableUnits, 8);
@@ -239,7 +239,7 @@ describe('CommercialRulesEngine — facturación con reglas comerciales', () => 
     approx(above.total, 32_000_000);
   });
 
-  test('abono mensual: 50M/mes × 1 mes, aunque haya 8 o 20 días activos', () => {
+  test('abono mensual: 50M/mes × 1 mes, aunque haya 8 o 20 días de trabajo', () => {
     approx(revenue({ unit: 'month', listRate: 50_000_000 }).total, 50_000_000);
     approx(revenue({ unit: 'month', listRate: 50_000_000, activeDays: 20 }).total, 50_000_000);
     assert.equal(revenue({ unit: 'month', listRate: 50_000_000, rules: { volumeTiers: tiers([10, 10, 10, 10, 10]) } }).tier, null, 'el abono no aplica tramos por día');
@@ -279,7 +279,7 @@ describe('CommercialRulesEngine — facturación con reglas comerciales', () => 
 });
 
 describe('CommercialRulesEngine — tarifa necesaria', () => {
-  test('tarifa piso neta = costo / unidades: 38M / 8 días = 4.750.000', () => {
+  test('tarifa mínima neta = costo / unidades: 38M / 8 días = 4.750.000', () => {
     approx(requiredNetRate({ totalCost: 38_000_000, marginPct: 0, billableUnits: 8 }).rate, 4_750_000);
   });
 
@@ -311,7 +311,7 @@ describe('CommercialRulesEngine — tarifa necesaria', () => {
 });
 
 describe('CommercialRulesEngine — semáforo de descuentos', () => {
-  // Con 8 días: tarifa piso 4.750.000 y tarifa para margen 10 % 5.277.777,78
+  // Con 8 días: tarifa mínima 4.750.000 y tarifa para margen 10 % 5.277.777,78
   const floorNetRate = 4_750_000;
   const targetNetRate = 38_000_000 / 0.9 / 8;
 

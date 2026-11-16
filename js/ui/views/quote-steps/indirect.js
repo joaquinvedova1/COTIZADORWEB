@@ -38,7 +38,7 @@ const METHOD_HINTS = Object.freeze({
   percent_labor: 'Se suma un % sólo sobre la mano de obra. Útil si la estructura crece con la dotación.',
   per_employee: 'Monto mensual de estructura por cada persona de la dotación de este servicio.',
   per_contract: 'Monto mensual fijo que este contrato tiene que aportar a la estructura.',
-  per_hour: 'Monto por cada hora operativa (horas por día activo × días activos).',
+  per_hour: 'Monto por cada hora operativa (horas por día de trabajo × días de trabajo).',
   manual: 'Monto mensual de estructura que definís a mano.',
 });
 
@@ -112,7 +112,7 @@ function structureTrace(result) {
     percent_labor: 'Estructura = % × costo de mano de obra',
     per_employee: 'Estructura = monto por empleado × dotación (una persona compartida cuenta por el % asignado)',
     per_contract: 'Estructura = monto mensual del contrato',
-    per_hour: 'Estructura = monto por hora × horas por día activo × días activos',
+    per_hour: 'Estructura = monto por hora × horas por día de trabajo × días de trabajo',
     manual: 'Estructura = monto mensual manual',
   }[method] || 'Estructura = monto mensual';
   const base = baseOf(result);

@@ -4,7 +4,7 @@
  * Reglas:
  *   - Se pagan sobre lo que se FACTURA (sin IVA), no sobre el costo: van dentro
  *     del divisor junto con el margen → precio = costo / (1 − m − t).
- *   - Tarifa piso = costo / (1 − t). Resultado = Facturación × (1 − t) − Costo.
+ *   - Tarifa mínima = costo / (1 − t). Resultado = Facturación × (1 − t) − Costo.
  *   - Margen = Resultado / Facturación; markup efectivo = m / (1 − m − t).
  *   - m + t ≥ 100 → no existe precio: nunca se usa otro margen en silencio.
  *   - Sin definir → t = 0 (los números no cambian) y `defined` false.

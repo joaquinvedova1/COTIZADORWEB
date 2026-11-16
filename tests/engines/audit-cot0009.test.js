@@ -42,7 +42,7 @@ describe('horas extra por tramos (HE 50 % / 100 % / otro)', () => {
     assert.equal(overtimeItemsOf({ overtimeHoursPerActiveDay: 0 }).length, 0);
   });
 
-  test('HE 50 % y HE 100 % por día activo: horas × valor hora × (1 + recargo) × cargas × posiciones', () => {
+  test('HE 50 % y HE 100 % por día de trabajo: horas × valor hora × (1 + recargo) × cargas × posiciones', () => {
     const r = computeLaborLine({ ...LINE, overtime: [
       { premiumPct: 50, hours: 2, basis: 'per_active_day' },
       { premiumPct: 100, hours: 1, basis: 'per_active_day' },

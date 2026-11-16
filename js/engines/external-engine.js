@@ -16,7 +16,7 @@
  *   global      fijo mensual = precio × cantidad / meses de contrato
  *
  *   facturado/llamado = max(unidades, mínimo) × precio × cantidad
- *   por día activo    = facturado/llamado / días por llamado
+ *   por día de trabajo    = facturado/llamado / días por llamado
  *
  * Tratamiento fiscal (lo define la empresa; RATEOS no trae alícuotas):
  *

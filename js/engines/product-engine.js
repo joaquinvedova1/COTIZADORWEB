@@ -33,7 +33,7 @@
  * neumáticos y tenencia en efectivo de las máquinas → proveedores; gastos fijos
  * → estructura. La amortización y el costo de capital no son salidas de caja:
  * no se financian. El impulsor variable es la unidad vendida (en servicios, el
- * día activo). Sin plazos ni tasa cargados, la financiación es 0 (nunca se
+ * día de trabajo). Sin plazos ni tasa cargados, la financiación es 0 (nunca se
  * inventan plazos).
  *
  * Precio (mismas reglas que las cotizaciones; margen ≠ markup, AGENTS.md §9):

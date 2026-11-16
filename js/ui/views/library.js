@@ -64,7 +64,7 @@ const TABS = Object.freeze([
     id: 'personal',
     label: 'Personal',
     type: 'laborProfiles',
-    addLabel: 'Agregar perfil',
+    addLabel: 'Agregar puesto',
     icon: 'resources',
     intro: 'Cada puesto con su sueldo, convenio y cargas, calculado por persona. Al sumar personal a una cotización se copian estos valores.',
     emptyTitle: 'Todavía no agregaste personal.',
@@ -141,7 +141,7 @@ const LOCATION_TYPES = Object.freeze([
 ]);
 
 // Recursos no tienen tipo de servicio: la activación se nombra "intervención" (PLAN-2026-014).
-const BASIS_SUFFIX = Object.freeze({ per_month: '/mes', per_active_day: '/día activo', per_activation: `/${activationTerms().one}` });
+const BASIS_SUFFIX = Object.freeze({ per_month: '/mes', per_active_day: '/día de trabajo', per_activation: `/${activationTerms().one}` });
 const RESOURCE_LABELS = activationFieldLabels(activationTerms());
 
 /** Pestañas con vista Simple / Detallada (Ubicaciones ya es una tabla corta). */
@@ -218,11 +218,11 @@ function laborTrace(profile, cost) {
       { label: 'No remunerativo (seguros, EPP, capacitación, traslado)', value: p.nonRemunerative, format: 'money' },
       { label: 'Factor de cargas', value: p.loadFactor, format: 'number' },
       { label: 'Costo hora cargado (costo mensual / horas normales)', value: p.loadedHourlyCost, format: 'rate' },
-      { label: 'Variable por día activo (horas extra cargadas + vianda)', value: cost.perPosition.variablePerActiveDay, format: 'money' },
+      { label: 'Variable por día de trabajo (horas extra cargadas + vianda)', value: cost.perPosition.variablePerActiveDay, format: 'money' },
     ],
     result: { label: 'Costo mensual por persona', value: p.fixedMonthly, format: 'money' },
     notes: [
-      'La vianda y las horas extra no forman parte del costo mensual fijo: dentro de la cotización se suman por cada día activo.',
+      'La vianda y las horas extra no forman parte del costo mensual fijo: dentro de la cotización se suman por cada día de trabajo.',
       profile.illustrative ? 'Perfil con valores ILUSTRATIVOS: reemplazalos por los de tu convenio vigente.' : null,
     ],
   });
@@ -436,7 +436,7 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
         return triStateField({ label: field.label, value: typeof value === 'boolean' ? value : null, hint: field.hint, yesLabel: field.yesLabel, noLabel: field.noLabel, onChange: set });
       default: {
         const unit = typeof field.unit === 'function' ? field.unit(draft) : field.unit;
-        return numberField({ label: field.label, value: isFiniteNumber(value) ? value : null, rule: field.rule || 'money', unit: unit || null, hint: field.hint, required: field.required, placeholder: field.nullable ? 'Sin definir' : '', onChange: set });
+        return numberField({ label: field.label, value: isFiniteNumber(value) ? value : null, rule: field.rule || 'money', unit: unit || null, hint: field.hint, required: field.required, placeholder: field.placeholder || (field.nullable ? 'Sin definir' : ''), onChange: set });
       }
     }
   };
@@ -531,43 +531,36 @@ const illustrativeField = { key: 'illustrative', label: 'Valores ilustrativos (d
 
 // --------------------------------------------------------------- definición de pestañas
 
-function laborSections(agreements, app) {
+function laborSections(agreements, app, { profileCost = null } = {}) {
   const agreementOptions = agreements.map((a) => ({ value: a.id, label: a.name || labelOf(AGREEMENT_TYPES, a.code, 'Convenio') }));
+  const hasValue = (v) => isFiniteNumber(v) && v > 0;
   return [
     {
       title: 'Puesto',
       fields: [
-        { key: 'role', label: 'Rol / puesto', kind: 'text', required: true, placeholder: 'Ej.: Operador de hidrogrúa' },
+        { key: 'role', label: 'Rol / puesto', kind: 'text', required: true, placeholder: 'Ej.: Técnico HSE, operario, chofer' },
         { key: 'agreementId', label: 'Convenio', kind: 'select', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio' },
         { key: 'category', label: 'Categoría', kind: 'text', placeholder: 'Según tu convenio' },
       ],
     },
     {
-      // El sueldo y su fecha base van juntos: sin período, nadie sabe de cuándo es el valor.
-      title: 'Sueldo y base económica (por persona)',
-      hint: 'De qué mes es este sueldo (y el resto de los valores de este perfil). Cada cotización guarda una foto: si después lo actualizás, las cotizaciones hechas no cambian.',
+      // El sueldo y su fecha van juntos: sin el mes, nadie sabe de cuándo es el valor.
+      title: 'Sueldo (por persona, por mes)',
+      hint: 'Lo que le pagás por mes, sin cargas: RATEOS las suma abajo. Se carga una sola vez acá; en cada cotización sólo elegís el puesto y cuántas personas van.',
       cols: 4,
       fields: [
-        { key: 'basicMonthly', label: 'Sueldo básico mensual', rule: 'money', unit: '$', required: true },
-        ...baseFormFields('base', { periodLabel: 'Período base (mes del sueldo)' }),
+        { key: 'basicMonthly', label: 'Sueldo bruto mensual', rule: 'money', unit: '$', required: true, hint: 'El bruto de recibo.' },
+        { key: 'additionalsMonthly', label: 'Otros pagos fijos por mes', rule: 'money', unit: '$', hint: 'Zona, presentismo, títulos, etc. Si no hay: 0.' },
+        { key: 'mealPerActiveDay', label: 'Vianda o comida por día de trabajo', rule: 'money', unit: '$', hint: 'Por cada día que trabaja en un servicio. Si no le das: 0.' },
+        { ...baseFormFields('base', { periodLabel: '¿De qué mes es este sueldo?' })[0], hint: 'Así sabés si quedó viejo. Las cotizaciones ya hechas no cambian si después lo actualizás.' },
       ],
     },
     {
-      title: 'Adicionales y horas (por persona)',
-      fields: [
-        { key: 'additionalsMonthly', label: 'Adicionales mensuales', rule: 'money', unit: '$', hint: 'Zona, presentismo, títulos, etc.' },
-        { key: 'mealPerActiveDay', label: 'Vianda por día activo', rule: 'money', unit: '$' },
-        { key: 'normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h' },
-        { key: 'overtimeHoursPerActiveDay', label: 'Horas extra por día activo', rule: 'hoursPerDay', unit: 'h' },
-        { key: 'overtimePremiumPct', label: 'Recargo de horas extra', rule: 'percentOpen', unit: '%' },
-      ],
-    },
-    {
-      title: 'Cargas sobre la remuneración',
-      hint: 'Porcentajes de tu convenio vigente. RATEOS no trae valores legales: los parámetros de demostración son ILUSTRATIVOS.',
+      title: 'Cargas sociales (aguinaldo, vacaciones, aportes)',
+      hint: 'Porcentajes de tu convenio vigente, sobre el sueldo. RATEOS no trae valores legales: los de demostración son ILUSTRATIVOS.',
       cols: 4,
       fields: [
-        { key: 'sacPct', label: 'SAC', rule: 'percent', unit: '%' },
+        { key: 'sacPct', label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%' },
         { key: 'vacationPct', label: 'Vacaciones', rule: 'percent', unit: '%' },
         { key: 'employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%' },
         { key: 'artPct', label: 'ART', rule: 'percent', unit: '%' },
@@ -576,7 +569,7 @@ function laborSections(agreements, app) {
         h(
           'div',
           { class: 'form-section-actions' },
-          button('Aplicar parámetros del convenio', {
+          button('Usar los valores de mi convenio', {
             variant: 'secondary',
             size: 'sm',
             icon: 'check',
@@ -595,20 +588,52 @@ function laborSections(agreements, app) {
               app.toast(`Se aplicaron los parámetros de "${agreement.name}": horas normales, recargo de horas extra, SAC, vacaciones, cargas y ART.`, 'info');
             },
           }),
-          h('span', { class: 'muted small' }, 'Copia horas normales, recargo HE, SAC, vacaciones, cargas patronales y ART del convenio elegido.'),
+          h('span', { class: 'muted small' }, 'Copia horas normales, aguinaldo, vacaciones, cargas patronales y ART del convenio elegido arriba.'),
         ),
     },
     {
-      title: 'Otros costos por persona (mensuales)',
+      // PLAN-2026-026: el valor de la hora (normal, al 50 % y al 100 %) es de cada recurso.
+      title: 'Valor de la hora (normal, al 50 % y al 100 %)',
+      hint: 'Lo que te cuesta una hora de esta persona, con cargas. RATEOS lo calcula con el sueldo; si tu convenio paga otro valor, escribilo y se usa ése. Lo habitual: al 50 % los días de semana después del horario y el sábado a la mañana; al 100 % el sábado a la tarde, domingos y feriados (depende de cada convenio).',
+      cols: 3,
+      fields: [
+        { key: 'normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h', hint: 'Las horas que trabaja en un mes normal (por ejemplo 176 = 8 h × 22 días). Con esto sale el valor de la hora.' },
+        { key: 'overtimeRate50', label: 'Hora al 50 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (abajo).' },
+        { key: 'overtimeRate100', label: 'Hora al 100 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (abajo).' },
+      ],
+      live: profileCost ? (draft) => {
+        const p = profileCost(draft).perPerson;
+        const cell = (label, value, note) => h('div', { class: 'hour-rate' }, h('span', { class: 'hour-rate-label' }, label), h('strong', { class: 'hour-rate-value' }, value > 0 ? formatMoney(value) : EMPTY), h('span', { class: 'hour-rate-note' }, note));
+        // Un valor propio más bajo que la hora normal casi siempre es la hora "de bolsillo" del convenio, sin cargas.
+        const low = (own, value) => own && p.loadedHourlyCost > 0 && value < p.loadedHourlyCost - 0.005;
+        const note = (own, value, calc) => (low(own, value) ? 'Ojo: es menor que la hora normal. Cargá el costo con cargas sociales, no la hora del recibo.' : own ? 'Valor que cargaste' : calc);
+        return h('div', { class: 'hour-rates' },
+          cell('Hora normal', p.loadedHourlyCost, 'Costo del mes ÷ horas normales'),
+          cell('Hora al 50 %', p.overtimeHourlyCost50, note(p.overtimeRate50Own, p.overtimeHourlyCost50, 'Calculada: hora de sueldo × 1,5, con cargas')),
+          cell('Hora al 100 %', p.overtimeHourlyCost100, note(p.overtimeRate100Own, p.overtimeHourlyCost100, 'Calculada: hora de sueldo × 2, con cargas')));
+      } : null,
+    },
+    {
+      title: 'Más detalle (opcional)',
+      collapsible: true,
+      key: 'labor-more',
+      summary: (draft) => {
+        const others = toNumber(draft.insuranceMonthly, 0) + toNumber(draft.ppeMonthly, 0) + toNumber(draft.trainingMonthly, 0) + toNumber(draft.transferMonthly, 0);
+        return `Seguros, ropa, capacitación y traslado: ${formatMoney(others)} por mes.`;
+      },
       cols: 4,
       fields: [
-        { key: 'insuranceMonthly', label: 'Seguros', rule: 'money', unit: '$' },
-        { key: 'ppeMonthly', label: 'EPP', rule: 'money', unit: '$' },
-        { key: 'trainingMonthly', label: 'Capacitación', rule: 'money', unit: '$' },
-        { key: 'transferMonthly', label: 'Traslado', rule: 'money', unit: '$' },
+        { key: 'insuranceMonthly', label: 'Seguros', rule: 'money', unit: '$/mes' },
+        { key: 'ppeMonthly', label: 'Ropa y elementos de protección', rule: 'money', unit: '$/mes' },
+        { key: 'trainingMonthly', label: 'Capacitación', rule: 'money', unit: '$/mes' },
+        { key: 'transferMonthly', label: 'Traslado', rule: 'money', unit: '$/mes' },
+        ...baseFormFields('base').slice(1),
+        // Datos de perfiles anteriores: se ven sólo si ya estaban cargados (las cantidades van en la cotización).
+        { key: 'overtimeHoursPerActiveDay', label: 'Horas extra por día de trabajo (cargado antes)', rule: 'hoursPerDay', unit: 'h', when: (d) => hasValue(d.overtimeHoursPerActiveDay), hint: 'Las horas extra ahora se cargan en cada cotización. Poné 0 para dejar de sumarlas en las cotizaciones nuevas.' },
+        { key: 'overtimePremiumPct', label: 'Recargo de esas horas extra', rule: 'percentOpen', unit: '%', when: (d) => hasValue(d.overtimeHoursPerActiveDay) },
+        illustrativeField,
       ],
     },
-    { title: 'Marca', cols: 2, fields: [illustrativeField] },
   ];
 }
 
@@ -625,6 +650,8 @@ function newLaborProfile(agreements) {
     normalHoursPerMonth: params.normalHoursPerMonth,
     overtimeHoursPerActiveDay: 0,
     overtimePremiumPct: params.overtimePremiumPct,
+    overtimeRate50: null,
+    overtimeRate100: null,
     sacPct: params.sacPct,
     vacationPct: params.vacationPct,
     employerContributionsPct: params.employerContributionsPct,
@@ -1223,17 +1250,17 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       case 'laborProfiles': {
         const agreements = list('agreements');
         openResourceForm(app, {
-          title: isNew ? 'Nuevo perfil de personal' : `Editar perfil — ${item.role || ''}`,
+          title: isNew ? 'Nuevo puesto' : `Editar puesto — ${item.role || ''}`,
           initial: isNew ? newLaborProfile(agreements) : item,
-          sections: laborSections(agreements, app),
+          sections: laborSections(agreements, app, { profileCost: (d) => ctx.resources.laborProfileCost(d) }),
           preview: (draft) => {
             const cost = ctx.resources.laborProfileCost(draft);
             return previewKpis(
               [
-                { label: 'Costo mensual por persona', value: formatMoney(cost.perPerson.fixedMonthly), emphasis: true },
-                { label: 'Costo hora cargado', value: formatValue(cost.perPerson.loadedHourlyCost, 'rate') },
-                { label: 'Factor de cargas', value: factorText(cost.perPerson.loadFactor) },
-                { label: 'Variable por día activo', value: formatMoney(cost.perPosition.variablePerActiveDay), hint: 'Horas extra cargadas + vianda' },
+                { label: 'Te cuesta por mes (con cargas)', value: formatMoney(cost.perPerson.fixedMonthly), emphasis: true },
+                { label: 'Hora normal', value: formatMoney(cost.perPerson.loadedHourlyCost) },
+                { label: 'Hora al 50\u00a0%', value: formatMoney(cost.perPerson.overtimeHourlyCost50) },
+                { label: 'Hora al 100\u00a0%', value: formatMoney(cost.perPerson.overtimeHourlyCost100) },
               ],
               laborTrace(draft, cost),
             );
@@ -1408,7 +1435,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         columns: [
           { key: 'role', label: 'Puesto', render: ({ item }) => nameCell(item.role, item.category, item.illustrative) },
           laborBaseColumn,
-          { key: 'hourly', label: 'Costo por hora', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
+          { key: 'hourly', label: 'Hora normal', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
+          { key: 'h50', label: 'Hora al 50\u00a0%', align: 'right', render: ({ cost }) => rate(cost.perPerson.overtimeHourlyCost50) },
+          { key: 'h100', label: 'Hora al 100\u00a0%', align: 'right', render: ({ cost }) => rate(cost.perPerson.overtimeHourlyCost100) },
           { key: 'monthly', label: 'Costo por mes (por persona)', align: 'right', render: ({ item, cost }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(cost.perPerson.fixedMonthly)), laborTrace(item, cost)) },
           usageColumn('laborProfiles'),
           actions,

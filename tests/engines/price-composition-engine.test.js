@@ -119,7 +119,7 @@ describe('Composición del precio — pérdida, sin tarifa y sin facturación', 
     assert.deepEqual(c.rows, []);
   });
 
-  test('0 días activos con tarifa → sin facturación, no disponible', () => {
+  test('0 días de trabajo con tarifa → sin facturación, no disponible', () => {
     const c = priceComposition(computeQuote(onCall({ rate: 4000000, D: 0 })));
     assert.equal(c.available, false);
   });

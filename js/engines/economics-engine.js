@@ -1,9 +1,9 @@
 /**
  * EconomicsEngine — une costos (CostEngine) y facturación
- * (CommercialRulesEngine) para evaluar el servicio con D días activos.
+ * (CommercialRulesEngine) para evaluar el servicio con D días de trabajo.
  *
  * Es la "economía del servicio": costos fijos mensuales + costos variables
- * por día activo, contra la facturación del mes. Los impuestos sobre la
+ * por día de trabajo, contra la facturación del mes. Los impuestos sobre la
  * facturación (t) se descuentan de lo facturado:
  *
  *   Resultado = Facturación − t × Facturación − Costo
@@ -70,7 +70,7 @@ export function createEconomicsContext(quote, model, { referenceHourPrice = null
 
 /**
  * Materiales facturados aparte (PLAN-2026-009): lo que se cobra por ellos,
- * fijo del mes y por día activo, con el recargo de reventa de cada línea.
+ * fijo del mes y por día de trabajo, con el recargo de reventa de cada línea.
  * Por línea (tanda A 2026-11, A-8): `billedSeparately` true / false / sin
  * definir (= el tilde global `pricing.materialsBilledSeparately`). Sólo suman
  * las líneas que se facturan aparte. También devuelve su COSTO (fijo y por
@@ -96,7 +96,7 @@ export function materialsResaleOf(quote = {}, model = null) {
   }, { fixedMonthly: 0, perActiveDay: 0, costFixedMonthly: 0, costPerActiveDay: 0, lines: 0 });
 }
 
-/** Horas extra facturadas aparte (PLAN-2026-010): fijo del mes y por día activo; null si ninguna línea las factura. */
+/** Horas extra facturadas aparte (PLAN-2026-010): fijo del mes y por día de trabajo; null si ninguna línea las factura. */
 export function overtimeBillingOf(model = null) {
   const lines = model && model.labor && Array.isArray(model.labor.lines) ? model.labor.lines : [];
   const billed = lines.filter((l) => l && l.overtimeBilling);
@@ -128,7 +128,7 @@ export function revenueAt(ctx, activeDays, listRate, { tierOverride = null, neut
   });
 }
 
-/** Evalúa el mes con D días activos y una tarifa de lista. */
+/** Evalúa el mes con D días de trabajo y una tarifa de lista. */
 export function evaluateAt(ctx, activeDays, listRate, options = {}) {
   const D = nonNegative(activeDays);
   const cost = costAtActivity(ctx.model, D);
@@ -199,7 +199,7 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
     tier,
     billingTaxPct: t,
     floorRequiredRevenue: floor.requiredRevenue,
-    // Markup de la tarifa piso: sólo los impuestos sobre la facturación (t / (1 − t)).
+    // Markup de la tarifa mínima: sólo los impuestos sobre la facturación (t / (1 − t)).
     floorMarkupPct: markupWithTaxesPct(0, t),
     floorNetRate: floor.rate,
     floorListRate: listRateFromNet(floor.rate, factor),
@@ -209,7 +209,7 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
 }
 
 /**
- * Descomposición lineal: ingresos fijos y contribución por día activo.
+ * Descomposición lineal: ingresos fijos y contribución por día de trabajo.
  * Sirve para explicar el break-even (exacta si no hay mínimo garantizado
  * ni cambios de tramo de descuento). Con impuestos sobre la facturación (t),
  * cada peso facturado deja (1 − t):
@@ -228,7 +228,7 @@ export function linearDecomposition(ctx, listRate, referenceDays) {
   const variableCostPerDay = ctx.model.variablePerActiveDay;
   const contributionPerDay = revenuePerActiveDay * keep - variableCostPerDay;
   const netRatePerActiveDay = r1.components.base / D;
-  // Unidades facturables por día activo (para expresar el equilibrio en la unidad comercial).
+  // Unidades facturables por día de trabajo (para expresar el equilibrio en la unidad comercial).
   const unitsPerActiveDay = r1.billableUnits / D;
   return {
     unitsPerActiveDay,

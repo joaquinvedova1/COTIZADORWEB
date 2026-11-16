@@ -11,7 +11,7 @@
  *   costo/activación = Σ combustible + Σ desgaste + peajes + alojamiento/viáticos
  *   activaciones/mes = díasActivos / díasPorActivación
  *   costo mensual    = costo/activación × activaciones/mes
- *   por día activo   = costo/activación / díasPorActivación
+ *   por día de trabajo   = costo/activación / díasPorActivación
  */
 
 import { objectList } from '../core/object.js';

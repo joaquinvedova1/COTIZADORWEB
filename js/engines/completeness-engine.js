@@ -45,7 +45,7 @@ import { normalizeRules } from './commercial-rules-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay, availabilityHoursOf } from './cost-engine.js';
 import { outputPerActiveDayOf, outputMatchesBilling, normalizeBasisId } from './materials-engine.js';
 import { routeTrips } from './transport-engine.js';
-import { overtimeItemsOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
+import { overtimeItemsOf, resourceOvertimeHoursOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
@@ -130,7 +130,7 @@ export function activeGuardCoverage(quote = {}) {
  * horas extra). Un puesto que cubre sólo un turno ("Horas por día que cubre este puesto" o las
  * horas por turno del diagrama) cubre esas horas de la guardia, no las 24. Sin horas normales
  * o sin posiciones → null. Nunca cambia el costo.
- * @param {number} [activeDays] días con trabajo (para las horas extra por día activo)
+ * @param {number} [activeDays] días con trabajo (para las horas extra por día de trabajo)
  */
 export function activeGuardLineCheck(guard, l = {}, activeDays = 0) {
   const normal = nonNegative(l.normalHoursPerMonth);
@@ -142,7 +142,7 @@ export function activeGuardLineCheck(guard, l = {}, activeDays = 0) {
   const required = guard.days * hours;
   const ppp = laborPeoplePerPositionOf(l);
   const items = overtimeItemsOf(l);
-  const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
+  const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0) + resourceOvertimeHoursOf(l);
   const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
   const extra = ppp * perMonth + perDay * nonNegative(activeDays);
   const covered = ppp * normal + extra;
@@ -264,7 +264,7 @@ export function evaluateCompleteness(quote = {}) {
     const ok = daysOk && !hoursMissing;
     const item = rule('utilization', isOnCall ? 'Días de trabajo por mes' : 'Actividad estimada', 'modality', 2,
       ok ? 'ok' : 'missing',
-      ok ? 'Días activos estimados por mes definidos.' : !daysOk ? '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando? Falta ese dato.' : hoursMessage);
+      ok ? 'Días de trabajo estimados por mes definidos.' : !daysOk ? '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando? Falta ese dato.' : hoursMessage);
     if (!ok) item.focus = !daysOk ? 'activity.activeDaysPerMonth' : 'activity.hoursPerActiveDay';
     items.push(item);
   } else if (hoursMissing) {
@@ -400,7 +400,7 @@ export function evaluateCompleteness(quote = {}) {
       const ppp = laborPeoplePerPositionOf(l);
       const items = overtimeItemsOf(l);
       const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
-      const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
+      const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0) + resourceOvertimeHoursOf(l);
       const required = D * hours;
       const covered = (ppp * normal + perMonth * ppp) * mf + perDay * D;
       return required > covered + 1e-6 ? { l, index, ppp, normal, hours, own: hours !== H, extra: perMonth * ppp * mf + perDay * D, required, covered } : null;
@@ -841,7 +841,7 @@ export function evaluateCompleteness(quote = {}) {
     const inherits = isBlank(first.hoursPerActiveDay);
     const names = hourless.slice(0, 3).map((x) => `"${lineName(x, 'Externo')}"`).join(', ');
     const item = rule('external_hours', 'Horas del proveedor', inherits ? 'modality' : 'equipment', 2, 'missing',
-      `Falta cuántas horas por día trabaja ${names} (tarifa por hora): sin horas no suma costo. ${inherits ? `Cargá "${activityHoursLabel}" en "Cómo se cobra" o sus "Horas de uso por día activo" en "Equipos".` : 'Cargá sus "Horas de uso por día activo" en "Equipos".'}`);
+      `Falta cuántas horas por día trabaja ${names} (tarifa por hora): sin horas no suma costo. ${inherits ? `Cargá "${activityHoursLabel}" en "Cómo se cobra" o sus "Horas de uso por día de trabajo" en "Equipos".` : 'Cargá sus "Horas de uso por día de trabajo" en "Equipos".'}`);
     item.focus = inherits ? 'activity.hoursPerActiveDay' : `equipment.${equipment.indexOf(first)}.hoursPerActiveDay`;
     item.targets = hourless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
     items.push(item);
@@ -1079,7 +1079,7 @@ export function evaluateCompleteness(quote = {}) {
         ? 'Elegiste no incluir impuestos sobre la facturación en esta cotización.'
         : taxes.defined
           ? 'Impuestos sobre la facturación definidos.'
-          : 'Sin definir: la tarifa piso no incluye los impuestos que pagás sobre lo que facturás (Ingresos Brutos, impuesto al cheque, sellos). Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".'));
+          : 'Sin definir: la tarifa mínima no incluye los impuestos que pagás sobre lo que facturás (Ingresos Brutos, impuesto al cheque, sellos). Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".'));
 
   // 13 bis. Abono mensual + "Abono de disponibilidad" (ECO-01, H-02): con la tarifa en $/mes los
   // dos son cargos fijos del mismo mes y se SUMAN: el mismo abono cargado dos veces muestra

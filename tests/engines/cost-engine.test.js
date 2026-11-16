@@ -3,7 +3,7 @@
  *
  * Reglas (Prompt 1 "Lógica central", "Costos indirectos", "Riesgo y contingencia",
  * "Estructura de costos — EECC"; Prompt 3 "Motor on-call", "Estructura de costos"):
- *   Costo(D) = Fijos mensuales × factorMeses(D) + Variable por día activo × D
+ *   Costo(D) = Fijos mensuales × factorMeses(D) + Variable por día de trabajo × D
  *   Los costos FIJOS existen aunque no haya actividad; los VARIABLES crecen con los días.
  *   factorMeses(D) = max(1, D / días disponibles) (prorrateo si D supera el mes).
  *   Orden: directos → estructura (absorción) → financiero (sólo efectivo) → contingencia.
@@ -70,7 +70,7 @@ describe('CostEngine — actividad normalizada', () => {
     assert.equal(a.daysPerActivation, 1);
   });
 
-  test('activaciones por mes = días activos / días por activación (8 / 2 = 4)', () => {
+  test('activaciones por mes = días de trabajo / días por activación (8 / 2 = 4)', () => {
     const a = normalizeActivity({ activity: { activeDaysPerMonth: 8, daysPerActivation: 2, availableDaysPerMonth: 30 } });
     approx(a.activationsPerMonth, 4);
   });
@@ -85,12 +85,12 @@ describe('CostEngine — actividad normalizada', () => {
 describe('CostEngine — costos fijos y variables', () => {
   const model = buildCostModel(referenceQuote());
 
-  test('caso de referencia: fijos 30.000.000/mes y variable 1.000.000 por día activo', () => {
+  test('caso de referencia: fijos 30.000.000/mes y variable 1.000.000 por día de trabajo', () => {
     approx(model.fixedMonthly, 30_000_000);
     approx(model.variablePerActiveDay, 1_000_000);
   });
 
-  test('costo con 8 días = 30M + 8 × 1M = 38.000.000 (4.750.000 por día activo)', () => {
+  test('costo con 8 días = 30M + 8 × 1M = 38.000.000 (4.750.000 por día de trabajo)', () => {
     const at = costAtActivity(model, 8);
     approx(at.fixed, 30_000_000);
     approx(at.variable, 8_000_000);
@@ -160,7 +160,7 @@ describe('CostEngine — estructura (costos indirectos) por método de absorció
     approx(buildCostModel(q).structure.fixedMonthly, 1_000_000);
   });
 
-  test('monto por hora: 10.000 × 10 horas por día activo = 100.000 por día', () => {
+  test('monto por hora: 10.000 × 10 horas por día de trabajo = 100.000 por día', () => {
     const q = blankQuote();
     q.indirect = { method: 'per_hour', pct: 0, amount: 10_000 };
     approx(buildCostModel(q).structure.variablePerActiveDay, 100_000);
@@ -241,7 +241,7 @@ describe('CostEngine — financiero y contingencia', () => {
 });
 
 describe('CostEngine — combustible, standby, logística y materiales', () => {
-  test('combustible de equipos: 10 L/h × 10 h × 1.500 $/L = 150.000 por día activo (categoría Combustible)', () => {
+  test('combustible de equipos: 10 L/h × 10 h × 1.500 $/L = 150.000 por día de trabajo (categoría Combustible)', () => {
     const q = blankQuote();
     q.fuel = { pricePerLiter: 1500, providedBy: 'contractor' };
     q.equipment = [{ id: 'e1', name: 'Generador', quantity: 1, hoursPerActiveDay: 10, fuelLitersPerHour: 10, maintenancePerHour: 2_000 }];
@@ -266,7 +266,7 @@ describe('CostEngine — combustible, standby, logística y materiales', () => {
     approx(m.byCategory.labor.fixedMonthly, 1_000_000 + 75_000);
   });
 
-  test('logística: el combustible de traslados va a Combustible y el desgaste a Logística (por día activo)', () => {
+  test('logística: el combustible de traslados va a Combustible y el desgaste a Logística (por día de trabajo)', () => {
     const q = blankQuote();
     q.activity.daysPerActivation = 2;
     q.fuel = { pricePerLiter: 1500, providedBy: 'contractor' };

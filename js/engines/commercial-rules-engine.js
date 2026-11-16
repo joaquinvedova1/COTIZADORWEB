@@ -14,7 +14,7 @@
  *     se facturan al menos N unidades a la tarifa neta del mes.
  *   - Fee de disponibilidad: monto mensual fijo por estar disponible.
  *
- * Facturación del mes con D días activos:
+ * Facturación del mes con D días de trabajo:
  *   activaciones     = D / díasPorActivación
  *   unidades         = activaciones × max(unidadesPorActivación, minimumCall)
  *   tarifaNeta       = tarifaLista × (1 − tramo%) × (1 − continuidad%) × (1 − descuentoComercial%)
@@ -122,7 +122,7 @@ export function unitHasDayTiers(unit) {
 }
 
 /**
- * Unidades facturables con D días activos (en la unidad comercial).
+ * Unidades facturables con D días de trabajo (en la unidad comercial).
  *   día       D días (con mínimo por llamado)
  *   hora      D × horas por día (con mínimo por llamado)
  *   mes       1 abono (o la parte de más de un mes)
@@ -167,7 +167,7 @@ export function discountFactor({ tierPct = 0, continuityPct = 0, commercialPct =
 }
 
 /**
- * Facturación mensual completa con D días activos.
+ * Facturación mensual completa con D días de trabajo.
  * @param {object} p
  * @param {number|null} p.listRate tarifa de lista por unidad (día, hora, mes, llamado, m³…)
  * @param {number} p.activeDays
@@ -323,7 +323,7 @@ export function requiredNetRate({ totalCost, marginPct = 0, billingTaxPct = 0, b
 
 /**
  * Mínimo por llamado al cambiar la unidad de la tarifa (mismo significado en
- * la otra unidad): día → hora × horas por día activo; hora → día ÷ horas.
+ * la otra unidad): día → hora × horas por día de trabajo; hora → día ÷ horas.
  * Con abono mensual no aplica (se conserva el número). null si no se puede
  * convertir (sin horas por día).
  */
@@ -345,12 +345,12 @@ export function listRateFromNet(netRate, factor) {
 }
 
 /**
- * Tarifa piso SIN contar los otros ingresos (testeo con especialistas, A-7, H-09).
+ * Tarifa mínima SIN contar los otros ingresos (testeo con especialistas, A-7, H-09).
  *
- * La tarifa piso descuenta lo que se factura aparte de la tarifa (adicionales,
+ * La tarifa mínima descuenta lo que se factura aparte de la tarifa (adicionales,
  * reventa de materiales, horas extra facturadas, abono de disponibilidad…): por
  * eso puede quedar por debajo del costo. Si esos ingresos no llegan, el piso real
- * es éste. No cambia la tarifa piso: es un dato más para mostrar al lado.
+ * es éste. No cambia la tarifa mínima: es un dato más para mostrar al lado.
  *
  *   pisoNeto = (Costo − costo cargado de los adicionales) / (1 − t) / unidades facturables · pisoLista = pisoNeto / factor de descuentos
  *

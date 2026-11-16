@@ -8,7 +8,7 @@
  *
  * Base de cálculo:
  *   por mes        → fijo mensual
- *   por día activo → variable por día
+ *   por día de trabajo → variable por día
  *   por activación → variable por día = costo / díasPorActivación
  *   por unidad producida (PLAN-2026-021; unificada con la "por unidad facturada" de la tanda B,
  *     PLAN-2026-022: "por válvula", "por PSV", "por m³"…)

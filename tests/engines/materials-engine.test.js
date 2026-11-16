@@ -5,7 +5,7 @@
  *   costo = cantidad × costo unitario × (1 + merma %) × (1 + logística %)
  *   Quién provee: cliente → NO es costo nuestro (costo 0, se lista igual);
  *                 contratista o tercero contratado por nosotros → es costo.
- *   Base de cálculo: por mes → fijo; por día activo → variable;
+ *   Base de cálculo: por mes → fijo; por día de trabajo → variable;
  *                    por activación → variable por día = costo / días por activación.
  *   Markup de reventa (opcional, informativo) = costo × (1 + markup %) — markup sobre costo.
  */
@@ -78,7 +78,7 @@ describe('MaterialsEngine — quién provee', () => {
 });
 
 describe('MaterialsEngine — base de cálculo', () => {
-  test('por día activo → costo variable por día', () => {
+  test('por día de trabajo → costo variable por día', () => {
     const r = computeMaterialLine(electrodes({ basis: 'per_active_day' }), { daysPerActivation: 2 });
     approx(r.variablePerActiveDay, GROSS);
     assert.equal(r.fixedMonthly, 0);
@@ -147,7 +147,7 @@ describe('MaterialsEngine — reventa, sumas y valores inválidos', () => {
 });
 
 describe('MaterialsEngine — otros costos directos (terceros, subcontratos, manuales)', () => {
-  test('fijo mensual, por día activo y por activación (/ días por activación)', () => {
+  test('fijo mensual, por día de trabajo y por activación (/ días por activación)', () => {
     approx(computeOtherCostLine({ amount: 30_000_000, behavior: 'fixed_monthly' }).fixedMonthly, 30_000_000);
     approx(computeOtherCostLine({ amount: 1_000_000, behavior: 'per_active_day' }).variablePerActiveDay, 1_000_000);
     approx(computeOtherCostLine({ amount: 400_000, behavior: 'per_activation' }, { daysPerActivation: 4 }).variablePerActiveDay, 100_000);

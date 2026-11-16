@@ -26,7 +26,7 @@ export const CONTINUOUS_SERVICE_TYPES = deepFreeze(['on_call', 'permanent']);
 
 export const PRICING_MODES = deepFreeze([
   { id: 'known_rate', label: 'Ya tengo la tarifa', hint: 'Ingresás la tarifa y RATEOS calcula cuánto tenés que facturar para no perder (días, m³, viajes…) y el resultado.' },
-  { id: 'known_activity', label: 'Calcular la tarifa', hint: 'Ingresás la actividad estimada y RATEOS calcula la tarifa piso y las tarifas con margen.' },
+  { id: 'known_activity', label: 'Calcular la tarifa', hint: 'Ingresás la actividad estimada y RATEOS calcula la tarifa mínima y las tarifas con margen.' },
 ]);
 
 export const RATE_UNITS = deepFreeze([
@@ -145,14 +145,14 @@ export const FUEL_PROVIDERS = deepFreeze([
 
 export const COST_BEHAVIORS = deepFreeze([
   { id: 'fixed_monthly', label: 'Fijo mensual' },
-  { id: 'per_active_day', label: 'Por día activo' },
+  { id: 'per_active_day', label: 'Por día de trabajo' },
   // En una cotización se nombra como su activación ("Por llamado", "Por salida"…: withActivationOptions, PLAN-2026-014).
   { id: 'per_activation', label: 'Por intervención (llamado o salida)' },
 ]);
 
 export const MATERIAL_BASES = deepFreeze([
   { id: 'per_month', label: 'Por mes' },
-  { id: 'per_active_day', label: 'Por día activo' },
+  { id: 'per_active_day', label: 'Por día de trabajo' },
   // En una cotización se nombra como su activación (withActivationOptions, PLAN-2026-014).
   { id: 'per_activation', label: 'Por intervención (llamado o salida)' },
 ]);

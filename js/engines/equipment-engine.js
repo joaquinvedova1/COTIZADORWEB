@@ -197,7 +197,7 @@ export function equipmentHoursPerDay(lineHours, defaultHours = 0) {
 /**
  * Línea de equipo dentro de una cotización.
  * Posesión → fijo mensual (× % asignado si se comparte, PLAN-2026-012);
- * operación → variable por día activo según el uso (no se reduce).
+ * operación → variable por día de trabajo según el uso (no se reduce).
  */
 export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPaidByUs = true, defaultHoursPerActiveDay = 0 } = {}) {
   const quantity = nonNegative(line.quantity);

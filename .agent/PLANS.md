@@ -1324,3 +1324,9 @@ Esquema sin cambio. Campos opcionales: `materials[].usagePct`, `otherCosts[].usa
 
 **Fuera de alcance:** régimen de feriados por convenio, tarifa fuera de horario de equipos alquilados, tarifa nocturna, repartir el % de dedicación entre varias cotizaciones a la vez.
 
+### PLAN-2026-026 — Recursos como dueños de los datos, horas extra por recurso y flujo más simple
+
+- **Pedido del dueño (2026-11-16):** al elegir un recurso existente la cotización no debe volver a pedir SAC, cargas ni valores de hora; la hora al 50 % y al 100 % es de cada recurso (convenio) y la cotización carga cantidades; fuera de horario se acumula cada persona con su sueldo; sacar "guardia / sin guardia"; lenguaje claro, menos ruido, lo necesario (*) separado de lo opcional; Resultado con una carilla de costo, margen y ganancia.
+- **Hecho:** motor (`labor-engine`, `out-of-hours-engine`: valores propios y horas por mes; sin cambios para cotizaciones existentes), snapshot de recursos, formulario de perfil en Recursos, pasos Personal / Equipos / Cómo se cobra / El servicio, Resultado, renombres de términos. Reglas en CALCULATION_RULES §27.
+- **Revisión:** UX y costos antes de publicar (subagentes). **No hecho (queda para otra tanda):** unificar los 10 desplegables de "Ver el detalle" en 4; simplificar "Otros gastos" a tres campos; guardar en Recursos un puesto cargado dentro de la cotización.
+

@@ -52,7 +52,7 @@ describe('mantenimiento: formas de carga', () => {
     assert.equal(maintenanceOf({ maintenanceMode: 'budget', maintenanceBudget: 1200 }).budgetPeriod, 'month', 'sin período = mensual');
   });
 
-  test('en una cotización: el presupuesto es fijo mensual (no depende de los días activos) y no suma por día', () => {
+  test('en una cotización: el presupuesto es fijo mensual (no depende de los días de trabajo) y no suma por día', () => {
     const base = { quantity: 1, hoursPerActiveDay: 8, replacementValue: 0 };
     const line = computeEquipmentLine({ ...base, maintenanceMode: 'budget', maintenanceBudget: 3000000 });
     assert.equal(line.fixedMonthly, 3000000);

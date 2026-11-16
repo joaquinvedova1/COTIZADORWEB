@@ -31,7 +31,7 @@
  *
  * Un externo con la movilización INCLUIDA en su tarifa no suma nada acá.
  *
- *   por día activo = costo por llamado / días por llamado
+ *   por día de trabajo = costo por llamado / días por llamado
  */
 
 import { nonNegative, safeDivide } from '../core/money.js';

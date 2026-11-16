@@ -803,3 +803,8 @@
 @media (max-width: 900px) { .qe-person-rates .qe-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .qe-stage-label { overflow-wrap: normal; }
 @media (max-width: 520px) { .qe-person-rates .qe-stat .qe-stat-value, .qe-ooh-row .qe-stat .qe-stat-value { font-size: 0.95rem; overflow-wrap: normal; white-space: nowrap; } .qe-person-rates { padding: 0.7rem 0.6rem; } }
+
+/* PLAN-2026-026 · "Lo necesario" / "Opcional" dentro de un paso */
+.qe-section-label { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; margin: 1.1rem 0 0.1rem; padding-bottom: 0.35rem; border-bottom: 2px solid var(--line); }
+.qe-section-label-title { font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--navy-900); }
+.qe-section-label-text { font-size: 0.82rem; color: var(--ink-3); }
