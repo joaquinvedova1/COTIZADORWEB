@@ -43,7 +43,7 @@ import { computeEquipmentLine } from './equipment-engine.js';
 import { proposeServiceShares, staleDedicationOf, staleDedicationMessage } from './utilization-engine.js';
 import { normalizeRules } from './commercial-rules-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay, availabilityHoursOf } from './cost-engine.js';
-import { outputPerActiveDayOf, normalizeBasisId } from './materials-engine.js';
+import { outputPerActiveDayOf, outputMatchesBilling, normalizeBasisId } from './materials-engine.js';
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
@@ -606,11 +606,42 @@ export function evaluateCompleteness(quote = {}) {
       && nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0 && !(outputPerActiveDayOf(m, autoOut, unit) > 0));
     if (noOutput.length) {
       const first = noOutput[0];
+      // V-07: si la línea produce en la unidad de cobro, el rendimiento se carga una sola vez, en "Cómo se cobra".
+      const followsBilling = unit.kind === 'quantity' && outputMatchesBilling(first.m, unit);
       const out = rule('materials_output', 'Producción por día', 'materials', 2, 'missing',
-        `"${(typeof first.m.description === 'string' && first.m.description.trim()) || 'Material'}" se consume por unidad producida y falta cuántas se producen por día de trabajo: hasta cargarlo no suma costo.`);
-      out.focus = `materials.${first.index}.outputPerActiveDay`;
+        `"${(typeof first.m.description === 'string' && first.m.description.trim()) || 'Material'}" se consume por unidad producida y falta cuántas se producen por día de trabajo: ${followsBilling ? 'cargalo en "Cómo se cobra".' : 'hasta cargarlo no suma costo.'}`);
+      out.focus = followsBilling ? 'activity.unitsPerActiveDay' : `materials.${first.index}.outputPerActiveDay`;
       out.targets = noOutput.map(({ m, index }) => ({ list: 'materials', index, name: m.description || 'Material' }));
       items.push(out);
+    }
+    // V-07: insumos "por unidad producida" con el rendimiento pedido dos veces o contando 1 por día sin decirlo.
+    const outputLines = materials.map((m, index) => ({ m, index })).filter(({ m }) => normalizeBasisId(m.basis) === 'per_output' && paidByUs(m)
+      && nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0);
+    const nameOf = (m) => (typeof m.description === 'string' && m.description.trim()) || 'Material';
+    const fmtOut = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+    const billedPerDay = nonNegative(activity.unitsPerActiveDay);
+    const mismatch = unit.kind === 'quantity' && billedPerDay > 0
+      ? outputLines.filter(({ m }) => nonNegative(m.outputPerActiveDay) > 0 && outputMatchesBilling(m, unit)
+        && Math.abs(nonNegative(m.outputPerActiveDay) - billedPerDay) > 1e-9)
+      : [];
+    if (mismatch.length) {
+      const first = mismatch[0];
+      const item = rule('materials_output_mismatch', 'Producción por día', 'materials', 1, 'warning',
+        `"${nameOf(first.m)}" usa ${fmtOut(nonNegative(first.m.outputPerActiveDay))} ${unit.plural} por día y en "Cómo se cobra" cargaste ${fmtOut(billedPerDay)}. Dejá un solo número: borrá el de acá para que siga al otro.`);
+      item.focus = `materials.${first.index}.outputPerActiveDay`;
+      item.targets = mismatch.map(({ m, index }) => ({ list: 'materials', index, name: m.description || 'Material' }));
+      items.push(item);
+    }
+    const noUnit = unit.kind === 'day' || unit.kind === 'hour'
+      ? outputLines.filter(({ m }) => !String(m.outputUnit || '').trim() && !(nonNegative(m.outputPerActiveDay) > 0))
+      : [];
+    if (noUnit.length && autoOut > 0) {
+      const first = noUnit[0];
+      const item = rule('materials_output_unit', 'Unidad producida', 'materials', 1, 'warning',
+        `"${nameOf(first.m)}" está por unidad producida y cobrás por ${unit.kind === 'day' ? 'día' : 'hora'}: se cuenta ${fmtOut(autoOut)} por día. Si es por hectárea, válvula o metro, escribí la unidad y cuántas hacés por día.`);
+      item.focus = `materials.${first.index}.outputUnit`;
+      item.targets = noUnit.map(({ m, index }) => ({ list: 'materials', index, name: m.description || 'Material' }));
+      items.push(item);
     }
   }
 

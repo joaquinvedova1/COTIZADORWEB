@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { evaluateCompleteness, COMPLETENESS_RISK_THRESHOLD } from '../../js/engines/completeness-engine.js';
 import { demoHydroCraneQuote } from '../../js/domain/demo-data.js';
 import { createEmptyQuote } from '../../js/domain/quote-factory.js';
-import { service, person, owned, external, resetIds } from '../lab/lib/build.js';
+import { service, person, owned, external, material, resetIds } from '../lab/lib/build.js';
 
 const EPS = 1e-6;
 
@@ -429,5 +429,61 @@ describe('V-06 · Vehículo propio sin seguro ni patente (equipment_insurance)',
     const a = evaluateCompleteness(quoteWith([owned({ name: 'Pickup', mobilization: self })]));
     const b = evaluateCompleteness(quoteWith([owned({ name: 'Pickup', mobilization: self, insuranceAnnual: 1 })]));
     assert.ok(a.scorePct < b.scorePct);
+  });
+});
+
+describe('V-07 · Insumos "por unidad producida" (materials_output_mismatch, materials_output_unit)', () => {
+  const herbicide = (o = {}) => material({ description: 'Herbicida', basis: 'per_output', quantity: 2, unitCost: 30_000, ...o });
+  const byHectare = (perDay, line) => {
+    resetIds();
+    return service({ unit: 'custom', unitName: 'hectárea', activity: { billableQuantityPerMonth: 60, unitsPerActiveDay: perDay, hoursPerActiveDay: 8 }, labor: [person()], materials: [line] });
+  };
+  const byTime = (unit, line) => {
+    resetIds();
+    return service({ unit, activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()], materials: [line] });
+  };
+  const find = (q, id) => evaluateCompleteness(q).items.find((i) => i.id === id);
+
+  test('4 hectáreas por día en la línea y 6 en "Cómo se cobra": avisa y lleva al campo de la línea', () => {
+    const i = find(byHectare(6, herbicide({ outputPerActiveDay: 4 })), 'materials_output_mismatch');
+    assert.ok(i);
+    assert.equal(i.status, 'warning');
+    assert.equal(i.step, 'materials');
+    assert.equal(i.focus, 'materials.0.outputPerActiveDay');
+    assert.equal(i.message, '"Herbicida" usa 4 hectáreas por día y en "Cómo se cobra" cargaste 6. Dejá un solo número: borrá el de acá para que siga al otro.');
+  });
+
+  test('no avisa con la línea vacía, con el mismo número ni con otra unidad producida', () => {
+    assert.equal(find(byHectare(6, herbicide()), 'materials_output_mismatch'), undefined);
+    assert.equal(find(byHectare(6, herbicide({ outputPerActiveDay: 6 })), 'materials_output_mismatch'), undefined);
+    assert.equal(find(byHectare(6, herbicide({ outputUnit: 'm²', outputPerActiveDay: 4 })), 'materials_output_mismatch'), undefined);
+    assert.equal(find(byHectare(6, herbicide()), 'materials_output_unit'), undefined);
+  });
+
+  test('cobrando por día sin unidad escrita: avisa que cuenta 1 por día; por hora, las horas por día', () => {
+    const d = find(byTime('day', herbicide()), 'materials_output_unit');
+    assert.ok(d);
+    assert.equal(d.status, 'warning');
+    assert.equal(d.focus, 'materials.0.outputUnit');
+    assert.equal(d.message, '"Herbicida" está por unidad producida y cobrás por día: se cuenta 1 por día. Si es por hectárea, válvula o metro, escribí la unidad y cuántas hacés por día.');
+    const h = find(byTime('hour', herbicide()), 'materials_output_unit');
+    assert.match(h.message, /cobrás por hora: se cuenta 8 por día/);
+  });
+
+  test('no avisa con unidad o rendimiento escritos, ni para otra base o un insumo del cliente', () => {
+    assert.equal(find(byTime('day', herbicide({ outputUnit: 'hectárea', outputPerActiveDay: 4 })), 'materials_output_unit'), undefined);
+    assert.equal(find(byTime('day', herbicide({ outputPerActiveDay: 4 })), 'materials_output_unit'), undefined);
+    assert.equal(find(byTime('day', herbicide({ basis: 'per_active_day' })), 'materials_output_unit'), undefined);
+    assert.equal(find(byTime('day', herbicide({ providedBy: 'client' })), 'materials_output_unit'), undefined);
+  });
+
+  test('falta la producción y la línea sigue a la unidad de cobro: el pendiente lleva a "Cómo se cobra"', () => {
+    const i = find(byHectare(null, herbicide()), 'materials_output');
+    assert.ok(i);
+    assert.equal(i.focus, 'activity.unitsPerActiveDay');
+    assert.match(i.message, /cargalo en "Cómo se cobra"\.$/);
+    const other = find(byHectare(6, herbicide({ outputUnit: 'm²' })), 'materials_output');
+    assert.equal(other.focus, 'materials.0.outputPerActiveDay');
+    assert.match(other.message, /hasta cargarlo no suma costo\.$/);
   });
 });

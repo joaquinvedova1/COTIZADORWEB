@@ -59,6 +59,19 @@ export function outputPluralOf(line = {}, quote = {}) {
   return u.kind !== 'month' ? u.plural : 'unidades';
 }
 
+/** ¿Se cobra por día o por hora? (V-07: ahí "unidad producida" vacía no es una unidad de producción). */
+const billsByTime = (quote) => ['day', 'hour'].includes(billingUnitOf(quote).kind);
+
+/**
+ * Rótulo de "Producción por día" de una línea (V-07): cobrando por día o por hora sin unidad
+ * escrita, "unidades/día" (nunca "día/día" ni "hora/día").
+ */
+export function outputPerDayUnitLabel(line = {}, quote = {}) {
+  const own = String((line && line.outputUnit) || '').trim();
+  if (!own && billsByTime(quote)) return 'unidades/día';
+  return `${outputUnitOf(line, quote)}/día`;
+}
+
 /** ¿La cotización ya sabe cuánto se produce por día? (toda unidad de cobro salvo el abono mensual). */
 const autoOutputKnown = (quote) => billingUnitOf(quote).kind !== 'month';
 /** Valor del selector de unidad para "Otra / personalizada". */
@@ -248,14 +261,16 @@ export function render(container, ctx) {
             label: 'Unidad producida',
             maxLength: 30,
             placeholder: autoOutputKnown(quote) ? '' : 'Ej.: m², m³, pozo',
-            hint: autoOutputKnown(quote)
-              ? `Lo que producís: m² pintado, m³ tratado, pieza inspeccionada… Vacío = ${billingUnitOf(quote).singular}, la unidad en que cobrás.`
-              : 'Lo que producís: m² pintado, m³ tratado, pieza inspeccionada…',
+            hint: billsByTime(quote)
+              ? 'Escribí qué producís (hectárea, válvula, m²). Si después cobrás en esa unidad, el rendimiento se carga una sola vez, en "Cómo se cobra".'
+              : autoOutputKnown(quote)
+                ? `Lo que producís: m² pintado, m³ tratado, pieza inspeccionada… Vacío = ${billingUnitOf(quote).singular}, la unidad en que cobrás.`
+                : 'Lo que producís: m² pintado, m³ tratado, pieza inspeccionada…',
           }),
           kit.num(`${p}.outputPerActiveDay`, {
             label: 'Producción por día',
             rule: 'quantity',
-            unit: kit.out(() => `${outputUnitOf(quote.materials[i], quote)}/día`),
+            unit: kit.out(() => outputPerDayUnitLabel(quote.materials[i], quote)),
             hint: autoOutputKnown(quote)
               ? 'Vacío = lo que cargaste en "Cómo se cobra". Cargalo si esta unidad es otra.'
               : 'Cuántas producís en un día de trabajo: con eso se calcula el consumo del mes.',
