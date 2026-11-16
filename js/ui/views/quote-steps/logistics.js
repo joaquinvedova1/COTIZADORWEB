@@ -52,6 +52,18 @@ export function routeConsumptionNote(line = {}) {
   return null;
 }
 
+/**
+ * Nota bajo los peajes (V-31): cobrando por viaje con más de un viaje por activación, los
+ * peajes se cargan una vez por activación y cubren todos sus viajes. '' si no aplica.
+ * @param {number} tripsPerActivation viajes físicos por activación (del motor)
+ * @param {ReturnType<typeof activationTerms>} T
+ */
+export function tollsNote(tripsPerActivation, T) {
+  const n = Number(tripsPerActivation);
+  if (!Number.isFinite(n) || !(n > 1 + 1e-9)) return '';
+  return `Son los peajes de los ${formatNumber(n, { decimals: 2 })} viajes ${T.feminine ? 'de la' : 'del'} ${T.one}.`;
+}
+
 const WARNING_TEXT = Object.freeze({
   travel_consumption: 'Falta el consumo en ruta (L/100 km): el combustible del traslado queda en 0.',
   carrier_missing: 'Elegí qué equipo lo transporta (de los cargados en Equipos).',
@@ -632,6 +644,13 @@ export function render(container, ctx) {
         2,
         kit.num('logistics.tollsPerActivation', { label: L.tollsPerActivation, rule: 'money', unit: '$', illustrative }),
       ),
+      // V-31: con la unidad "viaje", los peajes siguen a la activación, no a cada viaje.
+      tripUnit
+        ? kit.out((r) => {
+          const t = transportOf(r);
+          return t ? tollsNote(t.physicalTripsPerActivation, T) : '';
+        }, { tag: 'p', className: 'qe-note', allowEmpty: true })
+        : null,
     );
 
   // Comidas: se cargan una sola vez, en cada puesto de Personal (vianda por día). Acá sólo se avisa.

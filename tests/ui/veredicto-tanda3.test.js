@@ -11,11 +11,12 @@ import { baseOf } from '../../js/ui/views/quote-steps/indirect.js';
 import { resourceCostText, outOfHoursNoteText, outOfHoursHoursNote, outOfHoursCostLabel, outOfHoursCostHint, ownEquipmentTravels } from '../../js/ui/views/quote-steps/modality.js';
 import { extraPresetsFor, OUT_OF_HOURS_PRESETS_NOTE } from '../../js/ui/views/quote-steps/extras.js';
 import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
-import { routeConsumptionNote } from '../../js/ui/views/quote-steps/logistics.js';
+import { routeConsumptionNote, tollsNote } from '../../js/ui/views/quote-steps/logistics.js';
 import { defaultUnitForContract } from '../../js/domain/contract.js';
 import { billingUnitOf } from '../../js/domain/billing-units.js';
 import { outOfHoursMarginNote, outOfHoursBreakEvenNote, coveredByOtherRevenue, coveredRateText, rateBelowHourCostText } from '../../js/ui/result-text.js';
 import { standbyOutputText, showStandbyRule, STANDBY_DAYS_NOTE } from '../../js/ui/views/quote-steps/margin.js';
+import { activationTerms } from '../../js/domain/activation-terms.js';
 import { EMPTY, formatMoney } from '../../js/core/format.js';
 import { illustrativeInfo, usesOwnFuel, blankMaterialLine, materialLineFromLibrary } from '../../js/domain/quote-factory.js';
 import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
@@ -304,5 +305,14 @@ describe('V-30 · "No usa combustible" en un vehículo que viaja', () => {
     assert.ok(!still.completeness.notices.some((n) => n.id === 'no_fuel_travels'));
     const fueled = computeQuote(quote(owned({ name: 'Camioneta', ...travels, fuelLitersPerHour: 2 })));
     assert.ok(!fueled.completeness.notices.some((n) => n.id === 'no_fuel_travels'));
+  });
+});
+
+describe('V-31 · Peajes con más de un viaje', () => {
+  test('dice que son los peajes de todos los viajes de la salida (o del llamado)', () => {
+    assert.equal(tollsNote(2, activationTerms({ serviceType: 'transport', unit: 'trip' })), 'Son los peajes de los 2 viajes de la salida.');
+    assert.equal(tollsNote(3, activationTerms({ serviceType: 'on_call', unit: 'trip' })), 'Son los peajes de los 3 viajes del llamado.');
+    assert.equal(tollsNote(1, activationTerms({ serviceType: 'transport', unit: 'trip' })), '');
+    assert.equal(tollsNote(null, activationTerms({})), '');
   });
 });
