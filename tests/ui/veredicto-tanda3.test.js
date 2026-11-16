@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { baseOf } from '../../js/ui/views/quote-steps/indirect.js';
 import { resourceCostText } from '../../js/ui/views/quote-steps/modality.js';
+import { extraPresetsFor, OUT_OF_HOURS_PRESETS_NOTE } from '../../js/ui/views/quote-steps/extras.js';
+import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
 import { EMPTY } from '../../js/core/format.js';
 import { service, person, external, resetIds } from '../lab/lib/build.js';
 
@@ -35,5 +37,23 @@ describe('V-16 · "Lo que cuestan tus recursos"', () => {
     assert.equal(norm(resourceCostText(4200000, 0)), '$ 4.200.000 por mes');
     assert.equal(norm(resourceCostText(0, 350000)), '$ 350.000 por día');
     assert.equal(resourceCostText(0, 0), EMPTY);
+  });
+});
+
+describe('V-17 · Adicionales frecuentes con fuera de horario activo', () => {
+  const labels = (extras) => extraPresetsFor(extras).map((p) => p.label);
+
+  test('sin fuera de horario se ofrecen los tres', () => {
+    assert.deepEqual(labels([]), ['Feriado o fin de semana', 'Llamado fuera de horario', 'Km excedente']);
+    assert.deepEqual(labels(undefined), ['Feriado o fin de semana', 'Llamado fuera de horario', 'Km excedente']);
+  });
+
+  test('con fuera de horario activo sólo queda "Km excedente"', () => {
+    assert.deepEqual(labels([{ kind: OUT_OF_HOURS_KIND, premiumPct: 50 }]), ['Km excedente']);
+    assert.match(OUT_OF_HOURS_PRESETS_NOTE, /ya se cotizan arriba/);
+  });
+
+  test('un adicional ya cargado no se ofrece de nuevo', () => {
+    assert.deepEqual(labels([{ label: 'Km excedente' }]), ['Feriado o fin de semana', 'Llamado fuera de horario']);
   });
 });
