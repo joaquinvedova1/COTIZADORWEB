@@ -112,7 +112,7 @@ async function loadDemo(app) {
 }
 
 /**
- * Línea "Neta, después del descuento…" cuando la tarifa piso de lista y la
+ * Línea "Neta, después del descuento…" cuando la tarifa mínima de lista y la
  * neta difieren (tramo de días, permanencia o descuento comercial).
  * @returns {string|null}
  */
@@ -305,7 +305,7 @@ export async function render(root, app) {
     const traces = result.traces || {};
     const be = result.breakEven || {};
     const hasFloor = isFiniteNumber(k.floorListRate);
-    const floorStat = bigStat({ label: 'Tarifa piso (de lista)', value: formatMoneyCeil(k.floorListRate), unit: hasFloor ? `/ ${unit}` : null, hint: 'El precio mínimo para no perder plata.', trace: traces.floorRate, className: 'pub-stat' });
+    const floorStat = bigStat({ label: 'Tarifa mínima (de lista)', value: formatMoneyCeil(k.floorListRate), unit: hasFloor ? `/ ${unit}` : null, hint: 'El precio mínimo para no perder plata.', trace: traces.floorRate, className: 'pub-stat' });
     const netText = netFloorText({ floorList: k.floorListRate, floorNet: k.floorNetRate, tier: rates.tier, discountFactor: rates.discountFactor });
     if (netText) {
       const hint = floorStat.querySelector('.big-stat-hint');
@@ -343,14 +343,14 @@ export async function render(root, app) {
       // PLAN-2026-002: RATEOS no trae alícuotas; en la demo quedan sin definir.
       k.billingTaxesDefined
         ? null
-        : h('p', { class: 'pub-footnote' }, 'Montos sin IVA. En el ejemplo no cargamos los impuestos que se pagan sobre lo que facturás (Ingresos Brutos, débitos y créditos, sellos): con los tuyos, la tarifa piso sube. RATEOS no trae alícuotas: las cargás vos.'),
+        : h('p', { class: 'pub-footnote' }, 'Montos sin IVA. En el ejemplo no cargamos los impuestos que se pagan sobre lo que facturás (Ingresos Brutos, débitos y créditos, sellos): con los tuyos, la tarifa mínima sube. RATEOS no trae alícuotas: las cargás vos.'),
       disclosure(
         { summary: '¿Qué significa cada número?', className: 'pub-glossary' },
         h(
           'dl',
           { class: 'pub-glossary-list' },
           h('div', {}, h('dt', {}, 'Costo del mes'), h('dd', {}, 'Todo lo que cuesta prestar el servicio en el mes: personal, equipos, combustible, viajes, gastos de estructura e imprevistos.')),
-          h('div', {}, h('dt', {}, 'Tarifa piso'), h('dd', {}, 'El precio mínimo por día para no perder plata, sin IVA. Debajo de este número, perdés. Con tus impuestos sobre lo que facturás cargados, también los cubre. La “de lista” es la que escribís en la cotización; la “neta”, lo que te queda después de los descuentos (por ejemplo, por cantidad de días).')),
+          h('div', {}, h('dt', {}, 'Tarifa mínima'), h('dd', {}, 'El precio mínimo por día para no perder plata, sin IVA. Debajo de este número, perdés. Con tus impuestos sobre lo que facturás cargados, también los cubre. La “de lista” es la que escribís en la cotización; la “neta”, lo que te queda después de los descuentos (por ejemplo, por cantidad de días).')),
           h('div', {}, h('dt', {}, 'Tarifa sugerida'), h('dd', {}, 'El precio para lograr el margen que buscás, redondeado hacia arriba.')),
           h('div', {}, h('dt', {}, 'Margen'), h('dd', {}, 'Lo que ganás sobre el precio de venta. No es lo mismo que el markup, que se calcula sobre el costo: con un costo de $ 100, un margen del 10 % da un precio de $ 111,11 y un markup del 10 %, de $ 110.')),
         ),
@@ -422,7 +422,7 @@ export async function render(root, app) {
       const netText = sim ? netFloorText({ floorList: sim.floor, floorNet: sim.floorNet, tier: sim.tier, discountFactor: sim.discountFactor }) : null;
       mount(
         output,
-        h('p', { class: 'pub-sim-label' }, `Tarifa piso (de lista) con ${formatDays(days, { decimals: 1 })} de trabajo por mes`),
+        h('p', { class: 'pub-sim-label' }, `Tarifa mínima (de lista) con ${formatDays(days, { decimals: 1 })} de trabajo por mes`),
         h('p', { class: 'pub-sim-value' }, formatMoneyCeil(floor), h('span', { class: 'pub-sim-unit' }, `/ ${unit}`)),
         netText ? h('p', { class: 'pub-sim-net' }, `${netText}.`) : null,
         delta ? h('p', { class: 'pub-sim-delta' }, delta) : null,

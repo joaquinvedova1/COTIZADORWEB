@@ -122,7 +122,7 @@ describe('UtilizationEngine — matriz tarifa × utilización', () => {
     }
   });
 
-  test('para cada fila: tarifa piso < margen 5 % < margen 10 % < margen 15 %', () => {
+  test('para cada fila: tarifa mínima < margen 5 % < margen 10 % < margen 15 %', () => {
     for (const r of matrix) {
       const rates = [r.floorNetRate, ...r.byMargin.map((b) => b.netRate)];
       for (let i = 1; i < rates.length; i += 1) assert.ok(rates[i] > rates[i - 1]);
@@ -159,7 +159,7 @@ describe('UtilizationEngine — matriz tarifa × utilización', () => {
 describe('UtilizationEngine — casos extremos de utilización', () => {
   const ctx = contextOf(referenceQuote());
 
-  test('utilización 100 % (30 de 30 días): tarifa piso 2.000.000 y no excede la disponibilidad', () => {
+  test('utilización 100 % (30 de 30 días): tarifa mínima 2.000.000 y no excede la disponibilidad', () => {
     const [r] = buildRateUtilizationMatrix(ctx, { days: [30], marginsPct: [10], commercialListRate: null, estimatedDays: 8 });
     approx(r.floorNetRate, 60_000_000 / 30);
     approx(r.utilizationPct, 100);
@@ -174,7 +174,7 @@ describe('UtilizationEngine — casos extremos de utilización', () => {
     approx(r.floorNetRate, 2_000_000);
   });
 
-  test('utilización cercana a 0 (0,1 día): tarifa piso 301.000.000, finita', () => {
+  test('utilización cercana a 0 (0,1 día): tarifa mínima 301.000.000, finita', () => {
     const [r] = buildRateUtilizationMatrix(ctx, { days: [0.1], marginsPct: [10], commercialListRate: 4_000_000, estimatedDays: 8 });
     approx(r.floorNetRate, 30_100_000 / 0.1, '', 1e-3);
     assert.ok(Number.isFinite(r.profit));

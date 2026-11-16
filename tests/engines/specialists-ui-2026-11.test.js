@@ -6,7 +6,7 @@
  *
  *   A-2  cotización en blanco con contrato (sólo Personal; al sumar Vehículo, $/viaje y $/km)
  *   A-6  fijo mensual: cada cuántos días hay un viaje o relevo (default 1 = como antes)
- *   A-7  tarifa piso sin contar adicionales (motor)
+ *   A-7  tarifa mínima sin contar adicionales (motor)
  *   A-9  insignia ILUSTRATIVO que nombra la tasa de financiamiento de ejemplo
  *   A-10 parámetros de convenio: ILUSTRATIVO por valor sólo en líneas sin origen
  *   A-12 textos ("sin fecha base", "sin contar horas extra")
@@ -143,7 +143,7 @@ describe('A-6 · fijo mensual: cada cuántos días hay un viaje o relevo', () =>
   });
 });
 
-describe('A-7 · tarifa piso sin contar adicionales', () => {
+describe('A-7 · tarifa mínima sin contar adicionales', () => {
   test('sin otros ingresos no hay dato aparte (null)', () => {
     assert.equal(floorWithoutOtherRevenue({ totalCost: 900, billingTaxPct: 10, billableUnits: 10, otherRevenue: 0, discountFactor: 1 }), null);
     assert.equal(floorWithoutOtherRevenue(null), null);

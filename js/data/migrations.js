@@ -95,7 +95,7 @@ export function migrateV0ToV1(state, { now = new Date().toISOString(), idFactory
  *   RATEOS siempre calculó), explícito y no supuesto;
  * - cada cotización recibe `billingTaxes` SIN DEFINIR (nunca se inventan
  *   alícuotas): sus números no cambian (t = 0) y la interfaz avisa que la
- *   tarifa piso no incluye esos impuestos;
+ *   tarifa mínima no incluye esos impuestos;
  * - `settings.defaultBillingTaxes` (valor de la empresa) arranca en null;
  * - un `billingTaxes` que no sea objeto (dato ajeno a v1) se guarda en
  *   `legacy.billingTaxes` de la cotización: no se pierde nada.

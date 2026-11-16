@@ -13,7 +13,7 @@ import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf, BILLING_UNITS } from '../../../domain/billing-units.js';
 import { CONTRACT_MODES, SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUnits, contractUsesMaterials, contractWithComponents, defaultUnitForContract, serviceTypeForContract, templateOf, unitFitsContract, searchTemplates, templateGroupLabel, templateById } from '../../../domain/contract.js';
 import { isPlainObject } from '../../../core/object.js';
-import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
+import { formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
@@ -391,11 +391,18 @@ export function render(container, ctx) {
 
   // Base económica de la oferta (PLAN-2026-005): con qué fecha base, moneda
   // y tipo de cambio se calculó. Se compara contra la fecha de la OFERTA.
-  const economicBase = card(
+  // PLAN-2026-026: plegada (no hace falta para empezar); se abre sola si hay algo que corregir.
+  const economicBase = kit.advanced(
     {
-      title: 'Base económica de la oferta',
-      subtitle: `De qué mes son los valores con los que calculás esta oferta. La cotización guarda sus valores: si después cambian en Recursos, te avisa y vos decidís si actualizarlos. Moneda: ${quoteCurrencyOf(quote)}.`,
+      key: 'service-economic-base',
+      title: 'Fecha de la oferta y de los precios (opcional)',
+      boxed: true,
+      summary: () => {
+        const d = kit.get('offerDate');
+        return typeof d === 'string' && d ? `Oferta del ${formatDayDate(d)} · moneda ${quoteCurrencyOf(quote)}.` : `Sin fecha de oferta · moneda ${quoteCurrencyOf(quote)}.`;
+      },
     },
+    h('p', { class: 'qe-note' }, 'De qué mes son los valores con los que calculás esta oferta. La cotización guarda sus valores: si después cambian en Recursos, te avisa y vos decidís si actualizarlos.'),
     formGrid(
       2,
       dateField({

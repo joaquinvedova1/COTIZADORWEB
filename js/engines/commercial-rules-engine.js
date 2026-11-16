@@ -345,12 +345,12 @@ export function listRateFromNet(netRate, factor) {
 }
 
 /**
- * Tarifa piso SIN contar los otros ingresos (testeo con especialistas, A-7, H-09).
+ * Tarifa mínima SIN contar los otros ingresos (testeo con especialistas, A-7, H-09).
  *
- * La tarifa piso descuenta lo que se factura aparte de la tarifa (adicionales,
+ * La tarifa mínima descuenta lo que se factura aparte de la tarifa (adicionales,
  * reventa de materiales, horas extra facturadas, abono de disponibilidad…): por
  * eso puede quedar por debajo del costo. Si esos ingresos no llegan, el piso real
- * es éste. No cambia la tarifa piso: es un dato más para mostrar al lado.
+ * es éste. No cambia la tarifa mínima: es un dato más para mostrar al lado.
  *
  *   pisoNeto = (Costo − costo cargado de los adicionales) / (1 − t) / unidades facturables · pisoLista = pisoNeto / factor de descuentos
  *

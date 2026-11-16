@@ -1079,7 +1079,7 @@ export function evaluateCompleteness(quote = {}) {
         ? 'Elegiste no incluir impuestos sobre la facturación en esta cotización.'
         : taxes.defined
           ? 'Impuestos sobre la facturación definidos.'
-          : 'Sin definir: la tarifa piso no incluye los impuestos que pagás sobre lo que facturás (Ingresos Brutos, impuesto al cheque, sellos). Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".'));
+          : 'Sin definir: la tarifa mínima no incluye los impuestos que pagás sobre lo que facturás (Ingresos Brutos, impuesto al cheque, sellos). Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".'));
 
   // 13 bis. Abono mensual + "Abono de disponibilidad" (ECO-01, H-02): con la tarifa en $/mes los
   // dos son cargos fijos del mismo mes y se SUMAN: el mismo abono cargado dos veces muestra

@@ -53,7 +53,7 @@ describe('COT-0010 / COT-0011: los números del PDF (golden)', () => {
       approx(row(r, 'financial'), 523345.36, 'financiero');
       approx(row(r, 'contingency'), 374693.53, 'contingencia 3 %');
       approx(k.totalCost, 12864477.77, 'costo total');
-      approx(k.floorListRate, 1128462.96, 'tarifa piso');
+      approx(k.floorListRate, 1128462.96, 'tarifa mínima');
       approx(k.targetListRate, 1261223.31, 'precio objetivo');
       assert.equal(k.suggestedListRate, 1262000);
       approx(k.revenue, 15144000, 'facturación');

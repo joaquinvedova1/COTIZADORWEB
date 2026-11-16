@@ -760,7 +760,7 @@ export async function render(root, app, params = {}) {
         ? `Revisá: ${invalidTaxesText(info)}. No se guarda hasta que lo corrijas.`
         : billingTaxesDecided(taxes)
           ? `Cotizaciones nuevas: ${describeBillingTaxes(taxes)}.`
-          : 'Sin definir: las cotizaciones nuevas arrancan sin impuestos sobre la facturación y RATEOS avisa que la tarifa piso no los incluye.';
+          : 'Sin definir: las cotizaciones nuevas arrancan sin impuestos sobre la facturación y RATEOS avisa que la tarifa mínima no los incluye.';
     };
     const drawTaxes = (focus = null) => {
       mount(taxesHolder, billingTaxesFields({

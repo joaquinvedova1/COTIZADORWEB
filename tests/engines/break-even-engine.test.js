@@ -100,7 +100,7 @@ describe('BreakEvenEngine — problema inverso: tarifa mínima para D días', ()
     approx(minimumRateForDays({ fixedCosts: F, variableCostPerDay: V, activeDays: 6 }), 6_000_000);
   });
 
-  test('con 8 días la tarifa piso es 4.750.000/día y con 10 días es 4.000.000/día', () => {
+  test('con 8 días la tarifa mínima es 4.750.000/día y con 10 días es 4.000.000/día', () => {
     approx(minimumRateForDays({ fixedCosts: F, variableCostPerDay: V, activeDays: 8 }), 4_750_000);
     approx(minimumRateForDays({ fixedCosts: F, variableCostPerDay: V, activeDays: 10 }), 4_000_000);
   });

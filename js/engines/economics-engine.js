@@ -199,7 +199,7 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
     tier,
     billingTaxPct: t,
     floorRequiredRevenue: floor.requiredRevenue,
-    // Markup de la tarifa piso: sólo los impuestos sobre la facturación (t / (1 − t)).
+    // Markup de la tarifa mínima: sólo los impuestos sobre la facturación (t / (1 − t)).
     floorMarkupPct: markupWithTaxesPct(0, t),
     floorNetRate: floor.rate,
     floorListRate: listRateFromNet(floor.rate, factor),

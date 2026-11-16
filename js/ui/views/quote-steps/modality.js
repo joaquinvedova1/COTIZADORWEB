@@ -40,14 +40,14 @@ import { SPARSE_ACTIVATIONS_ISSUE } from '../../../engines/quote-engine.js';
 import { dedicationChoiceOf } from '../../../domain/assignment.js';
 
 const MODE_LABELS = Object.freeze({
-  known_rate: 'Sí, ya tengo el precio',
-  known_activity: 'No, quiero que RATEOS lo calcule',
+  known_rate: 'Sí, ya tengo la tarifa',
+  known_activity: 'No, quiero que RATEOS la calcule',
 });
 
 /** Explicación de cada opción en palabras simples (PLAN-2026-026). */
 const MODE_HINTS = Object.freeze({
-  known_rate: 'Escribís tu precio y RATEOS te dice cuánto ganás y cuánto tenés que trabajar para no perder.',
-  known_activity: 'Decís cuánto esperás trabajar y RATEOS calcula el precio mínimo y el precio con tu ganancia.',
+  known_rate: 'Escribís tu tarifa y RATEOS te dice cuánto ganás y cuánto tenés que trabajar para no perder.',
+  known_activity: 'Decís cuánto esperás trabajar y RATEOS calcula la tarifa mínima y la tarifa con tu ganancia.',
 });
 
 const AVAILABILITY_HINTS = Object.freeze({
@@ -482,7 +482,7 @@ export function render(container, ctx) {
   const modeCard = card(
     {},
     kit.choice('pricingMode', {
-      label: '¿Ya sabés qué precio vas a cobrar?',
+      label: '¿Ya sabés qué tarifa vas a cobrar?',
       // Primero lo más común: que RATEOS calcule el precio.
       options: [...PRICING_MODES].sort((a, b) => (a.id === 'known_activity' ? -1 : b.id === 'known_activity' ? 1 : 0)).map((m) => ({ value: m.id, label: MODE_LABELS[m.id] || m.label, hint: MODE_HINTS[m.id] || m.hint })),
       structural: true,
@@ -1019,7 +1019,7 @@ export function render(container, ctx) {
     },
   });
   const resourcesCard = card(
-    { title: 'Lo que ya cargaste', subtitle: 'Con esto y con cuánto esperás trabajar sale tu precio.', className: 'qe-resources-card' },
+    { title: 'Lo que ya cargaste', subtitle: 'Con esto y con cuánto esperás trabajar sale tu tarifa.', className: 'qe-resources-card' },
     kit.stats(
       resourceStat('Personal', isLabor, 'labor', 'Sin personal cargado.'),
       resourceStat('Equipos y vehículos', isEquipment, 'equipment', 'Sin equipos cargados.'),
@@ -1077,7 +1077,7 @@ export function render(container, ctx) {
     ? card(
       { title: '¿Tu gente y tus equipos trabajan sólo para este servicio?', subtitle: 'Así sabemos si este servicio tiene que pagar todo su mes o sólo una parte.', className: 'qe-dedication-card' },
       choiceGroup({
-        label: 'Elegí una opción',
+        label: h('span', {}, 'Elegí una opción', h('span', { class: 'req', 'aria-hidden': 'true' }, ' *')),
         name: 'resourcesDedication',
         value: dedicationValue,
         disabled: kit.readOnly,
@@ -1339,14 +1339,14 @@ export function render(container, ctx) {
         summary: (r) => {
           const floor = floorDisplay(r);
           return isFiniteNumber(floor.value)
-            ? `Tarifa piso ${perUnitCeil(floor.value, r)} y las tarifas para ganar ${ladder.map((m) => formatPercent(m)).join(', ')} sobre el precio.`
+            ? `Tarifa mínima ${perUnitCeil(floor.value, r)} y las tarifas para ganar ${ladder.map((m) => formatPercent(m)).join(', ')} sobre el precio.`
             : byQuantity ? `Cargá ${texts.los} ${info.plural} por mes para ver las tarifas.` : 'Cargá los días por mes para ver las tarifas.';
         },
       },
       h('p', { class: 'qe-note' }, 'Son tarifas DE LISTA (antes de descuentos), redondeadas hacia arriba: las que escribís en la cotización.'),
       kit.stats(
         kit.stat(
-          (r) => (floorDisplay(r).base === 'net' ? 'Tarifa piso neta (margen 0 %)' : 'Tarifa piso de lista (margen 0 %)'),
+          (r) => (floorDisplay(r).base === 'net' ? 'Tarifa mínima neta (margen 0 %)' : 'Tarifa mínima de lista (margen 0 %)'),
           (r) => perUnitCeil(floorDisplay(r).value, r),
           {
             trace: floorRateTrace,
@@ -1373,7 +1373,7 @@ export function render(container, ctx) {
     ? kit.question('¿Qué cobertura vendés en el abono?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Lo que exceda se cobra en "Adicionales".')
     : byQuantity
     ? kit.question(texts.quantityQuestion, `Los costos se calculan con los días de trabajo que lleva hacerlo; la facturación, con ${texts.los} ${info.plural}. Cuanto menos factures, mayor deberá ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
-    : kit.question('¿Cuánto esperás trabajar por mes?', 'Los días con trabajo y tu horario normal. Cuantos menos días trabajes, más alto tiene que ser el precio para pagar a tu gente y tus equipos.');
+    : kit.question('¿Cuánto esperás trabajar por mes?', 'Los días con trabajo y tu horario normal. Cuantos menos días trabajes, más alta tiene que ser la tarifa para pagar a tu gente y tus equipos.');
 
   // ¿Cómo viaja el personal? (PLAN-2026-024): reemplaza "Días entre viajes o relevos".
   const hasPeople = contract.labor || (Array.isArray(quote.labor) && quote.labor.length > 0);
@@ -1431,7 +1431,7 @@ export function render(container, ctx) {
   mount(
     container,
     resourcesCard,
-    sectionLabel('Lo necesario', 'Con estos datos ya sale tu precio. Los que tienen * no pueden faltar.'),
+    sectionLabel('Lo necesario', 'Con estos datos ya sale tu tarifa. Los que tienen * no pueden faltar.'),
     modeCard,
     question,
     activityCard,

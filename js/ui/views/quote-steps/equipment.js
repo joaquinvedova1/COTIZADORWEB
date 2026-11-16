@@ -461,7 +461,7 @@ export function render(container, ctx) {
       if (line.acquisition !== 'owned') line.external = createExternalTerms(line.external);
       if (!line.mobilization) line.mobilization = createMobilization();
     });
-    if (reset) ctx.toast(`La fecha base y la moneda de esta línea se reiniciaron (${currency}, sin fecha): cargá las del nuevo valor en "Fecha base y moneda".`, 'info');
+    if (reset) ctx.toast(`La fecha base y la moneda de esta línea se reiniciaron (${currency}, sin fecha): cargá las del nuevo valor en "¿De qué mes son estos valores?".`, 'info');
   };
 
   const pickerOptions = [
@@ -571,7 +571,7 @@ export function render(container, ctx) {
     return kit.advanced(
       {
         key: `equipment-base:${line.id || i}`,
-        title: 'Fecha base y moneda',
+        title: '¿De qué mes son estos valores? (fecha y moneda)',
         summary: () => {
           const e = quote.equipment[i] || {};
           return owned
@@ -658,6 +658,30 @@ export function render(container, ctx) {
     const ill = kit.lineIllustrative(p, { what: 'este equipo' });
     const illustrative = ill.marked;
     const wear = wearGroups(i, illustrative);
+    // PLAN-2026-026: un equipo que viene de Recursos ya trae su valor, vida útil, seguro,
+    // consumo y mantenimiento: acá sólo se carga cuántos van y cuántas horas se usan. Esos datos
+    // quedan plegados ("Cambiar sus datos sólo en esta cotización"). Uno cargado acá los pide.
+    const fromResource = typeof line.sourceId === 'string' && line.sourceId !== '';
+    const dataFields = () => [
+      kit.num(`${p}.replacementValue`, { label: 'Cuánto cuesta comprarlo hoy', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, requiredMark: !fromResource, hint: 'Valor de reposición: lo que costaría comprar uno igual hoy. Con esto y la vida útil sale su desgaste por mes (amortización).' }),
+      kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative, requiredMark: !fromResource, hint: 'En cuántos años lo vas a tener que cambiar.' }),
+      // V-06: seguro y patente a la vista (en 0 el costo quedaba de menos sin aviso).
+      kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
+      kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
+      // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
+      // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide abajo, en "¿Cómo llega?":
+      // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
+      line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, selfMoving(line)
+        ? { label: 'Consumo trabajando en la locación', rule: 'quantity', unit: 'L/h', illustrative, hint: 'Sólo con el motor trabajando en el lugar (bomba, hidrogrúa). Si sólo lleva gente o carga y queda parado: 0. Lo que gasta en la ruta va abajo.' }
+        : { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
+      kit.check(`${p}.fuelNotApplicable`, {
+        label: 'No usa combustible',
+        structural: true,
+        hint: line.fuelNotApplicable === true
+          ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
+          : 'Acoplado, eléctrico o herramienta. Si es un vehículo con motor, no lo marques: poné 0 en el consumo en la locación.',
+      }),
+    ];
     return kit.lineCard(
       {
         title: kit.out(() => (quote.equipment[i] && quote.equipment[i].name) || 'Equipo sin nombre'),
@@ -674,44 +698,22 @@ export function render(container, ctx) {
       lineWarnings(i),
       formGrid(
         3,
-        acquisitionField(i),
-        operatorField(i),
-      ),
-      formGrid(
-        3,
-        kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }),
-        kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.' }),
+        fromResource ? null : kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120, placeholder: 'Ej.: Camioneta 4x4' }),
+        kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true }),
         kit.num(`${p}.hoursPerActiveDay`, {
           label: 'Horas de uso por día de trabajo',
           rule: 'hoursPerDay',
           unit: 'h/día',
           placeholder: activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
-          hint: 'Vacío = usa las horas por día de la cotización.',
+          hint: 'Cuántas horas trabaja el equipo cada día. Vacío = las horas por día del servicio.',
         }),
-        kit.num(`${p}.replacementValue`, { label: 'Valor de reposición', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que costaría comprarlo hoy.' }),
-        kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative }),
-        // V-06: seguro y patente a la vista (antes en "Opciones avanzadas": en 0 el costo quedaba de menos sin aviso).
-        kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
-        kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
-        // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
-        // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide abajo, en "¿Cómo llega?":
-        // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
-        line.fuelNotApplicable === true ? null : kit.num(`${p}.fuelLitersPerHour`, selfMoving(line)
-          ? { label: 'Consumo trabajando en la locación', rule: 'quantity', unit: 'L/h', illustrative, hint: 'Sólo con el motor trabajando en el lugar (bomba, hidrogrúa). Si sólo lleva gente o carga y queda parado: 0. Lo que gasta en la ruta va abajo.' }
-          : { label: 'Consumo de combustible', rule: 'quantity', unit: 'L/h', illustrative }),
-        kit.check(`${p}.fuelNotApplicable`, {
-          label: 'No usa combustible',
-          structural: true,
-          hint: line.fuelNotApplicable === true
-            ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
-            : 'Acoplado, eléctrico o herramienta. Si es un vehículo con motor, no lo marques: poné 0 en el consumo en la locación.',
-        }),
+        operatorField(i),
+        fromResource ? null : acquisitionField(i),
+        ...(fromResource ? [] : dataFields()),
       ),
-      // PLAN-2026-025: el mantenimiento a la vista (junto con la amortización es lo primero que se pregunta).
-      wear[0],
-      kit.region((r) => wearWarningsRegion(r, i)),
-      // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
-      assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
+      // El mantenimiento a la vista sólo si el equipo se carga acá (el de Recursos ya lo trae).
+      fromResource ? null : wear[0],
+      kit.out((r) => wearWarningsRegion(r, i) || '', { tag: 'div', allowEmpty: true }),
       kit.keyline({
         label: 'Costo del equipo en el mes',
         value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
@@ -727,9 +729,11 @@ export function render(container, ctx) {
       kit.advanced(
         {
           key: `equipment:${line.id || i}`,
+          title: fromResource ? 'Cambiar sus datos sólo en esta cotización (opcional)' : 'Más detalle (opcional)',
           summary: () => {
             const e = quote.equipment[i] || {};
             const parts = [
+              fromResource ? `vale ${moneyText(e.replacementValue) || '$ 0'} · ${formatNumber(Number(e.usefulLifeYears) || 0, { decimals: 1 })} años de vida útil` : null,
               `residual ${moneyText(e.residualValue) || '$ 0'}`,
               hasNumber(e.otherAnnual) && Number(e.otherAnnual) > 0 ? `otros ${moneyText(e.otherAnnual)}/año` : null,
               `certificaciones ${moneyText(e.certificationsAnnual) || '$ 0'}/año`,
@@ -741,6 +745,13 @@ export function render(container, ctx) {
             return illustrative ? h('span', {}, `${text.charAt(0).toUpperCase()}${text.slice(1)}.`, illustrativeTag()) : `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
           },
         },
+        fromResource
+          ? h('p', { class: 'qe-note' }, 'Estos datos se cargan una sola vez en ', h('a', { href: '#/recursos' }, 'Recursos'), '. Si los cambiás acá, cambian sólo en esta cotización.')
+          : null,
+        fromResource
+          ? kit.group('Datos del equipo', formGrid(3, kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }), acquisitionField(i), ...dataFields()))
+          : null,
+        fromResource ? wear[0] : null,
         kit.group(
           'Costo de tenerlo (existe aunque no trabaje)',
           formGrid(
@@ -753,6 +764,8 @@ export function render(container, ctx) {
           capitalCostNote(i),
         ),
         wear[1],
+        // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
+        assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
       ),
       kit.advanced(
         {
@@ -1165,7 +1178,7 @@ export function render(container, ctx) {
 
   mount(
     container,
-    card({ title: 'Equipos', subtitle: `Cargá cada equipo o vehículo una sola vez (camionetas incluidas): propio, alquilado o tercerizado. En cada uno decís también cómo llega al lugar del servicio; la distancia, el alojamiento y el precio del combustible van en "${stepName('logistics')}".` }, toolbar, fuelNote),
+    card({ title: 'Agregá los equipos y vehículos', subtitle: `Cada uno una sola vez (camionetas incluidas): propio, alquilado o tercerizado. La distancia y el precio del combustible van en "${stepName('logistics')}".` }, toolbar, fuelNote),
     lineCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({

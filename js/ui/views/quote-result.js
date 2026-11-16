@@ -37,7 +37,7 @@
  *   Al imprimir se abren (y dibujan) todos los desplegables; después se
  *   restaura cómo estaban.
  *
- * Glosario de superficie: "Costo del mes", "Tarifa piso", "Tarifa sugerida"
+ * Glosario de superficie: "Costo del mes", "Tarifa mínima", "Tarifa sugerida"
  * ("Tu tarifa" si es ofrecida o conocida), "Gastos de estructura" (rubro),
  * "plata". Los nombres de paso salen de QUOTE_STEPS (única fuente).
  *
@@ -471,13 +471,13 @@ function closedOf(v) {
   return { closed, single: closed && hasValue(q) && Math.abs(q - 1) < 1e-9 };
 }
 
-/** Tarifa piso sin contar adicionales (A-7): { text, tip } o null (lo calcula el motor). */
+/** Tarifa mínima sin contar adicionales (A-7): { text, tip } o null (lo calcula el motor). */
 function floorExtras(v) {
   try {
     const extrasLoadedCost = v.r.extras && Number.isFinite(v.r.extras.loadedCost) ? v.r.extras.loadedCost : 0;
     return floorWithoutExtrasText(floorWithoutOtherRevenue(v.r.ratesAtEstimate, { extrasLoadedCost }), v.unitLabel);
   } catch (error) {
-    logger.warn('No se pudo calcular la tarifa piso sin adicionales', { message: error && error.message });
+    logger.warn('No se pudo calcular la tarifa mínima sin adicionales', { message: error && error.message });
     return null;
   }
 }
@@ -800,7 +800,7 @@ function traceRateForMargin(v, row) {
   const isFloor = m === 0;
   return createTrace({
     id: isFloor ? 'floor_rate_detail' : 'rate_for_margin',
-    title: isFloor ? `Tarifa piso (por ${v.unitLabel})` : `${sameNumber(m, v.r.targetMarginPct) ? 'Precio objetivo' : 'Tarifa'} con margen ${pct(m)} (por ${v.unitLabel})`,
+    title: isFloor ? `Tarifa mínima (por ${v.unitLabel})` : `${sameNumber(m, v.r.targetMarginPct) ? 'Precio objetivo' : 'Tarifa'} con margen ${pct(m)} (por ${v.unitLabel})`,
     formula: hasValue(ra.billingTaxPct) && ra.billingTaxPct > 0
       ? 'Tarifa neta = (Costo total / (1 − margen − impuestos sobre la facturación) − Otros ingresos) / Unidades facturables · Lista = neta / factor de descuentos'
       : 'Tarifa neta = (Costo total / (1 − margen) − Otros ingresos) / Unidades facturables · Lista = neta / factor de descuentos',
@@ -925,7 +925,7 @@ function minimumRates(v) {
 }
 
 function floorLabel(m) {
-  return m.showList && m.floorIsList ? 'Tarifa piso de lista' : 'Tarifa piso';
+  return m.showList && m.floorIsList ? 'Tarifa mínima de lista' : 'Tarifa mínima';
 }
 
 function targetLabel(v, m) {
@@ -933,7 +933,7 @@ function targetLabel(v, m) {
   return `Precio objetivo${m.showList ? ' de lista' : ''} (margen ${pct(v.k.targetMarginPct)})`;
 }
 
-/** Qué incluye la tarifa piso respecto de los impuestos sobre lo que se factura. */
+/** Qué incluye la tarifa mínima respecto de los impuestos sobre lo que se factura. */
 function floorTaxesNote(k) {
   if (k.billingTaxesInvalid) return 'No incluye impuestos sobre lo que facturás: hay un porcentaje a revisar.';
   if (!k.billingTaxesDefined) return 'No incluye impuestos sobre lo que facturás (sin definir).';
@@ -962,7 +962,7 @@ function targetPhrase(v) {
     : minRate(m.targetMain, v.unitLabel);
 }
 
-/** "Ver cálculo" de la tarifa piso del resumen (de lista), con la neta explicada. */
+/** "Ver cálculo" de la tarifa mínima del resumen (de lista), con la neta explicada. */
 function floorSummaryTrace(v) {
   const base = ceilTrace(v.r.traces && v.r.traces.floorRate);
   if (!base) return null;
@@ -972,7 +972,7 @@ function floorSummaryTrace(v) {
     ...base,
     notes: [
       ...base.notes,
-      `La tarifa piso del resumen (${minRate(mr.floorMain, v.unitLabel)}) es de lista, antes ${discountWords(v.r)}: es la que escribís en la cotización. Neta, lo que realmente cobrás: ${minRate(v.k.floorNetRate, v.unitLabel)}.`,
+      `La tarifa mínima del resumen (${minRate(mr.floorMain, v.unitLabel)}) es de lista, antes ${discountWords(v.r)}: es la que escribís en la cotización. Neta, lo que realmente cobrás: ${minRate(v.k.floorNetRate, v.unitLabel)}.`,
     ],
   };
 }
@@ -1086,7 +1086,7 @@ function belowFloorCoveredText(v) {
   }
   const who = hasValue(topUp) && topUp > 0 ? 'el mínimo garantizado cubre la diferencia' : 'los otros ingresos cubren la diferencia';
   const marginPart = k.belowTarget && hasValue(k.marginPct) ? ` (margen ${pct(k.marginPct)}, debajo del objetivo de ${pct(k.targetMarginPct)})` : '';
-  return `La tarifa está debajo de la tarifa piso (${floorPhrase(v)}), pero ${who}: con ${estimateActivity(v)} el resultado del mes es ${money(k.profit)}${marginPart}. Si la actividad baja o cambian las condiciones, podés perder plata.`;
+  return `La tarifa está debajo de la tarifa mínima (${floorPhrase(v)}), pero ${who}: con ${estimateActivity(v)} el resultado del mes es ${money(k.profit)}${marginPart}. Si la actividad baja o cambian las condiciones, podés perder plata.`;
 }
 
 /** Aviso compacto (banner) con una acción opcional a la derecha. */
@@ -1107,7 +1107,7 @@ function criticalAlerts(v) {
   const subject = theRate(k);
   const Subject = `${subject.charAt(0).toUpperCase()}${subject.slice(1)}`;
   if (k.belowFloor) {
-    out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa piso: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
+    out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa mínima: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
   } else if (k.belowFloorRate) {
     out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
   } else if (k.belowTarget) {
@@ -1132,12 +1132,12 @@ function criticalAlerts(v) {
       : 'Tiene que ser mayor o igual a 0 y menor a 100 %. Sin un margen válido no hay precio objetivo ni tarifa sugerida.',
     stepLink(v.q, 'margin', 'Ir a "El precio"')));
   }
-  // Impuestos sobre lo que se factura (PLAN-2026-002): sin definir, la tarifa piso no los cubre.
+  // Impuestos sobre lo que se factura (PLAN-2026-002): sin definir, la tarifa mínima no los cubre.
   if (k.billingTaxesInvalid) {
-    out.push(alertLine('danger', 'Revisá los impuestos sobre lo que facturás.', `${invalidTaxesText(r.billingTaxInfo).replace(/^./, (c) => c.toUpperCase())}: por ahora no se aplican y la tarifa piso no los incluye.`,
+    out.push(alertLine('danger', 'Revisá los impuestos sobre lo que facturás.', `${invalidTaxesText(r.billingTaxInfo).replace(/^./, (c) => c.toUpperCase())}: por ahora no se aplican y la tarifa mínima no los incluye.`,
       stepLink(v.q, 'margin', 'Ir a "El precio"')));
   } else if (!k.billingTaxesDefined) {
-    out.push(alertLine('warning', 'Faltan los impuestos sobre lo que facturás.', 'La tarifa piso y la sugerida no incluyen Ingresos Brutos, impuesto al cheque ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí no incluirlos en esta cotización.',
+    out.push(alertLine('warning', 'Faltan los impuestos sobre lo que facturás.', 'La tarifa mínima y la sugerida no incluyen Ingresos Brutos, impuesto al cheque ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí no incluirlos en esta cotización.',
       stepLink(v.q, 'margin', 'Ir a "El precio"')));
   }
   // "Puede faltar algún costo" ahora es el banner de BORRADOR arriba del resultado (PLAN-2026-010).
@@ -1304,7 +1304,7 @@ function ratesByMarginBlock(v) {
   const showList = minimumRates(v).showList;
   const rows = [
     // Piso: el markup es sólo el de los impuestos (t / (1 − t)); la ganancia, 0.
-    { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, requiredRevenue: ra.floorRequiredRevenue, markupPct: ra.floorMarkupPct, profitOnCostPct: 0, label: 'Tarifa piso (no perder plata)' },
+    { key: 'floor', marginPct: 0, netRate: ra.floorNetRate, listRate: ra.floorListRate, requiredRevenue: ra.floorRequiredRevenue, markupPct: ra.floorMarkupPct, profitOnCostPct: 0, label: 'Tarifa mínima (no perder plata)' },
     ...(Array.isArray(ra.byMargin) ? ra.byMargin : [])
       .filter((m) => hasValue(m.marginPct) && m.marginPct > 0)
       .sort((a, b) => a.marginPct - b.marginPct)
@@ -1563,7 +1563,7 @@ function statHint(...lines) {
 
 /**
  * Uno de los cuatro números del resumen como par término / descripción de
- * una lista <dl> (los lectores de pantalla anuncian "Tarifa piso: $ …").
+ * una lista <dl> (los lectores de pantalla anuncian "Tarifa mínima: $ …").
  * Mismas clases que bigStat() de components.js, para el mismo aspecto.
  */
 function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '' }) {
@@ -1580,7 +1580,7 @@ function costStat(v) {
   const D = k.activeDays;
   const single = closedOf(v).single;
   return statItem({
-    label: single ? 'Costo del trabajo' : 'Costo del mes',
+    label: single ? 'Te cuesta (el trabajo)' : 'Te cuesta (costo del mes)',
     value: money(k.totalCost),
     unit: hasValue(k.totalCost) ? (single ? '/ trabajo' : '/ mes') : null,
     hint: statHint(hasValue(D) && D > 0
@@ -1605,14 +1605,14 @@ function floorStat(v) {
   else if (!hasValue(value)) hint = statHint(byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes.` : 'Falta estimar los días de trabajo del mes.');
   else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`, floorExtrasLine(v));
   return statItem({
-    label: 'Tarifa piso',
+    label: 'Tarifa mínima (para no perder)',
     value: ceilMoney(value),
     unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
     hint,
     // Sin impuestos sobre la facturación definidos, la "piso" no es piso: se marca.
     tone: hasValue(value) && (!k.billingTaxesDefined || k.billingTaxesInvalid) ? 'orange' : null,
     trace: costOk ? floorSummaryTrace(v) : null,
-    className: 'qr-stat qr-stat-floor',
+    className: 'qr-stat qr-stat-floor qr-stat-wide',
   });
 }
 
@@ -1695,8 +1695,8 @@ function marginStat(v) {
   else {
     const per = closedOf(v).single ? 'por trabajo' : 'por mes';
     if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} ${per}.`);
-    else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} ${per} (tu objetivo: ${pct(k.targetMarginPct)}).`, guaranteeMarginNote(v.r), outOfHoursMarginNote(v.r));
-    else hint = statHint(`Ganás ${money(k.profit)} ${per}.`, guaranteeMarginNote(v.r), outOfHoursMarginNote(v.r));
+    else if (k.belowTarget) hint = statHint(`${marginPlainText(k.marginPct)} Tu objetivo: ${pct(k.targetMarginPct)}.`, guaranteeMarginNote(v.r), outOfHoursMarginNote(v.r));
+    else hint = statHint(marginPlainText(k.marginPct), guaranteeMarginNote(v.r), outOfHoursMarginNote(v.r));
   }
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
@@ -1707,6 +1707,41 @@ function marginStat(v) {
     tone,
     trace: traceMargin(v),
     className: 'qr-stat qr-stat-margin',
+  });
+}
+
+/** "De cada $ 100 que cobrás, te quedan $ 10." (el margen en palabras). */
+function marginPlainText(marginPct) {
+  return `De cada $\u00a0100 que cobrás, te quedan $\u00a0${formatNumber(marginPct, { decimals: Math.abs(marginPct - Math.round(marginPct)) < 0.05 ? 0 : 1 })}.`;
+}
+
+/**
+ * ¿Cuánta plata me queda? La ganancia en pesos (PLAN-2026-026): lo que queda después de costos
+ * e impuestos sobre lo que se factura. Mismo número que el margen, en $ (no es otro cálculo).
+ */
+function profitStat(v) {
+  const { k } = v;
+  const single = closedOf(v).single;
+  const per = single ? '/ trabajo' : '/ mes';
+  const est = v.r.estimate || {};
+  const covered = coveredByOtherRevenue(v.r) && hasValue(est.profit);
+  const profit = covered ? est.profit : k.profit;
+  const ok = covered || (hasRate(k) && hasValue(k.marginPct) && hasValue(profit));
+  const unreliable = ok ? unreliableText(v.r.completeness, 'esta ganancia') : null;
+  const losing = ok && profit < -1e-6;
+  let hint;
+  if (!ok) hint = statHint(hasRate(k) ? 'Sin facturación no hay ganancia.' : 'Sin tarifa no hay ganancia.');
+  else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
+  else if (losing) hint = statHint('Con esta tarifa perdés plata: lo que cobrás no alcanza para cubrir el costo.');
+  else hint = statHint('Lo que te queda después de pagar el costo y los impuestos sobre lo que facturás.');
+  const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && profit >= 0 ? 'orange' : ok ? (losing ? 'red' : 'green') : null;
+  return statItem({
+    label: losing ? 'Perdés' : 'Ganás',
+    value: ok ? money(Math.abs(profit)) : EMPTY,
+    unit: ok ? per : null,
+    hint,
+    tone,
+    className: 'qr-stat qr-stat-profit',
   });
 }
 
@@ -1919,10 +1954,12 @@ function renderSummary(v) {
         badge(labelOf(PRICING_MODES, mode, 'Calcular la tarifa'), 'navy', { title: `${stepLabel('modality')}: ${labelOf(PRICING_MODES, mode, 'Calcular la tarifa')}` }),
         illustrativeBadge(v))),
     draft,
-    h('dl', { class: 'qr-stats' }, costStat(v), floorStat(v), priceStat(v), marginStat(v)),
-    h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. El margen es lo que te queda después de costos e impuestos sobre la facturación, antes del impuesto a las Ganancias.'),
-    staffBlock(v),
+    // PLAN-2026-026: la carilla. Qué cobro, cuánto me cuesta, cuánto gano (en $ y en %); abajo,
+    // la tarifa mínima. El detalle sigue en "Ver el detalle".
+    h('dl', { class: 'qr-stats' }, priceStat(v), costStat(v), profitStat(v), marginStat(v), floorStat(v)),
+    h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. La ganancia es antes del impuesto a las Ganancias.'),
     tariffsBlock(v),
+    staffBlock(v),
     workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
@@ -2388,7 +2425,7 @@ function chartSvg(v, data, width) {
   // Rótulos directos al final de cada línea (sólo con lugar y si no se pisan; la leyenda siempre está).
   const last = samples[samples.length - 1];
   const endLabels = narrow ? [] : [
-    hasValue(last.floor) ? { y: py(last.floor), text: 'Tarifa piso' } : null,
+    hasValue(last.floor) ? { y: py(last.floor), text: 'Tarifa mínima' } : null,
     hasValue(last.target) ? { y: py(last.target), text: `Margen ${pct(target)}` } : null,
     commercial !== null ? { y: py(commercial), text: commercialName(k) } : null,
   ].filter(Boolean).sort((a, b) => a.y - b.y);
@@ -2403,7 +2440,7 @@ function chartSvg(v, data, width) {
     const left = i > 0 ? (px(markers[i - 1].d) + px(m.d)) / 2 : L;
     const right = i < markers.length - 1 ? (px(markers[i + 1].d) + px(m.d)) / 2 : L + PW;
     const where = byQty(v) && hasValue(m.q) ? `${quantityText(m.q, v.r)} (${workDaysText(m.d)})` : formatDays(m.d);
-    const tip = `${where}: tarifa piso neta ${minRate(m.floor, v.unitLabel)} · margen ${pct(target)} ${minRate(m.target, v.unitLabel)}${commercial !== null ? ` · ${theRate(k)} neta ${rate(commercial, v.unitLabel)}` : ''}`;
+    const tip = `${where}: tarifa mínima neta ${minRate(m.floor, v.unitLabel)} · margen ${pct(target)} ${minRate(m.target, v.unitLabel)}${commercial !== null ? ` · ${theRate(k)} neta ${rate(commercial, v.unitLabel)}` : ''}`;
     return s('rect', { x: left.toFixed(1), y: T, width: Math.max(1, right - left).toFixed(1), height: PH, class: 'qr-chart-hit' }, s('title', {}, tip));
   });
 
@@ -2412,8 +2449,8 @@ function chartSvg(v, data, width) {
   const at = (m) => (byQty(v) && hasValue(m.q) ? quantityText(m.q, v.r) : formatDays(m.d));
   const aria = `Gráfico de tarifa neta necesaria por ${v.unitLabel} según ${byQty(v) ? `${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} ${unitTextsOf(v.r).facturados} en el mes` : 'los días de trabajo del mes'}. `
     + (markers.length > 1
-      ? `Con ${at(first)} la tarifa piso neta es ${minRate(first.floor, v.unitLabel)}; con ${at(lastMarker)} ${trendVerb(data.trend)} ${minRate(lastMarker.floor, v.unitLabel)}.`
-      : `Con ${at(first)} la tarifa piso neta es ${minRate(first.floor, v.unitLabel)}.`)
+      ? `Con ${at(first)} la tarifa mínima neta es ${minRate(first.floor, v.unitLabel)}; con ${at(lastMarker)} ${trendVerb(data.trend)} ${minRate(lastMarker.floor, v.unitLabel)}.`
+      : `Con ${at(first)} la tarifa mínima neta es ${minRate(first.floor, v.unitLabel)}.`)
     + (commercial !== null ? ` ${commercialName(k)} neta: ${rate(commercial, v.unitLabel)}.` : '');
 
   return s('svg', { viewBox: `0 0 ${W} ${H}`, class: ['qr-chart-svg', narrow ? 'is-narrow' : null].filter(Boolean).join(' '), role: 'img', 'aria-label': aria, preserveAspectRatio: 'xMidYMid meet' },
@@ -2498,7 +2535,7 @@ function rateChart(v) {
   const key = (cls, text) => h('span', { class: 'qr-key' }, h('span', { class: ['qr-key-swatch', cls], 'aria-hidden': 'true' }), text);
   return h('figure', { class: 'qr-chart' },
     h('div', { class: 'legend qr-chart-legend' },
-      key('qr-key-floor', 'Tarifa piso neta (no perder plata)'),
+      key('qr-key-floor', 'Tarifa mínima neta (no perder plata)'),
       data.target !== null ? key('qr-key-target', `${sameNumber(data.target, v.k.targetMarginPct) ? 'Precio objetivo neto' : 'Tarifa neta'} (margen ${pct(data.target)})`) : null,
       data.commercial !== null ? key('qr-key-commercial', `${commercialName(v.k)} neta (con ${byQty(v) ? 'la cantidad estimada' : 'los días estimados'})`) : null),
     canvas,
@@ -2528,7 +2565,7 @@ function traceMatrixRow(v, row, rr) {
       { label: `Unidades facturables (${v.unitLabel})`, value: rr ? rr.billableUnits : null, format: 'number' },
     ],
     steps: (row.byMargin || []).map((m) => ({ label: `Tarifa neta con margen ${pct(m.marginPct)}`, value: m.netRate, format: 'moneyCeil' })),
-    result: { label: 'Tarifa piso neta (break-even)', value: row.floorNetRate, format: 'moneyCeil' },
+    result: { label: 'Tarifa mínima neta (break-even)', value: row.floorNetRate, format: 'moneyCeil' },
     notes: [
       row.exceedsAvailability ? 'Estos días superan los disponibles del mes: se interpretan como trabajo de más de un mes.' : null,
       'Las tarifas mínimas se muestran redondeadas hacia arriba al peso.',
@@ -2590,7 +2627,7 @@ function renderMatrix(v) {
   const ratesColumns = [
     { key: 'activeDays', label: daysHeader(), className: 'qr-sticky-col', render: (row) => daysCell(v, row, traceMatrixRow(v, row, matrixRates(v, row))) },
     { key: 'utilizationPct', label: abbrHeader('Utiliz.', 'Utilización: días de trabajo sobre días disponibles del mes'), align: 'right', render: (row) => pct(row.utilizationPct, 1) },
-    { key: 'floor', label: abbrHeader('Piso neto', 'Tarifa piso neta (break-even, después de descuentos): no perder plata', 'break-even'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
+    { key: 'floor', label: abbrHeader('Piso neto', 'Tarifa mínima neta (break-even, después de descuentos): no perder plata', 'break-even'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
     ...margins.map((m, idx) => ({
       key: `m${idx}`,
       label: marginHeader(v, m),
@@ -2639,11 +2676,11 @@ function renderMatrix(v) {
   }
   const trend = rateTrend(rows.map((row) => ({ d: row.activeDays, rate: row.floorNetRate })));
   const unitNoun = isMonth ? 'Abonos netos por mes' : `Tarifas netas por ${v.unitLabel}`;
-  // La tarifa piso del resumen es DE LISTA; la matriz muestra NETAS: se aclara para que no parezcan dos pisos distintos.
+  // La tarifa mínima del resumen es DE LISTA; la matriz muestra NETAS: se aclara para que no parezcan dos pisos distintos.
   const mr = minimumRates(v);
   const listVsNet = mr.floorNetDiffers
     ? h('p', { class: 'qr-note qr-note-key' },
-      `La tarifa piso del resumen (${minRate(mr.floorMain, v.unitLabel)}) es de lista, antes ${discountWords(v)}; acá ves la neta, lo que realmente cobrás (con ${byQty(v) ? 'la cantidad estimada' : 'los días estimados'}: ${minRate(k.floorNetRate, v.unitLabel)}).`)
+      `La tarifa mínima del resumen (${minRate(mr.floorMain, v.unitLabel)}) es de lista, antes ${discountWords(v)}; acá ves la neta, lo que realmente cobrás (con ${byQty(v) ? 'la cantidad estimada' : 'los días estimados'}: ${minRate(k.floorNetRate, v.unitLabel)}).`)
     : null;
   return card(
     {
@@ -2689,7 +2726,7 @@ function renderMarginMarkup(v) {
   const cost = k.totalCost;
   const taxed = hasValue(k.billingTaxPct) && k.billingTaxPct > 0;
   const columns = [
-    { key: 'label', label: 'Nivel', render: (row) => (row.key === 'floor' ? 'Tarifa piso (margen 0)' : marginLabel(v, row.marginPct)) },
+    { key: 'label', label: 'Nivel', render: (row) => (row.key === 'floor' ? 'Tarifa mínima (margen 0)' : marginLabel(v, row.marginPct)) },
     { key: 'marginPct', label: 'Margen (sobre precio)', align: 'right', render: (row) => pct(row.marginPct) },
     { key: 'markupPct', label: 'Markup (recargo sobre el costo)', align: 'right', render: (row) => pct(row.markupPct) },
     ...(taxed ? [{ key: 'profitOnCostPct', label: 'Ganancia sobre el costo', align: 'right', render: (row) => pct(row.profitOnCostPct) }] : []),
@@ -2742,7 +2779,7 @@ function traceDiscountRow(v, row) {
       { label: 'Tarifa de lista', value: row.listRate, format: 'money' },
       { label: 'Descuento del tramo', value: row.discountPct, format: 'percent' },
       { label: 'Días evaluados (peor caso del tramo)', value: row.evaluatedDays, format: 'days' },
-      { label: 'Tarifa piso neta con esos días', value: row.floorNetRate, format: 'moneyCeil' },
+      { label: 'Tarifa mínima neta con esos días', value: row.floorNetRate, format: 'moneyCeil' },
       { label: 'Precio objetivo neto con esos días', value: row.targetNetRate, format: 'moneyCeil' },
     ],
     steps: [
@@ -2752,7 +2789,7 @@ function traceDiscountRow(v, row) {
     result: { label: 'Tarifa neta', value: row.netRate, format: 'money' },
     notes: [
       `Estado: ${discountStatus(row).text}.`,
-      'Verde: la tarifa neta alcanza el precio objetivo. Naranja: cubre la tarifa piso pero no el objetivo. Rojo: no cubre la tarifa piso.',
+      'Verde: la tarifa neta alcanza el precio objetivo. Naranja: cubre la tarifa mínima pero no el objetivo. Rojo: no cubre la tarifa mínima.',
     ],
   });
 }
@@ -2802,7 +2839,7 @@ function renderDiscounts(v) {
         { key: 'evaluatedDays', label: abbrHeader('Días eval.', 'Días evaluados: el peor caso del tramo (su primer día)', 'peor caso'), align: 'right', render: (row) => formatDays(row.evaluatedDays) },
         { key: 'discountPct', label: abbrHeader('Desc.', 'Descuento del tramo'), align: 'right', render: (row) => pct(row.discountPct) },
         { key: 'netRate', label: abbrHeader('Neta', 'Tarifa neta: tarifa de lista menos descuentos'), align: 'right', render: (row) => money(row.netRate) },
-        { key: 'floorNetRate', label: abbrHeader('Piso neto', 'Tarifa piso neta con esos días'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
+        { key: 'floorNetRate', label: abbrHeader('Piso neto', 'Tarifa mínima neta con esos días'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
         { key: 'targetNetRate', label: abbrHeader('Objetivo neto', 'Precio objetivo neto con esos días'), align: 'right', render: (row) => ceilMoney(row.targetNetRate) },
         { key: 'marginPct', label: abbrHeader('Margen', 'Margen sobre el precio de venta'), align: 'right', render: (row) => pct(row.marginPct) },
         {
@@ -2854,7 +2891,7 @@ function sliderStateFor(quoteId) {
 
 const SENS_METRICS = Object.freeze([
   { key: 'totalCost', label: 'Costo del mes', kind: 'money', better: 'down' },
-  { key: 'floorNetRate', label: 'Tarifa piso neta', kind: 'rate', better: 'down' },
+  { key: 'floorNetRate', label: 'Tarifa mínima neta', kind: 'rate', better: 'down' },
   { key: 'targetNetRate', label: 'Precio objetivo neto', kind: 'rate', better: 'down' },
   { key: 'marginPct', label: 'Margen', kind: 'percent', better: 'up' },
   { key: 'profit', label: 'Resultado del mes', kind: 'money', better: 'up' },
@@ -3123,7 +3160,7 @@ function renderSensitivity(v) {
   const FixedRate = `${fixedRate.charAt(0).toUpperCase()}${fixedRate.slice(1)}`;
   const mr = minimumRates(v);
   const netNote = mr.floorNetDiffers
-    ? ` La tarifa piso y el precio objetivo de la tabla son netos (después de descuentos); la tarifa piso del resultado de la cotización (${minRate(mr.floorMain, v.unitLabel)}) es de lista.`
+    ? ` La tarifa mínima y el precio objetivo de la tabla son netos (después de descuentos); la tarifa mínima del resultado de la cotización (${minRate(mr.floorMain, v.unitLabel)}) es de lista.`
     : '';
   return card(
     {
@@ -3716,7 +3753,7 @@ function deepDefinitions(v) {
     },
     {
       key: 'base',
-      summary: 'Base económica de la oferta',
+      summary: '¿De qué fecha son los valores?',
       hint: '¿De qué mes son los valores? Bases por rubro, tipos de cambio y equipos externos (costo, caja y crédito fiscal).',
       badge: economicBaseBadge(v),
       build: () => [safeSection('Base económica de la oferta', () => renderEconomicBase(v))],
@@ -3754,7 +3791,7 @@ function deepDefinitions(v) {
     },
     {
       key: 'markup',
-      summary: 'Margen vs markup',
+      summary: 'Margen y recargo (markup)',
       hint: 'Tarifas por nivel de margen y por qué el margen no es lo mismo que el markup.',
       build: () => [safeSection('Margen vs markup', () => renderMarginMarkup(v))],
     },
@@ -3820,8 +3857,8 @@ function renderDeep(v, remembered) {
   const titleId = uniqueId('qr-deep-title');
   const node = h('section', { class: 'qr-deep', 'aria-labelledby': titleId },
     h('div', { class: 'qr-section-head' },
-      h('h3', { class: 'qr-section-title', id: titleId }, 'Profundizá'),
-      h('p', { class: 'qr-section-sub' }, 'Todo el análisis sigue acá. Abrí sólo lo que necesites.')),
+      h('h3', { class: 'qr-section-title', id: titleId }, 'Ver el detalle'),
+      h('p', { class: 'qr-section-sub' }, 'Arriba está lo importante. Acá queda todo el análisis: abrí sólo lo que necesites.')),
     h('div', { class: 'disclosure-list qr-deep-list' }, ...items.map((it) => it.el)));
   return { node, items };
 }

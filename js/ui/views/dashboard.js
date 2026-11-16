@@ -139,17 +139,17 @@ function belowFloorTrace(active, scope) {
   return createTrace({
     id: 'dashboard_below_floor',
     title: 'Servicios bajo piso',
-    formula: 'Bajo piso = tarifa neta ofrecida < tarifa piso neta (la que iguala el costo, margen 0 %) y resultado esperado negativo',
+    formula: 'Bajo piso = tarifa neta ofrecida < tarifa mínima neta (la que iguala el costo, margen 0 %) y resultado esperado negativo',
     inputs: below.flatMap(({ quote, summary }) => [
       { label: `${quoteLabel(quote)}: tarifa neta`, value: summary.commercialNetRate, format: 'money' },
-      { label: `${quoteLabel(quote)}: tarifa piso neta`, value: summary.floorNetRate, format: 'moneyCeil' },
+      { label: `${quoteLabel(quote)}: tarifa mínima neta`, value: summary.floorNetRate, format: 'moneyCeil' },
       { label: `${quoteLabel(quote)}: resultado esperado`, value: summary.profit, format: 'money' },
     ]),
     result: { label: 'Cotizaciones activas bajo piso', value: below.length, format: 'number' },
     notes: [
       'Cotizar bajo piso significa perder plata con la actividad estimada.',
       'Si un mínimo garantizado cubre la diferencia y el mes no da pérdida, la cotización no se cuenta acá.',
-      'La tarifa piso se muestra redondeada hacia arriba: cobrar esa cifra nunca deja debajo del piso.',
+      'La tarifa mínima se muestra redondeada hacia arriba: cobrar esa cifra nunca deja debajo del piso.',
       scopeNote(scope),
     ],
   });
@@ -468,7 +468,7 @@ const CONCEPTS = [
       ...['materials', 'logistics', 'indirect', 'finance'].map((id) => labelOf(QUOTE_STEPS, id).toLowerCase()),
     ].join(', ')} ${andBefore(labelOf(QUOTE_STEPS, 'risk').toLowerCase())}.`,
   },
-  { key: 'floor', name: 'Tarifa piso', text: 'El precio mínimo para no perder plata: con esa tarifa el resultado es cero (margen 0 %).' },
+  { key: 'floor', name: 'Tarifa mínima', text: 'El precio mínimo para no perder plata: con esa tarifa el resultado es cero (margen 0 %).' },
   { key: 'target', name: 'Precio objetivo', text: 'El precio necesario para lograr el margen que buscás con la actividad que estimás.' },
   { key: 'commercial', name: 'Precio comercial', text: 'El precio que finalmente le ofrecés al cliente, con redondeos y descuentos. Lo comparamos contra el piso y el objetivo.' },
 ];
@@ -480,7 +480,7 @@ function learnSection() {
   const byMarkup = priceFromMarkup(cost, pct);
   const fmt = (v) => formatNumber(v, { decimals: 2 });
   return disclosure(
-    { summary: 'Cómo piensa RATEOS', hint: 'Costo, tarifa piso, precio objetivo, precio comercial y margen vs markup.' },
+    { summary: 'Cómo piensa RATEOS', hint: 'Costo, tarifa mínima, precio objetivo, precio comercial y margen vs markup.' },
     h(
       'div',
       { class: 'concept-grid' },

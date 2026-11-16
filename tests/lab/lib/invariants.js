@@ -232,12 +232,12 @@ export const QUOTE_INVARIANTS = [
     },
   },
   {
-    id: 'INV-17', title: 'La tarifa piso recupera el costo con los impuestos configurados (resultado ≈ 0)',
+    id: 'INV-17', title: 'La tarifa mínima recupera el costo con los impuestos configurados (resultado ≈ 0)',
     check(q, r) {
       const rr = q.rules || {};
       if (!(r.kpis.floorListRate > 0) || Number(rr.minimumMonthlyGuarantee) > 0 || r.ratesAtEstimate.floorCoveredByOtherRevenue) return notApplicable;
       const r2 = run(q, { listRateOverride: r.kpis.floorListRate });
-      return Math.abs(r2.kpis.profit) <= Math.max(1, r2.kpis.revenue * 1e-9) ? ok(`resultado ${r2.kpis.profit.toFixed(4)}`) : fail(`con la tarifa piso el resultado es ${r2.kpis.profit}`);
+      return Math.abs(r2.kpis.profit) <= Math.max(1, r2.kpis.revenue * 1e-9) ? ok(`resultado ${r2.kpis.profit.toFixed(4)}`) : fail(`con la tarifa mínima el resultado es ${r2.kpis.profit}`);
     },
   },
   {
@@ -348,7 +348,7 @@ export const QUOTE_INVARIANTS = [
     },
   },
   {
-    id: 'INV-27', title: 'Más impuestos sobre la facturación nunca bajan la tarifa piso',
+    id: 'INV-27', title: 'Más impuestos sobre la facturación nunca bajan la tarifa mínima',
     check(q, r) {
       if (!(r.kpis.floorListRate > 0) || r.kpis.billingTaxPct + 1 >= 100) return notApplicable;
       const q2 = clone(q); q2.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: r.kpis.billingTaxPct + 1, items: [] };

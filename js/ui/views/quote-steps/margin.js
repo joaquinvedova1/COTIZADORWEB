@@ -260,7 +260,7 @@ export function render(container, ctx) {
     // Se reevalúa en cada recálculo: aparece apenas la cotización tiene impuestos decididos.
     kit.out(() => companyTaxesActions(ctx), { tag: 'div', allowEmpty: true, className: 'bt-company-holder' }),
     kit.toggle(
-      h('div', { class: 'qe-tip qe-tip-warning', role: 'status' }, icon('alert'), h('p', {}, 'Sin definir: la tarifa piso y la sugerida NO incluyen estos impuestos. Si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".')),
+      h('div', { class: 'qe-tip qe-tip-warning', role: 'status' }, icon('alert'), h('p', {}, 'Sin definir: la tarifa mínima y la sugerida NO incluyen estos impuestos. Si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".')),
       (r) => !r.kpis.billingTaxesDefined && !r.kpis.billingTaxesInvalid,
     ),
     kit.toggle(
@@ -367,7 +367,7 @@ export function render(container, ctx) {
   const pricingOptions = kit.advanced(
     {
       key: 'margin-pricing',
-      title: 'Más detalle (opcional): descuento, redondeo y precio a mano',
+      title: 'Más detalle (opcional): descuento, redondeo y tarifa a mano',
       boxed: true,
       summary: () => {
         const pr = quote.pricing || {};

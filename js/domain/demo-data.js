@@ -344,7 +344,7 @@ export function demoHydroCraneQuote() {
       roundingStep: 1000,
     },
     // Sin definir a propósito: RATEOS no trae alícuotas (cada empresa carga
-    // las suyas). La interfaz avisa que la tarifa piso no los incluye.
+    // las suyas). La interfaz avisa que la tarifa mínima no los incluye.
     billingTaxes: emptyBillingTaxes(),
     vatTreatment: 'excluded',
     rules: {

@@ -46,7 +46,7 @@ const QUOTE_STAGES = Object.freeze([
   { title: 'Cómo se cobra', text: 'Unidad, horario normal, cuánto esperás trabajar y tarifas fuera de horario.' },
   { title: 'Otros gastos', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
   { title: 'El precio', text: 'Cuánto querés ganar y tus reglas comerciales.' },
-  { title: 'Resultado', text: 'Costo, tarifa piso, tarifa sugerida y días para no perder plata.' },
+  { title: 'Resultado', text: 'Costo, tarifa mínima, tarifa sugerida y días para no perder plata.' },
 ]);
 
 /** Ruta del editor de una cotización. */

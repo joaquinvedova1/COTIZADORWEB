@@ -12,6 +12,27 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**PLAN-2026-026 — Recursos como dueños de los datos, cotización con cantidades y flujo más simple.** Las cotizaciones guardadas no cambian ningún número: los campos nuevos nacen vacíos y sin ellos el motor calcula igual que antes (golden, baseline de regresión y lab sin re-aprobar). Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §27](docs/CALCULATION_RULES.md).
+
+### Agregado
+
+- **Valor de la hora por recurso:** cada perfil de personal de Recursos muestra su hora normal, al 50 % y al 100 % (calculadas con su sueldo y cargas) y puede traer un valor propio para la hora al 50 % y al 100 % (`overtimeRate50`, `overtimeRate100`), porque cada convenio paga distinto. La tabla de Recursos suma las columnas "Hora al 50 %" y "Hora al 100 %".
+- **Horas extra como cantidad:** en la cotización, cada puesto carga "Horas al 50 % por mes" y "Horas al 100 % por mes" de cada persona (`overtime50HoursPerMonth`, `overtime100HoursPerMonth`); el costo usa el valor de la hora de ESE puesto.
+- **Fuera de horario, cada uno acumulado:** "Cómo se cobra" muestra lo que cuesta una hora normal, al 50 % y al 100 % de cada puesto y de toda la cuadrilla. Si algún puesto trae su valor propio, la hora de la cuadrilla es la suma de la de cada persona.
+- **Resultado en una carilla:** tarifa, costo, ganancia en $ ("Ganás") y margen, con la tarifa mínima debajo. El análisis sigue en "Ver el detalle".
+
+### Cambiado
+
+- **Sin datos repetidos:** un puesto o un equipo que viene de Recursos ya no vuelve a pedir sueldo, cargas, valor, vida útil, seguro, consumo ni mantenimiento: la cotización pide sólo cantidad y horas. Esos datos quedan plegados en "Cambiar sus datos sólo en esta cotización (opcional)". Un puesto o equipo cargado en la cotización sí los pide, con * en lo necesario.
+- **Recursos → perfil de personal:** secciones "Sueldo", "Cargas sociales", "Valor de la hora" y "Más detalle (opcional)". "Horas extra por día" ya no se pide en el perfil (es una cantidad de cada cotización; si un perfil anterior la tenía, se sigue viendo).
+- **Cómo se cobra:** dividido en "Lo necesario" (unidad, cuánto esperás trabajar, si trabajan sólo para este servicio) y "Opcional" (fuera de horario, mínimo garantizado, adicionales). El tope de días del mes y "¿Cómo son los llamados?" pasan a "Más detalle (opcional)" cuando están en el caso común; ya no se muestra el % de utilización.
+- **Lenguaje:** "día activo" → "día de trabajo"; "tarifa piso" → "tarifa mínima"; "Costos y condiciones" → "Otros gastos"; "Opciones avanzadas" → "Más detalle (opcional)"; "Profundizá" → "Ver el detalle"; preguntas de cada etapa reescritas.
+- **El servicio:** "Base económica de la oferta" pasa a un bloque plegado "Fecha de la oferta y de los precios (opcional)".
+
+### Eliminado
+
+- **Pregunta de guardia / sin guardia** (pedido del dueño): las cotizaciones nuevas no la muestran. Las que ya tenían guardia cargada la conservan igual (mismos cobros) en "Guardia (cargada antes)", con un botón para quitarla.
+
 **Revisión UX y de costos previa a publicar (correcciones del veredicto).** Ningún número cambia: sólo foco, textos, estilo y documentación.
 
 ### Corregido

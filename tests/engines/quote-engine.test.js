@@ -4,11 +4,11 @@
  * Reglas (Prompt 1 "Lógica central", "Dos formas de iniciar una cotización", "Servicio on-call";
  * Prompt 3 "Dos modos obligatorios", "Matriz", "Reglas comerciales MVP", "Descuentos";
  * Prompt 2 "Tests económicos"; Prompt 4 §20–21):
- *   COSTO → TARIFA PISO (margen 0) → PRECIO OBJETIVO (margen objetivo) → PRECIO COMERCIAL (lista).
+ *   COSTO → TARIFA MÍNIMA (margen 0) → PRECIO OBJETIVO (margen objetivo) → PRECIO COMERCIAL (lista).
  *   Modo A "Conozco la tarifa": días mínimos, break-even, resultado y margen esperados.
- *   Modo B "Conozco la actividad": tarifa piso y tarifas para margen 5/10/15 %.
+ *   Modo B "Conozco la actividad": tarifa mínima y tarifas para margen 5/10/15 %.
  *   Caso de referencia (golden): fijos 30M, variable 1M/día, tarifa 4M/día, 8 días estimados →
- *     break-even 10 días, tarifa piso 4.750.000, facturación 32M, resultado −6M.
+ *     break-even 10 días, tarifa mínima 4.750.000, facturación 32M, resultado −6M.
  *   kpis.atRisk = sin tarifa || resultado < 0 || margen < objetivo || completitud < 60 %.
  *   kpis.incomplete = completitud < 60 %.
  *   Determinismo: mismos inputs → mismos outputs; computeQuote no muta la cotización.
@@ -86,7 +86,7 @@ describe('QuoteEngine — caso de referencia (golden): F 30M, v 1M/día, tarifa 
     approx(r.traces.breakEven.result.value, 10);
   });
 
-  test('tarifa piso con 8 días = 4.750.000 (38M / 8)', () => {
+  test('tarifa mínima con 8 días = 4.750.000 (38M / 8)', () => {
     approx(k.floorNetRate, 4_750_000);
     approx(k.totalCost, 38_000_000);
     approx(k.fixedCosts, 30_000_000);
@@ -161,7 +161,7 @@ describe('QuoteEngine — modo A (conozco la tarifa) vs modo B (conozco la activ
     assert.deepEqual(a.matrix.map((m) => m.floorNetRate), b.matrix.map((m) => m.floorNetRate));
   });
 
-  test('modo B calcula tarifa piso y tarifas para margen 5 %, 10 % y 15 % con la actividad estimada', () => {
+  test('modo B calcula tarifa mínima y tarifas para margen 5 %, 10 % y 15 % con la actividad estimada', () => {
     const r = computeQuote(onCall({ pricingMode: 'known_activity' }));
     const byMargin = Object.fromEntries(r.ratesAtEstimate.byMargin.map((m) => [m.marginPct, m.netRate]));
     approx(r.ratesAtEstimate.floorNetRate, 4_750_000);
@@ -176,7 +176,7 @@ describe('QuoteEngine — modo A (conozco la tarifa) vs modo B (conozco la activ
     approx(r.kpis.revenue, 40_000_000);
   });
 
-  test('modo A sin tarifa ingresada → no hay tarifa comercial ni break-even, pero sí tarifa piso', () => {
+  test('modo A sin tarifa ingresada → no hay tarifa comercial ni break-even, pero sí tarifa mínima', () => {
     for (const empty of [0, '', null]) {
       const r = computeQuote(onCall({ knownRate: empty }));
       assert.equal(r.kpis.commercialListRate, null, `tarifa ${String(empty)}`);
@@ -208,7 +208,7 @@ describe('QuoteEngine — matriz tarifa × utilización', () => {
     }
   });
 
-  test('tarifa margen 10 % con 10 días = 4.444.444,44; tarifa piso con 8 días = 4.750.000', () => {
+  test('tarifa margen 10 % con 10 días = 4.444.444,44; tarifa mínima con 8 días = 4.750.000', () => {
     const ten = r.matrix.find((m) => m.activeDays === 10);
     approx(ten.byMargin.find((b) => b.marginPct === 10).netRate, 40_000_000 / 0.9 / 10);
     approx(r.matrix.find((m) => m.activeDays === 8).floorNetRate, 4_750_000);
@@ -508,7 +508,7 @@ describe('QuoteEngine — casos extremos', () => {
     assert.deepEqual(findNonFinite(r.kpis), []);
   });
 
-  test('utilización 100 % (30 de 30 días): tarifa piso 2M, facturación 120M, resultado 60M', () => {
+  test('utilización 100 % (30 de 30 días): tarifa mínima 2M, facturación 120M, resultado 60M', () => {
     const k = computeQuote(onCall({ activeDays: 30 })).kpis;
     approx(k.utilizationPct, 100);
     approx(k.floorNetRate, 2_000_000);
@@ -516,13 +516,13 @@ describe('QuoteEngine — casos extremos', () => {
     approx(k.profit, 60_000_000);
   });
 
-  test('utilización cercana a 0 (0,1 día): tarifa piso 301M, finita', () => {
+  test('utilización cercana a 0 (0,1 día): tarifa mínima 301M, finita', () => {
     const k = computeQuote(onCall({ activeDays: 0.1 })).kpis;
     approx(k.floorNetRate, 301_000_000, '', 1e-3);
     assert.deepEqual(findNonFinite(k), []);
   });
 
-  test('margen objetivo 0: la tarifa objetivo es la tarifa piso', () => {
+  test('margen objetivo 0: la tarifa objetivo es la tarifa mínima', () => {
     const k = computeQuote(onCall({ targetMarginPct: 0 })).kpis;
     approx(k.targetNetRate, k.floorNetRate);
   });

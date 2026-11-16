@@ -1,5 +1,5 @@
 /**
- * PricingEngine — margen, markup, tarifa piso y precios objetivo.
+ * PricingEngine — margen, markup, tarifa mínima y precios objetivo.
  *
  * MARGEN y MARKUP NO son sinónimos:
  *
@@ -21,7 +21,7 @@
  *
  *     precio = costo / (1 − margen − t)      (válido si margen + t < 100 %)
  *     costo 100, t 10 %, margen 10 % → 125 (no 121 ni 123,46)
- *     tarifa piso (margen 0)          → costo / (1 − t) = 111,11
+ *     tarifa mínima (margen 0)          → costo / (1 − t) = 111,11
  *
  *   Con t, el markup sigue siendo precio = costo × (1 + markup) (AGENTS.md §9):
  *     markup            = (m + t) / (1 − m − t)   → 25 % (125 = 100 × 1,25)
@@ -136,12 +136,12 @@ export function markupToMargin(markupPct) {
   return (markupPct * 100) / (100 + markupPct);
 }
 
-/** Tarifa piso: el precio que iguala el costo (margen 0). */
+/** Tarifa mínima: el precio que iguala el costo (margen 0). */
 export function floorPrice(cost) {
   return isFiniteNumber(cost) ? cost : null;
 }
 
-/** Tarifa piso unitaria: costo total / unidades. */
+/** Tarifa mínima unitaria: costo total / unidades. */
 export function floorRate(totalCost, units) {
   return safeDivide(totalCost, units, null);
 }
@@ -169,7 +169,7 @@ export function priceLadder(cost, marginsPct = DEFAULT_MARGIN_LADDER, customMarg
       gain: price === null ? null : (price * m) / 100,
     };
   };
-  const rows = [row('floor', 'Tarifa piso', 0)];
+  const rows = [row('floor', 'Tarifa mínima', 0)];
   marginsPct.filter((m) => isValidMarginAndTaxes(m, t)).forEach((m) => rows.push(row(`m${m}`, `Margen ${m} %`, m)));
   if (isValidMarginAndTaxes(customMarginPct, t) && !marginsPct.includes(customMarginPct) && customMarginPct > 0) {
     rows.push(row('custom', `Margen personalizado ${customMarginPct} %`, customMarginPct));

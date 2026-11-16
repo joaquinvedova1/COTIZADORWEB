@@ -4,9 +4,9 @@
  * Reglas (Prompt 1 "Sensibilidad", "Escenarios", "Comparador de modelos comerciales";
  * Prompt 3 "Sensibilidad"):
  *   Al sensibilizar, la TARIFA COMERCIAL queda fija (la ofrecida en el caso base) para ver el
- *   impacto real de cada variable en costo, tarifa piso, margen, resultado y break-even.
+ *   impacto real de cada variable en costo, tarifa mínima, margen, resultado y break-even.
  *   - salarios +10 % → sube el costo
- *   - utilización −X % → sube la tarifa piso
+ *   - utilización −X % → sube la tarifa mínima
  *   - descuento comercial → baja el resultado (con tarifa fija)
  *   - plazo de pago +30 días → sube el costo financiero
  *   Escenarios: pesimista < base < optimista (en resultado).
@@ -106,7 +106,7 @@ describe('ScenarioEngine — sensibilidad con tarifa comercial fija', () => {
     assert.equal(s.listRate, s.base.commercialListRate);
   });
 
-  test('utilización −25 % sube la tarifa piso: con 6 días el piso es 36M / 6 = 6M (antes 4,75M)', () => {
+  test('utilización −25 % sube la tarifa mínima: con 6 días el piso es 36M / 6 = 6M (antes 4,75M)', () => {
     const s = runSensitivity(demoReferenceQuote(), { activityPct: -25 });
     approx(s.base.floorNetRate, 4_750_000);
     approx(s.scenario.floorNetRate, 6_000_000);

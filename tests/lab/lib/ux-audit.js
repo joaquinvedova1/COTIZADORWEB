@@ -255,7 +255,7 @@ export function auditQuoteUx(quote, result, { scenario = null } = {}) {
  * F (terminología, nivel interfaz): magnitudes distintas con nombres distintos.
  * Se corre una vez por campaña.
  *   - viajes facturables ≠ viajes físicos, km por viaje ≠ km de ruta por mes,
- *     km facturables ≠ km de ruta, tarifa piso ≠ sugerida, margen ≠ markup:
+ *     km facturables ≠ km de ruta, tarifa mínima ≠ sugerida, margen ≠ markup:
  *     cada una tiene su rótulo propio (P1 UX si falta)
  *   - T estático (PLAN-2026-014, LAB-D8): la activación se nombra con
  *     activationTerms (llamado / salida / intervención según la cotización).
@@ -271,7 +271,7 @@ export function auditTerminology() {
     ['viajes facturables', 'viajes físicos costeados'],
     ['km por viaje', 'km de ruta por mes'],
     ['km facturables', 'km de ruta'],
-    ['tarifa piso', 'tarifa sugerida'],
+    ['tarifa mínima', 'tarifa sugerida'],
     ['margen', 'markup'],
   ];
   for (const pair of DISTINCT) {

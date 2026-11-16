@@ -259,7 +259,7 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
 });
 
 describe('CompletenessEngine — impuestos sobre lo que facturás (PLAN-2026-002)', () => {
-  test('sin definir → aviso naranja de peso 1 (la tarifa piso no los incluye)', () => {
+  test('sin definir → aviso naranja de peso 1 (la tarifa mínima no los incluye)', () => {
     const q = completeQuote();
     q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: null, items: [] };
     const r = evaluateCompleteness(q);
@@ -267,7 +267,7 @@ describe('CompletenessEngine — impuestos sobre lo que facturás (PLAN-2026-002
     assert.equal(i.status, 'warning');
     assert.equal(i.weight, 1);
     assert.equal(i.step, 'margin');
-    assert.match(i.message, /tarifa piso no incluye/);
+    assert.match(i.message, /tarifa mínima no incluye/);
     approx(r.scorePct, ((TOTAL_WEIGHT - 0.5) / TOTAL_WEIGHT) * 100);
   });
 

@@ -567,7 +567,7 @@ export function render(container, ctx) {
 
   mount(
     container,
-    card({ title: '¿Quiénes trabajan en este servicio?', subtitle: 'Elegí cada puesto de tus Recursos (operario, chofer, supervisor) y poné cuántas personas van. El sueldo, las cargas y el valor de la hora ya vienen de Recursos: no se cargan de nuevo.' }, toolbar),
+    card({ title: 'Agregá los puestos', subtitle: 'Operario, chofer, supervisor, técnico… Los que tienen * no pueden faltar.' }, toolbar),
     lineCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({

@@ -66,7 +66,7 @@ export function netRateHint(netValue, result) {
 }
 
 /**
- * Tarifa piso que se muestra: la de LISTA. Si no existe (factor de
+ * Tarifa mínima que se muestra: la de LISTA. Si no existe (factor de
  * descuentos 0, p. ej. 100 % de descuento) se muestra la neta y se aclara.
  */
 export function floorDisplay(result) {
@@ -82,7 +82,7 @@ export function withCeilResult(trace) {
   return { ...trace, result: { ...trace.result, format: 'moneyCeil' } };
 }
 
-/** "Ver cálculo" de la tarifa piso: termina en la tarifa piso DE LISTA (motor). */
+/** "Ver cálculo" de la tarifa mínima: termina en la tarifa mínima DE LISTA (motor). */
 export function floorRateTrace(result) {
   return result && result.traces ? withCeilResult(result.traces.floorRate) : null;
 }

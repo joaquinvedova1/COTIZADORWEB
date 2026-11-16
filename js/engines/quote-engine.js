@@ -5,7 +5,7 @@
  *
  * Conceptos:
  *   COSTO            lo que cuesta prestar el servicio en el mes
- *   TARIFA PISO      tarifa neta que iguala costo (margen 0)
+ *   TARIFA MÍNIMA      tarifa neta que iguala costo (margen 0)
  *   PRECIO OBJETIVO  tarifa para lograr el margen objetivo
  *   PRECIO COMERCIAL tarifa de lista finalmente ofrecida
  */
@@ -571,7 +571,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     activationsEstimated: rounding.estimated,
     activationsCosted: rounding.costed,
     activationRoundingCost: roundingOn ? rounding.total : 0,
-    // Tarifa neta debajo de la tarifa piso (que no cuenta el mínimo garantizado).
+    // Tarifa neta debajo de la tarifa mínima (que no cuenta el mínimo garantizado).
     belowFloorRate: hasRate && isFiniteNumber(ratesAtEstimate.floorNetRate) ? commercialNetRate < ratesAtEstimate.floorNetRate - 1e-6 : false,
     // "Bajo piso" = la tarifa no cubre el costo Y el mes da pérdida (si un
     // mínimo garantizado cubre la diferencia, no se pierde dinero).
@@ -654,10 +654,10 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     }),
     floorRate: createTrace({
       id: 'floor_rate',
-      title: `Tarifa piso (por ${unitLabel})`,
+      title: `Tarifa mínima (por ${unitLabel})`,
       formula: t > 0
-        ? 'Facturación necesaria = Costo total / (1 − impuestos sobre la facturación) · Tarifa piso neta = (Facturación necesaria − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos'
-        : 'Tarifa piso neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa piso de lista = neta / factor de descuentos',
+        ? 'Facturación necesaria = Costo total / (1 − impuestos sobre la facturación) · Tarifa mínima neta = (Facturación necesaria − Otros ingresos) / Unidades facturables · Tarifa mínima de lista = neta / factor de descuentos'
+        : 'Tarifa mínima neta = (Costo total − Otros ingresos) / Unidades facturables · Tarifa mínima de lista = neta / factor de descuentos',
       inputs: [
         { label: 'Costo total del mes', value: ratesAtEstimate.totalCost, format: 'money' },
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
@@ -667,9 +667,9 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       ],
       steps: [
         ...(t > 0 ? [{ label: 'Facturación necesaria (cubre costo e impuestos sobre la facturación)', value: ratesAtEstimate.floorRequiredRevenue, format: 'money' }] : []),
-        { label: 'Tarifa piso neta (lo que efectivamente cobrás por unidad)', value: ratesAtEstimate.floorNetRate, format: 'moneyCeil' },
+        { label: 'Tarifa mínima neta (lo que efectivamente cobrás por unidad)', value: ratesAtEstimate.floorNetRate, format: 'moneyCeil' },
       ],
-      result: { label: 'Tarifa piso de lista (la que escribís en la cotización)', value: ratesAtEstimate.floorListRate, format: 'moneyCeil' },
+      result: { label: 'Tarifa mínima de lista (la que escribís en la cotización)', value: ratesAtEstimate.floorListRate, format: 'moneyCeil' },
       notes: [
         D <= 0 ? (byQuantity ? `Sin ${unitInfo.plural} por mes no hay tarifa por ${unitInfo.singular} posible: cargá la actividad estimada.` : `Sin días de trabajo no hay tarifa por ${unitInfo.singular || 'día'} posible: cargá la actividad estimada.`) : null,
         ratesAtEstimate.floorCoveredByOtherRevenue ? 'Los otros ingresos ya cubren el costo.' : null,

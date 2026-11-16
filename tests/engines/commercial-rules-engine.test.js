@@ -279,7 +279,7 @@ describe('CommercialRulesEngine — facturación con reglas comerciales', () => 
 });
 
 describe('CommercialRulesEngine — tarifa necesaria', () => {
-  test('tarifa piso neta = costo / unidades: 38M / 8 días = 4.750.000', () => {
+  test('tarifa mínima neta = costo / unidades: 38M / 8 días = 4.750.000', () => {
     approx(requiredNetRate({ totalCost: 38_000_000, marginPct: 0, billableUnits: 8 }).rate, 4_750_000);
   });
 
@@ -311,7 +311,7 @@ describe('CommercialRulesEngine — tarifa necesaria', () => {
 });
 
 describe('CommercialRulesEngine — semáforo de descuentos', () => {
-  // Con 8 días: tarifa piso 4.750.000 y tarifa para margen 10 % 5.277.777,78
+  // Con 8 días: tarifa mínima 4.750.000 y tarifa para margen 10 % 5.277.777,78
   const floorNetRate = 4_750_000;
   const targetNetRate = 38_000_000 / 0.9 / 8;
 
