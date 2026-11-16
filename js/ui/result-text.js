@@ -518,6 +518,19 @@ export function capAllDaysNote(hasStaff) {
 }
 
 /**
+ * Por qué hora se cobra una hora fuera de horario (V-34, V-26): cobrando por hora-hombre la
+ * tarifa principal es por persona y la hora fuera de horario por toda la cuadrilla; se dice.
+ * @param {object} r resultado de computeQuote
+ * @returns {string} "/ hora" o "por hora de toda la cuadrilla (3 personas)"
+ */
+export function outOfHoursPer(r) {
+  const o = (r && r.outOfHours) || {};
+  const people = o.basis ? o.basis.people : 0;
+  if (!o.crewHour || !(people > 0)) return '/ hora';
+  return `por hora de toda la cuadrilla (${formatNumber(people, { decimals: 2 })} ${Math.abs(people - 1) < 1e-9 ? 'persona' : 'personas'})`;
+}
+
+/**
  * Filas de "Tus tarifas (sin IVA)" del Resultado (PLAN-2026-025, ampliado por V-12): todo lo que
  * el cliente va a ver en la cotización además de la tarifa principal. Sólo lee valores del motor.
  *   Horario normal · cada hora fuera de horario · guardia pasiva y plus de guardia activa ·
@@ -551,7 +564,7 @@ export function tariffRows(r) {
   };
   return [
     ['Horario normal', main],
-    ...overtime.map((l) => [l.label, l.price !== null ? `${formatMoney(l.price)} / hora${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
+    ...overtime.map((l) => [l.label, l.price !== null ? `${formatMoney(l.price)} ${outOfHoursPer(r)}${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
     guardFee ? ['Guardia pasiva (fijo por estar disponible)', `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
     callout ? [`Guardia activa (plus ${T.per})`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
     minimumCall ? [`Mínimo ${T.per}`, `${minimumCallText()} ${T.per}`] : null,

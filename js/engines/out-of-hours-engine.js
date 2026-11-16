@@ -25,6 +25,7 @@
  *
  *   hora normal equivalente
  *       cobrando por hora: la tarifa · por día: tarifa ÷ horas por día
+ *       por hora-hombre: tarifa × personas de la cuadrilla (V-34)
  *         (calculada SIN las horas fuera de horario: no hay cuenta circular)
  *       abono, precio cerrado o por unidad: hora normal de los recursos con margen
  *         (Σ personas × costo del mes ÷ horas normales + uso de equipos)
@@ -43,6 +44,9 @@ import { isPlainObject, objectList } from '../core/object.js';
 import { nonNegative, isFiniteNumber, safeDivide } from '../core/money.js';
 
 export const OUT_OF_HOURS_KIND = 'overtime';
+
+/** Unidad de cobro "hora-hombre" (`billing-units.js`): su hora normal sale de la tarifa × personas (V-34). */
+export const MAN_HOUR_UNIT = 'manhour';
 
 /** Recargos de partida (editables; los del 50 % y 100 % son los habituales, no normativa). */
 export const OUT_OF_HOURS_PRESETS = Object.freeze([
@@ -133,15 +137,22 @@ export function resourceNormalHourCost(basis) {
 /**
  * Hora normal que paga el cliente, leída de la tarifa principal (cotización
  * calculada SIN tarifas fuera de horario). Sólo tiene sentido cuando se cobra
- * por hora (la tarifa misma) o por día (tarifa ÷ horas por día). Con abono,
+ * por hora (la tarifa misma), por día (tarifa ÷ horas por día) o por hora-hombre
+ * (tarifa × personas de la cuadrilla, V-34). Con abono,
  * precio cerrado o por unidad producida la tarifa incluye otras cosas
  * (materiales, mínimos, guardia): ahí la referencia es la hora normal de los
  * recursos (`resourceNormalHourCost`, con margen).
  * @returns {number|null}
  */
-export function normalHourEquivalent({ unitKind, listRate, hoursPerActiveDay } = {}) {
+export function normalHourEquivalent({ unitKind, unitId = null, listRate, hoursPerActiveDay, people = 0 } = {}) {
   if (!isFiniteNumber(listRate) || !(listRate > 0)) return null;
   if (unitKind === 'hour') return listRate;
+  // Hora-hombre (V-34): una hora de la cuadrilla factura una hora-hombre por persona. Así la
+  // misma cuadrilla tiene la misma hora fuera de horario se cobre por hora o por hora-hombre.
+  if (unitId === MAN_HOUR_UNIT) {
+    const crew = nonNegative(people);
+    return crew > 0 ? listRate * crew : null;
+  }
   if (unitKind === 'day') {
     const value = safeDivide(listRate, nonNegative(hoursPerActiveDay), null);
     return isFiniteNumber(value) && value > 0 ? value : null;

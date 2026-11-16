@@ -16,7 +16,7 @@ import { createTrace } from '../core/trace.js';
 import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
 import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
-import { hasOutOfHours, isOutOfHoursExtra, normalHourEquivalent, resourceNormalHourCost } from './out-of-hours-engine.js';
+import { hasOutOfHours, isOutOfHoursExtra, normalHourEquivalent, resourceNormalHourCost, MAN_HOUR_UNIT } from './out-of-hours-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
 import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
@@ -846,7 +846,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       // Hora normal leída de la tarifa (sólo cobrando por hora o por día).
       const rateHourPrice = withOutOfHours
         ? referenceHourPrice
-        : normalHourEquivalent({ unitKind: unitInfo.kind, listRate: commercialListRate, hoursPerActiveDay: activity.hoursPerActiveDay });
+        : normalHourEquivalent({ unitKind: unitInfo.kind, unitId: unitInfo.id, listRate: commercialListRate, hoursPerActiveDay: activity.hoursPerActiveDay, people: model.outOfHours.people });
       const used = lines.find((l) => isFiniteNumber(l.referenceHourPrice));
       return {
         basis: model.outOfHours,
@@ -855,6 +855,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         // La que se usó de piso: la de la tarifa o, con abono / precio cerrado / por unidad, la de los recursos.
         normalHourPrice: used ? used.referenceHourPrice : rateHourPrice,
         normalHourSource: used ? used.referenceSource : rateHourPrice !== null ? 'rate' : null,
+        // Hora-hombre (V-34): las horas fuera de horario son por hora de TODA la cuadrilla, no por hora-hombre.
+        crewHour: unitInfo.id === MAN_HOUR_UNIT,
         lines,
       };
     })(),

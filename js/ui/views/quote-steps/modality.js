@@ -129,6 +129,23 @@ export function sparseActivationsWarned(result) {
 }
 
 /**
+ * Nota al pie de "Trabajo fuera del horario normal": de dónde sale la hora normal de referencia.
+ * Cobrando por hora-hombre (V-34) la hora normal es la tarifa × las personas de la cuadrilla y
+ * los precios son por hora de toda la cuadrilla, no por hora-hombre: se dice.
+ */
+export function outOfHoursNoteText(r) {
+  const o = (r && r.outOfHours) || {};
+  if (!isFiniteNumber(o.normalHourPrice)) return 'Cargá las horas de trabajo por día para comparar con tu hora normal.';
+  const people = o.basis ? o.basis.people : 0;
+  const crew = o.crewHour && people > 0 ? `${formatNumber(people, { decimals: 2 })} ${Math.abs(people - 1) < 1e-9 ? 'persona' : 'personas'}` : null;
+  const source = o.normalHourSource === 'resources'
+    ? 'lo que cuestan tu gente y tus equipos por hora, con tu margen'
+    : crew ? `tu tarifa por hora-hombre × ${crew}` : 'sale de tu tarifa';
+  const tail = crew ? ` Estos precios son por hora de toda la cuadrilla (${crew}), no por hora-hombre.` : '';
+  return `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${source}). El precio sugerido es esa hora más el recargo de las horas extra. Se cobra aparte de la tarifa.${tail}`;
+}
+
+/**
  * Aviso de la fila de una hora fuera de horario (V-09): el precio cargado a mano queda por
  * debajo de la hora normal de referencia. '' si no aplica.
  */
@@ -988,7 +1005,7 @@ export function render(container, ctx) {
           return `Lo que pagás de más por esa hora: las horas extra de ${num(b.people)} ${b.people === 1 ? 'persona' : 'personas'} con cargas${b.equipmentPerHour > 0 ? ` y el uso de los equipos (${formatMoney(b.equipmentPerHour)} por hora de combustible y mantenimiento)` : ''}. Sueldos y amortización ya están en el mes.`;
         },
       }),
-      kit.stat('Precio sugerido por hora', (r) => (oohLine(r, i) && isFiniteNumber(oohLine(r, i).suggestedPrice) ? formatMoney(oohLine(r, i).suggestedPrice) : EMPTY), {
+      kit.stat(info.id === 'manhour' ? 'Precio sugerido por hora de toda la cuadrilla' : 'Precio sugerido por hora', (r) => (oohLine(r, i) && isFiniteNumber(oohLine(r, i).suggestedPrice) ? formatMoney(oohLine(r, i).suggestedPrice) : EMPTY), {
         emphasis: true,
         hint: (r) => {
           const l = oohLine(r, i);
@@ -1000,7 +1017,7 @@ export function render(container, ctx) {
       }),
     ),
     formGrid(2,
-      kit.num(`extras.${i}.price`, { label: 'Tu precio por hora (opcional)', rule: 'money', unit: '$/h', placeholder: 'Usar el sugerido', hint: 'Sin IVA. Vacío = se usa el sugerido.' }),
+      kit.num(`extras.${i}.price`, { label: 'Tu precio por hora (opcional)', rule: 'money', unit: '$/h', placeholder: 'Usar el sugerido', hint: info.id === 'manhour' ? 'Sin IVA, por hora de toda la cuadrilla (no por hora-hombre). Vacío = se usa el sugerido.' : 'Sin IVA. Vacío = se usa el sugerido.' }),
       kit.num(`extras.${i}.quantityPerMonth`, { label: 'Horas estimadas por mes (opcional)', rule: 'quantity', unit: 'h/mes', placeholder: '0', hint: 'Si no sabés, dejalo vacío: el precio queda en la cotización como tarifa y no suma al mes.' })),
     // V-09: un precio a mano por debajo de la hora normal se avisa acá, al lado del campo.
     kit.out((r) => {
@@ -1022,9 +1039,7 @@ export function render(container, ctx) {
       ? kit.out((r) => {
         const o = r.outOfHours || {};
         if (!o.basis || !(o.basis.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, `Falta el personal con su sueldo (en "${stepName('labor')}"): sin eso no se puede calcular la hora extra.`);
-        return h('p', { class: 'qe-note' }, isFiniteNumber(o.normalHourPrice)
-          ? `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${o.normalHourSource === 'resources' ? 'lo que cuestan tu gente y tus equipos por hora, con tu margen' : 'sale de tu tarifa'}). El precio sugerido es esa hora más el recargo de las horas extra. Se cobra aparte de la tarifa.`
-          : 'Cargá las horas de trabajo por día para comparar con tu hora normal.');
+        return h('p', { class: 'qe-note' }, outOfHoursNoteText(r));
       }, { tag: 'div', allowEmpty: true })
       : null,
   ) : null;

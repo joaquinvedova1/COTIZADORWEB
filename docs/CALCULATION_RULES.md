@@ -1619,12 +1619,14 @@ precio sugerido = max(
 hora normal equivalente
   cobrando por hora            = la tarifa
   cobrando por día             = tarifa ÷ horas por día
+  cobrando por hora-hombre     = tarifa por HH × personas de la cuadrilla          (V-34)
   abono, cerrado, por unidad   = (Σ personas × costo del mes ÷ horas normales + usoEquiposHora) × cargas indirectas ÷ (1 − margen − impuestos)
 ```
 
 - El costo es el **marginal** de esa hora: sueldos, amortización y seguros ya están en el mes. Por eso el precio sugerido tiene un piso: una hora fuera de horario nunca sale más barata que una normal (la normal también paga sueldos, amortización y estructura).
-- La hora normal leída de la tarifa se calcula con la misma cotización **sin** las tarifas fuera de horario (no hay cuenta circular). Con abono, precio cerrado o por unidad la tarifa incluye materiales, mínimos o guardia: ahí el piso es la hora normal de los recursos con margen (`normalHourSource: 'resources'`).
+- La hora normal leída de la tarifa se calcula con la misma cotización **sin** las tarifas fuera de horario (no hay cuenta circular). Con abono, precio cerrado o por unidad (salvo hora-hombre) la tarifa incluye materiales, mínimos o guardia: ahí el piso es la hora normal de los recursos con margen (`normalHourSource: 'resources'`).
 - **Las horas estimadas no abaratan la tarifa principal**: al calcular la tarifa requerida, cada hora fuera de horario sugerida cuenta sólo por el precio que cubre su costo (`neutralRevenue`); lo que cobra de más por el piso es ganancia adicional si esas horas ocurren. El resultado del mes sí usa el ingreso completo.
+- **Hora-hombre (V-34, decisión del dueño, 2026-11-16).** La hora-hombre sí se puede pasar a horas: una hora de la cuadrilla factura una hora-hombre por persona. `normalHourEquivalent({ unitId: 'manhour', listRate, people })` devuelve `tarifa × personas` (`people` = Σ `positions` de Personal, el mismo `outOfHours.basis.people` del costo); sin personas no hay hora de tarifa y vale la de los recursos. Antes caía en "por unidad" y usaba la hora de los recursos. **Cambia** el precio sugerido de las horas fuera de horario de las cotizaciones por hora-hombre (sube; la tarifa principal no cambia): cuadrilla de 3 a $ 58.000 por HH → hora normal $ 174.000 (antes $ 138.976), hora al 50 % $ 227.858 (antes $ 192.834) y al 100 % $ 281.717 (antes $ 246.692), igual que la misma cuadrilla cobrada por hora. Con horas estimadas, la facturación del mes sube en esa diferencia × horas. Un precio cargado a mano no cambia. La hora fuera de horario es **por hora de toda la cuadrilla**, no por hora-hombre (`outOfHours.crewHour`): la pantalla y "Tus tarifas" lo dicen ("por hora de toda la cuadrilla (3 personas)").
 - Los tramos de horas extra cargados en el puesto (`overtimeItems`) siguen calculándose sobre el básico (sin cambio de números); las tarifas nuevas usan básico + adicionales.
 - Una línea sin recargo (`premiumPct` ≤ 0) genera un aviso.
 - Alquilados y tercerizados no suman uso por hora (su tarifa depende del proveedor): si cobran aparte fuera de horario, se carga como adicional a mano.
