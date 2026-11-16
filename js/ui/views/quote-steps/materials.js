@@ -12,7 +12,7 @@
 import { h, mount } from '../../dom.js';
 import { card, formGrid, selectField, emptyState, table } from '../../components.js';
 import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
-import { materialLineFromLibrary, createOtherCost } from '../../../domain/quote-factory.js';
+import { materialLineFromLibrary, blankMaterialLine, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -154,7 +154,7 @@ export function render(container, ctx) {
     ctx.toast(`Se agregó "${line.description}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
   };
   const addBlank = () => {
-    const line = materialLineFromLibrary({}, { currency: quoteCurrencyOf(quote) });
+    const line = blankMaterialLine({ currency: quoteCurrencyOf(quote) });
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.description` });
   };

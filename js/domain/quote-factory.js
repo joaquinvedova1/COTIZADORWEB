@@ -458,6 +458,15 @@ export function materialLineFromLibrary(mat = {}, { id = createId(), now = new D
   return line;
 }
 
+/**
+ * Material nuevo en blanco (V-21): nace con proveedor "Nosotros" (lo habitual),
+ * así no queda un pendiente por un dato que casi siempre es el mismo. Las
+ * líneas guardadas y las de biblioteca no se tocan.
+ */
+export function blankMaterialLine(opts = {}) {
+  return { ...materialLineFromLibrary({}, opts), providedBy: 'contractor' };
+}
+
 export function createVehicle({ id = createId(), name = 'Vehículo', count = 1, consumptionLPer100Km = 0, costPerKm = 0 } = {}) {
   return { id, name, count, consumptionLPer100Km, costPerKm };
 }

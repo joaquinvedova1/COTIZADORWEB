@@ -12,7 +12,7 @@ import { resourceCostText } from '../../js/ui/views/quote-steps/modality.js';
 import { extraPresetsFor, OUT_OF_HOURS_PRESETS_NOTE } from '../../js/ui/views/quote-steps/extras.js';
 import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
 import { EMPTY } from '../../js/core/format.js';
-import { illustrativeInfo, usesOwnFuel } from '../../js/domain/quote-factory.js';
+import { illustrativeInfo, usesOwnFuel, blankMaterialLine, materialLineFromLibrary } from '../../js/domain/quote-factory.js';
 import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
 
 const norm = (s) => String(s).replace(/[\u00a0\u202f]/g, ' ');
@@ -91,5 +91,14 @@ describe('V-20 · Sello ILUSTRATIVO del combustible', () => {
       const applies = Boolean(item) && !/^No aplica/.test(item.message);
       assert.equal(usesOwnFuel(q), applies, JSON.stringify(o));
     });
+  });
+});
+
+describe('V-21 · Material nuevo', () => {
+  test('la línea en blanco nace con proveedor "Nosotros"; la de biblioteca conserva lo suyo', () => {
+    assert.equal(blankMaterialLine({ id: 'm1' }).providedBy, 'contractor');
+    assert.equal(blankMaterialLine({ id: 'm1' }).description, 'Nuevo material');
+    assert.equal(materialLineFromLibrary({ id: 'lib', description: 'Caño' }, { id: 'm2', now: '2026-10-16T12:00:00.000Z' }).providedBy, null);
+    assert.equal(materialLineFromLibrary({ id: 'lib', providedBy: 'client' }, { id: 'm3', now: '2026-10-16T12:00:00.000Z' }).providedBy, 'client');
   });
 });
