@@ -352,18 +352,23 @@ export function listRateFromNet(netRate, factor) {
  * eso puede quedar por debajo del costo. Si esos ingresos no llegan, el piso real
  * es éste. No cambia la tarifa piso: es un dato más para mostrar al lado.
  *
- *   pisoNeto = Costo / (1 − t) / unidades facturables · pisoLista = pisoNeto / factor de descuentos
+ *   pisoNeto = (Costo − costo cargado de los adicionales) / (1 − t) / unidades facturables · pisoLista = pisoNeto / factor de descuentos
  *
  * @param {{ totalCost: number, billingTaxPct?: number, billableUnits: number, otherRevenue?: number, discountFactor?: number }} rates
  *   los de requiredRatesAt (r.ratesAtEstimate)
+ * @param {{ extrasLoadedCost?: number }} [opts] costo cargado de los adicionales (Σ `loadedCost` de `r.extras.lines`): se resta del costo
  * @returns {{ otherRevenue: number, netRate: number, listRate: number|null } | null} null si no hay otros ingresos
  *   o no hay tarifa posible (sin unidades facturables)
  */
-export function floorWithoutOtherRevenue(rates) {
+export function floorWithoutOtherRevenue(rates, { extrasLoadedCost = 0 } = {}) {
   if (!isPlainObject(rates)) return null;
   const other = nonNegative(rates.otherRevenue);
   if (!(other > NUMERIC_EPSILON)) return null;
-  const floor = requiredNetRate({ totalCost: rates.totalCost, marginPct: 0, billingTaxPct: rates.billingTaxPct, billableUnits: rates.billableUnits, otherRevenue: 0 });
+  // V-14: sin los adicionales tampoco está su costo (con su carga de estructura, financiero e
+  // imprevistos). Si se quita el ingreso y se deja el costo, este piso queda por encima de la
+  // tarifa sugerida.
+  const totalCost = Math.max(0, nonNegative(rates.totalCost) - nonNegative(extrasLoadedCost));
+  const floor = requiredNetRate({ totalCost, marginPct: 0, billingTaxPct: rates.billingTaxPct, billableUnits: rates.billableUnits, otherRevenue: 0 });
   if (!isFiniteNumber(floor.rate)) return null;
   const factor = isFiniteNumber(rates.discountFactor) && rates.discountFactor > 0 ? rates.discountFactor : 1;
   return { otherRevenue: other, netRate: floor.rate, listRate: listRateFromNet(floor.rate, factor) };

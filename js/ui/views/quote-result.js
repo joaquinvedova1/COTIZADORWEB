@@ -467,7 +467,8 @@ function closedOf(v) {
 /** Tarifa piso sin contar adicionales (A-7): { text, tip } o null (lo calcula el motor). */
 function floorExtras(v) {
   try {
-    return floorWithoutExtrasText(floorWithoutOtherRevenue(v.r.ratesAtEstimate), v.unitLabel);
+    const extrasLoadedCost = v.r.extras && Number.isFinite(v.r.extras.loadedCost) ? v.r.extras.loadedCost : 0;
+    return floorWithoutExtrasText(floorWithoutOtherRevenue(v.r.ratesAtEstimate, { extrasLoadedCost }), v.unitLabel);
   } catch (error) {
     logger.warn('No se pudo calcular la tarifa piso sin adicionales', { message: error && error.message });
     return null;

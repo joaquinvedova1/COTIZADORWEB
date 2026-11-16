@@ -116,6 +116,8 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
   return {
     lines,
     cost: lines.reduce((s, l) => s + l.cost, 0),
+    // Costo con su carga (estructura %, financiero, imprevistos): lo que sale del costo total sin adicionales (V-14).
+    loadedCost: lines.reduce((s, l) => s + l.loadedCost, 0),
     revenue: lines.reduce((s, l) => s + l.revenue, 0),
     neutralRevenue: lines.reduce((s, l) => s + l.neutralRevenue, 0),
     // Adicionales con cantidad pero sin precio (ni a mano ni sugerido): no suman ingreso.
