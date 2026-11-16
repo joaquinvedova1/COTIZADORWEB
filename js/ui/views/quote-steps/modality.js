@@ -128,6 +128,16 @@ export function sparseActivationsWarned(result) {
   return Boolean(result && Array.isArray(result.issues) && result.issues.some((i) => i && i.code === SPARSE_ACTIVATIONS_ISSUE));
 }
 
+/**
+ * Aviso de la fila de una hora fuera de horario (V-09): el precio cargado a mano queda por
+ * debajo de la hora normal de referencia. '' si no aplica.
+ */
+export function cheaperThanNormalHourText(line) {
+  if (!line || line.priceSource !== 'manual' || !isFiniteNumber(line.price) || !isFiniteNumber(line.referenceHourPrice)) return '';
+  if (!(line.price < line.referenceHourPrice - 1e-9)) return '';
+  return `Queda más barata que tu hora normal (${formatMoney(line.referenceHourPrice)}).`;
+}
+
 export function render(container, ctx) {
   const { quote, kit, settings } = ctx;
   const info = billingUnitOf(quote);
@@ -991,7 +1001,12 @@ export function render(container, ctx) {
     ),
     formGrid(2,
       kit.num(`extras.${i}.price`, { label: 'Tu precio por hora (opcional)', rule: 'money', unit: '$/h', placeholder: 'Usar el sugerido', hint: 'Sin IVA. Vacío = se usa el sugerido.' }),
-      kit.num(`extras.${i}.quantityPerMonth`, { label: 'Horas estimadas por mes (opcional)', rule: 'quantity', unit: 'h/mes', placeholder: '0', hint: 'Si no sabés, dejalo vacío: el precio queda en la cotización como tarifa y no suma al mes.' }))));
+      kit.num(`extras.${i}.quantityPerMonth`, { label: 'Horas estimadas por mes (opcional)', rule: 'quantity', unit: 'h/mes', placeholder: '0', hint: 'Si no sabés, dejalo vacío: el precio queda en la cotización como tarifa y no suma al mes.' })),
+    // V-09: un precio a mano por debajo de la hora normal se avisa acá, al lado del campo.
+    kit.out((r) => {
+      const text = cheaperThanNormalHourText(oohLine(r, i));
+      return text ? h('p', { class: ['qe-note', 'is-warning'] }, text) : '';
+    }, { tag: 'div', allowEmpty: true })));
   const outOfHoursCard = monthlyContract || !byQuantity || kind === 'quantity' || kind === 'event' ? card(
     { title: 'Trabajo fuera del horario normal (opcional)', subtitle: 'Si te piden trabajar fuera de tu horario, a tu gente le pagás horas extra: esa hora tiene otra tarifa.', className: 'qe-ooh-card' },
     yesNo({

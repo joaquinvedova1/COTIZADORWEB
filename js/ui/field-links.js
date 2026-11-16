@@ -41,6 +41,8 @@ export function stepOfPath(path) {
     case 'activity':
     case 'pricingMode':
     case 'unit':
+    // Adicionales y horas fuera de horario se cargan en "Cómo se cobra" (V-09).
+    case 'extras':
       return 'modality';
     case 'labor':
       return 'labor';

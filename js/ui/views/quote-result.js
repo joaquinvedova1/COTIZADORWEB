@@ -1142,7 +1142,16 @@ function criticalAlerts(v) {
     out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
       stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`)));
   }
-  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i);
+  // Avisos de adicionales (V-09): no reemplazan ningún valor, van en su propia lista.
+  const extraIssues = (Array.isArray(r.issues) ? r.issues : []).filter(isExtrasIssue);
+  if (extraIssues.length) {
+    out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
+      h('div', {},
+        h('strong', {}, 'Adicionales para revisar:'),
+        h('ul', {}, ...extraIssues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
+        stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`))));
+  }
+  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i) || isExtrasIssue(i);
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
   if (issues.length) {
     out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
@@ -1153,6 +1162,11 @@ function criticalAlerts(v) {
         issues.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(issues.length - 6)} más.`) : null)));
   }
   return out;
+}
+
+/** ¿El aviso es de un adicional o de una hora fuera de horario? (ruta `extras.*`, V-09). */
+export function isExtrasIssue(issue) {
+  return String((issue && issue.path) || '').split('.')[0] === 'extras';
 }
 
 /** Notas sobre los días mínimos (van con el detalle; la frase principal ya lo resume). */
