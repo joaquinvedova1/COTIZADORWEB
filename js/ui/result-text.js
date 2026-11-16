@@ -592,3 +592,29 @@ export function guaranteeMarginNote(r) {
     : `estimás ${formatMoney(rev.guarantee - rev.guaranteeTopUp)}, se facturan ${formatMoney(rev.guarantee)}`;
   return `Incluye ${formatMoney(rev.guaranteeTopUp)} del mínimo garantizado (${detail}).`;
 }
+
+/** Horas fuera de horario con horas estimadas (las únicas que suman al mes). */
+function estimatedOutOfHours(r) {
+  const lines = r && r.outOfHours && Array.isArray(r.outOfHours.lines) ? r.outOfHours.lines : [];
+  return lines.filter((l) => l && l.quantity > 0);
+}
+
+/**
+ * Aclaración del margen cuando hay horas fuera de horario estimadas (V-27): parte de la
+ * ganancia del mes viene de esas horas, que pueden no ocurrir. '' si no suman ganancia.
+ * @param {object} r resultado de computeQuote
+ */
+export function outOfHoursMarginNote(r) {
+  const profit = estimatedOutOfHours(r).reduce((acc, l) => acc + (isFiniteNumber(l.profit) ? l.profit : 0), 0);
+  return profit > 0.005 ? `Incluye ${formatMoney(profit)} de ganancia de las horas fuera de horario, si ocurren.` : '';
+}
+
+/**
+ * Aclaración del equilibrio con horas fuera de horario estimadas (V-27): su facturación
+ * se cuenta entera aunque se trabajen menos días. '' si no hay.
+ * @param {object} r resultado de computeQuote
+ */
+export function outOfHoursBreakEvenNote(r) {
+  const revenue = estimatedOutOfHours(r).reduce((acc, l) => acc + (isFiniteNumber(l.revenue) ? l.revenue : 0), 0);
+  return revenue > 0.005 ? `Cuenta ${formatMoney(revenue)} de horas fuera de horario como si se facturaran aunque trabajes menos días.` : '';
+}

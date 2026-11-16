@@ -14,7 +14,8 @@ import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
 import { routeConsumptionNote } from '../../js/ui/views/quote-steps/logistics.js';
 import { defaultUnitForContract } from '../../js/domain/contract.js';
 import { billingUnitOf } from '../../js/domain/billing-units.js';
-import { EMPTY } from '../../js/core/format.js';
+import { outOfHoursMarginNote, outOfHoursBreakEvenNote } from '../../js/ui/result-text.js';
+import { EMPTY, formatMoney } from '../../js/core/format.js';
 import { illustrativeInfo, usesOwnFuel, blankMaterialLine, materialLineFromLibrary } from '../../js/domain/quote-factory.js';
 import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
 
@@ -187,5 +188,29 @@ describe('V-26 y V-27 · Nota de las horas estimadas fuera de horario', () => {
     assert.equal(norm(outOfHoursHoursNote({ activity: { activeDaysPerMonth: 12, hoursPerActiveDay: 8 } })),
       'Las horas estimadas son además de las 96 horas normales por mes que cargaste arriba. Si son días enteros que no ibas a trabajar, la vianda y el viaje de ese día no se suman solos.');
     assert.equal(outOfHoursHoursNote({ activity: {} }), 'Si son días enteros que no ibas a trabajar, la vianda y el viaje de ese día no se suman solos.');
+  });
+});
+
+describe('V-27 · Horas fuera de horario estimadas en el Resultado', () => {
+  const quote = (hours) => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person(), person()] });
+    q.extras = [{ id: 'ooh-50', kind: OUT_OF_HOURS_KIND, premiumPct: 50, label: '', unitName: 'hora', category: 'labor', quantityPerMonth: hours, costPerUnit: null, price: null }];
+    return q;
+  };
+
+  test('con horas estimadas: el margen y el equilibrio dicen cuánto viene de esas horas', () => {
+    const r = computeQuote(quote(20));
+    const [line] = r.outOfHours.lines;
+    assert.ok(line.profit > 0 && line.revenue > 0);
+    assert.equal(outOfHoursMarginNote(r), `Incluye ${formatMoney(line.profit)} de ganancia de las horas fuera de horario, si ocurren.`);
+    assert.equal(outOfHoursBreakEvenNote(r), `Cuenta ${formatMoney(line.revenue)} de horas fuera de horario como si se facturaran aunque trabajes menos días.`);
+  });
+
+  test('sin horas estimadas no se dice nada', () => {
+    const r = computeQuote(quote(null));
+    assert.equal(outOfHoursMarginNote(r), '');
+    assert.equal(outOfHoursBreakEvenNote(r), '');
+    assert.equal(outOfHoursMarginNote({}), '');
   });
 });

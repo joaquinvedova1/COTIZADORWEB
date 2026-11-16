@@ -123,6 +123,8 @@ import {
   lossWindowSegments,
   tariffRows,
   guaranteeMarginNote,
+  outOfHoursMarginNote,
+  outOfHoursBreakEvenNote,
 } from '../result-text.js';
 
 /**
@@ -1672,8 +1674,8 @@ function marginStat(v) {
   else {
     const per = closedOf(v).single ? 'por trabajo' : 'por mes';
     if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} ${per}.`);
-    else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} ${per} (tu objetivo: ${pct(k.targetMarginPct)}).`, guaranteeMarginNote(v.r));
-    else hint = statHint(`Ganás ${money(k.profit)} ${per}.`, guaranteeMarginNote(v.r));
+    else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} ${per} (tu objetivo: ${pct(k.targetMarginPct)}).`, guaranteeMarginNote(v.r), outOfHoursMarginNote(v.r));
+    else hint = statHint(`Ganás ${money(k.profit)} ${per}.`, guaranteeMarginNote(v.r), outOfHoursMarginNote(v.r));
   }
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
@@ -1813,7 +1815,9 @@ function workBlock(v) {
     h('div', { class: 'qr-work-body' },
       unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
       h('p', { class: 'qr-work-text' }, ...content),
-      rateOk && !isMonth ? lossWindowNote(r, D) : null),
+      rateOk && !isMonth ? lossWindowNote(r, D) : null,
+      // V-27: las horas fuera de horario estimadas se cuentan enteras en el equilibrio.
+      rateOk && !isMonth && outOfHoursBreakEvenNote(r) ? h('p', { class: 'qr-work-text qr-note' }, outOfHoursBreakEvenNote(r)) : null),
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
 
