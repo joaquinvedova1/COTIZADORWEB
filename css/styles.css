@@ -445,7 +445,9 @@ html { scroll-padding-top: 7rem; }
 
 /* ------------------------------------------------------------------ toasts */
 
-.toast-region { position: fixed; right: 1.25rem; bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 50; }
+/* Arriba (revisión UX tanda novatos): abajo tapaban "Continuar" / "Atrás" de cada etapa. */
+.toast-region { position: fixed; right: 1.25rem; top: 6rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 50; }
+@media (max-width: 760px) { .toast-region { top: 64px; left: 0.75rem; right: 0.75rem; } .toast { max-width: none; } }
 .toast { background: var(--ink); color: var(--white); padding: 0.65rem 1rem; border-radius: 8px; box-shadow: var(--shadow); font-size: 0.9rem; max-width: 380px; }
 .toast-success { background: #157A50; }
 .toast-warning { background: #9A5F12; }

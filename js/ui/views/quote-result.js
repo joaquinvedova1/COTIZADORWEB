@@ -3754,7 +3754,7 @@ function deepDefinitions(v) {
     {
       key: 'eecc',
       summary: '¿En qué se va el costo?',
-      hint: 'Los rubros del costo del mes y la estructura de costos completa (EECC).',
+      hint: `Los rubros del costo ${closedOf(v).single ? 'del trabajo' : 'del mes'} y la estructura de costos completa (EECC).`,
       build: () => {
         const e = v.r.eecc || {};
         const breakdown = safeSection('¿En qué se va el costo?', () => renderCostBreakdown(v));

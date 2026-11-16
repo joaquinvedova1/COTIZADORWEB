@@ -35,6 +35,7 @@ import { baseText } from '../../economic-base-ui.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { transportOf, providerActivityList, routeText, tripsText } from './transport.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
+import { isSingleClosedJob } from '../../result-text.js';
 
 /**
  * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
@@ -251,7 +252,8 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
               : h('div', { class: 'field-hint' }, kit.action('Maneja otra persona', () => ctx.mutate((q) => {
                 const mob = q.equipment[i] && q.equipment[i].mobilization;
                 if (mob) mob.driver = 'other';
-              }), { variant: 'link' })),
+                // Botón con su padding (revisión UX): como enlace, en celular quedaba sin aire.
+              }), { variant: 'secondary' })),
           );
         }
         return kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint || 'Opcional: no cambia el costo.' });
@@ -763,7 +765,8 @@ export function render(container, ctx) {
   const keyline = notApplicable
     ? null
     : kit.keyline({
-      label: 'Movilización y viajes en el costo del mes',
+      // Precio cerrado con un trabajo por mes: la cifra es la del trabajo (revisión UX tanda novatos).
+      label: (r) => (isSingleClosedJob(r) ? 'Movilización y viajes en el costo del trabajo' : 'Movilización y viajes en el costo del mes'),
       value: (r) => formatMoney(r.kpis.logisticsMonthly),
       hint: (r) => {
         const share = isFiniteNumber(r.kpis.logisticsIncidencePct) ? `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ` : '';
@@ -775,7 +778,9 @@ export function render(container, ctx) {
         const providerNote = providers.length
           ? ` Los viajes del proveedor (${providers.map((p) => `${p.name}: ${formatMoney(p.netMonthly)} neto`).join('; ')}) están en "${stepName('equipment')}", no acá.`
           : '';
-        return `${share}${formatMoney(perActivation)} ${T.per}${split} × ${formatNumber(r.model.logistics.activationsPerMonth, { decimals: 2 })} ${T.many} por mes.${providerNote}`;
+        if (isSingleClosedJob(r)) return `${share}${formatMoney(perActivation)} ${T.per}${split}.${providerNote}`;
+        const acts = r.model.logistics.activationsPerMonth;
+        return `${share}${formatMoney(perActivation)} ${T.per}${split} × ${formatNumber(acts, { decimals: 2 })} ${T.word(acts)} por mes.${providerNote}`;
       },
       trace: (r) => r.traces.logistics,
       className: 'qe-keyline-total',
@@ -800,7 +805,8 @@ export function render(container, ctx) {
           const m = mobOf(r);
           const km = perMonth(r, m.kmPerActivation) + r.model.logistics.kmPerMonth;
           const liters = perMonth(r, m.litersPerActivation) + r.model.logistics.litersPerMonth;
-          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} por mes ${r.model.logistics.kmPerMonth > 0 ? ` (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos por km ${formatValue(r.model.logistics.kmPerMonth, 'km')})` : ''} · ${activationsText(r)}.`;
+          const one = isSingleClosedJob(r);
+          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} ${one ? 'en el trabajo' : 'por mes'}${r.model.logistics.kmPerMonth > 0 ? ` (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos por km ${formatValue(r.model.logistics.kmPerMonth, 'km')})` : ''}${one ? '' : ` · ${activationsText(r)}`}.`;
         },
       },
       // Distancia / actividad de los proveedores por km o por viaje (PLAN-2026-012):

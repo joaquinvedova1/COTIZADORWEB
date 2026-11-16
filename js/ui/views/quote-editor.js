@@ -51,7 +51,7 @@ import {
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
-import { SERVICE_COMPONENTS, componentsOf } from '../../domain/contract.js';
+import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
 import { breakEvenZeroText, unreliableText } from '../result-text.js';
@@ -281,9 +281,12 @@ export function stepOfItem(item) {
  * Pasos que no se muestran en la barra ni en Atrás / Continuar (tanda novatos 2026-11):
  * "Materiales" cuando en "¿Qué incluye?" no se marcó nada que se cargue ahí (materiales,
  * insumos, herramientas, otros costos…) y no hay líneas cargadas. El paso sigue existiendo
- * (su URL funciona) y vuelve a aparecer al marcar un componente que lo use.
+ * (su URL funciona) y vuelve a aparecer al marcar un componente que lo use. Lo mismo con
+ * "Movilización y viajes" sin viajes marcados ni nada cargado que viaje (travelNotNeeded).
  */
 export function isStepHidden(stepId, quote) {
+  // "Movilización y viajes" sin viajes marcados ni nada cargado que viaje (revisión UX tanda novatos).
+  if (stepId === 'logistics') return travelNotNeeded(quote);
   if (stepId !== 'materials') return false;
   const q = isPlainObject(quote) ? quote : {};
   const count = (v) => (Array.isArray(v) ? v.length : 0);
@@ -1442,11 +1445,13 @@ function buildSummary({ getResult, stepHref, stepId = null }) {
 
 /**
  * Estado que se MUESTRA de un paso o etapa: un paso posterior al actual que
- * todavía no se visitó en esta sesión no alarma ("Pendiente", en gris) salvo
- * que ya esté completo.
+ * todavía no se visitó en esta sesión no alarma ni se da por completo
+ * ("Pendiente", en gris).
  */
 function shownStatus(status, { after, visited }) {
-  return after && !visited && status !== 'green' ? 'pending' : status;
+  // Tampoco "Completo" (revisión UX tanda novatos): completo sólo con los valores con que nace no
+  // quiere decir que se revisó. Al entrar una vez muestra su estado real.
+  return after && !visited ? 'pending' : status;
 }
 
 /**
@@ -1691,10 +1696,24 @@ export function pendingFieldPath(item, quote) {
  * @param {string} stepId
  * @param {{ getQuote?: Function, onReveal?: Function, onFocusField?: Function, hasField?: Function, stepHref?: Function, didactic?: boolean }} options
  */
+/**
+ * ¿"Cómo se cobra" tiene datos distintos de los con que nace la cotización? (revisión UX tanda
+ * novatos). Precio cerrado nace con 1 trabajo de 1 día: eso solo no cuenta como cargado.
+ */
+function chargeLoaded(quote) {
+  const a = isPlainObject(quote) && isPlainObject(quote.activity) ? quote.activity : {};
+  const set = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+  if (isPlainObject(quote.contract) && quote.contract.mode === 'closed') {
+    return (set(a.daysPerActivation) && Math.abs(Number(a.daysPerActivation) - 1) > 1e-9)
+      || (set(a.billableQuantityPerMonth) && Math.abs(Number(a.billableQuantityPerMonth) - 1) > 1e-9);
+  }
+  return set(a.activeDaysPerMonth) || set(a.billableQuantityPerMonth);
+}
+
 /** Avisos informativos (completeness.notices) que también se muestran en su paso. */
 const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels']);
 
-function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null } = {}) {
+function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null, chargeReady = () => true } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
   // En la cotización de ejemplo, los puntos para revisar están a propósito (UX-3).
   const title = didactic ? 'Para revisar: el ejemplo lo deja a propósito' : 'Para revisar en este paso';
@@ -1736,7 +1755,10 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
       const issues = (result.issues || []).filter((i) => stepOfPath(i.path) === stepId);
       // Avisos informativos de la tanda A 2026-11 (A-15): no restan puntaje, pero cambian
       // la decisión de precio; se ven en su paso (y en el Resultado), en azul.
-      const infos = ((result.completeness && result.completeness.notices) || []).filter((n) => STEP_NOTICE_IDS.has(n.id) && (n.step === stepId || (Array.isArray(n.targets) && n.targets.some((t) => t && t.list === stepId))));
+      // "Costos fijos del mes en el precio" en Personal / Equipos: sólo cuando "Cómo se cobra" ya
+      // tiene datos de la persona (revisión UX): antes salía con los valores con que nace la cotización.
+      const early = (n) => n.id === 'fixed_costs_absorbed' && (stepId === 'labor' || stepId === 'equipment') && !chargeReady(quote);
+      const infos = ((result.completeness && result.completeness.notices) || []).filter((n) => STEP_NOTICE_IDS.has(n.id) && (n.step === stepId || (Array.isArray(n.targets) && n.targets.some((t) => t && t.list === stepId))) && !early(n));
       if (items.length === 0 && issues.length === 0 && infos.length === 0) {
         el.hidden = true;
         clear(list);
@@ -2191,6 +2213,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   let copy = stepId === 'labor' && noLaborProfiles ? { ...baseCopy, why: LABOR_WHY_EMPTY } : baseCopy;
   // Precio cerrado: en "El precio" se calcula tu precio, no una tarifa.
   if (stepId === 'margin' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: copy.why.replace('calculamos tu tarifa', 'calculamos tu precio') };
+  // Precio cerrado en "Cómo se cobra": cuánto lleva el trabajo y "tu precio" (revisión UX tanda novatos).
+  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: 'Elegí en qué unidad cobrás y cuánto lleva el trabajo. Con eso sale tu precio.' };
 
   markVisited(quoteId, stepId);
   const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId });
@@ -2207,6 +2231,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
     stepHref,
     didactic: state.quote.illustrative === true,
+    chargeReady: (q) => wasVisited(quoteId, 'modality') || chargeLoaded(q),
   });
   const calcErrorBanner = banner('No se pudieron recalcular los resultados con los datos actuales. Revisá los valores ingresados.', 'danger', { title: 'Error de cálculo.' });
   calcErrorBanner.hidden = true;

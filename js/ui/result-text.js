@@ -517,6 +517,15 @@ export function isClosedPrice(r) {
   return Boolean(r && r.contract && r.contract.mode === 'closed');
 }
 
+/**
+ * Precio cerrado con UN trabajo por mes: las cifras "del mes" son las del trabajo y se rotulan
+ * así ("Costo del equipo en el trabajo"). Mismo criterio que el Resultado (closedOf).
+ */
+export function isSingleClosedJob(r) {
+  const q = r && r.kpis ? r.kpis.billableQuantity : null;
+  return isClosedPrice(r) && Number.isFinite(q) && Math.abs(q - 1) < 1e-9;
+}
+
 /** "Tarifa sugerida" o, en precio cerrado, "Precio sugerido". */
 export function suggestedRateName(r) {
   return isClosedPrice(r) ? 'Precio sugerido' : 'Tarifa sugerida';

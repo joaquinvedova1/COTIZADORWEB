@@ -201,6 +201,24 @@ export function contractUsesMaterials(contract) {
 }
 
 /**
+ * ¿El servicio no lleva viajes? (revisión UX tanda novatos 2026-11): en "¿Qué incluye?" no se
+ * marcó "Viáticos y alojamiento" y no hay nada cargado que viaje (equipos, vehículos, distancia,
+ * peajes ni alojamiento). Con eso la ruta está vacía y suma $ 0: la distancia no es un dato que
+ * falte y "Movilización y viajes" no se muestra. Cotizar por viaje o por km siempre lleva viajes.
+ * Sin componentes elegidos (cotizaciones anteriores) → false (como siempre).
+ */
+export function travelNotNeeded(quote) {
+  const q = isPlainObject(quote) ? quote : {};
+  const list = cleanComponents(isPlainObject(q.contract) ? q.contract.components : null);
+  if (!list || list.includes('travel')) return false;
+  if (q.unit === 'trip' || q.unit === 'km') return false;
+  if (Array.isArray(q.equipment) && q.equipment.length > 0) return false;
+  const lg = isPlainObject(q.logistics) ? q.logistics : {};
+  if (Array.isArray(lg.vehicles) && lg.vehicles.length > 0) return false;
+  return !(Number(lg.distanceKm) > 0) && !(Number(lg.tollsPerActivation) > 0) && !(Number(lg.lodgingPerActivation) > 0);
+}
+
+/**
  * Plantilla de la que partió el servicio: la elegida (`contract.templateId`) o, si no hay, la
  * primera cuyos componentes son exactamente los elegidos (o null). `edited` = se cambiaron los
  * componentes después de elegirla (sigue siendo un punto de partida, no una categoría).

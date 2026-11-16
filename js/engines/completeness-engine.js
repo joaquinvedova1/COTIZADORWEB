@@ -27,7 +27,7 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
-import { contractOf, contractUsesMaterials } from '../domain/contract.js';
+import { contractOf, contractUsesMaterials, travelNotNeeded } from '../domain/contract.js';
 import { computeExtras } from './extras-engine.js';
 import { AVAILABILITY_WINDOW, EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
@@ -661,6 +661,10 @@ export function evaluateCompleteness(quote = {}) {
   // 9. Logística: ruta + cómo se llega (equipos que se movilizan o vehículos auxiliares)
   if (logistics.notApplicable) {
     items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'Marcado como "sin traslados".'));
+  } else if (travelNotNeeded(quote)) {
+    // Revisión UX tanda novatos: sin "Viáticos y alojamiento" en "¿Qué incluye?" y sin nada que
+    // viaje, la ruta vacía ya suma $ 0: la distancia no es un dato que falte.
+    items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'El servicio no incluye viajes (no se marcó "Viáticos y alojamiento" en "¿Qué incluye?").'));
   } else {
     const moves = vehicles.some((v) => nonNegative(v.count) > 0)
       || equipment.some((e) => isPlainObject(e.mobilization) && ['self', 'transported', 'support'].includes(e.mobilization.mode))
@@ -1397,7 +1401,7 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
   }
   const days = formatNumber(D, { decimals: Math.abs(D - Math.round(D)) < 1e-9 ? 0 : 1 });
   const why = closed
-    ? `Precio cerrado (${days} días de trabajo)`
+    ? `Precio cerrado (${days} ${Math.abs(D - 1) < 1e-9 ? 'día' : 'días'} de trabajo)`
     : `Trabajás ${days} de ${formatNumber(available)} días disponibles`;
   const period = mf > 1 + 1e-9 ? `de ${formatNumber(mf, { decimals: 2 })} meses (el trabajo dura más que los días disponibles)` : 'del mes';
   const parts = [laborFixed > 0 ? `sueldos ${formatMoney(laborFixed * mf)}` : null, equipmentFixed > 0 ? `tenencia de equipos propios ${formatMoney(equipmentFixed * mf)}` : null].filter(Boolean).join(' + ');

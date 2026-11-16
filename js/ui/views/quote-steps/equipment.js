@@ -34,12 +34,14 @@ import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '..
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { hasNumber, moneyText, plural, stepName } from './shared.js';
-import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
+import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
+import { isSingleClosedJob } from '../../result-text.js';
+import { workDaysText } from '../../unit-text.js';
 import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
 
 const isExternalLine = (line) => acquisitionOf(line) !== 'owned';
@@ -443,7 +445,8 @@ export function render(container, ctx) {
     }
     const index = lines.length;
     ctx.mutate((q) => q.equipment.push(line), { focus: `equipment.${index}.quantity` });
-    ctx.toast(`Se agregó "${line.name}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.${vehicle ? ' Como es un vehículo, arranca con 0 h trabajando en la locación: su consumo va en ruta.' : ''}`, 'success');
+    // Una línea (revisión UX): el aviso largo tapaba "Continuar". Lo demás está en la ficha.
+    ctx.toast(`Se agregó "${line.name}" con sus valores de hoy en Recursos.`, 'success');
   };
   const addBlank = (acquisition = 'owned', { vehicle = false } = {}) => {
     const line = blankEquipmentLine({ acquisition, hoursPerActiveDay: null, currency });
@@ -469,7 +472,7 @@ export function render(container, ctx) {
       l.hoursPerActiveDay = 0;
       if (!l.mobilization || !l.mobilization.mode) l.mobilization = createMobilization({ ...(l.mobilization || {}), mode: 'self' });
     });
-    ctx.toast(`"${line.name}" es un vehículo: arranca con 0 h trabajando en la locación y su consumo se pide en ruta (L/100 km). Si también trabaja parado (bombeo, grúa), cargalo en "¿También trabaja parado en la locación?".`, 'info');
+    ctx.toast(`"${line.name}" es un vehículo: su consumo se pide en ruta (L/100 km).`, 'info');
   };
   const removeLine = async (index) => {
     const line = quote.equipment[index];
@@ -625,9 +628,11 @@ export function render(container, ctx) {
         title: '¿De qué mes son estos valores? (fecha y moneda)',
         summary: () => {
           const e = quote.equipment[i] || {};
+          // Sin fecha propia, el mes de la oferta (igual que la etiqueta de arriba de la ficha).
+          const fallbackPeriod = offerPeriodOf(quote);
           return owned
-            ? `${baseText(e.base, { prefix: 'Valor' })} · ${baseText(e.costsBase, { prefix: 'Costos' })}`
-            : baseText(e.base, { prefix: 'Tarifa' });
+            ? `${baseText(e.base, { prefix: 'Valor', fallbackPeriod })} · ${baseText(e.costsBase, { prefix: 'Costos', fallbackPeriod })}`
+            : baseText(e.base, { prefix: 'Tarifa', fallbackPeriod });
         },
       },
       h('p', { class: 'small' }, 'De qué mes son estos valores. Cambiarlos acá sólo afecta esta cotización (Recursos no cambia).'),
@@ -829,13 +834,14 @@ export function render(container, ctx) {
       fromResource ? null : holdingBlock(),
       kit.out((r) => wearWarningsRegion(r, i) || '', { tag: 'div', allowEmpty: true }),
       kit.keyline({
-        label: 'Costo del equipo en el mes',
+        // Precio cerrado con un trabajo por mes: la cifra es la del trabajo (revisión UX tanda novatos).
+        label: (r) => (isSingleClosedJob(r) ? 'Costo del equipo en el trabajo' : 'Costo del equipo en el mes'),
         value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
           const share = l.shared && !l.shareMissing ? ` (${formatPercent(l.fixedCostSharePct)} asignado a esta cotización de ${formatMoney(l.fullFixedMonthly)})` : '';
-          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día de trabajo · con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días de trabajo.`;
+          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día de trabajo · con ${workDaysText(r.activity.activeDaysPerMonth)}.`;
         },
         trace: (r) => equipmentTrace(r, i, quote.equipment[i]),
       }),
@@ -1188,7 +1194,7 @@ export function render(container, ctx) {
       ),
       supplierTermGroup(i, line),
       kit.keyline({
-        label: `Costo del ${acq === 'rented' ? 'alquiler' : 'servicio'} en el mes`,
+        label: (r) => `Costo del ${acq === 'rented' ? 'alquiler' : 'servicio'} en el ${isSingleClosedJob(r) ? 'trabajo' : 'mes'}`,
         value: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'Falta la ruta' : at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
         tone: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'red' : null),
         hint: (r) => {
@@ -1284,7 +1290,7 @@ export function render(container, ctx) {
   const lineCards = lines.map((line, i) => (isExternalLine(line) ? externalCard(line, i) : ownedCard(line, i)));
 
   const totals = kit.keyline({
-    label: 'Equipos en el costo del mes',
+    label: (r) => (isSingleClosedJob(r) ? 'Equipos en el costo del trabajo' : 'Equipos en el costo del mes'),
     value: (r) => formatMoney(r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)),
     hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día de trabajo (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
     className: 'qe-keyline-total',

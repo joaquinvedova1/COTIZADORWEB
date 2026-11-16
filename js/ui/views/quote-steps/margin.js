@@ -188,9 +188,14 @@ export function standbyOutputText(r, { off = false, days = 0, note = true } = {}
 
 /** En precio cerrado "Equipo en espera" sólo se muestra si tiene algo cargado (V-29). */
 export function showStandbyRule(quote = {}) {
-  if (contractOf(quote).mode !== 'closed') return true;
   const rules = quote.rules || {};
-  return rules.standbyNotApplicable === true || Number(rules.standbyDaysPerMonth) > 0 || Number(rules.standbyRatePerDay) > 0;
+  const stored = rules.standbyNotApplicable === true || Number(rules.standbyDaysPerMonth) > 0 || Number(rules.standbyRatePerDay) > 0;
+  const contract = contractOf(quote);
+  if (contract.mode === 'closed') return stored;
+  // Fijo mensual sin equipos (revisión UX tanda novatos): no hay equipo que quede en espera.
+  const noEquipment = !contract.legacy && !contract.equipment && !(Array.isArray(quote.equipment) && quote.equipment.length > 0);
+  if (contract.mode === 'monthly' && noEquipment) return stored;
+  return true;
 }
 
 export function render(container, ctx) {
@@ -246,7 +251,7 @@ export function render(container, ctx) {
 
   // ------------------------------------ impuestos sobre lo que facturás
   const taxesCard = card(
-    { title: '¿Qué parte de lo que facturás se va en impuestos?', subtitle: 'No son un costo más: se pagan sobre lo que cobrás. RATEOS los incluye en la tarifa junto con tu margen.', level: 3, className: 'qe-taxes' },
+    { title: '¿Qué parte de lo que facturás se va en impuestos?', subtitle: `No son un costo más: se pagan sobre lo que cobrás. RATEOS los incluye en ${closed ? 'el precio' : 'la tarifa'} junto con tu margen.`, level: 3, className: 'qe-taxes' },
     billingTaxesHelp(),
     billingTaxesFields({
       get: () => quote.billingTaxes,
@@ -262,7 +267,9 @@ export function render(container, ctx) {
     // Se reevalúa en cada recálculo: aparece apenas la cotización tiene impuestos decididos.
     kit.out(() => companyTaxesActions(ctx), { tag: 'div', allowEmpty: true, className: 'bt-company-holder' }),
     kit.toggle(
-      h('div', { class: 'qe-tip qe-tip-warning', role: 'status' }, icon('alert'), h('p', {}, 'Sin definir: la tarifa mínima y la sugerida NO incluyen estos impuestos. Si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".')),
+      h('div', { class: 'qe-tip qe-tip-warning', role: 'status' }, icon('alert'), h('p', {}, closed
+        ? 'Sin definir: el precio mínimo y el sugerido NO incluyen estos impuestos. Si cobrás esos precios, los pagás de tu bolsillo. Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".'
+        : 'Sin definir: la tarifa mínima y la sugerida NO incluyen estos impuestos. Si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".')),
       (r) => !r.kpis.billingTaxesDefined && !r.kpis.billingTaxesInvalid,
     ),
     kit.toggle(
@@ -629,7 +636,9 @@ export function render(container, ctx) {
     return null;
   };
   // En precio cerrado los descuentos por cantidad de días no se muestran (un precio por trabajo).
-  const tiersCard = closed ? null : kit.advanced(
+  // Tampoco si no cobrás por día u hora (abono mensual, por cantidad): ahí no se aplican
+  // (revisión UX tanda novatos). Los tramos guardados quedan como estaban.
+  const tiersCard = closed || !dayTiers ? null : kit.advanced(
     {
       key: 'margin-tiers',
       title: 'Descuentos por cantidad de días',
@@ -696,6 +705,9 @@ export function render(container, ctx) {
     tiersCard,
   );
 
-  mount(container, marginCard, taxesCard, priceCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, commercialCard);
+  // Precio cerrado (revisión UX tanda novatos): sin reglas cargadas no se monta (abonos, km y
+  // mínimos por mes no hacen a un precio por trabajo). Con alguna regla guardada, se ve como siempre.
+  const showCommercial = !closed || rulesApplied().length > 0;
+  mount(container, marginCard, taxesCard, priceCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, showCommercial ? commercialCard : null);
   return { update() {} };
 }
