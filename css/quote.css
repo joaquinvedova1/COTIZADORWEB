@@ -175,7 +175,7 @@
 .qe-step-body .qe-unit-choice.is-compact .choice { padding: 0.55rem 0.7rem; }
 .qe-unit-hint { margin-top: 0.4rem; }
 
-.qe-num-echo { font-size: 0.76rem; color: var(--blue-text); font-family: var(--mono); font-weight: 600; margin-top: -0.1rem; }
+.qe-num-echo { font-size: 0.76rem; color: var(--blue-text); font-variant-numeric: tabular-nums; font-weight: 600; margin-top: -0.1rem; }
 
 .qe-static {
   min-height: 38px; display: flex; align-items: center; padding: 0.5rem 0.65rem; border-radius: 8px;
@@ -808,3 +808,11 @@
 .qe-section-label { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; margin: 1.1rem 0 0.1rem; padding-bottom: 0.35rem; border-bottom: 2px solid var(--line); }
 .qe-section-label-title { font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--navy-900); }
 .qe-section-label-text { font-size: 0.82rem; color: var(--ink-3); }
+
+/* Resumen sin costos todavía (tanda novatos 2026-11): plegado en una línea. */
+.qe-sum-empty { margin: 0; padding: 0 1.1rem 0.9rem; font-size: 0.8rem; color: var(--ink-3); }
+.qe-summary.is-empty .qe-sum-main, .qe-summary.is-empty .qe-sum-more { display: none; }
+.qe-summary.is-empty .qe-summary-sub { display: none; }
+.qe-stage-caption { display: none; margin: 0.35rem 0 0; text-align: center; font-size: 0.82rem; font-weight: 650; color: var(--navy-900); }
+.qe-stages.is-numbers .qe-stage-caption { display: block; }
+@media print { .qe-stage-caption { display: none !important; } }

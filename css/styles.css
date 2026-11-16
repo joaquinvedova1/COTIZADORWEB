@@ -96,7 +96,9 @@ h3 { font-size: 1.05rem; font-weight: 650; letter-spacing: -0.005em; }
 h4 { font-size: 0.9rem; font-weight: 650; color: var(--ink-2); margin: 0.75rem 0 0.4rem; }
 p { margin: 0.25rem 0 0.5rem; }
 a { color: var(--blue-text); }
-code, .mono { font-family: var(--mono); font-size: 0.92em; }
+code { font-family: var(--mono); font-size: 0.92em; }
+/* Montos (tanda novatos 2026-11): tipografía normal con cifras de ancho fijo, no monoespaciado. */
+.mono { font-variant-numeric: tabular-nums; }
 .muted { color: var(--ink-3); }
 .small { font-size: 0.85rem; }
 .nowrap { white-space: nowrap; }
@@ -891,8 +893,14 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 .report-tab .icon { transform: rotate(90deg); }
 .report-tab:hover { opacity: 1; padding-left: 0.6rem; }
 .report-tab:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 2px #fff; opacity: 1; }
-@media (max-width: 640px) {
-  /* Más angosta: con 16px de margen lateral apenas roza el borde de botones y tarjetas. */
-  .report-tab { font-size: 0.72rem; padding: 0.55rem 0.2rem; min-width: 24px; gap: 0.3rem; top: 62%; }
+/* En el menú del celular (tanda novatos 2026-11); en escritorio queda la pestaña. */
+.sidebar-report { display: none; }
+@media (max-width: 760px) {
+  /* Celular con la app: la pestaña tapaba texto; "Reportar un problema" va dentro del menú. */
+  body:not(.is-public) .report-tab { display: none; }
+  .sidebar-report { display: inline-flex; margin-top: 0.4rem; }
+  /* Pantallas públicas (sin menú): sólo el ícono, chico, abajo. */
+  body.is-public .report-tab { font-size: 0.72rem; padding: 0.45rem 0.2rem; min-width: 24px; top: auto; bottom: 5rem; transform: rotate(180deg); }
+  body.is-public .report-tab > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }
 @media print { .report-tab { display: none; } }

@@ -17,7 +17,8 @@ import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/f
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, hasNumber, stepName } from './shared.js';
-import { baseFields, lineOriginBlock, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
+import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
+import { contractOf } from '../../../domain/contract.js';
 import { baseText } from '../../economic-base-ui.js';
 import { CURRENCIES } from '../../../domain/catalogs.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
@@ -159,6 +160,8 @@ export function render(container, ctx) {
   const unitInfo = billingUnitOf(quote);
   const library = Array.isArray(resources.materials) ? resources.materials : [];
   const notApplicable = Boolean(quote.materialsNotApplicable);
+  // Precio cerrado: los materiales nuevos arrancan "Por trabajo" (no "Por mes").
+  const closed = contractOf(quote).mode === 'closed';
 
   let selectedId = null;
   const addFromLibrary = () => {
@@ -168,12 +171,15 @@ export function render(container, ctx) {
       return;
     }
     const line = materialLineFromLibrary(mat, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
+    // Precio cerrado (tanda novatos 2026-11): un material sin "cada cuánto" propio se consume por trabajo.
+    if (closed && !mat.basis) line.basis = 'per_activation';
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.quantity` });
     ctx.toast(`Se agregó "${line.description}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
   };
   const addBlank = () => {
     const line = blankMaterialLine({ currency: quoteCurrencyOf(quote) });
+    if (closed) line.basis = 'per_activation';
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.description` });
   };
@@ -197,11 +203,11 @@ export function render(container, ctx) {
     notApplicable
       ? null
       : kit.check('pricing.materialsBilledSeparately', {
-        label: 'Facturo los materiales aparte (al costo más un recargo)',
+        label: 'Le facturo los materiales aparte al cliente (al costo más un recargo)',
         structural: true,
         hint: quote.serviceType === 'time_materials'
-          ? 'Horas y materiales: la tarifa cubre la mano de obra y los equipos; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno).'
-          : 'La tarifa cubre el resto del servicio; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno).',
+          ? 'Horas y materiales: la tarifa cubre la mano de obra y los equipos; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno). Si sólo facturás algunos, elegilo en cada material ("Más detalle").'
+          : 'La tarifa cubre el resto del servicio; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno). Si sólo facturás algunos, elegilo en cada material ("Más detalle").',
       }),
     anyBilled
       ? kit.out((r) => {
@@ -351,14 +357,14 @@ export function render(container, ctx) {
             kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
             kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: lineBilled(line) ? 'Recargo sobre el costo del material (no es margen): es lo que cobrás de más al facturarlo aparte.' : 'Recargo sobre el costo del material (no es margen). Se usa si facturás los materiales aparte (opción de arriba).' }),
             selectField({
-              label: '¿Se factura aparte?',
+              label: '¿Este material se factura aparte?',
               name: `${p}.billedSeparately`,
               value: line.billedSeparately === true ? 'yes' : line.billedSeparately === false ? 'no' : '',
               includeEmpty: true,
               emptyLabel: billedSeparately ? 'Como el resto (sí, aparte)' : 'Como el resto (no, en la tarifa)',
               options: [{ value: 'yes', label: 'Sí, lo facturo aparte' }, { value: 'no', label: 'No, lo cubre la tarifa' }],
               disabled: kit.readOnly,
-              hint: 'Sólo para este material. Sin elegir, sigue la opción "Facturo los materiales aparte" de arriba. Aparte se cobra su costo × (1 + markup de reventa); siempre sigue siendo costo.',
+              hint: 'Sólo para este material. Sin elegir, sigue la opción "Le facturo los materiales aparte" de arriba. Aparte se cobra su costo × (1 + markup de reventa); siempre sigue siendo costo.',
               onChange: (value) => {
                 ctx.mutate((q) => {
                   const m = q.materials[i];
@@ -379,7 +385,7 @@ export function render(container, ctx) {
           {
             key: `materials-base:${line.id || i}`,
             title: 'Fecha base y moneda',
-            summary: () => baseText(quote.materials[i] && quote.materials[i].base),
+            summary: () => baseText(quote.materials[i] && quote.materials[i].base, { fallbackPeriod: offerPeriodOf(quote) }),
           },
           h('p', { class: 'small' }, 'De qué mes es el costo unitario. Cambiarlo acá sólo afecta esta cotización.'),
           baseFields(ctx, `${p}.base`, { currency: true, periodLabel: 'Mes del costo' }),

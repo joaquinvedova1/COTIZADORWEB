@@ -51,6 +51,7 @@ import {
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
+import { SERVICE_COMPONENTS, componentsOf } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
 import { breakEvenZeroText, unreliableText } from '../result-text.js';
@@ -208,6 +209,9 @@ export const STEP_COPY = Object.freeze({
   },
 });
 
+/** Personal con la cuenta sin puestos en Recursos: el sueldo se carga acá. */
+export const LABOR_WHY_EMPTY = 'Agregá cada puesto y poné cuántas personas van. Cargá el sueldo acá. Después lo podés guardar en tus Recursos para reusarlo.';
+
 /**
  * Ítems de completitud que se corrigen dentro de unas "Opciones avanzadas":
  * el aviso del paso ofrece abrirlas y el disclosure muestra "Revisar".
@@ -273,6 +277,23 @@ export function stepOfItem(item) {
   return QUOTE_STEPS.some((s) => s.id === item.step) ? item.step : 'service';
 }
 
+/**
+ * Pasos que no se muestran en la barra ni en Atrás / Continuar (tanda novatos 2026-11):
+ * "Materiales" cuando en "¿Qué incluye?" no se marcó nada que se cargue ahí (materiales,
+ * insumos, herramientas, otros costos…) y no hay líneas cargadas. El paso sigue existiendo
+ * (su URL funciona) y vuelve a aparecer al marcar un componente que lo use.
+ */
+export function isStepHidden(stepId, quote) {
+  if (stepId !== 'materials') return false;
+  const q = isPlainObject(quote) ? quote : {};
+  const count = (v) => (Array.isArray(v) ? v.length : 0);
+  if (count(q.materials) || count(q.otherCosts)) return false;
+  const c = isPlainObject(q.contract) ? q.contract : null;
+  if (!c || !Array.isArray(c.components)) return false;
+  if (count(c.customComponents)) return false;
+  return !componentsOf(c).some((id) => (SERVICE_COMPONENTS.find((x) => x.id === id) || {}).step === 'materials');
+}
+
 /** Estado (semáforo) de un paso según completitud y validaciones. */
 export function stepStatus(stepId, result) {
   if (!result) return 'gray';
@@ -309,6 +330,12 @@ export function resultTone(result) {
   if (isFiniteNumber(k.profit) && k.profit < 0) return 'red';
   if (k.belowTarget) return 'orange';
   return 'green';
+}
+
+/** Etiqueta de la unidad junto al título: "Precio cerrado" en vez de "$ global (por trabajo)". */
+export function unitBadgeText(quote) {
+  const info = billingUnitOf(quote);
+  return info.id === 'job' ? 'Precio cerrado' : info.label;
 }
 
 function unitShort(result) {
@@ -1088,7 +1115,7 @@ function rateHint(r) {
  * el resto (precio para el margen, resultado, margen esperado, completitud).
  * En pantallas chicas es una barra compacta fija abajo que se expande.
  */
-function buildSummary({ getResult, stepHref }) {
+function buildSummary({ getResult, stepHref, stepId = null }) {
   const rows = [];
 
   const item = ({ key, label, short = null, value, unit = null, compact = null, hint, tone = null, trace = null }) => {
@@ -1284,6 +1311,9 @@ function buildSummary({ getResult, stepHref }) {
     main,
     moreEl,
   );
+  // Sin costos todavía (tanda novatos 2026-11): el resumen queda plegado en una línea, sin $ 0 ni "—".
+  const emptyNote = h('p', { class: 'qe-sum-empty', hidden: true }, 'Los números aparecen cuando cargues tus recursos.');
+  inner.appendChild(emptyNote);
   const el = h('aside', { class: 'qe-summary', 'aria-label': 'Resumen en vivo de la cotización' }, inner);
   el.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !inner.classList.contains('is-expanded')) return;
@@ -1330,6 +1360,11 @@ function buildSummary({ getResult, stepHref }) {
     },
     update(r) {
       if (!r) return;
+      const empty = !(r.kpis && isFiniteNumber(r.kpis.totalCost) && r.kpis.totalCost > 0);
+      el.classList.toggle('is-empty', empty);
+      emptyNote.hidden = !empty;
+      toggleBtn.hidden = empty;
+      if (empty && inner.classList.contains('is-expanded')) setExpanded(false);
       rows.forEach((row) => {
         row.labelEl.textContent = resolve(row.label, r) || '';
         if (row.shortEl) row.shortEl.textContent = resolve(row.short, r) || '';
@@ -1367,7 +1402,8 @@ function buildSummary({ getResult, stepHref }) {
       bar.setAttribute('aria-valuenow', String(Math.round(v)));
       const pending = (r.completeness && r.completeness.pending) || [];
       const critical = pending.filter((p) => p.severity === 'critical').length;
-      moreHint.textContent = pending.length === 0
+      // En la etapa 1 no se cuentan pendientes: todavía no se cargó nada.
+      moreHint.textContent = pending.length === 0 || stepId === 'service'
         ? 'Precio para tu margen, resultado y margen esperados.'
         : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · resultado y margen esperados.`;
       if (pending.length === 0) {
@@ -1423,10 +1459,14 @@ function buildStageBar({ currentStep, stepHref, quoteId }) {
     const li = h('li', { class: ['qe-stage', isCurrent ? 'is-current' : null, index < currentIndex ? 'is-before' : null], dataset: { stage: stage.id } }, link);
     return { stage, index, li, link, numEl, flagEl, stateEl, labelEl, shortEl, isCurrent, flag: null };
   });
+  // En celular, cuando sólo entran los números, el nombre de la etapa actual va debajo (tanda novatos 2026-11).
+  const currentEntry = entries.find((e) => e.isCurrent);
+  const caption = h('p', { class: 'qe-stage-caption', 'aria-hidden': 'true' }, currentEntry ? `Etapa ${currentEntry.index + 1} de ${STAGES.length}: ${currentEntry.stage.label}` : '');
   const el = h(
     'nav',
     { class: 'qe-stages', 'aria-label': 'Etapas de la cotización' },
     h('ol', { class: 'qe-stage-list' }, ...entries.map((e) => e.li)),
+    caption,
   );
   const STATE_LABEL = { green: 'Completo', orange: 'Revisar', red: 'Faltan datos', gray: '', pending: 'Pendiente' };
 
@@ -1445,7 +1485,8 @@ function buildStageBar({ currentStep, stepHref, quoteId }) {
     el.classList.add('is-numbers');
   };
   const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => fitCurrentLabel()) : null;
-  if (resizeObserver) resizeObserver.observe(el);
+  // Se observa la lista (no el nav): el rótulo de abajo cambia la altura del nav y no debe re-disparar el ajuste.
+  if (resizeObserver) resizeObserver.observe(el.querySelector('.qe-stage-list') || el);
 
   return {
     el,
@@ -1503,11 +1544,12 @@ function substepIcon(status) {
  * El estado se ve con un ícono (tilde o "!"), no sólo con color, y se lee
  * como texto para lectores de pantalla.
  */
-function buildSubsteps({ currentStep, stepHref, quoteId }) {
+function buildSubsteps({ currentStep, stepHref, quoteId, isHidden = () => false }) {
   const { stage: currentStage } = stageOfStep(currentStep);
-  if (currentStage.steps.length < 2) return null;
-  const currentSub = currentStage.steps.findIndex((st) => st.id === currentStep);
-  const entries = currentStage.steps.map((step, index) => {
+  const shownSteps = currentStage.steps.filter((st) => st.id === currentStep || !isHidden(st.id));
+  if (shownSteps.length < 2) return null;
+  const currentSub = shownSteps.findIndex((st) => st.id === currentStep);
+  const entries = shownSteps.map((step, index) => {
     const isCurrent = step.id === currentStep;
     const statusText = h('span', { class: 'sr-only' });
     const iconEl = h('span', { class: 'qe-substep-icon', 'aria-hidden': 'true' });
@@ -1674,7 +1716,9 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
         return;
       }
       const quote = getQuote();
-      const items = ((result.completeness && result.completeness.items) || []).filter((i) => stepOfItem(i) === stepId && i.status !== 'ok' && i.status !== 'n/a' && !askedOnScreen(i, quote));
+      // Un puesto sin sueldo ya lo dice su tarjeta (después de tocar el campo): no se repite arriba.
+      const inCard = (i) => stepId === 'labor' && i.id === 'labor' && Array.isArray(i.targets) && i.targets.length > 0;
+      const items = ((result.completeness && result.completeness.items) || []).filter((i) => stepOfItem(i) === stepId && i.status !== 'ok' && i.status !== 'n/a' && !askedOnScreen(i, quote) && !inCard(i));
       const issues = (result.issues || []).filter((i) => stepOfPath(i.path) === stepId);
       // Avisos informativos de la tanda A 2026-11 (A-15): no restan puntaje, pero cambian
       // la decisión de precio; se ven en su paso (y en el Resultado), en azul.
@@ -1765,6 +1809,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   };
 
   const notify = (message, tone = 'info') => {
+    // Un solo aviso flotante a la vez en el editor (tanda novatos 2026-11): el nuevo reemplaza a
+    // los anteriores (al crear desde una plantilla se apilaban tres).
+    if (typeof document !== 'undefined') document.querySelectorAll('#toast-region .toast').forEach((el) => el.remove());
     if (app && typeof app.toast === 'function') app.toast(message, tone);
     else componentToast(message, tone);
   };
@@ -2118,16 +2165,23 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   }
 
   // ------------------------------------------------------------- estructura
-  const currentIndex = QUOTE_STEPS.findIndex((s) => s.id === stepId);
-  const prevStep = currentIndex > 0 ? QUOTE_STEPS[currentIndex - 1] : null;
-  const nextStep = currentIndex < QUOTE_STEPS.length - 1 ? QUOTE_STEPS[currentIndex + 1] : null;
+  // Pasos a la vista: "Materiales" se saltea si el servicio no los incluye (isStepHidden).
+  const navSteps = QUOTE_STEPS.filter((s) => s.id === stepId || !isStepHidden(s.id, state.quote));
+  const currentIndex = navSteps.findIndex((s) => s.id === stepId);
+  const prevStep = currentIndex > 0 ? navSteps[currentIndex - 1] : null;
+  const nextStep = currentIndex < navSteps.length - 1 ? navSteps[currentIndex + 1] : null;
   const { stage: currentStage, index: stageIndex } = stageOfStep(stepId);
-  const copy = STEP_COPY[stepId] || { question: stepShortLabel(stepId), why: '' };
+  const baseCopy = STEP_COPY[stepId] || { question: stepShortLabel(stepId), why: '' };
+  // Cuenta sin puestos en Recursos (tanda novatos 2026-11): "ya están en Recursos" sería falso.
+  const noLaborProfiles = !(resources && Array.isArray(resources.laborProfiles) && resources.laborProfiles.length);
+  let copy = stepId === 'labor' && noLaborProfiles ? { ...baseCopy, why: LABOR_WHY_EMPTY } : baseCopy;
+  // Precio cerrado: en "El precio" se calcula tu precio, no una tarifa.
+  if (stepId === 'margin' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: copy.why.replace('calculamos tu tarifa', 'calculamos tu precio') };
 
   markVisited(quoteId, stepId);
   const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId });
-  const substeps = buildSubsteps({ currentStep: stepId, stepHref, quoteId });
-  const summary = stepId === 'result' ? null : buildSummary({ getResult: () => state.result, stepHref });
+  const substeps = buildSubsteps({ currentStep: stepId, stepHref, quoteId, isHidden: (id) => isStepHidden(id, state.quote) });
+  const summary = stepId === 'result' ? null : buildSummary({ getResult: () => state.result, stepHref, stepId });
   const notices = buildStepNotices(stepId, {
     getQuote: () => state.quote,
     onReveal: (key) => revealAdvanced(key),
@@ -2146,15 +2200,15 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
 
   // La etiqueta de la unidad se actualiza en cada recálculo (V-05): antes se calculaba una vez
   // y quedaba la unidad vieja al cambiarla.
-  const unitBadge = stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, billingUnitOf(state.quote).label);
+  const unitBadge = stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitBadgeText(state.quote));
   // El sub-paso ya se ve en los segmentos de arriba: el antetítulo sólo dice la etapa.
   const kicker = `Etapa ${stageIndex + 1} de ${STAGES.length} · ${currentStage.label}`;
-  // Convención de montos (PLAN-2026-002, PN1): todo se carga y se muestra sin IVA.
+  // Convención de montos (PLAN-2026-002, PN1): todo se carga y se muestra sin IVA. Se dice una
+  // vez, en la etapa 1 (y en el Resultado): junto a cada título quedan la unidad y "Guardado".
   const meta = h(
     'div',
     { class: 'qe-step-meta' },
     unitBadge,
-    stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-gray', title: 'Convención de esta cotización: costos, precios y tarifas se cargan sin IVA.' }, 'Montos sin IVA'),
     saveEl,
   );
   // En Resultado el título y la intro los pone la vista de resultados (su h2
@@ -2313,19 +2367,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   // (el texto sigue disponible para lectores de pantalla y como tooltip).
   const headBtnClass = 'btn btn-secondary qe-head-btn';
   const duplicateBtn = button('Duplicar', { variant: 'secondary', icon: 'copy', title: 'Duplicar', disabled: readOnly, onClick: () => duplicate(), attrs: { class: headBtnClass } });
-  const templateBtn = button('Guardar como plantilla', {
-    variant: 'secondary',
-    icon: 'services',
-    disabled: readOnly,
-    title: 'Guardar como plantilla: reutilizá esta cotización como plantilla de servicio',
-    onClick: () => saveAsTemplate(),
-    attrs: { class: headBtnClass },
-  });
-  const printBtn = button('Imprimir', { variant: 'secondary', icon: 'print', title: 'Imprimir', onClick: () => print(), attrs: { class: headBtnClass } });
 
   /**
-   * Cotización todavía vacía (costo 0): las tres acciones van agrupadas en
-   * "Más acciones" para no competir con la primera pregunta (UX-14).
+   * Las tres acciones (duplicar, plantilla, imprimir) van agrupadas en "Más acciones" en todas
+   * las etapas (UX-14; un solo patrón desde la tanda novatos 2026-11). En celular, sólo "⋯".
    */
   const moreActionsBtn = h(
     'button',
@@ -2367,8 +2412,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
 
   function syncHeader(force = false) {
     const name = String(state.quote.name || '').trim() || 'Cotización sin nombre';
-    const r = state.result;
-    const compact = !(r && r.kpis && isFiniteNumber(r.kpis.totalCost) && r.kpis.totalCost > 0);
+    const compact = true;
     if (!force && name === state.headerName && compact === state.headerCompact) return;
     state.headerName = name;
     state.headerCompact = compact;
@@ -2378,7 +2422,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         { label: 'Cotizaciones', href: '#/cotizaciones' },
         { label: state.quote.code || 'Cotización', href: stepHref('service') },
       ],
-      actions: compact ? [moreActionsBtn] : [duplicateBtn, templateBtn, printBtn],
+      // Un solo patrón en todas las etapas (tanda novatos 2026-11): "⋯ Más acciones" (en celular, sólo "⋯").
+      actions: [moreActionsBtn],
     });
   }
 
@@ -2674,7 +2719,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   function refreshAll() {
     syncIllustrativeBanner();
     syncInvalidState();
-    if (unitBadge) unitBadge.textContent = billingUnitOf(state.quote).label;
+    if (unitBadge) unitBadge.textContent = unitBadgeText(state.quote);
     const r = state.result;
     if (!r) return;
     stageBar.update(r);

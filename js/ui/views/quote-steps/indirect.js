@@ -260,7 +260,7 @@ export function render(container, ctx) {
     value: detailed ? 'detailed' : 'simple',
     disabled: kit.readOnly,
     options: [
-      { value: 'simple', label: 'Simple (un método para toda la estructura)', hint: 'El de siempre: un % o un monto.' },
+      { value: 'simple', label: 'Simple (un solo número)', hint: 'Un % o un monto para todos los gastos de la empresa. Si no sabés por dónde empezar, elegí éste.' },
       { value: 'detailed', label: 'Desglosar estructura', hint: 'Cada rubro con su propio criterio (administración, HSE, sistemas, alquiler de base…).' },
     ],
     onChange: (value) => ctx.mutate((q) => {
@@ -305,7 +305,7 @@ export function render(container, ctx) {
     {},
     modeWrap,
     formGrid(2, valueField),
-    kit.explain('Una forma simple de estimar el %: sumá los gastos mensuales de estructura de tu empresa y dividilos por el costo directo mensual de todos tus servicios.'),
+    kit.explain('Sumá lo que gastás por mes en oficina, contador, seguros de la empresa… y dividilo por lo que te cuestan por mes todos tus trabajos.'),
     taxesNote(),
     kit.keyline({
       label: 'Gastos de estructura que absorbe este servicio',
