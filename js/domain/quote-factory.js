@@ -565,6 +565,21 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
 }
 
 /**
+ * ¿Algún equipo o vehículo consume combustible a cargo propio? Es la misma
+ * condición que la regla de combustible de la completitud (`fuelUsers`): un
+ * equipo propio sin "No usa combustible", un externo con el combustible fuera
+ * de su tarifa o un vehículo de apoyo con traslados.
+ */
+export function usesOwnFuel(quote = {}) {
+  const equipment = (Array.isArray(quote.equipment) ? quote.equipment : []).filter(isPlainObject);
+  const logistics = isPlainObject(quote.logistics) ? quote.logistics : {};
+  const vehicles = (Array.isArray(logistics.vehicles) ? logistics.vehicles : []).filter(isPlainObject);
+  const external = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
+  return equipment.some((e) => (external(e) ? isPlainObject(e.external) && e.external.fuelIncluded === false : e.fuelNotApplicable !== true))
+    || (!logistics.notApplicable && vehicles.length > 0);
+}
+
+/**
  * ¿La cotización tiene valores ILUSTRATIVOS? (demo, plantillas o recursos de
  * biblioteca de demostración). Se usa para badges y avisos en la interfaz.
  * @returns {{ any: boolean, quote: boolean, lines: number, fuel: boolean, finance: boolean }}
@@ -573,7 +588,8 @@ export function illustrativeInfo(quote = {}) {
   const lists = ['labor', 'equipment', 'materials', 'otherCosts'].map((k) => (Array.isArray(quote[k]) ? quote[k] : []));
   const vehicles = quote.logistics && Array.isArray(quote.logistics.vehicles) ? quote.logistics.vehicles : [];
   const lines = [...lists.flat(), ...vehicles].filter((l) => isPlainObject(l) && l.illustrative === true).length;
-  const fuel = Boolean(quote.fuel && quote.fuel.illustrative === true);
+  // V-20: el precio de combustible de ejemplo sólo cuenta si alguien lo usa.
+  const fuel = Boolean(quote.fuel && quote.fuel.illustrative === true) && usesOwnFuel(quote);
   const finance = Boolean(quote.finance && quote.finance.illustrative === true);
   const whole = quote.illustrative === true;
   return { any: whole || lines > 0 || fuel || finance, quote: whole, lines, fuel, finance };

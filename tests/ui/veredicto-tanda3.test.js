@@ -12,7 +12,8 @@ import { resourceCostText } from '../../js/ui/views/quote-steps/modality.js';
 import { extraPresetsFor, OUT_OF_HOURS_PRESETS_NOTE } from '../../js/ui/views/quote-steps/extras.js';
 import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
 import { EMPTY } from '../../js/core/format.js';
-import { service, person, external, resetIds } from '../lab/lib/build.js';
+import { illustrativeInfo, usesOwnFuel } from '../../js/domain/quote-factory.js';
+import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
 
 const norm = (s) => String(s).replace(/[\u00a0\u202f]/g, ' ');
 
@@ -55,5 +56,40 @@ describe('V-17 · Adicionales frecuentes con fuera de horario activo', () => {
 
   test('un adicional ya cargado no se ofrece de nuevo', () => {
     assert.deepEqual(labels([{ label: 'Km excedente' }]), ['Feriado o fin de semana', 'Llamado fuera de horario']);
+  });
+});
+
+describe('V-20 · Sello ILUSTRATIVO del combustible', () => {
+  const quote = (o) => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], ...o });
+    q.fuel.illustrative = true;
+    return q;
+  };
+
+  test('sin nadie que consuma combustible a cargo propio no hay sello', () => {
+    assert.equal(illustrativeInfo(quote({})).fuel, false);
+    assert.equal(illustrativeInfo(quote({})).any, false);
+    assert.equal(illustrativeInfo(quote({ equipment: [owned({ fuelNotApplicable: true })] })).fuel, false);
+    assert.equal(illustrativeInfo(quote({ equipment: [external({}, { fuelIncluded: true })] })).fuel, false);
+    // Vehículo cargado pero "Sin traslados": no viaja.
+    assert.equal(illustrativeInfo(quote({ logistics: { notApplicable: true, vehicles: [vehicle()] } })).fuel, false);
+  });
+
+  test('con un equipo propio, un externo sin combustible incluido o un vehículo de apoyo, sí', () => {
+    assert.equal(illustrativeInfo(quote({ equipment: [owned()] })).fuel, true);
+    assert.equal(illustrativeInfo(quote({ equipment: [external({}, { fuelIncluded: false })] })).fuel, true);
+    assert.equal(illustrativeInfo(quote({ logistics: { notApplicable: false, vehicles: [vehicle()] } })).fuel, true);
+  });
+
+  test('coincide con la regla de combustible de la completitud', () => {
+    const cases = [{}, { equipment: [owned({ fuelNotApplicable: true })] }, { equipment: [owned()] }, { equipment: [external({}, { fuelIncluded: false })] },
+      { equipment: [external({}, { fuelIncluded: true })] }, { logistics: { notApplicable: false, vehicles: [vehicle()] } }];
+    cases.forEach((o) => {
+      const q = quote(o);
+      const item = computeQuote(q).completeness.items.find((i) => i.id === 'fuel');
+      const applies = Boolean(item) && !/^No aplica/.test(item.message);
+      assert.equal(usesOwnFuel(q), applies, JSON.stringify(o));
+    });
   });
 });
