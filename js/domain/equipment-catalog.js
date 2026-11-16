@@ -146,3 +146,30 @@ export function suggestedMobility(familyId, model = null) {
     requiresDriver: pick('requiresDriver'),
   };
 }
+
+/**
+ * Familias cuya función es TRASLADARSE (llevar gente o carga): camioneta,
+ * minibús, camión, camión tractor, cisterna. Un vehículo nuevo arranca con 0 h
+ * de uso en la locación y su consumo se pide en ruta (L/100 km); lo que
+ * trabaje parado (bombeo, hidrogrúa) es opcional. Hidrogrúa, vactor o
+ * atmosférico NO están: su trabajo principal es en la locación.
+ */
+export const VEHICLE_FAMILY_IDS = deepFreeze(['pickup', 'minibus', 'truck', 'tractor', 'tank_truck']);
+
+/** ¿La familia es de un vehículo (se usa para trasladarse)? */
+export function isVehicleFamily(familyId) {
+  return VEHICLE_FAMILY_IDS.includes(familyId);
+}
+
+const VEHICLE_WORDS = /\b(camioneta|pick-?up|utilitari[oa]|cami[oó]n|semi|semirremolque|tractor|colectivo|micro|minib[uú]s|combi|furg[oó]n|trafic|auto|veh[ií]culo|chasis|hilux|ranger|amarok|s10|sprinter)/i;
+const WORKING_WORDS = /(gr[uú]a|hidro|vactor|atmosf|desobstr|bomb|generador|compresor|soldad|retro|excavad|cargadora|autoelevador|perfor|wireline|flushby)/i;
+
+/**
+ * ¿El nombre describe un vehículo? (para una línea cargada en blanco, sin
+ * familia). "Camioneta 4x4", "Semi (tractor + semirremolque)" sí;
+ * "Camión con hidrogrúa" o "Camión atmosférico" no (trabajan en la locación).
+ */
+export function looksLikeVehicleName(name) {
+  const text = typeof name === 'string' ? name : '';
+  return VEHICLE_WORDS.test(text) && !WORKING_WORDS.test(text);
+}

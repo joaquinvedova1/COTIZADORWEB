@@ -353,7 +353,7 @@ async function runMode(mode) {
       const tr = r.model.transport;
       const expectText = [
         ['Viajes facturables', `${formatNumber(k.billableQuantity, { decimals: 2 })} viajes`],
-        ['Viajes físicos costeados', `${formatNumber(tr.physicalTripsPerMonth, { decimals: 2 })} viajes`],
+        ['Viajes que hacés de verdad', `${formatNumber(tr.physicalTripsPerMonth, { decimals: 2 })} viajes`],
         ['Días de trabajo', `${formatNumber(k.activeDays, { decimals: 2 })} días`],
         ['Km de ruta por mes', `${formatNumber(tr.routeKmPerMonth, { decimals: 2 })} km`],
       ];

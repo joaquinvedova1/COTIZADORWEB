@@ -76,6 +76,27 @@ export function providerRouteText(p, t) {
   return [name, `${formatValue(t.kmPerTrip, 'km')} por viaje`, perTrip, perKm].filter(Boolean).join(' · ');
 }
 
+/** ¿Los viajes que se hacen son distintos de los que se facturan? */
+const physicalDiffers = (x) => Boolean(x.derived && !x.notApplicable && Math.abs((x.billableTripsPerMonth || 0) - (x.physicalTripsPerMonth || 0)) > 1e-6);
+
+/**
+ * Viajes físicos (los que se hacen y se costean). Con la unidad "viaje" se
+ * muestran sólo si difieren de los facturables, como "Viajes que hacés de
+ * verdad"; con otra unidad (no hay facturables), como "Viajes que hacés".
+ */
+function physicalStat(kit, t, T, billable) {
+  const el = kit.stat(billable ? 'Viajes que hacés de verdad' : 'Viajes que hacés', (r) => tripsText(t(r).physicalTripsPerMonth || 0), {
+    hint: (r) => {
+      const x = t(r);
+      if (x.notApplicable) return 'Marcaste "Sin traslados".';
+      const per = `${num(x.activationsPerMonth)} ${T(r).word(x.activationsPerMonth)} × ${tripsText(x.physicalTripsPerActivation)}`;
+      return x.minimumPadding ? `${per} (el mínimo ${T(r).per} factura más viajes de los que se hacen).` : `${per}. Son los que se costean (km y combustible).`;
+    },
+    tone: (r) => (physicalDiffers(t(r)) && !t(r).minimumPadding ? 'orange' : null),
+  });
+  return billable ? kit.toggle(el, (r) => physicalDiffers(t(r))) : el;
+}
+
 /**
  * Indicadores "Viajes y km del mes": viajes facturables, viajes físicos
  * costeados, días de trabajo, km por viaje, km de ruta por mes y, si se cobra
@@ -90,15 +111,8 @@ export function transportStats(kit, { billable = true, km = false } = {}) {
     billable
       ? kit.stat('Viajes facturables', (r) => (t(r).derived ? tripsText(t(r).billableTripsPerMonth) : EMPTY), { hint: 'Lo que cobrás en el mes.' })
       : null,
-    kit.stat('Viajes físicos costeados', (r) => tripsText(t(r).physicalTripsPerMonth || 0), {
-      hint: (r) => {
-        const x = t(r);
-        if (x.notApplicable) return 'Marcaste "Sin traslados".';
-        const per = `${num(x.activationsPerMonth)} ${T(r).word(x.activationsPerMonth)} × ${tripsText(x.physicalTripsPerActivation)}`;
-        return x.minimumPadding ? `${per} (el mínimo ${T(r).per} factura más viajes de los que se hacen).` : `${per}.`;
-      },
-      tone: (r) => (t(r).derived && !t(r).notApplicable && !t(r).minimumPadding && Math.abs((t(r).billableTripsPerMonth || 0) - (t(r).physicalTripsPerMonth || 0)) > 1e-6 ? 'orange' : null),
-    }),
+    // Con la unidad "viaje": sólo si difieren de los facturables (si son iguales es el mismo dato dos veces).
+    physicalStat(kit, t, T, billable),
     kit.stat('Días de trabajo', (r) => workDaysText(t(r).workDaysPerMonth || 0), {
       hint: (r) => (t(r).derived && t(r).tripsPerActiveDay > 0 ? `${tripsText(t(r).billableTripsPerMonth)} ÷ ${num(t(r).tripsPerActiveDay)} por día.` : ''),
     }),

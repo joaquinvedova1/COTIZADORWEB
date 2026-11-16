@@ -526,7 +526,9 @@ export function evaluateCompleteness(quote = {}) {
     const includedByProvider = isExt(e) && extOf(e).mobilizationIncluded === true;
     const paysRouteFuel = !isExt(e) || (extOf(e).fuelIncluded === false && externalFuelMode(extOf(e)) === 'per_hour');
     if (!logistics.notApplicable && m.mode === 'self' && !includedByProvider && paysRouteFuel && !noFuel) {
-      fuelUsers.push({ name: lineName(e), consumes: nonNegative(m.travelLitersPer100Km) > 0, path: `equipment.${i}.mobilization.travelLitersPer100Km` });
+      // Un vehículo cargado con 0 h en la locación sólo gasta en ruta: el aviso lleva a ese campo.
+      const onlyTravels = !isExt(e) && !isBlank(e.hoursPerActiveDay) && nonNegative(e.hoursPerActiveDay) === 0;
+      fuelUsers.push({ name: lineName(e), consumes: nonNegative(m.travelLitersPer100Km) > 0, path: `equipment.${i}.mobilization.travelLitersPer100Km`, first: onlyTravels });
     }
   });
   if (!logistics.notApplicable) {
@@ -566,7 +568,7 @@ export function evaluateCompleteness(quote = {}) {
       } else {
         const names = [...new Set(fuelUsers.map((u) => `"${u.name}"`))].slice(0, 3).join(', ');
         message = `Falta el consumo de combustible de ${names}: lo pagás vos y sin consumo no suma costo.`;
-        focus = fuelUsers[0].path;
+        focus = (fuelUsers.find((u) => u.first) || fuelUsers[0]).path;
       }
     } else if (fuel.illustrative === true) {
       // PLAN-2026-014 (LAB-D7): en una cotización real nueva el precio de ejemplo no cuenta como

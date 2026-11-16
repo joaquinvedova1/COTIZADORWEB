@@ -1574,8 +1574,8 @@ export function askedOnScreen(item, quote) {
     case 'logistics':
       return !positive(logistics.distanceKm) && listOf(logistics.vehicles).length === 0;
     case 'fuel':
-      // Precio ILUSTRATIVO por defecto: ya lo dice la línea de combustible de Viajes.
-      return item.status === 'warning';
+      // Precio ILUSTRATIVO por defecto: lo dice la casilla "Es mi precio vigente", junto al campo.
+      return item.status === 'warning' || (item.focus === 'fuel.pricePerLiter' && isPlainObject(q.fuel) && q.fuel.illustrative === true);
     default:
       return false;
   }
@@ -2213,8 +2213,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
    *     del shell habla de la empresa y los recursos, no de esta cotización);
    *   - líneas copiadas de plantillas o bibliotecas de ejemplo: en el paso
    *     donde están y, todas juntas con enlaces, en el Resultado;
-   *   - precio del combustible por defecto: una línea, sólo en Viajes y en el
-   *     Resultado. Cada campo conserva su etiqueta ILUSTRATIVO.
+   *   - precio del combustible por defecto: una línea, sólo en el Resultado
+   *     (en Viajes lo dice la casilla junto al campo). Cada campo conserva su
+   *     etiqueta ILUSTRATIVO.
    */
   function syncIllustrativeBanner() {
     const info = illustrativeInfo(state.quote);
@@ -2229,7 +2230,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     ].filter((g) => g.n > 0);
     const isResult = stepId === 'result';
     const shownGroups = isResult ? groups : groups.filter((g) => g.step === stepId);
-    const fuelHere = info.fuel && (stepId === 'logistics' || isResult);
+    // En Viajes el aviso es uno solo, junto al campo del precio ("Es mi precio vigente").
+    const fuelHere = info.fuel && isResult;
     const key = JSON.stringify([info.quote, fuelHere, shownGroups.map((g) => [g.label, g.n])]);
     if (key === illustrativeKey) return;
     illustrativeKey = key;

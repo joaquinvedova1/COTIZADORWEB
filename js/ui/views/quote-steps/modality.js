@@ -1386,7 +1386,19 @@ export function render(container, ctx) {
   const storedDpa = quote.activity && hasNumber(quote.activity.daysPerActivation) ? Number(quote.activity.daysPerActivation) : 1;
   const travelPattern = ['daily', 'rotation', 'custom'].includes(savedPattern) ? savedPattern : Math.abs(storedDpa - 1) < 1e-9 ? 'daily' : 'custom';
   const relief = reliefFromLabor(quote.labor);
-  const travelCard = monthlyContract && quote.serviceType !== 'permanent'
+  // Sin "Viáticos y alojamiento" y sin traslados cargados, la pregunta queda plegada (no cambia
+  // ningún número: sólo se ve menos). Con algún traslado o viático, a la vista como siempre.
+  const lgNow = quote.logistics && typeof quote.logistics === 'object' ? quote.logistics : {};
+  const travelComponent = Boolean(quote.contract && Array.isArray(quote.contract.components) && quote.contract.components.includes('travel'));
+  const hasTravel = !lgNow.notApplicable && (
+    Number(lgNow.distanceKm) > 0
+    || (Array.isArray(lgNow.vehicles) && lgNow.vehicles.length > 0)
+    || Number(lgNow.lodgingPerActivation) > 0
+    || Number(lgNow.tollsPerActivation) > 0
+    || (Array.isArray(quote.equipment) && quote.equipment.some((e) => e && e.mobilization && e.mobilization.mode === 'self'))
+  );
+  const travelFolded = !travelComponent && !hasTravel;
+  const travelCardFull = monthlyContract && quote.serviceType !== 'permanent'
     ? card(
       { title: hasPeople ? '¿Cómo viaja el personal a la locación?' : '¿Cada cuánto hay un viaje a la locación?', subtitle: `Define cuántos viajes (movilización, viáticos y peajes ${T.per}) hay en el mes. No cambia sueldos ni dotación.` },
       choiceGroup({
@@ -1429,6 +1441,17 @@ export function render(container, ctx) {
       }, { tag: 'div', allowEmpty: true }),
     )
     : null;
+  const travelCard = travelCardFull && travelFolded
+    ? kit.advanced(
+      {
+        key: 'travel-pattern',
+        boxed: true,
+        title: hasPeople ? '¿Cómo viaja el personal a la locación? (sólo si hay traslados)' : '¿Cada cuánto hay un viaje a la locación? (sólo si hay traslados)',
+        summary: 'No cargaste traslados ni viáticos. Abrilo si el personal viaja a la locación.',
+      },
+      travelCardFull,
+    )
+    : travelCardFull;
 
   const sectionLabel = (title, text) => h('div', { class: 'qe-section-label' }, h('span', { class: 'qe-section-label-title' }, title), text ? h('span', { class: 'qe-section-label-text' }, text) : null);
   mount(

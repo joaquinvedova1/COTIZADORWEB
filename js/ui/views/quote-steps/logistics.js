@@ -33,7 +33,7 @@ import { externalFuelMode } from '../../../engines/external-engine.js';
 import { baseFields } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
-import { transportStats, transportOf, providerActivityList, routeText, tripsText } from './transport.js';
+import { transportOf, providerActivityList, routeText, tripsText } from './transport.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 
 /**
@@ -237,6 +237,25 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
         : m.driver === 'other'
           ? `Cargá al chofer en "${stepName('labor')}": RATEOS no lo agrega solo.`
           : null;
+      // "Operador (de Personal)" ya dice quién lo opera: no se vuelve a preguntar quién maneja.
+      // Sólo cambia lo que se MUESTRA (quién maneja no cambia el costo): se puede elegir otra persona.
+      const driverField = () => {
+        if (operator && m.driver !== 'other') {
+          return h(
+            'div',
+            { class: 'field mob-driver' },
+            h('span', { class: 'field-label' }, '¿Quién maneja?'),
+            h('p', { class: 'mob-driver-text' }, h('strong', {}, operator.role || 'Su operador'), ' (el operador, ya está en Personal)'),
+            ctx.readOnly
+              ? null
+              : h('div', { class: 'field-hint' }, kit.action('Maneja otra persona', () => ctx.mutate((q) => {
+                const mob = q.equipment[i] && q.equipment[i].mobilization;
+                if (mob) mob.driver = 'other';
+              }), { variant: 'link' })),
+          );
+        }
+        return kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint || 'Opcional: no cambia el costo.' });
+      };
       detail = h(
         'div',
         { class: 'stack' },
@@ -253,7 +272,7 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
               ? 'Mantenimiento en ruta, SIN neumáticos: los neumáticos de este equipo se suman aparte por km (juego ÷ vida útil). Sin combustible ni amortización.'
               : 'Mantenimiento y neumáticos en ruta. Sin combustible ni amortización (ya está en el costo de tenerlo).',
           }),
-          kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint || 'Opcional: no cambia el costo.' }),
+          driverField(),
         ),
         kit.region((r) => {
           const ml = r.model.mobilization && r.model.mobilization.lines[i];
@@ -261,8 +280,8 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
           return h(
             'div',
             { class: 'mob-calc' },
-            h('span', { class: 'mono' }, `${formatValue(ml.km, 'km')} · ${formatValue(ml.liters, 'liters')} ${T.per}`),
-            h('span', {}, `Combustible ${formatMoney(ml.fuelPerActivation)} + desgaste ${formatMoney(ml.wearPerActivation)} = `, h('strong', { class: 'mono' }, formatMoney(ml.perActivation)), ` ${T.per}`),
+            h('span', {}, `${formatValue(ml.km, 'km')} · ${formatValue(ml.liters, 'liters')} ${T.per}`),
+            h('span', {}, `Combustible ${formatMoney(ml.fuelPerActivation)} + desgaste ${formatMoney(ml.wearPerActivation)} = `, h('strong', {}, formatMoney(ml.perActivation)), ` ${T.per}`),
           );
         }),
         kit.trace((r) => mobilizationTrace(r, i, T)),
@@ -270,12 +289,15 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
         // neumáticos por hora × horas de uso, arriba). Puede ser real (hidrogrúa, bomba), pero en una
         // camioneta que sólo lleva gente o carga es combustible y desgaste de más: se avisa, no se cambia.
         !withHead && !external
-          ? kit.out((r) => {
+          ? kit.toggle(kit.out((r) => {
             const eq = r.model.equipment && r.model.equipment[i];
             if (!eq || !(eq.variablePerActiveDay > 0)) return '';
             const liters = eq.fuelLitersPerActiveDay > 0 ? `${formatValue(eq.fuelLitersPerActiveDay, 'liters')} de combustible y ` : '';
-            return `Además, trabajando en la locación suma ${liters}${formatMoney(eq.variablePerActiveDay)} por día (${formatNumber(eq.hoursPerActiveDay, { decimals: 2 })} h de uso × combustible, mantenimiento y neumáticos por hora). Si sólo lleva gente o carga y queda parado, poné 0 en "Horas de uso por día de trabajo".`;
-          }, { tag: 'p', className: 'qe-warn', allowEmpty: true })
+            return `Además, trabajando en la locación suma ${liters}${formatMoney(eq.variablePerActiveDay)} por día (${formatNumber(eq.hoursPerActiveDay, { decimals: 2 })} h de uso × combustible, mantenimiento y neumáticos por hora). Si sólo lleva gente o carga y queda parado, poné 0 en las horas de uso (trabajando en la locación).`;
+          }, { tag: 'p', className: 'qe-warn', allowEmpty: true }), (r) => {
+            const eq = r.model.equipment && r.model.equipment[i];
+            return Boolean(eq && eq.variablePerActiveDay > 0);
+          })
           : null,
       );
     } else if (m.mode === 'transported') {
@@ -339,8 +361,8 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
             return h(
               'div',
               { class: 'mob-calc' },
-              h('span', { class: 'mono' }, `${formatValue(ml.km, 'km')} ${T.per}`),
-              h('span', {}, 'Desgaste = ', h('strong', { class: 'mono' }, formatMoney(ml.wearPerActivation)), ` ${T.per} (sin combustible ni conductor)`),
+              h('span', {}, `${formatValue(ml.km, 'km')} ${T.per}`),
+              h('span', {}, 'Desgaste = ', h('strong', {}, formatMoney(ml.wearPerActivation)), ` ${T.per} (sin combustible ni conductor)`),
             );
           })
           : null,
@@ -456,8 +478,8 @@ export function render(container, ctx) {
         kit.num('logistics.distanceKm', { label: 'Distancia (una vía)', rule: 'distance', unit: 'km' }),
       ),
       kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
-      // Viajes facturables, físicos, días y km (PLAN-2026-012).
-      kit.toggle(kit.group('Viajes y km del mes', transportStats(kit, { billable: tripUnit, km: unitInfo.id === 'km' })), (r) => Boolean(transportOf(r) && transportOf(r).applicable)),
+      // "Viajes y km del mes" no va acá: los viajes se cargan en "Cómo se cobra" (etapa 3) y en
+      // esta etapa se veían en 0. Los km y litros siguen en "Ver detalle de kilómetros y litros".
     );
 
   const equipmentLines = Array.isArray(quote.equipment) ? quote.equipment : [];
@@ -483,7 +505,7 @@ export function render(container, ctx) {
         if (!ml || !(ml.perActivation > 0)) return '';
         const liters = ml.liters > 0 ? ` · ${formatValue(ml.liters, 'liters')}` : '';
         return `${formatValue(ml.km, 'km')}${liters} · ${formatMoney(ml.perActivation)} ${T.per}`;
-      }, { tag: 'p', className: 'small mono', allowEmpty: true }),
+      }, { tag: 'p', className: 'small', allowEmpty: true }),
       ctx.readOnly ? null : h('a', { class: 'btn btn-link btn-sm', href: fieldHref(quote.id, `equipment.${i}.mobilization.mode`) }, text ? `Cambiar en "${stepName('equipment')}"` : `Definir en "${stepName('equipment')}"`),
     );
   };
@@ -543,7 +565,7 @@ export function render(container, ctx) {
               render: (row, i) => kit.out((r) => {
                 const v = r.model.logistics.vehicles[i];
                 if (!v) return EMPTY;
-                return h('span', { class: 'qe-cell-calc' }, h('strong', { class: 'mono' }, formatMoney(v.totalPerActivation)), h('span', { class: 'muted small' }, `${formatValue(v.kmPerActivation, 'km')} · ${formatValue(v.litersPerActivation, 'liters')}`));
+                return h('span', { class: 'qe-cell-calc' }, h('strong', {}, formatMoney(v.totalPerActivation)), h('span', { class: 'muted small' }, `${formatValue(v.kmPerActivation, 'km')} · ${formatValue(v.litersPerActivation, 'liters')}`));
               }),
             },
             { key: 'remove', label: '', className: 'qe-col-remove', render: (row, i) => kit.action('', () => removeVehicle(i), { variant: 'ghost', icon: 'trash', title: 'Quitar vehículo' }) },
@@ -696,17 +718,16 @@ export function render(container, ctx) {
     rule: 'money',
     unit: '$/L',
     illustrative: fuelMarked,
-    hint: fuelFlag && !illustrative
-      ? `Valor ILUSTRATIVO de ejemplo (${baseText(quote.fuel.base, { prefix: 'Base' })}): cargá tu precio actual o, si ya es el tuyo, tildá "Es mi precio vigente". RATEOS nunca lo actualiza solo.`
-      : null,
+    // El único aviso del precio de ejemplo es la casilla "Es mi precio vigente", junto al campo.
     onValue: (value, el) => clearFuelFlag(el),
   });
   if (fuelFlag && !illustrative) {
     fuelConfirm = checkboxField({
-      label: 'Es mi precio vigente',
+      // El único aviso del precio de ejemplo en Viajes (antes: banner, "Para revisar", nota y casilla).
+      label: 'Es mi precio vigente (el cargado es de ejemplo)',
       name: 'fuel.illustrative',
       checked: false,
-      hint: 'Tildala si el precio cargado ya es el tuyo: se quita la marca ILUSTRATIVO.',
+      hint: 'El precio cargado es de ejemplo (ILUSTRATIVO): escribí el tuyo o tildá la casilla si ya es tu precio actual. RATEOS nunca lo actualiza solo.',
       onChange: (checked) => {
         if (!checked) return;
         clearFuelFlag(fuelPriceField);

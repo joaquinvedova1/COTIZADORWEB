@@ -44,7 +44,7 @@ import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIA
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import { wearNote } from '../equipment-wear-ui.js';
-import { EQUIPMENT_FAMILIES, familyById, familyIdOf, familyVariants, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
+import { EQUIPMENT_FAMILIES, familyById, familyIdOf, familyVariants, isVehicleFamily, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
 import { emptyBase } from '../../domain/economic-base.js';
 import { createExternalTerms, createEquipmentMobility, acquisitionOf } from '../../domain/quote-factory.js';
 import { externalFiscal } from '../../engines/external-engine.js';
@@ -466,8 +466,16 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
     );
   }
 
+  // Secciones plegables que arrancan abiertas según el dato guardado (`openWhen`), sólo al abrir el formulario.
+  let seededOpen = false;
   function rerender() {
     if (typeof prepare === 'function') prepare(draft);
+    if (!seededOpen) {
+      seededOpen = true;
+      sectionsNow().forEach((sec, idx) => {
+        if (sec.collapsible && typeof sec.openWhen === 'function' && sec.openWhen(draft)) openSections.add(sec.key || `s${idx}`);
+      });
+    }
     liveHosts = [];
     mount(
       body,
@@ -760,8 +768,11 @@ function externalTermSections() {
   ];
 }
 
+const TRAVEL_FUEL_FIELD = { key: 'mobility.travelLitersPer100Km', label: 'Consumo trasladándose', rule: 'quantity', unit: 'L/100 km' };
+const TRAVEL_WEAR_FIELD = { key: 'mobility.travelCostPerKm', label: 'Mantenimiento y neumáticos en ruta', rule: 'money', unit: '$/km', hint: 'Si cargaste los neumáticos como juego + vida útil en km, acá va sólo el mantenimiento en ruta (los neumáticos se suman aparte).' };
+
 /** Movilidad de una unidad: ¿cómo se traslada? (sugerida por su familia, siempre editable). */
-function mobilitySection() {
+function mobilitySection({ vehicle = false } = {}) {
   return {
     key: 'mobility',
     title: 'Movilidad: ¿cómo se traslada?',
@@ -777,8 +788,9 @@ function mobilitySection() {
       { key: 'mobility.roadLegal', label: 'Puede circular por ruta', kind: 'tristate' },
       { key: 'mobility.requiresTransport', label: 'Requiere transporte externo', kind: 'tristate' },
       { key: 'mobility.requiresDriver', label: 'Requiere conductor', kind: 'tristate' },
-      { key: 'mobility.travelLitersPer100Km', label: 'Consumo trasladándose', rule: 'quantity', unit: 'L/100 km' },
-      { key: 'mobility.travelCostPerKm', label: 'Mantenimiento y neumáticos en ruta', rule: 'money', unit: '$/km', hint: 'Si cargaste los neumáticos como juego + vida útil en km, acá va sólo el mantenimiento en ruta (los neumáticos se suman aparte).' },
+      // Un vehículo los pide arriba, a la vista ("Consumo en ruta").
+      vehicle ? null : TRAVEL_FUEL_FIELD,
+      vehicle ? null : TRAVEL_WEAR_FIELD,
       { key: 'mobility.speedKmh', label: 'Velocidad estimada (opcional)', rule: 'quantity', unit: 'km/h', nullable: true },
     ],
     extra: ({ draft, rerender }) =>
@@ -916,6 +928,7 @@ function wearSections(settings) {
 function equipmentSections(models = [], settings = {}) {
   return (draft) => {
     const familyModels = models.filter((m) => m.familyId === draft.familyId);
+    const vehicle = !isExternalDraft(draft) && isVehicleFamily(draft.familyId);
     const sections = [
       {
         title: '¿Qué equipo es?',
@@ -968,6 +981,15 @@ function equipmentSections(models = [], settings = {}) {
             return note.childElementCount ? note : null;
           },
         },
+        // Vehículo (camioneta, camión, colectivo): su consumo es en ruta, a la vista y primero.
+        vehicle
+          ? {
+            title: 'Consumo en ruta',
+            cols: 2,
+            hint: 'Lo que gasta manejando. Es el consumo que importa en un vehículo que lleva gente o carga.',
+            fields: [{ ...TRAVEL_FUEL_FIELD, label: 'Consumo en ruta' }, TRAVEL_WEAR_FIELD],
+          }
+          : null,
         {
           key: 'holding',
           title: 'Más costos de tenerlo (aunque no trabaje)',
@@ -990,12 +1012,15 @@ function equipmentSections(models = [], settings = {}) {
         },
         ...wearSections(settings),
         {
-          title: 'Combustible (sólo cuando trabaja, por hora de uso)',
+          // Un vehículo trabajando parado en la locación es opcional: plegado (abierto si ya tiene consumo).
+          ...(vehicle
+            ? { key: 'works-at-site', title: '¿También trabaja parado en la locación? (bombeo, grúa, generador…)', collapsible: true, openWhen: (d) => toNumber(d.fuelLitersPerHour, 0) > 0, summary: (d) => (d.fuelNotApplicable === true ? 'No usa combustible.' : toNumber(d.fuelLitersPerHour, 0) > 0 ? `Sí: ${formatNumber(toNumber(d.fuelLitersPerHour, 0), { decimals: 2 })} L/h trabajando.` : 'No: sólo viaja.') }
+            : { title: 'Combustible (sólo cuando trabaja, por hora de uso)' }),
           cols: 2,
           fields: [
             // PLAN-2026-014 (LAB-D5): explícito; un consumo 0 sin marcar sigue siendo un dato faltante en la cotización.
             { key: 'fuelNotApplicable', label: 'No usa combustible', kind: 'checkbox', rerender: true, hint: 'Eléctrico, manual o estacionario: no se pide consumo ni se suma combustible (tampoco al trasladarse).' },
-            { key: 'fuelLitersPerHour', label: 'Consumo trabajando', rule: 'quantity', unit: 'L/h', hint: 'Litros por hora de trabajo. El precio por litro se toma de Configuración.', when: (d) => d.fuelNotApplicable !== true },
+            { key: 'fuelLitersPerHour', label: 'Consumo trabajando', rule: 'quantity', unit: 'L/h', hint: vehicle ? 'Sólo con el motor trabajando parado (bomba, hidrogrúa). Si sólo lleva gente o carga: 0.' : 'Litros por hora de trabajo. El precio por litro se toma de Configuración.', when: (d) => d.fuelNotApplicable !== true },
           ],
         },
         {
@@ -1015,7 +1040,7 @@ function equipmentSections(models = [], settings = {}) {
         },
       );
     }
-    sections.push(mobilitySection(), { title: 'Marca', cols: 2, fields: [illustrativeField] });
+    sections.push(mobilitySection({ vehicle }), { title: 'Marca', cols: 2, fields: [illustrativeField] });
     return sections;
   };
 }
