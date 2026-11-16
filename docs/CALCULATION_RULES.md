@@ -1642,3 +1642,16 @@ Para los equipos propios se usan las horas normales de la cuadrilla (las mayores
 
 **Guardia**: sin fórmulas nuevas. "Guardia pasiva: fijo por mes" es `rules.availabilityFeeMonthly` y "Guardia activa: plus por cada llamado" es `rules.calloutFeePerActivation` (§ reglas comerciales).
 
+
+## 25. Correcciones del veredicto 2026-11 (tanda 1)
+
+### 25.1 Cambio de la unidad de cobro (V-03)
+
+Archivo: `js/domain/unit-change.js` (`applyUnitChange(q, fromInfo, toInfo)`), usado por "Cómo se cobra" (`changeUnit`) y por "El servicio" cuando la modalidad cambia la unidad (`applyContract`). Sólo actúa al cambiar la unidad; no toca cotizaciones guardadas ni ninguna fórmula. Regla única: lo que estaba cargado **en la unidad anterior** se limpia con aviso, nunca se lee en la unidad nueva ni se convierte (4.000 km no son 4.000 viajes).
+
+| Dato | Qué pasa al cambiar la unidad |
+|---|---|
+| `activity.billableQuantityPerMonth`, `unitsPerActiveDay`, `unitsPerTrip` | Si la unidad nueva es por cantidad o por evento: quedan en `null` (la completitud ya marca en rojo la cantidad que falta). |
+| `rules.minimumCallUnits` > 0 | Entre día y hora, con horas por día cargadas: se convierte (× o ÷ horas, como siempre). En cualquier otro caso (incluido pasar por $/llamado o por el abono): queda en 0. |
+| `rules.minimumGuaranteeUnits` > 0 con base `units` | Queda en 0. Un mínimo en pesos no cambia. |
+| Materiales y otros costos "por unidad producida" sin unidad ni rendimiento propios | Sólo si la unidad anterior era por cantidad: quedan atados a ella (`outputUnit` = nombre de la unidad anterior, `outputPerActiveDay` = lo que se hacía por día), así su costo no cambia. Desde día u hora no se tocan: siguen a la unidad que se elija. |

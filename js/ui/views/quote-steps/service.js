@@ -17,6 +17,7 @@ import { formatNumber, formatPeriod, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
+import { applyUnitChange } from '../../../domain/unit-change.js';
 import { onSessionReset } from '../../session-memory.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
 import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
@@ -257,10 +258,14 @@ export function render(container, ctx) {
     const preferred = next.unit && unitFitsContract(next, next.unit) ? next.unit : null;
     const nextUnit = locked ? current : preferred || (fits ? current : defaultUnitForContract(next));
     let reopenedLogistics = false;
+    // V-03: lo cargado en la unidad anterior (cantidades, mínimos) se limpia con aviso.
+    let unitNotices = [];
+    const fromInfo = billingUnitOf(quote);
     ctx.mutate((q) => {
       q.contract = contractWithComponents({ ...next, templateId: next.templateId || undefined }, next.components, next.customComponents);
       q.serviceType = serviceTypeForContract(q.contract);
       q.unit = nextUnit;
+      if (nextUnit !== current) unitNotices = applyUnitChange(q, fromInfo, billingUnitOf(q));
       if (!next.touchedComponents) return;
       // Al sumar un componente de materiales, si estaba "no usa materiales" se
       // vuelve a pedir (nunca se marca solo: es una confirmación de la persona).
@@ -274,7 +279,7 @@ export function render(container, ctx) {
     });
     if (reopenedLogistics) ctx.toast(`Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, 'info');
     if (nextUnit !== current) {
-      ctx.toast(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.`, 'info');
+      ctx.toast(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.${unitNotices.length ? ` ${unitNotices.join(' ')}` : ''}`, unitNotices.length ? 'warning' : 'info');
     } else if (!fits || (next.unit && next.unit !== current && locked)) {
       const usual = contractUnits(next).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
       ctx.toast(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');

@@ -17,7 +17,7 @@ import { card, formGrid, choiceGroup, searchSelectField, openDialog, button, inf
 import { PRICING_MODES, AVAILABILITY_OPTIONS, AVAILABILITY_WINDOW } from '../../../domain/catalogs.js';
 import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName, unitGroupOf, searchUnits, BILLING_UNIT_GROUPS } from '../../../domain/billing-units.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
-import { convertMinimumCallUnits } from '../../../engines/commercial-rules-engine.js';
+import { applyUnitChange } from '../../../domain/unit-change.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
@@ -198,7 +198,8 @@ export function render(container, ctx) {
    * cargada, se ofrece convertirla (día ↔ hora) o borrarla. Nunca se
    * reinterpreta el mismo número en otra unidad sin avisar. El mínimo por
    * llamado (que está en la unidad de la tarifa) se convierte con las horas
-   * por día activo; si no se puede (p. ej. de días a m³), se avisa.
+   * por día activo; si no se puede (p. ej. de días a m³), se borra y se avisa,
+   * igual que las cantidades y el mínimo garantizado (V-03, applyUnitChange).
    */
   async function changeUnit(nextUnit) {
     const fromUnit = quote.unit || 'day';
@@ -207,39 +208,35 @@ export function render(container, ctx) {
     const to = billingUnitOf({ ...quote, unit: nextUnit });
     const pricing = quote.pricing || {};
     const hours = quote.activity ? quote.activity.hoursPerActiveDay : null;
-    const minCall = Number(quote.rules && quote.rules.minimumCallUnits);
-    const hasMinCall = Number.isFinite(minCall) && minCall > 0 && minimumCallApplies(from.kind) && minimumCallApplies(to.kind) && from.id !== to.id;
     const timeToTime = ['day', 'hour'].includes(from.kind) && ['day', 'hour'].includes(to.kind);
-    const minCallConverted = hasMinCall && timeToTime ? convertMinimumCallUnits(minCall, fromUnit, nextUnit, hours) : null;
-    const applyMinCall = (q) => {
-      if (hasMinCall && isFiniteNumber(minCallConverted) && q.rules) q.rules.minimumCallUnits = minCallConverted;
+    const minCall = Number(quote.rules && quote.rules.minimumCallUnits);
+    // V-03: cantidades, mínimos e insumos cargados en la unidad anterior se limpian (o, el
+    // mínimo entre día y hora, se convierte) con una sola regla: applyUnitChange. Devuelve
+    // los avisos para el cartel.
+    let unitNotices = [];
+    const applyChange = (q) => {
+      q.unit = nextUnit;
+      unitNotices = applyUnitChange(q, from, to);
     };
-    const minCallUnitText = (n, u) => {
-      if (u.kind === 'hour') return `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'hora' : 'horas'}`;
-      if (u.kind === 'day') return formatDays(n);
-      return quantityText(n, { unitInfo: u });
+    const minCallUnitText = (n, u) => (u.kind === 'hour'
+      ? `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'hora' : 'horas'}`
+      : formatDays(n));
+    /** Texto de lo que cambió además de la unidad (después de mutar). */
+    const changeNote = () => {
+      const now = Number(quote.rules && quote.rules.minimumCallUnits);
+      const converted = Number.isFinite(minCall) && minCall > 0 && timeToTime && Number.isFinite(now) && now > 0 && Math.abs(now - minCall) > 1e-9
+        ? ` Mínimo ${T.per}: ${minCallUnitText(minCall, from)} → ${minCallUnitText(now, to)}.`
+        : '';
+      return `${converted}${unitNotices.length ? ` ${unitNotices.join(' ')}` : ''}`;
     };
-    let minCallNote = '';
-    if (hasMinCall) {
-      if (isFiniteNumber(minCallConverted)) {
-        minCallNote = ` Mínimo ${T.per}: ${minCallUnitText(minCall, from)} → ${minCallUnitText(minCallConverted, to)}.`;
-      } else if (timeToTime) {
-        minCallNote = ` Revisá el mínimo ${T.per} en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir (faltan las horas por día activo).`;
-      } else {
-        minCallNote = ` Revisá el mínimo ${T.per} en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir y ahora se lee en ${to.plural || 'la unidad nueva'}.`;
-      }
-    }
     const rates = [
       { path: 'knownRate', label: 'Tarifa conocida', value: Number(pricing.knownRate) },
       { path: 'offeredRateOverride', label: `Tarifa ofrecida a mano (en "${stepName('margin')}")`, value: Number(pricing.offeredRateOverride) },
     ].filter((r) => pricing[r.path] !== null && pricing[r.path] !== '' && Number.isFinite(r.value) && r.value > 0);
-    const minCallTone = minCallNote && !isFiniteNumber(minCallConverted) ? 'warning' : 'success';
     if (rates.length === 0) {
-      ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
-      });
-      if (minCallNote) ctx.toast(`Unidad cambiada a ${to.label}.${minCallNote}`, minCallTone);
+      ctx.mutate(applyChange);
+      const note = changeNote();
+      if (note) ctx.toast(`Unidad cambiada a ${to.label}.${note}`, unitNotices.length ? 'warning' : 'success');
       return;
     }
     rates.forEach((r) => {
@@ -249,22 +246,20 @@ export function render(container, ctx) {
     const choice = await askUnitChange({ from, to, fromUnit, rates, convertible, hours: Number(hours) });
     if (choice === 'convert' && convertible) {
       ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
+        applyChange(q);
         rates.forEach((r) => {
           q.pricing[r.path] = r.converted;
         });
       });
-      ctx.toast(`Unidad cambiada a ${to.label}. ${rates.map((r) => `${r.label}: ${formatMoney(r.converted)} ${perText(to)}`).join(' · ')}.${minCallNote}`, minCallTone);
+      ctx.toast(`Unidad cambiada a ${to.label}. ${rates.map((r) => `${r.label}: ${formatMoney(r.converted)} ${perText(to)}`).join(' · ')}.${changeNote()}`, unitNotices.length ? 'warning' : 'success');
     } else if (choice === 'clear') {
       ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
+        applyChange(q);
         rates.forEach((r) => {
           q.pricing[r.path] = r.path === 'knownRate' ? 0 : null;
         });
       });
-      ctx.toast(`Unidad cambiada a ${to.label}. Se borró la tarifa: cargala de nuevo ${perText(to)}.${minCallNote}`, 'warning');
+      ctx.toast(`Unidad cambiada a ${to.label}. Se borró la tarifa: cargala de nuevo ${perText(to)}.${changeNote()}`, 'warning');
     } else {
       // Cancelado: vuelve a mostrar la unidad anterior.
       ctx.rerender();
