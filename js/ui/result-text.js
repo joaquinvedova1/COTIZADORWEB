@@ -564,7 +564,7 @@ export function tariffRows(r) {
   };
   return [
     ['Horario normal', main],
-    ...overtime.map((l) => [l.label, l.price !== null ? `${formatMoney(l.price)} ${outOfHoursPer(r)}${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
+    ...overtime.map((l) => [l.label, l.price !== null ? `${l.priceSource === 'suggested' ? formatMoneyCeil(l.price) : formatMoney(l.price)} ${outOfHoursPer(r)}${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
     guardFee ? ['Guardia pasiva (fijo por estar disponible)', `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
     callout ? [`Guardia activa (plus ${T.per})`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
     minimumCall ? [`Mínimo ${T.per}`, `${minimumCallText()} ${T.per}`] : null,

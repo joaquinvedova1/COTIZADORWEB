@@ -20,7 +20,7 @@ import { convertRateUnit } from '../../../engines/pricing-engine.js';
 import { applyUnitChange, hoursPerDayFromManHours } from '../../../domain/unit-change.js';
 import { numberToInputText } from '../../../core/validation.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
-import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
@@ -126,6 +126,20 @@ function askUnitChange({ from, to, fromUnit, rates, convertible, hours }) {
 /** ¿Salta el aviso "cada llamado hace menos de una unidad"? (V-08: ahí el ritmo de los llamados va a la vista). */
 export function sparseActivationsWarned(result) {
   return Boolean(result && Array.isArray(result.issues) && result.issues.some((i) => i && i.code === SPARSE_ACTIVATIONS_ISSUE));
+}
+
+/**
+ * Ayuda del "Precio sugerido por hora" de una hora fuera de horario: de qué sale y, si el
+ * motor lo redondeó como la tarifa (V-38), que está redondeado hacia arriba.
+ */
+export function suggestedHourHint(line) {
+  const l = line || {};
+  const rounded = isFiniteNumber(l.suggestedPrice) && isFiniteNumber(l.suggestedPriceExact) && l.suggestedPrice - l.suggestedPriceExact > 0.005
+    ? ' Redondeado hacia arriba, como tu tarifa.'
+    : '';
+  return `${l.priceBasis === 'normal_hour'
+    ? `Tu hora normal (${formatMoney(l.referenceHourPrice)}) más el recargo de las horas extra con tu margen (${formatMoney(l.surchargePrice || 0)}). Así nunca queda más barata que una hora normal.`
+    : 'El costo de esa hora con tus gastos de estructura, tu margen y los impuestos.'}${rounded}`;
 }
 
 /**
@@ -1005,14 +1019,12 @@ export function render(container, ctx) {
           return `Lo que pagás de más por esa hora: las horas extra de ${num(b.people)} ${b.people === 1 ? 'persona' : 'personas'} con cargas${b.equipmentPerHour > 0 ? ` y el uso de los equipos (${formatMoney(b.equipmentPerHour)} por hora de combustible y mantenimiento)` : ''}. Sueldos y amortización ya están en el mes.`;
         },
       }),
-      kit.stat(info.id === 'manhour' ? 'Precio sugerido por hora de toda la cuadrilla' : 'Precio sugerido por hora', (r) => (oohLine(r, i) && isFiniteNumber(oohLine(r, i).suggestedPrice) ? formatMoney(oohLine(r, i).suggestedPrice) : EMPTY), {
+      kit.stat(info.id === 'manhour' ? 'Precio sugerido por hora de toda la cuadrilla' : 'Precio sugerido por hora', (r) => (oohLine(r, i) && isFiniteNumber(oohLine(r, i).suggestedPrice) ? formatMoneyCeil(oohLine(r, i).suggestedPrice) : EMPTY), {
         emphasis: true,
         hint: (r) => {
           const l = oohLine(r, i);
           if (!l || !isFiniteNumber(l.suggestedPrice)) return 'Cargá el personal, los días y las horas para ver el precio.';
-          return l.priceBasis === 'normal_hour'
-            ? `Tu hora normal (${formatMoney(l.referenceHourPrice)}) más el recargo de las horas extra con tu margen (${formatMoney(l.surchargePrice || 0)}). Así nunca queda más barata que una hora normal.`
-            : 'El costo de esa hora con tus gastos de estructura, tu margen y los impuestos.';
+          return suggestedHourHint(l);
         },
       }),
     ),
