@@ -1038,6 +1038,13 @@ function closedOf(r) {
   return { closed, single: closed && isFiniteNumber(q) && Math.abs(q - 1) < 1e-9 };
 }
 
+/** Rótulo del resumen en vivo: en precio cerrado se habla de "precio" (tanda novato). */
+function summaryRateLabel(r) {
+  const label = chargedRateLabel(r);
+  if (!closedOf(r).closed) return label;
+  return { 'Tu tarifa': 'Tu precio', 'Tarifa ofrecida': 'Precio ofrecido', 'Tarifa forzada': 'Precio forzado' }[label] || 'Precio sugerido';
+}
+
 function breakEvenText(r, { decimals = 1 } = {}) {
   const be = r.breakEven || {};
   if (be.notApplicable) return 'No aplica';
@@ -1091,7 +1098,8 @@ function rateHint(r) {
 function buildSummary({ getResult, stepHref }) {
   const rows = [];
 
-  const item = ({ key, label, short = null, value, unit = null, compact = null, hint, tone = null, trace = null }) => {
+  // hidden(r): la fila no se muestra (p. ej. "Días para no perder" en precio cerrado o fijo mensual).
+  const item = ({ key, label, short = null, value, unit = null, compact = null, hint, tone = null, trace = null, hidden = null }) => {
     const labelEl = h('span', { class: 'qe-sum-label' });
     // Rótulo corto para la barra compacta (pantallas chicas); el completo queda para lectores de pantalla.
     const shortEl = short ? h('span', { class: 'qe-sum-short', 'aria-hidden': 'true' }) : null;
@@ -1120,7 +1128,7 @@ function buildSummary({ getResult, stepHref }) {
       : null;
     // La explicación de cada número va en un (i): el resumen muestra sólo números.
     const el = h('div', { class: 'qe-sum-item', dataset: { kpi: key } }, h('div', { class: 'qe-sum-labels' }, labelEl, shortEl, infoTip(hintEl, { className: 'qe-sum-tip' })), valueEl, traceBtn);
-    rows.push({ el, labelEl, shortEl, numberEl, unitEl, compactEl, compactNum, compactUnit, hintEl, traceBtn, label, short, value, unit, compact, hint, tone });
+    rows.push({ el, labelEl, shortEl, numberEl, unitEl, compactEl, compactNum, compactUnit, hintEl, traceBtn, label, short, value, unit, compact, hint, tone, hidden });
     return el;
   };
 
@@ -1141,8 +1149,8 @@ function buildSummary({ getResult, stepHref }) {
     item({
       key: 'floorRate',
       // Base de LISTA: es la que se escribe en la cotización (UX-01).
-      label: (r) => (floorDisplay(r).base === 'net' ? 'Tarifa mínima (neta)' : 'Tarifa mínima'),
-      short: 'Tarifa mínima',
+      label: (r) => `${closedOf(r).closed ? 'Precio mínimo' : 'Tarifa mínima'}${floorDisplay(r).base === 'net' ? ' (neta)' : ''}`,
+      short: (r) => (closedOf(r).closed ? 'Precio mínimo' : 'Tarifa mínima'),
       value: (r) => formatMoneyCeil(floorDisplay(r).value),
       unit: (r) => `/ ${unitShort(r)}`,
       compact: (r) => formatMoneyCompact(floorDisplay(r).value, { ceil: true }),
@@ -1157,8 +1165,8 @@ function buildSummary({ getResult, stepHref }) {
     }),
     item({
       key: 'commercialRate',
-      label: chargedRateLabel,
-      short: (r) => ({ 'Tarifa sugerida': 'Sugerida', 'Tarifa ofrecida': 'Ofrecida', 'Tarifa forzada': 'Forzada' }[chargedRateLabel(r)] || chargedRateLabel(r)),
+      label: summaryRateLabel,
+      short: (r) => ({ 'Tarifa sugerida': 'Sugerida', 'Tarifa ofrecida': 'Ofrecida', 'Tarifa forzada': 'Forzada', 'Precio sugerido': 'Sugerido', 'Precio ofrecido': 'Ofrecido', 'Precio forzado': 'Forzado' }[summaryRateLabel(r)] || summaryRateLabel(r)),
       value: (r) => (r.kpis.commercialSource === 'suggested' ? formatMoneyCeil(r.kpis.commercialListRate) : formatMoney(r.kpis.commercialListRate)),
       unit: (r) => `/ ${unitShort(r)}`,
       compact: (r) => formatMoneyCompact(r.kpis.commercialListRate, { ceil: r.kpis.commercialSource === 'suggested' }),
@@ -1181,6 +1189,8 @@ function buildSummary({ getResult, stepHref }) {
       },
       tone: breakEvenTone,
       trace: (r) => r.traces.breakEven,
+      // Precio cerrado ("trabajos para no perder") y fijo mensual ("No aplica"): no se muestra.
+      hidden: (r) => closedOf(r).closed || Boolean(r.breakEven && r.breakEven.notApplicable),
     }),
   );
 
@@ -1331,6 +1341,10 @@ function buildSummary({ getResult, stepHref }) {
     update(r) {
       if (!r) return;
       rows.forEach((row) => {
+        const hide = row.hidden ? resolve(row.hidden, r) === true : false;
+        // .qe-sum-item es flex: el atributo hidden no alcanza.
+        row.el.style.display = hide ? 'none' : '';
+        row.el.hidden = hide;
         row.labelEl.textContent = resolve(row.label, r) || '';
         if (row.shortEl) row.shortEl.textContent = resolve(row.short, r) || '';
         if (row.traceBtn) row.traceBtn.setAttribute('aria-label', `Ver cálculo: ${row.labelEl.textContent}`);
