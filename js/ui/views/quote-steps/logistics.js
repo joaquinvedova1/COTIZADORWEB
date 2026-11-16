@@ -29,11 +29,26 @@ import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, moneyText, numberText, stepName } from './shared.js';
 import { capacityPerTripOf } from '../../../engines/transport-engine.js';
+import { externalFuelMode } from '../../../engines/external-engine.js';
 import { baseFields } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { transportStats, transportOf, providerActivityList, routeText, tripsText } from './transport.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
+
+/**
+ * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
+ * sus medios (null = se muestra el campo).
+ *   - V-23: externo con el combustible a tu cargo cargado por km: la ruta ya
+ *     está en ese consumo (el motor no suma otro combustible de traslado).
+ * @param {object} line línea de `quote.equipment`
+ */
+export function routeConsumptionNote(line = {}) {
+  const external = acquisitionOf(line) !== 'owned';
+  const ext = line.external && typeof line.external === 'object' ? line.external : {};
+  if (external && ext.fuelIncluded === false && externalFuelMode(ext) !== 'per_hour') return 'El combustible de la ruta ya está en el consumo del alquiler.';
+  return null;
+}
 
 const WARNING_TEXT = Object.freeze({
   travel_consumption: 'Falta el consumo en ruta (L/100 km): el combustible del traslado queda en 0.',
@@ -198,6 +213,7 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
       hint: m.mode ? (MOBILIZATION_MODES.find((o) => o.id === m.mode) || {}).hint : 'Definilo para que la movilización no quede afuera ni se cuente dos veces.',
     });
     let detail = null;
+    const routeNote = m.mode === 'self' ? routeConsumptionNote(line) : null;
     if (m.mode === 'self') {
       const operator = typeof line.operatorLaborId === 'string' ? laborById.get(line.operatorLaborId) : null;
       const driverHint = m.driver === 'operator'
@@ -212,9 +228,11 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
         { class: 'stack' },
         formGrid(
           3,
-          line.fuelNotApplicable === true && !external
-            ? null
-            : kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'Lo que gasta manejando por la ruta. Es el único consumo de un vehículo que sólo lleva gente o carga.' }),
+          routeNote
+            ? h('p', { class: 'qe-note' }, routeNote)
+            : line.fuelNotApplicable === true && !external
+              ? null
+              : kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'Lo que gasta manejando por la ruta. Es el único consumo de un vehículo que sólo lleva gente o carga.' }),
           kit.num(`${p}.travelCostPerKm`, {
             label: 'Desgaste por km',
             rule: 'money',
@@ -332,7 +350,8 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
     }
     const warnings = kit.out((r) => {
       const ml = r.model.mobilization && r.model.mobilization.lines[i];
-      const list = ml ? ml.warnings.map((w) => WARNING_TEXT[w]).filter(Boolean) : [];
+      // Sin campo "Consumo en ruta" (V-23) no se avisa que falta.
+      const list = ml ? ml.warnings.filter((w) => !(routeNote && w === 'travel_consumption')).map((w) => WARNING_TEXT[w]).filter(Boolean) : [];
       return list.length ? h('div', { class: 'qe-line-warnings' }, ...list.map((t) => h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, t)))) : '';
     }, { tag: 'div', allowEmpty: true });
     const feeNote = providerFee
