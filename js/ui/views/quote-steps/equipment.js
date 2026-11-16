@@ -880,7 +880,7 @@ export function render(container, ctx) {
     value,
     // Precio cerrado (V-02): "global" es toda la obra, no los meses de contrato.
     options: unitsFor(T).map((u) => ({ value: u.id, label: closedContract && u.id === 'global' ? 'Global (toda la obra)' : u.label })),
-    hint: closedContract && value === 'global' ? 'Monto por toda la obra.' : unitHints(T)[value],
+    hint: closedContract && value === 'global' ? 'Monto por toda la obra. Se reparte en los "Trabajos que cubre el total" (Más datos de la cotización; vacío = 1).' : unitHints(T)[value],
     disabled: ctx.readOnly,
     onChange: (v) => setExternalUnit(index, v || 'day'),
   });

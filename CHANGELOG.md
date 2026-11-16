@@ -12,7 +12,7 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
-**Revisión UX previa a publicar (correcciones del veredicto).** Ningún número cambia: sólo foco, textos y estilo.
+**Revisión UX y de costos previa a publicar (correcciones del veredicto).** Ningún número cambia: sólo foco, textos, estilo y documentación.
 
 ### Corregido
 
@@ -24,6 +24,7 @@ Reglas para este archivo:
 - **Personal y Equipos:** sin responder la dedicación, la ficha dice "Sin elegir: por ahora paga el 100 % (se elige en "Cómo se cobra")" en vez de darla por respondida; en móvil los dos botones de "Agregar" de Equipos tienen el mismo ancho.
 - **Materiales:** cobrando por día u hora sin unidad propia, "Cantidad", la ayuda del % de uso y la fórmula dicen "unidad" (nunca "día/día"); la fórmula usa el plural ("40 hectáreas/día").
 - **El precio:** el mínimo por llamado con hora o día dice "cada llamado factura 8 horas aunque se trabajen 6" (antes "suma unidades facturables"); la nota de los días en espera va en su propio párrafo.
+- **Revisión de costos:** la ayuda del externo "Global" en precio cerrado dice que se reparte en "Trabajos que cubre el total" (vacío = 1); se corrigió el texto de qué cotizaciones cambian por V-02; CALCULATION_RULES documenta que la hora-hombre (V-34) cuenta a toda persona de la cuadrilla aunque esté compartida y que con «Cada trabajo se cuenta entero» el global también se redondea por trabajo; el oráculo del lab lee un contrato sin modo como el motor (on demand).
 - **Resultado:** "Supone que además facturás $ … por mes de horas fuera de horario; si no ocurren, necesitás más días."; con la guardia cubriendo todo, "Tus tarifas" dice "La que acuerdes" en el horario normal y la tarifa piso muestra "—" como la sugerida; el plus por llamado muestra sólo el monto; la columna de nombres de "Tus tarifas" es más ancha; los enlaces "Ir a "…"" van todos entre comillas.
 
 **Correcciones de la ronda de testeo 2026-11-15, tanda 3 (V-15 a V-33): limpieza y textos.** Ningún número cambia: costos, tarifas y facturación de las cotizaciones guardadas quedan iguales (golden y baseline de regresión sin re-aprobar). Sólo se mueve el puntaje de completitud de las cotizaciones que tenían el aviso "falta quién maneja" (V-22: sube). Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §26](docs/CALCULATION_RULES.md).
@@ -76,7 +77,7 @@ Reglas para este archivo:
 
 ### Corregido
 
-- **Proveedor "Global" en precio cerrado (V-02; cambia números).** Un externo con tarifa "Global" en un trabajo a precio cerrado se dividía por los meses de contrato (12 al nacer la cotización): una grúa de $ 5.600.000 entraba como $ 466.667. Ahora es un monto **por toda la obra**: `neto por trabajo = precio × cantidad ÷ trabajos de la obra` (`quote.contractJobs`, vacío = 1). **Cambian** las cotizaciones de precio cerrado con un externo "Global" y duración mayor que 1 mes: su costo y su tarifa sugerida suben (antes quedaban por debajo del costo). Fuera de precio cerrado sigue dividiéndose por los meses de contrato. En pantalla: "Global (toda la obra)".
+- **Proveedor "Global" en precio cerrado (V-02; cambia números).** Un externo con tarifa "Global" en un trabajo a precio cerrado se dividía por los meses de contrato (12 al nacer la cotización): una grúa de $ 5.600.000 entraba como $ 466.667. Ahora es un monto **por toda la obra**: `neto por trabajo = precio × cantidad ÷ trabajos de la obra` (`quote.contractJobs`, vacío = 1). **Cambian** las cotizaciones de precio cerrado con un externo "Global": el monto ya no depende de los meses de contrato sino de "Trabajos que cubre el total" (vacío = 1). Con más de 1 mes de contrato el costo suele subir. Con 1 mes cambia si se hace más o menos de un trabajo por mes. En todos los casos el externo pasa de costo fijo del mes a costo por trabajo (corregido en la revisión de costos). Fuera de precio cerrado sigue dividiéndose por los meses de contrato. En pantalla: "Global (toda la obra)".
 - **Cambiar la unidad de cobro ya no deja números en la unidad anterior (V-03).** Cantidad por mes, cantidad por día, capacidad por viaje, mínimo por llamado y mínimo garantizado en unidades se borran con aviso (el mínimo por llamado se sigue convirtiendo entre día y hora); los insumos "por unidad producida" quedan atados a la unidad anterior para que su costo no cambie. Una sola regla (`applyUnitChange`, `js/domain/unit-change.js`) para "Cómo se cobra" y para el cambio de modalidad.
 - **"Horas de trabajo por día" a la vista con cualquier unidad (V-04).** Cobrando por cantidad o por evento el campo no aparecía y quedaba en 10. Ahora está en "Cómo se cobra" con atajos 8 / 9 / 10 / 12 h; en hora-hombre se deduce de las HH por día ÷ personas. Los avisos de horas del personal dicen dónde corregirlo.
 - **Dedicación: "Sí" ya no aparece elegido sin que nadie lo elija (V-01).** Una cotización sin respuesta muestra la pregunta sin marcar y avisa cuánto paga el servicio mientras tanto; elegir "Sí" guarda la respuesta en todas las líneas. El aviso de costos fijos lleva a esa pregunta y no sale cuando el servicio ya ocupa el mes entero.

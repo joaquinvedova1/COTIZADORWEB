@@ -318,8 +318,9 @@ export function oracleModel(q) {
     let billedPerActivation = null;
     // Precio cerrado (V-02, veredicto 2026-11): "global" es por toda la obra y se reparte en
     // sus trabajos (contractJobs; vacío = 1), no en los meses de contrato.
-    const savedMode = q.contract && typeof q.contract === 'object' && !Array.isArray(q.contract) ? q.contract.mode : null;
-    const closed = savedMode ? savedMode === 'closed' : ['lump_sum', 'turnkey'].includes(q.serviceType) || ['job', 'milestone'].includes(q.unit);
+    // Como contract.js: un contrato guardado sin modo válido es "on_demand" (revisión de costos).
+    const hasContract = q.contract && typeof q.contract === 'object' && !Array.isArray(q.contract);
+    const closed = hasContract ? q.contract.mode === 'closed' : ['lump_sum', 'turnkey'].includes(q.serviceType) || ['job', 'milestone'].includes(q.unit);
     const globalPerJob = unit === 'global' && closed;
     if (unit === 'month') netFixed = price * qty;
     else if (globalPerJob) {
