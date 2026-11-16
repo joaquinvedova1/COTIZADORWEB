@@ -66,7 +66,8 @@ export const STRUCTURE_ITEMS = Object.freeze([
   'Vehículos administrativos',
 ]);
 
-const DIRECT_CATEGORIES = ['labor', 'equipment', 'fuel', 'materials', 'logistics'];
+// Todo lo que no es estructura, como en el motor (cost-engine: `l.category !== 'structure'`). V-15: faltaban los proveedores.
+const DIRECT_CATEGORIES = ['labor', 'equipment', 'external', 'fuel', 'materials', 'logistics'];
 
 function rowOf(result, category) {
   return result.eecc.rows.find((r) => r.category === category) || null;
@@ -78,7 +79,8 @@ function absorptionAtEstimate(result) {
   return s.fixedMonthly * monthsFactor(D, result.activity.availableDaysPerMonth) + s.variablePerActiveDay * D;
 }
 
-function baseOf(result) {
+/** Base sobre la que se aplica el método de estructura (la misma que usa el motor). */
+export function baseOf(result) {
   const method = result.model.structure.method;
   if (method === 'percent_direct') return DIRECT_CATEGORIES.reduce((s, c) => s + (rowOf(result, c) ? rowOf(result, c).amount : 0), 0);
   if (method === 'percent_labor') return rowOf(result, 'labor') ? rowOf(result, 'labor').amount : 0;
@@ -106,7 +108,7 @@ function structureTrace(result) {
   const method = s.method;
   const usesPct = method === 'percent_direct' || method === 'percent_labor';
   const formula = {
-    percent_direct: 'Estructura = % × costos directos (personal + equipos + combustible + materiales + logística)',
+    percent_direct: 'Estructura = % × costos directos (personal + equipos + proveedores + combustible + materiales + logística)',
     percent_labor: 'Estructura = % × costo de mano de obra',
     per_employee: 'Estructura = monto por empleado × dotación (una persona compartida cuenta por el % asignado)',
     per_contract: 'Estructura = monto mensual del contrato',
@@ -289,7 +291,7 @@ export function render(container, ctx) {
       illustrative: Boolean(quote.illustrative),
       hint: method.id === 'percent_labor'
         ? 'Se suma este % sobre el costo del personal.'
-        : 'Se suma este % sobre personal, equipos, combustible, materiales y viajes.',
+        : 'Se suma este % sobre personal, equipos y proveedores, combustible, materiales y viajes.',
     })
     : kit.num('indirect.amount', {
       label: (AMOUNT_LABELS[method.id] || AMOUNT_LABELS.manual)[0],
