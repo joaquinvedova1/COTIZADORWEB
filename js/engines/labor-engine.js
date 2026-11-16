@@ -99,6 +99,11 @@ export function laborLoadFactor({ sacPct = 0, vacationPct = 0, employerContribut
     (1 + pct(nonNegative(employerContributionsPct)) + pct(nonNegative(artPct)));
 }
 
+/** Horas extra por mes y por persona cargadas con el valor de la hora del recurso (PLAN-2026-026). */
+export function resourceOvertimeHoursOf(line = {}) {
+  return nonNegative(line.overtime50HoursPerMonth) + nonNegative(line.overtime100HoursPerMonth);
+}
+
 export const OVERTIME_BASES = Object.freeze(['per_active_day', 'per_month']);
 
 /**

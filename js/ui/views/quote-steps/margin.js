@@ -446,8 +446,9 @@ export function render(container, ctx) {
     if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
     else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
     else if (showStandbyRule(quote)) active.push('equipo en espera sin definir');
-    return `Fijo de guardia, plus y cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
+    return `Cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
   };
+  const hadGuardPlus = Number((quote.rules || {}).calloutFeePerActivation) > 0;
   const rulesCard = kit.advanced(
     {
       key: 'margin-rules',
@@ -465,6 +466,7 @@ export function render(container, ctx) {
       },
     },
     h('p', { class: 'qe-note' }, 'Cómo se factura el servicio además de la tarifa. Dejá en 0 lo que no aplica.'),
+    // PLAN-2026-026: la guardia ya no se pregunta; el plus por llamado se ve sólo si ya estaba cargado (el fijo por mes queda: lo señala el pendiente "Disponibilidad sin cobrar").
     ruleRow(
       L.guardFee,
       unitKind === 'month'
@@ -476,11 +478,11 @@ export function render(container, ctx) {
         return item ? h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, item.message)) : '';
       }, { tag: 'div', allowEmpty: true }),
     ),
-    ruleRow(
+    hadGuardPlus ? ruleRow(
       L.guardPlus,
       `Monto fijo que se cobra en ${T.each}.`,
       [kit.num('rules.calloutFeePerActivation', { label: L.perActivation, rule: 'money', unit: '$' })],
-    ),
+    ) : null,
     ruleRow(
       'Movilización',
       `Cobro por llevar los recursos a la locación en ${T.each}.`,

@@ -45,7 +45,7 @@ import { normalizeRules } from './commercial-rules-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay, availabilityHoursOf } from './cost-engine.js';
 import { outputPerActiveDayOf, outputMatchesBilling, normalizeBasisId } from './materials-engine.js';
 import { routeTrips } from './transport-engine.js';
-import { overtimeItemsOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
+import { overtimeItemsOf, resourceOvertimeHoursOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
@@ -142,7 +142,7 @@ export function activeGuardLineCheck(guard, l = {}, activeDays = 0) {
   const required = guard.days * hours;
   const ppp = laborPeoplePerPositionOf(l);
   const items = overtimeItemsOf(l);
-  const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
+  const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0) + resourceOvertimeHoursOf(l);
   const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
   const extra = ppp * perMonth + perDay * nonNegative(activeDays);
   const covered = ppp * normal + extra;
@@ -400,7 +400,7 @@ export function evaluateCompleteness(quote = {}) {
       const ppp = laborPeoplePerPositionOf(l);
       const items = overtimeItemsOf(l);
       const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
-      const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0);
+      const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0) + resourceOvertimeHoursOf(l);
       const required = D * hours;
       const covered = (ppp * normal + perMonth * ppp) * mf + perDay * D;
       return required > covered + 1e-6 ? { l, index, ppp, normal, hours, own: hours !== H, extra: perMonth * ppp * mf + perDay * D, required, covered } : null;

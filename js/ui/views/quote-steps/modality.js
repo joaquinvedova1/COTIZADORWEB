@@ -169,7 +169,7 @@ export function outOfHoursNoteText(r, unitInfo = null) {
     : crew ? `tu tarifa por hora-hombre × ${crew}` : 'sale de tu tarifa';
   const tail = crew ? ` Estos precios son por hora de toda la cuadrilla (${crew}), no por hora-hombre.` : '';
   const use = fromResources && unitInfo && unitInfo.kind !== 'hour' && unitInfo.kind !== 'day' ? outOfHoursUseText(o, unitInfo) : 'Se cobra aparte de la tarifa.';
-  return `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${source}). El precio sugerido es esa hora más el recargo de las horas extra. ${use}${tail}`;
+  return `Tu tarifa por hora normal es ${formatMoney(o.normalHourPrice)} (${source}). El precio sugerido es esa hora más el recargo de las horas extra. ${use}${tail}`;
 }
 
 /** Unidades que se cuentan de a una y pueden caer enteras fuera de horario (el viaje, el trabajo…). */
@@ -1182,13 +1182,16 @@ export function render(container, ctx) {
     // sueldo y su convenio), no una tarifa pareja. Se muestra el detalle por puesto.
     oohOn
       ? kit.out((r) => {
-        const roles = outOfHoursRoleRows(r.outOfHours && r.outOfHours.basis);
+        const basis = r.outOfHours && r.outOfHours.basis;
+        const roles = outOfHoursRoleRows(basis);
         if (!roles.length) return '';
+        const equipmentHour = basis && basis.equipmentPerHour > 0 ? basis.equipmentPerHour : 0;
         return h('div', { class: 'qe-ooh-roles' },
           h('p', { class: 'qe-ooh-roles-title' }, 'Lo que te cuesta una hora de cada uno (viene de Recursos)'),
           h('table', { class: 'qe-ooh-table' },
             h('thead', {}, h('tr', {}, h('th', {}, 'Puesto'), h('th', { class: 'num' }, 'Hora normal'), h('th', { class: 'num' }, 'Hora al 50\u00a0%'), h('th', { class: 'num' }, 'Hora al 100\u00a0%'))),
-            h('tbody', {}, ...roles.map((x) => h('tr', { class: x.total ? 'is-total' : null }, h('td', {}, x.label), h('td', { class: 'num' }, formatMoney(x.normal)), h('td', { class: 'num' }, formatMoney(x.at50)), h('td', { class: 'num' }, formatMoney(x.at100)))))));
+            h('tbody', {}, ...roles.map((x) => h('tr', { class: x.total ? 'is-total' : null }, h('td', {}, x.label), h('td', { class: 'num' }, formatMoney(x.normal)), h('td', { class: 'num' }, formatMoney(x.at50)), h('td', { class: 'num' }, formatMoney(x.at100)))))),
+          equipmentHour ? h('p', { class: 'qe-note qe-ooh-equipment' }, `A cada hora se le suman ${formatMoney(equipmentHour)} de tus equipos.`) : null);
       }, { tag: 'div', allowEmpty: true })
       : null,
     oohOn ? h('div', { class: 'qe-ooh-rows' }, ...oohRows) : null,
@@ -1285,7 +1288,7 @@ export function render(container, ctx) {
 
   const ladder = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [...DEFAULT_MARGIN_LADDER];
   const breakEvenStat = byQuantity
-    ? kit.stat(`${texts.breakEvenLabel} (break-even)`, (r) => {
+    ? kit.stat(texts.breakEvenLabel, (r) => {
       const be = r.breakEven || {};
       if (be.notApplicable) return 'No aplica';
       if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
@@ -1299,7 +1302,7 @@ export function render(container, ctx) {
         return !be.reachable || be.days > r.kpis.activeDays + 1e-9 ? 'red' : 'green';
       },
     })
-    : kit.stat('Días mínimos para no perder (break-even)', (r) => {
+    : kit.stat('Días mínimos para no perder', (r) => {
       const be = r.breakEven || {};
       if (be.notApplicable) return 'No aplica';
       if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
@@ -1356,7 +1359,7 @@ export function render(container, ctx) {
             },
           },
         ),
-        ...ladder.map((m) => kit.stat(`Tarifa de lista con margen ${formatPercent(m)}`, (r) => {
+        ...ladder.map((m) => kit.stat(`Para ganar ${formatPercent(m)}`, (r) => {
           const row = rateRowFor(r, m);
           return perUnitCeil(row ? row.listRate : null, r);
         }, {

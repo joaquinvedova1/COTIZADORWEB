@@ -173,7 +173,7 @@ export const STEP_COPY = Object.freeze({
   },
   equipment: {
     question: '¿Qué equipos y vehículos usás?',
-    why: 'Camionetas, camiones, trailers, máquinas. Elegí cada uno de tus Recursos y poné cuántos van y cuántas horas se usan por día. Si el servicio no lleva equipos, seguí de largo.',
+    why: 'Camionetas, camiones, trailers, máquinas. Elegí cada uno de tus Recursos (o cargalo en blanco) y poné cuántos van y cuántas horas se usan por día. Si el servicio no lleva equipos, seguí de largo.',
   },
   materials: {
     question: '¿Qué materiales o insumos consumís?',
@@ -201,7 +201,6 @@ export const STEP_COPY = Object.freeze({
   margin: {
     question: '¿Cuánto querés ganar?',
     why: 'El margen es lo que te queda de cada $ 100 que cobrás. Con ese dato calculamos tu tarifa.',
-    term: 'Margen sobre el precio (no es markup)',
   },
   result: {
     question: 'Resultado',
@@ -1724,7 +1723,7 @@ function resultFallback(result, error) {
     ),
     result
       ? card(
-        { title: 'Estructura de costos (EECC)', subtitle: 'Monto e incidencia % con la actividad estimada.' },
+        { title: 'Estructura de costos', subtitle: 'Monto e incidencia % con la actividad estimada.' },
         table({
           columns: [
             { key: 'label', label: 'Categoría' },

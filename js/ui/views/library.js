@@ -64,7 +64,7 @@ const TABS = Object.freeze([
     id: 'personal',
     label: 'Personal',
     type: 'laborProfiles',
-    addLabel: 'Agregar perfil',
+    addLabel: 'Agregar puesto',
     icon: 'resources',
     intro: 'Cada puesto con su sueldo, convenio y cargas, calculado por persona. Al sumar personal a una cotización se copian estos valores.',
     emptyTitle: 'Todavía no agregaste personal.',
@@ -604,10 +604,13 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       live: profileCost ? (draft) => {
         const p = profileCost(draft).perPerson;
         const cell = (label, value, note) => h('div', { class: 'hour-rate' }, h('span', { class: 'hour-rate-label' }, label), h('strong', { class: 'hour-rate-value' }, value > 0 ? formatMoney(value) : EMPTY), h('span', { class: 'hour-rate-note' }, note));
+        // Un valor propio más bajo que la hora normal casi siempre es la hora "de bolsillo" del convenio, sin cargas.
+        const low = (own, value) => own && p.loadedHourlyCost > 0 && value < p.loadedHourlyCost - 0.005;
+        const note = (own, value, calc) => (low(own, value) ? 'Ojo: es menor que la hora normal. Cargá el costo con cargas sociales, no la hora del recibo.' : own ? 'Valor que cargaste' : calc);
         return h('div', { class: 'hour-rates' },
           cell('Hora normal', p.loadedHourlyCost, 'Costo del mes ÷ horas normales'),
-          cell('Hora al 50 %', p.overtimeHourlyCost50, p.overtimeRate50Own ? 'Valor que cargaste' : 'Calculada: hora de sueldo × 1,5, con cargas'),
-          cell('Hora al 100 %', p.overtimeHourlyCost100, p.overtimeRate100Own ? 'Valor que cargaste' : 'Calculada: hora de sueldo × 2, con cargas'));
+          cell('Hora al 50 %', p.overtimeHourlyCost50, note(p.overtimeRate50Own, p.overtimeHourlyCost50, 'Calculada: hora de sueldo × 1,5, con cargas')),
+          cell('Hora al 100 %', p.overtimeHourlyCost100, note(p.overtimeRate100Own, p.overtimeHourlyCost100, 'Calculada: hora de sueldo × 2, con cargas')));
       } : null,
     },
     {
@@ -1247,7 +1250,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       case 'laborProfiles': {
         const agreements = list('agreements');
         openResourceForm(app, {
-          title: isNew ? 'Nuevo perfil de personal' : `Editar perfil — ${item.role || ''}`,
+          title: isNew ? 'Nuevo puesto' : `Editar puesto — ${item.role || ''}`,
           initial: isNew ? newLaborProfile(agreements) : item,
           sections: laborSections(agreements, app, { profileCost: (d) => ctx.resources.laborProfileCost(d) }),
           preview: (draft) => {

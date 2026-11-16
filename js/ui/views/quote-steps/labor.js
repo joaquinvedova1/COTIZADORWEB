@@ -110,7 +110,7 @@ function laborTrace(result, index, source) {
     ],
     result: { label: 'Fijo mensual total del puesto', value: line.fixedMonthly, format: 'money' },
     notes: [
-      'Hora extra = (básico ÷ horas normales) × (1 + recargo) × factor de cargas. Las horas por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.',
+      'Hora extra = (básico ÷ horas normales) × (1 + recargo) × factor de cargas. Las "Horas al 50 % / 100 % por mes" usan el valor de la hora del recurso (sueldo con adicionales, o el valor que cargaste). Las horas por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.',
       line.overtimeBilling ? 'Las horas extra que facturás aparte siguen siendo costo: además suman ingreso (horas × precio por hora).' : null,
       'Los porcentajes de convenio son parámetros que cargás vos: los de la demostración son ILUSTRATIVOS, no valores de ningún CCT.',
     ],
@@ -411,7 +411,8 @@ export function render(container, ctx) {
           const share = l.shared && !l.shareMissing ? ` Este servicio paga el ${formatPercent(l.fixedCostSharePct)} de su mes.` : '';
           // Sin días cargados todavía (los recursos van antes que "Cómo se cobra"): sólo el fijo del mes.
           const month = D > 0 ? ` En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.` : '';
-          return `${staffText(l)} × ${formatMoney(l.perPerson.fixedMonthly)}${variable}.${month}${share}`;
+          const extraMonth = l.perPerson.overtimeMonthly > 0 ? ` + ${formatMoney(l.perPerson.overtimeMonthly)} de horas extra` : '';
+          return `${staffText(l)} × (${formatMoney(l.perPerson.fixedMonthly)}${extraMonth})${variable}.${month}${share}`.replace(/× \((\$[^()+]*)\)/, '× $1');
         },
         trace: (r) => laborTrace(r, i, quote.labor[i]),
       }),
@@ -572,7 +573,7 @@ export function render(container, ctx) {
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({
         title: 'Todavía no cargaste personal.',
-        text: 'Agregá un perfil desde tus recursos o un puesto en blanco. Si el servicio no lleva personal propio, seguí al próximo paso.',
+        text: 'Agregá un puesto desde tus Recursos o un puesto en blanco. Si el servicio no lleva personal propio, seguí al próximo paso.',
         icon: 'resources',
       }),
     totals,

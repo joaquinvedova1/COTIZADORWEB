@@ -1737,8 +1737,9 @@ function profitStat(v) {
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && profit >= 0 ? 'orange' : ok ? (losing ? 'red' : 'green') : null;
   return statItem({
     label: losing ? 'Perdés' : 'Ganás',
-    value: ok ? money(Math.abs(profit)) : EMPTY,
-    unit: ok ? per : null,
+    // ECO-01: con un resultado no confiable la ganancia no se muestra como cifra.
+    value: ok && !unreliable ? money(Math.abs(profit)) : EMPTY,
+    unit: ok && !unreliable ? per : null,
     hint,
     tone,
     className: 'qr-stat qr-stat-profit',
@@ -2684,7 +2685,7 @@ function renderMatrix(v) {
     : null;
   return card(
     {
-      title: byQty(v) ? `Matriz tarifa × ${r.unitInfo.plural}` : 'Matriz tarifa × utilización',
+      title: byQty(v) ? `Tarifa según ${r.unitInfo.plural}` : 'Tarifa según los días trabajados',
       subtitle: byQty(v)
         ? `¿Qué tarifa necesitás según ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} factures por mes? Tarifas por ${v.unitLabel}; debajo de cada cantidad, los días de trabajo que lleva.`
         : `¿Qué tarifa necesitás según cuántos días del mes trabaje y facture el equipo? ${isMonth ? 'Abonos por mes.' : `Tarifas por ${v.unitLabel}.`}`,
@@ -3773,8 +3774,8 @@ function deepDefinitions(v) {
       summary: byQty(v) ? `Tarifa según ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes` : 'Tarifa según días trabajados',
       hint: byQty(v)
         ? `¿Qué tarifa necesitás si facturás más o menos ${v.r.unitInfo.plural}? Matriz y gráfico.`
-        : '¿Qué tarifa necesitás si trabajás más o menos días? Matriz tarifa × utilización y gráfico.',
-      build: () => [safeSection('Matriz tarifa × utilización', () => renderMatrix(v))],
+        : '¿Qué tarifa necesitás si trabajás más o menos días? Tabla y gráfico.',
+      build: () => [safeSection('Tarifa según los días trabajados', () => renderMatrix(v))],
     },
     {
       key: 'scenarios',
@@ -3791,7 +3792,7 @@ function deepDefinitions(v) {
     },
     {
       key: 'markup',
-      summary: 'Margen y recargo (markup)',
+      summary: 'Margen y recargo',
       hint: 'Tarifas por nivel de margen y por qué el margen no es lo mismo que el markup.',
       build: () => [safeSection('Margen vs markup', () => renderMarginMarkup(v))],
     },

@@ -349,6 +349,16 @@ describe('V-04 · Horas de trabajo por día y equipos por hora (equipment_hours)
     assert.match(withMinimum.message, /"Minibús"/);
   });
 
+  test('PLAN-2026-026: las "Horas al 50 % / 100 % por mes" del puesto cuentan como horas cubiertas', () => {
+    resetIds();
+    const base = { unit: 'day', activity: { activeDaysPerMonth: 26, hoursPerActiveDay: 8 } };
+    const short = evaluateCompleteness(service({ ...base, labor: [person({ positions: 1, normalHoursPerMonth: 176 })] })).items.find((i) => i.id === 'labor_hours');
+    assert.ok(short, 'sin horas extra cargadas faltan 32 h');
+    resetIds();
+    const covered = evaluateCompleteness(service({ ...base, labor: [person({ positions: 1, normalHoursPerMonth: 176, overtime50HoursPerMonth: 20, overtime100HoursPerMonth: 12 })] })).items.find((i) => i.id === 'labor_hours');
+    assert.equal(covered, undefined);
+  });
+
   test('los avisos de horas del personal dicen dónde corregir las horas por día del servicio', () => {
     resetIds();
     const q = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 1, coverageHoursPerDay: 8 })] });
