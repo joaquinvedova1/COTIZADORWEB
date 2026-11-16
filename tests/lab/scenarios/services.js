@@ -578,7 +578,7 @@ export const SERVICE_SCENARIOS = [
   // ---------------------------------------------------------- llave en mano / lump sum
   {
     id: 'SRV-31-TURNKEY-JOB-GLOBAL',
-    title: 'Llave en mano $ global por trabajo: externo global repartido en 6 meses de contrato, tarifa conocida',
+    title: 'Llave en mano $ global por trabajo: externo global por toda la obra (no ÷ 6 meses de contrato, V-02), tarifa conocida',
     family: 'turnkey',
     build: () => service({
       id: 'srv-31', serviceType: 'turnkey', unit: 'job', pricingMode: 'known_rate', contractMonths: 6,

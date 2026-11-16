@@ -41,7 +41,7 @@ export function driverTrace(quote, oracle) {
     lines.push('Sin traslados: 0 km de ruta');
   }
   for (const x of m.externals) {
-    if (x.unit === 'month' || x.unit === 'global') lines.push(`Externo ${x.index + 1}: ${money(x.netFixed)} netos por mes (${x.unit === 'global' ? 'global ÷ meses de contrato' : 'tarifa mensual'})`);
+    if (x.unit === 'month' || (x.unit === 'global' && !(x.billedPerActivation > 0))) lines.push(`Externo ${x.index + 1}: ${money(x.netFixed)} netos por mes (${x.unit === 'global' ? 'global ÷ meses de contrato' : 'tarifa mensual'})`);
     else lines.push(`Externo ${x.index + 1}: ${num(x.billedPerActivation * act.A)} ${x.unit === 'km' ? 'km' : x.unit === 'trip' ? 'tramos' : x.unit === 'hour' ? 'horas' : x.unit === 'day' ? 'días' : 'llamados'}${x.minimumApplied || (x.billedPerActivation > x.unitsPerActivation + 1e-9) ? ' (con mínimo)' : ''} × ${money(x.price)} × ${num(x.qty)} = ${money(x.netPerActivation * act.A)} netos`);
   }
   const c = oracle.byCategory;

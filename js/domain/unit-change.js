@@ -15,6 +15,7 @@
  */
 
 import { isPlainObject } from '../core/object.js';
+import { activationTerms } from './activation-terms.js';
 
 const positive = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
 const loaded = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
@@ -64,7 +65,8 @@ export function applyUnitChange(q, fromInfo, toInfo) {
       rules.minimumCallUnits = fromInfo.kind === 'day' ? minimum * hours : minimum / hours;
     } else {
       rules.minimumCallUnits = 0;
-      notices.push(`Se borró el mínimo por llamado (estaba en ${fromPlural}): cargalo de nuevo en "El precio".`);
+      // Una magnitud, un nombre por cotización: llamado / salida / intervención (activationTerms).
+      notices.push(`Se borró el mínimo ${activationTerms(q).per} (estaba en ${fromPlural}): cargalo de nuevo en "El precio".`);
     }
   }
 

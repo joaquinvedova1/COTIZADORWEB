@@ -316,15 +316,23 @@ export function oracleModel(q) {
     let netPerActivation = 0;
     let netFixed = 0;
     let billedPerActivation = null;
+    // Precio cerrado (V-02, veredicto 2026-11): "global" es por toda la obra y se reparte en
+    // sus trabajos (contractJobs; vacío = 1), no en los meses de contrato.
+    const savedMode = q.contract && typeof q.contract === 'object' && !Array.isArray(q.contract) ? q.contract.mode : null;
+    const closed = savedMode ? savedMode === 'closed' : ['lump_sum', 'turnkey'].includes(q.serviceType) || ['job', 'milestone'].includes(q.unit);
+    const globalPerJob = unit === 'global' && closed;
     if (unit === 'month') netFixed = price * qty;
-    else if (unit === 'global') netFixed = (price * qty) / contractMonths;
+    else if (globalPerJob) {
+      billedPerActivation = 1;
+      netPerActivation = (price * qty) / (n(q.contractJobs) > 0 ? n(q.contractJobs) : 1);
+    } else if (unit === 'global') netFixed = (price * qty) / contractMonths;
     else {
       billedPerActivation = unit === 'activation' ? 1 : Math.max(unitsPerActivation, minimum);
       netPerActivation = billedPerActivation * price * qty;
     }
     const minimumApplied = (unit === 'hour' || unit === 'day') && minimum > unitsPerActivation + 1e-9;
     // Unidad "viaje" (viajes derivados): km y viajes siguen a los viajes facturados, no son indivisibles por salida.
-    const discreteNet = route.derived && (unit === 'trip' || unit === 'km') ? 0 : unit === 'activation' || unit === 'trip' || unit === 'km' || minimumApplied ? netPerActivation : 0;
+    const discreteNet = route.derived && (unit === 'trip' || unit === 'km') ? 0 : unit === 'activation' || globalPerJob || unit === 'trip' || unit === 'km' || minimumApplied ? netPerActivation : 0;
     const ownTerm = blank(e.supplierPayDays) || !Number.isFinite(Number(e.supplierPayDays)) || Number(e.supplierPayDays) < 0 ? null : Number(e.supplierPayDays);
     const supplierKey = ownTerm === null ? null : `supplier:${i}`;
     add({

@@ -12,6 +12,24 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Correcciones de la ronda de testeo 2026-11-15, tanda 1 (V-01 a V-06 y V-11).** Sólo V-02 cambia números de cotizaciones guardadas (estaban mal). Las reglas nuevas de completitud bajan el puntaje de algunas cotizaciones guardadas, nunca el precio. Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §25](docs/CALCULATION_RULES.md) y en la tabla de externos (§4).
+
+### Corregido
+
+- **Proveedor "Global" en precio cerrado (V-02; cambia números).** Un externo con tarifa "Global" en un trabajo a precio cerrado se dividía por los meses de contrato (12 al nacer la cotización): una grúa de $ 5.600.000 entraba como $ 466.667. Ahora es un monto **por toda la obra**: `neto por trabajo = precio × cantidad ÷ trabajos de la obra` (`quote.contractJobs`, vacío = 1). **Cambian** las cotizaciones de precio cerrado con un externo "Global" y duración mayor que 1 mes: su costo y su tarifa sugerida suben (antes quedaban por debajo del costo). Fuera de precio cerrado sigue dividiéndose por los meses de contrato. En pantalla: "Global (toda la obra)".
+- **Cambiar la unidad de cobro ya no deja números en la unidad anterior (V-03).** Cantidad por mes, cantidad por día, capacidad por viaje, mínimo por llamado y mínimo garantizado en unidades se borran con aviso (el mínimo por llamado se sigue convirtiendo entre día y hora); los insumos "por unidad producida" quedan atados a la unidad anterior para que su costo no cambie. Una sola regla (`applyUnitChange`, `js/domain/unit-change.js`) para "Cómo se cobra" y para el cambio de modalidad.
+- **"Horas de trabajo por día" a la vista con cualquier unidad (V-04).** Cobrando por cantidad o por evento el campo no aparecía y quedaba en 10. Ahora está en "Cómo se cobra" con atajos 8 / 9 / 10 / 12 h; en hora-hombre se deduce de las HH por día ÷ personas. Los avisos de horas del personal dicen dónde corregirlo.
+- **Dedicación: "Sí" ya no aparece elegido sin que nadie lo elija (V-01).** Una cotización sin respuesta muestra la pregunta sin marcar y avisa cuánto paga el servicio mientras tanto; elegir "Sí" guarda la respuesta en todas las líneas. El aviso de costos fijos lleva a esa pregunta y no sale cuando el servicio ya ocupa el mes entero.
+- **El desplegable de unidad no se reabre después de elegir** (un clic en el campo siguiente cambiaba la unidad) y la etiqueta de unidad del encabezado se actualiza (V-05).
+
+### Agregado
+
+- Completitud: `equipment_hours` (faltan las horas por día y hay equipos con costo por hora, V-04), `dedication_stale` (el % de dedicación cargado difiere más de 5 puntos del que dan los días y horas de ahora, V-11) y `equipment_insurance` (vehículo propio que circula, sin seguro ni patente, V-06).
+
+### Cambiado
+
+- **Seguro y patente del equipo propio y vianda del puesto a la vista** (antes en "Opciones avanzadas", V-06).
+
 **Cotización guiada por recursos: primero cuánto te cuesta, después cómo lo cobrás (2026-11-15, pedido del dueño, PLAN-2026-025).** Ningún número de una cotización existente cambia (golden y baseline de regresión sin re-aprobar): las tarifas fuera de horario son líneas nuevas y opcionales (`extras[i].kind = 'overtime'`), y el % de dedicación sólo se aplica cuando el usuario lo elige. Esquema sin cambio de versión.
 
 ### Agregado
