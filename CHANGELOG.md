@@ -12,6 +12,20 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Revisión UX previa a publicar (correcciones del veredicto).** Ningún número cambia: sólo foco, textos y estilo.
+
+### Corregido
+
+- **Foco después de elegir la unidad (UX-B1):** el foco vuelve al buscador de "¿En qué unidad cobrás?" con la lista cerrada; Tab sigue al campo de cantidad (antes quedaba en la página y Tab volvía al principio de la etapa).
+
+### Cambiado
+
+- **Cómo se cobra:** el atajo de horas elegido se ve marcado (estilo y `aria-pressed`) y el rótulo pasa a "Atajos:"; "Plus por cada llamado" muestra la unidad `$/llamado`; con un precio a mano por debajo del costo ya no se suma el aviso "Queda más barata que tu hora normal"; "$ … por mes + $ … por día" no corta "por / día" en móvil; el aviso de cambio de unidad nombra también la cantidad por día ("los m³ por mes y por día") y la unidad de los insumos congelados ("40 hectáreas por día").
+- **Personal y Equipos:** sin responder la dedicación, la ficha dice "Sin elegir: por ahora paga el 100 % (se elige en "Cómo se cobra")" en vez de darla por respondida; en móvil los dos botones de "Agregar" de Equipos tienen el mismo ancho.
+- **Materiales:** cobrando por día u hora sin unidad propia, "Cantidad", la ayuda del % de uso y la fórmula dicen "unidad" (nunca "día/día"); la fórmula usa el plural ("40 hectáreas/día").
+- **El precio:** el mínimo por llamado con hora o día dice "cada llamado factura 8 horas aunque se trabajen 6" (antes "suma unidades facturables"); la nota de los días en espera va en su propio párrafo.
+- **Resultado:** "Supone que además facturás $ … por mes de horas fuera de horario; si no ocurren, necesitás más días."; con la guardia cubriendo todo, "Tus tarifas" dice "La que acuerdes" en el horario normal y la tarifa piso muestra "—" como la sugerida; el plus por llamado muestra sólo el monto; la columna de nombres de "Tus tarifas" es más ancha; los enlaces "Ir a "…"" van todos entre comillas.
+
 **Correcciones de la ronda de testeo 2026-11-15, tanda 3 (V-15 a V-33): limpieza y textos.** Ningún número cambia: costos, tarifas y facturación de las cotizaciones guardadas quedan iguales (golden y baseline de regresión sin re-aprobar). Sólo se mueve el puntaje de completitud de las cotizaciones que tenían el aviso "falta quién maneja" (V-22: sube). Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §26](docs/CALCULATION_RULES.md).
 
 ### Cambiado

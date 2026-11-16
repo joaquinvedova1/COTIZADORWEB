@@ -209,7 +209,7 @@ describe('V-27 · Horas fuera de horario estimadas en el Resultado', () => {
     const [line] = r.outOfHours.lines;
     assert.ok(line.profit > 0 && line.revenue > 0);
     assert.equal(outOfHoursMarginNote(r), `Incluye ${formatMoney(line.profit)} de ganancia de las horas fuera de horario, si ocurren.`);
-    assert.equal(outOfHoursBreakEvenNote(r), `Cuenta ${formatMoney(line.revenue)} de horas fuera de horario como si se facturaran aunque trabajes menos días.`);
+    assert.equal(outOfHoursBreakEvenNote(r), `Supone que además facturás ${formatMoney(line.revenue)} por mes de horas fuera de horario; si no ocurren, necesitás más días.`);
   });
 
   test('sin horas estimadas no se dice nada', () => {
@@ -233,6 +233,8 @@ describe('V-28 · Guardia que cubre todo', () => {
     assert.ok(r.estimate.marginPct > 0 && r.estimate.profit > 0);
     assert.equal(coveredByOtherRevenue(r), true);
     assert.equal(coveredRateText(r), 'La guardia y los adicionales ya cubren tu costo y tu margen: la tarifa por hora puede ser la que acuerdes.');
+    // Revisión UX: en "Tus tarifas" el horario normal no queda en "—".
+    assert.equal(Object.fromEntries(tariffRows(r))['Horario normal'], 'La que acuerdes');
   });
 
   test('sin guardia o con una guardia chica no aplica', () => {

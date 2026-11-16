@@ -51,9 +51,16 @@ export function applyUnitChange(q, fromInfo, toInfo) {
       keys.forEach((k) => {
         activity[k] = null;
       });
-      notices.push(byQuantity(fromInfo)
-        ? `Cargá de nuevo la cantidad por mes en ${toPlural}: la que había estaba en ${fromPlural}.`
-        : `Cargá de nuevo la cantidad por mes en ${toPlural}.`);
+      // Si también se borró la cantidad por día, el aviso la nombra (revisión UX).
+      if (keys.includes('unitsPerActiveDay')) {
+        notices.push(byQuantity(fromInfo)
+          ? `Cargá de nuevo los ${toPlural} por mes y por día: los que había estaban en ${fromPlural}.`
+          : `Cargá de nuevo los ${toPlural} por mes y por día.`);
+      } else {
+        notices.push(byQuantity(fromInfo)
+          ? `Cargá de nuevo la cantidad por mes en ${toPlural}: la que había estaba en ${fromPlural}.`
+          : `Cargá de nuevo la cantidad por mes en ${toPlural}.`);
+      }
     }
   }
 
@@ -93,7 +100,8 @@ export function applyUnitChange(q, fromInfo, toInfo) {
     freeze(q.materials, 'basis');
     freeze(q.otherCosts, 'behavior');
     if (frozen > 0) {
-      const perDay = previousPerDay !== null ? ` (${fmt(previousPerDay)} por día)` : '';
+      const perDayUnit = previousPerDay === 1 ? name : fromInfo.plural || name;
+      const perDay = previousPerDay !== null ? ` (${fmt(previousPerDay)} ${perDayUnit} por día)` : '';
       notices.push(frozen === 1
         ? `1 insumo sigue calculándose por ${name}${perDay}.`
         : `${frozen} insumos siguen calculándose por ${name}${perDay}.`);

@@ -228,6 +228,8 @@ export function outOfHoursHoursNote(r) {
  */
 export function cheaperThanNormalHourText(line) {
   if (!line || line.priceSource !== 'manual' || !isFiniteNumber(line.price) || !isFiniteNumber(line.referenceHourPrice)) return '';
+  // Si ya se avisa que se cobra por debajo de su costo, un segundo aviso para el mismo dato sobra (revisión UX).
+  if (line.belowCost) return '';
   if (!(line.price < line.referenceHourPrice - 1e-9)) return '';
   return `Queda más barata que tu hora normal (${formatMoney(line.referenceHourPrice)}).`;
 }
@@ -237,8 +239,9 @@ export function cheaperThanNormalHourText(line) {
  * parte fija y parte variable se muestran las dos, no sólo la fija.
  */
 export function resourceCostText(fixedMonthly, variablePerDay) {
-  const fixed = fixedMonthly > 0.005 ? `${formatMoney(fixedMonthly)} por mes` : '';
-  const variable = variablePerDay > 0.005 ? `${formatMoney(variablePerDay)} por día` : '';
+  // Cada monto con su unidad va entero (espacios duros): en 390 px el corte cae antes del "+" (revisión UX).
+  const fixed = fixedMonthly > 0.005 ? `${formatMoney(fixedMonthly)}\u00a0por\u00a0mes` : '';
+  const variable = variablePerDay > 0.005 ? `${formatMoney(variablePerDay)}\u00a0por\u00a0día` : '';
   if (fixed && variable) return `${fixed} + ${variable}`;
   return fixed || variable || EMPTY;
 }
@@ -296,7 +299,9 @@ export function render(container, ctx) {
   const shortcut = (key, value, label) => {
     const el = kit.action(label, () => setActivity(key, value), { title: `Cargar ${value}` });
     const now = quote.activity ? Number(quote.activity[key]) : NaN;
-    if (Math.abs(now - value) < 1e-9) el.classList.add('is-selected');
+    const on = Math.abs(now - value) < 1e-9;
+    if (on) el.classList.add('is-selected');
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
     return el;
   };
   const hourShortcut = (n) => {
@@ -318,7 +323,7 @@ export function render(container, ctx) {
   // otras, no algo ya contestado.
   return hoursInMain
     ? h('div', { class: 'qe-toolbar qe-coverage-shortcuts' },
-      h('span', { class: 'small' }, 'Horas por día:'),
+      h('span', { class: 'small' }, 'Atajos:'),
       ...[8, 9, 10, 12].map(hourShortcut))
     : null;
   }
@@ -559,7 +564,11 @@ export function render(container, ctx) {
       input.value = numberToInputText(hours);
       input.removeAttribute('aria-invalid');
     }
-    container.querySelectorAll('[data-hours-shortcut]').forEach((b) => b.classList.toggle('is-selected', Math.abs(Number(b.dataset.hoursShortcut) - hours) < 1e-9));
+    container.querySelectorAll('[data-hours-shortcut]').forEach((b) => {
+      const on = Math.abs(Number(b.dataset.hoursShortcut) - hours) < 1e-9;
+      b.classList.toggle('is-selected', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
   }
 
   /** Actividad por cantidad (m³, viajes…) o por evento (llamados, trabajos, hitos). */
@@ -1169,7 +1178,7 @@ export function render(container, ctx) {
           kit.num('rules.calloutFeePerActivation', {
             label: `Plus por cada ${T.one}`,
             rule: 'money',
-            unit: '$',
+            unit: `$/${T.one}`,
             placeholder: 'Ej.: 150.000',
             hint: `Un cargo fijo cada vez que te llaman y salís, además de las horas o los días trabajados.`,
           }))

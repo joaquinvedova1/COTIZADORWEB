@@ -30,7 +30,7 @@ describe('V-03 · applyUnitChange', () => {
     const notices = change(q, 'trip');
     assert.equal(q.activity.billableQuantityPerMonth, null);
     assert.equal(q.activity.unitsPerActiveDay, null);
-    assert.deepEqual(notices, ['Cargá de nuevo la cantidad por mes en viajes: la que había estaba en km.']);
+    assert.deepEqual(notices, ['Cargá de nuevo los viajes por mes y por día: los que había estaban en km.']);
   });
 
   test('$ global → $/hito → $ global: los hitos no quedan como trabajos', () => {
@@ -88,7 +88,7 @@ describe('V-03 · applyUnitChange', () => {
     const q = valves();
     const before = computeQuote(structuredClone(q), { settings: {} });
     const notices = change(q, 'day');
-    assert.deepEqual(notices, ['2 insumos siguen calculándose por válvula (8 por día).']);
+    assert.deepEqual(notices, ['2 insumos siguen calculándose por válvula (8 válvulas por día).']);
     assert.equal(q.materials[0].outputUnit, 'válvula');
     assert.equal(q.materials[0].outputPerActiveDay, 8);
     assert.equal(q.materials[1].outputUnit, undefined, 'una línea por día no se toca');
@@ -126,7 +126,7 @@ describe('V-03 · applyUnitChange', () => {
     const notices = change(q, 'm3');
     assert.equal(q.activity.billableQuantityPerMonth, null);
     assert.equal(q.activity.unitsPerActiveDay, null);
-    assert.deepEqual(notices, ['Cargá de nuevo la cantidad por mes en m³: la que había estaba en hectáreas.']);
+    assert.deepEqual(notices, ['Cargá de nuevo los m³ por mes y por día: los que había estaban en hectáreas.']);
   });
 
   test('desde día u hora los insumos por unidad producida no se tocan (siguen a la unidad que se elija)', () => {
@@ -147,7 +147,7 @@ describe('V-03 · applyUnitChange', () => {
     const q = quote({ serviceType: 'transport', unit: 'km', activity: { billableQuantityPerMonth: 4000, unitsPerActiveDay: 200 } });
     assert.deepEqual(change(q, 'day'), []);
     // Al volver a una unidad por cantidad se limpian (sin "estaba en días": no se veían).
-    assert.deepEqual(change(q, 'trip'), ['Cargá de nuevo la cantidad por mes en viajes.']);
+    assert.deepEqual(change(q, 'trip'), ['Cargá de nuevo los viajes por mes y por día.']);
     assert.equal(q.activity.billableQuantityPerMonth, null);
   });
 });

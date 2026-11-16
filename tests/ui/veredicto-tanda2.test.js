@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { stepOfPath } from '../../js/ui/field-links.js';
 import { isExtrasIssue } from '../../js/ui/views/quote-result.js';
 import { cheaperThanNormalHourText, sparseActivationsWarned } from '../../js/ui/views/quote-steps/modality.js';
-import { outputPerDayUnitLabel } from '../../js/ui/views/quote-steps/materials.js';
+import { outputPerDayUnitLabel, outputUnitShownOf, outputPluralShownOf, materialFormulaText } from '../../js/ui/views/quote-steps/materials.js';
 import { minimumCallNote } from '../../js/ui/views/quote-steps/margin.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { activationTerms } from '../../js/domain/activation-terms.js';
@@ -38,6 +38,8 @@ describe('V-09 · Avisos de adicionales', () => {
     assert.equal(cheaperThanNormalHourText({ ...line, priceSource: 'suggested' }), '');
     assert.equal(cheaperThanNormalHourText({ ...line, referenceHourPrice: null }), '');
     assert.equal(cheaperThanNormalHourText(null), '');
+    // Revisión UX: con el aviso de "por debajo de su costo" no se agrega un segundo aviso.
+    assert.equal(cheaperThanNormalHourText({ ...line, belowCost: true }), '');
   });
 });
 
@@ -55,6 +57,16 @@ describe('V-07 · Rótulo de "Producción por día"', () => {
     assert.equal(outputPerDayUnitLabel({}, { unit: 'hour' }), 'unidades/día');
     assert.equal(outputPerDayUnitLabel({ outputUnit: 'hectárea' }, { unit: 'day' }), 'hectárea/día');
     assert.equal(outputPerDayUnitLabel({}, { unit: 'custom', unitName: 'hectárea' }), 'hectárea/día');
+  });
+
+  test('revisión UX: cantidad, % de uso y fórmula tampoco dicen "día/día"', () => {
+    assert.equal(outputUnitShownOf({}, { unit: 'day' }), 'unidad');
+    assert.equal(outputPluralShownOf({}, { unit: 'hour' }), 'unidades');
+    assert.equal(outputUnitShownOf({ outputUnit: 'válvula' }, { unit: 'day' }), 'válvula');
+    assert.equal(outputUnitShownOf({}, { unit: 'custom', unitName: 'hectárea' }), 'hectárea');
+    const model = { basis: 'per_output', quantity: 1, unitCost: 1000, grossCost: 1000, usageShare: 1, costPerOutputUnit: 1000, outputPerActiveDay: 40 };
+    const text = norm(materialFormulaText({ unit: 'L' }, model, { activeDays: 10, outputUnit: 'hectárea', outputPlural: 'hectáreas' }));
+    assert.match(text, /· 40 hectáreas\/día × 10 días = \$ 400\.000\/mes$/);
   });
 });
 
@@ -80,9 +92,12 @@ describe('V-13 · Nota del mínimo por llamado', () => {
     assert.match(note(byKm({ minimumCallUnits: 200 })), /^Hoy no cambia la facturación/);
   });
 
-  test('por día conserva el texto de siempre', () => {
+  test('por día y por hora dice cuánto factura cada vez, sin jerga (revisión UX)', () => {
     resetIds();
     const q = service({ unit: 'day', activity: { activeDaysPerMonth: 8, daysPerActivation: 1 }, labor: [person()], rules: { minimumCallUnits: 2 } });
-    assert.equal(note(q), 'Se está aplicando: suma unidades facturables.');
+    assert.equal(note(q), `Se está aplicando: cada ${activationTerms(q).one} factura 2 días aunque se trabaje 1.`);
+    resetIds();
+    const qh = service({ unit: 'hour', activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: 6 }, labor: [person()], rules: { minimumCallUnits: 8 } });
+    assert.equal(note(qh), `Se está aplicando: cada ${activationTerms(qh).one} factura 8 horas aunque se trabajen 6.`);
   });
 });

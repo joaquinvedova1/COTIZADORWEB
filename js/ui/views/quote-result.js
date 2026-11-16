@@ -519,7 +519,7 @@ function stepLabel(step) {
 }
 
 function stepLink(quote, step, text = null) {
-  return h('a', { class: 'qr-step-link', href: stepHref(quote, step) }, text || `Ir a ${stepLabel(step)}`);
+  return h('a', { class: 'qr-step-link', href: stepHref(quote, step) }, text || `Ir a "${stepLabel(step)}"`);
 }
 
 /**
@@ -1148,7 +1148,7 @@ function criticalAlerts(v) {
   const unitIssues = (Array.isArray(r.issues) ? r.issues : []).filter(unitIssue);
   if (unitIssues.length) {
     out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
-      stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`)));
+      stepLink(v.q, 'modality', `Ir a "${stepLabel('modality')}"`)));
   }
   // Avisos de adicionales (V-09): no reemplazan ningún valor, van en su propia lista.
   const extraIssues = (Array.isArray(r.issues) ? r.issues : []).filter(isExtrasIssue);
@@ -1157,7 +1157,7 @@ function criticalAlerts(v) {
       h('div', {},
         h('strong', {}, 'Adicionales para revisar:'),
         h('ul', {}, ...extraIssues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
-        stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`))));
+        stepLink(v.q, 'modality', `Ir a "${stepLabel('modality')}"`))));
   }
   const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i) || isExtrasIssue(i);
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
@@ -1596,9 +1596,12 @@ function floorStat(v) {
   const { k } = v;
   const mr = minimumRates(v);
   const costOk = hasValue(k.totalCost) && k.totalCost > 0;
-  const value = costOk ? mr.floorMain : null;
+  // V-28: si la guardia y los adicionales ya cubren todo, el piso va como la sugerida ("—"), no "$ 0" (revisión UX).
+  const covered = costOk && coveredByOtherRevenue(v.r);
+  const value = costOk && !covered ? mr.floorMain : null;
   let hint;
-  if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
+  if (covered) hint = statHint(coveredRateText(v.r));
+  else if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
   else if (!hasValue(value)) hint = statHint(byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes.` : 'Falta estimar los días activos del mes.');
   else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`, floorExtrasLine(v));
   return statItem({

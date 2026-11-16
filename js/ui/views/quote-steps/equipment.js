@@ -471,7 +471,7 @@ export function render(container, ctx) {
 
   const toolbar = h(
     'div',
-    { class: 'qe-toolbar' },
+    { class: 'qe-toolbar qe-add-toolbar' },
     // V-25: sin equipos ni externos cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
     !pickerOptions.length ? null : h(
       'div',

@@ -322,7 +322,7 @@ describe('V-12 · "Tus tarifas" con mínimos y adicionales (tariffRows)', () => 
     assert.match(value['Horario normal'], /^\$ [\d.]+ \/ hora$/);
     assert.equal(value['Hora fuera de horario (extra 50 %)'], '$ 123.456 / hora');
     assert.equal(value['Fijo por mes por estar de guardia'], '$ 900.000 / mes');
-    assert.equal(value['Plus por cada llamado'], '$ 150.000 por llamado');
+    assert.equal(value['Plus por cada llamado'], '$ 150.000');
     assert.equal(value['Mínimo por llamado'], '4 horas por llamado');
     assert.equal(value['Mínimo garantizado por mes'], '80 horas');
     assert.equal(value['Feriado trabajado'], '$ 450.000 por día');

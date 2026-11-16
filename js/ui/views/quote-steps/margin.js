@@ -153,8 +153,15 @@ function companyTaxesActions(ctx) {
 export function minimumCallNote(r, T, unitInfo) {
   const rev = (r && r.estimate && r.estimate.revenue) || {};
   if (!rev.minimumCallApplied) return `Hoy no cambia la facturación (${T.each} ya supera el mínimo).`;
-  if (!unitInfo || unitInfo.kind !== 'quantity') return 'Se está aplicando: suma unidades facturables.';
   const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
+  if (!unitInfo || unitInfo.kind !== 'quantity') {
+    // Hora y día (revisión UX): "cada llamado factura 8 horas aunque se trabajen 6", sin jerga.
+    const billed = rev.billableUnitsPerActivation;
+    const worked = rev.unitsPerActivation;
+    if (!unitInfo || !isFiniteNumber(billed) || !isFiniteNumber(worked)) return `Se está aplicando: cada ${T.one} factura el mínimo aunque se trabaje menos.`;
+    const word = (v) => (Math.abs(v - 1) < 1e-9 ? unitInfo.singular : unitInfo.plural);
+    return `Se está aplicando: cada ${T.one} factura ${n(billed)} ${word(billed)} aunque se ${Math.abs(worked - 1) < 1e-9 ? 'trabaje' : 'trabajen'} ${n(worked)}.`;
+  }
   const acts = rev.activations;
   const quantity = r.activity ? r.activity.billableQuantityPerMonth : null;
   const head = `Se está aplicando: cada ${T.one} factura ${n(rev.billableUnitsPerActivation)} ${unitInfo.plural} aunque haga ${n(rev.unitsPerActivation)}.`;
@@ -171,10 +178,10 @@ export const STANDBY_DAYS_NOTE = 'Estos días se cuentan como ingreso seguro y b
  * @param {object} r resultado de computeQuote
  * @param {{ off?: boolean, days?: number }} [o] "No aplica" marcado y días en espera cargados
  */
-export function standbyOutputText(r, { off = false, days = 0 } = {}) {
+export function standbyOutputText(r, { off = false, days = 0, note = true } = {}) {
   if (off) return 'No aplica equipo en espera: los días y la tarifa cargados no se usan. Ingreso y costo en espera: $ 0.';
   const base = `Ingreso por equipo en espera: ${formatMoney(r.estimate.revenue.components.standby)} · costo del personal en espera: ${formatMoney(r.model.standby.monthly)} por mes.`;
-  return Number(days) > 0 ? `${base} ${STANDBY_DAYS_NOTE}` : base;
+  return note && Number(days) > 0 ? `${base} ${STANDBY_DAYS_NOTE}` : base;
 }
 
 /** En precio cerrado "Equipo en espera" sólo se muestra si tiene algo cargado (V-29). */
@@ -527,7 +534,14 @@ export function render(container, ctx) {
           hint: 'Marcalo si el equipo nunca queda en locación sin operar: los días y la tarifa en espera no se usan (ingreso y costo en $ 0).',
         }),
       ],
-      kit.out((r) => standbyOutputText(r, { off: standbyOff, days: quote.rules && quote.rules.standbyDaysPerMonth })),
+      // La nota de los días va en su propio párrafo, debajo del ingreso (revisión UX).
+      kit.out((r) => {
+        const days = quote.rules && quote.rules.standbyDaysPerMonth;
+        const withNote = !standbyOff && Number(days) > 0;
+        return h('div', {},
+          h('p', {}, standbyOutputText(r, { off: standbyOff, days, note: false })),
+          withNote ? h('p', { class: 'qe-rule-output-note' }, STANDBY_DAYS_NOTE) : null);
+      }, { tag: 'div' }),
     ) : null,
     ruleRow(
       'Mínimo mensual garantizado',

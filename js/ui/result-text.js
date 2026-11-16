@@ -553,9 +553,10 @@ export function tariffRows(r) {
   const minimumCall = rules.minimumCallUnits > 0 && r.unit !== 'month' && r.unit !== 'event';
   const guarantee = rules.hasMinimumGuarantee;
   if (!overtime.length && !extras.length && !guardFee && !callout && !minimumCall && !guarantee) return [];
+  // Guardia que cubre todo (V-28): no hay tarifa necesaria; "—" parecía un error (revisión UX).
   const main = isFiniteNumber(k.commercialListRate)
     ? `${k.commercialSource === 'suggested' ? formatMoneyCeil(k.commercialListRate) : formatMoney(k.commercialListRate)} / ${unitInfo.singular || r.unitLabel}`
-    : EMPTY;
+    : coveredByOtherRevenue(r) ? 'La que acuerdes' : EMPTY;
   const count = (n, one, many) => `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? one : many}`;
   const minimumCallText = () => {
     const n = rules.minimumCallUnits;
@@ -567,7 +568,8 @@ export function tariffRows(r) {
     ['Horario normal', main],
     ...overtime.map((l) => [l.label, l.price !== null ? `${l.priceSource === 'suggested' ? formatMoneyCeil(l.price) : formatMoney(l.price)} ${outOfHoursPer(r)}${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
     guardFee ? [GUARD_FEE_LABEL, `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
-    callout ? [`Plus por cada ${T.one}`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
+    // El rótulo ya dice "por cada …": el valor va solo (revisión UX).
+    callout ? [`Plus por cada ${T.one}`, formatMoney(rules.calloutFeePerActivation)] : null,
     minimumCall ? [`Mínimo ${T.per}`, `${minimumCallText()} ${T.per}`] : null,
     guarantee
       ? ['Mínimo garantizado por mes', rules.minimumGuaranteeBasis === 'units'
@@ -617,7 +619,7 @@ export function outOfHoursMarginNote(r) {
  */
 export function outOfHoursBreakEvenNote(r) {
   const revenue = estimatedOutOfHours(r).reduce((acc, l) => acc + (isFiniteNumber(l.revenue) ? l.revenue : 0), 0);
-  return revenue > 0.005 ? `Cuenta ${formatMoney(revenue)} de horas fuera de horario como si se facturaran aunque trabajes menos días.` : '';
+  return revenue > 0.005 ? `Supone que además facturás ${formatMoney(revenue)} por mes de horas fuera de horario; si no ocurren, necesitás más días.` : '';
 }
 
 /**
