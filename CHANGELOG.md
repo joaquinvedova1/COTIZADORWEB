@@ -12,6 +12,85 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+**Revisión UX y de costos previa a publicar (correcciones del veredicto).** Ningún número cambia: sólo foco, textos, estilo y documentación.
+
+### Corregido
+
+- **Foco después de elegir la unidad (UX-B1):** el foco vuelve al buscador de "¿En qué unidad cobrás?" con la lista cerrada; Tab sigue al campo de cantidad (antes quedaba en la página y Tab volvía al principio de la etapa).
+
+### Cambiado
+
+- **Cómo se cobra:** el atajo de horas elegido se ve marcado (estilo y `aria-pressed`) y el rótulo pasa a "Atajos:"; "Plus por cada llamado" muestra la unidad `$/llamado`; con un precio a mano por debajo del costo ya no se suma el aviso "Queda más barata que tu hora normal"; "$ … por mes + $ … por día" no corta "por / día" en móvil; el aviso de cambio de unidad nombra también la cantidad por día ("los m³ por mes y por día") y la unidad de los insumos congelados ("40 hectáreas por día").
+- **Personal y Equipos:** sin responder la dedicación, la ficha dice "Sin elegir: por ahora paga el 100 % (se elige en "Cómo se cobra")" en vez de darla por respondida; en móvil los dos botones de "Agregar" de Equipos tienen el mismo ancho.
+- **Materiales:** cobrando por día u hora sin unidad propia, "Cantidad", la ayuda del % de uso y la fórmula dicen "unidad" (nunca "día/día"); la fórmula usa el plural ("40 hectáreas/día").
+- **El precio:** el mínimo por llamado con hora o día dice "cada llamado factura 8 horas aunque se trabajen 6" (antes "suma unidades facturables"); la nota de los días en espera va en su propio párrafo.
+- **Revisión de costos:** la ayuda del externo "Global" en precio cerrado dice que se reparte en "Trabajos que cubre el total" (vacío = 1); se corrigió el texto de qué cotizaciones cambian por V-02; CALCULATION_RULES documenta que la hora-hombre (V-34) cuenta a toda persona de la cuadrilla aunque esté compartida y que con «Cada trabajo se cuenta entero» el global también se redondea por trabajo; el oráculo del lab lee un contrato sin modo como el motor (on demand).
+- **Resultado:** "Supone que además facturás $ … por mes de horas fuera de horario; si no ocurren, necesitás más días."; con la guardia cubriendo todo, "Tus tarifas" dice "La que acuerdes" en el horario normal y la tarifa piso muestra "—" como la sugerida; el plus por llamado muestra sólo el monto; la columna de nombres de "Tus tarifas" es más ancha; los enlaces "Ir a "…"" van todos entre comillas.
+
+**Correcciones de la ronda de testeo 2026-11-15, tanda 3 (V-15 a V-33): limpieza y textos.** Ningún número cambia: costos, tarifas y facturación de las cotizaciones guardadas quedan iguales (golden y baseline de regresión sin re-aprobar). Sólo se mueve el puntaje de completitud de las cotizaciones que tenían el aviso "falta quién maneja" (V-22: sube). Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §26](docs/CALCULATION_RULES.md).
+
+### Cambiado
+
+- **Un solo nombre para los cargos de guardia (V-32):** "Fijo por mes por estar de guardia" y "Plus por cada llamado" (o salida, trabajo o intervención, según la cotización) en "Cómo se cobra", en las reglas comerciales de "El precio" y en el Resultado. Antes convivían "Guardia pasiva / activa", "Abono de disponibilidad" y "Cargo por llamado (call-out)". "Activa" y "pasiva" quedan sólo para el tipo de guardia.
+- **"¿Quién maneja?" es opcional (V-22):** ya no genera aviso ni pendiente; ningún cálculo usa el conductor elegido.
+- **La nota de la hora fuera de horario dice para qué sirve (V-26)** cuando se cobra por viaje, km, unidad, abono o precio cerrado: es el precio de cada hora fuera de horario además de lo cotizado, y si un viaje entero cae fuera de horario se cobra el viaje más el recargo por hora. El rótulo dice "Te cuesta por hora (gente)" si no hay equipos propios trabajando.
+- **Horas fuera de horario estimadas (V-27):** se aclara que son además de las horas normales del mes; en el Resultado, el margen y el equilibrio dicen cuánto viene de esas horas.
+- **Guardia que cubre todo (V-28):** si la guardia y los adicionales ya pagan el costo y el margen, el Resultado lo dice y muestra el margen del mes en vez de "aparece cuando haya costos y días activos cargados".
+- **Equipo en espera (V-29):** con días cargados se avisa que bajan la tarifa principal; en precio cerrado la fila no aparece vacía.
+- **"No usa combustible" en un vehículo que viaja (V-30):** ayuda nueva en la casilla, nota en "¿Cómo llega?" y aviso informativo (no resta puntaje) en Equipos y en el Resultado.
+- Textos (V-31 y V-33): peajes de todos los viajes de la salida, capital de trabajo, % de dedicación contra las horas normales, "de 8 a 17 con una hora de almuerzo = 8 h", alquiler por día, total del contrato de un trabajo único, "Otros por año (RTO, GPS, habilitaciones)" y "Vacío = 100 %".
+
+### Corregido
+
+- La base que se muestra para el % de estructura sobre el costo directo no incluía a los proveedores (V-15; el motor sí los incluía: el número no cambia).
+- "Lo que cuestan tus recursos" mostraba sólo la parte fija cuando había fija y variable (V-16).
+- Con fuera de horario activo se seguían ofreciendo "Feriado o fin de semana" y "Llamado fuera de horario" como adicionales (V-17).
+- La salida de caja de un alquiler mensual decía "$ 0 por día activo" (V-18).
+- El buscador de unidades no encontraba m³ ni m² escribiendo "m3" o "m2" (V-19).
+- El sello ILUSTRATIVO del combustible aparecía aunque nadie consumiera combustible (V-20).
+- El material nuevo nacía sin proveedor y dejaba un pendiente (V-21): ahora nace con "Nosotros".
+- Un alquilado con consumo por km pedía además "Consumo en ruta", que no se usaba (V-23).
+- Al pasar a "Por servicio prestado" la unidad quedaba en $/hora en vez de $/día (V-24).
+- Con la lista de recursos vacía se mostraba un selector vacío con su botón "Agregar" (V-25).
+
+**Correcciones de la ronda de testeo 2026-11-15, tanda 2 (V-07 a V-10, V-12 a V-14, V-34 y V-38).** V-34 y V-38 (decisiones del dueño) cambian el precio sugerido de las horas fuera de horario; el resto no cambia precios. La tarifa principal y los costos no cambian en ninguna cotización (golden y baseline de regresión sin re-aprobar). Las reglas de completitud nuevas mueven el puntaje de algunas cotizaciones guardadas. Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §24 y §25](docs/CALCULATION_RULES.md).
+
+### Cambiado
+
+- **Hora-hombre: la hora fuera de horario parte de la tarifa (V-34; cambia números).** Cobrando por hora-hombre, la hora normal de referencia es `tarifa por HH × personas de la cuadrilla`, como cuando se cobra por hora (antes salía del costo de los recursos). **Cambian** las cotizaciones por hora-hombre con horas fuera de horario sugeridas: suben el precio de esas horas y, si tienen horas estimadas, la facturación del mes. Cuadrilla de 3 a $ 58.000 por HH: hora al 50 % de $ 192.834 a $ 227.858 y al 100 % de $ 246.692 a $ 281.717, igual que la misma cuadrilla cobrada por hora. La tarifa principal y los precios cargados a mano no cambian. En pantalla y en "Tus tarifas" esas horas dicen "por hora de toda la cuadrilla (3 personas)".
+- **Las horas fuera de horario sugeridas se redondean como la tarifa (V-38; cambia números).** Hacia arriba, con el paso de redondeo de la cotización (acotado al 1 % del precio). Se redondea en el motor, así el precio que se ve en "Cómo se cobra", en "Tus tarifas", en el PDF y el que se usa para la facturación estimada es el mismo. **Cambia** la cifra publicada de las cotizaciones guardadas con horas fuera de horario sugeridas (menos de un paso por hora: $ 227.858 → $ 228.000) y, con horas estimadas, la facturación y el margen del mes suben en esa diferencia × horas. No cambian el costo, la tarifa principal ni los precios cargados a mano.
+- **"Tus tarifas" lista todo lo que se cobra (V-12):** además de las horas fuera de horario y la guardia, el mínimo por llamado, el mínimo garantizado por mes y cada adicional con precio; aparece también cuando sólo hay mínimos o adicionales. El margen aclara cuánto viene del mínimo garantizado.
+
+### Corregido
+
+- **Insumos "por unidad producida" (V-07).** Avisos nuevos cuando el rendimiento está cargado dos veces con números distintos (en la línea y en "Cómo se cobra") y cuando, cobrando por día o por hora, la línea no dice qué se produce y cuenta 1 por día. El pendiente "Producción por día" lleva a "Cómo se cobra" si la línea sigue a la unidad de cobro, y el campo ya no dice "día/día".
+- **El aviso "cada llamado hace menos de una unidad" recomendaba un valor que daba mal (V-08).** Ahora da los dos posibles: una sola ida para toda la cantidad del mes o una salida por unidad (6 trailers a 0,75 por día: 8 días por llamado o 1,33). "¿Cómo son los llamados?" pasa a la vista cuando salta el aviso.
+- **Los avisos de adicionales aparecían en "El servicio" (V-09).** Ahora se ven en "Cómo se cobra", donde se corrigen; en el Resultado van en su propia lista ("Adicionales para revisar:") y la fila de la hora fuera de horario avisa si el precio a mano queda más barato que la hora normal.
+- **Mínimo por llamado cobrando por km (V-13):** el texto dice qué factura cada llamado y cuántos llamados son la cantidad del mes, y el pendiente "Viajes y km de la ruta" compara la ruta con los km trabajados (la cotización ya no queda en borrador para siempre).
+- **"Sin contar adicionales" podía dar más que la tarifa sugerida (V-14):** quitaba el ingreso de los adicionales pero dejaba su costo. Es un dato informativo; ninguna tarifa cambia.
+
+### Agregado
+
+- Completitud: `materials_output_mismatch` y `materials_output_unit` (V-07), y la regla de actividad pide los días que lleva cada llamado, trabajo o hito cuando están vacíos (V-10; se calculaba con 1 día sin aviso).
+
+**Correcciones de la ronda de testeo 2026-11-15, tanda 1 (V-01 a V-06 y V-11).** Sólo V-02 cambia números de cotizaciones guardadas (estaban mal). Las reglas nuevas de completitud bajan el puntaje de algunas cotizaciones guardadas, nunca el precio. Esquema sin cambio de versión. Detalle en [docs/CALCULATION_RULES.md §25](docs/CALCULATION_RULES.md) y en la tabla de externos (§4).
+
+### Corregido
+
+- **Proveedor "Global" en precio cerrado (V-02; cambia números).** Un externo con tarifa "Global" en un trabajo a precio cerrado se dividía por los meses de contrato (12 al nacer la cotización): una grúa de $ 5.600.000 entraba como $ 466.667. Ahora es un monto **por toda la obra**: `neto por trabajo = precio × cantidad ÷ trabajos de la obra` (`quote.contractJobs`, vacío = 1). **Cambian** las cotizaciones de precio cerrado con un externo "Global": el monto ya no depende de los meses de contrato sino de "Trabajos que cubre el total" (vacío = 1). Con más de 1 mes de contrato el costo suele subir. Con 1 mes cambia si se hace más o menos de un trabajo por mes. En todos los casos el externo pasa de costo fijo del mes a costo por trabajo (corregido en la revisión de costos). Fuera de precio cerrado sigue dividiéndose por los meses de contrato. En pantalla: "Global (toda la obra)".
+- **Cambiar la unidad de cobro ya no deja números en la unidad anterior (V-03).** Cantidad por mes, cantidad por día, capacidad por viaje, mínimo por llamado y mínimo garantizado en unidades se borran con aviso (el mínimo por llamado se sigue convirtiendo entre día y hora); los insumos "por unidad producida" quedan atados a la unidad anterior para que su costo no cambie. Una sola regla (`applyUnitChange`, `js/domain/unit-change.js`) para "Cómo se cobra" y para el cambio de modalidad.
+- **"Horas de trabajo por día" a la vista con cualquier unidad (V-04).** Cobrando por cantidad o por evento el campo no aparecía y quedaba en 10. Ahora está en "Cómo se cobra" con atajos 8 / 9 / 10 / 12 h; en hora-hombre se deduce de las HH por día ÷ personas. Los avisos de horas del personal dicen dónde corregirlo.
+- **Dedicación: "Sí" ya no aparece elegido sin que nadie lo elija (V-01).** Una cotización sin respuesta muestra la pregunta sin marcar y avisa cuánto paga el servicio mientras tanto; elegir "Sí" guarda la respuesta en todas las líneas. El aviso de costos fijos lleva a esa pregunta y no sale cuando el servicio ya ocupa el mes entero.
+- **El desplegable de unidad no se reabre después de elegir** (un clic en el campo siguiente cambiaba la unidad) y la etiqueta de unidad del encabezado se actualiza (V-05).
+
+### Agregado
+
+- Completitud: `equipment_hours` (faltan las horas por día y hay equipos con costo por hora, V-04), `dedication_stale` (el % de dedicación cargado difiere más de 5 puntos del que dan los días y horas de ahora, V-11) y `equipment_insurance` (vehículo propio que circula, sin seguro ni patente, V-06).
+
+### Cambiado
+
+- **Seguro y patente del equipo propio y vianda del puesto a la vista** (antes en "Opciones avanzadas", V-06).
+
 **Cotización guiada por recursos: primero cuánto te cuesta, después cómo lo cobrás (2026-11-15, pedido del dueño, PLAN-2026-025).** Ningún número de una cotización existente cambia (golden y baseline de regresión sin re-aprobar): las tarifas fuera de horario son líneas nuevas y opcionales (`extras[i].kind = 'overtime'`), y el % de dedicación sólo se aplica cuando el usuario lo elige. Esquema sin cambio de versión.
 
 ### Agregado

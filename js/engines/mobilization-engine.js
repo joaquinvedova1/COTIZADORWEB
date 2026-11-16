@@ -87,7 +87,7 @@ export function computeMobilization(equipment = [], ctx = {}) {
       wear = km * (nonNegative(m.travelCostPerKm) + tiresOf(line).perKm);
       driver = m.driver === 'other' ? 'other' : m.driver === 'operator' ? 'operator' : null;
       if (routeKm > 0 && !noFuel && nonNegative(m.travelLitersPer100Km) <= 0) warnings.push('travel_consumption');
-      if (!driver) warnings.push('driver');
+      // V-22: "¿Quién maneja?" es opcional: ningún cálculo usa el conductor (sólo cambia la nota), así que sin elegir no hay aviso.
     } else if (mode === 'transported') {
       // Remolque arrastrado (A-3): rueda la ruta y gasta sus neumáticos y su mantenimiento.
       if (m.towed === true && !includedByProvider) {

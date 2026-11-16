@@ -1637,7 +1637,7 @@ export function pendingFieldPath(item, quote) {
  * @param {{ getQuote?: Function, onReveal?: Function, onFocusField?: Function, hasField?: Function, stepHref?: Function, didactic?: boolean }} options
  */
 /** Avisos informativos (completeness.notices) que también se muestran en su paso. */
-const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate']);
+const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels']);
 
 function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
@@ -2145,14 +2145,16 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   calcErrorBanner.hidden = true;
   const stepBody = h('div', { class: ['qe-step-body', `qe-step-${stepId}`] });
 
-  const unitLabel = billingUnitOf(state.quote).label;
+  // La etiqueta de la unidad se actualiza en cada recálculo (V-05): antes se calculaba una vez
+  // y quedaba la unidad vieja al cambiarla.
+  const unitBadge = stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, billingUnitOf(state.quote).label);
   // El sub-paso ya se ve en los segmentos de arriba: el antetítulo sólo dice la etapa.
   const kicker = `Etapa ${stageIndex + 1} de ${STAGES.length} · ${currentStage.label}`;
   // Convención de montos (PLAN-2026-002, PN1): todo se carga y se muestra sin IVA.
   const meta = h(
     'div',
     { class: 'qe-step-meta' },
-    stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitLabel),
+    unitBadge,
     stepId === 'result' || stepId === 'service' ? null : h('span', { class: 'badge badge-gray', title: 'Convención de esta cotización: costos, precios y tarifas se cargan sin IVA.' }, 'Montos sin IVA'),
     saveEl,
   );
@@ -2673,6 +2675,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   function refreshAll() {
     syncIllustrativeBanner();
     syncInvalidState();
+    if (unitBadge) unitBadge.textContent = billingUnitOf(state.quote).label;
     const r = state.result;
     if (!r) return;
     stageBar.update(r);
@@ -2758,11 +2761,17 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       el = same[anchor.index] || same[0] || null;
     }
     if (!el) return;
+    // Un buscador desplegable abre su lista al recibir el foco (V-05): devolvérselo después
+    // de elegir dejaba la lista abierta encima del campo siguiente, y un clic ahí cambiaba la unidad.
+    // Se le devuelve el foco con la lista cerrada (UX-B1), así Tab sigue al campo siguiente.
+    if (el.getAttribute('role') === 'combobox') el.dataset.noAutoOpen = '1';
     try {
       el.focus({ preventScroll: true });
     } catch {
       /* foco opcional */
     }
+    // Si el foco no llegó (sin evento "focus"), la marca no debe frenar el próximo foco real.
+    if (el.dataset && el.dataset.noAutoOpen) delete el.dataset.noAutoOpen;
   }
 
   /**

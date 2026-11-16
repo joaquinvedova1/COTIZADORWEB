@@ -30,7 +30,7 @@
 
 import { isPlainObject } from '../core/object.js';
 import { nonNegative, isFiniteNumber } from '../core/money.js';
-import { priceFromMarginAndTaxes } from './pricing-engine.js';
+import { priceFromMarginAndTaxes, suggestedRateRound } from './pricing-engine.js';
 
 /** Número >= 0 o null si está vacío / no es número. */
 function optional(value) {
@@ -45,7 +45,7 @@ function optional(value) {
  * @param {{ targetMarginPct?: number, billingTaxPct?: number }} [opts]
  * @returns {{ lines: object[], cost: number, revenue: number, missingPrice: number }}
  */
-export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, loadFactor = 1, referenceHourPrice = null, referenceHourCost = null } = {}) {
+export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, loadFactor = 1, referenceHourPrice = null, referenceHourCost = null, roundingStep = 0 } = {}) {
   // Carga del costo directo (estructura %, financiero, contingencia): el precio
   // sugerido cubre el costo CARGADO, así el adicional no baja el margen total.
   // Margen objetivo inválido (null) → no se sugiere precio (como la tarifa principal).
@@ -72,7 +72,11 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
       ? reference + (isFiniteNumber(surchargePrice) ? surchargePrice : 0)
       : null;
     const usesNormalHour = isFiniteNumber(byNormalHour) && (!isFiniteNumber(byCost) || byNormalHour > byCost);
-    const suggested = usesNormalHour ? byNormalHour : byCost;
+    const exact = usesNormalHour ? byNormalHour : byCost;
+    // V-38: la hora fuera de horario sugerida se redondea como la tarifa sugerida (hacia arriba,
+    // con el paso de la cotización acotado al 1 %): lo que se muestra es lo que se factura.
+    // Un precio a mano y los demás adicionales no se redondean.
+    const suggested = derived && isFiniteNumber(exact) ? suggestedRateRound(exact, nonNegative(roundingStep)) : exact;
     // Precio a mano (también 0, para bonificarlo); vacío → sugerido.
     const price = manual !== null ? manual : isFiniteNumber(suggested) ? suggested : null;
     const priceSource = manual !== null ? 'manual' : isFiniteNumber(suggested) ? 'suggested' : null;
@@ -92,6 +96,8 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
         referenceHourPrice: reference,
         referenceSource,
         priceByCost: isFiniteNumber(byCost) ? byCost : null,
+        // El sugerido antes de redondear (V-38): para "Ver cálculo" y los textos que lo explican.
+        suggestedPriceExact: isFiniteNumber(exact) ? exact : null,
         priceBasis: isFiniteNumber(suggested) ? (usesNormalHour ? 'normal_hour' : 'cost') : null,
       } : {}),
       category: typeof e.category === 'string' ? e.category : 'labor',
@@ -116,6 +122,8 @@ export function computeExtras(extras, { targetMarginPct = 0, billingTaxPct = 0, 
   return {
     lines,
     cost: lines.reduce((s, l) => s + l.cost, 0),
+    // Costo con su carga (estructura %, financiero, imprevistos): lo que sale del costo total sin adicionales (V-14).
+    loadedCost: lines.reduce((s, l) => s + l.loadedCost, 0),
     revenue: lines.reduce((s, l) => s + l.revenue, 0),
     neutralRevenue: lines.reduce((s, l) => s + l.neutralRevenue, 0),
     // Adicionales con cantidad pero sin precio (ni a mano ni sugerido): no suman ingreso.

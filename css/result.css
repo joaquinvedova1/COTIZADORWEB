@@ -466,6 +466,8 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .qr-costbar { grid-template-columns: minmax(130px, 210px) minmax(0, 1fr) 4.75rem 7.25rem; grid-template-areas: "label track pct amount"; }
   .qr-rules-item { grid-template-columns: minmax(170px, 250px) minmax(0, 1fr); }
+  /* "Hora fuera de horario (extra / 50 %)" entra en una línea (revisión UX). */
+  .qr-tariffs .qr-rules-item { grid-template-columns: minmax(16rem, 1fr) minmax(0, 2fr); }
   .qr-base-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 

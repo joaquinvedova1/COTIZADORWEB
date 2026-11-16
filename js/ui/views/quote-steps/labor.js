@@ -178,7 +178,8 @@ export function render(container, ctx) {
   const toolbar = h(
     'div',
     { class: 'qe-toolbar' },
-    h(
+    // V-25: sin perfiles cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
+    !profiles.length ? null : h(
       'div',
       { class: 'qe-toolbar-pick' },
       selectField({
@@ -193,7 +194,7 @@ export function render(container, ctx) {
       }),
       kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
     ),
-    kit.action('Agregar puesto en blanco', addBlank, { icon: 'plus', size: 'md' }),
+    kit.action('Agregar puesto en blanco', addBlank, { icon: 'plus', size: 'md', ...(profiles.length ? {} : { variant: 'primary' }) }),
   );
 
   /** "SAC 8,33 % · vacaciones 4 % · …" con lo cargado en la línea. */
@@ -369,6 +370,9 @@ export function render(container, ctx) {
         // Horas de trabajo de cada persona (2026-11, antes "Horas por día que cubre este puesto"):
         // sólo para el aviso de horas (no cambia el costo; las horas extra se cargan aparte).
         kit.num(`${p}.coverageHoursPerDay`, { label: 'Horas por día de cada persona', rule: 'hoursPerDay', unit: 'h/día', placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0 ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)` : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del servicio)` : 'Las del servicio', hint: 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sólo sirve para avisarte si faltan horas: no cambia el costo; las horas extra se cargan en "Opciones avanzadas".' }),
+        // V-06: la vianda a la vista (antes en "Opciones avanzadas"). Comidas: un solo lugar
+        // (Viajes ya no las pide; ahí va sólo el alojamiento).
+        kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda o comidas por día', rule: 'money', unit: '$/día', illustrative, hint: 'Por persona y por día de trabajo. Es el único lugar donde se cargan las comidas. Si las da el cliente: 0.' }),
       ),
       // Cotizaciones anteriores con relevos o nómina total: se ven y se editan igual (mismos números).
       legacyStaff(line)
@@ -422,7 +426,6 @@ export function render(container, ctx) {
               l && l.overtimeItems && l.overtimeItems.length
                 ? l.overtimeItems.map((o) => `${o.label} ${formatNumber(o.hours, { decimals: 2 })} h ${o.basis === 'per_month' ? 'por mes' : 'por día'}`).join(', ') + (current.overtimeBilled === true ? ' (se facturan aparte)' : '')
                 : 'sin horas extra',
-              hasNumber(current.mealPerActiveDay) && Number(current.mealPerActiveDay) > 0 ? `vianda ${formatMoney(Number(current.mealPerActiveDay))}/día` : null,
               l && l.perPerson.nonRemunerative > 0 ? `seguros, EPP, capacitación y traslado ${formatMoney(l.perPerson.nonRemunerative)}/mes` : null,
             ].filter(Boolean).join(' · ');
             return h(
@@ -461,8 +464,6 @@ export function render(container, ctx) {
           'Otros costos por persona',
           formGrid(
             3,
-            // Comidas: un solo lugar (Viajes ya no las pide; ahí va sólo el alojamiento).
-            kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda o comidas por día activo', rule: 'money', unit: '$/día', illustrative, hint: 'Por persona. Es el único lugar donde se cargan las comidas.' }),
             kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.ppeMonthly`, { label: 'EPP (ropa y elementos de protección)', rule: 'money', unit: '$/mes', illustrative }),
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),

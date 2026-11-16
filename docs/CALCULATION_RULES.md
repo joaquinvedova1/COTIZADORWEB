@@ -391,6 +391,7 @@ Archivo: `js/engines/external-engine.js` (`computeExternalLine`, `externalFiscal
 | llamado (salida / intervención) | 1 |
 | mes | — (fijo mensual = precio × cantidad) |
 | global | — (fijo mensual = precio × cantidad / meses de contrato; sin contrato = 1 mes) |
+| global, en **precio cerrado** (V-02, 2026-11) | 1 por trabajo: `neto por trabajo = precio × cantidad / trabajos de la obra` (`quote.contractJobs`; vacío o 0 = 1). El monto es por toda la obra y **no** se divide por los meses de contrato (que nacen en 12): un trabajo de dos meses (0,5 por mes) carga la mitad por mes y el total del trabajo da el monto completo. Antes se dividía por los meses y el costo quedaba de menos. Con «Cada trabajo se cuenta entero» (`activity.fullActivations`) el global también se redondea por trabajo, como un externo por llamado: con 0,5 trabajos por mes se costea entero cada mes. |
 
 ```
 facturado/llamado (neto) = máx(unidades por llamado, mínimo) × precio neto × cantidad × tipo de cambio
@@ -535,7 +536,7 @@ por día activo = por llamado / días por llamado
 - Combustible en ruta → categoría **Combustible**; desgaste por km → **Logística**.
 - Un equipo propio marcado **"No usa combustible"** (§4) tampoco consume al trasladarse: litros = 0, sigue el desgaste por km y no se pide el consumo en ruta (PLAN-2026-014).
 - La amortización ya está en el costo de tenerlo (§4): nunca se suma por km.
-- Avisos: falta el consumo en ruta, falta quién maneja, falta el equipo que lo transporta, dos equipos que se transportan entre sí, falta el vehículo de apoyo.
+- Avisos: falta el consumo en ruta, falta el equipo que lo transporta, dos equipos que se transportan entre sí, falta el vehículo de apoyo. "¿Quién maneja?" es opcional y no genera aviso ni pendiente (V-22, 2026-11): ningún cálculo usa el conductor elegido, sólo cambia la nota de "Ver cálculo".
 - **Remolque arrastrado (tanda A 2026-11, A-3, opcional).** `equipment[i].mobilization.towed` (casilla "Va enganchado y rueda", junto a "¿Qué equipo lo transporta?"). Default sin marcar = va cargado arriba (0, como siempre): ninguna cotización existente cambia. Con la casilla, el remolque suma su desgaste por los km que rueda; su combustible y su conductor siguen en el equipo que lo arrastra. Los km del remolque se suman a los "km de equipos en ruta" del Ver cálculo. La completitud (`mobility`, §19) avisa si un equipo "lo transporta otro" tiene **neumáticos por km** cargados y no está marcado (nunca se marca solo).
 
 **Ejemplo (golden `movilizacion-remolque-arrastrado`):** tractor 6x4 por sus medios + carretón cama baja enganchado, 640 km ida + 640 vuelta = 1.280 km; neumáticos del carretón $ 8.400.000 cada 120.000 km = 70 $/km → el carretón suma 1.280 × 70 = **89.600 por trabajo** de desgaste, sin litros ni conductor. El tractor sigue igual: 576 L × 1.500 = 864.000 + 1.280 × (220 + 95) = 403.200.
@@ -1362,8 +1363,8 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 | 7 | `fuel` | hay equipos o vehículos de traslado | 2 | **sólo cuenta lo que consume combustible a nuestro cargo** (PLAN-2026-012): equipos propios, externos con combustible NO incluido (por hora o por km), movilización por sus medios que paga combustible y vehículos de apoyo. Si no hay ninguno → ok "No aplica" (un externo con combustible incluido no pide consumo); provisto por el cliente → ok sin costo; rojo sin responsable, sin precio, sin consumo (o, por km, sin km: con "Sin traslados" el pendiente lo dice y lleva a esa opción; sin distancia, a la distancia; sin viajes, a los viajes); naranja si el precio es el ILUSTRATIVO por defecto; **rojo** si es ILUSTRATIVO en una cotización real **nueva** (`fuel.requiresConfirmation`, PLAN-2026-014 / LAB-D7: "confirmalo («Es mi precio vigente») o cargá tu precio actual", con el valor y su base). Un equipo propio marcado **"No usa combustible"** no consume (LAB-D5). El pendiente trae `focus` (el campo exacto) y se muestra en el paso de ese campo |
 | 8 | `materials` | siempre | 1 / 2 | "no usa materiales" → ok (1); sin líneas → naranja (1); con líneas → ok si todas tienen responsable, si no rojo (2); con responsable, una línea que pagamos con precio y cantidad 0 (o al revés) → **naranja** "no suma costo", con `focus` a su cantidad o precio (Test Lab) |
 | 9 | `logistics` | siempre | 1 / 2 | "sin traslados" → ok (1); si no, ok si distancia > 0 y algo se mueve (un vehículo con cantidad > 0, un equipo con movilización por sus medios / transportado / con apoyo, o un externo con movilización incluida); si no, rojo (2) |
-| 9b | `mobility` (v3) | hay equipos y traslados | 1 | ok si cada equipo tiene definido cómo llega (o el externo la incluye) y no hay avisos de transporte o conductor; si no, naranja. Desde la tanda A 2026-11 también es naranja si un equipo por sus propios medios que paga su combustible en ruta no tiene consumo en ruta (A-14: "Falta el consumo en ruta de …: el combustible del traslado queda en 0", `focus` a sus L/100 km; no se pide si el combustible lo provee el cliente) o si un equipo "lo transporta otro" tiene neumáticos por km y no está marcado "Va enganchado y rueda" (A-3, `focus` a esa casilla). Con **"Sin traslados"** y un equipo que viaja por sus medios o con vehículo de apoyo (Test Lab): naranja "esa movilización no se suma", con `focus` a "Sin traslados" |
-| 9c | `external_terms` (v3) | hay equipos externos | 1 | rojo si falta la alícuota de IVA cuando no es recuperable (o la parte recuperable si es parcial); naranja si no se definió si el IVA es recuperable, si no se definió si la tarifa incluye combustible u operador, si una tarifa global no tiene meses de contrato (se toma 1 mes), si la oferta del proveedor venció antes de la fecha de la oferta o no tiene vigencia; si no, ok |
+| 9b | `mobility` (v3) | hay equipos y traslados | 1 | ok si cada equipo tiene definido cómo llega (o el externo la incluye) y no hay avisos de transporte; si no, naranja ("¿Quién maneja?" es opcional y no cuenta, V-22). Desde la tanda A 2026-11 también es naranja si un equipo por sus propios medios que paga su combustible en ruta no tiene consumo en ruta (A-14: "Falta el consumo en ruta de …: el combustible del traslado queda en 0", `focus` a sus L/100 km; no se pide si el combustible lo provee el cliente) o si un equipo "lo transporta otro" tiene neumáticos por km y no está marcado "Va enganchado y rueda" (A-3, `focus` a esa casilla). Con **"Sin traslados"** y un equipo que viaja por sus medios o con vehículo de apoyo (Test Lab): naranja "esa movilización no se suma", con `focus` a "Sin traslados" |
+| 9c | `external_terms` (v3) | hay equipos externos | 1 | rojo si falta la alícuota de IVA cuando no es recuperable (o la parte recuperable si es parcial); naranja si no se definió si el IVA es recuperable, si no se definió si la tarifa incluye combustible u operador, si una tarifa global no tiene meses de contrato (se toma 1 mes); no aplica en precio cerrado, donde el global es por obra, si la oferta del proveedor venció antes de la fecha de la oferta o no tiene vigencia; si no, ok |
 | 9c' | `external_route` (PLAN-2026-012) | un externo por km o por viaje, con tarifa y sin mínimo, en una cotización sin km / viajes ("Sin traslados", sin distancia o sin viajes) | 2 | **rojo y crítico**: "Falta definir la ruta/distancia para calcular este proveedor." (antes era parte de 9c, peso 1, sólo "revisar"); `focus` al campo de la ruta; la línea dice "Falta la ruta" en lugar de $ 0 |
 | 9c'' | `external_hours` (Test Lab, PLAN-2026-013) | un externo por hora, con tarifa, cantidad > 0 y sin mínimo, con 0 horas por día (las de su línea, o las de la actividad si la línea las hereda) | 2 | **rojo y crítico**: su tarifa no se puede calcular (nunca es un $ 0 válido); `focus` a las horas de la línea o de la actividad |
 | 9c'''' | `external_unit_trips` (ECO-01, AUD-T1 H-01) | un externo "Por salida" (unidad `activation`) con tarifa y cantidad > 0, en una ruta con **más de 1 viaje por llamado**, sin una confirmación vigente (`externalUnitConfirmed` igual al supuesto actual, §4.1) | 2 | **sólo aparece en ese caso** (las demás cotizaciones no cambian de puntaje): rojo, **crítico** y **no confiable** "Unidad del proveedor": la tarifa se paga una vez por salida; el mensaje nombra salidas por mes, viajes por salida, viajes del mes y el equivalente por viaje, y ofrece "Por viaje completo (ida y vuelta)" / "Por tramo" o confirmar "Sí, cobra por salida". **Amarillo** (`warning`, ni crítico ni no confiable; tanda B 2026-11, H-04) si todas esas líneas tienen la movilización incluida o los viajes de la ruta son de vehículos propios y para el externo se eligió explícitamente cómo llega (transportado, vehículo de apoyo o sin movilización; sin ese dato o yendo por sus medios sigue crítico) (§4.1). Con una confirmación vencida empieza con "La confirmación anterior … ya no vale: cambió …". `focus` a la unidad de la línea, `targets` a cada línea. No cambia la fórmula |
@@ -1385,7 +1386,7 @@ score % = Σ peso obtenido / Σ peso aplicable × 100
 **Botones al campo exacto (PLAN-2026-012).** Un pendiente con `focus` lleva a `#/cotizaciones/<id>/<paso>?campo=<ruta>` y el editor enfoca ese campo (ruta validada por lista blanca); el combustible sin campo exacto no muestra botón. Avisos informativos nuevos: viajes físicos derivados con un dato anterior de viajes por salida distinto, y recurso compartido con el resto de su costo fijo sin cubrir. PLAN-2026-014 agrega el aviso informativo **menos de una salida por mes** (`activations_below_one`, §2.1: salidas promedio, costeadas y efecto del redondeo, con botón a la casilla) y el pendiente `labor_hours` (5b). COT-0010 / COT-0011 pasan de **92 % a 100 %** sin inventar consumo.
 
 **Avisos informativos de la tanda A 2026-11 (A-15; no restan puntaje ni son pendientes, nunca cambian un número):**
-- `fixed_costs_absorbed` (lo arma `fixedCostsAbsorbedNotice` en `computeQuote`, porque necesita el modelo de costos): en **precio cerrado**, o con **menos días de trabajo que los disponibles** fuera de fijo mensual (el abono cubre el mes por definición), "Este precio absorbe $ X de costos fijos del mes (sueldos … + tenencia de equipos propios …) del personal y los equipos asignados al 100 % (o compartidos sin un % válido). Si esta gente o estos equipos trabajan en otras obras, asignales un % compartido. RATEOS no lo aplica solo." `X = Σ fijo del mes de las líneas de personal con posiciones y equipos propios no compartidos (dedicada, reservado, compartida sin % válido o sin dato; el personal "contratado para este servicio" queda afuera porque no trabaja en otras obras) × monthsFactor`. **Nunca se aplica un % solo** (AGENTS §5.1). `focus` a la asignación de la primera línea.
+- `fixed_costs_absorbed` (lo arma `fixedCostsAbsorbedNotice` en `computeQuote`, porque necesita el modelo de costos): en **precio cerrado**, o con **menos días de trabajo que los disponibles** fuera de fijo mensual (el abono cubre el mes por definición), "Este precio absorbe $ X de costos fijos del mes (sueldos … + tenencia de equipos propios …) del personal y los equipos asignados al 100 % (o compartidos sin un % válido). Si también hacen otros trabajos, elegí «No, también hacen otros trabajos» en «Cómo se cobra»." (V-01, 2026-11; fuera de precio cerrado no se emite si la dedicación propuesta, `proposeServiceShares`, da 100 % para todas esas líneas: el servicio ya les ocupa el mes entero) `X = Σ fijo del mes de las líneas de personal con posiciones y equipos propios no compartidos (dedicada, reservado, compartida sin % válido o sin dato; el personal "contratado para este servicio" queda afuera porque no trabaja en otras obras) × monthsFactor`. **Nunca se aplica un % solo** (AGENTS §5.1). `focus` a la asignación de la primera línea.
 - `labor_fractional_headcount`: posiciones × personas por posición no entero (tolerancia 0,01: 3 × 1,6667 son 5): "Cargaste 4,5 personas en …; ¿cuántas hay en nómina?". El costo se calcula con lo cargado; `focus` a "Personas por posición".
 - `materials_per_unit_hint` (tanda B 2026-11, B-2): cobrando por cantidad, un material "por día" (con costo) cuya cantidad (> 1) es igual a las unidades por día: "¿Es por válvula? … elegí «Por unidad producida»". Nunca se convierte solo; `focus` a "¿Cada cuánto se consume?".
 - `closed_single_trip`: precio cerrado con más de 1 día por trabajo, ruta con distancia y 1 viaje por trabajo: "¿La cuadrilla vuelve a la base cada día?". `focus` a los viajes por trabajo.
@@ -1610,20 +1611,23 @@ usoEquiposHora    = Σ equipos PROPIOS con horas de uso × (combustible + manten
 costo de la hora (recargo r) = horaBaseCuadrilla × (1 + r) + usoEquiposHora
 recargo de la hora           = horaBaseCuadrilla × r
 
-precio sugerido = max(
+precio sugerido = redondeo hacia arriba( max(
   costo de la hora × cargas indirectas ÷ (1 − margen − impuestos),
   hora normal equivalente + recargo × cargas indirectas ÷ (1 − margen − impuestos)
-)
+) )                                                                    (redondeo: V-38)
 
 hora normal equivalente
   cobrando por hora            = la tarifa
   cobrando por día             = tarifa ÷ horas por día
+  cobrando por hora-hombre     = tarifa por HH × personas de la cuadrilla          (V-34)
   abono, cerrado, por unidad   = (Σ personas × costo del mes ÷ horas normales + usoEquiposHora) × cargas indirectas ÷ (1 − margen − impuestos)
 ```
 
 - El costo es el **marginal** de esa hora: sueldos, amortización y seguros ya están en el mes. Por eso el precio sugerido tiene un piso: una hora fuera de horario nunca sale más barata que una normal (la normal también paga sueldos, amortización y estructura).
-- La hora normal leída de la tarifa se calcula con la misma cotización **sin** las tarifas fuera de horario (no hay cuenta circular). Con abono, precio cerrado o por unidad la tarifa incluye materiales, mínimos o guardia: ahí el piso es la hora normal de los recursos con margen (`normalHourSource: 'resources'`).
+- La hora normal leída de la tarifa se calcula con la misma cotización **sin** las tarifas fuera de horario (no hay cuenta circular). Con abono, precio cerrado o por unidad (salvo hora-hombre) la tarifa incluye materiales, mínimos o guardia: ahí el piso es la hora normal de los recursos con margen (`normalHourSource: 'resources'`).
 - **Las horas estimadas no abaratan la tarifa principal**: al calcular la tarifa requerida, cada hora fuera de horario sugerida cuenta sólo por el precio que cubre su costo (`neutralRevenue`); lo que cobra de más por el piso es ganancia adicional si esas horas ocurren. El resultado del mes sí usa el ingreso completo.
+- **Hora-hombre (V-34, decisión del dueño, 2026-11-16).** La hora-hombre sí se puede pasar a horas: una hora de la cuadrilla factura una hora-hombre por persona. `normalHourEquivalent({ unitId: 'manhour', listRate, people })` devuelve `tarifa × personas` (`people` = Σ `positions` de Personal, incluidas las compartidas: una persona compartida al 20 % cuenta entera, porque la hora es de toda la cuadrilla; el mismo `outOfHours.basis.people` del costo); sin personas no hay hora de tarifa y vale la de los recursos. Antes caía en "por unidad" y usaba la hora de los recursos. **Cambia** el precio sugerido de las horas fuera de horario de las cotizaciones por hora-hombre (sube; la tarifa principal no cambia): cuadrilla de 3 a $ 58.000 por HH → hora normal $ 174.000 (antes $ 138.976), hora al 50 % $ 227.858 (antes $ 192.834) y al 100 % $ 281.717 (antes $ 246.692), igual que la misma cuadrilla cobrada por hora. Con horas estimadas, la facturación del mes sube en esa diferencia × horas. Un precio cargado a mano no cambia. La hora fuera de horario es **por hora de toda la cuadrilla**, no por hora-hombre (`outOfHours.crewHour`): la pantalla y "Tus tarifas" lo dicen ("por hora de toda la cuadrilla (3 personas)").
+- **Redondeo (V-38, decisión del dueño, 2026-11-16).** El precio **sugerido** de una hora fuera de horario se redondea como la tarifa sugerida: hacia arriba, con el paso de la cotización acotado al 1 % del precio (`suggestedRateRound(precio, pricing.roundingStep)` en `computeExtras`, opción `roundingStep`). Se redondea **en el motor**, no sólo al mostrar: así la tarjeta de "Cómo se cobra", "Tus tarifas", el PDF y la facturación estimada (`horas × precio`) usan el mismo número. El valor sin redondear queda en `suggestedPriceExact`. No se redondean el precio cargado a mano ni los demás adicionales; sin paso de redondeo (0) queda el valor exacto y la pantalla lo muestra en pesos enteros hacia arriba. **Cambia** la cifra publicada de las cotizaciones guardadas con horas fuera de horario sugeridas (hasta un paso por hora: $ 227.858 → $ 228.000) y, si tienen horas estimadas, la facturación y el margen del mes suben en esa diferencia × horas. No cambian el costo ni la tarifa principal: al calcular la tarifa esas horas siguen contando sólo por el precio que cubre su costo (`neutralRevenue`).
 - Los tramos de horas extra cargados en el puesto (`overtimeItems`) siguen calculándose sobre el básico (sin cambio de números); las tarifas nuevas usan básico + adicionales.
 - Una línea sin recargo (`premiumPct` ≤ 0) genera un aviso.
 - Alquilados y tercerizados no suman uso por hora (su tarifa depende del proveedor): si cobran aparte fuera de horario, se carga como adicional a mano.
@@ -1639,5 +1643,105 @@ horas del servicio = días con trabajo × horas por día
 
 Para los equipos propios se usan las horas normales de la cuadrilla (las mayores cargadas; sin personal, las del parámetro por defecto). Es una **propuesta**: sólo se aplica cuando el usuario elige "también hacen otros trabajos", se guarda como `fixedCostSharePct` explícito y **no se recalcula solo** al cambiar los días. La parte del sueldo que no cubre este servicio queda a cargo de los otros trabajos: la pantalla lo dice.
 
-**Guardia**: sin fórmulas nuevas. "Guardia pasiva: fijo por mes" es `rules.availabilityFeeMonthly` y "Guardia activa: plus por cada llamado" es `rules.calloutFeePerActivation` (§ reglas comerciales).
+**Guardia**: sin fórmulas nuevas. "Fijo por mes por estar de guardia" es `rules.availabilityFeeMonthly` y "Plus por cada llamado" (o salida, trabajo, intervención: el nombre de la activación de la cotización) es `rules.calloutFeePerActivation` (§ reglas comerciales). Desde V-32 (2026-11) esos dos nombres son los únicos en "Cómo se cobra", "El precio" (reglas comerciales) y el Resultado; "activa" y "pasiva" quedan sólo para "Tipo de guardia".
+
+
+## 25. Correcciones del veredicto 2026-11 (tandas 1 y 2)
+
+### 25.1 Cambio de la unidad de cobro (V-03)
+
+Archivo: `js/domain/unit-change.js` (`applyUnitChange(q, fromInfo, toInfo)`), usado por "Cómo se cobra" (`changeUnit`) y por "El servicio" cuando la modalidad cambia la unidad (`applyContract`). Sólo actúa al cambiar la unidad; no toca cotizaciones guardadas ni ninguna fórmula. Regla única: lo que estaba cargado **en la unidad anterior** se limpia con aviso, nunca se lee en la unidad nueva ni se convierte (4.000 km no son 4.000 viajes).
+
+| Dato | Qué pasa al cambiar la unidad |
+|---|---|
+| `activity.billableQuantityPerMonth`, `unitsPerActiveDay`, `unitsPerTrip` | Si la unidad nueva es por cantidad o por evento: quedan en `null` (la completitud ya marca en rojo la cantidad que falta). |
+| `rules.minimumCallUnits` > 0 | Entre día y hora, con horas por día cargadas: se convierte (× o ÷ horas, como siempre). En cualquier otro caso (incluido pasar por $/llamado o por el abono): queda en 0. |
+| `rules.minimumGuaranteeUnits` > 0 con base `units` | Queda en 0. Un mínimo en pesos no cambia. |
+| Materiales y otros costos "por unidad producida" sin unidad ni rendimiento propios | Sólo si la unidad anterior era por cantidad: quedan atados a ella (`outputUnit` = nombre de la unidad anterior, `outputPerActiveDay` = lo que se hacía por día), así su costo no cambia. Desde día u hora no se tocan: siguen a la unidad que se elija. |
+
+### 25.2 Horas de trabajo por día con unidades por cantidad (V-04)
+
+Ninguna fórmula cambia ni cambian los números guardados: `activity.hoursPerActiveDay` (10 en una cotización nueva) ahora se ve y se corrige en "Cómo se cobra" con cualquier unidad (antes quedaba oculto cobrando por cantidad o por evento), con los atajos 8 / 9 / 10 / 12 h.
+
+- **Hora-hombre** (`hoursPerDayFromManHours`, `js/domain/unit-change.js`): al cargar las horas-hombre por día, `horas por día = HH por día ÷ personas` (suma de `positions` de Personal, incluidas las compartidas), sólo si da entre 1 y 24. Ejemplo: 27 HH y 3 personas = 9 h; con 378 HH por mes son 14 días × 9 h = 126 h → dedicación propuesta 71,6 % (con las 10 h de fábrica daba 140 h y 79,5 %). Queda guardado en el campo y se puede corregir.
+- **Completitud, regla `equipment_hours`** (paso "Cómo se cobra", rojo, peso 1; sólo aparece cuando falta): horas por día vacías o en 0 y algún equipo propio con costo por hora (combustible, mantenimiento o neumáticos) sin horas propias, o un externo por hora que no esté ya avisado por `external_hours`. Sin ese dato el uso del equipo no se suma.
+- Los avisos `labor_hours` y `labor_day_gap` agregan dónde corregir las horas por día del servicio (antes sólo proponían sumar gente).
+
+### 25.3 Dedicación sin elegir (V-01)
+
+Ningún número cambia: sin dato de asignación el costo fijo ya era 100 %. Cambia lo que se muestra y lo que se guarda.
+
+- `dedicationChoiceOf(líneas)` (`js/domain/assignment.js`), sobre el personal y los equipos propios: `'no'` si todas están compartidas; `'yes'` si ninguna está compartida y al menos una tiene respuesta explícita (dedicada, reservado, contratada); si no, `null` (ningún radio marcado en "¿Tu gente y tus equipos trabajan sólo para este servicio?"). Una cotización nueva o guardada sin elección se ve "sin elegir".
+- Elegir "Sí" escribe la respuesta en todas las líneas (`'dedicated'` en personal, salvo las `'hired'`; `'reserved'` en equipos propios).
+- Mientras no se elige, la tarjeta avisa cuánto paga el servicio con el monto de `fixed_costs_absorbed`.
+- `fixed_costs_absorbed`: fuera de precio cerrado no se emite si la dedicación propuesta da 100 % para todas las líneas al 100 % (el servicio ya les ocupa el mes: 22 días × 8 h con 176 h normales).
+
+### 25.4 % de dedicación que quedó viejo (V-11)
+
+`staleDedicationOf(quote, actividad)` (`js/engines/utilization-engine.js`): la primera línea compartida (personal o equipo propio) con un % válido cuyo valor difiere del propuesto con los días y horas de ahora en **más de 5 puntos**. El % **no se recalcula solo** (AGENTS §5.1): la nota de "Cómo se cobra" pasa a advertencia y la completitud suma la regla `dedication_stale` (paso "Cómo se cobra", naranja, peso 1, sólo cuando hay desajuste; no aplica en fijo mensual): "El % cargado (71,6 %) ya no coincide con los días y horas de ahora (100 %)."
+
+### 25.5 Seguro, patente y vianda a la vista (V-06)
+
+Ninguna fórmula cambia. "Seguro anual" y "Patente anual" del equipo propio y "Vianda o comidas por día" del puesto se cargan en la grilla principal (antes dentro de "Opciones avanzadas", donde en 0 dejaban el costo de menos sin aviso).
+
+**Completitud, regla `equipment_insurance`** (paso Equipos, naranja, peso 1; sólo aparece cuando falta): equipo propio que "se traslada por sus propios medios" (`mobilization.mode === 'self'`), con valor de reposición > 0 y con seguro **y** patente en 0. Sólo vehículos que circulan: un generador o una herramienta sin seguro es normal. La vianda no tiene regla (puede darla el cliente).
+
+### 25.6 Insumos "por unidad producida" (V-07)
+
+Ninguna fórmula cambia: la producción propia de la línea sigue ganando (`outputPerActiveDayOf`) y cobrando por día u hora una línea sin unidad sigue contando 1 por día (u horas por día). Se agregan avisos de completitud (paso Materiales, naranja, peso 1; sólo aparecen cuando hay algo que revisar) sobre líneas `per_output` a cargo propio con costo y cantidad:
+
+- **`materials_output_mismatch`**: la línea tiene `outputPerActiveDay` propio, su unidad es la de cobro (`outputMatchesBilling`), se cobra por cantidad y el valor difiere de `activity.unitsPerActiveDay`. Ejemplo: herbicida con 4 hectáreas por día en la línea y 6 en "Cómo se cobra" ($ 191.000 por hectárea contra $ 229.000 con un solo número). Foco en el campo de la línea.
+- **`materials_output_unit`**: sin `outputUnit` ni `outputPerActiveDay` y cobrando por día o por hora: "se cuenta 1 por día" (o las horas por día). Foco en `materials.N.outputUnit`.
+- **`materials_output`** (ya existía): si la línea produce en la unidad de cobro (por cantidad), el foco pasa a `activity.unitsPerActiveDay`: el rendimiento se carga una sola vez, en "Cómo se cobra".
+
+### 25.7 Aviso "cada llamado hace menos de una unidad" (V-08)
+
+Ningún número cambia. El aviso de `unitIssues` (`code: 'sparse_activations'`) proponía `1 ÷ por día` días por llamado, que sólo sirve si cada unidad es una salida distinta. Ahora da los dos valores, con datos ya cargados: una sola ida para toda la cantidad del mes (`cantidad ÷ por día`) o una salida por unidad (`1 ÷ por día`). Ejemplo: 6 trailers a 0,75 por día → 8 días por llamado o 1,33. Cuando salta, "¿Cómo son los llamados?" se muestra fuera de "Opciones avanzadas".
+
+### 25.8 Días que lleva cada trabajo (V-10)
+
+Sin cambio de fórmula: con `activity.daysPerActivation` vacío o en 0 el motor sigue usando 1 día. La regla de completitud `utilization` ahora lo pide en las unidades por evento (llamado, trabajo, hito; no en fijo mensual): rojo, foco en `activity.daysPerActivation`, "se está calculando con 1 día". Una cotización nueva nace con 1.
+
+### 25.9 Mínimo por llamado en km (V-13)
+
+Sin cambio de fórmula. `route_consistency` comparaba los km de la ruta con los km **facturados**; con el mínimo por llamado aplicado parte de esos km no se recorren (se cobran de mínimo) y el aviso quedaba para siempre. Ahora, cuando rige el mínimo (`minimumCallUnits > días por llamado × km por día`), compara con los km **trabajados**: `llamados × días por llamado × km por día`. Ejemplo: 240 km por día, mínimo 300 y 3.600 km por mes = 12 llamados × 240 = 2.880 km trabajados; con una ruta de 2.880 km no hay aviso.
+
+### 25.10 "Sin contar adicionales" (V-14)
+
+`floorWithoutOtherRevenue(rates, { extrasLoadedCost })` (`commercial-rules-engine.js`): el piso sin los otros ingresos también resta el costo cargado de los adicionales (`r.extras.loadedCost` = Σ costo × carga de estructura, financiero e imprevistos). Antes quitaba el ingreso y dejaba el costo, y el dato podía superar a la tarifa sugerida (piso $ 1.230.717, "sin contar adicionales" $ 1.791.777, sugerida $ 1.565.000; ahora $ 1.318.842, igual que la misma cotización sin esas líneas). Es un dato informativo: no entra en ninguna tarifa.
+
+### 25.11 "Tus tarifas" y avisos de adicionales (V-12, V-09)
+
+Sin fórmulas nuevas. `tariffRows(r)` (`js/ui/result-text.js`) arma el bloque con valores del motor: horario normal, cada hora fuera de horario, el fijo por estar de guardia y el plus por cada llamado (V-32), mínimo por llamado, mínimo garantizado por mes y cada adicional cargado a mano con precio. El margen aclara cuánto viene del mínimo garantizado cuando completa el mes (`guaranteeMarginNote`, con `revenue.guaranteeTopUp`). Los avisos con ruta `extras.*` se corrigen en "Cómo se cobra" (`stepOfPath`) y en el Resultado van en su propia lista. La hora-hombre (V-34) y el redondeo de las horas fuera de horario (V-38) están en §24.
+
+## 26. Correcciones del veredicto 2026-11 (tanda 3: limpieza y textos, V-15 a V-33)
+
+**Ningún número cambia**: ni costos, ni tarifas, ni facturación de cotizaciones guardadas (golden y baseline de regresión sin re-aprobar). Son textos, avisos y limpieza de pantalla. Lo único que se mueve en el motor es la completitud:
+
+| V-ID | Regla | Qué cambia |
+|---|---|---|
+| V-22 | `mobility` (§5.1 y fila 9b de completitud) | "¿Quién maneja?" es opcional: `mobilization-engine` ya no agrega el aviso `driver` y la regla no queda naranja por eso. Ningún cálculo usa el conductor elegido (se buscó en todo `js/`: sólo lo leen la nota de "Ver cálculo" y las ayudas del campo). Una cotización guardada que sólo tenía ese aviso sube su puntaje. |
+| V-30 | aviso informativo `no_fuel_travels` | Equipo propio con "No usa combustible" que llega por sus medios (y hay traslados): "Marcaste «No usa combustible» en «X»: el viaje no suma gasoil. Si es un vehículo con motor, desmarcalo." No resta puntaje ni cambia el costo (la regla sigue siendo LAB-D5 / INV-30). Se ve en Equipos y en el Resultado. |
+| V-29 | `standby` | El mensaje del pendiente agrega: "Si la espera es eventual, dejá los días en 0 y cargá sólo la tarifa." Misma condición y mismo peso. |
+| V-32 | `monthly_fee_overlap`, `availability_unpaid` | Los mensajes citan el rótulo nuevo "Fijo por mes por estar de guardia" (antes "Abono de disponibilidad"). |
+
+**Pantalla (sin fórmulas nuevas; funciones puras de texto que leen el resultado del motor):**
+
+- **V-15.** La base que muestra "Gastos de estructura" para el % sobre costo directo incluye a los proveedores (`external`), como el motor (`cost-engine`: todo lo que no es Estructura).
+- **V-16.** "Lo que cuestan tus recursos": con parte fija y variable se muestran las dos (`$ X por mes + $ Y por día`).
+- **V-17.** Con fuera de horario activo no se ofrecen como adicionales "Feriado o fin de semana" ni "Llamado fuera de horario" (se cotizarían dos veces).
+- **V-18.** Externo con tarifa fija mensual: la salida de caja se muestra por mes (`cashFixedMonthly`), no "$ 0 por día activo".
+- **V-19.** El buscador de unidades trata ² y ³ como 2 y 3 ("m3" encuentra `$/m³`).
+- **V-20.** `illustrativeInfo(quote).fuel` sólo es verdadero si algún equipo o vehículo consume combustible a cargo propio (`usesOwnFuel`, la misma condición que la regla `fuel`).
+- **V-21.** El material nuevo en blanco nace con proveedor "Nosotros" (`blankMaterialLine`). Las líneas guardadas y las de biblioteca no se tocan.
+- **V-23.** Externo con el combustible a cargo propio cargado por km que llega por sus medios: no se pide "Consumo en ruta" (el motor ya no sumaba ese combustible, §5.1).
+- **V-24.** Al pasar a "Por servicio prestado" sin unidad que encaje la unidad es `$/día` (`defaultUnitForContract`).
+- **V-25.** Sin recursos cargados en la biblioteca no se muestra el selector vacío.
+- **V-26.** Cuando la hora normal de referencia sale de los recursos (viaje, km, unidad, abono, precio cerrado; §24), la nota de "Trabajo fuera del horario normal" dice para qué sirve esa hora: es el precio de cada hora fuera de horario **además** de lo cotizado, y si una unidad entera cae fuera de horario se cobra la unidad más el recargo por hora (`surchargePrice` de cada línea). El costo por hora dice "(gente)" si no hay equipos propios trabajando y aclara que no incluye combustible ni desgaste en ruta.
+- **V-27.** Las horas fuera de horario estimadas son además de las horas normales del mes (días × horas por día). En el Resultado, el margen dice cuánta ganancia viene de esas horas (Σ `profit` de las líneas con horas) y el equilibrio, cuánta facturación de esas horas cuenta como fija (Σ `revenue`). La regla (§24: las horas estimadas no abaratan la tarifa principal) no cambia.
+- **V-28.** Cuando los otros ingresos cubren el costo y el margen (`ratesAtEstimate.floorCoveredByOtherRevenue` y sin tarifa sugerida positiva) el Resultado lo dice ("La guardia y los adicionales ya cubren tu costo y tu margen: la tarifa por {unidad} puede ser la que acuerdes.") y muestra el margen del mes de `r.estimate` (`kpis.marginPct` sigue en `null` sin tarifa comercial). Si la sugerida queda por debajo del costo de una hora de los recursos (`resourceNormalHourCost`), se avisa.
+- **V-29.** Equipo en espera con días > 0: "Estos días se cuentan como ingreso seguro y bajan tu tarifa principal…" (regla de §3 y §12, sin cambio). En precio cerrado la fila no se muestra vacía.
+- **V-31.** Con la unidad "viaje" y más de un viaje por activación, bajo los peajes: "Son los peajes de los N viajes de la salida." (§6, sin cambio).
+- **V-32.** Un solo nombre para cada cargo de guardia: "Fijo por mes por estar de guardia" (`rules.availabilityFeeMonthly`) y "Plus por cada {llamado}" (`rules.calloutFeePerActivation`, con el nombre de la activación de la cotización), en "Cómo se cobra", "El precio" y el Resultado. El comparador de modelos ("Abono de disponibilidad + tarifa por día") conserva su nombre: es un modelo de precio, no un cargo de la cotización.
+- **V-33.** Textos: capital de trabajo, % de dedicación contra las horas normales, "de 8 a 17 con una hora de almuerzo = 8 h", alquiler por día, total del contrato, "Otros por año (RTO, GPS, habilitaciones)", "Vacío = 100 %".
 

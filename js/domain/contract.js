@@ -319,9 +319,14 @@ export function unitFitsContract(contract, unit) {
   return contractUnits(c).includes(unit || 'day');
 }
 
-/** Unidad sugerida para un contrato. */
+/**
+ * Unidad sugerida para un contrato. "Por servicio prestado" arranca en $/día,
+ * como la cotización en blanco (V-24; antes tomaba la primera de la lista, $/hora).
+ */
 export function defaultUnitForContract(contract) {
-  return contractUnits(contract)[0];
+  const c = normalize(isPlainObject(contract) ? contract : {});
+  const units = contractUnits(c);
+  return c.mode === 'on_demand' && units.includes('day') ? 'day' : units[0];
 }
 
 /** Nombre corto del contrato para listados: "Fijo mensual · Personal y equipos". */

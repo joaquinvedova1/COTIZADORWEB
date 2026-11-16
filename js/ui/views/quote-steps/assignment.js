@@ -30,6 +30,8 @@ export function assignmentSummary(line, kind) {
   if (!line) return '';
   const fixedWord = kind === 'labor' ? 'su costo fijo' : 'sus costos fijos';
   if (!line.shared) {
+    // Sin respuesta todavía: lo mismo que dice "Cómo se cobra" ("Todavía no elegiste").
+    if (!line.assignment) return 'Sin elegir: por ahora paga el 100 % (se elige en "Cómo se cobra").';
     if (line.assignment === 'hired') return `Contratada específicamente para este servicio: 100 % de ${fixedWord}.`;
     return kind === 'labor' ? `Dedicada a este servicio: 100 % de ${fixedWord}.` : `Reservado para este servicio: 100 % de ${fixedWord}.`;
   }
@@ -80,8 +82,8 @@ export function assignmentBlock(kit, { path, line, kind, at }) {
           unit: '%',
           requiredMark: true,
           hint: kind === 'labor'
-            ? 'Sueldo, cargas, seguros, EPP, capacitación y traslado. Lo cargás vos: no se calcula con los días que trabaje.'
-            : 'Amortización, seguro, patente, certificaciones, otros, mantenimiento fijo y costo de capital. Lo cargás vos: no se calcula con los días que trabaje.',
+            ? 'Sueldo, cargas, seguros, EPP, capacitación y traslado. Lo cargás vos: no se calcula con los días que trabaje. Vacío = 100 %.'
+            : 'Amortización, seguro, patente, certificaciones, otros, mantenimiento fijo y costo de capital. Lo cargás vos: no se calcula con los días que trabaje. Vacío = 100 %.',
         })
         : null,
     ),

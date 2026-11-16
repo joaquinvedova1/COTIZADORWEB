@@ -28,7 +28,10 @@ import {
   requiredNetRate,
   listRateFromNet,
   classifyDiscount,
+  floorWithoutOtherRevenue,
 } from '../../js/engines/commercial-rules-engine.js';
+import { computeQuote } from '../../js/engines/quote-engine.js';
+import { service, person, resetIds } from '../lab/lib/build.js';
 
 const EPS = 1e-6;
 
@@ -329,5 +332,38 @@ describe('CommercialRulesEngine — semáforo de descuentos', () => {
   test('sin datos suficientes el semáforo es "unknown" (nunca un color engañoso)', () => {
     assert.equal(classifyDiscount({ netRate: null, floorNetRate, targetNetRate }), 'unknown');
     assert.equal(classifyDiscount({ netRate: 5_000_000, floorNetRate: null, targetNetRate }), 'unknown');
+  });
+});
+
+describe('V-14 · "Sin contar adicionales" también saca el costo de los adicionales', () => {
+  const rates = { totalCost: 900, billingTaxPct: 10, billableUnits: 10, otherRevenue: 200, discountFactor: 1 };
+
+  test('costo 900 con 180 de adicionales (cargado): el piso sin adicionales baja de 100 a 80', () => {
+    assert.ok(Math.abs(floorWithoutOtherRevenue(rates).netRate - 100) < 1e-9);
+    assert.ok(Math.abs(floorWithoutOtherRevenue(rates, { extrasLoadedCost: 180 }).netRate - 80) < 1e-9);
+    // Nunca negativo, y un dato inválido no cambia nada.
+    assert.equal(floorWithoutOtherRevenue(rates, { extrasLoadedCost: 5000 }).netRate, 0);
+    assert.ok(Math.abs(floorWithoutOtherRevenue(rates, { extrasLoadedCost: NaN }).netRate - 100) < 1e-9);
+  });
+
+  test('con horas fuera de horario estimadas coincide con la misma cotización sin esas líneas y no supera la sugerida', () => {
+    resetIds();
+    const base = () => service({
+      unit: 'day', activity: { activeDaysPerMonth: 12, hoursPerActiveDay: 9, daysPerActivation: 1 },
+      labor: [person({ positions: 3 })],
+    });
+    const withExtras = base();
+    withExtras.extras = [
+      { id: 'x50', kind: 'overtime', premiumPct: 50, label: 'Hora 50', unitName: 'hora', category: 'labor', quantityPerMonth: 36, costPerUnit: null, price: null },
+      { id: 'x100', kind: 'overtime', premiumPct: 100, label: 'Hora 100', unitName: 'hora', category: 'labor', quantityPerMonth: 12, costPerUnit: null, price: null },
+    ];
+    const r = computeQuote(withExtras);
+    const plain = computeQuote(base());
+    assert.ok(r.extras.loadedCost > 0);
+    const before = floorWithoutOtherRevenue(r.ratesAtEstimate);
+    const after = floorWithoutOtherRevenue(r.ratesAtEstimate, { extrasLoadedCost: r.extras.loadedCost });
+    assert.ok(after.listRate < before.listRate);
+    assert.ok(Math.abs(after.listRate - plain.kpis.floorListRate) < 1, `sin adicionales ${after.listRate} vs sin líneas ${plain.kpis.floorListRate}`);
+    assert.ok(after.listRate < r.kpis.commercialListRate, 'no supera la tarifa sugerida');
   });
 });

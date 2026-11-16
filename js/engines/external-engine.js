@@ -110,6 +110,10 @@ export function computeExternalLine(line = {}, ctx = {}) {
   const minimum = nonNegative(ext.minimumUnits);
   const contractMonthsRaw = nonNegative(ctx.contractMonths);
   const contractMonths = contractMonthsRaw >= 1 ? contractMonthsRaw : 1;
+  // Precio cerrado (V-02): el monto "global" es por toda la obra y se reparte
+  // en sus trabajos, nunca en los meses de contrato (que nacen en 12).
+  const globalJobs = nonNegative(ctx.globalJobs) > 0 ? nonNegative(ctx.globalJobs) : null;
+  const globalPerJob = unit === 'global' && globalJobs !== null;
 
   let unitsPerActivation = null;
   let billedUnitsPerActivation = null;
@@ -131,11 +135,17 @@ export function computeExternalLine(line = {}, ctx = {}) {
     case 'activation':
       unitsPerActivation = 1;
       break;
+    case 'global':
+      if (globalPerJob) unitsPerActivation = 1;
+      break;
     default:
       break;
   }
   if (unit === 'month') {
     netFixedMonthly = price * quantity;
+  } else if (globalPerJob) {
+    billedUnitsPerActivation = 1;
+    netPerActivation = (price * quantity) / globalJobs;
   } else if (unit === 'global') {
     netFixedMonthly = (price * quantity) / contractMonths;
   } else {
@@ -147,7 +157,7 @@ export function computeExternalLine(line = {}, ctx = {}) {
   // tarifa por llamado, por viaje o por km, y la de hora o día cuando rige el
   // mínimo por llamado. Sin mínimo, la hora o el día siguen al tiempo trabajado.
   const minimumApplied = (unit === 'hour' || unit === 'day') && unitsPerActivation !== null && minimum > unitsPerActivation + 1e-9;
-  const discreteNetPerActivation = unit === 'activation' || unit === 'trip' || unit === 'km' || minimumApplied ? netPerActivation : 0;
+  const discreteNetPerActivation = unit === 'activation' || globalPerJob || unit === 'trip' || unit === 'km' || minimumApplied ? netPerActivation : 0;
 
   const fiscal = externalFiscal(ext.fiscal);
 
@@ -185,6 +195,7 @@ export function computeExternalLine(line = {}, ctx = {}) {
     conversion,
     minimum,
     contractMonths,
+    globalJobs: globalPerJob ? globalJobs : null,
     unitsPerActivation,
     billedUnitsPerActivation,
     netPerActivation,

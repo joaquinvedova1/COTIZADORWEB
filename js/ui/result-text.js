@@ -16,10 +16,11 @@
 import { formatDays, formatNumber, formatPercent, formatMoney, formatMoneyCeil, EMPTY } from '../core/format.js';
 import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
+import { resourceNormalHourCost } from '../engines/out-of-hours-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
-import { isQuantityUnit, quantityCeilText } from './unit-text.js';
+import { isQuantityUnit, quantityCeilText, quantityText } from './unit-text.js';
 import { unitTexts } from '../domain/billing-units.js';
-import { activationTerms } from '../domain/activation-terms.js';
+import { activationTerms, GUARD_FEE_LABEL } from '../domain/activation-terms.js';
 
 const EPS = 1e-9;
 
@@ -515,4 +516,144 @@ export function floorWithoutExtrasText(floor, unitLabel = 'día') {
  */
 export function capAllDaysNote(hasStaff) {
   return hasStaff ? ' (sin contar horas extra)' : '';
+}
+
+/**
+ * Por qué hora se cobra una hora fuera de horario (V-34, V-26): cobrando por hora-hombre la
+ * tarifa principal es por persona y la hora fuera de horario por toda la cuadrilla; se dice.
+ * @param {object} r resultado de computeQuote
+ * @returns {string} "/ hora" o "por hora de toda la cuadrilla (3 personas)"
+ */
+export function outOfHoursPer(r) {
+  const o = (r && r.outOfHours) || {};
+  const people = o.basis ? o.basis.people : 0;
+  if (!o.crewHour || !(people > 0)) return '/ hora';
+  return `por hora de toda la cuadrilla (${formatNumber(people, { decimals: 2 })} ${Math.abs(people - 1) < 1e-9 ? 'persona' : 'personas'})`;
+}
+
+/**
+ * Filas de "Tus tarifas (sin IVA)" del Resultado (PLAN-2026-025, ampliado por V-12): todo lo que
+ * el cliente va a ver en la cotización además de la tarifa principal. Sólo lee valores del motor.
+ *   Horario normal · cada hora fuera de horario · fijo por estar de guardia y plus por cada llamado ·
+ *   mínimo por llamado · mínimo garantizado por mes · cada adicional cargado a mano con precio.
+ * Devuelve [] si no hay nada más que la tarifa principal (que ya está arriba en el Resultado).
+ * @param {object} r resultado de computeQuote
+ * @returns {Array<[string, string]>} [rótulo, valor]
+ */
+export function tariffRows(r) {
+  if (!r) return [];
+  const T = termsOfResult(r);
+  const k = r.kpis || {};
+  const rules = normalizeRules((r.ctx && r.ctx.rules) || {});
+  const unitInfo = r.unitInfo || {};
+  const overtime = (r.outOfHours && Array.isArray(r.outOfHours.lines) ? r.outOfHours.lines : []);
+  const extras = (r.extras && Array.isArray(r.extras.lines) ? r.extras.lines : []).filter((l) => l && !l.derived && isFiniteNumber(l.price) && l.price > 0);
+  const guardFee = rules.availabilityFeeMonthly > 0 && r.unit !== 'month';
+  const callout = rules.calloutFeePerActivation > 0;
+  const minimumCall = rules.minimumCallUnits > 0 && r.unit !== 'month' && r.unit !== 'event';
+  const guarantee = rules.hasMinimumGuarantee;
+  if (!overtime.length && !extras.length && !guardFee && !callout && !minimumCall && !guarantee) return [];
+  // Guardia que cubre todo (V-28): no hay tarifa necesaria; "—" parecía un error (revisión UX).
+  const main = isFiniteNumber(k.commercialListRate)
+    ? `${k.commercialSource === 'suggested' ? formatMoneyCeil(k.commercialListRate) : formatMoney(k.commercialListRate)} / ${unitInfo.singular || r.unitLabel}`
+    : coveredByOtherRevenue(r) ? 'La que acuerdes' : EMPTY;
+  const count = (n, one, many) => `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? one : many}`;
+  const minimumCallText = () => {
+    const n = rules.minimumCallUnits;
+    if (r.unit === 'hour') return count(n, 'hora', 'horas');
+    if (r.unit === 'quantity') return quantityText(n, r);
+    return count(n, 'día', 'días');
+  };
+  return [
+    ['Horario normal', main],
+    ...overtime.map((l) => [l.label, l.price !== null ? `${l.priceSource === 'suggested' ? formatMoneyCeil(l.price) : formatMoney(l.price)} ${outOfHoursPer(r)}${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
+    guardFee ? [GUARD_FEE_LABEL, `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
+    // El rótulo ya dice "por cada …": el valor va solo (revisión UX).
+    callout ? [`Plus por cada ${T.one}`, formatMoney(rules.calloutFeePerActivation)] : null,
+    minimumCall ? [`Mínimo ${T.per}`, `${minimumCallText()} ${T.per}`] : null,
+    guarantee
+      ? ['Mínimo garantizado por mes', rules.minimumGuaranteeBasis === 'units'
+        ? count(rules.minimumGuaranteeUnits, unitInfo.singular || 'unidad', unitInfo.plural || 'unidades')
+        : formatMoney(rules.minimumMonthlyGuarantee)]
+      : null,
+    ...extras.map((l) => [l.label, `${formatMoney(l.price)} por ${l.unitName}`]),
+  ].filter(Boolean);
+}
+
+/**
+ * Aclaración del margen cuando el mes se completa con el mínimo garantizado (V-12): parte de
+ * la ganancia viene de lo que se factura sin trabajarlo. '' si el ajuste es 0.
+ * @param {object} r resultado de computeQuote
+ */
+export function guaranteeMarginNote(r) {
+  const rev = r && r.estimate && r.estimate.revenue;
+  if (!rev || !isFiniteNumber(rev.guaranteeTopUp) || !(rev.guaranteeTopUp > 0.005)) return '';
+  const unitInfo = r.unitInfo || {};
+  const units = (n) => `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? unitInfo.singular || 'unidad' : unitInfo.plural || 'unidades'}`;
+  const detail = rev.guaranteeBasis === 'units' && isFiniteNumber(rev.guaranteedUnits)
+    ? `estimás ${units(rev.billableUnits)}, se facturan ${units(rev.guaranteedUnits)}`
+    : `estimás ${formatMoney(rev.guarantee - rev.guaranteeTopUp)}, se facturan ${formatMoney(rev.guarantee)}`;
+  return `Incluye ${formatMoney(rev.guaranteeTopUp)} del mínimo garantizado (${detail}).`;
+}
+
+/** Horas fuera de horario con horas estimadas (las únicas que suman al mes). */
+function estimatedOutOfHours(r) {
+  const lines = r && r.outOfHours && Array.isArray(r.outOfHours.lines) ? r.outOfHours.lines : [];
+  return lines.filter((l) => l && l.quantity > 0);
+}
+
+/**
+ * Aclaración del margen cuando hay horas fuera de horario estimadas (V-27): parte de la
+ * ganancia del mes viene de esas horas, que pueden no ocurrir. '' si no suman ganancia.
+ * @param {object} r resultado de computeQuote
+ */
+export function outOfHoursMarginNote(r) {
+  const profit = estimatedOutOfHours(r).reduce((acc, l) => acc + (isFiniteNumber(l.profit) ? l.profit : 0), 0);
+  return profit > 0.005 ? `Incluye ${formatMoney(profit)} de ganancia de las horas fuera de horario, si ocurren.` : '';
+}
+
+/**
+ * Aclaración del equilibrio con horas fuera de horario estimadas (V-27): su facturación
+ * se cuenta entera aunque se trabajen menos días. '' si no hay.
+ * @param {object} r resultado de computeQuote
+ */
+export function outOfHoursBreakEvenNote(r) {
+  const revenue = estimatedOutOfHours(r).reduce((acc, l) => acc + (isFiniteNumber(l.revenue) ? l.revenue : 0), 0);
+  return revenue > 0.005 ? `Supone que además facturás ${formatMoney(revenue)} por mes de horas fuera de horario; si no ocurren, necesitás más días.` : '';
+}
+
+/**
+ * Guardia que cubre todo (V-28): los otros ingresos del mes (guardia, adicionales) ya pagan el
+ * costo y el margen objetivo, así que el motor no necesita ninguna tarifa por unidad (piso 0 y
+ * sin sugerida). No aplica si ya hay una tarifa cargada o si se cotiza con tarifa conocida.
+ * @param {object} r resultado de computeQuote
+ */
+export function coveredByOtherRevenue(r) {
+  const k = (r && r.kpis) || {};
+  const covered = Boolean(r && r.ratesAtEstimate && r.ratesAtEstimate.floorCoveredByOtherRevenue);
+  const noRate = !(isFiniteNumber(k.commercialListRate) && k.commercialListRate > 0) && !(isFiniteNumber(k.suggestedListRate) && k.suggestedListRate > 0);
+  return covered && noRate && r.pricingMode !== 'known_rate' && !k.targetMarginInvalid && k.totalCost > 0;
+}
+
+/** Texto de "la guardia ya cubre todo" (V-28), con la unidad de cobro. */
+export function coveredRateText(r) {
+  const unit = (r && r.unitInfo && r.unitInfo.singular) || 'unidad';
+  return `La guardia y los adicionales ya cubren tu costo y tu margen: la tarifa por ${unit} puede ser la que acuerdes.`;
+}
+
+/**
+ * Advertencia (V-28): la guardia y los adicionales cubren casi todo y la tarifa sugerida queda
+ * por debajo de lo que cuesta una hora de los recursos. '' si no aplica (sólo cobrando por
+ * hora, por día o por hora-hombre, donde la tarifa se puede leer como hora normal).
+ * @param {object} r resultado de computeQuote
+ */
+export function rateBelowHourCostText(r) {
+  const k = (r && r.kpis) || {};
+  const o = (r && r.outOfHours) || {};
+  const other = r && r.ratesAtEstimate ? r.ratesAtEstimate.otherRevenue : 0;
+  if (k.commercialSource !== 'suggested' || !(other > 0) || !isFiniteNumber(o.rateHourPrice) || !(o.rateHourPrice > 0)) return '';
+  const hourCost = resourceNormalHourCost(o.basis);
+  if (!(hourCost > 0) || !(o.rateHourPrice < hourCost - 0.005)) return '';
+  const unit = (r.unitInfo && r.unitInfo.singular) || 'unidad';
+  return `La guardia y los adicionales ya cubren casi todo tu costo y tu margen: la tarifa por ${unit} queda por debajo de lo que te cuesta una hora de tus recursos (${formatMoney(hourCost)}). Puede ser la que acuerdes.`;
 }

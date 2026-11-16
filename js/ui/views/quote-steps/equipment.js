@@ -23,6 +23,7 @@ import { badge, card, dateField, formGrid, selectField, triStateField, confirmDi
 import { equipmentLineFromLibrary, externalLineFromService, blankEquipmentLine, createExternalTerms, createMobilization, acquisitionOf } from '../../../domain/quote-factory.js';
 import { ACQUISITION_MODES, CURRENCIES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, labelOf } from '../../../domain/catalogs.js';
 import { activationTerms, withActivationOptions } from '../../../domain/activation-terms.js';
+import { contractOf } from '../../../domain/contract.js';
 import { computeEquipmentUnit, maintenanceOf, tiresOf, MAX_EQUIPMENT_HOURS_PER_DAY } from '../../../engines/equipment-engine.js';
 import { wearNote, wearWarnings } from '../../equipment-wear-ui.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
@@ -73,7 +74,7 @@ const unitShort = (unit, T = activationTerms()) => (unitsFor(T).find((u) => u.id
 /** "Por qué" de cada unidad de tarifa (cómo se cuentan las unidades por activación). */
 const unitHints = (T) => ({
   hour: `Unidades ${T.per} = horas de uso por día × días ${T.per}.`,
-  day: `Unidades ${T.per} = días ${T.per}.`,
+  day: `Unidades ${T.per} = días ${T.per}. Si lo usás menos días que los ${T.feminine ? 'de la' : 'del'} ${T.one}, elegí "Por ${T.one}" y cargá el total.`,
   month: 'Costo fijo por mes (trabaje o no).',
   trip: 'Cobra cada ida o cada vuelta (tramo): un viaje ida y vuelta son 2 tramos. Los viajes salen de la ruta y de los viajes físicos de la cotización.',
   [ROUND_TRIP]: 'Cobra cada viaje completo (ida y vuelta): un viaje ida y vuelta es 1 unidad. Los viajes salen de la ruta y de los viajes físicos de la cotización.',
@@ -354,6 +355,19 @@ function externalTrace(result, index, source, impact = null) {
 }
 
 /**
+ * Salida de caja de un externo (V-18): con tarifa fija mensual es un monto por
+ * mes (antes decía "$ 0 por día activo"); con las dos partes, las dos.
+ * @param {object} x resultado del proveedor (`external-engine`)
+ */
+export function externalCashText(x = {}) {
+  const parts = (monthly, daily) => [
+    monthly > 0.005 ? `${formatMoney(monthly)} por mes` : null,
+    daily > 0.005 || !(monthly > 0.005) ? `${formatMoney(daily || 0)} por día activo` : null,
+  ].filter(Boolean).join(' + ');
+  return `Salida de caja con impuestos: ${parts(x.cashFixedMonthly, x.cashPerActiveDay)}; el crédito fiscal (${parts(x.creditFixedMonthly, x.creditPerActiveDay)}) no es costo.`;
+}
+
+/**
  * Asistente de completitud de un recurso externo (PLAN-2026-010): qué falta
  * cargar para que su costo esté completo. No inventa alícuotas.
  */
@@ -379,6 +393,7 @@ export function render(container, ctx) {
   const { quote, kit, resources } = ctx;
   // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
   const T = activationTerms(quote);
+  const closedContract = contractOf(quote).mode === 'closed';
   const library = Array.isArray(resources.equipment) ? resources.equipment : [];
   const services = Array.isArray(resources.externalServices) ? resources.externalServices : [];
   const lines = quote.equipment;
@@ -456,8 +471,9 @@ export function render(container, ctx) {
 
   const toolbar = h(
     'div',
-    { class: 'qe-toolbar' },
-    h(
+    { class: 'qe-toolbar qe-add-toolbar' },
+    // V-25: sin equipos ni externos cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
+    !pickerOptions.length ? null : h(
       'div',
       { class: 'qe-toolbar-pick' },
       selectField({
@@ -472,7 +488,7 @@ export function render(container, ctx) {
       }),
       kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
     ),
-    kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md' }),
+    kit.action('Agregar equipo propio en blanco', () => addBlank('owned'), { icon: 'plus', size: 'md', ...(pickerOptions.length ? {} : { variant: 'primary' }) }),
     kit.action('Agregar alquilado o tercerizado', () => addBlank('rented'), { icon: 'plus', size: 'md' }),
   );
 
@@ -674,6 +690,9 @@ export function render(container, ctx) {
         }),
         kit.num(`${p}.replacementValue`, { label: 'Valor de reposición', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que costaría comprarlo hoy.' }),
         kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative }),
+        // V-06: seguro y patente a la vista (antes en "Opciones avanzadas": en 0 el costo quedaba de menos sin aviso).
+        kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
+        kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
         // PLAN-2026-014 (LAB-D5): "No usa combustible" es un dato explícito; un consumo 0 sin marcar sigue faltando.
         // Si viaja por sus propios medios, su consumo en ruta (L/100 km) se pide abajo, en "¿Cómo llega?":
         // acá va sólo lo que gasta TRABAJANDO en la locación (una camioneta que lleva gente y queda parada: 0).
@@ -685,7 +704,7 @@ export function render(container, ctx) {
           structural: true,
           hint: line.fuelNotApplicable === true
             ? 'No se pide consumo ni se suma combustible de este equipo (tampoco al trasladarse).'
-            : 'Eléctrico, manual o estacionario: marcalo en vez de dejar el consumo en 0.',
+            : 'Acoplado, eléctrico o herramienta. Si es un vehículo con motor, no lo marques: poné 0 en el consumo en la locación.',
         }),
       ),
       // PLAN-2026-025: el mantenimiento a la vista (junto con la amortización es lo primero que se pregunta).
@@ -712,8 +731,6 @@ export function render(container, ctx) {
             const e = quote.equipment[i] || {};
             const parts = [
               `residual ${moneyText(e.residualValue) || '$ 0'}`,
-              `seguro ${moneyText(e.insuranceAnnual) || '$ 0'}/año`,
-              `patente ${moneyText(e.licenseAnnual) || '$ 0'}/año`,
               hasNumber(e.otherAnnual) && Number(e.otherAnnual) > 0 ? `otros ${moneyText(e.otherAnnual)}/año` : null,
               `certificaciones ${moneyText(e.certificationsAnnual) || '$ 0'}/año`,
               wearSummary(e).maintenance,
@@ -729,10 +746,8 @@ export function render(container, ctx) {
           formGrid(
             3,
             kit.num(`${p}.residualValue`, { label: 'Valor residual', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que vale al final de su vida útil (en la misma moneda que el valor de reposición).' }),
-            kit.num(`${p}.insuranceAnnual`, { label: 'Seguro anual', rule: 'money', unit: '$/año', illustrative }),
-            kit.num(`${p}.licenseAnnual`, { label: 'Patente anual', rule: 'money', unit: '$/año', illustrative }),
-            kit.num(`${p}.otherAnnual`, { label: 'Otros costos anuales de tenerlo', rule: 'money', unit: '$/año', hint: 'Habilitaciones, GPS, cocheras… lo que pagás aunque no trabaje.' }),
-            kit.num(`${p}.certificationsAnnual`, { label: 'Certificaciones anual', rule: 'money', unit: '$/año', illustrative }),
+            kit.num(`${p}.otherAnnual`, { label: 'Otros por año (RTO, GPS, habilitaciones)', rule: 'money', unit: '$/año', hint: 'Habilitaciones, GPS, cocheras… lo que pagás aunque no trabaje.' }),
+            kit.num(`${p}.certificationsAnnual`, { label: 'Certificaciones por año', rule: 'money', unit: '$/año', illustrative }),
             kit.num(`${p}.capitalRatePctAnnual`, { label: 'Costo de capital (opcional)', rule: 'percent', unit: '% anual', hint: 'Rendimiento que le pedís a la plata invertida en el equipo. No es la financiación del contrato (eso va en "Financiación").' }),
           ),
           capitalCostNote(i),
@@ -863,8 +878,9 @@ export function render(container, ctx) {
     label: 'Unidad de la tarifa',
     name: `equipment.${index}.external.unit`,
     value,
-    options: unitsFor(T).map((u) => ({ value: u.id, label: u.label })),
-    hint: unitHints(T)[value],
+    // Precio cerrado (V-02): "global" es toda la obra, no los meses de contrato.
+    options: unitsFor(T).map((u) => ({ value: u.id, label: closedContract && u.id === 'global' ? 'Global (toda la obra)' : u.label })),
+    hint: closedContract && value === 'global' ? 'Monto por toda la obra. Se reparte en los "Trabajos que cubre el total" (Más datos de la cotización; vacío = 1).' : unitHints(T)[value],
     disabled: ctx.readOnly,
     onChange: (v) => setExternalUnit(index, v || 'day'),
   });
@@ -1056,7 +1072,7 @@ export function render(container, ctx) {
           const billed = x.netPerActivation > 0 ? `Facturado ${T.per}: ${formatNumber(x.billedUnitsPerActivation, { decimals: 2 })} × ${formatMoney(x.price)} × ${formatNumber(x.quantity, { decimals: 2 })} = ${formatMoney(x.netPerActivation)} neto. ` : '';
           // Combustible a tu cargo (no incluido en la tarifa): suma acá, pero va a Combustible.
           const fuel = x.fuelPerActiveDay > 0 ? `Incluye combustible a tu cargo: ${formatMoney(x.fuelPerActiveDay * r.activity.activeDaysPerMonth)} por mes (en la estructura de costos va a Combustible). ` : '';
-          return `${fixed}${billed}${fuel}Salida de caja con impuestos: ${formatMoney(x.cashPerActiveDay)} por día activo; el crédito fiscal (${formatMoney(x.creditPerActiveDay)}) no es costo.`;
+          return `${fixed}${billed}${fuel}${externalCashText(x)}`;
         },
         trace: (r) => {
           let impact = null;

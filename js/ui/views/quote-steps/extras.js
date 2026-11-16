@@ -23,6 +23,25 @@ const PRESETS = Object.freeze([
   { label: 'Km excedente', unitName: 'km', category: 'fuel' },
 ]);
 
+/** Presets que ya cubre "Trabajo fuera del horario normal" (hora al 50 % y al 100 %). */
+const OUT_OF_HOURS_PRESET_LABELS = Object.freeze(['Feriado o fin de semana', 'Llamado fuera de horario']);
+
+/** Aviso en lugar de esos dos botones (V-17). */
+export const OUT_OF_HOURS_PRESETS_NOTE = 'Feriados y fuera de horario ya se cotizan arriba, con la hora al 50 % y al 100 %.';
+
+/**
+ * Botones de adicionales frecuentes que se ofrecen (V-17): con fuera de horario
+ * activo no se ofrecen los que cotizarían lo mismo dos veces; tampoco los que
+ * ya están cargados.
+ * @param {object[]} extras `quote.extras`
+ */
+export function extraPresetsFor(extras) {
+  const list = Array.isArray(extras) ? extras : [];
+  const outOfHoursOn = list.some((x) => isOutOfHoursExtra(x));
+  const used = new Set(list.filter((x) => !isOutOfHoursExtra(x)).map((x) => x && x.label));
+  return PRESETS.filter((p) => !used.has(p.label) && !(outOfHoursOn && OUT_OF_HOURS_PRESET_LABELS.includes(p.label)));
+}
+
 const MODE_INTRO = Object.freeze({
   monthly: 'Lo que el fijo no cubre.',
   on_demand: 'Ítems aparte de la tarifa principal.',
@@ -102,8 +121,8 @@ export function extrasSection(ctx, contract) {
     })
     : null;
 
-  const used = new Set(manual.map(({ x }) => x && x.label));
-  const presetButtons = PRESETS.filter((p) => !used.has(p.label)).map((p) => kit.action(p.label, () => add(p), { icon: 'plus', variant: 'secondary' }));
+  const outOfHoursOn = extras.some((x) => isOutOfHoursExtra(x));
+  const presetButtons = extraPresetsFor(extras).map((p) => kit.action(p.label, () => add(p), { icon: 'plus', variant: 'secondary' }));
 
   return kit.advanced(
     {
@@ -112,7 +131,7 @@ export function extrasSection(ctx, contract) {
       boxed: true,
       defaultOpen: manual.length > 0,
       summary: (r) => {
-        if (!manual.length) return 'Ninguno. Ej.: km excedente, feriados, llamados extra.';
+        if (!manual.length) return outOfHoursOn ? 'Ninguno. Ej.: km excedente, hora de espera.' : 'Ninguno. Ej.: km excedente, feriados, llamados extra.';
         const lines = ((r.extras && r.extras.lines) || []).filter((l) => !l.derived);
         const sum = (key) => lines.reduce((acc, l) => acc + (l[key] || 0), 0);
         return `${manual.length} ${manual.length === 1 ? 'adicional' : 'adicionales'}: ${formatMoney(sum('revenue'))} por mes facturados (costo ${formatMoney(sum('cost'))}).`;
@@ -123,6 +142,7 @@ export function extrasSection(ctx, contract) {
       ' ',
       infoTip('Suma ingreso y costo al mes, aparte del precio principal. Cargá el costo directo de una unidad; si dejás el precio vacío, RATEOS lo sugiere con tu margen.')),
     rows,
+    outOfHoursOn ? h('p', { class: 'qe-note' }, OUT_OF_HOURS_PRESETS_NOTE) : null,
     h('div', { class: 'qe-toolbar' }, ...presetButtons, kit.action('Otro adicional', () => add({ label: '', unitName: 'unidad' }, 'label'), { icon: 'plus' })),
   );
 }

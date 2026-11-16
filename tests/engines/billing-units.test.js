@@ -358,3 +358,13 @@ describe('unidades UN/ECE en español y plurales (2026-11)', () => {
     assert.equal(unitTexts(billingUnitOf({ unit: 'well' })).cuantos, 'cuántos');
   });
 });
+
+test('el buscador encuentra m³ y m² escribiendo "m3" y "m2" (V-19)', async () => {
+  const { BILLING_UNITS: units, searchUnits } = await import('../../js/domain/billing-units.js');
+  const labels = (q) => searchUnits(units, q).map((u) => u.label);
+  assert.equal(labels('m3')[0], '$/m³');
+  assert.equal(labels('m2')[0], '$/m²');
+  assert.equal(labels('metro cubico')[0], '$/m³');
+  assert.equal(labels('superficie')[0], '$/m²');
+  assert.equal(labels('m³')[0], '$/m³');
+});

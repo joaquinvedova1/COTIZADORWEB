@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { evaluateCompleteness, COMPLETENESS_RISK_THRESHOLD } from '../../js/engines/completeness-engine.js';
 import { demoHydroCraneQuote } from '../../js/domain/demo-data.js';
 import { createEmptyQuote } from '../../js/domain/quote-factory.js';
+import { service, person, owned, external, material, resetIds } from '../lab/lib/build.js';
 
 const EPS = 1e-6;
 
@@ -303,5 +304,264 @@ describe('CompletenessEngine — impuestos sobre lo que facturás (PLAN-2026-002
     const i = item(evaluateCompleteness(q), 'margin');
     assert.equal(i.status, 'missing');
     assert.match(i.message, /menor a 60 %/);
+  });
+});
+
+describe('V-04 · Horas de trabajo por día y equipos por hora (equipment_hours)', () => {
+  const quoteWith = (hoursPerActiveDay, equipment) => {
+    resetIds();
+    return service({
+      serviceType: 'per_unit', unit: 'ha',
+      activity: { billableQuantityPerMonth: 100, unitsPerActiveDay: 10, hoursPerActiveDay },
+      labor: [person()],
+      equipment,
+    });
+  };
+  const found = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'equipment_hours');
+
+  test('horas vacías y equipo propio con costo por hora y sin horas propias: falta, con foco en las horas', () => {
+    for (const hours of [null, '', 0]) {
+      const i = found(quoteWith(hours, [owned({ name: 'Camión', fuelLitersPerHour: 12, maintenancePerHour: 3000 })]));
+      assert.ok(i, `horas ${JSON.stringify(hours)}`);
+      assert.equal(i.status, 'missing');
+      assert.equal(i.step, 'modality');
+      assert.equal(i.focus, 'activity.hoursPerActiveDay');
+      assert.equal(i.message, 'Faltan las horas de trabajo por día: sin ese dato no se suma el uso de "Camión".');
+    }
+    const withRule = evaluateCompleteness(quoteWith(null, [owned({ name: 'Camión', fuelLitersPerHour: 12 })]));
+    const without = evaluateCompleteness(quoteWith(9, [owned({ name: 'Camión', fuelLitersPerHour: 12 })]));
+    assert.ok(withRule.scorePct < without.scorePct, 'baja la completitud');
+  });
+
+  test('no salta si el equipo tiene horas propias, si no tiene costo por hora o si las horas están cargadas', () => {
+    assert.equal(found(quoteWith(null, [owned({ name: 'Camión', fuelLitersPerHour: 12, hoursPerActiveDay: 6 })])), undefined);
+    assert.equal(found(quoteWith(null, [owned({ name: 'Trailer' })])), undefined);
+    assert.equal(found(quoteWith(9, [owned({ name: 'Camión', fuelLitersPerHour: 12 })])), undefined);
+    assert.equal(found(quoteWith(null, [])), undefined);
+  });
+
+  test('externo por hora: lo avisa "Horas del proveedor" (una sola vez); con mínimo facturable, esta regla', () => {
+    const plain = evaluateCompleteness(quoteWith(null, [external({ name: 'Minibús' }, { price: 50_000, unit: 'hour' })]));
+    assert.ok(plain.items.find((i) => i.id === 'external_hours'));
+    assert.equal(plain.items.find((i) => i.id === 'equipment_hours'), undefined);
+    const withMinimum = found(quoteWith(null, [external({ name: 'Minibús' }, { price: 50_000, unit: 'hour', minimumUnits: 4 })]));
+    assert.ok(withMinimum);
+    assert.match(withMinimum.message, /"Minibús"/);
+  });
+
+  test('los avisos de horas del personal dicen dónde corregir las horas por día del servicio', () => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 1, coverageHoursPerDay: 8 })] });
+    const gap = evaluateCompleteness(q).items.find((i) => i.id === 'labor_day_gap');
+    assert.ok(gap);
+    assert.match(gap.message, /Si el servicio no pide 10 h por día, corregilo en "Cómo se cobra"\.$/);
+    resetIds();
+    const q2 = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 1 })] });
+    const hours = evaluateCompleteness(q2).items.find((i) => i.id === 'labor_hours');
+    assert.ok(hours);
+    assert.match(hours.message, /Si el servicio no pide 10 h por día, corregilo en "Cómo se cobra"\.$/);
+  });
+});
+
+describe('V-11 · % de dedicación que quedó viejo (dedication_stale)', () => {
+  const sharedQuote = (days, hours, pct) => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: days, hoursPerActiveDay: hours }, labor: [person({ normalHoursPerMonth: 176, assignment: 'shared', fixedCostSharePct: pct })] });
+    q.contract = { mode: 'on_demand', components: ['labor'] };
+    return q;
+  };
+  const found = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'dedication_stale');
+
+  test('salta con 71,6 % cargado y 100 % propuesto (22 días × 8 h)', () => {
+    const i = found(sharedQuote(22, 8, 71.6));
+    assert.ok(i);
+    assert.equal(i.status, 'warning');
+    assert.equal(i.step, 'modality');
+    assert.equal(i.focus, 'labor.0.fixedCostSharePct');
+    assert.equal(i.message, 'El % cargado (71,6 %) ya no coincide con los días y horas de ahora (100 %).');
+  });
+
+  test('no salta con 71,6 cargado y 71,6 propuesto (14 días × 9 h), ni con una diferencia de hasta 5 puntos', () => {
+    assert.equal(found(sharedQuote(14, 9, 71.6)), undefined);
+    assert.equal(found(sharedQuote(14, 9, 75)), undefined);
+    assert.ok(found(sharedQuote(14, 9, 80)));
+  });
+
+  test('no salta sin líneas compartidas, sin días cargados ni en un fijo mensual', () => {
+    const dedicated = sharedQuote(22, 8, 71.6);
+    dedicated.labor[0].assignment = 'dedicated';
+    assert.equal(found(dedicated), undefined);
+    assert.equal(found(sharedQuote(null, 8, 71.6)), undefined);
+    const monthly = sharedQuote(22, 8, 71.6);
+    monthly.contract = { mode: 'monthly', components: ['labor'] };
+    monthly.unit = 'month';
+    assert.equal(found(monthly), undefined);
+  });
+});
+
+describe('V-06 · Vehículo propio sin seguro ni patente (equipment_insurance)', () => {
+  const quoteWith = (equipment) => {
+    resetIds();
+    return service({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()], equipment });
+  };
+  const found = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'equipment_insurance');
+  const self = { mode: 'self', travelLitersPer100Km: 12, travelCostPerKm: 100, driver: 'operator' };
+
+  test('salta para un vehículo que se traslada por sus propios medios con seguro y patente en 0', () => {
+    const i = found(quoteWith([owned({ name: 'Generador' }), owned({ name: 'Pickup', mobilization: self })]));
+    assert.ok(i);
+    assert.equal(i.status, 'warning');
+    assert.equal(i.step, 'equipment');
+    assert.equal(i.focus, 'equipment.1.insuranceAnnual');
+    assert.equal(i.message, '"Pickup" no tiene seguro ni patente cargados. Si los pagás, cargalos: son costo aunque no trabaje.');
+  });
+
+  test('no salta con uno de los dos cargado, para un equipo que no circula, sin valor de reposición ni para un alquilado', () => {
+    assert.equal(found(quoteWith([owned({ name: 'Pickup', mobilization: self, insuranceAnnual: 900_000 })])), undefined);
+    assert.equal(found(quoteWith([owned({ name: 'Pickup', mobilization: self, licenseAnnual: 300_000 })])), undefined);
+    assert.equal(found(quoteWith([owned({ name: 'Generador' })])), undefined);
+    assert.equal(found(quoteWith([owned({ name: 'Trailer', mobilization: { mode: 'towed' } })])), undefined);
+    assert.equal(found(quoteWith([owned({ name: 'Pickup', mobilization: self, replacementValue: 0 })])), undefined);
+    assert.equal(found(quoteWith([external({ name: 'Camioneta alquilada', mobilization: self }, { price: 100_000, unit: 'day' })])), undefined);
+  });
+
+  test('no cambia el precio: sólo baja la completitud', () => {
+    const a = evaluateCompleteness(quoteWith([owned({ name: 'Pickup', mobilization: self })]));
+    const b = evaluateCompleteness(quoteWith([owned({ name: 'Pickup', mobilization: self, insuranceAnnual: 1 })]));
+    assert.ok(a.scorePct < b.scorePct);
+  });
+});
+
+describe('V-07 · Insumos "por unidad producida" (materials_output_mismatch, materials_output_unit)', () => {
+  const herbicide = (o = {}) => material({ description: 'Herbicida', basis: 'per_output', quantity: 2, unitCost: 30_000, ...o });
+  const byHectare = (perDay, line) => {
+    resetIds();
+    return service({ unit: 'custom', unitName: 'hectárea', activity: { billableQuantityPerMonth: 60, unitsPerActiveDay: perDay, hoursPerActiveDay: 8 }, labor: [person()], materials: [line] });
+  };
+  const byTime = (unit, line) => {
+    resetIds();
+    return service({ unit, activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()], materials: [line] });
+  };
+  const find = (q, id) => evaluateCompleteness(q).items.find((i) => i.id === id);
+
+  test('4 hectáreas por día en la línea y 6 en "Cómo se cobra": avisa y lleva al campo de la línea', () => {
+    const i = find(byHectare(6, herbicide({ outputPerActiveDay: 4 })), 'materials_output_mismatch');
+    assert.ok(i);
+    assert.equal(i.status, 'warning');
+    assert.equal(i.step, 'materials');
+    assert.equal(i.focus, 'materials.0.outputPerActiveDay');
+    assert.equal(i.message, '"Herbicida" usa 4 hectáreas por día y en "Cómo se cobra" cargaste 6. Dejá un solo número: borrá el de acá para que siga al otro.');
+  });
+
+  test('no avisa con la línea vacía, con el mismo número ni con otra unidad producida', () => {
+    assert.equal(find(byHectare(6, herbicide()), 'materials_output_mismatch'), undefined);
+    assert.equal(find(byHectare(6, herbicide({ outputPerActiveDay: 6 })), 'materials_output_mismatch'), undefined);
+    assert.equal(find(byHectare(6, herbicide({ outputUnit: 'm²', outputPerActiveDay: 4 })), 'materials_output_mismatch'), undefined);
+    assert.equal(find(byHectare(6, herbicide()), 'materials_output_unit'), undefined);
+  });
+
+  test('cobrando por día sin unidad escrita: avisa que cuenta 1 por día; por hora, las horas por día', () => {
+    const d = find(byTime('day', herbicide()), 'materials_output_unit');
+    assert.ok(d);
+    assert.equal(d.status, 'warning');
+    assert.equal(d.focus, 'materials.0.outputUnit');
+    assert.equal(d.message, '"Herbicida" está por unidad producida y cobrás por día: se cuenta 1 por día. Si es por hectárea, válvula o metro, escribí la unidad y cuántas hacés por día.');
+    const h = find(byTime('hour', herbicide()), 'materials_output_unit');
+    assert.match(h.message, /cobrás por hora: se cuenta 8 por día/);
+  });
+
+  test('no avisa con unidad o rendimiento escritos, ni para otra base o un insumo del cliente', () => {
+    assert.equal(find(byTime('day', herbicide({ outputUnit: 'hectárea', outputPerActiveDay: 4 })), 'materials_output_unit'), undefined);
+    assert.equal(find(byTime('day', herbicide({ outputPerActiveDay: 4 })), 'materials_output_unit'), undefined);
+    assert.equal(find(byTime('day', herbicide({ basis: 'per_active_day' })), 'materials_output_unit'), undefined);
+    assert.equal(find(byTime('day', herbicide({ providedBy: 'client' })), 'materials_output_unit'), undefined);
+  });
+
+  test('falta la producción y la línea sigue a la unidad de cobro: el pendiente lleva a "Cómo se cobra"', () => {
+    const i = find(byHectare(null, herbicide()), 'materials_output');
+    assert.ok(i);
+    assert.equal(i.focus, 'activity.unitsPerActiveDay');
+    assert.match(i.message, /cargalo en "Cómo se cobra"\.$/);
+    const other = find(byHectare(6, herbicide({ outputUnit: 'm²' })), 'materials_output');
+    assert.equal(other.focus, 'materials.0.outputPerActiveDay');
+    assert.match(other.message, /hasta cargarlo no suma costo\.$/);
+  });
+});
+
+describe('V-10 · Días por trabajo vacíos en unidades por evento', () => {
+  const byJob = (unit, daysPerActivation, extra = {}) => {
+    resetIds();
+    return service({ unit, activity: { billableQuantityPerMonth: 4, daysPerActivation, hoursPerActiveDay: 8 }, labor: [person()], ...extra });
+  };
+  const util = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'utilization');
+
+  test('por llamado con los días vacíos o en 0: falta, lleva al campo y dice que se calcula con 1 día', () => {
+    [null, '', 0].forEach((empty) => {
+      const i = util(byJob('call', empty));
+      assert.equal(i.status, 'missing');
+      assert.equal(i.focus, 'activity.daysPerActivation');
+      assert.equal(i.message, 'Faltan los días que lleva cada llamado: se está calculando con 1 día.');
+    });
+  });
+
+  test('por trabajo dice "trabajo"', () => {
+    assert.equal(util(byJob('job', null)).message, 'Faltan los días que lleva cada trabajo: se está calculando con 1 día.');
+  });
+
+  test('con los días cargados está completo; sin la cantidad, primero se pide la cantidad', () => {
+    assert.equal(util(byJob('call', 3)).status, 'ok');
+    assert.equal(util(byJob('call', 0.5)).status, 'ok');
+    const noQty = byJob('call', null);
+    noQty.activity.billableQuantityPerMonth = null;
+    assert.equal(util(noQty).focus, 'activity.billableQuantityPerMonth');
+  });
+
+  test('no aplica a las unidades por cantidad', () => {
+    resetIds();
+    const q = service({ unit: 'custom', unitName: 'pozo', activity: { billableQuantityPerMonth: 4, unitsPerActiveDay: 1, daysPerActivation: null }, labor: [person()] });
+    assert.equal(util(q).status, 'ok');
+  });
+});
+
+describe('V-13 · Mínimo por llamado en km: la ruta se compara con los km trabajados', () => {
+  const byKm = (quantity, minimumCallUnits, tripsPerActivation = 1) => {
+    resetIds();
+    return service({
+      serviceType: 'transport', unit: 'km',
+      activity: { billableQuantityPerMonth: quantity, unitsPerActiveDay: 240, daysPerActivation: 1 },
+      labor: [person()],
+      equipment: [external({ name: 'Camión' }, { price: 1100, unit: 'km' })],
+      logistics: { notApplicable: false, distanceKm: 120, roundTrip: true, tripsPerActivation, vehicles: [] },
+      rules: { minimumCallUnits },
+    });
+  };
+  const found = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'route_consistency');
+
+  test('240 km por día y mínimo 300: sin pendiente con 2.880 km y con 3.600 km', () => {
+    assert.equal(found(byKm(2880, 300)), undefined);
+    assert.equal(found(byKm(3600, 300)), undefined);
+    assert.equal(evaluateCompleteness(byKm(3600, 300)).scorePct, evaluateCompleteness(byKm(3600, 0)).scorePct);
+  });
+
+  test('sigue avisando si la ruta recorre menos km que los trabajados, con y sin mínimo', () => {
+    const withMin = found(byKm(3600, 300, 0.5));
+    assert.ok(withMin);
+    assert.match(withMin.message, /^Hacés 2\.880 km por mes pero la ruta recorre 1\.440 km/);
+    const noMin = found(byKm(3600, 0, 0.5));
+    assert.match(noMin.message, /^Facturás 3\.600 km por mes pero la ruta recorre 1\.800 km/);
+  });
+});
+
+describe('CompletenessEngine — "¿Quién maneja?" es opcional (V-22)', () => {
+  test('equipo que llega por sus medios sin conductor elegido: sin pendiente de movilización', () => {
+    resetIds();
+    const q = service({
+      unit: 'day', activity: { activeDaysPerMonth: 10, daysPerActivation: 1 }, labor: [person()],
+      equipment: [owned({ fuelLitersPerHour: 5, mobilization: { mode: 'self', travelLitersPer100Km: 12, travelCostPerKm: 80, driver: null } })],
+      logistics: { notApplicable: false, distanceKm: 80, roundTrip: true, tripsPerActivation: 1, vehicles: [] },
+    });
+    const r = evaluateCompleteness(q);
+    assert.equal(item(r, 'mobility').status, 'ok');
+    assert.ok(!r.items.some((i) => /quién maneja/i.test(i.message)));
   });
 });

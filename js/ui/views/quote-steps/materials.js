@@ -12,7 +12,7 @@
 import { h, mount } from '../../dom.js';
 import { card, formGrid, selectField, emptyState, table } from '../../components.js';
 import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
-import { materialLineFromLibrary, createOtherCost } from '../../../domain/quote-factory.js';
+import { materialLineFromLibrary, blankMaterialLine, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -59,6 +59,36 @@ export function outputPluralOf(line = {}, quote = {}) {
   return u.kind !== 'month' ? u.plural : 'unidades';
 }
 
+/** ¿Se cobra por día o por hora? (V-07: ahí "unidad producida" vacía no es una unidad de producción). */
+const billsByTime = (quote) => ['day', 'hour'].includes(billingUnitOf(quote).kind);
+
+/**
+ * Rótulo de "Producción por día" de una línea (V-07): cobrando por día o por hora sin unidad
+ * escrita, "unidades/día" (nunca "día/día" ni "hora/día").
+ */
+export function outputPerDayUnitLabel(line = {}, quote = {}) {
+  const own = String((line && line.outputUnit) || '').trim();
+  if (!own && billsByTime(quote)) return 'unidades/día';
+  return `${outputUnitOf(line, quote)}/día`;
+}
+
+/**
+ * Unidad producida para mostrar (revisión UX, V-07): cobrando por día o por hora sin unidad
+ * escrita, "unidad" / "unidades" (nunca "día/día" ni "cada día lo usa").
+ */
+export function outputUnitShownOf(line = {}, quote = {}) {
+  const own = String((line && line.outputUnit) || '').trim();
+  if (!own && billsByTime(quote)) return 'unidad';
+  return outputUnitOf(line, quote);
+}
+
+/** Plural de outputUnitShownOf ("unidades", "hectáreas", "m³"). */
+export function outputPluralShownOf(line = {}, quote = {}) {
+  const own = String((line && line.outputUnit) || '').trim();
+  if (!own && billsByTime(quote)) return 'unidades';
+  return outputPluralOf(line, quote);
+}
+
 /** ¿La cotización ya sabe cuánto se produce por día? (toda unidad de cobro salvo el abono mensual). */
 const autoOutputKnown = (quote) => billingUnitOf(quote).kind !== 'month';
 /** Valor del selector de unidad para "Otra / personalizada". */
@@ -71,7 +101,7 @@ onSessionReset(() => customUnitLines.clear());
  * La cuenta visible de una línea (PLAN-2026-010, no cambia el cálculo):
  *   "10 L/día × $ 5.000/L = $ 50.000/día · 20 días = $ 1.000.000/mes"
  */
-export function materialFormulaText(line, model, { activeDays = 0, activationsPerMonth = 0, terms = activationTerms(), outputUnit = 'unidad' } = {}) {
+export function materialFormulaText(line, model, { activeDays = 0, activationsPerMonth = 0, terms = activationTerms(), outputUnit = 'unidad', outputPlural = null } = {}) {
   if (!line || !model) return '';
   const unit = String(line.unit || '').trim() || 'u.';
   const per = basisPer(model.basis, terms, outputUnit);
@@ -86,7 +116,9 @@ export function materialFormulaText(line, model, { activeDays = 0, activationsPe
     const perUnit = partial ? model.costPerOutputUnit : model.grossCost;
     const perDay = model.outputPerActiveDay || 0;
     if (!(perDay > 0)) return `${head}${share} · falta la producción por día`;
-    return `${head}${share} · ${formatNumber(perDay, { decimals: 2 })} ${outputUnit}/día × ${formatNumber(activeDays, { decimals: 2 })} días = ${formatMoney(perUnit * perDay * activeDays)}/mes`;
+    // "40 hectáreas/día", no "40 hectárea/día" (revisión UX).
+    const perDayUnit = Math.abs(perDay - 1) < 1e-9 ? outputUnit : outputPlural || pluralizeUnit(outputUnit);
+    return `${head}${share} · ${formatNumber(perDay, { decimals: 2 })} ${perDayUnit}/día × ${formatNumber(activeDays, { decimals: 2 })} días = ${formatMoney(perUnit * perDay * activeDays)}/mes`;
   }
   if (model.basis === 'per_activation') return `${head} · ${formatNumber(activationsPerMonth, { decimals: 2 })} ${terms.word(activationsPerMonth)} = ${formatMoney(model.grossCost * activationsPerMonth)}/mes`;
   return head;
@@ -141,7 +173,7 @@ export function render(container, ctx) {
     ctx.toast(`Se agregó "${line.description}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
   };
   const addBlank = () => {
-    const line = materialLineFromLibrary({}, { currency: quoteCurrencyOf(quote) });
+    const line = blankMaterialLine({ currency: quoteCurrencyOf(quote) });
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.description` });
   };
@@ -248,14 +280,16 @@ export function render(container, ctx) {
             label: 'Unidad producida',
             maxLength: 30,
             placeholder: autoOutputKnown(quote) ? '' : 'Ej.: m², m³, pozo',
-            hint: autoOutputKnown(quote)
-              ? `Lo que producís: m² pintado, m³ tratado, pieza inspeccionada… Vacío = ${billingUnitOf(quote).singular}, la unidad en que cobrás.`
-              : 'Lo que producís: m² pintado, m³ tratado, pieza inspeccionada…',
+            hint: billsByTime(quote)
+              ? 'Escribí qué producís (hectárea, válvula, m²). Si después cobrás en esa unidad, el rendimiento se carga una sola vez, en "Cómo se cobra".'
+              : autoOutputKnown(quote)
+                ? `Lo que producís: m² pintado, m³ tratado, pieza inspeccionada… Vacío = ${billingUnitOf(quote).singular}, la unidad en que cobrás.`
+                : 'Lo que producís: m² pintado, m³ tratado, pieza inspeccionada…',
           }),
           kit.num(`${p}.outputPerActiveDay`, {
             label: 'Producción por día',
             rule: 'quantity',
-            unit: kit.out(() => `${outputUnitOf(quote.materials[i], quote)}/día`),
+            unit: kit.out(() => outputPerDayUnitLabel(quote.materials[i], quote)),
             hint: autoOutputKnown(quote)
               ? 'Vacío = lo que cargaste en "Cómo se cobra". Cargalo si esta unidad es otra.'
               : 'Cuántas producís en un día de trabajo: con eso se calcula el consumo del mes.',
@@ -263,7 +297,7 @@ export function render(container, ctx) {
         ) : null,
         formGrid(
           showCustomUnit ? 4 : 3,
-          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: kit.out(() => `${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}/${basisPer(quote.materials[i] && quote.materials[i].basis, T, outputUnitOf(quote.materials[i], quote))}`) }),
+          kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: kit.out(() => `${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}/${basisPer(quote.materials[i] && quote.materials[i].basis, T, outputUnitShownOf(quote.materials[i], quote))}`) }),
           unitSelect,
           showCustomUnit ? kit.text(`${p}.unit`, { label: 'Tu unidad', maxLength: 30, placeholder: 'Ej.: bidón, rollo, kit' }) : null,
           kit.num(`${p}.unitCost`, { label: 'Costo unitario (sin IVA)', rule: 'money', unit: kit.out(() => `${sym}/${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}`), illustrative }),
@@ -273,11 +307,11 @@ export function render(container, ctx) {
           ? formGrid(
             3,
             kit.num(`${p}.usagePct`, {
-              label: `% de ${outputPluralOf(line, quote)} que lo usan`,
+              label: `% de ${outputPluralShownOf(line, quote)} que lo usan`,
               rule: 'percent',
               unit: '%',
               placeholder: '100',
-              hint: `Vacío = 100 % (cada ${outputUnitOf(line, quote)} lo usa). Por ejemplo, si 3 de cada 10 llevan este repuesto, cargá 30.`,
+              hint: `Vacío = 100 % (cada ${outputUnitShownOf(line, quote)} lo usa). Por ejemplo, si 3 de cada 10 llevan este repuesto, cargá 30.`,
             }),
           )
           : null,
@@ -293,7 +327,7 @@ export function render(container, ctx) {
             if (!l) return '';
             if (!l.providedBy) return 'Falta definir quién lo provee.';
             if (l.costForUs === 0 && l.grossCost > 0) return 'Lo provee el cliente: no es costo tuyo.';
-            return materialFormulaText(quote.materials[i], l, { activeDays: r.activity.activeDaysPerMonth, activationsPerMonth: r.activity.activationsPerMonth, terms: T, outputUnit: outputUnitOf(quote.materials[i], quote) });
+            return materialFormulaText(quote.materials[i], l, { activeDays: r.activity.activeDaysPerMonth, activationsPerMonth: r.activity.activationsPerMonth, terms: T, outputUnit: outputUnitShownOf(quote.materials[i], quote), outputPlural: outputPluralShownOf(quote.materials[i], quote) });
           },
           tone: (r) => (at(r) && !at(r).providedBy ? 'red' : null),
         }),
@@ -363,7 +397,8 @@ export function render(container, ctx) {
         h(
           'div',
           { class: 'qe-toolbar' },
-          h(
+          // V-25: sin materiales cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
+          !library.length ? null : h(
             'div',
             { class: 'qe-toolbar-pick' },
             selectField({
@@ -378,7 +413,7 @@ export function render(container, ctx) {
             }),
             kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
           ),
-          kit.action('Agregar material en blanco', addBlank, { icon: 'plus', size: 'md' }),
+          kit.action('Agregar material en blanco', addBlank, { icon: 'plus', size: 'md', ...(library.length ? {} : { variant: 'primary' }) }),
         ),
       ),
       materialCards.length

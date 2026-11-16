@@ -1,0 +1,458 @@
+{
+  "id": "3e64ee04-bee8-4d1b-bc75-70c96b25a01f",
+  "organizationId": "5aaab9b0-147a-49e2-9faf-8722be304827",
+  "createdAt": "2026-11-15T23:45:12.947Z",
+  "updatedAt": "2026-11-15T23:46:49.565Z",
+  "createdBy": null,
+  "updatedBy": null,
+  "code": "COT-0001",
+  "name": "V-34 cuadrilla por hora-hombre",
+  "client": "Cliente de prueba",
+  "status": "draft",
+  "illustrative": false,
+  "serviceType": "on_call",
+  "templateId": null,
+  "pricingMode": "known_activity",
+  "unit": "manhour",
+  "unitName": "",
+  "contractMonths": 12,
+  "activity": {
+    "availability": null,
+    "availabilityWindow": "",
+    "responseTimeHours": 4,
+    "activeDaysPerMonth": 14,
+    "daysPerActivation": 1,
+    "availableDaysPerMonth": 30,
+    "hoursPerActiveDay": 9,
+    "billableQuantityPerMonth": 378,
+    "unitsPerActiveDay": 27,
+    "unitsPerActivation": null
+  },
+  "labor": [
+    {
+      "id": "63b617fc-481c-436d-9d0e-daa1b7c8031f",
+      "sourceId": null,
+      "role": "Oficial mecánico",
+      "agreementId": null,
+      "category": "",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 2600000,
+      "additionalsMonthly": 650000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 0,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 18000,
+      "sacPct": 8.33,
+      "vacationPct": 4,
+      "employerContributionsPct": 26,
+      "artPct": 7,
+      "insuranceMonthly": 0,
+      "ppeMonthly": 60000,
+      "trainingMonthly": 0,
+      "transferMonthly": 0,
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false,
+      "coverageHoursPerDay": 9,
+      "assignment": "shared",
+      "fixedCostSharePct": 71.6
+    },
+    {
+      "id": "f0a2764f-c1f1-4ae6-9ea6-151f0ce656b2",
+      "sourceId": null,
+      "role": "Medio oficial",
+      "agreementId": null,
+      "category": "",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 2200000,
+      "additionalsMonthly": 500000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 0,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 18000,
+      "sacPct": 8.33,
+      "vacationPct": 4,
+      "employerContributionsPct": 26,
+      "artPct": 7,
+      "insuranceMonthly": 0,
+      "ppeMonthly": 60000,
+      "trainingMonthly": 0,
+      "transferMonthly": 0,
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false,
+      "coverageHoursPerDay": 9,
+      "assignment": "shared",
+      "fixedCostSharePct": 71.6
+    },
+    {
+      "id": "3d776a8a-600e-48cd-ae74-58760874eb70",
+      "sourceId": null,
+      "role": "Ayudante",
+      "agreementId": null,
+      "category": "",
+      "positions": 1,
+      "peoplePerPosition": 1,
+      "basicMonthly": 1900000,
+      "additionalsMonthly": 400000,
+      "normalHoursPerMonth": 176,
+      "overtimeHoursPerActiveDay": 0,
+      "overtimePremiumPct": 50,
+      "mealPerActiveDay": 18000,
+      "sacPct": 8.33,
+      "vacationPct": 4,
+      "employerContributionsPct": 26,
+      "artPct": 7,
+      "insuranceMonthly": 0,
+      "ppeMonthly": 60000,
+      "trainingMonthly": 0,
+      "transferMonthly": 0,
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false,
+      "coverageHoursPerDay": 9,
+      "assignment": "shared",
+      "fixedCostSharePct": 71.6
+    }
+  ],
+  "equipment": [
+    {
+      "id": "522b7846-77cd-42a4-a6a5-1920de636415",
+      "sourceId": null,
+      "name": "Camión con hidrogrúa",
+      "internalCode": "",
+      "familyId": null,
+      "acquisition": "owned",
+      "quantity": 1,
+      "hoursPerActiveDay": 4,
+      "replacementValue": 130000000,
+      "usefulLifeYears": 10,
+      "residualValue": 39000000,
+      "insuranceAnnual": 2400000,
+      "licenseAnnual": 1800000,
+      "certificationsAnnual": 900000,
+      "otherAnnual": 0,
+      "capitalRatePctAnnual": 0,
+      "maintenancePerHour": 6000,
+      "tiresPerHour": 0,
+      "fuelLitersPerHour": 7,
+      "maintenanceMode": null,
+      "maintenanceServiceCost": null,
+      "maintenanceServiceHours": null,
+      "maintenanceBudget": null,
+      "maintenanceBudgetPeriod": null,
+      "tiresMode": "set_km",
+      "tiresSetCost": 4200000,
+      "tiresLifeHours": null,
+      "tiresLifeKm": 80000,
+      "external": null,
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "costsBase": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "mobilization": {
+        "mode": "self",
+        "travelLitersPer100Km": 32,
+        "travelCostPerKm": 0,
+        "driver": "operator",
+        "carrierLineId": null,
+        "supportVehicleId": null
+      },
+      "operatorLaborId": "63b617fc-481c-436d-9d0e-daa1b7c8031f",
+      "snapshot": null,
+      "illustrative": false,
+      "assignment": "shared",
+      "fixedCostSharePct": 71.6
+    }
+  ],
+  "materials": [
+    {
+      "id": "67e6badc-2311-4ce1-995b-49e21598bab8",
+      "sourceId": null,
+      "description": "Herramientas menores (reposición)",
+      "unit": "juego",
+      "basis": "per_month",
+      "quantity": 1,
+      "unitCost": 450000,
+      "wastePct": 0,
+      "logisticsPct": 0,
+      "resaleMarkupPct": 0,
+      "providedBy": "contractor",
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    },
+    {
+      "id": "0ccf56c1-dcf2-4a9b-a754-f9e1b76a46d5",
+      "sourceId": null,
+      "description": "Consumibles (discos, electrodos, trapos, grasa)",
+      "unit": "juego",
+      "basis": "per_active_day",
+      "quantity": 1,
+      "unitCost": 35000,
+      "wastePct": 0,
+      "logisticsPct": 0,
+      "resaleMarkupPct": 0,
+      "providedBy": "contractor",
+      "base": {
+        "period": "2026-11",
+        "currency": "ARS",
+        "source": null,
+        "note": ""
+      },
+      "snapshot": null,
+      "illustrative": false
+    }
+  ],
+  "materialsNotApplicable": false,
+  "otherCosts": [],
+  "fuel": {
+    "pricePerLiter": 1900,
+    "providedBy": "contractor",
+    "illustrative": false,
+    "requiresConfirmation": true,
+    "base": {
+      "period": "2026-11",
+      "currency": "ARS",
+      "source": null,
+      "note": ""
+    }
+  },
+  "logistics": {
+    "notApplicable": false,
+    "baseName": "Neuquén capital",
+    "destinationName": "Loma Campana",
+    "distanceKm": 90,
+    "roundTrip": true,
+    "tripsPerActivation": 1,
+    "vehicles": [],
+    "tollsPerActivation": 0,
+    "lodgingPerActivation": 0
+  },
+  "indirect": {
+    "method": "percent_direct",
+    "pct": 12,
+    "amount": 0
+  },
+  "finance": {
+    "paymentTermDays": 60,
+    "invoiceLagDays": 15,
+    "monthlyRatePct": 4,
+    "illustrative": false,
+    "payDays": {
+      "salaries": 20,
+      "fuel": 0,
+      "suppliers": 30,
+      "materials": 30,
+      "structure": 20
+    }
+  },
+  "risk": {
+    "generalPct": 3,
+    "items": [
+      {
+        "id": "activity_variation",
+        "label": "Variación de actividad",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "unproductive",
+        "label": "Improductivos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "weather",
+        "label": "Clima",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "rework",
+        "label": "Retrabajos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "equipment_failure",
+        "label": "Rotura de equipos",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "prices",
+        "label": "Variación de precios",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "inflation",
+        "label": "Inflación",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "logistics",
+        "label": "Logística",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "penalties",
+        "label": "Penalidades",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "warranty",
+        "label": "Garantía",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "accidents",
+        "label": "Accidentes",
+        "pct": 0,
+        "enabled": false
+      },
+      {
+        "id": "scope_uncertainty",
+        "label": "Incertidumbre del alcance",
+        "pct": 0,
+        "enabled": false
+      }
+    ]
+  },
+  "pricing": {
+    "targetMarginPct": 15,
+    "customMarginPct": null,
+    "knownRate": 0,
+    "offeredRateOverride": null,
+    "commercialDiscountPct": 0,
+    "roundingStep": 1000
+  },
+  "billingTaxes": {
+    "mode": "combined",
+    "notApplicable": false,
+    "combinedPct": 4.5,
+    "items": []
+  },
+  "vatTreatment": "excluded",
+  "rules": {
+    "availabilityFeeMonthly": 0,
+    "calloutFeePerActivation": 0,
+    "mobilizationFeePerActivation": 0,
+    "includedKmPerActivation": 0,
+    "extraKmRate": 0,
+    "minimumCallUnits": 0,
+    "standbyDaysPerMonth": 0,
+    "standbyRatePerDay": 0,
+    "standbyNotApplicable": true,
+    "volumeTiers": [
+      {
+        "id": "tier-1",
+        "fromDays": 1,
+        "toDays": 1,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-2",
+        "fromDays": 2,
+        "toDays": 7,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-3",
+        "fromDays": 8,
+        "toDays": 15,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-4",
+        "fromDays": 16,
+        "toDays": 30,
+        "discountPct": 0
+      },
+      {
+        "id": "tier-5",
+        "fromDays": 31,
+        "toDays": null,
+        "discountPct": 0
+      }
+    ],
+    "volumeTierBasis": "billed",
+    "continuityMinMonths": 6,
+    "continuityDiscountPct": 0,
+    "minimumMonthlyGuarantee": 0
+  },
+  "notes": "",
+  "currency": "ARS",
+  "offerDate": "2026-11-15",
+  "exchangeRates": [],
+  "contract": {
+    "mode": "on_demand",
+    "labor": true,
+    "equipment": true,
+    "components": [
+      "labor",
+      "vehicle",
+      "tools",
+      "supplies"
+    ]
+  },
+  "extras": [
+    {
+      "id": "a2421113-a994-4631-ae5c-68d0e17d18d4",
+      "kind": "overtime",
+      "premiumPct": 50,
+      "label": "Hora fuera de horario (extra 50 %)",
+      "unitName": "hora",
+      "category": "labor",
+      "quantityPerMonth": 18,
+      "costPerUnit": null,
+      "price": null
+    },
+    {
+      "id": "6f870e6f-4e5a-40c7-a8a4-4da57b22ed89",
+      "kind": "overtime",
+      "premiumPct": 100,
+      "label": "Hora fuera de horario (extra 100 %)",
+      "unitName": "hora",
+      "category": "labor",
+      "quantityPerMonth": 18,
+      "costPerUnit": null,
+      "price": null
+    }
+  ]
+}

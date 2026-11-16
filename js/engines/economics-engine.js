@@ -43,6 +43,8 @@ export function createEconomicsContext(quote, model, { referenceHourPrice = null
     loadFactor,
     referenceHourPrice,
     referenceHourCost,
+    // V-38: las horas fuera de horario sugeridas se redondean con el paso de la tarifa.
+    roundingStep: nonNegative(pricing.roundingStep),
   });
   return {
     billingTaxPct: taxes.pct,

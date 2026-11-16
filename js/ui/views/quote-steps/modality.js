@@ -17,14 +17,15 @@ import { card, formGrid, choiceGroup, searchSelectField, openDialog, button, inf
 import { PRICING_MODES, AVAILABILITY_OPTIONS, AVAILABILITY_WINDOW } from '../../../domain/catalogs.js';
 import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName, unitGroupOf, searchUnits, BILLING_UNIT_GROUPS } from '../../../domain/billing-units.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
-import { convertMinimumCallUnits } from '../../../engines/commercial-rules-engine.js';
+import { applyUnitChange, hoursPerDayFromManHours } from '../../../domain/unit-change.js';
+import { numberToInputText } from '../../../core/validation.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
-import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
+import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
-import { activationTerms } from '../../../domain/activation-terms.js';
+import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
 import { contractOf, unitChoicesForContract } from '../../../domain/contract.js';
@@ -33,8 +34,10 @@ import { outsideWindowHours, outsideWindowMessage, activeGuardCoverage, activeGu
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
 import { staffText } from './labor.js';
 import { isOutOfHoursExtra, OUT_OF_HOURS_KIND, OUT_OF_HOURS_PRESETS } from '../../../engines/out-of-hours-engine.js';
-import { proposeServiceShares } from '../../../engines/utilization-engine.js';
+import { proposeServiceShares, staleDedicationOf, staleDedicationMessage } from '../../../engines/utilization-engine.js';
 import { createId } from '../../../core/ids.js';
+import { SPARSE_ACTIVATIONS_ISSUE } from '../../../engines/quote-engine.js';
+import { dedicationChoiceOf } from '../../../domain/assignment.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -120,6 +123,145 @@ function askUnitChange({ from, to, fromUnit, rates, convertible, hours }) {
   });
 }
 
+/** ¿Salta el aviso "cada llamado hace menos de una unidad"? (V-08: ahí el ritmo de los llamados va a la vista). */
+export function sparseActivationsWarned(result) {
+  return Boolean(result && Array.isArray(result.issues) && result.issues.some((i) => i && i.code === SPARSE_ACTIVATIONS_ISSUE));
+}
+
+/**
+ * Ayuda del "Precio sugerido por hora" de una hora fuera de horario: de qué sale y, si el
+ * motor lo redondeó como la tarifa (V-38), que está redondeado hacia arriba.
+ */
+export function suggestedHourHint(line) {
+  const l = line || {};
+  const rounded = isFiniteNumber(l.suggestedPrice) && isFiniteNumber(l.suggestedPriceExact) && l.suggestedPrice - l.suggestedPriceExact > 0.005
+    ? ' Redondeado hacia arriba, como tu tarifa.'
+    : '';
+  return `${l.priceBasis === 'normal_hour'
+    ? `Tu hora normal (${formatMoney(l.referenceHourPrice)}) más el recargo de las horas extra con tu margen (${formatMoney(l.surchargePrice || 0)}). Así nunca queda más barata que una hora normal.`
+    : 'El costo de esa hora con tus gastos de estructura, tu margen y los impuestos.'}${rounded}`;
+}
+
+/**
+ * Nota al pie de "Trabajo fuera del horario normal": de dónde sale la hora normal de referencia.
+ * Cobrando por hora-hombre (V-34) la hora normal es la tarifa × las personas de la cuadrilla y
+ * los precios son por hora de toda la cuadrilla, no por hora-hombre: se dice.
+ * Cuando no se cobra por hora ni por día (viaje, km, unidad, abono, precio cerrado) la hora
+ * normal sale de los recursos (V-26): se dice para qué sirve esa hora y que no reemplaza
+ * a la unidad cotizada.
+ * @param {object} r resultado de computeQuote
+ * @param {object} [unitInfo] unidad de cobro (`billingUnitOf(quote)`)
+ */
+export function outOfHoursNoteText(r, unitInfo = null) {
+  const o = (r && r.outOfHours) || {};
+  if (!isFiniteNumber(o.normalHourPrice)) return 'Cargá las horas de trabajo por día para comparar con tu hora normal.';
+  const people = o.basis ? o.basis.people : 0;
+  const crew = o.crewHour && people > 0 ? `${formatNumber(people, { decimals: 2 })} ${Math.abs(people - 1) < 1e-9 ? 'persona' : 'personas'}` : null;
+  const fromResources = o.normalHourSource === 'resources';
+  const source = fromResources
+    ? 'lo que cuestan tu gente y tus equipos por hora, con tu margen'
+    : crew ? `tu tarifa por hora-hombre × ${crew}` : 'sale de tu tarifa';
+  const tail = crew ? ` Estos precios son por hora de toda la cuadrilla (${crew}), no por hora-hombre.` : '';
+  const use = fromResources && unitInfo && unitInfo.kind !== 'hour' && unitInfo.kind !== 'day' ? outOfHoursUseText(o, unitInfo) : 'Se cobra aparte de la tarifa.';
+  return `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${source}). El precio sugerido es esa hora más el recargo de las horas extra. ${use}${tail}`;
+}
+
+/** Unidades que se cuentan de a una y pueden caer enteras fuera de horario (el viaje, el trabajo…). */
+const WHOLE_UNIT_IDS = Object.freeze(['trip', 'shift', 'unit', 'piece', 'well', 'test', 'lot', 'set']);
+
+/** V-26: para qué sirve la hora fuera de horario cuando se cobra por viaje, km, unidad, abono o precio cerrado. */
+function outOfHoursUseText(o, unitInfo) {
+  if (unitInfo.kind === 'month') return 'Es el precio de cada hora que trabajás fuera de horario además del abono que cotizaste.';
+  const fem = unitTexts(unitInfo).los === 'las';
+  const whole = unitInfo.kind === 'event' || WHOLE_UNIT_IDS.includes(unitInfo.id);
+  const many = `${fem ? 'las' : 'los'} ${unitInfo.plural}`;
+  const one = `${fem ? 'la' : 'el'} ${unitInfo.singular}`;
+  // "al viaje" / "a la unidad" / "a los km".
+  const instead = whole ? (fem ? `a ${one}` : `al ${unitInfo.singular}`) : `a ${many}`;
+  const surcharges = (Array.isArray(o.lines) ? o.lines : []).filter((l) => isFiniteNumber(l.surchargePrice) && l.surchargePrice > 0);
+  const surcharge = surcharges.length === 1
+    ? `el recargo de ${formatMoney(surcharges[0].surchargePrice)} por hora`
+    : surcharges.length > 1
+      ? `el recargo por hora (${surcharges.map((l) => `${formatMoney(l.surchargePrice)} al ${formatNumber(l.premiumPct, { decimals: 2 })}\u00a0%`).join(' o ')})`
+      : 'el recargo por hora';
+  return `Es el precio de cada hora que trabajás fuera de horario además de ${many} que cotizaste. No reemplaza ${instead}: si un ${whole ? unitInfo.singular : 'trabajo'} entero cae fuera de horario, cobrá ${whole ? one : many} más ${surcharge}.`;
+}
+
+/**
+ * Rótulo del costo por hora fuera de horario (V-26): sin equipos propios trabajando no dice "+ equipos".
+ * @param {object} basis `r.outOfHours.basis`
+ */
+export function outOfHoursCostLabel(basis) {
+  return basis && basis.equipmentPerHour > 0 ? 'Te cuesta por hora (gente + equipos)' : 'Te cuesta por hora (gente)';
+}
+
+/** ¿Algún equipo propio llega por sus medios? (su combustible y desgaste en ruta no están en la hora fuera de horario). */
+export function ownEquipmentTravels(quote) {
+  return (Array.isArray(quote && quote.equipment) ? quote.equipment : [])
+    .some((e) => e && (e.acquisition || 'owned') === 'owned' && e.mobilization && e.mobilization.mode === 'self');
+}
+
+/** Ayuda del costo por hora fuera de horario (V-26). */
+export function outOfHoursCostHint(basis, { travels = false } = {}) {
+  const b = basis;
+  if (!b) return '';
+  const people = `${formatNumber(b.people, { decimals: 2 })} ${b.people === 1 ? 'persona' : 'personas'}`;
+  const equipment = b.equipmentPerHour > 0 ? ` y el uso de los equipos (${formatMoney(b.equipmentPerHour)} por hora de combustible y mantenimiento)` : '';
+  const route = travels ? ' No incluye combustible ni desgaste en ruta: si en esas horas se viaja, cobralos como km o como viaje.' : '';
+  return `Lo que pagás de más por esa hora: las horas extra de ${people} con cargas${equipment}. Sueldos y amortización ya están en el mes.${route}`;
+}
+
+/**
+ * Nota bajo las horas estimadas fuera de horario (V-26 y V-27): son horas ADEMÁS de las
+ * normales del mes, y un día entero fuera de lo previsto no suma solo su vianda ni su viaje.
+ */
+export function outOfHoursHoursNote(r) {
+  const a = (r && r.activity) || {};
+  const normal = (a.activeDaysPerMonth || 0) * (a.hoursPerActiveDay || 0);
+  const besides = normal > 0.005 ? `Las horas estimadas son además de las ${formatNumber(normal, { decimals: 2 })} horas normales por mes que cargaste arriba. ` : '';
+  return `${besides}Si son días enteros que no ibas a trabajar, la vianda y el viaje de ese día no se suman solos.`;
+}
+
+/**
+ * Aviso de la fila de una hora fuera de horario (V-09): el precio cargado a mano queda por
+ * debajo de la hora normal de referencia. '' si no aplica.
+ */
+export function cheaperThanNormalHourText(line) {
+  if (!line || line.priceSource !== 'manual' || !isFiniteNumber(line.price) || !isFiniteNumber(line.referenceHourPrice)) return '';
+  // Si ya se avisa que se cobra por debajo de su costo, un segundo aviso para el mismo dato sobra (revisión UX).
+  if (line.belowCost) return '';
+  if (!(line.price < line.referenceHourPrice - 1e-9)) return '';
+  return `Queda más barata que tu hora normal (${formatMoney(line.referenceHourPrice)}).`;
+}
+
+/**
+ * Costo de un grupo de recursos en "Lo que cuestan tus recursos" (V-16): con
+ * parte fija y parte variable se muestran las dos, no sólo la fija.
+ */
+export function resourceCostText(fixedMonthly, variablePerDay) {
+  // Cada monto con su unidad va entero (espacios duros): en 390 px el corte cae antes del "+" (revisión UX).
+  const fixed = fixedMonthly > 0.005 ? `${formatMoney(fixedMonthly)}\u00a0por\u00a0mes` : '';
+  const variable = variablePerDay > 0.005 ? `${formatMoney(variablePerDay)}\u00a0por\u00a0día` : '';
+  if (fixed && variable) return `${fixed} + ${variable}`;
+  return fixed || variable || EMPTY;
+}
+
+/**
+ * "Hoy este servicio les ocupa 96 h por mes: el 54,55 % de sus 176 h normales." (V-33, CUAD-06):
+ * el % se lee contra las horas normales del mes de la primera persona (o, sin personal, del equipo).
+ * @param {{ serviceHours: number, equipmentHours: number, labor: (number|null)[], equipment: (number|null)[] }} proposal
+ * @param {object} quote
+ */
+export function dedicationOccupancyText(proposal, quote = {}) {
+  const fmt = (n) => formatNumber(n, { decimals: 2 });
+  const li = proposal.labor.findIndex((v) => v !== null);
+  const pctValue = li >= 0 ? proposal.labor[li] : proposal.equipment.find((v) => v !== null);
+  const labor = (Array.isArray(quote.labor) ? quote.labor : []).filter((l) => l && typeof l === 'object');
+  const normal = li >= 0 ? Number(labor[li] && labor[li].normalHoursPerMonth) : proposal.equipmentHours;
+  const of = Number.isFinite(normal) && normal > 0 ? `sus ${fmt(normal)} h normales` : 'su mes';
+  return `Hoy este servicio les ocupa ${fmt(proposal.serviceHours)} h por mes: el ${formatPercent(pctValue)} de ${of}.`;
+}
+
 export function render(container, ctx) {
   const { quote, kit, settings } = ctx;
   const info = billingUnitOf(quote);
@@ -157,19 +299,33 @@ export function render(container, ctx) {
   const shortcut = (key, value, label) => {
     const el = kit.action(label, () => setActivity(key, value), { title: `Cargar ${value}` });
     const now = quote.activity ? Number(quote.activity[key]) : NaN;
-    if (Math.abs(now - value) < 1e-9) el.classList.add('is-selected');
+    const on = Math.abs(now - value) < 1e-9;
+    if (on) el.classList.add('is-selected');
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
     return el;
   };
-  const coverageShortcuts = monthlyContract && !kit.readOnly
-    ? h('div', { class: 'qe-toolbar qe-coverage-shortcuts' },
+  const hourShortcut = (n) => {
+    const el = shortcut('hoursPerActiveDay', n, `${n} h`);
+    el.dataset.hoursShortcut = String(n);
+    return el;
+  };
+  if (kit.readOnly) return null;
+  if (monthlyContract) {
+    return h('div', { class: 'qe-toolbar qe-coverage-shortcuts' },
       h('span', { class: 'small' }, 'Días:'),
       shortcut('activeDaysPerMonth', 22, 'Lun a vie (22)'),
       shortcut('activeDaysPerMonth', 26, 'Lun a sáb (26)'),
       shortcut('activeDaysPerMonth', 30, 'Todos los días (30)'),
       h('span', { class: 'small' }, 'Horas:'),
-      ...[8, 9, 12, 24].map((n) => shortcut('hoursPerActiveDay', n, `${n} h`)))
+      ...[8, 9, 12, 24].map(hourShortcut));
+  }
+  // On call y precio cerrado (V-04): el 10 con que nace una cotización es una opción entre
+  // otras, no algo ya contestado.
+  return hoursInMain
+    ? h('div', { class: 'qe-toolbar qe-coverage-shortcuts' },
+      h('span', { class: 'small' }, 'Atajos:'),
+      ...[8, 9, 10, 12].map(hourShortcut))
     : null;
-  return coverageShortcuts;
   }
 
   // Personal del servicio: sólo muestra (se carga en Personal). Sin diagramas (2026-11).
@@ -198,7 +354,8 @@ export function render(container, ctx) {
    * cargada, se ofrece convertirla (día ↔ hora) o borrarla. Nunca se
    * reinterpreta el mismo número en otra unidad sin avisar. El mínimo por
    * llamado (que está en la unidad de la tarifa) se convierte con las horas
-   * por día activo; si no se puede (p. ej. de días a m³), se avisa.
+   * por día activo; si no se puede (p. ej. de días a m³), se borra y se avisa,
+   * igual que las cantidades y el mínimo garantizado (V-03, applyUnitChange).
    */
   async function changeUnit(nextUnit) {
     const fromUnit = quote.unit || 'day';
@@ -207,39 +364,35 @@ export function render(container, ctx) {
     const to = billingUnitOf({ ...quote, unit: nextUnit });
     const pricing = quote.pricing || {};
     const hours = quote.activity ? quote.activity.hoursPerActiveDay : null;
-    const minCall = Number(quote.rules && quote.rules.minimumCallUnits);
-    const hasMinCall = Number.isFinite(minCall) && minCall > 0 && minimumCallApplies(from.kind) && minimumCallApplies(to.kind) && from.id !== to.id;
     const timeToTime = ['day', 'hour'].includes(from.kind) && ['day', 'hour'].includes(to.kind);
-    const minCallConverted = hasMinCall && timeToTime ? convertMinimumCallUnits(minCall, fromUnit, nextUnit, hours) : null;
-    const applyMinCall = (q) => {
-      if (hasMinCall && isFiniteNumber(minCallConverted) && q.rules) q.rules.minimumCallUnits = minCallConverted;
+    const minCall = Number(quote.rules && quote.rules.minimumCallUnits);
+    // V-03: cantidades, mínimos e insumos cargados en la unidad anterior se limpian (o, el
+    // mínimo entre día y hora, se convierte) con una sola regla: applyUnitChange. Devuelve
+    // los avisos para el cartel.
+    let unitNotices = [];
+    const applyChange = (q) => {
+      q.unit = nextUnit;
+      unitNotices = applyUnitChange(q, from, to);
     };
-    const minCallUnitText = (n, u) => {
-      if (u.kind === 'hour') return `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'hora' : 'horas'}`;
-      if (u.kind === 'day') return formatDays(n);
-      return quantityText(n, { unitInfo: u });
+    const minCallUnitText = (n, u) => (u.kind === 'hour'
+      ? `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'hora' : 'horas'}`
+      : formatDays(n));
+    /** Texto de lo que cambió además de la unidad (después de mutar). */
+    const changeNote = () => {
+      const now = Number(quote.rules && quote.rules.minimumCallUnits);
+      const converted = Number.isFinite(minCall) && minCall > 0 && timeToTime && Number.isFinite(now) && now > 0 && Math.abs(now - minCall) > 1e-9
+        ? ` Mínimo ${T.per}: ${minCallUnitText(minCall, from)} → ${minCallUnitText(now, to)}.`
+        : '';
+      return `${converted}${unitNotices.length ? ` ${unitNotices.join(' ')}` : ''}`;
     };
-    let minCallNote = '';
-    if (hasMinCall) {
-      if (isFiniteNumber(minCallConverted)) {
-        minCallNote = ` Mínimo ${T.per}: ${minCallUnitText(minCall, from)} → ${minCallUnitText(minCallConverted, to)}.`;
-      } else if (timeToTime) {
-        minCallNote = ` Revisá el mínimo ${T.per} en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir (faltan las horas por día activo).`;
-      } else {
-        minCallNote = ` Revisá el mínimo ${T.per} en "${stepName('margin')}": quedó en ${formatNumber(minCall, { decimals: 2 })} sin convertir y ahora se lee en ${to.plural || 'la unidad nueva'}.`;
-      }
-    }
     const rates = [
       { path: 'knownRate', label: 'Tarifa conocida', value: Number(pricing.knownRate) },
       { path: 'offeredRateOverride', label: `Tarifa ofrecida a mano (en "${stepName('margin')}")`, value: Number(pricing.offeredRateOverride) },
     ].filter((r) => pricing[r.path] !== null && pricing[r.path] !== '' && Number.isFinite(r.value) && r.value > 0);
-    const minCallTone = minCallNote && !isFiniteNumber(minCallConverted) ? 'warning' : 'success';
     if (rates.length === 0) {
-      ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
-      });
-      if (minCallNote) ctx.toast(`Unidad cambiada a ${to.label}.${minCallNote}`, minCallTone);
+      ctx.mutate(applyChange);
+      const note = changeNote();
+      if (note) ctx.toast(`Unidad cambiada a ${to.label}.${note}`, unitNotices.length ? 'warning' : 'success');
       return;
     }
     rates.forEach((r) => {
@@ -249,22 +402,20 @@ export function render(container, ctx) {
     const choice = await askUnitChange({ from, to, fromUnit, rates, convertible, hours: Number(hours) });
     if (choice === 'convert' && convertible) {
       ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
+        applyChange(q);
         rates.forEach((r) => {
           q.pricing[r.path] = r.converted;
         });
       });
-      ctx.toast(`Unidad cambiada a ${to.label}. ${rates.map((r) => `${r.label}: ${formatMoney(r.converted)} ${perText(to)}`).join(' · ')}.${minCallNote}`, minCallTone);
+      ctx.toast(`Unidad cambiada a ${to.label}. ${rates.map((r) => `${r.label}: ${formatMoney(r.converted)} ${perText(to)}`).join(' · ')}.${changeNote()}`, unitNotices.length ? 'warning' : 'success');
     } else if (choice === 'clear') {
       ctx.mutate((q) => {
-        q.unit = nextUnit;
-        applyMinCall(q);
+        applyChange(q);
         rates.forEach((r) => {
           q.pricing[r.path] = r.path === 'knownRate' ? 0 : null;
         });
       });
-      ctx.toast(`Unidad cambiada a ${to.label}. Se borró la tarifa: cargala de nuevo ${perText(to)}.${minCallNote}`, 'warning');
+      ctx.toast(`Unidad cambiada a ${to.label}. Se borró la tarifa: cargala de nuevo ${perText(to)}.${changeNote()}`, 'warning');
     } else {
       // Cancelado: vuelve a mostrar la unidad anterior.
       ctx.rerender();
@@ -377,23 +528,48 @@ export function render(container, ctx) {
   const availableNoun = guardChosen ? 'días de guardia' : 'días del mes';
   const hoursField = () => kit.num('activity.hoursPerActiveDay', {
     // Un solo nombre (2026-11): "Horas trabajadas por día con llamado" no se entendía. Son las
-    // horas que se trabaja cada día que se sale (de 8 a 17 = 9 h), haya guardia o no.
+    // horas que se trabaja cada día que se sale (de 8 a 17 con una hora de almuerzo = 8 h), haya guardia o no.
     label: monthlyContract ? 'Horas de servicio por día' : 'Horas de trabajo por día (horario normal)',
     rule: 'hoursPerDay',
     unit: 'h/día',
     hint: monthlyContract
       ? 'Las horas del día que el cliente tiene cubiertas (8, 12, 24…). No son las horas de cada persona: ésas salen del esquema de cada puesto en Personal. Se usan para el uso de equipos y la tarifa por hora.'
+      // V-04: por cantidad o por evento el campo también va a la vista (antes quedaba en 10, oculto).
+      : byQuantity
+      ? 'Las horas que se trabaja cada día. Se usan para el combustible y el uso de los equipos, y para calcular qué parte del mes les ocupa este servicio.'
       : quote.unit === 'hour'
-      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`
-      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`,
+      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`
+      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`,
   });
   const hourly = quote.unit === 'hour';
-  const hoursInMain = hourly || monthlyContract || asksAvailability;
+  const hoursInMain = hourly || monthlyContract || asksAvailability || byQuantity;
   const monthlyAvailableConflict = monthlyContract && hasNumber(quote.activity && quote.activity.availableDaysPerMonth)
     && hasNumber(quote.activity && quote.activity.activeDaysPerMonth)
     && Number(quote.activity.availableDaysPerMonth) < Number(quote.activity.activeDaysPerMonth) - 1e-9;
   // Se evalúa en cada recálculo (la persona carga la cantidad sin redibujar el paso).
   const hasQuantity = () => hasNumber(quote.activity && quote.activity.billableQuantityPerMonth);
+
+  /**
+   * Hora-hombre (V-04): las horas de trabajo por día salen de las HH por día ÷ personas
+   * (27 HH y 3 personas = 9 h). Queda a la vista en su campo y se puede corregir.
+   */
+  function deriveManHourDay(manHoursPerDay) {
+    if (info.id !== 'manhour') return;
+    const derived = hoursPerDayFromManHours(manHoursPerDay, quote.labor);
+    if (derived === null) return;
+    const hours = Math.round(derived * 100) / 100;
+    ctx.update('activity.hoursPerActiveDay', hours);
+    const input = container.querySelector('input[name="activity.hoursPerActiveDay"]');
+    if (input) {
+      input.value = numberToInputText(hours);
+      input.removeAttribute('aria-invalid');
+    }
+    container.querySelectorAll('[data-hours-shortcut]').forEach((b) => {
+      const on = Math.abs(Number(b.dataset.hoursShortcut) - hours) < 1e-9;
+      b.classList.toggle('is-selected', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
 
   /** Actividad por cantidad (m³, viajes…) o por evento (llamados, trabajos, hitos). */
   function quantityFields() {
@@ -401,7 +577,8 @@ export function render(container, ctx) {
       const isCall = info.id === 'call';
       const isMilestone = info.id === 'milestone';
       return formGrid(
-        isMilestone ? 3 : 2,
+        // Con las horas por día (V-04): 3 campos en una fila; 4 (por hito), de a 2.
+        isMilestone ? 2 : 3,
         kit.num('activity.billableQuantityPerMonth', {
           label: `${Plural} por mes`,
           rule: 'quantity',
@@ -430,12 +607,13 @@ export function render(container, ctx) {
             hint: 'En cuántas partes facturás cada trabajo (por ejemplo: anticipo, avance y entrega).',
           })
           : null,
+        hoursField(),
       );
     }
     // Por m³ / t / litro / barril / kg: con la capacidad del equipo, RATEOS calcula los viajes.
     const byCapacityUnit = CAPACITY_UNITS.includes(info.id);
     return formGrid(
-      byCapacityUnit ? 3 : 2,
+      byCapacityUnit ? 2 : 3,
       kit.num('activity.billableQuantityPerMonth', {
         label: `${Plural} a facturar por mes`,
         rule: 'quantity',
@@ -453,7 +631,10 @@ export function render(container, ctx) {
         hint: tripUnit
           ? `Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo (personal, equipos) y los viajes ${T.per}; los km del mes salen de los viajes que facturás.`
           : 'Lo que hacés en un día de trabajo (rendimiento). Con esto se calculan los días de trabajo: lo que consume personal, equipos y combustible.',
-        onValue: () => syncRouteTrips(),
+        onValue: (value) => {
+          syncRouteTrips();
+          deriveManHourDay(value);
+        },
       }),
       byCapacityUnit
         ? kit.num('activity.unitsPerTrip', {
@@ -464,6 +645,7 @@ export function render(container, ctx) {
           hint: `Lo que lleva el equipo en un viaje (cisterna, batea…). Si la cargás, los viajes ${T.per} se calculan solos: ${info.plural} ${T.per} ÷ capacidad, redondeado hacia arriba. Vacío = los cargás a mano en "${stepName('logistics')}".`,
         })
         : null,
+      hoursField(),
     );
   }
 
@@ -611,6 +793,28 @@ export function render(container, ctx) {
         }, { tag: 'div', allowEmpty: true })
         : null)
     : null;
+  // Por cantidad: "¿Cómo son los llamados?" vive en "Opciones avanzadas" (no es la unidad que se
+  // cobra). V-08: cuando salta el aviso "cada llamado hace menos de una unidad" pasa a la vista,
+  // debajo de la cantidad, y ahí se queda hasta que se vuelve a dibujar el paso (no se va
+  // mientras se corrige el dato).
+  const quantityPace = kind === 'quantity'
+    ? kit.activationPace({
+      T,
+      label: `¿Cómo son ${T.theMany} ${T.many}?`,
+      hint: tripUnit
+        ? `Viajes ${T.per} = viajes por día × días ${T.per}.`
+        : `No es la unidad que cobrás: define cuántas ${T.many} (movilizaciones, mínimos ${T.per}) hay en el mes.`,
+      onValue: () => syncRouteTrips(),
+    })
+    : null;
+  const quantityPaceSlot = quantityPace ? h('div', {}, quantityPace) : null;
+  const quantityPaceMain = quantityPace ? h('div', { class: 'qe-pace-main' }) : null;
+  if (quantityPace) {
+    kit.toggle(quantityPaceMain, (r) => {
+      if (quantityPace.parentNode !== quantityPaceMain && sparseActivationsWarned(r)) quantityPaceMain.appendChild(quantityPace);
+      return quantityPace.parentNode === quantityPaceMain;
+    });
+  }
   const activityCard = card(
     {},
     byQuantity
@@ -662,6 +866,7 @@ export function render(container, ctx) {
       })
       : null,
     byQuantity ? quantityKeyline : daysKeyline,
+    quantityPaceMain,
     staffForCoverageSlot(),
     // PLAN-2026-012: viajes facturables, físicos, días de trabajo y km (unidad "viaje").
     tripUnit ? kit.group('Viajes y km del mes', transportStats(kit)) : null,
@@ -711,16 +916,7 @@ export function render(container, ctx) {
       ),
       // Por cantidad: cuántas intervenciones (movilizaciones, mínimos) hay.
       // Puede durar varios días o haber varias en un día (se guarda 1 / N).
-      kind === 'quantity'
-        ? kit.activationPace({
-          T,
-          label: `¿Cómo son ${T.theMany} ${T.many}?`,
-          hint: tripUnit
-            ? `Viajes ${T.per} = viajes por día × días ${T.per}.`
-            : `No es la unidad que cobrás: define cuántas ${T.many} (movilizaciones, mínimos ${T.per}) hay en el mes.`,
-          onValue: () => syncRouteTrips(),
-        })
-        : null,
+      quantityPaceSlot,
       isOnCall && !asksAvailability && !(quote.activity && quote.activity.availability === 'none')
         ? kit.group(
           'Respuesta on-call',
@@ -775,14 +971,13 @@ export function render(container, ctx) {
   const isEquipment = (l) => l.category === 'equipment' || l.category === 'external';
   const isOther = (l) => !isLabor(l) && !isEquipment(l) && l.category !== 'structure' && l.category !== 'financial' && l.category !== 'contingency';
   const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => {
-    const fixed = sumLines(r, test, 'fixedMonthly');
-    return fixed > 0.005 ? `${formatMoney(fixed)} por mes` : sumLines(r, test, 'variablePerActiveDay') > 0.005 ? `${formatMoney(sumLines(r, test, 'variablePerActiveDay'))} por día` : EMPTY;
+    return resourceCostText(sumLines(r, test, 'fixedMonthly'), sumLines(r, test, 'variablePerActiveDay'));
   }, {
     hint: (r) => {
       const fixed = sumLines(r, test, 'fixedMonthly');
       const variable = sumLines(r, test, 'variablePerActiveDay');
       if (!(fixed > 0.005) && !(variable > 0.005)) return `${emptyText} Se carga en "${stepName(stepId)}".`;
-      return `${fixed > 0.005 && variable > 0.005 ? `Más ${formatMoney(variable)} por cada día de trabajo. ` : ''}Se cambia en "${stepName(stepId)}".`;
+      return `${fixed > 0.005 && variable > 0.005 ? 'Lo de por día se suma cada día de trabajo. ' : ''}Se cambia en "${stepName(stepId)}".`;
     },
   });
   const resourcesCard = card(
@@ -808,7 +1003,9 @@ export function render(container, ctx) {
     ...ownedEquipment.map(({ e, i }) => ({ kind: 'equipment', i, line: e, name: (e && e.name) || 'Equipo' })),
   ].filter((t) => t.line && typeof t.line === 'object');
   const sharedCount = shareTargets.filter((t) => t.line.assignment === 'shared').length;
-  const dedicationValue = !shareTargets.length ? null : sharedCount === 0 ? 'yes' : sharedCount === shareTargets.length ? 'no' : null;
+  // V-01: "Sí" sólo se muestra marcado si alguien lo eligió (alguna línea con respuesta
+  // explícita). Sin dato el costo es 100 %, pero no es una respuesta.
+  const dedicationValue = dedicationChoiceOf(shareTargets.map((t) => t.line));
   const applyShares = (onlyMissing = false) => {
     const result = ctx.result;
     ctx.mutate((q) => {
@@ -827,12 +1024,14 @@ export function render(container, ctx) {
       });
     });
   };
+  // "Sí": la respuesta se escribe en todas las líneas (V-01; antes sólo en las compartidas, y en
+  // una cotización nueva no guardaba nada). No cambia ningún número: sin dato ya era 100 %.
   const applyDedicated = () => ctx.mutate((q) => {
     (Array.isArray(q.labor) ? q.labor : []).forEach((l) => {
-      if (l && typeof l === 'object' && l.assignment === 'shared') l.assignment = 'dedicated';
+      if (l && typeof l === 'object' && l.assignment !== 'hired') l.assignment = 'dedicated';
     });
     (Array.isArray(q.equipment) ? q.equipment : []).forEach((e) => {
-      if (e && typeof e === 'object' && e.assignment === 'shared') e.assignment = 'reserved';
+      if (e && typeof e === 'object' && e.acquisition !== 'rented' && e.acquisition !== 'outsourced') e.assignment = 'reserved';
     });
   });
   const pctText = (v) => formatPercent(Number(v));
@@ -856,7 +1055,7 @@ export function render(container, ctx) {
             label: `${t.name}: % de su mes`,
             rule: 'sharePct',
             unit: '%',
-            hint: t.kind === 'labor' ? 'Qué parte de su sueldo con cargas paga este servicio.' : 'Qué parte de su amortización, seguro y patente paga este servicio.',
+            hint: `${t.kind === 'labor' ? 'Qué parte de su sueldo con cargas paga este servicio.' : 'Qué parte de su amortización, seguro y patente paga este servicio.'} Vacío = 100\u00a0%.`,
           }))),
           kit.out((r) => {
             const proposal = proposeServiceShares(quote, r.activity);
@@ -868,11 +1067,22 @@ export function render(container, ctx) {
               const now = Number((kit.get(`${t.kind}.${t.i}`) || {}).fixedCostSharePct);
               return p !== null && (!Number.isFinite(now) || Math.abs(now - p) > 0.05);
             });
-            return h('p', { class: 'qe-note' },
-              `Hoy este servicio les ocupa ${num(proposal.serviceHours)} h por mes: el ${pctText(first)} de su mes. `,
+            // V-11: más de 5 puntos de diferencia ya no es un detalle: se avisa en naranja.
+            const old = staleDedicationOf(quote, r.activity);
+            return h('p', { class: ['qe-note', old ? 'is-warning' : null] },
+              old ? `${staleDedicationMessage(old)} ` : null,
+              `${dedicationOccupancyText(proposal, quote)} `,
               stale && !kit.readOnly ? button(`Usar ${pctText(first)}`, { variant: 'secondary', size: 'sm', onClick: () => applyShares(false) }) : null,
               ' Si cambiás los días, revisá este porcentaje. Si los otros trabajos no aparecen, esa parte del sueldo queda sin cubrir.');
           }, { tag: 'div', allowEmpty: true }))
+        : null,
+      // Sin elegir (V-01): el precio ya carga el mes completo; se dice acá, donde se decide.
+      dedicationValue === null && sharedCount === 0
+        ? kit.out((r) => {
+          const absorbed = ((r.completeness && r.completeness.notices) || []).find((n) => n.id === 'fixed_costs_absorbed');
+          const amount = absorbed && isFiniteNumber(absorbed.amount) && absorbed.amount > 0 ? `: ${formatMoney(absorbed.amount)}` : '';
+          return h('p', { class: ['qe-note', 'is-warning'] }, `Todavía no elegiste. Mientras tanto, este servicio paga todo el mes de tu gente y tus equipos${amount}.`);
+        }, { tag: 'div', allowEmpty: true })
         : null,
       dedicationValue === null && sharedCount > 0
         ? h('p', { class: 'qe-note' }, 'Hoy algunos recursos están compartidos y otros no (se cambia en cada persona o equipo). Elegí una opción para dejarlos todos iguales.')
@@ -900,27 +1110,26 @@ export function render(container, ctx) {
       h('strong', {}, kit.out((r) => (oohLine(r, i) ? oohLine(r, i).label : x.label || 'Hora fuera de horario'))),
       h('span', { class: 'small muted' }, Number(x.premiumPct) >= 100 ? 'Lo habitual: sábados a la tarde, domingos y feriados (revisá tu convenio).' : 'Lo habitual: días de semana fuera del horario y sábados a la mañana (revisá tu convenio).')),
     kit.stats(
-      kit.stat('Te cuesta por hora (gente + equipos)', (r) => (oohLine(r, i) && oohLine(r, i).costPerUnit > 0 ? formatMoney(oohLine(r, i).costPerUnit) : EMPTY), {
-        hint: (r) => {
-          const b = r.outOfHours && r.outOfHours.basis;
-          if (!b) return '';
-          return `Lo que pagás de más por esa hora: las horas extra de ${num(b.people)} ${b.people === 1 ? 'persona' : 'personas'} con cargas${b.equipmentPerHour > 0 ? ` y el uso de los equipos (${formatMoney(b.equipmentPerHour)} por hora de combustible y mantenimiento)` : ''}. Sueldos y amortización ya están en el mes.`;
-        },
+      kit.stat((r) => outOfHoursCostLabel(r.outOfHours && r.outOfHours.basis), (r) => (oohLine(r, i) && oohLine(r, i).costPerUnit > 0 ? formatMoney(oohLine(r, i).costPerUnit) : EMPTY), {
+        hint: (r) => outOfHoursCostHint(r.outOfHours && r.outOfHours.basis, { travels: ownEquipmentTravels(quote) }),
       }),
-      kit.stat('Precio sugerido por hora', (r) => (oohLine(r, i) && isFiniteNumber(oohLine(r, i).suggestedPrice) ? formatMoney(oohLine(r, i).suggestedPrice) : EMPTY), {
+      kit.stat(info.id === 'manhour' ? 'Precio sugerido por hora de toda la cuadrilla' : 'Precio sugerido por hora', (r) => (oohLine(r, i) && isFiniteNumber(oohLine(r, i).suggestedPrice) ? formatMoneyCeil(oohLine(r, i).suggestedPrice) : EMPTY), {
         emphasis: true,
         hint: (r) => {
           const l = oohLine(r, i);
           if (!l || !isFiniteNumber(l.suggestedPrice)) return 'Cargá el personal, los días y las horas para ver el precio.';
-          return l.priceBasis === 'normal_hour'
-            ? `Tu hora normal (${formatMoney(l.referenceHourPrice)}) más el recargo de las horas extra con tu margen (${formatMoney(l.surchargePrice || 0)}). Así nunca queda más barata que una hora normal.`
-            : 'El costo de esa hora con tus gastos de estructura, tu margen y los impuestos.';
+          return suggestedHourHint(l);
         },
       }),
     ),
     formGrid(2,
-      kit.num(`extras.${i}.price`, { label: 'Tu precio por hora (opcional)', rule: 'money', unit: '$/h', placeholder: 'Usar el sugerido', hint: 'Sin IVA. Vacío = se usa el sugerido.' }),
-      kit.num(`extras.${i}.quantityPerMonth`, { label: 'Horas estimadas por mes (opcional)', rule: 'quantity', unit: 'h/mes', placeholder: '0', hint: 'Si no sabés, dejalo vacío: el precio queda en la cotización como tarifa y no suma al mes.' }))));
+      kit.num(`extras.${i}.price`, { label: 'Tu precio por hora (opcional)', rule: 'money', unit: '$/h', placeholder: 'Usar el sugerido', hint: info.id === 'manhour' ? 'Sin IVA, por hora de toda la cuadrilla (no por hora-hombre). Vacío = se usa el sugerido.' : 'Sin IVA. Vacío = se usa el sugerido.' }),
+      kit.num(`extras.${i}.quantityPerMonth`, { label: 'Horas estimadas por mes (opcional)', rule: 'quantity', unit: 'h/mes', placeholder: '0', hint: 'Si no sabés, dejalo vacío: el precio queda en la cotización como tarifa y no suma al mes.' })),
+    // V-09: un precio a mano por debajo de la hora normal se avisa acá, al lado del campo.
+    kit.out((r) => {
+      const text = cheaperThanNormalHourText(oohLine(r, i));
+      return text ? h('p', { class: ['qe-note', 'is-warning'] }, text) : '';
+    }, { tag: 'div', allowEmpty: true })));
   const outOfHoursCard = monthlyContract || !byQuantity || kind === 'quantity' || kind === 'event' ? card(
     { title: 'Trabajo fuera del horario normal (opcional)', subtitle: 'Si te piden trabajar fuera de tu horario, a tu gente le pagás horas extra: esa hora tiene otra tarifa.', className: 'qe-ooh-card' },
     yesNo({
@@ -936,9 +1145,9 @@ export function render(container, ctx) {
       ? kit.out((r) => {
         const o = r.outOfHours || {};
         if (!o.basis || !(o.basis.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, `Falta el personal con su sueldo (en "${stepName('labor')}"): sin eso no se puede calcular la hora extra.`);
-        return h('p', { class: 'qe-note' }, isFiniteNumber(o.normalHourPrice)
-          ? `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${o.normalHourSource === 'resources' ? 'lo que cuestan tu gente y tus equipos por hora, con tu margen' : 'sale de tu tarifa'}). El precio sugerido es esa hora más el recargo de las horas extra. Se cobra aparte de la tarifa.`
-          : 'Cargá las horas de trabajo por día para comparar con tu hora normal.');
+        return h('div', { class: 'stack stack-tight' },
+          h('p', { class: 'qe-note' }, outOfHoursHoursNote(r)),
+          h('p', { class: 'qe-note' }, outOfHoursNoteText(r, info)));
       }, { tag: 'div', allowEmpty: true })
       : null,
   ) : null;
@@ -960,16 +1169,16 @@ export function render(container, ctx) {
       guardChosen || feeNow || calloutNow
         ? formGrid(2,
           kit.num('rules.availabilityFeeMonthly', {
-            label: 'Guardia pasiva: fijo por mes',
+            label: GUARD_FEE_LABEL,
             rule: 'money',
             unit: '$/mes',
             placeholder: 'Ej.: 500.000',
             hint: `Lo que cobrás por estar disponible, haya ${T.many} o no. Se suma a lo trabajado y baja la tarifa que necesitás por cada ${T.one}.`,
           }),
           kit.num('rules.calloutFeePerActivation', {
-            label: `Guardia activa: plus por cada ${T.one}`,
+            label: `Plus por cada ${T.one}`,
             rule: 'money',
-            unit: '$',
+            unit: `$/${T.one}`,
             placeholder: 'Ej.: 150.000',
             hint: `Un cargo fijo cada vez que te llaman y salís, además de las horas o los días trabajados.`,
           }))

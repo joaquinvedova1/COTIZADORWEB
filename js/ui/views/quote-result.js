@@ -85,7 +85,7 @@ import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
-import { activationTerms } from '../../domain/activation-terms.js';
+import { activationTerms, GUARD_FEE_LABEL } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
 import { staffText } from './quote-steps/labor.js';
 import { normalizeRules, revenueComposition, floorWithoutOtherRevenue } from '../../engines/commercial-rules-engine.js';
@@ -121,6 +121,13 @@ import {
   capAllDaysNote,
   lossWindowText,
   lossWindowSegments,
+  tariffRows,
+  guaranteeMarginNote,
+  outOfHoursMarginNote,
+  outOfHoursBreakEvenNote,
+  coveredByOtherRevenue,
+  coveredRateText,
+  rateBelowHourCostText,
 } from '../result-text.js';
 
 /**
@@ -467,7 +474,8 @@ function closedOf(v) {
 /** Tarifa piso sin contar adicionales (A-7): { text, tip } o null (lo calcula el motor). */
 function floorExtras(v) {
   try {
-    return floorWithoutExtrasText(floorWithoutOtherRevenue(v.r.ratesAtEstimate), v.unitLabel);
+    const extrasLoadedCost = v.r.extras && Number.isFinite(v.r.extras.loadedCost) ? v.r.extras.loadedCost : 0;
+    return floorWithoutExtrasText(floorWithoutOtherRevenue(v.r.ratesAtEstimate, { extrasLoadedCost }), v.unitLabel);
   } catch (error) {
     logger.warn('No se pudo calcular la tarifa piso sin adicionales', { message: error && error.message });
     return null;
@@ -511,7 +519,7 @@ function stepLabel(step) {
 }
 
 function stepLink(quote, step, text = null) {
-  return h('a', { class: 'qr-step-link', href: stepHref(quote, step) }, text || `Ir a ${stepLabel(step)}`);
+  return h('a', { class: 'qr-step-link', href: stepHref(quote, step) }, text || `Ir a "${stepLabel(step)}"`);
 }
 
 /**
@@ -800,7 +808,7 @@ function traceRateForMargin(v, row) {
       { label: 'Costo total del mes', value: ra.totalCost, format: 'money' },
       { label: 'Margen sobre precio', value: m, format: 'percent' },
       ...(hasValue(ra.billingTaxPct) && ra.billingTaxPct > 0 ? [{ label: 'Impuestos sobre la facturación', value: ra.billingTaxPct, format: 'percent' }] : []),
-      { label: 'Otros ingresos (abono de disponibilidad, equipo en espera, km)', value: ra.otherRevenue, format: 'money' },
+      { label: 'Otros ingresos (fijo por estar de guardia, equipo en espera, km)', value: ra.otherRevenue, format: 'money' },
       { label: `Unidades facturables (${v.unitLabel})`, value: ra.billableUnits, format: 'number' },
       { label: 'Factor de descuentos', value: ra.discountFactor, format: 'number' },
     ],
@@ -1140,9 +1148,18 @@ function criticalAlerts(v) {
   const unitIssues = (Array.isArray(r.issues) ? r.issues : []).filter(unitIssue);
   if (unitIssues.length) {
     out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
-      stepLink(v.q, 'modality', `Ir a ${stepLabel('modality')}`)));
+      stepLink(v.q, 'modality', `Ir a "${stepLabel('modality')}"`)));
   }
-  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i);
+  // Avisos de adicionales (V-09): no reemplazan ningún valor, van en su propia lista.
+  const extraIssues = (Array.isArray(r.issues) ? r.issues : []).filter(isExtrasIssue);
+  if (extraIssues.length) {
+    out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
+      h('div', {},
+        h('strong', {}, 'Adicionales para revisar:'),
+        h('ul', {}, ...extraIssues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
+        stepLink(v.q, 'modality', `Ir a "${stepLabel('modality')}"`))));
+  }
+  const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i) || isExtrasIssue(i);
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
   if (issues.length) {
     out.push(h('div', { class: 'banner banner-warning qr-issues qr-alert', role: 'status' },
@@ -1153,6 +1170,11 @@ function criticalAlerts(v) {
         issues.length > 6 ? h('span', { class: 'small' }, `y ${formatNumber(issues.length - 6)} más.`) : null)));
   }
   return out;
+}
+
+/** ¿El aviso es de un adicional o de una hora fuera de horario? (ruta `extras.*`, V-09). */
+export function isExtrasIssue(issue) {
+  return String((issue && issue.path) || '').split('.')[0] === 'extras';
 }
 
 /** Notas sobre los días mínimos (van con el detalle; la frase principal ya lo resume). */
@@ -1362,7 +1384,7 @@ function heroKnownActivity(v) {
       heroItem({
         label: SUGGESTED_TITLE,
         value: minRateNode(suggested, v.unitLabel),
-        hint: suggested !== null ? 'Precio objetivo redondeado hacia arriba (nunca baja el margen).' : byQty(v) ? `Aparece cuando haya costos y ${r.unitInfo.plural} por mes cargados.` : 'Aparece cuando haya costos y días activos cargados.',
+        hint: suggested !== null ? 'Precio objetivo redondeado hacia arriba (nunca baja el margen).' : coveredByOtherRevenue(r) ? coveredRateText(r) : byQty(v) ? `Aparece cuando haya costos y ${r.unitInfo.plural} por mes cargados.` : 'Aparece cuando haya costos y días activos cargados.',
         lazyTrace: () => traceSuggested(v),
         lazyTitle: SUGGESTED_TITLE,
         big: true,
@@ -1574,9 +1596,12 @@ function floorStat(v) {
   const { k } = v;
   const mr = minimumRates(v);
   const costOk = hasValue(k.totalCost) && k.totalCost > 0;
-  const value = costOk ? mr.floorMain : null;
+  // V-28: si la guardia y los adicionales ya cubren todo, el piso va como la sugerida ("—"), no "$ 0" (revisión UX).
+  const covered = costOk && coveredByOtherRevenue(v.r);
+  const value = costOk && !covered ? mr.floorMain : null;
   let hint;
-  if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
+  if (covered) hint = statHint(coveredRateText(v.r));
+  else if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
   else if (!hasValue(value)) hint = statHint(byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes.` : 'Falta estimar los días activos del mes.');
   else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`, floorExtrasLine(v));
   return statItem({
@@ -1601,7 +1626,7 @@ function priceStat(v) {
       label: 'Tarifa sugerida',
       value: ceilMoney(k.commercialListRate),
       unit,
-      hint: statHint(targetGoalHint(k.targetMarginPct)),
+      hint: statHint(targetGoalHint(k.targetMarginPct), rateBelowHourCostText(r) ? h('strong', { class: 'qr-unreliable-note' }, rateBelowHourCostText(r)) : null),
       trace: traceSuggested(v),
       className: 'qr-stat qr-stat-price',
     });
@@ -1629,6 +1654,10 @@ function priceStat(v) {
       className: 'qr-stat qr-stat-price',
     });
   }
+  // V-28: la guardia y los adicionales ya cubren costo y margen: no hace falta una tarifa por unidad.
+  if (coveredByOtherRevenue(r)) {
+    return statItem({ label: 'Tarifa sugerida', value: EMPTY, hint: statHint(coveredRateText(r)), className: 'qr-stat qr-stat-price' });
+  }
   return statItem({
     label: 'Tarifa sugerida',
     value: EMPTY,
@@ -1644,6 +1673,17 @@ function priceStat(v) {
 /** ¿Cuánto gano? (margen sobre el precio; el markup va en "Ver cálculo" y en "Margen vs markup"). */
 function marginStat(v) {
   const { k } = v;
+  // V-28: sin tarifa por unidad porque la guardia ya cubre todo: el margen del mes sale de la estimación del motor.
+  const est = v.r.estimate || {};
+  if (coveredByOtherRevenue(v.r) && hasValue(est.marginPct)) {
+    return statItem({
+      label: 'Margen',
+      value: pct(est.marginPct),
+      hint: statHint(`Ganás ${money(est.profit)} por mes con la guardia y los adicionales, sin contar la tarifa por ${(v.r.unitInfo && v.r.unitInfo.singular) || 'unidad'}.`),
+      tone: unreliableText(v.r.completeness, 'este margen') ? 'red' : !k.billingTaxesDefined ? 'orange' : 'green',
+      className: 'qr-stat qr-stat-margin',
+    });
+  }
   const rateOk = hasRate(k);
   const ok = rateOk && hasValue(k.marginPct);
   let hint;
@@ -1655,8 +1695,8 @@ function marginStat(v) {
   else {
     const per = closedOf(v).single ? 'por trabajo' : 'por mes';
     if (hasValue(k.profit) && k.profit < -1e-6) hint = statHint(`Perdés ${money(-k.profit)} ${per}.`);
-    else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} ${per} (tu objetivo: ${pct(k.targetMarginPct)}).`);
-    else hint = statHint(`Ganás ${money(k.profit)} ${per}.`);
+    else if (k.belowTarget) hint = statHint(`Ganás ${money(k.profit)} ${per} (tu objetivo: ${pct(k.targetMarginPct)}).`, guaranteeMarginNote(v.r), outOfHoursMarginNote(v.r));
+    else hint = statHint(`Ganás ${money(k.profit)} ${per}.`, guaranteeMarginNote(v.r), outOfHoursMarginNote(v.r));
   }
   // Sin impuestos sobre la facturación definidos, una ganancia no es "verde" todavía.
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && hasValue(k.profit) && k.profit >= 0 ? 'orange' : marginTone(k);
@@ -1688,6 +1728,8 @@ function noRateContent(v) {
       ? `Sin tarifa sugerida: con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${pct(100 - k.billingTaxPct)}. `
       : 'Sin tarifa sugerida: el margen objetivo no es válido. ', stepLink(q, 'margin', 'Corregilo en "El precio"'), ` para saber ${need}.`];
   }
+  // V-28: la guardia y los adicionales ya cubren todo.
+  if (coveredByOtherRevenue(r)) return [coveredRateText(r)];
   return [`Definí una tarifa para saber ${need}. `, stepLink(q, 'margin'), '.'];
 }
 
@@ -1796,7 +1838,9 @@ function workBlock(v) {
     h('div', { class: 'qr-work-body' },
       unreliable ? h('p', { class: 'qr-work-text qr-unreliable-note' }, h('strong', {}, unreliable)) : null,
       h('p', { class: 'qr-work-text' }, ...content),
-      rateOk && !isMonth ? lossWindowNote(r, D) : null),
+      rateOk && !isMonth ? lossWindowNote(r, D) : null,
+      // V-27: las horas fuera de horario estimadas se cuentan enteras en el equilibrio.
+      rateOk && !isMonth && outOfHoursBreakEvenNote(r) ? h('p', { class: 'qr-work-text qr-note' }, outOfHoursBreakEvenNote(r)) : null),
     trace ? h('div', { class: 'qr-work-trace' }, traceBtn(trace)) : null);
 }
 
@@ -1832,28 +1876,14 @@ function draftBanner(v) {
 }
 
 /**
- * Tus tarifas (PLAN-2026-025): la tarifa del horario normal y, si se cotizaron, las horas fuera
- * de horario (50 % y 100 %), la guardia pasiva y el plus por llamado. Todo con los valores del
- * motor. Sólo aparece si hay algo más que la tarifa principal (que ya está arriba).
+ * Tus tarifas (PLAN-2026-025, V-12): la tarifa del horario normal y todo lo demás que se le
+ * cobra al cliente (horas fuera de horario, guardia, mínimos, adicionales). Las filas las arma
+ * `tariffRows` (../result-text.js) con los valores del motor. Sólo aparece si hay algo más que
+ * la tarifa principal (que ya está arriba).
  */
 function tariffsBlock(v) {
-  const { r } = v;
-  const lines = (r.outOfHours && r.outOfHours.lines) || [];
-  const rules = normalizeRules((r.ctx && r.ctx.rules) || {});
-  const guardFee = rules.availabilityFeeMonthly > 0 && r.unit !== 'month';
-  const callout = rules.calloutFeePerActivation > 0;
-  if (!lines.length && !guardFee && !callout) return null;
-  const T = termsOfResult(r);
-  const k = r.kpis || {};
-  const main = isFiniteNumber(k.commercialListRate)
-    ? `${k.commercialSource === 'suggested' ? formatMoneyCeil(k.commercialListRate) : formatMoney(k.commercialListRate)} / ${r.unitInfo.singular || r.unitLabel}`
-    : EMPTY;
-  const rows = [
-    ['Horario normal', main],
-    ...lines.map((l) => [l.label, l.price !== null ? `${formatMoney(l.price)} / hora${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
-    guardFee ? ['Guardia pasiva (fijo por estar disponible)', `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
-    callout ? [`Guardia activa (plus ${T.per})`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
-  ].filter(Boolean);
+  const rows = tariffRows(v.r);
+  if (!rows.length) return null;
   return h('div', { class: 'qr-tariffs' },
     h('h4', { class: 'qr-subhead' }, 'Tus tarifas (sin IVA)'),
     h('dl', { class: 'qr-rules-list' }, ...rows.map(([term, value]) => h('div', { class: 'qr-rules-item' }, h('dt', {}, term), h('dd', { class: 'mono' }, value)))));
@@ -2114,6 +2144,8 @@ function renderAppropriation(v) {
     contract = h('div', { class: 'qr-contract' },
       h('h4', { class: 'qr-subhead' }, `Total del contrato (${formatNumber(months)} ${months === 1 ? 'mes' : 'meses'})`),
       totals(c.contract),
+      // V-33 (TRAIL-06): una cotización nace con 12 meses; un trabajo único no es un contrato de un año.
+      months > 1 ? note('Si es un trabajo único, poné 1 mes en "El servicio" (Duración del contrato).') : null,
       // Valores constantes (PLAN-2026-010): sin escalación ni índices; muy visible.
       banner(`Valores constantes a base ${offerBase}: el total multiplica el mes por ${formatNumber(months)} con la misma actividad todos los meses. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }));
   }
@@ -3401,7 +3433,7 @@ function rulesSummary(v) {
   const isMonth = r.unit === 'month';
   const items = [];
   if (rules.availabilityFeeMonthly > 0) {
-    items.push(['Abono de disponibilidad', `${money(rules.availabilityFeeMonthly)} por mes, se trabaje o no.`]);
+    items.push([GUARD_FEE_LABEL, `${money(rules.availabilityFeeMonthly)} por mes, se trabaje o no.`]);
   }
   if (rules.minimumMonthlyGuarantee > 0) {
     const topUp = revenue.guaranteeTopUp;
@@ -3422,7 +3454,7 @@ function rulesSummary(v) {
     items.push([`Mínimo ${T.per} (minimum call)`, `Se facturan al menos ${units} ${T.per}, aunque se trabaje menos.`]);
   }
   if (rules.calloutFeePerActivation > 0) {
-    items.push([`Cargo ${T.per} (call-out fee)`, `${money(rules.calloutFeePerActivation)} ${T.per}.${adds(comps.callout)}`]);
+    items.push([`Plus por cada ${T.one}`, `${money(rules.calloutFeePerActivation)} ${T.per}.${adds(comps.callout)}`]);
   }
   if (rules.mobilizationFeePerActivation > 0) {
     items.push(['Movilización', `${money(rules.mobilizationFeePerActivation)} ${T.per}.${adds(comps.mobilization)}`]);
@@ -3475,8 +3507,8 @@ function revenueCompositionBlock(v, revenue, T) {
   const units = hasValue(revenue.billableUnits) ? (r.unit === 'quantity' ? quantityText(revenue.billableUnits, r) : `${formatNumber(revenue.billableUnits, { decimals: 2 })} ${r.unitInfo.plural || 'unidades'}`) : null;
   const labels = {
     base: r.unit === 'month' ? 'Abono mensual (la tarifa)' : `Tarifa${units ? ` × ${units}` : ''}`,
-    availabilityFee: 'Abono de disponibilidad',
-    callout: `Cargos ${T.per}`,
+    availabilityFee: GUARD_FEE_LABEL,
+    callout: `Plus por cada ${T.one}`,
     mobilization: 'Movilización',
     extraKm: 'Km adicionales',
     standby: 'Equipo en espera',

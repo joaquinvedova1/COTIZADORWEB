@@ -16,7 +16,7 @@ import { createTrace } from '../core/trace.js';
 import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
 import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
-import { hasOutOfHours, isOutOfHoursExtra, normalHourEquivalent, resourceNormalHourCost } from './out-of-hours-engine.js';
+import { hasOutOfHours, isOutOfHoursExtra, normalHourEquivalent, resourceNormalHourCost, MAN_HOUR_UNIT } from './out-of-hours-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
 import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even-engine.js';
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
@@ -171,6 +171,9 @@ function resourcesPerDayCheck(quote, unitId, a) {
   return null;
 }
 
+/** Código del aviso "cada llamado hace menos de una unidad" (V-08): la pantalla lo usa para mostrar el ritmo de los llamados. */
+export const SPARSE_ACTIVATIONS_ISSUE = 'sparse_activations';
+
 function unitIssues(quote, ctx) {
   const issues = [];
   const u = ctx.unitInfo;
@@ -217,9 +220,17 @@ function unitIssues(quote, ctx) {
   if (u.kind === 'quantity' && a.unitsPerActiveDay > 0 && !(minCall > 0) && u.id !== 'trip') {
     const perActivation = a.unitsPerActiveDay * a.daysPerActivation;
     if (perActivation < 1 - 1e-9) {
+      // V-08: los dos valores posibles salen de datos ya cargados. Una sola ida para toda la
+      // cantidad del mes (cantidad ÷ por día) o una salida por unidad (1 ÷ por día).
+      const quantity = nonNegative(a.billableQuantityPerMonth);
+      const each = `Si cada ${u.singular} es ${T.a} ${T.one} ${T.g('distinta', 'distinto')}, cargá ${fmt(1 / a.unitsPerActiveDay)}`;
+      const fix = quantity > 0
+        ? `Si es una sola ida para ${fmt(quantity)} ${quantity === 1 ? u.singular : u.plural}, cargá ${fmt(quantity / a.unitsPerActiveDay)} días ${T.per}. ${each}.`
+        : `${each} días ${T.per}.`;
       issues.push({
         path: 'activity.daysPerActivation',
-        message: `Cada ${T.one} hace sólo ${fmt(perActivation)} ${u.singular} (${fmt(a.unitsPerActiveDay)} por día × ${fmt(a.daysPerActivation)} días): la movilización y los costos ${T.per} se cuentan más de una vez por ${u.singular}. Si cada ${u.singular} es ${T.a} ${T.one}, cargá ${fmt(1 / a.unitsPerActiveDay)} días ${T.per}.`,
+        code: SPARSE_ACTIVATIONS_ISSUE,
+        message: `Cada ${T.one} hace sólo ${fmt(perActivation)} ${u.singular} (${fmt(a.unitsPerActiveDay)} por día × ${fmt(a.daysPerActivation)} días): la movilización y los costos ${T.per} se cuentan más de una vez por ${u.singular}. ${fix}`,
         severity: 'warning',
       });
     }
@@ -621,7 +632,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         : 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
       inputs: [
         { label: 'Costos fijos mensuales', value: linearTarget.fixedCosts, format: 'money' },
-        { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera, adicionales)', value: linearTarget.fixedRevenue, format: 'money' },
+        { label: 'Ingresos fijos (fijo por estar de guardia, equipo en espera, adicionales)', value: linearTarget.fixedRevenue, format: 'money' },
         { label: 'Ingreso por día activo', value: linearTarget.revenuePerActiveDay, format: 'money' },
         { label: 'Costo variable por día activo', value: linearTarget.variableCostPerDay, format: 'money' },
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
@@ -650,7 +661,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       inputs: [
         { label: 'Costo total del mes', value: ratesAtEstimate.totalCost, format: 'money' },
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
-        { label: 'Otros ingresos (abono de disponibilidad, equipo en espera, km)', value: ratesAtEstimate.otherRevenue, format: 'money' },
+        { label: 'Otros ingresos (fijo por estar de guardia, equipo en espera, km)', value: ratesAtEstimate.otherRevenue, format: 'money' },
         { label: `Unidades facturables (${unitInfo.plural})`, value: ratesAtEstimate.billableUnits, format: 'number' },
         { label: 'Factor de descuentos (tramo × continuidad × comercial)', value: ratesAtEstimate.discountFactor, format: 'number' },
       ],
@@ -835,7 +846,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       // Hora normal leída de la tarifa (sólo cobrando por hora o por día).
       const rateHourPrice = withOutOfHours
         ? referenceHourPrice
-        : normalHourEquivalent({ unitKind: unitInfo.kind, listRate: commercialListRate, hoursPerActiveDay: activity.hoursPerActiveDay });
+        : normalHourEquivalent({ unitKind: unitInfo.kind, unitId: unitInfo.id, listRate: commercialListRate, hoursPerActiveDay: activity.hoursPerActiveDay, people: model.outOfHours.people });
       const used = lines.find((l) => isFiniteNumber(l.referenceHourPrice));
       return {
         basis: model.outOfHours,
@@ -844,6 +855,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         // La que se usó de piso: la de la tarifa o, con abono / precio cerrado / por unidad, la de los recursos.
         normalHourPrice: used ? used.referenceHourPrice : rateHourPrice,
         normalHourSource: used ? used.referenceSource : rateHourPrice !== null ? 'rate' : null,
+        // Hora-hombre (V-34): las horas fuera de horario son por hora de TODA la cuadrilla, no por hora-hombre.
+        crewHour: unitInfo.id === MAN_HOUR_UNIT,
         lines,
       };
     })(),

@@ -13,7 +13,10 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { utilizationPct, activeDaysFromUtilization, matrixDays, buildRateUtilizationMatrix } from '../../js/engines/utilization-engine.js';
+import { utilizationPct, activeDaysFromUtilization, matrixDays, buildRateUtilizationMatrix, proposeServiceShares } from '../../js/engines/utilization-engine.js';
+import { computeQuote } from '../../js/engines/quote-engine.js';
+import { hoursPerDayFromManHours } from '../../js/domain/unit-change.js';
+import { service, person, resetIds } from '../lab/lib/build.js';
 import { buildCostModel } from '../../js/engines/cost-engine.js';
 import { createEconomicsContext } from '../../js/engines/economics-engine.js';
 import { demoReferenceQuote } from '../../js/domain/demo-data.js';
@@ -182,5 +185,31 @@ describe('UtilizationEngine — casos extremos de utilización', () => {
     assert.equal(r.floorNetRate, null);
     assert.equal(r.byMargin[0].netRate, null);
     approx(r.profit, -30_000_000, 'sin actividad se pierden los fijos completos');
+  });
+});
+
+describe('V-04 · Hora-hombre: las horas por día salen de las HH por día ÷ personas', () => {
+  const manHourQuote = (hoursPerActiveDay) => {
+    resetIds();
+    return service({
+      serviceType: 'crew', unit: 'manhour',
+      activity: { billableQuantityPerMonth: 378, unitsPerActiveDay: 27, hoursPerActiveDay },
+      labor: [person({ positions: 3, normalHoursPerMonth: 176 })],
+    });
+  };
+
+  test('378 HH a 27 HH por día con 3 personas: 9 h por día y propuesta de 71,6 % (no 79,5 % con las 10 h de fábrica)', () => {
+    const q = manHourQuote(10);
+    const derived = hoursPerDayFromManHours(q.activity.unitsPerActiveDay, q.labor);
+    assert.equal(derived, 9);
+    // Con las 10 h con que nace la cotización: 14 días × 10 h = 140 h → 79,5 %.
+    const before = proposeServiceShares(q, computeQuote(q, { settings: {} }).activity);
+    assert.equal(before.serviceHours, 140);
+    assert.equal(before.labor[0], 79.5);
+    // Con las horas derivadas: 14 días × 9 h = 126 h → 71,6 %.
+    q.activity.hoursPerActiveDay = derived;
+    const after = proposeServiceShares(q, computeQuote(q, { settings: {} }).activity);
+    assert.equal(after.serviceHours, 126);
+    assert.equal(after.labor[0], 71.6);
   });
 });

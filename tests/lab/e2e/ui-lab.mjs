@@ -519,7 +519,7 @@ async function runMode(mode) {
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
     const comp = norm(await page.evaluate(() => (document.querySelector('.qr-revenue-composition') || {}).textContent || ''));
     const total = formatMoney(byId['E2E-19'].r.estimate.revenue.total);
-    check('E2E-19', 'H-02: el Resultado muestra cómo se compone la facturación (abono + disponibilidad = total del motor) y el aviso crítico', /Cómo se compone la facturación del mes/.test(comp) && /Abono mensual \(la tarifa\)\s*\$ 25\.000\.000/.test(comp) && /Abono de disponibilidad\s*\$ 25\.000\.000/.test(comp) && comp.includes(norm(total)) && /Dos abonos por mes/.test(comp), comp.slice(0, 300));
+    check('E2E-19', 'H-02: el Resultado muestra cómo se compone la facturación (abono + disponibilidad = total del motor) y el aviso crítico', /Cómo se compone la facturación del mes/.test(comp) && /Abono mensual \(la tarifa\)\s*\$ 25\.000\.000/.test(comp) && /Fijo por mes por estar de guardia\s*\$ 25\.000\.000/.test(comp) && comp.includes(norm(total)) && /Dos abonos por mes/.test(comp), comp.slice(0, 300));
     await unreliableFirst('E2E-19', /Dos abonos por mes/);
   }
   {
@@ -532,6 +532,24 @@ async function runMode(mode) {
     await go(`#/cotizaciones/${encodeURIComponent(byId['E2E-20'].q.id)}/result`, 300);
     await page.waitForSelector('.qr-checklist', { timeout: 8000 }).catch(() => {});
     await unreliableFirst('E2E-20', /Personal/);
+  }
+  {
+    // V-05 (veredicto 2026-11): al elegir una unidad en el buscador, la lista queda cerrada (no se
+    // reabre encima del campo siguiente) y la etiqueta de la unidad del encabezado se actualiza.
+    await screenText('E2E-21', 'modality');
+    const combo = page.locator('input[name="unit"][role="combobox"]');
+    await tap(combo);
+    await combo.fill('hectárea');
+    await page.locator('.combo-option', { hasText: '$/hectárea' }).first().dispatchEvent('mousedown');
+    await page.waitForTimeout(500);
+    const ui = await page.evaluate(() => {
+      const input = document.querySelector('input[name="unit"][role="combobox"]');
+      const list = input ? document.getElementById(input.getAttribute('aria-controls')) : null;
+      const badge = document.querySelector('.qe-step-meta .badge-navy');
+      return { expanded: input ? input.getAttribute('aria-expanded') : null, listHidden: list ? list.hidden : null, value: input ? input.value : null, badge: badge ? badge.textContent : null };
+    });
+    check('E2E-21', 'V-05: después de elegir la unidad, la lista queda cerrada', ui.expanded === 'false' && ui.listHidden === true && ui.value === '$/hectárea', JSON.stringify(ui));
+    check('E2E-21', 'V-05: la etiqueta de la unidad muestra la unidad nueva', ui.badge === '$/hectárea', JSON.stringify(ui));
   }
   {
     const pr = computeProduct(structuredClone(prod));

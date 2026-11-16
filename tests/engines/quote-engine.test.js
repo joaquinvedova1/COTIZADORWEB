@@ -643,3 +643,32 @@ describe('QuoteEngine — determinismo e inmutabilidad', () => {
     approx(s.profit, r.kpis.profit);
   });
 });
+
+describe('V-08 · Aviso "cada llamado hace menos de una unidad": qué días por llamado cargar', () => {
+  const trailers = (activity = {}) => {
+    const q = createEmptyQuote({ organizationId: 'org-v08', settings: defaultSettings(), now: '2026-11-15T12:00:00.000Z', id: 'q-v08', code: 'V08' });
+    q.serviceType = 'on_call';
+    q.unit = 'custom';
+    q.unitName = 'trailer';
+    q.activity = { ...q.activity, billableQuantityPerMonth: 6, unitsPerActiveDay: 0.75, daysPerActivation: 1, ...activity };
+    return q;
+  };
+  const warning = (q) => computeQuote(q).issues.find((i) => i.code === 'sparse_activations');
+
+  test('6 trailers a 0,75 por día y 1 día por llamado: propone 8 días (una sola ida) o 1,33 (una salida por trailer)', () => {
+    const i = warning(trailers());
+    assert.ok(i);
+    assert.equal(i.path, 'activity.daysPerActivation');
+    assert.match(i.message, /Si es una sola ida para 6 traileres, cargá 8 días por llamado\. Si cada trailer es un llamado distinto, cargá 1,33\.$/);
+  });
+
+  test('con 8 días por llamado no avisa', () => {
+    assert.equal(warning(trailers({ daysPerActivation: 8 })), undefined);
+  });
+
+  test('sin la cantidad del mes sólo propone la salida por unidad', () => {
+    const i = warning(trailers({ billableQuantityPerMonth: null }));
+    assert.match(i.message, /Si cada trailer es un llamado distinto, cargá 1,33 días por llamado\.$/);
+    assert.doesNotMatch(i.message, /una sola ida/);
+  });
+});

@@ -29,15 +29,43 @@ import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, moneyText, numberText, stepName } from './shared.js';
 import { capacityPerTripOf } from '../../../engines/transport-engine.js';
+import { externalFuelMode } from '../../../engines/external-engine.js';
 import { baseFields } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { transportStats, transportOf, providerActivityList, routeText, tripsText } from './transport.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 
+/**
+ * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
+ * sus medios (null = se muestra el campo).
+ *   - V-23: externo con el combustible a tu cargo cargado por km: la ruta ya
+ *     está en ese consumo (el motor no suma otro combustible de traslado).
+ *   - V-30: equipo propio con "No usa combustible": el viaje no suma gasoil.
+ * @param {object} line línea de `quote.equipment`
+ */
+export function routeConsumptionNote(line = {}) {
+  const external = acquisitionOf(line) !== 'owned';
+  const ext = line.external && typeof line.external === 'object' ? line.external : {};
+  if (external && ext.fuelIncluded === false && externalFuelMode(ext) !== 'per_hour') return 'El combustible de la ruta ya está en el consumo del alquiler.';
+  if (!external && line.fuelNotApplicable === true) return 'Marcaste "No usa combustible": el viaje no suma gasoil. Si es un vehículo con motor, desmarcalo.';
+  return null;
+}
+
+/**
+ * Nota bajo los peajes (V-31): cobrando por viaje con más de un viaje por activación, los
+ * peajes se cargan una vez por activación y cubren todos sus viajes. '' si no aplica.
+ * @param {number} tripsPerActivation viajes físicos por activación (del motor)
+ * @param {ReturnType<typeof activationTerms>} T
+ */
+export function tollsNote(tripsPerActivation, T) {
+  const n = Number(tripsPerActivation);
+  if (!Number.isFinite(n) || !(n > 1 + 1e-9)) return '';
+  return `Son los peajes de los ${formatNumber(n, { decimals: 2 })} viajes ${T.feminine ? 'de la' : 'del'} ${T.one}.`;
+}
+
 const WARNING_TEXT = Object.freeze({
   travel_consumption: 'Falta el consumo en ruta (L/100 km): el combustible del traslado queda en 0.',
-  driver: 'Falta definir quién maneja en el traslado.',
   carrier_missing: 'Elegí qué equipo lo transporta (de los cargados en Equipos).',
   carrier_cycle: 'Dos equipos se transportan entre sí: revisá cuál lleva a cuál.',
   support_missing: 'Elegí el vehículo de apoyo que lo lleva (de la logística auxiliar).',
@@ -199,6 +227,7 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
       hint: m.mode ? (MOBILIZATION_MODES.find((o) => o.id === m.mode) || {}).hint : 'Definilo para que la movilización no quede afuera ni se cuente dos veces.',
     });
     let detail = null;
+    const routeNote = m.mode === 'self' ? routeConsumptionNote(line) : null;
     if (m.mode === 'self') {
       const operator = typeof line.operatorLaborId === 'string' ? laborById.get(line.operatorLaborId) : null;
       const driverHint = m.driver === 'operator'
@@ -213,8 +242,8 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
         { class: 'stack' },
         formGrid(
           3,
-          line.fuelNotApplicable === true && !external
-            ? null
+          routeNote
+            ? h('p', { class: 'qe-note' }, routeNote)
             : kit.num(`${p}.travelLitersPer100Km`, { label: 'Consumo en ruta', rule: 'quantity', unit: 'L/100 km', hint: 'Lo que gasta manejando por la ruta. Es el único consumo de un vehículo que sólo lleva gente o carga.' }),
           kit.num(`${p}.travelCostPerKm`, {
             label: 'Desgaste por km',
@@ -224,7 +253,7 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
               ? 'Mantenimiento en ruta, SIN neumáticos: los neumáticos de este equipo se suman aparte por km (juego ÷ vida útil). Sin combustible ni amortización.'
               : 'Mantenimiento y neumáticos en ruta. Sin combustible ni amortización (ya está en el costo de tenerlo).',
           }),
-          kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint }),
+          kit.select(`${p}.driver`, { label: '¿Quién maneja?', options: DRIVER_OPTIONS.map((o) => ({ value: o.id, label: o.label })), includeEmpty: true, emptyLabel: 'Sin definir', structural: true, hint: driverHint || 'Opcional: no cambia el costo.' }),
         ),
         kit.region((r) => {
           const ml = r.model.mobilization && r.model.mobilization.lines[i];
@@ -333,7 +362,8 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
     }
     const warnings = kit.out((r) => {
       const ml = r.model.mobilization && r.model.mobilization.lines[i];
-      const list = ml ? ml.warnings.map((w) => WARNING_TEXT[w]).filter(Boolean) : [];
+      // Sin campo "Consumo en ruta" (V-23) no se avisa que falta.
+      const list = ml ? ml.warnings.filter((w) => !(routeNote && w === 'travel_consumption')).map((w) => WARNING_TEXT[w]).filter(Boolean) : [];
       return list.length ? h('div', { class: 'qe-line-warnings' }, ...list.map((t) => h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, t)))) : '';
     }, { tag: 'div', allowEmpty: true });
     const feeNote = providerFee
@@ -614,6 +644,13 @@ export function render(container, ctx) {
         2,
         kit.num('logistics.tollsPerActivation', { label: L.tollsPerActivation, rule: 'money', unit: '$', illustrative }),
       ),
+      // V-31: con la unidad "viaje", los peajes siguen a la activación, no a cada viaje.
+      tripUnit
+        ? kit.out((r) => {
+          const t = transportOf(r);
+          return t ? tollsNote(t.physicalTripsPerActivation, T) : '';
+        }, { tag: 'p', className: 'qe-note', allowEmpty: true })
+        : null,
     );
 
   // Comidas: se cargan una sola vez, en cada puesto de Personal (vianda por día). Acá sólo se avisa.

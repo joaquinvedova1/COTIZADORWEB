@@ -132,7 +132,7 @@ export function render(container, ctx) {
       value: (r) => `${formatMoney(r.kpis.financialCost)} por mes`,
       hint: (r) => {
         const impact = r.kpis.financialMarginImpactPct === null ? '' : ` · le resta ${formatPercent(r.kpis.financialMarginImpactPct)} (puntos) al margen`;
-        return `Adelantás ${formatMoney(r.kpis.workingCapital)} hasta cobrar (capital de trabajo) · cobrás a ${formatDays(r.model.finance.invoiceLagDays + r.model.finance.paymentTermDays)} de prestar el servicio${impact}.`;
+        return `Capital de trabajo: ${formatMoney(r.kpis.workingCapital)} (lo que pagás antes de cobrar, por los meses que esperás) · cobrás a ${formatDays(r.model.finance.invoiceLagDays + r.model.finance.paymentTermDays)} de prestar el servicio${impact}.`;
       },
       trace: (r) => r.traces.financialCost,
     }),

@@ -224,6 +224,8 @@
 .qe-toolbar-pick { display: flex; gap: 0.5rem; align-items: flex-end; flex: 1 1 340px; min-width: 0; }
 .qe-toolbar-pick .field { flex: 1; }
 .qe-toolbar .btn { min-height: 38px; }
+.qe-coverage-shortcuts { align-items: center; gap: 0.5rem; }
+.qe-coverage-shortcuts .btn.is-selected { border-color: var(--navy-900); background: var(--navy-50); color: var(--navy-900); font-weight: 600; }
 
 /* ------------------------------------------------------- líneas editables */
 
@@ -355,6 +357,7 @@
 .qe-rule-title { margin: 0; font-size: 0.95rem; color: var(--navy-900); }
 .qe-rule-explain { margin: 0.2rem 0 0; font-size: 0.85rem; color: var(--ink-2); }
 .qe-rule-output { margin-top: 0.4rem; font-size: 0.8rem; color: var(--blue-text); font-weight: 600; }
+.qe-rule-output-note { margin-top: 0.3rem; color: var(--ink-2); font-weight: 400; }
 .qe-rule-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem 0.8rem; align-items: end; }
 .qe-step-body .card-body > .qe-rule + .qe-rule { margin-top: 0; }
 
@@ -658,6 +661,8 @@
   /* "Agregar", "Agregar … en blanco", "Agregar costo/tramo": la regla de
      escritorio (38 px) le ganaba por especificidad a la base mobile (MOB-2). */
   .qe-toolbar .btn { min-height: 44px; }
+  /* "Agregar equipo propio en blanco" y "Agregar alquilado o tercerizado" con el mismo ancho (revisión UX). */
+  .qe-add-toolbar > .btn { flex: 1 1 100%; justify-content: center; }
   /* Enlaces de los avisos ("Ir a Viajes", "Ir a Equipos"): objetivo de 44 px. */
   a.qe-illustrative-go, a.qe-notice-go { display: inline-flex; align-items: center; min-height: 44px; }
   /* "Ver ejemplo" sigue siendo un enlace dentro de la oración; el relleno

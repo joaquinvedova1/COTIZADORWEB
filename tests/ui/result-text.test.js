@@ -26,9 +26,12 @@ import {
   discountWords,
   comparatorNote,
   completenessExampleNote,
+  tariffRows,
+  guaranteeMarginNote,
 } from '../../js/ui/result-text.js';
-import { formatDays } from '../../js/core/format.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
+import { service, person, resetIds } from '../lab/lib/build.js';
+import { formatDays } from '../../js/core/format.js';
 import { evaluateAt } from '../../js/engines/economics-engine.js';
 import { compareCommercialModels } from '../../js/engines/scenario-engine.js';
 import { createEmptyQuote, createOtherCost, defaultSettings } from '../../js/domain/quote-factory.js';
@@ -283,5 +286,62 @@ describe('ayudas de margen y notas', () => {
     assert.equal(joinList(['a']), 'a');
     assert.equal(joinList(['a', 'b']), 'a y b');
     assert.equal(joinList(['a', 'b', 'c']), 'a, b y c');
+  });
+});
+
+describe('V-12 · "Tus tarifas" con mínimos y adicionales (tariffRows)', () => {
+  const nb = (s) => String(s).replace(/ /g, ' ');
+  const rowsOf = (q) => tariffRows(computeQuote(q)).map(([a, b]) => [nb(a), nb(b)]);
+  const byHour = (o = {}) => {
+    resetIds();
+    return service({ unit: 'hour', activity: { activeDaysPerMonth: 8, hoursPerActiveDay: 9, daysPerActivation: 1 }, labor: [person({ positions: 2 })], ...o });
+  };
+
+  test('sin nada más que la tarifa principal no hay bloque', () => {
+    assert.deepEqual(rowsOf(byHour()), []);
+  });
+
+  test('on call por hora con fuera de horario, guardia, mínimo por llamado, mínimo garantizado y un adicional: todas las filas', () => {
+    const q = byHour({ rules: { minimumCallUnits: 4, availabilityFeeMonthly: 900_000, calloutFeePerActivation: 150_000, minimumGuaranteeBasis: 'units', minimumGuaranteeUnits: 80 } });
+    q.extras = [
+      { id: 'x50', kind: 'overtime', premiumPct: 50, label: 'Hora fuera de horario (extra 50 %)', unitName: 'hora', category: 'labor', quantityPerMonth: null, costPerUnit: null, price: 123_456 },
+      { id: 'fer', label: 'Feriado trabajado', unitName: 'día', category: 'labor', quantityPerMonth: 1, costPerUnit: 200_000, price: 450_000 },
+      { id: 'sin', label: 'Sin precio ni costo', unitName: 'vez', category: 'labor', quantityPerMonth: null, costPerUnit: null, price: null },
+    ];
+    const rows = rowsOf(q);
+    assert.deepEqual(rows.map((x) => x[0]), [
+      'Horario normal',
+      'Hora fuera de horario (extra 50 %)',
+      'Fijo por mes por estar de guardia',
+      'Plus por cada llamado',
+      'Mínimo por llamado',
+      'Mínimo garantizado por mes',
+      'Feriado trabajado',
+    ]);
+    const value = Object.fromEntries(rows);
+    assert.match(value['Horario normal'], /^\$ [\d.]+ \/ hora$/);
+    assert.equal(value['Hora fuera de horario (extra 50 %)'], '$ 123.456 / hora');
+    assert.equal(value['Fijo por mes por estar de guardia'], '$ 900.000 / mes');
+    assert.equal(value['Plus por cada llamado'], '$ 150.000');
+    assert.equal(value['Mínimo por llamado'], '4 horas por llamado');
+    assert.equal(value['Mínimo garantizado por mes'], '80 horas');
+    assert.equal(value['Feriado trabajado'], '$ 450.000 por día');
+  });
+
+  test('sólo un mínimo por llamado (en días) o sólo un mínimo garantizado en pesos ya muestran el bloque', () => {
+    resetIds();
+    const day = service({ unit: 'day', activity: { activeDaysPerMonth: 8, daysPerActivation: 1 }, labor: [person()], rules: { minimumCallUnits: 2 } });
+    assert.deepEqual(rowsOf(day).map((x) => x[0]), ['Horario normal', 'Mínimo por llamado']);
+    assert.equal(rowsOf(day)[1][1], '2 días por llamado');
+    const money = rowsOf(byHour({ rules: { minimumMonthlyGuarantee: 5_000_000 } }));
+    assert.deepEqual(money[1], ['Mínimo garantizado por mes', '$ 5.000.000']);
+  });
+
+  test('el margen aclara cuánto viene del mínimo garantizado, sólo si completa el mes', () => {
+    const units = computeQuote(byHour({ rules: { minimumGuaranteeBasis: 'units', minimumGuaranteeUnits: 100 } }));
+    assert.match(nb(guaranteeMarginNote(units)), /^Incluye \$ [\d.]+ del mínimo garantizado \(estimás 72 horas, se facturan 100 horas\)\.$/);
+    assert.equal(guaranteeMarginNote(computeQuote(byHour({ rules: { minimumGuaranteeBasis: 'units', minimumGuaranteeUnits: 50 } }))), '');
+    assert.equal(guaranteeMarginNote(computeQuote(byHour())), '');
+    assert.equal(guaranteeMarginNote(null), '');
   });
 });
