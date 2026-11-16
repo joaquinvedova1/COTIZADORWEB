@@ -355,6 +355,19 @@ function externalTrace(result, index, source, impact = null) {
 }
 
 /**
+ * Salida de caja de un externo (V-18): con tarifa fija mensual es un monto por
+ * mes (antes decía "$ 0 por día activo"); con las dos partes, las dos.
+ * @param {object} x resultado del proveedor (`external-engine`)
+ */
+export function externalCashText(x = {}) {
+  const parts = (monthly, daily) => [
+    monthly > 0.005 ? `${formatMoney(monthly)} por mes` : null,
+    daily > 0.005 || !(monthly > 0.005) ? `${formatMoney(daily || 0)} por día activo` : null,
+  ].filter(Boolean).join(' + ');
+  return `Salida de caja con impuestos: ${parts(x.cashFixedMonthly, x.cashPerActiveDay)}; el crédito fiscal (${parts(x.creditFixedMonthly, x.creditPerActiveDay)}) no es costo.`;
+}
+
+/**
  * Asistente de completitud de un recurso externo (PLAN-2026-010): qué falta
  * cargar para que su costo esté completo. No inventa alícuotas.
  */
@@ -1058,7 +1071,7 @@ export function render(container, ctx) {
           const billed = x.netPerActivation > 0 ? `Facturado ${T.per}: ${formatNumber(x.billedUnitsPerActivation, { decimals: 2 })} × ${formatMoney(x.price)} × ${formatNumber(x.quantity, { decimals: 2 })} = ${formatMoney(x.netPerActivation)} neto. ` : '';
           // Combustible a tu cargo (no incluido en la tarifa): suma acá, pero va a Combustible.
           const fuel = x.fuelPerActiveDay > 0 ? `Incluye combustible a tu cargo: ${formatMoney(x.fuelPerActiveDay * r.activity.activeDaysPerMonth)} por mes (en la estructura de costos va a Combustible). ` : '';
-          return `${fixed}${billed}${fuel}Salida de caja con impuestos: ${formatMoney(x.cashPerActiveDay)} por día activo; el crédito fiscal (${formatMoney(x.creditPerActiveDay)}) no es costo.`;
+          return `${fixed}${billed}${fuel}${externalCashText(x)}`;
         },
         trace: (r) => {
           let impact = null;
