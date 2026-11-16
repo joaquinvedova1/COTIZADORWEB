@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { evaluateCompleteness, COMPLETENESS_RISK_THRESHOLD } from '../../js/engines/completeness-engine.js';
 import { demoHydroCraneQuote } from '../../js/domain/demo-data.js';
 import { createEmptyQuote } from '../../js/domain/quote-factory.js';
+import { service, person, owned, external, resetIds } from '../lab/lib/build.js';
 
 const EPS = 1e-6;
 
@@ -303,5 +304,61 @@ describe('CompletenessEngine — impuestos sobre lo que facturás (PLAN-2026-002
     const i = item(evaluateCompleteness(q), 'margin');
     assert.equal(i.status, 'missing');
     assert.match(i.message, /menor a 60 %/);
+  });
+});
+
+describe('V-04 · Horas de trabajo por día y equipos por hora (equipment_hours)', () => {
+  const quoteWith = (hoursPerActiveDay, equipment) => {
+    resetIds();
+    return service({
+      serviceType: 'per_unit', unit: 'ha',
+      activity: { billableQuantityPerMonth: 100, unitsPerActiveDay: 10, hoursPerActiveDay },
+      labor: [person()],
+      equipment,
+    });
+  };
+  const found = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'equipment_hours');
+
+  test('horas vacías y equipo propio con costo por hora y sin horas propias: falta, con foco en las horas', () => {
+    for (const hours of [null, '', 0]) {
+      const i = found(quoteWith(hours, [owned({ name: 'Camión', fuelLitersPerHour: 12, maintenancePerHour: 3000 })]));
+      assert.ok(i, `horas ${JSON.stringify(hours)}`);
+      assert.equal(i.status, 'missing');
+      assert.equal(i.step, 'modality');
+      assert.equal(i.focus, 'activity.hoursPerActiveDay');
+      assert.equal(i.message, 'Faltan las horas de trabajo por día: sin ese dato no se suma el uso de "Camión".');
+    }
+    const withRule = evaluateCompleteness(quoteWith(null, [owned({ name: 'Camión', fuelLitersPerHour: 12 })]));
+    const without = evaluateCompleteness(quoteWith(9, [owned({ name: 'Camión', fuelLitersPerHour: 12 })]));
+    assert.ok(withRule.scorePct < without.scorePct, 'baja la completitud');
+  });
+
+  test('no salta si el equipo tiene horas propias, si no tiene costo por hora o si las horas están cargadas', () => {
+    assert.equal(found(quoteWith(null, [owned({ name: 'Camión', fuelLitersPerHour: 12, hoursPerActiveDay: 6 })])), undefined);
+    assert.equal(found(quoteWith(null, [owned({ name: 'Trailer' })])), undefined);
+    assert.equal(found(quoteWith(9, [owned({ name: 'Camión', fuelLitersPerHour: 12 })])), undefined);
+    assert.equal(found(quoteWith(null, [])), undefined);
+  });
+
+  test('externo por hora: lo avisa "Horas del proveedor" (una sola vez); con mínimo facturable, esta regla', () => {
+    const plain = evaluateCompleteness(quoteWith(null, [external({ name: 'Minibús' }, { price: 50_000, unit: 'hour' })]));
+    assert.ok(plain.items.find((i) => i.id === 'external_hours'));
+    assert.equal(plain.items.find((i) => i.id === 'equipment_hours'), undefined);
+    const withMinimum = found(quoteWith(null, [external({ name: 'Minibús' }, { price: 50_000, unit: 'hour', minimumUnits: 4 })]));
+    assert.ok(withMinimum);
+    assert.match(withMinimum.message, /"Minibús"/);
+  });
+
+  test('los avisos de horas del personal dicen dónde corregir las horas por día del servicio', () => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 1, coverageHoursPerDay: 8 })] });
+    const gap = evaluateCompleteness(q).items.find((i) => i.id === 'labor_day_gap');
+    assert.ok(gap);
+    assert.match(gap.message, /Si el servicio no pide 10 h por día, corregilo en "Cómo se cobra"\.$/);
+    resetIds();
+    const q2 = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 1 })] });
+    const hours = evaluateCompleteness(q2).items.find((i) => i.id === 'labor_hours');
+    assert.ok(hours);
+    assert.match(hours.message, /Si el servicio no pide 10 h por día, corregilo en "Cómo se cobra"\.$/);
   });
 });

@@ -39,6 +39,7 @@ import { billingTaxInfo } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
+import { computeEquipmentLine } from './equipment-engine.js';
 import { normalizeRules } from './commercial-rules-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay, availabilityHoursOf } from './cost-engine.js';
 import { outputPerActiveDayOf, normalizeBasisId } from './materials-engine.js';
@@ -381,6 +382,8 @@ export function evaluateCompleteness(quote = {}) {
   };
   // Con guardia activa el control de relevos ya mide todas las horas de guardia (que incluyen
   // las trabajadas): no se repite el aviso de horas con los días con trabajo.
+  // V-04: las horas por día del servicio pueden ser el dato equivocado (nacen en 10), no la gente.
+  const hoursFix = (hours, own) => (own ? '' : ` Si el servicio no pide ${formatNumber(hours, { decimals: Math.abs(hours - Math.round(hours)) < 1e-9 ? 0 : 1 })} h por día, corregilo en "Cómo se cobra".`);
   if (labor.length > 0 && D > 0 && !activeGuard) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
     const short = labor.map((l, index) => {
@@ -407,8 +410,8 @@ export function evaluateCompleteness(quote = {}) {
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const simple = !hasPayrollHeadcount(first.l) && Math.abs(first.ppp - 1) < 1e-9;
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning', simple
-        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: cargá las horas extra o revisá las horas normales del puesto. Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}`
-        : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), cargá las horas extra o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}`);
+        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: cargá las horas extra o revisá las horas normales del puesto. Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`
+        : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), cargá las horas extra o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`);
       item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : simple ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
@@ -432,7 +435,7 @@ export function evaluateCompleteness(quote = {}) {
       const missing = Math.min(H, 24) - g.covered;
       const more = Math.ceil(missing / g.c - 1e-9);
       const item = rule('labor_day_gap', 'Horas del día sin cubrir', 'labor', 1, 'warning',
-        `"${name}": ${fmt(g.n)} ${Math.abs(g.n - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(g.c)} h = ${fmt(g.covered)} h por día, y el servicio pide ${fmt(Math.min(H, 24))} h por día. Si el servicio necesita gente todas esas horas, faltan ${fmt(missing)} h por día: sumá ${fmt(more)} ${more === 1 ? 'persona' : 'personas'} de ${fmt(g.c)} h o subí sus horas por día. Si no hace falta cubrir todas las horas, está bien así. No cambia el costo.`);
+        `"${name}": ${fmt(g.n)} ${Math.abs(g.n - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(g.c)} h = ${fmt(g.covered)} h por día, y el servicio pide ${fmt(Math.min(H, 24))} h por día. Si el servicio necesita gente todas esas horas, faltan ${fmt(missing)} h por día: sumá ${fmt(more)} ${more === 1 ? 'persona' : 'personas'} de ${fmt(g.c)} h o subí sus horas por día. Si no hace falta cubrir todas las horas, está bien así. No cambia el costo.${hoursFix(Math.min(H, 24), false)}`);
       item.focus = `labor.${g.index}.positions`;
       item.targets = gaps.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
@@ -807,6 +810,28 @@ export function evaluateCompleteness(quote = {}) {
     item.focus = inherits ? 'activity.hoursPerActiveDay' : `equipment.${equipment.indexOf(first)}.hoursPerActiveDay`;
     item.targets = hourless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
     items.push(item);
+  }
+
+  // 9c''bis. Horas de trabajo por día (V-04): con las horas vacías o en 0, un equipo propio con
+  // costo por hora (combustible, mantenimiento, neumáticos) y sin horas propias no suma su uso, y
+  // cobrando por cantidad nadie lo avisaba. Los externos por hora ya tienen su control
+  // ("Horas del proveedor"); acá entran sólo los que ese control no mira (con mínimo facturable).
+  if (!(activityHours > 0)) {
+    const fuelPaidByUs = fuel.providedBy !== 'client';
+    const idle = equipment.filter((e) => {
+      if (!(nonNegative(e.quantity) > 0) || !isBlank(e.hoursPerActiveDay)) return false;
+      if (isExt(e)) return extOf(e).unit === 'hour' && nonNegative(extOf(e).price) > 0 && !hourless.includes(e);
+      // Con 1 h por día: ¿el equipo tiene algún costo que dependa de las horas?
+      return computeEquipmentLine(e, { fuelPricePerLiter: nonNegative(fuel.pricePerLiter), fuelPaidByUs, defaultHoursPerActiveDay: 1 }).variablePerActiveDay > 0;
+    });
+    if (idle.length) {
+      const names = idle.slice(0, 3).map((x) => `"${lineName(x, 'Equipo')}"`).join(', ');
+      const item = rule('equipment_hours', 'Horas de trabajo por día', 'modality', 1, 'missing',
+        `Faltan las horas de trabajo por día: sin ese dato no se suma el uso de ${names}.`);
+      item.focus = 'activity.hoursPerActiveDay';
+      item.targets = idle.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Equipo') }));
+      items.push(item);
+    }
   }
 
   // 9c'''. Unidades que recorren la ruta (viaje, km) y la ruta de la cotización (Test Lab, PLAN-2026-013).

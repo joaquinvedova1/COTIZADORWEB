@@ -17,7 +17,8 @@ import { card, formGrid, choiceGroup, searchSelectField, openDialog, button, inf
 import { PRICING_MODES, AVAILABILITY_OPTIONS, AVAILABILITY_WINDOW } from '../../../domain/catalogs.js';
 import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName, unitGroupOf, searchUnits, BILLING_UNIT_GROUPS } from '../../../domain/billing-units.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
-import { applyUnitChange } from '../../../domain/unit-change.js';
+import { applyUnitChange, hoursPerDayFromManHours } from '../../../domain/unit-change.js';
+import { numberToInputText } from '../../../core/validation.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
@@ -160,16 +161,28 @@ export function render(container, ctx) {
     if (Math.abs(now - value) < 1e-9) el.classList.add('is-selected');
     return el;
   };
-  const coverageShortcuts = monthlyContract && !kit.readOnly
-    ? h('div', { class: 'qe-toolbar qe-coverage-shortcuts' },
+  const hourShortcut = (n) => {
+    const el = shortcut('hoursPerActiveDay', n, `${n} h`);
+    el.dataset.hoursShortcut = String(n);
+    return el;
+  };
+  if (kit.readOnly) return null;
+  if (monthlyContract) {
+    return h('div', { class: 'qe-toolbar qe-coverage-shortcuts' },
       h('span', { class: 'small' }, 'Días:'),
       shortcut('activeDaysPerMonth', 22, 'Lun a vie (22)'),
       shortcut('activeDaysPerMonth', 26, 'Lun a sáb (26)'),
       shortcut('activeDaysPerMonth', 30, 'Todos los días (30)'),
       h('span', { class: 'small' }, 'Horas:'),
-      ...[8, 9, 12, 24].map((n) => shortcut('hoursPerActiveDay', n, `${n} h`)))
+      ...[8, 9, 12, 24].map(hourShortcut));
+  }
+  // On call y precio cerrado (V-04): el 10 con que nace una cotización es una opción entre
+  // otras, no algo ya contestado.
+  return hoursInMain
+    ? h('div', { class: 'qe-toolbar qe-coverage-shortcuts' },
+      h('span', { class: 'small' }, 'Horas por día:'),
+      ...[8, 9, 10, 12].map(hourShortcut))
     : null;
-  return coverageShortcuts;
   }
 
   // Personal del servicio: sólo muestra (se carga en Personal). Sin diagramas (2026-11).
@@ -378,17 +391,38 @@ export function render(container, ctx) {
     unit: 'h/día',
     hint: monthlyContract
       ? 'Las horas del día que el cliente tiene cubiertas (8, 12, 24…). No son las horas de cada persona: ésas salen del esquema de cada puesto en Personal. Se usan para el uso de equipos y la tarifa por hora.'
+      // V-04: por cantidad o por evento el campo también va a la vista (antes quedaba en 10, oculto).
+      : byQuantity
+      ? 'Las horas que se trabaja cada día. Se usan para el combustible y el uso de los equipos, y para calcular qué parte del mes les ocupa este servicio.'
       : quote.unit === 'hour'
       ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`
       : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`,
   });
   const hourly = quote.unit === 'hour';
-  const hoursInMain = hourly || monthlyContract || asksAvailability;
+  const hoursInMain = hourly || monthlyContract || asksAvailability || byQuantity;
   const monthlyAvailableConflict = monthlyContract && hasNumber(quote.activity && quote.activity.availableDaysPerMonth)
     && hasNumber(quote.activity && quote.activity.activeDaysPerMonth)
     && Number(quote.activity.availableDaysPerMonth) < Number(quote.activity.activeDaysPerMonth) - 1e-9;
   // Se evalúa en cada recálculo (la persona carga la cantidad sin redibujar el paso).
   const hasQuantity = () => hasNumber(quote.activity && quote.activity.billableQuantityPerMonth);
+
+  /**
+   * Hora-hombre (V-04): las horas de trabajo por día salen de las HH por día ÷ personas
+   * (27 HH y 3 personas = 9 h). Queda a la vista en su campo y se puede corregir.
+   */
+  function deriveManHourDay(manHoursPerDay) {
+    if (info.id !== 'manhour') return;
+    const derived = hoursPerDayFromManHours(manHoursPerDay, quote.labor);
+    if (derived === null) return;
+    const hours = Math.round(derived * 100) / 100;
+    ctx.update('activity.hoursPerActiveDay', hours);
+    const input = container.querySelector('input[name="activity.hoursPerActiveDay"]');
+    if (input) {
+      input.value = numberToInputText(hours);
+      input.removeAttribute('aria-invalid');
+    }
+    container.querySelectorAll('[data-hours-shortcut]').forEach((b) => b.classList.toggle('is-selected', Math.abs(Number(b.dataset.hoursShortcut) - hours) < 1e-9));
+  }
 
   /** Actividad por cantidad (m³, viajes…) o por evento (llamados, trabajos, hitos). */
   function quantityFields() {
@@ -396,7 +430,8 @@ export function render(container, ctx) {
       const isCall = info.id === 'call';
       const isMilestone = info.id === 'milestone';
       return formGrid(
-        isMilestone ? 3 : 2,
+        // Con las horas por día (V-04): 3 campos en una fila; 4 (por hito), de a 2.
+        isMilestone ? 2 : 3,
         kit.num('activity.billableQuantityPerMonth', {
           label: `${Plural} por mes`,
           rule: 'quantity',
@@ -425,12 +460,13 @@ export function render(container, ctx) {
             hint: 'En cuántas partes facturás cada trabajo (por ejemplo: anticipo, avance y entrega).',
           })
           : null,
+        hoursField(),
       );
     }
     // Por m³ / t / litro / barril / kg: con la capacidad del equipo, RATEOS calcula los viajes.
     const byCapacityUnit = CAPACITY_UNITS.includes(info.id);
     return formGrid(
-      byCapacityUnit ? 3 : 2,
+      byCapacityUnit ? 2 : 3,
       kit.num('activity.billableQuantityPerMonth', {
         label: `${Plural} a facturar por mes`,
         rule: 'quantity',
@@ -448,7 +484,10 @@ export function render(container, ctx) {
         hint: tripUnit
           ? `Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo (personal, equipos) y los viajes ${T.per}; los km del mes salen de los viajes que facturás.`
           : 'Lo que hacés en un día de trabajo (rendimiento). Con esto se calculan los días de trabajo: lo que consume personal, equipos y combustible.',
-        onValue: () => syncRouteTrips(),
+        onValue: (value) => {
+          syncRouteTrips();
+          deriveManHourDay(value);
+        },
       }),
       byCapacityUnit
         ? kit.num('activity.unitsPerTrip', {
@@ -459,6 +498,7 @@ export function render(container, ctx) {
           hint: `Lo que lleva el equipo en un viaje (cisterna, batea…). Si la cargás, los viajes ${T.per} se calculan solos: ${info.plural} ${T.per} ÷ capacidad, redondeado hacia arriba. Vacío = los cargás a mano en "${stepName('logistics')}".`,
         })
         : null,
+      hoursField(),
     );
   }
 

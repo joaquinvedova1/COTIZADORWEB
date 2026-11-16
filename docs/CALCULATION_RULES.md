@@ -1655,3 +1655,11 @@ Archivo: `js/domain/unit-change.js` (`applyUnitChange(q, fromInfo, toInfo)`), us
 | `rules.minimumCallUnits` > 0 | Entre día y hora, con horas por día cargadas: se convierte (× o ÷ horas, como siempre). En cualquier otro caso (incluido pasar por $/llamado o por el abono): queda en 0. |
 | `rules.minimumGuaranteeUnits` > 0 con base `units` | Queda en 0. Un mínimo en pesos no cambia. |
 | Materiales y otros costos "por unidad producida" sin unidad ni rendimiento propios | Sólo si la unidad anterior era por cantidad: quedan atados a ella (`outputUnit` = nombre de la unidad anterior, `outputPerActiveDay` = lo que se hacía por día), así su costo no cambia. Desde día u hora no se tocan: siguen a la unidad que se elija. |
+
+### 25.2 Horas de trabajo por día con unidades por cantidad (V-04)
+
+Ninguna fórmula cambia ni cambian los números guardados: `activity.hoursPerActiveDay` (10 en una cotización nueva) ahora se ve y se corrige en "Cómo se cobra" con cualquier unidad (antes quedaba oculto cobrando por cantidad o por evento), con los atajos 8 / 9 / 10 / 12 h.
+
+- **Hora-hombre** (`hoursPerDayFromManHours`, `js/domain/unit-change.js`): al cargar las horas-hombre por día, `horas por día = HH por día ÷ personas` (suma de `positions` de Personal), sólo si da entre 1 y 24. Ejemplo: 27 HH y 3 personas = 9 h; con 378 HH por mes son 14 días × 9 h = 126 h → dedicación propuesta 71,6 % (con las 10 h de fábrica daba 140 h y 79,5 %). Queda guardado en el campo y se puede corregir.
+- **Completitud, regla `equipment_hours`** (paso "Cómo se cobra", rojo, peso 1; sólo aparece cuando falta): horas por día vacías o en 0 y algún equipo propio con costo por hora (combustible, mantenimiento o neumáticos) sin horas propias, o un externo por hora que no esté ya avisado por `external_hours`. Sin ese dato el uso del equipo no se suma.
+- Los avisos `labor_hours` y `labor_day_gap` agregan dónde corregir las horas por día del servicio (antes sólo proponían sumar gente).
