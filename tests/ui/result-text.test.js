@@ -312,8 +312,8 @@ describe('V-12 · "Tus tarifas" con mínimos y adicionales (tariffRows)', () => 
     assert.deepEqual(rows.map((x) => x[0]), [
       'Horario normal',
       'Hora fuera de horario (extra 50 %)',
-      'Guardia pasiva (fijo por estar disponible)',
-      'Guardia activa (plus por llamado)',
+      'Fijo por mes por estar de guardia',
+      'Plus por cada llamado',
       'Mínimo por llamado',
       'Mínimo garantizado por mes',
       'Feriado trabajado',
@@ -321,8 +321,8 @@ describe('V-12 · "Tus tarifas" con mínimos y adicionales (tariffRows)', () => 
     const value = Object.fromEntries(rows);
     assert.match(value['Horario normal'], /^\$ [\d.]+ \/ hora$/);
     assert.equal(value['Hora fuera de horario (extra 50 %)'], '$ 123.456 / hora');
-    assert.equal(value['Guardia pasiva (fijo por estar disponible)'], '$ 900.000 / mes');
-    assert.equal(value['Guardia activa (plus por llamado)'], '$ 150.000 por llamado');
+    assert.equal(value['Fijo por mes por estar de guardia'], '$ 900.000 / mes');
+    assert.equal(value['Plus por cada llamado'], '$ 150.000 por llamado');
     assert.equal(value['Mínimo por llamado'], '4 horas por llamado');
     assert.equal(value['Mínimo garantizado por mes'], '80 horas');
     assert.equal(value['Feriado trabajado'], '$ 450.000 por día');

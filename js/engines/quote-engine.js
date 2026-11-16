@@ -632,7 +632,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
         : 'Días = (Costos fijos − Ingresos fijos × (1 − margen)) / (Ingreso por día × (1 − margen) − Costo variable por día)',
       inputs: [
         { label: 'Costos fijos mensuales', value: linearTarget.fixedCosts, format: 'money' },
-        { label: 'Ingresos fijos (abono de disponibilidad, equipo en espera, adicionales)', value: linearTarget.fixedRevenue, format: 'money' },
+        { label: 'Ingresos fijos (fijo por estar de guardia, equipo en espera, adicionales)', value: linearTarget.fixedRevenue, format: 'money' },
         { label: 'Ingreso por día activo', value: linearTarget.revenuePerActiveDay, format: 'money' },
         { label: 'Costo variable por día activo', value: linearTarget.variableCostPerDay, format: 'money' },
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
@@ -661,7 +661,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       inputs: [
         { label: 'Costo total del mes', value: ratesAtEstimate.totalCost, format: 'money' },
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
-        { label: 'Otros ingresos (abono de disponibilidad, equipo en espera, km)', value: ratesAtEstimate.otherRevenue, format: 'money' },
+        { label: 'Otros ingresos (fijo por estar de guardia, equipo en espera, km)', value: ratesAtEstimate.otherRevenue, format: 'money' },
         { label: `Unidades facturables (${unitInfo.plural})`, value: ratesAtEstimate.billableUnits, format: 'number' },
         { label: 'Factor de descuentos (tramo × continuidad × comercial)', value: ratesAtEstimate.discountFactor, format: 'number' },
       ],

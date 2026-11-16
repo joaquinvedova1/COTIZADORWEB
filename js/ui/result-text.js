@@ -20,7 +20,7 @@ import { resourceNormalHourCost } from '../engines/out-of-hours-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
 import { isQuantityUnit, quantityCeilText, quantityText } from './unit-text.js';
 import { unitTexts } from '../domain/billing-units.js';
-import { activationTerms } from '../domain/activation-terms.js';
+import { activationTerms, GUARD_FEE_LABEL } from '../domain/activation-terms.js';
 
 const EPS = 1e-9;
 
@@ -534,7 +534,7 @@ export function outOfHoursPer(r) {
 /**
  * Filas de "Tus tarifas (sin IVA)" del Resultado (PLAN-2026-025, ampliado por V-12): todo lo que
  * el cliente va a ver en la cotización además de la tarifa principal. Sólo lee valores del motor.
- *   Horario normal · cada hora fuera de horario · guardia pasiva y plus de guardia activa ·
+ *   Horario normal · cada hora fuera de horario · fijo por estar de guardia y plus por cada llamado ·
  *   mínimo por llamado · mínimo garantizado por mes · cada adicional cargado a mano con precio.
  * Devuelve [] si no hay nada más que la tarifa principal (que ya está arriba en el Resultado).
  * @param {object} r resultado de computeQuote
@@ -566,8 +566,8 @@ export function tariffRows(r) {
   return [
     ['Horario normal', main],
     ...overtime.map((l) => [l.label, l.price !== null ? `${l.priceSource === 'suggested' ? formatMoneyCeil(l.price) : formatMoney(l.price)} ${outOfHoursPer(r)}${l.priceSource === 'suggested' ? ' (precio sugerido)' : ''}` : EMPTY]),
-    guardFee ? ['Guardia pasiva (fijo por estar disponible)', `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
-    callout ? [`Guardia activa (plus ${T.per})`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
+    guardFee ? [GUARD_FEE_LABEL, `${formatMoney(rules.availabilityFeeMonthly)} / mes`] : null,
+    callout ? [`Plus por cada ${T.one}`, `${formatMoney(rules.calloutFeePerActivation)} ${T.per}`] : null,
     minimumCall ? [`Mínimo ${T.per}`, `${minimumCallText()} ${T.per}`] : null,
     guarantee
       ? ['Mínimo garantizado por mes', rules.minimumGuaranteeBasis === 'units'

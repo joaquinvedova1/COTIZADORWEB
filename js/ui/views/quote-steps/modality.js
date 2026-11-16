@@ -25,7 +25,7 @@ import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
 import { activationRoundingText } from '../../result-text.js';
-import { activationTerms } from '../../../domain/activation-terms.js';
+import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
 import { contractOf, unitChoicesForContract } from '../../../domain/contract.js';
@@ -1144,14 +1144,14 @@ export function render(container, ctx) {
       guardChosen || feeNow || calloutNow
         ? formGrid(2,
           kit.num('rules.availabilityFeeMonthly', {
-            label: 'Guardia pasiva: fijo por mes',
+            label: GUARD_FEE_LABEL,
             rule: 'money',
             unit: '$/mes',
             placeholder: 'Ej.: 500.000',
             hint: `Lo que cobrás por estar disponible, haya ${T.many} o no. Se suma a lo trabajado y baja la tarifa que necesitás por cada ${T.one}.`,
           }),
           kit.num('rules.calloutFeePerActivation', {
-            label: `Guardia activa: plus por cada ${T.one}`,
+            label: `Plus por cada ${T.one}`,
             rule: 'money',
             unit: '$',
             placeholder: 'Ej.: 150.000',

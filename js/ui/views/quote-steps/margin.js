@@ -420,8 +420,8 @@ export function render(container, ctx) {
   // Mínimo garantizado en $ o en unidades (tanda B 2026-11, B-3).
   const guarantee = minimumGuaranteeFields(kit, quote, unitInfo);
   const RULE_NAMES = [
-    ['availabilityFeeMonthly', 'abono de disponibilidad'],
-    ['calloutFeePerActivation', `cargo ${T.per}`],
+    ['availabilityFeeMonthly', 'fijo por estar de guardia'],
+    ['calloutFeePerActivation', `plus por cada ${T.one}`],
     ['mobilizationFeePerActivation', 'movilización'],
     ['extraKmRate', 'km adicional'],
     ['minimumCallUnits', `mínimo ${T.per}`],
@@ -439,7 +439,7 @@ export function render(container, ctx) {
     if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
     else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
     else if (showStandbyRule(quote)) active.push('equipo en espera sin definir');
-    return `Abono, cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
+    return `Fijo de guardia, plus y cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
   };
   const rulesCard = kit.advanced(
     {
@@ -459,18 +459,18 @@ export function render(container, ctx) {
     },
     h('p', { class: 'qe-note' }, 'Cómo se factura el servicio además de la tarifa. Dejá en 0 lo que no aplica.'),
     ruleRow(
-      'Abono de disponibilidad',
+      L.guardFee,
       unitKind === 'month'
         ? 'Monto fijo por mes por tener el recurso reservado. Tu tarifa ya es un abono mensual: no cargues acá el mismo abono, se facturarían los dos. Sirve con una tarifa por uso, como por día, por hora o por cantidad (un fijo por estar disponible más lo que se usa).'
         : 'Monto fijo por mes por tener el recurso reservado, se trabaje o no.',
-      [kit.num('rules.availabilityFeeMonthly', { label: 'Abono mensual', rule: 'money', unit: '$/mes' })],
+      [kit.num('rules.availabilityFeeMonthly', { label: 'Fijo por mes', rule: 'money', unit: '$/mes' })],
       kit.out((r) => {
         const item = feeOverlapOf(r);
         return item ? h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, item.message)) : '';
       }, { tag: 'div', allowEmpty: true }),
     ),
     ruleRow(
-      `Cargo ${T.per} (call-out)`,
+      L.guardPlus,
       `Monto fijo que se cobra en ${T.each}.`,
       [kit.num('rules.calloutFeePerActivation', { label: L.perActivation, rule: 'money', unit: '$' })],
     ),

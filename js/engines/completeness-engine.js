@@ -34,7 +34,7 @@ import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
 import { isValidMarginAndTaxes, readMarginInput } from './pricing-engine.js';
 import { formatPercent, formatNumber, formatMoney } from '../core/format.js';
 import { baseLabel } from '../domain/economic-base.js';
-import { activationTerms, activationFieldLabels } from '../domain/activation-terms.js';
+import { activationTerms, activationFieldLabels, GUARD_FEE_LABEL } from '../domain/activation-terms.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
@@ -1092,8 +1092,8 @@ export function evaluateCompleteness(quote = {}) {
     const knownRate = quote.pricingMode === 'known_rate' && nonNegative(pricing.knownRate) > 0 ? nonNegative(pricing.knownRate) : null;
     const item = rule('monthly_fee_overlap', 'Dos abonos por mes', 'margin', 2, 'missing',
       knownRate !== null
-        ? `Cobrás un abono mensual de ${formatMoney(knownRate)} y además un "Abono de disponibilidad" de ${formatMoney(availabilityFee)} por mes: se facturan los dos (${formatMoney(knownRate + availabilityFee)} por mes, de lista). Si es el mismo abono, dejá el de disponibilidad en 0; si son dos cargos distintos, sumalos en la tarifa mensual. Hasta entonces el resultado no es confiable.`
-        : `La tarifa es un abono mensual y además cargaste un "Abono de disponibilidad" de ${formatMoney(availabilityFee)} por mes: se facturan los dos y la tarifa sugerida ya descuenta ese abono. Si es el mismo abono, dejá el de disponibilidad en 0; si es un cargo distinto, incluilo en la tarifa mensual. Hasta entonces el resultado no es confiable.`);
+        ? `Cobrás un abono mensual de ${formatMoney(knownRate)} y además un "${GUARD_FEE_LABEL}" de ${formatMoney(availabilityFee)} por mes: se facturan los dos (${formatMoney(knownRate + availabilityFee)} por mes, de lista). Si es el mismo abono, dejá el fijo de guardia en 0; si son dos cargos distintos, sumalos en la tarifa mensual. Hasta entonces el resultado no es confiable.`
+        : `La tarifa es un abono mensual y además cargaste un "${GUARD_FEE_LABEL}" de ${formatMoney(availabilityFee)} por mes: se facturan los dos y la tarifa sugerida ya descuenta ese abono. Si es el mismo abono, dejá el fijo de guardia en 0; si es un cargo distinto, incluilo en la tarifa mensual. Hasta entonces el resultado no es confiable.`);
     item.unreliable = true;
     item.focus = 'rules.availabilityFeeMonthly';
     items.push(item);
@@ -1189,7 +1189,7 @@ export function evaluateCompleteness(quote = {}) {
       step: 'margin',
       severity: 'info',
       label: 'Disponibilidad sin cobrar',
-      message: 'La guardia no se cobra aparte: cubrila en la tarifa, con un "Abono de disponibilidad" o con un mínimo mensual garantizado.',
+      message: `La guardia no se cobra aparte: cubrila en la tarifa, con un "${GUARD_FEE_LABEL}" o con un mínimo mensual garantizado.`,
       focus: 'rules.availabilityFeeMonthly',
     });
   }

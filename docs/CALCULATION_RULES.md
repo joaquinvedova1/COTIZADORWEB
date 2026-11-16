@@ -1643,7 +1643,7 @@ horas del servicio = días con trabajo × horas por día
 
 Para los equipos propios se usan las horas normales de la cuadrilla (las mayores cargadas; sin personal, las del parámetro por defecto). Es una **propuesta**: sólo se aplica cuando el usuario elige "también hacen otros trabajos", se guarda como `fixedCostSharePct` explícito y **no se recalcula solo** al cambiar los días. La parte del sueldo que no cubre este servicio queda a cargo de los otros trabajos: la pantalla lo dice.
 
-**Guardia**: sin fórmulas nuevas. "Guardia pasiva: fijo por mes" es `rules.availabilityFeeMonthly` y "Guardia activa: plus por cada llamado" es `rules.calloutFeePerActivation` (§ reglas comerciales).
+**Guardia**: sin fórmulas nuevas. "Fijo por mes por estar de guardia" es `rules.availabilityFeeMonthly` y "Plus por cada llamado" (o salida, trabajo, intervención: el nombre de la activación de la cotización) es `rules.calloutFeePerActivation` (§ reglas comerciales). Desde V-32 (2026-11) esos dos nombres son los únicos en "Cómo se cobra", "El precio" (reglas comerciales) y el Resultado; "activa" y "pasiva" quedan sólo para "Tipo de guardia".
 
 
 ## 25. Correcciones del veredicto 2026-11 (tandas 1 y 2)

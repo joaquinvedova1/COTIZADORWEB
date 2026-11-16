@@ -85,7 +85,7 @@ import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { fieldHref, stepOfPath } from '../field-links.js';
 import { traceTransport } from '../../engines/transport-engine.js';
-import { activationTerms } from '../../domain/activation-terms.js';
+import { activationTerms, GUARD_FEE_LABEL } from '../../domain/activation-terms.js';
 import { routeText, providerActivityText } from './quote-steps/transport.js';
 import { staffText } from './quote-steps/labor.js';
 import { normalizeRules, revenueComposition, floorWithoutOtherRevenue } from '../../engines/commercial-rules-engine.js';
@@ -808,7 +808,7 @@ function traceRateForMargin(v, row) {
       { label: 'Costo total del mes', value: ra.totalCost, format: 'money' },
       { label: 'Margen sobre precio', value: m, format: 'percent' },
       ...(hasValue(ra.billingTaxPct) && ra.billingTaxPct > 0 ? [{ label: 'Impuestos sobre la facturación', value: ra.billingTaxPct, format: 'percent' }] : []),
-      { label: 'Otros ingresos (abono de disponibilidad, equipo en espera, km)', value: ra.otherRevenue, format: 'money' },
+      { label: 'Otros ingresos (fijo por estar de guardia, equipo en espera, km)', value: ra.otherRevenue, format: 'money' },
       { label: `Unidades facturables (${v.unitLabel})`, value: ra.billableUnits, format: 'number' },
       { label: 'Factor de descuentos', value: ra.discountFactor, format: 'number' },
     ],
@@ -3428,7 +3428,7 @@ function rulesSummary(v) {
   const isMonth = r.unit === 'month';
   const items = [];
   if (rules.availabilityFeeMonthly > 0) {
-    items.push(['Abono de disponibilidad', `${money(rules.availabilityFeeMonthly)} por mes, se trabaje o no.`]);
+    items.push([GUARD_FEE_LABEL, `${money(rules.availabilityFeeMonthly)} por mes, se trabaje o no.`]);
   }
   if (rules.minimumMonthlyGuarantee > 0) {
     const topUp = revenue.guaranteeTopUp;
@@ -3449,7 +3449,7 @@ function rulesSummary(v) {
     items.push([`Mínimo ${T.per} (minimum call)`, `Se facturan al menos ${units} ${T.per}, aunque se trabaje menos.`]);
   }
   if (rules.calloutFeePerActivation > 0) {
-    items.push([`Cargo ${T.per} (call-out fee)`, `${money(rules.calloutFeePerActivation)} ${T.per}.${adds(comps.callout)}`]);
+    items.push([`Plus por cada ${T.one}`, `${money(rules.calloutFeePerActivation)} ${T.per}.${adds(comps.callout)}`]);
   }
   if (rules.mobilizationFeePerActivation > 0) {
     items.push(['Movilización', `${money(rules.mobilizationFeePerActivation)} ${T.per}.${adds(comps.mobilization)}`]);
@@ -3502,8 +3502,8 @@ function revenueCompositionBlock(v, revenue, T) {
   const units = hasValue(revenue.billableUnits) ? (r.unit === 'quantity' ? quantityText(revenue.billableUnits, r) : `${formatNumber(revenue.billableUnits, { decimals: 2 })} ${r.unitInfo.plural || 'unidades'}`) : null;
   const labels = {
     base: r.unit === 'month' ? 'Abono mensual (la tarifa)' : `Tarifa${units ? ` × ${units}` : ''}`,
-    availabilityFee: 'Abono de disponibilidad',
-    callout: `Cargos ${T.per}`,
+    availabilityFee: GUARD_FEE_LABEL,
+    callout: `Plus por cada ${T.one}`,
     mobilization: 'Movilización',
     extraKm: 'Km adicionales',
     standby: 'Equipo en espera',

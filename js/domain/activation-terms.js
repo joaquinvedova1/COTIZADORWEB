@@ -91,6 +91,9 @@ function termsOf(t) {
 /** Los nombres de todas las formas posibles (para la auditoría de terminología de Test Lab). */
 export const EVERY_ACTIVATION_TERMS = Object.freeze(ACTIVATION_TERMS.map(termsOf));
 
+/** Lo que se cobra por mes por estar disponible, haya trabajo o no (`rules.availabilityFeeMonthly`). */
+export const GUARD_FEE_LABEL = 'Fijo por mes por estar de guardia';
+
 /**
  * Rótulos de campos que nombran la activación. Los usan el formulario y los
  * avisos que citan esos campos: un aviso nunca nombra un campo que no existe.
@@ -107,6 +110,9 @@ export function activationFieldLabels(T) {
     externalMobilization: `Movilización ${T.per}`,
     includedKm: `Km incluidos ${T.per}`,
     perActivation: `Por ${T.one}`,
+    // Guardia (V-32): un solo nombre para cada cargo en todas las pantallas.
+    guardFee: GUARD_FEE_LABEL,
+    guardPlus: `Plus por cada ${T.one}`,
   });
 }
 

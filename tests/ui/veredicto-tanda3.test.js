@@ -14,9 +14,10 @@ import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
 import { routeConsumptionNote, tollsNote } from '../../js/ui/views/quote-steps/logistics.js';
 import { defaultUnitForContract } from '../../js/domain/contract.js';
 import { billingUnitOf } from '../../js/domain/billing-units.js';
+import { tariffRows } from '../../js/ui/result-text.js';
 import { outOfHoursMarginNote, outOfHoursBreakEvenNote, coveredByOtherRevenue, coveredRateText, rateBelowHourCostText } from '../../js/ui/result-text.js';
 import { standbyOutputText, showStandbyRule, STANDBY_DAYS_NOTE } from '../../js/ui/views/quote-steps/margin.js';
-import { activationTerms } from '../../js/domain/activation-terms.js';
+import { activationTerms, activationFieldLabels, GUARD_FEE_LABEL } from '../../js/domain/activation-terms.js';
 import { EMPTY, formatMoney } from '../../js/core/format.js';
 import { illustrativeInfo, usesOwnFuel, blankMaterialLine, materialLineFromLibrary } from '../../js/domain/quote-factory.js';
 import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
@@ -314,5 +315,26 @@ describe('V-31 · Peajes con más de un viaje', () => {
     assert.equal(tollsNote(3, activationTerms({ serviceType: 'on_call', unit: 'trip' })), 'Son los peajes de los 3 viajes del llamado.');
     assert.equal(tollsNote(1, activationTerms({ serviceType: 'transport', unit: 'trip' })), '');
     assert.equal(tollsNote(null, activationTerms({})), '');
+  });
+});
+
+describe('V-32 · Un solo nombre para el fijo de guardia y el plus', () => {
+  test('los rótulos salen de un solo lugar y nombran la activación de la cotización', () => {
+    assert.equal(GUARD_FEE_LABEL, 'Fijo por mes por estar de guardia');
+    assert.equal(activationFieldLabels(activationTerms({ serviceType: 'on_call' })).guardFee, 'Fijo por mes por estar de guardia');
+    assert.equal(activationFieldLabels(activationTerms({ serviceType: 'on_call' })).guardPlus, 'Plus por cada llamado');
+    assert.equal(activationFieldLabels(activationTerms({ serviceType: 'transport' })).guardPlus, 'Plus por cada salida');
+  });
+
+  test('"Tus tarifas" y los avisos usan esos nombres; ya no dicen "guardia activa / pasiva" ni "abono de disponibilidad"', () => {
+    resetIds();
+    const guard = (unit) => service({ serviceType: 'on_call', unit, activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person()], rules: { availabilityFeeMonthly: 900_000, calloutFeePerActivation: 150_000 } });
+    const labels = tariffRows(computeQuote(guard('hour'))).map(([label]) => label);
+    const r = computeQuote(guard('month'));
+    assert.ok(labels.includes('Fijo por mes por estar de guardia') && labels.includes('Plus por cada llamado'), labels.join(' | '));
+    assert.ok(!labels.some((l) => /guardia (activa|pasiva)/i.test(l)));
+    const overlap = r.completeness.items.find((i) => i.id === 'monthly_fee_overlap');
+    assert.match(overlap.message, /"Fijo por mes por estar de guardia"/);
+    assert.doesNotMatch(overlap.message, /Abono de disponibilidad/);
   });
 });
