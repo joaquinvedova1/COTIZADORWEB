@@ -485,8 +485,8 @@ describe('A-15 · Avisos informativos nuevos (no bajan el puntaje)', () => {
     assert.ok(n);
     assert.equal(n.severity, 'info');
     assert.match(n.message, /este precio absorbe \$\s?[\d.]+ de costos fijos de 1,5 meses/);
-    assert.match(n.message, /asignales un % compartido/);
-    assert.match(n.message, /RATEOS no lo aplica solo/);
+    // V-01: lleva a la pregunta de "Cómo se cobra" (antes "asignales un % compartido").
+    assert.match(n.message, /Si también hacen otros trabajos, elegí "No, también hacen otros trabajos" en "Cómo se cobra"\.$/);
     // El personal del 2x1 C3 está "contratado para este servicio": no se comparte con otras obras,
     // así que no entra en el aviso (revisión de costos). Sólo la tenencia de los equipos propios.
     assert.equal(q.labor[0].assignment, 'hired');

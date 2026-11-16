@@ -40,6 +40,7 @@ import { summarizeEconomicBase } from './economic-base-engine.js';
 import { externalFiscal, externalFuelMode } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
+import { proposeServiceShares } from './utilization-engine.js';
 import { normalizeRules } from './commercial-rules-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay, availabilityHoursOf } from './cost-engine.js';
 import { outputPerActiveDayOf, normalizeBasisId } from './materials-engine.js';
@@ -1258,7 +1259,7 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
   if (!closed && !(contract.mode !== 'monthly' && D < available - 1e-9)) return null;
   // Al 100 % y que podría compartirse: dedicada / reservado / sin dato, o "compartida" sin un %
   // válido (se carga al 100 %). Se excluye "contratada para este servicio": no trabaja en otras
-  // obras, así que el aviso ("asignales un % compartido") no le aplica (revisión de costos de la tanda A).
+  // obras, así que el aviso ("si también hacen otros trabajos…") no le aplica (revisión de costos de la tanda A).
   const full = (line) => {
     const share = fixedCostShareOf(line);
     if (share.assignment === 'hired') return false;
@@ -1287,6 +1288,17 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
   const mf = monthsFactor(D, available);
   const amount = (laborFixed + equipmentFixed) * mf;
   if (!(amount > 0)) return null;
+  // V-01 (FLUJO-NUEVO-B): fuera de precio cerrado, si el servicio ya les ocupa el mes entero
+  // (la propuesta de dedicación da 100 % para todas esas líneas: lunes a viernes, 8 h), no hay
+  // nada que compartir: no se le dice "trabajás 22 de 30 días" a quien trabaja el mes completo.
+  if (!closed) {
+    const proposal = proposeServiceShares(quote, { activeDaysPerMonth: D, hoursPerActiveDay: model.activity.hoursPerActiveDay });
+    const fullMonth = targets.every((t) => {
+      const p = t.list === 'labor' ? proposal.labor[t.index] : proposal.equipment[t.index];
+      return p !== null && p !== undefined && p >= 100 - 1e-9;
+    });
+    if (fullMonth) return null;
+  }
   const days = formatNumber(D, { decimals: Math.abs(D - Math.round(D)) < 1e-9 ? 0 : 1 });
   const why = closed
     ? `Precio cerrado (${days} días de trabajo)`
@@ -1298,7 +1310,7 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
     step: targets[0].list,
     severity: 'info',
     label: 'Costos fijos del mes en el precio',
-    message: `${why}: este precio absorbe ${formatMoney(amount)} de costos fijos ${period} (${parts}) del personal y los equipos asignados al 100 %. Si esta gente o estos equipos trabajan en otras obras, asignales un % compartido. RATEOS no lo aplica solo.`,
+    message: `${why}: este precio absorbe ${formatMoney(amount)} de costos fijos ${period} (${parts}) del personal y los equipos asignados al 100 %. Si también hacen otros trabajos, elegí "No, también hacen otros trabajos" en "Cómo se cobra".`,
     focus: `${targets[0].list}.${targets[0].index}.assignment`,
     targets,
     amount,

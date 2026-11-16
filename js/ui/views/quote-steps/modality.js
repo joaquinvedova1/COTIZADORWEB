@@ -36,6 +36,7 @@ import { staffText } from './labor.js';
 import { isOutOfHoursExtra, OUT_OF_HOURS_KIND, OUT_OF_HOURS_PRESETS } from '../../../engines/out-of-hours-engine.js';
 import { proposeServiceShares } from '../../../engines/utilization-engine.js';
 import { createId } from '../../../core/ids.js';
+import { dedicationChoiceOf } from '../../../domain/assignment.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -843,7 +844,9 @@ export function render(container, ctx) {
     ...ownedEquipment.map(({ e, i }) => ({ kind: 'equipment', i, line: e, name: (e && e.name) || 'Equipo' })),
   ].filter((t) => t.line && typeof t.line === 'object');
   const sharedCount = shareTargets.filter((t) => t.line.assignment === 'shared').length;
-  const dedicationValue = !shareTargets.length ? null : sharedCount === 0 ? 'yes' : sharedCount === shareTargets.length ? 'no' : null;
+  // V-01: "Sí" sólo se muestra marcado si alguien lo eligió (alguna línea con respuesta
+  // explícita). Sin dato el costo es 100 %, pero no es una respuesta.
+  const dedicationValue = dedicationChoiceOf(shareTargets.map((t) => t.line));
   const applyShares = (onlyMissing = false) => {
     const result = ctx.result;
     ctx.mutate((q) => {
@@ -862,12 +865,14 @@ export function render(container, ctx) {
       });
     });
   };
+  // "Sí": la respuesta se escribe en todas las líneas (V-01; antes sólo en las compartidas, y en
+  // una cotización nueva no guardaba nada). No cambia ningún número: sin dato ya era 100 %.
   const applyDedicated = () => ctx.mutate((q) => {
     (Array.isArray(q.labor) ? q.labor : []).forEach((l) => {
-      if (l && typeof l === 'object' && l.assignment === 'shared') l.assignment = 'dedicated';
+      if (l && typeof l === 'object' && l.assignment !== 'hired') l.assignment = 'dedicated';
     });
     (Array.isArray(q.equipment) ? q.equipment : []).forEach((e) => {
-      if (e && typeof e === 'object' && e.assignment === 'shared') e.assignment = 'reserved';
+      if (e && typeof e === 'object' && e.acquisition !== 'rented' && e.acquisition !== 'outsourced') e.assignment = 'reserved';
     });
   });
   const pctText = (v) => formatPercent(Number(v));
@@ -908,6 +913,14 @@ export function render(container, ctx) {
               stale && !kit.readOnly ? button(`Usar ${pctText(first)}`, { variant: 'secondary', size: 'sm', onClick: () => applyShares(false) }) : null,
               ' Si cambiás los días, revisá este porcentaje. Si los otros trabajos no aparecen, esa parte del sueldo queda sin cubrir.');
           }, { tag: 'div', allowEmpty: true }))
+        : null,
+      // Sin elegir (V-01): el precio ya carga el mes completo; se dice acá, donde se decide.
+      dedicationValue === null && sharedCount === 0
+        ? kit.out((r) => {
+          const absorbed = ((r.completeness && r.completeness.notices) || []).find((n) => n.id === 'fixed_costs_absorbed');
+          const amount = absorbed && isFiniteNumber(absorbed.amount) && absorbed.amount > 0 ? `: ${formatMoney(absorbed.amount)}` : '';
+          return h('p', { class: ['qe-note', 'is-warning'] }, `Todavía no elegiste. Mientras tanto, este servicio paga todo el mes de tu gente y tus equipos${amount}.`);
+        }, { tag: 'div', allowEmpty: true })
         : null,
       dedicationValue === null && sharedCount > 0
         ? h('p', { class: 'qe-note' }, 'Hoy algunos recursos están compartidos y otros no (se cambia en cada persona o equipo). Elegí una opción para dejarlos todos iguales.')

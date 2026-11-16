@@ -21,6 +21,7 @@ import {
 } from '../../js/engines/out-of-hours-engine.js';
 import { serviceTimeSharePct, proposeServiceShares } from '../../js/engines/utilization-engine.js';
 import { QUOTE_STEPS } from '../../js/domain/catalogs.js';
+import { dedicationChoiceOf } from '../../js/domain/assignment.js';
 import { createBlankQuote, laborLineFromProfile, blankEquipmentLine } from '../../js/domain/quote-factory.js';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps * Math.max(1, Math.abs(b)), `${a} ≈ ${b}`);
@@ -264,6 +265,60 @@ describe('PLAN-2026-025 — % de dedicación propuesto por horas (se aplica sól
     assert.equal(p.equipment[0], p.labor[0]);
     assert.equal(p.equipment[1], null);
     assert.equal(JSON.stringify(q), snapshot);
+  });
+});
+
+describe('V-01 — dedicación: "Sí" sólo si alguien lo eligió', () => {
+  test('dedicationChoiceOf: sin dato = sin elegir; con una respuesta explícita = "Sí"; todas compartidas = "No"', () => {
+    assert.equal(dedicationChoiceOf([{}, {}]), null);
+    assert.equal(dedicationChoiceOf([{ assignment: null }, { assignment: '' }, { assignment: undefined }]), null);
+    assert.equal(dedicationChoiceOf([{ assignment: 'dedicated' }, {}]), 'yes');
+    assert.equal(dedicationChoiceOf([{ assignment: 'reserved' }]), 'yes');
+    assert.equal(dedicationChoiceOf([{ assignment: 'hired' }, {}]), 'yes');
+    assert.equal(dedicationChoiceOf([{ assignment: 'shared' }, { assignment: 'shared' }]), 'no');
+    assert.equal(dedicationChoiceOf([{ assignment: 'shared' }, { assignment: 'dedicated' }]), null);
+    assert.equal(dedicationChoiceOf([{ assignment: 'shared' }, {}]), null);
+    assert.equal(dedicationChoiceOf([]), null);
+    assert.equal(dedicationChoiceOf(null), null);
+  });
+
+  test('una cotización nueva no tiene respuesta, y escribir "dedicada / reservado" no cambia ningún número', () => {
+    const q = semiQuote();
+    assert.equal(dedicationChoiceOf([...q.labor, ...q.equipment]), null);
+    const before = computeQuote(structuredClone(q));
+    q.labor.forEach((l) => { l.assignment = 'dedicated'; });
+    q.equipment.forEach((e) => { e.assignment = 'reserved'; });
+    assert.equal(dedicationChoiceOf([...q.labor, ...q.equipment]), 'yes');
+    const after = computeQuote(q);
+    near(after.estimate.cost.total, before.estimate.cost.total);
+    near(after.kpis.targetListRate, before.kpis.targetListRate);
+  });
+
+  test('el aviso de costos fijos no sale si el servicio ya ocupa el mes entero (22 días × 8 h) y sí con 12 días', () => {
+    const absorbed = (days) => {
+      const q = semiQuote();
+      q.unit = 'day';
+      q.equipment[0].hoursPerActiveDay = null;
+      q.activity.activeDaysPerMonth = days;
+      q.activity.hoursPerActiveDay = 8;
+      return computeQuote(q).completeness.notices.find((n) => n.id === 'fixed_costs_absorbed');
+    };
+    assert.equal(absorbed(22), undefined);
+    const n = absorbed(12);
+    assert.ok(n);
+    assert.match(n.message, /^Trabajás 12 de 30 días disponibles/);
+    assert.match(n.message, /elegí "No, también hacen otros trabajos" en "Cómo se cobra"\.$/);
+    assert.ok(n.amount > 0);
+  });
+
+  test('en precio cerrado el aviso sale siempre (aunque el trabajo ocupe el mes)', () => {
+    const q = semiQuote();
+    q.contract = { mode: 'closed', components: ['labor', 'machinery'] };
+    q.unit = 'job';
+    q.activity.billableQuantityPerMonth = 1;
+    q.activity.daysPerActivation = 22;
+    q.activity.hoursPerActiveDay = 8;
+    assert.ok(computeQuote(q).completeness.notices.find((n) => n.id === 'fixed_costs_absorbed'));
   });
 });
 

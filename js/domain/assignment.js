@@ -56,3 +56,27 @@ export function fixedCostShareOf(line) {
   const sharePct = Math.min(raw, FULL_SHARE_PCT);
   return { assignment, shared: true, sharePct, share: sharePct / 100, missing: false };
 }
+
+/**
+ * Respuesta a "¿Tu gente y tus equipos trabajan sólo para este servicio?" que
+ * se lee de las líneas (personal y equipos propios) de una cotización (V-01):
+ *
+ *   'no'   todas compartidas
+ *   'yes'  ninguna compartida y al menos una con respuesta explícita
+ *          (dedicada, reservado, contratada)
+ *   null   sin elegir: ninguna línea tiene respuesta, o están mezcladas
+ *
+ * Sin dato el costo es 100 % (como siempre), pero la pantalla no lo muestra
+ * como una respuesta: nadie la eligió.
+ * @param {object[]} lines líneas de personal y de equipos PROPIOS
+ * @returns {'yes'|'no'|null}
+ */
+export function dedicationChoiceOf(lines) {
+  const list = (Array.isArray(lines) ? lines : []).filter(isPlainObject);
+  if (!list.length) return null;
+  const sharedCount = list.filter((l) => l.assignment === 'shared').length;
+  const explicitCount = list.filter((l) => typeof l.assignment === 'string' && l.assignment !== '' && l.assignment !== 'shared').length;
+  if (sharedCount === list.length) return 'no';
+  if (sharedCount === 0 && explicitCount > 0) return 'yes';
+  return null;
+}
