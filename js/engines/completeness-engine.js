@@ -1103,7 +1103,7 @@ export function evaluateCompleteness(quote = {}) {
   if (isOnCall && (contract.legacy || contract.equipment)) {
     const ok = nonNegative(rules.standbyRatePerDay) > 0 || rules.standbyNotApplicable === true;
     items.push(rule('standby', 'Equipo en espera (standby)', 'margin', 1, ok ? 'ok' : 'warning',
-      ok ? 'Standby definido.' : '¿Qué cobrás si el equipo queda en locación sin operar? Definilo o marcá que no aplica.'));
+      ok ? 'Standby definido.' : '¿Qué cobrás si el equipo queda en locación sin operar? Definilo o marcá que no aplica. Si la espera es eventual, dejá los días en 0 y cargá sólo la tarifa.'));
   }
 
   // 15. Adicionales (PLAN-2026-018): cada uno con cantidad necesita costo y precio.

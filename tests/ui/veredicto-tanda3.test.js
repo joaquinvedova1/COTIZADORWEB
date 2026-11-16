@@ -15,6 +15,7 @@ import { routeConsumptionNote } from '../../js/ui/views/quote-steps/logistics.js
 import { defaultUnitForContract } from '../../js/domain/contract.js';
 import { billingUnitOf } from '../../js/domain/billing-units.js';
 import { outOfHoursMarginNote, outOfHoursBreakEvenNote, coveredByOtherRevenue, coveredRateText, rateBelowHourCostText } from '../../js/ui/result-text.js';
+import { standbyOutputText, showStandbyRule, STANDBY_DAYS_NOTE } from '../../js/ui/views/quote-steps/margin.js';
 import { EMPTY, formatMoney } from '../../js/core/format.js';
 import { illustrativeInfo, usesOwnFuel, blankMaterialLine, materialLineFromLibrary } from '../../js/domain/quote-factory.js';
 import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
@@ -243,5 +244,36 @@ describe('V-28 · Guardia que cubre todo', () => {
     const hourCost = r.outOfHours.basis.crewNormalPerHour + r.outOfHours.basis.equipmentPerHour;
     assert.ok(r.kpis.suggestedListRate < hourCost, `${r.kpis.suggestedListRate} vs ${hourCost}`);
     assert.match(norm(rateBelowHourCostText(r)), /^La guardia y los adicionales ya cubren casi todo tu costo y tu margen: la tarifa por hora queda por debajo de lo que te cuesta una hora de tus recursos \(\$ [\d.]+\)\. Puede ser la que acuerdes\.$/);
+  });
+});
+
+describe('V-29 · Equipo en espera con días', () => {
+  const onCall = (rules) => {
+    resetIds();
+    return service({ serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned()], rules: { standbyNotApplicable: false, ...rules } });
+  };
+
+  test('con días cargados se avisa que bajan la tarifa principal; con 0 días no', () => {
+    const withDays = computeQuote(onCall({ standbyDaysPerMonth: 1, standbyRatePerDay: 1_850_000 }));
+    assert.match(norm(standbyOutputText(withDays, { days: 1 })), /^Ingreso por equipo en espera: \$ 1\.850\.000 · .* Estos días se cuentan como ingreso seguro y bajan tu tarifa principal\. Si la espera es eventual, dejá los días en 0 y cargá sólo la tarifa\.$/);
+    const onlyRate = computeQuote(onCall({ standbyDaysPerMonth: 0, standbyRatePerDay: 1_850_000 }));
+    assert.doesNotMatch(standbyOutputText(onlyRate, { days: 0 }), /ingreso seguro/);
+    assert.match(standbyOutputText(onlyRate, { off: true, days: 3 }), /^No aplica equipo en espera/);
+    assert.ok(withDays.kpis.suggestedListRate < onlyRate.kpis.suggestedListRate, 'la regla no cambia: los días bajan la sugerida');
+    assert.match(STANDBY_DAYS_NOTE, /dejá los días en 0/);
+  });
+
+  test('el pendiente de standby dice qué hacer si la espera es eventual', () => {
+    const item = computeQuote(onCall({ standbyRatePerDay: 0 })).completeness.items.find((i) => i.id === 'standby');
+    assert.equal(item.status, 'warning');
+    assert.match(item.message, /Si la espera es eventual, dejá los días en 0 y cargá sólo la tarifa\.$/);
+  });
+
+  test('en precio cerrado "Equipo en espera" no se muestra vacío', () => {
+    const closed = { contract: { mode: 'closed', components: ['labor', 'equipment'] }, serviceType: 'lump_sum', unit: 'job', rules: {} };
+    assert.equal(showStandbyRule(closed), false);
+    assert.equal(showStandbyRule({ ...closed, rules: { standbyRatePerDay: 500_000 } }), true);
+    assert.equal(showStandbyRule({ ...closed, rules: { standbyNotApplicable: true } }), true);
+    assert.equal(showStandbyRule({ serviceType: 'on_call', unit: 'day', rules: {} }), true);
   });
 });

@@ -27,6 +27,7 @@ import { minActivityNotice } from '../../result-text.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillingTaxes, sameBillingTaxes, invalidTaxesText } from '../../billing-taxes-form.js';
 import { userErrorMessage } from '../../layout.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
+import { contractOf } from '../../../domain/contract.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -160,6 +161,27 @@ export function minimumCallNote(r, T, unitInfo) {
   return isFiniteNumber(quantity) && isFiniteNumber(acts)
     ? `${head} Tus ${n(quantity)} ${unitInfo.plural} por mes son ${n(acts)} ${T.word(acts)}.`
     : head;
+}
+
+/** Aviso del equipo en espera con días cargados (V-29): esos días bajan la tarifa principal. */
+export const STANDBY_DAYS_NOTE = 'Estos días se cuentan como ingreso seguro y bajan tu tarifa principal. Si la espera es eventual, dejá los días en 0 y cargá sólo la tarifa.';
+
+/**
+ * Línea de resultado de "Equipo en espera" (V-29).
+ * @param {object} r resultado de computeQuote
+ * @param {{ off?: boolean, days?: number }} [o] "No aplica" marcado y días en espera cargados
+ */
+export function standbyOutputText(r, { off = false, days = 0 } = {}) {
+  if (off) return 'No aplica equipo en espera: los días y la tarifa cargados no se usan. Ingreso y costo en espera: $ 0.';
+  const base = `Ingreso por equipo en espera: ${formatMoney(r.estimate.revenue.components.standby)} · costo del personal en espera: ${formatMoney(r.model.standby.monthly)} por mes.`;
+  return Number(days) > 0 ? `${base} ${STANDBY_DAYS_NOTE}` : base;
+}
+
+/** En precio cerrado "Equipo en espera" sólo se muestra si tiene algo cargado (V-29). */
+export function showStandbyRule(quote = {}) {
+  if (contractOf(quote).mode !== 'closed') return true;
+  const rules = quote.rules || {};
+  return rules.standbyNotApplicable === true || Number(rules.standbyDaysPerMonth) > 0 || Number(rules.standbyRatePerDay) > 0;
 }
 
 export function render(container, ctx) {
@@ -416,7 +438,7 @@ export function render(container, ctx) {
     const active = RULE_NAMES.filter(([key]) => key !== skip && hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
     if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
     else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
-    else active.push('equipo en espera sin definir');
+    else if (showStandbyRule(quote)) active.push('equipo en espera sin definir');
     return `Abono, cargos ${T.per}, mínimos, equipo en espera y continuidad. Aplicadas: ${active.join(', ')}.`;
   };
   const rulesCard = kit.advanced(
@@ -481,7 +503,7 @@ export function render(container, ctx) {
       [kit.num('rules.minimumCallUnits', { label: `${L.minimumCall} (${minimumCallUnit})`, rule: 'quantity', unit: minimumCallUnit })],
       kit.out((r) => minimumCallNote(r, T, unitInfo)),
     ),
-    ruleRow(
+    showStandbyRule(quote) ? ruleRow(
       'Equipo en espera (standby)',
       'Días por mes que el equipo queda en locación sin operar y se cobran a tarifa de espera. El personal en espera también es costo.',
       [
@@ -505,10 +527,8 @@ export function render(container, ctx) {
           hint: 'Marcalo si el equipo nunca queda en locación sin operar: los días y la tarifa en espera no se usan (ingreso y costo en $ 0).',
         }),
       ],
-      kit.out((r) => (standbyOff
-        ? 'No aplica equipo en espera: los días y la tarifa cargados no se usan. Ingreso y costo en espera: $ 0.'
-        : `Ingreso por equipo en espera: ${formatMoney(r.estimate.revenue.components.standby)} · costo del personal en espera: ${formatMoney(r.model.standby.monthly)} por mes.`)),
-    ),
+      kit.out((r) => standbyOutputText(r, { off: standbyOff, days: quote.rules && quote.rules.standbyDaysPerMonth })),
+    ) : null,
     ruleRow(
       'Mínimo mensual garantizado',
       'La facturación del mes nunca es menor a este mínimo: un monto en $ o una cantidad de unidades a la tarifa.',
