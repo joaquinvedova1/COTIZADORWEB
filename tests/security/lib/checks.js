@@ -542,7 +542,7 @@ export const HUMAN_DECISIONS = Object.freeze([
     category: 'SECURITY',
     requiredBeforeRealUsers: true,
     title: 'El registro está abierto: cualquiera puede crear una cuenta en una beta "cerrada" (no expone datos de otras empresas: cada cuenta nace con su propia empresa)',
-    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): registro cerrado o por invitación. Estado: la app ya no ofrece ni llama al registro (FEATURES.publicSignup = false, PLAN-2026-016); se cumple cuando el dueño apaga "Allow new users to sign up" en Supabase Auth (verificar con node scripts/check-auth-perimeter.mjs).',
+    recommendation: 'Requisito obligatorio antes de habilitar usuarios reales (decisión del dueño, 2026-10-17): registro cerrado o por invitación. Estado (2026-11-16): el dueño decidió abrir el registro (FEATURES.publicSignup = true); cada cuenta nace con su propia empresa y RLS la aísla. Para volver a la beta por invitación: FEATURES.publicSignup = false y apagar "Allow new users to sign up" en Supabase Auth (verificar con node scripts/check-auth-perimeter.mjs).',
   },
   {
     id: 'HD-04',
@@ -577,7 +577,7 @@ export const HUMAN_DECISIONS = Object.freeze([
     severity: 'P2',
     category: 'UX SECURITY',
     title: 'El registro avisa "Ese email ya está registrado": permite saber si un email tiene cuenta',
-    recommendation: 'Decidir entre la ayuda a la persona y un mensaje uniforme antes de reabrir el registro. Con la beta por invitación (FEATURES.publicSignup = false) la app no llama al registro: hoy ese aviso no aparece.',
+    recommendation: 'Decidir entre la ayuda a la persona y un mensaje uniforme antes de reabrir el registro. Con el registro abierto (2026-11-16) el aviso aparece: se mantiene por ayuda a la persona.',
   },
   {
     id: 'HD-09',

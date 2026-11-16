@@ -37,6 +37,8 @@ js/data/supabase-client.js → js/data/vendor/supabase.js
 
 ## 3. Registro, confirmación de email y alta de la empresa
 
+> **Registro abierto desde 2026-11-16 (decisión del dueño).** `FEATURES.publicSignup = true`: la app vuelve a ofrecer "Crear cuenta". Requisitos en Supabase: "Allow new users to sign up" encendido y **SMTP propio** (con el de Supabase el correo de confirmación sólo llega al equipo del proyecto y el registro falla con `email_address_not_authorized`). Lo que sigue sobre la beta cerrada queda como referencia para volver a cerrarlo.
+>
 > **Beta cerrada por invitación (HD-03, PLAN-2026-016).** `FEATURES.publicSignup = false`: la app no ofrece "Crear cuenta", `#/registro` explica el acceso por invitación (sin formulario) y `signUp` no llama a Supabase. La barrera real es Supabase Auth con **"Allow new users to sign up" apagado** (decisión y paso del dueño: [BETA_PERIMETER.md §2](BETA_PERIMETER.md#2-registro-por-invitación-hd-03)); con el registro cerrado, Supabase devuelve `signup_disabled` / `email_provider_disabled` y la app muestra el mensaje de la invitación. Altas: Dashboard → Authentication → Users → **Add user → Create new user** (Auto Confirm); la persona elige su contraseña con **"¿Olvidaste tu contraseña?"** (recuperación PKCE de siempre). El trigger de alta crea su organización ("Mi empresa"), su membresía OWNER y su workspace vacío. Los enlaces de **invitación** del Dashboard no se usan: no son PKCE y la app los rechaza a propósito. Lo que sigue describe el registro abierto (`publicSignup = true`).
 
 1. `#/registro` pide **Tu nombre, Empresa, Email y Contraseña** (mínimo 8 caracteres). Nombre y empresa viajan como `user_metadata` (`full_name`, `company`).

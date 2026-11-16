@@ -50,6 +50,6 @@ describe('auth-routing: entrada sin cuenta (HD-03)', () => {
     assert.deepEqual(accountEntry(null, { publicSignup: false }), { label: 'Ingresar', hash: '#/login', signup: false });
     assert.deepEqual(accountEntry('/cotizaciones/nueva', { publicSignup: true }), { label: 'Crear cuenta', hash: '#/registro?next=%2Fcotizaciones%2Fnueva', signup: true });
     assert.equal(accountEntry('https://evil.example/', { publicSignup: false }).hash, '#/login', 'un destino externo nunca se conserva');
-    assert.equal(accountEntry().signup, false, 'lo publicado es beta por invitación');
+    assert.equal(accountEntry().signup, true, 'lo publicado es registro libre (2026-11-16)');
   });
 });

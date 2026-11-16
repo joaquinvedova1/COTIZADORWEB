@@ -306,8 +306,8 @@ describe('auth-gateway: errores del SDK → códigos propios', () => {
 });
 
 describe('AuthService: beta cerrada por invitación (HD-03, PLAN-2026-016)', () => {
-  test('lo publicado es beta por invitación: la app no ofrece ni llama al registro', () => {
-    assert.equal(FEATURES.publicSignup, false);
+  test('lo publicado es registro libre (decisión del dueño, 2026-11-16)', () => {
+    assert.equal(FEATURES.publicSignup, true);
   });
 
   test('con el registro cerrado, signUp no llama a Supabase y explica la invitación', async () => {
@@ -363,7 +363,7 @@ describe('AuthService: beta cerrada por invitación (HD-03, PLAN-2026-016)', () 
       const own = await auth.requestPasswordReset('Invitada@Example.com ');
       assert.equal(own.ok, false, '"Cambiar contraseña" con la sesión iniciada no dice que lo envió');
       assert.equal(own.message, messageFor(AUTH_ERRORS.emailNotAuthorized));
-      assert.match(own.message, /no tiene habilitado el envío de correos/);
+      assert.match(own.message, /No pudimos enviarte el email/);
       assert.doesNotMatch(own.message, /SMTP|Supabase|authorized/);
       failWith = AUTH_ERRORS.unknown;
       const broken = await auth.requestPasswordReset('invitada@example.com');
