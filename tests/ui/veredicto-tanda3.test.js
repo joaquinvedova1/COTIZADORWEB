@@ -8,11 +8,12 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { baseOf } from '../../js/ui/views/quote-steps/indirect.js';
-import { resourceCostText } from '../../js/ui/views/quote-steps/modality.js';
+import { resourceCostText, outOfHoursNoteText, outOfHoursHoursNote, outOfHoursCostLabel, outOfHoursCostHint, ownEquipmentTravels } from '../../js/ui/views/quote-steps/modality.js';
 import { extraPresetsFor, OUT_OF_HOURS_PRESETS_NOTE } from '../../js/ui/views/quote-steps/extras.js';
 import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
 import { routeConsumptionNote } from '../../js/ui/views/quote-steps/logistics.js';
 import { defaultUnitForContract } from '../../js/domain/contract.js';
+import { billingUnitOf } from '../../js/domain/billing-units.js';
 import { EMPTY } from '../../js/core/format.js';
 import { illustrativeInfo, usesOwnFuel, blankMaterialLine, materialLineFromLibrary } from '../../js/domain/quote-factory.js';
 import { service, person, external, owned, vehicle, resetIds } from '../lab/lib/build.js';
@@ -121,5 +122,70 @@ describe('V-24 · Unidad al pasar a "Por servicio prestado"', () => {
     assert.equal(defaultUnitForContract({ mode: 'on_demand', labor: true, equipment: false }), 'day');
     assert.equal(defaultUnitForContract({ mode: 'monthly', labor: true, equipment: true }), 'month');
     assert.equal(defaultUnitForContract({ mode: 'closed', labor: true, equipment: true }), 'job');
+  });
+});
+
+describe('V-26 · Hora fuera de horario cuando no se cobra por hora ni por día', () => {
+  const overtime = () => [50, 100].map((premiumPct, i) => ({ id: `ooh-${i}`, kind: OUT_OF_HOURS_KIND, premiumPct, label: '', unitName: 'hora', category: 'labor', quantityPerMonth: null, costPerUnit: null, price: null }));
+  const quote = (o) => {
+    resetIds();
+    const q = service({ labor: [person(), person()], ...o });
+    q.extras = overtime();
+    return q;
+  };
+  const note = (q) => norm(outOfHoursNoteText(computeQuote(q), billingUnitOf(q)));
+
+  test('por viaje: dice para qué sirve la hora y que no reemplaza al viaje', () => {
+    const q = quote({ serviceType: 'transport', unit: 'trip', activity: { billableQuantityPerMonth: 40, unitsPerActiveDay: 2, hoursPerActiveDay: 8 } });
+    const r = computeQuote(q);
+    assert.equal(r.outOfHours.normalHourSource, 'resources');
+    const [s50, s100] = r.outOfHours.lines.map((l) => l.surchargePrice);
+    assert.ok(s50 > 0 && s100 > s50);
+    const text = note(q);
+    assert.match(text, /^Tu hora normal equivale a \$ [\d.]+ \(lo que cuestan tu gente y tus equipos por hora, con tu margen\)\./);
+    assert.match(text, /Es el precio de cada hora que trabajás fuera de horario además de los viajes que cotizaste\. No reemplaza al viaje: si un viaje entero cae fuera de horario, cobrá el viaje más el recargo por hora \(\$ [\d.]+ al 50 % o \$ [\d.]+ al 100 %\)\.$/);
+    assert.doesNotMatch(text, /Se cobra aparte de la tarifa/);
+  });
+
+  test('por km o por hectárea: "a los km", "a las hectáreas" y "un trabajo entero"', () => {
+    const km = note(quote({ serviceType: 'transport', unit: 'km', activity: { billableQuantityPerMonth: 3600, unitsPerActiveDay: 240, hoursPerActiveDay: 8 } }));
+    assert.match(km, /además de los km que cotizaste\. No reemplaza a los km: si un trabajo entero cae fuera de horario, cobrá los km más el recargo/);
+    const ha = note(quote({ serviceType: 'per_unit', unit: 'ha', activity: { billableQuantityPerMonth: 100, unitsPerActiveDay: 10, hoursPerActiveDay: 8 } }));
+    assert.match(ha, /además de las hectáreas que cotizaste\. No reemplaza a las hectáreas:/);
+  });
+
+  test('abono: sólo dice que es además del abono', () => {
+    const text = note(quote({ serviceType: 'permanent', unit: 'month', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 8 } }));
+    assert.match(text, /Es el precio de cada hora que trabajás fuera de horario además del abono que cotizaste\.$/);
+  });
+
+  test('una sola hora cotizada: "el recargo de $ X por hora"', () => {
+    const q = quote({ serviceType: 'transport', unit: 'trip', activity: { billableQuantityPerMonth: 40, unitsPerActiveDay: 2, hoursPerActiveDay: 8 } });
+    q.extras = q.extras.slice(0, 1);
+    assert.match(note(q), /cobrá el viaje más el recargo de \$ [\d.]+ por hora\.$/);
+  });
+
+  test('cobrando por día el texto no cambia', () => {
+    const text = note(quote({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 } }));
+    assert.match(text, /\(sale de tu tarifa\)\. El precio sugerido es esa hora más el recargo de las horas extra\. Se cobra aparte de la tarifa\.$/);
+  });
+
+  test('rótulo y ayuda del costo por hora: "(gente)" sin equipos trabajando; la ruta no está incluida', () => {
+    assert.equal(outOfHoursCostLabel({ people: 2, equipmentPerHour: 0 }), 'Te cuesta por hora (gente)');
+    assert.equal(outOfHoursCostLabel({ people: 2, equipmentPerHour: 1500 }), 'Te cuesta por hora (gente + equipos)');
+    assert.equal(outOfHoursCostLabel(null), 'Te cuesta por hora (gente)');
+    assert.equal(ownEquipmentTravels({ equipment: [owned({ mobilization: { mode: 'self' } })] }), true);
+    assert.equal(ownEquipmentTravels({ equipment: [owned(), external({ mobilization: { mode: 'self' } })] }), false);
+    const hint = norm(outOfHoursCostHint({ people: 2, equipmentPerHour: 0 }, { travels: true }));
+    assert.equal(hint, 'Lo que pagás de más por esa hora: las horas extra de 2 personas con cargas. Sueldos y amortización ya están en el mes. No incluye combustible ni desgaste en ruta: si en esas horas se viaja, cobralos como km o como viaje.');
+    assert.doesNotMatch(outOfHoursCostHint({ people: 1, equipmentPerHour: 0 }), /en ruta/);
+  });
+});
+
+describe('V-26 y V-27 · Nota de las horas estimadas fuera de horario', () => {
+  test('son además de las horas normales del mes; un día entero no suma solo vianda ni viaje', () => {
+    assert.equal(norm(outOfHoursHoursNote({ activity: { activeDaysPerMonth: 12, hoursPerActiveDay: 8 } })),
+      'Las horas estimadas son además de las 96 horas normales por mes que cargaste arriba. Si son días enteros que no ibas a trabajar, la vianda y el viaje de ese día no se suman solos.');
+    assert.equal(outOfHoursHoursNote({ activity: {} }), 'Si son días enteros que no ibas a trabajar, la vianda y el viaje de ese día no se suman solos.');
   });
 });

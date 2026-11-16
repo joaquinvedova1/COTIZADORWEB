@@ -146,17 +146,80 @@ export function suggestedHourHint(line) {
  * Nota al pie de "Trabajo fuera del horario normal": de dónde sale la hora normal de referencia.
  * Cobrando por hora-hombre (V-34) la hora normal es la tarifa × las personas de la cuadrilla y
  * los precios son por hora de toda la cuadrilla, no por hora-hombre: se dice.
+ * Cuando no se cobra por hora ni por día (viaje, km, unidad, abono, precio cerrado) la hora
+ * normal sale de los recursos (V-26): se dice para qué sirve esa hora y que no reemplaza
+ * a la unidad cotizada.
+ * @param {object} r resultado de computeQuote
+ * @param {object} [unitInfo] unidad de cobro (`billingUnitOf(quote)`)
  */
-export function outOfHoursNoteText(r) {
+export function outOfHoursNoteText(r, unitInfo = null) {
   const o = (r && r.outOfHours) || {};
   if (!isFiniteNumber(o.normalHourPrice)) return 'Cargá las horas de trabajo por día para comparar con tu hora normal.';
   const people = o.basis ? o.basis.people : 0;
   const crew = o.crewHour && people > 0 ? `${formatNumber(people, { decimals: 2 })} ${Math.abs(people - 1) < 1e-9 ? 'persona' : 'personas'}` : null;
-  const source = o.normalHourSource === 'resources'
+  const fromResources = o.normalHourSource === 'resources';
+  const source = fromResources
     ? 'lo que cuestan tu gente y tus equipos por hora, con tu margen'
     : crew ? `tu tarifa por hora-hombre × ${crew}` : 'sale de tu tarifa';
   const tail = crew ? ` Estos precios son por hora de toda la cuadrilla (${crew}), no por hora-hombre.` : '';
-  return `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${source}). El precio sugerido es esa hora más el recargo de las horas extra. Se cobra aparte de la tarifa.${tail}`;
+  const use = fromResources && unitInfo && unitInfo.kind !== 'hour' && unitInfo.kind !== 'day' ? outOfHoursUseText(o, unitInfo) : 'Se cobra aparte de la tarifa.';
+  return `Tu hora normal equivale a ${formatMoney(o.normalHourPrice)} (${source}). El precio sugerido es esa hora más el recargo de las horas extra. ${use}${tail}`;
+}
+
+/** Unidades que se cuentan de a una y pueden caer enteras fuera de horario (el viaje, el trabajo…). */
+const WHOLE_UNIT_IDS = Object.freeze(['trip', 'shift', 'unit', 'piece', 'well', 'test', 'lot', 'set']);
+
+/** V-26: para qué sirve la hora fuera de horario cuando se cobra por viaje, km, unidad, abono o precio cerrado. */
+function outOfHoursUseText(o, unitInfo) {
+  if (unitInfo.kind === 'month') return 'Es el precio de cada hora que trabajás fuera de horario además del abono que cotizaste.';
+  const fem = unitTexts(unitInfo).los === 'las';
+  const whole = unitInfo.kind === 'event' || WHOLE_UNIT_IDS.includes(unitInfo.id);
+  const many = `${fem ? 'las' : 'los'} ${unitInfo.plural}`;
+  const one = `${fem ? 'la' : 'el'} ${unitInfo.singular}`;
+  // "al viaje" / "a la unidad" / "a los km".
+  const instead = whole ? (fem ? `a ${one}` : `al ${unitInfo.singular}`) : `a ${many}`;
+  const surcharges = (Array.isArray(o.lines) ? o.lines : []).filter((l) => isFiniteNumber(l.surchargePrice) && l.surchargePrice > 0);
+  const surcharge = surcharges.length === 1
+    ? `el recargo de ${formatMoney(surcharges[0].surchargePrice)} por hora`
+    : surcharges.length > 1
+      ? `el recargo por hora (${surcharges.map((l) => `${formatMoney(l.surchargePrice)} al ${formatNumber(l.premiumPct, { decimals: 2 })}\u00a0%`).join(' o ')})`
+      : 'el recargo por hora';
+  return `Es el precio de cada hora que trabajás fuera de horario además de ${many} que cotizaste. No reemplaza ${instead}: si un ${whole ? unitInfo.singular : 'trabajo'} entero cae fuera de horario, cobrá ${whole ? one : many} más ${surcharge}.`;
+}
+
+/**
+ * Rótulo del costo por hora fuera de horario (V-26): sin equipos propios trabajando no dice "+ equipos".
+ * @param {object} basis `r.outOfHours.basis`
+ */
+export function outOfHoursCostLabel(basis) {
+  return basis && basis.equipmentPerHour > 0 ? 'Te cuesta por hora (gente + equipos)' : 'Te cuesta por hora (gente)';
+}
+
+/** ¿Algún equipo propio llega por sus medios? (su combustible y desgaste en ruta no están en la hora fuera de horario). */
+export function ownEquipmentTravels(quote) {
+  return (Array.isArray(quote && quote.equipment) ? quote.equipment : [])
+    .some((e) => e && (e.acquisition || 'owned') === 'owned' && e.mobilization && e.mobilization.mode === 'self');
+}
+
+/** Ayuda del costo por hora fuera de horario (V-26). */
+export function outOfHoursCostHint(basis, { travels = false } = {}) {
+  const b = basis;
+  if (!b) return '';
+  const people = `${formatNumber(b.people, { decimals: 2 })} ${b.people === 1 ? 'persona' : 'personas'}`;
+  const equipment = b.equipmentPerHour > 0 ? ` y el uso de los equipos (${formatMoney(b.equipmentPerHour)} por hora de combustible y mantenimiento)` : '';
+  const route = travels ? ' No incluye combustible ni desgaste en ruta: si en esas horas se viaja, cobralos como km o como viaje.' : '';
+  return `Lo que pagás de más por esa hora: las horas extra de ${people} con cargas${equipment}. Sueldos y amortización ya están en el mes.${route}`;
+}
+
+/**
+ * Nota bajo las horas estimadas fuera de horario (V-26 y V-27): son horas ADEMÁS de las
+ * normales del mes, y un día entero fuera de lo previsto no suma solo su vianda ni su viaje.
+ */
+export function outOfHoursHoursNote(r) {
+  const a = (r && r.activity) || {};
+  const normal = (a.activeDaysPerMonth || 0) * (a.hoursPerActiveDay || 0);
+  const besides = normal > 0.005 ? `Las horas estimadas son además de las ${formatNumber(normal, { decimals: 2 })} horas normales por mes que cargaste arriba. ` : '';
+  return `${besides}Si son días enteros que no ibas a trabajar, la vianda y el viaje de ese día no se suman solos.`;
 }
 
 /**
@@ -1022,12 +1085,8 @@ export function render(container, ctx) {
       h('strong', {}, kit.out((r) => (oohLine(r, i) ? oohLine(r, i).label : x.label || 'Hora fuera de horario'))),
       h('span', { class: 'small muted' }, Number(x.premiumPct) >= 100 ? 'Lo habitual: sábados a la tarde, domingos y feriados (revisá tu convenio).' : 'Lo habitual: días de semana fuera del horario y sábados a la mañana (revisá tu convenio).')),
     kit.stats(
-      kit.stat('Te cuesta por hora (gente + equipos)', (r) => (oohLine(r, i) && oohLine(r, i).costPerUnit > 0 ? formatMoney(oohLine(r, i).costPerUnit) : EMPTY), {
-        hint: (r) => {
-          const b = r.outOfHours && r.outOfHours.basis;
-          if (!b) return '';
-          return `Lo que pagás de más por esa hora: las horas extra de ${num(b.people)} ${b.people === 1 ? 'persona' : 'personas'} con cargas${b.equipmentPerHour > 0 ? ` y el uso de los equipos (${formatMoney(b.equipmentPerHour)} por hora de combustible y mantenimiento)` : ''}. Sueldos y amortización ya están en el mes.`;
-        },
+      kit.stat((r) => outOfHoursCostLabel(r.outOfHours && r.outOfHours.basis), (r) => (oohLine(r, i) && oohLine(r, i).costPerUnit > 0 ? formatMoney(oohLine(r, i).costPerUnit) : EMPTY), {
+        hint: (r) => outOfHoursCostHint(r.outOfHours && r.outOfHours.basis, { travels: ownEquipmentTravels(quote) }),
       }),
       kit.stat(info.id === 'manhour' ? 'Precio sugerido por hora de toda la cuadrilla' : 'Precio sugerido por hora', (r) => (oohLine(r, i) && isFiniteNumber(oohLine(r, i).suggestedPrice) ? formatMoneyCeil(oohLine(r, i).suggestedPrice) : EMPTY), {
         emphasis: true,
@@ -1061,7 +1120,9 @@ export function render(container, ctx) {
       ? kit.out((r) => {
         const o = r.outOfHours || {};
         if (!o.basis || !(o.basis.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, `Falta el personal con su sueldo (en "${stepName('labor')}"): sin eso no se puede calcular la hora extra.`);
-        return h('p', { class: 'qe-note' }, outOfHoursNoteText(r));
+        return h('div', {},
+          h('p', { class: 'qe-note' }, outOfHoursHoursNote(r)),
+          h('p', { class: 'qe-note' }, outOfHoursNoteText(r, info)));
       }, { tag: 'div', allowEmpty: true })
       : null,
   ) : null;
