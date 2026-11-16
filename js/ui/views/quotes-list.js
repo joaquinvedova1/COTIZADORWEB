@@ -22,6 +22,7 @@ import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { quantityCeilText } from '../unit-text.js';
 import { breakEvenZeroText } from '../result-text.js';
+import { markFreshQuote } from '../session-memory.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { templateContents } from './services.js';
@@ -649,6 +650,7 @@ export async function renderNewQuote(root, app) {
     });
     try {
       const quote = await ctx.quotes.createQuote({ templateId });
+      markFreshQuote(quote.id);
       app.toast(`Cotización ${quote.code || ''} creada.`, 'success');
       app.navigate(quoteHref(quote, 'service'));
     } catch (error) {

@@ -79,7 +79,7 @@ import * as indirectStep from './quote-steps/indirect.js';
 import * as financeStep from './quote-steps/finance.js';
 import * as riskStep from './quote-steps/risk.js';
 import * as marginStep from './quote-steps/margin.js';
-import { createDraftStore, onSessionReset } from '../session-memory.js';
+import { createDraftStore, isFreshQuote, onSessionReset } from '../session-memory.js';
 
 const STEP_MODULES = Object.freeze({
   service: serviceStep,
@@ -1448,10 +1448,12 @@ function buildSummary({ getResult, stepHref, stepId = null }) {
  * todavía no se visitó en esta sesión no alarma ni se da por completo
  * ("Pendiente", en gris).
  */
-function shownStatus(status, { after, visited }) {
-  // Tampoco "Completo" (revisión UX tanda novatos): completo sólo con los valores con que nace no
-  // quiere decir que se revisó. Al entrar una vez muestra su estado real.
-  return after && !visited ? 'pending' : status;
+function shownStatus(status, { after, visited, fresh }) {
+  // En una cotización recién creada tampoco "Completo" (revisión UX tanda novatos): completo sólo
+  // con los valores con que nace no quiere decir que se revisó. Al entrar una vez muestra su
+  // estado real. Una cotización que ya existía conserva su "Completo".
+  if (after && !visited) return fresh || status !== 'green' ? 'pending' : status;
+  return status;
 }
 
 /**
@@ -1516,7 +1518,7 @@ function buildStageBar({ currentStep, stepHref, quoteId }) {
     update(result) {
       entries.forEach((e) => {
         const visited = e.stage.steps.some((st) => wasVisited(quoteId, st.id));
-        const status = e.stage.id === 'result' ? 'gray' : shownStatus(stageStatus(e.stage, result), { after: e.index > currentIndex, visited });
+        const status = e.stage.id === 'result' ? 'gray' : shownStatus(stageStatus(e.stage, result), { after: e.index > currentIndex, visited, fresh: isFreshQuote(quoteId) });
         e.li.dataset.status = status;
         const stateText = e.isCurrent ? 'Estás acá' : STATE_LABEL[status];
         e.stateEl.textContent = stateText;
@@ -1586,7 +1588,7 @@ function buildSubsteps({ currentStep, stepHref, quoteId, isHidden = () => false 
     el,
     update(result) {
       entries.forEach((e) => {
-        const status = shownStatus(stepStatus(e.step.id, result), { after: e.index > currentSub, visited: wasVisited(quoteId, e.step.id) });
+        const status = shownStatus(stepStatus(e.step.id, result), { after: e.index > currentSub, visited: wasVisited(quoteId, e.step.id), fresh: isFreshQuote(quoteId) });
         e.link.dataset.status = status;
         e.statusText.textContent = ` (${STATUS_TEXT[status]})`;
         e.link.title = `${e.step.label}: ${STATUS_TEXT[status]}`;
