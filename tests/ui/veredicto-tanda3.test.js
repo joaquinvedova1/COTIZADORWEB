@@ -12,7 +12,7 @@ import { resourceCostText } from '../../js/ui/views/quote-steps/modality.js';
 import { EMPTY } from '../../js/core/format.js';
 import { service, person, external, resetIds } from '../lab/lib/build.js';
 
-const norm = (s) => String(s).replace(/ /g, ' ');
+const norm = (s) => String(s).replace(/[\u00a0\u202f]/g, ' ');
 
 describe('V-15 · Base de la estructura con proveedores', () => {
   test('el % sobre costo directo se muestra sobre la misma base que usa el motor', () => {
