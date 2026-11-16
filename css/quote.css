@@ -607,6 +607,8 @@
   .qe-step-nav { flex-direction: column-reverse; align-items: stretch; }
   .qe-step-nav .btn, .qe-nav-btn, .qe-nav-btn.is-next { flex: 1 1 auto; max-width: none; margin-left: 0; justify-content: space-between; }
   .qe-step-nav > span:empty { display: none; }
+  /* Último paso (Resultado): sin "Continuar", Atrás va primero y "Volver a Cotizaciones" después. */
+  .qe-step-nav:not(:has(.btn-primary)) { flex-direction: column; }
   /* Encabezado del editor: acciones sólo con ícono (el texto queda para lectores de pantalla). */
   .qe-head-btn { position: relative; padding-left: 0.6rem; padding-right: 0.6rem; }
   .qe-head-btn > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap; }
