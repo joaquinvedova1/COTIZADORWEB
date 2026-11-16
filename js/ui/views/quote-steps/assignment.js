@@ -80,8 +80,8 @@ export function assignmentBlock(kit, { path, line, kind, at }) {
           unit: '%',
           requiredMark: true,
           hint: kind === 'labor'
-            ? 'Sueldo, cargas, seguros, EPP, capacitación y traslado. Lo cargás vos: no se calcula con los días que trabaje.'
-            : 'Amortización, seguro, patente, certificaciones, otros, mantenimiento fijo y costo de capital. Lo cargás vos: no se calcula con los días que trabaje.',
+            ? 'Sueldo, cargas, seguros, EPP, capacitación y traslado. Lo cargás vos: no se calcula con los días que trabaje. Vacío = 100 %.'
+            : 'Amortización, seguro, patente, certificaciones, otros, mantenimiento fijo y costo de capital. Lo cargás vos: no se calcula con los días que trabaje. Vacío = 100 %.',
         })
         : null,
     ),

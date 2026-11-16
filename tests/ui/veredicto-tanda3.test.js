@@ -8,6 +8,8 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { baseOf } from '../../js/ui/views/quote-steps/indirect.js';
+import { dedicationOccupancyText } from '../../js/ui/views/quote-steps/modality.js';
+import { proposeServiceShares } from '../../js/engines/utilization-engine.js';
 import { resourceCostText, outOfHoursNoteText, outOfHoursHoursNote, outOfHoursCostLabel, outOfHoursCostHint, ownEquipmentTravels } from '../../js/ui/views/quote-steps/modality.js';
 import { extraPresetsFor, OUT_OF_HOURS_PRESETS_NOTE } from '../../js/ui/views/quote-steps/extras.js';
 import { OUT_OF_HOURS_KIND } from '../../js/engines/out-of-hours-engine.js';
@@ -336,5 +338,18 @@ describe('V-32 · Un solo nombre para el fijo de guardia y el plus', () => {
     const overlap = r.completeness.items.find((i) => i.id === 'monthly_fee_overlap');
     assert.match(overlap.message, /"Fijo por mes por estar de guardia"/);
     assert.doesNotMatch(overlap.message, /Abono de disponibilidad/);
+  });
+});
+
+describe('V-33 · Textos sueltos', () => {
+  test('CUAD-06: el % de dedicación se lee contra las horas normales del mes', () => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: 12, hoursPerActiveDay: 8 }, labor: [person({ normalHoursPerMonth: 176 })], equipment: [owned()] });
+    const proposal = proposeServiceShares(q, computeQuote(q).activity);
+    assert.equal(norm(dedicationOccupancyText(proposal, q)), 'Hoy este servicio les ocupa 96 h por mes: el 54,5 % de sus 176 h normales.');
+    // Sólo equipos: las horas normales por defecto del equipo.
+    const only = service({ serviceType: 'equipment_only', unit: 'day', activity: { activeDaysPerMonth: 12, hoursPerActiveDay: 8 }, equipment: [owned()] });
+    const p2 = proposeServiceShares(only, computeQuote(only).activity);
+    assert.match(norm(dedicationOccupancyText(p2, only)), new RegExp(`de sus ${p2.equipmentHours} h normales\\.$`));
   });
 });

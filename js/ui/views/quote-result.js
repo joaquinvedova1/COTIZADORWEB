@@ -2141,6 +2141,8 @@ function renderAppropriation(v) {
     contract = h('div', { class: 'qr-contract' },
       h('h4', { class: 'qr-subhead' }, `Total del contrato (${formatNumber(months)} ${months === 1 ? 'mes' : 'meses'})`),
       totals(c.contract),
+      // V-33 (TRAIL-06): una cotización nace con 12 meses; un trabajo único no es un contrato de un año.
+      months > 1 ? note('Si es un trabajo único, poné 1 mes en "El servicio" (Duración del contrato).') : null,
       // Valores constantes (PLAN-2026-010): sin escalación ni índices; muy visible.
       banner(`Valores constantes a base ${offerBase}: el total multiplica el mes por ${formatNumber(months)} con la misma actividad todos los meses. No incluye actualización ni escalación (sueldos, combustible, tipo de cambio, índices o polinómica).`, 'warning', { title: 'Sin actualización de precios.' }));
   }

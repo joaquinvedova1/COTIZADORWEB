@@ -243,6 +243,22 @@ export function resourceCostText(fixedMonthly, variablePerDay) {
   return fixed || variable || EMPTY;
 }
 
+/**
+ * "Hoy este servicio les ocupa 96 h por mes: el 54,55 % de sus 176 h normales." (V-33, CUAD-06):
+ * el % se lee contra las horas normales del mes de la primera persona (o, sin personal, del equipo).
+ * @param {{ serviceHours: number, equipmentHours: number, labor: (number|null)[], equipment: (number|null)[] }} proposal
+ * @param {object} quote
+ */
+export function dedicationOccupancyText(proposal, quote = {}) {
+  const fmt = (n) => formatNumber(n, { decimals: 2 });
+  const li = proposal.labor.findIndex((v) => v !== null);
+  const pctValue = li >= 0 ? proposal.labor[li] : proposal.equipment.find((v) => v !== null);
+  const labor = (Array.isArray(quote.labor) ? quote.labor : []).filter((l) => l && typeof l === 'object');
+  const normal = li >= 0 ? Number(labor[li] && labor[li].normalHoursPerMonth) : proposal.equipmentHours;
+  const of = Number.isFinite(normal) && normal > 0 ? `sus ${fmt(normal)} h normales` : 'su mes';
+  return `Hoy este servicio les ocupa ${fmt(proposal.serviceHours)} h por mes: el ${formatPercent(pctValue)} de ${of}.`;
+}
+
 export function render(container, ctx) {
   const { quote, kit, settings } = ctx;
   const info = billingUnitOf(quote);
@@ -507,7 +523,7 @@ export function render(container, ctx) {
   const availableNoun = guardChosen ? 'días de guardia' : 'días del mes';
   const hoursField = () => kit.num('activity.hoursPerActiveDay', {
     // Un solo nombre (2026-11): "Horas trabajadas por día con llamado" no se entendía. Son las
-    // horas que se trabaja cada día que se sale (de 8 a 17 = 9 h), haya guardia o no.
+    // horas que se trabaja cada día que se sale (de 8 a 17 con una hora de almuerzo = 8 h), haya guardia o no.
     label: monthlyContract ? 'Horas de servicio por día' : 'Horas de trabajo por día (horario normal)',
     rule: 'hoursPerDay',
     unit: 'h/día',
@@ -517,8 +533,8 @@ export function render(container, ctx) {
       : byQuantity
       ? 'Las horas que se trabaja cada día. Se usan para el combustible y el uso de los equipos, y para calcular qué parte del mes les ocupa este servicio.'
       : quote.unit === 'hour'
-      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`
-      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 = 9 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`,
+      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`
+      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`,
   });
   const hourly = quote.unit === 'hour';
   const hoursInMain = hourly || monthlyContract || asksAvailability || byQuantity;
@@ -1030,7 +1046,7 @@ export function render(container, ctx) {
             label: `${t.name}: % de su mes`,
             rule: 'sharePct',
             unit: '%',
-            hint: t.kind === 'labor' ? 'Qué parte de su sueldo con cargas paga este servicio.' : 'Qué parte de su amortización, seguro y patente paga este servicio.',
+            hint: `${t.kind === 'labor' ? 'Qué parte de su sueldo con cargas paga este servicio.' : 'Qué parte de su amortización, seguro y patente paga este servicio.'} Vacío = 100\u00a0%.`,
           }))),
           kit.out((r) => {
             const proposal = proposeServiceShares(quote, r.activity);
@@ -1046,7 +1062,7 @@ export function render(container, ctx) {
             const old = staleDedicationOf(quote, r.activity);
             return h('p', { class: ['qe-note', old ? 'is-warning' : null] },
               old ? `${staleDedicationMessage(old)} ` : null,
-              `Hoy este servicio les ocupa ${num(proposal.serviceHours)} h por mes: el ${pctText(first)} de su mes. `,
+              `${dedicationOccupancyText(proposal, quote)} `,
               stale && !kit.readOnly ? button(`Usar ${pctText(first)}`, { variant: 'secondary', size: 'sm', onClick: () => applyShares(false) }) : null,
               ' Si cambiás los días, revisá este porcentaje. Si los otros trabajos no aparecen, esa parte del sueldo queda sin cubrir.');
           }, { tag: 'div', allowEmpty: true }))
