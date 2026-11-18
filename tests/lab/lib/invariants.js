@@ -412,8 +412,14 @@ export const QUOTE_INVARIANTS = [
       const warned = r2.completeness.items.some((x) => x.id === 'labor_hours');
       const before = r.model.labor.fixedMonthly + r.model.labor.variablePerActiveDay;
       const after = r2.model.labor.fixedMonthly + r2.model.labor.variablePerActiveDay;
+      // "Algunas horas" extra del trabajo (§28) también cubren horas: por trabajo/llamado (D ÷ días por
+      // cada uno) o por mes. "Todo el trabajo" las paga todas (sin este aviso).
+      const ow = q.overtimeWork && typeof q.overtimeWork === 'object' ? q.overtimeWork : {};
+      if (ow.mode === 'all') return notApplicable;
+      const dpa = Number(q.activity && q.activity.daysPerActivation) > 0 ? Number(q.activity.daysPerActivation) : 1;
+      const owHours = ow.mode === 'some' ? (Number(ow.hours50 || 0) + Number(ow.hours100 || 0)) * (q.unit === 'month' ? 1 : r2.kpis.activeDays / dpa) : 0;
       const needs = list(q.labor).some((l) => Number(l.positions) > 0 && Number(l.normalHoursPerMonth) > 0
-        && r2.kpis.activeDays * 24 > Number(l.peoplePerPosition || 1) * Number(l.normalHoursPerMonth) + 1e-6 && !Array.isArray(l.overtime) && !(Number(l.overtimeHoursPerActiveDay) > 0));
+        && r2.kpis.activeDays * 24 > Number(l.peoplePerPosition || 1) * Number(l.normalHoursPerMonth) + owHours + 1e-6 && !Array.isArray(l.overtime) && !(Number(l.overtimeHoursPerActiveDay) > 0));
       if (!needs) return notApplicable;
       return warned && Math.abs(after - before) <= TOL(before) ? ok('avisa, sin costo inventado') : fail(`aviso: ${warned}; personal ${before} → ${after}`);
     },

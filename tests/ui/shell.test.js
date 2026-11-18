@@ -175,7 +175,7 @@ describe('layout: navegación', () => {
 
 describe('cotizaciones: helpers de listado', () => {
   const items = [
-    { quote: { id: '1', name: 'Hidrogrúa on-call — Añelo', client: 'Operadora', code: 'COT-0001', status: 'draft' }, summary: {} },
+    { quote: { id: '1', name: 'Hidrogrúa por día — Añelo', client: 'Operadora', code: 'COT-0001', status: 'draft' }, summary: {} },
     { quote: { id: '2', name: 'Cuadrilla', client: 'Minera', code: 'COT-0002', status: 'sent' }, summary: {} },
     { quote: { id: '3', name: 'Transporte', client: null, code: 'COT-0003', status: 'won' }, summary: {} },
   ];

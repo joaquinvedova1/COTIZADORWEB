@@ -100,7 +100,7 @@ describe('importar a la cuenta', () => {
     const cloud = JSON.stringify([...server.workspaces.values()][0].state);
     assert.ok(cloud.includes('Mi cotización real'));
     assert.ok(!cloud.includes('Patagonia Servicios SRL'), 'la empresa ficticia nunca llega a la cuenta');
-    assert.ok(!cloud.includes('Hidrogrúa on-call — Añelo'));
+    assert.ok(!cloud.includes('Hidrogrúa por día — Añelo'));
     assert.equal((await ctx.settings.getOrganization()).name, 'Mi Empresa Real');
     assert.equal(storage.getItem('rateos.state'), original);
     assert.equal(ctx.localImport.inspect().available, false);

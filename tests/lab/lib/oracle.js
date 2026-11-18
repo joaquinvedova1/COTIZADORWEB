@@ -370,6 +370,31 @@ export function oracleModel(q) {
     externals.push({ index: i, unit, price, qty, billedPerActivation, netPerActivation, netFixed, unitsPerActivation, minimumApplied });
   });
 
+  // 2b. Horas extra del trabajo, "algunas horas" (§28, §27.1, §24): por hora = Σ posiciones × hora
+  // extra + uso por hora de los equipos propios en uso; fijo mensual: horas por mes; si no, horas
+  // por trabajo/llamado (por día = horas × valor ÷ días por trabajo). Va como personal. ("Todo el
+  // trabajo" no está en el oráculo: ningún escenario lo usa.)
+  const ow = obj(q.overtimeWork);
+  if (ow.mode === 'some' && n(ow.hours50) + n(ow.hours100) > 0) {
+    const crewAt = (premium) => list(q.labor).reduce((s, l) => {
+      const positions = n(l.positions);
+      const own = n(premium === 50 ? l.overtimeRate50 : l.overtimeRate100);
+      const loadFactor = (1 + frac(l.sacPct) + frac(l.vacationPct)) * (1 + frac(l.employerContributionsPct) + frac(l.artPct));
+      const value = own > 0 ? own : div(n(l.basicMonthly) + n(l.additionalsMonthly), n(l.normalHoursPerMonth), 0) * (premium === 50 ? 1.5 : 2) * loadFactor;
+      return s + positions * value;
+    }, 0);
+    const eqPerHour = list(q.equipment).reduce((s, e) => {
+      if (e.acquisition !== 'owned' || !(n(e.quantity) > 0) || !(lineHours(e, act) > 0)) return s;
+      const op = operation(e, fuelPrice);
+      return s + (op.nonFuelPerHour + op.fuelPerHour) * n(e.quantity);
+    }, 0);
+    const perUnit = n(ow.hours50) * (crewAt(50) + eqPerHour) + n(ow.hours100) * (crewAt(100) + eqPerHour);
+    const hasContract = q.contract && typeof q.contract === 'object' && !Array.isArray(q.contract);
+    const monthly = hasContract ? q.contract.mode === 'monthly' : q.unit === 'month' && !['lump_sum', 'turnkey'].includes(q.serviceType);
+    if (monthly) add({ key: 'labor:overtime-work', category: 'labor', group: 'salaries', fixed: perUnit });
+    else add({ key: 'labor:overtime-work', category: 'labor', group: 'salaries', variable: act.dpa > 0 ? perUnit / act.dpa : perUnit });
+  }
+
   // 3. Movilización del recurso principal (§5.1): combustible en ruta → Combustible; desgaste → Logística.
   let mobFuelPerActivation = 0;
   let mobWearPerActivation = 0;

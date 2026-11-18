@@ -124,7 +124,7 @@ describe('QuoteService.createQuote', () => {
     const quote = await service.createQuote({ templateId: DEMO_IDS.templateHydroCrane });
     assert.equal(quote.templateId, DEMO_IDS.templateHydroCrane);
     assert.equal(quote.serviceType, 'on_call');
-    assert.equal(quote.name, 'Hidrogrúa on-call');
+    assert.equal(quote.name, 'Hidrogrúa por día');
     assert.equal(quote.status, 'draft');
     assert.equal(quote.code, 'COT-0003');
     assert.equal(quote.organizationId, DEMO_ORG_ID);
@@ -393,7 +393,7 @@ describe('ensureDemoQuote / latestDraft', () => {
     assert.equal(demo.id, DEMO_IDS.quoteHydroCrane);
     assert.equal(demo.organizationId, EMPTY_ORG.id);
     assert.equal(demo.illustrative, true);
-    assert.equal(demo.name, 'Hidrogrúa on-call — Añelo');
+    assert.equal(demo.name, 'Hidrogrúa por día — Añelo');
     assert.notEqual(demo.code, own.code, 'nunca reutiliza el código de otra cotización');
     assert.match(demo.code, /^COT-\d{4}$/);
     const quotes = await repository.getQuotes();

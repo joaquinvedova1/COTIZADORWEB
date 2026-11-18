@@ -1,5 +1,5 @@
 /**
- * Demo guiada (#/demo): "Hidrogrúa on-call — Añelo" en 4 pasos, ANTES del
+ * Demo guiada (#/demo): "Hidrogrúa por día — Añelo" en 4 pasos, ANTES del
  * resultado completo. Todos los valores son ILUSTRATIVOS.
  *
  * 1. El servicio · 2. Lo que cuesta prestarlo · 3. El resultado · 4. Probalo vos
@@ -20,6 +20,7 @@ import { h, mount, uniqueId } from '../../dom.js';
 import { bigStat, button, disclosure, stepIndicator, traceButton } from '../../components.js';
 import { computeQuote } from '../../../engines/quote-engine.js';
 import { demoHydroCraneQuote } from '../../../domain/demo-data.js';
+import { activationTerms } from '../../../domain/activation-terms.js';
 import { defaultSettings } from '../../../domain/quote-factory.js';
 import { APP_NAME, DEFAULT_MATRIX_DAYS } from '../../../config.js';
 import { formatMoney, formatMoneyCeil, formatNumber, formatPercent, formatDays, EMPTY } from '../../../core/format.js';
@@ -35,7 +36,7 @@ const NEXT_LABELS = Object.freeze({ 1: 'Ver lo que cuesta', 2: 'Ver el resultado
 
 /** Qué incluye cada rubro (para la lectura simple del paso 2). */
 const CATEGORY_HINTS = Object.freeze({
-  labor: 'Sueldos, cargas sociales, horas extra y viandas.',
+  labor: 'Sueldos, cargas sociales, viandas y horas extra (con el uso de los equipos en esas horas).',
   equipment: 'Amortización, seguro, patente, mantenimiento y neumáticos.',
   fuel: 'Lo que consumen los equipos y los traslados.',
   logistics: 'Kilómetros, peajes y viáticos de cada viaje.',
@@ -44,6 +45,20 @@ const CATEGORY_HINTS = Object.freeze({
   financial: 'Lo que cuesta financiar el servicio hasta que te pagan.',
   contingency: 'Un colchón para imprevistos.',
 });
+
+/**
+ * "4 h al 50 % por intervención, además de las 10 h de cada día" (0.10.1): las horas extra del trabajo son
+ * horas de más, con los equipos trabajando (el motor cobra su uso en esas horas).
+ */
+function overtimeFact(quote, a) {
+  const ow = quote && quote.overtimeWork && typeof quote.overtimeWork === 'object' ? quote.overtimeWork : null;
+  if (!ow || ow.mode === 'none') return 'No lleva';
+  if (ow.mode === 'all') return `Todo el trabajo, al ${formatNumber(ow.premiumPct || 50)}\u00a0%`;
+  const parts = [ow.hours50 > 0 ? `${formatNumber(ow.hours50)} h al 50\u00a0%` : null, ow.hours100 > 0 ? `${formatNumber(ow.hours100)} h al 100\u00a0%` : null].filter(Boolean);
+  if (!parts.length) return 'No lleva';
+  const day = isFiniteNumber(a.hoursPerActiveDay) && a.hoursPerActiveDay > 0 ? `, además de las ${formatNumber(a.hoursPerActiveDay)} h de cada día de trabajo, con los equipos trabajando` : '';
+  return `${parts.join(' y ')} ${activationTerms(quote).per}${day}`;
+}
 
 /** Nombres en minúscula para describir lo que agrupa "Otros". */
 const CATEGORY_NAMES = Object.freeze({
@@ -221,13 +236,15 @@ export async function render(root, app) {
     const route = lg.baseName && lg.destinationName ? `${lg.baseName} → ${lg.destinationName}${isFiniteNumber(lg.distanceKm) && lg.distanceKm > 0 ? ` · ${formatNumber(lg.distanceKm)} km` : ''}` : EMPTY;
     const facts = [
       ['Cómo se cobra', chargeText(result.unit)],
-      ['Disponibilidad', a.availability === '24/7' ? '24 horas, todos los días' : a.availability || EMPTY],
+      ['Disponibilidad', a.availability === '24/7' ? '24 horas, todos los días' : 'Todo el mes'],
+      ['Horas por día', isFiniteNumber(a.hoursPerActiveDay) && a.hoursPerActiveDay > 0 ? `${formatNumber(a.hoursPerActiveDay)} h por día de trabajo` : EMPTY],
+      ['Horas extra', overtimeFact(quote, a)],
       ['Recorrido', route],
       ['Días de trabajo previstos', isFiniteNumber(estimatedDays) ? `${formatNumber(estimatedDays, { decimals: 1 })} por mes` : EMPTY],
     ];
     return [
-      h('h1', { class: 'pub-flow-title', tabindex: '-1' }, 'Una hidrogrúa disponible las 24 horas para una operadora en Añelo.'),
-      h('p', { class: 'pub-flow-text' }, 'Es un servicio ', h('strong', {}, 'on-call'), ': está disponible todo el mes, pero sólo cobrás los días que te llaman.'),
+      h('h1', { class: 'pub-flow-title', tabindex: '-1' }, 'Una hidrogrúa con operador para una operadora en Añelo.'),
+      h('p', { class: 'pub-flow-text' }, 'Está disponible todo el mes, pero sólo cobrás los días que te llaman.'),
       h('dl', { class: 'pub-facts' }, ...facts.map(([label, value]) => h('div', { class: 'pub-fact' }, h('dt', {}, label), h('dd', {}, value)))),
       h(
         'div',

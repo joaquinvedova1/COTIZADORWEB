@@ -101,7 +101,7 @@ Al elegir "GitHub Actions", GitHub crea el environment **`github-pages`** que, p
 1. **Actions**: el run de "Deploy RATEOS a GitHub Pages" terminó en verde (test, build, deploy y "Verificar el sitio publicado": el commit publicado es el construido y `/preview/` responde 404).
 2. Abrir <https://joaquinvedova1.github.io/COTIZADORWEB/> (no hace falta recarga forzada: ver §4.1). `#/` muestra la landing.
 3. Ir a **Configuración → Acerca de** y confirmar que muestra `RATEOS · v0.1.0 · build abc1234`, donde `abc1234` es el SHA corto del commit desplegado, la fecha de build y la "Referencia" (`main`, o el `ref` pedido en un despliegue manual).
-4. Prueba de humo: `#/inicio` abre la app (menú Inicio / Cotizaciones / Recursos / Servicios / Escenarios / Configuración); abrir la cotización demo "Hidrogrúa on-call — Añelo" y el paso Resultado; "Ver cálculo" abre la traza; la consola del navegador no muestra errores. En las herramientas de red, los JS y CSS se piden desde `build/abc1234/`.
+4. Prueba de humo: `#/inicio` abre la app (menú Inicio / Cotizaciones / Recursos / Servicios / Escenarios / Configuración); abrir la cotización demo "Hidrogrúa por día — Añelo" y el paso Resultado; "Ver cálculo" abre la traza; la consola del navegador no muestra errores. En las herramientas de red, los JS y CSS se piden desde `build/abc1234/`.
 5. Los datos existentes del usuario siguen ahí (ver §7).
 
 ### 4.1 Caché y carpetas versionadas (cache busting)

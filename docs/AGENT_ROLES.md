@@ -57,7 +57,7 @@ Checklist:
 - [ ] Cada bug económico corregido agrega un test que impide que vuelva (los tests son contrato de negocio).
 - [ ] Probé con `npm start` en `http://localhost:8080/COTIZADORWEB/` (sub-ruta, no raíz).
 - [ ] Flujo completo: nueva cotización (en blanco y desde plantilla) → 11 pasos → resultado → "Ver cálculo".
-- [ ] Demo "Hidrogrúa on-call — Añelo" y "Caso de referencia" muestran resultados coherentes (break-even 10 días en el de referencia).
+- [ ] Demo "Hidrogrúa por día — Añelo" y "Caso de referencia" muestran resultados coherentes (break-even 10 días en el de referencia).
 - [ ] Persistencia: recargar conserva los cambios; export → import con resumen y confirmación; copias de recuperación.
 - [ ] Ningún `NaN`, `Infinity`, `undefined` ni "[object Object]" en pantalla; consola sin errores.
 - [ ] Responsive (desktop, tablet, móvil) e impresión del resultado.

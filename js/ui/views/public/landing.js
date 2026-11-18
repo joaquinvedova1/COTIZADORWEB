@@ -3,7 +3,7 @@
  *
  * Vende resultados, no funcionalidades. El "mockup" del hero NO es una
  * imagen: es el resultado real del motor (computeQuote) sobre la cotización
- * de ejemplo "Hidrogrúa on-call — Añelo", con valores ILUSTRATIVOS.
+ * de ejemplo "Hidrogrúa por día — Añelo", con valores ILUSTRATIVOS.
  * No lee ni escribe datos de ninguna cuenta. "Empezar a calcular" lleva a
  * crear la cuenta (y después a "¿Qué querés calcular?"); con sesión, directo.
  */
@@ -59,11 +59,11 @@ function productMockup(result) {
 
   return h(
     'figure',
-    { class: 'pub-mock', 'aria-label': 'Ejemplo ilustrativo de un resultado de RATEOS: hidrogrúa on-call en Añelo' },
+    { class: 'pub-mock', 'aria-label': 'Ejemplo ilustrativo de un resultado de RATEOS: hidrogrúa por día en Añelo' },
     h(
       'div',
       { class: 'pub-mock-head' },
-      h('div', { class: 'pub-mock-titles' }, h('p', { class: 'pub-mock-kicker' }, 'Servicio on-call'), h('p', { class: 'pub-mock-title' }, 'Hidrogrúa — Añelo')),
+      h('div', { class: 'pub-mock-titles' }, h('p', { class: 'pub-mock-kicker' }, 'Servicio por día'), h('p', { class: 'pub-mock-title' }, 'Hidrogrúa — Añelo')),
       illustrativeLabel('Valores ILUSTRATIVOS'),
     ),
     h(
@@ -265,7 +265,7 @@ export function render(root, app) {
       'div',
       { class: 'pub-container pub-cta-inner' },
       h('h2', { class: 'pub-cta-title', id: 'pub-cierre-title' }, 'Probá RATEOS con un ejemplo en dos minutos.'),
-      h('p', { class: 'pub-cta-text' }, 'Una hidrogrúa on-call en Añelo, paso a paso. Sin cuenta y sin cargar datos.'),
+      h('p', { class: 'pub-cta-text' }, 'Una hidrogrúa por día en Añelo, paso a paso. Sin cuenta y sin cargar datos.'),
       h(
         'div',
         { class: 'pub-cta-actions' },

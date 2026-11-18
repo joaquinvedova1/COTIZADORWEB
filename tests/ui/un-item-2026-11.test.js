@@ -93,7 +93,7 @@ describe('A4 · plantillas sin cobros aparte', () => {
     assert.equal(old.rules.extraKmRate, 900);
   });
 
-  test('la plantilla demo "Hidrogrúa on-call" da una cotización de un solo precio', () => {
+  test('la plantilla demo "Hidrogrúa por día" da una cotización de un solo precio', () => {
     const tpl = demoServiceTemplates().find((t) => t.id === DEMO_IDS.templateHydroCrane);
     const q = createQuoteFromTemplate(tpl, { settings: SETTINGS, now: NOW });
     assert.ok(q.labor.every((l) => !laborHasOwnOvertime(l)));

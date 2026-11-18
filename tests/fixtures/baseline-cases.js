@@ -10,6 +10,7 @@
 import { createDemoState, DEMO_IDS } from '../../js/domain/demo-data.js';
 import { createQuoteFromTemplate } from '../../js/domain/quote-factory.js';
 import { deepClone } from '../../js/core/object.js';
+import { modeForUnit } from '../../js/domain/contract.js';
 
 const NOW = '2026-10-01T12:00:00.000Z';
 
@@ -31,8 +32,9 @@ export function baselineCases() {
     cases.push({ id, quote: q });
   };
   variant('hidrogrua-tarifa-conocida', (q) => { q.pricingMode = 'known_rate'; q.pricing.knownRate = 2500000; });
-  variant('hidrogrua-por-hora', (q) => { q.unit = 'hour'; });
-  variant('hidrogrua-abono', (q) => { q.unit = 'month'; });
+  // Desde 0.10.1 la demo tiene contrato: el modo sale de la unidad (modeForUnit), como en la app.
+  variant('hidrogrua-por-hora', (q) => { q.unit = 'hour'; q.contract.mode = modeForUnit('hour'); });
+  variant('hidrogrua-abono', (q) => { q.unit = 'month'; q.contract.mode = modeForUnit('month'); });
   variant('hidrogrua-actividad-0', (q) => { q.activity.activeDaysPerMonth = 0; });
   variant('hidrogrua-utilizacion-100', (q) => { q.activity.activeDaysPerMonth = 30; q.pricing.targetMarginPct = 0; });
   variant('hidrogrua-reglas', (q) => {
