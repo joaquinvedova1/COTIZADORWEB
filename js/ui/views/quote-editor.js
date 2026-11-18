@@ -170,7 +170,7 @@ export const STEP_COPY = Object.freeze({
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
-    why: 'Elegí cada puesto de tus Recursos y poné cuántas personas van. El sueldo, las cargas y el valor de la hora ya están en Recursos: no se cargan de nuevo.',
+    why: 'Elegí cada puesto de tus Recursos y poné cuántas personas van. El sueldo y las cargas ya vienen de Recursos. Acá ponés cuántas personas van y, si querés, el valor de su hora extra.',
   },
   equipment: {
     question: '¿Qué equipos y vehículos usás?',

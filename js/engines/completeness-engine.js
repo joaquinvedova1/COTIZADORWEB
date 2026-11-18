@@ -349,7 +349,7 @@ export function evaluateCompleteness(quote = {}) {
     const item = rule('relief', 'Cobertura de todo el día', 'labor', 1, ok ? 'ok' : 'warning',
       ok ? 'Hay más de una persona para cubrir el servicio de todo el día.'
         : alone
-          ? `Servicio de todo el día y todos los días con una sola persona en "${name}": nadie la reemplaza en francos ni vacaciones. Sumá personas que se turnen (con sus horas por día de cada una) o cargá las horas extra.`
+          ? `Servicio de todo el día y todos los días con una sola persona en "${name}": nadie la reemplaza en francos ni vacaciones. Sumá personas que se turnen (con sus horas por día de cada una) o cargá sus horas extra fijas (en "Más detalle" del puesto) o el trabajo fuera de horario en "Cómo se cobra".`
           : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.');
     if (alone) item.focus = `labor.${labor.indexOf(alone)}.positions`;
     items.push(item);

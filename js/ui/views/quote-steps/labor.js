@@ -403,11 +403,14 @@ export function render(container, ctx) {
         fromResource ? null : kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Chofer' }),
         kit.num(`${p}.positions`, { label: legacyStaff(line) ? 'Personas trabajando a la vez' : 'Cantidad de personas', rule: 'quantity', requiredMark: true, hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cuántas personas de este puesto trabajan en el servicio.' }),
         fromResource ? null : kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', requiredMark: true, illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
+      ),
         // Valor de UNA hora extra de cada persona (pedido de Joaco, 2026-11-18): del personal se carga
         // cuánto cuesta la hora al 50 % y al 100 %, no cuántas hace. Las horas fuera de horario
         // que pide el cliente van en "Cómo se cobra"; las fijas de todos los meses, en el detalle.
-        kit.num(`${p}.overtimeRate50`, { label: 'Valor de la hora extra al 50 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: `Lo que te cuesta UNA hora extra al 50 % de cada persona, con cargas. Vacío = la calcula RATEOS con el sueldo (hora de sueldo × 1,5, con cargas): la ves abajo.${fromResource ? ' Viene de Recursos: si lo cambiás acá, cambia sólo en esta cotización.' : ''}` }),
-        kit.num(`${p}.overtimeRate100`, { label: 'Valor de la hora extra al 100 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: `Lo que te cuesta UNA hora extra al 100 % de cada persona (lo habitual en domingos y feriados), con cargas. Vacío = la calcula RATEOS (hora de sueldo × 2, con cargas): la ves abajo.${fromResource ? ' Viene de Recursos: si lo cambiás acá, cambia sólo en esta cotización.' : ''}` }),
+      formGrid(
+        2,
+        kit.num(`${p}.overtimeRate50`, { label: 'Valor de la hora extra al 50 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: `Lo que te cuesta una hora extra al 50 %, ya con cargas (no el valor de recibo). Vacío = la calcula RATEOS con el sueldo.${fromResource ? ' Viene de Recursos: si lo cambiás acá, cambia sólo en esta cotización.' : ''}` }),
+        kit.num(`${p}.overtimeRate100`, { label: 'Valor de la hora extra al 100 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: 'Lo habitual en domingos y feriados (revisá tu convenio), ya con cargas. Vacío = la calcula RATEOS con el sueldo.' }),
       ),
       // Cotizaciones anteriores con relevos o nómina total: se ven y se editan igual (mismos números).
       legacyStaff(line)
@@ -428,8 +431,8 @@ export function render(container, ctx) {
         kit.stats(
           kit.stat('Por mes con cargas', (r) => (at(r) && at(r).perPerson.fixedMonthly > 0 ? formatMoney(at(r).perPerson.fixedMonthly) : EMPTY), { emphasis: true, hint: 'Sueldo y otros pagos fijos con aguinaldo, vacaciones, cargas patronales y ART, más seguros, ropa y capacitación.' }),
           kit.stat('Hora normal', (r) => (at(r) && at(r).perPerson.loadedHourlyCost > 0 ? formatMoney(at(r).perPerson.loadedHourlyCost) : EMPTY), { hint: (r) => `Costo por mes ÷ ${formatNumber(nonNegative(quote.labor[i] && quote.labor[i].normalHoursPerMonth), { decimals: 2 })} horas normales por mes.` }),
-          kit.stat('Hora al 50 %', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost50 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost50) : EMPTY), { hint: (r) => (at(r) && at(r).perPerson.overtimeRate50Own ? 'El valor que cargaste para este puesto (por su convenio).' : 'Lo que te cuesta cada hora con recargo del 50 %: hora de sueldo × 1,5, con cargas.') }),
-          kit.stat('Hora al 100 %', (r) => (at(r) && at(r).perPerson.overtimeHourlyCost100 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost100) : EMPTY), { hint: (r) => (at(r) && at(r).perPerson.overtimeRate100Own ? 'El valor que cargaste para este puesto (por su convenio).' : 'Lo que te cuesta cada hora con recargo del 100 % (lo habitual en domingos y feriados; revisá tu convenio): hora de sueldo × 2, con cargas.') }),
+          kit.stat((r) => (at(r) && at(r).perPerson.overtimeRate50Own ? 'Hora al 50 % (la que cargaste)' : 'Hora al 50 % (calculada)'), (r) => (at(r) && at(r).perPerson.overtimeHourlyCost50 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost50) : EMPTY), { hint: (r) => (at(r) && at(r).perPerson.overtimeRate50Own ? 'El valor que cargaste para este puesto (por su convenio).' : 'Lo que te cuesta cada hora con recargo del 50 %: hora de sueldo × 1,5, con cargas.') }),
+          kit.stat((r) => (at(r) && at(r).perPerson.overtimeRate100Own ? 'Hora al 100 % (la que cargaste)' : 'Hora al 100 % (calculada)'), (r) => (at(r) && at(r).perPerson.overtimeHourlyCost100 > 0 ? formatMoney(at(r).perPerson.overtimeHourlyCost100) : EMPTY), { hint: (r) => (at(r) && at(r).perPerson.overtimeRate100Own ? 'El valor que cargaste para este puesto (por su convenio).' : 'Lo que te cuesta cada hora con recargo del 100 % (lo habitual en domingos y feriados; revisá tu convenio): hora de sueldo × 2, con cargas.') }),
         )),
       kit.keyline({
         label: 'Costo de este puesto',
@@ -511,7 +514,7 @@ export function render(container, ctx) {
           ),
         ),
         kit.group(
-          'Valor de la hora',
+          'Horas normales',
           formGrid(
             3,
             kit.num(`${p}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h/mes', illustrative: illustrativeParam(line, 'normalHoursPerMonth') }),
