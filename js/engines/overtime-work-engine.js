@@ -172,11 +172,18 @@ export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { c
     out.equipmentPerHour = eq;
     const perUnit = cfg.hours50 * (crewAt50 + eq) + cfg.hours100 * (crewAt100 + eq);
     out.perUnit = perUnit;
+    const dpa = nonNegative(activity && activity.daysPerActivation, 1);
+    // Unidades de horas en el mes: 1 (fijo mensual) o los trabajos / llamados del mes (D ÷ días por cada uno).
+    const unitsPerMonth = cfg.perMonth ? 1 : dpa > 0 ? D / dpa : D;
     if (cfg.perMonth) out.fixedMonthly = perUnit;
-    else {
-      const dpa = nonNegative(activity && activity.daysPerActivation, 1);
-      out.variablePerActiveDay = dpa > 0 ? perUnit / dpa : perUnit;
-    }
+    else out.variablePerActiveDay = dpa > 0 ? perUnit / dpa : perUnit;
+    // Lo de cada puesto en el mes estimado (M2: se muestra dentro del costo de ese puesto).
+    perRole.forEach((r) => {
+      r.perUnit = r.people * (cfg.hours50 * r.at50 + cfg.hours100 * r.at100);
+      r.monthly = r.perUnit * unitsPerMonth;
+    });
+    out.equipmentMonthly = (cfg.hours50 + cfg.hours100) * eq * unitsPerMonth;
+    out.monthlyAtEstimate = perUnit * unitsPerMonth;
     out.active = perUnit > 0;
   }
   return out;

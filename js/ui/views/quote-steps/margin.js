@@ -186,16 +186,31 @@ export function standbyOutputText(r, { off = false, days = 0, note = true } = {}
   return note && Number(days) > 0 ? `${base} ${STANDBY_DAYS_NOTE}` : base;
 }
 
-/** En precio cerrado "Equipo en espera" sólo se muestra si tiene algo cargado (V-29). */
+/**
+ * "Equipo en espera" es un cobro aparte del precio único (regla de un ítem, 2026-11-18): sólo
+ * se muestra en las cotizaciones que ya lo tenían cargado (días o tarifa), con "Quitar".
+ * "No aplica" solo no cobra nada: no lo muestra (B5).
+ */
 export function showStandbyRule(quote = {}) {
   const rules = quote.rules || {};
-  const stored = rules.standbyNotApplicable === true || Number(rules.standbyDaysPerMonth) > 0 || Number(rules.standbyRatePerDay) > 0;
-  const contract = contractOf(quote);
-  if (contract.mode === 'closed') return stored;
-  // Fijo mensual sin equipos (revisión UX tanda novatos): no hay equipo que quede en espera.
-  const noEquipment = !contract.legacy && !contract.equipment && !(Array.isArray(quote.equipment) && quote.equipment.length > 0);
-  if (contract.mode === 'monthly' && noEquipment) return stored;
-  return true;
+  return Number(rules.standbyDaysPerMonth) > 0 || Number(rules.standbyRatePerDay) > 0;
+}
+
+/**
+ * Cobros aparte del precio único cargados antes (regla de un ítem, 2026-11-18): fijo por estar de
+ * guardia, plus por llamado, movilización, km adicional y equipo en espera. Las cotizaciones
+ * nuevas no los ofrecen; las que ya los tenían los siguen mostrando (mismos números) con "Quitar".
+ */
+export function legacySeparateCharges(quote = {}) {
+  const rules = (quote && quote.rules) || {};
+  const pos = (k) => Number(rules[k]) > 0;
+  return {
+    guardFee: pos('availabilityFeeMonthly'),
+    guardPlus: pos('calloutFeePerActivation'),
+    mobilization: pos('mobilizationFeePerActivation'),
+    extraKm: pos('extraKmRate') || pos('includedKmPerActivation'),
+    standby: showStandbyRule(quote),
+  };
 }
 
 export function render(container, ctx) {
@@ -451,9 +466,11 @@ export function render(container, ctx) {
     // Del mínimo garantizado cuenta sólo el dato del modo elegido ($ o unidades, B-3).
     const skip = rules.minimumGuaranteeBasis === 'units' ? 'minimumMonthlyGuarantee' : 'minimumGuaranteeUnits';
     const active = RULE_NAMES.filter(([key]) => key !== skip && hasNumber(rules[key]) && Number(rules[key]) > 0).map(([, label]) => label);
-    if (rules.standbyNotApplicable === true) active.push('equipo en espera: no aplica');
-    else if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
-    else if (showStandbyRule(quote)) active.push('equipo en espera sin definir');
+    // B5: "No aplica equipo en espera" no es una regla aplicada (no cobra nada).
+    if (rules.standbyNotApplicable !== true) {
+      if (hasNumber(rules.standbyRatePerDay) && Number(rules.standbyRatePerDay) > 0) active.push('equipo en espera');
+      else if (showStandbyRule(quote)) active.push('equipo en espera sin definir');
+    }
     return active;
   };
   // Sin reglas activas: "Ninguna aplicada" (antes quedaba "Aplicadas: .").
@@ -461,7 +478,23 @@ export function render(container, ctx) {
     const active = rulesApplied();
     return active.length ? `Aplicadas: ${active.join(', ')}.` : 'Ninguna aplicada.';
   };
-  const hadGuardPlus = Number((quote.rules || {}).calloutFeePerActivation) > 0;
+  const legacy = legacySeparateCharges(quote);
+  const hadGuardPlus = legacy.guardPlus;
+  // "Quitar" de un cobro aparte cargado antes (mismo patrón que la guardia de "Cómo se cobra").
+  const removeCharge = (name, keys) => (kit.readOnly ? null : kit.action('Quitar', async () => {
+    const ok = await confirmDialog({
+      title: `Quitar ${name}`,
+      message: `Se borra ${name} de esta cotización. El precio se vuelve a calcular sin ese cobro aparte.`,
+      confirmLabel: 'Quitar',
+      danger: true,
+    });
+    if (!ok) return;
+    ctx.mutate((q) => {
+      if (!isPlainObject(q.rules)) q.rules = {};
+      keys.forEach((k) => { q.rules[k] = null; });
+    });
+  }, { variant: 'ghost', icon: 'trash' }));
+  const LEGACY_NOTE = 'Esta cotización ya lo tenía cargado: se sigue cobrando igual. Las cotizaciones nuevas ya no lo ofrecen (un solo precio).';
   // Mismo criterio que el Resultado: el descuento por continuidad también cuenta.
   const rulesFlag = (r) => {
     const c = r.continuity || {};
@@ -478,35 +511,37 @@ export function render(container, ctx) {
       // Abono mensual + abono de disponibilidad (ECO-01, H-02): se ve aunque la sección esté cerrada.
       flag: rulesFlag,
     },
-    h('p', { class: 'qe-note' }, 'Cómo se factura el servicio además de la tarifa. Dejá en 0 lo que no aplica.'),
-    // PLAN-2026-026: la guardia ya no se pregunta; el plus por llamado se ve sólo si ya estaba cargado (el fijo por mes queda: lo señala el pendiente "Disponibilidad sin cobrar").
-    ruleRow(
-      L.guardFee,
+    h('p', { class: 'qe-note' }, `Mínimos y descuentos de ${closed ? 'tu precio' : 'tu tarifa'}. Dejá en 0 lo que no aplica.`),
+    // Regla de un ítem (2026-11-18): fijo de guardia, plus, movilización, km adicional y equipo en
+    // espera se cobran aparte del precio único. Sólo los ve una cotización que ya los tenía, con Quitar.
+    legacy.guardFee ? ruleRow(
+      `${L.guardFee} (cargado antes)`,
       unitKind === 'month'
-        ? 'Monto fijo por mes por tener el recurso reservado. Tu tarifa ya es un abono mensual: no cargues acá el mismo abono, se facturarían los dos. Sirve con una tarifa por uso, como por día, por hora o por cantidad (un fijo por estar disponible más lo que se usa).'
-        : 'Monto fijo por mes por tener el recurso reservado, se trabaje o no.',
-      [kit.num('rules.availabilityFeeMonthly', { label: 'Fijo por mes', rule: 'money', unit: '$/mes' })],
+        ? `${LEGACY_NOTE} Tu tarifa ya es un abono mensual: si es el mismo abono, se facturarían los dos.`
+        : LEGACY_NOTE,
+      [kit.num('rules.availabilityFeeMonthly', { label: 'Fijo por mes', rule: 'money', unit: '$/mes' }), removeCharge('el fijo por estar de guardia', ['availabilityFeeMonthly'])],
       kit.out((r) => {
         const item = feeOverlapOf(r);
         return item ? h('p', { class: 'qe-warn' }, icon('alert', { size: 14 }), h('span', {}, item.message)) : '';
       }, { tag: 'div', allowEmpty: true }),
-    ),
-    hadGuardPlus ? ruleRow(
-      L.guardPlus,
-      `Monto fijo que se cobra en ${T.each}.`,
-      [kit.num('rules.calloutFeePerActivation', { label: L.perActivation, rule: 'money', unit: '$' })],
     ) : null,
-    ruleRow(
-      'Movilización',
-      `Cobro por llevar los recursos a la locación en ${T.each}.`,
-      [kit.num('rules.mobilizationFeePerActivation', { label: L.perActivation, rule: 'money', unit: '$' })],
-    ),
-    ruleRow(
-      'Km incluidos y km adicional',
-      `Los km de ruta de ${T.each} que superen los incluidos se cobran aparte.`,
+    hadGuardPlus ? ruleRow(
+      `${L.guardPlus} (cargado antes)`,
+      LEGACY_NOTE,
+      [kit.num('rules.calloutFeePerActivation', { label: L.perActivation, rule: 'money', unit: '$' }), removeCharge(`el plus por ${T.one}`, ['calloutFeePerActivation'])],
+    ) : null,
+    legacy.mobilization ? ruleRow(
+      'Movilización (cargada antes)',
+      `${LEGACY_NOTE} Lo que cuesta llegar ya está en tu costo (Movilización y viajes).`,
+      [kit.num('rules.mobilizationFeePerActivation', { label: L.perActivation, rule: 'money', unit: '$' }), removeCharge('la movilización cobrada aparte', ['mobilizationFeePerActivation'])],
+    ) : null,
+    legacy.extraKm ? ruleRow(
+      'Km incluidos y km adicional (cargado antes)',
+      LEGACY_NOTE,
       [
         kit.num('rules.includedKmPerActivation', { label: L.includedKm, rule: 'distance', unit: 'km' }),
         kit.num('rules.extraKmRate', { label: '$ por km adicional', rule: 'money', unit: '$/km' }),
+        removeCharge('el km adicional', ['includedKmPerActivation', 'extraKmRate']),
       ],
       kit.out((r) => {
         const rev = r.estimate.revenue;
@@ -514,7 +549,7 @@ export function render(container, ctx) {
         if (!(rev.components.extraKm > 0)) return `Km de ruta ${T.per}: ${route}. Cargá un $ por km para cobrar los que superen los incluidos.`;
         return `Se cobran ${formatValue(rev.extraKmPerActivation, 'km')} adicionales ${T.per} (de ${route} de ruta): ${formatMoney(rev.components.extraKm)} por mes.`;
       }),
-    ),
+    ) : null,
     ruleRow(
       `${L.minimumCall} (minimum call)`,
       unitKind === 'month'
@@ -525,9 +560,9 @@ export function render(container, ctx) {
       [kit.num('rules.minimumCallUnits', { label: `${L.minimumCall} (${minimumCallUnit})`, rule: 'quantity', unit: minimumCallUnit })],
       kit.out((r) => minimumCallNote(r, T, unitInfo)),
     ),
-    showStandbyRule(quote) ? ruleRow(
-      'Equipo en espera (standby)',
-      'Días por mes que el equipo queda en locación sin operar y se cobran a tarifa de espera. El personal en espera también es costo.',
+    legacy.standby ? ruleRow(
+      'Equipo en espera (cargado antes)',
+      `${LEGACY_NOTE} Días por mes que el equipo queda en locación sin operar y se cobran a tarifa de espera.`,
       [
         kit.num('rules.standbyDaysPerMonth', {
           label: 'Días en espera por mes',
@@ -548,6 +583,7 @@ export function render(container, ctx) {
           structural: true,
           hint: 'Marcalo si el equipo nunca queda en locación sin operar: los días y la tarifa en espera no se usan (ingreso y costo en $ 0).',
         }),
+        removeCharge('el equipo en espera', ['standbyDaysPerMonth', 'standbyRatePerDay']),
       ],
       // La nota de los días va en su propio párrafo, debajo del ingreso (revisión UX).
       kit.out((r) => {
@@ -708,6 +744,6 @@ export function render(container, ctx) {
   // Precio cerrado (revisión UX tanda novatos): sin reglas cargadas no se monta (abonos, km y
   // mínimos por mes no hacen a un precio por trabajo). Con alguna regla guardada, se ve como siempre.
   const showCommercial = !closed || rulesApplied().length > 0;
-  mount(container, marginCard, taxesCard, priceCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo, abonos y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, showCommercial ? commercialCard : null);
+  mount(container, marginCard, taxesCard, priceCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, showCommercial ? commercialCard : null);
   return { update() {} };
 }

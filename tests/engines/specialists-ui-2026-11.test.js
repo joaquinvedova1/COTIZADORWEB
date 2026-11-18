@@ -79,10 +79,11 @@ describe('A-2 · cotización en blanco con contrato', () => {
 });
 
 describe('A-16 · disponibilidad sin definir en una cotización nueva', () => {
-  test('en blanco y desde una plantilla sin dato: sin definir; la de la plantilla se respeta', () => {
+  test('en blanco y desde una plantilla: sin definir (la guardia ya no pasa a una cotización nueva)', () => {
     assert.equal(createBlankQuote({ settings: SETTINGS, now: NOW }).activity.availability, null);
     assert.equal(createQuoteFromTemplate({ id: 't', serviceType: 'on_call', defaults: {} }, { settings: SETTINGS, now: NOW }).activity.availability, null);
-    assert.equal(createQuoteFromTemplate({ id: 't', serviceType: 'permanent', defaults: { activity: { availability: '24/7' } } }, { settings: SETTINGS, now: NOW }).activity.availability, '24/7');
+    // Regla de un ítem (2026-11-18): una plantilla con guardia 24/7 no la pasa (PLAN-2026-026: no se pregunta).
+    assert.equal(createQuoteFromTemplate({ id: 't', serviceType: 'permanent', defaults: { activity: { availability: '24/7' } } }, { settings: SETTINGS, now: NOW }).activity.availability, null);
     // La base de siempre (y por lo tanto las cotizaciones guardadas) no cambia.
     assert.equal(createEmptyQuote({ settings: SETTINGS, now: NOW }).activity.availability, '24/7');
   });

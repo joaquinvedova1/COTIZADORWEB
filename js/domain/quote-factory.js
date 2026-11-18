@@ -331,7 +331,9 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
     basicMonthly: profile.basicMonthly ?? 0,
     additionalsMonthly: profile.additionalsMonthly ?? 0,
     normalHoursPerMonth: profile.normalHoursPerMonth ?? params.normalHoursPerMonth,
-    overtimeHoursPerActiveDay: profile.overtimeHoursPerActiveDay ?? 0,
+    // Regla de un ítem (A5, 2026-11-18): las horas extra no van en el puesto de una cotización
+    // nueva; se eligen en "Horas extra del trabajo". El perfil puede tenerlas (dato viejo): no se copian.
+    overtimeHoursPerActiveDay: 0,
     overtimePremiumPct: profile.overtimePremiumPct ?? params.overtimePremiumPct,
     mealPerActiveDay: profile.mealPerActiveDay ?? 0,
     sacPct: profile.sacPct ?? params.sacPct,
@@ -506,6 +508,44 @@ export function createBlankQuote(options = {}) {
   return quote;
 }
 
+/** Reglas que se cobran aparte del precio único (fijo de guardia, plus, movilización, km, espera). */
+export const SEPARATE_CHARGE_RULES = Object.freeze([
+  'availabilityFeeMonthly', 'calloutFeePerActivation', 'mobilizationFeePerActivation',
+  'extraKmRate', 'includedKmPerActivation', 'standbyDaysPerMonth', 'standbyRatePerDay',
+]);
+
+/**
+ * Regla de un ítem (dueño, 2026-11-18): una cotización NUEVA da un solo ítem con un solo precio.
+ * Lo que llega desde una plantilla (o se guarda como plantilla) sale sin cobros aparte: sin
+ * adicionales, sin horas extra facturadas ni en el puesto (se eligen en "Horas extra del
+ * trabajo", que sí se copia), sin materiales facturados aparte, sin guardia y sin reglas que se
+ * cobran aparte. MUTA y devuelve `q`. Nunca se aplica a una cotización guardada.
+ */
+export function withoutSeparateCharges(q) {
+  if (!isPlainObject(q)) return q;
+  q.extras = [];
+  (Array.isArray(q.labor) ? q.labor : []).forEach((l) => {
+    if (!isPlainObject(l)) return;
+    delete l.overtimeBilled;
+    delete l.overtimeBillRatePerHour;
+    delete l.overtime;
+    l.overtimeHoursPerActiveDay = 0;
+    l.overtime50HoursPerMonth = 0;
+    l.overtime100HoursPerMonth = 0;
+  });
+  if (isPlainObject(q.pricing)) q.pricing.materialsBilledSeparately = false;
+  (Array.isArray(q.materials) ? q.materials : []).forEach((m) => {
+    if (isPlainObject(m) && m.billedSeparately === true) delete m.billedSeparately;
+  });
+  if (isPlainObject(q.rules)) SEPARATE_CHARGE_RULES.forEach((k) => { q.rules[k] = 0; });
+  if (isPlainObject(q.activity)) {
+    // La guardia ya no se pregunta en una cotización nueva (PLAN-2026-026): sin definir, como en blanco.
+    q.activity.availability = null;
+    if ('guardType' in q.activity) q.activity.guardType = null;
+  }
+  return q;
+}
+
 /**
  * Crea una cotización desde una plantilla de servicio (biblioteca).
  * La plantilla aporta valores parciales que pisan los de una cotización vacía.
@@ -513,7 +553,9 @@ export function createBlankQuote(options = {}) {
 export function createQuoteFromTemplate(template, { organizationId, settings, now, id = createId(), code = '', baseName = '' } = {}) {
   const base = createEmptyQuote({ organizationId, settings, now, id, code, baseName });
   if (!template) return base;
-  const defaults = deepClone(template.defaults || {});
+  // Regla de un ítem: lo que se cobraba aparte no pasa a la cotización nueva (también con
+  // plantillas guardadas antes de esta regla).
+  const defaults = withoutSeparateCharges(deepClone(template.defaults || {}));
   const merged = {
     ...base,
     ...defaults,

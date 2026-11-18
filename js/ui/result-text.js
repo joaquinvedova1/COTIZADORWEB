@@ -560,6 +560,27 @@ export function lineMonthAtEstimate(r, line) {
 }
 
 /**
+ * Horas extra del trabajo de un puesto en el mes estimado (M2, 2026-11-18): lo que el motor suma
+ * DENTRO del personal para ese puesto (overtime-work-engine `perRole[].monthly`). 0 si no hay.
+ */
+export function roleOvertimeMonth(r, index) {
+  const o = r && r.model ? r.model.overtimeWork : null;
+  if (!o || !o.active || !Array.isArray(o.perRole)) return 0;
+  const role = o.perRole.find((x) => x.index === index);
+  if (!role || !(role.monthly > 0)) return 0;
+  // Fijo mensual: lo del mes, con los meses de costo fijo si el trabajo dura más que los disponibles.
+  if (o.mode === 'some' && o.perMonth) return role.monthly * monthsFactor(r.activity ? r.activity.activeDaysPerMonth : 0, r.activity ? r.activity.availableDaysPerMonth : 0);
+  return role.monthly;
+}
+
+/** "Horas extra del trabajo (todo al 50 %)" / "Horas extra del trabajo": rótulo corto para explicaciones. */
+export function overtimeWorkLabel(r) {
+  const o = r && r.model ? r.model.overtimeWork : null;
+  if (!o || !o.active) return '';
+  return o.mode === 'all' ? `horas extra (todo el trabajo al ${o.premiumPct}\u00a0%)` : 'horas extra del trabajo';
+}
+
+/**
  * Por servicio prestado (hora, día, jornada, m³…), al lado de lo del mes: " · ≈ $ X por día"
  * = lo del mes ÷ unidades que facturás en el mes (Joaco 2026-11-18: ver el costo en la unidad
  * que cotizás). Vacío en precio cerrado, en fijo mensual o sin unidades cargadas.
@@ -674,9 +695,11 @@ export function floorWithoutExtrasText(floor, unitLabel = 'día') {
  * Aclaración del abono que alcanza aun trabajando todos los días (A-12, H-18): con
  * personal, las horas extra de días fuera de la jornada no entran en esa cuenta.
  * @param {boolean} hasStaff  ¿la cotización tiene personal?
+ * @param {{ overtimeWork?: boolean }} [o]  ¿hay horas extra del trabajo? (entonces sí se cuentan)
  */
-export function capAllDaysNote(hasStaff) {
-  return hasStaff ? ' (sin contar horas extra)' : '';
+export function capAllDaysNote(hasStaff, { overtimeWork = false } = {}) {
+  // B1 (2026-11-18): con "Horas extra del trabajo" las horas extra ya están en la cuenta.
+  return hasStaff && !overtimeWork ? ' (sin contar horas extra)' : '';
 }
 
 /**

@@ -1035,7 +1035,7 @@ function traceMonthlyCap(v, cap) {
     result: { label: cap.status === 'all' ? 'Días máximos (todos los disponibles)' : 'Días máximos', value: resultValue, format: 'days' },
     notes: [
       'Con abono mensual la facturación no depende de los días: cada día de trabajo suma costo variable. Por eso hay un máximo de días, no un mínimo.',
-      cap.status === 'all' ? `El abono alcanza aun trabajando todos los días disponibles del mes${capAllDaysNote(hasStaff(v))}.` : null,
+      cap.status === 'all' ? `El abono alcanza aun trabajando todos los días disponibles del mes${capAllDaysNote(hasStaff(v), { overtimeWork: Boolean(v.r.model.overtimeWork && v.r.model.overtimeWork.active) })}.` : null,
       cap.status === 'none' ? 'El abono no alcanza ni sin días de trabajo: no cubre los costos fijos del mes.' : null,
       'Se evalúa día a día (grilla de 0,1 día y bisección), igual que el break-even.',
     ],
@@ -1217,7 +1217,7 @@ function heroKnownRate(v) {
   } else if (isMonth) {
     sentence = h('p', { class: 'qr-lead' },
       `Cotizás un abono mensual de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. `,
-      capSentence(cap, D, 'Con este abono', { staff: hasStaff(v) }));
+      capSentence(cap, D, 'Con este abono', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) }));
   } else if (be.reachable && breakEvenZeroText(r)) {
     // Equilibrio en 0 (PLAN-2026-012): sin costos fijos, o los cubren los ingresos fijos.
     sentence = h('p', { class: 'qr-lead' }, breakEvenZeroText(r, { rateText: atRateText(v) }));
@@ -1367,7 +1367,7 @@ function heroKnownActivity(v) {
       `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
       hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
       hasValue(suggested) ? `Tarifa sugerida${roundingStep ? ` (redondeada a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
-      isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject, { staff: hasStaff(v) })}` : '');
+      isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject, { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) })}` : '');
   }
 
   const fxLine = floorExtrasLine(v);
@@ -1813,7 +1813,7 @@ function workBlock(v) {
       content = noRateContent(v);
     } else {
       const cap = monthlyCap(v, k.commercialListRate, 0);
-      content = ['Con abono mensual la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. ', capSentence(cap, D, 'Con este abono', { staff: hasStaff(v) })];
+      content = ['Con abono mensual la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. ', capSentence(cap, D, 'Con este abono', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) })];
       if (cap) {
         if (cap.status === 'none') tone = 'red';
         else if (cap.status === 'all') tone = 'green';
@@ -3304,6 +3304,16 @@ function modelParams(params = {}, unit = null) {
   return items;
 }
 
+/**
+ * Regla de un ítem (2026-11-18): el comparador propone modelos de dos partes (abono + tarifa,
+ * take-or-pay, paquete + excedente). Una cotización nueva tiene UN solo precio: no se muestra.
+ * Sólo lo ve una cotización vieja que ya cobraba un fijo por estar de guardia o un plus por llamado.
+ */
+export function showModelComparator(q) {
+  const rules = (q && q.rules) || {};
+  return Number(rules.availabilityFeeMonthly) > 0 || Number(rules.calloutFeePerActivation) > 0;
+}
+
 function renderComparator(v) {
   const { q, settings, k } = v;
   const header = {
@@ -3684,7 +3694,7 @@ function analysisSections(v) {
   return [
     safeSection('Sensibilidad', () => renderSensitivity(v)),
     FEATURES.scenarios ? safeSection('Escenarios', () => renderScenarios(v)) : null,
-    FEATURES.commercialModelComparator ? safeSection('Comparador de modelos comerciales', () => renderComparator(v)) : null,
+    FEATURES.commercialModelComparator && showModelComparator(v.q) ? safeSection('Comparador de modelos comerciales', () => renderComparator(v)) : null,
   ].filter(Boolean);
 }
 

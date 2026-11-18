@@ -24,7 +24,7 @@ import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, 
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
-import { activationRoundingText, closedJobsPerMonth } from '../../result-text.js';
+import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnitSuffix, lineMonthAtEstimate } from '../../result-text.js';
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
@@ -207,6 +207,17 @@ function outOfHoursUseText(o, unitInfo) {
  * Rótulo del costo por hora fuera de horario (V-26): sin equipos propios trabajando no dice "+ equipos".
  * @param {object} basis `r.outOfHours.basis`
  */
+/**
+ * ¿El puesto tiene horas extra propias cargadas antes? (por mes, por día o por tramos con horas).
+ * Con "Horas extra del trabajo" se sumarían dos veces (A5, 2026-11-18).
+ */
+export function laborHasOwnOvertime(l) {
+  if (!l || typeof l !== 'object') return false;
+  if (Number(l.overtime50HoursPerMonth) > 0 || Number(l.overtime100HoursPerMonth) > 0) return true;
+  if (Number(l.overtimeHoursPerActiveDay) > 0) return true;
+  return Array.isArray(l.overtime) && l.overtime.some((o) => o && Number(o.hours) > 0);
+}
+
 export function outOfHoursCostLabel(basis) {
   return basis && basis.equipmentPerHour > 0 ? 'Te cuesta por hora (gente + equipos)' : 'Te cuesta por hora (gente)';
 }
@@ -1308,7 +1319,19 @@ export function render(container, ctx) {
   const owMode = ['all', 'some'].includes(ow.mode) ? ow.mode : 'none';
   const owPremium = Number(ow.premiumPct) === 100 ? 100 : 50;
   const owPerMonth = contract.mode === 'monthly';
-  const owUnit = owPerMonth ? 'por mes' : `por ${T.one}`;
+  // M3: en qué se cargan las horas de "algunas horas". Por mes en fijo mensual; si no, por cada
+  // trabajo / llamado (el motor las reparte en sus días). Si cada uno es de 1 día, se dice "por día".
+  const owDpa = Number(quote.activity && quote.activity.daysPerActivation);
+  const owOneDay = contract.mode !== 'closed' && !(owDpa > 0 && Math.abs(owDpa - 1) > 1e-9);
+  const owUnit = owPerMonth ? 'por mes' : owOneDay ? 'por día de trabajo' : `por ${T.one}`;
+  const owUnitNote = !owPerMonth && !owOneDay && contract.mode !== 'closed' ? ` (cada ${T.one} es de ${formatNumber(owDpa, { decimals: 2 })} días de trabajo)` : '';
+  /** Lo que suman las horas extra, en la unidad de cobro (M3): en el trabajo, por mes o ≈ por unidad. */
+  const owAmountText = (r) => {
+    const line = (r.model.lines || []).find((x) => x.key === 'labor:overtime-work');
+    const month = line ? lineMonthAtEstimate(r, line) : 0;
+    if (closedJobsPerMonth(r) !== null) return perQuoteUnit(r, month).text;
+    return `${formatMoney(month)} por mes${owPerMonth ? '' : perBilledUnitSuffix(r, quote, month)}`;
+  };
   const setOw = (patch) => ctx.mutate((q) => {
     const cur = q.overtimeWork && typeof q.overtimeWork === 'object' ? q.overtimeWork : {};
     q.overtimeWork = { ...cur, ...patch };
@@ -1343,7 +1366,7 @@ export function render(container, ctx) {
       : null,
     owMode === 'some'
       ? formGrid(2,
-        kit.num('overtimeWork.hours50', { label: `Horas al 50 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas fuera de horario ${owUnit} (cada persona de la cuadrilla las hace), además de las horas normales${!owPerMonth && Number(quote.activity && quote.activity.hoursPerActiveDay) > 0 ? ` (${quote.activity.hoursPerActiveDay} h por día)` : ''}. Días de semana después del horario o sábado a la mañana.` }),
+        kit.num('overtimeWork.hours50', { label: `Horas al 50 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas fuera de horario ${owUnit}${owUnitNote} (cada persona de la cuadrilla las hace), además de las horas normales${!owPerMonth && Number(quote.activity && quote.activity.hoursPerActiveDay) > 0 ? ` (${quote.activity.hoursPerActiveDay} h por día)` : ''}. Días de semana después del horario o sábado a la mañana.` }),
         kit.num('overtimeWork.hours100', { label: `Horas al 100 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas ${owUnit} en sábado a la tarde, domingo o feriado.` }))
       : null,
     owMode !== 'none'
@@ -1355,29 +1378,32 @@ export function render(container, ctx) {
           h('td', { class: 'num' }, formatMoney(x.baseHourLoaded)),
           h('td', { class: 'num' }, formatMoney(x.at50)),
           h('td', { class: 'num' }, formatMoney(x.at100))));
-        const perTrip = (v) => (contract.mode === 'closed' && r.activity && r.activity.daysPerActivation > 0 ? ` · ${formatMoney(v * r.activity.daysPerActivation)} por ${T.one}` : '');
         const notes = [];
         let text;
         if (o.mode === 'all') {
           const perDay = o.variablePerActiveDay;
-          text = perDay > 0
-            ? `Cada hora de trabajo cuesta ${formatMoney(o.crewSurchargePerHour)} más (la cuadrilla al ${o.premiumPct} %, sobre lo que ya cobra de sueldo): ${formatMoney(perDay)} por día de trabajo${perTrip(perDay)}.`
-            : 'Todavía no suma nada: cargá los días y las horas por día del trabajo.';
-          if (o.perRole.some((x) => x.fullHoursPerMonth > 0.005)) notes.push('Las horas del mes que pasan lo que ya paga su sueldo se cuentan con la hora extra completa.');
+          const full = o.perRole.some((x) => x.fullHoursPerMonth > 0.005);
+          // B2: con horas completas, el recargo es sólo de las horas que ya paga el sueldo (en promedio cuesta más).
+          text = !(perDay > 0)
+            ? 'Todavía no suma nada: cargá los días y las horas por día del trabajo.'
+            : full
+              ? `Las horas que ya paga el sueldo llevan sólo el recargo (${formatMoney(o.crewSurchargePerHour)} por hora de la cuadrilla al ${o.premiumPct}\u00a0%); las que pasan, la hora extra completa. En total suman ${owAmountText(r)} al costo de tu gente.`
+              : `Cada hora de trabajo cuesta ${formatMoney(o.crewSurchargePerHour)} más (la cuadrilla al ${o.premiumPct}\u00a0%, sobre lo que ya cobra de sueldo). En total suman ${owAmountText(r)} al costo de tu gente.`;
+          if (full) notes.push('Las horas del mes que pasan lo que ya paga su sueldo se cuentan con la hora extra completa.');
           if (o.perRole.some((x) => (o.premiumPct === 100 ? x.lowRate100 : x.lowRate50))) notes.push(`Ojo: el valor de la hora al ${o.premiumPct} % de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas, no la hora del recibo.`);
         } else {
           text = o.perUnit > 0
-            ? `Estas horas suman ${formatMoney(o.perUnit)} ${owUnit} al costo de tu gente${o.equipmentPerHour > 0 ? ' y de tus equipos' : ''}.`
+            ? `Estas horas suman ${owAmountText(r)} al costo de tu gente${o.equipmentPerHour > 0 ? ' y de tus equipos' : ''}.`
             : 'Cargá las horas para sumarlas al costo.';
           if (o.perRole.some((x) => (o.hours50 > 0 && x.lowRate50) || (o.hours100 > 0 && x.lowRate100))) notes.push('Ojo: el valor de la hora extra de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas.');
         }
-        // Horas extra cargadas antes en cada puesto: se sumarían dos veces.
-        const legacy = (quote.labor || []).filter((l) => l && (Number(l.overtime50HoursPerMonth) > 0 || Number(l.overtime100HoursPerMonth) > 0));
-        if (legacy.length) notes.push(`Ojo: ${legacy.map((l) => `"${l.role || 'Puesto'}"`).join(', ')} ya tiene horas extra por mes cargadas en "${stepName('labor')}". Se suman además de éstas: dejá las de un solo lugar.`);
+        // Horas extra cargadas antes en cada puesto (por mes, por día o por tramos): se sumarían dos veces (A5).
+        const legacy = (quote.labor || []).filter((l) => laborHasOwnOvertime(l));
+        if (legacy.length) notes.push(`Ojo: ${legacy.map((l) => `"${l.role || 'Puesto'}"`).join(', ')} ya tiene horas extra cargadas en "${stepName('labor')}". Se suman además de éstas: quitalas del puesto y dejalas sólo acá.`);
         return h('div', { class: 'qe-ooh-roles' },
           h('p', { class: 'qe-ooh-roles-title' }, 'Lo que te cuesta la hora de cada uno'),
           h('table', { class: 'qe-ooh-table' },
-            h('thead', {}, h('tr', {}, h('th', {}, 'Puesto'), h('th', { class: 'num' }, 'Hora de sueldo'), h('th', { class: 'num' }, 'Hora al 50 %'), h('th', { class: 'num' }, 'Hora al 100 %'))),
+            h('thead', {}, h('tr', {}, h('th', {}, 'Puesto'), h('th', { class: 'num' }, 'Hora de sueldo con cargas'), h('th', { class: 'num' }, 'Hora al 50 %'), h('th', { class: 'num' }, 'Hora al 100 %'))),
             h('tbody', {}, ...rows)),
           h('p', { class: 'qe-note' }, text),
           ...notes.map((t) => h('p', { class: ['qe-note', 'is-warning'] }, t)));

@@ -281,8 +281,10 @@ describe('V-29 · Equipo en espera con días', () => {
     const closed = { contract: { mode: 'closed', components: ['labor', 'equipment'] }, serviceType: 'lump_sum', unit: 'job', rules: {} };
     assert.equal(showStandbyRule(closed), false);
     assert.equal(showStandbyRule({ ...closed, rules: { standbyRatePerDay: 500_000 } }), true);
-    assert.equal(showStandbyRule({ ...closed, rules: { standbyNotApplicable: true } }), true);
-    assert.equal(showStandbyRule({ serviceType: 'on_call', unit: 'day', rules: {} }), true);
+    // Regla de un ítem (2026-11-18): "No aplica" solo no cobra nada y una cotización nueva no lo ofrece.
+    assert.equal(showStandbyRule({ ...closed, rules: { standbyNotApplicable: true } }), false);
+    assert.equal(showStandbyRule({ serviceType: 'on_call', unit: 'day', rules: {} }), false);
+    assert.equal(showStandbyRule({ serviceType: 'on_call', unit: 'day', rules: { standbyDaysPerMonth: 2 } }), true);
   });
 });
 

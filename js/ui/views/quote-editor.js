@@ -56,7 +56,7 @@ import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
 import { breakEvenZeroText, unreliableText, closedJobsPerMonth } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
-import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
+import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms, withoutSeparateCharges } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { computeQuote } from '../../engines/quote-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
@@ -2497,11 +2497,12 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
 
   /**
    * Plantilla de servicio a partir de la cotización (UX-13): copia tipo de
-   * servicio, actividad, líneas (con su marca ILUSTRATIVO) y reglas, sin
-   * identidad, cliente, código ni estado.
+   * servicio, actividad, líneas (con su marca ILUSTRATIVO), mínimos, descuentos y horas
+   * extra del trabajo, sin identidad, cliente, código ni estado. Regla de un ítem
+   * (2026-11-18): sin adicionales ni nada que se cobre aparte del precio único.
    */
   function templateDefaults(name) {
-    const copy = deepClone(state.quote);
+    const copy = withoutSeparateCharges(deepClone(state.quote));
     ['id', 'organizationId', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy', 'code', 'status', 'client', 'illustrative', 'templateId'].forEach((key) => {
       delete copy[key];
     });
@@ -2584,7 +2585,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       content: h(
         'div',
         { class: 'stack' },
-        h('p', {}, 'La plantilla copia el tipo de servicio, la actividad, el personal, los equipos, los materiales, la logística y las reglas comerciales de esta cotización. No copia el cliente, el código ni el estado. Después la usás desde "Nueva cotización".'),
+        h('p', {}, 'La plantilla copia el tipo de servicio, la actividad, el personal, los equipos, los materiales, la logística, los mínimos, los descuentos y las horas extra del trabajo de esta cotización. No copia el cliente, el código, el estado ni lo que se cobraba aparte del precio (adicionales, horas extra facturadas, materiales facturados aparte, guardia, movilización, km adicional ni equipo en espera): una cotización nueva tiene un solo precio. Después la usás desde "Nueva cotización".'),
         info.any ? banner('Esta cotización tiene valores ILUSTRATIVOS: la plantilla también va a quedar marcada como ILUSTRATIVA.', 'warning') : null,
         nameField,
         descField,

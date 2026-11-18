@@ -9,7 +9,7 @@
  */
 
 import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS } from './catalogs.js';
-import { defaultSettings, defaultRiskItems, defaultVolumeTiers, createEquipmentMobility, createMobilization, createExternalTerms } from './quote-factory.js';
+import { defaultSettings, defaultRiskItems, defaultVolumeTiers, createEquipmentMobility, createMobilization, createExternalTerms, withoutSeparateCharges } from './quote-factory.js';
 import { emptyBillingTaxes } from './billing-taxes.js';
 import { createSnapshot } from './resource-snapshot.js';
 import { suggestedMobility } from './equipment-catalog.js';
@@ -91,8 +91,8 @@ export function demoLaborProfiles() {
     ...extra,
   });
   return [
-    base(4001, 'Operador de hidrogrúa', 'petroleros_privados', 'Operador (ilustrativo)', 1800000, 400000, { overtimeHoursPerActiveDay: 4 }),
-    base(4002, 'Chofer de camión', 'camioneros', 'Chofer (ilustrativo)', 1600000, 300000, { overtimeHoursPerActiveDay: 2 }),
+    base(4001, 'Operador de hidrogrúa', 'petroleros_privados', 'Operador (ilustrativo)', 1800000, 400000),
+    base(4002, 'Chofer de camión', 'camioneros', 'Chofer (ilustrativo)', 1600000, 300000),
     base(4003, 'Ayudante / oficial', 'uocra', 'Oficial (ilustrativo)', 1300000, 200000),
     base(4004, 'Supervisor de campo', 'petroleros_jerarquicos', 'Supervisor (ilustrativo)', 2600000, 600000),
     base(4005, 'Administrativo', 'fuera_convenio', 'Administración (ilustrativo)', 1400000, 0, { mealPerActiveDay: 0, transferMonthly: 0 }),
@@ -410,6 +410,13 @@ export function demoReferenceQuote() {
   };
 }
 
+/** Lo de la cotización demo que pasa a la plantilla (un solo precio). */
+function hydroTemplateDefaults(q) {
+  const d = withoutSeparateCharges(JSON.parse(JSON.stringify({ ...q, name: 'Hidrogrúa on-call' })));
+  d.rules = { ...d.rules, volumeTiers: defaultVolumeTiers() };
+  return d;
+}
+
 /** Plantillas de servicio (biblioteca). */
 export function demoServiceTemplates() {
   const hydro = demoHydroCraneQuote();
@@ -428,7 +435,9 @@ export function demoServiceTemplates() {
   });
   return [
     t(2001, 'Cuadrilla 24/7', 'permanent', 'Posiciones cubiertas en turnos rotativos con relevos.', { activity: { availability: '24/7', activeDaysPerMonth: 30, availableDaysPerMonth: 30, daysPerActivation: 14, hoursPerActiveDay: 12 }, unit: 'day', pricingMode: 'known_activity' }),
-    { ...t(2002, 'Hidrogrúa on-call', 'on_call', 'Hidrogrúa con operador disponible 24/7, se activa por llamado.'), defaults: { ...strip(hydro), name: 'Hidrogrúa on-call' } },
+    // Regla de un ítem (B4, 2026-11-18): la plantilla da cotizaciones nuevas de un solo precio, sin
+    // horas extra en el puesto, sin guardia y sin tramos con descuento.
+    { ...t(2002, 'Hidrogrúa on-call', 'on_call', 'Hidrogrúa con operador, cotizada por día de trabajo.'), defaults: hydroTemplateDefaults(strip(hydro)) },
     t(2003, 'Transporte', 'transport', 'Traslado de cargas entre base y locación.', { activity: { activeDaysPerMonth: 20, availableDaysPerMonth: 22, daysPerActivation: 1, hoursPerActiveDay: 9 } }),
     t(2004, 'Water Transfer', 'equipment_with_operator', 'Bombeo y transferencia de agua con equipo y operador.', { activity: { activeDaysPerMonth: 15, availableDaysPerMonth: 30, daysPerActivation: 5, hoursPerActiveDay: 12 } }),
     t(2005, 'Servicio ambiental', 'crew', 'Cuadrilla ambiental (limpieza, remediación).', { activity: { activeDaysPerMonth: 20, availableDaysPerMonth: 22, daysPerActivation: 5, hoursPerActiveDay: 9 } }),
