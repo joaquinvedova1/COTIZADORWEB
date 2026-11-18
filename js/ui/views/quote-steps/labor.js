@@ -15,7 +15,7 @@ import { hasNumber, plural, stepName } from './shared.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS, isIllustrativeAgreementParam } from '../../../domain/catalogs.js';
 import { laborLineFromProfile } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
-import { closedJobsPerMonth, quoteUnitPlace, lineMonthAtEstimate, perBilledUnitSuffix, roleOvertimeMonth, overtimeWorkLabel, closedLaborCostText, timeLaborCostText, laborHourStat } from '../../result-text.js';
+import { closedJobsPerMonth, quoteUnitPlace, lineMonthAtEstimate, perBilledUnitSuffix, roleOvertimeMonth, overtimeWorkLabel, closedLaborCostText, timeLaborCostText, laborHourStat, BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT } from '../../result-text.js';
 import { usesTimeBasis } from '../../../domain/cost-basis.js';
 import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
@@ -74,6 +74,19 @@ export function laborBreakdown(line, { activeDays = 0, monthsFactor = 1 } = {}) 
 export const AGREEMENT_PARAM_KEYS = Object.freeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
 
 
+/**
+ * Resultado del "Ver cálculo" de un puesto por tiempo usado (I2): el mismo número que el
+ * "Costo de este puesto" de al lado (en el trabajo, en el mes o por día de trabajo).
+ */
+function timeLaborTraceResult(result, line, index) {
+  const month = lineMonthAtEstimate(result, line) + roleOvertimeMonth(result, index);
+  const jobs = closedJobsPerMonth(result);
+  if (jobs !== null) return { label: 'Costo del puesto en el trabajo', value: month / jobs, format: 'money' };
+  const D = result.activity ? result.activity.activeDaysPerMonth : 0;
+  if (!(D > 0)) return { label: 'Costo del puesto por día de trabajo', value: line.variablePerActiveDay, format: 'money' };
+  return { label: 'Costo del puesto en el mes (actividad estimada)', value: month, format: 'money' };
+}
+
 function laborTrace(result, index, source) {
   const line = result && result.model.labor.lines[index];
   if (!line) return null;
@@ -82,7 +95,10 @@ function laborTrace(result, index, source) {
   return createTrace({
     id: 'labor_line',
     title: `Personal — ${line.role || 'Puesto'}`,
-    formula: 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa y elementos de protección + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día de trabajo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
+    formula: line.timeBasis
+      // Por tiempo usado (2026-11-18): no hay fijo del mes; el puesto cuesta sus horas en el trabajo.
+      ? 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa y elementos de protección + Capacitación + Traslado · Valor de la hora = costo por mes por persona ÷ horas que le cobrás a clientes por mes (vacío = las normales) · Costo = personas × horas por día × días del trabajo × valor de la hora + vianda × días'
+      : 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa y elementos de protección + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día de trabajo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
     inputs: [
       { label: 'Sueldo bruto', value: p.basic, format: 'money' },
       { label: 'Otros pagos fijos', value: p.additionals, format: 'money' },
@@ -104,7 +120,7 @@ function laborTrace(result, index, source) {
       { label: 'Dotación (personas)', value: line.headcount, format: 'number' },
       // Por tiempo usado (2026-11-18): el puesto cuesta sus horas en el trabajo × el valor de su hora.
       ...(line.timeBasis && line.time ? [
-        { label: line.time.ownBillableHours ? 'Horas que vende por mes' : 'Horas por mes (las normales)', value: line.time.billableHoursPerMonth, format: 'hours' },
+        { label: line.time.ownBillableHours ? 'Horas que le cobrás a clientes por mes' : 'Horas por mes (las normales)', value: line.time.billableHoursPerMonth, format: 'hours' },
         { label: 'Valor de la hora para cotizar (costo mensual por persona ÷ horas por mes)', value: line.time.hourlyCost, format: 'rate' },
         { label: 'Horas por día en el trabajo (de cada persona)', value: line.time.hoursPerDay, format: 'hours' },
         { label: 'Sus horas por día de trabajo (personas × horas × valor de la hora)', value: line.time.perActiveDay, format: 'money' },
@@ -122,10 +138,10 @@ function laborTrace(result, index, source) {
       ...(roleOvertimeMonth(result, index) > 0 ? [{ label: `Más ${overtimeWorkLabel(result)} de este puesto, en el mes estimado`, value: roleOvertimeMonth(result, index), format: 'money' }] : []),
     ],
     result: line.timeBasis
-      ? { label: 'Costo del puesto por día de trabajo', value: line.variablePerActiveDay, format: 'money' }
+      ? timeLaborTraceResult(result, line, index)
       : { label: 'Fijo mensual total del puesto', value: line.fixedMonthly, format: 'money' },
     notes: [
-      line.timeBasis ? 'Por tiempo usado: el puesto no carga su mes completo ni un % de su mes. Cuesta las horas del trabajo × el valor de su hora (costo del mes ÷ horas que vende por mes; vacío = las normales). Así el tiempo que no vende queda cubierto en cada hora.' : null,
+      line.timeBasis ? 'Por tiempo usado: el puesto no carga su mes completo ni un % de su mes. Cuesta las horas del trabajo × el valor de su hora (costo del mes ÷ horas que le cobrás a clientes por mes; vacío = las normales). Así las horas sin cliente quedan cubiertas en cada hora.' : null,
       'Hora extra = (sueldo bruto ÷ horas normales) × (1 + recargo) × factor de cargas. Las "Horas al 50 % / 100 % por mes" usan el valor de la hora del recurso (sueldo con adicionales, o el valor que cargaste). Las horas por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.',
       line.overtimeBilling ? 'Las horas extra que facturás aparte siguen siendo costo: además suman ingreso (horas × precio por hora).' : null,
       roleOvertimeMonth(result, index) > 0 ? `Las ${overtimeWorkLabel(result)} se eligen en "Cómo se cobra" y se suman al costo de este puesto, dentro de tu único precio.` : null,
@@ -446,7 +462,7 @@ export function render(container, ctx) {
         kit.stats(
           kit.stat('Por mes con cargas', (r) => (at(r) && at(r).perPerson.fixedMonthly > 0 ? formatMoney(at(r).perPerson.fixedMonthly) : EMPTY), { emphasis: true, hint: 'Sueldo y otros pagos fijos con aguinaldo, vacaciones, cargas patronales y ART, más seguros, ropa y capacitación.' }),
           // Por tiempo usado: la hora con la que se cotiza (÷ horas que vende, si las cargó).
-          kit.stat('Hora normal', (r) => {
+          kit.stat(timeBasis ? 'Hora para cotizar' : 'Hora normal', (r) => {
             const v = laborHourStat(at(r), nonNegative(quote.labor[i] && quote.labor[i].normalHoursPerMonth)).value;
             return v > 0 ? formatMoney(v) : EMPTY;
           }, { hint: (r) => laborHourStat(at(r), nonNegative(quote.labor[i] && quote.labor[i].normalHoursPerMonth)).hint }),
@@ -475,7 +491,11 @@ export function render(container, ctx) {
           // Por tiempo usado: personas × horas por día × días × valor de la hora (+ vianda y horas extra).
           if (l.timeBasis) {
             const body = timeLaborCostText(r, l, { overtime: roleOvertimeMonth(r, i) });
-            const hours = l.time && l.time.ownBillableHours ? ` La hora sale de su costo del mes ÷ ${formatNumber(l.time.billableHoursPerMonth, { decimals: 2 })} horas que vende por mes.` : '';
+            const more = fromResource ? 'Cambiar sus datos sólo en esta cotización' : 'Más detalle';
+            const hours = !l.time ? ''
+              : l.time.ownBillableHours
+                ? ` La hora sale de su costo del mes ÷ ${formatNumber(l.time.billableHoursPerMonth, { decimals: 2 })} horas que le cobrás a clientes por mes.`
+                : ` La hora sale de ${formatNumber(l.time.billableHoursPerMonth, { decimals: 2 })} h por mes. Si le cobrás menos horas a clientes, cargalas en "${more}".`;
             return `${body ? `${body}.` : staffText(l)}${hours}`;
           }
           if (jobs !== null) {
@@ -561,7 +581,7 @@ export function render(container, ctx) {
             3,
             kit.num(`${p}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h/mes', illustrative: illustrativeParam(line, 'normalHoursPerMonth') }),
             // Por tiempo usado (2026-11-18): las horas que de verdad vende; con ellas sale la hora para cotizar.
-            timeBasis ? kit.num(`${p}.billableHoursPerMonth`, { label: 'Horas que vende por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: 'Igual a las normales', hint: 'Las horas que esta persona realmente trabaja para clientes en un mes. Si vende menos que las normales, cada hora cuesta más y el tiempo libre queda cubierto. Vacío = las horas normales.' }) : null,
+            timeBasis ? kit.num(`${p}.billableHoursPerMonth`, { label: BILLABLE_HOURS_LABEL, rule: 'hours', unit: 'h/mes', placeholder: 'Igual a las normales', hint: BILLABLE_HOURS_HINT }) : null,
             kit.num(`${p}.overtimeRate50`, { label: 'Hora al 50 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: 'Vacío = hora de sueldo × 1,5, con cargas.' }),
             kit.num(`${p}.overtimeRate100`, { label: 'Hora al 100 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: 'Vacío = hora de sueldo × 2, con cargas.' }),
           ),

@@ -650,6 +650,7 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .hour-rate-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
 .hour-rate-value { font-size: 1.15rem; color: var(--navy-900); font-variant-numeric: tabular-nums; }
 .hour-rate-note { font-size: 0.75rem; color: var(--ink-3); }
+.hour-rates-warning { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--orange-text); }
 @media (max-width: 640px) { .hour-rates { grid-template-columns: 1fr; } }
 
 /* PLAN-2026-026 · hora fuera de horario: detalle por puesto */

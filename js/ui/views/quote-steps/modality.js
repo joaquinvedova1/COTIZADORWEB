@@ -24,7 +24,7 @@ import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, 
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
-import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnitSuffix, lineMonthAtEstimate, longClosedJobNote, salaryMonthsAt } from '../../result-text.js';
+import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnitSuffix, lineMonthAtEstimate, longClosedJobNote, salaryMonthsAt, timeBasisWithoutFixed } from '../../result-text.js';
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
@@ -840,7 +840,11 @@ export function render(container, ctx) {
   const availableInGuard = guardChosen && !byQuantity && !monthlyContract;
   // PLAN-2026-026: el tope de días del mes va siempre en "Más detalle"; sólo vuelve a la vista si
   // se cargaron más días con trabajo que ese tope (ahí cambia el costo y hay que corregirlo).
-  const availableInMain = !byQuantity && !monthlyContract && !guardChosen && availableConflict;
+  // M5 (2026-11-18): por tiempo usado sin costos fijos del mes, el tope de días del mes y la
+  // utilización ya no mueven el precio: no se muestran (con guardia elegida, los días de guardia sí).
+  const timeNoFixed = usesTimeBasis(quote) && (!ctx.result || timeBasisWithoutFixed(ctx.result));
+  const hideAvailable = timeNoFixed && !guardChosen;
+  const availableInMain = !byQuantity && !monthlyContract && !guardChosen && availableConflict && !hideAvailable;
   const availableField = () => kit.num('activity.availableDaysPerMonth', {
     label: guardChosen ? 'Días de guardia por mes' : 'Días del mes en que podés trabajar',
     rule: 'daysInMonth',
@@ -1028,7 +1032,7 @@ export function render(container, ctx) {
           const a = quote.activity || {};
           const parts = [
             singleJob && hasNumber(a.billableQuantityPerMonth) ? `${num(Number(a.billableQuantityPerMonth))} ${Math.abs(Number(a.billableQuantityPerMonth) - 1) < 1e-9 ? 'trabajo' : 'trabajos'} por mes` : null,
-            availableInMain ? null : isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `podés trabajar hasta ${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días por mes` : 'días del mes sin cargar',
+            availableInMain || hideAvailable ? null : isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `podés trabajar hasta ${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días por mes` : 'días del mes sin cargar',
             timePace && !timePaceInMain ? `${T.g('una', 'un')} ${T.one} por día` : null,
             hoursInMain ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día de trabajo` : 'horas por día sin cargar',
             kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
@@ -1040,7 +1044,7 @@ export function render(container, ctx) {
       formGrid(
         2,
         singleJob ? jobsField() : null,
-        availableInMain ? null : availableField(),
+        availableInMain || hideAvailable ? null : availableField(),
         hoursInMain ? null : hoursField(),
         // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
       ),
@@ -1070,7 +1074,8 @@ export function render(container, ctx) {
         return text ? h('p', { class: 'banner banner-info qe-long-job', role: 'status' }, text) : '';
       }, { tag: 'div', allowEmpty: true }),
       kit.stats(
-        kit.stat(
+        // M5 / I4: por tiempo usado sin costos fijos ni la utilización ni los "meses" del trabajo cambian el precio.
+        timeNoFixed ? null : kit.stat(
           (r) => (longClosedJobNote(r) ? 'Duración del trabajo' : 'Utilización'),
           (r) => (longClosedJobNote(r) ? `${formatNumber(salaryMonthsAt(r), { decimals: 2 })} meses` : formatPercent(r.activity.utilizationPct)),
           { hint: (r) => (longClosedJobNote(r) ? `Días del trabajo ÷ ${availableNoun}.` : byQuantity ? `Días de trabajo ÷ ${availableNoun}.` : `Días con trabajo ÷ ${availableNoun}.`) },
@@ -1130,6 +1135,8 @@ export function render(container, ctx) {
       const D = r.activity.activeDaysPerMonth;
       if (!(D > 0)) return `${fixed > 0.005 && variable > 0.005 ? 'Lo de por día se suma cada día de trabajo. ' : ''}Se cambia en "${stepName(stepId)}".`;
       const jobs = closedJobs(r);
+      // M4 (2026-11-18): por tiempo usado sin fijo del mes, en el trabajo es lo de cada día × sus días.
+      if (jobs !== null && r.model.timeBasis && !(fixed > 0.005)) return `Lo de cada día de trabajo × ${num(D / jobs)} ${Math.abs(D / jobs - 1) < 1e-9 ? 'día' : 'días'}. Se cambia en "${stepName(stepId)}".`;
       const how = jobs !== null
         ? `Lo del mes con ${num(D)} días de trabajo, dividido por ${num(jobs)} ${jobs === 1 ? 'trabajo' : 'trabajos'}.`
         : `Con ${num(D)} días de trabajo por mes.`;
@@ -1137,7 +1144,16 @@ export function render(container, ctx) {
     },
   });
   const resourcesCard = card(
-    { title: 'Lo que ya cargaste', subtitle: contract.mode === 'closed' ? 'Lo que te cuesta cada trabajo. Con esto sale tu precio.' : 'Lo que te cuesta por mes. Con esto y con cuánto esperás trabajar sale tu tarifa.', className: 'qe-resources-card' },
+    {
+      title: 'Lo que ya cargaste',
+      // M4 (2026-11-18): por tiempo usado, sin días cargados los montos van por día de trabajo: el subtítulo lo dice.
+      subtitle: usesTimeBasis(quote)
+        ? kit.out((r) => (r.activity.activeDaysPerMonth > 0
+          ? (contract.mode === 'closed' ? 'Lo que te cuesta cada trabajo. Con esto sale tu precio.' : 'Lo que te cuesta por mes. Con esto y con cuánto esperás trabajar sale tu tarifa.')
+          : (contract.mode === 'closed' ? 'Lo que te cuesta cada día de trabajo. Con esto y con los días del trabajo sale tu precio.' : 'Lo que te cuesta cada día de trabajo. Con esto y con cuánto esperás trabajar sale tu tarifa.')))
+        : contract.mode === 'closed' ? 'Lo que te cuesta cada trabajo. Con esto sale tu precio.' : 'Lo que te cuesta por mes. Con esto y con cuánto esperás trabajar sale tu tarifa.',
+      className: 'qe-resources-card',
+    },
     kit.stats(
       resourceStat('Personal', isLabor, 'labor', 'Sin personal cargado.'),
       resourceStat('Equipos y vehículos', isEquipment, 'equipment', 'Sin equipos cargados.'),
