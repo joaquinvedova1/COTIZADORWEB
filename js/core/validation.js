@@ -22,6 +22,8 @@ export const RULES = Object.freeze({
   paymentDays: { min: 0, max: 720, message: 'Los días deben estar entre 0 y 720.' },
   percent: { min: 0, max: 100, message: 'El porcentaje debe estar entre 0 y 100.' },
   percentOpen: { min: 0, max: 1000, message: 'El porcentaje debe estar entre 0 y 1000.' },
+  // Actualización de tarifas (0.11): puede bajar (un combustible más barato). Igual a RATE_UPDATE_PCT_MIN/MAX.
+  updatePct: { min: -90, max: 500, message: 'El aumento debe estar entre −90 % y 500 %.' },
   margin: { min: 0, max: 100, exclusiveMax: true, message: 'El margen debe ser mayor o igual a 0 y menor a 100 %.' },
   billingTax: { min: 0, max: 100, exclusiveMax: true, message: 'El impuesto sobre la facturación debe ser mayor o igual a 0 y menor a 100 %.' },
   utilization: { min: 0, max: 100, exclusiveMin: true, message: 'La utilización debe ser mayor a 0 y hasta 100 %.' },

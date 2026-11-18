@@ -12,6 +12,20 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-18
+
+**Actualizar tarifa por estructura de costos (2026-11-18, pedido del dueño).** Detalle en [docs/CALCULATION_RULES.md §31](docs/CALCULATION_RULES.md). Sin cambio de fórmulas de costo ni de versión de esquema; las cotizaciones no cambian sus números.
+
+### Agregado
+
+- Cotizaciones → vista **"Tarifas"**: ítem, unidad, valor vigente, período de la tarifa y botón **"Actualizar tarifa"** (también en "Más opciones").
+- Cuadro "Actualizar tarifa": período base, mes destino, % de aumento por categoría de la EECC con su incidencia y aporte, aumento ponderado ("60 % × 2 % + 40 % × 5 % = 3,2 %") y tarifa nueva; historial y "Deshacer la última".
+- `quote.rateUpdate` (opcional) con el período base, la foto de la base (tarifa y montos por categoría al actualizar por primera vez), los pasos y los historiales archivados; motor `rate-update-engine.js` (índices encadenados por categoría). Si la cotización cambió después, aviso y "Tomar la cotización actual como nueva base".
+
+### Cambiado
+
+- La tarifa de los listados e Inicio muestra la vigente ("act. nov-26") cuando la cotización se actualizó.
+
 ## [0.10.0] - 2026-11-18
 
 **La unidad primero (2026-11-18, pedido del dueño).** Lo primero que se elige al cotizar es en qué unidad se le cobra al cliente; de ahí salen las preguntas y las etapas. Las categorías de gasto que se marcan en "¿Qué incluye el servicio?" son las secciones del paso Materiales y los renglones de la estructura de costos. Sin cambio de fórmulas, de totales ni de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §30](docs/CALCULATION_RULES.md).

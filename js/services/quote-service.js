@@ -6,7 +6,10 @@
 import { createId } from '../core/ids.js';
 import { deepClone } from '../core/object.js';
 import { track } from '../core/events.js';
-import { computeQuote, summarizeQuote } from '../engines/quote-engine.js';
+import { computeQuote, summarizeQuote, rateUpdateOf } from '../engines/quote-engine.js';
+import { previewRateUpdate } from '../engines/rate-update-engine.js';
+import { normalizeRateUpdate, normalizeUpdatePcts, isValidUpdatePct, MAX_RATE_UPDATE_STEPS, MAX_RATE_UPDATE_NOTE, MAX_PREVIOUS_RATE_HISTORIES } from '../domain/rate-update.js';
+import { isValidPeriod } from '../domain/economic-base.js';
 import { createBlankQuote, createQuoteFromTemplate, withTimeCostBasis } from '../domain/quote-factory.js';
 import { DEMO_IDS, demoHydroCraneQuote } from '../domain/demo-data.js';
 import { ACTIVE_QUOTE_STATUSES, SERVICE_TYPES } from '../domain/catalogs.js';
@@ -137,6 +140,72 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       const ok = await repository.deleteQuote(id);
       if (ok) track('quote_deleted', {});
       return ok;
+    },
+
+    /**
+     * Actualiza la tarifa de una cotización a un período nuevo con un % por categoría de la
+     * EECC (0.11). No toca los costos de la cotización: agrega un paso al historial.
+     * @param {string} id
+     * @param {{ toPeriod: string, pcts: Record<string, number>, note?: string }} input
+     */
+    async applyRateUpdate(id, { toPeriod, pcts, note = '' } = {}) {
+      const quote = await repository.getQuote(id);
+      if (!quote) throw new Error('not_found');
+      const raw = pcts && typeof pcts === 'object' ? pcts : {};
+      if (Object.values(raw).some((v) => v !== null && v !== undefined && !isValidUpdatePct(v))) throw new Error('rate_update_pct');
+      const state = rateUpdateOf(quote, computeQuote(quote, { settings: await settings() }));
+      const preview = previewRateUpdate(state, pcts, toPeriod);
+      if (!state.basePeriod) throw new Error('rate_update_period');
+      if (!preview.canApply) throw new Error(preview.periodError ? 'rate_update_period' : 'rate_update_no_costs');
+      const ru = normalizeRateUpdate(quote.rateUpdate);
+      // Foto de la tarifa y la EECC en la primera actualización; después, la guardada.
+      const base = ru.steps.length && ru.base ? ru.base : state.liveBase;
+      if (!base) throw new Error('rate_update_no_costs');
+      if (ru.steps.length >= MAX_RATE_UPDATE_STEPS) throw new Error('rate_update_limit');
+      const step = {
+        id: idFactory(),
+        toPeriod,
+        pcts: normalizeUpdatePcts(pcts),
+        appliedAt: clock(),
+        note: typeof note === 'string' ? note.trim().slice(0, MAX_RATE_UPDATE_NOTE) : '',
+      };
+      // El período base queda fijo desde la primera actualización.
+      const saved = await repository.saveQuote({ ...quote, rateUpdate: { basePeriod: state.basePeriod, base, steps: [...ru.steps, step], previous: ru.previous } });
+      return saved;
+    },
+
+    /** Deshace la última actualización de tarifa. */
+    async undoRateUpdate(id) {
+      const quote = await repository.getQuote(id);
+      if (!quote) throw new Error('not_found');
+      const ru = normalizeRateUpdate(quote.rateUpdate);
+      if (!ru.steps.length) return quote;
+      const steps = ru.steps.slice(0, -1);
+      return repository.saveQuote({ ...quote, rateUpdate: { ...ru, steps, base: steps.length ? ru.base : null } });
+    },
+
+    /**
+     * La cotización cambió después de actualizar la tarifa: toma la tarifa y los costos de HOY
+     * como nueva base, en el período vigente. El historial anterior queda archivado.
+     */
+    async rebaseRateUpdate(id) {
+      const quote = await repository.getQuote(id);
+      if (!quote) throw new Error('not_found');
+      const ru = normalizeRateUpdate(quote.rateUpdate);
+      if (!ru.steps.length) return quote;
+      const state = rateUpdateOf(quote, computeQuote(quote, { settings: await settings() }));
+      const previous = [...ru.previous, { basePeriod: ru.basePeriod, base: ru.base, steps: ru.steps }].slice(-MAX_PREVIOUS_RATE_HISTORIES);
+      return repository.saveQuote({ ...quote, rateUpdate: { basePeriod: state.period, base: null, steps: [], previous } });
+    },
+
+    /** Período base de la tarifa (sólo antes de la primera actualización). */
+    async setRateBasePeriod(id, period) {
+      const quote = await repository.getQuote(id);
+      if (!quote) throw new Error('not_found');
+      if (period !== null && !isValidPeriod(period)) throw new Error('rate_update_period');
+      const ru = normalizeRateUpdate(quote.rateUpdate);
+      if (ru.steps.length) throw new Error('rate_update_locked');
+      return repository.saveQuote({ ...quote, rateUpdate: { basePeriod: period, base: null, steps: [], previous: ru.previous } });
     },
 
     /** Calcula una cotización con la configuración vigente. */
