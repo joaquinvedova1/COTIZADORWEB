@@ -425,7 +425,10 @@ export function evaluateCompleteness(quote = {}) {
   const owHoursPerPerson = ow.mode === 'some'
     ? (ow.hours50 + ow.hours100) * (ow.perMonth ? mf : act.daysPerActivation > 0 ? D / act.daysPerActivation : D)
     : 0;
-  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode !== 'all') {
+  // Por tiempo usado (§29): el costo sale de las horas del trabajo, no de la cobertura mensual del
+  // sueldo; este control no aplica (queda el tope de horas por día por persona, abajo).
+  const timeBasisHours = usesTimeBasis(quote);
+  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode !== 'all' && !timeBasisHours) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
     const short = labor.map((l, index) => {
       const normal = nonNegative(l.normalHoursPerMonth);
@@ -462,7 +465,7 @@ export function evaluateCompleteness(quote = {}) {
   // N5 (verificación 2026-11): con "todo el trabajo" las horas que faltan se pagan como hora
   // extra, pero hay un tope físico: si cada persona tendría que trabajar más de
   // MAX_HOURS_PER_PERSON_DAY h por día (p. ej. 1 persona 24 h por día), se avisa igual.
-  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode === 'all') {
+  if (labor.length > 0 && D > 0 && !activeGuard && (ow.mode === 'all' || timeBasisHours)) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
     const over = labor.map((l, index) => {
       const hours = coverageOf(l);
@@ -477,7 +480,7 @@ export function evaluateCompleteness(quote = {}) {
       const others = over.length > 1 ? ` También: ${over.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const who = Math.abs(first.ppp - 1) < 1e-9 ? '1 persona' : `${fmt(first.ppp)} personas que se turnan`;
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
-        `"${name}": ${fmt(first.hours)} h por día con ${who} son ${fmt(first.perPerson)} h por día por persona. Las horas extra de "todo el trabajo" se pagan, pero nadie trabaja más de ${MAX_HOURS_PER_PERSON_DAY} h por día todos los días: sumá personas que se turnen o bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.hours !== H)}`);
+        `"${name}": ${fmt(first.hours)} h por día con ${who} son ${fmt(first.perPerson)} h por día por persona. ${ow.mode === 'all' ? 'Las horas extra de "todo el trabajo" se pagan, pero nadie' : 'Nadie'} trabaja más de ${MAX_HOURS_PER_PERSON_DAY} h por día todos los días: sumá personas que se turnen o bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.hours !== H)}`);
       item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : isSimpleStaff(first.l) ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = over.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);

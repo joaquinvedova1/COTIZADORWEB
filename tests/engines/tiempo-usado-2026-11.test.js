@@ -313,4 +313,13 @@ describe('Cotización nueva y recursos', () => {
     assert.equal(rows({ id: 'b', status: 'won', unit: 'job', labor: [line] })[0].assignedPct, 100);
     assert.equal(rows({ id: 'c', status: 'won', unit: 'month', costBasis: 'time', labor: [line] })[0].assignedPct, 100);
   });
+
+  test('aviso "Horas del personal": por tiempo usado no mide la cobertura mensual, sólo el tope por día', () => {
+    const hours = (q) => computeQuote(q).completeness.items.find((i) => i.id === 'labor_hours');
+    const largo = instalacion({ activity: { billableQuantityPerMonth: 1, daysPerActivation: 45, hoursPerActiveDay: 8 } });
+    assert.ok(hours(largo), 'la cotización de antes avisa que faltan horas');
+    assert.equal(hours(timed(largo)), undefined);
+    const dia24 = hours(timed(instalacion({ activity: { billableQuantityPerMonth: 1, daysPerActivation: 3, hoursPerActiveDay: 24 } })));
+    assert.match(dia24.message, /Nadie trabaja más de 16 h por día/);
+  });
 });
