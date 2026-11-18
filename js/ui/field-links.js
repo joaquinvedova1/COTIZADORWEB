@@ -66,6 +66,8 @@ export function stepOfPath(path) {
     case 'pricing':
     case 'rules':
     case 'billingTaxes':
+    // ¿El precio se ajusta durante el contrato? (K-01)
+    case 'priceAdjustment':
       return 'margin';
     default:
       return 'service';
