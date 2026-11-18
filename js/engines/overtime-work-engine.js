@@ -14,9 +14,11 @@
  *       horas por día de cada persona = las del servicio (o las suyas / su turno, si son menos)
  *       horas del mes por persona     = días de trabajo × horas por día
  *       horas que ya paga su sueldo   = horas normales del mes × % asignado (100 % si es dedicada)
+                                       × meses de sueldo (D ÷ días disponibles si el trabajo dura más)
  *       recargo por hora              = valor hora extra − hora de sueldo con cargas (≥ 0)
  *       costo del mes = Σ personas × (min(horas, pagas) × recargo + max(0, horas − pagas) × valor)
- *       (va como costo por día de trabajo: costo del mes ÷ días)
+ *       (va como costo por día de trabajo: costo del mes ÷ días; con otros días —equilibrio, tramos,
+        matriz— se recalcula con `overtimeAllMonthlyAt`, porque no es lineal)
  *     Así "la cuadrilla por hora al 50 %" sale la hora normal + el recargo de cada operador.
  *
  *   mode 'some' — el trabajo es en horario normal y además lleva ALGUNAS horas fuera de horario
@@ -37,6 +39,40 @@ import { nonNegative, isFiniteNumber, safeDivide } from '../core/money.js';
 export const OVERTIME_WORK_MODES = Object.freeze(['none', 'all', 'some']);
 export const OVERTIME_WORK_PREMIUMS = Object.freeze([50, 100]);
 
+/**
+ * Meses de sueldo que se pagan con D días de trabajo: 1 hasta los días disponibles del mes;
+ * si el trabajo dura más, D ÷ disponibles (como los fijos en cost-engine `monthsFactor`).
+ * Las horas que ya paga el sueldo crecen en la misma proporción (A1, 2026-11-18).
+ */
+export function salaryMonths(activeDays, availableDays) {
+  const d = nonNegative(activeDays);
+  const a = nonNegative(availableDays);
+  if (a <= 0 || d <= a) return 1;
+  return d / a;
+}
+
+/** Un puesto en 'all' con D días: horas trabajadas, las que ya paga el sueldo, las completas y el costo. */
+function roleAllAt(r, premiumPct, D, months) {
+  const p = premiumPct === 100 ? 100 : 50;
+  const worked = nonNegative(D) * r.hoursPerDay;
+  const paid = Math.min(worked, r.paidHoursPerMonth * months);
+  const full = Math.max(0, worked - paid);
+  return { worked, paid, full, cost: r.people * (paid * r[`surcharge${p}`] + full * r[`at${p}`]) };
+}
+
+/**
+ * Costo de las horas extra de 'all' con OTROS días de trabajo (equilibrio, tramos, matriz: M1).
+ * No es lineal: hasta las horas que ya paga el sueldo va sólo el recargo; después, la hora completa.
+ * @param {object} ow resultado de computeOvertimeWork
+ * @param {number} activeDays
+ */
+export function overtimeAllMonthlyAt(ow, activeDays) {
+  if (!ow || ow.mode !== 'all' || !Array.isArray(ow.perRole)) return 0;
+  const D = nonNegative(activeDays);
+  const months = salaryMonths(D, ow.availableDaysPerMonth);
+  return ow.perRole.reduce((acc, r) => acc + roleAllAt(r, ow.premiumPct, D, months).cost, 0);
+}
+
 /** Lo cargado en la cotización, normalizado. `perMonth`: las horas de 'some' son por mes. */
 export function overtimeWorkOf(quote = {}, { contractMode = null } = {}) {
   const raw = isPlainObject(quote) && isPlainObject(quote.overtimeWork) ? quote.overtimeWork : {};
@@ -55,7 +91,7 @@ export function overtimeWorkOf(quote = {}, { contractMode = null } = {}) {
  * Costo de las horas extra del trabajo, dentro del personal.
  * @param {object} quote
  * @param {{ lines: object[] }} labor resultado de computeLabor (mismo orden que quote.labor)
- * @param {{ hoursPerActiveDay: number, daysPerActivation: number, activeDaysPerMonth: number }} activity
+ * @param {{ hoursPerActiveDay: number, daysPerActivation: number, activeDaysPerMonth: number, availableDaysPerMonth?: number }} activity
  * @param {{ contractMode?: string|null, equipmentPerHour?: number }} opts
  */
 export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { contractMode = null, equipmentPerHour = 0 } = {}) {
@@ -115,14 +151,17 @@ export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { c
     active: false,
   };
   if (cfg.mode === 'all') {
-    const p = cfg.premiumPct === 100 ? 100 : 50;
+    const available = nonNegative(activity && activity.availableDaysPerMonth);
+    const months = salaryMonths(D, available);
+    out.availableDaysPerMonth = available;
+    out.salaryMonths = months;
     let monthly = 0;
     perRole.forEach((r) => {
-      const worked = D * r.hoursPerDay;
-      const paid = Math.min(worked, r.paidHoursPerMonth);
-      r.workedHoursPerMonth = worked;
-      r.fullHoursPerMonth = Math.max(0, worked - paid);
-      r.monthly = r.people * (paid * r[`surcharge${p}`] + r.fullHoursPerMonth * r[`at${p}`]);
+      const at = roleAllAt(r, cfg.premiumPct, D, months);
+      r.workedHoursPerMonth = at.worked;
+      r.paidHoursInWork = at.paid;
+      r.fullHoursPerMonth = at.full;
+      r.monthly = at.cost;
       monthly += r.monthly;
     });
     out.monthlyAtEstimate = monthly;

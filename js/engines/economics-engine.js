@@ -242,6 +242,8 @@ export function linearDecomposition(ctx, listRate, referenceDays) {
     variableCostPerDay,
     contributionPerDay,
     // "Cada salida completa" (PLAN-2026-011) hace el costo escalonado: el equilibrio se busca día a día.
-    hasNonLinearRules: r1.guarantee > 0 || normalizeRules(ctx.rules).volumeTiers.some((t) => t.discountPct > 0) || r1.minimumCallApplied || Boolean(ctx.model.activationRounding && ctx.model.activationRounding.enabled && ctx.model.activationRounding.perActivation.total > 0),
+    hasNonLinearRules: r1.guarantee > 0 || normalizeRules(ctx.rules).volumeTiers.some((t) => t.discountPct > 0) || r1.minimumCallApplied || Boolean(ctx.model.activationRounding && ctx.model.activationRounding.enabled && ctx.model.activationRounding.perActivation.total > 0)
+      // Horas extra de todo el trabajo (M1): recargo hasta las horas que paga el sueldo, completas después.
+      || Boolean(ctx.model.overtimeCurve && ctx.model.overtimeWork && ctx.model.overtimeWork.active),
   };
 }

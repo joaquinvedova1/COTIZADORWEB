@@ -17,7 +17,7 @@ import { formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
-import { applyUnitChange } from '../../../domain/unit-change.js';
+import { applyUnitChange, applyContractModeChange } from '../../../domain/unit-change.js';
 import { onSessionReset } from '../../session-memory.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
 import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
@@ -273,11 +273,14 @@ export function render(container, ctx) {
     // V-03: lo cargado en la unidad anterior (cantidades, mínimos) se limpia con aviso.
     let unitNotices = [];
     const fromInfo = billingUnitOf(quote);
+    const previousMode = contractOf(quote).mode;
     ctx.mutate((q) => {
       q.contract = contractWithComponents({ ...next, templateId: next.templateId || undefined }, next.components, next.customComponents);
       q.serviceType = serviceTypeForContract(q.contract);
       q.unit = nextUnit;
       if (nextUnit !== current) unitNotices = applyUnitChange(q, fromInfo, billingUnitOf(q));
+      // M8: las horas de "algunas horas" cambian de base (por mes ↔ por trabajo): se limpian con aviso.
+      unitNotices = [...unitNotices, ...applyContractModeChange(q, previousMode, contractOf(q).mode)];
       // Precio cerrado por trabajo (tanda novatos 2026-11): sin cantidad cargada, arranca en 1 trabajo por mes.
       if (nextUnit === 'job' && q.contract.mode === 'closed') {
         if (!isPlainObject(q.activity)) q.activity = {};
@@ -302,6 +305,8 @@ export function render(container, ctx) {
       const usual = contractUnits(next).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
       say(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
     }
+    // M8: con la misma unidad, el aviso de las horas extra borradas va solo.
+    if (nextUnit === current && unitNotices.length) say(unitNotices.join(' '), 'warning');
     return messages;
   }
 

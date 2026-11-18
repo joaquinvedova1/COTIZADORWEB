@@ -649,7 +649,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       notes: [
         byQuantity && targetMarginDays.reachable ? `Son ${formatDays(targetMarginDays.days, { decimals: 1 })} de trabajo: los costos se calculan con esos días y la facturación, con ${texts.los} ${unitInfo.plural}.` : null,
         !targetMarginDays.reachable ? targetMarginDays.reason : null,
-        linearTarget.hasNonLinearRules ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula día a día.` : null,
+        linearTarget.hasNonLinearRules ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento, ${T.each} contad${T.g('a', 'o')} ${T.whole} u horas extra de todo el trabajo): el resultado se calcula día a día.` : null,
       ],
     }),
     floorRate: createTrace({
