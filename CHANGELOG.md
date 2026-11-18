@@ -12,6 +12,38 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-18
+
+**La demo con la regla de un ítem.** La cotización demo COT-0001 pasa al modelo actual: un solo precio por día, horas extra dentro del costo del personal y contrato con la unidad primero. Sin cambio de fórmulas ni de esquema. Las cotizaciones guardadas de cada empresa no cambian.
+
+### Cambiado
+
+- **Demo COT-0001 "Hidrogrúa por día — Añelo"** (antes "Hidrogrúa on-call — Añelo"):
+  - las 4 h extra por día que estaban en el puesto pasan a "Horas extra del trabajo": algunas horas, 8 h al 50 % por llamado de 2 días;
+  - sin mínimo por llamado (1 día, que no cambiaba nada con llamados de 2 días) y sin tramos con descuento (3 / 5 / 8 %): 0.10.0 ya no los ofrece en cotizaciones nuevas;
+  - contrato guardado: el modo sale de la unidad (`modeForUnit('day')`, por servicio prestado) y las categorías de gasto son Personal, Vehículos, Equipos y maquinaria, Herramientas, Insumos y Materiales; cada material tiene su `component`;
+  - el caso de referencia COT-0002 queda sin contrato, como antes.
+- **Números de la demo** (ILUSTRATIVOS, 8 días por mes):
+
+  | | Antes | Ahora |
+  |---|---:|---:|
+  | Costo del mes | 15.776.498 | 17.898.808 (+13,5 %) |
+  | Tarifa piso | 2.033.054 | 2.237.352 por día |
+  | Tarifa sugerida | 2.259.000 | 2.486.000 por día (+10,0 %) |
+  | Break-even | 6,4 días | 6,6 días |
+
+  - Sacar los tramos baja la sugerida a 2.192.000, porque ya no se sube la de lista para cubrir el 3 % del tramo de 8 días.
+  - Las horas extra del modelo nuevo suman 2.380.174 por mes, contra 716.870 de las horas extra del puesto:
+    - personal 876.174, con la hora al 50 % de básico más adicionales (27.380 contra 22.402 de antes, que tomaba sólo el básico);
+    - 1.504.000 de uso de la hidrogrúa y la pickup en esas 32 h (47.000 por hora).
+  - Sobre eso se suman estructura, financiación e imprevistos.
+- **Plantilla demo "Hidrogrúa por día"** (antes "Hidrogrúa on-call"): copia las horas extra del trabajo. Una cotización nueva desde la plantilla cuesta lo mismo que la demo: 17.898.808 contra 14.861.801.
+- **Demo guiada (`#/demo`):** "Está disponible todo el mes, pero sólo cobrás los días que te llaman", sin "on-call". Los nombres cambian también en landing, análisis, configuración, inicio y docs.
+- **Test Lab:**
+  - el oráculo independiente calcula "algunas horas" de horas extra del trabajo (§28);
+  - INV-31 cuenta esas horas como cobertura;
+  - el baseline de regresión se regeneró para los 9 casos que salen de la demo; las variantes por hora y por mes derivan el modo de la unidad.
+
 ## [0.10.0] - 2026-11-18
 
 **La unidad primero (2026-11-18, pedido del dueño).** Lo primero que se elige al cotizar es en qué unidad se le cobra al cliente; de ahí salen las preguntas y las etapas. Las categorías de gasto que se marcan en "¿Qué incluye el servicio?" son las secciones del paso Materiales y los renglones de la estructura de costos. Sin cambio de fórmulas, de totales ni de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §30](docs/CALCULATION_RULES.md).

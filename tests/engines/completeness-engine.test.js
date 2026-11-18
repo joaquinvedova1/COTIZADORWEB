@@ -217,6 +217,8 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
     delete noMode.pricingMode;
     assert.equal(item(evaluateCompleteness(noMode), 'modality').status, 'missing');
     const badType = completeQuote();
+    // El tipo de servicio sólo cuenta en una cotización anterior (sin contrato); la demo tiene contrato desde 0.10.1.
+    delete badType.contract;
     badType.serviceType = 'inexistente';
     assert.equal(item(evaluateCompleteness(badType), 'modality').status, 'missing');
   });
@@ -252,6 +254,8 @@ describe('CompletenessEngine — detecciones obligatorias', () => {
     const q = completeQuote();
     q.labor = [];
     assert.equal(item(evaluateCompleteness(q), 'labor').status, 'missing');
+    // Cotización anterior (sin contrato): el tipo de servicio dice si lleva personal.
+    delete q.contract;
     q.serviceType = 'equipment_only';
     assert.equal(item(evaluateCompleteness(q), 'labor'), undefined);
   });

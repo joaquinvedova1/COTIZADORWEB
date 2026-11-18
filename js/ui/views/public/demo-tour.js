@@ -1,5 +1,5 @@
 /**
- * Demo guiada (#/demo): "Hidrogrúa on-call — Añelo" en 4 pasos, ANTES del
+ * Demo guiada (#/demo): "Hidrogrúa por día — Añelo" en 4 pasos, ANTES del
  * resultado completo. Todos los valores son ILUSTRATIVOS.
  *
  * 1. El servicio · 2. Lo que cuesta prestarlo · 3. El resultado · 4. Probalo vos
@@ -227,7 +227,7 @@ export async function render(root, app) {
     ];
     return [
       h('h1', { class: 'pub-flow-title', tabindex: '-1' }, 'Una hidrogrúa disponible las 24 horas para una operadora en Añelo.'),
-      h('p', { class: 'pub-flow-text' }, 'Es un servicio ', h('strong', {}, 'on-call'), ': está disponible todo el mes, pero sólo cobrás los días que te llaman.'),
+      h('p', { class: 'pub-flow-text' }, 'Está disponible todo el mes, pero sólo cobrás los días que te llaman.'),
       h('dl', { class: 'pub-facts' }, ...facts.map(([label, value]) => h('div', { class: 'pub-fact' }, h('dt', {}, label), h('dd', {}, value)))),
       h(
         'div',

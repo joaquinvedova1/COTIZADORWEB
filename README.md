@@ -83,7 +83,7 @@ Después de v0.1.0 (ver [CHANGELOG](CHANGELOG.md), "Sin publicar"): rediseño de
 | | Qué ve | Datos |
 |---|---|---|
 | **Visitante** | Landing `#/`, ingreso, recuperar contraseña (sin registro: beta por invitación) | Ninguno |
-| **Demo** (`#/demo`, sin cuenta) | La cotización de ejemplo "Hidrogrúa on-call — Añelo" y su análisis completo | ILUSTRATIVOS, en memoria: no se guarda nada y nunca pasa a una cuenta |
+| **Demo** (`#/demo`, sin cuenta) | La cotización de ejemplo "Hidrogrúa por día — Añelo" y su análisis completo | ILUSTRATIVOS, en memoria: no se guarda nada y nunca pasa a una cuenta |
 | **Cuenta** (`#/inicio` y toda la app) | Tus cotizaciones, recursos, servicios, escenarios y configuración | Los de **tu empresa**, en Supabase, protegidos con Row Level Security: nadie de otra empresa puede verlos ni modificarlos |
 
 - **Beta por invitación:** no hay registro público. El dueño de RATEOS da de alta cada cuenta desde Supabase y la persona elige su contraseña con **¿Olvidaste tu contraseña?** (el enlace se abre en el mismo navegador); `#/registro` explica cómo es el acceso. La cuenta empieza **vacía**: "Hola, <nombre>" → [Crear mi primera cotización] [Configurar mi empresa]. Procedimiento en [docs/BETA_PERIMETER.md](docs/BETA_PERIMETER.md) §2. El registro abierto (nombre, empresa, email y contraseña, con email de confirmación) sigue en el código detrás de `FEATURES.publicSignup` (`js/config.js`), apagado.
@@ -110,7 +110,7 @@ Dos modos:
 
 Los montos se escriben como en Argentina: punto para miles y coma para decimales (`1.800.000`, `1.800.000,50`, `8,5`). Si un valor no es válido, el campo lo marca y, al salir del campo, vuelve al valor anterior: nunca se guarda un número a medio escribir. Las tarifas mínimas (piso, objetivo, sugerida) se muestran redondeadas **hacia arriba**, para que cobrar la cifra que ves nunca te deje debajo del mínimo.
 
-## Caso demo: Hidrogrúa on-call — Añelo
+## Caso demo: Hidrogrúa por día — Añelo
 
 Todos los valores son **ILUSTRATIVOS**.
 
@@ -118,31 +118,32 @@ Todos los valores son **ILUSTRATIVOS**.
 |---|---|
 | Empresa | Patagonia Servicios SRL (ficticia) |
 | Base → destino | Neuquén Capital → Añelo, 110 km, ida y vuelta |
-| Modalidad | On-call 24/7, respuesta 4 h, "Conozco la actividad" |
+| Modalidad | Por servicio prestado: disponible 24/7, respuesta 4 h, se cobran los días trabajados; "Conozco la actividad" |
 | Unidad | $/día |
 | Actividad estimada | 8 días/mes, 2 días por activación (4 llamados), 10 h por día activo |
-| Recursos | 1 operador, 1 hidrogrúa, 1 vehículo de apoyo |
+| Recursos | 1 operador, 1 hidrogrúa, 1 vehículo de apoyo; incluye personal, vehículos, equipos y maquinaria, herramientas, insumos y materiales |
+| Horas extra del trabajo | Algunas horas: 8 h al 50 % por llamado (4 h por día de trabajo), dentro del costo del personal |
 | Plazo de pago | 90 días (facturación a 15 días, tasa 3 % mensual) |
 | Estructura / contingencia | 12 % sobre costo directo / 5 % |
 | Margen objetivo | 10 % (personalizado 20 %), redondeo a $ 1.000 |
-| Descuentos por tramo | 3 % (8–15 días), 5 % (16–30), 8 % (+30) |
+| Cobros aparte, mínimos y descuentos por tramo | Ninguno (un solo precio por día) |
 
-Resultado aproximado calculado por el motor v0.1.0 (cambia si cambian los datos demo o el motor):
+Resultado aproximado calculado por el motor v0.10.1 (cambia si cambian los datos demo o el motor):
 
 | Indicador | Valor ≈ |
 |---|---:|
-| Costo total del mes | $ 15.776.000 |
-| Costos fijos / variable por día activo | $ 9.031.000 / $ 843.000 |
-| Tarifa piso | $ 2.033.000 por día de lista ($ 1.972.000 neta, después del 3 % del tramo 8–15 días) |
-| Tarifa comercial sugerida (margen 10 %) | $ 2.259.000 por día de lista |
-| Facturación / resultado del mes | $ 17.530.000 / $ 1.753.000 |
+| Costo total del mes | $ 17.899.000 |
+| Costos fijos / variable por día activo | $ 9.031.000 / $ 1.108.000 |
+| Tarifa piso | $ 2.238.000 por día |
+| Tarifa comercial sugerida (margen 10 %) | $ 2.486.000 por día |
+| Facturación / resultado del mes | $ 19.888.000 / $ 1.989.000 |
 | Margen / markup | 10,0 % / 11,1 % |
-| Break-even | 6,4 días → 7 días activos |
-| Cost Completeness Score | 95 % (pendientes: relevos para 24/7 y standby) |
+| Break-even | 6,6 días → 7 días activos |
+| Cost Completeness Score | 96 % (pendientes: relevos para 24/7 e impuestos sobre la facturación) |
 
 ## Caso de referencia: break-even 10 días
 
-También incluido como cotización demo ("Caso de referencia on-call") y como golden case de los tests:
+También incluido como cotización demo ("Caso de referencia") y como golden case de los tests:
 
 ```
 Costos fijos            = 30.000.000 por mes

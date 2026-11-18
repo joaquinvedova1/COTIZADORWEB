@@ -79,8 +79,8 @@ El backup exportado (`StorageRepository.exportBackup()`, archivo `rateos-backup-
     "materials":     [ { "id": "…", "organizationId": "…", "description": "Consumibles menores por llamado", "basis": "per_activation", "base": { "…": "…" }, "…": "…" } ],
     "locations":     [ { "id": "…", "organizationId": "…", "name": "Añelo", "type": "destination", "distanceFromBaseKm": 110 } ]
   },
-  "services": [ { "id": "…", "organizationId": "…", "name": "Hidrogrúa on-call", "serviceType": "on_call", "description": "…", "defaults": { "…": "valores parciales de cotización" } } ],
-  "quotes":   [ { "id": "…", "organizationId": "…", "code": "COT-0001", "name": "Hidrogrúa on-call — Añelo", "vatTreatment": "excluded", "billingTaxes": { "mode": "combined", "notApplicable": false, "combinedPct": null, "items": [] }, "currency": "ARS", "offerDate": "2026-10-01", "exchangeRates": [], "…": "ver §3" } ],
+  "services": [ { "id": "…", "organizationId": "…", "name": "Hidrogrúa por día", "serviceType": "on_call", "description": "…", "defaults": { "…": "valores parciales de cotización" } } ],
+  "quotes":   [ { "id": "…", "organizationId": "…", "code": "COT-0001", "name": "Hidrogrúa por día — Añelo", "vatTreatment": "excluded", "billingTaxes": { "mode": "combined", "notApplicable": false, "combinedPct": null, "items": [] }, "currency": "ARS", "offerDate": "2026-10-01", "exchangeRates": [], "…": "ver §3" } ],
   "settings": { "organizationId": "…", "fuelPricePerLiter": 1500, "fuelPriceBase": { "period": "2026-10", "…": "…" }, "exchangeRates": [], "defaultTargetMarginPct": 10, "defaultBillingTaxes": null, "…": "…" }
 }
 ```
@@ -151,7 +151,7 @@ Todos con `id`, `organizationId`, `createdAt`, `updatedAt`, `createdBy`, `update
 
 ### Plantillas de servicio (`services`)
 
-`id`, metadatos, `name`, `serviceType`, `description`, `illustrative`, `defaults` (cotización **parcial**: cualquier subconjunto de los campos de §3 "Cotización"). `createQuoteFromTemplate` combina `defaults` sobre una cotización vacía y asigna ids nuevos a todas las líneas. Si la plantilla es ILUSTRATIVA, cada línea copiada (`labor`, `equipment`, `materials`, `otherCosts`, `logistics.vehicles`) queda con `illustrative: true`, y también `fuel.illustrative` si la plantilla trae precio de combustible; la cotización en sí queda con `illustrative: false`. La demo incluye 12 plantillas (Cuadrilla 24/7, Hidrogrúa on-call, Transporte, Water Transfer, Servicio ambiental, Movimiento de suelo, Taller móvil, Inspección, Soldadura, Mantenimiento, Generador, Camión con chofer).
+`id`, metadatos, `name`, `serviceType`, `description`, `illustrative`, `defaults` (cotización **parcial**: cualquier subconjunto de los campos de §3 "Cotización"). `createQuoteFromTemplate` combina `defaults` sobre una cotización vacía y asigna ids nuevos a todas las líneas. Si la plantilla es ILUSTRATIVA, cada línea copiada (`labor`, `equipment`, `materials`, `otherCosts`, `logistics.vehicles`) queda con `illustrative: true`, y también `fuel.illustrative` si la plantilla trae precio de combustible; la cotización en sí queda con `illustrative: false`. La demo incluye 12 plantillas (Cuadrilla 24/7, Hidrogrúa por día, Transporte, Water Transfer, Servicio ambiental, Movimiento de suelo, Taller móvil, Inspección, Soldadura, Mantenimiento, Generador, Camión con chofer).
 
 ### Cotización (`quotes[]`)
 

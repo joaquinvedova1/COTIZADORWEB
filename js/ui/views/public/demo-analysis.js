@@ -28,7 +28,7 @@ export async function render(root, app) {
   });
   const body = h('div', { class: 'pub-container pub-demo-analysis' });
   mount(root, h('div', { class: 'pub-page' }, header, h('main', { class: 'pub-demo-analysis-main' },
-    h('h1', { class: 'pub-flow-title', tabindex: '-1' }, 'Ejemplo: Hidrogrúa on-call — Añelo'),
+    h('h1', { class: 'pub-flow-title', tabindex: '-1' }, 'Ejemplo: Hidrogrúa por día — Añelo'),
     h('p', { class: 'pub-flow-text' }, 'El análisis completo de la cotización de ejemplo. Valores ILUSTRATIVOS: no se guarda nada y no hace falta cuenta.'),
     body)));
 

@@ -444,7 +444,7 @@ function shortcutsSection(app, stats) {
     h(
       'div',
       { class: 'shortcut-grid' },
-      has(DEMO_IDS.quoteHydroCrane) ? linkButton('Abrir el ejemplo Hidrogrúa on-call', `#/cotizaciones/${DEMO_IDS.quoteHydroCrane}`, { variant: 'secondary', icon: 'quote' }) : null,
+      has(DEMO_IDS.quoteHydroCrane) ? linkButton('Abrir el ejemplo Hidrogrúa por día', `#/cotizaciones/${DEMO_IDS.quoteHydroCrane}`, { variant: 'secondary', icon: 'quote' }) : null,
       has(DEMO_IDS.quoteReference) ? linkButton('Ejemplo: tarifa que no cubre los costos', `#/cotizaciones/${DEMO_IDS.quoteReference}`, { variant: 'secondary', icon: 'calc' }) : null,
       linkButton('Recursos', '#/recursos/personal', { variant: 'secondary', icon: 'resources' }),
       linkButton('Analizar escenarios', '#/escenarios', { variant: 'secondary', icon: 'chart' }),

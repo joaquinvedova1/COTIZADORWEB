@@ -75,13 +75,19 @@ describe('Contrato — modalidad y recursos (PLAN-2026-018)', () => {
     assert.equal(resourceChoiceOf({ mode: 'monthly', labor: false, equipment: false }), 'both');
   });
 
-  test('la demo (sin contrato) calcula exactamente igual con y sin el motor de adicionales', () => {
+  test('la demo calcula exactamente igual con y sin el motor de adicionales (con y sin contrato)', () => {
     const demo = demoHydroCraneQuote({ organizationId: 'org', now: '2026-11-01T00:00:00.000Z' });
     const a = computeQuote(demo);
     const b = computeQuote({ ...demo, extras: [] });
     assert.equal(a.kpis.revenue, b.kpis.revenue);
     assert.equal(a.kpis.totalCost, b.kpis.totalCost);
-    assert.equal(a.contract.legacy, true);
+    // Desde 0.10.1 la demo tiene contrato (modo de la unidad: por servicio prestado).
+    assert.equal(a.contract.legacy, false);
+    assert.equal(a.contract.mode, 'on_demand');
+    const { contract, ...old } = demo;
+    const c = computeQuote(old);
+    assert.equal(c.contract.legacy, true);
+    assert.equal(c.kpis.totalCost, computeQuote({ ...old, extras: [] }).kpis.totalCost);
   });
 });
 

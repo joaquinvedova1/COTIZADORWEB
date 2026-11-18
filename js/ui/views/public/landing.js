@@ -3,7 +3,7 @@
  *
  * Vende resultados, no funcionalidades. El "mockup" del hero NO es una
  * imagen: es el resultado real del motor (computeQuote) sobre la cotización
- * de ejemplo "Hidrogrúa on-call — Añelo", con valores ILUSTRATIVOS.
+ * de ejemplo "Hidrogrúa por día — Añelo", con valores ILUSTRATIVOS.
  * No lee ni escribe datos de ninguna cuenta. "Empezar a calcular" lleva a
  * crear la cuenta (y después a "¿Qué querés calcular?"); con sesión, directo.
  */

@@ -145,7 +145,7 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
     },
 
     /**
-     * Cotización de ejemplo "Hidrogrúa on-call — Añelo" (ILUSTRATIVA) para la
+     * Cotización de ejemplo "Hidrogrúa por día — Añelo" (ILUSTRATIVA) para la
      * demo guiada. Si existe, la devuelve tal cual (con los cambios que el
      * usuario le haya hecho). Si se borró, la vuelve a crear con el mismo id y
      * un código NUEVO (los códigos nunca se reutilizan). No toca otras

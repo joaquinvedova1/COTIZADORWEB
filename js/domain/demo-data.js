@@ -13,6 +13,7 @@ import { defaultSettings, defaultRiskItems, defaultVolumeTiers, createEquipmentM
 import { emptyBillingTaxes } from './billing-taxes.js';
 import { createSnapshot } from './resource-snapshot.js';
 import { suggestedMobility } from './equipment-catalog.js';
+import { contractWithComponents, modeForUnit } from './contract.js';
 
 export const DEMO_TIMESTAMP = '2026-10-01T12:00:00.000Z';
 export const DEMO_ORG_ID = '00000000-0000-4000-8000-000000000001';
@@ -194,18 +195,22 @@ export function demoLocations() {
   ];
 }
 
-/** Cotización demo principal: HIDROGRÚA ON-CALL — AÑELO. */
+/**
+ * Cotización demo principal: HIDROGRÚA POR DÍA — AÑELO. Disponible todo el mes, se cobran
+ * sólo los días que llaman. Un solo precio (0.10.1): horas extra en "Horas extra del trabajo"
+ * (dentro del costo del personal), sin cobros aparte, sin mínimo por llamado ni tramos con
+ * descuento (0.10.0 ya no los ofrece en cotizaciones nuevas).
+ */
 export function demoHydroCraneQuote() {
   const risk = defaultRiskItems().map((r) => {
     const enabled = { activity_variation: 2, unproductive: 1, weather: 1, equipment_failure: 1 };
     return r.id in enabled ? { ...r, pct: enabled[r.id], enabled: true } : r;
   });
-  const tiers = defaultVolumeTiers().map((t) => ({ ...t, discountPct: { 'tier-3': 3, 'tier-4': 5, 'tier-5': 8 }[t.id] ?? 0 }));
   const p = ILLUSTRATIVE_AGREEMENT_PARAMS;
   const quote = {
     ...meta(DEMO_IDS.quoteHydroCrane),
     code: 'COT-0001',
-    name: 'Hidrogrúa on-call — Añelo',
+    name: 'Hidrogrúa por día — Añelo',
     client: 'Operadora (ejemplo ilustrativo)',
     status: 'draft',
     illustrative: true,
@@ -213,6 +218,10 @@ export function demoHydroCraneQuote() {
     templateId: DEMO_IDS.templateHydroCrane,
     pricingMode: 'known_activity',
     unit: 'day',
+    // La unidad primero (0.10.0): el modo sale de la unidad; las categorías de gasto ordenan los pasos.
+    contract: contractWithComponents({ mode: modeForUnit('day') }, ['labor', 'vehicle', 'machinery', 'tools', 'supplies', 'materials']),
+    // Horas extra del trabajo (PR #68): las 4 h por día de trabajo del operador, al 50 %, por llamado de 2 días.
+    overtimeWork: { mode: 'some', premiumPct: 50, hours50: 8, hours100: 0 },
     contractMonths: 12,
     activity: {
       availability: '24/7',
@@ -235,7 +244,7 @@ export function demoHydroCraneQuote() {
         basicMonthly: 1800000,
         additionalsMonthly: 400000,
         normalHoursPerMonth: p.normalHoursPerMonth,
-        overtimeHoursPerActiveDay: 4,
+        overtimeHoursPerActiveDay: 0,
         overtimePremiumPct: p.overtimePremiumPct,
         mealPerActiveDay: 25000,
         sacPct: p.sacPct,
@@ -307,9 +316,9 @@ export function demoHydroCraneQuote() {
       },
     ],
     materials: [
-      { id: uid(7201), sourceId: uid(5001), description: 'Eslingas, grilletes y elementos de izaje (reposición)', unit: 'kit', basis: 'per_month', quantity: 1, unitCost: 300000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor', base: { ...DEMO_BASES.materials } },
-      { id: uid(7202), sourceId: uid(5002), description: 'Consumibles menores por llamado', unit: 'kit', basis: 'per_activation', quantity: 1, unitCost: 50000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor', base: { ...DEMO_BASES.materials } },
-      { id: uid(7203), sourceId: null, description: 'Carga a izar (la provee el cliente)', unit: 'unidad', basis: 'per_activation', quantity: 1, unitCost: 0, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'client', base: { period: null, currency: 'ARS', source: null, note: '' } },
+      { id: uid(7201), sourceId: uid(5001), description: 'Eslingas, grilletes y elementos de izaje (reposición)', component: 'tools', unit: 'kit', basis: 'per_month', quantity: 1, unitCost: 300000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor', base: { ...DEMO_BASES.materials } },
+      { id: uid(7202), sourceId: uid(5002), description: 'Consumibles menores por llamado', component: 'supplies', unit: 'kit', basis: 'per_activation', quantity: 1, unitCost: 50000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor', base: { ...DEMO_BASES.materials } },
+      { id: uid(7203), sourceId: null, description: 'Carga a izar (la provee el cliente)', component: 'materials', unit: 'unidad', basis: 'per_activation', quantity: 1, unitCost: 0, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'client', base: { period: null, currency: 'ARS', source: null, note: '' } },
     ],
     materialsNotApplicable: false,
     otherCosts: [],
@@ -353,11 +362,11 @@ export function demoHydroCraneQuote() {
       mobilizationFeePerActivation: 0,
       includedKmPerActivation: 0,
       extraKmRate: 0,
-      minimumCallUnits: 1,
+      minimumCallUnits: 0,
       standbyDaysPerMonth: 0,
       standbyRatePerDay: 0,
       standbyNotApplicable: false,
-      volumeTiers: tiers,
+      volumeTiers: defaultVolumeTiers(),
       continuityMinMonths: 6,
       continuityDiscountPct: 0,
       minimumMonthlyGuarantee: 0,
@@ -380,8 +389,10 @@ export function demoHydroCraneQuote() {
 
 /** Caso de referencia del motor (golden case): fijos 30M, variable 1M/día, tarifa 4M/día → break-even 10 días. */
 export function demoReferenceQuote() {
+  // Sin el contrato ni las horas extra de la hidrogrúa: el caso de referencia es una cotización anterior.
+  const { contract, overtimeWork, ...hydro } = demoHydroCraneQuote();
   return {
-    ...demoHydroCraneQuote(),
+    ...hydro,
     ...meta(DEMO_IDS.quoteReference),
     code: 'COT-0002',
     name: 'Ejemplo: tarifa que no cubre los costos (caso de referencia)',
@@ -405,14 +416,14 @@ export function demoReferenceQuote() {
     finance: { paymentTermDays: 0, invoiceLagDays: 0, monthlyRatePct: 0, payDays: { salaries: 0, fuel: 0, suppliers: 0, materials: 0, structure: 0 } },
     risk: { generalPct: 0, items: defaultRiskItems() },
     pricing: { targetMarginPct: 10, customMarginPct: null, knownRate: 4000000, offeredRateOverride: null, commercialDiscountPct: 0, roundingStep: 0 },
-    rules: { ...demoHydroCraneQuote().rules, minimumCallUnits: 0, standbyNotApplicable: true, volumeTiers: defaultVolumeTiers() },
-    notes: 'Caso de prueba del motor on-call: fijos 30.000.000, variable 1.000.000/día, tarifa 4.000.000/día → contribución 3.000.000/día, break-even 10 días. Valores ILUSTRATIVOS.',
+    rules: { ...hydro.rules, minimumCallUnits: 0, standbyNotApplicable: true, volumeTiers: defaultVolumeTiers() },
+    notes: 'Caso de prueba del motor por servicio prestado: fijos 30.000.000, variable 1.000.000/día, tarifa 4.000.000/día → contribución 3.000.000/día, break-even 10 días. Valores ILUSTRATIVOS.',
   };
 }
 
 /** Lo de la cotización demo que pasa a la plantilla (un solo precio). */
 function hydroTemplateDefaults(q) {
-  const d = withoutSeparateCharges(JSON.parse(JSON.stringify({ ...q, name: 'Hidrogrúa on-call' })));
+  const d = withoutSeparateCharges(JSON.parse(JSON.stringify({ ...q, name: 'Hidrogrúa por día' })));
   d.rules = { ...d.rules, volumeTiers: defaultVolumeTiers() };
   return d;
 }
@@ -437,7 +448,7 @@ export function demoServiceTemplates() {
     t(2001, 'Cuadrilla 24/7', 'permanent', 'Posiciones cubiertas en turnos rotativos con relevos.', { activity: { availability: '24/7', activeDaysPerMonth: 30, availableDaysPerMonth: 30, daysPerActivation: 14, hoursPerActiveDay: 12 }, unit: 'day', pricingMode: 'known_activity' }),
     // Regla de un ítem (B4, 2026-11-18): la plantilla da cotizaciones nuevas de un solo precio, sin
     // horas extra en el puesto, sin guardia y sin tramos con descuento.
-    { ...t(2002, 'Hidrogrúa on-call', 'on_call', 'Hidrogrúa con operador, cotizada por día de trabajo.'), defaults: hydroTemplateDefaults(strip(hydro)) },
+    { ...t(2002, 'Hidrogrúa por día', 'on_call', 'Hidrogrúa con operador, cotizada por día de trabajo.'), defaults: hydroTemplateDefaults(strip(hydro)) },
     t(2003, 'Transporte', 'transport', 'Traslado de cargas entre base y locación.', { activity: { activeDaysPerMonth: 20, availableDaysPerMonth: 22, daysPerActivation: 1, hoursPerActiveDay: 9 } }),
     t(2004, 'Water Transfer', 'equipment_with_operator', 'Bombeo y transferencia de agua con equipo y operador.', { activity: { activeDaysPerMonth: 15, availableDaysPerMonth: 30, daysPerActivation: 5, hoursPerActiveDay: 12 } }),
     t(2005, 'Servicio ambiental', 'crew', 'Cuadrilla ambiental (limpieza, remediación).', { activity: { activeDaysPerMonth: 20, availableDaysPerMonth: 22, daysPerActivation: 5, hoursPerActiveDay: 9 } }),

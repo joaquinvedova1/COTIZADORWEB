@@ -7,7 +7,7 @@
 | Estado | Rutas | Datos |
 |---|---|---|
 | **Visitante** (sin sesión) | `#/` (landing), `#/login`, `#/registro`, `#/recuperar-contrasena`, `#/demo`, `#/demo/analisis` y el retorno de los enlaces de email (`?auth=…`) | Ninguno. |
-| **Demo** (sin cuenta) | `#/demo`, `#/demo/analisis` | Caso "Hidrogrúa on-call — Añelo" **ILUSTRATIVO**, en memoria (`createDemoContext`): otro repositorio y otro storage. Nunca escribe en el navegador ni en la nube y nunca se importa a una cuenta. |
+| **Demo** (sin cuenta) | `#/demo`, `#/demo/analisis` | Caso "Hidrogrúa por día — Añelo" **ILUSTRATIVO**, en memoria (`createDemoContext`): otro repositorio y otro storage. Nunca escribe en el navegador ni en la nube y nunca se importa a una cuenta. |
 | **Usuario autenticado** | `#/inicio` y toda la app (`#/cotizaciones…`, `#/recursos`, `#/servicios`, `#/escenarios`, `#/configuracion…`, `#/bienvenida`) | Los de su organización, en Supabase (`createAccountContext` → `SupabaseRepository`). |
 
 - Cada ruta declara su acceso en `js/ui/router.js` (`access: 'public' | 'guest' | 'auth'`) y `resolveAccess()` (`js/services/auth-routing.js`) decide: mostrar, esperar o redirigir.
