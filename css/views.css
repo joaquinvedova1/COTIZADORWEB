@@ -698,3 +698,5 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
   .dialog-actions:has(.rate-update-foot-sum) .spacer { display: none; }
   .dialog-actions:has(.rate-update-foot-sum) .btn { flex: 1 1 auto; }
 }
+.rate-update-proposal { display: block; margin-top: 0.3rem; color: var(--blue-text); }
+.rate-update-proposal[hidden] { display: none; }

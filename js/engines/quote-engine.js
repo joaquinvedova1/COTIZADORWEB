@@ -27,7 +27,8 @@ import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
-import { rateUpdateState } from './rate-update-engine.js';
+import { rateUpdateState, proposeLaborRaisePct } from './rate-update-engine.js';
+import { usesTimeBasis } from '../domain/cost-basis.js';
 import { periodFromDate } from '../domain/economic-base.js';
 import { contractOf, contractUnits, modeForUnit } from '../domain/contract.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS, capitalizeUnitWord } from '../domain/billing-units.js';
@@ -943,6 +944,18 @@ export function rateUpdateOf(quote, result) {
     // Estructura como % del directo o de la mano de obra: acompaña sola (no lleva % propio).
     structureFollows: structureFollowsDirect(q.indirect),
     otherRevenue: result && result.ratesAtEstimate ? result.ratesAtEstimate.otherRevenue : 0,
+  });
+}
+
+/** % de Mano de obra propuesto por las paritarias para una cotización (ver proposeLaborRaisePct). */
+export function laborRaiseProposal(quote, agreements, fromPeriod, toPeriod) {
+  const q = quote && typeof quote === 'object' ? quote : {};
+  const a = q.activity && typeof q.activity === 'object' ? q.activity : {};
+  const num = (v) => (isFiniteNumber(v) && v > 0 ? v : 0);
+  return proposeLaborRaisePct(q.labor, agreements, fromPeriod, toPeriod, {
+    timeBasis: usesTimeBasis(q),
+    hoursPerActiveDay: num(a.hoursPerActiveDay),
+    activeDaysPerMonth: num(a.activeDaysPerMonth),
   });
 }
 

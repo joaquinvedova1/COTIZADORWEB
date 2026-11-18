@@ -10,6 +10,7 @@ import { formatMoney, formatPercent, formatPeriod, formatPeriodLong, EMPTY } fro
 import { isFiniteNumber } from '../core/money.js';
 import { validateNumber } from '../core/validation.js';
 import { previewRateUpdate } from '../engines/rate-update-engine.js';
+import { laborRaiseProposal } from '../engines/quote-engine.js';
 import { monthsBetween, periodIndex } from '../domain/economic-base.js';
 import { billingUnitOf } from '../domain/billing-units.js';
 import { userErrorMessage } from './layout.js';
@@ -103,6 +104,7 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
   const applyBtn = button('Aplicar actualización', { variant: 'primary', icon: 'check' });
 
   function refresh() {
+    proposeLabor();
     const preview = previewRateUpdate({ ...state, period: fromPeriod() }, local.pcts, local.toPeriod);
     preview.rows.forEach((r) => {
       const el = contributionEls.get(r.id);
@@ -138,6 +140,41 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
     return preview;
   }
 
+  // Mano de obra: % propuesto por las paritarias de los convenios (0.12.1).
+  let laborInput = null;
+  const laborHintId = uniqueId('mo-prop');
+  const laborHint = h('span', { id: laborHintId, class: 'cell-sub rate-update-proposal', hidden: true });
+  let agreements = null;
+  let lastProposalKey = null;
+  function proposeLabor() {
+    if (!laborInput || !agreements) return;
+    const from = fromPeriod();
+    const key = `${from}|${local.toPeriod}`;
+    if (key === lastProposalKey) return;
+    lastProposalKey = key;
+    const p = from && local.toPeriod ? laborRaiseProposal(quote, agreements, from, local.toPeriod) : null;
+    const fill = (text) => {
+      if (local.laborTouched) return;
+      laborInput.value = text;
+      laborInput.dispatchEvent(new Event('input'));
+      local.laborTouched = false;
+    };
+    if (!p) {
+      laborHint.hidden = true;
+      fill('');
+      return;
+    }
+    const value = Math.round(p.pct * 100) / 100;
+    const who = p.agreements.length ? p.agreements.join(', ') : 'tus convenios';
+    laborHint.hidden = false;
+    const parts = [`Propuesto por los aumentos de ${who} entre ${formatPeriod(from)} y ${formatPeriod(local.toPeriod)}: ${formatPercent(value)}.`];
+    if (p.covered < p.total) parts.push(`Cubre el ${formatPercent(p.coveredShare * 100, { decimals: 0 })} del costo de personal; al resto se le supone el mismo aumento.`);
+    if (p.lastRaise && p.lastRaise < local.toPeriod) parts.push(`Último aumento cargado: ${formatPeriod(p.lastRaise)}.`);
+    parts.push('No incluye seguros, EPP ni contribuciones fijas. Si hubo un acta retroactiva, corregilo.');
+    laborHint.textContent = parts.join(' ');
+    fill(value ? String(value).replace('.', ',') : '');
+  }
+
   const rows = state.weights.map((w) => {
     const id = uniqueId('act');
     const errId = `${id}-err`;
@@ -148,11 +185,13 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
       autocomplete: 'off',
       class: 'rate-update-input',
       placeholder: '0',
-      'aria-describedby': errId,
+      'aria-describedby': w.id === 'labor' ? `${errId} ${laborHintId}` : errId,
       'aria-label': `% de aumento de ${w.label}`,
     });
     const err = h('span', { id: errId, class: 'field-error', hidden: true });
+    if (w.id === 'labor') laborInput = input;
     input.addEventListener('input', () => {
+      if (w.id === 'labor') local.laborTouched = input.value.trim() !== '';
       const r = validateNumber(input.value, 'updatePct');
       if (!r.ok) {
         input.setAttribute('aria-invalid', 'true');
@@ -175,7 +214,7 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
     return h(
       'tr',
       {},
-      h('th', { scope: 'row' }, h('label', { for: id, class: 'rate-update-cat' }, w.label), h('span', { class: 'cell-sub' }, w.hint)),
+      h('th', { scope: 'row' }, h('label', { for: id, class: 'rate-update-cat' }, w.label), h('span', { class: 'cell-sub' }, w.hint), w.id === 'labor' ? laborHint : null),
       h('td', { class: 'ta-right mono', 'data-label': 'Peso en el costo' }, formatPercent(share * 100, { decimals: 1 })),
       h('td', { class: 'ta-right', 'data-label': '% de aumento' }, h('span', { class: 'rate-update-pct' }, input, h('span', { 'aria-hidden': 'true' }, '%')), err),
       h('td', { class: 'ta-right', 'data-label': 'Suma a la tarifa' }, contribution),
@@ -330,6 +369,16 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
     actions: [undoBtn, footSum, h('span', { class: 'spacer' }), button('Cancelar', { variant: 'secondary', onClick: () => dialogRef.close() }), applyBtn].filter(Boolean),
   });
   refresh();
+  if (laborInput && Array.isArray(quote.labor) && quote.labor.some((l) => l && l.agreementId)) {
+    ctx.resources
+      .list('agreements')
+      .then((list) => {
+        agreements = Array.isArray(list) ? list : [];
+        lastProposalKey = null;
+        refresh();
+      })
+      .catch(() => {});
+  }
   // En pantallas táctiles no se abre el teclado solo (taparía la explicación).
   const coarse = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
   const first = content.querySelector('.rate-update-input');
