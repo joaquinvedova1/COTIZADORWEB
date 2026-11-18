@@ -91,3 +91,40 @@ export function resourceUsage(type, resourceId, quotes = []) {
     overWithPotential: committedPct + potentialPct > 100 + 1e-9,
   };
 }
+
+/** Clave de un gasto fijo de producto: el nombre sin mayúsculas, espacios repetidos ni "(ejemplo)". */
+function fixedCostKey(description) {
+  return String(description ?? '').toLowerCase().replace(/\(ejemplo\)/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Costos fijos asignados DE MÁS entre productos (auditoría externa A-03): por máquina
+ * (vínculo con Recursos) y por gasto fijo (mismo nombre), la suma de los % que cada
+ * producto se asigna. Más de 100 % = ese costo se cobra más de una vez. Sólo avisa:
+ * no cambia ningún cálculo.
+ * @param {object[]} products
+ * @returns {{ key: string, kind: 'equipment'|'fixed', label: string, totalPct: number, products: { productId: string|null, name: string, sharePct: number }[], inconsistentAmount: boolean }[]}
+ */
+export function productFixedCostOverAssignment(products = []) {
+  const groups = new Map();
+  const add = (key, kind, label, product, sharePct, monthlyAmount) => {
+    const g = groups.get(key) || { key, kind, label, totalPct: 0, products: [], amounts: new Set() };
+    g.totalPct += sharePct;
+    g.products.push({ productId: typeof product.id === 'string' ? product.id : null, name: typeof product.name === 'string' ? product.name : '', sharePct });
+    if (monthlyAmount !== null) g.amounts.add(monthlyAmount);
+    groups.set(key, g);
+  };
+  (Array.isArray(products) ? products : []).filter(isPlainObject).forEach((p) => {
+    (Array.isArray(p.equipment) ? p.equipment : []).filter(isPlainObject).forEach((line) => {
+      const id = linkedResourceId(line);
+      if (id && Number.isFinite(line.fixedSharePct)) add(`equipment:${id}`, 'equipment', line.name || 'Máquina', p, num(line.fixedSharePct), null);
+    });
+    (Array.isArray(p.fixedCosts) ? p.fixedCosts : []).filter(isPlainObject).forEach((line) => {
+      const key = fixedCostKey(line.description);
+      if (key && Number.isFinite(line.sharePct)) add(`fixed:${key}`, 'fixed', line.description, p, num(line.sharePct), num(line.monthlyAmount));
+    });
+  });
+  return [...groups.values()]
+    .filter((g) => g.products.length > 1 && g.totalPct > 100 + 1e-9)
+    .map(({ amounts, ...g }) => ({ ...g, inconsistentAmount: amounts.size > 1 }));
+}

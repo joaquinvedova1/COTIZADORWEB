@@ -346,6 +346,10 @@ export function numberField({ label, value, rule = 'money', onChange, hint = nul
     const r = validateNumber(input.value, rule, { required });
     if (r.ok) {
       clearError();
+      // Lo que se ve es lo que se calcula (auditoría externa A-02): "1.250" queda "1250" y
+      // "0,250" queda "0,25"; es el mismo formato con el que el campo se dibuja al abrir.
+      const shown = numberToInputText(r.value);
+      if (input.value !== shown) input.value = shown;
       if (r.value !== committedValue) emit(r.value);
       return;
     }

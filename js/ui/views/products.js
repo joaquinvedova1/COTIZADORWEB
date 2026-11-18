@@ -7,9 +7,10 @@
  */
 
 import { h, mount } from '../dom.js';
-import { badge, button, confirmDialog, emptyState, icon, linkButton, pageIntro, table } from '../components.js';
+import { badge, banner, button, confirmDialog, emptyState, icon, linkButton, pageIntro, table } from '../components.js';
 import { formatMoney, formatNumber, formatPercent, formatDateTime } from '../../core/format.js';
 import { PRODUCT_STEPS } from '../../domain/catalogs.js';
+import { productFixedCostOverAssignment } from '../../domain/resource-usage.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 
 const EMPTY = '—';
@@ -23,6 +24,23 @@ export function unitMoney(value) {
 export function productHref(product, step = null) {
   const id = encodeURIComponent(product && product.id ? product.id : '');
   return step ? `#/productos/${id}/${step}` : `#/productos/${id}`;
+}
+
+/**
+ * Aviso de costos fijos asignados de más entre productos (auditoría externa A-03): dos
+ * productos al 100 % del mismo alquiler lo cobran dos veces. Sólo avisa; no cambia cálculos.
+ */
+function overAssignedNotice(products) {
+  const over = productFixedCostOverAssignment(products);
+  if (!over.length) return null;
+  const shown = over.slice(0, 3);
+  return banner(h('div', {},
+    h('p', {}, 'Entre todos los productos, cada gasto fijo o máquina tiene que sumar como máximo 100 %: si no, se cobra más de una vez y el precio sale inflado. Revisá el paso "Gastos fijos" o "Máquinas" de cada producto.'),
+    h('ul', { class: 'banner-list' }, ...shown.map((g) => h('li', {},
+      `${g.label}: ${g.products.map((x) => `${x.name || 'Producto sin nombre'} ${formatPercent(x.sharePct)}`).join(' + ')} = ${formatPercent(g.totalPct)}`,
+      g.inconsistentAmount ? ' (el monto mensual no es el mismo en todos los productos)' : '')),
+    over.length > shown.length ? h('li', {}, `y ${over.length - shown.length} más.`) : null)),
+  'warning', { title: 'Gastos fijos asignados de más.' });
 }
 
 function choiceCard({ title, text, iconName, tags = [], onChoose, className = '' }) {
@@ -143,6 +161,7 @@ export async function render(root, app) {
       'div',
       { class: 'stack-lg' },
       intro,
+      overAssignedNotice(items.map(({ product }) => product)),
       h('div', { class: 'card list-card product-list' }, table({ columns, rows, className: 'table-products table-cards', caption: 'Tus productos con su costo y precio por unidad' })),
       h('p', { class: 'muted small' }, 'Los precios son sin IVA. El margen se mide sobre el precio (no es el markup).'),
     ),

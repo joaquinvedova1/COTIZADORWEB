@@ -236,6 +236,9 @@ export function validateProduct(product = {}, computed = null) {
   const m = isPlainObject(p.pricing) ? p.pricing.targetMarginPct : null;
   if (m !== null && m !== undefined && !isValidMarginPct(m)) issues.push({ path: 'pricing.targetMarginPct', message: 'El margen debe ser mayor o igual a 0 y menor a 100 %.', severity: 'error' });
   else if (isValidMarginPct(m) && !isValidMarginAndTaxes(m, r.taxPct)) issues.push({ path: 'pricing.targetMarginPct', message: 'El margen más los impuestos sobre la venta llegan a 100 % o más: no hay precio posible.', severity: 'error' });
+  // Auditoría externa A-06: un IVA de 100 % o más no se usa (el precio con IVA queda en "—"): se avisa.
+  const vatIn = isPlainObject(p.pricing) ? p.pricing.vatPct : null;
+  if (isFiniteNumber(vatIn) && vatIn >= 100) issues.push({ path: 'pricing.vatPct', message: 'El IVA tiene que ser menor a 100 %: con ese valor no se muestra el precio con IVA. Revisá la alícuota.', severity: 'warning' });
   if (r.taxInfo.invalid) issues.push({ path: 'billingTaxes', message: 'Revisá los impuestos sobre la venta: hay un porcentaje inválido.', severity: 'error' });
   else if (!r.taxInfo.defined) issues.push({ path: 'billingTaxes', message: 'No cargaste los impuestos sobre lo que vendés (Ingresos Brutos, tasa municipal…): el precio no los incluye. Cargalos o marcá que no corresponden.', severity: 'warning' });
   r.materials.forEach((line, i) => {
