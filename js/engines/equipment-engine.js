@@ -34,6 +34,7 @@
 import { nonNegative, pct, safeDivide } from '../core/money.js';
 import { RULES } from '../core/validation.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
+import { billableHoursOf } from '../domain/cost-basis.js';
 
 const MAINTENANCE_MODE_IDS = Object.freeze(['per_hour', 'service', 'budget']);
 const TIRE_MODE_IDS = Object.freeze(['per_hour', 'set_hours', 'set_km']);
@@ -199,16 +200,49 @@ export function equipmentHoursPerDay(lineHours, defaultHours = 0) {
  * Posesión → fijo mensual (× % asignado si se comparte, PLAN-2026-012);
  * operación → variable por día de trabajo según el uso (no se reduce).
  */
-export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPaidByUs = true, defaultHoursPerActiveDay = 0 } = {}) {
+export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPaidByUs = true, defaultHoursPerActiveDay = 0, timeBasis = false, defaultBillableHours = 0 } = {}) {
   const quantity = nonNegative(line.quantity);
   const hoursPerActiveDay = equipmentHoursPerDay(line.hoursPerActiveDay, defaultHoursPerActiveDay);
   const ownership = computeOwnership(line);
   const operation = computeOperation(line, { fuelPricePerLiter, fuelPaidByUs });
   // Equipo compartido (PLAN-2026-012): esta cotización carga el % EXPLÍCITO de
   // su costo de tenerlo; reservado (o sin dato) = 100 %. La operación sigue el uso.
-  const allocation = fixedCostShareOf(line);
+  const allocation = timeBasis ? { assignment: null, shared: false, sharePct: 100, share: 1, missing: false } : fixedCostShareOf(line);
   const share = allocation.shared ? allocation.share : 1;
   const fullFixedMonthly = ownership.totalMonthly * quantity;
+  // Por tiempo usado (2026-11-18): el equipo queda ocupado las horas del día de trabajo (aunque
+  // el motor ande menos): tenerlo cuesta esas horas × (posesión del mes ÷ horas facturables).
+  if (timeBasis) {
+    const billableHours = billableHoursOf(line, defaultBillableHours);
+    const occupiedHours = Math.min(nonNegative(defaultHoursPerActiveDay) > 0 ? nonNegative(defaultHoursPerActiveDay) : hoursPerActiveDay, MAX_EQUIPMENT_HOURS_PER_DAY);
+    const hourly = safeDivide(ownership.totalMonthly, billableHours, 0);
+    const cashHourly = safeDivide(ownership.cashMonthly, billableHours, 0);
+    const ownershipPerActiveDay = hourly * occupiedHours * quantity;
+    return {
+      id: line.id ?? null,
+      name: line.name ?? '',
+      quantity,
+      hoursPerActiveDay,
+      ownership,
+      operation,
+      assignment: null,
+      shared: false,
+      fixedCostSharePct: 100,
+      shareMissing: false,
+      timeBasis: true,
+      time: { billableHoursPerMonth: billableHours, ownBillableHours: nonNegative(line.billableHoursPerMonth) > 0, hourlyCost: hourly, hoursPerDay: occupiedHours, perActiveDay: ownershipPerActiveDay },
+      fullFixedMonthly,
+      unassignedFixedMonthly: 0,
+      fixedMonthly: 0,
+      fixedCashMonthly: 0,
+      ownershipPerActiveDay,
+      ownershipCashPerActiveDay: cashHourly * occupiedHours * quantity,
+      nonFuelPerActiveDay: operation.nonFuelPerHour * hoursPerActiveDay * quantity,
+      fuelPerActiveDay: operation.fuelPerHour * hoursPerActiveDay * quantity,
+      fuelLitersPerActiveDay: operation.fuelLitersPerHour * hoursPerActiveDay * quantity,
+      variablePerActiveDay: operation.totalPerHour * hoursPerActiveDay * quantity,
+    };
+  }
   return {
     id: line.id ?? null,
     name: line.name ?? '',

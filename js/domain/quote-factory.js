@@ -12,6 +12,7 @@ import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate 
 import { familyIdOf } from './equipment-catalog.js';
 import { createSnapshot } from './resource-snapshot.js';
 import { contractWithComponents, serviceTypeForContract } from './contract.js';
+import { COST_BASIS_TIME } from './cost-basis.js';
 
 /** Configuración por defecto de la organización (valores ILUSTRATIVOS). */
 export function defaultSettings(organizationId = null) {
@@ -347,6 +348,8 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
     // Valor propio de la hora extra del recurso (por convenio); null = se calcula del sueldo.
     overtimeRate50: profile.overtimeRate50 ?? null,
     overtimeRate100: profile.overtimeRate100 ?? null,
+    // Horas que de verdad vende por mes (2026-11-18); null = las normales del mes.
+    billableHoursPerMonth: profile.billableHoursPerMonth ?? null,
     // Los sueldos se cargan en la moneda de la empresa.
     base: { ...normalizeBase(profile.base, { currency }), currency },
     snapshot: null,
@@ -355,6 +358,14 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
   };
   line.snapshot = profile.id ? createSnapshot('laborProfiles', profile, line, { now }) : null;
   return line;
+}
+
+/** Horas que un equipo propio trabaja y factura por mes según su ficha (o null si no la tiene). */
+export function equipmentBillableHours(eq = {}) {
+  const own = Number(eq.billableHoursPerMonth);
+  if (Number.isFinite(own) && own > 0) return own;
+  const hours = Number(eq.availableHoursPerMonth) * Math.min(Math.max(Number(eq.utilizationPct), 0), 100) / 100;
+  return Number.isFinite(hours) && hours > 0 ? Math.round(hours * 100) / 100 : null;
 }
 
 /** Campos de carga de mantenimiento y neumáticos (se copian tal cual; null = sin cargar). */
@@ -396,6 +407,9 @@ export function equipmentLineFromLibrary(eq = {}, { id = createId(), hoursPerAct
     maintenancePerHour: eq.maintenancePerHour ?? 0,
     tiresPerHour: eq.tiresPerHour ?? 0,
     fuelLitersPerHour: eq.fuelLitersPerHour ?? 0,
+    // Horas que el equipo trabaja y factura por mes (2026-11-18): las disponibles × la utilización
+    // esperada de su ficha; null = las normales de la cuadrilla. Sólo rige cotizando por tiempo usado.
+    billableHoursPerMonth: acquisition === 'owned' ? equipmentBillableHours(eq) : null,
     // "No usa combustible" (PLAN-2026-014): sólo si el equipo propio lo tiene marcado.
     ...(acquisition === 'owned' && eq.fuelNotApplicable === true ? { fuelNotApplicable: true } : {}),
     // Cómo se cargaron mantenimiento y neumáticos (PLAN-2026-007; sin modo = por hora).
@@ -506,6 +520,24 @@ export function createBlankQuote(options = {}) {
   quote.serviceType = serviceTypeForContract(quote.contract);
   quote.activity.availability = null;
   return quote;
+}
+
+/**
+ * Cotización NUEVA creada por la persona (2026-11-18): sus recursos propios se costean por tiempo
+ * usado (ver cost-basis.js). Lo aplica el servicio al crear; las guardadas nunca se tocan.
+ * Tampoco aplica nada de "% de su costo fijo": se limpia lo que traiga una plantilla. MUTA y devuelve `q`.
+ */
+export function withTimeCostBasis(q) {
+  if (!isPlainObject(q)) return q;
+  q.costBasis = COST_BASIS_TIME;
+  ['labor', 'equipment'].forEach((k) => {
+    (Array.isArray(q[k]) ? q[k] : []).forEach((l) => {
+      if (!isPlainObject(l)) return;
+      delete l.assignment;
+      delete l.fixedCostSharePct;
+    });
+  });
+  return q;
 }
 
 /** Reglas que se cobran aparte del precio único (fijo de guardia, plus, movilización, km, espera). */

@@ -48,6 +48,7 @@ import { outputPerActiveDayOf, outputMatchesBilling, normalizeBasisId } from './
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf, resourceOvertimeHoursOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
+import { usesTimeBasis } from '../domain/cost-basis.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
 
@@ -915,7 +916,7 @@ export function evaluateCompleteness(quote = {}) {
 
   // 9c''ter. % de dedicación viejo (V-11): el % cargado en una línea compartida ya no coincide
   // con los días y las horas de ahora (más de 5 puntos). No se recalcula solo: se avisa.
-  if (contract.mode !== 'monthly') {
+  if (contract.mode !== 'monthly' && !usesTimeBasis(quote)) {
     const stale = staleDedicationOf(quote, { activeDaysPerMonth: D, hoursPerActiveDay: H });
     if (stale) {
       const item = rule('dedication_stale', 'Dedicación de tu gente y tus equipos', 'modality', 1, 'warning', staleDedicationMessage(stale));
