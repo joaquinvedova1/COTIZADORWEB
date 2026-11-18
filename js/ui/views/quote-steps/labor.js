@@ -403,8 +403,11 @@ export function render(container, ctx) {
         fromResource ? null : kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Chofer' }),
         kit.num(`${p}.positions`, { label: legacyStaff(line) ? 'Personas trabajando a la vez' : 'Cantidad de personas', rule: 'quantity', requiredMark: true, hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cuántas personas de este puesto trabajan en el servicio.' }),
         fromResource ? null : kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', requiredMark: true, illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
-        kit.num(`${p}.overtime50HoursPerMonth`, { label: 'Horas extra al 50 % que le pagás por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: `Las horas extra que le PAGÁS a CADA persona en un mes, si las hace siempre en este servicio. Ej.: sábados de 8 a 12 = 4 h × 4,33 semanas ≈ 17 h. Si no hace: vacío. Lo que le COBRÁS al cliente fuera de horario va en "${stepName('modality')}".` }),
-        kit.num(`${p}.overtime100HoursPerMonth`, { label: 'Horas extra al 100 % que le pagás por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: `Las horas que le PAGÁS a CADA persona en un mes en sábados a la tarde, domingos o feriados, si las hace siempre en este servicio. Si no hace: vacío. Lo que le COBRÁS al cliente fuera de horario va en "${stepName('modality')}".` }),
+        // Valor de UNA hora extra de cada persona (pedido de Joaco, 2026-11-18): del personal se carga
+        // cuánto cuesta la hora al 50 % y al 100 %, no cuántas hace. Las horas fuera de horario
+        // que pide el cliente van en "Cómo se cobra"; las fijas de todos los meses, en el detalle.
+        kit.num(`${p}.overtimeRate50`, { label: 'Valor de la hora extra al 50 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: `Lo que te cuesta UNA hora extra al 50 % de cada persona, con cargas. Vacío = la calcula RATEOS con el sueldo (hora de sueldo × 1,5, con cargas): la ves abajo.${fromResource ? ' Viene de Recursos: si lo cambiás acá, cambia sólo en esta cotización.' : ''}` }),
+        kit.num(`${p}.overtimeRate100`, { label: 'Valor de la hora extra al 100 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: `Lo que te cuesta UNA hora extra al 100 % de cada persona (lo habitual en domingos y feriados), con cargas. Vacío = la calcula RATEOS (hora de sueldo × 2, con cargas): la ves abajo.${fromResource ? ' Viene de Recursos: si lo cambiás acá, cambia sólo en esta cotización.' : ''}` }),
       ),
       // Cotizaciones anteriores con relevos o nómina total: se ven y se editan igual (mismos números).
       legacyStaff(line)
@@ -456,7 +459,11 @@ export function render(container, ctx) {
             const current = quote.labor[i] || {};
             const l = at(r);
             const legacyOt = l && l.overtimeItems ? l.overtimeItems.filter((o) => !o.resourceRate) : [];
+            const fixedOt = [[50, current.overtime50HoursPerMonth], [100, current.overtime100HoursPerMonth]]
+              .filter(([, hrs]) => nonNegative(hrs) > 0)
+              .map(([pct, hrs]) => `${formatNumber(nonNegative(hrs), { decimals: 2 })} h al ${pct} % por mes`);
             const extras = [
+              fixedOt.length ? `horas extra fijas: ${fixedOt.join(' y ')}` : null,
               legacyOt.length
                 ? legacyOt.map((o) => `${o.label} ${formatNumber(o.hours, { decimals: 2 })} h ${o.basis === 'per_month' ? 'por mes' : 'por día'}`).join(', ') + (current.overtimeBilled === true ? ' (se facturan aparte)' : '')
                 : null,
@@ -508,8 +515,17 @@ export function render(container, ctx) {
           formGrid(
             3,
             kit.num(`${p}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h/mes', illustrative: illustrativeParam(line, 'normalHoursPerMonth') }),
-            kit.num(`${p}.overtimeRate50`, { label: 'Hora al 50 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: 'Vacío = hora de sueldo × 1,5, con cargas.' }),
-            kit.num(`${p}.overtimeRate100`, { label: 'Hora al 100 %', rule: 'money', unit: '$/h', placeholder: 'Se calcula sola', hint: 'Vacío = hora de sueldo × 2, con cargas.' }),
+          ),
+        ),
+        // Horas extra FIJAS de todos los meses (poco común): plegadas acá para no confundirlas con el
+        // valor de la hora. Las horas fuera de horario que pide el cliente van en "Cómo se cobra".
+        kit.group(
+          'Horas extra fijas todos los meses (opcional)',
+          h('p', { class: 'small muted' }, `Sólo si cada persona hace SIEMPRE horas extra en este servicio, aunque el cliente no las pida aparte (por ejemplo, todos los sábados a la mañana). Se suman a su costo del mes. Si el cliente te pide trabajar fuera de horario y se lo cobrás aparte, cargalo en "${stepName('modality')}", no acá: si no, se cuenta dos veces.`),
+          formGrid(
+            2,
+            kit.num(`${p}.overtime50HoursPerMonth`, { label: 'Horas al 50 % por mes de cada persona', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: 'Ej.: sábados de 8 a 12 = 4 h × 4,33 semanas ≈ 17 h. Si no hace: vacío.' }),
+            kit.num(`${p}.overtime100HoursPerMonth`, { label: 'Horas al 100 % por mes de cada persona', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: 'Sábados a la tarde, domingos o feriados. Si no hace: vacío.' }),
           ),
           // Horas extra cargadas con el método anterior (por día o por tramos): se siguen viendo y editando.
           hasLegacyOvertime(line)
