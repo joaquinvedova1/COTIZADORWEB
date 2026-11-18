@@ -94,7 +94,8 @@ import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels
 import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
-import { costBreakdown, OTHERS_KEY } from '../cost-breakdown.js';
+import { costBreakdown, displayCostRows, OTHERS_KEY } from '../cost-breakdown.js';
+import { componentsOf } from '../../domain/contract.js';
 import { onSessionReset } from '../session-memory.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
@@ -253,8 +254,25 @@ const MODEL_LABELS = Object.freeze({
 
 /** Rubros de la estructura de costos con nombre de superficie distinto al del catálogo. */
 const RUBRO_LABELS = Object.freeze({
+  // 0.10.0: los nombres de "¿Qué incluye el servicio?" (paso 1) y de los pasos.
+  labor: 'Personal',
+  equipment: 'Equipos y vehículos',
+  external: 'Servicios de terceros',
+  logistics: 'Viáticos y traslados',
   structure: 'Gastos de estructura',
+  contingency: 'Imprevistos',
 });
+
+/** Componentes elegidos en "¿Qué incluye el servicio?" (null = cotización sin componentes). */
+function chosenComponents(q) {
+  return q && q.contract && Array.isArray(q.contract.components) ? componentsOf(q.contract) : null;
+}
+
+/** Renglones de la EECC por categoría elegida (Materiales desglosado; sin $ 0 de lo no elegido). */
+function eeccRows(v) {
+  const e = (v.r && v.r.eecc) || { rows: [] };
+  return displayCostRows(e, chosenComponents(v.q));
+}
 
 /**
  * Estado de los sliders por cotización (sólo memoria de la pestaña; se
@@ -2066,9 +2084,11 @@ function transportBlock(v) {
  * y la demo (costBreakdown: 4 rubros más grandes + "Otros", % enteros que
  * suman 100). La EECC completa (2 decimales) queda en "Ver estructura de costos".
  */
-function costGroups(e) {
-  const labels = new Map((e.rows || []).map((row) => [row.category, rubroLabel(row.category, row.label)]));
-  return costBreakdown(e, { top: COST_TOP, decimals: 0 }).map((g) => {
+function costGroups(e, q = null) {
+  // 0.10.0: por categoría elegida (Materiales desglosado en herramientas, insumos, EPP…).
+  const rowsShown = displayCostRows(e, chosenComponents(q));
+  const labels = new Map(rowsShown.map((row) => [row.category, rubroLabel(row.category, row.label)]));
+  return costBreakdown({ rows: rowsShown }, { top: COST_TOP, decimals: 0 }).map((g) => {
     const other = g.key === OTHERS_KEY;
     return {
       label: other ? g.label : labels.get(g.key) || g.label,
@@ -2098,7 +2118,7 @@ function renderCostBreakdown(v) {
         action: linkButton(`Ir a ${stepLabel('labor')}`, stepHref(q, 'labor'), { variant: 'primary', size: 'sm' }),
       }));
   }
-  const groups = costGroups(e);
+  const groups = costGroups(e, q);
   const max = Math.max(0, ...groups.map((g) => g.pct).filter(hasValue));
   const list = h('ul', { class: 'qr-costbars' }, ...groups.map((g) => {
     const width = max > 0 && hasValue(g.pct) ? Math.max(1.5, Math.min(100, (g.pct / max) * 100)) : 0;
@@ -2273,7 +2293,8 @@ function renderCostStructure(v) {
     return card(header, emptyState('Todavía no hay costos cargados: el costo del mes es $ 0. Cargá personal, equipos, materiales o viajes para ver la estructura de costos.', stepLink(q, 'labor')));
   }
   // Mismos montos y % del motor; sólo cambia el nombre visible de algunos rubros.
-  const rows = (e.rows || []).map((row) => ({ ...row, label: rubroLabel(row.category, row.label) }));
+  // 0.10.0: una fila por categoría elegida (Materiales desglosado por el motor; sin $ 0 de lo no elegido).
+  const rows = eeccRows(v).map((row) => ({ ...row, label: rubroLabel(row.category, row.label) }));
   const columns = [
     { key: 'label', label: 'Categoría' },
     { key: 'amount', label: closedOf(v).single ? abbrHeader('Monto trabajo', 'Monto en el trabajo') : abbrHeader('Monto mes', 'Monto mensual'), align: 'right', render: (row) => money(row.amount) },

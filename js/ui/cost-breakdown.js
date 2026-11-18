@@ -9,6 +9,7 @@
  */
 
 import { isFiniteNumber, roundPercentagesToTotal } from '../core/money.js';
+import { SERVICE_COMPONENTS } from '../domain/contract.js';
 
 export const OTHERS_KEY = 'others';
 export const OTHERS_LABEL = 'Otros';
@@ -39,4 +40,59 @@ export function costBreakdown(eecc, { top = 4, decimals = 0 } = {}) {
   }
   const pcts = roundPercentagesToTotal(groups.map((g) => g.amount), decimals);
   return groups.map((g, i) => ({ ...g, pct: pcts[i] }));
+}
+
+/**
+ * Categorías de "¿Qué incluye el servicio?" que corresponden a cada renglón de la EECC (0.10.0):
+ * un renglón en $ 0 de una categoría no elegida no se muestra.
+ */
+const ROW_COMPONENTS = Object.freeze({
+  labor: ['labor'],
+  equipment: ['vehicle', 'machinery'],
+  external: ['subcontract', 'vehicle', 'machinery'],
+  fuel: ['vehicle', 'machinery'],
+  logistics: ['travel'],
+});
+/** Renglones que se muestran siempre (todas las cotizaciones pasan por esos pasos). */
+const ALWAYS_ROWS = Object.freeze(['structure', 'financial', 'contingency']);
+
+/**
+ * Renglones de la estructura de costos POR CATEGORÍA ELEGIDA (0.10.0): el renglón Materiales se
+ * reemplaza por su desglose del motor (`children`: herramientas, insumos, materiales, EPP, otros
+ * costos) y no se muestran renglones en $ 0 de categorías no elegidas en "¿Qué incluye?".
+ * Presentación pura: los montos y los % vienen del motor (la suma de los hijos es el renglón).
+ *
+ * @param {{ rows?: object[] }|null} eecc  result.eecc
+ * @param {string[]|null} components  componentes elegidos (null = cotización sin componentes: no se esconde nada)
+ * @returns {object[]} renglones con { category, label, amount, fixedMonthly, variablePerActiveDay, displayPct, component? }
+ */
+export function displayCostRows(eecc, components = null) {
+  const chosen = Array.isArray(components) ? new Set(components) : null;
+  const rows = eecc && Array.isArray(eecc.rows) ? eecc.rows : [];
+  const positive = (v) => isFiniteNumber(v) && v > 0.005;
+  const out = [];
+  rows.forEach((row) => {
+    if (row.category === 'materials' && (Array.isArray(row.children) && row.children.length || chosen)) {
+      const children = Array.isArray(row.children) ? row.children : [];
+      const ids = ['tools', 'supplies', 'materials', 'ppe', 'other'];
+      ids.forEach((id) => {
+        const child = children.find((c) => c.component === id);
+        if (child) {
+          if (positive(child.amount) || !chosen || chosen.has(id)) out.push({ ...child, category: `materials:${id}`, parent: 'materials' });
+        } else if (chosen && chosen.has(id)) {
+          out.push({ category: `materials:${id}`, parent: 'materials', component: id, label: (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label || id, amount: 0, fixedMonthly: 0, variablePerActiveDay: 0, displayPct: 0 });
+        }
+      });
+      // Una parte de Materiales sin desglose (no debería pasar): se muestra como renglón propio.
+      if (!children.length && positive(row.amount)) out.push(row);
+      return;
+    }
+    if (!chosen || ALWAYS_ROWS.includes(row.category) || positive(row.amount)) {
+      out.push(row);
+      return;
+    }
+    const related = ROW_COMPONENTS[row.category];
+    if (related && related.some((id) => chosen.has(id))) out.push(row);
+  });
+  return out;
 }
