@@ -19,15 +19,15 @@ Reglas para este archivo:
 ### Agregado
 
 - Puesto (Recursos → Personal): **No remunerativo** por mes (`nonRemunerativeMonthly`, sin cargas) y **Aportes del trabajador** (`workerContributionsPct`, sólo para mostrar el neto). Debajo del sueldo: Bruto, Neto, Costo empleador del mes (para comparar con el recibo) y Te cuesta por mes.
-- Convenio: **Contribuciones fijas por persona** (`params.fixedContributionsMonthly`, ej. contribución extraordinaria petrolera; costo sin cargas) y aportes del trabajador.
-- **Aplicar aumento** por convenio: % sobre el remunerativo y sobre el no remunerativo (vacío = el mismo), desde un mes y con nota, con vista previa por puesto. Queda en `agreement.raises` con los valores anteriores de cada puesto; **Ver historial** y **Deshacer el último**.
+- Convenio: **Contribuciones fijas por persona** (`params.fixedContributionsMonthly`, ej. contribución extraordinaria petrolera; costo sin cargas), **Cargas sobre el no remunerativo** (`params.nonRemunerativeChargesPct`, 0 por defecto) y aportes del trabajador.
+- **Aplicar aumento** por convenio: % sobre el remunerativo y sobre el no remunerativo (vacío = el mismo), desde un mes y con nota, con vista previa por puesto. Queda en `agreement.raises` con los valores anteriores de cada puesto; **Ver historial** y **Deshacer** el último aumento (con confirmación).
 - `js/domain/agreement-raises.js`: `applyAgreementRaise`, `undoLastAgreementRaise`, `profilesToPropagate`, `agreementRaiseFactor(agreement, desde, hasta)` (aumento acumulado entre dos meses, para actualizar tarifas).
 - Lista de convenios con número de CCT: Petroleros Privados (644/12 y Chubut / Santa Cruz), Petroleros Jerárquicos (637/11), UOCRA Yacimientos (545/08), UOCRA Construcción (76/75), Camioneros (40/89), UOM (260/75), Comercio (130/75), Gastronómicos (389/04), Seguridad privada (507/07). Sin valores: los porcentajes los carga cada empresa.
 
 ### Cambiado
 
 - Convenios vuelve a **Recursos** (segunda pestaña); `#/configuracion/convenios` redirige a `#/recursos/convenios`.
-- Un puesto **sigue a su convenio**: si se cambian las cargas del convenio, se actualizan los puestos que tenían esos mismos valores; los que tienen valores propios no se tocan ("Volver a los valores del convenio"). Al elegir otro convenio en un puesto, toma sus valores.
+- Un puesto **sigue a su convenio**: si se cambian las cargas del convenio, se actualiza en cada puesto cada valor que era igual al anterior (clave por clave); los que tienen valores propios no se tocan ("Volver a los valores del convenio"). Al elegir otro convenio en un puesto, toma sus valores.
 - "Otros pagos fijos" y la vianda por día salen del bloque principal del sueldo (la vianda pasa a "Más detalle"; "Otros pagos remunerativos" se ve sólo si ya estaba cargado).
 
 ## [0.10.0] - 2026-11-18

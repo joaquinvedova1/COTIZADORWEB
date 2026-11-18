@@ -96,10 +96,13 @@ export const ILLUSTRATIVE_AGREEMENT_PARAMS = deepFreeze({
   // 0.11.0: contribuciones fijas por persona y por mes que fija el convenio (ej. contribución
   // extraordinaria, seguro de vida colectivo). Costo de la empresa, sin cargas encima.
   fixedContributionsMonthly: 0,
+  // 0.11.0 (revisión de costos): % de cargas que el convenio aplica sobre el no remunerativo
+  // (obra social, cuota sindical…). 0 = sin cargas.
+  nonRemunerativeChargesPct: 0,
 });
 
 /** Parámetros que un puesto toma de su convenio (0.11.0). */
-export const AGREEMENT_PARAM_KEYS = deepFreeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct', 'workerContributionsPct', 'fixedContributionsMonthly']);
+export const AGREEMENT_PARAM_KEYS = deepFreeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct', 'workerContributionsPct', 'fixedContributionsMonthly', 'nonRemunerativeChargesPct']);
 
 /**
  * ¿Un parámetro de convenio de una línea de personal se marca ILUSTRATIVO? (testeo con

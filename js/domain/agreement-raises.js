@@ -90,11 +90,29 @@ export function profilesToPropagate(before, after, profiles = []) {
   if (!after || !after.id) return [];
   const oldParams = agreementParamsOf(before || after);
   const newParams = agreementParamsOf(after);
-  const changed = AGREEMENT_PARAM_KEYS.some((k) => num(oldParams[k]) !== num(newParams[k]));
-  if (!changed) return [];
-  return (Array.isArray(profiles) ? profiles : [])
-    .filter((p) => p && p.agreementId === after.id && profileFollowsParams(p, oldParams))
-    .map((p) => withAgreementParams(p, after));
+  const changedKeys = AGREEMENT_PARAM_KEYS.filter((k) => num(oldParams[k]) !== num(newParams[k]));
+  if (!changedKeys.length) return [];
+  // Clave por clave (revisión de costos): un puesto con un valor propio (p. ej. sus horas
+  // normales) igual recibe los cambios de las demás cargas que sí seguía.
+  const out = [];
+  (Array.isArray(profiles) ? profiles : []).forEach((p) => {
+    if (!p || p.agreementId !== after.id) return;
+    const next = { ...p };
+    let touched = false;
+    changedKeys.forEach((k) => {
+      const own = num(p[k]);
+      const old = num(oldParams[k]);
+      if (own === null || (old !== null && Math.abs(own - old) < EPS)) {
+        const v = num(newParams[k]);
+        if (v !== null) {
+          next[k] = v;
+          touched = true;
+        }
+      }
+    });
+    if (touched) out.push(next);
+  });
+  return out;
 }
 
 /** Valores de sueldo de un puesto que mueve un aumento. */
@@ -201,7 +219,11 @@ export function undoLastAgreementRaise(agreement, profiles = []) {
 /**
  * Aumento acumulado del remunerativo de un convenio entre dos meses: producto
  * de (1 + % / 100) de los aumentos con "desde" en (fromPeriod, toPeriod].
- * null si el convenio no tiene historial de aumentos o los meses no son válidos.
+ * null si el convenio no tiene historial de aumentos o los meses no son válidos;
+ * 1 si ningún aumento cae en la ventana (o fromPeriod ≥ toPeriod).
+ * Ojo: un acta retroactiva cargada con "desde" igual o anterior al período base
+ * NO entra (la tarifa ya se habría hecho con el sueldo viejo): quien actualiza
+ * tarifas debería avisarlo o permitir corregir el %.
  * @param {object} agreement
  * @param {string} fromPeriod  'AAAA-MM' (período base de la tarifa)
  * @param {string} toPeriod    'AAAA-MM' (período al que se actualiza)

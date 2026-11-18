@@ -353,6 +353,7 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
     // 0.11.0: no remunerativo (sin cargas), contribuciones fijas del convenio y aportes del trabajador (sólo el neto).
     nonRemunerativeMonthly: profile.nonRemunerativeMonthly ?? 0,
     fixedContributionsMonthly: profile.fixedContributionsMonthly ?? params.fixedContributionsMonthly ?? 0,
+    nonRemunerativeChargesPct: profile.nonRemunerativeChargesPct ?? params.nonRemunerativeChargesPct ?? 0,
     workerContributionsPct: profile.workerContributionsPct ?? params.workerContributionsPct ?? null,
     // Los sueldos se cargan en la moneda de la empresa.
     base: { ...normalizeBase(profile.base, { currency }), currency },

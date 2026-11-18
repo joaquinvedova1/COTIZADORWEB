@@ -11,7 +11,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeLaborLine } from '../../js/engines/labor-engine.js';
 import { laborLineFromProfile } from '../../js/domain/quote-factory.js';
-import { snapshotValuesFromLine } from '../../js/domain/resource-snapshot.js';
+import { snapshotValuesFromLine, createSnapshot } from '../../js/domain/resource-snapshot.js';
+import { lineSyncStatus } from '../../js/domain/resource-sync.js';
 import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED } from '../../js/domain/catalogs.js';
 import { demoAgreements } from '../../js/domain/demo-data.js';
 import {
@@ -83,6 +84,25 @@ describe('Sueldo como en el recibo (0.11.0)', () => {
   });
 });
 
+describe('Revisión de costos', () => {
+  test('una línea guardada antes de 0.11.0 con su puesto sin cambios no avisa "valores nuevos"', () => {
+    const agr = { id: 'a1', params: { normalHoursPerMonth: 176, overtimePremiumPct: 50, sacPct: 8.33, vacationPct: 4, employerContributionsPct: 24, artPct: 6 } };
+    const prof = { id: 'pp', role: 'Chofer', agreementId: 'a1', basicMonthly: 1000000, additionalsMonthly: 0, sacPct: 8.33, vacationPct: 4, employerContributionsPct: 24, artPct: 6, normalHoursPerMonth: 176, base: { period: '2026-07', currency: 'ARS' } };
+    const line = laborLineFromProfile(prof, agr, { id: 'l', now: '2026-10-01T00:00:00Z' });
+    // Como se guardaba antes: sin los campos nuevos ni en la línea ni en la foto.
+    delete line.nonRemunerativeMonthly; delete line.fixedContributionsMonthly; delete line.workerContributionsPct; delete line.nonRemunerativeChargesPct;
+    line.snapshot = createSnapshot('laborProfiles', prof, line, { now: '2026-10-01T00:00:00Z' });
+    const status = lineSyncStatus('labor', line, { laborProfiles: [prof], agreements: [agr] }, { currency: 'ARS' });
+    assert.deepEqual(status.changes, []);
+    assert.notEqual(status.state, 'changed');
+  });
+
+  test('cargas sobre el no remunerativo (opcional)', () => {
+    const base = one(profile()).perPerson.fixedMonthly;
+    close(one(profile({ nonRemunerativeChargesPct: 6 })).perPerson.fixedMonthly, base + 500000 * 0.06);
+  });
+});
+
 describe('El puesto sigue a su convenio', () => {
   test('sigue mientras sus valores son los del convenio; uno propio lo separa', () => {
     assert.equal(profileFollowsAgreement(profile(), agreement), true);
@@ -90,11 +110,13 @@ describe('El puesto sigue a su convenio', () => {
     assert.equal(profileFollowsAgreement(profile({ artPct: 5 }), agreement), false);
   });
 
-  test('al cambiar el convenio se actualizan sólo los puestos que lo seguían', () => {
+  test('al cambiar el convenio se actualiza cada valor que seguía, clave por clave', () => {
     const after = { ...agreement, params: { ...agreement.params, employerContributionsPct: 26 } };
-    const updated = profilesToPropagate(agreement, after, [profile(), profile({ id: 'p2', artPct: 5 }), profile({ id: 'p3', agreementId: 'otro' })]);
-    assert.deepEqual(updated.map((p) => p.id), ['p1']);
+    const updated = profilesToPropagate(agreement, after, [profile(), profile({ id: 'p2', artPct: 5 }), profile({ id: 'p3', agreementId: 'otro' }), profile({ id: 'p4', employerContributionsPct: 30 })]);
+    assert.deepEqual(updated.map((p) => p.id), ['p1', 'p2']);
     assert.equal(updated[0].employerContributionsPct, 26);
+    assert.equal(updated[1].employerContributionsPct, 26);
+    assert.equal(updated[1].artPct, 5);
   });
 
   test('sin cambios en los parámetros no se toca ningún puesto', () => {

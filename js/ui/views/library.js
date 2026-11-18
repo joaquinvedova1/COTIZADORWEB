@@ -68,7 +68,7 @@ const TABS = Object.freeze([
     type: 'laborProfiles',
     addLabel: 'Agregar puesto',
     icon: 'resources',
-    intro: 'Cada puesto con su convenio y su sueldo (remunerativo y no remunerativo, como en el recibo), calculado por persona. Al sumar personal a una cotización se copian estos valores.',
+    intro: 'Cada puesto con su convenio y su sueldo, como en el recibo.',
     emptyTitle: 'Todavía no agregaste personal.',
     emptyText: 'Cargá cada puesto una vez (sueldo, convenio y cargas) y reutilizalo en tus cotizaciones.',
   },
@@ -78,7 +78,7 @@ const TABS = Object.freeze([
     type: 'agreements',
     addLabel: 'Nuevo convenio',
     icon: 'library',
-    intro: 'Cada convenio con sus cargas sociales. Los puestos de Personal toman estos valores, y con "Aplicar aumento" sumás el % de cada paritaria a todos sus puestos de una vez.',
+    intro: 'Cada convenio define las cargas sociales de sus puestos. Con "Aplicar aumento" subís los sueldos de todos de una vez.',
     emptyTitle: 'Todavía no cargaste convenios.',
     emptyText: 'Elegí tu convenio (Petroleros, UOCRA, Camioneros, Comercio…), cargá sus porcentajes y asignalo a tus puestos.',
   },
@@ -202,7 +202,7 @@ function laborTrace(profile, cost) {
   return createTrace({
     id: 'labor_profile_cost',
     title: `Costo de personal — ${profile.role || 'perfil'}`,
-    formula: 'Costo mensual por persona = Remunerativo × Factor de cargas + No remunerativo + Contribuciones fijas del convenio + Seguros + EPP + Capacitación + Traslado · Factor de cargas = (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % + ART %)',
+    formula: 'Costo mensual por persona = Remunerativo × Factor de cargas + No remunerativo × (1 + Cargas sobre el no remunerativo %) + Contribuciones fijas del convenio + Seguros + EPP + Capacitación + Traslado · Factor de cargas = (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % + ART %)',
     inputs: [
       { label: 'Remunerativo mensual', value: p.basic, format: 'money' },
       p.additionals > 0 ? { label: 'Otros pagos remunerativos (cargados antes)', value: p.additionals, format: 'money' } : null,
@@ -225,7 +225,8 @@ function laborTrace(profile, cost) {
       { label: 'Cargas patronales', value: p.employerContributions, format: 'money' },
       { label: 'ART', value: p.art, format: 'money' },
       { label: 'Remunerativo cargado', value: p.loadedRemunerative, format: 'money' },
-      { label: 'Sin cargas (no remunerativo, contribuciones fijas, seguros, EPP, capacitación, traslado)', value: p.nonRemunerative, format: 'money' },
+      { label: 'Cargas sobre el no remunerativo', value: p.nonRemunerativeCharges, format: 'money' },
+      { label: 'Fuera del factor de cargas (no remunerativo y sus cargas, contribuciones fijas, seguros, EPP, capacitación, traslado)', value: p.nonRemunerative, format: 'money' },
       { label: 'Factor de cargas', value: p.loadFactor, format: 'number' },
       { label: 'Costo hora cargado (costo mensual / horas normales)', value: p.loadedHourlyCost, format: 'rate' },
       { label: 'Variable por día de trabajo (horas extra cargadas + vianda)', value: cost.perPosition.variablePerActiveDay, format: 'money' },
@@ -565,8 +566,8 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
     },
     {
       // 0.11.0 (Joaco, 2026-11-18): remunerativo, no remunerativo y aportes, como en el recibo.
-      title: 'Sueldo (por persona, por mes, como en el recibo)',
-      hint: 'Copiá los totales del recibo. Las cargas sociales las suma RATEOS con los valores del convenio.',
+      title: 'Sueldo mensual por persona',
+      hint: 'Copiá los totales del recibo. Las cargas las suma RATEOS.',
       cols: 4,
       fields: [
         { key: 'basicMonthly', label: 'Remunerativo', rule: 'money', unit: '$', required: true, hint: 'Básico, presentismo, antigüedad y adicionales remunerativos.' },
@@ -579,10 +580,10 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         const p = profileCost(draft).perPerson;
         const cell = (label, value, note) => h('div', { class: 'hour-rate' }, h('span', { class: 'hour-rate-label' }, label), h('strong', { class: 'hour-rate-value' }, value > 0 ? formatMoney(value) : EMPTY), h('span', { class: 'hour-rate-note' }, note));
         return h('div', { class: 'hour-rates' },
-          cell('Bruto', p.grossMonthly, 'Remunerativo + no remunerativo'),
-          cell('Neto', p.netMonthly, `Bruto − aportes (${formatPercent(p.workerContributionsPct)} del remunerativo)`),
-          cell('Costo empleador del mes', p.payslipEmployerCost, 'Comparalo con el "costo total empleador" de tu recibo'),
-          cell('Te cuesta por mes', p.fixedMonthly, 'Con aguinaldo y vacaciones prorrateados: es el que usa la cotización'));
+          cell('Bruto', p.grossMonthly, 'Remun. + no remun.'),
+          cell('Neto aproximado', p.netMonthly, 'Bruto − aportes (sin Ganancias)'),
+          cell('Costo empleador del mes', p.payslipEmployerCost, 'Como en tu recibo'),
+          cell('Te cuesta por mes', p.fixedMonthly, 'Con aguinaldo y vacaciones: el que usa la cotización'));
       } : null,
     },
     {
@@ -604,6 +605,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         { key: 'employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%' },
         { key: 'artPct', label: 'ART', rule: 'percent', unit: '%' },
         { key: 'fixedContributionsMonthly', label: 'Contribuciones fijas', rule: 'money', unit: '$/mes', hint: 'Ej.: contribución extraordinaria, seguro de vida colectivo.' },
+        { key: 'nonRemunerativeChargesPct', label: 'Cargas sobre el no remunerativo', rule: 'percent', unit: '%', hint: 'Obra social, cuota sindical… Si no hay: 0.' },
       ],
       extra: ({ draft, rerender }) => {
         const agreement = agreementOf(draft);
@@ -702,6 +704,7 @@ function newLaborProfile(agreements) {
     artPct: params.artPct,
     // 0.11.0: no remunerativo, aportes del trabajador y contribuciones fijas (estos dos, del convenio).
     nonRemunerativeMonthly: 0,
+    nonRemunerativeChargesPct: params.nonRemunerativeChargesPct,
     workerContributionsPct: params.workerContributionsPct,
     fixedContributionsMonthly: params.fixedContributionsMonthly,
     insuranceMonthly: 0,
@@ -752,6 +755,7 @@ function agreementSections() {
         { key: 'params.employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%', hint: 'Sobre el remunerativo.' },
         { key: 'params.artPct', label: 'ART', rule: 'percent', unit: '%' },
         { key: 'params.fixedContributionsMonthly', label: 'Contribuciones fijas por persona', rule: 'money', unit: '$/mes', hint: 'Montos fijos del convenio (contribución extraordinaria, seguro de vida…). Sin cargas encima.' },
+        { key: 'params.nonRemunerativeChargesPct', label: 'Cargas sobre el no remunerativo', rule: 'percent', unit: '%', hint: 'Obra social, cuota sindical… que el acuerdo aplica a las sumas no remunerativas. Si no hay: 0.' },
         { key: 'params.workerContributionsPct', label: 'Aportes del trabajador', rule: 'percent', unit: '%', hint: 'Sólo para mostrar el neto: no cambian tu costo.' },
       ],
     },
@@ -1336,7 +1340,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       }
       mount(previewHost, table({
         caption: 'Cómo queda cada puesto',
-        className: 'lib-table',
+        className: 'lib-table table-cards',
         columns: [
           { key: 'role', label: 'Puesto', render: ({ before }) => before.role || 'Puesto' },
           { key: 'before', label: 'Te cuesta por mes hoy', align: 'right', render: ({ before }) => money(ctx.resources.laborProfileCost(before).perPerson.fixedMonthly) },
@@ -1348,11 +1352,12 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const field = (node) => node;
     mount(
       body,
-      h('p', { class: 'form-section-hint' }, `Se aplica a ${profiles.length === 1 ? '1 puesto' : `${profiles.length} puestos`} de "${agreement.name}". Las cotizaciones ya hechas no cambian: te avisan que hay valores nuevos.`),
+      h('p', {}, h('strong', {}, `Sube el sueldo de ${profiles.length === 1 ? 'el puesto' : `los ${profiles.length} puestos`} de ${agreement.name}.`)),
+      h('p', { class: 'form-section-hint' }, 'Las cotizaciones ya hechas no cambian: te avisan que hay valores nuevos.'),
       formGrid(2,
         field(periodField({ label: 'Desde el mes', value: draft.fromPeriod, onChange: (v) => { draft.fromPeriod = v; paintPreview(); } })),
         field(numberField({ label: 'Aumento del remunerativo', value: null, rule: 'percentOpen', unit: '%', required: true, onChange: (v) => { draft.remunerativePct = isFiniteNumber(v) ? v : null; paintPreview(); } })),
-        field(numberField({ label: 'Aumento del no remunerativo', value: null, rule: 'percentOpen', unit: '%', placeholder: 'El mismo', hint: 'Vacío = el mismo %.', onChange: (v) => { draft.nonRemunerativePct = isFiniteNumber(v) ? v : null; paintPreview(); } })),
+        field(numberField({ label: 'Aumento del no remunerativo', value: null, rule: 'percentOpen', unit: '%', placeholder: 'Igual que el remunerativo', onChange: (v) => { draft.nonRemunerativePct = isFiniteNumber(v) ? v : null; paintPreview(); } })),
         field(textField({ label: 'Nota (opcional)', value: '', maxLength: 160, placeholder: 'Ej.: Acta julio 2026', onChange: (v) => { draft.note = v; } })),
       ),
       previewHost,
@@ -1361,7 +1366,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const applyBtn = button('Aplicar aumento', { variant: 'primary', icon: 'check' });
     const { close } = openDialog({ title: `Aplicar aumento — ${agreement.name || 'convenio'}`, content: body, wide: true, actions: [button('Cancelar', { variant: 'secondary', onClick: () => close() }), applyBtn] });
     applyBtn.addEventListener('click', async () => {
-      const result = applyAgreementRaise(agreement, profiles, { ...draft, note: sanitizeText(draft.note, 160) }, { id: createId(), now: new Date().toISOString() });
+      // Los puestos como están ahora (por si cambiaron con el diálogo abierto).
+      const result = applyAgreementRaise(agreement, list('laborProfiles').filter((p) => p.agreementId === agreement.id), { ...draft, note: sanitizeText(draft.note, 160) }, { id: createId(), now: new Date().toISOString() });
       if (!result) {
         app.toast('Completá el mes y el % de aumento.', 'warning');
         return;
@@ -1383,24 +1389,37 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   /** Historial de aumentos de un convenio, con "Deshacer el último". */
   function openRaiseHistory(agreement) {
     const raises = Array.isArray(agreement.raises) ? [...agreement.raises].reverse() : [];
-    const undoBtn = raises.length ? button('Deshacer el último', { variant: 'secondary' }) : null;
+    const last = raises[0] || null;
+    const lastText = last ? `${formatPercent(last.remunerativePct)} de ${formatPeriod(last.fromPeriod)}` : '';
+    const undoBtn = last ? button(`Deshacer el aumento de ${formatPeriod(last.fromPeriod)}`, { variant: 'secondary' }) : null;
+    const withNotes = raises.some((r) => r.note);
     const content = raises.length
-      ? table({
-        caption: 'Aumentos aplicados',
-        className: 'lib-table',
-        columns: [
-          { key: 'from', label: 'Desde', render: ({ r }) => formatPeriod(r.fromPeriod) },
-          { key: 'rem', label: 'Remunerativo', align: 'right', render: ({ r }) => percent(r.remunerativePct) },
-          { key: 'nonrem', label: 'No remunerativo', align: 'right', render: ({ r }) => percent(r.nonRemunerativePct) },
-          { key: 'n', label: 'Puestos', align: 'right', render: ({ r }) => formatNumber((r.changes || []).length) },
-          { key: 'note', label: 'Nota', render: ({ r }) => r.note || EMPTY },
-        ],
-        rows: raises.map((r) => ({ r })),
-      })
+      ? h('div', {},
+        h('p', { class: 'form-section-hint' }, 'El más reciente arriba.'),
+        table({
+          caption: 'Aumentos aplicados',
+          className: 'lib-table table-cards',
+          columns: [
+            { key: 'from', label: 'Desde', render: ({ r }) => formatPeriod(r.fromPeriod) },
+            { key: 'rem', label: 'Remunerativo', align: 'right', render: ({ r }) => percent(r.remunerativePct) },
+            { key: 'nonrem', label: 'No remunerativo', align: 'right', render: ({ r }) => percent(r.nonRemunerativePct) },
+            { key: 'n', label: 'Puestos', align: 'right', render: ({ r }) => formatNumber((r.changes || []).length) },
+            withNotes ? { key: 'note', label: 'Nota', render: ({ r }) => r.note || EMPTY } : null,
+          ].filter(Boolean),
+          rows: raises.map((r) => ({ r })),
+        }))
       : h('p', { class: 'muted' }, 'Todavía no aplicaste aumentos a este convenio.');
     const { close } = openDialog({ title: `Aumentos — ${agreement.name || 'convenio'}`, content, wide: true, actions: [undoBtn, button('Cerrar', { variant: 'secondary', onClick: () => close() })].filter(Boolean) });
     if (undoBtn) {
       undoBtn.addEventListener('click', async () => {
+        const n = (last.changes || []).length;
+        const ok = await confirmDialog({
+          title: 'Deshacer aumento',
+          message: `¿Deshacer el aumento de ${lastText}? ${n === 1 ? 'El sueldo de 1 puesto vuelve' : `Los sueldos de ${n} puestos vuelven`} al valor anterior.`,
+          confirmLabel: 'Deshacer',
+          danger: true,
+        });
+        if (!ok) return;
         const result = undoLastAgreementRaise(agreement, list('laborProfiles'));
         if (!result) return;
         undoBtn.disabled = true;
@@ -1408,7 +1427,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
           for (const profile of result.profiles) await ctx.resources.save('laborProfiles', profile);
           await ctx.resources.save('agreements', result.agreement);
           const skipped = result.skipped.length ? ` ${result.skipped.length === 1 ? '1 puesto no se tocó' : `${result.skipped.length} puestos no se tocaron`} porque lo editaste después.` : '';
-          app.toast(`Se deshizo el último aumento.${skipped}`, 'success');
+          app.toast(`Se deshizo el aumento de ${lastText}.${skipped}`, 'success');
           close();
           await refresh();
         } catch (error) {
