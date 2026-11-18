@@ -12,6 +12,27 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-18
+
+**La unidad primero (2026-11-18, pedido del dueño).** Lo primero que se elige al cotizar es en qué unidad se le cobra al cliente; de ahí salen las preguntas y las etapas. Las categorías de gasto que se marcan en "¿Qué incluye el servicio?" son las secciones del paso Materiales y los renglones de la estructura de costos. Sin cambio de fórmulas, de totales ni de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §30](docs/CALCULATION_RULES.md).
+
+### Agregado
+
+- **"¿En qué unidad le cobrás al cliente?"** en el paso "Contrato": Por mes, Por trabajo, Por hora, Por día, Por unidad (con su nombre: "¿Cómo se llama tu unidad?") y "Otra unidad…" (buscador con viaje, m³, km, hora-hombre…). Debajo: "Vas a cotizar: $ por diagnóstico" (o "tarifa por mes", "precio del trabajo").
+- `modeForUnit` (`js/domain/contract.js`): el modo del contrato se deriva de la unidad (`month` → por mes, `job`/`milestone` → por trabajo, otra → por unidad trabajada).
+- Campo opcional `component` en cada material y otro costo (herramientas, insumos, materiales, EPP, otros) y desglose `children` del renglón Materiales de la EECC (`costStructure`); `byComponent` en `computeMaterials` y `componentCostAt` en el motor.
+- Paso Materiales: una sección por categoría elegida, con sus líneas, su "Agregar" (también desde Recursos) y su subtotal. Cada material puede cambiar de categoría ("Categoría", en "Más detalle").
+
+### Cambiado
+
+- "¿Cómo te paga el cliente?" (Fijo mensual / Por servicio prestado (on call) / Precio cerrado) ya no se muestra: la unidad lo define. Los listados dicen "Por hora · personal + vehículos" en vez de "Por servicio (on call) · …".
+- "Cómo se cobra" ya no tiene el selector de unidad: "Cobrás por hora. Se cambia en «Contrato»". Por hora o por día los textos hablan de tu precio por hora / por día y los días del mes quedan como estimación (con costo por tiempo usado y sin fijos del mes, "Sólo se usa para estimar la facturación del mes; no cambia tu precio por hora").
+- Plantillas: ayuda opcional plegada al final ("Partir de una plantilla (opcional)"); sugieren sólo la unidad.
+- Categorías de gasto: 10, sin redundancias. "Químicos" pasa a "Insumos y consumibles" y "Residuos y disposición" a "Otros costos" (al leer un contrato guardado se traducen solos).
+- Resultado: la estructura de costos y "¿En qué se va el costo?" muestran Materiales desglosado por categoría y no muestran renglones en $ 0 de categorías no elegidas. Rótulos: Personal, Equipos y vehículos, Servicios de terceros, Viáticos y traslados, Imprevistos.
+- Mínimo mensual garantizado, mínimo por llamado y descuentos por cantidad de días: sólo se muestran si la cotización ya los tiene cargados (los motores no cambian).
+- Textos: "cobrando por trabajo" en vez de "precio cerrado" en Imprevistos, Financiación y el aviso de costos fijos.
+
 ## [0.9.0] - 2026-11-18
 
 **Costo por tiempo usado (2026-11-18, pedido del dueño).** En una cotización NUEVA que no se cobra por mes, el personal y los equipos propios cuestan las horas que les lleva el trabajo por el valor de su hora, y ya no se pregunta "qué % de su costo fijo asignás a esta cotización" ni "¿trabajan sólo para este servicio?". Las cotizaciones guardadas no cambian ningún número (no tienen `costBasis`); cobrando por mes rige el método de siempre. Sin cambio de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §29](docs/CALCULATION_RULES.md).
