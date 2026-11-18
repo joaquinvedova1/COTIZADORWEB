@@ -4,7 +4,6 @@
  *
  * - Empresa: nombre, base, tipo de empresa y marca de datos de ejemplo.
  * - Parámetros económicos: valores por defecto de cada cotización nueva.
- * - Convenios: la gestión de convenios de library.js (renderAgreements).
  * - Datos y backup: "Empezar con mi empresa en limpio" (deja la empresa de
  *   ejemplo con copia de recuperación previa), exportar / importar JSON,
  *   restaurar los datos de ejemplo y copias de recuperación.
@@ -32,7 +31,6 @@ import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, invalidTaxe
 import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { billingTaxConfigInfo } from '../../engines/billing-taxes-engine.js';
 import { setPath, isPlainObject } from '../../core/object.js';
-import { renderAgreements } from './library.js';
 import { isExampleQuote } from './quotes-list.js';
 
 const MAX_MATRIX_DAYS = 12;
@@ -319,7 +317,6 @@ export function recoveryFilename(key) {
 export const SETTINGS_SECTIONS = Object.freeze([
   { id: 'empresa', label: 'Empresa' },
   { id: 'parametros', label: 'Parámetros económicos' },
-  { id: 'convenios', label: 'Convenios' },
   { id: 'datos', label: 'Datos y backup' },
   { id: 'cuenta', label: 'Cuenta' },
   { id: 'acerca', label: 'Acerca de' },
@@ -604,7 +601,7 @@ export async function render(root, app, params = {}) {
         { class: 'guide-steps' },
         h('li', {}, h('strong', {}, 'Tu empresa. '), 'Cargá el nombre, la base operativa y el tipo de empresa (arriba).'),
         h('li', {}, h('strong', {}, 'Tus parámetros. '), 'Combustible, tasa financiera, margen objetivo e imprevistos vigentes en ', h('a', { href: '#/configuracion/parametros' }, 'Parámetros económicos'), '.'),
-        h('li', {}, h('strong', {}, 'Tu convenio. '), 'Horas, SAC, vacaciones, cargas y ART en ', h('a', { href: '#/configuracion/convenios' }, 'Convenios'), '.'),
+        h('li', {}, h('strong', {}, 'Tu convenio. '), 'Horas, SAC, vacaciones, cargas y ART en ', h('a', { href: '#/recursos/convenios' }, 'Recursos → Convenios'), '.'),
         h('li', {}, h('strong', {}, 'Tus recursos. '), 'Personal, equipos, materiales y ubicaciones en ', h('a', { href: '#/recursos/personal' }, 'Recursos'), '.'),
         h('li', {}, h('strong', {}, 'Listo. '), 'Desmarcá "Son datos de ejemplo" y empezá a cotizar.'),
       ),
@@ -899,14 +896,6 @@ export async function render(root, app, params = {}) {
         ),
       ),
     );
-  }
-
-  // -------------------------------------------------------- convenios
-
-  async function buildAgreements() {
-    const host = h('div', { class: 'stack' });
-    mount(panel, host);
-    await renderAgreements(host, app);
   }
 
   // --------------------------------------------------- datos y backup
@@ -1281,7 +1270,7 @@ export async function render(root, app, params = {}) {
     mount(panel, h('div', { class: 'view-narrow' }, accountCard));
   }
 
-  const builders = { empresa: buildCompany, parametros: buildParams, convenios: buildAgreements, datos: buildData, cuenta: buildAccount, acerca: buildAbout };
+  const builders = { empresa: buildCompany, parametros: buildParams, datos: buildData, cuenta: buildAccount, acerca: buildAbout };
   await builders[section]();
 
   // Si se cierra o se oculta la pestaña, se guarda lo pendiente.

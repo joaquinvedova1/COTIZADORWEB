@@ -1941,3 +1941,52 @@ Tests: `tests/domain/unidad-primero-2026-11.test.js` y `tests/ui/unidad-primero-
 - **Nombre de la activación (U2).** En una cotización con componentes, `serviceType 'on_call'` (derivado del modo) se nombra "intervención" salvo que se cobre por llamado. Sólo texto: `serviceType` no cambia.
 
 Tests: `tests/domain/unidad-primero-revision-2026-11.test.js` y `tests/ui/unidad-primero-revision-2026-11.test.js`.
+
+## 31. Actualización de tarifas por estructura de costos (0.11, 2026-11-18)
+
+Pedido del dueño: en Cotizaciones ver cada ítem con su unidad, valor y período base, y un botón **"Actualizar tarifa"** que la lleve a otro mes aplicando un % por categoría de la estructura de costos (EECC), ponderado por la incidencia de cada categoría. Código: `js/domain/rate-update.js`, `js/engines/rate-update-engine.js`, `rateUpdateOf` en `js/engines/quote-engine.js`.
+
+**Categorías estándar** (los renglones de la EECC, Materiales abierto en sus categorías de gasto de 0.10.0): Mano de obra, Equipos propios, Equipos y servicios de terceros, Combustible, Herramientas, Insumos y consumibles, Materiales, EPP, Otros costos, Logística y viáticos, Gastos de estructura. Costo financiero e imprevistos no llevan % propio: se calculan como un % del resto y lo acompañan.
+
+**Fórmula (índices encadenados, fórmula polinómica):**
+
+```
+w_i  = costo de la categoría i ÷ Σ costos de las categorías actualizables   (período base, actividad estimada)
+I_i  = Π (1 + %_i,k ÷ 100)            índice acumulado de la categoría en las actualizaciones k
+F    = Σ w_i × I_i                    factor acumulado
+tarifa vigente = tarifa comercial de la cotización × F
+```
+
+En cada actualización el aumento del paso es `Σ s_i × %_i`, con `s_i = w_i × I_i ÷ F` la incidencia **vigente** (la primera vez `s_i = w_i`). Ejemplo del dueño: 60 % × 2 % + 40 % × 5 % = **3,2 %** (base $ 1.000 → $ 1.032). Si después la mano de obra sube 10 %: incidencias vigentes 59,3 % y 40,7 %, paso +5,93 %, tarifa $ 1.093,20 = 1.000 × (0,6 × 1,02 × 1,1 + 0,4 × 1,05). Si una categoría subió más, pesa más en la siguiente actualización.
+
+- Margen e impuestos sobre la facturación son % del precio: al llevar costo y precio por el mismo factor, el margen % no cambia.
+- La actualización **no toca los costos de la cotización**: se guarda en `quote.rateUpdate = { basePeriod, base, steps: [{ toPeriod, pcts }], previous }` con historial y "Deshacer la última".
+- **Foto de la base:** en la primera actualización se guarda `base = { rate, amounts }` (tarifa y montos por categoría de ese momento). La tarifa vigente se calcula siempre sobre esa foto: editar la cotización después no reescribe el historial ni cuenta dos veces un aumento. Si la cotización cambió (otra tarifa u otros pesos), el cuadro lo avisa y ofrece "Tomar la cotización actual como nueva base" (período base = el vigente; el historial anterior queda en `previous`).
+- **Estructura** cargada como % del costo directo o de la mano de obra acompaña sola (no lleva % propio); como monto fijo, por empleado o por hora, sí.
+- **Cobros aparte** (cargos, materiales revendidos: "otros ingresos") no se actualizan con este cuadro y se avisa. El costo financiero se toma a tasa constante. El período base es el guardado o, si no, el mes de la fecha de la oferta; queda fijo desde la primera actualización.
+- El período destino debe ser posterior al vigente. % entre −90 y 500 (puede bajar, p. ej. combustible).
+- **Mano de obra ligada al sueldo:** el % de mano de obra es el aumento de sueldos del convenio entre los dos meses. Mientras no exista el historial de aumentos por convenio en Recursos, se carga a mano en el mismo cuadro; después se propone solo (ponderado por el costo de cada puesto) y se puede corregir.
+
+## 32. Personal por convenio: sueldo como en el recibo y aumentos (0.12.0, 2026-11-18)
+
+**Pedido del dueño:** cargar el personal por convenio colectivo con "un bruto y listo" (remunerativo, no remunerativo y aportes) y aplicar los aumentos de cada convenio.
+
+**Costo por persona y por mes** (cambia sólo si se cargan los datos nuevos; un puesto sin ellos cuesta lo mismo que antes):
+
+```
+Costo = Remunerativo × (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % + ART %)
+      + No remunerativo × (1 + Cargas sobre el no remunerativo %) + Contribuciones fijas del convenio
+      + Seguros + EPP + Capacitación + Traslado
+```
+
+- *Remunerativo* = `basicMonthly` + `additionalsMonthly` (dato anterior). *No remunerativo* (`nonRemunerativeMonthly`) no lleva aguinaldo ni las cargas del remunerativo; sólo el % opcional del convenio *Cargas sobre el no remunerativo* (`nonRemunerativeChargesPct`, obra social, cuota sindical…; 0 por defecto). Las *contribuciones fijas* (`fixedContributionsMonthly`) son un monto sin cargas.
+- *Aportes del trabajador* (`workerContributionsPct`, 17 % habitual): `Neto aproximado = Remunerativo + No remunerativo − Remunerativo × aportes %` (sin tope de base imponible ni Ganancias). **No cambian el costo**: los paga el trabajador de su bruto, y no entran en la foto de la cotización (no avisan "valores nuevos").
+- *Costo empleador del mes* (sólo para comparar con el recibo, sin aguinaldo ni vacaciones prorrateados): `Remunerativo × (1 + Cargas % + ART %) + No remunerativo + Contribuciones fijas`.
+
+**El puesto sigue a su convenio.** Parámetros del convenio: horas normales, recargo de horas extra, SAC, vacaciones, cargas patronales, ART, aportes del trabajador, contribuciones fijas y cargas sobre el no remunerativo. Al guardar un convenio, cada parámetro que cambió se actualiza en los puestos de ese convenio que tenían el valor anterior (clave por clave); un valor propio de un puesto no se toca. Un parámetro que el puesto no tiene cargado cuenta como igual.
+
+**Aplicar aumento.** `remunerativo × (1 + r %)` sobre `basicMonthly`, `additionalsMonthly` y los valores propios de hora al 50 % / 100 %; `no remunerativo × (1 + n %)` sobre `nonRemunerativeMonthly` y `mealPerActiveDay` (n vacío = r). Redondeo al centavo. El mes del sueldo (`base.period`) pasa al mes del aumento si era anterior. El aumento se guarda en `agreement.raises[]` (`fromPeriod`, `remunerativePct`, `nonRemunerativePct`, `note`, `changes[]` con los valores antes y después de cada puesto). *Deshacer el aumento* (con confirmación) restaura cada puesto que todavía tiene los valores que dejó el aumento.
+
+**Cotizaciones:** guardan la foto de sus recursos (§ snapshots): un aumento no cambia una cotización hecha; la avisa como "valores nuevos en Recursos". La foto suma `nonRemunerativeMonthly`, `nonRemunerativeChargesPct` y `fixedContributionsMonthly` sólo si están cargados (las huellas anteriores quedan iguales).
+
+**Para actualizar tarifas:** `agreementRaiseFactor(agreement, desde, hasta)` = producto de `(1 + remunerativePct / 100)` de los aumentos con `fromPeriod` en `(desde, hasta]`; `null` sin historial, `1` si ninguno cae en la ventana. Un acta retroactiva cargada con "desde" igual o anterior al período base no entra: el módulo de tarifas debe permitir corregir el %. Con `{ part: 'nonRemunerative' }` da el del no remunerativo (para ponderar por la parte de cada uno en el costo).

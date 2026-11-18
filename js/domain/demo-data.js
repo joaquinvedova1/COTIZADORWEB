@@ -54,7 +54,7 @@ export function demoOrganization() {
 }
 
 export function demoAgreements() {
-  return AGREEMENT_TYPES.map((a, i) => ({
+  return AGREEMENT_TYPES.filter((a) => !a.addedIn).map((a, i) => ({
     ...meta(uid(100 + i)),
     code: a.code,
     name: a.label,
