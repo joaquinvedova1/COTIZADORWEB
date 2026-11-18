@@ -12,6 +12,12 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-18
+
+### Agregado
+
+- "Actualizar tarifa": el % de **Mano de obra** se propone solo con los aumentos de los convenios de los puestos de la cotización entre los dos meses (remunerativo y no remunerativo ponderados por su peso en cada puesto). Se puede corregir; dice de dónde sale, qué parte del costo cubre y el último aumento cargado. Detalle en [docs/CALCULATION_RULES.md §31](docs/CALCULATION_RULES.md).
+
 ## [0.12.0] - 2026-11-18
 
 **Personal por convenio (2026-11-18, pedido del dueño).** El sueldo de cada puesto se carga como en el recibo (remunerativo, no remunerativo y aportes del trabajador), las cargas sociales salen del convenio y cada paritaria se aplica con "Aplicar aumento" a todos los puestos del convenio, con historial. Los puestos ya cargados y las cotizaciones guardadas no cambian de números. Sin cambio de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §32](docs/CALCULATION_RULES.md).
