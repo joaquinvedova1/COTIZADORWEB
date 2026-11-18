@@ -842,7 +842,8 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
       line.agreementId = id || null;
       if (agreement) {
         const params = { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(agreement.params || {}) };
-        AGREEMENT_PARAM_KEYS.forEach((key) => {
+        // También las cargas del convenio fuera del factor (0.12.0 y auditoría externa K-09).
+        [...AGREEMENT_PARAM_KEYS, 'fixedContributionsMonthly', 'nonRemunerativeChargesPct', 'otherChargesPct', 'workerContributionsPct'].forEach((key) => {
           if (isFiniteNumber(params[key])) line[key] = params[key];
         });
       }

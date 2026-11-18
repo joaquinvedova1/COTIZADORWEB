@@ -40,7 +40,7 @@ import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatPeriod, 
 import { isFiniteNumber, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
-import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf } from '../../domain/catalogs.js';
+import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf, vatIsCost } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import { wearNote } from '../equipment-wear-ui.js';
@@ -1216,7 +1216,7 @@ function newModel() {
   return { familyId: 'other', brand: '', model: '', year: null, capacity: '', fuelType: '', selfPropelled: null, roadLegal: null, requiresTransport: null, requiresDriver: null, notes: '' };
 }
 
-function materialSections() {
+function materialSections(settings = {}) {
   return [
     {
       title: 'Material',
@@ -1230,7 +1230,7 @@ function materialSections() {
       title: 'Costo',
       hint: VAT_HINT,
       fields: [
-        { key: 'unitCost', label: 'Costo unitario', rule: 'money', unit: '$' },
+        { key: 'unitCost', label: vatIsCost(settings) ? 'Costo unitario (con IVA)' : 'Costo unitario', rule: 'money', unit: '$' },
         { key: 'quantity', label: 'Cantidad', rule: 'quantity' },
         { key: 'basis', label: 'Base de cálculo', kind: 'select', options: options(MATERIAL_BASES) },
         { key: 'wastePct', label: 'Merma', rule: 'percent', unit: '%' },
@@ -1531,7 +1531,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         openResourceForm(app, {
           title: isNew ? 'Nuevo material' : `Editar material — ${item.description || ''}`,
           initial: isNew ? newMaterial() : item,
-          sections: materialSections(),
+          sections: materialSections(data.settings),
           preview: (draft) => {
             const c = computeMaterialLine(draft);
             return previewKpis(

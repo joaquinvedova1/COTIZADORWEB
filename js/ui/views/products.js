@@ -99,7 +99,8 @@ export async function render(root, app) {
           try {
             await ctx.products.saveProduct(copy);
             app.toast('Producto recuperado.', 'success');
-            await render(root, app);
+            // Sólo se redibuja si la persona sigue en la lista.
+            if (root.isConnected) await render(root, app);
           } catch (error) {
             app.toast(userErrorMessage(error, 'No se pudo recuperar el producto.'), 'danger');
           }

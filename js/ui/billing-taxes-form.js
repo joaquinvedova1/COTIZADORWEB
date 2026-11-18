@@ -122,7 +122,7 @@ function debitsCreditsHelper({ onUse = null, readOnly = false }) {
     'details',
     { class: 'bt-help-more bt-dc-helper' },
     h('summary', {}, '¿Cómo calculo el impuesto al cheque?'),
-    h('p', {}, 'El banco lo cobra sobre lo que te depositan, que incluye el IVA. Cargá la alícuota del banco y el IVA con el que facturás.'),
+    h('p', {}, 'El banco lo cobra sobre lo que te depositan, que incluye el IVA. Cargá la alícuota que te cobra el banco sobre cada acreditación y el IVA con el que facturás.'),
     formGrid(
       2,
       numberField({ label: 'Alícuota del banco sobre lo acreditado', rule: 'billingTax', unit: '%', value: null, disabled: readOnly, onChange: (v) => { bank = v; refresh(); } }),
@@ -130,6 +130,7 @@ function debitsCreditsHelper({ onUse = null, readOnly = false }) {
     ),
     result,
     useBtn,
+    onUse ? null : h('p', { class: 'footnote' }, 'Sumá ese % al total de arriba.'),
   );
 }
 

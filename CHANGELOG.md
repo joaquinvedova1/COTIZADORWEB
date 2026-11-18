@@ -12,6 +12,21 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-11-18
+
+**Auditoría externa, segunda tanda (2026-11-18, pedido del dueño: carga simple y guiada, el cálculo por dentro).** Sin cambio de esquema. Con los campos nuevos vacíos ningún monto cambia.
+
+### Agregado
+
+- **Otras cargas y provisiones del convenio (K-09):** % sobre el remunerativo (fondo de cese laboral, provisión por despido, ausentismo, licencias…), vacío por defecto, sin aguinaldo ni cargas encima. Se carga una vez en el convenio y lo toman sus puestos; en "Actualizar tarifa" se mueve con el aumento del remunerativo.
+- **¿Cómo calculo el impuesto al cheque? (K-10):** con la alícuota del banco y el IVA con el que facturás da el % sobre lo facturado sin IVA (alícuota × (1 + IVA)) y, en el detalle, "Usar este %".
+- **Tu condición frente al IVA (K-05)** en Configuración → Parámetros económicos: con monotributo o exento, los precios de compra (materiales e ingredientes) se piden con IVA y el IVA de venta del producto queda vacío. No cambia fórmulas.
+- **Deshacer al borrar (B-02)** una cotización o un producto: el aviso queda 15 s (se pausa con el mouse o el foco encima).
+
+### Corregido
+
+- Al aplicar un convenio en una cotización o un producto también se copian sus contribuciones fijas, cargas sobre el no remunerativo, otras cargas y aportes del trabajador.
+
 ## [0.12.3] - 2026-11-18
 
 **Correcciones de la auditoría externa (2026-11-18, pedido del dueño).** Sólo errores reales y sin cambios de estructura; ningún monto calculado cambia salvo el de una cantidad escrita como "0.250". Veredicto por observación en `auditoria-externa/VEREDICTO.md` (archivos del proyecto).

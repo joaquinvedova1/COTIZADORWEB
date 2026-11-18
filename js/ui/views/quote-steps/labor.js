@@ -66,12 +66,14 @@ export function laborBreakdown(line, { activeDays = 0, monthsFactor = 1 } = {}) 
     out.push({ label: o.label, amount });
   });
   out.push({ label: 'Viandas', amount: line.perPosition.mealPerActiveDay * line.positions * activeDays });
-  out.push({ label: 'Seguros, ropa y elementos de protección, capacitación y traslado', amount: p.nonRemunerative * share * line.headcount * monthsFactor });
+  out.push({ label: 'Otros costos de la persona (no remunerativo, seguros, ropa y EPP, capacitación, traslado, otras cargas del convenio)', amount: p.nonRemunerative * share * line.headcount * monthsFactor });
   return out.filter((x) => x.amount > 0.005 || x.label === 'Sueldo + cargas');
 }
 
 /** Parámetros que se copian de un convenio a la línea. */
 export const AGREEMENT_PARAM_KEYS = Object.freeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct']);
+/** Cargas del convenio fuera del factor de cargas que también se copian al aplicar el convenio. */
+export const AGREEMENT_EXTRA_COST_KEYS = Object.freeze(['fixedContributionsMonthly', 'nonRemunerativeChargesPct', 'otherChargesPct', 'workerContributionsPct']);
 
 
 /**
@@ -115,7 +117,7 @@ function laborTrace(result, index, source) {
     steps: [
       { label: 'Factor de cargas', value: p.loadFactor, format: 'number' },
       { label: 'Remunerativo con cargas', value: p.loadedRemunerative, format: 'money' },
-      { label: 'Seguros + ropa y elementos de protección + capacitación + traslado', value: p.nonRemunerative, format: 'money' },
+      { label: 'Otros costos de la persona (no remunerativo, seguros, EPP, capacitación, traslado, otras cargas del convenio)', value: p.nonRemunerative, format: 'money' },
       { label: 'Costo mensual por persona', value: p.fixedMonthly, format: 'money' },
       { label: 'Dotación (personas)', value: line.headcount, format: 'number' },
       // Por tiempo usado (2026-11-18): el puesto cuesta sus horas en el trabajo × el valor de su hora.
@@ -196,7 +198,8 @@ export function render(container, ctx) {
     }
     const params = { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(agreement.params || {}) };
     ctx.mutate((q) => {
-      AGREEMENT_PARAM_KEYS.forEach((key) => {
+      // También las cargas del convenio fuera del factor (0.12.0 y auditoría externa K-09).
+      [...AGREEMENT_PARAM_KEYS, ...AGREEMENT_EXTRA_COST_KEYS].forEach((key) => {
         if (isFiniteNumber(params[key])) q.labor[index][key] = params[key];
       });
     });

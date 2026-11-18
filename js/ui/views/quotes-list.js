@@ -535,7 +535,8 @@ export async function render(root, app) {
             try {
               await ctx.quotes.saveQuote(copy);
               app.toast('Cotización recuperada.', 'success');
-              await load();
+              // Sólo se redibuja si la persona sigue en la lista.
+              if (root.isConnected) await load();
             } catch (error) {
               app.toast(userErrorMessage(error, 'No se pudo recuperar la cotización.'), 'danger');
             }
