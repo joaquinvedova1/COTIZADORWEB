@@ -1964,3 +1964,27 @@ En cada actualización el aumento del paso es `Σ s_i × %_i`, con `s_i = w_i ×
 - **Cobros aparte** (cargos, materiales revendidos: "otros ingresos") no se actualizan con este cuadro y se avisa. El costo financiero se toma a tasa constante. El período base es el guardado o, si no, el mes de la fecha de la oferta; queda fijo desde la primera actualización.
 - El período destino debe ser posterior al vigente. % entre −90 y 500 (puede bajar, p. ej. combustible).
 - **Mano de obra ligada al sueldo:** el % de mano de obra es el aumento de sueldos del convenio entre los dos meses. Mientras no exista el historial de aumentos por convenio en Recursos, se carga a mano en el mismo cuadro; después se propone solo (ponderado por el costo de cada puesto) y se puede corregir.
+
+## 32. Personal por convenio: sueldo como en el recibo y aumentos (0.12.0, 2026-11-18)
+
+**Pedido del dueño:** cargar el personal por convenio colectivo con "un bruto y listo" (remunerativo, no remunerativo y aportes) y aplicar los aumentos de cada convenio.
+
+**Costo por persona y por mes** (cambia sólo si se cargan los datos nuevos; un puesto sin ellos cuesta lo mismo que antes):
+
+```
+Costo = Remunerativo × (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % + ART %)
+      + No remunerativo × (1 + Cargas sobre el no remunerativo %) + Contribuciones fijas del convenio
+      + Seguros + EPP + Capacitación + Traslado
+```
+
+- *Remunerativo* = `basicMonthly` + `additionalsMonthly` (dato anterior). *No remunerativo* (`nonRemunerativeMonthly`) no lleva aguinaldo ni las cargas del remunerativo; sólo el % opcional del convenio *Cargas sobre el no remunerativo* (`nonRemunerativeChargesPct`, obra social, cuota sindical…; 0 por defecto). Las *contribuciones fijas* (`fixedContributionsMonthly`) son un monto sin cargas.
+- *Aportes del trabajador* (`workerContributionsPct`, 17 % habitual): `Neto aproximado = Remunerativo + No remunerativo − Remunerativo × aportes %` (sin tope de base imponible ni Ganancias). **No cambian el costo**: los paga el trabajador de su bruto, y no entran en la foto de la cotización (no avisan "valores nuevos").
+- *Costo empleador del mes* (sólo para comparar con el recibo, sin aguinaldo ni vacaciones prorrateados): `Remunerativo × (1 + Cargas % + ART %) + No remunerativo + Contribuciones fijas`.
+
+**El puesto sigue a su convenio.** Parámetros del convenio: horas normales, recargo de horas extra, SAC, vacaciones, cargas patronales, ART, aportes del trabajador, contribuciones fijas y cargas sobre el no remunerativo. Al guardar un convenio, cada parámetro que cambió se actualiza en los puestos de ese convenio que tenían el valor anterior (clave por clave); un valor propio de un puesto no se toca. Un parámetro que el puesto no tiene cargado cuenta como igual.
+
+**Aplicar aumento.** `remunerativo × (1 + r %)` sobre `basicMonthly`, `additionalsMonthly` y los valores propios de hora al 50 % / 100 %; `no remunerativo × (1 + n %)` sobre `nonRemunerativeMonthly` y `mealPerActiveDay` (n vacío = r). Redondeo al centavo. El mes del sueldo (`base.period`) pasa al mes del aumento si era anterior. El aumento se guarda en `agreement.raises[]` (`fromPeriod`, `remunerativePct`, `nonRemunerativePct`, `note`, `changes[]` con los valores antes y después de cada puesto). *Deshacer el aumento* (con confirmación) restaura cada puesto que todavía tiene los valores que dejó el aumento.
+
+**Cotizaciones:** guardan la foto de sus recursos (§ snapshots): un aumento no cambia una cotización hecha; la avisa como "valores nuevos en Recursos". La foto suma `nonRemunerativeMonthly`, `nonRemunerativeChargesPct` y `fixedContributionsMonthly` sólo si están cargados (las huellas anteriores quedan iguales).
+
+**Para actualizar tarifas:** `agreementRaiseFactor(agreement, desde, hasta)` = producto de `(1 + remunerativePct / 100)` de los aumentos con `fromPeriod` en `(desde, hasta]`; `null` sin historial, `1` si ninguno cae en la ventana. Un acta retroactiva cargada con "desde" igual o anterior al período base no entra: el módulo de tarifas debe permitir corregir el %. Con `{ part: 'nonRemunerative' }` da el del no remunerativo (para ponderar por la parte de cada uno en el costo).

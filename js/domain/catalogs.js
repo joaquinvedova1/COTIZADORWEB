@@ -59,18 +59,29 @@ export const DIRECT_CATEGORY_IDS = deepFreeze(['labor', 'equipment', 'external',
  * Cada empresa debe cargar los valores vigentes de su convenio.
  */
 export const AGREEMENT_TYPES = deepFreeze([
-  { code: 'petroleros_privados', label: 'Petroleros Privados' },
-  { code: 'petroleros_jerarquicos', label: 'Petroleros Jerárquicos' },
-  { code: 'camioneros', label: 'Camioneros' },
-  { code: 'uocra', label: 'UOCRA' },
-  { code: 'fuera_convenio', label: 'Fuera de convenio' },
-  { code: 'personalizado', label: 'Personalizado' },
-  // PLAN-2026-008 (productos): sólo nombres; los parámetros siguen siendo los
-  // genéricos ILUSTRATIVOS hasta que la empresa cargue los de su convenio.
-  { code: 'comercio', label: 'Empleados de Comercio (CCT 130/75)' },
-  { code: 'panaderos', label: 'Panaderos / pasteleros' },
-  { code: 'gastronomicos', label: 'Gastronómicos' },
+  // 0.12.0 (2026-11-18): convenios habituales en servicios petroleros, construcción y transporte,
+  // con su número de CCT. Sólo NOMBRES: los porcentajes los carga cada empresa (nunca se inventan).
+  // El orden de los 9 primeros no se cambia (los ids de la demo salen de su posición); `order`
+  // ordena la lista que se muestra.
+  { code: 'petroleros_privados', label: 'Petroleros Privados (CCT 644/12 · Neuquén, Río Negro y La Pampa)', order: 1 },
+  { code: 'petroleros_jerarquicos', label: 'Petroleros Jerárquicos (CCT 637/11 y otros por zona)', order: 3 },
+  { code: 'camioneros', label: 'Camioneros (CCT 40/89)', order: 6 },
+  { code: 'uocra', label: 'UOCRA Construcción (CCT 76/75)', order: 5 },
+  { code: 'fuera_convenio', label: 'Fuera de convenio', order: 11 },
+  { code: 'personalizado', label: 'Personalizado', order: 12 },
+  // PLAN-2026-008 (productos).
+  { code: 'comercio', label: 'Empleados de Comercio (CCT 130/75)', order: 8 },
+  { code: 'panaderos', label: 'Panaderos / pasteleros', order: 13 },
+  { code: 'gastronomicos', label: 'Gastronómicos (CCT 389/04)', order: 9 },
+  // 0.12.0: sólo en la lista para elegir (la demo no los crea).
+  { code: 'petroleros_privados_sur', label: 'Petroleros Privados (Chubut y Santa Cruz)', order: 2, addedIn: '0.12.0' },
+  { code: 'uocra_yacimientos', label: 'UOCRA Yacimientos (CCT 545/08)', order: 4, addedIn: '0.12.0' },
+  { code: 'uom', label: 'UOM Metalúrgicos (CCT 260/75)', order: 7, addedIn: '0.12.0' },
+  { code: 'seguridad', label: 'Seguridad privada (CCT 507/07)', order: 10, addedIn: '0.12.0' },
 ]);
+
+/** Convenios en el orden en que se muestran para elegir. */
+export const AGREEMENT_TYPES_SORTED = deepFreeze([...AGREEMENT_TYPES].sort((a, b) => a.order - b.order));
 
 export const ILLUSTRATIVE_AGREEMENT_PARAMS = deepFreeze({
   normalHoursPerMonth: 176,
@@ -79,7 +90,19 @@ export const ILLUSTRATIVE_AGREEMENT_PARAMS = deepFreeze({
   vacationPct: 4,
   employerContributionsPct: 24,
   artPct: 6,
+  // 0.12.0: aportes del trabajador (jubilación 11 + ley 19.032 3 + obra social 3). Sólo para
+  // mostrar el neto: los paga el trabajador de su bruto, NO bajan el costo de la empresa.
+  workerContributionsPct: 17,
+  // 0.12.0: contribuciones fijas por persona y por mes que fija el convenio (ej. contribución
+  // extraordinaria, seguro de vida colectivo). Costo de la empresa, sin cargas encima.
+  fixedContributionsMonthly: 0,
+  // 0.12.0 (revisión de costos): % de cargas que el convenio aplica sobre el no remunerativo
+  // (obra social, cuota sindical…). 0 = sin cargas.
+  nonRemunerativeChargesPct: 0,
 });
+
+/** Parámetros que un puesto toma de su convenio (0.12.0). */
+export const AGREEMENT_PARAM_KEYS = deepFreeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct', 'workerContributionsPct', 'fixedContributionsMonthly', 'nonRemunerativeChargesPct']);
 
 /**
  * ¿Un parámetro de convenio de una línea de personal se marca ILUSTRATIVO? (testeo con

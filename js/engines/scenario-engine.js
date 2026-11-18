@@ -41,6 +41,7 @@ export function applySensitivity(quote, deltas = {}) {
   (q.labor || []).forEach((l) => {
     l.basicMonthly = nonNegative(l.basicMonthly) * s;
     l.additionalsMonthly = nonNegative(l.additionalsMonthly) * s;
+    l.nonRemunerativeMonthly = nonNegative(l.nonRemunerativeMonthly) * s;
   });
 
   q.fuel = q.fuel || {};

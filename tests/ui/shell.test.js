@@ -128,9 +128,10 @@ describe('router: matchRoute', () => {
     };
     assert.equal(target('#/dashboard'), '#/inicio');
     assert.equal(target('#/biblioteca'), '#/recursos/personal');
-    assert.equal(target('#/biblioteca/convenios'), '#/configuracion/convenios');
-    assert.equal(target('#/recursos/convenios'), '#/configuracion/convenios');
-    for (const tab of LIBRARY_TABS.filter((t) => t !== 'convenios')) assert.equal(target(`#/biblioteca/${tab}`), `#/recursos/${tab}`);
+    // 0.11.0: los convenios volvieron a Recursos.
+    assert.equal(target('#/configuracion/convenios'), '#/recursos/convenios');
+    assert.equal(route('#/recursos/convenios').route.redirect, undefined);
+    for (const tab of LIBRARY_TABS) assert.equal(target(`#/biblioteca/${tab}`), `#/recursos/${tab}`);
     assert.equal(route('#/biblioteca/otra').notFound, true);
   });
 

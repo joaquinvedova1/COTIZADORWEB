@@ -36,6 +36,10 @@ export const SNAPSHOT_FIELDS = Object.freeze({
     'overtimeRate50', 'overtimeRate100',
     // Horas facturables por mes (2026-11-18; null = las normales).
     'billableHoursPerMonth',
+    // 0.12.0: no remunerativo, sus cargas y contribuciones fijas del convenio (sólo si están
+    // cargados: las huellas anteriores quedan iguales). Los aportes del trabajador NO van:
+    // no cambian el costo y no deben avisar "valores nuevos".
+    'nonRemunerativeMonthly', 'nonRemunerativeChargesPct', 'fixedContributionsMonthly',
   ]),
   equipment: Object.freeze([
     'replacementValue', 'usefulLifeYears', 'residualValue', 'insuranceAnnual', 'licenseAnnual', 'certificationsAnnual',
@@ -128,7 +132,7 @@ export function snapshotValuesFromLine(type, line = {}) {
   const values = Object.fromEntries(fields.map((f) => [f, num(l[f])]));
   // Valor propio de la hora extra: sólo si está cargado (las huellas anteriores quedan iguales).
   if (type === 'laborProfiles') {
-    ['overtimeRate50', 'overtimeRate100', 'billableHoursPerMonth'].forEach((k) => {
+    ['overtimeRate50', 'overtimeRate100', 'billableHoursPerMonth', 'nonRemunerativeMonthly', 'nonRemunerativeChargesPct', 'fixedContributionsMonthly'].forEach((k) => {
       if (!(values[k] > 0)) delete values[k];
     });
   }
