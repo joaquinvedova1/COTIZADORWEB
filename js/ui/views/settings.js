@@ -1089,7 +1089,7 @@ export async function render(root, app, params = {}) {
         title: ownCompany ? 'Volver a empezar' : 'Datos de ejemplo',
         subtitle: ownCompany
           ? 'Volvé a la empresa de ejemplo para explorar RATEOS, o empezá de cero con tu empresa.'
-          : 'Empresa ficticia con la cotización "Hidrogrúa on-call — Añelo" y un ejemplo de tarifa que no cubre los costos.',
+          : 'Empresa ficticia con la cotización "Hidrogrúa por día — Añelo" y un ejemplo de tarifa que no cubre los costos.',
         level: 2,
       },
       h(

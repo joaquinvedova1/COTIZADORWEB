@@ -76,6 +76,18 @@ function demoResult(id) {
   return { q, settings: state.settings, r: computeQuote(q, { settings: state.settings }) };
 }
 
+/**
+ * La demo hidrogrúa como estaba guardada antes de 0.10.1 (sin contrato, horas extra en el puesto,
+ * mínimo por llamado y tramos de 3 / 5 / 8 %): una cotización vieja con tramos con descuento.
+ */
+function oldDemoResult() {
+  const state = createDemoState();
+  const { contract, overtimeWork, ...q } = state.quotes.find((x) => x.id === DEMO_IDS.quoteHydroCrane);
+  q.labor = q.labor.map((l) => ({ ...l, overtimeHoursPerActiveDay: 4 }));
+  q.rules = { ...q.rules, minimumCallUnits: 1, volumeTiers: q.rules.volumeTiers.map((t) => ({ ...t, discountPct: { 'tier-3': 3, 'tier-4': 5, 'tier-5': 8 }[t.id] ?? 0 })) };
+  return { q, settings: state.settings, r: computeQuote(q, { settings: state.settings }) };
+}
+
 describe('días en superficie (1 decimal; 2 debajo de 1 día)', () => {
   test('mismo redondeo que formatDays: 6,3496 → 6,4 y 6,2496 → 6,3 (6,25 en "Ver cálculo")', () => {
     assert.equal(shownDays(6.3496), 6.4);
@@ -204,8 +216,8 @@ describe('tramos de descuento y actividad mínima (PROD-2 / REG-8)', () => {
     assert.equal(tierDiscountFindings(r.discounts).granted, 0);
   });
 
-  test('demo: 3 tramos con descuento, ninguno pierde; los de 0 % pierden por pocos días', () => {
-    const { r } = demoResult(DEMO_IDS.quoteHydroCrane);
+  test('demo guardada antes de 0.10.1: 3 tramos con descuento, ninguno pierde; los de 0 % pierden por pocos días', () => {
+    const { r } = oldDemoResult();
     assert.equal(tierDiscountFindings(r.discounts).granted, 3);
     assert.equal(discountAlert(r), null);
     assert.equal(minActivityNotice(r), 'Con menos de 6,4 días trabajados perdés plata (no es por el descuento: es la actividad mínima).');
@@ -247,8 +259,8 @@ describe('nota del comparador de modelos (UX-5)', () => {
     assert.equal(text, 'El break-even de cada modelo usa la tarifa objetivo (no tu tarifa): por eso difiere del de tu cotización (10 días).');
   });
 
-  test('demo (tarifa sugerida con tramos de descuento): sin tramos de descuento', () => {
-    const text = noteFor(demoResult(DEMO_IDS.quoteHydroCrane));
+  test('demo guardada antes de 0.10.1 (tarifa sugerida con tramos de descuento): sin tramos de descuento', () => {
+    const text = noteFor(oldDemoResult());
     assert.equal(text, 'El break-even de cada modelo usa la tarifa objetivo, sin tramos de descuento: por eso difiere del de tu cotización (6,4 días).');
   });
 

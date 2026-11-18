@@ -56,7 +56,7 @@ Vende **resultados**, no funcionalidades. Debe pasar el **test de los 10 segundo
 | ¿Qué me da? | Costo real, tarifa piso y rentabilidad. |
 | ¿Qué hago ahora? | Crear una cotización o probar con un ejemplo. |
 
-El mockup del hero muestra **producto** (la demo "Hidrogrúa on-call — Añelo" calculada en vivo por el motor, marcada como ejemplo ilustrativo). La landing no muestra KPIs, alertas, EECC ni configuraciones.
+El mockup del hero muestra **producto** (la demo "Hidrogrúa por día — Añelo" calculada en vivo por el motor, marcada como ejemplo ilustrativo). La landing no muestra KPIs, alertas, EECC ni configuraciones.
 
 ### Ingresar / Crear cuenta / Bienvenida
 

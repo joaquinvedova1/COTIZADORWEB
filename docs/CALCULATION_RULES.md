@@ -3,6 +3,8 @@
 Este documento describe **todas** las fórmulas del motor económico tal como están implementadas en `js/engines/` (v0.1.0 + cambios en curso del [CHANGELOG](../CHANGELOG.md), "Sin publicar"). Es parte de la especificación funcional: si una fórmula cambia, este documento, los tests y el [CHANGELOG](../CHANGELOG.md) cambian en el mismo Pull Request (ver [AGENTS.md](../AGENTS.md), "Protección del motor").
 
 > **Valores ILUSTRATIVOS.** Los ejemplos numéricos usan los datos demo de *Patagonia Servicios SRL* (empresa ficticia) o casos de referencia sintéticos. No son escalas salariales, cargas patronales, alícuotas, precios ni costos reales.
+>
+> **Demo Hidrogrúa y versiones.** Los ejemplos numéricos de la demo "Hidrogrúa por día — Añelo" (costo, estructura, tarifas, tramos y equilibrio) son los de la demo hasta 0.10.0: 4 h extra por día en el puesto, mínimo por llamado de 1 día y tramos de 3 / 5 / 8 % (costo del mes 15.776.498, sugerida 2.259.000). Las fórmulas no cambiaron. Desde 0.10.1 la demo tiene contrato (por servicio prestado, con categorías de gasto), las horas extra van en "Horas extra del trabajo" (4 h al 50 % por llamado, además de las 10 h de cada día, con el uso por hora de los equipos propios, §28), no tiene guardia ni mínimo por llamado ni tramos con descuento: costo del mes 16.380.305, piso 2.047.539 y sugerida 2.276.000 por día.
 
 Convenciones:
 
@@ -75,7 +77,7 @@ Orden de cálculo dentro de `buildCostModel(quote)`:
 
 Cada línea del modelo (`model.lines`) tiene `category` (categoría de la EECC), `payGroup` (grupo de pago para el financiero), `fixedMonthly`, `variablePerActiveDay` y su parte en efectivo (`cashFixedMonthly`, `cashVariablePerActiveDay`). `F` y `v` son la suma de las 8 categorías (incluidos financiero y contingencia).
 
-**Ejemplo (demo Hidrogrúa on-call — Añelo, ILUSTRATIVO):** `F ≈ 9.031.407`, `v ≈ 843.136/día`, `D = 8` → `Costo(8) ≈ 9.031.407 + 6.745.091 = 15.776.498`.
+**Ejemplo (demo Hidrogrúa por día — Añelo, ILUSTRATIVO):** `F ≈ 9.031.407`, `v ≈ 843.136/día`, `D = 8` → `Costo(8) ≈ 9.031.407 + 6.745.091 = 15.776.498`.
 
 ## 2. Actividad y on-call
 
@@ -1410,7 +1412,7 @@ Los pendientes (`pending`) se ordenan críticos primero y después rojos. Ejempl
 | Margen objetivo (`pricing.targetMarginPct`) | el de la configuración (10 % en la demo) | `margin` en verde |
 | Impuestos sobre la facturación (`billingTaxes`) | los de la empresa (`settings.defaultBillingTaxes`) si ya los decidió, aun con configuración de demostración; si no, sin definir | `billing_taxes` en naranja si quedan sin definir |
 
-Con una configuración propia (`settings.illustrative !== true`), el plazo y la contingencia toman los valores de la configuración y el combustible no queda marcado. Las plantillas pueden traer sus propios valores (por ejemplo, la plantilla Hidrogrúa on-call carga 8 días activos y 90 días de plazo). Ejemplo: una cotización en blanco con la configuración demo da **34,21 %** (rojos: actividad, personal, equipos, logística y plazo de pago; naranjas: materiales, estructura, contingencia, impuestos sobre la facturación y standby).
+Con una configuración propia (`settings.illustrative !== true`), el plazo y la contingencia toman los valores de la configuración y el combustible no queda marcado. Las plantillas pueden traer sus propios valores (por ejemplo, la plantilla Hidrogrúa por día carga 8 días activos y 90 días de plazo). Ejemplo: una cotización en blanco con la configuración demo da **34,21 %** (rojos: actividad, personal, equipos, logística y plazo de pago; naranjas: materiales, estructura, contingencia, impuestos sobre la facturación y standby).
 
 ## 20. Indicadores y alertas
 
