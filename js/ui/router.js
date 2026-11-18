@@ -75,7 +75,7 @@ export const ROUTES = Object.freeze([
   { name: 'scenarios', segments: ['escenarios'], shell: 'app', access: 'auth', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
   { name: 'scenarios-quote', segments: ['escenarios', ':id'], shell: 'app', access: 'auth', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
   { name: 'settings', segments: ['configuracion'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', defaults: { tab: 'empresa' }, load: () => import('./views/settings.js'), view: 'render' },
-  // Los convenios volvieron a Recursos (0.11.0): ahí se cargan el personal y sus aumentos.
+  // Los convenios volvieron a Recursos (0.12.0): ahí se cargan el personal y sus aumentos.
   { name: 'settings-agreements', segments: ['configuracion', 'convenios'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', redirect: () => '#/recursos/convenios' },
   { name: 'settings-tab', segments: ['configuracion', ':tab'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', validate: (p) => SETTINGS_TABS.includes(p.tab), load: () => import('./views/settings.js'), view: 'render' },
   // Panel de la PLATAFORMA (RATEOS ADMIN). Requiere sesión; el permiso real lo

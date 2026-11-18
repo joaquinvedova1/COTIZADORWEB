@@ -1,5 +1,5 @@
 /**
- * Versión 0.11.0 (2026-11-18): personal por convenio.
+ * Versión 0.12.0 (2026-11-18): personal por convenio.
  * - Sueldo como en el recibo: remunerativo, no remunerativo y aportes del trabajador.
  * - Los aportes sólo dan el neto: no cambian el costo de la empresa.
  * - El no remunerativo y las contribuciones fijas del convenio no llevan cargas.
@@ -44,7 +44,7 @@ const profile = (extra = {}) => ({
 });
 const one = (p) => computeLaborLine({ ...p, positions: 1, peoplePerPosition: 1 });
 
-describe('Sueldo como en el recibo (0.11.0)', () => {
+describe('Sueldo como en el recibo (0.12.0)', () => {
   test('el no remunerativo y las contribuciones fijas suman al costo sin cargas', () => {
     const p = one(profile()).perPerson;
     const loaded = 1000000 * (1 + 0.0833 + 0.04) * (1 + 0.24 + 0.02);
@@ -66,7 +66,7 @@ describe('Sueldo como en el recibo (0.11.0)', () => {
     close(p.payslipEmployerCost, 1000000 * 1.26 + 500000 + 100000);
   });
 
-  test('un puesto anterior a 0.11.0 (sin campos nuevos) cuesta lo mismo que antes', () => {
+  test('un puesto anterior a 0.12.0 (sin campos nuevos) cuesta lo mismo que antes', () => {
     const old = { basicMonthly: 900000, additionalsMonthly: 100000, sacPct: 8.33, vacationPct: 4, employerContributionsPct: 24, artPct: 6, normalHoursPerMonth: 176, positions: 1, peoplePerPosition: 1 };
     const p = computeLaborLine(old).perPerson;
     close(p.fixedMonthly, 1000000 * (1 + 0.0833 + 0.04) * (1 + 0.24 + 0.06));
@@ -85,7 +85,7 @@ describe('Sueldo como en el recibo (0.11.0)', () => {
 });
 
 describe('Revisión de costos', () => {
-  test('una línea guardada antes de 0.11.0 con su puesto sin cambios no avisa "valores nuevos"', () => {
+  test('una línea guardada antes de 0.12.0 con su puesto sin cambios no avisa "valores nuevos"', () => {
     const agr = { id: 'a1', params: { normalHoursPerMonth: 176, overtimePremiumPct: 50, sacPct: 8.33, vacationPct: 4, employerContributionsPct: 24, artPct: 6 } };
     const prof = { id: 'pp', role: 'Chofer', agreementId: 'a1', basicMonthly: 1000000, additionalsMonthly: 0, sacPct: 8.33, vacationPct: 4, employerContributionsPct: 24, artPct: 6, normalHoursPerMonth: 176, base: { period: '2026-07', currency: 'ARS' } };
     const line = laborLineFromProfile(prof, agr, { id: 'l', now: '2026-10-01T00:00:00Z' });

@@ -12,16 +12,16 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
-## [0.11.0] - 2026-11-18
+## [0.12.0] - 2026-11-18
 
-**Personal por convenio (2026-11-18, pedido del dueño).** El sueldo de cada puesto se carga como en el recibo (remunerativo, no remunerativo y aportes del trabajador), las cargas sociales salen del convenio y cada paritaria se aplica con "Aplicar aumento" a todos los puestos del convenio, con historial. Los puestos ya cargados y las cotizaciones guardadas no cambian de números. Sin cambio de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §31](docs/CALCULATION_RULES.md).
+**Personal por convenio (2026-11-18, pedido del dueño).** El sueldo de cada puesto se carga como en el recibo (remunerativo, no remunerativo y aportes del trabajador), las cargas sociales salen del convenio y cada paritaria se aplica con "Aplicar aumento" a todos los puestos del convenio, con historial. Los puestos ya cargados y las cotizaciones guardadas no cambian de números. Sin cambio de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §32](docs/CALCULATION_RULES.md).
 
 ### Agregado
 
 - Puesto (Recursos → Personal): **No remunerativo** por mes (`nonRemunerativeMonthly`, sin cargas) y **Aportes del trabajador** (`workerContributionsPct`, sólo para mostrar el neto). Debajo del sueldo: Bruto, Neto, Costo empleador del mes (para comparar con el recibo) y Te cuesta por mes.
 - Convenio: **Contribuciones fijas por persona** (`params.fixedContributionsMonthly`, ej. contribución extraordinaria petrolera; costo sin cargas), **Cargas sobre el no remunerativo** (`params.nonRemunerativeChargesPct`, 0 por defecto) y aportes del trabajador.
 - **Aplicar aumento** por convenio: % sobre el remunerativo y sobre el no remunerativo (vacío = el mismo), desde un mes y con nota, con vista previa por puesto. Queda en `agreement.raises` con los valores anteriores de cada puesto; **Ver historial** y **Deshacer** el último aumento (con confirmación).
-- `js/domain/agreement-raises.js`: `applyAgreementRaise`, `undoLastAgreementRaise`, `profilesToPropagate`, `agreementRaiseFactor(agreement, desde, hasta)` (aumento acumulado entre dos meses, para actualizar tarifas).
+- `js/domain/agreement-raises.js`: `applyAgreementRaise`, `undoLastAgreementRaise`, `profilesToPropagate`, `agreementRaiseFactor(agreement, desde, hasta)` (aumento acumulado entre dos meses, para que "Actualizar tarifa" proponga el % de mano de obra).
 - Lista de convenios con número de CCT: Petroleros Privados (644/12 y Chubut / Santa Cruz), Petroleros Jerárquicos (637/11), UOCRA Yacimientos (545/08), UOCRA Construcción (76/75), Camioneros (40/89), UOM (260/75), Comercio (130/75), Gastronómicos (389/04), Seguridad privada (507/07). Sin valores: los porcentajes los carga cada empresa.
 
 ### Cambiado
@@ -29,6 +29,20 @@ Reglas para este archivo:
 - Convenios vuelve a **Recursos** (segunda pestaña); `#/configuracion/convenios` redirige a `#/recursos/convenios`.
 - Un puesto **sigue a su convenio**: si se cambian las cargas del convenio, se actualiza en cada puesto cada valor que era igual al anterior (clave por clave); los que tienen valores propios no se tocan ("Volver a los valores del convenio"). Al elegir otro convenio en un puesto, toma sus valores.
 - "Otros pagos fijos" y la vianda por día salen del bloque principal del sueldo (la vianda pasa a "Más detalle"; "Otros pagos remunerativos" se ve sólo si ya estaba cargado).
+
+## [0.11.0] - 2026-11-18
+
+**Actualizar tarifa por estructura de costos (2026-11-18, pedido del dueño).** Detalle en [docs/CALCULATION_RULES.md §31](docs/CALCULATION_RULES.md). Sin cambio de fórmulas de costo ni de versión de esquema; las cotizaciones no cambian sus números.
+
+### Agregado
+
+- Cotizaciones → vista **"Tarifas"**: ítem, unidad, valor vigente, período de la tarifa y botón **"Actualizar tarifa"** (también en "Más opciones").
+- Cuadro "Actualizar tarifa": período base, mes destino, % de aumento por categoría de la EECC con su incidencia y aporte, aumento ponderado ("60 % × 2 % + 40 % × 5 % = 3,2 %") y tarifa nueva; historial y "Deshacer la última".
+- `quote.rateUpdate` (opcional) con el período base, la foto de la base (tarifa y montos por categoría al actualizar por primera vez), los pasos y los historiales archivados; motor `rate-update-engine.js` (índices encadenados por categoría). Si la cotización cambió después, aviso y "Tomar la cotización actual como nueva base".
+
+### Cambiado
+
+- La tarifa de los listados e Inicio muestra la vigente ("act. nov-26") cuando la cotización se actualizó.
 
 ## [0.10.0] - 2026-11-18
 

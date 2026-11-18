@@ -164,7 +164,7 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeB
   const ppe = nonNegative(line.ppeMonthly);
   const training = nonNegative(line.trainingMonthly);
   const transfer = nonNegative(line.transferMonthly);
-  // 0.11.0: sumas NO remunerativas del recibo (viandas de convenio, asignaciones por acta…) y
+  // 0.12.0: sumas NO remunerativas del recibo (viandas de convenio, asignaciones por acta…) y
   // contribuciones fijas del convenio por persona: costo de la empresa, sin cargas encima.
   const nonRemunerativePay = nonNegative(line.nonRemunerativeMonthly);
   // Cargas del convenio sobre el no remunerativo (obra social, cuota sindical…); 0 = sin cargas.
@@ -174,7 +174,7 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeB
   const nonRemunerative = insurance + ppe + training + transfer + nonRemunerativePay + nonRemunerativeCharges + fixedContributions;
 
   const fixedMonthlyPerPerson = loadedRemunerative + nonRemunerative;
-  // Aportes del trabajador (0.11.0): se restan del bruto para mostrar el NETO del recibo.
+  // Aportes del trabajador (0.12.0): se restan del bruto para mostrar el NETO del recibo.
   // No cambian el costo de la empresa (los paga el trabajador de su bruto).
   const workerContributionsPct = nonNegative(line.workerContributionsPct);
   const grossMonthly = remunerative + nonRemunerativePay;

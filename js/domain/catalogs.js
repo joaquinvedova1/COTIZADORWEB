@@ -59,7 +59,7 @@ export const DIRECT_CATEGORY_IDS = deepFreeze(['labor', 'equipment', 'external',
  * Cada empresa debe cargar los valores vigentes de su convenio.
  */
 export const AGREEMENT_TYPES = deepFreeze([
-  // 0.11.0 (2026-11-18): convenios habituales en servicios petroleros, construcción y transporte,
+  // 0.12.0 (2026-11-18): convenios habituales en servicios petroleros, construcción y transporte,
   // con su número de CCT. Sólo NOMBRES: los porcentajes los carga cada empresa (nunca se inventan).
   // El orden de los 9 primeros no se cambia (los ids de la demo salen de su posición); `order`
   // ordena la lista que se muestra.
@@ -73,11 +73,11 @@ export const AGREEMENT_TYPES = deepFreeze([
   { code: 'comercio', label: 'Empleados de Comercio (CCT 130/75)', order: 8 },
   { code: 'panaderos', label: 'Panaderos / pasteleros', order: 13 },
   { code: 'gastronomicos', label: 'Gastronómicos (CCT 389/04)', order: 9 },
-  // 0.11.0: sólo en la lista para elegir (la demo no los crea).
-  { code: 'petroleros_privados_sur', label: 'Petroleros Privados (Chubut y Santa Cruz)', order: 2, addedIn: '0.11.0' },
-  { code: 'uocra_yacimientos', label: 'UOCRA Yacimientos (CCT 545/08)', order: 4, addedIn: '0.11.0' },
-  { code: 'uom', label: 'UOM Metalúrgicos (CCT 260/75)', order: 7, addedIn: '0.11.0' },
-  { code: 'seguridad', label: 'Seguridad privada (CCT 507/07)', order: 10, addedIn: '0.11.0' },
+  // 0.12.0: sólo en la lista para elegir (la demo no los crea).
+  { code: 'petroleros_privados_sur', label: 'Petroleros Privados (Chubut y Santa Cruz)', order: 2, addedIn: '0.12.0' },
+  { code: 'uocra_yacimientos', label: 'UOCRA Yacimientos (CCT 545/08)', order: 4, addedIn: '0.12.0' },
+  { code: 'uom', label: 'UOM Metalúrgicos (CCT 260/75)', order: 7, addedIn: '0.12.0' },
+  { code: 'seguridad', label: 'Seguridad privada (CCT 507/07)', order: 10, addedIn: '0.12.0' },
 ]);
 
 /** Convenios en el orden en que se muestran para elegir. */
@@ -90,18 +90,18 @@ export const ILLUSTRATIVE_AGREEMENT_PARAMS = deepFreeze({
   vacationPct: 4,
   employerContributionsPct: 24,
   artPct: 6,
-  // 0.11.0: aportes del trabajador (jubilación 11 + ley 19.032 3 + obra social 3). Sólo para
+  // 0.12.0: aportes del trabajador (jubilación 11 + ley 19.032 3 + obra social 3). Sólo para
   // mostrar el neto: los paga el trabajador de su bruto, NO bajan el costo de la empresa.
   workerContributionsPct: 17,
-  // 0.11.0: contribuciones fijas por persona y por mes que fija el convenio (ej. contribución
+  // 0.12.0: contribuciones fijas por persona y por mes que fija el convenio (ej. contribución
   // extraordinaria, seguro de vida colectivo). Costo de la empresa, sin cargas encima.
   fixedContributionsMonthly: 0,
-  // 0.11.0 (revisión de costos): % de cargas que el convenio aplica sobre el no remunerativo
+  // 0.12.0 (revisión de costos): % de cargas que el convenio aplica sobre el no remunerativo
   // (obra social, cuota sindical…). 0 = sin cargas.
   nonRemunerativeChargesPct: 0,
 });
 
-/** Parámetros que un puesto toma de su convenio (0.11.0). */
+/** Parámetros que un puesto toma de su convenio (0.12.0). */
 export const AGREEMENT_PARAM_KEYS = deepFreeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct', 'workerContributionsPct', 'fixedContributionsMonthly', 'nonRemunerativeChargesPct']);
 
 /**

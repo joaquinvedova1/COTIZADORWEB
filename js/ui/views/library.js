@@ -134,7 +134,7 @@ const TABS = Object.freeze([
   },
 ]);
 
-/** Pestañas visibles en Recursos (#/recursos/:tab). Convenios volvió a Recursos (0.11.0). */
+/** Pestañas visibles en Recursos (#/recursos/:tab). Convenios volvió a Recursos (0.12.0). */
 export const RESOURCE_TAB_IDS = Object.freeze(['personal', 'convenios', 'equipos', 'externos', 'materiales', 'ubicaciones', 'catalogo']);
 
 const LOCATION_TYPES = Object.freeze([
@@ -565,7 +565,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       ],
     },
     {
-      // 0.11.0 (Joaco, 2026-11-18): remunerativo, no remunerativo y aportes, como en el recibo.
+      // 0.12.0 (Joaco, 2026-11-18): remunerativo, no remunerativo y aportes, como en el recibo.
       title: 'Sueldo mensual por persona',
       hint: 'Copiá los totales del recibo. Las cargas las suma RATEOS.',
       cols: 4,
@@ -702,7 +702,7 @@ function newLaborProfile(agreements) {
     vacationPct: params.vacationPct,
     employerContributionsPct: params.employerContributionsPct,
     artPct: params.artPct,
-    // 0.11.0: no remunerativo, aportes del trabajador y contribuciones fijas (estos dos, del convenio).
+    // 0.12.0: no remunerativo, aportes del trabajador y contribuciones fijas (estos dos, del convenio).
     nonRemunerativeMonthly: 0,
     nonRemunerativeChargesPct: params.nonRemunerativeChargesPct,
     workerContributionsPct: params.workerContributionsPct,
@@ -1312,7 +1312,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     await refresh();
   }
 
-  /** Guarda un convenio y actualiza los puestos que usaban sus valores (0.11.0). */
+  /** Guarda un convenio y actualiza los puestos que usaban sus valores (0.12.0). */
   async function saveAgreement(before, entity, verb) {
     const saved = await ctx.resources.save('agreements', entity);
     const updates = profilesToPropagate(before, saved, list('laborProfiles'));

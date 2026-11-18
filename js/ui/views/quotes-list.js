@@ -14,7 +14,7 @@
 
 import { h, s, mount, debounce, uniqueId } from '../dom.js';
 import { badge, banner, button, card, confirmDialog, disclosure, emptyState, icon, linkButton, openDialog, pageIntro, progressBar, table } from '../components.js';
-import { formatDateTime, formatDays, formatMoney, formatPercent, EMPTY } from '../../core/format.js';
+import { formatDateTime, formatDays, formatMoney, formatPercent, formatPeriod, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
 import { componentsServiceLabel } from '../../domain/contract.js';
@@ -23,10 +23,11 @@ import { billingUnitOf } from '../../domain/billing-units.js';
 import { usesTimeBasis } from '../../domain/cost-basis.js';
 import { quantityCeilText } from '../unit-text.js';
 import { breakEvenZeroText } from '../result-text.js';
-import { markFreshQuote } from '../session-memory.js';
+import { markFreshQuote, onSessionReset } from '../session-memory.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { templateContents } from './services.js';
+import { openRateUpdateDialog, ratePeriodNode } from '../rate-update-ui.js';
 
 export { completenessTone };
 
@@ -147,9 +148,77 @@ function moreIcon() {
 /** Tarifa de lista (la sugerida o la que ofrecés) con su unidad ("$ 2.259.000 /día") o "Sin tarifa". */
 export function quoteRateNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
+  // Tarifa vigente (0.11): si se actualizó por EECC, la del último período.
+  const ru = summary.rateUpdate;
+  if (ru && ru.updated && isFiniteNumber(ru.rate)) {
+    return h(
+      'span',
+      { class: 'rate-cell', title: `Actualizada a ${formatPeriod(ru.period)} (base ${formatPeriod(ru.basePeriod)}: ${formatMoney(ru.baseRate)})` },
+      h('span', { class: 'nowrap' }, formatMoney(ru.rate), h('span', { class: 'unit-suffix' }, ` /${quoteUnitShort(quote)}`)),
+      h('span', { class: 'cell-sub nowrap' }, `act. ${formatPeriod(ru.period)}`),
+    );
+  }
   return isFiniteNumber(summary.commercialListRate)
     ? h('span', { class: 'nowrap' }, formatMoney(summary.commercialListRate), h('span', { class: 'unit-suffix' }, ` /${quoteUnitShort(quote)}`))
     : muted('Sin tarifa');
+}
+
+/**
+ * Columnas de la vista "Tarifas" (0.11): ítem, unidad de medida, valor vigente, período de la
+ * tarifa y "Actualizar tarifa".
+ */
+export function rateColumns({ onUpdate, href = ({ quote, summary }) => quoteDetailHref(quote, summary) } = {}) {
+  return [
+    {
+      key: 'item',
+      label: 'Ítem',
+      className: 'col-service',
+      render: (row) => {
+        const { quote, summary } = row;
+        return h(
+          'div',
+          { class: 'cell-main' },
+          h('a', { href: href(row), class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
+          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), typeof quote.client === 'string' && quote.client.trim() ? ` · ${quote.client}` : ''),
+          summaryFailed(summary) ? failedBadge(quote) : null,
+        );
+      },
+    },
+    { key: 'unit', label: 'Unidad', render: ({ quote }) => h('span', { class: 'nowrap' }, quoteUnitShort(quote)) },
+    {
+      key: 'value',
+      label: 'Valor',
+      align: 'right',
+      render: ({ quote, summary }) => {
+        if (summaryFailed(summary)) return muted();
+        const ru = summary.rateUpdate;
+        const rate = ru && isFiniteNumber(ru.rate) ? ru.rate : summary.commercialListRate;
+        if (!isFiniteNumber(rate)) return muted('Sin tarifa');
+        return h(
+          'span',
+          { class: 'rate-cell' },
+          h('span', { class: 'nowrap' }, formatMoney(rate)),
+          ru && ru.updated ? h('span', { class: 'cell-sub nowrap', title: `Aumento acumulado desde ${formatPeriod(ru.basePeriod)}` }, `${ru.totalPct >= 0 ? '+' : ''}${formatPercent(ru.totalPct, { decimals: 1 })}`) : null,
+        );
+      },
+    },
+    { key: 'period', label: 'Período de la tarifa', render: ({ summary }) => (summaryFailed(summary) ? muted() : ratePeriodNode(summary.rateUpdate)) },
+    {
+      key: 'action',
+      label: h('span', { class: 'sr-only' }, 'Acciones'),
+      align: 'right',
+      className: 'col-actions',
+      render: (row) =>
+        button('Actualizar tarifa', {
+          variant: 'secondary',
+          size: 'sm',
+          icon: 'chart',
+          disabled: summaryFailed(row.summary),
+          onClick: () => onUpdate(row),
+          attrs: { 'aria-label': `Actualizar la tarifa de ${quoteRef(row.quote)}` },
+        }),
+    },
+  ];
 }
 
 /** Margen esperado como insignia de color (o "—" si no hay tarifa). */
@@ -350,12 +419,18 @@ export function noQuotesState() {
 
 // -------------------------------------------------------------------- listado
 
+/** Última vista del listado (simple, tarifas o detallada) mientras dura la sesión. */
+let lastListView = 'simple';
+onSessionReset(() => {
+  lastListView = 'simple';
+});
+
 export async function render(root, app) {
   const { ctx } = app;
   const newQuoteAction = () => linkButton('Nueva cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus' });
   app.setHeader({ title: 'Cotizaciones', breadcrumbs: [{ label: 'Inicio', href: '#/inicio' }], actions: [newQuoteAction()] });
 
-  const state = { query: '', status: '', items: [], view: 'simple' };
+  const state = { query: '', status: '', items: [], view: lastListView };
   const listHost = h('div', { class: 'quotes-list-host' });
   const countEl = h('span', { class: 'muted small toolbar-count', role: 'status' });
 
@@ -382,11 +457,13 @@ export async function render(root, app) {
   // Vista simple / detallada (sólo en memoria mientras se usa la pantalla).
   const viewButtons = [
     { id: 'simple', label: 'Simple', title: 'Servicio, cliente, estado, tarifa y margen' },
+    { id: 'rates', label: 'Tarifas', title: 'Ítem, unidad, valor, período de la tarifa y "Actualizar tarifa"' },
     { id: 'detailed', label: 'Detallada', title: 'Suma costo del mes, cuánto facturar para no perder, costos cargados y acciones' },
   ].map((v) => {
     const btn = h('button', { type: 'button', class: 'segmented-btn', title: v.title, 'aria-pressed': v.id === state.view ? 'true' : 'false' }, v.label);
     btn.addEventListener('click', () => {
       state.view = v.id;
+      lastListView = v.id;
       viewButtons.forEach((b) => b.el.setAttribute('aria-pressed', b.id === state.view ? 'true' : 'false'));
       renderList();
     });
@@ -468,6 +545,11 @@ export async function render(root, app) {
     return select;
   };
 
+  /** "Actualizar tarifa" de una fila (0.11). */
+  function updateRate({ quote, summary }) {
+    openRateUpdateDialog({ app, quote, summary, onSaved: () => load() });
+  }
+
   /** "Más opciones" de una fila: datos secundarios y acciones. */
   function openOptions({ quote, summary }) {
     const failed = summaryFailed(summary);
@@ -483,6 +565,11 @@ export async function render(root, app) {
       if (await duplicate(quote)) dialogRef.close();
       else dupBtn.disabled = false;
     });
+    const rateBtn = button('Actualizar tarifa', { variant: 'secondary', icon: 'chart', disabled: failed });
+    rateBtn.addEventListener('click', () => {
+      dialogRef.close();
+      updateRate({ quote, summary });
+    });
     const delBtn = button('Eliminar', { variant: 'danger', icon: 'trash' });
     delBtn.addEventListener('click', async () => {
       if (await remove(quote)) dialogRef.close();
@@ -496,6 +583,7 @@ export async function render(root, app) {
         [PRICING_STEP_LABEL, labelOf(PRICING_MODES, quote.pricingMode)],
         ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
         ['Tarifa', quoteRateNode(quote, summary)],
+        ['Período de la tarifa', failed ? EMPTY : ratePeriodNode(summary.rateUpdate)],
         ['Margen esperado', quoteMarginNode(summary)],
         ['Para no perder (por mes)', breakEvenNode(quote, summary)],
         ['Costos cargados', failed ? EMPTY : completenessCell(summary.completenessPct)],
@@ -507,7 +595,7 @@ export async function render(root, app) {
     dialogRef = openDialog({
       title: textOf(quote.name, 'Cotización sin nombre'),
       content,
-      actions: [delBtn, h('span', { class: 'spacer' }), dupBtn, linkButton('Abrir en el editor', quoteHref(quote), { variant: 'primary', icon: 'edit' })],
+      actions: [delBtn, h('span', { class: 'spacer' }), rateBtn, dupBtn, linkButton('Abrir en el editor', quoteHref(quote), { variant: 'primary', icon: 'edit' })],
     });
   }
 
@@ -577,16 +665,21 @@ export async function render(root, app) {
       return;
     }
     const detailed = state.view === 'detailed';
+    const rates = state.view === 'rates';
     const columns = detailed
       ? [...quoteColumns({ statusCell: detailedStatusCell }), { key: 'actions', label: h('span', { class: 'sr-only' }, 'Acciones'), align: 'right', className: 'col-actions', render: detailedActions }]
-      : quoteSummaryColumns({ action: simpleActions });
-    const tableEl = table({ columns, rows: filtered, caption: 'Listado de cotizaciones', className: ['quotes-table', 'table-cards', detailed ? 'quotes-table-detailed' : null].filter(Boolean).join(' ') });
+      : rates
+        ? rateColumns({ onUpdate: updateRate })
+        : quoteSummaryColumns({ action: simpleActions });
+    const tableEl = table({ columns, rows: filtered, caption: 'Listado de cotizaciones', className: ['quotes-table', 'table-cards', detailed ? 'quotes-table-detailed' : null, rates ? 'quotes-table-rates' : null].filter(Boolean).join(' ') });
     attachRowNavigation(tableEl, filtered, ({ quote, summary }) => app.navigate(quoteDetailHref(quote, summary)));
     mount(
       listHost,
       failedQuotesBanner(filtered),
       tableEl,
-      h('p', { class: 'footnote' }, 'Montos con la actividad estimada de cada cotización. El margen es sobre el precio de venta (no es markup).'),
+      h('p', { class: 'footnote' }, rates
+        ? 'Valor: la tarifa vigente. "Actualizar tarifa" la lleva a otro mes con el aumento de cada categoría de costos; la cotización original no cambia.'
+        : 'Montos con la actividad estimada de cada cotización. El margen es sobre el precio de venta (no es markup).'),
     );
   }
 

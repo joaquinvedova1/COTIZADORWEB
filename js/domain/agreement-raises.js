@@ -1,5 +1,5 @@
 /**
- * Convenios y aumentos (versión 0.11.0, 2026-11-18).
+ * Convenios y aumentos (versión 0.12.0, 2026-11-18).
  *
  * - Un puesto de personal SIGUE a su convenio mientras sus parámetros (horas,
  *   SAC, vacaciones, cargas, ART, aportes, contribuciones fijas) sean los del
@@ -37,7 +37,7 @@ export function agreementParamsOf(agreement) {
 
 /**
  * ¿El puesto usa los parámetros del convenio? Un parámetro que el puesto no
- * tiene cargado (dato anterior a 0.11.0) cuenta como igual.
+ * tiene cargado (dato anterior a 0.12.0) cuenta como igual.
  */
 export function profileFollowsParams(profile, params) {
   const p = isPlainObject(profile) ? profile : {};

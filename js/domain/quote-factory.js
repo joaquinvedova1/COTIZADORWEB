@@ -350,7 +350,7 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
     overtimeRate100: profile.overtimeRate100 ?? null,
     // Horas que de verdad vende por mes (2026-11-18); null = las normales del mes.
     billableHoursPerMonth: profile.billableHoursPerMonth ?? null,
-    // 0.11.0: no remunerativo (sin cargas), contribuciones fijas del convenio y aportes del trabajador (sólo el neto).
+    // 0.12.0: no remunerativo (sin cargas), contribuciones fijas del convenio y aportes del trabajador (sólo el neto).
     nonRemunerativeMonthly: profile.nonRemunerativeMonthly ?? 0,
     fixedContributionsMonthly: profile.fixedContributionsMonthly ?? params.fixedContributionsMonthly ?? 0,
     nonRemunerativeChargesPct: profile.nonRemunerativeChargesPct ?? params.nonRemunerativeChargesPct ?? 0,
