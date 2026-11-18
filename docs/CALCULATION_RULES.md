@@ -1895,3 +1895,47 @@ Ejemplo (operario $ 2.000.000 por mes con cargas, 176 h normales, instalación d
 
 **Qué cambia en cotizaciones existentes:** nada. Tests: `tests/engines/tiempo-usado-2026-11.test.js`.
 
+
+## 30. La unidad primero y categorías de gasto (0.10.0, 2026-11-18)
+
+**Sin cambio de fórmulas ni de totales.** Es un cambio de cómo se arma la cotización y de cómo se muestra la estructura de costos.
+
+**Modo derivado de la unidad.** Lo primero que se elige (paso "Contrato") es la unidad en que se le cobra al cliente: por mes, por trabajo, por hora, por día, por unidad (con su nombre: diagnóstico, válvula…) u otra del catálogo (viaje, m³, km, hora-hombre…). El modo del contrato (`contract.mode`, que el motor sigue leyendo) se deriva de la unidad con `modeForUnit` (`js/domain/contract.js`):
+
+| Unidad | `contract.mode` |
+|---|---|
+| `month` | `monthly` |
+| `job`, `milestone` | `closed` |
+| cualquier otra | `on_demand` |
+
+Cambiar la unidad aplica las mismas reglas de siempre: lo cargado en la unidad anterior se limpia con aviso (V-03, `applyUnitChange`), las "algunas horas" extra se limpian si cambia la base por mes ↔ por trabajo (M8, `applyContractModeChange`), con una tarifa cargada se pide convertirla (día ↔ hora) o borrarla, y por trabajo arranca en 1 trabajo por mes. "Hito" no se ofrece en cotizaciones nuevas (regla de un solo ítem), pero una cotización que lo tiene se sigue abriendo igual.
+
+**Categorías de gasto (sin redundancias).** "¿Qué incluye el servicio?" ofrece 10: Personal, Vehículos, Equipos y maquinaria, Servicios de terceros, Herramientas, Insumos y consumibles, Materiales, EPP, Viáticos y alojamiento, Otros costos. `chemicals` (químicos) pasa a ser `supplies` (insumos) y `waste` (residuos) pasa a `other` (otros costos): al LEER un contrato guardado se traducen sin repetidos.
+
+**Categoría de cada línea.** Cada material (`quote.materials[]`) y otro costo (`quote.otherCosts[]`) puede tener `component` ∈ {`tools`, `supplies`, `materials`, `ppe`, `other`}. Sin dato: un material es `materials` y un otro costo es `other`. Es un campo opcional nuevo (sin subir `SCHEMA_VERSION`); se valida como uno de esa lista. No cambia el costo de la línea ni a qué renglón de la EECC va (eso lo sigue diciendo `category` en los otros costos).
+
+**Desglose por categoría.** `computeMaterials` devuelve `byComponent` (fijo mensual y variable por día de cada categoría, como `byCategory`). `componentCostAt(model, D, { category })` (`js/engines/cost-engine.js`) da el monto de cada categoría con D días de trabajo con la misma cuenta que `costAtActivity`:
+
+```
+monto(categoría) = Σ líneas [ fijo × meses de costo fijo + variable por día × D + costo por salida × salidas de más (sólo con "cada salida completa") ]
+```
+
+En `costStructure`, el renglón `materials` trae `children`: una fila por categoría con líneas en ese renglón (monto, fijo, variable por día, % del total). La suma de los montos de `children` es el monto del renglón y la de sus % mostrados (`roundPercentagesToTotal` con el % del renglón como total) es el % del renglón. Los otros costos con otra `category` (p. ej. un laboratorio en "Equipos y servicios externos") siguen en su renglón; en el paso Materiales se ven en la sección de su categoría de gasto.
+
+**Pantalla.** El paso Materiales tiene una sección por categoría elegida (con su subtotal del motor) y nunca esconde una línea cargada. El Resultado muestra la EECC por categoría elegida (Materiales desglosado) y no muestra renglones en $ 0 de categorías no elegidas.
+
+Tests: `tests/domain/unidad-primero-2026-11.test.js` y `tests/ui/unidad-primero-2026-11.test.js`.
+
+### 30.1 Revisión de costos y UX (2026-11)
+
+**Sin cambio de totales** (costo, piso, sugerido, EECC por renglón y matriz iguales en las 1.923 cotizaciones del banco de comparación). Cambian avisos, desgloses y textos:
+
+- **Aviso de unidad (C1).** `unitIssues` sólo avisa si `contract.mode !== modeForUnit(unidad)` (modo guardado antes). `unitFitsContract` acepta en `on_demand` cualquier unidad que no sea `month`, `job` ni `milestone`: la lista por componentes (`contractUnits`) sólo ordena sugerencias.
+- **Modo incoherente guardado (C2).** Elegir de nuevo la misma unidad deriva el modo (`applyModeDerivation`) sin limpiar cantidades ni tarifas; "¿Qué incluye?" guarda `modeForUnit(unit)`. No se corrige al abrir (cambiaría el precio de una cotización guardada).
+- **Costo por categoría en Materiales (C3).** `componentCostSplitAt(model, D)` separa, por categoría de gasto, la parte que suma en el renglón Materiales (`inMaterials`, = `children` del Resultado) de la que "Va a" otros renglones (`elsewhere`, por renglón). `computeQuote(...).componentCosts` lo da con la actividad estimada y en la unidad de la cotización: `perJob = monto ÷ trabajos por mes` (precio cerrado; mismo divisor que el "Total del trabajo") y `perBilledUnit = monto ÷ unidades facturables del mes` (por hora, día o cantidad).
+- **Adicionales (C4).** Una línea `source: 'extra'` con categoría Materiales va al hijo `other` ("Otros costos"). La suma de `children` sigue siendo el renglón.
+- **Cobros de guardia (C6).** `applyContractModeChange(q, desde, hacia)`: si el modo nuevo no es `on_demand`, `rules.availabilityFeeMonthly`, `rules.calloutFeePerActivation` y `rules.minimumMonthlyGuarantee` (base en $) pasan a 0 con aviso (misma regla V-03 que el mínimo en unidades).
+- **Días al pasar de cantidad a hora o día (U6).** `activity.activeDaysPerMonth` = los días que ya derivaba el motor (`normalizeActivity`: cantidad por mes ÷ cantidad por día; por trabajo, trabajos × días por trabajo), con aviso.
+- **Nombre de la activación (U2).** En una cotización con componentes, `serviceType 'on_call'` (derivado del modo) se nombra "intervención" salvo que se cobre por llamado. Sólo texto: `serviceType` no cambia.
+
+Tests: `tests/domain/unidad-primero-revision-2026-11.test.js` y `tests/ui/unidad-primero-revision-2026-11.test.js`.

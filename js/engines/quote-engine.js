@@ -15,7 +15,7 @@ import { nonNegative, safeDivide, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
 import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
-import { buildCostModel, costStructure, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
+import { buildCostModel, costStructure, componentCostSplitAt, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
 import { hasOutOfHours, isOutOfHoursExtra, normalHourEquivalent, resourceNormalHourCost, MAN_HOUR_UNIT } from './out-of-hours-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt } from './economics-engine.js';
 import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even-engine.js';
@@ -27,9 +27,9 @@ import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
-import { contractOf, contractUnits, unitFitsContract, CONTRACT_MODES } from '../domain/contract.js';
+import { contractOf, contractUnits, modeForUnit } from '../domain/contract.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS, capitalizeUnitWord } from '../domain/billing-units.js';
-import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
+import { SERVICE_TYPES, QUOTE_STEPS, labelOf } from '../domain/catalogs.js';
 
 /** Margen leído como lo valida validateQuote (texto es-AR incluido); `fallback` si está vacío o es inválido. */
 function readMargin(value, fallback) {
@@ -200,13 +200,15 @@ function unitIssues(quote, ctx) {
     }
   }
   // Unidad que no corresponde a la modalidad del contrato (PLAN-2026-018): sólo avisa.
+  // 0.10.0 (revisión 2026-11): el modo sale de la unidad (modeForUnit); sólo se avisa si el modo
+  // guardado no es el que corresponde a la unidad (dato guardado antes). Una unidad de "por
+  // servicio" que no está en la lista sugerida para los componentes (viaje con sólo personal) vale.
   const contract = contractOf(quote);
-  if (!contract.legacy && !unitFitsContract(contract, u.id)) {
+  if (!contract.legacy && contract.mode !== modeForUnit(u.id)) {
     const usual = contractUnits(contract).map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
-    const mode = (CONTRACT_MODES.find((m) => m.id === contract.mode) || {}).label || 'Este contrato';
     issues.push({
       path: 'unit',
-      message: `"${mode}" se cobra en ${usual}. Estás cobrando en ${u.label}: revisá la unidad en "Cómo se cobra".`,
+      message: `Esta cotización quedó guardada para cobrar en ${usual}, pero estás cobrando en ${u.label}: elegí de nuevo la unidad en "${labelOf(QUOTE_STEPS, 'service', 'Contrato')}".`,
       severity: 'warning',
     });
   } else if (contract.legacy && quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {
@@ -302,6 +304,40 @@ export function evaluateDiscountTiers(ctx, listRate, targetMarginPct) {
       status: classifyDiscount({ netRate, floorNetRate: rates.floorNetRate, targetNetRate: target ? target.netRate : null }),
     };
   });
+}
+
+/**
+ * Costo de cada categoría de gasto (herramientas, insumos, materiales, EPP, otros) con la actividad
+ * estimada (revisión 0.10.0, C3 / U12): lo que se suma en el renglón Materiales de la EECC, lo que
+ * "Va a" otros renglones y, en la unidad de la cotización, lo del trabajo (precio cerrado: ÷
+ * trabajos por mes, el mismo divisor que el "Total del trabajo") o el equivalente por unidad
+ * cobrada (por hora, día o cantidad: ÷ unidades facturables del mes). Sólo un desglose del motor:
+ * no cambia ningún total.
+ */
+function componentCostsOf(model, D, estimate, contract, unitInfo, eecc) {
+  const revenue = estimate && estimate.revenue ? estimate.revenue : {};
+  const closed = contract.mode === 'closed';
+  const jobsPerMonth = closed && isFiniteNumber(revenue.activations) && revenue.activations > 1e-9 ? revenue.activations : null;
+  const billableUnits = !closed && unitInfo.kind !== 'month' && isFiniteNumber(revenue.billableUnits) && revenue.billableUnits > 1e-9 ? revenue.billableUnits : null;
+  const inUnit = (amount) => ({
+    perJob: jobsPerMonth !== null ? amount / jobsPerMonth : null,
+    perBilledUnit: billableUnits !== null ? amount / billableUnits : null,
+  });
+  const split = componentCostSplitAt(model, D);
+  const byComponent = Object.fromEntries(Object.entries(split).map(([id, part]) => [id, {
+    amount: part.amount,
+    inMaterials: { ...part.inMaterials, ...inUnit(part.inMaterials.amount) },
+    elsewhere: part.elsewhere.map((x) => ({ ...x, ...inUnit(x.amount) })),
+  }]));
+  const row = eecc && Array.isArray(eecc.rows) ? eecc.rows.find((r) => r.category === 'materials') : null;
+  const materialsAmount = row ? row.amount : 0;
+  return {
+    jobsPerMonth,
+    billableUnitsPerMonth: billableUnits,
+    byComponent,
+    // El renglón Materiales completo de la EECC (lo de todas las categorías que suman ahí).
+    materials: { amount: materialsAmount, ...inUnit(materialsAmount) },
+  };
 }
 
 /**
@@ -445,6 +481,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
 
   // Estructura de costos, matriz, descuentos, completitud
   const eecc = costStructure(model, D);
+  const componentCosts = componentCostsOf(model, D, estimate, contractOf(quote), unitInfo, eecc);
   // La matriz siempre incluye el margen objetivo (aunque no esté en la escalera).
   const matrixMargins = unique([...ladder, ...(targetMarginInvalid ? [] : [targetMarginPct]), ...(customMarginPct !== null ? [customMarginPct] : [])].filter((m) => isValidMarginAndTaxes(m, t) && m > 0));
   const matrix = buildRateUtilizationMatrix(ctx, {
@@ -875,6 +912,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
     targetMarginDays,
     linear,
     eecc,
+    // Costo por categoría de gasto de Materiales / Otros costos (revisión 0.10.0, C3 y U12).
+    componentCosts,
     matrix,
     discounts,
     continuity,

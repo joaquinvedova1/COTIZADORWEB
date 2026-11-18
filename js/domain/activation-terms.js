@@ -43,7 +43,14 @@ export function activationTermOf(serviceTypeOrQuote) {
   const isQuote = serviceTypeOrQuote !== null && typeof serviceTypeOrQuote === 'object';
   const type = isQuote ? serviceTypeOrQuote.serviceType : serviceTypeOrQuote;
   const unit = isQuote ? serviceTypeOrQuote.unit : null;
-  return BY_UNIT[unit] || BY_SERVICE[type] || INTERVENCION;
+  if (BY_UNIT[unit]) return BY_UNIT[unit];
+  // 0.10.0 ("La unidad primero", revisión 2026-11): en una cotización armada por componentes el
+  // tipo 'on_call' sale del modo derivado de la unidad (por hora, día, unidad…), no de que el
+  // cliente "llame": sólo se habla de "llamado" si se cobra por llamado. El tipo de servicio no
+  // cambia (sólo el nombre).
+  const contract = isQuote ? serviceTypeOrQuote.contract : null;
+  if (type === 'on_call' && contract && typeof contract === 'object' && Array.isArray(contract.components)) return INTERVENCION;
+  return BY_SERVICE[type] || INTERVENCION;
 }
 
 /**

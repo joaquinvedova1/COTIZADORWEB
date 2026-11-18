@@ -24,7 +24,7 @@ import { formatMoney, formatPercent, formatNumber, formatValue, formatDays, EMPT
 import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
 import { isPlainObject } from '../../../core/object.js';
-import { perUnitCeil, perUnitMoney, netRateHint, confirmRemove, hasNumber, stepName, plural, minimumGuaranteeFields } from './shared.js';
+import { perUnitCeil, perUnitMoney, netRateHint, confirmRemove, hasNumber, stepName, plural, minimumGuaranteeFields, guaranteeLoaded } from './shared.js';
 import { minActivityNotice, suggestedRateTrace, suggestedRateName, isClosedPrice } from '../../result-text.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillingTaxes, sameBillingTaxes, invalidTaxesText } from '../../billing-taxes-form.js';
 import { userErrorMessage } from '../../layout.js';
@@ -479,8 +479,10 @@ export function render(container, ctx) {
     return active.length ? `Aplicadas: ${active.join(', ')}.` : 'Ninguna aplicada.';
   };
   const legacy = legacySeparateCharges(quote);
-  const showMinimumCall = Number(quote.rules && quote.rules.minimumCallUnits) > 0
-    || !(unitKind === 'month' || unitKind === 'event' || Object.values(legacy).some(Boolean));
+  // 0.10.0 (simplicidad): el mínimo por llamado, el mínimo mensual y los descuentos por días
+  // sólo se muestran si la cotización ya los trae cargados. Los motores no cambian.
+  const showMinimumCall = Number(quote.rules && quote.rules.minimumCallUnits) > 0;
+  const showGuarantee = guaranteeLoaded(quote);
   const hadGuardPlus = legacy.guardPlus;
   // "Quitar" de un cobro aparte cargado antes (mismo patrón que la guardia de "Cómo se cobra").
   const removeCharge = (name, keys) => (kit.readOnly ? null : kit.action('Quitar', async () => {
@@ -596,12 +598,12 @@ export function render(container, ctx) {
           withNote ? h('p', { class: 'qe-rule-output-note' }, STANDBY_DAYS_NOTE) : null);
       }, { tag: 'div' }),
     ) : null,
-    ruleRow(
+    showGuarantee ? ruleRow(
       'Mínimo mensual garantizado',
       'La facturación del mes nunca es menor a este mínimo: un monto en $ o una cantidad de unidades a la tarifa.',
       guarantee.fields,
       h('div', {}, guarantee.note, kit.out((r) => (r.estimate.revenue.guaranteeTopUp > 0 ? '' : 'Con la actividad estimada no hace falta completar el mínimo.'), { allowEmpty: true })),
-    ),
+    ) : null,
     ruleRow(
       'Descuento por continuidad',
       'Si el contrato dura al menos los meses indicados, se descuenta este % de la tarifa.',
@@ -676,7 +678,9 @@ export function render(container, ctx) {
   // En precio cerrado los descuentos por cantidad de días no se muestran (un precio por trabajo).
   // Tampoco si no cobrás por día u hora (abono mensual, por cantidad): ahí no se aplican
   // (revisión UX tanda novatos). Los tramos guardados quedan como estaban.
-  const tiersCard = closed || !dayTiers ? null : kit.advanced(
+  // 0.10.0: sólo si algún tramo ya tiene descuento cargado.
+  const tiersLoaded = Array.isArray(tiers) && tiers.some((t) => t && hasNumber(t.discountPct) && Number(t.discountPct) > 0);
+  const tiersCard = closed || !dayTiers || !tiersLoaded ? null : kit.advanced(
     {
       key: 'margin-tiers',
       title: 'Descuentos por cantidad de días',

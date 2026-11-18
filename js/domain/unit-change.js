@@ -137,21 +137,51 @@ export function hoursPerDayFromManHours(manHoursPerDay, labor) {
  * el mismo número no se puede leer en la nueva (4 h por trabajo no son 4 h por mes): se LIMPIAN
  * y se avisa (misma regla que V-03). MUTA `q` y devuelve los avisos.
  *
+ * Revisión 0.10.0 (C6): al pasar a un modo que no es "por servicio" (por mes o por trabajo), los
+ * cobros aparte de la guardia (fijo por estar de guardia, plus por cada llamado) y el mínimo
+ * mensual garantizado en $ ya no se muestran en esas pantallas y seguían pesando en el precio:
+ * se LIMPIAN con aviso (misma regla que el mínimo garantizado en unidades de applyUnitChange).
+ *
  * @param {object} q          cotización (se muta)
  * @param {string|null} fromMode  modalidad anterior (contractOf(q).mode)
  * @param {string|null} toMode    modalidad nueva
+ * @param {object} [fromTerms]    activationTerms de la cotización ANTES del cambio (nombre del plus)
  * @returns {string[]} avisos
  */
-export function applyContractModeChange(q, fromMode, toMode) {
+export function applyContractModeChange(q, fromMode, toMode, fromTerms = null) {
   const notices = [];
-  if (!isPlainObject(q) || !isPlainObject(q.overtimeWork)) return notices;
-  if ((fromMode === 'monthly') === (toMode === 'monthly')) return notices;
-  const ow = q.overtimeWork;
-  if (ow.mode !== 'some' || !(positive(ow.hours50) || positive(ow.hours100))) return notices;
-  const was = fromMode === 'monthly' ? 'por mes' : 'por trabajo';
-  ow.hours50 = 0;
-  ow.hours100 = 0;
-  notices.push(`Se borraron las horas extra del trabajo (estaban ${was}): cargalas de nuevo en "Cómo se cobra".`);
+  if (!isPlainObject(q) || fromMode === toMode) return notices;
+  if ((fromMode === 'monthly') !== (toMode === 'monthly') && isPlainObject(q.overtimeWork)) {
+    const ow = q.overtimeWork;
+    if (ow.mode === 'some' && (positive(ow.hours50) || positive(ow.hours100))) {
+      const was = fromMode === 'monthly' ? 'por mes' : 'por trabajo';
+      ow.hours50 = 0;
+      ow.hours100 = 0;
+      notices.push(`Se borraron las horas extra del trabajo (estaban ${was}): cargalas de nuevo en "Cómo se cobra".`);
+    }
+  }
+  const rules = isPlainObject(q.rules) ? q.rules : null;
+  if (rules && toMode !== 'on_demand') {
+    const T = fromTerms || activationTerms(q);
+    const cleared = [];
+    if (positive(rules.availabilityFeeMonthly)) {
+      rules.availabilityFeeMonthly = 0;
+      cleared.push('el fijo por mes por estar de guardia');
+    }
+    if (positive(rules.calloutFeePerActivation)) {
+      rules.calloutFeePerActivation = 0;
+      cleared.push(`el plus por cada ${T.one}`);
+    }
+    if (rules.minimumGuaranteeBasis !== 'units' && positive(rules.minimumMonthlyGuarantee)) {
+      rules.minimumMonthlyGuarantee = 0;
+      cleared.push('el mínimo mensual garantizado');
+    }
+    if (cleared.length) {
+      const list = cleared.length === 1 ? cleared[0] : `${cleared.slice(0, -1).join(', ')} y ${cleared[cleared.length - 1]}`;
+      const how = toMode === 'monthly' ? 'por mes' : 'por trabajo';
+      notices.push(`Se ${cleared.length === 1 ? 'borró' : 'borraron'} ${list}: cobrando ${how} no se cobra${cleared.length === 1 ? '' : 'n'} aparte.`);
+    }
+  }
   return notices;
 }
 

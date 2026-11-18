@@ -31,7 +31,7 @@
  */
 
 import { deepFreeze, isPlainObject } from '../core/object.js';
-import { BILLING_UNITS, BILLING_UNIT_IDS } from './billing-units.js';
+import { BILLING_UNITS, BILLING_UNIT_IDS, billingUnitOf } from './billing-units.js';
 
 export const CONTRACT_MODES = deepFreeze([
   { id: 'monthly', label: 'Fijo mensual', hint: 'Monto fijo por mes, se trabaje o no.' },
@@ -63,18 +63,35 @@ export const CONTRACT_RESOURCES = deepFreeze([
  */
 export const SERVICE_COMPONENTS = deepFreeze([
   { id: 'labor', label: 'Personal', hint: 'Operarios, técnicos, choferes, supervisión.', step: 'labor' },
-  { id: 'vehicle', label: 'Vehículo', hint: 'Camioneta, utilitario, camión, colectivo (cargalo una sola vez).', step: 'equipment', equipment: true },
-  { id: 'machinery', label: 'Equipo o maquinaria', hint: 'Hidrogrúa, hidrolavadora, retro, generador, equipo de soldadura o END.', step: 'equipment', equipment: true },
-  { id: 'subcontract', label: 'Servicio de terceros', hint: 'Subcontrato, alquiler o laboratorio: pagás la tarifa de un proveedor.', step: 'equipment', equipment: true },
+  { id: 'vehicle', label: 'Vehículos', hint: 'Camioneta, utilitario, camión, colectivo (cargalo una sola vez).', step: 'equipment', equipment: true },
+  { id: 'machinery', label: 'Equipos y maquinaria', hint: 'Hidrogrúa, hidrolavadora, retro, generador, equipo de soldadura o END.', step: 'equipment', equipment: true },
+  { id: 'subcontract', label: 'Servicios de terceros', hint: 'Subcontrato, alquiler o laboratorio: pagás la tarifa de un proveedor.', step: 'equipment', equipment: true },
   { id: 'tools', label: 'Herramientas', hint: 'Herramientas menores y su reposición.', step: 'materials', materials: true },
-  { id: 'supplies', label: 'Insumos y consumibles', hint: 'Electrodos, discos, gas, filtros, trapos.', step: 'materials', materials: true },
-  { id: 'chemicals', label: 'Químicos', hint: 'Desengrasantes, sanitizantes, herbicidas, inhibidores.', step: 'materials', materials: true },
-  { id: 'materials', label: 'Materiales que quedan en obra', hint: 'Pintura, caños, cables.', step: 'materials', materials: true },
-  { id: 'ppe', label: 'EPP especial', hint: 'Trajes, respiradores, arneses (el básico va en cada puesto).', step: 'materials', materials: true },
-  { id: 'waste', label: 'Residuos y disposición', hint: 'Transporte habilitado, disposición final, certificados.', step: 'materials', materials: true },
+  { id: 'supplies', label: 'Insumos y consumibles', hint: 'Electrodos, discos, gas, filtros, químicos.', step: 'materials', materials: true },
+  { id: 'materials', label: 'Materiales', hint: 'Lo que queda en la obra: caños, cables, pintura.', step: 'materials', materials: true },
+  { id: 'ppe', label: 'EPP', hint: 'El básico de cada persona va en su puesto; acá, el especial (trajes, respiradores, arneses).', step: 'materials', materials: true },
   { id: 'travel', label: 'Viáticos y alojamiento', hint: 'Desarraigo, hotel, comidas, peajes.', step: 'logistics' },
-  { id: 'other', label: 'Otros costos', hint: 'Permisos, seguros especiales, ingeniería, informes.', step: 'materials' },
+  { id: 'other', label: 'Otros costos', hint: 'Permisos, seguros, disposición de residuos, ingeniería.', step: 'materials' },
 ]);
+
+/**
+ * Ids que ya no se ofrecen (0.10.0, "La unidad primero"): al LEER un contrato guardado se
+ * traducen a la categoría que los absorbe (químicos → insumos; residuos → otros costos).
+ */
+export const LEGACY_COMPONENT_ALIASES = deepFreeze({ chemicals: 'supplies', waste: 'other' });
+
+/**
+ * Categorías de gasto de una línea de Materiales u Otros costos (0.10.0): a qué componente de
+ * "¿Qué incluye?" pertenece cada línea. Sin dato: un material va a `materials`; otro costo, a `other`.
+ */
+export const LINE_COMPONENT_IDS = deepFreeze(['tools', 'supplies', 'materials', 'ppe', 'other']);
+
+/** Componente de una línea de Materiales (`kind` 'material') u Otros costos (`kind` 'other'). */
+export function lineComponentOf(line, kind = 'material') {
+  const c = isPlainObject(line) ? line.component : null;
+  if (LINE_COMPONENT_IDS.includes(c)) return c;
+  return kind === 'other' ? 'other' : 'materials';
+}
 
 export const SERVICE_COMPONENT_IDS = deepFreeze(SERVICE_COMPONENTS.map((c) => c.id));
 const EQUIPMENT_COMPONENTS = SERVICE_COMPONENTS.filter((c) => c.equipment).map((c) => c.id);
@@ -106,9 +123,9 @@ export const SERVICE_TEMPLATES = deepFreeze([
   { id: 'equipment_operator', group: 'equipment', label: 'Equipo con operador', hint: 'Equipo o maquinaria con su operador.', components: ['labor', 'machinery'], mode: 'on_demand', unit: 'hour', keywords: 'hidrogrua grua retro maquina' },
   { id: 'dry_rental', group: 'equipment', label: 'Equipo sin operador (alquiler)', hint: 'Sólo el equipo: lo opera el cliente.', components: ['machinery'], mode: 'on_demand', unit: 'day', keywords: 'alquiler seco' },
   { id: 'vehicle_driver', group: 'equipment', label: 'Vehículo con chofer', hint: 'Camión, colectivo o utilitario con su chofer.', components: ['labor', 'vehicle'], mode: 'on_demand', unit: 'trip', keywords: 'transporte camion colectivo flete' },
-  { id: 'integral', group: 'integral', label: 'Servicio integral (personal, equipos y consumibles)', hint: 'Personal, vehículo, equipo, insumos y EPP especial. Sumá químicos o residuos si hacen falta.', components: ['labor', 'vehicle', 'machinery', 'supplies', 'ppe'], keywords: 'integral completo limpieza industrial quimicos residuos mantenimiento edilicio' },
+  { id: 'integral', group: 'integral', label: 'Servicio integral (personal, equipos y consumibles)', hint: 'Personal, vehículo, equipo, insumos y EPP especial. Sumá otros costos (residuos, permisos) si hacen falta.', components: ['labor', 'vehicle', 'machinery', 'supplies', 'ppe'], keywords: 'integral completo limpieza industrial quimicos residuos mantenimiento edilicio' },
   { id: 'per_unit', group: 'result', label: 'Servicio por unidad ejecutada', hint: 'Mano de obra y materiales; se cobra por unidad terminada (después elegís: válvula, junta, metro…).', components: ['labor', 'tools', 'supplies', 'materials'], mode: 'on_demand', unit: 'unit', keywords: 'unidad ejecutada valvula junta metro pieza produccion edilicio' },
-  { id: 'lump_sum', group: 'result', label: 'Precio global por un trabajo definido', hint: 'Todo el alcance de un trabajo u obra, a precio cerrado.', components: ['labor', 'vehicle', 'tools', 'supplies', 'other'], mode: 'closed', unit: 'job', keywords: 'precio cerrado global obra llave en mano' },
+  { id: 'lump_sum', group: 'result', label: 'Precio global por un trabajo definido', hint: 'Todo el alcance de un trabajo u obra, en un solo precio.', components: ['labor', 'vehicle', 'tools', 'supplies', 'other'], mode: 'closed', unit: 'job', keywords: 'precio cerrado global obra llave en mano' },
   { id: 'third_party', group: 'third', label: 'Servicio de un tercero', hint: 'Subcontrato, alquiler o laboratorio de un proveedor.', components: ['subcontract'], keywords: 'subcontrato proveedor laboratorio' },
 ]);
 
@@ -144,7 +161,7 @@ export function searchTemplates(query) {
 /** Componentes guardados, saneados (orden del catálogo, sin repetidos ni desconocidos); null si no hay lista. */
 function cleanComponents(list) {
   if (!Array.isArray(list)) return null;
-  const set = new Set(list.filter((id) => typeof id === 'string'));
+  const set = new Set(list.filter((id) => typeof id === 'string').map((id) => LEGACY_COMPONENT_ALIASES[id] || id));
   return SERVICE_COMPONENT_IDS.filter((id) => set.has(id));
 }
 
@@ -330,10 +347,14 @@ export function contractUnits(contract) {
   return c.equipment ? [...ON_DEMAND_EQUIPMENT_UNITS] : [...ON_DEMAND_LABOR_UNITS];
 }
 
-/** ¿La unidad corresponde al contrato? (la unidad propia siempre vale con "por servicio"). */
+/**
+ * ¿La unidad corresponde al contrato? Desde 0.10.0 ("La unidad primero") el modo sale de la
+ * unidad (modeForUnit): con "por servicio" vale cualquier unidad que no sea mes, trabajo ni hito
+ * (la unidad propia incluida), aunque no esté en la lista sugerida para sus componentes.
+ */
 export function unitFitsContract(contract, unit) {
   const c = normalize(isPlainObject(contract) ? contract : {});
-  if (unit === 'custom') return c.mode === 'on_demand';
+  if (c.mode === 'on_demand') return modeForUnit(unit || 'day') === 'on_demand';
   return contractUnits(c).includes(unit || 'day');
 }
 
@@ -347,15 +368,44 @@ export function defaultUnitForContract(contract) {
   return c.mode === 'on_demand' && units.includes('day') ? 'day' : units[0];
 }
 
-/** Nombre corto del contrato para listados: "Fijo mensual · Personal y equipos". */
+/**
+ * Modo del contrato DERIVADO de la unidad de cobro (0.10.0, "La unidad primero"): la persona
+ * elige en qué unidad le cobra al cliente y el modo sale de ahí. Se sigue guardando en
+ * `contract.mode` porque el motor y muchas pantallas lo leen.
+ *   month → monthly · job / milestone → closed · cualquier otra → on_demand
+ */
+export function modeForUnit(unit) {
+  if (unit === 'month') return 'monthly';
+  if (unit === 'job' || unit === 'milestone') return 'closed';
+  return 'on_demand';
+}
+
+/** "Por mes", "Por trabajo", "Por hora", "Por diagnóstico" (la unidad en que se cobra). */
+export function billingUnitPhrase(quote = {}) {
+  const info = billingUnitOf(isPlainObject(quote) ? quote : {});
+  return `Por ${info.singular || 'unidad'}`;
+}
+
+/**
+ * Qué se cotiza, en palabras: "tarifa por mes", "precio del trabajo", "$ por diagnóstico".
+ * Para la línea "Vas a cotizar: …" del paso 1.
+ */
+export function quotedItemText(quote = {}) {
+  const info = billingUnitOf(isPlainObject(quote) ? quote : {});
+  if (info.id === 'month') return 'tarifa por mes';
+  if (info.id === 'job') return 'precio del trabajo';
+  if (info.id === 'milestone') return 'precio por hito';
+  return `$ por ${info.singular || 'unidad'}`;
+}
+
+/** Nombre corto del contrato para listados: "Por hora · personal + vehículos". */
 export function contractLabel(quote = {}) {
   const c = contractOf(quote);
-  const mode = { monthly: 'Fijo mensual', on_demand: 'Por servicio (on call)', closed: 'Precio cerrado' }[c.mode];
   const q = isPlainObject(quote) ? quote : {};
   const res = !c.legacy && isPlainObject(q.contract) && Array.isArray(q.contract.components)
     ? componentsLabel(q.contract).toLowerCase() || 'sin componentes'
     : c.labor && c.equipment ? 'personal y equipos' : c.labor ? 'personal' : 'equipos';
-  return `${mode} · ${res}`;
+  return `${billingUnitPhrase(q)} · ${res}`;
 }
 
 /** Unidades para elegir según el contrato (+ la actual si no está; + "Otra" si es por servicio). */
@@ -368,8 +418,8 @@ export function unitChoicesForContract(contract, currentUnit = null) {
 }
 
 /**
- * Nombre del servicio para listados: con componentes (PLAN-2026-019), el
- * contrato y lo que incluye ("Por servicio (on call) · personal + vehículo");
+ * Nombre del servicio para listados: con componentes (PLAN-2026-019), la
+ * unidad y lo que incluye ("Por hora · personal + vehículos");
  * si no, null (se usa el tipo de servicio de siempre).
  */
 export function componentsServiceLabel(quote = {}) {

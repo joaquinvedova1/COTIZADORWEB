@@ -51,7 +51,7 @@ import {
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
-import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded } from '../../domain/contract.js';
+import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded, billingUnitPhrase } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
 import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitSuffix, timeBasisWithoutFixed } from '../result-text.js';
@@ -162,11 +162,11 @@ export function stepShortLabel(stepId) {
 export const STEP_COPY = Object.freeze({
   service: {
     question: '¿Qué servicio vas a cotizar?',
-    why: 'Ponele un nombre y contanos cómo te paga el cliente. Después elegís tus recursos y RATEOS te dice cuánto cobrar.',
+    why: 'Ponele un nombre y elegí en qué unidad le cobrás al cliente. Después elegís tus recursos y RATEOS te dice cuánto cobrar.',
   },
   modality: {
     question: '¿Cómo lo vas a cobrar?',
-    why: 'Elegí en qué unidad cobrás (hora, día, viaje…) y cuánto esperás trabajar por mes. Con eso sale tu tarifa.',
+    why: 'Cuánto esperás trabajar en la unidad que elegiste en el paso 1. Con eso sale tu tarifa.',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
@@ -287,9 +287,20 @@ export function stepOfItem(item) {
 export function isStepHidden(stepId, quote) {
   // "Movilización y viajes" sin viajes marcados ni nada cargado que viaje (revisión UX tanda novatos).
   if (stepId === 'logistics') return travelNotNeeded(quote);
-  if (stepId !== 'materials') return false;
   const q = isPlainObject(quote) ? quote : {};
   const count = (v) => (Array.isArray(v) ? v.length : 0);
+  // Revisión 0.10.0 (U4): "Personal" y "Equipos" se saltean si no se eligieron en "¿Qué incluye el
+  // servicio?" y no tienen nada cargado (nunca se esconde un costo cargado).
+  if (stepId === 'labor' || stepId === 'equipment') {
+    const c = isPlainObject(q.contract) ? q.contract : null;
+    if (!c || !Array.isArray(c.components)) return false;
+    if (count(stepId === 'labor' ? q.labor : q.equipment)) return false;
+    const chosen = componentsOf(c);
+    return stepId === 'labor'
+      ? !chosen.includes('labor')
+      : !chosen.some((id) => (SERVICE_COMPONENTS.find((x) => x.id === id) || {}).step === 'equipment');
+  }
+  if (stepId !== 'materials') return false;
   if (count(q.materials) || count(q.otherCosts)) return false;
   const c = isPlainObject(q.contract) ? q.contract : null;
   if (!c || !Array.isArray(c.components)) return false;
@@ -335,10 +346,9 @@ export function resultTone(result) {
   return 'green';
 }
 
-/** Etiqueta de la unidad junto al título: "Precio cerrado" en vez de "$ global (por trabajo)". */
+/** Etiqueta de la unidad junto al título (0.10.0): "Por trabajo", "Por hora", "Por diagnóstico". */
 export function unitBadgeText(quote) {
-  const info = billingUnitOf(quote);
-  return info.id === 'job' ? 'Precio cerrado' : info.label;
+  return billingUnitPhrase(quote);
 }
 
 function unitShort(result) {
@@ -1468,7 +1478,7 @@ function shownStatus(status, { after, visited, fresh }) {
  * Barra de las etapas (navegable). Cada etapa muestra si está completa,
  * si hay algo para revisar o si faltan datos (según completitud y validaciones).
  */
-function buildStageBar({ currentStep, stepHref, quoteId }) {
+function buildStageBar({ currentStep, stepHref, quoteId, isHidden = () => false }) {
   const { index: currentIndex } = stageOfStep(currentStep);
   const entries = STAGES.map((stage, index) => {
     const isCurrent = index === currentIndex;
@@ -1481,7 +1491,7 @@ function buildStageBar({ currentStep, stepHref, quoteId }) {
     const shortEl = h('span', { class: 'qe-stage-short' }, stage.short || stage.label);
     const link = h(
       'a',
-      { href: stepHref(stage.steps[0].id), class: ['qe-stage-link', isCurrent ? 'is-current' : null], 'aria-current': isCurrent ? 'step' : null },
+      { href: stepHref((stage.steps.find((st) => st.id === currentStep || !isHidden(st.id)) || stage.steps[0]).id), class: ['qe-stage-link', isCurrent ? 'is-current' : null], 'aria-current': isCurrent ? 'step' : null },
       h('span', { class: 'qe-stage-mark' }, numEl, flagEl),
       h('span', { class: 'qe-stage-text' }, labelEl, shortEl, stateEl),
     );
@@ -2211,7 +2221,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   }
 
   // ------------------------------------------------------------- estructura
-  // Pasos a la vista: "Materiales" se saltea si el servicio no los incluye (isStepHidden).
+  // Pasos a la vista: Personal, Equipos, Materiales y Viajes se saltean si el servicio no los incluye (isStepHidden).
   const navSteps = QUOTE_STEPS.filter((s) => s.id === stepId || !isStepHidden(s.id, state.quote));
   const currentIndex = navSteps.findIndex((s) => s.id === stepId);
   const prevStep = currentIndex > 0 ? navSteps[currentIndex - 1] : null;
@@ -2224,10 +2234,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   // Precio cerrado: en "El precio" se calcula tu precio, no una tarifa.
   if (stepId === 'margin' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: copy.why.replace('calculamos tu tarifa', 'calculamos tu precio') };
   // Precio cerrado en "Cómo se cobra": cuánto lleva el trabajo y "tu precio" (revisión UX tanda novatos).
-  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: 'Elegí en qué unidad cobrás y cuánto lleva el trabajo. Con eso sale tu precio.' };
+  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: 'Cuánto lleva el trabajo. Con eso sale tu precio.' };
 
   markVisited(quoteId, stepId);
-  const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId });
+  const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId, isHidden: (id) => isStepHidden(id, state.quote) });
   const substeps = buildSubsteps({ currentStep: stepId, stepHref, quoteId, isHidden: (id) => isStepHidden(id, state.quote) });
   const summary = stepId === 'result' ? null : buildSummary({ getResult: () => state.result, getQuote: () => state.quote, stepHref, stepId });
   const notices = buildStepNotices(stepId, {

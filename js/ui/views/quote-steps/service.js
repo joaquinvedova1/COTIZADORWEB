@@ -1,37 +1,50 @@
 /**
- * Etapa 1 · El contrato (PLAN-2026-018).
- * Básico: nombre, cliente, cómo paga el cliente (fijo mensual / por servicio
- * prestado / precio cerrado) y qué incluye: componentes combinables
- * (personal, vehículo, equipo, terceros, insumos, químicos…; PLAN-2026-019),
- * con plantillas rápidas para los casos comunes.
+ * Etapa 1 · El contrato (PLAN-2026-018; 0.10.0 "La unidad primero").
+ * Básico: nombre, cliente, EN QUÉ UNIDAD se le cobra al cliente (por mes, por trabajo, por hora,
+ * por día, por unidad con nombre propio u otra del catálogo: el modo del contrato se deriva de
+ * ahí) y qué incluye el servicio: categorías de gasto combinables (personal, vehículos, equipos,
+ * terceros, herramientas, insumos, materiales, EPP, viáticos, otros; PLAN-2026-019). Las
+ * plantillas quedan como ayuda opcional, al final.
  * Opciones avanzadas: código, estado, duración del contrato y notas.
  */
 
 import { h, mount } from '../../dom.js';
-import { button, card, choiceGroup, dateField, formGrid, icon, confirmDialog, infoTip, searchSelectField } from '../../components.js';
+import { button, card, dateField, formGrid, icon, confirmDialog, infoTip, searchSelectField } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
-import { billingUnitOf, BILLING_UNITS } from '../../../domain/billing-units.js';
-import { CONTRACT_MODES, SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUnits, contractUsesMaterials, contractWithComponents, defaultUnitForContract, serviceTypeForContract, templateOf, unitFitsContract, searchTemplates, templateGroupLabel, templateById } from '../../../domain/contract.js';
+import { billingUnitOf } from '../../../domain/billing-units.js';
+import { SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUsesMaterials, contractWithComponents, lineComponentOf, modeForUnit, serviceTypeForContract, templateOf, searchTemplates, templateGroupLabel, templateById } from '../../../domain/contract.js';
 import { isPlainObject } from '../../../core/object.js';
-import { formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/format.js';
+import { formatMoney, formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
-import { applyUnitChange, applyContractModeChange } from '../../../domain/unit-change.js';
-import { onSessionReset } from '../../session-memory.js';
+import { applyModeDerivation, applyQuoteUnit, unitChoiceBlock } from './unit-choice.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
 import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
 
 /** Nombre de un paso entre comillas ("Viajes"): siempre el de QUOTE_STEPS. */
 const step = (id) => `"${stepName(id)}"`;
 
-/** Qué sigue según la modalidad del contrato (PLAN-2026-018). */
+/** Qué sigue según cómo se cobra (0.10.0: se habla de la unidad, no de tipos de contrato). */
 const MODE_TIPS = Object.freeze({
-  monthly: { short: `Un solo precio por mes: cargá lo que cubre el fijo (${step('modality')}).`, more: `Cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del fijo. Para otra variante, duplicá la cotización (Más acciones → Duplicar).` },
-  on_demand: { short: `Unidad y mínimo mensual: en ${step('modality')}.`, more: 'Elegí en qué unidad cobrás (hora, día, viaje, m³…) y cuánto esperás trabajar por mes. Si el cliente garantiza un mínimo mensual, se carga ahí mismo.' },
-  // Tanda novatos 2026-11: lo de imprevistos y adicionales pasa al (i).
-  closed: { short: 'Cargá todo el alcance del trabajo.', more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Un trabajo fuera del alcance es otra cotización: duplicala (Más acciones → Duplicar).` },
-})
+  monthly: { more: `Cargá lo que cubre la tarifa del mes (por ejemplo 26 días × 12 h). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Para otra variante, duplicá la cotización (Más acciones → Duplicar).` },
+  on_demand: { more: 'Con eso RATEOS calcula tu precio por unidad: cuanto menos trabajes, más alto tiene que ser para pagar a tu gente y tus equipos.' },
+  closed: { more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Un trabajo fuera del alcance es otra cotización: duplicala (Más acciones → Duplicar).` },
+});
+
+/**
+ * Qué se carga después, en la unidad elegida (revisión 0.10.0, U9): "En «Cómo se cobra» cargás
+ * cuántos diagnósticos hacés por mes."
+ */
+export function unitNextStepText(quote = {}) {
+  const info = billingUnitOf(quote);
+  const where = `En «${stepName('modality')}»`;
+  if (info.kind === 'month') return `${where} cargás qué cubre la tarifa del mes.`;
+  if (info.id === 'job') return `${where} cargás cuántos días lleva el trabajo.`;
+  if (info.kind === 'hour') return `${where} cargás cuánto trabajás: cuántas horas por día y cuántos días por mes.`;
+  if (info.kind === 'day') return `${where} cargás cuántos días trabajás por mes.`;
+  return `${where} cargás cuántos ${info.plural || 'unidades'} hacés por mes.`;
+}
 
 /**
  * Valores sin fecha base o con base vieja, uno por uno (PLAN-2026-010), y la
@@ -90,10 +103,6 @@ function loadedIn(quote, stepId) {
   return 0;
 }
 
-/** Lo escrito en "Otro componente" y todavía no agregado (sobrevive a los redibujos del paso). */
-let customDraft = '';
-onSessionReset(() => { customDraft = ''; });
-
 /**
  * Redibuja sin perder el lugar: el control con `id` queda a la misma altura
  * de la pantalla y con el foco (el paso entero se vuelve a dibujar al cambiar).
@@ -112,10 +121,57 @@ function keepPlace(id, run) {
   }
 }
 
+/**
+ * Gastos cargados de una categoría de "¿Qué incluye el servicio?" (revisión 0.10.0, U1):
+ * Materiales u Otros costos por la categoría de cada línea; Personal, sus puestos; Vehículos,
+ * Equipos y Terceros, las líneas de Equipos (si ninguna de las tres queda marcada en `next`).
+ * @returns {{ count: number, step: string|null, one: string, many: string }}
+ */
+export function loadedFor(quote, id, next = []) {
+  const list = (v) => (Array.isArray(v) ? v.filter((x) => isPlainObject(x)) : []);
+  const def = SERVICE_COMPONENTS.find((c) => c.id === id) || {};
+  if (def.step === 'materials') {
+    const mats = quote.materialsNotApplicable ? [] : list(quote.materials).filter((m) => lineComponentOf(m, 'material') === id);
+    const others = list(quote.otherCosts).filter((o) => lineComponentOf(o, 'other') === id);
+    return { count: mats.length + others.length, step: 'materials', one: 'gasto cargado', many: 'gastos cargados' };
+  }
+  if (id === 'labor') return { count: list(quote.labor).length, step: 'labor', one: 'puesto cargado', many: 'puestos cargados' };
+  if (def.equipment) {
+    const stillEquipment = next.some((x) => (SERVICE_COMPONENTS.find((c) => c.id === x) || {}).equipment);
+    return { count: stillEquipment ? 0 : list(quote.equipment).length, step: 'equipment', one: 'equipo cargado', many: 'equipos cargados' };
+  }
+  return { count: 0, step: null, one: '', many: '' };
+}
+
+/** "EPP tiene 1 gasto cargado ($ 45.000 por mes): borralo en «Materiales» para quitar la categoría." */
+export function blockedRemovalText(quote, id, next = [], result = null) {
+  const def = SERVICE_COMPONENTS.find((c) => c.id === id) || {};
+  const l = loadedFor(quote, id, next);
+  const n = l.count;
+  let amount = null;
+  try {
+    if (result && def.step === 'materials' && result.componentCosts) {
+      const part = result.componentCosts.byComponent[id];
+      const total = part ? part.amount : 0;
+      const jobs = result.componentCosts.jobsPerMonth;
+      if (total > 0.005) amount = jobs ? `${formatMoney(total / jobs)} en el trabajo` : `${formatMoney(total)} por mes`;
+    } else if (result && id === 'labor' && result.eecc) {
+      const row = result.eecc.rows.find((r) => r.category === 'labor');
+      const jobs = result.componentCosts ? result.componentCosts.jobsPerMonth : null;
+      if (row && row.amount > 0.005) amount = jobs ? `${formatMoney(row.amount / jobs)} en el trabajo` : `${formatMoney(row.amount)} por mes`;
+    }
+  } catch {
+    amount = null;
+  }
+  const what = `${formatNumber(n)} ${n === 1 ? l.one : l.many}${amount ? ` (${amount})` : ''}`;
+  const subject = def.equipment ? 'Equipos' : def.label || id;
+  return `${subject} tiene ${what}: ${n === 1 ? 'borralo' : 'borralos'} en «${stepName(l.step)}» para quitar la categoría.`;
+}
+
 /** Grupos de componentes, en el orden de los pasos donde se cargan. */
 const COMPONENT_GROUPS = Object.freeze([
   { title: 'Personas y equipos', steps: ['labor', 'equipment'], ids: ['labor', 'vehicle', 'machinery', 'subcontract'] },
-  { title: 'Materiales e insumos', steps: ['materials'], ids: ['tools', 'supplies', 'chemicals', 'materials', 'ppe', 'waste', 'other'] },
+  { title: 'Materiales e insumos', steps: ['materials'], ids: ['tools', 'supplies', 'materials', 'ppe', 'other'] },
   { title: 'Viajes', steps: ['logistics'], ids: ['travel'] },
 ]);
 
@@ -132,34 +188,29 @@ function componentsComposer({ quote, contract, components, custom, readOnly, ctx
   const current = saved.templateId ? templateOf({ ...saved, components }) : null;
 
   // Plantillas (PLAN-2026-024): un selector buscable y agrupado en vez de una fila de botones.
-  // Es un punto de partida: marca componentes y sugiere modalidad y unidad; todo queda editable.
+  // Es un punto de partida: marca componentes y sugiere la unidad; todo queda editable.
   const toOption = (t) => ({ value: t.id, label: t.label, hint: `${templateGroupLabel(t)} · ${t.hint}` });
-  const modeText = (t) => {
-    const parts = [];
-    if (t.mode) parts.push((CONTRACT_MODES.find((m) => m.id === t.mode) || {}).label);
-    if (t.unit) parts.push(billingUnitOf({ unit: t.unit }).label);
-    return parts.filter(Boolean).join(', ');
-  };
-  // ¿La modalidad o la unidad de hoy difieren de lo que sugiere la plantilla? (no se pisan solas).
+  // ¿La unidad de hoy difiere de la que sugiere la plantilla? (no se pisa sola).
   const unitNow = quote.unit || 'day';
-  const differs = current && ((current.mode && current.mode !== contract.mode) || (current.unit && current.unit !== unitNow));
+  const differs = current && current.unit && current.unit !== unitNow;
+  const unitPhrase = (unit) => `por ${billingUnitOf({ unit }).singular || 'unidad'}`;
   const summary = current
     ? h('div', { class: 'qe-template-summary' },
       h('p', { class: 'qe-note' },
         h('strong', {}, current.edited ? `Partiste de «${current.label}» y lo ajustaste. ` : `Partiste de «${current.label}». `),
-        current.edited ? 'Los componentes de abajo son los que valen.' : `Marcó ${current.components.map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label).filter(Boolean).join(', ')}.`,
-        ' Todo se puede cambiar: componentes, recursos y condiciones de cobro.'),
+        current.edited ? 'Lo que marcaste en "¿Qué incluye el servicio?" es lo que vale.' : `Marcó ${current.components.map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label).filter(Boolean).join(', ')}.`,
+        ' Todo se puede cambiar.'),
       differs && !readOnly
         ? h('p', { class: 'qe-note qe-template-suggest' },
-          `La plantilla sugiere cobrar ${modeText(current)}. Hoy: ${(CONTRACT_MODES.find((m) => m.id === contract.mode) || {}).label}, ${billingUnitOf(quote).label}. `,
+          `La plantilla sugiere cobrar ${unitPhrase(current.unit)}. Hoy cobrás ${unitPhrase(unitNow)}. `,
           pricingLoaded
-            ? `Como ya cargaste una tarifa, no se cambia sola: si querés cobrar así, cambiá la modalidad arriba y la unidad en "${stepName('modality')}".`
+            ? 'Como ya cargaste una tarifa, no se cambia sola: si querés cobrar así, cambiá la unidad arriba.'
             : button('Usar la sugerencia', { variant: 'secondary', size: 'sm', onClick: () => applySuggestion(current) }))
         : null)
     : null;
   const templates = h('div', { class: 'qe-templates' },
     formGrid(2, searchSelectField({
-      label: '¿Qué querés cotizar? (opcional)',
+      label: 'Plantilla',
       name: 'serviceTemplate',
       value: current ? current.id : null,
       disabled: readOnly,
@@ -167,7 +218,7 @@ function componentsComposer({ quote, contract, components, custom, readOnly, ctx
       placeholder: 'Buscá: cuadrilla, hora-hombre, grúa, limpieza…',
       options: SERVICE_TEMPLATES.map(toOption),
       search: (query) => searchTemplates(query).map(toOption),
-      hint: 'Plantillas: un punto de partida. Marcan lo que suele llevar ese servicio y, si todavía no cargaste una tarifa, cómo se cobra. Después cambiás lo que quieras.',
+      hint: 'Un punto de partida: marca lo que suele llevar ese servicio y, si todavía no cargaste una tarifa, la unidad en que se cobra. Después cambiás lo que quieras.',
       onChange: (id) => {
         const t = templateById(id);
         if (t) applyTemplate(t);
@@ -201,30 +252,18 @@ function componentsComposer({ quote, contract, components, custom, readOnly, ctx
       h('div', { class: 'choice-grid qe-components' }, ...g.ids.map((id) => toggle(SERVICE_COMPONENTS.find((c) => c.id === id)))));
   });
 
-  // Componentes propios: un nombre libre que se carga como otro costo directo (paso Materiales).
-  const customInput = h('input', { type: 'text', id: 'cmp-custom', maxlength: '60', placeholder: 'Ej.: Baño químico', 'aria-label': 'Otro componente', value: customDraft, disabled: readOnly });
-  const addCustom = () => {
-    const name = customInput.value.trim();
-    if (!name) return;
-    customDraft = '';
-    apply(components, [...custom, name], 'cmp-custom');
-  };
-  customInput.addEventListener('input', () => { customDraft = customInput.value; });
-  customInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addCustom();
-    }
-  });
+  // Componentes propios guardados antes: un nombre libre que se carga como otro costo directo (paso Materiales).
   const customRow = h('div', { class: 'qe-custom-components' },
     custom.length ? h('div', { class: 'variant-suggest-list' }, ...custom.map((name) => h('span', { class: 'qe-custom-chip' }, name,
       readOnly ? null : h('button', { type: 'button', class: 'qe-chip-remove', 'aria-label': `Quitar ${name}`, on: { click: () => apply(components, custom.filter((x) => x !== name), 'cmp-custom') } }, '×')))) : null,
-    readOnly ? null : h('div', { class: 'qe-custom-add' }, h('div', { class: 'field-control' }, customInput), button('Agregar', { icon: 'plus', onClick: addCustom })));
+    // Revisión 0.10.0 (U8): ya no se agregan componentes propios (es lo mismo que "Otros costos");
+    // una cotización que ya los tiene los sigue viendo, con su ×.
+    null);
 
   return { templates, fieldset: h('fieldset', { class: 'choice-group qe-includes' },
-    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Sumá todo lo que lleva el servicio, en cualquier combinación: por ejemplo una persona con camioneta e insumos, o una cuadrilla con químicos. Sin personal, un equipo o vehículo es alquiler sin operador. Cada componente se costea una sola vez, en el paso que se indica. Si falta algo, agregalo en "Otro componente" (se carga como otro costo en Materiales).')),
+    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Marcá cada categoría de gasto que lleva el servicio, en cualquier combinación: por ejemplo personal con vehículo e insumos (los químicos son insumos). Sin personal, un equipo o vehículo es alquiler sin operador. Cada categoría se costea una sola vez, en el paso que se indica, y se ve con su costo en el Resultado. Si falta algo, marcá "Otros costos" (permisos, seguros, residuos…).')),
     ...groups,
-    h('div', { class: 'variant-suggest qe-custom-block' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow),
+    custom.length ? h('div', { class: 'variant-suggest qe-custom-block' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow) : null,
   ) };
 }
 
@@ -235,58 +274,47 @@ export function render(container, ctx) {
     {},
     formGrid(
       2,
-      kit.text('name', { label: 'Nombre de la cotización', required: true, maxLength: 120, placeholder: 'Ej.: Hidrogrúa on-call — Añelo', hint: 'Para encontrarla después.' }),
+      kit.text('name', { label: 'Nombre de la cotización', required: true, maxLength: 120, placeholder: 'Ej.: Hidrogrúa por hora — Añelo', hint: 'Para encontrarla después.' }),
       kit.text('client', { label: 'Cliente', maxLength: 120, placeholder: 'Ej.: Operadora' }),
     ),
   );
 
   /**
-   * Contrato (PLAN-2026-018): primero cómo paga el cliente, después qué
-   * incluye. El tipo de servicio guardado se deriva del contrato. La unidad de
-   * cobro sigue a la modalidad (fijo mensual → $/mes, precio cerrado → $ global);
-   * si ya hay una tarifa o un mínimo por llamado cargados, NO se cambia la
-   * unidad (el número se leería en otra unidad): se avisa.
+   * 0.10.0 ("La unidad primero"): primero en qué unidad se le cobra al cliente (el modo del
+   * contrato se deriva de la unidad, unit-choice.js), después qué incluye el servicio. El tipo de
+   * servicio guardado se sigue derivando del contrato. Cambiar lo que incluye no cambia la unidad
+   * ni el modo.
    */
   const contract = contractOf(quote);
   const saved = isPlainObject(quote.contract) ? quote.contract : null;
   const components = componentsOf(saved || contract);
   const custom = saved && Array.isArray(saved.customComponents) ? saved.customComponents : [];
+  const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+  const pricingNow = quote.pricing || {};
+  // Con tarifa o mínimo cargados, la plantilla no cambia la unidad (se ofrece aparte).
+  const pricingLoaded = positive(pricingNow.knownRate) || positive(pricingNow.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
+
   /**
-   * @param {object} next
-   * @param {{ quiet?: boolean }} options  quiet: no muestra avisos; los devuelve (para juntarlos en uno).
+   * Guarda lo que incluye el servicio (y, desde una plantilla sin tarifa cargada, la unidad que
+   * sugiere). Devuelve los avisos para juntarlos en uno.
+   * @param {{ components: string[], customComponents: string[], templateId?: string|null, unit?: string|null, touchedComponents?: boolean }} next
    */
-  function applyContract(next, { quiet = false } = {}) {
+  function applyContract(next) {
     const messages = [];
-    const say = (text, tone) => {
-      if (quiet) messages.push({ text, tone });
-      else ctx.toast(text, tone);
-    };
     const current = quote.unit || 'day';
-    const fits = unitFitsContract(next, current);
-    const pricing = quote.pricing || {};
-    const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
-    const locked = positive(pricing.knownRate) || positive(pricing.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
-    // Unidad sugerida por una plantilla (PLAN-2026-024): sólo sin tarifa ni mínimo cargados.
-    const preferred = next.unit && unitFitsContract(next, next.unit) ? next.unit : null;
-    const nextUnit = locked ? current : preferred || (fits ? current : defaultUnitForContract(next));
+    const nextUnit = next.unit && !pricingLoaded ? next.unit : current;
     let reopenedLogistics = false;
-    // V-03: lo cargado en la unidad anterior (cantidades, mínimos) se limpia con aviso.
     let unitNotices = [];
-    const fromInfo = billingUnitOf(quote);
-    const previousMode = contractOf(quote).mode;
     ctx.mutate((q) => {
-      q.contract = contractWithComponents({ ...next, templateId: next.templateId || undefined }, next.components, next.customComponents);
+      // 0.10.0: el modo sale de la unidad (nunca se vuelve a guardar un modo que no le corresponde).
+      const fromMode = contractOf(q).mode;
+      const mode = modeForUnit(q.unit || 'day');
+      q.contract = contractWithComponents({ mode, templateId: next.templateId || undefined }, next.components, next.customComponents);
       q.serviceType = serviceTypeForContract(q.contract);
-      q.unit = nextUnit;
-      if (nextUnit !== current) unitNotices = applyUnitChange(q, fromInfo, billingUnitOf(q));
-      // M8: las horas de "algunas horas" cambian de base (por mes ↔ por trabajo): se limpian con aviso.
-      unitNotices = [...unitNotices, ...applyContractModeChange(q, previousMode, contractOf(q).mode)];
-      // Precio cerrado por trabajo (tanda novatos 2026-11): sin cantidad cargada, arranca en 1 trabajo por mes.
-      if (nextUnit === 'job' && q.contract.mode === 'closed') {
-        if (!isPlainObject(q.activity)) q.activity = {};
-        const jobs = q.activity.billableQuantityPerMonth;
-        if (jobs === null || jobs === undefined || jobs === '') q.activity.billableQuantityPerMonth = 1;
-      }
+      // Modo guardado que no correspondía a la unidad: se corrige con la misma regla que al cambiar la unidad.
+      if (fromMode !== mode) unitNotices.push(...applyModeDerivation(q, fromMode, mode));
+      // Unidad sugerida por una plantilla: la misma regla que elegirla arriba (limpia con aviso).
+      if (nextUnit !== current) unitNotices.push(...applyQuoteUnit(q, nextUnit));
       if (!next.touchedComponents) return;
       // Al sumar un componente de materiales, si estaba "no usa materiales" se
       // vuelve a pedir (nunca se marca solo: es una confirmación de la persona).
@@ -298,72 +326,78 @@ export function render(container, ctx) {
         reopenedLogistics = true;
       }
     });
-    if (reopenedLogistics) say(`Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, 'info');
-    if (nextUnit !== current) {
-      say(`Se cobra ${billingUnitOf({ unit: nextUnit }).label}: podés cambiarlo en ${step('modality')}.${unitNotices.length ? ` ${unitNotices.join(' ')}` : ''}`, unitNotices.length ? 'warning' : 'info');
-    } else if (!fits || (next.unit && next.unit !== current && locked)) {
-      const usual = contractUnits(next).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
-      say(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
-    }
-    // M8: con la misma unidad, el aviso de las horas extra borradas va solo.
-    if (nextUnit === current && unitNotices.length) say(unitNotices.join(' '), 'warning');
+    if (reopenedLogistics) messages.push({ text: `Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, tone: 'info' });
+    if (nextUnit !== current) messages.push({ text: `Cobrás por ${billingUnitOf({ unit: nextUnit, unitName: quote.unitName }).singular || 'unidad'}.${unitNotices.length ? ` ${unitNotices.join(' ')}` : ''}`, tone: unitNotices.length ? 'warning' : 'info' });
+    else if (unitNotices.length) messages.push({ text: unitNotices.join(' '), tone: 'warning' });
     return messages;
   }
+  const sayAll = (messages) => messages.forEach((m) => ctx.toast(m.text, m.tone));
 
   const tip = MODE_TIPS[contract.mode];
-  const withMode = (mode) => ({ mode, components, customComponents: custom, templateId: saved && saved.templateId });
-  const type = card(
+  const unitCard = card(
     {},
-    choiceGroup({
-      label: '¿Cómo te paga el cliente?',
-      name: 'contractMode',
-      value: contract.mode,
-      disabled: kit.readOnly,
-      options: CONTRACT_MODES.map((m) => ({ value: m.id, label: m.label, hint: m.hint })),
-      onChange: (mode) => applyContract(withMode(mode)),
-    }),
-    tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip.short, ' ', infoTip(tip.more))) : null,
+    unitChoiceBlock(ctx),
+    h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, unitNextStepText(quote), tip ? ' ' : null, tip ? infoTip(tip.more) : null)),
   );
 
   /**
-   * Plantilla elegida (PLAN-2026-024): componentes + modalidad y unidad sugeridas. Los
-   * componentes propios ("Otro") se conservan. Si ya hay una tarifa o un mínimo cargados, la
-   * unidad no cambia (applyContract avisa). No carga montos ni recursos.
+   * Plantilla elegida (PLAN-2026-024): componentes + unidad sugerida. Los componentes propios
+   * ("Otro") se conservan. Si ya hay una tarifa o un mínimo cargados, la unidad no cambia. No
+   * carga montos ni recursos.
    */
-  const positive = (v) => v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
-  const pricingNow = quote.pricing || {};
-  // Con tarifa o mínimo cargados, la plantilla no cambia cómo se cobra (se ofrece aparte).
-  const pricingLoaded = positive(pricingNow.knownRate) || positive(pricingNow.offeredRateOverride) || positive(quote.rules && quote.rules.minimumCallUnits);
   const applyTemplate = (t) => {
     // Nunca se quita un componente que ya tiene líneas cargadas en su paso.
     const kept = components.filter((id) => !t.components.includes(id) && loadedIn(quote, (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).step) > 0);
     const list = [...t.components, ...kept];
-    const useSuggestion = !pricingLoaded;
-    const mode = useSuggestion && t.mode ? t.mode : contract.mode;
     let messages = [];
     keepPlace(null, () => {
-      messages = applyContract({ mode, components: list, customComponents: custom, templateId: t.id, unit: useSuggestion ? t.unit || null : null, touchedComponents: true }, { quiet: true });
+      messages = applyContract({ components: list, customComponents: custom, templateId: t.id, unit: t.unit || null, touchedComponents: true });
     });
     const keptText = kept.length ? ` Se mantuvo ${kept.map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label).join(', ')} porque ya tiene líneas cargadas.` : '';
-    const how = !useSuggestion && (t.mode || t.unit) ? ' Como ya cargaste una tarifa, no se cambió cómo se cobra.' : '';
-    // Un solo aviso (tanda novatos 2026-11): la plantilla y, si cambió, cómo se cobra.
+    const how = pricingLoaded && t.unit && t.unit !== (quote.unit || 'day') ? ' Como ya cargaste una tarifa, la unidad no cambió.' : '';
+    // Un solo aviso (tanda novatos 2026-11): la plantilla y, si cambió, la unidad.
     const extra = messages.map((m) => ` ${m.text}`).join('');
     const tone = messages.some((m) => m.tone === 'warning') ? 'warning' : 'info';
     ctx.toast(`«${t.label}» aplicada.${extra}${keptText}${how}`, tone);
   };
-  const applySuggestion = (t) => applyContract({ mode: t.mode || contract.mode, components, customComponents: custom, templateId: t.id, unit: t.unit || null });
+  const applySuggestion = (t) => sayAll(applyContract({ components, customComponents: custom, templateId: t.id, unit: t.unit || null }));
   const composer = componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, applyTemplate, applySuggestion, pricingLoaded, apply: (list, extra = custom, focusId = null) => {
     keepPlace(focusId, () => {
+      // Revisión 0.10.0 (U1): una categoría con gastos cargados no se desmarca (seguiría sumando
+      // sin verse): queda marcada y se dice dónde borrarlos. Misma regla que applyTemplate.
+      const blocked = components.filter((id) => !list.includes(id) && loadedFor(quote, id, list).count > 0);
+      if (blocked.length) {
+        blocked.forEach((id) => ctx.toast(blockedRemovalText(quote, id, list, ctx.result), 'warning'));
+        const kept = SERVICE_COMPONENTS.map((c) => c.id).filter((id) => list.includes(id) || blocked.includes(id));
+        if (kept.length === components.length && extra === custom) {
+          ctx.rerender();
+          return;
+        }
+        list = kept;
+      }
       if (!list.length && !extra.length) {
         ctx.toast('El servicio tiene que incluir algo: dejá al menos un componente.', 'warning');
         ctx.rerender();
         return;
       }
-      applyContract({ mode: contract.mode, components: list, customComponents: extra, templateId: saved && saved.templateId, touchedComponents: true });
+      sayAll(applyContract({ components: list, customComponents: extra, templateId: saved && saved.templateId, touchedComponents: true }));
     });
   } });
-  const templatesCard = card({ className: 'qe-templates-card' }, composer.templates);
   const includes = card({}, composer.fieldset);
+  // Plantillas: ayuda opcional, plegada y al final (0.10.0): la primera decisión es la unidad.
+  const templatesCard = kit.advanced(
+    {
+      key: 'service-templates',
+      title: 'Partir de una plantilla (opcional)',
+      boxed: true,
+      defaultOpen: Boolean(saved && saved.templateId),
+      summary: () => {
+        const t = saved && saved.templateId ? templateById(saved.templateId) : null;
+        return t ? `Partiste de «${t.label}».` : 'Cuadrilla por hora-hombre, equipo con operador, servicio técnico… Marca lo que suele llevar y sugiere la unidad.';
+      },
+    },
+    composer.templates,
+  );
 
   const more = kit.advanced(
     {
@@ -407,7 +441,7 @@ export function render(container, ctx) {
         rule: 'months',
         unit: 'meses',
         hint: contract.mode === 'closed'
-          ? `Se usa para el descuento por continuidad (en ${step('margin')}). Con precio cerrado no multiplica el total del trabajo.`
+          ? `Se usa para el descuento por continuidad (en ${step('margin')}). Cobrando por trabajo no multiplica el precio del trabajo.`
           : `Se usa para el descuento por continuidad (en ${step('margin')}).`,
       }),
     ),
@@ -450,6 +484,6 @@ export function render(container, ctx) {
     exchangeRatesEditor(ctx),
   );
 
-  mount(container, identity, templatesCard, type, includes, economicBase, more);
+  mount(container, identity, unitCard, includes, templatesCard, economicBase, more);
   return { update() {} };
 }

@@ -75,7 +75,8 @@ export function render(container, ctx) {
       kit.out((r) => {
         const partial = r.kpis.financialCost;
         const base = 'Falta el plazo de cobro para completar el costo financiero. Mientras tanto RATEOS sólo considera el desfase que ya conoce (los días hasta facturar)';
-        return `${base}${partial > 0.5 ? `: hoy ${formatMoney(partial)} por mes` : ''}. Cargalo aunque sea estimado (por ejemplo 60 o 90 días).`;
+        // 0.10.0: cobrando por trabajo se dice lo del trabajo, no "por mes".
+        return `${base}${partial > 0.5 ? `: hoy ${unitAmountText(r, ctx.quote, partial)}` : ''}. Cargalo aunque sea estimado (por ejemplo 60 o 90 días).`;
       }, { tag: 'span' }),
     ),
     (r) => !r.model.finance.paymentTermDefined,
@@ -195,7 +196,7 @@ export function render(container, ctx) {
       kit.stat('Capital de trabajo a financiar', (r) => formatMoney(r.kpis.workingCapital), { hint: 'Lo que ponés antes del primer cobro.' }),
       kit.stat((r) => (closedJobsPerMonth(r) !== null ? 'Costo financiero en el trabajo' : 'Costo financiero mensual'), (r) => formatMoney(perQuoteUnit(r, r.kpis.financialCost).amount), { emphasis: true, trace: (r) => r.traces.financialCost }),
       kit.stat('Impacto en margen', (r) => (r.kpis.financialMarginImpactPct === null ? 'Sin facturación' : `${formatPercent(r.kpis.financialMarginImpactPct)} (puntos)`), {
-        hint: 'Costo financiero ÷ facturación del mes.',
+        hint: (r) => (closedJobsPerMonth(r) !== null ? 'Costo financiero ÷ precio del trabajo.' : 'Costo financiero ÷ facturación del mes.'),
       }),
       kit.stat('Cobro efectivo', (r) => formatDays(r.model.finance.invoiceLagDays + r.model.finance.paymentTermDays), { hint: 'Días hasta facturar + plazo de pago.' }),
     ),

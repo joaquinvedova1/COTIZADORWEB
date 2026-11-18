@@ -37,9 +37,9 @@ function quoteWith(contract, { unit = 'call' } = {}) {
 }
 
 describe('Componentes del servicio (PLAN-2026-019)', () => {
-  test('el catálogo cubre personal, vehículos, equipos, terceros, insumos, químicos, residuos y viáticos', () => {
+  test('el catálogo cubre personal, vehículos, equipos, terceros, herramientas, insumos, materiales, EPP, viáticos y otros (0.10.0: químicos → insumos, residuos → otros)', () => {
     const ids = SERVICE_COMPONENTS.map((c) => c.id);
-    ['labor', 'vehicle', 'machinery', 'subcontract', 'tools', 'supplies', 'chemicals', 'materials', 'ppe', 'waste', 'travel', 'other'].forEach((id) => assert.ok(ids.includes(id), id));
+    assert.deepEqual(ids, ['labor', 'vehicle', 'machinery', 'subcontract', 'tools', 'supplies', 'materials', 'ppe', 'travel', 'other']);
     SERVICE_COMPONENTS.forEach((c) => assert.ok(['labor', 'equipment', 'materials', 'logistics'].includes(c.step), `${c.id} → ${c.step}`));
     SERVICE_TEMPLATES.forEach((t) => t.components.forEach((id) => assert.ok(ids.includes(id), `${t.id}: ${id}`)));
   });
@@ -52,7 +52,7 @@ describe('Componentes del servicio (PLAN-2026-019)', () => {
     assert.equal(serviceTypeForContract(c), 'on_call');
     assert.equal(templateOf(c.components).id, 'tech_pickup');
     assert.equal(contractUsesMaterials(c), true);
-    assert.equal(componentsLabel(c), 'Personal + Vehículo + Herramientas + Insumos y consumibles');
+    assert.equal(componentsLabel(c), 'Personal + Vehículos + Herramientas + Insumos y consumibles');
   });
 
   test('equipo o vehículo sin personal = alquiler sin operador (igual que antes)', () => {
@@ -113,11 +113,12 @@ describe('Componentes del servicio (PLAN-2026-019)', () => {
 
   test('componentes propios: se guardan limpios y cuentan como otros costos', () => {
     const c = contractWithComponents({ mode: 'monthly' }, ['labor', 'nope'], ['  Baño químico ', 'baño químico', '', 42, 'Laboratorio']);
+    // 0.10.0: el rótulo de listado nombra la unidad en que se cobra (no el tipo de contrato).
     assert.deepEqual(c.components, ['labor']);
     assert.deepEqual(c.customComponents, ['Baño químico', 'Laboratorio']);
     assert.equal(contractUsesMaterials(c), false, 'los propios van a otros costos, no a materiales');
-    assert.equal(contractLabel({ contract: c }), 'Fijo mensual · personal + baño químico + laboratorio');
-    assert.equal(componentsServiceLabel({ contract: c }), 'Fijo mensual · personal + baño químico + laboratorio');
+    assert.equal(contractLabel({ contract: c, unit: 'month' }), 'Por mes · personal + baño químico + laboratorio');
+    assert.equal(componentsServiceLabel({ contract: c, unit: 'month' }), 'Por mes · personal + baño químico + laboratorio');
     assert.equal(templateOf(['labor', 'vehicle']).id, 'vehicle_driver');
     // Sólo componentes propios: no se exigen personal ni equipos.
     const only = contractWithComponents({ mode: 'on_demand' }, [], ['Baño químico']);

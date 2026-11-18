@@ -107,7 +107,7 @@ export function render(container, ctx) {
   );
   // Precio cerrado (tanda novatos 2026-11): lo que sale mal lo paga la empresa. El default sigue en 0.
   const closedNote = contractOf(quote).mode === 'closed'
-    ? h('p', { class: 'qe-note is-warning qe-risk-closed' }, 'En precio cerrado, si algo sale mal lo pagás vos: reservá un %.')
+    ? h('p', { class: 'qe-note is-warning qe-risk-closed' }, 'Cobrando por trabajo, si algo sale mal lo pagás vos: reservá un %.')
     : null;
   const card1 = card(
     {},

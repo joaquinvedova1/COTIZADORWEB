@@ -196,7 +196,7 @@ export function transportSummary({ quote = {}, activity = {}, route = {}, logist
     // Km facturables por km de ruta (null sin ruta): 1 = coinciden; > 1 = se cobran más km de los que se recorren.
     billableToRouteKm: billableKmPerMonth !== null && routeKmPerMonth > 0 ? billableKmPerMonth / routeKmPerMonth : null,
     // Para nombrar la activación (llamado / salida / intervención, PLAN-2026-014).
-    terms: { serviceType: typeof quote.serviceType === 'string' ? quote.serviceType : null, unit: typeof quote.unit === 'string' ? quote.unit : null },
+    terms: { serviceType: typeof quote.serviceType === 'string' ? quote.serviceType : null, unit: typeof quote.unit === 'string' ? quote.unit : null, contract: quote.contract && typeof quote.contract === 'object' && Array.isArray(quote.contract.components) ? { components: [...quote.contract.components] } : null },
     storedTripsPerActivation: route.storedTripsPerActivation,
     storedDiffers: Boolean(route.storedDiffers),
     // Facturables > físicos: el mínimo por llamado factura viajes que no se hacen.

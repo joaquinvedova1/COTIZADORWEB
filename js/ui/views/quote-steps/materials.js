@@ -10,17 +10,27 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, selectField, emptyState, table, confirmDialog } from '../../components.js';
+import { card, formGrid, selectField, table, confirmDialog } from '../../components.js';
 import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
 import { materialLineFromLibrary, blankMaterialLine, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
 import { workDaysText } from '../../unit-text.js';
-import { closedJobsPerMonth, quoteUnitPlace, isClosedPrice, lineMonthAtEstimate, perBilledUnitSuffix } from '../../result-text.js';
+import { closedJobsPerMonth, isClosedPrice, lineMonthAtEstimate } from '../../result-text.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, hasNumber, stepName } from './shared.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
-import { contractOf } from '../../../domain/contract.js';
+import { contractOf, componentsOf, lineComponentOf, LINE_COMPONENT_IDS, SERVICE_COMPONENTS } from '../../../domain/contract.js';
+import { costRowLabel } from '../../cost-breakdown.js';
+
+/** "Insumos y consumibles" (nombre de una categoría de gasto). */
+const componentName = (id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label || id;
+/** Nombre en minúscula para el medio de una frase ("EPP" queda en mayúsculas). */
+const componentLower = (id) => (id === 'ppe' ? 'EPP' : componentName(id).toLowerCase());
+/** Pista de cada sección cuando dice otra cosa que la del paso 1 (revisión 0.10.0, U3). */
+const SECTION_HINTS = Object.freeze({ tools: 'Lo que gastás por mes en reponerlas (no el precio de compra entero).' });
+/** Nombre con que nace una línea en blanco de cada sección. */
+const NEW_LINE_NAMES = Object.freeze({ tools: 'Herramienta', supplies: 'Insumo', materials: 'Material', ppe: 'EPP' });
 import { baseText } from '../../economic-base-ui.js';
 import { CURRENCIES } from '../../../domain/catalogs.js';
 import { conversionFactor } from '../../../engines/currency-engine.js';
@@ -192,26 +202,47 @@ export function render(container, ctx) {
   const notApplicable = Boolean(quote.materialsNotApplicable);
   // Precio cerrado: los materiales nuevos arrancan "Por trabajo" (no "Por mes").
   const closed = contractOf(quote).mode === 'closed';
+  // Revisión 0.10.0 (U3): "¿Cada cuánto se consume?" en la unidad de cobro. Por cantidad, "por unidad
+  // producida" se llama como la unidad ("Por diagnóstico"), va primera y es la de las líneas nuevas
+  // (salvo Herramientas: se reponen por mes). Por llamado o trabajo, la activación ES la unidad
+  // ("Por trabajo"): va primera y "por unidad producida" (lo mismo) sólo se ve si una línea ya la usa.
+  // "Por llamado / intervención" no se ofrece en cotizaciones por componentes que no cobran por
+  // llamado o trabajo (salvo en una línea que ya lo usa).
+  const withComponents = Boolean(quote.contract && Array.isArray(quote.contract.components));
+  const byQuantityUnit = unitInfo.kind === 'quantity';
+  const byEventUnit = unitInfo.kind === 'event';
+  const basisChoices = (catalog, current, { perOutputAllowed = true } = {}) => {
+    const list = withActivationOptions(catalog, T).map((b) => ({ value: b.id, label: b.label }));
+    const used = normalizeBasisId(current);
+    const keepActivation = !withComponents || byEventUnit || used === 'per_activation';
+    const keepOutput = perOutputAllowed && (!byEventUnit || used === 'per_output' || unitInfo.id === 'milestone');
+    const out = list.filter((o) => (o.value !== 'per_activation' || keepActivation) && (o.value !== 'per_output' || keepOutput))
+      .map((o) => (o.value === 'per_output' && byQuantityUnit ? { ...o, label: `Por ${unitInfo.singular || 'unidad'}` } : o));
+    const first = byQuantityUnit ? 'per_output' : byEventUnit ? 'per_activation' : null;
+    return first ? [...out.filter((o) => o.value === first), ...out.filter((o) => o.value !== first)] : out;
+  };
+  /** Base de una línea nueva de la sección `component`. */
+  const newLineBasis = (component, libraryBasis = null) => {
+    if (libraryBasis) return libraryBasis;
+    if (closed || byEventUnit) return 'per_activation';
+    if (byQuantityUnit && component !== 'tools') return 'per_output';
+    return null;
+  };
 
-  let selectedId = null;
-  const addFromLibrary = () => {
+  /** Agrega un material de la biblioteca en la sección `component` desde la que se pidió. */
+  const addFromLibrary = (selectedId, component) => {
     const mat = library.find((m) => m.id === selectedId);
     if (!mat) {
       ctx.toast('Elegí un material de la biblioteca para agregarlo.', 'warning');
       return;
     }
-    const line = materialLineFromLibrary(mat, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
+    const line = { ...materialLineFromLibrary(mat, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) }), component };
     // Precio cerrado (tanda novatos 2026-11): un material sin "cada cuánto" propio se consume por trabajo.
-    if (closed && !mat.basis) line.basis = 'per_activation';
+    const basis = newLineBasis(component, mat.basis || null);
+    if (basis) line.basis = basis;
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.quantity` });
     ctx.toast(`Se agregó "${line.description}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
-  };
-  const addBlank = () => {
-    const line = blankMaterialLine({ currency: quoteCurrencyOf(quote) });
-    if (closed) line.basis = 'per_activation';
-    const index = quote.materials.length;
-    ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.description` });
   };
   const removeMaterial = async (index) => {
     const line = quote.materials[index];
@@ -274,9 +305,7 @@ export function render(container, ctx) {
   );
 
 
-  const materialCards = notApplicable
-    ? []
-    : quote.materials.map((line, i) => {
+  const materialCard = (line, i) => {
       const p = `materials.${i}`;
       const at = (r) => r.model.materials.lines[i];
       // Valores copiados de una plantilla o material de demostración (UX-02).
@@ -325,7 +354,7 @@ export function render(container, ctx) {
         noRate ? h('p', { class: 'qe-warn' }, `Este costo está en ${cur} y la cotización no tiene ese tipo de cambio: no se suma hasta que lo cargues en "${stepName('service')}".`) : null,
         materialGrid(
           kit.text(`${p}.description`, { label: 'Descripción', maxLength: 160 }),
-          kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: withActivationOptions(QUOTE_MATERIAL_BASES, T).map((b) => ({ value: b.id, label: b.label })), structural: true }),
+          kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: basisChoices(QUOTE_MATERIAL_BASES, line.basis), structural: true }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
             options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),
@@ -415,6 +444,16 @@ export function render(container, ctx) {
             4,
             kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', illustrative, hint: 'Lo que se pierde o desperdicia.' }),
             kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
+            // 0.10.0: categoría de gasto (en qué sección va y en qué renglón del Resultado se ve).
+            selectField({
+              label: 'Categoría',
+              name: `${p}.component`,
+              value: lineComponentOf(line, 'material'),
+              options: LINE_COMPONENT_IDS.map((id) => ({ value: id, label: componentName(id) })),
+              disabled: kit.readOnly,
+              hint: 'En qué sección va y en qué renglón del Resultado se ve.',
+              onChange: (value) => ctx.mutate((q) => { if (q.materials[i]) q.materials[i].component = value; }),
+            }),
             legacyBilled ? kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: lineBilled(line) ? 'Recargo sobre el costo del material (no es margen): es lo que cobrás de más al facturarlo aparte.' : 'Recargo sobre el costo del material (no es margen). Se usa si facturás los materiales aparte (opción de arriba).' }) : null,
             legacyBilled ? selectField({
               label: '¿Este material se factura aparte?',
@@ -451,58 +490,16 @@ export function render(container, ctx) {
           baseFields(ctx, `${p}.base`, { currency: true, periodLabel: 'Mes del costo' }),
         ),
       );
-    });
-
-  const materialsSection = notApplicable
-    ? null
-    : h(
-      'div',
-      { class: 'stack' },
-      card(
-        {},
-        h(
-          'div',
-          { class: 'qe-toolbar' },
-          // V-25: sin materiales cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
-          !library.length ? null : h(
-            'div',
-            { class: 'qe-toolbar-pick' },
-            selectField({
-              label: 'Agregar desde tus recursos de materiales',
-              value: null,
-              includeEmpty: true,
-              emptyLabel: library.length ? 'Elegí un material…' : 'Todavía no cargaste materiales',
-              options: library.map((m) => ({ value: m.id, label: m.description })),
-              onChange: (v) => {
-                selectedId = v;
-              },
-            }),
-            kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
-          ),
-          kit.action('Agregar material en blanco', addBlank, { icon: 'plus', size: 'md', ...(library.length ? {} : { variant: 'primary' }) }),
-        ),
-      ),
-      materialCards.length
-        ? h('div', { class: 'qe-lines' }, ...materialCards)
-        : emptyState({
-          title: 'Todavía no cargaste materiales.',
-          text: 'Agregá los insumos que se consumen al prestar el servicio. Si no usa materiales, marcá la casilla de arriba.',
-          icon: 'resources',
-        }),
-    );
+  };
 
   // ------------------------------------------------- otros costos directos
   const categoryOptions = COST_CATEGORIES.filter((c) => DIRECT_CATEGORY_IDS.includes(c.id)).map((c) => ({ value: c.id, label: c.label }));
   // "Por unidad producida" (PLAN-2026-022): las unidades de "Cómo se cobra"; con abono mensual no hay
   // unidades por día y no se ofrece (una línea que ya la tiene la sigue viendo).
   const behaviorOptionsFor = (row) => {
-    const list = withActivationOptions(COST_BEHAVIORS, T).map((b) => ({ value: b.id, label: b.label }));
     const show = autoOutputKnown(quote) || normalizeBasisId(row && row.behavior) === 'per_output';
-    return show ? [...list, { value: 'per_output', label: 'Por unidad producida' }] : list;
-  };
-  const addOther = () => {
-    const index = quote.otherCosts.length;
-    ctx.mutate((q) => q.otherCosts.push(createOtherCost()), { focus: `otherCosts.${index}.description` });
+    const catalog = [...COST_BEHAVIORS, { id: 'per_output', label: 'Por unidad producida' }];
+    return basisChoices(catalog, row && row.behavior, { perOutputAllowed: show });
   };
   const removeOther = async (index) => {
     const line = quote.otherCosts[index];
@@ -514,98 +511,164 @@ export function render(container, ctx) {
   // Marca ILUSTRATIVO por línea (copiadas de una plantilla de demostración).
   const otherIll = quote.otherCosts.map((row, i) => kit.lineIllustrative(`otherCosts.${i}`, { what: 'este costo' }));
 
-  const otherTable = quote.otherCosts.length
-    ? table({
-      className: 'qe-edit-table qe-stack-table',
-      caption: 'Otros costos directos',
-      columns: [
-        {
-          key: 'description',
-          label: 'Descripción',
-          render: (row, i) => h('div', { class: 'qe-cell-stack' }, kit.text(`otherCosts.${i}.description`, { label: 'Descripción', maxLength: 160 }), otherIll[i].control),
-        },
-        { key: 'category', label: 'Categoría', render: (row, i) => kit.select(`otherCosts.${i}.category`, { label: 'Categoría', options: categoryOptions }) },
-        {
-          key: 'behavior',
-          label: 'Comportamiento',
-          className: 'qe-col-behavior',
-          render: (row, i) => h(
-            'div',
-            { class: 'qe-cell-stack' },
-            kit.select(`otherCosts.${i}.behavior`, { label: 'Comportamiento', options: behaviorOptionsFor(row), structural: true }),
-            // Por unidad producida (PLAN-2026-022): % de las unidades que lo llevan (vacío = 100 %).
-            row && normalizeBasisId(row.behavior) === 'per_output'
-              ? kit.num(`otherCosts.${i}.usagePct`, { label: `% de ${outputPluralOf(row, quote)} que lo usan`, rule: 'percent', unit: '%', placeholder: '100' })
-              : null,
-            row && normalizeBasisId(row.behavior) === 'per_output' && !autoOutputKnown(quote)
-              ? h('p', { class: 'qe-warn' }, 'Cobrando por mes no hay unidades por día: este costo suma $ 0. Elegí otro comportamiento.')
-              : null,
-          ),
-        },
-        {
-          key: 'amount',
-          label: 'Monto',
-          render: (row, i) => h(
-            'div',
-            { class: 'qe-cell-stack' },
-            kit.num(`otherCosts.${i}.amount`, { label: 'Monto', rule: 'money', unit: '$', illustrative: otherIll[i].marked }),
-            otherIll[i].marked ? h('span', { class: 'qe-cell-tag' }, illustrativeTag()) : null,
-          ),
-        },
-        {
-          key: 'calc',
-          label: 'En el costo',
-          align: 'right',
-          className: 'qe-col-calc',
-          render: (row, i) => kit.out((r) => splitLabel(r.model.otherCosts[i], `por ${outputUnitOf(quote.otherCosts[i], quote)}`, r), { className: 'mono nowrap' }),
-        },
-        { key: 'remove', label: '', className: 'qe-col-remove', render: (row, i) => kit.action('', () => removeOther(i), { variant: 'ghost', icon: 'trash', title: 'Quitar este costo' }) },
-      ],
-      rows: quote.otherCosts,
-    })
-    : h('p', { class: 'qe-note' }, 'No hay otros costos directos.');
-
-  const otherCount = quote.otherCosts.length;
-  const otherSection = kit.advanced(
-    {
-      key: 'other-costs',
-      title: 'Otros costos directos (terceros, subcontratos, manuales)',
-      boxed: true,
-      // Si hay otros costos cargados, la sección arranca abierta (no se esconden).
-      defaultOpen: otherCount > 0,
-      summary: (r) => {
-        if (otherCount === 0) return 'Para costos que no encajan en personal, equipos, materiales o viajes. No cargaste ninguno.';
-        const fixed = r.model.otherCosts.reduce((acc, l) => acc + (l.fixedMonthly || 0), 0);
-        const variable = r.model.otherCosts.reduce((acc, l) => acc + (l.variablePerActiveDay || 0), 0);
-        const jobs = closedJobsPerMonth(r);
-        if (jobs !== null) return `${otherCount} ${otherCount === 1 ? 'costo cargado' : 'costos cargados'}: ${formatMoney(r.model.otherCosts.reduce((acc, l) => acc + lineMonthAtEstimate(r, l), 0) / jobs)} en el trabajo.`;
-        return `${otherCount} ${otherCount === 1 ? 'costo cargado' : 'costos cargados'}: ${formatMoney(fixed)} fijo por mes + ${formatMoney(variable)} por día de trabajo.`;
+  /** Tabla de otros costos directos (montos manuales) de una categoría: `indexes` en quote.otherCosts. */
+  const otherTableFor = (indexes) => table({
+    className: 'qe-edit-table qe-stack-table',
+    caption: 'Otros costos directos',
+    columns: [
+      {
+        key: 'description',
+        label: 'Descripción',
+        render: (row) => h('div', { class: 'qe-cell-stack' }, kit.text(`otherCosts.${row.i}.description`, { label: 'Descripción', maxLength: 160 }), otherIll[row.i].control),
       },
-    },
-    h('p', { class: 'qe-note' }, 'Elegí la categoría para que aparezcan bien en la estructura de costos.'),
-    otherTable,
-    h('div', { class: 'qe-toolbar' }, kit.action('Agregar costo', addOther, { icon: 'plus' })),
-  );
+      { key: 'category', label: 'Va a', render: (row) => kit.select(`otherCosts.${row.i}.category`, { label: 'En la estructura de costos', options: categoryOptions }) },
+      {
+        key: 'behavior',
+        label: 'Comportamiento',
+        className: 'qe-col-behavior',
+        render: (row) => h(
+          'div',
+          { class: 'qe-cell-stack' },
+          kit.select(`otherCosts.${row.i}.behavior`, { label: 'Comportamiento', options: behaviorOptionsFor(row.line), structural: true }),
+          // Por unidad producida (PLAN-2026-022): % de las unidades que lo llevan (vacío = 100 %).
+          row.line && normalizeBasisId(row.line.behavior) === 'per_output'
+            ? kit.num(`otherCosts.${row.i}.usagePct`, { label: `% de ${outputPluralOf(row.line, quote)} que lo usan`, rule: 'percent', unit: '%', placeholder: '100' })
+            : null,
+          row.line && normalizeBasisId(row.line.behavior) === 'per_output' && !autoOutputKnown(quote)
+            ? h('p', { class: 'qe-warn' }, 'Cobrando por mes no hay unidades por día: este costo suma $ 0. Elegí otro comportamiento.')
+            : null,
+        ),
+      },
+      {
+        key: 'amount',
+        label: 'Monto',
+        render: (row) => h(
+          'div',
+          { class: 'qe-cell-stack' },
+          kit.num(`otherCosts.${row.i}.amount`, { label: 'Monto', rule: 'money', unit: '$', illustrative: otherIll[row.i].marked }),
+          otherIll[row.i].marked ? h('span', { class: 'qe-cell-tag' }, illustrativeTag()) : null,
+        ),
+      },
+      {
+        key: 'calc',
+        label: 'En el costo',
+        align: 'right',
+        className: 'qe-col-calc',
+        render: (row) => kit.out((r) => splitLabel(r.model.otherCosts[row.i], `por ${outputUnitOf(quote.otherCosts[row.i], quote)}`, r), { className: 'mono nowrap' }),
+      },
+      { key: 'remove', label: '', className: 'qe-col-remove', render: (row) => kit.action('', () => removeOther(row.i), { variant: 'ghost', icon: 'trash', title: 'Quitar este costo' }) },
+    ],
+    rows: indexes.map((i) => ({ i, line: quote.otherCosts[i], id: (quote.otherCosts[i] && quote.otherCosts[i].id) || `o${i}` })),
+  });
 
+  // ------------------------------------------------- una sección por categoría (0.10.0)
+  // Las categorías elegidas en "¿Qué incluye el servicio?" (paso 1) y, siempre, las que ya tienen
+  // líneas cargadas (nunca se esconde un costo cargado). Cotizaciones sin componentes: Materiales.
+  const savedComponents = quote.contract && Array.isArray(quote.contract.components) ? componentsOf(quote.contract) : null;
+  const materialIndexes = (id) => (notApplicable ? [] : quote.materials.map((m, i) => i).filter((i) => lineComponentOf(quote.materials[i], 'material') === id));
+  const otherIndexes = (id) => quote.otherCosts.map((o, i) => i).filter((i) => lineComponentOf(quote.otherCosts[i], 'other') === id);
+  const sectionIds = LINE_COMPONENT_IDS.filter((id) => (
+    (!notApplicable || id === 'other') && (savedComponents ? savedComponents.includes(id) : id === 'materials')
+  ) || materialIndexes(id).length > 0 || otherIndexes(id).length > 0);
+  if (!sectionIds.length) sectionIds.push(notApplicable ? 'other' : 'materials');
+
+  const addBlankIn = (id) => {
+    const line = { ...blankMaterialLine({ currency: quoteCurrencyOf(quote) }), component: id, description: NEW_LINE_NAMES[id] || 'Material' };
+    const basis = newLineBasis(id);
+    if (basis) line.basis = basis;
+    const index = quote.materials.length;
+    ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.description` });
+  };
+  const addOtherIn = (id) => {
+    const index = quote.otherCosts.length;
+    ctx.mutate((q) => q.otherCosts.push({ ...createOtherCost(), component: id }), { focus: `otherCosts.${index}.description` });
+  };
+
+  const sectionCard = (id) => {
+    const mats = materialIndexes(id);
+    const others = otherIndexes(id);
+    const isOther = id === 'other';
+    const def = SERVICE_COMPONENTS.find((c) => c.id === id) || {};
+    const pick = { id: null };
+    const libraryPick = !isOther && library.length && !kit.readOnly && !notApplicable
+      ? h('div', { class: 'qe-toolbar-pick' },
+        selectField({
+          label: 'Desde tus recursos',
+          value: null,
+          includeEmpty: true,
+          emptyLabel: 'Elegí un material…',
+          options: library.map((m) => ({ value: m.id, label: m.description })),
+          onChange: (v) => { pick.id = v; },
+        }),
+        kit.action('Agregar', () => addFromLibrary(pick.id, id), { variant: 'primary', icon: 'plus', size: 'md' }))
+      : null;
+    const addLabel = isOther ? 'Agregar costo' : 'Agregar';
+    // Revisión 0.10.0 (C3): el subtotal es lo que suma en el renglón Materiales (igual que en el
+    // Resultado); lo que "Va a" otro renglón se dice aparte. Los montos (y lo del trabajo) los da el motor.
+    const partOf = (r) => (r.componentCosts && r.componentCosts.byComponent ? r.componentCosts.byComponent[id] : null);
+    const inQuoteUnit = (x) => (x.perJob !== null && x.perJob !== undefined ? `${formatMoney(x.perJob)} en el trabajo` : `${formatMoney(x.amount)} por mes`);
+    const subtotal = kit.keyline({
+      label: `Subtotal ${componentLower(id)}`,
+      value: (r) => {
+        const part = partOf(r);
+        return part ? inQuoteUnit(part.inMaterials) : EMPTY;
+      },
+      hint: (r) => {
+        if (!(mats.length + others.length)) return `Todavía no cargaste nada en ${componentLower(id)}.`;
+        const part = partOf(r);
+        const away = part ? part.elsewhere.filter((x) => x.amount > 0.005) : [];
+        if (!away.length) return '';
+        const total = away.reduce((acc, x) => ({ amount: acc.amount + x.amount, perJob: x.perJob === null ? null : (acc.perJob || 0) + x.perJob }), { amount: 0, perJob: 0 });
+        const names = away.map((x) => `«${costRowLabel(x.category, (COST_CATEGORIES.find((c) => c.id === x.category) || {}).label, savedComponents)}»`);
+        const where = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+        const amountText = total.perJob !== null && away.every((x) => x.perJob !== null) ? formatMoney(total.perJob) : formatMoney(total.amount);
+        return `Además ${amountText} van a ${where}.`;
+      },
+    });
+    return card(
+      { title: componentName(id), subtitle: SECTION_HINTS[id] || def.hint || null, className: 'qe-component-section' },
+      mats.length ? h('div', { class: 'qe-lines' }, ...mats.map((i) => materialCard(quote.materials[i], i))) : null,
+      others.length ? h('div', {}, isOther ? null : h('p', { class: 'qe-note' }, 'Montos cargados a mano:'), otherTableFor(others), h('p', { class: 'qe-note' }, '"Va a" es el renglón de la estructura de costos donde se suma.')) : null,
+      kit.readOnly ? null : h('div', { class: 'qe-toolbar' },
+        libraryPick,
+        isOther
+          ? kit.action(addLabel, () => addOtherIn(id), { icon: 'plus', size: 'md', variant: 'primary' })
+          : kit.action(library.length ? 'Agregar en blanco' : addLabel, () => addBlankIn(id), { icon: 'plus', size: 'md', ...(library.length ? {} : { variant: 'primary' }) })),
+      subtotal,
+    );
+  };
+  const sections = h('div', { class: 'stack' }, ...sectionIds.map(sectionCard));
+
+  // Resumen final (revisión 0.10.0, U12): las categorías elegidas y lo que suman en el costo, con el
+  // equivalente por unidad cobrada (o lo del trabajo) que da el motor.
+  const SHORT_NAMES = Object.freeze({ tools: 'herramientas', supplies: 'insumos', materials: 'materiales', ppe: 'EPP', other: 'otros costos' });
+  const totalsLabel = (r) => {
+    const parts = r.componentCosts && r.componentCosts.byComponent ? r.componentCosts.byComponent : {};
+    const ids = sectionIds.filter((id) => id !== 'other' || !parts.other || parts.other.inMaterials.lines > 0 || otherIndexes('other').length === 0);
+    const names = (ids.length ? ids : ['materials']).map((id) => SHORT_NAMES[id] || componentLower(id));
+    const text = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+    return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+  };
   const totals = kit.keyline({
-    label: (r) => `Materiales en el costo del ${quoteUnitPlace(r)}`,
+    label: totalsLabel,
     value: (r) => {
-      const row = r.eecc.rows.find((x) => x.category === 'materials');
-      if (!row) return EMPTY;
-      const jobs = closedJobsPerMonth(r);
-      return jobs !== null ? formatMoney(row.amount / jobs) : `${formatMoney(row.amount)}${perBilledUnitSuffix(r, quote, row.amount)}`;
+      const m = r.componentCosts ? r.componentCosts.materials : null;
+      if (!m) return EMPTY;
+      if (m.perJob !== null) return `${formatMoney(m.perJob)} en el trabajo`;
+      const per = m.perBilledUnit !== null && m.amount > 0.005 ? ` · ≈\u00a0${formatMoney(m.perBilledUnit)} por\u00a0${unitInfo.singular || 'unidad'}` : '';
+      return `${formatMoney(m.amount)} por mes${per}`;
     },
     hint: (r) => {
       const row = r.eecc.rows.find((x) => x.category === 'materials');
-      const share = row ? `${formatPercent(row.displayPct)} del costo total · ` : '';
+      const share = row ? `${formatPercent(row.displayPct)} del costo total` : '';
       const jobs = closedJobsPerMonth(r);
-      if (jobs !== null) return `${share}lo del mes con ${workDaysText(r.activity.activeDaysPerMonth)}, dividido por ${formatNumber(jobs, { decimals: 2 })} ${Math.abs(jobs - 1) < 1e-9 ? 'trabajo' : 'trabajos'} (incluye otros costos de categoría Materiales).`;
-      return `${share}fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo (incluye otros costos de categoría Materiales).`;
+      if (jobs !== null) return `${share} · lo del mes con ${workDaysText(r.activity.activeDaysPerMonth)}, dividido por ${formatNumber(jobs, { decimals: 2 })} ${Math.abs(jobs - 1) < 1e-9 ? 'trabajo' : 'trabajos'}.`;
+      return `${share} · fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo.`;
     },
     trace: (r) => materialsTrace(r, T, quote),
     className: 'qe-keyline-total',
   });
 
-  mount(container, toggleCard, materialsSection, otherSection, totals);
+  mount(container, toggleCard, sections, totals);
   return { update() {} };
 }
