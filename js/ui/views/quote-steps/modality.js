@@ -17,14 +17,14 @@ import { card, formGrid, choiceGroup, searchSelectField, openDialog, button, inf
 import { PRICING_MODES, AVAILABILITY_OPTIONS, AVAILABILITY_WINDOW } from '../../../domain/catalogs.js';
 import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName, unitGroupOf, searchUnits, BILLING_UNIT_GROUPS } from '../../../domain/billing-units.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
-import { applyUnitChange, hoursPerDayFromManHours } from '../../../domain/unit-change.js';
+import { applyUnitChangeWithMode, hoursPerDayFromManHours } from '../../../domain/unit-change.js';
 import { numberToInputText } from '../../../core/validation.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
-import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnitSuffix, lineMonthAtEstimate } from '../../result-text.js';
+import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnitSuffix, lineMonthAtEstimate, longClosedJobNote, salaryMonthsAt } from '../../result-text.js';
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
@@ -295,8 +295,9 @@ export function resourceCostSameUnitText({ fixedMonthly, variablePerDay, activeD
   if (!(fixedMonthly > 0.005) && !(variablePerDay > 0.005)) return EMPTY;
   if (!(activeDays > 0)) return resourceCostText(fixedMonthly, variablePerDay);
   const month = (fixedMonthly > 0 ? fixedMonthly : 0) + (variablePerDay > 0 ? variablePerDay : 0) * activeDays;
-  if (jobsPerMonth !== null && jobsPerMonth > 0) return `${formatMoney(month / jobsPerMonth)}\u00a0en\u00a0el\u00a0trabajo`;
-  return `${formatMoney(month)}\u00a0por\u00a0mes`;
+  // UX 2026-11: el monto y "en el trabajo" pueden ir en líneas distintas, pero nunca se corta una palabra.
+  if (jobsPerMonth !== null && jobsPerMonth > 0) return `${formatMoney(month / jobsPerMonth)} en\u00a0el\u00a0trabajo`;
+  return `${formatMoney(month)} por\u00a0mes`;
 }
 
 /** Ejemplo del campo "por mes" acorde a la unidad (tanda novatos 2026-11): "Ej.: 8" viajes, no "Ej.: 10.000". */
@@ -461,8 +462,9 @@ export function render(container, ctx) {
     // los avisos para el cartel.
     let unitNotices = [];
     const applyChange = (q) => {
-      q.unit = nextUnit;
-      unitNotices = applyUnitChange(q, from, to);
+      // N2: con la unidad puede cambiar el modo (cotizaciones sin contrato):
+      // las "algunas horas" extra se limpian con aviso, igual que en Servicio.
+      unitNotices = applyUnitChangeWithMode(q, nextUnit, from, to);
     };
     const minCallUnitText = (n, u) => (u.kind === 'hour'
       ? `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'hora' : 'horas'}`
@@ -783,14 +785,14 @@ export function render(container, ctx) {
           ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
           : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`)
         : '';
-      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9;
+      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r);
       const usage = over
         ? `Son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`
         : `Trabajás ${num(r.activity.activeDaysPerMonth)} de los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`;
       const calls = Math.abs(acts - r.activity.activeDaysPerMonth) > 1e-6 ? ` ${num(acts)} ${T.word(acts)} por mes.` : '';
       return `${usage}${calls}${extra ? ` El total${extra}.` : ''}${fractional}`;
     },
-    tone: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
+    tone: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r) ? 'orange' : null),
   });
 
   const quantityKeyline = kit.keyline({
@@ -804,7 +806,8 @@ export function render(container, ctx) {
       }
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
-      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9
+      // UX 1: un trabajo cerrado más largo que el mes no es un error (lo explica la nota de abajo).
+      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r)
         ? ` Ojo: son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`
         : '';
       // Por intervención (PLAN-2026-010): volumen ↔ días ↔ movilización.
@@ -821,7 +824,7 @@ export function render(container, ctx) {
         : '';
       return `Facturás ${billable}${oneJobNow(r) ? '' : ' por mes'}${extra} en ${workDaysText(r.activity.activeDaysPerMonth)}.${perIntervention}${fractional}${over}`;
     },
-    tone: (r) => (hasQuantity() && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
+    tone: (r) => (hasQuantity() && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r) ? 'orange' : null),
   });
 
   // Días disponibles: el techo de la utilización (y, con guardia activa, los días de guardia que
@@ -1060,8 +1063,17 @@ export function render(container, ctx) {
           ),
         )
         : null,
+      // UX 1: un trabajo cerrado más largo que el mes no es un error; se dice como dato (azul).
+      kit.out((r) => {
+        const text = longClosedJobNote(r);
+        return text ? h('p', { class: 'banner banner-info qe-long-job', role: 'status' }, text) : '';
+      }, { tag: 'div', allowEmpty: true }),
       kit.stats(
-        kit.stat('Utilización', (r) => formatPercent(r.activity.utilizationPct), { hint: byQuantity ? `Días de trabajo ÷ ${availableNoun}.` : `Días con trabajo ÷ ${availableNoun}.` }),
+        kit.stat(
+          (r) => (longClosedJobNote(r) ? 'Duración del trabajo' : 'Utilización'),
+          (r) => (longClosedJobNote(r) ? `${formatNumber(salaryMonthsAt(r), { decimals: 2 })} meses` : formatPercent(r.activity.utilizationPct)),
+          { hint: (r) => (longClosedJobNote(r) ? `Días del trabajo ÷ ${availableNoun}.` : byQuantity ? `Días de trabajo ÷ ${availableNoun}.` : `Días con trabajo ÷ ${availableNoun}.`) },
+        ),
         byQuantity
           ? kit.stat('Días de trabajo por mes', (r) => (r.activity.activeDaysPerMonth > 0 ? formatDays(r.activity.activeDaysPerMonth, { decimals: 2 }) : EMPTY), {
             hint: kind === 'quantity' ? `${Plural} por mes ÷ ${info.plural} por día de trabajo.` : `${Plural} por mes × días de trabajo de cada uno.`,

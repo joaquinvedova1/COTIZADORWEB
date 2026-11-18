@@ -479,6 +479,8 @@ export function render(container, ctx) {
     return active.length ? `Aplicadas: ${active.join(', ')}.` : 'Ninguna aplicada.';
   };
   const legacy = legacySeparateCharges(quote);
+  const showMinimumCall = Number(quote.rules && quote.rules.minimumCallUnits) > 0
+    || !(unitKind === 'month' || unitKind === 'event' || Object.values(legacy).some(Boolean));
   const hadGuardPlus = legacy.guardPlus;
   // "Quitar" de un cobro aparte cargado antes (mismo patrón que la guardia de "Cómo se cobra").
   const removeCharge = (name, keys) => (kit.readOnly ? null : kit.action('Quitar', async () => {
@@ -503,14 +505,11 @@ export function render(container, ctx) {
     if (c.applies && c.status === 'orange') return { tone: 'orange', text: 'Un descuento bajo el objetivo' };
     return null;
   };
-  const rulesCard = kit.advanced(
-    {
-      key: 'margin-rules',
-      title: 'Reglas comerciales',
-      summary: rulesSummary,
-      // Abono mensual + abono de disponibilidad (ECO-01, H-02): se ve aunque la sección esté cerrada.
-      flag: rulesFlag,
-    },
+  // UX 2026-11: las reglas van como grupo dentro de "Opciones comerciales" (antes, un desplegable
+  // dentro de otro con casi el mismo nombre: dos clics seguidos). El resumen y la marca (p. ej.
+  // "Dos abonos por mes") siguen en el desplegable de afuera.
+  const rulesCard = kit.group(
+    'Reglas comerciales',
     h('p', { class: 'qe-note' }, `Mínimos y descuentos de ${closed ? 'tu precio' : 'tu tarifa'}. Dejá en 0 lo que no aplica.`),
     // Regla de un ítem (2026-11-18): fijo de guardia, plus, movilización, km adicional y equipo en
     // espera se cobran aparte del precio único. Sólo los ve una cotización que ya los tenía, con Quitar.
@@ -550,7 +549,10 @@ export function render(container, ctx) {
         return `Se cobran ${formatValue(rev.extraKmPerActivation, 'km')} adicionales ${T.per} (de ${route} de ruta): ${formatMoney(rev.components.extraKm)} por mes.`;
       }),
     ) : null,
-    ruleRow(
+    // UX 2026-11: el mínimo por llamado sigue (es parte del precio único, no un cobro aparte). Se
+    // esconde en 0 cuando no aplica (abono mensual o por trabajo) o en una cotización vieja, para
+    // que no se mezcle con los renglones "(cargado antes)".
+    showMinimumCall ? ruleRow(
       `${L.minimumCall} (minimum call)`,
       unitKind === 'month'
         ? `Con abono mensual no aplica: la facturación no depende de ${T.theMany} ${T.many}.`
@@ -559,7 +561,7 @@ export function render(container, ctx) {
           : `Mínimo de ${minimumCallUnit} facturables ${T.per}, aunque se trabaje menos.`,
       [kit.num('rules.minimumCallUnits', { label: `${L.minimumCall} (${minimumCallUnit})`, rule: 'quantity', unit: minimumCallUnit })],
       kit.out((r) => minimumCallNote(r, T, unitInfo)),
-    ),
+    ) : null,
     legacy.standby ? ruleRow(
       'Equipo en espera (cargado antes)',
       `${LEGACY_NOTE} Días por mes que el equipo queda en locación sin operar y se cobran a tarifa de espera.`,

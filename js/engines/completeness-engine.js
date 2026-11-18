@@ -56,6 +56,9 @@ const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
 const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips']);
 
+/** Tope de horas por día por persona para el aviso con "todo el trabajo" (N5). */
+const MAX_HOURS_PER_PERSON_DAY = 16;
+
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
 
@@ -429,6 +432,31 @@ export function evaluateCompleteness(quote = {}) {
         : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), elegí "Horas extra del trabajo" (en "Cómo se cobra") o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`);
       item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : simple ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
+      items.push(item);
+    }
+  }
+
+  // N5 (verificación 2026-11): con "todo el trabajo" las horas que faltan se pagan como hora
+  // extra, pero hay un tope físico: si cada persona tendría que trabajar más de
+  // MAX_HOURS_PER_PERSON_DAY h por día (p. ej. 1 persona 24 h por día), se avisa igual.
+  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode === 'all') {
+    const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+    const over = labor.map((l, index) => {
+      const hours = coverageOf(l);
+      const ppp = laborPeoplePerPositionOf(l);
+      if (!(nonNegative(l.positions) > 0) || !(hours > 0) || !(ppp > 0)) return null;
+      const perPerson = hours / ppp;
+      return perPerson > MAX_HOURS_PER_PERSON_DAY + 1e-9 ? { l, index, hours, ppp, perPerson } : null;
+    }).filter(Boolean);
+    if (over.length) {
+      const first = over[0];
+      const name = (typeof first.l.role === 'string' && first.l.role.trim()) || 'Personal';
+      const others = over.length > 1 ? ` También: ${over.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
+      const who = Math.abs(first.ppp - 1) < 1e-9 ? '1 persona' : `${fmt(first.ppp)} personas que se turnan`;
+      const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
+        `"${name}": ${fmt(first.hours)} h por día con ${who} son ${fmt(first.perPerson)} h por día por persona. Las horas extra de "todo el trabajo" se pagan, pero nadie trabaja más de ${MAX_HOURS_PER_PERSON_DAY} h por día todos los días: sumá personas que se turnen o bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.hours !== H)}`);
+      item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : isSimpleStaff(first.l) ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
+      item.targets = over.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
     }
   }

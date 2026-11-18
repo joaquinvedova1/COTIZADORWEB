@@ -136,6 +136,7 @@ import {
   unitAmountText,
   perBilledUnitSuffix,
   perQuoteUnit,
+  salaryMonthsAt,
 } from '../result-text.js';
 
 /**
@@ -1604,9 +1605,10 @@ function costStat(v) {
   const D = k.activeDays;
   const single = closedOf(v).single;
   return statItem({
-    label: single ? 'Te cuesta (el trabajo)' : 'Te cuesta (costo del mes)',
+    // UX 2026-11: "Te cuesta" + "$ X en el trabajo" (sin repetir "trabajo" ni "/ trabajo" suelto).
+    label: single ? 'Te cuesta' : 'Te cuesta (costo del mes)',
     value: money(k.totalCost),
-    unit: hasValue(k.totalCost) ? (single ? '/ trabajo' : '/ mes') : null,
+    unit: hasValue(k.totalCost) ? (single ? 'en el trabajo' : '/ mes') : null,
     hint: statHint(hasValue(D) && D > 0
       ? `${approxPerUnit(v, k.totalCost)}Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
       : byQty(v) ? `Lo que te cuesta prestar el servicio. Todavía no estimaste ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días de trabajo.'),
@@ -2275,7 +2277,7 @@ function renderCostStructure(v) {
   const bars = barList(rows.map((row) => ({ label: row.label, value: row.displayPct })));
   return card(header,
     h('div', { class: 'qr-eecc' }, tbl, h('div', { class: 'qr-eecc-bars', 'aria-hidden': 'true' }, bars)),
-    note(`Monto mes = fijo del mes + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo${k.activationRoundingCost > 0 ? ` + efecto del redondeo (${termsOfResult(v.r).many} ${termsOfResult(v.r).wholeMany})` : ''}. Fijos del mes: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`),
+    note(`${closedOf(v).single ? `Monto en el trabajo = fijo${salaryMonthsAt(v.r) > 1 + 1e-9 ? ` de ${formatNumber(salaryMonthsAt(v.r), { decimals: 2 })} meses` : ''}` : 'Monto mes = fijo del mes'} + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo${k.activationRoundingCost > 0 ? ` + efecto del redondeo (${termsOfResult(v.r).many} ${termsOfResult(v.r).wholeMany})` : ''}. ${closedOf(v).single ? 'Fijos' : 'Fijos del mes'}: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`),
     // PLAN-2026-011 / 014 (LAB-D1): salidas promedio, costeadas y efecto del redondeo.
     k.activationRoundingCost > 0
       ? (() => {
@@ -2697,7 +2699,7 @@ function renderMatrix(v) {
       },
       { key: 'marginPct', label: abbrHeader('Margen', 'Margen sobre el precio de venta'), align: 'right', render: (row) => pct(row.marginPct) },
     ];
-    resultTable = regionTable(v, { columns: resultColumns, rows, rowClass, caption: `Resultado con ${theRate(k)} según ${byQty(v) ? `${unitTextsOf(r).los} ${r.unitInfo.plural} del mes` : 'los días de trabajo'}`, className: 'qr-matrix qr-matrix-result', emptyText: 'Sin días para evaluar.' });
+    resultTable = regionTable(v, { columns: resultColumns, rows, rowClass, caption: closedOf(v).closed ? `Resultado del mes con ${theRate(k)} según cuántos ${r.unitInfo.plural} hagas por mes` : `Resultado con ${theRate(k)} según ${byQty(v) ? `${unitTextsOf(r).los} ${r.unitInfo.plural} del mes` : 'los días de trabajo'}`, className: 'qr-matrix qr-matrix-result', emptyText: 'Sin días para evaluar.' });
   }
 
   let chart = null;
@@ -2975,6 +2977,22 @@ function deltaTone(better, value) {
  * trabajo quedan como dato).
  */
 function sensMetrics(v) {
+  return inQuoteUnit(v, sensMetricsRaw(v));
+}
+
+/**
+ * N3 (verificación 2026-11): en precio cerrado de un trabajo por mes, las cifras "del mes" son
+ * las del trabajo: los rótulos dicen "del trabajo". Sólo texto; los números no cambian.
+ */
+function jobLabel(v, label) {
+  return closedOf(v).single ? String(label).replace(/ del mes\b/g, ' del trabajo') : label;
+}
+
+function inQuoteUnit(v, metrics) {
+  return closedOf(v).single ? metrics.map((m) => ({ ...m, label: jobLabel(v, m.label) })) : metrics;
+}
+
+function sensMetricsRaw(v) {
   if (!byQty(v)) return SENS_METRICS;
   const Plural = capitalizeUnitPhrase(v.r.unitInfo.plural);
   return SENS_METRICS.flatMap((m) => {
@@ -3255,7 +3273,7 @@ function renderScenarios(v) {
   const list = runScenarios(q, { settings });
   const byId = Object.fromEntries(list.map((sc) => [sc.id, sc]));
   const order = ['pessimistic', 'base', 'optimistic'].filter((id) => byId[id]);
-  const metrics = [
+  const metrics = inQuoteUnit(v, [
     { label: 'Facturación del mes', get: (sc) => money(sc.revenue) },
     { label: 'Costo del mes', get: (sc) => money(sc.totalCost) },
     { label: 'Margen', get: (sc) => pct(sc.marginPct) },
@@ -3266,7 +3284,7 @@ function renderScenarios(v) {
     byQty(v)
       ? { label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, get: (sc) => quantityCeilText(sc.breakEvenQuantity, v.r) }
       : { label: 'Días para no perder plata (break-even)', get: (sc) => resultDays(sc.breakEvenDays) },
-  ];
+  ]);
   const tbl = scrollRegion(v, h('div', { class: 'table-wrap' },
     h('table', { class: 'table qr-scenarios' },
       h('caption', { class: 'sr-only' }, 'Escenarios pesimista, base y optimista'),
@@ -4229,13 +4247,13 @@ function analysisBase(v) {
       h('p', { class: 'qr-base-title' }, 'Punto de partida: tu cotización tal como está'),
       illustrativeBadge(v)),
     h('dl', { class: 'qr-base-list' },
-      item('Costo del mes', money(k.totalCost)),
+      item(jobLabel(v, 'Costo del mes'), money(k.totalCost)),
       item(rateOk ? commercialName(k) : 'Tu tarifa', rateOk ? commercialRate(k, v.unitLabel) : 'Sin tarifa'),
       byQty(v)
         ? item(`${capitalizeUnitPhrase(v.r.unitInfo.plural)} por mes`, `${quantityText(k.billableQuantity, v.r)} (${workDaysText(k.activeDays)})`)
         : item('Días de trabajo por mes', formatDays(k.activeDays)),
       item('Margen', rateOk && hasValue(k.marginPct) ? pct(k.marginPct) : EMPTY, marginTone(k)),
-      item('Resultado del mes', rateOk ? money(k.profit) : EMPTY, profitTone(k))));
+      item(jobLabel(v, 'Resultado del mes'), rateOk ? money(k.profit) : EMPTY, profitTone(k))));
 }
 
 /**

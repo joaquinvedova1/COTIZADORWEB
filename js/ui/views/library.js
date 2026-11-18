@@ -637,7 +637,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         { key: 'transferMonthly', label: 'Traslado', rule: 'money', unit: '$/mes' },
         ...baseFormFields('base').slice(1),
         // Datos de perfiles anteriores: se ven sólo si ya estaban cargados (las cantidades van en la cotización).
-        { key: 'overtimeHoursPerActiveDay', label: 'Horas extra por día de trabajo (cargado antes)', rule: 'hoursPerDay', unit: 'h', when: (d) => hasValue(d.overtimeHoursPerActiveDay), hint: 'Las horas extra ahora se cargan en cada cotización. Poné 0 para dejar de sumarlas en las cotizaciones nuevas.' },
+        { key: 'overtimeHoursPerActiveDay', label: 'Horas extra por día de trabajo (cargado antes)', rule: 'hoursPerDay', unit: 'h', when: (d) => hasValue(d.overtimeHoursPerActiveDay), hint: 'Ya no se copian a las cotizaciones nuevas: las horas extra se eligen en cada cotización, en "Horas extra del trabajo" (paso "Cómo se cobra").' },
         { key: 'overtimePremiumPct', label: 'Recargo de esas horas extra', rule: 'percentOpen', unit: '%', when: (d) => hasValue(d.overtimeHoursPerActiveDay) },
         illustrativeField,
       ],

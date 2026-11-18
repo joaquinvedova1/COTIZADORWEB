@@ -15,7 +15,7 @@ import { hasNumber, plural, stepName } from './shared.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS, isIllustrativeAgreementParam } from '../../../domain/catalogs.js';
 import { laborLineFromProfile } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
-import { closedJobsPerMonth, quoteUnitPlace, lineMonthAtEstimate, perBilledUnitSuffix, roleOvertimeMonth, overtimeWorkLabel } from '../../result-text.js';
+import { closedJobsPerMonth, quoteUnitPlace, lineMonthAtEstimate, perBilledUnitSuffix, roleOvertimeMonth, overtimeWorkLabel, closedLaborCostText } from '../../result-text.js';
 import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
@@ -453,16 +453,9 @@ export function render(container, ctx) {
           if (!l) return '';
           const jobs = closedJobsPerMonth(r);
           if (jobs !== null) {
-            const D = r.activity.activeDaysPerMonth;
-            const daysPerJob = D / jobs;
+            // N1: la cuenta cierra con el total (meses de sueldo si el trabajo dura más que el mes).
             const share = l.shared && !l.shareMissing ? ` (este servicio paga el ${formatPercent(l.fixedCostSharePct)} de su mes)` : '';
-            const fixedPart = l.fixedMonthly > 0
-              ? `Sueldo con cargas del mes ${formatMoney(l.fixedMonthly)}${share}${Math.abs(jobs - 1) < 1e-9 ? '' : `, repartido en ${formatNumber(jobs, { decimals: 2 })} trabajos del mes`}`
-              : '';
-            const varPart = l.variablePerActiveDay > 0 ? `${fixedPart ? ' + ' : ''}${formatMoney(l.variablePerActiveDay)} por día × ${formatNumber(daysPerJob, { decimals: 2 })} días del trabajo` : '';
-            const ot = roleOvertimeMonth(r, i);
-            const otPart = ot > 0 ? `${fixedPart || varPart ? ' + ' : ''}${overtimeWorkLabel(r)}: ${formatMoney(ot / jobs)}` : '';
-            const body = `${fixedPart}${varPart}${otPart}`;
+            const body = closedLaborCostText(r, l, { overtime: roleOvertimeMonth(r, i), share });
             return `${staffText(l)}.${body ? ` ${body}.` : ''} Si también hace otros trabajos ese mes, elegí «No, también hacen otros trabajos» en "${stepName('modality')}".`;
           }
           const variable = l.variablePerActiveDay > 0 ? ` + ${formatMoney(l.variablePerActiveDay)} por día de trabajo (${l.perPosition.overtimePerActiveDay > 0 ? 'horas extra y vianda' : 'vianda'})` : '';
@@ -641,12 +634,13 @@ export function render(container, ctx) {
           Math.abs(headcount - positions) > 1e-6
             ? `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')} en nómina, ${formatNumber(positions, { decimals: 2 })} trabajando a la vez`
             : `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')}`,
+          // N1: en precio cerrado, la cuenta en el trabajo cierra con el total (meses de sueldo).
           closedJobsPerMonth(r) !== null
-            ? `sueldos con cargas del mes ${formatMoney(r.model.labor.fixedMonthly)}${Math.abs(closedJobsPerMonth(r) - 1) < 1e-9 ? '' : `, repartidos en ${formatNumber(closedJobsPerMonth(r), { decimals: 2 })} trabajos`}${r.model.labor.variablePerActiveDay > 0 ? ` + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo` : ''}`
+            ? closedLaborCostText(r, r.model.labor, { overtime: overtimeMonth(r) }).replace(/^Sueldo/, 'sueldos')
             : `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo`,
           // M2: las horas extra del trabajo están en el total; se dicen para que la cuenta cierre.
-          r.model.overtimeWork && r.model.overtimeWork.active
-            ? `más ${overtimeWorkLabel(r)}: ${closedJobsPerMonth(r) !== null ? `${formatMoney(overtimeMonth(r) / closedJobsPerMonth(r))} en el trabajo` : `${formatMoney(overtimeMonth(r))} en el mes`}`
+          r.model.overtimeWork && r.model.overtimeWork.active && closedJobsPerMonth(r) === null
+            ? `más ${overtimeWorkLabel(r)}: ${formatMoney(overtimeMonth(r))} en el mes`
             : null,
         ].filter(Boolean);
         return `${parts.join(' · ')}.${standby}`;

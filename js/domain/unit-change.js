@@ -16,6 +16,7 @@
 
 import { isPlainObject } from '../core/object.js';
 import { activationTerms } from './activation-terms.js';
+import { contractOf } from './contract.js';
 
 const positive = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
 const loaded = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
@@ -152,4 +153,19 @@ export function applyContractModeChange(q, fromMode, toMode) {
   ow.hours100 = 0;
   notices.push(`Se borraron las horas extra del trabajo (estaban ${was}): cargalas de nuevo en "Cómo se cobra".`);
   return notices;
+}
+
+/**
+ * Cambio de unidad completo (verificación 2026-11, N2): limpia lo cargado en la
+ * unidad anterior (applyUnitChange) y, si con la unidad cambia el modo del
+ * contrato (en cotizaciones sin contrato el modo sale de la unidad), también
+ * las "algunas horas" extra, que se leen por mes o por trabajo según el modo.
+ * Cambia q.unit y devuelve los avisos.
+ */
+export function applyUnitChangeWithMode(q, nextUnit, fromInfo, toInfo) {
+  if (!isPlainObject(q)) return [];
+  const fromMode = contractOf(q).mode;
+  q.unit = nextUnit;
+  const notices = applyUnitChange(q, fromInfo, toInfo);
+  return [...notices, ...applyContractModeChange(q, fromMode, contractOf(q).mode)];
 }

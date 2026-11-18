@@ -216,7 +216,7 @@ export const LABOR_WHY_EMPTY = 'Agregá cada puesto y poné cuántas personas va
  * Ítems de completitud que se corrigen dentro de unas "Opciones avanzadas":
  * el aviso del paso ofrece abrirlas y el disclosure muestra "Revisar".
  */
-const ITEM_ADVANCED_KEY = Object.freeze({ standby: 'margin-rules' });
+const ITEM_ADVANCED_KEY = Object.freeze({ standby: 'margin-commercial' });
 
 /**
  * Estado abierto/cerrado de las "Opciones avanzadas", SÓLO en memoria
