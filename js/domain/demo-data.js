@@ -220,11 +220,14 @@ export function demoHydroCraneQuote() {
     unit: 'day',
     // La unidad primero (0.10.0): el modo sale de la unidad; las categorías de gasto ordenan los pasos.
     contract: contractWithComponents({ mode: modeForUnit('day') }, ['labor', 'vehicle', 'machinery', 'tools', 'supplies', 'materials']),
-    // Horas extra del trabajo (PR #68): las 4 h por día de trabajo del operador, al 50 %, por llamado de 2 días.
-    overtimeWork: { mode: 'some', premiumPct: 50, hours50: 8, hours100: 0 },
+    // Horas extra del trabajo (PR #68): 4 h al 50 % por llamado de 2 días, ADEMÁS de las
+    // 10 h. El motor cobra en esas horas el uso de los equipos propios (siguen trabajando), por eso
+    // son 4 por llamado y no las 8 que daban las 4 h por día del campo viejo del puesto.
+    overtimeWork: { mode: 'some', premiumPct: 50, hours50: 4, hours100: 0 },
     contractMonths: 12,
     activity: {
-      availability: '24/7',
+      // Sin guardia (0.10.1): las cotizaciones nuevas ya no la preguntan y la demo muestra el modelo actual.
+      availability: 'none',
       availabilityWindow: '',
       responseTimeHours: 4,
       activeDaysPerMonth: 8,
@@ -371,7 +374,7 @@ export function demoHydroCraneQuote() {
       continuityDiscountPct: 0,
       minimumMonthlyGuarantee: 0,
     },
-    notes: 'Cotización de demostración. TODOS los costos son ILUSTRATIVOS.',
+    notes: 'Cotización de demostración. TODOS los costos son ILUSTRATIVOS. Horas extra: 4 h al 50 % cada 2 días de trabajo, además de las 10 h de cada día, con la hidrogrúa y la pickup trabajando (se cobra su uso en esas horas).',
     currency: 'ARS',
     offerDate: '2026-10-01',
     exchangeRates: [],

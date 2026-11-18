@@ -23,6 +23,12 @@ describe('Demo COT-0001 "Hidrogrúa por día — Añelo"', () => {
     const tour = readFileSync(new URL('../../js/ui/views/public/demo-tour.js', import.meta.url), 'utf8');
     assert.doesNotMatch(tour, /on-call/i);
     assert.match(tour, /Está disponible todo el mes, pero sólo cobrás los días que te llaman\./);
+    assert.match(q.notes, /además de las 10 h de cada día/);
+  });
+
+  test('sin guardia: la demo no se ve como cotización vieja', () => {
+    assert.equal(q.activity.availability, 'none');
+    assert.ok(!(Number(q.rules.availabilityFeeMonthly) > 0) && !(Number(q.rules.calloutFeePerActivation) > 0));
   });
 
   test('contrato: el modo sale de la unidad y las categorías son las de 0.10.0', () => {
@@ -34,12 +40,12 @@ describe('Demo COT-0001 "Hidrogrúa por día — Añelo"', () => {
   });
 
   test('horas extra en "Horas extra del trabajo", no en el puesto', () => {
-    assert.deepEqual(q.overtimeWork, { mode: 'some', premiumPct: 50, hours50: 8, hours100: 0 });
+    assert.deepEqual(q.overtimeWork, { mode: 'some', premiumPct: 50, hours50: 4, hours100: 0 });
     q.labor.forEach((l) => assert.equal(l.overtimeHoursPerActiveDay, 0));
     const r = computeQuote(q, { settings: createDemoState(5).settings });
     const line = r.model.lines.find((x) => x.key === 'labor:overtime-work');
     assert.ok(line && line.category === 'labor');
-    near(r.model.overtimeWork.monthlyAtEstimate, 2380174);
+    near(r.model.overtimeWork.monthlyAtEstimate, 1190087);
   });
 
   test('un solo precio: sin cobros aparte, mínimo por llamado ni tramos con descuento', () => {
@@ -50,10 +56,10 @@ describe('Demo COT-0001 "Hidrogrúa por día — Añelo"', () => {
     assert.deepEqual(q.extras || [], []);
   });
 
-  test('números ILUSTRATIVOS: costo 17.898.808, sugerida 2.486.000 por día', () => {
+  test('números ILUSTRATIVOS: costo 16.380.305, sugerida 2.276.000 por día', () => {
     const r = computeQuote(q, { settings: createDemoState(5).settings });
-    near(r.kpis.totalCost, 17898808);
-    assert.equal(r.kpis.suggestedListRate, 2486000);
+    near(r.kpis.totalCost, 16380305);
+    assert.equal(r.kpis.suggestedListRate, 2276000);
   });
 
   test('el caso de referencia sigue sin contrato ni horas extra (break-even 10 días)', () => {

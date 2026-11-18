@@ -36,6 +36,8 @@ function approx(actual, expected, message = '', tolerance = EPS) {
  */
 function completeQuote() {
   const q = demoHydroCraneQuote();
+  // Desde 0.10.1 la demo no tiene guardia; estas reglas se prueban con un servicio 24/7 (relevos).
+  q.activity.availability = '24/7';
   q.labor[0].peoplePerPosition = 2;
   q.rules.standbyNotApplicable = true;
   q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: 5, items: [] };
@@ -67,12 +69,13 @@ describe('CompletenessEngine — puntaje', () => {
     approx(evaluateCompleteness(q).scorePct, ((TOTAL_WEIGHT - 0.5) / TOTAL_WEIGHT) * 100);
   });
 
-  test('la demo hidrogrúa (sin relevo e impuestos sin definir) tiene 2 avisos naranja: 25 / 26', () => {
+  test('la demo hidrogrúa (sin guardia desde 0.10.1, impuestos sin definir) tiene 1 aviso naranja: 24,5 / 25', () => {
     const r = evaluateCompleteness(demoHydroCraneQuote());
-    approx(r.scorePct, (25 / 26) * 100);
+    // Sin guardia 24/7 no aplica la regla de relevos (peso 1): 25 de peso total.
+    approx(r.scorePct, (24.5 / 25) * 100);
+    assert.equal(item(r, 'relief'), undefined);
     // Bases definidas (ILUSTRATIVAS), equipos movilizados y sin duplicados.
     for (const id of ['mobility', 'duplicates', 'economic_base', 'base_age']) assert.equal(item(r, id).status, 'ok', id);
-    assert.equal(item(r, 'relief').status, 'warning');
     // Sin días de espera ni tarifa, el standby no es un pendiente (tanda novatos 2026-11).
     assert.equal(item(r, 'standby'), undefined);
     assert.equal(item(r, 'billing_taxes').status, 'warning');

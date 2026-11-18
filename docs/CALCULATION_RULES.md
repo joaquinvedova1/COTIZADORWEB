@@ -4,7 +4,7 @@ Este documento describe **todas** las fórmulas del motor económico tal como es
 
 > **Valores ILUSTRATIVOS.** Los ejemplos numéricos usan los datos demo de *Patagonia Servicios SRL* (empresa ficticia) o casos de referencia sintéticos. No son escalas salariales, cargas patronales, alícuotas, precios ni costos reales.
 >
-> **Demo Hidrogrúa y versiones.** Los ejemplos numéricos de la demo "Hidrogrúa por día — Añelo" (costo, estructura, tarifas, tramos y equilibrio) son los de la demo hasta 0.10.0: 4 h extra por día en el puesto, mínimo por llamado de 1 día y tramos de 3 / 5 / 8 % (costo del mes 15.776.498, sugerida 2.259.000). Las fórmulas no cambiaron. Desde 0.10.1 la demo tiene contrato (por servicio prestado, con categorías de gasto), las horas extra van en "Horas extra del trabajo" (8 h al 50 % por llamado, con el uso por hora de los equipos propios, §28) y no tiene mínimo por llamado ni tramos con descuento: costo del mes 17.898.808, piso 2.237.352 y sugerida 2.486.000 por día.
+> **Demo Hidrogrúa y versiones.** Los ejemplos numéricos de la demo "Hidrogrúa por día — Añelo" (costo, estructura, tarifas, tramos y equilibrio) son los de la demo hasta 0.10.0: 4 h extra por día en el puesto, mínimo por llamado de 1 día y tramos de 3 / 5 / 8 % (costo del mes 15.776.498, sugerida 2.259.000). Las fórmulas no cambiaron. Desde 0.10.1 la demo tiene contrato (por servicio prestado, con categorías de gasto), las horas extra van en "Horas extra del trabajo" (4 h al 50 % por llamado, además de las 10 h de cada día, con el uso por hora de los equipos propios, §28), no tiene guardia ni mínimo por llamado ni tramos con descuento: costo del mes 16.380.305, piso 2.047.539 y sugerida 2.276.000 por día.
 
 Convenciones:
 

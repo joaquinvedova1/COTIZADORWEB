@@ -19,7 +19,8 @@ Reglas para este archivo:
 ### Cambiado
 
 - **Demo COT-0001 "Hidrogrúa por día — Añelo"** (antes "Hidrogrúa on-call — Añelo"):
-  - las 4 h extra por día que estaban en el puesto pasan a "Horas extra del trabajo": algunas horas, 8 h al 50 % por llamado de 2 días;
+  - las 4 h extra por día que estaban en el puesto pasan a "Horas extra del trabajo": algunas horas, 4 h al 50 % por llamado de 2 días, **además** de las 10 h de cada día de trabajo. El motor cobra en esas horas el uso de la hidrogrúa y la pickup; con 4 h por llamado (y no 8) se cuida no contar dos veces los equipos que ya trabajan las 10 h. Lo dicen las notas de la cotización y la demo guiada ("Horas extra" en el paso 1);
+  - sin guardia (`availability: 'none'`): no cobraba nada, pero mostraba la tarjeta "Guardia (cargada antes)" de las cotizaciones viejas;
   - sin mínimo por llamado (1 día, que no cambiaba nada con llamados de 2 días) y sin tramos con descuento (3 / 5 / 8 %): 0.10.0 ya no los ofrece en cotizaciones nuevas;
   - contrato guardado: el modo sale de la unidad (`modeForUnit('day')`, por servicio prestado) y las categorías de gasto son Personal, Vehículos, Equipos y maquinaria, Herramientas, Insumos y Materiales; cada material tiene su `component`;
   - el caso de referencia COT-0002 queda sin contrato, como antes.
@@ -27,18 +28,18 @@ Reglas para este archivo:
 
   | | Antes | Ahora |
   |---|---:|---:|
-  | Costo del mes | 15.776.498 | 17.898.808 (+13,5 %) |
-  | Tarifa piso | 2.033.054 | 2.237.352 por día |
-  | Tarifa sugerida | 2.259.000 | 2.486.000 por día (+10,0 %) |
-  | Break-even | 6,4 días | 6,6 días |
+  | Costo del mes | 15.776.498 | 16.380.305 (+3,8 %) |
+  | Tarifa piso | 2.033.054 | 2.047.539 por día |
+  | Tarifa sugerida | 2.259.000 | 2.276.000 por día (+0,8 %) |
+  | Break-even | 6,4 días | 6,7 días |
 
   - Sacar los tramos baja la sugerida a 2.192.000, porque ya no se sube la de lista para cubrir el 3 % del tramo de 8 días.
-  - Las horas extra del modelo nuevo suman 2.380.174 por mes, contra 716.870 de las horas extra del puesto:
-    - personal 876.174, con la hora al 50 % de básico más adicionales (27.380 contra 22.402 de antes, que tomaba sólo el básico);
-    - 1.504.000 de uso de la hidrogrúa y la pickup en esas 32 h (47.000 por hora).
+  - Las horas extra del modelo nuevo suman 1.190.087 por mes (16 h), contra 716.870 de las horas extra del puesto (32 h):
+    - personal 438.087, con la hora al 50 % de básico más adicionales (27.380 contra 22.402 de antes, que tomaba sólo el básico);
+    - 752.000 de uso de la hidrogrúa y la pickup en esas 16 h (47.000 por hora).
   - Sobre eso se suman estructura, financiación e imprevistos.
-- **Plantilla demo "Hidrogrúa por día"** (antes "Hidrogrúa on-call"): copia las horas extra del trabajo. Una cotización nueva desde la plantilla cuesta lo mismo que la demo: 17.898.808 contra 14.861.801.
-- **Demo guiada (`#/demo`):** "Está disponible todo el mes, pero sólo cobrás los días que te llaman", sin "on-call". Los nombres cambian también en landing, análisis, configuración, inicio y docs.
+- **Plantilla demo "Hidrogrúa por día"** (antes "Hidrogrúa on-call"): copia las horas extra del trabajo. Una cotización nueva desde la plantilla cuesta lo mismo que la demo: 16.380.305 contra 14.861.801.
+- **Demo guiada (`#/demo`):** "Está disponible todo el mes, pero sólo cobrás los días que te llaman", sin "on-call". Los nombres cambian también en la landing ("hidrogrúa por día en Añelo", "Servicio por día"), el análisis, configuración, inicio y docs.
 - **Test Lab:**
   - el oráculo independiente calcula "algunas horas" de horas extra del trabajo (§28);
   - INV-31 cuenta esas horas como cobertura;

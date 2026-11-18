@@ -118,11 +118,11 @@ Todos los valores son **ILUSTRATIVOS**.
 |---|---|
 | Empresa | Patagonia Servicios SRL (ficticia) |
 | Base → destino | Neuquén Capital → Añelo, 110 km, ida y vuelta |
-| Modalidad | Por servicio prestado: disponible 24/7, respuesta 4 h, se cobran los días trabajados; "Conozco la actividad" |
+| Modalidad | Por servicio prestado: disponible todo el mes, respuesta 4 h, se cobran los días trabajados; "Conozco la actividad" |
 | Unidad | $/día |
 | Actividad estimada | 8 días/mes, 2 días por activación (4 llamados), 10 h por día activo |
 | Recursos | 1 operador, 1 hidrogrúa, 1 vehículo de apoyo; incluye personal, vehículos, equipos y maquinaria, herramientas, insumos y materiales |
-| Horas extra del trabajo | Algunas horas: 8 h al 50 % por llamado (4 h por día de trabajo), dentro del costo del personal |
+| Horas extra del trabajo | Algunas horas: 4 h al 50 % por llamado, además de las 10 h de cada día, con los equipos trabajando (dentro del costo del personal) |
 | Plazo de pago | 90 días (facturación a 15 días, tasa 3 % mensual) |
 | Estructura / contingencia | 12 % sobre costo directo / 5 % |
 | Margen objetivo | 10 % (personalizado 20 %), redondeo a $ 1.000 |
@@ -132,14 +132,14 @@ Resultado aproximado calculado por el motor v0.10.1 (cambia si cambian los datos
 
 | Indicador | Valor ≈ |
 |---|---:|
-| Costo total del mes | $ 17.899.000 |
-| Costos fijos / variable por día activo | $ 9.031.000 / $ 1.108.000 |
-| Tarifa piso | $ 2.238.000 por día |
-| Tarifa comercial sugerida (margen 10 %) | $ 2.486.000 por día |
-| Facturación / resultado del mes | $ 19.888.000 / $ 1.989.000 |
+| Costo total del mes | $ 16.380.000 |
+| Costos fijos / variable por día activo | $ 9.031.000 / $ 919.000 |
+| Tarifa piso | $ 2.048.000 por día |
+| Tarifa comercial sugerida (margen 10 %) | $ 2.276.000 por día |
+| Facturación / resultado del mes | $ 18.208.000 / $ 1.828.000 |
 | Margen / markup | 10,0 % / 11,1 % |
-| Break-even | 6,6 días → 7 días activos |
-| Cost Completeness Score | 96 % (pendientes: relevos para 24/7 e impuestos sobre la facturación) |
+| Break-even | 6,7 días → 7 días activos |
+| Cost Completeness Score | 98 % (pendiente: impuestos sobre la facturación) |
 
 ## Caso de referencia: break-even 10 días
 
