@@ -27,6 +27,8 @@ import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
+import { rateUpdateState } from './rate-update-engine.js';
+import { periodFromDate } from '../domain/economic-base.js';
 import { contractOf, contractUnits, modeForUnit } from '../domain/contract.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS, capitalizeUnitWord } from '../domain/billing-units.js';
 import { SERVICE_TYPES, QUOTE_STEPS, labelOf } from '../domain/catalogs.js';
@@ -926,8 +928,23 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
   };
 }
 
+/**
+ * Tarifa vigente de la cotización (actualización por EECC, 0.11): la tarifa comercial de la
+ * cotización llevada al último período actualizado. Base: el período guardado o, si no, el
+ * mes de la fecha de la oferta (o de creación).
+ */
+export function rateUpdateOf(quote, result) {
+  const q = quote && typeof quote === 'object' ? quote : {};
+  return rateUpdateState({
+    baseRate: result && result.kpis ? result.kpis.commercialListRate : null,
+    eecc: result ? result.eecc : null,
+    rateUpdate: q.rateUpdate,
+    fallbackBasePeriod: periodFromDate(q.offerDate) || periodFromDate(q.createdAt),
+  });
+}
+
 /** Indicadores compactos para dashboard y listados (sin trazas). */
 export function summarizeQuote(quote, options = {}) {
   const r = computeQuote(quote, options);
-  return { ...r.kpis, issuesCount: r.issues.length };
+  return { ...r.kpis, issuesCount: r.issues.length, rateUpdate: rateUpdateOf(quote, r) };
 }
