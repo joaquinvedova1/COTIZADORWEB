@@ -162,3 +162,12 @@ export function numberText(value, { decimals = 2 } = {}) {
 export function moneyText(value) {
   return hasNumber(value) ? formatMoney(Number(value)) : null;
 }
+
+/**
+ * ¿La cotización ya trae un mínimo mensual garantizado? (0.10.0: sólo entonces se muestra; las
+ * cotizaciones nuevas no lo preguntan).
+ */
+export function guaranteeLoaded(quote = {}) {
+  const r = (quote && quote.rules) || {};
+  return Number(r.minimumMonthlyGuarantee) > 0 || Number(r.minimumGuaranteeUnits) > 0;
+}
