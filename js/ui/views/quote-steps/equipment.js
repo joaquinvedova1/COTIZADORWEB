@@ -40,7 +40,8 @@ import { transportOf, providerActivityText, providerRouteText, routeName } from 
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
-import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix } from '../../result-text.js';
+import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay } from '../../result-text.js';
+import { usesTimeBasis } from '../../../domain/cost-basis.js';
 import { workDaysText } from '../../unit-text.js';
 import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
 
@@ -143,7 +144,8 @@ function jobsSplitText(result) {
 
 function monthlyAtEstimate(result, line) {
   const D = result.activity.activeDaysPerMonth;
-  return line.fixedMonthly * monthsFactor(D, result.activity.availableDaysPerMonth) + line.variablePerActiveDay * D + externalRoundingAt(result, line).economic;
+  // Por tiempo usado (2026-11-18), tenerlo también es por día de trabajo (ownershipPerActiveDay).
+  return line.fixedMonthly * monthsFactor(D, result.activity.availableDaysPerMonth) + equipmentPerActiveDay(line) * D + externalRoundingAt(result, line).economic;
 }
 
 /** Lo que suma un externo por contar cada salida completa (PLAN-2026-011; 0 si está apagado). */
@@ -253,7 +255,16 @@ function equipmentTrace(result, index, source) {
       { label: 'Amortización mensual (por unidad)', value: o.depreciationMonthly, format: 'money' },
       { label: 'Seguro + patente + certificaciones + otros + mantenimiento fijo (por unidad)', value: o.cashMonthly, format: 'money' },
       { label: 'Costo de capital mensual (por unidad)', value: o.capitalCostMonthly, format: 'money' },
-      ...(line.shared
+      ...(line.timeBasis && line.time
+        ? [
+          // Por tiempo usado (2026-11-18): tenerlo cuesta las horas del día de trabajo × el valor de su hora.
+          { label: 'Posesión mensual × cantidad (no se carga entera: va por hora)', value: line.fullFixedMonthly, format: 'money' },
+          { label: line.time.ownBillableHours ? 'Horas que trabaja y factura por mes' : 'Horas por mes (las normales de tu gente)', value: line.time.billableHoursPerMonth, format: 'hours' },
+          { label: 'Valor de la hora de tenerlo (posesión del mes ÷ horas por mes, por unidad)', value: line.time.hourlyCost, format: 'rate' },
+          { label: 'Horas ocupado por día de trabajo', value: line.time.hoursPerDay, format: 'hours' },
+          { label: 'Tenerlo por día de trabajo × cantidad', value: line.ownershipPerActiveDay, format: 'money' },
+        ]
+        : line.shared
         ? [
           { label: 'Posesión mensual × cantidad (100 %)', value: line.fullFixedMonthly, format: 'money' },
           { label: '% de sus costos fijos asignado a esta cotización (equipo compartido)', value: line.fixedCostSharePct, format: 'percent' },
@@ -267,6 +278,7 @@ function equipmentTrace(result, index, source) {
     result: { label: 'Costo del equipo en el mes (actividad estimada)', value: monthlyAtEstimate(result, line), format: 'money' },
     notes: [
       'La amortización y el costo de capital no son salidas de caja: no se financian en el costo financiero.',
+      line.timeBasis ? 'Por tiempo usado: el equipo no carga su mes completo ni un % de su mes. Tenerlo cuesta las horas del día de trabajo × (posesión del mes ÷ horas que trabaja y factura por mes). La operación sigue el uso real.' : null,
       line.shared ? 'Equipo compartido: el % asignado reparte sólo los costos fijos (lo cargás vos; no sale de los días que trabaje). La operación sigue el uso real.' : null,
       source && (source.hoursPerActiveDay === null || source.hoursPerActiveDay === undefined || source.hoursPerActiveDay === '')
         ? 'Horas de uso vacías: se usan las horas por día de trabajo de la cotización.'
@@ -434,6 +446,14 @@ export function render(container, ctx) {
   const services = Array.isArray(resources.externalServices) ? resources.externalServices : [];
   const lines = quote.equipment;
   const activityHours = quote.activity ? quote.activity.hoursPerActiveDay : null;
+  // Por tiempo usado (cotizaciones nuevas que no se cobran por mes, 2026-11-18): tener un equipo
+  // propio cuesta las horas del trabajo × el valor de su hora. No hay "% de sus costos fijos".
+  const timeBasis = usesTimeBasis(quote);
+  /** Ejemplo del campo de horas facturables: las que usa hoy el motor si está vacío. */
+  const billablePlaceholder = (i) => {
+    const t = ctx.result && ctx.result.model && ctx.result.model.equipment[i] && ctx.result.model.equipment[i].time;
+    return t && t.billableHoursPerMonth > 0 && !t.ownBillableHours ? `${formatNumber(t.billableHoursPerMonth, { decimals: 2 })} (las de tu gente)` : 'Las normales de tu gente';
+  };
   const currency = quoteCurrencyOf(quote);
   const hoursDefault = () => (Number.isFinite(Number(activityHours)) && activityHours !== null ? Number(activityHours) : null);
 
@@ -852,6 +872,8 @@ export function render(container, ctx) {
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
+          // Por tiempo usado: tenerlo por día de trabajo (horas × valor de la hora), no por mes.
+          if (l.timeBasis) return `${timeEquipmentUseText(l)} · con ${workDaysText(r.activity.activeDaysPerMonth)}${jobsSplitText(r)}.`;
           const share = l.shared && !l.shareMissing ? ` (${formatPercent(l.fixedCostSharePct)} asignado a esta cotización de ${formatMoney(l.fullFixedMonthly)})` : '';
           return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día de trabajo · con ${workDaysText(r.activity.activeDaysPerMonth)}${jobsSplitText(r)}.`;
         },
@@ -894,10 +916,14 @@ export function render(container, ctx) {
             kit.num(`${p}.capitalRatePctAnnual`, { label: 'Costo de capital (opcional)', rule: 'percent', unit: '% anual', hint: 'Rendimiento que le pedís a la plata invertida en el equipo. No es la financiación del contrato (eso va en "Financiación").' }),
           ),
           capitalCostNote(i),
+          // Por tiempo usado (2026-11-18): con cuántas horas por mes se reparte lo de tenerlo.
+          timeBasis
+            ? formGrid(3, kit.num(`${p}.billableHoursPerMonth`, { label: 'Horas que trabaja y factura por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: billablePlaceholder(i), hint: 'Con menos horas, cada hora de tenerlo cuesta más. Vacío = las horas normales de tu gente.' }))
+            : null,
         ),
         wear[1],
-        // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos).
-        assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
+        // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos). Por tiempo usado no hay %.
+        timeBasis ? null : assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
       ),
       kit.advanced(
         {
@@ -955,7 +981,9 @@ export function render(container, ctx) {
         ),
         h('h5', { class: 'qe-group-title' }, 'En esta cotización (todas las unidades)'),
         kit.stats(
-          kit.stat('Tenerlo por mes (fijo)', (r) => formatMoney(at(r) && at(r).fixedMonthly)),
+          timeBasis
+            ? kit.stat('Tenerlo por día de trabajo', (r) => formatMoney(at(r) && at(r).timeBasis ? at(r).ownershipPerActiveDay : 0), { hint: (r) => timeEquipmentOwnershipHint(at(r)) })
+            : kit.stat('Tenerlo por mes (fijo)', (r) => formatMoney(at(r) && at(r).fixedMonthly)),
           kit.stat('Usarlo por día de trabajo', (r) => formatMoney(at(r) && at(r).variablePerActiveDay), { hint: (r) => (at(r) ? `${formatNumber(at(r).fuelLitersPerActiveDay, { decimals: 1 })} L de combustible por día` : '') }),
           kit.stat('Costo mensual con la actividad estimada', (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY), {
             emphasis: true,
@@ -963,8 +991,9 @@ export function render(container, ctx) {
             trace: (r) => equipmentTrace(r, i, quote.equipment[i]),
           }),
         ),
-        h('h5', { class: 'qe-group-title' }, 'Ficha con los días de esta cotización (por unidad)'),
-        kit.stats(
+        // Por tiempo usado la ficha por utilización del mes no es la cuenta de esta cotización: no se muestra.
+        timeBasis ? null : h('h5', { class: 'qe-group-title' }, 'Ficha con los días de esta cotización (por unidad)'),
+        timeBasis ? null : kit.stats(
           kit.stat('$ por hora usada', (r) => {
             const c = equipmentCardAtQuote(r, i, quote.equipment[i]);
             return c ? formatMoney(c.rates.costPerUsedHour) : EMPTY;
@@ -1307,7 +1336,8 @@ export function render(container, ctx) {
       const month = r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0);
       return `${formatMoney(inQuoteUnit(r, month))}${perBilledUnitSuffix(r, quote, month)}`;
     },
-    hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día de trabajo${jobsSplitText(r)} (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
+    // Por tiempo usado, lo de tener los equipos propios va en lo de cada día de trabajo.
+    hint: (r) => `${r.model.timeBasis && !(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0) > 0.005) ? 'Sin fijo del mes ·' : `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes ·`} variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + equipmentPerActiveDay(e), 0))} por día de trabajo${jobsSplitText(r)} (incluye ${r.model.timeBasis && r.model.equipment.some((e) => e.timeBasis) ? 'tener los equipos propios esas horas, ' : ''}combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
     className: 'qe-keyline-total',
   });
 

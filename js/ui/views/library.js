@@ -608,6 +608,8 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         { key: 'normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h', hint: 'Las horas que trabaja en un mes normal (por ejemplo 176 = 8 h × 22 días). Con esto sale el valor de la hora.' },
         { key: 'overtimeRate50', label: 'Hora al 50 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (abajo).' },
         { key: 'overtimeRate100', label: 'Hora al 100 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (abajo).' },
+        // Horas que de verdad vende por mes (2026-11-18): con ellas sale la hora para cotizar trabajos (tiempo usado).
+        { key: 'billableHoursPerMonth', label: 'Horas que vende por mes (opcional)', rule: 'hours', unit: 'h', nullable: true, placeholder: 'Igual a las normales', hint: 'Las horas que de verdad trabaja para clientes en un mes. Ejemplo: de 176 h normales vende 140. Con esto se calcula la hora para cotizar trabajos, y el tiempo libre queda cubierto. Vacío = las horas normales.' },
       ],
       live: profileCost ? (draft) => {
         const p = profileCost(draft).perPerson;
@@ -618,7 +620,9 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         return h('div', { class: 'hour-rates' },
           cell('Hora normal', p.loadedHourlyCost, 'Costo del mes ÷ horas normales'),
           cell('Hora al 50 %', p.overtimeHourlyCost50, note(p.overtimeRate50Own, p.overtimeHourlyCost50, 'Calculada: hora de sueldo × 1,5, con cargas')),
-          cell('Hora al 100 %', p.overtimeHourlyCost100, note(p.overtimeRate100Own, p.overtimeHourlyCost100, 'Calculada: hora de sueldo × 2, con cargas')));
+          cell('Hora al 100 %', p.overtimeHourlyCost100, note(p.overtimeRate100Own, p.overtimeHourlyCost100, 'Calculada: hora de sueldo × 2, con cargas')),
+          // Hora para cotizar trabajos (tiempo usado): costo del mes ÷ horas que vende. Igual a la normal si no las cargó.
+          cell('Hora para cotizar', p.ownBillableHours ? p.billableHourlyCost : p.loadedHourlyCost, p.ownBillableHours ? 'Costo del mes ÷ horas que vende' : 'Igual a la hora normal (no cargaste horas que vende)'));
       } : null,
     },
     {
@@ -660,6 +664,7 @@ function newLaborProfile(agreements) {
     overtimePremiumPct: params.overtimePremiumPct,
     overtimeRate50: null,
     overtimeRate100: null,
+    billableHoursPerMonth: null,
     sacPct: params.sacPct,
     vacationPct: params.vacationPct,
     employerContributionsPct: params.employerContributionsPct,

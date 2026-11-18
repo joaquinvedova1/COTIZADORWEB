@@ -645,7 +645,7 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .lib-usage h4 { margin: 0.5rem 0 0; }
 
 /* PLAN-2026-026 · valor de la hora por recurso (Recursos → perfil de personal) */
-.hour-rates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; margin-top: 0.75rem; }
+.hour-rates { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.6rem; margin-top: 0.75rem; }
 .hour-rate { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.6rem 0.75rem; border-radius: var(--radius); background: var(--bg); min-width: 0; }
 .hour-rate-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
 .hour-rate-value { font-size: 1.15rem; color: var(--navy-900); font-variant-numeric: tabular-nums; }

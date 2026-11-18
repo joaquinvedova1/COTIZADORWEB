@@ -54,7 +54,7 @@ import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js
 import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitSuffix } from '../result-text.js';
+import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitSuffix, timeBasisWithoutFixed } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms, withoutSeparateCharges } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -1227,7 +1227,8 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
       tone: breakEvenTone,
       trace: (r) => r.traces.breakEven,
       // Precio cerrado ("trabajos para no perder") y fijo mensual ("No aplica"): no se muestra.
-      hidden: (r) => closedOf(r).closed || Boolean(r.breakEven && r.breakEven.notApplicable),
+      // Tampoco por tiempo usado sin costos fijos (2026-11-18): sería siempre "desde el primer día".
+      hidden: (r) => closedOf(r).closed || Boolean(r.breakEven && r.breakEven.notApplicable) || timeBasisWithoutFixed(r),
     }),
   );
 

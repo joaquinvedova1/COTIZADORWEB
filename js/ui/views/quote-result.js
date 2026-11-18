@@ -115,6 +115,7 @@ import {
   unreliableItems,
   unreliableText,
   breakEvenZeroText,
+  timeBasisWithoutFixed,
   termsOfResult,
   illustrativeTitle,
   illustrativeBadgeText,
@@ -1276,7 +1277,7 @@ function heroKnownRate(v) {
     sentence,
     rateOk ? lossWindowNote(r, D) : null,
     h('div', { class: 'qr-hero' },
-      byQty(v) ? heroItem({
+      byQty(v) && !timeBasisWithoutFixed(r) ? heroItem({
         label: unitTextsOf(r).breakEvenLabel,
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? (breakEvenZeroText(r) || `Por mes, ${atRateText(v)} (${workDaysText(be.days, { decimals: 2 })}).`) : be.reason || null,
@@ -1284,7 +1285,7 @@ function heroKnownRate(v) {
         tone: be.reachable && hasValue(D) ? beTone(r, D, be) : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
       }) : null,
-      byQty(v) ? null : heroItem({
+      byQty(v) || timeBasisWithoutFixed(r) ? null : heroItem({
         label: 'Días mínimos para no perder plata',
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? (breakEvenZeroText(r) || `Break-even exacto: ${formatDays(be.days)} por mes, ${atRateText(v)}.`) : be.reason || null,
@@ -1502,7 +1503,8 @@ function kpiGrid(v) {
         tone: view.tone,
         trace: cap ? traceMonthlyCap(v, cap) : null,
       }));
-    } else {
+    } else if (!timeBasisWithoutFixed(r)) {
+      // Por tiempo usado sin costos fijos no hay break-even que mostrar (2026-11-18).
       let beValue = EMPTY;
       if (be.reachable) beValue = breakEvenZeroText(r, { compact: true }) || (closedBreakEvenText(v, be) ? quantityText(be.wholeQuantity, r) : byQty(v) ? quantityCeilText(be.quantity, r) : formatDays(be.days));
       else if (be.notApplicable) beValue = 'No aplica';
@@ -1984,7 +1986,8 @@ function renderSummary(v) {
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. La ganancia es antes del impuesto a las Ganancias.'),
     tariffsBlock(v),
     // Precio cerrado: "¿Cuántos trabajos tengo que facturar?" no aplica (un precio por el trabajo).
-    closedOf(v).closed ? null : workBlock(v),
+    // Por tiempo usado sin costos fijos (2026-11-18) no hay días mínimos que cubrir: no se muestra.
+    closedOf(v).closed || timeBasisWithoutFixed(v.r) ? null : workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
 }
@@ -2901,7 +2904,7 @@ function renderDiscounts(v) {
     rows.length ? legend : null,
     r.unit !== 'month' && !byQty(v) && minActivity ? banner(minActivity, 'info', { title: 'Actividad mínima.' }) : null,
     body,
-    rows.length ? note(`Tarifas netas por ${v.unitLabel}. El tramo "1 día" muestra qué pasa si en el mes sólo se trabaja un día: los costos fijos recaen en ese único día. El ícono junto a cada tramo muestra el cálculo.`) : null,
+    rows.length ? note(`Tarifas netas por ${v.unitLabel}. El tramo "1 día" muestra qué pasa si en el mes sólo se trabaja un día${timeBasisWithoutFixed(v.r) ? '' : ': los costos fijos recaen en ese único día'}. El ícono junto a cada tramo muestra el cálculo.`) : null,
     continuityBlock(v),
   );
 }
@@ -2977,7 +2980,9 @@ function deltaTone(better, value) {
  * trabajo quedan como dato).
  */
 function sensMetrics(v) {
-  return inQuoteUnit(v, sensMetricsRaw(v));
+  // Por tiempo usado sin costos fijos el break-even es siempre 0: la fila no dice nada (2026-11-18).
+  const raw = timeBasisWithoutFixed(v.r) ? sensMetricsRaw(v).filter((m) => m.key !== 'breakEvenDays' && m.key !== 'breakEvenQuantity') : sensMetricsRaw(v);
+  return inQuoteUnit(v, raw);
 }
 
 /**
@@ -3281,10 +3286,13 @@ function renderScenarios(v) {
     ...(byQty(v) ? [{ label: `${capitalizeUnitPhrase(v.r.unitInfo.plural)} por mes`, get: (sc) => quantityText(sc.billableQuantity, v.r) }] : []),
     { label: 'Utilización', get: (sc) => `${pct(sc.utilizationPct, 1)} (${formatDays(sc.activeDays)})` },
     { label: byQty(v) ? 'Facturación por día de trabajo' : 'Tarifa efectiva por día de trabajo', get: (sc) => money(sc.effectiveRatePerActiveDay) },
-    byQty(v)
-      ? { label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, get: (sc) => quantityCeilText(sc.breakEvenQuantity, v.r) }
-      : { label: 'Días para no perder plata (break-even)', get: (sc) => resultDays(sc.breakEvenDays) },
-  ]);
+    // Por tiempo usado sin costos fijos no hay break-even que comparar (2026-11-18).
+    timeBasisWithoutFixed(v.r)
+      ? null
+      : byQty(v)
+        ? { label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, get: (sc) => quantityCeilText(sc.breakEvenQuantity, v.r) }
+        : { label: 'Días para no perder plata (break-even)', get: (sc) => resultDays(sc.breakEvenDays) },
+  ].filter(Boolean));
   const tbl = scrollRegion(v, h('div', { class: 'table-wrap' },
     h('table', { class: 'table qr-scenarios' },
       h('caption', { class: 'sr-only' }, 'Escenarios pesimista, base y optimista'),
@@ -3667,7 +3675,7 @@ function traceIndexItems(v) {
       if (capTarget && capTarget.marginPct > 0) add(safe(() => traceMonthlyCap(v, capTarget)));
     }
   } else {
-    add(t.breakEven);
+    if (!timeBasisWithoutFixed(r)) add(t.breakEven);
     if (rateOk) {
       add(safe(() => traceTargetMarginDays(v)));
       add(safe(() => traceContribution(v)));

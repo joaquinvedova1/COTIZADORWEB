@@ -20,6 +20,7 @@ import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } fr
 import { componentsServiceLabel } from '../../domain/contract.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
+import { usesTimeBasis } from '../../domain/cost-basis.js';
 import { quantityCeilText } from '../unit-text.js';
 import { breakEvenZeroText } from '../result-text.js';
 import { markFreshQuote } from '../session-memory.js';
@@ -257,6 +258,8 @@ function breakEvenNode(quote, summary) {
   if (summaryFailed(summary)) return muted();
   const unit = billingUnitOf(quote || {});
   if (unit.kind === 'month') return h('span', { class: 'muted', title: 'Con abono mensual la facturación no depende de los días: no hay break-even en días.' }, 'No aplica');
+  // Por tiempo usado sin costos fijos (2026-11-18): no hay días mínimos que cubrir.
+  if (usesTimeBasis(quote) && summary.breakEvenZeroReason === 'no_fixed_costs') return h('span', { class: 'muted', title: 'Tu gente y tus equipos se cotizan por las horas que usan: sin costos fijos del mes, no hay días mínimos.' }, 'No aplica');
   // Equilibrio en 0 (PLAN-2026-012): "Desde el primer viaje", nunca "0 viajes".
   const zero = summary.breakEvenZeroReason
     ? breakEvenZeroText({ breakEven: { reachable: true, zeroReason: summary.breakEvenZeroReason }, unitInfo: unit }, { compact: true })

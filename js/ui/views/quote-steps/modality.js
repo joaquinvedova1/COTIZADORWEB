@@ -38,6 +38,7 @@ import { proposeServiceShares, staleDedicationOf, staleDedicationMessage } from 
 import { createId } from '../../../core/ids.js';
 import { SPARSE_ACTIVATIONS_ISSUE } from '../../../engines/quote-engine.js';
 import { dedicationChoiceOf } from '../../../domain/assignment.js';
+import { usesTimeBasis } from '../../../domain/cost-basis.js';
 
 const MODE_LABELS = Object.freeze({
   known_rate: 'Sí, ya tengo la tarifa',
@@ -1190,7 +1191,9 @@ export function render(container, ctx) {
     });
   });
   const pctText = (v) => formatPercent(Number(v));
-  const dedicationCard = shareTargets.length && !monthlyContract
+  // Por tiempo usado (cotizaciones nuevas que no se cobran por mes, 2026-11-18): no hay % de su
+  // mes que elegir; cada recurso cuesta sus horas en el trabajo. La pregunta no se muestra.
+  const dedicationCard = shareTargets.length && !monthlyContract && !usesTimeBasis(quote)
     ? card(
       { title: '¿Tu gente y tus equipos trabajan sólo para este servicio?', subtitle: 'Así sabemos si este servicio tiene que pagar todo su mes o sólo una parte.', className: 'qe-dedication-card' },
       choiceGroup({
