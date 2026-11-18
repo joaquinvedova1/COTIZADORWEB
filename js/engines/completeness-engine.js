@@ -249,6 +249,28 @@ export function evaluateCompleteness(quote = {}) {
   // Los avisos citan el rótulo del campo tal como se ve en "Cómo se cobra".
   const activityHoursLabel = 'Horas por día de trabajo';
   const hoursMessage = `Cobrás por hora y falta "${activityHoursLabel}": sin horas no hay unidades facturables ni tarifa.`;
+  // Por tiempo usado (2026-11-18): el personal y los equipos propios cuestan sus HORAS en el trabajo.
+  // Sin horas por día (o sin horas del mes del puesto) su costo queda en $ 0: se pide en rojo.
+  if (usesTimeBasis(quote)) {
+    const laborLines = objectList(quote.labor);
+    const ownEquipment = objectList(quote.equipment).filter((e) => e.acquisition !== 'rented' && e.acquisition !== 'outsourced' && nonNegative(e.quantity) > 0);
+    const working = laborLines.some((l) => nonNegative(l.positions) > 0) || ownEquipment.length > 0;
+    if (working && !hoursMissing && !(Math.min(nonNegative(activity.hoursPerActiveDay), 24) > 0)) {
+      const item = rule('time_hours', activityHoursLabel, 'modality', 2, 'missing',
+        `Falta "${activityHoursLabel}": tu gente y tus equipos se cobran por las horas que les lleva el trabajo. Sin horas, su costo queda en $ 0.`);
+      item.focus = 'activity.hoursPerActiveDay';
+      items.push(item);
+    }
+    const noHour = laborLines.findIndex((l) => nonNegative(l.positions) > 0 && (nonNegative(l.basicMonthly) + nonNegative(l.additionalsMonthly)) > 0
+      && !(nonNegative(l.billableHoursPerMonth) > 0) && !(nonNegative(l.normalHoursPerMonth) > 0));
+    if (noHour >= 0) {
+      const name = (typeof laborLines[noHour].role === 'string' && laborLines[noHour].role.trim()) || 'Puesto';
+      const item = rule('time_hour_value', 'Valor de la hora', 'labor', 2, 'missing',
+        `"${name}" no tiene horas normales por mes: sin ellas no sale el valor de su hora y su costo queda en $ 0.`);
+      item.focus = `labor.${noHour}.normalHoursPerMonth`;
+      items.push(item);
+    }
+  }
   if (unit.kind === 'quantity' || unit.kind === 'event') {
     const qOk = nonNegative(activity.billableQuantityPerMonth) > 0;
     const yieldOk = unit.kind !== 'quantity' || nonNegative(activity.unitsPerActiveDay) > 0;
@@ -1204,7 +1226,8 @@ export function evaluateCompleteness(quote = {}) {
   // Recursos compartidos: el resto del costo fijo lo cubre otro servicio.
   const sharedNotice = (line, list, index, fallback) => {
     const share = fixedCostShareOf(line);
-    if (!share.shared || share.missing || share.sharePct >= 100) return;
+    // Por tiempo usado el % no rige: no se avisa.
+    if (usesTimeBasis(quote) || !share.shared || share.missing || share.sharePct >= 100) return;
     notices.push({
       id: 'shared_fixed',
       step: list,

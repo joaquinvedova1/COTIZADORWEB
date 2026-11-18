@@ -1862,7 +1862,8 @@ En un día de trabajo trabaja una persona por posición: los relevos no suman ho
 
 ```
 horas facturables por mes = `billableHoursPerMonth` de la línea (de la ficha: horas disponibles × utilización esperada)
-                            o, vacío, las horas normales de la cuadrilla (las mayores cargadas; sin personal, el parámetro por defecto)
+                            o, vacío, horas del día de trabajo × 22 días (× 30 si trabaja más de 12 h por día), nunca menos
+                            que las horas normales de la cuadrilla (`defaultEquipmentBillableHours`)
 tenerlo por día de trabajo = posesión del mes ÷ horas facturables × horas del día de trabajo × cantidad
 ```
 
@@ -1874,6 +1875,10 @@ El equipo queda ocupado las horas del día de trabajo aunque el motor ande menos
 - Horas extra de todo el trabajo (§28): cada hora ya está en el costo a valor normal, así que todas llevan sólo el recargo (no hay tope de horas pagas por el sueldo). Es lineal: el ajuste de §28.2 da 0.
 - Standby: como siempre, sólo vianda y horas extra por día (no el tiempo de la gente).
 - "Usado en" (Recursos): la cotización figura "se paga por uso (sin % de costos fijos)".
+
+**Completitud.** Sin "Horas por día de trabajo" (regla `time_hours`, rojo) o con un puesto sin horas normales ni facturables (`time_hour_value`, rojo) el costo del recurso queda en $ 0: se pide el dato. El aviso `shared_fixed` no se emite.
+
+**Límites conocidos (revisión de costos, 2026-11-18).** El tiempo de viaje de la gente y los días en espera sólo se cobran si se cuentan dentro de los días y las horas del trabajo. Una guardia (gente reservada) se cotiza por mes. Si las horas facturables cargadas superan las normales, la hora baja y esas horas no llevan recargo: son horas extra y se eligen en "Horas extra del trabajo".
 
 **Consecuencias.** Con todo el costo por día de trabajo, el precio por unidad no depende de cuántas unidades se hagan por mes (salvo por lo que sea fijo del mes: materiales fijos, estructura de monto fijo). Los costos fijos quedan en 0 y el equilibrio no aplica. Un trabajo de más de un mes no necesita "meses de costo fijo": las horas ya lo cubren.
 

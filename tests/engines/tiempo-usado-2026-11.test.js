@@ -14,7 +14,7 @@ import { withTimeCostBasis, equipmentBillableHours, equipmentLineFromLibrary, la
 import { resourceUsage } from '../../js/domain/resource-usage.js';
 import { computeLabor } from '../../js/engines/labor-engine.js';
 import { computeEquipmentLine } from '../../js/engines/equipment-engine.js';
-import { buildCostModel, costAtActivity } from '../../js/engines/cost-engine.js';
+import { buildCostModel, costAtActivity, defaultEquipmentBillableHours } from '../../js/engines/cost-engine.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { validateQuote } from '../../js/core/validation.js';
 import { service, person, owned, resetIds } from '../lab/lib/build.js';
@@ -127,10 +127,32 @@ describe('Personal por tiempo usado', () => {
     assert.equal(validateQuote(legacy).some((i) => /fixedCostSharePct/.test(i.path)), true);
   });
 
-  test('sin horas por día cargadas no hay costo de tiempo (la completitud las pide)', () => {
+  test('sin horas por día cargadas no hay costo de tiempo: la completitud las pide en rojo', () => {
     const q = timed(instalacion());
     q.activity.hoursPerActiveDay = null;
     assert.equal(buildCostModel(q).variablePerActiveDay, 0);
+    const item = computeQuote(q).completeness.items.find((i) => i.id === 'time_hours');
+    assert.equal(item.status, 'missing');
+    assert.equal(item.focus, 'activity.hoursPerActiveDay');
+    // Con horas, o en una guardada, no aparece.
+    assert.equal(computeQuote(timed(instalacion())).completeness.items.some((i) => i.id === 'time_hours'), false);
+    const legacy = instalacion();
+    legacy.activity.hoursPerActiveDay = null;
+    assert.equal(computeQuote(legacy).completeness.items.some((i) => i.id === 'time_hours'), false);
+  });
+
+  test('puesto sin horas normales ni facturables: se pide el dato (su hora no sale)', () => {
+    const q = timed(instalacion({ labor: [operario({ normalHoursPerMonth: 0 })] }));
+    const item = computeQuote(q).completeness.items.find((i) => i.id === 'time_hour_value');
+    assert.equal(item.status, 'missing');
+    assert.match(item.focus, /^labor\.0\.normalHoursPerMonth$/);
+    const ok = timed(instalacion({ labor: [operario({ normalHoursPerMonth: 0, billableHoursPerMonth: 160 })] }));
+    assert.equal(computeQuote(ok).completeness.items.some((i) => i.id === 'time_hour_value'), false);
+  });
+
+  test('un % compartido que quedó en la línea no avisa (no rige)', () => {
+    const q = timed(instalacion({ labor: [operario({ assignment: 'shared', fixedCostSharePct: 30 })] }));
+    assert.equal((computeQuote(q).completeness.notices || []).some((n) => n.id === 'shared_fixed'), false);
   });
 });
 
@@ -174,6 +196,17 @@ describe('Equipos propios por tiempo usado', () => {
     assert.equal(e.nonFuelPerActiveDay, 2000);
     near(m.variablePerActiveDay, (2000000 / 176) * 8 + (1020000 / 176) * 8 + 2000);
     assert.equal(m.fixedMonthly, 0);
+  });
+
+  test('sin dato, un equipo que trabaja todo el mes paga una vez su posesión (no varias)', () => {
+    assert.equal(defaultEquipmentBillableHours(8, 176), 176);
+    assert.equal(defaultEquipmentBillableHours(10, 176), 220);
+    assert.equal(defaultEquipmentBillableHours(24, 176), 720);
+    assert.equal(defaultEquipmentBillableHours(0, 176), 176);
+    // Generador 24 h, 30 días, por día: 30 × 24 h ÷ 720 h = un mes de posesión.
+    resetIds();
+    const q = timed(service({ unit: 'day', activity: { activeDaysPerMonth: 30, hoursPerActiveDay: 24 }, labor: [], equipment: [generador({ hoursPerActiveDay: null, maintenancePerHour: 0 })], ...plain }));
+    near(costAtActivity(buildCostModel(q), 30).total, 1020000);
   });
 
   test('con horas facturables propias (ficha de Recursos)', () => {

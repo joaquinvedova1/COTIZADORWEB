@@ -111,6 +111,18 @@ export function availabilityHoursOf(a = {}) {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 24) : null;
 }
 
+/**
+ * Horas que un equipo propio SIN dato trabaja y factura por mes (por tiempo usado, §29): las
+ * horas del día de trabajo × los días del mes (22 hábiles; 30 si trabaja más de 12 h por día,
+ * servicio continuo), nunca menos que las horas normales de la cuadrilla. Así un equipo que
+ * trabaja todo el mes a ese ritmo paga una vez su posesión, no varias (un generador de 24 h
+ * dividido por las 176 h de la gente se cobraba 4 veces).
+ */
+export function defaultEquipmentBillableHours(hoursPerActiveDay, crewNormalHours) {
+  const h = Math.min(nonNegative(hoursPerActiveDay), 24);
+  return Math.max(nonNegative(crewNormalHours), h * (h > 12 ? 30 : 22));
+}
+
 /** Normaliza los parámetros de actividad de una cotización. */
 export function normalizeActivity(quote = {}) {
   const a = quote.activity || {};
@@ -220,7 +232,7 @@ export function buildCostModel(quote = {}) {
   const labor = computeLabor(quote.labor, { coverageDaysPerMonth, timeBasis, hoursPerActiveDay: activity.hoursPerActiveDay, activeDaysPerMonth: activity.activeDaysPerMonth });
   // Horas facturables de un equipo propio sin dato: las normales de la cuadrilla (las mayores) o el parámetro por defecto.
   const crewNormalHours = objectList(quote.labor).reduce((max, l) => Math.max(max, nonNegative(l.normalHoursPerMonth)), 0);
-  const defaultBillableHours = crewNormalHours > 0 ? crewNormalHours : ILLUSTRATIVE_AGREEMENT_PARAMS.normalHoursPerMonth;
+  const defaultBillableHours = defaultEquipmentBillableHours(activity.hoursPerActiveDay, crewNormalHours > 0 ? crewNormalHours : ILLUSTRATIVE_AGREEMENT_PARAMS.normalHoursPerMonth);
   labor.lines.forEach((l, i) => {
     lines.push({
       key: `labor:${l.id ?? i}`,
