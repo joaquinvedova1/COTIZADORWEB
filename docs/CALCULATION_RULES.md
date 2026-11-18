@@ -1799,3 +1799,41 @@ El valor de la hora al 50 % y al 100 % es de cada recurso (§27). La cotización
 - `mode: 'some'`, `hours50`, `hours100` — trabajo normal con algunas horas fuera de horario, además de las normales: por hora = Σ personas × hora extra + uso por hora de los equipos propios en uso (§24). Fijo mensual: horas por mes (fijo del mes). Resto: horas por trabajo/llamado (costo por día = horas × valor ÷ días por trabajo).
 
 Las horas extra por mes cargadas antes en cada puesto (`overtime50/100HoursPerMonth`) siguen sumando igual y sólo se ven si tienen valor; si además se elige una opción, la pantalla avisa que se cuentan dos veces.
+
+### 28.1 Trabajo más largo que los días disponibles (corrección A1, 2026-11-18)
+
+Con `mode: 'all'`, si los días de trabajo D superan los días disponibles del mes, el sueldo se paga por `meses de sueldo = D ÷ disponibles` (el mismo `monthsFactor` de los fijos, `cost-engine.js`). Las horas que ya paga el sueldo crecen igual:
+
+```
+horas pagas = horas normales del mes × % asignado × meses de sueldo   (meses de sueldo = 1 si D ≤ disponibles)
+```
+
+Antes se tomaba siempre un mes y las horas pagas por el sueldo del segundo mes se cobraban como hora extra completa. Ejemplo (1 persona, hora con cargas 15.000, al 50 % 22.500, 176 h normales, 8 h por día, 30 disponibles):
+
+| D | antes | ahora |
+|---|---|---|
+| 30 | 176 × 7.500 + 64 × 22.500 = 2.760.000 | igual |
+| 45 | 176 × 7.500 + 184 × 22.500 = 5.460.000 | 264 × 7.500 + 96 × 22.500 = 4.140.000 |
+| 60 | 176 × 7.500 + 304 × 22.500 = 8.160.000 | 352 × 7.500 + 128 × 22.500 = 5.520.000 |
+
+Cambia el costo y el precio sugerido sólo de las cotizaciones con `overtimeWork.mode = 'all'` y más días que los disponibles (bajan). Test: `tests/engines/correcciones-un-item-2026-11.test.js`.
+
+### 28.2 Equilibrio, tramos y matriz con horas extra de todo el trabajo (corrección M1)
+
+El costo de `mode: 'all'` no es lineal en D: hasta las horas que paga el sueldo va el recargo; después, la hora completa. La línea `labor:overtime-work` guarda el promedio por día en los días estimados (precio y costo estimados no cambian), pero `costAtActivity(model, D)` (equilibrio, días para el margen objetivo, tramos de descuento, matriz, escenarios por días) suma la diferencia contra ese promedio:
+
+```
+ajuste(D) = (horasExtraTodo(D) − promedio por día × D) × (1 + estructura % + financiación + imprevistos)
+```
+
+con `horasExtraTodo(D)` = `overtimeAllMonthlyAt` (misma cuenta de §28 y §28.1 con D días), estructura = la parte % sobre directo o personal, financiación = tasa × días de Salarios ÷ 30 (+ la de la estructura) e imprevistos = % sobre todo lo anterior. En los días estimados el ajuste es 0. El equilibrio se busca día a día ("Hay reglas no lineales … u horas extra de todo el trabajo"). Antes el equilibrio daba días de más (ejemplo de la auditoría: por día, 2 personas, 10 h, 26 días, tarifa 900.000: con el promedio daba 11,2 días y en esos días se ganaba +1.291.742; ahora la ganancia en el equilibrio es 0).
+
+Cambia equilibrio, días para el margen objetivo, evaluación de tramos y matriz de las cotizaciones con `mode: 'all'`; no el precio ni el costo estimados.
+
+### 28.3 Cambio de modalidad con "algunas horas" (M8)
+
+Las horas de `mode: 'some'` son por mes en fijo mensual y por trabajo / llamado en las demás. Si la modalidad cambia de una base a la otra, `hours50` y `hours100` se llevan a 0 con aviso (`applyContractModeChange`, misma regla que §25.1 V-03). Nunca se leen en la base nueva.
+
+### 28.4 Cotizaciones nuevas sin cobros aparte
+
+Una cotización creada desde una plantilla (o una plantilla guardada) sale sin adicionales, sin horas extra facturadas ni cargadas en el puesto, sin materiales facturados aparte, sin guardia y con fijo de guardia, plus, movilización, km incluidos/adicional y equipo en espera en 0 (`withoutSeparateCharges`, `quote-factory.js`); "Horas extra del trabajo" sí se copia. Un puesto agregado desde un perfil no copia sus horas extra por día. Las cotizaciones guardadas no cambian.

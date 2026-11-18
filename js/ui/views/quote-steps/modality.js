@@ -1391,7 +1391,6 @@ export function render(container, ctx) {
             : full
               ? `Las horas que ya paga el sueldo llevan sólo el recargo (${formatMoney(o.crewSurchargePerHour)} por hora de la cuadrilla al ${o.premiumPct}\u00a0%); las que pasan, la hora extra completa. En total suman ${owAmountText(r)} al costo de tu gente.`
               : `Cada hora de trabajo cuesta ${formatMoney(o.crewSurchargePerHour)} más (la cuadrilla al ${o.premiumPct}\u00a0%, sobre lo que ya cobra de sueldo). En total suman ${owAmountText(r)} al costo de tu gente.`;
-          if (full) notes.push('Las horas del mes que pasan lo que ya paga su sueldo se cuentan con la hora extra completa.');
           if (o.perRole.some((x) => (o.premiumPct === 100 ? x.lowRate100 : x.lowRate50))) notes.push(`Ojo: el valor de la hora al ${o.premiumPct} % de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas, no la hora del recibo.`);
         } else {
           text = o.perUnit > 0
