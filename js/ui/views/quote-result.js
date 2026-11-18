@@ -487,7 +487,9 @@ function hasStaff(v) {
 /** "≈ $ X por hora. " al lado de una cifra del mes, por servicio prestado (M7); vacío si no aplica. */
 function approxPerUnit(v, monthly) {
   const s = perBilledUnitSuffix(v.r, v.q, monthly);
-  return s ? `${s.replace(/^ · /, '')}. ` : '';
+  // En celular "≈ $ 126.989 por diagnóstico" no entra en una línea: se puede cortar antes de "por"
+  // (nunca dentro del monto ni de "por diagnóstico").
+  return s ? `${s.replace(/^ · /, '').replace('\u00a0por\u00a0', ' por\u00a0')}. ` : '';
 }
 
 /** "del mes" o, en precio cerrado de un trabajo, "del trabajo" (M6). */
