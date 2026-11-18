@@ -27,7 +27,7 @@ import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
-import { contractOf, contractUnits, unitFitsContract, CONTRACT_MODES } from '../domain/contract.js';
+import { contractOf, contractUnits, unitFitsContract } from '../domain/contract.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS, capitalizeUnitWord } from '../domain/billing-units.js';
 import { SERVICE_TYPES, labelOf } from '../domain/catalogs.js';
 
@@ -203,10 +203,10 @@ function unitIssues(quote, ctx) {
   const contract = contractOf(quote);
   if (!contract.legacy && !unitFitsContract(contract, u.id)) {
     const usual = contractUnits(contract).map((id) => (BILLING_UNITS.find((x) => x.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
-    const mode = (CONTRACT_MODES.find((m) => m.id === contract.mode) || {}).label || 'Este contrato';
     issues.push({
       path: 'unit',
-      message: `"${mode}" se cobra en ${usual}. Estás cobrando en ${u.label}: revisá la unidad en "Cómo se cobra".`,
+      // 0.10.0: el modo sale de la unidad; si no coinciden (dato guardado antes), se vuelve a elegir la unidad.
+      message: `Esta cotización quedó guardada para cobrar en ${usual}, pero estás cobrando en ${u.label}: elegí de nuevo la unidad en "Contrato".`,
       severity: 'warning',
     });
   } else if (contract.legacy && quote.serviceType && SERVICE_TYPE_UNITS[quote.serviceType] && !unitFitsServiceType(quote.serviceType, u.id)) {

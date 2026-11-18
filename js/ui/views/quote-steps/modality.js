@@ -894,7 +894,7 @@ export function render(container, ctx) {
       timePace && !timePaceInMain ? timePace : null,
       isOnCall && !asksAvailability && !(quote.activity && quote.activity.availability === 'none')
         ? kit.group(
-          'Respuesta on-call',
+          'Tiempo de respuesta',
           formGrid(
             2,
             kit.num('activity.responseTimeHours', {

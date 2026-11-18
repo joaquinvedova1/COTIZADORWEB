@@ -51,7 +51,7 @@ import {
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
-import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded } from '../../domain/contract.js';
+import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded, billingUnitPhrase } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
 import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitSuffix, timeBasisWithoutFixed } from '../result-text.js';
@@ -335,10 +335,9 @@ export function resultTone(result) {
   return 'green';
 }
 
-/** Etiqueta de la unidad junto al título: "Precio cerrado" en vez de "$ global (por trabajo)". */
+/** Etiqueta de la unidad junto al título (0.10.0): "Por trabajo", "Por hora", "Por diagnóstico". */
 export function unitBadgeText(quote) {
-  const info = billingUnitOf(quote);
-  return info.id === 'job' ? 'Precio cerrado' : info.label;
+  return billingUnitPhrase(quote);
 }
 
 function unitShort(result) {

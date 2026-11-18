@@ -1464,7 +1464,7 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
   }
   const days = formatNumber(D, { decimals: Math.abs(D - Math.round(D)) < 1e-9 ? 0 : 1 });
   const why = closed
-    ? `Precio cerrado (${days} ${Math.abs(D - 1) < 1e-9 ? 'día' : 'días'} de trabajo)`
+    ? `Un trabajo de ${days} ${Math.abs(D - 1) < 1e-9 ? 'día' : 'días'}`
     : `Trabajás ${days} de ${formatNumber(available)} días disponibles`;
   const period = mf > 1 + 1e-9 ? `de ${formatNumber(mf, { decimals: 2 })} meses (el trabajo dura más que los días disponibles)` : 'del mes';
   const parts = [laborFixed > 0 ? `sueldos ${formatMoney(laborFixed * mf)}` : null, equipmentFixed > 0 ? `tenencia de equipos propios ${formatMoney(equipmentFixed * mf)}` : null].filter(Boolean).join(' + ');
