@@ -40,7 +40,7 @@ import { transportOf, providerActivityText, providerRouteText, routeName } from 
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
-import { isSingleClosedJob } from '../../result-text.js';
+import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix } from '../../result-text.js';
 import { workDaysText } from '../../unit-text.js';
 import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
 
@@ -127,6 +127,18 @@ export function equipmentCardAtQuote(result, index, source) {
     },
     { fuelPricePerLiter: result.model.fuel.pricePerLiter, fuelPaidByUs: result.model.fuel.paidByUs },
   );
+}
+
+/** En la unidad de la cotización (Joaco 2026-11-18): precio cerrado → lo del mes ÷ trabajos por mes. */
+function inQuoteUnit(result, monthly) {
+  const jobs = closedJobsPerMonth(result);
+  return jobs !== null ? monthly / jobs : monthly;
+}
+
+/** " ÷ 2 trabajos del mes" cuando el mes tiene más (o menos) de un trabajo; vacío si no. */
+function jobsSplitText(result) {
+  const jobs = closedJobsPerMonth(result);
+  return jobs !== null && Math.abs(jobs - 1) > 1e-9 ? ` · repartido en ${formatNumber(jobs, { decimals: 2 })} trabajos del mes` : '';
 }
 
 function monthlyAtEstimate(result, line) {
@@ -835,13 +847,13 @@ export function render(container, ctx) {
       kit.out((r) => wearWarningsRegion(r, i) || '', { tag: 'div', allowEmpty: true }),
       kit.keyline({
         // Precio cerrado con un trabajo por mes: la cifra es la del trabajo (revisión UX tanda novatos).
-        label: (r) => (isSingleClosedJob(r) ? 'Costo del equipo en el trabajo' : 'Costo del equipo en el mes'),
-        value: (r) => (at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
+        label: (r) => `Costo del equipo en el ${quoteUnitPlace(r)}`,
+        value: (r) => (at(r) ? formatMoney(inQuoteUnit(r, monthlyAtEstimate(r, at(r)))) : EMPTY),
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
           const share = l.shared && !l.shareMissing ? ` (${formatPercent(l.fixedCostSharePct)} asignado a esta cotización de ${formatMoney(l.fullFixedMonthly)})` : '';
-          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día de trabajo · con ${workDaysText(r.activity.activeDaysPerMonth)}.`;
+          return `Tenerlo: ${formatMoney(l.fixedMonthly)} por mes${share} (aunque no trabaje) · usarlo: ${formatMoney(l.variablePerActiveDay)} por día de trabajo · con ${workDaysText(r.activity.activeDaysPerMonth)}${jobsSplitText(r)}.`;
         },
         trace: (r) => equipmentTrace(r, i, quote.equipment[i]),
       }),
@@ -1194,8 +1206,8 @@ export function render(container, ctx) {
       ),
       supplierTermGroup(i, line),
       kit.keyline({
-        label: (r) => `Costo del ${acq === 'rented' ? 'alquiler' : 'servicio'} en el ${isSingleClosedJob(r) ? 'trabajo' : 'mes'}`,
-        value: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'Falta la ruta' : at(r) ? formatMoney(monthlyAtEstimate(r, at(r))) : EMPTY),
+        label: (r) => `Costo del ${acq === 'rented' ? 'alquiler' : 'servicio'} en el ${quoteUnitPlace(r)}`,
+        value: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'Falta la ruta' : at(r) ? formatMoney(inQuoteUnit(r, monthlyAtEstimate(r, at(r)))) : EMPTY),
         tone: (r) => (providerOf(r, i) && providerOf(r, i).noRoute ? 'red' : null),
         hint: (r) => {
           const x = at(r) && at(r).external;
@@ -1205,7 +1217,7 @@ export function render(container, ctx) {
           const billed = x.netPerActivation > 0 ? `Facturado ${T.per}: ${formatNumber(x.billedUnitsPerActivation, { decimals: 2 })} × ${formatMoney(x.price)} × ${formatNumber(x.quantity, { decimals: 2 })} = ${formatMoney(x.netPerActivation)} neto. ` : '';
           // Combustible a tu cargo (no incluido en la tarifa): suma acá, pero va a Combustible.
           const fuel = x.fuelPerActiveDay > 0 ? `Incluye combustible a tu cargo: ${formatMoney(x.fuelPerActiveDay * r.activity.activeDaysPerMonth)} por mes (en la estructura de costos va a Combustible). ` : '';
-          return `${fixed}${billed}${fuel}${externalCashText(x)}`;
+          return `${fixed}${billed}${fuel}${externalCashText(x)}${jobsSplitText(r) ? ` En el trabajo: lo del mes${jobsSplitText(r).replace(' · ', ' ')}.` : ''}`;
         },
         trace: (r) => {
           let impact = null;
@@ -1290,9 +1302,12 @@ export function render(container, ctx) {
   const lineCards = lines.map((line, i) => (isExternalLine(line) ? externalCard(line, i) : ownedCard(line, i)));
 
   const totals = kit.keyline({
-    label: (r) => (isSingleClosedJob(r) ? 'Equipos en el costo del trabajo' : 'Equipos en el costo del mes'),
-    value: (r) => formatMoney(r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)),
-    hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día de trabajo (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
+    label: (r) => `Equipos en el costo del ${quoteUnitPlace(r)}`,
+    value: (r) => {
+      const month = r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0);
+      return `${formatMoney(inQuoteUnit(r, month))}${perBilledUnitSuffix(r, quote, month)}`;
+    },
+    hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día de trabajo${jobsSplitText(r)} (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
     className: 'qe-keyline-total',
   });
 

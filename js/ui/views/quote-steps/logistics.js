@@ -35,7 +35,7 @@ import { baseText } from '../../economic-base-ui.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { transportOf, providerActivityList, routeText, tripsText } from './transport.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
-import { isSingleClosedJob } from '../../result-text.js';
+import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix } from '../../result-text.js';
 
 /**
  * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
@@ -766,8 +766,11 @@ export function render(container, ctx) {
     ? null
     : kit.keyline({
       // Precio cerrado con un trabajo por mes: la cifra es la del trabajo (revisión UX tanda novatos).
-      label: (r) => (isSingleClosedJob(r) ? 'Movilización y viajes en el costo del trabajo' : 'Movilización y viajes en el costo del mes'),
-      value: (r) => formatMoney(r.kpis.logisticsMonthly),
+      label: (r) => `Movilización y viajes en el costo del ${quoteUnitPlace(r)}`,
+      value: (r) => {
+        const jobs = closedJobsPerMonth(r);
+        return jobs !== null ? formatMoney(r.kpis.logisticsMonthly / jobs) : `${formatMoney(r.kpis.logisticsMonthly)}${perBilledUnitSuffix(r, quote, r.kpis.logisticsMonthly)}`;
+      },
       hint: (r) => {
         const share = isFiniteNumber(r.kpis.logisticsIncidencePct) ? `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ` : '';
         const mob = r.model.mobilization ? r.model.mobilization.perActivation : 0;
@@ -778,7 +781,7 @@ export function render(container, ctx) {
         const providerNote = providers.length
           ? ` Los viajes del proveedor (${providers.map((p) => `${p.name}: ${formatMoney(p.netMonthly)} neto`).join('; ')}) están en "${stepName('equipment')}", no acá.`
           : '';
-        if (isSingleClosedJob(r)) return `${share}${formatMoney(perActivation)} ${T.per}${split}.${providerNote}`;
+        if (closedJobsPerMonth(r) !== null) return `${share}${formatMoney(perActivation)} ${T.per}${split}.${providerNote}`;
         const acts = r.model.logistics.activationsPerMonth;
         return `${share}${formatMoney(perActivation)} ${T.per}${split} × ${formatNumber(acts, { decimals: 2 })} ${T.word(acts)} por mes.${providerNote}`;
       },
@@ -805,8 +808,11 @@ export function render(container, ctx) {
           const m = mobOf(r);
           const km = perMonth(r, m.kmPerActivation) + r.model.logistics.kmPerMonth;
           const liters = perMonth(r, m.litersPerActivation) + r.model.logistics.litersPerMonth;
-          const one = isSingleClosedJob(r);
-          return `${formatValue(km, 'km')} y ${formatValue(liters, 'liters')} ${one ? 'en el trabajo' : 'por mes'}${r.model.logistics.kmPerMonth > 0 ? ` (equipos ${formatValue(perMonth(r, m.kmPerActivation), 'km')} + vehículos por km ${formatValue(r.model.logistics.kmPerMonth, 'km')})` : ''}${one ? '' : ` · ${activationsText(r)}`}.`;
+          // Precio cerrado (Joaco 2026-11-18): km y litros del trabajo (lo del mes ÷ trabajos por mes).
+          const jobs = closedJobsPerMonth(r);
+          const one = jobs !== null;
+          const k = one ? jobs : 1;
+          return `${formatValue(km / k, 'km')} y ${formatValue(liters / k, 'liters')} ${one ? 'en el trabajo' : 'por mes'}${r.model.logistics.kmPerMonth > 0 ? ` (equipos ${formatValue(perMonth(r, m.kmPerActivation) / k, 'km')} + vehículos por km ${formatValue(r.model.logistics.kmPerMonth / k, 'km')})` : ''}${one ? '' : ` · ${activationsText(r)}`}.`;
         },
       },
       // Distancia / actividad de los proveedores por km o por viaje (PLAN-2026-012):

@@ -24,7 +24,7 @@ import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, 
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
-import { activationRoundingText } from '../../result-text.js';
+import { activationRoundingText, closedJobsPerMonth } from '../../result-text.js';
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
@@ -371,10 +371,16 @@ export function render(container, ctx) {
   });
   const shortcut = (key, value, label) => {
     const el = kit.action(label, () => setActivity(key, value), { title: `Cargar ${value}` });
-    const now = quote.activity ? Number(quote.activity[key]) : NaN;
-    const on = Math.abs(now - value) < 1e-9;
-    if (on) el.classList.add('is-selected');
-    el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    // Se marca según lo cargado en CADA recálculo (Joaco 2026-11-18): si se tipea otro
+    // valor en el campo, el atajo deja de verse elegido sin esperar a redibujar el paso.
+    const mark = () => {
+      const raw = kit.get(`activity.${key}`);
+      const on = hasNumber(raw) && Math.abs(Number(raw) - value) < 1e-9;
+      el.classList.toggle('is-selected', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    };
+    mark();
+    kit.effect(mark);
     return el;
   };
   const hourShortcut = (n) => {
@@ -1083,7 +1089,8 @@ export function render(container, ctx) {
   const isEquipment = (l) => l.category === 'equipment' || l.category === 'external';
   const isOther = (l) => !isLabor(l) && !isEquipment(l) && l.category !== 'structure' && l.category !== 'financial' && l.category !== 'contingency';
   // Todo en la misma unidad (tanda novatos 2026-11): por mes o, en precio cerrado, en el trabajo.
-  const closedJobs = (r) => (contract.mode === 'closed' && r.estimate && r.estimate.revenue && r.estimate.revenue.billableUnits > 0 ? r.estimate.revenue.billableUnits : null);
+  // Trabajos por mes (no hitos): mismo divisor que el "Total del trabajo" (Joaco 2026-11-18).
+  const closedJobs = (r) => (contract.mode === 'closed' ? closedJobsPerMonth(r) : null);
   const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => resourceCostSameUnitText({
     fixedMonthly: sumLines(r, test, 'fixedMonthly'),
     variablePerDay: sumLines(r, test, 'variablePerActiveDay'),

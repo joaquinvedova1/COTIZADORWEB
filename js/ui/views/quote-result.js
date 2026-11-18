@@ -132,6 +132,7 @@ import {
   coveredByOtherRevenue,
   coveredRateText,
   rateBelowHourCostText,
+  closedJobsPerMonth,
 } from '../result-text.js';
 
 /**
@@ -1425,7 +1426,11 @@ function kpiGrid(v) {
   const score = r.completeness ? r.completeness.scorePct : null;
   const items = [];
 
-  items.push(kpiItem({ label: closedOf(v).single ? 'Costo del trabajo' : 'Costo del mes', value: money(k.totalCost), hint: `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: costTrace(v) }));
+  // Precio cerrado (Joaco 2026-11-18): lo del trabajo (lo del mes ÷ trabajos por mes), como el "Total del trabajo".
+  const jobsPerMonth = closedJobsPerMonth(v.r);
+  items.push(jobsPerMonth !== null
+    ? kpiItem({ label: 'Costo del trabajo', value: money(k.totalCost / jobsPerMonth), hint: Math.abs(jobsPerMonth - 1) < 1e-9 ? `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}` : `Lo del mes (${money(k.totalCost)}: fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}) ÷ ${formatNumber(jobsPerMonth, { decimals: 2 })} trabajos`, trace: costTrace(v) })
+    : kpiItem({ label: 'Costo del mes', value: money(k.totalCost), hint: `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: costTrace(v) }));
 
   // "Calcular la tarifa" ya muestra piso y objetivo en el bloque principal;
   // "Ya tengo la tarifa" no, así que van acá (en base de lista).

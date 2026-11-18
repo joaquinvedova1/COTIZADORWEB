@@ -54,7 +54,7 @@ import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js
 import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText, unreliableText } from '../result-text.js';
+import { breakEvenZeroText, unreliableText, closedJobsPerMonth } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -1167,13 +1167,18 @@ function buildSummary({ getResult, stepHref, stepId = null }) {
     { class: 'qe-sum-list qe-sum-main' },
     item({
       key: 'totalCost',
-      label: (r) => (closedOf(r).single ? 'Costo del trabajo' : 'Costo del mes'),
-      short: (r) => (closedOf(r).single ? 'Costo del trabajo' : 'Costo del mes'),
-      value: (r) => formatMoney(r.kpis.totalCost),
-      compact: (r) => formatMoneyCompact(r.kpis.totalCost),
-      hint: (r) => (isQuantityUnit(r)
+      // Precio cerrado (Joaco 2026-11-18): lo del trabajo (lo del mes ÷ trabajos por mes), como las tarjetas.
+      label: (r) => (closedJobsPerMonth(r) !== null ? 'Costo del trabajo' : 'Costo del mes'),
+      short: (r) => (closedJobsPerMonth(r) !== null ? 'Costo del trabajo' : 'Costo del mes'),
+      value: (r) => formatMoney(r.kpis.totalCost / (closedJobsPerMonth(r) || 1)),
+      compact: (r) => formatMoneyCompact(r.kpis.totalCost / (closedJobsPerMonth(r) || 1)),
+      hint: (r) => {
+        const jobs = closedJobsPerMonth(r);
+        if (jobs !== null) return Math.abs(jobs - 1) < 1e-9 ? `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días de trabajo.` : `Lo del mes (${formatMoney(r.kpis.totalCost)}) ÷ ${formatNumber(jobs, { decimals: 2 })} trabajos.`;
+        return isQuantityUnit(r)
         ? `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`
-        : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`),
+        : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`;
+      },
       trace: (r) => r.traces.totalCost,
     }),
     item({
@@ -1247,10 +1252,10 @@ function buildSummary({ getResult, stepHref, stepId = null }) {
     }),
     item({
       key: 'expectedResult',
-      label: (r) => (closedOf(r).single ? 'Resultado esperado del trabajo' : 'Resultado esperado del mes'),
-      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY),
+      label: (r) => (closedJobsPerMonth(r) !== null ? 'Resultado esperado del trabajo' : 'Resultado esperado del mes'),
+      value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit / (closedJobsPerMonth(r) || 1)) : EMPTY),
       // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue)} ${closedOf(r).single ? 'por trabajo' : 'por mes'}.` : 'Sin tarifa todavía.'),
+      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue / (closedJobsPerMonth(r) || 1))} ${closedJobsPerMonth(r) !== null ? 'por trabajo' : 'por mes'}.` : 'Sin tarifa todavía.'),
       tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
       trace: (r) => r.traces.expectedResult,
     }),

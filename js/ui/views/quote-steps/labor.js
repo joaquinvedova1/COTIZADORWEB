@@ -15,6 +15,7 @@ import { hasNumber, plural, stepName } from './shared.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS, isIllustrativeAgreementParam } from '../../../domain/catalogs.js';
 import { laborLineFromProfile } from '../../../domain/quote-factory.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
+import { closedJobsPerMonth, quoteUnitPlace, lineMonthAtEstimate, perBilledUnitSuffix } from '../../result-text.js';
 import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { createId } from '../../../core/ids.js';
@@ -430,10 +431,29 @@ export function render(container, ctx) {
         )),
       kit.keyline({
         label: 'Costo de este puesto',
-        value: (r) => (at(r) ? `${formatMoney(at(r).fixedMonthly)} por mes` : EMPTY),
+        value: (r) => {
+          const l = at(r);
+          if (!l) return EMPTY;
+          // Precio cerrado (Joaco 2026-11-18): lo del puesto en el trabajo, no por mes.
+          const jobs = closedJobsPerMonth(r);
+          if (jobs !== null) return `${formatMoney(lineMonthAtEstimate(r, l) / jobs)} en el trabajo`;
+          return `${formatMoney(l.fixedMonthly)} por mes`;
+        },
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
+          const jobs = closedJobsPerMonth(r);
+          if (jobs !== null) {
+            const D = r.activity.activeDaysPerMonth;
+            const daysPerJob = D / jobs;
+            const share = l.shared && !l.shareMissing ? ` (este servicio paga el ${formatPercent(l.fixedCostSharePct)} de su mes)` : '';
+            const fixedPart = l.fixedMonthly > 0
+              ? `Sueldo con cargas del mes ${formatMoney(l.fixedMonthly)}${share}${Math.abs(jobs - 1) < 1e-9 ? '' : `, repartido en ${formatNumber(jobs, { decimals: 2 })} trabajos del mes`}`
+              : '';
+            const varPart = l.variablePerActiveDay > 0 ? `${fixedPart ? ' + ' : ''}${formatMoney(l.variablePerActiveDay)} por día × ${formatNumber(daysPerJob, { decimals: 2 })} días del trabajo` : '';
+            const body = `${fixedPart}${varPart}`;
+            return `${staffText(l)}.${body ? ` ${body}.` : ''} Si también hace otros trabajos ese mes, elegí «No, también hacen otros trabajos» en "${stepName('modality')}".`;
+          }
           const variable = l.variablePerActiveDay > 0 ? ` + ${formatMoney(l.variablePerActiveDay)} por día de trabajo (${l.perPosition.overtimePerActiveDay > 0 ? 'horas extra y vianda' : 'vianda'})` : '';
           // Desglose del mes (PLAN-2026-010): sueldo + cargas, HE por tramo, viandas, seguros/EPP.
           const D = r.activity.activeDaysPerMonth;
@@ -582,10 +602,13 @@ export function render(container, ctx) {
   const laborRow = (r) => r.eecc.rows.find((x) => x.category === 'labor') || null;
   const totals = kit.toggle(
     kit.keyline({
-      label: lines.length ? 'Personal en el costo del mes' : 'Mano de obra en la estructura de costos',
+      label: (r) => (lines.length ? `Personal en el costo del ${quoteUnitPlace(r)}` : 'Mano de obra en la estructura de costos'),
       value: (r) => {
         const row = laborRow(r);
         if (!row) return EMPTY;
+        const jobs = closedJobsPerMonth(r);
+        if (jobs !== null && lines.length) return formatMoney(row.amount / jobs);
+        if (lines.length) return `${formatMoney(row.amount)}${perBilledUnitSuffix(r, quote, row.amount)}`;
         // Sin puestos: "$ X · Y %" (monto e incidencia en la estructura de costos).
         return lines.length ? formatMoney(row.amount) : `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}`;
       },
@@ -600,7 +623,9 @@ export function render(container, ctx) {
           Math.abs(headcount - positions) > 1e-6
             ? `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')} en nómina, ${formatNumber(positions, { decimals: 2 })} trabajando a la vez`
             : `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')}`,
-          `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo`,
+          closedJobsPerMonth(r) !== null
+            ? `sueldos con cargas del mes ${formatMoney(r.model.labor.fixedMonthly)}${Math.abs(closedJobsPerMonth(r) - 1) < 1e-9 ? '' : `, repartidos en ${formatNumber(closedJobsPerMonth(r), { decimals: 2 })} trabajos`}${r.model.labor.variablePerActiveDay > 0 ? ` + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo` : ''}`
+            : `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo`,
         ].filter(Boolean);
         return `${parts.join(' · ')}.${standby}`;
       },
