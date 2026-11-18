@@ -132,4 +132,37 @@ describe('rate-update: cotización real', () => {
     await service.undoRateUpdate('q-act');
     assert.equal((await repository.getQuote('q-act')).rateUpdate.steps.length, 0);
   });
+
+  test('la foto de la primera actualización no cambia si después se edita la cotización', () => {
+    const ru = { basePeriod: '2026-10', base: { rate: 1000, amounts: { labor: 100 } }, steps: [{ toPeriod: '2026-11', pcts: { labor: 10, external: 50 } }] };
+    // Hoy la cotización tiene terceros y otra tarifa: la vigente sigue saliendo de la foto.
+    const s = rateUpdateState({ baseRate: 1200, eecc: { rows: [{ category: 'labor', amount: 100 }, { category: 'external', amount: 20 }] }, rateUpdate: ru });
+    close(s.rate, 1100);
+    assert.equal(s.stale, true);
+    const same = rateUpdateState({ baseRate: 1000, eecc: { rows: [{ category: 'labor', amount: 50 }] }, rateUpdate: ru });
+    assert.equal(same.stale, false);
+  });
+
+  test('estructura como % del directo no lleva % propio', () => {
+    const rows = { rows: [{ category: 'labor', amount: 80 }, { category: 'structure', amount: 20 }] };
+    assert.deepEqual(rateUpdateWeights(rows, { structureFollows: true }).map((w) => w.id), ['labor']);
+    assert.deepEqual(rateUpdateWeights(rows).map((w) => w.id), ['labor', 'structure']);
+  });
+
+  test('servicio: guarda la foto, rechaza % inválidos y toma una base nueva', async () => {
+    const t = Date.UTC(2026, 9, 3, 10, 0, 0);
+    const repository = new LocalStorageRepository(new MemoryStorage(), { now: () => new Date(t).toISOString() });
+    await repository.init();
+    const service = createQuoteService({ repository, clock: () => new Date(t).toISOString() });
+    await repository.saveQuote({ ...cot0009Quote(), id: 'q-foto', offerDate: '2026-10-01' });
+    await assert.rejects(() => service.applyRateUpdate('q-foto', { toPeriod: '2026-11', pcts: { labor: 600 } }), /rate_update_pct/);
+    await service.applyRateUpdate('q-foto', { toPeriod: '2026-11', pcts: { labor: 10 } });
+    const q = await repository.getQuote('q-foto');
+    assert.ok(q.rateUpdate.base && q.rateUpdate.base.rate > 0);
+    await service.rebaseRateUpdate('q-foto');
+    const r = await repository.getQuote('q-foto');
+    assert.equal(r.rateUpdate.basePeriod, '2026-11');
+    assert.equal(r.rateUpdate.steps.length, 0);
+    assert.equal(r.rateUpdate.previous.length, 1);
+  });
 });

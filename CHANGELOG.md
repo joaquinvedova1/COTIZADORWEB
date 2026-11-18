@@ -18,7 +18,7 @@ Reglas para este archivo:
 
 - Cotizaciones → vista **"Tarifas"**: ítem, unidad, valor vigente, período de la tarifa y botón **"Actualizar tarifa"** (también en "Más opciones").
 - Cuadro "Actualizar tarifa": período base, mes destino, % de aumento por categoría de la EECC con su incidencia y aporte, aumento ponderado ("60 % × 2 % + 40 % × 5 % = 3,2 %") y tarifa nueva; historial y "Deshacer la última".
-- `quote.rateUpdate` (opcional) con el período base y los pasos de actualización; motor `rate-update-engine.js` (índices encadenados por categoría).
+- `quote.rateUpdate` (opcional) con el período base, la foto de la base (tarifa y montos por categoría al actualizar por primera vez), los pasos y los historiales archivados; motor `rate-update-engine.js` (índices encadenados por categoría). Si la cotización cambió después, aviso y "Tomar la cotización actual como nueva base".
 
 ### Cambiado
 

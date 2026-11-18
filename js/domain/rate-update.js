@@ -12,6 +12,12 @@
  *
  *   quote.rateUpdate = {
  *     basePeriod: 'AAAA-MM' | null,   // período de los costos con que se armó la tarifa
+ *     base: { rate, amounts: { [categoría]: $ } } | null,   // FOTO de la tarifa y la EECC al
+ *                                     // actualizar por primera vez: la tarifa vigente se calcula
+ *                                     // siempre sobre esta foto (editar la cotización después no
+ *                                     // reescribe el historial ni cuenta dos veces un aumento)
+ *     previous: [{ basePeriod, base, steps }],  // historiales anteriores (al "tomar la
+ *                                     // cotización actual como nueva base")
  *     steps: [{ id, toPeriod: 'AAAA-MM', pcts: { [categoría]: número }, appliedAt, note }],
  *   }
  *
@@ -71,6 +77,21 @@ export function normalizeUpdatePcts(raw) {
   return out;
 }
 
+/** Foto de la base: tarifa > 0 y montos ≥ 0 por categoría conocida, o null. */
+export function normalizeRateBase(raw) {
+  if (!isPlainObject(raw) || typeof raw.rate !== 'number' || !Number.isFinite(raw.rate) || raw.rate <= 0) return null;
+  const amounts = {};
+  if (isPlainObject(raw.amounts)) {
+    RATE_UPDATE_CATEGORY_IDS.forEach((id) => {
+      const v = raw.amounts[id];
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) amounts[id] = v;
+    });
+  }
+  return Object.keys(amounts).length ? { rate: raw.rate, amounts } : null;
+}
+
+export const MAX_PREVIOUS_RATE_HISTORIES = 20;
+
 /**
  * `quote.rateUpdate` saneado: nunca lanza. Un paso con período inválido o que no avanza en el
  * tiempo se descarta (los períodos de los pasos van siempre hacia adelante).
@@ -92,5 +113,9 @@ export function normalizeRateUpdate(raw) {
     });
     last = s.toPeriod;
   });
-  return { basePeriod, steps };
+  const previous = (Array.isArray(src.previous) ? src.previous : [])
+    .filter((p) => isPlainObject(p))
+    .slice(-MAX_PREVIOUS_RATE_HISTORIES)
+    .map((p) => ({ basePeriod: isValidPeriod(p.basePeriod) ? p.basePeriod : null, base: normalizeRateBase(p.base), steps: Array.isArray(p.steps) ? p.steps.slice(0, MAX_RATE_UPDATE_STEPS) : [] }));
+  return { basePeriod, base: normalizeRateBase(src.base), steps, previous };
 }

@@ -27,11 +27,20 @@ import { monthsBetween, isValidPeriod } from '../domain/economic-base.js';
  * @param {{ rows?: object[] }} eecc  resultado de costStructure()
  * @returns {{ id, label, hint, amount, weight }[]}  sólo categorías con monto > 0
  */
-export function rateUpdateWeights(eecc) {
+export function rateUpdateWeights(eecc, { structureFollows = false } = {}) {
+  return weightsFromAmounts(rateUpdateAmounts(eecc, { structureFollows }));
+}
+
+/**
+ * Montos por categoría actualizable de una EECC ({ labor: $, ppe: $ … }). Con estructura como %
+ * del directo o de la mano de obra (`structureFollows`), Estructura acompaña sola y no pesa.
+ */
+export function rateUpdateAmounts(eecc, { structureFollows = false } = {}) {
   const rows = eecc && Array.isArray(eecc.rows) ? eecc.rows : [];
   const amountOf = new Map();
   rows.forEach((r) => {
     if (!r || FOLLOWING_EECC_CATEGORIES.includes(r.category)) return;
+    if (structureFollows && r.category === 'structure') return;
     if (r.category === 'materials' && Array.isArray(r.children) && r.children.length) {
       r.children.forEach((c) => amountOf.set(c.component, (amountOf.get(c.component) || 0) + (isFiniteNumber(c.amount) ? c.amount : 0)));
       // Lo que no esté en ninguna categoría de gasto (no debería pasar) va a Materiales.
@@ -41,7 +50,17 @@ export function rateUpdateWeights(eecc) {
     }
     amountOf.set(r.category, (amountOf.get(r.category) || 0) + (isFiniteNumber(r.amount) ? r.amount : 0));
   });
-  const cats = RATE_UPDATE_CATEGORIES.map((c) => ({ id: c.id, label: c.label, hint: c.hint, amount: amountOf.get(c.id) || 0 })).filter((c) => c.amount > 0);
+  const out = {};
+  RATE_UPDATE_CATEGORIES.forEach((c) => {
+    const v = amountOf.get(c.id) || 0;
+    if (v > 0) out[c.id] = v;
+  });
+  return out;
+}
+
+function weightsFromAmounts(amounts) {
+  const a = amounts || {};
+  const cats = RATE_UPDATE_CATEGORIES.map((c) => ({ id: c.id, label: c.label, hint: c.hint, amount: a[c.id] || 0 })).filter((c) => c.amount > 0);
   const total = cats.reduce((s, c) => s + c.amount, 0);
   return total > 0 ? cats.map((c) => ({ ...c, weight: c.amount / total })) : [];
 }
@@ -55,10 +74,16 @@ function factorOf(weights, indices) {
  * factor acumulado, tarifa vigente e historial con el aumento de cada paso.
  * @param {{ baseRate: number|null, eecc: object, rateUpdate: object, fallbackBasePeriod?: string|null }} input
  */
-export function rateUpdateState({ baseRate = null, eecc = null, rateUpdate = null, fallbackBasePeriod = null } = {}) {
+export function rateUpdateState({ baseRate = null, eecc = null, rateUpdate = null, fallbackBasePeriod = null, structureFollows = false, otherRevenue = 0 } = {}) {
   const ru = normalizeRateUpdate(rateUpdate);
   const basePeriod = ru.basePeriod || (isValidPeriod(fallbackBasePeriod) ? fallbackBasePeriod : null);
-  const weights = rateUpdateWeights(eecc);
+  // Lo que la cotización dice HOY (tarifa y montos por categoría).
+  const liveAmounts = rateUpdateAmounts(eecc, { structureFollows });
+  const liveRate = isFiniteNumber(baseRate) && baseRate > 0 ? baseRate : null;
+  // Con actualizaciones, todo se calcula sobre la FOTO guardada en la primera.
+  const snapshot = ru.steps.length && ru.base ? ru.base : null;
+  const weights = weightsFromAmounts(snapshot ? snapshot.amounts : liveAmounts);
+  if (snapshot) baseRate = snapshot.rate;
   const indices = Object.fromEntries(weights.map((w) => [w.id, 1]));
   const hasRate = isFiniteNumber(baseRate);
   let factor = 1;
@@ -84,8 +109,22 @@ export function rateUpdateState({ baseRate = null, eecc = null, rateUpdate = nul
     fromPeriod = s.toPeriod;
     return step;
   });
+  // ¿La cotización cambió después de la foto? (otra tarifa u otro peso de alguna categoría)
+  const liveWeights = weightsFromAmounts(liveAmounts);
+  const sameWeights = liveWeights.length === weights.length && liveWeights.every((w) => {
+    const o = weights.find((x) => x.id === w.id);
+    return o && Math.abs(o.weight - w.weight) < 1e-6;
+  });
+  const stale = Boolean(snapshot) && (liveRate === null || Math.abs(liveRate - snapshot.rate) > 1e-6 * snapshot.rate || !sameWeights);
   return {
     basePeriod,
+    // Foto para guardar en la primera actualización (tarifa y montos de hoy).
+    liveBase: liveRate !== null && Object.keys(liveAmounts).length ? { rate: liveRate, amounts: liveAmounts } : null,
+    liveRate,
+    stale,
+    // Cobros aparte (cargos, materiales revendidos…) que este cuadro no actualiza.
+    otherRevenue: isFiniteNumber(otherRevenue) && otherRevenue > 0 ? otherRevenue : 0,
+    previousCount: ru.previous.length,
     // Período al que está expresada la tarifa vigente.
     period: steps.length ? steps[steps.length - 1].toPeriod : basePeriod,
     updated: steps.length > 0,

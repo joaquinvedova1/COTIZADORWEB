@@ -88,12 +88,16 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
     basePeriod: state.basePeriod,
     toPeriod: defaultTargetPeriod(state.period),
     pcts: {},
+    invalid: new Set(),
   };
   const locked = state.updated;
   // Período desde el que se actualiza (el vigente; antes de la primera, el base elegido).
   const fromPeriod = () => (locked ? state.period : local.basePeriod);
 
-  const sumEl = h('div', { class: 'rate-update-sum', role: 'status', 'aria-live': 'polite' });
+  const sumEl = h('div', { class: 'rate-update-sum' });
+  const liveEl = h('p', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
+  // Resumen compacto en el pie (se ve en el celular mientras se cargan los %).
+  const footSum = h('span', { class: 'rate-update-foot-sum mono', 'aria-hidden': 'true' });
   const contributionEls = new Map();
   const periodNote = h('p', { class: 'field-error', hidden: true });
   const applyBtn = button('Aplicar actualización', { variant: 'primary', icon: 'check' });
@@ -104,15 +108,15 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
       const el = contributionEls.get(r.id);
       if (el) el.textContent = r.pct ? pctText(r.contributionPct) : EMPTY;
     });
-    const terms = preview.rows.filter((r) => r.pct).map((r) => `${formatPercent(r.sharePct, { decimals: 1 })} × ${formatPercent(r.pct)}`);
+    const terms = preview.rows.filter((r) => r.pct).map((r) => `${formatPercent(r.sharePct, { decimals: 0 })} × ${formatPercent(r.pct)}`);
     sumEl.replaceChildren(
       h(
         'div',
         { class: 'rate-update-sum-main' },
-        h('span', {}, 'Aumento ponderado'),
+        h('span', {}, 'Aumento de la tarifa'),
         h('strong', { class: 'rate-update-sum-pct' }, pctText(preview.stepPct)),
       ),
-      terms.length ? h('p', { class: 'muted small mono' }, `${terms.join(' + ')} = ${pctText(preview.stepPct)}`) : h('p', { class: 'muted small' }, 'Cargá el % de aumento de cada categoría entre los dos meses.'),
+      terms.length ? h('p', { class: 'muted small mono' }, `${terms.join(' + ')} = ${pctText(preview.stepPct)}`) : h('p', { class: 'muted small' }, 'Cargá cuánto aumentó cada categoría entre los dos meses.'),
       h(
         'div',
         { class: 'rate-update-sum-rates' },
@@ -121,9 +125,16 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
         h('span', {}, h('span', { class: 'muted small' }, `${formatPeriod(local.toPeriod) === EMPTY ? 'Nueva' : formatPeriod(local.toPeriod)} `), h('strong', {}, rateWithUnit(preview.rateAfter, unitShort))),
       ),
     );
-    periodNote.hidden = !preview.periodError || !local.toPeriod;
-    if (preview.periodError === 'not_after') periodNote.textContent = `Elegí un mes posterior a ${formatPeriodLong(fromPeriod())}.`;
-    applyBtn.disabled = !preview.canApply || !preview.rows.some((r) => r.pct);
+    const noBase = !fromPeriod();
+    let note = null;
+    if (noBase) note = 'Elegí el período base de la tarifa: el mes de los costos con que la armaste.';
+    else if (preview.periodError === 'missing') note = 'Elegí a qué mes actualizás la tarifa.';
+    else if (preview.periodError === 'not_after') note = `Elegí un mes posterior a ${formatPeriodLong(fromPeriod())}.`;
+    periodNote.hidden = !note;
+    periodNote.textContent = note || '';
+    liveEl.textContent = `Aumento de la tarifa ${pctText(preview.stepPct)}${isFiniteNumber(preview.rateAfter) ? `, nueva tarifa ${formatMoney(preview.rateAfter)} por ${unitShort}` : ''}.`;
+    footSum.textContent = `${pctText(preview.stepPct)} · ${isFiniteNumber(preview.rateAfter) ? `${formatMoney(preview.rateAfter)} /${unitShort}` : EMPTY}`;
+    applyBtn.disabled = noBase || local.invalid.size > 0 || !preview.canApply || !preview.rows.some((r) => r.pct);
     return preview;
   }
 
@@ -138,6 +149,7 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
       class: 'rate-update-input',
       placeholder: '0',
       'aria-describedby': errId,
+      'aria-label': `% de aumento de ${w.label}`,
     });
     const err = h('span', { id: errId, class: 'field-error', hidden: true });
     input.addEventListener('input', () => {
@@ -147,7 +159,9 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
         err.textContent = r.error;
         err.hidden = false;
         delete local.pcts[w.id];
+        local.invalid.add(w.id);
       } else {
+        local.invalid.delete(w.id);
         input.removeAttribute('aria-invalid');
         err.hidden = true;
         if (r.value === null || r.value === 0) delete local.pcts[w.id];
@@ -162,9 +176,9 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
       'tr',
       {},
       h('th', { scope: 'row' }, h('label', { for: id, class: 'rate-update-cat' }, w.label), h('span', { class: 'cell-sub' }, w.hint)),
-      h('td', { class: 'ta-right mono', 'data-label': 'Incidencia' }, formatPercent(share * 100, { decimals: 1 })),
+      h('td', { class: 'ta-right mono', 'data-label': 'Peso en el costo' }, formatPercent(share * 100, { decimals: 1 })),
       h('td', { class: 'ta-right', 'data-label': '% de aumento' }, h('span', { class: 'rate-update-pct' }, input, h('span', { 'aria-hidden': 'true' }, '%')), err),
-      h('td', { class: 'ta-right', 'data-label': 'Aporte' }, contribution),
+      h('td', { class: 'ta-right', 'data-label': 'Suma a la tarifa' }, contribution),
     );
   });
 
@@ -195,7 +209,7 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
   const history = state.steps.length
     ? h(
         'div',
-        { class: 'stack-sm' },
+        { class: 'stack' },
         h('h3', { class: 'rate-update-h3' }, 'Actualizaciones anteriores'),
         h(
           'ol',
@@ -205,10 +219,47 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
       )
     : null;
 
+  const rebaseBtn = state.stale
+    ? button('Tomar la cotización actual como nueva base', {
+        variant: 'secondary',
+        size: 'sm',
+        onClick: async () => {
+          const ok = await confirmDialog({
+            title: 'Nueva base de la tarifa',
+            message: `La tarifa y los costos de hoy de la cotización pasan a ser la base, en ${formatPeriodLong(state.period)}. Las actualizaciones anteriores quedan archivadas.`,
+            confirmLabel: 'Tomar como base',
+          });
+          if (!ok) return;
+          try {
+            await ctx.quotes.rebaseRateUpdate(quote.id);
+            app.toast(`Nueva base de la tarifa: ${formatPeriod(state.period)}.`, 'success');
+            dialogRef.close();
+            if (typeof onSaved === 'function') onSaved();
+          } catch (error) {
+            app.toast(userErrorMessage(error, 'No se pudo cambiar la base.'), 'danger');
+          }
+        },
+      })
+    : null;
+  const notices = [
+    state.stale
+      ? h(
+          'div',
+          { class: 'stack' },
+          banner(`Cambiaste la cotización después de actualizar la tarifa. La tarifa vigente sigue calculada sobre la de ${formatPeriod(state.basePeriod)} (${formatMoney(state.baseRate)} /${unitShort}); hoy la cotización da ${formatMoney(state.liveRate)} /${unitShort}. Si ya cargaste los costos de ${formatPeriod(state.period)}, tomala como nueva base para no contar dos veces el aumento.`, 'warning'),
+          rebaseBtn,
+        )
+      : null,
+    state.otherRevenue > 0
+      ? banner(`Esta cotización cobra ${formatMoney(state.otherRevenue)} por mes aparte de la tarifa (cargos o materiales revendidos): eso no se actualiza acá.`, 'info')
+      : null,
+  ].filter(Boolean);
+
   const content = h(
-    'div',
-    { class: 'stack rate-update' },
-    h('p', { class: 'muted' }, 'Poné cuánto aumentó cada categoría de la estructura de costos entre los dos meses. La tarifa nueva sale ponderada por la incidencia de cada una. Los costos de la cotización no cambian.'),
+    'form',
+    { class: 'stack rate-update', novalidate: true },
+    ...notices,
+    h('p', { class: 'muted' }, 'Cargá cuánto aumentó cada categoría de tu estructura de costos entre los dos meses: cada una suma según su peso en el costo. La cotización original no cambia.'),
     periods,
     periodNote,
     h(
@@ -218,14 +269,19 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
         'table',
         { class: 'table rate-update-table' },
         h('caption', { class: 'sr-only' }, 'Aumento por categoría de la estructura de costos'),
-        h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Categoría'), h('th', { scope: 'col', class: 'ta-right' }, 'Incidencia'), h('th', { scope: 'col', class: 'ta-right' }, '% de aumento'), h('th', { scope: 'col', class: 'ta-right' }, 'Aporte'))),
+        h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Categoría'), h('th', { scope: 'col', class: 'ta-right' }, 'Peso en el costo'), h('th', { scope: 'col', class: 'ta-right' }, '% de aumento'), h('th', { scope: 'col', class: 'ta-right' }, 'Suma a la tarifa'))),
         h('tbody', {}, ...rows),
       ),
     ),
-    h('p', { class: 'footnote' }, 'Costo financiero e imprevistos acompañan solos al resto. El margen y los impuestos son un % del precio: no cambian.'),
+    h('p', { class: 'footnote' }, 'Costo financiero (a tasa constante) e imprevistos acompañan solos al resto, igual que la estructura si la cargaste como % del costo. El margen y los impuestos son un % del precio: no cambian.'),
     sumEl,
+    liveEl,
     history,
   );
+  content.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!applyBtn.disabled) applyBtn.click();
+  });
 
   let dialogRef = null;
   applyBtn.addEventListener('click', async () => {
@@ -235,7 +291,7 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
     try {
       if (!locked && local.basePeriod !== state.basePeriod) await ctx.quotes.setRateBasePeriod(quote.id, local.basePeriod);
       await ctx.quotes.applyRateUpdate(quote.id, { toPeriod: local.toPeriod, pcts: local.pcts });
-      app.toast(`Tarifa actualizada a ${formatPeriodLong(local.toPeriod)}: ${formatMoney(preview.rateAfter)} /${unitShort} (${pctText(preview.stepPct)}).`, 'success');
+      app.toast(`Tarifa actualizada a ${formatPeriod(local.toPeriod)}: ${formatMoney(preview.rateAfter)} /${unitShort}.`, 'success');
       dialogRef.close();
       if (typeof onSaved === 'function') onSaved();
     } catch (error) {
@@ -271,11 +327,13 @@ export function openRateUpdateDialog({ app, quote, summary, onSaved = null }) {
     title,
     content,
     wide: true,
-    actions: [undoBtn, h('span', { class: 'spacer' }), button('Cancelar', { variant: 'secondary', onClick: () => dialogRef.close() }), applyBtn].filter(Boolean),
+    actions: [undoBtn, footSum, h('span', { class: 'spacer' }), button('Cancelar', { variant: 'secondary', onClick: () => dialogRef.close() }), applyBtn].filter(Boolean),
   });
   refresh();
+  // En pantallas táctiles no se abre el teclado solo (taparía la explicación).
+  const coarse = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
   const first = content.querySelector('.rate-update-input');
-  if (first) first.focus();
+  if (first && !coarse) first.focus();
 }
 
 export { rateWithUnit, pctText };

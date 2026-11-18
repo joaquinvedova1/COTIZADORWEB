@@ -940,7 +940,16 @@ export function rateUpdateOf(quote, result) {
     eecc: result ? result.eecc : null,
     rateUpdate: q.rateUpdate,
     fallbackBasePeriod: periodFromDate(q.offerDate) || periodFromDate(q.createdAt),
+    // Estructura como % del directo o de la mano de obra: acompaña sola (no lleva % propio).
+    structureFollows: structureFollowsDirect(q.indirect),
+    otherRevenue: result && result.ratesAtEstimate ? result.ratesAtEstimate.otherRevenue : 0,
   });
+}
+
+function structureFollowsDirect(indirect) {
+  const ind = indirect && typeof indirect === 'object' ? indirect : {};
+  if (ind.mode === 'detailed' && Array.isArray(ind.items)) return ind.items.length > 0 && ind.items.every((it) => it && (it.method || 'percent_direct').startsWith('percent_'));
+  return (ind.method || 'percent_direct').startsWith('percent_');
 }
 
 /** Indicadores compactos para dashboard y listados (sin trazas). */

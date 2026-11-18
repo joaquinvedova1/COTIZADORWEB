@@ -680,6 +680,10 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .rate-update-sum-main { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; font-weight: 600; }
 .rate-update-sum-pct { font-size: 1.35rem; color: var(--navy-900); }
 .rate-update-sum-rates { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.rate-update-table td:last-child { white-space: nowrap; }
+@media (min-width: 761px) { .rate-update-table td:nth-child(3) { width: 1%; white-space: nowrap; } }
+.rate-update-foot-sum { display: none; align-self: center; font-weight: 700; color: var(--navy-900); }
+.dialog-actions:has(.rate-update-foot-sum) .btn { white-space: nowrap; }
 .rate-update-h3 { font-size: 0.95rem; margin: 0; }
 .rate-update-history { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.3rem; }
 .rate-update-history li { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; }
@@ -687,4 +691,8 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
   .rate-update-table th[scope="row"] { display: block; width: 100%; padding: 0 0 0.45rem; margin-bottom: 0.3rem; border-bottom: 1px solid var(--line-2); }
   .table-cards .rate-update-table td { justify-content: space-between; }
   .rate-cell { align-items: flex-end; }
+  .rate-update-foot-sum { display: inline; flex-basis: 100%; text-align: right; }
+  .dialog-actions:has(.rate-update-foot-sum) { flex-wrap: wrap; }
+  .dialog-actions:has(.rate-update-foot-sum) .spacer { display: none; }
+  .dialog-actions:has(.rate-update-foot-sum) .btn { flex: 1 1 auto; }
 }

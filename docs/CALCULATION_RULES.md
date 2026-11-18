@@ -1955,9 +1955,12 @@ F    = Σ w_i × I_i                    factor acumulado
 tarifa vigente = tarifa comercial de la cotización × F
 ```
 
-En cada actualización el aumento del paso es `Σ s_i × %_i`, con `s_i = w_i × I_i ÷ F` la incidencia **vigente** (la primera vez `s_i = w_i`). Ejemplo del dueño: 60 % × 2 % + 40 % × 5 % = **3,2 %**. Si una categoría subió más, pesa más en la siguiente actualización.
+En cada actualización el aumento del paso es `Σ s_i × %_i`, con `s_i = w_i × I_i ÷ F` la incidencia **vigente** (la primera vez `s_i = w_i`). Ejemplo del dueño: 60 % × 2 % + 40 % × 5 % = **3,2 %** (base $ 1.000 → $ 1.032). Si después la mano de obra sube 10 %: incidencias vigentes 59,3 % y 40,7 %, paso +5,93 %, tarifa $ 1.093,20 = 1.000 × (0,6 × 1,02 × 1,1 + 0,4 × 1,05). Si una categoría subió más, pesa más en la siguiente actualización.
 
 - Margen e impuestos sobre la facturación son % del precio: al llevar costo y precio por el mismo factor, el margen % no cambia.
-- La actualización **no toca los costos de la cotización**: se guarda en `quote.rateUpdate = { basePeriod, steps: [{ toPeriod, pcts }] }` con historial y "Deshacer la última". El período base es el guardado o, si no, el mes de la fecha de la oferta; queda fijo desde la primera actualización.
+- La actualización **no toca los costos de la cotización**: se guarda en `quote.rateUpdate = { basePeriod, base, steps: [{ toPeriod, pcts }], previous }` con historial y "Deshacer la última".
+- **Foto de la base:** en la primera actualización se guarda `base = { rate, amounts }` (tarifa y montos por categoría de ese momento). La tarifa vigente se calcula siempre sobre esa foto: editar la cotización después no reescribe el historial ni cuenta dos veces un aumento. Si la cotización cambió (otra tarifa u otros pesos), el cuadro lo avisa y ofrece "Tomar la cotización actual como nueva base" (período base = el vigente; el historial anterior queda en `previous`).
+- **Estructura** cargada como % del costo directo o de la mano de obra acompaña sola (no lleva % propio); como monto fijo, por empleado o por hora, sí.
+- **Cobros aparte** (cargos, materiales revendidos: "otros ingresos") no se actualizan con este cuadro y se avisa. El costo financiero se toma a tasa constante. El período base es el guardado o, si no, el mes de la fecha de la oferta; queda fijo desde la primera actualización.
 - El período destino debe ser posterior al vigente. % entre −90 y 500 (puede bajar, p. ej. combustible).
 - **Mano de obra ligada al sueldo:** el % de mano de obra es el aumento de sueldos del convenio entre los dos meses. Mientras no exista el historial de aumentos por convenio en Recursos, se carga a mano en el mismo cuadro; después se propone solo (ponderado por el costo de cada puesto) y se puede corregir.

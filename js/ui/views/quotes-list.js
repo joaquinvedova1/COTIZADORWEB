@@ -198,11 +198,11 @@ export function rateColumns({ onUpdate, href = ({ quote, summary }) => quoteDeta
           'span',
           { class: 'rate-cell' },
           h('span', { class: 'nowrap' }, formatMoney(rate)),
-          ru && ru.updated ? h('span', { class: 'cell-sub nowrap', title: `Aumento acumulado desde ${formatPeriod(ru.basePeriod)}` }, `${ru.totalPct >= 0 ? '+' : ''}${formatPercent(ru.totalPct, { decimals: 1 })} desde ${formatPeriod(ru.basePeriod)}`) : null,
+          ru && ru.updated ? h('span', { class: 'cell-sub nowrap', title: `Aumento acumulado desde ${formatPeriod(ru.basePeriod)}` }, `${ru.totalPct >= 0 ? '+' : ''}${formatPercent(ru.totalPct, { decimals: 1 })}`) : null,
         );
       },
     },
-    { key: 'period', label: 'Período', render: ({ summary }) => (summaryFailed(summary) ? muted() : ratePeriodNode(summary.rateUpdate)) },
+    { key: 'period', label: 'Período de la tarifa', render: ({ summary }) => (summaryFailed(summary) ? muted() : ratePeriodNode(summary.rateUpdate)) },
     {
       key: 'action',
       label: h('span', { class: 'sr-only' }, 'Acciones'),
@@ -678,7 +678,7 @@ export async function render(root, app) {
       failedQuotesBanner(filtered),
       tableEl,
       h('p', { class: 'footnote' }, rates
-        ? 'Valor: la tarifa vigente de cada ítem. "Actualizar tarifa" la lleva a otro mes con un % por categoría de su estructura de costos, ponderado por la incidencia de cada una; la cotización no cambia.'
+        ? 'Valor: la tarifa vigente. "Actualizar tarifa" la lleva a otro mes con el aumento de cada categoría de costos; la cotización original no cambia.'
         : 'Montos con la actividad estimada de cada cotización. El margen es sobre el precio de venta (no es markup).'),
     );
   }
