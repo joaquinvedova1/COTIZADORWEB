@@ -49,10 +49,39 @@ export function costBreakdown(eecc, { top = 4, decimals = 0 } = {}) {
 const ROW_COMPONENTS = Object.freeze({
   labor: ['labor'],
   equipment: ['vehicle', 'machinery'],
-  external: ['subcontract', 'vehicle', 'machinery'],
-  fuel: ['vehicle', 'machinery'],
+  // Revisión 0.10.0 (U7): "Servicios de terceros" en $ 0 sólo si se eligió; "Combustible" en $ 0, nunca.
+  external: ['subcontract'],
   logistics: ['travel'],
 });
+
+/** Rubros de la estructura de costos con nombre de superficie distinto al del catálogo (0.10.0). */
+const RUBRO_LABELS = Object.freeze({
+  // Los nombres de "¿Qué incluye el servicio?" (paso 1) y de los pasos.
+  labor: 'Personal',
+  equipment: 'Equipos y vehículos',
+  external: 'Servicios de terceros',
+  logistics: 'Viáticos y traslados',
+  structure: 'Gastos de estructura',
+  contingency: 'Imprevistos',
+});
+
+/**
+ * Nombre visible de un renglón de la EECC. El de equipos propios sigue lo elegido en "¿Qué
+ * incluye el servicio?" (revisión 0.10.0, U7): sólo vehículos → "Vehículos"; sólo equipos →
+ * "Equipos y maquinaria"; los dos (o sin componentes) → "Equipos y vehículos".
+ * @param {string} category  id del renglón (labor, equipment… o materials:tools)
+ * @param {string} [fallback]  rótulo del motor
+ * @param {string[]|null} [components]  componentes elegidos (null = cotización sin componentes)
+ */
+export function costRowLabel(category, fallback = '', components = null) {
+  if (category === 'equipment' && Array.isArray(components)) {
+    const vehicle = components.includes('vehicle');
+    const machinery = components.includes('machinery');
+    if (vehicle && !machinery) return 'Vehículos';
+    if (machinery && !vehicle) return 'Equipos y maquinaria';
+  }
+  return RUBRO_LABELS[category] || fallback || 'Otros';
+}
 /** Renglones que se muestran siempre (todas las cotizaciones pasan por esos pasos). */
 const ALWAYS_ROWS = Object.freeze(['structure', 'financial', 'contingency']);
 

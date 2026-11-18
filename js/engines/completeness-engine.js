@@ -231,7 +231,7 @@ export function evaluateCompleteness(quote = {}) {
   const validMode = PRICING_MODES.some((m) => m.id === quote.pricingMode);
   items.push(rule('modality', 'Cómo se cobra', 'modality', 2,
     validType && validMode ? 'ok' : 'missing',
-    validType && validMode ? 'Contrato y modalidad definidos.' : 'Falta definir el contrato o cómo se cobra (ya tengo la tarifa / calcular la tarifa).'));
+    validType && validMode ? 'Unidad de cobro definida.' : 'Falta definir el contrato o cómo se cobra (ya tengo la tarifa / calcular la tarifa).'));
 
   // 2. Tarifa o actividad según modalidad
   if (quote.pricingMode === 'known_rate') {
@@ -1463,9 +1463,15 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
     if (fullMonth) return null;
   }
   const days = formatNumber(D, { decimals: Math.abs(D - Math.round(D)) < 1e-9 ? 0 : 1 });
-  const why = closed
-    ? `Un trabajo de ${days} ${Math.abs(D - 1) < 1e-9 ? 'día' : 'días'}`
-    : `Trabajás ${days} de ${formatNumber(available)} días disponibles`;
+  // Revisión 0.10.0 (C5): con varios trabajos por mes, los días son de todos los trabajos del mes.
+  const jobs = billingUnitOf(quote).id === 'job' ? nonNegative(model.activity.billableQuantityPerMonth) : 1;
+  const dayWord = (n) => (Math.abs(n - 1) < 1e-9 ? 'día' : 'días');
+  const fmtDays = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+  const why = !closed
+    ? `Trabajás ${days} de ${formatNumber(available)} días disponibles`
+    : jobs > 1 + 1e-9
+      ? `${fmtDays(jobs)} trabajos de ${fmtDays(D / jobs)} ${dayWord(D / jobs)} (${days} ${dayWord(D)} de trabajo en el mes)`
+      : `Un trabajo de ${days} ${dayWord(D)}`;
   const period = mf > 1 + 1e-9 ? `de ${formatNumber(mf, { decimals: 2 })} meses (el trabajo dura más que los días disponibles)` : 'del mes';
   const parts = [laborFixed > 0 ? `sueldos ${formatMoney(laborFixed * mf)}` : null, equipmentFixed > 0 ? `tenencia de equipos propios ${formatMoney(equipmentFixed * mf)}` : null].filter(Boolean).join(' + ');
   return {

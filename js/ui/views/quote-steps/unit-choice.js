@@ -23,6 +23,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { formatMoney, formatNumber, formatDays } from '../../../core/format.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
 import { stepName } from './shared.js';
+import { normalizeActivity } from '../../../engines/cost-engine.js';
 import { onSessionReset } from '../../session-memory.js';
 
 /** Opciones rápidas, en este orden. `custom` = "Por unidad" (con el nombre que le ponga la persona). */
@@ -75,24 +76,59 @@ export function askUnitChange({ from, to, fromUnit, rates, convertible, hours })
 }
 
 /**
+ * Deriva el modo del contrato (MUTA `q`): lo guarda, deriva el tipo de servicio y limpia con aviso
+ * lo que se leía en el modo anterior (horas extra, cobros aparte de la guardia). Sirve también para
+ * corregir un modo guardado que no corresponde a la unidad (revisión 0.10.0, C2) sin tocar nada más.
+ */
+export function applyModeDerivation(q, fromMode, toMode, fromTerms = null) {
+  const saved = isPlainObject(q.contract) ? q.contract : null;
+  const components = componentsOf(saved || contractOf(q));
+  q.contract = contractWithComponents({ ...(saved || {}), mode: toMode }, components, saved ? saved.customComponents : undefined);
+  q.serviceType = serviceTypeForContract(q.contract);
+  return applyContractModeChange(q, fromMode, q.contract.mode, fromTerms);
+}
+
+/**
+ * Días de trabajo por mes que ya salían de la cantidad (revisión 0.10.0, U6): por cantidad,
+ * cantidad por mes ÷ cantidad por día; por trabajo, trabajos × días por trabajo. Los calcula el
+ * motor (normalizeActivity), como siempre. null si no hay con qué derivarlos.
+ */
+function derivedActiveDays(q, fromInfo) {
+  if (!(fromInfo.kind === 'quantity' || fromInfo.kind === 'event')) return null;
+  const D = normalizeActivity(q).activeDaysPerMonth;
+  return Number.isFinite(D) && D > 0 ? D : null;
+}
+
+/**
  * Aplica a `q` el cambio de unidad (MUTA `q`) y devuelve los avisos: limpia lo cargado en la
  * unidad anterior, deriva el modo del contrato de la unidad nueva y, por trabajo, arranca en
- * 1 trabajo por mes si no había cantidad.
+ * 1 trabajo por mes si no había cantidad. De una unidad por cantidad a hora o día, deja los días
+ * de trabajo que ya se derivaban (U6) y lo avisa.
  */
 export function applyQuoteUnit(q, nextUnit) {
   const fromInfo = billingUnitOf(q);
   const fromMode = contractOf(q).mode;
+  const fromTerms = activationTerms(q);
+  const toInfo = billingUnitOf({ ...q, unit: nextUnit });
+  const toTime = (toInfo.kind === 'day' || toInfo.kind === 'hour') && fromInfo.id !== toInfo.id;
+  const days = toTime ? derivedActiveDays(q, fromInfo) : null;
   q.unit = nextUnit;
   const notices = applyUnitChange(q, fromInfo, billingUnitOf(q));
-  const saved = isPlainObject(q.contract) ? q.contract : null;
-  const components = componentsOf(saved || contractOf(q));
-  q.contract = contractWithComponents({ ...(saved || {}), mode: modeForUnit(nextUnit) }, components, saved ? saved.customComponents : undefined);
-  q.serviceType = serviceTypeForContract(q.contract);
-  notices.push(...applyContractModeChange(q, fromMode, q.contract.mode));
+  notices.push(...applyModeDerivation(q, fromMode, modeForUnit(nextUnit), fromTerms));
   if (nextUnit === 'job') {
     if (!isPlainObject(q.activity)) q.activity = {};
     const jobs = q.activity.billableQuantityPerMonth;
     if (jobs === null || jobs === undefined || jobs === '') q.activity.billableQuantityPerMonth = 1;
+  }
+  if (toTime && (fromInfo.kind === 'quantity' || fromInfo.kind === 'event')) {
+    const where = `«${stepName('modality')}»`;
+    if (days !== null) {
+      if (!isPlainObject(q.activity)) q.activity = {};
+      q.activity.activeDaysPerMonth = days;
+      notices.push(`Quedaron ${formatDays(days)} de trabajo por mes; revisalo en ${where}.`);
+    } else {
+      notices.push(`Cargá cuántos días de trabajo por mes${toInfo.kind === 'hour' ? ' y cuántas horas por día' : ''} en ${where}.`);
+    }
   }
   return notices;
 }
@@ -105,6 +141,16 @@ export async function changeQuoteUnit(ctx, nextUnit) {
   const { quote } = ctx;
   const fromUnit = quote.unit || 'day';
   if (nextUnit === fromUnit) {
+    // Modo guardado que no corresponde a la unidad (revisión 0.10.0, C2): elegir de nuevo la misma
+    // unidad sólo deriva el modo (no borra cantidades ni tarifas).
+    const fromMode = contractOf(quote).mode;
+    const toMode = modeForUnit(nextUnit);
+    if (!contractOf(quote).legacy && fromMode !== toMode) {
+      let fixed = [];
+      ctx.mutate((q) => { fixed = applyModeDerivation(q, fromMode, toMode); });
+      ctx.toast(`Cobrás ${perText(billingUnitOf(quote))}.${fixed.length ? ` ${fixed.join(' ')}` : ''}`, fixed.length ? 'warning' : 'success');
+      return;
+    }
     ctx.rerender();
     return;
   }

@@ -32,6 +32,19 @@ Reglas para este archivo:
 - Resultado: la estructura de costos y "¿En qué se va el costo?" muestran Materiales desglosado por categoría y no muestran renglones en $ 0 de categorías no elegidas. Rótulos: Personal, Equipos y vehículos, Servicios de terceros, Viáticos y traslados, Imprevistos.
 - Mínimo mensual garantizado, mínimo por llamado y descuentos por cantidad de días: sólo se muestran si la cotización ya los tiene cargados (los motores no cambian).
 - Textos: "cobrando por trabajo" en vez de "precio cerrado" en Imprevistos, Financiación y el aviso de costos fijos.
+- **Cotizaciones guardadas sin contrato:** cambiar la unidad (o lo que incluye el servicio) ahora crea el contrato y DERIVA el modo de la unidad nueva. Un precio cerrado que pasa a hora, día o mes deja de calcular como precio cerrado (desde ahí calcula como "por servicio" o "por mes"); abrirla sin tocar la unidad no cambia nada.
+
+### Corregido (revisión de costos y UX, sin cambio de montos)
+
+- **Aviso de unidad falso (C1):** con sólo Personal y unidad viaje, km, kg, litro… ya no sale "Esta cotización quedó guardada para cobrar en…". Sólo se avisa si el modo guardado no es el de la unidad (`modeForUnit`); `unitFitsContract` acepta "por servicio" con cualquier unidad que no sea mes, trabajo ni hito.
+- **Modo guardado incoherente (C2):** elegir de nuevo la misma unidad sólo deriva el modo (no borra cantidades ni tarifas) y tocar "¿Qué incluye?" guarda el modo de la unidad. No se corrige solo al abrir: cambiaría el precio de una cotización guardada sin que nadie lo pida.
+- **Subtotales de Materiales (C3):** cada sección muestra lo que suma en el renglón Materiales (igual que el Resultado) y, aparte, "Además $ X van a «Servicios de terceros»". El motor lo da en `computeQuote(...).componentCosts` (`componentCostSplitAt`), con lo del trabajo y el equivalente por unidad cobrada.
+- **Adicional con categoría Materiales (C4):** en el desglose cae en "Otros costos" (no en "Materiales"). Sólo cambia el hijo; el renglón y los totales no.
+- **Aviso de costos fijos con varios trabajos por mes (C5):** "2 trabajos de 3 días (6 días de trabajo en el mes)" en vez de "Un trabajo de 6 días".
+- **Cobros de guardia al cobrar por mes o por trabajo (C6):** al cambiar a una unidad cuyo modo deja de ser "por servicio" se borran, con aviso, el fijo por estar de guardia, el plus por llamado y el mínimo mensual garantizado en $ (ya no se mostraban y seguían pesando en el precio).
+- **"Llamado" (U2):** en cotizaciones armadas por componentes sólo se habla de "llamado" si se cobra por llamado; si no, "intervención" (el tipo de servicio no cambia, sólo el nombre).
+- **De cantidad a hora o día (U6):** quedan los días de trabajo que ya salían de la cantidad ("Quedaron 20 días de trabajo por mes; revisalo en «Cómo se cobra»").
+- **Pantallas:** una categoría con gastos cargados no se desmarca ("EPP tiene 1 gasto cargado…: borralo en «Materiales»…", U1); "Personal" y "Equipos" se saltean si no se eligieron y no tienen nada cargado (U4); EECC sin "Servicios de terceros" ni "Combustible" en $ 0 si no corresponden y el renglón de equipos se llama "Vehículos", "Equipos y maquinaria" o "Equipos y vehículos" según lo elegido (U7); "¿Cada cuánto se consume?" ofrece primero "Por diagnóstico" (o "Por trabajo") y no ofrece "Por llamado" si no se cobra por llamado (U3); sin "Otro componente [Agregar]" (U8); ayuda del paso 1 en la unidad (U9); textos de "Cómo se cobra", "tarifa del mes", "Unidad de cobro definida", "precio/del trabajo" cobrando por un trabajo y resumen de Materiales con las categorías elegidas (U5, U10–U12).
 
 ## [0.9.0] - 2026-11-18
 

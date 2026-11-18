@@ -162,7 +162,7 @@ describe('V-26 · Hora fuera de horario cuando no se cobra por hora ni por día'
 
   test('abono: sólo dice que es además del abono', () => {
     const text = note(quote({ serviceType: 'permanent', unit: 'month', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 8 } }));
-    assert.match(text, /Es el precio de cada hora que trabajás fuera de horario además del abono que cotizaste\.$/);
+    assert.match(text, /Es el precio de cada hora que trabajás fuera de horario además de la tarifa del mes que cotizaste\.$/);
   });
 
   test('una sola hora cotizada: "el recargo de $ X por hora"', () => {

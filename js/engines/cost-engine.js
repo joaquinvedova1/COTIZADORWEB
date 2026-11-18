@@ -812,7 +812,7 @@ export function buildCostModel(quote = {}) {
       daysPerActivation: activity.daysPerActivation,
       perActivation,
       // Para nombrar la activación en las trazas (llamado / salida / intervención, PLAN-2026-014).
-      terms: { serviceType: typeof quote.serviceType === 'string' ? quote.serviceType : null, unit: typeof quote.unit === 'string' ? quote.unit : null },
+      terms: { serviceType: typeof quote.serviceType === 'string' ? quote.serviceType : null, unit: typeof quote.unit === 'string' ? quote.unit : null, contract: quote.contract && typeof quote.contract === 'object' && Array.isArray(quote.contract.components) ? { components: [...quote.contract.components] } : null },
     },
   };
 }
@@ -945,12 +945,54 @@ export function componentCostAt(model, activeDays, { category = null } = {}) {
   const out = Object.fromEntries(LINE_COMPONENT_IDS.map((id) => [id, { fixedMonthly: 0, variablePerActiveDay: 0, amount: 0, lines: 0 }]));
   ((model && model.lines) || []).forEach((l) => {
     if (category ? l.category !== category : !l.component) return;
-    const id = LINE_COMPONENT_IDS.includes(l.component) ? l.component : 'materials';
+    // Un adicional (cotizaciones anteriores) no es un material: va a "Otros costos" (revisión 0.10.0, C4).
+    const id = l.source === 'extra' ? 'other' : LINE_COMPONENT_IDS.includes(l.component) ? l.component : 'materials';
     const b = out[id];
     b.fixedMonthly += l.fixedMonthly * factor;
     b.variablePerActiveDay += l.variablePerActiveDay;
     b.amount += l.fixedMonthly * factor + l.variablePerActiveDay * D + nonNegative(l.discretePerActivation) * extra;
     b.lines += 1;
+  });
+  return out;
+}
+
+/**
+ * Costo de cada categoría de gasto de Materiales u Otros costos (herramientas, insumos, materiales,
+ * EPP, otros) con D días, separado en lo que se suma en el renglón Materiales de la EECC y lo que
+ * "Va a" otros renglones (un otro costo con "Va a: Equipos y servicios externos"). Revisión 0.10.0
+ * (C3): el subtotal de cada sección de Materiales es `inMaterials.amount`, igual al hijo del
+ * Resultado. Misma cuenta que componentCostAt: sólo un desglose, no cambia ningún total.
+ *
+ * @param {object} model  buildCostModel(...)
+ * @param {number} activeDays
+ * @returns {Record<string, { inMaterials: { fixedMonthly: number, variablePerActiveDay: number, amount: number, lines: number }, elsewhere: { category: string, amount: number, lines: number }[], amount: number }>}
+ */
+export function componentCostSplitAt(model, activeDays) {
+  const inMaterials = componentCostAt(model, activeDays, { category: 'materials' });
+  const all = componentCostAt(model, activeDays);
+  const D = nonNegative(activeDays);
+  const factor = monthsFactor(D, model && model.activity ? model.activity.availableDaysPerMonth : 0);
+  const rounding = model && model.activationRounding && model.activationRounding.enabled ? activationRoundingAt(model, D) : null;
+  const extra = rounding ? rounding.extraActivations : 0;
+  const out = {};
+  LINE_COMPONENT_IDS.forEach((id) => {
+    const elsewhere = new Map();
+    ((model && model.lines) || []).forEach((l) => {
+      if (!l.component || l.category === 'materials') return;
+      const lineId = LINE_COMPONENT_IDS.includes(l.component) ? l.component : 'materials';
+      if (lineId !== id) return;
+      const amount = l.fixedMonthly * factor + l.variablePerActiveDay * D + nonNegative(l.discretePerActivation) * extra;
+      const b = elsewhere.get(l.category) || { category: l.category, amount: 0, lines: 0 };
+      b.amount += amount;
+      b.lines += 1;
+      elsewhere.set(l.category, b);
+    });
+    out[id] = {
+      inMaterials: inMaterials[id],
+      elsewhere: COST_CATEGORIES.map((c) => elsewhere.get(c.id)).filter(Boolean),
+      // Todo lo de la categoría (en Materiales + en otros renglones), sin los adicionales.
+      amount: all[id].amount,
+    };
   });
   return out;
 }

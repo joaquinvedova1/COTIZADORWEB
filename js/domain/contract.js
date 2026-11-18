@@ -347,10 +347,14 @@ export function contractUnits(contract) {
   return c.equipment ? [...ON_DEMAND_EQUIPMENT_UNITS] : [...ON_DEMAND_LABOR_UNITS];
 }
 
-/** ¿La unidad corresponde al contrato? (la unidad propia siempre vale con "por servicio"). */
+/**
+ * ¿La unidad corresponde al contrato? Desde 0.10.0 ("La unidad primero") el modo sale de la
+ * unidad (modeForUnit): con "por servicio" vale cualquier unidad que no sea mes, trabajo ni hito
+ * (la unidad propia incluida), aunque no esté en la lista sugerida para sus componentes.
+ */
 export function unitFitsContract(contract, unit) {
   const c = normalize(isPlainObject(contract) ? contract : {});
-  if (unit === 'custom') return c.mode === 'on_demand';
+  if (c.mode === 'on_demand') return modeForUnit(unit || 'day') === 'on_demand';
   return contractUnits(c).includes(unit || 'day');
 }
 

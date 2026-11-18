@@ -12,14 +12,13 @@ import { h, mount } from '../../dom.js';
 import { button, card, dateField, formGrid, icon, confirmDialog, infoTip, searchSelectField } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
-import { SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUsesMaterials, contractWithComponents, serviceTypeForContract, templateOf, searchTemplates, templateGroupLabel, templateById } from '../../../domain/contract.js';
+import { SERVICE_COMPONENTS, SERVICE_TEMPLATES, componentsOf, contractOf, contractUsesMaterials, contractWithComponents, lineComponentOf, modeForUnit, serviceTypeForContract, templateOf, searchTemplates, templateGroupLabel, templateById } from '../../../domain/contract.js';
 import { isPlainObject } from '../../../core/object.js';
-import { formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/format.js';
+import { formatMoney, formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
-import { applyQuoteUnit, unitChoiceBlock } from './unit-choice.js';
-import { onSessionReset } from '../../session-memory.js';
+import { applyModeDerivation, applyQuoteUnit, unitChoiceBlock } from './unit-choice.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
 import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
 
@@ -28,10 +27,24 @@ const step = (id) => `"${stepName(id)}"`;
 
 /** Qué sigue según cómo se cobra (0.10.0: se habla de la unidad, no de tipos de contrato). */
 const MODE_TIPS = Object.freeze({
-  monthly: { short: `Un solo precio por mes: en ${step('modality')} cargás lo que cubre.`, more: `Cargá lo que cubre la tarifa del mes (por ejemplo 26 días × 12 h). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Para otra variante, duplicá la cotización (Más acciones → Duplicar).` },
-  on_demand: { short: `En ${step('modality')} cargás cuánto esperás trabajar por mes.`, more: 'Con eso RATEOS calcula tu precio por unidad: cuanto menos trabajes, más alto tiene que ser para pagar a tu gente y tus equipos.' },
-  closed: { short: 'Cargá todo el alcance del trabajo.', more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Un trabajo fuera del alcance es otra cotización: duplicala (Más acciones → Duplicar).` },
+  monthly: { more: `Cargá lo que cubre la tarifa del mes (por ejemplo 26 días × 12 h). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Para otra variante, duplicá la cotización (Más acciones → Duplicar).` },
+  on_demand: { more: 'Con eso RATEOS calcula tu precio por unidad: cuanto menos trabajes, más alto tiene que ser para pagar a tu gente y tus equipos.' },
+  closed: { more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Un trabajo fuera del alcance es otra cotización: duplicala (Más acciones → Duplicar).` },
 });
+
+/**
+ * Qué se carga después, en la unidad elegida (revisión 0.10.0, U9): "En «Cómo se cobra» cargás
+ * cuántos diagnósticos hacés por mes."
+ */
+export function unitNextStepText(quote = {}) {
+  const info = billingUnitOf(quote);
+  const where = `En «${stepName('modality')}»`;
+  if (info.kind === 'month') return `${where} cargás qué cubre la tarifa del mes.`;
+  if (info.id === 'job') return `${where} cargás cuántos días lleva el trabajo.`;
+  if (info.kind === 'hour') return `${where} cargás cuánto trabajás: cuántas horas por día y cuántos días por mes.`;
+  if (info.kind === 'day') return `${where} cargás cuántos días trabajás por mes.`;
+  return `${where} cargás cuántos ${info.plural || 'unidades'} hacés por mes.`;
+}
 
 /**
  * Valores sin fecha base o con base vieja, uno por uno (PLAN-2026-010), y la
@@ -90,10 +103,6 @@ function loadedIn(quote, stepId) {
   return 0;
 }
 
-/** Lo escrito en "Otro componente" y todavía no agregado (sobrevive a los redibujos del paso). */
-let customDraft = '';
-onSessionReset(() => { customDraft = ''; });
-
 /**
  * Redibuja sin perder el lugar: el control con `id` queda a la misma altura
  * de la pantalla y con el foco (el paso entero se vuelve a dibujar al cambiar).
@@ -110,6 +119,53 @@ function keepPlace(id, run) {
   } catch {
     again.focus();
   }
+}
+
+/**
+ * Gastos cargados de una categoría de "¿Qué incluye el servicio?" (revisión 0.10.0, U1):
+ * Materiales u Otros costos por la categoría de cada línea; Personal, sus puestos; Vehículos,
+ * Equipos y Terceros, las líneas de Equipos (si ninguna de las tres queda marcada en `next`).
+ * @returns {{ count: number, step: string|null, one: string, many: string }}
+ */
+export function loadedFor(quote, id, next = []) {
+  const list = (v) => (Array.isArray(v) ? v.filter((x) => isPlainObject(x)) : []);
+  const def = SERVICE_COMPONENTS.find((c) => c.id === id) || {};
+  if (def.step === 'materials') {
+    const mats = quote.materialsNotApplicable ? [] : list(quote.materials).filter((m) => lineComponentOf(m, 'material') === id);
+    const others = list(quote.otherCosts).filter((o) => lineComponentOf(o, 'other') === id);
+    return { count: mats.length + others.length, step: 'materials', one: 'gasto cargado', many: 'gastos cargados' };
+  }
+  if (id === 'labor') return { count: list(quote.labor).length, step: 'labor', one: 'puesto cargado', many: 'puestos cargados' };
+  if (def.equipment) {
+    const stillEquipment = next.some((x) => (SERVICE_COMPONENTS.find((c) => c.id === x) || {}).equipment);
+    return { count: stillEquipment ? 0 : list(quote.equipment).length, step: 'equipment', one: 'equipo cargado', many: 'equipos cargados' };
+  }
+  return { count: 0, step: null, one: '', many: '' };
+}
+
+/** "EPP tiene 1 gasto cargado ($ 45.000 por mes): borralo en «Materiales» para quitar la categoría." */
+export function blockedRemovalText(quote, id, next = [], result = null) {
+  const def = SERVICE_COMPONENTS.find((c) => c.id === id) || {};
+  const l = loadedFor(quote, id, next);
+  const n = l.count;
+  let amount = null;
+  try {
+    if (result && def.step === 'materials' && result.componentCosts) {
+      const part = result.componentCosts.byComponent[id];
+      const total = part ? part.amount : 0;
+      const jobs = result.componentCosts.jobsPerMonth;
+      if (total > 0.005) amount = jobs ? `${formatMoney(total / jobs)} en el trabajo` : `${formatMoney(total)} por mes`;
+    } else if (result && id === 'labor' && result.eecc) {
+      const row = result.eecc.rows.find((r) => r.category === 'labor');
+      const jobs = result.componentCosts ? result.componentCosts.jobsPerMonth : null;
+      if (row && row.amount > 0.005) amount = jobs ? `${formatMoney(row.amount / jobs)} en el trabajo` : `${formatMoney(row.amount)} por mes`;
+    }
+  } catch {
+    amount = null;
+  }
+  const what = `${formatNumber(n)} ${n === 1 ? l.one : l.many}${amount ? ` (${amount})` : ''}`;
+  const subject = def.equipment ? 'Equipos' : def.label || id;
+  return `${subject} tiene ${what}: ${n === 1 ? 'borralo' : 'borralos'} en «${stepName(l.step)}» para quitar la categoría.`;
 }
 
 /** Grupos de componentes, en el orden de los pasos donde se cargan. */
@@ -196,30 +252,18 @@ function componentsComposer({ quote, contract, components, custom, readOnly, ctx
       h('div', { class: 'choice-grid qe-components' }, ...g.ids.map((id) => toggle(SERVICE_COMPONENTS.find((c) => c.id === id)))));
   });
 
-  // Componentes propios: un nombre libre que se carga como otro costo directo (paso Materiales).
-  const customInput = h('input', { type: 'text', id: 'cmp-custom', maxlength: '60', placeholder: 'Ej.: Baño químico', 'aria-label': 'Otro componente', value: customDraft, disabled: readOnly });
-  const addCustom = () => {
-    const name = customInput.value.trim();
-    if (!name) return;
-    customDraft = '';
-    apply(components, [...custom, name], 'cmp-custom');
-  };
-  customInput.addEventListener('input', () => { customDraft = customInput.value; });
-  customInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addCustom();
-    }
-  });
+  // Componentes propios guardados antes: un nombre libre que se carga como otro costo directo (paso Materiales).
   const customRow = h('div', { class: 'qe-custom-components' },
     custom.length ? h('div', { class: 'variant-suggest-list' }, ...custom.map((name) => h('span', { class: 'qe-custom-chip' }, name,
       readOnly ? null : h('button', { type: 'button', class: 'qe-chip-remove', 'aria-label': `Quitar ${name}`, on: { click: () => apply(components, custom.filter((x) => x !== name), 'cmp-custom') } }, '×')))) : null,
-    readOnly ? null : h('div', { class: 'qe-custom-add' }, h('div', { class: 'field-control' }, customInput), button('Agregar', { icon: 'plus', onClick: addCustom })));
+    // Revisión 0.10.0 (U8): ya no se agregan componentes propios (es lo mismo que "Otros costos");
+    // una cotización que ya los tiene los sigue viendo, con su ×.
+    null);
 
   return { templates, fieldset: h('fieldset', { class: 'choice-group qe-includes' },
-    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Marcá cada categoría de gasto que lleva el servicio, en cualquier combinación: por ejemplo personal con vehículo e insumos (los químicos son insumos). Sin personal, un equipo o vehículo es alquiler sin operador. Cada categoría se costea una sola vez, en el paso que se indica, y se ve con su costo en el Resultado. Si falta algo, agregalo en "Otro componente" (se carga como otro costo en Materiales).')),
+    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Marcá cada categoría de gasto que lleva el servicio, en cualquier combinación: por ejemplo personal con vehículo e insumos (los químicos son insumos). Sin personal, un equipo o vehículo es alquiler sin operador. Cada categoría se costea una sola vez, en el paso que se indica, y se ve con su costo en el Resultado. Si falta algo, marcá "Otros costos" (permisos, seguros, residuos…).')),
     ...groups,
-    h('div', { class: 'variant-suggest qe-custom-block' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow),
+    custom.length ? h('div', { class: 'variant-suggest qe-custom-block' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow) : null,
   ) };
 }
 
@@ -262,11 +306,15 @@ export function render(container, ctx) {
     let reopenedLogistics = false;
     let unitNotices = [];
     ctx.mutate((q) => {
-      const mode = contractOf(q).mode;
+      // 0.10.0: el modo sale de la unidad (nunca se vuelve a guardar un modo que no le corresponde).
+      const fromMode = contractOf(q).mode;
+      const mode = modeForUnit(q.unit || 'day');
       q.contract = contractWithComponents({ mode, templateId: next.templateId || undefined }, next.components, next.customComponents);
       q.serviceType = serviceTypeForContract(q.contract);
+      // Modo guardado que no correspondía a la unidad: se corrige con la misma regla que al cambiar la unidad.
+      if (fromMode !== mode) unitNotices.push(...applyModeDerivation(q, fromMode, mode));
       // Unidad sugerida por una plantilla: la misma regla que elegirla arriba (limpia con aviso).
-      if (nextUnit !== current) unitNotices = applyQuoteUnit(q, nextUnit);
+      if (nextUnit !== current) unitNotices.push(...applyQuoteUnit(q, nextUnit));
       if (!next.touchedComponents) return;
       // Al sumar un componente de materiales, si estaba "no usa materiales" se
       // vuelve a pedir (nunca se marca solo: es una confirmación de la persona).
@@ -280,6 +328,7 @@ export function render(container, ctx) {
     });
     if (reopenedLogistics) messages.push({ text: `Viáticos: revisá ${step('logistics')}, que estaba como "Sin traslados".`, tone: 'info' });
     if (nextUnit !== current) messages.push({ text: `Cobrás por ${billingUnitOf({ unit: nextUnit, unitName: quote.unitName }).singular || 'unidad'}.${unitNotices.length ? ` ${unitNotices.join(' ')}` : ''}`, tone: unitNotices.length ? 'warning' : 'info' });
+    else if (unitNotices.length) messages.push({ text: unitNotices.join(' '), tone: 'warning' });
     return messages;
   }
   const sayAll = (messages) => messages.forEach((m) => ctx.toast(m.text, m.tone));
@@ -288,7 +337,7 @@ export function render(container, ctx) {
   const unitCard = card(
     {},
     unitChoiceBlock(ctx),
-    tip ? h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, tip.short, ' ', infoTip(tip.more))) : null,
+    h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, unitNextStepText(quote), tip ? ' ' : null, tip ? infoTip(tip.more) : null)),
   );
 
   /**
@@ -314,6 +363,18 @@ export function render(container, ctx) {
   const applySuggestion = (t) => sayAll(applyContract({ components, customComponents: custom, templateId: t.id, unit: t.unit || null }));
   const composer = componentsComposer({ quote, contract, components, custom, readOnly: kit.readOnly, ctx, applyTemplate, applySuggestion, pricingLoaded, apply: (list, extra = custom, focusId = null) => {
     keepPlace(focusId, () => {
+      // Revisión 0.10.0 (U1): una categoría con gastos cargados no se desmarca (seguiría sumando
+      // sin verse): queda marcada y se dice dónde borrarlos. Misma regla que applyTemplate.
+      const blocked = components.filter((id) => !list.includes(id) && loadedFor(quote, id, list).count > 0);
+      if (blocked.length) {
+        blocked.forEach((id) => ctx.toast(blockedRemovalText(quote, id, list, ctx.result), 'warning'));
+        const kept = SERVICE_COMPONENTS.map((c) => c.id).filter((id) => list.includes(id) || blocked.includes(id));
+        if (kept.length === components.length && extra === custom) {
+          ctx.rerender();
+          return;
+        }
+        list = kept;
+      }
       if (!list.length && !extra.length) {
         ctx.toast('El servicio tiene que incluir algo: dejá al menos un componente.', 'warning');
         ctx.rerender();

@@ -27,7 +27,7 @@ import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnit
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
-import { contractOf } from '../../../domain/contract.js';
+import { componentsOf, contractOf } from '../../../domain/contract.js';
 import { extrasSection } from './extras.js';
 import { outsideWindowHours, outsideWindowMessage, activeGuardCoverage, activeGuardLineCheck } from '../../../engines/completeness-engine.js';
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
@@ -79,7 +79,7 @@ function daysPerActivationLabel(T, serviceType) {
 function unitsLabel(r, value) {
   const unit = r.unit;
   if (unit === 'hour') return `${formatNumber(value, { decimals: 2 })} horas`;
-  if (unit === 'month') return `${formatNumber(value, { decimals: 2 })} ${Math.abs(value - 1) < 1e-9 ? 'abono' : 'abonos'}`;
+  if (unit === 'month') return `${formatNumber(value, { decimals: 2 })} ${Math.abs(value - 1) < 1e-9 ? 'tarifa del mes' : 'tarifas del mes'}`;
   if (unit === 'quantity' || unit === 'event') return quantityText(value, r);
   return `${formatNumber(value, { decimals: 2 })} días`;
 }
@@ -156,7 +156,7 @@ const WHOLE_UNIT_IDS = Object.freeze(['trip', 'shift', 'unit', 'piece', 'well', 
 
 /** V-26: para qué sirve la hora fuera de horario cuando se cobra por viaje, km, unidad, abono o precio cerrado. */
 function outOfHoursUseText(o, unitInfo) {
-  if (unitInfo.kind === 'month') return 'Es el precio de cada hora que trabajás fuera de horario además del abono que cotizaste.';
+  if (unitInfo.kind === 'month') return 'Es el precio de cada hora que trabajás fuera de horario además de la tarifa del mes que cotizaste.';
   const fem = unitTexts(unitInfo).los === 'las';
   const whole = unitInfo.kind === 'event' || WHOLE_UNIT_IDS.includes(unitInfo.id);
   const many = `${fem ? 'las' : 'los'} ${unitInfo.plural}`;
@@ -278,6 +278,34 @@ export function quantityPlaceholder(info) {
   if (['shift', 'manday', 'equipment_day', 'guard', 'day', 'kw_day', 'kva_day'].includes(id)) return 'Ej.: 20';
   if (['liter', 'barrel', 'm3', 'ton', 'kg', 'tonkm', 'gas_m3', 'kwh', 'mwh', 'mj', 'gj', 'mmbtu'].includes(id)) return 'Ej.: 1.000';
   return 'Ej.: 10';
+}
+
+/**
+ * Renglones de "Lo que ya cargaste" (revisión 0.10.0, U10): sólo las categorías elegidas en "¿Qué
+ * incluye el servicio?" o con algo cargado. Sin componentes (cotizaciones anteriores), los tres de siempre.
+ */
+export function chosenResourceRows(quote = {}) {
+  const c = quote && quote.contract && Array.isArray(quote.contract.components) ? componentsOf(quote.contract) : null;
+  const len = (v) => (Array.isArray(v) ? v.length : 0);
+  if (!c) return { labor: true, equipment: true, equipmentLabel: 'Equipos y vehículos', other: true, otherLabel: 'Materiales, combustible y viajes', otherStep: 'materials', otherEmpty: 'Sin materiales ni viajes cargados.' };
+  const has = (id) => c.includes(id);
+  const lg = quote.logistics || {};
+  const materialsStep = ['tools', 'supplies', 'materials', 'ppe', 'other'].some(has) || len(quote.materials) + len(quote.otherCosts) > 0 || len(c.customComponents);
+  const equipment = has('vehicle') || has('machinery') || has('subcontract') || len(quote.equipment) > 0;
+  const travel = has('travel') || len(lg.vehicles) > 0 || Number(lg.distanceKm) > 0;
+  const fuel = has('vehicle') || has('machinery') || len(quote.equipment) > 0;
+  const parts = [materialsStep ? 'Materiales' : null, fuel ? 'combustible' : null, travel ? 'viajes' : null].filter(Boolean);
+  const label = parts.length ? `${parts[0].charAt(0).toUpperCase()}${parts[0].slice(1)}${parts.length > 1 ? `${parts.length > 2 ? `, ${parts.slice(1, -1).join(', ')}` : ''} y ${parts[parts.length - 1]}` : ''}` : '';
+  const equipmentLabel = has('vehicle') && !has('machinery') ? 'Vehículos' : has('machinery') && !has('vehicle') ? 'Equipos y maquinaria' : 'Equipos y vehículos';
+  return {
+    labor: has('labor') || len(quote.labor) > 0,
+    equipment,
+    equipmentLabel,
+    other: parts.length > 0,
+    otherLabel: label,
+    otherStep: materialsStep ? 'materials' : 'logistics',
+    otherEmpty: `Sin ${parts.map((p) => p.toLowerCase()).join(' ni ')} cargados.`,
+  };
 }
 
 export function resourceCostText(fixedMonthly, variablePerDay) {
@@ -425,7 +453,7 @@ export function render(container, ctx) {
       h('a', { href: ctx.href('service') }, `Se cambia en «${stepName('service')}»`),
       '.'),
     byQuantity
-      ? h('p', { class: 'qe-note' }, `Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); ${closed ? 'el precio' : 'la tarifa'} y el resultado, ${perText(info)}.`)
+      ? h('p', { class: 'qe-note' }, `Los costos se calculan con los días de trabajo; el precio, ${perText(info)}.`)
       : null,
     knownRate
       ? formGrid(
@@ -610,7 +638,7 @@ export function render(container, ctx) {
     hint: (r) => {
       if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return `Cargá los días por mes para ver ${T.g('cuántas', 'cuántos')} ${T.many} y días facturás.`;
       // Fijo mensual (PLAN-2026-024): se factura 1 abono; la utilización no dice nada acá.
-      if (monthlyContract) return 'Facturás 1 abono por mes: un solo precio. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo".';
+      if (monthlyContract) return 'Cobrás una tarifa por mes: un solo precio. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo".';
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
       const acts = r.activity.activationsPerMonth;
@@ -801,7 +829,7 @@ export function render(container, ctx) {
             unit: 'días/mes',
             requiredMark: true,
             placeholder: 'Ej.: 22',
-            hint: 'Los días que cubre el abono (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Si se trabaja fuera de eso, elegilo en "Horas extra del trabajo": queda dentro del abono.',
+            hint: 'Los días que cubre la tarifa del mes (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Si se trabaja fuera de eso, elegilo en "Horas extra del trabajo": queda dentro de la tarifa del mes.',
           })
           : kit.num('activity.activeDaysPerMonth', {
             // 0.10.0: por hora o por día, el precio es por hora / por día; los días del mes son una estimación.
@@ -951,6 +979,7 @@ export function render(container, ctx) {
   });
 
   // 1. Lo que cuestan tus recursos (lo cargado en la etapa anterior): de acá sale la tarifa.
+  const shows = chosenResourceRows(quote);
   const sumLines = (r, test, key) => (r.model.lines || []).filter(test).reduce((acc, l) => acc + (l[key] || 0), 0);
   const isLabor = (l) => l.category === 'labor';
   const isEquipment = (l) => l.category === 'equipment' || l.category === 'external';
@@ -992,10 +1021,11 @@ export function render(container, ctx) {
         : contract.mode === 'closed' ? 'Lo que te cuesta cada trabajo. Con esto sale tu precio.' : 'Lo que te cuesta por mes. Con esto y con cuánto esperás trabajar sale tu tarifa.',
       className: 'qe-resources-card',
     },
+    // Revisión 0.10.0 (U10): sólo las categorías elegidas en "¿Qué incluye el servicio?" (o con algo cargado).
     kit.stats(
-      resourceStat('Personal', isLabor, 'labor', 'Sin personal cargado.'),
-      resourceStat('Equipos y vehículos', isEquipment, 'equipment', 'Sin equipos cargados.'),
-      resourceStat('Materiales, combustible y viajes', isOther, 'materials', 'Sin materiales ni viajes cargados.'),
+      shows.labor ? resourceStat('Personal', isLabor, 'labor', 'Sin personal cargado.') : null,
+      shows.equipment ? resourceStat(shows.equipmentLabel, isEquipment, 'equipment', 'Sin equipos cargados.') : null,
+      shows.other ? resourceStat(shows.otherLabel, isOther, shows.otherStep, shows.otherEmpty) : null,
     ),
     kit.out((r) => {
       const b = r.outOfHours && r.outOfHours.basis;
@@ -1451,7 +1481,7 @@ export function render(container, ctx) {
     );
 
   const question = monthlyContract
-    ? kit.question('¿Qué cobertura vendés en el abono?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo": quedan dentro del abono.')
+    ? kit.question('¿Qué cubre la tarifa del mes?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo": quedan dentro de la tarifa del mes.')
     : singleJob
     ? kit.question('¿Cuántos días lleva el trabajo?', 'Los costos (personal, equipos, combustible) se calculan con los días de trabajo que lleva hacerlo. Si hacés más de un trabajo así por mes, cargalo en "Más detalle".')
     : byQuantity && info.id === 'job' && contract.mode === 'closed'

@@ -94,7 +94,7 @@ import { runSensitivity, sensitivityTable, runScenarios, compareCommercialModels
 import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
-import { costBreakdown, displayCostRows, OTHERS_KEY } from '../cost-breakdown.js';
+import { costBreakdown, costRowLabel, displayCostRows, OTHERS_KEY } from '../cost-breakdown.js';
 import { componentsOf } from '../../domain/contract.js';
 import { onSessionReset } from '../session-memory.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
@@ -252,17 +252,6 @@ const MODEL_LABELS = Object.freeze({
   package_plus_excess: 'Paquete mensual + excedentes',
 });
 
-/** Rubros de la estructura de costos con nombre de superficie distinto al del catálogo. */
-const RUBRO_LABELS = Object.freeze({
-  // 0.10.0: los nombres de "¿Qué incluye el servicio?" (paso 1) y de los pasos.
-  labor: 'Personal',
-  equipment: 'Equipos y vehículos',
-  external: 'Servicios de terceros',
-  logistics: 'Viáticos y traslados',
-  structure: 'Gastos de estructura',
-  contingency: 'Imprevistos',
-});
-
 /** Componentes elegidos en "¿Qué incluye el servicio?" (null = cotización sin componentes). */
 function chosenComponents(q) {
   return q && q.contract && Array.isArray(q.contract.components) ? componentsOf(q.contract) : null;
@@ -297,8 +286,8 @@ onSessionReset(() => {
 const COST_TOP = 4;
 
 /** Nombre de un rubro de la EECC para mostrar ("Estructura" → "Gastos de estructura"). */
-function rubroLabel(category, label) {
-  return RUBRO_LABELS[category] || label || 'Otros';
+function rubroLabel(category, label, q = null) {
+  return costRowLabel(category, label, chosenComponents(q));
 }
 
 // ------------------------------------------------------------- formateo seguro
@@ -742,7 +731,8 @@ function traceMargin(v) {
   const taxed = hasValue(k.billingTaxPct) && k.billingTaxPct > 0;
   return createTrace({
     id: 'margin',
-    title: 'Margen y markup del mes',
+    // Revisión 0.10.0 (U5): por trabajo, "del trabajo".
+    title: closedOf(v).single ? 'Margen y markup del trabajo' : 'Margen y markup del mes',
     formula: taxed
       ? 'Resultado = Facturación − Impuestos sobre la facturación − Costo · Margen = Resultado / Facturación · Markup = Facturación / Costo − 1 · Ganancia sobre el costo = Resultado / Costo'
       : 'Margen = Resultado / Facturación · Markup = Resultado / Costo',
@@ -1114,7 +1104,7 @@ function capSentence(cap, D, subject, { staff = false } = {}) {
       ? ` Estimás ${formatDays(D)}: estás dentro del máximo.`
       : ` Estimás ${formatDays(D)}: con esa actividad perdés plata.`
     : '';
-  return `${subject} no perdés plata hasta ${activeDaysText(cap.wholeDays, 0)} por mes (${formatDays(cap.days)} exactos): con más días, el costo variable supera al abono.${tail}`;
+  return `${subject} no perdés plata hasta ${activeDaysText(cap.wholeDays, 0)} por mes (${formatDays(cap.days)} exactos): con más días, el costo variable supera a la tarifa del mes.${tail}`;
 }
 
 function belowFloorCoveredText(v) {
@@ -1175,10 +1165,12 @@ function criticalAlerts(v) {
   }
   // Impuestos sobre lo que se factura (PLAN-2026-002): sin definir, la tarifa mínima no los cubre.
   if (k.billingTaxesInvalid) {
-    out.push(alertLine('danger', 'Revisá los impuestos sobre lo que facturás.', `${invalidTaxesText(r.billingTaxInfo).replace(/^./, (c) => c.toUpperCase())}: por ahora no se aplican y la tarifa mínima no los incluye.`,
+    out.push(alertLine('danger', 'Revisá los impuestos sobre lo que facturás.', `${invalidTaxesText(r.billingTaxInfo).replace(/^./, (c) => c.toUpperCase())}: por ahora no se aplican y ${closedOf(v).closed ? 'el precio mínimo' : 'la tarifa mínima'} no los incluye.`,
       stepLink(v.q, 'margin', 'Ir a "El precio"')));
   } else if (!k.billingTaxesDefined) {
-    out.push(alertLine('warning', 'Faltan los impuestos sobre lo que facturás.', 'La tarifa mínima y la sugerida no incluyen Ingresos Brutos, impuesto al cheque ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí no incluirlos en esta cotización.',
+    out.push(alertLine('warning', 'Faltan los impuestos sobre lo que facturás.', closedOf(v).closed
+      ? 'El precio mínimo y el sugerido no incluyen Ingresos Brutos, impuesto al cheque ni sellos: si cobrás esos precios, los pagás de tu bolsillo. Cargalos o elegí no incluirlos en esta cotización.'
+      : 'La tarifa mínima y la sugerida no incluyen Ingresos Brutos, impuesto al cheque ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí no incluirlos en esta cotización.',
       stepLink(v.q, 'margin', 'Ir a "El precio"')));
   }
   // "Puede faltar algún costo" ahora es el banner de BORRADOR arriba del resultado (PLAN-2026-010).
@@ -1229,7 +1221,7 @@ function decisionNotes(v) {
       out.push(banner(be.reason, 'warning', { title: 'Días mínimos para no perder plata.' }));
     } else if (r.pricingMode !== 'known_rate') {
       // En "Ya tengo la tarifa" la frase del bloque ya lo explica.
-      out.push(banner('Con abono mensual no hay días mínimos: la facturación es fija y cada día de trabajo suma costo variable. Por eso importa el máximo de días que cubre el abono.', 'info', { title: 'Abono mensual.' }));
+      out.push(banner('Con una tarifa por mes no hay días mínimos: la facturación es fija y cada día de trabajo suma costo variable. Por eso importa el máximo de días que cubre la tarifa del mes.', 'info', { title: 'Tarifa del mes.' }));
     }
   }
   return out;
@@ -1252,8 +1244,8 @@ function heroKnownRate(v) {
     sentence = h('p', { class: 'qr-lead' }, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ' para ver los días mínimos y el resultado.');
   } else if (isMonth) {
     sentence = h('p', { class: 'qr-lead' },
-      `Cotizás un abono mensual de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. `,
-      capSentence(cap, D, 'Con este abono', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) }));
+      `Cotizás una tarifa del mes de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. `,
+      capSentence(cap, D, 'Con esta tarifa del mes', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) }));
   } else if (be.reachable && breakEvenZeroText(r)) {
     // Equilibrio en 0 (PLAN-2026-012): sin costos fijos, o los cubren los ingresos fijos.
     sentence = h('p', { class: 'qr-lead' }, breakEvenZeroText(r, { rateText: atRateText(v) }));
@@ -1399,7 +1391,7 @@ function heroKnownActivity(v) {
     const configuredStep = nonNegativeOrNull(q.pricing && q.pricing.roundingStep);
     // El paso real nunca supera el 1 % de la tarifa (pricing-engine.effectiveRoundingStep).
     const roundingStep = configuredStep && hasValue(k.targetListRate) ? effectiveRoundingStep(k.targetListRate, configuredStep) : configuredStep;
-    const subject = k.commercialSource === 'suggested' ? 'Con el abono sugerido' : 'Con el abono cotizado';
+    const subject = k.commercialSource === 'suggested' ? 'Con la tarifa del mes sugerida' : 'Con la tarifa del mes cotizada';
     sentence = h('p', { class: 'qr-lead' },
       `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
       hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
@@ -1414,7 +1406,7 @@ function heroKnownActivity(v) {
       heroItem({
         label: floorLabel(mr),
         value: minRateNode(mr.floorMain, v.unitLabel),
-        hint: h('span', {}, `${mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : 'Iguala el costo del mes (margen 0).'} ${floorTaxesNote(k)}`, ...(fxLine ? [h('br'), fxLine] : [])),
+        hint: h('span', {}, `${mr.floorNetDiffers ? netHint(k.floorNetRate, v.unitLabel) : `Iguala el costo del ${closedOf(v).single ? 'trabajo' : 'mes'} (margen 0).`} ${floorTaxesNote(k)}`, ...(fxLine ? [h('br'), fxLine] : [])),
         trace: ceilTrace(r.traces && r.traces.floorRate),
       }),
       heroItem({
@@ -1849,12 +1841,12 @@ function workBlock(v) {
   let trace = null;
   let content;
   if (isMonth) {
-    question = '¿Cuántos días cubre el abono?';
+    question = '¿Cuántos días cubre la tarifa del mes?';
     if (!rateOk) {
       content = noRateContent(v);
     } else {
       const cap = monthlyCap(v, k.commercialListRate, 0);
-      content = ['Con abono mensual la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. ', capSentence(cap, D, 'Con este abono', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) })];
+      content = ['Con una tarifa por mes la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. ', capSentence(cap, D, 'Con esta tarifa del mes', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) })];
       if (cap) {
         if (cap.status === 'none') tone = 'red';
         else if (cap.status === 'all') tone = 'green';
@@ -2087,7 +2079,7 @@ function transportBlock(v) {
 function costGroups(e, q = null) {
   // 0.10.0: por categoría elegida (Materiales desglosado en herramientas, insumos, EPP…).
   const rowsShown = displayCostRows(e, chosenComponents(q));
-  const labels = new Map(rowsShown.map((row) => [row.category, rubroLabel(row.category, row.label)]));
+  const labels = new Map(rowsShown.map((row) => [row.category, rubroLabel(row.category, row.label, q)]));
   return costBreakdown({ rows: rowsShown }, { top: COST_TOP, decimals: 0 }).map((g) => {
     const other = g.key === OTHERS_KEY;
     return {
@@ -2202,7 +2194,7 @@ function renderAppropriation(v) {
   const pu = c.perUnit;
   const showList = hasValue(pu.discountFactor) && Math.abs(pu.discountFactor - 1) > 1e-9 && hasValue(pu.listRate);
   const taxesLabel = { undefined: 'Impuestos sobre lo que facturás (sin definir)', invalid: 'Impuestos sobre lo que facturás (a revisar)' }[c.taxesState] || null;
-  const rows = c.rows.map((row) => ({ ...row, label: row.group === 'cost' ? rubroLabel(row.key, row.label) : row.group === 'taxes' && taxesLabel ? taxesLabel : row.label }));
+  const rows = c.rows.map((row) => ({ ...row, label: row.group === 'cost' ? rubroLabel(row.key, row.label, v.q) : row.group === 'taxes' && taxesLabel ? taxesLabel : row.label }));
   const isMonth = v.r.unit === 'month';
   const tbl = regionTable(v, {
     columns: [
@@ -2284,7 +2276,9 @@ function renderCostStructure(v) {
   const e = r.eecc || { rows: [], total: 0 };
   const header = {
     title: 'Estructura de costos (EECC)',
-    subtitle: `Monto e incidencia de cada categoría con ${estimateActivity(v)} por mes.`,
+    subtitle: closedOf(v).single
+      ? `Monto e incidencia de cada categoría en el trabajo (${formatDays(v.k.activeDays)}).`
+      : `Monto e incidencia de cada categoría con ${estimateActivity(v)} por mes.`,
     actions: r.traces && r.traces.totalCost ? [traceBtn(costTrace(v), { label: 'Ver cálculo del total' })] : [],
     className: 'qr-card',
     id: v.ids.eecc,
@@ -2294,7 +2288,7 @@ function renderCostStructure(v) {
   }
   // Mismos montos y % del motor; sólo cambia el nombre visible de algunos rubros.
   // 0.10.0: una fila por categoría elegida (Materiales desglosado por el motor; sin $ 0 de lo no elegido).
-  const rows = eeccRows(v).map((row) => ({ ...row, label: rubroLabel(row.category, row.label) }));
+  const rows = eeccRows(v).map((row) => ({ ...row, label: rubroLabel(row.category, row.label, q) }));
   const columns = [
     { key: 'label', label: 'Categoría' },
     { key: 'amount', label: closedOf(v).single ? abbrHeader('Monto trabajo', 'Monto en el trabajo') : abbrHeader('Monto mes', 'Monto mensual'), align: 'right', render: (row) => money(row.amount) },
@@ -2783,8 +2777,8 @@ function renderMatrix(v) {
 // -------------------------------------------------- D. margen vs markup
 
 /** Nota de la escalera de precios (valores del motor: markup efectivo con impuestos). */
-function ladderNote(k, cost) {
-  const base = `Calculado sobre el costo del mes (${money(cost)}).`;
+function ladderNote(k, cost, single = false) {
+  const base = `Calculado sobre el costo del ${single ? 'trabajo' : 'mes'} (${money(cost)}).`;
   if (k.targetMarginInvalid) return `${base} El margen objetivo no es válido: no hay precio objetivo.`;
   const taxes = hasValue(k.billingTaxPct) && k.billingTaxPct > 0
     ? ` Con ${pct(k.billingTaxPct)} de impuestos sobre lo que facturás, cada precio cubre costo + impuestos + ganancia.`
@@ -2833,7 +2827,7 @@ function renderMarginMarkup(v) {
         cost > 0
           ? regionTable(v, { columns, rows: ladder, rowClass: (row) => (sameNumber(row.marginPct, r.targetMarginPct) ? 'row-highlight' : null), caption: 'Escalera de precios por margen', className: 'qr-ladder' })
           : emptyState('Cargá costos para ver la escalera de precios.'),
-        cost > 0 ? note(ladderNote(k, cost)) : null),
+        cost > 0 ? note(ladderNote(k, cost, closedOf(v).single)) : null),
       h('aside', { class: 'qr-example' },
         h('div', { class: 'qr-example-title' }, 'Ejemplo con costo $ 100'),
         h('ul', { class: 'qr-example-list' },

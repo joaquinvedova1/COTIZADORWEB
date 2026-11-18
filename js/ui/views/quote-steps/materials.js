@@ -15,18 +15,20 @@ import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORI
 import { materialLineFromLibrary, blankMaterialLine, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
 import { workDaysText } from '../../unit-text.js';
-import { closedJobsPerMonth, quoteUnitPlace, isClosedPrice, lineMonthAtEstimate, perBilledUnitSuffix } from '../../result-text.js';
+import { closedJobsPerMonth, isClosedPrice, lineMonthAtEstimate } from '../../result-text.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, hasNumber, stepName } from './shared.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { contractOf, componentsOf, lineComponentOf, LINE_COMPONENT_IDS, SERVICE_COMPONENTS } from '../../../domain/contract.js';
-import { componentCostAt } from '../../../engines/cost-engine.js';
+import { costRowLabel } from '../../cost-breakdown.js';
 
 /** "Insumos y consumibles" (nombre de una categoría de gasto). */
 const componentName = (id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label || id;
 /** Nombre en minúscula para el medio de una frase ("EPP" queda en mayúsculas). */
 const componentLower = (id) => (id === 'ppe' ? 'EPP' : componentName(id).toLowerCase());
+/** Pista de cada sección cuando dice otra cosa que la del paso 1 (revisión 0.10.0, U3). */
+const SECTION_HINTS = Object.freeze({ tools: 'Lo que gastás por mes en reponerlas (no el precio de compra entero).' });
 /** Nombre con que nace una línea en blanco de cada sección. */
 const NEW_LINE_NAMES = Object.freeze({ tools: 'Herramienta', supplies: 'Insumo', materials: 'Material', ppe: 'EPP' });
 import { baseText } from '../../economic-base-ui.js';
@@ -200,6 +202,32 @@ export function render(container, ctx) {
   const notApplicable = Boolean(quote.materialsNotApplicable);
   // Precio cerrado: los materiales nuevos arrancan "Por trabajo" (no "Por mes").
   const closed = contractOf(quote).mode === 'closed';
+  // Revisión 0.10.0 (U3): "¿Cada cuánto se consume?" en la unidad de cobro. Por cantidad, "por unidad
+  // producida" se llama como la unidad ("Por diagnóstico"), va primera y es la de las líneas nuevas
+  // (salvo Herramientas: se reponen por mes). Por llamado o trabajo, la activación ES la unidad
+  // ("Por trabajo"): va primera y "por unidad producida" (lo mismo) sólo se ve si una línea ya la usa.
+  // "Por llamado / intervención" no se ofrece en cotizaciones por componentes que no cobran por
+  // llamado o trabajo (salvo en una línea que ya lo usa).
+  const withComponents = Boolean(quote.contract && Array.isArray(quote.contract.components));
+  const byQuantityUnit = unitInfo.kind === 'quantity';
+  const byEventUnit = unitInfo.kind === 'event';
+  const basisChoices = (catalog, current, { perOutputAllowed = true } = {}) => {
+    const list = withActivationOptions(catalog, T).map((b) => ({ value: b.id, label: b.label }));
+    const used = normalizeBasisId(current);
+    const keepActivation = !withComponents || byEventUnit || used === 'per_activation';
+    const keepOutput = perOutputAllowed && (!byEventUnit || used === 'per_output' || unitInfo.id === 'milestone');
+    const out = list.filter((o) => (o.value !== 'per_activation' || keepActivation) && (o.value !== 'per_output' || keepOutput))
+      .map((o) => (o.value === 'per_output' && byQuantityUnit ? { ...o, label: `Por ${unitInfo.singular || 'unidad'}` } : o));
+    const first = byQuantityUnit ? 'per_output' : byEventUnit ? 'per_activation' : null;
+    return first ? [...out.filter((o) => o.value === first), ...out.filter((o) => o.value !== first)] : out;
+  };
+  /** Base de una línea nueva de la sección `component`. */
+  const newLineBasis = (component, libraryBasis = null) => {
+    if (libraryBasis) return libraryBasis;
+    if (closed || byEventUnit) return 'per_activation';
+    if (byQuantityUnit && component !== 'tools') return 'per_output';
+    return null;
+  };
 
   /** Agrega un material de la biblioteca en la sección `component` desde la que se pidió. */
   const addFromLibrary = (selectedId, component) => {
@@ -210,7 +238,8 @@ export function render(container, ctx) {
     }
     const line = { ...materialLineFromLibrary(mat, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) }), component };
     // Precio cerrado (tanda novatos 2026-11): un material sin "cada cuánto" propio se consume por trabajo.
-    if (closed && !mat.basis) line.basis = 'per_activation';
+    const basis = newLineBasis(component, mat.basis || null);
+    if (basis) line.basis = basis;
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.quantity` });
     ctx.toast(`Se agregó "${line.description}" con los valores que tiene hoy en Recursos (y su fecha base). Si después cambian, esta cotización no cambia sola.`, 'success');
@@ -325,7 +354,7 @@ export function render(container, ctx) {
         noRate ? h('p', { class: 'qe-warn' }, `Este costo está en ${cur} y la cotización no tiene ese tipo de cambio: no se suma hasta que lo cargues en "${stepName('service')}".`) : null,
         materialGrid(
           kit.text(`${p}.description`, { label: 'Descripción', maxLength: 160 }),
-          kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: withActivationOptions(QUOTE_MATERIAL_BASES, T).map((b) => ({ value: b.id, label: b.label })), structural: true }),
+          kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: basisChoices(QUOTE_MATERIAL_BASES, line.basis), structural: true }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
             options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),
@@ -468,9 +497,9 @@ export function render(container, ctx) {
   // "Por unidad producida" (PLAN-2026-022): las unidades de "Cómo se cobra"; con abono mensual no hay
   // unidades por día y no se ofrece (una línea que ya la tiene la sigue viendo).
   const behaviorOptionsFor = (row) => {
-    const list = withActivationOptions(COST_BEHAVIORS, T).map((b) => ({ value: b.id, label: b.label }));
     const show = autoOutputKnown(quote) || normalizeBasisId(row && row.behavior) === 'per_output';
-    return show ? [...list, { value: 'per_output', label: 'Por unidad producida' }] : list;
+    const catalog = [...COST_BEHAVIORS, { id: 'per_output', label: 'Por unidad producida' }];
+    return basisChoices(catalog, row && row.behavior, { perOutputAllowed: show });
   };
   const removeOther = async (index) => {
     const line = quote.otherCosts[index];
@@ -545,7 +574,8 @@ export function render(container, ctx) {
 
   const addBlankIn = (id) => {
     const line = { ...blankMaterialLine({ currency: quoteCurrencyOf(quote) }), component: id, description: NEW_LINE_NAMES[id] || 'Material' };
-    if (closed) line.basis = 'per_activation';
+    const basis = newLineBasis(id);
+    if (basis) line.basis = basis;
     const index = quote.materials.length;
     ctx.mutate((q) => q.materials.push(line), { focus: `materials.${index}.description` });
   };
@@ -573,17 +603,30 @@ export function render(container, ctx) {
         kit.action('Agregar', () => addFromLibrary(pick.id, id), { variant: 'primary', icon: 'plus', size: 'md' }))
       : null;
     const addLabel = isOther ? 'Agregar costo' : 'Agregar';
+    // Revisión 0.10.0 (C3): el subtotal es lo que suma en el renglón Materiales (igual que en el
+    // Resultado); lo que "Va a" otro renglón se dice aparte. Los montos (y lo del trabajo) los da el motor.
+    const partOf = (r) => (r.componentCosts && r.componentCosts.byComponent ? r.componentCosts.byComponent[id] : null);
+    const inQuoteUnit = (x) => (x.perJob !== null && x.perJob !== undefined ? `${formatMoney(x.perJob)} en el trabajo` : `${formatMoney(x.amount)} por mes`);
     const subtotal = kit.keyline({
       label: `Subtotal ${componentLower(id)}`,
       value: (r) => {
-        const part = componentCostAt(r.model, r.activity.activeDaysPerMonth)[id];
-        const jobs = closedJobsPerMonth(r);
-        return jobs !== null ? `${formatMoney(part.amount / jobs)} en el trabajo` : `${formatMoney(part.amount)} por mes`;
+        const part = partOf(r);
+        return part ? inQuoteUnit(part.inMaterials) : EMPTY;
       },
-      hint: () => (mats.length + others.length ? '' : `Todavía no cargaste nada en ${componentLower(id)}.`),
+      hint: (r) => {
+        if (!(mats.length + others.length)) return `Todavía no cargaste nada en ${componentLower(id)}.`;
+        const part = partOf(r);
+        const away = part ? part.elsewhere.filter((x) => x.amount > 0.005) : [];
+        if (!away.length) return '';
+        const total = away.reduce((acc, x) => ({ amount: acc.amount + x.amount, perJob: x.perJob === null ? null : (acc.perJob || 0) + x.perJob }), { amount: 0, perJob: 0 });
+        const names = away.map((x) => `«${costRowLabel(x.category, (COST_CATEGORIES.find((c) => c.id === x.category) || {}).label, savedComponents)}»`);
+        const where = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+        const amountText = total.perJob !== null && away.every((x) => x.perJob !== null) ? formatMoney(total.perJob) : formatMoney(total.amount);
+        return `Además ${amountText} van a ${where}.`;
+      },
     });
     return card(
-      { title: componentName(id), subtitle: def.hint || null, className: 'qe-component-section' },
+      { title: componentName(id), subtitle: SECTION_HINTS[id] || def.hint || null, className: 'qe-component-section' },
       mats.length ? h('div', { class: 'qe-lines' }, ...mats.map((i) => materialCard(quote.materials[i], i))) : null,
       others.length ? h('div', {}, isOther ? null : h('p', { class: 'qe-note' }, 'Montos cargados a mano:'), otherTableFor(others), h('p', { class: 'qe-note' }, '"Va a" es el renglón de la estructura de costos donde se suma.')) : null,
       kit.readOnly ? null : h('div', { class: 'qe-toolbar' },
@@ -596,20 +639,31 @@ export function render(container, ctx) {
   };
   const sections = h('div', { class: 'stack' }, ...sectionIds.map(sectionCard));
 
+  // Resumen final (revisión 0.10.0, U12): las categorías elegidas y lo que suman en el costo, con el
+  // equivalente por unidad cobrada (o lo del trabajo) que da el motor.
+  const SHORT_NAMES = Object.freeze({ tools: 'herramientas', supplies: 'insumos', materials: 'materiales', ppe: 'EPP', other: 'otros costos' });
+  const totalsLabel = (r) => {
+    const parts = r.componentCosts && r.componentCosts.byComponent ? r.componentCosts.byComponent : {};
+    const ids = sectionIds.filter((id) => id !== 'other' || !parts.other || parts.other.inMaterials.lines > 0 || otherIndexes('other').length === 0);
+    const names = (ids.length ? ids : ['materials']).map((id) => SHORT_NAMES[id] || componentLower(id));
+    const text = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+    return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+  };
   const totals = kit.keyline({
-    label: (r) => `Materiales en el costo del ${quoteUnitPlace(r)}`,
+    label: totalsLabel,
     value: (r) => {
-      const row = r.eecc.rows.find((x) => x.category === 'materials');
-      if (!row) return EMPTY;
-      const jobs = closedJobsPerMonth(r);
-      return jobs !== null ? formatMoney(row.amount / jobs) : `${formatMoney(row.amount)}${perBilledUnitSuffix(r, quote, row.amount)}`;
+      const m = r.componentCosts ? r.componentCosts.materials : null;
+      if (!m) return EMPTY;
+      if (m.perJob !== null) return `${formatMoney(m.perJob)} en el trabajo`;
+      const per = m.perBilledUnit !== null && m.amount > 0.005 ? ` · ≈\u00a0${formatMoney(m.perBilledUnit)} por\u00a0${unitInfo.singular || 'unidad'}` : '';
+      return `${formatMoney(m.amount)} por mes${per}`;
     },
     hint: (r) => {
       const row = r.eecc.rows.find((x) => x.category === 'materials');
-      const share = row ? `${formatPercent(row.displayPct)} del costo total · ` : '';
+      const share = row ? `${formatPercent(row.displayPct)} del costo total` : '';
       const jobs = closedJobsPerMonth(r);
-      if (jobs !== null) return `${share}lo del mes con ${workDaysText(r.activity.activeDaysPerMonth)}, dividido por ${formatNumber(jobs, { decimals: 2 })} ${Math.abs(jobs - 1) < 1e-9 ? 'trabajo' : 'trabajos'} (incluye otros costos de categoría Materiales).`;
-      return `${share}fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo (incluye otros costos de categoría Materiales).`;
+      if (jobs !== null) return `${share} · lo del mes con ${workDaysText(r.activity.activeDaysPerMonth)}, dividido por ${formatNumber(jobs, { decimals: 2 })} ${Math.abs(jobs - 1) < 1e-9 ? 'trabajo' : 'trabajos'}.`;
+      return `${share} · fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo.`;
     },
     trace: (r) => materialsTrace(r, T, quote),
     className: 'qe-keyline-total',

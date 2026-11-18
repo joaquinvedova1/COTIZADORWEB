@@ -1925,3 +1925,17 @@ En `costStructure`, el renglón `materials` trae `children`: una fila por catego
 **Pantalla.** El paso Materiales tiene una sección por categoría elegida (con su subtotal del motor) y nunca esconde una línea cargada. El Resultado muestra la EECC por categoría elegida (Materiales desglosado) y no muestra renglones en $ 0 de categorías no elegidas.
 
 Tests: `tests/domain/unidad-primero-2026-11.test.js` y `tests/ui/unidad-primero-2026-11.test.js`.
+
+### 30.1 Revisión de costos y UX (2026-11)
+
+**Sin cambio de totales** (costo, piso, sugerido, EECC por renglón y matriz iguales en las 1.923 cotizaciones del banco de comparación). Cambian avisos, desgloses y textos:
+
+- **Aviso de unidad (C1).** `unitIssues` sólo avisa si `contract.mode !== modeForUnit(unidad)` (modo guardado antes). `unitFitsContract` acepta en `on_demand` cualquier unidad que no sea `month`, `job` ni `milestone`: la lista por componentes (`contractUnits`) sólo ordena sugerencias.
+- **Modo incoherente guardado (C2).** Elegir de nuevo la misma unidad deriva el modo (`applyModeDerivation`) sin limpiar cantidades ni tarifas; "¿Qué incluye?" guarda `modeForUnit(unit)`. No se corrige al abrir (cambiaría el precio de una cotización guardada).
+- **Costo por categoría en Materiales (C3).** `componentCostSplitAt(model, D)` separa, por categoría de gasto, la parte que suma en el renglón Materiales (`inMaterials`, = `children` del Resultado) de la que "Va a" otros renglones (`elsewhere`, por renglón). `computeQuote(...).componentCosts` lo da con la actividad estimada y en la unidad de la cotización: `perJob = monto ÷ trabajos por mes` (precio cerrado; mismo divisor que el "Total del trabajo") y `perBilledUnit = monto ÷ unidades facturables del mes` (por hora, día o cantidad).
+- **Adicionales (C4).** Una línea `source: 'extra'` con categoría Materiales va al hijo `other` ("Otros costos"). La suma de `children` sigue siendo el renglón.
+- **Cobros de guardia (C6).** `applyContractModeChange(q, desde, hacia)`: si el modo nuevo no es `on_demand`, `rules.availabilityFeeMonthly`, `rules.calloutFeePerActivation` y `rules.minimumMonthlyGuarantee` (base en $) pasan a 0 con aviso (misma regla V-03 que el mínimo en unidades).
+- **Días al pasar de cantidad a hora o día (U6).** `activity.activeDaysPerMonth` = los días que ya derivaba el motor (`normalizeActivity`: cantidad por mes ÷ cantidad por día; por trabajo, trabajos × días por trabajo), con aviso.
+- **Nombre de la activación (U2).** En una cotización con componentes, `serviceType 'on_call'` (derivado del modo) se nombra "intervención" salvo que se cobre por llamado. Sólo texto: `serviceType` no cambia.
+
+Tests: `tests/domain/unidad-primero-revision-2026-11.test.js` y `tests/ui/unidad-primero-revision-2026-11.test.js`.
