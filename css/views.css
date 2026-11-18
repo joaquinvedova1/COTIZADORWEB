@@ -41,6 +41,8 @@
 .global-banners .banner > div { flex: 1; }
 .banner-link { font-weight: 650; white-space: nowrap; color: inherit; }
 .banner-close { margin-left: auto; color: inherit; padding: 0.2rem; min-height: 0; }
+.banner-list { margin: 0.35rem 0 0.45rem; padding-left: 1.1rem; }
+.banner-list li + li { margin-top: 0.15rem; }
 .banner-close:hover:not(:disabled) { background: rgba(0, 0, 0, 0.06); }
 /* Aviso corto (datos de ejemplo): una sola línea, discreto. */
 .banner-compact { padding: 0.4rem 0.45rem 0.4rem 0.85rem; font-size: 0.86rem; border-radius: 10px; gap: 0.55rem; }

@@ -989,7 +989,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
               kit.num(`${base}.licenseAnnual`, { label: 'Habilitaciones o patente por año', unit: '$' }),
               kit.num(`${base}.certificationsAnnual`, { label: 'Controles o certificaciones por año', unit: '$' }),
               kit.num(`${base}.otherAnnual`, { label: 'Otros por año', unit: '$' }),
-              kit.num(`${base}.capitalRatePctAnnual`, { label: 'Costo de capital (% anual)', rule: 'percent', unit: '%', hint: 'Lo que ganarías con esa plata en otra inversión. Si no sabés, dejalo vacío.' }),
+              kit.num(`${base}.capitalRatePctAnnual`, { label: 'Costo de capital (% anual)', rule: 'percent', unit: '%', hint: 'Tasa REAL anual: lo que ganarías con esa plata en otra inversión por encima de la inflación. Con el valor de reposición actualizado, una tasa nominal cobraría la inflación dos veces. Si no sabés, dejalo vacío.' }),
             ),
           ),
           calc((r) => {

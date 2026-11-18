@@ -59,11 +59,12 @@ export function parseDecimalInput(raw) {
   const hasDot = t.includes('.');
   const hasComma = t.includes(',');
   if (hasDot && hasComma) {
-    // es-AR: punto de miles y coma decimal.
-    return /^-?\d{1,3}(\.\d{3})+,\d+$/.test(t) ? Number(t.replace(/\./g, '').replace(',', '.')) : NaN;
+    // es-AR: punto de miles y coma decimal. Un grupo de miles nunca empieza en 0.
+    return /^-?[1-9]\d{0,2}(\.\d{3})+,\d+$/.test(t) ? Number(t.replace(/\./g, '').replace(',', '.')) : NaN;
   }
   if (hasComma) return /^-?\d*,\d+$/.test(t) ? Number(t.replace(',', '.')) : NaN;
-  if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ''));
+  // "1.250" es mil doscientos cincuenta; "0.250" nunca es miles (es 0,25).
+  if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ''));
   return /^-?\d*\.\d+$/.test(t) ? Number(t) : NaN;
 }
 
@@ -309,11 +310,38 @@ export function validateQuote(quote) {
   }
 
   const rules = isPlainObject(quote.rules) ? quote.rules : {};
-  (Array.isArray(rules.volumeTiers) ? rules.volumeTiers : []).forEach((t, i) => {
+  const tiers = Array.isArray(rules.volumeTiers) ? rules.volumeTiers : [];
+  tiers.forEach((t, i) => {
     if (isPlainObject(t)) check(`rules.volumeTiers.${i}.discountPct`, t.discountPct, 'percent');
   });
   check('rules.continuityDiscountPct', rules.continuityDiscountPct, 'percent');
   // Mínimo garantizado en unidades (B-3): cantidad ≥ 0 (sólo cuenta si se eligió "en unidades").
   if (rules.minimumGuaranteeBasis === 'units') check('rules.minimumGuaranteeUnits', rules.minimumGuaranteeUnits, 'quantity');
+  // Auditoría externa A-05: un descuento del 100 % deja la tarifa de lista sin definir (factor 0).
+  [
+    ['pricing.commercialDiscountPct', p.commercialDiscountPct],
+    ['rules.continuityDiscountPct', rules.continuityDiscountPct],
+    ...tiers.map((t, i) => [`rules.volumeTiers.${i}.discountPct`, isPlainObject(t) ? t.discountPct : null]),
+  ].forEach(([path, value]) => {
+    if (value !== null && value !== undefined && value !== '' && Number(value) >= 100) {
+      issues.push({ path, message: 'Un descuento del 100 % deja la tarifa en $ 0: usá un descuento menor a 100 %.', severity: 'error' });
+    }
+  });
+  // Auditoría externa A-04: contingencia = general + riesgos elegidos; con 100 % o más el costo se duplica.
+  const risk = isPlainObject(quote.risk) ? quote.risk : {};
+  check('risk.generalPct', risk.generalPct, 'percent');
+  let contingencyTotal = toNumber(risk.generalPct) > 0 ? toNumber(risk.generalPct) : 0;
+  (Array.isArray(risk.items) ? risk.items : []).forEach((it, i) => {
+    if (!isPlainObject(it) || !it.enabled) return;
+    check(`risk.items.${i}.pct`, it.pct, 'percent');
+    if (toNumber(it.pct) > 0) contingencyTotal += toNumber(it.pct);
+  });
+  if (contingencyTotal >= 100) {
+    issues.push({
+      path: 'risk.generalPct',
+      message: `La contingencia suma ${String(Math.round(contingencyTotal * 100) / 100).replace('.', ',')} %: con 100 % o más el costo se duplica. Revisá que no hayas cargado un monto en lugar de un porcentaje.`,
+      severity: 'warning',
+    });
+  }
   return issues;
 }
