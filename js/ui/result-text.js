@@ -18,10 +18,11 @@ import { isFiniteNumber, roundTo, roundDays } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
 import { normalizeRules } from '../engines/commercial-rules-engine.js';
 import { resourceNormalHourCost } from '../engines/out-of-hours-engine.js';
+import { monthsFactor } from '../engines/cost-engine.js';
 import { effectiveRoundingStep } from '../engines/pricing-engine.js';
 import { DEMO_IDS } from '../domain/demo-data.js';
 import { isQuantityUnit, quantityCeilText, quantityText } from './unit-text.js';
-import { unitTexts } from '../domain/billing-units.js';
+import { unitTexts, billingUnitOf } from '../domain/billing-units.js';
 import { activationTerms, GUARD_FEE_LABEL } from '../domain/activation-terms.js';
 
 const EPS = 1e-9;
@@ -524,6 +525,57 @@ export function isClosedPrice(r) {
 export function isSingleClosedJob(r) {
   const q = r && r.kpis ? r.kpis.billableQuantity : null;
   return isClosedPrice(r) && Number.isFinite(q) && Math.abs(q - 1) < 1e-9;
+}
+
+/**
+ * Precio cerrado (Joaco 2026-11-18, "toda la cotización en la unidad que defino"): trabajos
+ * por mes con los que se pasa una cifra del mes a "en el trabajo". Mismo divisor que el
+ * "Total del trabajo" del Resultado (price-composition: revenue.activations). null fuera de
+ * precio cerrado o sin trabajos cargados todavía.
+ */
+export function closedJobsPerMonth(r) {
+  if (!isClosedPrice(r)) return null;
+  const a = r.estimate && r.estimate.revenue ? r.estimate.revenue.activations : null;
+  return Number.isFinite(a) && a > 1e-9 ? a : null;
+}
+
+/**
+ * Una cifra del mes en la unidad de la cotización: en precio cerrado, "en el trabajo"
+ * (lo del mes ÷ trabajos por mes); si no, "por mes". Sólo presentación: no cambia cálculos.
+ * @returns {{ amount: number, closed: boolean, text: string, where: string }}
+ */
+export function perQuoteUnit(r, monthly) {
+  const v = Number.isFinite(monthly) ? monthly : 0;
+  const jobs = closedJobsPerMonth(r);
+  if (jobs !== null) return { amount: v / jobs, closed: true, where: 'en el trabajo', text: `${formatMoney(v / jobs)} en el trabajo` };
+  return { amount: v, closed: false, where: 'por mes', text: `${formatMoney(v)} por mes` };
+}
+
+/** Lo del mes de una línea (fijo × meses de costo fijo + lo de cada día × días), como el motor. */
+export function lineMonthAtEstimate(r, line) {
+  if (!r || !line) return 0;
+  const D = r.activity ? r.activity.activeDaysPerMonth : 0;
+  const factor = monthsFactor(D, r.activity ? r.activity.availableDaysPerMonth : 0);
+  return (line.fixedMonthly || 0) * factor + (line.variablePerActiveDay || 0) * (D || 0);
+}
+
+/**
+ * Por servicio prestado (hora, día, jornada, m³…), al lado de lo del mes: " · ≈ $ X por día"
+ * = lo del mes ÷ unidades que facturás en el mes (Joaco 2026-11-18: ver el costo en la unidad
+ * que cotizás). Vacío en precio cerrado, en fijo mensual o sin unidades cargadas.
+ */
+export function perBilledUnitSuffix(r, quote, monthly) {
+  if (isClosedPrice(r) || !quote) return '';
+  const info = billingUnitOf(quote);
+  if (info.kind === 'month') return '';
+  const units = r && r.estimate && r.estimate.revenue ? r.estimate.revenue.billableUnits : null;
+  if (!(Number.isFinite(units) && units > 1e-9) || !(monthly > 0.005)) return '';
+  return ` · ≈ ${formatMoney(monthly / units)} por ${info.singular}`;
+}
+
+/** "trabajo" / "mes" para rótulos ("Costo del equipo en el trabajo"): trabajo sólo con trabajos cargados. */
+export function quoteUnitPlace(r) {
+  return closedJobsPerMonth(r) !== null ? 'trabajo' : 'mes';
 }
 
 /** "Tarifa sugerida" o, en precio cerrado, "Precio sugerido". */

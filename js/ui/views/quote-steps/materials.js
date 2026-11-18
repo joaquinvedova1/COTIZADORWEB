@@ -14,6 +14,7 @@ import { card, formGrid, selectField, emptyState, table } from '../../components
 import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
 import { materialLineFromLibrary, blankMaterialLine, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
+import { closedJobsPerMonth, quoteUnitPlace, isClosedPrice, lineMonthAtEstimate, perBilledUnitSuffix } from '../../result-text.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
 import { confirmRemove, hasNumber, stepName } from './shared.js';
@@ -102,13 +103,29 @@ onSessionReset(() => customUnitLines.clear());
  * La cuenta visible de una línea (PLAN-2026-010, no cambia el cálculo):
  *   "10 L/día × $ 5.000/L = $ 50.000/día · 20 días = $ 1.000.000/mes"
  */
-export function materialFormulaText(line, model, { activeDays = 0, activationsPerMonth = 0, terms = activationTerms(), outputUnit = 'unidad', outputPlural = null } = {}) {
+export function materialFormulaText(line, model, { activeDays = 0, activationsPerMonth = 0, terms = activationTerms(), outputUnit = 'unidad', outputPlural = null, jobsPerMonth = null, closed = false } = {}) {
   if (!line || !model) return '';
   const unit = String(line.unit || '').trim() || 'u.';
   const per = basisPer(model.basis, terms, outputUnit);
   const factor = model.quantity * model.unitCost > 0 ? model.grossCost / (model.quantity * model.unitCost) : 1;
   const extras = Math.abs(factor - 1) > 1e-9 ? ' (con merma y logística)' : '';
   const head = `${formatNumber(model.quantity, { decimals: 2 })} ${unit}/${per} × ${formatMoney(model.unitCost, { decimals: model.unitCost < 100 ? 2 : 0 })}/${unit}${extras} = ${formatMoney(model.grossCost)}/${per}`;
+  // Precio cerrado (Joaco 2026-11-18): todo en el trabajo, no por mes.
+  const jobs = jobsPerMonth !== null && jobsPerMonth > 0 ? jobsPerMonth : null;
+  if (closed) {
+    if (model.basis === 'per_activation') return head;
+    if (jobs === null) return `${head} · cargá cuántos trabajos y de cuántos días en "${stepName('modality')}" para ver lo del trabajo`;
+    const daysPerJob = activeDays / jobs;
+    const daysText = `${formatNumber(daysPerJob, { decimals: 2 })} ${Math.abs(daysPerJob - 1) < 1e-9 ? 'día' : 'días'} de trabajo`;
+    if (model.basis === 'per_active_day') return `${head} · ${daysText} = ${formatMoney(model.grossCost * daysPerJob)} en el trabajo`;
+    if (model.basis === 'per_output') {
+      const perUnit = model.usageShare < 1 - 1e-9 ? model.costPerOutputUnit : model.grossCost;
+      const perDay = model.outputPerActiveDay || 0;
+      if (!(perDay > 0)) return `${head} · falta la producción por día`;
+      return `${head} · ${formatNumber(perDay * daysPerJob, { decimals: 2 })} ${outputPlural || pluralizeUnit(outputUnit)} en ${daysText} = ${formatMoney(perUnit * perDay * daysPerJob)} en el trabajo`;
+    }
+    return `${head} · con ${daysText} en el trabajo`;
+  }
   if (model.basis === 'per_active_day') return `${head} · ${formatNumber(activeDays, { decimals: 2 })} días = ${formatMoney(model.grossCost * activeDays)}/mes`;
   if (model.basis === 'per_output') {
     // % de las unidades que lo usan (PLAN-2026-022): costo promedio por unidad producida.
@@ -125,8 +142,11 @@ export function materialFormulaText(line, model, { activeDays = 0, activationsPe
   return head;
 }
 
-function splitLabel(line, perUnitText = null) {
+function splitLabel(line, perUnitText = null, r = null) {
   if (!line) return EMPTY;
+  // Precio cerrado (Joaco 2026-11-18): lo del trabajo, no "fijo / mes" ni "/ día de trabajo".
+  const jobs = closedJobsPerMonth(r);
+  if (jobs !== null) return `${formatMoney(lineMonthAtEstimate(r, line) / jobs)} en el trabajo`;
   if (perUnitText && Number.isFinite(line.costPerOutputUnit)) return `${formatMoney(line.costPerOutputUnit)} ${perUnitText} · ${formatMoney(line.monthlyAtEstimate)} / mes`;
   if (line.fixedMonthly > 0) return `${formatMoney(line.fixedMonthly)} fijo / mes`;
   if (line.variablePerActiveDay > 0) return `${formatMoney(line.variablePerActiveDay)} / día de trabajo`;
@@ -215,7 +235,9 @@ export function render(container, ctx) {
         const billed = (c.materialsFixed || 0) + (c.materialsVariable || 0);
         const n = (quote.materials || []).filter((m) => lineBilled(m)).length;
         const which = billedSeparately && n === (quote.materials || []).length ? '' : ` (${n} ${n === 1 ? 'material' : 'materiales'}: se elige en cada uno, en "¿Se factura aparte?")`;
-        return `Se facturan aparte ${formatMoney(billed)} por mes de materiales${which} (con la actividad estimada). Siguen siendo costo: lo que cobrás por ellos suma a la facturación y baja la tarifa que necesitás.`;
+        const jobs = closedJobsPerMonth(r);
+        const amountText = jobs !== null ? `${formatMoney(billed / jobs)} en el trabajo` : `${formatMoney(billed)} por mes`;
+        return `Se facturan aparte ${amountText} de materiales${which} (con la actividad estimada). Siguen siendo costo: lo que cobrás por ellos suma a la facturación y baja la tarifa que necesitás.`;
       }, { tag: 'p', className: 'qe-note' })
       : null,
   );
@@ -326,14 +348,21 @@ export function render(container, ctx) {
           value: (r) => {
             const l = at(r);
             if (!l) return EMPTY;
-            return `${formatMoney(l.monthlyAtEstimate)} por mes`;
+            // En la unidad de la cotización (Joaco 2026-11-18): precio cerrado → en el trabajo.
+            const month = lineMonthAtEstimate(r, l);
+            const jobs = closedJobsPerMonth(r);
+            if (jobs !== null) return `${formatMoney(month / jobs)} en el trabajo`;
+            // Sin actividad cargada todavía: lo de la línea en su propia base ("$ 1.000.000 por trabajo").
+            const own = l.costForUs * (l.usageShare || 1);
+            if (!(month > 0.005) && own > 0.005 && l.basis !== 'per_month') return `${formatMoney(own)} ${basisShort(l.basis, T, outputUnitShownOf(quote.materials[i], quote))}`;
+            return `${formatMoney(month)} por mes`;
           },
           hint: (r) => {
             const l = at(r);
             if (!l) return '';
             if (!l.providedBy) return 'Falta definir quién lo provee.';
             if (l.costForUs === 0 && l.grossCost > 0) return 'Lo provee el cliente: no es costo tuyo.';
-            return materialFormulaText(quote.materials[i], l, { activeDays: r.activity.activeDaysPerMonth, activationsPerMonth: r.activity.activationsPerMonth, terms: T, outputUnit: outputUnitShownOf(quote.materials[i], quote), outputPlural: outputPluralShownOf(quote.materials[i], quote) });
+            return materialFormulaText(quote.materials[i], l, { activeDays: r.activity.activeDaysPerMonth, activationsPerMonth: r.activity.activationsPerMonth, terms: T, outputUnit: outputUnitShownOf(quote.materials[i], quote), outputPlural: outputPluralShownOf(quote.materials[i], quote), jobsPerMonth: closedJobsPerMonth(r), closed: isClosedPrice(r) });
           },
           tone: (r) => (at(r) && !at(r).providedBy ? 'red' : null),
         }),
@@ -377,7 +406,7 @@ export function render(container, ctx) {
             }),
           ),
           kit.stats(
-            kit.stat('Fijo mensual / variable por día', (r) => splitLabel(at(r))),
+            kit.stat((r) => (closedJobsPerMonth(r) !== null ? 'En el trabajo' : 'Fijo mensual / variable por día'), (r) => splitLabel(at(r), null, r)),
             kit.stat('Precio de reventa (informativo)', (r) => formatMoney(at(r) && at(r).resalePrice), { hint: 'Costo × (1 + markup). No es margen.' }),
           ),
         ),
@@ -497,7 +526,7 @@ export function render(container, ctx) {
           label: 'En el costo',
           align: 'right',
           className: 'qe-col-calc',
-          render: (row, i) => kit.out((r) => splitLabel(r.model.otherCosts[i], `por ${outputUnitOf(quote.otherCosts[i], quote)}`), { className: 'mono nowrap' }),
+          render: (row, i) => kit.out((r) => splitLabel(r.model.otherCosts[i], `por ${outputUnitOf(quote.otherCosts[i], quote)}`, r), { className: 'mono nowrap' }),
         },
         { key: 'remove', label: '', className: 'qe-col-remove', render: (row, i) => kit.action('', () => removeOther(i), { variant: 'ghost', icon: 'trash', title: 'Quitar este costo' }) },
       ],
@@ -517,6 +546,8 @@ export function render(container, ctx) {
         if (otherCount === 0) return 'Para costos que no encajan en personal, equipos, materiales o viajes. No cargaste ninguno.';
         const fixed = r.model.otherCosts.reduce((acc, l) => acc + (l.fixedMonthly || 0), 0);
         const variable = r.model.otherCosts.reduce((acc, l) => acc + (l.variablePerActiveDay || 0), 0);
+        const jobs = closedJobsPerMonth(r);
+        if (jobs !== null) return `${otherCount} ${otherCount === 1 ? 'costo cargado' : 'costos cargados'}: ${formatMoney(r.model.otherCosts.reduce((acc, l) => acc + lineMonthAtEstimate(r, l), 0) / jobs)} en el trabajo.`;
         return `${otherCount} ${otherCount === 1 ? 'costo cargado' : 'costos cargados'}: ${formatMoney(fixed)} fijo por mes + ${formatMoney(variable)} por día de trabajo.`;
       },
     },
@@ -526,14 +557,18 @@ export function render(container, ctx) {
   );
 
   const totals = kit.keyline({
-    label: 'Materiales en el costo del mes',
+    label: (r) => `Materiales en el costo del ${quoteUnitPlace(r)}`,
     value: (r) => {
       const row = r.eecc.rows.find((x) => x.category === 'materials');
-      return row ? formatMoney(row.amount) : EMPTY;
+      if (!row) return EMPTY;
+      const jobs = closedJobsPerMonth(r);
+      return jobs !== null ? formatMoney(row.amount / jobs) : `${formatMoney(row.amount)}${perBilledUnitSuffix(r, quote, row.amount)}`;
     },
     hint: (r) => {
       const row = r.eecc.rows.find((x) => x.category === 'materials');
       const share = row ? `${formatPercent(row.displayPct)} del costo total · ` : '';
+      const jobs = closedJobsPerMonth(r);
+      if (jobs !== null) return `${share}lo del mes con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días de trabajo, dividido por ${formatNumber(jobs, { decimals: 2 })} ${Math.abs(jobs - 1) < 1e-9 ? 'trabajo' : 'trabajos'} (incluye otros costos de categoría Materiales).`;
       return `${share}fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo (incluye otros costos de categoría Materiales).`;
     },
     trace: (r) => materialsTrace(r, T, quote),
