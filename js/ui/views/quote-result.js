@@ -133,6 +133,9 @@ import {
   coveredRateText,
   rateBelowHourCostText,
   closedJobsPerMonth,
+  unitAmountText,
+  perBilledUnitSuffix,
+  perQuoteUnit,
 } from '../result-text.js';
 
 /**
@@ -470,6 +473,17 @@ function hasStaff(v) {
  * Precio cerrado (testeo con especialistas, A-12, H-24): con un trabajo por mes, los
  * números del mes son los del trabajo y se rotulan así ("Costo del trabajo").
  */
+/** "≈ $ X por hora. " al lado de una cifra del mes, por servicio prestado (M7); vacío si no aplica. */
+function approxPerUnit(v, monthly) {
+  const s = perBilledUnitSuffix(v.r, v.q, monthly);
+  return s ? `${s.replace(/^ · /, '')}. ` : '';
+}
+
+/** "del mes" o, en precio cerrado de un trabajo, "del trabajo" (M6). */
+function monthOrJob(v) {
+  return closedOf(v).single ? 'del trabajo' : 'del mes';
+}
+
 function closedOf(v) {
   const closed = Boolean(v.r && v.r.contract && v.r.contract.mode === 'closed');
   const q = v.k ? v.k.billableQuantity : null;
@@ -1594,7 +1608,7 @@ function costStat(v) {
     value: money(k.totalCost),
     unit: hasValue(k.totalCost) ? (single ? '/ trabajo' : '/ mes') : null,
     hint: statHint(hasValue(D) && D > 0
-      ? `Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
+      ? `${approxPerUnit(v, k.totalCost)}Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
       : byQty(v) ? `Lo que te cuesta prestar el servicio. Todavía no estimaste ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días de trabajo.'),
     trace: costTrace(v),
     className: 'qr-stat qr-stat-cost',
@@ -1743,7 +1757,7 @@ function profitStat(v) {
   if (!ok) hint = statHint(hasRate(k) ? 'Sin facturación no hay ganancia.' : 'Sin tarifa no hay ganancia.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (losing) hint = statHint('Con esta tarifa perdés plata: lo que cobrás no alcanza para cubrir el costo.');
-  else hint = statHint('Lo que te queda después de pagar el costo y los impuestos sobre lo que facturás.');
+  else hint = statHint(`${approxPerUnit(v, profit)}Lo que te queda después de pagar el costo y los impuestos sobre lo que facturás.`);
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && profit >= 0 ? 'orange' : ok ? (losing ? 'red' : 'green') : null;
   return statItem({
     label: losing ? 'Perdés' : 'Ganás',
@@ -2052,7 +2066,9 @@ function renderCostBreakdown(v) {
   const { r, q } = v;
   const e = r.eecc || { rows: [], total: 0 };
   const head = h('p', { class: 'qr-section-sub' }, hasValue(e.total) && e.total > 0
-    ? `Qué parte del costo del mes (${money(e.total)}) corresponde a cada rubro.`
+    ? closedJobsPerMonth(r) !== null
+      ? `Qué parte del costo del trabajo (${money(perQuoteUnit(r, e.total).amount)}) corresponde a cada rubro.`
+      : `Qué parte del costo del mes (${money(e.total)}) corresponde a cada rubro.`
     : 'Qué parte del costo corresponde a cada rubro.');
   if (!(hasValue(e.total) && e.total > 0)) {
     return h('div', { class: 'qr-costs', id: v.ids.costs },
@@ -2107,7 +2123,7 @@ function renderPriceComposition(v) {
       h('span', { class: 'qr-compose-swatch', 'aria-hidden': 'true' }),
       h('span', { class: 'qr-compose-name' }, g.key === 'taxes' ? 'Impuestos sobre lo que facturás' : g.label),
       h('span', { class: 'qr-compose-value' }, pendingTaxes ? (c.taxesState === 'invalid' ? 'a revisar' : 'sin definir') : per100),
-      h('span', { class: 'qr-compose-month' }, pendingTaxes ? 'no están en la tarifa' : `${money(g.amount)} por mes`));
+      h('span', { class: 'qr-compose-month' }, pendingTaxes ? 'no están en la tarifa' : unitAmountText(v.r, v.q, g.amount)));
   }));
   let bar = null;
   if (!c.loss) {
@@ -2117,7 +2133,7 @@ function renderPriceComposition(v) {
   }
   const withTaxes = c.billingTaxes > 0;
   const lossNote = c.loss
-    ? h('p', { class: 'qr-compose-loss' }, `Con ${subject} ${withTaxes ? 'el costo y los impuestos se llevan' : 'el costo se lleva'} ${pct(c.groups[0].displayPct1 + c.groups[1].displayPct1, 1)} de lo que facturás: perdés ${money(-c.profit)} por mes.`)
+    ? h('p', { class: 'qr-compose-loss' }, `Con ${subject} ${withTaxes ? 'el costo y los impuestos se llevan' : 'el costo se lleva'} ${pct(c.groups[0].displayPct1 + c.groups[1].displayPct1, 1)} de lo que facturás: perdés ${unitAmountText(v.r, v.q, -c.profit)}.`)
     : null;
   const undefinedNote = taxesPending
     ? h('p', { class: 'qr-note' }, `Los impuestos sobre lo que facturás están ${c.taxesState === 'invalid' ? 'a revisar' : 'sin definir'}: ${c.loss ? 'si los pagás, perdés más.' : 'si los pagás, salen de tu ganancia.'}`)
@@ -2241,10 +2257,10 @@ function renderCostStructure(v) {
   const rows = (e.rows || []).map((row) => ({ ...row, label: rubroLabel(row.category, row.label) }));
   const columns = [
     { key: 'label', label: 'Categoría' },
-    { key: 'amount', label: abbrHeader('Monto mes', 'Monto mensual'), align: 'right', render: (row) => money(row.amount) },
+    { key: 'amount', label: closedOf(v).single ? abbrHeader('Monto trabajo', 'Monto en el trabajo') : abbrHeader('Monto mes', 'Monto mensual'), align: 'right', render: (row) => money(row.amount) },
     // Fijo y variable por separado (PLAN-2026-010): "monto ÷ días" incluía los fijos
     // y parecía un costo variable por día.
-    { key: 'fixedMonthly', label: abbrHeader('Fijo del mes', 'Parte fija del mes: se paga igual aunque trabajes menos'), align: 'right', render: (row) => money(row.fixedMonthly) },
+    { key: 'fixedMonthly', label: closedOf(v).single ? abbrHeader('Fijo', 'Parte fija: se paga igual aunque el trabajo lleve menos días') : abbrHeader('Fijo del mes', 'Parte fija del mes: se paga igual aunque trabajes menos'), align: 'right', render: (row) => money(row.fixedMonthly) },
     { key: 'variablePerActiveDay', label: abbrHeader('Variable por día', 'Costo variable por día de trabajo: cambia con la actividad'), align: 'right', render: (row) => money(row.variablePerActiveDay) },
     { key: 'displayPct', label: abbrHeader('Incid. %', 'Incidencia sobre el costo total'), align: 'right', render: (row) => pct(row.displayPct) },
   ];
@@ -2746,9 +2762,9 @@ function renderMarginMarkup(v) {
     { key: 'marginPct', label: 'Margen (sobre precio)', align: 'right', render: (row) => pct(row.marginPct) },
     { key: 'markupPct', label: 'Markup (recargo sobre el costo)', align: 'right', render: (row) => pct(row.markupPct) },
     ...(taxed ? [{ key: 'profitOnCostPct', label: 'Ganancia sobre el costo', align: 'right', render: (row) => pct(row.profitOnCostPct) }] : []),
-    { key: 'price', label: 'Facturación mensual necesaria', align: 'right', render: (row) => money(row.price) },
+    { key: 'price', label: closedOf(v).single ? 'Precio necesario del trabajo' : 'Facturación mensual necesaria', align: 'right', render: (row) => money(row.price) },
     ...(taxed ? [{ key: 'billingTaxes', label: 'Impuestos sobre lo que facturás', align: 'right', render: (row) => money(row.billingTaxes) }] : []),
-    { key: 'gain', label: 'Ganancia del mes', align: 'right', render: (row) => money(row.gain) },
+    { key: 'gain', label: `Ganancia ${monthOrJob(v)}`, align: 'right', render: (row) => money(row.gain) },
   ];
   const exampleTrace = traceMarginVsMarkup(100, 10);
   // Ejemplo educativo (costo 100, 10 %): los números salen del motor.
@@ -2767,7 +2783,7 @@ function renderMarginMarkup(v) {
       id: v.ids.markup,
     },
     ratesByMarginBlock(v),
-    h('h4', { class: 'qr-subhead' }, 'Escalera de precios del mes por margen'),
+    h('h4', { class: 'qr-subhead' }, closedOf(v).single ? 'Escalera de precios del trabajo por margen' : 'Escalera de precios del mes por margen'),
     h('div', { class: 'qr-split' },
       h('div', { class: 'qr-split-main' },
         cost > 0
@@ -3045,7 +3061,7 @@ function impactTable(v, rows) {
       { key: 'bar', label: 'Impacto relativo', render: (row) => tornado(row.profitDeltaLow, row.profitDeltaHigh, maxAbs) },
     ],
     rows: sorted,
-    caption: 'Impacto de cada variable en el resultado del mes',
+    caption: `Impacto de cada variable en el resultado ${monthOrJob(v)}`,
     className: 'qr-impact',
   });
 }
@@ -3203,7 +3219,7 @@ function renderSensitivity(v) {
             tbody)), 'Comparación base contra escenario'),
         note(`${FixedRate} (de lista) se mantiene fija para ver el impacto real de cada cambio.${netNote}`))),
     h('h4', {}, 'Impacto de cada variable por separado'),
-    note('Efecto en el resultado del mes de mover una sola variable hacia abajo o hacia arriba (ordenado de mayor a menor impacto). En las barras, la clara es "si baja" y la fuerte "si sube"; verde mejora el resultado y rojo lo empeora.'),
+    note(`Efecto en el resultado ${monthOrJob(v)} de mover una sola variable hacia abajo o hacia arriba (ordenado de mayor a menor impacto). En las barras, la clara es "si baja" y la fuerte "si sube"; verde mejora el resultado y rojo lo empeora.`),
     impact,
   );
 }

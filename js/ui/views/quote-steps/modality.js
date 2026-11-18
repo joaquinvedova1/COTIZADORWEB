@@ -1102,12 +1102,14 @@ export function render(container, ctx) {
   // Todo en la misma unidad (tanda novatos 2026-11): por mes o, en precio cerrado, en el trabajo.
   // Trabajos por mes (no hitos): mismo divisor que el "Total del trabajo" (Joaco 2026-11-18).
   const closedJobs = (r) => (contract.mode === 'closed' ? closedJobsPerMonth(r) : null);
-  const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => resourceCostSameUnitText({
-    fixedMonthly: sumLines(r, test, 'fixedMonthly'),
-    variablePerDay: sumLines(r, test, 'variablePerActiveDay'),
-    activeDays: r.activity.activeDaysPerMonth,
-    jobsPerMonth: closedJobs(r),
-  }), {
+  const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => {
+    const fixed = sumLines(r, test, 'fixedMonthly');
+    const variable = sumLines(r, test, 'variablePerActiveDay');
+    const D = r.activity.activeDaysPerMonth;
+    const text = resourceCostSameUnitText({ fixedMonthly: fixed, variablePerDay: variable, activeDays: D, jobsPerMonth: closedJobs(r) });
+    // M7: por hora, día o cantidad, también "≈ $ X por hora".
+    return D > 0 && closedJobs(r) === null ? `${text}${perBilledUnitSuffix(r, quote, fixed + variable * D)}` : text;
+  }, {
     hint: (r) => {
       const fixed = sumLines(r, test, 'fixedMonthly');
       const variable = sumLines(r, test, 'variablePerActiveDay');

@@ -594,6 +594,17 @@ export function perBilledUnitSuffix(r, quote, monthly) {
   return ` · ≈ ${formatMoney(monthly / units)} por ${info.singular}`;
 }
 
+/**
+ * Una cifra del mes dicha en la unidad de cobro de la cotización (regla 2, 2026-11-18):
+ * precio cerrado → "$ X en el trabajo"; fijo mensual → "$ X por mes"; por hora, día o
+ * cantidad → "$ X por mes · ≈ $ Y por hora". Sólo presentación.
+ */
+export function unitAmountText(r, quote, monthly) {
+  const v = Number.isFinite(monthly) ? monthly : 0;
+  if (closedJobsPerMonth(r) !== null) return perQuoteUnit(r, v).text;
+  return `${formatMoney(v)} por mes${perBilledUnitSuffix(r, quote, v)}`;
+}
+
 /** "trabajo" / "mes" para rótulos ("Costo del equipo en el trabajo"): trabajo sólo con trabajos cargados. */
 export function quoteUnitPlace(r) {
   return closedJobsPerMonth(r) !== null ? 'trabajo' : 'mes';

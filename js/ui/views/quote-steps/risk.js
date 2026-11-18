@@ -15,6 +15,7 @@ import { createTrace } from '../../../core/trace.js';
 import { nonNegative } from '../../../core/money.js';
 import { contractOf } from '../../../domain/contract.js';
 import { illustrativeTag } from '../../layout.js';
+import { unitAmountText, perQuoteUnit, closedJobsPerMonth, quoteUnitPlace } from '../../result-text.js';
 
 const RISK_HINTS = Object.freeze({
   activity_variation: 'Que se trabaje menos días que lo estimado.',
@@ -115,10 +116,10 @@ export function render(container, ctx) {
     formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
     zeroWarning,
     kit.keyline({
-      label: 'Imprevistos en el costo del mes',
+      label: (r) => `Imprevistos en el costo del ${quoteUnitPlace(r)}`,
       value: (r) => {
         const row = r.eecc.rows.find((x) => x.category === 'contingency');
-        return row ? formatMoney(row.amount) : EMPTY;
+        return row ? unitAmountText(r, quote, row.amount) : EMPTY;
       },
       hint: (r) => {
         const row = r.eecc.rows.find((x) => x.category === 'contingency');
@@ -133,9 +134,9 @@ export function render(container, ctx) {
       h('div', { class: 'qe-risk-list' }, ...rows),
       kit.stats(
         kit.stat('Contingencia total', () => formatPercent(contingencyPctOf(quote.risk)), { hint: 'General + riesgos marcados.' }),
-        kit.stat('Monto mensual', (r) => {
+        kit.stat((r) => (closedJobsPerMonth(r) !== null ? 'Monto en el trabajo' : 'Monto mensual'), (r) => {
           const row = r.eecc.rows.find((x) => x.category === 'contingency');
-          return row ? formatMoney(row.amount) : EMPTY;
+          return row ? formatMoney(perQuoteUnit(r, row.amount).amount) : EMPTY;
         }, { emphasis: true, trace: (r) => contingencyTrace(r, quote) }),
         kit.stat('Incidencia en el costo total', (r) => {
           const row = r.eecc.rows.find((x) => x.category === 'contingency');

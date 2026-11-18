@@ -13,6 +13,7 @@ import { monthsFactor } from '../../../engines/cost-engine.js';
 import { formatMoney, formatPercent, formatNumber, formatDays } from '../../../core/format.js';
 import { illustrativeTag } from '../../layout.js';
 import { hasNumber } from './shared.js';
+import { unitAmountText, perQuoteUnit, closedJobsPerMonth } from '../../result-text.js';
 
 function groupsAtEstimate(result) {
   const D = result.activity.activeDaysPerMonth;
@@ -129,7 +130,7 @@ export function render(container, ctx) {
     ),
     kit.keyline({
       label: 'Costo de financiar el servicio',
-      value: (r) => `${formatMoney(r.kpis.financialCost)} por mes`,
+      value: (r) => unitAmountText(r, ctx.quote, r.kpis.financialCost),
       hint: (r) => {
         const impact = r.kpis.financialMarginImpactPct === null ? '' : ` · le resta ${formatPercent(r.kpis.financialMarginImpactPct)} (puntos) al margen`;
         return `Capital de trabajo: ${formatMoney(r.kpis.workingCapital)} (lo que pagás antes de cobrar, por los meses que esperás) · cobrás a ${formatDays(r.model.finance.invoiceLagDays + r.model.finance.paymentTermDays)} de prestar el servicio${impact}.`;
@@ -192,7 +193,7 @@ export function render(container, ctx) {
     },
     kit.stats(
       kit.stat('Capital de trabajo a financiar', (r) => formatMoney(r.kpis.workingCapital), { hint: 'Lo que ponés antes del primer cobro.' }),
-      kit.stat('Costo financiero mensual', (r) => formatMoney(r.kpis.financialCost), { emphasis: true, trace: (r) => r.traces.financialCost }),
+      kit.stat((r) => (closedJobsPerMonth(r) !== null ? 'Costo financiero en el trabajo' : 'Costo financiero mensual'), (r) => formatMoney(perQuoteUnit(r, r.kpis.financialCost).amount), { emphasis: true, trace: (r) => r.traces.financialCost }),
       kit.stat('Impacto en margen', (r) => (r.kpis.financialMarginImpactPct === null ? 'Sin facturación' : `${formatPercent(r.kpis.financialMarginImpactPct)} (puntos)`), {
         hint: 'Costo financiero ÷ facturación del mes.',
       }),
