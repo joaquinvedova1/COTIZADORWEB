@@ -323,7 +323,8 @@ export function validateQuote(quote) {
     ['rules.continuityDiscountPct', rules.continuityDiscountPct],
     ...tiers.map((t, i) => [`rules.volumeTiers.${i}.discountPct`, isPlainObject(t) ? t.discountPct : null]),
   ].forEach(([path, value]) => {
-    if (value !== null && value !== undefined && value !== '' && Number(value) >= 100) {
+    // Más de 100 ya lo rechaza la regla 'percent': acá sólo el 100 % justo.
+    if (value !== null && value !== undefined && value !== '' && Number(value) === 100) {
       issues.push({ path, message: 'Un descuento del 100 % deja la tarifa en $ 0: usá un descuento menor a 100 %.', severity: 'error' });
     }
   });

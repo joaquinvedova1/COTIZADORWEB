@@ -151,7 +151,7 @@ export function renderLogin(root, app) {
     message.show('');
     submit.busy(true, 'Ingresando…');
     // Auditoría externa B-01: si la red no responde, se avisa en vez de quedar "Ingresando…" sin más.
-    const slow = setTimeout(() => message.show('Está tardando más de lo normal. Revisá tu conexión: podés seguir esperando o recargar la página y volver a intentar.', 'warning'), 12000);
+    const slow = setTimeout(() => message.show('Está tardando más de lo normal. Revisá tu conexión o recargá la página para reintentar.', 'warning'), 12000);
     let res;
     try {
       res = await app.auth.signIn({ email: email.input.value, password: password.input.value });

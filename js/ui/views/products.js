@@ -33,11 +33,13 @@ export function productHref(product, step = null) {
 function overAssignedNotice(products) {
   const over = productFixedCostOverAssignment(products);
   if (!over.length) return null;
+  const shown = over.slice(0, 3);
   return banner(h('div', {},
-    h('ul', { class: 'banner-list' }, ...over.map((g) => h('li', {},
-      `${g.label}: ${g.products.map((x) => `${x.name || 'Producto'} ${formatPercent(x.sharePct)}`).join(' + ')} = ${formatPercent(g.totalPct)}`,
-      g.inconsistentAmount ? ' (el monto mensual no es el mismo en todos los productos)' : ''))),
-    h('p', {}, 'Entre todos los productos, cada gasto fijo o máquina tiene que sumar como máximo 100 %: si no, se cobra más de una vez y el precio sale inflado. Revisá el paso "Gastos fijos" o "Máquinas" de cada producto.')),
+    h('p', {}, 'Entre todos los productos, cada gasto fijo o máquina tiene que sumar como máximo 100 %: si no, se cobra más de una vez y el precio sale inflado. Revisá el paso "Gastos fijos" o "Máquinas" de cada producto.'),
+    h('ul', { class: 'banner-list' }, ...shown.map((g) => h('li', {},
+      `${g.label}: ${g.products.map((x) => `${x.name || 'Producto sin nombre'} ${formatPercent(x.sharePct)}`).join(' + ')} = ${formatPercent(g.totalPct)}`,
+      g.inconsistentAmount ? ' (el monto mensual no es el mismo en todos los productos)' : '')),
+    over.length > shown.length ? h('li', {}, `y ${over.length - shown.length} más.`) : null)),
   'warning', { title: 'Gastos fijos asignados de más.' });
 }
 

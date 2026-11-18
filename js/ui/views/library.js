@@ -1078,7 +1078,7 @@ function equipmentSections(models = [], settings = {}) {
             { key: 'licenseAnnual', label: 'Patente / impuestos anuales', rule: 'money', unit: '$' },
             { key: 'certificationsAnnual', label: 'Certificaciones e inspecciones (anual)', rule: 'money', unit: '$' },
             { key: 'otherAnnual', label: 'GPS y otros costos anuales', rule: 'money', unit: '$' },
-            { key: 'capitalRatePctAnnual', label: 'Costo de capital (% anual)', rule: 'percent', unit: '%', hint: 'Tasa REAL anual: lo que te cuesta tener plata invertida en el equipo, por encima de la inflación. Con el valor de reposición actualizado, una tasa nominal cobraría la inflación dos veces. 0 si no lo considerás.' },
+            { key: 'capitalRatePctAnnual', label: 'Costo de capital (% anual)', rule: 'percent', unit: '%', hint: 'Tasa anual sin inflación (real): lo que te cuesta tener plata invertida en el equipo, por encima de la suba de precios. Como el valor de reposición ya está actualizado, no sumes la inflación de nuevo. 0 si no lo considerás.' },
             ...baseFormFields('costsBase', { periodLabel: 'Base de estos costos (mes)' }),
           ],
         },

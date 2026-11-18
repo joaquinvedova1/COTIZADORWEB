@@ -12,6 +12,23 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-18
+
+**Correcciones de la auditoría externa (2026-11-18, pedido del dueño).** Sólo errores reales y sin cambios de estructura; ningún monto calculado cambia salvo el de una cantidad escrita como "0.250". Veredicto por observación en `auditoria-externa/VEREDICTO.md` (archivos del proyecto).
+
+### Corregido
+
+- **A-01:** una cantidad escrita con punto y cero adelante ("0.250", "0.500") se tomaba como miles (250, 500). Ahora es 0,25 / 0,5. "1.250" sigue siendo 1250.
+- **A-02:** al salir de un campo numérico se muestra el número que se usa en el cálculo (el mismo formato con el que el campo se abre).
+- **A-03:** aviso en Productos cuando un mismo gasto fijo o máquina suma más de 100 % entre productos (se cobraría más de una vez). Sólo avisa.
+- **A-04:** aviso cuando la contingencia (general + riesgos elegidos) suma 100 % o más; cada % se valida entre 0 y 100.
+- **A-05:** un descuento del 100 % (comercial, continuidad o por volumen) es error con explicación, en vez de una tarifa "—".
+- **A-06:** aviso en el producto con un IVA de 100 % o más (antes se ignoraba sin decir nada).
+- **B-01:** al ingresar, si la red no responde en 12 s se avisa que está tardando y qué hacer.
+- **F-01:** la página no encontrada sin sesión se muestra con la marca, un título y enlaces que funcionan sin cuenta.
+- **K-02:** la ayuda del costo de capital aclara que es una tasa real (sin inflación), porque el equipo ya se valúa a reposición.
+- **D-01 (documentación):** README y AGENTS.md reflejan el registro libre decidido el 2026-11-16.
+
 ## [0.12.0] - 2026-11-18
 
 **Personal por convenio (2026-11-18, pedido del dueño).** El sueldo de cada puesto se carga como en el recibo (remunerativo, no remunerativo y aportes del trabajador), las cargas sociales salen del convenio y cada paritaria se aplica con "Aplicar aumento" a todos los puestos del convenio, con historial. Los puestos ya cargados y las cotizaciones guardadas no cambian de números. Sin cambio de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §32](docs/CALCULATION_RULES.md).
