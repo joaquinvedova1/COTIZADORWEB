@@ -25,6 +25,8 @@ import { componentCostAt } from '../../../engines/cost-engine.js';
 
 /** "Insumos y consumibles" (nombre de una categoría de gasto). */
 const componentName = (id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label || id;
+/** Nombre en minúscula para el medio de una frase ("EPP" queda en mayúsculas). */
+const componentLower = (id) => (id === 'ppe' ? 'EPP' : componentName(id).toLowerCase());
 /** Nombre con que nace una línea en blanco de cada sección. */
 const NEW_LINE_NAMES = Object.freeze({ tools: 'Herramienta', supplies: 'Insumo', materials: 'Material', ppe: 'EPP' });
 import { baseText } from '../../economic-base-ui.js';
@@ -572,13 +574,13 @@ export function render(container, ctx) {
       : null;
     const addLabel = isOther ? 'Agregar costo' : 'Agregar';
     const subtotal = kit.keyline({
-      label: `Subtotal ${componentName(id).toLowerCase()}`,
+      label: `Subtotal ${componentLower(id)}`,
       value: (r) => {
         const part = componentCostAt(r.model, r.activity.activeDaysPerMonth)[id];
         const jobs = closedJobsPerMonth(r);
         return jobs !== null ? `${formatMoney(part.amount / jobs)} en el trabajo` : `${formatMoney(part.amount)} por mes`;
       },
-      hint: () => (mats.length + others.length ? '' : `Todavía no cargaste nada en ${componentName(id).toLowerCase()}.`),
+      hint: () => (mats.length + others.length ? '' : `Todavía no cargaste nada en ${componentLower(id)}.`),
     });
     return card(
       { title: componentName(id), subtitle: def.hint || null, className: 'qe-component-section' },

@@ -94,7 +94,7 @@ function rateSuffixOf(info) {
   return info.legacy ? info.label.replace(/\s*\(.*\)$/, '') : `$/${info.short}`;
 }
 
-/** "Por llamado", "por m³"… 
+/** "Por llamado", "por m³"… */
 function perText(info) {
   return `por ${info.singular || 'unidad'}`;
 }
@@ -421,8 +421,8 @@ export function render(container, ctx) {
     }),
     // 0.10.0 ("La unidad primero"): la unidad se elige en el paso 1; acá sólo se dice cuál es.
     h('p', { class: 'qe-note qe-unit-line' },
-      `Cobrás por ${info.singular || 'unidad'}. Se cambia en «${stepName('service')}» `,
-      h('a', { href: ctx.href('service') }, `Ir a ${stepName('service')}`),
+      `Cobrás por ${info.singular || 'unidad'}. `,
+      h('a', { href: ctx.href('service') }, `Se cambia en «${stepName('service')}»`),
       '.'),
     byQuantity
       ? h('p', { class: 'qe-note' }, `Los costos se siguen calculando con los días de trabajo (personal, equipos, combustible, viajes); ${closed ? 'el precio' : 'la tarifa'} y el resultado, ${perText(info)}.`)

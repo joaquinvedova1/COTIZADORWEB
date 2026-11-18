@@ -162,11 +162,11 @@ export function stepShortLabel(stepId) {
 export const STEP_COPY = Object.freeze({
   service: {
     question: '¿Qué servicio vas a cotizar?',
-    why: 'Ponele un nombre y contanos cómo te paga el cliente. Después elegís tus recursos y RATEOS te dice cuánto cobrar.',
+    why: 'Ponele un nombre y elegí en qué unidad le cobrás al cliente. Después elegís tus recursos y RATEOS te dice cuánto cobrar.',
   },
   modality: {
     question: '¿Cómo lo vas a cobrar?',
-    why: 'Elegí en qué unidad cobrás (hora, día, viaje…) y cuánto esperás trabajar por mes. Con eso sale tu tarifa.',
+    why: 'Cuánto esperás trabajar en la unidad que elegiste en el paso 1. Con eso sale tu tarifa.',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
@@ -2223,7 +2223,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   // Precio cerrado: en "El precio" se calcula tu precio, no una tarifa.
   if (stepId === 'margin' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: copy.why.replace('calculamos tu tarifa', 'calculamos tu precio') };
   // Precio cerrado en "Cómo se cobra": cuánto lleva el trabajo y "tu precio" (revisión UX tanda novatos).
-  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: 'Elegí en qué unidad cobrás y cuánto lleva el trabajo. Con eso sale tu precio.' };
+  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: 'Cuánto lleva el trabajo. Con eso sale tu precio.' };
 
   markVisited(quoteId, stepId);
   const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId });

@@ -821,3 +821,9 @@
 .qe-stage-caption { display: none; margin: 0.35rem 0 0; text-align: center; font-size: 0.82rem; font-weight: 650; color: var(--navy-900); }
 .qe-stages.is-numbers .qe-stage-caption { display: block; }
 @media print { .qe-stage-caption { display: none !important; } }
+
+/* 0.10.0 · La unidad primero (paso 1). */
+.qe-unit-first { display: grid; gap: 12px; }
+.qe-unit-first .form-grid { margin-top: 4px; }
+.qe-quoted-item { margin: 0; font-size: 1rem; }
+.qe-component-section .qe-toolbar { margin-top: 8px; }
