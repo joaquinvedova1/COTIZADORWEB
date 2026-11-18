@@ -451,7 +451,8 @@ export function render(container, ctx) {
               ? `Sueldo con cargas del mes ${formatMoney(l.fixedMonthly)}${share}${Math.abs(jobs - 1) < 1e-9 ? '' : `, repartido en ${formatNumber(jobs, { decimals: 2 })} trabajos del mes`}`
               : '';
             const varPart = l.variablePerActiveDay > 0 ? `${fixedPart ? ' + ' : ''}${formatMoney(l.variablePerActiveDay)} por día × ${formatNumber(daysPerJob, { decimals: 2 })} días del trabajo` : '';
-            return `${staffText(l)}. ${fixedPart}${varPart}. Si también hace otros trabajos ese mes, elegí «No, también hacen otros trabajos» en "${stepName('modality')}".`;
+            const body = `${fixedPart}${varPart}`;
+            return `${staffText(l)}.${body ? ` ${body}.` : ''} Si también hace otros trabajos ese mes, elegí «No, también hacen otros trabajos» en "${stepName('modality')}".`;
           }
           const variable = l.variablePerActiveDay > 0 ? ` + ${formatMoney(l.variablePerActiveDay)} por día de trabajo (${l.perPosition.overtimePerActiveDay > 0 ? 'horas extra y vianda' : 'vianda'})` : '';
           // Desglose del mes (PLAN-2026-010): sueldo + cargas, HE por tramo, viandas, seguros/EPP.
@@ -622,7 +623,9 @@ export function render(container, ctx) {
           Math.abs(headcount - positions) > 1e-6
             ? `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')} en nómina, ${formatNumber(positions, { decimals: 2 })} trabajando a la vez`
             : `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')}`,
-          `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo`,
+          closedJobsPerMonth(r) !== null
+            ? `sueldos con cargas del mes ${formatMoney(r.model.labor.fixedMonthly)}${Math.abs(closedJobsPerMonth(r) - 1) < 1e-9 ? '' : `, repartidos en ${formatNumber(closedJobsPerMonth(r), { decimals: 2 })} trabajos`}${r.model.labor.variablePerActiveDay > 0 ? ` + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo` : ''}`
+            : `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo`,
         ].filter(Boolean);
         return `${parts.join(' · ')}.${standby}`;
       },

@@ -1307,7 +1307,7 @@ export function render(container, ctx) {
       const month = r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0);
       return `${formatMoney(inQuoteUnit(r, month))}${perBilledUnitSuffix(r, quote, month)}`;
     },
-    hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día de trabajo (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
+    hint: (r) => `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes · variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.variablePerActiveDay, 0))} por día de trabajo${jobsSplitText(r)} (incluye combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
     className: 'qe-keyline-total',
   });
 

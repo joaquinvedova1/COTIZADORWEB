@@ -43,7 +43,7 @@ describe('Precio cerrado: lo del trabajo, no por mes', () => {
     assert.equal(quoteUnitPlace(r), 'trabajo');
     const f = norm(materialFormulaText(q.materials[0], l, { activeDays: r.activity.activeDaysPerMonth, activationsPerMonth: r.activity.activationsPerMonth, terms: activationTerms(q), jobsPerMonth: closedJobsPerMonth(r), closed: true }));
     assert.doesNotMatch(f, /mes/);
-    assert.match(f, /\$ 1\.000\.000\/trabajo/);
+    assert.match(f, /= \$ 1\.000\.000 en el trabajo$/);
   });
 
   test('dos trabajos por mes: lo del mes ÷ 2, igual que el "Total del trabajo" del Resultado', () => {

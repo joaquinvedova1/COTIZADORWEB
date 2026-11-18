@@ -14,6 +14,7 @@ import { card, formGrid, selectField, emptyState, table } from '../../components
 import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
 import { materialLineFromLibrary, blankMaterialLine, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
+import { workDaysText } from '../../unit-text.js';
 import { closedJobsPerMonth, quoteUnitPlace, isClosedPrice, lineMonthAtEstimate, perBilledUnitSuffix } from '../../result-text.js';
 import { createTrace } from '../../../core/trace.js';
 import { illustrativeTag } from '../../layout.js';
@@ -113,7 +114,7 @@ export function materialFormulaText(line, model, { activeDays = 0, activationsPe
   // Precio cerrado (Joaco 2026-11-18): todo en el trabajo, no por mes.
   const jobs = jobsPerMonth !== null && jobsPerMonth > 0 ? jobsPerMonth : null;
   if (closed) {
-    if (model.basis === 'per_activation') return head;
+    if (model.basis === 'per_activation') return `${head.slice(0, head.length - `/${per}`.length)} en el trabajo`;
     if (jobs === null) return `${head} · cargá cuántos trabajos y de cuántos días en "${stepName('modality')}" para ver lo del trabajo`;
     const daysPerJob = activeDays / jobs;
     const daysText = `${formatNumber(daysPerJob, { decimals: 2 })} ${Math.abs(daysPerJob - 1) < 1e-9 ? 'día' : 'días'} de trabajo`;
@@ -568,7 +569,7 @@ export function render(container, ctx) {
       const row = r.eecc.rows.find((x) => x.category === 'materials');
       const share = row ? `${formatPercent(row.displayPct)} del costo total · ` : '';
       const jobs = closedJobsPerMonth(r);
-      if (jobs !== null) return `${share}lo del mes con ${formatNumber(r.activity.activeDaysPerMonth, { decimals: 2 })} días de trabajo, dividido por ${formatNumber(jobs, { decimals: 2 })} ${Math.abs(jobs - 1) < 1e-9 ? 'trabajo' : 'trabajos'} (incluye otros costos de categoría Materiales).`;
+      if (jobs !== null) return `${share}lo del mes con ${workDaysText(r.activity.activeDaysPerMonth)}, dividido por ${formatNumber(jobs, { decimals: 2 })} ${Math.abs(jobs - 1) < 1e-9 ? 'trabajo' : 'trabajos'} (incluye otros costos de categoría Materiales).`;
       return `${share}fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo (incluye otros costos de categoría Materiales).`;
     },
     trace: (r) => materialsTrace(r, T, quote),
