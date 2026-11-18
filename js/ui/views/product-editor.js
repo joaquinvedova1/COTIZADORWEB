@@ -854,7 +854,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
       tip('Cargá quién hace el producto y cuánto tiempo le dedica a cada tanda. RATEOS calcula cuánto cuesta cada hora de trabajo con las cargas sociales (aguinaldo, vacaciones, contribuciones y ART) del convenio.'),
       agreements.length
         ? null
-        : banner(h('span', {}, 'Todavía no cargaste convenios. Podés agregarlos en ', h('a', { href: '#/configuracion/convenios' }, 'Configuración → Convenios'), ' (por ejemplo Empleados de Comercio, Panaderos o Gastronómicos) con los valores vigentes de tu CCT. Mientras tanto, las cargas sociales son ILUSTRATIVAS.'), 'info'),
+        : banner(h('span', {}, 'Todavía no cargaste convenios. Podés agregarlos en ', h('a', { href: '#/recursos/convenios' }, 'Recursos → Convenios'), ' (por ejemplo Empleados de Comercio, Panaderos o Gastronómicos) con los valores vigentes de tu CCT. Mientras tanto, las cargas sociales son ILUSTRATIVAS.'), 'info'),
       lines.length ? h('div', { class: 'qe-lines' }, ...lines.map((_, i) => laborCard(i))) : emptyHint('Si lo hacés vos, cargate igual: tu tiempo también cuesta.'),
       readOnly
         ? null

@@ -1,7 +1,6 @@
 /**
- * Recursos reutilizables: Personal, Equipos, Materiales y Ubicaciones
- * (#/recursos/:tab) y Convenios (se muestran dentro de Configuración →
- * Convenios con `renderAgreements`). CRUD con diálogos; los cálculos (costo
+ * Recursos reutilizables: Personal, Convenios (con sus aumentos), Equipos,
+ * Materiales y Ubicaciones (#/recursos/:tab). CRUD con diálogos; los cálculos (costo
  * por persona, ficha de equipo, costo de material) vienen de los servicios /
  * motores.
  *
@@ -36,11 +35,12 @@ import {
   triStateField,
 } from '../components.js';
 import { createTrace } from '../../core/trace.js';
-import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatValue, formatDayDate, EMPTY } from '../../core/format.js';
+import { createId } from '../../core/ids.js';
+import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatPeriod, formatValue, formatDayDate, EMPTY } from '../../core/format.js';
 import { isFiniteNumber, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
-import { AGREEMENT_TYPES, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf } from '../../domain/catalogs.js';
+import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import { wearNote } from '../equipment-wear-ui.js';
@@ -57,6 +57,7 @@ import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { render as renderNotFound } from './not-found.js';
 import { resourceUsage } from '../../domain/resource-usage.js';
 import { activationTerms, activationFieldLabels } from '../../domain/activation-terms.js';
+import { agreementParamsOf, applyAgreementRaise, ownParamKeys, profilesToPropagate, undoLastAgreementRaise, withAgreementParams } from '../../domain/agreement-raises.js';
 
 // ----------------------------------------------------------------- catálogo
 
@@ -67,7 +68,7 @@ const TABS = Object.freeze([
     type: 'laborProfiles',
     addLabel: 'Agregar puesto',
     icon: 'resources',
-    intro: 'Cada puesto con su sueldo, convenio y cargas, calculado por persona. Al sumar personal a una cotización se copian estos valores.',
+    intro: 'Cada puesto con su convenio y su sueldo (remunerativo y no remunerativo, como en el recibo), calculado por persona. Al sumar personal a una cotización se copian estos valores.',
     emptyTitle: 'Todavía no agregaste personal.',
     emptyText: 'Cargá cada puesto una vez (sueldo, convenio y cargas) y reutilizalo en tus cotizaciones.',
   },
@@ -77,9 +78,9 @@ const TABS = Object.freeze([
     type: 'agreements',
     addLabel: 'Nuevo convenio',
     icon: 'library',
-    intro: 'Parámetros de cada convenio: horas normales, recargo de horas extra, SAC, vacaciones, cargas patronales y ART. Se aplican a los perfiles de personal.',
+    intro: 'Cada convenio con sus cargas sociales. Los puestos de Personal toman estos valores, y con "Aplicar aumento" sumás el % de cada paritaria a todos sus puestos de una vez.',
     emptyTitle: 'Todavía no cargaste convenios.',
-    emptyText: 'Cargá los parámetros de tu convenio vigente una vez y aplicalos a cada perfil de personal.',
+    emptyText: 'Elegí tu convenio (Petroleros, UOCRA, Camioneros, Comercio…), cargá sus porcentajes y asignalo a tus puestos.',
   },
   {
     id: 'equipos',
@@ -133,8 +134,8 @@ const TABS = Object.freeze([
   },
 ]);
 
-/** Pestañas visibles en Recursos (#/recursos/:tab). Convenios vive en Configuración. */
-export const RESOURCE_TAB_IDS = Object.freeze(['personal', 'equipos', 'externos', 'materiales', 'ubicaciones', 'catalogo']);
+/** Pestañas visibles en Recursos (#/recursos/:tab). Convenios volvió a Recursos (0.11.0). */
+export const RESOURCE_TAB_IDS = Object.freeze(['personal', 'convenios', 'equipos', 'externos', 'materiales', 'ubicaciones', 'catalogo']);
 
 const LOCATION_TYPES = Object.freeze([
   { id: 'base', label: 'Base operativa' },
@@ -156,6 +157,12 @@ const AGREEMENT_PARAM_KEYS = Object.freeze(['normalHoursPerMonth', 'overtimePrem
 /** Convención de montos de RATEOS (PLAN-2026-002, PN1): todo sin IVA. */
 const VAT_HINT = 'Montos sin IVA: si tu proveedor te pasa un precio con IVA, descontalo antes de cargarlo.';
 const ILLUSTRATIVE_AGREEMENT_NOTICE = 'Parámetros GENÉRICOS e ILUSTRATIVOS, no son valores de ningún CCT; cargá los vigentes.';
+
+/** Mes actual 'AAAA-MM' (hora local). */
+const currentPeriod = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
 
 const options = (list) => list.map((o) => ({ value: o.id ?? o.code, label: o.label }));
 
@@ -195,10 +202,12 @@ function laborTrace(profile, cost) {
   return createTrace({
     id: 'labor_profile_cost',
     title: `Costo de personal — ${profile.role || 'perfil'}`,
-    formula: 'Costo mensual por persona = (Básico + Adicionales) × Factor de cargas + Seguros + EPP + Capacitación + Traslado · Factor de cargas = (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % + ART %)',
+    formula: 'Costo mensual por persona = Remunerativo × Factor de cargas + No remunerativo + Contribuciones fijas del convenio + Seguros + EPP + Capacitación + Traslado · Factor de cargas = (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % + ART %)',
     inputs: [
-      { label: 'Básico mensual', value: p.basic, format: 'money' },
-      { label: 'Adicionales mensuales', value: p.additionals, format: 'money' },
+      { label: 'Remunerativo mensual', value: p.basic, format: 'money' },
+      p.additionals > 0 ? { label: 'Otros pagos remunerativos (cargados antes)', value: p.additionals, format: 'money' } : null,
+      { label: 'No remunerativo mensual', value: p.nonRemunerativePay, format: 'money' },
+      { label: 'Contribuciones fijas del convenio', value: p.fixedContributions, format: 'money' },
       { label: 'SAC', value: toNumber(profile.sacPct), format: 'percent' },
       { label: 'Vacaciones', value: toNumber(profile.vacationPct), format: 'percent' },
       { label: 'Cargas patronales', value: toNumber(profile.employerContributionsPct), format: 'percent' },
@@ -210,19 +219,20 @@ function laborTrace(profile, cost) {
       { label: 'Horas normales por mes', value: toNumber(profile.normalHoursPerMonth), format: 'hours' },
     ],
     steps: [
-      { label: 'Remunerativo (básico + adicionales)', value: p.remunerative, format: 'money' },
+      { label: 'Remunerativo', value: p.remunerative, format: 'money' },
       { label: 'SAC', value: p.sac, format: 'money' },
       { label: 'Vacaciones', value: p.vacation, format: 'money' },
       { label: 'Cargas patronales', value: p.employerContributions, format: 'money' },
       { label: 'ART', value: p.art, format: 'money' },
       { label: 'Remunerativo cargado', value: p.loadedRemunerative, format: 'money' },
-      { label: 'No remunerativo (seguros, EPP, capacitación, traslado)', value: p.nonRemunerative, format: 'money' },
+      { label: 'Sin cargas (no remunerativo, contribuciones fijas, seguros, EPP, capacitación, traslado)', value: p.nonRemunerative, format: 'money' },
       { label: 'Factor de cargas', value: p.loadFactor, format: 'number' },
       { label: 'Costo hora cargado (costo mensual / horas normales)', value: p.loadedHourlyCost, format: 'rate' },
       { label: 'Variable por día de trabajo (horas extra cargadas + vianda)', value: cost.perPosition.variablePerActiveDay, format: 'money' },
     ],
     result: { label: 'Costo mensual por persona', value: p.fixedMonthly, format: 'money' },
     notes: [
+      `Bruto ${formatMoney(p.grossMonthly)} − aportes del trabajador ${formatMoney(p.workerContributions)} (${formatPercent(p.workerContributionsPct)} del remunerativo) = neto ${formatMoney(p.netMonthly)}. Los aportes los paga el trabajador de su bruto: no cambian el costo de la empresa.`,
       'La vianda y las horas extra no forman parte del costo mensual fijo: dentro de la cotización se suman por cada día de trabajo.',
       profile.illustrative ? 'Perfil con valores ILUSTRATIVOS: reemplazalos por los de tu convenio vigente.' : null,
     ],
@@ -543,62 +553,77 @@ const illustrativeField = { key: 'illustrative', label: 'Valores ilustrativos (d
 function laborSections(agreements, app, { profileCost = null } = {}) {
   const agreementOptions = agreements.map((a) => ({ value: a.id, label: a.name || labelOf(AGREEMENT_TYPES, a.code, 'Convenio') }));
   const hasValue = (v) => isFiniteNumber(v) && v > 0;
+  const agreementOf = (draft) => agreements.find((a) => a.id === draft.agreementId) || null;
   return [
     {
       title: 'Puesto',
       fields: [
         { key: 'role', label: 'Rol / puesto', kind: 'text', required: true, placeholder: 'Ej.: Técnico HSE, operario, chofer' },
-        { key: 'agreementId', label: 'Convenio', kind: 'select', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio' },
+        { key: 'agreementId', label: 'Convenio', kind: 'select', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio', rerender: true, hint: 'De él salen las cargas sociales y los aumentos.' },
         { key: 'category', label: 'Categoría', kind: 'text', placeholder: 'Según tu convenio' },
       ],
     },
     {
-      // El sueldo y su fecha van juntos: sin el mes, nadie sabe de cuándo es el valor.
-      title: 'Sueldo (por persona, por mes)',
-      hint: 'Lo que le pagás por mes, sin cargas: RATEOS las suma abajo. Se carga una sola vez acá; en cada cotización sólo elegís el puesto y cuántas personas van.',
+      // 0.11.0 (Joaco, 2026-11-18): remunerativo, no remunerativo y aportes, como en el recibo.
+      title: 'Sueldo (por persona, por mes, como en el recibo)',
+      hint: 'Copiá los totales del recibo. Las cargas sociales las suma RATEOS con los valores del convenio.',
       cols: 4,
       fields: [
-        { key: 'basicMonthly', label: 'Sueldo bruto mensual', rule: 'money', unit: '$', required: true, hint: 'El bruto de recibo.' },
-        { key: 'additionalsMonthly', label: 'Otros pagos fijos por mes', rule: 'money', unit: '$', hint: 'Zona, presentismo, títulos, etc. Si no hay: 0.' },
-        { key: 'mealPerActiveDay', label: 'Vianda o comida por día de trabajo', rule: 'money', unit: '$', hint: 'Por cada día que trabaja en un servicio. Si no le das: 0.' },
-        { ...baseFormFields('base', { periodLabel: '¿De qué mes es este sueldo?' })[0], hint: 'Así sabés si quedó viejo. Las cotizaciones ya hechas no cambian si después lo actualizás.' },
+        { key: 'basicMonthly', label: 'Remunerativo', rule: 'money', unit: '$', required: true, hint: 'Básico, presentismo, antigüedad y adicionales remunerativos.' },
+        { key: 'nonRemunerativeMonthly', label: 'No remunerativo', rule: 'money', unit: '$', hint: 'Viandas, asignaciones y sumas no remunerativas. Si no hay: 0.' },
+        { key: 'additionalsMonthly', label: 'Otros pagos remunerativos (cargado antes)', rule: 'money', unit: '$', when: (d) => hasValue(d.additionalsMonthly), hint: 'Se suma al remunerativo.' },
+        { key: 'workerContributionsPct', label: 'Aportes del trabajador', rule: 'percent', unit: '%', hint: 'Jubilación, ley 19.032 y obra social (17 % habitual). Sólo para ver el neto.' },
+        { ...baseFormFields('base', { periodLabel: '¿De qué mes es este sueldo?' })[0], hint: 'Los aumentos del convenio lo actualizan solos.' },
       ],
+      live: profileCost ? (draft) => {
+        const p = profileCost(draft).perPerson;
+        const cell = (label, value, note) => h('div', { class: 'hour-rate' }, h('span', { class: 'hour-rate-label' }, label), h('strong', { class: 'hour-rate-value' }, value > 0 ? formatMoney(value) : EMPTY), h('span', { class: 'hour-rate-note' }, note));
+        return h('div', { class: 'hour-rates' },
+          cell('Bruto', p.grossMonthly, 'Remunerativo + no remunerativo'),
+          cell('Neto', p.netMonthly, `Bruto − aportes (${formatPercent(p.workerContributionsPct)} del remunerativo)`),
+          cell('Costo empleador del mes', p.payslipEmployerCost, 'Comparalo con el "costo total empleador" de tu recibo'),
+          cell('Te cuesta por mes', p.fixedMonthly, 'Con aguinaldo y vacaciones prorrateados: es el que usa la cotización'));
+      } : null,
     },
     {
-      title: 'Cargas sociales (aguinaldo, vacaciones, aportes)',
-      hint: 'Porcentajes de tu convenio vigente, sobre el sueldo. RATEOS no trae valores legales: los de demostración son ILUSTRATIVOS.',
+      title: 'Cargas sociales del convenio',
+      collapsible: true,
+      key: 'labor-charges',
+      openWhen: (d) => ownParamKeys(d, agreementOf(d)).length > 0 || !agreementOf(d),
+      summary: (draft) => {
+        const agreement = agreementOf(draft);
+        if (!agreement) return 'Sin convenio: cargá los porcentajes de este puesto.';
+        const own = ownParamKeys(draft, agreement);
+        return own.length ? `Este puesto tiene valores propios (no sigue a "${agreement.name}").` : `Usa los de "${agreement.name}": si cambiás el convenio, este puesto se actualiza solo.`;
+      },
+      hint: 'Porcentajes sobre el remunerativo. Las contribuciones fijas son un monto por persona y por mes que fija el convenio (sin cargas encima).',
       cols: 4,
       fields: [
         { key: 'sacPct', label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%' },
         { key: 'vacationPct', label: 'Vacaciones', rule: 'percent', unit: '%' },
         { key: 'employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%' },
         { key: 'artPct', label: 'ART', rule: 'percent', unit: '%' },
+        { key: 'fixedContributionsMonthly', label: 'Contribuciones fijas', rule: 'money', unit: '$/mes', hint: 'Ej.: contribución extraordinaria, seguro de vida colectivo.' },
       ],
-      extra: ({ draft, rerender }) =>
-        h(
+      extra: ({ draft, rerender }) => {
+        const agreement = agreementOf(draft);
+        if (!agreement || ownParamKeys(draft, agreement).length === 0) return null;
+        return h(
           'div',
           { class: 'form-section-actions' },
-          button('Usar los valores de mi convenio', {
+          button('Volver a los valores del convenio', {
             variant: 'secondary',
             size: 'sm',
             icon: 'check',
             onClick: () => {
-              const agreement = agreements.find((a) => a.id === draft.agreementId);
-              if (!agreement) {
-                app.toast('Elegí un convenio para aplicar sus parámetros.', 'warning');
-                return;
-              }
-              const params = { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(agreement.params || {}) };
-              AGREEMENT_PARAM_KEYS.forEach((k) => {
-                draft[k] = toNumber(params[k], 0);
-              });
+              Object.assign(draft, withAgreementParams(draft, agreement));
               if (agreement.illustrative) draft.illustrative = true;
               rerender();
-              app.toast(`Se aplicaron los parámetros de "${agreement.name}": horas normales, recargo de horas extra, SAC, vacaciones, cargas y ART.`, 'info');
+              app.toast(`Este puesto vuelve a usar los valores de "${agreement.name}".`, 'info');
             },
           }),
-          h('span', { class: 'muted small' }, 'Copia horas normales, aguinaldo, vacaciones, cargas patronales y ART del convenio elegido arriba.'),
-        ),
+        );
+      },
     },
     {
       // PLAN-2026-026: el valor de la hora (normal, al 50 % y al 100 %) es de cada recurso.
@@ -635,10 +660,12 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       key: 'labor-more',
       summary: (draft) => {
         const others = toNumber(draft.insuranceMonthly, 0) + toNumber(draft.ppeMonthly, 0) + toNumber(draft.trainingMonthly, 0) + toNumber(draft.transferMonthly, 0);
-        return `Seguros, ropa, capacitación y traslado: ${formatMoney(others)} por mes.`;
+        const meal = toNumber(draft.mealPerActiveDay, 0);
+        return `Seguros, ropa, capacitación y traslado: ${formatMoney(others)} por mes${meal > 0 ? ` · vianda ${formatMoney(meal)} por día` : ''}.`;
       },
       cols: 4,
       fields: [
+        { key: 'mealPerActiveDay', label: 'Vianda o comida por día de trabajo', rule: 'money', unit: '$', hint: 'Sólo si no está en el no remunerativo. Se suma por cada día que trabaja.' },
         { key: 'insuranceMonthly', label: 'Seguros', rule: 'money', unit: '$/mes' },
         { key: 'ppeMonthly', label: 'Ropa y elementos de protección', rule: 'money', unit: '$/mes' },
         { key: 'trainingMonthly', label: 'Capacitación', rule: 'money', unit: '$/mes' },
@@ -673,6 +700,10 @@ function newLaborProfile(agreements) {
     vacationPct: params.vacationPct,
     employerContributionsPct: params.employerContributionsPct,
     artPct: params.artPct,
+    // 0.11.0: no remunerativo, aportes del trabajador y contribuciones fijas (estos dos, del convenio).
+    nonRemunerativeMonthly: 0,
+    workerContributionsPct: params.workerContributionsPct,
+    fixedContributionsMonthly: params.fixedContributionsMonthly,
     insuranceMonthly: 0,
     ppeMonthly: 0,
     trainingMonthly: 0,
@@ -682,26 +713,54 @@ function newLaborProfile(agreements) {
   };
 }
 
+/**
+ * Al cambiar el convenio de un puesto: si el puesto usaba los valores del convenio
+ * anterior (o no tenía convenio), toma los del nuevo. Valores propios no se tocan.
+ */
+function laborAgreementWatcher(agreements, initial) {
+  let lastId = initial ? initial.agreementId ?? null : null;
+  return (draft) => {
+    const id = draft.agreementId ?? null;
+    if (id === lastId) return;
+    const before = agreements.find((a) => a.id === lastId) || null;
+    const after = agreements.find((a) => a.id === id) || null;
+    lastId = id;
+    if (!after) return;
+    if (before && ownParamKeys(draft, before).length > 0) return;
+    Object.assign(draft, withAgreementParams(draft, after));
+    if (after.illustrative) draft.illustrative = true;
+  };
+}
+
 function agreementSections() {
   return [
     {
       title: 'Convenio',
       cols: 2,
       fields: [
-        { key: 'name', label: 'Nombre', kind: 'text', required: true, placeholder: 'Ej.: Petroleros Privados — mi categoría' },
-        { key: 'code', label: 'Tipo de convenio', kind: 'select', options: options(AGREEMENT_TYPES) },
+        { key: 'name', label: 'Nombre', kind: 'text', required: true, placeholder: 'Ej.: Petroleros Privados — mi empresa' },
+        { key: 'code', label: 'Tipo de convenio', kind: 'select', options: options(AGREEMENT_TYPES_SORTED) },
       ],
     },
     {
-      title: 'Parámetros',
-      hint: ILLUSTRATIVE_AGREEMENT_NOTICE,
+      title: 'Cargas sociales',
+      hint: 'Porcentajes de tu convenio vigente (RATEOS no trae valores legales). Los puestos de este convenio toman estos valores: si los cambiás acá, se actualizan (salvo los que tienen valores propios).',
+      cols: 4,
+      fields: [
+        { key: 'params.sacPct', label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%' },
+        { key: 'params.vacationPct', label: 'Vacaciones', rule: 'percent', unit: '%' },
+        { key: 'params.employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%', hint: 'Sobre el remunerativo.' },
+        { key: 'params.artPct', label: 'ART', rule: 'percent', unit: '%' },
+        { key: 'params.fixedContributionsMonthly', label: 'Contribuciones fijas por persona', rule: 'money', unit: '$/mes', hint: 'Montos fijos del convenio (contribución extraordinaria, seguro de vida…). Sin cargas encima.' },
+        { key: 'params.workerContributionsPct', label: 'Aportes del trabajador', rule: 'percent', unit: '%', hint: 'Sólo para mostrar el neto: no cambian tu costo.' },
+      ],
+    },
+    {
+      title: 'Horas',
+      cols: 2,
       fields: [
         { key: 'params.normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h' },
         { key: 'params.overtimePremiumPct', label: 'Recargo de horas extra', rule: 'percentOpen', unit: '%' },
-        { key: 'params.sacPct', label: 'SAC', rule: 'percent', unit: '%' },
-        { key: 'params.vacationPct', label: 'Vacaciones', rule: 'percent', unit: '%' },
-        { key: 'params.employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%' },
-        { key: 'params.artPct', label: 'ART', rule: 'percent', unit: '%' },
       ],
     },
     { title: 'Notas y marca', cols: 2, fields: [{ key: 'notes', label: 'Notas', kind: 'textarea', maxLength: 600 }, illustrativeField] },
@@ -1210,14 +1269,6 @@ export async function render(root, app, params = {}) {
   return renderLibraryTab(root, app, tab, { embedded: false });
 }
 
-/**
- * Gestión de convenios (se muestra dentro de Configuración → Convenios).
- * No cambia la topbar: el botón "Nuevo convenio" va dentro del contenido.
- */
-export async function renderAgreements(root, app) {
-  return renderLibraryTab(root, app, TABS.find((t) => t.id === 'convenios'), { embedded: true });
-}
-
 async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   const { ctx } = app;
   const data = { resources: {}, equipmentCards: new Map(), settings: {}, quotes: [] };
@@ -1257,6 +1308,117 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     await refresh();
   }
 
+  /** Guarda un convenio y actualiza los puestos que usaban sus valores (0.11.0). */
+  async function saveAgreement(before, entity, verb) {
+    const saved = await ctx.resources.save('agreements', entity);
+    const updates = profilesToPropagate(before, saved, list('laborProfiles'));
+    for (const profile of updates) await ctx.resources.save('laborProfiles', profile);
+    const extra = updates.length ? ` Se actualizaron ${updates.length === 1 ? '1 puesto' : `${updates.length} puestos`} que usan este convenio.` : '';
+    app.toast(`${verb === 'create' ? 'Agregado' : 'Guardado'}: ${saved.name || 'convenio'}.${extra}`, 'success');
+    await refresh();
+  }
+
+  /** "Aplicar aumento": % sobre el remunerativo y el no remunerativo, desde un mes, a todos los puestos del convenio. */
+  function openRaiseDialog(agreement) {
+    const profiles = list('laborProfiles').filter((p) => p.agreementId === agreement.id);
+    const draft = { fromPeriod: currentPeriod(), remunerativePct: null, nonRemunerativePct: null, note: '' };
+    const body = h('div', { class: 'resource-form' });
+    const previewHost = h('div', { class: 'form-preview', 'aria-live': 'polite' });
+    const paintPreview = () => {
+      const result = applyAgreementRaise(agreement, profiles, { ...draft, nonRemunerativePct: draft.nonRemunerativePct ?? draft.remunerativePct });
+      if (!result) {
+        mount(previewHost, h('p', { class: 'muted small' }, 'Cargá el % y el mes para ver cuánto cambia cada puesto.'));
+        return;
+      }
+      if (!profiles.length) {
+        mount(previewHost, h('p', { class: 'small' }, 'Ningún puesto usa este convenio todavía: el aumento queda en el historial y se ve en las actualizaciones de tarifa.'));
+        return;
+      }
+      mount(previewHost, table({
+        caption: 'Cómo queda cada puesto',
+        className: 'lib-table',
+        columns: [
+          { key: 'role', label: 'Puesto', render: ({ before }) => before.role || 'Puesto' },
+          { key: 'before', label: 'Te cuesta por mes hoy', align: 'right', render: ({ before }) => money(ctx.resources.laborProfileCost(before).perPerson.fixedMonthly) },
+          { key: 'after', label: 'Con el aumento', align: 'right', render: ({ after }) => h('strong', { class: 'nowrap' }, formatMoney(ctx.resources.laborProfileCost(after).perPerson.fixedMonthly)) },
+        ],
+        rows: profiles.map((before, i) => ({ before, after: result.profiles[i] })),
+      }));
+    };
+    const field = (node) => node;
+    mount(
+      body,
+      h('p', { class: 'form-section-hint' }, `Se aplica a ${profiles.length === 1 ? '1 puesto' : `${profiles.length} puestos`} de "${agreement.name}". Las cotizaciones ya hechas no cambian: te avisan que hay valores nuevos.`),
+      formGrid(2,
+        field(periodField({ label: 'Desde el mes', value: draft.fromPeriod, onChange: (v) => { draft.fromPeriod = v; paintPreview(); } })),
+        field(numberField({ label: 'Aumento del remunerativo', value: null, rule: 'percentOpen', unit: '%', required: true, onChange: (v) => { draft.remunerativePct = isFiniteNumber(v) ? v : null; paintPreview(); } })),
+        field(numberField({ label: 'Aumento del no remunerativo', value: null, rule: 'percentOpen', unit: '%', placeholder: 'El mismo', hint: 'Vacío = el mismo %.', onChange: (v) => { draft.nonRemunerativePct = isFiniteNumber(v) ? v : null; paintPreview(); } })),
+        field(textField({ label: 'Nota (opcional)', value: '', maxLength: 160, placeholder: 'Ej.: Acta julio 2026', onChange: (v) => { draft.note = v; } })),
+      ),
+      previewHost,
+    );
+    paintPreview();
+    const applyBtn = button('Aplicar aumento', { variant: 'primary', icon: 'check' });
+    const { close } = openDialog({ title: `Aplicar aumento — ${agreement.name || 'convenio'}`, content: body, wide: true, actions: [button('Cancelar', { variant: 'secondary', onClick: () => close() }), applyBtn] });
+    applyBtn.addEventListener('click', async () => {
+      const result = applyAgreementRaise(agreement, profiles, { ...draft, note: sanitizeText(draft.note, 160) }, { id: createId(), now: new Date().toISOString() });
+      if (!result) {
+        app.toast('Completá el mes y el % de aumento.', 'warning');
+        return;
+      }
+      applyBtn.disabled = true;
+      try {
+        for (const profile of result.profiles) await ctx.resources.save('laborProfiles', profile);
+        await ctx.resources.save('agreements', result.agreement);
+        app.toast(`Aumento aplicado a ${result.profiles.length === 1 ? '1 puesto' : `${result.profiles.length} puestos`} de "${agreement.name}".`, 'success');
+        close();
+        await refresh();
+      } catch (error) {
+        app.toast(userErrorMessage(error, 'No se pudo aplicar el aumento.'), 'danger');
+        applyBtn.disabled = false;
+      }
+    });
+  }
+
+  /** Historial de aumentos de un convenio, con "Deshacer el último". */
+  function openRaiseHistory(agreement) {
+    const raises = Array.isArray(agreement.raises) ? [...agreement.raises].reverse() : [];
+    const undoBtn = raises.length ? button('Deshacer el último', { variant: 'secondary' }) : null;
+    const content = raises.length
+      ? table({
+        caption: 'Aumentos aplicados',
+        className: 'lib-table',
+        columns: [
+          { key: 'from', label: 'Desde', render: ({ r }) => formatPeriod(r.fromPeriod) },
+          { key: 'rem', label: 'Remunerativo', align: 'right', render: ({ r }) => percent(r.remunerativePct) },
+          { key: 'nonrem', label: 'No remunerativo', align: 'right', render: ({ r }) => percent(r.nonRemunerativePct) },
+          { key: 'n', label: 'Puestos', align: 'right', render: ({ r }) => formatNumber((r.changes || []).length) },
+          { key: 'note', label: 'Nota', render: ({ r }) => r.note || EMPTY },
+        ],
+        rows: raises.map((r) => ({ r })),
+      })
+      : h('p', { class: 'muted' }, 'Todavía no aplicaste aumentos a este convenio.');
+    const { close } = openDialog({ title: `Aumentos — ${agreement.name || 'convenio'}`, content, wide: true, actions: [undoBtn, button('Cerrar', { variant: 'secondary', onClick: () => close() })].filter(Boolean) });
+    if (undoBtn) {
+      undoBtn.addEventListener('click', async () => {
+        const result = undoLastAgreementRaise(agreement, list('laborProfiles'));
+        if (!result) return;
+        undoBtn.disabled = true;
+        try {
+          for (const profile of result.profiles) await ctx.resources.save('laborProfiles', profile);
+          await ctx.resources.save('agreements', result.agreement);
+          const skipped = result.skipped.length ? ` ${result.skipped.length === 1 ? '1 puesto no se tocó' : `${result.skipped.length} puestos no se tocaron`} porque lo editaste después.` : '';
+          app.toast(`Se deshizo el último aumento.${skipped}`, 'success');
+          close();
+          await refresh();
+        } catch (error) {
+          app.toast(userErrorMessage(error, 'No se pudo deshacer.'), 'danger');
+          undoBtn.disabled = false;
+        }
+      });
+    }
+  }
+
   async function removeResource(item, displayName, extraMessage = '') {
     const ok = await confirmDialog({
       title: 'Eliminar recurso',
@@ -1287,6 +1449,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
           title: isNew ? 'Nuevo puesto' : `Editar puesto — ${item.role || ''}`,
           initial: isNew ? newLaborProfile(agreements) : item,
           sections: laborSections(agreements, app, { profileCost: (d) => ctx.resources.laborProfileCost(d) }),
+          prepare: laborAgreementWatcher(agreements, isNew ? newLaborProfile(agreements) : item),
           preview: (draft) => {
             const cost = ctx.resources.laborProfileCost(draft);
             return previewKpis(
@@ -1311,7 +1474,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
             : { ...item, params: { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(item.params || {}) } },
           sections: agreementSections(),
           preview: (draft) => previewKpis([{ label: 'Factor de cargas', value: factorText(laborLoadFactor(draft.params || {})), hint: '(1 + SAC + Vacaciones) × (1 + Cargas + ART)' }], agreementTrace(draft)),
-          onSave,
+          onSave: (entity) => saveAgreement(isNew ? null : item, entity, verb),
         });
         break;
       case 'equipment':
@@ -1467,7 +1630,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         caption: 'Perfiles de personal',
         className: 'lib-table lib-table-simple table-cards',
         columns: [
-          { key: 'role', label: 'Puesto', render: ({ item }) => nameCell(item.role, item.category, item.illustrative) },
+          { key: 'role', label: 'Puesto', render: ({ item }) => nameCell(item.role, [agreementName(item.agreementId), item.category].filter(Boolean).join(' · '), item.illustrative) },
           laborBaseColumn,
           { key: 'hourly', label: 'Hora normal', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
           { key: 'h50', label: 'Hora al 50\u00a0%', align: 'right', render: ({ cost }) => rate(cost.perPerson.overtimeHourlyCost50) },
@@ -1488,9 +1651,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         { key: 'agreement', label: 'Convenio', render: ({ item }) => agreementName(item.agreementId) },
         {
           key: 'basic',
-          label: 'Básico + adicionales',
+          label: 'Remunerativo + no remunerativo',
           align: 'right',
-          render: ({ item }) => h('div', { class: 'cell-main cell-num' }, money(item.basicMonthly), h('span', { class: 'cell-sub nowrap' }, `+ ${formatMoney(toNumber(item.additionalsMonthly, 0))} adicionales`)),
+          render: ({ item, cost }) => h('div', { class: 'cell-main cell-num' }, money(cost.perPerson.remunerative), h('span', { class: 'cell-sub nowrap' }, `+ ${formatMoney(cost.perPerson.nonRemunerativePay)} no rem. · neto ${formatMoney(cost.perPerson.netMonthly)}`)),
         },
         { key: 'monthly', label: 'Costo mensual por persona', align: 'right', render: ({ item, cost }) => withTrace(h('strong', { class: 'nowrap' }, formatMoney(cost.perPerson.fixedMonthly)), laborTrace(item, cost)) },
         { key: 'hourly', label: 'Costo hora cargado', align: 'right', render: ({ cost }) => rate(cost.perPerson.loadedHourlyCost) },
@@ -1504,30 +1667,39 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   function agreementsTable() {
     const profiles = list('laborProfiles');
-    const rows = list('agreements').map((a) => ({ item: a, p: { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(a.params || {}) }, used: profiles.filter((p) => p.agreementId === a.id).length }));
+    const rows = list('agreements').map((a) => ({ item: a, p: agreementParamsOf(a), used: profiles.filter((p) => p.agreementId === a.id).length }));
+    const lastRaise = (a) => (Array.isArray(a.raises) && a.raises.length ? a.raises[a.raises.length - 1] : null);
     return table({
       caption: 'Convenios',
       className: 'lib-table table-cards',
       columns: [
         { key: 'name', label: 'Convenio', render: ({ item }) => nameCell(item.name, labelOf(AGREEMENT_TYPES, item.code, 'Personalizado'), item.illustrative) },
-        { key: 'hours', label: 'Horas normales/mes', align: 'right', render: ({ p }) => formatNumber(toNumber(p.normalHoursPerMonth, NaN), { decimals: 2 }) },
-        { key: 'ot', label: 'Recargo HE', align: 'right', render: ({ p }) => percent(toNumber(p.overtimePremiumPct, NaN)) },
-        { key: 'sac', label: 'SAC', align: 'right', render: ({ p }) => percent(toNumber(p.sacPct, NaN)) },
-        { key: 'vac', label: 'Vacaciones', align: 'right', render: ({ p }) => percent(toNumber(p.vacationPct, NaN)) },
-        { key: 'contrib', label: 'Cargas patronales', align: 'right', render: ({ p }) => percent(toNumber(p.employerContributionsPct, NaN)) },
-        { key: 'art', label: 'ART', align: 'right', render: ({ p }) => percent(toNumber(p.artPct, NaN)) },
         { key: 'factor', label: 'Factor de cargas', align: 'right', render: ({ item, p }) => withTrace(h('span', { class: 'mono nowrap' }, factorText(laborLoadFactor(p))), agreementTrace(item)) },
-        { key: 'used', label: 'Perfiles', align: 'right', render: ({ used }) => formatNumber(used) },
+        { key: 'contrib', label: 'Cargas patronales + ART', align: 'right', render: ({ p }) => percent(toNumber(p.employerContributionsPct, 0) + toNumber(p.artPct, 0)) },
+        { key: 'fixed', label: 'Contribuciones fijas', align: 'right', render: ({ p }) => (toNumber(p.fixedContributionsMonthly, 0) > 0 ? h('span', { class: 'nowrap' }, `${formatMoney(p.fixedContributionsMonthly)}/mes`) : EMPTY) },
+        { key: 'used', label: 'Puestos', align: 'right', render: ({ used }) => formatNumber(used) },
+        {
+          key: 'raise',
+          label: 'Último aumento',
+          render: ({ item }) => {
+            const r = lastRaise(item);
+            return h('div', { class: 'cell-stack' },
+              r ? h('span', { class: 'nowrap' }, `${formatPercent(r.remunerativePct)} desde ${formatPeriod(r.fromPeriod)}`) : h('span', { class: 'muted' }, 'Sin aumentos'),
+              r ? button('Ver historial', { variant: 'link', size: 'sm', onClick: () => openRaiseHistory(item), attrs: { 'aria-label': `Historial de aumentos de ${item.name || 'convenio'}` } }) : null);
+          },
+        },
         {
           key: 'actions',
           label: 'Acciones',
           align: 'right',
           render: ({ item, used }) =>
-            rowActions({
-              name: item.name || 'convenio',
-              onEdit: () => openEditor(item),
-              onDelete: () => removeResource(item, item.name || 'convenio', used ? `${used === 1 ? 'Hay 1 perfil' : `Hay ${used} perfiles`} de personal que lo usan: quedarán sin convenio asignado.` : ''),
-            }),
+            h('div', { class: 'table-actions' },
+              button('Aplicar aumento', { variant: 'primary', size: 'sm', icon: 'plus', onClick: () => openRaiseDialog(item), attrs: { 'aria-label': `Aplicar aumento a ${item.name || 'convenio'}` } }),
+              rowActions({
+                name: item.name || 'convenio',
+                onEdit: () => openEditor(item),
+                onDelete: () => removeResource(item, item.name || 'convenio', used ? `${used === 1 ? 'Hay 1 puesto' : `Hay ${used} puestos`} de personal que lo usan: quedarán sin convenio asignado.` : ''),
+              })),
         },
       ],
       rows,
@@ -1778,7 +1950,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   }
 
   const VIEW_HINTS = Object.freeze({
-    laborProfiles: 'Suma convenio, básico y adicionales y factor de cargas',
+    laborProfiles: 'Suma convenio, remunerativo, no remunerativo, neto y factor de cargas',
     equipment: 'Suma posesión, operación, utilización y costo por hora',
     materials: 'Suma costo unitario, base, merma, logística y markup de reventa',
   });
@@ -1816,7 +1988,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   function introFor() {
     const extra =
       tab.id === 'personal'
-        ? [' Los convenios se configuran en ', h('a', { href: '#/configuracion/convenios' }, 'Configuración → Convenios'), '.']
+        ? [' Las cargas sociales y los aumentos se cargan en ', h('a', { href: '#/recursos/convenios' }, 'Convenios'), '.']
         : [];
     return h('p', { class: 'resource-intro-text' }, tab.intro, ...extra);
   }

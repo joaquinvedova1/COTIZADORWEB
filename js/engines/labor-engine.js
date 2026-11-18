@@ -164,9 +164,21 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeB
   const ppe = nonNegative(line.ppeMonthly);
   const training = nonNegative(line.trainingMonthly);
   const transfer = nonNegative(line.transferMonthly);
-  const nonRemunerative = insurance + ppe + training + transfer;
+  // 0.11.0: sumas NO remunerativas del recibo (viandas de convenio, asignaciones por acta…) y
+  // contribuciones fijas del convenio por persona: costo de la empresa, sin cargas encima.
+  const nonRemunerativePay = nonNegative(line.nonRemunerativeMonthly);
+  const fixedContributions = nonNegative(line.fixedContributionsMonthly);
+  const nonRemunerative = insurance + ppe + training + transfer + nonRemunerativePay + fixedContributions;
 
   const fixedMonthlyPerPerson = loadedRemunerative + nonRemunerative;
+  // Aportes del trabajador (0.11.0): se restan del bruto para mostrar el NETO del recibo.
+  // No cambian el costo de la empresa (los paga el trabajador de su bruto).
+  const workerContributionsPct = nonNegative(line.workerContributionsPct);
+  const grossMonthly = remunerative + nonRemunerativePay;
+  const workerContributions = remunerative * pct(workerContributionsPct);
+  const netMonthly = grossMonthly - workerContributions;
+  // Para comparar con el "costo total empleador" de un recibo: el mes sin aguinaldo ni vacaciones prorrateados.
+  const payslipEmployerCost = remunerative * (1 + pct(employerContributionsPct) + pct(artPct)) + nonRemunerativePay + fixedContributions;
 
   const hourlyBase = safeDivide(basic, normalHours, 0);
   const overtimeHourly = hourlyBase * (1 + otPremium);
@@ -262,7 +274,14 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeB
       ppe,
       training,
       transfer,
+      nonRemunerativePay,
+      fixedContributions,
       nonRemunerative,
+      grossMonthly,
+      workerContributionsPct,
+      workerContributions,
+      netMonthly,
+      payslipEmployerCost,
       fixedMonthly: fixedMonthlyPerPerson,
       loadFactor,
       hourlyBase,

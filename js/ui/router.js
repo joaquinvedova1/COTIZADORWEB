@@ -10,7 +10,7 @@
  *     guest   ingreso y registro: con sesión van a la app;
  *     auth    la aplicación: sin sesión → #/login?next=<destino>.
  *   Mientras la sesión se restaura no se muestra nada protegido.
- * - Redirige enlaces viejos (#/biblioteca, #/dashboard, #/recursos/convenios)
+ * - Redirige enlaces viejos (#/biblioteca, #/dashboard, #/configuracion/convenios)
  *   a las rutas nuevas.
  * - Carga las vistas con import() dinámico (rutas relativas).
  * - Llama a la función de limpieza de la vista anterior.
@@ -26,10 +26,10 @@ import { resolveAccess } from '../services/auth-routing.js';
 import { render as renderNotFound } from './views/not-found.js';
 
 /** Pestañas válidas de Recursos (#/recursos/:tab). */
-export const RESOURCE_TABS = Object.freeze(['personal', 'equipos', 'externos', 'materiales', 'ubicaciones', 'catalogo']);
+export const RESOURCE_TABS = Object.freeze(['personal', 'convenios', 'equipos', 'externos', 'materiales', 'ubicaciones', 'catalogo']);
 
 /** Pestañas válidas de Configuración (#/configuracion/:tab). */
-export const SETTINGS_TABS = Object.freeze(['empresa', 'parametros', 'convenios', 'datos', 'cuenta', 'acerca']);
+export const SETTINGS_TABS = Object.freeze(['empresa', 'parametros', 'datos', 'cuenta', 'acerca']);
 
 /** Pestañas de la antigua "Biblioteca" (sólo para redirigir enlaces viejos). */
 export const LIBRARY_TABS = Object.freeze(['personal', 'convenios', 'equipos', 'materiales', 'ubicaciones']);
@@ -70,13 +70,13 @@ export const ROUTES = Object.freeze([
   { name: 'product-editor', segments: ['productos', ':id'], shell: 'app', access: 'auth', nav: 'products', title: 'Producto', defaults: { step: 'producto' }, load: () => import('./views/product-editor.js'), view: 'render' },
   { name: 'product-editor-step', segments: ['productos', ':id', ':step'], shell: 'app', access: 'auth', nav: 'products', title: 'Producto', load: () => import('./views/product-editor.js'), view: 'render' },
   { name: 'resources', segments: ['recursos'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', defaults: { tab: 'personal' }, load: () => import('./views/library.js'), view: 'render' },
-  // Los convenios se gestionan en Configuración (antes vivían junto a los recursos).
-  { name: 'resources-agreements', segments: ['recursos', 'convenios'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', redirect: () => '#/configuracion/convenios' },
   { name: 'resources-tab', segments: ['recursos', ':tab'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', validate: (p) => RESOURCE_TABS.includes(p.tab), load: () => import('./views/library.js'), view: 'render' },
   { name: 'services', segments: ['servicios'], shell: 'app', access: 'auth', nav: 'services', title: 'Servicios', load: () => import('./views/services.js'), view: 'render' },
   { name: 'scenarios', segments: ['escenarios'], shell: 'app', access: 'auth', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
   { name: 'scenarios-quote', segments: ['escenarios', ':id'], shell: 'app', access: 'auth', nav: 'scenarios', title: 'Escenarios', load: () => import('./views/scenarios.js'), view: 'render' },
   { name: 'settings', segments: ['configuracion'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', defaults: { tab: 'empresa' }, load: () => import('./views/settings.js'), view: 'render' },
+  // Los convenios volvieron a Recursos (0.11.0): ahí se cargan el personal y sus aumentos.
+  { name: 'settings-agreements', segments: ['configuracion', 'convenios'], shell: 'app', access: 'auth', nav: 'resources', title: 'Recursos', redirect: () => '#/recursos/convenios' },
   { name: 'settings-tab', segments: ['configuracion', ':tab'], shell: 'app', access: 'auth', nav: 'settings', title: 'Configuración', validate: (p) => SETTINGS_TABS.includes(p.tab), load: () => import('./views/settings.js'), view: 'render' },
   // Panel de la PLATAFORMA (RATEOS ADMIN). Requiere sesión; el permiso real lo
   // verifica Postgres en cada consulta (la vista no muestra nada sin él).
@@ -92,7 +92,7 @@ export const ROUTES = Object.freeze([
     nav: 'resources',
     title: 'Recursos',
     validate: (p) => LIBRARY_TABS.includes(p.tab),
-    redirect: (p) => (p.tab === 'convenios' ? '#/configuracion/convenios' : `#/recursos/${p.tab}`),
+    redirect: (p) => `#/recursos/${p.tab}`,
   },
 ]);
 

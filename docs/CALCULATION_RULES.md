@@ -1939,3 +1939,27 @@ Tests: `tests/domain/unidad-primero-2026-11.test.js` y `tests/ui/unidad-primero-
 - **Nombre de la activación (U2).** En una cotización con componentes, `serviceType 'on_call'` (derivado del modo) se nombra "intervención" salvo que se cobre por llamado. Sólo texto: `serviceType` no cambia.
 
 Tests: `tests/domain/unidad-primero-revision-2026-11.test.js` y `tests/ui/unidad-primero-revision-2026-11.test.js`.
+
+## 31. Personal por convenio: sueldo como en el recibo y aumentos (0.11.0, 2026-11-18)
+
+**Pedido del dueño:** cargar el personal por convenio colectivo con "un bruto y listo" (remunerativo, no remunerativo y aportes) y aplicar los aumentos de cada convenio.
+
+**Costo por persona y por mes** (cambia sólo si se cargan los datos nuevos; un puesto sin ellos cuesta lo mismo que antes):
+
+```
+Costo = Remunerativo × (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % + ART %)
+      + No remunerativo + Contribuciones fijas del convenio
+      + Seguros + EPP + Capacitación + Traslado
+```
+
+- *Remunerativo* = `basicMonthly` + `additionalsMonthly` (dato anterior). *No remunerativo* (`nonRemunerativeMonthly`) y *contribuciones fijas* (`fixedContributionsMonthly`) no llevan cargas ni aguinaldo.
+- *Aportes del trabajador* (`workerContributionsPct`, 17 % habitual): `Neto = Remunerativo + No remunerativo − Remunerativo × aportes %`. **No cambian el costo**: los paga el trabajador de su bruto.
+- *Costo empleador del mes* (sólo para comparar con el recibo, sin aguinaldo ni vacaciones prorrateados): `Remunerativo × (1 + Cargas % + ART %) + No remunerativo + Contribuciones fijas`.
+
+**El puesto sigue a su convenio.** Parámetros del convenio: horas normales, recargo de horas extra, SAC, vacaciones, cargas patronales, ART, aportes del trabajador y contribuciones fijas. Al guardar un convenio con valores distintos, los puestos de ese convenio cuyos valores eran iguales a los anteriores pasan a los nuevos; los demás (valores propios) no cambian. Un parámetro que el puesto no tiene cargado cuenta como igual.
+
+**Aplicar aumento.** `remunerativo × (1 + r %)` sobre `basicMonthly`, `additionalsMonthly` y los valores propios de hora al 50 % / 100 %; `no remunerativo × (1 + n %)` sobre `nonRemunerativeMonthly` y `mealPerActiveDay` (n vacío = r). Redondeo al centavo. El mes del sueldo (`base.period`) pasa al mes del aumento si era anterior. El aumento se guarda en `agreement.raises[]` (`fromPeriod`, `remunerativePct`, `nonRemunerativePct`, `note`, `changes[]` con los valores antes y después de cada puesto). *Deshacer el último* restaura cada puesto que todavía tiene los valores que dejó el aumento.
+
+**Cotizaciones:** guardan la foto de sus recursos (§ snapshots): un aumento no cambia una cotización hecha; la avisa como "valores nuevos en Recursos". La foto suma `nonRemunerativeMonthly`, `fixedContributionsMonthly` y `workerContributionsPct` sólo si están cargados (las huellas anteriores quedan iguales).
+
+**Para actualizar tarifas:** `agreementRaiseFactor(agreement, desde, hasta)` = producto de `(1 + remunerativePct / 100)` de los aumentos con `fromPeriod` en `(desde, hasta]`; `null` sin historial.

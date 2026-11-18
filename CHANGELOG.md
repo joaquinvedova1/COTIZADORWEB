@@ -12,6 +12,24 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-18
+
+**Personal por convenio (2026-11-18, pedido del dueño).** El sueldo de cada puesto se carga como en el recibo (remunerativo, no remunerativo y aportes del trabajador), las cargas sociales salen del convenio y cada paritaria se aplica con "Aplicar aumento" a todos los puestos del convenio, con historial. Los puestos ya cargados y las cotizaciones guardadas no cambian de números. Sin cambio de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §31](docs/CALCULATION_RULES.md).
+
+### Agregado
+
+- Puesto (Recursos → Personal): **No remunerativo** por mes (`nonRemunerativeMonthly`, sin cargas) y **Aportes del trabajador** (`workerContributionsPct`, sólo para mostrar el neto). Debajo del sueldo: Bruto, Neto, Costo empleador del mes (para comparar con el recibo) y Te cuesta por mes.
+- Convenio: **Contribuciones fijas por persona** (`params.fixedContributionsMonthly`, ej. contribución extraordinaria petrolera; costo sin cargas) y aportes del trabajador.
+- **Aplicar aumento** por convenio: % sobre el remunerativo y sobre el no remunerativo (vacío = el mismo), desde un mes y con nota, con vista previa por puesto. Queda en `agreement.raises` con los valores anteriores de cada puesto; **Ver historial** y **Deshacer el último**.
+- `js/domain/agreement-raises.js`: `applyAgreementRaise`, `undoLastAgreementRaise`, `profilesToPropagate`, `agreementRaiseFactor(agreement, desde, hasta)` (aumento acumulado entre dos meses, para actualizar tarifas).
+- Lista de convenios con número de CCT: Petroleros Privados (644/12 y Chubut / Santa Cruz), Petroleros Jerárquicos (637/11), UOCRA Yacimientos (545/08), UOCRA Construcción (76/75), Camioneros (40/89), UOM (260/75), Comercio (130/75), Gastronómicos (389/04), Seguridad privada (507/07). Sin valores: los porcentajes los carga cada empresa.
+
+### Cambiado
+
+- Convenios vuelve a **Recursos** (segunda pestaña); `#/configuracion/convenios` redirige a `#/recursos/convenios`.
+- Un puesto **sigue a su convenio**: si se cambian las cargas del convenio, se actualizan los puestos que tenían esos mismos valores; los que tienen valores propios no se tocan ("Volver a los valores del convenio"). Al elegir otro convenio en un puesto, toma sus valores.
+- "Otros pagos fijos" y la vianda por día salen del bloque principal del sueldo (la vianda pasa a "Más detalle"; "Otros pagos remunerativos" se ve sólo si ya estaba cargado).
+
 ## [0.10.0] - 2026-11-18
 
 **La unidad primero (2026-11-18, pedido del dueño).** Lo primero que se elige al cotizar es en qué unidad se le cobra al cliente; de ahí salen las preguntas y las etapas. Las categorías de gasto que se marcan en "¿Qué incluye el servicio?" son las secciones del paso Materiales y los renglones de la estructura de costos. Sin cambio de fórmulas, de totales ni de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §30](docs/CALCULATION_RULES.md).
