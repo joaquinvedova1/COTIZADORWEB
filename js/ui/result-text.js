@@ -886,6 +886,8 @@ export function salaryMonthsText(r, fixedMonthly) {
 export function closedLaborCostText(r, line, { overtime = 0, share = '' } = {}) {
   const jobs = closedJobsPerMonth(r);
   if (jobs === null || !line) return '';
+  // Por tiempo usado (2026-11-18) no hay "meses de sueldo": horas del trabajo × valor de la hora.
+  if (line.timeBasis) return timeLaborCostText(r, line, { overtime });
   const single = Math.abs(jobs - 1) < 1e-9;
   const D = r.activity ? r.activity.activeDaysPerMonth || 0 : 0;
   const f = salaryMonthsAt(r);
@@ -917,5 +919,211 @@ export function longClosedJobNote(r) {
   const f = salaryMonthsAt(r);
   if (!(f > 1 + 1e-9)) return '';
   const n = formatNumber(f, { decimals: 2 });
+  // Por tiempo usado (I4, 2026-11-18) no hay meses de sueldo: se cotizan las horas de esos días.
+  if (r.model && r.model.timeBasis) {
+    const fixedLeft = Number(r.model.fixedMonthly) > 0.005 ? ` De los gastos fijos del mes que cargaste se pagan ${n} meses.` : '';
+    return `El trabajo dura ${formatDays(r.activity.activeDaysPerMonth, { decimals: 1 })}: se cotizan las horas de tu gente y tus equipos en esos días.${fixedLeft}`;
+  }
   return `El trabajo dura ${n} meses (${formatDays(r.activity.activeDaysPerMonth, { decimals: 1 })}; el mes tiene ${formatNumber(r.activity.availableDaysPerMonth)} días disponibles): se pagan ${n} meses de sueldo y de gastos fijos. Está bien así, no es un error.`;
+}
+
+// ------------------------------------------------- por tiempo usado (2026-11-18)
+
+/** Campo de las horas facturables de un puesto (M7): igual en Recursos, en la cotización y en el aviso. */
+export const BILLABLE_HOURS_LABEL = 'Horas que le cobrás a clientes por mes (opcional)';
+export const BILLABLE_HOURS_HINT = 'Las horas que de verdad trabaja para clientes en un mes. Ejemplo: de 176 h normales, 140. Con esto se calcula la hora para cotizar trabajos: las horas sin cliente (esperas, taller, días flojos) quedan cubiertas en cada hora. Vacío = las horas normales. Si son más que las normales, esas horas son extra: no las cargues acá.';
+/** Aviso (M7): cargaron más horas facturables que las normales. */
+export const BILLABLE_OVER_NORMAL_NOTE = 'Cargaste más horas que las normales: la hora para cotizar queda más barata que la normal. Las horas de más son horas extra.';
+
+/** "8" / "4,5" (hasta 2 decimales). */
+function n2(v) {
+  const x = Number.isFinite(v) ? v : 0;
+  return formatNumber(x, { decimals: Math.abs(x - Math.round(x)) < EPS ? 0 : 2 });
+}
+
+/** "1 persona" / "3 personas". */
+function peopleText(n) {
+  return `${n2(n)} ${Math.abs(n - 1) < EPS ? 'persona' : 'personas'}`;
+}
+
+/** "3 días" / "1 día". */
+function daysCountText(n) {
+  return `${n2(n)} ${Math.abs(n - 1) < EPS ? 'día' : 'días'}`;
+}
+
+/**
+ * ¿La cotización costea su gente y sus equipos propios por tiempo usado y no le queda ningún costo
+ * fijo del mes? Entonces no hay "días para no perder" ni "costos fijos del mes" que contar.
+ */
+export function timeBasisWithoutFixed(r) {
+  const m = r && r.model;
+  return Boolean(m && m.timeBasis) && !(Number(m.fixedMonthly) > 0.005);
+}
+
+/**
+ * Costo de un puesto por tiempo usado (2026-11-18), en palabras y con los montos del motor:
+ *   "1 persona × 8 h por día × 3 días × $ 11.364 la hora"
+ * más lo demás de cada día (vianda, horas extra por día), las horas extra del trabajo y lo fijo
+ * del mes que quede (horas extra por mes cargadas antes). Precio cerrado → "en el trabajo"; si no,
+ * "en el mes"; sin días todavía, "por día de trabajo". Sirve para una línea del motor
+ * (`line.time`) o para el total del personal (`timePerActiveDay`). '' si no es por tiempo usado.
+ */
+export function timeLaborCostText(r, line, { overtime = 0 } = {}) {
+  if (!r || !line || !line.timeBasis) return '';
+  const jobs = closedJobsPerMonth(r);
+  const D = r.activity ? r.activity.activeDaysPerMonth || 0 : 0;
+  const div = jobs !== null ? jobs : 1;
+  const t = line.time || null;
+  const timePerDay = t ? t.perActiveDay || 0 : line.timePerActiveDay || 0;
+  const otherPerDay = Math.max(0, (line.variablePerActiveDay || 0) - timePerDay);
+  const otherLabel = line.perPosition ? (line.perPosition.overtimePerActiveDay > 0 ? 'horas extra y vianda' : 'vianda') : 'vianda y otros gastos';
+  const hoursPart = t ? `${peopleText(line.positions || 0)} × ${n2(t.hoursPerDay)} h por día` : 'horas de tu gente';
+  if (!(D > 0)) {
+    // Sin días todavía: lo de cada día de trabajo.
+    const parts = [];
+    if (timePerDay > 0.005) parts.push(t ? `${hoursPart} × ${formatMoney(t.hourlyCost)} la hora` : `${hoursPart} ${formatMoney(timePerDay)}`);
+    if (otherPerDay > 0.005) parts.push(`${otherLabel} ${formatMoney(otherPerDay)}`);
+    if (!parts.length) return '';
+    const text = parts.join(' + ');
+    return `${text.charAt(0).toUpperCase()}${text.slice(1)} = ${formatMoney(timePerDay + otherPerDay)} por día de trabajo`;
+  }
+  const days = D / div;
+  const f = salaryMonthsAt(r);
+  const fixed = (line.fixedMonthly || 0) * f;
+  const parts = [];
+  if (timePerDay > 0.005) {
+    parts.push(t
+      ? `${hoursPart} × ${daysCountText(days)} × ${formatMoney(t.hourlyCost)} la hora`
+      : `${hoursPart} ${formatMoney(timePerDay)} por día × ${daysCountText(days)}`);
+  }
+  if (otherPerDay > 0.005) parts.push(`${otherLabel} ${formatMoney(otherPerDay)} por día × ${daysCountText(days)}`);
+  if (fixed > 0.005) parts.push(`horas extra por mes (cargadas antes) ${formatMoney(fixed / div)}`);
+  if (overtime > 0.005) parts.push(`${overtimeWorkLabel(r)}: ${formatMoney(overtime / div)}`);
+  if (!parts.length) return '';
+  const total = ((timePerDay + otherPerDay) * D + fixed + (overtime > 0.005 ? overtime : 0)) / div;
+  const text = parts.join(' + ');
+  const where = jobs !== null ? 'en el trabajo' : 'en el mes';
+  // Una sola parte en precio cerrado: el total ya está en el valor de al lado (como closedLaborCostText).
+  const showTotal = parts.length > 1 || jobs === null;
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}${showTotal ? ` = ${formatMoney(total)} ${where}` : ''}`;
+}
+
+/**
+ * "Hora normal" de un puesto en Personal (2026-11-18). Por tiempo usado, la hora con la que se
+ * cotiza (costo del mes ÷ horas que vende, o ÷ las normales); si no, la de siempre.
+ * @param {object} line línea del motor (r.model.labor.lines[i])
+ * @param {number} normalHours horas normales por mes cargadas en la línea
+ * @returns {{ value: number|null, hint: string }}
+ */
+export function laborHourStat(line, normalHours) {
+  const p = line && line.perPerson ? line.perPerson : null;
+  const normal = `Costo por mes ÷ ${formatNumber(Number.isFinite(normalHours) ? normalHours : 0, { decimals: 2 })} horas normales por mes.`;
+  if (!p) return { value: null, hint: normal };
+  if (!line.timeBasis) return { value: p.loadedHourlyCost, hint: normal };
+  const own = Boolean(p.ownBillableHours);
+  return {
+    value: p.billableHourlyCost,
+    hint: own ? `Costo por mes ÷ ${formatNumber(p.billableHoursPerMonth, { decimals: 2 })} horas que le cobrás a clientes por mes.` : normal,
+  };
+}
+
+/**
+ * Tenerlo y usarlo, de un equipo propio por tiempo usado (2026-11-18):
+ *   "Tenerlo: $ 95.000 por día de trabajo (8 h × $ 11.875 la hora) · usarlo: $ 40.000 por día de trabajo"
+ * '' si la línea no es por tiempo usado. Sólo texto: los montos son los del motor.
+ */
+export function timeEquipmentUseText(line) {
+  if (!line || !line.timeBasis || !line.time) return '';
+  const t = line.time;
+  const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? ` × ${n2(line.quantity)} unidades` : '';
+  return `Tenerlo: ${formatMoney(line.ownershipPerActiveDay)} por día de trabajo (${n2(t.hoursPerDay)} h × ${formatMoney(t.hourlyCost)} la hora${units}) · usarlo: ${formatMoney(line.variablePerActiveDay)} por día de trabajo`;
+}
+
+/** "horas que lo usás o alquilás por mes" / "horas por mes (si trabaja todo el mes a este ritmo)". */
+function equipmentHoursNoun(t) {
+  return t && t.ownBillableHours ? 'horas que lo usás o alquilás por mes' : 'horas por mes (si trabaja todo el mes a este ritmo)';
+}
+
+/** "Tenerlo en el mes $ 2.090.000 ÷ 220 horas por mes (…) × 8 h del día de trabajo" (o ''). */
+export function timeEquipmentOwnershipHint(line) {
+  if (!line || !line.timeBasis || !line.time || !line.ownership) return '';
+  const t = line.time;
+  const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? ` × ${n2(line.quantity)} unidades` : '';
+  return `Tenerlo en el mes ${formatMoney(line.ownership.totalMonthly)} ÷ ${n2(t.billableHoursPerMonth)} ${equipmentHoursNoun(t)} × ${n2(t.hoursPerDay)} h del día de trabajo${units}.`;
+}
+
+/** "Tenerlo en el mes $ 2.090.000 ÷ 220 horas por mes (…), por unidad." (o ''): la hora de tenerlo (I7). */
+export function timeEquipmentHourHint(line) {
+  if (!line || !line.timeBasis || !line.time || !line.ownership) return '';
+  const t = line.time;
+  const unit = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? ', por unidad' : '';
+  return `Tenerlo en el mes ${formatMoney(line.ownership.totalMonthly)} ÷ ${n2(t.billableHoursPerMonth)} ${equipmentHoursNoun(t)}${unit}.`;
+}
+
+/**
+ * Equipo propio por tiempo usado en precio cerrado (M1, 2026-11-18), con los montos del motor:
+ *   "Tenerlo: 8 h × 3 días × $ 2.367 la hora = $ 56.818 · usarlo (combustible y mantenimiento): $ 360.000 · en el trabajo"
+ * '' si no es por tiempo usado, no es precio cerrado o todavía no hay días.
+ */
+export function timeEquipmentJobText(r, line) {
+  if (!r || !line || !line.timeBasis || !line.time) return '';
+  const jobs = closedJobsPerMonth(r);
+  const D = r.activity ? r.activity.activeDaysPerMonth || 0 : 0;
+  if (jobs === null || !(jobs > 0) || !(D > 0)) return '';
+  const days = D / jobs;
+  const t = line.time;
+  const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? `${n2(line.quantity)} unidades × ` : '';
+  return `Tenerlo: ${units}${n2(t.hoursPerDay)} h × ${daysCountText(days)} × ${formatMoney(t.hourlyCost)} la hora = ${formatMoney((line.ownershipPerActiveDay || 0) * days)} · usarlo (combustible y mantenimiento): ${formatMoney((line.variablePerActiveDay || 0) * days)} · en el trabajo`;
+}
+
+/**
+ * Total de Equipos por tiempo usado (M3): "$ 416.818 en el trabajo: tenerlos $ 56.818 + usarlos $ 360.000."
+ * o, sin precio cerrado, "$ X por día de trabajo: tenerlos $ A + usarlos $ B." `total` es el valor
+ * que ya muestra la pantalla en el trabajo (con lo que sumen los externos); '' si no corresponde.
+ */
+export function timeEquipmentTotalText(r, total = null) {
+  const m = r && r.model;
+  if (!m || !m.timeBasis || !Array.isArray(m.equipment)) return '';
+  if (m.equipment.reduce((acc, e) => acc + (e.fixedMonthly || 0), 0) > 0.005) return '';
+  const own = m.equipment.reduce((acc, e) => acc + (e.timeBasis ? e.ownershipPerActiveDay || 0 : 0), 0);
+  const use = m.equipment.reduce((acc, e) => acc + (e.variablePerActiveDay || 0), 0);
+  const jobs = closedJobsPerMonth(r);
+  const D = r.activity ? r.activity.activeDaysPerMonth || 0 : 0;
+  if (jobs !== null && jobs > 0 && D > 0) {
+    const job = Number.isFinite(total) ? total : ((own + use) * D) / jobs;
+    const ownJob = (own * D) / jobs;
+    return `${formatMoney(job)} en el trabajo: tenerlos ${formatMoney(ownJob)} + usarlos ${formatMoney(job - ownJob)}.`;
+  }
+  return `${formatMoney(own + use)} por día de trabajo: tenerlos ${formatMoney(own)} + usarlos ${formatMoney(use)}.`;
+}
+
+/**
+ * "Personal: 1 persona × 24 h × $ 12.446 la hora" (I8, 2026-11-18): cada puesto por tiempo usado con
+ * sus horas en el trabajo (precio cerrado) o por día ("× 8 h por día"). Sólo multiplica las horas que
+ * ya muestra la pantalla; el valor de la hora es el del motor. '' si la línea no es por tiempo usado.
+ */
+export function timeStaffHoursText(r, line) {
+  if (!r || !line || !line.timeBasis || !line.time) return '';
+  return `${peopleText(line.positions || 0)} × ${jobHoursText(r, line.time.hoursPerDay)} × ${formatMoney(line.time.hourlyCost)} la hora`;
+}
+
+/** "Generador: 24 h × $ 2.367 la hora" (I8): un equipo propio por tiempo usado ('' si no). */
+export function timeEquipmentHoursText(r, line) {
+  if (!r || !line || !line.timeBasis || !line.time) return '';
+  const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? `${n2(line.quantity)} unidades × ` : '';
+  return `${line.name || 'Equipo'}: ${units}${jobHoursText(r, line.time.hoursPerDay)} × ${formatMoney(line.time.hourlyCost)} la hora`;
+}
+
+/** "24 h" (horas del trabajo, precio cerrado) o "8 h por día". */
+function jobHoursText(r, hoursPerDay) {
+  const jobs = closedJobsPerMonth(r);
+  const D = r.activity ? r.activity.activeDaysPerMonth || 0 : 0;
+  if (jobs !== null && jobs > 0 && D > 0) return `${n2((hoursPerDay || 0) * (D / jobs))} h`;
+  return `${n2(hoursPerDay || 0)} h por día`;
+}
+
+/** Lo de cada día de trabajo de un equipo: operación y, por tiempo usado, también tenerlo. */
+export function equipmentPerActiveDay(line) {
+  if (!line) return 0;
+  return (line.variablePerActiveDay || 0) + (line.timeBasis ? line.ownershipPerActiveDay || 0 : 0);
 }

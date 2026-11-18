@@ -69,6 +69,7 @@
 import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide } from '../core/money.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
+import { billableHoursOf } from '../domain/cost-basis.js';
 import { computeRotation, hasRotation } from './rotation-engine.js';
 
 /** ¿La línea carga la nómina total (`payrollHeadcount` > 0) en vez de personas por posición? */
@@ -134,7 +135,7 @@ export function overtimeItemsOf(line = {}) {
  * Calcula el costo de una línea de personal.
  * @param {object} line
  */
-export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}) {
+export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeBasis = false, hoursPerActiveDay = 0, activeDaysPerMonth = 0 } = {}) {
   const positions = nonNegative(line.positions);
   const payrollMode = hasPayrollHeadcount(line);
   const peoplePerPosition = laborPeoplePerPositionOf(line);
@@ -206,8 +207,23 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
 
   const loadedHourlyCost = safeDivide(fixedMonthlyPerPerson, normalHours, null);
   // % del costo fijo asignado a esta cotización (100 % si no se comparte).
-  const allocation = fixedCostShareOf(line);
-  const assignedFixedPerPerson = allocation.shared ? fixedMonthlyPerPerson * allocation.share : fixedMonthlyPerPerson;
+  // Por tiempo usado (2026-11-18): no hay % asignado; el puesto cuesta sus horas en el trabajo.
+  const allocation = timeBasis ? { assignment: null, shared: false, sharePct: 100, share: 1, missing: false } : fixedCostShareOf(line);
+  const assignedFixedPerPerson = timeBasis ? 0 : allocation.shared ? fixedMonthlyPerPerson * allocation.share : fixedMonthlyPerPerson;
+  // Horas por día de cada persona en el trabajo: las suyas (o su turno viejo) si son menos que
+  // las del servicio; si no, las del servicio (misma regla que las horas extra del trabajo).
+  const serviceHours = Math.min(nonNegative(hoursPerActiveDay), 24);
+  const ownHours = nonNegative(line.coverageHoursPerDay) > 0
+    ? nonNegative(line.coverageHoursPerDay)
+    : line.rotation && typeof line.rotation === 'object' ? nonNegative(line.rotation.hoursPerShift) : 0;
+  const timeHoursPerDay = ownHours > 0 ? Math.min(ownHours, serviceHours) : serviceHours;
+  const billableHours = billableHoursOf(line, normalHours);
+  // Hora para cotizar por tiempo usado: costo del mes ÷ horas que de verdad se venden por mes.
+  const billableHourlyCost = safeDivide(fixedMonthlyPerPerson, billableHours, null);
+  const timeHourlyCost = timeBasis ? billableHourlyCost ?? 0 : 0;
+  // En un día de trabajo trabaja una persona por posición.
+  const timePerActiveDay = timeHourlyCost * timeHoursPerDay * positions;
+  const timeHeadcountPerActiveDay = timeBasis ? safeDivide(timeHoursPerDay * positions, billableHours, 0) : 0;
 
   return {
     id: line.id ?? null,
@@ -222,11 +238,17 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
     shared: allocation.shared,
     fixedCostSharePct: allocation.sharePct,
     shareMissing: allocation.missing,
-    // Dotación equivalente (estructura por empleado): personas × % asignado.
-    effectiveHeadcount: allocation.shared ? headcount * allocation.share : headcount,
+    // Dotación equivalente (estructura por empleado): personas × % asignado; por tiempo usado,
+    // la parte del mes facturable que les ocupa el trabajo con los días estimados.
+    effectiveHeadcount: timeBasis ? timeHeadcountPerActiveDay * nonNegative(activeDaysPerMonth) : allocation.shared ? headcount * allocation.share : headcount,
+    // Por tiempo usado (2026-11-18): valor de la hora, horas por día y costo por día de trabajo.
+    timeBasis: timeBasis === true,
+    time: timeBasis
+      ? { billableHoursPerMonth: billableHours, ownBillableHours: billableHours !== normalHours, hourlyCost: timeHourlyCost, hoursPerDay: timeHoursPerDay, perActiveDay: timePerActiveDay, headcountPerActiveDay: timeHeadcountPerActiveDay }
+      : null,
     // Costo fijo completo (100 %) y la parte que tiene que cubrir otro servicio.
     fullFixedMonthly: (fixedMonthlyPerPerson + overtimeMonthlyPerPerson) * headcount,
-    unassignedFixedMonthly: (fixedMonthlyPerPerson - assignedFixedPerPerson) * headcount,
+    unassignedFixedMonthly: timeBasis ? 0 : (fixedMonthlyPerPerson - assignedFixedPerPerson) * headcount,
     perPerson: {
       basic,
       additionals,
@@ -246,6 +268,10 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
       hourlyBase,
       overtimeHourly,
       loadedHourlyCost,
+      // Horas facturables por mes (las cargadas en el recurso o las normales) y la hora que sale con ellas.
+      billableHoursPerMonth: billableHours,
+      ownBillableHours: billableHours !== normalHours,
+      billableHourlyCost,
       // Tarifas de referencia de la persona (PLAN-2026-025): lo que cuesta UNA hora extra con el
       // recargo habitual (50 % y 100 %, valores de partida editables en los tramos) y con cargas.
       // Base: básico + adicionales remunerativos (la hora extra se liquida sobre el sueldo habitual).
@@ -273,7 +299,7 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null } = {}
       }
       : null,
     fixedMonthly: (assignedFixedPerPerson + overtimeMonthlyPerPerson) * headcount,
-    variablePerActiveDay: variablePerActiveDayPerPosition * positions,
+    variablePerActiveDay: variablePerActiveDayPerPosition * positions + timePerActiveDay,
     hoursPerMonth: normalHours * headcount,
   };
 }
@@ -288,6 +314,10 @@ export function computeLabor(lines = [], ctx = {}) {
     positions: results.reduce((s, r) => s + r.positions, 0),
     fixedMonthly: results.reduce((s, r) => s + r.fixedMonthly, 0),
     variablePerActiveDay: results.reduce((s, r) => s + r.variablePerActiveDay, 0),
+    // Por tiempo usado: la parte del variable que es el tiempo de la gente, y su dotación equivalente por día.
+    timeBasis: ctx.timeBasis === true,
+    timePerActiveDay: results.reduce((s, r) => s + (r.time ? r.time.perActiveDay : 0), 0),
+    timeHeadcountPerActiveDay: results.reduce((s, r) => s + (r.time ? r.time.headcountPerActiveDay : 0), 0),
     hoursPerMonth: results.reduce((s, r) => s + r.hoursPerMonth, 0),
   };
 }

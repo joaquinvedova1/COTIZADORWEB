@@ -49,6 +49,7 @@ import { emptyBase } from '../../domain/economic-base.js';
 import { createExternalTerms, createEquipmentMobility, acquisitionOf } from '../../domain/quote-factory.js';
 import { externalFiscal } from '../../engines/external-engine.js';
 import { baseTag, baseFormFields } from '../economic-base-ui.js';
+import { BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT, BILLABLE_OVER_NORMAL_NOTE } from '../result-text.js';
 import { CURRENCY } from '../../config.js';
 import { laborLoadFactor } from '../../engines/labor-engine.js';
 import { computeMaterialLine } from '../../engines/materials-engine.js';
@@ -601,11 +602,13 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
     },
     {
       // PLAN-2026-026: el valor de la hora (normal, al 50 % y al 100 %) es de cada recurso.
-      title: 'Valor de la hora (normal, al 50 % y al 100 %)',
+      title: 'Valor de la hora (normal, para cotizar, al 50 % y al 100 %)',
       hint: 'Lo que te cuesta una hora de esta persona, con cargas. RATEOS lo calcula con el sueldo; si tu convenio paga otro valor, escribilo y se usa ése. Lo habitual: al 50 % los días de semana después del horario y el sábado a la mañana; al 100 % el sábado a la tarde, domingos y feriados (depende de cada convenio).',
       cols: 3,
       fields: [
         { key: 'normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h', hint: 'Las horas que trabaja en un mes normal (por ejemplo 176 = 8 h × 22 días). Con esto sale el valor de la hora.' },
+        // Horas que de verdad le cobra a clientes por mes (2026-11-18, M7): con ellas sale la hora para cotizar trabajos (tiempo usado).
+        { key: 'billableHoursPerMonth', label: BILLABLE_HOURS_LABEL, rule: 'hours', unit: 'h', nullable: true, placeholder: 'Igual a las normales', hint: BILLABLE_HOURS_HINT },
         { key: 'overtimeRate50', label: 'Hora al 50 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (abajo).' },
         { key: 'overtimeRate100', label: 'Hora al 100 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (abajo).' },
       ],
@@ -615,10 +618,15 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         // Un valor propio más bajo que la hora normal casi siempre es la hora "de bolsillo" del convenio, sin cargas.
         const low = (own, value) => own && p.loadedHourlyCost > 0 && value < p.loadedHourlyCost - 0.005;
         const note = (own, value, calc) => (low(own, value) ? 'Ojo: es menor que la hora normal. Cargá el costo con cargas sociales, no la hora del recibo.' : own ? 'Valor que cargaste' : calc);
-        return h('div', { class: 'hour-rates' },
+        // M7: más horas para clientes que las normales abaratan la hora para cotizar (son horas extra).
+        const over = p.ownBillableHours && p.billableHoursPerMonth > toNumber(draft.normalHoursPerMonth, 0) + 1e-9 && toNumber(draft.normalHoursPerMonth, 0) > 0;
+        const rates = h('div', { class: 'hour-rates' },
           cell('Hora normal', p.loadedHourlyCost, 'Costo del mes ÷ horas normales'),
           cell('Hora al 50 %', p.overtimeHourlyCost50, note(p.overtimeRate50Own, p.overtimeHourlyCost50, 'Calculada: hora de sueldo × 1,5, con cargas')),
-          cell('Hora al 100 %', p.overtimeHourlyCost100, note(p.overtimeRate100Own, p.overtimeHourlyCost100, 'Calculada: hora de sueldo × 2, con cargas')));
+          cell('Hora al 100 %', p.overtimeHourlyCost100, note(p.overtimeRate100Own, p.overtimeHourlyCost100, 'Calculada: hora de sueldo × 2, con cargas')),
+          // Hora para cotizar trabajos (tiempo usado): costo del mes ÷ horas que vende. Igual a la normal si no las cargó.
+          cell('Hora para cotizar', p.ownBillableHours ? p.billableHourlyCost : p.loadedHourlyCost, p.ownBillableHours ? 'Costo del mes ÷ horas que le cobrás a clientes' : 'Igual a la hora normal (no cargaste horas para clientes)'));
+        return over ? h('div', {}, rates, h('p', { class: 'hour-rates-warning', role: 'status' }, BILLABLE_OVER_NORMAL_NOTE)) : rates;
       } : null,
     },
     {
@@ -660,6 +668,7 @@ function newLaborProfile(agreements) {
     overtimePremiumPct: params.overtimePremiumPct,
     overtimeRate50: null,
     overtimeRate100: null,
+    billableHoursPerMonth: null,
     sacPct: params.sacPct,
     vacationPct: params.vacationPct,
     employerContributionsPct: params.employerContributionsPct,

@@ -48,6 +48,7 @@ import { outputPerActiveDayOf, outputMatchesBilling, normalizeBasisId } from './
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf, resourceOvertimeHoursOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
+import { usesTimeBasis } from '../domain/cost-basis.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
 
@@ -248,6 +249,28 @@ export function evaluateCompleteness(quote = {}) {
   // Los avisos citan el rótulo del campo tal como se ve en "Cómo se cobra".
   const activityHoursLabel = 'Horas por día de trabajo';
   const hoursMessage = `Cobrás por hora y falta "${activityHoursLabel}": sin horas no hay unidades facturables ni tarifa.`;
+  // Por tiempo usado (2026-11-18): el personal y los equipos propios cuestan sus HORAS en el trabajo.
+  // Sin horas por día (o sin horas del mes del puesto) su costo queda en $ 0: se pide en rojo.
+  if (usesTimeBasis(quote)) {
+    const laborLines = objectList(quote.labor);
+    const ownEquipment = objectList(quote.equipment).filter((e) => e.acquisition !== 'rented' && e.acquisition !== 'outsourced' && nonNegative(e.quantity) > 0);
+    const working = laborLines.some((l) => nonNegative(l.positions) > 0) || ownEquipment.length > 0;
+    if (working && !hoursMissing && !(Math.min(nonNegative(activity.hoursPerActiveDay), 24) > 0)) {
+      const item = rule('time_hours', activityHoursLabel, 'modality', 2, 'missing',
+        `Falta "${activityHoursLabel}": tu gente y tus equipos se cobran por las horas que les lleva el trabajo. Sin horas, su costo queda en $ 0.`);
+      item.focus = 'activity.hoursPerActiveDay';
+      items.push(item);
+    }
+    const noHour = laborLines.findIndex((l) => nonNegative(l.positions) > 0 && (nonNegative(l.basicMonthly) + nonNegative(l.additionalsMonthly)) > 0
+      && !(nonNegative(l.billableHoursPerMonth) > 0) && !(nonNegative(l.normalHoursPerMonth) > 0));
+    if (noHour >= 0) {
+      const name = (typeof laborLines[noHour].role === 'string' && laborLines[noHour].role.trim()) || 'Puesto';
+      const item = rule('time_hour_value', 'Valor de la hora', 'labor', 2, 'missing',
+        `"${name}" no tiene horas normales por mes: sin ellas no sale el valor de su hora y su costo queda en $ 0.`);
+      item.focus = `labor.${noHour}.normalHoursPerMonth`;
+      items.push(item);
+    }
+  }
   if (unit.kind === 'quantity' || unit.kind === 'event') {
     const qOk = nonNegative(activity.billableQuantityPerMonth) > 0;
     const yieldOk = unit.kind !== 'quantity' || nonNegative(activity.unitsPerActiveDay) > 0;
@@ -402,7 +425,10 @@ export function evaluateCompleteness(quote = {}) {
   const owHoursPerPerson = ow.mode === 'some'
     ? (ow.hours50 + ow.hours100) * (ow.perMonth ? mf : act.daysPerActivation > 0 ? D / act.daysPerActivation : D)
     : 0;
-  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode !== 'all') {
+  // Por tiempo usado (§29): el costo sale de las horas del trabajo, no de la cobertura mensual del
+  // sueldo; este control no aplica (queda el tope de horas por día por persona, abajo).
+  const timeBasisHours = usesTimeBasis(quote);
+  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode !== 'all' && !timeBasisHours) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
     const short = labor.map((l, index) => {
       const normal = nonNegative(l.normalHoursPerMonth);
@@ -439,7 +465,7 @@ export function evaluateCompleteness(quote = {}) {
   // N5 (verificación 2026-11): con "todo el trabajo" las horas que faltan se pagan como hora
   // extra, pero hay un tope físico: si cada persona tendría que trabajar más de
   // MAX_HOURS_PER_PERSON_DAY h por día (p. ej. 1 persona 24 h por día), se avisa igual.
-  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode === 'all') {
+  if (labor.length > 0 && D > 0 && !activeGuard && (ow.mode === 'all' || timeBasisHours)) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
     const over = labor.map((l, index) => {
       const hours = coverageOf(l);
@@ -454,7 +480,7 @@ export function evaluateCompleteness(quote = {}) {
       const others = over.length > 1 ? ` También: ${over.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const who = Math.abs(first.ppp - 1) < 1e-9 ? '1 persona' : `${fmt(first.ppp)} personas que se turnan`;
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
-        `"${name}": ${fmt(first.hours)} h por día con ${who} son ${fmt(first.perPerson)} h por día por persona. Las horas extra de "todo el trabajo" se pagan, pero nadie trabaja más de ${MAX_HOURS_PER_PERSON_DAY} h por día todos los días: sumá personas que se turnen o bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.hours !== H)}`);
+        `"${name}": ${fmt(first.hours)} h por día con ${who} son ${fmt(first.perPerson)} h por día por persona. ${ow.mode === 'all' ? 'Las horas extra de "todo el trabajo" se pagan, pero nadie' : 'Nadie'} trabaja más de ${MAX_HOURS_PER_PERSON_DAY} h por día todos los días: sumá personas que se turnen o bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.hours !== H)}`);
       item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : isSimpleStaff(first.l) ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = over.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
@@ -915,7 +941,7 @@ export function evaluateCompleteness(quote = {}) {
 
   // 9c''ter. % de dedicación viejo (V-11): el % cargado en una línea compartida ya no coincide
   // con los días y las horas de ahora (más de 5 puntos). No se recalcula solo: se avisa.
-  if (contract.mode !== 'monthly') {
+  if (contract.mode !== 'monthly' && !usesTimeBasis(quote)) {
     const stale = staleDedicationOf(quote, { activeDaysPerMonth: D, hoursPerActiveDay: H });
     if (stale) {
       const item = rule('dedication_stale', 'Dedicación de tu gente y tus equipos', 'modality', 1, 'warning', staleDedicationMessage(stale));
@@ -1203,7 +1229,8 @@ export function evaluateCompleteness(quote = {}) {
   // Recursos compartidos: el resto del costo fijo lo cubre otro servicio.
   const sharedNotice = (line, list, index, fallback) => {
     const share = fixedCostShareOf(line);
-    if (!share.shared || share.missing || share.sharePct >= 100) return;
+    // Por tiempo usado el % no rige: no se avisa.
+    if (usesTimeBasis(quote) || !share.shared || share.missing || share.sharePct >= 100) return;
     notices.push({
       id: 'shared_fixed',
       step: list,
@@ -1238,8 +1265,8 @@ export function evaluateCompleteness(quote = {}) {
       step: 'margin',
       severity: 'info',
       label: 'Disponibilidad sin cobrar',
+      // Sin "Ir al campo": el fijo de guardia ya no se carga en cotizaciones nuevas (regla de un ítem).
       message: 'Estar de guardia también cuesta: cubrilo en la tarifa (un solo precio).',
-      focus: 'rules.availabilityFeeMonthly',
     });
   }
   // Puesto con sueldo y 0 posiciones: no suma costo (Test Lab, PLAN-2026-013).

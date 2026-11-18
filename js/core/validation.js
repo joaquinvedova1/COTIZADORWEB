@@ -125,6 +125,8 @@ export function validateQuote(quote) {
   /** Recurso compartido (PLAN-2026-012): sin % no se reduce nada (100 %), pero se pide. */
   const checkShare = (base, line) => {
     if (line.assignment !== 'shared') return;
+    // Por tiempo usado (cotizaciones nuevas que no se cobran por mes) el % no rige: no se pide.
+    if (quote.costBasis === 'time' && quote.unit !== 'month') return;
     const raw = line.fixedCostSharePct;
     if (raw === null || raw === undefined || raw === '') {
       issues.push({ path: `${base}.fixedCostSharePct`, message: 'Cargá qué % de su costo fijo asignás a esta cotización: mientras tanto se toma el 100 %.', severity: 'error' });

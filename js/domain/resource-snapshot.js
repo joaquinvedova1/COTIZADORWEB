@@ -34,6 +34,8 @@ export const SNAPSHOT_FIELDS = Object.freeze({
     'insuranceMonthly', 'ppeMonthly', 'trainingMonthly', 'transferMonthly',
     // Valor propio de la hora al 50 % y al 100 % (PLAN-2026-026; null = calculado).
     'overtimeRate50', 'overtimeRate100',
+    // Horas facturables por mes (2026-11-18; null = las normales).
+    'billableHoursPerMonth',
   ]),
   equipment: Object.freeze([
     'replacementValue', 'usefulLifeYears', 'residualValue', 'insuranceAnnual', 'licenseAnnual', 'certificationsAnnual',
@@ -126,7 +128,7 @@ export function snapshotValuesFromLine(type, line = {}) {
   const values = Object.fromEntries(fields.map((f) => [f, num(l[f])]));
   // Valor propio de la hora extra: sólo si está cargado (las huellas anteriores quedan iguales).
   if (type === 'laborProfiles') {
-    ['overtimeRate50', 'overtimeRate100'].forEach((k) => {
+    ['overtimeRate50', 'overtimeRate100', 'billableHoursPerMonth'].forEach((k) => {
       if (!(values[k] > 0)) delete values[k];
     });
   }

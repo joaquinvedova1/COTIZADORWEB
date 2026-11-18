@@ -118,7 +118,9 @@ export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { c
     const headcount = nonNegative(l.headcount, people);
     const normalPerPerson = safeDivide(nonNegative(l.hoursPerMonth), headcount, 0);
     const share = l.shared && !l.shareMissing ? nonNegative(l.fixedCostSharePct) / 100 : 1;
-    const paidHoursPerMonth = normalPerPerson * share * safeDivide(headcount, people, 1);
+    // Por tiempo usado (2026-11-18): cada hora del trabajo ya está en el costo a valor normal, así
+    // que todas llevan sólo el recargo (no hay tope de horas pagas por el sueldo).
+    const paidHoursPerMonth = l.timeBasis ? Infinity : normalPerPerson * share * safeDivide(headcount, people, 1);
     perRole.push({
       index: i,
       role: l.role || '',

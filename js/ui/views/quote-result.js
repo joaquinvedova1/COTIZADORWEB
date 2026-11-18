@@ -115,6 +115,9 @@ import {
   unreliableItems,
   unreliableText,
   breakEvenZeroText,
+  timeBasisWithoutFixed,
+  timeStaffHoursText,
+  timeEquipmentHoursText,
   termsOfResult,
   illustrativeTitle,
   illustrativeBadgeText,
@@ -1276,7 +1279,7 @@ function heroKnownRate(v) {
     sentence,
     rateOk ? lossWindowNote(r, D) : null,
     h('div', { class: 'qr-hero' },
-      byQty(v) ? heroItem({
+      byQty(v) && !timeBasisWithoutFixed(r) ? heroItem({
         label: unitTextsOf(r).breakEvenLabel,
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || quantityCeilText(be.quantity, r) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? (breakEvenZeroText(r) || `Por mes, ${atRateText(v)} (${workDaysText(be.days, { decimals: 2 })}).`) : be.reason || null,
@@ -1284,7 +1287,7 @@ function heroKnownRate(v) {
         tone: be.reachable && hasValue(D) ? beTone(r, D, be) : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
       }) : null,
-      byQty(v) ? null : heroItem({
+      byQty(v) || timeBasisWithoutFixed(r) ? null : heroItem({
         label: 'Días mínimos para no perder plata',
         value: be.reachable ? breakEvenZeroText(r, { compact: true }) || wholeDays(be.wholeDays) : rateOk ? noDays : EMPTY,
         hint: be.reachable ? (breakEvenZeroText(r) || `Break-even exacto: ${formatDays(be.days)} por mes, ${atRateText(v)}.`) : be.reason || null,
@@ -1292,7 +1295,8 @@ function heroKnownRate(v) {
         tone: be.reachable && hasValue(D) ? beTone(r, D, be) : rateOk && !be.notApplicable ? 'red' : null,
         big: true,
       }),
-      heroItem({
+      // I5: por tiempo usado sin costos fijos el margen no depende de cuánto se trabaje: no hay días para lograrlo.
+      timeBasisWithoutFixed(r) ? null : heroItem({
         label: byQty(v) ? `${capitalizeUnitPhrase(r.unitInfo.plural)} para lograr el margen objetivo (${pct(k.targetMarginPct)})` : `Días para lograr el margen objetivo (${pct(k.targetMarginPct)})`,
         value: tm.reachable ? (byQty(v) ? quantityCeilText(tm.quantity, r) : wholeDays(tm.wholeDays)) : rateOk ? noDays : EMPTY,
         hint: tm.reachable ? (byQty(v) ? `${workDaysText(tm.days, { decimals: 2 })}.` : `Exacto: ${formatDays(tm.days)}.`) : tm.reason || null,
@@ -1444,8 +1448,8 @@ function kpiGrid(v) {
   // Precio cerrado (Joaco 2026-11-18): lo del trabajo (lo del mes ÷ trabajos por mes), como el "Total del trabajo".
   const jobsPerMonth = closedJobsPerMonth(v.r);
   items.push(jobsPerMonth !== null
-    ? kpiItem({ label: 'Costo del trabajo', value: money(k.totalCost / jobsPerMonth), hint: Math.abs(jobsPerMonth - 1) < 1e-9 ? `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}` : `Lo del mes (${money(k.totalCost)}: fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}) ÷ ${formatNumber(jobsPerMonth, { decimals: 2 })} trabajos`, trace: costTrace(v) })
-    : kpiItem({ label: 'Costo del mes', value: money(k.totalCost), hint: `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: costTrace(v) }));
+    ? kpiItem({ label: 'Costo del trabajo', value: money(k.totalCost / jobsPerMonth), hint: timeBasisWithoutFixed(r) ? 'Horas de tu gente y tus equipos en el trabajo, más lo de cada día.' : Math.abs(jobsPerMonth - 1) < 1e-9 ? `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}` : `Lo del mes (${money(k.totalCost)}: fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}) ÷ ${formatNumber(jobsPerMonth, { decimals: 2 })} trabajos`, trace: costTrace(v) })
+    : kpiItem({ label: 'Costo del mes', value: money(k.totalCost), hint: timeBasisWithoutFixed(r) ? 'Horas de tu gente y tus equipos en los días del mes, más lo de cada día.' : `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: costTrace(v) }));
 
   // "Calcular la tarifa" ya muestra piso y objetivo en el bloque principal;
   // "Ya tengo la tarifa" no, así que van acá (en base de lista).
@@ -1502,7 +1506,8 @@ function kpiGrid(v) {
         tone: view.tone,
         trace: cap ? traceMonthlyCap(v, cap) : null,
       }));
-    } else {
+    } else if (!timeBasisWithoutFixed(r)) {
+      // Por tiempo usado sin costos fijos no hay break-even que mostrar (2026-11-18).
       let beValue = EMPTY;
       if (be.reachable) beValue = breakEvenZeroText(r, { compact: true }) || (closedBreakEvenText(v, be) ? quantityText(be.wholeQuantity, r) : byQty(v) ? quantityCeilText(be.quantity, r) : formatDays(be.days));
       else if (be.notApplicable) beValue = 'No aplica';
@@ -1557,7 +1562,9 @@ function renderResultDetail(v) {
   return card(
     {
       title: mode === 'known_rate' ? '¿Me conviene esta tarifa? Todos los indicadores' : '¿Cuánto tengo que cobrar? Todos los indicadores',
-      subtitle: mode === 'known_rate'
+      subtitle: mode === 'known_rate' && timeBasisWithoutFixed(r)
+        ? `"${labelOf(PRICING_MODES, 'known_rate', 'Ya tengo la tarifa')}": si tu tarifa cubre los costos y deja el margen que buscás.`
+        : mode === 'known_rate'
         ? (r.unit === 'month'
           ? `"${labelOf(PRICING_MODES, 'known_rate', 'Ya tengo la tarifa')}": cuántos días podés trabajar con este abono sin perder.`
           : byQty(v)
@@ -1960,6 +1967,15 @@ function staffBlock(v) {
   const lines = ((labor && labor.lines) || []).filter((l) => l && l.positions > 0);
   if (!lines.length) return null;
   const total = { positions: labor.positions, headcount: labor.headcount };
+  // I8 (2026-11-18): por tiempo usado, cada puesto con sus horas y el valor de su hora; y los equipos propios.
+  if (lines.some((l) => l.timeBasis && l.time)) {
+    const one = (l) => timeStaffHoursText(v.r, l) || staffText(l);
+    const text = lines.length > 1 ? `${staffText(total)} (${lines.map((l) => `${l.role || 'Puesto'}: ${one(l)}`).join('; ')})` : one(lines[0]);
+    const equipment = ((v.r.model && v.r.model.equipment) || []).map((e) => timeEquipmentHoursText(v.r, e)).filter(Boolean);
+    return h('div', {},
+      h('p', { class: 'qr-note qr-staff' }, h('strong', {}, 'Personal: '), `${text}.`),
+      equipment.length ? h('p', { class: 'qr-note qr-staff' }, h('strong', {}, 'Equipos propios: '), `${equipment.join('; ')}.`) : null);
+  }
   const detail = lines.length > 1 ? ` (${lines.map((l) => `${l.role || 'Puesto'}: ${staffText(l)}`).join('; ')})` : '';
   return h('p', { class: 'qr-note qr-staff' }, h('strong', {}, 'Personal: '), `${staffText(total)}${detail}.`);
 }
@@ -1984,7 +2000,8 @@ function renderSummary(v) {
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. La ganancia es antes del impuesto a las Ganancias.'),
     tariffsBlock(v),
     // Precio cerrado: "¿Cuántos trabajos tengo que facturar?" no aplica (un precio por el trabajo).
-    closedOf(v).closed ? null : workBlock(v),
+    // Por tiempo usado sin costos fijos (2026-11-18) no hay días mínimos que cubrir: no se muestra.
+    closedOf(v).closed || timeBasisWithoutFixed(v.r) ? null : workBlock(v),
     transportBlock(v),
     alerts.length ? h('div', { class: 'qr-alerts' }, ...alerts) : null);
 }
@@ -2262,10 +2279,11 @@ function renderCostStructure(v) {
     { key: 'amount', label: closedOf(v).single ? abbrHeader('Monto trabajo', 'Monto en el trabajo') : abbrHeader('Monto mes', 'Monto mensual'), align: 'right', render: (row) => money(row.amount) },
     // Fijo y variable por separado (PLAN-2026-010): "monto ÷ días" incluía los fijos
     // y parecía un costo variable por día.
-    { key: 'fixedMonthly', label: closedOf(v).single ? abbrHeader('Fijo', 'Parte fija: se paga igual aunque el trabajo lleve menos días') : abbrHeader('Fijo del mes', 'Parte fija del mes: se paga igual aunque trabajes menos'), align: 'right', render: (row) => money(row.fixedMonthly) },
+    // I5 / M6: por tiempo usado sin costos fijos la columna "Fijo" sería toda $ 0: no se muestra.
+    timeBasisWithoutFixed(r) ? null : { key: 'fixedMonthly', label: closedOf(v).single ? abbrHeader('Fijo', 'Parte fija: se paga igual aunque el trabajo lleve menos días') : abbrHeader('Fijo del mes', 'Parte fija del mes: se paga igual aunque trabajes menos'), align: 'right', render: (row) => money(row.fixedMonthly) },
     { key: 'variablePerActiveDay', label: abbrHeader('Variable por día', 'Costo variable por día de trabajo: cambia con la actividad'), align: 'right', render: (row) => money(row.variablePerActiveDay) },
     { key: 'displayPct', label: abbrHeader('Incid. %', 'Incidencia sobre el costo total'), align: 'right', render: (row) => pct(row.displayPct) },
-  ];
+  ].filter(Boolean);
   const tbl = regionTable(v, {
     columns,
     rows,
@@ -2277,7 +2295,10 @@ function renderCostStructure(v) {
   const bars = barList(rows.map((row) => ({ label: row.label, value: row.displayPct })));
   return card(header,
     h('div', { class: 'qr-eecc' }, tbl, h('div', { class: 'qr-eecc-bars', 'aria-hidden': 'true' }, bars)),
-    note(`${closedOf(v).single ? `Monto en el trabajo = fijo${salaryMonthsAt(v.r) > 1 + 1e-9 ? ` de ${formatNumber(salaryMonthsAt(v.r), { decimals: 2 })} meses` : ''}` : 'Monto mes = fijo del mes'} + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo${k.activationRoundingCost > 0 ? ` + efecto del redondeo (${termsOfResult(v.r).many} ${termsOfResult(v.r).wholeMany})` : ''}. ${closedOf(v).single ? 'Fijos' : 'Fijos del mes'}: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`),
+    timeBasisWithoutFixed(r)
+      // M6 / I4: por tiempo usado no hay fijos ni meses de sueldo: todo sale de los días del trabajo.
+      ? note(`${closedOf(v).single ? 'Monto en el trabajo' : 'Monto mes'} = costo por día de trabajo × ${formatDays(k.activeDays, { decimals: 2 })}${k.activationRoundingCost > 0 ? ` + efecto del redondeo (${termsOfResult(v.r).many} ${termsOfResult(v.r).wholeMany})` : ''}. Tu gente y tus equipos propios cuestan sus horas en el trabajo × el valor de su hora. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`)
+      : note(`${closedOf(v).single ? `Monto en el trabajo = fijo${salaryMonthsAt(v.r) > 1 + 1e-9 ? ` de ${formatNumber(salaryMonthsAt(v.r), { decimals: 2 })} meses` : ''}` : 'Monto mes = fijo del mes'} + variable por día × ${formatDays(k.activeDays, { decimals: 2 })} de trabajo${k.activationRoundingCost > 0 ? ` + efecto del redondeo (${termsOfResult(v.r).many} ${termsOfResult(v.r).wholeMany})` : ''}. ${closedOf(v).single ? 'Fijos' : 'Fijos del mes'}: ${money(k.fixedCosts)} · variables: ${money(k.variableCosts)}. Equivalente por día al nivel estimado (incluye los fijos; no es un costo variable): ${money(k.costPerActiveDay)}. La incidencia se redondea a 2 decimales y suma exactamente 100 %.`),
     // PLAN-2026-011 / 014 (LAB-D1): salidas promedio, costeadas y efecto del redondeo.
     k.activationRoundingCost > 0
       ? (() => {
@@ -2901,7 +2922,7 @@ function renderDiscounts(v) {
     rows.length ? legend : null,
     r.unit !== 'month' && !byQty(v) && minActivity ? banner(minActivity, 'info', { title: 'Actividad mínima.' }) : null,
     body,
-    rows.length ? note(`Tarifas netas por ${v.unitLabel}. El tramo "1 día" muestra qué pasa si en el mes sólo se trabaja un día: los costos fijos recaen en ese único día. El ícono junto a cada tramo muestra el cálculo.`) : null,
+    rows.length ? note(`Tarifas netas por ${v.unitLabel}. El tramo "1 día" muestra qué pasa si en el mes sólo se trabaja un día${timeBasisWithoutFixed(v.r) ? '' : ': los costos fijos recaen en ese único día'}. El ícono junto a cada tramo muestra el cálculo.`) : null,
     continuityBlock(v),
   );
 }
@@ -2941,7 +2962,14 @@ function activityLabel(v) {
 
 /** Variables de la sensibilidad con el rótulo de actividad en la unidad comercial. */
 function sensVariables(v) {
-  return SENSITIVITY_VARIABLES.map((meta) => (meta.id === 'activityPct' ? { ...meta, label: activityLabel(v) } : meta));
+  // I5: un único trabajo cerrado por tiempo usado se hace o no: no hay "más o menos actividad".
+  const vars = singleTimeJob(v) ? SENSITIVITY_VARIABLES.filter((meta) => meta.id !== 'activityPct') : SENSITIVITY_VARIABLES;
+  return vars.map((meta) => (meta.id === 'activityPct' ? { ...meta, label: activityLabel(v) } : meta));
+}
+
+/** ¿Precio cerrado de un solo trabajo, por tiempo usado y sin costos fijos? (I5, 2026-11-18) */
+function singleTimeJob(v) {
+  return closedOf(v).single && timeBasisWithoutFixed(v.r);
 }
 
 function sensValue(kind, value, unitLabel) {
@@ -2977,7 +3005,9 @@ function deltaTone(better, value) {
  * trabajo quedan como dato).
  */
 function sensMetrics(v) {
-  return inQuoteUnit(v, sensMetricsRaw(v));
+  // Por tiempo usado sin costos fijos el break-even es siempre 0: la fila no dice nada (2026-11-18).
+  const raw = timeBasisWithoutFixed(v.r) ? sensMetricsRaw(v).filter((m) => m.key !== 'breakEvenDays' && m.key !== 'breakEvenQuantity') : sensMetricsRaw(v);
+  return inQuoteUnit(v, raw);
 }
 
 /**
@@ -3087,6 +3117,8 @@ function impactTable(v, rows) {
 function renderSensitivity(v) {
   const { q, settings, k } = v;
   const state = sliderStateFor(q.id);
+  // I5: sin el control de actividad, la actividad no varía (aunque haya quedado movida de antes).
+  if (singleTimeJob(v)) state.activityPct = 0;
   const tbody = h('tbody');
   const summary = h('p', { class: 'qr-sens-summary', role: 'status', 'aria-live': 'polite' });
   const activityHint = h('span', { class: 'qr-slider-extra' });
@@ -3269,8 +3301,12 @@ function describeScenario(deltas) {
 
 function renderScenarios(v) {
   const { q, settings } = v;
-  const config = settings.scenarios || DEFAULT_SCENARIOS;
-  const list = runScenarios(q, { settings });
+  const baseConfig = settings.scenarios || DEFAULT_SCENARIOS;
+  // I5: un único trabajo cerrado por tiempo usado se hace o no: los escenarios no varían la actividad.
+  const config = singleTimeJob(v)
+    ? { ...baseConfig, pessimistic: { ...(baseConfig.pessimistic || {}), activityPct: 0 }, optimistic: { ...(baseConfig.optimistic || {}), activityPct: 0 } }
+    : baseConfig;
+  const list = runScenarios(q, { settings: config === baseConfig ? settings : { ...settings, scenarios: config } });
   const byId = Object.fromEntries(list.map((sc) => [sc.id, sc]));
   const order = ['pessimistic', 'base', 'optimistic'].filter((id) => byId[id]);
   const metrics = inQuoteUnit(v, [
@@ -3279,12 +3315,16 @@ function renderScenarios(v) {
     { label: 'Margen', get: (sc) => pct(sc.marginPct) },
     { label: 'Resultado', get: (sc) => h('span', { class: hasValue(sc.profit) && hasValue(sc.commercialListRate) ? (sc.profit < -1e-6 ? 'qr-neg' : 'qr-pos') : null }, money(sc.profit)) },
     ...(byQty(v) ? [{ label: `${capitalizeUnitPhrase(v.r.unitInfo.plural)} por mes`, get: (sc) => quantityText(sc.billableQuantity, v.r) }] : []),
-    { label: 'Utilización', get: (sc) => `${pct(sc.utilizationPct, 1)} (${formatDays(sc.activeDays)})` },
+    // I5: por tiempo usado sin costos fijos la utilización no mueve el costo.
+    timeBasisWithoutFixed(v.r) ? null : { label: 'Utilización', get: (sc) => `${pct(sc.utilizationPct, 1)} (${formatDays(sc.activeDays)})` },
     { label: byQty(v) ? 'Facturación por día de trabajo' : 'Tarifa efectiva por día de trabajo', get: (sc) => money(sc.effectiveRatePerActiveDay) },
-    byQty(v)
-      ? { label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, get: (sc) => quantityCeilText(sc.breakEvenQuantity, v.r) }
-      : { label: 'Días para no perder plata (break-even)', get: (sc) => resultDays(sc.breakEvenDays) },
-  ]);
+    // Por tiempo usado sin costos fijos no hay break-even que comparar (2026-11-18).
+    timeBasisWithoutFixed(v.r)
+      ? null
+      : byQty(v)
+        ? { label: `${unitTextsOf(v.r).breakEvenLabel} (break-even)`, get: (sc) => quantityCeilText(sc.breakEvenQuantity, v.r) }
+        : { label: 'Días para no perder plata (break-even)', get: (sc) => resultDays(sc.breakEvenDays) },
+  ].filter(Boolean));
   const tbl = scrollRegion(v, h('div', { class: 'table-wrap' },
     h('table', { class: 'table qr-scenarios' },
       h('caption', { class: 'sr-only' }, 'Escenarios pesimista, base y optimista'),
@@ -3315,7 +3355,9 @@ function renderScenarios(v) {
     tbl,
     h('h4', {}, 'Supuestos de cada escenario'),
     assumptions,
-    note('Un aumento de actividad no supera los días disponibles del mes (si la base ya los supera, no se recorta). Sin variaciones, el escenario es idéntico a la base.'),
+    note(singleTimeJob(v)
+      ? 'Un trabajo se hace o no: los escenarios no cambian sus días, sólo los costos y el plazo de pago. Sin variaciones, el escenario es idéntico a la base.'
+      : 'Un aumento de actividad no supera los días disponibles del mes (si la base ya los supera, no se recorta). Sin variaciones, el escenario es idéntico a la base.'),
   );
 }
 
@@ -3667,9 +3709,9 @@ function traceIndexItems(v) {
       if (capTarget && capTarget.marginPct > 0) add(safe(() => traceMonthlyCap(v, capTarget)));
     }
   } else {
-    add(t.breakEven);
+    if (!timeBasisWithoutFixed(r)) add(t.breakEven);
     if (rateOk) {
-      add(safe(() => traceTargetMarginDays(v)));
+      if (!timeBasisWithoutFixed(r)) add(safe(() => traceTargetMarginDays(v)));
       add(safe(() => traceContribution(v)));
     }
   }
@@ -3679,6 +3721,8 @@ function traceIndexItems(v) {
   add(safe(() => traceCompleteness(v)));
   // Trazas que el motor agregue en el futuro también aparecen acá.
   const known = new Set(['totalCost', 'floorRate', 'targetRate', 'expectedResult', 'breakEven', 'financialCost', 'logistics']);
+  // I5: por tiempo usado sin costos fijos no hay días para el margen objetivo.
+  if (timeBasisWithoutFixed(r)) known.add('targetMarginDays');
   Object.entries(t).forEach(([key, trace]) => {
     if (!known.has(key)) add(trace);
   });
@@ -3832,7 +3876,8 @@ function deepDefinitions(v) {
         : 'Cuánto de cada $ de tarifa va a cada rubro, a impuestos y a ganancia; y el total del contrato.',
       build: () => [safeSection('Apropiación', () => renderAppropriation(v))],
     },
-    {
+    // I5: por tiempo usado sin costos fijos la tarifa no cambia con los días trabajados: la tabla no se muestra.
+    timeBasisWithoutFixed(v.r) ? null : {
       key: 'matrix',
       // En precio cerrado "según los trabajos del mes" es análisis, no la respuesta: va adentro.
       advanced: closedOf(v).closed,
@@ -3875,12 +3920,14 @@ function deepDefinitions(v) {
       key: 'traces',
       advanced: true,
       summary: 'Ver cálculo completo',
-      hint: byQty(v)
+      hint: timeBasisWithoutFixed(v.r)
+        ? 'Todos los indicadores (costo, tarifas, margen, contribución…) y cada fórmula.'
+        : byQty(v)
         ? `Todos los indicadores (${v.r.unitInfo.plural} para el margen objetivo, contribución, cantidad de equilibrio…) y cada fórmula.`
         : 'Todos los indicadores (días para el margen objetivo, contribución por día, break-even…) y cada fórmula.',
       build: () => [safeSection('Todos los indicadores', () => renderResultDetail(v)), safeSection('Cada fórmula, paso a paso', () => renderTraceIndex(v)), safeSection('Los números cierran', () => renderChecks(v))],
     },
-  ];
+  ].filter(Boolean);
 }
 
 /**

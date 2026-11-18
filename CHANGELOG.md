@@ -12,6 +12,20 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-18
+
+**Costo por tiempo usado (2026-11-18, pedido del dueño).** En una cotización NUEVA que no se cobra por mes, el personal y los equipos propios cuestan las horas que les lleva el trabajo por el valor de su hora, y ya no se pregunta "qué % de su costo fijo asignás a esta cotización" ni "¿trabajan sólo para este servicio?". Las cotizaciones guardadas no cambian ningún número (no tienen `costBasis`); cobrando por mes rige el método de siempre. Sin cambio de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §29](docs/CALCULATION_RULES.md).
+
+### Agregado
+
+- **`quote.costBasis = 'time'`** en las cotizaciones que crea la persona (en blanco o desde plantilla). Valor de la hora = costo del mes ÷ horas facturables por mes; costo = horas del trabajo × valor de la hora (personal: por posición; equipos propios: las horas del día de trabajo).
+- **Horas que vende por mes** (`billableHoursPerMonth`) en cada perfil de personal de Recursos, opcional: si la persona vende menos horas que las normales, cada hora cuesta más y el tiempo libre queda cubierto. Vacío = las horas normales. Los equipos propios usan las horas disponibles × la utilización esperada de su ficha.
+
+### Cambiado
+
+- **Trabajo puntual:** una instalación de 3 días ya no carga el mes entero del operario cuando no se contesta la dedicación (ej.: de 2.000.000 a 272.727 con un operario de 2.000.000 por mes y 176 h). Sólo en cotizaciones nuevas.
+- Estructura "por empleado", horas extra de todo el trabajo y "Usado en" siguen a las horas del trabajo en esas cotizaciones.
+
 **Regla de un ítem y unidad de cobro: correcciones de la auditoría (2026-11-18).** Cada cotización nueva da un solo ítem con un solo precio y habla en su unidad de cobro. Las cotizaciones guardadas conservan sus números, salvo dos correcciones de cálculo (abajo). Sin cambio de esquema. Detalle en [docs/CALCULATION_RULES.md §28.1–28.4](docs/CALCULATION_RULES.md).
 
 ### Corregido

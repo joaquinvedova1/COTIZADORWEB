@@ -51,6 +51,8 @@ import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
 import { contractOf } from '../domain/contract.js';
+import { usesTimeBasis } from '../domain/cost-basis.js';
+import { ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { formatMoney, formatNumber } from '../core/format.js';
 
@@ -107,6 +109,18 @@ export function availabilityHoursOf(a = {}) {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? Math.min(n, 24) : null;
+}
+
+/**
+ * Horas que un equipo propio SIN dato trabaja y factura por mes (por tiempo usado, §29): las
+ * horas del día de trabajo × los días del mes (22 hábiles; 30 si trabaja más de 12 h por día,
+ * servicio continuo), nunca menos que las horas normales de la cuadrilla. Así un equipo que
+ * trabaja todo el mes a ese ritmo paga una vez su posesión, no varias (un generador de 24 h
+ * dividido por las 176 h de la gente se cobraba 4 veces).
+ */
+export function defaultEquipmentBillableHours(hoursPerActiveDay, crewNormalHours) {
+  const h = Math.min(nonNegative(hoursPerActiveDay), 24);
+  return Math.max(nonNegative(crewNormalHours), h * (h > 12 ? 30 : 22));
 }
 
 /** Normaliza los parámetros de actividad de una cotización. */
@@ -212,7 +226,13 @@ export function buildCostModel(quote = {}) {
   // servicio del fijo mensual (o servicio permanente); en el resto, todo el mes, como siempre.
   // Sólo cambia la PROPUESTA del diagrama, nunca el costo.
   const coverageDaysPerMonth = rotationCoverageOf(quote, activity.activeDaysPerMonth);
-  const labor = computeLabor(quote.labor, { coverageDaysPerMonth });
+  // Por tiempo usado (2026-11-18, cotizaciones nuevas que no se cobran por mes): el personal y los
+  // equipos propios cuestan sus horas en el trabajo × el valor de su hora (variable por día).
+  const timeBasis = usesTimeBasis(quote);
+  const labor = computeLabor(quote.labor, { coverageDaysPerMonth, timeBasis, hoursPerActiveDay: activity.hoursPerActiveDay, activeDaysPerMonth: activity.activeDaysPerMonth });
+  // Horas facturables de un equipo propio sin dato: las normales de la cuadrilla (las mayores) o el parámetro por defecto.
+  const crewNormalHours = objectList(quote.labor).reduce((max, l) => Math.max(max, nonNegative(l.normalHoursPerMonth)), 0);
+  const defaultBillableHours = defaultEquipmentBillableHours(activity.hoursPerActiveDay, crewNormalHours > 0 ? crewNormalHours : ILLUSTRATIVE_AGREEMENT_PARAMS.normalHoursPerMonth);
   labor.lines.forEach((l, i) => {
     lines.push({
       key: `labor:${l.id ?? i}`,
@@ -231,7 +251,7 @@ export function buildCostModel(quote = {}) {
   // (vianda + horas extra) de cada día de standby. Es un monto mensual estimado.
   const rules = quote.rules || {};
   const standbyDays = rules.standbyNotApplicable === true ? 0 : nonNegative(rules.standbyDaysPerMonth);
-  const standbyCostPerDay = labor.variablePerActiveDay;
+  const standbyCostPerDay = labor.variablePerActiveDay - (labor.timePerActiveDay || 0);
   const standbyMonthly = standbyDays * standbyCostPerDay;
   if (standbyMonthly > 0) {
     lines.push({
@@ -289,7 +309,7 @@ export function buildCostModel(quote = {}) {
     if (acquisition === 'owned') {
       const f = factorFor(e.base, { list: 'equipment', index, field: 'base', label: e.name || 'Equipo' }, nonNegative(e.quantity) > 0 && (nonNegative(e.replacementValue) > 0 || nonNegative(e.residualValue) > 0));
       const converted = f === 1 ? e : { ...e, replacementValue: nonNegative(e.replacementValue) * f, residualValue: nonNegative(e.residualValue) * f };
-      return { ...computeEquipmentLine(converted, { fuelPricePerLiter, fuelPaidByUs, defaultHoursPerActiveDay: activity.hoursPerActiveDay }), acquisition, conversion: f, external: null };
+      return { ...computeEquipmentLine(converted, { fuelPricePerLiter, fuelPaidByUs, defaultHoursPerActiveDay: activity.hoursPerActiveDay, timeBasis, defaultBillableHours }), acquisition, conversion: f, external: null };
     }
     const ext = e.external && typeof e.external === 'object' ? e.external : {};
     const f = factorFor(e.base, { list: 'equipment', index, field: 'base', label: e.name || 'Equipo externo' }, nonNegative(e.quantity) > 0 && (nonNegative(ext.price) > 0 || (ext.mobilizationIncluded === false && nonNegative(ext.mobilizationAmount) > 0)));
@@ -398,9 +418,9 @@ export function buildCostModel(quote = {}) {
       category: 'equipment',
       payGroup: 'suppliers',
       fixedMonthly: e.fixedMonthly,
-      variablePerActiveDay: 0,
+      variablePerActiveDay: e.timeBasis ? e.ownershipPerActiveDay : 0,
       cashFixedMonthly: e.fixedCashMonthly,
-      cashVariablePerActiveDay: 0,
+      cashVariablePerActiveDay: e.timeBasis ? e.ownershipCashPerActiveDay : 0,
     });
     lines.push({
       key: `equipment:operation:${e.id ?? i}`,
@@ -611,6 +631,8 @@ export function buildCostModel(quote = {}) {
         return { fixed: laborBucket.fixedMonthly * pct(pctValue), variable: laborBucket.variablePerActiveDay * pct(pctValue) };
       case 'per_employee':
         // Dotación equivalente: una persona compartida cuenta por su % asignado (PLAN-2026-012).
+        // Por tiempo usado: sigue a las horas del trabajo (personas × horas del día ÷ horas facturables).
+        if (timeBasis) return { fixed: 0, variable: amount * labor.timeHeadcountPerActiveDay };
         return { fixed: amount * labor.effectiveHeadcount, variable: 0 };
       case 'per_hour':
         return { fixed: 0, variable: amount * activity.hoursPerActiveDay };
@@ -749,6 +771,7 @@ export function buildCostModel(quote = {}) {
 
   return {
     activity,
+    timeBasis,
     transport,
     fuel: { pricePerLiter: fuelPricePerLiter, paidByUs: fuelPaidByUs, providedBy: quote.fuel && quote.fuel.providedBy ? quote.fuel.providedBy : null },
     labor,

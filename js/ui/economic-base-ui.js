@@ -73,7 +73,7 @@ export function baseFormFields(key, { currency = false, periodLabel = 'Período 
 
 /** Nombre visible de lo que cambió en Recursos (claves de changedKeys). */
 const CHANGE_LABELS = Object.freeze({
-  overtimeRate50: 'hora al 50 %', overtimeRate100: 'hora al 100 %',
+  overtimeRate50: 'hora al 50 %', overtimeRate100: 'hora al 100 %', billableHoursPerMonth: 'horas que le cobrás a clientes por mes',
   basicMonthly: 'sueldo básico', additionalsMonthly: 'adicionales', normalHoursPerMonth: 'horas normales', overtimePremiumPct: 'recargo de horas extra',
   mealPerActiveDay: 'vianda', sacPct: 'SAC', vacationPct: 'vacaciones', employerContributionsPct: 'cargas sociales', artPct: 'ART',
   insuranceMonthly: 'seguros', ppeMonthly: 'EPP', trainingMonthly: 'capacitación', transferMonthly: 'traslado',
