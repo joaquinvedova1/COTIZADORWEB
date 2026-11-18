@@ -5,7 +5,7 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rateUpdateWeights, rateUpdateState, previewRateUpdate } from '../../js/engines/rate-update-engine.js';
+import { rateUpdateWeights, rateUpdateState, previewRateUpdate, proposeLaborRaisePct } from '../../js/engines/rate-update-engine.js';
 import { normalizeRateUpdate, normalizeUpdatePcts } from '../../js/domain/rate-update.js';
 import { computeQuote, summarizeQuote } from '../../js/engines/quote-engine.js';
 import { createQuoteService } from '../../js/services/quote-service.js';
@@ -166,3 +166,37 @@ describe('rate-update: cotización real', () => {
     assert.equal(r.rateUpdate.previous.length, 1);
   });
 });
+
+describe('rate-update: mano de obra propuesta por paritarias (0.12.1)', () => {
+  const line = (extra = {}) => ({ agreementId: 'a', positions: 1, basicMonthly: 1000000, sacPct: 8.33, vacationPct: 4, employerContributionsPct: 24, artPct: 6, ...extra });
+  const ag = { id: 'a', name: 'Petroleros', raises: [{ fromPeriod: '2026-11', remunerativePct: 10, nonRemunerativePct: 20 }, { fromPeriod: '2027-01', remunerativePct: 5, nonRemunerativePct: 0 }] };
+  test('sólo remunerativo: el % del convenio', async () => {
+    const p = proposeLaborRaisePct([line()], [ag], '2026-10', '2026-12');
+    close(p.pct, 10, 1e-9);
+  });
+  test('remunerativo y no remunerativo ponderados por su peso en el costo', async () => {
+    const p = proposeLaborRaisePct([line({ nonRemunerativeMonthly: 500000 })], [ag], '2026-10', '2026-12');
+    assert.ok(p.pct > 10 && p.pct < 20, String(p.pct));
+  });
+  test('ventana: (desde, hasta]; acumula; sin historial → null', async () => {
+    close((proposeLaborRaisePct([line()], [ag], '2026-10', '2027-01')).pct, 15.5, 1e-9);
+    close((proposeLaborRaisePct([line()], [ag], '2026-11', '2026-12')).pct, 0, 1e-9);
+    assert.equal(proposeLaborRaisePct([line({ agreementId: 'x' })], [ag], '2026-10', '2026-12'), null);
+  });
+  test('puestos sin convenio quedan afuera y se informa', async () => {
+    const p = proposeLaborRaisePct([line(), line({ agreementId: null })], [ag], '2026-10', '2026-12');
+    assert.equal(p.covered, 1);
+    assert.equal(p.total, 2);
+  });
+  test('la vianda sube con el no remunerativo y pesa por los días', () => {
+    const p = proposeLaborRaisePct([line({ mealPerActiveDay: 20000 })], [ag], '2026-10', '2026-12', { activeDaysPerMonth: 20 });
+    assert.ok(p.pct > 10, String(p.pct));
+  });
+  test('un puesto con 0 personas no cuenta en la cobertura; último aumento informado', () => {
+    const p = proposeLaborRaisePct([line(), line({ positions: 0, agreementId: null })], [ag], '2026-10', '2026-12');
+    assert.equal(p.total, 1);
+    close(p.coveredShare, 1, 1e-9);
+    assert.equal(p.lastRaise, '2026-11');
+  });
+});
+

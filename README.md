@@ -128,7 +128,7 @@ Todos los valores son **ILUSTRATIVOS**.
 | Margen objetivo | 10 % (personalizado 20 %), redondeo a $ 1.000 |
 | Cobros aparte, mínimos y descuentos por tramo | Ninguno (un solo precio por día) |
 
-Resultado aproximado calculado por el motor v0.12.1 (cambia si cambian los datos demo o el motor):
+Resultado aproximado calculado por el motor v0.12.2 (cambia si cambian los datos demo o el motor):
 
 | Indicador | Valor ≈ |
 |---|---:|
