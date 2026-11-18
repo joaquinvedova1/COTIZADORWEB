@@ -20,6 +20,8 @@
 import { isFiniteNumber } from '../core/money.js';
 import { RATE_UPDATE_CATEGORIES, FOLLOWING_EECC_CATEGORIES, normalizeRateUpdate, normalizeUpdatePcts } from '../domain/rate-update.js';
 import { monthsBetween, isValidPeriod } from '../domain/economic-base.js';
+import { agreementRaiseFactor } from '../domain/agreement-raises.js';
+import { computeLaborLine } from './labor-engine.js';
 
 /**
  * Incidencias del período base: renglones de la EECC (Materiales abierto en sus categorías de
@@ -169,4 +171,58 @@ export function previewRateUpdate(state, pcts, toPeriod = null) {
     periodError,
     canApply: weights.length > 0 && periodError === null,
   };
+}
+
+/**
+ * % de Mano de obra propuesto por las paritarias (0.12.1): aumento de cada puesto de la
+ * cotización según el historial de aumentos de SU convenio entre los dos meses.
+ *   - Sube con el % remunerativo: remunerativo con SAC, vacaciones y cargas, y las horas extra.
+ *   - Sube con el % no remunerativo: el no remunerativo con sus cargas y la vianda.
+ *   - No cambia: seguro, EPP, capacitación, traslado y contribuciones fijas (igual que
+ *     "Aplicar aumento" del convenio).
+ * Cada puesto pesa lo que aporta al renglón Mano de obra de la EECC (con su reparto, el tiempo
+ * usado y los días estimados: `ctx` como en computeLabor). Los puestos sin convenio con aumentos
+ * cargados quedan afuera: se les supone el mismo aumento (se informa qué parte del costo cubre).
+ * @returns {{ pct, coveredShare, covered, total, agreements: string[], lastRaise: string|null } | null}
+ */
+export function proposeLaborRaisePct(laborLines, agreements, fromPeriod, toPeriod, ctx = {}) {
+  const lines = Array.isArray(laborLines) ? laborLines.filter((l) => l && typeof l === 'object') : [];
+  const list = Array.isArray(agreements) ? agreements : [];
+  const D = isFiniteNumber(ctx.activeDaysPerMonth) && ctx.activeDaysPerMonth > 0 ? ctx.activeDaysPerMonth : 0;
+  let allCost = 0;
+  let cost = 0;
+  let raise = 0;
+  let covered = 0;
+  let total = 0;
+  let lastRaise = null;
+  const names = new Set();
+  lines.forEach((line) => {
+    const r = computeLaborLine(line, ctx);
+    const amount = r.fixedMonthly + r.variablePerActiveDay * D;
+    if (!(amount > 0)) return;
+    total += 1;
+    allCost += amount;
+    const agreement = list.find((a) => a && a.id === line.agreementId) || null;
+    const fR = agreementRaiseFactor(agreement, fromPeriod, toPeriod, { part: 'remunerative' });
+    const fN = agreementRaiseFactor(agreement, fromPeriod, toPeriod, { part: 'nonRemunerative' });
+    if (fR === null && fN === null) return;
+    covered += 1;
+    if (agreement && typeof agreement.name === 'string') names.add(agreement.name);
+    (agreement.raises || []).forEach((x) => {
+      if (x && isValidPeriod(x.fromPeriod) && x.fromPeriod <= toPeriod && (!lastRaise || x.fromPeriod > lastRaise)) lastRaise = x.fromPeriod;
+    });
+    const p = r.perPerson;
+    const meal = isFiniteNumber(p.mealPerActiveDay) ? p.mealPerActiveDay : 0;
+    const variable = isFiniteNumber(p.variablePerActiveDay) ? p.variablePerActiveDay : 0;
+    const overtimeMonthly = isFiniteNumber(p.overtimeMonthly) ? p.overtimeMonthly : 0;
+    const remPart = p.loadedRemunerative + overtimeMonthly + (variable - meal) * D;
+    const nonRemPart = p.nonRemunerativePay + p.nonRemunerativeCharges + meal * D;
+    const whole = p.fixedMonthly + overtimeMonthly + variable * D;
+    if (!(whole > 0)) return;
+    const ratio = (remPart * ((fR ?? 1) - 1) + nonRemPart * ((fN ?? 1) - 1)) / whole;
+    cost += amount;
+    raise += amount * ratio;
+  });
+  if (!covered || !(cost > 0)) return null;
+  return { pct: (raise / cost) * 100, coveredShare: allCost > 0 ? cost / allCost : 0, covered, total, agreements: [...names], lastRaise };
 }
