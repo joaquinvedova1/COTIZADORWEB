@@ -14,7 +14,7 @@ import { h } from './dom.js';
 import { button, checkboxField, choiceGroup, formGrid, icon, numberField, textField } from './components.js';
 import { BILLING_TAX_KINDS, BILLING_TAX_MODES, labelOf } from '../domain/catalogs.js';
 import { normalizeBillingTaxes, billingTaxesDecided } from '../domain/billing-taxes.js';
-import { billingTaxConfigInfo } from '../engines/billing-taxes-engine.js';
+import { billingTaxConfigInfo, debitsCreditsEquivalentPct } from '../engines/billing-taxes-engine.js';
 import { formatPercent } from '../core/format.js';
 import { isFiniteNumber } from '../core/money.js';
 import { sanitizeText } from '../core/validation.js';
@@ -102,6 +102,38 @@ export function billingTaxesHelp() {
 }
 
 /**
+ * Ayuda para el impuesto a los débitos y créditos (auditoría externa K-10): la persona carga la
+ * alícuota del banco y el IVA con el que factura, y RATEOS le da el % sobre lo facturado sin IVA.
+ * Los dos datos no se guardan; sólo el % que se elija usar.
+ */
+function debitsCreditsHelper({ onUse = null, readOnly = false }) {
+  let bank = null;
+  let vat = null;
+  const result = h('p', { class: 'footnote', 'aria-live': 'polite' }, 'Cargá los dos porcentajes.');
+  const useBtn = onUse && !readOnly
+    ? button('Usar este %', { size: 'sm', variant: 'secondary', disabled: true, onClick: () => { const v = debitsCreditsEquivalentPct(bank, vat); if (v !== null) onUse(v); } })
+    : null;
+  const refresh = () => {
+    const v = debitsCreditsEquivalentPct(bank, vat);
+    result.textContent = v === null ? 'Cargá los dos porcentajes.' : `Sobre lo que facturás sin IVA equivale a ${pctText(v)}.`;
+    if (useBtn) useBtn.disabled = v === null;
+  };
+  return h(
+    'details',
+    { class: 'bt-help-more bt-dc-helper' },
+    h('summary', {}, '¿Cómo calculo el impuesto al cheque?'),
+    h('p', {}, 'El banco lo cobra sobre lo que te depositan, que incluye el IVA. Cargá la alícuota del banco y el IVA con el que facturás.'),
+    formGrid(
+      2,
+      numberField({ label: 'Alícuota del banco sobre lo acreditado', rule: 'billingTax', unit: '%', value: null, disabled: readOnly, onChange: (v) => { bank = v; refresh(); } }),
+      numberField({ label: 'IVA con el que facturás', rule: 'billingTax', unit: '%', value: null, disabled: readOnly, onChange: (v) => { vat = v; refresh(); } }),
+    ),
+    result,
+    useBtn,
+  );
+}
+
+/**
  * Campos de la configuración.
  * @param {{
  *   get: () => object,                          configuración actual (forma de js/domain/billing-taxes.js)
@@ -169,6 +201,7 @@ export function billingTaxesFields({ get, update, mutate, readOnly = false, name
           onChange: (value) => update('combinedPct', value),
         }),
       ),
+      debitsCreditsHelper({ readOnly }),
       otherInfo.defined
         ? h('p', { class: 'footnote' }, `El detalle que cargaste (${describeBillingTaxes({ ...cfg, mode: 'detailed' })}) no se suma mientras uses un % total; queda guardado si volvés al detalle.`)
         : null,
@@ -226,6 +259,16 @@ export function billingTaxesFields({ get, update, mutate, readOnly = false, name
       'div',
       { class: 'bt-detail stack' },
       h('div', { class: 'bt-rows' }, ...rows),
+      debitsCreditsHelper({
+        readOnly,
+        // "Usar este %" carga el renglón del impuesto al cheque (lo agrega si no está).
+        onUse: (v) => mutate((c) => {
+          if (!Array.isArray(c.items)) c.items = [];
+          let row = c.items.find((it) => it && it.kind === 'debits_credits');
+          if (!row) { row = newItem('debits_credits'); c.items.push(row); }
+          row.pct = v;
+        }),
+      }),
       h('p', { class: 'footnote' }, 'Un renglón vacío no se cuenta. Se suman sólo los porcentajes cargados.'),
       isFiniteNumber(normalizeBillingTaxes(cfg).combinedPct)
         ? h('p', { class: 'footnote' }, `El % total que cargaste (${pctText(normalizeBillingTaxes(cfg).combinedPct)}) no se suma mientras uses el detalle; queda guardado si volvés a "Un % total".`)

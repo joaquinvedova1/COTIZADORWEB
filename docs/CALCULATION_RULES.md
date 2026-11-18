@@ -1974,10 +1974,12 @@ En cada actualización el aumento del paso es `Σ s_i × %_i`, con `s_i = w_i ×
 ```
 Costo = Remunerativo × (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % + ART %)
       + No remunerativo × (1 + Cargas sobre el no remunerativo %) + Contribuciones fijas del convenio
+      + Remunerativo × Otras cargas y provisiones %   (auditoría externa K-09; 0 por defecto)
       + Seguros + EPP + Capacitación + Traslado
 ```
 
 - *Remunerativo* = `basicMonthly` + `additionalsMonthly` (dato anterior). *No remunerativo* (`nonRemunerativeMonthly`) no lleva aguinaldo ni las cargas del remunerativo; sólo el % opcional del convenio *Cargas sobre el no remunerativo* (`nonRemunerativeChargesPct`, obra social, cuota sindical…; 0 por defecto). Las *contribuciones fijas* (`fixedContributionsMonthly`) son un monto sin cargas.
+- *Otras cargas y provisiones* (`otherChargesPct`, parámetro del convenio, 0 por defecto): fondo de cese laboral, provisión por despido, ausentismo, licencias… en % del remunerativo, sin aguinaldo ni cargas encima. No entra en el costo empleador del recibo (es una provisión). En "Actualizar tarifa" se mueve con el aumento del remunerativo.
 - *Aportes del trabajador* (`workerContributionsPct`, 17 % habitual): `Neto aproximado = Remunerativo + No remunerativo − Remunerativo × aportes %` (sin tope de base imponible ni Ganancias). **No cambian el costo**: los paga el trabajador de su bruto, y no entran en la foto de la cotización (no avisan "valores nuevos").
 - *Costo empleador del mes* (sólo para comparar con el recibo, sin aguinaldo ni vacaciones prorrateados): `Remunerativo × (1 + Cargas % + ART %) + No remunerativo + Contribuciones fijas`.
 

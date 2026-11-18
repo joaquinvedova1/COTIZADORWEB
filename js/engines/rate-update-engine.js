@@ -215,7 +215,7 @@ export function proposeLaborRaisePct(laborLines, agreements, fromPeriod, toPerio
     const meal = isFiniteNumber(p.mealPerActiveDay) ? p.mealPerActiveDay : 0;
     const variable = isFiniteNumber(p.variablePerActiveDay) ? p.variablePerActiveDay : 0;
     const overtimeMonthly = isFiniteNumber(p.overtimeMonthly) ? p.overtimeMonthly : 0;
-    const remPart = p.loadedRemunerative + overtimeMonthly + (variable - meal) * D;
+    const remPart = p.loadedRemunerative + (isFiniteNumber(p.otherCharges) ? p.otherCharges : 0) + overtimeMonthly + (variable - meal) * D;
     const nonRemPart = p.nonRemunerativePay + p.nonRemunerativeCharges + meal * D;
     const whole = p.fixedMonthly + overtimeMonthly + variable * D;
     if (!(whole > 0)) return;

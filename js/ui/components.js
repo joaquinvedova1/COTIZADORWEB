@@ -719,6 +719,24 @@ export function toast(message, tone = 'info', { timeout = 3500 } = {}) {
   return el;
 }
 
+/**
+ * Aviso con una acción (auditoría externa B-02: "Deshacer" al borrar). Queda `timeout` ms; la
+ * acción se ejecuta una sola vez y cierra el aviso.
+ */
+export function actionToast(message, { actionLabel = 'Deshacer', onAction, tone = 'success', timeout = 10000 } = {}) {
+  let done = false;
+  const btn = h('button', { type: 'button', class: 'toast-action' }, actionLabel);
+  const el = toast(h('span', { class: 'toast-body' }, h('span', {}, message), btn), tone, { timeout });
+  btn.addEventListener('click', async () => {
+    if (done) return;
+    done = true;
+    btn.disabled = true;
+    el.remove();
+    if (typeof onAction === 'function') await onAction();
+  });
+  return el;
+}
+
 // ----------------------------------------------------------- gráfico barras
 
 /**

@@ -354,6 +354,7 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
     nonRemunerativeMonthly: profile.nonRemunerativeMonthly ?? 0,
     fixedContributionsMonthly: profile.fixedContributionsMonthly ?? params.fixedContributionsMonthly ?? 0,
     nonRemunerativeChargesPct: profile.nonRemunerativeChargesPct ?? params.nonRemunerativeChargesPct ?? 0,
+    otherChargesPct: profile.otherChargesPct ?? params.otherChargesPct ?? 0,
     workerContributionsPct: profile.workerContributionsPct ?? params.workerContributionsPct ?? null,
     // Los sueldos se cargan en la moneda de la empresa.
     base: { ...normalizeBase(profile.base, { currency }), currency },

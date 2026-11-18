@@ -226,7 +226,8 @@ function laborTrace(profile, cost) {
       { label: 'ART', value: p.art, format: 'money' },
       { label: 'Remunerativo cargado', value: p.loadedRemunerative, format: 'money' },
       { label: 'Cargas sobre el no remunerativo', value: p.nonRemunerativeCharges, format: 'money' },
-      { label: 'Fuera del factor de cargas (no remunerativo y sus cargas, contribuciones fijas, seguros, EPP, capacitación, traslado)', value: p.nonRemunerative, format: 'money' },
+      { label: 'Otras cargas y provisiones del convenio', value: p.otherCharges, format: 'money' },
+      { label: 'Fuera del factor de cargas (no remunerativo y sus cargas, contribuciones fijas, otras cargas, seguros, EPP, capacitación, traslado)', value: p.nonRemunerative, format: 'money' },
       { label: 'Factor de cargas', value: p.loadFactor, format: 'number' },
       { label: 'Costo hora cargado (costo mensual / horas normales)', value: p.loadedHourlyCost, format: 'rate' },
       { label: 'Variable por día de trabajo (horas extra cargadas + vianda)', value: cost.perPosition.variablePerActiveDay, format: 'money' },
@@ -606,6 +607,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         { key: 'artPct', label: 'ART', rule: 'percent', unit: '%' },
         { key: 'fixedContributionsMonthly', label: 'Contribuciones fijas', rule: 'money', unit: '$/mes', hint: 'Ej.: contribución extraordinaria, seguro de vida colectivo.' },
         { key: 'nonRemunerativeChargesPct', label: 'Cargas sobre el no remunerativo', rule: 'percent', unit: '%', hint: 'Obra social, cuota sindical… Si no hay: 0.' },
+        { key: 'otherChargesPct', label: 'Otras cargas y provisiones', rule: 'percent', unit: '%', hint: 'Sobre el remunerativo: fondo de cese laboral, provisión por despido, ausentismo, licencias… Si no hay: 0.' },
       ],
       extra: ({ draft, rerender }) => {
         const agreement = agreementOf(draft);
@@ -705,6 +707,7 @@ function newLaborProfile(agreements) {
     // 0.12.0: no remunerativo, aportes del trabajador y contribuciones fijas (estos dos, del convenio).
     nonRemunerativeMonthly: 0,
     nonRemunerativeChargesPct: params.nonRemunerativeChargesPct,
+    otherChargesPct: params.otherChargesPct,
     workerContributionsPct: params.workerContributionsPct,
     fixedContributionsMonthly: params.fixedContributionsMonthly,
     insuranceMonthly: 0,
@@ -756,6 +759,7 @@ function agreementSections() {
         { key: 'params.artPct', label: 'ART', rule: 'percent', unit: '%' },
         { key: 'params.fixedContributionsMonthly', label: 'Contribuciones fijas por persona', rule: 'money', unit: '$/mes', hint: 'Montos fijos del convenio (contribución extraordinaria, seguro de vida…). Sin cargas encima.' },
         { key: 'params.nonRemunerativeChargesPct', label: 'Cargas sobre el no remunerativo', rule: 'percent', unit: '%', hint: 'Obra social, cuota sindical… que el acuerdo aplica a las sumas no remunerativas. Si no hay: 0.' },
+        { key: 'params.otherChargesPct', label: 'Otras cargas y provisiones', rule: 'percent', unit: '%', hint: 'Sobre el remunerativo, sin cargas encima: fondo de cese laboral (UOCRA), provisión por despido, ausentismo, licencias… Lo define tu convenio o tu contador. Si no hay: 0.' },
         { key: 'params.workerContributionsPct', label: 'Aportes del trabajador', rule: 'percent', unit: '%', hint: 'Sólo para mostrar el neto: no cambian tu costo.' },
       ],
     },
