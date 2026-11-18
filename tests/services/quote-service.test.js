@@ -61,6 +61,15 @@ function nonFinitePaths(value, path = '') {
 // ============================================================ createQuote
 
 describe('QuoteService.createQuote', () => {
+  test('una cotización nueva costea sus recursos por tiempo usado; las guardadas no se tocan', async () => {
+    const { service, repository } = await setup();
+    const before = (await repository.getQuotes()).map((q) => q.costBasis);
+    const created = await service.createQuote();
+    assert.equal(created.costBasis, 'time');
+    assert.deepEqual((await repository.getQuotes()).filter((q) => q.id !== created.id).map((q) => q.costBasis), before);
+    assert.ok(before.every((b) => b === undefined));
+  });
+
   test('genera códigos COT-0001, COT-0002, COT-0003… incrementales', async () => {
     const { service } = await setup({ empty: true });
     const codes = [];

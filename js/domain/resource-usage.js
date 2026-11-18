@@ -16,6 +16,7 @@
 
 import { isPlainObject } from '../core/object.js';
 import { fixedCostShareOf } from './assignment.js';
+import { usesTimeBasis } from './cost-basis.js';
 
 const POTENTIAL_STATUSES = Object.freeze(['draft', 'sent']);
 const COMMITTED_STATUSES = Object.freeze(['won']);
@@ -58,7 +59,8 @@ export function resourceUsage(type, resourceId, quotes = []) {
       const units = listKey === 'labor'
         ? (num(line.payrollHeadcount) > 0 && num(line.positions) > 0 ? num(line.payrollHeadcount) : num(line.positions) * num(line.peoplePerPosition, 1))
         : num(line.quantity);
-      const share = external ? null : fixedCostShareOf(line);
+      // Por tiempo usado (2026-11-18): la cotización paga las horas del trabajo, sin % de costos fijos.
+      const share = external || usesTimeBasis(q) ? null : fixedCostShareOf(line);
       rows.push({
         quoteId: typeof q.id === 'string' ? q.id : null,
         code: typeof q.code === 'string' ? q.code : '',

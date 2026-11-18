@@ -1837,3 +1837,56 @@ Las horas de `mode: 'some'` son por mes en fijo mensual y por trabajo / llamado 
 ### 28.4 Cotizaciones nuevas sin cobros aparte
 
 Una cotización creada desde una plantilla (o una plantilla guardada) sale sin adicionales, sin horas extra facturadas ni cargadas en el puesto, sin materiales facturados aparte, sin guardia y con fijo de guardia, plus, movilización, km incluidos/adicional y equipo en espera en 0 (`withoutSeparateCharges`, `quote-factory.js`); "Horas extra del trabajo" sí se copia. Un puesto agregado desde un perfil no copia sus horas extra por día. Las cotizaciones guardadas no cambian.
+
+## 29. Costo por tiempo usado (2026-11-18)
+
+Pedido del dueño: en un trabajo puntual (por ejemplo, la instalación de un generador) no tiene sentido preguntar "qué % de su costo fijo asigno a esta cotización". El recurso queda asignado al trabajo **las horas que dura el trabajo**; el % sólo vale cuando el recurso se asigna a un servicio que se cobra por mes.
+
+Archivos: `js/domain/cost-basis.js` (`usesTimeBasis`, `billableHoursOf`), `labor-engine.js`, `equipment-engine.js`, `cost-engine.js`, `overtime-work-engine.js`.
+
+**Cuándo rige.** `quote.costBasis === 'time'` **y** la unidad de cobro no es `month`. `costBasis` lo escribe el servicio al crear una cotización (`withTimeCostBasis`, en blanco o desde plantilla). Una cotización guardada no tiene el dato y calcula como siempre (§3, §4, §4.2). Si una cotización nueva se cobra por mes, rige el método de siempre: mes completo o la parte asignada.
+
+**Personal** (por puesto):
+
+```
+horas facturables por mes = `billableHoursPerMonth` del puesto (viene del recurso) o, vacío, las horas normales del mes
+valor de la hora          = costo fijo del mes por persona (sueldo y cargas + seguros, EPP, capacitación y traslado) ÷ horas facturables
+horas por día             = las del servicio (`activity.hoursPerActiveDay`); las propias del puesto si son menos
+costo por día de trabajo  = valor de la hora × horas por día × posiciones   (+ vianda y horas extra por día, como siempre)
+fijo del mes              = 0   (sólo las horas extra por mes cargadas antes en el puesto)
+```
+
+En un día de trabajo trabaja una persona por posición: los relevos no suman horas. `assignment` y `fixedCostSharePct` no rigen (no se piden ni se validan).
+
+**Equipos propios:**
+
+```
+horas facturables por mes = `billableHoursPerMonth` de la línea (de la ficha: horas disponibles × utilización esperada)
+                            o, vacío, las horas normales de la cuadrilla (las mayores cargadas; sin personal, el parámetro por defecto)
+tenerlo por día de trabajo = posesión del mes ÷ horas facturables × horas del día de trabajo × cantidad
+```
+
+El equipo queda ocupado las horas del día de trabajo aunque el motor ande menos. La operación (combustible, mantenimiento y neumáticos por hora) sigue a las horas de uso, sin cambios. Alquilados y tercerizados no cambian.
+
+**Lo que se apoya en el personal:**
+
+- Estructura "por empleado": `monto × Σ posiciones × horas por día ÷ horas facturables` por día de trabajo (antes: fijo por dotación equivalente).
+- Horas extra de todo el trabajo (§28): cada hora ya está en el costo a valor normal, así que todas llevan sólo el recargo (no hay tope de horas pagas por el sueldo). Es lineal: el ajuste de §28.2 da 0.
+- Standby: como siempre, sólo vianda y horas extra por día (no el tiempo de la gente).
+- "Usado en" (Recursos): la cotización figura "se paga por uso (sin % de costos fijos)".
+
+**Consecuencias.** Con todo el costo por día de trabajo, el precio por unidad no depende de cuántas unidades se hagan por mes (salvo por lo que sea fijo del mes: materiales fijos, estructura de monto fijo). Los costos fijos quedan en 0 y el equilibrio no aplica. Un trabajo de más de un mes no necesita "meses de costo fijo": las horas ya lo cubren.
+
+**Horas facturables.** Si la hora se calcula sobre las horas normales (176) y la gente vende 140, las 36 horas libres no las paga nadie. Por eso el recurso puede decir cuántas horas vende por mes: una sola vez, en Recursos.
+
+Ejemplo (operario $ 2.000.000 por mes con cargas, 176 h normales, instalación de 3 días de 8 h):
+
+| Caso | Costo del operario |
+|---|---|
+| Cotización guardada sin elegir dedicación (como siempre) | 2.000.000 |
+| Cotización guardada, compartida al 13,64 % (24 ÷ 176) | 272.727 |
+| Por tiempo usado: 24 h × 11.363,64 | 272.727 |
+| Por tiempo usado con 140 h facturables: 24 h × 14.285,71 | 342.857 |
+
+**Qué cambia en cotizaciones existentes:** nada. Tests: `tests/engines/tiempo-usado-2026-11.test.js`.
+
