@@ -229,7 +229,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
       notes: [
         result && !result.reachable ? result.reason : null,
         'Los costos se calculan con los días de trabajo (personal, equipos, combustible, viajes) y la facturación, con la unidad que cobrás.',
-        nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per} o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula paso a paso, no sólo con la fórmula.` : null,
+        nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, ${T.each} contad${T.g('a', 'o')} ${T.whole} u horas extra de todo el trabajo): el resultado se calcula paso a paso, no sólo con la fórmula.` : null,
         windowsNote,
       ],
     });
@@ -252,7 +252,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
     result: { label: 'Días de trabajo para no perder plata', value: result && result.reachable ? result.days : null, format: 'days' },
     notes: [
       result && !result.reachable ? result.reason : null,
-      nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula día a día, no sólo con la fórmula.` : null,
+      nonLinear ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento, ${T.each} contad${T.g('a', 'o')} ${T.whole} u horas extra de todo el trabajo): el resultado se calcula día a día, no sólo con la fórmula.` : null,
       windowsNote,
     ],
   });

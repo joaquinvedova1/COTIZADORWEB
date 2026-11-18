@@ -46,7 +46,7 @@ import { computeExternalLine } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { computeExtras } from './extras-engine.js';
 import { outOfHoursBasis, resolveExtras } from './out-of-hours-engine.js';
-import { computeOvertimeWork } from './overtime-work-engine.js';
+import { computeOvertimeWork, overtimeAllMonthlyAt } from './overtime-work-engine.js';
 import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
@@ -721,6 +721,29 @@ export function buildCostModel(quote = {}) {
     return { direct, structure, financial, contingency: contingencyAmount, workingCapital, byCategory: byCat, bySource, cashByKey, total: totalAmount };
   })();
 
+  // Horas extra de "todo el trabajo" con OTROS días (M1, 2026-11-18): no son lineales (recargo hasta
+  // las horas que paga el sueldo, hora completa después). Cada peso de diferencia contra el promedio
+  // por día lleva su estructura (sólo la que es %), su financiación (salarios) y su contingencia.
+  const overtimeCurve = (() => {
+    if (overtimeWork.mode !== 'all' || !overtimeWork.perRole.length) return null;
+    const structurePctOf = (m, pctValue) => (m === 'percent_direct' || m === 'percent_labor' ? pct(pctValue) : 0);
+    const s = detailed
+      ? structureItems.reduce((acc, it) => acc + structurePctOf(it.method, it.pct), 0)
+      : structurePctOf(method, indirectPct);
+    const rate = pct(finance.monthlyRatePct);
+    const factorOf = (id) => {
+      const g = finance.groups.find((x) => x.id === id);
+      return g ? g.financingDays / 30 : 0;
+    };
+    const financial = rate * (factorOf('salaries') + s * factorOf('structure'));
+    const contingencyMult = pct(contingencyPct) * (1 + s + financial);
+    return {
+      overtimeWork,
+      variablePerActiveDay: overtimeWork.variablePerActiveDay,
+      byCategory: { labor: 1, structure: s, financial, contingency: contingencyMult },
+    };
+  })();
+
   // Resumen de transporte (PLAN-2026-012): viajes facturables, físicos y km.
   const transport = transportSummary({ quote, activity, route, logistics, external });
 
@@ -730,6 +753,7 @@ export function buildCostModel(quote = {}) {
     fuel: { pricePerLiter: fuelPricePerLiter, paidByUs: fuelPaidByUs, providedBy: quote.fuel && quote.fuel.providedBy ? quote.fuel.providedBy : null },
     labor,
     overtimeWork,
+    overtimeCurve,
     standby: { days: standbyDays, costPerDay: standbyCostPerDay, monthly: standbyMonthly },
     equipment,
     external,
@@ -835,6 +859,21 @@ export function costAtActivity(model, activeDays) {
   }
   const fixed = model.fixedMonthly * factor;
   let variable = model.variablePerActiveDay * D;
+  // Horas extra de "todo el trabajo" (M1): el costo real con D días, no el promedio por día.
+  let overtimeAdjustment = 0;
+  const curve = model.overtimeCurve;
+  if (curve) {
+    const delta = overtimeAllMonthlyAt(curve.overtimeWork, D) - curve.variablePerActiveDay * D;
+    if (Math.abs(delta) > 1e-9) {
+      for (const [cat, mult] of Object.entries(curve.byCategory)) {
+        if (!byCategory[cat] && byCategory[cat] !== 0) continue;
+        byCategory[cat] += delta * mult;
+        total += delta * mult;
+        overtimeAdjustment += delta * mult;
+      }
+      variable += overtimeAdjustment;
+    }
+  }
   // "Cada salida se cuenta completa" (PLAN-2026-011): sólo si está activa.
   let rounding = null;
   if (model.activationRounding && model.activationRounding.enabled) {
@@ -855,6 +894,7 @@ export function costAtActivity(model, activeDays) {
     total,
     byCategory,
     rounding,
+    overtimeAdjustment,
     perActiveDay: safeDivide(total, D, null),
   };
 }
@@ -926,6 +966,7 @@ export function traceTotalCost(model, activeDays) {
     result: { label: 'Costo total', value: at.total, format: 'money' },
     notes: [
       at.monthsFactor > 1 ? 'Los días superan los disponibles del mes: se prorratean los fijos como trabajo de más de un mes.' : null,
+      Math.abs(at.overtimeAdjustment || 0) > 0.005 ? `Horas extra de todo el trabajo con estos días: ${at.overtimeAdjustment > 0 ? '+' : '−'}${formatMoney(Math.abs(at.overtimeAdjustment))} contra el promedio por día (con su estructura, financiación e imprevistos).` : null,
       at.rounding && at.rounding.total > 0 ? `${T.Each} se cuenta ${T.whole}: sólo los costos por ${T.one} (movilización, peajes, viáticos, cargos por ${T.one}…) se costean con ${T.theMany} ${T.many} ${T.wholeMany}. Sueldos, tenencia, producción y estructura mensual no cambian.` : null,
       averageOnly
         ? `${T.Many} promedio por mes: ${n(preview.estimated)} · ${T.many} ${T.g('costeadas', 'costeados')}: ${n(preview.estimated)} (los costos por ${T.one} se cuentan en proporción). Con "${T.Each} se cuenta ${T.whole}" se costearía${preview.wholeActivations === 1 ? '' : 'n'} ${n(preview.wholeActivations)}: efecto del redondeo +${formatMoney(preview.total)} por mes (no incluido).`

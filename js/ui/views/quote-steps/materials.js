@@ -10,7 +10,7 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, selectField, emptyState, table } from '../../components.js';
+import { card, formGrid, selectField, emptyState, table, confirmDialog } from '../../components.js';
 import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS } from '../../../domain/catalogs.js';
 import { materialLineFromLibrary, blankMaterialLine, createOtherCost } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
@@ -28,6 +28,15 @@ import { activationTerms, withActivationOptions } from '../../../domain/activati
 import { billingUnitOf, pluralizeUnit } from '../../../domain/billing-units.js';
 import { onSessionReset } from '../../session-memory.js';
 import { normalizeBasisId } from '../../../engines/materials-engine.js';
+
+/**
+ * ¿La cotización ya facturaba materiales aparte? (regla de un ítem, 2026-11-18): la opción general
+ * o algún material marcado "se factura aparte". Sólo entonces se muestran esas opciones.
+ */
+export function materialsBilledBefore(quote = {}) {
+  if (quote && quote.pricing && quote.pricing.materialsBilledSeparately === true) return true;
+  return (Array.isArray(quote && quote.materials) ? quote.materials : []).some((m) => m && m.billedSeparately === true);
+}
 
 /** Grilla de la línea de material: la descripción más ancha que los números. */
 function materialGrid(...fields) {
@@ -218,18 +227,39 @@ export function render(container, ctx) {
   // Por línea (tanda A 2026-11, A-8): true / false / sin definir (= sigue la opción de arriba).
   const lineBilled = (m) => (m && (m.billedSeparately === true || m.billedSeparately === false) ? m.billedSeparately : billedSeparately);
   const anyBilled = !notApplicable && (quote.materials || []).some((m) => lineBilled(m));
+  // Regla de un ítem (2026-11-18): una cotización nueva no ofrece facturar materiales aparte (un
+  // solo precio). Sólo la que ya lo tenía elegido lo sigue mostrando (mismos números), con Quitar.
+  const legacyBilled = materialsBilledBefore(quote);
+  const removeBilled = async () => {
+    const ok = await confirmDialog({
+      title: 'Dejar de facturar los materiales aparte',
+      message: 'Los materiales quedan dentro de tu único precio. El precio se vuelve a calcular sin ese cobro aparte.',
+      confirmLabel: 'Quitar',
+      danger: true,
+    });
+    if (!ok) return;
+    ctx.mutate((q) => {
+      if (q.pricing && typeof q.pricing === 'object') q.pricing.materialsBilledSeparately = false;
+      (q.materials || []).forEach((m) => { if (m && m.billedSeparately === true) delete m.billedSeparately; });
+    });
+  };
   const toggleCard = card(
     {},
     kit.check('materialsNotApplicable', { label: 'El servicio no usa materiales', structural: true, hint: 'Marcalo para confirmar que no te olvidaste de cargarlos.' }),
-    notApplicable
+    notApplicable || !legacyBilled
       ? null
       : kit.check('pricing.materialsBilledSeparately', {
-        label: 'Le facturo los materiales aparte al cliente (al costo más un recargo)',
+        label: 'Le facturo los materiales aparte al cliente (cargado antes)',
         structural: true,
         hint: quote.serviceType === 'time_materials'
           ? 'Horas y materiales: la tarifa cubre la mano de obra y los equipos; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno). Si sólo facturás algunos, elegilo en cada material ("Más detalle").'
           : 'La tarifa cubre el resto del servicio; los materiales se cobran aparte, a su costo × (1 + markup de reventa de cada uno). Si sólo facturás algunos, elegilo en cada material ("Más detalle").',
       }),
+    !notApplicable && legacyBilled && !kit.readOnly
+      ? h('div', { class: 'qe-toolbar' },
+        h('p', { class: 'qe-note' }, 'Esta cotización ya facturaba materiales aparte: se sigue cobrando igual. Las cotizaciones nuevas ya no lo ofrecen (un solo precio).'),
+        kit.action('Quitar', removeBilled, { variant: 'ghost', icon: 'trash' }))
+      : null,
     anyBilled
       ? kit.out((r) => {
         const c = r.estimate.revenue.components;
@@ -375,7 +405,7 @@ export function render(container, ctx) {
               const parts = [
                 `merma ${hasNumber(m.wastePct) ? formatPercent(Number(m.wastePct)) : '0 %'}`,
                 `logística ${hasNumber(m.logisticsPct) ? formatPercent(Number(m.logisticsPct)) : '0 %'}`,
-                hasNumber(m.resaleMarkupPct) && Number(m.resaleMarkupPct) > 0 ? `markup de reventa ${formatPercent(Number(m.resaleMarkupPct))}` : null,
+                legacyBilled && hasNumber(m.resaleMarkupPct) && Number(m.resaleMarkupPct) > 0 ? `markup de reventa ${formatPercent(Number(m.resaleMarkupPct))}` : null,
                 m.billedSeparately === true ? 'se factura aparte' : m.billedSeparately === false ? 'lo cubre la tarifa' : null,
               ].filter(Boolean).join(' · ');
               return `${parts.charAt(0).toUpperCase()}${parts.slice(1)}.`;
@@ -385,8 +415,8 @@ export function render(container, ctx) {
             4,
             kit.num(`${p}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', illustrative, hint: 'Lo que se pierde o desperdicia.' }),
             kit.num(`${p}.logisticsPct`, { label: 'Logística', rule: 'percent', unit: '%', illustrative, hint: 'Flete y manipuleo del material.' }),
-            kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: lineBilled(line) ? 'Recargo sobre el costo del material (no es margen): es lo que cobrás de más al facturarlo aparte.' : 'Recargo sobre el costo del material (no es margen). Se usa si facturás los materiales aparte (opción de arriba).' }),
-            selectField({
+            legacyBilled ? kit.num(`${p}.resaleMarkupPct`, { label: 'Markup de reventa', rule: 'percentOpen', unit: '%', hint: lineBilled(line) ? 'Recargo sobre el costo del material (no es margen): es lo que cobrás de más al facturarlo aparte.' : 'Recargo sobre el costo del material (no es margen). Se usa si facturás los materiales aparte (opción de arriba).' }) : null,
+            legacyBilled ? selectField({
               label: '¿Este material se factura aparte?',
               name: `${p}.billedSeparately`,
               value: line.billedSeparately === true ? 'yes' : line.billedSeparately === false ? 'no' : '',
@@ -404,11 +434,11 @@ export function render(container, ctx) {
                   else delete m.billedSeparately;
                 });
               },
-            }),
+            }) : null,
           ),
           kit.stats(
             kit.stat((r) => (closedJobsPerMonth(r) !== null ? 'En el trabajo' : 'Fijo mensual / variable por día'), (r) => splitLabel(at(r), null, r)),
-            kit.stat('Precio de reventa (informativo)', (r) => formatMoney(at(r) && at(r).resalePrice), { hint: 'Costo × (1 + markup). No es margen.' }),
+            legacyBilled ? kit.stat('Precio de reventa (informativo)', (r) => formatMoney(at(r) && at(r).resalePrice), { hint: 'Costo × (1 + markup). No es margen.' }) : null,
           ),
         ),
         kit.advanced(

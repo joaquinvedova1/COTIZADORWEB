@@ -260,7 +260,7 @@
   padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0;
 }
 .qe-stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); font-weight: 650; }
-.qe-stat-value { font-size: 1.05rem; font-weight: 700; color: var(--navy-900); overflow-wrap: anywhere; }
+.qe-stat-value { font-size: 1.05rem; font-weight: 700; color: var(--navy-900); overflow-wrap: break-word; }
 .qe-stat-hint { font-size: 0.76rem; color: var(--ink-3); }
 .qe-stat-hint:has(> .qe-out:empty) { display: none; }
 .qe-stat .trace-btn { margin-top: 0.1rem; }
@@ -404,7 +404,7 @@
 }
 .qe-keyline-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.75rem; min-width: 0; flex: 1 1 260px; }
 .qe-keyline-label { font-size: 0.88rem; font-weight: 600; color: var(--ink-2); }
-.qe-keyline-value { font-size: 1.3rem; font-weight: 720; letter-spacing: -0.015em; color: var(--navy-900); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.qe-keyline-value { font-size: 1.3rem; font-weight: 720; letter-spacing: -0.015em; color: var(--navy-900); font-variant-numeric: tabular-nums; overflow-wrap: break-word; }
 .qe-keyline-hint { flex-basis: 100%; font-size: 0.82rem; color: var(--ink-3); }
 .qe-keyline-hint:empty { display: none; }
 .qe-keyline .trace-btn { flex-shrink: 0; }

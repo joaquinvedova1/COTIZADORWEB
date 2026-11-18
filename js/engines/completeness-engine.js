@@ -42,6 +42,7 @@ import { computeMobilization } from './mobilization-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
 import { proposeServiceShares, staleDedicationOf, staleDedicationMessage } from './utilization-engine.js';
 import { normalizeRules } from './commercial-rules-engine.js';
+import { overtimeWorkOf } from './overtime-work-engine.js';
 import { contingencyPctOf, normalizeActivity, monthsFactor, autoOutputPerActiveDay, availabilityHoursOf } from './cost-engine.js';
 import { outputPerActiveDayOf, outputMatchesBilling, normalizeBasisId } from './materials-engine.js';
 import { routeTrips } from './transport-engine.js';
@@ -54,6 +55,9 @@ const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
 const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips']);
+
+/** Tope de horas por día por persona para el aviso con "todo el trabajo" (N5). */
+const MAX_HOURS_PER_PERSON_DAY = 16;
 
 /** Debajo de este puntaje la cotización se considera con riesgo (pueden faltar costos). */
 export const COMPLETENESS_RISK_THRESHOLD = 60;
@@ -91,8 +95,9 @@ export function outsideWindowHours(quote = {}) {
 
 /**
  * Texto del aviso de fuera de horario (pendiente y nota del paso), según la unidad:
- * por hora esas horas YA se facturan como horas normales (sumarlas en Adicionales las
- * cobraría dos veces); por día, el día cubre la franja y el excedente va en Adicionales.
+ * por hora esas horas YA se facturan como horas normales; por día, el día cubre la franja.
+ * Regla de un ítem (2026-11-18): el recargo se elige en "Horas extra del trabajo" (dentro del
+ * precio), nunca en un renglón aparte.
  * @param {{ worked:number, guard:number, outside:number }} o
  */
 export function outsideWindowMessage(quote = {}, o, { short = false } = {}) {
@@ -103,8 +108,8 @@ export function outsideWindowMessage(quote = {}, o, { short = false } = {}) {
     ? `${f(o.outside)} h por día fuera de la franja${month}`
     : `Trabajás ${f(o.worked)} h por día y la franja de guardia es de ${f(o.guard)} h: ${f(o.outside)} h por día quedan fuera de horario${month}`;
   return billingUnitOf(quote).kind === 'hour'
-    ? `${head}. Ya se facturan como horas normales: si fuera de horario llevan recargo, cargá en "Adicionales" sólo el recargo (no la hora entera, se cobraría dos veces).`
-    : `${head}: si el cliente las paga aparte, cobralas en "Adicionales".`;
+    ? `${head}. Ya se facturan como horas normales: si fuera de horario les pagás un recargo, cubrí sólo el recargo en tu tarifa (un solo precio; la hora entera ya está en las horas por día).`
+    : `${head}: si fuera de horario les pagás un recargo, cubrilo en tu tarifa (un solo precio, sin renglones aparte).`;
 }
 
 /**
@@ -391,7 +396,13 @@ export function evaluateCompleteness(quote = {}) {
   // las trabajadas): no se repite el aviso de horas con los días con trabajo.
   // V-04: las horas por día del servicio pueden ser el dato equivocado (nacen en 10), no la gente.
   const hoursFix = (hours, own) => (own ? '' : ` Si el servicio no pide ${formatNumber(hours, { decimals: Math.abs(hours - Math.round(hours)) < 1e-9 ? 0 : 1 })} h por día, corregilo en "Cómo se cobra".`);
-  if (labor.length > 0 && D > 0 && !activeGuard) {
+  // Horas extra del trabajo (M4, 2026-11-18): con "todo el trabajo" las horas que faltan ya se pagan
+  // como hora extra (no hay aviso); con "algunas horas", esas horas también cubren.
+  const ow = overtimeWorkOf(quote, { contractMode: contract.mode });
+  const owHoursPerPerson = ow.mode === 'some'
+    ? (ow.hours50 + ow.hours100) * (ow.perMonth ? mf : act.daysPerActivation > 0 ? D / act.daysPerActivation : D)
+    : 0;
+  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode !== 'all') {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
     const short = labor.map((l, index) => {
       const normal = nonNegative(l.normalHoursPerMonth);
@@ -402,8 +413,8 @@ export function evaluateCompleteness(quote = {}) {
       const perDay = items.filter((o) => o.basis === 'per_active_day').reduce((acc, o) => acc + o.hours, 0);
       const perMonth = items.filter((o) => o.basis === 'per_month').reduce((acc, o) => acc + o.hours, 0) + resourceOvertimeHoursOf(l);
       const required = D * hours;
-      const covered = (ppp * normal + perMonth * ppp) * mf + perDay * D;
-      return required > covered + 1e-6 ? { l, index, ppp, normal, hours, own: hours !== H, extra: perMonth * ppp * mf + perDay * D, required, covered } : null;
+      const covered = (ppp * normal + perMonth * ppp) * mf + perDay * D + owHoursPerPerson;
+      return required > covered + 1e-6 ? { l, index, ppp, normal, hours, own: hours !== H, extra: perMonth * ppp * mf + perDay * D + owHoursPerPerson, required, covered } : null;
     }).filter(Boolean);
     if (short.length) {
       const first = short[0];
@@ -417,10 +428,35 @@ export function evaluateCompleteness(quote = {}) {
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const simple = !hasPayrollHeadcount(first.l) && Math.abs(first.ppp - 1) < 1e-9;
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning', simple
-        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: cargá las horas extra o revisá las horas normales del puesto. Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`
-        : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), cargá las horas extra o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`);
+        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: si son horas extra, elegilas en "Horas extra del trabajo" (en "Cómo se cobra"); si no, revisá las horas normales del puesto. Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`
+        : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), elegí "Horas extra del trabajo" (en "Cómo se cobra") o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`);
       item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : simple ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
+      items.push(item);
+    }
+  }
+
+  // N5 (verificación 2026-11): con "todo el trabajo" las horas que faltan se pagan como hora
+  // extra, pero hay un tope físico: si cada persona tendría que trabajar más de
+  // MAX_HOURS_PER_PERSON_DAY h por día (p. ej. 1 persona 24 h por día), se avisa igual.
+  if (labor.length > 0 && D > 0 && !activeGuard && ow.mode === 'all') {
+    const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+    const over = labor.map((l, index) => {
+      const hours = coverageOf(l);
+      const ppp = laborPeoplePerPositionOf(l);
+      if (!(nonNegative(l.positions) > 0) || !(hours > 0) || !(ppp > 0)) return null;
+      const perPerson = hours / ppp;
+      return perPerson > MAX_HOURS_PER_PERSON_DAY + 1e-9 ? { l, index, hours, ppp, perPerson } : null;
+    }).filter(Boolean);
+    if (over.length) {
+      const first = over[0];
+      const name = (typeof first.l.role === 'string' && first.l.role.trim()) || 'Personal';
+      const others = over.length > 1 ? ` También: ${over.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
+      const who = Math.abs(first.ppp - 1) < 1e-9 ? '1 persona' : `${fmt(first.ppp)} personas que se turnan`;
+      const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning',
+        `"${name}": ${fmt(first.hours)} h por día con ${who} son ${fmt(first.perPerson)} h por día por persona. Las horas extra de "todo el trabajo" se pagan, pero nadie trabaja más de ${MAX_HOURS_PER_PERSON_DAY} h por día todos los días: sumá personas que se turnen o bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.hours !== H)}`);
+      item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : isSimpleStaff(first.l) ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
+      item.targets = over.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
     }
   }
@@ -1189,7 +1225,7 @@ export function evaluateCompleteness(quote = {}) {
       step: 'labor',
       severity: 'info',
       label: 'Adicional de guardia',
-      message: 'Guardia pasiva: si el convenio paga un adicional por estar de guardia, cargalo en "Adicionales" del puesto (por persona y por mes) para que entre al costo.',
+      message: 'Guardia pasiva: si el convenio paga un adicional por estar de guardia, cargalo en "Otros pagos fijos por mes" del puesto (por persona) para que entre al costo.',
       focus: `labor.${i}.additionalsMonthly`,
     });
   }
@@ -1202,7 +1238,7 @@ export function evaluateCompleteness(quote = {}) {
       step: 'margin',
       severity: 'info',
       label: 'Disponibilidad sin cobrar',
-      message: `La guardia no se cobra aparte: cubrila en la tarifa, con un "${GUARD_FEE_LABEL}" o con un mínimo mensual garantizado.`,
+      message: 'Estar de guardia también cuesta: cubrilo en la tarifa (un solo precio).',
       focus: 'rules.availabilityFeeMonthly',
     });
   }

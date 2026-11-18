@@ -17,7 +17,7 @@ import { formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/
 import { assignOfferBase } from '../../../domain/economic-base.js';
 import { isFiniteNumber } from '../../../core/money.js';
 import { stepName } from './shared.js';
-import { applyUnitChange } from '../../../domain/unit-change.js';
+import { applyUnitChange, applyContractModeChange } from '../../../domain/unit-change.js';
 import { onSessionReset } from '../../session-memory.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
 import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
@@ -27,10 +27,10 @@ const step = (id) => `"${stepName(id)}"`;
 
 /** Qué sigue según la modalidad del contrato (PLAN-2026-018). */
 const MODE_TIPS = Object.freeze({
-  monthly: { short: `Lo que exceda el fijo se cobra en "Adicionales" (${step('modality')}).`, more: 'Cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Fuera de horario, feriados y trabajos extra van como adicionales, con su propio precio, en la misma cotización.' },
+  monthly: { short: `Un solo precio por mes: cargá lo que cubre el fijo (${step('modality')}).`, more: `Cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del fijo. Para otra variante, duplicá la cotización (Más acciones → Duplicar).` },
   on_demand: { short: `Unidad y mínimo mensual: en ${step('modality')}.`, more: 'Elegí en qué unidad cobrás (hora, día, viaje, m³…) y cuánto esperás trabajar por mes. Si el cliente garantiza un mínimo mensual, se carga ahí mismo.' },
   // Tanda novatos 2026-11: lo de imprevistos y adicionales pasa al (i).
-  closed: { short: 'Cargá todo el alcance del trabajo.', more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Los trabajos fuera del alcance con precio unitario van en "Adicionales".` },
+  closed: { short: 'Cargá todo el alcance del trabajo.', more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Un trabajo fuera del alcance es otra cotización: duplicala (Más acciones → Duplicar).` },
 })
 
 /**
@@ -273,11 +273,14 @@ export function render(container, ctx) {
     // V-03: lo cargado en la unidad anterior (cantidades, mínimos) se limpia con aviso.
     let unitNotices = [];
     const fromInfo = billingUnitOf(quote);
+    const previousMode = contractOf(quote).mode;
     ctx.mutate((q) => {
       q.contract = contractWithComponents({ ...next, templateId: next.templateId || undefined }, next.components, next.customComponents);
       q.serviceType = serviceTypeForContract(q.contract);
       q.unit = nextUnit;
       if (nextUnit !== current) unitNotices = applyUnitChange(q, fromInfo, billingUnitOf(q));
+      // M8: las horas de "algunas horas" cambian de base (por mes ↔ por trabajo): se limpian con aviso.
+      unitNotices = [...unitNotices, ...applyContractModeChange(q, previousMode, contractOf(q).mode)];
       // Precio cerrado por trabajo (tanda novatos 2026-11): sin cantidad cargada, arranca en 1 trabajo por mes.
       if (nextUnit === 'job' && q.contract.mode === 'closed') {
         if (!isPlainObject(q.activity)) q.activity = {};
@@ -302,6 +305,8 @@ export function render(container, ctx) {
       const usual = contractUnits(next).map((id) => (BILLING_UNITS.find((u) => u.id === id) || {}).label).filter(Boolean).slice(0, 4).join(', ');
       say(`Esta modalidad se cobra en ${usual}. Como ya cargaste una tarifa ${billingUnitOf(quote).label}, la unidad no cambió: revisala en ${step('modality')}.`, 'warning');
     }
+    // M8: con la misma unidad, el aviso de las horas extra borradas va solo.
+    if (nextUnit === current && unitNotices.length) say(unitNotices.join(' '), 'warning');
     return messages;
   }
 

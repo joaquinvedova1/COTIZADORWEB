@@ -16,6 +16,7 @@ import { monthsFactor } from '../../../engines/cost-engine.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { createTrace } from '../../../core/trace.js';
 import { stepName } from './shared.js';
+import { unitAmountText, perQuoteUnit, closedJobsPerMonth } from '../../result-text.js';
 
 /**
  * Impuestos sobre lo que facturás ≠ gastos de estructura (PLAN-2026-012).
@@ -273,7 +274,7 @@ export function render(container, ctx) {
   if (detailed) {
     mount(container, card({}, modeWrap, detailedCard(ctx), kit.keyline({
       label: 'Gastos de estructura que absorbe este servicio',
-      value: (r) => `${formatMoney(absorptionAtEstimate(r))} por mes`,
+      value: (r) => unitAmountText(r, quote, absorptionAtEstimate(r)),
       hint: (r) => {
         const row = rowOf(r, 'structure');
         return row ? `${formatPercent(row.displayPct)} del costo total (rubro Gastos de estructura: ${formatMoney(row.amount)}).` : '';
@@ -309,7 +310,7 @@ export function render(container, ctx) {
     taxesNote(),
     kit.keyline({
       label: 'Gastos de estructura que absorbe este servicio',
-      value: (r) => `${formatMoney(absorptionAtEstimate(r))} por mes`,
+      value: (r) => unitAmountText(r, quote, absorptionAtEstimate(r)),
       hint: (r) => {
         const row = rowOf(r, 'structure');
         return row ? `${formatPercent(row.displayPct)} del costo total (rubro Gastos de estructura: ${formatMoney(row.amount)}).` : '';
@@ -342,7 +343,7 @@ export function render(container, ctx) {
         h('p', { class: 'qe-note' }, 'Lista orientativa de gastos que normalmente no se ven en una cotización.'),
       ),
       kit.stats(
-        kit.stat('Estructura mensual absorbida', (r) => formatMoney(absorptionAtEstimate(r)), { emphasis: true, trace: structureTrace }),
+        kit.stat((r) => (closedJobsPerMonth(r) !== null ? 'Estructura absorbida en el trabajo' : 'Estructura mensual absorbida'), (r) => formatMoney(perQuoteUnit(r, absorptionAtEstimate(r)).amount), { emphasis: true, trace: structureTrace }),
         kit.stat('Rubro Gastos de estructura', (r) => {
           const row = rowOf(r, 'structure');
           return row ? `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}` : EMPTY;

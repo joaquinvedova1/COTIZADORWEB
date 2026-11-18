@@ -18,9 +18,9 @@
  *        labor      Personal (cuadrilla, operador, chofer, técnicos).
  *        equipment  Equipos o vehículos (hidrogrúa, camión, colectivo, pick-up…).
  *
- * Lo que se cobra aparte del precio principal (fuera de horario, feriados,
- * llamados extra, km excedentes…) va en "Adicionales" (extras-engine) y se
- * suma a cualquier modo.
+ * Regla de un ítem (2026-11-18): una cotización nueva da un solo precio. Las horas
+ * fuera de horario se eligen en "Horas extra del trabajo" (dentro del precio); los
+ * "Adicionales" (extras-engine) quedan sólo en cotizaciones guardadas antes.
  *
  * `quote.serviceType` se sigue guardando (listados, plantillas, nombres de la
  * activación) y se DERIVA del contrato con serviceTypeForContract. Las
@@ -69,7 +69,7 @@ export const SERVICE_COMPONENTS = deepFreeze([
   { id: 'tools', label: 'Herramientas', hint: 'Herramientas menores y su reposición.', step: 'materials', materials: true },
   { id: 'supplies', label: 'Insumos y consumibles', hint: 'Electrodos, discos, gas, filtros, trapos.', step: 'materials', materials: true },
   { id: 'chemicals', label: 'Químicos', hint: 'Desengrasantes, sanitizantes, herbicidas, inhibidores.', step: 'materials', materials: true },
-  { id: 'materials', label: 'Materiales que quedan en obra', hint: 'Pintura, caños, cables (se pueden facturar aparte).', step: 'materials', materials: true },
+  { id: 'materials', label: 'Materiales que quedan en obra', hint: 'Pintura, caños, cables.', step: 'materials', materials: true },
   { id: 'ppe', label: 'EPP especial', hint: 'Trajes, respiradores, arneses (el básico va en cada puesto).', step: 'materials', materials: true },
   { id: 'waste', label: 'Residuos y disposición', hint: 'Transporte habilitado, disposición final, certificados.', step: 'materials', materials: true },
   { id: 'travel', label: 'Viáticos y alojamiento', hint: 'Desarraigo, hotel, comidas, peajes.', step: 'logistics' },

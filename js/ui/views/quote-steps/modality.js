@@ -17,14 +17,14 @@ import { card, formGrid, choiceGroup, searchSelectField, openDialog, button, inf
 import { PRICING_MODES, AVAILABILITY_OPTIONS, AVAILABILITY_WINDOW } from '../../../domain/catalogs.js';
 import { billingUnitOf, unitChoicesFor, unitTexts, cleanUnitName, unitGroupOf, searchUnits, BILLING_UNIT_GROUPS } from '../../../domain/billing-units.js';
 import { convertRateUnit } from '../../../engines/pricing-engine.js';
-import { applyUnitChange, hoursPerDayFromManHours } from '../../../domain/unit-change.js';
+import { applyUnitChangeWithMode, hoursPerDayFromManHours } from '../../../domain/unit-change.js';
 import { numberToInputText } from '../../../core/validation.js';
 import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
-import { activationRoundingText, closedJobsPerMonth } from '../../result-text.js';
+import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnitSuffix, lineMonthAtEstimate, longClosedJobNote, salaryMonthsAt } from '../../result-text.js';
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
@@ -207,6 +207,17 @@ function outOfHoursUseText(o, unitInfo) {
  * Rótulo del costo por hora fuera de horario (V-26): sin equipos propios trabajando no dice "+ equipos".
  * @param {object} basis `r.outOfHours.basis`
  */
+/**
+ * ¿El puesto tiene horas extra propias cargadas antes? (por mes, por día o por tramos con horas).
+ * Con "Horas extra del trabajo" se sumarían dos veces (A5, 2026-11-18).
+ */
+export function laborHasOwnOvertime(l) {
+  if (!l || typeof l !== 'object') return false;
+  if (Number(l.overtime50HoursPerMonth) > 0 || Number(l.overtime100HoursPerMonth) > 0) return true;
+  if (Number(l.overtimeHoursPerActiveDay) > 0) return true;
+  return Array.isArray(l.overtime) && l.overtime.some((o) => o && Number(o.hours) > 0);
+}
+
 export function outOfHoursCostLabel(basis) {
   return basis && basis.equipmentPerHour > 0 ? 'Te cuesta por hora (gente + equipos)' : 'Te cuesta por hora (gente)';
 }
@@ -284,8 +295,9 @@ export function resourceCostSameUnitText({ fixedMonthly, variablePerDay, activeD
   if (!(fixedMonthly > 0.005) && !(variablePerDay > 0.005)) return EMPTY;
   if (!(activeDays > 0)) return resourceCostText(fixedMonthly, variablePerDay);
   const month = (fixedMonthly > 0 ? fixedMonthly : 0) + (variablePerDay > 0 ? variablePerDay : 0) * activeDays;
-  if (jobsPerMonth !== null && jobsPerMonth > 0) return `${formatMoney(month / jobsPerMonth)}\u00a0en\u00a0el\u00a0trabajo`;
-  return `${formatMoney(month)}\u00a0por\u00a0mes`;
+  // UX 2026-11: el monto y "en el trabajo" pueden ir en líneas distintas, pero nunca se corta una palabra.
+  if (jobsPerMonth !== null && jobsPerMonth > 0) return `${formatMoney(month / jobsPerMonth)} en\u00a0el\u00a0trabajo`;
+  return `${formatMoney(month)} por\u00a0mes`;
 }
 
 /** Ejemplo del campo "por mes" acorde a la unidad (tanda novatos 2026-11): "Ej.: 8" viajes, no "Ej.: 10.000". */
@@ -450,8 +462,9 @@ export function render(container, ctx) {
     // los avisos para el cartel.
     let unitNotices = [];
     const applyChange = (q) => {
-      q.unit = nextUnit;
-      unitNotices = applyUnitChange(q, from, to);
+      // N2: con la unidad puede cambiar el modo (cotizaciones sin contrato):
+      // las "algunas horas" extra se limpian con aviso, igual que en Servicio.
+      unitNotices = applyUnitChangeWithMode(q, nextUnit, from, to);
     };
     const minCallUnitText = (n, u) => (u.kind === 'hour'
       ? `${formatNumber(n, { decimals: 2 })} ${Math.abs(n - 1) < 1e-9 ? 'hora' : 'horas'}`
@@ -620,8 +633,8 @@ export function render(container, ctx) {
       : byQuantity
       ? 'Las horas que se trabaja cada día. Se usan para el combustible y el uso de los equipos, y para calcular qué parte del mes les ocupa este servicio.'
       : quote.unit === 'hour'
-      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`
-      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`,
+      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Si se trabaja fuera de este horario, elegilo más abajo en "Horas extra del trabajo": queda dentro de tu precio.`
+      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Si se trabaja fuera de este horario, elegilo más abajo en "Horas extra del trabajo": queda dentro de tu precio.`,
   });
   const hourly = quote.unit === 'hour';
   // Por viaje (tanda novatos 2026-11): las horas por día y el trabajo fuera de horario van en
@@ -763,7 +776,7 @@ export function render(container, ctx) {
     hint: (r) => {
       if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return `Cargá los días por mes para ver ${T.g('cuántas', 'cuántos')} ${T.many} y días facturás.`;
       // Fijo mensual (PLAN-2026-024): se factura 1 abono; la utilización no dice nada acá.
-      if (monthlyContract) return 'Facturás 1 abono por mes. Lo que exceda esta cobertura se cobra en "Adicionales".';
+      if (monthlyContract) return 'Facturás 1 abono por mes: un solo precio. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo".';
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
       const acts = r.activity.activationsPerMonth;
@@ -772,14 +785,14 @@ export function render(container, ctx) {
           ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
           : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`)
         : '';
-      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9;
+      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r);
       const usage = over
         ? `Son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`
         : `Trabajás ${num(r.activity.activeDaysPerMonth)} de los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`;
       const calls = Math.abs(acts - r.activity.activeDaysPerMonth) > 1e-6 ? ` ${num(acts)} ${T.word(acts)} por mes.` : '';
       return `${usage}${calls}${extra ? ` El total${extra}.` : ''}${fractional}`;
     },
-    tone: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
+    tone: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r) ? 'orange' : null),
   });
 
   const quantityKeyline = kit.keyline({
@@ -793,7 +806,8 @@ export function render(container, ctx) {
       }
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
-      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9
+      // UX 1: un trabajo cerrado más largo que el mes no es un error (lo explica la nota de abajo).
+      const over = r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r)
         ? ` Ojo: son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`
         : '';
       // Por intervención (PLAN-2026-010): volumen ↔ días ↔ movilización.
@@ -810,7 +824,7 @@ export function render(container, ctx) {
         : '';
       return `Facturás ${billable}${oneJobNow(r) ? '' : ' por mes'}${extra} en ${workDaysText(r.activity.activeDaysPerMonth)}.${perIntervention}${fractional}${over}`;
     },
-    tone: (r) => (hasQuantity() && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 ? 'orange' : null),
+    tone: (r) => (hasQuantity() && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r) ? 'orange' : null),
   });
 
   // Días disponibles: el techo de la utilización (y, con guardia activa, los días de guardia que
@@ -949,7 +963,7 @@ export function render(container, ctx) {
             unit: 'días/mes',
             requiredMark: true,
             placeholder: 'Ej.: 22',
-            hint: 'Los días que cubre el abono (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Lo que se trabaje fuera de eso va en "Adicionales".',
+            hint: 'Los días que cubre el abono (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Si se trabaja fuera de eso, elegilo en "Horas extra del trabajo": queda dentro del abono.',
           })
           : kit.num('activity.activeDaysPerMonth', {
             label: isOnCall ? 'Días con trabajo por mes' : 'Días trabajados y facturados por mes',
@@ -1049,8 +1063,17 @@ export function render(container, ctx) {
           ),
         )
         : null,
+      // UX 1: un trabajo cerrado más largo que el mes no es un error; se dice como dato (azul).
+      kit.out((r) => {
+        const text = longClosedJobNote(r);
+        return text ? h('p', { class: 'banner banner-info qe-long-job', role: 'status' }, text) : '';
+      }, { tag: 'div', allowEmpty: true }),
       kit.stats(
-        kit.stat('Utilización', (r) => formatPercent(r.activity.utilizationPct), { hint: byQuantity ? `Días de trabajo ÷ ${availableNoun}.` : `Días con trabajo ÷ ${availableNoun}.` }),
+        kit.stat(
+          (r) => (longClosedJobNote(r) ? 'Duración del trabajo' : 'Utilización'),
+          (r) => (longClosedJobNote(r) ? `${formatNumber(salaryMonthsAt(r), { decimals: 2 })} meses` : formatPercent(r.activity.utilizationPct)),
+          { hint: (r) => (longClosedJobNote(r) ? `Días del trabajo ÷ ${availableNoun}.` : byQuantity ? `Días de trabajo ÷ ${availableNoun}.` : `Días con trabajo ÷ ${availableNoun}.`) },
+        ),
         byQuantity
           ? kit.stat('Días de trabajo por mes', (r) => (r.activity.activeDaysPerMonth > 0 ? formatDays(r.activity.activeDaysPerMonth, { decimals: 2 }) : EMPTY), {
             hint: kind === 'quantity' ? `${Plural} por mes ÷ ${info.plural} por día de trabajo.` : `${Plural} por mes × días de trabajo de cada uno.`,
@@ -1091,12 +1114,14 @@ export function render(container, ctx) {
   // Todo en la misma unidad (tanda novatos 2026-11): por mes o, en precio cerrado, en el trabajo.
   // Trabajos por mes (no hitos): mismo divisor que el "Total del trabajo" (Joaco 2026-11-18).
   const closedJobs = (r) => (contract.mode === 'closed' ? closedJobsPerMonth(r) : null);
-  const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => resourceCostSameUnitText({
-    fixedMonthly: sumLines(r, test, 'fixedMonthly'),
-    variablePerDay: sumLines(r, test, 'variablePerActiveDay'),
-    activeDays: r.activity.activeDaysPerMonth,
-    jobsPerMonth: closedJobs(r),
-  }), {
+  const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => {
+    const fixed = sumLines(r, test, 'fixedMonthly');
+    const variable = sumLines(r, test, 'variablePerActiveDay');
+    const D = r.activity.activeDaysPerMonth;
+    const text = resourceCostSameUnitText({ fixedMonthly: fixed, variablePerDay: variable, activeDays: D, jobsPerMonth: closedJobs(r) });
+    // M7: por hora, día o cantidad, también "≈ $ X por hora".
+    return D > 0 && closedJobs(r) === null ? `${text}${perBilledUnitSuffix(r, quote, fixed + variable * D)}` : text;
+  }, {
     hint: (r) => {
       const fixed = sumLines(r, test, 'fixedMonthly');
       const variable = sumLines(r, test, 'variablePerActiveDay');
@@ -1308,7 +1333,19 @@ export function render(container, ctx) {
   const owMode = ['all', 'some'].includes(ow.mode) ? ow.mode : 'none';
   const owPremium = Number(ow.premiumPct) === 100 ? 100 : 50;
   const owPerMonth = contract.mode === 'monthly';
-  const owUnit = owPerMonth ? 'por mes' : `por ${T.one}`;
+  // M3: en qué se cargan las horas de "algunas horas". Por mes en fijo mensual; si no, por cada
+  // trabajo / llamado (el motor las reparte en sus días). Si cada uno es de 1 día, se dice "por día".
+  const owDpa = Number(quote.activity && quote.activity.daysPerActivation);
+  const owOneDay = contract.mode !== 'closed' && !(owDpa > 0 && Math.abs(owDpa - 1) > 1e-9);
+  const owUnit = owPerMonth ? 'por mes' : owOneDay ? 'por día de trabajo' : `por ${T.one}`;
+  const owUnitNote = !owPerMonth && !owOneDay && contract.mode !== 'closed' ? ` (cada ${T.one} es de ${formatNumber(owDpa, { decimals: 2 })} días de trabajo)` : '';
+  /** Lo que suman las horas extra, en la unidad de cobro (M3): en el trabajo, por mes o ≈ por unidad. */
+  const owAmountText = (r) => {
+    const line = (r.model.lines || []).find((x) => x.key === 'labor:overtime-work');
+    const month = line ? lineMonthAtEstimate(r, line) : 0;
+    if (closedJobsPerMonth(r) !== null) return perQuoteUnit(r, month).text;
+    return `${formatMoney(month)} por mes${owPerMonth ? '' : perBilledUnitSuffix(r, quote, month)}`;
+  };
   const setOw = (patch) => ctx.mutate((q) => {
     const cur = q.overtimeWork && typeof q.overtimeWork === 'object' ? q.overtimeWork : {};
     q.overtimeWork = { ...cur, ...patch };
@@ -1343,7 +1380,7 @@ export function render(container, ctx) {
       : null,
     owMode === 'some'
       ? formGrid(2,
-        kit.num('overtimeWork.hours50', { label: `Horas al 50 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas fuera de horario ${owUnit} (cada persona de la cuadrilla las hace), además de las horas normales${!owPerMonth && Number(quote.activity && quote.activity.hoursPerActiveDay) > 0 ? ` (${quote.activity.hoursPerActiveDay} h por día)` : ''}. Días de semana después del horario o sábado a la mañana.` }),
+        kit.num('overtimeWork.hours50', { label: `Horas al 50 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas fuera de horario ${owUnit}${owUnitNote} (cada persona de la cuadrilla las hace), además de las horas normales${!owPerMonth && Number(quote.activity && quote.activity.hoursPerActiveDay) > 0 ? ` (${quote.activity.hoursPerActiveDay} h por día)` : ''}. Días de semana después del horario o sábado a la mañana.` }),
         kit.num('overtimeWork.hours100', { label: `Horas al 100 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas ${owUnit} en sábado a la tarde, domingo o feriado.` }))
       : null,
     owMode !== 'none'
@@ -1355,29 +1392,31 @@ export function render(container, ctx) {
           h('td', { class: 'num' }, formatMoney(x.baseHourLoaded)),
           h('td', { class: 'num' }, formatMoney(x.at50)),
           h('td', { class: 'num' }, formatMoney(x.at100))));
-        const perTrip = (v) => (contract.mode === 'closed' && r.activity && r.activity.daysPerActivation > 0 ? ` · ${formatMoney(v * r.activity.daysPerActivation)} por ${T.one}` : '');
         const notes = [];
         let text;
         if (o.mode === 'all') {
           const perDay = o.variablePerActiveDay;
-          text = perDay > 0
-            ? `Cada hora de trabajo cuesta ${formatMoney(o.crewSurchargePerHour)} más (la cuadrilla al ${o.premiumPct} %, sobre lo que ya cobra de sueldo): ${formatMoney(perDay)} por día de trabajo${perTrip(perDay)}.`
-            : 'Todavía no suma nada: cargá los días y las horas por día del trabajo.';
-          if (o.perRole.some((x) => x.fullHoursPerMonth > 0.005)) notes.push('Las horas del mes que pasan lo que ya paga su sueldo se cuentan con la hora extra completa.');
+          const full = o.perRole.some((x) => x.fullHoursPerMonth > 0.005);
+          // B2: con horas completas, el recargo es sólo de las horas que ya paga el sueldo (en promedio cuesta más).
+          text = !(perDay > 0)
+            ? 'Todavía no suma nada: cargá los días y las horas por día del trabajo.'
+            : full
+              ? `Las horas que ya paga el sueldo llevan sólo el recargo (${formatMoney(o.crewSurchargePerHour)} por hora de la cuadrilla al ${o.premiumPct}\u00a0%); las que pasan, la hora extra completa. En total suman ${owAmountText(r)} al costo de tu gente.`
+              : `Cada hora de trabajo cuesta ${formatMoney(o.crewSurchargePerHour)} más (la cuadrilla al ${o.premiumPct}\u00a0%, sobre lo que ya cobra de sueldo). En total suman ${owAmountText(r)} al costo de tu gente.`;
           if (o.perRole.some((x) => (o.premiumPct === 100 ? x.lowRate100 : x.lowRate50))) notes.push(`Ojo: el valor de la hora al ${o.premiumPct} % de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas, no la hora del recibo.`);
         } else {
           text = o.perUnit > 0
-            ? `Estas horas suman ${formatMoney(o.perUnit)} ${owUnit} al costo de tu gente${o.equipmentPerHour > 0 ? ' y de tus equipos' : ''}.`
+            ? `Estas horas suman ${owAmountText(r)} al costo de tu gente${o.equipmentPerHour > 0 ? ' y de tus equipos' : ''}.`
             : 'Cargá las horas para sumarlas al costo.';
           if (o.perRole.some((x) => (o.hours50 > 0 && x.lowRate50) || (o.hours100 > 0 && x.lowRate100))) notes.push('Ojo: el valor de la hora extra de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas.');
         }
-        // Horas extra cargadas antes en cada puesto: se sumarían dos veces.
-        const legacy = (quote.labor || []).filter((l) => l && (Number(l.overtime50HoursPerMonth) > 0 || Number(l.overtime100HoursPerMonth) > 0));
-        if (legacy.length) notes.push(`Ojo: ${legacy.map((l) => `"${l.role || 'Puesto'}"`).join(', ')} ya tiene horas extra por mes cargadas en "${stepName('labor')}". Se suman además de éstas: dejá las de un solo lugar.`);
+        // Horas extra cargadas antes en cada puesto (por mes, por día o por tramos): se sumarían dos veces (A5).
+        const legacy = (quote.labor || []).filter((l) => laborHasOwnOvertime(l));
+        if (legacy.length) notes.push(`Ojo: ${legacy.map((l) => `"${l.role || 'Puesto'}"`).join(', ')} ya tiene horas extra cargadas en "${stepName('labor')}". Se suman además de éstas: quitalas del puesto y dejalas sólo acá.`);
         return h('div', { class: 'qe-ooh-roles' },
           h('p', { class: 'qe-ooh-roles-title' }, 'Lo que te cuesta la hora de cada uno'),
           h('table', { class: 'qe-ooh-table' },
-            h('thead', {}, h('tr', {}, h('th', {}, 'Puesto'), h('th', { class: 'num' }, 'Hora de sueldo'), h('th', { class: 'num' }, 'Hora al 50 %'), h('th', { class: 'num' }, 'Hora al 100 %'))),
+            h('thead', {}, h('tr', {}, h('th', {}, 'Puesto'), h('th', { class: 'num' }, 'Hora de sueldo con cargas'), h('th', { class: 'num' }, 'Hora al 50 %'), h('th', { class: 'num' }, 'Hora al 100 %'))),
             h('tbody', {}, ...rows)),
           h('p', { class: 'qe-note' }, text),
           ...notes.map((t) => h('p', { class: ['qe-note', 'is-warning'] }, t)));
@@ -1434,7 +1473,7 @@ export function render(container, ctx) {
         : null,
       !guardChosen && (feeNow || calloutNow) ? h('p', { class: 'qe-note' }, 'Aunque no haya guardia, estos cargos se siguen cobrando. Poné 0 si no corresponden.') : null,
       guardChosen
-        ? h('p', { class: 'qe-note' }, `Si a tu gente le pagás un adicional por estar de guardia, sumalo en "${stepName('labor')}" → Adicionales: es parte de tu costo.`)
+        ? h('p', { class: 'qe-note' }, `Si a tu gente le pagás un adicional por estar de guardia, sumalo en "${stepName('labor')}" → "Otros pagos fijos por mes" del puesto: es parte de tu costo.`)
         : null,
       guardChosen
         ? kit.advanced(
@@ -1555,7 +1594,7 @@ export function render(container, ctx) {
     );
 
   const question = monthlyContract
-    ? kit.question('¿Qué cobertura vendés en el abono?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Lo que exceda se cobra en "Adicionales".')
+    ? kit.question('¿Qué cobertura vendés en el abono?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo": quedan dentro del abono.')
     : singleJob
     ? kit.question('¿Cuántos días lleva el trabajo?', 'Los costos (personal, equipos, combustible) se calculan con los días de trabajo que lleva hacerlo. Si hacés más de un trabajo así por mes, cargalo en "Más detalle".')
     : byQuantity && info.id === 'job' && contract.mode === 'closed'

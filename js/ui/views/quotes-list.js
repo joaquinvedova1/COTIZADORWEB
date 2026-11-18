@@ -44,7 +44,7 @@ const STATUS_TONES = Object.freeze({ draft: 'gray', sent: 'blue', won: 'green', 
 const QUOTE_STAGES = Object.freeze([
   { title: 'El servicio', text: 'Qué servicio vas a prestar y cómo te paga el cliente.' },
   { title: 'Los recursos', text: 'Tu gente (sueldo por mes y valor de su hora), equipos, materiales y viajes.' },
-  { title: 'Cómo se cobra', text: 'Unidad, horario normal, cuánto esperás trabajar y tarifas fuera de horario.' },
+  { title: 'Cómo se cobra', text: 'Unidad, horario normal, cuánto esperás trabajar y si lleva horas extra.' },
   { title: 'Otros gastos', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
   { title: 'El precio', text: 'Cuánto querés ganar y tus reglas comerciales.' },
   { title: 'Resultado', text: 'Costo, tarifa mínima, tarifa sugerida y días para no perder plata.' },

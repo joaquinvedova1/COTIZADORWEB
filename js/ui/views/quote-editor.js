@@ -54,9 +54,9 @@ import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js
 import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText, unreliableText, closedJobsPerMonth } from '../result-text.js';
+import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitSuffix } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
-import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms } from '../../domain/quote-factory.js';
+import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms, withoutSeparateCharges } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
 import { computeQuote } from '../../engines/quote-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
@@ -216,7 +216,7 @@ export const LABOR_WHY_EMPTY = 'Agregá cada puesto y poné cuántas personas va
  * Ítems de completitud que se corrigen dentro de unas "Opciones avanzadas":
  * el aviso del paso ofrece abrirlas y el disclosure muestra "Revisar".
  */
-const ITEM_ADVANCED_KEY = Object.freeze({ standby: 'margin-rules' });
+const ITEM_ADVANCED_KEY = Object.freeze({ standby: 'margin-commercial' });
 
 /**
  * Estado abierto/cerrado de las "Opciones avanzadas", SÓLO en memoria
@@ -1125,7 +1125,7 @@ function rateHint(r) {
  * el resto (precio para el margen, resultado, margen esperado, completitud).
  * En pantallas chicas es una barra compacta fija abajo que se expande.
  */
-function buildSummary({ getResult, stepHref, stepId = null }) {
+function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = null }) {
   const rows = [];
 
   // hidden(r): la fila no se muestra (p. ej. "Días para no perder" en precio cerrado o fijo mensual).
@@ -1175,9 +1175,11 @@ function buildSummary({ getResult, stepHref, stepId = null }) {
       hint: (r) => {
         const jobs = closedJobsPerMonth(r);
         if (jobs !== null) return Math.abs(jobs - 1) < 1e-9 ? `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días de trabajo.` : `Lo del mes (${formatMoney(r.kpis.totalCost)}) ÷ ${formatNumber(jobs, { decimals: 2 })} trabajos.`;
-        return isQuantityUnit(r)
+        // M7: por hora, día o cantidad, también en la unidad que cotizás ("≈ $ X por hora").
+        const approx = perBilledUnitSuffix(r, getQuote(), r.kpis.totalCost).replace(/^ · /, '');
+        return (approx ? `${approx}. ` : '') + (isQuantityUnit(r)
         ? `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`
-        : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`;
+        : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`);
       },
       trace: (r) => r.traces.totalCost,
     }),
@@ -1255,7 +1257,7 @@ function buildSummary({ getResult, stepHref, stepId = null }) {
       label: (r) => (closedJobsPerMonth(r) !== null ? 'Resultado esperado del trabajo' : 'Resultado esperado del mes'),
       value: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit / (closedJobsPerMonth(r) || 1)) : EMPTY),
       // ECO-01: con un dato que vuelve no confiable el resultado, se dice antes que la facturación.
-      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue / (closedJobsPerMonth(r) || 1))} ${closedJobsPerMonth(r) !== null ? 'por trabajo' : 'por mes'}.` : 'Sin tarifa todavía.'),
+      hint: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? unreliableText(r.completeness, 'este resultado') || `Facturás ${formatMoney(r.kpis.revenue / (closedJobsPerMonth(r) || 1))} ${closedJobsPerMonth(r) !== null ? 'por trabajo' : 'por mes'}.${perBilledUnitSuffix(r, getQuote(), r.kpis.profit) ? ` Resultado${perBilledUnitSuffix(r, getQuote(), r.kpis.profit).replace(/^ · /, ': ')}.` : ''}` : 'Sin tarifa todavía.'),
       tone: (r) => (unreliableText(r.completeness) ? 'red' : resultTone(r)),
       trace: (r) => r.traces.expectedResult,
     }),
@@ -2226,7 +2228,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   markVisited(quoteId, stepId);
   const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId });
   const substeps = buildSubsteps({ currentStep: stepId, stepHref, quoteId, isHidden: (id) => isStepHidden(id, state.quote) });
-  const summary = stepId === 'result' ? null : buildSummary({ getResult: () => state.result, stepHref, stepId });
+  const summary = stepId === 'result' ? null : buildSummary({ getResult: () => state.result, getQuote: () => state.quote, stepHref, stepId });
   const notices = buildStepNotices(stepId, {
     getQuote: () => state.quote,
     onReveal: (key) => revealAdvanced(key),
@@ -2497,11 +2499,12 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
 
   /**
    * Plantilla de servicio a partir de la cotización (UX-13): copia tipo de
-   * servicio, actividad, líneas (con su marca ILUSTRATIVO) y reglas, sin
-   * identidad, cliente, código ni estado.
+   * servicio, actividad, líneas (con su marca ILUSTRATIVO), mínimos, descuentos y horas
+   * extra del trabajo, sin identidad, cliente, código ni estado. Regla de un ítem
+   * (2026-11-18): sin adicionales ni nada que se cobre aparte del precio único.
    */
   function templateDefaults(name) {
-    const copy = deepClone(state.quote);
+    const copy = withoutSeparateCharges(deepClone(state.quote));
     ['id', 'organizationId', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy', 'code', 'status', 'client', 'illustrative', 'templateId'].forEach((key) => {
       delete copy[key];
     });
@@ -2584,7 +2587,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       content: h(
         'div',
         { class: 'stack' },
-        h('p', {}, 'La plantilla copia el tipo de servicio, la actividad, el personal, los equipos, los materiales, la logística y las reglas comerciales de esta cotización. No copia el cliente, el código ni el estado. Después la usás desde "Nueva cotización".'),
+        h('p', {}, 'La plantilla copia el tipo de servicio, la actividad, el personal, los equipos, los materiales, la logística, los mínimos, los descuentos y las horas extra del trabajo de esta cotización. No copia el cliente, el código, el estado ni lo que se cobraba aparte del precio (adicionales, horas extra facturadas, materiales facturados aparte, guardia, movilización, km adicional ni equipo en espera): una cotización nueva tiene un solo precio. Después la usás desde "Nueva cotización".'),
         info.any ? banner('Esta cotización tiene valores ILUSTRATIVOS: la plantilla también va a quedar marcada como ILUSTRATIVA.', 'warning') : null,
         nameField,
         descField,

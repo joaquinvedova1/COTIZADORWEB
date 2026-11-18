@@ -16,6 +16,7 @@
 
 import { isPlainObject } from '../core/object.js';
 import { activationTerms } from './activation-terms.js';
+import { contractOf } from './contract.js';
 
 const positive = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
 const loaded = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
@@ -128,4 +129,43 @@ export function hoursPerDayFromManHours(manHoursPerDay, labor) {
   if (!(Number.isFinite(hh) && hh > 0) || !(people > 0)) return null;
   const hours = hh / people;
   return hours >= 1 && hours <= 24 ? hours : null;
+}
+
+/**
+ * Cambio de modalidad (M8, 2026-11-18): las horas de "Sí, algunas horas" de "Horas extra del
+ * trabajo" son POR MES en fijo mensual y POR TRABAJO / LLAMADO en las demás. Si cambia esa base,
+ * el mismo número no se puede leer en la nueva (4 h por trabajo no son 4 h por mes): se LIMPIAN
+ * y se avisa (misma regla que V-03). MUTA `q` y devuelve los avisos.
+ *
+ * @param {object} q          cotización (se muta)
+ * @param {string|null} fromMode  modalidad anterior (contractOf(q).mode)
+ * @param {string|null} toMode    modalidad nueva
+ * @returns {string[]} avisos
+ */
+export function applyContractModeChange(q, fromMode, toMode) {
+  const notices = [];
+  if (!isPlainObject(q) || !isPlainObject(q.overtimeWork)) return notices;
+  if ((fromMode === 'monthly') === (toMode === 'monthly')) return notices;
+  const ow = q.overtimeWork;
+  if (ow.mode !== 'some' || !(positive(ow.hours50) || positive(ow.hours100))) return notices;
+  const was = fromMode === 'monthly' ? 'por mes' : 'por trabajo';
+  ow.hours50 = 0;
+  ow.hours100 = 0;
+  notices.push(`Se borraron las horas extra del trabajo (estaban ${was}): cargalas de nuevo en "Cómo se cobra".`);
+  return notices;
+}
+
+/**
+ * Cambio de unidad completo (verificación 2026-11, N2): limpia lo cargado en la
+ * unidad anterior (applyUnitChange) y, si con la unidad cambia el modo del
+ * contrato (en cotizaciones sin contrato el modo sale de la unidad), también
+ * las "algunas horas" extra, que se leen por mes o por trabajo según el modo.
+ * Cambia q.unit y devuelve los avisos.
+ */
+export function applyUnitChangeWithMode(q, nextUnit, fromInfo, toInfo) {
+  if (!isPlainObject(q)) return [];
+  const fromMode = contractOf(q).mode;
+  q.unit = nextUnit;
+  const notices = applyUnitChange(q, fromInfo, toInfo);
+  return [...notices, ...applyContractModeChange(q, fromMode, contractOf(q).mode)];
 }

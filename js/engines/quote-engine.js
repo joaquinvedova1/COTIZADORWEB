@@ -187,7 +187,11 @@ function unitIssues(quote, ctx) {
     if (u.kind === 'quantity' && a.billableQuantityPerMonth > 0 && !(a.unitsPerActiveDay > 0) && !(normalizeRules(ctx.rules).minimumCallUnits > 0)) {
       issues.push({ path: 'activity.unitsPerActiveDay', message: `Cargá ${unitTexts(u).cuantos} ${u.plural} hacés por día de trabajo: sin eso no se pueden calcular los días de trabajo ni los costos.`, severity: 'error' });
     }
-    if (a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9) {
+    // UX 1 (2026-11): en precio cerrado, UN trabajo más largo que el mes no es un error (una obra
+    // de 45 días): se pagan 1,5 meses de sueldo y el Resultado lo dice como dato. Sólo se avisa
+    // si son varios trabajos por mes y no entran.
+    const singleLongJob = contractOf(quote).mode === 'closed' && !(a.billableQuantityPerMonth > 1 + 1e-9);
+    if (a.activeDaysPerMonth > a.availableDaysPerMonth + 1e-9 && !singleLongJob) {
       issues.push({
         path: 'activity.billableQuantityPerMonth',
         message: `Para facturar ${formatNumber(a.billableQuantityPerMonth, { decimals: 2 })} ${Math.abs(a.billableQuantityPerMonth - 1) < 1e-9 ? u.singular : u.plural} por mes necesitás ${formatDays(a.activeDaysPerMonth, { decimals: 1 })} de trabajo: más que los ${formatNumber(a.availableDaysPerMonth)} días disponibles del mes.`,
@@ -649,7 +653,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
       notes: [
         byQuantity && targetMarginDays.reachable ? `Son ${formatDays(targetMarginDays.days, { decimals: 1 })} de trabajo: los costos se calculan con esos días y la facturación, con ${texts.los} ${unitInfo.plural}.` : null,
         !targetMarginDays.reachable ? targetMarginDays.reason : null,
-        linearTarget.hasNonLinearRules ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento o ${T.each} contad${T.g('a', 'o')} ${T.whole}): el resultado se calcula día a día.` : null,
+        linearTarget.hasNonLinearRules ? `Hay reglas no lineales (mínimo garantizado, mínimo ${T.per}, tramos de descuento, ${T.each} contad${T.g('a', 'o')} ${T.whole} u horas extra de todo el trabajo): el resultado se calcula día a día.` : null,
       ],
     }),
     floorRate: createTrace({

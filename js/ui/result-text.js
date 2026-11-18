@@ -560,17 +560,55 @@ export function lineMonthAtEstimate(r, line) {
 }
 
 /**
+ * Horas extra del trabajo de un puesto en el mes estimado (M2, 2026-11-18): lo que el motor suma
+ * DENTRO del personal para ese puesto (overtime-work-engine `perRole[].monthly`). 0 si no hay.
+ */
+export function roleOvertimeMonth(r, index) {
+  const o = r && r.model ? r.model.overtimeWork : null;
+  if (!o || !o.active || !Array.isArray(o.perRole)) return 0;
+  const role = o.perRole.find((x) => x.index === index);
+  if (!role || !(role.monthly > 0)) return 0;
+  // Fijo mensual: lo del mes, con los meses de costo fijo si el trabajo dura más que los disponibles.
+  if (o.mode === 'some' && o.perMonth) return role.monthly * monthsFactor(r.activity ? r.activity.activeDaysPerMonth : 0, r.activity ? r.activity.availableDaysPerMonth : 0);
+  return role.monthly;
+}
+
+/** "Horas extra del trabajo (todo al 50 %)" / "Horas extra del trabajo": rótulo corto para explicaciones. */
+export function overtimeWorkLabel(r) {
+  const o = r && r.model ? r.model.overtimeWork : null;
+  if (!o || !o.active) return '';
+  return o.mode === 'all' ? `horas extra (todo el trabajo al ${o.premiumPct}\u00a0%)` : 'horas extra del trabajo';
+}
+
+/**
  * Por servicio prestado (hora, día, jornada, m³…), al lado de lo del mes: " · ≈ $ X por día"
  * = lo del mes ÷ unidades que facturás en el mes (Joaco 2026-11-18: ver el costo en la unidad
  * que cotizás). Vacío en precio cerrado, en fijo mensual o sin unidades cargadas.
  */
+/** "≈ $ X por hora" sin cortes de línea adentro (UX 2026-11): una sola función para todos lados. */
+export function approxAmountText(amount, unitSingular) {
+  return `≈\u00a0${formatMoney(amount)}\u00a0por\u00a0${String(unitSingular).replace(/ /g, '\u00a0')}`;
+}
+
 export function perBilledUnitSuffix(r, quote, monthly) {
   if (isClosedPrice(r) || !quote) return '';
   const info = billingUnitOf(quote);
   if (info.kind === 'month') return '';
   const units = r && r.estimate && r.estimate.revenue ? r.estimate.revenue.billableUnits : null;
   if (!(Number.isFinite(units) && units > 1e-9) || !(monthly > 0.005)) return '';
-  return ` · ≈ ${formatMoney(monthly / units)} por ${info.singular}`;
+  // Espacios de no separación (UX, 2026-11): "≈ $ X por hora" no se corta en celular.
+  return ` · ${approxAmountText(monthly / units, info.singular)}`;
+}
+
+/**
+ * Una cifra del mes dicha en la unidad de cobro de la cotización (regla 2, 2026-11-18):
+ * precio cerrado → "$ X en el trabajo"; fijo mensual → "$ X por mes"; por hora, día o
+ * cantidad → "$ X por mes · ≈ $ Y por hora". Sólo presentación.
+ */
+export function unitAmountText(r, quote, monthly) {
+  const v = Number.isFinite(monthly) ? monthly : 0;
+  if (closedJobsPerMonth(r) !== null) return perQuoteUnit(r, v).text;
+  return `${formatMoney(v)} por mes${perBilledUnitSuffix(r, quote, v)}`;
 }
 
 /** "trabajo" / "mes" para rótulos ("Costo del equipo en el trabajo"): trabajo sólo con trabajos cargados. */
@@ -674,9 +712,11 @@ export function floorWithoutExtrasText(floor, unitLabel = 'día') {
  * Aclaración del abono que alcanza aun trabajando todos los días (A-12, H-18): con
  * personal, las horas extra de días fuera de la jornada no entran en esa cuenta.
  * @param {boolean} hasStaff  ¿la cotización tiene personal?
+ * @param {{ overtimeWork?: boolean }} [o]  ¿hay horas extra del trabajo? (entonces sí se cuentan)
  */
-export function capAllDaysNote(hasStaff) {
-  return hasStaff ? ' (sin contar horas extra)' : '';
+export function capAllDaysNote(hasStaff, { overtimeWork = false } = {}) {
+  // B1 (2026-11-18): con "Horas extra del trabajo" las horas extra ya están en la cuenta.
+  return hasStaff && !overtimeWork ? ' (sin contar horas extra)' : '';
 }
 
 /**
@@ -817,4 +857,65 @@ export function rateBelowHourCostText(r) {
   if (!(hourCost > 0) || !(o.rateHourPrice < hourCost - 0.005)) return '';
   const unit = (r.unitInfo && r.unitInfo.singular) || 'unidad';
   return `La guardia y los adicionales ya cubren casi todo tu costo y tu margen: la tarifa por ${unit} queda por debajo de lo que te cuesta una hora de tus recursos (${formatMoney(hourCost)}). Puede ser la que acuerdes.`;
+}
+
+/** Meses de sueldo que paga el trabajo estimado: D ÷ días disponibles si D los supera; si no, 1. */
+export function salaryMonthsAt(r) {
+  const a = r && r.activity ? r.activity : {};
+  return monthsFactor(a.activeDaysPerMonth || 0, a.availableDaysPerMonth || 0);
+}
+
+/**
+ * "$ X" o, si el trabajo dura más que los días disponibles, "$ X × 1,5 = $ Y (1,5 meses de sueldo)"
+ * (verificación 2026-11, N1): así la explicación cierra con el total.
+ */
+export function salaryMonthsText(r, fixedMonthly) {
+  const f = salaryMonthsAt(r);
+  const v = Number.isFinite(fixedMonthly) ? fixedMonthly : 0;
+  if (!(f > 1 + 1e-9)) return formatMoney(v);
+  const n = formatNumber(f, { decimals: 2 });
+  return `${formatMoney(v)} × ${n} = ${formatMoney(v * f)} (${n} meses de sueldo)`;
+}
+
+/**
+ * Cuenta del costo de un puesto en precio cerrado, en el trabajo (N1): sueldo con cargas
+ * (con los meses de sueldo si el trabajo es largo) + lo variable por día + horas extra = total.
+ * `line` es la línea del motor (fixedMonthly, variablePerActiveDay); `overtime`, lo del mes.
+ * Sólo texto: los montos son los del motor.
+ */
+export function closedLaborCostText(r, line, { overtime = 0, share = '' } = {}) {
+  const jobs = closedJobsPerMonth(r);
+  if (jobs === null || !line) return '';
+  const single = Math.abs(jobs - 1) < 1e-9;
+  const D = r.activity ? r.activity.activeDaysPerMonth || 0 : 0;
+  const f = salaryMonthsAt(r);
+  const fixed = (line.fixedMonthly || 0) * f;
+  const variable = (line.variablePerActiveDay || 0) * D;
+  const parts = [];
+  if (line.fixedMonthly > 0) {
+    parts.push(single
+      ? `sueldo con cargas ${salaryMonthsText(r, line.fixedMonthly)}${share}`
+      : `sueldo con cargas ${salaryMonthsText(r, line.fixedMonthly)}${share} ÷ ${formatNumber(jobs, { decimals: 2 })} trabajos = ${formatMoney(fixed / jobs)}`);
+  }
+  if (line.variablePerActiveDay > 0) parts.push(`${formatMoney(line.variablePerActiveDay)} por día × ${formatNumber(D / jobs, { decimals: 2 })} días del trabajo`);
+  if (overtime > 0) parts.push(`${overtimeWorkLabel(r)}: ${formatMoney(overtime / jobs)}`);
+  if (!parts.length) return '';
+  const total = (fixed + variable + overtime) / jobs;
+  const text = parts.join(' + ');
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}${parts.length > 1 || f > 1 + 1e-9 ? ` = ${formatMoney(total)} en el trabajo` : ''}`;
+}
+
+/**
+ * UX 1 (2026-11): precio cerrado de UN trabajo que dura más que los días disponibles del mes
+ * (una obra de 45 días). No es un error: se pagan 1,5 meses de sueldo. Texto informativo, o
+ * '' si no corresponde (otros contratos, varios trabajos por mes o un trabajo que entra en el mes).
+ */
+export function longClosedJobNote(r) {
+  if (!isClosedPrice(r) || !r.activity) return '';
+  const jobs = closedJobsPerMonth(r);
+  if (jobs !== null && jobs > 1 + 1e-9) return '';
+  const f = salaryMonthsAt(r);
+  if (!(f > 1 + 1e-9)) return '';
+  const n = formatNumber(f, { decimals: 2 });
+  return `El trabajo dura ${n} meses (${formatDays(r.activity.activeDaysPerMonth, { decimals: 1 })}; el mes tiene ${formatNumber(r.activity.availableDaysPerMonth)} días disponibles): se pagan ${n} meses de sueldo y de gastos fijos. Está bien así, no es un error.`;
 }

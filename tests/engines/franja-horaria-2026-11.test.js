@@ -56,10 +56,11 @@ describe('franja horaria: horas de guardia por día', () => {
     assert.match(item.message, /sólo el recargo/);
     assert.equal(item.focus, 'activity.hoursPerActiveDay');
 
-    // Por día: el día cubre la franja; el excedente va a Adicionales.
+    // Por día: el día cubre la franja; el recargo va en la tarifa (regla de un ítem, sin Adicionales).
     const byDay = computeQuote(onCall({ availability: 'window', availabilityHoursPerDay: 8, hoursPerActiveDay: 10 }, 'day')).completeness.items.find((x) => x.id === 'availability_window');
     assert.ok(byDay);
-    assert.match(byDay.message, /si el cliente las paga aparte, cobralas en "Adicionales"/);
+    assert.match(byDay.message, /cubrilo en tu tarifa \(un solo precio/);
+    assert.doesNotMatch(byDay.message, /Adicionales/);
     assert.doesNotMatch(byDay.message, /Ya se facturan/);
 
     for (const activity of [
