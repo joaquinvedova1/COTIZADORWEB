@@ -512,7 +512,7 @@ export function render(container, ctx) {
             // V-06: comidas en un solo lugar (Viajes no las pide; ahí va sólo el alojamiento).
             kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda o comidas por día', rule: 'money', unit: '$/día', illustrative, hint: 'Por persona y por día de trabajo. Es el único lugar donde se cargan las comidas. Si las da el cliente: 0.' }),
             // Horas de trabajo de cada persona: sólo para el aviso de horas (no cambia el costo).
-            kit.num(`${p}.coverageHoursPerDay`, { label: 'Horas por día de cada persona', rule: 'hoursPerDay', unit: 'h/día', placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0 ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)` : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del servicio)` : 'Las del servicio', hint: 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sólo sirve para avisarte si faltan horas: no cambia el costo.' }),
+            kit.num(`${p}.coverageHoursPerDay`, { label: 'Horas por día de cada persona', rule: 'hoursPerDay', unit: 'h/día', placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0 ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)` : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del servicio)` : 'Las del servicio', hint: 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sirve para avisarte si faltan horas y, si todo el trabajo es con horas extra, para calcularlas.' }),
           ),
         ),
         kit.group(

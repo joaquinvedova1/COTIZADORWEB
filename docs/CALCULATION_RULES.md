@@ -1787,3 +1787,15 @@ Otros recargos (ni 50 ni 100) siguen con `base × (1 + r)`. El precio sugerido (
 
 Nada: sin los campos nuevos el resultado es idéntico (tests `plan-2026-026-hora-por-recurso.test.js`, golden y lab). La huella de snapshot sólo incluye `overtimeRate50/100` cuando están cargados, así las cotizaciones hechas no muestran avisos falsos de "cambió en Recursos". La pregunta de guardia se quitó de la pantalla; los cobros de guardia ya cargados (`rules.availabilityFeeMonthly`, `rules.calloutFeePerActivation`) se siguen calculando hasta que el usuario los quite.
 
+
+## 28. Horas extra del trabajo dentro del precio único (2026-11-18)
+
+Regla del dueño: **cada cotización da un solo ítem con un solo precio**. No hay adicionales aparte (km excedente, horas adicionales, precio por hora fuera de horario): sólo se ven en cotizaciones que ya los tenían, con los mismos números. Para tener "la hora de cuadrilla al 50 %" se duplica la cotización y se elige esa opción.
+
+El valor de la hora al 50 % y al 100 % es de cada recurso (§27). La cotización elige en "Cómo se cobra" (`quote.overtimeWork`, motor `overtime-work-engine.js`) y el costo entra como línea de personal `labor:overtime-work` (lo toma la estructura % sobre personal; no el standby):
+
+- `mode: 'none'` (o sin dato): nada.
+- `mode: 'all'`, `premiumPct` 50 o 100 — todo el trabajo fuera de horario. Por puesto: horas por día = las del servicio (o `coverageHoursPerDay` / turno viejo si son menos); horas del mes = días × horas por día; horas que ya paga el sueldo asignado = horas normales del mes × % asignado. Costo del mes = Σ personas × (min(horas, pagas) × (hora extra − hora de sueldo con cargas) + max(0, horas − pagas) × hora extra). Va como costo por día de trabajo (÷ días). Los equipos ya están en las horas del servicio.
+- `mode: 'some'`, `hours50`, `hours100` — trabajo normal con algunas horas fuera de horario, además de las normales: por hora = Σ personas × hora extra + uso por hora de los equipos propios en uso (§24). Fijo mensual: horas por mes (fijo del mes). Resto: horas por trabajo/llamado (costo por día = horas × valor ÷ días por trabajo).
+
+Las horas extra por mes cargadas antes en cada puesto (`overtime50/100HoursPerMonth`) siguen sumando igual y sólo se ven si tienen valor; si además se elige una opción, la pantalla avisa que se cuentan dos veces.

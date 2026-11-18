@@ -10,7 +10,7 @@ import { computeOvertimeWork, overtimeWorkOf } from '../../js/engines/overtime-w
 
 const person = { positions: 2, peoplePerPosition: 1, basicMonthly: 1760000, additionalsMonthly: 0, normalHoursPerMonth: 176, sacPct: 0, vacationPct: 0, employerContributionsPct: 50, artPct: 0 };
 // hora de sueldo 10.000 · cargas × 1,5 → hora con cargas 15.000 · al 50 % = 22.500 · al 100 % = 30.000
-const activity = { hoursPerActiveDay: 8, daysPerActivation: 2 };
+const activity = { hoursPerActiveDay: 8, daysPerActivation: 2, activeDaysPerMonth: 10 };
 
 describe('Horas extra del trabajo', () => {
   test('sin dato o "no": no suma nada', () => {
@@ -60,5 +60,34 @@ describe('Horas extra del trabajo', () => {
 
   test('datos inválidos se normalizan', () => {
     assert.deepEqual(overtimeWorkOf({ overtimeWork: { mode: 'x', premiumPct: 70, hours50: -3 } }), { mode: 'none', premiumPct: 50, hours50: 0, hours100: 0, perMonth: false });
+  });
+});
+
+describe('Horas extra del trabajo — revisión de costos', () => {
+  test('todo el trabajo: las horas que pasan lo que paga el sueldo van completas', () => {
+    // 1 persona, 24 días × 10 h = 240 h; su sueldo paga 176 → 176 con recargo y 64 completas.
+    const quote = { labor: [{ ...person, positions: 1 }], overtimeWork: { mode: 'all', premiumPct: 50 } };
+    const r = computeOvertimeWork(quote, computeLabor(quote.labor), { hoursPerActiveDay: 10, daysPerActivation: 1, activeDaysPerMonth: 24 });
+    assert.equal(r.monthlyAtEstimate, 176 * 7500 + 64 * 22500);
+  });
+
+  test('persona compartida: el sueldo asignado paga sólo su parte de las horas', () => {
+    const quote = { labor: [{ ...person, positions: 1, assignment: 'shared', fixedCostSharePct: 25 }], overtimeWork: { mode: 'all', premiumPct: 50 } };
+    const labor = computeLabor(quote.labor);
+    const r = computeOvertimeWork(quote, labor, activity);
+    assert.equal(labor.lines[0].shared, true);
+    assert.equal(r.monthlyAtEstimate, 44 * 7500 + 36 * 22500);
+  });
+
+  test('turno de una cotización vieja limita las horas de cada persona', () => {
+    const quote = { labor: [{ ...person, positions: 3, rotation: { hoursPerShift: 8 } }], overtimeWork: { mode: 'all', premiumPct: 50 } };
+    const r = computeOvertimeWork(quote, computeLabor(quote.labor), { hoursPerActiveDay: 24, daysPerActivation: 1, activeDaysPerMonth: 10 });
+    assert.equal(r.perRole[0].hoursPerDay, 8);
+  });
+
+  test('algunas horas suman el uso por hora de los equipos propios', () => {
+    const quote = { labor: [person], overtimeWork: { mode: 'some', hours50: 2 } };
+    const r = computeOvertimeWork(quote, computeLabor(quote.labor), activity, { contractMode: 'monthly', equipmentPerHour: 5000 });
+    assert.equal(r.fixedMonthly, 2 * (2 * 22500 + 5000));
   });
 });

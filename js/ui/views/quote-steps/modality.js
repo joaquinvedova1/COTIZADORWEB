@@ -1343,7 +1343,7 @@ export function render(container, ctx) {
       : null,
     owMode === 'some'
       ? formGrid(2,
-        kit.num('overtimeWork.hours50', { label: `Horas al 50 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas fuera de horario de la cuadrilla ${owUnit} (cada persona las hace). Días de semana después del horario o sábado a la mañana.` }),
+        kit.num('overtimeWork.hours50', { label: `Horas al 50 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas fuera de horario ${owUnit} (cada persona de la cuadrilla las hace), además de las horas normales${!owPerMonth && Number(quote.activity && quote.activity.hoursPerActiveDay) > 0 ? ` (${quote.activity.hoursPerActiveDay} h por día)` : ''}. Días de semana después del horario o sábado a la mañana.` }),
         kit.num('overtimeWork.hours100', { label: `Horas al 100 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas ${owUnit} en sábado a la tarde, domingo o feriado.` }))
       : null,
     owMode !== 'none'
@@ -1355,21 +1355,32 @@ export function render(container, ctx) {
           h('td', { class: 'num' }, formatMoney(x.baseHourLoaded)),
           h('td', { class: 'num' }, formatMoney(x.at50)),
           h('td', { class: 'num' }, formatMoney(x.at100))));
+        const perTrip = (v) => (contract.mode === 'closed' && r.activity && r.activity.daysPerActivation > 0 ? ` · ${formatMoney(v * r.activity.daysPerActivation)} por ${T.one}` : '');
+        const notes = [];
         let text;
         if (o.mode === 'all') {
           const perDay = o.variablePerActiveDay;
-          text = `Cada hora del trabajo suma ${formatMoney(o.crewSurchargePerHour)} de recargo de toda la cuadrilla (hora al ${o.premiumPct} % − hora de sueldo de cada persona; el sueldo ya está en su costo del mes)${perDay > 0 ? `: ${formatMoney(perDay)} por día de trabajo` : ''}.`;
+          text = perDay > 0
+            ? `Cada hora de trabajo cuesta ${formatMoney(o.crewSurchargePerHour)} más (la cuadrilla al ${o.premiumPct} %, sobre lo que ya cobra de sueldo): ${formatMoney(perDay)} por día de trabajo${perTrip(perDay)}.`
+            : 'Todavía no suma nada: cargá los días y las horas por día del trabajo.';
+          if (o.perRole.some((x) => x.fullHoursPerMonth > 0.005)) notes.push('Las horas del mes que pasan lo que ya paga su sueldo se cuentan con la hora extra completa.');
+          if (o.perRole.some((x) => (o.premiumPct === 100 ? x.lowRate100 : x.lowRate50))) notes.push(`Ojo: el valor de la hora al ${o.premiumPct} % de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas, no la hora del recibo.`);
         } else {
           text = o.perUnit > 0
-            ? `Suma ${formatMoney(o.perUnit)} ${owUnit} al costo de tu gente (horas × hora extra completa de cada persona: son horas además de las normales).`
+            ? `Estas horas suman ${formatMoney(o.perUnit)} ${owUnit} al costo de tu gente${o.equipmentPerHour > 0 ? ' y de tus equipos' : ''}.`
             : 'Cargá las horas para sumarlas al costo.';
+          if (o.perRole.some((x) => (o.hours50 > 0 && x.lowRate50) || (o.hours100 > 0 && x.lowRate100))) notes.push('Ojo: el valor de la hora extra de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas.');
         }
+        // Horas extra cargadas antes en cada puesto: se sumarían dos veces.
+        const legacy = (quote.labor || []).filter((l) => l && (Number(l.overtime50HoursPerMonth) > 0 || Number(l.overtime100HoursPerMonth) > 0));
+        if (legacy.length) notes.push(`Ojo: ${legacy.map((l) => `"${l.role || 'Puesto'}"`).join(', ')} ya tiene horas extra por mes cargadas en "${stepName('labor')}". Se suman además de éstas: dejá las de un solo lugar.`);
         return h('div', { class: 'qe-ooh-roles' },
-          h('p', { class: 'qe-ooh-roles-title' }, 'Valor de la hora de cada uno (viene de Recursos)'),
+          h('p', { class: 'qe-ooh-roles-title' }, 'Lo que te cuesta la hora de cada uno'),
           h('table', { class: 'qe-ooh-table' },
             h('thead', {}, h('tr', {}, h('th', {}, 'Puesto'), h('th', { class: 'num' }, 'Hora de sueldo'), h('th', { class: 'num' }, 'Hora al 50 %'), h('th', { class: 'num' }, 'Hora al 100 %'))),
             h('tbody', {}, ...rows)),
-          h('p', { class: 'qe-note' }, text));
+          h('p', { class: 'qe-note' }, text),
+          ...notes.map((t) => h('p', { class: ['qe-note', 'is-warning'] }, t)));
       }, { tag: 'div', allowEmpty: true })
       : null,
   ) : null;

@@ -9,27 +9,30 @@
  *   mode 'none' (o sin dato): no suma nada.
  *
  *   mode 'all' — TODAS las horas del trabajo son fuera de horario (al 50 % o al 100 %).
- *     Las horas de cada persona ya están en su sueldo del mes (que la cotización ya carga):
- *     se suma sólo el RECARGO de cada hora trabajada.
- *       recargo por hora de un puesto = valor hora extra − hora de sueldo con cargas (≥ 0)
- *       horas por día del puesto      = las del servicio (o las de cada persona, si son menos)
- *       por día de trabajo            = Σ personas × horas por día × recargo por hora
+ *     Las horas que el sueldo cargado en la cotización ya paga llevan sólo el RECARGO; las que
+ *     pasan de ahí, la hora extra COMPLETA:
+ *       horas por día de cada persona = las del servicio (o las suyas / su turno, si son menos)
+ *       horas del mes por persona     = días de trabajo × horas por día
+ *       horas que ya paga su sueldo   = horas normales del mes × % asignado (100 % si es dedicada)
+ *       recargo por hora              = valor hora extra − hora de sueldo con cargas (≥ 0)
+ *       costo del mes = Σ personas × (min(horas, pagas) × recargo + max(0, horas − pagas) × valor)
+ *       (va como costo por día de trabajo: costo del mes ÷ días)
  *     Así "la cuadrilla por hora al 50 %" sale la hora normal + el recargo de cada operador.
  *
  *   mode 'some' — el trabajo es en horario normal y además lleva ALGUNAS horas fuera de horario
  *     (p. ej. intervenciones fuera de horario en un precio cerrado). Esas horas son además de las
  *     normales: se suma la hora extra COMPLETA de cada persona.
- *       por hora = Σ personas × valor hora extra (50 % o 100 %)
+ *       por hora = Σ personas × valor hora extra (50 % o 100 %) + uso por hora de los equipos propios
  *       fijo mensual: horas por mes → fijo del mes
  *       por trabajo / llamado (precio cerrado o por servicio): horas por cada uno →
  *         por día de trabajo = horas × valor ÷ días por trabajo
  *
- * Sólo la gente: el uso de equipos ya se costea con las horas por día del servicio.
+ * En 'all' los equipos ya se costean con las horas por día del servicio (no se suman de nuevo).
  * Funciones puras: sin DOM, sin storage, sin fecha actual.
  */
 
 import { isPlainObject, objectList } from '../core/object.js';
-import { nonNegative, isFiniteNumber } from '../core/money.js';
+import { nonNegative, isFiniteNumber, safeDivide } from '../core/money.js';
 
 export const OVERTIME_WORK_MODES = Object.freeze(['none', 'all', 'some']);
 export const OVERTIME_WORK_PREMIUMS = Object.freeze([50, 100]);
@@ -52,13 +55,14 @@ export function overtimeWorkOf(quote = {}, { contractMode = null } = {}) {
  * Costo de las horas extra del trabajo, dentro del personal.
  * @param {object} quote
  * @param {{ lines: object[] }} labor resultado de computeLabor (mismo orden que quote.labor)
- * @param {{ hoursPerActiveDay: number, daysPerActivation: number }} activity
- * @param {{ contractMode?: string|null }} opts
+ * @param {{ hoursPerActiveDay: number, daysPerActivation: number, activeDaysPerMonth: number }} activity
+ * @param {{ contractMode?: string|null, equipmentPerHour?: number }} opts
  */
-export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { contractMode = null } = {}) {
+export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { contractMode = null, equipmentPerHour = 0 } = {}) {
   const cfg = overtimeWorkOf(quote, { contractMode });
   const inputLines = objectList(quote && quote.labor);
   const H = Math.min(nonNegative(activity && activity.hoursPerActiveDay), 24);
+  const D = nonNegative(activity && activity.activeDaysPerMonth);
   const perRole = [];
   (labor && Array.isArray(labor.lines) ? labor.lines : []).forEach((l, i) => {
     const people = nonNegative(l && l.positions);
@@ -68,8 +72,17 @@ export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { c
     const baseLoaded = nonNegative(base) * nonNegative(p.loadFactor, 1);
     const at50 = isFiniteNumber(p.overtimeHourlyCost50) ? nonNegative(p.overtimeHourlyCost50) : baseLoaded * 1.5;
     const at100 = isFiniteNumber(p.overtimeHourlyCost100) ? nonNegative(p.overtimeHourlyCost100) : baseLoaded * 2;
-    const own = nonNegative(inputLines[i] && inputLines[i].coverageHoursPerDay);
+    const input = inputLines[i] || {};
+    // Horas de cada persona: las suyas o, en cotizaciones viejas, su turno (como el aviso de horas).
+    const ownHours = nonNegative(input.coverageHoursPerDay);
+    const shift = input.rotation && typeof input.rotation === 'object' ? nonNegative(input.rotation.hoursPerShift) : 0;
+    const own = ownHours > 0 ? ownHours : shift;
     const hoursPerDay = own > 0 ? Math.min(own, H) : H;
+    // Horas del mes que su sueldo (la parte asignada a esta cotización) ya paga, por persona trabajando.
+    const headcount = nonNegative(l.headcount, people);
+    const normalPerPerson = safeDivide(nonNegative(l.hoursPerMonth), headcount, 0);
+    const share = l.shared && !l.shareMissing ? nonNegative(l.fixedCostSharePct) / 100 : 1;
+    const paidHoursPerMonth = normalPerPerson * share * safeDivide(headcount, people, 1);
     perRole.push({
       index: i,
       role: l.role || '',
@@ -80,6 +93,10 @@ export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { c
       at100,
       surcharge50: Math.max(0, at50 - baseLoaded),
       surcharge100: Math.max(0, at100 - baseLoaded),
+      paidHoursPerMonth,
+      // Valor propio por debajo de la hora de sueldo: recargo 0 (se avisa en la pantalla).
+      lowRate50: at50 < baseLoaded - 0.005,
+      lowRate100: at100 < baseLoaded - 0.005,
     });
   });
   const crew = (key) => perRole.reduce((acc, r) => acc + r.people * r[key], 0);
@@ -98,11 +115,23 @@ export function computeOvertimeWork(quote = {}, labor = null, activity = {}, { c
     active: false,
   };
   if (cfg.mode === 'all') {
-    const key = cfg.premiumPct === 100 ? 'surcharge100' : 'surcharge50';
-    out.variablePerActiveDay = perRole.reduce((acc, r) => acc + r.people * r.hoursPerDay * r[key], 0);
+    const p = cfg.premiumPct === 100 ? 100 : 50;
+    let monthly = 0;
+    perRole.forEach((r) => {
+      const worked = D * r.hoursPerDay;
+      const paid = Math.min(worked, r.paidHoursPerMonth);
+      r.workedHoursPerMonth = worked;
+      r.fullHoursPerMonth = Math.max(0, worked - paid);
+      r.monthly = r.people * (paid * r[`surcharge${p}`] + r.fullHoursPerMonth * r[`at${p}`]);
+      monthly += r.monthly;
+    });
+    out.monthlyAtEstimate = monthly;
+    out.variablePerActiveDay = D > 0 ? monthly / D : 0;
     out.active = out.variablePerActiveDay > 0;
   } else if (cfg.mode === 'some') {
-    const perUnit = cfg.hours50 * crewAt50 + cfg.hours100 * crewAt100;
+    const eq = nonNegative(equipmentPerHour);
+    out.equipmentPerHour = eq;
+    const perUnit = cfg.hours50 * (crewAt50 + eq) + cfg.hours100 * (crewAt100 + eq);
     out.perUnit = perUnit;
     if (cfg.perMonth) out.fixedMonthly = perUnit;
     else {

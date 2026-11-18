@@ -227,22 +227,6 @@ export function buildCostModel(quote = {}) {
     });
   });
 
-  // Horas extra del trabajo (2026-11-18): un concepto más del personal, dentro del precio único.
-  const overtimeWork = computeOvertimeWork(quote, labor, activity, { contractMode: contractOf(quote).mode });
-  if (overtimeWork.active) {
-    lines.push({
-      key: 'labor:overtime-work',
-      source: 'labor',
-      label: overtimeWork.mode === 'all' ? `Horas extra (todo el trabajo al ${overtimeWork.premiumPct}\u00a0%)` : 'Horas extra del trabajo',
-      category: 'labor',
-      payGroup: 'salaries',
-      fixedMonthly: overtimeWork.fixedMonthly,
-      variablePerActiveDay: overtimeWork.variablePerActiveDay,
-      cashFixedMonthly: overtimeWork.fixedMonthly,
-      cashVariablePerActiveDay: overtimeWork.variablePerActiveDay,
-    });
-  }
-
   // Standby: días en locación sin operar. Se costea el variable de personal
   // (vianda + horas extra) de cada día de standby. Es un monto mensual estimado.
   const rules = quote.rules || {};
@@ -570,6 +554,22 @@ export function buildCostModel(quote = {}) {
   // Tarifas fuera de horario (PLAN-2026-025): su costo por hora sale de los recursos.
   const outOfHours = outOfHoursBasis(labor, equipment);
   const resolvedExtras = resolveExtras(quote.extras, outOfHours);
+  // Horas extra del trabajo (2026-11-18): un concepto más del personal, dentro del precio único.
+  const overtimeWork = computeOvertimeWork(quote, labor, activity, { contractMode: contractOf(quote).mode, equipmentPerHour: outOfHours.equipmentPerHour });
+  if (overtimeWork.active) {
+    lines.push({
+      key: 'labor:overtime-work',
+      source: 'labor',
+      label: overtimeWork.mode === 'all' ? `Horas extra (todo el trabajo al ${overtimeWork.premiumPct}\u00a0%)` : 'Horas extra del trabajo',
+      category: 'labor',
+      payGroup: 'salaries',
+      fixedMonthly: overtimeWork.fixedMonthly,
+      variablePerActiveDay: overtimeWork.variablePerActiveDay,
+      cashFixedMonthly: overtimeWork.fixedMonthly,
+      cashVariablePerActiveDay: overtimeWork.variablePerActiveDay,
+    });
+  }
+
   computeExtras(resolvedExtras).lines.forEach((x, i) => {
     if (!(x.cost > 0)) return;
     const category = DIRECT_CATEGORY_IDS.includes(x.category) && x.category !== 'structure' ? x.category : 'labor';
