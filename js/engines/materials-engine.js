@@ -28,6 +28,7 @@
 import { objectList } from '../core/object.js';
 import { nonNegative, pct, safeDivide } from '../core/money.js';
 import { MATERIAL_PROVIDERS } from '../domain/catalogs.js';
+import { LINE_COMPONENT_IDS, lineComponentOf } from '../domain/contract.js';
 
 /** Bases de un material. `per_output` = "Por unidad producida" (PLAN-2026-021 + PLAN-2026-022). */
 export const MATERIAL_BASIS_IDS = Object.freeze(['per_month', 'per_active_day', 'per_activation', 'per_output']);
@@ -105,6 +106,8 @@ export function computeMaterialLine(line = {}, { daysPerActivation = 1, outputPe
     id: line.id ?? null,
     description: line.description ?? '',
     providedBy: provider ? provider.id : null,
+    // Categoría de gasto de la línea (0.10.0): herramientas, insumos, materiales, EPP u otros.
+    component: lineComponentOf(line, 'material'),
     basis,
     // Por unidad producida: cuántas por día de trabajo se usaron (0 = falta el dato).
     ...(basis === 'per_output' ? { outputPerActiveDay: outputPerDay, outputOwn: nonNegative(line.outputPerActiveDay) > 0 } : {}),
@@ -130,7 +133,24 @@ export function computeMaterials(lines = [], ctx = {}) {
     lines: results,
     fixedMonthly: results.reduce((s, r) => s + r.fixedMonthly, 0),
     variablePerActiveDay: results.reduce((s, r) => s + r.variablePerActiveDay, 0),
+    byComponent: costByComponent(results),
   };
+}
+
+/**
+ * Costo por categoría de gasto (0.10.0): fijo mensual y variable por día de cada componente
+ * (herramientas, insumos, materiales, EPP, otros), como `byCategory`. Sólo un desglose: la suma
+ * de los componentes es el total de las líneas.
+ * @param {{ component?: string, fixedMonthly: number, variablePerActiveDay: number }[]} lines
+ */
+export function costByComponent(lines = []) {
+  const out = Object.fromEntries(LINE_COMPONENT_IDS.map((id) => [id, { fixedMonthly: 0, variablePerActiveDay: 0 }]));
+  objectList(lines).forEach((l) => {
+    const id = LINE_COMPONENT_IDS.includes(l.component) ? l.component : 'materials';
+    out[id].fixedMonthly += l.fixedMonthly || 0;
+    out[id].variablePerActiveDay += l.variablePerActiveDay || 0;
+  });
+  return out;
 }
 
 /** Otros costos directos (terceros, subcontratos, montos manuales). */
@@ -151,6 +171,8 @@ export function computeOtherCostLine(line = {}, { daysPerActivation = 1, outputP
     id: line.id ?? null,
     description: line.description ?? '',
     category: line.category,
+    // Categoría de gasto de la línea (0.10.0); sin dato, "Otros costos".
+    component: lineComponentOf(line, 'other'),
     behavior,
     amount,
     ...(behavior === 'per_output' ? { outputPerActiveDay: outputPerDay } : {}),

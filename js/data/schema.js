@@ -20,6 +20,7 @@
 
 import { SCHEMA_VERSION } from '../config.js';
 import { isPlainObject } from '../core/object.js';
+import { LINE_COMPONENT_IDS } from '../domain/contract.js';
 
 export const CURRENT_SCHEMA_VERSION = SCHEMA_VERSION;
 
@@ -148,6 +149,14 @@ function checkQuoteShape(q, base, errors) {
       });
       // v7 (PLAN-2026-010): tramos de horas extra.
       if (f === 'labor') checkObjectList(line.overtime, `${base}.labor[${j}].overtime`, errors);
+    });
+  });
+  // 0.10.0: categoría de gasto opcional de cada material y otro costo (sin subir SCHEMA_VERSION).
+  ['materials', 'otherCosts'].forEach((f) => {
+    if (!Array.isArray(q[f])) return;
+    q[f].forEach((line, j) => {
+      if (!isPlainObject(line) || line.component === undefined || line.component === null) return;
+      if (typeof line.component !== 'string' || !LINE_COMPONENT_IDS.includes(line.component)) errors.push(`${base}.${f}[${j}].component: categoría desconocida.`);
     });
   });
   // v7 (PLAN-2026-010): rubros de la estructura desglosada.

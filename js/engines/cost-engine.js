@@ -50,7 +50,7 @@ import { computeOvertimeWork, overtimeAllMonthlyAt } from './overtime-work-engin
 import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
-import { contractOf } from '../domain/contract.js';
+import { contractOf, LINE_COMPONENT_IDS, SERVICE_COMPONENTS } from '../domain/contract.js';
 import { usesTimeBasis } from '../domain/cost-basis.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { activationTerms } from '../domain/activation-terms.js';
@@ -536,6 +536,8 @@ export function buildCostModel(quote = {}) {
       source: 'materials',
       label: m.description || 'Material',
       category: 'materials',
+      // Categoría de gasto (0.10.0): desglose del renglón Materiales de la EECC.
+      component: m.component,
       payGroup: 'materials',
       fixedMonthly: m.fixedMonthly,
       variablePerActiveDay: m.variablePerActiveDay,
@@ -557,6 +559,7 @@ export function buildCostModel(quote = {}) {
       source: 'other',
       label: o.description || 'Otro costo',
       category,
+      component: o.component,
       payGroup: CATEGORY_PAY_GROUP[category] || 'suppliers',
       fixedMonthly: o.fixedMonthly,
       variablePerActiveDay: o.variablePerActiveDay,
@@ -923,8 +926,46 @@ export function costAtActivity(model, activeDays) {
 }
 
 /**
+ * Costo por categoría de gasto (0.10.0) con D días de trabajo: herramientas, insumos,
+ * materiales, EPP y otros costos. Cada línea de Materiales u Otros costos suma
+ * fijo × meses de costo fijo + variable × D (+ su parte del redondeo de salidas, si está activo),
+ * con la MISMA cuenta que costAtActivity: es sólo un desglose, no cambia ningún total.
+ *
+ * @param {object} model  buildCostModel(...)
+ * @param {number} activeDays
+ * @param {{ category?: string|null }} [options]  category: sólo las líneas de esa categoría de la
+ *   EECC (p. ej. 'materials'); sin dato, todas las líneas con componente (Materiales y Otros costos).
+ * @returns {Record<string, { fixedMonthly: number, variablePerActiveDay: number, amount: number, lines: number }>}
+ */
+export function componentCostAt(model, activeDays, { category = null } = {}) {
+  const D = nonNegative(activeDays);
+  const factor = monthsFactor(D, model && model.activity ? model.activity.availableDaysPerMonth : 0);
+  const rounding = model && model.activationRounding && model.activationRounding.enabled ? activationRoundingAt(model, D) : null;
+  const extra = rounding ? rounding.extraActivations : 0;
+  const out = Object.fromEntries(LINE_COMPONENT_IDS.map((id) => [id, { fixedMonthly: 0, variablePerActiveDay: 0, amount: 0, lines: 0 }]));
+  ((model && model.lines) || []).forEach((l) => {
+    if (category ? l.category !== category : !l.component) return;
+    const id = LINE_COMPONENT_IDS.includes(l.component) ? l.component : 'materials';
+    const b = out[id];
+    b.fixedMonthly += l.fixedMonthly * factor;
+    b.variablePerActiveDay += l.variablePerActiveDay;
+    b.amount += l.fixedMonthly * factor + l.variablePerActiveDay * D + nonNegative(l.discretePerActivation) * extra;
+    b.lines += 1;
+  });
+  return out;
+}
+
+/** Nombre de una categoría de gasto ("Insumos y consumibles"). */
+function componentLabel(id) {
+  return (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label || id;
+}
+
+/**
  * Estructura de costos (EECC): monto + incidencia %.
  * La incidencia mostrada (2 decimales) suma exactamente 100 %.
+ * El renglón `materials` trae `children` (0.10.0): su desglose por categoría de gasto
+ * (herramientas, insumos, materiales, EPP, otros), sólo las que tienen líneas. La suma de los
+ * montos de `children` es el monto del renglón y la de sus `displayPct`, su `displayPct`.
  */
 export function costStructure(model, activeDays) {
   const at = costAtActivity(model, activeDays);
@@ -947,6 +988,23 @@ export function costStructure(model, activeDays) {
     sharePct: at.total > 0 ? (amounts[i] / at.total) * 100 : 0,
     displayPct: displayPcts[i],
   }));
+  const materialsRow = rows.find((r) => r.category === 'materials');
+  if (materialsRow) {
+    const parts = componentCostAt(model, at.activeDays, { category: 'materials' });
+    const ids = LINE_COMPONENT_IDS.filter((id) => parts[id].lines > 0);
+    const childPcts = roundPercentagesToTotal(ids.map((id) => parts[id].amount), 2, materialsRow.displayPct);
+    materialsRow.children = ids.map((id, j) => ({
+      component: id,
+      label: componentLabel(id),
+      amount: parts[id].amount,
+      fixedMonthly: parts[id].fixedMonthly,
+      variablePerActiveDay: parts[id].variablePerActiveDay,
+      perActiveDay: safeDivide(parts[id].amount, at.activeDays, null),
+      share: at.total > 0 ? parts[id].amount / at.total : 0,
+      sharePct: at.total > 0 ? (parts[id].amount / at.total) * 100 : 0,
+      displayPct: childPcts[j],
+    }));
+  }
   return {
     activeDays: at.activeDays,
     rows,
