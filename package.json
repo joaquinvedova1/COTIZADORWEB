@@ -1,6 +1,6 @@
 {
   "name": "rateos",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "RATEOS — Motor de costos y tarifas para servicios industriales (MVP frontend, sin backend).",
   "private": true,
   "type": "module",

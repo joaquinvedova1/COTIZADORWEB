@@ -12,6 +12,8 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-18
+
 **Costo por tiempo usado (2026-11-18, pedido del dueño).** En una cotización NUEVA que no se cobra por mes, el personal y los equipos propios cuestan las horas que les lleva el trabajo por el valor de su hora, y ya no se pregunta "qué % de su costo fijo asignás a esta cotización" ni "¿trabajan sólo para este servicio?". Las cotizaciones guardadas no cambian ningún número (no tienen `costBasis`); cobrando por mes rige el método de siempre. Sin cambio de versión de esquema. Detalle en [docs/CALCULATION_RULES.md §29](docs/CALCULATION_RULES.md).
 
 ### Agregado
