@@ -1265,8 +1265,8 @@ export function evaluateCompleteness(quote = {}) {
       step: 'margin',
       severity: 'info',
       label: 'Disponibilidad sin cobrar',
+      // Sin "Ir al campo": el fijo de guardia ya no se carga en cotizaciones nuevas (regla de un ítem).
       message: 'Estar de guardia también cuesta: cubrilo en la tarifa (un solo precio).',
-      focus: 'rules.availabilityFeeMonthly',
     });
   }
   // Puesto con sueldo y 0 posiciones: no suma costo (Test Lab, PLAN-2026-013).
