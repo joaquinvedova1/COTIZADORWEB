@@ -1,0 +1,26 @@
+{
+  "id": "inflacion-precio-fijo-12-meses-3",
+  "title": "Precio fijo 12 meses con 3 % de inflación mensual: costo promedio 47.306.765,21 (f = 1,182669)",
+  "rule": "K-01 (0.13.0). Mismo caso que on-call-cotizacion-con-impuestos (fijos 30M, variable 1M/día, 10 días, margen 10 %, impuestos 10 %: costo de hoy 40M) con precio fijo todo el contrato. f = ((1 + 0,03)^12 − 1) / (12 × 0,03) = 1,1826691; inflación esperada = (f − 1) × 40M = 7.306.765,21; costo promedio 47.306.765,21; facturación objetivo 47.306.765,21 / 0,8 → 5.913.345,65 por día; piso 47.306.765,21 / 0,9 / 10 = 5.256.307,25. El último mes cuesta 40M × 1,03^11 = 55.369.354,83. Antes (precio ajustable o sin decidir): costo 40M, objetivo 5.000.000. El % lo carga la empresa: valores sintéticos ILUSTRATIVOS.",
+  "engine": "quote.onCall",
+  "inputs": {
+    "fixedCosts": 30000000,
+    "variableCostPerDay": 1000000,
+    "activeDays": 10,
+    "targetMarginPct": 10,
+    "billingTaxPct": 10,
+    "contractMonths": 12,
+    "priceAdjustment": { "mode": "fixed", "expectedMonthlyInflationPct": 3 }
+  },
+  "expected": {
+    "model.inflation.active": true,
+    "model.inflation.factor": 1.1826691301282766,
+    "model.inflation.lastMonthFactor": 1.384233870724446,
+    "kpis.totalCost": 47306765.20513106,
+    "kpis.floorNetRate": 5256307.245014562,
+    "kpis.targetNetRate": 5913345.650641384,
+    "kpis.marginPct": 10,
+    "kpis.billingTaxPct": 10
+  },
+  "tolerance": 0.005
+}

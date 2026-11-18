@@ -48,6 +48,9 @@ function onCallQuote(inputs) {
   if (inputs.billingTaxPct !== undefined && inputs.billingTaxPct !== null) {
     q.billingTaxes = { mode: 'combined', notApplicable: false, combinedPct: inputs.billingTaxPct, items: [] };
   }
+  // K-01 (0.13.0): precio fijo con inflación esperada (sin estos datos, la cotización de siempre).
+  if (inputs.contractMonths !== undefined) q.contractMonths = inputs.contractMonths;
+  if (inputs.priceAdjustment !== undefined) q.priceAdjustment = inputs.priceAdjustment;
   return q;
 }
 

@@ -46,6 +46,9 @@ export const COST_CATEGORIES = deepFreeze([
   { id: 'structure', label: 'Gastos de estructura' },
   { id: 'financial', label: 'Financiero' },
   { id: 'contingency', label: 'Contingencia' },
+  // K-01 (0.13.0): precio fijo todo el contrato con la inflación mensual que carga la empresa.
+  // Se calcula después de la contingencia sobre todo lo anterior; en $ 0 si no aplica.
+  { id: 'inflation', label: 'Inflación esperada (precio fijo)' },
 ]);
 
 export const COST_CATEGORY_IDS = deepFreeze(COST_CATEGORIES.map((c) => c.id));

@@ -63,6 +63,7 @@ const RUBRO_LABELS = Object.freeze({
   logistics: 'Viáticos y traslados',
   structure: 'Gastos de estructura',
   contingency: 'Imprevistos',
+  inflation: 'Inflación esperada',
 });
 
 /**
@@ -101,6 +102,8 @@ export function displayCostRows(eecc, components = null) {
   const positive = (v) => isFiniteNumber(v) && v > 0.005;
   const out = [];
   rows.forEach((row) => {
+    // Inflación con precio fijo (K-01): sólo con monto.
+    if (row.category === 'inflation' && !positive(row.amount)) return;
     if (row.category === 'materials' && (Array.isArray(row.children) && row.children.length || chosen)) {
       const children = Array.isArray(row.children) ? row.children : [];
       const ids = ['tools', 'supplies', 'materials', 'ppe', 'other'];

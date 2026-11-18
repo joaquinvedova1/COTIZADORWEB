@@ -12,6 +12,21 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-18
+
+**Inflación con precio fijo (K-01, auditoría externa).** Sin cambio de esquema: el campo nuevo es opcional y, ausente o sin decidir, ningún número cambia.
+
+### Agregado
+
+- **¿El precio se ajusta durante el contrato?** En el paso del precio, sólo fuera de precio cerrado y con más de un mes de contrato: "Sí, con una cláusula de ajuste" (se usa Actualizar tarifa) o "No, queda fijo todo el contrato" con un solo número, la inflación mensual que esperás (0 a 30 %; RATEOS no propone ninguno). Campo `quote.priceAdjustment = { mode, expectedMonthlyInflationPct }`; las cotizaciones nuevas empiezan sin decidir.
+- Renglón nuevo de la estructura de costos **Inflación esperada (precio fijo)**: `(f − 1) ×` todo el resto, con `f = ((1 + π)^n − 1) / (n × π)` (costo promedio del contrato ÷ costo de hoy). Tarifa mínima, sugerida, equilibrio, escenarios y composición del precio lo incluyen. "Ver cálculo" muestra f, el costo del último mes y el margen del primer y del último mes. Detalle en [docs/CALCULATION_RULES.md §33](docs/CALCULATION_RULES.md#33-inflación-esperada-con-precio-fijo-k-01-0130-2026-11-18).
+- Completitud: ítem "Ajuste del precio" (sin decidir: amarillo sin restar puntaje; precio fijo sin % o con f > 2: amarillo), aviso de precio fijo con actualizaciones de tarifa y aviso de **doble conteo** si la contingencia ya tiene % por inflación o variación de precios. Validación `inflationPct` (0–30 %).
+- Golden case `inflacion-precio-fijo-12-meses-3`: 3 % mensual, 12 meses → f = 1,182669; costo 40.000.000 → 47.306.765,21; tarifa objetivo 5.000.000 → 5.913.345,65 por día.
+
+### Cambiado
+
+- Sólo con precio fijo y el % cargado cambian costo, tarifas y márgenes (ver el golden). En "Actualizar tarifa" la inflación acompaña sola, como financiero e imprevistos.
+
 ## [0.12.4] - 2026-11-18
 
 **Auditoría externa, segunda tanda (2026-11-18, pedido del dueño: carga simple y guiada, el cálculo por dentro).** Sin cambio de esquema. Con los campos nuevos vacíos ningún monto cambia.

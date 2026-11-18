@@ -19,6 +19,9 @@
  *   2. Estructura (costos indirectos) según método de absorción
  *   3. Financiero (sobre costos en efectivo: directos + estructura)
  *   4. Contingencia = % × (directos + estructura + financiero)
+ *   5. Inflación esperada con precio fijo (K-01, apagada salvo que se elija):
+ *      (f − 1) × (directos + estructura + financiero + contingencia),
+ *      f = ((1 + π)^n − 1) / (n × π) (ver js/domain/price-adjustment.js)
  *
  * "Cada salida se cuenta completa" (PLAN-2026-011, opcional, apagado por
  * defecto): las intervenciones estimadas A = D / días por intervención siguen
@@ -55,6 +58,7 @@ import { usesTimeBasis } from '../domain/cost-basis.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { formatMoney, formatNumber } from '../core/format.js';
+import { priceAdjustmentOf } from '../domain/price-adjustment.js';
 
 /**
  * Días de trabajo que lleva facturar una cantidad (PLAN-2026-009). UNIDAD DE
@@ -693,11 +697,26 @@ export function buildCostModel(quote = {}) {
     variablePerActiveDay: preContingency.variablePerActiveDay * pct(contingencyPct),
   };
 
+  // 9. Inflación esperada con precio fijo (K-01): el precio queda parejo todo el contrato y cubre
+  // el costo PROMEDIO = costo de hoy × f. Se suma (f − 1) × todo lo anterior (fijo y variable).
+  const adjustment = priceAdjustmentOf(quote);
+  const inflationMult = adjustment.active ? adjustment.factor - 1 : 0;
+  const inflation = {
+    active: adjustment.active,
+    factor: adjustment.factor,
+    months: adjustment.months,
+    pct: adjustment.pct,
+    lastMonthFactor: adjustment.lastMonthFactor,
+    fixedMonthly: (preContingency.fixedMonthly + contingency.fixedMonthly) * inflationMult,
+    variablePerActiveDay: (preContingency.variablePerActiveDay + contingency.variablePerActiveDay) * inflationMult,
+  };
+
   // Totales por categoría (EECC)
   const byCategory = Object.fromEntries(COST_CATEGORIES.map((c) => [c.id, emptyBucket()]));
   lines.forEach((l) => addTo(byCategory[l.category], l.fixedMonthly, l.variablePerActiveDay));
   addTo(byCategory.financial, finance.fixedMonthly, finance.variablePerActiveDay);
   addTo(byCategory.contingency, contingency.fixedMonthly, contingency.variablePerActiveDay);
+  addTo(byCategory.inflation, inflation.fixedMonthly, inflation.variablePerActiveDay);
 
   const total = emptyBucket();
   Object.values(byCategory).forEach((b) => addTo(total, b.fixedMonthly, b.variablePerActiveDay));
@@ -739,11 +758,14 @@ export function buildCostModel(quote = {}) {
       financial += cash * rate * (days / 30);
     });
     byCat.financial += financial;
-    const preCont = COST_CATEGORIES.filter((c) => c.id !== 'contingency').reduce((acc, c) => acc + byCat[c.id], 0);
+    const preCont = COST_CATEGORIES.filter((c) => c.id !== 'contingency' && c.id !== 'inflation').reduce((acc, c) => acc + byCat[c.id], 0);
     const contingencyAmount = preCont * pct(contingencyPct);
     byCat.contingency += contingencyAmount;
+    // Inflación con precio fijo (K-01): la salida completa también se paga a costo promedio.
+    const inflationAmount = (preCont + contingencyAmount) * inflationMult;
+    byCat.inflation += inflationAmount;
     const totalAmount = COST_CATEGORIES.reduce((acc, c) => acc + byCat[c.id], 0);
-    return { direct, structure, financial, contingency: contingencyAmount, workingCapital, byCategory: byCat, bySource, cashByKey, total: totalAmount };
+    return { direct, structure, financial, contingency: contingencyAmount, inflation: inflationAmount, workingCapital, byCategory: byCat, bySource, cashByKey, total: totalAmount };
   })();
 
   // Horas extra de "todo el trabajo" con OTROS días (M1, 2026-11-18): no son lineales (recargo hasta
@@ -762,10 +784,13 @@ export function buildCostModel(quote = {}) {
     };
     const financial = rate * (factorOf('salaries') + s * factorOf('structure'));
     const contingencyMult = pct(contingencyPct) * (1 + s + financial);
+    const byCat = { labor: 1, structure: s, financial, contingency: contingencyMult };
+    // Inflación con precio fijo (K-01): sólo si está activa (apagada, el mapa es el de siempre).
+    if (inflationMult > 0) byCat.inflation = inflationMult * (1 + s + financial + contingencyMult);
     return {
       overtimeWork,
       variablePerActiveDay: overtimeWork.variablePerActiveDay,
-      byCategory: { labor: 1, structure: s, financial, contingency: contingencyMult },
+      byCategory: byCat,
     };
   })();
 
@@ -804,6 +829,8 @@ export function buildCostModel(quote = {}) {
     },
     finance,
     contingency,
+    // K-01: inflación esperada con precio fijo ({ active: false, factor: 1 } si no aplica).
+    inflation,
     byCategory,
     fixedMonthly: total.fixedMonthly,
     variablePerActiveDay: total.variablePerActiveDay,
@@ -843,6 +870,7 @@ export function activationRoundingAt(model, activeDays, { force = false } = {}) 
     structure: scale(per ? per.structure : 0),
     financial: scale(per ? per.financial : 0),
     contingency: scale(per ? per.contingency : 0),
+    inflation: scale(per ? per.inflation || 0 : 0),
     workingCapital: scale(per ? per.workingCapital : 0),
     total: scale(per ? per.total : 0),
     byCategory: Object.fromEntries(COST_CATEGORIES.map((c) => [c.id, per ? per.byCategory[c.id] * extra : 0])),
@@ -878,7 +906,7 @@ export function costAtActivity(model, activeDays) {
   const byCategory = {};
   let total = 0;
   for (const c of COST_CATEGORIES) {
-    const b = model.byCategory[c.id];
+    const b = model.byCategory[c.id] || emptyBucket();
     const amount = b.fixedMonthly * factor + b.variablePerActiveDay * D;
     byCategory[c.id] = amount;
     total += amount;
@@ -1011,10 +1039,12 @@ function componentLabel(id) {
  */
 export function costStructure(model, activeDays) {
   const at = costAtActivity(model, activeDays);
-  const amounts = COST_CATEGORIES.map((c) => at.byCategory[c.id]);
+  // El renglón de inflación (K-01) sólo existe con precio fijo activo: apagado, la EECC es la de siempre.
+  const categories = COST_CATEGORIES.filter((c) => c.id !== 'inflation' || (model.inflation && model.inflation.active));
+  const amounts = categories.map((c) => at.byCategory[c.id]);
   const displayPcts = roundPercentagesToTotal(amounts, 2, 100);
   const byCat = model.byCategory || {};
-  const rows = COST_CATEGORIES.map((c, i) => ({
+  const rows = categories.map((c, i) => ({
     category: c.id,
     label: c.label,
     amount: amounts[i],
@@ -1089,6 +1119,7 @@ export function traceTotalCost(model, activeDays) {
     result: { label: 'Costo total', value: at.total, format: 'money' },
     notes: [
       at.monthsFactor > 1 ? 'Los días superan los disponibles del mes: se prorratean los fijos como trabajo de más de un mes.' : null,
+      model.inflation && model.inflation.active ? `Precio fijo todo el contrato: incluye la inflación esperada (${formatMoney(at.byCategory.inflation)}, costo de hoy × ${formatNumber(model.inflation.factor, { decimals: 4 })}).` : null,
       Math.abs(at.overtimeAdjustment || 0) > 0.005 ? `Horas extra de todo el trabajo con estos días: ${at.overtimeAdjustment > 0 ? '+' : '−'}${formatMoney(Math.abs(at.overtimeAdjustment))} contra el promedio por día (con su estructura, financiación e imprevistos).` : null,
       at.rounding && at.rounding.total > 0 ? `${T.Each} se cuenta ${T.whole}: sólo los costos por ${T.one} (movilización, peajes, viáticos, cargos por ${T.one}…) se costean con ${T.theMany} ${T.many} ${T.wholeMany}. Sueldos, tenencia, producción y estructura mensual no cambian.` : null,
       averageOnly

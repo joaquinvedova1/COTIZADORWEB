@@ -14,7 +14,8 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, emptyState, table, badge, icon, button, confirmDialog } from '../../components.js';
+import { card, formGrid, emptyState, table, badge, icon, button, confirmDialog, infoTip } from '../../components.js';
+import { fieldHref } from '../../field-links.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../../domain/billing-taxes.js';
 import { billingTaxConfigInfo } from '../../../engines/billing-taxes-engine.js';
@@ -30,6 +31,7 @@ import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillin
 import { userErrorMessage } from '../../layout.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 import { contractOf } from '../../../domain/contract.js';
+import { normalizePriceAdjustment, priceAdjustmentApplies } from '../../../domain/price-adjustment.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -353,6 +355,60 @@ export function render(container, ctx) {
       }),
     ),
   );
+
+  // ------------------------------- precio fijo con inflación esperada (K-01)
+  // Una pregunta y, si el precio queda fijo, un solo número (el % mensual que esperás). Sólo
+  // fuera de precio cerrado y con más de un mes de contrato. La duración se cambia en su paso
+  // (Servicio): acá sólo se muestra. La cuenta la hace el motor (Ver cálculo).
+  const adjustment = normalizePriceAdjustment(quote.priceAdjustment);
+  const showAdjustment = priceAdjustmentApplies(quote) || (adjustment.mode === 'fixed' && priceAdjustmentApplies({ ...quote, contractMonths: 2 }));
+  const inflationRow = (r) => ((r.eecc && r.eecc.rows) || []).find((x) => x.category === 'inflation') || null;
+  const inflationOf = (r) => (r.model && r.model.inflation && r.model.inflation.active ? r.model.inflation : null);
+  const months = Number(quote.contractMonths);
+  const monthsText = Number.isFinite(months) && months > 0 ? `Contrato de ${formatNumber(months, { decimals: 2 })} ${months === 1 ? 'mes' : 'meses'}` : 'Sin duración de contrato';
+  const adjustmentQuestion = showAdjustment
+    ? kit.question('¿El precio se ajusta durante el contrato?', 'Si el precio queda fijo y los costos suben, cada mes ganás menos. RATEOS lo cubre con la inflación que esperás.', { level: 3 })
+    : null;
+  const adjustmentCard = showAdjustment
+    ? card(
+      { className: 'qe-price-adjustment' },
+      kit.choice('priceAdjustment.mode', {
+        label: h('span', { class: 'sr-only' }, '¿El precio se ajusta durante el contrato?'),
+        options: [
+          { value: 'adjusted', label: 'Sí, con una cláusula de ajuste' },
+          { value: 'fixed', label: 'No, queda fijo todo el contrato' },
+        ],
+        structural: true,
+      }),
+      adjustment.mode === 'adjusted'
+        ? h('p', { class: 'qe-note' }, 'Usá ', h('a', { href: '#/cotizaciones' }, 'Actualizar tarifa'), ' (en Cotizaciones) cuando suban los costos.')
+        : null,
+      adjustment.mode === 'fixed'
+        ? h('p', { class: 'qe-note qe-contract-months' }, `${monthsText} · `, ctx.readOnly ? null : h('a', { href: fieldHref(quote.id, 'contractMonths') }, 'Cambiar'))
+        : null,
+      adjustment.mode === 'fixed'
+        ? formGrid(
+          2,
+          kit.num('priceAdjustment.expectedMonthlyInflationPct', {
+            label: 'Inflación mensual que esperás',
+            rule: 'inflationPct',
+            unit: '%',
+            placeholder: 'ej.: 3',
+            hint: h('span', {}, 'Promedio mensual para todo el contrato ', infoTip('RATEOS reparte la suba: el precio queda parejo, al principio ganás un poco más y al final un poco menos.')),
+          }),
+        )
+        : null,
+      adjustment.mode === 'fixed'
+        ? kit.toggle(
+          h('p', { class: 'qe-note qe-inflation-sum' },
+            kit.out((r) => (inflationRow(r) ? `Suma ${formatMoney(inflationRow(r).amount)} al costo del mes (ya incluido en la tarifa sugerida).` : ''), { allowEmpty: true }),
+            ' ',
+            kit.trace((r) => r.traces.inflation, { label: 'Ver cálculo' })),
+          (r) => Boolean(inflationOf(r)),
+        )
+        : null,
+    )
+    : null;
 
   // ---------------------------------------------------- margen vs markup
   const educational = kit.advanced(
@@ -750,6 +806,6 @@ export function render(container, ctx) {
   // Precio cerrado (revisión UX tanda novatos): sin reglas cargadas no se monta (abonos, km y
   // mínimos por mes no hacen a un precio por trabajo). Con alguna regla guardada, se ve como siempre.
   const showCommercial = !closed || rulesApplied().length > 0;
-  mount(container, marginCard, taxesCard, priceCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, showCommercial ? commercialCard : null);
+  mount(container, marginCard, taxesCard, priceCard, adjustmentQuestion, adjustmentCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, showCommercial ? commercialCard : null);
   return { update() {} };
 }

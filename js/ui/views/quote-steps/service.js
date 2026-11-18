@@ -442,7 +442,7 @@ export function render(container, ctx) {
         unit: 'meses',
         hint: contract.mode === 'closed'
           ? `Se usa para el descuento por continuidad (en ${step('margin')}). Cobrando por trabajo no multiplica el precio del trabajo.`
-          : `Se usa para el descuento por continuidad (en ${step('margin')}).`,
+          : `Se usa para el descuento por continuidad y, si el precio queda fijo, para repartir la inflación (en ${step('margin')}).`,
       }),
     ),
     kit.text('notes', {

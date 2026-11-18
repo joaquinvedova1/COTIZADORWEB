@@ -324,6 +324,7 @@ function externalTrace(result, index, source, impact = null) {
       { label: '+ estructura asociada', value: impact.structure, format: 'money' },
       { label: '+ financiación asociada', value: impact.financial, format: 'money' },
       Math.abs(impact.contingency) > 0.5 ? { label: '+ contingencia asociada', value: impact.contingency, format: 'money' } : null,
+      Math.abs(impact.inflation || 0) > 0.5 ? { label: '+ inflación esperada asociada (precio fijo)', value: impact.inflation, format: 'money' } : null,
       Math.abs(impact.other) > 0.5 ? { label: '+ otros impactos (combustible, movilización…)', value: impact.other, format: 'money' } : null,
       { label: '= impacto total aproximado en el costo del mes', value: impact.total, format: 'money' },
     ].filter(Boolean)

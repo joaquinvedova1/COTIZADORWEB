@@ -983,7 +983,7 @@ export function render(container, ctx) {
   const sumLines = (r, test, key) => (r.model.lines || []).filter(test).reduce((acc, l) => acc + (l[key] || 0), 0);
   const isLabor = (l) => l.category === 'labor';
   const isEquipment = (l) => l.category === 'equipment' || l.category === 'external';
-  const isOther = (l) => !isLabor(l) && !isEquipment(l) && l.category !== 'structure' && l.category !== 'financial' && l.category !== 'contingency';
+  const isOther = (l) => !isLabor(l) && !isEquipment(l) && l.category !== 'structure' && l.category !== 'financial' && l.category !== 'contingency' && l.category !== 'inflation';
   // Todo en la misma unidad (tanda novatos 2026-11): por mes o, en precio cerrado, en el trabajo.
   // Trabajos por mes (no hitos): mismo divisor que el "Total del trabajo" (Joaco 2026-11-18).
   const closedJobs = (r) => (contract.mode === 'closed' ? closedJobsPerMonth(r) : null);
