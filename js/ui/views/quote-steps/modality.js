@@ -1260,8 +1260,10 @@ export function render(container, ctx) {
       const text = cheaperThanNormalHourText(oohLine(r, i));
       return text ? h('p', { class: ['qe-note', 'is-warning'] }, text) : '';
     }, { tag: 'div', allowEmpty: true })));
-  const outOfHoursCard = monthlyContract || !byQuantity || kind === 'quantity' || kind === 'event' ? card(
-    { title: 'Trabajo fuera del horario normal (opcional)', subtitle: 'Si el cliente te pide trabajar fuera de tu horario, esa hora se cobra aparte y más cara, porque a tu gente le pagás horas extra.', className: 'qe-ooh-card' },
+  // Cada cotización da UN solo precio (Joaco, 2026-11-18): las tarifas fuera de horario aparte sólo
+  // se ven en las cotizaciones que ya las tenían (mismos números), con la opción de quitarlas.
+  const outOfHoursCard = oohOn && (monthlyContract || !byQuantity || kind === 'quantity' || kind === 'event') ? card(
+    { title: 'Precio por hora fuera de horario (cargado antes)', subtitle: 'Esta cotización ya tenía un precio aparte por hora fuera de horario: se sigue cobrando igual. Las cotizaciones nuevas dan un solo precio; si el trabajo lleva horas extra, se cargan en "Horas extra del trabajo".', className: 'qe-ooh-card' },
     yesNo({
       label: '¿Querés darle al cliente un precio por hora fuera de horario?',
       name: 'outOfHours',
@@ -1295,6 +1297,90 @@ export function render(container, ctx) {
           h('div', { class: 'stack stack-tight' },
             h('p', { class: 'qe-note' }, outOfHoursHoursNote(r)),
             h('p', { class: 'qe-note' }, outOfHoursNoteText(r, info))));
+      }, { tag: 'div', allowEmpty: true })
+      : null,
+  ) : null;
+
+  // Horas extra del trabajo (Joaco, 2026-11-18): un solo precio. Si el trabajo lleva horas extra,
+  // su costo se suma DENTRO del personal con el valor de la hora de cada recurso (motor:
+  // overtime-work-engine). Nunca es un renglón aparte.
+  const ow = quote.overtimeWork && typeof quote.overtimeWork === 'object' ? quote.overtimeWork : {};
+  const owMode = ['all', 'some'].includes(ow.mode) ? ow.mode : 'none';
+  const owPremium = Number(ow.premiumPct) === 100 ? 100 : 50;
+  const owPerMonth = contract.mode === 'monthly';
+  const owUnit = owPerMonth ? 'por mes' : `por ${T.one}`;
+  const setOw = (patch) => ctx.mutate((q) => {
+    const cur = q.overtimeWork && typeof q.overtimeWork === 'object' ? q.overtimeWork : {};
+    q.overtimeWork = { ...cur, ...patch };
+  });
+  const hasLabor = (quote.labor || []).some((l) => Number(l && l.positions) > 0);
+  const overtimeWorkCard = hasLabor || owMode !== 'none' ? card(
+    { title: 'Horas extra del trabajo (opcional)', subtitle: 'Si el trabajo se hace fuera del horario normal, a tu gente le pagás horas extra. Ese costo se suma a cada persona y queda dentro de tu único precio.', className: 'qe-ow-card' },
+    choiceGroup({
+      label: '¿Este trabajo lleva horas extra?',
+      name: 'overtimeWork.mode',
+      value: owMode,
+      disabled: kit.readOnly,
+      options: [
+        { value: 'none', label: 'No', hint: 'Se trabaja en el horario normal.' },
+        { value: 'all', label: 'Sí, todo el trabajo', hint: 'Todas las horas son fuera de horario (por ejemplo, la hora de la cuadrilla un domingo).' },
+        { value: 'some', label: 'Sí, algunas horas', hint: 'Es en horario normal, pero estimás algunas horas fuera de horario.' },
+      ],
+      onChange: (v) => setOw({ mode: ['all', 'some'].includes(v) ? v : 'none' }),
+    }),
+    owMode === 'all'
+      ? choiceGroup({
+        label: '¿Con qué recargo?',
+        name: 'overtimeWork.premiumPct',
+        value: String(owPremium),
+        disabled: kit.readOnly,
+        options: [
+          { value: '50', label: 'Al 50 %', hint: 'Lo habitual: días de semana después del horario y sábado a la mañana.' },
+          { value: '100', label: 'Al 100 %', hint: 'Lo habitual: sábado a la tarde, domingos y feriados (revisá tu convenio).' },
+        ],
+        onChange: (v) => setOw({ premiumPct: Number(v) === 100 ? 100 : 50 }),
+      })
+      : null,
+    owMode === 'some'
+      ? formGrid(2,
+        kit.num('overtimeWork.hours50', { label: `Horas al 50 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas fuera de horario ${owUnit} (cada persona de la cuadrilla las hace), además de las horas normales${!owPerMonth && Number(quote.activity && quote.activity.hoursPerActiveDay) > 0 ? ` (${quote.activity.hoursPerActiveDay} h por día)` : ''}. Días de semana después del horario o sábado a la mañana.` }),
+        kit.num('overtimeWork.hours100', { label: `Horas al 100 % ${owUnit}`, rule: 'hours', unit: 'h', placeholder: '0', hint: `Horas ${owUnit} en sábado a la tarde, domingo o feriado.` }))
+      : null,
+    owMode !== 'none'
+      ? kit.out((r) => {
+        const o = r.model && r.model.overtimeWork;
+        if (!o || !o.perRole.length) return h('p', { class: ['qe-note', 'is-warning'] }, `Falta el personal con su sueldo (en "${stepName('labor')}"): sin eso no se calcula la hora extra.`);
+        const rows = o.perRole.map((x) => h('tr', {},
+          h('td', {}, `${x.role || 'Puesto'}${x.people !== 1 ? ` × ${formatNumber(x.people, { decimals: 2 })}` : ''}`),
+          h('td', { class: 'num' }, formatMoney(x.baseHourLoaded)),
+          h('td', { class: 'num' }, formatMoney(x.at50)),
+          h('td', { class: 'num' }, formatMoney(x.at100))));
+        const perTrip = (v) => (contract.mode === 'closed' && r.activity && r.activity.daysPerActivation > 0 ? ` · ${formatMoney(v * r.activity.daysPerActivation)} por ${T.one}` : '');
+        const notes = [];
+        let text;
+        if (o.mode === 'all') {
+          const perDay = o.variablePerActiveDay;
+          text = perDay > 0
+            ? `Cada hora de trabajo cuesta ${formatMoney(o.crewSurchargePerHour)} más (la cuadrilla al ${o.premiumPct} %, sobre lo que ya cobra de sueldo): ${formatMoney(perDay)} por día de trabajo${perTrip(perDay)}.`
+            : 'Todavía no suma nada: cargá los días y las horas por día del trabajo.';
+          if (o.perRole.some((x) => x.fullHoursPerMonth > 0.005)) notes.push('Las horas del mes que pasan lo que ya paga su sueldo se cuentan con la hora extra completa.');
+          if (o.perRole.some((x) => (o.premiumPct === 100 ? x.lowRate100 : x.lowRate50))) notes.push(`Ojo: el valor de la hora al ${o.premiumPct} % de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas, no la hora del recibo.`);
+        } else {
+          text = o.perUnit > 0
+            ? `Estas horas suman ${formatMoney(o.perUnit)} ${owUnit} al costo de tu gente${o.equipmentPerHour > 0 ? ' y de tus equipos' : ''}.`
+            : 'Cargá las horas para sumarlas al costo.';
+          if (o.perRole.some((x) => (o.hours50 > 0 && x.lowRate50) || (o.hours100 > 0 && x.lowRate100))) notes.push('Ojo: el valor de la hora extra de algún puesto es menor que su hora de sueldo. Revisalo en Recursos: tiene que ser el costo con cargas.');
+        }
+        // Horas extra cargadas antes en cada puesto: se sumarían dos veces.
+        const legacy = (quote.labor || []).filter((l) => l && (Number(l.overtime50HoursPerMonth) > 0 || Number(l.overtime100HoursPerMonth) > 0));
+        if (legacy.length) notes.push(`Ojo: ${legacy.map((l) => `"${l.role || 'Puesto'}"`).join(', ')} ya tiene horas extra por mes cargadas en "${stepName('labor')}". Se suman además de éstas: dejá las de un solo lugar.`);
+        return h('div', { class: 'qe-ooh-roles' },
+          h('p', { class: 'qe-ooh-roles-title' }, 'Lo que te cuesta la hora de cada uno'),
+          h('table', { class: 'qe-ooh-table' },
+            h('thead', {}, h('tr', {}, h('th', {}, 'Puesto'), h('th', { class: 'num' }, 'Hora de sueldo'), h('th', { class: 'num' }, 'Hora al 50 %'), h('th', { class: 'num' }, 'Hora al 100 %'))),
+            h('tbody', {}, ...rows)),
+          h('p', { class: 'qe-note' }, text),
+          ...notes.map((t) => h('p', { class: ['qe-note', 'is-warning'] }, t)));
       }, { tag: 'div', allowEmpty: true })
       : null,
   ) : null;
@@ -1564,6 +1650,7 @@ export function render(container, ctx) {
     travelCard,
     dedicationCard,
     sectionLabel('Opcional', 'Sumalo sólo si aplica a este servicio. Si no, seguí de largo.'),
+    overtimeWorkCard,
     oohInFold ? null : outOfHoursCard,
     guardCard,
     // Por servicio prestado con mínimo mensual garantizado (PLAN-2026-018).
