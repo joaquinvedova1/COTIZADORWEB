@@ -171,7 +171,11 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeB
   const nonRemunerativeChargesPct = nonNegative(line.nonRemunerativeChargesPct);
   const nonRemunerativeCharges = nonRemunerativePay * pct(nonRemunerativeChargesPct);
   const fixedContributions = nonNegative(line.fixedContributionsMonthly);
-  const nonRemunerative = insurance + ppe + training + transfer + nonRemunerativePay + nonRemunerativeCharges + fixedContributions;
+  // Auditoría externa K-09: otras cargas y provisiones del convenio (fondo de cese, ausentismo…)
+  // en % del remunerativo, sin aguinaldo ni cargas encima. 0 = no se suma.
+  const otherChargesPct = nonNegative(line.otherChargesPct);
+  const otherCharges = remunerative * pct(otherChargesPct);
+  const nonRemunerative = insurance + ppe + training + transfer + nonRemunerativePay + nonRemunerativeCharges + fixedContributions + otherCharges;
 
   const fixedMonthlyPerPerson = loadedRemunerative + nonRemunerative;
   // Aportes del trabajador (0.12.0): se restan del bruto para mostrar el NETO del recibo.
@@ -279,6 +283,8 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeB
       transfer,
       nonRemunerativePay,
       nonRemunerativeCharges,
+      otherChargesPct,
+      otherCharges,
       fixedContributions,
       nonRemunerative,
       grossMonthly,

@@ -32,6 +32,7 @@ import { maintenanceOf } from '../../engines/equipment-engine.js';
 import {
   PRODUCT_STEPS, MEASURE_UNITS, PRODUCT_PRICE_MODES, PRODUCT_MATERIAL_PER, SALE_UNIT_SUGGESTIONS, MAINTENANCE_MODES,
   BUDGET_PERIODS, ILLUSTRATIVE_AGREEMENT_PARAMS, CURRENCIES, isIllustrativeAgreementParam,
+  vatIsCost,
 } from '../../domain/catalogs.js';
 import {
   normalizeProductShape, productMaterialLine, blankProductMaterialLine, productLaborLine, blankProductLaborLine,
@@ -180,7 +181,9 @@ function emptyHint(text) {
 
 // ------------------------------------------------------------------ editor
 
-function createEditor(root, app, { product, resources, stepId, restoredDraft = false }) {
+function createEditor(root, app, { product, resources, settings = {}, stepId, restoredDraft = false }) {
+  // Auditoría externa K-05: monotributo o exento → los precios de compra se cargan con IVA.
+  const purchaseVatHint = vatIsCost(settings) ? 'Como monotributista o exento, el IVA de lo que comprás es costo: cargá el precio con IVA.' : null;
   const productId = product.id;
   const readOnly = Boolean(app.ctx && app.ctx.init && app.ctx.init.readOnly);
   // Sin almacenamiento persistente (modo memoria) no hay que decir "Guardado".
@@ -674,14 +677,14 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
         pack
           ? formGrid(
             4,
-            kit.num(`${base}.packPrice`, { label: 'Precio del paquete', unit: '$', illustrative: ill }),
+            kit.num(`${base}.packPrice`, { label: purchaseVatHint ? 'Precio del paquete (con IVA)' : 'Precio del paquete', unit: '$', hint: purchaseVatHint, illustrative: ill }),
             kit.num(`${base}.packSize`, { label: 'El paquete trae', rule: 'quantity' }),
             kit.select(`${base}.unit`, { label: 'Unidad del contenido', options: unitOptions(line.unit) }),
             wasteField,
           )
           : formGrid(
             3,
-            kit.num(`${base}.unitCost`, { label: 'Precio', unit: '$', illustrative: ill }),
+            kit.num(`${base}.unitCost`, { label: purchaseVatHint ? 'Precio (con IVA)' : 'Precio', unit: '$', hint: purchaseVatHint, illustrative: ill }),
             kit.select(`${base}.unit`, { label: 'Por', options: unitOptions(line.unit) }),
             wasteField,
           ),
@@ -839,7 +842,8 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
       line.agreementId = id || null;
       if (agreement) {
         const params = { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(agreement.params || {}) };
-        AGREEMENT_PARAM_KEYS.forEach((key) => {
+        // También las cargas del convenio fuera del factor (0.12.0 y auditoría externa K-09).
+        [...AGREEMENT_PARAM_KEYS, 'fixedContributionsMonthly', 'nonRemunerativeChargesPct', 'otherChargesPct', 'workerContributionsPct'].forEach((key) => {
           if (isFiniteNumber(params[key])) line[key] = params[key];
         });
       }
@@ -1214,7 +1218,7 @@ function createEditor(root, app, { product, resources, stepId, restoredDraft = f
             toValue: (v) => Number(v) || 0,
             hint: 'Siempre hacia arriba: nunca baja tu margen.',
           }),
-          kit.num('pricing.vatPct', { label: 'IVA para el precio al público (opcional)', rule: 'percent', unit: '%', hint: 'Cargalo vos si corresponde: RATEOS no trae alícuotas. El IVA no es costo ni ganancia.' }),
+          kit.num('pricing.vatPct', { label: 'IVA para el precio al público (opcional)', rule: 'percent', unit: '%', hint: purchaseVatHint ? 'Como monotributista o exento no sumás IVA a tu precio de venta: dejalo vacío.' : 'Cargalo vos si corresponde: RATEOS no trae alícuotas. El IVA no es costo ni ganancia.' }),
           kit.num('pricing.currentPrice', { label: `¿A cuánto lo vendés hoy? (opcional)`, unit: '$', hint: 'Sin IVA. Para compararlo con el precio sugerido.' }),
         ),
       ),
@@ -1696,8 +1700,14 @@ export async function render(root, app, params = {}) {
 
   let product;
   let resources;
+  let settings = {};
   try {
-    [product, resources] = await Promise.all([app.ctx.products.getProduct(id), loadResources(app)]);
+    [product, resources, settings] = await Promise.all([
+      app.ctx.products.getProduct(id),
+      loadResources(app),
+      // Condición frente al IVA (K-05): sólo guía los textos; si no se puede leer, no se muestra.
+      typeof app.getSettings === 'function' ? Promise.resolve(app.getSettings()).catch(() => ({})) : {},
+    ]);
   } catch (error) {
     if (token !== renderSequence) return undefined;
     logger.error('No se pudo abrir el producto', { message: error && error.message });
@@ -1719,7 +1729,7 @@ export async function render(root, app, params = {}) {
   }
 
   const draft = unsavedDrafts.get(app.ctx, id);
-  const editor = createEditor(root, app, { product: draft ? deepClone(draft) : product, resources, stepId, restoredDraft: Boolean(draft) });
+  const editor = createEditor(root, app, { product: draft ? deepClone(draft) : product, resources, settings: settings || {}, stepId, restoredDraft: Boolean(draft) });
   activeEditor = editor;
   editor.mount();
   return () => {

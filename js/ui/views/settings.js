@@ -22,7 +22,7 @@ import { formatBuildLabel, formatDateTime, formatNumber, EMPTY } from '../../cor
 import { isFiniteNumber } from '../../core/money.js';
 import { sanitizeText, validateNumber } from '../../core/validation.js';
 import { demoOrganization } from '../../domain/demo-data.js';
-import { BASE_SOURCES, CURRENCIES } from '../../domain/catalogs.js';
+import { BASE_SOURCES, CURRENCIES, VAT_CONDITIONS } from '../../domain/catalogs.js';
 import { INDUSTRY_SECTORS, MAX_ACTIVITY_LENGTH, activitySuggestions, industryOf, searchSectors } from '../../domain/industry-catalog.js';
 import { emptyBase, normalizeBase } from '../../domain/economic-base.js';
 import { normalizeExchangeRates } from '../../domain/quote-factory.js';
@@ -791,6 +791,32 @@ export async function render(root, app, params = {}) {
     // Un texto inválido en un campo (que todavía no llegó al objeto) también bloquea el guardado.
     taxesHolder.addEventListener('input', () => taxesSaver.schedule());
 
+    // ---- condición frente al IVA (auditoría externa K-05): guía cómo cargar los precios de compra.
+    const vatHint = h('p', { class: 'small muted' });
+    const refreshVatHint = (id) => {
+      const c = VAT_CONDITIONS.find((x) => x.id === id);
+      vatHint.textContent = c ? c.hint : 'Si no lo definís, RATEOS asume que cargás los precios de compra sin IVA.';
+    };
+    refreshVatHint(settings.vatCondition);
+    const vatField = selectField({
+      label: 'Tu condición frente al IVA',
+      name: 'vatCondition',
+      value: VAT_CONDITIONS.some((c) => c.id === settings.vatCondition) ? settings.vatCondition : '',
+      includeEmpty: true,
+      emptyLabel: 'Sin definir',
+      disabled: readOnly,
+      options: VAT_CONDITIONS.map((c) => ({ value: c.id, label: c.label })),
+      onChange: async (v) => {
+        refreshVatHint(v);
+        try {
+          await ctx.settings.save({ vatCondition: v || null });
+          settings.vatCondition = v || null;
+        } catch (error) {
+          app.toast(userErrorMessage(error, 'No se pudo guardar tu condición frente al IVA.'), 'danger');
+        }
+      },
+    });
+
     // ---- base del combustible y tipos de cambio (PLAN-2026-005)
     // Punto de partida de las cotizaciones nuevas (cada una guarda los suyos).
     // RATEOS no consulta cotizaciones de moneda: las carga la empresa.
@@ -875,7 +901,7 @@ export async function render(root, app, params = {}) {
             className: 'autosave-card',
             level: 2,
           },
-          h('div', { class: 'stack' }, billingTaxesHelp(), taxesHolder, taxesSummary),
+          h('div', { class: 'stack' }, h('div', { class: 'stack' }, formGrid(2, vatField), vatHint), billingTaxesHelp(), taxesHolder, taxesSummary),
         ),
         card(
           {

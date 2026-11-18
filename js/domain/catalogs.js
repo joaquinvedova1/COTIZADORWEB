@@ -99,10 +99,13 @@ export const ILLUSTRATIVE_AGREEMENT_PARAMS = deepFreeze({
   // 0.12.0 (revisión de costos): % de cargas que el convenio aplica sobre el no remunerativo
   // (obra social, cuota sindical…). 0 = sin cargas.
   nonRemunerativeChargesPct: 0,
+  // Auditoría externa K-09: otras cargas y provisiones del convenio en % del remunerativo (fondo de
+  // cese laboral, ausentismo, licencias…). Vacío / 0 = no se suma. RATEOS no trae el valor.
+  otherChargesPct: 0,
 });
 
 /** Parámetros que un puesto toma de su convenio (0.12.0). */
-export const AGREEMENT_PARAM_KEYS = deepFreeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct', 'workerContributionsPct', 'fixedContributionsMonthly', 'nonRemunerativeChargesPct']);
+export const AGREEMENT_PARAM_KEYS = deepFreeze(['normalHoursPerMonth', 'overtimePremiumPct', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct', 'workerContributionsPct', 'fixedContributionsMonthly', 'nonRemunerativeChargesPct', 'otherChargesPct']);
 
 /**
  * ¿Un parámetro de convenio de una línea de personal se marca ILUSTRATIVO? (testeo con
@@ -210,7 +213,7 @@ export const INDIRECT_METHODS = deepFreeze([
  */
 export const BILLING_TAX_KINDS = deepFreeze([
   { id: 'gross_income', label: 'Ingresos Brutos', hint: 'Alícuota sobre lo que facturás, según tu actividad y jurisdicción.' },
-  { id: 'debits_credits', label: 'Impuesto al cheque (débitos y créditos)', hint: 'Como el cobro entra con IVA, pedile a tu contador el % sobre tu facturación sin IVA.' },
+  { id: 'debits_credits', label: 'Impuesto al cheque (débitos y créditos)', hint: 'Como el cobro entra con IVA, el % sobre tu facturación sin IVA es mayor que la alícuota del banco: usá "¿Cómo calculo el impuesto al cheque?".' },
   { id: 'stamp', label: 'Sellos', hint: 'Si el contrato paga sellos. RATEOS lo reparte proporcional a la facturación.' },
   { id: 'other', label: 'Otro cargo sobre lo facturado', hint: 'Por ejemplo, un seguro de caución sobre el valor del contrato.' },
 ]);
@@ -474,3 +477,20 @@ export const PRODUCT_PRICE_MODES = deepFreeze([
 /** Unidades de venta sugeridas (texto libre). */
 export const SALE_UNIT_SUGGESTIONS = deepFreeze(['unidad', 'docena', 'kg', 'porción', 'caja', 'bandeja', 'paquete']);
 
+
+/**
+ * Condición frente al IVA de la empresa (auditoría externa K-05). Vacío = sin definir (como
+ * responsable inscripto). Para monotributo y exento el IVA de lo que comprás es costo: se guía a
+ * cargar los precios de compra CON IVA. No cambia ninguna fórmula.
+ */
+export const VAT_CONDITIONS = deepFreeze([
+  { id: 'registered', label: 'Responsable inscripto', hint: 'Cargás los precios de compra sin IVA (el IVA de tus compras lo recuperás).' },
+  { id: 'monotributo', label: 'Monotributista', hint: 'El IVA de lo que comprás es costo: cargá los precios de compra con IVA.' },
+  { id: 'exempt', label: 'Exento de IVA', hint: 'El IVA de lo que comprás es costo: cargá los precios de compra con IVA.' },
+]);
+
+/** ¿El IVA de las compras es costo para esta empresa? (monotributo o exento). */
+export function vatIsCost(settings) {
+  const c = settings && typeof settings === 'object' ? settings.vatCondition : null;
+  return c === 'monotributo' || c === 'exempt';
+}

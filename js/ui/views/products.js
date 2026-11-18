@@ -7,7 +7,7 @@
  */
 
 import { h, mount } from '../dom.js';
-import { badge, banner, button, confirmDialog, emptyState, icon, linkButton, pageIntro, table } from '../components.js';
+import { actionToast, badge, banner, button, confirmDialog, emptyState, icon, linkButton, pageIntro, table } from '../components.js';
 import { formatMoney, formatNumber, formatPercent, formatDateTime } from '../../core/format.js';
 import { PRODUCT_STEPS } from '../../domain/catalogs.js';
 import { productFixedCostOverAssignment } from '../../domain/resource-usage.js';
@@ -85,14 +85,27 @@ export async function render(root, app) {
   async function remove(product) {
     const ok = await confirmDialog({
       title: 'Eliminar producto',
-      message: `¿Eliminar "${product.name || 'Producto'}"? No se puede deshacer. Tus Recursos (personal, equipos y materiales) no cambian.`,
+      message: `¿Eliminar "${product.name || 'Producto'}"? Vas a poder deshacerlo durante unos segundos. Tus Recursos (personal, equipos y materiales) no cambian.`,
       confirmLabel: 'Eliminar',
       danger: true,
     });
     if (!ok) return;
     try {
+      const copy = JSON.parse(JSON.stringify(product));
       await ctx.products.deleteProduct(product.id);
-      app.toast('Producto eliminado.', 'success');
+      // Auditoría externa B-02: "Deshacer" lo vuelve a guardar tal como estaba.
+      actionToast('Producto eliminado.', {
+        onAction: async () => {
+          try {
+            await ctx.products.saveProduct(copy);
+            app.toast('Producto recuperado.', 'success');
+            // Sólo se redibuja si la persona sigue en la lista.
+            if (root.isConnected) await render(root, app);
+          } catch (error) {
+            app.toast(userErrorMessage(error, 'No se pudo recuperar el producto.'), 'danger');
+          }
+        },
+      });
       await render(root, app);
     } catch (error) {
       app.toast(userErrorMessage(error, 'No se pudo eliminar el producto.'), 'danger');

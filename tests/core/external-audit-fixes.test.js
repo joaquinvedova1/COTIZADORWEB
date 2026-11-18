@@ -45,3 +45,21 @@ test('A-03: el mismo gasto fijo o máquina en dos productos por encima de 100 % 
   const machine = (pct) => ({ name: 'Horno', snapshot: { resourceId: 'eq-1' }, fixedSharePct: pct });
   assert.equal(productFixedCostOverAssignment([{ equipment: [machine(70)] }, { equipment: [machine(50)] }])[0].totalPct, 120);
 });
+
+test('K-09: otras cargas del convenio = % del remunerativo, sin cargas encima; 0 no cambia nada', async () => {
+  const { computeLaborLine } = await import('../../js/engines/labor-engine.js');
+  const base = { positions: 1, basicMonthly: 1000000, additionalsMonthly: 200000, normalHoursPerMonth: 200, sacPct: 8.33, vacationPct: 4, employerContributionsPct: 24, artPct: 3 };
+  const a = computeLaborLine(base);
+  const b = computeLaborLine({ ...base, otherChargesPct: 12 });
+  assert.equal(computeLaborLine({ ...base, otherChargesPct: 0 }).perPerson.fixedMonthly, a.perPerson.fixedMonthly);
+  assert.ok(Math.abs(b.perPerson.fixedMonthly - a.perPerson.fixedMonthly - 144000) < 1e-6);
+  assert.equal(b.perPerson.otherCharges, 144000);
+});
+
+test('K-10: impuesto al cheque equivalente = alícuota × (1 + IVA)', async () => {
+  const { debitsCreditsEquivalentPct } = await import('../../js/engines/billing-taxes-engine.js');
+  assert.equal(debitsCreditsEquivalentPct(0.6, 21), 0.726);
+  assert.equal(debitsCreditsEquivalentPct(0.6, 0), 0.6);
+  assert.equal(debitsCreditsEquivalentPct(null, 21), null);
+  assert.equal(debitsCreditsEquivalentPct(0.6, 120), null);
+});

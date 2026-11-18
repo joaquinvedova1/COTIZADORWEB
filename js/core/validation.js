@@ -163,7 +163,7 @@ export function validateQuote(quote) {
     check(`labor.${i}.basicMonthly`, l.basicMonthly, 'money');
     check(`labor.${i}.normalHoursPerMonth`, l.normalHoursPerMonth, 'hours');
     check(`labor.${i}.overtimeHoursPerActiveDay`, l.overtimeHoursPerActiveDay, 'hoursPerDay');
-    ['sacPct', 'vacationPct', 'employerContributionsPct', 'artPct'].forEach((k) => check(`labor.${i}.${k}`, l[k], 'percent'));
+    ['sacPct', 'vacationPct', 'employerContributionsPct', 'artPct', 'otherChargesPct'].forEach((k) => check(`labor.${i}.${k}`, l[k], 'percent'));
     check(`labor.${i}.overtimePremiumPct`, l.overtimePremiumPct, 'percentOpen');
     // Tanda B (B-1): nómina total opcional y datos del asistente de diagrama de rotación.
     check(`labor.${i}.payrollHeadcount`, l.payrollHeadcount, 'quantity');

@@ -13,7 +13,7 @@
  */
 
 import { h, s, mount, debounce, uniqueId } from '../dom.js';
-import { badge, banner, button, card, confirmDialog, disclosure, emptyState, icon, linkButton, openDialog, pageIntro, progressBar, table } from '../components.js';
+import { actionToast, badge, banner, button, card, confirmDialog, disclosure, emptyState, icon, linkButton, openDialog, pageIntro, progressBar, table } from '../components.js';
 import { formatDateTime, formatDays, formatMoney, formatPercent, formatPeriod, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
 import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
@@ -519,14 +519,30 @@ export async function render(root, app) {
   async function remove(quote) {
     const ok = await confirmDialog({
       title: 'Eliminar cotización',
-      message: `¿Eliminar "${textOf(quote.name, 'Sin nombre')}" (${textOf(quote.code, 'sin código')})? No se puede deshacer. Si querés conservarla, exportá un backup antes desde Configuración → Datos y backup.`,
+      message: `¿Eliminar "${textOf(quote.name, 'Sin nombre')}" (${textOf(quote.code, 'sin código')})? Vas a poder deshacerlo durante unos segundos.`,
       confirmLabel: 'Eliminar',
       danger: true,
     });
     if (!ok) return false;
     try {
+      // Auditoría externa B-02: copia completa para "Deshacer" (la lista puede tener sólo el resumen).
+      const full = await ctx.quotes.getQuote(quote.id);
+      const copy = full ? JSON.parse(JSON.stringify(full)) : null;
       await ctx.quotes.deleteQuote(quote.id);
-      app.toast('Cotización eliminada.', 'success');
+      if (copy) {
+        actionToast('Cotización eliminada.', {
+          onAction: async () => {
+            try {
+              await ctx.quotes.saveQuote(copy);
+              app.toast('Cotización recuperada.', 'success');
+              // Sólo se redibuja si la persona sigue en la lista.
+              if (root.isConnected) await load();
+            } catch (error) {
+              app.toast(userErrorMessage(error, 'No se pudo recuperar la cotización.'), 'danger');
+            }
+          },
+        });
+      } else app.toast('Cotización eliminada.', 'success');
       await load();
       return true;
     } catch (error) {

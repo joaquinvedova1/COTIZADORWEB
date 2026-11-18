@@ -88,3 +88,14 @@ export function traceBillingTaxes(info, revenue) {
     ],
   });
 }
+
+/**
+ * Auditoría externa K-10: el impuesto a los débitos y créditos se cobra sobre lo que ENTRA al
+ * banco, que incluye el IVA. Como RATEOS trabaja sin IVA, el % equivalente sobre lo facturado
+ * sin IVA es alícuota bancaria × (1 + IVA). Ambos % los carga la empresa (RATEOS no trae alícuotas).
+ * @returns {number|null} % equivalente, o null si falta un dato o no es válido.
+ */
+export function debitsCreditsEquivalentPct(bankPct, vatPct) {
+  if (!Number.isFinite(bankPct) || !Number.isFinite(vatPct) || bankPct < 0 || vatPct < 0 || bankPct >= 100 || vatPct >= 100) return null;
+  return Math.round(bankPct * (1 + vatPct / 100) * 10000) / 10000;
+}

@@ -300,7 +300,7 @@ html { scroll-padding-top: 7rem; }
   min-height: 40px;
 }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.85rem; border-radius: 8px; min-height: 32px; }
+.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.85rem; border-radius: 8px; min-height: 44px; }
 .btn-lg { padding: 0.8rem 1.35rem; font-size: 1.02rem; border-radius: 12px; min-height: 48px; }
 .btn-primary { background: var(--primary); color: var(--white); box-shadow: 0 1px 2px rgba(0, 59, 115, 0.25); }
 .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
@@ -450,6 +450,9 @@ html { scroll-padding-top: 7rem; }
 @media (max-width: 760px) { .toast-region { top: 64px; left: 0.75rem; right: 0.75rem; } .toast { max-width: none; } }
 .toast { background: var(--ink); color: var(--white); padding: 0.65rem 1rem; border-radius: 8px; box-shadow: var(--shadow); font-size: 0.9rem; max-width: 380px; }
 .toast-success { background: #157A50; }
+.toast-body { display: flex; align-items: center; gap: 0.75rem; justify-content: space-between; }
+.toast-action { background: transparent; color: inherit; border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 6px; padding: 0.25rem 0.65rem; font: inherit; font-weight: 650; cursor: pointer; min-height: 32px; }
+.toast-action:hover { background: rgba(255, 255, 255, 0.14); }
 .toast-warning { background: #9A5F12; }
 .toast-danger { background: var(--red-text); }
 
