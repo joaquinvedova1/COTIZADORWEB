@@ -1156,7 +1156,10 @@ export function evaluateCompleteness(quote = {}) {
   const marginBlank = marginRead.state === 'empty';
   const marginValue = marginRead.value;
   const marginInvalid = marginRead.state === 'invalid';
-  const marginTooHighWithTaxes = !marginBlank && !marginInvalid && !isValidMarginAndTaxes(marginValue, taxes.pct);
+  // Costo financiero del IVA (K-03): también va al divisor (margen + impuestos + t_iva < 100).
+  const vatPctForMargin = vatFinanceOf(quote).pct;
+  const grossUp = taxes.pct + vatPctForMargin;
+  const marginTooHighWithTaxes = !marginBlank && !marginInvalid && !isValidMarginAndTaxes(marginValue, grossUp);
   const marginPositive = !marginBlank && !marginInvalid && marginValue > 0;
   const marginItem = rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid || marginTooHighWithTaxes ? 'missing' : marginPositive ? 'ok' : 'warning',
     marginBlank
@@ -1164,7 +1167,9 @@ export function evaluateCompleteness(quote = {}) {
       : marginInvalid
         ? 'El margen objetivo debe ser mayor o igual a 0 y menor a 100 %.'
         : marginTooHighWithTaxes
-          ? `Con ${formatPercent(taxes.pct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - taxes.pct)}.`
+          ? (vatPctForMargin > 0
+            ? `Con ${taxes.pct > 0 ? `${formatPercent(taxes.pct)} de impuestos sobre lo que facturás y ` : ''}${formatPercent(vatPctForMargin)} de costo financiero del IVA, ${grossUp < 100 ? `el margen tiene que ser menor a ${formatPercent(100 - grossUp)}` : 'no hay precio posible: revisá el IVA, los días y la tasa'}.`
+            : `Con ${formatPercent(taxes.pct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - taxes.pct)}.`)
           : marginPositive
             ? 'Margen objetivo definido.'
             : 'Margen objetivo en 0 %: cotizás sin ganancia.');

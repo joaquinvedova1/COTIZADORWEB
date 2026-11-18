@@ -822,15 +822,25 @@ export async function render(root, app, params = {}) {
     // ---- costo financiero del IVA (K-03): IVA que facturás y días hasta pagarlo. Sólo para
     // responsable inscripto o sin definir. Sin valores precargados: los carga la empresa.
     const vatDefaults = { ...companyVatDefaults(settings) };
-    const saveVatDefaults = async () => {
-      try {
+    const vatChip = saveChip({ ephemeral });
+    let vatDefaultsFields = null;
+    const vatSaver = createAutosave({
+      chip: vatChip,
+      readOnly,
+      isValid: () => !vatDefaultsFields || vatDefaultsFields.querySelectorAll('[aria-invalid="true"]').length === 0,
+      save: async () => {
         await ctx.settings.save({ defaultVat: { ratePct: vatDefaults.ratePct, payLagDays: vatDefaults.payLagDays } });
         settings.defaultVat = { ratePct: vatDefaults.ratePct, payLagDays: vatDefaults.payLagDays };
-      } catch (error) {
-        app.toast(userErrorMessage(error, 'No se pudieron guardar los datos del IVA.'), 'danger');
-      }
-    };
-    const vatDefaultsFields = h('div', { class: 'stack' },
+      },
+      onError: (error) => app.toast(userErrorMessage(error, 'No se pudieron guardar los datos del IVA.'), 'danger'),
+    });
+    savers.push(vatSaver);
+    const saveVatDefaults = () => vatSaver.schedule();
+    vatDefaultsFields = h('div', { class: 'stack vat-finance-defaults' },
+      h('div', { class: 'vat-finance-defaults-head' },
+        h('h3', { class: 'params-group-title' }, 'IVA: costo de adelantarlo'),
+        vatChip.el),
+      h('p', { class: 'small' }, 'No es un impuesto que se suma al precio: es lo que te cuesta pagarlo antes de cobrar.'),
       formGrid(
         2,
         numberField({
@@ -853,6 +863,8 @@ export async function render(root, app, params = {}) {
         }),
       ),
       h('p', { class: 'small muted' }, 'Con estos dos datos cada cotización nueva cuenta lo que te cuesta adelantar el IVA hasta que cobrás (las que ya tenés conservan lo suyo).'));
+    // Un texto inválido en un campo (que todavía no llegó al objeto) también bloquea el guardado.
+    vatDefaultsFields.addEventListener('input', () => vatSaver.schedule());
     const refreshVatDefaults = (condition) => {
       vatDefaultsFields.hidden = !companyAllowsVatFinance({ vatCondition: condition });
     };

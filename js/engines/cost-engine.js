@@ -696,13 +696,24 @@ export function buildCostModel(quote = {}) {
     const factor = vat.active ? rate * (vat.days / 30) : 0;
     const creditFixedMonthly = external.reduce((acc, x) => acc + nonNegative(x.vatCreditFixedMonthly), 0);
     const creditPerActiveDay = external.reduce((acc, x) => acc + nonNegative(x.vatCreditPerActiveDay), 0);
-    const reliefFixed = creditFixedMonthly * factor;
-    const reliefVariable = creditPerActiveDay * factor;
+    // Tope: el crédito sólo alivia hasta el IVA que se factura. Como piso conservador del IVA de
+    // venta se usa IVA % × costo antes del alivio (el precio nunca es menor que el costo); lo que
+    // sobra es saldo a favor, que no se adelanta al fisco. Con IVA 0 % no hay alivio.
+    const vatShare = vat.active ? pct(nonNegative(vat.ratePct)) : 0;
+    const baseFixed = lines.reduce((acc, l) => acc + nonNegative(l.fixedMonthly), 0) + financeRaw.fixedMonthly;
+    const baseVariable = lines.reduce((acc, l) => acc + nonNegative(l.variablePerActiveDay), 0) + financeRaw.variablePerActiveDay;
+    const usedFixed = Math.min(creditFixedMonthly, vatShare * baseFixed);
+    const usedVariable = Math.min(creditPerActiveDay, vatShare * baseVariable);
+    const reliefFixed = usedFixed * factor;
+    const reliefVariable = usedVariable * factor;
     return {
       active: vat.active && factor > 0 && (reliefFixed > 0 || reliefVariable > 0),
       days: vat.days,
       creditFixedMonthly: vat.active ? creditFixedMonthly : 0,
       creditPerActiveDay: vat.active ? creditPerActiveDay : 0,
+      // Crédito que se usa de verdad (con el tope del IVA que se factura).
+      creditUsedFixedMonthly: vat.active ? usedFixed : 0,
+      creditUsedPerActiveDay: vat.active ? usedVariable : 0,
       // Lo que se descuenta de verdad (con el piso 0 de cada parte).
       fixedMonthly: Math.min(reliefFixed, financeRaw.fixedMonthly),
       variablePerActiveDay: Math.min(reliefVariable, financeRaw.variablePerActiveDay),

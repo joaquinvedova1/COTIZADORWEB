@@ -197,6 +197,32 @@ describe('K-03 · crédito fiscal de los externos', () => {
     assert.ok(r.model.byCategory.financial.fixedMonthly >= 0 && r.model.byCategory.financial.variablePerActiveDay >= 0);
     assert.equal(r.kpis.financialCost, 0);
   });
+  test('tope: con saldo a favor (vendés al 10,5 %, alquilás al 21 %) el crédito usado es IVA % × costo', () => {
+    // Alquiler de 20.000.000/día con IVA 21 % → crédito 4.200.000/día; el IVA de venta al 10,5 % no
+    // alcanza a absorberlo: sólo se usa 10,5 % × costo antes del alivio (el resto es saldo a favor).
+    const q = withRental(hydro({ applies: true, ratePct: 10.5, payLagDays: 20 }), { supplierPayDays: 0, price: 20000000 });
+    const r = computeQuote(q);
+    const v = r.model.finance.vatRelief;
+    close(v.creditPerActiveDay, 4200000, 1e-12);
+    assert.ok(v.creditUsedPerActiveDay > 0 && v.creditUsedPerActiveDay < v.creditPerActiveDay, JSON.stringify(v));
+    // El costo antes del alivio es al menos el alquiler: el tope es ≥ 10,5 % de 20.000.000.
+    assert.ok(v.creditUsedPerActiveDay >= 0.105 * 20000000);
+    close(v.variablePerActiveDay, Math.min(v.creditUsedPerActiveDay * 0.03 * 40 / 30, v.grossVariablePerActiveDay), 1e-12);
+    close(r.kpis.vatReliefMonthly, v.variablePerActiveDay * r.kpis.activeDays, 1e-9);
+    // Con 21 % de venta el tope no se alcanza: se usa todo el crédito.
+    const full = computeQuote(withRental(hydro(ON), { supplierPayDays: 0, price: 20000000 })).model.finance.vatRelief;
+    close(full.creditUsedPerActiveDay, full.creditPerActiveDay, 1e-12);
+    assert.ok(full.variablePerActiveDay > v.variablePerActiveDay);
+    assert.equal(priceComposition(r).allChecksOk, true);
+  });
+  test('IVA 0 %: sin alivio aunque haya crédito de los externos', () => {
+    const r = computeQuote(withRental(hydro({ applies: true, ratePct: 0, payLagDays: 20 }), { supplierPayDays: 0 }));
+    const off = computeQuote(withRental(hydro(undefined), { supplierPayDays: 0 }));
+    assert.equal(r.kpis.vatReliefMonthly, 0);
+    assert.equal(r.model.finance.vatRelief.creditUsedPerActiveDay, 0);
+    assert.equal(r.kpis.vatFinancePct, 0);
+    close(r.kpis.financialCost, off.kpis.financialCost, 1e-12);
+  });
 });
 
 describe('K-03 · cotización nueva, completitud y validación', () => {

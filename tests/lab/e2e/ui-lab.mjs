@@ -568,7 +568,7 @@ async function runMode(mode) {
     const fin = await screenText('E2E-22', 'finance');
     const fields = await page.evaluate(() => ['finance.vat.ratePct', 'finance.vat.payLagDays'].every((n) => document.querySelector(`[name="${n}"]`)) && document.querySelectorAll('input[name="finance.vat.applies"]').length === 2);
     check('E2E-22', 'K-03: Financiación pregunta "¿Facturás con IVA?" con el IVA y los días', /¿Facturás con IVA\?/.test(fin) && fields, `campos: ${fields}`);
-    check('E2E-22', 'K-03: Financiación dice cuántos puntos del precio cuesta adelantar el IVA', fin.includes('Adelantar el IVA cuesta 0,84 puntos del precio'), 'sin el texto');
+    check('E2E-22', 'K-03: Financiación dice cuánto cuesta por mes adelantar el IVA (monto del motor)', fin.includes('Adelantar el IVA te cuesta') && fin.includes(norm(formatMoney(k.vatFinance))) && fin.includes('Ya está en la tarifa sugerida'), `motor ${formatMoney(k.vatFinance)}`);
     const res = await screenText('E2E-22', 'result');
     check('E2E-22', 'K-03: la composición del precio tiene "Costo financiero del IVA" con el monto del motor', res.includes('Costo financiero del IVA') && res.includes(norm(formatMoney(k.vatFinance))), `motor ${formatMoney(k.vatFinance)}`);
   }

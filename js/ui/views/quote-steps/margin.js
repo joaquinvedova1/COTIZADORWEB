@@ -239,12 +239,18 @@ export function render(container, ctx) {
   // fuera de la vista principal). El ejemplo lado a lado queda en "Más detalle".
   const markupLine = (r) => {
     const k = r.kpis;
-    const t = k.billingTaxPct;
+    const t = k.billingTaxPct > 0 ? k.billingTaxPct : 0;
+    // Costo financiero del IVA (K-03): también es parte del recargo.
+    const tv = k.vatFinancePct > 0 ? k.vatFinancePct : 0;
     // Markup (precio = costo × (1 + markup)) y ganancia sobre el costo: los calcula el motor.
     const mk = k.targetMarkupPct;
     if (k.targetMarginInvalid || !isFiniteNumber(mk)) return '';
-    return t > 0
-      ? `Con ${formatPercent(t)} de impuestos sobre lo que facturás, ganar ${formatPercent(k.targetMarginPct)} sobre el precio es cobrar el costo + ${formatPercent(mk)} (markup: recargo sobre el costo); de eso, ${formatPercent(k.targetProfitOnCostPct)} del costo es tu ganancia y el resto, impuestos. No son lo mismo: el ejemplo está en "Más detalle".`
+    const what = tv > 0
+      ? `${t > 0 ? `${formatPercent(t)} de impuestos sobre lo que facturás y ` : ''}${formatPercent(tv)} de costo financiero del IVA`
+      : `${formatPercent(t)} de impuestos sobre lo que facturás`;
+    const rest = tv > 0 ? (t > 0 ? 'impuestos y el costo financiero del IVA' : 'el costo financiero del IVA') : 'impuestos';
+    return t + tv > 0
+      ? `Con ${what}, ganar ${formatPercent(k.targetMarginPct)} sobre el precio es cobrar el costo + ${formatPercent(mk)} (markup: recargo sobre el costo); de eso, ${formatPercent(k.targetProfitOnCostPct)} del costo es tu ganancia y el resto, ${rest}. No son lo mismo: el ejemplo está en "Más detalle".`
       : `Un margen de ${formatPercent(k.targetMarginPct)} sobre el precio equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}: no son lo mismo. El ejemplo está en "Más detalle".`;
   };
   const marginCard = card(

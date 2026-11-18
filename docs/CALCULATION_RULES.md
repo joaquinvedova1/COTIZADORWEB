@@ -2053,11 +2053,12 @@ Resultado = Facturación × (1 − t − t_iva) − Costo
 
 ```
 crédito del mes = neto del externo × IVA % × parte recuperable        (sin percepciones)
-alivio          = crédito × tasa mensual × d / 30
+crédito usado   = min(crédito, IVA que facturás % × costo antes del alivio)   (fijo y variable por separado)
+alivio          = crédito usado × tasa mensual × d / 30
 financiero      = max(0, financiero − alivio)                         (fijo y variable por separado)
 ```
 
-Todo lo demás (combustible, materiales, estructura, externos sin dato) cuenta como crédito 0: el costo nunca queda subestimado. El alivio baja el renglón Financiero de la EECC (y con él la contingencia). "Cada salida se cuenta completa" y las horas extra de todo el trabajo no llevan alivio (conservador).
+**Tope:** el crédito sólo alivia hasta el IVA que se factura; como piso conservador de ese IVA se usa IVA % × costo antes del alivio (el precio nunca es menor que el costo). Lo que sobra es saldo a favor y no alivia nada (p. ej. vendés al 10,5 % y alquilás al 21 %). Con IVA 0 % no hay alivio. Todo lo demás (combustible, materiales, estructura, externos sin dato) cuenta como crédito 0: el costo nunca queda subestimado. El alivio baja el renglón Financiero de la EECC (y con él la contingencia). "Cada salida se cuenta completa" y las horas extra de todo el trabajo no llevan alivio (conservador).
 
 **Composición del precio** (§13.2): fila y grupo propios **Costo financiero del IVA**, sólo si hay. Controles: Facturación = costo + impuestos + costo financiero del IVA + resultado; costo financiero del IVA = t_iva × facturación.
 

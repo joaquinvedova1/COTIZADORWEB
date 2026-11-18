@@ -1255,9 +1255,11 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
         // Recargo efectivo calculado por el motor (con impuestos sobre la facturación).
         const mk = r.kpis.targetMarkupPct;
         const net = netRateHint(r.kpis.targetNetRate, r);
-        const taxed = r.kpis.billingTaxPct > 0 && isFiniteNumber(r.kpis.targetProfitOnCostPct);
+        const vatOn = r.kpis.vatFinancePct > 0;
+        const taxed = (r.kpis.billingTaxPct > 0 || vatOn) && isFiniteNumber(r.kpis.targetProfitOnCostPct);
+        const rest = vatOn ? (r.kpis.billingTaxPct > 0 ? 'impuestos y el costo financiero del IVA' : 'el costo financiero del IVA') : 'impuestos';
         const markup = isFiniteNumber(mk)
-          ? `Equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}${taxed ? `: tu ganancia es ${formatPercent(r.kpis.targetProfitOnCostPct)} del costo y el resto son impuestos` : ''}.`
+          ? `Equivale a un markup (recargo sobre el costo) de ${formatPercent(mk)}${taxed ? `: tu ganancia es ${formatPercent(r.kpis.targetProfitOnCostPct)} del costo y el resto son ${rest}` : ''}.`
           : '';
         return [`Tarifa de lista sin redondear, sin IVA.`, net, markup].filter(Boolean).join(' ');
       },
