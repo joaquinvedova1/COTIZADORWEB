@@ -46,6 +46,7 @@ import { computeExternalLine } from './external-engine.js';
 import { computeMobilization } from './mobilization-engine.js';
 import { computeExtras } from './extras-engine.js';
 import { outOfHoursBasis, resolveExtras } from './out-of-hours-engine.js';
+import { computeOvertimeWork } from './overtime-work-engine.js';
 import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
@@ -225,6 +226,22 @@ export function buildCostModel(quote = {}) {
       cashVariablePerActiveDay: l.variablePerActiveDay,
     });
   });
+
+  // Horas extra del trabajo (2026-11-18): un concepto más del personal, dentro del precio único.
+  const overtimeWork = computeOvertimeWork(quote, labor, activity, { contractMode: contractOf(quote).mode });
+  if (overtimeWork.active) {
+    lines.push({
+      key: 'labor:overtime-work',
+      source: 'labor',
+      label: overtimeWork.mode === 'all' ? `Horas extra (todo el trabajo al ${overtimeWork.premiumPct}\u00a0%)` : 'Horas extra del trabajo',
+      category: 'labor',
+      payGroup: 'salaries',
+      fixedMonthly: overtimeWork.fixedMonthly,
+      variablePerActiveDay: overtimeWork.variablePerActiveDay,
+      cashFixedMonthly: overtimeWork.fixedMonthly,
+      cashVariablePerActiveDay: overtimeWork.variablePerActiveDay,
+    });
+  }
 
   // Standby: días en locación sin operar. Se costea el variable de personal
   // (vianda + horas extra) de cada día de standby. Es un monto mensual estimado.
@@ -712,6 +729,7 @@ export function buildCostModel(quote = {}) {
     transport,
     fuel: { pricePerLiter: fuelPricePerLiter, paidByUs: fuelPaidByUs, providedBy: quote.fuel && quote.fuel.providedBy ? quote.fuel.providedBy : null },
     labor,
+    overtimeWork,
     standby: { days: standbyDays, costPerDay: standbyCostPerDay, monthly: standbyMonthly },
     equipment,
     external,

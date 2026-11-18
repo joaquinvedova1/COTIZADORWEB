@@ -59,15 +59,11 @@ export function extrasSection(ctx, contract) {
   // Las tarifas fuera de horario (PLAN-2026-025) se cargan en su propia tarjeta: acá no se repiten.
   // Cada fila recuerda su posición real en quote.extras (los campos usan ese índice).
   const manual = extras.map((x, i) => ({ x, i })).filter(({ x }) => !isOutOfHoursExtra(x));
+  // Cada cotización da UN solo precio (Joaco, 2026-11-18): los adicionales sólo se ven en las
+  // cotizaciones que ya los tenían (mismos números), para editarlos o quitarlos. No se agregan nuevos.
+  if (!manual.length) return null;
   const categoryOptions = COST_CATEGORIES.filter((c) => DIRECT_CATEGORY_IDS.includes(c.id) && c.id !== 'structure').map((c) => ({ value: c.id, label: c.label }));
 
-  const add = (preset = {}, focusField = 'quantityPerMonth') => {
-    const index = extras.length;
-    ctx.mutate((q) => {
-      if (!Array.isArray(q.extras)) q.extras = [];
-      q.extras.push(createExtra(preset));
-    }, { focus: `extras.${index}.${focusField}` });
-  };
   const remove = async (index) => {
     const line = extras[index];
     if (!line) return;
@@ -122,12 +118,11 @@ export function extrasSection(ctx, contract) {
     : null;
 
   const outOfHoursOn = extras.some((x) => isOutOfHoursExtra(x));
-  const presetButtons = extraPresetsFor(extras).map((p) => kit.action(p.label, () => add(p), { icon: 'plus', variant: 'secondary' }));
 
   return kit.advanced(
     {
       key: 'extras',
-      title: 'Adicionales (se cobran aparte)',
+      title: 'Adicionales (cargados antes)',
       boxed: true,
       defaultOpen: manual.length > 0,
       summary: (r) => {
@@ -143,6 +138,6 @@ export function extrasSection(ctx, contract) {
       infoTip('Suma ingreso y costo al mes, aparte del precio principal. Cargá el costo directo de una unidad; si dejás el precio vacío, RATEOS lo sugiere con tu margen.')),
     rows,
     outOfHoursOn ? h('p', { class: 'qe-note' }, OUT_OF_HOURS_PRESETS_NOTE) : null,
-    h('div', { class: 'qe-toolbar' }, ...presetButtons, kit.action('Otro adicional', () => add({ label: '', unitName: 'unidad' }, 'label'), { icon: 'plus' })),
+    h('p', { class: 'qe-note' }, 'Las cotizaciones nuevas dan un solo precio, sin adicionales aparte. Estos se siguen cobrando igual hasta que los quites.'),
   );
 }
