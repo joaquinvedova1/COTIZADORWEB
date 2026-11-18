@@ -1939,3 +1939,25 @@ Tests: `tests/domain/unidad-primero-2026-11.test.js` y `tests/ui/unidad-primero-
 - **Nombre de la activación (U2).** En una cotización con componentes, `serviceType 'on_call'` (derivado del modo) se nombra "intervención" salvo que se cobre por llamado. Sólo texto: `serviceType` no cambia.
 
 Tests: `tests/domain/unidad-primero-revision-2026-11.test.js` y `tests/ui/unidad-primero-revision-2026-11.test.js`.
+
+## 31. Actualización de tarifas por estructura de costos (0.11, 2026-11-18)
+
+Pedido del dueño: en Cotizaciones ver cada ítem con su unidad, valor y período base, y un botón **"Actualizar tarifa"** que la lleve a otro mes aplicando un % por categoría de la estructura de costos (EECC), ponderado por la incidencia de cada categoría. Código: `js/domain/rate-update.js`, `js/engines/rate-update-engine.js`, `rateUpdateOf` en `js/engines/quote-engine.js`.
+
+**Categorías estándar** (los renglones de la EECC, Materiales abierto en sus categorías de gasto de 0.10.0): Mano de obra, Equipos propios, Equipos y servicios de terceros, Combustible, Herramientas, Insumos y consumibles, Materiales, EPP, Otros costos, Logística y viáticos, Gastos de estructura. Costo financiero e imprevistos no llevan % propio: se calculan como un % del resto y lo acompañan.
+
+**Fórmula (índices encadenados, fórmula polinómica):**
+
+```
+w_i  = costo de la categoría i ÷ Σ costos de las categorías actualizables   (período base, actividad estimada)
+I_i  = Π (1 + %_i,k ÷ 100)            índice acumulado de la categoría en las actualizaciones k
+F    = Σ w_i × I_i                    factor acumulado
+tarifa vigente = tarifa comercial de la cotización × F
+```
+
+En cada actualización el aumento del paso es `Σ s_i × %_i`, con `s_i = w_i × I_i ÷ F` la incidencia **vigente** (la primera vez `s_i = w_i`). Ejemplo del dueño: 60 % × 2 % + 40 % × 5 % = **3,2 %**. Si una categoría subió más, pesa más en la siguiente actualización.
+
+- Margen e impuestos sobre la facturación son % del precio: al llevar costo y precio por el mismo factor, el margen % no cambia.
+- La actualización **no toca los costos de la cotización**: se guarda en `quote.rateUpdate = { basePeriod, steps: [{ toPeriod, pcts }] }` con historial y "Deshacer la última". El período base es el guardado o, si no, el mes de la fecha de la oferta; queda fijo desde la primera actualización.
+- El período destino debe ser posterior al vigente. % entre −90 y 500 (puede bajar, p. ej. combustible).
+- **Mano de obra ligada al sueldo:** el % de mano de obra es el aumento de sueldos del convenio entre los dos meses. Mientras no exista el historial de aumentos por convenio en Recursos, se carga a mano en el mismo cuadro; después se propone solo (ponderado por el costo de cada puesto) y se puede corregir.
