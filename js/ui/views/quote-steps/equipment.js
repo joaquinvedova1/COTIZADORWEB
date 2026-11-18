@@ -942,7 +942,7 @@ export function render(container, ctx) {
             kit.num(`${p}.residualValue`, { label: 'Valor residual', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, hint: 'Lo que vale al final de su vida útil (en la misma moneda que el valor de reposición).' }),
             kit.num(`${p}.otherAnnual`, { label: 'Otros por año (RTO, GPS, habilitaciones)', rule: 'money', unit: '$/año', hint: 'Habilitaciones, GPS, cocheras… lo que pagás aunque no trabaje.' }),
             kit.num(`${p}.certificationsAnnual`, { label: 'Certificaciones por año', rule: 'money', unit: '$/año', illustrative }),
-            kit.num(`${p}.capitalRatePctAnnual`, { label: 'Costo de capital (opcional)', rule: 'percent', unit: '% anual', hint: 'Rendimiento que le pedís a la plata invertida en el equipo. No es la financiación del contrato (eso va en "Financiación").' }),
+            kit.num(`${p}.capitalRatePctAnnual`, { label: 'Costo de capital (opcional)', rule: 'percent', unit: '% anual', hint: 'Tasa anual sin inflación (real): lo que le pedís a la plata invertida en el equipo por encima de la suba de precios. Como el valor de reposición ya está actualizado, no sumes la inflación de nuevo. No es la financiación del contrato (eso va en "Financiación").' }),
           ),
           capitalCostNote(i),
         ),
