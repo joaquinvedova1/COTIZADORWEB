@@ -27,10 +27,10 @@ const step = (id) => `"${stepName(id)}"`;
 
 /** Qué sigue según la modalidad del contrato (PLAN-2026-018). */
 const MODE_TIPS = Object.freeze({
-  monthly: { short: `Lo que exceda el fijo se cobra en "Adicionales" (${step('modality')}).`, more: 'Cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Fuera de horario, feriados y trabajos extra van como adicionales, con su propio precio, en la misma cotización.' },
+  monthly: { short: `Un solo precio por mes: cargá lo que cubre el fijo (${step('modality')}).`, more: `Cargá lo que cubre el fijo (por ejemplo 26 días × 12 h). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del fijo. Para otra variante, duplicá la cotización (Más acciones → Duplicar).` },
   on_demand: { short: `Unidad y mínimo mensual: en ${step('modality')}.`, more: 'Elegí en qué unidad cobrás (hora, día, viaje, m³…) y cuánto esperás trabajar por mes. Si el cliente garantiza un mínimo mensual, se carga ahí mismo.' },
   // Tanda novatos 2026-11: lo de imprevistos y adicionales pasa al (i).
-  closed: { short: 'Cargá todo el alcance del trabajo.', more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Los trabajos fuera del alcance con precio unitario van en "Adicionales".` },
+  closed: { short: 'Cargá todo el alcance del trabajo.', more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Un trabajo fuera del alcance es otra cotización: duplicala (Más acciones → Duplicar).` },
 })
 
 /**

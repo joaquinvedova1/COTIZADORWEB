@@ -631,8 +631,8 @@ export function render(container, ctx) {
       : byQuantity
       ? 'Las horas que se trabaja cada día. Se usan para el combustible y el uso de los equipos, y para calcular qué parte del mes les ocupa este servicio.'
       : quote.unit === 'hour'
-      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`
-      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Lo que se trabaje fuera de este horario se cotiza aparte, más abajo.`,
+      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Si se trabaja fuera de este horario, elegilo más abajo en "Horas extra del trabajo": queda dentro de tu precio.`
+      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Si se trabaja fuera de este horario, elegilo más abajo en "Horas extra del trabajo": queda dentro de tu precio.`,
   });
   const hourly = quote.unit === 'hour';
   // Por viaje (tanda novatos 2026-11): las horas por día y el trabajo fuera de horario van en
@@ -774,7 +774,7 @@ export function render(container, ctx) {
     hint: (r) => {
       if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return `Cargá los días por mes para ver ${T.g('cuántas', 'cuántos')} ${T.many} y días facturás.`;
       // Fijo mensual (PLAN-2026-024): se factura 1 abono; la utilización no dice nada acá.
-      if (monthlyContract) return 'Facturás 1 abono por mes. Lo que exceda esta cobertura se cobra en "Adicionales".';
+      if (monthlyContract) return 'Facturás 1 abono por mes: un solo precio. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo".';
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
       const acts = r.activity.activationsPerMonth;
@@ -960,7 +960,7 @@ export function render(container, ctx) {
             unit: 'días/mes',
             requiredMark: true,
             placeholder: 'Ej.: 22',
-            hint: 'Los días que cubre el abono (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Lo que se trabaje fuera de eso va en "Adicionales".',
+            hint: 'Los días que cubre el abono (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Si se trabaja fuera de eso, elegilo en "Horas extra del trabajo": queda dentro del abono.',
           })
           : kit.num('activity.activeDaysPerMonth', {
             label: isOnCall ? 'Días con trabajo por mes' : 'Días trabajados y facturados por mes',
@@ -1460,7 +1460,7 @@ export function render(container, ctx) {
         : null,
       !guardChosen && (feeNow || calloutNow) ? h('p', { class: 'qe-note' }, 'Aunque no haya guardia, estos cargos se siguen cobrando. Poné 0 si no corresponden.') : null,
       guardChosen
-        ? h('p', { class: 'qe-note' }, `Si a tu gente le pagás un adicional por estar de guardia, sumalo en "${stepName('labor')}" → Adicionales: es parte de tu costo.`)
+        ? h('p', { class: 'qe-note' }, `Si a tu gente le pagás un adicional por estar de guardia, sumalo en "${stepName('labor')}" → "Otros pagos fijos por mes" del puesto: es parte de tu costo.`)
         : null,
       guardChosen
         ? kit.advanced(
@@ -1581,7 +1581,7 @@ export function render(container, ctx) {
     );
 
   const question = monthlyContract
-    ? kit.question('¿Qué cobertura vendés en el abono?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Lo que exceda se cobra en "Adicionales".')
+    ? kit.question('¿Qué cobertura vendés en el abono?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo": quedan dentro del abono.')
     : singleJob
     ? kit.question('¿Cuántos días lleva el trabajo?', 'Los costos (personal, equipos, combustible) se calculan con los días de trabajo que lleva hacerlo. Si hacés más de un trabajo así por mes, cargalo en "Más detalle".')
     : byQuantity && info.id === 'job' && contract.mode === 'closed'

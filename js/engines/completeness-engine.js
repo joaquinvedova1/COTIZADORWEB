@@ -92,8 +92,9 @@ export function outsideWindowHours(quote = {}) {
 
 /**
  * Texto del aviso de fuera de horario (pendiente y nota del paso), según la unidad:
- * por hora esas horas YA se facturan como horas normales (sumarlas en Adicionales las
- * cobraría dos veces); por día, el día cubre la franja y el excedente va en Adicionales.
+ * por hora esas horas YA se facturan como horas normales; por día, el día cubre la franja.
+ * Regla de un ítem (2026-11-18): el recargo se elige en "Horas extra del trabajo" (dentro del
+ * precio), nunca en un renglón aparte.
  * @param {{ worked:number, guard:number, outside:number }} o
  */
 export function outsideWindowMessage(quote = {}, o, { short = false } = {}) {
@@ -104,8 +105,8 @@ export function outsideWindowMessage(quote = {}, o, { short = false } = {}) {
     ? `${f(o.outside)} h por día fuera de la franja${month}`
     : `Trabajás ${f(o.worked)} h por día y la franja de guardia es de ${f(o.guard)} h: ${f(o.outside)} h por día quedan fuera de horario${month}`;
   return billingUnitOf(quote).kind === 'hour'
-    ? `${head}. Ya se facturan como horas normales: si fuera de horario llevan recargo, cargá en "Adicionales" sólo el recargo (no la hora entera, se cobraría dos veces).`
-    : `${head}: si el cliente las paga aparte, cobralas en "Adicionales".`;
+    ? `${head}. Ya se facturan como horas normales: si fuera de horario les pagás un recargo, cubrí sólo el recargo en tu tarifa (un solo precio; la hora entera ya está en las horas por día).`
+    : `${head}: si fuera de horario les pagás un recargo, cubrilo en tu tarifa (un solo precio, sin renglones aparte).`;
 }
 
 /**
@@ -1196,7 +1197,7 @@ export function evaluateCompleteness(quote = {}) {
       step: 'labor',
       severity: 'info',
       label: 'Adicional de guardia',
-      message: 'Guardia pasiva: si el convenio paga un adicional por estar de guardia, cargalo en "Adicionales" del puesto (por persona y por mes) para que entre al costo.',
+      message: 'Guardia pasiva: si el convenio paga un adicional por estar de guardia, cargalo en "Otros pagos fijos por mes" del puesto (por persona) para que entre al costo.',
       focus: `labor.${i}.additionalsMonthly`,
     });
   }
@@ -1209,7 +1210,7 @@ export function evaluateCompleteness(quote = {}) {
       step: 'margin',
       severity: 'info',
       label: 'Disponibilidad sin cobrar',
-      message: `La guardia no se cobra aparte: cubrila en la tarifa, con un "${GUARD_FEE_LABEL}" o con un mínimo mensual garantizado.`,
+      message: 'Estar de guardia también cuesta: cubrilo en la tarifa (un solo precio).',
       focus: 'rules.availabilityFeeMonthly',
     });
   }
