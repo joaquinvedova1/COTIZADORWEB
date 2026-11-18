@@ -51,7 +51,7 @@ import { fixedCostShareOf } from '../domain/assignment.js';
 import { usesTimeBasis } from '../domain/cost-basis.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
-import { normalizePriceAdjustment, priceAdjustmentOf } from '../domain/price-adjustment.js';
+import { normalizePriceAdjustment, priceAdjustmentOf, contingencyPriceOverlap } from '../domain/price-adjustment.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
@@ -1176,12 +1176,8 @@ export function evaluateCompleteness(quote = {}) {
       focus = 'priceAdjustment.expectedMonthlyInflationPct';
     } else if (adjustment.factor > 2) {
       status = 'warning';
-      message = `Con ${formatPercent(adjustment.pct)} por mes durante ${months} meses el costo promedio más que se duplica. Revisá el % o cotizá con cláusula de ajuste.`;
+      message = 'Con ese % el costo del contrato se duplica. Revisá el %.';
       focus = 'priceAdjustment.expectedMonthlyInflationPct';
-    } else if (updates > 0) {
-      status = 'warning';
-      message = 'Elegiste precio fijo pero la tarifa tiene actualizaciones: con precio fijo no se actualiza. Revisá cuál de las dos vale.';
-      focus = 'priceAdjustment.mode';
     } else {
       message = adjustment.active
         ? `Precio fijo con ${formatPercent(adjustment.pct)} de inflación mensual: el costo promedio del contrato es el de hoy × ${formatNumber(adjustment.factor, { decimals: 4 })}.`
@@ -1192,6 +1188,21 @@ export function evaluateCompleteness(quote = {}) {
     const item = rule('price_adjustment', 'Ajuste del precio', 'margin', adjustment.mode === null ? 0 : 1, status, message);
     if (focus) item.focus = focus;
     items.push(item);
+    // Precio fijo y actualizaciones de tarifa: se contradicen (aviso aparte, aunque haya otro).
+    if (adjustment.mode === 'fixed' && updates > 0) {
+      const upd = rule('price_adjustment_updates', 'Precio fijo con actualizaciones', 'margin', 1, 'warning',
+        'Elegiste precio fijo pero la tarifa tiene actualizaciones: con precio fijo no se actualiza. Revisá cuál de las dos vale.');
+      upd.focus = 'priceAdjustment.mode';
+      items.push(upd);
+    }
+    // Doble conteo: la contingencia ya tiene un % por inflación o precios.
+    const overlap = contingencyPriceOverlap(quote);
+    if (overlap.pct > 0) {
+      const dbl = rule('price_adjustment_contingency', 'Inflación contada dos veces', 'risk', 1, 'warning',
+        `La contingencia ya tiene ${formatPercent(overlap.pct)} por inflación o precios: con precio fijo se cuenta dos veces. Sacalo de imprevistos.`);
+      dbl.focus = `risk.items.${overlap.index}.pct`;
+      items.push(dbl);
+    }
   }
 
   // 13 bis. Abono mensual + "Abono de disponibilidad" (ECO-01, H-02): con la tarifa en $/mes los

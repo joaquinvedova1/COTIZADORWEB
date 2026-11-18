@@ -135,15 +135,36 @@ describe('K-01 · validación, completitud y traza', () => {
   test('fijo sin %, fijo con f > 2 y fijo con actualizaciones: amarillo', () => {
     assert.equal(itemOf({ ...fixed(), priceAdjustment: { mode: 'fixed', expectedMonthlyInflationPct: null } }).focus, 'priceAdjustment.expectedMonthlyInflationPct');
     assert.equal(itemOf(fixed(10, 24)).status, 'warning');
-    assert.equal(itemOf({ ...fixed(), rateUpdate: { steps: [{ id: 's1' }] } }).status, 'warning');
+    // Precio fijo + actualizaciones: aviso propio, también junto al de f > 2.
+    const both = evaluateCompleteness({ ...fixed(10, 24), rateUpdate: { steps: [{ id: 's1' }] } }).items;
+    assert.equal(both.find((i) => i.id === 'price_adjustment').message, 'Con ese % el costo del contrato se duplica. Revisá el %.');
+    assert.equal(both.find((i) => i.id === 'price_adjustment_updates').status, 'warning');
     assert.equal(itemOf(fixed()).status, 'ok');
     assert.equal(itemOf({ ...fixed(), priceAdjustment: { mode: 'adjusted' } }).status, 'ok');
+  });
+
+  test('doble conteo: contingencia con % por inflación o precios y precio fijo → aviso', () => {
+    const q = fixed();
+    const i = q.risk.items.findIndex((x) => x.id === 'inflation');
+    assert.ok(i >= 0);
+    q.risk.items[i] = { ...q.risk.items[i], enabled: true, pct: 2 };
+    const item = evaluateCompleteness(q).items.find((x) => x.id === 'price_adjustment_contingency');
+    assert.equal(item.status, 'warning');
+    assert.match(item.message, /La contingencia ya tiene 2[,.]?0* ?% por inflación o precios/);
+    assert.equal(item.focus, `risk.items.${i}.pct`);
+    const off = { ...q, priceAdjustment: { mode: 'adjusted' } };
+    assert.equal(evaluateCompleteness(off).items.some((x) => x.id === 'price_adjustment_contingency'), false);
+  });
+
+  test('Ver cálculo: con pérdida en los últimos meses lo dice', () => {
+    const t = computeQuote(fixed(3, 24)).traces.inflation;
+    assert.ok(t.notes.some((n) => /Los últimos meses dan pérdida/.test(n)));
   });
 
   test('Ver cálculo: f, último mes y "El % lo cargaste vos"', () => {
     const t = computeQuote(fixed()).traces.inflation;
     assert.match(t.formula, /Costo promedio del contrato = costo de hoy × f/);
-    assert.ok(t.steps.some((s) => /^Factor f/.test(s.label) && s.value === '1,1827'));
+    assert.ok(t.steps.some((s) => /^Factor f/.test(s.label) && s.value === '1,182669'));
     assert.ok(t.steps.some((s) => /^Último mes/.test(s.label)));
     assert.ok(t.notes.some((n) => /El % lo cargaste vos/.test(n)));
   });

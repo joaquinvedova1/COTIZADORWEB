@@ -6,6 +6,7 @@
  *   contingencia $ = % × (directos + estructura + financiero)
  */
 
+import { contingencyPriceOverlap } from '../../../domain/price-adjustment.js';
 import { h, mount } from '../../dom.js';
 import { card, formGrid, checkboxField } from '../../components.js';
 import { RISK_ITEMS } from '../../../domain/catalogs.js';
@@ -41,6 +42,8 @@ function contingencyTrace(result, quote) {
   const infl = m.inflation || { fixedMonthly: 0, variablePerActiveDay: 0 };
   const base = (m.fixedMonthly - m.contingency.fixedMonthly - infl.fixedMonthly) * factor + (m.variablePerActiveDay - m.contingency.variablePerActiveDay - infl.variablePerActiveDay) * D;
   const items = (quote.risk.items || []).filter((i) => i && i.enabled);
+  // Precio fijo con inflación (K-01): ¿la contingencia ya la cubre?
+  const overlap = contingencyPriceOverlap(quote);
   return createTrace({
     id: 'contingency',
     title: 'Contingencia',
@@ -52,7 +55,10 @@ function contingencyTrace(result, quote) {
     ],
     steps: [{ label: 'Contingencia total', value: m.contingency.pct, format: 'percent' }],
     result: { label: 'Contingencia del mes', value: row ? row.amount : null, format: 'money' },
-    notes: ['La contingencia es una reserva para imprevistos: no se financia.'],
+    notes: [
+      'La contingencia es una reserva para imprevistos: no se financia.',
+      overlap.pct > 0 ? `Tiene ${formatPercent(overlap.pct)} por inflación o precios y el precio queda fijo con la inflación esperada: esa suba se cuenta dos veces. Sacalo de imprevistos.` : null,
+    ].filter(Boolean),
   });
 }
 

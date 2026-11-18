@@ -63,7 +63,7 @@ const RUBRO_LABELS = Object.freeze({
   logistics: 'Viáticos y traslados',
   structure: 'Gastos de estructura',
   contingency: 'Imprevistos',
-  inflation: 'Inflación esperada (precio fijo)',
+  inflation: 'Inflación esperada',
 });
 
 /**

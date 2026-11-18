@@ -839,8 +839,8 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
           { label: 'Costo del mes con los precios de hoy', value: today, format: 'money' },
         ],
         steps: [
-          { label: 'Factor f (costo promedio ÷ costo de hoy)', value: formatNumber(inf.factor, { decimals: 4 }), format: 'text' },
-          { label: 'Último mes: factor (1 + π)^(n − 1)', value: formatNumber(inf.lastMonthFactor, { decimals: 4 }), format: 'text' },
+          { label: 'Factor f (costo promedio ÷ costo de hoy)', value: formatNumber(inf.factor, { decimals: 6 }), format: 'text' },
+          { label: 'Último mes: factor (1 + π)^(n − 1)', value: formatNumber(inf.lastMonthFactor, { decimals: 6 }), format: 'text' },
           { label: 'Costo del último mes', value: today * inf.lastMonthFactor, format: 'money' },
           { label: 'Costo promedio del contrato', value: costAt.total, format: 'money' },
           ...(marginAt(today) !== null
@@ -855,6 +855,7 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
           inf.active ? null : 'No aplica: el precio se ajusta, es precio cerrado, el contrato dura un mes o falta el %.',
           'El % lo cargaste vos: RATEOS no estima la inflación.',
           'El precio queda parejo todo el contrato: al principio ganás un poco más y al final un poco menos.',
+          inf.active && marginAt(today * inf.lastMonthFactor) !== null && marginAt(today * inf.lastMonthFactor) < 0 ? 'Los últimos meses dan pérdida; se compensan con lo que ganás de más al principio.' : null,
         ].filter(Boolean),
       });
     })(),

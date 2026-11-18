@@ -104,3 +104,26 @@ export function priceAdjustmentOf(quote = {}) {
     lastMonthFactor: active ? Math.pow(1 + pct / 100, months - 1) : 1,
   };
 }
+
+/** Ítems de riesgo de la contingencia que ya cubren la suba de precios (catalogs RISK_ITEMS). */
+export const PRICE_RISK_ITEM_IDS = Object.freeze(['inflation', 'prices']);
+
+/**
+ * Doble conteo con precio fijo (K-01): % de la contingencia en ítems de inflación o variación de
+ * precios habilitados, cuando la inflación esperada está activa. 0 si no hay superposición.
+ * @returns {{ pct: number, index: number }}  index: el primer ítem en `risk.items` (−1 si no hay)
+ */
+export function contingencyPriceOverlap(quote = {}) {
+  const q = isPlainObject(quote) ? quote : {};
+  if (!priceAdjustmentOf(q).active) return { pct: 0, index: -1 };
+  const items = isPlainObject(q.risk) && Array.isArray(q.risk.items) ? q.risk.items : [];
+  let pct = 0;
+  let index = -1;
+  items.forEach((it, i) => {
+    const p = isPlainObject(it) ? Number(it.pct) : NaN;
+    if (!isPlainObject(it) || !it.enabled || !PRICE_RISK_ITEM_IDS.includes(it.id) || !(Number.isFinite(p) && p > 0)) return;
+    pct += p;
+    if (index < 0) index = i;
+  });
+  return { pct, index };
+}
