@@ -12,6 +12,8 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-18
+
 **Actualizar tarifa por estructura de costos (2026-11-18, pedido del dueño).** Detalle en [docs/CALCULATION_RULES.md §31](docs/CALCULATION_RULES.md). Sin cambio de fórmulas de costo ni de versión de esquema; las cotizaciones no cambian sus números.
 
 ### Agregado
