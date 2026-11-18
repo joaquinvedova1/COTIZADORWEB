@@ -16,13 +16,13 @@
 import { deepClone } from '../core/object.js';
 import { computeQuote } from './quote-engine.js';
 
-const CATEGORY_OF = Object.freeze({ structure: 'structure', financial: 'financial', contingency: 'contingency' });
+const CATEGORY_OF = Object.freeze({ structure: 'structure', financial: 'financial', contingency: 'contingency', inflation: 'inflation' });
 
 /**
  * @param {object} quote cotización completa
  * @param {{ list?: string, index: number }} target línea a medir (por defecto, de `equipment`)
  * @param {object} [options] mismas opciones de computeQuote (settings…)
- * @returns {{ total:number, own:number, structure:number, financial:number, contingency:number, other:number, ownCategories:string[] } | null}
+ * @returns {{ total:number, own:number, structure:number, financial:number, contingency:number, inflation:number, other:number, ownCategories:string[] } | null}
  */
 export function lineIncrementalImpact(quote, { list = 'equipment', index } = {}, options = {}) {
   if (!quote || !Array.isArray(quote[list]) || !(index >= 0) || index >= quote[list].length) return null;
@@ -43,6 +43,8 @@ export function lineIncrementalImpact(quote, { list = 'equipment', index } = {},
   const structure = delta(CATEGORY_OF.structure);
   const financial = delta(CATEGORY_OF.financial);
   const contingency = delta(CATEGORY_OF.contingency);
+  // Inflación esperada con precio fijo (K-01): 0 si no aplica.
+  const inflation = delta(CATEGORY_OF.inflation);
   const total = withLine.kpis.totalCost - withoutLine.kpis.totalCost;
-  return { total, own, structure, financial, contingency, other: total - own - structure - financial - contingency, ownCategories };
+  return { total, own, structure, financial, contingency, inflation, other: total - own - structure - financial - contingency - inflation, ownCategories };
 }

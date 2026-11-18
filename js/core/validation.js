@@ -34,6 +34,8 @@ export const RULES = Object.freeze({
   positive: { min: 0, exclusiveMin: true, message: 'Debe ser mayor a 0.' },
   years: { min: 0, max: 100, exclusiveMin: true, message: 'La vida útil debe ser mayor a 0 años.' },
   months: { min: 0, max: 600, message: 'Los meses deben estar entre 0 y 600.' },
+  // Inflación mensual esperada con precio fijo (K-01). Igual a INFLATION_PCT_MIN/MAX.
+  inflationPct: { min: 0, max: 30, message: 'La inflación mensual debe estar entre 0 y 30 %.' },
   integer: { min: 0, integer: true, message: 'Ingresá un número entero mayor o igual a 0.' },
 });
 
@@ -140,6 +142,8 @@ export function validateQuote(quote) {
 
   check('contractMonths', quote.contractMonths, 'months');
   check('contractJobs', quote.contractJobs, 'quantity');
+  // Precio fijo con inflación esperada (K-01).
+  if (isPlainObject(quote.priceAdjustment)) check('priceAdjustment.expectedMonthlyInflationPct', quote.priceAdjustment.expectedMonthlyInflationPct, 'inflationPct');
   const a = isPlainObject(quote.activity) ? quote.activity : {};
   check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'days');
   check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');

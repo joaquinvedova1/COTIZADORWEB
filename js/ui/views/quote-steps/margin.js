@@ -30,6 +30,7 @@ import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillin
 import { userErrorMessage } from '../../layout.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 import { contractOf } from '../../../domain/contract.js';
+import { normalizePriceAdjustment, priceAdjustmentApplies } from '../../../domain/price-adjustment.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -353,6 +354,51 @@ export function render(container, ctx) {
       }),
     ),
   );
+
+  // ------------------------------- precio fijo con inflación esperada (K-01)
+  // Una pregunta y, si el precio queda fijo, un solo número (el % mensual que esperás). Sólo
+  // fuera de precio cerrado y con más de un mes de contrato (con "fijo" elegido se sigue viendo
+  // para poder corregir los meses). La cuenta la hace el motor (Ver cálculo).
+  const adjustment = normalizePriceAdjustment(quote.priceAdjustment);
+  const showAdjustment = priceAdjustmentApplies(quote) || (adjustment.mode === 'fixed' && priceAdjustmentApplies({ ...quote, contractMonths: 2 }));
+  const inflationRow = (r) => ((r.eecc && r.eecc.rows) || []).find((x) => x.category === 'inflation') || null;
+  const inflationOf = (r) => (r.model && r.model.inflation && r.model.inflation.active ? r.model.inflation : null);
+  const adjustmentCard = showAdjustment
+    ? card(
+      { className: 'qe-price-adjustment' },
+      kit.choice('priceAdjustment.mode', {
+        label: '¿El precio se ajusta durante el contrato?',
+        options: [
+          { value: 'adjusted', label: 'Sí, con una cláusula de ajuste' },
+          { value: 'fixed', label: 'No, queda fijo todo el contrato' },
+        ],
+        structural: true,
+      }),
+      adjustment.mode === 'adjusted' ? h('p', { class: 'qe-note' }, 'Usá Actualizar tarifa cuando suban los costos.') : null,
+      adjustment.mode === 'fixed'
+        ? formGrid(
+          2,
+          kit.num('contractMonths', { label: 'Duración del contrato', rule: 'months', unit: 'meses' }),
+          kit.num('priceAdjustment.expectedMonthlyInflationPct', {
+            label: 'Inflación mensual que esperás',
+            rule: 'inflationPct',
+            unit: '%',
+            hint: 'Un promedio para todo el contrato. RATEOS reparte la suba: el precio queda parejo, al principio ganás un poco más y al final un poco menos.',
+          }),
+        )
+        : null,
+      adjustment.mode === 'fixed'
+        ? kit.toggle(
+          kit.stats(kit.stat('Inflación esperada en el costo del mes', (r) => (inflationRow(r) ? formatMoney(inflationRow(r).amount) : EMPTY), {
+            hint: (r) => (inflationOf(r) ? `Costo de hoy × ${formatNumber(inflationOf(r).factor, { decimals: 4 })}: el promedio de los ${formatNumber(inflationOf(r).months, { decimals: 2 })} meses.` : ''),
+            trace: (r) => r.traces.inflation,
+            traceLabel: 'Ver cálculo de la inflación',
+          })),
+          (r) => Boolean(inflationOf(r)),
+        )
+        : null,
+    )
+    : null;
 
   // ---------------------------------------------------- margen vs markup
   const educational = kit.advanced(
@@ -750,6 +796,6 @@ export function render(container, ctx) {
   // Precio cerrado (revisión UX tanda novatos): sin reglas cargadas no se monta (abonos, km y
   // mínimos por mes no hacen a un precio por trabajo). Con alguna regla guardada, se ve como siempre.
   const showCommercial = !closed || rulesApplied().length > 0;
-  mount(container, marginCard, taxesCard, priceCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, showCommercial ? commercialCard : null);
+  mount(container, marginCard, taxesCard, priceCard, adjustmentCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, showCommercial ? commercialCard : null);
   return { update() {} };
 }

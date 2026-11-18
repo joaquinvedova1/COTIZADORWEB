@@ -37,7 +37,9 @@ function contingencyTrace(result, quote) {
   const D = result.activity.activeDaysPerMonth;
   const factor = monthsFactor(D, result.activity.availableDaysPerMonth);
   const row = result.eecc.rows.find((r) => r.category === 'contingency');
-  const base = (m.fixedMonthly - m.contingency.fixedMonthly) * factor + (m.variablePerActiveDay - m.contingency.variablePerActiveDay) * D;
+  // Sin la inflación esperada con precio fijo (K-01), que se calcula después de la contingencia.
+  const infl = m.inflation || { fixedMonthly: 0, variablePerActiveDay: 0 };
+  const base = (m.fixedMonthly - m.contingency.fixedMonthly - infl.fixedMonthly) * factor + (m.variablePerActiveDay - m.contingency.variablePerActiveDay - infl.variablePerActiveDay) * D;
   const items = (quote.risk.items || []).filter((i) => i && i.enabled);
   return createTrace({
     id: 'contingency',

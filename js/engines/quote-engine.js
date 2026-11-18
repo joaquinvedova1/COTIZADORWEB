@@ -822,6 +822,42 @@ export function computeQuote(quote = {}, { settings = {}, listRateOverride = nul
           : null,
       ],
     }),
+    // Precio fijo con inflación esperada (K-01): sólo informa; el monto ya está en el costo.
+    inflation: (() => {
+      const inf = model.inflation || { active: false, factor: 1, lastMonthFactor: 1, months: 0, pct: null };
+      const amount = costAt.byCategory.inflation || 0;
+      const today = costAt.total - amount;
+      const R = estimate.revenue.total;
+      const marginAt = (cost) => (hasRate && R > 0 ? ((R - estimate.billingTaxes - cost) / R) * 100 : null);
+      return createTrace({
+        id: 'inflation',
+        title: 'Inflación esperada con precio fijo',
+        formula: 'Costo promedio del contrato = costo de hoy × f · f = ((1 + π)^n − 1) / (n × π)',
+        inputs: [
+          { label: 'Inflación mensual que esperás (π)', value: inf.pct, format: 'percent' },
+          { label: 'Meses de contrato (n)', value: inf.months, format: 'number' },
+          { label: 'Costo del mes con los precios de hoy', value: today, format: 'money' },
+        ],
+        steps: [
+          { label: 'Factor f (costo promedio ÷ costo de hoy)', value: formatNumber(inf.factor, { decimals: 4 }), format: 'text' },
+          { label: 'Último mes: factor (1 + π)^(n − 1)', value: formatNumber(inf.lastMonthFactor, { decimals: 4 }), format: 'text' },
+          { label: 'Costo del último mes', value: today * inf.lastMonthFactor, format: 'money' },
+          { label: 'Costo promedio del contrato', value: costAt.total, format: 'money' },
+          ...(marginAt(today) !== null
+            ? [
+              { label: 'Margen del primer mes', value: marginAt(today), format: 'percent' },
+              { label: 'Margen del último mes', value: marginAt(today * inf.lastMonthFactor), format: 'percent' },
+            ]
+            : []),
+        ],
+        result: { label: 'Inflación esperada del mes (en el costo)', value: amount, format: 'money' },
+        notes: [
+          inf.active ? null : 'No aplica: el precio se ajusta, es precio cerrado, el contrato dura un mes o falta el %.',
+          'El % lo cargaste vos: RATEOS no estima la inflación.',
+          'El precio queda parejo todo el contrato: al principio ganás un poco más y al final un poco menos.',
+        ].filter(Boolean),
+      });
+    })(),
     logistics: createTrace({
       id: 'logistics',
       title: 'Movilización y viajes',

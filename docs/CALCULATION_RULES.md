@@ -765,6 +765,7 @@ Mapeo de categorías:
 | Estructura | absorción de estructura + otros costos "estructura" |
 | Financiero | costo financiero (§8) |
 | Contingencia | contingencia (§9) |
+| Inflación esperada (precio fijo) (0.13.0) | (f − 1) × todo lo anterior, sólo con precio fijo y el % cargado (§33); sin eso el renglón no aparece |
 
 **Fijo del mes y variable por día (PLAN-2026-010).** Cada fila de la EECC trae además `fixedMonthly` (fijo_c × factorMeses(D)) y `variablePerActiveDay` (variable_c). La interfaz muestra "Fijo del mes" y "Variable por día de trabajo" en columnas separadas: el viejo "$/día activo" (monto ÷ D) mezclaba los fijos y no era un costo por día; queda sólo como "equivalente por día al nivel estimado". Ningún número cambia: es otra forma de mostrar el mismo monto.
 
@@ -1990,3 +1991,28 @@ Costo = Remunerativo × (1 + SAC % + Vacaciones %) × (1 + Cargas patronales % +
 **Cotizaciones:** guardan la foto de sus recursos (§ snapshots): un aumento no cambia una cotización hecha; la avisa como "valores nuevos en Recursos". La foto suma `nonRemunerativeMonthly`, `nonRemunerativeChargesPct` y `fixedContributionsMonthly` sólo si están cargados (las huellas anteriores quedan iguales).
 
 **Para actualizar tarifas:** `agreementRaiseFactor(agreement, desde, hasta)` = producto de `(1 + remunerativePct / 100)` de los aumentos con `fromPeriod` en `(desde, hasta]`; `null` sin historial, `1` si ninguno cae en la ventana. Un acta retroactiva cargada con "desde" igual o anterior al período base no entra: el módulo de tarifas debe permitir corregir el %. Con `{ part: 'nonRemunerative' }` da el del no remunerativo (para ponderar por la parte de cada uno en el costo).
+
+## 33. Inflación esperada con precio fijo (K-01, 0.13.0, 2026-11-18)
+
+**Pedido del dueño:** un contrato de varios meses con precio fijo (sin cláusula de ajuste) pierde margen mes a mes porque los costos suben y el precio no. La carga es una pregunta y, como mucho, un número. Código: `js/domain/price-adjustment.js`, `buildCostModel` en `js/engines/cost-engine.js`, traza `inflation` en `js/engines/quote-engine.js`.
+
+**Pregunta** (paso del precio, sólo si **no** es precio cerrado y el contrato dura más de 1 mes): "¿El precio se ajusta durante el contrato?" → `quote.priceAdjustment = { mode, expectedMonthlyInflationPct }`.
+
+- `adjusted` ("Sí, con una cláusula de ajuste"): nada cambia; se usa "Actualizar tarifa" (§31).
+- `fixed` ("No, queda fijo todo el contrato"): se pide la inflación mensual que se espera (regla `inflationPct`, 0 a 30 %). RATEOS **nunca** propone un %: lo carga la empresa.
+- Campo ausente (cotizaciones anteriores), `mode` null (cotización nueva sin decidir) o `adjusted` → apagado: mismos números de siempre.
+
+**Fórmula.** Con π = inflación mensual ÷ 100 y n = meses de contrato, el mes k cuesta `C × (1 + π)^(k − 1)` (C = costo de hoy). El precio parejo cubre el costo promedio:
+
+```
+f = ((1 + π)^n − 1) / (n × π)          f = 1 si π < 1e-9 o n ≤ 1; no finito → no se aplica
+Inflación esperada = (f − 1) × (directos + estructura + financiero + contingencia)
+Costo promedio del contrato = costo de hoy × f
+Último mes = costo de hoy × (1 + π)^(n − 1)
+```
+
+- Es un renglón nuevo de la EECC, **Inflación esperada (precio fijo)** (`inflation`), calculado en `buildCostModel` después de la contingencia, sobre las partes fija y variable de todo lo anterior (también la amortización y el costo de capital: con tasa real también suben en nominal). Tarifa mínima, sugerida, equilibrio, escenarios y composición del precio lo heredan por `costAtActivity`. "Cada salida se cuenta completa" y las horas extra de todo el trabajo también lo llevan. Apagado, el renglón no aparece en la EECC.
+- En "Actualizar tarifa" acompaña sola (como financiero e imprevistos). Con precio fijo y actualizaciones cargadas la completitud avisa (son contradictorias).
+- Ejemplo (golden `inflacion-precio-fijo-12-meses-3`): π 3 %, n 12 → f = 1,182669. Costo de hoy 40.000.000 → costo promedio 47.306.765,21 (+7.306.765,21); con margen 10 % e impuestos 10 % la tarifa objetivo pasa de 5.000.000 a 5.913.345,65 por día. El último mes cuesta 55.369.354,83: el margen del primer mes es 22,36 % y el del último −3,63 % (promedio del contrato 10 %).
+- **Completitud** (§19, ítem `price_adjustment`, paso Precio): sin decidir en una cotización nueva → amarillo con **peso 0** (no cambia el puntaje); fijo sin %, f > 2 o fijo con actualizaciones de tarifa → amarillo; decidido → verde. Las cotizaciones sin el campo no tienen el ítem.
+- **Ver cálculo:** "Costo promedio del contrato = costo de hoy × f", con f, el factor y el costo del último mes, el margen del primer y del último mes y la nota "El % lo cargaste vos".

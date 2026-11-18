@@ -50,9 +50,10 @@ export const RATE_UPDATE_CATEGORY_IDS = deepFreeze(RATE_UPDATE_CATEGORIES.map((c
 
 /**
  * Renglones de la EECC que NO se actualizan con un % propio: se calculan como un % del resto
- * (costo financiero, imprevistos), así que acompañan solos al promedio de las demás.
+ * (costo financiero, imprevistos, inflación esperada con precio fijo), así que acompañan solos al
+ * promedio de las demás.
  */
-export const FOLLOWING_EECC_CATEGORIES = deepFreeze(['financial', 'contingency']);
+export const FOLLOWING_EECC_CATEGORIES = deepFreeze(['financial', 'contingency', 'inflation']);
 
 /** Límites del % de actualización de una categoría (puede bajar: un combustible más barato). */
 export const RATE_UPDATE_PCT_MIN = -90;

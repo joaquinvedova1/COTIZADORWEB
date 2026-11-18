@@ -51,6 +51,7 @@ import { fixedCostShareOf } from '../domain/assignment.js';
 import { usesTimeBasis } from '../domain/cost-basis.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
+import { normalizePriceAdjustment, priceAdjustmentOf } from '../domain/price-adjustment.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
@@ -1151,6 +1152,47 @@ export function evaluateCompleteness(quote = {}) {
         : taxes.defined
           ? 'Impuestos sobre la facturación definidos.'
           : 'Sin definir: la tarifa mínima no incluye los impuestos que pagás sobre lo que facturás (Ingresos Brutos, impuesto al cheque, sellos). Cargalos o elegí "No incluir impuestos sobre la facturación en esta cotización".'));
+
+  // 13c. ¿El precio se ajusta durante el contrato? (K-01). Sólo fuera de precio cerrado, con más de
+  // un mes y en cotizaciones que tienen la pregunta (las nuevas): las anteriores, sin el campo, no
+  // cambian ni su puntaje.
+  const adjustment = priceAdjustmentOf(quote);
+  if (adjustment.applies && adjustment.present) {
+    const raw = normalizePriceAdjustment(quote.priceAdjustment);
+    const updates = isPlainObject(quote.rateUpdate) && Array.isArray(quote.rateUpdate.steps) ? quote.rateUpdate.steps.length : 0;
+    const months = formatNumber(adjustment.months, { decimals: 2 });
+    let status = 'ok';
+    let message;
+    let focus = null;
+    if (adjustment.mode === null) {
+      status = 'warning';
+      message = `¿El precio se ajusta durante el contrato? Son ${months} meses: si queda fijo, cargá la inflación que esperás.`;
+      focus = 'priceAdjustment.mode';
+    } else if (adjustment.mode === 'adjusted') {
+      message = 'El precio se ajusta con una cláusula: usá "Actualizar tarifa" cuando suban los costos.';
+    } else if (raw.expectedMonthlyInflationPct === null || adjustment.pct === null) {
+      status = 'warning';
+      message = 'Precio fijo todo el contrato: cargá la inflación mensual que esperás.';
+      focus = 'priceAdjustment.expectedMonthlyInflationPct';
+    } else if (adjustment.factor > 2) {
+      status = 'warning';
+      message = `Con ${formatPercent(adjustment.pct)} por mes durante ${months} meses el costo promedio más que se duplica. Revisá el % o cotizá con cláusula de ajuste.`;
+      focus = 'priceAdjustment.expectedMonthlyInflationPct';
+    } else if (updates > 0) {
+      status = 'warning';
+      message = 'Elegiste precio fijo pero la tarifa tiene actualizaciones: con precio fijo no se actualiza. Revisá cuál de las dos vale.';
+      focus = 'priceAdjustment.mode';
+    } else {
+      message = adjustment.active
+        ? `Precio fijo con ${formatPercent(adjustment.pct)} de inflación mensual: el costo promedio del contrato es el de hoy × ${formatNumber(adjustment.factor, { decimals: 4 })}.`
+        : 'Precio fijo sin inflación esperada.';
+    }
+    // Sin decidir no resta puntaje (peso 0): se muestra como pendiente amarillo y los números de
+    // una cotización nueva quedan como siempre hasta que se elige.
+    const item = rule('price_adjustment', 'Ajuste del precio', 'margin', adjustment.mode === null ? 0 : 1, status, message);
+    if (focus) item.focus = focus;
+    items.push(item);
+  }
 
   // 13 bis. Abono mensual + "Abono de disponibilidad" (ECO-01, H-02): con la tarifa en $/mes los
   // dos son cargos fijos del mismo mes y se SUMAN: el mismo abono cargado dos veces muestra

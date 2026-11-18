@@ -8,6 +8,7 @@ import { deepClone, isPlainObject } from '../core/object.js';
 import { LOCALE, CURRENCY, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
 import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY } from './catalogs.js';
 import { emptyBillingTaxes, copyBillingTaxes, billingTaxesDecided } from './billing-taxes.js';
+import { emptyPriceAdjustment } from './price-adjustment.js';
 import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate } from './economic-base.js';
 import { familyIdOf } from './equipment-catalog.js';
 import { createSnapshot } from './resource-snapshot.js';
@@ -222,6 +223,8 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
     // Nombre de la unidad propia ("pozo", "muestra") si unit = 'custom' (PLAN-2026-009).
     unitName: '',
     contractMonths: 12,
+    // ¿El precio se ajusta durante el contrato? (K-01): sin decidir hasta que se elija.
+    priceAdjustment: emptyPriceAdjustment(),
     activity: {
       availability: '24/7',
       availabilityWindow: '',
