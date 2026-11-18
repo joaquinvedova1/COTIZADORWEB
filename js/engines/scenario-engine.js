@@ -18,6 +18,7 @@ import { formatPercent } from '../core/format.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
 import { billableUnits } from './commercial-rules-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
+import { vatFinanceOf, withCompanyVatCondition } from '../domain/vat-finance.js';
 
 export const SENSITIVITY_VARIABLES = Object.freeze([
   { id: 'salariesPct', label: 'Salarios', unit: '%' },
@@ -205,7 +206,9 @@ export function runScenarios(quote, { settings = {}, scenarios = null } = {}) {
  * equilibrio en m³. Los ingresos y resultados son idénticos (sólo cambia la
  * unidad en que se expresan). Por día, hora y mes no cambia nada.
  */
-export function compareCommercialModels(quote, { settings = {}, pessimisticActivityPct = null } = {}) {
+export function compareCommercialModels(quoteInput, { settings = {}, pessimisticActivityPct = null } = {}) {
+  // Costo financiero del IVA (K-03): con monotributo o exento nunca aplica (como computeQuote).
+  const quote = withCompanyVatCondition(quoteInput, settings);
   const model = buildCostModel(quote);
   const De = model.activity.activeDaysPerMonth;
   const available = model.activity.availableDaysPerMonth;
@@ -213,14 +216,26 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
   const marginRead = readMarginInput((quote.pricing || {}).targetMarginPct);
   const m = marginRead.state === 'ok' ? marginRead.value : 0;
   const t = billingTaxInfo(quote).pct;
+  // Lo que se descuenta de lo facturado: impuestos + costo financiero del IVA (K-03; = t si está apagado).
+  const vat = vatFinanceOf(quote);
+  const tv = vat.active ? vat.pct : 0;
+  const g = t + tv;
   if (!(De > 0) || marginRead.state === 'invalid') return { models: [], estimatedDays: De, pessimisticDays: null, reason: 'Cargá la actividad estimada y un margen válido para comparar modelos.' };
-  if (!isValidMarginAndTaxes(m, t)) {
-    return { models: [], estimatedDays: De, pessimisticDays: null, billingTaxPct: t, reason: `Con ${formatPercent(t)} de impuestos sobre la facturación, el margen objetivo tiene que ser menor a ${formatPercent(100 - t)} para comparar modelos.` };
+  if (!isValidMarginAndTaxes(m, g)) {
+    return {
+      models: [],
+      estimatedDays: De,
+      pessimisticDays: null,
+      billingTaxPct: t,
+      reason: tv > 0
+        ? `Con ${formatPercent(t)} de impuestos sobre la facturación y ${formatPercent(tv)} de costo financiero del IVA, el margen objetivo tiene que ser menor a ${formatPercent(100 - g)} para comparar modelos.`
+        : `Con ${formatPercent(t)} de impuestos sobre la facturación, el margen objetivo tiene que ser menor a ${formatPercent(100 - t)} para comparar modelos.`,
+    };
   }
   const pessPct = pessimisticActivityPct ?? (settings.scenarios || DEFAULT_SCENARIOS).pessimistic.activityPct;
   const Dp = Math.max(0, De * (1 + pessPct / 100));
-  const k = 1 - (m + t) / 100;
-  const keep = 1 - t / 100;
+  const k = 1 - (m + g) / 100;
+  const keep = 1 - g / 100;
   const C = (D) => costAtActivity(model, D).total;
   const fixed = costAtActivity(model, 0).total;
   // Con "cada salida completa" (PLAN-2026-011) el costo por día al nivel estimado
@@ -231,7 +246,7 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
   const p = C(De) / (k * De);
   // Resultado y margen después de los impuestos sobre lo facturado.
   const profitOf = (revenue, D) => revenue * keep - C(D);
-  const marginOf = (revenue, D) => marginFromPrice(C(D) + (revenue * t) / 100, revenue);
+  const marginOf = (revenue, D) => marginFromPrice(C(D) + (revenue * g) / 100, revenue);
   // Mínimo garantizado: cubre los costos fijos DESPUÉS de impuestos.
   const guarantee = fixed / keep;
 
@@ -301,6 +316,7 @@ export function compareCommercialModels(quote, { settings = {}, pessimisticActiv
     pessimisticDays: Dp,
     targetMarginPct: m,
     billingTaxPct: t,
+    vatFinancePct: tv,
     ...(perUnit ? { unit: { id: unitInfo.id, kind: unitInfo.kind, singular: unitInfo.singular, plural: unitInfo.plural, short: unitInfo.short }, unitsPerActiveDay: u, estimatedQuantity: Qe, pessimisticQuantity: Dp * u } : {}),
   };
 }

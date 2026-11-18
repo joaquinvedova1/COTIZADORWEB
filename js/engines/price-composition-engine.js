@@ -3,7 +3,12 @@
  *
  * Descompone la FACTURACIÓN del mes (sin IVA) con la tarifa que se cotiza:
  *
- *   Facturación = Σ costo por categoría + impuestos sobre la facturación + resultado
+ *   Facturación = Σ costo por categoría + impuestos sobre la facturación
+ *                 (+ costo financiero del IVA, K-03) + resultado
+ *
+ * El costo financiero del IVA (K-03) tiene su fila y su grupo propios, sólo
+ * cuando hay (con K-03 apagado la composición es la de siempre): no es un
+ * impuesto ni un costo de la estructura, es lo que cuesta adelantar el IVA.
  *
  * Cada fila se expresa en % del PRECIO (la estructura de costos, EECC, es otra
  * tabla: suma 100 % del COSTO). Con ganancia, los % mostrados suman exactamente
@@ -38,6 +43,7 @@ import { isFiniteNumber, nonNegative, roundPercentage, roundPercentagesToTotal, 
 import { createTrace } from '../core/trace.js';
 
 const TAX_KEY = 'billing_taxes';
+const VAT_KEY = 'vat_finance';
 const RESULT_KEY = 'result';
 
 function moneyTolerance(reference) {
@@ -53,12 +59,12 @@ function check(id, label, ok, detail = null) {
  * @returns {{
  *   available: boolean, reason: string|null,
  *   taxesState: 'defined'|'undefined'|'invalid'|'not_applicable',
- *   revenue: number, cost: number, billingTaxes: number, profit: number, billingTaxPct: number,
+ *   revenue: number, cost: number, billingTaxes: number, vatFinance: number, profit: number, billingTaxPct: number, vatFinancePct: number,
  *   loss: boolean,
- *   rows: { key: string, group: 'cost'|'taxes'|'result', label: string, amount: number, pctOfPrice: number, displayPct: number, perUnit: number|null }[],
+ *   rows: { key: string, group: 'cost'|'taxes'|'vat_finance'|'result', label: string, amount: number, pctOfPrice: number, displayPct: number, perUnit: number|null }[],
  *   groups: { key: string, label: string, amount: number, pctOfPrice: number, displayPct: number, displayPct1: number }[],
  *   perUnit: { unit: string, units: number|null, netRate: number|null, listRate: number|null, discountFactor: number|null, otherRevenue: number },
- *   contract: { mode: 'months'|'closed', months: number|null, jobs: number|null, jobsPerMonth: number|null, unitsPerJob: number|null, revenue: number|null, cost: number|null, billingTaxes: number|null, profit: number|null },
+ *   contract: { mode: 'months'|'closed', months: number|null, jobs: number|null, jobsPerMonth: number|null, unitsPerJob: number|null, revenue: number|null, cost: number|null, billingTaxes: number|null, vatFinance: number|null, profit: number|null },
  *   checks: { id: string, label: string, ok: boolean|null, detail: string|null }[],
  *   allChecksOk: boolean,
  *   trace: object,
@@ -77,13 +83,15 @@ export function priceComposition(result) {
     revenue: R,
     cost: isFiniteNumber(e.cost && e.cost.total) ? e.cost.total : 0,
     billingTaxes: 0,
+    vatFinance: 0,
     profit: isFiniteNumber(e.profit) ? e.profit : 0,
     billingTaxPct: nonNegative(k.billingTaxPct),
+    vatFinancePct: nonNegative(k.vatFinancePct),
     loss: false,
     rows: [],
     groups: [],
     perUnit: { unit: r.unit || 'day', units: null, netRate: null, listRate: null, discountFactor: null, otherRevenue: 0 },
-    contract: { mode: r.contract && r.contract.mode === 'closed' ? 'closed' : 'months', months: null, jobs: null, jobsPerMonth: null, unitsPerJob: null, revenue: null, cost: null, billingTaxes: null, profit: null },
+    contract: { mode: r.contract && r.contract.mode === 'closed' ? 'closed' : 'months', months: null, jobs: null, jobsPerMonth: null, unitsPerJob: null, revenue: null, cost: null, billingTaxes: null, vatFinance: null, profit: null },
     checks: [],
     allChecksOk: true,
     trace: null,
@@ -101,8 +109,12 @@ export function priceComposition(result) {
 
   const C = isFiniteNumber(e.cost && e.cost.total) ? e.cost.total : 0;
   const T = isFiniteNumber(e.billingTaxes) ? e.billingTaxes : 0;
-  const G = isFiniteNumber(e.profit) ? e.profit : R - T - C;
+  // Costo financiero del IVA (K-03): 0 si está apagado.
+  const V = isFiniteNumber(e.vatFinance) ? e.vatFinance : 0;
+  const G = isFiniteNumber(e.profit) ? e.profit : R - T - V - C;
   const t = nonNegative(k.billingTaxPct);
+  const tv = nonNegative(k.vatFinancePct);
+  const withVat = V > 0;
   const loss = G < -moneyTolerance(R);
 
   const eeccRows = Array.isArray(r.eecc && r.eecc.rows) ? r.eecc.rows : [];
@@ -125,6 +137,7 @@ export function priceComposition(result) {
   const base = [
     ...costRows,
     { key: TAX_KEY, group: 'taxes', label: 'Impuestos sobre lo que facturás', amount: T },
+    ...(withVat ? [{ key: VAT_KEY, group: 'vat_finance', label: 'Costo financiero del IVA', amount: V }] : []),
     { key: RESULT_KEY, group: 'result', label: loss ? 'Pérdida' : 'Ganancia (antes del impuesto a las Ganancias)', amount: G },
   ];
   // Con ganancia, los % de las filas suman exactamente 100; con pérdida se
@@ -145,6 +158,7 @@ export function priceComposition(result) {
   const groupDefs = [
     { key: 'cost', label: 'Costo', amount: C },
     { key: 'taxes', label: 'Impuestos sobre lo que facturás', amount: T },
+    ...(withVat ? [{ key: 'vat_finance', label: 'Costo financiero del IVA', amount: V }] : []),
     { key: 'result', label: loss ? 'Pérdida' : 'Ganancia', amount: G },
   ];
   const g2 = loss ? groupDefs.map((g) => roundPercentage((g.amount / R) * 100)) : roundPercentagesToTotal(groupDefs.map((g) => g.amount), 2, 100);
@@ -155,7 +169,10 @@ export function priceComposition(result) {
   if (loss) {
     const costPct = roundTo((C / R) * 100, 1);
     const taxPct = roundTo((T / R) * 100, 1);
-    g1 = [costPct, taxPct, roundTo(100 - costPct - taxPct, 1)];
+    const vatPct = withVat ? roundTo((V / R) * 100, 1) : 0;
+    g1 = withVat
+      ? [costPct, taxPct, vatPct, roundTo(100 - costPct - taxPct - vatPct, 1)]
+      : [costPct, taxPct, roundTo(100 - costPct - taxPct, 1)];
   } else {
     g1 = roundPercentagesToTotal(groupDefs.map((g) => g.amount), 1, 100);
   }
@@ -180,6 +197,7 @@ export function priceComposition(result) {
       revenue: per(R),
       cost: per(C),
       billingTaxes: per(T),
+      vatFinance: per(V),
       profit: per(G),
     };
   } else {
@@ -193,6 +211,7 @@ export function priceComposition(result) {
       revenue: months !== null ? R * months : null,
       cost: months !== null ? C * months : null,
       billingTaxes: months !== null ? T * months : null,
+      vatFinance: months !== null ? V * months : null,
       profit: months !== null ? G * months : null,
     };
   }
@@ -203,9 +222,10 @@ export function priceComposition(result) {
   const sumPerUnit = rows.reduce((s, row) => s + (isFiniteNumber(row.perUnit) ? row.perUnit : 0), 0);
   const sumDisplay = Math.round(rows.reduce((s, row) => s + row.displayPct, 0) * 100) / 100;
   const checks = [
-    check('revenue_equals_parts', 'Facturación = costo + impuestos sobre la facturación + resultado', Math.abs(R - (C + T + G)) <= tol),
+    check('revenue_equals_parts', withVat ? 'Facturación = costo + impuestos sobre la facturación + costo financiero del IVA + resultado' : 'Facturación = costo + impuestos sobre la facturación + resultado', Math.abs(R - (C + T + V + G)) <= tol),
     check('cost_categories', 'Los rubros de la estructura de costos suman el costo del mes', Math.abs(sumCategories - C) <= tol),
     check('taxes_rate', 'Impuestos = porcentaje × facturación', Math.abs(T - (t * R) / 100) <= tol),
+    ...(withVat ? [check('vat_finance_rate', 'Costo financiero del IVA = puntos del precio × facturación', Math.abs(V - (tv * R) / 100) <= tol)] : []),
     check('display_100', 'Los porcentajes del precio suman 100 %', loss ? null : Math.abs(sumDisplay - 100) < 1e-9, loss ? 'Con pérdida no se fuerza el 100 %: el costo y los impuestos superan lo facturado.' : null),
     check('per_unit_sum', 'La apropiación por unidad suma la tarifa neta', netRate === null ? null : Math.abs(sumPerUnit - netRate) <= moneyTolerance(netRate)),
     check('list_from_net', 'Tarifa de lista × factor de descuentos = tarifa neta', netRate === null || listRate === null || discountFactor === null ? null : Math.abs(listRate * discountFactor - netRate) <= moneyTolerance(netRate)),
@@ -216,11 +236,14 @@ export function priceComposition(result) {
   const trace = createTrace({
     id: 'price_composition',
     title: '¿Cómo se forma tu precio?',
-    formula: 'Facturación = Costo + Impuestos sobre la facturación + Resultado · % del precio = fila / Facturación · Parte en la tarifa = tarifa neta × fila / Facturación',
+    formula: withVat
+      ? 'Facturación = Costo + Impuestos sobre la facturación + Costo financiero del IVA + Resultado · % del precio = fila / Facturación · Parte en la tarifa = tarifa neta × fila / Facturación'
+      : 'Facturación = Costo + Impuestos sobre la facturación + Resultado · % del precio = fila / Facturación · Parte en la tarifa = tarifa neta × fila / Facturación',
     inputs: [
       { label: 'Facturación del mes (sin IVA)', value: R, format: 'money' },
       { label: 'Costo del mes', value: C, format: 'money' },
       { label: 'Impuestos sobre la facturación', value: T, format: 'money' },
+      ...(withVat ? [{ label: 'Costo financiero del IVA', value: V, format: 'money' }] : []),
       { label: 'Tarifa neta', value: netRate, format: 'money' },
     ],
     steps: rows.map((row) => ({ label: `${row.label} (% del precio)`, value: row.pctOfPrice, format: 'percent' })),
@@ -229,6 +252,7 @@ export function priceComposition(result) {
       'La estructura de costos suma 100 % del costo; esta composición suma 100 % del precio. No se mezclan.',
       'La apropiación por unidad reparte la tarifa neta en la misma proporción que la facturación del mes.',
       loss ? 'Con pérdida no se fuerza el 100 %: el costo y los impuestos superan lo facturado.' : null,
+      withVat ? 'El IVA no es costo ni ganancia: sólo cuesta financiarlo (lo adelantás hasta que cobrás).' : null,
       ...checks.filter((c) => c.ok === false).map((c) => `No cierra: ${c.label}.`),
     ],
   });
@@ -241,8 +265,10 @@ export function priceComposition(result) {
     revenue: R,
     cost: C,
     billingTaxes: T,
+    vatFinance: V,
     profit: G,
     billingTaxPct: t,
+    vatFinancePct: tv,
     loss,
     rows,
     groups,

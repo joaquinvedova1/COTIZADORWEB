@@ -54,7 +54,7 @@ import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js
 import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded, billingUnitPhrase } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitSuffix, timeBasisWithoutFixed } from '../result-text.js';
+import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitSuffix, timeBasisWithoutFixed, deductedPct, marginLimitText } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms, withoutSeparateCharges } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -1118,8 +1118,8 @@ function rateHint(r) {
     default:
       if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('modality')}".`;
       else if (k.targetMarginInvalid) {
-        text = k.billingTaxPct > 0
-          ? `Sin tarifa sugerida: con ${formatPercent(k.billingTaxPct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - k.billingTaxPct)}. Bajalo en "El precio".`
+        text = deductedPct(k) > 0
+          ? `Sin tarifa sugerida: ${marginLimitText(k)}. Bajalo en "El precio".`
           : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".';
       } else text = isQuantityUnit(r) ? `Cargá ${r.unitTexts.los} ${r.unitInfo.plural} por mes para calcularla.` : 'Cargá los días por mes para calcularla.';
   }

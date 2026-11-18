@@ -1,0 +1,32 @@
+{
+  "id": "iva-costo-financiero-credito-externo",
+  "title": "Costo financiero del IVA con crédito fiscal de un alquiler: alivio 84.000 en el financiero, tarifa objetivo 6.397.422,94",
+  "rule": "K-03 (0.14.0). Caso iva-costo-financiero-gross-up más un equipo alquilado a 1.000.000 neto/día con IVA 21 % recuperable, pagado al contado (plazo propio 0 días). Sin K-03: caja 1.210.000/día × 10 días financiada 60 días al 3 % = 726.000 de financiero; costo 50.726.000; objetivo 50.726.000 / 0,8 / 10 = 6.340.750. Con K-03: el IVA recuperable del alquiler (210.000/día × 10 = 2.100.000) baja el IVA que se adelanta al fisco: alivio = 2.100.000 × 3 % × 40/30 = 84.000, restado del financiero (piso 0): 642.000; costo 50.642.000; objetivo 50.642.000 / 0,7916 / 10 = 6.397.422,94; costo financiero del IVA 0,84 % × 63.974.229,41 = 537.383,53. Sólo cuenta el IVA de los externos cargados (criterio conservador). Valores sintéticos ILUSTRATIVOS.",
+  "engine": "quote.onCall",
+  "inputs": {
+    "fixedCosts": 30000000,
+    "variableCostPerDay": 1000000,
+    "activeDays": 10,
+    "targetMarginPct": 10,
+    "billingTaxPct": 10,
+    "finance": {
+      "paymentTermDays": 60,
+      "monthlyRatePct": 3,
+      "invoiceLagDays": 0,
+      "payDays": { "salaries": 60, "fuel": 60, "suppliers": 60, "materials": 60, "structure": 60 },
+      "vat": { "applies": true, "ratePct": 21, "payLagDays": 20 }
+    },
+    "rented": { "pricePerDay": 1000000, "vatPct": 21, "vatRecoverable": "yes", "supplierPayDays": 0 }
+  },
+  "expected": {
+    "kpis.totalCost": 50642000,
+    "kpis.financialCost": 642000,
+    "kpis.vatReliefMonthly": 84000,
+    "kpis.vatFinancePct": 0.84,
+    "kpis.vatFinance": 537383.5270338554,
+    "kpis.targetNetRate": 6397422.940879232,
+    "kpis.floorNetRate": 5679901.301031853,
+    "kpis.marginPct": 10
+  },
+  "tolerance": 0.005
+}

@@ -195,7 +195,7 @@ export function findLossWindows(profitAt, { maxDays, tolerance = PROFIT_TOLERANC
  *   cantidad = (costos fijos − ingresos fijos) / (tarifa por unidad × (1 − t) + otros ingresos por unidad − costo variable por unidad)
  * con costo variable por unidad = costo variable por día de trabajo ÷ unidades por día.
  */
-export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, otherRevenuePerDay = 0, variableCostPerDay, contributionPerDay, result, unitLabel = 'día', nonLinear = false, billingTaxPct = 0, quantityUnit = null, terms = activationTerms() }) {
+export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, otherRevenuePerDay = 0, variableCostPerDay, contributionPerDay, result, unitLabel = 'día', nonLinear = false, billingTaxPct = 0, vatFinancePct = 0, quantityUnit = null, terms = activationTerms() }) {
   // La activación con el nombre de la cotización (llamado / salida / intervención…, PLAN-2026-014).
   const T = terms;
   // Mínimo garantizado (B-3, H-29): los tramos de días en los que se pierde, si el mínimo protege los primeros días.
@@ -203,7 +203,12 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
     ? `Con el mínimo garantizado el resultado no sube parejo: se pierde plata ${result.lossWindows.map((w) => (w.open ? `desde ${formatDays(w.fromDays)}` : `entre ${formatDays(w.fromDays)} y ${formatDays(w.toDays)}`)).join(' y ')} de trabajo; con menos días el mínimo cubre los costos. El break-even es desde dónde se gana siempre.`
     : null;
   const t = nonNegative(billingTaxPct);
-  const keep = t > 0 ? ' × (1 − impuestos sobre la facturación)' : '';
+  // Costo financiero del IVA (K-03): también se descuenta de cada peso facturado.
+  const tv = nonNegative(vatFinancePct);
+  const keep = tv > 0
+    ? ` × (1 − ${t > 0 ? 'impuestos sobre la facturación − ' : ''}costo financiero del IVA)`
+    : t > 0 ? ' × (1 − impuestos sobre la facturación)' : '';
+  const vatInput = tv > 0 ? [{ label: 'Costo financiero del IVA (puntos del precio)', value: tv, format: 'percent' }] : [];
   if (quantityUnit && quantityUnit.perDay > 0) {
     const u = quantityUnit;
     const per = (v) => (Number.isFinite(v) ? v / u.perDay : null);
@@ -217,6 +222,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
         { label: `Tarifa neta por ${u.singular}`, value: per(ratePerDay), format: 'money' },
         ...(otherRevenuePerDay > 0 ? [{ label: `Otros ingresos por ${u.singular} (call-out, movilización, km, materiales)`, value: per(otherRevenuePerDay), format: 'money' }] : []),
         ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
+        ...vatInput,
         { label: `${capitalizeUnitWord(u.plural)} por día de trabajo`, value: u.perDay, format: 'number' },
         { label: 'Costo variable por día de trabajo', value: variableCostPerDay, format: 'money' },
       ],
@@ -246,6 +252,7 @@ export function traceBreakEven({ fixedCosts, fixedRevenue = 0, ratePerDay, other
       { label: `Ingreso por tarifa por día de trabajo (tarifa neta por ${unitLabel} × unidades del día)`, value: ratePerDay, format: 'money' },
       ...(otherRevenuePerDay > 0 ? [{ label: 'Otros ingresos por día de trabajo (call-out, movilización, km)', value: otherRevenuePerDay, format: 'money' }] : []),
       ...(t > 0 ? [{ label: 'Impuestos sobre la facturación', value: t, format: 'percent' }] : []),
+      ...vatInput,
       { label: 'Costo variable por día de trabajo', value: variableCostPerDay, format: 'money' },
     ],
     steps: [{ label: t > 0 ? 'Contribución por día de trabajo (después de impuestos sobre la facturación)' : 'Contribución por día de trabajo', value: contributionPerDay, format: 'money' }],

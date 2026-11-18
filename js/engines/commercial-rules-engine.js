@@ -352,7 +352,7 @@ export function listRateFromNet(netRate, factor) {
  * eso puede quedar por debajo del costo. Si esos ingresos no llegan, el piso real
  * es éste. No cambia la tarifa mínima: es un dato más para mostrar al lado.
  *
- *   pisoNeto = (Costo − costo cargado de los adicionales) / (1 − t) / unidades facturables · pisoLista = pisoNeto / factor de descuentos
+ *   pisoNeto = (Costo − costo cargado de los adicionales) / (1 − t − t_iva) / unidades facturables · pisoLista = pisoNeto / factor de descuentos
  *
  * @param {{ totalCost: number, billingTaxPct?: number, billableUnits: number, otherRevenue?: number, discountFactor?: number }} rates
  *   los de requiredRatesAt (r.ratesAtEstimate)
@@ -368,7 +368,7 @@ export function floorWithoutOtherRevenue(rates, { extrasLoadedCost = 0 } = {}) {
   // imprevistos). Si se quita el ingreso y se deja el costo, este piso queda por encima de la
   // tarifa sugerida.
   const totalCost = Math.max(0, nonNegative(rates.totalCost) - nonNegative(extrasLoadedCost));
-  const floor = requiredNetRate({ totalCost, marginPct: 0, billingTaxPct: rates.billingTaxPct, billableUnits: rates.billableUnits, otherRevenue: 0 });
+  const floor = requiredNetRate({ totalCost, marginPct: 0, billingTaxPct: isFiniteNumber(rates.grossUpPct) ? rates.grossUpPct : rates.billingTaxPct, billableUnits: rates.billableUnits, otherRevenue: 0 });
   if (!isFiniteNumber(floor.rate)) return null;
   const factor = isFiniteNumber(rates.discountFactor) && rates.discountFactor > 0 ? rates.discountFactor : 1;
   return { otherRevenue: other, netRate: floor.rate, listRate: listRateFromNet(floor.rate, factor) };

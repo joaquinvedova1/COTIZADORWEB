@@ -184,6 +184,13 @@ export const E2E_SCENARIOS = [
       logistics: route({ distanceKm: 40, tollsPerActivation: 0 }),
     }),
   },
+  {
+    id: 'E2E-22', title: 'K-03 (0.14.0): facturás con IVA 21 %, lo pagás a 20 días y cobrás a 60 (valores ILUSTRATIVOS)',
+    build: () => service({
+      id: 'lab-e22', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()],
+      finance: { vat: { applies: true, ratePct: 21, payLagDays: 20 } },
+    }),
+  },
 ];
 
 /** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
@@ -553,6 +560,17 @@ async function runMode(mode) {
     });
     check('E2E-21', 'V-05: después de elegir la unidad, la lista queda cerrada', ui.expanded === 'false' && ui.listHidden === true && ui.value === '$/hectárea', JSON.stringify(ui));
     check('E2E-21', 'V-05: la etiqueta de la unidad muestra la unidad nueva', ui.badge === 'Por hectárea', JSON.stringify(ui));
+  }
+  {
+    // K-03 (0.14.0): "¿Facturás con IVA?" en Financiación, con sus dos campos, y la fila propia en la
+    // composición del precio con el monto del motor.
+    const k = byId['E2E-22'].r.kpis;
+    const fin = await screenText('E2E-22', 'finance');
+    const fields = await page.evaluate(() => ['finance.vat.ratePct', 'finance.vat.payLagDays'].every((n) => document.querySelector(`[name="${n}"]`)) && document.querySelectorAll('input[name="finance.vat.applies"]').length === 2);
+    check('E2E-22', 'K-03: Financiación pregunta "¿Facturás con IVA?" con el IVA y los días', /¿Facturás con IVA\?/.test(fin) && fields, `campos: ${fields}`);
+    check('E2E-22', 'K-03: Financiación dice cuántos puntos del precio cuesta adelantar el IVA', fin.includes('Adelantar el IVA cuesta 0,84 puntos del precio'), 'sin el texto');
+    const res = await screenText('E2E-22', 'result');
+    check('E2E-22', 'K-03: la composición del precio tiene "Costo financiero del IVA" con el monto del motor', res.includes('Costo financiero del IVA') && res.includes(norm(formatMoney(k.vatFinance))), `motor ${formatMoney(k.vatFinance)}`);
   }
   {
     const pr = computeProduct(structuredClone(prod));

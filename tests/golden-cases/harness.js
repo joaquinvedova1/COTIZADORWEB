@@ -51,6 +51,21 @@ function onCallQuote(inputs) {
   // K-01 (0.13.0): precio fijo con inflación esperada (sin estos datos, la cotización de siempre).
   if (inputs.contractMonths !== undefined) q.contractMonths = inputs.contractMonths;
   if (inputs.priceAdjustment !== undefined) q.priceAdjustment = inputs.priceAdjustment;
+  // K-03 (0.14.0): financiación (plazo, tasa, días de pago, IVA) y un alquiler externo con su fiscal.
+  if (inputs.finance !== undefined) {
+    q.finance = { ...q.finance, ...inputs.finance, payDays: { ...q.finance.payDays, ...(inputs.finance.payDays || {}) } };
+  }
+  if (inputs.rented !== undefined) {
+    const x = inputs.rented;
+    q.equipment = [{
+      id: 'rented-1',
+      name: 'Equipo alquilado',
+      acquisition: 'rented',
+      quantity: 1,
+      ...(x.supplierPayDays !== undefined ? { supplierPayDays: x.supplierPayDays } : {}),
+      external: { price: x.pricePerDay, unit: 'day', fiscal: { vatPct: x.vatPct ?? null, vatRecoverable: x.vatRecoverable ?? null } },
+    }];
+  }
   return q;
 }
 

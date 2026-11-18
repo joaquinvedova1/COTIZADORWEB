@@ -4,9 +4,10 @@
  *
  * Es la "economía del servicio": costos fijos mensuales + costos variables
  * por día de trabajo, contra la facturación del mes. Los impuestos sobre la
- * facturación (t) se descuentan de lo facturado:
+ * facturación (t) y el costo financiero del IVA (t_iva, K-03) se descuentan de
+ * lo facturado (g = t + t_iva es el divisor del precio):
  *
- *   Resultado = Facturación − t × Facturación − Costo
+ *   Resultado = Facturación − t × Facturación − t_iva × Facturación − Costo
  *   Margen    = Resultado / Facturación     (sobre el precio, antes de Ganancias)
  *   Markup    = Facturación / Costo − 1     (recargo sobre el costo: precio = costo × (1 + markup))
  *   Ganancia sobre el costo = Resultado / Costo
@@ -19,6 +20,17 @@ import { billingUnitOf } from '../domain/billing-units.js';
 import { marginFromPrice, markupFromPrice, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
 import { computeExtras } from './extras-engine.js';
 import { billingTaxInfo } from './billing-taxes-engine.js';
+import { vatFinanceOf } from '../domain/vat-finance.js';
+
+/**
+ * Puntos del precio que se descuentan de lo facturado: impuestos sobre la facturación (t) +
+ * costo financiero del IVA (t_iva, K-03). Es el divisor de todos los precios:
+ * precio = costo / (1 − margen − g). Sin K-03, g = t (lo de siempre).
+ */
+export function grossUpPctOf(ctx) {
+  if (!ctx) return 0;
+  return isFiniteNumber(ctx.grossUpPct) ? nonNegative(ctx.grossUpPct) : nonNegative(ctx.billingTaxPct);
+}
 
 /**
  * Contexto económico de una cotización (sin tarifa).
@@ -28,6 +40,10 @@ import { billingTaxInfo } from './billing-taxes-engine.js';
 export function createEconomicsContext(quote, model, { referenceHourPrice = null, referenceHourCost = null } = {}) {
   const pricing = quote.pricing || {};
   const taxes = billingTaxInfo(quote);
+  // Costo financiero del IVA (K-03): apagado → 0 y g = t.
+  const vat = vatFinanceOf(quote);
+  const vatFinancePct = vat.active ? nonNegative(vat.pct) : 0;
+  const grossUpPct = taxes.pct + vatFinancePct;
   const unitInfo = billingUnitOf(quote);
   // Adicionales (PLAN-2026-018): sin precio a mano se sugiere con el margen objetivo.
   // El precio sugerido cubre el costo CARGADO del adicional: cuánto sube el costo
@@ -39,7 +55,7 @@ export function createEconomicsContext(quote, model, { referenceHourPrice = null
   const loadFactor = direct > 0 ? (model.fixedMonthly - buildCostModel({ ...quote, extras: [] }).fixedMonthly) / direct : 1;
   const extras = computeExtras(resolved, {
     targetMarginPct: margin.state === 'invalid' ? null : margin.state === 'ok' ? margin.value : 0,
-    billingTaxPct: taxes.pct,
+    billingTaxPct: grossUpPct,
     loadFactor,
     referenceHourPrice,
     referenceHourCost,
@@ -47,8 +63,13 @@ export function createEconomicsContext(quote, model, { referenceHourPrice = null
     roundingStep: nonNegative(pricing.roundingStep),
   });
   return {
+    // Impuestos sobre la facturación (lo que se muestra como "impuestos").
     billingTaxPct: taxes.pct,
     billingTaxInfo: taxes,
+    // Costo financiero del IVA (K-03) y divisor combinado g = t + t_iva.
+    vatFinancePct,
+    vatFinance: vat,
+    grossUpPct,
     model,
     activity: model.activity,
     // Tipo de unidad comercial: 'day' | 'hour' | 'month' | 'event' | 'quantity' (PLAN-2026-009).
@@ -134,8 +155,11 @@ export function evaluateAt(ctx, activeDays, listRate, options = {}) {
   const cost = costAtActivity(ctx.model, D);
   const revenue = revenueAt(ctx, D, listRate, options);
   const t = nonNegative(ctx.billingTaxPct);
+  const tv = nonNegative(ctx.vatFinancePct);
   const billingTaxes = (revenue.total * t) / 100;
-  const profit = revenue.total - billingTaxes - cost.total;
+  // Costo financiero del IVA (K-03): 0 si está apagado.
+  const vatFinance = (revenue.total * tv) / 100;
+  const profit = revenue.total - billingTaxes - vatFinance - cost.total;
   return {
     activeDays: D,
     utilizationPct: ctx.activity.availableDaysPerMonth > 0 ? (D / ctx.activity.availableDaysPerMonth) * 100 : null,
@@ -144,13 +168,15 @@ export function evaluateAt(ctx, activeDays, listRate, options = {}) {
     revenue,
     billingTaxPct: t,
     billingTaxes,
+    vatFinancePct: tv,
+    vatFinance,
     profit,
-    // Margen sobre el precio: (Facturación − impuestos − costo) / Facturación.
-    marginPct: marginFromPrice(cost.total + billingTaxes, revenue.total),
+    // Margen sobre el precio: (Facturación − impuestos − costo financiero del IVA − costo) / Facturación.
+    marginPct: marginFromPrice(cost.total + billingTaxes + vatFinance, revenue.total),
     // Markup (AGENTS.md §9): precio = costo × (1 + markup) → Facturación / Costo − 1.
     markupPct: markupFromPrice(cost.total, revenue.total),
     // Ganancia sobre el costo: resultado / costo (con t = 0 es igual al markup).
-    profitOnCostPct: markupFromPrice(cost.total, revenue.total - billingTaxes),
+    profitOnCostPct: markupFromPrice(cost.total, revenue.total - billingTaxes - vatFinance),
   };
 }
 
@@ -174,9 +200,11 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
     commercialPct: ctx.commercialDiscountPct,
   });
   const t = nonNegative(ctx.billingTaxPct);
-  const floor = requiredNetRate({ totalCost: cost.total, marginPct: 0, billingTaxPct: t, billableUnits: units, otherRevenue: other });
+  // Divisor combinado (K-03): impuestos + costo financiero del IVA (= t si está apagado).
+  const g = grossUpPctOf(ctx);
+  const floor = requiredNetRate({ totalCost: cost.total, marginPct: 0, billingTaxPct: g, billableUnits: units, otherRevenue: other });
   const byMargin = marginsPct.map((m) => {
-    const r = requiredNetRate({ totalCost: cost.total, marginPct: m, billingTaxPct: t, billableUnits: units, otherRevenue: other });
+    const r = requiredNetRate({ totalCost: cost.total, marginPct: m, billingTaxPct: g, billableUnits: units, otherRevenue: other });
     // markupPct: precio / costo − 1 con ese margen y t ((m + t) / (1 − m − t));
     // profitOnCostPct: ganancia / costo (m / (1 − m − t)).
     return {
@@ -185,8 +213,8 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
       listRate: listRateFromNet(r.rate, factor),
       coveredByOtherRevenue: r.coveredByOtherRevenue,
       requiredRevenue: r.requiredRevenue,
-      markupPct: markupWithTaxesPct(m, t),
-      profitOnCostPct: profitOnCostPct(m, t),
+      markupPct: markupWithTaxesPct(m, g),
+      profitOnCostPct: profitOnCostPct(m, g),
     };
   });
   return {
@@ -198,9 +226,11 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
     discountFactor: factor,
     tier,
     billingTaxPct: t,
+    vatFinancePct: nonNegative(ctx.vatFinancePct),
+    grossUpPct: g,
     floorRequiredRevenue: floor.requiredRevenue,
-    // Markup de la tarifa mínima: sólo los impuestos sobre la facturación (t / (1 − t)).
-    floorMarkupPct: markupWithTaxesPct(0, t),
+    // Markup de la tarifa mínima: sólo lo que se descuenta de lo facturado (g / (1 − g)).
+    floorMarkupPct: markupWithTaxesPct(0, g),
     floorNetRate: floor.rate,
     floorListRate: listRateFromNet(floor.rate, factor),
     floorCoveredByOtherRevenue: floor.coveredByOtherRevenue,
@@ -220,7 +250,7 @@ export function requiredRatesAt(ctx, activeDays, marginsPct = [], { tierOverride
 export function linearDecomposition(ctx, listRate, referenceDays) {
   const D = Math.max(nonNegative(referenceDays), 1);
   const r1 = revenueAt(ctx, D, listRate);
-  const keep = 1 - nonNegative(ctx.billingTaxPct) / 100;
+  const keep = 1 - grossUpPctOf(ctx) / 100;
   const fixedRevenue = r1.components.availabilityFee + r1.components.standby + r1.components.materialsFixed + r1.components.overtimeFixed + (r1.components.extras || 0);
   const variableRevenue = r1.components.base + r1.components.callout + r1.components.mobilization + r1.components.extraKm + r1.components.materialsVariable + r1.components.overtimeVariable;
   const revenuePerActiveDay = variableRevenue / D;
@@ -235,6 +265,8 @@ export function linearDecomposition(ctx, listRate, referenceDays) {
     fixedCosts,
     fixedRevenue,
     billingTaxPct: nonNegative(ctx.billingTaxPct),
+    vatFinancePct: nonNegative(ctx.vatFinancePct),
+    grossUpPct: grossUpPctOf(ctx),
     netFixed: fixedCosts - fixedRevenue * keep,
     revenuePerActiveDay,
     netRatePerActiveDay,

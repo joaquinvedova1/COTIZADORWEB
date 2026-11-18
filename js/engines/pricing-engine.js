@@ -152,10 +152,16 @@ export function floorRate(totalCost, units) {
  * `gain` = m·precio (resultado después de impuestos), `markupPct` = precio /
  * costo − 1 (recargo sobre el costo) y `profitOnCostPct` = ganancia / costo.
  * Se omiten los márgenes con m + t ≥ 100.
- * @returns {{ key: string, label: string, marginPct: number, price: number|null, markupPct: number|null, profitOnCostPct: number|null, billingTaxes: number|null, gain: number|null }[]}
+ *
+ * Costo financiero del IVA (K-03, t_iva en puntos del precio): va al mismo
+ * divisor, precio = costo / (1 − m − t − t_iva); `vatFinance` = t_iva·precio
+ * (sin K-03, 0 y la escalera de siempre).
+ * @returns {{ key: string, label: string, marginPct: number, price: number|null, markupPct: number|null, profitOnCostPct: number|null, billingTaxes: number|null, vatFinance: number|null, gain: number|null }[]}
  */
-export function priceLadder(cost, marginsPct = DEFAULT_MARGIN_LADDER, customMarginPct = null, billingTaxPct = 0) {
-  const t = isValidBillingTaxPct(billingTaxPct) ? billingTaxPct : 0;
+export function priceLadder(cost, marginsPct = DEFAULT_MARGIN_LADDER, customMarginPct = null, billingTaxPct = 0, vatFinancePct = 0) {
+  const tTax = isValidBillingTaxPct(billingTaxPct) ? billingTaxPct : 0;
+  const tv = isFiniteNumber(vatFinancePct) && vatFinancePct > 0 && isValidBillingTaxPct(tTax + vatFinancePct) ? vatFinancePct : 0;
+  const t = tTax + tv;
   const row = (key, label, m) => {
     const price = priceFromMarginAndTaxes(cost, m, t);
     return {
@@ -165,7 +171,8 @@ export function priceLadder(cost, marginsPct = DEFAULT_MARGIN_LADDER, customMarg
       price,
       markupPct: markupWithTaxesPct(m, t),
       profitOnCostPct: profitOnCostPct(m, t),
-      billingTaxes: price === null ? null : (price * t) / 100,
+      billingTaxes: price === null ? null : (price * tTax) / 100,
+      vatFinance: price === null ? null : (price * tv) / 100,
       gain: price === null ? null : (price * m) / 100,
     };
   };

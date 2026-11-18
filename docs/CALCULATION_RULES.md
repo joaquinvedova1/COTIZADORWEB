@@ -1033,6 +1033,8 @@ Ejemplo demo (modo B, 8 días, ILUSTRATIVO): tarifa piso neta ≈ 1.972.062/día
 
 Archivos: `js/engines/billing-taxes-engine.js` (`billingTaxInfo`, `billingTaxConfigInfo`, `traceBillingTaxes`), `js/domain/billing-taxes.js` (forma de los datos), `js/engines/pricing-engine.js` (`priceFromMarginAndTaxes`, `markupWithTaxesPct`, `profitOnCostPct`). Plan: PLAN-2026-002 en [.agent/PLANS.md](../.agent/PLANS.md).
 
+> Desde 0.14.0 (K-03) el **costo financiero del IVA** (t_iva, puntos del precio) va al mismo divisor: `Costo / (1 − m − t − t_iva)`. Se muestra aparte de los impuestos: ver [§34](#34-costo-financiero-del-iva-k-03-0140-2026-11-18).
+
 Son los impuestos que se pagan **sobre lo que se factura** (sin IVA): Ingresos Brutos, impuesto a los débitos y créditos (como % equivalente sobre la facturación sin IVA), sellos del contrato y otros cargos proporcionales a lo facturado. **No son costo**: dependen del precio. Por eso no entran en la estructura de costos (EECC), ni en la base de la contingencia o del financiero, y se cubren con un **gross-up exacto** junto con el margen:
 
 ```
@@ -2019,3 +2021,51 @@ Costo promedio del contrato = costo de hoy × f
 - **Completitud** (§19, ítem `price_adjustment`, paso Precio): sin decidir en una cotización nueva → amarillo con **peso 0** (no cambia el puntaje); fijo sin % o con f > 2 → amarillo; decidido → verde. Las cotizaciones sin el campo no tienen el ítem. Avisos aparte (amarillos, se suman a los anteriores): `price_adjustment_updates` (precio fijo con actualizaciones de tarifa) y `price_adjustment_contingency` (**doble conteo**: con la inflación activa, la contingencia tiene habilitados con % > 0 los riesgos "Inflación" o "Variación de precios"; también lo dice la traza de la contingencia). La fórmula no cambia: se pide sacarlo de imprevistos.
 - **Ver cálculo:** "Costo promedio del contrato = costo de hoy × f", con f y el factor del último mes (6 decimales), el costo del último mes, el margen del primer y del último mes y la nota "El % lo cargaste vos"; si el último mes da pérdida: "Los últimos meses dan pérdida; se compensan con lo que ganás de más al principio".
 - **Pantalla:** la duración del contrato se carga en Servicio (en el paso del precio sólo se muestra, con "Cambiar"): queda un único número, el %.
+
+## 34. Costo financiero del IVA (K-03, 0.14.0, 2026-11-18)
+
+**Pedido del dueño:** si el fisco cobra el IVA antes de que pague el cliente, la empresa lo adelanta y financiarlo cuesta. Carga simple y guiada: una pregunta y dos números; la cuenta, por dentro. Código: `js/domain/vat-finance.js`, `createEconomicsContext` / `evaluateAt` / `requiredRatesAt` / `linearDecomposition` en `js/engines/economics-engine.js`, alivio en `buildCostModel` (`js/engines/cost-engine.js`), traza `financialCost` en `js/engines/quote-engine.js`.
+
+**El IVA no es costo ni ganancia** (los montos de RATEOS siguen siendo sin IVA): sólo cuesta financiarlo. Por eso no entra a la EECC; va al **mismo divisor** que el margen y los impuestos sobre la facturación.
+
+**Datos** (los carga la empresa; RATEOS **no** precarga 21 % ni el día 20, §7 de AGENTS.md):
+
+- Configuración → Parámetros económicos, junto a "Tu condición frente al IVA": `settings.defaultVat = { ratePct, payLagDays }` (sólo se muestra con responsable inscripto o sin definir).
+- Cotización: `quote.finance.vat = { applies, ratePct, payLagDays }`. Una cotización nueva copia los de la empresa; `applies = true` sólo si están los dos números y la empresa es responsable inscripta; si no, `null` (sin decidir).
+- Paso Financiación: "¿Facturás con IVA?" Sí / No; con Sí, "IVA que facturás" (%, regla `vatRate`: 0 a < 100) y "Días entre que facturás y pagás el IVA" (regla `paymentDays`; ayuda: "Si facturás a fin de mes y el IVA vence el 20, son 20."), con "Usar los de mi empresa" si hay valores de la empresa.
+- **Apagado** (resultado idéntico al de siempre): campo ausente (cotizaciones anteriores), `applies` null o false, falta un número o es inválido, o la empresa es **monotributista o exenta** (en ese caso `computeQuote` y el comparador de modelos ignoran el campo y la pregunta no se muestra). Productos: no aplica.
+
+**Fórmula.** Con v = IVA %, L = días entre facturar y pagar el IVA y la tasa mensual del paso Financiación:
+
+```
+d      = max(0, plazo de cobro − L)                    días que se adelanta el IVA
+t_iva  = v × tasa mensual / 100 × d / 30               puntos del precio (sin IVA)
+g      = t + t_iva                                     lo que se descuenta de lo facturado
+precio = Costo / (1 − m − g)                           (válido si m + g < 100)
+Resultado = Facturación × (1 − t − t_iva) − Costo
+```
+
+- `billingTaxPct` (t) sigue siendo **sólo** los impuestos sobre la facturación: es lo que la pantalla muestra como "impuestos". El costo financiero del IVA va aparte (`kpis.vatFinancePct`, `kpis.vatFinance`) y el divisor combinado es `kpis.grossUpPct` (= t con K-03 apagado). Lo usan todas las cuentas de precio: tarifa mínima y objetivo (`requiredRatesAt`), resultado y margen (`evaluateAt`), equilibrio y días para el margen (`linearDecomposition`, búsqueda día a día), tramos de descuento, tarifa mínima sin otros ingresos, adicionales (`computeExtras`), escalera de márgenes (`priceLadder`), escenarios (recalculan con `computeQuote`) y comparador de modelos.
+- Validación: margen + impuestos + t_iva < 100 (si no, margen inválido y error en `pricing.targetMarginPct`, como margen + impuestos).
+- d ≤ 0 (se paga el IVA después de cobrar) → t_iva = 0.
+
+**Crédito fiscal (alivio, criterio conservador).** El IVA de las compras baja el IVA que se paga, pero RATEOS sólo conoce con certeza el de los **externos** (alquilados y tercerizados) con la alícuota cargada y "recuperable sí / en parte (con %)":
+
+```
+crédito del mes = neto del externo × IVA % × parte recuperable        (sin percepciones)
+alivio          = crédito × tasa mensual × d / 30
+financiero      = max(0, financiero − alivio)                         (fijo y variable por separado)
+```
+
+Todo lo demás (combustible, materiales, estructura, externos sin dato) cuenta como crédito 0: el costo nunca queda subestimado. El alivio baja el renglón Financiero de la EECC (y con él la contingencia). "Cada salida se cuenta completa" y las horas extra de todo el trabajo no llevan alivio (conservador).
+
+**Composición del precio** (§13.2): fila y grupo propios **Costo financiero del IVA**, sólo si hay. Controles: Facturación = costo + impuestos + costo financiero del IVA + resultado; costo financiero del IVA = t_iva × facturación.
+
+**Completitud** (ítem `vat_finance`, paso Financiación, sólo en cotizaciones con el campo): `applies` null con plazo de cobro > 0 → amarillo con **peso 0** ("¿Facturás con IVA?"); Sí con un número faltante → amarillo; activo → verde.
+
+**Ver cálculo** (costo financiero): "Costo financiero del IVA = IVA × tasa × (plazo de cobro − días hasta pagar el IVA)/30" con los números, el monto del mes, el alivio por el IVA de los externos y la nota "El IVA no es costo ni ganancia: sólo cuesta financiarlo. Sólo se descuenta el IVA de los externos cargados (criterio conservador)." Las trazas de tarifa mínima, objetivo, resultado, equilibrio y días para el margen agregan "Costo financiero del IVA (puntos del precio)".
+
+**Ejemplos** (golden):
+
+- `iva-costo-financiero-gross-up`: costo 40.000.000, margen 10 %, impuestos 10 %, 10 días, cobro a 60 días, tasa 3 %, IVA 21 %, L = 20 → d = 40, t_iva = 0,84 puntos. Tarifa objetivo 5.000.000 → **5.053.057,10** por día; tarifa mínima 4.444.444,44 → 4.486.316,73; costo financiero del IVA del mes 424.456,80. El costo no cambia.
+- `iva-costo-financiero-credito-externo`: lo mismo más un alquiler de 1.000.000 neto/día con IVA 21 % recuperable pagado al contado. Financiero 726.000 → 642.000 (alivio 2.100.000 × 3 % × 40/30 = 84.000); costo 50.726.000 → 50.642.000; tarifa objetivo 6.340.750 → **6.397.422,94**.

@@ -36,6 +36,8 @@ export const RULES = Object.freeze({
   months: { min: 0, max: 600, message: 'Los meses deben estar entre 0 y 600.' },
   // Inflación mensual esperada con precio fijo (K-01). Igual a INFLATION_PCT_MIN/MAX.
   inflationPct: { min: 0, max: 30, message: 'La inflación mensual debe estar entre 0 y 30 %.' },
+  // IVA que factura la empresa (K-03): 0 ≤ IVA < 100. RATEOS no trae alícuotas.
+  vatRate: { min: 0, max: 100, exclusiveMax: true, message: 'El IVA debe ser mayor o igual a 0 y menor a 100 %.' },
   integer: { min: 0, integer: true, message: 'Ingresá un número entero mayor o igual a 0.' },
 });
 
@@ -264,6 +266,12 @@ export function validateQuote(quote) {
   const f = isPlainObject(quote.finance) ? quote.finance : {};
   check('finance.paymentTermDays', f.paymentTermDays, 'paymentDays');
   check('finance.monthlyRatePct', f.monthlyRatePct, 'percent');
+  // Costo financiero del IVA (K-03): sólo se validan los datos que se cargan.
+  const vat = isPlainObject(f.vat) ? f.vat : null;
+  if (vat) {
+    check('finance.vat.ratePct', vat.ratePct, 'vatRate');
+    check('finance.vat.payLagDays', vat.payLagDays, 'paymentDays');
+  }
 
   const p = isPlainObject(quote.pricing) ? quote.pricing : {};
   check('pricing.targetMarginPct', p.targetMarginPct, 'margin');

@@ -1,0 +1,32 @@
+{
+  "id": "iva-costo-financiero-gross-up",
+  "title": "Costo financiero del IVA: IVA 21 %, cobro a 60 días, IVA pagado a 20 días, tasa 3 % → 0,84 puntos del precio; tarifa objetivo 5.053.057,10",
+  "rule": "K-03 (0.14.0). Mismo caso que on-call-cotizacion-con-impuestos (fijos 30M, variable 1M/día, 10 días, margen 10 %, impuestos 10 %: costo 40M), con plazo de cobro 60 días, tasa 3 % mensual y los demás costos pagados a 60 días (financiero 0, para aislar el efecto). Facturás con IVA 21 % y lo pagás 20 días después de facturar: d = 60 − 20 = 40 días; t_iva = 21 × 3 % × 40/30 = 0,84 puntos. Precio = 40M / (1 − 0,10 − 0,10 − 0,0084) = 50.530.570,99 → 5.053.057,10 por día (antes 5.000.000); piso 40M / 0,8916 / 10 = 4.486.316,73 (antes 4.444.444,44). Costo financiero del IVA del mes = 0,84 % × 50.530.570,99 = 424.456,80; los impuestos siguen siendo 10 % (5.053.057,10) y el margen 10 %. El costo no cambia: el IVA no es costo ni ganancia. Alícuota y días los carga la empresa: valores sintéticos ILUSTRATIVOS.",
+  "engine": "quote.onCall",
+  "inputs": {
+    "fixedCosts": 30000000,
+    "variableCostPerDay": 1000000,
+    "activeDays": 10,
+    "targetMarginPct": 10,
+    "billingTaxPct": 10,
+    "finance": {
+      "paymentTermDays": 60,
+      "monthlyRatePct": 3,
+      "invoiceLagDays": 0,
+      "payDays": { "salaries": 60, "fuel": 60, "suppliers": 60, "materials": 60, "structure": 60 },
+      "vat": { "applies": true, "ratePct": 21, "payLagDays": 20 }
+    }
+  },
+  "expected": {
+    "kpis.totalCost": 40000000,
+    "kpis.financialCost": 0,
+    "kpis.vatFinancePct": 0.84,
+    "kpis.grossUpPct": 10.84,
+    "kpis.billingTaxPct": 10,
+    "kpis.vatFinance": 424456.7963617989,
+    "kpis.floorNetRate": 4486316.733961417,
+    "kpis.targetNetRate": 5053057.099545225,
+    "kpis.marginPct": 10
+  },
+  "tolerance": 0.005
+}

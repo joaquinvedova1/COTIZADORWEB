@@ -26,7 +26,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
 import { isPlainObject } from '../../../core/object.js';
 import { perUnitCeil, perUnitMoney, netRateHint, confirmRemove, hasNumber, stepName, plural, minimumGuaranteeFields, guaranteeLoaded } from './shared.js';
-import { minActivityNotice, suggestedRateTrace, suggestedRateName, isClosedPrice } from '../../result-text.js';
+import { minActivityNotice, suggestedRateTrace, suggestedRateName, isClosedPrice, deductedPct, marginLimitText } from '../../result-text.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillingTaxes, sameBillingTaxes, invalidTaxesText } from '../../billing-taxes-form.js';
 import { userErrorMessage } from '../../layout.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
@@ -294,8 +294,8 @@ export function render(container, ctx) {
       (r) => r.kpis.billingTaxesInvalid,
     ),
     kit.toggle(
-      h('div', { class: 'qe-tip qe-tip-danger', role: 'status' }, icon('alert'), kit.out((r) => `Con ${formatPercent(r.kpis.billingTaxPct)} de impuestos sobre lo que facturás, el margen objetivo tiene que ser menor a ${formatPercent(100 - r.kpis.billingTaxPct)}: no hay un precio que deje ese margen.`, { tag: 'p' })),
-      (r) => r.kpis.targetMarginInvalid && r.kpis.billingTaxPct > 0,
+      h('div', { class: 'qe-tip qe-tip-danger', role: 'status' }, icon('alert'), kit.out((r) => `${marginLimitText(r.kpis, undefined, { capital: true, subject: 'el margen objetivo' })}: no hay un precio que deje ese margen.`, { tag: 'p' })),
+      (r) => r.kpis.targetMarginInvalid && deductedPct(r.kpis) > 0,
     ),
     kit.stats(
       kit.stat('Impuestos sobre lo que facturás', (r) => (r.kpis.billingTaxesInvalid ? 'Revisar' : r.kpis.billingTaxesDefined ? formatPercent(r.kpis.billingTaxPct) : 'Sin definir'), {
