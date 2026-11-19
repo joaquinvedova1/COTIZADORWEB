@@ -516,7 +516,9 @@ export function evaluateCompleteness(quote = {}) {
   // 5 quater. Horas del día sin cubrir (2026-11, sin diagramas): con "Horas por día de cada
   // persona", personas × horas de cada una tiene que alcanzar las horas por día del servicio.
   // Sólo avisa (no cambia el costo). Con guardia activa lo mide su propio control.
-  if (labor.length > 0 && H > 0 && !activeGuard) {
+  // 0.16.0: por tiempo usado (trabajo / hora / día) esas horas son las que cada persona dedica a
+  // esta cotización (el chofer maneja 3 h de las 8 h): que no cubran el día no es un faltante.
+  if (labor.length > 0 && H > 0 && !activeGuard && !timeBasisHours) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
     const gaps = labor.map((l, index) => {
       const c = Math.min(nonNegative(l.coverageHoursPerDay), 24);

@@ -12,6 +12,21 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-19
+
+**Asignar personal, sin plantillas para partir y formulario de recurso con aire (observaciones del dueño sobre 0.15.0).** Sin cambio de esquema ni de fórmulas: ninguna cotización guardada cambia de números.
+
+### Cambiado
+
+- **Asignación de personal en la cotización**: cada puesto de Recursos muestra juntos "¿Cuántas personas de «Chofer» van?" (con el mismo sueldo; 2 = el doble de costo) y "¿Cuánto de su tiempo usa esta cotización?": por trabajo, hora o día, las horas por día que trabaja en esto (`coverageHoursPerDay`, ya usado por el costo por tiempo usado); por mes, todo su mes o una parte con su % (`assignment` / `fixedCostSharePct`, la regla de siempre). Antes estaban escondidos en "Más detalle". El selector pasa a "Asignar personal de tus Recursos".
+- La cuenta del costo del puesto con una parte del mes muestra el % dentro de la cuenta (2 personas × $ … × 50 % de su mes).
+- Por tiempo usado ya no aparece "Horas del día sin cubrir" cuando una persona trabaja menos horas que el servicio: son las horas que dedica a esta cotización.
+- **Formulario de recurso** (Nuevo puesto y el resto de Recursos): más ancho en PC, sin cajas dentro de cajas, y a pantalla completa en el celular.
+
+### Eliminado
+
+- "Partir de una plantilla (opcional)" en el paso 1 de la cotización. Las plantillas propias (Servicios) siguen.
+
 ## [0.15.0] - 2026-11-19
 
 **Carga más simple (observaciones del dueño sobre 0.14.0).** Sin cambio de esquema: `contractedStaff` es opcional y, ausente, ningún número cambia.
