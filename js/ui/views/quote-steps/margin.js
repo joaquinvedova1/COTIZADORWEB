@@ -274,7 +274,7 @@ export function render(container, ctx) {
 
   // ------------------------------------ impuestos sobre lo que facturás
   const taxesCard = card(
-    { title: '¿Qué parte de lo que facturás se va en impuestos?', subtitle: `No son un costo más: se pagan sobre lo que cobrás. RATEOS los incluye en ${closed ? 'el precio' : 'la tarifa'} junto con tu margen.`, level: 3, className: 'qe-taxes' },
+    { title: '¿Qué parte de lo que facturás se va en impuestos?', level: 3, className: 'qe-taxes' },
     billingTaxesHelp(),
     billingTaxesFields({
       get: () => quote.billingTaxes,

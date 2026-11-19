@@ -46,8 +46,8 @@ const MODE_LABELS = Object.freeze({
 
 /** Explicación de cada opción en palabras simples (PLAN-2026-026). */
 const MODE_HINTS = Object.freeze({
-  known_rate: 'Escribís tu tarifa y RATEOS te dice cuánto ganás y cuánto tenés que trabajar para no perder.',
-  known_activity: 'Decís cuánto esperás trabajar y RATEOS calcula la tarifa mínima y la tarifa con tu ganancia.',
+  known_rate: 'Ves cuánto ganás y cuánto trabajar para no perder.',
+  known_activity: 'Sale de cuánto esperás trabajar.',
 });
 
 /** Precio cerrado (revisión UX tanda novatos): se habla de "precio", no de "tarifa". */
@@ -56,8 +56,8 @@ const CLOSED_MODE_LABELS = Object.freeze({
   known_activity: 'No, quiero que RATEOS lo calcule',
 });
 const CLOSED_MODE_HINTS = Object.freeze({
-  known_rate: 'Escribís tu precio y RATEOS te dice cuánto ganás.',
-  known_activity: 'Decís cuánto lleva el trabajo y RATEOS calcula el precio mínimo y el precio con tu ganancia.',
+  known_rate: 'Ves cuánto ganás.',
+  known_activity: 'Sale de cuánto lleva el trabajo.',
 });
 
 const AVAILABILITY_HINTS = Object.freeze({
@@ -1018,11 +1018,8 @@ export function render(container, ctx) {
     {
       title: 'Lo que ya cargaste',
       // M4 (2026-11-18): por tiempo usado, sin días cargados los montos van por día de trabajo: el subtítulo lo dice.
-      subtitle: usesTimeBasis(quote)
-        ? kit.out((r) => (r.activity.activeDaysPerMonth > 0
-          ? (contract.mode === 'closed' ? 'Lo que te cuesta cada trabajo. Con esto sale tu precio.' : 'Lo que te cuesta por mes. Con esto y con cuánto esperás trabajar sale tu tarifa.')
-          : (contract.mode === 'closed' ? 'Lo que te cuesta cada día de trabajo. Con esto y con los días del trabajo sale tu precio.' : 'Lo que te cuesta cada día de trabajo. Con esto y con cuánto esperás trabajar sale tu tarifa.')))
-        : contract.mode === 'closed' ? 'Lo que te cuesta cada trabajo. Con esto sale tu precio.' : 'Lo que te cuesta por mes. Con esto y con cuánto esperás trabajar sale tu tarifa.',
+      // 0.17.0: sin subtítulo, salvo por tiempo usado sin días cargados (los montos van por día).
+      subtitle: usesTimeBasis(quote) ? kit.out((r) => (r.activity.activeDaysPerMonth > 0 ? '' : 'Costo por día de trabajo.'), { allowEmpty: true }) : null,
       className: 'qe-resources-card',
     },
     // Revisión 0.10.0 (U10): sólo las categorías elegidas en "¿Qué incluye el servicio?" (o con algo cargado).
@@ -1085,15 +1082,15 @@ export function render(container, ctx) {
   // mes que elegir; cada recurso cuesta sus horas en el trabajo. La pregunta no se muestra.
   const dedicationCard = shareTargets.length && !monthlyContract && !usesTimeBasis(quote)
     ? card(
-      { title: '¿Tu gente y tus equipos trabajan sólo para este servicio?', subtitle: 'Así sabemos si este servicio tiene que pagar todo su mes o sólo una parte.', className: 'qe-dedication-card' },
+      { title: '¿Tu gente y tus equipos trabajan sólo para este servicio?', className: 'qe-dedication-card' },
       choiceGroup({
         label: h('span', {}, 'Elegí una opción', h('span', { class: 'req', 'aria-hidden': 'true' }, ' *')),
         name: 'resourcesDedication',
         value: dedicationValue,
         disabled: kit.readOnly,
         options: [
-          { value: 'yes', label: 'Sí, sólo para este servicio', hint: 'Este servicio paga todo su mes, aunque trabajen pocos días.' },
-          { value: 'no', label: 'No, también hacen otros trabajos', hint: 'Este servicio paga sólo la parte del mes que les ocupa.' },
+          { value: 'yes', label: 'Sí, sólo para este servicio', hint: 'Este servicio paga su mes entero, aunque trabajen pocos días.' },
+          { value: 'no', label: 'No, también hacen otros trabajos', hint: 'Este servicio paga sólo la parte del mes que usa.' },
         ],
         onChange: (v) => (v === 'no' ? applyShares(true) : applyDedicated()),
       }),
@@ -1245,16 +1242,16 @@ export function render(container, ctx) {
   });
   const hasLabor = (quote.labor || []).some((l) => Number(l && l.positions) > 0);
   const overtimeWorkCard = hasLabor || owMode !== 'none' ? card(
-    { title: 'Horas extra del trabajo (opcional)', subtitle: 'Si el trabajo se hace fuera del horario normal, a tu gente le pagás horas extra. Ese costo se suma a cada persona y queda dentro de tu único precio.', className: 'qe-ow-card' },
+    { title: 'Horas extra del trabajo', subtitle: 'Se suman al costo de tu gente, dentro del precio.', className: 'qe-ow-card' },
     choiceGroup({
       label: '¿Este trabajo lleva horas extra?',
       name: 'overtimeWork.mode',
       value: owMode,
       disabled: kit.readOnly,
       options: [
-        { value: 'none', label: 'No', hint: 'Se trabaja en el horario normal.' },
-        { value: 'all', label: 'Sí, todo el trabajo', hint: 'Todas las horas son fuera de horario (por ejemplo, la hora de la cuadrilla un domingo).' },
-        { value: 'some', label: 'Sí, algunas horas', hint: 'Es en horario normal, pero estimás algunas horas fuera de horario.' },
+        { value: 'none', label: 'No', hint: 'Horario normal.' },
+        { value: 'all', label: 'Sí, todo el trabajo', hint: 'Todo fuera de horario (ej.: un domingo).' },
+        { value: 'some', label: 'Sí, algunas horas', hint: 'Algunas horas fuera de horario.' },
       ],
       onChange: (v) => setOw({ mode: ['all', 'some'].includes(v) ? v : 'none' }),
     }),
@@ -1579,13 +1576,13 @@ export function render(container, ctx) {
   mount(
     container,
     resourcesCard,
-    sectionLabel('Lo necesario', `Con estos datos ya sale tu ${rateWord}. Los que tienen * no pueden faltar.`),
+    sectionLabel('Lo necesario', null),
     modeCard,
     question,
     activityCard,
     travelCard,
     dedicationCard,
-    sectionLabel('Opcional', 'Sumalo sólo si aplica a este servicio. Si no, seguí de largo.'),
+    sectionLabel('Opcional', null),
     overtimeWorkCard,
     oohInFold ? null : outOfHoursCard,
     guardCard,

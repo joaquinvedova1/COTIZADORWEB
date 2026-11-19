@@ -90,7 +90,7 @@ export function billingTaxesHelp() {
     h(
       'div',
       {},
-      h('p', {}, 'Incluí Ingresos Brutos, el impuesto al cheque (débitos y créditos) y sellos, si el contrato los paga. El % te lo pasa tu contador.'),
+      h('p', {}, 'Ingresos Brutos, impuesto al cheque y sellos, si el contrato los paga. El % te lo pasa tu contador.'),
       h(
         'details',
         { class: 'bt-help-more' },

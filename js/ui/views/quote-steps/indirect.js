@@ -235,7 +235,7 @@ function detailedCard(ctx) {
   return h(
     'div',
     { class: 'stack' },
-    h('p', { class: 'qe-note' }, 'Cada rubro con su propio criterio (por ejemplo: administración como % del costo directo, HSE y sistemas por empleado, alquiler de base por contrato). Los porcentajes y montos son tuyos: RATEOS no trae valores.'),
+    h('p', { class: 'qe-note' }, 'Cada rubro con su criterio: % del costo, por empleado o por contrato.'),
     taxesNote(),
     rowsTable,
     taxLike,

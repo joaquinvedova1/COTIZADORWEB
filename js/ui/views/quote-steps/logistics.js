@@ -454,7 +454,7 @@ export function render(container, ctx) {
   const routeCard = notApplicable
     ? null
     : card(
-      { title: '¿Adónde vas?', subtitle: 'Distancia de UNA vía entre tu base y la locación del cliente.' },
+      { title: '¿Adónde vas?' },
       locations.length
         ? formGrid(
           2,
@@ -516,9 +516,7 @@ export function render(container, ctx) {
     : card(
       {
         title: 'Equipos y vehículos que viajan',
-        subtitle: equipmentLines.length
-          ? `Cada equipo o vehículo se carga una sola vez, en "${stepName('equipment')}": ahí se dice cómo llega y cuánto consume en ruta. Acá ves lo que suma cada uno.`
-          : null,
+        subtitle: equipmentLines.length ? `Se editan en "${stepName('equipment')}".` : null,
       },
       equipmentLines.length
         ? h('div', { class: 'stack mob-list' }, ...equipmentLines.map((line, i) => (line ? mobilizationSummaryRow(line, i) : null)))
@@ -681,8 +679,8 @@ export function render(container, ctx) {
   const mealLines = (Array.isArray(quote.labor) ? quote.labor : []).filter((l) => l && nonNegative(l.mealPerActiveDay) > 0);
   const mealsNote = h('p', { class: 'small muted qe-meals-note' },
     mealLines.length
-      ? `Comidas: ya están en "${stepName('labor')}" (vianda por día: ${mealLines.slice(0, 3).map((l) => `${l.role || 'Puesto'} ${formatMoney(nonNegative(l.mealPerActiveDay))}`).join(', ')}). No se vuelven a pedir acá.`
-      : `Comidas: se cargan una sola vez, en "${stepName('labor')}" (vianda por día de cada persona).`);
+      ? `Comidas: ya están en "${stepName('labor')}" (vianda por día: ${mealLines.slice(0, 3).map((l) => `${l.role || 'Puesto'} ${formatMoney(nonNegative(l.mealPerActiveDay))}`).join(', ')}).`
+      : `Comidas: en "${stepName('labor')}" (vianda por día).`);
   // Alojamiento a la vista (PLAN-2026-021): un costo frecuente, no un ajuste fino.
   const lodgingCard = notApplicable
     ? null
@@ -740,7 +738,7 @@ export function render(container, ctx) {
   }
 
   const fuelCard = card(
-    { title: 'Combustible', subtitle: 'Se usa para los viajes, la movilización y el consumo de los equipos cuando trabajan.' },
+    { title: 'Combustible' },
     formGrid(
       2,
       fuelPriceField,

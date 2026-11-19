@@ -386,7 +386,7 @@ export function render(container, ctx) {
         return typeof d === 'string' && d ? `Oferta del ${formatDayDate(d)} · moneda ${quoteCurrencyOf(quote)}.` : `Sin fecha de oferta · moneda ${quoteCurrencyOf(quote)}.`;
       },
     },
-    h('p', { class: 'qe-note' }, 'De qué mes son los valores con los que calculás esta oferta. La cotización guarda sus valores: si después cambian en Recursos, te avisa y vos decidís si actualizarlos.'),
+    h('p', { class: 'qe-note' }, 'Si cambian en Recursos, te avisamos.'),
     formGrid(
       2,
       dateField({

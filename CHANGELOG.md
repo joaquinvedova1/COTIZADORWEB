@@ -12,6 +12,18 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-19
+
+**Menos texto y el precio primero (comparación con cotizadores del mercado, ver docs/informes/2026-11-mercado.md).** Sin cambio de esquema ni de fórmulas: ninguna cotización cambia de números.
+
+### Cambiado
+
+- Cada paso de la cotización abre con la pregunta y, como mucho, una línea corta; sin antetítulo "Etapa N de 6" ni "Término técnico".
+- Tarjetas de elección: explicaciones de pocas palabras.
+- Resumen en vivo: el precio primero y más grande; debajo costo, mínimo y para no perder.
+- Proveedor tercerizado: sólo se listan los datos que faltan.
+- Textos más cortos en Personal, Equipos, Movilización y viajes, Cómo se cobra, Impuestos, Imprevistos, Gastos de estructura y Resultado.
+
 ## [0.16.0] - 2026-11-19
 
 **Asignar personal, sin plantillas para partir y formulario de recurso con aire (observaciones del dueño sobre 0.15.0).** Sin cambio de esquema ni de fórmulas: ninguna cotización guardada cambia de números.

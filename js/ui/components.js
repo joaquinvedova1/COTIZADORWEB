@@ -600,7 +600,7 @@ export function choiceGroup({ label, value, options, onChange, name = uniqueId('
       input.addEventListener('change', () => {
         if (input.checked && typeof onChange === 'function') onChange(o.value);
       });
-      return h('label', { class: 'choice', for: id }, input, h('span', { class: 'choice-body' }, h('span', { class: 'choice-title' }, o.label), o.hint ? h('span', { class: 'choice-hint' }, o.hint) : null));
+      return h('label', { class: 'choice', for: id, title: o.hint || null }, input, h('span', { class: 'choice-body' }, h('span', { class: 'choice-title' }, o.label), o.hint ? h('span', { class: 'choice-hint' }, o.hint) : null));
     })));
 }
 
