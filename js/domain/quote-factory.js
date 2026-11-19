@@ -376,6 +376,15 @@ export function laborLineFromProfile(profile = {}, agreement = null, { id = crea
   return line;
 }
 
+/**
+ * Personal TERCERIZADO de una cotización (0.15.0): una persona que se contrata afuera por un valor
+ * fijo por hora, por día o por mes. No tiene sueldo, convenio ni cargas (el personal propio se
+ * carga en Recursos). Nace sin rol ni valor: los carga quien cotiza.
+ */
+export function createContractedStaff({ id = createId(), role = '', people = 1, rate = null, unit = 'day' } = {}) {
+  return { id, role, people, rate, unit: ['hour', 'day', 'month'].includes(unit) ? unit : 'day', hoursPerDay: null };
+}
+
 /** Horas que un equipo propio trabaja y factura por mes según su ficha (o null si no la tiene). */
 export function equipmentBillableHours(eq = {}) {
   const own = Number(eq.billableHoursPerMonth);

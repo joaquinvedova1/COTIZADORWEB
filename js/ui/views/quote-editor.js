@@ -210,7 +210,7 @@ export const STEP_COPY = Object.freeze({
 });
 
 /** Personal con la cuenta sin puestos en Recursos: el sueldo se carga acá. */
-export const LABOR_WHY_EMPTY = 'Agregá cada puesto y poné cuántas personas van. Cargá el sueldo acá. Después lo podés guardar en tus Recursos para reusarlo.';
+export const LABOR_WHY_EMPTY = 'Creá cada puesto con su convenio y su sueldo: queda guardado en tus Recursos y no lo cargás de nuevo. Después poné cuántas personas van.';
 
 /**
  * Ítems de completitud que se corrigen dentro de unas "Opciones avanzadas":
@@ -294,7 +294,8 @@ export function isStepHidden(stepId, quote) {
   if (stepId === 'labor' || stepId === 'equipment') {
     const c = isPlainObject(q.contract) ? q.contract : null;
     if (!c || !Array.isArray(c.components)) return false;
-    if (count(stepId === 'labor' ? q.labor : q.equipment)) return false;
+    // 0.15.0: el personal tercerizado también se carga en "Personal".
+    if (stepId === 'labor' ? count(q.labor) + count(q.contractedStaff) : count(q.equipment)) return false;
     const chosen = componentsOf(c);
     return stepId === 'labor'
       ? !chosen.includes('labor')
@@ -1649,7 +1650,7 @@ export function askedOnScreen(item, quote) {
   const logistics = isPlainObject(q.logistics) ? q.logistics : {};
   switch (item.id) {
     case 'labor':
-      return listOf(q.labor).length === 0;
+      return listOf(q.labor).length + listOf(q.contractedStaff).length === 0;
     case 'equipment_cost':
       return listOf(q.equipment).length === 0;
     case 'materials':

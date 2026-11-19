@@ -545,15 +545,15 @@ async function runMode(mode) {
   {
     // V-05 (veredicto 2026-11): al elegir una unidad en el buscador, la lista queda cerrada (no se
     // reabre encima del campo siguiente) y la etiqueta de la unidad del encabezado se actualiza.
-    // 0.10.0 ("La unidad primero"): la unidad se elige en el paso "Contrato" ("Otra unidad…" → buscador).
+    // 0.10.0 ("La unidad primero"): la unidad se elige en el paso "Contrato" (0.15.0: un solo buscador de unidades).
     await screenText('E2E-21', 'service');
-    const combo = page.locator('input[name="unitOther"][role="combobox"]');
+    const combo = page.locator('input[name="unit"][role="combobox"]');
     await tap(combo);
     await combo.fill('hectárea');
     await page.locator('.combo-option', { hasText: '$/hectárea' }).first().dispatchEvent('mousedown');
     await page.waitForTimeout(500);
     const ui = await page.evaluate(() => {
-      const input = document.querySelector('input[name="unitOther"][role="combobox"]');
+      const input = document.querySelector('input[name="unit"][role="combobox"]');
       const list = input ? document.getElementById(input.getAttribute('aria-controls')) : null;
       const badge = document.querySelector('.qe-step-meta .badge-navy');
       return { expanded: input ? input.getAttribute('aria-expanded') : null, listHidden: list ? list.hidden : null, value: input ? input.value : null, badge: badge ? badge.textContent : null };

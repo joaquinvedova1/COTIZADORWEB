@@ -40,6 +40,7 @@ import { nonNegative, pct, safeDivide, roundPercentagesToTotal, roundPercentage,
 import { createTrace } from '../core/trace.js';
 import { COST_CATEGORIES, CATEGORY_PAY_GROUP, DIRECT_CATEGORY_IDS, PAY_GROUPS, MATERIAL_PROVIDERS, AVAILABILITY_WINDOW } from '../domain/catalogs.js';
 import { computeLabor } from './labor-engine.js';
+import { computeContractedStaff } from './contracted-staff-engine.js';
 import { travelDaysOf, rotationCoverageOf } from './rotation-engine.js';
 import { computeEquipmentLine } from './equipment-engine.js';
 import { computeLogistics } from './logistics-engine.js';
@@ -249,6 +250,23 @@ export function buildCostModel(quote = {}) {
       variablePerActiveDay: l.variablePerActiveDay,
       cashFixedMonthly: l.fixedMonthly,
       cashVariablePerActiveDay: l.variablePerActiveDay,
+    });
+  });
+
+  // 1 bis. Personal tercerizado (0.15.0): un valor fijo por hora, por día o por mes, sin sueldo
+  // ni cargas. Va al rubro Personal y se paga como proveedor. Sin líneas no suma nada.
+  const contractedStaff = computeContractedStaff(quote.contractedStaff, { hoursPerActiveDay: activity.hoursPerActiveDay });
+  contractedStaff.lines.forEach((c, i) => {
+    lines.push({
+      key: `contracted:${c.id ?? i}`,
+      source: 'contractedStaff',
+      label: `${c.role || 'Personal'} (tercerizado)`,
+      category: 'labor',
+      payGroup: 'suppliers',
+      fixedMonthly: c.fixedMonthly,
+      variablePerActiveDay: c.variablePerActiveDay,
+      cashFixedMonthly: c.fixedMonthly,
+      cashVariablePerActiveDay: c.variablePerActiveDay,
     });
   });
 
@@ -848,6 +866,7 @@ export function buildCostModel(quote = {}) {
     transport,
     fuel: { pricePerLiter: fuelPricePerLiter, paidByUs: fuelPaidByUs, providedBy: quote.fuel && quote.fuel.providedBy ? quote.fuel.providedBy : null },
     labor,
+    contractedStaff,
     overtimeWork,
     overtimeCurve,
     standby: { days: standbyDays, costPerDay: standbyCostPerDay, monthly: standbyMonthly },

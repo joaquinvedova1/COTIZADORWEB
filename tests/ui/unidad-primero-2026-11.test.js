@@ -7,7 +7,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { QUICK_UNITS, applyQuoteUnit } from '../../js/ui/views/quote-steps/unit-choice.js';
+import { FIRST_UNITS, OPEN_UNIT_LABEL, unitOptions, searchUnitOptions, applyQuoteUnit } from '../../js/ui/views/quote-steps/unit-choice.js';
+import { billingUnitOf } from '../../js/domain/billing-units.js';
 import { guaranteeLoaded } from '../../js/ui/views/quote-steps/shared.js';
 import { unitBadgeText } from '../../js/ui/views/quote-editor.js';
 import { displayCostRows } from '../../js/ui/cost-breakdown.js';
@@ -21,13 +22,40 @@ const source = (p) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8
 const code = (p) => source(p).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 describe('paso 1: primero la unidad', () => {
-  test('ofrece por mes, por trabajo, por hora, por día y por unidad (con nombre propio)', () => {
-    assert.deepEqual(QUICK_UNITS.map((u) => [u.value, u.label]), [
-      ['month', 'Por mes'], ['job', 'Por trabajo'], ['hour', 'Por hora'], ['day', 'Por día'], ['custom', 'Por unidad'],
+  test('un solo desplegable (0.15.0): $/mes, $/día, $/hora y $/trabajo primero; al final "$/ otro…"', () => {
+    assert.deepEqual(FIRST_UNITS.map((u) => [u.value, u.label]), [
+      ['month', '$/mes'], ['day', '$/día'], ['hour', '$/hora'], ['job', '$/trabajo'],
     ]);
-    assert.equal(QUICK_UNITS.find((u) => u.value === 'month').hint, 'Una tarifa por mes.');
-    assert.equal(QUICK_UNITS.find((u) => u.value === 'job').hint, 'Un precio por todo el trabajo u obra.');
-    assert.match(QUICK_UNITS.find((u) => u.value === 'custom').hint, /diagnóstico/);
+    const options = unitOptions(billingUnitOf({ unit: 'day' }));
+    assert.deepEqual(options.slice(0, 4).map((o) => o.value), ['month', 'day', 'hour', 'job']);
+    const last = options[options.length - 1];
+    assert.equal(last.value, 'custom');
+    assert.equal(last.label, OPEN_UNIT_LABEL);
+    // Cada unidad una sola vez (no hay tarjetas y, además, un buscador con las mismas).
+    assert.equal(new Set(options.map((o) => o.value)).size, options.length);
+    assert.ok(!options.some((o) => o.value === 'milestone'), '"hito" sólo si ya está elegido');
+    assert.ok(unitOptions(billingUnitOf({ unit: 'milestone' })).some((o) => o.value === 'milestone'));
+  });
+
+  test('la unidad propia se ve con su nombre y lo que se escribe se puede usar como unidad', () => {
+    const named = unitOptions(billingUnitOf({ unit: 'custom', unitName: 'diagnóstico' }));
+    // La unidad propia con nombre va primera; después, mes, día, hora y trabajo siempre a la vista.
+    assert.equal(named[0].label, '$/diagnóstico');
+    assert.deepEqual(named.slice(1, 5).map((o) => o.value), ['month', 'day', 'hour', 'job']);
+    const chosen = unitOptions(billingUnitOf({ unit: 'trip' }));
+    assert.equal(chosen[0].value, 'trip');
+    assert.equal(new Set(chosen.map((o) => o.value)).size, chosen.length);
+    const options = unitOptions(billingUnitOf({ unit: 'day' }));
+    // Sin texto: todas. Con una unidad del catálogo: la encuentra y no ofrece duplicarla.
+    assert.equal(searchUnitOptions(options, '').length, options.length);
+    const viaje = searchUnitOptions(options, 'viaje');
+    assert.ok(viaje.some((o) => o.value === 'trip'));
+    assert.ok(!viaje.some((o) => String(o.value).startsWith('__typed:')), 'viaje ya existe: no se ofrece como propia');
+    // Algo que no está: se ofrece usarlo como unidad propia.
+    const own = searchUnitOptions(options, 'diagnóstico');
+    assert.deepEqual(own.map((o) => [o.value, o.label, o.hint]), [['__typed:diagnóstico', '$/diagnóstico', 'Usar como unidad propia']]);
+    // "$/" escrito adelante no forma parte del nombre.
+    assert.equal(searchUnitOptions(options, '$/ inspección')[0].label, '$/inspección');
   });
 
   test('no ofrece los tres tipos de contrato como elección', () => {
@@ -36,7 +64,9 @@ describe('paso 1: primero la unidad', () => {
     assert.doesNotMatch(service, /¿Cómo te paga el cliente\?/);
     assert.doesNotMatch(service, /CONTRACT_MODES/);
     assert.match(unitChoice, /¿En qué unidad le cobrás al cliente\?/);
-    assert.match(unitChoice, /Otra unidad…/);
+    // 0.15.0: sin tarjetas "Por mes / Por trabajo…" ni "Otra unidad…": sólo el desplegable.
+    assert.doesNotMatch(unitChoice, /Otra unidad…|choiceGroup|'Por unidad'/);
+    assert.match(unitChoice, /searchSelectField/);
     [service, unitChoice].forEach((s) => assert.doesNotMatch(s, /Fijo mensual|on call|Por servicio prestado|Precio cerrado/));
     // "Cómo se cobra" ya no tiene el selector de unidad: sólo dice cuál es y lleva al paso 1.
     const modality = code('js/ui/views/quote-steps/modality.js');

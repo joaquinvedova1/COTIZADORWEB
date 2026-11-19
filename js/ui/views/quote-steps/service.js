@@ -93,7 +93,7 @@ function baseDetail(info, ctx) {
 /** Cuántas líneas hay cargadas en el paso donde va cada componente. */
 function loadedIn(quote, stepId) {
   const len = (v) => (Array.isArray(v) ? v.length : 0);
-  if (stepId === 'labor') return len(quote.labor);
+  if (stepId === 'labor') return len(quote.labor) + len(quote.contractedStaff);
   if (stepId === 'equipment') return len(quote.equipment);
   if (stepId === 'materials') return len(quote.materials) + len(quote.otherCosts);
   if (stepId === 'logistics') {
@@ -135,7 +135,7 @@ export function loadedFor(quote, id, next = []) {
     const others = list(quote.otherCosts).filter((o) => lineComponentOf(o, 'other') === id);
     return { count: mats.length + others.length, step: 'materials', one: 'gasto cargado', many: 'gastos cargados' };
   }
-  if (id === 'labor') return { count: list(quote.labor).length, step: 'labor', one: 'puesto cargado', many: 'puestos cargados' };
+  if (id === 'labor') return { count: list(quote.labor).length + list(quote.contractedStaff).length, step: 'labor', one: 'puesto cargado', many: 'puestos cargados' };
   if (def.equipment) {
     const stillEquipment = next.some((x) => (SERVICE_COMPONENTS.find((c) => c.id === x) || {}).equipment);
     return { count: stillEquipment ? 0 : list(quote.equipment).length, step: 'equipment', one: 'equipo cargado', many: 'equipos cargados' };

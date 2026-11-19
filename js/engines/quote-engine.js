@@ -10,6 +10,7 @@
  *   PRECIO COMERCIAL tarifa de lista finalmente ofrecida
  */
 
+import { computeContractedStaff } from './contracted-staff-engine.js';
 import { DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
 import { nonNegative, safeDivide, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
@@ -161,7 +162,9 @@ function withQuantity(ctx, res) {
 function resourcesPerDayCheck(quote, unitId, a) {
   const num = (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : d);
   if (unitId === 'manday') {
-    const people = (Array.isArray(quote.labor) ? quote.labor : []).reduce((t, l) => t + Math.max(0, num(l && l.positions, 1)), 0);
+    // Con el personal tercerizado que se paga por día o por hora (0.15.0): también hace jornales.
+    const people = (Array.isArray(quote.labor) ? quote.labor : []).reduce((t, l) => t + Math.max(0, num(l && l.positions, 1)), 0)
+      + (Array.isArray(quote.contractedStaff) ? quote.contractedStaff : []).reduce((t, c) => t + (c && typeof c === 'object' && c.unit !== 'month' ? Math.max(0, num(c.people, 0)) : 0), 0);
     return people > 0 ? { loaded: people, detail: `${formatNumber(people, { decimals: 2 })} personas en Personal`, where: 'los puestos en Personal' } : null;
   }
   if (unitId === 'equipment_day' || unitId === 'equipment_hour') {
@@ -1049,10 +1052,13 @@ export function laborRaiseProposal(quote, agreements, fromPeriod, toPeriod) {
   const q = quote && typeof quote === 'object' ? quote : {};
   const a = q.activity && typeof q.activity === 'object' ? q.activity : {};
   const num = (v) => (isFiniteNumber(v) && v > 0 ? v : 0);
+  const contracted = computeContractedStaff(q.contractedStaff, { hoursPerActiveDay: num(a.hoursPerActiveDay) });
   return proposeLaborRaisePct(q.labor, agreements, fromPeriod, toPeriod, {
     timeBasis: usesTimeBasis(q),
     hoursPerActiveDay: num(a.hoursPerActiveDay),
     activeDaysPerMonth: num(a.activeDaysPerMonth),
+    otherLaborCost: contracted.fixedMonthly + contracted.variablePerActiveDay * num(a.activeDaysPerMonth),
+    otherLaborLines: contracted.lines.filter((l) => l.fixedMonthly + l.variablePerActiveDay > 0).length,
   });
 }
 

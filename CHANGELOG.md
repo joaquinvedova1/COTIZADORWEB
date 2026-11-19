@@ -12,6 +12,28 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-19
+
+**Carga más simple (observaciones del dueño sobre 0.14.0).** Sin cambio de esquema: `contractedStaff` es opcional y, ausente, ningún número cambia.
+
+### Agregado
+
+- **Personal tercerizado** en el paso Personal de la cotización: qué hace, cuántas personas, cuánto se le paga y cada cuánto (por hora, por día o por mes). Campo `quote.contractedStaff[]` y motor `js/engines/contracted-staff-engine.js`: va al rubro Mano de obra, sin cargas sociales, y se paga como proveedor. Completitud: pide el valor y, por hora, las horas. Detalle en [docs/CALCULATION_RULES.md §35](docs/CALCULATION_RULES.md#35-personal-tercerizado-y-salidas-que-sólo-se-preguntan-si-se-pagan-0150-2026-11-19).
+- **Convenio al crear un puesto**: "Nuevo puesto" ofrece los convenios propios y los del catálogo que todavía no se cargaron; al guardar con uno del catálogo se crea en Convenios con porcentajes de ejemplo (ILUSTRATIVOS) para revisar.
+- "Crear un puesto nuevo" desde la cotización abre el mismo formulario de Recursos (sueldo completo), lo guarda en Recursos y lo suma al servicio.
+
+### Cambiado
+
+- **Unidad de cobro: un solo desplegable.** Se quitan las tarjetas "Por mes / Por trabajo / Por hora / Por día / Por unidad / Otra unidad…". El buscador lista primero $/mes, $/día, $/hora y $/trabajo, después el resto, y al final "$/ otro…": lo que se tipea y no está en la lista se usa como unidad propia.
+- **Tarjeta de insumo por pasos**: ¿Qué es? → ¿Cuánto usás? (cantidad, unidad, cada cuánto se consume) → ¿Cuánto te cuesta?. "Producción por día" y "% que lo usan" sólo aparecen cuando hacen falta (si no, en "Más detalle"). El resultado se llama "Te cuesta" y se muestra en la unidad en que se consume (por ejemplo, por diagnóstico) en vez de "$ 0 por mes".
+- **Salidas**: "días por salida / salidas por día / salidas por mes" sólo se preguntan si algo se paga por salida (traslado, insumo o costo por salida, mínimo o cargo por salida, o se cobra por llamado, trabajo, viaje o km). Lo que se llamaba "intervención" pasa a llamarse "salida". Sólo presentación: el motor no cambia.
+- Actualizar tarifa: el % de Mano de obra propuesto por los convenios avisa qué parte del personal cubre cuando hay personal tercerizado. El aviso de jornales cuenta a los tercerizados por día o por hora.
+- Recursos: "Por intervención (llamado o salida)" pasa a "Por salida (o llamado)".
+
+### Eliminado
+
+- "Cargar uno que no está en Recursos" en el paso Personal: el personal propio se carga en Recursos. Las líneas ya cargadas así siguen funcionando.
+
 ## [0.14.0] - 2026-11-18
 
 **Costo financiero del IVA (K-03, auditoría externa).** Sin cambio de esquema: los campos nuevos son opcionales y, ausentes, sin decidir o incompletos, ningún número cambia.

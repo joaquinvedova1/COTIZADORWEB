@@ -219,6 +219,7 @@ export function evaluateCompleteness(quote = {}) {
   const isOnCall = contract.legacy ? serviceType === 'on_call' : contract.mode === 'on_demand';
   const activity = quote.activity || {};
   const labor = objectList(quote.labor);
+  const contracted = objectList(quote.contractedStaff);
   const equipment = objectList(quote.equipment);
   const materials = objectList(quote.materials);
   const logistics = quote.logistics || {};
@@ -319,8 +320,31 @@ export function evaluateCompleteness(quote = {}) {
     item.targets = unpaid.map(({ l, index }) => ({ list: 'labor', index, name: roleOf(l) }));
     items.push(item);
   } else if (contract.legacy ? serviceType !== 'equipment_only' : contract.labor) {
-    const ok = labor.some((l) => nonNegative(l.basicMonthly) > 0 && nonNegative(l.positions) > 0);
+    // 0.15.0: el personal tercerizado (un valor fijo, sin sueldo) también es personal cargado.
+    const ok = labor.some((l) => nonNegative(l.basicMonthly) > 0 && nonNegative(l.positions) > 0)
+      || contracted.some((c) => nonNegative(c.people) > 0 && nonNegative(c.rate) > 0);
     items.push(rule('labor', 'Personal', 'labor', 2, ok ? 'ok' : 'missing', ok ? 'Personal cargado.' : 'No hay personal con salario cargado.'));
+  }
+
+  // 4b. Personal tercerizado (0.15.0): con personas y sin valor, o por hora sin horas por día, su
+  // costo queda en $ 0. No se inventa un valor: se pide.
+  const contractedNameOf = (c) => (typeof c.role === 'string' && c.role.trim()) || 'Personal tercerizado';
+  const contractedNoRate = contracted.map((c, index) => ({ c, index })).filter(({ c }) => nonNegative(c.people) > 0 && !(nonNegative(c.rate) > 0));
+  if (contractedNoRate.length) {
+    const names = contractedNoRate.slice(0, 3).map(({ c }) => `"${contractedNameOf(c)}"`).join(', ');
+    const item = rule('contracted_staff', 'Personal tercerizado', 'labor', 2, 'missing',
+      `${contractedNoRate.length === 1 ? 'Falta cuánto le pagás a' : 'Falta cuánto les pagás a'} ${names}: sin ese valor su costo queda en $ 0. Si no trabaja en este servicio, quitá la línea.`);
+    item.unreliable = true;
+    item.focus = `contractedStaff.${contractedNoRate[0].index}.rate`;
+    items.push(item);
+  }
+  const contractedNoHours = contracted.findIndex((c) => c.unit === 'hour' && nonNegative(c.people) > 0 && nonNegative(c.rate) > 0
+    && !(nonNegative(c.hoursPerDay) > 0) && !(Math.min(nonNegative(activity.hoursPerActiveDay), 24) > 0));
+  if (contractedNoHours >= 0 && !hoursMissing) {
+    const item = rule('contracted_staff_hours', 'Horas del personal tercerizado', 'labor', 2, 'missing',
+      `"${contractedNameOf(contracted[contractedNoHours])}" se paga por hora y faltan las horas por día: sin ellas su costo queda en $ 0.`);
+    item.focus = `contractedStaff.${contractedNoHours}.hoursPerDay`;
+    items.push(item);
   }
 
   // 4c. Nómina total menor que las personas en sitio (revisión de costos de la tanda B, B-1):
