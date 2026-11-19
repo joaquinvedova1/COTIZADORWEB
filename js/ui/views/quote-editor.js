@@ -156,52 +156,49 @@ export function stepShortLabel(stepId) {
 }
 
 /**
- * Cada paso empieza con una pregunta y una o dos líneas de POR QUÉ importa.
- * El término técnico queda como ayuda secundaria.
+ * Cada paso empieza con una pregunta y, como mucho, una línea corta (0.17.0: menos texto,
+ * como los cotizadores del mercado; ver docs/informes/2026-11-mercado.md).
  */
 export const STEP_COPY = Object.freeze({
   service: {
     question: '¿Qué servicio vas a cotizar?',
-    why: 'Ponele un nombre y elegí en qué unidad le cobrás al cliente. Después elegís tus recursos y RATEOS te dice cuánto cobrar.',
+    why: '',
   },
   modality: {
     question: '¿Cómo lo vas a cobrar?',
-    why: 'Cuánto esperás trabajar en la unidad que elegiste en el paso 1. Con eso sale tu tarifa.',
+    why: '',
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
-    why: 'Asigná tu personal de Recursos: cuántas personas van y cuánto de su tiempo usa esta cotización. El sueldo, las cargas y el valor de la hora ya están en Recursos: no se cargan de nuevo.',
+    why: 'Elegí el personal de tus Recursos.',
   },
   equipment: {
     question: '¿Qué equipos y vehículos usás?',
-    why: 'Camionetas, camiones, trailers, máquinas. Elegí cada uno de tus Recursos (o cargalo en blanco) y poné cuántos van y cuántas horas se usan por día. Si el servicio no lleva equipos, seguí de largo.',
+    why: '',
   },
   materials: {
     question: '¿Qué materiales o insumos consumís?',
-    why: 'Lo que se gasta al hacer el trabajo: insumos, repuestos menores, herramientas. Si los pone el cliente o no usás, seguí de largo.',
+    why: '',
   },
   logistics: {
-    question: '¿Cómo llegan los equipos y la gente al lugar del servicio?',
-    why: 'Combustible, kilómetros y viáticos se pagan aunque nadie los vea en la factura. Cada costo se cuenta una sola vez.',
+    question: '¿Cómo llegan los equipos y la gente al lugar?',
+    why: '',
   },
   indirect: {
-    question: '¿Cuánto suma este servicio para pagar los gastos de tu empresa?',
-    why: 'Oficina, administración, contador, sistemas: cada servicio tiene que ayudar a pagar esos gastos fijos.',
-    term: 'Costos indirectos (overhead)',
+    question: '¿Cuánto aporta este servicio a los gastos de tu empresa?',
+    why: 'Oficina, administración, contador, sistemas.',
   },
   finance: {
     question: '¿A cuántos días te paga el cliente?',
-    why: 'Si cobrás a 60 días, mientras tanto adelantás sueldos y combustible. Esa plata tiene un costo.',
-    term: 'Capital de trabajo',
+    why: '',
   },
   risk: {
     question: '¿Qué imprevistos pueden aparecer?',
-    why: 'Clima, roturas, días improductivos: reservá un porcentaje para lo que no podés anticipar, así no sale de tu ganancia.',
-    term: 'Contingencia',
+    why: '',
   },
   margin: {
     question: '¿Cuánto querés ganar?',
-    why: 'El margen es lo que te queda de cada $ 100 que cobrás. Con ese dato calculamos tu tarifa.',
+    why: '',
   },
   result: {
     question: 'Resultado',
@@ -210,7 +207,7 @@ export const STEP_COPY = Object.freeze({
 });
 
 /** Personal con la cuenta sin puestos en Recursos: el sueldo se carga acá. */
-export const LABOR_WHY_EMPTY = 'Creá cada puesto con su convenio y su sueldo: queda guardado en tus Recursos y no lo cargás de nuevo. Después decí cuántas van y cuánto de su tiempo usa esta cotización.';
+export const LABOR_WHY_EMPTY = 'Creá cada puesto una vez: queda en tus Recursos.';
 
 /**
  * Ítems de completitud que se corrigen dentro de unas "Opciones avanzadas":
@@ -1176,6 +1173,18 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
   const main = h(
     'div',
     { class: 'qe-sum-list qe-sum-main' },
+    // 0.17.0: el precio primero (como los cotizadores del mercado); debajo, costo y mínimo.
+    item({
+      key: 'commercialRate',
+      label: summaryRateLabel,
+      short: (r) => ({ 'Tarifa sugerida': 'Sugerida', 'Tarifa ofrecida': 'Ofrecida', 'Tarifa forzada': 'Forzada', 'Precio sugerido': 'Sugerido', 'Precio ofrecido': 'Ofrecido', 'Precio forzado': 'Forzado' }[summaryRateLabel(r)] || summaryRateLabel(r)),
+      value: (r) => (r.kpis.commercialSource === 'suggested' ? formatMoneyCeil(r.kpis.commercialListRate) : formatMoney(r.kpis.commercialListRate)),
+      unit: (r) => `/ ${unitShort(r)}`,
+      compact: (r) => formatMoneyCompact(r.kpis.commercialListRate, { ceil: r.kpis.commercialSource === 'suggested' }),
+      hint: rateHint,
+      tone: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? resultTone(r) : null),
+      trace: commercialRateTrace,
+    }),
     item({
       key: 'totalCost',
       // Precio cerrado (Joaco 2026-11-18): lo del trabajo (lo del mes ÷ trabajos por mes), como las tarjetas.
@@ -1210,17 +1219,6 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
       },
       tone: (r) => (r.kpis.billingTaxesDefined || !isFiniteNumber(floorDisplay(r).value) ? null : 'orange'),
       trace: floorRateTrace,
-    }),
-    item({
-      key: 'commercialRate',
-      label: summaryRateLabel,
-      short: (r) => ({ 'Tarifa sugerida': 'Sugerida', 'Tarifa ofrecida': 'Ofrecida', 'Tarifa forzada': 'Forzada', 'Precio sugerido': 'Sugerido', 'Precio ofrecido': 'Ofrecido', 'Precio forzado': 'Forzado' }[summaryRateLabel(r)] || summaryRateLabel(r)),
-      value: (r) => (r.kpis.commercialSource === 'suggested' ? formatMoneyCeil(r.kpis.commercialListRate) : formatMoney(r.kpis.commercialListRate)),
-      unit: (r) => `/ ${unitShort(r)}`,
-      compact: (r) => formatMoneyCompact(r.kpis.commercialListRate, { ceil: r.kpis.commercialSource === 'suggested' }),
-      hint: rateHint,
-      tone: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? resultTone(r) : null),
-      trace: commercialRateTrace,
     }),
     item({
       key: 'breakEven',
@@ -1339,7 +1337,7 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
     h(
       'div',
       { class: 'qe-summary-head' },
-      h('div', { class: 'qe-summary-titles' }, h('h2', { class: 'qe-summary-title' }, 'Resumen en vivo'), h('span', { class: 'qe-summary-sub' }, 'Se recalcula mientras editás')),
+      h('div', { class: 'qe-summary-titles' }, h('h2', { class: 'qe-summary-title' }, 'Resumen en vivo')),
       toggleBtn,
     ),
     main,
@@ -2235,9 +2233,9 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   const noLaborProfiles = !(resources && Array.isArray(resources.laborProfiles) && resources.laborProfiles.length);
   let copy = stepId === 'labor' && noLaborProfiles ? { ...baseCopy, why: LABOR_WHY_EMPTY } : baseCopy;
   // Precio cerrado: en "El precio" se calcula tu precio, no una tarifa.
-  if (stepId === 'margin' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: copy.why.replace('calculamos tu tarifa', 'calculamos tu precio') };
+  if (stepId === 'margin' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: copy.why.replace('tarifa', 'precio') };
   // Precio cerrado en "Cómo se cobra": cuánto lleva el trabajo y "tu precio" (revisión UX tanda novatos).
-  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: 'Cuánto lleva el trabajo. Con eso sale tu precio.' };
+  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: '' };
 
   markVisited(quoteId, stepId);
   const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId, isHidden: (id) => isStepHidden(id, state.quote) });
@@ -2263,8 +2261,6 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   // La etiqueta de la unidad se actualiza en cada recálculo (V-05): antes se calculaba una vez
   // y quedaba la unidad vieja al cambiarla.
   const unitBadge = stepId === 'result' ? null : h('span', { class: 'badge badge-navy', title: 'Unidad en la que cobrás' }, unitBadgeText(state.quote));
-  // El sub-paso ya se ve en los segmentos de arriba: el antetítulo sólo dice la etapa.
-  const kicker = `Etapa ${stageIndex + 1} de ${STAGES.length} · ${currentStage.label}`;
   // Convención de montos (PLAN-2026-002, PN1): todo se carga y se muestra sin IVA. Se dice una
   // vez, en la etapa 1 (y en el Resultado): junto a cada título quedan la unidad y "Guardado".
   const meta = h(
@@ -2283,12 +2279,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       h(
         'div',
         { class: 'qe-step-heading' },
-        h('p', { class: 'qe-step-kicker' }, kicker),
         h('h2', { class: 'qe-step-title', tabindex: '-1' }, copy.question),
         copy.why ? h('p', { class: 'qe-step-why' }, copy.why) : null,
-        copy.term ? h('p', { class: 'qe-term' }, h('span', { class: 'qe-term-label' }, 'Término técnico:'), ` ${copy.term}`) : null,
         // La convención de montos se dice al empezar (no se supone en silencio).
-        stepId === 'service' ? h('p', { class: 'qe-convention' }, h('strong', {}, 'Montos sin IVA. '), 'Esta cotización usa costos, precios y tarifas sin IVA: si tenés un valor con IVA, descontalo antes de cargarlo.') : null,
+        stepId === 'service' ? h('p', { class: 'qe-convention' }, h('strong', {}, 'Montos sin IVA.'), ' Si un valor tiene IVA, descontalo.') : null,
       ),
       meta,
     );

@@ -1222,8 +1222,9 @@ export function render(container, ctx) {
         return h(
           'div',
           { class: ['qe-ext-checklist', pending.length ? 'has-pending' : 'is-complete'] },
-          h('p', { class: 'small' }, pending.length ? `Para que el costo del proveedor quede completo faltan ${pending.length} ${pending.length === 1 ? 'dato' : 'datos'}:` : 'Datos del proveedor completos.'),
-          h('ul', { class: 'qe-chips' }, ...items.map((x) => h('li', { class: ['qe-chip', x.ok ? 'is-ok' : 'is-pending'] }, `${x.ok ? '✓' : '•'} ${x.label}${x.value ? `: ${x.value}` : ''}`))),
+          h('p', { class: 'small' }, pending.length ? `Faltan ${pending.length} ${pending.length === 1 ? 'dato' : 'datos'} del proveedor:` : '✓ Datos del proveedor completos.'),
+          // 0.17.0 (menos texto): sólo los datos que faltan; completos, una línea.
+          pending.length ? h('ul', { class: 'qe-chips' }, ...pending.map((x) => h('li', { class: ['qe-chip', 'is-pending'] }, `• ${x.label}${x.value ? `: ${x.value}` : ''}`))) : null,
         );
       }, { tag: 'div' }),
       formGrid(3, acquisitionField(i), operatorField(i)),
@@ -1378,13 +1379,13 @@ export function render(container, ctx) {
       return `${formatMoney(inQuoteUnit(r, month))}${perBilledUnitSuffix(r, quote, month)}`;
     },
     // Por tiempo usado, lo de tener los equipos propios va en lo de cada día de trabajo.
-    hint: (r) => timeEquipmentTotalText(r, closedJobsPerMonth(r) !== null ? inQuoteUnit(r, r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)) : null) || `${r.model.timeBasis && !(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0) > 0.005) ? 'Sin fijo del mes ·' : `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes ·`} variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + equipmentPerActiveDay(e), 0))} por día de trabajo${jobsSplitText(r)} (incluye ${r.model.timeBasis && r.model.equipment.some((e) => e.timeBasis) ? 'tener los equipos propios esas horas, ' : ''}combustible y la movilización que cobran los proveedores). En la estructura de costos, el combustible y los externos se informan aparte.`,
+    hint: (r) => timeEquipmentTotalText(r, closedJobsPerMonth(r) !== null ? inQuoteUnit(r, r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)) : null) || `${r.model.timeBasis && !(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0) > 0.005) ? 'Sin fijo del mes ·' : `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes ·`} variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + equipmentPerActiveDay(e), 0))} por día de trabajo${jobsSplitText(r)} (incluye ${r.model.timeBasis && r.model.equipment.some((e) => e.timeBasis) ? 'tener los equipos propios esas horas, ' : ''}combustible y la movilización que cobran los proveedores).`,
     className: 'qe-keyline-total',
   });
 
   mount(
     container,
-    card({ title: 'Agregá los equipos y vehículos', subtitle: `Cada uno una sola vez (camionetas incluidas): propio, alquilado o tercerizado. La distancia y el precio del combustible van en "${stepName('logistics')}".` }, toolbar, fuelNote),
+    card({ title: 'Agregá los equipos y vehículos', subtitle: 'Cada vehículo una sola vez (camionetas incluidas).' }, toolbar, fuelNote),
     lineCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({

@@ -271,9 +271,9 @@ export function render(container, ctx) {
     kit.action('Agregar personal tercerizado', addContracted, { icon: 'plus', size: 'md', title: 'Alguien que contratás afuera por un valor fijo por hora, por día o por mes.' }),
   );
   const toolbarNote = h('p', { class: 'qe-note' },
-    'Tu gente se carga una sola vez en ',
+    'Sueldos y convenios: en ',
     h('a', { href: '#/recursos/personal' }, 'Recursos'),
-    ', con su convenio y su sueldo completos. Si contratás a alguien afuera para este trabajo, sumalo como personal tercerizado: sólo ponés cuánto le pagás.');
+    '.');
 
   /** "SAC 8,33 % · vacaciones 4 % · …" con lo cargado en la línea. */
   const loadsText = (line) => [
@@ -578,11 +578,9 @@ export function render(container, ctx) {
           // Por tiempo usado: personas × horas por día × días × valor de la hora (+ vianda y horas extra).
           if (l.timeBasis) {
             const body = timeLaborCostText(r, l, { overtime: roleOvertimeMonth(r, i) });
+            // 0.17.0 (menos texto): la cuenta en una línea; el detalle sigue en "Ver cálculo".
             const more = fromResource ? 'Cambiar sus datos sólo en esta cotización' : 'Más detalle';
-            const hours = !l.time ? ''
-              : l.time.ownBillableHours
-                ? ` La hora sale de su costo del mes ÷ ${formatNumber(l.time.billableHoursPerMonth, { decimals: 2 })} horas que le cobrás a clientes por mes.`
-                : ` La hora sale de ${formatNumber(l.time.billableHoursPerMonth, { decimals: 2 })} h por mes. Si le cobrás menos horas a clientes, cargalas en "${more}".`;
+            const hours = l.time ? ` Hora = costo del mes ÷ ${formatNumber(l.time.billableHoursPerMonth, { decimals: 2 })} h.${l.time.ownBillableHours ? '' : ` ¿Le cobrás menos horas? Cambialo en "${more}".`}` : '';
             return `${body ? `${body}.` : staffText(l)}${hours}`;
           }
           if (jobs !== null) {
@@ -884,7 +882,7 @@ export function render(container, ctx) {
 
   mount(
     container,
-    card({ title: 'Agregá los puestos', subtitle: 'Operario, chofer, supervisor, técnico… Los que tienen * no pueden faltar.' }, toolbar, toolbarNote),
+    card({ title: 'Agregá los puestos' }, toolbar, toolbarNote),
     lineCards.length + contractedCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards, ...contractedCards)
       : emptyState({

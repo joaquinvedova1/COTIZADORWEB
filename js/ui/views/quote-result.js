@@ -1658,8 +1658,8 @@ function costStat(v) {
     value: money(k.totalCost),
     unit: hasValue(k.totalCost) ? (single ? 'en el trabajo' : '/ mes') : null,
     hint: statHint(hasValue(D) && D > 0
-      ? `${approxPerUnit(v, k.totalCost)}Lo que te cuesta prestar el servicio con ${estimateActivity(v)}.`
-      : byQty(v) ? `Lo que te cuesta prestar el servicio. Todavía no estimaste ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Lo que te cuesta prestar el servicio. Todavía no estimaste los días de trabajo.'),
+      ? `${approxPerUnit(v, k.totalCost)}Con ${estimateActivity(v)}.`
+      : byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Falta estimar los días de trabajo.'),
     trace: costTrace(v),
     className: 'qr-stat qr-stat-cost',
   });
@@ -1677,7 +1677,7 @@ function floorStat(v) {
   if (covered) hint = statHint(coveredRateText(v.r));
   else if (!costOk) hint = statHint('Precio mínimo para no perder plata: aparece cuando haya costos cargados.');
   else if (!hasValue(value)) hint = statHint(byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes.` : 'Falta estimar los días de trabajo del mes.');
-  else hint = statHint(`${mr.floorNetDiffers ? 'Precio de lista mínimo para no perder plata.' : 'Precio mínimo para no perder plata.'} ${floorTaxesNote(k)}`, floorExtrasLine(v));
+  else hint = statHint(`${mr.floorNetDiffers ? 'De lista. ' : ''}${floorTaxesNote(k)}`, floorExtrasLine(v));
   return statItem({
     label: floorRateName(v.r),
     value: ceilMoney(value),
@@ -1807,7 +1807,7 @@ function profitStat(v) {
   if (!ok) hint = statHint(hasRate(k) ? 'Sin facturación no hay ganancia.' : 'Sin tarifa no hay ganancia.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (losing) hint = statHint('Con esta tarifa perdés plata: lo que cobrás no alcanza para cubrir el costo.');
-  else hint = statHint(`${approxPerUnit(v, profit)}Lo que te queda después de pagar el costo y los impuestos sobre lo que facturás.`);
+  else hint = statHint(`${approxPerUnit(v, profit)}Después de costos e impuestos.`);
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && profit >= 0 ? 'orange' : ok ? (losing ? 'red' : 'green') : null;
   return statItem({
     label: losing ? 'Perdés' : 'Ganás',
@@ -4056,8 +4056,7 @@ function renderDeep(v, remembered) {
   const titleId = uniqueId('qr-deep-title');
   const node = h('section', { class: 'qr-deep', 'aria-labelledby': titleId },
     h('div', { class: 'qr-section-head' },
-      h('h3', { class: 'qr-section-title', id: titleId }, 'Ver el detalle'),
-      h('p', { class: 'qr-section-sub' }, 'Arriba está lo importante. Acá queda todo el análisis: abrí sólo lo que necesites.')),
+      h('h3', { class: 'qr-section-title', id: titleId }, 'Ver el detalle')),
     h('div', { class: 'disclosure-list qr-deep-list' }, ...visible.map((it) => it.el), advancedEl));
   // El plegable contenedor también se abre al imprimir (va primero: después se dibujan los de adentro).
   const all = advancedEl ? [{ key: 'advanced', el: advancedEl, render: () => {}, advanced: false }, ...items] : items;
@@ -4138,6 +4137,8 @@ function renderActions(v) {
   const print = button('Imprimir / guardar PDF', {
     variant: 'secondary',
     icon: 'print',
+    // 0.17.0 (menos texto): la explicación va en el title, no en un párrafo.
+    title: 'Se abren todas las secciones. Para el archivo, elegí "Guardar como PDF".',
     onClick: () => {
       if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
     },
@@ -4145,11 +4146,9 @@ function renderActions(v) {
   const own = example
     ? linkButton('Crear mi propia cotización', '#/cotizaciones/nueva', { variant: 'primary', icon: 'plus', attrs: { 'data-action': 'new-quote' } })
     : null;
-  const printNote = 'Al imprimir se abren todas las secciones y se ocultan los controles. Para obtener el archivo, elegí "Guardar como PDF".';
   return h('section', { class: 'qr-actions-bar no-print', id: v.ids.actions, 'aria-label': 'Acciones' },
     h('div', { class: 'qr-actions-notes' },
-      example ? h('p', { class: 'qr-actions-note qr-actions-note-main' }, 'Este es un ejemplo con valores ILUSTRATIVOS. Para cotizar tu servicio, creá tu propia cotización con tus costos.') : null,
-      h('p', { class: 'qr-actions-note' }, printNote)),
+      example ? h('p', { class: 'qr-actions-note qr-actions-note-main' }, 'Este es un ejemplo con valores ILUSTRATIVOS. Para cotizar tu servicio, creá tu propia cotización con tus costos.') : null),
     h('div', { class: 'qr-actions' }, print, sent, own));
 }
 

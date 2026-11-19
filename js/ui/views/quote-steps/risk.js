@@ -120,7 +120,7 @@ export function render(container, ctx) {
   const card1 = card(
     {},
     closedNote,
-    h('p', { class: 'qe-note' }, 'La contingencia cubre incertidumbres del alcance y del costo; no reemplaza al margen ni a la actualización de precios (escalación). RATEOS no impone un %: usá el que corresponda a este trabajo.'),
+    h('p', { class: 'qe-note' }, 'Para lo que no podés anticipar: clima, roturas, días perdidos. No reemplaza al margen.'),
     formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
     zeroWarning,
     kit.keyline({
@@ -138,7 +138,7 @@ export function render(container, ctx) {
     }),
     kit.advanced(
       { key: 'risk', title: 'Más detalle (opcional): riesgos puntuales', summary: riskSummary },
-      h('p', { class: 'qe-note' }, 'Marcá los riesgos que aplican y asignales un %. Sólo suman los marcados, sobre la contingencia general. Para no contar dos veces el mismo riesgo, no lo incluyas también en la contingencia general ni en otro rubro (por ejemplo, combustible extra ya cargado).'),
+      h('p', { class: 'qe-note' }, 'Sólo suman los marcados. No repitas un riesgo ya incluido en otro lado.'),
       h('div', { class: 'qe-risk-list' }, ...rows),
       kit.stats(
         kit.stat('Contingencia total', () => formatPercent(contingencyPctOf(quote.risk)), { hint: 'General + riesgos marcados.' }),
